@@ -280,7 +280,7 @@
     border: 1px solid var(--border); color: var(--muted); cursor: pointer;
     display: flex; align-items: center; justify-content: center; font-size: 1rem; }
   .editor-close:hover { color: var(--text); background: var(--border); }
-  .editor-body { overflow-y: auto; padding: 16px 24px; flex: 1; max-height: 420px; }
+  .editor-body { overflow-y: auto; padding: 16px 24px; flex: 1; min-height: 0; }
   .editor-group { margin-bottom: 20px; }
   .editor-group-title {
     font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
@@ -2135,7 +2135,7 @@ autoLoadPrices();
     </div>
 
     <!-- 탭 -->
-    <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:14px">
+    <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:0;flex-shrink:0">
       <button id="pe-tab-price" onclick="peTab('price')"
         style="padding:9px 16px;font-size:.76rem;font-weight:700;cursor:pointer;background:none;border:none;border-bottom:2px solid #3b82f6;color:#60a5fa;margin-bottom:-1px">
         💰 현재가
@@ -2155,7 +2155,8 @@ autoLoadPrices();
     </div>
 
     <!-- 현재가 탭 -->
-    <div id="pe-panel-price">
+    <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column">
+    <div id="pe-panel-price" style="display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden">
       <!-- 자동 업데이트 박스 -->
       <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:12px 14px;margin-bottom:14px">
         <div style="font-size:.73rem;font-weight:700;color:#60a5fa;margin-bottom:8px">
@@ -2175,8 +2176,8 @@ autoLoadPrices();
         <div id="fetchStatus" style="font-size:.68rem;color:var(--muted);margin-top:7px">구글 시트 연동 시 GOOGLEFINANCE 기준 · 미연동 시 네이버 증권 API · 펀드 제외</div>
         <div id="gsheetMissingAlert" style="display:none;margin-top:10px;background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:10px 12px;font-size:.68rem;color:var(--text);line-height:1.7"></div>
       </div>
-      <div class="editor-body" id="editorBody"></div>
-      <div class="editor-footer">
+      <div class="editor-body" id="editorBody" style="flex:1;min-height:0;overflow-y:auto;padding:16px 24px"></div>
+      <div class="editor-footer" style="flex-shrink:0">
         <div class="last-updated" id="lastUpdatedTxt"></div>
         <button class="btn-cancel" onclick="closeEditor()">취소</button>
         <button class="btn-apply" onclick="applyPrices()">✅ 적용하기</button>
@@ -2274,6 +2275,7 @@ autoLoadPrices();
         <button class="btn-apply" onclick="applyDivChanges()" style="background:#f59e0b;color:#000">💾 배당 저장</button>
       </div>
     </div>
+    </div><!-- /panel-wrapper -->
   </div>
 </div>
 
@@ -2933,12 +2935,22 @@ function applyHolding() {
 
   if (!name)                    { errorBox.textContent = '❌ 종목명을 입력하세요';        errorBox.style.display = 'block'; return; }
   if (!addQty || addQty === 0)  { errorBox.textContent = '❌ 수량을 입력하세요 (매수: 양수, 매도: 음수)'; errorBox.style.display = 'block'; return; }
-  if (addQty > 0 && (!newCost || newCost <= 0)) { errorBox.textContent = '❌ 매수단가를 입력하세요'; errorBox.style.display = 'block'; return; }
+  if (addQty > 0 && (newCost === undefined || newCost === null || isNaN(newCost) || newCost < 0)) { errorBox.textContent = '❌ 매수단가를 입력하세요 (0원 입력 가능)'; errorBox.style.display = 'block'; return; }
 
   // 신규 종목이면 STOCK_CODE + EDITABLE_PRICES 등록
   if (code && !STOCK_CODE[name]) {
     STOCK_CODE[name] = code;
     EDITABLE_PRICES.push({ name, code, sector: SECTOR_MAP[name] || 'mixed' });
+    // 구글 시트 종목코드 시트에도 자동 추가
+    const gUrl = getGsheetUrl();
+    if (gUrl) {
+      fetch(gUrl + '?action=addCode&code=' + encodeURIComponent(code) + '&name=' + encodeURIComponent(name))
+        .then(r => r.json())
+        .then(d => {
+          if (d.added) console.log('구글 시트 자동 추가:', code, name);
+        })
+        .catch(() => {});
+    }
   }
 
   const existingIdx = rawHoldings.findIndex(h => h.name === name && h.acct === acct && !h.fund);
