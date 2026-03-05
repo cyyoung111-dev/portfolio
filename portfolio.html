@@ -665,6 +665,42 @@ let rawHoldings = [
   {acct:'삼성',type:'주식',name:'KODEX 방산TOP10',qty:13,cost:10320},
 ];
 
+// ════════════════════════════════════════════
+//  holdings localStorage 저장/불러오기
+// ════════════════════════════════════════════
+const HOLDINGS_KEY  = 'portfolio_holdings';
+const STOCKCODE_KEY = 'portfolio_stockcodes';
+
+function saveHoldings() {
+  try {
+    localStorage.setItem(HOLDINGS_KEY, JSON.stringify(rawHoldings));
+    const extra = {};
+    Object.keys(STOCK_CODE).forEach(k => { extra[k] = STOCK_CODE[k]; });
+    localStorage.setItem(STOCKCODE_KEY, JSON.stringify(extra));
+    const badge = document.getElementById('holdingsSavedBadge');
+    if (badge) {
+      badge.style.display = 'inline';
+      clearTimeout(badge._t);
+      badge._t = setTimeout(() => { badge.style.display='none'; }, 2000);
+    }
+  } catch(e) { console.warn('saveHoldings 실패:', e); }
+}
+
+(function loadHoldings() {
+  try {
+    const saved = localStorage.getItem(HOLDINGS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        rawHoldings.length = 0;
+        parsed.forEach(h => rawHoldings.push(h));
+      }
+    }
+    const savedCodes = localStorage.getItem(STOCKCODE_KEY);
+    if (savedCodes) Object.assign(STOCK_CODE, JSON.parse(savedCodes));
+  } catch(e) { console.warn('loadHoldings 실패:', e); }
+})();
+
 // PRICES STATE (선언을 computeRows 전으로 이동)
 let savedPrices = {};
 let savedPriceDates = {};
@@ -1113,8 +1149,8 @@ function buildTableInner(rawData, tableId, extraCol) {
 }
 
 // TABLE BUILDER (외부 호출용)
-function buildTable(data, title, extraCol) {
-  const tableId = 'tbl_' + Math.random().toString(36).slice(2, 7);
+function buildTable(data, title, extraCol, fixedId) {
+  const tableId = fixedId || ('tbl_' + Math.random().toString(36).slice(2, 7));
   window._tableData[tableId]  = data;
   window._tableExtra[tableId] = extraCol;
 
@@ -1171,7 +1207,7 @@ function renderView(){
 function renderAcctView(area){
   let html=`<div class="filter-bar" id="acctFilterBar"></div>`;
   const data=acctFilter==='전체'?rows:rows.filter(r=>r.acct===acctFilter);
-  html+=buildTable(data, acctFilter==='전체'?'전체 보유 종목':`${acctFilter} 계좌`, null);
+  html+=buildTable(data, acctFilter==='전체'?'전체 보유 종목':`${acctFilter} 계좌`, null, 'tbl_acct');
   area.innerHTML=html;
   buildAcctFilter();
 }
@@ -1195,7 +1231,7 @@ function renderTypeView(area){
     ${typeList.map(t=>`<button class="fb-btn${typeFilter===t?' active':''}" onclick="setTypeFilter('${t}',this)">${t}</button>`).join('')}
   </div>`;
   const data=typeFilter==='전체'?enriched:enriched.filter(r=>r.classType===typeFilter);
-  html+=buildTable(data, typeFilter==='전체'?'전체 종목':typeFilter+' 종목', null);
+  html+=buildTable(data, typeFilter==='전체'?'전체 종목':typeFilter+' 종목', null, 'tbl_type');
   area.innerHTML=html;
 }
 function setTypeFilter(f,btn){
@@ -1286,7 +1322,7 @@ function renderSectorView(area){
   });
   html+=`</div>`;
   // Also add full table with sector col
-  html+=buildTable(rows.slice().sort((a,b)=>a.sector.localeCompare(b.sector)), '섹터별 전체 종목', '섹터');
+  html+=buildTable(rows.slice().sort((a,b)=>a.sector.localeCompare(b.sector)), '섹터별 전체 종목', '섹터', 'tbl_sector');
   area.innerHTML=html;
 }
 
@@ -1342,7 +1378,7 @@ function renderRankView(area){
     </div>`;
   });
   html+=`</div></div>`;
-  html+=buildTable(sorted,'수익률 정렬 전체 종목',null);
+  html+=buildTable(sorted,'수익률 정렬 전체 종목',null,'tbl_rank');
   area.innerHTML=html;
 }
 function setSortKey(k,btn){sortKey=k;renderView();}
@@ -2186,7 +2222,12 @@ autoLoadPrices();
 
     <!-- 종목 관리 탭 -->
     <div id="pe-panel-stocks" style="display:none">
-      <div style="font-size:.72rem;color:var(--muted);margin-bottom:12px">종목명 또는 종목코드를 수정할 수 있어요. 변경 후 저장을 누르세요.</div>
+      <div style="font-size:.72rem;color:var(--muted);margin-bottom:12px">종목명 또는 종목코드를 수정할 수 있어요. 변경 후 저장을 누르세요. <span id="holdingsSavedBadge" style="display:none;background:#166534;color:#bbf7d0;font-size:.62rem;padding:2px 7px;border-radius:10px">💾 저장됨</span></div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+        <button onclick="exportHoldings()" style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:#34d399;border-radius:6px;padding:5px 10px;font-size:.7rem;cursor:pointer;font-family:inherit">📤 내보내기</button>
+        <button onclick="importHoldings()" style="background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);color:#60a5fa;border-radius:6px;padding:5px 10px;font-size:.7rem;cursor:pointer;font-family:inherit">📥 불러오기</button>
+        <button onclick="resetHoldings()" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171;border-radius:6px;padding:5px 10px;font-size:.7rem;cursor:pointer;font-family:inherit">🗑 초기화</button>
+      </div>
       <div id="stockMgmtBody" style="max-height:420px;overflow-y:auto"></div>
       <div class="editor-footer">
         <button class="btn-cancel" onclick="closeEditor()">닫기</button>
@@ -3007,6 +3048,7 @@ function applyHolding() {
     document.getElementById('he-suggestions').style.display   = 'none';
   }
   document.getElementById('he-preview').style.display = 'none';
+  saveHoldings();
 }
 
 
@@ -3778,11 +3820,57 @@ function applyStockChanges() {
   if(changed > 0) {
     recomputeRows();
     renderView(); renderSummary();
+    saveHoldings();
     alert(`✅ ${changed}개 변경 저장 완료`);
     buildStockMgmt();
   } else {
     alert('변경사항이 없어요');
   }
+}
+
+
+// ════════════════════════════════════════════
+//  데이터 내보내기 / 불러오기 / 초기화
+// ════════════════════════════════════════════
+function exportHoldings() {
+  try {
+    const data = { version:1, exportedAt:new Date().toISOString(), holdings:rawHoldings, stockCodes:STOCK_CODE };
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(blob), download:'portfolio_'+new Date().toISOString().slice(0,10)+'.json'});
+    a.click(); URL.revokeObjectURL(a.href);
+  } catch(e) { alert('내보내기 실패: '+e.message); }
+}
+
+function importHoldings() {
+  const inp = Object.assign(document.createElement('input'), {type:'file', accept:'.json'});
+  inp.onchange = e => {
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!Array.isArray(data.holdings)) { alert('❌ 올바른 포트폴리오 파일이 아닙니다'); return; }
+        if (!confirm(`📥 ${data.holdings.length}개 종목을 불러올까요?\n현재 데이터는 덮어써집니다.`)) return;
+        rawHoldings.length = 0;
+        data.holdings.forEach(h => rawHoldings.push(h));
+        if (data.stockCodes) Object.assign(STOCK_CODE, data.stockCodes);
+        saveHoldings();
+        recomputeRows(); renderView(); renderSummary(); renderDonut(); renderTypeBar();
+        buildStockMgmt();
+        alert('✅ 불러오기 완료!');
+      } catch(err) { alert('파일 읽기 실패: '+err.message); }
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
+}
+
+function resetHoldings() {
+  if (!confirm('⚠️ 모든 보유종목을 초기화할까요?\n이 작업은 되돌릴 수 없습니다.')) return;
+  localStorage.removeItem('portfolio_holdings');
+  localStorage.removeItem('portfolio_stockcodes');
+  alert('✅ 초기화 완료. 페이지를 새로고침합니다.');
+  location.reload();
 }
 
 function buildEditorUI() {
