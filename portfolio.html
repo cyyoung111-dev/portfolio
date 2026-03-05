@@ -2347,10 +2347,15 @@ function parseNaverSise(raw) {
 
 async function fetchPriceByCode(code, dateStr) {
   const d = dateStr.replace(/-/g, '');
-  const dtObj = new Date(dateStr);
+  // UTC 파싱 버그 방지: 'yyyy-MM-dd' → replace('-', '/') 로 로컬 시간 파싱
+  const dtObj = new Date(dateStr.replace(/-/g, '/'));
   const from = new Date(dtObj);
-  from.setDate(from.getDate() - 7);
-  const fromStr = from.toISOString().slice(0, 10).replace(/-/g, '');
+  from.setDate(from.getDate() - 10); // 주말·공휴일 여유 확보
+  const fromStr = [
+    from.getFullYear(),
+    String(from.getMonth()+1).padStart(2,'0'),
+    String(from.getDate()).padStart(2,'0')
+  ].join('');
 
   const naverUrl = `https://fchart.stock.naver.com/siseJson.naver?symbol=${code}&requestType=1&startTime=${fromStr}&endTime=${d}&timeframe=day`;
   const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(naverUrl)}`;
@@ -2369,10 +2374,15 @@ async function fetchPriceByCode(code, dateStr) {
 
 async function fetchPriceByCodeFallback(code, dateStr) {
   const d = dateStr.replace(/-/g, '');
-  const dtObj = new Date(dateStr);
+  // UTC 파싱 버그 방지: 로컬 시간 기준으로 파싱
+  const dtObj = new Date(dateStr.replace(/-/g, '/'));
   const from = new Date(dtObj);
-  from.setDate(from.getDate() - 7);
-  const fromStr = from.toISOString().slice(0, 10).replace(/-/g, '');
+  from.setDate(from.getDate() - 10); // 주말·공휴일 여유 확보
+  const fromStr = [
+    from.getFullYear(),
+    String(from.getMonth()+1).padStart(2,'0'),
+    String(from.getDate()).padStart(2,'0')
+  ].join('');
 
   const naverUrl = `https://fchart.stock.naver.com/siseJson.naver?symbol=${code}&requestType=1&startTime=${fromStr}&endTime=${d}&timeframe=day`;
   const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(naverUrl)}`;
