@@ -2203,8 +2203,10 @@ autoLoadPrices();
         <b style="color:var(--text)">설정 방법</b><br>
         ① 제공된 구글 시트 파일을 구글 드라이브에 올리고 구글 시트로 열기<br>
         ② 확장 프로그램 → Apps Script → 코드 붙여넣기 → 저장<br>
-        ③ 배포 → 새 배포 → 웹앱 → 액세스: 모든 사용자 → 배포<br>
-        ④ 생성된 URL을 위 입력창에 붙여넣고 저장
+        ③ [종목코드] 시트 만들고 A열에 6자리 코드 입력 (예: 005930)<br>
+        ④ updatePricesWithOfficialNames 함수 실행 → 종가+공식명칭 자동 채워짐<br>
+        ⑤ 배포 → 새 배포 → 웹앱 → 액세스: 모든 사용자 → URL 복사<br>
+        ⑥ 위 입력창에 붙여넣고 저장 · <b style="color:var(--green)">종목코드 입력 시 공식명칭 자동 조회</b>
       </div>
       <div class="editor-footer">
         <button class="btn-cancel" onclick="closeEditor()">닫기</button>
@@ -2364,7 +2366,16 @@ async function fetchFromGsheet(dateStr) {
     EDITABLE_PRICES.filter(i=>i.code).forEach(i => { codeToName[i.code] = i.name; });
     const results = {};
     Object.entries(data.prices).forEach(([code, obj]) => {
-      const name = codeToName[code] || obj.name;
+      // 공식명칭이 내려오면 STOCK_CODE 자동 업데이트
+      if (obj.officialName && obj.officialName !== obj.name) {
+        const localName = codeToName[code];
+        if (localName) {
+          // 로컬명 → 공식명 매핑 저장 (덮어쓰지 않고 officialName만 별도 보관)
+          if (!window._officialNames) window._officialNames = {};
+          window._officialNames[code] = obj.officialName;
+        }
+      }
+      const name = codeToName[code] || obj.name || obj.officialName;
       if (name && obj.price > 0) results[name] = Math.round(obj.price);
     });
     return Object.keys(results).length > 0 ? results : null;
@@ -2504,6 +2515,50 @@ function heTab(tab) {
   document.getElementById('he-preview').style.display = 'none';
   document.getElementById('he-error').style.display   = 'none';
   document.getElementById('he-result-msg').textContent = '';
+}
+
+// ── 종목코드로 공식명칭 조회 ─────────────────────────────────────────
+async function lookupNameByCode(code) {
+  if (!code || code.length < 4) return null;
+  // 1) 로컬 STOCK_CODE 역방향 검색
+  const localName = Object.entries(STOCK_CODE).find(([n,c]) => c === code);
+  if (localName) return localName[0];
+  // 2) 구글시트 연동 시 officialName 캐시 확인
+  if (window._officialNames && window._officialNames[code]) return window._officialNames[code];
+  // 3) 구글시트 API로 실시간 조회
+  if (GSHEET_API_URL) {
+    try {
+      const url = GSHEET_API_URL + '?action=name&code=' + code;
+      const res = await fetchWithTimeout(url, 8000);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.name) {
+          if (!window._officialNames) window._officialNames = {};
+          window._officialNames[code] = data.name;
+          return data.name;
+        }
+      }
+    } catch(e) {}
+  }
+  return null;
+}
+
+async function autoFillNameFromCode(codeVal) {
+  const nameInput = document.getElementById('he-name');
+  const codeInput = document.getElementById('he-code');
+  const badge = document.getElementById('he-code-lookup-badge');
+  if (!nameInput || !codeInput) return;
+  const code = (codeVal || codeInput.value || '').trim().replace(/[^0-9A-Za-z]/g,'');
+  if (!code || code.length < 4) return;
+  if (badge) { badge.textContent = '🔍 조회 중...'; badge.style.color = 'var(--muted)'; badge.style.display = ''; }
+  const name = await lookupNameByCode(code);
+  if (name) {
+    nameInput.value = name;
+    heNameInput(name);  // 자동완성·기존종목 체크 트리거
+    if (badge) { badge.textContent = '✅ ' + name; badge.style.color = 'var(--green)'; }
+  } else {
+    if (badge) { badge.textContent = '⚠️ 미등록 종목 (직접 입력)'; badge.style.color = 'var(--amber)'; }
+  }
 }
 
 // 보유 종목 피커 렌더링
@@ -3839,7 +3894,15 @@ function applyPrices() {
             <label>종목코드<span>6자리 (없으면 빈칸)</span></label>
             <input type="text" id="he-code" placeholder="예: 005930" maxlength="6"
               style="width:160px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.82rem;outline:none;text-align:right"
+              oninput="this.value=this.value.replace(/[^0-9A-Za-z]/g,'')"
+              onblur="autoFillNameFromCode(this.value)"
             />
+            <button onclick="autoFillNameFromCode(document.getElementById('he-code').value)"
+              style="background:rgba(59,130,246,.15);border:1px solid rgba(59,130,246,.3);color:#60a5fa;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:.72rem;white-space:nowrap;font-family:'Malgun Gothic',sans-serif"
+              title="종목코드로 공식명칭 조회">🔍 조회</button>
+          </div>
+          <div id="he-code-lookup-badge"
+            style="font-size:.68rem;margin:2px 0 6px 0;display:none;padding:3px 8px;border-radius:4px;background:rgba(255,255,255,.05)">
           </div>
           <div class="editor-row">
             <label>추가 수량<span>이번에 매수한 수량</span></label>
