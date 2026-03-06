@@ -439,7 +439,6 @@
     </div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <button class="price-edit-btn" onclick="switchView('trades')" style="background:rgba(139,92,246,.12);border-color:rgba(139,92,246,.35);color:#a78bfa">➕ 종목/거래 추가</button>
     <button class="price-edit-btn" onclick="openEditor()">✏️ 현재가 편집</button>
     <button class="price-edit-btn" onclick="exportData()" style="background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.35);color:#10b981" title="모든 데이터를 JSON 파일로 저장">💾 내보내기</button>
     <button class="price-edit-btn" onclick="document.getElementById('importFileInput').click()" style="background:rgba(96,165,250,.1);border-color:rgba(96,165,250,.35);color:#60a5fa" title="JSON 파일로 데이터 복원">📂 가져오기</button>
@@ -2057,17 +2056,34 @@ function teNameChange(name) {
 // 새 계좌 추가 처리
 function teAcctChange(val) {
   if (val !== '__new__') return;
-  const newAcct = prompt('새 계좌명을 입력하세요 (예: 키움):');
-  if (!newAcct || !newAcct.trim()) {
-    const cur = getAcctNames().filter(a=>a!=='전체');
-    document.getElementById('te-acct').value = cur[0] || '';
-    return;
+  // select를 이전 값으로 되돌리고 인라인 입력창 표시
+  const sel = document.getElementById('te-acct');
+  const cur = getAcctNames().filter(a => a !== '전체');
+  if (sel && cur.length > 0) sel.value = cur[0];
+  const wrap = document.getElementById('te-acct-new-wrap');
+  if (wrap) {
+    wrap.style.display = 'block';
+    const inp = document.getElementById('te-acct-new-input');
+    if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
   }
-  const trimmed = newAcct.trim();
-  getOrAssignColor(trimmed);   // ACCT_COLORS 등록 + saveAcctColors() 내부 호출
-  if (!ACCT_ORDER.includes(trimmed)) ACCT_ORDER.push(trimmed);
-  saveAcctOrder();             // ACCT_ORDER 저장
+}
+
+function teAcctNewConfirm() {
+  const inp = document.getElementById('te-acct-new-input');
+  const trimmed = (inp?.value || '').trim();
+  if (!trimmed) { inp?.focus(); return; }
+  getOrAssignColor(trimmed);   // ACCT_COLORS 등록 + saveAcctColors()
+  if (!ACCT_ORDER.includes(trimmed)) { ACCT_ORDER.push(trimmed); saveAcctOrder(); }
   _refreshTeAcctList(trimmed); // 드롭다운 갱신 + 선택
+  const wrap = document.getElementById('te-acct-new-wrap');
+  if (wrap) wrap.style.display = 'none';
+}
+
+function teAcctNewCancel() {
+  const wrap = document.getElementById('te-acct-new-wrap');
+  if (wrap) wrap.style.display = 'none';
+  const inp = document.getElementById('te-acct-new-input');
+  if (inp) inp.value = '';
 }
 
 function buildTradeEditOverlayHTML() {
@@ -2092,6 +2108,17 @@ function buildTradeEditOverlayHTML() {
             ${lbl('계좌',true)}
             <select id="te-acct" onchange="teAcctChange(this.value)"
               style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.82rem;outline:none"></select>
+            <div id="te-acct-new-wrap" style="display:none;margin-top:6px;display:none">
+              <input id="te-acct-new-input" type="text" placeholder="새 계좌명 입력 (예: 키움)"
+                style="width:100%;background:var(--s2);border:1px solid rgba(139,92,246,.5);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.8rem;outline:none;box-sizing:border-box"
+                onkeydown="if(event.key==='Enter'){teAcctNewConfirm();} if(event.key==='Escape'){teAcctNewCancel();}"/>
+              <div style="display:flex;gap:5px;margin-top:5px">
+                <button onclick="teAcctNewConfirm()"
+                  style="flex:1;padding:5px;border-radius:5px;border:none;background:#7c3aed;color:#fff;font-size:.73rem;cursor:pointer;font-family:inherit">✅ 추가</button>
+                <button onclick="teAcctNewCancel()"
+                  style="flex:1;padding:5px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.73rem;cursor:pointer;font-family:inherit">✕ 취소</button>
+              </div>
+            </div>
           </div>
           <div>
             ${lbl('구분',false)}
@@ -3735,23 +3762,37 @@ function clearGsheetUrl() {
 
 async function testGsheetUrl() {
   const val = document.getElementById('gsheetUrlInput')?.value?.trim();
-  if(!val) { alert('먼저 URL을 입력하세요'); return; }
+  if (!val) { alert('먼저 URL을 입력하세요'); return; }
   const res = document.getElementById('gsheetTestResult');
   res.style.color = '#60a5fa';
   res.textContent = '⏳ 연결 테스트 중...';
   try {
     const r = await fetchWithTimeout(val + '?date=2026-03-03', 15000);
-    if(!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    if(data.status === 'ok') {
+    if (data.status === 'ok') {
       res.style.color = '#4ade80';
-      res.textContent = `✅ 연결 성공! ${data.count}개 종목, 기준일: ${data.date}`;
+      res.textContent = `✅ 연결 성공! ${data.count ?? 0}개 종목 · 기준일: ${data.date}`;
     } else {
-      throw new Error(data.message || '응답 오류');
+      res.style.color = 'var(--red)';
+      res.textContent = '❌ 응답 오류: ' + (data.message || JSON.stringify(data));
     }
   } catch(e) {
     res.style.color = 'var(--red)';
-    res.textContent = '❌ 연결 실패: ' + e.message;
+    const msg = e.message || '';
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('fetch')) {
+      res.innerHTML = `❌ 연결 실패 (Failed to fetch)<br>
+<span style="font-size:.68rem;line-height:1.8;color:rgba(232,237,245,.6)">
+원인 1. Apps Script 미배포 또는 재배포 필요<br>
+원인 2. 배포 시 <b style="color:#fbbf24">액세스: 모든 사용자</b>로 설정하지 않음<br>
+원인 3. URL 오탈자 — script.google.com/macros/s/.../exec 형식 확인<br>
+해결: 앱스 스크립트 → [배포 관리 → 편집] → 버전 새 버전 → 배포
+</span>`;
+    } else if (msg.includes('timeout') || msg.includes('abort')) {
+      res.innerHTML = `❌ 응답 시간 초과<br><span style="font-size:.68rem;color:rgba(232,237,245,.6)">구글 서버가 응답하지 않습니다. 잠시 후 다시 시도하세요.</span>`;
+    } else {
+      res.textContent = '❌ 오류: ' + msg;
+    }
   }
 }
 
