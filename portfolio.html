@@ -2906,27 +2906,62 @@ function renderAssetView(area) {
 function renderStocksView(area) {
   area.innerHTML = `
   <div style="padding:0 4px">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
-      <div>
-        <h3 style="margin:0;font-size:1rem;font-weight:700">📋 종목 관리</h3>
-        <p style="margin:3px 0 0;font-size:.72rem;color:var(--muted)">종목명·종목코드 수정 · 데이터 내보내기/불러오기</p>
+
+    <!-- 헤더 -->
+    <div style="margin-bottom:16px">
+      <h3 style="margin:0;font-size:1rem;font-weight:700">⚙️ 기초정보 관리</h3>
+      <p style="margin:3px 0 0;font-size:.72rem;color:var(--muted)">종목명·코드 수정 · 계좌 등록 관리</p>
+    </div>
+
+    <!-- ══ 계좌 관리 섹션 ══ -->
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:.78rem;font-weight:700;color:var(--text)">🏦 계좌 관리</div>
+        <button onclick="acctMgmtAddNew()"
+          style="padding:5px 14px;border-radius:7px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.1);color:#34d399;font-size:.72rem;cursor:pointer;font-family:inherit">
+          ➕ 계좌 추가
+        </button>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        <button onclick="exportHoldings()" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.1);color:#34d399;font-size:.72rem;cursor:pointer;font-family:inherit">📤 내보내기</button>
-        <button onclick="importHoldings()" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.1);color:#60a5fa;font-size:.72rem;cursor:pointer;font-family:inherit">📥 불러오기</button>
-        <button onclick="resetHoldings()" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#f87171;font-size:.72rem;cursor:pointer;font-family:inherit">🗑 초기화</button>
+
+      <!-- 새 계좌 입력창 (숨김) -->
+      <div id="acctMgmtNewWrap" style="display:none;background:rgba(139,92,246,.06);border:1px dashed rgba(139,92,246,.4);border-radius:8px;padding:10px;margin-bottom:10px">
+        <div style="font-size:.68rem;color:#a78bfa;font-weight:700;margin-bottom:7px">➕ 새 계좌 추가</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <input id="acctMgmtNewInput" type="text" placeholder="계좌명 (예: 키움, 미래에셋)"
+            style="flex:1;min-width:140px;background:var(--s2);border:1px solid rgba(139,92,246,.5);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.78rem;outline:none;box-sizing:border-box"
+            onkeydown="if(event.key==='Enter')acctMgmtConfirm(); if(event.key==='Escape')acctMgmtCancel();"/>
+          <button onclick="acctMgmtConfirm()"
+            style="padding:6px 16px;border-radius:6px;border:none;background:#7c3aed;color:#fff;font-size:.73rem;font-weight:700;cursor:pointer;font-family:inherit">✅ 추가</button>
+          <button onclick="acctMgmtCancel()"
+            style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.73rem;cursor:pointer;font-family:inherit">✕</button>
+        </div>
+      </div>
+
+      <!-- 계좌 목록 -->
+      <div id="acctMgmtList"></div>
+    </div>
+
+    <!-- ══ 종목코드 관리 섹션 ══ -->
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div style="font-size:.78rem;font-weight:700;color:var(--text)">📋 종목코드 관리</div>
+        <span id="holdingsSavedBadge" style="display:none;background:#166534;color:#bbf7d0;font-size:.62rem;padding:2px 7px;border-radius:10px">💾 저장됨</span>
+      </div>
+      <div style="font-size:.69rem;color:var(--muted);margin-bottom:10px">
+        종목명·종목코드를 수정하고 저장하세요. 계좌를 추가·삭제할 수 있습니다.
+      </div>
+      <div id="stockMgmtBody" style="max-height:460px;overflow-y:auto"></div>
+      <div style="margin-top:14px;display:flex;justify-content:flex-end">
+        <button onclick="applyStockChanges()"
+          style="background:var(--gold);border:none;color:#000;font-weight:700;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:.75rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif">
+          💾 종목 저장
+        </button>
       </div>
     </div>
-    <div style="font-size:.7rem;color:var(--muted);margin-bottom:10px">
-      종목명·종목코드를 수정하고 저장하세요.
-      <span id="holdingsSavedBadge" style="display:none;background:#166534;color:#bbf7d0;font-size:.62rem;padding:2px 7px;border-radius:10px;margin-left:6px">💾 저장됨</span>
-    </div>
-    <div id="stockMgmtBody" style="max-height:520px;overflow-y:auto"></div>
-    <div style="margin-top:14px;display:flex;justify-content:flex-end">
-      <button onclick="applyStockChanges()" style="background:var(--gold);border:none;color:#000;font-weight:700;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:.75rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif">💾 종목 저장</button>
-    </div>
+
   </div>`;
   buildStockMgmt();
+  buildAcctMgmt();
 }
 
 // ── 구글시트 연동 뷰 ─────────────────────────────────────────────────────
@@ -3018,7 +3053,7 @@ let TAB_ORDER = [
   {id:'history', label:'📈 손익 그래프'},
   {id:'div', label:'💸 배당 스케줄'},
   {id:'asset', label:'🏠 부동산'},
-  {id:'stocks', label:'📋 종목 관리'},
+  {id:'stocks',  label:'⚙️ 기초정보 관리'},
   {id:'gsheet', label:'🔗 구글시트 연동'},
 ];
 
@@ -3412,7 +3447,7 @@ checkAndShowMigration();
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button onclick="closeEditor(); switchView('stocks')"
           style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);color:#a78bfa;border-radius:6px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-family:inherit">
-          📋 종목 관리 →
+          ⚙️ 기초정보 관리 →
         </button>
         <button onclick="closeEditor(); switchView('gsheet')"
           style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:#4ade80;border-radius:6px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-family:inherit">
@@ -3804,11 +3839,82 @@ function updateGsheetBadge() {
 
 
 // ── 계좌 관리 ──────────────────────────────────────────────────────────
+// ── 계좌 관리 (기초정보 관리 탭) ───────────────────────────────────────
+function buildAcctMgmt() {
+  const container = document.getElementById('acctMgmtList');
+  if (!container) return;
+
+  const accts = getAcctNames().filter(a => a !== '전체');
+  if (accts.length === 0) {
+    container.innerHTML = `<div style="font-size:.72rem;color:var(--muted);padding:10px 0">등록된 계좌가 없습니다. ➕ 계좌 추가 버튼으로 계좌를 등록하세요.</div>`;
+    return;
+  }
+
+  let html = '';
+  accts.forEach(acct => {
+    const color = ACCT_COLORS[acct] || '#64748b';
+    const hasTrades   = rawTrades.some(t => t.acct === acct);
+    const hasHoldings = rawHoldings.some(h => h.acct === acct);
+    const hasData = hasTrades || hasHoldings;
+    html += `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:var(--s2);margin-bottom:6px">
+      <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block"></span>
+      <span style="flex:1;font-size:.78rem;font-weight:600;color:var(--text)">${acct}</span>
+      <span style="font-size:.65rem;color:var(--muted)">${hasData ? `거래 ${rawTrades.filter(t=>t.acct===acct).length}건` : '거래 없음'}</span>
+      <!-- 색상 선택 -->
+      <div style="display:flex;gap:3px;align-items:center">
+        ${ACCT_PALETTE.map(c => `<span onclick="acctChangeColor('${acct}','${c}')"
+          style="width:13px;height:13px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
+          border:2px solid ${color===c?'#fff':'transparent'};box-sizing:border-box"></span>`).join('')}
+      </div>
+      <button onclick="deleteAcct('${acct}')"
+        style="padding:3px 8px;border-radius:5px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#f87171;font-size:.65rem;cursor:pointer;font-family:inherit;flex-shrink:0"
+        ${hasData ? 'title="거래 이력이 있어 삭제 불가"' : ''}>🗑</button>
+    </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function acctMgmtAddNew() {
+  const wrap = document.getElementById('acctMgmtNewWrap');
+  if (wrap) { wrap.style.display = 'block'; }
+  const inp = document.getElementById('acctMgmtNewInput');
+  if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
+}
+
+function acctMgmtConfirm() {
+  const inp = document.getElementById('acctMgmtNewInput');
+  const name = (inp?.value || '').trim();
+  if (!name) { inp?.focus(); return; }
+  if (getAcctNames().includes(name)) {
+    alert(`"${name}" 계좌는 이미 존재합니다.`); inp.select(); return;
+  }
+  getOrAssignColor(name); // ACCT_COLORS 등록 + saveAcctColors
+  if (!ACCT_ORDER.includes(name)) { ACCT_ORDER.push(name); saveAcctOrder(); }
+  acctMgmtCancel();
+  buildAcctMgmt();
+  _refreshTeAcctList(null); // 거래 추가 드롭다운도 갱신
+}
+
+function acctMgmtCancel() {
+  const wrap = document.getElementById('acctMgmtNewWrap');
+  if (wrap) wrap.style.display = 'none';
+  const inp = document.getElementById('acctMgmtNewInput');
+  if (inp) inp.value = '';
+}
+
+function acctChangeColor(acct, color) {
+  ACCT_COLORS[acct] = color;
+  saveAcctColors();
+  buildAcctMgmt();
+  refreshAll();
+}
+
 function deleteAcct(acct) {
   const hasTrades = rawTrades.some(t => t.acct === acct);
   const hasHoldings = rawHoldings.some(h => h.acct === acct);
   if (hasTrades || hasHoldings) {
-    alert(`"${acct}" 계좌에 거래 이력이 있어 삭제할 수 없어요. 먼저 거래를 모두 삭제해주세요.`);
+    alert(`"${acct}" 계좌에 거래 이력이 있어 삭제할 수 없어요.\n먼저 거래를 모두 삭제해주세요.`);
     return;
   }
   if (!confirm(`"${acct}" 계좌를 삭제할까요?`)) return;
@@ -3817,6 +3923,7 @@ function deleteAcct(acct) {
   const idx = ACCT_ORDER.indexOf(acct);
   if (idx > -1) ACCT_ORDER.splice(idx, 1);
   saveAcctOrder();
+  buildAcctMgmt();
   renderView();
 }
 
