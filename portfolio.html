@@ -406,14 +406,14 @@
     <div class="sub" id="s-realized-sub">매도 완료 거래 기준</div>
   </div>
   <div class="sc" style="border-top:2px solid var(--red);position:relative">
-    <div class="lbl">🏦 주담대 잔액 <button onclick="openLoanEditor()" style="background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:var(--gold);font-size:.6rem;padding:2px 7px;border-radius:4px;cursor:pointer;margin-left:4px">✏️ 편집</button></div>
+    <div class="lbl">🏦 주담대 잔액</div>
     <div class="val" style="color:var(--red)" id="loan-summary-bal">미입력</div>
-    <div class="sub" id="loan-summary-sub">✏️ 편집하여 입력</div>
+    <div class="sub" id="loan-summary-sub">부동산 탭에서 입력</div>
   </div>
   <div class="sc" style="border-top:2px solid var(--amber);position:relative">
-    <div class="lbl">🏠 부동산 실거래가 <button onclick="openRealEstateEditor()" style="background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:var(--gold);font-size:.6rem;padding:2px 7px;border-radius:4px;cursor:pointer;margin-left:4px">✏️ 입력</button></div>
+    <div class="lbl">🏠 부동산 실거래가</div>
     <div class="val" id="s-realestate" style="color:var(--muted)">미입력</div>
-    <div class="sub" id="s-realestate-sub">부동산 실거래가 입력 필요</div>
+    <div class="sub" id="s-realestate-sub">부동산 탭에서 입력</div>
   </div>
   <div class="sc" style="border-top:2px solid var(--amber)">
     <div class="lbl">📦 총 종목 수</div>
@@ -2990,7 +2990,7 @@ let TAB_ORDER = [
   {id:'trades',  label:'📋 거래 이력'},
   {id:'history', label:'📈 손익 그래프'},
   {id:'div', label:'💸 배당 스케줄'},
-  {id:'asset', label:'🏠 자산/대출'},
+  {id:'asset', label:'🏠 부동산'},
   {id:'stocks', label:'📋 종목 관리'},
   {id:'gsheet', label:'🔗 구글시트 연동'},
 ];
@@ -3167,23 +3167,30 @@ async function quickFetchByDate() {
   const dateInput = document.getElementById('quickDateInput');
   const btn = document.getElementById('quickFetchBtn');
   const lbl = document.getElementById('price-updated-label');
-  const dateStr = dateInput?.value;
 
-  if (!GSHEET_API_URL) {
-    alert('구글 시트 연동 후 사용 가능해요');
-    return;
-  }
-  if (!dateStr) {
-    // 날짜 미입력 시 오늘 날짜로 자동 설정 후 실행
-    dateInput.value = getDateStr(0);
-  }
-  const targetDate = dateInput.value || getDateStr(0);
+  if (!dateInput.value) dateInput.value = getDateStr(0);
+  const targetDate = dateInput.value;
 
   btn.disabled = true; btn.textContent = '⏳';
   if (lbl) lbl.textContent = '⏳ ' + targetDate + ' 종가 조회 중...';
 
   try {
-    const results = await fetchFromGsheet(targetDate);
+    let results = null;
+    let source = '';
+
+    // 방법 1: 구글시트 연동 시 우선 사용
+    if (GSHEET_API_URL) {
+      results = await fetchFromGsheet(targetDate);
+      if (results && Object.keys(results).length > 0) source = '구글시트';
+    }
+
+    // 방법 2: 구글시트 없거나 실패 시 네이버 직접 조회
+    if (!results || Object.keys(results).length === 0) {
+      if (lbl) lbl.textContent = '⏳ ' + (GSHEET_API_URL ? '구글시트 실패, ' : '') + '네이버 증권 직접 조회 중...';
+      results = await fetchAllPrices(targetDate);
+      if (results && Object.keys(results).length > 0) source = '네이버 증권';
+    }
+
     if (results && Object.keys(results).length > 0) {
       const label = targetDate.replace(/-/g, '.') + ' 종가';
       Object.entries(results).forEach(([name, price]) => {
@@ -3193,10 +3200,20 @@ async function quickFetchByDate() {
       lastUpdated = targetDate.replace(/-/g, '.');
       const isToday = (targetDate === getDateStr(0));
       updateDateBadge(lastUpdated, isToday);
-      if (lbl) lbl.innerHTML = `✅ ${targetDate.replace(/-/g,'.')} 종가 적용 완료 · ${Object.keys(results).length}개 종목`;
+      const cnt = Object.keys(results).length;
+      const total = EDITABLE_PRICES.filter(i => i.code).length;
+      if (lbl) lbl.innerHTML = `✅ ${targetDate.replace(/-/g,'.')} 종가 적용 · <b>${cnt}/${total}개</b> · 출처: ${source}`;
+
+      // 구글시트 미등록 종목 경고
+      if (GSHEET_API_URL && source === '구글시트') {
+        const missing = window._gsheetMissingCodes || [];
+        if (missing.length > 0 && lbl) {
+          lbl.innerHTML += ` · <span style="color:var(--red)">⚠️ 미조회 ${missing.length}개: ${missing.map(m=>m.name).join(', ')}</span>`;
+        }
+      }
       refreshAll();
     } else {
-      if (lbl) lbl.textContent = '❌ ' + targetDate + ' 종가 데이터 없음 (공휴일/주말 또는 미래 날짜)';
+      if (lbl) lbl.textContent = '❌ ' + targetDate + ' 종가 데이터 없음 (공휴일/주말 또는 종목코드 미등록)';
     }
   } catch(e) {
     if (lbl) lbl.textContent = '❌ 조회 실패: ' + e.message;
@@ -3216,19 +3233,11 @@ function getDateStr(daysAgo) {
 }
 
 async function autoLoadPrices() {
-  if(!GSHEET_API_URL) {
-    const badge = document.getElementById('dateBadge');
-    if(badge) { badge.textContent = '📅 초기값 기준'; badge.style.background=''; badge.style.color=''; badge.style.border=''; }
-    const lbl = document.getElementById('price-updated-label');
-    if(lbl) lbl.textContent = '💡 구글 시트 연동 후 자동 조회 · 또는 현재가 편집에서 수동 입력';
-    return;
-  }
-
-  const today = new Date();
   const dateStr = getDateStr(0);
+  const badge = document.getElementById('dateBadge');
+  const lbl   = document.getElementById('price-updated-label');
 
   // 로딩 뱃지
-  const badge = document.getElementById('dateBadge');
   if(badge) {
     badge.textContent = '⏳ 종가 조회 중...';
     badge.style.background = 'rgba(59,130,246,.15)';
@@ -3237,66 +3246,75 @@ async function autoLoadPrices() {
   }
 
   try {
-    // 오늘 → 전일 → 2일전 순서로 fallback (주말/공휴일 대응)
-    let results = await fetchFromGsheet(dateStr);
+    let results = null;
     let usedDateStr = dateStr;
-    if (!results || Object.keys(results).length === 0) {
-      for (let daysAgo = 1; daysAgo <= 5; daysAgo++) {
-        const fallbackDate = getDateStr(daysAgo);
-        results = await fetchFromGsheet(fallbackDate);
-        if (results && Object.keys(results).length > 0) {
-          usedDateStr = fallbackDate;
-          break;
+    let source = '';
+
+    // ── 방법 1: 구글시트 연동 시 우선 사용 ──
+    if (GSHEET_API_URL) {
+      results = await fetchFromGsheet(dateStr);
+      if (!results || Object.keys(results).length === 0) {
+        // 주말/공휴일 fallback (최대 5일 전)
+        for (let d = 1; d <= 5; d++) {
+          const fb = getDateStr(d);
+          results = await fetchFromGsheet(fb);
+          if (results && Object.keys(results).length > 0) { usedDateStr = fb; break; }
         }
       }
+      if (results && Object.keys(results).length > 0) source = '구글시트';
     }
-    if(results && Object.keys(results).length > 0) {
-      const dateLabel = dateStr.replace(/-/g,'.') + ' 종가';
+
+    // ── 방법 2: 구글시트 없거나 실패 시 네이버 직접 조회 ──
+    if (!results || Object.keys(results).length === 0) {
+      if (lbl) lbl.textContent = '⏳ 네이버 증권에서 직접 조회 중...';
+      results = await fetchAllPrices(dateStr);
+      if (results && Object.keys(results).length > 0) { source = '네이버 증권'; usedDateStr = dateStr; }
+    }
+
+    if (results && Object.keys(results).length > 0) {
+      const dateLabel = usedDateStr.replace(/-/g,'.') + ' 종가';
       Object.entries(results).forEach(([name, price]) => {
         savedPrices[name]      = price;
         savedPriceDates[name]  = dateLabel;
       });
-      lastUpdated = dateStr.replace(/-/g,'.');
-      // 구글시트 미등록 종목이 있으면 날짜 배지에 힌트 표시
-      const missingOnLoad = window._gsheetMissingCodes || [];
-      if (missingOnLoad.length > 0) {
-        const badge = document.getElementById('dateBadge');
-        if (badge) {
+      lastUpdated = usedDateStr.replace(/-/g,'.');
+      const isToday = (usedDateStr === dateStr);
+      updateDateBadge(lastUpdated, isToday);
+
+      const cnt   = Object.keys(results).length;
+      const total = EDITABLE_PRICES.filter(i => i.code).length;
+      const dayLabel = isToday ? '오늘 종가' : usedDateStr.replace(/-/g,'.') + ' 종가(전일)';
+      if (lbl) lbl.innerHTML = `✅ <span style="color:var(--gold)">${dayLabel}</span> · ${cnt}/${total}개 · ${source}`;
+
+      // 구글시트 미등록 종목 힌트
+      if (GSHEET_API_URL && source === '구글시트') {
+        const missing = window._gsheetMissingCodes || [];
+        if (missing.length > 0) {
           const hint = document.createElement('span');
-          hint.id    = 'gsheetMissingHint';
-          hint.title = '구글시트 미등록 종목 ' + missingOnLoad.length + '개: ' + missingOnLoad.map(m=>m.name+'('+m.code+')').join(', ') + ' → 현재가 편집에서 확인';
-          hint.style.cssText = 'margin-left:6px;cursor:pointer;font-size:.7rem;';
-          hint.textContent   = '⚠️' + missingOnLoad.length;
-          hint.onclick = () => openEditor();
+          hint.id = 'gsheetMissingHint';
+          hint.title = '미등록 종목: ' + missing.map(m=>m.name+'('+m.code+')').join(', ');
+          hint.style.cssText = 'margin-left:6px;cursor:pointer;font-size:.7rem;color:var(--red)';
+          hint.textContent = '⚠️ 미조회 ' + missing.length + '개';
+          hint.onclick = () => switchView('gsheet');
           const existing = document.getElementById('gsheetMissingHint');
           if (existing) existing.remove();
-          badge.appendChild(hint);
+          if (badge) badge.appendChild(hint);
         }
       }
-
-      // 날짜 뱃지 → 오늘이면 "실시간", 특정일이면 "종가 기준"
-      const usedLabel = usedDateStr.replace(/-/g,'.');
-      const isToday = (usedDateStr === dateStr);
-      updateDateBadge(usedLabel, isToday);
-
-      // price-updated-label 업데이트
-      const lbl = document.getElementById('price-updated-label');
-      const dayLabel = isToday ? '오늘 종가' : usedLabel + ' 종가 (전일 기준)';
-      if(lbl) lbl.innerHTML = `✅ 자동 업데이트 완료 · <span style="color:var(--gold)">${dayLabel}</span> · ${Object.keys(results).length}개 종목`;
 
       refreshAll();
     } else {
       updateDateBadge(dateStr.replace(/-/g,'.'), false);
+      if (lbl) lbl.textContent = '❌ 종가 조회 실패 · 구글시트 연동 또는 네트워크 확인 필요';
     }
   } catch(e) {
     console.warn('자동 종가 조회 실패:', e.message);
     updateDateBadge(dateStr.replace(/-/g,'.'), false);
+    if (lbl) lbl.textContent = '❌ 조회 오류: ' + e.message;
   }
 }
 
 // ── applyPrices 날짜 뱃지 연동 (특정일 지정 시) ──────────────────────────
-// applyPrices 내부 badge 업데이트를 updateDateBadge로 통일
-// (이미 applyPrices 안에 dateBadge 업데이트 코드 있음 — 아래서 패치)
 
 // INIT — localStorage 불러오기가 이미 완료된 상태에서 렌더링
 // quickDateInput 오늘 날짜로 초기화
@@ -3451,15 +3469,19 @@ async function loadGsheetCodeList() {
 // ── 종목코드 GSheet 자동 등록 ──────────────────────────────────────────
 async function syncCodesToGsheet() {
   if (!GSHEET_API_URL) return;
-  // STOCK_CODE 전체를 JSON으로 전송
-  const codesJson = encodeURIComponent(JSON.stringify(STOCK_CODE));
   try {
-    const url = GSHEET_API_URL + '?action=syncCodes&codes=' + codesJson;
-    const res = await fetchWithTimeout(url, 15000);
-    if (!res.ok) return;
+    const body = 'action=syncCodes&codes=' + encodeURIComponent(JSON.stringify(STOCK_CODE));
+    const res = await fetchWithTimeout(GSHEET_API_URL, 20000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body
+    });
+    if (!res.ok) { console.warn('[GSheet 동기화] HTTP', res.status); return; }
     const data = await res.json();
     if (data.status === 'ok') {
-      console.log('[GSheet 동기화] 종목코드 ' + (data.synced || 0) + '개 등록');
+      console.log('[GSheet 동기화] 종목코드 ' + (data.synced || 0) + '개 신규등록 / 전체 ' + (data.total || 0) + '개');
+    } else {
+      console.warn('[GSheet 동기화 실패]', data.message);
     }
   } catch(e) {
     console.warn('[GSheet 동기화 실패]', e.message);
@@ -3649,8 +3671,24 @@ async function fetchAllPricesWithProgress(dateStr, onEach) {
   return results;
 }
 
+// fetchAllPrices: 네이버 직접 조회 전용 (구글시트 중복 호출 없음)
 async function fetchAllPrices(dateStr) {
-  return fetchAllPricesWithProgress(dateStr, null);
+  const items = EDITABLE_PRICES.filter(item => item.code);
+  if (items.length === 0) return {};
+  const results = {};
+  const groups = chunkArray(items, 5);
+  for (const group of groups) {
+    const groupResults = await Promise.all(group.map(async (item) => {
+      let price = await fetchPriceByCode(item.code, dateStr);
+      if (!price) price = await fetchPriceByCodeFallback(item.code, dateStr);
+      return { name: item.name, price };
+    }));
+    groupResults.forEach(r => {
+      if (r.price && r.price > 0) results[r.name] = Math.round(r.price);
+    });
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return results;
 }
 
 // EDITABLE_PRICES → 1번 스크립트로 이동
