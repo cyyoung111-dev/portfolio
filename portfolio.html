@@ -11,6 +11,7 @@
     --green:#10b981; --red:#ef4444; --blue:#3b82f6; --amber:#f59e0b;
     --purple:#8b5cf6; --cyan:#06b6d4; --pink:#ec4899;
     --text:#e2e8f0; --muted:#64748b;
+    --gold:#f59e0b; --gold2:#f97316;
   }
   *{margin:0;padding:0;box-sizing:border-box;}
   body{background:var(--bg);color:var(--text);font-family:'Malgun Gothic','맑은 고딕',sans-serif;min-height:100vh;}
@@ -508,7 +509,12 @@ function getOrAssignColor(acct) {
 }
 
 
-function normName(n){ return n; }
+function normName(n){
+  const MAP = {
+    'TIME Korea플러스배당액티브': 'TIMEFOLIO Korea플러스배당액티브',
+  };
+  return MAP[n] || n;
+}
 const SECTOR_MAP = {
   '삼성전자':'반도체/IT','SK하이닉스':'반도체/IT','KODEX 반도체':'반도체/IT','SKiet':'반도체/IT','KODEX 2차전지산업':'2차전지','KODEX AI전력핵심설비':'AI/전력',
   'TIGER 미국나스닥100':'해외/나스닥','KODEX 미국나스닥100':'해외/나스닥','ACE 미국배당퀄리티':'배당','TIGER 미국배당다우존스':'배당',
@@ -593,6 +599,9 @@ function saveHoldings() {
       badge._t = setTimeout(() => { badge.style.display = 'none'; }, 2000);
     }
     console.log('[저장 완료] holdings:', rawHoldings.length + '개 | key:', HOLDINGS_KEY);
+    // 구글시트 종목코드 백그라운드 동기화 (debounce 3초)
+    clearTimeout(saveHoldings._syncTimer);
+    saveHoldings._syncTimer = setTimeout(() => syncCodesToGsheet(), 3000);
   } catch(e) {
     console.error('saveHoldings 실패:', e);
     alert('⚠️ 저장 실패: ' + e.message + '\n브라우저 설정에서 로컬 저장소를 허용해주세요.');
@@ -816,15 +825,15 @@ function setTableSort(tableId, col) {
 function rerenderTable(tableId) {
   const container = document.getElementById('tc_' + tableId);
   if (!container) return;
-  const rawData = window._tableData[tableId];
-  const extraCol = window._tableExtra[tableId];
+  const rawData = window._tableData.get(tableId);
+  const extraCol = window._tableExtra.get(tableId);
   if (!rawData) return;
   container.innerHTML = buildTableInner(rawData, tableId, extraCol);
 }
 
 // 전역 테이블 데이터 저장소
-window._tableData = {};
-window._tableExtra = {};
+window._tableData = new Map();
+window._tableExtra = new Map();
 
 // SMALL POSITION FILTER
 const SMALL_THRESHOLD = 100000; // 10만원
@@ -864,7 +873,7 @@ function openColFilterDropdown(tableId, col, thEl) {
   closeAllDropdowns();
   openDropdownId = dropId;
 
-  const rawData = window._tableData[tableId] || [];
+  const rawData = window._tableData.get(tableId) || [];
   const st = getTableState(tableId);
   const currentFilter = st.filters[col] || null;
 
@@ -930,7 +939,7 @@ function cfdClearAll(dropId) {
 function cfdApply(tableId, col, dropId) {
   const checked = new Set();
   document.querySelectorAll(`#${dropId} input[type=checkbox]:checked`).forEach(cb => checked.add(cb.value));
-  const rawData = window._tableData[tableId] || [];
+  const rawData = window._tableData.get(tableId) || [];
   const allVals = [...new Set(rawData.map(r => {
     if (col === 'acct')   return r.acct;
     if (col === 'type')   return r.type;
@@ -1097,8 +1106,8 @@ function buildTableInner(rawData, tableId, extraCol) {
 // TABLE BUILDER (외부 호출용)
 function buildTable(data, title, extraCol, fixedId) {
   const tableId = fixedId || ('tbl_' + Math.random().toString(36).slice(2, 7));
-  window._tableData[tableId]  = data;
-  window._tableExtra[tableId] = extraCol;
+  window._tableData.set(tableId, data);
+  window._tableExtra.set(tableId, extraCol);
 
   const totalEval = data.reduce((s,r)=>s+r.evalAmt,0);
   const totalCost = data.reduce((s,r)=>s+r.costAmt,0);
@@ -1137,6 +1146,8 @@ function renderView(){
   else if(currentView==='history') renderHistoryView(area);
   else if(currentView==='div') renderDivView(area);
   else if(currentView==='asset') renderAssetView(area);
+  else if(currentView==='stocks') renderStocksView(area);
+  else if(currentView==='gsheet') renderGsheetView(area);
 }
 
 // ACCOUNT VIEW
@@ -1458,7 +1469,7 @@ function setMergeSortKey(k, btn){
 const DIVDATA = {
   // 월배당 ETF
   'ACE 미국배당퀄리티':       {perShare:65,  freq:'월배당', months:[1,2,3,4,5,6,7,8,9,10,11,12], note:'매월 15일 내외 지급, 25년 평균 ~65원'},
-  'TIME Korea플러스배당액티브':{perShare:120, freq:'월배당', months:[1,2,3,4,5,6,7,8,9,10,11,12], note:'매월 중순 지급, 추정'},
+  'TIMEFOLIO Korea플러스배당액티브':{perShare:120, freq:'월배당', months:[1,2,3,4,5,6,7,8,9,10,11,12], note:'매월 중순 지급, 추정'},
   'TIGER 미국배당다우존스':   {perShare:55,  freq:'월배당', months:[1,2,3,4,5,6,7,8,9,10,11,12], note:'매월 15일 내외, 배당률 약 3.19%'},
   // 분기배당 주식/ETF
   '삼성전자':   {perShare:365, freq:'분기', months:[5,8,11], note:'★ 26년 1Q 365원(5월20일), 2Q 367원(8월20일), 3Q 365원(11월20일) / 4Q(25년결산) 566원→4월지급'},
@@ -1952,6 +1963,7 @@ function renderTradesView(area) {
         </tbody>
       </table>
     </div>`}
+
   </div>`;
 }
 
@@ -2569,8 +2581,20 @@ function renderDivView(area) {
     });
   });
 
-  // Summary cards
-  let html = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+  // 배당 불러오기 버튼 + Summary cards
+  let html = `
+  <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="flex:1">
+      <div style="font-size:.73rem;font-weight:700;color:#fbbf24;margin-bottom:3px">📡 배당금 자동 조회</div>
+      <div id="divFetchStatus" style="font-size:.67rem;color:var(--muted)">구글시트 GOOGLEFINANCE로 최근 13개월 배당 자동 조회 · 구글시트 연동 필수</div>
+    </div>
+    <button id="divFetchBtn" onclick="startDivFetch()"
+      style="background:#f59e0b;border:none;color:#000;font-weight:700;padding:7px 16px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif;white-space:nowrap">
+      🔄 배당 불러오기
+    </button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
     <div class="sc" style="border-top:2px solid #22d3ee">
       <div class="lbl">💸 연간 예상 배당</div>
       <div class="val" style="color:#22d3ee">${fmt(totalAnnual)}</div>
@@ -2645,9 +2669,22 @@ function renderDivView(area) {
     .map(h=>h.name).filter((v,i,a)=>a.indexOf(v)===i);
   html += `<div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 20px;font-size:.78rem;color:var(--muted)">
     <span style="font-weight:600;color:var(--text)">🚫 배당 없는 종목</span> — ${noDivNames.join(' · ')}
+  </div>
+
+  <!-- 배당 설정 관리 -->
+  <div style="margin-top:20px;background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px">
+    <div style="font-size:.78rem;font-weight:700;color:var(--gold);margin-bottom:10px">⚙️ 배당 설정 수동 편집</div>
+    <div id="divMgmtWrap">
+      <div id="divMgmtBody" style="max-height:400px;overflow-y:auto"></div>
+      <div style="margin-top:10px;display:flex;justify-content:flex-end">
+        <button onclick="applyDivChanges()" style="background:#f59e0b;border:none;color:#000;font-weight:700;padding:7px 18px;border-radius:7px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif">💾 배당 저장</button>
+      </div>
+    </div>
   </div>`;
 
   area.innerHTML = html;
+  buildDivMgmt();
+
 }
 
 
@@ -2659,6 +2696,8 @@ let LOAN = {
   totalMonths: 0,
   remainingMonths: 0,
   startYear: new Date().getFullYear(),
+  startDate: '',          // 대출실행일 (YYYY-MM-DD)
+  monthlyInterestPaid: 0, // 실제 이자지급액 (원, 이번달 기준)
 };
 
 // 부동산 실거래가 (직접 입력)
@@ -2683,6 +2722,8 @@ function openLoanEditor() {
   document.getElementById('le-annualRate').value = LOAN.annualRate;
   document.getElementById('le-totalMonths').value = LOAN.totalMonths;
   document.getElementById('le-remainingMonths').value = LOAN.remainingMonths;
+  document.getElementById('le-startDate').value = LOAN.startDate || '';
+  document.getElementById('le-monthlyInterestPaid').value = LOAN.monthlyInterestPaid ? LOAN.monthlyInterestPaid.toLocaleString() : '';
   document.getElementById('loanEditor').classList.add('open');
 }
 function closeLoanEditor() {
@@ -2694,12 +2735,18 @@ function applyLoan() {
   const total  = parseInt(document.getElementById('le-totalMonths').value);
   const remain = parseInt(document.getElementById('le-remainingMonths').value);
   const orig   = parseInt(document.getElementById('le-originalAmt').value.replace(/,/g,''));
+  const startDate = document.getElementById('le-startDate').value || '';
+  const interestPaid = parseInt((document.getElementById('le-monthlyInterestPaid').value||'0').replace(/,/g,'')) || 0;
   if(!bal || !rate || !total || !remain) { alert('필수 항목을 입력해주세요'); return; }
-  LOAN.originalAmt     = orig || LOAN.originalAmt;
-  LOAN.balance         = bal;
-  LOAN.annualRate      = rate;
-  LOAN.totalMonths     = total;
-  LOAN.remainingMonths = remain;
+  LOAN.originalAmt          = orig || LOAN.originalAmt;
+  LOAN.balance              = bal;
+  LOAN.annualRate           = rate;
+  LOAN.totalMonths          = total;
+  LOAN.remainingMonths      = remain;
+  LOAN.startDate            = startDate;
+  LOAN.monthlyInterestPaid  = interestPaid;
+  // startYear 도 startDate에서 자동 추출
+  if (startDate) LOAN.startYear = parseInt(startDate.slice(0,4));
   try { localStorage.setItem('pf_v6_loan', JSON.stringify(LOAN)); } catch(e){}
   // Update summary card text
   const balEl = document.getElementById('loan-summary-bal');
@@ -2787,6 +2834,11 @@ function renderAssetView(area) {
   </div>`;
 
   // ── 대출 섹션 ──
+  const interestPaid = LOAN.monthlyInterestPaid || 0;
+  const interestDiff = interestPaid > 0 ? interestPaid - monthlyInterest : null;
+  const startDateLabel = LOAN.startDate
+    ? (() => { const d = new Date(LOAN.startDate.replace(/-/g,'/')); return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`; })()
+    : '-';
   h += `<div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 20px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <h4 style="margin:0;font-size:.88rem;font-weight:700">🏦 주담대 현황</h4>
@@ -2795,11 +2847,16 @@ function renderAssetView(area) {
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.8rem;margin-bottom:14px">
       ${[
         ['잔액', `<span style="color:var(--red);font-weight:700">${fmt(bal)}</span>`],
-        ['월 납입', `${fmt(pmt)}`],
-        ['이 중 이자', `${fmt(monthlyInterest)}`],
+        ['월 납입 (계산)', `${fmt(pmt)}`],
+        ['이 중 이자 (계산)', `${fmt(monthlyInterest)}`],
         ['금리', `${rate}%`],
         ['잔여 기간', `${Math.floor(n/12)}년 ${n%12}개월`],
         ['상환 완료', `${payoffYear}년`],
+        ['대출실행일', startDateLabel],
+        ['실제 이자지급액', interestPaid > 0
+          ? `${fmt(interestPaid)}${interestDiff !== null ? ` <span style="font-size:.62rem;color:${interestDiff>0?'var(--red)':'var(--green)'}">(${interestDiff>0?'+':''}${fmt(interestDiff)})</span>` : ''}`
+          : '-'],
+        ['원금상환', pmt > 0 && interestPaid > 0 ? fmt(pmt - interestPaid) : (pmt > 0 ? fmt(pmt - monthlyInterest) : '-')],
       ].map(([l,v])=>`<div style="background:var(--s2);border-radius:8px;padding:10px 12px">
         <div style="font-size:.65rem;color:var(--muted);margin-bottom:3px">${l}</div>
         <div style="font-weight:600">${v}</div>
@@ -2811,11 +2868,117 @@ function renderAssetView(area) {
     <div style="height:8px;background:var(--s2);border-radius:4px;overflow:hidden">
       <div style="height:100%;width:${progressPct}%;background:linear-gradient(90deg,var(--amber),var(--gold));border-radius:4px;transition:width .4s"></div>
     </div>
-    <div style="margin-top:8px;font-size:.68rem;color:var(--muted);text-align:right">총 이자 ${fmt(totalInterest)} · 잔여 ${elapsedMonths}개월 납입 완료</div>
+    <div style="margin-top:8px;font-size:.68rem;color:var(--muted);text-align:right">총 이자 ${fmt(totalInterest)} · ${elapsedMonths}개월 납입 완료</div>
   </div>`;
 
   h += '</div>';
   area.innerHTML = h;
+}
+
+// ── 종목 관리 뷰 ─────────────────────────────────────────────────────────
+function renderStocksView(area) {
+  area.innerHTML = `
+  <div style="padding:0 4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+      <div>
+        <h3 style="margin:0;font-size:1rem;font-weight:700">📋 종목 관리</h3>
+        <p style="margin:3px 0 0;font-size:.72rem;color:var(--muted)">종목명·종목코드 수정 · 데이터 내보내기/불러오기</p>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="exportHoldings()" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.1);color:#34d399;font-size:.72rem;cursor:pointer;font-family:inherit">📤 내보내기</button>
+        <button onclick="importHoldings()" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(59,130,246,.4);background:rgba(59,130,246,.1);color:#60a5fa;font-size:.72rem;cursor:pointer;font-family:inherit">📥 불러오기</button>
+        <button onclick="resetHoldings()" style="padding:5px 12px;border-radius:7px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:#f87171;font-size:.72rem;cursor:pointer;font-family:inherit">🗑 초기화</button>
+      </div>
+    </div>
+    <div style="font-size:.7rem;color:var(--muted);margin-bottom:10px">
+      종목명·종목코드를 수정하고 저장하세요.
+      <span id="holdingsSavedBadge" style="display:none;background:#166534;color:#bbf7d0;font-size:.62rem;padding:2px 7px;border-radius:10px;margin-left:6px">💾 저장됨</span>
+    </div>
+    <div id="stockMgmtBody" style="max-height:520px;overflow-y:auto"></div>
+    <div style="margin-top:14px;display:flex;justify-content:flex-end">
+      <button onclick="applyStockChanges()" style="background:var(--gold);border:none;color:#000;font-weight:700;padding:8px 22px;border-radius:8px;cursor:pointer;font-size:.75rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif">💾 종목 저장</button>
+    </div>
+  </div>`;
+  buildStockMgmt();
+}
+
+// ── 구글시트 연동 뷰 ─────────────────────────────────────────────────────
+function renderGsheetView(area) {
+  const connected = !!GSHEET_API_URL;
+  area.innerHTML = `
+  <div style="padding:0 4px;max-width:680px">
+    <div style="margin-bottom:16px">
+      <h3 style="margin:0 0 4px;font-size:1rem;font-weight:700">🔗 구글시트 연동</h3>
+      <p style="margin:0;font-size:.72rem;color:var(--muted)">Apps Script 웹앱 URL 등록 · 종가 자동 조회 설정</p>
+    </div>
+
+    <!-- 연결 상태 -->
+    <div style="background:${connected?'rgba(34,197,94,.07)':'rgba(100,116,139,.07)'};border:1px solid ${connected?'rgba(34,197,94,.25)':'var(--border)'};border-radius:12px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+      <div style="font-size:1.4rem">${connected?'✅':'⚪'}</div>
+      <div>
+        <div style="font-size:.75rem;font-weight:700;color:${connected?'#4ade80':'var(--muted)'}">${connected?'구글시트 연동됨':'구글시트 미연동'}</div>
+        <div style="font-size:.67rem;color:var(--muted);margin-top:2px;word-break:break-all">${connected?GSHEET_API_URL:'URL을 아래에 입력하세요'}</div>
+      </div>
+    </div>
+
+    <!-- URL 입력 -->
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px">
+      <div style="font-size:.75rem;font-weight:700;color:#4ade80;margin-bottom:10px">🔗 웹앱 URL 설정</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <input type="url" id="gsheetUrlInput" placeholder="https://script.google.com/macros/s/.../exec"
+          value="${GSHEET_API_URL}"
+          style="flex:1;min-width:220px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:.72rem;font-family:'Courier New',monospace"
+        />
+        <button onclick="saveGsheetUrlFromUI()"
+          style="background:#22c55e;border:none;color:#000;font-weight:700;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif;white-space:nowrap">
+          💾 저장
+        </button>
+        <button onclick="clearGsheetUrl()"
+          style="background:var(--s2);border:1px solid var(--border);color:var(--muted);font-weight:600;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif;white-space:nowrap">
+          🗑 해제
+        </button>
+        <button onclick="testGsheetUrl()"
+          style="background:var(--s2);border:1px solid rgba(59,130,246,.4);color:#60a5fa;font-weight:600;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif;white-space:nowrap">
+          🧪 테스트
+        </button>
+      </div>
+      <div id="gsheetTestResult" style="font-size:.68rem;color:var(--muted);min-height:16px"></div>
+    </div>
+
+    <!-- 설정 가이드 -->
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px">
+      <div style="font-size:.75rem;font-weight:700;color:var(--text);margin-bottom:12px">📦 초기 설정 가이드</div>
+      <div style="font-size:.69rem;color:var(--muted);line-height:2.0">
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <span style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#4ade80;padding:3px 10px;border-radius:6px">📊 구글 스프레드시트</span>
+          <span style="background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);color:#c4b5fd;padding:3px 10px;border-radius:6px">⚙️ apps_script.gs</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${[
+            ['STEP 1','구글 스프레드시트 새로 생성'],
+            ['STEP 2','상단 메뉴 [확장 프로그램] → [Apps Script] 클릭'],
+            ['STEP 3','apps_script.gs 내용 전체 붙여넣기 → Ctrl+S 저장'],
+            ['STEP 4','함수 선택 → <b style="color:var(--text)">initSheet</b> → ▶ 실행 → 권한 허용'],
+            ['STEP 5','함수 선택 → <b style="color:var(--text)">updatePrices</b> → ▶ 실행'],
+            ['STEP 6','[배포] → [새 배포] → 웹앱 → 액세스: 모든 사용자 → URL 복사'],
+            ['STEP 7','위 입력창에 URL 붙여넣기 → 💾 저장 클릭'],
+          ].map(([step, desc]) => `<div style="display:flex;gap:10px;align-items:flex-start">
+            <span style="background:rgba(34,197,94,.15);color:#4ade80;border-radius:4px;padding:1px 7px;font-size:.65rem;white-space:nowrap;font-weight:700;flex-shrink:0">${step}</span>
+            <span>${desc}</span>
+          </div>`).join('')}
+        </div>
+        <div style="margin-top:12px;padding:10px 12px;background:rgba(245,158,11,.08);border-left:3px solid var(--amber);border-radius:0 8px 8px 0">
+          <b style="color:var(--amber)">⏰ 자동갱신 트리거</b><br>
+          Apps Script → 알람시계 아이콘 → 트리거 추가<br>
+          함수: <b style="color:var(--text)">updatePrices</b> · 시간 기반 · 일일 · 오후 5~6시
+        </div>
+        <div style="margin-top:8px;padding:10px 12px;background:rgba(239,68,68,.06);border-left:3px solid rgba(239,68,68,.4);border-radius:0 8px 8px 0">
+          <b style="color:#f87171">⚠️ 재배포 주의</b><br>
+          코드 수정 시 [새 배포] 대신 <b style="color:var(--text)">[배포 관리 → 편집]</b>으로 기존 URL 유지
+        </div>
+      </div>
+    </div>
+  </div>`;
 }
 
 
@@ -2828,6 +2991,8 @@ let TAB_ORDER = [
   {id:'history', label:'📈 손익 그래프'},
   {id:'div', label:'💸 배당 스케줄'},
   {id:'asset', label:'🏠 자산/대출'},
+  {id:'stocks', label:'📋 종목 관리'},
+  {id:'gsheet', label:'🔗 구글시트 연동'},
 ];
 
 function buildTabBar() {
@@ -3041,6 +3206,15 @@ async function quickFetchByDate() {
 }
 
 // ── 접속 시 자동 종가 조회 ────────────────────────────────────────────────
+// 날짜 문자열 생성 (daysAgo=0: 오늘, 1: 어제, ...)
+function getDateStr(daysAgo) {
+  const d = new Date();
+  d.setDate(d.getDate() - (daysAgo || 0));
+  return d.getFullYear() + '-'
+    + String(d.getMonth()+1).padStart(2,'0') + '-'
+    + String(d.getDate()).padStart(2,'0');
+}
+
 async function autoLoadPrices() {
   if(!GSHEET_API_URL) {
     const badge = document.getElementById('dateBadge');
@@ -3048,15 +3222,6 @@ async function autoLoadPrices() {
     const lbl = document.getElementById('price-updated-label');
     if(lbl) lbl.textContent = '💡 구글 시트 연동 후 자동 조회 · 또는 현재가 편집에서 수동 입력';
     return;
-  }
-
-  // 오늘 → 실패시 전일 → 실패시 2일전 순으로 fallback
-  function getDateStr(daysAgo) {
-    const d = new Date();
-    d.setDate(d.getDate() - daysAgo);
-    return d.getFullYear() + '-'
-      + String(d.getMonth()+1).padStart(2,'0') + '-'
-      + String(d.getDate()).padStart(2,'0');
   }
 
   const today = new Date();
@@ -3177,168 +3342,48 @@ renderTypeBar();
 // 접속 즉시 자동 조회 (구글 시트 연동 시)
 autoLoadPrices();
 
+// 구글시트 종목코드 목록 자동 로드 (백그라운드)
+loadGsheetCodeList();
+
 // rawTrades 없고 rawHoldings 있으면 마이그레이션 팝업
 checkAndShowMigration();
 </script>
 
 <!-- PRICE EDITOR OVERLAY -->
 <div class="editor-overlay" id="priceEditor">
-  <div class="editor-box" style="max-width:560px">
+  <div class="editor-box" style="max-width:480px">
     <div class="editor-header">
       <div>
-        <h3 id="editorTitle">✏️ 현재가 편집</h3>
-        <p id="editorDesc">종목별 현재가를 직접 입력하세요 · 적용 즉시 대시보드 전체 업데이트</p>
+        <h3>✏️ 현재가 수동 입력</h3>
+        <p>종목코드가 없는 펀드·TDF 현재가를 직접 입력하세요</p>
       </div>
       <button class="editor-close" onclick="closeEditor()">✕</button>
     </div>
 
-    <!-- 탭 -->
-    <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:0;flex-shrink:0">
-      <button id="pe-tab-price" onclick="peTab('price')"
-        style="padding:9px 16px;font-size:.76rem;font-weight:700;cursor:pointer;background:none;border:none;border-bottom:2px solid #3b82f6;color:#60a5fa;margin-bottom:-1px">
-        💰 현재가
-      </button>
-      <button id="pe-tab-stocks" onclick="peTab('stocks')"
-        style="padding:9px 16px;font-size:.76rem;font-weight:600;cursor:pointer;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);margin-bottom:-1px">
-        📋 종목 관리
-      </button>
-      <button id="pe-tab-gsheet" onclick="peTab('gsheet')"
-        style="padding:9px 16px;font-size:.76rem;font-weight:600;cursor:pointer;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);margin-bottom:-1px">
-        🔗 구글 시트
-      </button>
-      <button id="pe-tab-div" onclick="peTab('div')"
-        style="padding:9px 16px;font-size:.76rem;font-weight:600;cursor:pointer;background:none;border:none;border-bottom:2px solid transparent;color:var(--muted);margin-bottom:-1px">
-        💸 배당
-      </button>
-    </div>
-
-    <!-- 현재가 탭 -->
-    <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column">
-    <div id="pe-panel-price" style="display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden">
-      <!-- 자동 업데이트 박스 -->
-      <div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.25);border-radius:10px;padding:12px 14px;margin-bottom:14px">
-        <div style="font-size:.73rem;font-weight:700;color:#60a5fa;margin-bottom:8px">
-          📡 종가 자동 조회
-          <span id="gsheetBadge" style="display:none;margin-left:8px;background:#166534;color:#bbf7d0;font-size:.62rem;padding:2px 7px;border-radius:10px;font-weight:600">구글 시트 연동중</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <label style="font-size:.71rem;color:var(--muted);white-space:nowrap">기준일</label>
-          <input type="date" id="fetchDateInput"
-            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.75rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif;flex:1;min-width:130px"
-          />
-          <button id="fetchBtn" onclick="startAutoFetch()"
-            style="background:#3b82f6;border:none;color:#fff;font-weight:700;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif;white-space:nowrap;flex-shrink:0">
-            🔄 종가 불러오기
-          </button>
-        </div>
-        <div id="fetchStatus" style="font-size:.68rem;color:var(--muted);margin-top:7px">구글 시트 연동 시 GOOGLEFINANCE 기준 · 미연동 시 네이버 증권 API · 펀드 제외</div>
-        <div id="gsheetMissingAlert" style="display:none;margin-top:10px;background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:10px 12px;font-size:.68rem;color:var(--text);line-height:1.7"></div>
-      </div>
-      <div class="editor-body" id="editorBody" style="flex:1;min-height:0;overflow-y:auto;padding:16px 24px"></div>
-      <div class="editor-footer" style="flex-shrink:0">
-        <div class="last-updated" id="lastUpdatedTxt"></div>
-        <button class="btn-cancel" onclick="closeEditor()">취소</button>
-        <button class="btn-apply" onclick="applyPrices()">✅ 적용하기</button>
+    <!-- 안내 배너 -->
+    <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:.69rem;color:var(--muted);line-height:1.7">
+      <span style="color:#60a5fa;font-weight:700">ℹ️ 종목코드 있는 주식·ETF</span>는 메인화면 <b style="color:var(--text)">🔄 업데이트</b> 버튼으로 자동 조회됩니다.<br>
+      이 화면은 <b style="color:var(--text)">자동 조회가 안 되는 펀드·TDF</b>만 표시합니다.
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="closeEditor(); switchView('stocks')"
+          style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);color:#a78bfa;border-radius:6px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-family:inherit">
+          📋 종목 관리 →
+        </button>
+        <button onclick="closeEditor(); switchView('gsheet')"
+          style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:#4ade80;border-radius:6px;padding:4px 10px;font-size:.68rem;cursor:pointer;font-family:inherit">
+          🔗 구글시트 연동 →
+        </button>
       </div>
     </div>
 
-    <!-- 종목 관리 탭 -->
-    <div id="pe-panel-stocks" style="display:none">
-      <div style="font-size:.72rem;color:var(--muted);margin-bottom:12px">종목명 또는 종목코드를 수정할 수 있어요. 변경 후 저장을 누르세요. <span id="holdingsSavedBadge" style="display:none;background:#166534;color:#bbf7d0;font-size:.62rem;padding:2px 7px;border-radius:10px">💾 저장됨</span></div>
-      <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-        <button onclick="exportHoldings()" style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:#34d399;border-radius:6px;padding:5px 10px;font-size:.7rem;cursor:pointer;font-family:inherit">📤 내보내기</button>
-        <button onclick="importHoldings()" style="background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);color:#60a5fa;border-radius:6px;padding:5px 10px;font-size:.7rem;cursor:pointer;font-family:inherit">📥 불러오기</button>
-        <button onclick="resetHoldings()" style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171;border-radius:6px;padding:5px 10px;font-size:.7rem;cursor:pointer;font-family:inherit">🗑 초기화</button>
-      </div>
-      <div id="stockMgmtBody" style="max-height:420px;overflow-y:auto"></div>
-      <div class="editor-footer">
-        <button class="btn-cancel" onclick="closeEditor()">닫기</button>
-        <button class="btn-apply" onclick="applyStockChanges()">💾 저장</button>
-      </div>
+    <!-- 펀드/TDF 입력 목록 -->
+    <div class="editor-body" id="editorBody" style="max-height:420px;overflow-y:auto;padding:4px 0"></div>
+
+    <div class="editor-footer" style="flex-shrink:0">
+      <span id="holdingsSavedBadge" style="display:none;background:#166534;color:#bbf7d0;font-size:.62rem;padding:2px 7px;border-radius:10px">💾 저장됨</span>
+      <button class="btn-cancel" onclick="closeEditor()">취소</button>
+      <button class="btn-apply" onclick="applyPrices()">✅ 적용하기</button>
     </div>
-
-    <!-- 구글 시트 탭 -->
-    <div id="pe-panel-gsheet" style="display:none">
-      <div style="background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:10px;padding:14px;margin-bottom:14px">
-        <div style="font-size:.75rem;font-weight:700;color:#4ade80;margin-bottom:10px">🔗 구글 Apps Script 웹앱 URL 연동</div>
-        <div style="font-size:.7rem;color:var(--muted);margin-bottom:10px;line-height:1.6">
-          구글 시트에 GOOGLEFINANCE 함수로 종가를 세팅하고,<br>
-          Apps Script로 웹앱 배포 후 URL을 아래에 입력하세요.<br>
-          <span style="color:#4ade80">→ 종가 불러오기 시 네이버 API 대신 구글 시트 우선 사용</span>
-        </div>
-        <input type="url" id="gsheetUrlInput" placeholder="https://script.google.com/macros/s/.../exec"
-          style="width:100%;box-sizing:border-box;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:.72rem;font-family:'Courier New',monospace;margin-bottom:8px"
-        />
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button onclick="saveGsheetUrlFromUI()"
-            style="background:#22c55e;border:none;color:#000;font-weight:700;padding:7px 16px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif">
-            💾 URL 저장
-          </button>
-          <button onclick="clearGsheetUrl()"
-            style="background:var(--s2);border:1px solid var(--border);color:var(--muted);font-weight:600;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif">
-            🗑 연동 해제
-          </button>
-          <button onclick="testGsheetUrl()"
-            style="background:var(--s2);border:1px solid rgba(59,130,246,.4);color:#60a5fa;font-weight:600;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif">
-            🧪 연결 테스트
-          </button>
-        </div>
-        <div id="gsheetTestResult" style="font-size:.68rem;margin-top:10px;color:var(--muted)"></div>
-      </div>
-      <div style="background:var(--s2);border-radius:10px;padding:14px;font-size:.68rem;color:var(--muted);line-height:1.9">
-        <div style="color:var(--text);font-weight:700;margin-bottom:10px;font-size:.72rem">📦 파일 2개 필요 (함께 제공됨)</div>
-        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <span style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:#4ade80;padding:3px 10px;border-radius:6px;font-size:.67rem">📊 portfolio_gsheet_template.xlsx</span>
-          <span style="background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);color:#c4b5fd;padding:3px 10px;border-radius:6px;font-size:.67rem">⚙️ apps_script.gs</span>
-        </div>
-        <b style="color:#4ade80">STEP 1</b> &nbsp;xlsx 파일을 구글 드라이브에 업로드 → <b style="color:var(--text)">구글 스프레드시트로 열기</b><br>
-        <b style="color:#4ade80">STEP 2</b> &nbsp;상단 메뉴 <b style="color:var(--text)">[확장 프로그램] → [Apps Script]</b> 클릭<br>
-        <b style="color:#4ade80">STEP 3</b> &nbsp;apps_script.gs 파일 전체 내용 붙여넣기 → <b style="color:var(--text)">저장 (Ctrl+S)</b><br>
-        <b style="color:#4ade80">STEP 4</b> &nbsp;함수 선택 → <b style="color:var(--text)">initSheet</b> → ▶ 실행 → 권한 허용<br>
-        <b style="color:#4ade80">STEP 5</b> &nbsp;함수 선택 → <b style="color:var(--text)">updatePrices</b> → ▶ 실행 (종가 자동 입력)<br>
-        <b style="color:#4ade80">STEP 6</b> &nbsp;<b style="color:var(--text)">[배포] → [새 배포]</b> → 웹앱 → 액세스: 모든 사용자 → URL 복사<br>
-        <b style="color:#4ade80">STEP 7</b> &nbsp;위 입력창에 URL 붙여넣기 → <b style="color:var(--text)">💾 URL 저장</b> 클릭<br>
-        <div style="margin-top:10px;padding:8px 10px;background:rgba(245,158,11,.08);border-left:2px solid var(--amber);border-radius:0 6px 6px 0">
-          <b style="color:var(--amber)">⏰ 자동갱신 트리거</b> &nbsp;Apps Script → 알람시계 아이콘 → 트리거 추가<br>
-          함수: <b style="color:var(--text)">updatePrices</b> · 시간 기반 · 일일 · <b style="color:var(--text)">오후 5~6시</b>
-        </div>
-        <div style="margin-top:8px;padding:8px 10px;background:rgba(239,68,68,.06);border-left:2px solid rgba(239,68,68,.4);border-radius:0 6px 6px 0">
-          <b style="color:#f87171">⚠️ 재배포 주의</b> &nbsp;코드 수정 시 [새 배포] 말고 <b style="color:var(--text)">[배포 관리 → 편집]</b>으로<br>
-          기존 URL 유지해야 포트폴리오 재설정 불필요
-        </div>
-      </div>
-      <div class="editor-footer">
-        <button class="btn-cancel" onclick="closeEditor()">닫기</button>
-      </div>
-    </div>
-
-    <!-- 배당 탭 -->
-    <div id="pe-panel-div" style="display:none">
-      <!-- 배당 자동 조회 박스 -->
-      <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:12px 14px;margin-bottom:14px">
-        <div style="font-size:.73rem;font-weight:700;color:#fbbf24;margin-bottom:8px">📡 배당금 자동 조회 (Claude 웹서치)</div>
-        <div style="font-size:.68rem;color:var(--muted);margin-bottom:10px;line-height:1.6">
-          구글시트 GOOGLEFINANCE로 최근 13개월 배당 내역 자동 조회해요.<br>
-          <span style="color:#fbbf24">→ 구글시트 연동 필수 · 조회 후 수동 수정도 가능</span>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button id="divFetchBtn" onclick="startDivFetch()"
-            style="background:#f59e0b;border:none;color:#000;font-weight:700;padding:7px 16px;border-radius:6px;cursor:pointer;font-size:.73rem;font-family:'Malgun Gothic','맑은 고딕',sans-serif">
-            🔄 배당금 불러오기
-          </button>
-        </div>
-        <div id="divFetchStatus" style="font-size:.68rem;color:var(--muted);margin-top:8px">구글시트 연동 시 GOOGLEFINANCE 배당 자동 조회 · 약 10~20초 소요</div>
-      </div>
-
-      <!-- 배당 목록 -->
-      <div id="divMgmtBody" style="max-height:380px;overflow-y:auto"></div>
-
-      <div class="editor-footer">
-        <button class="btn-cancel" onclick="closeEditor()">닫기</button>
-        <button class="btn-apply" onclick="applyDivChanges()" style="background:#f59e0b;color:#000">💾 배당 저장</button>
-      </div>
-    </div>
-    </div><!-- /panel-wrapper -->
   </div>
 </div>
 
@@ -3377,6 +3422,70 @@ function saveGsheetUrl(url) {
   GSHEET_API_URL = url.trim();
   try { localStorage.setItem('gsheet_api_url', GSHEET_API_URL); } catch(e) {}
 }
+
+// ── 구글시트 종목코드 목록 로드 ─────────────────────────────────────────
+let _gsheetCodeList = []; // [{code, name}]
+
+async function loadGsheetCodeList() {
+  if (!GSHEET_API_URL) return;
+  try {
+    const url = GSHEET_API_URL + '?action=getCodeList';
+    const res = await fetchWithTimeout(url, 10000);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.status === 'ok' && Array.isArray(data.codes)) {
+      _gsheetCodeList = data.codes;
+      // GSheet에 있는 코드를 로컬 STOCK_CODE에 병합 (로컬 우선)
+      data.codes.forEach(item => {
+        if (item.code && item.name && !STOCK_CODE[item.name]) {
+          STOCK_CODE[item.name] = item.code;
+        }
+      });
+      console.log('[GSheet 코드목록] ' + data.codes.length + '개 로드');
+    }
+  } catch(e) {
+    console.warn('[GSheet 코드목록 로드 실패]', e.message);
+  }
+}
+
+// ── 종목코드 GSheet 자동 등록 ──────────────────────────────────────────
+async function syncCodesToGsheet() {
+  if (!GSHEET_API_URL) return;
+  // STOCK_CODE 전체를 JSON으로 전송
+  const codesJson = encodeURIComponent(JSON.stringify(STOCK_CODE));
+  try {
+    const url = GSHEET_API_URL + '?action=syncCodes&codes=' + codesJson;
+    const res = await fetchWithTimeout(url, 15000);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.status === 'ok') {
+      console.log('[GSheet 동기화] 종목코드 ' + (data.synced || 0) + '개 등록');
+    }
+  } catch(e) {
+    console.warn('[GSheet 동기화 실패]', e.message);
+  }
+}
+
+// ── 종목명으로 코드 조회 (로컬 → GSheet캐시 → 네이버 순) ───────────────
+async function lookupNameByCode(code) {
+  if (!code) return '';
+  // 1. 로컬 STOCK_CODE 역방향 검색
+  const localEntry = Object.entries(STOCK_CODE).find(([n,c]) => c === code);
+  if (localEntry) return localEntry[0];
+  // 2. GSheet 캐시 검색
+  const gItem = _gsheetCodeList.find(item => item.code === code);
+  if (gItem) return gItem.name;
+  // 3. 네이버 API 조회
+  if (!GSHEET_API_URL) return '';
+  try {
+    const url = GSHEET_API_URL + '?action=name&code=' + encodeURIComponent(code);
+    const res = await fetchWithTimeout(url, 8000);
+    if (!res.ok) return '';
+    const data = await res.json();
+    return data.name || data.officialName || '';
+  } catch(e) { return ''; }
+}
+
 
 function chunkArray(arr, size) {
   const out = [];
@@ -3554,129 +3663,12 @@ let editedPrices = {};
 
 function openEditor() {
   buildEditorUI();
-  // 기준일 기본값: 오늘
-  const today = new Date();
-  const yyyymmdd = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
-  const di = document.getElementById('fetchDateInput');
-  if(di) di.value = yyyymmdd;  // 열 때마다 오늘 날짜로 초기화
   document.getElementById('priceEditor').classList.add('open');
-  updateGsheetBadge();
-  peTab('price'); // 항상 현재가 탭으로 시작
 }
 
-async function startAutoFetch() {
-  const dateInput = document.getElementById('fetchDateInput');
-  const dateStr = dateInput?.value;
-  if(!dateStr) { alert('기준일을 선택해주세요'); return; }
-
-  const btn = document.getElementById('fetchBtn');
-  const status = document.getElementById('fetchStatus');
-  btn.disabled = true;
-  btn.textContent = '⏳ 조회 중...';
-  status.style.color = '#60a5fa';
-
-  const items = EDITABLE_PRICES.filter(item => item.code);
-  const total = items.length;
-  let done = 0;
-
-  // 진행률 업데이트 함수
-  const updateProgress = () => {
-    status.textContent = `⏳ 조회 중... ${done}/${total}종목 완료 (네이버 증권 API)`;
-  };
-  updateProgress();
-
-  // fetchAllPrices를 진행률 콜백과 함께 실행
-  const results = await fetchAllPricesWithProgress(dateStr, () => { done++; updateProgress(); });
-  const count = Object.keys(results).length;
-
-  if(count === 0) {
-    status.style.color = 'var(--red)';
-    status.textContent = '❌ 조회 실패 — CORS 프록시 서버 오류이거나 날짜가 잘못되었습니다. 잠시 후 재시도해주세요.';
-    btn.disabled = false; btn.textContent = '🔄 종가 불러오기';
-    return;
-  }
-
-  // savedPrices/savedPriceDates 업데이트
-  const dateLabel = dateStr.replace(/-/g,'.') + ' 종가';
-  Object.entries(results).forEach(([name, price]) => {
-    savedPrices[name] = price;
-    savedPriceDates[name] = dateLabel;
-    editedPrices[name] = price; // 적용하기 눌러야 반영되도록
-  });
-
-  // 조회 실패 종목
-  const failed = EDITABLE_PRICES.filter(i => i.code && !results[i.name]).map(i => i.name);
-
-  // 구글시트 미등록 경고
-  const missing = window._gsheetMissingCodes || [];
-  if (missing.length > 0 && GSHEET_API_URL) {
-    const missingBox = document.getElementById('gsheetMissingAlert');
-    if (missingBox) {
-      missingBox.style.display = '';
-      missingBox.innerHTML =
-        '<b style="color:#f87171">⚠️ 구글시트에 없는 종목 ' + missing.length + '개 — 종가를 가져오지 못했어요</b>' +
-        '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:5px">' +
-        missing.map(m =>
-          '<span style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:5px;padding:2px 8px;font-size:.65rem;color:#fca5a5">' +
-          m.name + ' <span style=\"color:#94a3b8\">[' + m.code + ']</span>' +
-          '</span>'
-        ).join('') +
-        '</div>' +
-        '<div style="margin-top:7px;font-size:.65rem;color:#94a3b8">' +
-        '→ 구글시트 <b style="color:#e2e8f5">[종목코드]</b> 시트 A열에 위 코드를 추가하고 ' +
-        '<b style="color:#e2e8f5">updatePrices()</b> 를 재실행하세요' +
-        '</div>';
-    }
-  } else {
-    const missingBox = document.getElementById('gsheetMissingAlert');
-    if (missingBox) missingBox.style.display = 'none';
-  }
-
-  status.style.color = count > 0 ? 'var(--green)' : 'var(--red)';
-  const failNote = failed.length ? ` · 실패 ${failed.length}개: ${failed.slice(0,3).join(', ')}${failed.length>3?'…':''}` : '';
-  status.textContent = count > 0
-    ? `✅ ${count}/${total}개 종목 조회 완료 · ${dateStr.replace(/-/g,'.')}${failNote}`
-    : `❌ 전체 실패 — 네트워크 확인 후 재시도`;
-
-  // 뱃지 미리 업데이트 (적용하기 전 미리보기)
-  if(count > 0) {
-    const todayChk = (()=>{ const t=new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); })();
-    updateDateBadge(dateStr.replace(/-/g,'.'), dateStr === todayChk);
-  }
-
-  btn.disabled = false; btn.textContent = '🔄 종가 불러오기';
-
-  // UI 갱신 (입력창에 가져온 가격 반영)
-  buildEditorUI();
-  // 기준일 복원
-  document.getElementById('fetchDateInput').value = dateStr;
-}
 function closeEditor() {
   document.getElementById('priceEditor').classList.remove('open');
   editedPrices = {};
-}
-
-// ── 탭 전환 ────────────────────────────────────────────────────────────────
-function peTab(tab) {
-  const TAB_COLORS = { price:'#3b82f6', stocks:'#a78bfa', gsheet:'#22c55e', div:'#f59e0b' };
-  const TAB_TEXT   = { price:'#60a5fa', stocks:'#c4b5fd', gsheet:'#4ade80', div:'#fbbf24' };
-  ['price','stocks','gsheet','div'].forEach(t => {
-    const btn   = document.getElementById('pe-tab-' + t);
-    const panel = document.getElementById('pe-panel-' + t);
-    const active = t === tab;
-    if(btn) {
-      btn.style.borderBottomColor = active ? TAB_COLORS[t] : 'transparent';
-      btn.style.color = active ? TAB_TEXT[t] : 'var(--muted)';
-      btn.style.fontWeight = active ? '700' : '600';
-    }
-    if(panel) panel.style.display = active ? '' : 'none';
-  });
-  if(tab === 'stocks') buildStockMgmt();
-  if(tab === 'gsheet') {
-    const inp = document.getElementById('gsheetUrlInput');
-    if(inp) inp.value = GSHEET_API_URL;
-  }
-  if(tab === 'div') buildDivMgmt();
 }
 
 // ── 구글 시트 URL 관리 ────────────────────────────────────────────────────
@@ -3689,8 +3681,7 @@ function saveGsheetUrlFromUI() {
   }
   saveGsheetUrl(val);
   const res = document.getElementById('gsheetTestResult');
-  res.style.color = '#4ade80';
-  res.textContent = '✅ URL 저장 완료. 현재가 탭에서 종가 불러오기를 사용해보세요.';
+  if (res) { res.style.color = '#4ade80'; res.textContent = '✅ URL 저장 완료. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.'; }
   updateGsheetBadge();
 }
 
@@ -3727,6 +3718,7 @@ async function testGsheetUrl() {
 }
 
 function updateGsheetBadge() {
+  // 메인 헤더 뱃지 업데이트 (있는 경우)
   const badge = document.getElementById('gsheetBadge');
   if(badge) badge.style.display = GSHEET_API_URL ? 'inline' : 'none';
 }
@@ -4197,52 +4189,50 @@ function resetHoldings() {
 }
 
 function buildEditorUI() {
-  // Group by sector
-  const groups = {};
-  EDITABLE_PRICES.forEach(item => {
-    const g = SECTOR_LABELS[item.sector] || item.sector;
-    if(!groups[g]) groups[g] = [];
-    groups[g].push(item);
-  });
+  // 코드 없는 종목(펀드/TDF)만 표시
+  const fundItems = EDITABLE_PRICES.filter(item => !item.code);
 
-  let html = '';
-  Object.entries(groups).forEach(([groupName, items]) => {
-    html += `<div class="editor-group">
-      <div class="editor-group-title">${groupName}</div>`;
-    items.forEach(item => {
-      // Get current price from PRICES map or savedPrices
-      const current = savedPrices[item.name] || getCurrentPriceFromData(item.name);
-      const dateLabel = savedPriceDates[item.name] || (current ? '초기값' : '');
-      const hasCode = item.code ? `<span>${item.code}</span>` : '';
-      const statusIcon = savedPriceDates[item.name]
-        ? `<span style="color:var(--green)" title="${savedPriceDates[item.name]}">✓</span>`
-        : current ? `<span style="color:var(--muted)" title="초기 설정값">○</span>`
-        : `<span style="color:var(--muted)">-</span>`;
-      const dateHtml = dateLabel
-        ? `<div style="font-size:.58rem;color:${savedPriceDates[item.name]?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${dateLabel}</div>`
-        : '';
-      html += `<div class="editor-row" style="align-items:flex-start">
-        <label style="padding-top:4px">${item.name}${hasCode}</label>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
-          <input type="number" id="ep_${item.name.replace(/\s/g,'_')}"
-            value="${current || ''}"
-            placeholder="현재가 입력"
-            oninput="markChanged('${item.name.replace(/'/g,"\'")}', this.value)"
-            style="width:130px"
-          />
-          ${dateHtml}
-        </div>
-        <div class="price-status" id="ps_${item.name.replace(/\s/g,'_')}" style="padding-top:4px">
-          ${statusIcon}
-        </div>
-      </div>`;
-    });
-    html += '</div>';
+  if (fundItems.length === 0) {
+    document.getElementById('editorBody').innerHTML =
+      '<div style="text-align:center;padding:30px 0;color:var(--muted);font-size:.78rem">' +
+      '<div style="font-size:1.8rem;margin-bottom:8px">✅</div>' +
+      '수동 입력이 필요한 종목이 없어요.<br>' +
+      '<span style="font-size:.68rem">모든 종목에 코드가 등록되어 자동 조회됩니다.</span>' +
+      '</div>';
+    return;
+  }
+
+  let html = '<div style="padding:0 4px">';
+  fundItems.forEach(item => {
+    const current = savedPrices[item.name] || getCurrentPriceFromData(item.name);
+    const dateLabel = savedPriceDates[item.name] || (current ? '초기값' : '');
+    const statusIcon = savedPriceDates[item.name]
+      ? `<span style="color:var(--green)" title="${savedPriceDates[item.name]}">✓</span>`
+      : current ? `<span style="color:var(--muted)" title="초기 설정값">○</span>`
+      : `<span style="color:var(--muted)">-</span>`;
+    const dateHtml = dateLabel
+      ? `<div style="font-size:.58rem;color:${savedPriceDates[item.name]?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${dateLabel}</div>`
+      : '';
+    const safeId = item.name.replace(/\s/g, '_');
+    const safeName = item.name.replace(/'/g, "\\'");
+    html += `<div class="editor-row" style="align-items:flex-start;margin-bottom:10px">
+      <label style="padding-top:4px;flex:1">${item.name}<br><span style="font-size:.6rem;color:var(--muted)">펀드·TDF</span></label>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+        <input type="number" id="ep_${safeId}"
+          value="${current || ''}"
+          placeholder="현재가 입력"
+          oninput="markChanged('${safeName}', this.value)"
+          style="width:130px"
+        />
+        ${dateHtml}
+      </div>
+      <div class="price-status" id="ps_${safeId}" style="padding-top:4px">
+        ${statusIcon}
+      </div>
+    </div>`;
   });
+  html += '</div>';
   document.getElementById('editorBody').innerHTML = html;
-
-  const ts = lastUpdated ? `마지막 업데이트: ${lastUpdated}` : '아직 업데이트 없음';
-  document.getElementById('lastUpdatedTxt').textContent = ts;
 }
 
 function getCurrentPriceFromData(name) {
@@ -4391,18 +4381,29 @@ function applyPrices() {
     </div>
     <div class="editor-body">
       <div class="editor-group">
-        <div class="editor-group-title">대출 현황</div>
+        <div class="editor-group-title">매월 업데이트</div>
         <div class="editor-row">
-          <label>현재 잔액 (원)<span>매월 납입 후 업데이트</span></label>
+          <label>현재 잔액 (원)<span>납입 후 잔액</span></label>
           <input type="text" id="le-balance" placeholder="355,284,671" style="width:150px">
         </div>
         <div class="editor-row">
-          <label>잔여 개월 수<span>이번달 납입 후 남은 개월</span></label>
+          <label>잔여 개월 수<span>이번달 납입 후</span></label>
           <input type="number" id="le-remainingMonths" placeholder="444" style="width:150px">
         </div>
         <div class="editor-row">
+          <label>실제 이자지급액 (원)<span>이번달 납부한 이자</span></label>
+          <input type="text" id="le-monthlyInterestPaid" placeholder="0" style="width:150px">
+        </div>
+      </div>
+      <div class="editor-group">
+        <div class="editor-group-title">대출 조건 (변경 시)</div>
+        <div class="editor-row">
           <label>연 금리 (%)<span>고정금리 변경 시</span></label>
           <input type="number" id="le-annualRate" placeholder="4.4" step="0.1" style="width:150px">
+        </div>
+        <div class="editor-row">
+          <label>대출실행일<span>최초 실행일</span></label>
+          <input type="date" id="le-startDate" style="width:150px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-family:'Malgun Gothic','맑은 고딕',sans-serif">
         </div>
       </div>
       <div class="editor-group">
@@ -4417,7 +4418,8 @@ function applyPrices() {
         </div>
       </div>
       <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:12px;font-size:.74rem;color:rgba(232,237,245,.65);line-height:1.8">
-        💡 매월 납입 후 <strong style="color:var(--gold)">잔액</strong>과 <strong style="color:var(--gold)">잔여 개월수</strong>만 업데이트하시면 돼요.
+        💡 매월 납입 후 <strong style="color:var(--gold)">잔액</strong>·<strong style="color:var(--gold)">잔여 개월수</strong>·<strong style="color:var(--gold)">이자지급액</strong>을 업데이트하세요.<br>
+        이자지급액 입력 시 계산값과 차이를 비교해드립니다.
       </div>
     </div>
     <div class="editor-footer">
