@@ -4675,6 +4675,10 @@ async function fetchFromGsheet(dateStr) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         if (data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
+        // ── v8.5: 네이버 API 오류 감지 → 사용자 안내 토스트
+        if (data.naverError && data.naverMessage) {
+          showToast(data.naverMessage, 'warn', 7000);
+        }
         epItems.forEach(i => {
           const price = data.prices[i.code];
           if (price > 0) codeResults[i.name] = Math.round(price);
