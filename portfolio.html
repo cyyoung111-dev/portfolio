@@ -4539,12 +4539,8 @@ async function loadGsheetCodeList() {
     const data = await res.json();
     if (data.status === 'ok' && Array.isArray(data.codes)) {
       _gsheetCodeList = data.codes;
-      // GSheet에 있는 코드를 로컬 STOCK_CODE에 병합 (로컬 우선)
-      data.codes.forEach(item => {
-        if (item.code && item.name && !STOCK_CODE[item.name]) {
-          STOCK_CODE[item.name] = item.code;
-        }
-      });
+      // ⚠️ STOCK_CODE는 건드리지 않음 — HTML 직접 입력이 항상 우선
+      // GSheet 코드는 _gsheetCodeList에만 보관, lookupNameByCode()에서 3순위 참고용으로만 사용
     }
   } catch(e) {
   }
