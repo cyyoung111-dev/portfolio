@@ -497,6 +497,11 @@ function saveHoldings() {
     localStorage.setItem(STOCKCODE_KEY, JSON.stringify(STOCK_CODE));
     localStorage.setItem(EDITABLES_KEY, JSON.stringify(EDITABLE_PRICES));
     localStorage.setItem(TRADES_KEY, JSON.stringify(rawTrades));
+    // SECTOR_COLORS: var() 문자열 → hex 변환 후 저장 (도넛 색상 깨짐 방지)
+    Object.keys(SECTOR_COLORS).forEach(k => {
+      if (typeof SECTOR_COLORS[k] === 'string' && SECTOR_COLORS[k].startsWith('var('))
+        SECTOR_COLORS[k] = resolveColor(SECTOR_COLORS[k]);
+    });
     localStorage.setItem(SECTOR_COLORS_KEY, JSON.stringify(SECTOR_COLORS));
     localStorage.setItem(FUNDDIRECT_KEY, JSON.stringify(fundDirect));
     localStorage.setItem(DIVDATA_KEY, JSON.stringify(DIVDATA));
@@ -4661,6 +4666,8 @@ function exportData() {
     LOAN,
     REAL_ESTATE,
     EDITABLE_PRICES,
+    SECTOR_COLORS,
+    gsheetUrl: GSHEET_API_URL || '',
     savedPrices,
     savedPriceDates,
     lastUpdated,
@@ -4702,6 +4709,16 @@ function importData(input) {
       if (data.REAL_ESTATE) Object.assign(REAL_ESTATE, data.REAL_ESTATE);
       // EDITABLE_PRICES
       if (Array.isArray(data.EDITABLE_PRICES)) { EDITABLE_PRICES.length = 0; data.EDITABLE_PRICES.forEach(e => EDITABLE_PRICES.push(e)); }
+      // 섹터 색상 (var() 문자열 → hex 변환 후 복원)
+      if (data.SECTOR_COLORS) {
+        Object.keys(SECTOR_COLORS).forEach(k => delete SECTOR_COLORS[k]);
+        Object.entries(data.SECTOR_COLORS).forEach(([k, v]) => {
+          SECTOR_COLORS[k] = (typeof v === 'string' && v.startsWith('var(')) ? resolveColor(v) : v;
+        });
+        localStorage.setItem(SECTOR_COLORS_KEY, JSON.stringify(SECTOR_COLORS));
+      }
+      // 구글시트 URL
+      if (data.gsheetUrl) { localStorage.setItem(GSHEET_KEY, data.gsheetUrl); GSHEET_API_URL = data.gsheetUrl; }
       // 가격
       if (data.savedPrices) Object.assign(savedPrices, data.savedPrices);
       if (data.savedPriceDates) Object.assign(savedPriceDates, data.savedPriceDates);
@@ -4720,6 +4737,8 @@ function importData(input) {
       } catch(err) {}
 
       refreshAll();
+      _mgmtRefresh();
+      buildSectorMgmt();
       if (data.lastUpdated) updateDateBadge(data.lastUpdated, false);
       input.value = '';
       showToast(`복원 완료! 거래 ${rawTrades.length}건 · 계좌 ${ACCT_ORDER.length-1}개`, 'ok');
