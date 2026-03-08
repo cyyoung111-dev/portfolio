@@ -259,6 +259,11 @@ function resolveColor(c) {
 let ACCT_COLORS = {};  // localStorage 복원 (KEY 선언 후 아래에서 복원)
 
 function saveAcctColors() {
+  // ACCT_COLORS: var() 문자열 → hex 변환 후 저장 (Canvas fillStyle 깨짐 방지)
+  Object.keys(ACCT_COLORS).forEach(k => {
+    if (typeof ACCT_COLORS[k] === 'string' && ACCT_COLORS[k].startsWith('var('))
+      ACCT_COLORS[k] = resolveColor(ACCT_COLORS[k]);
+  });
   try { localStorage.setItem(ACCT_COLORS_KEY, JSON.stringify(ACCT_COLORS)); } catch(e){}
 }
 
@@ -1175,6 +1180,13 @@ function renderAcctView(area){
 }
 function setAcctFilter(f){ acctFilter=f; renderView(); }
 
+// ── ETF 이름 패턴 판별 공통 함수 (renderTypeView · renderDonut 공용)
+// ETF prefix 추가 시 여기 한 곳만 수정하면 됩니다.
+const ETF_PREFIXES = ['KODEX','TIGER','ACE','TIME','SOL','KBSTAR','HANARO','ARIRANG','PLUS','RISE'];
+function isEtfByName(name) {
+  return ETF_PREFIXES.some(p => name.startsWith(p));
+}
+
 // TYPE VIEW
 function renderTypeView(area){
   const typeList=['전체','주식','ETF','ISA','IRP','연금','펀드','TDF'];
@@ -1184,8 +1196,7 @@ function renderTypeView(area){
     const epType = getEPType(ep, null);
     if (epType) return epType;
     if (r.type === 'ISA' || r.type === 'IRP' || r.type === '연금' || r.type === '펀드' || r.type === 'TDF') return r.type;
-    if (!r.fund && (r.name.startsWith('KODEX') || r.name.startsWith('TIGER') || r.name.startsWith('ACE') ||
-        r.name.startsWith('TIME') || r.name.startsWith('SOL'))) return 'ETF';
+    if (!r.fund && isEtfByName(r.name)) return 'ETF';
     return '주식';
   };
   const enriched=rows.map(r=>({...r,classType:classify(r)}));
@@ -1297,7 +1308,7 @@ function renderDonut(){
   const TYPE_CLASSIFY = r => {
     if (r.type==='펀드'||r.type==='TDF') return '펀드/TDF';
     if (r.type==='ISA'||r.type==='IRP'||r.type==='연금') return '절세계좌';
-    if (!r.fund && (r.name.startsWith('KODEX')||r.name.startsWith('TIGER')||r.name.startsWith('ACE')||r.name.startsWith('TIME')||r.name.startsWith('SOL'))) return 'ETF';
+    if (!r.fund && isEtfByName(r.name)) return 'ETF';
     return '개별주식';
   };
   const TYPE_COLORS = {'개별주식':'var(--green)','ETF':'var(--blue)','펀드/TDF':'var(--purple)','절세계좌':'var(--amber)'};
@@ -3387,30 +3398,135 @@ function renderDivView(area) {
     </div>
   </div>
 
-  <!-- 월별 바 차트 -->
-  <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:16px">
-    <div class="flex-between-mb14">
-      <div style="font-size:.78rem;font-weight:700">📅 ${new Date().getFullYear()}년 월별 배당 예상</div>
-      <div class="lbl-67-muted">세전 기준</div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(12,1fr);gap:3px;align-items:flex-end;height:100px">`;
-
-  const maxM = Math.max(...monthly, 1);
-  monthly.forEach((v, i) => {
-    const isPast    = (i+1) < NOW_MONTH;
-    const isCurrent = (i+1) === NOW_MONTH;
-    const barH = Math.round((v / maxM) * 80);
-    const col = isCurrent ? 'var(--cyan)' : isPast ? 'rgba(255,255,255,.15)' : 'rgba(34,197,94,.6)';
-    const textCol = isCurrent ? 'var(--cyan)' : isPast ? 'var(--muted)' : 'var(--green)';
-    html += `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;height:100%;justify-content:flex-end">
-      <div style="font-size:.58rem;color:${textCol};text-align:center;line-height:1.2;min-height:18px;display:flex;align-items:flex-end;justify-content:center">
-        ${v > 0 ? (v >= 100000 ? Math.round(v/10000)+'만' : Math.round(v/1000)+'천') : ''}
+  <!-- 월별 바 차트 (Canvas) -->
+  <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:.84rem;font-weight:700">📅 ${new Date().getFullYear()}년 월별 배당 예상</div>
+        <div style="font-size:.66rem;color:var(--muted);margin-top:2px">세전 기준 · 현재월 <span style="color:var(--cyan)">${NOW_MONTH}월</span> 기준</div>
       </div>
-      <div style="width:100%;height:${Math.max(barH, v>0?5:2)}px;background:${col};border-radius:3px 3px 0 0;min-height:${v>0?'5px':'2px'}"></div>
-      <div style="font-size:.58rem;color:${isCurrent?'var(--cyan)':'var(--muted)'};font-weight:${isCurrent?'700':'400'}">${MONTHS_KR[i]}</div>
-    </div>`;
-  });
-  html += `</div></div>`;
+      <div style="display:flex;gap:12px;font-size:.67rem;color:var(--muted);align-items:center">
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:4px;vertical-align:middle"></span>지난달</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#06b6d4;margin-right:4px;vertical-align:middle"></span>이번달</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#10b981;margin-right:4px;vertical-align:middle"></span>예정</span>
+      </div>
+    </div>
+    <canvas id="divMonthCanvas" style="width:100%;display:block" height="140"></canvas>
+  </div>`;
+
+  // Canvas 그래프 렌더 함수 등록 (DOM 삽입 후 실행)
+  html += `<script>
+  (function() {
+    function drawDivMonthChart() {
+      const canvas = document.getElementById('divMonthCanvas');
+      if (!canvas) return;
+      const monthly = ${JSON.stringify(monthly)};
+      const NOW_MONTH = ${NOW_MONTH};
+      const dpr = window.devicePixelRatio || 1;
+      const W = canvas.offsetWidth || canvas.parentElement.offsetWidth || 600;
+      const H = 140;
+      canvas.width  = W * dpr;
+      canvas.height = H * dpr;
+      canvas.style.width  = W + 'px';
+      canvas.style.height = H + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      const PAD_L = 8, PAD_R = 8, PAD_TOP = 28, PAD_BOT = 22;
+      const chartW = W - PAD_L - PAD_R;
+      const chartH = H - PAD_TOP - PAD_BOT;
+      const n = 12;
+      const gap = 3;
+      const barW = (chartW - gap * (n - 1)) / n;
+      const maxV = Math.max(...monthly, 1);
+
+      // 가이드라인 (최대값 기준 25%, 50%, 75%, 100%)
+      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx.lineWidth = 1;
+      [0.25, 0.5, 0.75, 1.0].forEach(ratio => {
+        const y = PAD_TOP + chartH - chartH * ratio;
+        ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
+      });
+
+      monthly.forEach((v, i) => {
+        const isPast    = (i + 1) < NOW_MONTH;
+        const isCurrent = (i + 1) === NOW_MONTH;
+        const x = PAD_L + i * (barW + gap);
+        const bH = v > 0 ? Math.max((v / maxV) * chartH, 4) : 2;
+        const y  = PAD_TOP + chartH - bH;
+
+        // 막대 색상
+        let color;
+        if (isCurrent) {
+          // 현재 월: 시안 그라디언트
+          const grad = ctx.createLinearGradient(x, y, x, PAD_TOP + chartH);
+          grad.addColorStop(0, 'rgba(6,182,212,1)');
+          grad.addColorStop(1, 'rgba(6,182,212,0.3)');
+          color = grad;
+        } else if (isPast) {
+          color = 'rgba(255,255,255,0.12)';
+        } else {
+          // 미래: 그린 그라디언트
+          const grad = ctx.createLinearGradient(x, y, x, PAD_TOP + chartH);
+          grad.addColorStop(0, 'rgba(16,185,129,0.85)');
+          grad.addColorStop(1, 'rgba(16,185,129,0.25)');
+          color = grad;
+        }
+
+        // 현재월 글로우 효과
+        if (isCurrent && v > 0) {
+          ctx.shadowColor = 'rgba(6,182,212,0.5)';
+          ctx.shadowBlur  = 8;
+        }
+
+        // 막대 그리기 (상단 모서리 둥글게)
+        const r = Math.min(3, barW / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.lineTo(x + barW - r, y);
+        ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+        ctx.lineTo(x + barW, PAD_TOP + chartH);
+        ctx.lineTo(x, PAD_TOP + chartH);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // 현재월 하이라이트 테두리
+        if (isCurrent) {
+          ctx.strokeStyle = 'rgba(6,182,212,0.8)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+
+        // 금액 라벨 (막대 위)
+        if (v > 0) {
+          const label = v >= 100000 ? Math.round(v/10000)+'만' : Math.round(v/1000)+'천';
+          ctx.fillStyle = isCurrent ? '#06b6d4' : isPast ? 'rgba(255,255,255,0.35)' : '#10b981';
+          ctx.font = \`\${isCurrent ? '700' : '400'} 9px sans-serif\`;
+          ctx.textAlign = 'center';
+          ctx.fillText(label, x + barW / 2, y - 4);
+        }
+
+        // 월 라벨
+        const monthLabel = (i + 1) + '월';
+        ctx.fillStyle = isCurrent ? '#06b6d4' : 'rgba(100,116,139,0.9)';
+        ctx.font = \`\${isCurrent ? '700' : '400'} 9px sans-serif\`;
+        ctx.textAlign = 'center';
+        ctx.fillText(monthLabel, x + barW / 2, H - 5);
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', drawDivMonthChart);
+    } else {
+      requestAnimationFrame(drawDivMonthChart);
+    }
+    window.addEventListener('resize', drawDivMonthChart);
+  })();
+  <\/script>`;
 
   // 종목별 배당 테이블
   const sorted = [...divRows].sort((a,b)=>b.annualDiv-a.annualDiv);
@@ -4671,6 +4787,10 @@ function exportData() {
     savedPrices,
     savedPriceDates,
     lastUpdated,
+    DIVDATA,        // ★ 배당 데이터
+    fundDirect,     // ★ 펀드 직접입력
+    LOAN_SCHEDULE,  // ★ 대출 상환 스케줄
+    RE_VALUE_HIST,  // ★ 부동산 시가 이력
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
@@ -4723,6 +4843,26 @@ function importData(input) {
       if (data.savedPrices) Object.assign(savedPrices, data.savedPrices);
       if (data.savedPriceDates) Object.assign(savedPriceDates, data.savedPriceDates);
       if (data.lastUpdated) lastUpdated = data.lastUpdated;
+      // 배당 데이터
+      if (data.DIVDATA && typeof data.DIVDATA === 'object') {
+        Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
+        Object.assign(DIVDATA, data.DIVDATA);
+      }
+      // 펀드 직접입력
+      if (data.fundDirect && typeof data.fundDirect === 'object') {
+        Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
+        Object.assign(fundDirect, data.fundDirect);
+      }
+      // 대출 상환 스케줄
+      if (Array.isArray(data.LOAN_SCHEDULE)) {
+        LOAN_SCHEDULE.length = 0;
+        data.LOAN_SCHEDULE.forEach(r => LOAN_SCHEDULE.push(r));
+      }
+      // 부동산 시가 이력
+      if (Array.isArray(data.RE_VALUE_HIST)) {
+        RE_VALUE_HIST.length = 0;
+        data.RE_VALUE_HIST.forEach(r => RE_VALUE_HIST.push(r));
+      }
 
       // 동기화 및 저장
       syncHoldingsFromTrades();
@@ -4734,6 +4874,8 @@ function importData(input) {
         localStorage.setItem(ACCT_ORDER_KEY, JSON.stringify(ACCT_ORDER));
         localStorage.setItem(LOAN_KEY, JSON.stringify(LOAN));
         localStorage.setItem(REALESTATE_KEY, JSON.stringify(REAL_ESTATE));
+        localStorage.setItem(LOAN_SCHEDULE_KEY, JSON.stringify(LOAN_SCHEDULE));
+        localStorage.setItem(RE_VALUE_KEY, JSON.stringify(RE_VALUE_HIST));
       } catch(err) {}
 
       refreshAll();
@@ -4831,7 +4973,8 @@ async function quickFetchByDate() {
       let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
-        html += ` · <span style="color:var(--red-lt)">⚠️ 미조회 ${missing.length}개: ${missing.map(m=>m.name).join(', ')}</span>`;
+        const missingStr = missing.map(m => `${m.code} ${m.name}`).join(', ');
+        html += ` · <span style="color:var(--red-lt)">⚠️ 미조회 ${missing.length}개: ${missingStr}</span>`;
       }
       setStatusLabel(html, 'ok');
       refreshAll();
@@ -4926,11 +5069,12 @@ async function autoLoadPrices() {
 
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
+        const missingStr = missing.map(m => `${m.code} ${m.name}`).join(', ');
         const hint = document.createElement('span');
         hint.id = 'gsheetMissingHint';
-        hint.title = '미등록 종목: ' + missing.map(m=>m.name+'('+m.code+')').join(', ');
+        hint.title = '미조회 종목: ' + missingStr;
         hint.style.cssText = 'margin-left:6px;cursor:pointer;font-size:.7rem;color:var(--red)';
-        hint.textContent = '⚠️ 미조회 ' + missing.length + '개';
+        hint.textContent = '⚠️ 미조회 ' + missing.length + '개: ' + missingStr;
         hint.onclick = () => switchView('gsheet');
         const existing = $el('gsheetMissingHint');
         if (existing) existing.remove();
