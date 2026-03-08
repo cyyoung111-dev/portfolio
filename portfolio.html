@@ -128,9 +128,7 @@
 <script>
 const $el = id => document.getElementById(id);
 
-// 필터 버튼 스타일 헬퍼
-// 39회차: f-btn CSS 클래스로 전환. _fBtnClass() 사용 권장
-function _fBtnStyle(active) { return ''; } // 하위 호환 유지 (style= 무해화)
+// 필터 버튼 클래스 헬퍼
 function _fBtnClass(active) { return active ? 'f-btn active' : 'f-btn'; }
 
 // 거래 편집 모달 — 자산구분 버튼 선택
@@ -342,7 +340,7 @@ function migrateLegacyTrades() {
     const buyRec = {
       id: t.id,
       tradeType: 'buy',
-      acct: t.acct, assetType: t.type || '주식',
+      acct: t.acct, assetType: t.type || '주식',  // t.type: 구형 레코드 필드 (마이그레이션 전용)
       name: t.name, code: t.code || '',
       qty: t.qty || 0, price: t.buyPrice || 0,
       date: t.buyDate || '', memo: t.memo || '',
@@ -355,7 +353,7 @@ function migrateLegacyTrades() {
       toAdd.push({
         id: genTradeId(),
         tradeType: 'sell',
-        acct: t.acct, assetType: t.type || '주식',
+        acct: t.acct, assetType: t.type || '주식',  // t.type: 구형 레코드 필드 (마이그레이션 전용)
         name: t.name, code: t.code || '',
         qty: t.qty || 0, price: t.sellPrice || 0,
         date: t.sellDate, memo: t.memo || '',
@@ -2472,7 +2470,7 @@ function openAddTrade(prefill, forceTradeType) {
   const _teEp = getEP(normName(t.name) || t.name);
   const _teAssetType = getEPType(_teEp, null)
     ? (_teEp.assetType || _teEp.type)
-    : (t.assetType || t.type || '주식');
+    : (t.assetType || t.type || '주식');  // t.type: 구형 레코드 호환 fallback (마이그레이션 후 불필요하나 안전망 유지)
   f('te-assettype').value = _teAssetType;
   // 자산구분 버튼 그룹 렌더링
   (function(){
@@ -3529,7 +3527,7 @@ function drawDivMonthChart() {
   const barW   = (chartW - gap * 11) / 12;
   const maxV   = Math.max(...monthly, 1);
 
-  // 가이드라인
+  // 가이드라인 (하드코딩 rgba: CSS 변수 아닌 고정 투명도 — resolveColor 불필요)
   ctx.strokeStyle = 'rgba(255,255,255,0.05)';
   ctx.lineWidth = 1;
   [0.25, 0.5, 0.75, 1.0].forEach(ratio => {
@@ -3576,6 +3574,7 @@ function drawDivMonthChart() {
     ctx.shadowBlur = 0;
 
     if (isCurrent) {
+      // 하드코딩 rgba: --cyan 기반 고정 테두리 — resolveColor 불필요
       ctx.strokeStyle = 'rgba(6,182,212,0.8)';
       ctx.lineWidth = 1;
       ctx.stroke();
@@ -3583,12 +3582,14 @@ function drawDivMonthChart() {
 
     if (v > 0) {
       const label = v >= 100000 ? Math.round(v/10000)+'만' : Math.round(v/1000)+'천';
+      // 하드코딩 hex: --cyan(#06b6d4) / --green(#10b981) 고정값 — resolveColor 불필요
       ctx.fillStyle   = isCurrent ? '#06b6d4' : isPast ? 'rgba(255,255,255,0.35)' : '#10b981';
       ctx.font        = `${isCurrent ? '700' : '400'} 9px sans-serif`;
       ctx.textAlign   = 'center';
       ctx.fillText(label, x + barW / 2, y - 4);
     }
 
+    // 하드코딩 hex/rgba: --cyan(#06b6d4) / --muted rgba — resolveColor 불필요
     ctx.fillStyle = isCurrent ? '#06b6d4' : 'rgba(100,116,139,0.9)';
     ctx.font      = `${isCurrent ? '700' : '400'} 9px sans-serif`;
     ctx.textAlign = 'center';
@@ -4663,6 +4664,14 @@ function openResetDialog() {
         </label>
 
         <label class="list-item-row">
+          <input type="checkbox" id="rst-realestate" class="checkbox-red"/>
+          <div>
+            <div class="fw-600">부동산 &amp; 대출 데이터</div>
+            <div class="txt-muted-68">REAL_ESTATE · LOAN · LOAN_SCHEDULE · RE_VALUE_HIST</div>
+          </div>
+        </label>
+
+        <label class="list-item-row">
           <input type="checkbox" id="rst-prices" class="checkbox-red"/>
           <div>
             <div class="fw-600">현재가 캐시</div>
@@ -4709,11 +4718,12 @@ function applyReset() {
   }
 
   const keys = {
-    trades:  $el('rst-trades')?.checked,
-    stocks:  $el('rst-stocks')?.checked,
-    sectors: $el('rst-sectors')?.checked,
-    accts:   $el('rst-accts')?.checked,
-    prices:  $el('rst-prices')?.checked,
+    trades:      $el('rst-trades')?.checked,
+    stocks:      $el('rst-stocks')?.checked,
+    sectors:     $el('rst-sectors')?.checked,
+    accts:       $el('rst-accts')?.checked,
+    realestate:  $el('rst-realestate')?.checked,
+    prices:      $el('rst-prices')?.checked,
   };
 
   // ── 거래 이력 + 보유종목
@@ -4757,14 +4767,27 @@ function applyReset() {
     localStorage.removeItem(LAST_UPDATED_KEY);
   }
 
+  // ── 부동산 & 대출
+  if (keys.realestate) {
+    Object.keys(REAL_ESTATE).forEach(k => delete REAL_ESTATE[k]);
+    Object.keys(LOAN).forEach(k => delete LOAN[k]);
+    LOAN_SCHEDULE.length = 0;
+    RE_VALUE_HIST.length = 0;
+    localStorage.removeItem(REALESTATE_KEY);
+    localStorage.removeItem(LOAN_KEY);
+    localStorage.removeItem(LOAN_SCHEDULE_KEY);
+    localStorage.removeItem(RE_VALUE_KEY);
+  }
+
   $el('resetOverlay').style.display = 'none';
 
   const labels = [];
-  if (keys.trades)  labels.push('거래이력');
-  if (keys.stocks)  labels.push('종목목록');
-  if (keys.sectors) labels.push('섹터색상');
-  if (keys.accts)   labels.push('계좌목록');
-  if (keys.prices)  labels.push('현재가캐시');
+  if (keys.trades)      labels.push('거래이력');
+  if (keys.stocks)      labels.push('종목목록');
+  if (keys.sectors)     labels.push('섹터색상');
+  if (keys.accts)       labels.push('계좌목록');
+  if (keys.realestate)  labels.push('부동산/대출');
+  if (keys.prices)      labels.push('현재가캐시');
 
   recomputeRows();
   refreshAll();
@@ -4864,19 +4887,15 @@ function importData(input) {
         data.RE_VALUE_HIST.forEach(r => RE_VALUE_HIST.push(r));
       }
 
-      // 동기화 및 저장
+      // 동기화 및 저장 (각 전용 save 함수로 일괄 처리)
       syncHoldingsFromTrades();
       saveHoldings();
       syncAcctOrder();
-      // localStorage 전체 갱신
-      try {
-        localStorage.setItem(ACCT_COLORS_KEY, JSON.stringify(ACCT_COLORS));
-        localStorage.setItem(ACCT_ORDER_KEY, JSON.stringify(ACCT_ORDER));
-        localStorage.setItem(LOAN_KEY, JSON.stringify(LOAN));
-        localStorage.setItem(REALESTATE_KEY, JSON.stringify(REAL_ESTATE));
-        localStorage.setItem(LOAN_SCHEDULE_KEY, JSON.stringify(LOAN_SCHEDULE));
-        localStorage.setItem(RE_VALUE_KEY, JSON.stringify(RE_VALUE_HIST));
-      } catch(err) {}
+      saveAcctColors();
+      saveAcctOrder();
+      saveRealEstate();   // REALESTATE_KEY
+      saveSchedule();     // LOAN_SCHEDULE_KEY + RE_VALUE_KEY
+      try { localStorage.setItem(LOAN_KEY, JSON.stringify(LOAN)); } catch(err) {}
 
       refreshAll();
       _mgmtRefresh();
@@ -5349,13 +5368,11 @@ async function loadSettings() {
       Object.entries(s.ACCT_COLORS).forEach(([k,v]) => {
         ACCT_COLORS[k] = (typeof v==='string' && v.startsWith('var(')) ? resolveColor(v) : v;
       });
-      try { localStorage.setItem(ACCT_COLORS_KEY, JSON.stringify(ACCT_COLORS)); } catch(e) {}
     }
     // ACCT_ORDER
     if (Array.isArray(s.ACCT_ORDER)) {
       ACCT_ORDER.length = 0;
       s.ACCT_ORDER.forEach(a => ACCT_ORDER.push(a));
-      try { localStorage.setItem(ACCT_ORDER_KEY, JSON.stringify(ACCT_ORDER)); } catch(e) {}
     }
     // SECTOR_COLORS
     if (s.SECTOR_COLORS && typeof s.SECTOR_COLORS === 'object') {
@@ -5363,42 +5380,45 @@ async function loadSettings() {
       Object.entries(s.SECTOR_COLORS).forEach(([k,v]) => {
         SECTOR_COLORS[k] = (typeof v==='string' && v.startsWith('var(')) ? resolveColor(v) : v;
       });
-      try { localStorage.setItem(SECTOR_COLORS_KEY, JSON.stringify(SECTOR_COLORS)); } catch(e) {}
     }
     // DIVDATA
     if (s.DIVDATA && typeof s.DIVDATA === 'object') {
       Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
       Object.assign(DIVDATA, s.DIVDATA);
-      try { localStorage.setItem(DIVDATA_KEY, JSON.stringify(DIVDATA)); } catch(e) {}
     }
     // LOAN
     if (s.LOAN && typeof s.LOAN === 'object') {
       Object.assign(LOAN, s.LOAN);
-      try { localStorage.setItem(LOAN_KEY, JSON.stringify(LOAN)); } catch(e) {}
     }
     // REAL_ESTATE
     if (s.REAL_ESTATE && typeof s.REAL_ESTATE === 'object') {
       Object.assign(REAL_ESTATE, s.REAL_ESTATE);
-      try { localStorage.setItem(REALESTATE_KEY, JSON.stringify(REAL_ESTATE)); } catch(e) {}
     }
     // fundDirect
     if (s.fundDirect && typeof s.fundDirect === 'object') {
       Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
       Object.assign(fundDirect, s.fundDirect);
-      try { localStorage.setItem(FUNDDIRECT_KEY, JSON.stringify(fundDirect)); } catch(e) {}
     }
     // LOAN_SCHEDULE
     if (Array.isArray(s.LOAN_SCHEDULE)) {
       LOAN_SCHEDULE.length = 0;
       s.LOAN_SCHEDULE.forEach(r => LOAN_SCHEDULE.push(r));
-      try { localStorage.setItem(LOAN_SCHEDULE_KEY, JSON.stringify(LOAN_SCHEDULE)); } catch(e) {}
     }
     // RE_VALUE_HIST
     if (Array.isArray(s.RE_VALUE_HIST)) {
       RE_VALUE_HIST.length = 0;
       s.RE_VALUE_HIST.forEach(r => RE_VALUE_HIST.push(r));
-      try { localStorage.setItem(RE_VALUE_KEY, JSON.stringify(RE_VALUE_HIST)); } catch(e) {}
     }
+    // ── GSheet 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
+    saveHoldings();
+    saveAcctColors();
+    saveAcctOrder();
+    try {
+      localStorage.setItem(LOAN_KEY, JSON.stringify(LOAN));
+      localStorage.setItem(REALESTATE_KEY, JSON.stringify(REAL_ESTATE));
+      localStorage.setItem(LOAN_SCHEDULE_KEY, JSON.stringify(LOAN_SCHEDULE));
+      localStorage.setItem(RE_VALUE_KEY, JSON.stringify(RE_VALUE_HIST));
+    } catch(e) {}
 
     // ── 거래이력 복원 (localStorage가 비어있을 때만 — 기존 데이터 우선)
     if (rawTrades.length === 0) {
@@ -5412,6 +5432,26 @@ async function loadSettings() {
           });
           syncHoldingsFromTrades();
           saveHoldings();
+        } else {
+          // ── 거래이력도 없을 때 → 보유현황 시트에서 직접 복원 (최후 fallback)
+          try {
+            const hRes  = await fetchWithTimeout(GSHEET_API_URL + '?action=getHoldings', 15000);
+            const hData = await hRes.json();
+            if (hData.status === 'ok' && Array.isArray(hData.holdings) && hData.holdings.length > 0) {
+              rawHoldings.length = 0;
+              hData.holdings.forEach(h => {
+                rawHoldings.push({
+                  acct:      h.acct      || '기타',
+                  name:      h.name      || '',
+                  code:      h.code      || '',
+                  qty:       h.qty       || 0,
+                  cost:      h.qty > 0 ? (h.costAmt / h.qty) : 0,
+                  assetType: h.assetType || '주식',
+                });
+              });
+              saveHoldings();
+            }
+          } catch(e) { console.warn('보유현황 복원 실패:', e); }
         }
       } catch(e) { console.warn('거래이력 복원 실패:', e); }
     }
@@ -5526,6 +5566,7 @@ async function syncTradesToGsheet() {
         qty:       t.qty       || 0,
         price:     t.price     || 0,
         assetType: t.assetType || '주식',
+        memo:      t.memo      || '',
       }));
     if (trades.length === 0) return;
 
