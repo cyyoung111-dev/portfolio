@@ -6,11 +6,11 @@
 <title>내 자산 포트폴리오 v2</title>
 
 <style>
-  *{box-sizing:border-box}:root{--bg:#080d18;--s1:#0e1726;--s2:#141f33;--border:#1c2a42;--green:#10b981;--red:#ef4444;--blue:#3b82f6;--amber:#f59e0b;--purple:#8b5cf6;--cyan:#06b6d4;--pink:#ec4899;--text:#e2e8f0;--muted:#64748b;--gold:#f59e0b;--gold2:#f97316;--red-lt:#f87171;--green-lt:#4ade80;--green-md:#34d399;--blue-lt:#60a5fa;--purple-lt:#a78bfa;--purple-dk:#7c3aed;--tr:all .15s}*{margin:0;padding:0}input,select,textarea{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text)}input[type=checkbox],input[type=radio],input[type=color],input[type=file],input[type=range]{background:revert;border:revert;border-radius:revert}input[type=date],input[type=datetime-local]{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:.82rem}input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6;cursor:pointer}body{background:var(--bg);color:var(--text);min-height:100vh;font-family:'맑은 고딕','Malgun Gothic','Apple SD Gothic Neo',sans-serif}body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 70% 40% at 10% 10%,rgba(16,185,129,.05) 0%,transparent 60%),radial-gradient(ellipse 60% 40% at 90% 90%,rgba(59,130,246,.06) 0%,transparent 60%);pointer-events:none;z-index:0}.wrap{max-width:1200px;margin:0 auto;padding:28px 18px;position:relative;z-index:1}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px}.hdr h1{font-size:1.75rem;font-weight:900;letter-spacing:-.04em;background:linear-gradient(135deg,var(--green),#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.hdr p{font-size:.78rem;color:var(--muted);margin-top:4px}.sum-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.sc{background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;position:relative;overflow:hidden}.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.sc.c1::before{background:linear-gradient(90deg,var(--green),var(--cyan))}.sc.c2::before{background:linear-gradient(90deg,var(--blue),var(--purple))}.sc.c3::before{background:linear-gradient(90deg,var(--green),var(--green-md))}.sc.c4::before{background:linear-gradient(90deg,var(--amber),#f97316)}.sc .lbl{font-size:.72rem;color:var(--muted);margin-bottom:8px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}.sc .val{font-size:1.45rem;font-weight:600}.sc .sub{font-size:.7rem;color:var(--muted);margin-top:5px}.tbl-wrap{background:var(--s1);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:20px;-webkit-overflow-scrolling:touch;overflow-x:auto}.tbl-head{padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}.tbl-head h3{font-size:.86rem;font-weight:700}.tbl-head .tsum{font-size:.82rem}table{width:100%;border-collapse:collapse}th{text-align:left;padding:11px 16px;font-size:.7rem;color:var(--muted);font-weight:600;background:var(--s2);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}td{padding:13px 16px;border-top:1px solid var(--border);font-size:.82rem;white-space:nowrap}tr:hover td{background:rgba(255,255,255,.02)}th.num{text-align:right}.fw6{font-weight:600}.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.64rem;font-weight:700;margin-left:4px}.sector-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:20px}.sector-card{background:var(--s1);border:1px solid var(--border);border-radius:14px;overflow:hidden}.sector-hdr{padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}.sector-hdr h4{font-size:.84rem;font-weight:700}.sector-hdr .sval{font-size:.8rem}.chart-card{background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:18px}.chart-card h4{font-size:.72rem;color:var(--muted);font-weight:500;letter-spacing:.07em;text-transform:uppercase;margin-bottom:14px}.donut-wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.donut-legend{flex:1;min-width:110px}.legend-item{display:flex;align-items:center;gap:7px;margin-bottom:9px}.legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}.legend-label{font-size:.72rem;color:var(--muted);flex:1}.legend-val{font-size:.72rem}.adot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.fade{animation:fadeUp .4s ease both}.d1{animation-delay:.05s}.d2{animation-delay:.1s}.d3{animation-delay:.15s}.d4{animation-delay:.2s}.d5{animation-delay:.25s}@media(min-width:1024px){.wrap{padding:32px 28px}.sum-row{gap:14px}.sc{padding:18px 20px}.sc .lbl{font-size:.72rem}.sc .val{font-size:1.55rem}th{padding:11px 16px}td{padding:13px 16px}.tbl-head{padding:16px 20px}.sector-grid{grid-template-columns:repeat(2,1fr)}.vs-btn{min-width:58px;padding:8px 12px;gap:4px}.vs-btn-icon svg{width:17px;height:17px}.vs-btn-label{font-size:.62rem}.view-switcher{gap:7px}.btn-amber,.btn-danger-lg,.btn-gold-ghost,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-blue-ghost{padding:9px 22px;font-size:.85rem}.btn-purple-700,.btn-ghost-sm,.btn-cancel-sm,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:7px 18px;font-size:.75rem}.btn-sm,.btn-amber-sm,.btn-purple-sm,.btn-outline-sm,.btn-edit-sm,.btn-del-sm,.btn-danger,.btn-danger-ghost{padding:6px 14px;font-size:.73rem}}@media(min-width:1200px){#sum-row-1,#sum-row-2{grid-template-columns:repeat(4,1fr)}#sum-row-1{margin-bottom:0;border-radius:16px 16px 0 0}#sum-row-2{border-radius:0 0 16px 16px;margin-top:0}.wrap{max-width:1400px}th{padding:11px 18px}td{padding:13px 18px;font-size:.82rem}}*{-webkit-tap-highlight-color:transparent}.editor-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px}.editor-overlay.open{display:flex}.editor-box{background:var(--s1);border:1px solid var(--border);border-radius:16px;width:100%;max-width:700px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}.editor-header{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}.editor-header h3{font-size:1rem;font-weight:700}.editor-header p{font-size:.72rem;color:var(--muted);margin-top:3px}.editor-close{width:30px;height:30px;border-radius:50%;background:var(--s2);border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem}.editor-close:hover{color:var(--text);background:var(--border)}.editor-body{overflow-y:auto;padding:16px 24px;flex:1;min-height:0}.editor-group{margin-bottom:20px}.editor-group-title{font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}.editor-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}.editor-row label{flex:1;font-size:.8rem;color:var(--text);min-width:0}.editor-row label span{display:block;font-size:.65rem;color:var(--muted);margin-top:1px}.editor-row input{width:130px;flex-shrink:0;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.82rem;text-align:right;outline:none;transition:border-color .15s}.editor-row input:focus{border-color:var(--gold)}.editor-row .price-status{width:18px;height:18px;border-radius:50%;flex-shrink:0;font-size:.65rem;display:flex;align-items:center;justify-content:center}.editor-footer{padding:16px 24px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:10px;justify-content:flex-end;align-items:center}.editor-footer .last-updated{font-size:.7rem;color:var(--muted);flex:1}.btn-cancel{background:var(--s2);border:1px solid var(--border);color:var(--muted);padding:8px 18px;border-radius:8px;cursor:pointer;font-size:.82rem}.btn-apply{background:var(--gold);border:none;color:#000;font-weight:700;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:.82rem}.btn-apply:hover{background:var(--gold2)}.th-filter{cursor:pointer;user-select:none;position:relative;white-space:nowrap}.th-filter:hover{color:var(--text)!important}.th-filter .sort-icon{margin-left:4px;opacity:.4;font-size:.6rem}.th-filter.asc .sort-icon::after{content:'▲';opacity:1;color:var(--amber)}.th-filter.desc .sort-icon::after{content:'▼';opacity:1;color:var(--amber)}.th-filter:not(.asc):not(.desc) .sort-icon::after{content:'⇅'}.col-filter-dropdown{position:absolute;top:100%;left:0;z-index:200;background:var(--s1);border:1px solid var(--border);border-radius:10px;min-width:160px;max-height:280px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);padding:6px 0}.col-filter-dropdown .cfd-search{margin:6px 8px;width:calc(100% - 16px);background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.74rem;outline:none}.col-filter-dropdown label{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:.76rem;cursor:pointer;transition:background .1s}.col-filter-dropdown label:hover{background:rgba(255,255,255,.05)}.col-filter-dropdown label input[type=checkbox]{width:13px;height:13px;accent-color:var(--amber)}.col-filter-dropdown .cfd-actions{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--border);margin-top:4px}.col-filter-dropdown .cfd-btn{flex:1;padding:5px;font-size:.7rem;border-radius:5px;cursor:pointer;border:1px solid var(--border);background:var(--s2);color:var(--muted)}.col-filter-dropdown .cfd-btn:hover{color:var(--text)}.col-filter-dropdown .cfd-btn.apply{background:rgba(245,158,11,.15);border-color:var(--amber);color:var(--amber);font-weight:700}.filter-active-badge{display:inline-block;background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.4);color:var(--amber);font-size:.62rem;padding:1px 6px;border-radius:10px;margin-left:5px;vertical-align:middle;font-weight:700}.active-filters-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}.active-filter-chip{display:flex;align-items:center;gap:5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:var(--amber);font-size:.7rem;padding:3px 8px;border-radius:999px}.active-filter-chip button{background:none;border:none;color:var(--amber);cursor:pointer;font-size:.75rem;line-height:1;padding:0 0 0 2px}.btn-sm{padding:5px 12px;border-radius:7px;font-size:.72rem;cursor:pointer}.btn-sm-purple{border:1px solid rgba(139,92,246,.4);background:rgba(139,92,246,.1);color:var(--purple-lt);padding:5px 12px;border-radius:7px;font-size:.72rem;cursor:pointer}.btn-sm.btn-gold{border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.1);color:var(--gold)}.btn-sm.btn-sell{border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.12);color:var(--red-lt)}.small-toggle-bar{display:flex;justify-content:space-between;align-items:center;padding:7px 14px;background:rgba(100,116,139,.08);border:1px solid rgba(100,116,139,.2);border-radius:8px;cursor:pointer;margin-bottom:6px;font-size:.72rem;color:var(--muted);transition:var(--tr)}.small-toggle-bar:hover{background:rgba(100,116,139,.14);color:var(--text)}.small-toggle-bar.open{background:rgba(100,116,139,.14)}.st-left{display:flex;flex-direction:column;gap:2px}.st-cnt{font-size:.65rem;color:var(--muted)}.st-arrow{font-size:.7rem;transition:transform .2s}.small-toggle-bar.open .trade-badge-hold{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.62rem;font-weight:700;background:rgba(34,197,94,.15);color:var(--green-lt);border:1px solid rgba(34,197,94,.25)}.trade-badge-sell{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.62rem;font-weight:700;background:rgba(239,68,68,.12);color:var(--red-lt);border:1px solid rgba(239,68,68,.2)}.trade-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:11px 16px;flex:1;min-width:110px}.trade-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:3px}.trade-stat-value{font-size:.92rem;font-weight:700}.trade-cb{width:15px;height:15px;cursor:pointer;accent-color:var(--amber)}#tradeSelBar{transition:all .2s}#te-tradetype-buy.active{background:rgba(34,197,94,.15)!important;color:var(--green-lt)!important}#te-tradetype-sell.active{background:rgba(239,68,68,.12)!important;color:var(--red-lt)!important}.div-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 16px;flex:1;min-width:120px}.div-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:4px}.div-stat-value{font-size:.95rem;font-weight:700}.div-stat-sub{font-size:.62rem;color:var(--muted);margin-top:3px}.div-freq-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.62rem;font-weight:700}@media(max-width:768px){.wrap{padding:16px 12px}.hdr{margin-bottom:14px}.hdr h1{font-size:1.25rem}.hdr p{font-size:.7rem}.sum-row{grid-template-columns:repeat(2,1fr)!important;gap:10px}.sc{padding:14px 14px}.sc .lbl{font-size:.65rem;margin-bottom:6px;font-weight:600}.sc .val{font-size:1.15rem;font-weight:700}.sc .sub{font-size:.62rem}.sc .lbl button{font-size:.55rem;padding:1px 5px;margin-left:2px}.tbl-wrap{border-radius:12px}.tbl-head{padding:12px 14px;flex-direction:column;align-items:flex-start;gap:4px}.tbl-head h3{font-size:.84rem}table{font-size:.77rem}th{padding:9px 10px;font-size:.64rem}td{padding:11px 10px}thead th{position:sticky;top:0;z-index:2}.chart-card{padding:14px}.sector-grid{grid-template-columns:1fr}.donut-wrap{flex-direction:column;align-items:center}.donut-legend{width:100%}#div-month-chart{height:90px!important}.editor-box{max-width:96vw!important}#tradesHeaderBtns .btn-sm{padding:4px 8px!important;font-size:.68rem!important}.sum-row-2 .sc{padding:8px 9px}.sum-row-2 .lbl{font-size:.55rem}.sum-row-2 .val{font-size:.88rem}}.trade-check{transform:scale(1.2)}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}#gsheetUrlInput{width:100%!important}#realEstateEditor .editor-row{flex-direction:column}#div-month-chart{height:80px!important}}@media(max-width:360px){.wrap{padding:8px 6px}.sc .val{font-size:.85rem}.sc .lbl{font-size:.55rem}.sc .sub{font-size:.54rem}table{font-size:.62rem}th,td{padding:5px 4px!important}.sum-row{gap:4px}.vs-btn{min-width:38px;padding:5px 5px}.vs-btn-label{font-size:.5rem}}*{-webkit-tap-highlight-color:transparent}@media(hover:none){button,a,[onclick]{-webkit-tap-highlight-color:transparent}.tbl-wrap,.editor-body,.view-switcher{-webkit-overflow-scrolling:touch}button:active{opacity:.75}}@media(max-width:667px) and (orientation:landscape){.sum-row{grid-template-columns:repeat(4,1fr)!important}.sc .val{font-size:.85rem}.wrap{padding:8px 10px}}[style*="overflow-x:auto"]{-webkit-overflow-scrolling:touch}.btn-edit-sm{padding:5px 12px;border-radius:5px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:var(--amber);font-size:.72rem;cursor:pointer}.btn-del-sm{padding:5px 12px;border-radius:5px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.1);color:var(--red-lt);font-size:.72rem;cursor:pointer}.form-label{font-size:.72rem;color:var(--muted);display:block;margin-bottom:4px}.input-full-82,.input-full-82b{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.82rem}.input-full-73{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.73rem}.c-text{color:var(--text)}.c-muted{color:var(--muted)}.c-gold{color:var(--gold)}.c-amber{color:var(--amber)}.c-red{color:var(--red-lt)}.fw-600{font-weight:600}.txt-muted-68{font-size:.68rem;color:var(--muted)}.txt-muted-72{font-size:.72rem;color:var(--muted)}.txt-muted-75{font-size:.75rem;color:var(--muted)}.label-muted-68{font-size:.68rem;color:var(--muted);margin-bottom:4px}.txt-blue-700{font-weight:700;color:var(--blue-lt);margin-bottom:6px}.txt-red-right{text-align:right;color:var(--red-lt)}.txt-muted-68-right{font-size:.68rem;color:var(--muted);font-weight:500;text-align:right;padding:5px 8px}.txt-78-700{font-size:.78rem;font-weight:700;color:var(--text)}.txt-70-400{font-size:.7rem;font-weight:400;color:var(--muted)}.txt-65-400{font-size:.65rem;font-weight:400}.mt-3-muted-72{margin:3px 0 0;font-size:.72rem;color:var(--muted)}.p-0-4{padding:0 4px}.p-2{padding:2px}.p-8-14{padding:8px 14px}.td-right{text-align:right}.td-right-600{padding:8px 10px;text-align:right;font-weight:600}.td-right-plain{padding:8px 10px;text-align:right}.th-left-muted{padding:7px 8px;text-align:left;color:var(--muted);font-weight:600}.th-right-500{padding:7px 12px;text-align:right;font-weight:500}.th-left-500{padding:7px 12px;text-align:left;font-weight:500}.h3-section{margin:0;font-size:1rem;font-weight:700}.h3-card{margin:0;font-size:.88rem;font-weight:700}.emoji-lg{font-size:2rem;margin-bottom:8px}.overflow-x-auto{overflow-x:auto;-webkit-overflow-scrolling:touch}.w-150{width:150px;padding:6px 10px;font-size:.82rem}.w-160{width:160px;padding:6px 10px;font-size:.82rem}.stat-card{flex:1;min-width:120px;background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 16px}.list-item-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:.82rem}.btn-ghost-sm,.btn-cancel-sm{padding:6px 16px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.73rem;font-weight:700;cursor:pointer}.btn-ghost-muted{background:var(--s2);border:1px solid var(--border);color:var(--muted);padding:8px 18px;border-radius:8px;cursor:pointer;font-size:.82rem}.checkbox-red{accent-color:var(--red-lt);width:16px;height:16px}.c-cyan{color:var(--cyan)}.c-green{color:var(--green)}.d-none{display:none}#toast-container{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}.toast{display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-size:.82rem;font-weight:500;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:auto;min-width:200px;max-width:88vw;animation:toastIn .28s cubic-bezier(.22,1,.36,1) both}.toast.toast-out{animation:toastOut .25s ease forwards}.toast-ok{background:linear-gradient(135deg,#059669,var(--green))}.toast-error{background:linear-gradient(135deg,#b91c1c,var(--red))}.toast-warn{background:linear-gradient(135deg,#b45309,#f59e0b)}.toast-info{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}.toast-icon{font-size:1rem;flex-shrink:0}.toast-msg{flex:1;line-height:1.4}@keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes toastOut{to{opacity:0;transform:translateY(10px) scale(.95)}}.lbl-62-muted{font-size:.62rem;color:var(--muted);margin-bottom:2px}.lbl-62-muted-3{font-size:.62rem;color:var(--muted);margin-bottom:3px}.lbl-65-muted-center{font-size:.65rem;color:var(--muted);font-weight:700;text-align:center}.bd-bottom{border-bottom:1px solid var(--border)}.flex-between-mb14{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.flex-between-mb10-gap8{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap}.flex-gap6-wrap{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.card-12{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px}.hidden-hint{display:none;font-size:.7rem;margin-bottom:6px;padding:5px 10px;border-radius:5px}.card-12-mb16{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}.card-12-p20{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 20px}.lbl-62-mt2{display:block;font-size:.62rem;color:var(--muted);margin-top:2px}.th-right-muted{padding:7px 8px;text-align:right;color:var(--muted);font-weight:600}.td-right-p6{padding:6px 8px;text-align:right}.td-p8-10{padding:8px 10px}.flex-col-gap8{display:flex;flex-direction:column;gap:8px}.flex-gap8{display:flex;gap:8px}.flex-gap6{display:flex;gap:6px}.flex-wrap-gap6{display:flex;gap:6px;flex-wrap:wrap}.flex-center-gap8{display:flex;align-items:center;gap:8px}.grid-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}.empty-msg{text-align:center;padding:24px;color:var(--muted);font-size:.8rem}.h3-95{margin:0;font-size:.95rem;font-weight:700}.h3-1rem-mb4{margin:0 0 4px;font-size:1rem;font-weight:700}.lbl-75-700-muted{font-size:.75rem;font-weight:700;color:var(--muted);margin-bottom:10px}.lbl-68-purple{font-size:.68rem;color:var(--purple-lt);font-weight:700;margin-bottom:7px}.lbl-67-muted{font-size:.67rem;color:var(--muted)}.lbl-64-muted{font-size:.64rem;color:var(--muted)}.txt-73-muted{margin:0;font-size:.73rem;color:var(--muted)}.btn-close-icon{background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer}.btn-purple{padding:6px 16px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.73rem;font-weight:600;cursor:pointer}.btn-amber-outline{padding:5px 12px;border-radius:6px;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.1);color:var(--gold);font-size:.72rem;cursor:pointer}.btn-outline-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:transparent;color:var(--muted);font-size:.72rem;cursor:pointer}.btn-link-blue{background:none;border:none;color:var(--blue-lt);cursor:pointer;font-size:.72rem}.btn-link{background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;text-decoration:underline;padding:0 2px}.s2-rounded{background:var(--s2);border-radius:8px;padding:10px 12px}.s2-muted{background:var(--s2);color:var(--muted)}.item-title{flex:1;font-size:.77rem;font-weight:600;color:var(--text)}.mb-16{margin-bottom:16px}.td-p7-center{padding:7px 12px;text-align:center}.td-p7-center-500{padding:7px 12px;text-align:center;font-weight:500}.img-full{width:100%;min-width:320px;height:auto;display:block}.gap-mb8{display:flex;gap:6px;margin:0 0 8px 4px}.gap-mb6{display:flex;gap:6px;margin:-1px 0 6px 4px}.txt-muted-68-left{padding:5px 8px;font-size:.68rem;color:var(--muted);font-weight:500;text-align:left}.input-s2-sm{background:var(--s2);border:1px solid var(--border);border-radius:7px;padding:5px 10px;color:var(--text);font-size:.78rem}.btn-purple-700{padding:6px 16px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.73rem;font-weight:700;cursor:pointer}.btn-danger{padding:5px 12px;border-radius:6px;border:none;background:rgba(239,68,68,.8);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-sort-toggle{padding:3px 10px;border-radius:999px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid var(--border);background:transparent;color:var(--muted)}.btn-sort-toggle.active{border-color:rgba(139,92,246,.6);background:rgba(139,92,246,.2);color:var(--purple-lt)}.btn-toggle-purple{padding:3px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid rgba(167,139,250,.25);background:transparent;color:var(--muted)}.btn-toggle-purple.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.25);color:var(--purple-lt)}.btn-toggle-purple-sm{padding:3px 7px;border-radius:6px;font-size:.62rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid rgba(167,139,250,.25);background:transparent;color:var(--muted)}.btn-toggle-purple-sm.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.25);color:var(--purple-lt)}.btn-trade-type{padding:4px 12px;border-radius:6px;font-size:.73rem;cursor:pointer;transition:all .15s;border:1px solid rgba(255,255,255,.1);background:transparent;color:var(--muted)}.btn-trade-type.active{border-color:var(--amber);background:rgba(245,158,11,.15);color:var(--gold)}.inp-mgmt-base{background:var(--s2);border:1px solid rgba(139,92,246,.4);border-radius:5px;padding:5px 8px;color:var(--text);font-size:.73rem;width:100%}.inp-mgmt-lock{background:transparent;border:none;padding:5px 8px;color:var(--text);font-size:.73rem;width:100%;pointer-events:none}.inp-mgmt-lock-r{background:transparent;border:none;border-radius:5px;padding:5px 8px;color:var(--text);font-size:.73rem;width:100%;cursor:default;pointer-events:none}.sl-idle{border:1px solid var(--border);background:var(--s2);color:var(--muted)}.sl-loading{border:1px solid rgba(59,130,246,.3);background:rgba(59,130,246,.08);color:var(--blue-lt)}.sl-ok{border:1px solid rgba(16,185,129,.35);background:rgba(16,185,129,.08);color:var(--green)}.sl-warn{border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:var(--gold)}.sl-error{border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:var(--red-lt)}.filter-badge{font-size:.6rem;color:var(--muted);padding:2px 5px;background:var(--s1);border-radius:4px;border:1px solid var(--border)}.sc-cyan{border-top:2px solid var(--cyan)}.lbl-63-muted-4{font-size:.63rem;color:var(--muted);margin-bottom:4px}.lbl-60-muted{font-size:.6rem;color:var(--muted)}.flex-wrap-gap4-mt{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.lbl-60-muted-mt{font-size:.6rem;color:var(--muted);margin-top:4px}.flex-wrap-gap3{display:flex;flex-wrap:wrap;gap:3px}.flex-wrap-gap4{display:flex;flex-wrap:wrap;gap:4px}.flex-gap6-ai{display:flex;gap:6px;align-items:center}.f-btn{padding:4px 12px;border-radius:6px;font-size:.73rem;cursor:pointer;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}.f-btn.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.15);color:var(--purple-lt);font-weight:600}.f-btn-sm{padding:3px 9px;border-radius:6px;font-size:.7rem;cursor:pointer;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}.f-btn-sm.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.15);color:var(--purple-lt);font-weight:600}.btn-move-icon{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:.8rem;line-height:1}.btn-move-icon:disabled{color:var(--border);cursor:default}
-  .btn-danger-lg{padding:8px 18px;border-radius:8px;border:none;background:var(--red);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer}.btn-danger-ghost{padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:transparent;color:var(--red-lt);font-size:.72rem;cursor:pointer}.btn-blue-ghost{background:var(--s2);border:1px solid rgba(59,130,246,.4);color:var(--blue-lt);font-weight:600;padding:8px 18px;border-radius:8px;cursor:pointer;font-size:.82rem;white-space:nowrap}.btn-gold-ghost{padding:8px 18px;border-radius:8px;border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.1);color:var(--gold);font-size:.82rem;cursor:pointer}.btn-icon-muted{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.8rem;padding:4px}.btn-settings{flex-shrink:0;margin-top:2px;padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;font-size:.73rem;line-height:1;transition:var(--tr)}.btn-settings:hover{color:var(--text)}.btn-amber{padding:8px 18px;border-radius:8px;border:none;background:var(--amber);color:var(--bg);font-size:.82rem;font-weight:700;cursor:pointer}.btn-purple-sm{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-buy-sm{padding:3px 8px;border-radius:6px;border:1px solid rgba(74,222,128,.3);background:rgba(74,222,128,.1);color:var(--green-lt);font-size:.65rem;cursor:pointer;white-space:nowrap}.btn-buy-lg{flex:1;padding:6px 0;border-radius:7px;border:1px solid rgba(74,222,128,.3);background:rgba(74,222,128,.08);color:var(--green-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-sell-lg{flex:1;padding:6px 0;border-radius:7px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--red-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-sell-sm{padding:3px 8px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.1);color:var(--red-lt);font-size:.65rem;cursor:pointer;white-space:nowrap}.btn-amber-sm{padding:5px 12px;border-radius:6px;border:none;background:var(--amber);color:var(--bg);font-size:.72rem;font-weight:700;cursor:pointer}.btn-add-green{padding:6px 16px;border-radius:7px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.1);color:var(--green-md);font-size:.73rem;font-weight:600;cursor:pointer}.btn-add-purple{padding:6px 16px;border-radius:7px;border:1px solid rgba(167,139,250,.4);background:rgba(167,139,250,.1);color:var(--purple-lt);font-size:.73rem;font-weight:600;cursor:pointer}.btn-add-cyan{padding:6px 16px;border-radius:7px;border:1px solid rgba(6,182,212,.4);background:rgba(6,182,212,.1);color:var(--cyan);font-size:.73rem;font-weight:600;cursor:pointer}.editor-section-title{font-size:.68rem;color:var(--muted);font-weight:700;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)}.tbl-wrap::-webkit-scrollbar{height:5px}.tbl-wrap::-webkit-scrollbar-track{background:var(--s2)}.tbl-wrap::-webkit-scrollbar-thumb{background:rgba(100,116,139,.5);border-radius:3px}.action-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}.action-update-card{display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:7px 12px;flex-wrap:nowrap}.action-date-input{background:transparent;border:none;color:var(--text);font-size:.7rem;width:140px}.action-refresh-btn{display:flex;align-items:center;gap:5px;padding:6px 14px;border-radius:7px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.1);color:var(--gold);font-size:.75rem;cursor:pointer;font-weight:700;transition:var(--tr)}.action-refresh-btn:hover{background:rgba(245,158,11,.2)}.action-refresh-btn svg{width:13px;height:13px;flex-shrink:0}.action-status-label{display:inline-flex;align-items:center;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--s1);color:var(--muted);font-size:.72rem;min-width:100px}.action-icon-group{display:flex;gap:6px;flex-wrap:wrap}.action-icon-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 10px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--muted);font-size:.6rem;cursor:pointer;transition:var(--tr);min-width:46px}.action-icon-btn:hover{color:var(--text);border-color:rgba(255,255,255,.25);background:var(--s1)}.action-icon-btn svg{width:16px;height:16px}.action-icon-green{border-color:rgba(16,185,129,.3);color:var(--green)}.action-icon-green:hover{background:rgba(16,185,129,.1)!important;border-color:rgba(16,185,129,.5)!important}.action-icon-blue{border-color:rgba(96,165,250,.3);color:var(--blue-lt)}.action-icon-blue:hover{background:rgba(96,165,250,.1)!important;border-color:rgba(96,165,250,.5)!important}.action-icon-red{border-color:rgba(239,68,68,.3);color:var(--red-lt)}.action-icon-red:hover{background:rgba(239,68,68,.08)!important;border-color:rgba(239,68,68,.45)!important}.view-switcher{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;overflow-x:auto;padding-bottom:2px}/* vs-btn: 반드시 @media(480px) 앞 */.vs-btn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 12px;min-width:58px;border-radius:10px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;transition:var(--tr);position:relative}.vs-btn:hover{color:var(--text);border-color:rgba(255,255,255,.25);background:var(--s1)}.vs-btn.active{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.5);color:var(--gold)}.vs-btn.active .vs-btn-icon svg{stroke:var(--gold)}.vs-btn.dragging{opacity:.4}.vs-btn.drag-over{border-color:var(--gold);background:rgba(251,191,36,.08)}.vs-btn-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.vs-btn-icon svg{width:17px;height:17px;stroke:currentColor}.vs-btn-label{font-size:.63rem;font-weight:600;white-space:nowrap;letter-spacing:.01em}.view-switcher::-webkit-scrollbar{height:2px}.view-switcher::-webkit-scrollbar-track{background:transparent}.view-switcher::-webkit-scrollbar-thumb{background:var(--border);border-radius:1px}
-  .date-badge{padding:4px 14px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--muted);font-size:.7rem;white-space:nowrap;min-width:130px;text-align:center;font-weight:600}.date-badge-live{border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.15);color:var(--green)}
-  .saved-badge{display:none;background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3);font-size:.62rem;padding:2px 7px;border-radius:10px}
-@media(max-width:480px){.wrap{padding:10px 8px}.trade-stat-grid{grid-template-columns:repeat(3,1fr)!important}.hdr{flex-direction:column;gap:4px}.hdr>div:last-child{align-self:flex-start}.hdr h1{font-size:1.08rem}.sum-row{grid-template-columns:1fr 1fr!important;gap:8px}.sc{padding:12px 11px}.sc .val{font-size:1.05rem;font-weight:700}.sc .lbl{font-size:.62rem;font-weight:600}.sc .sub{font-size:.6rem}table{font-size:.7rem}th,td{padding:7px 7px!important}.sector-grid{grid-template-columns:1fr!important}.sector-hdr{flex-direction:column;align-items:flex-start;gap:8px}.donut-legend{margin-top:10px}.editor-box{max-height:95vh;max-width:100%!important}.trade-stat-card{padding:9px 10px;font-size:.72rem}.div-stat-card{min-width:calc(50% - 4px)!important;padding:9px 11px}.trade-stat-value{font-size:.85rem}.div-stat-value{font-size:.85rem}.col-hide-mobile{display:none!important}#price-updated-label{font-size:.65rem}#tradeSelBar{flex-wrap:wrap;gap:6px}#tradesHeaderBtns{flex-wrap:wrap!important;gap:6px!important}.sum-row-2 .lbl{font-size:.58rem;font-weight:600}.sum-row-2 .val{font-size:.92rem;font-weight:700}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}.action-update-card{flex-wrap:nowrap;gap:6px;padding:6px 8px;width:100%}.action-date-input{width:0;min-width:0;flex:1;font-size:.68rem}.action-refresh-btn{font-size:.7rem;padding:5px 10px;white-space:nowrap}.action-status-label{font-size:.65rem;min-width:80px}.date-badge{font-size:.68rem;min-width:120px;padding:4px 10px}.btn-amber,.btn-danger-lg,.btn-gold-ghost,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-blue-ghost{padding:7px 14px;font-size:.78rem}.btn-purple-700,.btn-ghost-sm,.btn-cancel-sm,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:5px 12px;font-size:.7rem}.action-icon-btn{min-width:42px;padding:6px 7px}.action-icon-btn svg{width:15px;height:15px}.action-icon-btn span{font-size:.58rem}.vs-btn{min-width:46px;padding:6px 8px}.vs-btn-icon{width:20px;height:20px}.vs-btn-icon svg{width:16px;height:16px}.vs-btn-label{font-size:.57rem}.view-switcher{gap:5px}}</style>
+  *{box-sizing:border-box}:root{--bg:#080d18;--s1:#0e1726;--s2:#141f33;--border:#1c2a42;--green:#10b981;--red:#ef4444;--blue:#3b82f6;--amber:#f59e0b;--purple:#8b5cf6;--cyan:#06b6d4;--pink:#ec4899;--text:#e2e8f0;--muted:#64748b;--gold:#f59e0b;--gold2:#f97316;--red-lt:#f87171;--green-lt:#4ade80;--green-md:#34d399;--blue-lt:#60a5fa;--purple-lt:#a78bfa;--purple-dk:#7c3aed;--tr:all .15s}*{margin:0;padding:0}input,select,textarea{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text)}input[type=checkbox],input[type=radio],input[type=color],input[type=file],input[type=range]{background:revert;border:revert;border-radius:revert}input[type=date],input[type=datetime-local]{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:.82rem}input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6;cursor:pointer}body{background:var(--bg);color:var(--text);min-height:100vh;font-family:'맑은 고딕','Malgun Gothic','Apple SD Gothic Neo',sans-serif}body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 70% 40% at 10% 10%,rgba(16,185,129,.05) 0%,transparent 60%),radial-gradient(ellipse 60% 40% at 90% 90%,rgba(59,130,246,.06) 0%,transparent 60%);pointer-events:none;z-index:0}.wrap{max-width:1200px;margin:0 auto;padding:28px 18px;position:relative;z-index:1}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px}.hdr h1{font-size:1.8rem;font-weight:900;letter-spacing:-.04em;background:linear-gradient(135deg,var(--green),#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.hdr p{font-size:.78rem;color:var(--muted);margin-top:4px}.sum-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.sc{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.sc.c1::before{background:linear-gradient(90deg,var(--green),var(--cyan))}.sc.c2::before{background:linear-gradient(90deg,var(--blue),var(--purple))}.sc.c3::before{background:linear-gradient(90deg,var(--green),var(--green-md))}.sc.c4::before{background:linear-gradient(90deg,var(--amber),#f97316)}.sc .lbl{font-size:.72rem;color:var(--muted);margin-bottom:8px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}.sc .val{font-size:1.4rem;font-weight:600}.sc .sub{font-size:.70rem;color:var(--muted);margin-top:5px}.tbl-wrap{background:var(--s1);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:20px;-webkit-overflow-scrolling:touch;overflow-x:auto}.tbl-head{padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}.tbl-head h3{font-size:.85rem;font-weight:700}.tbl-head .tsum{font-size:.82rem}table{width:100%;border-collapse:collapse}th{text-align:left;padding:11px 16px;font-size:.70rem;color:var(--muted);font-weight:600;background:var(--s2);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}td{padding:13px 16px;border-top:1px solid var(--border);font-size:.82rem;white-space:nowrap}tr:hover td{background:rgba(255,255,255,.02)}th.num{text-align:right}.fw6{font-weight:600}.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.65rem;font-weight:700;margin-left:4px}.sector-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:20px}.sector-card{background:var(--s1);border:1px solid var(--border);border-radius:12px;overflow:hidden}.sector-hdr{padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}.sector-hdr h4{font-size:.85rem;font-weight:700}.sector-hdr .sval{font-size:.80rem}.chart-card{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:18px}.chart-card h4{font-size:.72rem;color:var(--muted);font-weight:500;letter-spacing:.07em;text-transform:uppercase;margin-bottom:14px}.donut-wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.donut-legend{flex:1;min-width:110px}.legend-item{display:flex;align-items:center;gap:7px;margin-bottom:9px}.legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}.legend-label{font-size:.72rem;color:var(--muted);flex:1}.legend-val{font-size:.72rem}.adot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.fade{animation:fadeUp .4s ease both}.d1{animation-delay:.05s}.d2{animation-delay:.1s}.d3{animation-delay:.15s}.d4{animation-delay:.2s}.d5{animation-delay:.25s}@media(min-width:1024px){.wrap{padding:32px 28px}.sum-row{gap:14px}.sc{padding:18px 20px}.sc .lbl{font-size:.72rem}.sc .val{font-size:1.5rem}th{padding:11px 16px}td{padding:13px 16px}.tbl-head{padding:16px 20px}.sector-grid{grid-template-columns:repeat(2,1fr)}.vs-btn{min-width:58px;padding:8px 12px;gap:4px;border-radius:6px}.vs-btn-icon svg{width:17px;height:17px}.vs-btn-label{font-size:.65rem}.view-switcher{gap:7px}.btn-amber,.btn-danger-lg,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-purple-700,.btn-ghost-sm,.btn-cancel-sm,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:6px 16px;font-size:.75rem}.btn-sm,.btn-amber-sm,.btn-purple-sm,.btn-outline-sm,.btn-edit-sm,.btn-del-sm,.btn-danger,.btn-danger-ghost{padding:5px 12px;font-size:.72rem}}@media(min-width:1200px){#sum-row-1,#sum-row-2{grid-template-columns:repeat(4,1fr)}#sum-row-1{margin-bottom:0;border-radius:16px 16px 0 0}#sum-row-2{border-radius:0 0 16px 16px;margin-top:0}.wrap{max-width:1400px}th{padding:11px 18px}td{padding:13px 18px;font-size:.82rem}}*{-webkit-tap-highlight-color:transparent}.editor-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px}.editor-overlay.open{display:flex}.editor-box{background:var(--s1);border:1px solid var(--border);border-radius:12px;width:100%;max-width:700px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}.editor-header{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}.editor-header h3{font-size:1rem;font-weight:700}.editor-header p{font-size:.72rem;color:var(--muted);margin-top:3px}.editor-close{width:30px;height:30px;border-radius:50%;background:var(--s2);border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem}.editor-close:hover{color:var(--text);background:var(--border)}.editor-body{overflow-y:auto;padding:16px 24px;flex:1;min-height:0}.editor-group{margin-bottom:20px}.editor-group-title{font-size:.70rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}.editor-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}.editor-row label{flex:1;font-size:.80rem;color:var(--text);min-width:0}.editor-row label span{display:block;font-size:.65rem;color:var(--muted);margin-top:1px}.editor-row input{width:130px;flex-shrink:0;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.82rem;text-align:right;outline:none;transition:border-color .15s}.editor-row input:focus{border-color:var(--gold)}.editor-row .price-status{width:18px;height:18px;border-radius:50%;flex-shrink:0;font-size:.65rem;display:flex;align-items:center;justify-content:center}.editor-footer{padding:16px 24px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:10px;justify-content:flex-end;align-items:center}.editor-footer .last-updated{font-size:.70rem;color:var(--muted);flex:1}.btn-cancel{background:var(--s2);border:1px solid var(--border);color:var(--muted);padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.btn-apply{background:var(--gold);border:none;color:#000;font-weight:700;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.btn-apply:hover{background:var(--gold2)}.th-filter{cursor:pointer;user-select:none;position:relative;white-space:nowrap}.th-filter:hover{color:var(--text)!important}.th-filter .sort-icon{margin-left:4px;opacity:.4;font-size:.60rem}.th-filter.asc .sort-icon::after{content:'▲';opacity:1;color:var(--amber)}.th-filter.desc .sort-icon::after{content:'▼';opacity:1;color:var(--amber)}.th-filter:not(.asc):not(.desc) .sort-icon::after{content:'⇅'}.col-filter-dropdown{position:absolute;top:100%;left:0;z-index:200;background:var(--s1);border:1px solid var(--border);border-radius:10px;min-width:160px;max-height:280px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);padding:6px 0}.col-filter-dropdown .cfd-search{margin:6px 8px;width:calc(100% - 16px);background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem;outline:none}.col-filter-dropdown label{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:.75rem;cursor:pointer;transition:background .1s}.col-filter-dropdown label:hover{background:rgba(255,255,255,.05)}.col-filter-dropdown label input[type=checkbox]{width:13px;height:13px;accent-color:var(--amber)}.col-filter-dropdown .cfd-actions{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--border);margin-top:4px}.col-filter-dropdown .cfd-btn{flex:1;padding:5px 12px;font-size:.70rem;border-radius:6px;cursor:pointer;border:1px solid var(--border);background:var(--s2);color:var(--muted)}.col-filter-dropdown .cfd-btn:hover{color:var(--text)}.col-filter-dropdown .cfd-btn.apply{background:rgba(245,158,11,.15);border-color:var(--amber);color:var(--amber);font-weight:700}.filter-active-badge{display:inline-block;background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.4);color:var(--amber);font-size:.65rem;padding:1px 6px;border-radius:10px;margin-left:5px;vertical-align:middle;font-weight:700}.active-filters-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}.active-filter-chip{display:flex;align-items:center;gap:5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:var(--amber);font-size:.70rem;padding:3px 8px;border-radius:999px}.active-filter-chip button{background:none;border:none;color:var(--amber);cursor:pointer;font-size:.75rem;line-height:1;padding:0 0 0 2px}.btn-sm{padding:5px 12px;border-radius:6px;font-size:.72rem;cursor:pointer}.btn-sm-purple{border:1px solid rgba(139,92,246,.4);background:rgba(139,92,246,.1);color:var(--purple-lt);padding:5px 12px;border-radius:6px;font-size:.72rem;cursor:pointer}.btn-sm.btn-gold{border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.1);color:var(--gold)}.btn-sm.btn-sell{border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.12);color:var(--red-lt)}.small-toggle-bar{display:flex;justify-content:space-between;align-items:center;padding:7px 14px;background:rgba(100,116,139,.08);border:1px solid rgba(100,116,139,.2);border-radius:6px;cursor:pointer;margin-bottom:6px;font-size:.72rem;color:var(--muted);transition:var(--tr)}.small-toggle-bar:hover{background:rgba(100,116,139,.14);color:var(--text)}.small-toggle-bar.open{background:rgba(100,116,139,.14)}.st-left{display:flex;flex-direction:column;gap:2px}.st-cnt{font-size:.65rem;color:var(--muted)}.st-arrow{font-size:.70rem;transition:transform .2s}.small-toggle-bar.open .trade-badge-hold{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.65rem;font-weight:700;background:rgba(34,197,94,.15);color:var(--green-lt);border:1px solid rgba(34,197,94,.25)}.trade-badge-sell{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.65rem;font-weight:700;background:rgba(239,68,68,.12);color:var(--red-lt);border:1px solid rgba(239,68,68,.2)}.trade-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:110px}.trade-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:3px}.trade-stat-value{font-size:.90rem;font-weight:700}.trade-cb{width:15px;height:15px;cursor:pointer;accent-color:var(--amber)}#tradeSelBar{transition:all .2s}#te-tradetype-buy.active{background:rgba(34,197,94,.15)!important;color:var(--green-lt)!important}#te-tradetype-sell.active{background:rgba(239,68,68,.12)!important;color:var(--red-lt)!important}.div-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:120px}.div-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:4px}.div-stat-value{font-size:.95rem;font-weight:700}.div-stat-sub{font-size:.65rem;color:var(--muted);margin-top:3px}.div-freq-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.65rem;font-weight:700}@media(max-width:768px){.wrap{padding:16px 12px}.hdr{margin-bottom:14px}.hdr h1{font-size:1.2rem}.hdr p{font-size:.70rem}.sum-row{grid-template-columns:repeat(2,1fr)!important;gap:10px}.sc{padding:14px 14px}.sc .lbl{font-size:.65rem;margin-bottom:6px;font-weight:600}.sc .val{font-size:1.1rem;font-weight:700}.sc .sub{font-size:.65rem}.sc .lbl button{font-size:.60rem;padding:1px 5px;margin-left:2px}.tbl-wrap{border-radius:12px}.tbl-head{padding:12px 14px;flex-direction:column;align-items:flex-start;gap:4px}.tbl-head h3{font-size:.85rem}table{font-size:.78rem}th{padding:9px 10px;font-size:.65rem}td{padding:11px 10px}thead th{position:sticky;top:0;z-index:2}.chart-card{padding:14px}.sector-grid{grid-template-columns:1fr}.donut-wrap{flex-direction:column;align-items:center}.donut-legend{width:100%}#div-month-chart{height:90px!important}.editor-box{max-width:96vw!important}#tradesHeaderBtns .btn-sm{padding:4px 8px!important;font-size:.70rem!important}.sum-row-2 .sc{padding:8px 9px}.sum-row-2 .lbl{font-size:.60rem}.sum-row-2 .val{font-size:.90rem}}.trade-check{transform:scale(1.2)}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}#gsheetUrlInput{width:100%!important}#realEstateEditor .editor-row{flex-direction:column}#div-month-chart{height:80px!important}}@media(max-width:360px){.wrap{padding:8px 6px}.sc .val{font-size:.85rem}.sc .lbl{font-size:.60rem}.sc .sub{font-size:.60rem}table{font-size:.65rem}th,td{padding:5px 4px!important}.sum-row{gap:4px}.vs-btn{min-width:38px;padding:5px 5px;border-radius:6px}.vs-btn-label{font-size:.60rem}}*{-webkit-tap-highlight-color:transparent}@media(hover:none){button,a,[onclick]{-webkit-tap-highlight-color:transparent}.tbl-wrap,.editor-body,.view-switcher{-webkit-overflow-scrolling:touch}button:active{opacity:.75}}@media(max-width:667px) and (orientation:landscape){.sum-row{grid-template-columns:repeat(4,1fr)!important}.sc .val{font-size:.85rem}.wrap{padding:8px 10px}}[style*="overflow-x:auto"]{-webkit-overflow-scrolling:touch}.btn-edit-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:var(--amber);font-size:.72rem;cursor:pointer}.btn-del-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.1);color:var(--red-lt);font-size:.72rem;cursor:pointer}.form-label{font-size:.72rem;color:var(--muted);display:block;margin-bottom:4px}.input-full-82,.input-full-73{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem}.c-text{color:var(--text)}.c-muted{color:var(--muted)}.c-gold{color:var(--gold)}.c-amber{color:var(--amber)}.c-red{color:var(--red-lt)}.fw-600{font-weight:600}.txt-muted-68{font-size:.70rem;color:var(--muted)}.txt-muted-72{font-size:.72rem;color:var(--muted)}.txt-muted-75{font-size:.75rem;color:var(--muted)}.label-muted-68{font-size:.70rem;color:var(--muted);margin-bottom:4px}.txt-blue-700{font-weight:700;color:var(--blue-lt);margin-bottom:6px}.txt-red-right{text-align:right;color:var(--red-lt)}.txt-muted-68-right{font-size:.70rem;color:var(--muted);font-weight:500;text-align:right;padding:5px 8px}.txt-78-700{font-size:.78rem;font-weight:700;color:var(--text)}.txt-70-400{font-size:.70rem;font-weight:400;color:var(--muted)}.txt-65-400{font-size:.65rem;font-weight:400}.mt-3-muted-72{margin:3px 0 0;font-size:.72rem;color:var(--muted)}.p-0-4{padding:0 4px}.p-2{padding:2px}.p-8-14{padding:8px 14px}.td-right{text-align:right}.td-right-600{padding:8px 10px;text-align:right;font-weight:600}.td-right-plain{padding:8px 10px;text-align:right}.th-left-muted{padding:7px 8px;text-align:left;color:var(--muted);font-weight:600}.th-right-500{padding:7px 12px;text-align:right;font-weight:500}.th-left-500{padding:7px 12px;text-align:left;font-weight:500}.h3-section{margin:0;font-size:1rem;font-weight:700}.h3-card{margin:0;font-size:.90rem;font-weight:700}.emoji-lg{font-size:2rem;margin-bottom:8px}.overflow-x-auto{overflow-x:auto;-webkit-overflow-scrolling:touch}.w-150{width:150px;padding:6px 10px;font-size:.82rem}.w-160{width:160px;padding:6px 10px;font-size:.82rem}.stat-card{flex:1;min-width:120px;background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 16px}.list-item-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:.82rem}.btn-ghost-sm,.btn-cancel-sm{padding:6px 16px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.72rem;font-weight:700;cursor:pointer}.btn-ghost-muted{background:var(--s2);border:1px solid var(--border);color:var(--muted);padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.checkbox-red{accent-color:var(--red-lt);width:16px;height:16px}.c-cyan{color:var(--cyan)}.c-green{color:var(--green)}.d-none{display:none}#toast-container{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}.toast{display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-size:.82rem;font-weight:500;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:auto;min-width:200px;max-width:88vw;animation:toastIn .28s cubic-bezier(.22,1,.36,1) both}.toast.toast-out{animation:toastOut .25s ease forwards}.toast-ok{background:linear-gradient(135deg,#059669,var(--green))}.toast-error{background:linear-gradient(135deg,#b91c1c,var(--red))}.toast-warn{background:linear-gradient(135deg,#b45309,#f59e0b)}.toast-info{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}.toast-icon{font-size:1rem;flex-shrink:0}.toast-msg{flex:1;line-height:1.4}@keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes toastOut{to{opacity:0;transform:translateY(10px) scale(.95)}}.lbl-62-muted{font-size:.65rem;color:var(--muted);margin-bottom:2px}.lbl-62-muted-3{font-size:.65rem;color:var(--muted);margin-bottom:3px}.lbl-65-muted-center{font-size:.65rem;color:var(--muted);font-weight:700;text-align:center}.bd-bottom{border-bottom:1px solid var(--border)}.flex-between-mb14{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.flex-between-mb10-gap8{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap}.flex-gap6-wrap{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.card-12{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px}.hidden-hint{display:none;font-size:.70rem;margin-bottom:6px;padding:5px 10px;border-radius:5px}.card-12-mb16{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}.card-12-p20{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 20px}.lbl-62-mt2{display:block;font-size:.65rem;color:var(--muted);margin-top:2px}.th-right-muted{padding:7px 8px;text-align:right;color:var(--muted);font-weight:600}.td-right-p6{padding:6px 8px;text-align:right}.td-p8-10{padding:8px 10px}.flex-col-gap8{display:flex;flex-direction:column;gap:8px}.flex-gap8{display:flex;gap:8px}.flex-gap6{display:flex;gap:6px}.flex-wrap-gap6{display:flex;gap:6px;flex-wrap:wrap}.flex-center-gap8{display:flex;align-items:center;gap:8px}.grid-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}.empty-msg{text-align:center;padding:24px;color:var(--muted);font-size:.80rem}.h3-95{margin:0;font-size:.95rem;font-weight:700}.h3-1rem-mb4{margin:0 0 4px;font-size:1rem;font-weight:700}.lbl-75-700-muted{font-size:.75rem;font-weight:700;color:var(--muted);margin-bottom:10px}.lbl-68-purple{font-size:.70rem;color:var(--purple-lt);font-weight:700;margin-bottom:7px}.lbl-67-muted{font-size:.65rem;color:var(--muted)}.lbl-64-muted{font-size:.65rem;color:var(--muted)}.txt-73-muted{margin:0;font-size:.72rem;color:var(--muted)}.btn-close-icon{background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer}.btn-purple{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:600;cursor:pointer}.btn-amber-outline{padding:5px 12px;border-radius:6px;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.1);color:var(--gold);font-size:.72rem;cursor:pointer}.btn-outline-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:transparent;color:var(--muted);font-size:.72rem;cursor:pointer}.btn-link-blue{background:none;border:none;color:var(--blue-lt);cursor:pointer;font-size:.72rem}.btn-link{background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;text-decoration:underline;padding:0 2px}.s2-rounded{background:var(--s2);border-radius:8px;padding:10px 12px}.s2-muted{background:var(--s2);color:var(--muted)}.item-title{flex:1;font-size:.78rem;font-weight:600;color:var(--text)}.mb-16{margin-bottom:16px}.td-p7-center{padding:7px 12px;text-align:center}.td-p7-center-500{padding:7px 12px;text-align:center;font-weight:500}.img-full{width:100%;min-width:320px;height:auto;display:block}.gap-mb8{display:flex;gap:6px;margin:0 0 8px 4px}.gap-mb6{display:flex;gap:6px;margin:-1px 0 6px 4px}.txt-muted-68-left{padding:5px 8px;font-size:.70rem;color:var(--muted);font-weight:500;text-align:left}.btn-purple-700{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-danger{padding:5px 12px;border-radius:6px;border:none;background:rgba(239,68,68,.8);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-sort-toggle{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid var(--border);background:transparent;color:var(--muted)}.btn-sort-toggle.active{border-color:rgba(139,92,246,.6);background:rgba(139,92,246,.2);color:var(--purple-lt)}.btn-toggle-purple{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid rgba(167,139,250,.25);background:transparent;color:var(--muted)}.btn-toggle-purple.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.25);color:var(--purple-lt)}.btn-toggle-purple-sm{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid rgba(167,139,250,.25);background:transparent;color:var(--muted)}.btn-toggle-purple-sm.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.25);color:var(--purple-lt)}.btn-trade-type{padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;transition:all .15s;border:1px solid rgba(255,255,255,.1);background:transparent;color:var(--muted)}.btn-trade-type.active{border-color:var(--amber);background:rgba(245,158,11,.15);color:var(--gold)}.inp-mgmt-base{background:var(--s2);border:1px solid rgba(139,92,246,.4);border-radius:5px;padding:5px 8px;color:var(--text);font-size:.72rem;width:100%}.inp-mgmt-lock{background:transparent;border:none;padding:5px 8px;color:var(--text);font-size:.72rem;width:100%;pointer-events:none}.sl-idle{border:1px solid var(--border);background:var(--s2);color:var(--muted)}.sl-loading{border:1px solid rgba(59,130,246,.3);background:rgba(59,130,246,.08);color:var(--blue-lt)}.sl-ok{border:1px solid rgba(16,185,129,.35);background:rgba(16,185,129,.08);color:var(--green)}.sl-warn{border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:var(--gold)}.sl-error{border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:var(--red-lt)}.filter-badge{font-size:.60rem;color:var(--muted);padding:2px 5px;background:var(--s1);border-radius:4px;border:1px solid var(--border)}.sc-cyan{border-top:2px solid var(--cyan)}.lbl-63-muted-4{font-size:.65rem;color:var(--muted);margin-bottom:4px}.lbl-60-muted{font-size:.60rem;color:var(--muted)}.flex-wrap-gap4-mt{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.lbl-60-muted-mt{font-size:.60rem;color:var(--muted);margin-top:4px}.flex-wrap-gap3{display:flex;flex-wrap:wrap;gap:3px}.flex-wrap-gap4{display:flex;flex-wrap:wrap;gap:4px}.flex-gap6-ai{display:flex;gap:6px;align-items:center}.f-btn{padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}.f-btn.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.15);color:var(--purple-lt);font-weight:600}.f-btn-sm{padding:4px 10px;border-radius:6px;font-size:.65rem;cursor:pointer;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}.f-btn-sm.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.15);color:var(--purple-lt);font-weight:600}.btn-move-icon{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:.80rem;line-height:1}.btn-move-icon:disabled{color:var(--border);cursor:default}
+  .btn-danger-lg{padding:8px 20px;border-radius:6px;border:none;background:var(--red);color:#fff;font-size:.80rem;font-weight:700;cursor:pointer}.btn-danger-ghost{padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:transparent;color:var(--red-lt);font-size:.72rem;cursor:pointer}.btn-icon-muted{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.80rem;padding:4px}.btn-settings{flex-shrink:0;margin-top:2px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;font-size:.72rem;line-height:1;transition:var(--tr)}.btn-settings:hover{color:var(--text)}.btn-amber{padding:8px 20px;border-radius:6px;border:none;background:var(--amber);color:var(--bg);font-size:.80rem;font-weight:700;cursor:pointer}.btn-purple-sm{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-buy-sm{padding:4px 10px;border-radius:6px;border:1px solid rgba(74,222,128,.3);background:rgba(74,222,128,.1);color:var(--green-lt);font-size:.65rem;cursor:pointer;white-space:nowrap}.btn-buy-lg{flex:1;padding:6px 16px;border-radius:6px;border:1px solid rgba(74,222,128,.3);background:rgba(74,222,128,.08);color:var(--green-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-sell-lg{flex:1;padding:6px 16px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--red-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-sell-sm{padding:4px 10px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.1);color:var(--red-lt);font-size:.65rem;cursor:pointer;white-space:nowrap}.btn-amber-sm{padding:5px 12px;border-radius:6px;border:none;background:var(--amber);color:var(--bg);font-size:.72rem;font-weight:700;cursor:pointer}.btn-add-green{padding:6px 16px;border-radius:6px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.1);color:var(--green-md);font-size:.72rem;font-weight:600;cursor:pointer}.btn-add-purple{padding:6px 16px;border-radius:6px;border:1px solid rgba(167,139,250,.4);background:rgba(167,139,250,.1);color:var(--purple-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-add-cyan{padding:6px 16px;border-radius:6px;border:1px solid rgba(6,182,212,.4);background:rgba(6,182,212,.1);color:var(--cyan);font-size:.72rem;font-weight:600;cursor:pointer}.editor-section-title{font-size:.70rem;color:var(--muted);font-weight:700;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)}.tbl-wrap::-webkit-scrollbar{height:5px}.tbl-wrap::-webkit-scrollbar-track{background:var(--s2)}.tbl-wrap::-webkit-scrollbar-thumb{background:rgba(100,116,139,.5);border-radius:3px}.action-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}.action-update-card{display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex-wrap:nowrap}.action-date-input{background:transparent;border:none;color:var(--text);font-size:.70rem;width:140px}.action-refresh-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.1);color:var(--gold);font-size:.72rem;cursor:pointer;font-weight:700;transition:var(--tr)}.action-refresh-btn:hover{background:rgba(245,158,11,.2)}.action-refresh-btn svg{width:13px;height:13px;flex-shrink:0}.action-status-label{display:inline-flex;align-items:center;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--s1);color:var(--muted);font-size:.72rem;min-width:100px}.action-icon-group{display:flex;gap:6px;flex-wrap:wrap}.action-icon-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);font-size:.60rem;cursor:pointer;transition:var(--tr);min-width:46px}.action-icon-btn:hover{color:var(--text);border-color:rgba(255,255,255,.25);background:var(--s1)}.action-icon-btn svg{width:16px;height:16px}.action-icon-green{border-color:rgba(16,185,129,.3);color:var(--green)}.action-icon-green:hover{background:rgba(16,185,129,.1)!important;border-color:rgba(16,185,129,.5)!important}.action-icon-blue{border-color:rgba(96,165,250,.3);color:var(--blue-lt)}.action-icon-blue:hover{background:rgba(96,165,250,.1)!important;border-color:rgba(96,165,250,.5)!important}.action-icon-red{border-color:rgba(239,68,68,.3);color:var(--red-lt)}.action-icon-red:hover{background:rgba(239,68,68,.08)!important;border-color:rgba(239,68,68,.45)!important}.view-switcher{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;overflow-x:auto;padding-bottom:2px}/* vs-btn: 반드시 @media(480px) 앞 */.vs-btn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 12px;min-width:58px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;transition:var(--tr);position:relative}.vs-btn:hover{color:var(--text);border-color:rgba(255,255,255,.25);background:var(--s1)}.vs-btn.active{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.5);color:var(--gold)}.vs-btn.active .vs-btn-icon svg{stroke:var(--gold)}.vs-btn.dragging{opacity:.4}.vs-btn.drag-over{border-color:var(--gold);background:rgba(251,191,36,.08)}.vs-btn-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.vs-btn-icon svg{width:17px;height:17px;stroke:currentColor}.vs-btn-label{font-size:.65rem;font-weight:600;white-space:nowrap;letter-spacing:.01em}.view-switcher::-webkit-scrollbar{height:2px}.view-switcher::-webkit-scrollbar-track{background:transparent}.view-switcher::-webkit-scrollbar-thumb{background:var(--border);border-radius:1px}
+  .date-badge{padding:4px 14px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--muted);font-size:.70rem;white-space:nowrap;min-width:130px;text-align:center;font-weight:600}.date-badge-live{border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.15);color:var(--green)}
+  .saved-badge{display:none;background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3);font-size:.65rem;padding:2px 7px;border-radius:10px}
+@media(max-width:480px){.wrap{padding:10px 8px}.hdr{flex-direction:column;gap:4px}.hdr>div:last-child{align-self:flex-start}.hdr h1{font-size:1rem}.sum-row{grid-template-columns:1fr 1fr!important;gap:8px}.sc{padding:12px 11px}.sc .val{font-size:1rem;font-weight:700}.sc .lbl{font-size:.65rem;font-weight:600}.sc .sub{font-size:.60rem}table{font-size:.70rem}th,td{padding:7px 7px!important}.sector-grid{grid-template-columns:1fr!important}.sector-hdr{flex-direction:column;align-items:flex-start;gap:8px}.donut-legend{margin-top:10px}.editor-box{max-height:95vh;max-width:100%!important}.trade-stat-card{padding:10px 14px;font-size:.72rem}.div-stat-card{min-width:calc(50% - 4px)!important;padding:9px 11px}.trade-stat-value{font-size:.85rem}.div-stat-value{font-size:.85rem}.col-hide-mobile{display:none!important}#price-updated-label{font-size:.65rem}#tradeSelBar{flex-wrap:wrap;gap:6px}#tradesHeaderBtns{flex-wrap:wrap!important;gap:6px!important}.sum-row-2 .lbl{font-size:.60rem;font-weight:600}.sum-row-2 .val{font-size:.90rem;font-weight:700}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}.action-update-card{flex-wrap:nowrap;gap:6px;padding:10px 14px;width:100%}.action-date-input{width:0;min-width:0;flex:1;font-size:.70rem}.action-refresh-btn{font-size:.72rem;padding:5px 12px;white-space:nowrap}.action-status-label{font-size:.65rem;min-width:80px}.date-badge{font-size:.70rem;min-width:120px;padding:4px 10px}.btn-amber,.btn-danger-lg,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-purple-700,.btn-ghost-sm,.btn-cancel-sm,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:6px 16px;font-size:.70rem}.action-icon-btn{min-width:42px;padding:5px 10px;border-radius:6px}.action-icon-btn svg{width:15px;height:15px}.action-icon-btn span{font-size:.60rem}.vs-btn{min-width:46px;padding:6px 8px;border-radius:6px}.vs-btn-icon{width:20px;height:20px}.vs-btn-icon svg{width:16px;height:16px}.vs-btn-label{font-size:.60rem}.view-switcher{gap:5px}}</style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -101,7 +101,7 @@
 <div style="padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
 <div>
 <h3 style="margin:0;font-size:.95rem;font-weight:700">⚙️ 탭 순서 설정</h3>
-<p style="margin:4px 0 0;font-size:.68rem;color:var(--muted)">↑↓ 버튼 또는 드래그로 순서 변경</p>
+<p style="margin:4px 0 0;font-size:.70rem;color:var(--muted)">↑↓ 버튼 또는 드래그로 순서 변경</p>
 </div>
 <button onclick="closeTabSettings()" class="btn-close-icon">✕</button>
 </div>
@@ -651,7 +651,6 @@ let editedPrices = {};  // 현재가 편집기 임시 저장용
   } catch(e) { console.warn('캐시 마이그레이션 실패:', e.message); }
 })();
 
-
 function computeRows(holdings) {
   return holdings.map(h => {
     if (h.fund) {
@@ -1093,7 +1092,7 @@ function buildTableInner(rawData, tableId, extraCol) {
     const costCell = r.cost != null ? r.cost.toLocaleString()+'원' : '-';
     let sectorCell = '';
     if (extraCol === '섹터') {
-      sectorCell = `<td><span style="font-size:.7rem;padding:2px 8px;border-radius:4px;background:${SECTOR_COLORS[r.sector]||'var(--muted)'}22;color:${SECTOR_COLORS[r.sector]||'var(--muted)'}">${r.sector}</span></td>`;
+      sectorCell = `<td><span style="font-size:.70rem;padding:2px 8px;border-radius:4px;background:${SECTOR_COLORS[r.sector]||'var(--muted)'}22;color:${SECTOR_COLORS[r.sector]||'var(--muted)'}">${r.sector}</span></td>`;
     }
     html += `<tr class="${isSmall ? `small-pos-row small-pos-row-${tableId}" style="display:none` : ''}">
       ${sectorCell}
@@ -1282,14 +1281,14 @@ function renderSectorView(area){
       html+=`<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
         <td style="padding:7px 8px;font-size:.78rem;font-weight:600">
           ${m.name}
-          ${m.code?`<span style="display:block;font-size:.62rem;color:var(--muted);margin-top:1px">${m.code}</span>`:''}
+          ${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);margin-top:1px">${m.code}</span>`:''}
         </td>
         <td style="padding:7px 8px;font-size:.72rem">
           <div class="flex-wrap-gap6">
             ${m.accts.map(a=>`
               <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
                 <span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span>
-                <span style="font-size:.58rem;color:var(--muted)">${a}</span>
+                <span style="font-size:.60rem;color:var(--muted)">${a}</span>
               </div>`).join('')}
           </div>
         </td>
@@ -1455,7 +1454,7 @@ function renderMergeView(area){
   let html = `<div class="tbl-wrap">
     <div class="tbl-head">
       <h3>🔀 종목별 합산 <span style="color:var(--muted);font-size:.75rem;font-weight:400">(${sorted.length}개 종목)</span>
-        <span style="font-size:.68rem;color:var(--amber);margin-left:8px;font-weight:400">▸ ${sortLabel}</span>
+        <span style="font-size:.70rem;color:var(--amber);margin-left:8px;font-weight:400">▸ ${sortLabel}</span>
       </h3>
       <div class="tsum">평가 <b>${fmt(grandEval)}</b> &nbsp; 손익 <span style="color:${gC}">${gS}${fmt(grandPnl)} (${gS}${grandPct.toFixed(1)}%)</span></div>
     </div>
@@ -1630,11 +1629,11 @@ function renderHistoryView(area) {
         <span style="display:flex;align-items:center;gap:4px">
           <input type="date" id="historyFrom" value="${_historyFromDate}"
             onchange="_historyFromDate=this.value;_historyCustom=true;_historyCache=null;loadHistoryChart()"
-            style="background:var(--s2);border:1px solid ${_historyCustom?'var(--amber)':'var(--border)'};border-radius:6px;padding:3px 8px;color:var(--text);font-size:.7rem"/>
+            style="background:var(--s2);border:1px solid ${_historyCustom?'var(--amber)':'var(--border)'};border-radius:6px;padding:3px 8px;color:var(--text);font-size:.70rem"/>
           <span class="c-muted txt-muted-72">~</span>
           <input type="date" id="historyTo" value="${_historyToDate}"
             onchange="_historyToDate=this.value;_historyCustom=true;_historyCache=null;loadHistoryChart()"
-            style="background:var(--s2);border:1px solid ${_historyCustom?'var(--amber)':'var(--border)'};border-radius:6px;padding:3px 8px;color:var(--text);font-size:.7rem"/>
+            style="background:var(--s2);border:1px solid ${_historyCustom?'var(--amber)':'var(--border)'};border-radius:6px;padding:3px 8px;color:var(--text);font-size:.70rem"/>
         </span>
         <button onclick="saveSnapshotNow()" class="btn-add-green">💾 오늘 저장</button>
       </div>
@@ -1715,17 +1714,22 @@ async function _doSaveSnapshot() {
       pct:     r.pct    || 0,
     }));
   if (snapData.length === 0) return;
-  const body = 'action=saveSnapshot&date=' + encodeURIComponent(today)
-             + '&data=' + encodeURIComponent(JSON.stringify(snapData));
-  const res = await fetchWithTimeout(GSHEET_API_URL, 30000, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body
-  });
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const json = await res.json();
-  if (json.status !== 'ok') throw new Error(json.message || '저장 실패');
-  return json;
+  try {
+    const body = 'action=saveSnapshot&date=' + encodeURIComponent(today)
+               + '&data=' + encodeURIComponent(JSON.stringify(snapData));
+    const res = await fetchWithTimeout(GSHEET_API_URL, 30000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    if (json.status !== 'ok') throw new Error(json.message || '저장 실패');
+    return json;
+  } catch (e) {
+    console.warn('_doSaveSnapshot 실패:', e.message);
+    throw e;  // caller(saveSnapshotNow / scheduleSnapshotSave)에서 처리
+  }
 }
 
 async function loadHistoryChart() {
@@ -1922,7 +1926,7 @@ function renderHistoryChart(wrap, history) {
   </div>
 
   <!-- 데이터 수 표시 -->
-  <div style="text-align:right;margin-top:8px;font-size:.68rem;color:var(--muted)">📅 ${history.length}개 스냅샷 · ${history[0]?.date} ~ ${history[history.length-1]?.date}</div>
+  <div style="text-align:right;margin-top:8px;font-size:.70rem;color:var(--muted)">📅 ${history.length}개 스냅샷 · ${history[0]?.date} ~ ${history[history.length-1]?.date}</div>
   `;
 }
 
@@ -1930,15 +1934,13 @@ function renderHistoryChart(wrap, history) {
 let _tradeFilter = { acct:'', name:'', type:'all' };   // all | buy | sell
 let _tradeSort   = { key:'date', dir:-1 };            // key: date|name|acct|qty|price  dir: 1 asc / -1 desc
 
-function renderTradesView(area) {
-  // 필터 적용
+// ── 거래이력: 필터·정렬 적용 리스트 반환
+function _getFilteredTrades() {
   let list = [...rawTrades];
   if (_tradeFilter.acct) list = list.filter(t => t.acct === _tradeFilter.acct);
   if (_tradeFilter.name) list = list.filter(t => t.name.includes(_tradeFilter.name));
   if (_tradeFilter.type === 'buy')  list = list.filter(t => t.tradeType === 'buy');
   if (_tradeFilter.type === 'sell') list = list.filter(t => t.tradeType === 'sell');
-
-  // 정렬
   const { key, dir } = _tradeSort;
   list.sort((a, b) => {
     let va, vb;
@@ -1949,15 +1951,149 @@ function renderTradesView(area) {
     if (key === 'price') { return dir * ((a.price || 0) - (b.price || 0)); }
     return 0;
   });
+  return list;
+}
 
-  // 요약 통계 (평균매수단가 기준 실현손익)
+// ── 거래이력: 요약 카드 HTML 생성
+function _buildTradesSummaryHTML() {
   const { totalPnl: realizedPnl, totalCost: realizedCost, pct: realizedPct } = calcRealizedPnl();
   const holdingCount = rawTrades.filter(t => t.tradeType === 'buy').length;
   const sellCount    = rawTrades.filter(t => t.tradeType === 'sell').length;
+  const pC = realizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
+  const pS = realizedPnl >= 0 ? '+' : '';
+  return `
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px">
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">전체 거래</div>
+        <div class="trade-stat-value">${rawTrades.length}<span class="txt-70-400">건</span></div>
+      </div>
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">매수 건수</div>
+        <div class="trade-stat-value">${holdingCount}<span class="txt-70-400">건</span></div>
+      </div>
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">매도 건수</div>
+        <div class="trade-stat-value">${sellCount}<span class="txt-70-400">건</span></div>
+      </div>
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">실현손익</div>
+        <div class="trade-stat-value" style="color:${pC}">${pS}${Math.round(realizedPnl).toLocaleString()}<span class="txt-70-400">원</span></div>
+      </div>
+      <div class="trade-stat-card">
+        <div class="trade-stat-label">수익률</div>
+        <div class="trade-stat-value" style="color:${pC}">${pS}${realizedPct.toFixed(1)}<span class="txt-70-400">%</span></div>
+      </div>
+    </div>`;
+}
+
+// ── 거래이력: 테이블 HTML 생성 (행별 평균단가 계산 포함)
+function _buildTradesTableHTML(list) {
+  const { key, dir } = _tradeSort;
+  const headerCols = [
+    {k:'acct',  label:'계좌',   align:'left',  cls:''},
+    {k:'name',  label:'종목명', align:'left',  cls:''},
+    {k:null,    label:'구분',   align:'center',cls:''},
+    {k:'qty',   label:'수량',   align:'right', cls:''},
+    {k:'date',  label:'날짜',   align:'left',  cls:'col-hide-mobile'},
+    {k:'price', label:'단가',   align:'right', cls:''},
+    {k:null,    label:'손익',   align:'right', cls:''},
+  ];
+  const headerHTML = headerCols.map(col => {
+    if (!col.k) return `<th style="padding:9px 10px;text-align:${col.align};font-weight:600"${col.cls?` class="${col.cls}"`:''} >${col.label}</th>`;
+    const active = _tradeSort.key === col.k;
+    const arrow  = active ? (_tradeSort.dir === 1 ? ' ▲' : ' ▼') : ' ⇅';
+    const color  = active ? 'color:var(--purple-lt)' : '';
+    return `<th${col.cls?` class="${col.cls}"`:''}
+      style="padding:9px 10px;text-align:${col.align};font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}"
+      onclick="tradeSetSort('${col.k}')">${col.label}<span style="font-size:.60rem;opacity:.7">${arrow}</span></th>`;
+  }).join('');
+
+  const avgMap = {};
+  const rowsHTML = list.map((t) => {
+    const mapKey = t.acct + '||' + t.name;
+    if (!avgMap[mapKey]) avgMap[mapKey] = { qty: 0, totalCost: 0 };
+    const isBuy  = t.tradeType === 'buy';
+    const isSell = t.tradeType === 'sell';
+    const price  = t.price ?? 0;
+    const date   = t.date  || '';
+    let pnl = null, pct = null;
+    if (isBuy) {
+      avgMap[mapKey].qty       += (t.qty || 0);
+      avgMap[mapKey].totalCost += (t.qty || 0) * price;
+    } else if (isSell) {
+      const avgCost = avgMap[mapKey].qty > 0 ? avgMap[mapKey].totalCost / avgMap[mapKey].qty : 0;
+      pnl = (price - avgCost) * (t.qty || 0);
+      pct = avgCost > 0 ? ((price - avgCost) / avgCost * 100) : 0;
+      const sellQty = Math.min(t.qty || 0, avgMap[mapKey].qty);
+      avgMap[mapKey].qty       -= sellQty;
+      avgMap[mapKey].totalCost -= sellQty * avgCost;
+    }
+    const pC = pnl === null ? '' : pnl >= 0 ? 'var(--green)' : 'var(--red)';
+    const pS = pnl === null ? '' : pnl >= 0 ? '+' : '';
+    const noDate = !date;
+    const acctColor = ACCT_COLORS[t.acct] || 'var(--muted)';
+    return `
+      <tr style="border-bottom:1px solid var(--border);background:${noDate?'rgba(239,68,68,.04)':'transparent'};cursor:pointer"
+          onclick="editTrade('${t.id}')">
+        <td class="td-center-plain" onclick="event.stopPropagation()">
+          <input type="checkbox" class="trade-cb trade-check" data-id="${t.id}"
+            onchange="_onTradeCbChange(this)" title="선택"/>
+        </td>
+        <td onclick="editTrade('${t.id}')">
+          <span class="adot" style="background:${acctColor}" title="${t.acct}"></span>
+          <span style="font-size:.60rem;color:var(--muted)">${t.acct||'-'}</span>
+        </td>
+        <td onclick="editTrade('${t.id}')">
+          <div style="font-weight:600">${t.name||'-'}</div>
+          ${t.code ? `<span style="font-size:.65rem;color:var(--muted);font-family:'Courier New',monospace">${t.code}</span>` : ''}
+          ${t.memo ? `<div style="font-size:.60rem;color:var(--muted);margin-top:1px">📝 ${t.memo}</div>` : ''}
+        </td>
+        <td style="text-align:center" onclick="editTrade('${t.id}')">
+          <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.65rem;font-weight:700;
+            background:${isBuy?'rgba(34,197,94,.15)':'rgba(239,68,68,.12)'};
+            color:${isBuy?'var(--green-lt)':'var(--red-lt)'}">
+            ${isBuy?'매수':'매도'}
+          </span>
+        </td>
+        <td class="td-right-plain" onclick="editTrade('${t.id}')">${(t.qty||0).toLocaleString()}</td>
+        <td class="col-hide-mobile" style="font-size:.70rem;color:var(--muted)" onclick="editTrade('${t.id}')">
+          ${date || '<span style="color:var(--red-lt);font-size:.60rem">날짜없음</span>'}
+        </td>
+        <td class="td-right-plain" onclick="editTrade('${t.id}')">
+          ${price.toLocaleString()}원
+        </td>
+        <td class="td-right-plain" onclick="editTrade('${t.id}')">
+          ${pnl !== null ? `
+            <div style="color:${pC};font-weight:600">${pS}${Math.round(pnl).toLocaleString()}원</div>
+            <div style="font-size:.65rem;color:${pC}">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
+          ` : `<span class="c-muted">-</span>`}
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:.75rem;min-width:480px">
+        <thead>
+          <tr style="background:var(--s2);color:var(--muted);border-bottom:1px solid var(--border)">
+            <th style="padding:9px 10px;text-align:center;width:36px">
+              <input type="checkbox" class="trade-cb" id="tradeCheckAll" onchange="tradeToggleAll(this.checked)" title="전체선택"/>
+            </th>
+            ${headerHTML}
+          </tr>
+        </thead>
+        <tbody>${rowsHTML}</tbody>
+      </table>
+    </div>
+    ${list.length === 0 ? `<div class="empty-msg">필터 결과가 없어요</div>` : ''}`;
+}
+
+// ── 거래이력 뷰 (조합자)
+function renderTradesView(area) {
+  const list     = _getFilteredTrades();
   const acctList = getAcctList();
 
   area.innerHTML = `
-
   <div class="p-0-4">
     <!-- 헤더 -->
     <div style="margin-bottom:14px">
@@ -1973,76 +2109,28 @@ function renderTradesView(area) {
     </div>
 
     <!-- 요약 카드 -->
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px">
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">전체 거래</div>
-        <div class="trade-stat-value">${rawTrades.length}<span class="txt-70-400">건</span></div>
-      </div>
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">매수 건수</div>
-        <div class="trade-stat-value">${holdingCount}<span class="txt-70-400">건</span></div>
-      </div>
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">매도 건수</div>
-        <div class="trade-stat-value">${sellCount}<span class="txt-70-400">건</span></div>
-      </div>
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">실현 손익</div>
-        <div class="trade-stat-value" style="color:${pColor(realizedPnl)}">
-          ${pSign(realizedPnl)}${Math.round(realizedPnl).toLocaleString()}<span class="txt-65-400">원</span>
-        </div>
-      </div>
-      <div class="trade-stat-card">
-        <div class="trade-stat-label">실현 수익률</div>
-        <div class="trade-stat-value" style="color:${pColor(realizedPct)}">
-          ${pSign(realizedPct)}${realizedPct.toFixed(1)}<span class="txt-65-400">%</span>
-        </div>
+    ${_buildTradesSummaryHTML()}
+
+    <!-- 필터 바 -->
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <input type="text" placeholder="종목명 검색..." value="${_tradeFilter.name||''}"
+        oninput="_tradeFilter.name=this.value;renderView()"
+        style="flex:1;min-width:120px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.72rem">
+      <select onchange="_tradeFilter.acct=this.value;renderView()"
+        style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem">
+        <option value="">전체 계좌</option>
+        ${acctList.filter(a=>a!=='합계').map(a=>`<option value="${a}"${_tradeFilter.acct===a?' selected':''}>${a}</option>`).join('')}
+      </select>
+      <div style="display:flex;gap:4px">
+        ${['all','buy','sell'].map(t=>`
+          <button onclick="_tradeFilter.type='${t}';renderView()"
+            class="btn-sort-toggle${_tradeFilter.type===t?' active':''}">${t==='all'?'전체':t==='buy'?'매수':'매도'}</button>
+        `).join('')}
       </div>
     </div>
 
-    <!-- 필터 -->
-    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
-      <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-        <span class="filter-badge">계좌</span>
-        <div class="flex-wrap-gap4" id="tradeAcctBtns">
-        ${['', ...acctList].map(a=>`<button onclick="_tradeFilter.acct='${a}'; renderView()" class="${_fBtnClass(_tradeFilter.acct===a)}">${a||'전체'}</button>`).join('')}
-        </div>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
-          <span class="filter-badge">유형</span>
-          <div style="display:flex;gap:4px">
-          ${['all','buy','sell'].map(t=>`<button onclick="_tradeFilter.type='${t}'; renderView()"
-            class="btn-trade-type${_tradeFilter.type===t?' active':''}">${t==='all'?'전체':t==='buy'?'📈 매수':'📉 매도'}</button>`).join('')}
-          </div>
-        </div>
-        <span style="font-size:.7rem;color:var(--muted);margin-left:auto;white-space:nowrap">${list.length}건 표시</span>
-      </div>
-      <div class="flex-gap6-ai">
-        <select id="tradeFilterName"
-          onchange="_tradeFilter.name=this.value; renderView()"
-          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.73rem;width:140px;min-width:80px;cursor:pointer">
-          <option value="">🔍 전체 종목</option>
-          ${[...new Set(rawTrades.map(t=>t.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'))
-            .map(n=>`<option value="${n.replace(/"/g,'&quot;')}" ${_tradeFilter.name===n?'selected':''}>${n}</option>`).join('')}
-        </select>
-        ${_tradeFilter.name ? `<button onclick="_tradeFilter.name=''; renderView()" class="btn-icon-muted">✕</button>` : ''}
-      </div>
-    </div>
-
-    ${rawTrades.length === 0 ? `
-    <div class="info-box-blue-lg">
-      <div class="emoji-lg">📋</div>
-      <div class="txt-blue-700">거래 이력이 없어요</div>
-      <div style="font-size:.75rem;color:var(--muted);margin-bottom:14px">📊 일괄 입력으로 과거 거래를 한번에 입력하거나<br>➕ 거래 추가로 하나씩 등록하세요</div>
-      <button onclick="openBulkImport()"
-        style="padding:8px 20px;border-radius:8px;border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.1);color:var(--gold);font-size:.8rem;cursor:pointer">
-        📊 일괄 입력 시작하기
-      </button>
-    </div>` : `
-
-    <!-- 선택 삭제 액션바 (선택 시 표시) -->
-    <div id="tradeSelBar" style="display:none;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:8px 14px;margin-bottom:10px;align-items:center;justify-content:space-between;gap:10px">
+    <!-- 선택 액션바 -->
+    <div id="tradeSelBar" style="display:none;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:8px;margin-bottom:8px">
       <span id="tradeSelCount" style="font-size:.78rem;font-weight:600;color:var(--gold)">0건 선택됨</span>
       <div class="flex-gap6">
         <button onclick="tradeSelectAll()" class="btn-outline-sm">전체선택</button>
@@ -2052,103 +2140,7 @@ function renderTradesView(area) {
     </div>
 
     <!-- 거래 테이블 -->
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--border);border-radius:10px">
-      <table style="width:100%;border-collapse:collapse;font-size:.75rem;min-width:480px">
-        <thead>
-          <tr style="background:var(--s2);color:var(--muted);border-bottom:1px solid var(--border)">
-            <th style="padding:9px 10px;text-align:center;width:36px">
-              <input type="checkbox" class="trade-cb" id="tradeCheckAll" onchange="tradeToggleAll(this.checked)" title="전체선택"/>
-            </th>
-            ${[
-              {k:'acct',  label:'계좌',   align:'left',  cls:''},
-              {k:'name',  label:'종목명', align:'left',  cls:''},
-              {k:null,    label:'구분',   align:'center',cls:''},
-              {k:'qty',   label:'수량',   align:'right', cls:''},
-              {k:'date',  label:'날짜',   align:'left',  cls:'col-hide-mobile'},
-              {k:'price', label:'단가',   align:'right', cls:''},
-              {k:null,    label:'손익',   align:'right', cls:''},
-            ].map(col => {
-              if (!col.k) return `<th style="padding:9px 10px;text-align:${col.align};font-weight:600"${col.cls?` class="${col.cls}"`:''} >${col.label}</th>`;
-              const active = _tradeSort.key === col.k;
-              const arrow  = active ? (_tradeSort.dir === 1 ? ' ▲' : ' ▼') : ' ⇅';
-              const color  = active ? 'color:var(--purple-lt)' : '';
-              return `<th${col.cls?` class="${col.cls}"`:''}
-                style="padding:9px 10px;text-align:${col.align};font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}"
-                onclick="tradeSetSort('${col.k}')">${col.label}<span style="font-size:.6rem;opacity:.7">${arrow}</span></th>`;
-            }).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${(() => {
-            const avgMap = {};
-            return list.map((t) => {
-              const key = t.acct + '||' + t.name;
-              if (!avgMap[key]) avgMap[key] = { qty: 0, totalCost: 0 };
-              const isBuy  = t.tradeType === 'buy';
-              const isSell = t.tradeType === 'sell';
-              const price  = t.price ?? 0;
-              const date   = t.date  || '';
-
-              let pnl = null, pct = null;
-              if (isBuy) {
-                avgMap[key].qty       += (t.qty || 0);
-                avgMap[key].totalCost += (t.qty || 0) * price;
-              } else if (isSell) {
-                const avgCost = avgMap[key].qty > 0 ? avgMap[key].totalCost / avgMap[key].qty : 0;
-                pnl = (price - avgCost) * (t.qty || 0);
-                pct = avgCost > 0 ? ((price - avgCost) / avgCost * 100) : 0;
-                const sellQty = Math.min(t.qty || 0, avgMap[key].qty);
-                avgMap[key].qty       -= sellQty;
-                avgMap[key].totalCost -= sellQty * avgCost;
-              }
-              const pC = pnl === null ? '' : pnl >= 0 ? 'var(--green)' : 'var(--red)';
-              const pS = pnl === null ? '' : pnl >= 0 ? '+' : '';
-              const noDate = !date;
-
-              return `<tr class="trade-row${noDate?' trade-row-nodate':''}" data-id="${t.id}"
-                style="border-bottom:1px solid var(--border);background:${noDate?'rgba(239,68,68,.04)':isSell?'rgba(255,255,255,.01)':'transparent'}">
-                <td class="td-center-plain" onclick="event.stopPropagation()">
-                  <input type="checkbox" class="trade-cb trade-check" data-id="${t.id}"
-                    onchange="tradeCheckChange()"
-                    style="accent-color:var(--amber)"/>
-                </td>
-                <td style="padding:8px 10px;white-space:nowrap" onclick="editTrade('${t.id}')">
-                  <span class="adot" style="background:${ACCT_COLORS[t.acct]||'var(--muted)'}"></span>${t.acct}
-                  ${noDate?'<span style="font-size:.6rem;color:var(--red-lt);margin-left:4px">날짜없음</span>':''}
-                </td>
-                <td class="td-p8-10" onclick="editTrade('${t.id}')">
-                  <div style="display:flex;align-items:center;gap:5px">
-                    <span class="fw-600">${t.name}</span>
-                    <span data-gname="${t.name}" onclick="event.stopPropagation();goToTradeGroup(this.dataset.gname)"
-                      title="종목별 거래 뷰로 이동"
-                      style="cursor:pointer;font-size:.6rem;padding:1px 5px;border-radius:4px;background:rgba(167,139,250,.15);color:var(--purple-lt);white-space:nowrap;flex-shrink:0">📊</span>
-                  </div>
-                  <div style="font-size:.65rem;color:var(--muted)">${t.code||''}</div>
-                </td>
-                <td class="td-center-plain" onclick="editTrade('${t.id}')">
-                  ${isSell
-                    ? `<span class="trade-badge-sell">📉 매도</span>`
-                    : `<span class="trade-badge-hold">📈 매수</span>`}
-                </td>
-                <td class="td-right-plain" onclick="editTrade('${t.id}')">${(t.qty||0).toLocaleString()}</td>
-                <td class="col-hide-mobile" style="padding:8px 10px;white-space:nowrap;color:${noDate?'var(--red-lt)':'var(--muted)'}" onclick="editTrade('${t.id}')">${date||'⚠️ 없음'}</td>
-                <td style="padding:8px 10px;text-align:right;white-space:nowrap;color:${isSell?'var(--red-lt)':'var(--green-lt)'}" onclick="editTrade('${t.id}')">
-                  ${price.toLocaleString()}원
-                </td>
-                <td class="td-right-plain" onclick="editTrade('${t.id}')">
-                  ${pnl !== null ? `
-                    <div style="color:${pC};font-weight:600">${pS}${Math.round(pnl).toLocaleString()}원</div>
-                    <div style="font-size:.67rem;color:${pC}">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
-                  ` : `<span class="c-muted">-</span>`}
-                </td>
-              </tr>`;
-            }).join('');
-          })()}
-        </tbody>
-      </table>
-    </div>
-    ${list.length === 0 ? `<div class="empty-msg">필터 결과가 없어요</div>` : ''}`}
-
+    ${_buildTradesTableHTML(list)}
   </div>`;
 
   // 액션바 초기 상태 반영
@@ -2240,14 +2232,14 @@ function renderTradeGroupView(area) {
             <div style="flex:1;min-width:0">
               <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
                 <span class="tg-name" style="font-weight:700;font-size:.85rem">${name}</span>
-                ${g.code ? `<span style="font-size:.62rem;color:var(--muted);font-family:'Courier New',monospace">${g.code}</span>` : ''}
+                ${g.code ? `<span style="font-size:.65rem;color:var(--muted);font-family:'Courier New',monospace">${g.code}</span>` : ''}
                 <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,.1);color:var(--purple-lt)">${g.type}</span>
                 <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:rgba(100,116,139,.1);color:var(--muted)">${g.sector}</span>
                 ${isHolding
                   ? `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:rgba(74,222,128,.12);color:var(--green-lt);font-weight:600">보유중 ${g.qty.toLocaleString()}주</span>`
                   : `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:rgba(100,116,139,.1);color:var(--muted)">청산완료</span>`}
               </div>
-              <div style="display:flex;gap:14px;margin-top:4px;font-size:.7rem;color:var(--muted)">
+              <div style="display:flex;gap:14px;margin-top:4px;font-size:.70rem;color:var(--muted)">
                 <span>매수 <b class="c-text">${g.buyCount}</b>건</span>
                 <span>매도 <b class="c-text">${g.sellCount}</b>건</span>
                 ${isHolding ? `<span>평균단가 <b class="c-text">${Math.round(g.avgCost).toLocaleString()}원</b></span>` : ''}
@@ -2255,7 +2247,7 @@ function renderTradeGroupView(area) {
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:5px;flex-shrink:0" onclick="event.stopPropagation()">
-              <span style="font-size:.7rem;color:var(--muted);white-space:nowrap;margin-right:4px">${g.trades.length}건</span>
+              <span style="font-size:.70rem;color:var(--muted);white-space:nowrap;margin-right:4px">${g.trades.length}건</span>
               <button data-bname="${name}" onclick="openAddTrade({name:this.dataset.bname},'buy')" title="매수 추가" class="btn-buy-sm">＋ 매수</button>
               ${isHolding ? `<button data-bname="${name}" onclick="openAddTrade({name:this.dataset.bname},'sell')" title="매도 추가" class="btn-sell-sm">－ 매도</button>` : ''}
             </div>
@@ -2263,7 +2255,7 @@ function renderTradeGroupView(area) {
 
           <!-- 거래 상세 테이블 (기본 숨김) -->
           <div class="tg-detail" style="display:none;border-top:1px solid var(--border);overflow-x:auto">
-            <table style="width:100%;border-collapse:collapse;font-size:.73rem;min-width:400px">
+            <table style="width:100%;border-collapse:collapse;font-size:.72rem;min-width:400px">
               <thead>
                 <tr class="s2-muted">
                   <th class="th-left-500">날짜</th>
@@ -2296,7 +2288,7 @@ function renderTradeGroupView(area) {
                       const pc  = pnl >= 0 ? 'var(--green)' : 'var(--red)';
                       const ps  = pnl >= 0 ? '+' : '';
                       pnlCell   = `<div style="color:${pc};font-weight:600">${ps}${Math.round(pnl).toLocaleString()}원</div>
-                                   <div style="font-size:.62rem;color:${pc}">${ps}${pct.toFixed(1)}%</div>`;
+                                   <div style="font-size:.65rem;color:${pc}">${ps}${pct.toFixed(1)}%</div>`;
                       runCost  -= Math.min(qty, runQty) * avg;
                       runQty   -= Math.min(qty, runQty);
                     }
@@ -2313,7 +2305,7 @@ function renderTradeGroupView(area) {
                         ${price.toLocaleString()}원
                       </td>
                       <td style="padding:7px 12px;text-align:right;white-space:nowrap">${amount.toLocaleString()}원</td>
-                      <td style="padding:7px 12px;color:var(--muted);font-size:.68rem">${t.memo||''}</td>
+                      <td style="padding:7px 12px;color:var(--muted);font-size:.70rem">${t.memo||''}</td>
                       <td class="td-p7-center">
                         <button onclick="editTrade('${t.id}')"
                           class="btn-edit-sm">✏️</button>
@@ -2660,10 +2652,10 @@ function buildTradeEditOverlayHTML() {
         <!-- 매수 / 매도 탭 -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <button id="te-tradetype-buy" onclick="_teSetTradeType('buy')"
-            style="padding:9px;font-size:.8rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s"
+            style="padding:9px;font-size:.80rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s"
             class="te-type-btn">📈 매수</button>
           <button id="te-tradetype-sell" onclick="_teSetTradeType('sell')"
-            style="padding:9px;font-size:.8rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border);transition:all .15s"
+            style="padding:9px;font-size:.80rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border);transition:all .15s"
             class="te-type-btn">📉 매도</button>
         </div>
 
@@ -2693,7 +2685,7 @@ function buildTradeEditOverlayHTML() {
             <datalist id="te-name-list"></datalist>
           </div>
           <input type="hidden" id="te-code" value=""/>
-          <div id="te-code-status" style="margin-top:4px;font-size:.7rem;min-height:16px"></div>
+          <div id="te-code-status" style="margin-top:4px;font-size:.70rem;min-height:16px"></div>
         </div>
 
         <!-- 수량 + 날짜 -->
@@ -2895,7 +2887,7 @@ function buildBulkOverlayHTML() {
       <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
         <div>
           <h3 class="h3-95">📊 거래 이력 일괄 입력</h3>
-          <p style="margin:3px 0 0;font-size:.7rem;color:var(--muted)">엑셀처럼 직접 입력하거나 CSV 파일을 붙여넣기 하세요 · Tab키로 셀 이동</p>
+          <p style="margin:3px 0 0;font-size:.70rem;color:var(--muted)">엑셀처럼 직접 입력하거나 CSV 파일을 붙여넣기 하세요 · Tab키로 셀 이동</p>
         </div>
         <button onclick="closeBulkImport()" class="btn-close-icon">✕</button>
       </div>
@@ -2904,7 +2896,7 @@ function buildBulkOverlayHTML() {
         ${tabBtn('buy',  '📈 매수', 'rgba(34,197,94,.4)')}
         ${tabBtn('sell', '📉 매도', 'rgba(239,68,68,.4)')}
         ${tabBtn('mix',  '🔀 혼합',  'rgba(139,92,246,.4)')}
-        <span id="bulkTabDesc" style="font-size:.7rem;color:var(--muted);margin-left:6px"></span>
+        <span id="bulkTabDesc" style="font-size:.70rem;color:var(--muted);margin-left:6px"></span>
       </div>
       <!-- 툴바 -->
       <div style="padding:10px 22px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -2917,7 +2909,7 @@ function buildBulkOverlayHTML() {
           style="padding:4px 12px;border-radius:6px;border:1px solid rgba(16,185,129,.3);background:rgba(16,185,129,.08);color:var(--green-md);font-size:.72rem;cursor:pointer;text-decoration:none">
           ⬇ 템플릿 다운로드
         </a>
-        <span id="bulkCSVHint" style="font-size:.68rem;color:var(--muted);margin-left:4px"></span>
+        <span id="bulkCSVHint" style="font-size:.70rem;color:var(--muted);margin-left:4px"></span>
       </div>
       <!-- 그리드 -->
       <div id="bulkGridWrap" style="flex:1;min-height:0;overflow:auto;padding:0 12px 12px;-webkit-overflow-scrolling:touch"></div>
@@ -2938,7 +2930,7 @@ function renderBulkGrid() {
   const COLS = _getBulkCols();
   const ROWS = _getBulkRows();
   const headerCells = COLS.map(c =>
-    `<th style="padding:6px 8px;text-align:left;white-space:nowrap;font-size:.7rem;color:var(--muted);font-weight:600;background:var(--s2);position:sticky;top:0;min-width:${c.w}px">
+    `<th style="padding:6px 8px;text-align:left;white-space:nowrap;font-size:.70rem;color:var(--muted);font-weight:600;background:var(--s2);position:sticky;top:0;min-width:${c.w}px">
       ${c.label}${c.req?'<span class="c-red">*</span>':''}
     </th>`
   ).join('') + '<th style="padding:6px 8px;background:var(--s2);position:sticky;top:0"></th>';
@@ -3290,13 +3282,13 @@ function renderMigrationTable() {
         <td class="td-p6">
           <input type="date" value="${r.buyDate}"
             onchange="_migrationRows[${i}].buyDate=this.value"
-            style="background:var(--s2);border:1px solid var(--border);border-radius:5px;padding:4px 7px;color:var(--text);font-size:.73rem;width:130px"/>
+            style="background:var(--s2);border:1px solid var(--border);border-radius:5px;padding:4px 7px;color:var(--text);font-size:.72rem;width:130px"/>
         </td>
       </tr>`).join('')}
     </tbody>
   </table>
   </div>
-  <div style="margin-top:10px;font-size:.7rem;color:var(--muted)">
+  <div style="margin-top:10px;font-size:.70rem;color:var(--muted)">
     📌 체크 해제한 항목은 가져오지 않아요 · 매수일자 없이 가져오면 날짜만 비워서 저장돼요
   </div>`;
 }
@@ -3366,7 +3358,7 @@ function renderDivView(area) {
   <!-- 배당 불러오기 배너 -->
   <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:11px 14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
     <div style="flex:1">
-      <div style="font-size:.73rem;font-weight:700;color:var(--amber);margin-bottom:2px">📡 배당금 자동 조회</div>
+      <div style="font-size:.72rem;font-weight:700;color:var(--amber);margin-bottom:2px">📡 배당금 자동 조회</div>
       <div id="divFetchStatus" class="lbl-67-muted">구글시트 GOOGLEFINANCE로 최근 13개월 배당 자동 조회 · 구글시트 연동 필수</div>
     </div>
     <button id="divFetchBtn" onclick="startDivFetch()" class="btn-amber-sm">
@@ -3407,10 +3399,10 @@ function renderDivView(area) {
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
       <div>
-        <div style="font-size:.84rem;font-weight:700">📅 ${new Date().getFullYear()}년 월별 배당 예상</div>
-        <div style="font-size:.66rem;color:var(--muted);margin-top:2px">세전 기준 · 현재월 <span style="color:var(--cyan)">${NOW_MONTH}월</span> 기준</div>
+        <div style="font-size:.85rem;font-weight:700">📅 ${new Date().getFullYear()}년 월별 배당 예상</div>
+        <div style="font-size:.65rem;color:var(--muted);margin-top:2px">세전 기준 · 현재월 <span style="color:var(--cyan)">${NOW_MONTH}월</span> 기준</div>
       </div>
-      <div style="display:flex;gap:12px;font-size:.67rem;color:var(--muted);align-items:center">
+      <div style="display:flex;gap:12px;font-size:.65rem;color:var(--muted);align-items:center">
         <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:4px;vertical-align:middle"></span>지난달</span>
         <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#06b6d4;margin-right:4px;vertical-align:middle"></span>이번달</span>
         <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#10b981;margin-right:4px;vertical-align:middle"></span>예정</span>
@@ -3430,7 +3422,7 @@ function renderDivView(area) {
       <div style="font-size:.72rem;color:var(--cyan)">연간 합계 <b>${fmtW(Math.round(totalAnnual))}</b></div>
     </div>
     <div class="overflow-x-auto">
-    <table style="width:100%;border-collapse:collapse;font-size:.74rem;min-width:480px">
+    <table style="width:100%;border-collapse:collapse;font-size:.75rem;min-width:480px">
       <thead>
         <tr class="s2-muted">
           <th style="padding:8px 14px;text-align:left;font-weight:600">종목명</th>
@@ -3447,7 +3439,7 @@ function renderDivView(area) {
 
   sorted.forEach(r => {
     const acctDots  = r.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span>`).join('');
-    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:.6rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
+    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:.60rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
     const freqColors = { '월배당':'var(--green)', '분기':'var(--blue)', '반기':'var(--purple)', '연간':'var(--amber)' };
     const fCol = freqColors[r.dd.freq] || 'var(--muted)';
     // 이 종목의 투자원금
@@ -3458,7 +3450,7 @@ function renderDivView(area) {
     html += `<tr class="bd-bottom">
       <td class="p-8-14">
         <div class="fw-600">${r.name}</div>
-        <div style="font-size:.62rem;color:var(--muted)">${acctDots} ${r.accts.join('·')}</div>
+        <div style="font-size:.65rem;color:var(--muted)">${acctDots} ${r.accts.join('·')}</div>
       </td>
       <td class="td-center-plain">
         <span class="div-freq-badge" style="background:${fCol}22;color:${fCol}">${r.dd.freq}</span>
@@ -3732,7 +3724,7 @@ function renderAssetView(area) {
       <h4 class="h3-card">🏠 부동산 · ${reName}</h4>
       <button onclick="openRealEstateEditor()" class="btn-amber-outline">✏️ 수정</button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.8rem">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.80rem">
       ${[
         ['취득가', fmt(pur)],
         ['취득세 등', fmt(tax+interior+etc)],
@@ -3761,7 +3753,7 @@ function renderAssetView(area) {
       <h4 class="h3-card">🏦 주담대 현황</h4>
       <button onclick="openLoanEditor()" class="btn-amber-outline">✏️ 수정</button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.8rem;margin-bottom:14px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.80rem;margin-bottom:14px">
       ${[
         ['잔액', `<span style="color:var(--red);font-weight:700">${fmt(bal)}</span>`],
         ['월 납입 (계산)', `${fmt(pmt)}`],
@@ -3771,7 +3763,7 @@ function renderAssetView(area) {
         ['상환 완료', `${payoffYear}년`],
         ['대출실행일', startDateLabel],
         ['실제 이자지급액', interestPaid > 0
-          ? `${fmt(interestPaid)}${interestDiff !== null ? ` <span style="font-size:.62rem;color:${interestDiff>0?'var(--red)':'var(--green)'}">(${interestDiff>0?'+':''}${fmt(interestDiff)})</span>` : ''}`
+          ? `${fmt(interestPaid)}${interestDiff !== null ? ` <span style="font-size:.65rem;color:${interestDiff>0?'var(--red)':'var(--green)'}">(${interestDiff>0?'+':''}${fmt(interestDiff)})</span>` : ''}`
           : '-'],
         ['원금상환', pmt > 0 && interestPaid > 0 ? fmt(pmt - interestPaid) : (pmt > 0 ? fmt(pmt - monthlyInterest) : '-')],
       ].map(([l,v])=>`<div class="s2-rounded">
@@ -3785,7 +3777,7 @@ function renderAssetView(area) {
     <div style="height:8px;background:var(--s2);border-radius:4px;overflow:hidden">
       <div style="height:100%;width:${progressPct}%;background:linear-gradient(90deg,var(--amber),var(--gold));border-radius:4px;transition:width .4s"></div>
     </div>
-    <div style="margin-top:8px;font-size:.68rem;color:var(--muted);text-align:right">총 이자 ${fmt(totalInterest)} · ${elapsedMonths}개월 납입 완료</div>
+    <div style="margin-top:8px;font-size:.70rem;color:var(--muted);text-align:right">총 이자 ${fmt(totalInterest)} · ${elapsedMonths}개월 납입 완료</div>
   </div>`;
 
   // ── 상환스케줄 / 손익 차트 섹션 ──
@@ -3834,7 +3826,7 @@ function buildScheduleSection() {
     <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:.78rem">
       <div style="font-size:1.6rem;margin-bottom:8px">📂</div>
       상환스케줄 CSV를 업로드하면 월별 손익 차트를 볼 수 있어요<br>
-      <span style="font-size:.68rem;opacity:.7">날짜, 대출잔액, 납입원금, 납입이자 컬럼이 필요합니다</span>
+      <span style="font-size:.70rem;opacity:.7">날짜, 대출잔액, 납입원금, 납입이자 컬럼이 필요합니다</span>
     </div>` : `
     <div style="font-size:.72rem;color:var(--muted);margin-bottom:12px">
       총 <strong class="c-text">${LOAN_SCHEDULE.length}개월</strong> 데이터 ·
@@ -3850,12 +3842,12 @@ function buildScheduleSection() {
     </div>
     <div style="display:flex;gap:8px;margin-bottom:14px;align-items:flex-end">
       <div>
-        <div style="font-size:.68rem;color:var(--muted);margin-bottom:4px">날짜 (YYYY-MM)</div>
+        <div style="font-size:.70rem;color:var(--muted);margin-bottom:4px">날짜 (YYYY-MM)</div>
         <input type="month" id="re-val-date"
           style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem">
       </div>
       <div>
-        <div style="font-size:.68rem;color:var(--muted);margin-bottom:4px">시가 (원)</div>
+        <div style="font-size:.70rem;color:var(--muted);margin-bottom:4px">시가 (원)</div>
         <input type="text" id="re-val-price" placeholder="480,000,000"
           style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem;width:150px"
           oninput="this.value=this.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,',')">
@@ -3868,8 +3860,8 @@ function buildScheduleSection() {
     ${hasVal ? `
     <table style="width:100%;border-collapse:collapse">
       <thead><tr>
-        <th style="padding:5px 8px;font-size:.68rem;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">날짜</th>
-        <th style="padding:5px 8px;font-size:.68rem;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">시가</th>
+        <th style="padding:5px 8px;font-size:.70rem;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">날짜</th>
+        <th style="padding:5px 8px;font-size:.70rem;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">시가</th>
         <th style="border-bottom:1px solid var(--border)"></th>
       </tr></thead>
       <tbody>${valRows}</tbody>
@@ -4149,14 +4141,14 @@ function renderScheduleChart() {
       ${latestEq != null ? `<span style="font-size:.78rem;font-weight:700;color:#fbbf24;margin-left:4px">${yLbl(latestEq)}</span>` : ''}
     </div>` : ''}
     <div style="margin-left:auto;display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.2);padding:6px 12px;border-radius:8px">
-      <span style="font-size:.7rem;color:#94a3b8">이자포함 순손익</span>
-      <span style="font-size:.88rem;font-weight:800;color:${pnlColor}">${latestPnl !== null ? (latestPnl >= 0 ? '+' : '') + yLbl(latestPnl) : '시가 미입력'}</span>
+      <span style="font-size:.70rem;color:#94a3b8">이자포함 순손익</span>
+      <span style="font-size:.90rem;font-weight:800;color:${pnlColor}">${latestPnl !== null ? (latestPnl >= 0 ? '+' : '') + yLbl(latestPnl) : '시가 미입력'}</span>
     </div>
   </div>
 
   <!-- 잔액·순자산 차트 -->
   <div style="background:rgba(14,23,38,.6);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;margin-bottom:8px;-webkit-overflow-scrolling:touch">
-    <div style="padding:8px 14px 4px;font-size:.68rem;font-weight:700;letter-spacing:.08em;color:#64748b;text-transform:uppercase">잔액 · 순자산</div>
+    <div style="padding:8px 14px 4px;font-size:.70rem;font-weight:700;letter-spacing:.08em;color:#64748b;text-transform:uppercase">잔액 · 순자산</div>
     <svg viewBox="0 0 ${W} ${H1}" width="${W}" height="${H1}" style="display:block;min-width:${W}px">
       <defs>
         <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
@@ -4191,7 +4183,7 @@ function renderScheduleChart() {
 
   <!-- 손익 차트 -->
   <div style="background:rgba(14,23,38,.6);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <div style="padding:8px 14px 4px;font-size:.68rem;font-weight:700;letter-spacing:.08em;color:#64748b;text-transform:uppercase">이자포함 순손익</div>
+    <div style="padding:8px 14px 4px;font-size:.70rem;font-weight:700;letter-spacing:.08em;color:#64748b;text-transform:uppercase">이자포함 순손익</div>
     <svg viewBox="0 0 ${W} ${H2}" width="${W}" height="${H2}" style="display:block;min-width:${W}px">
       <!-- 배경 그리드 -->
       ${pnlTicks.map(v => {
@@ -4319,7 +4311,7 @@ function renderStocksView(area) {
 
       <!-- 새 섹터 입력창 (숨김) -->
       <div id="secMgmtNewWrap" style="display:none;background:rgba(6,182,212,.05);border:1px dashed rgba(6,182,212,.4);border-radius:8px;padding:10px;margin-bottom:10px">
-        <div style="font-size:.68rem;color:var(--cyan);font-weight:700;margin-bottom:7px">➕ 새 섹터 추가</div>
+        <div style="font-size:.70rem;color:var(--cyan);font-weight:700;margin-bottom:7px">➕ 새 섹터 추가</div>
         <div class="flex-gap6-wrap">
           <input id="secMgmtNewName" type="text" placeholder="섹터명"
             style="flex:1;min-width:120px;background:var(--s2);border:1px solid rgba(6,182,212,.5);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
@@ -4362,7 +4354,7 @@ function renderGsheetView(area) {
       <div style="font-size:1.4rem">${connected?'✅':'⚪'}</div>
       <div>
         <div style="font-size:.75rem;font-weight:700;color:${connected?'var(--green-lt)':'var(--muted)'}">${connected?'구글시트 연동됨':'구글시트 미연동'}</div>
-        <div style="font-size:.67rem;color:var(--muted);margin-top:2px;word-break:break-all">${connected?GSHEET_API_URL:'URL을 아래에 입력하세요'}</div>
+        <div style="font-size:.65rem;color:var(--muted);margin-top:2px;word-break:break-all">${connected?GSHEET_API_URL:'URL을 아래에 입력하세요'}</div>
       </div>
     </div>
 
@@ -4374,17 +4366,17 @@ function renderGsheetView(area) {
           value="${GSHEET_API_URL}"
           style="flex:1;min-width:220px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-size:.72rem;font-family:'Courier New',monospace"
         />
-        <button onclick="saveGsheetUrlFromUI()" style="padding:7px 14px;border-radius:6px;border:none;background:var(--green);color:#fff;font-size:.76rem;font-weight:700;cursor:pointer;white-space:nowrap">
+        <button onclick="saveGsheetUrlFromUI()" style="padding:7px 14px;border-radius:6px;border:none;background:var(--green);color:#fff;font-size:.75rem;font-weight:700;cursor:pointer;white-space:nowrap">
           💾 저장
         </button>
-        <button onclick="clearGsheetUrl()" style="padding:7px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.76rem;font-weight:700;cursor:pointer;white-space:nowrap">
+        <button onclick="clearGsheetUrl()" style="padding:7px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.75rem;font-weight:700;cursor:pointer;white-space:nowrap">
           🗑 해제
         </button>
-        <button onclick="testGsheetUrl()" style="padding:7px 14px;border-radius:6px;border:1px solid rgba(59,130,246,.4);background:var(--s2);color:var(--blue-lt);font-size:.76rem;font-weight:600;cursor:pointer;white-space:nowrap">
+        <button onclick="testGsheetUrl()" style="padding:7px 14px;border-radius:6px;border:1px solid rgba(59,130,246,.4);background:var(--s2);color:var(--blue-lt);font-size:.75rem;font-weight:600;cursor:pointer;white-space:nowrap">
           🧪 테스트
         </button>
       </div>
-      <div id="gsheetTestResult" style="font-size:.68rem;color:var(--muted);min-height:16px"></div>
+      <div id="gsheetTestResult" style="font-size:.70rem;color:var(--muted);min-height:16px"></div>
     </div>
 
     <!-- ★ v8 NAV 수동 입력 (코드 없는 종목) -->
@@ -4395,16 +4387,16 @@ function renderGsheetView(area) {
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
         <label class="txt-muted-68">날짜</label>
         <input type="date" id="navDate" value="${getDateStr(0)}"
-          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.73rem"/>
+          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem"/>
       </div>
       <div id="navInputRows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
         ${noCodeItems.map(item => `
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span style="font-size:.73rem;color:var(--text);min-width:140px;flex:1">${item.name}</span>
+          <span style="font-size:.72rem;color:var(--text);min-width:140px;flex:1">${item.name}</span>
           <span class="txt-muted-68" style="min-width:40px">${item.assetType||item.type||''}</span>
           <input type="number" class="nav-price-inp" data-name="${item.name.replace(/"/g,'&quot;')}"
             placeholder="NAV 입력" min="0" step="1"
-            style="width:120px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.73rem;text-align:right"/>
+            style="width:120px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem;text-align:right"/>
           <span class="txt-muted-68">원</span>
         </div>`).join('')}
       </div>
@@ -4423,7 +4415,7 @@ function renderGsheetView(area) {
     <!-- 설정 가이드 -->
     <div class="card-12">
       <div style="font-size:.75rem;font-weight:700;color:var(--text);margin-bottom:12px">📦 초기 설정 가이드</div>
-      <div style="font-size:.69rem;color:var(--muted);line-height:2.0">
+      <div style="font-size:.70rem;color:var(--muted);line-height:2.0">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <span style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);color:var(--green-lt);padding:3px 10px;border-radius:6px">📊 구글 스프레드시트</span>
           <span style="background:rgba(139,92,246,.15);border:1px solid rgba(139,92,246,.3);color:var(--purple-lt);padding:3px 10px;border-radius:6px">⚙️ apps_script.gs</span>
@@ -4519,7 +4511,7 @@ function renderTabSettingsBody() {
     html += `<div class="tab-setting-row" draggable="true" data-idx="${i}"
       style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;background:var(--s2);cursor:grab;transition:background .12s">
       <span style="font-size:.75rem;color:var(--muted);cursor:grab;user-select:none">⠿</span>
-      <span style="display:flex;align-items:center;gap:8px;flex:1;font-size:.8rem"><span style="width:16px;height:16px;display:inline-flex;align-items:center">${tab.icon||''}</span>${tab.label}</span>
+      <span style="display:flex;align-items:center;gap:8px;flex:1;font-size:.80rem"><span style="width:16px;height:16px;display:inline-flex;align-items:center">${tab.icon||''}</span>${tab.label}</span>
       <button onclick="moveTab(${i},-1)" ${isFirst?'disabled':''} class="btn-move-icon">↑</button>
       <button onclick="moveTab(${i},1)" ${isLast?'disabled':''} class="btn-move-icon">↓</button>
     </div>`;
@@ -5092,7 +5084,7 @@ async function autoLoadPrices() {
         const hint = document.createElement('span');
         hint.id = 'gsheetMissingHint';
         hint.title = '미조회 종목: ' + missingStr;
-        hint.style.cssText = 'margin-left:6px;cursor:pointer;font-size:.7rem;color:var(--red)';
+        hint.style.cssText = 'margin-left:6px;cursor:pointer;font-size:.70rem;color:var(--red)';
         hint.textContent = '⚠️ 미조회 ' + missing.length + '개: ' + missingStr;
         hint.onclick = () => switchView('gsheet');
         const existing = $el('gsheetMissingHint');
@@ -5273,16 +5265,16 @@ checkAndShowMigration();
     </div>
 
     <!-- 안내 배너 -->
-    <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:.69rem;color:var(--muted);line-height:1.7">
+    <div style="background:rgba(59,130,246,.07);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:.70rem;color:var(--muted);line-height:1.7">
       <span style="color:var(--blue-lt);font-weight:700">ℹ️ 자동 조회 종목</span>은 메인화면 <b class="c-text">🔄 업데이트</b> 버튼으로 현재가가 갱신됩니다.<br>
       이 화면에서는 <b class="c-text">자동 조회가 안 되는 모든 종목</b>의 현재가를 직접 입력할 수 있습니다.
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button onclick="closeEditor(); switchView('stocks')"
-          style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);color:var(--purple-lt);border-radius:6px;padding:4px 10px;font-size:.68rem;cursor:pointer">
+          style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);color:var(--purple-lt);border-radius:6px;padding:4px 10px;font-size:.70rem;cursor:pointer">
           ⚙️ 기초정보 관리 →
         </button>
         <button onclick="closeEditor(); switchView('gsheet')"
-          style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:var(--green-lt);border-radius:6px;padding:4px 10px;font-size:.68rem;cursor:pointer">
+          style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);color:var(--green-lt);border-radius:6px;padding:4px 10px;font-size:.70rem;cursor:pointer">
           🔗 구글시트 연동 →
         </button>
       </div>
@@ -5584,7 +5576,6 @@ async function syncTradesToGsheet() {
   }
 }
 
-
 async function lookupNameByCode(code) {
   if (!code) return '';
   const trimCode = code.trim();
@@ -5816,14 +5807,14 @@ async function testGsheetUrl() {
     const msg = e.message || '';
     if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('fetch')) {
       res.innerHTML = `❌ 연결 실패 (Failed to fetch)<br>
-<span style="font-size:.68rem;line-height:1.8;color:rgba(232,237,245,.6)">
+<span style="font-size:.70rem;line-height:1.8;color:rgba(232,237,245,.6)">
 원인 1. Apps Script 미배포 또는 재배포 필요<br>
 원인 2. 배포 시 <b style="color:var(--amber)">액세스: 모든 사용자</b>로 설정하지 않음<br>
 원인 3. URL 오탈자 — script.google.com/macros/s/.../exec 형식 확인<br>
 해결: 앱스 스크립트 → [배포 관리 → 편집] → 버전 새 버전 → 배포
 </span>`;
     } else if (msg.includes('timeout') || msg.includes('abort')) {
-      res.innerHTML = `❌ 응답 시간 초과<br><span style="font-size:.68rem;color:rgba(232,237,245,.6)">구글 서버가 응답하지 않습니다. 잠시 후 다시 시도하세요.</span>`;
+      res.innerHTML = `❌ 응답 시간 초과<br><span style="font-size:.70rem;color:rgba(232,237,245,.6)">구글 서버가 응답하지 않습니다. 잠시 후 다시 시도하세요.</span>`;
     } else {
       res.textContent = '❌ 오류: ' + msg;
     }
@@ -5858,9 +5849,9 @@ function buildAcctMgmt() {
 
   const sel      = container._selectedAcct || null;
   const editMode = container._editMode     || false;
-  const inpStyle = `flex:1;background:var(--s2);border:1px solid rgba(251,191,36,.5);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.76rem`;
+  const inpStyle = `flex:1;background:var(--s2);border:1px solid rgba(251,191,36,.5);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.75rem`;
 
-  let html = `<div style="font-size:.68rem;color:var(--muted);margin-bottom:8px">계좌를 클릭하면 수정·삭제를 선택할 수 있습니다.</div>`;
+  let html = `<div style="font-size:.70rem;color:var(--muted);margin-bottom:8px">계좌를 클릭하면 수정·삭제를 선택할 수 있습니다.</div>`;
 
   accts.forEach(acct => {
     const color    = ACCT_COLORS[acct] || 'var(--muted)';
@@ -5890,7 +5881,7 @@ function buildAcctMgmt() {
     if(isEdit) {
       // 수정 폼 — 계좌명 + 색상
       html += `<div style="padding:10px 12px;border-radius:8px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3);margin:0 0 8px 0">
-        <div style="font-size:.67rem;color:var(--amber);font-weight:700;margin-bottom:8px">✏️ 계좌 수정</div>
+        <div style="font-size:.65rem;color:var(--amber);font-weight:700;margin-bottom:8px">✏️ 계좌 수정</div>
         <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
           <input id="acctEditName" type="text" value="${acct.replace(/"/g,'&quot;')}" style="${inpStyle}"
             onkeydown="if(event.key==='Enter')$el('acctSaveBtn')?.click(); if(event.key==='Escape')$el('acctEditCancel')?.click();" />
@@ -6150,7 +6141,7 @@ function updateRePreview() {
 
     // 비용 구성
     if(totalCost > 0) {
-      h += '<div style="background:rgba(0,0,0,.2);border-radius:6px;padding:8px;font-size:.7rem">'
+      h += '<div style="background:rgba(0,0,0,.2);border-radius:6px;padding:8px;font-size:.70rem">'
          + '<div style="color:var(--muted);margin-bottom:5px;font-weight:700">💸 총 지출 내역</div>'
          + '<div style="display:grid;grid-template-columns:1fr auto;gap:3px 10px">';
       if(pur > 0)      h += '<span class="c-muted">매입가</span><span class="td-right">' + fmt(pur) + '</span>';
@@ -6236,7 +6227,7 @@ function buildDivMgmt() {
     ).join('');
 
     h += `<div style="border-bottom:1px solid rgba(255,255,255,.06);padding:10px 2px">
-      <div style="font-size:.73rem;font-weight:700;color:var(--text);margin-bottom:6px">${name}</div>
+      <div style="font-size:.72rem;font-weight:700;color:var(--text);margin-bottom:6px">${name}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;align-items:center">
         <div>
           <div class="lbl-62-muted-3">주당 배당금 (원)</div>
@@ -6265,7 +6256,6 @@ function buildDivMgmt() {
 
   container.innerHTML = h || '<div style="color:var(--muted);font-size:.75rem;padding:20px;text-align:center">보유 종목이 없어요</div>';
 }
-
 
 function applyDivChanges() {
   const names = [...new Set(rawHoldings.filter(h=>!h.fund).map(h=>h.name))];
@@ -6416,7 +6406,7 @@ function buildSectorMgmt() {
       } else {
         // 수정 모드 저장/취소
         html += `<div style="display:flex;gap:6px;margin:0 0 8px 4px;align-items:center">
-          <span style="font-size:.63rem;color:var(--muted)">● 색상 클릭으로 변경</span>
+          <span style="font-size:.65rem;color:var(--muted)">● 색상 클릭으로 변경</span>
           <button id="secSaveBtn"
             class="btn-purple-sm-700">💾 저장</button>
           <button id="secEditCancel"
@@ -6576,7 +6566,7 @@ function buildStockMgmt() {
       <button id="smSort_default" class="btn-sort-toggle${sortActv('default')}">기본순</button>
       <button id="smSort_name"    class="btn-sort-toggle${sortActv('name')}">이름순 🔤</button>
       <button id="smSort_sector"  class="btn-sort-toggle${sortActv('sector')}">섹터순 📂</button>
-      <span style="font-size:.63rem;color:var(--muted);margin-left:4px">(총 ${EDITABLE_PRICES.length}종목)</span>
+      <span style="font-size:.65rem;color:var(--muted);margin-left:4px">(총 ${EDITABLE_PRICES.length}종목)</span>
     </div>`;
   }
 
@@ -6601,7 +6591,7 @@ function buildStockMgmt() {
     // 섹터순 정렬 시 섹터 구분 헤더 삽입
     if(container._sortKey === 'sector' && sec !== lastSector) {
       const secColor = SECTOR_COLORS[sec] || 'var(--muted)';
-      html += `<div style="font-size:.63rem;font-weight:700;color:${secColor};padding:6px 4px 2px;margin-top:${lastSector===null?'0':'8px'};border-bottom:1px solid ${secColor}33;letter-spacing:.06em">📂 ${sec}</div>`;
+      html += `<div style="font-size:.65rem;font-weight:700;color:${secColor};padding:6px 4px 2px;margin-top:${lastSector===null?'0':'8px'};border-bottom:1px solid ${secColor}33;letter-spacing:.06em">📂 ${sec}</div>`;
       lastSector = sec;
     }
 
@@ -7053,8 +7043,8 @@ function buildEditorUI() {
         ? `<span class="c-muted" title="초기 설정값">○</span>`
         : `<span style="color:var(--red)" title="미조회">✕</span>`;
     const dateHtml = dateLabel
-      ? `<div style="font-size:.58rem;color:${hasDate?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${dateLabel}</div>`
-      : '<div style="font-size:.58rem;color:var(--red);margin-top:2px;text-align:right">미조회</div>';
+      ? `<div style="font-size:.60rem;color:${hasDate?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${dateLabel}</div>`
+      : '<div style="font-size:.60rem;color:var(--red);margin-top:2px;text-align:right">미조회</div>';
     const safeId  = item.name.replace(/\s/g, '_');
     const safeName = item.name.replace(/'/g, "\\'");
     return `<div class="editor-row" style="align-items:flex-start;margin-bottom:10px">
@@ -7120,7 +7110,7 @@ function markChanged(name, val) {
       if(!dateDiv) {
         dateDiv = document.createElement('div');
         dateDiv.className = 'pending-date';
-        dateDiv.style.cssText = 'font-size:.58rem;color:var(--gold);margin-top:2px;text-align:right';
+        dateDiv.style.cssText = 'font-size:.60rem;color:var(--gold);margin-top:2px;text-align:right';
         input.parentElement.appendChild(dateDiv);
       }
       dateDiv.textContent = '저장 대기중...';
@@ -7223,7 +7213,7 @@ function applyPrices() {
       </div>
 
       <!-- 미리보기 -->
-      <div id="re-preview" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:12px;margin-top:4px;font-size:.73rem;display:none">
+      <div id="re-preview" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:12px;margin-top:4px;font-size:.72rem;display:none">
         <div style="color:var(--amber);font-weight:700;margin-bottom:8px">📊 손익 미리보기</div>
         <div id="re-preview-content"></div>
       </div>
@@ -7287,7 +7277,7 @@ function applyPrices() {
           <input type="number" id="le-totalMonths" placeholder="480" class="w-150">
         </div>
       </div>
-      <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:12px;font-size:.74rem;color:rgba(232,237,245,.65);line-height:1.8">
+      <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:12px;font-size:.75rem;color:rgba(232,237,245,.65);line-height:1.8">
         💡 매월 납입 후 <strong class="c-gold">잔액</strong>·<strong class="c-gold">잔여 개월수</strong>·<strong class="c-gold">이자지급액</strong>을 업데이트하세요.<br>
         <strong class="c-gold">누적 이자</strong>는 대출 실행일부터 지금까지 납부한 이자 합산액으로, 부동산 실질 손익 계산에 반영됩니다.
       </div>
