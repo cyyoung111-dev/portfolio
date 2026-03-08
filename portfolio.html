@@ -410,6 +410,8 @@ const ACCT_ORDER_KEY    = 'pf_v6_acct_order';
 const SECTOR_COLORS_KEY = 'pf_v6_sector_colors';
 const LOAN_KEY          = 'pf_v6_loan';
 const REALESTATE_KEY    = 'pf_v6_realestate';
+const LOAN_SCHEDULE_KEY = 'pf_v6_loan_schedule'; // 상환스케줄 CSV 데이터
+const RE_VALUE_KEY      = 'pf_v6_re_value_hist'; // 부동산 시가 이력
 const FUNDDIRECT_KEY    = 'pf_v6_funddirect';
 const DIVDATA_KEY       = 'pf_v6_divdata';
 const PRICES_KEY        = 'pf_v6_prices';
@@ -453,6 +455,28 @@ function saveHoldings() {
     showToast('저장 실패: ' + e.message + ' · 브라우저 설정에서 로컬 저장소를 허용해주세요.', 'error', 5000);
   }
 }
+
+// ── LOAN / REAL_ESTATE 초기값 선언 (loadHoldings 복원보다 반드시 먼저 위치해야 함)
+let LOAN = {
+  originalAmt: 0,
+  balance: 0,
+  annualRate: 0,
+  totalMonths: 0,
+  remainingMonths: 0,
+  startYear: new Date().getFullYear(),
+  startDate: '',          // 대출실행일 (YYYY-MM-DD)
+  monthlyInterestPaid: 0, // 실제 이자지급액 (원, 이번달 기준)
+  totalInterestPaid: 0,   // 누적 이자 지급액 (대출 실행일부터 현재까지 합산)
+};
+let REAL_ESTATE = {
+  currentValue: 0,        // 실거래가 (0이면 미입력)
+  purchasePrice: 0,       // 매입가
+  taxCost: 0,             // 취득세 등 세금
+  interiorCost: 0,        // 인테리어 비용
+  etcCost: 0,             // 기타 비용
+  name: '보유 부동산',
+  memo: '',
+};
 
 // ── 앱 시작 시 localStorage → rawHoldings 즉시 덮어쓰기
 // rawHoldings 선언 직후, rows 계산 전에 실행
@@ -1864,10 +1888,14 @@ function renderTradesView(area) {
         <span style="font-size:.7rem;color:var(--muted);margin-left:auto;white-space:nowrap">${list.length}건 표시</span>
       </div>
       <div class="flex-gap6-ai">
-        <input id="tradeFilterName" placeholder="🔍 종목명 검색" value="${_tradeFilter.name}"
-          oninput="_tradeFilter.name=this.value; renderView()"
-          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.73rem;width:140px;min-width:80px"/>
-        ${_tradeFilter.name ? `<button onclick="_tradeFilter.name=''; $el('tradeFilterName').value=''; renderView()" class="btn-icon-muted">✕</button>` : ''}
+        <select id="tradeFilterName"
+          onchange="_tradeFilter.name=this.value; renderView()"
+          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.73rem;width:140px;min-width:80px;cursor:pointer">
+          <option value="">🔍 전체 종목</option>
+          ${[...new Set(rawTrades.map(t=>t.name).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ko'))
+            .map(n=>`<option value="${n.replace(/"/g,'&quot;')}" ${_tradeFilter.name===n?'selected':''}>${n}</option>`).join('')}
+        </select>
+        ${_tradeFilter.name ? `<button onclick="_tradeFilter.name=''; renderView()" class="btn-icon-muted">✕</button>` : ''}
       </div>
     </div>
 
@@ -1998,6 +2026,19 @@ function renderTradesView(area) {
 
 // ── 종목별 거래내역 그룹 뷰
 let _tgFilter = { name: '' };
+let _tgFilterTimer = null;
+function _tgFilterDebounce() {
+  clearTimeout(_tgFilterTimer);
+  _tgFilterTimer = setTimeout(() => {
+    // 포커스 유지한 채로 카드 목록만 재렌더링
+    const area = document.querySelector('[data-view="tradegroup"]') || document.getElementById('main-area');
+    if (area) renderTradeGroupView(area);
+    else renderView();
+    // 검색 입력창 포커스 복원
+    const inp = document.getElementById('tgFilterName');
+    if (inp) { const v = inp.value; inp.focus(); inp.setSelectionRange(v.length, v.length); }
+  }, 120);
+}
 
 function renderTradeGroupView(area) {
   // 종목명 기준으로 그룹핑
@@ -2042,7 +2083,7 @@ function renderTradeGroupView(area) {
         <p class="mt-3-muted-72">종목 클릭 → 거래 상세 펼치기</p>
       </div>
       <input id="tgFilterName" placeholder="🔍 종목명 검색" value="${_tgFilter.name}"
-        oninput="_tgFilter.name=this.value; renderView()"
+        oninput="_tgFilter.name=this.value; _tgFilterDebounce()"
         style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:.75rem;width:150px"/>
     </div>
 
@@ -3332,28 +3373,7 @@ function renderDivView(area) {
   buildDivMgmt();
 }
 // LOAN VIEW + 부동산
-let LOAN = {
-  originalAmt: 0,
-  balance: 0,
-  annualRate: 0,
-  totalMonths: 0,
-  remainingMonths: 0,
-  startYear: new Date().getFullYear(),
-  startDate: '',          // 대출실행일 (YYYY-MM-DD)
-  monthlyInterestPaid: 0, // 실제 이자지급액 (원, 이번달 기준)
-};
-
-// 부동산 실거래가 (직접 입력)
-let REAL_ESTATE = {
-  currentValue: 0,        // 실거래가 (0이면 미입력)
-  purchasePrice: 0,       // 매입가
-  taxCost: 0,             // 취득세 등 세금
-  interiorCost: 0,        // 인테리어 비용
-  etcCost: 0,             // 기타 비용
-  name: '보유 부동산',
-  memo: '',
-};
-// REAL_ESTATE 복원은 loadHoldings에서 통합 처리
+// LOAN, REAL_ESTATE 선언 → loadHoldings 앞으로 이동 (복원 순서 보장)
 
 function saveRealEstate() {
   try { localStorage.setItem(REALESTATE_KEY, JSON.stringify(REAL_ESTATE)); } catch(e){}
@@ -3367,6 +3387,7 @@ function openLoanEditor() {
   $el('le-remainingMonths').value = LOAN.remainingMonths;
   $el('le-startDate').value = LOAN.startDate || '';
   $el('le-monthlyInterestPaid').value = LOAN.monthlyInterestPaid ? LOAN.monthlyInterestPaid.toLocaleString() : '';
+  $el('le-totalInterestPaid').value = LOAN.totalInterestPaid ? LOAN.totalInterestPaid.toLocaleString() : '';
   $el('loanEditor').classList.add('open');
 }
 function closeLoanEditor() {
@@ -3379,7 +3400,8 @@ function applyLoan() {
   const remain = parseInt($el('le-remainingMonths').value);
   const orig   = parseInt($el('le-originalAmt').value.replace(/,/g,''));
   const startDate = $el('le-startDate').value || '';
-  const interestPaid = parseInt(($el('le-monthlyInterestPaid').value||'0').replace(/,/g,'')) || 0;
+  const interestPaid      = parseInt(($el('le-monthlyInterestPaid').value||'0').replace(/,/g,'')) || 0;
+  const totalInterestPaid = parseInt(($el('le-totalInterestPaid').value||'0').replace(/,/g,'')) || 0;
   if(!bal || !rate || !total || !remain) { showToast('필수 항목을 입력해주세요', 'warn'); return; }
   LOAN.originalAmt          = orig || LOAN.originalAmt;
   LOAN.balance              = bal;
@@ -3388,12 +3410,35 @@ function applyLoan() {
   LOAN.remainingMonths      = remain;
   LOAN.startDate            = startDate;
   LOAN.monthlyInterestPaid  = interestPaid;
+  LOAN.totalInterestPaid    = totalInterestPaid;
   // startYear 도 startDate에서 자동 추출
   if (startDate) LOAN.startYear = parseInt(startDate.slice(0,4));
   try { localStorage.setItem(LOAN_KEY, JSON.stringify(LOAN)); } catch(e){}
   renderSummary();
   renderView();
   closeLoanEditor();
+}
+
+// ── 상환스케줄 / 부동산 시가이력 전역 변수
+// LOAN_SCHEDULE: [{date:'2024-01', balance:356550000, principal:450000, interest:1200000}]
+// RE_VALUE_HIST:  [{date:'2024-01', value:480000000}]
+let LOAN_SCHEDULE = [];
+let RE_VALUE_HIST = [];
+
+(function loadSchedule() {
+  try {
+    const s = localStorage.getItem(LOAN_SCHEDULE_KEY);
+    if (s) LOAN_SCHEDULE = JSON.parse(s) || [];
+    const r = localStorage.getItem(RE_VALUE_KEY);
+    if (r) RE_VALUE_HIST = JSON.parse(r) || [];
+  } catch(e) {}
+})();
+
+function saveSchedule() {
+  try {
+    localStorage.setItem(LOAN_SCHEDULE_KEY, JSON.stringify(LOAN_SCHEDULE));
+    localStorage.setItem(RE_VALUE_KEY, JSON.stringify(RE_VALUE_HIST));
+  } catch(e) {}
 }
 
 // ── 자산/대출 통합 뷰
@@ -3406,9 +3451,12 @@ function renderAssetView(area) {
   const tax      = REAL_ESTATE.taxCost || 0;
   const interior = REAL_ESTATE.interiorCost || 0;
   const etc      = REAL_ESTATE.etcCost || 0;
-  const totalCost = pur + tax + interior + etc;
-  const pnl      = val > 0 && pur > 0 ? val - pur : null;
-  const pnlTotal = totalCost > 0 && val > 0 ? val - totalCost : null;
+  const totalCost    = pur + tax + interior + etc;
+  const totalIntPaid = LOAN.totalInterestPaid || 0;
+  const totalOutflow = totalCost + totalIntPaid;   // 취득원가 + 누적 이자 합산
+  const pnl          = val > 0 && pur > 0 ? val - pur : null;
+  const pnlTotal     = totalCost > 0 && val > 0 ? val - totalCost : null;
+  const pnlNet       = val > 0 && totalOutflow > 0 ? val - totalOutflow : null; // 이자 포함 실질 손익
 
   // ─ 대출 데이터 ─
   const bal  = LOAN.balance;
@@ -3459,7 +3507,9 @@ function renderAssetView(area) {
         ['총 취득원가', fmt(totalCost)],
         ['현재 시가', val>0?fmt(val):'미입력'],
         ['매매 손익', pnl!=null?fm(pnl):'-'],
-        ['실질 손익', pnlTotal!=null?fm(pnlTotal):'-'],
+        ['실질 손익 (취득원가)', pnlTotal!=null?fm(pnlTotal):'-'],
+        ['누적 이자 지급액', totalIntPaid>0?`<span style="color:var(--red)">-${fmt(totalIntPaid)}</span>`:'<span class="c-muted">미입력</span>'],
+        ['이자 포함 순손익', pnlNet!=null?fm(pnlNet):'-'],
       ].map(([l,v])=>`<div class="s2-rounded">
         <div class="lbl-62-muted-3">${l}</div>
         <div class="fw-600">${v}</div>
@@ -3506,11 +3556,327 @@ function renderAssetView(area) {
     <div style="margin-top:8px;font-size:.68rem;color:var(--muted);text-align:right">총 이자 ${fmt(totalInterest)} · ${elapsedMonths}개월 납입 완료</div>
   </div>`;
 
+  // ── 상환스케줄 / 손익 차트 섹션 ──
+  h += buildScheduleSection();
+
   h += '</div>';
   area.innerHTML = h;
+
+  // 차트는 DOM 삽입 후 렌더링
+  renderScheduleChart();
+}
+
+// ── 상환스케줄 섹션 HTML 빌더
+function buildScheduleSection() {
+  const hasSched = LOAN_SCHEDULE.length > 0;
+  const hasVal   = RE_VALUE_HIST.length > 0;
+
+  // 시가 이력 테이블 행
+  const valRows = RE_VALUE_HIST.slice().sort((a,b)=>b.date.localeCompare(a.date))
+    .map((r,i) => `<tr>
+      <td style="padding:5px 8px;font-size:.75rem;color:var(--muted)">${r.date}</td>
+      <td style="padding:5px 8px;font-size:.78rem;font-weight:600;color:var(--amber)">${fmt(r.value)}</td>
+      <td style="padding:5px 8px;text-align:right">
+        <button onclick="removeReValue(${i})"
+          style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.72rem;padding:2px 6px;border-radius:4px"
+          onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">✕</button>
+      </td>
+    </tr>`).join('');
+
+  return `
+  <!-- ── 상환스케줄 CSV 업로드 ── -->
+  <div class="card-12-p20">
+    <div class="flex-between-mb14">
+      <h4 class="h3-card">📋 상환스케줄 · 손익 분석</h4>
+      <div style="display:flex;gap:8px">
+        <button onclick="downloadScheduleTemplate()" class="btn-amber-outline" style="font-size:.72rem">📥 양식</button>
+        <label class="btn-amber-outline" style="font-size:.72rem;cursor:pointer">
+          📂 CSV 업로드
+          <input type="file" accept=".csv" style="display:none" onchange="uploadScheduleCsv(this)">
+        </label>
+        ${hasSched ? `<button onclick="clearSchedule()" style="background:none;border:1px solid rgba(239,68,68,.3);color:var(--red);border-radius:6px;padding:4px 10px;font-size:.72rem;cursor:pointer">🗑 초기화</button>` : ''}
+      </div>
+    </div>
+
+    ${!hasSched ? `
+    <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:.78rem">
+      <div style="font-size:1.6rem;margin-bottom:8px">📂</div>
+      상환스케줄 CSV를 업로드하면 월별 손익 차트를 볼 수 있어요<br>
+      <span style="font-size:.68rem;opacity:.7">날짜, 대출잔액, 납입원금, 납입이자 컬럼이 필요합니다</span>
+    </div>` : `
+    <div style="font-size:.72rem;color:var(--muted);margin-bottom:12px">
+      총 <strong class="c-text">${LOAN_SCHEDULE.length}개월</strong> 데이터 ·
+      ${LOAN_SCHEDULE[0]?.date} ~ ${LOAN_SCHEDULE[LOAN_SCHEDULE.length-1]?.date}
+    </div>
+    <div id="scheduleChartWrap" style="width:100%;overflow-x:auto"></div>`}
+  </div>
+
+  <!-- ── 부동산 시가 이력 ── -->
+  <div class="card-12-p20">
+    <div class="flex-between-mb14">
+      <h4 class="h3-card">🏠 부동산 시가 이력</h4>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;align-items:flex-end">
+      <div>
+        <div style="font-size:.68rem;color:var(--muted);margin-bottom:4px">날짜 (YYYY-MM)</div>
+        <input type="month" id="re-val-date"
+          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem">
+      </div>
+      <div>
+        <div style="font-size:.68rem;color:var(--muted);margin-bottom:4px">시가 (원)</div>
+        <input type="text" id="re-val-price" placeholder="480,000,000"
+          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem;width:150px"
+          oninput="this.value=this.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,',')">
+      </div>
+      <button onclick="addReValue()"
+        style="background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:var(--amber);border-radius:6px;padding:6px 14px;font-size:.78rem;cursor:pointer">
+        ➕ 추가
+      </button>
+    </div>
+    ${hasVal ? `
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="padding:5px 8px;font-size:.68rem;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">날짜</th>
+        <th style="padding:5px 8px;font-size:.68rem;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)">시가</th>
+        <th style="border-bottom:1px solid var(--border)"></th>
+      </tr></thead>
+      <tbody>${valRows}</tbody>
+    </table>` : `
+    <div style="font-size:.75rem;color:var(--muted);text-align:center;padding:12px 0">
+      시가를 날짜별로 입력하면 상환스케줄 차트에 손익이 함께 표시됩니다
+    </div>`}
+  </div>`;
+}
+
+// ── 시가 이력 추가 / 삭제
+function addReValue() {
+  const dateEl  = $el('re-val-date');
+  const priceEl = $el('re-val-price');
+  if (!dateEl || !priceEl) return;
+  const date  = dateEl.value;  // YYYY-MM
+  const price = parseInt((priceEl.value||'').replace(/,/g,'')) || 0;
+  if (!date) { showToast('날짜를 입력해주세요', 'warn'); return; }
+  if (price <= 0) { showToast('시가를 입력해주세요', 'warn'); return; }
+  const idx = RE_VALUE_HIST.findIndex(r => r.date === date);
+  if (idx >= 0) RE_VALUE_HIST[idx].value = price;
+  else RE_VALUE_HIST.push({ date, value: price });
+  RE_VALUE_HIST.sort((a,b) => a.date.localeCompare(b.date));
+  saveSchedule();
+  dateEl.value = ''; priceEl.value = '';
+  if (currentView === 'asset') renderView();
+  showToast('시가 이력 추가됨', 'ok');
+}
+
+function removeReValue(sortedIdx) {
+  // 표시는 내림차순이므로 역산
+  const sorted = RE_VALUE_HIST.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const target = sorted[sortedIdx];
+  if (!target) return;
+  RE_VALUE_HIST = RE_VALUE_HIST.filter(r => r.date !== target.date);
+  saveSchedule();
+  if (currentView === 'asset') renderView();
+}
+
+// ── 상환스케줄 CSV 양식 다운로드
+function downloadScheduleTemplate() {
+  const bom = '\uFEFF';
+  const header = '날짜,대출잔액,납입원금,납입이자\n';
+  const sample = [
+    '2024-01,356550000,450000,1200000',
+    '2024-02,356098000,452000,1198000',
+    '2024-03,355644000,454000,1196000',
+  ].join('\n');
+  const blob = new Blob([bom + header + sample], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '상환스케줄_양식.csv';
+  a.click();
+}
+
+// ── CSV 업로드 파싱
+function uploadScheduleCsv(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      let text = e.target.result;
+      // BOM 제거
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      const lines = text.trim().split(/\r?\n/);
+      if (lines.length < 2) { showToast('데이터가 없습니다', 'error'); return; }
+
+      // 헤더 파싱 (순서 무관)
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g,''));
+      const colIdx = {
+        date:      headers.findIndex(h => h.includes('날짜') || h.toLowerCase().includes('date')),
+        balance:   headers.findIndex(h => h.includes('잔액') || h.toLowerCase().includes('balance')),
+        principal: headers.findIndex(h => h.includes('원금') || h.toLowerCase().includes('principal')),
+        interest:  headers.findIndex(h => h.includes('이자') || h.toLowerCase().includes('interest')),
+      };
+
+      const missing = Object.entries(colIdx).filter(([k,v]) => v < 0).map(([k]) => k);
+      if (missing.length > 0) {
+        showToast('컬럼을 찾을 수 없어요: ' + missing.join(', '), 'error', 5000);
+        return;
+      }
+
+      const parsed = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',').map(c => c.trim().replace(/"/g,''));
+        if (!cols[colIdx.date]) continue;
+        // 날짜 정규화: YYYY-MM-DD → YYYY-MM
+        const rawDate = cols[colIdx.date];
+        const date    = rawDate.length >= 7 ? rawDate.slice(0,7) : rawDate;
+        const balance   = parseInt((cols[colIdx.balance]   ||'0').replace(/,/g,'')) || 0;
+        const principal = parseInt((cols[colIdx.principal] ||'0').replace(/,/g,'')) || 0;
+        const interest  = parseInt((cols[colIdx.interest]  ||'0').replace(/,/g,'')) || 0;
+        if (balance === 0 && principal === 0 && interest === 0) continue;
+        parsed.push({ date, balance, principal, interest });
+      }
+
+      if (parsed.length === 0) { showToast('파싱된 데이터가 없습니다', 'error'); return; }
+      parsed.sort((a,b) => a.date.localeCompare(b.date));
+      LOAN_SCHEDULE = parsed;
+      saveSchedule();
+      if (currentView === 'asset') renderView();
+      showToast('✅ ' + parsed.length + '개월 데이터 업로드 완료', 'ok', 4000);
+    } catch(err) {
+      showToast('CSV 파싱 오류: ' + err.message, 'error', 5000);
+    }
+    input.value = '';
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function clearSchedule() {
+  if (!confirm('상환스케줄 데이터를 초기화할까요?')) return;
+  LOAN_SCHEDULE = [];
+  saveSchedule();
+  if (currentView === 'asset') renderView();
+}
+
+// ── 상환스케줄 손익 차트 렌더링 (SVG)
+function renderScheduleChart() {
+  const wrap = $el('scheduleChartWrap');
+  if (!wrap || LOAN_SCHEDULE.length === 0) return;
+
+  const pur        = REAL_ESTATE.purchasePrice || 0;
+  const tax        = (REAL_ESTATE.taxCost || 0) + (REAL_ESTATE.interiorCost || 0) + (REAL_ESTATE.etcCost || 0);
+  const totalCost  = pur + tax;
+
+  // 시가 이력 맵 (YYYY-MM → value), 직전값 fill-forward
+  const valMap = {};
+  RE_VALUE_HIST.forEach(r => { valMap[r.date] = r.value; });
+  const valDates = Object.keys(valMap).sort();
+
+  function getVal(date) {
+    // 해당 날짜 이하 가장 가까운 시가
+    const d = valDates.filter(d => d <= date);
+    return d.length > 0 ? valMap[d[d.length-1]] : (REAL_ESTATE.currentValue || 0);
+  }
+
+  // 누적 이자 계산
+  let cumInterest = 0;
+  const data = LOAN_SCHEDULE.map(row => {
+    cumInterest += row.interest;
+    const val     = getVal(row.date);
+    const outflow = totalCost + cumInterest;
+    const pnl     = val > 0 ? val - outflow : null;
+    const equity  = val > 0 ? val - row.balance : null;
+    return { date: row.date, balance: row.balance, cumInterest, val, pnl, equity };
+  });
+
+  const dates   = data.map(d => d.date.slice(2));  // YY-MM
+  const pnls    = data.map(d => d.pnl);
+  const equities= data.map(d => d.equity);
+  const bals    = data.map(d => d.balance);
+  const validPnl = pnls.filter(v => v !== null);
+
+  const n = data.length;
+  const W = Math.max(600, n * 14);
+  const H = 260, H2 = 120;
+  const PAD  = {t:20,r:20,b:36,l:80};
+  const PAD2 = {t:10,r:20,b:28,l:80};
+  const gW   = W - PAD.l - PAD.r;
+  const gH   = H - PAD.t - PAD.b;
+  const gH2  = H2 - PAD2.t - PAD2.b;
+
+  function toX(i) { return PAD.l + (n<=1 ? gW/2 : i/(n-1)*gW); }
+  function toY(v,mn,mx) { if(mx===mn) return PAD.t+gH/2; return PAD.t+(1-(v-mn)/(mx-mn))*gH; }
+  function yLbl(v) {
+    const abs=Math.abs(v), s=v<0?'-':'';
+    if(abs>=100000000) return s+(abs/100000000).toFixed(1)+'억';
+    if(abs>=10000)     return s+Math.round(abs/10000)+'만';
+    return s+abs.toLocaleString();
+  }
+
+  // 잔액 라인
+  const balMin = Math.min(...bals)*0.995, balMax = Math.max(...bals)*1.005;
+  const balPts = bals.map((v,i)=>`${toX(i).toFixed(1)},${toY(v,balMin,balMax).toFixed(1)}`).join(' ');
+
+  // 순자산(equity) 라인
+  const validEq = equities.filter(v=>v!==null);
+  const eqPts = validEq.length > 0
+    ? equities.map((v,i)=>`${toX(i).toFixed(1)},${toY(v??0,balMin,balMax).toFixed(1)}`).join(' ')
+    : null;
+
+  // Y축 레이블 (잔액 기준)
+  const balYTicks = [0,0.25,0.5,0.75,1].map(t => balMin + t*(balMax-balMin));
+
+  // 손익 막대
+  const pnlAbsMax = validPnl.length>0 ? Math.max(Math.abs(Math.min(...validPnl)), Math.abs(Math.max(...validPnl)))*1.05||1 : 1;
+  function toY2(v) { return PAD2.t+(1-(v+pnlAbsMax)/(2*pnlAbsMax))*gH2; }
+  const zero2 = toY2(0);
+  const barW  = Math.max(2, Math.min(12, gW/n-2));
+  const barsHtml = pnls.map((v,i)=>{
+    if(v===null) return '';
+    const x=toX(i)-barW/2, yy=v>=0?toY2(v):zero2, h=Math.abs(toY2(v)-zero2);
+    return `<rect x="${x.toFixed(1)}" y="${yy.toFixed(1)}" width="${barW}" height="${Math.max(1,h).toFixed(1)}" fill="${v>=0?'var(--green)':'var(--red)'}" opacity="0.75" rx="1"/>`;
+  }).join('');
+
+  // X축 레이블 (12개월 간격)
+  const step = Math.max(1, Math.floor(n/12));
+  const xLabels = dates.map((d,i)=> i%step===0
+    ? `<text x="${toX(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="9" fill="var(--muted)">${d}</text>`
+    : '').join('');
+  const xLabels2 = dates.map((d,i)=> i%step===0
+    ? `<text x="${toX(i).toFixed(1)}" y="${H2-4}" text-anchor="middle" font-size="9" fill="var(--muted)">${d}</text>`
+    : '').join('');
+
+  const latestPnl = validPnl.length>0 ? validPnl[validPnl.length-1] : null;
+  const pC = latestPnl!==null ? (latestPnl>=0?'var(--green)':'var(--red)') : 'var(--muted)';
+
+  wrap.innerHTML = `
+  <div style="font-size:.72rem;color:var(--muted);margin-bottom:8px;display:flex;gap:16px;flex-wrap:wrap">
+    <span>— <span style="color:#60a5fa">대출잔액</span></span>
+    ${eqPts?'<span>— <span style="color:var(--amber)">순자산(시가-잔액)</span></span>':''}
+    <span style="margin-left:auto">최신 이자포함 순손익: <strong style="color:${pC}">${latestPnl!==null?(latestPnl>=0?'+':'')+yLbl(latestPnl):'시가 미입력'}</strong></span>
+  </div>
+  <svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">
+    <!-- Y축 눈금 -->
+    ${balYTicks.map(v=>`
+      <line x1="${PAD.l}" x2="${W-PAD.r}" y1="${toY(v,balMin,balMax).toFixed(1)}" y2="${toY(v,balMin,balMax).toFixed(1)}" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>
+      <text x="${PAD.l-6}" y="${(toY(v,balMin,balMax)+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${yLbl(v)}</text>`).join('')}
+    <!-- 잔액 라인 -->
+    <polyline points="${balPts}" fill="none" stroke="#60a5fa" stroke-width="1.5" stroke-linejoin="round"/>
+    <!-- 순자산 라인 -->
+    ${eqPts?`<polyline points="${eqPts}" fill="none" stroke="var(--amber)" stroke-width="1.5" stroke-linejoin="round" stroke-dasharray="4,2"/>`:''}
+    <!-- X축 레이블 -->
+    ${xLabels}
+  </svg>
+  <svg viewBox="0 0 ${W} ${H2}" width="100%" style="display:block;margin-top:4px">
+    <line x1="${PAD2.l}" x2="${W-PAD2.r}" y1="${zero2.toFixed(1)}" y2="${zero2.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>
+    ${barsHtml}
+    <text x="${PAD2.l-6}" y="${(PAD2.t+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${yLbl(pnlAbsMax)}</text>
+    <text x="${PAD2.l-6}" y="${(H2-PAD2.b+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">-${yLbl(pnlAbsMax)}</text>
+    <text x="${PAD2.l-6}" y="${(zero2+4).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">0</text>
+    ${xLabels2}
+  </svg>`;
 }
 
 // ── 종목 관리 뷰
+
 function renderStocksView(area) {
   area.innerHTML = `
   <div class="p-0-4">
@@ -6169,6 +6535,10 @@ function applyPrices() {
           <label>실제 이자지급액 (원)<span>이번달 납부한 이자</span></label>
           <input type="text" id="le-monthlyInterestPaid" placeholder="0" class="w-150">
         </div>
+        <div class="editor-row">
+          <label>누적 이자 지급액 (원)<span>대출 실행일부터 합산</span></label>
+          <input type="text" id="le-totalInterestPaid" placeholder="0" class="w-150">
+        </div>
       </div>
       <div class="editor-group">
         <div class="editor-group-title">대출 조건 (변경 시)</div>
@@ -6194,7 +6564,7 @@ function applyPrices() {
       </div>
       <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:12px;font-size:.74rem;color:rgba(232,237,245,.65);line-height:1.8">
         💡 매월 납입 후 <strong class="c-gold">잔액</strong>·<strong class="c-gold">잔여 개월수</strong>·<strong class="c-gold">이자지급액</strong>을 업데이트하세요.<br>
-        이자지급액 입력 시 계산값과 차이를 비교해드립니다.
+        <strong class="c-gold">누적 이자</strong>는 대출 실행일부터 지금까지 납부한 이자 합산액으로, 부동산 실질 손익 계산에 반영됩니다.
       </div>
     </div>
     <div class="editor-footer">
