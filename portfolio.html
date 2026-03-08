@@ -532,6 +532,7 @@ function saveHoldings() {
       syncCodesToGsheet();
       syncHoldingsToGsheet();   // ★ v8.1: 보유현황도 함께 동기화
       syncTradesToGsheet();     // ★ v8.2: 거래이력도 함께 동기화
+      saveSettings();           // ★ 설정 GS 동기화 (브라우저 독립 복원)
     }, 3000);
   } catch(e) {
     console.error('saveHoldings 실패:', e);
@@ -3605,6 +3606,7 @@ function drawDivMonthChart() {
 
 function saveRealEstate() {
   try { localStorage.setItem(REALESTATE_KEY, JSON.stringify(REAL_ESTATE)); } catch(e){}
+  saveSettings();
 }
 
 function openLoanEditor() {
@@ -3642,6 +3644,7 @@ function applyLoan() {
   // startYear 도 startDate에서 자동 추출
   if (startDate) LOAN.startYear = parseInt(startDate.slice(0,4));
   try { localStorage.setItem(LOAN_KEY, JSON.stringify(LOAN)); } catch(e){}
+  saveSettings();
   renderSummary();
   renderView();
   closeLoanEditor();
@@ -5225,7 +5228,15 @@ if (lastUpdated && lastUpdated !== "null") { try { updateDateBadge(lastUpdated, 
 
 // 접속 즉시 자동 조회 (구글 시트 연동 시)
 // 구글시트 종목코드 먼저 로드 후 가격 조회
-(async () => { await loadGsheetCodeList(); autoLoadPrices(); })();
+(async () => {
+  await loadGsheetCodeList();
+  // 설정 복원 (새 브라우저 접속 시 GS에서 자동 복원)
+  if (GSHEET_API_URL) {
+    const restored = await loadSettings();
+    if (restored) { try { refreshAll(); } catch(e){} }
+  }
+  autoLoadPrices();
+})();
 
 // rawTrades 없고 rawHoldings 있으면 마이그레이션 팝업
 checkAndShowMigration();
@@ -5287,6 +5298,130 @@ const SECTOR_LABELS = {
 let GSHEET_API_URL = (function(){
   try { return localStorage.getItem(GSHEET_KEY) || ''; } catch(e){ return ''; }
 })();
+
+// ════════════════════════════════════════════════════════════════════
+//  설정 GS 저장 / 복원 — 브라우저 독립 복원용
+// ════════════════════════════════════════════════════════════════════
+// debounce 타이머
+let _saveSettingsTimer = null;
+
+function saveSettings(immediate) {
+  if (!GSHEET_API_URL) return;
+  clearTimeout(_saveSettingsTimer);
+  const delay = immediate ? 0 : 4000;
+  _saveSettingsTimer = setTimeout(async () => {
+    try {
+      const settings = {
+        ACCT_COLORS,
+        ACCT_ORDER,
+        SECTOR_COLORS,
+        DIVDATA,
+        LOAN,
+        REAL_ESTATE,
+        fundDirect,
+        LOAN_SCHEDULE,
+        RE_VALUE_HIST,
+      };
+      const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
+      await fetchWithTimeout(GSHEET_API_URL, 15000, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+    } catch(e) {
+      console.warn('saveSettings 실패:', e);
+    }
+  }, delay);
+}
+
+async function loadSettings() {
+  if (!GSHEET_API_URL) return false;
+  try {
+    const res = await fetchWithTimeout(GSHEET_API_URL + '?action=getSettings', 10000);
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.settings) return false;
+    const s = data.settings;
+
+    // ACCT_COLORS
+    if (s.ACCT_COLORS && typeof s.ACCT_COLORS === 'object') {
+      Object.keys(ACCT_COLORS).forEach(k => delete ACCT_COLORS[k]);
+      Object.entries(s.ACCT_COLORS).forEach(([k,v]) => {
+        ACCT_COLORS[k] = (typeof v==='string' && v.startsWith('var(')) ? resolveColor(v) : v;
+      });
+      try { localStorage.setItem(ACCT_COLORS_KEY, JSON.stringify(ACCT_COLORS)); } catch(e) {}
+    }
+    // ACCT_ORDER
+    if (Array.isArray(s.ACCT_ORDER)) {
+      ACCT_ORDER.length = 0;
+      s.ACCT_ORDER.forEach(a => ACCT_ORDER.push(a));
+      try { localStorage.setItem(ACCT_ORDER_KEY, JSON.stringify(ACCT_ORDER)); } catch(e) {}
+    }
+    // SECTOR_COLORS
+    if (s.SECTOR_COLORS && typeof s.SECTOR_COLORS === 'object') {
+      Object.keys(SECTOR_COLORS).forEach(k => delete SECTOR_COLORS[k]);
+      Object.entries(s.SECTOR_COLORS).forEach(([k,v]) => {
+        SECTOR_COLORS[k] = (typeof v==='string' && v.startsWith('var(')) ? resolveColor(v) : v;
+      });
+      try { localStorage.setItem(SECTOR_COLORS_KEY, JSON.stringify(SECTOR_COLORS)); } catch(e) {}
+    }
+    // DIVDATA
+    if (s.DIVDATA && typeof s.DIVDATA === 'object') {
+      Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
+      Object.assign(DIVDATA, s.DIVDATA);
+      try { localStorage.setItem(DIVDATA_KEY, JSON.stringify(DIVDATA)); } catch(e) {}
+    }
+    // LOAN
+    if (s.LOAN && typeof s.LOAN === 'object') {
+      Object.assign(LOAN, s.LOAN);
+      try { localStorage.setItem(LOAN_KEY, JSON.stringify(LOAN)); } catch(e) {}
+    }
+    // REAL_ESTATE
+    if (s.REAL_ESTATE && typeof s.REAL_ESTATE === 'object') {
+      Object.assign(REAL_ESTATE, s.REAL_ESTATE);
+      try { localStorage.setItem(REALESTATE_KEY, JSON.stringify(REAL_ESTATE)); } catch(e) {}
+    }
+    // fundDirect
+    if (s.fundDirect && typeof s.fundDirect === 'object') {
+      Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
+      Object.assign(fundDirect, s.fundDirect);
+      try { localStorage.setItem(FUNDDIRECT_KEY, JSON.stringify(fundDirect)); } catch(e) {}
+    }
+    // LOAN_SCHEDULE
+    if (Array.isArray(s.LOAN_SCHEDULE)) {
+      LOAN_SCHEDULE.length = 0;
+      s.LOAN_SCHEDULE.forEach(r => LOAN_SCHEDULE.push(r));
+      try { localStorage.setItem(LOAN_SCHEDULE_KEY, JSON.stringify(LOAN_SCHEDULE)); } catch(e) {}
+    }
+    // RE_VALUE_HIST
+    if (Array.isArray(s.RE_VALUE_HIST)) {
+      RE_VALUE_HIST.length = 0;
+      s.RE_VALUE_HIST.forEach(r => RE_VALUE_HIST.push(r));
+      try { localStorage.setItem(RE_VALUE_KEY, JSON.stringify(RE_VALUE_HIST)); } catch(e) {}
+    }
+
+    // ── 거래이력 복원 (localStorage가 비어있을 때만 — 기존 데이터 우선)
+    if (rawTrades.length === 0) {
+      try {
+        const trRes  = await fetchWithTimeout(GSHEET_API_URL + '?action=getTrades', 15000);
+        const trData = await trRes.json();
+        if (trData.status === 'ok' && Array.isArray(trData.trades) && trData.trades.length > 0) {
+          rawTrades.length = 0;
+          trData.trades.forEach(t => {
+            rawTrades.push({ ...t, id: t.id || genTradeId() });
+          });
+          syncHoldingsFromTrades();
+          saveHoldings();
+        }
+      } catch(e) { console.warn('거래이력 복원 실패:', e); }
+    }
+
+    return true;
+  } catch(e) {
+    console.warn('loadSettings 실패:', e);
+    return false;
+  }
+}
 
 // AbortSignal.timeout 미지원 브라우저 대응
 function fetchWithTimeout(url, ms, options) {
@@ -5593,8 +5728,19 @@ function saveGsheetUrlFromUI() {
   }
   saveGsheetUrl(val);
   const res = $el('gsheetTestResult');
-  if (res) { res.style.color = 'var(--green-lt)'; res.textContent = '✅ URL 저장 완료. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.'; }
+  if (res) { res.style.color = 'var(--green-lt)'; res.textContent = '✅ URL 저장 완료. 설정 복원 중...'; }
   updateGsheetBadge();
+  // URL 저장 직후 설정 자동 복원
+  (async () => {
+    const restored = await loadSettings();
+    if (res) {
+      res.style.color = restored ? 'var(--green-lt)' : 'var(--muted)';
+      res.textContent = restored
+        ? '✅ URL 저장 완료 · 설정 복원됨. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.'
+        : '✅ URL 저장 완료. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.';
+    }
+    if (restored) { try { refreshAll(); _mgmtRefresh(); } catch(e){} }
+  })();
 }
 
 function clearGsheetUrl() {
