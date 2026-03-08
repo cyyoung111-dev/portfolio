@@ -437,7 +437,7 @@ function syncHoldingsFromTrades() {
       const sellQty = Math.min(t.qty || 0, map[key].qty);
       map[key].qty       -= sellQty;
       map[key].totalCost -= sellQty * avgCost;
-      if (map[key].qty < 0) map[key].qty = 0;
+      if (map[key].qty < 0.0001) { map[key].qty = 0; map[key].totalCost = 0; }
     }
   });
 
@@ -491,7 +491,13 @@ const TRADES_KEY     = 'pf_v6_trades';
 (function(){
   try {
     const saved = localStorage.getItem(ACCT_COLORS_KEY);
-    if(saved) ACCT_COLORS = {...ACCT_COLORS, ...JSON.parse(saved)};
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // var() 문자열 → hex 변환 (Canvas fillStyle 깨짐 방지)
+      Object.entries(parsed).forEach(([k, v]) => {
+        ACCT_COLORS[k] = (typeof v === 'string' && v.startsWith('var(')) ? resolveColor(v) : v;
+      });
+    }
   } catch(e){}
 })();
 
@@ -3414,119 +3420,8 @@ function renderDivView(area) {
     <canvas id="divMonthCanvas" style="width:100%;display:block" height="140"></canvas>
   </div>`;
 
-  // Canvas 그래프 렌더 함수 등록 (DOM 삽입 후 실행)
-  html += `<script>
-  (function() {
-    function drawDivMonthChart() {
-      const canvas = document.getElementById('divMonthCanvas');
-      if (!canvas) return;
-      const monthly = ${JSON.stringify(monthly)};
-      const NOW_MONTH = ${NOW_MONTH};
-      const dpr = window.devicePixelRatio || 1;
-      const W = canvas.offsetWidth || canvas.parentElement.offsetWidth || 600;
-      const H = 140;
-      canvas.width  = W * dpr;
-      canvas.height = H * dpr;
-      canvas.style.width  = W + 'px';
-      canvas.style.height = H + 'px';
-      const ctx = canvas.getContext('2d');
-      ctx.scale(dpr, dpr);
-
-      const PAD_L = 8, PAD_R = 8, PAD_TOP = 28, PAD_BOT = 22;
-      const chartW = W - PAD_L - PAD_R;
-      const chartH = H - PAD_TOP - PAD_BOT;
-      const n = 12;
-      const gap = 3;
-      const barW = (chartW - gap * (n - 1)) / n;
-      const maxV = Math.max(...monthly, 1);
-
-      // 가이드라인 (최대값 기준 25%, 50%, 75%, 100%)
-      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-      ctx.lineWidth = 1;
-      [0.25, 0.5, 0.75, 1.0].forEach(ratio => {
-        const y = PAD_TOP + chartH - chartH * ratio;
-        ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
-      });
-
-      monthly.forEach((v, i) => {
-        const isPast    = (i + 1) < NOW_MONTH;
-        const isCurrent = (i + 1) === NOW_MONTH;
-        const x = PAD_L + i * (barW + gap);
-        const bH = v > 0 ? Math.max((v / maxV) * chartH, 4) : 2;
-        const y  = PAD_TOP + chartH - bH;
-
-        // 막대 색상
-        let color;
-        if (isCurrent) {
-          // 현재 월: 시안 그라디언트
-          const grad = ctx.createLinearGradient(x, y, x, PAD_TOP + chartH);
-          grad.addColorStop(0, 'rgba(6,182,212,1)');
-          grad.addColorStop(1, 'rgba(6,182,212,0.3)');
-          color = grad;
-        } else if (isPast) {
-          color = 'rgba(255,255,255,0.12)';
-        } else {
-          // 미래: 그린 그라디언트
-          const grad = ctx.createLinearGradient(x, y, x, PAD_TOP + chartH);
-          grad.addColorStop(0, 'rgba(16,185,129,0.85)');
-          grad.addColorStop(1, 'rgba(16,185,129,0.25)');
-          color = grad;
-        }
-
-        // 현재월 글로우 효과
-        if (isCurrent && v > 0) {
-          ctx.shadowColor = 'rgba(6,182,212,0.5)';
-          ctx.shadowBlur  = 8;
-        }
-
-        // 막대 그리기 (상단 모서리 둥글게)
-        const r = Math.min(3, barW / 2);
-        ctx.beginPath();
-        ctx.moveTo(x + r, y);
-        ctx.lineTo(x + barW - r, y);
-        ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
-        ctx.lineTo(x + barW, PAD_TOP + chartH);
-        ctx.lineTo(x, PAD_TOP + chartH);
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
-        ctx.closePath();
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.shadowBlur = 0;
-
-        // 현재월 하이라이트 테두리
-        if (isCurrent) {
-          ctx.strokeStyle = 'rgba(6,182,212,0.8)';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-        }
-
-        // 금액 라벨 (막대 위)
-        if (v > 0) {
-          const label = v >= 100000 ? Math.round(v/10000)+'만' : Math.round(v/1000)+'천';
-          ctx.fillStyle = isCurrent ? '#06b6d4' : isPast ? 'rgba(255,255,255,0.35)' : '#10b981';
-          ctx.font = \`\${isCurrent ? '700' : '400'} 9px sans-serif\`;
-          ctx.textAlign = 'center';
-          ctx.fillText(label, x + barW / 2, y - 4);
-        }
-
-        // 월 라벨
-        const monthLabel = (i + 1) + '월';
-        ctx.fillStyle = isCurrent ? '#06b6d4' : 'rgba(100,116,139,0.9)';
-        ctx.font = \`\${isCurrent ? '700' : '400'} 9px sans-serif\`;
-        ctx.textAlign = 'center';
-        ctx.fillText(monthLabel, x + barW / 2, H - 5);
-      });
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', drawDivMonthChart);
-    } else {
-      requestAnimationFrame(drawDivMonthChart);
-    }
-    window.addEventListener('resize', drawDivMonthChart);
-  })();
-  <\/script>`;
+  // monthly 데이터 전역 보관 → drawDivMonthChart가 참조
+  window._divChartData = { monthly: monthly, nowMonth: NOW_MONTH };
 
   // 종목별 배당 테이블
   const sorted = [...divRows].sort((a,b)=>b.annualDiv-a.annualDiv);
@@ -3602,6 +3497,108 @@ function renderDivView(area) {
 
   area.innerHTML = html;
   buildDivMgmt();
+  // Canvas 그래프 — innerHTML 삽입 후 직접 호출 (script 태그 주입 방식은 브라우저가 실행 안 함)
+  requestAnimationFrame(function() { drawDivMonthChart(); });
+}
+
+// ── 월별 배당 Canvas 그래프 (전역 함수 — renderDivView에서 직접 호출)
+let _divResizeListenerAdded = false;
+function drawDivMonthChart() {
+  const canvas = document.getElementById('divMonthCanvas');
+  if (!canvas) return;
+  const data = window._divChartData;
+  if (!data) return;
+  const monthly   = data.monthly;
+  const NOW_MONTH = data.nowMonth;
+
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.offsetWidth || canvas.parentElement.offsetWidth || 600;
+  const H   = 140;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const PAD_L = 8, PAD_R = 8, PAD_TOP = 28, PAD_BOT = 22;
+  const chartW = W - PAD_L - PAD_R;
+  const chartH = H - PAD_TOP - PAD_BOT;
+  const gap    = 3;
+  const barW   = (chartW - gap * 11) / 12;
+  const maxV   = Math.max(...monthly, 1);
+
+  // 가이드라인
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  [0.25, 0.5, 0.75, 1.0].forEach(ratio => {
+    const y = PAD_TOP + chartH - chartH * ratio;
+    ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
+  });
+
+  monthly.forEach((v, i) => {
+    const isPast    = (i + 1) < NOW_MONTH;
+    const isCurrent = (i + 1) === NOW_MONTH;
+    const x  = PAD_L + i * (barW + gap);
+    const bH = v > 0 ? Math.max((v / maxV) * chartH, 4) : 2;
+    const y  = PAD_TOP + chartH - bH;
+
+    let color;
+    if (isCurrent) {
+      const grad = ctx.createLinearGradient(x, y, x, PAD_TOP + chartH);
+      grad.addColorStop(0, 'rgba(6,182,212,1)');
+      grad.addColorStop(1, 'rgba(6,182,212,0.3)');
+      color = grad;
+    } else if (isPast) {
+      color = 'rgba(255,255,255,0.12)';
+    } else {
+      const grad = ctx.createLinearGradient(x, y, x, PAD_TOP + chartH);
+      grad.addColorStop(0, 'rgba(16,185,129,0.85)');
+      grad.addColorStop(1, 'rgba(16,185,129,0.25)');
+      color = grad;
+    }
+
+    if (isCurrent && v > 0) { ctx.shadowColor = 'rgba(6,182,212,0.5)'; ctx.shadowBlur = 8; }
+
+    const r = Math.min(3, barW / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + barW - r, y);
+    ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+    ctx.lineTo(x + barW, PAD_TOP + chartH);
+    ctx.lineTo(x, PAD_TOP + chartH);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    if (isCurrent) {
+      ctx.strokeStyle = 'rgba(6,182,212,0.8)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    if (v > 0) {
+      const label = v >= 100000 ? Math.round(v/10000)+'만' : Math.round(v/1000)+'천';
+      ctx.fillStyle   = isCurrent ? '#06b6d4' : isPast ? 'rgba(255,255,255,0.35)' : '#10b981';
+      ctx.font        = `${isCurrent ? '700' : '400'} 9px sans-serif`;
+      ctx.textAlign   = 'center';
+      ctx.fillText(label, x + barW / 2, y - 4);
+    }
+
+    ctx.fillStyle = isCurrent ? '#06b6d4' : 'rgba(100,116,139,0.9)';
+    ctx.font      = `${isCurrent ? '700' : '400'} 9px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText((i + 1) + '월', x + barW / 2, H - 5);
+  });
+
+  // resize 이벤트 — 중복 등록 방지
+  if (!_divResizeListenerAdded) {
+    window.addEventListener('resize', drawDivMonthChart);
+    _divResizeListenerAdded = true;
+  }
 }
 // LOAN VIEW + 부동산
 // LOAN, REAL_ESTATE 선언 → loadHoldings 앞으로 이동 (복원 순서 보장)
