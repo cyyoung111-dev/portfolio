@@ -12,6 +12,7 @@
   .saved-badge{display:none;background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3);font-size:.62rem;padding:2px 7px;border-radius:10px}
 @media(max-width:480px){.wrap{padding:10px 8px}.trade-stat-grid{grid-template-columns:repeat(3,1fr)!important}.hdr{flex-direction:column;gap:4px}.hdr>div:last-child{align-self:flex-start}.hdr h1{font-size:1.05rem}.sum-row{grid-template-columns:1fr 1fr!important;gap:6px}.sc{padding:9px 10px}.sc .val{font-size:.95rem}.sc .lbl{font-size:.58rem}.sc .sub{font-size:.57rem}table{font-size:.68rem}th,td{padding:6px 6px!important}.sector-grid{grid-template-columns:1fr!important}.sector-hdr{flex-direction:column;align-items:flex-start;gap:8px}.donut-legend{margin-top:10px}.editor-box{max-height:95vh;max-width:100%!important}.editor-row{flex-wrap:wrap}.editor-row input{width:100%!important}#tradeEditOverlay,#bulkImportOverlay,#resetOverlay,#migrationOverlay{padding:8px!important}.trade-stat-card{padding:8px 8px;font-size:.7rem}.div-stat-card{min-width:calc(50% - 4px)!important;padding:8px 10px}.trade-stat-value{font-size:.8rem}.div-stat-value{font-size:.82rem}.col-hide-mobile{display:none!important}#price-updated-label{font-size:.62rem}#tradeSelBar{flex-wrap:wrap;gap:6px}#tradesHeaderBtns{flex-wrap:wrap!important;gap:6px!important}.sum-row-2 .lbl{font-size:.55rem}.sum-row-2 .val{font-size:.88rem}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}#quickDateInput{width:90px!important;font-size:.62rem!important}.action-date-input{width:85px;font-size:.65rem}.action-refresh-btn{font-size:.65rem;padding:4px 8px}.btn-amber,.btn-danger-lg,.btn-gold-ghost,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-blue-ghost{padding:7px 14px;font-size:.78rem}.btn-purple-700,.btn-ghost-sm,.btn-cancel-sm,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:5px 12px;font-size:.7rem}.action-icon-btn{min-width:40px;padding:6px 7px}.action-icon-btn svg{width:14px;height:14px}.action-icon-btn span{font-size:.56rem}.action-status-label{font-size:.62rem}.vs-btn{min-width:44px;padding:6px 7px}.vs-btn-icon svg{width:14px;height:14px}.vs-btn-label{font-size:.54rem}.view-switcher{gap:5px}}
 .txt-muted-68{font-size:.68rem;color:var(--muted)}</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -973,7 +974,7 @@ function buildTableInner(rawData, tableId, extraCol) {
   const smallRows = data.filter(r => r.evalAmt < SMALL_THRESHOLD && !r.fund);
   data.forEach(r => {
     const isSmall = r.evalAmt < SMALL_THRESHOLD && !r.fund;
-    const pC2 = r.pColor(pnl), pS2 = r.pSign(pnl);
+    const pC2 = pColor(r.pnl), pS2 = pSign(r.pnl);
     const priceCell = r.fund
       ? `<span style='color:var(--cyan)'>${r.price.toLocaleString()}원</span>`
       : r.price ? r.price.toLocaleString()+'원' : '<span class="c-muted">-</span>';
@@ -1159,7 +1160,7 @@ function renderSectorView(area){
     const secList = Object.values(secMerged).sort((a,b)=>b.evalAmt-a.evalAmt);
     secList.forEach(m => {
       const mPct = m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0;
-      const rC=m.pColor(pnl), rS=m.pSign(pnl);
+      const rC=pColor(m.pnl), rS=pSign(m.pnl);
       const acctDots = m.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span>`).join('');
       html+=`<tr style="border-bottom:1px solid rgba(255,255,255,.04)">
         <td style="padding:7px 8px;font-size:.78rem;font-weight:600">
@@ -1339,7 +1340,7 @@ function renderMergeView(area){
     </tr></thead><tbody>`;
 
   sorted.forEach((m,idx) => {
-    const pC = m.pColor(pnl), pS = m.pSign(pnl);
+    const pC = pColor(m.pnl), pS = pSign(m.pnl);
     const weight = grandEval > 0 ? (m.evalAmt/grandEval*100).toFixed(1) : '0.0';
     const acctDots = m.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span>`).join('');
     const acctNames = m.accts.join(' · ');
@@ -1373,7 +1374,7 @@ function renderMergeView(area){
           <th class="p-8-14">계좌</th><th class="num">수량</th><th class="num">매수단가</th><th class="num">현재가</th><th class="num">평가금액</th><th class="num">손익</th><th class="num">수익률</th>
         </tr></thead><tbody>`;
       m.breakdown.forEach(r => {
-        const rC = r.pColor(pnl), rS = r.pSign(pnl);
+        const rC = pColor(r.pnl), rS = pSign(r.pnl);
         const priceCell = r.fund ? `<span class="c-cyan">${r.price.toLocaleString()}원</span>` : r.price ? r.price.toLocaleString()+'원' : '-';
         html += `<tr style="border-top:1px solid var(--border)">
           <td class="p-8-14"><span class="adot" style="background:${ACCT_COLORS[r.acct]}"></span>${r.acct}</td>
@@ -3592,7 +3593,7 @@ function buildScheduleSection() {
         <button onclick="downloadScheduleTemplate()" class="btn-amber-outline" style="font-size:.72rem">📥 양식</button>
         <label class="btn-amber-outline" style="font-size:.72rem;cursor:pointer">
           📂 CSV 업로드
-          <input type="file" accept=".csv" style="display:none" onchange="uploadScheduleCsv(this)">
+          <input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="uploadScheduleCsv(this)">
         </label>
         ${hasSched ? `<button onclick="clearSchedule()" style="background:none;border:1px solid rgba(239,68,68,.3);color:var(--red);border-radius:6px;padding:4px 10px;font-size:.72rem;cursor:pointer">🗑 초기화</button>` : ''}
       </div>
@@ -3679,74 +3680,74 @@ function removeReValue(sortedIdx) {
 
 // ── 상환스케줄 CSV 양식 다운로드
 function downloadScheduleTemplate() {
-  const bom = '\uFEFF';
-  const header = '날짜,대출잔액,납입원금,납입이자\n';
-  const sample = [
-    '2024-01,356550000,450000,1200000',
-    '2024-02,356098000,452000,1198000',
-    '2024-03,355644000,454000,1196000',
-  ].join('\n');
-  const blob = new Blob([bom + header + sample], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '상환스케줄_양식.csv';
-  a.click();
+  if (typeof XLSX === 'undefined') { showToast('라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.', 'warn'); return; }
+  const wb  = XLSX.utils.book_new();
+  const rows = [
+    ['날짜', '대출잔액', '납입원금', '납입이자'],
+    ['2024-01', 356550000, 450000, 1200000],
+    ['2024-02', 356098000, 452000, 1198000],
+    ['2024-03', 355644000, 454000, 1196000],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  // 컬럼 너비 설정
+  ws['!cols'] = [{wch:12},{wch:16},{wch:14},{wch:14}];
+
+  // 헤더 행 스타일
+  ['A1','B1','C1','D1'].forEach(cell => {
+    if (!ws[cell]) return;
+    ws[cell].s = {
+      font: { bold: true, color: { rgb: 'FFFFFF' } },
+      fill: { fgColor: { rgb: '1E293B' } },
+      alignment: { horizontal: 'center' }
+    };
+  });
+
+  XLSX.utils.book_append_sheet(wb, ws, '상환스케줄');
+  XLSX.writeFile(wb, '상환스케줄_양식.xlsx');
 }
 
 // ── CSV 업로드 파싱
 function uploadScheduleCsv(input) {
   const file = input.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      let text = e.target.result;
-      // BOM 제거
-      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-      const lines = text.trim().split(/\r?\n/);
-      if (lines.length < 2) { showToast('데이터가 없습니다', 'error'); return; }
+  input.value = '';
+  parseUploadFile(file, (headers, rows) => {
+    const colIdx = {
+      date:      headers.findIndex(h => h.includes('날짜') || h.toLowerCase().includes('date')),
+      balance:   headers.findIndex(h => h.includes('잔액') || h.toLowerCase().includes('balance')),
+      principal: headers.findIndex(h => h.includes('원금') || h.toLowerCase().includes('principal')),
+      interest:  headers.findIndex(h => h.includes('이자') || h.toLowerCase().includes('interest')),
+    };
+    const missing = Object.entries(colIdx).filter(([,v]) => v < 0).map(([k]) => k);
+    if (missing.length > 0) { showToast('컬럼을 찾을 수 없어요: ' + missing.join(', '), 'error', 5000); return; }
 
-      // 헤더 파싱 (순서 무관)
-      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g,''));
-      const colIdx = {
-        date:      headers.findIndex(h => h.includes('날짜') || h.toLowerCase().includes('date')),
-        balance:   headers.findIndex(h => h.includes('잔액') || h.toLowerCase().includes('balance')),
-        principal: headers.findIndex(h => h.includes('원금') || h.toLowerCase().includes('principal')),
-        interest:  headers.findIndex(h => h.includes('이자') || h.toLowerCase().includes('interest')),
-      };
-
-      const missing = Object.entries(colIdx).filter(([k,v]) => v < 0).map(([k]) => k);
-      if (missing.length > 0) {
-        showToast('컬럼을 찾을 수 없어요: ' + missing.join(', '), 'error', 5000);
-        return;
+    const parsed = [];
+    rows.forEach(cols => {
+      const rawDate = cols[colIdx.date] || '';
+      if (!rawDate) return;
+      // 엑셀 날짜 시리얼 숫자 처리 (예: 45292 → 2024-01)
+      let date;
+      if (/^\d{5}$/.test(rawDate)) {
+        const d = new Date(Math.round((Number(rawDate) - 25569) * 86400 * 1000));
+        date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+      } else {
+        date = String(rawDate).slice(0,7);
       }
+      const balance   = parseInt(String(cols[colIdx.balance]   ||0).replace(/,/g,'')) || 0;
+      const principal = parseInt(String(cols[colIdx.principal] ||0).replace(/,/g,'')) || 0;
+      const interest  = parseInt(String(cols[colIdx.interest]  ||0).replace(/,/g,'')) || 0;
+      if (balance === 0 && principal === 0 && interest === 0) return;
+      parsed.push({ date, balance, principal, interest });
+    });
 
-      const parsed = [];
-      for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(',').map(c => c.trim().replace(/"/g,''));
-        if (!cols[colIdx.date]) continue;
-        // 날짜 정규화: YYYY-MM-DD → YYYY-MM
-        const rawDate = cols[colIdx.date];
-        const date    = rawDate.length >= 7 ? rawDate.slice(0,7) : rawDate;
-        const balance   = parseInt((cols[colIdx.balance]   ||'0').replace(/,/g,'')) || 0;
-        const principal = parseInt((cols[colIdx.principal] ||'0').replace(/,/g,'')) || 0;
-        const interest  = parseInt((cols[colIdx.interest]  ||'0').replace(/,/g,'')) || 0;
-        if (balance === 0 && principal === 0 && interest === 0) continue;
-        parsed.push({ date, balance, principal, interest });
-      }
-
-      if (parsed.length === 0) { showToast('파싱된 데이터가 없습니다', 'error'); return; }
-      parsed.sort((a,b) => a.date.localeCompare(b.date));
-      LOAN_SCHEDULE = parsed;
-      saveSchedule();
-      if (currentView === 'asset') renderView();
-      showToast('✅ ' + parsed.length + '개월 데이터 업로드 완료', 'ok', 4000);
-    } catch(err) {
-      showToast('CSV 파싱 오류: ' + err.message, 'error', 5000);
-    }
-    input.value = '';
-  };
-  reader.readAsText(file, 'UTF-8');
+    if (parsed.length === 0) { showToast('파싱된 데이터가 없습니다', 'error'); return; }
+    parsed.sort((a,b) => a.date.localeCompare(b.date));
+    LOAN_SCHEDULE = parsed;
+    saveSchedule();
+    if (currentView === 'asset') renderView();
+    showToast('✅ ' + parsed.length + '개월 데이터 업로드 완료', 'ok', 4000);
+  });
 }
 
 function clearSchedule() {
@@ -3926,7 +3927,7 @@ function renderStocksView(area) {
           <button onclick="smCsvDownloadTemplate()" class="btn-outline-sm" title="CSV 양식 다운로드">📥 양식</button>
           <label class="btn-outline-sm" style="cursor:pointer;margin:0" title="CSV 파일로 종목 일괄 등록">
             📂 CSV 업로드
-            <input type="file" id="smCsvFileInput" accept=".csv" style="display:none" onchange="smCsvImport(this)"/>
+            <input type="file" id="smCsvFileInput" accept=".csv,.xlsx,.xls" style="display:none" onchange="smCsvImport(this)"/>
           </label>
           <button onclick="smMgmtAddNew()" class="btn-add-purple">
             ➕ 종목 추가
@@ -6078,93 +6079,109 @@ function smDelete(idx) {
 }
 // ── CSV 양식 다운로드
 function smCsvDownloadTemplate() {
-  const header = '종목명,종목코드,유형,섹터';
-  const sample = [
-    '삼성전자,005930,주식,반도체',
-    'TIGER미국S&P500,360750,ETF,해외주식',
-    '내펀드A,,펀드,기타',
-  ].join('\n');
-  const blob = new Blob(['\uFEFF' + header + '\n' + sample], {type:'text/csv;charset=utf-8'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '종목관리_업로드양식.csv';
-  a.click();
-  URL.revokeObjectURL(a.href);
+  if (typeof XLSX === 'undefined') { showToast('라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.', 'warn'); return; }
+  const wb  = XLSX.utils.book_new();
+  const rows = [
+    ['종목명', '종목코드', '유형', '섹터'],
+    ['삼성전자', '005930', '주식', '반도체'],
+    ['TIGER미국S&P500', '360750', 'ETF', '해외주식'],
+    ['내펀드A', '', '펀드', '기타'],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:20},{wch:12},{wch:10},{wch:14}];
+  ['A1','B1','C1','D1'].forEach(cell => {
+    if (!ws[cell]) return;
+    ws[cell].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E293B'}}, alignment:{horizontal:'center'} };
+  });
+  XLSX.utils.book_append_sheet(wb, ws, '종목관리');
+  XLSX.writeFile(wb, '종목관리_업로드양식.xlsx');
   showToast('📥 양식 다운로드 완료', 'ok');
 }
 
 // ── CSV 파일 업로드 처리
+// ── xlsx/csv 공통 파서 헬퍼
+// 파일을 읽어서 {headers:[], rows:[[]]} 형태로 반환 (callback)
+function parseUploadFile(file, callback) {
+  const isXlsx = /\.xlsx?$/i.test(file.name);
+  if (isXlsx) {
+    if (typeof XLSX === 'undefined') { showToast('라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.', 'warn'); return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const wb   = XLSX.read(e.target.result, { type: 'array' });
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        if (!data || data.length < 2) { showToast('데이터가 없습니다', 'error'); return; }
+        const headers = (data[0] || []).map(h => String(h).trim());
+        const rows    = data.slice(1).map(r => r.map(c => String(c ?? '').trim()));
+        callback(headers, rows);
+      } catch(err) { showToast('xlsx 파싱 오류: ' + err.message, 'error', 5000); }
+    };
+    reader.readAsArrayBuffer(file);
+  } else {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        let text = e.target.result;
+        if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+        const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { showToast('데이터가 없습니다', 'error'); return; }
+        const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,''));
+        const rows    = lines.slice(1).map(l => l.split(',').map(c => c.trim().replace(/^"|"$/g,'')));
+        callback(headers, rows);
+      } catch(err) { showToast('CSV 파싱 오류: ' + err.message, 'error', 5000); }
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+}
+
 function smCsvImport(input) {
   const file = input.files[0];
   if (!file) return;
-  input.value = ''; // 같은 파일 재선택 허용
+  input.value = '';
+  parseUploadFile(file, (headers, rows) => {
+    const col = {
+      name:   headers.findIndex(h => h === '종목명'),
+      code:   headers.findIndex(h => h === '종목코드'),
+      type:   headers.findIndex(h => h === '유형'),
+      sector: headers.findIndex(h => h === '섹터'),
+    };
+    if (col.name === -1) { showToast('❌ "종목명" 컬럼이 없습니다', 'error'); return; }
 
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    try {
-      let text = e.target.result;
-      // BOM 제거
-      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const VALID_TYPES = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
+    let added = 0, skipped = 0, updated = 0;
 
-      const lines = text.split(/\r?\n/).filter(l => l.trim());
-      if (lines.length < 2) { showToast('❌ 데이터가 없습니다', 'error'); return; }
+    rows.forEach(cols => {
+      const name   = col.name   >= 0 ? cols[col.name]   || '' : '';
+      const code   = col.code   >= 0 ? cols[col.code]   || '' : '';
+      const type   = col.type   >= 0 ? cols[col.type]   || '주식' : '주식';
+      const sector = col.sector >= 0 ? cols[col.sector] || '기타' : '기타';
+      if (!name) { skipped++; return; }
+      const assetType = VALID_TYPES.includes(type) ? type : '주식';
+      const isFund    = ['펀드','TDF'].includes(assetType);
+      const existing  = EDITABLE_PRICES.findIndex(ep => ep.name === name);
+      if (existing >= 0) {
+        if (code)   EDITABLE_PRICES[existing].code      = code;
+        if (type)   EDITABLE_PRICES[existing].assetType = assetType;
+        if (sector) EDITABLE_PRICES[existing].sector    = sector;
+        if (isFund) EDITABLE_PRICES[existing].fund      = true;
+        updated++;
+      } else {
+        epPush(name, code, assetType);
+        const newIdx = EDITABLE_PRICES.length - 1;
+        EDITABLE_PRICES[newIdx].sector = sector || '기타';
+        EDITABLE_PRICES[newIdx].fund   = isFund;
+        added++;
+      }
+      if (code && name) STOCK_CODE[name] = code;
+    });
 
-      // 첫 줄은 헤더 — 컬럼 위치 자동 인식
-      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,''));
-      const col = {
-        name:   headers.findIndex(h => h === '종목명'),
-        code:   headers.findIndex(h => h === '종목코드'),
-        type:   headers.findIndex(h => h === '유형'),
-        sector: headers.findIndex(h => h === '섹터'),
-      };
-      if (col.name === -1) { showToast('❌ "종목명" 컬럼이 없습니다', 'error'); return; }
-
-      const VALID_TYPES   = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
-      let added = 0, skipped = 0, updated = 0;
-
-      lines.slice(1).forEach(line => {
-        const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g,''));
-        const name   = col.name   >= 0 ? cols[col.name]   || '' : '';
-        const code   = col.code   >= 0 ? cols[col.code]   || '' : '';
-        const type   = col.type   >= 0 ? cols[col.type]   || '주식' : '주식';
-        const sector = col.sector >= 0 ? cols[col.sector] || '기타' : '기타';
-
-        if (!name) { skipped++; return; }
-
-        const assetType = VALID_TYPES.includes(type) ? type : '주식';
-        const isFund    = ['펀드','TDF'].includes(assetType);
-        const existing  = EDITABLE_PRICES.findIndex(ep => ep.name === name);
-
-        if (existing >= 0) {
-          // 기존 종목 업데이트 (코드·유형·섹터만)
-          if (code)   EDITABLE_PRICES[existing].code      = code;
-          if (type)   EDITABLE_PRICES[existing].assetType = assetType;
-          if (sector) EDITABLE_PRICES[existing].sector    = sector;
-          if (isFund) EDITABLE_PRICES[existing].fund      = true;
-          updated++;
-        } else {
-          // 신규 추가 — epPush(name, code, assetType) 시그니처 준수
-          epPush(name, code, assetType);
-          // sector·fund는 epPush 이후 직접 설정
-          const newIdx = EDITABLE_PRICES.length - 1;
-          EDITABLE_PRICES[newIdx].sector = sector || '기타';
-          EDITABLE_PRICES[newIdx].fund   = isFund;
-          added++;
-        }
-        // STOCK_CODE 반영 (GSheet syncCodes와 동일한 경로)
-        if (code && name) STOCK_CODE[name] = code;
-      });
-
-      saveHoldings();
-      buildStockMgmt();
-      const msg = `✅ ${added}건 추가, ${updated}건 업데이트` + (skipped ? `, ${skipped}건 건너뜀` : '');
-      showToast(msg, 'ok');
-      showMgmtMsg('smMgmtMsg', msg, false);
-    } catch(err) {
-      showToast('❌ CSV 파싱 오류: ' + err.message, 'error');
-    }
-  };
-  reader.readAsText(file, 'UTF-8');
+    saveHoldings();
+    buildStockMgmt();
+    const msg = `✅ ${added}건 추가, ${updated}건 업데이트` + (skipped ? `, ${skipped}건 건너뜀` : '');
+    showToast(msg, 'ok');
+    showMgmtMsg('smMgmtMsg', msg, false);
+  });
 }
 
 // 종목 추가 팝업 열기/닫기/확인
