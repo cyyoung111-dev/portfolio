@@ -3900,14 +3900,17 @@ function renderStocksView(area) {
       <!-- 새 계좌 입력창 (숨김) -->
       <div id="acctMgmtNewWrap" style="display:none;background:rgba(139,92,246,.06);border:1px dashed rgba(139,92,246,.4);border-radius:8px;padding:10px;margin-bottom:10px">
         <div class="lbl-68-purple">➕ 새 계좌 추가</div>
-        <div class="flex-gap6-wrap">
+        <div class="flex-gap6-wrap" style="margin-bottom:8px">
           <input id="acctMgmtNewInput" type="text" placeholder="계좌명 (예: 키움, 미래에셋)"
             style="flex:1;min-width:140px;background:var(--s2);border:1px solid rgba(139,92,246,.5);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.78rem"
             onkeydown="if(event.key==='Enter')acctMgmtConfirm(); if(event.key==='Escape')acctMgmtCancel();"/>
-          <button onclick="acctMgmtConfirm()"
-            class="btn-purple-700">✅ 추가</button>
-          <button onclick="acctMgmtCancel()"
-            class="btn-ghost-sm">✕ 취소</button>
+        </div>
+        <div style="font-size:.65rem;color:var(--muted);margin-bottom:5px">색상 선택 <span id="acctNewColorPreview" style="display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-left:4px"></span></div>
+        <div id="acctNewColorDots" style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px"></div>
+        <input type="hidden" id="acctMgmtNewColor" value=""/>
+        <div class="flex-gap6">
+          <button onclick="acctMgmtConfirm()" class="btn-purple-700">✅ 추가</button>
+          <button onclick="acctMgmtCancel()" class="btn-ghost-sm">✕ 취소</button>
         </div>
       </div>
 
@@ -3985,7 +3988,7 @@ function renderStocksView(area) {
           <input id="secMgmtNewName" type="text" placeholder="섹터명"
             style="flex:1;min-width:120px;background:var(--s2);border:1px solid rgba(6,182,212,.5);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
             onkeydown="if(event.key==='Enter')secMgmtConfirm(); if(event.key==='Escape')secMgmtCancel();"/>
-          <input id="secMgmtNewColor" type="color" value="var(--muted)"
+          <input id="secMgmtNewColor" type="color" value="#64748b"
             style="width:40px;height:34px;border:1px solid rgba(6,182,212,.4);border-radius:6px;padding:2px;background:var(--s2);cursor:pointer"/>
           <button onclick="secMgmtConfirm()"
             class="btn-purple-700">✅ 추가</button>
@@ -4265,6 +4268,8 @@ function updateDateBadge(dateStr, isToday) {
   if(!badge) return;
   badge.textContent = isToday ? '📅 ' + dateStr + ' 실시간' : '📅 ' + dateStr + ' 종가 기준';
   badge.className = isToday ? 'date-badge date-badge-live' : 'date-badge';
+  // 조회 중 인라인 스타일 초기화 후 표시
+  badge.style.cssText = 'display:inline-block';
 }
 
 // ── 데이터 백업/복원
@@ -4554,21 +4559,32 @@ async function quickFetchByDate() {
   }
 
   try {
-    const results = await fetchFromGsheet(targetDate);
+    let results = await fetchFromGsheet(targetDate);
+    let usedDate = targetDate;
+
+    // 오늘 날짜 조회 시 주말/공휴일 fallback (최대 5일 전)
+    if ((!results || Object.keys(results).length === 0) && targetDate === getDateStr(0)) {
+      for (let d = 1; d <= 5; d++) {
+        const fb = getDateStr(d);
+        results = await fetchFromGsheet(fb);
+        if (results && Object.keys(results).length > 0) { usedDate = fb; break; }
+      }
+    }
 
     if (results && Object.keys(results).length > 0) {
-      const label = targetDate.replace(/-/g, '.') + ' 종가';
+      const isToday = (usedDate === getDateStr(0));
+      const label = usedDate.replace(/-/g, '.') + ' 종가';
       Object.entries(results).forEach(([name, price]) => {
         savedPrices[name]     = price;
         savedPriceDates[name] = label;
       });
-      lastUpdated = targetDate.replace(/-/g, '.');
-      const isToday = (targetDate === getDateStr(0));
+      lastUpdated = usedDate.replace(/-/g, '.');
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();
       const cnt   = Object.keys(results).length;
       const total = getEPWithCode().length;
-      let html = `✅ 업데이트 완료 · <b>${cnt}/${total}개</b>`;
+      const dayLabel = isToday ? '오늘 종가' : usedDate.replace(/-/g,'.') + ' (전일)';
+      let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
         html += ` · <span style="color:var(--red-lt)">⚠️ 미조회 ${missing.length}개: ${missing.map(m=>m.name).join(', ')}</span>`;
@@ -4625,6 +4641,7 @@ async function autoLoadPrices() {
 
   if (badge) {
     badge.textContent = '⏳ 종가 조회 중...';
+    badge.style.display = 'inline-block';
     badge.style.background = 'rgba(59,130,246,.15)';
     badge.style.color = 'var(--blue-lt)';
     badge.style.border = '1px solid rgba(59,130,246,.3)';
@@ -4811,6 +4828,8 @@ function getCode(name) {
 })();
 try { buildTabBar(); } catch(e) { console.warn('탭 초기화 실패:', e); }
 try { refreshAll(); } catch(e) { console.warn('초기 로드 실패:', e); }
+// 캐시된 날짜로 뱃지 즉시 표시 (autoLoadPrices 완료 전에도 보이도록)
+if (lastUpdated) { try { updateDateBadge(lastUpdated, false); } catch(e){} }
 // 초기 로드 시 차트 카드 표시 상태 적용
 (function(){ const c = $el('chartsRow'); if(c) c.style.display = TABS_NO_CHARTS.has(currentView) ? 'none' : ''; })();
 
@@ -5025,7 +5044,9 @@ async function fetchFromGsheet(dateStr) {
   try {
     const epItems   = getEPWithCode();           // 코드 있는 종목
     const epNoCode  = EDITABLE_PRICES.filter(i => !i.code); // 코드 없는 종목 (펀드·TDF)
-    const isToday   = (dateStr === getDateStr(0));
+    // 주말이면 실시간 getPrices 불필요 → getPriceHistory로 직행
+    const _dow = new Date(dateStr + 'T00:00:00').getDay();
+    const isToday   = (dateStr === getDateStr(0)) && (_dow !== 0 && _dow !== 6);
 
     const codeToName = {};
     epItems.forEach(i => { codeToName[i.code] = i.name; });
@@ -5373,6 +5394,42 @@ function acctMgmtAddNew() {
   if (wrap) { wrap.style.display = 'block'; }
   const inp = $el('acctMgmtNewInput');
   if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
+  // 사용하지 않는 색상 자동 배정 후 팔레트 렌더링
+  const used = Object.values(ACCT_COLORS);
+  const autoColor = ACCT_PALETTE.find(c => !used.includes(c)) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
+  const colorInput = $el('acctMgmtNewColor');
+  if (colorInput) colorInput.value = autoColor;
+  const preview = $el('acctNewColorPreview');
+  if (preview) preview.style.background = autoColor;
+  const dotsWrap = $el('acctNewColorDots');
+  if (dotsWrap) {
+    dotsWrap.innerHTML = ACCT_PALETTE.map(c => {
+      const isUsed = used.includes(c) && c !== autoColor;
+      const isSelected = c === autoColor;
+      return `<span onclick="_acctNewPickColor('${c}')"
+        style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
+        border:3px solid ${isSelected?'#fff':'transparent'};
+        opacity:${isUsed?'0.3':'1'};
+        transition:border .1s,opacity .1s" title="${isUsed?'사용 중':''}"></span>`;
+    }).join('');
+  }
+}
+function _acctNewPickColor(c) {
+  const colorInput = $el('acctMgmtNewColor');
+  if (colorInput) colorInput.value = c;
+  const preview = $el('acctNewColorPreview');
+  if (preview) preview.style.background = c;
+  const used = Object.values(ACCT_COLORS);
+  const dotsWrap = $el('acctNewColorDots');
+  if (dotsWrap) {
+    dotsWrap.querySelectorAll('span').forEach((dot, i) => {
+      const dc = ACCT_PALETTE[i];
+      const isSelected = dc === c;
+      const isUsed = used.includes(dc) && !isSelected;
+      dot.style.border = `3px solid ${isSelected?'#fff':'transparent'}`;
+      dot.style.opacity = isUsed ? '0.3' : '1';
+    });
+  }
 }
 
 function acctMgmtConfirm() {
@@ -5382,7 +5439,13 @@ function acctMgmtConfirm() {
   if (getAcctNames().includes(name)) {
     showMgmtMsg('acctMgmtMsg',`❌ "${name}" 계좌는 이미 존재합니다`,true); inp.select(); return;
   }
-  getOrAssignColor(name); // ACCT_COLORS 등록 + saveAcctColors
+  // 팔레트에서 선택한 색상 우선 적용
+  const pickedColor = $el('acctMgmtNewColor')?.value;
+  if (pickedColor && !ACCT_COLORS[name]) {
+    ACCT_COLORS[name] = pickedColor;
+    saveAcctColors();
+  }
+  getOrAssignColor(name); // 미지정 시 자동 배정 fallback + saveAcctColors
   if (!ACCT_ORDER.includes(name)) { ACCT_ORDER.push(name); saveAcctOrder(); }
   showMgmtMsg('acctMgmtMsg',`✅ "${name}" 계좌가 추가됐습니다`,false);
   setTimeout(() => acctMgmtCancel(), 900);
@@ -5396,6 +5459,8 @@ function acctMgmtCancel() {
   if (wrap) wrap.style.display = 'none';
   const inp = $el('acctMgmtNewInput');
   if (inp) inp.value = '';
+  const c = $el('acctMgmtNewColor'); if (c) c.value = '';
+  const dotsWrap = $el('acctNewColorDots'); if (dotsWrap) dotsWrap.innerHTML = '';
 }
 
 function acctChangeColor(acct, color) {
@@ -6250,28 +6315,54 @@ function smMgmtConfirm() {
   buildStockMgmt();
 }
 
+// 섹터 자동 색상 팔레트 (중복 방지용)
+const SECTOR_AUTO_PALETTE = [
+  '#10b981','#3b82f6','#f59e0b','#8b5cf6','#06b6d4',
+  '#ec4899','#f97316','#84cc16','#14b8a6','#a855f7',
+  '#ef4444','#6366f1','#22d3ee','#fb923c','#4ade80',
+  '#e879f9','#facc15','#38bdf8','#f472b6','#34d399'
+];
+function _secAutoColor() {
+  const used = new Set(Object.values(SECTOR_COLORS).map(c => c.toLowerCase()));
+  const pick = SECTOR_AUTO_PALETTE.find(c => !used.has(c.toLowerCase()));
+  // 팔레트 소진 시 랜덤 hex 생성
+  if(pick) return pick;
+  let rand;
+  let tries = 0;
+  do {
+    rand = '#' + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0');
+    tries++;
+  } while(used.has(rand.toLowerCase()) && tries < 50);
+  return rand;
+}
+
 // 섹터 추가 팝업 열기/닫기/확인
 function secMgmtAddNew() {
   const wrap = $el('secMgmtNewWrap');
   if(wrap) { wrap.style.display = 'block'; }
+  // 사용하지 않는 색상 자동 지정
+  const c = $el('secMgmtNewColor');
+  if(c) c.value = _secAutoColor();
   setTimeout(() => $el('secMgmtNewName')?.focus(), 50);
 }
 function secMgmtCancel() {
   const wrap = $el('secMgmtNewWrap');
   if(wrap) wrap.style.display = 'none';
   const n = $el('secMgmtNewName'); if(n) n.value = '';
-  const c = $el('secMgmtNewColor'); if(c) c.value = 'var(--muted)';
+  const c = $el('secMgmtNewColor'); if(c) c.value = '#64748b';
 }
 function secMgmtConfirm() {
   const name  = ($el('secMgmtNewName')?.value || '').trim();
-  const color = $el('secMgmtNewColor')?.value || 'var(--muted)';
+  const color = $el('secMgmtNewColor')?.value || _secAutoColor();
   if(!name) { showMgmtMsg('secMgmtMsg','⚠️ 섹터명을 입력해주세요',true); return; }
   if(SECTOR_COLORS[name] !== undefined) { showMgmtMsg('secMgmtMsg',`❌ "${name}"은(는) 이미 존재하는 섹터입니다`,true); return; }
   const usedColors = Object.values(SECTOR_COLORS).map(c => c.toLowerCase());
   if(usedColors.includes(color.toLowerCase())) {
-    showMgmtMsg('secMgmtMsg','❌ 이미 사용 중인 색상입니다',true); return;
+    // 중복 색상이면 자동으로 다른 색상 배정 (사용자가 색상 picker를 바꾸지 않은 경우 대비)
+    SECTOR_COLORS[name] = _secAutoColor();
+  } else {
+    SECTOR_COLORS[name] = color;
   }
-  SECTOR_COLORS[name] = color;
   saveHoldings();
   _mgmtRefresh();
   buildSectorMgmt();
