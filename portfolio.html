@@ -5327,7 +5327,12 @@ async function loadGsheetCodeList() {
 async function syncCodesToGsheet() {
   if (!GSHEET_API_URL) return;
   try {
-    const body = 'action=syncCodes&codes=' + encodeURIComponent(JSON.stringify(STOCK_CODE));
+    // EDITABLE_PRICES 기준으로 전송 — STOCK_CODE에만 의존 시 코드 있는 일부 종목 누락됨
+    const codeMap = {};
+    EDITABLE_PRICES.forEach(i => { if (i.name && i.code) codeMap[i.name] = i.code; });
+    // STOCK_CODE에만 있는 항목도 병합 (하위 호환)
+    Object.entries(STOCK_CODE).forEach(([n, c]) => { if (n && c && !codeMap[n]) codeMap[n] = c; });
+    const body = 'action=syncCodes&codes=' + encodeURIComponent(JSON.stringify(codeMap));
     const res = await fetchWithTimeout(GSHEET_API_URL, 20000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -5335,10 +5340,9 @@ async function syncCodesToGsheet() {
     });
     if (!res.ok) { console.warn('[GSheet 동기화] HTTP', res.status); return; }
     const data = await res.json();
-    if (data.status === 'ok') {
-          } else {
-    }
+    if (data.status !== 'ok') console.warn('[GSheet 동기화] 응답 오류', data);
   } catch(e) {
+    console.warn('[GSheet 동기화] 예외:', e);
   }
 }
 
