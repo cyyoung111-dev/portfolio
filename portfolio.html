@@ -191,15 +191,7 @@ function showToast(msg, type='info', duration=3200) {
 // DATA
 // 계좌 색상 팔레트 (신규 계좌 추가 시 순환 사용)
 const ACCT_PALETTE = ['var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)','var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)'];
-let ACCT_COLORS = {};  // localStorage 복원
-
-// localStorage에서 계좌 복원
-(function(){
-  try {
-    const saved = localStorage.getItem(ACCT_COLORS_KEY);
-    if(saved) ACCT_COLORS = {...ACCT_COLORS, ...JSON.parse(saved)};
-  } catch(e){}
-})();
+let ACCT_COLORS = {};  // localStorage 복원 (KEY 선언 후 아래에서 복원)
 
 function saveAcctColors() {
   try { localStorage.setItem(ACCT_COLORS_KEY, JSON.stringify(ACCT_COLORS)); } catch(e){}
@@ -423,6 +415,14 @@ const HOLDINGS_KEY   = 'pf_v6_holdings';
 const STOCKCODE_KEY  = 'pf_v6_stockcodes';
 const EDITABLES_KEY  = 'pf_v6_editables';
 const TRADES_KEY     = 'pf_v6_trades';
+
+// ── localStorage 복원 (KEY 상수 선언 후 실행)
+(function(){
+  try {
+    const saved = localStorage.getItem(ACCT_COLORS_KEY);
+    if(saved) ACCT_COLORS = {...ACCT_COLORS, ...JSON.parse(saved)};
+  } catch(e){}
+})();
 
 function saveHoldings() {
   // 항상 저장 (기초정보 관리 변경도 저장되어야 함)
