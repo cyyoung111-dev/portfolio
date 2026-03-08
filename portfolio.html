@@ -191,20 +191,70 @@ function showToast(msg, type='info', duration=3200) {
 // 계좌 색상 팔레트 (신규 계좌 추가 시 순환 사용)
 const ACCT_PALETTE = ['var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)','var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)'];
 
-// CSS 변수 → Canvas용 실제 색상값 변환 (getComputedStyle 기반, 캐시)
+// ─────────────────────────────────────────────────────────────
+// resolveColor: CSS 변수 → Canvas/HTML 실제 색상값 변환
+//
+// ★ 규칙 (절대 변경 금지) ★
+//  1. Canvas fillStyle/strokeStyle 에는 반드시 resolveColor() 통과값만 사용
+//  2. ctx.fillStyle = 'var(--xxx)'  ← 직접 전달 절대 금지
+//  3. ctx.fillStyle = resolveColor('var(--xxx)')  ← 항상 이 형태
+//  4. 이 함수 자체와 _CSS_VAR_MAP 을 수정할 때는 donut 렌더링 전체를 테스트할 것
+// ─────────────────────────────────────────────────────────────
+
+// CSS 변수 → hex 고정 매핑 (getComputedStyle 의존 제거 — 항상 올바른 색상 보장)
+const _CSS_VAR_MAP = {
+  '--bg':         '#080d18',
+  '--s1':         '#0e1726',
+  '--s2':         '#141f33',
+  '--border':     '#1c2a42',
+  '--green':      '#10b981',
+  '--red':        '#ef4444',
+  '--blue':       '#3b82f6',
+  '--amber':      '#f59e0b',
+  '--purple':     '#8b5cf6',
+  '--cyan':       '#06b6d4',
+  '--pink':       '#ec4899',
+  '--text':       '#e2e8f0',
+  '--muted':      '#64748b',
+  '--gold':       '#f59e0b',
+  '--gold2':      '#f97316',
+  '--red-lt':     '#f87171',
+  '--green-lt':   '#4ade80',
+  '--green-md':   '#34d399',
+  '--blue-lt':    '#60a5fa',
+  '--purple-lt':  '#a78bfa',
+  '--purple-dk':  '#7c3aed',
+};
+
 const _colorCache = {};
 function resolveColor(c) {
-  if (!c) return 'var(--muted)';
-  if (!c.startsWith('var(')) return c;
-  if (_colorCache[c]) return _colorCache[c];
-  try {
-    const varName = c.slice(4, -1); // 'var(--green)' → '--green'
-    const resolved = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
-    _colorCache[c] = resolved || 'var(--muted)';
-  } catch(e) {
-    _colorCache[c] = 'var(--muted)';
+  if (!c || typeof c !== 'string') return '#64748b';
+  const cs = c.trim();
+  // 이미 hex / rgb / rgba → 그대로
+  if (cs.startsWith('#') || cs.startsWith('rgb')) return cs;
+  // var(--xxx) 형식
+  if (cs.startsWith('var(--')) {
+    if (_colorCache[cs]) return _colorCache[cs];
+    const varName = cs.slice(4, -1).trim(); // '--green'
+    // 1순위: 고정 매핑
+    if (_CSS_VAR_MAP[varName]) {
+      _colorCache[cs] = _CSS_VAR_MAP[varName];
+      return _colorCache[cs];
+    }
+    // 2순위: getComputedStyle (사용자 커스텀 변수 대응)
+    try {
+      const resolved = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+      if (resolved && !resolved.startsWith('var(')) {
+        _colorCache[cs] = resolved;
+        return _colorCache[cs];
+      }
+    } catch(e) {}
+    // fallback
+    _colorCache[cs] = '#64748b';
+    return '#64748b';
   }
-  return _colorCache[c];
+  // 그 외 (named color 등) → 그대로
+  return cs;
 }
 let ACCT_COLORS = {};  // localStorage 복원 (KEY 선언 후 아래에서 복원)
 
@@ -553,7 +603,7 @@ let editedPrices = {};  // 현재가 편집기 임시 저장용
     const sd = localStorage.getItem(PRICE_DATES_KEY);
     if (sd) Object.assign(savedPriceDates, JSON.parse(sd));
     const lu = localStorage.getItem(LAST_UPDATED_KEY);
-    if (lu) lastUpdated = lu;
+    if (lu && lu !== "null" && lu !== "undefined") lastUpdated = lu;
   } catch(e) { console.warn('가격 캐시 복원 실패:', e.message); }
 })();
 
@@ -1297,21 +1347,33 @@ function renderDonut(){
 
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0,0,120,120);
+
+  // 데이터 없으면 빈 원만 그리고 종료
+  if (!entries.length || total <= 0) {
+    ctx.beginPath(); ctx.arc(60,60,52,0,2*Math.PI);
+    ctx.fillStyle = resolveColor('var(--s2)'); ctx.fill();
+    ctx.beginPath(); ctx.arc(60,60,28,0,2*Math.PI);
+    ctx.fillStyle = resolveColor('var(--s1)'); ctx.fill();
+    if (leg) leg.innerHTML = '<div class="legend-label" style="padding:8px">데이터 없음</div>';
+    return;
+  }
+
   let start = -Math.PI/2;
   entries.forEach(([k, val]) => {
-    const color = getColor(k);
+    const resolvedColor = resolveColor(getColor(k)); // ★ getColor → 반드시 resolveColor 통과
     const slice = val/total*2*Math.PI;
     ctx.beginPath(); ctx.moveTo(60,60); ctx.arc(60,60,52,start,start+slice); ctx.closePath();
-    ctx.fillStyle = resolveColor(color); ctx.fill(); start += slice;
+    ctx.fillStyle = resolvedColor; ctx.fill(); start += slice;
   });
-  ctx.beginPath(); ctx.arc(60,60,28,0,2*Math.PI); ctx.fillStyle='var(--s1)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(60,60,28,0,2*Math.PI);
+  ctx.fillStyle = resolveColor('var(--s1)'); ctx.fill();
 
   const leg = $el('donut-legend');
+  if (!leg) return;
   leg.innerHTML = '';
   entries.forEach(([k, val]) => {
-    const color = getColor(k);
+    const rc = resolveColor(getColor(k)); // ★ 항상 resolveColor 통과
     const pct = (val/total*100).toFixed(1);
-    const rc = resolveColor(color);
     leg.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${rc}"></div><div class="legend-label">${k}</div><div class="legend-val" style="color:${rc}">${pct}% · ${fmt(val)}</div></div>`;
   });
 }
@@ -4673,7 +4735,12 @@ function savePriceCache() {
   try {
     localStorage.setItem(PRICES_KEY, JSON.stringify(savedPrices));
     localStorage.setItem(PRICE_DATES_KEY, JSON.stringify(savedPriceDates));
-    localStorage.setItem(LAST_UPDATED_KEY, lastUpdated);
+    // null을 그대로 저장하면 "null" 문자열이 되어 날짜 비교 오작동 방지
+    if (lastUpdated) {
+      localStorage.setItem(LAST_UPDATED_KEY, lastUpdated);
+    } else {
+      localStorage.removeItem(LAST_UPDATED_KEY);
+    }
   } catch(e) { console.warn('가격 캐시 저장 실패:', e.message); }
 }
 
@@ -4777,7 +4844,7 @@ async function autoLoadPrices() {
   const cachedDate = lastUpdated;
   const todayLabel = dateStr.replace(/-/g,'.');
   const cacheCount = Object.keys(savedPrices).length;
-  if (cachedDate === todayLabel && cacheCount > 0 && GSHEET_API_URL) {
+  if (cachedDate && cachedDate.startsWith(todayLabel) && cacheCount > 0 && GSHEET_API_URL) {
     updateDateBadge(todayLabel, true);
     const total = getEPWithCode().length;
     setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">오늘 종가 (캐시)</span> · ${cacheCount}/${total}개`, 'ok');
@@ -4933,7 +5000,12 @@ function getCode(name) {
       const parsed = JSON.parse(saved);
       // 하드코딩 기본값 전부 제거 후 저장값으로 대체
       Object.keys(SECTOR_COLORS).forEach(k => delete SECTOR_COLORS[k]);
-      Object.assign(SECTOR_COLORS, parsed);
+      // ★ var() 문자열이 저장된 레거시 데이터 자동 정리 (donut 색상 깨짐 방지)
+      Object.entries(parsed).forEach(([k, v]) => {
+        SECTOR_COLORS[k] = (typeof v === 'string' && v.startsWith('var('))
+          ? resolveColor(v)   // var(--xxx) → 실제 hex로 변환하여 저장
+          : (v || '#64748b'); // 빈값 방어
+      });
     }
   } catch(e) {}
 })();
@@ -4987,7 +5059,7 @@ function getCode(name) {
 try { buildTabBar(); } catch(e) { console.warn('탭 초기화 실패:', e); }
 try { refreshAll(); } catch(e) { console.warn('초기 로드 실패:', e); }
 // 캐시된 날짜로 뱃지 즉시 표시 (autoLoadPrices 완료 전에도 보이도록)
-if (lastUpdated) { try { updateDateBadge(lastUpdated, false); } catch(e){} }
+if (lastUpdated && lastUpdated !== "null") { try { updateDateBadge(lastUpdated, false); } catch(e){} }
 // 초기 로드 시 차트 카드 표시 상태 적용
 (function(){ const c = $el('chartsRow'); if(c) c.style.display = TABS_NO_CHARTS.has(currentView) ? 'none' : ''; })();
 
@@ -5198,11 +5270,20 @@ async function lookupNameByCode(code) {
 async function fetchFromGsheet(dateStr) {
   if (!GSHEET_API_URL) return null;
   try {
-    // ★ EDITABLE_PRICES 코드 + GSheet 코드목록 합산 (중복 제거)
+    // ★ EDITABLE_PRICES 코드 + rawHoldings STOCK_CODE + GSheet 코드목록 합산 (중복 제거)
     const epWithCode = getEPWithCode();
     const epCodeSet = new Set(epWithCode.map(i => i.code));
+    // rawHoldings 기반 보완: EDITABLE_PRICES에 없지만 STOCK_CODE에 등록된 종목
+    const holdingExtras = rawHoldings
+      .filter(h => !h.fund && h.name)
+      .map(h => ({ name: h.name, code: STOCK_CODE[normName(h.name)] || STOCK_CODE[h.name] || '' }))
+      .filter(i => i.code && !epCodeSet.has(i.code));
+    holdingExtras.forEach(i => epCodeSet.add(i.code));
     // _gsheetCodeList에는 있지만 EDITABLE_PRICES엔 없는 종목 보완
-    const extraItems = _gsheetCodeList.filter(g => g.code && !epCodeSet.has(g.code));
+    const extraItems = [
+      ...holdingExtras,
+      ..._gsheetCodeList.filter(g => g.code && !epCodeSet.has(g.code))
+    ];
     const epItems = [...epWithCode, ...extraItems];
 
     const epNoCode  = EDITABLE_PRICES.filter(i => !i.code); // 코드 없는 종목 (펀드·TDF)
@@ -6701,18 +6782,20 @@ function applyPrices() {
     closeEditor(); return;
   }
   const now = new Date();
-  const dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  // dateStr: YYYY.MM.DD (시분 제외 — autoLoadPrices의 todayLabel과 형식 통일)
+  const dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   const updatedCount = Object.keys(editedPrices).length;
   Object.keys(editedPrices).forEach(name => {
     // ★ 코드 있는 종목은 코드 키로 저장, 코드 없는 펀드는 이름 키로 저장
     const code = getCode(normName(name));
     const key = code || name;
     savedPrices[key] = editedPrices[name];
-    savedPriceDates[key] = dateStr;
+    savedPriceDates[key] = dateStr + ' ' + timeStr; // savedPriceDates는 표시용이라 시분 유지
   });
 
   recomputeRows();
-  lastUpdated = dateStr;
+  lastUpdated = dateStr; // ★ YYYY.MM.DD 형식으로 저장 (캐시 비교에 사용)
   const _lbl = $el('price-updated-label');
   if (_lbl) setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${lastUpdated}</span> · ${updatedCount}개 종목 반영`, 'ok');
 
@@ -6720,7 +6803,7 @@ function applyPrices() {
   const fetchedDate = $el('quickDateInput')?.value || '';
   const todayStr = (()=>{ const t=new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); })();
   const isToday = fetchedDate === todayStr;
-  updateDateBadge(lastUpdated.slice(0,10), isToday);
+  updateDateBadge(lastUpdated, isToday); // lastUpdated가 이미 YYYY.MM.DD 형식
 
   saveHoldings();
   closeEditor();
