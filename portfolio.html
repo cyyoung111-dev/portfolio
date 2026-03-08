@@ -192,29 +192,20 @@ function showToast(msg, type='info', duration=3200) {
 // 계좌 색상 팔레트 (신규 계좌 추가 시 순환 사용)
 const ACCT_PALETTE = ['var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)','var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)'];
 
-// CSS 변수 → Canvas용 실제 색상값 변환
-const CSS_VAR_MAP = {
-  'var(--green)':     '#10b981',
-  'var(--blue)':      '#3b82f6',
-  'var(--purple)':    '#8b5cf6',
-  'var(--amber)':     '#f59e0b',
-  'var(--red)':       '#ef4444',
-  'var(--pink)':      '#ec4899',
-  'var(--cyan)':      '#06b6d4',
-  'var(--gold)':      '#f59e0b',
-  'var(--gold2)':     '#f97316',
-  'var(--purple-lt)': '#a78bfa',
-  'var(--purple-dk)': '#7c3aed',
-  'var(--green-lt)':  '#4ade80',
-  'var(--green-md)':  '#34d399',
-  'var(--blue-lt)':   '#60a5fa',
-  'var(--red-lt)':    '#f87171',
-  'var(--muted)':     '#64748b',
-};
+// CSS 변수 → Canvas용 실제 색상값 변환 (getComputedStyle 기반, 캐시)
+const _colorCache = {};
 function resolveColor(c) {
   if (!c) return '#64748b';
-  if (c.startsWith('var(')) return CSS_VAR_MAP[c] || '#64748b';
-  return c;
+  if (!c.startsWith('var(')) return c;
+  if (_colorCache[c]) return _colorCache[c];
+  try {
+    const varName = c.slice(4, -1); // 'var(--green)' → '--green'
+    const resolved = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    _colorCache[c] = resolved || '#64748b';
+  } catch(e) {
+    _colorCache[c] = '#64748b';
+  }
+  return _colorCache[c];
 }
 let ACCT_COLORS = {};  // localStorage 복원 (KEY 선언 후 아래에서 복원)
 
@@ -1291,7 +1282,8 @@ function renderDonut(){
   entries.forEach(([k, val]) => {
     const color = getColor(k);
     const pct = (val/total*100).toFixed(1);
-    leg.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${color}"></div><div class="legend-label">${k}</div><div class="legend-val" style="color:${color}">${pct}% · ${fmt(val)}</div></div>`;
+    const rc = resolveColor(color);
+    leg.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${rc}"></div><div class="legend-label">${k}</div><div class="legend-val" style="color:${rc}">${pct}% · ${fmt(val)}</div></div>`;
   });
 }
 
