@@ -191,6 +191,31 @@ function showToast(msg, type='info', duration=3200) {
 // DATA
 // 계좌 색상 팔레트 (신규 계좌 추가 시 순환 사용)
 const ACCT_PALETTE = ['var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)','var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)'];
+
+// CSS 변수 → Canvas용 실제 색상값 변환
+const CSS_VAR_MAP = {
+  'var(--green)':     '#10b981',
+  'var(--blue)':      '#3b82f6',
+  'var(--purple)':    '#8b5cf6',
+  'var(--amber)':     '#f59e0b',
+  'var(--red)':       '#ef4444',
+  'var(--pink)':      '#ec4899',
+  'var(--cyan)':      '#06b6d4',
+  'var(--gold)':      '#f59e0b',
+  'var(--gold2)':     '#f97316',
+  'var(--purple-lt)': '#a78bfa',
+  'var(--purple-dk)': '#7c3aed',
+  'var(--green-lt)':  '#4ade80',
+  'var(--green-md)':  '#34d399',
+  'var(--blue-lt)':   '#60a5fa',
+  'var(--red-lt)':    '#f87171',
+  'var(--muted)':     '#64748b',
+};
+function resolveColor(c) {
+  if (!c) return '#64748b';
+  if (c.startsWith('var(')) return CSS_VAR_MAP[c] || '#64748b';
+  return c;
+}
 let ACCT_COLORS = {};  // localStorage 복원 (KEY 선언 후 아래에서 복원)
 
 function saveAcctColors() {
@@ -411,6 +436,7 @@ const PRICES_KEY        = 'pf_v6_prices';
 const PRICE_DATES_KEY   = 'pf_v6_price_dates';
 const LAST_UPDATED_KEY  = 'pf_v6_last_updated';
 const GSHEET_KEY        = 'gsheet_api_url';
+const TAB_ORDER_KEY     = 'pf_v6_tab_order';
 const HOLDINGS_KEY   = 'pf_v6_holdings';
 const STOCKCODE_KEY  = 'pf_v6_stockcodes';
 const EDITABLES_KEY  = 'pf_v6_editables';
@@ -1256,9 +1282,9 @@ function renderDonut(){
     const color = getColor(k);
     const slice = val/total*2*Math.PI;
     ctx.beginPath(); ctx.moveTo(60,60); ctx.arc(60,60,52,start,start+slice); ctx.closePath();
-    ctx.fillStyle = color; ctx.fill(); start += slice;
+    ctx.fillStyle = resolveColor(color); ctx.fill(); start += slice;
   });
-  ctx.beginPath(); ctx.arc(60,60,28,0,2*Math.PI); ctx.fillStyle='var(--s1)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(60,60,28,0,2*Math.PI); ctx.fillStyle='#0e1726'; ctx.fill();
 
   const leg = $el('donut-legend');
   leg.innerHTML = '';
@@ -4241,7 +4267,7 @@ const TAB_DEFAULTS = [
 // TAB_ORDER: localStorage 복원 (새 탭이 추가돼도 안전하게 병합)
 let TAB_ORDER = (function(){
   try {
-    const saved = localStorage.getItem('pf_v6_tab_order');
+    const saved = localStorage.getItem(TAB_ORDER_KEY);
     if (saved) {
       const ids = JSON.parse(saved);
       // 저장된 순서 기반으로 TAB_DEFAULTS 재배열 (신규 탭은 끝에 추가)
@@ -4253,7 +4279,7 @@ let TAB_ORDER = (function(){
   return [...TAB_DEFAULTS];
 })();
 function saveTabOrder() {
-  try { localStorage.setItem('pf_v6_tab_order', JSON.stringify(TAB_ORDER.map(t=>t.id))); } catch(e){}
+  try { localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(TAB_ORDER.map(t=>t.id))); } catch(e){}
 }
 // ── 탭 순서 설정 패널
 function openTabSettings() {
@@ -4890,7 +4916,7 @@ function getCode(name) {
     // ══ 초기화 순서: ① 기초정보 로드 → ② 거래이력 반영 → ③ rawHoldings 재생성 ══
 
     // ① localStorage에서 EDITABLE_PRICES 복원 (기초정보 관리탭 저장값 최우선)
-    const savedE = localStorage.getItem('pf_v6_editables');
+    const savedE = localStorage.getItem(EDITABLES_KEY);
     if (savedE) {
       const parsed = JSON.parse(savedE);
       if (Array.isArray(parsed) && parsed.length > 0) {
