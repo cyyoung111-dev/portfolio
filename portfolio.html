@@ -1096,7 +1096,7 @@ function buildTableInner(rawData, tableId, extraCol) {
       ${sectorCell}
       <td><span class="adot" style="background:${ACCT_COLORS[r.acct]||'var(--muted)'}"></span>${r.acct}</td>
       <td><span class="tag tg-${r.type}">${r.type}</span></td>
-      <td class="fw6">${r.name}${r.code?`<span class="lbl-62-mt2">${r.code}</span>`:''}</td>
+      <td class="fw6"><span data-gname="${r.name}" onclick="goToTradeGroup(this.dataset.gname)" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px" title="종목별 거래 보기">${r.name}</span>${r.code?`<span class="lbl-62-mt2">${r.code}</span>`:''}</td>
       <td class="num">${qtyCell}</td>
       <td class="num">${costCell}</td>
       <td class="num">${priceCell}</td>
@@ -1476,7 +1476,7 @@ function renderMergeView(area){
     const isMulti = m.breakdown.length > 1;
 
     html += `<tr style="cursor:${isMulti?'pointer':'default'}" onclick="${isMulti?`toggleMergeDetail('${detailId}')`:''}" title="${isMulti?'클릭하면 계좌별 상세 보기':''}">
-      <td class="fw6">${m.name}${isMulti?` <span style="font-size:.65rem;color:var(--pink);margin-left:4px">▸ ${m.breakdown.length}계좌</span>`:''}${m.code?`<span class="lbl-62-mt2">${m.code}</span>`:''}</td>
+      <td class="fw6"><span data-gname="${m.name}" onclick="event.stopPropagation();goToTradeGroup(this.dataset.gname)" style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px" title="종목별 거래 보기">${m.name}</span>${isMulti?` <span style="font-size:.65rem;color:var(--pink);margin-left:4px">▸ ${m.breakdown.length}계좌</span>`:''}${m.code?`<span class="lbl-62-mt2">${m.code}</span>`:''}</td>
       <td><span class="tag tg-${m.type}">${m.type}</span></td>
       <td>${acctDots} <span class="txt-muted-72">${acctNames}</span></td>
       <td class="num">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
@@ -2554,7 +2554,18 @@ function _tePickName(name) {
     status.textContent = '✅ ' + name + (code ? ' (' + code + ')' : '');
     status.style.color = 'var(--green)';
   } else {
-    status.textContent = '';
+    // STOCK_CODE에 없으면 EDITABLE_PRICES / GSheet API로 코드 조회
+    const ep = EDITABLE_PRICES.find(e => e.name === name);
+    const epCode = ep?.code || '';
+    if (epCode) {
+      $el('te-code').value = epCode;
+      status.textContent = '✅ ' + name + ' (' + epCode + ')';
+      status.style.color = 'var(--green)';
+    } else if (name.trim().length >= 2) {
+      teCodeLookup(name);
+    } else {
+      status.textContent = '';
+    }
   }
   // 버튼 활성화 상태 갱신
   const grp = $el('te-name-btns');
@@ -3614,6 +3625,9 @@ function openLoanEditor() {
   $el('le-startDate').value = LOAN.startDate || '';
   $el('le-monthlyInterestPaid').value = LOAN.monthlyInterestPaid ? LOAN.monthlyInterestPaid.toLocaleString() : '';
   $el('le-totalInterestPaid').value = LOAN.totalInterestPaid ? LOAN.totalInterestPaid.toLocaleString() : '';
+  // 스케줄 있을 때 실제 이자지급액 입력행 숨김 (스케줄이 자동 입력)
+  const intRow = $el('le-monthlyInterestPaid')?.closest('.editor-row');
+  if (intRow) intRow.style.display = LOAN_SCHEDULE.length > 0 ? 'none' : '';
   $el('loanEditor').classList.add('open');
 }
 function closeLoanEditor() {
@@ -3635,7 +3649,8 @@ function applyLoan() {
   LOAN.totalMonths          = total;
   LOAN.remainingMonths      = remain;
   LOAN.startDate            = startDate;
-  LOAN.monthlyInterestPaid  = interestPaid;
+  // 스케줄 있을 때는 스케줄 값 유지 (에디터 입력값으로 덮어쓰지 않음)
+  if (LOAN_SCHEDULE.length === 0) LOAN.monthlyInterestPaid = interestPaid;
   LOAN.totalInterestPaid    = totalInterestPaid;
   // startYear 도 startDate에서 자동 추출
   if (startDate) LOAN.startYear = parseInt(startDate.slice(0,4));
@@ -3761,15 +3776,20 @@ function renderAssetView(area) {
       ${[
         ['잔액', `<span style="color:var(--red);font-weight:700">${fmt(bal)}</span>`],
         ['월 납입 (계산)', `${fmt(pmt)}`],
-        ['이 중 이자 (계산)', `${fmt(monthlyInterest)}`],
+        ...(hasSched ? [
+          ['이자 (스케줄)', `${fmt(LOAN.monthlyInterestPaid || 0)}`],
+          ['원금상환 (스케줄)', (() => { const cur = LOAN_SCHEDULE.find(r => r.date === new Date().toISOString().slice(0,7)); return cur ? fmt(cur.principal) : (pmt > 0 ? fmt(pmt - (LOAN.monthlyInterestPaid||0)) : '-'); })()],
+        ] : [
+          ['이 중 이자 (계산)', `${fmt(monthlyInterest)}`],
+          ['실제 이자지급액', interestPaid > 0
+            ? `${fmt(interestPaid)}${interestDiff !== null ? ` <span style="font-size:.65rem;color:${interestDiff>0?'var(--red)':'var(--green)'}">(${interestDiff>0?'+':''}${fmt(interestDiff)})</span>` : ''}`
+            : '-'],
+          ['원금상환', pmt > 0 && interestPaid > 0 ? fmt(pmt - interestPaid) : (pmt > 0 ? fmt(pmt - monthlyInterest) : '-')],
+        ]),
         ['금리', `${rate}%`],
         ['잔여 기간', `${Math.floor(n/12)}년 ${n%12}개월`],
         ['상환 완료', `${payoffYear}년`],
         ['대출실행일', startDateLabel],
-        ['실제 이자지급액', interestPaid > 0
-          ? `${fmt(interestPaid)}${interestDiff !== null ? ` <span style="font-size:.65rem;color:${interestDiff>0?'var(--red)':'var(--green)'}">(${interestDiff>0?'+':''}${fmt(interestDiff)})</span>` : ''}`
-          : '-'],
-        ['원금상환', pmt > 0 && interestPaid > 0 ? fmt(pmt - interestPaid) : (pmt > 0 ? fmt(pmt - monthlyInterest) : '-')],
       ].map(([l,v])=>`<div class="s2-rounded">
         <div class="lbl-62-muted-3">${l}</div>
         <div class="fw-600">${v}</div>
@@ -4798,6 +4818,13 @@ function applyReset() {
     ACCT_ORDER.length = 0;
     localStorage.removeItem(ACCT_COLORS_KEY);
     localStorage.removeItem(ACCT_ORDER_KEY);
+  }
+
+  // ── 탭 순서 (전체 초기화 시 기본값 복원)
+  if (keys.trades && keys.stocks && keys.sectors && keys.accts && keys.realestate && keys.prices) {
+    localStorage.removeItem(TAB_ORDER_KEY);
+    TAB_ORDER.length = 0;
+    TAB_DEFAULTS.forEach(t => TAB_ORDER.push({...t}));
   }
 
   // ── 현재가 캐시
