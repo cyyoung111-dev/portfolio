@@ -331,7 +331,7 @@ function getOrAssignColor(acct) {
   if (!ACCT_COLORS[acct]) {
     const used = Object.values(ACCT_COLORS);
     const next = ACCT_PALETTE.find(c => !used.includes(c)) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
-    ACCT_COLORS[acct] = next;
+    ACCT_COLORS[acct] = resolveColor(next); // ★ 원칙3: 대입 시점에 var()→hex 변환
     saveAcctColors();
     if (!ACCT_ORDER.includes(acct)) { ACCT_ORDER.push(acct); saveAcctOrder(); }
   }
@@ -3252,9 +3252,9 @@ function closeMigration() {
   if (el) el.style.display = 'none';
 }
 
-function renderDivView(area) {
-  // GS 연동 시 탭 진입마다 자동 fetch → 완료 후 재렌더
-  if (GSHEET_API_URL) _autoFetchDiv(area);
+function renderDivView(area, skipFetch) {
+  // GS 연동 시 탭 진입마다 자동 fetch → 완료 후 재렌더 (skipFetch=true면 재귀 방지)
+  if (GSHEET_API_URL && !skipFetch) _autoFetchDiv(area);
 
   const divRows = calcDividends();
   const totalAnnual   = divRows.reduce((s,r)=>s+r.annualDiv,0);
@@ -5952,10 +5952,10 @@ function acctMgmtConfirm() {
   if (getAcctNames().includes(name)) {
     showMgmtMsg('acctMgmtMsg',`❌ "${name}" 계좌는 이미 존재합니다`,true); inp.select(); return;
   }
-  // 팔레트에서 선택한 색상 우선 적용
+  // 팔레트에서 선택한 색상 우선 적용 (★ 원칙3: resolveColor로 hex 보장)
   const pickedColor = $el('acctMgmtNewColor')?.value;
   if (pickedColor && !ACCT_COLORS[name]) {
-    ACCT_COLORS[name] = pickedColor;
+    ACCT_COLORS[name] = resolveColor(pickedColor);
     saveAcctColors();
   }
   getOrAssignColor(name); // 미지정 시 자동 배정 fallback + saveAcctColors
@@ -5977,15 +5977,16 @@ function acctMgmtCancel() {
 }
 
 function acctChangeColor(acct, color) {
-  // 다른 계좌가 이미 쓰는 색상이면 차단
+  const hexColor = resolveColor(color); // ★ 원칙3: 먼저 hex로 변환
+  // 다른 계좌가 이미 쓰는 색상이면 차단 (hex 기준 비교)
   const usedByOther = Object.entries(ACCT_COLORS)
     .filter(([k]) => k !== acct)
-    .some(([, v]) => v.toLowerCase() === color.toLowerCase());
+    .some(([, v]) => v.toLowerCase() === hexColor.toLowerCase());
   if(usedByOther) {
     showMgmtMsg('acctMgmtMsg','❌ 다른 계좌에서 이미 사용 중인 색상입니다',true);
     return;
   }
-  ACCT_COLORS[acct] = color;
+  ACCT_COLORS[acct] = hexColor;
   saveAcctColors();
   // 수정 모드 유지하며 재렌더
   buildAcctMgmt();
@@ -6225,7 +6226,7 @@ async function _autoFetchDiv(area) {
     if (changed) {
       saveHoldings();
       // 현재 배당 탭이 열려 있으면 재렌더
-      if (currentView === 'div') renderDivView(area);
+      if (currentView === 'div') renderDivView(area, true);
     }
   } catch(e) {
     // 자동 fetch 실패 시 조용히 무시 (수동 버튼으로 재시도 가능)
@@ -6292,7 +6293,9 @@ async function startDivFetch() {
     status.style.color = 'var(--green-lt)';
     status.textContent = '✅ ' + updated + '개 종목 배당 조회 완료' + (skipped > 0 ? ' (' + skipped + '개 배당없음)' : '') + ' · 확인 후 저장하세요';
     saveHoldings();
-    buildDivMgmt();
+    // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
+    const _area = $el('view-area');
+    renderDivView(_area, true);
 
   } catch(e) {
     status.style.color = 'var(--red)';
@@ -6445,7 +6448,7 @@ function secSave(idx) {
     // SECTOR_MAP은 더 이상 진실소스 아님 — EDITABLE_PRICES만 업데이트
     EDITABLE_PRICES.forEach(i => { if(i.sector === oldName) i.sector = newName; });
   }
-  SECTOR_COLORS[newName] = newColor;
+  SECTOR_COLORS[newName] = resolveColor(newColor); // ★ 원칙3: var()→hex 변환
   saveHoldings();
   _mgmtRefresh();
   // buildSectorMgmt 재호출은 저장 버튼 핸들러에서 처리
@@ -6843,9 +6846,9 @@ const SECTOR_AUTO_PALETTE = [
 ];
 function _secAutoColor() {
   const used = new Set(Object.values(SECTOR_COLORS).map(c => c.toLowerCase()));
-  const pick = SECTOR_AUTO_PALETTE.find(c => !used.has(c.toLowerCase()));
+  const pick = SECTOR_AUTO_PALETTE.find(c => !used.has(resolveColor(c).toLowerCase()));
   // 팔레트 소진 시 랜덤 hex 생성
-  if(pick) return pick;
+  if(pick) return resolveColor(pick); // ★ 원칙3: var()→hex 변환 후 반환
   let rand;
   let tries = 0;
   do {
@@ -6876,11 +6879,11 @@ function secMgmtConfirm() {
   if(!name) { showMgmtMsg('secMgmtMsg','⚠️ 섹터명을 입력해주세요',true); return; }
   if(SECTOR_COLORS[name] !== undefined) { showMgmtMsg('secMgmtMsg',`❌ "${name}"은(는) 이미 존재하는 섹터입니다`,true); return; }
   const usedColors = Object.values(SECTOR_COLORS).map(c => c.toLowerCase());
-  if(usedColors.includes(color.toLowerCase())) {
+  if(usedColors.includes(resolveColor(color).toLowerCase())) {
     // 중복 색상이면 자동으로 다른 색상 배정 (사용자가 색상 picker를 바꾸지 않은 경우 대비)
     SECTOR_COLORS[name] = _secAutoColor();
   } else {
-    SECTOR_COLORS[name] = color;
+    SECTOR_COLORS[name] = resolveColor(color); // ★ 원칙3: var()→hex 변환
   }
   saveHoldings();
   _mgmtRefresh();
