@@ -5612,6 +5612,7 @@ async function syncCodesToGsheet() {
     EDITABLE_PRICES.forEach(i => { if (i.name && i.code) codeMap[i.name] = i.code; });
     // STOCK_CODE에만 있는 항목도 병합 (하위 호환)
     Object.entries(STOCK_CODE).forEach(([n, c]) => { if (n && c && !codeMap[n]) codeMap[n] = c; });
+    if (Object.keys(codeMap).length === 0) { console.warn('[syncCodes] 전송할 코드 없음'); return null; }
     const body = 'action=syncCodes&codes=' + encodeURIComponent(JSON.stringify(codeMap));
     const res = await fetchWithTimeout(GSHEET_API_URL, 20000, {
       method: 'POST',
@@ -5896,8 +5897,9 @@ function saveGsheetUrlFromUI() {
         : '✅ URL 저장 완료. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.';
     }
     if (restored) { try { refreshAll(); _mgmtRefresh(); } catch(e){} }
-    // 종목코드 동기화 결과를 gsheetTestResult에 영구 표시
+    // 종목코드 동기화 — refreshAll 후 EDITABLE_PRICES 복원 완료 시점에 호출
     if (res) { res.textContent = (res.textContent || '') + ' · 종목코드 동기화 중...'; }
+    await new Promise(r => setTimeout(r, 500)); // DOM 렌더링 + 복원 안착 대기
     const syncResult = await syncCodesToGsheet();
     if (res && syncResult) {
       const { synced = 0, updated = 0, removed = 0, total = 0 } = syncResult;
