@@ -5618,11 +5618,13 @@ async function syncCodesToGsheet() {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body
     });
-    if (!res.ok) { console.warn('[GSheet 동기화] HTTP', res.status); return; }
+    if (!res.ok) { console.warn('[GSheet 동기화] HTTP', res.status); return null; }
     const data = await res.json();
-    if (data.status !== 'ok') console.warn('[GSheet 동기화] 응답 오류', data);
+    if (data.status !== 'ok') { console.warn('[GSheet 동기화] 응답 오류', data); return null; }
+    return data; // { synced, updated, removed, total }
   } catch(e) {
     console.warn('[GSheet 동기화] 예외:', e);
+    return null;
   }
 }
 
@@ -5894,6 +5896,17 @@ function saveGsheetUrlFromUI() {
         : '✅ URL 저장 완료. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.';
     }
     if (restored) { try { refreshAll(); _mgmtRefresh(); } catch(e){} }
+    // 종목코드 동기화 결과 표시
+    const syncResult = await syncCodesToGsheet();
+    if (res && syncResult) {
+      const { synced = 0, updated = 0, removed = 0, total = 0 } = syncResult;
+      const parts = [];
+      if (synced  > 0) parts.push(`신규 ${synced}개`);
+      if (updated > 0) parts.push(`수정 ${updated}개`);
+      if (removed > 0) parts.push(`삭제 ${removed}개`);
+      const detail = parts.length ? ` · 종목코드 ${parts.join(' · ')} (총 ${total}개)` : ` · 종목코드 ${total}개 동기화 완료`;
+      res.textContent = (res.textContent || '').replace(/\.$/, '') + detail;
+    }
   })();
 }
 
