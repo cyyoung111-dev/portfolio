@@ -248,7 +248,7 @@ function resolveColor(c) {
         _colorCache[cs] = resolved;
         return _colorCache[cs];
       }
-    } catch(e) {}
+    } catch(e) { console.warn('[resolveColor]', e.message); }
     // fallback
     _colorCache[cs] = '#64748b';
     return '#64748b';
@@ -640,11 +640,11 @@ let editedPrices = {};  // 현재가 편집기 임시 저장용
       }
     });
     if (migrated > 0) {
-      console.log('[마이그레이션] 이름 키 → 코드 키 변환:', migrated, '개');
+      if (migrated > 0) console.warn('[마이그레이션] 이름 키 → 코드 키 변환:', migrated, '개');
       try {
         localStorage.setItem(PRICES_KEY, JSON.stringify(savedPrices));
         localStorage.setItem(PRICE_DATES_KEY, JSON.stringify(savedPriceDates));
-      } catch(e) {}
+      } catch(e) { console.warn('[savePriceCache] localStorage 저장 실패:', e.message); }
     }
   } catch(e) { console.warn('캐시 마이그레이션 실패:', e.message); }
 })();
@@ -3680,7 +3680,7 @@ function saveSchedule() {
   try {
     localStorage.setItem(LOAN_SCHEDULE_KEY, JSON.stringify(LOAN_SCHEDULE));
     localStorage.setItem(RE_VALUE_KEY, JSON.stringify(RE_VALUE_HIST));
-  } catch(e) {}
+  } catch(e) { console.warn('[saveSchedule] localStorage 저장 실패:', e.message); }
   saveSettings(); // ★ LOAN_SCHEDULE / RE_VALUE_HIST GSheet 동기화
 }
 
@@ -5340,7 +5340,7 @@ function getCode(name) {
   } catch(e) { console.warn('syncEditables 실패:', e); }
 })();
 try { buildTabBar(); } catch(e) { console.warn('탭 초기화 실패:', e); }
-try { syncLoanFromSchedule(); } catch(e) {}  // ★ 스케줄 기준 LOAN 자동 갱신
+try { syncLoanFromSchedule(); } catch(e) { console.warn('[init] syncLoanFromSchedule 실패:', e.message); }  // ★ 스케줄 기준 LOAN 자동 갱신
 try { refreshAll(); } catch(e) { console.warn('초기 로드 실패:', e); }
 // 캐시된 날짜로 뱃지 즉시 표시 (autoLoadPrices 완료 전에도 보이도록)
 if (lastUpdated && lastUpdated !== "null") { try { updateDateBadge(lastUpdated, false); } catch(e){} }
@@ -5522,7 +5522,7 @@ async function loadSettings(onProgress) {
       localStorage.setItem(REALESTATE_KEY, JSON.stringify(REAL_ESTATE));
       localStorage.setItem(LOAN_SCHEDULE_KEY, JSON.stringify(LOAN_SCHEDULE));
       localStorage.setItem(RE_VALUE_KEY, JSON.stringify(RE_VALUE_HIST));
-    } catch(e) {}
+    } catch(e) { console.warn('[loadSettings] localStorage 저장 실패:', e.message); }
 
     // ── 거래이력 복원 (localStorage가 비어있을 때만 — 기존 데이터 우선)
     if (rawTrades.length === 0) {
