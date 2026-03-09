@@ -5896,18 +5896,22 @@ function saveGsheetUrlFromUI() {
         : '✅ URL 저장 완료. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.';
     }
     if (restored) { try { refreshAll(); _mgmtRefresh(); } catch(e){} }
-    // 종목코드 동기화 결과를 토스트로 별도 표시
+    // 종목코드 동기화 결과를 gsheetTestResult에 영구 표시
+    if (res) { res.textContent = (res.textContent || '') + ' · 종목코드 동기화 중...'; }
     const syncResult = await syncCodesToGsheet();
-    if (syncResult) {
+    if (res && syncResult) {
       const { synced = 0, updated = 0, removed = 0, total = 0 } = syncResult;
       const parts = [];
       if (synced  > 0) parts.push(`신규 ${synced}개`);
       if (updated > 0) parts.push(`수정 ${updated}개`);
       if (removed > 0) parts.push(`삭제 ${removed}개`);
-      const msg = parts.length
-        ? `종목코드 동기화 완료 — ${parts.join(' · ')} (총 ${total}개)`
-        : `종목코드 ${total}개 동기화 완료`;
-      showToast(msg, 'ok', 4000);
+      const codeMsg = parts.length
+        ? `종목코드 ${parts.join(' · ')} (총 ${total}개) · 기준일: ${new Date().toISOString().slice(0,10)}`
+        : `종목코드 ${total}개 동기화 완료 · 기준일: ${new Date().toISOString().slice(0,10)}`;
+      res.textContent = '✅ 연결 성공! ' + codeMsg;
+      res.style.color = 'var(--green-lt)';
+    } else if (res && !syncResult) {
+      res.textContent = (res.textContent || '').replace(' · 종목코드 동기화 중...', '');
     }
   })();
 }
