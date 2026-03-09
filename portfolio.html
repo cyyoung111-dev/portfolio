@@ -8,12 +8,60 @@
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
-  *{box-sizing:border-box}:root{--bg:#080d18;--s1:#0e1726;--s2:#141f33;--border:#1c2a42;--green:#10b981;--red:#E52E2E;--blue:#0057FF;--amber:#f59e0b;--purple:#8b5cf6;--cyan:#06b6d4;--pink:#ec4899;--text:#e2e8f0;--muted:#64748b;--gold:#f59e0b;--gold2:#f97316;--red-lt:#FF6B6B;--green-lt:#4ade80;--green-md:#34d399;--blue-lt:#5B8EFF;--purple-lt:#a78bfa;--purple-dk:#7c3aed;--tr:all .15s}*{margin:0;padding:0}input,select,textarea{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text)}input[type=checkbox],input[type=radio],input[type=color],input[type=file],input[type=range]{background:revert;border:revert;border-radius:revert}input[type=date],input[type=datetime-local]{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:.82rem}input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6;cursor:pointer}body{background:var(--bg);color:var(--text);min-height:100vh;font-family:'Pretendard Variable',Pretendard,'맑은 고딕','Malgun Gothic','Apple SD Gothic Neo',sans-serif;letter-spacing:-.025em}body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 70% 40% at 10% 10%,rgba(16,185,129,.05) 0%,transparent 60%),radial-gradient(ellipse 60% 40% at 90% 90%,rgba(59,130,246,.06) 0%,transparent 60%);pointer-events:none;z-index:0}.wrap{max-width:1200px;margin:0 auto;padding:28px 18px;position:relative;z-index:1}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px}.hdr h1{font-size:1.8rem;font-weight:900;letter-spacing:-.04em;background:linear-gradient(135deg,var(--green),#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.hdr p{font-size:.78rem;color:var(--muted);margin-top:4px}.sum-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.sc{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.sc.c1::before{background:linear-gradient(90deg,var(--green),var(--cyan))}.sc.c2::before{background:linear-gradient(90deg,var(--blue),var(--purple))}.sc.c3::before{background:linear-gradient(90deg,var(--green),var(--green-md))}.sc.c4::before{background:linear-gradient(90deg,var(--amber),#f97316)}.sc .lbl{font-size:.72rem;color:var(--muted);margin-bottom:8px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}.sc .val{font-size:1.4rem;font-weight:600;font-variant-numeric:tabular-nums}.sc .sub{font-size:.70rem;color:var(--muted);margin-top:5px}.tbl-wrap{background:var(--s1);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:20px;-webkit-overflow-scrolling:touch;overflow-x:auto}.tbl-head{padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}.tbl-head h3{font-size:.85rem;font-weight:700}.tbl-head .tsum{font-size:.82rem}table{width:100%;border-collapse:collapse}th{text-align:left;padding:11px 16px;font-size:.70rem;color:var(--muted);font-weight:600;background:var(--s2);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}td{padding:13px 16px;border-top:1px solid var(--border);font-size:.82rem;white-space:nowrap;font-variant-numeric:tabular-nums}tr:hover td{background:rgba(255,255,255,.02)}th.num{text-align:right;font-variant-numeric:tabular-nums}.mono{text-align:right;font-variant-numeric:tabular-nums}.fw6{font-weight:600}.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.65rem;font-weight:700;margin-left:4px}.sector-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:20px}.sector-card{background:var(--s1);border:1px solid var(--border);border-radius:12px;overflow:hidden}.sector-hdr{padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}.sector-hdr h4{font-size:.85rem;font-weight:700}.sector-hdr .sval{font-size:.80rem}.chart-card{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:18px}.chart-card h4{font-size:.72rem;color:var(--muted);font-weight:500;letter-spacing:.07em;text-transform:uppercase;margin-bottom:14px}.donut-wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.donut-legend{flex:1;min-width:110px}.legend-item{display:flex;align-items:center;gap:7px;margin-bottom:9px}.legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}.legend-label{font-size:.72rem;color:var(--muted);flex:1}.legend-val{font-size:.72rem}.adot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.fade{animation:fadeUp .4s ease both}.d1{animation-delay:.05s}.d2{animation-delay:.1s}.d3{animation-delay:.15s}.d4{animation-delay:.2s}.d5{animation-delay:.25s}@media(min-width:1024px){.wrap{padding:32px 28px}.sum-row{gap:14px}.sc{padding:18px 20px}.sc .lbl{font-size:.72rem}.sc .val{font-size:1.5rem}th{padding:11px 16px}td{padding:13px 16px}.tbl-head{padding:16px 20px}.sector-grid{grid-template-columns:repeat(2,1fr)}.vs-btn{min-width:58px;padding:8px 12px;gap:4px;border-radius:6px}.vs-btn-icon svg{width:17px;height:17px}.vs-btn-label{font-size:.65rem}.view-switcher{gap:7px}.btn-amber,.btn-danger-lg,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-purple-700,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:6px 16px;font-size:.75rem}.btn-sm,.btn-amber-sm,.btn-purple-sm,.btn-outline-sm,.btn-edit-sm,.btn-del-sm,.btn-danger,.btn-danger-ghost{padding:5px 12px;font-size:.72rem}}@media(min-width:1200px){#sum-row-1,#sum-row-2{grid-template-columns:repeat(4,1fr)}#sum-row-1{margin-bottom:0;border-radius:16px 16px 0 0}#sum-row-2{border-radius:0 0 16px 16px;margin-top:0}.wrap{max-width:1400px}th{padding:11px 18px}td{padding:13px 18px;font-size:.82rem}}*{-webkit-tap-highlight-color:transparent}.editor-overlay{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px}.editor-overlay.open{display:flex}.editor-box{background:var(--s1);border:1px solid var(--border);border-radius:12px;width:100%;max-width:700px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}.editor-header{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}.editor-header h3{font-size:1rem;font-weight:700}.editor-header p{font-size:.72rem;color:var(--muted);margin-top:3px}.editor-close{width:30px;height:30px;border-radius:50%;background:var(--s2);border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem}.editor-close:hover{color:var(--text);background:var(--border)}.editor-body{overflow-y:auto;padding:16px 24px;flex:1;min-height:0}.editor-group{margin-bottom:20px}.editor-group-title{font-size:.70rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}.editor-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}.editor-row label{flex:1;font-size:.80rem;color:var(--text);min-width:0}.editor-row label span{display:block;font-size:.65rem;color:var(--muted);margin-top:1px}.editor-row input{width:130px;flex-shrink:0;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.82rem;text-align:right;outline:none;transition:border-color .15s}.editor-row input:focus{border-color:var(--gold)}.editor-row .price-status{width:18px;height:18px;border-radius:50%;flex-shrink:0;font-size:.65rem;display:flex;align-items:center;justify-content:center}.editor-footer{padding:16px 24px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:10px;justify-content:flex-end;align-items:center}.editor-footer .last-updated{font-size:.70rem;color:var(--muted);flex:1}.btn-cancel{background:var(--s2);border:1px solid var(--border);color:var(--muted);padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.btn-apply{background:var(--gold);border:none;color:#000;font-weight:700;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.btn-apply:hover{background:var(--gold2)}.th-filter{cursor:pointer;user-select:none;position:relative;white-space:nowrap}.th-filter:hover{color:var(--text)!important}.th-filter .sort-icon{margin-left:4px;opacity:.4;font-size:.60rem}.th-filter.asc .sort-icon::after{content:'▲';opacity:1;color:var(--amber)}.th-filter.desc .sort-icon::after{content:'▼';opacity:1;color:var(--amber)}.th-filter:not(.asc):not(.desc) .sort-icon::after{content:'⇅'}.col-filter-dropdown{position:absolute;top:100%;left:0;z-index:200;background:var(--s1);border:1px solid var(--border);border-radius:10px;min-width:160px;max-height:280px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);padding:6px 0}.col-filter-dropdown .cfd-search{margin:6px 8px;width:calc(100% - 16px);background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem;outline:none}.col-filter-dropdown label{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:.75rem;cursor:pointer;transition:background .1s}.col-filter-dropdown label:hover{background:rgba(255,255,255,.05)}.col-filter-dropdown label input[type=checkbox]{width:13px;height:13px;accent-color:var(--amber)}.col-filter-dropdown .cfd-actions{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--border);margin-top:4px}.col-filter-dropdown .cfd-btn{flex:1;padding:5px 12px;font-size:.70rem;border-radius:6px;cursor:pointer;border:1px solid var(--border);background:var(--s2);color:var(--muted)}.col-filter-dropdown .cfd-btn:hover{color:var(--text)}.col-filter-dropdown .cfd-btn.apply{background:rgba(245,158,11,.15);border-color:var(--amber);color:var(--amber);font-weight:700}.filter-active-badge{display:inline-block;background:rgba(245,158,11,.2);border:1px solid rgba(245,158,11,.4);color:var(--amber);font-size:.65rem;padding:1px 6px;border-radius:10px;margin-left:5px;vertical-align:middle;font-weight:700}.active-filters-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}.active-filter-chip{display:flex;align-items:center;gap:5px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:var(--amber);font-size:.70rem;padding:3px 8px;border-radius:999px}.active-filter-chip button{background:none;border:none;color:var(--amber);cursor:pointer;font-size:.75rem;line-height:1;padding:0 0 0 2px}.btn-sm{padding:5px 12px;border-radius:6px;font-size:.72rem;cursor:pointer}.btn-sm-purple{border:1px solid rgba(139,92,246,.4);background:rgba(139,92,246,.1);color:var(--purple-lt);padding:5px 12px;border-radius:6px;font-size:.72rem;cursor:pointer}.btn-sm.btn-gold{border:1px solid rgba(245,158,11,.4);background:rgba(245,158,11,.1);color:var(--gold)}.btn-sm.btn-sell{border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.12);color:var(--red-lt)}.small-toggle-bar{display:flex;justify-content:space-between;align-items:center;padding:7px 14px;background:rgba(100,116,139,.08);border:1px solid rgba(100,116,139,.2);border-radius:6px;cursor:pointer;margin-bottom:6px;font-size:.72rem;color:var(--muted);transition:var(--tr)}.small-toggle-bar:hover{background:rgba(100,116,139,.14);color:var(--text)}.small-toggle-bar.open{background:rgba(100,116,139,.14)}.st-left{display:flex;flex-direction:column;gap:2px}.st-cnt{font-size:.65rem;color:var(--muted)}.st-arrow{font-size:.70rem;transition:transform .2s}.small-toggle-bar.open .trade-badge-hold{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.65rem;font-weight:700;background:rgba(34,197,94,.15);color:var(--green-lt);border:1px solid rgba(34,197,94,.25)}.trade-badge-sell{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.65rem;font-weight:700;background:rgba(239,68,68,.12);color:var(--red-lt);border:1px solid rgba(239,68,68,.2)}.trade-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:110px}.trade-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:3px}.trade-stat-value{font-size:.90rem;font-weight:700}.trade-cb{width:15px;height:15px;cursor:pointer;accent-color:var(--amber)}#tradeSelBar{transition:all .2s}#te-tradetype-buy.active{background:rgba(34,197,94,.15)!important;color:var(--green-lt)!important}#te-tradetype-sell.active{background:rgba(239,68,68,.12)!important;color:var(--red-lt)!important}.div-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:120px}.div-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:4px}.div-stat-value{font-size:.95rem;font-weight:700}.div-stat-sub{font-size:.65rem;color:var(--muted);margin-top:3px}.div-freq-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.65rem;font-weight:700}@media(max-width:768px){.wrap{padding:16px 12px}.hdr{margin-bottom:14px}.hdr h1{font-size:1.2rem}.hdr p{font-size:.70rem}.sum-row{grid-template-columns:repeat(2,1fr)!important;gap:10px}.sc{padding:14px 14px}.sc .lbl{font-size:.65rem;margin-bottom:6px;font-weight:600}.sc .val{font-size:1.1rem;font-weight:700}.sc .sub{font-size:.65rem}.sc .lbl button{font-size:.60rem;padding:1px 5px;margin-left:2px}.tbl-wrap{border-radius:12px}.tbl-head{padding:12px 14px;flex-direction:column;align-items:flex-start;gap:4px}.tbl-head h3{font-size:.85rem}table{font-size:.78rem}th{padding:9px 10px;font-size:.65rem}td{padding:11px 10px}thead th{position:sticky;top:0;z-index:2}.chart-card{padding:14px}.sector-grid{grid-template-columns:1fr}.donut-wrap{flex-direction:column;align-items:center}.donut-legend{width:100%}#div-month-chart{height:90px!important}.editor-box{max-width:96vw!important}#tradesHeaderBtns .btn-sm{padding:4px 8px!important;font-size:.70rem!important}.sum-row-2 .sc{padding:8px 9px}.sum-row-2 .lbl{font-size:.60rem}.sum-row-2 .val{font-size:.90rem}}.trade-check{transform:scale(1.2)}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}#gsheetUrlInput{width:100%!important}#realEstateEditor .editor-row{flex-direction:column}#div-month-chart{height:80px!important}}@media(max-width:360px){.wrap{padding:8px 6px}.sc .val{font-size:.85rem}.sc .lbl{font-size:.60rem}.sc .sub{font-size:.60rem}table{font-size:.65rem}th,td{padding:5px 4px!important}.sum-row{gap:4px}.vs-btn{min-width:38px;padding:5px 5px;border-radius:6px}.vs-btn-label{font-size:.60rem}}*{-webkit-tap-highlight-color:transparent}@media(hover:none){button,a,[onclick]{-webkit-tap-highlight-color:transparent}.tbl-wrap,.editor-body,.view-switcher{-webkit-overflow-scrolling:touch}button:active{opacity:.75}}@media(max-width:667px) and (orientation:landscape){.sum-row{grid-template-columns:repeat(4,1fr)!important}.sc .val{font-size:.85rem}.wrap{padding:8px 10px}}[style*="overflow-x:auto"]{-webkit-overflow-scrolling:touch}.btn-edit-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:var(--amber);font-size:.72rem;cursor:pointer}.btn-del-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.1);color:var(--red-lt);font-size:.72rem;cursor:pointer}.form-label{font-size:.72rem;color:var(--muted);display:block;margin-bottom:4px}.input-full-82,.input-full-73{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem}.c-text{color:var(--text)}.c-muted{color:var(--muted)}.c-gold{color:var(--gold)}.c-amber{color:var(--amber)}.c-red{color:var(--red-lt)}.fw-600{font-weight:600}.txt-muted-68{font-size:.70rem;color:var(--muted)}.txt-muted-72{font-size:.72rem;color:var(--muted)}.txt-muted-75{font-size:.75rem;color:var(--muted)}.label-muted-68{font-size:.70rem;color:var(--muted);margin-bottom:4px}.txt-blue-700{font-weight:700;color:var(--blue-lt);margin-bottom:6px}.txt-red-right{text-align:right;color:var(--red-lt)}.txt-muted-68-right{font-size:.70rem;color:var(--muted);font-weight:500;text-align:right;padding:5px 8px}.txt-78-700{font-size:.78rem;font-weight:700;color:var(--text)}.txt-70-400{font-size:.70rem;font-weight:400;color:var(--muted)}.txt-65-400{font-size:.65rem;font-weight:400}.mt-3-muted-72{margin:3px 0 0;font-size:.72rem;color:var(--muted)}.p-0-4{padding:0 4px}.p-2{padding:2px}.p-8-14{padding:8px 14px}.td-right{text-align:right;font-variant-numeric:tabular-nums}.td-right-600{padding:8px 10px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}.td-right-plain{padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums}.td-center-plain{padding:8px 10px;text-align:center}.th-left-muted{padding:7px 8px;text-align:left;color:var(--muted);font-weight:600}.th-right-500{padding:7px 12px;text-align:right;font-weight:500}.th-left-500{padding:7px 12px;text-align:left;font-weight:500}.h3-section{margin:0;font-size:1rem;font-weight:700}.h3-card{margin:0;font-size:.90rem;font-weight:700}.emoji-lg{font-size:2rem;margin-bottom:8px}.overflow-x-auto{overflow-x:auto;-webkit-overflow-scrolling:touch}.w-150{width:150px;padding:6px 10px;font-size:.82rem}.w-160{width:160px;padding:6px 10px;font-size:.82rem}.stat-card{flex:1;min-width:120px;background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 16px}.list-item-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:.82rem}.btn-ghost-sm,.btn-cancel-sm{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.72rem;font-weight:700;cursor:pointer}.btn-ghost-muted{background:var(--s2);border:1px solid var(--border);color:var(--muted);padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.checkbox-red{accent-color:var(--red-lt);width:16px;height:16px}.c-cyan{color:var(--cyan)}.c-green{color:var(--green)}.d-none{display:none}#toast-container{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}.toast{display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-size:.82rem;font-weight:500;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:auto;min-width:200px;max-width:88vw;animation:toastIn .28s cubic-bezier(.22,1,.36,1) both}.toast.toast-out{animation:toastOut .25s ease forwards}.toast-ok{background:linear-gradient(135deg,#059669,var(--green))}.toast-error{background:linear-gradient(135deg,#b91c1c,var(--red))}.toast-warn{background:linear-gradient(135deg,#b45309,#f59e0b)}.toast-info{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}.toast-icon{font-size:1rem;flex-shrink:0}.toast-msg{flex:1;line-height:1.4}@keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes toastOut{to{opacity:0;transform:translateY(10px) scale(.95)}}.lbl-62-muted{font-size:.65rem;color:var(--muted);margin-bottom:2px}.lbl-62-muted-3{font-size:.65rem;color:var(--muted);margin-bottom:3px}.lbl-65-muted-center{font-size:.65rem;color:var(--muted);font-weight:700;text-align:center}.bd-bottom{border-bottom:1px solid var(--border)}.flex-between-mb14{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.flex-between-mb10-gap8{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap}.flex-gap6-wrap{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.card-12{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px}.hidden-hint{display:none;font-size:.70rem;margin-bottom:6px;padding:5px 10px;border-radius:5px}.card-12-mb16{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}.card-12-p20{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 20px}.lbl-62-mt2{display:block;font-size:.65rem;color:var(--muted);margin-top:2px}.th-right-muted{padding:7px 8px;text-align:right;color:var(--muted);font-weight:600}.td-right-p6{padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums}.td-p8-10{padding:8px 10px}.flex-col-gap8{display:flex;flex-direction:column;gap:8px}.flex-gap8{display:flex;gap:8px}.flex-gap6{display:flex;gap:6px}.flex-wrap-gap6{display:flex;gap:6px;flex-wrap:wrap}.flex-center-gap8{display:flex;align-items:center;gap:8px}.grid-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}.empty-msg{text-align:center;padding:24px;color:var(--muted);font-size:.80rem}.h3-95{margin:0;font-size:.95rem;font-weight:700}.h3-1rem-mb4{margin:0 0 4px;font-size:1rem;font-weight:700}.lbl-75-700-muted{font-size:.75rem;font-weight:700;color:var(--muted);margin-bottom:10px}.lbl-68-purple{font-size:.70rem;color:var(--purple-lt);font-weight:700;margin-bottom:7px}.lbl-67-muted{font-size:.65rem;color:var(--muted)}.lbl-64-muted{font-size:.65rem;color:var(--muted)}.txt-73-muted{margin:0;font-size:.72rem;color:var(--muted)}.btn-close-icon{background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer}.btn-purple{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:600;cursor:pointer}.btn-amber-outline{padding:5px 12px;border-radius:6px;border:1px solid rgba(245,158,11,.3);background:rgba(245,158,11,.1);color:var(--gold);font-size:.72rem;cursor:pointer}.btn-outline-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:transparent;color:var(--muted);font-size:.72rem;cursor:pointer}.btn-link-blue{background:none;border:none;color:var(--blue-lt);cursor:pointer;font-size:.72rem}.btn-link{background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;text-decoration:underline;padding:0 2px}.s2-rounded{background:var(--s2);border-radius:8px;padding:10px 12px}.s2-muted{background:var(--s2);color:var(--muted)}.item-title{flex:1;font-size:.78rem;font-weight:600;color:var(--text)}.mb-16{margin-bottom:16px}.td-p7-center{padding:7px 12px;text-align:center}.td-p7-center-500{padding:7px 12px;text-align:center;font-weight:500}.img-full{width:100%;min-width:320px;height:auto;display:block}.gap-mb8{display:flex;gap:6px;margin:0 0 8px 4px}.gap-mb6{display:flex;gap:6px;margin:-1px 0 6px 4px}.txt-muted-68-left{padding:5px 8px;font-size:.70rem;color:var(--muted);font-weight:500;text-align:left}.btn-purple-700{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-danger{padding:5px 12px;border-radius:6px;border:none;background:rgba(239,68,68,.8);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-sort-toggle{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid var(--border);background:transparent;color:var(--muted)}.btn-sort-toggle.active{border-color:rgba(139,92,246,.6);background:rgba(139,92,246,.2);color:var(--purple-lt)}.btn-toggle-purple{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid rgba(167,139,250,.25);background:transparent;color:var(--muted)}.btn-toggle-purple.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.25);color:var(--purple-lt)}.btn-toggle-purple-sm{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid rgba(167,139,250,.25);background:transparent;color:var(--muted)}.btn-toggle-purple-sm.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.25);color:var(--purple-lt)}.btn-trade-type{padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;transition:all .15s;border:1px solid rgba(255,255,255,.1);background:transparent;color:var(--muted)}.btn-trade-type.active{border-color:var(--amber);background:rgba(245,158,11,.15);color:var(--gold)}.inp-mgmt-base{background:var(--s2);border:1px solid rgba(139,92,246,.4);border-radius:5px;padding:5px 8px;color:var(--text);font-size:.72rem;width:100%}.inp-mgmt-lock{background:transparent;border:none;padding:5px 8px;color:var(--text);font-size:.72rem;width:100%;pointer-events:none}.sl-idle{border:1px solid var(--border);background:var(--s2);color:var(--muted)}.sl-loading{border:1px solid rgba(59,130,246,.3);background:rgba(59,130,246,.08);color:var(--blue-lt)}.sl-ok{border:1px solid rgba(16,185,129,.35);background:rgba(16,185,129,.08);color:var(--green)}.sl-warn{border:1px solid rgba(245,158,11,.35);background:rgba(245,158,11,.08);color:var(--gold)}.sl-error{border:1px solid rgba(239,68,68,.35);background:rgba(239,68,68,.08);color:var(--red-lt)}.filter-badge{font-size:.60rem;color:var(--muted);padding:2px 5px;background:var(--s1);border-radius:4px;border:1px solid var(--border)}.sc-cyan{border-top:2px solid var(--cyan)}.lbl-63-muted-4{font-size:.65rem;color:var(--muted);margin-bottom:4px}.lbl-60-muted{font-size:.60rem;color:var(--muted)}.flex-wrap-gap4-mt{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.lbl-60-muted-mt{font-size:.60rem;color:var(--muted);margin-top:4px}.flex-wrap-gap3{display:flex;flex-wrap:wrap;gap:3px}.flex-wrap-gap4{display:flex;flex-wrap:wrap;gap:4px}.flex-gap6-ai{display:flex;gap:6px;align-items:center}.f-btn{padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}.f-btn.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.15);color:var(--purple-lt);font-weight:600}.f-btn-sm{padding:4px 10px;border-radius:6px;font-size:.65rem;cursor:pointer;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}.f-btn-sm.active{border-color:rgba(167,139,250,.7);background:rgba(167,139,250,.15);color:var(--purple-lt);font-weight:600}.btn-move-icon{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:.80rem;line-height:1}.btn-move-icon:disabled{color:var(--border);cursor:default}
-  .btn-danger-lg{padding:8px 20px;border-radius:6px;border:none;background:var(--red);color:#fff;font-size:.80rem;font-weight:700;cursor:pointer}.btn-danger-ghost{padding:5px 12px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:transparent;color:var(--red-lt);font-size:.72rem;cursor:pointer}.btn-icon-muted{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.80rem;padding:4px}.btn-settings{flex-shrink:0;margin-top:2px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;font-size:.72rem;line-height:1;transition:var(--tr)}.btn-settings:hover{color:var(--text)}.btn-amber{padding:8px 20px;border-radius:6px;border:none;background:var(--amber);color:var(--bg);font-size:.80rem;font-weight:700;cursor:pointer}.btn-purple-sm,.btn-purple-sm-700{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-buy-sm{padding:4px 10px;border-radius:6px;border:1px solid rgba(74,222,128,.3);background:rgba(74,222,128,.1);color:var(--green-lt);font-size:.65rem;cursor:pointer;white-space:nowrap}.btn-buy-lg{flex:1;padding:6px 16px;border-radius:6px;border:1px solid rgba(74,222,128,.3);background:rgba(74,222,128,.08);color:var(--green-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-sell-lg{flex:1;padding:6px 16px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--red-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-sell-sm{padding:4px 10px;border-radius:6px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.1);color:var(--red-lt);font-size:.65rem;cursor:pointer;white-space:nowrap}.btn-amber-sm{padding:5px 12px;border-radius:6px;border:none;background:var(--amber);color:var(--bg);font-size:.72rem;font-weight:700;cursor:pointer}.btn-add-green{padding:6px 16px;border-radius:6px;border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.1);color:var(--green-md);font-size:.72rem;font-weight:600;cursor:pointer}.btn-add-purple{padding:6px 16px;border-radius:6px;border:1px solid rgba(167,139,250,.4);background:rgba(167,139,250,.1);color:var(--purple-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-add-cyan{padding:6px 16px;border-radius:6px;border:1px solid rgba(6,182,212,.4);background:rgba(6,182,212,.1);color:var(--cyan);font-size:.72rem;font-weight:600;cursor:pointer}.editor-section-title{font-size:.70rem;color:var(--muted);font-weight:700;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)}.tbl-wrap::-webkit-scrollbar{height:5px}.tbl-wrap::-webkit-scrollbar-track{background:var(--s2)}.tbl-wrap::-webkit-scrollbar-thumb{background:rgba(100,116,139,.5);border-radius:3px}.action-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}.action-update-card{display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex-wrap:nowrap}.action-date-input{background:transparent;border:none;color:var(--text);font-size:.70rem;width:140px}.action-refresh-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:1px solid rgba(245,158,11,.45);background:rgba(245,158,11,.1);color:var(--gold);font-size:.72rem;cursor:pointer;font-weight:700;transition:var(--tr)}.action-refresh-btn:hover{background:rgba(245,158,11,.2)}.action-refresh-btn svg{width:13px;height:13px;flex-shrink:0}.action-status-label{display:inline-flex;align-items:center;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--s1);color:var(--muted);font-size:.72rem;min-width:100px}.action-icon-group{display:flex;gap:6px;flex-wrap:wrap}.action-icon-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);font-size:.60rem;cursor:pointer;transition:var(--tr);min-width:46px}.action-icon-btn:hover{color:var(--text);border-color:rgba(255,255,255,.25);background:var(--s1)}.action-icon-btn svg{width:16px;height:16px}.action-icon-green{border-color:rgba(16,185,129,.3);color:var(--green)}.action-icon-green:hover{background:rgba(16,185,129,.1)!important;border-color:rgba(16,185,129,.5)!important}.action-icon-blue{border-color:rgba(96,165,250,.3);color:var(--blue-lt)}.action-icon-blue:hover{background:rgba(96,165,250,.1)!important;border-color:rgba(96,165,250,.5)!important}.action-icon-red{border-color:rgba(239,68,68,.3);color:var(--red-lt)}.action-icon-red:hover{background:rgba(239,68,68,.08)!important;border-color:rgba(239,68,68,.45)!important}.view-switcher{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;overflow-x:auto;padding-bottom:2px}/* vs-btn: 반드시 @media(480px) 앞 */.vs-btn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 12px;min-width:58px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;transition:var(--tr);position:relative}.vs-btn:hover{color:var(--text);border-color:rgba(255,255,255,.25);background:var(--s1)}.vs-btn.active{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.5);color:var(--gold)}.vs-btn.active .vs-btn-icon svg{stroke:var(--gold)}.vs-btn.dragging{opacity:.4}.vs-btn.drag-over{border-color:var(--gold);background:rgba(251,191,36,.08)}.vs-btn-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.vs-btn-icon svg{width:17px;height:17px;stroke:currentColor}.vs-btn-label{font-size:.65rem;font-weight:600;white-space:nowrap;letter-spacing:.01em}.view-switcher::-webkit-scrollbar{height:2px}.view-switcher::-webkit-scrollbar-track{background:transparent}.view-switcher::-webkit-scrollbar-thumb{background:var(--border);border-radius:1px}
-  .date-badge{padding:4px 14px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--muted);font-size:.70rem;white-space:nowrap;min-width:130px;text-align:center;font-weight:600}.date-badge-live{border-color:rgba(16,185,129,.3);background:rgba(16,185,129,.15);color:var(--green)}
-  .saved-badge{display:none;background:rgba(16,185,129,.15);color:var(--green);border:1px solid rgba(16,185,129,.3);font-size:.65rem;padding:2px 7px;border-radius:10px}
+  *{box-sizing:border-box}:root{--bg:#080d18;--s1:#0e1726;--s2:#141f33;--border:#1c2a42;--green:#10b981;--red:#E52E2E;--blue:#0057FF;--amber:#f59e0b;--purple:#8b5cf6;--cyan:#06b6d4;--pink:#ec4899;--text:#e2e8f0;--muted:#64748b;--gold:#f59e0b;--gold2:#f97316;--red-lt:#FF6B6B;--green-lt:#4ade80;--green-md:#34d399;--blue-lt:#5B8EFF;--purple-lt:#a78bfa;--purple-dk:#7c3aed;--tr:all .15s
+  --c-red-30:rgba(239,68,68,.3);
+  --c-purple-45:rgba(139,92,246,.45);
+  --c-purple-40:rgba(139,92,246,.4);
+  --c-red-12:rgba(239,68,68,.12);
+  --c-amber-15:rgba(245,158,11,.15);
+  --c-amber-20:rgba(245,158,11,.2);
+  --c-amber-10:rgba(245,158,11,.1);
+  --c-amber-30:rgba(245,158,11,.3);
+  --c-green2-15:rgba(34,197,94,.15);
+  --c-red-10:rgba(239,68,68,.1);
+  --c-purple2-25:rgba(167,139,250,.25);
+  --c-purple2-70:rgba(167,139,250,.7);
+  --c-amber-08:rgba(245,158,11,.08);
+  --c-red-08:rgba(239,68,68,.08);
+  --c-green-30:rgba(16,185,129,.3);
+  --c-amber-40:rgba(245,158,11,.4);
+  --c-purple-10:rgba(139,92,246,.1);
+  --c-white-10:rgba(255,255,255,.1);
+  --c-blue2-30:rgba(59,130,246,.3);
+  --c-cyan-40:rgba(6,182,212,.4);
+  --c-red-40:rgba(239,68,68,.4);
+  --c-purple-12:rgba(139,92,246,.12);
+  --c-black-70:rgba(0,0,0,.7);
+  --c-muted-14:rgba(100,116,139,.14);
+  --c-green2-25:rgba(34,197,94,.25);
+  --c-red-35:rgba(239,68,68,.35);
+  --c-red-80:rgba(239,68,68,.8);
+  --c-purple-20:rgba(139,92,246,.2);
+  --c-blue2-08:rgba(59,130,246,.08);
+  --c-green-08:rgba(16,185,129,.08);
+  --c-purple2-15:rgba(167,139,250,.15);
+  --c-green3-30:rgba(74,222,128,.3);
+  --c-green-10:rgba(16,185,129,.1);
+  --c-purple2-40:rgba(167,139,250,.4);
+  --c-purple2-10:rgba(167,139,250,.1);
+  --c-white-25:rgba(255,255,255,.25);
+  --c-amber2-50:rgba(251,191,36,.5);
+  --c-green-15:rgba(16,185,129,.15);
+  --c-red-04:rgba(239,68,68,.04);
+  --c-muted-10:rgba(100,116,139,.1);
+  --c-white-03:rgba(255,255,255,.03);
+  --c-black-82:rgba(0,0,0,.82);
+  --c-cyan-50:rgba(6,182,212,.5);
+  --c-black-20:rgba(0,0,0,.2);
+  --c-s1-60:rgba(14,23,38,.6);
+  --c-purple-06:rgba(139,92,246,.06);
+  --c-purple2-50:rgba(167,139,250,.5);
+}*{margin:0;padding:0}input,select,textarea{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text)}input[type=checkbox],input[type=radio],input[type=color],input[type=file],input[type=range]{background:revert;border:revert;border-radius:revert}input[type=date],input[type=datetime-local]{background:var(--s2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:.82rem}input[type=date]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.6;cursor:pointer}body{background:var(--bg);color:var(--text);min-height:100vh;font-family:'Pretendard Variable',Pretendard,'맑은 고딕','Malgun Gothic','Apple SD Gothic Neo',sans-serif;letter-spacing:-.025em}body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 70% 40% at 10% 10%,rgba(16,185,129,.05) 0%,transparent 60%),radial-gradient(ellipse 60% 40% at 90% 90%,rgba(59,130,246,.06) 0%,transparent 60%);pointer-events:none;z-index:0}.wrap{max-width:1200px;margin:0 auto;padding:28px 18px;position:relative;z-index:1}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px}.hdr h1{font-size:1.8rem;font-weight:900;letter-spacing:-.04em;background:linear-gradient(135deg,var(--green),#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}.hdr p{font-size:.78rem;color:var(--muted);margin-top:4px}.sum-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.sc{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 18px;position:relative;overflow:hidden}.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}.sc.c1::before{background:linear-gradient(90deg,var(--green),var(--cyan))}.sc.c2::before{background:linear-gradient(90deg,var(--blue),var(--purple))}.sc.c3::before{background:linear-gradient(90deg,var(--green),var(--green-md))}.sc.c4::before{background:linear-gradient(90deg,var(--amber),#f97316)}.sc .lbl{font-size:.72rem;color:var(--muted);margin-bottom:8px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}.sc .val{font-size:1.4rem;font-weight:600;font-variant-numeric:tabular-nums}.sc .sub{font-size:.70rem;color:var(--muted);margin-top:5px}.tbl-wrap{background:var(--s1);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:20px;-webkit-overflow-scrolling:touch;overflow-x:auto}.tbl-head{padding:14px 20px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}.tbl-head h3{font-size:.85rem;font-weight:700}.tbl-head .tsum{font-size:.82rem}table{width:100%;border-collapse:collapse}th{text-align:left;padding:11px 16px;font-size:.70rem;color:var(--muted);font-weight:600;background:var(--s2);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}td{padding:13px 16px;border-top:1px solid var(--border);font-size:.82rem;white-space:nowrap;font-variant-numeric:tabular-nums}tr:hover td{background:rgba(255,255,255,.02)}th.num{text-align:right;font-variant-numeric:tabular-nums}.mono{text-align:right;font-variant-numeric:tabular-nums}.fw6{font-weight:600}.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.65rem;font-weight:700;margin-left:4px}.sector-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;margin-bottom:20px}.sector-card{background:var(--s1);border:1px solid var(--border);border-radius:12px;overflow:hidden}.sector-hdr{padding:12px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border)}.sector-hdr h4{font-size:.85rem;font-weight:700}.sector-hdr .sval{font-size:.80rem}.chart-card{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:18px}.chart-card h4{font-size:.72rem;color:var(--muted);font-weight:500;letter-spacing:.07em;text-transform:uppercase;margin-bottom:14px}.donut-wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.donut-legend{flex:1;min-width:110px}.legend-item{display:flex;align-items:center;gap:7px;margin-bottom:9px}.legend-dot{width:9px;height:9px;border-radius:2px;flex-shrink:0}.legend-label{font-size:.72rem;color:var(--muted);flex:1}.legend-val{font-size:.72rem}.adot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}.fade{animation:fadeUp .4s ease both}.d1{animation-delay:.05s}.d2{animation-delay:.1s}.d3{animation-delay:.15s}.d4{animation-delay:.2s}.d5{animation-delay:.25s}@media(min-width:1024px){.wrap{padding:32px 28px}.sum-row{gap:14px}.sc{padding:18px 20px}.sc .lbl{font-size:.72rem}.sc .val{font-size:1.5rem}th{padding:11px 16px}td{padding:13px 16px}.tbl-head{padding:16px 20px}.sector-grid{grid-template-columns:repeat(2,1fr)}.vs-btn{min-width:58px;padding:8px 12px;gap:4px;border-radius:6px}.vs-btn-icon svg{width:17px;height:17px}.vs-btn-label{font-size:.65rem}.view-switcher{gap:7px}.btn-amber,.btn-danger-lg,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-purple-700,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:6px 16px;font-size:.75rem}.btn-sm,.btn-amber-sm,.btn-purple-sm,.btn-outline-sm,.btn-edit-sm,.btn-del-sm,.btn-danger,.btn-danger-ghost{padding:5px 12px;font-size:.72rem}}@media(min-width:1200px){#sum-row-1,#sum-row-2{grid-template-columns:repeat(4,1fr)}#sum-row-1{margin-bottom:0;border-radius:16px 16px 0 0}#sum-row-2{border-radius:0 0 16px 16px;margin-top:0}.wrap{max-width:1400px}th{padding:11px 18px}td{padding:13px 18px;font-size:.82rem}}*{-webkit-tap-highlight-color:transparent}.editor-overlay{display:none;position:fixed;inset:0;z-index:1000;background:var(--c-black-70);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px}.editor-overlay.open{display:flex}.editor-box{background:var(--s1);border:1px solid var(--border);border-radius:12px;width:100%;max-width:700px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column}.editor-header{padding:20px 24px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}.editor-header h3{font-size:1rem;font-weight:700}.editor-header p{font-size:.72rem;color:var(--muted);margin-top:3px}.editor-close{width:30px;height:30px;border-radius:50%;background:var(--s2);border:1px solid var(--border);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:1rem}.editor-close:hover{color:var(--text);background:var(--border)}.editor-body{overflow-y:auto;padding:16px 24px;flex:1;min-height:0}.editor-group{margin-bottom:20px}.editor-group-title{font-size:.70rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}.editor-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}.editor-row label{flex:1;font-size:.80rem;color:var(--text);min-width:0}.editor-row label span{display:block;font-size:.65rem;color:var(--muted);margin-top:1px}.editor-row input{width:130px;flex-shrink:0;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.82rem;text-align:right;outline:none;transition:border-color .15s}.editor-row input:focus{border-color:var(--gold)}.editor-row .price-status{width:18px;height:18px;border-radius:50%;flex-shrink:0;font-size:.65rem;display:flex;align-items:center;justify-content:center}.editor-footer{padding:16px 24px;border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:10px;justify-content:flex-end;align-items:center}.editor-footer .last-updated{font-size:.70rem;color:var(--muted);flex:1}.btn-cancel{background:var(--s2);border:1px solid var(--border);color:var(--muted);padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.btn-apply{background:var(--gold);border:none;color:#000;font-weight:700;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.btn-apply:hover{background:var(--gold2)}.th-filter{cursor:pointer;user-select:none;position:relative;white-space:nowrap}.th-filter:hover{color:var(--text)!important}.th-filter .sort-icon{margin-left:4px;opacity:.4;font-size:.60rem}.th-filter.asc .sort-icon::after{content:'▲';opacity:1;color:var(--amber)}.th-filter.desc .sort-icon::after{content:'▼';opacity:1;color:var(--amber)}.th-filter:not(.asc):not(.desc) .sort-icon::after{content:'⇅'}.col-filter-dropdown{position:absolute;top:100%;left:0;z-index:200;background:var(--s1);border:1px solid var(--border);border-radius:10px;min-width:160px;max-height:280px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,.5);padding:6px 0}.col-filter-dropdown .cfd-search{margin:6px 8px;width:calc(100% - 16px);background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem;outline:none}.col-filter-dropdown label{display:flex;align-items:center;gap:8px;padding:6px 12px;font-size:.75rem;cursor:pointer;transition:background .1s}.col-filter-dropdown label:hover{background:rgba(255,255,255,.05)}.col-filter-dropdown label input[type=checkbox]{width:13px;height:13px;accent-color:var(--amber)}.col-filter-dropdown .cfd-actions{display:flex;gap:6px;padding:6px 10px;border-top:1px solid var(--border);margin-top:4px}.col-filter-dropdown .cfd-btn{flex:1;padding:5px 12px;font-size:.70rem;border-radius:6px;cursor:pointer;border:1px solid var(--border);background:var(--s2);color:var(--muted)}.col-filter-dropdown .cfd-btn:hover{color:var(--text)}.col-filter-dropdown .cfd-btn.apply{background:var(--c-amber-15);border-color:var(--amber);color:var(--amber);font-weight:700}.filter-active-badge{display:inline-block;background:var(--c-amber-20);border:1px solid var(--c-amber-40);color:var(--amber);font-size:.65rem;padding:1px 6px;border-radius:10px;margin-left:5px;vertical-align:middle;font-weight:700}.active-filters-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}.active-filter-chip{display:flex;align-items:center;gap:5px;background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--amber);font-size:.70rem;padding:3px 8px;border-radius:999px}.active-filter-chip button{background:none;border:none;color:var(--amber);cursor:pointer;font-size:.75rem;line-height:1;padding:0 0 0 2px}.btn-sm{padding:5px 12px;border-radius:6px;font-size:.72rem;cursor:pointer}.btn-sm-purple{border:1px solid var(--c-purple-40);background:var(--c-purple-10);color:var(--purple-lt);padding:5px 12px;border-radius:6px;font-size:.72rem;cursor:pointer}.btn-sm.btn-gold{border:1px solid var(--c-amber-40);background:var(--c-amber-10);color:var(--gold)}.btn-sm.btn-sell{border:1px solid var(--c-red-30);background:var(--c-red-12);color:var(--red-lt)}.small-toggle-bar{display:flex;justify-content:space-between;align-items:center;padding:7px 14px;background:rgba(100,116,139,.08);border:1px solid rgba(100,116,139,.2);border-radius:6px;cursor:pointer;margin-bottom:6px;font-size:.72rem;color:var(--muted);transition:var(--tr)}.small-toggle-bar:hover{background:var(--c-muted-14);color:var(--text)}.small-toggle-bar.open{background:var(--c-muted-14)}.st-left{display:flex;flex-direction:column;gap:2px}.st-cnt{font-size:.65rem;color:var(--muted)}.st-arrow{font-size:.70rem;transition:transform .2s}.small-toggle-bar.open .trade-badge-hold{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.65rem;font-weight:700;background:var(--c-green2-15);color:var(--green-lt);border:1px solid var(--c-green2-25)}.trade-badge-sell{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.65rem;font-weight:700;background:var(--c-red-12);color:var(--red-lt);border:1px solid rgba(239,68,68,.2)}.trade-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:110px}.trade-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:3px}.trade-stat-value{font-size:.90rem;font-weight:700}.trade-cb{width:15px;height:15px;cursor:pointer;accent-color:var(--amber)}#tradeSelBar{transition:all .2s}#te-tradetype-buy.active{background:var(--c-green2-15)!important;color:var(--green-lt)!important}#te-tradetype-sell.active{background:var(--c-red-12)!important;color:var(--red-lt)!important}.div-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:120px}.div-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:4px}.div-stat-value{font-size:.95rem;font-weight:700}.div-stat-sub{font-size:.65rem;color:var(--muted);margin-top:3px}.div-freq-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.65rem;font-weight:700}@media(max-width:768px){.wrap{padding:16px 12px}.hdr{margin-bottom:14px}.hdr h1{font-size:1.2rem}.hdr p{font-size:.70rem}.sum-row{grid-template-columns:repeat(2,1fr)!important;gap:10px}.sc{padding:14px 14px}.sc .lbl{font-size:.65rem;margin-bottom:6px;font-weight:600}.sc .val{font-size:1.1rem;font-weight:700}.sc .sub{font-size:.65rem}.sc .lbl button{font-size:.60rem;padding:1px 5px;margin-left:2px}.tbl-wrap{border-radius:12px}.tbl-head{padding:12px 14px;flex-direction:column;align-items:flex-start;gap:4px}.tbl-head h3{font-size:.85rem}table{font-size:.78rem}th{padding:9px 10px;font-size:.65rem}td{padding:11px 10px}thead th{position:sticky;top:0;z-index:2}.chart-card{padding:14px}.sector-grid{grid-template-columns:1fr}.donut-wrap{flex-direction:column;align-items:center}.donut-legend{width:100%}#div-month-chart{height:90px!important}.editor-box{max-width:96vw!important}#tradesHeaderBtns .btn-sm{padding:4px 8px!important;font-size:.70rem!important}.sum-row-2 .sc{padding:8px 9px}.sum-row-2 .lbl{font-size:.60rem}.sum-row-2 .val{font-size:.90rem}}.trade-check{transform:scale(1.2)}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}#gsheetUrlInput{width:100%!important}#realEstateEditor .editor-row{flex-direction:column}#div-month-chart{height:80px!important}}@media(max-width:360px){.wrap{padding:8px 6px}.sc .val{font-size:.85rem}.sc .lbl{font-size:.60rem}.sc .sub{font-size:.60rem}table{font-size:.65rem}th,td{padding:5px 4px!important}.sum-row{gap:4px}.vs-btn{min-width:38px;padding:5px 5px;border-radius:6px}.vs-btn-label{font-size:.60rem}}*{-webkit-tap-highlight-color:transparent}@media(hover:none){button,a,[onclick]{-webkit-tap-highlight-color:transparent}.tbl-wrap,.editor-body,.view-switcher{-webkit-overflow-scrolling:touch}button:active{opacity:.75}}@media(max-width:667px) and (orientation:landscape){.sum-row{grid-template-columns:repeat(4,1fr)!important}.sc .val{font-size:.85rem}.wrap{padding:8px 10px}}[style*="overflow-x:auto"]{-webkit-overflow-scrolling:touch}.btn-edit-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(251,191,36,.4);background:rgba(251,191,36,.1);color:var(--amber);font-size:.72rem;cursor:pointer}.btn-del-sm{padding:5px 12px;border-radius:6px;border:1px solid var(--c-red-35);background:var(--c-red-10);color:var(--red-lt);font-size:.72rem;cursor:pointer}.form-label{font-size:.72rem;color:var(--muted);display:block;margin-bottom:4px}.input-full-82,.input-full-73{width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem}.c-text{color:var(--text)}.c-muted{color:var(--muted)}.c-gold{color:var(--gold)}.c-amber{color:var(--amber)}.c-red{color:var(--red-lt)}.fw-600{font-weight:600}.txt-muted-68{font-size:.70rem;color:var(--muted)}.txt-muted-72{font-size:.72rem;color:var(--muted)}.txt-muted-75{font-size:.75rem;color:var(--muted)}.label-muted-68{font-size:.70rem;color:var(--muted);margin-bottom:4px}.txt-blue-700{font-weight:700;color:var(--blue-lt);margin-bottom:6px}.txt-red-right{text-align:right;color:var(--red-lt)}.txt-muted-68-right{font-size:.70rem;color:var(--muted);font-weight:500;text-align:right;padding:5px 8px}.txt-78-700{font-size:.78rem;font-weight:700;color:var(--text)}.txt-70-400{font-size:.70rem;font-weight:400;color:var(--muted)}.txt-65-400{font-size:.65rem;font-weight:400}.mt-3-muted-72{margin:3px 0 0;font-size:.72rem;color:var(--muted)}.p-0-4{padding:0 4px}.p-2{padding:2px}.p-8-14{padding:8px 14px}.td-right{text-align:right;font-variant-numeric:tabular-nums}.td-right-600{padding:8px 10px;text-align:right;font-weight:600;font-variant-numeric:tabular-nums}.td-right-plain{padding:8px 10px;text-align:right;font-variant-numeric:tabular-nums}.td-center-plain{padding:8px 10px;text-align:center}.th-left-muted{padding:7px 8px;text-align:left;color:var(--muted);font-weight:600}.th-right-500{padding:7px 12px;text-align:right;font-weight:500}.th-left-500{padding:7px 12px;text-align:left;font-weight:500}.h3-section{margin:0;font-size:1rem;font-weight:700}.h3-card{margin:0;font-size:.90rem;font-weight:700}.emoji-lg{font-size:2rem;margin-bottom:8px}.overflow-x-auto{overflow-x:auto;-webkit-overflow-scrolling:touch}.w-150{width:150px;padding:6px 10px;font-size:.82rem}.w-160{width:160px;padding:6px 10px;font-size:.82rem}.stat-card{flex:1;min-width:120px;background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 16px}.list-item-row{display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:.82rem}.btn-ghost-sm,.btn-cancel-sm{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:.72rem;font-weight:700;cursor:pointer}.btn-ghost-muted{background:var(--s2);border:1px solid var(--border);color:var(--muted);padding:8px 20px;border-radius:6px;cursor:pointer;font-size:.82rem}.checkbox-red{accent-color:var(--red-lt);width:16px;height:16px}.c-cyan{color:var(--cyan)}.c-green{color:var(--green)}.d-none{display:none}#toast-container{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}.toast{display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-size:.82rem;font-weight:500;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:auto;min-width:200px;max-width:88vw;animation:toastIn .28s cubic-bezier(.22,1,.36,1) both}.toast.toast-out{animation:toastOut .25s ease forwards}.toast-ok{background:linear-gradient(135deg,#059669,var(--green))}.toast-error{background:linear-gradient(135deg,#b91c1c,var(--red))}.toast-warn{background:linear-gradient(135deg,#b45309,#f59e0b)}.toast-info{background:linear-gradient(135deg,#1d4ed8,#3b82f6)}.toast-icon{font-size:1rem;flex-shrink:0}.toast-msg{flex:1;line-height:1.4}@keyframes toastIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes toastOut{to{opacity:0;transform:translateY(10px) scale(.95)}}.lbl-62-muted{font-size:.65rem;color:var(--muted);margin-bottom:2px}.lbl-62-muted-3{font-size:.65rem;color:var(--muted);margin-bottom:3px}.lbl-65-muted-center{font-size:.65rem;color:var(--muted);font-weight:700;text-align:center}.bd-bottom{border-bottom:1px solid var(--border)}.flex-between-mb14{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.flex-between-mb10-gap8{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap}.flex-gap6-wrap{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.card-12{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px}.hidden-hint{display:none;font-size:.70rem;margin-bottom:6px;padding:5px 10px;border-radius:5px}.card-12-mb16{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}.card-12-p20{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px 20px}.lbl-62-mt2{display:block;font-size:.65rem;color:var(--muted);margin-top:2px}.th-right-muted{padding:7px 8px;text-align:right;color:var(--muted);font-weight:600}.td-right-p6{padding:6px 8px;text-align:right;font-variant-numeric:tabular-nums}.td-p8-10{padding:8px 10px}.flex-col-gap8{display:flex;flex-direction:column;gap:8px}.flex-gap8{display:flex;gap:8px}.flex-gap6{display:flex;gap:6px}.flex-wrap-gap6{display:flex;gap:6px;flex-wrap:wrap}.flex-center-gap8{display:flex;align-items:center;gap:8px}.grid-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px}.empty-msg{text-align:center;padding:24px;color:var(--muted);font-size:.80rem}.h3-95{margin:0;font-size:.95rem;font-weight:700}.h3-1rem-mb4{margin:0 0 4px;font-size:1rem;font-weight:700}.lbl-75-700-muted{font-size:.75rem;font-weight:700;color:var(--muted);margin-bottom:10px}.lbl-68-purple{font-size:.70rem;color:var(--purple-lt);font-weight:700;margin-bottom:7px}.lbl-67-muted{font-size:.65rem;color:var(--muted)}.lbl-64-muted{font-size:.65rem;color:var(--muted)}.txt-73-muted{margin:0;font-size:.72rem;color:var(--muted)}.btn-close-icon{background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer}.btn-purple{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:600;cursor:pointer}.btn-amber-outline{padding:5px 12px;border-radius:6px;border:1px solid var(--c-amber-30);background:var(--c-amber-10);color:var(--gold);font-size:.72rem;cursor:pointer}.btn-outline-sm{padding:5px 12px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:transparent;color:var(--muted);font-size:.72rem;cursor:pointer}.btn-link-blue{background:none;border:none;color:var(--blue-lt);cursor:pointer;font-size:.72rem}.btn-link{background:none;border:none;color:inherit;cursor:pointer;font-size:inherit;text-decoration:underline;padding:0 2px}.s2-rounded{background:var(--s2);border-radius:8px;padding:10px 12px}.s2-muted{background:var(--s2);color:var(--muted)}.item-title{flex:1;font-size:.78rem;font-weight:600;color:var(--text)}.mb-16{margin-bottom:16px}.td-p7-center{padding:7px 12px;text-align:center}.td-p7-center-500{padding:7px 12px;text-align:center;font-weight:500}.img-full{width:100%;min-width:320px;height:auto;display:block}.gap-mb8{display:flex;gap:6px;margin:0 0 8px 4px}.gap-mb6{display:flex;gap:6px;margin:-1px 0 6px 4px}.txt-muted-68-left{padding:5px 8px;font-size:.70rem;color:var(--muted);font-weight:500;text-align:left}.btn-purple-700{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-danger{padding:5px 12px;border-radius:6px;border:none;background:var(--c-red-80);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-sort-toggle{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid var(--border);background:transparent;color:var(--muted)}.btn-sort-toggle.active{border-color:rgba(139,92,246,.6);background:var(--c-purple-20);color:var(--purple-lt)}.btn-toggle-purple{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid var(--c-purple2-25);background:transparent;color:var(--muted)}.btn-toggle-purple.active{border-color:var(--c-purple2-70);background:var(--c-purple2-25);color:var(--purple-lt)}.btn-toggle-purple-sm{padding:4px 10px;border-radius:6px;font-size:.65rem;font-weight:600;cursor:pointer;transition:all .15s;border:1px solid var(--c-purple2-25);background:transparent;color:var(--muted)}.btn-toggle-purple-sm.active{border-color:var(--c-purple2-70);background:var(--c-purple2-25);color:var(--purple-lt)}.btn-trade-type{padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;transition:all .15s;border:1px solid var(--c-white-10);background:transparent;color:var(--muted)}.btn-trade-type.active{border-color:var(--amber);background:var(--c-amber-15);color:var(--gold)}.inp-mgmt-base{background:var(--s2);border:1px solid var(--c-purple-40);border-radius:5px;padding:5px 8px;color:var(--text);font-size:.72rem;width:100%}.inp-mgmt-lock{background:transparent;border:none;padding:5px 8px;color:var(--text);font-size:.72rem;width:100%;pointer-events:none}.sl-idle{border:1px solid var(--border);background:var(--s2);color:var(--muted)}.sl-loading{border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);color:var(--blue-lt)}.sl-ok{border:1px solid rgba(16,185,129,.35);background:var(--c-green-08);color:var(--green)}.sl-warn{border:1px solid rgba(245,158,11,.35);background:var(--c-amber-08);color:var(--gold)}.sl-error{border:1px solid var(--c-red-35);background:var(--c-red-08);color:var(--red-lt)}.filter-badge{font-size:.60rem;color:var(--muted);padding:2px 5px;background:var(--s1);border-radius:4px;border:1px solid var(--border)}.sc-cyan{border-top:2px solid var(--cyan)}.lbl-63-muted-4{font-size:.65rem;color:var(--muted);margin-bottom:4px}.lbl-60-muted{font-size:.60rem;color:var(--muted)}.flex-wrap-gap4-mt{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.lbl-60-muted-mt{font-size:.60rem;color:var(--muted);margin-top:4px}.flex-wrap-gap3{display:flex;flex-wrap:wrap;gap:3px}.flex-wrap-gap4{display:flex;flex-wrap:wrap;gap:4px}.flex-gap6-ai{display:flex;gap:6px;align-items:center}.f-btn{padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}.f-btn.active{border-color:var(--c-purple2-70);background:var(--c-purple2-15);color:var(--purple-lt);font-weight:600}.f-btn-sm{padding:4px 10px;border-radius:6px;font-size:.65rem;cursor:pointer;white-space:nowrap;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}.f-btn-sm.active{border-color:var(--c-purple2-70);background:var(--c-purple2-15);color:var(--purple-lt);font-weight:600}.btn-move-icon{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;font-size:.80rem;line-height:1}.btn-move-icon:disabled{color:var(--border);cursor:default}
+  .btn-danger-lg{padding:8px 20px;border-radius:6px;border:none;background:var(--red);color:#fff;font-size:.80rem;font-weight:700;cursor:pointer}.btn-danger-ghost{padding:5px 12px;border-radius:6px;border:1px solid var(--c-red-30);background:transparent;color:var(--red-lt);font-size:.72rem;cursor:pointer}.btn-icon-muted{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.80rem;padding:4px}.btn-settings{flex-shrink:0;margin-top:2px;padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;font-size:.72rem;line-height:1;transition:var(--tr)}.btn-settings:hover{color:var(--text)}.btn-amber{padding:8px 20px;border-radius:6px;border:none;background:var(--amber);color:var(--bg);font-size:.80rem;font-weight:700;cursor:pointer}.btn-purple-sm,.btn-purple-sm-700{padding:5px 12px;border-radius:6px;border:none;background:var(--purple-dk);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer}.btn-buy-sm{padding:4px 10px;border-radius:6px;border:1px solid var(--c-green3-30);background:rgba(74,222,128,.1);color:var(--green-lt);font-size:.65rem;cursor:pointer;white-space:nowrap}.btn-buy-lg{flex:1;padding:6px 16px;border-radius:6px;border:1px solid var(--c-green3-30);background:rgba(74,222,128,.08);color:var(--green-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-sell-lg{flex:1;padding:6px 16px;border-radius:6px;border:1px solid var(--c-red-30);background:var(--c-red-08);color:var(--red-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-sell-sm{padding:4px 10px;border-radius:6px;border:1px solid var(--c-red-30);background:var(--c-red-10);color:var(--red-lt);font-size:.65rem;cursor:pointer;white-space:nowrap}.btn-amber-sm{padding:5px 12px;border-radius:6px;border:none;background:var(--amber);color:var(--bg);font-size:.72rem;font-weight:700;cursor:pointer}.btn-add-green{padding:6px 16px;border-radius:6px;border:1px solid rgba(16,185,129,.4);background:var(--c-green-10);color:var(--green-md);font-size:.72rem;font-weight:600;cursor:pointer}.btn-add-purple{padding:6px 16px;border-radius:6px;border:1px solid var(--c-purple2-40);background:var(--c-purple2-10);color:var(--purple-lt);font-size:.72rem;font-weight:600;cursor:pointer}.btn-add-cyan{padding:6px 16px;border-radius:6px;border:1px solid var(--c-cyan-40);background:rgba(6,182,212,.1);color:var(--cyan);font-size:.72rem;font-weight:600;cursor:pointer}.editor-section-title{font-size:.70rem;color:var(--muted);font-weight:700;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--border)}.tbl-wrap::-webkit-scrollbar{height:5px}.tbl-wrap::-webkit-scrollbar-track{background:var(--s2)}.tbl-wrap::-webkit-scrollbar-thumb{background:rgba(100,116,139,.5);border-radius:3px}.action-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}.action-update-card{display:flex;align-items:center;gap:8px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex-wrap:nowrap}.action-date-input{background:transparent;border:none;color:var(--text);font-size:.70rem;width:140px}.action-refresh-btn{display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:1px solid rgba(245,158,11,.45);background:var(--c-amber-10);color:var(--gold);font-size:.72rem;cursor:pointer;font-weight:700;transition:var(--tr)}.action-refresh-btn:hover{background:var(--c-amber-20)}.action-refresh-btn svg{width:13px;height:13px;flex-shrink:0}.action-status-label{display:inline-flex;align-items:center;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:var(--s1);color:var(--muted);font-size:.72rem;min-width:100px}.action-icon-group{display:flex;gap:6px;flex-wrap:wrap}.action-icon-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);font-size:.60rem;cursor:pointer;transition:var(--tr);min-width:46px}.action-icon-btn:hover{color:var(--text);border-color:var(--c-white-25);background:var(--s1)}.action-icon-btn svg{width:16px;height:16px}.action-icon-green{border-color:var(--c-green-30);color:var(--green)}.action-icon-green:hover{background:var(--c-green-10)!important;border-color:rgba(16,185,129,.5)!important}.action-icon-blue{border-color:rgba(96,165,250,.3);color:var(--blue-lt)}.action-icon-blue:hover{background:rgba(96,165,250,.1)!important;border-color:rgba(96,165,250,.5)!important}.action-icon-red{border-color:var(--c-red-30);color:var(--red-lt)}.action-icon-red:hover{background:var(--c-red-08)!important;border-color:rgba(239,68,68,.45)!important}.view-switcher{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;overflow-x:auto;padding-bottom:2px}/* vs-btn: 반드시 @media(480px) 앞 */.vs-btn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 12px;min-width:58px;border-radius:6px;border:1px solid var(--border);background:var(--s2);color:var(--muted);cursor:pointer;transition:var(--tr);position:relative}.vs-btn:hover{color:var(--text);border-color:var(--c-white-25);background:var(--s1)}.vs-btn.active{background:rgba(251,191,36,.12);border-color:var(--c-amber2-50);color:var(--gold)}.vs-btn.active .vs-btn-icon svg{stroke:var(--gold)}.vs-btn.dragging{opacity:.4}.vs-btn.drag-over{border-color:var(--gold);background:rgba(251,191,36,.08)}.vs-btn-icon{width:18px;height:18px;display:flex;align-items:center;justify-content:center;flex-shrink:0}.vs-btn-icon svg{width:17px;height:17px;stroke:currentColor}.vs-btn-label{font-size:.65rem;font-weight:600;white-space:nowrap;letter-spacing:.01em}.view-switcher::-webkit-scrollbar{height:2px}.view-switcher::-webkit-scrollbar-track{background:transparent}.view-switcher::-webkit-scrollbar-thumb{background:var(--border);border-radius:1px}
+  .date-badge{padding:4px 14px;border-radius:7px;border:1px solid var(--border);background:var(--s2);color:var(--muted);font-size:.70rem;white-space:nowrap;min-width:130px;text-align:center;font-weight:600}.date-badge-live{border-color:var(--c-green-30);background:var(--c-green-15);color:var(--green)}
+  .saved-badge{display:none;background:var(--c-green-15);color:var(--green);border:1px solid var(--c-green-30);font-size:.65rem;padding:2px 7px;border-radius:10px}
 @media(max-width:480px){.wrap{padding:10px 8px}.hdr{flex-direction:column;gap:4px}.hdr>div:last-child{align-self:flex-start}.hdr h1{font-size:1rem}.sum-row{grid-template-columns:1fr 1fr!important;gap:8px}.sc{padding:12px 11px}.sc .val{font-size:1rem;font-weight:700}.sc .lbl{font-size:.65rem;font-weight:600}.sc .sub{font-size:.60rem}table{font-size:.70rem}th,td{padding:7px 7px!important}.sector-grid{grid-template-columns:1fr!important}.sector-hdr{flex-direction:column;align-items:flex-start;gap:8px}.donut-legend{margin-top:10px}.editor-box{max-height:95vh;max-width:100%!important}.trade-stat-card{padding:10px 14px;font-size:.72rem}.div-stat-card{min-width:calc(50% - 4px)!important;padding:9px 11px}.trade-stat-value{font-size:.85rem}.div-stat-value{font-size:.85rem}.col-hide-mobile{display:none!important}#price-updated-label{font-size:.65rem}#tradeSelBar{flex-wrap:wrap;gap:6px}#tradesHeaderBtns{flex-wrap:wrap!important;gap:6px!important}.sum-row-2 .lbl{font-size:.60rem;font-weight:600}.sum-row-2 .val{font-size:.90rem;font-weight:700}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}.action-update-card{flex-wrap:nowrap;gap:6px;padding:10px 14px;width:100%}.action-date-input{width:0;min-width:0;flex:1;font-size:.70rem}.action-refresh-btn{font-size:.72rem;padding:5px 12px;white-space:nowrap}.action-status-label{font-size:.65rem;min-width:80px}.date-badge{font-size:.70rem;min-width:120px;padding:4px 10px}.btn-amber,.btn-danger-lg,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-purple-700,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:6px 16px;font-size:.70rem}.action-icon-btn{min-width:42px;padding:5px 10px;border-radius:6px}.action-icon-btn svg{width:15px;height:15px}.action-icon-btn span{font-size:.60rem}.vs-btn{min-width:46px;padding:6px 8px;border-radius:6px}.vs-btn-icon{width:20px;height:20px}.vs-btn-icon svg{width:16px;height:16px}.vs-btn-label{font-size:.60rem}.view-switcher{gap:5px}}
-.flex-ac-g8-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.dotted-link{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}.flex-col-g8-mb12{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}.txt-60-muted{font-size:.60rem;color:var(--muted)}.txt-mono-muted{font-size:.65rem;color:var(--muted);font-family:'Courier New',monospace}.tbl-inner-sm{width:100%;border-collapse:collapse;font-size:.75rem;min-width:480px}.txt-70-muted-mb4{font-size:.70rem;color:var(--muted);margin-bottom:4px}.td-header-muted{padding:5px 8px;font-size:.70rem;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)}.txt-75-slate{font-size:.75rem;color:#94a3b8}.section-label{padding:8px 14px 4px;font-size:.70rem;font-weight:700;letter-spacing:.08em;color:#64748b;text-transform:uppercase}.txt-65-muted-mb5{font-size:.65rem;color:var(--muted);margin-bottom:5px}.flex-wrap-g5-mb8{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px}.txt-amber-700-mb4{font-size:.75rem;font-weight:700;color:var(--amber);margin-bottom:4px}.fw7-mb5-ls{margin-bottom:5px;font-weight:700;letter-spacing:.04em}</style>
+.flex-ac-g8-wrap{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.dotted-link{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}.flex-col-g8-mb12{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}.txt-60-muted{font-size:.60rem;color:var(--muted)}.txt-mono-muted{font-size:.65rem;color:var(--muted);font-family:'Courier New',monospace}.tbl-inner-sm{width:100%;border-collapse:collapse;font-size:.75rem;min-width:480px}.txt-70-muted-mb4{font-size:.70rem;color:var(--muted);margin-bottom:4px}.td-header-muted{padding:5px 8px;font-size:.70rem;color:var(--muted);text-align:left;border-bottom:1px solid var(--border)}.txt-75-slate{font-size:.75rem;color:var(--muted)}.section-label{padding:8px 14px 4px;font-size:.70rem;font-weight:700;letter-spacing:.08em;color:#64748b;text-transform:uppercase}.txt-65-muted-mb5{font-size:.65rem;color:var(--muted);margin-bottom:5px}.flex-wrap-g5-mb8{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-bottom:8px}.txt-amber-700-mb4{font-size:.75rem;font-weight:700;color:var(--amber);margin-bottom:4px}.fw7-mb5-ls{margin-bottom:5px;font-weight:700;letter-spacing:.04em}</style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -89,7 +137,7 @@
 <button onclick="openTabSettings()" title="탭 순서 설정" class="btn-settings">⚙️</button>
 </div>
 <!-- TAB SETTINGS OVERLAY -->
-<div id="tabSettingsOverlay" style="display:none;position:fixed;inset:0;z-index:1001;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px">
+<div id="tabSettingsOverlay" style="display:none;position:fixed;inset:0;z-index:1001;background:var(--c-black-70);backdrop-filter:blur(4px);align-items:center;justify-content:center;padding:20px">
 <div style="background:var(--s1);border:1px solid var(--border);border-radius:16px;width:100%;max-width:340px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
 <div style="padding:18px 20px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
 <div>
@@ -201,20 +249,20 @@ const _CSS_VAR_MAP = {
   '--s1':         '#0e1726',
   '--s2':         '#141f33',
   '--border':     '#1c2a42',
-  '--green':      '#10b981',
+  '--green':      'var(--green)',
   '--red':        '#E52E2E',
   '--blue':       '#0057FF',
-  '--amber':      '#f59e0b',
-  '--purple':     '#8b5cf6',
-  '--cyan':       '#06b6d4',
-  '--pink':       '#ec4899',
+  '--amber':      'var(--amber)',
+  '--purple':     'var(--purple)',
+  '--cyan':       'var(--cyan)',
+  '--pink':       'var(--pink)',
   '--text':       '#e2e8f0',
   '--muted':      '#64748b',
-  '--gold':       '#f59e0b',
-  '--gold2':      '#f97316',
+  '--gold':       'var(--amber)',
+  '--gold2':      'var(--gold2)',
   '--red-lt':     '#FF6B6B',
-  '--green-lt':   '#4ade80',
-  '--green-md':   '#34d399',
+  '--green-lt':   'var(--green-lt)',
+  '--green-md':   'var(--green-md)',
   '--blue-lt':    '#5B8EFF',
   '--purple-lt':  '#a78bfa',
   '--purple-dk':  '#7c3aed',
@@ -222,7 +270,7 @@ const _CSS_VAR_MAP = {
 
 const _colorCache = {};
 function resolveColor(c) {
-  if (!c || typeof c !== 'string') return '#64748b';
+  if (!c || typeof c !== 'string') return 'var(--muted)';
   const cs = c.trim();
   // 이미 hex / rgb / rgba → 그대로
   if (cs.startsWith('#') || cs.startsWith('rgb')) return cs;
@@ -244,8 +292,8 @@ function resolveColor(c) {
       }
     } catch(e) { console.warn('[resolveColor]', e.message); }
     // fallback
-    _colorCache[cs] = '#64748b';
-    return '#64748b';
+    _colorCache[cs] = 'var(--muted)';
+    return 'var(--muted)';
   }
   // 그 외 (named color 등) → 그대로
   return cs;
@@ -1078,25 +1126,7 @@ function buildTableInner(rawData, tableId, extraCol) {
   return html;
 }
 
-// TABLE BUILDER (외부 호출용)
-function buildTable(data, title, extraCol, fixedId) {
-  const tableId = fixedId || ('tbl_' + Math.random().toString(36).slice(2, 7));
-  window._tableData.set(tableId, data);
-  window._tableExtra.set(tableId, extraCol);
 
-  const totalEval = data.reduce((s,r)=>s+r.evalAmt,0);
-  const totalCost = data.reduce((s,r)=>s+r.costAmt,0);
-  const totalPnl  = totalEval - totalCost;
-  const totalPct  = totalCost > 0 ? totalPnl / totalCost * 100 : 0;
-  const pC = pColor(totalPnl), pS = pSign(totalPnl);
-
-  // 전체 합계 헤더는 원본 데이터 기준으로 고정 표시
-  const headerSummary = `평가 <b>${fmt(totalEval)}</b> &nbsp; 손익 <span style="color:${pC}">${pS}${fmt(totalPnl)} (${pS}${totalPct.toFixed(1)}%)</span>`;
-
-  // 컨테이너 wrapper — buildTableInner가 내부를 채움
-  const inner = buildTableInner(data, tableId, extraCol);
-  return `<div id="tc_${tableId}">${inner}</div>`;
-}
 
 // VIEWS
 let currentView='acct';
@@ -1166,9 +1196,10 @@ function renderAcctView(area){
   let data = acctFilter === '전체' ? enriched : enriched.filter(r => r.acct === acctFilter);
   data = typeFilter === '전체' ? data : data.filter(r => r.classType === typeFilter);
 
-  const acctLabel = acctFilter === '전체' ? '' : `${acctFilter} · `;
-  const typeLabel = typeFilter === '전체' ? '전체 종목' : `${typeFilter} 종목`;
-  html += buildTable(data, acctLabel + typeLabel, null, 'tbl_acct');
+  const tableId = 'tbl_acct';
+  window._tableData.set(tableId, data);
+  window._tableExtra.set(tableId, null);
+  html += `<div id="tc_${tableId}">${buildTableInner(data, tableId, null)}</div>`;
   area.innerHTML = html;
 }
 function setAcctFilter(f){ acctFilter=f; renderView(); }
@@ -1552,7 +1583,6 @@ function calcDividends() {
 }
 
 //  📈 손익 그래프 뷰
-let _historyCache    = null;
 let _historyRange   = '3m';
 let _historyCustom  = false;
 let _historyFromDate = '';
@@ -1579,11 +1609,11 @@ function renderHistoryView(area) {
         ).join('')}
         <span style="display:flex;align-items:center;gap:4px">
           <input type="date" id="historyFrom" value="${_historyFromDate}"
-            onchange="_historyFromDate=this.value;_historyCustom=true;_historyCache=null;loadHistoryChart()"
+            onchange="_historyFromDate=this.value;_historyCustom=true;loadHistoryChart()"
             style="background:var(--s2);border:1px solid ${_historyCustom?'var(--amber)':'var(--border)'};border-radius:6px;padding:3px 8px;color:var(--text);font-size:.70rem"/>
           <span class="c-muted txt-muted-72">~</span>
           <input type="date" id="historyTo" value="${_historyToDate}"
-            onchange="_historyToDate=this.value;_historyCustom=true;_historyCache=null;loadHistoryChart()"
+            onchange="_historyToDate=this.value;_historyCustom=true;loadHistoryChart()"
             style="background:var(--s2);border:1px solid ${_historyCustom?'var(--amber)':'var(--border)'};border-radius:6px;padding:3px 8px;color:var(--text);font-size:.70rem"/>
         </span>
         <button onclick="saveSnapshotNow()" class="btn-add-green">💾 오늘 저장</button>
@@ -1592,7 +1622,7 @@ function renderHistoryView(area) {
 
     <div style="padding:16px 20px">
     ${!hasGsheet ? `
-    <div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:20px;text-align:center">
+    <div style="background:var(--c-amber-08);border:1px solid var(--c-amber-20);border-radius:10px;padding:20px;text-align:center">
       <div style="font-size:1.5rem;margin-bottom:8px">🔗</div>
       <div style="font-weight:700;color:var(--gold);margin-bottom:4px">구글 시트 연동 필요</div>
       <div class="txt-muted-75">현재가 편집 → 구글 시트 탭에서 URL을 입력하면 스냅샷이 자동 저장돼요</div>
@@ -1613,7 +1643,6 @@ function setHistoryRange(r) {
   _historyCustom  = false;
   _historyFromDate = '';
   _historyToDate   = '';
-  _historyCache   = null;
   // 39회차: renderView() 전체 재렌더 대신 버튼 active 상태만 갱신 후 차트 재로드
   ['1m','3m','6m','1y','전체'].forEach(k => {
     const b = $el('hr_' + k);
@@ -1729,156 +1758,85 @@ function renderHistoryChart(wrap, history) {
     return;
   }
 
-  const labels  = history.map(d => d.date.slice(5));       // MM-DD
-  const evals   = history.map(d => d.evalAmt);
-  const costs   = history.map(d => d.costAmt);
-  const pnls    = history.map(d => d.pnl);
-  const pcts    = history.map(d => d.pct);
+  const labels = history.map(d => d.date.slice(5));
+  const evals  = history.map(d => d.evalAmt);
+  const costs  = history.map(d => d.costAmt);
+  const pnls   = history.map(d => d.pnl);
+  const pcts   = history.map(d => d.pct);
+  const n      = evals.length;
 
-  const latestEval = evals[evals.length-1] || 0;
-  const latestPnl  = pnls[pnls.length-1]  || 0;
-  const latestPct  = pcts[pcts.length-1]  || 0;
-  const maxPnl     = Math.max(...pnls);
-  const minPnl     = Math.min(...pnls);
+  const latestPnl = pnls[n-1] || 0, latestPct = pcts[n-1] || 0;
+  const maxPnl = Math.max(...pnls), minPnl = Math.min(...pnls);
   const pC = latestPnl >= 0 ? 'var(--green)' : 'var(--red)';
   const pS = latestPnl >= 0 ? '+' : '';
 
-  // SVG 그래프 직접 렌더링
-  const W = 800, H = 260, PAD = {t:20,r:20,b:36,l:72};
-  const gW = W - PAD.l - PAD.r;
-  const gH = H - PAD.t - PAD.b;
-  const n  = evals.length;
-
-  function toX(i) { return PAD.l + (n <= 1 ? gW/2 : i / (n-1) * gW); }
-  function toY(v, mn, mx) {
-    if (mx === mn) return PAD.t + gH/2;
-    return PAD.t + (1 - (v - mn) / (mx - mn)) * gH;
-  }
-
-  // 평가금액 라인
-  const evalMin = Math.min(...evals) * 0.995;
-  const evalMax = Math.max(...evals) * 1.005;
-  const evalPts = evals.map((v,i) => `${toX(i).toFixed(1)},${toY(v,evalMin,evalMax).toFixed(1)}`).join(' ');
-
-  // 원금 라인
-  const costPts = costs.map((v,i) => `${toX(i).toFixed(1)},${toY(v,evalMin,evalMax).toFixed(1)}`).join(' ');
-
-  // 손익 영역 (하단 그래프)
-  const H2 = 120, PAD2 = {t:10,r:20,b:28,l:72};
-  const gH2 = H2 - PAD2.t - PAD2.b;
-  const pnlAbsMax = Math.max(Math.abs(maxPnl), Math.abs(minPnl)) * 1.05 || 1;
-  function toY2(v) { return PAD2.t + (1 - (v + pnlAbsMax)/(2*pnlAbsMax)) * gH2; }
-  const zero2 = toY2(0);
-
-  // 손익 막대 (SVG rect)
-  const barW = Math.max(2, Math.min(12, gW / n - 2));
-  const barsHtml = pnls.map((v,i) => {
-    const x = toX(i) - barW/2;
-    const y = v >= 0 ? toY2(v) : zero2;
-    const h = Math.abs(toY2(v) - zero2);
-    const col = v >= 0 ? 'var(--green)' : 'var(--red)';
-    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${Math.max(1,h).toFixed(1)}" fill="${col}" opacity="0.7" rx="1"/>`;
-  }).join('');
-
-  // Y축 레이블 (만단위)
   function yLbl(v) {
-    const abs = Math.abs(v), s = v < 0 ? '-' : '';
-    if (abs >= 100000000) return s + (abs/100000000).toFixed(1) + '억';
-    if (abs >= 10000)     return s + Math.round(abs/10000) + '만';
-    return s + abs.toLocaleString();
+    const a = Math.abs(v), s = v < 0 ? '-' : '';
+    return a >= 1e8 ? s+(a/1e8).toFixed(1)+'억' : a >= 1e4 ? s+Math.round(a/1e4)+'만' : s+a.toLocaleString();
   }
 
-  const ySteps = 4;
-  const yLabels = Array.from({length:ySteps+1},(_,i) => evalMin + (evalMax-evalMin)*i/ySteps)
-    .map((v,i) => {
-      const y = toY(v,evalMin,evalMax);
-      return `<text x="${PAD.l-6}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${yLbl(v)}</text>
-<line x1="${PAD.l}" y1="${y.toFixed(1)}" x2="${PAD.l+gW}" y2="${y.toFixed(1)}" stroke="var(--s1)" stroke-width="1"/>`;
-    }).join('');
-
-  // X축 레이블 (5개만)
+  // 평가금액 그래프
+  const W = 800, H = 260, PL = 72, PR = 20, PT = 20, PB = 36;
+  const gW = W-PL-PR, gH = H-PT-PB;
+  const eMin = Math.min(...evals)*0.995, eMax = Math.max(...evals)*1.005;
+  const toX  = i  => PL + (n<=1 ? gW/2 : i/(n-1)*gW);
+  const toY  = v  => PT + (1-(v-eMin)/(eMax-eMin||1))*gH;
+  const pts  = arr => arr.map((v,i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ');
   const xStep = Math.max(1, Math.floor(n/5));
-  const xLabels = labels.map((l,i) => {
-    if (i % xStep !== 0 && i !== n-1) return '';
-    return `<text x="${toX(i).toFixed(1)}" y="${(H-6).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--muted)">${l}</text>`;
-  }).join('');
+  const xLbls = labels.map((l,i) => (i%xStep&&i!==n-1)?'' :
+    `<text x="${toX(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="10" fill="var(--muted)">${l}</text>`).join('');
+  const yLbls = Array.from({length:5},(_,i)=>eMin+(eMax-eMin)*i/4).map(v =>
+    `<text x="${PL-6}" y="${(toY(v)+4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--muted)">${yLbl(v)}</text>` +
+    `<line x1="${PL}" y1="${toY(v).toFixed(1)}" x2="${PL+gW}" y2="${toY(v).toFixed(1)}" stroke="var(--s1)" stroke-width="1"/>`).join('');
+  const evalPts = pts(evals), costPts = pts(costs);
 
-  const xLabels2 = labels.map((l,i) => {
-    if (i % xStep !== 0 && i !== n-1) return '';
-    return `<text x="${toX(i).toFixed(1)}" y="${(H2-4).toFixed(1)}" text-anchor="middle" font-size="10" fill="var(--muted)">${l}</text>`;
-  }).join('');
-
-  // 손익 Y축
-  const pnlSteps = [pnlAbsMax, pnlAbsMax/2, 0, -pnlAbsMax/2, -pnlAbsMax];
-  const pnlYLabels = pnlSteps.map(v => {
-    const y = toY2(v);
-    return `<text x="${PAD2.l-6}" y="${(y+4).toFixed(1)}" text-anchor="end" font-size="10" fill="${v>0?'var(--green)':v<0?'var(--red)':'var(--muted)'}">${yLbl(v)}</text>
-<line x1="${PAD2.l}" y1="${y.toFixed(1)}" x2="${PAD2.l+gW}" y2="${y.toFixed(1)}" stroke="${v===0?'var(--muted)':'var(--s1)'}" stroke-width="${v===0?1.5:1}"/>`;
+  // 손익 그래프
+  const H2 = 120, PL2 = 72, PT2 = 10, PB2 = 28;
+  const gH2 = H2-PT2-PB2;
+  const pMax = Math.max(Math.abs(maxPnl), Math.abs(minPnl))*1.05 || 1;
+  const toY2  = v  => PT2 + (1-(v+pMax)/(2*pMax))*gH2;
+  const zero2 = toY2(0);
+  const barW  = Math.max(2, Math.min(12, gW/n-2));
+  const xLbls2 = labels.map((l,i) => (i%xStep&&i!==n-1)?'' :
+    `<text x="${toX(i).toFixed(1)}" y="${H2-4}" text-anchor="middle" font-size="10" fill="var(--muted)">${l}</text>`).join('');
+  const pnlYLbls = [pMax, pMax/2, 0, -pMax/2, -pMax].map(v =>
+    `<text x="${PL2-6}" y="${(toY2(v)+4).toFixed(1)}" text-anchor="end" font-size="10" fill="${v>0?'var(--green)':v<0?'var(--red)':'var(--muted)'}">${yLbl(v)}</text>` +
+    `<line x1="${PL2}" y1="${toY2(v).toFixed(1)}" x2="${PL2+gW}" y2="${toY2(v).toFixed(1)}" stroke="${v===0?'var(--muted)':'var(--s1)'}" stroke-width="${v===0?1.5:1}"/>`).join('');
+  const bars = pnls.map((v,i) => {
+    const x = toX(i)-barW/2, y = v>=0?toY2(v):zero2, h = Math.max(1,Math.abs(toY2(v)-zero2));
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${v>=0?'var(--green)':'var(--red)'}" opacity=".7" rx="1"/>`;
   }).join('');
 
   wrap.innerHTML = `
-  <!-- 요약 카드 -->
   <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-    <div class="stat-card">
-      <div class="label-muted-68">최근 평가금액</div>
-      <div style="font-size:1rem;font-weight:700">${yLbl(latestEval)}</div>
-    </div>
-    <div class="stat-card">
-      <div class="label-muted-68">최근 손익</div>
-      <div style="font-size:1rem;font-weight:700;color:${pC}">${pS}${yLbl(latestPnl)}</div>
-    </div>
-    <div class="stat-card">
-      <div class="label-muted-68">최근 수익률</div>
-      <div style="font-size:1rem;font-weight:700;color:${pC}">${pS}${latestPct.toFixed(2)}%</div>
-    </div>
-    <div class="stat-card">
-      <div class="label-muted-68">기간 최대 손익</div>
-      <div style="font-size:1rem;font-weight:700;color:var(--green)">+${yLbl(maxPnl)}</div>
-    </div>
-    <div class="stat-card">
-      <div class="label-muted-68">기간 최저 손익</div>
-      <div style="font-size:1rem;font-weight:700;color:var(--red)">${yLbl(minPnl)}</div>
-    </div>
+    <div class="stat-card"><div class="label-muted-68">최근 평가금액</div><div style="font-size:1rem;font-weight:700">${yLbl(evals[n-1]||0)}</div></div>
+    <div class="stat-card"><div class="label-muted-68">최근 손익</div><div style="font-size:1rem;font-weight:700;color:${pC}">${pS}${yLbl(latestPnl)}</div></div>
+    <div class="stat-card"><div class="label-muted-68">최근 수익률</div><div style="font-size:1rem;font-weight:700;color:${pC}">${pS}${latestPct.toFixed(2)}%</div></div>
+    <div class="stat-card"><div class="label-muted-68">기간 최대 손익</div><div style="font-size:1rem;font-weight:700;color:var(--green)">+${yLbl(maxPnl)}</div></div>
+    <div class="stat-card"><div class="label-muted-68">기간 최저 손익</div><div style="font-size:1rem;font-weight:700;color:var(--red)">${yLbl(minPnl)}</div></div>
   </div>
-
-  <!-- 평가금액 그래프 -->
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;overflow-x:auto">
     <div class="lbl-75-700-muted">📊 평가금액 추이</div>
     <svg viewBox="0 0 ${W} ${H}" class="img-full">
-      ${yLabels}
-      ${xLabels}
-      <!-- 원금 라인 -->
+      ${yLbls}${xLbls}
       <polyline points="${costPts}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4,3"/>
-      <!-- 평가금액 영역 -->
-      <defs>
-        <linearGradient id="evalGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="var(--amber)" stop-opacity="0.25"/>
-          <stop offset="100%" stop-color="var(--amber)" stop-opacity="0"/>
-        </linearGradient>
-      </defs>
-      <polygon points="${evalPts} ${PAD.l+gW},${PAD.t+gH} ${PAD.l},${PAD.t+gH}" fill="url(#evalGrad)"/>
+      <defs><linearGradient id="evalGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--amber)" stop-opacity=".25"/>
+        <stop offset="100%" stop-color="var(--amber)" stop-opacity="0"/>
+      </linearGradient></defs>
+      <polygon points="${evalPts} ${PL+gW},${PT+gH} ${PL},${PT+gH}" fill="url(#evalGrad)"/>
       <polyline points="${evalPts}" fill="none" stroke="var(--amber)" stroke-width="2.5"/>
-      <!-- 범례 -->
-      <line x1="${PAD.l}" y1="${H-2}" x2="${PAD.l+60}" y2="${H-2}" stroke="var(--amber)" stroke-width="2.5"/>
-      <text x="${PAD.l+64}" y="${H+2}" font-size="10" fill="var(--amber)">평가금액</text>
-      <line x1="${PAD.l+130}" y1="${H-2}" x2="${PAD.l+190}" y2="${H-2}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4,3"/>
-      <text x="${PAD.l+194}" y="${H+2}" font-size="10" fill="var(--muted)">매수원금</text>
+      <line x1="${PL}" y1="${H-2}" x2="${PL+60}" y2="${H-2}" stroke="var(--amber)" stroke-width="2.5"/>
+      <text x="${PL+64}" y="${H+2}" font-size="10" fill="var(--amber)">평가금액</text>
+      <line x1="${PL+130}" y1="${H-2}" x2="${PL+190}" y2="${H-2}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4,3"/>
+      <text x="${PL+194}" y="${H+2}" font-size="10" fill="var(--muted)">매수원금</text>
     </svg>
   </div>
-
-  <!-- 손익 그래프 -->
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:16px;overflow-x:auto">
     <div class="lbl-75-700-muted">📉 손익 추이</div>
-    <svg viewBox="0 0 ${W} ${H2}" class="img-full">
-      ${pnlYLabels}
-      ${xLabels2}
-      ${barsHtml}
-    </svg>
+    <svg viewBox="0 0 ${W} ${H2}" class="img-full">${pnlYLbls}${xLbls2}${bars}</svg>
   </div>
-
-  <!-- 데이터 수 표시 -->
-  <div style="text-align:right;margin-top:8px;font-size:.70rem;color:var(--muted)">📅 ${history.length}개 스냅샷 · ${history[0]?.date} ~ ${history[history.length-1]?.date}</div>
-  `;
+  <div style="text-align:right;margin-top:8px;font-size:.70rem;color:var(--muted)">📅 ${history.length}개 스냅샷 · ${history[0]?.date} ~ ${history[n-1]?.date}</div>`;
 }
 
 //  📋 거래 이력 뷰  +  일괄 입력 팝업
@@ -1984,7 +1942,7 @@ function _buildTradesTableHTML(list) {
     const noDate = !date;
     const acctColor = ACCT_COLORS[t.acct] || 'var(--muted)';
     return `
-      <tr style="border-bottom:1px solid var(--border);background:${noDate?'rgba(239,68,68,.04)':'transparent'};cursor:pointer"
+      <tr style="border-bottom:1px solid var(--border);background:${noDate?'var(--c-red-04)':'transparent'};cursor:pointer"
           onclick="editTrade('${t.id}')">
         <td class="td-center-plain" onclick="event.stopPropagation()">
           <input type="checkbox" class="trade-cb trade-check" data-id="${t.id}"
@@ -2001,7 +1959,7 @@ function _buildTradesTableHTML(list) {
         </td>
         <td style="text-align:center" onclick="editTrade('${t.id}')">
           <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.65rem;font-weight:700;
-            background:${isBuy?'rgba(34,197,94,.15)':'rgba(239,68,68,.12)'};
+            background:${isBuy?'var(--c-green2-15)':'var(--c-red-12)'};
             color:${isBuy?'var(--green-lt)':'var(--red-lt)'}">
             ${isBuy?'매수':'매도'}
           </span>
@@ -2081,7 +2039,7 @@ function renderTradesView(area) {
     </div>
 
     <!-- 선택 액션바 -->
-    <div id="tradeSelBar" style="display:none;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:8px;margin-bottom:8px">
+    <div id="tradeSelBar" style="display:none;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--c-amber-08);border:1px solid var(--c-amber-30);border-radius:8px;margin-bottom:8px">
       <span id="tradeSelCount" style="font-size:.78rem;font-weight:600;color:var(--gold)">0건 선택됨</span>
       <div class="flex-gap6">
         <button onclick="tradeToggleAll(true)" class="btn-outline-sm">전체선택</button>
@@ -2184,11 +2142,11 @@ function renderTradeGroupView(area) {
               <div class="flex-ac-g8-wrap">
                 <span class="tg-name" style="font-weight:700;font-size:.85rem">${name}</span>
                 ${g.code ? `<span class="txt-mono-muted">${g.code}</span>` : ''}
-                <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,.1);color:var(--purple-lt)">${g.type}</span>
-                <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:rgba(100,116,139,.1);color:var(--muted)">${g.sector}</span>
+                <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-purple2-10);color:var(--purple-lt)">${g.type}</span>
+                <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-muted-10);color:var(--muted)">${g.sector}</span>
                 ${isHolding
                   ? `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:rgba(74,222,128,.12);color:var(--green-lt);font-weight:600">보유중 ${g.qty.toLocaleString()}주</span>`
-                  : `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:rgba(100,116,139,.1);color:var(--muted)">청산완료</span>`}
+                  : `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:var(--c-muted-10);color:var(--muted)">청산완료</span>`}
               </div>
               <div style="display:flex;gap:14px;margin-top:4px;font-size:.70rem;color:var(--muted)">
                 <span>매수 <b class="c-text">${g.buyCount}</b>건</span>
@@ -2612,7 +2570,7 @@ function buildTradeEditOverlayHTML() {
         <button onclick="closeTradeEdit()" class="btn-close-icon">✕</button>
       </div>
       <div style="padding:16px 22px;display:flex;flex-direction:column;gap:11px">
-        <div id="te-error" style="display:none;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:8px 12px;font-size:.75rem;color:var(--red-lt)"></div>
+        <div id="te-error" style="display:none;background:var(--c-red-10);border:1px solid var(--c-red-30);border-radius:6px;padding:8px 12px;font-size:.75rem;color:var(--red-lt)"></div>
 
         <!-- 매수 / 매도 탭 -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
@@ -2800,10 +2758,10 @@ function _getBulkRows() {
 function switchBulkTab(mode) {
   _bulkMode = mode;
   const TAB_CFG = {
-    buy:  { bg:'rgba(34,197,94,.15)',  color:'var(--green-lt)', applyBg:'rgba(34,197,94,.85)',
+    buy:  { bg:'var(--c-green2-15)',  color:'var(--green-lt)', applyBg:'rgba(34,197,94,.85)',
             desc:'계좌·유형·종목명·수량·매수일·매수단가 입력',
             hint:'CSV: 계좌,유형,종목명,종목코드,수량,매수일(YYYY-MM-DD),매수단가,메모' },
-    sell: { bg:'rgba(239,68,68,.12)',  color:'var(--red-lt)', applyBg:'rgba(239,68,68,.8)',
+    sell: { bg:'var(--c-red-12)',  color:'var(--red-lt)', applyBg:'var(--c-red-80)',
             desc:'계좌·종목명·수량·매도일·매도단가 입력',
             hint:'CSV: 계좌,종목명,수량,매도일(YYYY-MM-DD),매도단가,메모' },
     mix:  { bg:'rgba(139,92,246,.15)', color:'var(--purple-lt)', applyBg:'rgba(139,92,246,.85)',
@@ -2859,26 +2817,26 @@ function buildBulkOverlayHTML() {
       <!-- 매수/매도/혼합 탭 -->
       <div style="padding:12px 22px 0;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         ${tabBtn('buy',  '📈 매수', 'rgba(34,197,94,.4)')}
-        ${tabBtn('sell', '📉 매도', 'rgba(239,68,68,.4)')}
-        ${tabBtn('mix',  '🔀 혼합',  'rgba(139,92,246,.4)')}
+        ${tabBtn('sell', '📉 매도', 'var(--c-red-40)')}
+        ${tabBtn('mix',  '🔀 혼합',  'var(--c-purple-40)')}
         <span id="bulkTabDesc" style="font-size:.70rem;color:var(--muted);margin-left:6px"></span>
       </div>
       <!-- 툴바 -->
       <div style="padding:10px 22px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button onclick="addBulkRows(5)" class="btn-ghost-sm">+ 5행 추가</button>
         <button onclick="clearBulkGrid()" class="btn-danger-ghost">전체 지우기</button>
-        <label style="padding:4px 12px;border-radius:6px;border:1px solid rgba(59,130,246,.3);background:rgba(59,130,246,.08);color:var(--blue-lt);font-size:.72rem;cursor:pointer">
+        <label style="padding:4px 12px;border-radius:6px;border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);color:var(--blue-lt);font-size:.72rem;cursor:pointer">
           📁 CSV 불러오기<input type="file" accept=".csv,.txt" onchange="loadBulkCSV(event)" class="d-none"/>
         </label>
         <a href="#" onclick="downloadBulkTemplate();return false"
-          style="padding:4px 12px;border-radius:6px;border:1px solid rgba(16,185,129,.3);background:rgba(16,185,129,.08);color:var(--green-md);font-size:.72rem;cursor:pointer;text-decoration:none">
+          style="padding:4px 12px;border-radius:6px;border:1px solid var(--c-green-30);background:var(--c-green-08);color:var(--green-md);font-size:.72rem;cursor:pointer;text-decoration:none">
           ⬇ 템플릿 다운로드
         </a>
         <span id="bulkCSVHint" style="font-size:.70rem;color:var(--muted);margin-left:4px"></span>
       </div>
       <!-- 그리드 -->
       <div id="bulkGridWrap" style="flex:1;min-height:0;overflow:auto;padding:0 12px 12px;-webkit-overflow-scrolling:touch"></div>
-      <div id="bulkError" style="display:none;padding:8px 22px;background:rgba(239,68,68,.1);color:var(--red-lt);font-size:.75rem;flex-shrink:0"></div>
+      <div id="bulkError" style="display:none;padding:8px 22px;background:var(--c-red-10);color:var(--red-lt);font-size:.75rem;flex-shrink:0"></div>
       <!-- 푸터 -->
       <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 22px 16px;border-top:1px solid var(--border);flex-shrink:0">
         <button onclick="closeBulkImport()"
@@ -2926,14 +2884,14 @@ function renderBulkGrid() {
         data-row="${ri}" data-col="${col.key}"
         onchange="bulkCellChange(${ri},'${col.key}',this.value)"
         ${col.type==='date'?'placeholder="YYYY-MM-DD"':''}
-        style="width:${col.w}px;background:${val?'var(--s2)':'rgba(255,255,255,.03)'};border:1px solid ${val?'var(--border)':'transparent'};border-radius:4px;padding:5px 6px;color:var(--text);font-size:.75rem"
+        style="width:${col.w}px;background:${val?'var(--s2)':'var(--c-white-03)'};border:1px solid ${val?'var(--border)':'transparent'};border-radius:4px;padding:5px 6px;color:var(--text);font-size:.75rem"
         onfocus="this.style.border='1px solid var(--amber)'" onblur="this.style.border='1px solid '+(this.value?'var(--border)':'transparent')"/></td>`;
     }).join('');
     // 혼합 탭: 매수/매도 행 색상 구분
     let rowBg = '';
     if (_bulkMode === 'mix') {
       const tt = row.tradeType || 'buy';
-      rowBg = tt === 'buy' ? 'background:rgba(34,197,94,.04)' : 'background:rgba(239,68,68,.04)';
+      rowBg = tt === 'buy' ? 'background:rgba(34,197,94,.04)' : 'background:var(--c-red-04)';
     }
     return `<tr style="border-bottom:1px solid var(--border);${rowBg}">${cells}
       <td style="padding:2px;text-align:center">
@@ -3168,8 +3126,8 @@ function checkAndShowMigration() {
 
 function buildMigrationHTML() {
   return `<div id="migrationOverlay"
-    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9500;justify-content:center;align-items:center;padding:16px">
-    <div style="background:var(--s1);border:1px solid rgba(245,158,11,.4);border-radius:14px;width:100%;max-width:680px;max-height:92vh;display:flex;flex-direction:column">
+    style="display:none;position:fixed;inset:0;background:var(--c-black-82);z-index:9500;justify-content:center;align-items:center;padding:16px">
+    <div style="background:var(--s1);border:1px solid var(--c-amber-40);border-radius:14px;width:100%;max-width:680px;max-height:92vh;display:flex;flex-direction:column">
 
       <div style="padding:18px 24px 14px;border-bottom:1px solid var(--border);flex-shrink:0">
         <h3 class="h3-1rem-mb4">🔄 기존 보유 종목 → 거래 이력으로 변환</h3>
@@ -3297,6 +3255,9 @@ function closeMigration() {
 }
 
 function renderDivView(area) {
+  // GS 연동 시 탭 진입마다 자동 fetch → 완료 후 재렌더
+  if (GSHEET_API_URL) _autoFetchDiv(area);
+
   const divRows = calcDividends();
   const totalAnnual   = divRows.reduce((s,r)=>s+r.annualDiv,0);
   const totalAfterTax = Math.round(totalAnnual * 0.846);
@@ -3324,10 +3285,10 @@ function renderDivView(area) {
   <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:11px 14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
     <div style="flex:1">
       <div style="font-size:.72rem;font-weight:700;color:var(--amber);margin-bottom:2px">📡 배당금 자동 조회</div>
-      <div id="divFetchStatus" class="lbl-67-muted">구글시트 GOOGLEFINANCE로 최근 13개월 배당 자동 조회 · 구글시트 연동 필수</div>
+      <div id="divFetchStatus" class="lbl-67-muted">${GSHEET_API_URL ? '탭 진입 시 자동 갱신 · 수동으로 즉시 갱신하려면 버튼 클릭' : '구글시트 연동 필요 · 연동 시 탭 진입마다 자동 갱신'}</div>
     </div>
     <button id="divFetchBtn" onclick="startDivFetch()" class="btn-amber-sm">
-      🔄 배당 불러오기
+      🔄 지금 갱신
     </button>
   </div>
 
@@ -3360,7 +3321,7 @@ function renderDivView(area) {
     </div>
   </div>
 
-  <!-- 월별 바 차트 (Canvas) -->
+  <!-- 월별 바 차트 (CSS div) -->
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
       <div>
@@ -3369,15 +3330,36 @@ function renderDivView(area) {
       </div>
       <div style="display:flex;gap:12px;font-size:.65rem;color:var(--muted);align-items:center">
         <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:4px;vertical-align:middle"></span>지난달</span>
-        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#06b6d4;margin-right:4px;vertical-align:middle"></span>이번달</span>
-        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#10b981;margin-right:4px;vertical-align:middle"></span>예정</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--cyan);margin-right:4px;vertical-align:middle"></span>이번달</span>
+        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--green);margin-right:4px;vertical-align:middle"></span>예정</span>
       </div>
     </div>
-    <canvas id="divMonthCanvas" style="width:100%;display:block" height="140"></canvas>
+    <div style="display:flex;align-items:flex-end;gap:4px;height:130px;padding-bottom:20px;position:relative">
+      ${(() => {
+        const maxV = Math.max(...monthly, 1);
+        return monthly.map((v, i) => {
+          const isPast    = (i + 1) < NOW_MONTH;
+          const isCurrent = (i + 1) === NOW_MONTH;
+          const pct = v > 0 ? Math.max((v / maxV) * 100, 3) : 1;
+          const label = v > 0 ? (v >= 100000 ? Math.round(v/10000)+'만' : Math.round(v/1000)+'천') : '';
+          const bg = isCurrent
+            ? 'linear-gradient(to top,rgba(6,182,212,.3),rgba(6,182,212,1))'
+            : isPast
+            ? 'rgba(255,255,255,.12)'
+            : 'linear-gradient(to top,rgba(16,185,129,.25),rgba(16,185,129,.85))';
+          const border = isCurrent ? '1px solid rgba(6,182,212,.8)' : 'none';
+          const labelColor = isCurrent ? 'var(--cyan)' : isPast ? 'rgba(255,255,255,.35)' : 'var(--green)';
+          const monthColor = isCurrent ? 'var(--cyan)' : 'rgba(100,116,139,.9)';
+          const fw = isCurrent ? '700' : '400';
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative">
+            ${label ? `<div style="font-size:9px;color:${labelColor};font-weight:${fw};margin-bottom:2px;white-space:nowrap">${label}</div>` : '<div style="margin-bottom:11px"></div>'}
+            <div style="width:100%;height:${pct}%;background:${bg};border:${border};border-radius:3px 3px 0 0;box-shadow:${isCurrent?'0 0 8px var(--c-cyan-50)':'none'}"></div>
+            <div style="font-size:9px;color:${monthColor};font-weight:${fw};margin-top:3px">${i+1}월</div>
+          </div>`;
+        }).join('');
+      })()}
+    </div>
   </div>`;
-
-  // monthly 데이터 전역 보관 → drawDivMonthChart가 참조
-  window._divChartData = { monthly: monthly, nowMonth: NOW_MONTH };
 
   // 종목별 배당 테이블
   const sorted = [...divRows].sort((a,b)=>b.annualDiv-a.annualDiv);
@@ -3453,112 +3435,8 @@ function renderDivView(area) {
 
   area.innerHTML = html;
   buildDivMgmt();
-  // Canvas 그래프 — innerHTML 삽입 후 직접 호출 (script 태그 주입 방식은 브라우저가 실행 안 함)
-  requestAnimationFrame(function() { drawDivMonthChart(); });
 }
 
-// ── 월별 배당 Canvas 그래프 (전역 함수 — renderDivView에서 직접 호출)
-let _divResizeListenerAdded = false;
-function drawDivMonthChart() {
-  const canvas = document.getElementById('divMonthCanvas');
-  if (!canvas) return;
-  const data = window._divChartData;
-  if (!data) return;
-  const monthly   = data.monthly;
-  const NOW_MONTH = data.nowMonth;
-
-  const dpr = window.devicePixelRatio || 1;
-  const W   = canvas.offsetWidth || canvas.parentElement.offsetWidth || 600;
-  const H   = 140;
-  canvas.width  = W * dpr;
-  canvas.height = H * dpr;
-  canvas.style.width  = W + 'px';
-  canvas.style.height = H + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-
-  const PAD_L = 8, PAD_R = 8, PAD_TOP = 28, PAD_BOT = 22;
-  const chartW = W - PAD_L - PAD_R;
-  const chartH = H - PAD_TOP - PAD_BOT;
-  const gap    = 3;
-  const barW   = (chartW - gap * 11) / 12;
-  const maxV   = Math.max(...monthly, 1);
-
-  // 가이드라인 (하드코딩 rgba: CSS 변수 아닌 고정 투명도 — resolveColor 불필요)
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1;
-  [0.25, 0.5, 0.75, 1.0].forEach(ratio => {
-    const y = PAD_TOP + chartH - chartH * ratio;
-    ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W - PAD_R, y); ctx.stroke();
-  });
-
-  monthly.forEach((v, i) => {
-    const isPast    = (i + 1) < NOW_MONTH;
-    const isCurrent = (i + 1) === NOW_MONTH;
-    const x  = PAD_L + i * (barW + gap);
-    const bH = v > 0 ? Math.max((v / maxV) * chartH, 4) : 2;
-    const y  = PAD_TOP + chartH - bH;
-
-    let color;
-    if (isCurrent) {
-      const grad = ctx.createLinearGradient(x, y, x, PAD_TOP + chartH);
-      grad.addColorStop(0, 'rgba(6,182,212,1)');
-      grad.addColorStop(1, 'rgba(6,182,212,0.3)');
-      color = grad;
-    } else if (isPast) {
-      color = 'rgba(255,255,255,0.12)';
-    } else {
-      const grad = ctx.createLinearGradient(x, y, x, PAD_TOP + chartH);
-      grad.addColorStop(0, 'rgba(16,185,129,0.85)');
-      grad.addColorStop(1, 'rgba(16,185,129,0.25)');
-      color = grad;
-    }
-
-    if (isCurrent && v > 0) { ctx.shadowColor = 'rgba(6,182,212,0.5)'; ctx.shadowBlur = 8; }
-
-    const r = Math.min(3, barW / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + barW - r, y);
-    ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
-    ctx.lineTo(x + barW, PAD_TOP + chartH);
-    ctx.lineTo(x, PAD_TOP + chartH);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    if (isCurrent) {
-      // 하드코딩 rgba: --cyan 기반 고정 테두리 — resolveColor 불필요
-      ctx.strokeStyle = 'rgba(6,182,212,0.8)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-
-    if (v > 0) {
-      const label = v >= 100000 ? Math.round(v/10000)+'만' : Math.round(v/1000)+'천';
-      // 하드코딩 hex: --cyan(#06b6d4) / --green(#10b981) 고정값 — resolveColor 불필요
-      ctx.fillStyle   = isCurrent ? '#06b6d4' : isPast ? 'rgba(255,255,255,0.35)' : '#10b981';
-      ctx.font        = `${isCurrent ? '700' : '400'} 9px sans-serif`;
-      ctx.textAlign   = 'center';
-      ctx.fillText(label, x + barW / 2, y - 4);
-    }
-
-    // 하드코딩 hex/rgba: --cyan(#06b6d4) / --muted rgba — resolveColor 불필요
-    ctx.fillStyle = isCurrent ? '#06b6d4' : 'rgba(100,116,139,0.9)';
-    ctx.font      = `${isCurrent ? '700' : '400'} 9px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText((i + 1) + '월', x + barW / 2, H - 5);
-  });
-
-  // resize 이벤트 — 중복 등록 방지
-  if (!_divResizeListenerAdded) {
-    window.addEventListener('resize', drawDivMonthChart);
-    _divResizeListenerAdded = true;
-  }
-}
 // LOAN VIEW + 부동산
 // LOAN, REAL_ESTATE 선언 → loadHoldings 앞으로 이동 (복원 순서 보장)
 
@@ -3788,7 +3666,7 @@ function buildScheduleSection() {
           📂 CSV 업로드
           <input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="uploadScheduleCsv(this)">
         </label>
-        ${hasSched ? `<button onclick="clearSchedule()" style="background:none;border:1px solid rgba(239,68,68,.3);color:var(--red);border-radius:6px;padding:4px 10px;font-size:.72rem;cursor:pointer">🗑 초기화</button>` : ''}
+        ${hasSched ? `<button onclick="clearSchedule()" style="background:none;border:1px solid var(--c-red-30);color:var(--red);border-radius:6px;padding:4px 10px;font-size:.72rem;cursor:pointer">🗑 초기화</button>` : ''}
       </div>
     </div>
 
@@ -3823,7 +3701,7 @@ function buildScheduleSection() {
           oninput="this.value=this.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,',')">
       </div>
       <button onclick="addReValue()"
-        style="background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.3);color:var(--amber);border-radius:6px;padding:6px 14px;font-size:.78rem;cursor:pointer">
+        style="background:var(--c-amber-15);border:1px solid var(--c-amber-30);color:var(--amber);border-radius:6px;padding:6px 14px;font-size:.78rem;cursor:pointer">
         ➕ 추가
       </button>
     </div>
@@ -4091,14 +3969,14 @@ function renderScheduleChart() {
     const seenYears = new Set();
     return data.map((row, i) => {
       if (useAll) {
-        return `<text x="${toX(i).toFixed(1)}" y="${yPos}" text-anchor="middle" font-size="${fontSize}" fill="#94a3b8">${dates[i]}</text>`;
+        return `<text x="${toX(i).toFixed(1)}" y="${yPos}" text-anchor="middle" font-size="${fontSize}" fill="var(--muted)">${dates[i]}</text>`;
       }
       const yyyy = row.date.slice(0, 4);
       const mm   = row.date.slice(5, 7);
       // 해당 연도의 첫 번째 데이터 포인트에 연도 표시
       if (!seenYears.has(yyyy)) {
         seenYears.add(yyyy);
-        return `<text x="${toX(i).toFixed(1)}" y="${yPos}" text-anchor="middle" font-size="${fontSize}" fill="#94a3b8">${yyyy}</text>`;
+        return `<text x="${toX(i).toFixed(1)}" y="${yPos}" text-anchor="middle" font-size="${fontSize}" fill="var(--muted)">${yyyy}</text>`;
       }
       return '';
     }).join('');
@@ -4125,7 +4003,7 @@ function renderScheduleChart() {
     const x  = toX(i) - barW / 2;
     const yy = v >= 0 ? toY2(v) : zero2;
     const h  = Math.max(2, Math.abs(toY2(v) - zero2));
-    const clr = v >= 0 ? '#10b981' : '#ef4444';
+    const clr = v >= 0 ? 'var(--green)' : 'var(--red)';
     return `<rect x="${x.toFixed(1)}" y="${yy.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}"
       fill="${clr}" opacity="0.92" rx="3"/>`;
   }).join('');
@@ -4137,53 +4015,53 @@ function renderScheduleChart() {
   const latestBal    = bals[n - 1];
   const latestEq     = equities.filter(v => v !== null).slice(-1)[0];
   const latestPnl    = validPnl.slice(-1)[0] ?? null;
-  const pnlColor     = latestPnl !== null ? (latestPnl >= 0 ? '#4ade80' : '#f87171') : 'var(--muted)';
+  const pnlColor     = latestPnl !== null ? (latestPnl >= 0 ? 'var(--green-lt)' : 'var(--red-lt)') : 'var(--muted)';
 
   wrap.innerHTML = `
   <!-- 범례 + 요약 -->
-  <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px">
+  <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:var(--c-white-03);border:1px solid var(--border);border-radius:10px">
     <div class="flex-gap6-ai">
-      <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round"/></svg>
+      <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="var(--blue-lt)" stroke-width="2.5" stroke-linecap="round"/></svg>
       <span class="txt-75-slate">대출 잔액</span>
-      <span style="font-size:.78rem;font-weight:700;color:#60a5fa;margin-left:4px">${yLbl(latestBal)}</span>
+      <span style="font-size:.78rem;font-weight:700;color:var(--blue-lt);margin-left:4px">${yLbl(latestBal)}</span>
     </div>
     ${eqPath ? `
     <div class="flex-gap6-ai">
-      <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="#f59e0b" stroke-width="2.5" stroke-dasharray="5,3" stroke-linecap="round"/></svg>
+      <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="var(--amber)" stroke-width="2.5" stroke-dasharray="5,3" stroke-linecap="round"/></svg>
       <span class="txt-75-slate">순자산 (시가−잔액)</span>
-      ${latestEq != null ? `<span style="font-size:.78rem;font-weight:700;color:#fbbf24;margin-left:4px">${yLbl(latestEq)}</span>` : ''}
+      ${latestEq != null ? `<span style="font-size:.78rem;font-weight:700;color:var(--amber);margin-left:4px">${yLbl(latestEq)}</span>` : ''}
     </div>` : ''}
-    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.2);padding:6px 12px;border-radius:8px">
-      <span style="font-size:.70rem;color:#94a3b8">이자포함 순손익</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--c-black-20);padding:6px 12px;border-radius:8px">
+      <span style="font-size:.70rem;color:var(--muted)">이자포함 순손익</span>
       <span style="font-size:.90rem;font-weight:800;color:${pnlColor}">${latestPnl !== null ? (latestPnl >= 0 ? '+' : '') + yLbl(latestPnl) : '시가 미입력'}</span>
     </div>
   </div>
 
   <!-- 잔액·순자산 차트 -->
-  <div style="background:rgba(14,23,38,.6);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;margin-bottom:8px;-webkit-overflow-scrolling:touch">
+  <div style="background:var(--c-s1-60);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;margin-bottom:8px;-webkit-overflow-scrolling:touch">
     <div class="section-label">잔액 · 순자산</div>
     <svg viewBox="0 0 ${W} ${H1}" width="${W}" height="${H1}" style="display:block;min-width:${W}px">
       <defs>
         <linearGradient id="balGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.18"/>
-          <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.01"/>
+          <stop offset="0%" stop-color="var(--blue-lt)" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="var(--blue-lt)" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
       <!-- 배경 그리드 -->
       ${ticks1.map(v => {
         const y = toY(v, balMn, balMx, PAD.t, gH1).toFixed(1);
         return `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
-        <text x="${PAD.l - 8}" y="${(+y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="#94a3b8">${yLbl(v)}</text>`;
+        <text x="${PAD.l - 8}" y="${(+y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--muted)">${yLbl(v)}</text>`;
       }).join('')}
       <!-- 잔액 fill -->
       <path d="${balFill}" fill="url(#balGrad)"/>
       <!-- 잔액 라인 -->
-      <path d="${balPath}" fill="none" stroke="#60a5fa" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+      <path d="${balPath}" fill="none" stroke="var(--blue-lt)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
       <!-- 최신 포인트 -->
-      <circle cx="${toX(n-1).toFixed(1)}" cy="${toY(bals[n-1], balMn, balMx, PAD.t, gH1).toFixed(1)}" r="5.5" fill="#60a5fa" stroke="var(--s1)" stroke-width="2"/>
+      <circle cx="${toX(n-1).toFixed(1)}" cy="${toY(bals[n-1], balMn, balMx, PAD.t, gH1).toFixed(1)}" r="5.5" fill="var(--blue-lt)" stroke="var(--s1)" stroke-width="2"/>
       <!-- 순자산 라인 -->
-      ${eqPath ? `<path d="${eqPath}" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6,3"/>
-      <circle cx="${toX(validEqIdx[validEqIdx.length-1]).toFixed(1)}" cy="${toY(equities[validEqIdx[validEqIdx.length-1]], balMn, balMx, PAD.t, gH1).toFixed(1)}" r="5.5" fill="#f59e0b" stroke="var(--s1)" stroke-width="2"/>` : ''}
+      ${eqPath ? `<path d="${eqPath}" fill="none" stroke="var(--amber)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6,3"/>
+      <circle cx="${toX(validEqIdx[validEqIdx.length-1]).toFixed(1)}" cy="${toY(equities[validEqIdx[validEqIdx.length-1]], balMn, balMx, PAD.t, gH1).toFixed(1)}" r="5.5" fill="var(--amber)" stroke="var(--s1)" stroke-width="2"/>` : ''}
       <!-- Y축 레이블 (잔액/원) -->
       <text transform="rotate(-90)" x="${-(PAD.t + gH1/2)}" y="18" text-anchor="middle" font-size="11" fill="var(--muted)">잔액 (원)</text>
       <!-- X축 레이블 (상환월) -->
@@ -4195,14 +4073,14 @@ function renderScheduleChart() {
   </div>
 
   <!-- 손익 차트 -->
-  <div style="background:rgba(14,23,38,.6);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;-webkit-overflow-scrolling:touch">
+  <div style="background:var(--c-s1-60);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <div class="section-label">이자포함 순손익</div>
     <svg viewBox="0 0 ${W} ${H2}" width="${W}" height="${H2}" style="display:block;min-width:${W}px">
       <!-- 배경 그리드 -->
       ${pnlTicks.map(v => {
         const y = toY2(v).toFixed(1);
-        return `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y}" y2="${y}" stroke="${v === 0 ? '#334155' : 'var(--border)'}" stroke-width="${v === 0 ? 2 : 1}"/>
-        <text x="${PAD.l - 8}" y="${(+y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${v === 0 ? '#cbd5e1' : '#94a3b8'}">${v === 0 ? '0' : yLbl(v)}</text>`;
+        return `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y}" y2="${y}" stroke="${v === 0 ? 'var(--s2)' : 'var(--border)'}" stroke-width="${v === 0 ? 2 : 1}"/>
+        <text x="${PAD.l - 8}" y="${(+y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${v === 0 ? 'var(--text)' : 'var(--muted)'}">${v === 0 ? '0' : yLbl(v)}</text>`;
       }).join('')}
       <!-- Y축 레이블 (손익/원) -->
       <text transform="rotate(-90)" x="${-(PAD.t + gH2/2)}" y="18" text-anchor="middle" font-size="11" fill="var(--muted)">손익 (원)</text>
@@ -4239,7 +4117,7 @@ function renderStocksView(area) {
       </div>
 
       <!-- 새 계좌 입력창 (숨김) -->
-      <div id="acctMgmtNewWrap" style="display:none;background:rgba(139,92,246,.06);border:1px dashed rgba(139,92,246,.4);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div id="acctMgmtNewWrap" style="display:none;background:var(--c-purple-06);border:1px dashed var(--c-purple-40);border-radius:8px;padding:10px;margin-bottom:10px">
         <div class="lbl-68-purple">➕ 새 계좌 추가</div>
         <div class="flex-gap6-wrap" style="margin-bottom:8px">
           <input id="acctMgmtNewInput" type="text" placeholder="계좌명 (예: 키움, 미래에셋)"
@@ -4280,17 +4158,17 @@ function renderStocksView(area) {
       </div>
 
       <!-- 새 종목 입력창 (숨김) -->
-      <div id="smMgmtNewWrap" style="display:none;background:rgba(167,139,250,.06);border:1px dashed rgba(167,139,250,.4);border-radius:8px;padding:12px;margin-bottom:10px">
+      <div id="smMgmtNewWrap" style="display:none;background:rgba(167,139,250,.06);border:1px dashed var(--c-purple2-40);border-radius:8px;padding:12px;margin-bottom:10px">
         <div class="lbl-68-purple" style="margin-bottom:8px">➕ 새 종목 추가</div>
         <input type="hidden" id="smMgmtNewType" value="주식"/>
         <input type="hidden" id="smMgmtNewSec" value="기타"/>
         <!-- 1행: 종목명 + 코드 -->
         <div style="display:flex;gap:6px;margin-bottom:8px">
           <input id="smMgmtNewName" type="text" placeholder="종목명"
-            style="flex:1;background:var(--s2);border:1px solid rgba(167,139,250,.5);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
+            style="flex:1;background:var(--s2);border:1px solid var(--c-purple2-50);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
             onkeydown="if(event.key==='Enter')smMgmtConfirm(); if(event.key==='Escape')smMgmtCancel();"/>
           <input id="smMgmtNewCode" type="text" placeholder="코드" maxlength="6"
-            style="width:72px;background:var(--s2);border:1px solid rgba(167,139,250,.5);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem;font-family:'Courier New',monospace;text-align:center"
+            style="width:72px;background:var(--s2);border:1px solid var(--c-purple2-50);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem;font-family:'Courier New',monospace;text-align:center"
             onkeydown="if(event.key==='Enter')smMgmtConfirm(); if(event.key==='Escape')smMgmtCancel();"/>
         </div>
         <!-- 2행: 유형 버튼 -->
@@ -4323,14 +4201,14 @@ function renderStocksView(area) {
       </div>
 
       <!-- 새 섹터 입력창 (숨김) -->
-      <div id="secMgmtNewWrap" style="display:none;background:rgba(6,182,212,.05);border:1px dashed rgba(6,182,212,.4);border-radius:8px;padding:10px;margin-bottom:10px">
+      <div id="secMgmtNewWrap" style="display:none;background:rgba(6,182,212,.05);border:1px dashed var(--c-cyan-40);border-radius:8px;padding:10px;margin-bottom:10px">
         <div style="font-size:.70rem;color:var(--cyan);font-weight:700;margin-bottom:7px">➕ 새 섹터 추가</div>
         <div class="flex-gap6-wrap">
           <input id="secMgmtNewName" type="text" placeholder="섹터명"
-            style="flex:1;min-width:120px;background:var(--s2);border:1px solid rgba(6,182,212,.5);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
+            style="flex:1;min-width:120px;background:var(--s2);border:1px solid var(--c-cyan-50);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
             onkeydown="if(event.key==='Enter')secMgmtConfirm(); if(event.key==='Escape')secMgmtCancel();"/>
           <input id="secMgmtNewColor" type="color" value="var(--muted)"
-            style="width:40px;height:34px;border:1px solid rgba(6,182,212,.4);border-radius:6px;padding:2px;background:var(--s2);cursor:pointer"/>
+            style="width:40px;height:34px;border:1px solid var(--c-cyan-40);border-radius:6px;padding:2px;background:var(--s2);cursor:pointer"/>
           <button onclick="secMgmtConfirm()"
             class="btn-purple-700">✅ 추가</button>
           <button onclick="secMgmtCancel()"
@@ -4363,7 +4241,7 @@ function renderGsheetView(area) {
     </div>
 
     <!-- 연결 상태 -->
-    <div style="background:${connected?'rgba(34,197,94,.07)':'rgba(100,116,139,.07)'};border:1px solid ${connected?'rgba(34,197,94,.25)':'var(--border)'};border-radius:12px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+    <div style="background:${connected?'rgba(34,197,94,.07)':'rgba(100,116,139,.07)'};border:1px solid ${connected?'var(--c-green2-25)':'var(--border)'};border-radius:12px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
       <div style="font-size:1.4rem">${connected?'✅':'⚪'}</div>
       <div>
         <div style="font-size:.75rem;font-weight:700;color:${connected?'var(--green-lt)':'var(--muted)'}">${connected?'구글시트 연동됨':'구글시트 미연동'}</div>
@@ -4583,8 +4461,8 @@ function openResetDialog() {
   }
   document.body.insertAdjacentHTML('beforeend', `
   <div id="resetOverlay"
-    style="display:flex;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9900;justify-content:center;align-items:center;padding:clamp(8px,4vw,16px)">
-    <div style="background:var(--s1);border:1px solid rgba(239,68,68,.4);border-radius:14px;width:100%;max-width:440px">
+    style="display:flex;position:fixed;inset:0;background:var(--c-black-82);z-index:9900;justify-content:center;align-items:center;padding:clamp(8px,4vw,16px)">
+    <div style="background:var(--s1);border:1px solid var(--c-red-40);border-radius:14px;width:100%;max-width:440px">
       <div style="padding:18px 22px 14px;border-bottom:1px solid var(--border)">
         <h3 style="margin:0 0 4px;font-size:1rem;font-weight:700;color:var(--red-lt)">🗑 데이터 초기화</h3>
         <p class="txt-73-muted">초기화할 항목을 선택하세요. 이 작업은 되돌릴 수 없어요.</p>
@@ -4640,11 +4518,11 @@ function openResetDialog() {
         </label>
 
         <div id="rst-confirm-wrap" style="display:none;margin-top:4px">
-          <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:10px 14px;font-size:.75rem;color:var(--red-lt);margin-bottom:10px">
+          <div style="background:var(--c-red-08);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:10px 14px;font-size:.75rem;color:var(--red-lt);margin-bottom:10px">
             ⚠️ 선택한 데이터가 영구 삭제됩니다. 계속하려면 아래에 <b>초기화</b> 를 입력하세요.
           </div>
           <input id="rst-confirm-input" type="text" placeholder="초기화"
-            style="width:100%;background:var(--s2);border:1px solid rgba(239,68,68,.4);border-radius:6px;padding:8px 12px;color:var(--text);font-size:.85rem"/>
+            style="width:100%;background:var(--s2);border:1px solid var(--c-red-40);border-radius:6px;padding:8px 12px;color:var(--text);font-size:.85rem"/>
         </div>
       </div>
 
@@ -5049,7 +4927,7 @@ async function autoLoadPrices() {
     badge.style.display = 'inline-block';
     badge.style.background = 'rgba(59,130,246,.15)';
     badge.style.color = 'var(--blue-lt)';
-    badge.style.border = '1px solid rgba(59,130,246,.3)';
+    badge.style.border = '1px solid var(--c-blue2-30)';
   }
   setStatusLabel('⏳ GOOGLEFINANCE로 종가 조회 중...', 'loading');
 
@@ -5183,7 +5061,7 @@ function getCode(name) {
     Object.entries(saved).forEach(([k, v]) => {
       SECTOR_COLORS[k] = (typeof v === 'string' && v.startsWith('var('))
         ? resolveColor(v)   // var(--xxx) → 실제 hex로 변환하여 저장
-        : (v || '#64748b'); // 빈값 방어
+        : (v || 'var(--muted)'); // 빈값 방어
     });
   }
 })();
@@ -5272,7 +5150,7 @@ checkAndShowMigration();
       이 화면에서는 <b class="c-text">자동 조회가 안 되는 모든 종목</b>의 현재가를 직접 입력할 수 있습니다.
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button onclick="closeEditor(); switchView('stocks')"
-          style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);color:var(--purple-lt);border-radius:6px;padding:4px 10px;font-size:.70rem;cursor:pointer">
+          style="background:var(--c-purple-12);border:1px solid rgba(139,92,246,.3);color:var(--purple-lt);border-radius:6px;padding:4px 10px;font-size:.70rem;cursor:pointer">
           ⚙️ 기초정보 관리 →
         </button>
         <button onclick="closeEditor(); switchView('gsheet')"
@@ -5874,7 +5752,7 @@ function buildAcctMgmt() {
 
   const sel      = container._selectedAcct || null;
   const editMode = container._editMode     || false;
-  const inpStyle = `flex:1;background:var(--s2);border:1px solid rgba(251,191,36,.5);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.75rem`;
+  const inpStyle = `flex:1;background:var(--s2);border:1px solid var(--c-amber2-50);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.75rem`;
 
   let html = `<div style="font-size:.70rem;color:var(--muted);margin-bottom:8px">계좌를 클릭하면 수정·삭제를 선택할 수 있습니다.</div>`;
 
@@ -5888,8 +5766,8 @@ function buildAcctMgmt() {
     // 읽기전용 행
     html += `<div class="acct-row" data-acct="${acct}"
       style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;
-             background:${isSel?'rgba(139,92,246,.12)':'var(--s2)'};margin-bottom:4px;cursor:pointer;
-             border:1px solid ${isSel?'rgba(139,92,246,.45)':'transparent'};transition:all .15s">
+             background:${isSel?'var(--c-purple-12)':'var(--s2)'};margin-bottom:4px;cursor:pointer;
+             border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};transition:all .15s">
       <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
       <span class="item-title">${acct}</span>
       <span class="lbl-64-muted">${hasData?`거래 ${tradeN}건`:'거래 없음'}</span>
@@ -6160,15 +6038,15 @@ function updateRePreview() {
 
     // 비용 구성
     if(totalCost > 0) {
-      h += '<div style="background:rgba(0,0,0,.2);border-radius:6px;padding:8px;font-size:.70rem">'
+      h += '<div style="background:var(--c-black-20);border-radius:6px;padding:8px;font-size:.70rem">'
          + '<div style="color:var(--muted);margin-bottom:5px;font-weight:700">💸 총 지출 내역</div>'
          + '<div style="display:grid;grid-template-columns:1fr auto;gap:3px 10px">';
       if(pur > 0)      h += '<span class="c-muted">매입가</span><span class="td-right">' + fmt(pur) + '</span>';
       if(tax > 0)      h += '<span class="c-muted">취득세·세금</span><span class="txt-red-right">+ ' + fmt(tax) + '</span>';
       if(interior > 0) h += '<span class="c-muted">인테리어</span><span class="txt-red-right">+ ' + fmt(interior) + '</span>';
       if(etc > 0)      h += '<span class="c-muted">기타</span><span class="txt-red-right">+ ' + fmt(etc) + '</span>';
-      if(totalCost > 0) h += '<span style="color:var(--text);font-weight:700;border-top:1px solid rgba(255,255,255,.1);padding-top:4px">합계</span>'
-                           + '<span style="text-align:right;font-weight:700;color:var(--amber);border-top:1px solid rgba(255,255,255,.1);padding-top:4px">' + fmt(totalCost) + '</span>';
+      if(totalCost > 0) h += '<span style="color:var(--text);font-weight:700;border-top:1px solid var(--c-white-10);padding-top:4px">합계</span>'
+                           + '<span style="text-align:right;font-weight:700;color:var(--amber);border-top:1px solid var(--c-white-10);padding-top:4px">' + fmt(totalCost) + '</span>';
       h += '</div></div>';
     }
 
@@ -6300,6 +6178,50 @@ function applyDivChanges() {
   buildDivMgmt();
 }
 
+// ── 배당 탭 진입 시 자동 GS fetch (버튼 클릭 없이 조용히 갱신)
+async function _autoFetchDiv(area) {
+  const codeItems = EDITABLE_PRICES.filter(ep => {
+    const holding = rawHoldings.find(h => h.name === ep.name && !h.fund);
+    return holding && ep.code;
+  });
+  if (!codeItems.length) return;
+
+  const codes = codeItems.map(ep => ep.code).join(',');
+  try {
+    const url  = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes);
+    const res  = await fetchWithTimeout(url, 40000);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.dividends) return;
+
+    const codeToName = {};
+    EDITABLE_PRICES.filter(ep => ep.code).forEach(ep => { codeToName[ep.code] = ep.name; });
+
+    let changed = false;
+    Object.entries(data.dividends).forEach(([code, obj]) => {
+      const name = codeToName[code];
+      if (!name) return;
+      DIVDATA[name] = {
+        ...(DIVDATA[name] || {}),
+        perShare: obj.perShare ?? 0,
+        freq:     obj.freq    || '-',
+        months:   obj.months  || [],
+        note:     'GOOGLEFINANCE 자동갱신',
+      };
+      changed = true;
+    });
+
+    if (changed) {
+      saveHoldings();
+      // 현재 배당 탭이 열려 있으면 재렌더
+      if (currentView === 'div') renderDivView(area);
+    }
+  } catch(e) {
+    // 자동 fetch 실패 시 조용히 무시 (수동 버튼으로 재시도 가능)
+    console.warn('_autoFetchDiv 실패:', e.message);
+  }
+}
+
 // ── 배당금 Claude API 자동 조회
 async function startDivFetch() {
   const btn    = $el('divFetchBtn');
@@ -6392,8 +6314,8 @@ function buildSectorMgmt() {
       // ── 읽기전용 행 (계좌 목록 스타일)
       html += `<div class="sec-row" data-idx="${idx}"
         style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;
-               background:${isSel?'rgba(139,92,246,.12)':'var(--s2)'};margin-bottom:4px;cursor:pointer;
-               border:1px solid ${isSel?'rgba(139,92,246,.45)':'transparent'};transition:all .15s">
+               background:${isSel?'var(--c-purple-12)':'var(--s2)'};margin-bottom:4px;cursor:pointer;
+               border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};transition:all .15s">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
         <span class="item-title">${sec}</span>
         <span class="lbl-64-muted">${stockCount ? `종목 ${stockCount}개` : '종목 없음'}</span>
@@ -6402,10 +6324,10 @@ function buildSectorMgmt() {
       // ── 수정 모드 행 (인풋 활성화)
       html += `<div class="sec-row" data-idx="${idx}"
         style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;
-               background:rgba(139,92,246,.1);margin-bottom:4px;cursor:pointer;
-               border:1px solid rgba(139,92,246,.45);transition:all .15s">
+               background:var(--c-purple-10);margin-bottom:4px;cursor:pointer;
+               border:1px solid var(--c-purple-45);transition:all .15s">
         <input type="color" class="sec-color-inp" data-idx="${idx}" value="${color}"
-          style="width:28px;height:28px;border:1px solid rgba(139,92,246,.4);border-radius:50%;padding:2px;background:var(--s2);cursor:pointer;flex-shrink:0" />
+          style="width:28px;height:28px;border:1px solid var(--c-purple-40);border-radius:50%;padding:2px;background:var(--s2);cursor:pointer;flex-shrink:0" />
         <input type="text" class="sec-name-inp inp-mgmt-base" data-idx="${idx}" value="${sec.replace(/"/g,'&quot;')}" />
       </div>`;
     }
@@ -6607,9 +6529,9 @@ function buildStockMgmt() {
     const curType = item.assetType || item.type || '주식';
     html += `<div class="sm-row" data-idx="${idx}"
       style="display:grid;grid-template-columns:1fr 80px 72px 72px;gap:5px;align-items:center;padding:4px;
-             border-radius:${isEdit?'6px 6px 0 0':'6px'};border:1px solid ${isSel?'rgba(139,92,246,.45)':'transparent'};
-             border-bottom:${isEdit?'1px solid rgba(139,92,246,.2)':'1px solid ' + (isSel?'rgba(139,92,246,.45)':'transparent')};
-             background:${isSel?'rgba(139,92,246,.1)':'transparent'};margin-bottom:${isEdit?'0':'3px'};cursor:pointer;transition:all .15s">
+             border-radius:${isEdit?'6px 6px 0 0':'6px'};border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
+             border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'transparent')};
+             background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:${isEdit?'0':'3px'};cursor:pointer;transition:all .15s">
       <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.name.replace(/"/g,'&quot;')}"
         ${isEdit?'':'readonly tabindex="-1"'} />
       <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.code||''}"
@@ -6619,7 +6541,7 @@ function buildStockMgmt() {
     </div>`;
 
     if(isEdit) {
-      html += `<div style="border:1px solid rgba(139,92,246,.45);border-top:none;border-radius:0 0 6px 6px;background:rgba(139,92,246,.06);padding:10px 10px 8px;margin-bottom:6px">
+      html += `<div style="border:1px solid var(--c-purple-45);border-top:none;border-radius:0 0 6px 6px;background:var(--c-purple-06);padding:10px 10px 8px;margin-bottom:6px">
         <input type="hidden" class="sm-type-sel" data-idx="${idx}" value="${curType}"/>
         <input type="hidden" class="sm-sec-sel" data-idx="${idx}" value="${sec}"/>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -6903,10 +6825,10 @@ function smMgmtConfirm() {
 
 // 섹터 자동 색상 팔레트 (중복 방지용)
 const SECTOR_AUTO_PALETTE = [
-  '#10b981','#3b82f6','#f59e0b','#8b5cf6','#06b6d4',
-  '#ec4899','#f97316','#84cc16','#14b8a6','#a855f7',
-  '#ef4444','#6366f1','#22d3ee','#fb923c','#4ade80',
-  '#e879f9','#facc15','#38bdf8','#f472b6','#34d399'
+  'var(--green)','var(--blue-lt)','var(--amber)','var(--purple)','var(--cyan)',
+  'var(--pink)','var(--gold2)','#84cc16','var(--cyan)','var(--purple-lt)',
+  'var(--red)','var(--purple)','var(--cyan)','var(--gold2)','var(--green-lt)',
+  'var(--pink)','var(--amber)','var(--blue-lt)','var(--pink)','var(--green-md)'
 ];
 function _secAutoColor() {
   const used = new Set(Object.values(SECTOR_COLORS).map(c => c.toLowerCase()));
@@ -7203,7 +7125,7 @@ function applyPrices() {
       </div>
 
       <!-- 미리보기 -->
-      <div id="re-preview" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:8px;padding:12px;margin-top:4px;font-size:.72rem;display:none">
+      <div id="re-preview" style="background:var(--c-amber-08);border:1px solid var(--c-amber-20);border-radius:8px;padding:12px;margin-top:4px;font-size:.72rem;display:none">
         <div style="color:var(--amber);font-weight:700;margin-bottom:8px">📊 손익 미리보기</div>
         <div id="re-preview-content"></div>
       </div>
@@ -7267,7 +7189,7 @@ function applyPrices() {
           <input type="number" id="le-totalMonths" placeholder="480" class="w-150">
         </div>
       </div>
-      <div style="background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.15);border-radius:8px;padding:12px;font-size:.75rem;color:rgba(232,237,245,.65);line-height:1.8">
+      <div style="background:rgba(245,158,11,.06);border:1px solid var(--c-amber-15);border-radius:8px;padding:12px;font-size:.75rem;color:rgba(232,237,245,.65);line-height:1.8">
         💡 매월 납입 후 <strong class="c-gold">잔액</strong>·<strong class="c-gold">잔여 개월수</strong>·<strong class="c-gold">이자지급액</strong>을 업데이트하세요.<br>
         <strong class="c-gold">누적 이자</strong>는 대출 실행일부터 지금까지 납부한 이자 합산액으로, 부동산 실질 손익 계산에 반영됩니다.
       </div>
