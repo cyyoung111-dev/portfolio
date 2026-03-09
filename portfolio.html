@@ -5885,35 +5885,41 @@ function saveGsheetUrlFromUI() {
   }
   saveGsheetUrl(val);
   const res = $el('gsheetTestResult');
-  if (res) { res.style.color = 'var(--green-lt)'; res.textContent = '✅ URL 저장 완료. 설정 복원 중...'; }
+  function setRes(msg, color) {
+    if (!res) return;
+    res.style.color = color || 'var(--muted)';
+    res.textContent = msg;
+  }
   updateGsheetBadge();
-  // URL 저장 직후 설정 자동 복원
+
   (async () => {
+    // 1단계 — 설정 복원
+    setRes('⏳ [1/3] 설정 복원 중...', 'var(--amber)');
     const restored = await loadSettings();
-    if (res) {
-      res.style.color = restored ? 'var(--green-lt)' : 'var(--muted)';
-      res.textContent = restored
-        ? '✅ URL 저장 완료 · 설정 복원됨. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.'
-        : '✅ URL 저장 완료. 메인화면 🔄 업데이트 버튼으로 종가를 조회하세요.';
-    }
     if (restored) { try { refreshAll(); _mgmtRefresh(); } catch(e){} }
-    // 종목코드 동기화 — refreshAll 후 EDITABLE_PRICES 복원 완료 시점에 호출
-    if (res) { res.textContent = (res.textContent || '') + ' · 종목코드 동기화 중...'; }
-    await new Promise(r => setTimeout(r, 500)); // DOM 렌더링 + 복원 안착 대기
+
+    // 2단계 — 종목코드 동기화
+    setRes('⏳ [2/3] 종목코드 동기화 중...', 'var(--amber)');
+    await new Promise(r => setTimeout(r, 500));
     const syncResult = await syncCodesToGsheet();
-    if (res && syncResult) {
+
+    // 3단계 — 최종 결과 표시
+    if (syncResult) {
       const { synced = 0, updated = 0, removed = 0, total = 0 } = syncResult;
       const parts = [];
       if (synced  > 0) parts.push(`신규 ${synced}개`);
       if (updated > 0) parts.push(`수정 ${updated}개`);
       if (removed > 0) parts.push(`삭제 ${removed}개`);
       const codeMsg = parts.length
-        ? `종목코드 ${parts.join(' · ')} (총 ${total}개) · 기준일: ${new Date().toISOString().slice(0,10)}`
-        : `종목코드 ${total}개 동기화 완료 · 기준일: ${new Date().toISOString().slice(0,10)}`;
-      res.textContent = '✅ 연결 성공! ' + codeMsg;
-      res.style.color = 'var(--green-lt)';
-    } else if (res && !syncResult) {
-      res.textContent = (res.textContent || '').replace(' · 종목코드 동기화 중...', '');
+        ? `종목코드 ${parts.join(' · ')} (총 ${total}개)`
+        : `종목코드 ${total}개`;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      setRes(`✅ 연결 성공! ${codeMsg} · 기준일: ${dateStr}`, 'var(--green-lt)');
+    } else {
+      setRes(
+        restored ? '✅ URL 저장 완료 · 설정 복원됨 (종목코드 동기화 실패)' : '✅ URL 저장 완료 (종목코드 동기화 실패)',
+        'var(--amber)'
+      );
     }
   })();
 }
