@@ -299,11 +299,7 @@ function normName(n){
 }
 let SECTOR_COLORS = {}; // 섹터 색상: 기초정보 관리탭에서 직접 입력
 
-let fundDirect = {
-  '한화 LIFEPLUS TDP 2045':{eval:31517821,cost:19364454,type:'TDF'},
-  'KB 밸류포커스소득공제증권':{eval:82173281,cost:36157397,type:'펀드'},
-  '피델리티 월드Big4증권':{eval:40207641,cost:28000000,type:'펀드'},
-};
+let fundDirect = {}; // localStorage 또는 GSheet 복원으로 채워짐
 
 const prices = {};  // 구글시트 자동 조회로 채워짐
 
@@ -5890,7 +5886,8 @@ async function testGsheetUrl() {
   res.style.color = 'var(--blue-lt)';
   res.textContent = '⏳ 연결 테스트 중...';
   try {
-    const r = await fetchWithTimeout(val + '?date=2026-03-03', 15000);
+    const today = new Date(); const _td = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    const r = await fetchWithTimeout(val + '?date=' + _td, 15000);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     if (data.status === 'ok') {
