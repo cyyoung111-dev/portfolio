@@ -1784,3 +1784,9 @@ function importData(input) {
 }
 
 // ── 헬퍼 함수들
+
+// 최초 로드 시 탭 렌더링
+document.addEventListener('DOMContentLoaded', function() {
+  buildTabBar();
+  switchView(currentView);
+});
