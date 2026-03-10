@@ -1787,3 +1787,26 @@ function importData(input) {
 }
 
 // ── 헬퍼 함수들
+
+// ★ 모든 JS 파일 로드 완료 후 초기화 (views_misc.js가 마지막 핵심 파일)
+(function initApp() {
+  try { syncLoanFromSchedule(); } catch(e) { console.warn('[init] syncLoanFromSchedule 실패:', e.message); }
+  try { buildTabBar(); } catch(e) { console.warn('[init] buildTabBar 실패:', e); }
+  try { refreshAll(); } catch(e) { console.warn('[init] refreshAll 실패:', e); }
+  if (lastUpdated && lastUpdated !== 'null') { try { updateDateBadge(lastUpdated, false); } catch(e){} }
+  try {
+    const c = $el('chartsRow');
+    if (c) c.style.display = TABS_NO_CHARTS.has(currentView) ? 'none' : '';
+  } catch(e) {}
+  // 구글시트 연동 시 자동 조회
+  (async () => {
+    try { await loadGsheetCodeList(); } catch(e) {}
+    if (typeof GSHEET_API_URL !== 'undefined' && GSHEET_API_URL) {
+      try {
+        const restored = await loadSettings();
+        if (restored) { syncLoanFromSchedule(); refreshAll(); }
+      } catch(e) {}
+    }
+    try { autoLoadPrices(); } catch(e) {}
+  })();
+})();

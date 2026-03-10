@@ -864,25 +864,9 @@ function getCode(name) {
 
   } catch(e) { console.warn('syncEditables 실패:', e); }
 })();
-try { buildTabBar(); } catch(e) { console.warn('탭 초기화 실패:', e); }
-try { syncLoanFromSchedule(); } catch(e) { console.warn('[init] syncLoanFromSchedule 실패:', e.message); }  // ★ 스케줄 기준 LOAN 자동 갱신
-try { refreshAll(); } catch(e) { console.warn('초기 로드 실패:', e); }
-// 캐시된 날짜로 뱃지 즉시 표시 (autoLoadPrices 완료 전에도 보이도록)
-if (lastUpdated && lastUpdated !== "null") { try { updateDateBadge(lastUpdated, false); } catch(e){} }
-// 초기 로드 시 차트 카드 표시 상태 적용
-(function(){ const c = $el('chartsRow'); if(c) c.style.display = TABS_NO_CHARTS.has(currentView) ? 'none' : ''; })();
+// ★ 초기화는 모든 JS 로드 후 views_misc.js 맨 끝에서 실행
 
-// 접속 즉시 자동 조회 (구글 시트 연동 시)
-// 구글시트 종목코드 먼저 로드 후 가격 조회
-(async () => {
-  await loadGsheetCodeList();
-  // 설정 복원 (새 브라우저 접속 시 GS에서 자동 복원)
-  if (GSHEET_API_URL) {
-    const restored = await loadSettings();
-    if (restored) { try { syncLoanFromSchedule(); refreshAll(); } catch(e){} }
-  }
-  autoLoadPrices();
-})();
+// ★ GSheet 연동 초기화는 views_misc.js 맨 끝 initApp()에서 실행
 
 // rawTrades 없고 rawHoldings 있으면 마이그레이션 팝업
 checkAndShowMigration();
