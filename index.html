@@ -80,6 +80,20 @@
     .fixed-tab-btns .vs-btn{min-width:40px !important;padding:5px 6px !important}
     .fixed-tab-btns .vs-btn-label{font-size:.58rem !important}
   }
+
+  /* ── 버튼 높이 통일 + 간격 통일 ── */
+  /* action-icon-btn 높이 vs-btn과 동일하게 */
+  .action-icon-btn{height:52px !important;justify-content:center}
+  .action-update-card{height:52px}
+  /* vs-btn 고정 높이 */
+  .vs-btn{height:52px}
+  .fixed-tab-btns .vs-btn{height:52px}
+  /* 카드 → 액션바 → 탭바 간격 통일 (12px) */
+  #sum-row-1{margin-bottom:12px}
+  #sum-row-2{margin-bottom:12px}
+  .action-bar{margin-bottom:12px !important}
+  /* dateBadge 헤더 오른쪽 정렬 */
+  .hdr{align-items:center}
 </style>
 </head>
 <body>
@@ -90,6 +104,7 @@
 <h1>📊 내 자산 포트폴리오</h1>
 <p>계좌별 · 종목별 · 섹터별 통합 현황</p>
 </div>
+<div id="dateBadge" class="date-badge" style="display:none;align-self:flex-start;margin-top:4px"></div>
 </div>
 <!-- SUMMARY -->
 <div class="sum-row fade d2" id="sum-row-1" style="grid-template-columns:repeat(4,1fr)">
@@ -115,7 +130,6 @@
 </div>
 </div>
 <!-- ACTION BAR -->
-<div id="dateBadge" class="date-badge" style="display:none;margin-bottom:6px;min-width:fit-content;flex-shrink:0"></div>
 <div class="action-bar fade d3">
 <!-- 왼쪽: 날짜 + 업데이트 카드 -->
 <div class="action-update-card">
