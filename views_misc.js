@@ -1337,8 +1337,6 @@ const TAB_DEFAULTS = [
   {id:'history',    label:'손익 그래프', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'},
   {id:'div',        label:'배당',       icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>'},
   {id:'asset',      label:'부동산',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>'},
-  {id:'stocks',     label:'기초정보',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07M8.46 8.46a5 5 0 000 7.07"/></svg>'},
-  {id:'gsheet',     label:'구글시트',   icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>'},
 ];
 // TAB_ORDER: localStorage 복원 (새 탭이 추가돼도 안전하게 병합)
 let TAB_ORDER = (function(){
@@ -1442,6 +1440,11 @@ function buildTabBar() {
       saveTabOrder(); buildTabBar();
     });
     vs.appendChild(btn);
+  });
+  // 오른쪽 고정 버튼 active 상태 동기화
+  ['stocks','gsheet'].forEach(id => {
+    const fb = $el('fixed-btn-' + id);
+    if (fb) fb.classList.toggle('active', currentView === id);
   });
 }
 
@@ -1784,9 +1787,3 @@ function importData(input) {
 }
 
 // ── 헬퍼 함수들
-
-// 최초 로드 시 탭 렌더링
-document.addEventListener('DOMContentLoaded', function() {
-  buildTabBar();
-  switchView(currentView);
-});
