@@ -841,3 +841,83 @@ function renderScheduleChart() {
 
 // ── 종목 관리 뷰
 
+
+// ════════════════════════════════════════════════════════════════════
+//  배당 자동 조회 — GAS ?action=dividend&codes=... 활용
+// ════════════════════════════════════════════════════════════════════
+
+// 탭 진입 시 자동 실행 (area: 렌더 영역 DOM)
+async function _autoFetchDiv(area) {
+  if (!GSHEET_API_URL) return;
+  const statusEl = $el('divFetchStatus');
+  const btnEl    = $el('divFetchBtn');
+  if (statusEl) statusEl.textContent = '⏳ 배당 데이터 조회 중...';
+  if (btnEl)    btnEl.disabled = true;
+
+  try {
+    // 보유 종목 중 코드 있는 것만 추출 (펀드 제외)
+    const codes = EDITABLE_PRICES
+      .filter(ep => ep.code && !ep.fund)
+      .map(ep => ep.code);
+
+    if (codes.length === 0) {
+      if (statusEl) statusEl.textContent = '⚠️ 조회할 종목코드가 없습니다. 기초정보 탭에서 코드를 등록해주세요.';
+      if (btnEl) btnEl.disabled = false;
+      return;
+    }
+
+    const url = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes.join(','));
+    const res = await fetchWithTimeout(url, 30000);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    if (data.status !== 'ok' || !data.dividends) throw new Error(data.message || '응답 오류');
+
+    // DIVDATA 업데이트 (코드 → 종목명 매핑 후 저장)
+    let updated = 0;
+    Object.entries(data.dividends).forEach(([code, divInfo]) => {
+      if (divInfo.perShare <= 0) return;
+      // 코드로 종목명 찾기
+      const ep = EDITABLE_PRICES.find(e => e.code === code);
+      const name = ep ? ep.name : code;
+      DIVDATA[name] = {
+        perShare: divInfo.perShare,
+        freq:     divInfo.freq,
+        months:   divInfo.months,
+      };
+      updated++;
+    });
+
+    // GSheet 및 localStorage 저장
+    if (updated > 0) {
+      lsSave(DIVDATA_KEY, DIVDATA);
+      saveSettings();
+    }
+
+    const statusMsg = updated > 0
+      ? `✅ ${updated}개 종목 배당 데이터 갱신 완료 · ${new Date().toLocaleTimeString()}`
+      : `⚠️ 배당 데이터 없음 (미지급 종목이거나 코드 확인 필요)`;
+    if (statusEl) statusEl.textContent = statusMsg;
+
+    // 화면 재렌더 (skipFetch=true → 재귀 방지)
+    if (currentView === 'div' && area) {
+      renderDivView(area, true);
+    }
+
+  } catch(e) {
+    if (statusEl) statusEl.textContent = '❌ 조회 실패: ' + e.message;
+    console.warn('[_autoFetchDiv]', e);
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
+}
+
+// "지금 갱신" 버튼 클릭 시
+async function startDivFetch() {
+  if (!GSHEET_API_URL) {
+    showToast('구글시트 연동이 필요합니다. 구글시트 탭에서 URL을 입력해주세요.', 'warn', 4000);
+    return;
+  }
+  const area = $el('mainView');
+  if (area) await _autoFetchDiv(area);
+}
