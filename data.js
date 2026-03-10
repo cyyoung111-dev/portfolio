@@ -762,6 +762,7 @@ function syncLoanFromSchedule() {
 function refreshAll() {
   recomputeRows();
   renderSummary();
+  try { buildTabBar(); } catch(e) {}
   renderDonut();
   renderView();
 }
