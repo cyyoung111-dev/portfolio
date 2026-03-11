@@ -1,0 +1,284 @@
+function openEditor() {
+  // rawHoldings에 있는 펀드/TDF 중 EDITABLE_PRICES에 누락된 것 보충
+  rawHoldings.forEach(h => {
+    if (!h.name) return;
+    const code = h.fund ? '' : (STOCK_CODE[h.name] || '');
+    if (!getEP(h.name)) {
+      epPush(h.name, code, h.type);
+    }
+  });
+  buildEditorUI();
+  $el('priceEditor').classList.add('open');
+}
+
+function closeEditor() {
+  $el('priceEditor').classList.remove('open');
+  editedPrices = {};
+}
+
+// ── 구글 시트 URL 관리
+// ★ v8 — 펀드·TDF NAV 수동 저장
+async function saveNavPrices() {
+  if (!GSHEET_API_URL) { showToast('구글시트 연동이 필요해요', 'warn'); return; }
+  const date = $el('navDate')?.value;
+  if (!date) { showToast('날짜를 선택해주세요', 'warn'); return; }
+  const inps = document.querySelectorAll('.nav-price-inp');
+  if (!inps.length) return;
+  const result = $el('navSaveResult');
+  if (result) { result.textContent = '저장 중...'; result.style.color = 'var(--muted)'; }
+  let saved = 0, skipped = 0;
+  for (const inp of inps) {
+    const name  = inp.dataset.name;
+    const price = parseFloat(inp.value);
+    if (!name || !(price > 0)) { skipped++; continue; }
+    try {
+      const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(date)
+                + '&name=' + encodeURIComponent(name) + '&price=' + price;
+      const res  = await fetchWithTimeout(url, 10000);
+      const data = await res.json();
+      if (data.status === 'ok') { saved++; inp.value = ''; }
+    } catch(e) {
+      console.warn('[saveNavPrices]', name, e.message);
+    }
+  }
+  if (result) {
+    result.textContent = saved > 0 ? `✅ ${saved}개 저장됨${skipped > 0 ? ` (${skipped}개 건너뜀)` : ''}` : '입력한 NAV가 없어요';
+    result.style.color = saved > 0 ? 'var(--green)' : 'var(--muted)';
+  }
+  if (saved > 0) showToast(`📅 ${date} NAV ${saved}개 저장됨`, 'ok');
+}
+
+function saveGsheetUrlFromUI() {
+  const val = $el('gsheetUrlInput')?.value?.trim();
+  if(!val) { showToast('URL을 입력해주세요', 'warn'); return; }
+  if(!val.startsWith('https://script.google.com')) {
+    showToast('올바른 Apps Script 웹앱 URL이 아닙니다', 'error');
+    return;
+  }
+  saveGsheetUrl(val);
+  // ★ 매번 $el()로 새로 찾음 — refreshAll()이 renderGsheetView()를 호출해 DOM을 재생성하므로
+  //    함수 시작 시점에 참조한 res는 재렌더링 후 무효화됨
+  function setRes(msg, color) {
+    const el = $el('gsheetTestResult');
+    if (!el) return;
+    el.style.color = color || 'var(--muted)';
+    el.textContent = msg;
+  }
+  updateGsheetBadge();
+
+  (async () => {
+    // 1단계 — 설정 복원
+    setRes('⏳ [1/3] 설정 복원 중... (GS 연결 확인)', 'var(--amber)');
+    let restored = false;
+    try {
+      restored = await loadSettings(function(msg) {
+        setRes('⏳ [1/3] ' + msg, 'var(--amber)');
+      });
+      if (restored) {
+        try { refreshAll(); _mgmtRefresh(); } catch(e){}
+        setRes('✅ [1/3] 설정 복원 완료', 'var(--green-lt)');
+      } else {
+        setRes('⚠️ [1/3] 설정 복원 실패 — GS 연결 확인 필요', 'var(--red-lt)');
+        return;
+      }
+    } catch(e) {
+      setRes('❌ [1/3] 설정 복원 오류: ' + e.message, 'var(--red-lt)');
+      return;
+    }
+
+    // 2단계 — 종목코드 동기화
+    await new Promise(r => setTimeout(r, 300));
+    setRes('⏳ [2/3] 종목코드 동기화 중...', 'var(--amber)');
+    let syncResult = null;
+    try {
+      syncResult = await syncCodesToGsheet();
+    } catch(e) {
+      setRes('❌ [2/3] 종목코드 동기화 오류: ' + e.message, 'var(--red-lt)');
+      return;
+    }
+
+    // 3단계 — 최종 결과 표시
+    if (syncResult) {
+      const { synced = 0, updated = 0, removed = 0, total = 0 } = syncResult;
+      const parts = [];
+      if (synced  > 0) parts.push(`신규 ${synced}개`);
+      if (updated > 0) parts.push(`수정 ${updated}개`);
+      if (removed > 0) parts.push(`삭제 ${removed}개`);
+      const codeMsg = parts.length
+        ? `종목코드 ${parts.join(' · ')} (총 ${total}개)`
+        : `종목코드 ${total}개`;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      setRes(`✅ 연결 성공! ${codeMsg} · 기준일: ${dateStr}`, 'var(--green-lt)');
+    } else {
+      setRes('⚠️ [3/3] 종목코드 동기화 실패 — 전송할 코드가 없거나 GS 응답 오류', 'var(--amber)');
+    }
+  })();
+}
+
+function clearGsheetUrl() {
+  saveGsheetUrl('');
+  const inp = $el('gsheetUrlInput');
+  if(inp) inp.value = '';
+  const res = $el('gsheetTestResult');
+  res.style.color = 'var(--muted)';
+  res.textContent = '연동 해제됨. 구글시트 연동 시 자동 조회가 활성화됩니다.';
+  updateGsheetBadge();
+}
+
+
+function updateGsheetBadge() {
+  // 메인 헤더 뱃지 업데이트 (있는 경우)
+  const badge = $el('gsheetBadge');
+  if(badge) badge.style.display = GSHEET_API_URL ? 'inline' : 'none';
+}
+
+// ── 기초정보 관리 공통 헬퍼
+// 데이터 변경 후 차트·요약 갱신. stocks탭에서는 renderView() 스킵 (인수인계 핵심 패턴)
+function _mgmtRefresh() {
+  recomputeRows();
+  renderSummary();
+  renderDonut();
+  if(currentView !== 'stocks') renderView();
+}
+
+// ── 계좌 관리 (기초정보 관리 탭)
+
+function buildEditorUI() {
+  // ① 코드 없는 종목 (펀드·TDF) - 항상 수동 입력
+  const fundItems = EDITABLE_PRICES.filter(item => !item.code);
+  // ② 코드 있지만 현재가 미조회된 종목 (savedPrices에 코드 키로 없는 것)
+  const nopriceItems = EDITABLE_PRICES.filter(item =>
+    item.code && !savedPrices[item.code]
+  );
+
+  const totalItems = [...fundItems, ...nopriceItems];
+
+  if (totalItems.length === 0) {
+    $el('editorBody').innerHTML =
+      '<div class="empty-msg" style="padding:30px 0">' +
+      '<div style="font-size:1.8rem;margin-bottom:8px">✅</div>' +
+      '모든 종목의 현재가가 자동 조회되고 있어요.<br>' +
+      '<span class="txt-muted-68">자동 조회가 안 되는 종목이 생기면 여기에 표시됩니다.</span>' +
+      '</div>';
+    return;
+  }
+
+  function renderRow(item, typeLabel) {
+    const current = (item.code && savedPrices[item.code]) || savedPrices[item.name] || savedPrices[normName(item.name)] || getCurrentPriceFromData(item.name);
+    const dateLabel = (item.code && savedPriceDates[item.code]) || savedPriceDates[item.name] || savedPriceDates[normName(item.name)] || (current ? '초기값' : '');
+    const hasDate = !!(( item.code && savedPriceDates[item.code]) || savedPriceDates[item.name] || savedPriceDates[normName(item.name)]);
+    const statusIcon = hasDate
+      ? `<span class="c-green" title="${dateLabel}">✓</span>`
+      : current
+        ? `<span class="c-muted" title="초기 설정값">○</span>`
+        : `<span style="color:var(--red)" title="미조회">✕</span>`;
+    const dateHtml = dateLabel
+      ? `<div style="font-size:.60rem;color:${hasDate?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${dateLabel}</div>`
+      : '<div style="font-size:.60rem;color:var(--red);margin-top:2px;text-align:right">미조회</div>';
+    const safeId  = item.name.replace(/\s/g, '_');
+    const safeName = item.name.replace(/'/g, "\\'");
+    return `<div class="editor-row" style="align-items:flex-start;margin-bottom:10px">
+      <label style="padding-top:4px;flex:1">
+        ${item.name}
+        <br><span class="lbl-60-muted">${typeLabel}${item.code ? ' · ' + item.code : ''}</span>
+      </label>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+        <input type="number" id="ep_${safeId}"
+          value="${current || ''}"
+          placeholder="현재가 입력"
+          oninput="markChanged('${safeName}', this.value)"
+          style="width:130px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem"
+        />
+        ${dateHtml}
+      </div>
+      <div class="price-status" id="ps_${safeId}" style="padding-top:4px">
+        ${statusIcon}
+      </div>
+    </div>`;
+  }
+
+  let html = '<div class="p-0-4">';
+
+  if (fundItems.length > 0) {
+    html += `<div class="editor-section-title">📦 펀드·TDF (${fundItems.length})</div>`;
+    fundItems.forEach(item => { html += renderRow(item, '펀드·TDF'); });
+  }
+
+  if (nopriceItems.length > 0) {
+    if (fundItems.length > 0) html += '<div style="margin-top:14px"></div>';
+    html += `<div class="editor-section-title">⚠️ 자동 조회 실패 종목 (${nopriceItems.length})</div>`;
+    nopriceItems.forEach(item => { html += renderRow(item, item.assetType || '주식'); });
+  }
+
+  html += '</div>';
+  $el('editorBody').innerHTML = html;
+}
+
+function getCurrentPriceFromData(name) {
+  // ★ 코드 키 우선 조회
+  const code = getCode(normName(name));
+  if (code && savedPrices[code]) return savedPrices[code];
+  if(savedPrices[name]) return savedPrices[name];
+  // Try to find in rows data
+  if(typeof rows === 'undefined') return null;
+  for(const r of rows) {
+    if(r.name === name && r.price) return r.price;
+  }
+  return null;
+}
+
+function markChanged(name, val) {
+  if(val) {
+    editedPrices[name] = parseInt(val.replace(/,/g,''));
+    const key = name.replace(/\s/g,'_');
+    const ps = $el('ps_' + key);
+    if(ps) ps.innerHTML = '<span class="c-gold" title="미저장 변경">✎</span>';
+    // 날짜 셀에 "저장 대기" 표시
+    const input = $el('ep_' + key);
+    if(input) {
+      let dateDiv = input.parentElement.querySelector('.pending-date');
+      if(!dateDiv) {
+        dateDiv = document.createElement('div');
+        dateDiv.className = 'pending-date';
+        dateDiv.style.cssText = 'font-size:.60rem;color:var(--gold);margin-top:2px;text-align:right';
+        input.parentElement.appendChild(dateDiv);
+      }
+      dateDiv.textContent = '저장 대기중...';
+    }
+  }
+}
+
+function applyPrices() {
+  if(Object.keys(editedPrices).length === 0) {
+    closeEditor(); return;
+  }
+  const now = new Date();
+  // dateStr: YYYY.MM.DD (시분 제외 — autoLoadPrices의 todayLabel과 형식 통일)
+  const dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  const updatedCount = Object.keys(editedPrices).length;
+  Object.keys(editedPrices).forEach(name => {
+    // ★ 코드 있는 종목은 코드 키로 저장, 코드 없는 펀드는 이름 키로 저장
+    const code = getCode(normName(name));
+    const key = code || name;
+    savedPrices[key] = editedPrices[name];
+    savedPriceDates[key] = dateStr + ' ' + timeStr; // savedPriceDates는 표시용이라 시분 유지
+  });
+
+  recomputeRows();
+  lastUpdated = dateStr; // ★ YYYY.MM.DD 형식으로 저장 (캐시 비교에 사용)
+  const _lbl = $el('price-updated-label');
+  if (_lbl) setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${lastUpdated}</span> · ${updatedCount}개 종목 반영`, 'ok');
+
+  // 날짜 뱃지 업데이트 (수동 적용 → 특정일 종가 기준)
+  const fetchedDate = $el('quickDateInput')?.value || '';
+  const todayStr = (()=>{ const t=new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); })();
+  const isToday = fetchedDate === todayStr;
+  updateDateBadge(lastUpdated, isToday); // lastUpdated가 이미 YYYY.MM.DD 형식
+
+  saveHoldings();
+  closeEditor();
+  renderView();
+  renderSummary();
+  renderDonut();
+}
