@@ -17,10 +17,11 @@ function buildSectorMgmt() {
     if(!isEdit) {
       // ── 읽기전용 행 (계좌 목록 스타일)
       html += `<div class="sec-row" data-idx="${idx}"
-        style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;
-               background:${isSel?'var(--c-purple-12)':'transparent'};margin-bottom:0;cursor:pointer;
+        style="display:flex;align-items:center;gap:10px;padding:8px 10px;
+               background:${isSel?'var(--c-purple-12)':'transparent'};cursor:pointer;
+               border-bottom:1px solid var(--border);
                border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
-               border-bottom:1px solid var(--border);transition:all .15s">
+               border-bottom:1px solid ${isSel?'var(--c-purple-45)':'var(--border)'};transition:all .15s">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
         <span class="item-title">${sec}</span>
         <span class="lbl-64-muted">${stockCount ? `종목 ${stockCount}개` : '종목 없음'}</span>
@@ -28,8 +29,9 @@ function buildSectorMgmt() {
     } else {
       // ── 수정 모드 행 (인풋 활성화)
       html += `<div class="sec-row" data-idx="${idx}"
-        style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;
-               background:var(--c-purple-10);margin-bottom:4px;cursor:pointer;
+        style="display:flex;align-items:center;gap:8px;padding:6px 10px;
+               background:var(--c-purple-10);cursor:pointer;
+               border-bottom:1px solid var(--c-purple-45);
                border:1px solid var(--c-purple-45);transition:all .15s">
         <input type="color" class="sec-color-inp" data-idx="${idx}" value="${color}"
           style="width:28px;height:28px;border:1px solid var(--c-purple-40);border-radius:50%;padding:2px;background:var(--s2);cursor:pointer;flex-shrink:0" />
@@ -233,10 +235,10 @@ function buildStockMgmt() {
 
     const curType = item.assetType || item.type || '주식';
     html += `<div class="sm-row" data-idx="${idx}"
-      style="display:grid;grid-template-columns:1fr 80px 72px 72px;gap:5px;align-items:center;padding:6px 4px;
-             border-radius:${isEdit?'6px 6px 0 0':'0'};border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
-             border-bottom:1px solid ${isEdit?'var(--c-purple-20)':'var(--border)'};
-             background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:${isEdit?'0':'0'};cursor:pointer;transition:all .15s">
+      style="display:grid;grid-template-columns:1fr 80px 72px 72px;gap:5px;align-items:center;padding:4px;
+             border-radius:${isEdit?'6px 6px 0 0':'6px'};border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
+             border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'transparent')};
+             background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:${isEdit?'0':'3px'};cursor:pointer;transition:all .15s">
       <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.name.replace(/"/g,'&quot;')}"
         ${isEdit?'':'readonly tabindex="-1"'} />
       <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.code||''}"

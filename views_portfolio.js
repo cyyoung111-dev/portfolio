@@ -86,18 +86,18 @@ function renderSectorView(area) {
     html += `<div class="overflow-x-auto">
       <table style="width:100%;border-collapse:collapse;margin-top:6px">
         <thead><tr style="background:var(--s2);border-bottom:1px solid var(--border)">
-          <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:left;font-weight:600">종목명</th>
-          <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:left;font-weight:600">구분</th>
-          <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:left;font-weight:600">보유 계좌</th>
-          <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:right;font-weight:600">총 수량</th>
-          <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:right;font-weight:600">평가금액</th>
-          <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:right;font-weight:600">손익</th>
-          <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:right;font-weight:600">수익률</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">종목명</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">구분</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">보유 계좌</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">총 수량</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">평가금액</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">손익</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">수익률</th>
         </tr></thead><tbody>`;
 
     const secMerged = {};
     d.rows.forEach(r => {
-      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, type:r.type||'주식', code:r.code||'', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0 };
+      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', type:r.type||'주식', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0 };
       const m = secMerged[r.name];
       m.evalAmt  += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
       m.totalQty += (r.qty||0);
@@ -106,23 +106,21 @@ function renderSectorView(area) {
     Object.values(secMerged).sort((a,b) => b.evalAmt - a.evalAmt).forEach(m => {
       const mPct = m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0;
       const rC = pColor(m.pnl), rS = pSign(m.pnl);
-      const acctDots = m.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span>`).join('');
+      const epType = getEP(m.name)?.assetType || m.type || '주식';
       html += `<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:7px 10px;font-size:.78rem;font-weight:600">
-          <span data-gname="${m.name}" onclick="goToTradeGroup(this.dataset.gname)" class="dotted-link" title="종목별 거래 보기">${m.name}</span>
-          ${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);margin-top:1px;font-family:monospace">${m.code}</span>`:''}
+          ${m.name}${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);margin-top:1px;font-family:monospace">${m.code}</span>`:''}
         </td>
-        <td style="padding:7px 10px;font-size:.72rem"><span class="tag tg-${m.type}">${m.type}</span></td>
+        <td style="padding:7px 10px"><span class="tag tg-${epType}">${epType}</span></td>
         <td style="padding:7px 10px;font-size:.72rem">
-          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-            ${acctDots}
-            <span class="txt-muted-68">${m.accts.join(' · ')}</span>
+          <div class="flex-wrap-gap6">
+            ${m.accts.map(a=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span><span class="txt-muted-68">${a}</span></div>`).join('')}
           </div>
         </td>
         <td style="padding:7px 10px;font-size:.78rem;text-align:right;font-family:monospace">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
         <td style="padding:7px 10px;font-size:.78rem;text-align:right;font-family:monospace">${fmtW(m.evalAmt)}</td>
         <td style="padding:7px 10px;font-size:.78rem;text-align:right;font-family:monospace;color:${rC}">${rS}${fmt(m.pnl)}</td>
-        <td style="padding:7px 10px;font-size:.78rem;text-align:right;font-family:monospace;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
+        <td style="padding:7px 10px;font-size:.78rem;text-align:right;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
       </tr>`;
     });
     html += `</tbody></table></div></div>`;

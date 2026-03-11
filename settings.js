@@ -480,11 +480,9 @@ async function quickFetchByDate() {
 
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDate === getDateStr(0));
-      const label = isToday
-        ? usedDate.replace(/-/g, '.') + ' 실시간'
-        : usedDate.replace(/-/g, '.') + ' 종가';
+      const label = isToday ? '실시간' : usedDate.replace(/-/g, '.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
-        savedPrices[key]     = price;   // ★ key = 코드(코드 있는 종목) 또는 이름(펀드)
+        savedPrices[key]     = price;
         savedPriceDates[key] = label;
       });
       lastUpdated = usedDate.replace(/-/g, '.');
@@ -532,7 +530,7 @@ async function autoLoadPrices() {
   if (cachedDate && cachedDate.startsWith(todayLabel) && cacheCount > 0 && GSHEET_API_URL) {
     updateDateBadge(todayLabel, true);
     const total = getEPWithCode().length;
-    setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">실시간 (캐시)</span> · ${cacheCount}/${total}개`, 'ok');
+    setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">오늘 종가 (캐시)</span> · ${cacheCount}/${total}개`, 'ok');
     refreshAll();
     return;
   }
@@ -576,11 +574,9 @@ async function autoLoadPrices() {
 
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDateStr === dateStr);
-      const dateLabel = isToday
-        ? usedDateStr.replace(/-/g,'.') + ' 실시간'
-        : usedDateStr.replace(/-/g,'.') + ' 종가';
+      const dateLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
-        savedPrices[key]     = price;   // ★ key = 코드(코드 있는 종목) 또는 이름(펀드)
+        savedPrices[key]     = price;
         savedPriceDates[key] = dateLabel;
       });
       lastUpdated = usedDateStr.replace(/-/g,'.');
@@ -589,7 +585,7 @@ async function autoLoadPrices() {
 
       const cnt      = Object.keys(results).length;
       const total    = getEPWithCode().length;
-      const dayLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가 (전일)';
+      const dayLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
       setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개`, 'ok');
 
       const missing = window._gsheetMissingCodes || [];
