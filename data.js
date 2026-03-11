@@ -614,12 +614,12 @@ function _buildTradesTableHTML(list) {
     {k:null,    label:'손익',   align:'right', cls:''},
   ];
   const headerHTML = headerCols.map(col => {
-    if (!col.k) return `<th style="padding:9px 10px;text-align:${col.align};font-weight:600"${col.cls?` class="${col.cls}"`:''} >${col.label}</th>`;
+    if (!col.k) return `<th style="padding:9px 10px;text-align:${col.align};font-size:.68rem;font-weight:600;color:var(--muted)"${col.cls?` class="${col.cls}"`:''} >${col.label}</th>`;
     const active = _tradeSort.key === col.k;
     const arrow  = active ? (_tradeSort.dir === 1 ? ' ▲' : ' ▼') : ' ⇅';
-    const color  = active ? 'color:var(--purple-lt)' : '';
+    const color  = active ? 'color:var(--purple-lt)' : 'color:var(--muted)';
     return `<th${col.cls?` class="${col.cls}"`:''}
-      style="padding:9px 10px;text-align:${col.align};font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}"
+      style="padding:9px 10px;text-align:${col.align};font-size:.68rem;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}"
       onclick="tradeSetSort('${col.k}')">${col.label}<span style="font-size:.60rem;opacity:.7">${arrow}</span></th>`;
   }).join('');
 
@@ -650,38 +650,38 @@ function _buildTradesTableHTML(list) {
     return `
       <tr style="border-bottom:1px solid var(--border);background:${noDate?'var(--c-red-04)':'transparent'};cursor:pointer"
           onclick="editTrade('${t.id}')">
-        <td class="td-center-plain" onclick="event.stopPropagation()">
+        <td style="padding:8px 10px;text-align:center;width:36px" onclick="event.stopPropagation()">
           <input type="checkbox" class="trade-cb trade-check" data-id="${t.id}"
             onchange="tradeCheckChange()" title="선택"/>
         </td>
-        <td onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px" onclick="editTrade('${t.id}')">
           <span class="adot" style="background:${acctColor}" title="${t.acct}"></span>
-          <span class="txt-60-muted">${t.acct||'-'}</span>
+          <span style="font-size:.72rem;color:var(--muted)">${t.acct||'-'}</span>
         </td>
-        <td onclick="editTrade('${t.id}')">
-          <div style="font-weight:600">${t.name||'-'}</div>
-          ${t.code ? `<span class="txt-mono-muted">${t.code}</span>` : ''}
+        <td style="padding:8px 10px" onclick="editTrade('${t.id}')">
+          <div style="font-weight:600;font-size:.78rem">${t.name||'-'}</div>
+          ${t.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);margin-top:1px;font-family:monospace">${t.code}</span>` : ''}
           ${t.memo ? `<div style="font-size:.60rem;color:var(--muted);margin-top:1px">📝 ${t.memo}</div>` : ''}
         </td>
-        <td style="text-align:center" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:center" onclick="editTrade('${t.id}')">
           <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.65rem;font-weight:700;
             background:${isBuy?'var(--c-green2-15)':'var(--c-red-12)'};
             color:${isBuy?'var(--green-lt)':'var(--red-lt)'}">
             ${isBuy?'매수':'매도'}
           </span>
         </td>
-        <td class="td-right-plain" onclick="editTrade('${t.id}')">${(t.qty||0).toLocaleString()}</td>
-        <td class="col-hide-mobile" style="font-size:.70rem;color:var(--muted)" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:.78rem" onclick="editTrade('${t.id}')">${(t.qty||0).toLocaleString()}</td>
+        <td class="col-hide-mobile" style="padding:8px 10px;font-size:.70rem;color:var(--muted);white-space:nowrap" onclick="editTrade('${t.id}')">
           ${date || '<span style="color:var(--red-lt);font-size:.60rem">날짜없음</span>'}
         </td>
-        <td class="td-right-plain" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:.78rem" onclick="editTrade('${t.id}')">
           ${price.toLocaleString()}원
         </td>
-        <td class="td-right-plain" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:right" onclick="editTrade('${t.id}')">
           ${pnl !== null ? `
-            <div style="color:${pC};font-weight:600">${pS}${Math.round(pnl).toLocaleString()}원</div>
+            <div style="color:${pC};font-weight:600;font-family:monospace;font-size:.78rem">${pS}${Math.round(pnl).toLocaleString()}원</div>
             <div style="font-size:.65rem;color:${pC}">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
-          ` : `<span class="c-muted">-</span>`}
+          ` : `<span style="color:var(--muted)">-</span>`}
         </td>
       </tr>`;
   }).join('');

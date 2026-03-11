@@ -23,10 +23,9 @@ function buildAcctMgmt() {
 
     // 읽기전용 행
     html += `<div class="acct-row" data-acct="${acct}"
-      style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;
-             background:${isSel?'var(--c-purple-12)':'transparent'};margin-bottom:0;cursor:pointer;
-             border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
-             border-bottom:1px solid var(--border);transition:all .15s">
+      style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;
+             background:${isSel?'var(--c-purple-12)':'var(--s2)'};margin-bottom:4px;cursor:pointer;
+             border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};transition:all .15s">
       <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
       <span class="item-title">${acct}</span>
       <span class="lbl-64-muted">${hasData?`거래 ${tradeN}건`:'거래 없음'}</span>
@@ -58,7 +57,7 @@ function buildAcctMgmt() {
               .filter(([k]) => k !== acct)
               .some(([, v]) => v.toLowerCase() === resolvedC.toLowerCase());
             return `<span class="acct-color-dot" data-color="${c}" data-acct="${acct}"
-              style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
+              style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
               border:3px solid ${isSelected?'#fff':'transparent'};
               opacity:${usedByOther?'0.3':'1'};
               transition:border .1s,opacity .1s" title="${usedByOther?'다른 계좌 사용 중':''}"></span>`;
@@ -151,7 +150,7 @@ function acctMgmtAddNew() {
       const isUsed = used.includes(c) && c !== autoColor;
       const isSelected = c === autoColor;
       return `<span onclick="_acctNewPickColor('${c}')"
-        style="width:20px;height:20px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
+        style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
         border:3px solid ${isSelected?'#fff':'transparent'};
         opacity:${isUsed?'0.3':'1'};
         transition:border .1s,opacity .1s" title="${isUsed?'사용 중':''}"></span>`;
@@ -343,12 +342,9 @@ function applyRealEstate() {
   REAL_ESTATE.name          = name;
   REAL_ESTATE.memo          = memo;
   saveRealEstate();
-  saveSettings();  // ★ GSheet 즉시 동기화 (부동산 수정은 즉시 저장)
-  // ★ 메인 요약카드(s-realestate, s-net) 즉시 갱신
+  saveHoldings();
   renderSummary();
-  // ★ 부동산 탭이면 뷰도 갱신, 아니면 현재 뷰만 갱신
-  if(currentView === 'asset') renderView();
-  else try { renderView(); } catch(e) {}
+  renderView();  // ★ 모든 탭에서 즉시 갱신 (메인카드 반영)
   closeRealEstateEditor();
 }
 
