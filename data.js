@@ -175,6 +175,10 @@ let rawHoldings = [];  // localStorage 또는 rawTrades에서 자동 복원
 //  {id, acct, type, name, code, qty, buyDate, buyPrice, sellDate, sellPrice, memo}
 let rawTrades = [];
 
+// ★ DIVDATA 선언 — loadHoldings()보다 반드시 먼저 위치해야 함
+// { [종목명]: { freq, months, perShare, currency } }
+let DIVDATA = {};
+
 function genTradeId() {
   return 'tr_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
 }
