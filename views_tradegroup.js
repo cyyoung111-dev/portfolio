@@ -109,15 +109,16 @@ function renderTradeGroupView(area) {
           <div class="tg-detail" style="display:none;border-top:1px solid var(--border);overflow-x:auto">
             <table style="width:100%;border-collapse:collapse;font-size:.72rem;min-width:400px">
               <thead>
-                <tr class="s2-muted">
-                  <th class="th-left-500">날짜</th>
-                  <th class="td-p7-center-500">구분</th>
-                  <th class="th-left-500">계좌</th>
-                  <th class="th-right-500">수량</th>
-                  <th class="th-right-500">단가</th>
-                  <th class="th-right-500">금액</th>
-                  <th class="th-left-500">메모</th>
-                  <th class="td-p7-center-500">수정</th>
+                <tr style="background:var(--s2);border-bottom:1px solid var(--border)">
+                  <th style="padding:8px 12px;font-size:.68rem;color:var(--muted);text-align:left;font-weight:600;white-space:nowrap">날짜</th>
+                  <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:center;font-weight:600">구분</th>
+                  <th style="padding:8px 12px;font-size:.68rem;color:var(--muted);text-align:left;font-weight:600">계좌</th>
+                  <th style="padding:8px 12px;font-size:.68rem;color:var(--muted);text-align:right;font-weight:600">수량</th>
+                  <th style="padding:8px 12px;font-size:.68rem;color:var(--muted);text-align:right;font-weight:600">단가</th>
+                  <th style="padding:8px 12px;font-size:.68rem;color:var(--muted);text-align:right;font-weight:600">금액</th>
+                  <th style="padding:8px 12px;font-size:.68rem;color:var(--muted);text-align:right;font-weight:600">손익</th>
+                  <th style="padding:8px 12px;font-size:.68rem;color:var(--muted);text-align:left;font-weight:600">메모</th>
+                  <th style="padding:8px 10px;font-size:.68rem;color:var(--muted);text-align:center;font-weight:600">수정</th>
                 </tr>
               </thead>
               <tbody>
@@ -145,20 +146,21 @@ function renderTradeGroupView(area) {
                       runQty   -= Math.min(qty, runQty);
                     }
                     return `<tr style="border-bottom:1px solid var(--border);background:${isSell?'rgba(239,68,68,.03)':'transparent'}">
-                      <td style="padding:7px 12px;color:var(--muted);white-space:nowrap">${t.date||'⚠️없음'}</td>
-                      <td class="td-p7-center">
+                      <td style="padding:7px 12px;color:var(--muted);white-space:nowrap;font-size:.72rem">${t.date||'⚠️없음'}</td>
+                      <td style="padding:7px 10px;text-align:center">
                         ${isSell ? `<span class="trade-badge-sell">📉 매도</span>` : `<span class="trade-badge-hold">📈 매수</span>`}
                       </td>
-                      <td style="padding:7px 12px;white-space:nowrap">
+                      <td style="padding:7px 12px;white-space:nowrap;font-size:.72rem">
                         <span class="adot" style="background:${ACCT_COLORS[t.acct]||'var(--muted)'}"></span>${t.acct}
                       </td>
-                      <td style="padding:7px 12px;text-align:right">${qty.toLocaleString()}</td>
-                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;color:${isSell?'var(--red-lt)':'var(--green-lt)'}">
+                      <td style="padding:7px 12px;text-align:right;font-family:monospace;font-size:.72rem">${qty.toLocaleString()}</td>
+                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-family:monospace;font-size:.72rem;color:${isSell?'var(--red-lt)':'var(--green-lt)'}">
                         ${price.toLocaleString()}원
                       </td>
-                      <td style="padding:7px 12px;text-align:right;white-space:nowrap">${amount.toLocaleString()}원</td>
+                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-family:monospace;font-size:.72rem">${amount.toLocaleString()}원</td>
+                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-size:.72rem">${pnlCell || `<span class="c-muted">-</span>`}</td>
                       <td style="padding:7px 12px;color:var(--muted);font-size:.70rem">${t.memo||''}</td>
-                      <td class="td-p7-center">
+                      <td style="padding:7px 10px;text-align:center">
                         <button onclick="editTrade('${t.id}')" class="btn-edit-sm">✏️</button>
                       </td>
                     </tr>`;
