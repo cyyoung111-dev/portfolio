@@ -752,3 +752,113 @@ function renderGsheetView(area) {
       </div>` : ''}
     </div>`;
 }
+
+// ════════════════════════════════════════════════════════════════
+//  renderStocksView — 기초정보 탭 (계좌·종목·섹터 관리)
+// ════════════════════════════════════════════════════════════════
+function renderStocksView(area) {
+  area.innerHTML = `
+    <div style="padding:12px 0 8px;display:flex;flex-direction:column;gap:20px">
+
+      <!-- ── 계좌 관리 ── -->
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">🏦 계좌 관리</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button onclick="acctMgmtAddNew()" class="btn-purple-sm">➕ 계좌 추가</button>
+          </div>
+        </div>
+        <div id="acctMgmtMsg" style="font-size:.70rem;min-height:1.2em;margin-bottom:4px"></div>
+        <!-- 계좌 추가 폼 -->
+        <div id="acctMgmtNewWrap" style="display:none;background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.3);border-radius:8px;padding:12px;margin-bottom:10px">
+          <div style="font-size:.68rem;color:var(--amber);font-weight:700;margin-bottom:8px">➕ 새 계좌 추가</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+            <input id="acctMgmtNewInput" type="text" placeholder="계좌명 입력"
+              style="flex:1;background:var(--s1);border:1px solid rgba(251,191,36,.4);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
+              onkeydown="if(event.key==='Enter')acctMgmtConfirm(); if(event.key==='Escape')acctMgmtCancel();" />
+          </div>
+          <div style="font-size:.65rem;color:var(--muted);margin-bottom:6px">색상 선택</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <div id="acctNewColorPreview" style="width:18px;height:18px;border-radius:50%;flex-shrink:0;border:2px solid var(--border)"></div>
+            <div id="acctNewColorDots" class="flex-wrap-gap4"></div>
+          </div>
+          <input type="hidden" id="acctMgmtNewColor" />
+          <div style="display:flex;gap:6px">
+            <button onclick="acctMgmtConfirm()" class="btn-purple-sm">✅ 추가</button>
+            <button onclick="acctMgmtCancel()" class="btn-cancel-sm">✕ 취소</button>
+          </div>
+        </div>
+        <div id="acctMgmtList"></div>
+      </div>
+
+      <!-- ── 종목 관리 ── -->
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">📋 종목 관리 (기초정보)</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <button onclick="smMgmtAddNew()" class="btn-purple-sm">➕ 종목 추가</button>
+            <label class="btn-ghost-sm" style="cursor:pointer">
+              📂 xlsx/csv 업로드
+              <input type="file" accept=".xlsx,.csv" onchange="smCsvImport(this)" style="display:none"/>
+            </label>
+            <button onclick="smCsvDownloadTemplate()" class="btn-ghost-sm">⬇️ 양식</button>
+          </div>
+        </div>
+        <div id="smMgmtMsg" style="font-size:.70rem;min-height:1.2em;margin-bottom:4px"></div>
+        <!-- 종목 추가 폼 -->
+        <div id="smMgmtNewWrap" style="display:none;background:var(--c-purple-06);border:1px solid var(--c-purple-30);border-radius:8px;padding:12px;margin-bottom:10px">
+          <div style="font-size:.68rem;color:var(--c-purple-45);font-weight:700;margin-bottom:8px">➕ 새 종목 추가</div>
+          <div style="display:grid;grid-template-columns:1fr 100px;gap:6px;margin-bottom:8px">
+            <input id="smMgmtNewName" type="text" placeholder="종목명"
+              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
+              onkeydown="if(event.key==='Enter')smMgmtConfirm(); if(event.key==='Escape')smMgmtCancel();" />
+            <input id="smMgmtNewCode" type="text" placeholder="종목코드" maxlength="6"
+              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem;font-family:'Courier New',monospace;text-align:center" />
+          </div>
+          <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">유형</div>
+          <div id="smTypeGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
+          <input type="hidden" id="smMgmtNewType" value="주식"/>
+          <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">섹터</div>
+          <div id="smSecGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
+          <input type="hidden" id="smMgmtNewSec" value="기타"/>
+          <div style="display:flex;gap:6px">
+            <button onclick="smMgmtConfirm()" class="btn-purple-sm">✅ 추가</button>
+            <button onclick="smMgmtCancel()" class="btn-cancel-sm">✕ 취소</button>
+          </div>
+        </div>
+        <div id="stockMgmtSort"></div>
+        <div id="stockMgmtBody" style="max-height:420px;overflow-y:auto"></div>
+      </div>
+
+      <!-- ── 섹터 관리 ── -->
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">📂 섹터 관리</div>
+          <button onclick="secMgmtAddNew()" class="btn-purple-sm">➕ 섹터 추가</button>
+        </div>
+        <div id="secMgmtMsg" style="font-size:.70rem;min-height:1.2em;margin-bottom:4px"></div>
+        <!-- 섹터 추가 폼 -->
+        <div id="secMgmtNewWrap" style="display:none;background:var(--c-purple-06);border:1px solid var(--c-purple-30);border-radius:8px;padding:12px;margin-bottom:10px">
+          <div style="font-size:.68rem;color:var(--c-purple-45);font-weight:700;margin-bottom:8px">➕ 새 섹터 추가</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+            <input id="secMgmtNewName" type="text" placeholder="섹터명 입력"
+              style="flex:1;background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
+              onkeydown="if(event.key==='Enter')secMgmtConfirm(); if(event.key==='Escape')secMgmtCancel();" />
+            <input id="secMgmtNewColor" type="color" value="#22c55e"
+              style="width:36px;height:32px;border:1px solid var(--c-purple-30);border-radius:6px;padding:2px;background:var(--s1);cursor:pointer;flex-shrink:0" />
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onclick="secMgmtConfirm()" class="btn-purple-sm">✅ 추가</button>
+            <button onclick="secMgmtCancel()" class="btn-cancel-sm">✕ 취소</button>
+          </div>
+        </div>
+        <div id="sectorMgmtBody"></div>
+      </div>
+
+    </div>`;
+
+  // DOM 생성 후 각 관리 UI 초기화
+  buildAcctMgmt();
+  buildStockMgmt();
+  buildSectorMgmt();
+}

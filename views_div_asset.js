@@ -1,3 +1,33 @@
+// ════════════════════════════════════════════════════════════════
+//  현재 월 상수 (배당 탭에서 이번달/지난달 구분에 사용)
+// ════════════════════════════════════════════════════════════════
+const NOW_MONTH = new Date().getMonth() + 1; // 1~12
+
+// ════════════════════════════════════════════════════════════════
+//  calcDividends — DIVDATA + rawHoldings 기반 배당 계산
+//  반환: [{ name, totalQty, accts, dd, annualDiv }]
+// ════════════════════════════════════════════════════════════════
+function calcDividends() {
+  // 보유 종목별 집계 (펀드 제외)
+  const map = {};
+  rawHoldings.filter(h => !h.fund && h.name).forEach(h => {
+    if (!map[h.name]) map[h.name] = { totalQty: 0, accts: [] };
+    map[h.name].totalQty += (h.qty || 0);
+    if (h.acct && !map[h.name].accts.includes(h.acct)) map[h.name].accts.push(h.acct);
+  });
+
+  const result = [];
+  Object.entries(map).forEach(([name, { totalQty, accts }]) => {
+    const dd = DIVDATA[name];
+    if (!dd || !dd.perShare || dd.perShare <= 0) return;
+    if (!dd.months || dd.months.length === 0) return;
+    const annualDiv = dd.perShare * totalQty * dd.months.length;
+    result.push({ name, totalQty, accts, dd, annualDiv });
+  });
+
+  return result;
+}
+
 function renderDivView(area, skipFetch) {
   // GS 연동 시 탭 진입마다 자동 fetch → 완료 후 재렌더 (skipFetch=true 시 생략 — 재귀 방지)
   if (GSHEET_API_URL && !skipFetch) _autoFetchDiv(area);
@@ -480,11 +510,9 @@ function addReValue() {
 }
 
 function removeReValue(sortedIdx) {
-  // 표시는 내림차순이므로 역산
   const sorted = RE_VALUE_HIST.slice().sort((a,b)=>b.date.localeCompare(a.date));
   const target = sorted[sortedIdx];
   if (!target) return;
-  // ★ 재할당 금지 → in-place 수정 (settings.js .length=0+push 패턴과 일관)
   const idx = RE_VALUE_HIST.findIndex(r => r.date === target.date);
   if (idx >= 0) RE_VALUE_HIST.splice(idx, 1);
   saveSchedule();
@@ -502,11 +530,7 @@ function downloadScheduleTemplate() {
     ['2024-03', 355644000, 454000, 1196000],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
-
-  // 컬럼 너비 설정
   ws['!cols'] = [{wch:12},{wch:16},{wch:14},{wch:14}];
-
-  // 헤더 행 스타일
   ['A1','B1','C1','D1'].forEach(cell => {
     if (!ws[cell]) return;
     ws[cell].s = {
@@ -515,7 +539,6 @@ function downloadScheduleTemplate() {
       alignment: { horizontal: 'center' }
     };
   });
-
   XLSX.utils.book_append_sheet(wb, ws, '상환스케줄');
   XLSX.writeFile(wb, '상환스케줄_양식.xlsx');
 }
@@ -539,7 +562,6 @@ function uploadScheduleCsv(input) {
     rows.forEach(cols => {
       const rawDate = cols[colIdx.date] || '';
       if (!rawDate) return;
-      // 엑셀 날짜 시리얼 숫자 처리 (예: 45292 → 2024-01)
       let date;
       if (/^\d{5}$/.test(rawDate)) {
         const d = new Date(Math.round((Number(rawDate) - 25569) * 86400 * 1000));
@@ -556,25 +578,20 @@ function uploadScheduleCsv(input) {
 
     if (parsed.length === 0) { showToast('파싱된 데이터가 없습니다', 'error'); return; }
     parsed.sort((a,b) => a.date.localeCompare(b.date));
-    // ★ 재할당 금지 → in-place 교체 (settings.js .length=0+push 패턴과 일관)
     LOAN_SCHEDULE.length = 0;
     parsed.forEach(r => LOAN_SCHEDULE.push(r));
     saveSchedule();
     if (currentView === 'asset') renderView();
     showToast('✅ ' + parsed.length + '개월 데이터 업로드 완료', 'ok', 4000);
-
-    // ★ 현재 월 기준으로 LOAN 자동 반영 확인 팝업
     _promptLoanFromSchedule(parsed);
   });
 }
 
-// ★ 스케줄 업로드 후 LOAN 자동 반영 확인 팝업
 function _promptLoanFromSchedule(schedule) {
-  const todayStr = new Date().toISOString().slice(0, 7); // YYYY-MM
-  // 현재 월 행 (없으면 가장 최근 과거 행)
+  const todayStr = new Date().toISOString().slice(0, 7);
   let curRow = schedule.find(r => r.date === todayStr);
   if (!curRow) curRow = [...schedule].reverse().find(r => r.date <= todayStr);
-  if (!curRow) return; // 스케줄이 모두 미래면 스킵
+  if (!curRow) return;
 
   const totalMonths     = schedule.length;
   const remainingMonths = schedule.filter(r => r.date >= todayStr).length;
@@ -582,15 +599,15 @@ function _promptLoanFromSchedule(schedule) {
     .filter(r => r.date <= todayStr)
     .reduce((s, r) => s + (r.interest || 0), 0);
 
-  const fmt = v => v.toLocaleString() + '원';
+  const fmtN = v => v.toLocaleString() + '원';
   const msg =
     `📋 스케줄 기준으로 대출 정보를 자동 채울까요?\n\n` +
-    `• 현재 잔액        ${fmt(curRow.balance)}\n` +
-    `• 이번 달 원금상환  ${fmt(curRow.principal)}\n` +
-    `• 이번 달 이자      ${fmt(curRow.interest)}\n` +
+    `• 현재 잔액        ${fmtN(curRow.balance)}\n` +
+    `• 이번 달 원금상환  ${fmtN(curRow.principal)}\n` +
+    `• 이번 달 이자      ${fmtN(curRow.interest)}\n` +
     `• 남은 개월수      ${remainingMonths}개월\n` +
     `• 전체 개월수      ${totalMonths}개월\n` +
-    `• 누적 이자        ${fmt(totalInterestPaid)}\n\n` +
+    `• 누적 이자        ${fmtN(totalInterestPaid)}\n\n` +
     `(금리·대출실행일·대출원금은 기존 값 유지)`;
 
   if (!confirm(msg)) return;
@@ -600,7 +617,7 @@ function _promptLoanFromSchedule(schedule) {
   LOAN.totalMonths         = totalMonths;
   LOAN.remainingMonths     = remainingMonths;
   LOAN.totalInterestPaid   = totalInterestPaid;
-  _loanSyncedMonth = todayStr; // ★ 자동 갱신과 중복 실행 방지
+  _loanSyncedMonth = todayStr;
   lsSave(LOAN_KEY, LOAN);
   saveSettings();
   renderSummary();
@@ -610,7 +627,7 @@ function _promptLoanFromSchedule(schedule) {
 
 function clearSchedule() {
   if (!confirm('상환스케줄 데이터를 초기화할까요?')) return;
-  LOAN_SCHEDULE.length = 0; // ★ 재할당 금지 → in-place 초기화
+  LOAN_SCHEDULE.length = 0;
   saveSchedule();
   if (currentView === 'asset') renderView();
 }
@@ -657,11 +674,10 @@ function renderScheduleChart() {
     return s + abs.toLocaleString();
   }
 
-  // 연도 수 기준으로 너비 계산 (연당 60px, 최소 640px)
   const nYears = new Set(LOAN_SCHEDULE.map(r => r.date.slice(0,4))).size;
   const W   = Math.max(640, nYears * 60);
-  const H1  = 320;  // 잔액·순자산 차트
-  const H2  = 180;  // 손익 차트
+  const H1  = 320;
+  const H2  = 180;
   const PAD = { t: 28, r: 24, b: 44, l: 88 };
   const gW  = W - PAD.l - PAD.r;
   const gH1 = H1 - PAD.t - PAD.b;
@@ -687,7 +703,6 @@ function renderScheduleChart() {
     return Array.from({ length: count }, (_, i) => mn + i * step);
   }
 
-  // ── 차트1: 잔액 + 순자산
   const { mn: balMn, mx: balMx } = makeYScale([...bals, ...equities.filter(v => v !== null)]);
   const ticks1 = yTicks(balMn, balMx);
 
@@ -703,11 +718,8 @@ function renderScheduleChart() {
     eqPath = 'M' + validEqIdx.map(i => pt1(equities[i], i)).join(' L');
   }
 
-  // 잔액 아래 fill
   const balFill = balPath + ` L${toX(n-1).toFixed(1)},${(PAD.t+gH1).toFixed(1)} L${toX(0).toFixed(1)},${(PAD.t+gH1).toFixed(1)} Z`;
 
-  // X 레이블 간격
-  // 연 단위로 X축 표시 (매년 1월, 데이터 12개 이하면 매월)
   function xLabelsSvg(yPos, fontSize = 10) {
     const useAll = n <= 12;
     const seenYears = new Set();
@@ -716,8 +728,6 @@ function renderScheduleChart() {
         return `<text x="${toX(i).toFixed(1)}" y="${yPos}" text-anchor="middle" font-size="${fontSize}" fill="var(--muted)">${dates[i]}</text>`;
       }
       const yyyy = row.date.slice(0, 4);
-      const mm   = row.date.slice(5, 7);
-      // 해당 연도의 첫 번째 데이터 포인트에 연도 표시
       if (!seenYears.has(yyyy)) {
         seenYears.add(yyyy);
         return `<text x="${toX(i).toFixed(1)}" y="${yPos}" text-anchor="middle" font-size="${fontSize}" fill="var(--muted)">${yyyy}</text>`;
@@ -726,16 +736,13 @@ function renderScheduleChart() {
     }).join('');
   }
 
-  // ── 차트2: 손익 막대
   const pnlAbsMax = validPnl.length > 0
     ? Math.max(Math.abs(Math.min(...validPnl)), Math.abs(Math.max(...validPnl))) * 1.1 || 1
     : 1;
   function toY2(v) { return PAD.t + (1 - (v + pnlAbsMax) / (2 * pnlAbsMax)) * gH2; }
   const zero2 = toY2(0);
-  // 막대 너비: 연도 기준(12개월 초과 시) 또는 데이터 수 기준
   const barW  = n > 12 ? Math.max(8, Math.min(24, gW / nYears - 4)) : Math.max(5, Math.min(18, gW / n - 2));
 
-  // 데이터가 많으면 연도 첫 달만 막대 표시 (가독성)
   const seenBarYears = new Set();
   const barsHtml = pnls.map((v, i) => {
     if (v === null) return '';
@@ -752,17 +759,14 @@ function renderScheduleChart() {
       fill="${clr}" opacity="0.92" rx="3"/>`;
   }).join('');
 
-  // 손익 Y축 레이블
   const pnlTicks = [-pnlAbsMax, -pnlAbsMax/2, 0, pnlAbsMax/2, pnlAbsMax];
 
-  // 최신값
   const latestBal    = bals[n - 1];
   const latestEq     = equities.filter(v => v !== null).slice(-1)[0];
   const latestPnl    = validPnl.slice(-1)[0] ?? null;
   const pnlColor     = latestPnl !== null ? (latestPnl >= 0 ? 'var(--green-lt)' : 'var(--red-lt)') : 'var(--muted)';
 
   wrap.innerHTML = `
-  <!-- 범례 + 요약 -->
   <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:var(--c-white-03);border:1px solid var(--border);border-radius:10px">
     <div class="flex-gap6-ai">
       <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="var(--blue-lt)" stroke-width="2.5" stroke-linecap="round"/></svg>
@@ -781,7 +785,6 @@ function renderScheduleChart() {
     </div>
   </div>
 
-  <!-- 잔액·순자산 차트 -->
   <div style="background:var(--c-s1-60);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;margin-bottom:8px;-webkit-overflow-scrolling:touch">
     <div class="section-label">잔액 · 순자산</div>
     <svg viewBox="0 0 ${W} ${H1}" width="${W}" height="${H1}" style="display:block;min-width:${W}px">
@@ -791,56 +794,39 @@ function renderScheduleChart() {
           <stop offset="100%" stop-color="var(--blue-lt)" stop-opacity="0.01"/>
         </linearGradient>
       </defs>
-      <!-- 배경 그리드 -->
       ${ticks1.map(v => {
         const y = toY(v, balMn, balMx, PAD.t, gH1).toFixed(1);
         return `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-width="1"/>
         <text x="${PAD.l - 8}" y="${(+y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="var(--muted)">${yLbl(v)}</text>`;
       }).join('')}
-      <!-- 잔액 fill -->
       <path d="${balFill}" fill="url(#balGrad)"/>
-      <!-- 잔액 라인 -->
       <path d="${balPath}" fill="none" stroke="var(--blue-lt)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-      <!-- 최신 포인트 -->
       <circle cx="${toX(n-1).toFixed(1)}" cy="${toY(bals[n-1], balMn, balMx, PAD.t, gH1).toFixed(1)}" r="5.5" fill="var(--blue-lt)" stroke="var(--s1)" stroke-width="2"/>
-      <!-- 순자산 라인 -->
       ${eqPath ? `<path d="${eqPath}" fill="none" stroke="var(--amber)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" stroke-dasharray="6,3"/>
       <circle cx="${toX(validEqIdx[validEqIdx.length-1]).toFixed(1)}" cy="${toY(equities[validEqIdx[validEqIdx.length-1]], balMn, balMx, PAD.t, gH1).toFixed(1)}" r="5.5" fill="var(--amber)" stroke="var(--s1)" stroke-width="2"/>` : ''}
-      <!-- Y축 레이블 (잔액/원) -->
       <text transform="rotate(-90)" x="${-(PAD.t + gH1/2)}" y="18" text-anchor="middle" font-size="11" fill="var(--muted)">잔액 (원)</text>
-      <!-- X축 레이블 (상환월) -->
       <text x="${PAD.l + gW/2}" y="${H1 - 4}" text-anchor="middle" font-size="11" fill="var(--muted)">상환월</text>
-      <!-- X축 -->
       <line x1="${PAD.l}" x2="${W - PAD.r}" y1="${H1 - PAD.b}" y2="${H1 - PAD.b}" stroke="var(--border)" stroke-width="1"/>
       ${xLabelsSvg(H1 - PAD.b + 16, 11)}
     </svg>
   </div>
 
-  <!-- 손익 차트 -->
   <div style="background:var(--c-s1-60);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <div class="section-label">이자포함 순손익</div>
     <svg viewBox="0 0 ${W} ${H2}" width="${W}" height="${H2}" style="display:block;min-width:${W}px">
-      <!-- 배경 그리드 -->
       ${pnlTicks.map(v => {
         const y = toY2(v).toFixed(1);
         return `<line x1="${PAD.l}" x2="${W - PAD.r}" y1="${y}" y2="${y}" stroke="${v === 0 ? 'var(--s2)' : 'var(--border)'}" stroke-width="${v === 0 ? 2 : 1}"/>
         <text x="${PAD.l - 8}" y="${(+y + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${v === 0 ? 'var(--text)' : 'var(--muted)'}">${v === 0 ? '0' : yLbl(v)}</text>`;
       }).join('')}
-      <!-- Y축 레이블 (손익/원) -->
       <text transform="rotate(-90)" x="${-(PAD.t + gH2/2)}" y="18" text-anchor="middle" font-size="11" fill="var(--muted)">손익 (원)</text>
-      <!-- X축 레이블 (상환월) -->
       <text x="${PAD.l + gW/2}" y="${H2 - 4}" text-anchor="middle" font-size="11" fill="var(--muted)">상환월</text>
-      <!-- 손익 막대 -->
       ${barsHtml}
-      <!-- X축 -->
       <line x1="${PAD.l}" x2="${W - PAD.r}" y1="${H2 - PAD.b}" y2="${H2 - PAD.b}" stroke="var(--border)" stroke-width="1"/>
       ${xLabelsSvg(H2 - PAD.b + 16, 11)}
     </svg>
   </div>`;
 }
-
-// ── 종목 관리 뷰
-
 
 // ════════════════════════════════════════════════════════════════════
 //  _autoFetchDiv / startDivFetch → mgmt_div.js 에 최신 버전 정의됨
