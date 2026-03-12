@@ -242,7 +242,7 @@ function buildStockMgmt() {
       <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.name.replace(/"/g,'&quot;')}"
         ${isEdit?'':'readonly tabindex="-1"'} />
       <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.code||''}"
-        style="font-family:'Courier New',monospace;text-align:center" maxlength="6" ${isEdit?'':'readonly tabindex="-1"'} />
+        style="font-family:inherit;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.05em" maxlength="6" ${isEdit?'':'readonly tabindex="-1"'} />
       <span class="txt-muted-68">${curType}</span>
       <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${sec}</span>
     </div>`;

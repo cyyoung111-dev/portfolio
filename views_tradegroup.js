@@ -84,7 +84,7 @@ function renderTradeGroupView(area) {
             <div style="flex:1;min-width:0">
               <div class="flex-ac-g8-wrap">
                 <span class="tg-name" style="font-weight:700;font-size:.85rem">${name}</span>
-                ${g.code ? `<span class="lbl-62-mt2" style="font-family:monospace">${g.code}</span>` : ''}
+                ${g.code ? `<span class="txt-mono-muted">${g.code}</span>` : ''}
                 <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-purple2-10);color:var(--purple-lt)">${g.type}</span>
                 <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-muted-10);color:var(--muted)">${g.sector}</span>
                 ${isHolding
@@ -110,15 +110,15 @@ function renderTradeGroupView(area) {
             <table style="width:100%;border-collapse:collapse;font-size:.72rem;min-width:400px">
               <thead>
                 <tr style="background:var(--s2);border-bottom:1px solid var(--border)">
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">날짜</th>
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:center">구분</th>
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">계좌</th>
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">수량</th>
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">단가</th>
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">금액</th>
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">손익</th>
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">메모</th>
-                  <th style="padding:7px 8px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:center">수정</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">날짜</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:center">구분</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">계좌</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">수량</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">단가</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">금액</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">손익</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">메모</th>
+                  <th style="padding:8px 12px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:center">수정</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,29 +140,29 @@ function renderTradeGroupView(area) {
                       const pct = avg > 0 ? ((price - avg) / avg * 100) : 0;
                       const pc  = pnl >= 0 ? 'var(--green)' : 'var(--red)';
                       const ps  = pnl >= 0 ? '+' : '';
-                      pnlCell   = `<div style="color:${pc};font-weight:600;font-family:monospace">${ps}${Math.round(pnl).toLocaleString()}원</div>
-                                   <div style="font-size:.65rem;color:${pc};font-family:monospace">${ps}${pct.toFixed(1)}%</div>`;
+                      pnlCell   = `<div style="color:${pc};font-weight:600">${ps}${Math.round(pnl).toLocaleString()}원</div>
+                                   <div style="font-size:.65rem;color:${pc}">${ps}${pct.toFixed(1)}%</div>`;
                       runCost  -= Math.min(qty, runQty) * avg;
                       runQty   -= Math.min(qty, runQty);
                     }
                     return `<tr style="border-bottom:1px solid var(--border);background:${isSell?'rgba(239,68,68,.03)':'transparent'}">
-                      <td style="padding:7px 8px;color:var(--muted);white-space:nowrap;font-size:.72rem">${t.date||'⚠️없음'}</td>
-                      <td style="padding:7px 8px;text-align:center">
+                      <td style="padding:7px 12px;text-align:center;color:var(--muted);white-space:nowrap;font-size:.72rem">${t.date||'⚠️없음'}</td>
+                      <td style="padding:7px 12px;text-align:center">
                         ${isSell ? `<span class="trade-badge-sell">📉 매도</span>` : `<span class="trade-badge-hold">📈 매수</span>`}
                       </td>
-                      <td style="padding:7px 8px;white-space:nowrap;font-size:.72rem">
+                      <td style="padding:7px 12px;text-align:center;white-space:nowrap;font-size:.72rem">
                         <span class="adot" style="background:${ACCT_COLORS[t.acct]||'var(--muted)'}"></span>${t.acct}
                       </td>
-                      <td style="padding:7px 8px;text-align:right;font-family:monospace;font-size:.78rem">${qty.toLocaleString()}</td>
-                      <td style="padding:7px 8px;text-align:right;white-space:nowrap;font-family:monospace;font-size:.78rem;color:${isSell?'var(--red-lt)':'var(--green-lt)'}">
+                      <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:.78rem">${qty.toLocaleString()}</td>
+                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:.78rem;color:${isSell?'var(--red-lt)':'var(--green-lt)'}">
                         ${price.toLocaleString()}원
                       </td>
-                      <td style="padding:7px 8px;text-align:right;white-space:nowrap;font-family:monospace;font-size:.78rem">${amount.toLocaleString()}원</td>
-                      <td style="padding:7px 8px;text-align:right;font-family:monospace">
+                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:.78rem">${amount.toLocaleString()}원</td>
+                      <td style="padding:7px 12px;text-align:right">
                         ${pnlCell || '<span style="color:var(--muted)">-</span>'}
                       </td>
-                      <td style="padding:7px 8px;color:var(--muted);font-size:.70rem">${t.memo||''}</td>
-                      <td style="padding:7px 8px;text-align:center">
+                      <td style="padding:7px 12px;text-align:left;color:var(--muted);font-size:.70rem">${t.memo||''}</td>
+                      <td style="padding:7px 12px;text-align:center">
                         <button onclick="editTrade('${t.id}')" class="btn-edit-sm">✏️</button>
                       </td>
                     </tr>`;

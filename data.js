@@ -50,12 +50,7 @@ function showToast(msg, type='info', duration=3200) {
 
 // DATA
 // 계좌 색상 팔레트 (신규 계좌 추가 시 순환 사용)
-const ACCT_PALETTE = [
-  'var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)',
-  'var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)',
-  'var(--green-lt)','var(--green-md)','var(--blue-lt)','#f97316','#a78bfa',
-  '#ec4899','#facc15','#4ade80','#38bdf8','#fb7185'
-];
+const ACCT_PALETTE = ['var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)','var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)'];
 
 // ─────────────────────────────────────────────────────────────
 // resolveColor: CSS 변수 → Canvas/HTML 실제 색상값 변환
@@ -153,8 +148,8 @@ function getAcctList() {
 
 function getOrAssignColor(acct) {
   if (!ACCT_COLORS[acct]) {
-    const used = Object.values(ACCT_COLORS).map(c => resolveColor(c).toLowerCase());
-    const next = ACCT_PALETTE.find(c => !used.includes(resolveColor(c).toLowerCase())) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
+    const used = Object.values(ACCT_COLORS);
+    const next = ACCT_PALETTE.find(c => !used.includes(c)) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
     ACCT_COLORS[acct] = resolveColor(next); // ★ 원칙3: 대입 시점에 var()→hex 변환
     saveAcctColors();
     if (!ACCT_ORDER.includes(acct)) { ACCT_ORDER.push(acct); saveAcctOrder(); }
@@ -603,6 +598,20 @@ function _buildTradesSummaryHTML() {
         <div class="trade-stat-label">수익률</div>
         <div class="trade-stat-value" style="color:${pC}">${pS}${realizedPct.toFixed(1)}<span class="txt-70-400">%</span></div>
       </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px">
+      <span id="gsSyncStatusLabel" style="font-size:.65rem;color:var(--muted)"></span>
+      <button onclick="manualSyncToGsheet()" id="gsSyncBtn"
+        style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;
+               border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);
+               color:var(--blue-lt);font-size:.72rem;font-weight:600;cursor:pointer;transition:var(--tr)"
+        title="거래이력·보유현황·종목코드를 구글시트에 즉시 동기화">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+        </svg>
+        GAS 연동
+      </button>
     </div>`;
 }
 
@@ -659,13 +668,13 @@ function _buildTradesTableHTML(list) {
           <input type="checkbox" class="trade-cb trade-check" data-id="${t.id}"
             onchange="tradeCheckChange()" title="선택"/>
         </td>
-        <td style="padding:8px 10px" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:left" onclick="editTrade('${t.id}')">
           <span class="adot" style="background:${acctColor}" title="${t.acct}"></span>
           <span style="font-size:.72rem;color:var(--muted)">${t.acct||'-'}</span>
         </td>
-        <td style="padding:8px 10px" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:left" onclick="editTrade('${t.id}')">
           <div style="font-weight:600;font-size:.78rem">${t.name||'-'}</div>
-          ${t.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);font-family:monospace;margin-top:1px">${t.code}</span>` : ''}
+          ${t.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);margin-top:1px;font-variant-numeric:tabular-nums">${t.code}</span>` : ''}
           ${t.memo ? `<div style="font-size:.60rem;color:var(--muted);margin-top:1px">📝 ${t.memo}</div>` : ''}
         </td>
         <td style="text-align:center" onclick="editTrade('${t.id}')">
@@ -675,16 +684,16 @@ function _buildTradesTableHTML(list) {
             ${isBuy?'매수':'매도'}
           </span>
         </td>
-        <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:.78rem" onclick="editTrade('${t.id}')">${(t.qty||0).toLocaleString()}</td>
-        <td class="col-hide-mobile" style="padding:8px 10px;font-size:.70rem;color:var(--muted);white-space:nowrap" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:right;font-size:.78rem;font-variant-numeric:tabular-nums" onclick="editTrade('${t.id}')">${(t.qty||0).toLocaleString()}</td>
+        <td class="col-hide-mobile" style="padding:8px 10px;text-align:center;font-size:.70rem;color:var(--muted);white-space:nowrap" onclick="editTrade('${t.id}')">
           ${date || '<span style="color:var(--red-lt);font-size:.60rem">날짜없음</span>'}
         </td>
-        <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:.78rem" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:right;font-size:.78rem;font-variant-numeric:tabular-nums" onclick="editTrade('${t.id}')">
           ${price.toLocaleString()}원
         </td>
         <td style="padding:8px 10px;text-align:right" onclick="editTrade('${t.id}')">
           ${pnl !== null ? `
-            <div style="color:${pC};font-weight:600;font-family:monospace;font-size:.78rem">${pS}${Math.round(pnl).toLocaleString()}원</div>
+            <div style="color:${pC};font-weight:600;font-size:.78rem;font-variant-numeric:tabular-nums">${pS}${Math.round(pnl).toLocaleString()}원</div>
             <div style="font-size:.65rem;color:${pC}">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
           ` : `<span style="color:var(--muted)">-</span>`}
         </td>
