@@ -86,13 +86,13 @@ function renderSectorView(area) {
     html += `<div class="overflow-x-auto">
       <table style="width:100%;border-collapse:collapse;margin-top:6px">
         <thead><tr style="background:var(--s2);border-bottom:1px solid var(--border)">
-          <th class="th-left-muted">종목명</th>
-          <th class="th-left-muted">구분</th>
-          <th class="th-left-muted">보유 계좌</th>
-          <th class="th-right-muted">총 수량</th>
-          <th class="th-right-muted">평가금액</th>
-          <th class="th-right-muted">손익</th>
-          <th class="th-right-muted">수익률</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">종목명</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">구분</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">보유 계좌</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">총 수량</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">평가금액</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">손익</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">수익률</th>
         </tr></thead><tbody>`;
 
     const secMerged = {};
@@ -108,21 +108,21 @@ function renderSectorView(area) {
       const rC = pColor(m.pnl), rS = pSign(m.pnl);
       const epType = (() => { const ep = getEP(m.name); return getEPType(ep, null); })();
       html += `<tr style="border-bottom:1px solid var(--border)">
-        <td class="td-p8-10 fw6">
-          ${m.name}${m.code?`<span class="lbl-62-mt2" style="font-family:monospace">${m.code}</span>`:''}
+        <td style="padding:7px 8px;font-size:.78rem;font-weight:600">
+          ${m.name}${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);font-family:monospace;margin-top:1px">${m.code}</span>`:''}
         </td>
-        <td class="td-p8-10">
+        <td style="padding:7px 8px;font-size:.72rem">
           <span class="tag tg-${epType}">${epType}</span>
         </td>
-        <td class="td-p8-10">
+        <td style="padding:7px 8px;font-size:.72rem">
           <div class="flex-wrap-gap6">
             ${m.accts.map(a=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span><span style="font-size:.62rem;color:var(--muted)">${a}</span></div>`).join('')}
           </div>
         </td>
-        <td class="td-right-plain" style="font-family:monospace">${m.totalQty.toLocaleString()}</td>
-        <td class="td-right-plain">${fmtW(m.evalAmt)}</td>
-        <td class="td-right-plain" style="color:${rC}">${rS}${fmt(m.pnl)}</td>
-        <td class="td-right-plain" style="color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-family:monospace">${m.totalQty.toLocaleString()}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-family:monospace">${fmtW(m.evalAmt)}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-family:monospace;color:${rC}">${rS}${fmt(m.pnl)}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-family:monospace;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
       </tr>`;
     });
     html += `</tbody></table></div></div>`;

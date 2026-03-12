@@ -15,29 +15,46 @@ function buildSectorMgmt() {
     const stockCount   = EDITABLE_PRICES.filter(i => (i.sector || '기타') === sec).length;
 
     if(!isEdit) {
-      // ── 읽기전용 행 (계좌 목록 스타일)
+      // ── 읽기전용 행
       html += `<div class="sec-row" data-idx="${idx}"
-        style="display:flex;align-items:center;gap:10px;padding:7px 10px;
-               background:${isSel?'var(--c-purple-12)':'var(--s2)'};border-bottom:1px solid var(--border);cursor:pointer;
-               border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};transition:all .15s">
+        style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;
+               background:${isSel?'var(--c-purple-12)':'transparent'};cursor:pointer;
+               border-bottom:1px solid var(--border);
+               outline:${isSel?'1px solid var(--c-purple-45)':'none'};transition:all .15s">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
         <span class="item-title">${sec}</span>
         <span class="lbl-64-muted">${stockCount ? `종목 ${stockCount}개` : '종목 없음'}</span>
       </div>`;
     } else {
-      // ── 수정 모드 행 (인풋 활성화)
-      html += `<div class="sec-row" data-idx="${idx}"
-        style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;
-               background:var(--c-purple-10);border-bottom:1px solid var(--border);cursor:pointer;
-               border:1px solid var(--c-purple-45);transition:all .15s">
-        <input type="color" class="sec-color-inp" data-idx="${idx}" value="${color}"
-          style="width:28px;height:28px;border:1px solid var(--c-purple-40);border-radius:50%;padding:2px;background:var(--s2);cursor:pointer;flex-shrink:0" />
-        <input type="text" class="sec-name-inp inp-mgmt-base" data-idx="${idx}" value="${sec.replace(/"/g,'&quot;')}" />
+      // ── 수정 모드 — 계좌 관리와 동일한 팔레트 도트 방식
+      const inpStyle = `flex:1;background:var(--s2);border:1px solid var(--c-amber2-50);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.75rem`;
+      html += `<div style="padding:10px 12px;border-radius:8px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3);margin:0 0 8px 0">
+        <div style="font-size:.65rem;color:var(--amber);font-weight:700;margin-bottom:8px">✏️ 섹터 수정</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+          <input id="secEditNameInp" type="text" value="${sec.replace(/"/g,'&quot;')}" style="${inpStyle}"
+            onkeydown="if(event.key==='Enter')$el('secSaveBtn')?.click(); if(event.key==='Escape')$el('secEditCancel')?.click();" />
+        </div>
+        <div class="txt-65-muted-mb5">색상 선택</div>
+        <div class="flex-wrap-g5-mb8">
+          ${SECTOR_AUTO_PALETTE.map(c => {
+            const rc = resolveColor(c);
+            const rcur = resolveColor(color);
+            const isCurSel = rc.toLowerCase() === rcur.toLowerCase();
+            const usedByOther = Object.entries(SECTOR_COLORS).filter(([k])=>k!==sec).some(([,v])=>resolveColor(v).toLowerCase()===rc.toLowerCase());
+            return `<span onclick="_secEditPickColor('${c}','${idx}')" data-secpick
+              style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
+              border:3px solid ${isCurSel?'#fff':'transparent'};opacity:${usedByOther?'0.3':'1'};
+              transition:border .1s,opacity .1s" title="${usedByOther?'다른 섹터 사용 중':''}"></span>`;
+          }).join('')}
+        </div>
+        <div class="flex-gap6">
+          <button id="secSaveBtn" class="btn-purple-sm">💾 저장</button>
+          <button id="secEditCancel" class="btn-cancel-sm">✕ 취소</button>
+        </div>
       </div>`;
     }
 
-    if(isSel) {
-      if(!editMode) {
+    if(isSel && !editMode) {
         // 수정·삭제 선택 바
         const affectedCount = EDITABLE_PRICES.filter(i => i.sector === sec).length;
         html += `<div class="gap-mb8">
@@ -48,16 +65,6 @@ function buildSectorMgmt() {
           <button id="secSelCancel"
             class="btn-cancel-sm">✕</button>
         </div>`;
-      } else {
-        // 수정 모드 저장/취소
-        html += `<div style="display:flex;gap:6px;margin:0 0 8px 4px;align-items:center">
-          <span class="lbl-64-muted">● 색상 클릭으로 변경</span>
-          <button id="secSaveBtn"
-            class="btn-purple-sm-700">💾 저장</button>
-          <button id="secEditCancel"
-            class="btn-cancel-sm">✕ 취소</button>
-        </div>`;
-      }
     }
   });
 
@@ -67,8 +74,6 @@ function buildSectorMgmt() {
 function _bindSectorMgmtEvents(container) {
   container.querySelectorAll('.sec-row').forEach(row => {
     row.addEventListener('click', function(e) {
-      if(e.target.classList.contains('sec-name-inp') && container._editMode) return;
-      if(e.target.classList.contains('sec-color-inp') && container._editMode) return;
       const idx = parseInt(this.dataset.idx);
       if(container._selectedIdx === idx && !container._editMode) {
         container._selectedIdx = null;
@@ -80,10 +85,12 @@ function _bindSectorMgmtEvents(container) {
     });
   });
   $el('secEditBtn')?.addEventListener('click', function() {
+    const idx = container._selectedIdx;
+    const sec = Object.keys(SECTOR_COLORS)[idx];
+    _secEditCurrentColor = SECTOR_COLORS[sec] || null;
     container._editMode = true;
     buildSectorMgmt();
-    const ni = container.querySelector('.sec-name-inp[data-idx="'+container._selectedIdx+'"]');
-    if(ni) { ni.focus(); }
+    setTimeout(() => $el('secEditNameInp')?.focus(), 30);
   });
   $el('secSaveBtn')?.addEventListener('mousedown', function(e) {
     e.preventDefault();
@@ -116,32 +123,28 @@ function secSave(idx) {
   const oldName = sectors[idx];
   if(oldName === undefined) return;
 
-  // 현재 입력값 읽기 (data-idx 속성으로 찾기)
-  const nameEl  = document.querySelector(`.sec-name-inp[data-idx="${idx}"]`);
-  const colorEl = document.querySelector(`.sec-color-inp[data-idx="${idx}"]`);
+  const nameEl   = $el('secEditNameInp');
   const newName  = (nameEl?.value || '').trim();
-  const newColor = colorEl?.value || 'var(--muted)';
+  const newColor = _secEditCurrentColor || SECTOR_COLORS[oldName] || 'var(--muted)';
   if(!newName) return;
 
   // 색상 중복 체크 (자기 자신 제외)
   const usedColors = Object.entries(SECTOR_COLORS)
     .filter(([k]) => k !== oldName)
-    .map(([, v]) => v.toLowerCase());
-  if(usedColors.includes(newColor.toLowerCase())) {
+    .map(([, v]) => resolveColor(v).toLowerCase());
+  if(usedColors.includes(resolveColor(newColor).toLowerCase())) {
     showMgmtMsg('secMgmtMsg','❌ 이미 사용 중인 색상입니다',true);
-    if(colorEl) colorEl.value = SECTOR_COLORS[oldName] || 'var(--muted)';
     return false;
   }
 
   if(newName !== oldName) {
     delete SECTOR_COLORS[oldName];
-    // SECTOR_MAP은 더 이상 진실소스 아님 — EDITABLE_PRICES만 업데이트
     EDITABLE_PRICES.forEach(i => { if(i.sector === oldName) i.sector = newName; });
   }
   SECTOR_COLORS[newName] = resolveColor(newColor); // ★ 원칙3: var()→hex 변환
+  _secEditCurrentColor = null;
   saveHoldings();
   _mgmtRefresh();
-  // buildSectorMgmt 재호출은 저장 버튼 핸들러에서 처리
 }
 
 // 섹터 삭제 (idx 기반 — 섹터명 파라미터 특수문자 오류 방지)
@@ -226,7 +229,7 @@ function buildStockMgmt() {
     // 섹터순 정렬 시 섹터 구분 헤더 삽입
     if(container._sortKey === 'sector' && sec !== lastSector) {
       const secColor = SECTOR_COLORS[sec] || 'var(--muted)';
-      html += `<div style="font-size:.65rem;font-weight:700;color:${secColor};padding:6px 4px 3px;margin-top:${lastSector===null?'0':'12px'};border-top:${lastSector===null?'none':'1px solid var(--border)'};border-bottom:2px solid ${secColor};letter-spacing:.06em">📂 ${sec}</div>`;
+      html += `<div style="font-size:.65rem;font-weight:700;color:${secColor};padding:6px 4px 2px;margin-top:${lastSector===null?'0':'8px'};border-bottom:1px solid ${secColor}33;letter-spacing:.06em">📂 ${sec}</div>`;
       lastSector = sec;
     }
 
@@ -234,8 +237,8 @@ function buildStockMgmt() {
     html += `<div class="sm-row" data-idx="${idx}"
       style="display:grid;grid-template-columns:1fr 80px 72px 72px;gap:5px;align-items:center;padding:4px;
              border-radius:${isEdit?'6px 6px 0 0':'6px'};border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
-             border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'var(--border)')};
-             background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:0;cursor:pointer;transition:all .15s">
+             border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'transparent')};
+             background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:${isEdit?'0':'3px'};cursor:pointer;transition:all .15s">
       <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.name.replace(/"/g,'&quot;')}"
         ${isEdit?'':'readonly tabindex="-1"'} />
       <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.code||''}"
@@ -531,9 +534,9 @@ function smMgmtConfirm() {
 // 섹터 자동 색상 팔레트 (중복 방지용)
 const SECTOR_AUTO_PALETTE = [
   'var(--green)','var(--blue-lt)','var(--amber)','var(--purple)','var(--cyan)',
-  'var(--pink)','var(--gold2)','#84cc16','var(--cyan)','var(--purple-lt)',
-  'var(--red)','var(--purple)','var(--cyan)','var(--gold2)','var(--green-lt)',
-  'var(--pink)','var(--amber)','var(--blue-lt)','var(--pink)','var(--green-md)'
+  'var(--pink)','var(--gold2)','#84cc16','var(--purple-lt)','var(--red)',
+  'var(--green-lt)','var(--green-md)','#f97316','#06b6d4','#a78bfa',
+  '#ec4899','#facc15','#4ade80','#38bdf8','#fb7185'
 ];
 function _secAutoColor() {
   const used = new Set(Object.values(SECTOR_COLORS).map(c => c.toLowerCase()));
@@ -549,37 +552,92 @@ function _secAutoColor() {
   return rand;
 }
 
+// 수정 폼 현재 선택 색상 (전역 임시 저장)
+let _secEditCurrentColor = null;
+function _secEditPickColor(c, idx) {
+  _secEditCurrentColor = c;
+  // 도트 테두리 즉시 갱신
+  const container = $el('sectorMgmtBody');
+  if(!container) return;
+  const sectors = Object.keys(SECTOR_COLORS);
+  const sec = sectors[parseInt(idx)];
+  container.querySelectorAll('[data-secpick]').forEach((dot, i) => {
+    const dc = SECTOR_AUTO_PALETTE[i];
+    const isSelected = resolveColor(dc).toLowerCase() === resolveColor(c).toLowerCase();
+    const usedByOther = Object.entries(SECTOR_COLORS).filter(([k])=>k!==sec).some(([,v])=>resolveColor(v).toLowerCase()===resolveColor(dc).toLowerCase());
+    dot.style.border = `3px solid ${isSelected?'#fff':'transparent'}`;
+    dot.style.opacity = usedByOther ? '0.3' : '1';
+  });
+}
+
 // 섹터 추가 팝업 열기/닫기/확인
 function secMgmtAddNew() {
   const wrap = $el('secMgmtNewWrap');
-  if(wrap) { wrap.style.display = 'block'; }
-  // 사용하지 않는 색상 자동 지정
-  const c = $el('secMgmtNewColor');
-  if(c) c.value = _secAutoColor();
+  if(!wrap) return;
+  // JS로 팝업 내용 동적 생성 (계좌 추가와 동일한 팔레트 도트 방식)
+  const autoColor = _secAutoColor();
+  const used = Object.values(SECTOR_COLORS).map(c => resolveColor(c).toLowerCase());
+  const inpStyle = `width:100%;box-sizing:border-box;background:var(--s2);border:1px solid var(--c-amber2-50);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.75rem;margin-bottom:8px`;
+  wrap.innerHTML = `
+    <div style="padding:10px 12px;border-radius:8px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3);margin-bottom:8px">
+      <div style="font-size:.65rem;color:var(--amber);font-weight:700;margin-bottom:8px">＋ 새 섹터 추가</div>
+      <input id="secMgmtNewName" type="text" placeholder="섹터명 입력" style="${inpStyle}"
+        onkeydown="if(event.key==='Enter')secMgmtConfirm(); if(event.key==='Escape')secMgmtCancel();" />
+      <div class="txt-65-muted-mb5">색상 선택</div>
+      <div class="flex-wrap-g5-mb8" id="secNewColorDots">
+        ${SECTOR_AUTO_PALETTE.map(c => {
+          const rc = resolveColor(c);
+          const isSelected = rc.toLowerCase() === resolveColor(autoColor).toLowerCase();
+          const isUsed = used.includes(rc.toLowerCase());
+          return `<span onclick="_secNewPickColor('${c}')" data-secnewpick
+            style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
+            border:3px solid ${isSelected?'#fff':'transparent'};opacity:${isUsed&&!isSelected?'0.3':'1'};
+            transition:border .1s,opacity .1s" title="${isUsed&&!isSelected?'사용 중':''}"></span>`;
+        }).join('')}
+      </div>
+      <input type="hidden" id="secMgmtNewColor" value="${autoColor}" />
+      <div class="flex-gap6">
+        <button onclick="secMgmtConfirm()" class="btn-purple-sm">✅ 추가</button>
+        <button onclick="secMgmtCancel()" class="btn-cancel-sm">✕ 취소</button>
+      </div>
+    </div>`;
+  wrap.style.display = 'block';
   setTimeout(() => $el('secMgmtNewName')?.focus(), 50);
 }
 function secMgmtCancel() {
   const wrap = $el('secMgmtNewWrap');
-  if(wrap) wrap.style.display = 'none';
-  const n = $el('secMgmtNewName'); if(n) n.value = '';
-  const c = $el('secMgmtNewColor'); if(c) c.value = 'var(--muted)';
+  if(wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
+}
+function _secNewPickColor(c) {
+  const colorInput = $el('secMgmtNewColor');
+  if(colorInput) colorInput.value = c;
+  const used = Object.values(SECTOR_COLORS).map(v => resolveColor(v).toLowerCase());
+  const dotsWrap = $el('secNewColorDots');
+  if(dotsWrap) {
+    dotsWrap.querySelectorAll('span').forEach((dot, i) => {
+      const dc = SECTOR_AUTO_PALETTE[i];
+      const isSelected = resolveColor(dc).toLowerCase() === resolveColor(c).toLowerCase();
+      const isUsed = used.includes(resolveColor(dc).toLowerCase()) && !isSelected;
+      dot.style.border = `3px solid ${isSelected?'#fff':'transparent'}`;
+      dot.style.opacity = isUsed ? '0.3' : '1';
+    });
+  }
 }
 function secMgmtConfirm() {
   const name  = ($el('secMgmtNewName')?.value || '').trim();
   const color = $el('secMgmtNewColor')?.value || _secAutoColor();
   if(!name) { showMgmtMsg('secMgmtMsg','⚠️ 섹터명을 입력해주세요',true); return; }
   if(SECTOR_COLORS[name] !== undefined) { showMgmtMsg('secMgmtMsg',`❌ "${name}"은(는) 이미 존재하는 섹터입니다`,true); return; }
-  const usedColors = Object.values(SECTOR_COLORS).map(c => c.toLowerCase());
+  const usedColors = Object.values(SECTOR_COLORS).map(c => resolveColor(c).toLowerCase());
   if(usedColors.includes(resolveColor(color).toLowerCase())) {
-    // 중복 색상이면 자동으로 다른 색상 배정
-    SECTOR_COLORS[name] = _secAutoColor();
-  } else {
-    SECTOR_COLORS[name] = resolveColor(color); // ★ 원칙3: var()→hex 변환
+    showMgmtMsg('secMgmtMsg','❌ 이미 사용 중인 색상입니다. 다른 색상을 선택해주세요',true);
+    return;
   }
+  SECTOR_COLORS[name] = resolveColor(color); // ★ 원칙3: var()→hex 변환
   saveHoldings();
   _mgmtRefresh();
   buildSectorMgmt();
-  buildStockMgmt(); // 섹터 셀렉트 옵션 갱신
+  buildStockMgmt();
   showMgmtMsg('secMgmtMsg',`✅ "${name}" 섹터가 추가됐습니다`,false);
   setTimeout(() => secMgmtCancel(), 900);
 }

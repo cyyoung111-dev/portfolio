@@ -23,9 +23,10 @@ function buildAcctMgmt() {
 
     // 읽기전용 행
     html += `<div class="acct-row" data-acct="${acct}"
-      style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;
-             background:${isSel?'var(--c-purple-12)':'var(--s2)'};margin-bottom:4px;cursor:pointer;
-             border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};transition:all .15s">
+      style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;
+             background:${isSel?'var(--c-purple-12)':'transparent'};cursor:pointer;
+             border-bottom:1px solid var(--border);
+             outline:${isSel?'1px solid var(--c-purple-45)':'none'};transition:all .15s">
       <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
       <span class="item-title">${acct}</span>
       <span class="lbl-64-muted">${hasData?`거래 ${tradeN}건`:'거래 없음'}</span>
@@ -52,11 +53,11 @@ function buildAcctMgmt() {
           ${ACCT_PALETTE.map(c => {
             const rc = resolveColor(c);
             const rcur = resolveColor(color);
-            const isSel = rc.toLowerCase() === rcur.toLowerCase();
+            const isCurSel = rc.toLowerCase() === rcur.toLowerCase();
             const usedByOther = Object.entries(ACCT_COLORS).filter(([k])=>k!==acct).some(([,v])=>v.toLowerCase()===rc.toLowerCase());
-            return `<span class="acct-color-dot" data-color="${c}" data-acct="${acct}"
+            return `<span onclick="acctChangeColor('${acct}','${c}')"
               style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
-              border:3px solid ${isSel?'#fff':'transparent'};opacity:${usedByOther?'0.3':'1'};
+              border:3px solid ${isCurSel?'#fff':'transparent'};opacity:${usedByOther?'0.3':'1'};
               transition:border .1s,opacity .1s" title="${usedByOther?'다른 계좌 사용 중':''}"></span>`;
           }).join('')}
         </div>
@@ -111,12 +112,6 @@ function _bindAcctMgmtEvents(container) {
     container._editMode = false;
     buildAcctMgmt();
   });
-  container.querySelectorAll('.acct-color-dot').forEach(dot => {
-    dot.addEventListener('click', function(e) {
-      e.stopPropagation();
-      acctChangeColor(this.dataset.acct, this.dataset.color);
-    });
-  });
   $el('acctDelBtn')?.addEventListener('mousedown', function(e) {
     e.preventDefault();
     const acctSnap = container._selectedAcct;
@@ -135,8 +130,8 @@ function acctMgmtAddNew() {
   const inp = $el('acctMgmtNewInput');
   if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
   // 사용하지 않는 색상 자동 배정 후 팔레트 렌더링
-  const used = Object.values(ACCT_COLORS);
-  const autoColor = ACCT_PALETTE.find(c => !used.includes(c)) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
+  const used = Object.values(ACCT_COLORS).map(c => resolveColor(c).toLowerCase());
+  const autoColor = ACCT_PALETTE.find(c => !used.includes(resolveColor(c).toLowerCase())) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
   const colorInput = $el('acctMgmtNewColor');
   if (colorInput) colorInput.value = autoColor;
   const preview = $el('acctNewColorPreview');
@@ -144,8 +139,8 @@ function acctMgmtAddNew() {
   const dotsWrap = $el('acctNewColorDots');
   if (dotsWrap) {
     dotsWrap.innerHTML = ACCT_PALETTE.map(c => {
-      const isUsed = used.includes(c) && c !== autoColor;
-      const isSelected = c === autoColor;
+      const isUsed = used.includes(resolveColor(c).toLowerCase()) && resolveColor(c).toLowerCase() !== resolveColor(autoColor).toLowerCase();
+      const isSelected = resolveColor(c).toLowerCase() === resolveColor(autoColor).toLowerCase();
       return `<span onclick="_acctNewPickColor('${c}')"
         style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
         border:3px solid ${isSelected?'#fff':'transparent'};
@@ -159,13 +154,13 @@ function _acctNewPickColor(c) {
   if (colorInput) colorInput.value = c;
   const preview = $el('acctNewColorPreview');
   if (preview) preview.style.background = c;
-  const used = Object.values(ACCT_COLORS);
+  const used = Object.values(ACCT_COLORS).map(v => resolveColor(v).toLowerCase());
   const dotsWrap = $el('acctNewColorDots');
   if (dotsWrap) {
     dotsWrap.querySelectorAll('span').forEach((dot, i) => {
       const dc = ACCT_PALETTE[i];
-      const isSelected = dc === c;
-      const isUsed = used.includes(dc) && !isSelected;
+      const isSelected = resolveColor(dc).toLowerCase() === resolveColor(c).toLowerCase();
+      const isUsed = used.includes(resolveColor(dc).toLowerCase()) && !isSelected;
       dot.style.border = `3px solid ${isSelected?'#fff':'transparent'}`;
       dot.style.opacity = isUsed ? '0.3' : '1';
     });
@@ -340,14 +335,8 @@ function applyRealEstate() {
   REAL_ESTATE.memo          = memo;
   saveRealEstate();
   saveHoldings();
-  if (typeof refreshAll === 'function') {
-    refreshAll();
-  } else {
-    renderSummary();
-    renderView();
-    if (typeof renderDonut === 'function') renderDonut();
-  }
+  renderSummary();
+  renderView();
   closeRealEstateEditor();
-  if (typeof showToast === 'function') showToast('✅ 부동산 정보가 저장됐습니다', 'ok');
 }
 

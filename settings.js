@@ -16,15 +16,6 @@ const SECTOR_LABELS = {
 let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 
 // ════════════════════════════════════════════════════════════════════
-//  날짜 레이블 헬퍼 — 당일: "실시간", 과거: "YYYY.MM.DD 종가"
-// ════════════════════════════════════════════════════════════════════
-function makeDateLabel(dateStr) {
-  return (dateStr === getDateStr(0))
-    ? '실시간'
-    : dateStr.replace(/-/g, '.') + ' 종가';
-}
-
-// ════════════════════════════════════════════════════════════════════
 //  설정 GS 저장 / 복원 — 브라우저 독립 복원용
 // ════════════════════════════════════════════════════════════════════
 // debounce 타이머
@@ -388,7 +379,7 @@ async function fetchFromGsheet(dateStr) {
         if (data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
         epItems.forEach(i => {
           const price = data.prices[i.code];
-          if (price > 0) codeResults[i.code] = Math.round(price);
+          if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
           else missingCodes.push({ name: i.name, code: i.code });
         });
         // ★ 실시간 조회에서 못 받은 종목은 getPriceHistory로 재시도
@@ -416,7 +407,7 @@ async function fetchFromGsheet(dateStr) {
         if (data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
             const entry = (data.prices[i.code] || [])[0];
-            if (entry && entry.price > 0) codeResults[i.code] = Math.round(entry.price);
+            if (entry && entry.price > 0) codeResults[i.code] = Math.round(entry.price);  // ★ 코드 키로 저장
             else missingCodes.push({ name: i.name, code: i.code });
           });
         }
@@ -426,6 +417,7 @@ async function fetchFromGsheet(dateStr) {
     // ── 코드 없는 종목: getPriceHistory로 name 키로 조회
     let noCodeResults = {};
     if (epNoCode.length > 0) {
+      const names = epNoCode.map(i => encodeURIComponent(i.name)).join(',');
       const url   = GSHEET_API_URL + '?action=getPriceHistory&from=' + dateStr + '&to=' + dateStr + '&codes=' + encodeURIComponent(epNoCode.map(i=>i.name).join(','));
       try {
         const res  = await fetchWithTimeout(url, 15000);
@@ -488,7 +480,7 @@ async function quickFetchByDate() {
 
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDate === getDateStr(0));
-      const label = makeDateLabel(usedDate);
+      const label = isToday ? '실시간' : usedDate.replace(/-/g, '.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
         savedPriceDates[key] = label;
@@ -498,7 +490,8 @@ async function quickFetchByDate() {
       savePriceCache();
       const cnt   = Object.keys(results).length;
       const total = getEPWithCode().length;
-      let html = `✅ 업데이트 완료 · <span class="c-gold">${label}</span> · <b>${cnt}/${total}개</b>`;
+      const dayLabel = isToday ? '실시간' : usedDate.replace(/-/g,'.') + ' 종가';
+      let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
         const missingStr = missing.map(m => `${m.code} ${m.name}`).join(', ');
@@ -581,7 +574,7 @@ async function autoLoadPrices() {
 
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDateStr === dateStr);
-      const dateLabel = makeDateLabel(usedDateStr);
+      const dateLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
         savedPriceDates[key] = dateLabel;
@@ -590,9 +583,10 @@ async function autoLoadPrices() {
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();
 
-      const cnt   = Object.keys(results).length;
-      const total = getEPWithCode().length;
-      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dateLabel}</span> · ${cnt}/${total}개`, 'ok');
+      const cnt      = Object.keys(results).length;
+      const total    = getEPWithCode().length;
+      const dayLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
+      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개`, 'ok');
 
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {

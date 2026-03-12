@@ -50,7 +50,12 @@ function showToast(msg, type='info', duration=3200) {
 
 // DATA
 // 계좌 색상 팔레트 (신규 계좌 추가 시 순환 사용)
-const ACCT_PALETTE = ['var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)','var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)'];
+const ACCT_PALETTE = [
+  'var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)',
+  'var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)',
+  'var(--green-lt)','var(--green-md)','var(--blue-lt)','#f97316','#a78bfa',
+  '#ec4899','#facc15','#4ade80','#38bdf8','#fb7185'
+];
 
 // ─────────────────────────────────────────────────────────────
 // resolveColor: CSS 변수 → Canvas/HTML 실제 색상값 변환
@@ -148,8 +153,8 @@ function getAcctList() {
 
 function getOrAssignColor(acct) {
   if (!ACCT_COLORS[acct]) {
-    const used = Object.values(ACCT_COLORS);
-    const next = ACCT_PALETTE.find(c => !used.includes(c)) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
+    const used = Object.values(ACCT_COLORS).map(c => resolveColor(c).toLowerCase());
+    const next = ACCT_PALETTE.find(c => !used.includes(resolveColor(c).toLowerCase())) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
     ACCT_COLORS[acct] = resolveColor(next); // ★ 원칙3: 대입 시점에 var()→hex 변환
     saveAcctColors();
     if (!ACCT_ORDER.includes(acct)) { ACCT_ORDER.push(acct); saveAcctOrder(); }
@@ -614,13 +619,12 @@ function _buildTradesTableHTML(list) {
     {k:null,    label:'손익',   align:'right', cls:''},
   ];
   const headerHTML = headerCols.map(col => {
-    const alignStyle = `text-align:${col.align}`;
-    if (!col.k) return `<th style="padding:7px 8px;${alignStyle};font-size:.68rem;font-weight:600;color:var(--muted)"${col.cls?` class="${col.cls}"`:''} >${col.label}</th>`;
+    if (!col.k) return `<th style="padding:9px 10px;text-align:${col.align};font-size:.68rem;font-weight:600;color:var(--muted)"${col.cls?` class="${col.cls}"`:''} >${col.label}</th>`;
     const active = _tradeSort.key === col.k;
     const arrow  = active ? (_tradeSort.dir === 1 ? ' ▲' : ' ▼') : ' ⇅';
-    const color  = active ? 'color:var(--amber)' : 'color:var(--muted)';
+    const color  = active ? 'color:var(--purple-lt)' : 'color:var(--muted)';
     return `<th${col.cls?` class="${col.cls}"`:''}
-      style="padding:7px 8px;${alignStyle};font-size:.68rem;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}"
+      style="padding:9px 10px;text-align:${col.align};font-size:.68rem;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}"
       onclick="tradeSetSort('${col.k}')">${col.label}<span style="font-size:.60rem;opacity:.7">${arrow}</span></th>`;
   }).join('');
 
@@ -651,15 +655,15 @@ function _buildTradesTableHTML(list) {
     return `
       <tr style="border-bottom:1px solid var(--border);background:${noDate?'var(--c-red-04)':'transparent'};cursor:pointer"
           onclick="editTrade('${t.id}')">
-        <td style="padding:7px 8px;text-align:center;width:36px" onclick="event.stopPropagation()">
+        <td style="padding:8px 10px;text-align:center;width:36px" onclick="event.stopPropagation()">
           <input type="checkbox" class="trade-cb trade-check" data-id="${t.id}"
             onchange="tradeCheckChange()" title="선택"/>
         </td>
-        <td style="padding:7px 8px" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px" onclick="editTrade('${t.id}')">
           <span class="adot" style="background:${acctColor}" title="${t.acct}"></span>
           <span style="font-size:.72rem;color:var(--muted)">${t.acct||'-'}</span>
         </td>
-        <td style="padding:7px 8px" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px" onclick="editTrade('${t.id}')">
           <div style="font-weight:600;font-size:.78rem">${t.name||'-'}</div>
           ${t.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);font-family:monospace;margin-top:1px">${t.code}</span>` : ''}
           ${t.memo ? `<div style="font-size:.60rem;color:var(--muted);margin-top:1px">📝 ${t.memo}</div>` : ''}
@@ -671,17 +675,17 @@ function _buildTradesTableHTML(list) {
             ${isBuy?'매수':'매도'}
           </span>
         </td>
-        <td style="padding:7px 8px;text-align:right;font-family:monospace;font-size:.78rem" onclick="editTrade('${t.id}')">${(t.qty||0).toLocaleString()}</td>
-        <td class="col-hide-mobile" style="padding:7px 8px;font-size:.70rem;color:var(--muted);white-space:nowrap" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:.78rem" onclick="editTrade('${t.id}')">${(t.qty||0).toLocaleString()}</td>
+        <td class="col-hide-mobile" style="padding:8px 10px;font-size:.70rem;color:var(--muted);white-space:nowrap" onclick="editTrade('${t.id}')">
           ${date || '<span style="color:var(--red-lt);font-size:.60rem">날짜없음</span>'}
         </td>
-        <td style="padding:7px 8px;text-align:right;font-family:monospace;font-size:.78rem" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:right;font-family:monospace;font-size:.78rem" onclick="editTrade('${t.id}')">
           ${price.toLocaleString()}원
         </td>
-        <td style="padding:7px 8px;text-align:right" onclick="editTrade('${t.id}')">
+        <td style="padding:8px 10px;text-align:right" onclick="editTrade('${t.id}')">
           ${pnl !== null ? `
             <div style="color:${pC};font-weight:600;font-family:monospace;font-size:.78rem">${pS}${Math.round(pnl).toLocaleString()}원</div>
-            <div style="font-size:.65rem;color:${pC};font-family:monospace">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
+            <div style="font-size:.65rem;color:${pC}">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
           ` : `<span style="color:var(--muted)">-</span>`}
         </td>
       </tr>`;
