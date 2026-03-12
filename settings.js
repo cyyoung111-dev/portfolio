@@ -382,6 +382,18 @@ async function lookupNameByCode(code) {
     return data.name || data.officialName || '';
   } catch(e) { return ''; }
 }
+// ── GSheet 조회 결과(results)로 fundDirect.eval 동기화
+// savedPrices에 이름 키로 가격이 들어온 경우 fundDirect에도 반영
+function syncFundDirectFromResults(results) {
+  if (!results || typeof fundDirect !== 'object') return;
+  Object.keys(fundDirect).forEach(name => {
+    const price = results[name];
+    if (price > 0) {
+      fundDirect[name].eval = price;
+    }
+  });
+}
+
 async function fetchFromGsheet(dateStr) {
   if (!GSHEET_API_URL) return null;
   try {
@@ -528,6 +540,7 @@ async function quickFetchByDate() {
         savedPrices[key]     = price;
         savedPriceDates[key] = label;
       });
+      syncFundDirectFromResults(results);
       lastUpdated = usedDate.replace(/-/g, '.');
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();
@@ -621,6 +634,7 @@ async function autoLoadPrices() {
         savedPrices[key]     = price;
         savedPriceDates[key] = dateLabel;
       });
+      syncFundDirectFromResults(results);
       lastUpdated = usedDateStr.replace(/-/g,'.');
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();

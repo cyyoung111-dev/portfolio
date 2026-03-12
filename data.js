@@ -330,6 +330,15 @@ function syncHoldingsFromTrades() {
       }
     });
   }
+
+  // ── Step 4: fund 항목을 fundDirect에 초기 등록 (미등록 시 computeRows에서 null 처리됨)
+  if (typeof fundDirect !== 'undefined') {
+    newH.filter(h => h.fund && h.name).forEach(h => {
+      if (!fundDirect[h.name]) {
+        fundDirect[h.name] = { eval: h.cost, cost: h.cost, type: h.type || 'TDF' };
+      }
+    });
+  }
 }
 
 //  holdings localStorage 저장/불러오기
@@ -510,7 +519,12 @@ function computeRows(holdings) {
     if (h.fund) {
       const fd = fundDirect[h.name];
       if (!fd) return null;
-      return {...h, qty:1, cost:fd.cost, evalAmt:fd.eval, costAmt:fd.cost, pnl:fd.eval-fd.cost, price:fd.eval, pct:(fd.eval-fd.cost)/fd.cost*100, sector:getSector(h.name), code:''};
+      // ★ fundDirect.eval이 취득가와 같으면(초기값) savedPrices 이름키 우선 사용
+      const evalPrice = (savedPrices[h.name] > 0 && savedPrices[h.name] !== fd.cost)
+        ? savedPrices[h.name]
+        : (fd.eval > 0 ? fd.eval : fd.cost);
+      const evalAmt = evalPrice;
+      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector:getSector(h.name), code:''};
     }
     const nn = normName(h.name);
     const code   = getCode(nn);
