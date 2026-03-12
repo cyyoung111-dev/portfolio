@@ -340,8 +340,14 @@ function applyRealEstate() {
   REAL_ESTATE.memo          = memo;
   saveRealEstate();
   saveHoldings();
-  renderSummary();
-  renderView();
+  if (typeof refreshAll === 'function') {
+    refreshAll();
+  } else {
+    renderSummary();
+    renderView();
+    if (typeof renderDonut === 'function') renderDonut();
+  }
   closeRealEstateEditor();
+  if (typeof showToast === 'function') showToast('✅ 부동산 정보가 저장됐습니다', 'ok');
 }
 

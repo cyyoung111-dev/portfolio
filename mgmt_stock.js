@@ -226,7 +226,7 @@ function buildStockMgmt() {
     // 섹터순 정렬 시 섹터 구분 헤더 삽입
     if(container._sortKey === 'sector' && sec !== lastSector) {
       const secColor = SECTOR_COLORS[sec] || 'var(--muted)';
-      html += `<div style="font-size:.65rem;font-weight:700;color:${secColor};padding:6px 4px 2px;margin-top:${lastSector===null?'0':'8px'};border-bottom:1px solid ${secColor}33;letter-spacing:.06em">📂 ${sec}</div>`;
+      html += `<div style="font-size:.65rem;font-weight:700;color:${secColor};padding:6px 4px 3px;margin-top:${lastSector===null?'0':'12px'};border-top:${lastSector===null?'none':'1px solid var(--border)'};border-bottom:2px solid ${secColor};letter-spacing:.06em">📂 ${sec}</div>`;
       lastSector = sec;
     }
 
@@ -234,8 +234,8 @@ function buildStockMgmt() {
     html += `<div class="sm-row" data-idx="${idx}"
       style="display:grid;grid-template-columns:1fr 80px 72px 72px;gap:5px;align-items:center;padding:4px;
              border-radius:${isEdit?'6px 6px 0 0':'6px'};border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
-             border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'transparent')};
-             background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:${isEdit?'0':'3px'};cursor:pointer;transition:all .15s">
+             border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'var(--border)')};
+             background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:0;cursor:pointer;transition:all .15s">
       <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.name.replace(/"/g,'&quot;')}"
         ${isEdit?'':'readonly tabindex="-1"'} />
       <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.code||''}"
