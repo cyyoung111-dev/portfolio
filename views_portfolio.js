@@ -97,7 +97,7 @@ function renderSectorView(area) {
 
     const secMerged = {};
     d.rows.forEach(r => {
-      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', type:r.type||'주식', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0 };
+      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0 };
       const m = secMerged[r.name];
       m.evalAmt  += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
       m.totalQty += (r.qty||0);
@@ -106,21 +106,23 @@ function renderSectorView(area) {
     Object.values(secMerged).sort((a,b) => b.evalAmt - a.evalAmt).forEach(m => {
       const mPct = m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0;
       const rC = pColor(m.pnl), rS = pSign(m.pnl);
-      const epType = getEP(m.name)?.assetType || m.type || '주식';
+      const epType = (() => { const ep = getEP(m.name); return getEPType(ep, null); })();
       html += `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:7px 10px;font-size:.78rem;font-weight:600">
-          ${m.name}${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);margin-top:1px;font-family:monospace">${m.code}</span>`:''}
+        <td style="padding:7px 8px;font-size:.78rem;font-weight:600">
+          ${m.name}${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);font-family:monospace;margin-top:1px">${m.code}</span>`:''}
         </td>
-        <td style="padding:7px 10px"><span class="tag tg-${epType}">${epType}</span></td>
-        <td style="padding:7px 10px;font-size:.72rem">
+        <td style="padding:7px 8px;font-size:.72rem">
+          <span class="tag tg-${epType}">${epType}</span>
+        </td>
+        <td style="padding:7px 8px;font-size:.72rem">
           <div class="flex-wrap-gap6">
-            ${m.accts.map(a=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span><span class="txt-muted-68">${a}</span></div>`).join('')}
+            ${m.accts.map(a=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span><span style="font-size:.62rem;color:var(--muted)">${a}</span></div>`).join('')}
           </div>
         </td>
-        <td style="padding:7px 10px;font-size:.78rem;text-align:right;font-family:monospace">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
-        <td style="padding:7px 10px;font-size:.78rem;text-align:right;font-family:monospace">${fmtW(m.evalAmt)}</td>
-        <td style="padding:7px 10px;font-size:.78rem;text-align:right;font-family:monospace;color:${rC}">${rS}${fmt(m.pnl)}</td>
-        <td style="padding:7px 10px;font-size:.78rem;text-align:right;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-family:monospace">${m.totalQty.toLocaleString()}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right">${fmtW(m.evalAmt)}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;color:${rC}">${rS}${fmt(m.pnl)}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
       </tr>`;
     });
     html += `</tbody></table></div></div>`;

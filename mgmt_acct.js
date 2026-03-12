@@ -341,7 +341,7 @@ function applyRealEstate() {
   saveRealEstate();
   saveHoldings();
   renderSummary();
-  renderView();  // ★ 모든 탭에서 즉시 갱신 (메인카드 반영)
+  renderView();
   closeRealEstateEditor();
 }
 

@@ -530,7 +530,7 @@ async function autoLoadPrices() {
   if (cachedDate && cachedDate.startsWith(todayLabel) && cacheCount > 0 && GSHEET_API_URL) {
     updateDateBadge(todayLabel, true);
     const total = getEPWithCode().length;
-    setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">오늘 종가 (캐시)</span> · ${cacheCount}/${total}개`, 'ok');
+    setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">실시간 (캐시)</span> · ${cacheCount}/${total}개`, 'ok');
     refreshAll();
     return;
   }

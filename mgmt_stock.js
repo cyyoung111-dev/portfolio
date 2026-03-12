@@ -17,11 +17,9 @@ function buildSectorMgmt() {
     if(!isEdit) {
       // ── 읽기전용 행 (계좌 목록 스타일)
       html += `<div class="sec-row" data-idx="${idx}"
-        style="display:flex;align-items:center;gap:10px;padding:8px 10px;
-               background:${isSel?'var(--c-purple-12)':'transparent'};cursor:pointer;
-               border-bottom:1px solid var(--border);
-               border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
-               border-bottom:1px solid ${isSel?'var(--c-purple-45)':'var(--border)'};transition:all .15s">
+        style="display:flex;align-items:center;gap:10px;padding:7px 10px;
+               background:${isSel?'var(--c-purple-12)':'var(--s2)'};border-bottom:1px solid var(--border);cursor:pointer;
+               border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};transition:all .15s">
         <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
         <span class="item-title">${sec}</span>
         <span class="lbl-64-muted">${stockCount ? `종목 ${stockCount}개` : '종목 없음'}</span>
@@ -29,9 +27,8 @@ function buildSectorMgmt() {
     } else {
       // ── 수정 모드 행 (인풋 활성화)
       html += `<div class="sec-row" data-idx="${idx}"
-        style="display:flex;align-items:center;gap:8px;padding:6px 10px;
-               background:var(--c-purple-10);cursor:pointer;
-               border-bottom:1px solid var(--c-purple-45);
+        style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;
+               background:var(--c-purple-10);border-bottom:1px solid var(--border);cursor:pointer;
                border:1px solid var(--c-purple-45);transition:all .15s">
         <input type="color" class="sec-color-inp" data-idx="${idx}" value="${color}"
           style="width:28px;height:28px;border:1px solid var(--c-purple-40);border-radius:50%;padding:2px;background:var(--s2);cursor:pointer;flex-shrink:0" />

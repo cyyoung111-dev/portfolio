@@ -660,10 +660,10 @@ function _buildTradesTableHTML(list) {
         </td>
         <td style="padding:8px 10px" onclick="editTrade('${t.id}')">
           <div style="font-weight:600;font-size:.78rem">${t.name||'-'}</div>
-          ${t.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);margin-top:1px;font-family:monospace">${t.code}</span>` : ''}
+          ${t.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);font-family:monospace;margin-top:1px">${t.code}</span>` : ''}
           ${t.memo ? `<div style="font-size:.60rem;color:var(--muted);margin-top:1px">📝 ${t.memo}</div>` : ''}
         </td>
-        <td style="padding:8px 10px;text-align:center" onclick="editTrade('${t.id}')">
+        <td style="text-align:center" onclick="editTrade('${t.id}')">
           <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.65rem;font-weight:700;
             background:${isBuy?'var(--c-green2-15)':'var(--c-red-12)'};
             color:${isBuy?'var(--green-lt)':'var(--red-lt)'}">
