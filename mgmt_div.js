@@ -149,13 +149,23 @@ async function _autoFetchDiv(area) {
     Object.entries(data.dividends).forEach(([code, obj]) => {
       const name = codeToName[code];
       if (!name) return;
-      DIVDATA[name] = {
-        ...(DIVDATA[name] || {}),
-        perShare: obj.perShare ?? 0,
-        freq:     obj.freq    || '-',
-        months:   obj.months  || [],
-        note:     'GOOGLEFINANCE 자동갱신',
-      };
+      const prev = DIVDATA[name] || {};
+      if (obj.perShare > 0) {
+        DIVDATA[name] = {
+          ...prev,
+          perShare: obj.perShare,
+          freq:     obj.freq    || '-',
+          months:   (obj.months && obj.months.length > 0) ? obj.months : (prev.months || []),
+          note:     'GOOGLEFINANCE 자동갱신',
+        };
+      } else {
+        // 배당 없음 → perShare만 0, 기존 freq/months 보존
+        DIVDATA[name] = {
+          ...prev,
+          perShare: 0,
+          note:     prev.note && !prev.note.startsWith('GOOGLEFINANCE') ? prev.note : 'GOOGLEFINANCE: 배당내역 없음',
+        };
+      }
       changed = true;
     });
 
@@ -219,11 +229,21 @@ async function startDivFetch() {
       const name = codeToName[code];
       if (!name) return;
       if (!DIVDATA[name]) DIVDATA[name] = {};
-      DIVDATA[name].perShare = obj.perShare ?? 0;
-      DIVDATA[name].freq     = obj.freq || '-';
-      DIVDATA[name].months   = obj.months || [];
-      DIVDATA[name].note     = 'GOOGLEFINANCE 최근 13개월 기준';
-      if (obj.perShare > 0) updated++; else skipped++;
+      if (obj.perShare > 0) {
+        // GAS 배당 데이터 확인 → 전체 갱신
+        DIVDATA[name].perShare = obj.perShare;
+        DIVDATA[name].freq     = obj.freq || '-';
+        DIVDATA[name].months   = (obj.months && obj.months.length > 0) ? obj.months : (DIVDATA[name].months || []);
+        DIVDATA[name].note     = 'GOOGLEFINANCE 최근 13개월 기준';
+        updated++;
+      } else {
+        // GAS 배당 없음 → perShare만 0으로, 기존 freq/months/note는 보존
+        DIVDATA[name].perShare = 0;
+        if (!DIVDATA[name].note || DIVDATA[name].note.startsWith('GOOGLEFINANCE')) {
+          DIVDATA[name].note = 'GOOGLEFINANCE: 배당내역 없음 (수동입력 가능)';
+        }
+        skipped++;
+      }
     });
 
     status.style.color = 'var(--green-lt)';
