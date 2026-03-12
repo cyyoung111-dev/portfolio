@@ -84,7 +84,7 @@ function renderTradeGroupView(area) {
             <div style="flex:1;min-width:0">
               <div class="flex-ac-g8-wrap">
                 <span class="tg-name" style="font-weight:700;font-size:.85rem">${name}</span>
-                ${g.code ? `<span class="txt-mono-muted">${g.code}</span>` : ''}
+                ${g.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:1px">${g.code}</span>` : ''}
                 <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-purple2-10);color:var(--purple-lt)">${g.type}</span>
                 <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-muted-10);color:var(--muted)">${g.sector}</span>
                 ${isHolding
