@@ -47,7 +47,13 @@
 // ════════════════════════════════════════════════════════════════════
 //  ★ 스프레드시트 ID 설정 (필수)
 // ════════════════════════════════════════════════════════════════════
-var SS_ID = '1oyk6qY4pRV3zB_n_ldHeIKLbFS6ZbVLKp0t5OBWZV5c';
+var SS_ID = (function(){
+  try {
+    return PropertiesService.getScriptProperties().getProperty('SS_ID') || '1oyk6qY4pRV3zB_n_ldHeIKLbFS6ZbVLKp0t5OBWZV5c';
+  } catch(e) {
+    return '1oyk6qY4pRV3zB_n_ldHeIKLbFS6ZbVLKp0t5OBWZV5c';
+  }
+})();
 
 // ════════════════════════════════════════════════════════════════════
 //  소급채우기 설정

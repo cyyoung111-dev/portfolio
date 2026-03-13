@@ -212,7 +212,7 @@ async function _autoFetchDiv(area) {
   if (!codes) return;
   try {
     const url  = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes);
-    const res  = await fetchWithTimeout(url, 40000);
+    const res  = await fetchWithTimeout(url, 65000);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.status !== 'ok' || !data.dividends) return;
@@ -293,7 +293,7 @@ async function startDivFetch() {
 
   try {
     const url = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes);
-    const res = await fetchWithTimeout(url, 40000); // 배당 조회는 더 오래 걸림
+    const res = await fetchWithTimeout(url, 65000); // 배당 조회는 더 오래 걸림
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.status !== 'ok' || !data.dividends) throw new Error(data.message || '응답 오류');
