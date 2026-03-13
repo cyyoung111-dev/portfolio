@@ -73,7 +73,7 @@ function buildDivMgmt() {
 
     h += `<div style="border-bottom:1px solid rgba(255,255,255,.06);padding:10px 2px">
       <div style="font-size:.72rem;font-weight:700;color:var(--text);margin-bottom:6px">${name}</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;align-items:center">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;align-items:start" class="div-mgmt-row">
         <div>
           <div class="lbl-62-muted-3">주당 배당금 (원)</div>
           <input type="number" id="dv_amt_${name.replace(/\s/g,'_')}"
@@ -100,6 +100,14 @@ function buildDivMgmt() {
   });
 
   container.innerHTML = h || '<div style="color:var(--muted);font-size:.75rem;padding:20px;text-align:center">보유 종목이 없어요</div>';
+
+  // 모바일(480px 이하): 3컬럼 → 1컬럼
+  (function() {
+    const isMobile = window.innerWidth <= 480;
+    container.querySelectorAll('.div-mgmt-row').forEach(el => {
+      el.style.gridTemplateColumns = isMobile ? '1fr' : '1fr 1fr 1fr';
+    });
+  })();
 }
 
 function applyDivChanges() {

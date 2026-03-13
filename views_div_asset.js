@@ -55,19 +55,17 @@ function renderDivView(area, skipFetch) {
 
   let html = `
 
-  <!-- 배당 불러오기 배너 -->
-  <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:11px 14px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-    <div style="flex:1">
-      <div style="font-size:.72rem;font-weight:700;color:var(--amber);margin-bottom:2px">📡 배당금 자동 조회</div>
-      <div id="divFetchStatus" class="lbl-67-muted">${GSHEET_API_URL ? '탭 진입 시 자동 갱신 · 수동으로 즉시 갱신하려면 버튼 클릭' : '구글시트 연동 필요 · 연동 시 탭 진입마다 자동 갱신'}</div>
+  <!-- ── 배당 갱신 배너 ── -->
+  <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:.72rem;font-weight:700;color:var(--amber);margin-bottom:1px">📡 배당금 자동 조회</div>
+      <div id="divFetchStatus" style="font-size:.65rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${GSHEET_API_URL ? '탭 진입 시 자동 갱신 · 수동으로 즉시 갱신하려면 버튼 클릭' : '구글시트 연동 필요 · 연동 시 탭 진입마다 자동 갱신'}</div>
     </div>
-    <button id="divFetchBtn" onclick="startDivFetch()" class="btn-amber-sm">
-      🔄 지금 갱신
-    </button>
+    <button id="divFetchBtn" onclick="startDivFetch()" class="btn-amber-sm" style="flex-shrink:0">🔄 지금 갱신</button>
   </div>
 
-  <!-- 요약 카드 6개 -->
-  <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+  <!-- ── 요약 카드 5개 — PC: 1줄, 모바일: 2×2+1 ── -->
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px" class="div-summary-grid">
     <div class="div-stat-card">
       <div class="div-stat-label">💸 연간 예상 (세전)</div>
       <div class="div-stat-value" style="color:var(--cyan)">${fmtW(Math.round(totalAnnual))}</div>
@@ -85,7 +83,7 @@ function renderDivView(area, skipFetch) {
     </div>
     <div class="div-stat-card">
       <div class="div-stat-label">📊 배당수익률</div>
-      <div class="div-stat-value" style="color:var(--purple)">${yieldPct.toFixed(2)}<span class="txt-65-400">%</span></div>
+      <div class="div-stat-value" style="color:var(--purple)">${yieldPct.toFixed(2)}<span style="font-size:.65rem">%</span></div>
       <div class="div-stat-sub">투자원금 대비 연간</div>
     </div>
     <div class="div-stat-card">
@@ -95,104 +93,148 @@ function renderDivView(area, skipFetch) {
     </div>
   </div>
 
-  <!-- 월별 바 차트 (CSS div) -->
-  <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:20px 22px;margin-bottom:16px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+  <!-- ── 월별 바 차트 ── -->
+  <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
       <div>
         <div style="font-size:.85rem;font-weight:700">📅 ${new Date().getFullYear()}년 월별 배당 예상</div>
-        <div style="font-size:.65rem;color:var(--muted);margin-top:2px">세전 기준 · 현재월 <span style="color:var(--cyan)">${NOW_MONTH}월</span> 기준</div>
+        <div style="font-size:.65rem;color:var(--muted);margin-top:2px">세전 기준 · 현재월 <span style="color:var(--cyan)">${NOW_MONTH}월</span></div>
       </div>
-      <div style="display:flex;gap:12px;font-size:.65rem;color:var(--muted);align-items:center">
-        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:4px;vertical-align:middle"></span>지난달</span>
-        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--cyan);margin-right:4px;vertical-align:middle"></span>이번달</span>
-        <span><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--green);margin-right:4px;vertical-align:middle"></span>예정</span>
+      <div style="display:flex;gap:10px;font-size:.63rem;color:var(--muted);align-items:center;flex-shrink:0">
+        <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:3px;vertical-align:middle"></span>지난달</span>
+        <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--cyan);margin-right:3px;vertical-align:middle"></span>이번달</span>
+        <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--green);margin-right:3px;vertical-align:middle"></span>예정</span>
       </div>
     </div>
-    <div style="display:flex;align-items:flex-end;gap:4px;height:130px;padding-bottom:20px;position:relative">
+    <div style="display:flex;align-items:flex-end;gap:3px;height:110px;padding-bottom:18px;position:relative">
       ${(() => {
         const maxV = Math.max(...monthly, 1);
         return monthly.map((v, i) => {
           const isPast    = (i + 1) < NOW_MONTH;
           const isCurrent = (i + 1) === NOW_MONTH;
           const pct = v > 0 ? Math.max((v / maxV) * 100, 3) : 1;
-          const label = v > 0 ? (v >= 100000 ? Math.round(v/10000)+'만' : Math.round(v/1000)+'천') : '';
+          const label = v > 0 ? (v >= 1000000 ? (v/10000).toFixed(0)+'만' : v >= 10000 ? Math.round(v/1000)+'천' : v.toLocaleString()) : '';
           const bg = isCurrent
             ? 'linear-gradient(to top,rgba(6,182,212,.3),rgba(6,182,212,1))'
             : isPast
             ? 'rgba(255,255,255,.12)'
             : 'linear-gradient(to top,rgba(16,185,129,.25),rgba(16,185,129,.85))';
           const border = isCurrent ? '1px solid rgba(6,182,212,.8)' : 'none';
-          const labelColor = isCurrent ? 'var(--cyan)' : isPast ? 'rgba(255,255,255,.35)' : 'var(--green)';
-          const monthColor = isCurrent ? 'var(--cyan)' : 'rgba(100,116,139,.9)';
+          const labelColor = isCurrent ? 'var(--cyan)' : isPast ? 'rgba(255,255,255,.3)' : 'var(--green)';
+          const monthColor = isCurrent ? 'var(--cyan)' : 'rgba(100,116,139,.85)';
           const fw = isCurrent ? '700' : '400';
-          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative">
-            ${label ? `<div style="font-size:9px;color:${labelColor};font-weight:${fw};margin-bottom:2px;white-space:nowrap">${label}</div>` : '<div style="margin-bottom:11px"></div>'}
-            <div style="width:100%;height:${pct}%;background:${bg};border:${border};border-radius:3px 3px 0 0;box-shadow:${isCurrent?'0 0 8px var(--c-cyan-50)':'none'}"></div>
-            <div style="font-size:9px;color:${monthColor};font-weight:${fw};margin-top:3px">${i+1}월</div>
+          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+            ${label ? `<div style="font-size:8px;color:${labelColor};font-weight:${fw};margin-bottom:2px;white-space:nowrap;overflow:hidden;max-width:100%;text-align:center">${label}</div>` : '<div style="margin-bottom:10px"></div>'}
+            <div style="width:100%;height:${pct}%;background:${bg};border:${border};border-radius:3px 3px 0 0;box-shadow:${isCurrent?'0 0 6px var(--c-cyan-50)':'none'}"></div>
+            <div style="font-size:8px;color:${monthColor};font-weight:${fw};margin-top:2px">${i+1}월</div>
           </div>`;
         }).join('');
       })()}
     </div>
   </div>`;
 
-  // 종목별 배당 테이블
+  // ── 종목별 배당 테이블 (PC: 풀 테이블, 모바일: 카드형)
   const sorted = [...divRows].sort((a,b)=>b.annualDiv-a.annualDiv);
-  html += `<div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;margin-bottom:16px;overflow:hidden">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border)">
-      <h3 class="h3-card">💸 종목별 배당 상세</h3>
-      <div style="font-size:.72rem;color:var(--cyan)">연간 합계 <b>${fmtW(Math.round(totalAnnual))}</b></div>
+
+  // PC 테이블
+  html += `
+  <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden" class="div-tbl-wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)">
+      <h3 style="margin:0;font-size:.88rem;font-weight:700">💸 종목별 배당 상세</h3>
+      <div style="font-size:.70rem;color:var(--cyan)">연간 합계 <b>${fmtW(Math.round(totalAnnual))}</b></div>
     </div>
-    <div class="overflow-x-auto">
-    <table class="tbl-inner-sm">
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table style="width:100%;border-collapse:collapse;min-width:560px">
       <thead>
-        <tr class="s2-muted">
-          <th style="padding:8px 14px;text-align:left;font-weight:600">종목명</th>
-          <th style="padding:8px 10px;text-align:center;font-weight:600">주기</th>
-          <th class="td-right-600">총 수량</th>
-          <th class="td-right-600">주당</th>
-          <th style="padding:8px 10px;text-align:left;font-weight:600">지급월</th>
-          <th class="td-right-600">연간(세전)</th>
-          <th class="td-right-600">월(세전)</th>
-          <th class="td-right-600">수익률</th>
+        <tr style="background:var(--s2)">
+          <th style="padding:7px 14px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600">종목명</th>
+          <th style="padding:7px 8px;text-align:center;font-size:.68rem;color:var(--muted);font-weight:600">주기</th>
+          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">수량</th>
+          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">주당</th>
+          <th style="padding:7px 8px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600">지급월</th>
+          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">연간(세전)</th>
+          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">월(세전)</th>
+          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">수익률</th>
         </tr>
       </thead>
       <tbody>`;
 
   sorted.forEach(r => {
     const acctDots  = r.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span>`).join('');
-    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 5px;border-radius:3px;font-size:.60rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
+    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.58rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
     const freqColors = { '월배당':'var(--green)', '분기':'var(--blue)', '반기':'var(--purple)', '연간':'var(--amber)' };
     const fCol = freqColors[r.dd.freq] || 'var(--muted)';
-    // 이 종목의 투자원금
     const costAmt = rows.filter(rr=>rr.name===r.name).reduce((s,rr)=>s+(rr.costAmt||0),0);
     const yld = costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
     const monthlyDiv = Math.round(r.annualDiv / 12);
 
-    html += `<tr class="bd-bottom">
-      <td class="p-8-14">
-        <div class="fw-600">${r.name}</div>
-        <div class="lbl-64-muted">${acctDots} ${r.accts.join('·')}</div>
+    html += `<tr style="border-top:1px solid var(--border)">
+      <td style="padding:9px 14px">
+        <div style="font-weight:600;font-size:.82rem">${r.name}</div>
+        <div style="font-size:.63rem;color:var(--muted);margin-top:1px">${acctDots} ${r.accts.join('·')}</div>
       </td>
-      <td class="td-center-plain">
-        <span class="div-freq-badge" style="background:${fCol}22;color:${fCol}">${r.dd.freq}</span>
+      <td style="padding:9px 8px;text-align:center">
+        <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:.63rem;font-weight:700;background:${fCol}22;color:${fCol}">${r.dd.freq}</span>
       </td>
-      <td class="td-right-plain">${r.totalQty.toLocaleString()}</td>
-      <td class="td-right-plain">${r.dd.perShare.toLocaleString()}원</td>
-      <td class="td-p8-10">${monthBadges}</td>
-      <td style="padding:8px 10px;text-align:right;color:var(--cyan);font-weight:600">${fmtW(Math.round(r.annualDiv))}</td>
-      <td style="padding:8px 10px;text-align:right;color:var(--green)">${fmtW(monthlyDiv)}</td>
-      <td style="padding:8px 10px;text-align:right;color:var(--purple)">${yld !== '-' ? yld+'%' : '-'}</td>
+      <td style="padding:9px 8px;text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums">${r.totalQty.toLocaleString()}</td>
+      <td style="padding:9px 8px;text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}원</td>
+      <td style="padding:9px 8px">${monthBadges}</td>
+      <td style="padding:9px 8px;text-align:right;color:var(--cyan);font-weight:600;font-variant-numeric:tabular-nums">${fmtW(Math.round(r.annualDiv))}</td>
+      <td style="padding:9px 8px;text-align:right;color:var(--green);font-variant-numeric:tabular-nums">${fmtW(monthlyDiv)}</td>
+      <td style="padding:9px 8px;text-align:right;color:var(--purple);font-variant-numeric:tabular-nums">${yld !== '-' ? yld+'%' : '-'}</td>
     </tr>`;
   });
 
   html += `</tbody></table></div></div>`;
+
+  // ── 모바일 카드형 (JS로 화면 폭 분기)
+  html += `<div class="div-card-list" style="display:none;margin-bottom:14px">`;
+  sorted.forEach(r => {
+    const freqColors = { '월배당':'var(--green)', '분기':'var(--blue)', '반기':'var(--purple)', '연간':'var(--amber)' };
+    const fCol = freqColors[r.dd.freq] || 'var(--muted)';
+    const costAmt = rows.filter(rr=>rr.name===r.name).reduce((s,rr)=>s+(rr.costAmt||0),0);
+    const yld = costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
+    const monthlyDiv = Math.round(r.annualDiv / 12);
+    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.58rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
+    const acctDots = r.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}"></span>`).join('');
+    html += `
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
+          <div style="font-size:.62rem;color:var(--muted);margin-top:1px">${acctDots} ${r.accts.join('·')}</div>
+        </div>
+        <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.62rem;font-weight:700;background:${fCol}22;color:${fCol};flex-shrink:0;margin-left:8px">${r.dd.freq}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:.75rem">
+        <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
+          <div style="font-size:.60rem;color:var(--muted);margin-bottom:2px">연간(세전)</div>
+          <div style="font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums">${fmtW(Math.round(r.annualDiv))}</div>
+        </div>
+        <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
+          <div style="font-size:.60rem;color:var(--muted);margin-bottom:2px">월(세전)</div>
+          <div style="font-weight:600;color:var(--green);font-variant-numeric:tabular-nums">${fmtW(monthlyDiv)}</div>
+        </div>
+        <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
+          <div style="font-size:.60rem;color:var(--muted);margin-bottom:2px">주당 배당금</div>
+          <div style="font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}원</div>
+        </div>
+        <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
+          <div style="font-size:.60rem;color:var(--muted);margin-bottom:2px">수익률</div>
+          <div style="color:var(--purple);font-variant-numeric:tabular-nums">${yld !== '-' ? yld+'%' : '-'}</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:.62rem;color:var(--muted)">지급월: ${monthBadges || '-'}</div>
+    </div>`;
+  });
+  html += `</div>`;
 
   // 배당 없는 종목
   const noDivNames = rawHoldings
     .filter(h=>!h.fund && (!DIVDATA[h.name] || DIVDATA[h.name].perShare===0))
     .map(h=>h.name).filter((v,i,a)=>a.indexOf(v)===i);
   if (noDivNames.length > 0) {
-    html += `<div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 16px;font-size:.75rem;color:var(--muted);margin-bottom:16px">
+    html += `<div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:.75rem;color:var(--muted);margin-bottom:14px">
       <span style="font-weight:600;color:var(--text)">🚫 배당 없는 종목</span>
       <span style="margin-left:8px">${noDivNames.join(' · ')}</span>
     </div>`;
@@ -200,15 +242,34 @@ function renderDivView(area, skipFetch) {
 
   // 배당 설정 수동 편집
   html += `<div class="card-12">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <div style="font-size:.78rem;font-weight:700;color:var(--gold)">⚙️ 배당 설정 수동 편집</div>
       <button onclick="applyDivChanges()" class="btn-amber-sm">💾 저장</button>
     </div>
-    <div id="divMgmtBody" style="max-height:400px;overflow-y:auto"></div>
+    <div id="divMgmtBody" style="max-height:420px;overflow-y:auto"></div>
   </div>`;
 
   area.innerHTML = html;
   buildDivMgmt();
+
+  // ── PC/모바일 분기: 560px 이하면 카드형, 초과면 테이블
+  (function applyDivLayout() {
+    const tbl  = area.querySelector('.div-tbl-wrap');
+    const card = area.querySelector('.div-card-list');
+    const grid = area.querySelector('.div-summary-grid');
+    if (!tbl || !card) return;
+    const isMobile = window.innerWidth <= 560;
+    tbl.style.display  = isMobile ? 'none' : '';
+    card.style.display = isMobile ? '' : 'none';
+    if (grid) grid.style.gridTemplateColumns = isMobile ? 'repeat(2,1fr)' : 'repeat(5,1fr)';
+    // 모바일 요약 카드 5번째 항목 full-width
+    if (grid) {
+      const cards = grid.querySelectorAll('.div-stat-card');
+      if (cards.length === 5) {
+        cards[4].style.gridColumn = isMobile ? 'span 2' : '';
+      }
+    }
+  })();
 }
 
 // LOAN VIEW + 부동산
