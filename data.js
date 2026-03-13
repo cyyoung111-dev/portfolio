@@ -701,25 +701,43 @@ function refreshAll() {
 // ── 진행현황 라벨 상태 헬퍼
 let EDITABLE_PRICES = [];  // 현재가 편집기에서 관리, localStorage 복원
 
+function normalizeStockCode(raw) {
+  let s = String(raw || '').trim().toUpperCase();
+  if (!s) return '';
+  s = s
+    .replace(/^KRX:/, '')
+    .replace(/^KOSDAQ:/, '')
+    .replace(/^NASDAQ:/, '')
+    .replace(/^NYSE:/, '')
+    .replace(/^AMEX:/, '')
+    .replace(/^A(?=\d{6}$)/, '');
+
+  if (/^\d{1,6}$/.test(s)) return s.padStart(6, '0');
+  return s.replace(/[^A-Z0-9.-]/g, '');
+}
+
 // EDITABLE_PRICES 단일 조회 헬퍼 (name 기준) — 전체에서 공통 사용
 function getEP(name) {
   return EDITABLE_PRICES.find(i => i.name === name) || null;
 }
 function getEPByCode(code) {
   if (!code) return null;
-  const c = String(code).trim();
-  return EDITABLE_PRICES.find(i => i.code && i.code.trim() === c) || null;
+  const c = normalizeStockCode(code);
+  return EDITABLE_PRICES.find(i => i.code && normalizeStockCode(i.code) === c) || null;
 }
 
 // 종목코드가 있는 EDITABLE_PRICES 항목만 반환
 function getEPWithCode() {
-  return EDITABLE_PRICES.filter(i => i.code);
+  return EDITABLE_PRICES
+    .filter(i => i.code)
+    .map(i => ({ ...i, code: normalizeStockCode(i.code) }))
+    .filter(i => i.code);
 }
 function getEPType(ep, fallback) {
   return (ep && (ep.assetType || ep.type)) || fallback || '주식';
 }
 function epPush(name, code, assetType) {
-  EDITABLE_PRICES.push({ name, code: code||'', sector: '기타', assetType: assetType||'주식' });
+  EDITABLE_PRICES.push({ name, code: normalizeStockCode(code), sector: '기타', assetType: assetType||'주식' });
 }
 
 // EDITABLE_PRICES에서 섹터 조회 (기초정보 관리가 최우선 기준)
@@ -732,8 +750,8 @@ function getSector(name) {
 // EDITABLE_PRICES에서 종목코드 조회
 function getCode(name) {
   const ep = getEP(name);
-  if (ep && ep.code) return ep.code;
-  return STOCK_CODE[name] || '';
+  if (ep && ep.code) return normalizeStockCode(ep.code);
+  return normalizeStockCode(STOCK_CODE[name] || '');
 }
 // EDITABLE_PRICES를 localStorage에서 복원 (신규 추가 종목 포함)
 // SECTOR_COLORS localStorage 복원 (저장값으로 완전 교체 — 삭제 섹터 부활 방지)
@@ -759,12 +777,20 @@ function getCode(name) {
     const savedE = lsGet(EDITABLES_KEY, null);
     if (savedE && Array.isArray(savedE) && savedE.length > 0) {
       EDITABLE_PRICES.length = 0;
-      savedE.forEach(e => EDITABLE_PRICES.push(e));
+      savedE.forEach(e => {
+        const next = {
+          ...e,
+          code: normalizeStockCode(e?.code),
+          sector: e?.sector || '기타',
+          assetType: e?.assetType || e?.type || '주식',
+        };
+        EDITABLE_PRICES.push(next);
+      });
     }
 
     // ② 기초정보의 코드를 STOCK_CODE에 반영 (기초정보 → STOCK_CODE 단방향)
     EDITABLE_PRICES.forEach(ep => {
-      if (ep.code && ep.name) STOCK_CODE[ep.name] = ep.code;
+      if (ep.code && ep.name) STOCK_CODE[ep.name] = normalizeStockCode(ep.code);
     });
 
     // ③ EDITABLE_PRICES 로드 완료 후 거래이력으로 rawHoldings 재생성
