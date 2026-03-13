@@ -21,6 +21,21 @@ let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 // debounce 타이머
 let _saveSettingsTimer = null;
 
+function _toNum(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function _toMonths(v) {
+  if (Array.isArray(v)) {
+    return v.map(m => Number(m)).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
+  }
+  if (typeof v === 'string') {
+    return v.split(',').map(m => Number(String(m).trim())).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
+  }
+  return [];
+}
+
 function saveSettings(immediate) {
   if (!GSHEET_API_URL) return;
   clearTimeout(_saveSettingsTimer);
@@ -84,15 +99,39 @@ async function loadSettings(onProgress) {
     // DIVDATA
     if (s.DIVDATA && typeof s.DIVDATA === 'object') {
       Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
-      Object.assign(DIVDATA, s.DIVDATA);
+      Object.entries(s.DIVDATA).forEach(([name, v]) => {
+        const prev = (v && typeof v === 'object') ? v : {};
+        DIVDATA[name] = {
+          perShare: _toNum(prev.perShare, 0),
+          freq: typeof prev.freq === 'string' ? prev.freq : '-',
+          months: _toMonths(prev.months),
+          note: typeof prev.note === 'string' ? prev.note : '',
+        };
+      });
     }
     // LOAN
     if (s.LOAN && typeof s.LOAN === 'object') {
-      Object.assign(LOAN, s.LOAN);
+      Object.assign(LOAN, {
+        ...s.LOAN,
+        originalAmt: _toNum(s.LOAN.originalAmt, LOAN.originalAmt),
+        balance: _toNum(s.LOAN.balance, LOAN.balance),
+        annualRate: _toNum(s.LOAN.annualRate, LOAN.annualRate),
+        totalMonths: _toNum(s.LOAN.totalMonths, LOAN.totalMonths),
+        remainingMonths: _toNum(s.LOAN.remainingMonths, LOAN.remainingMonths),
+        monthlyInterestPaid: _toNum(s.LOAN.monthlyInterestPaid, LOAN.monthlyInterestPaid),
+        totalInterestPaid: _toNum(s.LOAN.totalInterestPaid, LOAN.totalInterestPaid),
+      });
     }
     // REAL_ESTATE
     if (s.REAL_ESTATE && typeof s.REAL_ESTATE === 'object') {
-      Object.assign(REAL_ESTATE, s.REAL_ESTATE);
+      Object.assign(REAL_ESTATE, {
+        ...s.REAL_ESTATE,
+        currentValue: _toNum(s.REAL_ESTATE.currentValue, REAL_ESTATE.currentValue),
+        purchasePrice: _toNum(s.REAL_ESTATE.purchasePrice, REAL_ESTATE.purchasePrice),
+        taxCost: _toNum(s.REAL_ESTATE.taxCost, REAL_ESTATE.taxCost),
+        interiorCost: _toNum(s.REAL_ESTATE.interiorCost, REAL_ESTATE.interiorCost),
+        etcCost: _toNum(s.REAL_ESTATE.etcCost, REAL_ESTATE.etcCost),
+      });
     }
     // fundDirect
     if (s.fundDirect && typeof s.fundDirect === 'object') {
@@ -102,12 +141,23 @@ async function loadSettings(onProgress) {
     // LOAN_SCHEDULE
     if (Array.isArray(s.LOAN_SCHEDULE)) {
       LOAN_SCHEDULE.length = 0;
-      s.LOAN_SCHEDULE.forEach(r => LOAN_SCHEDULE.push(r));
+      s.LOAN_SCHEDULE.forEach(r => {
+        if (!r || !r.date) return;
+        LOAN_SCHEDULE.push({
+          date: String(r.date),
+          balance: _toNum(r.balance, 0),
+          principal: _toNum(r.principal, 0),
+          interest: _toNum(r.interest, 0),
+        });
+      });
     }
     // RE_VALUE_HIST
     if (Array.isArray(s.RE_VALUE_HIST)) {
       RE_VALUE_HIST.length = 0;
-      s.RE_VALUE_HIST.forEach(r => RE_VALUE_HIST.push(r));
+      s.RE_VALUE_HIST.forEach(r => {
+        if (!r || !r.date) return;
+        RE_VALUE_HIST.push({ date: String(r.date), value: _toNum(r.value, 0) });
+      });
     }
     // EDITABLE_PRICES — 기초정보(종목명·코드·유형·섹터) 복원
     if (Array.isArray(s.EDITABLE_PRICES) && s.EDITABLE_PRICES.length > 0) {
