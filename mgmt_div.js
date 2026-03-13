@@ -56,19 +56,23 @@ function _dvPickFreq(key, freq) {
   }
 }
 
+// ── 배당 관리 DOM 생성 (buildDivMgmt)
 function buildDivMgmt() {
   const container = $el('divMgmtBody');
-  if(!container) return;
+  if (!container) return;
 
-  // 보유 종목 기준으로 배당 데이터 표시
-  const names = [...new Set(rawHoldings.filter(h=>!h.fund).map(h=>h.name))];
+  // 보유 종목 기준으로 DIVDATA 기본값 초기화
+  const names = [...new Set(rawHoldings.filter(h => !h.fund).map(h => h.name))];
+  names.forEach(name => {
+    if (!DIVDATA[name]) DIVDATA[name] = { perShare: 0, freq: '-', months: [], note: '' };
+  });
 
   let h = '';
   names.forEach(name => {
-    const d = DIVDATA[name] || { perShare:0, freq:'-', months:[], note:'' };
-    const _fk = name.replace(/\s/g,'_');
+    const d = DIVDATA[name];
+    const _fk = name.replace(/\s/g, '_');
     const freqOpts = FREQ_OPTIONS.map(f =>
-      `<button type="button" onclick="_dvPickFreq('${_fk}','${f}')" class="${_fBtnClass(d.freq===f)}">${f}</button>`
+      `<button type="button" onclick="_dvPickFreq('${_fk}','${f}')" class="${_fBtnClass(d.freq === f)}">${f}</button>`
     ).join('');
 
     h += `<div style="border-bottom:1px solid rgba(255,255,255,.06);padding:10px 2px">
@@ -76,10 +80,7 @@ function buildDivMgmt() {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;align-items:start" class="div-mgmt-row">
         <div>
           <div class="lbl-62-muted-3">주당 배당금 (원)</div>
-          <input type="number" id="dv_amt_${name.replace(/\s/g,'_')}"
-            value="${d.perShare}"
-            class="input-full-73"
-          />
+          <input type="number" id="dv_amt_${_fk}" value="${d.perShare}" class="input-full-73"/>
         </div>
         <div>
           <div class="lbl-62-muted-3">지급 주기</div>
@@ -88,11 +89,7 @@ function buildDivMgmt() {
         </div>
         <div>
           <div class="lbl-62-muted-3">지급 월</div>
-          <input type="text" id="dv_months_${name.replace(/\s/g,'_')}"
-            value="${d.months.join(',')}"
-            placeholder="예: 4 또는 4,10"
-            class="input-full-73"
-          />
+          <input type="text" id="dv_months_${_fk}" value="${d.months.join(',')}" placeholder="예: 4 또는 4,10" class="input-full-73"/>
         </div>
       </div>
       ${d.note ? `<div class="lbl-60-muted-mt">📝 ${d.note}</div>` : ''}
@@ -101,15 +98,12 @@ function buildDivMgmt() {
 
   container.innerHTML = h || '<div style="color:var(--muted);font-size:.75rem;padding:20px;text-align:center">보유 종목이 없어요</div>';
 
-  // 모바일(480px 이하): 3컬럼 → 1컬럼
-  (function() {
-    const isMobile = window.innerWidth <= 480;
-    container.querySelectorAll('.div-mgmt-row').forEach(el => {
-      el.style.gridTemplateColumns = isMobile ? '1fr' : '1fr 1fr 1fr';
-    });
-  })();
+  // 모바일 대응 (480px 이하)
+  const isMobile = window.innerWidth <= 480;
+  container.querySelectorAll('.div-mgmt-row').forEach(el => {
+    el.style.gridTemplateColumns = isMobile ? '1fr' : '1fr 1fr 1fr';
+  });
 }
-
 function applyDivChanges() {
   const names = [...new Set(rawHoldings.filter(h=>!h.fund).map(h=>h.name))];
   let changed = 0;
