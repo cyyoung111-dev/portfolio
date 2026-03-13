@@ -430,7 +430,7 @@ function handleDividendFetch(codes) {
       var uniqM    = months.filter(function(v,i,a){ return a.indexOf(v)===i; }).sort(function(a,b){return a-b;});
       var count    = divRows.length;
       var freq     = count >= 10 ? '월배당' : count >= 4 ? '분기' : count >= 2 ? '반기' : '연간';
-      var perShare = Math.round(divRows.reduce(function(s,r){return s+r.amount;},0)/count);
+      var perShare = parseFloat((divRows.reduce(function(s,r){return s+r.amount;},0)/count).toFixed(4));
       results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count };
     });
 

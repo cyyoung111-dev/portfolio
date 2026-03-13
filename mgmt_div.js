@@ -86,7 +86,7 @@ function buildDivMgmt() {
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;align-items:start" class="div-mgmt-row">
         <div>
           <div class="lbl-62-muted-3">주당 배당금 (원)</div>
-          <input type="number" id="dv_amt_${_fk}" value="${d.perShare}" class="input-full-73"/>
+          <input type="number" step="any" id="dv_amt_${_fk}" value="${d.perShare}" class="input-full-73"/>
         </div>
         <div>
           <div class="lbl-62-muted-3">지급 주기</div>
@@ -119,7 +119,7 @@ function applyDivChanges() {
     const freqEl  = $el('dv_freq_'  + key);
     const monthsEl= $el('dv_months_'+ key);
     if(!amtEl) return;
-    const perShare = parseInt(amtEl.value) || 0;
+    const perShare = parseFloat(amtEl.value) || 0;
     const freq     = freqEl?.value || '-';
     const months   = monthsEl?.value
       ? monthsEl.value.split(',').map(m=>parseInt(m.trim())).filter(m=>m>0&&m<=12)
@@ -194,7 +194,11 @@ async function _autoFetchDiv(area) {
   });
   if (!codeItems.length) return;
 
-  const codes = codeItems.map(ep => ep.code).join(',');
+  const codes = codeItems
+    .map(ep => _normDivCode(ep.code))
+    .filter(Boolean)
+    .join(',');
+  if (!codes) return;
   try {
     const url  = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes);
     const res  = await fetchWithTimeout(url, 40000);
@@ -259,7 +263,17 @@ async function startDivFetch() {
     return;
   }
 
-  const codes = codeItems.map(ep => ep.code).join(',');
+  const codes = codeItems
+    .map(ep => _normDivCode(ep.code))
+    .filter(Boolean)
+    .join(',');
+  if (!codes) {
+    status.style.color = 'var(--amber)';
+    status.textContent = '⚠️ 유효한 종목코드가 없습니다. 종목코드를 확인해주세요.';
+    btn.disabled = false;
+    btn.textContent = '🔄 배당금 불러오기';
+    return;
+  }
 
   try {
     const url = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes);
