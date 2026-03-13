@@ -49,12 +49,28 @@ async function saveNavPrices() {
 }
 
 function saveGsheetUrlFromUI() {
-  const val = $el('gsheetUrlInput')?.value?.trim();
-  if(!val) { showToast('URL을 입력해주세요', 'warn'); return; }
-  if(!val.startsWith('https://script.google.com')) {
+  const raw = $el('gsheetUrlInput')?.value?.trim();
+  if(!raw) { showToast('URL을 입력해주세요', 'warn'); return; }
+
+  // Apps Script 배포 URL은 /exec 엔드포인트여야 호출 가능
+  // 공유용 기본 URL(/edit 등)을 붙여넣은 경우에도 최대한 자동 보정
+  let val = raw;
+  if (!raw.includes('/exec')) {
+    const s = raw.replace(/\/+$/, '');
+    if (s.includes('/macros/s/')) val = s + '/exec';
+  }
+
+  if(!val.startsWith('https://script.google.com/macros/s/')) {
     showToast('올바른 Apps Script 웹앱 URL이 아닙니다', 'error');
     return;
   }
+  if(!val.includes('/exec')) {
+    showToast('웹앱 배포 URL(/exec)을 입력해주세요', 'warn');
+    return;
+  }
+
+  const inp = $el('gsheetUrlInput');
+  if (inp && inp.value !== val) inp.value = val;
   saveGsheetUrl(val);
   // ★ 매번 $el()로 새로 찾음 — refreshAll()이 renderGsheetView()를 호출해 DOM을 재생성하므로
   //    함수 시작 시점에 참조한 res는 재렌더링 후 무효화됨
@@ -120,8 +136,10 @@ function clearGsheetUrl() {
   const inp = $el('gsheetUrlInput');
   if(inp) inp.value = '';
   const res = $el('gsheetTestResult');
-  res.style.color = 'var(--muted)';
-  res.textContent = '연동 해제됨. 구글시트 연동 시 자동 조회가 활성화됩니다.';
+  if (res) {
+    res.style.color = 'var(--muted)';
+    res.textContent = '연동 해제됨. 구글시트 연동 시 자동 조회가 활성화됩니다.';
+  }
   updateGsheetBadge();
 }
 
