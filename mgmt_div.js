@@ -130,22 +130,25 @@ function applyDivChanges() {
   // 배당 뷰 즉시 갱신
   if(currentView === 'div') renderView();
   saveHoldings();
-  saveDividendSettings(true);
+  persistDividendSettings(true);
   showToast(`${changed}개 종목 배당 정보 저장 완료`, 'ok');
   buildDivMgmt();
 }
 
 // ── 배당 탭 진입 시 자동 GS fetch (버튼 클릭 없이 조용히 갱신)
 function _normDivCode(code) {
-  return String(code || '')
+  const cleaned = String(code || '')
     .trim()
     .toUpperCase()
     .replace(/^KRX:/, '')
+    .replace(/^KOSDAQ:/, '')
     .replace(/^NASDAQ:/, '')
     .replace(/^NYSE:/, '')
     .replace(/^AMEX:/, '')
     .replace(/^A(?=\d{6}$)/, '')
     .replace(/[^A-Z0-9.-]/g, '');
+  if (/^\d{1,6}$/.test(cleaned)) return cleaned.padStart(6, '0');
+  return cleaned;
 }
 
 function _buildDivCodeToNameMap() {
@@ -218,7 +221,7 @@ async function _autoFetchDiv(area) {
     });
 
     if (changed) {
-      saveDividendSettings(true);
+      persistDividendSettings(true);
       saveHoldings();
       // 항상 현재 DOM의 view-area 참조 (area 클로저 stale 방지)
       if (currentView === 'div') {
@@ -304,7 +307,7 @@ async function startDivFetch() {
 
     status.style.color = 'var(--green-lt)';
     status.textContent = '✅ ' + updated + '개 종목 배당 조회 완료' + (skipped > 0 ? ' (' + skipped + '개 배당없음)' : '') + ' · 확인 후 저장하세요';
-    saveDividendSettings(true);
+    persistDividendSettings(true);
     saveHoldings();
     // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
     const _area = $el('view-area');

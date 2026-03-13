@@ -277,7 +277,7 @@ function renderDivView(area, skipFetch) {
 // LOAN, REAL_ESTATE 선언 → loadHoldings 앞으로 이동 (복원 순서 보장)
 
 function saveRealEstate() {
-  saveRealEstateSettings(true);
+  persistRealEstateSettings(true);
 }
 
 function openLoanEditor() {
@@ -318,7 +318,7 @@ function applyLoan() {
   LOAN.totalInterestPaid    = totalInterestPaid;
   // startYear 도 startDate에서 자동 추출
   if (startDate) LOAN.startYear = parseInt(startDate.slice(0,4));
-  saveRealEstateSettings(true);
+  persistRealEstateSettings(true);
   renderSummary();
   renderView();
   closeLoanEditor();
@@ -332,7 +332,7 @@ let LOAN_SCHEDULE = lsGet(LOAN_SCHEDULE_KEY, []);
 let RE_VALUE_HIST  = lsGet(RE_VALUE_KEY, []);
 
 function saveSchedule() {
-  saveRealEstateSettings(true);
+  persistRealEstateSettings(true);
 }
 
 // ── 자산/대출 통합 뷰
@@ -677,7 +677,7 @@ function _promptLoanFromSchedule(schedule) {
   LOAN.remainingMonths     = remainingMonths;
   LOAN.totalInterestPaid   = totalInterestPaid;
   _loanSyncedMonth = todayStr;
-  saveRealEstateSettings(true);
+  persistRealEstateSettings(true);
   renderSummary();
   if (currentView === 'asset') renderView();
   showToast('대출 정보가 스케줄 기준으로 업데이트됐어요', 'ok');
