@@ -92,6 +92,21 @@ async function loadDividendSettings() {
   }
 }
 
+function _toNum(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function _toMonths(v) {
+  if (Array.isArray(v)) {
+    return v.map(m => Number(m)).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
+  }
+  if (typeof v === 'string') {
+    return v.split(',').map(m => Number(String(m).trim())).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
+  }
+  return [];
+}
+
 function saveSettings(immediate) {
   if (!GSHEET_API_URL) return;
   clearTimeout(_saveSettingsTimer);
@@ -152,10 +167,18 @@ async function loadSettings(onProgress) {
         SECTOR_COLORS[k] = (typeof v==='string' && v.startsWith('var(')) ? resolveColor(v) : v;
       });
     }
-    // DIVDATA (별도 action 우선, 미지원 시 기존 settings.DIVDATA 사용)
-    const loadedDivSeparately = await loadDividendSettings();
-    if (!loadedDivSeparately && s.DIVDATA && typeof s.DIVDATA === 'object') {
-      _applyDivData(s.DIVDATA);
+    // DIVDATA
+    if (s.DIVDATA && typeof s.DIVDATA === 'object') {
+      Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
+      Object.entries(s.DIVDATA).forEach(([name, v]) => {
+        const prev = (v && typeof v === 'object') ? v : {};
+        DIVDATA[name] = {
+          perShare: _toNum(prev.perShare, 0),
+          freq: typeof prev.freq === 'string' ? prev.freq : '-',
+          months: _toMonths(prev.months),
+          note: typeof prev.note === 'string' ? prev.note : '',
+        };
+      });
     }
     // LOAN
     if (s.LOAN && typeof s.LOAN === 'object') {
