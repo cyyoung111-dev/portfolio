@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.4
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.5
+//
+//  v9.5 변경사항 (2026.03.13):
+//   ✅ [신규]   save/getDividendSettings, save/getRealEstateSettings 액션 추가
+//   ✅ [개선]   설정 부분 저장 유틸(_readSettingsMap/_writeSettingsMap)로 기존 키 보존 저장
 //
 //  v9.4 변경사항 (2026.03.12):
 //   ✅ [버그수정] _backfillExecute() — 스냅샷만 저장하고 가격이력(SHEET_PH) 미저장 수정
@@ -95,12 +99,15 @@ function doGet(e) {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     return handleDividendFetch(codes);
   }
-  if (params.action === 'getSettings')  return handleGetSettings();
-  if (params.action === 'getTrades')    return handleGetTrades();
-  if (params.action === 'getHoldings')  return handleGetHoldings();
+  if (params.action === 'getSettings')          return handleGetSettings();
+  if (params.action === 'getDividendSettings')  return handleGetDividendSettings();
+  if (params.action === 'getRealEstateSettings')return handleGetRealEstateSettings();
+  if (params.action === 'getTrades')            return handleGetTrades();
+  if (params.action === 'getHoldings')          return handleGetHoldings();
   if (params.action === 'saveSnapshot' || params.action === 'syncCodes' ||
       params.action === 'syncHoldings' || params.action === 'syncTrades' ||
-      params.action === 'saveSettings') {
+      params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
+      params.action === 'saveRealEstateSettings') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -127,8 +134,10 @@ function doPost(e) {
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'syncHoldings' && params.data)  return handleSyncHoldings(params.data);
-  if (params.action === 'syncTrades'   && params.data)  return handleSyncTrades(params.data);
-  if (params.action === 'saveSettings' && params.data)  return handleSaveSettings(params.data);
+  if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data);
+  if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
+  if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
+  if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   return jsonError('알 수 없는 action: ' + (params.action || '없음'));
 }
 
@@ -1244,46 +1253,68 @@ function handleGetHoldings() {
 // ════════════════════════════════════════════════════════════════════
 //  설정 저장 / 불러오기
 // ════════════════════════════════════════════════════════════════════
+function _parseJsonParam(dataJson, label) {
+  try { return JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
+    try { return JSON.parse(dataJson); } catch(e2) { throw new Error(label + ' 파싱 실패'); }
+  }
+}
+
+function _readSettingsMap() {
+  var ss = getss();
+  var sh = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
+  if (!sh || sh.getLastRow() < 2) return {};
+
+  var data = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
+  var settings = {};
+  data.forEach(function(row) {
+    var key = (row[0] || '').toString().trim();
+    var val = (row[1] || '').toString().trim();
+    if (!key || !val) return;
+    try { settings[key] = JSON.parse(val); } catch(e) { settings[key] = val; }
+  });
+  return settings;
+}
+
+function _writeSettingsMap(settings) {
+  if (typeof settings !== 'object' || settings === null) throw new Error('객체 형식 필요');
+
+  var ss = getss();
+  var sh = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
+  if (!sh) {
+    sh = ss.insertSheet(CONFIG.SHEET_SETTINGS);
+    sh.getRange(1,1,1,2).setValues([['키','값']]);
+    sh.getRange(1,1,1,2).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    sh.setColumnWidth(1, 180); sh.setColumnWidth(2, 600);
+    sh.getRange(1, 2, sh.getMaxRows(), 1).setWrap(true);
+  }
+
+  var keyOrder = [];
+  var lastRow  = sh.getLastRow();
+  if (lastRow > 1) {
+    sh.getRange(2, 1, lastRow - 1, 1).getValues().forEach(function(r) {
+      var k = (r[0] || '').toString().trim();
+      if (k) keyOrder.push(k);
+    });
+  }
+  Object.keys(settings).forEach(function(k) {
+    if (keyOrder.indexOf(k) === -1) keyOrder.push(k);
+  });
+
+  var rows = keyOrder
+    .filter(function(k) { return k in settings; })
+    .map(function(k) { return [k, JSON.stringify(settings[k], null, 2)]; });
+
+  if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, 2).clearContents();
+  if (rows.length > 0) sh.getRange(2, 1, rows.length, 2).setValues(rows);
+  SpreadsheetApp.flush();
+  return rows.length;
+}
+
 function handleSaveSettings(dataJson) {
   try {
-    var settings;
-    try { settings = JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
-      try { settings = JSON.parse(dataJson); } catch(e2) { return jsonError('settings 파싱 실패'); }
-    }
-    if (typeof settings !== 'object' || settings === null) return jsonError('객체 형식 필요');
-
-    var ss = getss();
-    var sh = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
-    if (!sh) {
-      sh = ss.insertSheet(CONFIG.SHEET_SETTINGS);
-      sh.getRange(1,1,1,2).setValues([['키','값']]);
-      sh.getRange(1,1,1,2).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-      sh.setColumnWidth(1, 180); sh.setColumnWidth(2, 600);
-      sh.getRange(1, 2, sh.getMaxRows(), 1).setWrap(true);
-    }
-
-    var keyOrder = [];
-    var lastRow  = sh.getLastRow();
-    if (lastRow > 1) {
-      sh.getRange(2, 1, lastRow - 1, 1).getValues().forEach(function(r) {
-        var k = (r[0] || '').toString().trim();
-        if (k) keyOrder.push(k);
-      });
-    }
-    Object.keys(settings).forEach(function(k) {
-      if (keyOrder.indexOf(k) === -1) keyOrder.push(k);
-    });
-
-    var rows = keyOrder
-      .filter(function(k) { return k in settings; })
-      .map(function(k) { return [k, JSON.stringify(settings[k], null, 2)]; });
-
-    if (rows.length > 0) {
-      if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, 2).clearContents();
-      sh.getRange(2, 1, rows.length, 2).setValues(rows);
-    }
-    SpreadsheetApp.flush();
-    return jsonOk({ saved: rows.length });
+    var settings = _parseJsonParam(dataJson, 'settings');
+    var saved = _writeSettingsMap(settings);
+    return jsonOk({ saved: saved });
   } catch(err) {
     return jsonError('saveSettings 실패: ' + err.message);
   }
@@ -1291,21 +1322,61 @@ function handleSaveSettings(dataJson) {
 
 function handleGetSettings() {
   try {
-    var ss = getss();
-    var sh = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
-    if (!sh || sh.getLastRow() < 2) return jsonOk({ settings: {} });
-
-    var data     = sh.getRange(2, 1, sh.getLastRow() - 1, 2).getValues();
-    var settings = {};
-    data.forEach(function(row) {
-      var key = (row[0] || '').toString().trim();
-      var val = (row[1] || '').toString().trim();
-      if (!key || !val) return;
-      try { settings[key] = JSON.parse(val); } catch(e) { settings[key] = val; }
-    });
-    return jsonOk({ settings: settings });
+    return jsonOk({ settings: _readSettingsMap() });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
+  }
+}
+
+function handleSaveDividendSettings(dataJson) {
+  try {
+    var divData = _parseJsonParam(dataJson, 'dividend data');
+    var settings = _readSettingsMap();
+    settings.DIVDATA = divData;
+    _writeSettingsMap(settings);
+    return jsonOk({ saved: true, key: 'DIVDATA' });
+  } catch(err) {
+    return jsonError('saveDividendSettings 실패: ' + err.message);
+  }
+}
+
+function handleGetDividendSettings() {
+  try {
+    var settings = _readSettingsMap();
+    return jsonOk({ divData: (settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {} });
+  } catch(err) {
+    return jsonError('getDividendSettings 실패: ' + err.message);
+  }
+}
+
+function handleSaveRealEstateSettings(dataJson) {
+  try {
+    var payload = _parseJsonParam(dataJson, 'realEstate data');
+    var settings = _readSettingsMap();
+    settings.LOAN = payload.LOAN || {};
+    settings.REAL_ESTATE = payload.REAL_ESTATE || {};
+    settings.LOAN_SCHEDULE = Array.isArray(payload.LOAN_SCHEDULE) ? payload.LOAN_SCHEDULE : [];
+    settings.RE_VALUE_HIST = Array.isArray(payload.RE_VALUE_HIST) ? payload.RE_VALUE_HIST : [];
+    _writeSettingsMap(settings);
+    return jsonOk({ saved: true, keys: ['LOAN','REAL_ESTATE','LOAN_SCHEDULE','RE_VALUE_HIST'] });
+  } catch(err) {
+    return jsonError('saveRealEstateSettings 실패: ' + err.message);
+  }
+}
+
+function handleGetRealEstateSettings() {
+  try {
+    var settings = _readSettingsMap();
+    return jsonOk({
+      settings: {
+        LOAN: settings.LOAN || {},
+        REAL_ESTATE: settings.REAL_ESTATE || {},
+        LOAN_SCHEDULE: Array.isArray(settings.LOAN_SCHEDULE) ? settings.LOAN_SCHEDULE : [],
+        RE_VALUE_HIST: Array.isArray(settings.RE_VALUE_HIST) ? settings.RE_VALUE_HIST : [],
+      }
+    });
+  } catch(err) {
+    return jsonError('getRealEstateSettings 실패: ' + err.message);
   }
 }
 
