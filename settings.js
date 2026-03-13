@@ -20,6 +20,77 @@ let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 // ════════════════════════════════════════════════════════════════════
 // debounce 타이머
 let _saveSettingsTimer = null;
+let _saveDividendTimer = null;
+
+function _toNum(v, fallback) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function _toMonths(v) {
+  if (Array.isArray(v)) {
+    return v.map(m => Number(m)).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
+  }
+  if (typeof v === 'string') {
+    return v.split(',').map(m => Number(String(m).trim())).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
+  }
+  return [];
+}
+
+function _normalizeDivData(raw) {
+  const next = {};
+  if (!raw || typeof raw !== 'object') return next;
+  Object.entries(raw).forEach(([name, v]) => {
+    const prev = (v && typeof v === 'object') ? v : {};
+    next[name] = {
+      perShare: _toNum(prev.perShare, 0),
+      freq: typeof prev.freq === 'string' ? prev.freq : '-',
+      months: _toMonths(prev.months),
+      note: typeof prev.note === 'string' ? prev.note : '',
+    };
+  });
+  return next;
+}
+
+function _applyDivData(raw) {
+  const normalized = _normalizeDivData(raw);
+  Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
+  Object.assign(DIVDATA, normalized);
+}
+
+function saveDividendSettings(immediate) {
+  if (!GSHEET_API_URL) return;
+  clearTimeout(_saveDividendTimer);
+  const delay = immediate ? 0 : 2500;
+  _saveDividendTimer = setTimeout(async () => {
+    try {
+      const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
+      await fetchWithTimeout(GSHEET_API_URL, 15000, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+    } catch(e) {
+      // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
+      console.warn('saveDividendSettings 실패:', e);
+    }
+  }, delay);
+}
+
+async function loadDividendSettings() {
+  if (!GSHEET_API_URL) return false;
+  try {
+    const res = await fetchWithTimeout(GSHEET_API_URL + '?action=getDividendSettings', 10000);
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') return false;
+    _applyDivData(data.divData);
+    lsSave(DIVDATA_KEY, DIVDATA);
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
 
 function _toNum(v, fallback) {
   const n = Number(v);
