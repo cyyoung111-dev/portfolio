@@ -62,6 +62,31 @@ function _applyDivData(raw) {
   Object.assign(DIVDATA, normalized);
 }
 
+async function _postActionWithRetry(body, timeoutMs, retries) {
+  const maxTry = (Number(retries) || 0) + 1;
+  let lastErr = null;
+  for (let i = 0; i < maxTry; i++) {
+    try {
+      const res = await fetchWithTimeout(GSHEET_API_URL, timeoutMs || 30000, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+      return true;
+    } catch (e) {
+      lastErr = e;
+      if (i < maxTry - 1) {
+        await new Promise(r => setTimeout(r, 400 * (i + 1)));
+      }
+    }
+  }
+  if (lastErr) throw lastErr;
+  throw new Error('POST 실패');
+}
+
 function saveDividendSettings(immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveDividendTimer);

@@ -404,7 +404,7 @@ function handleDividendFetch(codes) {
       );
     });
     SpreadsheetApp.flush();
-    Utilities.sleep(Math.min(3000 + codes.length * 200, 25000)); // 종목수 × 200ms, 최대 25초
+    Utilities.sleep(Math.min(5000 + codes.length * 300, 45000)); // 종목수 × 300ms, 최대 45초
 
     var results = {};
     codes.forEach(function(rawCode, i) {
