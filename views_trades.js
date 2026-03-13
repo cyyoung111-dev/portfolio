@@ -9,6 +9,8 @@ function renderTradesView(area) {
 
   area.innerHTML = `
   <div class="p-0-4">
+    ${renderTabSyncPanel('trades')}
+
     <!-- 헤더 -->
     <div style="margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">

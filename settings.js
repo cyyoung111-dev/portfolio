@@ -22,6 +22,9 @@ let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 let _saveSettingsTimer = null;
 let _saveDividendTimer = null;
 let _saveRealEstateTimer = null;
+const TAB_SYNC_STATUS_KEY = 'tab_sync_status';
+let TAB_SYNC_STATUS = lsGet(TAB_SYNC_STATUS_KEY, {});
+const TAB_SYNC_BUSY = {};
 
 function _toNum(v, fallback) {
   const n = Number(v);
@@ -60,46 +63,54 @@ function _applyDivData(raw) {
 }
 
 function saveDividendSettings(immediate) {
-  if (!GSHEET_API_URL) return;
+  if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveDividendTimer);
   const delay = immediate ? 0 : 2500;
-  _saveDividendTimer = setTimeout(async () => {
-    try {
-      const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
-      await fetchWithTimeout(GSHEET_API_URL, 15000, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-      });
-    } catch(e) {
-      // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
-      console.warn('saveDividendSettings 실패:', e);
-    }
-  }, delay);
+  return new Promise(resolve => {
+    _saveDividendTimer = setTimeout(async () => {
+      try {
+        const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
+        await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        resolve(true);
+      } catch(e) {
+        // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
+        console.warn('saveDividendSettings 실패:', e);
+        resolve(false);
+      }
+    }, delay);
+  });
 }
 
 function saveRealEstateSettings(immediate) {
-  if (!GSHEET_API_URL) return;
+  if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveRealEstateTimer);
   const delay = immediate ? 0 : 2500;
-  _saveRealEstateTimer = setTimeout(async () => {
-    try {
-      const payload = {
-        LOAN,
-        REAL_ESTATE,
-        LOAN_SCHEDULE,
-        RE_VALUE_HIST,
-      };
-      const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
-      await fetchWithTimeout(GSHEET_API_URL, 15000, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-      });
-    } catch(e) {
-      console.warn('saveRealEstateSettings 실패:', e);
-    }
-  }, delay);
+  return new Promise(resolve => {
+    _saveRealEstateTimer = setTimeout(async () => {
+      try {
+        const payload = {
+          LOAN,
+          REAL_ESTATE,
+          LOAN_SCHEDULE,
+          RE_VALUE_HIST,
+        };
+        const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
+        await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        resolve(true);
+      } catch(e) {
+        console.warn('saveRealEstateSettings 실패:', e);
+        resolve(false);
+      }
+    }, delay);
+  });
 }
 
 async function loadRealEstateSettings() {
@@ -172,35 +183,120 @@ async function loadDividendSettings() {
   }
 }
 function saveSettings(immediate) {
-  if (!GSHEET_API_URL) return;
+  if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveSettingsTimer);
   const delay = immediate ? 0 : 4000;
-  _saveSettingsTimer = setTimeout(async () => {
-    try {
-      const settings = {
-        ACCT_COLORS,
-        ACCT_ORDER,
-        SECTOR_COLORS,
-        fundDirect,
-        EDITABLE_PRICES,
-        // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
-        // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
-        DIVDATA,
-        LOAN,
-        REAL_ESTATE,
-        LOAN_SCHEDULE,
-        RE_VALUE_HIST,
-      };
-      const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
-      await fetchWithTimeout(GSHEET_API_URL, 15000, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-      });
-    } catch(e) {
-      console.warn('saveSettings 실패:', e);
+  return new Promise(resolve => {
+    _saveSettingsTimer = setTimeout(async () => {
+      try {
+        const settings = {
+          ACCT_COLORS,
+          ACCT_ORDER,
+          SECTOR_COLORS,
+          fundDirect,
+          EDITABLE_PRICES,
+          // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
+          // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
+          DIVDATA,
+          LOAN,
+          REAL_ESTATE,
+          LOAN_SCHEDULE,
+          RE_VALUE_HIST,
+        };
+        const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
+        await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        resolve(true);
+      } catch(e) {
+        console.warn('saveSettings 실패:', e);
+        resolve(false);
+      }
+    }, delay);
+  });
+}
+
+function _tabSyncText(tabId) {
+  const info = TAB_SYNC_STATUS[tabId];
+  if (!GSHEET_API_URL) return { text: '재동기화 설정 필요', color: 'var(--muted)' };
+  if (!info || !info.ts) return { text: '동기화 기록 없음', color: 'var(--muted)' };
+  const t = new Date(info.ts);
+  const hh = String(t.getHours()).padStart(2, '0');
+  const mm = String(t.getMinutes()).padStart(2, '0');
+  const base = `${hh}:${mm}`;
+  if (info.state === 'ok') return { text: `✅ 마지막 동기화 ${base}`, color: 'var(--green)' };
+  if (info.state === 'syncing') return { text: `⏳ 동기화 중... (${base})`, color: 'var(--amber)' };
+  return { text: `⚠️ 마지막 동기화 실패 ${base}`, color: 'var(--red-lt)' };
+}
+
+function renderTabSyncPanel(tabId) {
+  const st = _tabSyncText(tabId);
+  const disabled = !GSHEET_API_URL ? 'disabled' : '';
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">
+    <div style="display:flex;flex-direction:column;gap:2px">
+      <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔄 수동 재동기화</div>
+      <span id="sync-badge-${tabId}" style="font-size:.68rem;color:${st.color}">${st.text}</span>
+    </div>
+    <button onclick="manualSyncByTab('${tabId}')" id="sync-btn-${tabId}" class="btn-purple-sm" ${disabled}>🔄 재동기화</button>
+  </div>`;
+}
+
+function _setTabSyncStatus(tabId, state, msg) {
+  TAB_SYNC_STATUS[tabId] = { state, msg: msg || '', ts: Date.now() };
+  lsSave(TAB_SYNC_STATUS_KEY, TAB_SYNC_STATUS);
+  const badge = $el('sync-badge-' + tabId);
+  if (badge) {
+    const st = _tabSyncText(tabId);
+    badge.textContent = msg || st.text;
+    badge.style.color = st.color;
+  }
+}
+
+async function manualSyncByTab(tabId) {
+  if (TAB_SYNC_BUSY[tabId]) return;
+  if (!GSHEET_API_URL) {
+    _setTabSyncStatus(tabId, 'fail', '⚠️ 재동기화 설정 필요');
+    showToast('재동기화 설정 후 사용해주세요', 'warn');
+    return;
+  }
+  TAB_SYNC_BUSY[tabId] = true;
+  const btn = $el('sync-btn-' + tabId);
+  if (btn) btn.disabled = true;
+  _setTabSyncStatus(tabId, 'syncing', '⏳ 동기화 중...');
+
+  let ok = false;
+  try {
+    if (tabId === 'div') {
+      const r1 = await saveDividendSettings(true);
+      const r2 = await saveSettings(true);
+      ok = !!(r1 || r2);
+    } else if (tabId === 'asset') {
+      const r1 = await saveRealEstateSettings(true);
+      const r2 = await saveSettings(true);
+      ok = !!(r1 || r2);
+    } else {
+      const r0 = await saveSettings(true);
+      const r1 = await syncCodesToGsheet();
+      await syncHoldingsToGsheet();
+      await syncTradesToGsheet();
+      ok = !!(r0 || r1);
     }
-  }, delay);
+  } catch (e) {
+    ok = false;
+  } finally {
+    TAB_SYNC_BUSY[tabId] = false;
+    if (btn) btn.disabled = false;
+  }
+
+  if (ok) {
+    _setTabSyncStatus(tabId, 'ok');
+    showToast('재동기화 완료', 'ok');
+  } else {
+    _setTabSyncStatus(tabId, 'fail');
+    showToast('재동기화 실패', 'error');
+  }
 }
 
 async function loadSettings(onProgress) {
@@ -733,9 +829,9 @@ async function autoLoadPrices() {
     updateDateBadge(cachedDate || todayLabel, false);
     if (cacheCount > 0) {
       const total = getEPWithCode().length;
-      setStatusLabel(`📦 캐시 종가 사용 중 · ${cacheCount}/${total}개 · <button onclick="switchView('gsheet')" class="btn-link-blue">🔗 구글시트 연동 →</button>`, 'warn');
+      setStatusLabel(`📦 캐시 종가 사용 중 · ${cacheCount}/${total}개 · <button onclick="switchView('gsheet')" class="btn-link-blue">⚙️ 재동기화 설정 →</button>`, 'warn');
     } else {
-      setStatusLabel('💡 구글시트 연동 시 자동 종가 조회 · <button onclick="switchView(\'gsheet\')" class="btn-link-blue">🔗 연동하기 →</button>', 'idle');
+      setStatusLabel('💡 재동기화 설정 시 자동 종가 조회 · <button onclick="switchView(\'gsheet\')" class="btn-link-blue">⚙️ 설정하기 →</button>', 'idle');
     }
     refreshAll();
     return;
@@ -805,7 +901,7 @@ async function autoLoadPrices() {
         refreshAll();
       } else {
         updateDateBadge(todayLabel, false);
-        setStatusLabel('❌ 종가 조회 실패 · 구글시트 연동 및 종목코드 등록 확인 필요', 'error');
+        setStatusLabel('❌ 종가 조회 실패 · 재동기화 설정 및 종목코드 등록 확인 필요', 'error');
       }
     }
   } catch(e) {

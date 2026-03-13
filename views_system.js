@@ -483,7 +483,7 @@ async function loadHistoryChart() {
   if (!chartWrap) return;
 
   if (!GSHEET_API_URL) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠️ 구글시트 연동 후 이용 가능합니다.</span>';
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠️ 재동기화 설정 후 이용 가능합니다.</span>';
     chartWrap.innerHTML = '';
     if (tableWrap) tableWrap.innerHTML = '';
     return;
@@ -759,6 +759,8 @@ function renderGsheetView(area) {
 function renderStocksView(area) {
   area.innerHTML = `
     <div style="padding:12px 0 8px;display:flex;flex-direction:column;gap:20px">
+
+      ${renderTabSyncPanel('stocks')}
 
       <!-- ── 계좌 관리 ── -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
