@@ -522,7 +522,7 @@ async function loadHistoryChart() {
     }
 
     if (statusEl) statusEl.innerHTML =
-      `<span style="color:var(--muted)">총 ${snapshots.length}개 스냅샷 · 최근: ${snapshots[snapshots.length-1].date || ''}</span>`;
+      `<span style="color:var(--muted)">총 ${snapshots.length}개 스냅샷 · 최근: ${fmtDateDot(snapshots[snapshots.length-1].date || '')}</span>`;
 
     _drawHistoryChart(chartWrap, snapshots);
     _drawHistoryTable(tableWrap, snapshots);
@@ -541,7 +541,7 @@ function _drawHistoryChart(wrap, snapshots) {
 
   // 데이터 추출 (evalAmt = 평가금액, pnl = 손익)
   const pts = snapshots.map(s => ({
-    date: s.date || '',
+    date: fmtDateDot(s.date || ''),
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     cost: parseFloat(s.costAmt || s.cost || 0),
   }));
@@ -665,7 +665,7 @@ function _drawHistoryTable(wrap, snapshots) {
     const pct  = co > 0 ? (pnl / co * 100).toFixed(1) : '-';
     const c    = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     html += `<tr style="border-bottom:1px solid var(--c-black-12)">
-      <td style="padding:5px 6px;color:var(--muted)">${s.date || ''}</td>
+      <td style="padding:5px 6px;color:var(--muted)">${fmtDateDot(s.date || '')}</td>
       <td style="padding:5px 6px;text-align:right;color:var(--text)">${fmt(ev)}</td>
       <td style="padding:5px 6px;text-align:right;color:var(--muted)">${fmt(co)}</td>
       <td style="padding:5px 6px;text-align:right;color:${c}">${pSign(pnl)}${fmt(pnl)}</td>

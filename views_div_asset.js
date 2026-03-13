@@ -473,7 +473,7 @@ function buildScheduleSection() {
   // 시가 이력 테이블 행
   const valRows = RE_VALUE_HIST.slice().sort((a,b)=>b.date.localeCompare(a.date))
     .map((r,i) => `<tr>
-      <td style="padding:5px 8px;font-size:.75rem;color:var(--muted)">${r.date}</td>
+      <td style="padding:5px 8px;font-size:.75rem;color:var(--muted)">${fmtDateDot(r.date)}</td>
       <td style="padding:5px 8px;font-size:.78rem;font-weight:600;color:var(--amber);text-align:right">${fmt(r.value)}</td>
       <td style="padding:5px 8px;text-align:right">
         <button onclick="removeReValue(${i})"
@@ -505,7 +505,7 @@ function buildScheduleSection() {
     </div>` : `
     <div style="font-size:.72rem;color:var(--muted);margin-bottom:12px">
       총 <strong class="c-text">${LOAN_SCHEDULE.length}개월</strong> 데이터 ·
-      ${LOAN_SCHEDULE[0]?.date} ~ ${LOAN_SCHEDULE[LOAN_SCHEDULE.length-1]?.date}
+      ${fmtDateDot(LOAN_SCHEDULE[0]?.date)} ~ ${fmtDateDot(LOAN_SCHEDULE[LOAN_SCHEDULE.length-1]?.date)}
     </div>
     <div id="scheduleChartWrap" style="width:100%;overflow-x:auto"></div>`}
   </div>

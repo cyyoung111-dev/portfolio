@@ -140,6 +140,7 @@ function secSave(idx) {
   }
   SECTOR_COLORS[newName] = resolveColor(newColor); // ★ 원칙3: var()→hex 변환
   saveHoldings();
+  queueMgmtGsheetSync();
   _mgmtRefresh();
   // buildSectorMgmt 재호출은 저장 버튼 핸들러에서 처리
 }
@@ -159,6 +160,7 @@ function secDelete(idx) {
   const sc = $el('sectorMgmtBody');
   if(sc) sc._selectedIdx = null;
   _commitTrades(); // sync + save + refreshAll
+  queueMgmtGsheetSync();
   _mgmtRefresh();
   buildSectorMgmt(); buildStockMgmt();
 }
@@ -358,6 +360,7 @@ function smDelete(idx) {
   // 이유: _commitTrades → syncHoldingsFromTrades가 rawTrades 기반으로
   //       삭제한 종목을 EDITABLE_PRICES에 즉시 재등록하기 때문
   saveHoldings();
+  queueMgmtGsheetSync();
   refreshAll();
   _mgmtRefresh();
   buildStockMgmt();
@@ -526,6 +529,7 @@ function smMgmtConfirm() {
   // SECTOR_MAP은 더 이상 단독 진실소스 아님 (getSector → EDITABLE_PRICES 우선 참조)
   if(code) STOCK_CODE[name] = code;
   saveHoldings();
+  queueMgmtGsheetSync();
   _mgmtRefresh();
   showMgmtMsg('smMgmtMsg',`✅ "${name}" 종목이 추가됐습니다`,false);
   setTimeout(() => smMgmtCancel(), 900);
@@ -581,6 +585,7 @@ function secMgmtConfirm() {
     SECTOR_COLORS[name] = resolveColor(color); // ★ 원칙3: var()→hex 변환
   }
   saveHoldings();
+  queueMgmtGsheetSync();
   _mgmtRefresh();
   buildSectorMgmt();
   buildStockMgmt(); // 섹터 셀렉트 옵션 갱신
@@ -633,6 +638,7 @@ function smSave(idx) {
   // EDITABLE_PRICES가 단일 진실소스 — SECTOR_MAP/STOCK_CODE는 보조 역할
   if(newCode) STOCK_CODE[newName] = newCode; else delete STOCK_CODE[newName];
   saveHoldings();
+  queueMgmtGsheetSync();
   // stocks 탭에서 smSave 시 renderStocksView→buildStockMgmt DOM 재생성 방지
   // 다른 탭 데이터만 갱신, stocks 탭은 이미 DOM이 살아있으므로 재생성 불필요
   _mgmtRefresh();

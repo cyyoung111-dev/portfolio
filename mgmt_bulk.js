@@ -59,13 +59,13 @@ function switchBulkTab(mode) {
   const TAB_CFG = {
     buy:  { bg:'var(--c-green2-15)',  color:'var(--green-lt)', applyBg:'rgba(34,197,94,.85)',
             desc:'계좌·유형·종목명·수량·매수일·매수단가 입력',
-            hint:'CSV: 계좌,유형,종목명,종목코드,수량,매수일(YYYY-MM-DD),매수단가,메모' },
+            hint:'CSV: 계좌,유형,종목명,종목코드,수량,매수일(YYYY.MM.DD),매수단가,메모' },
     sell: { bg:'var(--c-red-12)',     color:'var(--red-lt)',   applyBg:'var(--c-red-80)',
             desc:'계좌·종목명·수량·매도일·매도단가 입력',
-            hint:'CSV: 계좌,종목명,수량,매도일(YYYY-MM-DD),매도단가,메모' },
+            hint:'CSV: 계좌,종목명,수량,매도일(YYYY.MM.DD),매도단가,메모' },
     mix:  { bg:'rgba(139,92,246,.15)',color:'var(--purple-lt)',applyBg:'rgba(139,92,246,.85)',
             desc:'매수·매도 구분 선택 후 한번에 입력',
-            hint:'CSV: 계좌,구분(buy/sell),유형,종목명,종목코드,수량,거래일(YYYY-MM-DD),단가,메모' },
+            hint:'CSV: 계좌,구분(buy/sell),유형,종목명,종목코드,수량,거래일(YYYY.MM.DD),단가,메모' },
   };
   const cfg = TAB_CFG[mode] || TAB_CFG.buy;
   ['buy','sell','mix'].forEach(m => {
@@ -193,7 +193,7 @@ function renderBulkGrid() {
       return `<td class="p-2"><input type="${col.type==='number'?'number':'text'}" value="${val}"
         data-row="${ri}" data-col="${col.key}"
         onchange="bulkCellChange(${ri},'${col.key}',this.value)"
-        ${col.type==='date'?'placeholder="YYYY-MM-DD"':''}
+        ${col.type==='date'?'placeholder="YYYY.MM.DD"':''}
         style="width:${col.w}px;background:${val?'var(--s2)':'var(--c-white-03)'};border:1px solid ${val?'var(--border)':'transparent'};border-radius:4px;padding:5px 6px;color:var(--text);font-size:.75rem"
         onfocus="this.style.border='1px solid var(--amber)'" onblur="this.style.border='1px solid '+(this.value?'var(--border)':'transparent')"/></td>`;
     }).join('');
@@ -289,19 +289,19 @@ function loadBulkCSV(evt) {
 function downloadBulkTemplate() {
   let header, rows, filename;
   if (_bulkMode === 'buy') {
-    header   = '계좌,유형,종목명,종목코드,수량,매수일(YYYY-MM-DD),매수단가,메모';
+    header   = '계좌,유형,종목명,종목코드,수량,매수일(YYYY.MM.DD),매수단가,메모';
     rows     = rawHoldings.filter(h => !h.fund).map(h =>
       [h.acct, h.type||'주식', h.name, STOCK_CODE[h.name]||'', h.qty, '', h.cost, ''].join(',')
     );
     filename = 'bulk_buy_template.csv';
   } else if (_bulkMode === 'sell') {
-    header   = '계좌,종목명,수량,매도일(YYYY-MM-DD),매도단가,메모';
+    header   = '계좌,종목명,수량,매도일(YYYY.MM.DD),매도단가,메모';
     rows     = rawHoldings.filter(h => !h.fund && h.qty > 0).map(h =>
       [h.acct, h.name, '', '', '', ''].join(',')
     );
     filename = 'bulk_sell_template.csv';
   } else {
-    header   = '계좌,구분(buy/sell),유형,종목명,종목코드,수량,거래일(YYYY-MM-DD),단가,메모';
+    header   = '계좌,구분(buy/sell),유형,종목명,종목코드,수량,거래일(YYYY.MM.DD),단가,메모';
     rows     = rawHoldings.filter(h => !h.fund).map(h =>
       [h.acct, 'buy', h.type||'주식', h.name, STOCK_CODE[h.name]||'', h.qty, '', h.cost, ''].join(',')
     );

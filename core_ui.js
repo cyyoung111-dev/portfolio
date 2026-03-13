@@ -16,3 +16,13 @@ function showToast(msg, type='info', duration=3200) {
     t.addEventListener('animationend', () => t.remove(), {once:true});
   }, duration);
 }
+
+
+// 날짜 표시 포맷 통일: YYYY.MM.DD
+function fmtDateDot(v) {
+  const raw = String(v || '').trim();
+  if (!raw) return '';
+  const m = raw.match(/^(\d{4})[.-](\d{2})[.-](\d{2})(.*)$/);
+  if (!m) return raw;
+  return `${m[1]}.${m[2]}.${m[3]}${m[4] || ''}`;
+}
