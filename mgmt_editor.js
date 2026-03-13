@@ -132,6 +132,19 @@ function updateGsheetBadge() {
   if(badge) badge.style.display = GSHEET_API_URL ? 'inline' : 'none';
 }
 
+let _mgmtGsheetSyncTimer = null;
+function queueMgmtGsheetSync(immediate) {
+  if (!GSHEET_API_URL) return;
+  clearTimeout(_mgmtGsheetSyncTimer);
+  const delay = immediate ? 0 : 1200;
+  _mgmtGsheetSyncTimer = setTimeout(async () => {
+    saveSettings(true);
+    try { await syncCodesToGsheet(); } catch (e) { console.warn('syncCodesToGsheet 실패:', e); }
+    try { await syncHoldingsToGsheet(); } catch (e) { console.warn('syncHoldingsToGsheet 실패:', e); }
+    try { await syncTradesToGsheet(); } catch (e) { console.warn('syncTradesToGsheet 실패:', e); }
+  }, delay);
+}
+
 // ── 기초정보 관리 공통 헬퍼
 // 데이터 변경 후 차트·요약 갱신. stocks탭에서는 renderView() 스킵 (인수인계 핵심 패턴)
 function _mgmtRefresh() {

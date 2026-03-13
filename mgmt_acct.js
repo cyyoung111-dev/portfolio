@@ -100,6 +100,7 @@ function _bindAcctMgmtEvents(container) {
       rawTrades.forEach(t   => { if(t.acct === oldName)   t.acct = newName; });
       rawHoldings.forEach(h => { if(h.acct === oldName)   h.acct = newName; });
       saveAcctOrder(); saveAcctColors(); saveHoldings();
+      queueMgmtGsheetSync();
     }
     showMgmtMsg('acctMgmtMsg', `✅ "${newName}" 저장됐습니다`, false);
     container._selectedAcct = newName;
@@ -188,6 +189,7 @@ function acctMgmtConfirm() {
   getOrAssignColor(name); // 미지정 시 자동 배정 fallback + saveAcctColors
   if (!ACCT_ORDER.includes(name)) { ACCT_ORDER.push(name); saveAcctOrder(); }
   saveSettings();
+  queueMgmtGsheetSync();
   showMgmtMsg('acctMgmtMsg',`✅ "${name}" 계좌가 추가됐습니다`,false);
   setTimeout(() => acctMgmtCancel(), 900);
   buildAcctMgmt();
@@ -217,6 +219,7 @@ function acctChangeColor(acct, color) {
   ACCT_COLORS[acct] = hexColor;
   saveAcctColors();
   saveSettings();
+  queueMgmtGsheetSync();
   // 수정 모드 유지하며 재렌더
   buildAcctMgmt();
   _mgmtRefresh();
@@ -239,6 +242,7 @@ function deleteAcct(acct) {
   if (idx > -1) ACCT_ORDER.splice(idx, 1);
   saveAcctOrder();
   saveSettings();
+  queueMgmtGsheetSync();
   const c2 = $el('acctMgmtList');
   if(c2) c2._selectedAcct = null;
   buildAcctMgmt();
