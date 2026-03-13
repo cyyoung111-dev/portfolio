@@ -56,13 +56,12 @@ function renderDivView(area, skipFetch) {
   let html = `
 
 
-  <!-- ── 배당 갱신 배너 ── -->
-  <div style="background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px">
-    <div style="flex:1;min-width:0">
-      <div style="font-size:.72rem;font-weight:700;color:var(--amber);margin-bottom:1px">📡 배당금 자동 조회</div>
-      <div id="divFetchStatus" style="font-size:.65rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${GSHEET_API_URL ? '탭 진입 시 자동 갱신 · 수동으로 즉시 갱신하려면 버튼 클릭' : '재동기화 설정 필요 · 설정 시 탭 진입마다 자동 갱신'}</div>
+  <!-- ── 배당 재동기화 배너 ── -->
+  <div style="margin-bottom:14px">
+    ${renderTabSyncPanel('div')}
+    <div style="font-size:.65rem;color:var(--muted);margin-top:-4px;padding:0 2px">
+      ${GSHEET_API_URL ? '탭 진입 시 자동 조회 · 필요 시 🔄 재동기화로 즉시 갱신' : '재동기화 설정 필요'}
     </div>
-    <button id="divFetchBtn" onclick="startDivFetch()" class="btn-amber-sm" style="flex-shrink:0">🔄 지금 갱신</button>
   </div>
 
   <!-- ── 요약 카드 5개 — PC: 1줄, 모바일: 2×2+1 ── -->
@@ -277,7 +276,7 @@ function renderDivView(area, skipFetch) {
 // LOAN, REAL_ESTATE 선언 → loadHoldings 앞으로 이동 (복원 순서 보장)
 
 function saveRealEstate() {
-  saveRealEstateSettings(true);
+  persistRealEstateSettings(true);
 }
 
 function openLoanEditor() {
@@ -318,7 +317,7 @@ function applyLoan() {
   LOAN.totalInterestPaid    = totalInterestPaid;
   // startYear 도 startDate에서 자동 추출
   if (startDate) LOAN.startYear = parseInt(startDate.slice(0,4));
-  saveRealEstateSettings(true);
+  persistRealEstateSettings(true);
   renderSummary();
   renderView();
   closeLoanEditor();
@@ -332,7 +331,7 @@ let LOAN_SCHEDULE = lsGet(LOAN_SCHEDULE_KEY, []);
 let RE_VALUE_HIST  = lsGet(RE_VALUE_KEY, []);
 
 function saveSchedule() {
-  saveRealEstateSettings(true);
+  persistRealEstateSettings(true);
 }
 
 // ── 자산/대출 통합 뷰
@@ -677,7 +676,7 @@ function _promptLoanFromSchedule(schedule) {
   LOAN.remainingMonths     = remainingMonths;
   LOAN.totalInterestPaid   = totalInterestPaid;
   _loanSyncedMonth = todayStr;
-  saveRealEstateSettings(true);
+  persistRealEstateSettings(true);
   renderSummary();
   if (currentView === 'asset') renderView();
   showToast('대출 정보가 스케줄 기준으로 업데이트됐어요', 'ok');

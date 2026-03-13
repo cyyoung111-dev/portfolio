@@ -62,6 +62,36 @@ function _applyDivData(raw) {
   Object.assign(DIVDATA, normalized);
 }
 
+async function _postActionWithRetry(body, timeoutMs, retries) {
+  const maxTry = (Number(retries) || 0) + 1;
+  let lastErr = null;
+  for (let i = 0; i < maxTry; i++) {
+    try {
+      const res = await fetchWithTimeout(GSHEET_API_URL, timeoutMs || 45000, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const txt = await res.text();
+      let data = null;
+      try { data = JSON.parse(txt); } catch(_e) {}
+      if (data && data.status !== 'ok') throw new Error(data.message || '응답 오류');
+      if (!data && txt && txt.indexOf('"status":"ok"') === -1 && txt.indexOf('"status": "ok"') === -1) {
+        throw new Error('응답 파싱 실패');
+      }
+      return true;
+    } catch (e) {
+      lastErr = e;
+      if (i < maxTry - 1) {
+        await new Promise(r => setTimeout(r, 400 * (i + 1)));
+      }
+    }
+  }
+  if (lastErr) throw lastErr;
+  throw new Error('POST 실패');
+}
+
 function saveDividendSettings(immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveDividendTimer);
@@ -70,11 +100,7 @@ function saveDividendSettings(immediate) {
     _saveDividendTimer = setTimeout(async () => {
       try {
         const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
-        await fetchWithTimeout(GSHEET_API_URL, 15000, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
+        await _postActionWithRetry(body, 45000, 2);
         resolve(true);
       } catch(e) {
         // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
@@ -99,11 +125,7 @@ function saveRealEstateSettings(immediate) {
           RE_VALUE_HIST,
         };
         const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
-        await fetchWithTimeout(GSHEET_API_URL, 15000, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
+        await _postActionWithRetry(body, 45000, 2);
         resolve(true);
       } catch(e) {
         console.warn('saveRealEstateSettings 실패:', e);
@@ -204,11 +226,7 @@ function saveSettings(immediate) {
           RE_VALUE_HIST,
         };
         const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
-        await fetchWithTimeout(GSHEET_API_URL, 15000, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
+        await _postActionWithRetry(body, 45000, 2);
         resolve(true);
       } catch(e) {
         console.warn('saveSettings 실패:', e);
@@ -216,6 +234,20 @@ function saveSettings(immediate) {
       }
     }, delay);
   });
+}
+
+async function persistDividendSettings(immediate) {
+  if (!GSHEET_API_URL) return false;
+  const ok = await saveDividendSettings(immediate);
+  if (ok) return true;
+  return saveSettings(true);
+}
+
+async function persistRealEstateSettings(immediate) {
+  if (!GSHEET_API_URL) return false;
+  const ok = await saveRealEstateSettings(immediate);
+  if (ok) return true;
+  return saveSettings(true);
 }
 
 function _tabSyncText(tabId) {
@@ -269,13 +301,13 @@ async function manualSyncByTab(tabId) {
   let ok = false;
   try {
     if (tabId === 'div') {
-      const r1 = await saveDividendSettings(true);
-      const r2 = await saveSettings(true);
-      ok = !!(r1 || r2);
+      let fetched = false;
+      if (typeof startDivFetch === 'function') fetched = !!(await startDivFetch({ fromSyncPanel: true }));
+      const saved = await persistDividendSettings(true);
+      ok = !!(fetched || saved);
     } else if (tabId === 'asset') {
-      const r1 = await saveRealEstateSettings(true);
-      const r2 = await saveSettings(true);
-      ok = !!(r1 || r2);
+      const r1 = await persistRealEstateSettings(true);
+      ok = !!r1;
     } else {
       const r0 = await saveSettings(true);
       const r1 = await syncCodesToGsheet();
@@ -337,9 +369,17 @@ async function loadSettings(onProgress) {
     // EDITABLE_PRICES — 기초정보(종목명·코드·유형·섹터) 복원
     if (Array.isArray(s.EDITABLE_PRICES) && s.EDITABLE_PRICES.length > 0) {
       EDITABLE_PRICES.length = 0;
-      s.EDITABLE_PRICES.forEach(ep => EDITABLE_PRICES.push(ep));
+      s.EDITABLE_PRICES.forEach(ep => {
+        const next = {
+          ...ep,
+          code: _normalizeCodeForSync(ep?.code),
+          sector: ep?.sector || '기타',
+          assetType: ep?.assetType || ep?.type || '주식',
+        };
+        EDITABLE_PRICES.push(next);
+      });
       // STOCK_CODE master 동기화 (원칙8: HTML STOCK_CODE가 master)
-      EDITABLE_PRICES.forEach(ep => { if (ep.name && ep.code) STOCK_CODE[ep.name] = ep.code; });
+      EDITABLE_PRICES.forEach(ep => { if (ep.name && ep.code) STOCK_CODE[ep.name] = _normalizeCodeForSync(ep.code); });
     }
     // ── GSheet 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
     saveHoldings();
@@ -462,10 +502,13 @@ async function bootstrapGsheetSettings() {
   _gsBootRestored = true;
   try {
     const ok = await loadSettings();
-    if (ok) {
-      try { refreshAll(); } catch(e) {}
-      try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
+    if (!ok) {
+      // Settings 시트 읽기 실패 시에도 배당/부동산 별도 액션은 시도
+      try { await loadDividendSettings(); } catch(e) {}
+      try { await loadRealEstateSettings(); } catch(e) {}
     }
+    try { refreshAll(); } catch(e) {}
+    try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
     try { await loadGsheetCodeList(); } catch(e) {}
   } catch(e) {
     console.warn('bootstrapGsheetSettings 실패:', e);
@@ -474,6 +517,11 @@ async function bootstrapGsheetSettings() {
 function saveGsheetUrl(url) {
   GSHEET_API_URL = url.trim();
   lsSave(GSHEET_KEY, GSHEET_API_URL);
+}
+
+function _normalizeCodeForSync(code) {
+  if (typeof normalizeStockCode === 'function') return normalizeStockCode(code);
+  return String(code || '').trim();
 }
 
 // ── 구글시트 종목코드 목록 로드
@@ -487,7 +535,15 @@ async function loadGsheetCodeList() {
     if (!res.ok) return;
     const data = await res.json();
     if (data.status === 'ok' && Array.isArray(data.codes)) {
-      _gsheetCodeList = data.codes;
+      _gsheetCodeList = data.codes
+        .map(item => ({
+          code: _normalizeCodeForSync(item?.code),
+          name: String(item?.name || '').trim(),
+          type: String(item?.type || '').trim(),
+          sector: String(item?.sector || '').trim(),
+        }))
+        .filter(item => item.code && item.name);
+
       // ⚠️ STOCK_CODE는 건드리지 않음 — HTML 직접 입력이 항상 우선
       // GSheet 코드는 _gsheetCodeList에만 보관, lookupNameByCode()에서 3순위 참고용으로만 사용
     }
@@ -505,15 +561,12 @@ async function syncCodesToGsheet() {
     EDITABLE_PRICES.forEach(i => {
       if (!i.name) return;
       codeMap[i.name] = {
-        code:   i.code      || '',
+        code:   _normalizeCodeForSync(i.code),
         type:   i.assetType || i.type || '주식',
         sector: i.sector    || '기타',
       };
     });
-    // STOCK_CODE에만 있는 항목도 병합 (하위 호환 — 코드만 있고 EDITABLE_PRICES 미등록 종목)
-    Object.entries(STOCK_CODE).forEach(([n, c]) => {
-      if (n && c && !codeMap[n]) codeMap[n] = { code: c, type: '주식', sector: '기타' };
-    });
+    // 중요: 기초정보(EDITABLE_PRICES)만 동기화해 GS 데이터가 자동으로 흔들리지 않도록 유지
     if (Object.keys(codeMap).length === 0) { console.warn('[syncCodes] 전송할 코드 없음'); return null; }
     const body = 'action=syncCodes&codes=' + encodeURIComponent(JSON.stringify(codeMap));
     const res = await fetchWithTimeout(GSHEET_API_URL, 20000, {
@@ -608,12 +661,12 @@ async function syncTradesToGsheet() {
 
 async function lookupNameByCode(code) {
   if (!code) return '';
-  const trimCode = code.trim();
+  const trimCode = _normalizeCodeForSync(code);
   // 1. EDITABLE_PRICES 역방향 검색 (최우선)
   const epItem = getEPByCode(trimCode);
   if (epItem) return epItem.name;
   // 2. 로컬 STOCK_CODE 역방향 검색
-  const localEntry = Object.entries(STOCK_CODE).find(([n,c]) => c.trim() === trimCode);
+  const localEntry = Object.entries(STOCK_CODE).find(([n,c]) => _normalizeCodeForSync(c) === trimCode);
   if (localEntry) return localEntry[0];
   // 3. GSheet 캐시 검색
   const gItem = _gsheetCodeList.find(item => item.code === trimCode);

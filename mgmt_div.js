@@ -130,22 +130,25 @@ function applyDivChanges() {
   // 배당 뷰 즉시 갱신
   if(currentView === 'div') renderView();
   saveHoldings();
-  saveDividendSettings(true);
+  persistDividendSettings(true);
   showToast(`${changed}개 종목 배당 정보 저장 완료`, 'ok');
   buildDivMgmt();
 }
 
 // ── 배당 탭 진입 시 자동 GS fetch (버튼 클릭 없이 조용히 갱신)
 function _normDivCode(code) {
-  return String(code || '')
+  const cleaned = String(code || '')
     .trim()
     .toUpperCase()
     .replace(/^KRX:/, '')
+    .replace(/^KOSDAQ:/, '')
     .replace(/^NASDAQ:/, '')
     .replace(/^NYSE:/, '')
     .replace(/^AMEX:/, '')
     .replace(/^A(?=\d{6}$)/, '')
     .replace(/[^A-Z0-9.-]/g, '');
+  if (/^\d{1,6}$/.test(cleaned)) return cleaned.padStart(6, '0');
+  return cleaned;
 }
 
 function _buildDivCodeToNameMap() {
@@ -179,10 +182,18 @@ function _normalizeDividendResponse(obj, prev) {
     }
     next.note = 'GOOGLEFINANCE 자동갱신';
   } else {
-    next.perShare = 0;
-    next.note = prev?.note && !prev.note.startsWith('GOOGLEFINANCE')
-      ? prev.note
-      : 'GOOGLEFINANCE: 배당내역 없음';
+    // 조회 실패/무배당 응답이 와도 기존 수동값/이전 정상값은 보존 (0으로 덮어쓰기 방지)
+    if (Number(prev?.perShare || 0) > 0) {
+      next.perShare = Number(prev.perShare || 0);
+      next.freq = prev?.freq || next.freq || '-';
+      next.months = Array.isArray(prev?.months) ? prev.months : (next.months || []);
+      next.note = 'GOOGLEFINANCE: 배당내역 없음(기존 값 유지)';
+    } else {
+      next.perShare = 0;
+      next.note = prev?.note && !prev.note.startsWith('GOOGLEFINANCE')
+        ? prev.note
+        : 'GOOGLEFINANCE: 배당내역 없음';
+    }
   }
   return next;
 }
@@ -201,7 +212,7 @@ async function _autoFetchDiv(area) {
   if (!codes) return;
   try {
     const url  = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes);
-    const res  = await fetchWithTimeout(url, 40000);
+    const res  = await fetchWithTimeout(url, 65000);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.status !== 'ok' || !data.dividends) return;
@@ -218,7 +229,7 @@ async function _autoFetchDiv(area) {
     });
 
     if (changed) {
-      saveDividendSettings(true);
+      persistDividendSettings(true);
       saveHoldings();
       // 항상 현재 DOM의 view-area 참조 (area 클로저 stale 방지)
       if (currentView === 'div') {
@@ -239,15 +250,18 @@ async function startDivFetch() {
 
   // 구글시트 연동 여부 확인
   if (!GSHEET_API_URL) {
-    status.style.color = 'var(--amber)';
-    status.textContent = '⚠️ 구글시트 미연동 — 배당금을 수동으로 입력해주세요. (✏️ 현재가 편집 → 📡 종가 자동 조회 탭에서 연동)';
-    return;
+    if (status) {
+      status.style.color = 'var(--amber)';
+      status.textContent = '⚠️ 구글시트 미연동 — 배당금을 수동으로 입력해주세요. (✏️ 현재가 편집 → 📡 종가 자동 조회 탭에서 연동)';
+    }
+    return false;
   }
 
-  btn.disabled = true;
-  btn.textContent = '⏳ 조회 중...';
-  status.style.color = 'var(--amber)';
-  status.textContent = '구글시트 GOOGLEFINANCE로 배당 내역 조회 중... (약 10~20초)';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 조회 중...'; }
+  if (status) {
+    status.style.color = 'var(--amber)';
+    status.textContent = '구글시트 GOOGLEFINANCE로 배당 내역 조회 중... (약 10~20초)';
+  }
 
   // 보유 종목 코드 목록 (펀드 제외, 코드 있는 것만)
   const codeItems = EDITABLE_PRICES.filter(ep => {
@@ -256,11 +270,12 @@ async function startDivFetch() {
   });
 
   if (codeItems.length === 0) {
-    status.style.color = 'var(--amber)';
-    status.textContent = '⚠️ 조회 가능한 종목코드가 없습니다. 종목코드를 먼저 등록해주세요.';
-    btn.disabled = false;
-    btn.textContent = '🔄 배당금 불러오기';
-    return;
+    if (status) {
+      status.style.color = 'var(--amber)';
+      status.textContent = '⚠️ 조회 가능한 종목코드가 없습니다. 종목코드를 먼저 등록해주세요.';
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
+    return false;
   }
 
   const codes = codeItems
@@ -268,16 +283,17 @@ async function startDivFetch() {
     .filter(Boolean)
     .join(',');
   if (!codes) {
-    status.style.color = 'var(--amber)';
-    status.textContent = '⚠️ 유효한 종목코드가 없습니다. 종목코드를 확인해주세요.';
-    btn.disabled = false;
-    btn.textContent = '🔄 배당금 불러오기';
-    return;
+    if (status) {
+      status.style.color = 'var(--amber)';
+      status.textContent = '⚠️ 유효한 종목코드가 없습니다. 종목코드를 확인해주세요.';
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
+    return false;
   }
 
   try {
     const url = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes);
-    const res = await fetchWithTimeout(url, 40000); // 배당 조회는 더 오래 걸림
+    const res = await fetchWithTimeout(url, 65000); // 배당 조회는 더 오래 걸림
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (data.status !== 'ok' || !data.dividends) throw new Error(data.message || '응답 오류');
@@ -302,21 +318,27 @@ async function startDivFetch() {
       }
     });
 
-    status.style.color = 'var(--green-lt)';
-    status.textContent = '✅ ' + updated + '개 종목 배당 조회 완료' + (skipped > 0 ? ' (' + skipped + '개 배당없음)' : '') + ' · 확인 후 저장하세요';
-    saveDividendSettings(true);
+    if (status) {
+      status.style.color = 'var(--green-lt)';
+      status.textContent = '✅ ' + updated + '개 종목 배당 조회 완료' + (skipped > 0 ? ' (' + skipped + '개 배당없음)' : '') + ' · 확인 후 저장하세요';
+    }
+    persistDividendSettings(true);
     saveHoldings();
     // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
     const _area = $el('view-area');
     renderDivView(_area, true);
 
   } catch(e) {
-    status.style.color = 'var(--red)';
-    status.textContent = '❌ 조회 실패: ' + e.message + ' — 구글시트 연동 및 배포 상태를 확인해주세요.';
+    if (status) {
+      status.style.color = 'var(--red)';
+      status.textContent = '❌ 조회 실패: ' + e.message + ' — 구글시트 연동 및 배포 상태를 확인해주세요.';
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
+    return false;
   }
 
-  btn.disabled = false;
-  btn.textContent = '🔄 배당금 불러오기';
+  if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
+  return true;
 }
 
 // ── 종목 관리 탭

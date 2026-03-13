@@ -441,7 +441,8 @@ function smCsvImport(input) {
 
     rows.forEach(cols => {
       const name   = col.name   >= 0 ? cols[col.name]   || '' : '';
-      const code   = col.code   >= 0 ? cols[col.code]   || '' : '';
+      const codeRaw = col.code   >= 0 ? cols[col.code]   || '' : '';
+      const code   = normalizeStockCode(codeRaw);
       const type   = col.type   >= 0 ? cols[col.type]   || '주식' : '주식';
       const sector = col.sector >= 0 ? cols[col.sector] || '기타' : '기타';
       if (!name) { skipped++; return; }
@@ -461,7 +462,7 @@ function smCsvImport(input) {
         EDITABLE_PRICES[newIdx].fund   = isFund;
         added++;
       }
-      if (code && name) STOCK_CODE[name] = code;
+      if (code && name) STOCK_CODE[name] = normalizeStockCode(code);
     });
 
     saveHoldings();
@@ -514,7 +515,7 @@ function smMgmtCancel() {
 }
 function smMgmtConfirm() {
   const name      = ($el('smMgmtNewName')?.value || '').trim();
-  const code      = ($el('smMgmtNewCode')?.value || '').trim();
+  const code      = normalizeStockCode(($el('smMgmtNewCode')?.value || '').trim());
   const assetType = $el('smMgmtNewType')?.value || '주식';
   const sector    = $el('smMgmtNewSec')?.value || '기타';
   if(!name) { showMgmtMsg('smMgmtMsg','⚠️ 종목명을 입력해주세요',true); return; }
@@ -527,7 +528,7 @@ function smMgmtConfirm() {
   const isFund = (assetType === '펀드' || assetType === 'TDF');
   EDITABLE_PRICES.push({ name, code, sector, assetType, ...(isFund ? { fund: true } : {}) });
   // SECTOR_MAP은 더 이상 단독 진실소스 아님 (getSector → EDITABLE_PRICES 우선 참조)
-  if(code) STOCK_CODE[name] = code;
+  if(code) STOCK_CODE[name] = normalizeStockCode(code);
   saveHoldings();
   queueMgmtGsheetSync();
   _mgmtRefresh();
@@ -614,7 +615,7 @@ function smSave(idx) {
   const item = EDITABLE_PRICES[idx];
   if(!item) return;
   const newName = (document.querySelector(`.sm-name-inp[data-idx="${idx}"]`)?.value || '').trim();
-  const newCode = (document.querySelector(`.sm-code-inp[data-idx="${idx}"]`)?.value || '').trim();
+  const newCode = normalizeStockCode((document.querySelector(`.sm-code-inp[data-idx="${idx}"]`)?.value || '').trim());
   const newType = document.querySelector(`.sm-type-sel[data-idx="${idx}"]`)?.value || '주식';
   const newSec  = document.querySelector(`.sm-sec-sel[data-idx="${idx}"]`)?.value || '기타';
   if(!newName) return;
@@ -636,7 +637,7 @@ function smSave(idx) {
   item.assetType = newType;  // ← 기초정보에 유형 저장 (우선순위 ①)
   item.sector    = newSec;
   // EDITABLE_PRICES가 단일 진실소스 — SECTOR_MAP/STOCK_CODE는 보조 역할
-  if(newCode) STOCK_CODE[newName] = newCode; else delete STOCK_CODE[newName];
+  if(newCode) STOCK_CODE[newName] = normalizeStockCode(newCode); else delete STOCK_CODE[newName];
   saveHoldings();
   queueMgmtGsheetSync();
   // stocks 탭에서 smSave 시 renderStocksView→buildStockMgmt DOM 재생성 방지
