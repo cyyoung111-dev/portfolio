@@ -171,22 +171,6 @@ async function loadDividendSettings() {
     return false;
   }
 }
-
-function _toNum(v, fallback) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function _toMonths(v) {
-  if (Array.isArray(v)) {
-    return v.map(m => Number(m)).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
-  }
-  if (typeof v === 'string') {
-    return v.split(',').map(m => Number(String(m).trim())).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
-  }
-  return [];
-}
-
 function saveSettings(immediate) {
   if (!GSHEET_API_URL) return;
   clearTimeout(_saveSettingsTimer);
