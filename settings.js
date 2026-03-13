@@ -67,19 +67,14 @@ async function _postActionWithRetry(body, timeoutMs, retries) {
   let lastErr = null;
   for (let i = 0; i < maxTry; i++) {
     try {
-      const res = await fetchWithTimeout(GSHEET_API_URL, timeoutMs || 45000, {
+      const res = await fetchWithTimeout(GSHEET_API_URL, timeoutMs || 30000, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      const txt = await res.text();
-      let data = null;
-      try { data = JSON.parse(txt); } catch(_e) {}
-      if (data && data.status !== 'ok') throw new Error(data.message || '응답 오류');
-      if (!data && txt && txt.indexOf('"status":"ok"') === -1 && txt.indexOf('"status": "ok"') === -1) {
-        throw new Error('응답 파싱 실패');
-      }
+      const data = await res.json();
+      if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
       return true;
     } catch (e) {
       lastErr = e;
@@ -100,7 +95,14 @@ function saveDividendSettings(immediate) {
     _saveDividendTimer = setTimeout(async () => {
       try {
         const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
-        await _postActionWithRetry(body, 45000, 2);
+        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
         // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
@@ -125,7 +127,14 @@ function saveRealEstateSettings(immediate) {
           RE_VALUE_HIST,
         };
         const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
-        await _postActionWithRetry(body, 45000, 2);
+        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
         console.warn('saveRealEstateSettings 실패:', e);
@@ -226,7 +235,14 @@ function saveSettings(immediate) {
           RE_VALUE_HIST,
         };
         const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
-        await _postActionWithRetry(body, 45000, 2);
+        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
         console.warn('saveSettings 실패:', e);
@@ -301,10 +317,8 @@ async function manualSyncByTab(tabId) {
   let ok = false;
   try {
     if (tabId === 'div') {
-      let fetched = false;
-      if (typeof startDivFetch === 'function') fetched = !!(await startDivFetch({ fromSyncPanel: true }));
-      const saved = await persistDividendSettings(true);
-      ok = !!(fetched || saved);
+      const r1 = await persistDividendSettings(true);
+      ok = !!r1;
     } else if (tabId === 'asset') {
       const r1 = await persistRealEstateSettings(true);
       ok = !!r1;
