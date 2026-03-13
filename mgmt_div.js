@@ -56,6 +56,12 @@ function _dvPickFreq(key, freq) {
   }
 }
 
+function _divKey(name) {
+  return 'k' + Array.from(String(name || ''))
+    .map(ch => ch.charCodeAt(0).toString(16).padStart(4, '0'))
+    .join('');
+}
+
 // ── 배당 관리 DOM 생성 (buildDivMgmt)
 function buildDivMgmt() {
   const container = $el('divMgmtBody');
@@ -70,7 +76,7 @@ function buildDivMgmt() {
   let h = '';
   names.forEach(name => {
     const d = DIVDATA[name];
-    const _fk = name.replace(/\s/g, '_');
+    const _fk = _divKey(name);
     const freqOpts = FREQ_OPTIONS.map(f =>
       `<button type="button" onclick="_dvPickFreq('${_fk}','${f}')" class="${_fBtnClass(d.freq === f)}">${f}</button>`
     ).join('');
@@ -108,7 +114,7 @@ function applyDivChanges() {
   const names = [...new Set(rawHoldings.filter(h=>!h.fund).map(h=>h.name))];
   let changed = 0;
   names.forEach(name => {
-    const key = name.replace(/\s/g,'_');
+    const key = _divKey(name);
     const amtEl   = $el('dv_amt_'   + key);
     const freqEl  = $el('dv_freq_'  + key);
     const monthsEl= $el('dv_months_'+ key);
