@@ -45,7 +45,7 @@ async function saveNavPrices() {
     result.textContent = saved > 0 ? `✅ ${saved}개 저장됨${skipped > 0 ? ` (${skipped}개 건너뜀)` : ''}` : '입력한 NAV가 없어요';
     result.style.color = saved > 0 ? 'var(--green)' : 'var(--muted)';
   }
-  if (saved > 0) showToast(`📅 ${date} NAV ${saved}개 저장됨`, 'ok');
+  if (saved > 0) showToast(`📅 ${fmtDateDot(date)} NAV ${saved}개 저장됨`, 'ok');
 }
 
 function saveGsheetUrlFromUI() {
@@ -107,7 +107,7 @@ function saveGsheetUrlFromUI() {
       const codeMsg = parts.length
         ? `종목코드 ${parts.join(' · ')} (총 ${total}개)`
         : `종목코드 ${total}개`;
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = fmtDateDot(new Date().toISOString().slice(0, 10));
       setRes(`✅ 연결 성공! ${codeMsg} · 기준일: ${dateStr}`, 'var(--green-lt)');
     } else {
       setRes('⚠️ [3/3] 종목코드 동기화 실패 — 전송할 코드가 없거나 GS 응답 오류', 'var(--amber)');

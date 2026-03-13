@@ -146,7 +146,7 @@ function renderTradeGroupView(area) {
                       runQty   -= Math.min(qty, runQty);
                     }
                     return `<tr style="border-bottom:1px solid var(--border);background:${isSell?'rgba(239,68,68,.03)':'transparent'}">
-                      <td style="padding:7px 12px;text-align:center;color:var(--muted);white-space:nowrap;font-size:.72rem">${t.date||'⚠️없음'}</td>
+                      <td style="padding:7px 12px;text-align:center;color:var(--muted);white-space:nowrap;font-size:.72rem">${fmtDateDot(t.date)||'⚠️없음'}</td>
                       <td style="padding:7px 12px;text-align:center">
                         ${isSell ? `<span class="trade-badge-sell">📉 매도</span>` : `<span class="trade-badge-hold">📈 매수</span>`}
                       </td>
