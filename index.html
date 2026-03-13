@@ -311,37 +311,24 @@
       </div>
       <button class="editor-close" onclick="closeEditor()">✕</button>
     </div>
-    <!-- 탭 -->
-    <div style="display:flex;border-bottom:1px solid var(--border);flex-shrink:0">
-      <button id="pe-tab-price" onclick="$el('pe-panel-price').style.display='';$el('pe-panel-nav').style.display='none';this.style.color='var(--text)';this.style.borderBottom='2px solid var(--gold)';$el('pe-tab-nav').style.color='var(--muted)';$el('pe-tab-nav').style.borderBottom='none'"
-        style="flex:1;padding:10px;font-size:.75rem;font-weight:600;background:none;border:none;border-bottom:2px solid var(--gold);color:var(--text);cursor:pointer">
-        💰 현재가 입력
-      </button>
-      <button id="pe-tab-nav" onclick="$el('pe-panel-nav').style.display='';$el('pe-panel-price').style.display='none';this.style.color='var(--text)';this.style.borderBottom='2px solid var(--gold)';$el('pe-tab-price').style.color='var(--muted)';$el('pe-tab-price').style.borderBottom='none'"
-        style="flex:1;padding:10px;font-size:.75rem;font-weight:600;background:none;border:none;border-bottom:none;color:var(--muted);cursor:pointer">
-        📅 NAV 수동 저장
-      </button>
-    </div>
-    <!-- 패널: 현재가 -->
+    <!-- 단일 패널: 현재가 + NAV 통합 -->
     <div id="pe-panel-price" class="editor-body">
       <div id="editorBody"></div>
-    </div>
-    <!-- 패널: NAV 수동 저장 -->
-    <div id="pe-panel-nav" class="editor-body" style="display:none">
-      <div style="font-size:.72rem;color:var(--muted);margin-bottom:14px;line-height:1.6">
-        📦 펀드·TDF 종목의 NAV(기준가)를 날짜별로 구글시트에 직접 저장합니다.<br>
-        <span style="color:var(--amber)">구글시트 연동이 필요합니다.</span>
+      <!-- NAV 수동 저장 섹션 (펀드·TDF 항목이 있을 때 editorBody 하단에 표시됨) -->
+      <div id="pe-panel-nav" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:.72rem;font-weight:700;color:var(--amber);margin-bottom:8px">📅 NAV 구글시트 저장</div>
+        <div style="font-size:.65rem;color:var(--muted);margin-bottom:10px">
+          위 펀드·TDF 입력값을 날짜별로 구글시트에도 저장합니다.
+          <span style="color:var(--amber)">구글시트 연동 필요.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <label style="font-size:.72rem;color:var(--muted);flex-shrink:0">기준일</label>
+          <input type="date" id="navDate" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem">
+        </div>
+        <div id="navPriceRows"></div>
+        <div id="navSaveResult" style="font-size:.72rem;margin-top:8px;color:var(--muted)"></div>
+        <button onclick="saveNavPrices()" class="btn-amber-sm" style="margin-top:10px">📡 NAV 저장</button>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <label style="font-size:.72rem;color:var(--muted);flex-shrink:0">기준일</label>
-        <input type="date" id="navDate" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem">
-      </div>
-      <div id="navPriceRows">
-        <!-- buildEditorUI 호출 시 .nav-price-inp 인풋들이 여기 들어올 수도 있음 -->
-        <div style="font-size:.72rem;color:var(--muted)">현재가 편집 탭에서 펀드·TDF 목록을 확인하세요.</div>
-      </div>
-      <div id="navSaveResult" style="font-size:.72rem;margin-top:10px;color:var(--muted)"></div>
-      <button onclick="saveNavPrices()" class="btn-amber-sm" style="margin-top:12px">📡 NAV 저장</button>
     </div>
     <div class="editor-footer">
       <button class="btn-cancel" onclick="closeEditor()">취소</button>

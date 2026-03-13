@@ -343,8 +343,10 @@ function applyRealEstate() {
   REAL_ESTATE.memo          = memo;
   saveRealEstate();
   saveHoldings();
+  saveSettings(true); // ★ GAS에 즉시 동기화 (부동산 데이터 최신 유지)
   renderSummary();
   renderView();
   closeRealEstateEditor();
+  showToast('부동산 정보 저장 완료 · GAS 동기화 중', 'ok');
 }
 

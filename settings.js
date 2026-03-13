@@ -16,15 +16,6 @@ const SECTOR_LABELS = {
 let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 
 // ════════════════════════════════════════════════════════════════════
-//  날짜 레이블 헬퍼 — 당일: "실시간", 과거: "YYYY.MM.DD 종가"
-// ════════════════════════════════════════════════════════════════════
-function makeDateLabel(dateStr) {
-  return (dateStr === getDateStr(0))
-    ? '실시간'
-    : dateStr.replace(/-/g, '.') + ' 종가';
-}
-
-// ════════════════════════════════════════════════════════════════════
 //  설정 GS 저장 / 복원 — 브라우저 독립 복원용
 // ════════════════════════════════════════════════════════════════════
 // debounce 타이머
@@ -265,7 +256,8 @@ async function syncHoldingsToGsheet() {
       const ep   = getEP(h.name);
       const code = ep?.code || STOCK_CODE[h.name] || '';
       const key  = h.name;
-      if (!holdMap[key]) holdMap[key] = { code, name: h.name, qty: 0, costAmt: 0, assetType: getEPType(ep, h.type) };
+      if (!holdMap[key]) holdMap[key] = { code, name: h.name, qty: 0, costAmt: 0, assetType: getEPType(ep, h.type), accts: [] };
+      if (h.acct && !holdMap[key].accts.includes(h.acct)) holdMap[key].accts.push(h.acct);
       holdMap[key].qty     += h.qty;
       holdMap[key].costAmt += (h.qty * (h.cost || 0));
     });
@@ -275,6 +267,8 @@ async function syncHoldingsToGsheet() {
       if (holdMap[name]) return; // rawHoldings에 이미 있으면 중복 스킵
       holdMap[name] = { code: '', name, qty: 1, costAmt: fd.cost || 0, assetType: fd.type || 'TDF' };
     });
+    // accts 배열 → acct 문자열로 변환 (쉼표 연결)
+    Object.values(holdMap).forEach(h => { h.acct = (h.accts||[]).join(','); delete h.accts; });
     const holdings = Object.values(holdMap).filter(h => h.qty > 0);
     if (holdings.length === 0) return;
 
@@ -325,41 +319,6 @@ async function syncTradesToGsheet() {
   }
 }
 
-// ── GAS 수동 연동 (거래이력 탭 헤더 버튼)
-// 거래이력 + 보유현황 + 종목코드 전체 동기화, 결과 토스트 + 상태 라벨 표시
-async function manualSyncToGsheet() {
-  if (!GSHEET_API_URL) {
-    showToast('구글시트 미연동 · 구글시트 탭에서 URL을 먼저 입력하세요', 'warn', 4000);
-    return;
-  }
-  const btn   = document.getElementById('gsSyncBtn');
-  const label = document.getElementById('gsSyncStatusLabel');
-  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
-  if (label) label.textContent = '⏳ 동기화 중...';
-
-  let okCount = 0, failMsg = '';
-  try {
-    await syncCodesToGsheet();   okCount++;
-  } catch(e) { failMsg += '종목코드 '; }
-  try {
-    await syncHoldingsToGsheet(); okCount++;
-  } catch(e) { failMsg += '보유현황 '; }
-  try {
-    await syncTradesToGsheet();   okCount++;
-  } catch(e) { failMsg += '거래이력 '; }
-
-  const now = new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
-  if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
-
-  if (failMsg) {
-    if (label) label.textContent = `❌ ${failMsg.trim()} 실패`;
-    showToast(`GAS 연동 일부 실패: ${failMsg.trim()}`, 'error', 4000);
-  } else {
-    if (label) label.textContent = `✅ ${now} 동기화 완료`;
-    showToast(`✅ GAS 연동 완료 · 종목코드·보유현황·거래이력 동기화됨`, 'ok', 3000);
-  }
-}
-
 async function lookupNameByCode(code) {
   if (!code) return '';
   const trimCode = code.trim();
@@ -382,18 +341,6 @@ async function lookupNameByCode(code) {
     return data.name || data.officialName || '';
   } catch(e) { return ''; }
 }
-// ── GSheet 조회 결과(results)로 fundDirect.eval 동기화
-// savedPrices에 이름 키로 가격이 들어온 경우 fundDirect에도 반영
-function syncFundDirectFromResults(results) {
-  if (!results || typeof fundDirect !== 'object') return;
-  Object.keys(fundDirect).forEach(name => {
-    const price = results[name];
-    if (price > 0) {
-      fundDirect[name].eval = price;
-    }
-  });
-}
-
 async function fetchFromGsheet(dateStr) {
   if (!GSHEET_API_URL) return null;
   try {
@@ -435,7 +382,7 @@ async function fetchFromGsheet(dateStr) {
         if (data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
         epItems.forEach(i => {
           const price = data.prices[i.code];
-          if (price > 0) codeResults[i.code] = Math.round(price);
+          if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
           else missingCodes.push({ name: i.name, code: i.code });
         });
         // ★ 실시간 조회에서 못 받은 종목은 getPriceHistory로 재시도
@@ -463,7 +410,7 @@ async function fetchFromGsheet(dateStr) {
         if (data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
             const entry = (data.prices[i.code] || [])[0];
-            if (entry && entry.price > 0) codeResults[i.code] = Math.round(entry.price);
+            if (entry && entry.price > 0) codeResults[i.code] = Math.round(entry.price);  // ★ 코드 키로 저장
             else missingCodes.push({ name: i.name, code: i.code });
           });
         }
@@ -473,6 +420,7 @@ async function fetchFromGsheet(dateStr) {
     // ── 코드 없는 종목: getPriceHistory로 name 키로 조회
     let noCodeResults = {};
     if (epNoCode.length > 0) {
+      const names = epNoCode.map(i => encodeURIComponent(i.name)).join(',');
       const url   = GSHEET_API_URL + '?action=getPriceHistory&from=' + dateStr + '&to=' + dateStr + '&codes=' + encodeURIComponent(epNoCode.map(i=>i.name).join(','));
       try {
         const res  = await fetchWithTimeout(url, 15000);
@@ -535,18 +483,18 @@ async function quickFetchByDate() {
 
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDate === getDateStr(0));
-      const label = makeDateLabel(usedDate);
+      const label = isToday ? '실시간' : usedDate.replace(/-/g, '.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
         savedPriceDates[key] = label;
       });
-      syncFundDirectFromResults(results);
       lastUpdated = usedDate.replace(/-/g, '.');
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();
       const cnt   = Object.keys(results).length;
       const total = getEPWithCode().length;
-      let html = `✅ 업데이트 완료 · <span class="c-gold">${label}</span> · <b>${cnt}/${total}개</b>`;
+      const dayLabel = isToday ? '실시간' : usedDate.replace(/-/g,'.') + ' 종가';
+      let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
         const missingStr = missing.map(m => `${m.code} ${m.name}`).join(', ');
@@ -629,19 +577,19 @@ async function autoLoadPrices() {
 
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDateStr === dateStr);
-      const dateLabel = makeDateLabel(usedDateStr);
+      const dateLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
         savedPriceDates[key] = dateLabel;
       });
-      syncFundDirectFromResults(results);
       lastUpdated = usedDateStr.replace(/-/g,'.');
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();
 
-      const cnt   = Object.keys(results).length;
-      const total = getEPWithCode().length;
-      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dateLabel}</span> · ${cnt}/${total}개`, 'ok');
+      const cnt      = Object.keys(results).length;
+      const total    = getEPWithCode().length;
+      const dayLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
+      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개`, 'ok');
 
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
@@ -694,3 +642,35 @@ async function autoLoadPrices() {
   })();
 })();
 // EDITABLE_PRICES 기본값 (하드코딩) — syncEditables에서 localStorage로 덮어씌워짐
+
+// ── NAV 패널: buildEditorUI 완료 후 펀드·TDF 있으면 자동 표시
+// mgmt_editor.js의 buildEditorUI에서 fund 항목 생성 직후 호출됨
+function _showNavPanelIfNeeded() {
+  const navPanel = $el('pe-panel-nav');
+  if (!navPanel) return;
+  // fund 항목이 editorBody 안에 있으면 NAV 패널 표시
+  const hasFund = !!$el('editorBody')?.querySelector('.nav-price-inp, [data-fund="true"]');
+  // fundDirect 키가 있어도 표시
+  const hasFundDirect = Object.keys(window.fundDirect || {}).length > 0;
+  navPanel.style.display = (hasFund || hasFundDirect) ? '' : 'none';
+  // navDate 오늘 날짜로 초기화
+  const nd = $el('navDate');
+  if (nd && !nd.value) {
+    const d = new Date();
+    nd.value = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  // navPriceRows: fundDirect 항목을 입력란으로 채움 (mgmt_editor.js 미호출 시 fallback)
+  const rows = $el('navPriceRows');
+  if (rows && hasFundDirect) {
+    let h = '';
+    Object.keys(fundDirect).forEach(name => {
+      const cur = fundDirect[name]?.eval || '';
+      h += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:.78rem;color:var(--text)">${name}</span>
+        <input type="number" class="nav-price-inp w-150" data-name="${name}" placeholder="NAV 입력" value="${cur || ''}"
+          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem;text-align:right;width:130px">
+      </div>`;
+    });
+    rows.innerHTML = h || '<div style="font-size:.72rem;color:var(--muted)">등록된 펀드·TDF 없음</div>';
+  }
+}

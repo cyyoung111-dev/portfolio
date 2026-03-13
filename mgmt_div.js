@@ -178,9 +178,13 @@ async function _autoFetchDiv(area) {
     });
 
     if (changed) {
+      lsSave(DIVDATA_KEY, DIVDATA);  // ★ DIVDATA 즉시 localStorage 저장
       saveHoldings();
-      // 현재 배당 탭이 열려 있으면 재렌더
-      if (currentView === 'div') renderDivView(area, true); // ★ skipFetch=true로 재귀 방지
+      // 항상 현재 DOM의 view-area 참조 (area 클로저 stale 방지)
+      if (currentView === 'div') {
+        const _liveArea = $el('view-area');
+        if (_liveArea) renderDivView(_liveArea, true);
+      }
     }
   } catch(e) {
     // 자동 fetch 실패 시 조용히 무시 (수동 버튼으로 재시도 가능)
