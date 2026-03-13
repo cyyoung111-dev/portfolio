@@ -129,6 +129,57 @@ function applyDivChanges() {
 }
 
 // ── 배당 탭 진입 시 자동 GS fetch (버튼 클릭 없이 조용히 갱신)
+function _normDivCode(code) {
+  return String(code || '')
+    .trim()
+    .toUpperCase()
+    .replace(/^KRX:/, '')
+    .replace(/^NASDAQ:/, '')
+    .replace(/^NYSE:/, '')
+    .replace(/^AMEX:/, '')
+    .replace(/^A(?=\d{6}$)/, '')
+    .replace(/[^A-Z0-9.-]/g, '');
+}
+
+function _buildDivCodeToNameMap() {
+  const map = {};
+  EDITABLE_PRICES.filter(ep => ep.code).forEach(ep => {
+    const raw = String(ep.code || '').trim();
+    const norm = _normDivCode(raw);
+    if (raw) map[raw] = ep.name;
+    if (norm) map[norm] = ep.name;
+  });
+  return map;
+}
+
+function _normalizeDividendResponse(obj, prev) {
+  const next = { ...prev };
+  const perShare = Number(obj?.perShare || 0);
+  if (perShare > 0) {
+    next.perShare = perShare;
+    next.freq = obj?.freq || prev?.freq || '-';
+    if (Array.isArray(obj?.months)) {
+      next.months = obj.months
+        .map(m => Number(m))
+        .filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
+    } else if (typeof obj?.months === 'string') {
+      next.months = obj.months
+        .split(',')
+        .map(m => Number(String(m).trim()))
+        .filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
+    } else {
+      next.months = Array.isArray(prev?.months) ? prev.months : [];
+    }
+    next.note = 'GOOGLEFINANCE 자동갱신';
+  } else {
+    next.perShare = 0;
+    next.note = prev?.note && !prev.note.startsWith('GOOGLEFINANCE')
+      ? prev.note
+      : 'GOOGLEFINANCE: 배당내역 없음';
+  }
+  return next;
+}
+
 async function _autoFetchDiv(area) {
   const codeItems = EDITABLE_PRICES.filter(ep => {
     const holding = rawHoldings.find(h => h.name === ep.name && !h.fund);
@@ -144,30 +195,14 @@ async function _autoFetchDiv(area) {
     const data = await res.json();
     if (data.status !== 'ok' || !data.dividends) return;
 
-    const codeToName = {};
-    EDITABLE_PRICES.filter(ep => ep.code).forEach(ep => { codeToName[ep.code] = ep.name; });
+    const codeToName = _buildDivCodeToNameMap();
 
     let changed = false;
     Object.entries(data.dividends).forEach(([code, obj]) => {
-      const name = codeToName[code];
+      const name = codeToName[String(code || '').trim()] || codeToName[_normDivCode(code)];
       if (!name) return;
       const prev = DIVDATA[name] || {};
-      if (obj.perShare > 0) {
-        DIVDATA[name] = {
-          ...prev,
-          perShare: obj.perShare,
-          freq:     obj.freq    || '-',
-          months:   (obj.months && obj.months.length > 0) ? obj.months : (prev.months || []),
-          note:     'GOOGLEFINANCE 자동갱신',
-        };
-      } else {
-        // 배당 없음 → perShare만 0, 기존 freq/months 보존
-        DIVDATA[name] = {
-          ...prev,
-          perShare: 0,
-          note:     prev.note && !prev.note.startsWith('GOOGLEFINANCE') ? prev.note : 'GOOGLEFINANCE: 배당내역 없음',
-        };
-      }
+      DIVDATA[name] = _normalizeDividendResponse(obj, prev);
       changed = true;
     });
 
@@ -227,27 +262,21 @@ async function startDivFetch() {
     if (data.status !== 'ok' || !data.dividends) throw new Error(data.message || '응답 오류');
 
     // 코드 → 이름 역매핑
-    const codeToName = {};
-    EDITABLE_PRICES.filter(ep => ep.code).forEach(ep => { codeToName[ep.code] = ep.name; });
+    const codeToName = _buildDivCodeToNameMap();
 
     let updated = 0, skipped = 0;
     Object.entries(data.dividends).forEach(([code, obj]) => {
-      const name = codeToName[code];
+      const name = codeToName[String(code || '').trim()] || codeToName[_normDivCode(code)];
       if (!name) return;
-      if (!DIVDATA[name]) DIVDATA[name] = {};
-      if (obj.perShare > 0) {
-        // GAS 배당 데이터 확인 → 전체 갱신
-        DIVDATA[name].perShare = obj.perShare;
-        DIVDATA[name].freq     = obj.freq || '-';
-        DIVDATA[name].months   = (obj.months && obj.months.length > 0) ? obj.months : (DIVDATA[name].months || []);
-        DIVDATA[name].note     = 'GOOGLEFINANCE 최근 13개월 기준';
+      const prev = DIVDATA[name] || {};
+      DIVDATA[name] = _normalizeDividendResponse(obj, prev);
+      if (Number(obj?.perShare || 0) > 0) {
+        DIVDATA[name].note = 'GOOGLEFINANCE 최근 13개월 기준';
         updated++;
       } else {
-        // GAS 배당 없음 → perShare만 0으로, 기존 freq/months/note는 보존
-        DIVDATA[name].perShare = 0;
-        if (!DIVDATA[name].note || DIVDATA[name].note.startsWith('GOOGLEFINANCE')) {
-          DIVDATA[name].note = 'GOOGLEFINANCE: 배당내역 없음 (수동입력 가능)';
-        }
+        DIVDATA[name].note = DIVDATA[name].note === 'GOOGLEFINANCE: 배당내역 없음'
+          ? 'GOOGLEFINANCE: 배당내역 없음 (수동입력 가능)'
+          : DIVDATA[name].note;
         skipped++;
       }
     });
