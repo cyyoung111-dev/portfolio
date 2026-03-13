@@ -95,7 +95,14 @@ function saveDividendSettings(immediate) {
     _saveDividendTimer = setTimeout(async () => {
       try {
         const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
-        await _postActionWithRetry(body, 30000, 1);
+        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
         // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
@@ -120,7 +127,14 @@ function saveRealEstateSettings(immediate) {
           RE_VALUE_HIST,
         };
         const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
-        await _postActionWithRetry(body, 30000, 1);
+        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
         console.warn('saveRealEstateSettings 실패:', e);
@@ -221,7 +235,14 @@ function saveSettings(immediate) {
           RE_VALUE_HIST,
         };
         const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
-        await _postActionWithRetry(body, 30000, 1);
+        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
         console.warn('saveSettings 실패:', e);
@@ -296,13 +317,8 @@ async function manualSyncByTab(tabId) {
   let ok = false;
   try {
     if (tabId === 'div') {
-      if (typeof startDivFetch === 'function') {
-        const r1 = await startDivFetch({ fromSyncPanel: true });
-        ok = !!r1;
-      } else {
-        const r1 = await persistDividendSettings(true);
-        ok = !!r1;
-      }
+      const r1 = await persistDividendSettings(true);
+      ok = !!r1;
     } else if (tabId === 'asset') {
       const r1 = await persistRealEstateSettings(true);
       ok = !!r1;
