@@ -199,6 +199,13 @@ function saveSettings(immediate) {
         SECTOR_COLORS,
         fundDirect,
         EDITABLE_PRICES,
+        // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
+        // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
+        DIVDATA,
+        LOAN,
+        REAL_ESTATE,
+        LOAN_SCHEDULE,
+        RE_VALUE_HIST,
       };
       const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
       await fetchWithTimeout(GSHEET_API_URL, 15000, {
@@ -366,6 +373,24 @@ function fetchWithTimeout(url, ms, options) {
     .finally(() => clearTimeout(tid));
 }
 
+
+
+let _gsBootRestored = false;
+async function bootstrapGsheetSettings() {
+  if (_gsBootRestored) return;
+  if (!GSHEET_API_URL) return;
+  _gsBootRestored = true;
+  try {
+    const ok = await loadSettings();
+    if (ok) {
+      try { refreshAll(); } catch(e) {}
+      try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
+    }
+    try { await loadGsheetCodeList(); } catch(e) {}
+  } catch(e) {
+    console.warn('bootstrapGsheetSettings 실패:', e);
+  }
+}
 function saveGsheetUrl(url) {
   GSHEET_API_URL = url.trim();
   lsSave(GSHEET_KEY, GSHEET_API_URL);
@@ -856,3 +881,6 @@ function _showNavPanelIfNeeded() {
     rows.innerHTML = h || '<div style="font-size:.72rem;color:var(--muted)">등록된 펀드·TDF 없음</div>';
   }
 }
+
+// GS URL이 이미 저장돼 있으면 앱 시작 시 1회 자동 복원
+setTimeout(() => { bootstrapGsheetSettings(); }, 0);
