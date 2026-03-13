@@ -1,0 +1,70 @@
+[수정본] fetchPricesGoogleFinance 함수만 교체해서 사용하세요.
+- 원본 붙여넣기 코드에서 중괄호 불일치로 문법 오류가 발생하던 부분을 수정했습니다.
+- 아래 함수를 apps_script.gs의 동일 함수와 통째로 교체하면 됩니다.
+
+function fetchPricesGoogleFinance(items, dateStr, ss) {
+  var tmp = ss.getSheetByName(CONFIG.SHEET_TMP);
+  if (!tmp) tmp = ss.insertSheet(CONFIG.SHEET_TMP);
+  tmp.clearContents();
+
+  var isToday = (dateStr === today());
+  var dtObj   = new Date(dateStr.replace(/-/g, '/'));
+  var fromObj = new Date(dtObj);
+  fromObj.setDate(fromObj.getDate() - 5);
+
+  var fmtDate  = function(d) { return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd'); };
+  var fromFmt  = fmtDate(fromObj);
+  var toFmt    = fmtDate(dtObj);
+
+  var formulas = items.map(function(item) {
+    var krx    = '"KRX:' + item.code + '"';
+    var kosdaq = '"KOSDAQ:' + item.code + '"';
+    if (isToday) {
+      return ['=IFERROR(GOOGLEFINANCE(' + krx + ',"price"),' +
+              'IFERROR(GOOGLEFINANCE(' + kosdaq + ',"price"),"-"))'];
+    } else {
+      return ['=IFERROR(INDEX(GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),' +
+              'IFERROR(INDEX(GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),"-"))'];
+    }
+  });
+
+  if (formulas.length === 0) return {};
+  tmp.getRange(1, 1, formulas.length, 1).setFormulas(formulas);
+  SpreadsheetApp.flush();
+
+  var sleepMs = Math.min(800 + items.length * 30, 4000);
+  Utilities.sleep(sleepMs);
+
+  var actualRows = tmp.getLastRow();
+  var values;
+  if (actualRows >= formulas.length) {
+    values = tmp.getRange(1, 1, formulas.length, 1).getValues();
+  } else if (actualRows > 0) {
+    var partial = tmp.getRange(1, 1, actualRows, 1).getValues();
+    values = [];
+    for (var vi = 0; vi < formulas.length; vi++) {
+      values.push(vi < actualRows ? partial[vi] : ['']);
+    }
+    Logger.log('⚠️ fetchPricesGoogleFinance: 계산 완료 행(' + actualRows + ') < 요청 행(' + formulas.length + ') — 재시도 권장');
+  } else {
+    values = formulas.map(function() { return ['']; });
+    Logger.log('⚠️ fetchPricesGoogleFinance: tmp 시트 비어있음 — GOOGLEFINANCE 계산 실패');
+  }
+
+  try {
+    tmp.clearContents();
+    SpreadsheetApp.flush();
+  } catch (e) {
+    Logger.log('⚠️ tmp 시트 정리 실패: ' + e.message);
+  }
+
+  var prices = {};
+  items.forEach(function(item, i) {
+    var val   = values[i][0];
+    var str   = String(val || '');
+    var price = (val && val !== '-' && !str.startsWith('#')) ? Math.round(parseFloat(val)) : 0;
+    if (price > 0) prices[item.code] = { price: price, name: item.name, officialName: item.name };
+  });
+
+  return prices;
+}
