@@ -1170,9 +1170,15 @@ function getCodeItems(ss) {
   try {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs || cs.getLastRow() < 2) return [];
-    return cs.getRange(2, 1, cs.getLastRow() - 1, 2).getValues()
+    var numCols = Math.max(cs.getLastColumn(), 4);
+    return cs.getRange(2, 1, cs.getLastRow() - 1, numCols).getValues()
       .map(function(row) {
-        return { code: _cleanCode(row[0]), name: (row[1]||'').toString().trim() };
+        return {
+          code: _cleanCode(row[0]),
+          name: (row[1]||'').toString().trim(),
+          type: (row[2]||'주식').toString().trim(),
+          sector: (row[3]||'기타').toString().trim(),
+        };
       })
       .filter(function(item){ return item.code && item.code !== '000000'; });
   } catch(err) {
@@ -1393,7 +1399,9 @@ function handleSyncCodes(codesParam) {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs) {
       cs = ss.insertSheet(CONFIG.SHEET_CODES);
-      cs.getRange(1,1,1,3).setValues([['종목코드','종목명','유형']]);
+      cs.getRange(1,1,1,4).setValues([['종목코드','종목명','유형','섹터']]);
+    } else if (cs.getLastColumn() < 4) {
+      cs.getRange(1,1,1,4).setValues([['종목코드','종목명','유형','섹터']]);
     }
 
     // 구버전({종목명:'코드'})·신버전({종목명:{code,type,sector}}) 모두 처리
@@ -1418,7 +1426,8 @@ function handleSyncCodes(codesParam) {
     var existingRowData    = {};
     var lastRow = cs.getLastRow();
     if (lastRow > 1) {
-      var sheetData = cs.getRange(2, 1, lastRow - 1, 3).getValues();
+      var numCols = Math.max(cs.getLastColumn(), 4);
+      var sheetData = cs.getRange(2, 1, lastRow - 1, numCols).getValues();
       sheetData.forEach(function(r, i) {
         var c = _cleanCode(r[0]);
         var n = (r[1] || '').toString().trim();
@@ -1429,7 +1438,8 @@ function handleSyncCodes(codesParam) {
           existingTypeByCode[c] = t;
           if (n) existingByName[n] = c;
         }
-        existingRowData[rowIdx] = { name: n, type: t };
+        var sec = (r[3] || '').toString().trim();
+        existingRowData[rowIdx] = { name: n, type: t, sector: sec };
       });
     }
 
@@ -1445,15 +1455,18 @@ function handleSyncCodes(codesParam) {
 
       var normalName = normalizeName(name);
       var newType    = obj.type || '주식';
+      var newSector  = obj.sector || '기타';
 
       if (existingByCode[code]) {
         var rowIdx   = existingByCode[code];
-        var existing = existingRowData[rowIdx] || { name: '', type: '' };
+        var existing = existingRowData[rowIdx] || { name: '', type: '', sector: '' };
         var nameChanged = existing.name !== normalName;
         var typeChanged = newType && existing.type !== newType;
+        var sectorChanged = newSector && existing.sector !== newSector;
         if (nameChanged) pendingUpdates.push({ row: rowIdx, col: 2, val: normalName });
         if (typeChanged) pendingUpdates.push({ row: rowIdx, col: 3, val: newType });
-        if (nameChanged || typeChanged) updated++;
+        if (sectorChanged) pendingUpdates.push({ row: rowIdx, col: 4, val: newSector });
+        if (nameChanged || typeChanged || sectorChanged) updated++;
         return;
       }
 
@@ -1462,6 +1475,8 @@ function handleSyncCodes(codesParam) {
         var oldRowIdx = existingByCode[oldCode];
         if (oldRowIdx) {
           pendingUpdates.push({ row: oldRowIdx, col: 1, val: code });
+          if (newType) pendingUpdates.push({ row: oldRowIdx, col: 3, val: newType });
+          if (newSector) pendingUpdates.push({ row: oldRowIdx, col: 4, val: newSector });
           delete existingByCode[oldCode];
           existingByCode[code]       = oldRowIdx;
           existingByName[normalName] = code;
@@ -1471,7 +1486,7 @@ function handleSyncCodes(codesParam) {
       }
 
       var inheritedType = existingTypeByCode[code] || newType || '주식';
-      toAppend.push([code, normalName, inheritedType]);
+      toAppend.push([code, normalName, inheritedType, newSector || '기타']);
       synced++;
     });
 
@@ -1498,7 +1513,7 @@ function handleSyncCodes(codesParam) {
       });
     }
     if (toAppend.length > 0) {
-      cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 3).setValues(toAppend);
+      cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 4).setValues(toAppend);
     }
 
     if (synced > 0 || updated > 0) SpreadsheetApp.flush();
