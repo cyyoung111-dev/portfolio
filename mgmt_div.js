@@ -208,7 +208,6 @@ async function _autoFetchDiv(area) {
     });
 
     if (changed) {
-      lsSave(DIVDATA_KEY, DIVDATA);  // ★ DIVDATA 즉시 localStorage 저장
       saveDividendSettings(true);
       saveHoldings();
       // 항상 현재 DOM의 view-area 참조 (area 클로저 stale 방지)

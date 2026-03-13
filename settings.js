@@ -21,6 +21,7 @@ let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 // debounce 타이머
 let _saveSettingsTimer = null;
 let _saveDividendTimer = null;
+let _saveRealEstateTimer = null;
 
 function _toNum(v, fallback) {
   const n = Number(v);
@@ -77,6 +78,85 @@ function saveDividendSettings(immediate) {
   }, delay);
 }
 
+function saveRealEstateSettings(immediate) {
+  if (!GSHEET_API_URL) return;
+  clearTimeout(_saveRealEstateTimer);
+  const delay = immediate ? 0 : 2500;
+  _saveRealEstateTimer = setTimeout(async () => {
+    try {
+      const payload = {
+        LOAN,
+        REAL_ESTATE,
+        LOAN_SCHEDULE,
+        RE_VALUE_HIST,
+      };
+      const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
+      await fetchWithTimeout(GSHEET_API_URL, 15000, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+    } catch(e) {
+      console.warn('saveRealEstateSettings 실패:', e);
+    }
+  }, delay);
+}
+
+async function loadRealEstateSettings() {
+  if (!GSHEET_API_URL) return false;
+  try {
+    const res = await fetchWithTimeout(GSHEET_API_URL + '?action=getRealEstateSettings', 10000);
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
+    const s = data.settings;
+    if (s.LOAN && typeof s.LOAN === 'object') {
+      Object.assign(LOAN, {
+        ...s.LOAN,
+        originalAmt: _toNum(s.LOAN.originalAmt, LOAN.originalAmt),
+        balance: _toNum(s.LOAN.balance, LOAN.balance),
+        annualRate: _toNum(s.LOAN.annualRate, LOAN.annualRate),
+        totalMonths: _toNum(s.LOAN.totalMonths, LOAN.totalMonths),
+        remainingMonths: _toNum(s.LOAN.remainingMonths, LOAN.remainingMonths),
+        monthlyInterestPaid: _toNum(s.LOAN.monthlyInterestPaid, LOAN.monthlyInterestPaid),
+        totalInterestPaid: _toNum(s.LOAN.totalInterestPaid, LOAN.totalInterestPaid),
+      });
+    }
+    if (s.REAL_ESTATE && typeof s.REAL_ESTATE === 'object') {
+      Object.assign(REAL_ESTATE, {
+        ...s.REAL_ESTATE,
+        currentValue: _toNum(s.REAL_ESTATE.currentValue, REAL_ESTATE.currentValue),
+        purchasePrice: _toNum(s.REAL_ESTATE.purchasePrice, REAL_ESTATE.purchasePrice),
+        taxCost: _toNum(s.REAL_ESTATE.taxCost, REAL_ESTATE.taxCost),
+        interiorCost: _toNum(s.REAL_ESTATE.interiorCost, REAL_ESTATE.interiorCost),
+        etcCost: _toNum(s.REAL_ESTATE.etcCost, REAL_ESTATE.etcCost),
+      });
+    }
+    if (Array.isArray(s.LOAN_SCHEDULE)) {
+      LOAN_SCHEDULE.length = 0;
+      s.LOAN_SCHEDULE.forEach(r => {
+        if (!r || !r.date) return;
+        LOAN_SCHEDULE.push({
+          date: String(r.date),
+          balance: _toNum(r.balance, 0),
+          principal: _toNum(r.principal, 0),
+          interest: _toNum(r.interest, 0),
+        });
+      });
+    }
+    if (Array.isArray(s.RE_VALUE_HIST)) {
+      RE_VALUE_HIST.length = 0;
+      s.RE_VALUE_HIST.forEach(r => {
+        if (!r || !r.date) return;
+        RE_VALUE_HIST.push({ date: String(r.date), value: _toNum(r.value, 0) });
+      });
+    }
+    return true;
+  } catch(e) {
+    return false;
+  }
+}
+
 async function loadDividendSettings() {
   if (!GSHEET_API_URL) return false;
   try {
@@ -117,12 +197,7 @@ function saveSettings(immediate) {
         ACCT_COLORS,
         ACCT_ORDER,
         SECTOR_COLORS,
-        DIVDATA,
-        LOAN,
-        REAL_ESTATE,
         fundDirect,
-        LOAN_SCHEDULE,
-        RE_VALUE_HIST,
         EDITABLE_PRICES,
       };
       const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
@@ -167,68 +242,10 @@ async function loadSettings(onProgress) {
         SECTOR_COLORS[k] = (typeof v==='string' && v.startsWith('var(')) ? resolveColor(v) : v;
       });
     }
-    // DIVDATA
-    if (s.DIVDATA && typeof s.DIVDATA === 'object') {
-      Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
-      Object.entries(s.DIVDATA).forEach(([name, v]) => {
-        const prev = (v && typeof v === 'object') ? v : {};
-        DIVDATA[name] = {
-          perShare: _toNum(prev.perShare, 0),
-          freq: typeof prev.freq === 'string' ? prev.freq : '-',
-          months: _toMonths(prev.months),
-          note: typeof prev.note === 'string' ? prev.note : '',
-        };
-      });
-    }
-    // LOAN
-    if (s.LOAN && typeof s.LOAN === 'object') {
-      Object.assign(LOAN, {
-        ...s.LOAN,
-        originalAmt: _toNum(s.LOAN.originalAmt, LOAN.originalAmt),
-        balance: _toNum(s.LOAN.balance, LOAN.balance),
-        annualRate: _toNum(s.LOAN.annualRate, LOAN.annualRate),
-        totalMonths: _toNum(s.LOAN.totalMonths, LOAN.totalMonths),
-        remainingMonths: _toNum(s.LOAN.remainingMonths, LOAN.remainingMonths),
-        monthlyInterestPaid: _toNum(s.LOAN.monthlyInterestPaid, LOAN.monthlyInterestPaid),
-        totalInterestPaid: _toNum(s.LOAN.totalInterestPaid, LOAN.totalInterestPaid),
-      });
-    }
-    // REAL_ESTATE
-    if (s.REAL_ESTATE && typeof s.REAL_ESTATE === 'object') {
-      Object.assign(REAL_ESTATE, {
-        ...s.REAL_ESTATE,
-        currentValue: _toNum(s.REAL_ESTATE.currentValue, REAL_ESTATE.currentValue),
-        purchasePrice: _toNum(s.REAL_ESTATE.purchasePrice, REAL_ESTATE.purchasePrice),
-        taxCost: _toNum(s.REAL_ESTATE.taxCost, REAL_ESTATE.taxCost),
-        interiorCost: _toNum(s.REAL_ESTATE.interiorCost, REAL_ESTATE.interiorCost),
-        etcCost: _toNum(s.REAL_ESTATE.etcCost, REAL_ESTATE.etcCost),
-      });
-    }
     // fundDirect
     if (s.fundDirect && typeof s.fundDirect === 'object') {
       Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
       Object.assign(fundDirect, s.fundDirect);
-    }
-    // LOAN_SCHEDULE
-    if (Array.isArray(s.LOAN_SCHEDULE)) {
-      LOAN_SCHEDULE.length = 0;
-      s.LOAN_SCHEDULE.forEach(r => {
-        if (!r || !r.date) return;
-        LOAN_SCHEDULE.push({
-          date: String(r.date),
-          balance: _toNum(r.balance, 0),
-          principal: _toNum(r.principal, 0),
-          interest: _toNum(r.interest, 0),
-        });
-      });
-    }
-    // RE_VALUE_HIST
-    if (Array.isArray(s.RE_VALUE_HIST)) {
-      RE_VALUE_HIST.length = 0;
-      s.RE_VALUE_HIST.forEach(r => {
-        if (!r || !r.date) return;
-        RE_VALUE_HIST.push({ date: String(r.date), value: _toNum(r.value, 0) });
-      });
     }
     // EDITABLE_PRICES — 기초정보(종목명·코드·유형·섹터) 복원
     if (Array.isArray(s.EDITABLE_PRICES) && s.EDITABLE_PRICES.length > 0) {
@@ -241,10 +258,54 @@ async function loadSettings(onProgress) {
     saveHoldings();
     saveAcctColors();
     saveAcctOrder();
-    lsSave(LOAN_KEY, LOAN);
-    lsSave(REALESTATE_KEY, REAL_ESTATE);
-    lsSave(LOAN_SCHEDULE_KEY, LOAN_SCHEDULE);
-    lsSave(RE_VALUE_KEY, RE_VALUE_HIST);
+    const divLoaded = await loadDividendSettings();   // 배당 별도 시트 우선
+    const reLoaded  = await loadRealEstateSettings(); // 부동산/대출 별도 시트 우선
+
+    // 하위 호환 fallback: 별도 시트 액션이 없으면 기존 Settings 시트 데이터 사용
+    if (!divLoaded && s.DIVDATA && typeof s.DIVDATA === 'object') {
+      _applyDivData(s.DIVDATA);
+    }
+    if (!reLoaded && s.LOAN && typeof s.LOAN === 'object') {
+      Object.assign(LOAN, {
+        ...s.LOAN,
+        originalAmt: _toNum(s.LOAN.originalAmt, LOAN.originalAmt),
+        balance: _toNum(s.LOAN.balance, LOAN.balance),
+        annualRate: _toNum(s.LOAN.annualRate, LOAN.annualRate),
+        totalMonths: _toNum(s.LOAN.totalMonths, LOAN.totalMonths),
+        remainingMonths: _toNum(s.LOAN.remainingMonths, LOAN.remainingMonths),
+        monthlyInterestPaid: _toNum(s.LOAN.monthlyInterestPaid, LOAN.monthlyInterestPaid),
+        totalInterestPaid: _toNum(s.LOAN.totalInterestPaid, LOAN.totalInterestPaid),
+      });
+    }
+    if (!reLoaded && s.REAL_ESTATE && typeof s.REAL_ESTATE === 'object') {
+      Object.assign(REAL_ESTATE, {
+        ...s.REAL_ESTATE,
+        currentValue: _toNum(s.REAL_ESTATE.currentValue, REAL_ESTATE.currentValue),
+        purchasePrice: _toNum(s.REAL_ESTATE.purchasePrice, REAL_ESTATE.purchasePrice),
+        taxCost: _toNum(s.REAL_ESTATE.taxCost, REAL_ESTATE.taxCost),
+        interiorCost: _toNum(s.REAL_ESTATE.interiorCost, REAL_ESTATE.interiorCost),
+        etcCost: _toNum(s.REAL_ESTATE.etcCost, REAL_ESTATE.etcCost),
+      });
+    }
+    if (!reLoaded && Array.isArray(s.LOAN_SCHEDULE)) {
+      LOAN_SCHEDULE.length = 0;
+      s.LOAN_SCHEDULE.forEach(r => {
+        if (!r || !r.date) return;
+        LOAN_SCHEDULE.push({
+          date: String(r.date),
+          balance: _toNum(r.balance, 0),
+          principal: _toNum(r.principal, 0),
+          interest: _toNum(r.interest, 0),
+        });
+      });
+    }
+    if (!reLoaded && Array.isArray(s.RE_VALUE_HIST)) {
+      RE_VALUE_HIST.length = 0;
+      s.RE_VALUE_HIST.forEach(r => {
+        if (!r || !r.date) return;
+        RE_VALUE_HIST.push({ date: String(r.date), value: _toNum(r.value, 0) });
+      });
+    }
 
     // ── 거래이력 복원 (localStorage가 비어있을 때만 — 기존 데이터 우선)
     if (rawTrades.length === 0) {
