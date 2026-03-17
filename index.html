@@ -222,17 +222,17 @@
 <script src="views_portfolio.js"></script>
 <script src="views_trades.js"></script>
 <script src="views_tradegroup.js"></script>
-<script src="mgmt_trade.js"></script>
-<script src="mgmt_bulk.js"></script>
-<script src="mgmt_migration.js"></script>
 <script src="views_div_asset.js"></script>
-<script src="views_misc.js"></script>
 <script src="views_system.js"></script>
 <script src="settings.js"></script>
 <script src="mgmt_editor.js"></script>
 <script src="mgmt_acct.js"></script>
 <script src="mgmt_div.js"></script>
 <script src="mgmt_stock.js"></script>
+<script src="mgmt_trade.js"></script>
+<script src="mgmt_bulk.js"></script>
+<script src="mgmt_migration.js"></script>
+<script src="views_misc.js"></script>
 <!-- HOLDING EDITOR MODAL -->
 
 <div class="editor-overlay" id="realEstateEditor">
@@ -256,13 +256,13 @@
         </div>
         <div class="editor-row">
           <label>현재 실거래가<span>최근 실거래가 기준</span></label>
-          <input type="number" id="re-currentValue" placeholder="예: 850000000"
-            class="w-160"/>
+          <input type="number" id="re-value" placeholder="예: 850000000"
+            oninput="updateRePreview()" class="w-160"/>
         </div>
         <div class="editor-row">
           <label>매입가<span>취득 당시 계약금액</span></label>
-          <input type="number" id="re-purchasePrice" placeholder="예: 700000000"
-            class="w-160"/>
+          <input type="number" id="re-purchase" placeholder="예: 700000000"
+            oninput="updateRePreview()" class="w-160"/>
         </div>
       </div>
 
@@ -271,18 +271,18 @@
         <div class="editor-group-title">추가 비용 (총 지출 계산용)</div>
         <div class="editor-row">
           <label>취득세 · 세금<span>취득세 + 등록세 등</span></label>
-          <input type="number" id="re-taxCost" placeholder="예: 14000000"
-            class="w-160"/>
+          <input type="number" id="re-tax" placeholder="예: 14000000"
+            oninput="updateRePreview()" class="w-160"/>
         </div>
         <div class="editor-row">
           <label>인테리어 비용<span>리모델링 · 가구 등</span></label>
-          <input type="number" id="re-interiorCost" placeholder="예: 30000000"
-            class="w-160"/>
+          <input type="number" id="re-interior" placeholder="예: 30000000"
+            oninput="updateRePreview()" class="w-160"/>
         </div>
         <div class="editor-row">
           <label>기타 비용<span>중개수수료 · 이사비 등</span></label>
-          <input type="number" id="re-etcCost" placeholder="예: 5000000"
-            class="w-160"/>
+          <input type="number" id="re-etc" placeholder="예: 5000000"
+            oninput="updateRePreview()" class="w-160"/>
         </div>
         <div class="editor-row">
           <label>메모<span>선택사항</span></label>
