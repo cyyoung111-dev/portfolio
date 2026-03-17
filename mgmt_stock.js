@@ -183,6 +183,8 @@ function secSave(idx) {
     EDITABLE_PRICES.forEach(i => { if(i.sector === oldName) i.sector = newName; });
   }
   SECTOR_COLORS[newName] = resolveColor(newColor); // ★ 원칙3: var()→hex 변환
+  // ★ rawHoldings sector 즉시 재생성 → GAS syncHoldings에 최신 내용 전송
+  syncHoldingsFromTrades();
   saveHoldings();
   queueMgmtGsheetSync();
   _mgmtRefresh();
@@ -573,6 +575,8 @@ function smMgmtConfirm() {
   EDITABLE_PRICES.push({ name, code, sector, assetType, ...(isFund ? { fund: true } : {}) });
   // SECTOR_MAP은 더 이상 단독 진실소스 아님 (getSector → EDITABLE_PRICES 우선 참조)
   if(code) STOCK_CODE[name] = normalizeStockCode(code);
+  // ★ rawHoldings type/sector 즉시 재생성 → GAS syncHoldings에 최신 내용 전송
+  syncHoldingsFromTrades();
   saveHoldings();
   queueMgmtGsheetSync();
   _mgmtRefresh();
@@ -745,6 +749,8 @@ function smSave(idx) {
   item.sector    = newSec;
   // EDITABLE_PRICES가 단일 진실소스 — SECTOR_MAP/STOCK_CODE는 보조 역할
   if(newCode) STOCK_CODE[newName] = normalizeStockCode(newCode); else delete STOCK_CODE[newName];
+  // ★ rawHoldings type/sector 즉시 재생성 → GAS syncHoldings에 최신 내용 전송
+  syncHoldingsFromTrades();
   saveHoldings();
   queueMgmtGsheetSync();
   // stocks 탭에서 smSave 시 renderStocksView→buildStockMgmt DOM 재생성 방지
