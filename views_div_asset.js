@@ -889,3 +889,156 @@ function renderScheduleChart() {
 //  _autoFetchDiv / startDivFetch → mgmt_div.js 에 최신 버전 정의됨
 //  (이 파일보다 나중에 로드되는 mgmt_div.js 버전이 유효하므로 제거)
 // ════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════
+//  부동산 및 대출 저장 누락 함수 추가
+//  위치: views_div_asset.js 또는 mgmt_editor.js 파일 끝에 추가
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * 부동산 편집기 열기
+ */
+function openRealEstateEditor() {
+  // 현재 데이터로 입력 필드 채우기
+  const form = $el('realEstateEditor');
+  if (!form) return;
+  
+  $el('re-name').value = REAL_ESTATE.name || '';
+  $el('re-purchasePrice').value = REAL_ESTATE.purchasePrice || '';
+  $el('re-currentValue').value = REAL_ESTATE.currentValue || '';
+  $el('re-purchaseDate').value = REAL_ESTATE.purchaseDate || '';
+  $el('re-taxCost').value = REAL_ESTATE.taxCost || '';
+  $el('re-interiorCost').value = REAL_ESTATE.interiorCost || '';
+  $el('re-etcCost').value = REAL_ESTATE.etcCost || '';
+  
+  form.classList.add('open');
+}
+
+/**
+ * 부동산 편집기 닫기
+ */
+function closeRealEstateEditor() {
+  const form = $el('realEstateEditor');
+  if (form) form.classList.remove('open');
+}
+
+/**
+ * 부동산 정보 저장 및 적용
+ */
+function applyRealEstate() {
+  // 입력값 읽기
+  const name = ($el('re-name')?.value || '').trim();
+  const purchasePrice = parseFloat(($el('re-purchasePrice')?.value || '0').replace(/,/g, ''));
+  const currentValue = parseFloat(($el('re-currentValue')?.value || '0').replace(/,/g, ''));
+  const purchaseDate = $el('re-purchaseDate')?.value || '';
+  const taxCost = parseFloat(($el('re-taxCost')?.value || '0').replace(/,/g, ''));
+  const interiorCost = parseFloat(($el('re-interiorCost')?.value || '0').replace(/,/g, ''));
+  const etcCost = parseFloat(($el('re-etcCost')?.value || '0').replace(/,/g, ''));
+  
+  // REAL_ESTATE 객체 업데이트
+  REAL_ESTATE.name = name;
+  REAL_ESTATE.purchasePrice = purchasePrice;
+  REAL_ESTATE.currentValue = currentValue;
+  REAL_ESTATE.purchaseDate = purchaseDate;
+  REAL_ESTATE.taxCost = taxCost;
+  REAL_ESTATE.interiorCost = interiorCost;
+  REAL_ESTATE.etcCost = etcCost;
+  
+  // localStorage 저장
+  lsSave(REALESTATE_KEY, REAL_ESTATE);
+  
+  // GSheet 동기화
+  saveRealEstateSettings(true);
+  
+  // UI 새로고침
+  refreshAll();
+  
+  // 편집기 닫기
+  closeRealEstateEditor();
+  
+  // 성공 메시지
+  showToast('✅ 부동산 정보가 저장되었습니다', 'ok');
+  
+  console.log('[applyRealEstate] 부동산 정보 저장 완료:', REAL_ESTATE);
+}
+
+/**
+ * 대출 편집기 열기
+ */
+function openLoanEditor() {
+  const form = $el('loanEditor');
+  if (!form) return;
+  
+  // 현재 데이터로 입력 필드 채우기
+  $el('le-balance').value = LOAN.balance ? LOAN.balance.toLocaleString() : '';
+  $el('le-remainingMonths').value = LOAN.remainingMonths || '';
+  $el('le-monthlyInterestPaid').value = LOAN.monthlyInterestPaid ? LOAN.monthlyInterestPaid.toLocaleString() : '';
+  $el('le-totalInterestPaid').value = LOAN.totalInterestPaid ? LOAN.totalInterestPaid.toLocaleString() : '';
+  $el('le-annualRate').value = LOAN.annualRate || '';
+  $el('le-startDate').value = LOAN.startDate || '';
+  $el('le-originalAmt').value = LOAN.originalAmt ? LOAN.originalAmt.toLocaleString() : '';
+  $el('le-totalMonths').value = LOAN.totalMonths || '';
+  
+  // 최종 수정일 표시
+  const lastUpdated = $el('loanEditor')?.querySelector('.last-updated');
+  if (lastUpdated && LOAN.lastUpdated) {
+    lastUpdated.textContent = '최근 수정: ' + fmtDateDot(LOAN.lastUpdated);
+  }
+  
+  form.classList.add('open');
+}
+
+/**
+ * 대출 편집기 닫기
+ */
+function closeLoanEditor() {
+  const form = $el('loanEditor');
+  if (form) form.classList.remove('open');
+}
+
+/**
+ * 대출 정보 저장 및 적용
+ */
+function applyLoan() {
+  // 입력값 읽기 (쉼표 제거 후 숫자 변환)
+  const balance = parseFloat(($el('le-balance')?.value || '0').replace(/,/g, ''));
+  const remainingMonths = parseInt($el('le-remainingMonths')?.value || '0');
+  const monthlyInterestPaid = parseFloat(($el('le-monthlyInterestPaid')?.value || '0').replace(/,/g, ''));
+  const totalInterestPaid = parseFloat(($el('le-totalInterestPaid')?.value || '0').replace(/,/g, ''));
+  const annualRate = parseFloat($el('le-annualRate')?.value || '0');
+  const startDate = $el('le-startDate')?.value || '';
+  const originalAmt = parseFloat(($el('le-originalAmt')?.value || '0').replace(/,/g, ''));
+  const totalMonths = parseInt($el('le-totalMonths')?.value || '0');
+  
+  // LOAN 객체 업데이트
+  LOAN.balance = balance;
+  LOAN.remainingMonths = remainingMonths;
+  LOAN.monthlyInterestPaid = monthlyInterestPaid;
+  LOAN.totalInterestPaid = totalInterestPaid;
+  LOAN.annualRate = annualRate;
+  LOAN.startDate = startDate;
+  LOAN.originalAmt = originalAmt;
+  LOAN.totalMonths = totalMonths;
+  LOAN.lastUpdated = new Date().toISOString().slice(0, 10);
+  
+  // localStorage 저장
+  lsSave(LOAN_KEY, LOAN);
+  
+  // GSheet 동기화
+  saveRealEstateSettings(true);
+  
+  // UI 새로고침
+  refreshAll();
+  
+  // 편집기 닫기
+  closeLoanEditor();
+  
+  // 성공 메시지
+  showToast('✅ 대출 정보가 저장되었습니다', 'ok');
+  
+  console.log('[applyLoan] 대출 정보 저장 완료:', LOAN);
+}
+
+
+
+

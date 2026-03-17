@@ -1,3 +1,47 @@
+// ════════════════════════════════════════════════════════════════
+//  mgmt_stock.js - 버그 수정 버전
+//  수정사항: queueMgmtGsheetSync() 및 _mgmtRefresh() 함수 추가
+// ════════════════════════════════════════════════════════════════
+
+// ★★★ 누락된 함수 추가 START ★★★
+
+// GSheet 동기화 큐 타이머
+let _mgmtGsheetSyncTimer = null;
+
+/**
+ * 기초정보 변경 후 GSheet 동기화를 큐에 추가 (debounce 2초)
+ */
+function queueMgmtGsheetSync() {
+  if (!GSHEET_API_URL) {
+    console.log('[queueMgmtGsheetSync] GSheet URL이 설정되지 않아 동기화를 건너뜁니다');
+    return;
+  }
+  
+  clearTimeout(_mgmtGsheetSyncTimer);
+  
+  _mgmtGsheetSyncTimer = setTimeout(() => {
+    console.log('[queueMgmtGsheetSync] 기초정보를 GSheet에 동기화합니다...');
+    saveSettings(true); // immediate=true로 즉시 실행
+  }, 2000);
+}
+
+/**
+ * 관리 화면(기초정보/계좌/섹터) 새로고침
+ */
+function _mgmtRefresh() {
+  try {
+    refreshAll();
+    
+    if (currentView === 'stocks') {
+      console.log('[_mgmtRefresh] stocks 탭 새로고침 완료');
+    }
+  } catch(e) {
+    console.warn('[_mgmtRefresh] 새로고침 실패:', e);
+  }
+}
+
+// ★★★ 누락된 함수 추가 END ★★★
+
 function buildSectorMgmt() {
   const container = $el('sectorMgmtBody');
   if(!container) return;
