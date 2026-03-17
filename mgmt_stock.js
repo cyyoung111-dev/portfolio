@@ -638,6 +638,69 @@ function secMgmtConfirm() {
   setTimeout(() => secMgmtCancel(), 900);
 }
 
+// ── 섹터 양식 다운로드
+function secCsvDownloadTemplate() {
+  if (typeof XLSX === 'undefined') { showToast('라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.', 'warn'); return; }
+  const wb  = XLSX.utils.book_new();
+  const rows = [
+    ['섹터명', '색상(hex)'],
+    ['반도체', '#10b981'],
+    ['해외주식', '#3b82f6'],
+    ['금융', '#f59e0b'],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:20},{wch:14}];
+  ['A1','B1'].forEach(cell => {
+    if (!ws[cell]) return;
+    ws[cell].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E293B'}}, alignment:{horizontal:'center'} };
+  });
+  XLSX.utils.book_append_sheet(wb, ws, '섹터관리');
+  XLSX.writeFile(wb, '섹터관리_업로드양식.xlsx');
+  showToast('📥 섹터 양식 다운로드 완료', 'ok');
+}
+
+// ── 섹터 xlsx/csv 업로드 처리
+function secCsvImport(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+  parseUploadFile(file, (headers, rows) => {
+    const col = {
+      name:  headers.findIndex(h => h === '섹터명'),
+      color: headers.findIndex(h => h === '색상(hex)'),
+    };
+    if (col.name === -1) { showToast('❌ "섹터명" 컬럼이 없습니다', 'error'); return; }
+
+    let added = 0, skipped = 0, updated = 0;
+    rows.forEach(cols => {
+      const name  = col.name  >= 0 ? (cols[col.name]  || '').trim() : '';
+      const color = col.color >= 0 ? (cols[col.color] || '').trim() : '';
+      if (!name) { skipped++; return; }
+
+      const resolvedColor = color && /^#[0-9a-fA-F]{3,6}$/.test(color)
+        ? color
+        : _secAutoColor();
+
+      if (SECTOR_COLORS[name] !== undefined) {
+        // 이미 존재하면 색상만 업데이트
+        if (color) SECTOR_COLORS[name] = resolvedColor;
+        updated++;
+      } else {
+        SECTOR_COLORS[name] = resolvedColor;
+        added++;
+      }
+    });
+
+    saveHoldings();
+    queueMgmtGsheetSync();
+    buildSectorMgmt();
+    buildStockMgmt();
+    const msg = `✅ ${added}건 추가, ${updated}건 업데이트` + (skipped ? `, ${skipped}건 건너뜀` : '');
+    showToast(msg, 'ok');
+    showMgmtMsg('secMgmtMsg', msg, false);
+  });
+}
+
 // 수정 모드 유형/섹터 토글 버튼 클릭 핸들러
 function _smPickType(idx, val) {
   const inp = document.querySelector(`.sm-type-sel[data-idx="${idx}"]`);

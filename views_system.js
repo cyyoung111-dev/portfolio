@@ -767,7 +767,7 @@ function renderStocksView(area) {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
           <div style="font-size:.80rem;font-weight:700;color:var(--text)">🏦 계좌 관리</div>
           <div style="display:flex;gap:6px;align-items:center">
-            <button onclick="acctMgmtAddNew()" class="btn-purple-sm">➕ 계좌 추가</button>
+            <button id="btn-acct-add" class="btn-purple-sm">➕ 계좌 추가</button>
           </div>
         </div>
         <div id="acctMgmtMsg" style="font-size:.70rem;min-height:1.2em;margin-bottom:4px"></div>
@@ -776,8 +776,7 @@ function renderStocksView(area) {
           <div style="font-size:.68rem;color:var(--amber);font-weight:700;margin-bottom:8px">➕ 새 계좌 추가</div>
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
             <input id="acctMgmtNewInput" type="text" placeholder="계좌명 입력"
-              style="flex:1;background:var(--s1);border:1px solid rgba(251,191,36,.4);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
-              onkeydown="if(event.key==='Enter')acctMgmtConfirm(); if(event.key==='Escape')acctMgmtCancel();" />
+              style="flex:1;background:var(--s1);border:1px solid rgba(251,191,36,.4);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem" />
           </div>
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:6px">색상 선택</div>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
@@ -786,8 +785,8 @@ function renderStocksView(area) {
           </div>
           <input type="hidden" id="acctMgmtNewColor" />
           <div style="display:flex;gap:6px">
-            <button onclick="acctMgmtConfirm()" class="btn-purple-sm">✅ 추가</button>
-            <button onclick="acctMgmtCancel()" class="btn-cancel-sm">✕ 취소</button>
+            <button id="btn-acct-confirm" class="btn-purple-sm">✅ 추가</button>
+            <button id="btn-acct-cancel" class="btn-cancel-sm">✕ 취소</button>
           </div>
         </div>
         <div id="acctMgmtList"></div>
@@ -798,12 +797,12 @@ function renderStocksView(area) {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
           <div style="font-size:.80rem;font-weight:700;color:var(--text)">📋 종목 관리 (기초정보)</div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <button onclick="smMgmtAddNew()" class="btn-purple-sm">➕ 종목 추가</button>
+            <button id="btn-sm-add" class="btn-purple-sm">➕ 종목 추가</button>
             <label class="btn-ghost-sm" style="cursor:pointer">
               📂 xlsx/csv 업로드
-              <input type="file" accept=".xlsx,.csv" onchange="smCsvImport(this)" style="display:none"/>
+              <input id="smCsvFileInput" type="file" accept=".xlsx,.csv" style="display:none"/>
             </label>
-            <button onclick="smCsvDownloadTemplate()" class="btn-ghost-sm">⬇️ 양식</button>
+            <button id="btn-sm-template" class="btn-ghost-sm">⬇️ 양식</button>
           </div>
         </div>
         <div id="smMgmtMsg" style="font-size:.70rem;min-height:1.2em;margin-bottom:4px"></div>
@@ -812,8 +811,7 @@ function renderStocksView(area) {
           <div style="font-size:.68rem;color:var(--c-purple-45);font-weight:700;margin-bottom:8px">➕ 새 종목 추가</div>
           <div style="display:grid;grid-template-columns:1fr 100px;gap:6px;margin-bottom:8px">
             <input id="smMgmtNewName" type="text" placeholder="종목명"
-              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
-              onkeydown="if(event.key==='Enter')smMgmtConfirm(); if(event.key==='Escape')smMgmtCancel();" />
+              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem" />
             <input id="smMgmtNewCode" type="text" placeholder="종목코드" maxlength="6"
               style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem;font-family:'Courier New',monospace;text-align:center" />
           </div>
@@ -824,8 +822,8 @@ function renderStocksView(area) {
           <div id="smSecGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
           <input type="hidden" id="smMgmtNewSec" value="기타"/>
           <div style="display:flex;gap:6px">
-            <button onclick="smMgmtConfirm()" class="btn-purple-sm">✅ 추가</button>
-            <button onclick="smMgmtCancel()" class="btn-cancel-sm">✕ 취소</button>
+            <button id="btn-sm-confirm" class="btn-purple-sm">✅ 추가</button>
+            <button id="btn-sm-cancel" class="btn-cancel-sm">✕ 취소</button>
           </div>
         </div>
         <div id="stockMgmtSort"></div>
@@ -836,7 +834,14 @@ function renderStocksView(area) {
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px">
           <div style="font-size:.80rem;font-weight:700;color:var(--text)">📂 섹터 관리</div>
-          <button onclick="secMgmtAddNew()" class="btn-purple-sm">➕ 섹터 추가</button>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <button id="btn-sec-add" class="btn-purple-sm">➕ 섹터 추가</button>
+            <label class="btn-ghost-sm" style="cursor:pointer">
+              📂 xlsx/csv 업로드
+              <input id="secCsvFileInput" type="file" accept=".xlsx,.csv" style="display:none"/>
+            </label>
+            <button id="btn-sec-template" class="btn-ghost-sm">⬇️ 양식</button>
+          </div>
         </div>
         <div id="secMgmtMsg" style="font-size:.70rem;min-height:1.2em;margin-bottom:4px"></div>
         <!-- 섹터 추가 폼 -->
@@ -844,14 +849,13 @@ function renderStocksView(area) {
           <div style="font-size:.68rem;color:var(--c-purple-45);font-weight:700;margin-bottom:8px">➕ 새 섹터 추가</div>
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
             <input id="secMgmtNewName" type="text" placeholder="섹터명 입력"
-              style="flex:1;background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem"
-              onkeydown="if(event.key==='Enter')secMgmtConfirm(); if(event.key==='Escape')secMgmtCancel();" />
+              style="flex:1;background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem" />
             <input id="secMgmtNewColor" type="color" value="#22c55e"
               style="width:36px;height:32px;border:1px solid var(--c-purple-30);border-radius:6px;padding:2px;background:var(--s1);cursor:pointer;flex-shrink:0" />
           </div>
           <div style="display:flex;gap:6px">
-            <button onclick="secMgmtConfirm()" class="btn-purple-sm">✅ 추가</button>
-            <button onclick="secMgmtCancel()" class="btn-cancel-sm">✕ 취소</button>
+            <button id="btn-sec-confirm" class="btn-purple-sm">✅ 추가</button>
+            <button id="btn-sec-cancel" class="btn-cancel-sm">✕ 취소</button>
           </div>
         </div>
         <div id="sectorMgmtBody"></div>
@@ -859,7 +863,37 @@ function renderStocksView(area) {
 
     </div>`;
 
-  // DOM 생성 후 각 관리 UI 초기화
+  // ── DOM 생성 후 이벤트 바인딩 (CSP 인라인 핸들러 차단 대응)
+  // 계좌
+  $el('btn-acct-add')?.addEventListener('click', () => acctMgmtAddNew());
+  $el('btn-acct-confirm')?.addEventListener('click', () => acctMgmtConfirm());
+  $el('btn-acct-cancel')?.addEventListener('click', () => acctMgmtCancel());
+  $el('acctMgmtNewInput')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') acctMgmtConfirm();
+    if (e.key === 'Escape') acctMgmtCancel();
+  });
+  // 종목
+  $el('btn-sm-add')?.addEventListener('click', () => smMgmtAddNew());
+  $el('btn-sm-confirm')?.addEventListener('click', () => smMgmtConfirm());
+  $el('btn-sm-cancel')?.addEventListener('click', () => smMgmtCancel());
+  $el('btn-sm-template')?.addEventListener('click', () => smCsvDownloadTemplate());
+  $el('smCsvFileInput')?.addEventListener('change', function() { smCsvImport(this); });
+  $el('smMgmtNewName')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') smMgmtConfirm();
+    if (e.key === 'Escape') smMgmtCancel();
+  });
+  // 섹터
+  $el('btn-sec-add')?.addEventListener('click', () => secMgmtAddNew());
+  $el('btn-sec-confirm')?.addEventListener('click', () => secMgmtConfirm());
+  $el('btn-sec-cancel')?.addEventListener('click', () => secMgmtCancel());
+  $el('btn-sec-template')?.addEventListener('click', () => secCsvDownloadTemplate());
+  $el('secCsvFileInput')?.addEventListener('change', function() { secCsvImport(this); });
+  $el('secMgmtNewName')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter') secMgmtConfirm();
+    if (e.key === 'Escape') secMgmtCancel();
+  });
+
+  // 각 관리 UI 초기화
   buildAcctMgmt();
   buildStockMgmt();
   buildSectorMgmt();
