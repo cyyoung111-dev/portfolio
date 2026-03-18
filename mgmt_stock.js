@@ -330,7 +330,6 @@ function _bindStockMgmtEvents(container) {
     showMgmtMsg('smMgmtMsg', '✅ 종목이 저장됐습니다', false);
     container._editMode = false;
     container._selectedIdx = null;
-    buildStockMgmt();
   });
   $el('smEditCancel')?.addEventListener('click', function() {
     container._editMode = false;
@@ -751,26 +750,25 @@ function smSave(idx) {
     item.name = newName;
   }
   item.code      = newCode;
-  item.assetType = newType;  // ← 기초정보에 유형 저장 (우선순위 ①)
+  item.assetType = newType;
   item.sector    = newSec;
-  // EDITABLE_PRICES가 단일 진실소스 — SECTOR_MAP/STOCK_CODE는 보조 역할
   if(newCode) STOCK_CODE[newName] = normalizeStockCode(newCode); else delete STOCK_CODE[newName];
 
-  // ★ EDITABLE_PRICES 중복 항목 제거
-  // 종목명 변경 후 구버전 이름이 남아있거나, 같은 코드를 가진 항목 정리
-  const currentIdx = EDITABLE_PRICES.indexOf(item);
+  // ★ EDITABLE_PRICES 중복 항목 제거 (idx 파라미터 직접 사용 — indexOf보다 안전)
   for(let i = EDITABLE_PRICES.length - 1; i >= 0; i--) {
-    if(i === currentIdx) continue;
+    if(i === idx) continue;
     const other = EDITABLE_PRICES[i];
-    const sameCode = newCode && other.code && other.code === newCode;
+    const sameCode = newCode && other.code && normalizeStockCode(other.code) === normalizeStockCode(newCode);
     const sameName = other.name === newName;
     if(sameCode || sameName) {
       if(other.code) delete STOCK_CODE[other.name];
       EDITABLE_PRICES.splice(i, 1);
+      // splice로 앞 항목이 삭제되면 idx도 1 감소
+      if(i < idx) idx--;
     }
   }
 
-  // ★ rawHoldings type/sector 즉시 재생성 → GAS syncHoldings에 최신 내용 전송
+  // ★ rawHoldings type/sector 즉시 재생성
   syncHoldingsFromTrades();
   saveHoldings();
   queueMgmtGsheetSync();
@@ -778,8 +776,6 @@ function smSave(idx) {
   if($el('tradeEditOverlay') && $el('tradeEditOverlay').style.display !== 'none') {
     if(typeof _refreshTeCodeList === 'function') _refreshTeCodeList($el('te-name')?.value, $el('te-code')?.value);
   }
-  // stocks 탭에서 smSave 시 renderStocksView→buildStockMgmt DOM 재생성 방지
-  // 다른 탭 데이터만 갱신, stocks 탭은 이미 DOM이 살아있으므로 재생성 불필요
   _mgmtRefresh();
-  // buildStockMgmt 재호출은 저장 버튼 핸들러에서 처리
+  buildStockMgmt(); // ★ 중복 제거 후 즉시 목록 갱신
 }
