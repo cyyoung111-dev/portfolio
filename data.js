@@ -26,7 +26,12 @@ function _dvPickFreq(nameKey, freq) {
 
 // DATA
 // 계좌 색상 팔레트 (신규 계좌 추가 시 순환 사용)
-const ACCT_PALETTE = ['var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)','var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)'];
+const ACCT_PALETTE = [
+  'var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)',
+  'var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)',
+  '#f97316','#06b6d4','#8b5cf6','#ec4899','#14b8a6',
+  '#a3e635','#fb923c','#38bdf8','#c084fc','#f43f5e'
+];
 
 // ════════════════════════════════════════════════════════════════
 //  데이터 · 비즈니스 로직

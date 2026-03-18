@@ -850,9 +850,13 @@ function renderStocksView(area) {
           <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
             <input id="secMgmtNewName" type="text" placeholder="섹터명 입력"
               style="flex:1;background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem" />
-            <input id="secMgmtNewColor" type="color" value="#22c55e"
-              style="width:36px;height:32px;border:1px solid var(--c-purple-30);border-radius:6px;padding:2px;background:var(--s1);cursor:pointer;flex-shrink:0" />
           </div>
+          <div style="font-size:.65rem;color:var(--muted);margin-bottom:6px">색상 선택</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <div id="secNewColorPreview" style="width:18px;height:18px;border-radius:50%;flex-shrink:0;border:2px solid var(--border)"></div>
+            <div id="secNewColorDots" class="flex-wrap-gap4"></div>
+          </div>
+          <input type="hidden" id="secMgmtNewColor" />
           <div style="display:flex;gap:6px">
             <button id="btn-sec-confirm" class="btn-purple-sm">✅ 추가</button>
             <button id="btn-sec-cancel" class="btn-cancel-sm">✕ 취소</button>

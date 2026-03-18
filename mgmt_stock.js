@@ -549,19 +549,22 @@ function smMgmtConfirm() {
 }
 
 // 섹터 자동 색상 팔레트 (중복 방지용)
-const SECTOR_AUTO_PALETTE = [
-  'var(--green)','var(--blue-lt)','var(--amber)','var(--purple)','var(--cyan)',
-  'var(--pink)','var(--gold2)','#84cc16','var(--cyan)','var(--purple-lt)',
-  'var(--red)','var(--purple)','var(--cyan)','var(--gold2)','var(--green-lt)',
-  'var(--pink)','var(--amber)','var(--blue-lt)','var(--pink)','var(--green-md)'
-];
+// 섹터 색상 팔레트 (ACCT_PALETTE와 동일한 20색)
+function _getSectorPalette() {
+  return typeof ACCT_PALETTE !== 'undefined' ? ACCT_PALETTE : [
+    'var(--green)','var(--blue)','var(--purple)','var(--amber)','var(--red)',
+    'var(--pink)','var(--cyan)','var(--gold2)','#84cc16','var(--purple-lt)',
+    '#f97316','#06b6d4','#8b5cf6','#ec4899','#14b8a6',
+    '#a3e635','#fb923c','#38bdf8','#c084fc','#f43f5e'
+  ];
+}
+
 function _secAutoColor() {
+  const palette = _getSectorPalette();
   const used = new Set(Object.values(SECTOR_COLORS).map(c => c.toLowerCase()));
-  const pick = SECTOR_AUTO_PALETTE.find(c => !used.has(resolveColor(c).toLowerCase()));
-  // 팔레트 소진 시 랜덤 hex 생성
-  if(pick) return resolveColor(pick); // ★ 원칙3: var()→hex 변환 후 반환
-  let rand;
-  let tries = 0;
+  const pick = palette.find(c => !used.has(resolveColor(c).toLowerCase()));
+  if(pick) return resolveColor(pick);
+  let rand; let tries = 0;
   do {
     rand = '#' + Math.floor(Math.random()*0xffffff).toString(16).padStart(6,'0');
     tries++;
@@ -569,20 +572,53 @@ function _secAutoColor() {
   return rand;
 }
 
+function _renderSecNewColorDots(selectedColor) {
+  const palette = _getSectorPalette();
+  const used = Object.values(SECTOR_COLORS).map(c => c.toLowerCase());
+  const preview = $el('secNewColorPreview');
+  if(preview) preview.style.background = selectedColor;
+  const colorInput = $el('secMgmtNewColor');
+  if(colorInput) colorInput.value = selectedColor;
+  const dotsWrap = $el('secNewColorDots');
+  if(!dotsWrap) return;
+  dotsWrap.innerHTML = palette.map(c => {
+    const resolved = resolveColor(c);
+    const isUsed = used.includes(resolved.toLowerCase());
+    const isSelected = resolved.toLowerCase() === resolveColor(selectedColor).toLowerCase();
+    return `<span data-color="${c}"
+      style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
+      border:3px solid ${isSelected?'#fff':'transparent'};
+      opacity:${isUsed && !isSelected?'0.3':'1'};
+      transition:border .1s,opacity .1s" title="${isUsed && !isSelected?'사용 중':''}"></span>`;
+  }).join('');
+  dotsWrap.querySelectorAll('span').forEach(dot => {
+    dot.addEventListener('click', () => _secNewPickColor(dot.dataset.color));
+  });
+}
+
+function _secNewPickColor(c) {
+  const used = Object.values(SECTOR_COLORS).map(col => col.toLowerCase());
+  const resolved = resolveColor(c);
+  if(used.includes(resolved.toLowerCase())) {
+    showMgmtMsg('secMgmtMsg','❌ 다른 섹터에서 이미 사용 중인 색상입니다',true);
+    return;
+  }
+  _renderSecNewColorDots(c);
+}
+
 // 섹터 추가 팝업 열기/닫기/확인
 function secMgmtAddNew() {
   const wrap = $el('secMgmtNewWrap');
   if(wrap) { wrap.style.display = 'block'; }
-  // 사용하지 않는 색상 자동 지정
-  const c = $el('secMgmtNewColor');
-  if(c) c.value = _secAutoColor();
+  const autoColor = _secAutoColor();
+  _renderSecNewColorDots(autoColor);
   setTimeout(() => $el('secMgmtNewName')?.focus(), 50);
 }
 function secMgmtCancel() {
   const wrap = $el('secMgmtNewWrap');
   if(wrap) wrap.style.display = 'none';
   const n = $el('secMgmtNewName'); if(n) n.value = '';
-  const c = $el('secMgmtNewColor'); if(c) c.value = 'var(--muted)';
+  const c = $el('secMgmtNewColor'); if(c) c.value = '';
 }
 function secMgmtConfirm() {
   const name  = ($el('secMgmtNewName')?.value || '').trim();
@@ -590,20 +626,21 @@ function secMgmtConfirm() {
   if(!name) { showMgmtMsg('secMgmtMsg','⚠️ 섹터명을 입력해주세요',true); return; }
   if(SECTOR_COLORS[name] !== undefined) { showMgmtMsg('secMgmtMsg',`❌ "${name}"은(는) 이미 존재하는 섹터입니다`,true); return; }
   const usedColors = Object.values(SECTOR_COLORS).map(c => c.toLowerCase());
-  if(usedColors.includes(resolveColor(color).toLowerCase())) {
-    // 중복 색상이면 자동으로 다른 색상 배정
-    SECTOR_COLORS[name] = _secAutoColor();
-  } else {
-    SECTOR_COLORS[name] = resolveColor(color); // ★ 원칙3: var()→hex 변환
+  const resolved = resolveColor(color);
+  if(usedColors.includes(resolved.toLowerCase())) {
+    showMgmtMsg('secMgmtMsg','❌ 다른 섹터에서 이미 사용 중인 색상입니다',true); return;
   }
+  SECTOR_COLORS[name] = resolved;
+  syncHoldingsFromTrades();
   saveHoldings();
   queueMgmtGsheetSync();
   _mgmtRefresh();
   buildSectorMgmt();
-  buildStockMgmt(); // 섹터 셀렉트 옵션 갱신
+  buildStockMgmt();
   showMgmtMsg('secMgmtMsg',`✅ "${name}" 섹터가 추가됐습니다`,false);
   setTimeout(() => secMgmtCancel(), 900);
 }
+
 
 // ── 섹터 양식 다운로드
 function secCsvDownloadTemplate() {
@@ -718,10 +755,29 @@ function smSave(idx) {
   item.sector    = newSec;
   // EDITABLE_PRICES가 단일 진실소스 — SECTOR_MAP/STOCK_CODE는 보조 역할
   if(newCode) STOCK_CODE[newName] = normalizeStockCode(newCode); else delete STOCK_CODE[newName];
+
+  // ★ EDITABLE_PRICES 중복 항목 제거
+  // 종목명 변경 후 구버전 이름이 남아있거나, 같은 코드를 가진 항목 정리
+  const currentIdx = EDITABLE_PRICES.indexOf(item);
+  for(let i = EDITABLE_PRICES.length - 1; i >= 0; i--) {
+    if(i === currentIdx) continue;
+    const other = EDITABLE_PRICES[i];
+    const sameCode = newCode && other.code && other.code === newCode;
+    const sameName = other.name === newName;
+    if(sameCode || sameName) {
+      if(other.code) delete STOCK_CODE[other.name];
+      EDITABLE_PRICES.splice(i, 1);
+    }
+  }
+
   // ★ rawHoldings type/sector 즉시 재생성 → GAS syncHoldings에 최신 내용 전송
   syncHoldingsFromTrades();
   saveHoldings();
   queueMgmtGsheetSync();
+  // 거래수정 팝업이 열려있으면 종목 버튼 목록 즉시 갱신
+  if($el('tradeEditOverlay') && $el('tradeEditOverlay').style.display !== 'none') {
+    if(typeof _refreshTeCodeList === 'function') _refreshTeCodeList($el('te-name')?.value, $el('te-code')?.value);
+  }
   // stocks 탭에서 smSave 시 renderStocksView→buildStockMgmt DOM 재생성 방지
   // 다른 탭 데이터만 갱신, stocks 탭은 이미 DOM이 살아있으므로 재생성 불필요
   _mgmtRefresh();
