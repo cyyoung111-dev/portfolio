@@ -395,16 +395,27 @@ async function loadSettings(onProgress) {
     // EDITABLE_PRICES — 기초정보(종목명·코드·유형·섹터) 복원
     if (Array.isArray(s.EDITABLE_PRICES) && s.EDITABLE_PRICES.length > 0) {
       EDITABLE_PRICES.length = 0;
+      // ★ normName 적용: 구버전 종목명 자동 변환 + 중복 제거
+      const seenNames = new Set();
+      const seenCodes = new Set();
       s.EDITABLE_PRICES.forEach(ep => {
+        const normalizedName = (typeof normName === 'function') ? normName(ep?.name || '') : (ep?.name || '');
+        if (!normalizedName) return;
+        if (seenNames.has(normalizedName)) return;
+        seenNames.add(normalizedName);
+        const normalizedCode = _normalizeCodeForSync(ep?.code);
+        if (normalizedCode && seenCodes.has(normalizedCode)) return;
+        if (normalizedCode) seenCodes.add(normalizedCode);
         const next = {
           ...ep,
-          code: _normalizeCodeForSync(ep?.code),
+          name: normalizedName,
+          code: normalizedCode,
           sector: ep?.sector || '기타',
           assetType: ep?.assetType || ep?.type || '주식',
         };
         EDITABLE_PRICES.push(next);
       });
-      // STOCK_CODE master 동기화 (원칙8: HTML STOCK_CODE가 master)
+      // STOCK_CODE master 동기화
       EDITABLE_PRICES.forEach(ep => { if (ep.name && ep.code) STOCK_CODE[ep.name] = _normalizeCodeForSync(ep.code); });
     }
     // ── GSheet 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
