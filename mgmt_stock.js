@@ -698,13 +698,19 @@ function smSave(idx) {
     showMgmtMsg('smMgmtMsg',`❌ 종목코드 ${newCode}는 "${dup.name}"에서 이미 사용 중입니다`,true); return;
   }
   if(newName !== item.name) {
-    if(item.code) delete STOCK_CODE[item.name];
+    const oldName = item.name;
+    if(item.code) delete STOCK_CODE[oldName];
     // ★ 코드 있는 종목은 savedPrices 키가 코드이므로 rename 불필요
     // 코드 없는 종목(펀드)만 이름 키 rename
     if(!item.code) {
-      if(savedPrices[item.name])     { savedPrices[newName]     = savedPrices[item.name];     delete savedPrices[item.name]; }
-      if(savedPriceDates[item.name]) { savedPriceDates[newName] = savedPriceDates[item.name]; delete savedPriceDates[item.name]; }
+      if(savedPrices[oldName])     { savedPrices[newName]     = savedPrices[oldName];     delete savedPrices[oldName]; }
+      if(savedPriceDates[oldName]) { savedPriceDates[newName] = savedPriceDates[oldName]; delete savedPriceDates[oldName]; }
     }
+    // ★ 거래이력·보유현황 종목명 일괄 변경 (계좌명 변경과 동일한 방식)
+    rawTrades.forEach(t   => { if(t.name   === oldName) t.name   = newName; });
+    rawHoldings.forEach(h => { if(h.name   === oldName) h.name   = newName; });
+    // DIVDATA 키도 함께 변경
+    if(DIVDATA[oldName] !== undefined) { DIVDATA[newName] = DIVDATA[oldName]; delete DIVDATA[oldName]; }
     item.name = newName;
   }
   item.code      = newCode;
