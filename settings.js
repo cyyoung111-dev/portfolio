@@ -287,7 +287,7 @@ function renderTabSyncPanel(tabId) {
       <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔄 수동 재동기화</div>
       <span id="sync-badge-${tabId}" style="font-size:.68rem;color:${st.color}">${st.text}</span>
     </div>
-    <button onclick="manualSyncByTab('${tabId}')" id="sync-btn-${tabId}" class="btn-purple-sm" ${disabled}>🔄 재동기화</button>
+    <button data-sync-tab="${tabId}" id="sync-btn-${tabId}" class="btn-purple-sm" ${disabled}>🔄 재동기화</button>
   </div>`;
 }
 

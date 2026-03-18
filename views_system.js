@@ -863,36 +863,6 @@ function renderStocksView(area) {
 
     </div>`;
 
-  // ── DOM 생성 후 이벤트 바인딩 (CSP 인라인 핸들러 차단 대응)
-  // 계좌
-  $el('btn-acct-add')?.addEventListener('click', () => acctMgmtAddNew());
-  $el('btn-acct-confirm')?.addEventListener('click', () => acctMgmtConfirm());
-  $el('btn-acct-cancel')?.addEventListener('click', () => acctMgmtCancel());
-  $el('acctMgmtNewInput')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') acctMgmtConfirm();
-    if (e.key === 'Escape') acctMgmtCancel();
-  });
-  // 종목
-  $el('btn-sm-add')?.addEventListener('click', () => smMgmtAddNew());
-  $el('btn-sm-confirm')?.addEventListener('click', () => smMgmtConfirm());
-  $el('btn-sm-cancel')?.addEventListener('click', () => smMgmtCancel());
-  $el('btn-sm-template')?.addEventListener('click', () => smCsvDownloadTemplate());
-  $el('smCsvFileInput')?.addEventListener('change', function() { smCsvImport(this); });
-  $el('smMgmtNewName')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') smMgmtConfirm();
-    if (e.key === 'Escape') smMgmtCancel();
-  });
-  // 섹터
-  $el('btn-sec-add')?.addEventListener('click', () => secMgmtAddNew());
-  $el('btn-sec-confirm')?.addEventListener('click', () => secMgmtConfirm());
-  $el('btn-sec-cancel')?.addEventListener('click', () => secMgmtCancel());
-  $el('btn-sec-template')?.addEventListener('click', () => secCsvDownloadTemplate());
-  $el('secCsvFileInput')?.addEventListener('change', function() { secCsvImport(this); });
-  $el('secMgmtNewName')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') secMgmtConfirm();
-    if (e.key === 'Escape') secMgmtCancel();
-  });
-
   // 각 관리 UI 초기화
   buildAcctMgmt();
   buildStockMgmt();
