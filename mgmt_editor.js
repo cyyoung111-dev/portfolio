@@ -177,12 +177,21 @@ function _mgmtRefresh() {
 function buildEditorUI() {
   // ① 코드 없는 종목 (펀드·TDF) - 항상 수동 입력
   const fundItems = EDITABLE_PRICES.filter(item => !item.code);
-  // ② 코드 있지만 현재가 미조회된 종목 (savedPrices에 코드 키로 없는 것)
+  // ② 코드 있지만 현재가 미조회된 종목
+  //    savedPrices에 없거나 GAS 미조회 목록에 포함된 종목
+  const missingSet = new Set((window._gsheetMissingCodes || []).map(m => m.code));
   const nopriceItems = EDITABLE_PRICES.filter(item =>
-    item.code && !savedPrices[item.code]
+    item.code && (!savedPrices[item.code] || missingSet.has(item.code))
   );
+  // 같은 종목명 중복 제거 (코드만 다른 중복 항목은 첫 번째만 표시)
+  const seenNames = new Set();
+  const deduped = nopriceItems.filter(item => {
+    if (seenNames.has(item.name)) return false;
+    seenNames.add(item.name);
+    return true;
+  });
 
-  const totalItems = [...fundItems, ...nopriceItems];
+  const totalItems = [...fundItems, ...deduped];
 
   if (totalItems.length === 0) {
     $el('editorBody').innerHTML =
@@ -235,10 +244,10 @@ function buildEditorUI() {
     fundItems.forEach(item => { html += renderRow(item, '펀드·TDF'); });
   }
 
-  if (nopriceItems.length > 0) {
+  if (deduped.length > 0) {
     if (fundItems.length > 0) html += '<div style="margin-top:14px"></div>';
-    html += `<div class="editor-section-title">⚠️ 자동 조회 실패 종목 (${nopriceItems.length})</div>`;
-    nopriceItems.forEach(item => { html += renderRow(item, item.assetType || '주식'); });
+    html += `<div class="editor-section-title">⚠️ 자동 조회 실패 종목 (${deduped.length})</div>`;
+    deduped.forEach(item => { html += renderRow(item, item.assetType || '주식'); });
   }
 
   html += '</div>';

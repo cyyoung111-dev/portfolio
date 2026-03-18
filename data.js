@@ -157,6 +157,17 @@ function migrateLegacyTrades() {
     if (!t.id) { t.id = genTradeId(); idFixed++; }
   });
 
+  // ★ normName 정규화: 구버전 종목명 → 현재 종목명으로 자동 변환
+  // 예) 'TIME Korea플러스배당액티브' → 'TIMEFOLIO Korea플러스배당액티브'
+  rawTrades.forEach(t => {
+    if (!t.name) return;
+    const normalized = normName(t.name);
+    if (normalized !== t.name) {
+      t.name = normalized;
+      changed = true;
+    }
+  });
+
 }
 
 // ── 계좌+종목별 평균매수단가 계산 (FIFO 누적 방식)
@@ -524,18 +535,6 @@ function _buildTradesSummaryHTML() {
       </div>
     </div>
     <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px">
-      <span id="gsSyncStatusLabel" style="font-size:.65rem;color:var(--muted)"></span>
-      <button onclick="manualSyncToGsheet()" id="gsSyncBtn"
-        style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;
-               border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);
-               color:var(--blue-lt);font-size:.72rem;font-weight:600;cursor:pointer;transition:var(--tr)"
-        title="거래이력·보유현황·종목코드를 구글시트에 즉시 동기화">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
-          <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-        </svg>
-        GAS 연동
-      </button>
     </div>`;
 }
 

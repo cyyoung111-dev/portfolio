@@ -800,7 +800,13 @@ async function fetchFromGsheet(dateStr) {
       } catch(e) {} // 코드 없는 종목 조회 실패는 무시
     }
 
-    window._gsheetMissingCodes = missingCodes;
+    // 같은 종목명 중복 제거 (코드만 다른 항목은 첫 번째만 표시)
+    const seenMissingNames = new Set();
+    window._gsheetMissingCodes = missingCodes.filter(m => {
+      if (seenMissingNames.has(m.name)) return false;
+      seenMissingNames.add(m.name);
+      return true;
+    });
     const results = Object.assign({}, codeResults, noCodeResults);
     return Object.keys(results).length > 0 ? results : null;
 
