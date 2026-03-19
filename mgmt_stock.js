@@ -327,9 +327,10 @@ function _bindStockMgmtEvents(container) {
   $el('smSaveBtn')?.addEventListener('mousedown', function(e) {
     e.preventDefault();
     smSave(container._selectedIdx);
-    showMgmtMsg('smMgmtMsg', '✅ 종목이 저장됐습니다', false);
     container._editMode = false;
     container._selectedIdx = null;
+    buildStockMgmt(); // ★ 상태 리셋 후 호출 → 편집 폼 없이 목록만 렌더링
+    showMgmtMsg('smMgmtMsg', '✅ 종목이 저장됐습니다', false);
   });
   $el('smEditCancel')?.addEventListener('click', function() {
     container._editMode = false;
@@ -749,10 +750,21 @@ function smSave(idx) {
     if(DIVDATA[oldName] !== undefined) { DIVDATA[newName] = DIVDATA[oldName]; delete DIVDATA[oldName]; }
     item.name = newName;
   }
+  // ★ 코드 변경 시 rawTrades.code도 일괄 업데이트
+  const oldCode = item.code;
+  if(newCode !== oldCode) {
+    const normalizedOld = normalizeStockCode(oldCode);
+    const normalizedNew = normalizeStockCode(newCode);
+    if(normalizedOld) {
+      rawTrades.forEach(t => {
+        if(normalizeStockCode(t.code) === normalizedOld) t.code = normalizedNew;
+      });
+    }
+  }
   item.code      = newCode;
   item.assetType = newType;
   item.sector    = newSec;
-  if(newCode) STOCK_CODE[newName] = normalizeStockCode(newCode); else delete STOCK_CODE[newName];
+  if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
   // ★ EDITABLE_PRICES 중복 항목 제거 (idx 파라미터 직접 사용 — indexOf보다 안전)
   for(let i = EDITABLE_PRICES.length - 1; i >= 0; i--) {
@@ -777,5 +789,5 @@ function smSave(idx) {
     if(typeof _refreshTeCodeList === 'function') _refreshTeCodeList($el('te-name')?.value, $el('te-code')?.value);
   }
   _mgmtRefresh();
-  buildStockMgmt(); // ★ 중복 제거 후 즉시 목록 갱신
+  // ★ buildStockMgmt()는 호출하지 않음 — 상태 리셋 후 mousedown 핸들러에서 호출
 }
