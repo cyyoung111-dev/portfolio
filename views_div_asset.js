@@ -103,7 +103,7 @@ function renderDivView(area, skipFetch) {
         <span id="sync-badge-div" style="font-size:.68rem;color:var(--muted)"></span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        ${GSHEET_API_URL ? `<button id="divFetchBtn" onclick="startDivFetch()" class="btn-teal-sm">🔄 배당금 불러오기</button>` : ''}
+        ${GSHEET_API_URL ? `<button id="divFetchBtn" onclick="startDivFetch()" class="btn-amber-sm">🔄 배당금 불러오기</button>` : ''}
         <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" ${GSHEET_API_URL ? '' : 'disabled'}>🔄 재동기화</button>
       </div>
     </div>
