@@ -911,5 +911,4 @@ function migrateDivDataToCode() {
 
 // ★ GSheet 연동 초기화는 views_misc.js 맨 끝 initApp()에서 실행
 
-// rawTrades 없고 rawHoldings 있으면 마이그레이션 팝업
-checkAndShowMigration();
+// checkAndShowMigration()은 views_misc.js의 initApp()에서 호출됨
