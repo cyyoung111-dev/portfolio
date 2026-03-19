@@ -324,14 +324,11 @@ function saveHoldings() {
       clearTimeout(badge._t);
       badge._t = setTimeout(() => { badge.style.display = 'none'; }, 2000);
     }
-    // 구글시트 종목코드 백그라운드 동기화 (debounce 3초)
-    clearTimeout(saveHoldings._syncTimer);
-    saveHoldings._syncTimer = setTimeout(() => {
-      syncCodesToGsheet();
-      syncHoldingsToGsheet();   // ★ v8.1: 보유현황도 함께 동기화
-      syncTradesToGsheet();     // ★ v8.2: 거래이력도 함께 동기화
-      saveSettings();           // ★ 설정 GS 동기화 (브라우저 독립 복원)
-    }, 3000);
+    // 구글시트 즉시 동기화 (저장과 동시에 GAS 반영)
+    if (typeof syncCodesToGsheet    === 'function') syncCodesToGsheet();
+    if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet();
+    if (typeof syncTradesToGsheet   === 'function') syncTradesToGsheet();
+    if (typeof saveSettings         === 'function') saveSettings();
   } catch(e) {
     console.error('saveHoldings 실패:', e);
     showToast('저장 실패: ' + e.message + ' · 브라우저 설정에서 로컬 저장소를 허용해주세요.', 'error', 5000);

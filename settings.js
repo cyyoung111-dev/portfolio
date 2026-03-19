@@ -323,22 +323,17 @@ async function manualSyncByTab(tabId) {
       const r1 = await persistRealEstateSettings(true);
       ok = !!r1;
     } else {
-      // ★ 기초정보 탭: GAS에서 최신 데이터 먼저 불러온 후 저장
-      const loaded = await loadSettings();
-      if (loaded) {
-        // GAS 복원 후 UI 갱신 (종목·섹터 목록 반영)
+      // ★ 기초정보 탭: 로컬 → GAS 업로드 먼저, 그 다음 UI 갱신
+      const r0 = await saveSettings(true);
+      const r1 = await syncCodesToGsheet();
+      await syncHoldingsToGsheet();
+      await syncTradesToGsheet();
+      ok = !!(r0 || r1);
+      if (ok) {
         try { refreshAll(); } catch(e) {}
         try { if (typeof buildStockMgmt  === 'function') buildStockMgmt();  } catch(e) {}
         try { if (typeof buildSectorMgmt === 'function') buildSectorMgmt(); } catch(e) {}
         try { if (typeof buildAcctMgmt   === 'function') buildAcctMgmt();   } catch(e) {}
-        ok = true;
-      } else {
-        // 불러오기 실패 시 저장만 시도
-        const r0 = await saveSettings(true);
-        const r1 = await syncCodesToGsheet();
-        await syncHoldingsToGsheet();
-        await syncTradesToGsheet();
-        ok = !!(r0 || r1);
       }
     }
   } catch (e) {
