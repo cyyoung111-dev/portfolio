@@ -160,10 +160,13 @@ function _mgmtRefresh() {
 function buildEditorUI() {
   // ① 코드 없는 종목 (펀드·TDF) - 항상 수동 입력
   const fundItems = EDITABLE_PRICES.filter(item => !item.code);
-  // ② 코드 있지만 현재가 미조회된 종목 (savedPrices에 코드 키로 없는 것)
-  const nopriceItems = EDITABLE_PRICES.filter(item =>
-    item.code && !savedPrices[item.code]
-  );
+  // ② 코드 있지만 현재가 미조회된 종목
+  // normalizeStockCode로 정규화된 코드 기준으로 savedPrices 확인
+  const nopriceItems = EDITABLE_PRICES.filter(item => {
+    if (!item.code) return false;
+    const code = (typeof normalizeStockCode === 'function') ? normalizeStockCode(item.code) : item.code;
+    return !savedPrices[code] && !savedPrices[item.code];
+  });
 
   const totalItems = [...fundItems, ...nopriceItems];
 
