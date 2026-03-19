@@ -275,6 +275,10 @@ async function startDivFetch() {
     return holding && ep.code;
   });
 
+  console.log('[배당조회] EDITABLE_PRICES:', EDITABLE_PRICES.length, '개');
+  console.log('[배당조회] rawHoldings:', rawHoldings.length, '개');
+  console.log('[배당조회] codeItems:', codeItems.length, '개', codeItems.map(i=>i.name+'/'+i.code));
+
   if (codeItems.length === 0) {
     if (status) {
       status.style.color = 'var(--amber)';
@@ -306,6 +310,9 @@ async function startDivFetch() {
 
     // 코드 → 이름 역매핑
     const codeToName = _buildDivCodeToNameMap();
+    console.log('[배당조회] GAS 응답 종목수:', Object.keys(data.dividends).length);
+    console.log('[배당조회] codeToName 매핑:', codeToName);
+    console.log('[배당조회] dividends 샘플:', JSON.stringify(Object.entries(data.dividends).slice(0,3)));
 
     let updated = 0, skipped = 0;
     Object.entries(data.dividends).forEach(([code, obj]) => {
