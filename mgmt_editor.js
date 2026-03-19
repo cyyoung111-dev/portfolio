@@ -8,6 +8,12 @@ function openEditor() {
     }
   });
   buildEditorUI();
+  // ★ 날짜 입력란 오늘 날짜로 초기화
+  const editorDateEl = $el('editorDate');
+  if (editorDateEl && !editorDateEl.value) {
+    const t = new Date();
+    editorDateEl.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+  }
   $el('priceEditor').classList.add('open');
 }
 
@@ -17,36 +23,7 @@ function closeEditor() {
 }
 
 // ── 구글 시트 URL 관리
-// ★ v8 — 펀드·TDF NAV 수동 저장
-async function saveNavPrices() {
-  if (!GSHEET_API_URL) { showToast('구글시트 연동이 필요해요', 'warn'); return; }
-  const date = $el('navDate')?.value;
-  if (!date) { showToast('날짜를 선택해주세요', 'warn'); return; }
-  const inps = document.querySelectorAll('.nav-price-inp');
-  if (!inps.length) return;
-  const result = $el('navSaveResult');
-  if (result) { result.textContent = '저장 중...'; result.style.color = 'var(--muted)'; }
-  let saved = 0, skipped = 0;
-  for (const inp of inps) {
-    const name  = inp.dataset.name;
-    const price = parseFloat(inp.value);
-    if (!name || !(price > 0)) { skipped++; continue; }
-    try {
-      const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(date)
-                + '&name=' + encodeURIComponent(name) + '&price=' + price;
-      const res  = await fetchWithTimeout(url, 10000);
-      const data = await res.json();
-      if (data.status === 'ok') { saved++; inp.value = ''; }
-    } catch(e) {
-      console.warn('[saveNavPrices]', name, e.message);
-    }
-  }
-  if (result) {
-    result.textContent = saved > 0 ? `✅ ${saved}개 저장됨${skipped > 0 ? ` (${skipped}개 건너뜀)` : ''}` : '입력한 NAV가 없어요';
-    result.style.color = saved > 0 ? 'var(--green)' : 'var(--muted)';
-  }
-  if (saved > 0) showToast(`📅 ${fmtDateDot(date)} NAV ${saved}개 저장됨`, 'ok');
-}
+
 
 function saveGsheetUrlFromUI() {
   const raw = $el('gsheetUrlInput')?.value?.trim();
@@ -290,8 +267,15 @@ function applyPrices() {
     closeEditor(); return;
   }
   const now = new Date();
-  // dateStr: YYYY.MM.DD (시분 제외 — autoLoadPrices의 todayLabel과 형식 통일)
-  const dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  // ★ editorDate 입력값 우선, 없으면 오늘
+  const editorDateRaw = ('editorDate')?.value; // YYYY-MM-DD
+  let dateStr;
+  if (editorDateRaw) {
+    const [y,m,d] = editorDateRaw.split('-');
+    dateStr = `${y}.${m}.${d}`;
+  } else {
+    dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+  }
   const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   const updatedCount = Object.keys(editedPrices).length;
   Object.keys(editedPrices).forEach(name => {
@@ -300,6 +284,13 @@ function applyPrices() {
     const key = code || name;
     savedPrices[key] = editedPrices[name];
     savedPriceDates[key] = dateStr + ' ' + timeStr; // savedPriceDates는 표시용이라 시분 유지
+    // ★ GAS에도 날짜별 저장 (saveManualPrice 액션)
+    if (GSHEET_API_URL) {
+      const gasDate = editorDateRaw || `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+      const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(gasDate)
+                + '&name=' + encodeURIComponent(name) + '&price=' + editedPrices[name];
+      fetchWithTimeout(url, 10000).catch(e => console.warn('[saveManualPrice]', name, e.message));
+    }
   });
 
   recomputeRows();
