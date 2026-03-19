@@ -334,28 +334,25 @@ async function startDivFetch() {
     });
 
     const resultMsg = '✅ ' + updated + '개 종목 배당 조회 완료' + (skipped > 0 ? ' (' + skipped + '개 배당없음)' : '');
-    status.style.color = 'var(--green-lt)';
-    status.textContent = resultMsg;
     persistDividendSettings(true);
     saveHoldings();
     // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
     const _area = $el('view-area');
     renderDivView(_area, true);
-    // renderDivView가 DOM을 새로 그리므로 상태 메시지 재설정
-    const _st = $el('divFetchStatus');
-    if (_st) { _st.style.color = 'var(--green-lt)'; _st.textContent = resultMsg; }
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
+    // renderDivView 후 DOM이 새로 그려지므로 메시지·버튼 재설정
+    const _st2 = $el('divFetchStatus');
+    if (_st2) { _st2.style.color = 'var(--green-lt)'; _st2.textContent = resultMsg; }
+    showToast(resultMsg, 'ok', 3000);
+    const _btn = $el('divFetchBtn');
+    if (_btn) { _btn.disabled = false; _btn.textContent = '🔄 배당금 불러오기'; }
 
   } catch(e) {
-    if (status) {
-      status.style.color = 'var(--red)';
-      status.textContent = '❌ 조회 실패: ' + e.message + ' — 구글시트 연동 및 배포 상태를 확인해주세요.';
-    }
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
+    showToast('❌ 배당 조회 실패: ' + e.message, 'error', 5000);
+    const _btnE = $el('divFetchBtn');
+    if (_btnE) { _btnE.disabled = false; _btnE.textContent = '🔄 배당금 불러오기'; }
     return false;
   }
 
-  if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
   return true;
 }
 
