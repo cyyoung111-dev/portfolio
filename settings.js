@@ -44,9 +44,11 @@ function _toMonths(v) {
 function _normalizeDivData(raw) {
   const next = {};
   if (!raw || typeof raw !== 'object') return next;
-  Object.entries(raw).forEach(([name, v]) => {
+  Object.entries(raw).forEach(([key, v]) => {
     const prev = (v && typeof v === 'object') ? v : {};
-    next[name] = {
+    // ★ key가 name이면 code로 변환 (getDivKey 사용)
+    const storeKey = (typeof getDivKey === 'function') ? getDivKey(key) : key;
+    next[storeKey] = {
       perShare: _toNum(prev.perShare, 0),
       freq: typeof prev.freq === 'string' ? prev.freq : '-',
       months: _toMonths(prev.months),

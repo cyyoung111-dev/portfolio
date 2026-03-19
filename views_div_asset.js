@@ -8,21 +8,55 @@ const NOW_MONTH = new Date().getMonth() + 1; // 1~12
 //  반환: [{ name, totalQty, accts, dd, annualDiv }]
 // ════════════════════════════════════════════════════════════════
 function calcDividends() {
-  // 보유 종목별 집계 (펀드 제외)
-  const map = {};
+  // 보유 종목별 계좌 집계 (펀드 제외)
+  const acctMap = {};
   rawHoldings.filter(h => !h.fund && h.name).forEach(h => {
-    if (!map[h.name]) map[h.name] = { totalQty: 0, accts: [] };
-    map[h.name].totalQty += (h.qty || 0);
-    if (h.acct && !map[h.name].accts.includes(h.acct)) map[h.name].accts.push(h.acct);
+    if (!acctMap[h.name]) acctMap[h.name] = [];
+    if (h.acct && !acctMap[h.name].includes(h.acct)) acctMap[h.name].push(h.acct);
   });
 
+  const now = new Date();
+  const thisYear = now.getFullYear();
+
   const result = [];
-  Object.entries(map).forEach(([name, { totalQty, accts }]) => {
-    const dd = DIVDATA[name];
+
+  // DIVDATA에 있는 종목 기준으로 계산
+  // ★ code 기반 키로 변경 — code → name 역매핑 필요
+  const codeToNameMap = {};
+  EDITABLE_PRICES.forEach(ep => {
+    if (ep.code) codeToNameMap[ep.code] = ep.name;
+  });
+
+  Object.entries(DIVDATA).forEach(([key, dd]) => {
     if (!dd || !dd.perShare || dd.perShare <= 0) return;
     if (!dd.months || dd.months.length === 0) return;
-    const annualDiv = dd.perShare * totalQty * dd.months.length;
-    result.push({ name, totalQty, accts, dd, annualDiv });
+
+    // key가 코드이면 name으로 역매핑, 아니면 key 자체가 name
+    const name = codeToNameMap[key] || key;
+    const accts = acctMap[name] || [];
+
+    // ★ 월별 기준일(해당 월 말일) 보유수량으로 배당금 계산
+    let annualDiv = 0;
+    const monthlyDiv = {}; // month → 배당금
+    dd.months.forEach(month => {
+      const refDate = getDivRefDate(thisYear, month);
+      const qty = (typeof getQtyAtDate === 'function')
+        ? getQtyAtDate(name, refDate)
+        : rawHoldings.filter(h => h.name === name && !h.fund).reduce((s,h) => s+(h.qty||0), 0);
+      if (qty > 0) {
+        const div = dd.perShare * qty;
+        annualDiv += div;
+        monthlyDiv[month] = div;
+      }
+    });
+
+    // 현재 보유수량 (표시용)
+    const totalQty = rawHoldings.filter(h => h.name === name && !h.fund)
+      .reduce((s, h) => s + (h.qty || 0), 0);
+
+    if (annualDiv > 0 || totalQty > 0) {
+      result.push({ name, totalQty, accts, dd, annualDiv, monthlyDiv });
+    }
   });
 
   return result;
@@ -45,8 +79,13 @@ function renderDivView(area, skipFetch) {
 
   // 월별 배당 집계
   const monthly = Array(12).fill(0);
+  // ★ monthlyDiv: 월별 기준일 보유수량 반영된 배당금
   divRows.forEach(r => {
-    r.dd.months.forEach(m => { monthly[m-1] += r.dd.perShare * r.totalQty; });
+    if (r.monthlyDiv) {
+      Object.entries(r.monthlyDiv).forEach(([m, div]) => { monthly[Number(m)-1] += div; });
+    } else {
+      r.dd.months.forEach(m => { monthly[m-1] += r.dd.perShare * r.totalQty; });
+    }
   });
 
   // 올해 지난달까지 누적 수령액
@@ -231,7 +270,12 @@ function renderDivView(area, skipFetch) {
 
   // 배당 없는 종목
   const noDivNames = rawHoldings
-    .filter(h=>!h.fund && (!DIVDATA[h.name] || DIVDATA[h.name].perShare===0))
+    .filter(h => {
+      if (h.fund) return false;
+      const divKey = (typeof getDivKey === 'function') ? getDivKey(h.name) : h.name;
+      const dd = DIVDATA[divKey] || DIVDATA[h.name];
+      return !dd || dd.perShare === 0;
+    })
     .map(h=>h.name).filter((v,i,a)=>a.indexOf(v)===i);
   if (noDivNames.length > 0) {
     html += `<div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:.75rem;color:var(--muted);margin-bottom:14px">

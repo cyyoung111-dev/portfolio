@@ -326,10 +326,10 @@ function saveHoldings() {
       badge._t = setTimeout(() => { badge.style.display = 'none'; }, 2000);
     }
     // 구글시트 즉시 동기화 (저장과 동시에 GAS 반영)
+    // ★ saveSettings는 여기서 호출하지 않음 — loadSettings 도중 빈 DIVDATA를 덮어쓰는 문제 방지
     if (typeof syncCodesToGsheet    === 'function') syncCodesToGsheet();
     if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet();
     if (typeof syncTradesToGsheet   === 'function') syncTradesToGsheet();
-    if (typeof saveSettings         === 'function') saveSettings();
   } catch(e) {
     console.error('saveHoldings 실패:', e);
     showToast('저장 실패: ' + e.message + ' · 브라우저 설정에서 로컬 저장소를 허용해주세요.', 'error', 5000);
@@ -755,6 +755,63 @@ function getCode(name) {
   if (ep && ep.code) return normalizeStockCode(ep.code);
   return normalizeStockCode(STOCK_CODE[name] || '');
 }
+
+// ★ 특정 날짜 기준 보유수량 계산 (배당 계산용)
+// dateStr: 'YYYY-MM-DD' 형식, 해당 날짜 이하의 거래만 반영
+// 미래 날짜 → 현재 수량(rawHoldings) 사용
+function getQtyAtDate(name, dateStr) {
+  const todayStr = (()=>{
+    const t = new Date();
+    return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+  })();
+  // 미래 날짜면 현재 보유수량 사용
+  if (dateStr > todayStr) {
+    return rawHoldings.filter(h => h.name === name && !h.fund)
+      .reduce((s, h) => s + (h.qty || 0), 0);
+  }
+  // 과거/오늘: rawTrades에서 해당 날짜 이하 buy/sell 합산
+  let qty = 0;
+  rawTrades
+    .filter(t => t.name === name && t.date && t.date <= dateStr)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .forEach(t => {
+      if (t.tradeType === 'buy')  qty += (t.qty || 0);
+      if (t.tradeType === 'sell') qty -= (t.qty || 0);
+    });
+  return Math.max(0, qty);
+}
+
+// ★ 해당 연도의 월별 배당 기준일 계산 (월 말일)
+function getDivRefDate(year, month) {
+  // month: 1~12
+  const lastDay = new Date(year, month, 0).getDate(); // 해당 월 말일
+  return year + '-' + String(month).padStart(2,'0') + '-' + String(lastDay).padStart(2,'0');
+}
+
+// ★ DIVDATA 키 결정: 코드 있으면 코드, 없으면 name (펀드·TDF)
+function getDivKey(name) {
+  const code = getCode(name);
+  return code || name;
+}
+
+// ★ DIVDATA name 기반 → code 기반 마이그레이션
+function migrateDivDataToCode() {
+  const toAdd = {};
+  const toDelete = [];
+  Object.keys(DIVDATA).forEach(key => {
+    // 이미 코드 형식이면 스킵 (6자리 숫자 또는 영문+숫자)
+    const isCodeKey = /^[0-9]{6}$/.test(key) || /^[A-Z0-9]{2,10}$/.test(key);
+    if (isCodeKey) return;
+    // name 기반 키 → code로 변환
+    const code = getCode(key);
+    if (code && code !== key) {
+      toAdd[code] = DIVDATA[key];
+      toDelete.push(key);
+    }
+  });
+  toDelete.forEach(k => delete DIVDATA[k]);
+  Object.assign(DIVDATA, toAdd);
+}
 // EDITABLE_PRICES를 localStorage에서 복원 (신규 추가 종목 포함)
 // SECTOR_COLORS localStorage 복원 (저장값으로 완전 교체 — 삭제 섹터 부활 방지)
 (function() {
@@ -813,6 +870,9 @@ function getCode(name) {
     if (rawTrades.length > 0) {
       syncHoldingsFromTrades();
     }
+
+    // ★ DIVDATA 마이그레이션: name 기반 → code 기반
+    migrateDivDataToCode();
 
     // ④ 거래이력에 있는데 EDITABLE_PRICES에 없는 종목 자동 등록
     // ※ 기초정보에 이미 있으면 절대 덮어쓰지 않음 — 기초정보 우선순위 보장

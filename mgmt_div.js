@@ -70,12 +70,14 @@ function buildDivMgmt() {
   // 보유 종목 기준으로 DIVDATA 기본값 초기화
   const names = [...new Set(rawHoldings.filter(h => !h.fund).map(h => h.name))];
   names.forEach(name => {
-    if (!DIVDATA[name]) DIVDATA[name] = { perShare: 0, freq: '-', months: [], note: '' };
+    const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
+    if (!DIVDATA[divKey]) DIVDATA[divKey] = { perShare: 0, freq: '-', months: [], note: '' };
   });
 
   let h = '';
   names.forEach(name => {
-    const d = DIVDATA[name];
+    const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
+    const d = DIVDATA[divKey];
     const _fk = _divKey(name);
     const freqOpts = FREQ_OPTIONS.map(f =>
       `<button type="button" onclick="_dvPickFreq('${_fk}','${f}')" class="${_fBtnClass(d.freq === f)}">${f}</button>`
@@ -124,7 +126,8 @@ function applyDivChanges() {
     const months   = monthsEl?.value
       ? monthsEl.value.split(',').map(m=>parseInt(m.trim())).filter(m=>m>0&&m<=12)
       : [];
-    DIVDATA[name] = { ...( DIVDATA[name]||{} ), perShare, freq, months, note: DIVDATA[name]?.note || '' };
+    const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
+    DIVDATA[divKey] = { ...( DIVDATA[divKey]||{} ), perShare, freq, months, note: DIVDATA[divKey]?.note || '' };
     changed++;
   });
   // 배당 뷰 즉시 갱신
@@ -223,8 +226,11 @@ async function _autoFetchDiv(area) {
     Object.entries(data.dividends).forEach(([code, obj]) => {
       const name = codeToName[String(code || '').trim()] || codeToName[_normDivCode(code)];
       if (!name) return;
-      const prev = DIVDATA[name] || {};
-      DIVDATA[name] = _normalizeDividendResponse(obj, prev);
+      const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
+      const normCode = _normDivCode(String(code || '').trim());
+      const storeKey = normCode || divKey;
+      const prev = DIVDATA[storeKey] || DIVDATA[divKey] || {};
+      DIVDATA[storeKey] = _normalizeDividendResponse(obj, prev);
       changed = true;
     });
 
@@ -305,15 +311,17 @@ async function startDivFetch() {
     Object.entries(data.dividends).forEach(([code, obj]) => {
       const name = codeToName[String(code || '').trim()] || codeToName[_normDivCode(code)];
       if (!name) return;
-      const prev = DIVDATA[name] || {};
-      DIVDATA[name] = _normalizeDividendResponse(obj, prev);
+      const normCode = _normDivCode(String(code || '').trim());
+      const storeKey = normCode || ((typeof getDivKey === 'function') ? getDivKey(name) : name);
+      const prev = DIVDATA[storeKey] || {};
+      DIVDATA[storeKey] = _normalizeDividendResponse(obj, prev);
       if (Number(obj?.perShare || 0) > 0) {
-        DIVDATA[name].note = 'GOOGLEFINANCE 최근 13개월 기준';
+        DIVDATA[storeKey].note = 'GOOGLEFINANCE 최근 13개월 기준';
         updated++;
       } else {
-        DIVDATA[name].note = DIVDATA[name].note === 'GOOGLEFINANCE: 배당내역 없음'
+        DIVDATA[storeKey].note = DIVDATA[storeKey].note === 'GOOGLEFINANCE: 배당내역 없음'
           ? 'GOOGLEFINANCE: 배당내역 없음 (수동입력 가능)'
-          : DIVDATA[name].note;
+          : DIVDATA[storeKey].note;
         skipped++;
       }
     });
