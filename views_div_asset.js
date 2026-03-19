@@ -103,6 +103,16 @@ function renderDivView(area, skipFetch) {
     </div>
   </div>
 
+  <!-- ── 배당금 불러오기 버튼 ── -->
+  ${GSHEET_API_URL ? `
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+    <button id="divFetchBtn" onclick="startDivFetch()"
+      class="btn-teal-sm" style="font-size:.75rem;padding:6px 14px">
+      🔄 배당금 불러오기
+    </button>
+    <span id="divFetchStatus" style="font-size:.70rem;color:var(--muted)"></span>
+  </div>` : ''}
+
   <!-- ── 요약 카드 5개 — PC: 1줄, 모바일: 2×2+1 ── -->
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px" class="div-summary-grid">
     <div class="div-stat-card">
