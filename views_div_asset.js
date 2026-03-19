@@ -95,23 +95,25 @@ function renderDivView(area, skipFetch) {
   let html = `
 
 
-  <!-- ── 배당 재동기화 배너 ── -->
+  <!-- ── 배당 재동기화 + 배당금 불러오기 ── -->
   <div style="margin-bottom:14px">
-    ${renderTabSyncPanel('div')}
-    <div style="font-size:.65rem;color:var(--muted);margin-top:-4px;padding:0 2px">
-      ${GSHEET_API_URL ? '탭 진입 시 자동 조회 · 필요 시 🔄 재동기화로 즉시 갱신' : '재동기화 설정 필요'}
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔄 수동 재동기화</div>
+        <span id="sync-badge-div" style="font-size:.68rem;color:var(--muted)"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        ${GSHEET_API_URL ? `<button id="divFetchBtn" onclick="startDivFetch()" class="btn-teal-sm">🔄 배당금 불러오기</button>` : ''}
+        <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" ${GSHEET_API_URL ? '' : 'disabled'}>🔄 재동기화</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">
+      <div style="font-size:.65rem;color:var(--muted);padding:0 2px">
+        ${GSHEET_API_URL ? '탭 진입 시 자동 조회 · 필요 시 🔄 재동기화로 즉시 갱신' : '재동기화 설정 필요'}
+      </div>
+      ${GSHEET_API_URL ? `<span id="divFetchStatus" style="font-size:.68rem;color:var(--muted)"></span>` : ''}
     </div>
   </div>
-
-  <!-- ── 배당금 불러오기 버튼 ── -->
-  ${GSHEET_API_URL ? `
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">
-    <button id="divFetchBtn" onclick="startDivFetch()"
-      class="btn-teal-sm" style="font-size:.75rem;padding:6px 14px">
-      🔄 배당금 불러오기
-    </button>
-    <span id="divFetchStatus" style="font-size:.70rem;color:var(--muted)"></span>
-  </div>` : ''}
 
   <!-- ── 요약 카드 5개 — PC: 1줄, 모바일: 2×2+1 ── -->
   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:14px" class="div-summary-grid">
