@@ -312,6 +312,9 @@ function saveHoldings() {
     lsSave(SECTOR_COLORS_KEY, SECTOR_COLORS);
     lsSave(FUNDDIRECT_KEY, fundDirect);
     lsSave(DIVDATA_KEY, DIVDATA);
+    // ★ LOAN / REAL_ESTATE도 localStorage에 저장 (부동산탭 데이터 유지)
+    if (typeof LOAN !== 'undefined') lsSave(LOAN_KEY, LOAN);
+    if (typeof REAL_ESTATE !== 'undefined') lsSave(REALESTATE_KEY, REAL_ESTATE);
     // 현재가 캐시 저장
     if (Object.keys(savedPrices).length > 0) savePriceCache();
     saveAcctColors();

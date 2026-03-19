@@ -161,12 +161,29 @@ function buildEditorUI() {
   // ① 코드 없는 종목 (펀드·TDF) - 항상 수동 입력
   const fundItems = EDITABLE_PRICES.filter(item => !item.code);
   // ② 코드 있지만 현재가 미조회된 종목
-  // normalizeStockCode로 정규화된 코드 기준으로 savedPrices 확인
-  const nopriceItems = EDITABLE_PRICES.filter(item => {
-    if (!item.code) return false;
+  // EDITABLE_PRICES 기반 + _gsheetMissingCodes 기반 합산
+  const nopriceCodes = new Set();
+  const nopriceItems = [];
+  EDITABLE_PRICES.forEach(item => {
+    if (!item.code) return;
     const code = (typeof normalizeStockCode === 'function') ? normalizeStockCode(item.code) : item.code;
-    return !savedPrices[code] && !savedPrices[item.code];
+    if (!savedPrices[code] && !savedPrices[item.code]) {
+      nopriceCodes.add(code);
+      nopriceItems.push(item);
+    }
   });
+  // ★ _gsheetMissingCodes: GAS 조회 실패 종목 중 EDITABLE_PRICES에 없는 것도 추가
+  if (Array.isArray(window._gsheetMissingCodes)) {
+    window._gsheetMissingCodes.forEach(m => {
+      const code = (typeof normalizeStockCode === 'function') ? normalizeStockCode(m.code) : m.code;
+      if (!nopriceCodes.has(code)) {
+        nopriceCodes.add(code);
+        // EDITABLE_PRICES에서 찾거나 임시 객체 생성
+        const ep = EDITABLE_PRICES.find(i => i.code === code || i.code === m.code);
+        nopriceItems.push(ep || { name: m.name, code: m.code, assetType: '주식' });
+      }
+    });
+  }
 
   const totalItems = [...fundItems, ...nopriceItems];
 
@@ -271,7 +288,7 @@ function applyPrices() {
   }
   const now = new Date();
   // ★ editorDate 입력값 우선, 없으면 오늘
-  const editorDateRaw = ('editorDate')?.value; // YYYY-MM-DD
+  const editorDateRaw = $el('editorDate')?.value; // YYYY-MM-DD
   let dateStr;
   if (editorDateRaw) {
     const [y,m,d] = editorDateRaw.split('-');
