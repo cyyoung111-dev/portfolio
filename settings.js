@@ -323,17 +323,22 @@ async function manualSyncByTab(tabId) {
       const r1 = await persistRealEstateSettings(true);
       ok = !!r1;
     } else {
-      // ★ 기초정보 탭: 로컬 → GAS 업로드 먼저, 그 다음 UI 갱신
-      const r0 = await saveSettings(true);
-      const r1 = await syncCodesToGsheet();
-      await syncHoldingsToGsheet();
-      await syncTradesToGsheet();
-      ok = !!(r0 || r1);
-      if (ok) {
+      // ★ 기초정보 탭: GAS에서 최신 데이터 먼저 불러온 후 저장
+      const loaded = await loadSettings();
+      if (loaded) {
+        // GAS 복원 후 UI 갱신 (종목·섹터 목록 반영)
         try { refreshAll(); } catch(e) {}
         try { if (typeof buildStockMgmt  === 'function') buildStockMgmt();  } catch(e) {}
         try { if (typeof buildSectorMgmt === 'function') buildSectorMgmt(); } catch(e) {}
         try { if (typeof buildAcctMgmt   === 'function') buildAcctMgmt();   } catch(e) {}
+        ok = true;
+      } else {
+        // 불러오기 실패 시 저장만 시도
+        const r0 = await saveSettings(true);
+        const r1 = await syncCodesToGsheet();
+        await syncHoldingsToGsheet();
+        await syncTradesToGsheet();
+        ok = !!(r0 || r1);
       }
     }
   } catch (e) {
@@ -1021,37 +1026,7 @@ async function autoLoadPrices() {
 })();
 // EDITABLE_PRICES 기본값 (하드코딩) — syncEditables에서 localStorage로 덮어씌워짐
 
-// ── NAV 패널: buildEditorUI 완료 후 펀드·TDF 있으면 자동 표시
-// mgmt_editor.js의 buildEditorUI에서 fund 항목 생성 직후 호출됨
-function _showNavPanelIfNeeded() {
-  const navPanel = $el('pe-panel-nav');
-  if (!navPanel) return;
-  // fund 항목이 editorBody 안에 있으면 NAV 패널 표시
-  const hasFund = !!$el('editorBody')?.querySelector('.nav-price-inp, [data-fund="true"]');
-  // fundDirect 키가 있어도 표시
-  const hasFundDirect = Object.keys(window.fundDirect || {}).length > 0;
-  navPanel.style.display = (hasFund || hasFundDirect) ? '' : 'none';
-  // navDate 오늘 날짜로 초기화
-  const nd = $el('navDate');
-  if (nd && !nd.value) {
-    const d = new Date();
-    nd.value = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-  }
-  // navPriceRows: fundDirect 항목을 입력란으로 채움 (mgmt_editor.js 미호출 시 fallback)
-  const rows = $el('navPriceRows');
-  if (rows && hasFundDirect) {
-    let h = '';
-    Object.keys(fundDirect).forEach(name => {
-      const cur = fundDirect[name]?.eval || '';
-      h += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-        <span style="font-size:.78rem;color:var(--text)">${name}</span>
-        <input type="number" class="nav-price-inp w-150" data-name="${name}" placeholder="NAV 입력" value="${cur || ''}"
-          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem;text-align:right;width:130px">
-      </div>`;
-    });
-    rows.innerHTML = h || '<div style="font-size:.72rem;color:var(--muted)">등록된 펀드·TDF 없음</div>';
-  }
-}
+// _showNavPanelIfNeeded 제거됨 (현재가 편집창으로 통합)
 
 // GS URL이 이미 저장돼 있으면 앱 시작 시 1회 자동 복원
 setTimeout(() => { bootstrapGsheetSettings(); }, 0);

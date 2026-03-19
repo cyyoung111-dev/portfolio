@@ -725,31 +725,6 @@ function renderGsheetView(area) {
         </div>
       </div>
 
-      <!-- 수동가격(NAV) 입력 — 펀드/TDF 있을 때만 표시 -->
-      ${EDITABLE_PRICES.some(i => !i.code) ? `
-      <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
-        <div style="font-size:.72rem;font-weight:700;color:var(--text);margin-bottom:4px">📦 펀드·TDF NAV 수동 입력</div>
-        <div style="font-size:.65rem;color:var(--muted);margin-bottom:10px">코드 없는 종목의 NAV를 날짜별로 구글시트에 저장합니다.</div>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-          <label style="font-size:.70rem;color:var(--muted)">기준일</label>
-          <input type="date" id="navDate"
-            value="${new Date().toISOString().slice(0,10)}"
-            style="background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem"/>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          ${EDITABLE_PRICES.filter(i => !i.code).map(item => `
-            <div style="display:flex;align-items:center;gap:8px">
-              <span style="font-size:.72rem;flex:1;color:var(--text)">${item.name}</span>
-              <input type="number" class="nav-price-inp" data-name="${item.name.replace(/"/g,'&quot;')}"
-                placeholder="NAV 입력"
-                style="width:120px;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem"/>
-            </div>`).join('')}
-        </div>
-        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
-          <button onclick="saveNavPrices()" class="btn-purple-sm">💾 NAV 저장</button>
-          <span id="navSaveResult" style="font-size:.68rem;color:var(--muted)"></span>
-        </div>
-      </div>` : ''}
     </div>`;
 }
 
