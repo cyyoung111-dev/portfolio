@@ -73,9 +73,7 @@ function getOrAssignColor(acct) {
 }
 
 function normName(n){
-  const MAP = {
-    'TIME Korea플러스배당액티브': 'TIMEFOLIO Korea플러스배당액티브',
-  };
+  const MAP = {};
   return MAP[n] || n;
 }
 let SECTOR_COLORS = {}; // 섹터 색상: 기초정보 관리탭에서 직접 입력
@@ -815,6 +813,18 @@ function getCode(name) {
 
     // ④ 거래이력에 있는데 EDITABLE_PRICES에 없는 종목 자동 등록
     // ※ 기초정보에 이미 있으면 절대 덮어쓰지 않음 — 기초정보 우선순위 보장
+    // ★ rawTrades normName 정규화 (TIME Korea → TIMEFOLIO 등 구버전명 변환)
+    rawTrades.forEach(t => {
+      if (!t.name) return;
+      const nn = normName(t.name);
+      if (nn !== t.name) {
+        // DIVDATA 키도 함께 변환
+        if (DIVDATA[t.name] !== undefined && DIVDATA[nn] === undefined) {
+          DIVDATA[nn] = DIVDATA[t.name]; delete DIVDATA[t.name];
+        }
+        t.name = nn;
+      }
+    });
     rawTrades.filter(t => t.name).forEach(t => {
       if (!getEP(t.name)) {
         const code = t.code || STOCK_CODE[t.name] || '';
