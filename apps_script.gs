@@ -60,7 +60,7 @@ var SS_ID = (function(){
 // ════════════════════════════════════════════════════════════════════
 var BACKFILL_CONFIG = {
   fromYear:  2024, fromMonth: 1,   // 소급채우기 시작 연월
-  toYear:    2026, toMonth:   3,   // 소급채우기 종료 연월 (현재 시점)
+  toYear:    new Date().getFullYear(), toMonth: new Date().getMonth() + 1,
   overwrite: false,
 };
 
@@ -381,7 +381,7 @@ function handleGetHistory(fromStr, toStr) {
       var pct = co > 0 ? parseFloat(((pnl / co) * 100).toFixed(2)) : 0;
       return { date: date, evalAmt: ev, costAmt: co, pnl: pnl, pct: pct };
     });
-    return jsonOk({ history: history });
+    return jsonOk({ snapshots: history });
   } catch(err) {
     return jsonError('히스토리 조회 실패: ' + err.message);
   }
@@ -410,7 +410,7 @@ function handleDividendFetch(codes) {
       );
     });
     SpreadsheetApp.flush();
-    Utilities.sleep(Math.min(5000 + codes.length * 300, 45000)); // 종목수 × 300ms, 최대 45초
+    Utilities.sleep(Math.min(8000 + codes.length * 500, 55000)); // 종목수 × 300ms, 최대 45초
 
     var results = {};
     codes.forEach(function(rawCode, i) {
@@ -419,10 +419,13 @@ function handleDividendFetch(codes) {
       var startRow = i * 20 + 1;
       var cellVal  = tmp.getRange(startRow, 1).getValue();
       if (!cellVal || cellVal === 'NO_DATA' || String(cellVal).startsWith('#')) {
-        results[code] = { perShare: 0, freq: '-', months: [], count: 0 }; return;
+         results[code] = { perShare: 0, freq: '-', months: [], count: 0 }; return;
       }
-      var divRows  = [];
-      var divBlock = tmp.getRange(startRow + 1, 1, 18, 2).getValues();
+// GOOGLEFINANCE dividends: 첫 행은 헤더("Date","Amount"), 데이터는 2번째 행부터
+     var divRows  = [];
+     var headerVal = String(cellVal).toLowerCase();
+     var dataStartOffset = (headerVal === 'date' || headerVal.includes('date')) ? 1 : 0;
+     var divBlock = tmp.getRange(startRow + 1 + dataStartOffset, 1, 18, 2).getValues();
       for (var ri = 0; ri < divBlock.length; ri++) {
         var dv = divBlock[ri][0];
         var av = divBlock[ri][1];
@@ -680,9 +683,7 @@ function upsertPriceHistory(ss, dateStr, code, name, price) {
 function handleSyncHoldings(dataJson) {
   try {
     var holdings;
-    try { holdings = JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
-      try { holdings = JSON.parse(dataJson); } catch(e2) { return jsonError('holdings 파싱 실패'); }
-    }
+    try { holdings = _parseArrayParam(dataJson, 'holdings'); } catch(e) { return jsonError(e.message); }
     if (!Array.isArray(holdings)) return jsonError('배열 형식 필요');
 
     var ss = getss();
@@ -715,9 +716,7 @@ function handleSyncHoldings(dataJson) {
 function handleSyncTrades(dataJson) {
   try {
     var trades;
-    try { trades = JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
-      try { trades = JSON.parse(dataJson); } catch(e2) { return jsonError('trades 파싱 실패'); }
-    }
+    try { trades = _parseArrayParam(dataJson, 'trades'); } catch(e) { return jsonError(e.message); }
     if (!Array.isArray(trades)) return jsonError('배열 형식 필요');
 
     var ss = getss();
@@ -814,7 +813,7 @@ function setupTrigger() {
   ScriptApp.newTrigger('cleanDeadCodes').timeBased().everyDays(1).atHour(16).nearMinute(30).create();
   ScriptApp.newTrigger('saveDailyPriceHistory').timeBased().everyDays(1).atHour(17).create();
   Logger.log('트리거 등록 완료: 매일 16:30 cleanDeadCodes → 17:00 saveDailyPriceHistory');
-  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n16:30 종목코드 정리 → 17:00 가격이력 자동 저장'); } catch(e) {}
+  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n16:30 종목코드 정리 → 17:00 가격이력 자동 저장'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -851,11 +850,11 @@ function backfillRange() {
   var to   = BACKFILL_CONFIG.toYear   * 100 + BACKFILL_CONFIG.toMonth;
   if (BACKFILL_CONFIG.fromMonth < 1 || BACKFILL_CONFIG.fromMonth > 12 ||
       BACKFILL_CONFIG.toMonth   < 1 || BACKFILL_CONFIG.toMonth   > 12) {
-    try { SpreadsheetApp.getUi().alert('❌ BACKFILL_CONFIG 오류: fromMonth/toMonth 는 1~12 사이여야 합니다.'); } catch(e) {}
+    try { SpreadsheetApp.getUi().alert('❌ BACKFILL_CONFIG 오류: fromMonth/toMonth 는 1~12 사이여야 합니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
     Logger.log('backfillRange 중단: 월 범위 오류'); return;
   }
   if (from > to) {
-    try { SpreadsheetApp.getUi().alert('❌ BACKFILL_CONFIG 오류: 시작 연월이 종료 연월보다 늦습니다.'); } catch(e) {}
+    try { SpreadsheetApp.getUi().alert('❌ BACKFILL_CONFIG 오류: 시작 연월이 종료 연월보다 늦습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
     Logger.log('backfillRange 중단: 시작 연월 > 종료 연월'); return;
   }
 
@@ -878,11 +877,11 @@ function backfillResume() {
   var props = PropertiesService.getScriptProperties();
   var done  = props.getProperty('bf_done');
   if (done === 'true') {
-    try { SpreadsheetApp.getUi().alert('✅ 이미 소급채우기가 완료된 상태입니다.\n새로 실행하려면 backfillRange()를 사용하세요.'); } catch(e) {}
+    try { SpreadsheetApp.getUi().alert('✅ 이미 소급채우기가 완료된 상태입니다.\n새로 실행하려면 backfillRange()를 사용하세요.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
     return;
   }
   if (!props.getProperty('bf_curYear')) {
-    try { SpreadsheetApp.getUi().alert('⚠️ 이어받을 진행상황이 없습니다.\nbackfillRange()를 먼저 실행하세요.'); } catch(e) {}
+    try { SpreadsheetApp.getUi().alert('⚠️ 이어받을 진행상황이 없습니다.\nbackfillRange()를 먼저 실행하세요.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
     return;
   }
   Logger.log('소급채우기 재개: ' + props.getProperty('bf_curYear') + '-' + _pad(parseInt(props.getProperty('bf_curMonth'))));
@@ -908,7 +907,7 @@ function backfillStatus() {
           '\n\nbackfillResume() 을 실행하면 이어서 진행합니다.';
   }
   Logger.log(msg);
-  try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _backfillExecute() {
@@ -927,7 +926,7 @@ function _backfillExecute() {
   if (!tradeSh || tradeSh.getLastRow() < 2) {
     var errMsg = '⚠️ 거래이력 시트가 없습니다.\nHTML 대시보드를 열면 거래이력이 자동으로 동기화됩니다.';
     Logger.log(errMsg);
-    try { SpreadsheetApp.getUi().alert(errMsg); } catch(e) {}
+    try { SpreadsheetApp.getUi().alert(errMsg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
     return;
   }
   var tradeData = tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1, 8).getValues();
@@ -1044,7 +1043,7 @@ function _backfillExecute() {
               '중단 위치: ' + lastYear + '-' + _pad(lastMonth) + '\n\n' +
               '📌 [📆 소급채우기 이어서] 메뉴를 눌러 계속 진행하세요.';
     Logger.log(msg);
-    try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+    try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
   } else {
     props.setProperty('bf_curYear',  String(toYear));
     props.setProperty('bf_curMonth', String(toMonth));
@@ -1053,7 +1052,7 @@ function _backfillExecute() {
                   fromYear + '-' + _pad(fromMonth) + ' ~ ' + toYear + '-' + _pad(toMonth) + '\n' +
                   '성공: ' + totalSuccess + '일 / 실패: ' + totalFail + '일';
     Logger.log(doneMsg);
-    try { SpreadsheetApp.getUi().alert(doneMsg); } catch(e) {}
+    try { SpreadsheetApp.getUi().alert(doneMsg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
   }
 }
 
@@ -1297,7 +1296,6 @@ function _writeSettingsMap(settings) {
     sh.getRange(1,1,1,2).setValues([['키','값']]);
     sh.getRange(1,1,1,2).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
     sh.setColumnWidth(1, 180); sh.setColumnWidth(2, 600);
-    sh.getRange(1, 2, sh.getMaxRows(), 1).setWrap(true);
   }
 
   var keyOrder = [];
@@ -1314,14 +1312,17 @@ function _writeSettingsMap(settings) {
 
   var rows = keyOrder
     .filter(function(k) { return k in settings; })
-    .map(function(k) { return [k, JSON.stringify(settings[k], null, 2)]; });
+    .map(function(k) { return [k, JSON.stringify(settings[k])]; });
 
-  if (lastRow > 1) sh.getRange(2, 1, lastRow - 1, 2).clearContents();
-  if (rows.length > 0) sh.getRange(2, 1, rows.length, 2).setValues(rows);
+  if (lastRow > 1) {
+    sh.deleteRows(2, lastRow - 1);
+  }
+  if (rows.length > 0) {
+    sh.getRange(2, 1, rows.length, 2).setValues(rows);
+  }
   SpreadsheetApp.flush();
   return rows.length;
 }
-
 function handleSaveSettings(dataJson) {
   try {
     var settings = _parseJsonParam(dataJson, 'settings');
@@ -1459,7 +1460,7 @@ function handleSyncCodes(codesParam) {
       var code = _cleanCode(obj.code);
       if (!code || code === '000000' || !name) return;
 
-      var normalName = normalizeName(name);
+      var normalName = name;
       var newType    = obj.type || '주식';
       var newSector  = obj.sector || '기타';
 
@@ -1618,7 +1619,7 @@ function fixPriceHistoryNames() {
   if (fixed > 0) SpreadsheetApp.flush();
   var msg = '✅ 가격이력 종목명 보정 완료: ' + fixed + '건 수정';
   Logger.log(msg);
-  try { SpreadsheetApp.getUi().alert(msg); } catch(e) {}
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1634,7 +1635,7 @@ function migratePriceHistory() {
   if (header[1] === '종목코드' && header[2] === '종목명' && header[3] === '가격') {
     // ✅ v9.1 버그수정: 신버전 감지 후 return (불필요한 재변환 방지)
     Logger.log('✅ 이미 신버전 구조입니다 — 마이그레이션 불필요');
-    try { SpreadsheetApp.getUi().alert('✅ 이미 신버전 구조입니다. 마이그레이션이 필요하지 않습니다.'); } catch(e) {}
+    try { SpreadsheetApp.getUi().alert('✅ 이미 신버전 구조입니다. 마이그레이션이 필요하지 않습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
     return;
   }
   var data       = ph.getRange(2, 1, lastRow - 1, 4).getValues();
@@ -1662,7 +1663,7 @@ function migratePriceHistory() {
   ph.setColumnWidth(1,100); ph.setColumnWidth(2,100); ph.setColumnWidth(3,200); ph.setColumnWidth(4,100);
   if (newRows.length > 0) ph.getRange(2, 1, newRows.length, 4).setValues(newRows);
   SpreadsheetApp.flush();
-  try { SpreadsheetApp.getUi().alert('✅ 마이그레이션 완료!\n' + newRows.length + '행이 신버전 구조로 변환됐습니다.'); } catch(e) {}
+  try { SpreadsheetApp.getUi().alert('✅ 마이그레이션 완료!\n' + newRows.length + '행이 신버전 구조로 변환됐습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1670,7 +1671,7 @@ function migratePriceHistory() {
 // ════════════════════════════════════════════════════════════════════
 function initSheet() {
   var ss = getss();
-  if (!ss) { try { SpreadsheetApp.getUi().alert('스프레드시트에서 실행하세요.'); } catch(e) {} return; }
+  if (!ss) { try { SpreadsheetApp.getUi().alert('스프레드시트에서 실행하세요.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); } return; }
 
   var cs = ss.getSheetByName(CONFIG.SHEET_CODES) || ss.insertSheet(CONFIG.SHEET_CODES);
   cs.clearContents();
@@ -1701,7 +1702,7 @@ function initSheet() {
       '1. [📊 포트폴리오] → [🔄 종가 갱신]\n' +
       '2. [📊 포트폴리오] → [⏰ 자동 트리거 등록] (1회만)'
     );
-  } catch(e) {}
+  } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 // ════════════════════════════════════════════════════════════════════
 //  메뉴
@@ -1731,10 +1732,6 @@ function onOpen() {
 // ════════════════════════════════════════════════════════════════════
 //  유틸
 // ════════════════════════════════════════════════════════════════════
-function normalizeName(name) {
-  var MAP = { 'TIME Korea플러스배당액티브': 'TIMEFOLIO Korea플러스배당액티브' };
-  return MAP[name] || name;
-}
 function calcMissing(allCodesParam, returnedCodes) {
   if (!allCodesParam) return [];
   return allCodesParam.split(',').map(function(c){ return c.trim(); })
@@ -1755,7 +1752,7 @@ function _normalizeDate(raw) {
   try {
     var d = new Date(s);
     if (!isNaN(d.getTime())) return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd');
-  } catch(e) {}
+  } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
   return s.slice(0, 10); // 최후 fallback
 }
 function jsonOk(extra) {
@@ -1765,4 +1762,58 @@ function jsonOk(extra) {
 function jsonError(msg) {
   return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: msg }))
     .setMimeType(ContentService.MimeType.JSON);
+}
+// 네이버 증권에서 배당 데이터 스크래핑
+// 사용법: =GET_KR_DIVIDEND("005930", 0) → 가장 최근 연도 배당금
+//         =GET_KR_DIVIDEND("005930", 1) → 1년 전 배당금
+
+function GET_KR_DIVIDEND(code, yearOffset) {
+  try {
+    var url = 'https://finance.naver.com/item/main.naver?code=' + code;
+    var options = {
+      method: 'get',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://finance.naver.com',
+        'Accept-Language': 'ko-KR,ko;q=0.9'
+      },
+      muteHttpExceptions: true
+    };
+
+    var response = UrlFetchApp.fetch(url, options);
+    var html = response.getContentText('euc-kr');
+
+    var divIdx = html.indexOf('주당배당금');
+    if (divIdx === -1) return 'N/A';
+
+    var section = html.substring(divIdx, divIdx + 1000);
+
+    var matches = [];
+    var re = /<td[^>]*class="[^"]*num[^"]*"[^>]*>\s*([\d,]+|-)\s*<\/td>/g;
+    var m;
+    while ((m = re.exec(section)) !== null) {
+      var val = m[1].replace(/,/g, '');
+      matches.push(val === '-' ? 0 : parseInt(val) || 0);
+    }
+
+    if (matches.length === 0) {
+      var re2 = />\s*([\d,]+)\s*</g;
+      var section2 = html.substring(divIdx, divIdx + 500);
+      while ((m = re2.exec(section2)) !== null) {
+        var v = m[1].replace(/,/g, '');
+        if (v.length > 0 && v.length <= 6) {
+          matches.push(parseInt(v) || 0);
+        }
+      }
+    }
+
+    if (matches.length === 0) return 'N/A';
+
+    var offset = yearOffset || 0;
+    if (offset >= matches.length) return 'N/A';
+    return matches[offset];
+
+  } catch(e) {
+    return 'N/A';
+  }
 }
