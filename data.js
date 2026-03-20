@@ -1,29 +1,6 @@
 
 // 배당 탭 — 배당 주기 버튼 선택
 // nameKey = name.replace(/\s/g,'_') 형태, hidden input id와 일치
-function _dvPickFreq(nameKey, freq) {
-  // 버튼 active 클래스 갱신
-  const grp = $el('dv_freq_grp_' + nameKey);
-  if (grp) {
-    grp.querySelectorAll('button').forEach(btn => {
-      btn.className = _fBtnClass(btn.textContent.trim() === freq);
-    });
-  }
-  // hidden input 값 갱신 → applyDivChanges()가 이 값을 읽음
-  const inp = $el('dv_freq_' + nameKey);
-  if (inp) inp.value = freq;
-  // 지급월 자동 추천 (월배당이면 전체, '-' 이면 클리어)
-  const monthsEl = $el('dv_months_' + nameKey);
-  if (monthsEl) {
-    if (freq === '월배당') monthsEl.value = '1,2,3,4,5,6,7,8,9,10,11,12';
-    else if (freq === '-') monthsEl.value = '';
-  }
-  // DIVDATA는 applyDivChanges() 호출 시 일괄 저장되므로
-  // 여기서는 hidden input 갱신만으로 충분 (즉시 저장 불필요)
-}
-
-
-
 // DATA
 // 계좌 색상 팔레트 (신규 계좌 추가 시 순환 사용)
 const ACCT_PALETTE = [
@@ -72,10 +49,7 @@ function getOrAssignColor(acct) {
   return ACCT_COLORS[acct];
 }
 
-function normName(n){
-  const MAP = {};
-  return MAP[n] || n;
-}
+function normName(n){ return n || ''; }
 let SECTOR_COLORS = {}; // 섹터 색상: 기초정보 관리탭에서 직접 입력
 
 let fundDirect = {}; // localStorage 또는 GSheet 복원으로 채워짐

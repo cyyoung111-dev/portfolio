@@ -24,7 +24,6 @@ function closeEditor() {
 
 // ── 구글 시트 URL 관리
 
-
 function saveGsheetUrlFromUI() {
   const raw = $el('gsheetUrlInput')?.value?.trim();
   if(!raw) { showToast('URL을 입력해주세요', 'warn'); return; }
@@ -119,7 +118,6 @@ function clearGsheetUrl() {
   }
   updateGsheetBadge();
 }
-
 
 function updateGsheetBadge() {
   // 메인 헤더 뱃지 업데이트 (있는 경우)

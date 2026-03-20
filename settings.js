@@ -541,8 +541,6 @@ function fetchWithTimeout(url, ms, options) {
     .finally(() => clearTimeout(tid));
 }
 
-
-
 let _gsBootRestored = false;
 async function bootstrapGsheetSettings() {
   if (_gsBootRestored) return;
@@ -668,7 +666,7 @@ async function syncHoldingsToGsheet() {
     });
     if (!res.ok) { console.warn('[보유현황 동기화] HTTP', res.status); return; }
     const data = await res.json();
-    if (data.status === 'ok') console.log('[보유현황 동기화] ✅', data.synced + '개');
+    if (data.status === 'ok') console.warn('[보유현황 동기화] ✅', data.synced + '개');
   } catch(e) {
     console.warn('[보유현황 동기화]', e.message);
   }
@@ -701,7 +699,7 @@ async function syncTradesToGsheet() {
     });
     if (!res.ok) { console.warn('[거래이력 동기화] HTTP', res.status); return; }
     const data = await res.json();
-    if (data.status === 'ok') console.log('[거래이력 동기화] ✅', data.synced + '건');
+    if (data.status === 'ok') console.warn('[거래이력 동기화] ✅', data.synced + '건');
   } catch(e) {
     console.warn('[거래이력 동기화]', e.message);
   }

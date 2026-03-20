@@ -748,7 +748,6 @@ function renderGsheetView(area) {
         </div>
       </div>
 
-
     </div>`;
 }
 

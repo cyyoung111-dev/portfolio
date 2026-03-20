@@ -230,13 +230,13 @@ function buildTradeEditOverlayHTML() {
     `<label class="form-label">${txt}${req?'<span class="c-red"> *</span>':''}</label>`;
 
   return `<div id="tradeEditOverlay"
-    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9000;justify-content:center;align-items:center;padding:16px">
-    <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;max-height:92vh;overflow-y:auto">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px 12px;border-bottom:1px solid var(--border)">
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9000;justify-content:center;align-items:flex-start;padding:8px;overflow-y:auto">
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;margin:auto;min-height:min-content">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px 12px;border-bottom:1px solid var(--border)">
         <h3 id="te-title" class="h3-95">거래 추가</h3>
         <button onclick="closeTradeEdit()" class="btn-close-icon">✕</button>
       </div>
-      <div style="padding:16px 22px;display:flex;flex-direction:column;gap:11px">
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px">
         <div id="te-error" style="display:none;background:var(--c-red-10);border:1px solid var(--c-red-30);border-radius:6px;padding:8px 12px;font-size:.75rem;color:var(--red-lt)"></div>
 
         <!-- 매수 / 매도 탭 -->
@@ -250,17 +250,15 @@ function buildTradeEditOverlayHTML() {
         </div>
 
         <!-- 계좌 + 자산구분 -->
-        <div class="grid-2col">
-          <div>
-            ${lbl('계좌',true)}
-            <input type="hidden" id="te-acct" value=""/>
-            <div id="te-acct-group" class="flex-wrap-gap4-mt"></div>
-          </div>
-          <div>
-            ${lbl('자산 구분',false)}
-            <input type="hidden" id="te-assettype" value="주식"/>
-            <div id="te-assettype-group" class="flex-wrap-gap4-mt"></div>
-          </div>
+        <div>
+          ${lbl('계좌',true)}
+          <input type="hidden" id="te-acct" value=""/>
+          <div id="te-acct-group" class="flex-wrap-gap4-mt"></div>
+        </div>
+        <div>
+          ${lbl('자산 구분',false)}
+          <input type="hidden" id="te-assettype" value="주식"/>
+          <div id="te-assettype-group" class="flex-wrap-gap4-mt"></div>
         </div>
 
         <!-- 종목명 선택 -->
@@ -279,14 +277,14 @@ function buildTradeEditOverlayHTML() {
         </div>
 
         <!-- 수량 + 날짜 -->
-        <div class="grid-2col">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
             ${lbl('수량',true)}
             ${inp('te-qty','100','number')}
           </div>
           <div>
             <label id="te-date-label" class="form-label">매수일자 *</label>
-            ${inp('te-date','','date')}
+            <input id="te-date" type="date" class="input-full-82" style="width:100%;box-sizing:border-box"/>
           </div>
         </div>
 
@@ -298,7 +296,7 @@ function buildTradeEditOverlayHTML() {
 
         <div>${lbl('메모',false)}${inp('te-memo','선택사항')}</div>
       </div>
-      <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 22px 16px;border-top:1px solid var(--border)">
+      <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px;border-top:1px solid var(--border)">
         <button onclick="closeTradeEdit()" class="btn-ghost-muted">취소</button>
         <button onclick="saveTrade()" class="btn-amber">💾 저장</button>
       </div>

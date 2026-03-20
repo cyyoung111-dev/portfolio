@@ -3,10 +3,7 @@
 //  의존: data.js, views_table.js
 // ════════════════════════════════════════════════════════════════
 
-// ── 필터 버튼 클래스 헬퍼 (f-btn / f-btn active)
-function _fBtnClass(active) {
-  return active ? 'f-btn active' : 'f-btn';
-}
+// _fBtnClass → core_ui.js에서 제공
 
 // ── ETF 이름 패턴 판별 공통 함수 (renderAcctView · renderDonut 공용)
 const ETF_PREFIXES = ['KODEX','TIGER','ACE','TIME','SOL','KBSTAR','HANARO','ARIRANG','PLUS','RISE'];

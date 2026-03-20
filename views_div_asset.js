@@ -94,7 +94,6 @@ function renderDivView(area, skipFetch) {
 
   let html = `
 
-
   <!-- ── 배당 재동기화 + 배당금 불러오기 ── -->
   <div style="margin-bottom:14px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">

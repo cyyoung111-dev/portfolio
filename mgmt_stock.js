@@ -4,7 +4,6 @@
 //  mgmt_editor.js에 정의됨 (로드 순서: mgmt_editor.js → mgmt_stock.js)
 // ════════════════════════════════════════════════════════════════
 
-
 function buildSectorMgmt() {
   const container = $el('sectorMgmtBody');
   if(!container) return;
@@ -640,7 +639,6 @@ function secMgmtConfirm() {
   showMgmtMsg('secMgmtMsg',`✅ "${name}" 섹터가 추가됐습니다`,false);
   setTimeout(() => secMgmtCancel(), 900);
 }
-
 
 // ── 섹터 양식 다운로드
 function secCsvDownloadTemplate() {
