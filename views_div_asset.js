@@ -107,11 +107,8 @@ function renderDivView(area, skipFetch) {
         <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" ${GSHEET_API_URL ? '' : 'disabled'}>🔄 재동기화</button>
       </div>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px">
-      <div style="font-size:.65rem;color:var(--muted);padding:0 2px">
-        ${GSHEET_API_URL ? '탭 진입 시 자동 조회 · 필요 시 🔄 재동기화로 즉시 갱신' : '재동기화 설정 필요'}
-      </div>
-      <span id="divFetchStatus" style="font-size:.68rem;color:var(--muted)"></span>
+    <div style="font-size:.65rem;color:var(--muted);margin-top:4px;padding:0 2px">
+      ${GSHEET_API_URL ? '탭 진입 시 자동 조회 · 필요 시 🔄 재동기화로 즉시 갱신' : '재동기화 설정 필요'}
     </div>
   </div>
 

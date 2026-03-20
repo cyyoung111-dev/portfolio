@@ -342,7 +342,6 @@ async function startDivFetch() {
     // renderDivView 후 DOM이 새로 그려지므로 메시지·버튼 재설정
     const _st2 = $el('divFetchStatus');
     if (_st2) { _st2.style.color = 'var(--green-lt)'; _st2.textContent = resultMsg; }
-    showToast(resultMsg, 'ok', 3000);
     const _btn = $el('divFetchBtn');
     if (_btn) { _btn.disabled = false; _btn.textContent = '🔄 배당금 불러오기'; }
 

@@ -15,7 +15,7 @@ function renderTradesView(area) {
     <div style="margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <h3 class="h3-section" style="margin:0">📋 거래 이력</h3>
-        <div id="tradesHeaderBtns" style="display:flex;gap:6px;flex-shrink:0">
+        <div id="tradesHeaderBtns" style="display:flex;gap:6px;flex-wrap:wrap">
           <button onclick="openBulkImport()" class="btn-sm btn-gold">📊 일괄 입력</button>
           <button onclick="openAddTrade(null,'buy')" class="btn-sm-purple">📈 매수</button>
           <button onclick="openAddTrade(null,'sell')" class="btn-sm btn-sell">📉 매도</button>
@@ -29,9 +29,9 @@ function renderTradesView(area) {
 
     <!-- 필터 바 -->
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-      <input type="text" placeholder="종목명 검색..." value="${_tradeFilter.name||''}"
+      <input type="text" placeholder="종목 검색..." value="${_tradeFilter.name||''}"
         oninput="_tradeFilter.name=this.value;renderView()"
-        style="flex:1;min-width:120px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.72rem">
+        style="flex:1;min-width:80px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.72rem">
       <select onchange="_tradeFilter.acct=this.value;renderView()"
         style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem">
         <option value="">전체 계좌</option>

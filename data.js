@@ -515,7 +515,7 @@ function _buildTradesSummaryHTML() {
   const pC = realizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
   const pS = realizedPnl >= 0 ? '+' : '';
   return `
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:12px;min-width:0;overflow-x:auto">
       <div class="trade-stat-card">
         <div class="trade-stat-label">전체 거래</div>
         <div class="trade-stat-value">${rawTrades.length}<span class="txt-70-400">건</span></div>

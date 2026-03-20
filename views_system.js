@@ -73,19 +73,24 @@ const TAB_DEFAULTS = [
 
 // TAB_ORDER: localStorage 복원 (새 탭이 추가돼도 안전하게 병합)
 let TAB_ORDER = (function() {
-  const ids = lsGet(TAB_ORDER_KEY, null);
-  if (ids) {
-    // stocks/gsheet는 고정 버튼이므로 저장값에서 제외
-    const filtered = ids.filter(id => id !== 'stocks' && id !== 'gsheet');
-    const ordered = filtered.map(id => TAB_DEFAULTS.find(t => t.id === id)).filter(Boolean);
-    TAB_DEFAULTS.forEach(t => { if (!ordered.find(o => o.id === t.id)) ordered.push(t); });
+  const saved = lsGet(TAB_ORDER_KEY, null);
+  if (saved) {
+    // 구버전(id 배열) 또는 신버전({id,hidden} 배열) 모두 지원
+    const items = Array.isArray(saved) ? saved.map(v => typeof v === 'string' ? { id: v, hidden: false } : v) : [];
+    const filtered = items.filter(item => item.id !== 'stocks' && item.id !== 'gsheet');
+    const ordered = filtered.map(item => {
+      const def = TAB_DEFAULTS.find(t => t.id === item.id);
+      return def ? { ...def, hidden: item.hidden || false } : null;
+    }).filter(Boolean);
+    TAB_DEFAULTS.forEach(t => { if (!ordered.find(o => o.id === t.id)) ordered.push({ ...t, hidden: false }); });
     return ordered;
   }
-  return [...TAB_DEFAULTS];
+  return TAB_DEFAULTS.map(t => ({ ...t, hidden: false }));
 })();
 
 function saveTabOrder() {
-  lsSave(TAB_ORDER_KEY, TAB_ORDER.map(t => t.id));
+  // id와 hidden 상태 함께 저장
+  lsSave(TAB_ORDER_KEY, TAB_ORDER.map(t => ({ id: t.id, hidden: t.hidden || false })));
 }
 
 // ── 탭바 렌더링
@@ -101,6 +106,7 @@ function buildTabBar() {
   });
 
   TAB_ORDER.forEach(tab => {
+    if (tab.hidden) return; // 숨김 탭 제외
     const isActive = currentView === tab.id;
     const btn = document.createElement('button');
     btn.className = 'vs-btn v-' + tab.id + (isActive ? ' active' : '');
@@ -139,10 +145,23 @@ function closeTabSettings() {
 }
 function resetTabOrder() {
   TAB_ORDER.length = 0;
-  TAB_DEFAULTS.forEach(t => TAB_ORDER.push({...t}));
+  TAB_DEFAULTS.forEach(t => TAB_ORDER.push({ ...t, hidden: false }));
   saveTabOrder();
   buildTabBar();
   renderTabSettingsBody();
+}
+function toggleTabHidden(idx) {
+  if (TAB_ORDER[idx]) {
+    TAB_ORDER[idx].hidden = !TAB_ORDER[idx].hidden;
+    // 숨긴 탭이 현재 뷰이면 첫 번째 보이는 탭으로 이동
+    if (TAB_ORDER[idx].hidden && currentView === TAB_ORDER[idx].id) {
+      const first = TAB_ORDER.find(t => !t.hidden);
+      if (first) switchView(first.id);
+    }
+    saveTabOrder();
+    buildTabBar();
+    renderTabSettingsBody();
+  }
 }
 function moveTab(idx, dir) {
   const ni = idx + dir;
@@ -159,11 +178,15 @@ function renderTabSettingsBody() {
   TAB_ORDER.forEach((tab, i) => {
     const isFirst = i === 0, isLast = i === TAB_ORDER.length - 1;
     html += `<div class="tab-setting-row" draggable="true" data-idx="${i}"
-      style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;background:var(--s2);cursor:grab;transition:background .12s">
+      style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;background:var(--s2);cursor:grab;transition:background .12s;opacity:${tab.hidden?'.45':'1'}">
       <span style="font-size:.75rem;color:var(--muted);cursor:grab;user-select:none">⠿</span>
-      <span style="display:flex;align-items:center;gap:8px;flex:1;font-size:.80rem"><span style="width:16px;height:16px;display:inline-flex;align-items:center">${tab.icon||''}</span>${tab.label}</span>
+      <span style="display:flex;align-items:center;gap:8px;flex:1;font-size:.80rem"><span style="width:16px;height:16px;display:inline-flex;align-items:center">${tab.icon||''}</span>${tab.label}${tab.hidden?'<span style="font-size:.60rem;color:var(--muted);margin-left:4px">(숨김)</span>':''}</span>
       <button onclick="moveTab(${i},-1)" ${isFirst?'disabled':''} class="btn-move-icon">↑</button>
       <button onclick="moveTab(${i},1)" ${isLast?'disabled':''} class="btn-move-icon">↓</button>
+      <button onclick="toggleTabHidden(${i})" class="btn-move-icon" title="${tab.hidden?'표시':'숨김'}"
+        style="color:${tab.hidden?'var(--muted)':'var(--text)'};border-color:${tab.hidden?'var(--border)':'var(--c-amber-40)'}">
+        ${tab.hidden?'🙈':'👁'}
+      </button>
     </div>`;
   });
   body.innerHTML = html;
@@ -725,6 +748,31 @@ function renderGsheetView(area) {
         </div>
       </div>
 
+      <!-- 수동가격(NAV) 입력 — 펀드/TDF 있을 때만 표시 -->
+      ${EDITABLE_PRICES.some(i => !i.code) ? `
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+        <div style="font-size:.72rem;font-weight:700;color:var(--text);margin-bottom:4px">📦 펀드·TDF NAV 수동 입력</div>
+        <div style="font-size:.65rem;color:var(--muted);margin-bottom:10px">코드 없는 종목의 NAV를 날짜별로 구글시트에 저장합니다.</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+          <label style="font-size:.70rem;color:var(--muted)">기준일</label>
+          <input type="date" id="navDate"
+            value="${new Date().toISOString().slice(0,10)}"
+            style="background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem"/>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${EDITABLE_PRICES.filter(i => !i.code).map(item => `
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:.72rem;flex:1;color:var(--text)">${item.name}</span>
+              <input type="number" class="nav-price-inp" data-name="${item.name.replace(/"/g,'&quot;')}"
+                placeholder="NAV 입력"
+                style="width:120px;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem"/>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+          <button onclick="saveNavPrices()" class="btn-purple-sm">💾 NAV 저장</button>
+          <span id="navSaveResult" style="font-size:.68rem;color:var(--muted)"></span>
+        </div>
+      </div>` : ''}
     </div>`;
 }
 
