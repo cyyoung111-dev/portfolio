@@ -209,7 +209,7 @@ function renderDivView(area, skipFetch) {
 
   sorted.forEach(r => {
     const acctDots  = r.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span>`).join('');
-    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.58rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
+    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.65rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
     const freqColors = { '월배당':'var(--green)', '분기':'var(--blue)', '반기':'var(--purple)', '연간':'var(--amber)' };
     const fCol = freqColors[r.dd.freq] || 'var(--muted)';
     const costAmt = rows.filter(rr=>rr.name===r.name).reduce((s,rr)=>s+(rr.costAmt||0),0);
@@ -243,7 +243,7 @@ function renderDivView(area, skipFetch) {
     const costAmt = rows.filter(rr=>rr.name===r.name).reduce((s,rr)=>s+(rr.costAmt||0),0);
     const yld = costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
     const monthlyDiv = Math.round(r.annualDiv / 12);
-    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.58rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
+    const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.65rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
     const acctDots = r.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}"></span>`).join('');
     html += `
     <div style="background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px">
@@ -256,19 +256,19 @@ function renderDivView(area, skipFetch) {
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:.75rem">
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
-          <div style="font-size:.60rem;color:var(--muted);margin-bottom:2px">연간(세전)</div>
+          <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">연간(세전)</div>
           <div style="font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums">${fmtW(Math.round(r.annualDiv))}</div>
         </div>
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
-          <div style="font-size:.60rem;color:var(--muted);margin-bottom:2px">월(세전)</div>
+          <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">월(세전)</div>
           <div style="font-weight:600;color:var(--green);font-variant-numeric:tabular-nums">${fmtW(monthlyDiv)}</div>
         </div>
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
-          <div style="font-size:.60rem;color:var(--muted);margin-bottom:2px">주당 배당금</div>
+          <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">주당 배당금</div>
           <div style="font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}원</div>
         </div>
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
-          <div style="font-size:.60rem;color:var(--muted);margin-bottom:2px">수익률</div>
+          <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">수익률</div>
           <div style="color:var(--purple);font-variant-numeric:tabular-nums">${yld !== '-' ? yld+'%' : '-'}</div>
         </div>
       </div>

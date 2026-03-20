@@ -215,7 +215,7 @@ function buildScheduleSection() {
   <div class="card-12-p20">
     <div class="flex-between-mb14">
       <h4 class="h3-card">📋 상환스케줄 · 손익 분석</h4>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button onclick="downloadScheduleTemplate()" class="btn-amber-outline" style="font-size:.72rem">📥 양식</button>
         <label class="btn-amber-outline" style="font-size:.72rem;cursor:pointer">
           📂 CSV 업로드
@@ -243,7 +243,7 @@ function buildScheduleSection() {
     <div class="flex-between-mb14">
       <h4 class="h3-card">🏠 부동산 시가 이력</h4>
     </div>
-    <div style="display:flex;gap:8px;margin-bottom:14px;align-items:flex-end">
+    <div style="display:flex;gap:8px;margin-bottom:14px;align-items:flex-end;flex-wrap:wrap">
       <div>
         <div class="txt-70-muted-mb4">날짜 (YYYY-MM)</div>
         <input type="month" id="re-val-date"
@@ -558,12 +558,12 @@ function renderScheduleChart() {
       <span style="font-size:.78rem;font-weight:700;color:var(--blue-lt);margin-left:4px">${yLbl(latestBal)}</span>
     </div>
     ${eqPath ? `
-    <div class="flex-gap6-ai">
+    <div class="flex-gap6-ai" style="flex-wrap:wrap">
       <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="var(--amber)" stroke-width="2.5" stroke-dasharray="5,3" stroke-linecap="round"/></svg>
       <span class="txt-75-slate">순자산 (시가−잔액)</span>
       ${latestEq != null ? `<span style="font-size:.78rem;font-weight:700;color:var(--amber);margin-left:4px">${yLbl(latestEq)}</span>` : ''}
     </div>` : ''}
-    <div style="margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--c-black-20);padding:6px 12px;border-radius:8px">
+    <div style="margin-left:0;display:flex;align-items:center;gap:8px;background:var(--c-black-20);padding:6px 12px;border-radius:8px;flex-shrink:0">
       <span style="font-size:.70rem;color:var(--muted)">이자포함 순손익</span>
       <span style="font-size:.90rem;font-weight:800;color:${pnlColor}">${latestPnl !== null ? (latestPnl >= 0 ? '+' : '') + yLbl(latestPnl) : '시가 미입력'}</span>
     </div>

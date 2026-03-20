@@ -112,10 +112,10 @@ function buildBulkOverlayHTML() {
       style="padding:7px 20px;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid ${color};transition:all .15s"
       >${label}</button>`;
   return `<div id="bulkImportOverlay"
-    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9100;justify-content:center;align-items:center;padding:16px">
-    <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;width:100%;max-width:960px;max-height:92vh;display:flex;flex-direction:column">
+    style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9100;justify-content:center;align-items:flex-start;padding:8px;overflow-y:auto">
+    <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;width:100%;max-width:960px;max-height:calc(100vh - 16px);display:flex;flex-direction:column;margin:auto">
       <!-- 헤더 -->
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 22px 12px;border-bottom:1px solid var(--border);flex-shrink:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px 12px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap;gap:8px">
         <div>
           <h3 class="h3-95">📊 거래 이력 일괄 입력</h3>
           <p style="margin:3px 0 0;font-size:.70rem;color:var(--muted)">엑셀처럼 직접 입력하거나 CSV 파일을 붙여넣기 하세요 · Tab키로 셀 이동</p>
@@ -146,7 +146,7 @@ function buildBulkOverlayHTML() {
       <div id="bulkGridWrap" style="flex:1;min-height:0;overflow:auto;padding:0 12px 12px;-webkit-overflow-scrolling:touch"></div>
       <div id="bulkError" style="display:none;padding:8px 22px;background:var(--c-red-10);color:var(--red-lt);font-size:.75rem;flex-shrink:0"></div>
       <!-- 푸터 -->
-      <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 22px 16px;border-top:1px solid var(--border);flex-shrink:0">
+      <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px;border-top:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">
         <button onclick="closeBulkImport()" class="btn-ghost-muted">취소</button>
         <button id="bulkApplyBtn" onclick="applyBulkImport()" class="btn-amber">✅ 가져오기</button>
       </div>

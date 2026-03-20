@@ -177,7 +177,7 @@ function _drawHistoryChart(wrap, snapshots) {
       <line x1="${PAD.left + 74}" y1="${PAD.top + 10}" x2="${PAD.left + 90}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
       <text x="${PAD.left + 94}" y="${PAD.top + 14}" font-size="9" fill="var(--muted)">손익</text>
     </svg>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:10px">
       <div style="background:var(--s2);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">현재 평가금액</div>
         <div style="font-size:.88rem;font-weight:700;color:var(--c-purple-45)">${fmt(lastPt.eval)}</div>
@@ -253,7 +253,7 @@ function renderGsheetView(area) {
       <!-- URL 입력 -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
         <div style="font-size:.72rem;font-weight:700;color:var(--text);margin-bottom:8px">Apps Script 웹앱 URL</div>
-        <div style="display:flex;gap:6px;align-items:stretch">
+        <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
           <input id="gsheetUrlInput" type="text"
             value="${currentUrl.replace(/"/g,'&quot;')}"
             placeholder="https://script.google.com/macros/s/..."
@@ -310,7 +310,7 @@ function renderStocksView(area) {
             <div id="acctNewColorDots" class="flex-wrap-gap4"></div>
           </div>
           <input type="hidden" id="acctMgmtNewColor" />
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button id="btn-acct-confirm" class="btn-purple-sm">✅ 추가</button>
             <button id="btn-acct-cancel" class="btn-cancel-sm">✕ 취소</button>
           </div>
@@ -347,7 +347,7 @@ function renderStocksView(area) {
           <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">섹터</div>
           <div id="smSecGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
           <input type="hidden" id="smMgmtNewSec" value="기타"/>
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button id="btn-sm-confirm" class="btn-purple-sm">✅ 추가</button>
             <button id="btn-sm-cancel" class="btn-cancel-sm">✕ 취소</button>
           </div>
