@@ -246,12 +246,16 @@ function switchView(v) {
 const _viewCache = {};
 
 function _getDataHash() {
-  // 핵심 데이터 변경 감지용 해시 (빠른 문자열 비교)
+  // 핵심 데이터 변경 감지용 해시 (필터 상태 포함)
   return rawTrades.length + '|' +
     (EDITABLE_PRICES.length) + '|' +
     (rawHoldings.length) + '|' +
     (lastUpdated || '') + '|' +
-    Object.keys(DIVDATA || {}).length;
+    Object.keys(DIVDATA || {}).length + '|' +
+    (typeof acctFilter !== 'undefined' ? acctFilter : '') + '|' +
+    (typeof typeFilter !== 'undefined' ? typeFilter : '') + '|' +
+    (typeof _tradeFilter !== 'undefined' ? JSON.stringify(_tradeFilter) : '') + '|' +
+    (typeof _divHideZeroQty !== 'undefined' ? _divHideZeroQty : '');
 }
 
 function invalidateViewCache(viewId) {

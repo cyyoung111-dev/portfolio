@@ -115,48 +115,84 @@ function _tePickAssetType(val) {
 // ── 종목 datalist / 버튼 그룹 ──────────────────────────────────
 
 function _refreshTeCodeList(selectedName, selectedCode, acctFilter) {
-  // 계좌 필터가 있으면 해당 계좌 거래 종목만 표시
+  // 소스: EDITABLE_PRICES만 사용 (기초정보 등록 종목만 허용)
+  let allNames = EDITABLE_PRICES.map(i => i.name).filter(Boolean).sort();
+
+  // 계좌 필터가 있으면 해당 계좌에서 거래된 종목만 우선 표시
   let names;
   if (acctFilter && acctFilter !== '전체') {
     const acctNames = new Set(rawTrades.filter(t => t.acct === acctFilter).map(t => t.name));
-    names = [...acctNames].filter(Boolean).sort();
-    // 선택된 종목이 필터 결과에 없으면 전체 목록으로 fallback
-    if (names.length === 0) {
-      names = [...new Set([
-        ...EDITABLE_PRICES.map(i => i.name),
-        ...rawTrades.map(t => t.name),
-      ])].filter(Boolean).sort();
-    }
+    names = allNames.filter(n => acctNames.has(n));
+    if (names.length === 0) names = allNames; // 해당 계좌 종목 없으면 전체 표시
   } else {
-    names = [...new Set([
-      ...EDITABLE_PRICES.map(i => i.name),
-      ...rawTrades.map(t => t.name),
-      ...rawHoldings.map(h => h.name)
-    ])].filter(Boolean).sort();
+    names = allNames;
   }
-
-  const dl = $el('te-name-list');
-  if (dl) dl.innerHTML = names.map(n => {
-    const c = STOCK_CODE[n] || '';
-    return `<option value="${n}">${n}${c?' ('+c+')':''}</option>`;
-  }).join('');
 
   const grp = $el('te-name-btns');
   if (grp) {
-    grp.innerHTML = names.map(n =>
-      `<button type="button" onclick="_tePickName('${n.replace(/'/g,"\\'")}')"`+
-      ` class="${_fBtnClass(n===selectedName)} f-btn-sm">${n}</button>`
-    ).join('');
+    if (names.length === 0) {
+      grp.innerHTML = '';
+      const hint = $el('te-no-ep-hint');
+      if (hint) hint.style.display = 'block';
+    } else {
+      const hint = $el('te-no-ep-hint');
+      if (hint) hint.style.display = 'none';
+      grp.innerHTML = names.map(n =>
+        `<button type="button" onclick="_tePickName('${n.replace(/'/g,"\\'")}')"`+
+        ` class="${_fBtnClass(n===selectedName)} f-btn-sm">${n}</button>`
+      ).join('');
+    }
   }
 
-  $el('te-name').value = selectedName || '';
-  $el('te-code').value = selectedCode || (selectedName ? STOCK_CODE[selectedName]||'' : '');
+  // hidden input 세팅
+  const nameHid = $el('te-name');
+  if (nameHid) nameHid.value = selectedName || '';
+  const codeHid = $el('te-code');
+  if (codeHid) codeHid.value = selectedCode || (selectedName ? (STOCK_CODE[selectedName]||'') : '');
+
+  // 선택된 종목명 표시
+  const selEl = $el('te-selected-name');
+  if (selEl) {
+    if (selectedName) {
+      selEl.textContent = selectedName;
+      selEl.style.display = 'block';
+    } else {
+      selEl.style.display = 'none';
+    }
+  }
 }
 
 function _tePickName(name) {
   $el('te-name').value = name;
-  const code   = STOCK_CODE[name] || '';
+
+  // 기초정보에서 코드 + 자산구분 자동 세팅
+  const ep   = getEP(name);
+  const code = (ep && ep.code) ? ep.code : (STOCK_CODE[name] || '');
   $el('te-code').value = code;
+
+  // 자산구분 자동 반영 (기초정보 우선)
+  const assetType = getEPType(ep, '주식');
+  $el('te-assettype').value = assetType;
+  const grpAt = $el('te-assettype-group');
+  if (grpAt) {
+    grpAt.innerHTML = `<span style="display:inline-block;padding:4px 10px;border-radius:6px;
+      background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--gold);
+      font-size:.72rem;font-weight:600">${assetType}</span>
+      <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
+  }
+
+  // 선택된 종목명 표시 업데이트
+  const selEl = $el('te-selected-name');
+  if (selEl) { selEl.textContent = name; selEl.style.display = 'block'; }
+
+  // 버튼 active 상태 갱신
+  const grp = $el('te-name-btns');
+  if (grp) {
+    grp.querySelectorAll('button').forEach(btn => {
+      btn.className = _fBtnClass(btn.textContent === name) + ' f-btn-sm';
+    });
+  }
+
   const status = $el('te-code-status');
   if (code) {
     status.textContent = '✅ ' + name + (code ? ' (' + code + ')' : '');
@@ -174,12 +210,6 @@ function _tePickName(name) {
       status.textContent = '';
     }
   }
-  const grp = $el('te-name-btns');
-  if (!grp) return;
-  grp.querySelectorAll('button').forEach(btn => {
-    const isActive = btn.textContent === name;
-    btn.className  = _fBtnClass(isActive) + ' f-btn-sm';
-  });
 }
 
 // 종목코드 입력 → 종목명 자동조회
@@ -233,23 +263,9 @@ async function teCodeLookup(code) {
 }
 
 // 종목명 변경 → 코드 자동완성
-function teNameChange(name) {
-  const code = STOCK_CODE[name] || '';
-  $el('te-code').value = code;
-  const status = $el('te-code-status');
-  if (code) {
-    status.textContent = '✅ ' + name + ' (' + code + ')';
-    status.style.color = 'var(--green)';
-  } else {
-    status.textContent = '';
-  }
-  const grp = $el('te-name-btns');
-  if (!grp) return;
-  grp.querySelectorAll('button').forEach(btn => {
-    const isActive = btn.textContent === name;
-    btn.className  = _fBtnClass(isActive) + ' f-btn-sm';
-  });
-}
+// teNameChange: 직접 입력 불가로 비활성화
+function teNameChange(name) {}
+
 
 // ── 오버레이 HTML ───────────────────────────────────────────────
 
@@ -291,17 +307,18 @@ function buildTradeEditOverlayHTML() {
           <div id="te-assettype-group" class="flex-wrap-gap4-mt"></div>
         </div>
 
-        <!-- 종목명 선택 -->
+        <!-- 종목명 선택 (기초정보 등록 종목만) -->
         <div>
           ${lbl('종목명',true)}
           <div id="te-name-btns" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
-          <div class="flex-gap6-ai">
-            <input id="te-name" type="text" placeholder="직접 입력 또는 위에서 선택"
-              list="te-name-list"
-              oninput="teNameChange(this.value)"
-              class="input-full-82" style="flex:1"/>
-            <datalist id="te-name-list"></datalist>
+          <div style="margin-top:2px">
+            <div id="te-selected-name" style="display:none;padding:6px 10px;border-radius:6px;
+              background:var(--s2);border:1px solid var(--border);font-size:.82rem;color:var(--text)"></div>
+            <div id="te-no-ep-hint" style="display:none;font-size:.72rem;color:var(--muted);margin-top:4px">
+              ⚠️ 기초정보 탭에서 종목을 먼저 등록해주세요
+            </div>
           </div>
+          <input type="hidden" id="te-name" value=""/>
           <input type="hidden" id="te-code" value=""/>
           <div id="te-code-status" style="margin-top:4px;font-size:.70rem;min-height:16px"></div>
         </div>
@@ -351,7 +368,13 @@ function saveTrade() {
   const price     = parseFloat(f('te-price').value);
   const tradeType = window._currentTradeType || 'buy';
 
-  if (!name)                      { err.textContent='❌ 종목명을 입력하세요'; err.style.display='block'; return; }
+  if (!name)                      { err.textContent='❌ 종목명을 선택하세요'; err.style.display='block'; return; }
+  // 기초정보 미등록 종목 차단
+  const epCheck = getEP(normName(name) || name);
+  if (!epCheck && !_editingTradeId) {
+    err.textContent = '❌ 기초정보에 등록되지 않은 종목입니다. 기초정보 탭에서 먼저 등록해주세요';
+    err.style.display = 'block'; return;
+  }
   if (!qty || qty <= 0)           { err.textContent='❌ 수량을 입력하세요 (양수)'; err.style.display='block'; return; }
   if (!date)                      { err.textContent='❌ 날짜를 입력하세요'; err.style.display='block'; return; }
   if (isNaN(price) || price < 0) { err.textContent='❌ 단가를 입력하세요'; err.style.display='block'; return; }
