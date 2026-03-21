@@ -4,9 +4,15 @@
 // ─────────────────────────────────────────────────────────────
 
 let _editingTradeId = null;
+let _teIsNewMode    = false; // 신규 종목 선택 모드
+let _teNewSectorFilter = '';  // 신규 모드 섹터 필터
+let _teNewTypeFilter   = '';  // 신규 모드 자산구분 필터
 
 function openAddTrade(prefill, forceTradeType) {
   _editingTradeId = prefill?.id || null;
+  _teIsNewMode = false;
+  _teNewSectorFilter = '';
+  _teNewTypeFilter = '';
   const t = prefill || {};
 
   if (!$el('tradeEditOverlay')) {
@@ -90,17 +96,106 @@ function _refreshTeAcctList(selectedAcct) {
 function _renderTeAcctBtns(active, acctList) {
   const grp = $el('te-acct-group');
   if (!grp) return;
+  const isNew = _teIsNewMode;
   grp.innerHTML = acctList.map(a =>
     `<button type="button" onclick="_tePickAcct('${a.replace(/'/g,"\\'")}')"`+
-    ` class="${_fBtnClass(a===active)}">${a}</button>`
-  ).join('');
+    ` class="${_fBtnClass(!isNew && a===active)}">${a}</button>`
+  ).join('') +
+  `<button type="button" onclick="_tePickNewMode()" class="${_fBtnClass(isNew)}" ` +
+  `style="border-color:var(--c-cyan-40);${isNew?'background:rgba(6,182,212,.15);color:var(--cyan)':'color:var(--cyan)'}">✨ 신규</button>`;
 }
 
 function _tePickAcct(val) {
+  _teIsNewMode = false;
+  _teNewSectorFilter = '';
+  _teNewTypeFilter = '';
   const inp = $el('te-acct'); if (inp) inp.value = val;
   _renderTeAcctBtns(val, getAcctList().filter(a => a !== '전체'));
   // 계좌 선택 시 해당 계좌 종목만 필터링
-  _refreshTeCodeList($el('te-name')?.value || '', '', val);
+  _refreshTeCodeList('', '', val);
+  // 신규 필터 UI 숨김
+  const nf = $el('te-new-filter'); if (nf) nf.style.display = 'none';
+}
+
+function _tePickNewMode() {
+  _teIsNewMode = true;
+  const inp = $el('te-acct'); if (inp) inp.value = '';
+  _renderTeAcctBtns('', getAcctList().filter(a => a !== '전체'));
+  // 신규 필터 UI 표시
+  const nf = $el('te-new-filter'); if (nf) nf.style.display = 'block';
+  _teRenderNewFilter();
+  _refreshTeCodeListNew('', '');
+}
+
+// ── 신규 모드: 섹터/자산구분 필터 ──────────────────────────────
+
+function _teRenderNewFilter() {
+  const nf = $el('te-new-filter');
+  if (!nf) return;
+
+  // 섹터 목록: EDITABLE_PRICES에서 추출
+  const sectors = ['전체', ...new Set(EDITABLE_PRICES.map(e => e.sector || '기타').filter(Boolean)).values()].sort((a,b) => a==='전체'?-1:b==='전체'?1:a.localeCompare(b));
+  // 자산구분 목록
+  const types = ['전체','주식','ETF','ISA','IRP','연금','펀드','TDF'];
+
+  nf.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--s2);border:1px solid var(--c-cyan-30);border-radius:8px;margin-bottom:6px">
+      <div style="font-size:.68rem;color:var(--cyan);font-weight:600;margin-bottom:2px">✨ 신규 종목 선택</div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0">섹터</span>
+        <div class="flex-wrap-gap3" id="te-new-sector-btns">
+          ${sectors.map(s =>
+            `<button type="button" onclick="_teNewPickSector('${s.replace(/'/g,"\'")}')" ` +
+            `class="f-btn-sm ${_teNewSectorFilter===s||(!_teNewSectorFilter&&s==='전체')?'active':''}">${s}</button>`
+          ).join('')}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0">구분</span>
+        <div class="flex-wrap-gap3" id="te-new-type-btns">
+          ${types.map(t =>
+            `<button type="button" onclick="_teNewPickType('${t}')" ` +
+            `class="f-btn-sm ${_teNewTypeFilter===t||(!_teNewTypeFilter&&t==='전체')?'active':''}">${t}</button>`
+          ).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+function _teNewPickSector(s) {
+  _teNewSectorFilter = s === '전체' ? '' : s;
+  _teRenderNewFilter();
+  _refreshTeCodeListNew('', '');
+}
+
+function _teNewPickType(t) {
+  _teNewTypeFilter = t === '전체' ? '' : t;
+  _teRenderNewFilter();
+  _refreshTeCodeListNew('', '');
+}
+
+function _refreshTeCodeListNew(selectedName) {
+  // 기초정보 전체에서 섹터/자산구분 필터 적용
+  let items = EDITABLE_PRICES.filter(e => e.name);
+  if (_teNewSectorFilter) items = items.filter(e => (e.sector||'기타') === _teNewSectorFilter);
+  if (_teNewTypeFilter)   items = items.filter(e => (e.assetType||'주식') === _teNewTypeFilter);
+  const names = items.map(e => e.name).sort();
+
+  const grp = $el('te-name-btns');
+  if (!grp) return;
+  if (names.length === 0) {
+    grp.innerHTML = `<span style="font-size:.72rem;color:var(--muted)">해당 조건의 종목이 없습니다</span>`;
+  } else {
+    grp.innerHTML = names.map(n =>
+      `<button type="button" onclick="_tePickName('${n.replace(/'/g,"\\'")}')"`+
+      ` class="${_fBtnClass(n===selectedName)} f-btn-sm">${n}</button>`
+    ).join('');
+  }
+
+  // 선택 초기화
+  const nameHid = $el('te-name'); if (nameHid) nameHid.value = selectedName || '';
+  const selEl = $el('te-selected-name');
+  if (selEl) { selEl.style.display = 'none'; }
 }
 
 function _tePickAssetType(val) {
@@ -310,6 +405,7 @@ function buildTradeEditOverlayHTML() {
         <!-- 종목명 선택 (기초정보 등록 종목만) -->
         <div>
           ${lbl('종목명',true)}
+          <div id="te-new-filter" style="display:none"></div>
           <div id="te-name-btns" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
           <div style="margin-top:2px">
             <div id="te-selected-name" style="display:none;padding:6px 10px;border-radius:6px;
@@ -368,6 +464,8 @@ function saveTrade() {
   const price     = parseFloat(f('te-price').value);
   const tradeType = window._currentTradeType || 'buy';
 
+  const acctVal = f('te-acct').value;
+  if (_teIsNewMode && !acctVal) { err.textContent='❌ 계좌를 선택해주세요 (신규 종목은 계좌 미선택 상태입니다)'; err.style.display='block'; return; }
   if (!name)                      { err.textContent='❌ 종목명을 선택하세요'; err.style.display='block'; return; }
   // 기초정보 미등록 종목 차단
   const epCheck = getEP(normName(name) || name);
@@ -381,7 +479,7 @@ function saveTrade() {
 
   // 매도 시 현재 보유 수량 초과 체크
   if (tradeType === 'sell' && !_editingTradeId) {
-    const acct = $el('te-acct')?.value || '';
+    const acct = acctVal || '';
     const normN = normName(name) || name;
     // 현재 보유 수량 계산 (해당 계좌, 해당 종목)
     const currentQty = rawTrades
@@ -405,7 +503,7 @@ function saveTrade() {
   const trade = {
     id:        _editingTradeId || genTradeId(),
     tradeType,
-    acct:      f('te-acct').value,
+    acct:      acctVal,
     assetType: f('te-assettype').value,
     name: normN, code, qty, price, date,
     memo: f('te-memo').value.trim(),
