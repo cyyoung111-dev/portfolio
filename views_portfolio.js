@@ -53,7 +53,7 @@ function renderAcctView(area) {
   html += `<div id="tc_${tableId}">${buildTableInner(data, tableId, null)}</div>`;
   area.innerHTML = html;
 }
-function setAcctFilter(f) { acctFilter = f; renderView(); }
+function setAcctFilter(f) { acctFilter = f; renderView(); renderDonut(); }
 function setTypeFilter(f) { typeFilter = f; renderView(); }
 
 // ── 섹터별 뷰
@@ -154,9 +154,22 @@ function renderDonut() {
 
   let totals = {}, getColor, title;
   if (currentView === 'acct') {
-    title = '종류별 자산 비중';
-    rows.forEach(r => { const k = TYPE_CLASSIFY(r); totals[k] = (totals[k]||0) + r.evalAmt; });
-    getColor = k => TYPE_COLORS[k] || 'var(--muted)';
+    const filteredRows = (acctFilter && acctFilter !== '전체')
+      ? rows.filter(r => r.acct === acctFilter)
+      : rows;
+    if (acctFilter && acctFilter !== '전체') {
+      // 특정 계좌 선택 시: 종목별 비중
+      title = acctFilter + ' · 종목별 비중';
+      filteredRows.forEach(r => { totals[r.name] = (totals[r.name]||0) + r.evalAmt; });
+      totals = collapseToTop(totals, 8);
+      const acctKeys = Object.keys(totals);
+      getColor = k => k === '기타' ? 'var(--muted)' : ACCT_PALETTE_FALLBACK[acctKeys.indexOf(k) % ACCT_PALETTE_FALLBACK.length];
+    } else {
+      // 전체 계좌: 종류별 비중
+      title = '종류별 자산 비중';
+      filteredRows.forEach(r => { const k = TYPE_CLASSIFY(r); totals[k] = (totals[k]||0) + r.evalAmt; });
+      getColor = k => TYPE_COLORS[k] || 'var(--muted)';
+    }
   } else if (currentView === 'sector') {
     title = '섹터별 자산 비중';
     rows.forEach(r => { const k = r.sector||'기타'; totals[k] = (totals[k]||0) + r.evalAmt; });

@@ -33,11 +33,22 @@ function openAddTrade(prefill, forceTradeType) {
   f('te-assettype').value = _teAssetType;
 
   (function(){
-    const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
-    const grp   = $el('te-assettype-group'); if (!grp) return;
-    grp.innerHTML = types.map(t =>
-      `<button type="button" onclick="_tePickAssetType('${t}')" class="${_fBtnClass(_teAssetType===t)}">${t}</button>`
-    ).join('');
+    const grp = $el('te-assettype-group'); if (!grp) return;
+    // 기존 종목이면 자산구분 잠금 (사용자 수정 불가)
+    const isLocked = !!_teEp;
+    if (isLocked) {
+      // 잠금: 선택된 값만 표시, 클릭 비활성화
+      grp.innerHTML = `<span style="display:inline-block;padding:4px 10px;border-radius:6px;
+        background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--gold);
+        font-size:.72rem;font-weight:600">${_teAssetType}</span>
+        <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
+    } else {
+      // 신규 종목: 자유롭게 선택 가능
+      const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
+      grp.innerHTML = types.map(t =>
+        `<button type="button" onclick="_tePickAssetType('${t}')" class="${_fBtnClass(_teAssetType===t)}">${t}</button>`
+      ).join('');
+    }
   })();
 
   f('te-qty').value   = t.qty   || '';
@@ -68,9 +79,12 @@ function _refreshTeAcctList(selectedAcct) {
   const inp = $el('te-acct');
   const grp = $el('te-acct-group');
   if (!inp || !grp) return;
-  const active = selectedAcct || acctList[0] || '';
+  // '전체' 제외한 실제 계좌만
+  const realAccts = acctList.filter(a => a !== '전체');
+  const active = selectedAcct && realAccts.includes(selectedAcct)
+    ? selectedAcct : (realAccts[0] || '');
   inp.value = active;
-  _renderTeAcctBtns(active, acctList);
+  _renderTeAcctBtns(active, realAccts);
 }
 
 function _renderTeAcctBtns(active, acctList) {
@@ -84,7 +98,7 @@ function _renderTeAcctBtns(active, acctList) {
 
 function _tePickAcct(val) {
   const inp = $el('te-acct'); if (inp) inp.value = val;
-  _renderTeAcctBtns(val, getAcctList());
+  _renderTeAcctBtns(val, getAcctList().filter(a => a !== '전체'));
   // 계좌 선택 시 해당 계좌 종목만 필터링
   _refreshTeCodeList($el('te-name')?.value || '', '', val);
 }
@@ -195,8 +209,8 @@ async function teCodeLookup(code) {
 
   // 3. GSheet API 조회
   if (!GSHEET_API_URL) {
-    status.textContent = '⚠️ 기초정보 탭에 코드를 등록하거나 종목명을 직접 입력하세요';
-    status.style.color = 'var(--amber)';
+    status.textContent = 'ℹ️ 코드 없는 종목 (펀드·TDF 등) — 종목명을 직접 입력하세요';
+    status.style.color = 'var(--muted)';
     return;
   }
   status.textContent = '⏳ 조회 중...'; status.style.color = 'var(--blue-lt)';
@@ -209,12 +223,12 @@ async function teCodeLookup(code) {
       STOCK_CODE[name]   = trimCode;
       saveHoldings();
     } else {
-      status.textContent = '⚠️ 코드를 찾을 수 없어요 — 아래 종목명란에 직접 입력해주세요';
-      status.style.color = 'var(--amber)';
+      status.textContent = 'ℹ️ 코드 조회 결과 없음 — 종목명을 직접 입력하거나 기초정보에서 코드를 등록하세요';
+      status.style.color = 'var(--muted)';
     }
   } catch(e) {
-    status.textContent = '⚠️ 조회 중 오류가 발생했어요 — 아래 종목명란에 직접 입력해주세요';
-    status.style.color = 'var(--amber)';
+    status.textContent = 'ℹ️ 코드 조회 중 오류 — 종목명을 직접 입력해주세요';
+    status.style.color = 'var(--muted)';
   }
 }
 
