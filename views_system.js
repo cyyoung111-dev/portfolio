@@ -132,6 +132,23 @@ function buildTabBar() {
   });
 }
 
+
+// ── 모바일 하단 네비게이션 빌더
+// 숨기지 않은 탭 중 최대 5개를 하단 네비로 표시
+function buildMobileNav() {
+  const inner = $el('mobileNavInner');
+  if (!inner) return;
+  const visible = TAB_ORDER.filter(t => !t.hidden);
+  // 최대 5개 (공간 제약)
+  const navTabs = visible.slice(0, 5);
+  inner.innerHTML = navTabs.map(tab => `
+    <button class="mnav-btn${currentView === tab.id ? ' active' : ''}"
+      onclick="switchView('${tab.id}')" aria-label="${tab.label}">
+      ${tab.icon || ''}
+      <span class="mnav-label">${tab.label}</span>
+    </button>`
+  ).join('');
+}
 // ── 탭 순서 설정 패널
 function openTabSettings() {
   renderTabSettingsBody();
@@ -147,6 +164,7 @@ function resetTabOrder() {
   TAB_DEFAULTS.forEach(t => TAB_ORDER.push({ ...t, hidden: false }));
   saveTabOrder();
   buildTabBar();
+  buildMobileNav();
   renderTabSettingsBody();
 }
 function toggleTabHidden(idx) {
@@ -159,6 +177,7 @@ function toggleTabHidden(idx) {
     }
     saveTabOrder();
     buildTabBar();
+    buildMobileNav();
     renderTabSettingsBody();
   }
 }
@@ -216,14 +235,42 @@ const TABS_NO_CHARTS = new Set(['trades','tradegroup','history','div','asset','s
 
 function switchView(v) {
   currentView = v;
-  try { buildTabBar(); renderView(); renderDonut(); } catch(e) { console.warn('뷰 전환 실패:', e); buildTabBar(); }
+  // 탭 전환 시 해당 탭 캐시만 무효화 → 항상 새로 그림
+  invalidateViewCache(v);
+  try { buildTabBar(); buildMobileNav(); renderView(); renderDonut(); } catch(e) { console.warn('뷰 전환 실패:', e); buildTabBar(); }
   const charts = $el('chartsRow');
   if (charts) charts.style.display = TABS_NO_CHARTS.has(v) ? 'none' : '';
 }
 
-function renderView() {
+// ── 뷰 캐시: 동일 탭·동일 데이터 상태면 재렌더 생략
+const _viewCache = {};
+
+function _getDataHash() {
+  // 핵심 데이터 변경 감지용 해시 (빠른 문자열 비교)
+  return rawTrades.length + '|' +
+    (EDITABLE_PRICES.length) + '|' +
+    (rawHoldings.length) + '|' +
+    (lastUpdated || '') + '|' +
+    Object.keys(DIVDATA || {}).length;
+}
+
+function invalidateViewCache(viewId) {
+  if (viewId) delete _viewCache[viewId];
+  else Object.keys(_viewCache).forEach(k => delete _viewCache[k]);
+}
+
+function renderView(forceRender) {
   const area = $el('view-area');
   if (!area) return;
+
+  const hash = _getDataHash();
+  const cacheKey = currentView + '|' + hash;
+
+  // 캐시 히트: 같은 탭, 같은 데이터 → 재렌더 생략
+  if (!forceRender && _viewCache[currentView] === cacheKey) return;
+
+  _viewCache[currentView] = cacheKey;
+
   if      (currentView === 'acct')       renderAcctView(area);
   else if (currentView === 'sector')     renderSectorView(area);
   else if (currentView === 'merge')      renderMergeView(area);

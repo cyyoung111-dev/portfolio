@@ -8,6 +8,9 @@ const NOW_MONTH = new Date().getMonth() + 1; // 1~12
 //  calcDividends — DIVDATA + rawHoldings 기반 배당 계산
 //  반환: [{ name, totalQty, accts, dd, annualDiv }]
 // ════════════════════════════════════════════════════════════════
+// 수량 0 종목 숨김 상태
+let _divHideZeroQty = lsGet && lsGet('pf_div_hide_zero', false);
+
 function calcDividends() {
   // 보유 종목별 계좌 집계 (펀드 제외)
   const acctMap = {};
@@ -67,7 +70,9 @@ function renderDivView(area, skipFetch) {
   // GS 연동 시 탭 진입마다 자동 fetch → 완료 후 재렌더 (skipFetch=true 시 생략 — 재귀 방지)
   if (GSHEET_API_URL && !skipFetch) _autoFetchDiv(area);
 
-  const divRows = calcDividends();
+  // 수량 0 숨김 적용
+  const allDivRows = calcDividends();
+  const divRows = _divHideZeroQty ? allDivRows.filter(r => r.qty > 0) : allDivRows;
   const totalAnnual   = divRows.reduce((s,r)=>s+r.annualDiv,0);
   const totalAfterTax = Math.round(totalAnnual * 0.846);
   const monthlyAvg    = Math.round(totalAnnual / 12);
@@ -110,6 +115,13 @@ function renderDivView(area, skipFetch) {
     <div style="font-size:.65rem;color:var(--muted);margin-top:4px;padding:0 2px">
       ${GSHEET_API_URL ? '탭 진입 시 자동 조회 · 필요 시 🔄 재동기화로 즉시 갱신' : '재동기화 설정 필요'}
     </div>
+  </div>
+
+  <!-- ── 수량 0 숨김 토글 ── -->
+  <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+    <button onclick="_toggleDivHideZero()" class="btn-sort-toggle${_divHideZeroQty?' active':''}" style="font-size:.70rem">
+      ${_divHideZeroQty ? '👁 전체 보기' : '🙈 수량 0 숨김'}
+    </button>
   </div>
 
   <!-- ── 요약 카드 5개 — PC: 1줄, 모바일: 2×2+1 ── -->
@@ -327,3 +339,9 @@ function renderDivView(area, skipFetch) {
 
 // LOAN VIEW + 부동산
 // LOAN, REAL_ESTATE 선언 → loadHoldings 앞으로 이동 (복원 순서 보장)
+function _toggleDivHideZero() {
+  _divHideZeroQty = !_divHideZeroQty;
+  if (typeof lsSave === 'function') lsSave('pf_div_hide_zero', _divHideZeroQty);
+  const area = $el('view-area');
+  if (area) renderDivView(area, true);
+}

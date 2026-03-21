@@ -531,6 +531,8 @@ function syncLoanFromSchedule() {
 
 function refreshAll() {
   recomputeRows();
+  // 데이터 변경 시 뷰 캐시 전체 무효화
+  if (typeof invalidateViewCache === 'function') invalidateViewCache();
   renderSummary();
   try { buildTabBar(); } catch(e) {}
   renderDonut();

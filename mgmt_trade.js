@@ -26,7 +26,7 @@ function openAddTrade(prefill, forceTradeType) {
   _teSetTradeType(tradeType);
 
   _refreshTeAcctList(t.acct);
-  _refreshTeCodeList(t.name, t.code);
+  _refreshTeCodeList(t.name, t.code, t.acct);
 
   const _teEp        = getEP(normName(t.name) || t.name);
   const _teAssetType = getEPType(_teEp, t.assetType || t.type || '주식');
@@ -85,6 +85,8 @@ function _renderTeAcctBtns(active, acctList) {
 function _tePickAcct(val) {
   const inp = $el('te-acct'); if (inp) inp.value = val;
   _renderTeAcctBtns(val, getAcctList());
+  // 계좌 선택 시 해당 계좌 종목만 필터링
+  _refreshTeCodeList($el('te-name')?.value || '', '', val);
 }
 
 function _tePickAssetType(val) {
@@ -98,12 +100,26 @@ function _tePickAssetType(val) {
 
 // ── 종목 datalist / 버튼 그룹 ──────────────────────────────────
 
-function _refreshTeCodeList(selectedName, selectedCode) {
-  const names = [...new Set([
-    ...EDITABLE_PRICES.map(i => i.name),
-    ...rawTrades.map(t => t.name),
-    ...rawHoldings.map(h => h.name)
-  ])].filter(Boolean).sort();
+function _refreshTeCodeList(selectedName, selectedCode, acctFilter) {
+  // 계좌 필터가 있으면 해당 계좌 거래 종목만 표시
+  let names;
+  if (acctFilter && acctFilter !== '전체') {
+    const acctNames = new Set(rawTrades.filter(t => t.acct === acctFilter).map(t => t.name));
+    names = [...acctNames].filter(Boolean).sort();
+    // 선택된 종목이 필터 결과에 없으면 전체 목록으로 fallback
+    if (names.length === 0) {
+      names = [...new Set([
+        ...EDITABLE_PRICES.map(i => i.name),
+        ...rawTrades.map(t => t.name),
+      ])].filter(Boolean).sort();
+    }
+  } else {
+    names = [...new Set([
+      ...EDITABLE_PRICES.map(i => i.name),
+      ...rawTrades.map(t => t.name),
+      ...rawHoldings.map(h => h.name)
+    ])].filter(Boolean).sort();
+  }
 
   const dl = $el('te-name-list');
   if (dl) dl.innerHTML = names.map(n => {
@@ -325,6 +341,26 @@ function saveTrade() {
   if (!qty || qty <= 0)           { err.textContent='❌ 수량을 입력하세요 (양수)'; err.style.display='block'; return; }
   if (!date)                      { err.textContent='❌ 날짜를 입력하세요'; err.style.display='block'; return; }
   if (isNaN(price) || price < 0) { err.textContent='❌ 단가를 입력하세요'; err.style.display='block'; return; }
+
+  // 매도 시 현재 보유 수량 초과 체크
+  if (tradeType === 'sell' && !_editingTradeId) {
+    const acct = $el('te-acct')?.value || '';
+    const normN = normName(name) || name;
+    // 현재 보유 수량 계산 (해당 계좌, 해당 종목)
+    const currentQty = rawTrades
+      .filter(t => t.name === normN && t.acct === acct)
+      .reduce((s, t) => t.tradeType === 'buy' ? s + (t.qty||0) : s - (t.qty||0), 0);
+    if (qty > currentQty) {
+      err.textContent = `❌ 매도 수량(${qty})이 보유 수량(${currentQty})을 초과합니다`;
+      err.style.display = 'block';
+      return;
+    }
+    if (currentQty <= 0) {
+      err.textContent = `❌ ${normN} 보유 수량이 없습니다`;
+      err.style.display = 'block';
+      return;
+    }
+  }
 
   const code  = f('te-code').value.trim();
   const normN = normName(name) || name;
