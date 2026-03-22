@@ -138,11 +138,23 @@ function _teRenderNewFilter() {
   // 자산구분 목록
   const types = ['전체','주식','ETF','ISA','IRP','연금','펀드','TDF'];
 
+  const realAccts = getAcctList().filter(a => a !== '전체');
+  const curAcct = $el('te-acct')?.value || '';
+
   nf.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:6px;padding:8px 10px;background:var(--s2);border:1px solid var(--c-cyan-30);border-radius:8px;margin-bottom:6px">
       <div style="font-size:.68rem;color:var(--cyan);font-weight:600;margin-bottom:2px">✨ 신규 종목 선택</div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0">섹터</span>
+        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">계좌</span>
+        <div class="flex-wrap-gap3">
+          ${realAccts.map(a =>
+            `<button type="button" onclick="_teNewPickAcct('${a.replace(/'/g,"\'")}')" ` +
+            `class="f-btn-sm ${curAcct===a?'active':''}">${a}</button>`
+          ).join('')}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">섹터</span>
         <div class="flex-wrap-gap3" id="te-new-sector-btns">
           ${sectors.map(s =>
             `<button type="button" onclick="_teNewPickSector('${s.replace(/'/g,"\'")}')" ` +
@@ -151,7 +163,7 @@ function _teRenderNewFilter() {
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0">구분</span>
+        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">구분</span>
         <div class="flex-wrap-gap3" id="te-new-type-btns">
           ${types.map(t =>
             `<button type="button" onclick="_teNewPickType('${t}')" ` +
@@ -160,6 +172,14 @@ function _teRenderNewFilter() {
         </div>
       </div>
     </div>`;
+}
+
+function _teNewPickAcct(a) {
+  const inp = $el('te-acct'); if (inp) inp.value = a;
+  // 상단 계좌 버튼 active 갱신 (신규 모드 유지)
+  _renderTeAcctBtns('', getAcctList().filter(x => x !== '전체'));
+  // 패널 재렌더 (계좌 선택 표시 갱신)
+  _teRenderNewFilter();
 }
 
 function _teNewPickSector(s) {
@@ -465,7 +485,7 @@ function saveTrade() {
   const tradeType = window._currentTradeType || 'buy';
 
   const acctVal = f('te-acct').value;
-  if (_teIsNewMode && !acctVal) { err.textContent='❌ 계좌를 선택해주세요 (신규 종목은 계좌 미선택 상태입니다)'; err.style.display='block'; return; }
+  if (_teIsNewMode && !acctVal) { err.textContent='❌ 계좌를 선택해주세요'; err.style.display='block'; return; }
   if (!name)                      { err.textContent='❌ 종목명을 선택하세요'; err.style.display='block'; return; }
   // 기초정보 미등록 종목 차단
   const epCheck = getEP(normName(name) || name);
