@@ -9,7 +9,7 @@ const NOW_MONTH = new Date().getMonth() + 1; // 1~12
 //  반환: [{ name, totalQty, accts, dd, annualDiv }]
 // ════════════════════════════════════════════════════════════════
 // 수량 0 종목 숨김 상태
-let _divHideZeroQty = lsGet && lsGet('pf_div_hide_zero', false);
+let _divHideZeroQty = typeof lsGet === 'function' ? lsGet(DIV_HIDE_ZERO_KEY, false) : false;
 
 function calcDividends() {
   // 보유 종목별 계좌 집계 (펀드 제외)
@@ -341,7 +341,7 @@ function renderDivView(area, skipFetch) {
 // LOAN, REAL_ESTATE 선언 → loadHoldings 앞으로 이동 (복원 순서 보장)
 function _toggleDivHideZero() {
   _divHideZeroQty = !_divHideZeroQty;
-  if (typeof lsSave === 'function') lsSave('pf_div_hide_zero', _divHideZeroQty);
+  if (typeof lsSave === 'function') lsSave(DIV_HIDE_ZERO_KEY, _divHideZeroQty);
   const area = $el('view-area');
   if (area) renderDivView(area, true);
 }

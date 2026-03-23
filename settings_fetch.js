@@ -254,7 +254,7 @@ async function autoLoadPrices() {
       savePriceCache();
       // GAS 성공 시 백업 저장
       try {
-        lsSave('pf_price_backup', { prices: savedPrices, dates: savedPriceDates, ts: lastUpdated });
+        lsSave(PRICE_BACKUP_KEY, { prices: savedPrices, dates: savedPriceDates, ts: lastUpdated });
       } catch(e) {}
 
       const cnt      = Object.keys(results).length;
@@ -285,7 +285,7 @@ async function autoLoadPrices() {
         refreshAll();
       } else {
         // 백업 데이터 복구 시도
-        const backup = lsGet('pf_price_backup', null);
+        const backup = lsGet(PRICE_BACKUP_KEY, null);
         if (backup && backup.prices && Object.keys(backup.prices).length > 0) {
           Object.assign(savedPrices, backup.prices);
           Object.assign(savedPriceDates, backup.dates || {});
@@ -307,7 +307,7 @@ async function autoLoadPrices() {
       setStatusLabel(`⚠️ 조회 오류 · 캐시 종가 사용 중 <span class="c-muted">(${cachedDate||'?'})</span> · ${cacheCount}/${total}개`, 'warn');
       refreshAll();
     } else {
-      const backup = lsGet('pf_price_backup', null);
+      const backup = lsGet(PRICE_BACKUP_KEY, null);
       if (backup && backup.prices && Object.keys(backup.prices).length > 0) {
         Object.assign(savedPrices, backup.prices);
         Object.assign(savedPriceDates, backup.dates || {});

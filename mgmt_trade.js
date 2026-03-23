@@ -378,9 +378,6 @@ async function teCodeLookup(code) {
 }
 
 // 종목명 변경 → 코드 자동완성
-// teNameChange: 직접 입력 불가로 비활성화
-function teNameChange(name) {}
-
 
 // ── 오버레이 HTML ───────────────────────────────────────────────
 

@@ -259,6 +259,8 @@ const HOLDINGS_KEY   = 'pf_v6_holdings';
 const STOCKCODE_KEY  = 'pf_v6_stockcodes';
 const EDITABLES_KEY  = 'pf_v6_editables';
 const TRADES_KEY     = 'pf_v6_trades';
+const PRICE_BACKUP_KEY  = 'pf_price_backup';   // GAS 실패 시 백업
+const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';  // 배당 수량0 숨김 상태
 
 // ── localStorage 복원 (KEY 상수 선언 후 실행)
 (function(){
