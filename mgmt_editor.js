@@ -296,6 +296,7 @@ function applyPrices() {
   }
   const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   const updatedCount = Object.keys(editedPrices).length;
+  const gasManualPriceSaves = []; // GAS 저장 Promise 모음
   Object.keys(editedPrices).forEach(name => {
     // ★ 코드 있는 종목은 코드 키로 저장, 코드 없는 펀드는 이름 키로 저장
     const code = getCode(normName(name));
@@ -303,13 +304,28 @@ function applyPrices() {
     savedPrices[key] = editedPrices[name];
     savedPriceDates[key] = dateStr + ' ' + timeStr; // savedPriceDates는 표시용이라 시분 유지
     // ★ GAS에도 날짜별 저장 (saveManualPrice 액션)
+    // 버그수정: 코드 있는 종목은 name 대신 code(=key)로 저장해야
+    //          getPriceHistory 조회 시 코드 키로 찾을 수 있음
     if (GSHEET_API_URL) {
       const gasDate = editorDateRaw || `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
       const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(gasDate)
-                + '&name=' + encodeURIComponent(name) + '&price=' + editedPrices[name];
-      fetchWithTimeout(url, 10000).catch(e => console.warn('[saveManualPrice]', name, e.message));
+                + '&name=' + encodeURIComponent(key) + '&price=' + editedPrices[name];
+      // 버그수정: Promise 수집으로 결과 확인 (fire-and-forget 제거)
+      gasManualPriceSaves.push(
+        fetchWithTimeout(url, 10000)
+          .then(r => r.json())
+          .then(d => { if (d.status !== 'ok') console.warn('[saveManualPrice] GAS 오류:', name, d); })
+          .catch(e => console.warn('[saveManualPrice]', name, e.message))
+      );
     }
   });
+
+  // GAS 저장 완료 대기 (백그라운드, UI는 먼저 업데이트)
+  if (gasManualPriceSaves.length > 0) {
+    Promise.all(gasManualPriceSaves).then(() => {
+      console.log('[saveManualPrice] GAS 저장 완료:', gasManualPriceSaves.length + '건');
+    });
+  }
 
   recomputeRows();
   lastUpdated = dateStr; // ★ YYYY.MM.DD 형식으로 저장 (캐시 비교에 사용)
