@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.5
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.6
+//
+//  v9.6 변경사항 (2026.03.24):
+//   ✅ [버그수정] _parseArrayParam() 함수 누락 추가
+//              → syncTrades / syncHoldings POST 시 ReferenceError 발생하던 문제 해결
 //
 //  v9.5 변경사항 (2026.03.13):
 //   ✅ [신규]   save/getDividendSettings, save/getRealEstateSettings 액션 추가
@@ -1268,6 +1272,16 @@ function _parseJsonParam(dataJson, label) {
   try { return JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
     try { return JSON.parse(dataJson); } catch(e2) { throw new Error(label + ' 파싱 실패'); }
   }
+}
+
+// ★ _parseArrayParam: JSON 파싱 후 배열인지 검증
+function _parseArrayParam(dataJson, label) {
+  var parsed;
+  try { parsed = JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
+    try { parsed = JSON.parse(dataJson); } catch(e2) { throw new Error(label + ' 파싱 실패'); }
+  }
+  if (!Array.isArray(parsed)) throw new Error(label + ' 배열 형식 필요');
+  return parsed;
 }
 
 function _readSettingsMap() {

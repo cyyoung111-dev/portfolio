@@ -351,4 +351,6 @@ async function autoLoadPrices() {
 // _showNavPanelIfNeeded 제거됨 (현재가 편집창으로 통합)
 
 // GS URL이 이미 저장돼 있으면 앱 시작 시 1회 자동 복원
-setTimeout(() => { bootstrapGsheetSettings(); }, 0);
+// ★ 기존 펀드·TDF 가상코드 마이그레이션 (코드 없는 종목 → F001~)
+setTimeout(() => { if (typeof migrateFundCodes === 'function') migrateFundCodes(); }, 0);
+setTimeout(() => { bootstrapGsheetSettings(); }, 100);
