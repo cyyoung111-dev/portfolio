@@ -79,17 +79,25 @@ async function fetchFromGsheet(dateStr) {
     }
 
     // ── 코드 없는 종목: getPriceHistory로 name 키로 조회
+    // 버그수정: 정확한 날짜가 아니라 최근 90일 범위로 조회 후 가장 최신값 사용
+    //          (다른 기기에서 어제/며칠 전 저장한 값도 불러올 수 있도록)
     let noCodeResults = {};
     if (epNoCode.length > 0) {
-      const names = epNoCode.map(i => encodeURIComponent(i.name)).join(',');
-      const url   = GSHEET_API_URL + '?action=getPriceHistory&from=' + dateStr + '&to=' + dateStr + '&codes=' + encodeURIComponent(epNoCode.map(i=>i.name).join(','));
+      const fromDate = (function() {
+        const d = new Date(dateStr); d.setDate(d.getDate() - 90);
+        return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+      })();
+      const url = GSHEET_API_URL + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr + '&codes=' + encodeURIComponent(epNoCode.map(i=>i.name).join(','));
       try {
         const res  = await fetchWithTimeout(url, 15000);
         const data = await res.json();
         if (data.status === 'ok' && data.prices) {
           epNoCode.forEach(i => {
-            const entry = (data.prices[i.name] || [])[0];
-            if (entry && entry.price > 0) noCodeResults[i.name] = Math.round(entry.price);
+            const entries = data.prices[i.name];
+            if (!entries || entries.length === 0) return;
+            // 가장 최신 날짜 항목 사용 (배열이 날짜순 정렬돼 있으므로 마지막 값)
+            const latest = entries[entries.length - 1];
+            if (latest && latest.price > 0) noCodeResults[i.name] = Math.round(latest.price);
           });
         }
       } catch(e) {} // 코드 없는 종목 조회 실패는 무시
@@ -194,10 +202,13 @@ async function autoLoadPrices() {
   const badge = $el('dateBadge');
 
   // ── 캐시된 가격이 오늘 날짜면 GSheet 재조회 스킵 ──
+  // 버그수정: 코드 없는 종목(펀드·TDF)이 있으면 캐시 스킵 불가
+  //          다른 기기에서 저장한 최신값을 놓칠 수 있음
   const cachedDate = lastUpdated;
   const todayLabel = dateStr.replace(/-/g,'.');
   const cacheCount = Object.keys(savedPrices).length;
-  if (cachedDate && cachedDate.startsWith(todayLabel) && cacheCount > 0 && GSHEET_API_URL) {
+  const hasFundItems = (typeof EDITABLE_PRICES !== 'undefined') && EDITABLE_PRICES.some(i => !i.code);
+  if (cachedDate && cachedDate.startsWith(todayLabel) && cacheCount > 0 && GSHEET_API_URL && !hasFundItems) {
     updateDateBadge(todayLabel, true);
     const total = getEPWithCode().length;
     setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">실시간 (캐시)</span> · ${cacheCount}/${total}개`, 'ok');
