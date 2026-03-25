@@ -1268,12 +1268,6 @@ function handleGetHoldings() {
 // ════════════════════════════════════════════════════════════════════
 //  설정 저장 / 불러오기
 // ════════════════════════════════════════════════════════════════════
-function _parseJsonParam(dataJson, label) {
-  try { return JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
-    try { return JSON.parse(dataJson); } catch(e2) { throw new Error(label + ' 파싱 실패'); }
-  }
-}
-
 // ★ _parseArrayParam: JSON 파싱 후 배열인지 검증
 function _parseArrayParam(dataJson, label) {
   var parsed;

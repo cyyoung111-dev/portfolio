@@ -282,7 +282,8 @@ function smCsvImport(input) {
       const sector = col.sector >= 0 ? cols[col.sector] || '기타' : '기타';
       if (!name) { skipped++; return; }
       const assetType = VALID_TYPES.includes(type) ? type : '주식';
-      // ★ 주식·ETF는 종목코드 필수 — 없으면 건너뜀
+      // ★ 주식·ETF는 종목코드 필수, 코드 입력 시 6자리 강제
+      if (code && code.length !== 6) { skipped++; return; }
       if (!code && (assetType === '주식' || assetType === 'ETF')) { skipped++; return; }
       const isFund    = ['펀드','TDF'].includes(assetType);
       const existing  = EDITABLE_PRICES.findIndex(ep => ep.name === name);
@@ -293,16 +294,13 @@ function smCsvImport(input) {
         if (isFund) EDITABLE_PRICES[existing].fund      = true;
         updated++;
       } else {
-        // ★ 코드 없는 펀드류에 가상 코드 자동 부여 (F001, F002, ...)
-        const finalCode = code || _assignFundCode(assetType);
-        epPush(name, finalCode, assetType);
+        epPush(name, code, assetType);
         const newIdx = EDITABLE_PRICES.length - 1;
         EDITABLE_PRICES[newIdx].sector = sector || '기타';
         EDITABLE_PRICES[newIdx].fund   = isFund;
         added++;
       }
       if (code && name) STOCK_CODE[name] = normalizeStockCode(code);
-      else if (!code && name) { const fc = _assignFundCode(assetType); if (fc) STOCK_CODE[name] = fc; }
     });
 
     saveHoldings();
@@ -359,9 +357,11 @@ function smMgmtConfirm() {
   const assetType = $el('smMgmtNewType')?.value || '주식';
   const sector    = $el('smMgmtNewSec')?.value || '기타';
   if(!name) { showMgmtMsg('smMgmtMsg','⚠️ 종목명을 입력해주세요',true); return; }
+  // ★ 종목코드 입력 시 6자리 강제
+  if(code && code.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930)', true); return; }
   // ★ 주식·ETF는 종목코드 필수
   if(!code && (assetType === '주식' || assetType === 'ETF')) {
-    showMgmtMsg('smMgmtMsg', `⚠️ ${assetType}은 종목코드를 반드시 입력해주세요`, true); return;
+    showMgmtMsg('smMgmtMsg', `⚠️ ${assetType}은 종목코드(6자리)를 반드시 입력해주세요`, true); return;
   }
   if(EDITABLE_PRICES.some(i => i.name === name)) { showMgmtMsg('smMgmtMsg',`❌ "${name}"은(는) 이미 등록된 종목명입니다`,true); return; }
   if(code && EDITABLE_PRICES.some(i => i.code && i.code === code)) {
@@ -410,9 +410,11 @@ function smSave(idx) {
   const newType = document.querySelector(`.sm-type-sel[data-idx="${idx}"]`)?.value || '주식';
   const newSec  = document.querySelector(`.sm-sec-sel[data-idx="${idx}"]`)?.value || '기타';
   if(!newName) return;
+  // ★ 종목코드 입력 시 6자리 강제
+  if(newCode && newCode.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930)', true); return; }
   // ★ 주식·ETF는 종목코드 필수
   if(!newCode && (newType === '주식' || newType === 'ETF')) {
-    showMgmtMsg('smMgmtMsg', `⚠️ ${newType}은 종목코드를 반드시 입력해주세요`, true); return;
+    showMgmtMsg('smMgmtMsg', `⚠️ ${newType}은 종목코드(6자리)를 반드시 입력해주세요`, true); return;
   }
   if(newCode && newCode !== item.code && EDITABLE_PRICES.some((i, i2) => i2 !== idx && i.code && i.code === newCode)) {
     const dup = EDITABLE_PRICES.find((i, i2) => i2 !== idx && i.code === newCode);
@@ -474,33 +476,4 @@ function smSave(idx) {
   }
   _mgmtRefresh();
   // ★ buildStockMgmt()는 호출하지 않음 — 상태 리셋 후 mousedown 핸들러에서 호출
-}
-
-// ── 기존 펀드·TDF 가상코드 마이그레이션 (1회 실행)
-// 코드 없는 펀드·TDF 종목에 F001~ 자동 부여
-function migrateFundCodes() {
-  const FUND_TYPES = ['펀드', 'TDF', 'ISA', 'IRP', '연금'];
-  let changed = 0;
-  EDITABLE_PRICES.forEach(ep => {
-    if (ep.code) return; // 이미 코드 있으면 스킵
-    if (!FUND_TYPES.includes(ep.assetType || ep.type)) return; // 주식·ETF는 스킵
-    const newCode = _assignFundCode(ep.assetType || ep.type);
-    ep.code = newCode;
-    STOCK_CODE[ep.name] = newCode;
-    // savedPrices/savedPriceDates 키를 이름 → 코드로 마이그레이션
-    if (savedPrices[ep.name] !== undefined) {
-      savedPrices[newCode] = savedPrices[ep.name];
-      delete savedPrices[ep.name];
-    }
-    if (savedPriceDates[ep.name] !== undefined) {
-      savedPriceDates[newCode] = savedPriceDates[ep.name];
-      delete savedPriceDates[ep.name];
-    }
-    changed++;
-  });
-  if (changed > 0) {
-    saveHoldings();
-    console.log('[migrateFundCodes] 가상코드 부여 완료:', changed + '개');
-  }
-  return changed;
 }
