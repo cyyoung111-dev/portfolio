@@ -2,7 +2,10 @@ function openEditor() {
   // rawHoldings에 있는 펀드/TDF 중 EDITABLE_PRICES에 누락된 것 보충
   rawHoldings.forEach(h => {
     if (!h.name) return;
-    const code = h.fund ? '' : (STOCK_CODE[h.name] || '');
+    // ★ 버그수정: STOCK_CODE 직접 참조 → getCode() 사용
+    //   getCode()는 EDITABLE_PRICES 우선 → STOCK_CODE fallback
+    //   0046Y0 같은 혼합 코드도 EDITABLE_PRICES에서 정확히 가져옴
+    const code = h.fund ? '' : getCode(h.name);
     if (!getEP(h.name)) {
       epPush(h.name, code, h.type);
     }
@@ -339,8 +342,27 @@ function applyPrices() {
   updateDateBadge(lastUpdated, isToday); // lastUpdated가 이미 YYYY.MM.DD 형식
 
   saveHoldings();
-  closeEditor();
-  renderView();
-  renderSummary();
-  renderDonut();
+
+  // ★ 저장 완료 피드백: 적용하기 버튼 → 체크 표시로 바꾸고 1.5초 후 닫힘
+  const applyBtn = $el('priceEditor')?.querySelector('[onclick*="applyPrices"]')
+                || $el('priceEditor')?.querySelector('.btn-apply-prices');
+  if (applyBtn) {
+    applyBtn.disabled = true;
+    applyBtn.innerHTML = `✅ 저장 완료 (${updatedCount}개)`;
+    applyBtn.style.background = 'var(--green)';
+  }
+  // editorBody에도 완료 메시지 표시
+  const body = $el('editorBody');
+  if (body) {
+    const done = document.createElement('div');
+    done.style.cssText = 'text-align:center;padding:18px 0 8px;font-size:.82rem;color:var(--green-lt);font-weight:600';
+    done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${dateStr} ${timeStr} 기준</span>`;
+    body.prepend(done);
+  }
+  setTimeout(() => {
+    closeEditor();
+    renderView();
+    renderSummary();
+    renderDonut();
+  }, 1500);
 }
