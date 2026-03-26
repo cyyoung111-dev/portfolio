@@ -42,7 +42,7 @@ function buildStockMgmt() {
     </div>`;
   }
 
-  let html = `<div class="lbl-62-muted-3">행을 클릭하면 수정·삭제를 선택할 수 있습니다.</div>`;
+  let html = `<div class="lbl-62-muted-3">종목을 클릭하면 수정·삭제를 선택할 수 있습니다.</div>`;
   html += `<div style="display:grid;grid-template-columns:1fr 80px 72px 120px;gap:4px;align-items:center;margin-bottom:4px;padding:0 4px">
     <span style="font-size:.65rem;color:var(--muted);font-weight:700">종목명</span>
     <span class="lbl-65-muted-center">종목코드</span>
