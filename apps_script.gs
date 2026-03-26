@@ -478,13 +478,26 @@ function handleGetPricesCompat(codesParam) {
       var missingItems = missing.map(function(c){ return { code: c, name: codeNameMap[c] || c }; });
       var gfPrices     = fetchPricesGoogleFinance(missingItems, todayStr, ss);
       var newPriceItems = [];
+      var stillMissing  = [];
       missing.forEach(function(code) {
         if (gfPrices[code] && gfPrices[code].price > 0) {
           prices[code] = gfPrices[code].price;
           newPriceItems.push({ code: code, name: codeNameMap[code] || code, price: gfPrices[code].price });
+        } else {
+          stillMissing.push(code);
         }
       });
       if (newPriceItems.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceItems);
+
+      // ★ 버그수정: GOOGLEFINANCE도 실패한 종목은 가격이력 시트에서 가장 최근 날짜 값으로 fallback
+      if (stillMissing.length > 0) {
+        var latestPrices = getLatestPriceHistory(ss, stillMissing);
+        stillMissing.forEach(function(code) {
+          if (latestPrices[code] && latestPrices[code] > 0) {
+            prices[code] = latestPrices[code];
+          }
+        });
+      }
     }
     return jsonOk({ prices: prices });
   } catch(err) {
@@ -545,7 +558,26 @@ function handleSaveManualPrice(dateStr, name, priceStr) {
     var price = parseFloat(priceStr);
     if (isNaN(price) || price <= 0) return jsonError('유효하지 않은 가격: ' + priceStr);
     var ss = getss();
-    upsertPriceHistory(ss, dateStr, '', name, price);
+
+    // ★ 버그수정: name 파라미터가 종목코드 형식(6자리 숫자)이면
+    //   code 자리에 넣고 name은 종목코드 시트에서 찾아서 저장
+    //   (프론트 applyPrices에서 코드 있는 종목은 key=code로 넘기기 때문)
+    var isCodeLike = /^\d{6}$/.test((name || '').trim());
+    var saveCode, saveName;
+    if (isCodeLike) {
+      saveCode = name.trim();
+      // 종목명은 종목코드 시트에서 찾기, 없으면 빈 문자열
+      var codeItems = getCodeItems(ss);
+      saveName = '';
+      for (var ci = 0; ci < codeItems.length; ci++) {
+        if (codeItems[ci].code === saveCode) { saveName = codeItems[ci].name; break; }
+      }
+    } else {
+      saveCode = '';
+      saveName = name;
+    }
+
+    upsertPriceHistory(ss, dateStr, saveCode, saveName, price);
     return jsonOk({ saved: true, date: dateStr, name: name, price: price });
   } catch(err) {
     return jsonError('saveManualPrice 실패: ' + err.message);
@@ -577,8 +609,39 @@ function getPriceHistoryRow(ss, dateStr) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  내부 — 가격이력 시트 배치 upsert
+//  내부 — 가격이력 시트에서 지정 코드들의 가장 최근 날짜 가격 조회
 // ════════════════════════════════════════════════════════════════════
+function getLatestPriceHistory(ss, codes) {
+  try {
+    var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+    if (!ph || ph.getLastRow() < 2) return {};
+    var data   = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+    var codeSet = {};
+    codes.forEach(function(c) { codeSet[c] = true; });
+    // code → { date, price } 최신값 유지
+    var latest = {};
+    data.forEach(function(row) {
+      var date  = (row[0] || '').toString().trim();
+      var code  = (row[1] || '').toString().trim();
+      var name  = (row[2] || '').toString().trim();
+      var price = parseFloat(row[3]) || 0;
+      var key   = code || name;
+      if (!date || !key || price <= 0) return;
+      if (!codeSet[key]) return;
+      if (!latest[key] || date > latest[key].date) {
+        latest[key] = { date: date, price: price };
+      }
+    });
+    var result = {};
+    Object.keys(latest).forEach(function(key) { result[key] = latest[key].price; });
+    return result;
+  } catch(err) {
+    Logger.log('❌ getLatestPriceHistory 실패: ' + err.message);
+    return {};
+  }
+}
+
+
 function batchUpsertPriceHistory(ss, dateStr, items) {
   if (!items || items.length === 0) return;
   try {
