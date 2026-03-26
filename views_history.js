@@ -276,7 +276,12 @@ function renderGsheetView(area) {
         </div>
       </div>
 
+      <!-- 테마 선택 -->
+      <div id="themeSelectorWrap" style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px"></div>
+
     </div>`;
+  // 테마 선택 UI 렌더링
+  if (typeof renderThemeSelector === 'function') renderThemeSelector('themeSelectorWrap');
 }
 
 // ════════════════════════════════════════════════════════════════
