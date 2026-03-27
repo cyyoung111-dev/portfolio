@@ -35,6 +35,15 @@ function _toNum(v, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// ★ 버그수정: loadSettings에서 EDITABLE_PRICES 코드 복원 시 사용
+// normalizeStockCode(data.js)의 settings.js 내 별칭
+// 이 함수가 없으면 loadSettings에서 ReferenceError → 코드가 undefined로 저장됨
+function _normalizeCodeForSync(raw) {
+  return (typeof normalizeStockCode === 'function')
+    ? normalizeStockCode(raw)
+    : String(raw || '').trim().toUpperCase().replace(/^A(?=\d{6}$)/, '');
+}
+
 function _toMonths(v) {
   if (Array.isArray(v)) {
     return v.map(m => Number(m)).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
@@ -363,7 +372,10 @@ async function loadSettings(onProgress) {
     if (s.ACCT_COLORS && typeof s.ACCT_COLORS === 'object') {
       Object.keys(ACCT_COLORS).forEach(k => delete ACCT_COLORS[k]);
       Object.entries(s.ACCT_COLORS).forEach(([k,v]) => {
-        ACCT_COLORS[k] = (typeof v==='string' && v.startsWith('var(')) ? resolveColor(v) : v;
+        if (!k || !v) return; // ★ 빈 키/값 방어
+        ACCT_COLORS[k] = (typeof v==='string' && v.startsWith('var('))
+          ? resolveColor(v)   // var(--xxx) → hex 변환
+          : v;
       });
     }
     // ACCT_ORDER
