@@ -15,7 +15,7 @@ function buildAcctMgmt() {
   let html = `<div style="font-size:.70rem;color:var(--muted);margin-bottom:8px">계좌를 클릭하면 수정·삭제를 선택할 수 있습니다.</div>`;
 
   accts.forEach(acct => {
-    const color    = ACCT_COLORS[acct] || 'var(--muted)';
+    const color    = resolveColor(ACCT_COLORS[acct] || 'var(--muted)');
     const tradeN   = rawTrades.filter(t => t.acct === acct).length;
     const hasData  = tradeN > 0 || rawHoldings.some(h => h.acct === acct);
     const isSel    = sel === acct;
@@ -53,7 +53,7 @@ function buildAcctMgmt() {
             const rc = resolveColor(c);
             const rcur = resolveColor(color);
             const isSel = rc.toLowerCase() === rcur.toLowerCase();
-            const usedByOther = Object.entries(ACCT_COLORS).filter(([k])=>k!==acct).some(([,v])=>v.toLowerCase()===rc.toLowerCase());
+            const usedByOther = Object.entries(ACCT_COLORS).filter(([k])=>k!==acct).some(([,v])=>resolveColor(v).toLowerCase()===rc.toLowerCase());
             return `<span class="acct-color-dot" data-color="${c}" data-acct="${acct}"
               style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
               border:3px solid ${isSel?'#fff':'transparent'};opacity:${usedByOther?'0.3':'1'};
@@ -136,17 +136,18 @@ function acctMgmtAddNew() {
   const inp = $el('acctMgmtNewInput');
   if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
   // 사용하지 않는 색상 자동 배정 후 팔레트 렌더링
-  const used = Object.values(ACCT_COLORS);
-  const autoColor = ACCT_PALETTE.find(c => !used.includes(c)) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
+  const used = Object.values(ACCT_COLORS).map(v => resolveColor(v).toLowerCase());
+  const autoColor = ACCT_PALETTE.find(c => !used.includes(resolveColor(c).toLowerCase())) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
   const colorInput = $el('acctMgmtNewColor');
   if (colorInput) colorInput.value = autoColor;
   const preview = $el('acctNewColorPreview');
-  if (preview) preview.style.background = autoColor;
+  if (preview) preview.style.background = resolveColor(autoColor);
   const dotsWrap = $el('acctNewColorDots');
   if (dotsWrap) {
     dotsWrap.innerHTML = ACCT_PALETTE.map(c => {
-      const isUsed = used.includes(c) && c !== autoColor;
-      const isSelected = c === autoColor;
+      const rc = resolveColor(c).toLowerCase();
+      const isUsed    = used.includes(rc) && c !== autoColor;
+      const isSelected = resolveColor(c).toLowerCase() === resolveColor(autoColor).toLowerCase();
       return `<span onclick="_acctNewPickColor('${c}')"
         style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
         border:3px solid ${isSelected?'#fff':'transparent'};
