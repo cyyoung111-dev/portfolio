@@ -436,7 +436,7 @@ function smSave(idx) {
     if(DIVDATA[oldName] !== undefined) { DIVDATA[newName] = DIVDATA[oldName]; delete DIVDATA[oldName]; }
     item.name = newName;
   }
-  // ★ 코드 변경 시 rawTrades.code도 일괄 업데이트
+  // ★ 코드 변경 시 rawTrades.code + savedPrices/savedPriceDates 키도 일괄 이전
   const oldCode = item.code;
   if(newCode !== oldCode) {
     const normalizedOld = normalizeStockCode(oldCode);
@@ -445,6 +445,19 @@ function smSave(idx) {
       rawTrades.forEach(t => {
         if(normalizeStockCode(t.code) === normalizedOld) t.code = normalizedNew;
       });
+      // ★ savedPrices/savedPriceDates 키 이전
+      // 기초정보에서 코드를 수정하면 캐시 키도 맞춰줘야
+      // 예: 000460 → 0046Y0 으로 바꿀 때 savedPrices['000460'] → savedPrices['0046Y0']
+      if(typeof savedPrices !== 'undefined') {
+        if(savedPrices[normalizedOld] !== undefined) {
+          savedPrices[normalizedNew]     = savedPrices[normalizedOld];
+          delete savedPrices[normalizedOld];
+        }
+        if(savedPriceDates[normalizedOld] !== undefined) {
+          savedPriceDates[normalizedNew] = savedPriceDates[normalizedOld];
+          delete savedPriceDates[normalizedOld];
+        }
+      }
     }
   }
   item.code      = newCode;

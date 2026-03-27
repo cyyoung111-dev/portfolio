@@ -3,8 +3,7 @@ function openEditor() {
   rawHoldings.forEach(h => {
     if (!h.name) return;
     // ★ 버그수정: STOCK_CODE 직접 참조 → getCode() 사용
-    //   getCode()는 EDITABLE_PRICES 우선 → STOCK_CODE fallback
-    //   0046Y0 같은 혼합 코드도 EDITABLE_PRICES에서 정확히 가져옴
+    // getCode()는 EDITABLE_PRICES 우선 → STOCK_CODE fallback
     const code = h.fund ? '' : getCode(h.name);
     if (!getEP(h.name)) {
       epPush(h.name, code, h.type);
@@ -159,16 +158,23 @@ function _mgmtRefresh() {
 // ── 계좌 관리 (기초정보 관리 탭)
 
 function buildEditorUI() {
-  // ① 코드 없는 종목 (펀드·TDF) - 항상 수동 입력
-  const fundItems = EDITABLE_PRICES.filter(item => !item.code);
-  // ② 코드 있지만 현재가 미조회된 종목
-  // EDITABLE_PRICES 기반 + _gsheetMissingCodes 기반 합산
+  // ① 펀드·TDF — assetType 또는 fund 플래그 기준 (코드 유무와 무관)
+  const fundItems = EDITABLE_PRICES.filter(item =>
+    item.fund || item.assetType === '펀드' || item.assetType === 'TDF'
+  );
+
+  // ② 코드 있는 일반 종목 중 현재가 미조회된 것
+  // savedPrices 조회 시 코드 키 + 이름 키 모두 확인
   const nopriceCodes = new Set();
   const nopriceItems = [];
   EDITABLE_PRICES.forEach(item => {
+    // 펀드·TDF는 ①에서 처리
+    if (item.fund || item.assetType === '펀드' || item.assetType === 'TDF') return;
     if (!item.code) return;
     const code = (typeof normalizeStockCode === 'function') ? normalizeStockCode(item.code) : item.code;
-    if (!savedPrices[code] && !savedPrices[item.code]) {
+    // ★ 코드 키, 원본코드 키, 이름 키 모두 확인
+    const hasPrice = savedPrices[code] || savedPrices[item.code] || savedPrices[item.name];
+    if (!hasPrice) {
       nopriceCodes.add(code);
       nopriceItems.push(item);
     }
@@ -199,9 +205,21 @@ function buildEditorUI() {
   }
 
   function renderRow(item, typeLabel) {
-    const current = (item.code && savedPrices[item.code]) || savedPrices[item.name] || savedPrices[normName(item.name)] || getCurrentPriceFromData(item.name);
-    const dateLabel = (item.code && savedPriceDates[item.code]) || savedPriceDates[item.name] || savedPriceDates[normName(item.name)] || (current ? '초기값' : '');
-    const hasDate = !!(( item.code && savedPriceDates[item.code]) || savedPriceDates[item.name] || savedPriceDates[normName(item.name)]);
+    // ★ 현재가 조회: 코드키 → 이름키 → normName키 → rows 순서로 fallback
+    const code = item.code ? normalizeStockCode(item.code) : '';
+    const current = (code && savedPrices[code])
+      || savedPrices[item.name]
+      || savedPrices[normName(item.name)]
+      || getCurrentPriceFromData(item.name);
+    const dateLabel = (code && savedPriceDates[code])
+      || savedPriceDates[item.name]
+      || savedPriceDates[normName(item.name)]
+      || (current ? '초기값' : '');
+    const hasDate = !!(
+      (code && savedPriceDates[code])
+      || savedPriceDates[item.name]
+      || savedPriceDates[normName(item.name)]
+    );
     const statusIcon = hasDate
       ? `<span class="c-green" title="${dateLabel}">✓</span>`
       : current
@@ -331,19 +349,18 @@ function applyPrices() {
   }
 
   recomputeRows();
-  lastUpdated = dateStr; // ★ YYYY.MM.DD 형식으로 저장 (캐시 비교에 사용)
+  lastUpdated = dateStr;
   const _lbl = $el('price-updated-label');
   if (_lbl) setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${lastUpdated}</span> · ${updatedCount}개 종목 반영`, 'ok');
 
-  // 날짜 뱃지 업데이트 (수동 적용 → 특정일 종가 기준)
   const fetchedDate = $el('quickDateInput')?.value || '';
   const todayStr = (()=>{ const t=new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); })();
   const isToday = fetchedDate === todayStr;
-  updateDateBadge(lastUpdated, isToday); // lastUpdated가 이미 YYYY.MM.DD 형식
+  updateDateBadge(lastUpdated, isToday);
 
   saveHoldings();
 
-  // ★ 저장 완료 피드백: 적용하기 버튼 → 체크 표시로 바꾸고 1.5초 후 닫힘
+  // ★ 저장 완료 피드백 — 버튼·본문에 표시 후 1.5초 뒤 닫힘
   const applyBtn = $el('priceEditor')?.querySelector('[onclick*="applyPrices"]')
                 || $el('priceEditor')?.querySelector('.btn-apply-prices');
   if (applyBtn) {
@@ -351,7 +368,6 @@ function applyPrices() {
     applyBtn.innerHTML = `✅ 저장 완료 (${updatedCount}개)`;
     applyBtn.style.background = 'var(--green)';
   }
-  // editorBody에도 완료 메시지 표시
   const body = $el('editorBody');
   if (body) {
     const done = document.createElement('div');
