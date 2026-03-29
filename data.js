@@ -554,9 +554,13 @@ function normalizeStockCode(raw) {
     .replace(/^NASDAQ:/, '')
     .replace(/^NYSE:/, '')
     .replace(/^AMEX:/, '')
-    .replace(/^A(?=\d{6}$)/, '');
+    .replace(/^A(?=\d{6}$)/, ''); // A000001 → 000001 (한국 거래소 prefix 제거)
 
+  // ★ 순수 숫자만 있는 경우 6자리로 패딩 (005930, 000001 등)
   if (/^\d{1,6}$/.test(s)) return s.padStart(6, '0');
+
+  // ★ 영문+숫자 혼합 코드 허용 (F00001, 0046Y0, EDGF35 등)
+  //   특수문자만 제거하고 대문자+숫자+.-는 그대로 유지
   return s.replace(/[^A-Z0-9.-]/g, '');
 }
 

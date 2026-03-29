@@ -12,21 +12,12 @@ function buildStockMgmt() {
   const editMode  = container._editMode    ?? false;
 
   // ── 정렬 상태 (container에 보존)
-  if(!container._sortKey) container._sortKey = 'default'; // 'default' | 'name' | 'code' | 'sector'
+  if(!container._sortKey) container._sortKey = 'default'; // 'default' | 'name' | 'sector'
 
   // ── 정렬된 인덱스 배열 생성 (원본 EDITABLE_PRICES 순서는 변경 안 함)
   let sortedIndices = EDITABLE_PRICES.map((_, i) => i);
   if(container._sortKey === 'name') {
     sortedIndices.sort((a, b) => EDITABLE_PRICES[a].name.localeCompare(EDITABLE_PRICES[b].name, 'ko'));
-  } else if(container._sortKey === 'code') {
-    // 코드 있는 것 먼저, 없으면 이름순
-    sortedIndices.sort((a, b) => {
-      const ca = EDITABLE_PRICES[a].code || '';
-      const cb = EDITABLE_PRICES[b].code || '';
-      if(ca && !cb) return -1;
-      if(!ca && cb) return 1;
-      return ca.localeCompare(cb);
-    });
   } else if(container._sortKey === 'sector') {
     sortedIndices.sort((a, b) => {
       const sa = EDITABLE_PRICES[a].sector || '기타';
@@ -46,7 +37,6 @@ function buildStockMgmt() {
       <span style="font-size:.65rem;color:var(--muted);font-weight:600;letter-spacing:.05em">정렬:</span>
       <button id="smSort_default" class="btn-sort-toggle${sortActv('default')}">기본순</button>
       <button id="smSort_name"    class="btn-sort-toggle${sortActv('name')}">이름순 🔤</button>
-      <button id="smSort_code"    class="btn-sort-toggle${sortActv('code')}">종목코드순 🔢</button>
       <button id="smSort_sector"  class="btn-sort-toggle${sortActv('sector')}">섹터순 📂</button>
       <span style="font-size:.65rem;color:var(--muted);margin-left:4px">(총 ${EDITABLE_PRICES.length}종목)</span>
     </div>`;
@@ -86,7 +76,7 @@ function buildStockMgmt() {
       <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.name.replace(/"/g,'&quot;')}"
         ${isEdit?'':'readonly tabindex="-1"'} />
       <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.code||''}"
-        style="font-family:'Courier New',monospace;text-align:center" maxlength="6" ${isEdit?'':'readonly tabindex="-1"'} />
+        style="font-family:'Courier New',monospace;text-align:center" maxlength="6" placeholder="예) 005930, F00001" ${isEdit?'':'readonly tabindex="-1"'} />
       <span class="txt-muted-68">${curType}</span>
       <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${sec}</span>
     </div>`;
@@ -134,7 +124,7 @@ function buildStockMgmt() {
   _bindStockMgmtEvents(container);
 }
 function _bindStockMgmtEvents(container) {
-  ['default','name','code','sector'].forEach(key => {
+  ['default','name','sector'].forEach(key => {
     $el(`smSort_${key}`)?.addEventListener('click', function() {
       container._sortKey = key;
       container._selectedIdx = null;
@@ -292,7 +282,7 @@ function smCsvImport(input) {
       const sector = col.sector >= 0 ? cols[col.sector] || '기타' : '기타';
       if (!name) { skipped++; return; }
       const assetType = VALID_TYPES.includes(type) ? type : '주식';
-      // ★ 주식·ETF는 종목코드 필수, 코드 입력 시 6자리 강제
+      // ★ 주식·ETF는 종목코드 필수, 코드 입력 시 영문+숫자 혼합 포함 6자리 강제
       if (code && code.length !== 6) { skipped++; return; }
       if (!code && (assetType === '주식' || assetType === 'ETF')) { skipped++; return; }
       const isFund    = ['펀드','TDF'].includes(assetType);
@@ -367,8 +357,8 @@ function smMgmtConfirm() {
   const assetType = $el('smMgmtNewType')?.value || '주식';
   const sector    = $el('smMgmtNewSec')?.value || '기타';
   if(!name) { showMgmtMsg('smMgmtMsg','⚠️ 종목명을 입력해주세요',true); return; }
-  // ★ 종목코드 입력 시 6자리 강제
-  if(code && code.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930)', true); return; }
+  // ★ 종목코드 입력 시 6자리 강제 (숫자만 또는 영문+숫자 혼합 허용: 005930, F00001, 0046Y0)
+  if(code && code.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
   // ★ 주식·ETF는 종목코드 필수
   if(!code && (assetType === '주식' || assetType === 'ETF')) {
     showMgmtMsg('smMgmtMsg', `⚠️ ${assetType}은 종목코드(6자리)를 반드시 입력해주세요`, true); return;
@@ -420,8 +410,8 @@ function smSave(idx) {
   const newType = document.querySelector(`.sm-type-sel[data-idx="${idx}"]`)?.value || '주식';
   const newSec  = document.querySelector(`.sm-sec-sel[data-idx="${idx}"]`)?.value || '기타';
   if(!newName) return;
-  // ★ 종목코드 입력 시 6자리 강제
-  if(newCode && newCode.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930)', true); return; }
+  // ★ 종목코드 입력 시 6자리 강제 (숫자만 또는 영문+숫자 혼합 허용: 005930, F00001, 0046Y0)
+  if(newCode && newCode.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
   // ★ 주식·ETF는 종목코드 필수
   if(!newCode && (newType === '주식' || newType === 'ETF')) {
     showMgmtMsg('smMgmtMsg', `⚠️ ${newType}은 종목코드(6자리)를 반드시 입력해주세요`, true); return;
