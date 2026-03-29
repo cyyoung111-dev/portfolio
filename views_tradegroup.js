@@ -76,6 +76,12 @@ function renderTradeGroupView(area) {
         const isHolding = g.qty > 0;
         const pnlColor  = g.realizedPnl >= 0 ? 'var(--green)' : 'var(--red)';
         const pnlSign   = g.realizedPnl >= 0 ? '+' : '';
+        // ★ 현재단가/평가금액/매입금액 계산
+        const ep         = getEP(name);
+        const epCode     = (ep && ep.code) || '';
+        const curPrice   = savedPrices[epCode] || savedPrices[name] || null;
+        const evalAmt    = curPrice != null ? curPrice * g.qty : null;
+        const costAmt    = g.avgCost * g.qty;
         return `
         <div class="tg-group" style="background:var(--s1);border:1px solid var(--border);border-radius:10px;overflow:hidden">
           <!-- 종목 요약 헤더 (클릭으로 토글) -->
@@ -91,10 +97,14 @@ function renderTradeGroupView(area) {
                   ? `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:rgba(74,222,128,.12);color:var(--green-lt);font-weight:600">보유중 ${g.qty.toLocaleString()}주</span>`
                   : `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:var(--c-muted-10);color:var(--muted)">청산완료</span>`}
               </div>
-              <div style="display:flex;gap:14px;margin-top:4px;font-size:.70rem;color:var(--muted)">
+              <div style="display:flex;gap:14px;margin-top:4px;font-size:.70rem;color:var(--muted);flex-wrap:wrap">
                 <span>매수 <b class="c-text">${g.buyCount}</b>건</span>
                 <span>매도 <b class="c-text">${g.sellCount}</b>건</span>
-                ${isHolding ? `<span>평균단가 <b class="c-text">${Math.round(g.avgCost).toLocaleString()}원</b></span>` : ''}
+                ${isHolding ? `<span>주식수 <b class="c-text">${g.qty.toLocaleString()}</b></span>` : ''}
+                ${isHolding ? `<span>매입단가 <b class="c-text">${Math.round(g.avgCost).toLocaleString()}원</b></span>` : ''}
+                ${isHolding ? `<span>매입금액 <b class="c-text">${Math.round(costAmt).toLocaleString()}원</b></span>` : ''}
+                ${isHolding && curPrice != null ? `<span>현재단가 <b style="color:var(--cyan)">${curPrice.toLocaleString()}원</b></span>` : ''}
+                ${isHolding && evalAmt != null ? `<span>평가금액 <b style="color:var(--cyan)">${Math.round(evalAmt).toLocaleString()}원</b></span>` : ''}
                 ${g.sellCount > 0 ? `<span>실현손익 <b style="color:${pnlColor}">${pnlSign}${Math.round(g.realizedPnl).toLocaleString()}원</b></span>` : ''}
               </div>
             </div>

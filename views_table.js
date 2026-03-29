@@ -19,9 +19,10 @@ const TABLE_COLS = [
   { key: 'acct',   label: '계좌',     type: 'filter' },
   { key: 'type',   label: '구분',     type: 'filter' },
   { key: 'name',   label: '종목명',   type: 'filter' },
-  { key: 'qty',    label: '수량',     type: 'sort',   num: true },
-  { key: 'cost',   label: '매수단가', type: 'sort',   num: true },
-  { key: 'price',  label: '현재가',   type: 'sort',   num: true },
+  { key: 'qty',    label: '주식수',   type: 'sort',   num: true },
+  { key: 'cost',   label: '매입단가', type: 'sort',   num: true },
+  { key: 'costAmt',label: '매입금액', type: 'sort',   num: true },
+  { key: 'price',  label: '현재단가', type: 'sort',   num: true },
   { key: 'eval',   label: '평가금액', type: 'sort',   num: true },
   { key: 'pnl',    label: '손익',     type: 'sort',   num: true },
   { key: 'pct',    label: '수익률',   type: 'sort',   num: true },
@@ -221,12 +222,13 @@ function applyFiltersAndSort(rawData, tableId) {
     const dir = st.sortDir === 'asc' ? 1 : -1;
     data.sort((a, b) => {
       let va, vb;
-      if (st.sortCol === 'qty')   { va = a.qty || 0;      vb = b.qty || 0; }
-      if (st.sortCol === 'cost')  { va = a.cost || 0;     vb = b.cost || 0; }
-      if (st.sortCol === 'price') { va = a.price || 0;    vb = b.price || 0; }
-      if (st.sortCol === 'eval')  { va = a.evalAmt || 0;  vb = b.evalAmt || 0; }
-      if (st.sortCol === 'pnl')   { va = a.pnl || 0;      vb = b.pnl || 0; }
-      if (st.sortCol === 'pct')   { va = a.pct || 0;      vb = b.pct || 0; }
+      if (st.sortCol === 'qty')     { va = a.qty || 0;      vb = b.qty || 0; }
+      if (st.sortCol === 'cost')    { va = a.cost || 0;     vb = b.cost || 0; }
+      if (st.sortCol === 'costAmt') { va = a.costAmt || 0;  vb = b.costAmt || 0; }
+      if (st.sortCol === 'price')   { va = a.price || 0;    vb = b.price || 0; }
+      if (st.sortCol === 'eval')    { va = a.evalAmt || 0;  vb = b.evalAmt || 0; }
+      if (st.sortCol === 'pnl')     { va = a.pnl || 0;      vb = b.pnl || 0; }
+      if (st.sortCol === 'pct')     { va = a.pct || 0;      vb = b.pct || 0; }
       if (st.sortCol === 'name')  { return dir * a.name.localeCompare(b.name, 'ko'); }
       return dir * ((va || 0) - (vb || 0));
     });
@@ -292,9 +294,10 @@ function buildTableInner(rawData, tableId, extraCol) {
     thFilter('acct','계좌'),
     thFilter('type','구분'),
     thFilter('name','종목명'),
-    thSort('qty','수량',true),
-    thSort('cost','매수단가',true),
-    thSort('price','현재가',true),
+    thSort('qty','주식수',true),
+    thSort('cost','매입단가',true),
+    thSort('costAmt','매입금액',true),
+    thSort('price','현재단가',true),
     thSort('eval','평가금액',true),
     thSort('pnl','손익',true),
     thSort('pct','수익률',true),
@@ -315,8 +318,9 @@ function buildTableInner(rawData, tableId, extraCol) {
     const priceCell = r.fund
       ? `<span style='color:var(--cyan)'>${r.price.toLocaleString()}원</span>`
       : r.price ? r.price.toLocaleString()+'원' : '<span class="c-muted">-</span>';
-    const qtyCell  = r.qty  != null ? r.qty.toLocaleString()  : '-';
-    const costCell = r.cost != null ? r.cost.toLocaleString()+'원' : '-';
+    const qtyCell     = r.qty     != null ? r.qty.toLocaleString()           : '-';
+    const costCell    = r.cost    != null ? r.cost.toLocaleString()+'원'     : '-';
+    const costAmtCell = r.costAmt != null ? fmtW(r.costAmt)                  : '-';
     let sectorCell = '';
     if (extraCol === '섹터') {
       sectorCell = `<td><span style="font-size:.70rem;padding:2px 8px;border-radius:4px;background:${SECTOR_COLORS[r.sector]||'var(--muted)'}22;color:${SECTOR_COLORS[r.sector]||'var(--muted)'}">${r.sector}</span></td>`;
@@ -328,6 +332,7 @@ function buildTableInner(rawData, tableId, extraCol) {
       <td class="fw6"><span data-gname="${r.name}" onclick="goToTradeGroup(this.dataset.gname)" class="dotted-link" title="종목별 거래 보기">${r.name}</span>${r.code?`<span class="lbl-62-mt2">${r.code}</span>`:''}</td>
       <td class="num">${qtyCell}</td>
       <td class="num">${costCell}</td>
+      <td class="num">${costAmtCell}</td>
       <td class="num">${priceCell}</td>
       <td class="num">${fmtW(r.evalAmt)}</td>
       <td class="num" style="color:${pC2}">${pS2}${fmt(r.pnl)}</td>

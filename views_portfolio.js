@@ -86,7 +86,10 @@ function renderSectorView(area) {
           <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">종목명</th>
           <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">구분</th>
           <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:left">보유 계좌</th>
-          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">총 수량</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">주식수</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">매입단가</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">매입금액</th>
+          <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">현재단가</th>
           <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">평가금액</th>
           <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">손익</th>
           <th style="padding:8px 10px;font-size:.68rem;font-weight:600;color:var(--muted);text-align:right">수익률</th>
@@ -94,16 +97,22 @@ function renderSectorView(area) {
 
     const secMerged = {};
     d.rows.forEach(r => {
-      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0 };
+      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0, totalCostAmt:0 };
       const m = secMerged[r.name];
-      m.evalAmt  += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
-      m.totalQty += (r.qty||0);
+      m.evalAmt    += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
+      m.totalQty   += (r.qty||0);
+      m.totalCostAmt += (r.costAmt||0);
       if (!m.accts.includes(r.acct)) m.accts.push(r.acct);
     });
     Object.values(secMerged).sort((a,b) => b.evalAmt - a.evalAmt).forEach(m => {
       const mPct = m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0;
       const rC = pColor(m.pnl), rS = pSign(m.pnl);
       const epType = (() => { const ep = getEP(m.name); return getEPType(ep, null); })();
+      // 평균 매입단가: totalCostAmt / totalQty
+      const avgCost = m.totalQty > 0 ? Math.round(m.totalCostAmt / m.totalQty) : null;
+      // 현재단가: rows에서 찾기
+      const rowRef = d.rows.find(r => r.name === m.name);
+      const curPrice = rowRef?.price ?? null;
       html += `<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:7px 8px;font-size:.78rem;font-weight:600;text-align:left">
           ${m.name}${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:1px">${m.code}</span>`:''}
@@ -116,7 +125,10 @@ function renderSectorView(area) {
             ${m.accts.map(a=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span><span style="font-size:.62rem;color:var(--muted)">${a}</span></div>`).join('')}
           </div>
         </td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${m.totalQty.toLocaleString()}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${avgCost != null ? avgCost.toLocaleString()+'원' : '-'}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right">${fmtW(m.costAmt)}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${curPrice != null ? curPrice.toLocaleString()+'원' : '-'}</td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right">${fmtW(m.evalAmt)}</td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right;color:${rC}">${rS}${fmt(m.pnl)}</td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
@@ -279,10 +291,13 @@ function renderMergeView(area) {
     </div>
     <div class="overflow-x-auto"><table><thead><tr>
       ${thSort('name','종목명')}
-      <th>구분</th><th>보유 계좌</th><th class="num">총 수량</th>
-      ${thSort('eval','총 평가금액',true)}
-      <th class="num">총 원금</th>
-      ${thSort('pnl','합산 손익',true)}
+      <th>구분</th><th>보유 계좌</th>
+      <th class="num">주식수</th>
+      <th class="num">매입단가</th>
+      ${thSort('eval','매입금액',true)}
+      <th class="num">현재단가</th>
+      ${thSort('eval','평가금액',true)}
+      ${thSort('pnl','손익',true)}
       ${thSort('pct','수익률',true)}
       <th class="num">비중</th>
     </tr></thead><tbody>`;
@@ -294,14 +309,18 @@ function renderMergeView(area) {
     const detailId = 'merge-detail-'+idx;
     const isMulti = m.breakdown.length > 1;
     const acctDots = m.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span>`).join('');
+    const avgCostMerge = m.totalQty > 0 ? Math.round(m.costAmt / m.totalQty) : null;
+    const curPriceMerge = m.breakdown[0]?.price ?? null;
 
     html += `<tr style="cursor:${isMulti?'pointer':'default'}" onclick="${isMulti?`toggleMergeDetail('${detailId}')`:''}" title="${isMulti?'클릭하면 계좌별 상세 보기':''}">
       <td class="fw6"><span data-gname="${m.name}" onclick="event.stopPropagation();goToTradeGroup(this.dataset.gname)" class="dotted-link" title="종목별 거래 보기">${m.name}</span>${isMulti?` <span style="font-size:.65rem;color:var(--pink);margin-left:4px">▸ ${m.breakdown.length}계좌</span>`:''}${m.code?`<span class="lbl-62-mt2">${m.code}</span>`:''}</td>
       <td><span class="tag tg-${m.type}">${m.type}</span></td>
       <td>${acctDots} <span class="txt-muted-72">${acctNames}</span></td>
       <td class="num">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
-      <td class="num">${fmtW(m.evalAmt)}</td>
+      <td class="num">${avgCostMerge != null ? avgCostMerge.toLocaleString()+'원' : '-'}</td>
       <td class="num">${fmtW(m.costAmt)}</td>
+      <td class="num">${curPriceMerge != null ? curPriceMerge.toLocaleString()+'원' : '-'}</td>
+      <td class="num">${fmtW(m.evalAmt)}</td>
       <td class="num" style="color:${pC}">${pS}${fmt(m.pnl)}</td>
       <td class="num" style="color:${pC}">${pS}${m.pct.toFixed(1)}%</td>
       <td>
@@ -315,7 +334,7 @@ function renderMergeView(area) {
     </tr>`;
 
     if (isMulti) {
-      html += `<tr id="${detailId}" style="display:none;"><td colspan="9" style="padding:0">
+      html += `<tr id="${detailId}" style="display:none;"><td colspan="11" style="padding:0">
         <table style="width:100%;background:var(--s2)"><thead><tr>
           <th class="p-8-14">계좌</th><th class="num">수량</th><th class="num">매수단가</th><th class="num">현재가</th><th class="num">평가금액</th><th class="num">손익</th><th class="num">수익률</th>
         </tr></thead><tbody>`;

@@ -165,6 +165,7 @@ function buildEditorUI() {
 
   // ② 코드 있는 일반 종목 중 현재가 미조회된 것
   // savedPrices 조회 시 코드 키 + 이름 키 모두 확인
+  // ★ 영문 포함 코드(F00001, 0046Y0 등)는 GOOGLEFINANCE 조회 불가 → 항상 포함
   const nopriceCodes = new Set();
   const nopriceItems = [];
   EDITABLE_PRICES.forEach(item => {
@@ -172,8 +173,9 @@ function buildEditorUI() {
     if (item.fund || item.assetType === '펀드' || item.assetType === 'TDF') return;
     if (!item.code) return;
     const code = (typeof normalizeStockCode === 'function') ? normalizeStockCode(item.code) : item.code;
-    // ★ 코드 키, 원본코드 키, 이름 키 모두 확인
-    const hasPrice = savedPrices[code] || savedPrices[item.code] || savedPrices[item.name];
+    // ★ 영문 포함 코드 = GOOGLEFINANCE 자동조회 불가 → 항상 수동 입력 목록에 포함
+    const isAlphanumeric = /[A-Z]/.test(code);
+    const hasPrice = !isAlphanumeric && (savedPrices[code] || savedPrices[item.code] || savedPrices[item.name]);
     if (!hasPrice) {
       nopriceCodes.add(code);
       nopriceItems.push(item);
