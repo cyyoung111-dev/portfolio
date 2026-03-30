@@ -117,6 +117,7 @@ function renderTradeGroupView(area) {
 
           <!-- 거래 상세 테이블 (기본 숨김) -->
           <div class="tg-detail" style="display:none;border-top:1px solid var(--border);overflow-x:auto">
+            <div style="padding:8px 12px 0;text-align:right;font-size:.65rem;color:var(--muted)">(단위:원)</div>
             <table style="width:100%;border-collapse:collapse;font-size:.72rem;min-width:400px">
               <thead>
                 <tr style="background:var(--s2);border-bottom:1px solid var(--border)">
@@ -150,7 +151,7 @@ function renderTradeGroupView(area) {
                       const pct = avg > 0 ? ((price - avg) / avg * 100) : 0;
                       const pc  = pnl >= 0 ? 'var(--green)' : 'var(--red)';
                       const ps  = pnl >= 0 ? '+' : '';
-                      pnlCell   = `<div style="color:${pc};font-weight:600">${ps}${Math.round(pnl).toLocaleString()}원</div>
+                      pnlCell   = `<div style="color:${pc};font-weight:600">${ps}${Math.round(pnl).toLocaleString()}</div>
                                    <div style="font-size:.65rem;color:${pc}">${ps}${pct.toFixed(1)}%</div>`;
                       runCost  -= Math.min(qty, runQty) * avg;
                       runQty   -= Math.min(qty, runQty);
@@ -165,9 +166,9 @@ function renderTradeGroupView(area) {
                       </td>
                       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:.78rem">${qty.toLocaleString()}</td>
                       <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:.78rem;color:${isSell?'var(--red-lt)':'var(--green-lt)'}">
-                        ${price.toLocaleString()}원
+                        ${price.toLocaleString()}
                       </td>
-                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:.78rem">${amount.toLocaleString()}원</td>
+                      <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:.78rem">${amount.toLocaleString()}</td>
                       <td style="padding:7px 12px;text-align:right">
                         ${pnlCell || '<span style="color:var(--muted)">-</span>'}
                       </td>
