@@ -314,6 +314,13 @@ let editedPrices = {};  // 현재가 편집기 임시 저장용
 // ── 가격 캐시 localStorage 복원
 (function restorePriceCache() {
   try {
+    // GS 연동 모드에서는 가격 캐시를 로컬에서 복원하지 않음 (단일 소스: GSheet)
+    if (lsGet(GSHEET_KEY, '')) {
+      lsRemove(PRICES_KEY);
+      lsRemove(PRICE_DATES_KEY);
+      lsRemove(LAST_UPDATED_KEY);
+      return;
+    }
     const sp = lsGet(PRICES_KEY, null);
     if (sp) Object.assign(savedPrices, sp);
     const sd = lsGet(PRICE_DATES_KEY, null);
@@ -421,6 +428,13 @@ function _getFilteredTrades() {
 
 // ── 거래이력: 요약 카드 HTML 생성
 function savePriceCache() {
+  // GS 연동 모드에서는 가격 캐시를 로컬에 저장하지 않음 (단일 소스: GSheet)
+  if (lsGet(GSHEET_KEY, '')) {
+    lsRemove(PRICES_KEY);
+    lsRemove(PRICE_DATES_KEY);
+    lsRemove(LAST_UPDATED_KEY);
+    return;
+  }
   lsSave(PRICES_KEY, savedPrices);
   lsSave(PRICE_DATES_KEY, savedPriceDates);
   // null을 그대로 저장하면 "null" 문자열이 되어 날짜 비교 오작동 방지
