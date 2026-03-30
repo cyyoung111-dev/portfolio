@@ -102,22 +102,54 @@ const THEMES = {
       '--gold': '#b45309', '--gold2': '#c2410c', '--green-lt': '#047857', '--green-md': '#059669',
       '--blue-lt': '#2563eb', '--purple-lt': '#8b5cf6', '--purple-dk': '#6d28d9', '--red-lt': '#dc2626',
     }
+  },
+  light_mint: {
+    mode: 'light',
+    label: '🌿 라이트 민트',
+    desc: '그린 포인트 라이트',
+    vars: {
+      '--bg': '#f4fbf8', '--s1': '#ffffff', '--s2': '#ecf7f1', '--border': '#c7e3d5',
+      '--green': '#047857', '--red': '#dc2626', '--blue': '#0f766e', '--amber': '#0d9488',
+      '--purple': '#0f766e', '--cyan': '#0891b2', '--text': '#0f172a', '--muted': '#5f7f74',
+      '--gold': '#0f766e', '--gold2': '#0d9488', '--green-lt': '#047857', '--green-md': '#059669',
+      '--blue-lt': '#0f766e', '--purple-lt': '#14b8a6', '--purple-dk': '#0f766e', '--red-lt': '#dc2626',
+    }
+  },
+  light_rose: {
+    mode: 'light',
+    label: '🌸 라이트 로즈',
+    desc: '핑크 포인트 라이트',
+    vars: {
+      '--bg': '#fff7fa', '--s1': '#ffffff', '--s2': '#fff0f5', '--border': '#f3c9d8',
+      '--green': '#be185d', '--red': '#e11d48', '--blue': '#db2777', '--amber': '#ec4899',
+      '--purple': '#d946ef', '--cyan': '#f472b6', '--text': '#3b0a1f', '--muted': '#9f5f78',
+      '--gold': '#db2777', '--gold2': '#be185d', '--green-lt': '#be185d', '--green-md': '#db2777',
+      '--blue-lt': '#ec4899', '--purple-lt': '#f472b6', '--purple-dk': '#be185d', '--red-lt': '#e11d48',
+    }
   }
 };
 
 const THEME_STORAGE_KEY = 'app_theme';
 const THEME_MODE_KEY = 'app_theme_mode';
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
+const LEGACY_LIGHT_THEMES = ['light'];
+const THEME_VISIBLE_PRESETS = {
+  dark: ['ocean', 'black', 'midnight'],
+  light: ['light', 'light_mint', 'light_rose'],
+};
 let _currentTheme = 'ocean';
 let _themeMode = 'dark';
 
 function _themeKeysByMode(mode) {
-  return Object.keys(THEMES).filter(k => THEMES[k].mode === mode);
+  const visible = THEME_VISIBLE_PRESETS[mode] || [];
+  return visible.filter(key => THEMES[key] && THEMES[key].mode === mode);
 }
 
 function _normalizeThemeKey(themeKey) {
   if (THEMES[themeKey]) return themeKey;
+  if (themeKey === 'amber' || themeKey === 'purple' || themeKey === 'forest' || themeKey === 'rose') return 'ocean';
   if (LEGACY_DARK_THEMES.includes(themeKey)) return 'ocean';
+  if (LEGACY_LIGHT_THEMES.includes(themeKey)) return 'light';
   return 'ocean';
 }
 
