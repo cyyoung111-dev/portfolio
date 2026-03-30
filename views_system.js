@@ -154,6 +154,8 @@ function openTabSettings() {
   renderTabSettingsBody();
   const ov = $el('tabSettingsOverlay');
   if (ov) ov.style.display = 'flex';
+  // ★ 탭순서 패널을 기본으로 활성화 (theme.js의 switchSettingsTab 사용)
+  if (typeof switchSettingsTab === 'function') switchSettingsTab('tab');
 }
 function closeTabSettings() {
   const ov = $el('tabSettingsOverlay');

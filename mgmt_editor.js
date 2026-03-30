@@ -1,14 +1,4 @@
 function openEditor() {
-  // rawHoldings에 있는 펀드/TDF 중 EDITABLE_PRICES에 누락된 것 보충
-  rawHoldings.forEach(h => {
-    if (!h.name) return;
-    // ★ 버그수정: STOCK_CODE 직접 참조 → getCode() 사용
-    // getCode()는 EDITABLE_PRICES 우선 → STOCK_CODE fallback
-    const code = h.fund ? '' : getCode(h.name);
-    if (!getEP(h.name)) {
-      epPush(h.name, code, h.type);
-    }
-  });
   buildEditorUI();
   // ★ 날짜 입력란 오늘 날짜로 초기화
   const editorDateEl = $el('editorDate');
@@ -182,15 +172,17 @@ function buildEditorUI() {
     }
   });
   // ★ _gsheetMissingCodes: GAS 조회 실패 종목 중 EDITABLE_PRICES에 없는 것도 추가
+  // 단, 기초정보에 이미 같은 이름 또는 같은 코드가 있으면 추가하지 않음
   if (Array.isArray(window._gsheetMissingCodes)) {
     window._gsheetMissingCodes.forEach(m => {
       const code = (typeof normalizeStockCode === 'function') ? normalizeStockCode(m.code) : m.code;
-      if (!nopriceCodes.has(code)) {
-        nopriceCodes.add(code);
-        // EDITABLE_PRICES에서 찾거나 임시 객체 생성
-        const ep = EDITABLE_PRICES.find(i => i.code === code || i.code === m.code);
-        nopriceItems.push(ep || { name: m.name, code: m.code, assetType: '주식' });
-      }
+      if (nopriceCodes.has(code)) return; // 이미 목록에 있음
+      // ★ 기초정보에 같은 코드 또는 같은 이름이 있으면 추가하지 않음
+      const epByCode = EDITABLE_PRICES.find(i => i.code && normalizeStockCode(i.code) === code);
+      const epByName = EDITABLE_PRICES.find(i => i.name === m.name);
+      if (epByCode || epByName) return;
+      nopriceCodes.add(code);
+      nopriceItems.push({ name: m.name, code: m.code, assetType: '주식' });
     });
   }
 
