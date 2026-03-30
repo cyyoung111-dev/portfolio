@@ -174,6 +174,7 @@ function applyTheme(themeKey, opts = {}) {
     if (!opts.skipModeSave) lsSave(THEME_MODE_KEY, _themeMode);
   }
   _renderThemeButtons();
+  _refreshThemeSelectorIfOpen();
 }
 
 function setThemeMode(mode) {
@@ -187,8 +188,14 @@ function setThemeMode(mode) {
     return;
   }
   _renderThemeButtons();
+  _refreshThemeSelectorIfOpen();
+}
+
+function _refreshThemeSelectorIfOpen() {
   const container = document.getElementById('themeSettingsBody');
-  if (container) container.innerHTML = _buildThemeSelectorHTML();
+  if (!container) return;
+  if (container.closest('#settingsPanel_theme')?.style.display === 'none') return;
+  container.innerHTML = _buildThemeSelectorHTML();
 }
 
 function loadTheme() {
