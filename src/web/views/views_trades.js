@@ -21,14 +21,16 @@ function _buildTradesSummaryHTML() {
       </div>
       <div class="trade-stat-card">
         <div class="trade-stat-label">실현손익</div>
-        <div class="trade-stat-value" style="color:${pC}">${pS}${Math.round(realizedPnl).toLocaleString()}<span class="txt-70-400">원</span></div>
+        <div class="trade-stat-value" style="color:${pC}">${pS}${Math.round(realizedPnl).toLocaleString()}</div>
       </div>
       <div class="trade-stat-card">
         <div class="trade-stat-label">수익률</div>
         <div class="trade-stat-value" style="color:${pC}">${pS}${realizedPct.toFixed(1)}<span class="txt-70-400">%</span></div>
       </div>
     </div>
-    <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+      <div class="txt-muted-68">(단위:원)</div>
+      <div></div>
     </div>`;
 }
 
@@ -46,12 +48,12 @@ function _buildTradesTableHTML(list) {
     {k:null,    label:'손익',   align:'right', cls:''},
   ];
   const headerHTML = headerCols.map(col => {
-    if (!col.k) return `<th style="padding:9px 10px;text-align:${col.align};font-size:.68rem;font-weight:600;color:var(--muted)"${col.cls?` class="${col.cls}"`:''} >${col.label}</th>`;
+    if (!col.k) return `<th style="padding:9px 10px;text-align:center;font-size:.68rem;font-weight:600;color:var(--muted)"${col.cls?` class="${col.cls}"`:''} >${col.label}</th>`;
     const active = _tradeSort.key === col.k;
     const arrow  = active ? (_tradeSort.dir === 1 ? ' ▲' : ' ▼') : ' ⇅';
     const color  = active ? 'color:var(--purple-lt)' : 'color:var(--muted)';
     return `<th${col.cls?` class="${col.cls}"`:''}
-      style="padding:9px 10px;text-align:${col.align};font-size:.68rem;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}"
+      style="padding:9px 10px;text-align:center;font-size:.68rem;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}"
       onclick="tradeSetSort('${col.k}')">${col.label}<span style="font-size:.60rem;opacity:.7">${arrow}</span></th>`;
   }).join('');
 
@@ -107,11 +109,11 @@ function _buildTradesTableHTML(list) {
           ${date || '<span style="color:var(--red-lt);font-size:.60rem">날짜없음</span>'}
         </td>
         <td style="padding:8px 10px;text-align:right;font-size:.78rem;font-variant-numeric:tabular-nums" onclick="editTrade('${t.id}')">
-          ${price.toLocaleString()}원
+          ${price.toLocaleString()}
         </td>
         <td style="padding:8px 10px;text-align:right" onclick="editTrade('${t.id}')">
           ${pnl !== null ? `
-            <div style="color:${pC};font-weight:600;font-size:.78rem;font-variant-numeric:tabular-nums">${pS}${Math.round(pnl).toLocaleString()}원</div>
+            <div style="color:${pC};font-weight:600;font-size:.78rem;font-variant-numeric:tabular-nums">${pS}${Math.round(pnl).toLocaleString()}</div>
             <div style="font-size:.65rem;color:${pC}">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
           ` : `<span style="color:var(--muted)">-</span>`}
         </td>

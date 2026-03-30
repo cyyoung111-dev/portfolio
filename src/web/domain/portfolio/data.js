@@ -279,7 +279,7 @@ function fmt(n){
   if(a>=10000) return sign+Math.round(a/10000).toLocaleString()+'만';
   return sign+Math.round(a).toLocaleString();
 }
-function fmtW(n){return Math.round(n).toLocaleString()+'원';}
+function fmtW(n){return Math.round(n).toLocaleString();}
 let _tradeFilter = { acct:'', name:'', type:'all' };   // all | buy | sell
 let _tradeSort   = { key:'date', dir:-1 };            // key: date|name|acct|qty|price  dir: 1 asc / -1 desc
 

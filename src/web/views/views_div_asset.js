@@ -237,7 +237,7 @@ function renderDivView(area, skipFetch) {
         <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:.63rem;font-weight:700;background:${fCol}22;color:${fCol}">${r.dd.freq}</span>
       </td>
       <td style="padding:9px 8px;text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums">${r.totalQty.toLocaleString()}</td>
-      <td style="padding:9px 8px;text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}원</td>
+      <td style="padding:9px 8px;text-align:right;font-size:.82rem;font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}</td>
       <td style="padding:9px 8px">${monthBadges}</td>
       <td style="padding:9px 8px;text-align:right;color:var(--cyan);font-weight:600;font-variant-numeric:tabular-nums">${fmtW(Math.round(r.annualDiv))}</td>
       <td style="padding:9px 8px;text-align:right;color:var(--green);font-variant-numeric:tabular-nums">${fmtW(monthlyDiv)}</td>
@@ -277,7 +277,7 @@ function renderDivView(area, skipFetch) {
         </div>
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">주당 배당금</div>
-          <div style="font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}원</div>
+          <div style="font-variant-numeric:tabular-nums">${r.dd.perShare.toLocaleString()}</div>
         </div>
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">수익률</div>

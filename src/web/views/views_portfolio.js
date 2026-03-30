@@ -126,9 +126,9 @@ function renderSectorView(area) {
           </div>
         </td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${avgCost != null ? avgCost.toLocaleString()+'원' : '-'}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${avgCost != null ? avgCost.toLocaleString() : '-'}</td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right">${fmtW(m.costAmt)}</td>
-        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${curPrice != null ? curPrice.toLocaleString()+'원' : '-'}</td>
+        <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${curPrice != null ? curPrice.toLocaleString() : '-'}</td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right">${fmtW(m.evalAmt)}</td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right;color:${rC}">${rS}${fmt(m.pnl)}</td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right;color:${rC};font-weight:700">${rS}${mPct.toFixed(1)}%</td>
@@ -317,9 +317,9 @@ function renderMergeView(area) {
       <td><span class="tag tg-${m.type}">${m.type}</span></td>
       <td>${acctDots} <span class="txt-muted-72">${acctNames}</span></td>
       <td class="num">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
-      <td class="num">${avgCostMerge != null ? avgCostMerge.toLocaleString()+'원' : '-'}</td>
+      <td class="num">${avgCostMerge != null ? avgCostMerge.toLocaleString() : '-'}</td>
       <td class="num">${fmtW(m.costAmt)}</td>
-      <td class="num">${curPriceMerge != null ? curPriceMerge.toLocaleString()+'원' : '-'}</td>
+      <td class="num">${curPriceMerge != null ? curPriceMerge.toLocaleString() : '-'}</td>
       <td class="num">${fmtW(m.evalAmt)}</td>
       <td class="num" style="color:${pC}">${pS}${fmt(m.pnl)}</td>
       <td class="num" style="color:${pC}">${pS}${m.pct.toFixed(1)}%</td>
@@ -340,11 +340,11 @@ function renderMergeView(area) {
         </tr></thead><tbody>`;
       m.breakdown.forEach(r => {
         const rC = pColor(r.pnl), rS = pSign(r.pnl);
-        const priceCell = r.fund ? `<span class="c-cyan">${r.price.toLocaleString()}원</span>` : r.price ? r.price.toLocaleString()+'원' : '-';
+        const priceCell = r.fund ? `<span class="c-cyan">${r.price.toLocaleString()}</span>` : r.price ? r.price.toLocaleString() : '-';
         html += `<tr style="border-top:1px solid var(--border)">
           <td class="p-8-14"><span class="adot" style="background:${ACCT_COLORS[r.acct]}"></span>${r.acct}</td>
           <td class="mono">${r.qty!=null?r.qty.toLocaleString():'-'}</td>
-          <td class="mono">${r.cost!=null?r.cost.toLocaleString()+'원':'-'}</td>
+          <td class="mono">${r.cost!=null?r.cost.toLocaleString():'-'}</td>
           <td class="mono">${priceCell}</td>
           <td class="mono">${fmtW(r.evalAmt)}</td>
           <td class="mono" style="color:${rC}">${rS}${fmt(r.pnl)}</td>

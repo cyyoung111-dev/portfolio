@@ -101,11 +101,11 @@ function renderTradeGroupView(area) {
                 <span>매수 <b class="c-text">${g.buyCount}</b>건</span>
                 <span>매도 <b class="c-text">${g.sellCount}</b>건</span>
                 ${isHolding ? `<span>주식수 <b class="c-text">${g.qty.toLocaleString()}</b></span>` : ''}
-                ${isHolding ? `<span>매입단가 <b class="c-text">${Math.round(g.avgCost).toLocaleString()}원</b></span>` : ''}
-                ${isHolding ? `<span>매입금액 <b class="c-text">${Math.round(costAmt).toLocaleString()}원</b></span>` : ''}
-                ${isHolding && curPrice != null ? `<span>현재단가 <b style="color:var(--cyan)">${curPrice.toLocaleString()}원</b></span>` : ''}
-                ${isHolding && evalAmt != null ? `<span>평가금액 <b style="color:var(--cyan)">${Math.round(evalAmt).toLocaleString()}원</b></span>` : ''}
-                ${g.sellCount > 0 ? `<span>실현손익 <b style="color:${pnlColor}">${pnlSign}${Math.round(g.realizedPnl).toLocaleString()}원</b></span>` : ''}
+                ${isHolding ? `<span>매입단가 <b class="c-text">${Math.round(g.avgCost).toLocaleString()}</b></span>` : ''}
+                ${isHolding ? `<span>매입금액 <b class="c-text">${Math.round(costAmt).toLocaleString()}</b></span>` : ''}
+                ${isHolding && curPrice != null ? `<span>현재단가 <b style="color:var(--cyan)">${curPrice.toLocaleString()}</b></span>` : ''}
+                ${isHolding && evalAmt != null ? `<span>평가금액 <b style="color:var(--cyan)">${Math.round(evalAmt).toLocaleString()}</b></span>` : ''}
+                ${g.sellCount > 0 ? `<span>실현손익 <b style="color:${pnlColor}">${pnlSign}${Math.round(g.realizedPnl).toLocaleString()}</b></span>` : ''}
               </div>
             </div>
             <div style="display:flex;align-items:center;gap:5px;flex-shrink:0" onclick="event.stopPropagation()">

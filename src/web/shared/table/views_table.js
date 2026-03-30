@@ -74,7 +74,7 @@ function buildTableInner(rawData, tableId, extraCol) {
   <div class="tbl-wrap">
     <div class="tbl-head">
       <h3>종목 목록 ${filteredBadge}</h3>
-      <div class="tsum">평가 <b>${fmt(totalEval)}</b> &nbsp; 손익 <span style="color:${pC}">${pS}${fmt(totalPnl)} (${pS}${totalPct.toFixed(1)}%)</span></div>
+      <div class="tsum">평가 <b>${fmt(totalEval)}</b> &nbsp; 손익 <span style="color:${pC}">${pS}${fmt(totalPnl)} (${pS}${totalPct.toFixed(1)}%)</span> <span class="txt-muted-68">(단위:원)</span></div>
     </div>
     <div class="overflow-x-auto"><table><thead><tr>${headerCols}</tr></thead><tbody>`;
 
@@ -91,10 +91,10 @@ function buildTableInner(rawData, tableId, extraCol) {
 
     const pC2 = pColor(r.pnl), pS2 = pSign(r.pnl);
     const priceCell = r.fund
-      ? `<span style='color:var(--cyan)'>${r.price.toLocaleString()}원</span>`
-      : r.price ? r.price.toLocaleString() + '원' : '<span class="c-muted">-</span>';
+      ? `<span style='color:var(--cyan)'>${r.price.toLocaleString()}</span>`
+      : r.price ? r.price.toLocaleString() : '<span class="c-muted">-</span>';
     const qtyCell = r.qty != null ? r.qty.toLocaleString() : '-';
-    const costCell = r.cost != null ? r.cost.toLocaleString() + '원' : '-';
+    const costCell = r.cost != null ? r.cost.toLocaleString() : '-';
     const costAmtCell = r.costAmt != null ? fmtW(r.costAmt) : '-';
 
     let sectorCell = '';
