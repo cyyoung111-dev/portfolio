@@ -291,3 +291,40 @@ function _renderThemeButtons() {
 
 // ── 앱 시작 시 즉시 실행 (깜빡임 방지)
 loadTheme();
+
+// ── 설정 오버레이 탭 전환
+function switchSettingsTab(tab) {
+  const panels = ['tab', 'theme'];
+  panels.forEach(p => {
+    const panel = document.getElementById('settingsPanel_' + p);
+    const btn   = document.getElementById('settingsTabBtn_' + p);
+    if (!panel || !btn) return;
+    const isActive = p === tab;
+    panel.style.display = isActive ? 'block' : 'none';
+    btn.style.borderBottom  = isActive ? '2px solid var(--amber)' : '2px solid transparent';
+    btn.style.background    = isActive ? 'var(--c-amber-08)' : 'transparent';
+    btn.style.color         = isActive ? 'var(--gold)' : 'var(--muted)';
+  });
+  // 기본값 버튼 — 탭순서 패널에서만 표시
+  const resetBtn = document.getElementById('settingsResetBtn');
+  if (resetBtn) resetBtn.style.display = tab === 'tab' ? '' : 'none';
+  // 테마 패널 열릴 때 렌더링
+  if (tab === 'theme') {
+    const container = document.getElementById('themeSettingsBody');
+    if (container) {
+      container.innerHTML = _buildThemeSelectorHTML();
+      _renderThemeButtons();
+    }
+  }
+}
+
+// ── openTabSettings 호출 시 탭순서 패널을 기본으로 초기화
+// views_system.js의 openTabSettings가 로드된 후 래핑
+document.addEventListener('DOMContentLoaded', function() {
+  const _origOpen = window.openTabSettings;
+  window.openTabSettings = function() {
+    if (typeof _origOpen === 'function') _origOpen();
+    // 탭순서 패널을 기본으로 활성화
+    switchSettingsTab('tab');
+  };
+});
