@@ -263,11 +263,6 @@ async function autoLoadPrices() {
       lastUpdated = usedDateStr.replace(/-/g,'.');
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();
-      // GAS 성공 시 백업 저장
-      try {
-        lsSave(PRICE_BACKUP_KEY, { prices: savedPrices, dates: savedPriceDates, ts: lastUpdated });
-      } catch(e) {}
-
       const cnt      = Object.keys(results).length;
       const total    = getEPWithCode().length;
       const dayLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
@@ -295,20 +290,8 @@ async function autoLoadPrices() {
         setStatusLabel(`⚠️ 조회 실패 · 캐시 종가 사용 중 <span class="c-muted">(${cachedDate||'?'})</span> · ${cacheCount}/${total}개`, 'warn');
         refreshAll();
       } else {
-        // 백업 데이터 복구 시도
-        const backup = lsGet(PRICE_BACKUP_KEY, null);
-        if (backup && backup.prices && Object.keys(backup.prices).length > 0) {
-          Object.assign(savedPrices, backup.prices);
-          Object.assign(savedPriceDates, backup.dates || {});
-          lastUpdated = backup.ts || '';
-          updateDateBadge(lastUpdated, false);
-          setStatusLabel(`⚠️ 조회 실패 · 백업 가격 복구됨 <span class="c-muted">(${lastUpdated||'?'})</span>`, 'warn');
-          refreshAll();
-          showToast('GAS 조회 실패 — 마지막 백업 가격으로 복구했습니다', 'warn');
-        } else {
-          updateDateBadge(todayLabel, false);
-          setStatusLabel('❌ 종가 조회 실패 · 재동기화 설정 및 종목코드 등록 확인 필요', 'error');
-        }
+        updateDateBadge(todayLabel, false);
+        setStatusLabel('❌ 종가 조회 실패 · 재동기화 설정 및 종목코드 등록 확인 필요', 'error');
       }
     }
   } catch(e) {
@@ -318,19 +301,8 @@ async function autoLoadPrices() {
       setStatusLabel(`⚠️ 조회 오류 · 캐시 종가 사용 중 <span class="c-muted">(${cachedDate||'?'})</span> · ${cacheCount}/${total}개`, 'warn');
       refreshAll();
     } else {
-      const backup = lsGet(PRICE_BACKUP_KEY, null);
-      if (backup && backup.prices && Object.keys(backup.prices).length > 0) {
-        Object.assign(savedPrices, backup.prices);
-        Object.assign(savedPriceDates, backup.dates || {});
-        lastUpdated = backup.ts || '';
-        updateDateBadge(lastUpdated, false);
-        setStatusLabel(`⚠️ 조회 오류 · 백업 가격 복구됨 <span class="c-muted">(${lastUpdated||'?'})</span>`, 'warn');
-        refreshAll();
-        showToast('GAS 오류 — 마지막 백업 가격으로 복구했습니다', 'warn');
-      } else {
-        updateDateBadge(todayLabel, false);
-        setStatusLabel('❌ 조회 오류: ' + e.message, 'error');
-      }
+      updateDateBadge(todayLabel, false);
+      setStatusLabel('❌ 조회 오류: ' + e.message, 'error');
     }
   }
 }

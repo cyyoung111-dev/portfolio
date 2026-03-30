@@ -1,3 +1,5 @@
+let _editorRefDate = '';
+
 function openEditor() {
   buildEditorUI();
   // ★ 날짜 입력란 오늘 날짜로 초기화
@@ -6,7 +8,14 @@ function openEditor() {
     const t = new Date();
     editorDateEl.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
   }
+  if (editorDateEl) {
+    _editorRefDate = editorDateEl.value || '';
+    editorDateEl.onchange = async () => {
+      await loadEditorPricesByDate(editorDateEl.value);
+    };
+  }
   $el('priceEditor').classList.add('open');
+  if (editorDateEl?.value) loadEditorPricesByDate(editorDateEl.value);
 }
 
 function closeEditor() {
@@ -208,7 +217,7 @@ function buildEditorUI() {
     const dateLabel = (code && savedPriceDates[code])
       || savedPriceDates[item.name]
       || savedPriceDates[normName(item.name)]
-      || (current ? '초기값' : '');
+      || (current ? '매입단가' : '');
     const hasDate = !!(
       (code && savedPriceDates[code])
       || savedPriceDates[item.name]
@@ -217,10 +226,13 @@ function buildEditorUI() {
     const statusIcon = hasDate
       ? `<span class="c-green" title="${dateLabel}">✓</span>`
       : current
-        ? `<span class="c-muted" title="초기 설정값">○</span>`
+        ? `<span class="c-muted" title="매입단가">○</span>`
         : `<span style="color:var(--red)" title="미조회">✕</span>`;
-    const dateHtml = dateLabel
-      ? `<div style="font-size:.60rem;color:${hasDate?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${dateLabel}</div>`
+    const displayLabel = (hasDate && dateLabel === '실시간' && _editorRefDate)
+      ? _editorRefDate.replace(/-/g,'.') + ' 조회값'
+      : dateLabel;
+    const dateHtml = displayLabel
+      ? `<div style="font-size:.60rem;color:${hasDate?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${displayLabel}</div>`
       : '<div style="font-size:.60rem;color:var(--red);margin-top:2px;text-align:right">미조회</div>';
     const safeId  = item.name.replace(/\s/g, '_');
     const safeName = item.name.replace(/'/g, "\\'");
@@ -259,6 +271,26 @@ function buildEditorUI() {
 
   html += '</div>';
   $el('editorBody').innerHTML = html;
+}
+
+async function loadEditorPricesByDate(dateStr) {
+  if (!dateStr) return;
+  _editorRefDate = dateStr;
+  if (!GSHEET_API_URL || typeof fetchFromGsheet !== 'function') {
+    buildEditorUI();
+    return;
+  }
+  const results = await fetchFromGsheet(dateStr);
+  if (!results || Object.keys(results).length === 0) {
+    buildEditorUI();
+    return;
+  }
+  const label = dateStr.replace(/-/g,'.') + ' 조회값';
+  Object.entries(results).forEach(([key, price]) => {
+    savedPrices[key] = price;
+    savedPriceDates[key] = label;
+  });
+  buildEditorUI();
 }
 
 function getCurrentPriceFromData(name) {
