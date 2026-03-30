@@ -28,6 +28,29 @@ const TABLE_COLS = [
   { key: 'pct',    label: '수익률',   type: 'sort',   num: true },
 ];
 
+function getFilterValue(row, col) {
+  if (col === 'acct') return row.acct;
+  if (col === 'type') return row.type;
+  if (col === 'name') return row.name;
+  if (col === 'sector') return row.sector || '기타';
+  return '';
+}
+
+function getSortValue(row, col) {
+  if (col === 'qty') return row.qty || 0;
+  if (col === 'cost') return row.cost || 0;
+  if (col === 'costAmt') return row.costAmt || 0;
+  if (col === 'price') return row.price || 0;
+  if (col === 'eval') return row.evalAmt || 0;
+  if (col === 'pnl') return row.pnl || 0;
+  if (col === 'pct') return row.pct || 0;
+  return 0;
+}
+
+function getDistinctFilterValues(rows, col) {
+  return [...new Set(rows.map(row => getFilterValue(row, col)).filter(Boolean))];
+}
+
 // 현재 열린 드롭다운
 let openDropdownId = null;
 
@@ -133,13 +156,7 @@ function openColFilterDropdown(tableId, col, thEl) {
   const st = getTableState(tableId);
   const currentFilter = st.filters[col] || null;
 
-  const vals = [...new Set(rawData.map(r => {
-    if (col === 'acct')   return r.acct;
-    if (col === 'type')   return r.type;
-    if (col === 'name')   return r.name;
-    if (col === 'sector') return r.sector || '기타';
-    return '';
-  }).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+  const vals = getDistinctFilterValues(rawData, col).sort((a, b) => a.localeCompare(b, 'ko'));
 
   let searchHtml = vals.length > 6
     ? `<input class="cfd-search" placeholder="검색..." oninput="cfdSearch(this,'${dropId}')" />`
@@ -191,13 +208,7 @@ function cfdApply(tableId, col, dropId) {
   const checked = new Set();
   document.querySelectorAll(`#${dropId} input[type=checkbox]:checked`).forEach(cb => checked.add(cb.value));
   const rawData = window._tableData.get(tableId) || [];
-  const allVals = [...new Set(rawData.map(r => {
-    if (col === 'acct')   return r.acct;
-    if (col === 'type')   return r.type;
-    if (col === 'name')   return r.name;
-    if (col === 'sector') return r.sector || '기타';
-    return '';
-  }).filter(Boolean))];
+  const allVals = getDistinctFilterValues(rawData, col);
   const allChecked = allVals.every(v => checked.has(v));
   applyTableFilter(tableId, col, allChecked ? null : checked);
 }
@@ -209,28 +220,15 @@ function applyFiltersAndSort(rawData, tableId) {
 
   Object.entries(st.filters).forEach(([col, vals]) => {
     data = data.filter(r => {
-      let v = '';
-      if (col === 'acct')   v = r.acct;
-      if (col === 'type')   v = r.type;
-      if (col === 'name')   v = r.name;
-      if (col === 'sector') v = r.sector || '기타';
-      return vals.has(v);
+      return vals.has(getFilterValue(r, col));
     });
   });
 
   if (st.sortCol) {
     const dir = st.sortDir === 'asc' ? 1 : -1;
     data.sort((a, b) => {
-      let va, vb;
-      if (st.sortCol === 'qty')     { va = a.qty || 0;      vb = b.qty || 0; }
-      if (st.sortCol === 'cost')    { va = a.cost || 0;     vb = b.cost || 0; }
-      if (st.sortCol === 'costAmt') { va = a.costAmt || 0;  vb = b.costAmt || 0; }
-      if (st.sortCol === 'price')   { va = a.price || 0;    vb = b.price || 0; }
-      if (st.sortCol === 'eval')    { va = a.evalAmt || 0;  vb = b.evalAmt || 0; }
-      if (st.sortCol === 'pnl')     { va = a.pnl || 0;      vb = b.pnl || 0; }
-      if (st.sortCol === 'pct')     { va = a.pct || 0;      vb = b.pct || 0; }
       if (st.sortCol === 'name')  { return dir * a.name.localeCompare(b.name, 'ko'); }
-      return dir * ((va || 0) - (vb || 0));
+      return dir * (getSortValue(a, st.sortCol) - getSortValue(b, st.sortCol));
     });
   }
 
