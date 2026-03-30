@@ -276,12 +276,7 @@ function renderGsheetView(area) {
         </div>
       </div>
 
-      <!-- 테마 선택 -->
-      <div id="themeSelectorWrap" style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px"></div>
-
     </div>`;
-  // 테마 선택 UI 렌더링
-  if (typeof renderThemeSelector === 'function') renderThemeSelector('themeSelectorWrap');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -326,7 +321,7 @@ function renderStocksView(area) {
       <!-- ── 종목 관리 ── -->
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:12px;padding:14px 16px">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
-          <div style="font-size:.80rem;font-weight:700;color:var(--text)">📋 종목 관리 (기초정보)</div>
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">📋 종목 관리</div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <button id="btn-sm-add" class="btn-purple-sm">➕ 종목 추가</button>
             <label class="btn-ghost-sm" style="cursor:pointer">
