@@ -12,7 +12,7 @@ function buildStockMgmt() {
   const editMode  = container._editMode    ?? false;
 
   // ── 정렬 상태 (container에 보존)
-  if(!container._sortKey) container._sortKey = 'default'; // 'default' | 'name' | 'code' | 'sector'
+  if(!container._sortKey) container._sortKey = 'default'; // 'default' | 'name' | 'code' | 'type' | 'sector'
 
   // ── 정렬된 인덱스 배열 생성 (원본 EDITABLE_PRICES 순서는 변경 안 함)
   let sortedIndices = EDITABLE_PRICES.map((_, i) => i);
@@ -26,6 +26,13 @@ function buildStockMgmt() {
       if (!ca) return 1;
       if (!cb) return -1;
       const cmp = ca.localeCompare(cb, 'en', { numeric: true, sensitivity: 'base' });
+      return cmp !== 0 ? cmp : EDITABLE_PRICES[a].name.localeCompare(EDITABLE_PRICES[b].name, 'ko');
+    });
+  } else if(container._sortKey === 'type') {
+    sortedIndices.sort((a, b) => {
+      const ta = (EDITABLE_PRICES[a].assetType || EDITABLE_PRICES[a].type || '주식');
+      const tb = (EDITABLE_PRICES[b].assetType || EDITABLE_PRICES[b].type || '주식');
+      const cmp = ta.localeCompare(tb, 'ko');
       return cmp !== 0 ? cmp : EDITABLE_PRICES[a].name.localeCompare(EDITABLE_PRICES[b].name, 'ko');
     });
   } else if(container._sortKey === 'sector') {
@@ -48,6 +55,7 @@ function buildStockMgmt() {
       <button id="smSort_default" class="btn-sort-toggle${sortActv('default')}">기본순</button>
       <button id="smSort_name"    class="btn-sort-toggle${sortActv('name')}">이름순 🔤</button>
       <button id="smSort_code"    class="btn-sort-toggle${sortActv('code')}">코드순 #️⃣</button>
+      <button id="smSort_type"    class="btn-sort-toggle${sortActv('type')}">유형순 🧩</button>
       <button id="smSort_sector"  class="btn-sort-toggle${sortActv('sector')}">섹터순 📂</button>
       <span style="font-size:.65rem;color:var(--muted);margin-left:4px">(총 ${EDITABLE_PRICES.length}종목)</span>
     </div>`;
@@ -135,7 +143,7 @@ function buildStockMgmt() {
   _bindStockMgmtEvents(container);
 }
 function _bindStockMgmtEvents(container) {
-  ['default','name','code','sector'].forEach(key => {
+  ['default','name','code','type','sector'].forEach(key => {
     $el(`smSort_${key}`)?.addEventListener('click', function() {
       container._sortKey = key;
       container._selectedIdx = null;
