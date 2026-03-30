@@ -420,6 +420,28 @@ async function loadSettings(onProgress) {
       });
       // STOCK_CODE master 동기화
       EDITABLE_PRICES.forEach(ep => { if (ep.name && ep.code) STOCK_CODE[ep.name] = _normalizeCodeForSync(ep.code); });
+
+      // ★ rawTrades 코드 교정: 기초정보 코드가 최우선 기준
+      // 거래이력에 구코드(000460, 000001 등)가 남아있으면 기초정보 코드로 덮어씀
+      // 교정된 내용은 GAS 거래이력 시트에도 재저장 (syncTrades)
+      let tradeCodeCorrected = false;
+      rawTrades.forEach(t => {
+        if (!t.name) return;
+        const ep = EDITABLE_PRICES.find(e => e.name === t.name);
+        if (ep && ep.code && t.code !== ep.code) {
+          t.code = ep.code;
+          tradeCodeCorrected = true;
+        }
+      });
+      if (tradeCodeCorrected) {
+        // 교정된 거래이력을 GAS에 재저장 (백그라운드)
+        syncHoldingsFromTrades();
+        saveHoldings();
+        if (GSHEET_API_URL && typeof syncTradesToGsheet === 'function') {
+          syncTradesToGsheet().catch(e => console.warn('거래이력 코드 교정 후 GAS 재저장 실패:', e));
+        }
+        console.log('[loadSettings] 거래이력 코드 교정 완료');
+      }
     }
     // ── GSheet 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
     saveHoldings();

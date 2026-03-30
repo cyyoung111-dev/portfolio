@@ -733,22 +733,33 @@ function migrateDivDataToCode() {
         }
         t.name = nn;
       }
+      // ★ 거래이력 코드를 기초정보 코드로 교정
+      // 기초정보에 이 종목이 있으면 거래이력 코드를 기초정보 코드로 맞춤
+      const epForTrade = getEP(t.name);
+      if (epForTrade && epForTrade.code && t.code !== epForTrade.code) {
+        t.code = epForTrade.code;
+      }
     });
     rawTrades.filter(t => t.name).forEach(t => {
-      if (!getEP(t.name)) {
-        const code = t.code || STOCK_CODE[t.name] || '';
-        epPush(t.name, code, t.assetType);
-        if (code) STOCK_CODE[t.name] = code;
-      }
+      // ★ 기초정보에 이미 같은 이름 OR 같은 코드가 있으면 추가하지 않음
+      const epExist = getEP(t.name);
+      if (epExist) return; // 이름 일치 → 스킵
+      const tCode = normalizeStockCode(t.code || STOCK_CODE[t.name] || '');
+      if (tCode && EDITABLE_PRICES.some(ep => ep.code && normalizeStockCode(ep.code) === tCode)) return; // 코드 일치 → 스킵
+      epPush(t.name, tCode, t.assetType);
+      if (tCode) STOCK_CODE[t.name] = tCode;
     });
 
     // ⑤ rawHoldings에도 없는 종목 추가 (펀드/TDF 포함)
     rawHoldings.forEach(h => {
       if (!h.name) return;
+      // ★ 기초정보에 이름 일치 항목이 있으면 스킵
+      if (getEP(h.name)) return;
       const code = h.fund ? '' : (STOCK_CODE[h.name] || '');
-      if (!getEP(h.name)) {
-        epPush(h.name, code, h.type);
-      }
+      const nCode = normalizeStockCode(code);
+      // ★ 코드 일치 항목이 있어도 스킵 (다른 이름으로 등록된 경우)
+      if (nCode && EDITABLE_PRICES.some(ep => ep.code && normalizeStockCode(ep.code) === nCode)) return;
+      epPush(h.name, code, h.type);
     });
 
   } catch(e) { console.warn('syncEditables 실패:', e); }
