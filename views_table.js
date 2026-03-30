@@ -28,6 +28,35 @@ const TABLE_COLS = [
   { key: 'pct',    label: '수익률',   type: 'sort',   num: true },
 ];
 
+const KO_COLLATOR = new Intl.Collator('ko');
+
+function getFilterValue(row, col) {
+  if (col === 'acct') return row.acct;
+  if (col === 'type') return row.type;
+  if (col === 'name') return row.name;
+  if (col === 'sector') return row.sector || '기타';
+  return '';
+}
+
+function getSortValue(row, col) {
+  if (col === 'qty') return row.qty || 0;
+  if (col === 'cost') return row.cost || 0;
+  if (col === 'costAmt') return row.costAmt || 0;
+  if (col === 'price') return row.price || 0;
+  if (col === 'eval') return row.evalAmt || 0;
+  if (col === 'pnl') return row.pnl || 0;
+  if (col === 'pct') return row.pct || 0;
+  return 0;
+}
+
+function getDistinctFilterValues(rows, col) {
+  return [...new Set(rows.map(row => getFilterValue(row, col)).filter(Boolean))];
+}
+
+function compareKo(a, b) {
+  return KO_COLLATOR.compare(a, b);
+}
+
 // 현재 열린 드롭다운
 let openDropdownId = null;
 
@@ -91,16 +120,29 @@ function rerenderTable(tableId) {
 // 전역 테이블 데이터 저장소
 window._tableData = new Map();
 window._tableExtra = new Map();
+window._tableFilterValueCache = new Map();
+
+function getDistinctFilterValuesCached(tableId, rows, col) {
+  let cache = window._tableFilterValueCache.get(tableId);
+  if (!cache || cache.rawRef !== rows) {
+    cache = { rawRef: rows, byCol: {} };
+    window._tableFilterValueCache.set(tableId, cache);
+  }
+  if (!cache.byCol[col]) {
+    cache.byCol[col] = getDistinctFilterValues(rows, col);
+  }
+  return cache.byCol[col];
+}
 
 // SMALL POSITION FILTER
 const SMALL_THRESHOLD = 100000; // 10만원
 
-function makeSmallToggleBar(smallRows, tableId) {
-  if (smallRows.length === 0) return '';
+function makeSmallToggleBar(smallCount, smallEvalSum, tableId) {
+  if (smallCount === 0) return '';
   return `<div class="small-toggle-bar" id="stb_${tableId}" onclick="toggleSmall('${tableId}')">
     <div class="st-left">
       <span>👁 소액 종목 숨김 (10만원 미만)</span>
-      <span class="st-cnt">${smallRows.length}개 · ${fmt(smallRows.reduce((s,r)=>s+r.evalAmt,0))} 숨겨짐 (합산엔 포함)</span>
+      <span class="st-cnt">${smallCount}개 · ${fmt(smallEvalSum)} 숨겨짐 (합산엔 포함)</span>
     </div>
     <span class="st-arrow">▼</span>
   </div>`;
@@ -133,13 +175,7 @@ function openColFilterDropdown(tableId, col, thEl) {
   const st = getTableState(tableId);
   const currentFilter = st.filters[col] || null;
 
-  const vals = [...new Set(rawData.map(r => {
-    if (col === 'acct')   return r.acct;
-    if (col === 'type')   return r.type;
-    if (col === 'name')   return r.name;
-    if (col === 'sector') return r.sector || '기타';
-    return '';
-  }).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+  const vals = getDistinctFilterValuesCached(tableId, rawData, col).slice().sort(compareKo);
 
   let searchHtml = vals.length > 6
     ? `<input class="cfd-search" placeholder="검색..." oninput="cfdSearch(this,'${dropId}')" />`
@@ -191,13 +227,7 @@ function cfdApply(tableId, col, dropId) {
   const checked = new Set();
   document.querySelectorAll(`#${dropId} input[type=checkbox]:checked`).forEach(cb => checked.add(cb.value));
   const rawData = window._tableData.get(tableId) || [];
-  const allVals = [...new Set(rawData.map(r => {
-    if (col === 'acct')   return r.acct;
-    if (col === 'type')   return r.type;
-    if (col === 'name')   return r.name;
-    if (col === 'sector') return r.sector || '기타';
-    return '';
-  }).filter(Boolean))];
+  const allVals = getDistinctFilterValuesCached(tableId, rawData, col);
   const allChecked = allVals.every(v => checked.has(v));
   applyTableFilter(tableId, col, allChecked ? null : checked);
 }
@@ -209,28 +239,15 @@ function applyFiltersAndSort(rawData, tableId) {
 
   Object.entries(st.filters).forEach(([col, vals]) => {
     data = data.filter(r => {
-      let v = '';
-      if (col === 'acct')   v = r.acct;
-      if (col === 'type')   v = r.type;
-      if (col === 'name')   v = r.name;
-      if (col === 'sector') v = r.sector || '기타';
-      return vals.has(v);
+      return vals.has(getFilterValue(r, col));
     });
   });
 
   if (st.sortCol) {
     const dir = st.sortDir === 'asc' ? 1 : -1;
     data.sort((a, b) => {
-      let va, vb;
-      if (st.sortCol === 'qty')     { va = a.qty || 0;      vb = b.qty || 0; }
-      if (st.sortCol === 'cost')    { va = a.cost || 0;     vb = b.cost || 0; }
-      if (st.sortCol === 'costAmt') { va = a.costAmt || 0;  vb = b.costAmt || 0; }
-      if (st.sortCol === 'price')   { va = a.price || 0;    vb = b.price || 0; }
-      if (st.sortCol === 'eval')    { va = a.evalAmt || 0;  vb = b.evalAmt || 0; }
-      if (st.sortCol === 'pnl')     { va = a.pnl || 0;      vb = b.pnl || 0; }
-      if (st.sortCol === 'pct')     { va = a.pct || 0;      vb = b.pct || 0; }
-      if (st.sortCol === 'name')  { return dir * a.name.localeCompare(b.name, 'ko'); }
-      return dir * ((va || 0) - (vb || 0));
+      if (st.sortCol === 'name')  { return dir * compareKo(a.name, b.name); }
+      return dir * (getSortValue(a, st.sortCol) - getSortValue(b, st.sortCol));
     });
   }
 
@@ -311,9 +328,15 @@ function buildTableInner(rawData, tableId, extraCol) {
     </div>
     <div class="overflow-x-auto"><table><thead><tr>${headerCols}</tr></thead><tbody>`;
 
-  const smallRows = data.filter(r => r.evalAmt < SMALL_THRESHOLD && !r.fund);
+  let smallCount = 0;
+  let smallEvalSum = 0;
+  const rowsHtml = [];
   data.forEach(r => {
     const isSmall = r.evalAmt < SMALL_THRESHOLD && !r.fund;
+    if (isSmall) {
+      smallCount += 1;
+      smallEvalSum += r.evalAmt;
+    }
     const pC2 = pColor(r.pnl), pS2 = pSign(r.pnl);
     const priceCell = r.fund
       ? `<span style='color:var(--cyan)'>${r.price.toLocaleString()}원</span>`
@@ -325,7 +348,7 @@ function buildTableInner(rawData, tableId, extraCol) {
     if (extraCol === '섹터') {
       sectorCell = `<td><span style="font-size:.70rem;padding:2px 8px;border-radius:4px;background:${SECTOR_COLORS[r.sector]||'var(--muted)'}22;color:${SECTOR_COLORS[r.sector]||'var(--muted)'}">${r.sector}</span></td>`;
     }
-    html += `<tr class="${isSmall ? `small-pos-row small-pos-row-${tableId}" style="display:none` : ''}">
+    rowsHtml.push(`<tr class="${isSmall ? `small-pos-row small-pos-row-${tableId}" style="display:none` : ''}">
       ${sectorCell}
       <td><span class="adot" style="background:${ACCT_COLORS[r.acct]||'var(--muted)'}"></span>${r.acct}</td>
       <td><span class="tag tg-${r.type}">${r.type}</span></td>
@@ -337,13 +360,14 @@ function buildTableInner(rawData, tableId, extraCol) {
       <td class="num">${fmtW(r.evalAmt)}</td>
       <td class="num" style="color:${pC2}">${pS2}${fmt(r.pnl)}</td>
       <td class="num" style="color:${pC2}">${pS2}${r.pct.toFixed(1)}%</td>
-    </tr>`;
+    </tr>`);
   });
 
+  html += rowsHtml.join('');
   html += `</tbody></table></div></div>`;
 
-  if (smallRows.length > 0) {
-    html = `${makeSmallToggleBar(smallRows, tableId)}` + html;
+  if (smallCount > 0) {
+    html = `${makeSmallToggleBar(smallCount, smallEvalSum, tableId)}` + html;
   }
 
   return html;
