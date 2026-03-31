@@ -7,6 +7,27 @@ function _normalizeCodeForSync(code) {
   return String(code || '').trim();
 }
 
+async function syncIssuesToGsheet(source, issues) {
+  if (!GSHEET_API_URL || !Array.isArray(issues) || issues.length === 0) return null;
+  try {
+    const body = 'action=saveSyncIssues'
+      + '&source=' + encodeURIComponent(source || 'unknown')
+      + '&data=' + encodeURIComponent(JSON.stringify(issues));
+    const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body
+    });
+    if (!res.ok) { console.warn('[saveSyncIssues] HTTP', res.status); return null; }
+    const data = await res.json();
+    if (data.status !== 'ok') { console.warn('[saveSyncIssues] GAS 오류:', data); return null; }
+    return data;
+  } catch (e) {
+    console.warn('[saveSyncIssues]', e.message);
+    return null;
+  }
+}
+
 // ── 구글시트 종목코드 목록 로드
 let _gsheetCodeList = []; // [{code, name}]
 
@@ -113,20 +134,42 @@ async function syncHoldingsToGsheet() {
 async function syncTradesToGsheet() {
   if (!GSHEET_API_URL || rawTrades.length === 0) return;
   try {
+    const unmatchedTrades = [];
     const trades = rawTrades
       .filter(t => t.name && t.tradeType && t.date)
-      .map(t => ({
-        date:      t.date,
-        tradeType: t.tradeType,
-        acct:      t.acct      || '',
-        name:      t.name,
-        code:      t.code      || STOCK_CODE[t.name] || '',
-        qty:       t.qty       || 0,
-        price:     t.price     || 0,
-        assetType: t.assetType || '주식',
-        memo:      t.memo      || '',
-      }));
+      .map(t => {
+        const tCode = _normalizeCodeForSync(t.code || '');
+        const epByCode = tCode ? getEPByCode(tCode) : null;
+        const epByName = getEP(t.name);
+        const ep = epByCode || epByName;
+        if (!ep) {
+          unmatchedTrades.push({ date: t.date || '', name: t.name || '', code: tCode || '' });
+        }
+        // ★ 기초정보 우선: 거래이력 코드가 달라도 EDITABLE_PRICES 기준 코드로 정규화
+        const baseCode = ep?.code || STOCK_CODE[ep?.name || t.name] || '';
+        const code = _normalizeCodeForSync(baseCode || t.code || '');
+        return {
+          date:      t.date,
+          tradeType: t.tradeType,
+          acct:      t.acct      || '',
+          // ★ 코드가 같은데 이름이 다르면 기초정보 이름으로 통일
+          name:      ep?.name || t.name,
+          code:      code,
+          qty:       t.qty       || 0,
+          price:     t.price     || 0,
+          assetType: getEPType(ep, t.assetType || '주식'),
+          memo:      t.memo      || '',
+        };
+      });
     if (trades.length === 0) return;
+    if (unmatchedTrades.length > 0) {
+      const uniq = Array.from(new Set(unmatchedTrades.map(t => `${t.name}|${t.code}`)));
+      console.warn('[거래이력 동기화] 기초정보 미매칭 거래 포함:', unmatchedTrades);
+      if (typeof showToast === 'function') {
+        showToast(`⚠️ 기초정보 미매칭 거래 ${uniq.length}건 포함 (동기화 전 기초정보 점검 권장)`, 'warn');
+      }
+      syncIssuesToGsheet('syncTradesToGsheet', unmatchedTrades).catch(()=>{});
+    }
 
     const body = 'action=syncTrades&data=' + encodeURIComponent(JSON.stringify(trades));
     const res  = await fetchWithTimeout(GSHEET_API_URL, 30000, {

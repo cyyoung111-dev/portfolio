@@ -78,6 +78,7 @@ var CONFIG = {
   SHEET_PH:       '가격이력',
   SHEET_HOLD:     '보유현황',
   SHEET_TRADES:   '거래이력',
+  SHEET_SYNC_LOG: '동기화로그',
   SHEET_TMP:      '_gf_tmp',
   SHEET_SETTINGS: '설정',
   TIMEZONE:       'Asia/Seoul',
@@ -117,7 +118,7 @@ function doGet(e) {
   if (params.action === 'saveSnapshot' || params.action === 'syncCodes' ||
       params.action === 'syncHoldings' || params.action === 'syncTrades' ||
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
-      params.action === 'saveRealEstateSettings') {
+      params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -148,7 +149,44 @@ function doPost(e) {
   if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
   if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
+  if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   return jsonError('알 수 없는 action: ' + (params.action || '없음'));
+}
+
+function handleSaveSyncIssues(source, dataJson) {
+  try {
+    var rows;
+    try { rows = _parseArrayParam(dataJson, 'syncIssues'); } catch(e) { return jsonError(e.message); }
+    if (!Array.isArray(rows)) return jsonError('배열 형식 필요');
+    if (rows.length === 0) return jsonOk({ saved: 0 });
+
+    var ss = getss();
+    var sh = ss.getSheetByName(CONFIG.SHEET_SYNC_LOG);
+    if (!sh) {
+      sh = ss.insertSheet(CONFIG.SHEET_SYNC_LOG);
+      sh.getRange(1,1,1,7).setValues([['기록시각','소스','거래일','종목코드','종목명','계좌','메시지']]);
+    }
+    if (sh.getLastRow() < 1) {
+      sh.getRange(1,1,1,7).setValues([['기록시각','소스','거래일','종목코드','종목명','계좌','메시지']]);
+    }
+
+    var now = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    var values = rows.map(function(r) {
+      return [
+        now,
+        (source || 'unknown').toString(),
+        (r.date || '').toString(),
+        _cleanCode(r.code || ''),
+        (r.name || '').toString(),
+        (r.acct || '').toString(),
+        (r.message || '기초정보 미매칭').toString()
+      ];
+    });
+    sh.getRange(sh.getLastRow() + 1, 1, values.length, 7).setValues(values);
+    return jsonOk({ saved: values.length });
+  } catch(err) {
+    return jsonError('saveSyncIssues 실패: ' + err.message);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1227,12 +1265,22 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
 //  종목코드 정제
 // ════════════════════════════════════════════════════════════════════
 function _cleanCode(raw) {
-  var s      = (raw || '').toString().trim();
+  var s = (raw || '').toString().trim().toUpperCase();
   if (!s) return '';
-  var digits = s.replace(/\D/g, '');
-  if (!digits) return '';
-  while (digits.length < 6) digits = '0' + digits;
-  return digits;
+
+  // 허용 문자만 남김 (숫자/영문)
+  var alnum = s.replace(/[^A-Z0-9]/g, '');
+  if (!alnum) return '';
+
+  // 숫자 코드: 기존 동작 유지(6자리 0패딩)
+  if (/^\d+$/.test(alnum)) {
+    while (alnum.length < 6) alnum = '0' + alnum;
+    return alnum;
+  }
+
+  // 영문+숫자 혼합 코드(예: 0046Y0, F00001): 6자리 유효코드만 허용
+  if (/^[A-Z0-9]{6}$/.test(alnum)) return alnum;
+  return '';
 }
 
 function _pad(n) { return n < 10 ? '0' + n : '' + n; }
