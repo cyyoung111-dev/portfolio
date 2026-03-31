@@ -166,9 +166,6 @@ function handleSaveSyncIssues(source, dataJson) {
       sh = ss.insertSheet(CONFIG.SHEET_SYNC_LOG);
       sh.getRange(1,1,1,7).setValues([['기록시각','소스','거래일','종목코드','종목명','계좌','메시지']]);
     }
-    if (sh.getLastRow() < 1) {
-      sh.getRange(1,1,1,7).setValues([['기록시각','소스','거래일','종목코드','종목명','계좌','메시지']]);
-    }
 
     var now = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
     var values = rows.map(function(r) {
@@ -554,16 +551,7 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
 
     var data     = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
     var reqCodes = codesParam ? codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean) : null;
-    var reqAliasToCanonical = null;
-    if (reqCodes) {
-      reqAliasToCanonical = {};
-      reqCodes.forEach(function(rawCode) {
-        var canonical = _cleanCode(rawCode) || rawCode;
-        reqAliasToCanonical[canonical] = canonical;
-        var legacy = _legacyDigitsCode(rawCode);
-        if (legacy && legacy !== canonical) reqAliasToCanonical[legacy] = canonical;
-      });
-    }
+    var reqAliasToCanonical = reqCodes ? _buildCodeAliasMap(reqCodes) : null;
     var dateMap  = {};
 
     data.forEach(function(row) {
@@ -676,13 +664,7 @@ function getLatestPriceHistory(ss, codes) {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
     var data   = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
-    var codeAliasToCanonical = {};
-    codes.forEach(function(rawCode) {
-      var canonical = _cleanCode(rawCode) || rawCode;
-      codeAliasToCanonical[canonical] = canonical;
-      var legacy = _legacyDigitsCode(rawCode);
-      if (legacy && legacy !== canonical) codeAliasToCanonical[legacy] = canonical;
-    });
+    var codeAliasToCanonical = _buildCodeAliasMap(codes);
     // code → { date, price } 최신값 유지
     var latest = {};
     data.forEach(function(row) {
@@ -1327,6 +1309,18 @@ function _legacyDigitsCode(raw) {
   // 영문+숫자 혼합 코드(예: 0046Y0, F00001): 6자리 유효코드만 허용
   if (/^[A-Z0-9]{6}$/.test(alnum)) return alnum;
   return '';
+}
+
+function _buildCodeAliasMap(codes) {
+  var map = {};
+  (codes || []).forEach(function(rawCode) {
+    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
+    if (!canonical) return;
+    map[canonical] = canonical;
+    var legacy = _legacyDigitsCode(rawCode);
+    if (legacy && legacy !== canonical) map[legacy] = canonical;
+  });
+  return map;
 }
 
 function _pad(n) { return n < 10 ? '0' + n : '' + n; }
