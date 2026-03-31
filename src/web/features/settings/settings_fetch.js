@@ -31,6 +31,7 @@ async function fetchFromGsheet(dateStr) {
     // ── 코드 있는 종목: 오늘이면 getPrices(실시간), 과거면 getPriceHistory
     let codeResults = {};
     let missingCodes = [];
+    const priceMeta = {};
 
     if (epItems.length > 0) {
       const codes = epItems.map(i => i.code).join(',');
@@ -56,7 +57,11 @@ async function fetchFromGsheet(dateStr) {
             if (data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
                 const entry = (data2.prices[m.code] || [])[0];
-                if (entry && entry.price > 0) { codeResults[m.code] = Math.round(entry.price); return false; }
+                if (entry && entry.price > 0) {
+                  codeResults[m.code] = Math.round(entry.price);
+                  if (entry.savedAt) priceMeta[m.code] = { savedAt: entry.savedAt };
+                  return false;
+                }
                 return true;
               });
             }
@@ -71,7 +76,10 @@ async function fetchFromGsheet(dateStr) {
         if (data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
             const entry = (data.prices[i.code] || [])[0];
-            if (entry && entry.price > 0) codeResults[i.code] = Math.round(entry.price);  // ★ 코드 키로 저장
+            if (entry && entry.price > 0) {
+              codeResults[i.code] = Math.round(entry.price);  // ★ 코드 키로 저장
+              if (entry.savedAt) priceMeta[i.code] = { savedAt: entry.savedAt };
+            }
             else missingCodes.push({ name: i.name, code: i.code });
           });
         }
@@ -97,7 +105,10 @@ async function fetchFromGsheet(dateStr) {
             if (!entries || entries.length === 0) return;
             // 가장 최신 날짜 항목 사용 (배열이 날짜순 정렬돼 있으므로 마지막 값)
             const latest = entries[entries.length - 1];
-            if (latest && latest.price > 0) noCodeResults[i.name] = Math.round(latest.price);
+            if (latest && latest.price > 0) {
+              noCodeResults[i.name] = Math.round(latest.price);
+              if (latest.savedAt) priceMeta[i.name] = { savedAt: latest.savedAt };
+            }
           });
         }
       } catch(e) {} // 코드 없는 종목 조회 실패는 무시
@@ -111,6 +122,7 @@ async function fetchFromGsheet(dateStr) {
       return true;
     });
     const results = Object.assign({}, codeResults, noCodeResults);
+    window._gsheetPriceMeta = priceMeta;
     return Object.keys(results).length > 0 ? results : null;
 
   } catch(e) {
