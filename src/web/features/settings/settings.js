@@ -461,10 +461,30 @@ async function loadSettings(onProgress) {
     // 교정된 내용은 localStorage + GAS 거래이력 시트에도 재저장
     {
       let tradeCodeCorrected = false;
+      const unmatchedTrades = [];
       rawTrades.forEach(t => {
         if (!t.name) return;
-        const ep = EDITABLE_PRICES.find(e => e.name === t.name);
-        if (ep && t.code !== (ep.code || '')) {
+        const tCode = _normalizeCodeForSync(t.code || '');
+        const epByCode = tCode ? EDITABLE_PRICES.find(e => _normalizeCodeForSync(e.code) === tCode) : null;
+        const epByName = EDITABLE_PRICES.find(e => e.name === t.name);
+        const ep = epByCode || epByName;
+        if (!ep) {
+          unmatchedTrades.push({
+            date: t.date || '',
+            name: t.name || '',
+            code: tCode || '',
+            acct: t.acct || ''
+          });
+          return;
+        }
+
+        // ★ 코드 우선 매칭: 코드가 같으면 기초정보 종목명으로 강제 통일
+        if (t.name !== ep.name) {
+          t.name = ep.name;
+          tradeCodeCorrected = true;
+        }
+        // ★ 기초정보 코드가 기준
+        if (t.code !== (ep.code || '')) {
           t.code = ep.code || '';
           tradeCodeCorrected = true;
         }
@@ -477,6 +497,16 @@ async function loadSettings(onProgress) {
           syncTradesToGsheet().catch(e => console.warn('거래이력 코드 교정 후 GAS 재저장 실패:', e));
         }
         console.log('[loadSettings] 거래이력 코드 교정 완료 — localStorage+GAS 저장됨');
+      }
+      if (unmatchedTrades.length > 0) {
+        const uniq = Array.from(new Set(unmatchedTrades.map(t => `${t.name}|${t.code}`)));
+        console.warn('[loadSettings] 기초정보 미매칭 거래 발견:', unmatchedTrades);
+        if (typeof showToast === 'function') {
+          showToast(`⚠️ 기초정보 미매칭 거래 ${uniq.length}건 발견 (설정 > 기초정보 확인 필요)`, 'warn');
+        }
+        if (GSHEET_API_URL && typeof syncIssuesToGsheet === 'function') {
+          syncIssuesToGsheet('loadSettings', unmatchedTrades).catch(()=>{});
+        }
       }
     }
     // ── GSheet 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
