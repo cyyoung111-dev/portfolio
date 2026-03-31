@@ -377,19 +377,18 @@ let editedPrices = {};  // 현재가 편집기 임시 저장용
   } catch(e) { console.warn('가격 캐시 복원 실패:', e.message); }
 })();
 
-// ── 기존 이름 키 캐시 → 코드 키로 마이그레이션 (1회성, 이미 코드 키면 무시)
+// ── 기존 이름/구코드 키 캐시 → 현재 코드 키로 마이그레이션
 (function migratePriceCacheToCodeKey() {
   try {
     let migrated = 0;
-    // EDITABLE_PRICES가 아직 로드 안 됐으므로 STOCK_CODE로 name→code 매핑
-    Object.keys(savedPrices).forEach(key => {
-      // 6자리 숫자면 이미 코드 키 → 스킵
-      if (/^\d{6}$/.test(key)) return;
-      const code = STOCK_CODE[key] || STOCK_CODE[normName(key)];
-      if (code && /^\d{6}$/.test(code)) {
-        if (!savedPrices[code]) {
-          savedPrices[code] = savedPrices[key];
-          if (savedPriceDates[key]) savedPriceDates[code] = savedPriceDates[key];
+    // STOCK_CODE로 name→code 매핑 (EDITABLE_PRICES는 아직 로드 전일 수 있음)
+    Object.keys(savedPrices).slice().forEach(key => {
+      const correctCode = STOCK_CODE[key] || STOCK_CODE[normName(key)];
+      // ★ correctCode가 있고 현재 키와 다를 때만 마이그레이션 (구코드→신코드 포함)
+      if (correctCode && correctCode !== key) {
+        if (!savedPrices[correctCode]) {
+          savedPrices[correctCode] = savedPrices[key];
+          if (savedPriceDates[key]) savedPriceDates[correctCode] = savedPriceDates[key];
         }
         delete savedPrices[key];
         delete savedPriceDates[key];
@@ -397,7 +396,7 @@ let editedPrices = {};  // 현재가 편집기 임시 저장용
       }
     });
     if (migrated > 0) {
-      if (migrated > 0) console.warn('[마이그레이션] 이름 키 → 코드 키 변환:', migrated, '개');
+      console.warn('[마이그레이션] 가격 캐시 키 교정:', migrated, '개');
       lsSave(PRICES_KEY, savedPrices);
       lsSave(PRICE_DATES_KEY, savedPriceDates);
     }
