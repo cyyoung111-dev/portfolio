@@ -105,28 +105,7 @@ function _applyDivData(raw) {
 function saveDividendSettings(immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveDividendTimer);
-
-  // ★ immediate=true 이면 setTimeout 없이 즉시 실행 (await가 결과를 정확히 받도록)
-  if (immediate) {
-    return (async () => {
-      try {
-        const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
-        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        return true;
-      } catch(e) {
-        console.warn('saveDividendSettings 실패:', e);
-        return false;
-      }
-    })();
-  }
-
+  const delay = immediate ? 0 : 2500;
   return new Promise(resolve => {
     _saveDividendTimer = setTimeout(async () => {
       try {
@@ -145,40 +124,23 @@ function saveDividendSettings(immediate) {
         console.warn('saveDividendSettings 실패:', e);
         resolve(false);
       }
-    }, 2500);
+    }, delay);
   });
 }
 
 function saveRealEstateSettings(immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveRealEstateTimer);
-
-  // ★ immediate=true 이면 setTimeout 없이 즉시 실행 (await가 결과를 정확히 받도록)
-  if (immediate) {
-    return (async () => {
-      try {
-        const payload = { LOAN, REAL_ESTATE, LOAN_SCHEDULE, RE_VALUE_HIST };
-        const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
-        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        return true;
-      } catch(e) {
-        console.warn('saveRealEstateSettings 실패:', e);
-        return false;
-      }
-    })();
-  }
-
+  const delay = immediate ? 0 : 2500;
   return new Promise(resolve => {
     _saveRealEstateTimer = setTimeout(async () => {
       try {
-        const payload = { LOAN, REAL_ESTATE, LOAN_SCHEDULE, RE_VALUE_HIST };
+        const payload = {
+          LOAN,
+          REAL_ESTATE,
+          LOAN_SCHEDULE,
+          RE_VALUE_HIST,
+        };
         const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
         const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
           method: 'POST',
@@ -193,7 +155,7 @@ function saveRealEstateSettings(immediate) {
         console.warn('saveRealEstateSettings 실패:', e);
         resolve(false);
       }
-    }, 2500);
+    }, delay);
   });
 }
 
@@ -493,26 +455,28 @@ async function loadSettings(onProgress) {
       // STOCK_CODE master 동기화
       EDITABLE_PRICES.forEach(ep => { if (ep.name && ep.code) STOCK_CODE[ep.name] = _normalizeCodeForSync(ep.code); });
 
-      // ★ rawTrades 코드 교정: 기초정보 코드가 최우선 기준
-      // 거래이력에 구코드(000460, 000001 등)가 남아있으면 기초정보 코드로 덮어씀
-      // 교정된 내용은 GAS 거래이력 시트에도 재저장 (syncTrades)
+    }
+    // ★ rawTrades 코드 교정: 기초정보 코드가 최우선 기준 (항상 실행 — GAS 복원 여부 무관)
+    // localStorage에 기초정보가 이미 있어도, GAS에서 새로 받아도 동일하게 교정
+    // 교정된 내용은 localStorage + GAS 거래이력 시트에도 재저장
+    {
       let tradeCodeCorrected = false;
       rawTrades.forEach(t => {
         if (!t.name) return;
         const ep = EDITABLE_PRICES.find(e => e.name === t.name);
-        if (ep && ep.code && t.code !== ep.code) {
-          t.code = ep.code;
+        if (ep && t.code !== (ep.code || '')) {
+          t.code = ep.code || '';
           tradeCodeCorrected = true;
         }
       });
       if (tradeCodeCorrected) {
-        // 교정된 거래이력을 GAS에 재저장 (백그라운드)
+        lsSave(TRADES_KEY, rawTrades); // ★ localStorage 즉시 저장
         syncHoldingsFromTrades();
         saveHoldings();
         if (GSHEET_API_URL && typeof syncTradesToGsheet === 'function') {
           syncTradesToGsheet().catch(e => console.warn('거래이력 코드 교정 후 GAS 재저장 실패:', e));
         }
-        console.log('[loadSettings] 거래이력 코드 교정 완료');
+        console.log('[loadSettings] 거래이력 코드 교정 완료 — localStorage+GAS 저장됨');
       }
     }
     // ── GSheet 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
