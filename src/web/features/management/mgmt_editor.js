@@ -286,9 +286,16 @@ async function loadEditorPricesByDate(dateStr) {
     return;
   }
   const label = dateStr.replace(/-/g,'.') + ' 조회값';
+  const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
   Object.entries(results).forEach(([key, price]) => {
     savedPrices[key] = price;
-    savedPriceDates[key] = label;
+    const savedAt = meta[key]?.savedAt || '';
+    if (savedAt) {
+      // YYYY-MM-DD HH:mm:ss -> YYYY.MM.DD HH:mm 입력
+      savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
+    } else {
+      savedPriceDates[key] = label;
+    }
   });
   buildEditorUI();
 }
