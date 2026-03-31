@@ -105,7 +105,28 @@ function _applyDivData(raw) {
 function saveDividendSettings(immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveDividendTimer);
-  const delay = immediate ? 0 : 2500;
+
+  // ★ immediate=true 이면 setTimeout 없이 즉시 실행 (await가 결과를 정확히 받도록)
+  if (immediate) {
+    return (async () => {
+      try {
+        const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
+        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+        return true;
+      } catch(e) {
+        console.warn('saveDividendSettings 실패:', e);
+        return false;
+      }
+    })();
+  }
+
   return new Promise(resolve => {
     _saveDividendTimer = setTimeout(async () => {
       try {
@@ -124,23 +145,40 @@ function saveDividendSettings(immediate) {
         console.warn('saveDividendSettings 실패:', e);
         resolve(false);
       }
-    }, delay);
+    }, 2500);
   });
 }
 
 function saveRealEstateSettings(immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveRealEstateTimer);
-  const delay = immediate ? 0 : 2500;
+
+  // ★ immediate=true 이면 setTimeout 없이 즉시 실행 (await가 결과를 정확히 받도록)
+  if (immediate) {
+    return (async () => {
+      try {
+        const payload = { LOAN, REAL_ESTATE, LOAN_SCHEDULE, RE_VALUE_HIST };
+        const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
+        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+        return true;
+      } catch(e) {
+        console.warn('saveRealEstateSettings 실패:', e);
+        return false;
+      }
+    })();
+  }
+
   return new Promise(resolve => {
     _saveRealEstateTimer = setTimeout(async () => {
       try {
-        const payload = {
-          LOAN,
-          REAL_ESTATE,
-          LOAN_SCHEDULE,
-          RE_VALUE_HIST,
-        };
+        const payload = { LOAN, REAL_ESTATE, LOAN_SCHEDULE, RE_VALUE_HIST };
         const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
         const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
           method: 'POST',
@@ -155,7 +193,7 @@ function saveRealEstateSettings(immediate) {
         console.warn('saveRealEstateSettings 실패:', e);
         resolve(false);
       }
-    }, delay);
+    }, 2500);
   });
 }
 
