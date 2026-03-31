@@ -73,7 +73,10 @@ async function loadHistoryChart() {
     }
 
     if (statusEl) statusEl.innerHTML =
-      `<span style="color:var(--muted)">총 ${snapshots.length}개 스냅샷 · 최근: ${fmtDateDot(snapshots[snapshots.length-1].date || '')}</span>`;
+      `<span style="color:var(--muted)">총 ${snapshots.length}개 스냅샷 · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
+
+    // 거래이력 기반 원가 재계산값이 있으면 우선 적용
+    snapshots = _mergeTradeBasedCost(snapshots);
 
     _drawHistoryChart(chartWrap, snapshots);
     _drawHistoryTable(tableWrap, snapshots);
@@ -86,13 +89,13 @@ async function loadHistoryChart() {
 function _drawHistoryChart(wrap, snapshots) {
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
-  const PAD = { top: 20, right: 16, bottom: 46, left: 72 };
+  const PAD = { top: 20, right: 54, bottom: 52, left: 72 };
   const CW = W - PAD.left - PAD.right;
   const CH = H - PAD.top - PAD.bottom;
 
   // 데이터 추출 (evalAmt = 평가금액, pnl = 손익)
   const pts = snapshots.map(s => ({
-    date: fmtDateDot(s.date || ''),
+    date: _fmtHistDateShort(s.date || ''),
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     cost: parseFloat(s.costAmt || s.cost || 0),
   }));
@@ -125,22 +128,26 @@ function _drawHistoryChart(wrap, snapshots) {
     pts.map((p, i) => `L${xScale(i).toFixed(1)},${yPnl(p.pnl).toFixed(1)}`).join(' ') +
     ` L${xScale(pts.length-1).toFixed(1)},${zero} Z`;
 
-  // x축 레이블 (최대 6개)
-  const labelStep = Math.max(1, Math.floor(pts.length / 6));
+  // x축 레이블 (최대 5개 + 마지막)
+  const labelStep = Math.max(1, Math.ceil(pts.length / 5));
   let xLabels = '';
   for (let i = 0; i < pts.length; i += labelStep) {
-    const lbl = (pts[i].date || '').slice(5); // MM.DD
-    xLabels += `<text x="${xScale(i).toFixed(1)}" y="${H - 4}" text-anchor="middle" font-size="9" fill="var(--muted)">${lbl}</text>`;
+    xLabels += `<text x="${xScale(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--muted)">${pts[i].date || ''}</text>`;
+  }
+  if ((pts.length - 1) % labelStep !== 0) {
+    xLabels += `<text x="${xScale(pts.length - 1).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--muted)">${pts[pts.length - 1].date || ''}</text>`;
   }
 
-  // y축 레이블 (왼쪽: 평가금액 억단위)
+  // y축 레이블 (왼쪽: 평가금액, 오른쪽: 손익)
   let yLabels = '';
+  let yLabelsRight = '';
   const yTicks = 4;
   for (let i = 0; i <= yTicks; i++) {
-    const v = yEvalMin + (yEvalMax - yEvalMin) * (i / yTicks);
-    const y = yEval(v).toFixed(1);
-    const lbl = Math.abs(v) >= 1e8 ? (v/1e8).toFixed(1) + '억' : Math.abs(v) >= 1e4 ? (v/1e4).toFixed(0) + '만' : v.toFixed(0);
-    yLabels += `<text x="${PAD.left - 5}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="9" fill="var(--muted)">${lbl}</text>`;
+    const evalV = yEvalMin + (yEvalMax - yEvalMin) * (i / yTicks);
+    const pnlV  = yPnlMin + (yPnlMax - yPnlMin) * (i / yTicks);
+    const y = yEval(evalV).toFixed(1);
+    yLabels += `<text x="${PAD.left - 5}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="10" fill="var(--muted)">${_fmtAxisKrw(evalV)}</text>`;
+    yLabelsRight += `<text x="${PAD.left + CW + 5}" y="${y}" dominant-baseline="middle" font-size="10" fill="var(--muted)">${_fmtAxisKrw(pnlV)}</text>`;
     yLabels += `<line x1="${PAD.left}" y1="${y}" x2="${PAD.left + CW}" y2="${y}" stroke="var(--border)" stroke-width="0.5"/>`;
   }
 
@@ -150,7 +157,7 @@ function _drawHistoryChart(wrap, snapshots) {
   const pnlColor = lastPt.pnl >= 0 ? 'var(--green)' : 'var(--red)';
 
   wrap.innerHTML = `
-    <svg width="${W}" height="${H}" style="display:block;max-width:100%">
+    <svg width="${W}" height="${H}" style="display:block;max-width:100%;font-variant-numeric:tabular-nums">
       <defs>
         <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="${lastPt.pnl >= 0 ? '#22c55e' : '#ef4444'}" stop-opacity="0.35"/>
@@ -158,6 +165,7 @@ function _drawHistoryChart(wrap, snapshots) {
         </linearGradient>
       </defs>
       ${yLabels}
+      ${yLabelsRight}
       ${xLabels}
       <!-- 손익 fill -->
       <path d="${pnlFill}" fill="url(#pnlGrad)" />
@@ -173,20 +181,20 @@ function _drawHistoryChart(wrap, snapshots) {
       <circle cx="${lastX.toFixed(1)}" cy="${yPnl(lastPt.pnl).toFixed(1)}" r="3.5" fill="${pnlColor}"/>
       <!-- 범례 -->
       <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="var(--c-purple-45)" stroke-width="2"/>
-      <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="9" fill="var(--muted)">평가금액</text>
+      <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">평가금액</text>
       <line x1="${PAD.left + 74}" y1="${PAD.top + 10}" x2="${PAD.left + 90}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
-      <text x="${PAD.left + 94}" y="${PAD.top + 14}" font-size="9" fill="var(--muted)">손익</text>
+      <text x="${PAD.left + 94}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
     </svg>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:10px">
-      <div style="background:var(--s2);border-radius:8px;padding:8px 10px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:10px;font-variant-numeric:tabular-nums">
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">현재 평가금액</div>
         <div style="font-size:.88rem;font-weight:700;color:var(--c-purple-45)">${fmt(lastPt.eval)}</div>
       </div>
-      <div style="background:var(--s2);border-radius:8px;padding:8px 10px">
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">현재 손익</div>
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${pSign(lastPt.pnl)}${fmt(lastPt.pnl)}</div>
       </div>
-      <div style="background:var(--s2);border-radius:8px;padding:8px 10px">
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">수익률</div>
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${lastPt.cost > 0 ? (pSign(lastPt.pnl) + (lastPt.pnl/lastPt.cost*100).toFixed(1) + '%') : '-'}</div>
       </div>
@@ -198,12 +206,12 @@ function _drawHistoryTable(wrap, snapshots) {
   let html = `
     <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개)</div>
     <div style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse;font-size:.72rem">
+    <table style="width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums">
       <thead>
         <tr style="border-bottom:1px solid var(--border);color:var(--muted)">
           <th style="text-align:left;padding:4px 6px;font-weight:600">날짜</th>
           <th style="text-align:right;padding:4px 6px;font-weight:600">평가금액</th>
-          <th style="text-align:right;padding:4px 6px;font-weight:600">투입원가</th>
+          <th style="text-align:right;padding:4px 6px;font-weight:600">매입원가(거래기준)</th>
           <th style="text-align:right;padding:4px 6px;font-weight:600">손익</th>
           <th style="text-align:right;padding:4px 6px;font-weight:600">수익률</th>
         </tr>
@@ -216,7 +224,7 @@ function _drawHistoryTable(wrap, snapshots) {
     const pct  = co > 0 ? (pnl / co * 100).toFixed(1) : '-';
     const c    = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     html += `<tr style="border-bottom:1px solid var(--c-black-12)">
-      <td style="padding:5px 6px;color:var(--muted)">${fmtDateDot(s.date || '')}</td>
+      <td style="padding:5px 6px;color:var(--muted);white-space:nowrap">${_fmtHistDateCompact(s.date || '')}</td>
       <td style="padding:5px 6px;text-align:right;color:var(--text)">${fmt(ev)}</td>
       <td style="padding:5px 6px;text-align:right;color:var(--muted)">${fmt(co)}</td>
       <td style="padding:5px 6px;text-align:right;color:${c}">${pSign(pnl)}${fmt(pnl)}</td>
@@ -225,6 +233,92 @@ function _drawHistoryTable(wrap, snapshots) {
   });
   html += `</tbody></table></div>`;
   wrap.innerHTML = html;
+}
+
+function _mergeTradeBasedCost(snapshots) {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) return snapshots;
+  if (!Array.isArray(rawTrades) || rawTrades.length === 0) return snapshots;
+
+  const timeline = _buildCostTimelineFromTrades(snapshots.map(s => _histDateKey(s.date || '')));
+  return snapshots.map(s => {
+    const key = _histDateKey(s.date || '');
+    const tradeCost = timeline[key];
+    if (!Number.isFinite(tradeCost)) return s;
+    return { ...s, costAmt: Math.round(tradeCost) };
+  });
+}
+
+function _buildCostTimelineFromTrades(snapshotDateKeys) {
+  const targets = [...new Set(snapshotDateKeys.filter(Boolean))].sort();
+  const out = {};
+  if (!targets.length) return out;
+
+  const trades = rawTrades
+    .map(t => ({
+      date: _histDateKey(t.date || ''),
+      tradeType: (t.tradeType || '').toLowerCase(),
+      qty: parseFloat(t.qty || 0),
+      price: parseFloat(t.price || 0),
+      name: (t.name || '').trim(),
+      acct: (t.acct || '').trim(),
+    }))
+    .filter(t => t.date && t.name && t.qty > 0 && t.price >= 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const posMap = {}; // key -> { qty, totalCost }
+  const posKey = t => `${t.acct}||${t.name}`;
+  const totalCost = () => Object.values(posMap).reduce((s, p) => s + (p.totalCost || 0), 0);
+
+  let ti = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const target = targets[i];
+    while (ti < trades.length && trades[ti].date <= target) {
+      const t = trades[ti++];
+      const key = posKey(t);
+      if (!posMap[key]) posMap[key] = { qty: 0, totalCost: 0 };
+      const p = posMap[key];
+      if (t.tradeType === 'buy') {
+        p.qty += t.qty;
+        p.totalCost += t.qty * t.price;
+      } else if (t.tradeType === 'sell') {
+        const avg = p.qty > 0 ? p.totalCost / p.qty : 0;
+        const sellQty = Math.min(t.qty, p.qty);
+        p.qty -= sellQty;
+        p.totalCost -= avg * sellQty;
+        if (p.qty <= 0) {
+          p.qty = 0;
+          p.totalCost = 0;
+        }
+      }
+    }
+    out[target] = Math.max(0, totalCost());
+  }
+  return out;
+}
+
+function _histDateKey(v) {
+  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
+  if (!m) return '';
+  return `${m[1]}.${m[2]}.${m[3]}`;
+}
+
+function _fmtAxisKrw(v) {
+  const abs = Math.abs(v);
+  if (abs >= 1e8) return (v / 1e8).toFixed(1) + '억';
+  if (abs >= 1e4) return (v / 1e4).toFixed(0) + '만';
+  return Math.round(v).toLocaleString();
+}
+
+function _fmtHistDateShort(v) {
+  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
+  if (!m) return '';
+  return `${m[2]}.${m[3]}`;
+}
+
+function _fmtHistDateCompact(v) {
+  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
+  if (!m) return fmtDateDot(v || '');
+  return `${m[1]}.${m[2]}.${m[3]}`;
 }
 
 // ════════════════════════════════════════════════════════════════
