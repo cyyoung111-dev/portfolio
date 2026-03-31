@@ -554,6 +554,16 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
 
     var data     = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
     var reqCodes = codesParam ? codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean) : null;
+    var reqAliasToCanonical = null;
+    if (reqCodes) {
+      reqAliasToCanonical = {};
+      reqCodes.forEach(function(rawCode) {
+        var canonical = _cleanCode(rawCode) || rawCode;
+        reqAliasToCanonical[canonical] = canonical;
+        var legacy = _legacyDigitsCode(rawCode);
+        if (legacy && legacy !== canonical) reqAliasToCanonical[legacy] = canonical;
+      });
+    }
     var dateMap  = {};
 
     data.forEach(function(row) {
@@ -565,9 +575,10 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
       if (!date || !key || price <= 0) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
-      if (reqCodes && reqCodes.indexOf(key) === -1) return;
+      if (reqAliasToCanonical && !reqAliasToCanonical[key]) return;
+      var outKey = reqAliasToCanonical ? (reqAliasToCanonical[key] || key) : key;
       if (!dateMap[date]) dateMap[date] = {};
-      dateMap[date][key] = price;
+      dateMap[date][outKey] = price;
     });
 
     // dateMap 키에서 직접 추출 — O(n), 중복 없음
@@ -633,13 +644,22 @@ function getPriceHistoryRow(ss, dateStr) {
     if (!ph || ph.getLastRow() < 2) return {};
     var data   = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
     var result = {};
+    var legacyToCanonical = {};
+    getCodeItems(ss).forEach(function(item) {
+      var canonical = item.code;
+      var legacy = _legacyDigitsCode(item.code);
+      if (legacy && canonical && legacy !== canonical) legacyToCanonical[legacy] = canonical;
+    });
     data.forEach(function(row) {
       if ((row[0] || '').toString().trim() !== dateStr) return;
       var code  = (row[1] || '').toString().trim();
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
       var key   = code || name;
-      if (key && price > 0) result[key] = price;
+      if (key && price > 0) {
+        result[key] = price;
+        if (code && legacyToCanonical[code]) result[legacyToCanonical[code]] = price;
+      }
     });
     return result;
   } catch(err) {
@@ -656,8 +676,13 @@ function getLatestPriceHistory(ss, codes) {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
     var data   = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
-    var codeSet = {};
-    codes.forEach(function(c) { codeSet[c] = true; });
+    var codeAliasToCanonical = {};
+    codes.forEach(function(rawCode) {
+      var canonical = _cleanCode(rawCode) || rawCode;
+      codeAliasToCanonical[canonical] = canonical;
+      var legacy = _legacyDigitsCode(rawCode);
+      if (legacy && legacy !== canonical) codeAliasToCanonical[legacy] = canonical;
+    });
     // code → { date, price } 최신값 유지
     var latest = {};
     data.forEach(function(row) {
@@ -667,9 +692,10 @@ function getLatestPriceHistory(ss, codes) {
       var price = parseFloat(row[3]) || 0;
       var key   = code || name;
       if (!date || !key || price <= 0) return;
-      if (!codeSet[key]) return;
-      if (!latest[key] || date > latest[key].date) {
-        latest[key] = { date: date, price: price };
+      var outKey = codeAliasToCanonical[key];
+      if (!outKey) return;
+      if (!latest[outKey] || date > latest[outKey].date) {
+        latest[outKey] = { date: date, price: price };
       }
     });
     var result = {};
@@ -1266,6 +1292,26 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
 // ════════════════════════════════════════════════════════════════════
 function _cleanCode(raw) {
   var s = (raw || '').toString().trim().toUpperCase();
+  if (!s) return '';
+
+  // 허용 문자만 남김 (숫자/영문)
+  var alnum = s.replace(/[^A-Z0-9]/g, '');
+  if (!alnum) return '';
+
+  // 숫자 코드: 기존 동작 유지(6자리 0패딩)
+  if (/^\d+$/.test(alnum)) {
+    while (alnum.length < 6) alnum = '0' + alnum;
+    return alnum;
+  }
+
+  // 영문+숫자 혼합 코드(예: 0046Y0, F00001): 6자리 유효코드만 허용
+  if (/^[A-Z0-9]{6}$/.test(alnum)) return alnum;
+  return '';
+}
+
+// 과거 버전 호환: 영문 제거 후 숫자만 6자리로 저장되던 키 복원용
+function _legacyDigitsCode(raw) {
+  var s = (raw || '').toString().trim();
   if (!s) return '';
 
   // 허용 문자만 남김 (숫자/영문)
