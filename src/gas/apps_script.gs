@@ -1360,6 +1360,18 @@ function _buildCodeAliasMap(codes) {
   return map;
 }
 
+function _buildCodeAliasMap(codes) {
+  var map = {};
+  (codes || []).forEach(function(rawCode) {
+    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
+    if (!canonical) return;
+    map[canonical] = canonical;
+    var legacy = _legacyDigitsCode(rawCode);
+    if (legacy && legacy !== canonical) map[legacy] = canonical;
+  });
+  return map;
+}
+
 function _pad(n) { return n < 10 ? '0' + n : '' + n; }
 
 // ════════════════════════════════════════════════════════════════════

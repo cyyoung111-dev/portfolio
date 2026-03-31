@@ -1,7 +1,9 @@
 let _editorRefDate = '';
+let _editorItemMap = {};
 
 function openEditor() {
   buildEditorUI();
+  _resetEditorApplyButton();
   // ★ 날짜 입력란 오늘 날짜로 초기화
   const editorDateEl = $el('editorDate');
   if (editorDateEl && !editorDateEl.value) {
@@ -16,6 +18,16 @@ function openEditor() {
   }
   $el('priceEditor').classList.add('open');
   if (editorDateEl?.value) loadEditorPricesByDate(editorDateEl.value);
+}
+
+function _resetEditorApplyButton() {
+  const applyBtn = $el('priceEditor')?.querySelector('[onclick*="applyPrices"]')
+                || $el('priceEditor')?.querySelector('.btn-apply-prices');
+  if (!applyBtn) return;
+  if (!applyBtn.dataset.baseHtml) applyBtn.dataset.baseHtml = applyBtn.innerHTML;
+  applyBtn.disabled = false;
+  applyBtn.innerHTML = applyBtn.dataset.baseHtml;
+  applyBtn.style.background = '';
 }
 
 function closeEditor() {
@@ -157,6 +169,7 @@ function _mgmtRefresh() {
 // ── 계좌 관리 (기초정보 관리 탭)
 
 function buildEditorUI() {
+  _editorItemMap = {};
   // ① 펀드·TDF — assetType 또는 fund 플래그 기준 (코드 유무와 무관)
   const fundItems = EDITABLE_PRICES.filter(item =>
     item.fund || item.assetType === '펀드' || item.assetType === 'TDF'
@@ -196,6 +209,11 @@ function buildEditorUI() {
   }
 
   const totalItems = [...fundItems, ...nopriceItems];
+  totalItems.forEach(item => {
+    const nn = normName(item.name || '');
+    _editorItemMap[item.name] = { code: item.code ? normalizeStockCode(item.code) : '', normName: nn };
+    if (nn && !_editorItemMap[nn]) _editorItemMap[nn] = { code: item.code ? normalizeStockCode(item.code) : '', normName: nn };
+  });
 
   if (totalItems.length === 0) {
     $el('editorBody').innerHTML =
@@ -280,24 +298,61 @@ async function loadEditorPricesByDate(dateStr) {
     buildEditorUI();
     return;
   }
-  const results = await fetchFromGsheet(dateStr);
-  if (!results || Object.keys(results).length === 0) {
-    buildEditorUI();
-    return;
-  }
   const label = dateStr.replace(/-/g,'.') + ' 조회값';
-  const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
-  Object.entries(results).forEach(([key, price]) => {
-    savedPrices[key] = price;
-    const savedAt = meta[key]?.savedAt || '';
-    if (savedAt) {
-      // YYYY-MM-DD HH:mm:ss -> YYYY.MM.DD HH:mm 입력
-      savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
-    } else {
-      savedPriceDates[key] = label;
-    }
+  const results = await fetchFromGsheet(dateStr);
+  if (results && Object.keys(results).length > 0) {
+    const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
+    Object.entries(results).forEach(([key, price]) => {
+      savedPrices[key] = price;
+      const savedAt = meta[key]?.savedAt || '';
+      if (savedAt) savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
+      else savedPriceDates[key] = label;
+    });
+  }
+
+  // ★ 현재가 편집용 우선값: 수동 입력 이력(getPriceHistory)을 조회값 위에 덮어씀
+  //   (사용자 저장값이 있으면 항상 우선 표시)
+  const manual = await fetchEditorManualPrices(dateStr);
+  Object.entries(manual).forEach(([key, obj]) => {
+    savedPrices[key] = obj.price;
+    savedPriceDates[key] = obj.savedAt
+      ? obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 입력'
+      : (dateStr.replace(/-/g,'.') + ' 입력');
   });
   buildEditorUI();
+}
+
+async function fetchEditorManualPrices(dateStr) {
+  try {
+    if (!GSHEET_API_URL) return {};
+    const targets = [];
+    EDITABLE_PRICES.forEach(item => {
+      if (item.code) targets.push(normalizeStockCode(item.code));
+      else if (item.name) targets.push(item.name);
+    });
+    const uniqTargets = Array.from(new Set(targets.filter(Boolean)));
+    if (uniqTargets.length === 0) return {};
+
+    const url = GSHEET_API_URL
+      + '?action=getPriceHistory&from=' + dateStr + '&to=' + dateStr
+      + '&codes=' + encodeURIComponent(uniqTargets.join(','));
+    const res = await fetchWithTimeout(url, 20000);
+    if (!res.ok) return {};
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.prices) return {};
+
+    const out = {};
+    Object.entries(data.prices).forEach(([key, entries]) => {
+      if (!Array.isArray(entries) || entries.length === 0) return;
+      const latest = entries[entries.length - 1];
+      if (!latest || !(latest.price > 0)) return;
+      out[key] = { price: Math.round(latest.price), savedAt: latest.savedAt || '' };
+    });
+    return out;
+  } catch (e) {
+    console.warn('[fetchEditorManualPrices]', e.message);
+    return {};
+  }
 }
 
 function getCurrentPriceFromData(name) {
@@ -319,6 +374,7 @@ function markChanged(name, val) {
     const key = name.replace(/\s/g,'_');
     const ps = $el('ps_' + key);
     if(ps) ps.innerHTML = '<span class="c-gold" title="미저장 변경">✎</span>';
+    _resetEditorApplyButton();
     // 날짜 셀에 "저장 대기" 표시
     const input = $el('ep_' + key);
     if(input) {
@@ -354,8 +410,10 @@ async function applyPrices() {
   const gasSaveTargets = [];      // GAS 저장 대상 추적 (실패 안내용)
   Object.keys(editedPrices).forEach(name => {
     // ★ 코드 있는 종목은 코드 키로 저장, 코드 없는 펀드는 이름 키로 저장
-    const code = getCode(normName(name));
+    const mappedCode = _editorItemMap[name]?.code || _editorItemMap[normName(name)]?.code || '';
+    const code = mappedCode || getCode(normName(name));
     const key = code || name;
+    console.log('[applyPrices] save key resolved:', { name, mappedCode, code, key });
     savedPrices[key] = editedPrices[name];
     savedPriceDates[key] = dateStr + ' ' + timeStr; // savedPriceDates는 표시용이라 시분 유지
     // ★ GAS에도 날짜별 저장 (saveManualPrice 액션)
