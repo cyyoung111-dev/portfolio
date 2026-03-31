@@ -1,5 +1,6 @@
 let _editorRefDate = '';
 let _editorItemMap = {};
+let _editorManualHistory = {};
 
 function openEditor() {
   buildEditorUI();
@@ -33,6 +34,7 @@ function _resetEditorApplyButton() {
 function closeEditor() {
   $el('priceEditor').classList.remove('open');
   editedPrices = {};
+  _editorManualHistory = {};
 }
 
 // ── 구글 시트 URL 관리
@@ -249,9 +251,16 @@ function buildEditorUI() {
     const displayLabel = (hasDate && dateLabel === '실시간' && _editorRefDate)
       ? _editorRefDate.replace(/-/g,'.') + ' 조회값'
       : dateLabel;
+    const historyKey = code || item.name;
+    const historyRows = _editorManualHistory[historyKey] || [];
+    const historyHtml = historyRows.length > 0
+      ? `<div style="font-size:.60rem;color:var(--muted);margin-top:3px;text-align:right;line-height:1.35">
+          최근 입력: ${historyRows.map(h => `${h.date.replace(/-/g,'.')} ${Number(h.price).toLocaleString()}`).join(' · ')}
+        </div>`
+      : '';
     const dateHtml = displayLabel
-      ? `<div style="font-size:.60rem;color:${hasDate?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${displayLabel}</div>`
-      : '<div style="font-size:.60rem;color:var(--red);margin-top:2px;text-align:right">미조회</div>';
+      ? `<div style="font-size:.60rem;color:${hasDate?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${displayLabel}</div>${historyHtml}`
+      : `<div style="font-size:.60rem;color:var(--red);margin-top:2px;text-align:right">미조회</div>${historyHtml}`;
     const safeId  = item.name.replace(/\s/g, '_');
     const safeName = item.name.replace(/'/g, "\\'");
     return `<div class="editor-row" style="align-items:flex-start;margin-bottom:10px">
@@ -305,7 +314,11 @@ async function loadEditorPricesByDate(dateStr) {
     Object.entries(results).forEach(([key, price]) => {
       savedPrices[key] = price;
       const savedAt = meta[key]?.savedAt || '';
+      const sourceDate = meta[key]?.sourceDate || '';
+      const isFallback = !!meta[key]?.isFallback;
       if (savedAt) savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
+      else if (isFallback && sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 기준일 이전값';
+      else if (sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 조회값';
       else savedPriceDates[key] = label;
     });
   }
@@ -319,6 +332,7 @@ async function loadEditorPricesByDate(dateStr) {
       ? obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 입력'
       : (dateStr.replace(/-/g,'.') + ' 입력');
   });
+  _editorManualHistory = await fetchEditorManualHistory(dateStr);
   buildEditorUI();
 }
 
@@ -351,6 +365,47 @@ async function fetchEditorManualPrices(dateStr) {
     return out;
   } catch (e) {
     console.warn('[fetchEditorManualPrices]', e.message);
+    return {};
+  }
+}
+
+async function fetchEditorManualHistory(dateStr) {
+  try {
+    if (!GSHEET_API_URL) return {};
+    const targets = [];
+    EDITABLE_PRICES.forEach(item => {
+      if (item.code) targets.push(normalizeStockCode(item.code));
+      else if (item.name) targets.push(item.name);
+    });
+    const uniqTargets = Array.from(new Set(targets.filter(Boolean)));
+    if (uniqTargets.length === 0) return {};
+
+    const fromDate = (function() {
+      const d = new Date(dateStr);
+      d.setDate(d.getDate() - 180);
+      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    })();
+    const url = GSHEET_API_URL
+      + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr
+      + '&codes=' + encodeURIComponent(uniqTargets.join(','));
+    const res = await fetchWithTimeout(url, 20000);
+    if (!res.ok) return {};
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.prices) return {};
+
+    const out = {};
+    Object.entries(data.prices).forEach(([key, entries]) => {
+      if (!Array.isArray(entries) || entries.length === 0) return;
+      // savedAt가 있는 항목 = 수동입력 이력
+      const manualOnly = entries
+        .filter(e => e && e.price > 0 && e.savedAt)
+        .slice(-3)
+        .map(e => ({ date: e.date || '', price: Math.round(e.price) }));
+      if (manualOnly.length > 0) out[key] = manualOnly;
+    });
+    return out;
+  } catch (e) {
+    console.warn('[fetchEditorManualHistory]', e.message);
     return {};
   }
 }
