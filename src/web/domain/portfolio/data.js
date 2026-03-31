@@ -104,7 +104,12 @@ function normalizeStockCode(raw) {
     .replace(/^A(?=\d{6}$)/, ''); // A000001 → 000001 (한국 거래소 prefix 제거)
 
   // ★ 순수 숫자만 있는 경우 6자리로 패딩 (005930, 000001 등)
-  if (/^\d{1,6}$/.test(s)) return s.padStart(6, '0');
+  if (/^\d{1,6}$/.test(s)) {
+    const padded = s.padStart(6, '0');
+    // ★ 000001~000009: 증권사 CSV 내부 일련번호 — 유효한 종목코드가 아니므로 빈 문자열 반환
+    if (/^00000[1-9]$/.test(padded)) return '';
+    return padded;
+  }
 
   // ★ 영문+숫자 혼합 코드 허용 (F00001, 0046Y0, EDGF35 등)
   //   특수문자만 제거하고 대문자+숫자+.-는 그대로 유지
@@ -518,6 +523,7 @@ function syncLoanFromSchedule() {
     // ④ 거래이력에 있는데 EDITABLE_PRICES에 없는 종목 자동 등록
     // ※ 기초정보에 이미 있으면 절대 덮어쓰지 않음 — 기초정보 우선순위 보장
     // ★ rawTrades normName 정규화 (TIME Korea → TIMEFOLIO 등 구버전명 변환)
+    let tradeCodeFixed = false;
     rawTrades.forEach(t => {
       if (!t.name) return;
       const nn = normName(t.name);
@@ -532,10 +538,13 @@ function syncLoanFromSchedule() {
       // ★ 거래이력 코드를 기초정보 코드로 교정
       // 기초정보에 이 종목이 있으면 거래이력 코드를 기초정보 코드로 맞춤
       const epForTrade = getEP(t.name);
-      if (epForTrade && epForTrade.code && t.code !== epForTrade.code) {
-        t.code = epForTrade.code;
+      if (epForTrade && t.code !== (epForTrade.code || '')) {
+        t.code = epForTrade.code || '';
+        tradeCodeFixed = true; // ★ localStorage 재저장 필요 표시
       }
     });
+    // ★ 교정된 거래이력을 localStorage에 즉시 저장 (새로고침해도 올바른 코드 유지)
+    if (tradeCodeFixed) lsSave(TRADES_KEY, rawTrades);
     rawTrades.filter(t => t.name).forEach(t => {
       // ★ 기초정보에 이미 같은 이름 OR 같은 코드가 있으면 추가하지 않음
       const epExist = getEP(t.name);
