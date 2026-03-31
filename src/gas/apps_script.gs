@@ -78,6 +78,7 @@ var CONFIG = {
   SHEET_PH:       '가격이력',
   SHEET_HOLD:     '보유현황',
   SHEET_TRADES:   '거래이력',
+  SHEET_SYNC_LOG: '동기화로그',
   SHEET_TMP:      '_gf_tmp',
   SHEET_SETTINGS: '설정',
   TIMEZONE:       'Asia/Seoul',
@@ -117,7 +118,7 @@ function doGet(e) {
   if (params.action === 'saveSnapshot' || params.action === 'syncCodes' ||
       params.action === 'syncHoldings' || params.action === 'syncTrades' ||
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
-      params.action === 'saveRealEstateSettings') {
+      params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -148,7 +149,41 @@ function doPost(e) {
   if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
   if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
+  if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   return jsonError('알 수 없는 action: ' + (params.action || '없음'));
+}
+
+function handleSaveSyncIssues(source, dataJson) {
+  try {
+    var rows;
+    try { rows = _parseArrayParam(dataJson, 'syncIssues'); } catch(e) { return jsonError(e.message); }
+    if (!Array.isArray(rows)) return jsonError('배열 형식 필요');
+    if (rows.length === 0) return jsonOk({ saved: 0 });
+
+    var ss = getss();
+    var sh = ss.getSheetByName(CONFIG.SHEET_SYNC_LOG);
+    if (!sh) {
+      sh = ss.insertSheet(CONFIG.SHEET_SYNC_LOG);
+      sh.getRange(1,1,1,7).setValues([['기록시각','소스','거래일','종목코드','종목명','계좌','메시지']]);
+    }
+
+    var now = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    var values = rows.map(function(r) {
+      return [
+        now,
+        (source || 'unknown').toString(),
+        (r.date || '').toString(),
+        _cleanCode(r.code || ''),
+        (r.name || '').toString(),
+        (r.acct || '').toString(),
+        (r.message || '기초정보 미매칭').toString()
+      ];
+    });
+    sh.getRange(sh.getLastRow() + 1, 1, values.length, 7).setValues(values);
+    return jsonOk({ saved: values.length });
+  } catch(err) {
+    return jsonError('saveSyncIssues 실패: ' + err.message);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -514,22 +549,26 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return jsonOk({ dates: [], prices: {} });
 
-    var data     = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+    var readCols = ph.getLastColumn() >= 5 ? 5 : 4;
+    var data     = ph.getRange(2, 1, ph.getLastRow() - 1, readCols).getValues();
     var reqCodes = codesParam ? codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean) : null;
+    var reqAliasToCanonical = reqCodes ? _buildCodeAliasMap(reqCodes) : null;
     var dateMap  = {};
 
     data.forEach(function(row) {
       var date  = (row[0] || '').toString().trim();
-      var code  = (row[1] || '').toString().trim();
+      var code  = _cleanCode(row[1]) || (row[1] || '').toString().trim();
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
+      var savedAt = (row[4] || '').toString().trim();
       var key   = code || name;
       if (!date || !key || price <= 0) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
-      if (reqCodes && reqCodes.indexOf(key) === -1) return;
+      if (reqAliasToCanonical && !reqAliasToCanonical[key]) return;
+      var outKey = reqAliasToCanonical ? (reqAliasToCanonical[key] || key) : key;
       if (!dateMap[date]) dateMap[date] = {};
-      dateMap[date][key] = price;
+      dateMap[date][outKey] = { price: price, savedAt: savedAt };
     });
 
     // dateMap 키에서 직접 추출 — O(n), 중복 없음
@@ -539,7 +578,8 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
     allDates.forEach(function(date) {
       Object.keys(dateMap[date]).forEach(function(key) {
         if (!pricesByCode[key]) pricesByCode[key] = [];
-        pricesByCode[key].push({ date: date, price: dateMap[date][key] });
+        var entry = dateMap[date][key];
+        pricesByCode[key].push({ date: date, price: entry.price, savedAt: entry.savedAt || '' });
       });
     });
 
@@ -579,7 +619,8 @@ function handleSaveManualPrice(dateStr, name, priceStr) {
       saveName = name;
     }
 
-    upsertPriceHistory(ss, dateStr, saveCode, saveName, price);
+    var savedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    upsertPriceHistory(ss, dateStr, saveCode, saveName, price, savedAt);
     return jsonOk({ saved: true, date: dateStr, name: name, price: price });
   } catch(err) {
     return jsonError('saveManualPrice 실패: ' + err.message);
@@ -595,13 +636,22 @@ function getPriceHistoryRow(ss, dateStr) {
     if (!ph || ph.getLastRow() < 2) return {};
     var data   = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
     var result = {};
+    var legacyToCanonical = {};
+    getCodeItems(ss).forEach(function(item) {
+      var canonical = item.code;
+      var legacy = _legacyDigitsCode(item.code);
+      if (legacy && canonical && legacy !== canonical) legacyToCanonical[legacy] = canonical;
+    });
     data.forEach(function(row) {
       if ((row[0] || '').toString().trim() !== dateStr) return;
-      var code  = (row[1] || '').toString().trim();
+      var code  = _cleanCode(row[1]) || (row[1] || '').toString().trim();
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
       var key   = code || name;
-      if (key && price > 0) result[key] = price;
+      if (key && price > 0) {
+        result[key] = price;
+        if (code && legacyToCanonical[code]) result[legacyToCanonical[code]] = price;
+      }
     });
     return result;
   } catch(err) {
@@ -618,20 +668,20 @@ function getLatestPriceHistory(ss, codes) {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
     var data   = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
-    var codeSet = {};
-    codes.forEach(function(c) { codeSet[c] = true; });
+    var codeAliasToCanonical = _buildCodeAliasMap(codes);
     // code → { date, price } 최신값 유지
     var latest = {};
     data.forEach(function(row) {
       var date  = (row[0] || '').toString().trim();
-      var code  = (row[1] || '').toString().trim();
+      var code  = _cleanCode(row[1]) || (row[1] || '').toString().trim();
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
       var key   = code || name;
       if (!date || !key || price <= 0) return;
-      if (!codeSet[key]) return;
-      if (!latest[key] || date > latest[key].date) {
-        latest[key] = { date: date, price: price };
+      var outKey = codeAliasToCanonical[key];
+      if (!outKey) return;
+      if (!latest[outKey] || date > latest[outKey].date) {
+        latest[outKey] = { date: date, price: price };
       }
     });
     var result = {};
@@ -650,8 +700,8 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph) {
       ph = ss.insertSheet(CONFIG.SHEET_PH);
-      ph.getRange(1,1,1,4).setValues([['날짜','종목코드','종목명','가격']]);
-      ph.getRange(1,1,1,4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+      ph.getRange(1,1,1,5).setValues([['날짜','종목코드','종목명','가격','입력일시']]);
+      ph.getRange(1,1,1,5).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
       ph.setColumnWidth(1,100); ph.setColumnWidth(2,100);
       ph.setColumnWidth(3,200); ph.setColumnWidth(4,100);
     }
@@ -678,7 +728,7 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       if (existingMap[key]) {
         toUpdate.push({ row: existingMap[key], price: item.price });
       } else {
-        toAppend.push([dateStr, cleanedCode, cleanedName, item.price]);
+        toAppend.push([dateStr, cleanedCode, cleanedName, item.price, (item.savedAt || '')]);
       }
     });
 
@@ -697,7 +747,7 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       }
     }
     if (toAppend.length > 0) {
-      ph.getRange(ph.getLastRow() + 1, 1, toAppend.length, 4).setValues(toAppend);
+      ph.getRange(ph.getLastRow() + 1, 1, toAppend.length, 5).setValues(toAppend);
     }
     SpreadsheetApp.flush();
   } catch(err) {
@@ -709,13 +759,13 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
 // ════════════════════════════════════════════════════════════════════
 //  내부 — 가격이력 시트 upsert (단건)
 // ════════════════════════════════════════════════════════════════════
-function upsertPriceHistory(ss, dateStr, code, name, price) {
+function upsertPriceHistory(ss, dateStr, code, name, price, savedAt) {
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph) {
       ph = ss.insertSheet(CONFIG.SHEET_PH);
-      ph.getRange(1,1,1,4).setValues([['날짜','종목코드','종목명','가격']]);
-      ph.getRange(1,1,1,4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+      ph.getRange(1,1,1,5).setValues([['날짜','종목코드','종목명','가격','입력일시']]);
+      ph.getRange(1,1,1,5).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
       ph.setColumnWidth(1,100); ph.setColumnWidth(2,100);
       ph.setColumnWidth(3,200); ph.setColumnWidth(4,100);
     }
@@ -733,12 +783,13 @@ function upsertPriceHistory(ss, dateStr, code, name, price) {
         var rowKey  = rowCode || rowName;
         if (rowDate === dateStr && rowKey === matchKey) {
           ph.getRange(i + 2, 4).setValue(price);
+          if (savedAt) ph.getRange(i + 2, 5).setValue(savedAt);
           SpreadsheetApp.flush();
           return;
         }
       }
     }
-    ph.getRange(ph.getLastRow() + 1, 1, 1, 4).setValues([[dateStr, cleanedCode, cleanedName, price]]);
+    ph.getRange(ph.getLastRow() + 1, 1, 1, 5).setValues([[dateStr, cleanedCode, cleanedName, price, (savedAt || '')]]);
     SpreadsheetApp.flush();
   } catch(err) {
     Logger.log('❌ upsertPriceHistory 실패: ' + err.message);
@@ -1227,12 +1278,44 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
 //  종목코드 정제
 // ════════════════════════════════════════════════════════════════════
 function _cleanCode(raw) {
-  var s      = (raw || '').toString().trim();
+  var s = (raw || '').toString().trim().toUpperCase();
+  if (!s) return '';
+
+  // 허용 문자만 남김 (숫자/영문)
+  var alnum = s.replace(/[^A-Z0-9]/g, '');
+  if (!alnum) return '';
+
+  // 숫자 코드: 기존 동작 유지(6자리 0패딩)
+  if (/^\d+$/.test(alnum)) {
+    while (alnum.length < 6) alnum = '0' + alnum;
+    return alnum;
+  }
+
+  // 영문+숫자 혼합 코드(예: 0046Y0, F00001): 6자리 유효코드만 허용
+  if (/^[A-Z0-9]{6}$/.test(alnum)) return alnum;
+  return '';
+}
+
+// 과거 버전 호환: 영문 제거 후 숫자만 6자리로 저장되던 키 복원용
+function _legacyDigitsCode(raw) {
+  var s = (raw || '').toString().trim();
   if (!s) return '';
   var digits = s.replace(/\D/g, '');
   if (!digits) return '';
   while (digits.length < 6) digits = '0' + digits;
   return digits;
+}
+
+function _buildCodeAliasMap(codes) {
+  var map = {};
+  (codes || []).forEach(function(rawCode) {
+    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
+    if (!canonical) return;
+    map[canonical] = canonical;
+    var legacy = _legacyDigitsCode(rawCode);
+    if (legacy && legacy !== canonical) map[legacy] = canonical;
+  });
+  return map;
 }
 
 function _pad(n) { return n < 10 ? '0' + n : '' + n; }
@@ -1731,10 +1814,10 @@ function migratePriceHistory() {
     return [date, code, name, oldPrice];
   });
   ph.clearContents();
-  ph.getRange(1,1,1,4).setValues([['날짜','종목코드','종목명','가격']]);
-  ph.getRange(1,1,1,4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+  ph.getRange(1,1,1,5).setValues([['날짜','종목코드','종목명','가격','입력일시']]);
+  ph.getRange(1,1,1,5).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   ph.setColumnWidth(1,100); ph.setColumnWidth(2,100); ph.setColumnWidth(3,200); ph.setColumnWidth(4,100);
-  if (newRows.length > 0) ph.getRange(2, 1, newRows.length, 4).setValues(newRows);
+  if (newRows.length > 0) ph.getRange(2, 1, newRows.length, 5).setValues(newRows.map(function(r){ return [r[0], r[1], r[2], r[3], '']; }));
   SpreadsheetApp.flush();
   try { SpreadsheetApp.getUi().alert('✅ 마이그레이션 완료!\n' + newRows.length + '행이 신버전 구조로 변환됐습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -1765,8 +1848,8 @@ function initSheet() {
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH) || ss.insertSheet(CONFIG.SHEET_PH);
   if (ph.getLastRow() === 0) {
-    ph.getRange(1,1,1,4).setValues([['날짜','종목코드','종목명','가격']]);
-    ph.getRange(1,1,1,4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    ph.getRange(1,1,1,5).setValues([['날짜','종목코드','종목명','가격','입력일시']]);
+    ph.getRange(1,1,1,5).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   }
 
   try {

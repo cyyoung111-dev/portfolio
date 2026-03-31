@@ -523,6 +523,7 @@ function syncLoanFromSchedule() {
     // ※ 기초정보에 이미 있으면 절대 덮어쓰지 않음 — 기초정보 우선순위 보장
     // ★ rawTrades normName 정규화 (TIME Korea → TIMEFOLIO 등 구버전명 변환)
     let tradeCodeFixed = false;
+    const unmatchedTrades = [];
     rawTrades.forEach(t => {
       if (!t.name) return;
       const nn = normName(t.name);
@@ -534,16 +535,39 @@ function syncLoanFromSchedule() {
         }
         t.name = nn;
       }
-      // ★ 거래이력 코드를 기초정보 코드로 교정
-      // 기초정보에 이 종목이 있으면 거래이력 코드를 기초정보 코드로 맞춤
-      const epForTrade = getEP(t.name);
-      if (epForTrade && t.code !== (epForTrade.code || '')) {
+      // ★ 코드 우선 매칭 + 기초정보 기준 교정
+      const tCode = normalizeStockCode(t.code || '');
+      const epByCode = tCode ? getEPByCode(tCode) : null;
+      const epByName = getEP(t.name);
+      const epForTrade = epByCode || epByName;
+      if (!epForTrade) {
+        unmatchedTrades.push({ name: t.name || '', code: tCode || '', date: t.date || '' });
+        return;
+      }
+
+      if (t.name !== epForTrade.name) {
+        t.name = epForTrade.name; // 코드가 같으면 종목명도 기초정보로 통일
+        tradeCodeFixed = true;
+      }
+      if (t.code !== (epForTrade.code || '')) {
         t.code = epForTrade.code || '';
         tradeCodeFixed = true; // ★ localStorage 재저장 필요 표시
       }
     });
     // ★ 교정된 거래이력을 localStorage에 즉시 저장 (새로고침해도 올바른 코드 유지)
-    if (tradeCodeFixed) lsSave(TRADES_KEY, rawTrades);
+    if (tradeCodeFixed) {
+      lsSave(TRADES_KEY, rawTrades);
+      if (GSHEET_API_URL && typeof syncTradesToGsheet === 'function') {
+        syncTradesToGsheet().catch(e => console.warn('[syncEditables] 거래이력 교정 후 GAS 저장 실패:', e));
+      }
+    }
+    if (unmatchedTrades.length > 0) {
+      console.warn('[syncEditables] 기초정보 미매칭 거래:', unmatchedTrades);
+      window._lastUnmatchedTrades = unmatchedTrades;
+      if (GSHEET_API_URL && typeof syncIssuesToGsheet === 'function') {
+        syncIssuesToGsheet('syncEditables', unmatchedTrades).catch(()=>{});
+      }
+    }
     rawTrades.filter(t => t.name).forEach(t => {
       // ★ 기초정보에 이미 같은 이름 OR 같은 코드가 있으면 추가하지 않음
       const epExist = getEP(t.name);
