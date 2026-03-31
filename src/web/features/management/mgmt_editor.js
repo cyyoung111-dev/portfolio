@@ -286,9 +286,16 @@ async function loadEditorPricesByDate(dateStr) {
     return;
   }
   const label = dateStr.replace(/-/g,'.') + ' 조회값';
+  const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
   Object.entries(results).forEach(([key, price]) => {
     savedPrices[key] = price;
-    savedPriceDates[key] = label;
+    const savedAt = meta[key]?.savedAt || '';
+    if (savedAt) {
+      // YYYY-MM-DD HH:mm:ss -> YYYY.MM.DD HH:mm 입력
+      savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
+    } else {
+      savedPriceDates[key] = label;
+    }
   });
   buildEditorUI();
 }
@@ -327,7 +334,7 @@ function markChanged(name, val) {
   }
 }
 
-function applyPrices() {
+async function applyPrices() {
   if(Object.keys(editedPrices).length === 0) {
     closeEditor(); return;
   }
@@ -344,6 +351,7 @@ function applyPrices() {
   const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
   const updatedCount = Object.keys(editedPrices).length;
   const gasManualPriceSaves = []; // GAS 저장 Promise 모음
+  const gasSaveTargets = [];      // GAS 저장 대상 추적 (실패 안내용)
   Object.keys(editedPrices).forEach(name => {
     // ★ 코드 있는 종목은 코드 키로 저장, 코드 없는 펀드는 이름 키로 저장
     const code = getCode(normName(name));
@@ -357,21 +365,31 @@ function applyPrices() {
       const gasDate = editorDateRaw || `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
       const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(gasDate)
                 + '&name=' + encodeURIComponent(key) + '&price=' + editedPrices[name];
-      // 버그수정: Promise 수집으로 결과 확인 (fire-and-forget 제거)
+      gasSaveTargets.push({ name, key, date: gasDate });
       gasManualPriceSaves.push(
         fetchWithTimeout(url, 10000)
           .then(r => r.json())
-          .then(d => { if (d.status !== 'ok') console.warn('[saveManualPrice] GAS 오류:', name, d); })
-          .catch(e => console.warn('[saveManualPrice]', name, e.message))
+          .then(d => ({ ok: d.status === 'ok', data: d, name, key }))
+          .catch(e => ({ ok: false, error: e.message, name, key }))
       );
     }
   });
 
-  // GAS 저장 완료 대기 (백그라운드, UI는 먼저 업데이트)
+  // GAS 저장 완료 대기 + 실패 안내
+  let gasFailedCount = 0;
   if (gasManualPriceSaves.length > 0) {
-    Promise.all(gasManualPriceSaves).then(() => {
-      console.log('[saveManualPrice] GAS 저장 완료:', gasManualPriceSaves.length + '건');
-    });
+    const results = await Promise.all(gasManualPriceSaves);
+    const failed = results.filter(r => !r || !r.ok);
+    gasFailedCount = failed.length;
+    if (gasFailedCount > 0) {
+      console.warn('[saveManualPrice] GAS 저장 실패:', failed);
+      if (typeof showToast === 'function') {
+        const ex = failed[0] ? `${failed[0].key || failed[0].name}` : '';
+        showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${ex ? ` (예: ${ex})` : ''} · 웹앱 재배포/URL 확인 필요`, 'warn');
+      }
+    } else {
+      console.log('[saveManualPrice] GAS 저장 완료:', gasSaveTargets.length + '건');
+    }
   }
 
   recomputeRows();
@@ -391,14 +409,24 @@ function applyPrices() {
                 || $el('priceEditor')?.querySelector('.btn-apply-prices');
   if (applyBtn) {
     applyBtn.disabled = true;
-    applyBtn.innerHTML = `✅ 저장 완료 (${updatedCount}개)`;
-    applyBtn.style.background = 'var(--green)';
+    if (gasFailedCount > 0) {
+      applyBtn.innerHTML = `⚠️ 일부 저장 실패 (GAS ${gasFailedCount}건)`;
+      applyBtn.style.background = 'var(--amber)';
+    } else {
+      applyBtn.innerHTML = `✅ 저장 완료 (${updatedCount}개)`;
+      applyBtn.style.background = 'var(--green)';
+    }
   }
   const body = $el('editorBody');
   if (body) {
     const done = document.createElement('div');
     done.style.cssText = 'text-align:center;padding:18px 0 8px;font-size:.82rem;color:var(--green-lt);font-weight:600';
-    done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${dateStr} ${timeStr} 기준</span>`;
+    if (gasFailedCount > 0) {
+      done.innerHTML = `⚠️ 로컬 저장 완료 · GAS 저장 실패 ${gasFailedCount}건<br><span style="font-size:.70rem;color:var(--muted)">웹앱 재배포/연결 URL 확인 후 다시 저장하세요</span>`;
+      done.style.color = 'var(--amber)';
+    } else {
+      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${dateStr} ${timeStr} 기준</span>`;
+    }
     body.prepend(done);
   }
   setTimeout(() => {
