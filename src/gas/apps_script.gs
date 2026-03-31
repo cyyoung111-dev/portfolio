@@ -568,7 +568,18 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
       if (reqAliasToCanonical && !reqAliasToCanonical[key]) return;
       var outKey = reqAliasToCanonical ? (reqAliasToCanonical[key] || key) : key;
       if (!dateMap[date]) dateMap[date] = {};
-      dateMap[date][outKey] = { price: price, savedAt: savedAt };
+      var prev = dateMap[date][outKey];
+      if (!prev) {
+        dateMap[date][outKey] = { price: price, savedAt: savedAt };
+      } else {
+        // 같은 날짜/키 중 수동입력(savedAt 있음) 값 우선
+        if (prev.savedAt && !savedAt) return;
+        if (!prev.savedAt && savedAt) {
+          dateMap[date][outKey] = { price: price, savedAt: savedAt };
+          return;
+        }
+        dateMap[date][outKey] = { price: price, savedAt: savedAt };
+      }
     });
 
     // dateMap 키에서 직접 추출 — O(n), 중복 없음
@@ -634,7 +645,8 @@ function getPriceHistoryRow(ss, dateStr) {
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
-    var data   = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+    var readCols = ph.getLastColumn() >= 5 ? 5 : 4;
+    var data   = ph.getRange(2, 1, ph.getLastRow() - 1, readCols).getValues();
     var result = {};
     var legacyToCanonical = {};
     getCodeItems(ss).forEach(function(item) {
@@ -649,10 +661,16 @@ function getPriceHistoryRow(ss, dateStr) {
       var price = parseFloat(row[3]) || 0;
       var key   = code || name;
       if (key && price > 0) {
-        result[key] = price;
-        if (code && legacyToCanonical[code]) result[legacyToCanonical[code]] = price;
+        var existing = result[key];
+        // 같은 날짜에서 수동입력 행(savedAt 있음) 우선
+        if (!(existing && existing._savedAt && !((row[4] || '').toString().trim()))) {
+          var savedAt = (row[4] || '').toString().trim();
+          result[key] = { _price: price, _savedAt: savedAt };
+          if (code && legacyToCanonical[code]) result[legacyToCanonical[code]] = { _price: price, _savedAt: savedAt };
+        }
       }
     });
+    Object.keys(result).forEach(function(k) { result[k] = result[k]._price; });
     return result;
   } catch(err) {
     Logger.log('❌ getPriceHistoryRow 실패: ' + err.message);
@@ -667,7 +685,8 @@ function getLatestPriceHistory(ss, codes) {
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
-    var data   = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+    var readCols = ph.getLastColumn() >= 5 ? 5 : 4;
+    var data   = ph.getRange(2, 1, ph.getLastRow() - 1, readCols).getValues();
     var codeAliasToCanonical = _buildCodeAliasMap(codes);
     // code → { date, price } 최신값 유지
     var latest = {};
@@ -680,8 +699,14 @@ function getLatestPriceHistory(ss, codes) {
       if (!date || !key || price <= 0) return;
       var outKey = codeAliasToCanonical[key];
       if (!outKey) return;
+      var savedAt = (row[4] || '').toString().trim();
       if (!latest[outKey] || date > latest[outKey].date) {
-        latest[outKey] = { date: date, price: price };
+        latest[outKey] = { date: date, price: price, savedAt: savedAt };
+      } else if (date === latest[outKey].date) {
+        // 같은 날짜라면 수동입력(savedAt 있음) 값 우선
+        if (!latest[outKey].savedAt && savedAt) {
+          latest[outKey] = { date: date, price: price, savedAt: savedAt };
+        }
       }
     });
     var result = {};
@@ -1316,24 +1341,16 @@ function _legacyDigitsCode(raw) {
   return '';
 }
 
-// 과거 버전 호환: 영문 제거 후 숫자만 6자리로 저장되던 키 복원용
-function _legacyDigitsCode(raw) {
-  var s = (raw || '').toString().trim();
-  if (!s) return '';
-
-  // 허용 문자만 남김 (숫자/영문)
-  var alnum = s.replace(/[^A-Z0-9]/g, '');
-  if (!alnum) return '';
-
-  // 숫자 코드: 기존 동작 유지(6자리 0패딩)
-  if (/^\d+$/.test(alnum)) {
-    while (alnum.length < 6) alnum = '0' + alnum;
-    return alnum;
-  }
-
-  // 영문+숫자 혼합 코드(예: 0046Y0, F00001): 6자리 유효코드만 허용
-  if (/^[A-Z0-9]{6}$/.test(alnum)) return alnum;
-  return '';
+function _buildCodeAliasMap(codes) {
+  var map = {};
+  (codes || []).forEach(function(rawCode) {
+    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
+    if (!canonical) return;
+    map[canonical] = canonical;
+    var legacy = _legacyDigitsCode(rawCode);
+    if (legacy && legacy !== canonical) map[legacy] = canonical;
+  });
+  return map;
 }
 
 function _buildCodeAliasMap(codes) {
