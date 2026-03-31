@@ -559,10 +559,12 @@ function handleSaveManualPrice(dateStr, name, priceStr) {
     if (isNaN(price) || price <= 0) return jsonError('유효하지 않은 가격: ' + priceStr);
     var ss = getss();
 
-    // ★ 버그수정: name 파라미터가 종목코드 형식(6자리 숫자)이면
+    // ★ 버그수정: name 파라미터가 종목코드 형식이면
     //   code 자리에 넣고 name은 종목코드 시트에서 찾아서 저장
     //   (프론트 applyPrices에서 코드 있는 종목은 key=code로 넘기기 때문)
-    var isCodeLike = /^\d{6}$/.test((name || '').trim());
+    // ★ 영문+숫자 혼합 코드(0046Y0, 0080G0, F00001 등)도 코드로 인식
+    var isCodeLike = /^[A-Z0-9]{5,8}$/.test((name || '').trim().toUpperCase()) &&
+                    !/^[가-힣a-z\s]+$/.test((name || '').trim());
     var saveCode, saveName;
     if (isCodeLike) {
       saveCode = name.trim();
