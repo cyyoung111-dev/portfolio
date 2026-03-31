@@ -87,8 +87,9 @@ async function fetchFromGsheet(dateStr) {
     }
 
     // ── 코드 없는 종목: getPriceHistory로 name 키로 조회
-    // 버그수정: 정확한 날짜가 아니라 최근 90일 범위로 조회 후 가장 최신값 사용
-    //          (다른 기기에서 어제/며칠 전 저장한 값도 불러올 수 있도록)
+    // 기준일 평가금액 정확도 보장:
+    //   ① 기준일(dateStr) 값이 있으면 그 값을 최우선 사용
+    //   ② 없을 때만 기준일 이전 최근값 fallback (다른 기기 저장값 연동 보완)
     let noCodeResults = {};
     if (epNoCode.length > 0) {
       const fromDate = (function() {
@@ -103,11 +104,18 @@ async function fetchFromGsheet(dateStr) {
           epNoCode.forEach(i => {
             const entries = data.prices[i.name];
             if (!entries || entries.length === 0) return;
-            // 가장 최신 날짜 항목 사용 (배열이 날짜순 정렬돼 있으므로 마지막 값)
-            const latest = entries[entries.length - 1];
-            if (latest && latest.price > 0) {
-              noCodeResults[i.name] = Math.round(latest.price);
-              if (latest.savedAt) priceMeta[i.name] = { savedAt: latest.savedAt };
+            // ① 기준일 정확 일치값 우선
+            const exact = entries.filter(e => e && e.date === dateStr && e.price > 0).slice(-1)[0];
+            // ② 없으면 기준일 이전 최근값 fallback
+            const fallback = entries.filter(e => e && e.date <= dateStr && e.price > 0).slice(-1)[0];
+            const picked = exact || fallback;
+            if (picked && picked.price > 0) {
+              noCodeResults[i.name] = Math.round(picked.price);
+              priceMeta[i.name] = {
+                savedAt: picked.savedAt || '',
+                sourceDate: picked.date || '',
+                isFallback: !exact && !!fallback && fallback.date !== dateStr
+              };
             }
           });
         }
@@ -137,6 +145,16 @@ function setStatusLabel(html, type) {
   if (!el) return;
   el.className = `action-status-label sl-${type in {idle:1,loading:1,ok:1,warn:1,error:1} ? type : 'idle'}`;
   el.innerHTML = html;
+}
+
+function _resolvePriceDateLabel(baseLabel, key) {
+  const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
+  const m = meta[key];
+  if (!m) return baseLabel;
+  if (m.savedAt) return m.savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
+  if (m.isFallback && m.sourceDate) return m.sourceDate.replace(/-/g,'.') + ' 기준일 이전값';
+  if (m.sourceDate) return m.sourceDate.replace(/-/g,'.') + ' 조회값';
+  return baseLabel;
 }
 
 async function quickFetchByDate() {
@@ -173,7 +191,7 @@ async function quickFetchByDate() {
       const label = isToday ? '실시간' : usedDate.replace(/-/g, '.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
-        savedPriceDates[key] = label;
+        savedPriceDates[key] = _resolvePriceDateLabel(label, key);
       });
       lastUpdated = usedDate.replace(/-/g, '.');
       updateDateBadge(lastUpdated, isToday);
@@ -270,7 +288,7 @@ async function autoLoadPrices() {
       const dateLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
-        savedPriceDates[key] = dateLabel;
+        savedPriceDates[key] = _resolvePriceDateLabel(dateLabel, key);
       });
       lastUpdated = usedDateStr.replace(/-/g,'.');
       updateDateBadge(lastUpdated, isToday);

@@ -117,18 +117,24 @@ function syncHoldingsFromTrades() {
 
 function computeRows(holdings) {
   return holdings.map(h => {
+    const nn = normName(h.name);
+    const code = getCode(nn);
     if (h.fund) {
       const fd = fundDirect[h.name];
       if (!fd) return null;
-      // ★ fundDirect.eval이 취득가와 같으면(초기값) savedPrices 이름키 우선 사용
-      const evalPrice = (savedPrices[h.name] > 0 && savedPrices[h.name] !== fd.cost)
-        ? savedPrices[h.name]
+      // ★ 펀드/TDF 현재가 우선순위:
+      //    ① 종목코드 키(다른 기기/GAS 연동 공통 키) ② 이름 키(하위호환) ③ fundDirect.eval ④ 취득가
+      //    (이전에는 이름 키만 확인해 코드 기준 수동입력값이 평가금액에 반영되지 않던 문제)
+      const codePrice = code && savedPrices[code];
+      const namePrice = savedPrices[nn] || savedPrices[h.name];
+      const evalPrice = (codePrice > 0)
+        ? codePrice
+        : (namePrice > 0 && namePrice !== fd.cost)
+          ? namePrice
         : (fd.eval > 0 ? fd.eval : fd.cost);
       const evalAmt = evalPrice;
-      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector:getSector(h.name), code:''};
+      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector:getSector(h.name), code:code || ''};
     }
-    const nn = normName(h.name);
-    const code   = getCode(nn);
     // ★ 가격 우선순위: ① 코드 키 ② 이름 키(하위호환) ③ 취득단가
     const p = (code && savedPrices[code]) || savedPrices[nn] || savedPrices[h.name] || h.cost;
     const evalAmt = p * h.qty, costAmt = h.cost * h.qty;
