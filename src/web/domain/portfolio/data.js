@@ -1,5 +1,9 @@
+// ═══════════════════════════════════════════════════════════════=
+//  data.js — 포트폴리오 데이터 통합 번들 (integration step 3)
+// ═══════════════════════════════════════════════════════════════=
+
 // ════════════════════════════════════════════════════════════════
-//  데이터 · 비즈니스 로직
+//  data_migration.js — 거래/데이터 마이그레이션
 // ════════════════════════════════════════════════════════════════
 
 function genTradeId() {
@@ -80,8 +84,138 @@ function migrateLegacyTrades() {
       changed = true;
     }
   });
-
 }
+
+// ════════════════════════════════════════════════════════════════
+//  data_price.js — 종목/코드/가격 관련 유틸
+// ════════════════════════════════════════════════════════════════
+
+let EDITABLE_PRICES = [];  // 현재가 편집기에서 관리, localStorage 복원
+
+function normalizeStockCode(raw) {
+  let s = String(raw || '').trim().toUpperCase();
+  if (!s) return '';
+  s = s
+    .replace(/^KRX:/, '')
+    .replace(/^KOSDAQ:/, '')
+    .replace(/^NASDAQ:/, '')
+    .replace(/^NYSE:/, '')
+    .replace(/^AMEX:/, '')
+    .replace(/^A(?=\d{6}$)/, ''); // A000001 → 000001 (한국 거래소 prefix 제거)
+
+  // ★ 순수 숫자만 있는 경우 6자리로 패딩 (005930, 000001 등)
+  if (/^\d{1,6}$/.test(s)) return s.padStart(6, '0');
+
+  // ★ 영문+숫자 혼합 코드 허용 (F00001, 0046Y0, EDGF35 등)
+  //   특수문자만 제거하고 대문자+숫자+.-는 그대로 유지
+  return s.replace(/[^A-Z0-9.-]/g, '');
+}
+
+// EDITABLE_PRICES 단일 조회 헬퍼 (name 기준) — 전체에서 공통 사용
+function getEP(name) {
+  return EDITABLE_PRICES.find(i => i.name === name) || null;
+}
+
+function getEPByCode(code) {
+  if (!code) return null;
+  const c = normalizeStockCode(code);
+  return EDITABLE_PRICES.find(i => i.code && normalizeStockCode(i.code) === c) || null;
+}
+
+// 종목코드가 있는 EDITABLE_PRICES 항목만 반환
+function getEPWithCode() {
+  return EDITABLE_PRICES
+    .filter(i => i.code)
+    .map(i => ({ ...i, code: normalizeStockCode(i.code) }))
+    .filter(i => i.code);
+}
+
+function getEPType(ep, fallback) {
+  return (ep && (ep.assetType || ep.type)) || fallback || '주식';
+}
+
+function epPush(name, code, assetType) {
+  EDITABLE_PRICES.push({ name, code: normalizeStockCode(code), sector: '기타', assetType: assetType||'주식' });
+}
+
+// EDITABLE_PRICES에서 섹터 조회 (기초정보 관리가 최우선 기준)
+function getSector(name) {
+  const ep = getEP(name);
+  if (ep && ep.sector && ep.sector !== 'mixed') return ep.sector;
+  return '기타';
+}
+
+// EDITABLE_PRICES에서 종목코드 조회
+function getCode(name) {
+  const ep = getEP(name);
+  if (ep && ep.code) return normalizeStockCode(ep.code);
+  return normalizeStockCode(STOCK_CODE[name] || '');
+}
+
+// ★ 특정 날짜 기준 보유수량 계산 (배당 계산용)
+// dateStr: 'YYYY-MM-DD' 형식, 해당 날짜 이하의 거래만 반영
+// 미래 날짜 → 현재 수량(rawHoldings) 사용
+function getQtyAtDate(name, dateStr) {
+  const todayStr = (()=>{
+    const t = new Date();
+    return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
+  })();
+  // 미래 날짜면 현재 보유수량 사용
+  if (dateStr > todayStr) {
+    return rawHoldings.filter(h => h.name === name && !h.fund)
+      .reduce((s, h) => s + (h.qty || 0), 0);
+  }
+  // 과거/오늘: rawTrades에서 해당 날짜 이하 buy/sell 합산
+  let qty = 0;
+  rawTrades
+    .filter(t => t.name === name && t.date && t.date <= dateStr)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .forEach(t => {
+      if (t.tradeType === 'buy')  qty += (t.qty || 0);
+      if (t.tradeType === 'sell') qty -= (t.qty || 0);
+    });
+  return Math.max(0, qty);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  data_dividend.js — 배당 관련 유틸
+// ════════════════════════════════════════════════════════════════
+
+// ★ 해당 연도의 월별 배당 기준일 계산 (월 말일)
+function getDivRefDate(year, month) {
+  // month: 1~12
+  const lastDay = new Date(year, month, 0).getDate(); // 해당 월 말일
+  return year + '-' + String(month).padStart(2,'0') + '-' + String(lastDay).padStart(2,'0');
+}
+
+// ★ DIVDATA 키 결정: 코드 있으면 코드, 없으면 name (펀드·TDF)
+function getDivKey(name) {
+  const code = getCode(name);
+  return code || name;
+}
+
+// ★ DIVDATA name 기반 → code 기반 마이그레이션
+function migrateDivDataToCode() {
+  const toAdd = {};
+  const toDelete = [];
+  Object.keys(DIVDATA).forEach(key => {
+    // 이미 코드 형식이면 스킵 (6자리 숫자 또는 영문+숫자)
+    const isCodeKey = /^[0-9]{6}$/.test(key) || /^[A-Z0-9]{2,10}$/.test(key);
+    if (isCodeKey) return;
+    // name 기반 키 → code로 변환
+    const code = getCode(key);
+    if (code && code !== key) {
+      toAdd[code] = DIVDATA[key];
+      toDelete.push(key);
+    }
+  });
+  toDelete.forEach(k => delete DIVDATA[k]);
+  Object.assign(DIVDATA, toAdd);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  data_storage.js — 저장소/캐시/동기화 상태
+// ════════════════════════════════════════════════════════════════
 
 //  holdings localStorage 저장/불러오기
 //  키를 고정값으로 사용 (파일 경로 무관)
@@ -265,25 +399,6 @@ let editedPrices = {};  // 현재가 편집기 임시 저장용
   } catch(e) { console.warn('캐시 마이그레이션 실패:', e.message); }
 })();
 
-let rows = [];  // recomputeRows()로 초기화됨 (EDITABLE_PRICES 로드 후 refreshAll에서 호출)
-
-// FORMAT
-function fmt(n){
-  if(n===null||n===undefined||isNaN(n)) return '-';
-  const sign=n<0?'-':'', a=Math.abs(n);
-  if(a>=100000000){
-    const uk=Math.floor(a/100000000);
-    const man=Math.round((a%100000000)/10000);
-    return sign+uk+'억'+(man>0?' '+man.toLocaleString()+'만':'');
-  }
-  if(a>=10000) return sign+Math.round(a/10000).toLocaleString()+'만';
-  return sign+Math.round(a).toLocaleString();
-}
-function fmtW(n){return Math.round(n).toLocaleString();}
-let _tradeFilter = { acct:'', name:'', type:'all' };   // all | buy | sell
-let _tradeSort   = { key:'date', dir:-1 };            // key: date|name|acct|qty|price  dir: 1 asc / -1 desc
-
-// ── 거래이력: 요약 카드 HTML 생성
 function savePriceCache() {
   // GS 연동 모드에서는 가격 캐시를 로컬에 저장하지 않음 (단일 소스: GSheet)
   if (lsGet(GSHEET_KEY, '')) {
@@ -338,133 +453,6 @@ function syncLoanFromSchedule() {
   saveSettings();
 }
 
-function refreshAll() {
-  recomputeRows();
-  // 데이터 변경 시 뷰 캐시 전체 무효화
-  if (typeof invalidateViewCache === 'function') invalidateViewCache();
-  renderSummary();
-  try { buildTabBar(); } catch(e) {}
-  renderDonut();
-  renderView();
-}
-
-// 기준일 지정 → 해당 날짜 종가로 즉시 업데이트
-// ── 진행현황 라벨 상태 헬퍼
-let EDITABLE_PRICES = [];  // 현재가 편집기에서 관리, localStorage 복원
-
-function normalizeStockCode(raw) {
-  let s = String(raw || '').trim().toUpperCase();
-  if (!s) return '';
-  s = s
-    .replace(/^KRX:/, '')
-    .replace(/^KOSDAQ:/, '')
-    .replace(/^NASDAQ:/, '')
-    .replace(/^NYSE:/, '')
-    .replace(/^AMEX:/, '')
-    .replace(/^A(?=\d{6}$)/, ''); // A000001 → 000001 (한국 거래소 prefix 제거)
-
-  // ★ 순수 숫자만 있는 경우 6자리로 패딩 (005930, 000001 등)
-  if (/^\d{1,6}$/.test(s)) return s.padStart(6, '0');
-
-  // ★ 영문+숫자 혼합 코드 허용 (F00001, 0046Y0, EDGF35 등)
-  //   특수문자만 제거하고 대문자+숫자+.-는 그대로 유지
-  return s.replace(/[^A-Z0-9.-]/g, '');
-}
-
-// EDITABLE_PRICES 단일 조회 헬퍼 (name 기준) — 전체에서 공통 사용
-function getEP(name) {
-  return EDITABLE_PRICES.find(i => i.name === name) || null;
-}
-function getEPByCode(code) {
-  if (!code) return null;
-  const c = normalizeStockCode(code);
-  return EDITABLE_PRICES.find(i => i.code && normalizeStockCode(i.code) === c) || null;
-}
-
-// 종목코드가 있는 EDITABLE_PRICES 항목만 반환
-function getEPWithCode() {
-  return EDITABLE_PRICES
-    .filter(i => i.code)
-    .map(i => ({ ...i, code: normalizeStockCode(i.code) }))
-    .filter(i => i.code);
-}
-function getEPType(ep, fallback) {
-  return (ep && (ep.assetType || ep.type)) || fallback || '주식';
-}
-function epPush(name, code, assetType) {
-  EDITABLE_PRICES.push({ name, code: normalizeStockCode(code), sector: '기타', assetType: assetType||'주식' });
-}
-
-// EDITABLE_PRICES에서 섹터 조회 (기초정보 관리가 최우선 기준)
-function getSector(name) {
-  const ep = getEP(name);
-  if (ep && ep.sector && ep.sector !== 'mixed') return ep.sector;
-  return '기타';
-}
-
-// EDITABLE_PRICES에서 종목코드 조회
-function getCode(name) {
-  const ep = getEP(name);
-  if (ep && ep.code) return normalizeStockCode(ep.code);
-  return normalizeStockCode(STOCK_CODE[name] || '');
-}
-
-// ★ 특정 날짜 기준 보유수량 계산 (배당 계산용)
-// dateStr: 'YYYY-MM-DD' 형식, 해당 날짜 이하의 거래만 반영
-// 미래 날짜 → 현재 수량(rawHoldings) 사용
-function getQtyAtDate(name, dateStr) {
-  const todayStr = (()=>{
-    const t = new Date();
-    return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
-  })();
-  // 미래 날짜면 현재 보유수량 사용
-  if (dateStr > todayStr) {
-    return rawHoldings.filter(h => h.name === name && !h.fund)
-      .reduce((s, h) => s + (h.qty || 0), 0);
-  }
-  // 과거/오늘: rawTrades에서 해당 날짜 이하 buy/sell 합산
-  let qty = 0;
-  rawTrades
-    .filter(t => t.name === name && t.date && t.date <= dateStr)
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .forEach(t => {
-      if (t.tradeType === 'buy')  qty += (t.qty || 0);
-      if (t.tradeType === 'sell') qty -= (t.qty || 0);
-    });
-  return Math.max(0, qty);
-}
-
-// ★ 해당 연도의 월별 배당 기준일 계산 (월 말일)
-function getDivRefDate(year, month) {
-  // month: 1~12
-  const lastDay = new Date(year, month, 0).getDate(); // 해당 월 말일
-  return year + '-' + String(month).padStart(2,'0') + '-' + String(lastDay).padStart(2,'0');
-}
-
-// ★ DIVDATA 키 결정: 코드 있으면 코드, 없으면 name (펀드·TDF)
-function getDivKey(name) {
-  const code = getCode(name);
-  return code || name;
-}
-
-// ★ DIVDATA name 기반 → code 기반 마이그레이션
-function migrateDivDataToCode() {
-  const toAdd = {};
-  const toDelete = [];
-  Object.keys(DIVDATA).forEach(key => {
-    // 이미 코드 형식이면 스킵 (6자리 숫자 또는 영문+숫자)
-    const isCodeKey = /^[0-9]{6}$/.test(key) || /^[A-Z0-9]{2,10}$/.test(key);
-    if (isCodeKey) return;
-    // name 기반 키 → code로 변환
-    const code = getCode(key);
-    if (code && code !== key) {
-      toAdd[code] = DIVDATA[key];
-      toDelete.push(key);
-    }
-  });
-  toDelete.forEach(k => delete DIVDATA[k]);
-  Object.assign(DIVDATA, toAdd);
-}
 // EDITABLE_PRICES를 localStorage에서 복원 (신규 추가 종목 포함)
 // SECTOR_COLORS localStorage 복원 (저장값으로 완전 교체 — 삭제 섹터 부활 방지)
 (function() {
@@ -536,7 +524,8 @@ function migrateDivDataToCode() {
       if (nn !== t.name) {
         // DIVDATA 키도 함께 변환
         if (DIVDATA[t.name] !== undefined && DIVDATA[nn] === undefined) {
-          DIVDATA[nn] = DIVDATA[t.name]; delete DIVDATA[t.name];
+          DIVDATA[nn] = DIVDATA[t.name];
+          delete DIVDATA[t.name];
         }
         t.name = nn;
       }
@@ -571,6 +560,44 @@ function migrateDivDataToCode() {
 
   } catch(e) { console.warn('syncEditables 실패:', e); }
 })();
+
+// ════════════════════════════════════════════════════════════════
+//  data.js — 공통 포맷/화면 갱신 오케스트레이션
+//  의존: data_migration.js, data_price.js, data_dividend.js, data_storage.js
+// ════════════════════════════════════════════════════════════════
+
+// FORMAT
+function fmt(n){
+  if(n===null||n===undefined||isNaN(n)) return '-';
+  const sign=n<0?'-':'', a=Math.abs(n);
+  if(a>=100000000){
+    const uk=Math.floor(a/100000000);
+    const man=Math.round((a%100000000)/10000);
+    return sign+uk+'억'+(man>0?' '+man.toLocaleString()+'만':'');
+  }
+  if(a>=10000) return sign+Math.round(a/10000).toLocaleString()+'만';
+  return sign+Math.round(a).toLocaleString();
+}
+
+function fmtW(n){
+  return Math.round(n).toLocaleString();
+}
+
+let _tradeFilter = { acct:'', name:'', type:'all' };   // all | buy | sell
+let _tradeSort   = { key:'date', dir:-1 };            // key: date|name|acct|qty|price  dir: 1 asc / -1 desc
+
+let rows = [];  // recomputeRows()로 초기화됨 (EDITABLE_PRICES 로드 후 refreshAll에서 호출)
+
+function refreshAll() {
+  recomputeRows();
+  // 데이터 변경 시 뷰 캐시 전체 무효화
+  if (typeof invalidateViewCache === 'function') invalidateViewCache();
+  renderSummary();
+  try { buildTabBar(); } catch(e) {}
+  renderDonut();
+  renderView();
+}
+
 // ★ 초기화는 모든 JS 로드 후 app_bootstrap.js에서 실행
 
 // ★ GSheet 연동 초기화는 app_bootstrap.js에서 실행

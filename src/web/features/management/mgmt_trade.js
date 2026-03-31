@@ -1,70 +1,11 @@
 // ── mgmt_trade.js
-// 거래 추가 / 수정 오버레이 (openAddTrade, saveTrade, editTrade)
-// buildTradeEditOverlayHTML, 코드·계좌·종목명 헬퍼
+// 거래 관리 통합 번들 (form helpers + overlay + actions)
 // ─────────────────────────────────────────────────────────────
 
 let _editingTradeId = null;
 let _teIsNewMode    = false; // 신규 종목 선택 모드
 let _teNewSectorFilter = '';  // 신규 모드 섹터 필터
 let _teNewTypeFilter   = '';  // 신규 모드 자산구분 필터
-
-function openAddTrade(prefill, forceTradeType) {
-  _editingTradeId = prefill?.id || null;
-  _teIsNewMode = false;
-  _teNewSectorFilter = '';
-  _teNewTypeFilter = '';
-  const t = prefill || {};
-
-  if (!$el('tradeEditOverlay')) {
-    document.body.insertAdjacentHTML('beforeend', buildTradeEditOverlayHTML());
-    $el('tradeEditOverlay').addEventListener('click', e => {
-      if (e.target === $el('tradeEditOverlay')) closeTradeEdit();
-    });
-  }
-
-  const el = $el('tradeEditOverlay');
-  el.style.display = 'flex';
-
-  const tradeType = forceTradeType || t.tradeType || 'buy';
-  const f = id => $el(id);
-  f('te-tradetype-buy').classList.toggle('active', tradeType === 'buy');
-  f('te-tradetype-sell').classList.toggle('active', tradeType === 'sell');
-  _teSetTradeType(tradeType);
-
-  _refreshTeAcctList(t.acct);
-  _refreshTeCodeList(t.name, t.code, t.acct);
-
-  const _teEp        = getEP(normName(t.name) || t.name);
-  const _teAssetType = getEPType(_teEp, t.assetType || t.type || '주식');
-  f('te-assettype').value = _teAssetType;
-
-  (function(){
-    const grp = $el('te-assettype-group'); if (!grp) return;
-    // 기존 종목이면 자산구분 잠금 (사용자 수정 불가)
-    const isLocked = !!_teEp;
-    if (isLocked) {
-      // 잠금: 선택된 값만 표시, 클릭 비활성화
-      grp.innerHTML = `<span style="display:inline-block;padding:4px 10px;border-radius:6px;
-        background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--gold);
-        font-size:.72rem;font-weight:600">${_teAssetType}</span>
-        <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
-    } else {
-      // 신규 종목: 자유롭게 선택 가능
-      const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
-      grp.innerHTML = types.map(t =>
-        `<button type="button" onclick="_tePickAssetType('${t}')" class="${_fBtnClass(_teAssetType===t)}">${t}</button>`
-      ).join('');
-    }
-  })();
-
-  f('te-qty').value   = t.qty   || '';
-  f('te-price').value = t.price ?? '';
-  f('te-date').value  = t.date  || '';
-  f('te-memo').value  = t.memo  || '';
-  f('te-title').textContent       = _editingTradeId ? '거래 수정' : '거래 추가';
-  f('te-error').style.display     = 'none';
-  f('te-code-status').textContent = '';
-}
 
 function _teSetTradeType(type) {
   const f      = id => $el(id);
@@ -358,7 +299,8 @@ async function teCodeLookup(code) {
     status.style.color = 'var(--muted)';
     return;
   }
-  status.textContent = '⏳ 조회 중...'; status.style.color = 'var(--blue-lt)';
+  status.textContent = '⏳ 조회 중...';
+  status.style.color = 'var(--blue-lt)';
   try {
     const name = await lookupNameByCode(trimCode);
     if (name) {
@@ -377,9 +319,63 @@ async function teCodeLookup(code) {
   }
 }
 
-// 종목명 변경 → 코드 자동완성
+function openAddTrade(prefill, forceTradeType) {
+  _editingTradeId = prefill?.id || null;
+  _teIsNewMode = false;
+  _teNewSectorFilter = '';
+  _teNewTypeFilter = '';
+  const t = prefill || {};
 
-// ── 오버레이 HTML ───────────────────────────────────────────────
+  if (!$el('tradeEditOverlay')) {
+    document.body.insertAdjacentHTML('beforeend', buildTradeEditOverlayHTML());
+    $el('tradeEditOverlay').addEventListener('click', e => {
+      if (e.target === $el('tradeEditOverlay')) closeTradeEdit();
+    });
+  }
+
+  const el = $el('tradeEditOverlay');
+  el.style.display = 'flex';
+
+  const tradeType = forceTradeType || t.tradeType || 'buy';
+  const f = id => $el(id);
+  f('te-tradetype-buy').classList.toggle('active', tradeType === 'buy');
+  f('te-tradetype-sell').classList.toggle('active', tradeType === 'sell');
+  _teSetTradeType(tradeType);
+
+  _refreshTeAcctList(t.acct);
+  _refreshTeCodeList(t.name, t.code, t.acct);
+
+  const _teEp        = getEP(normName(t.name) || t.name);
+  const _teAssetType = getEPType(_teEp, t.assetType || t.type || '주식');
+  f('te-assettype').value = _teAssetType;
+
+  (function(){
+    const grp = $el('te-assettype-group'); if (!grp) return;
+    // 기존 종목이면 자산구분 잠금 (사용자 수정 불가)
+    const isLocked = !!_teEp;
+    if (isLocked) {
+      // 잠금: 선택된 값만 표시, 클릭 비활성화
+      grp.innerHTML = `<span style="display:inline-block;padding:4px 10px;border-radius:6px;
+        background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--gold);
+        font-size:.72rem;font-weight:600">${_teAssetType}</span>
+        <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
+    } else {
+      // 신규 종목: 자유롭게 선택 가능
+      const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
+      grp.innerHTML = types.map(t =>
+        `<button type="button" onclick="_tePickAssetType('${t}')" class="${_fBtnClass(_teAssetType===t)}">${t}</button>`
+      ).join('');
+    }
+  })();
+
+  f('te-qty').value   = t.qty   || '';
+  f('te-price').value = t.price ?? '';
+  f('te-date').value  = t.date  || '';
+  f('te-memo').value  = t.memo  || '';
+  f('te-title').textContent       = _editingTradeId ? '거래 수정' : '거래 추가';
+  f('te-error').style.display     = 'none';
+  f('te-code-status').textContent = '';
+}
 
 function buildTradeEditOverlayHTML() {
   const inp = (id, ph, tp='text') =>
@@ -469,8 +465,6 @@ function closeTradeEdit() {
   if (el) el.style.display = 'none';
   _editingTradeId = null;
 }
-
-// ── 저장 / 수정 ─────────────────────────────────────────────────
 
 function saveTrade() {
   const f         = id => $el(id);
