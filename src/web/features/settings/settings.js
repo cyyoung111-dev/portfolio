@@ -1,7 +1,11 @@
+// ═══════════════════════════════════════════════════════════════=
+//  settings.js — 설정 통합 번들 (integration step 4)
+// ═══════════════════════════════════════════════════════════════=
+
 // ════════════════════════════════════════════════════════════════
-//  settings.js — 설정 저장·로드, GAS 연동 초기화, 탭 동기화 UI
-//  의존: data.js, core_storage.js
+//  settings_constants.js — 설정 상수/공유 상태
 // ════════════════════════════════════════════════════════════════
+
 // PRICE EDITOR
 const SECTOR_LABELS = {
   'semi':'반도체/IT', 'battery':'2차전지', 'ai':'AI/전력',
@@ -19,16 +23,37 @@ const SECTOR_LABELS = {
 // ── 구글 시트 API URL (브라우저 재시작해도 유지)
 let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 
-// ════════════════════════════════════════════════════════════════════
-//  설정 GS 저장 / 복원 — 브라우저 독립 복원용
-// ════════════════════════════════════════════════════════════════════
 // debounce 타이머
 let _saveSettingsTimer = null;
 let _saveDividendTimer = null;
 let _saveRealEstateTimer = null;
+
 const TAB_SYNC_STATUS_KEY = 'tab_sync_status';
 let TAB_SYNC_STATUS = lsGet(TAB_SYNC_STATUS_KEY, {});
 const TAB_SYNC_BUSY = {};
+
+let _gsBootRestored = false;
+
+// ════════════════════════════════════════════════════════════════
+//  settings_net.js — 설정 네트워크 유틸
+// ════════════════════════════════════════════════════════════════
+
+// AbortSignal.timeout 미지원 브라우저 대응
+function fetchWithTimeout(url, ms, options) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...options, signal: ctrl.signal })
+    .finally(() => clearTimeout(tid));
+}
+
+function saveGsheetUrl(url) {
+  GSHEET_API_URL = url.trim();
+  lsSave(GSHEET_KEY, GSHEET_API_URL);
+}
+
+// ════════════════════════════════════════════════════════════════
+//  settings_persistence.js — 설정 저장/복원
+// ════════════════════════════════════════════════════════════════
 
 function _toNum(v, fallback) {
   const n = Number(v);
@@ -76,7 +101,6 @@ function _applyDivData(raw) {
   Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
   Object.assign(DIVDATA, normalized);
 }
-
 
 function saveDividendSettings(immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
@@ -204,6 +228,7 @@ async function loadDividendSettings() {
     return false;
   }
 }
+
 function saveSettings(immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
   clearTimeout(_saveSettingsTimer);
@@ -256,6 +281,10 @@ async function persistRealEstateSettings(immediate) {
   if (ok) return true;
   return saveSettings(true);
 }
+
+// ════════════════════════════════════════════════════════════════
+//  settings_tabsync.js — 탭별 수동 재동기화 UI/동작
+// ════════════════════════════════════════════════════════════════
 
 function _tabSyncText(tabId) {
   const info = TAB_SYNC_STATUS[tabId];
@@ -356,6 +385,11 @@ async function manualSyncByTab(tabId) {
     showToast('재동기화 실패', 'error');
   }
 }
+
+// ════════════════════════════════════════════════════════════════
+//  settings.js — 설정 통합 로드/부트스트랩
+//  의존: settings_constants.js, settings_net.js, settings_persistence.js
+// ════════════════════════════════════════════════════════════════
 
 async function loadSettings(onProgress) {
   const prog = onProgress || function(){};
@@ -547,15 +581,6 @@ async function loadSettings(onProgress) {
   }
 }
 
-// AbortSignal.timeout 미지원 브라우저 대응
-function fetchWithTimeout(url, ms, options) {
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, { ...options, signal: ctrl.signal })
-    .finally(() => clearTimeout(tid));
-}
-
-let _gsBootRestored = false;
 async function bootstrapGsheetSettings() {
   if (_gsBootRestored) return;
   if (!GSHEET_API_URL) return;
@@ -573,8 +598,4 @@ async function bootstrapGsheetSettings() {
   } catch(e) {
     console.warn('bootstrapGsheetSettings 실패:', e);
   }
-}
-function saveGsheetUrl(url) {
-  GSHEET_API_URL = url.trim();
-  lsSave(GSHEET_KEY, GSHEET_API_URL);
 }
