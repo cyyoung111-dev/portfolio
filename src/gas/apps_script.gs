@@ -1325,10 +1325,56 @@ function _cleanCode(raw) {
 function _legacyDigitsCode(raw) {
   var s = (raw || '').toString().trim();
   if (!s) return '';
-  var digits = s.replace(/\D/g, '');
-  if (!digits) return '';
-  while (digits.length < 6) digits = '0' + digits;
-  return digits;
+
+  // 허용 문자만 남김 (숫자/영문)
+  var alnum = s.replace(/[^A-Z0-9]/g, '');
+  if (!alnum) return '';
+
+  // 숫자 코드: 기존 동작 유지(6자리 0패딩)
+  if (/^\d+$/.test(alnum)) {
+    while (alnum.length < 6) alnum = '0' + alnum;
+    return alnum;
+  }
+
+  // 영문+숫자 혼합 코드(예: 0046Y0, F00001): 6자리 유효코드만 허용
+  if (/^[A-Z0-9]{6}$/.test(alnum)) return alnum;
+  return '';
+}
+
+function _buildCodeAliasMap(codes) {
+  var map = {};
+  (codes || []).forEach(function(rawCode) {
+    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
+    if (!canonical) return;
+    map[canonical] = canonical;
+    var legacy = _legacyDigitsCode(rawCode);
+    if (legacy && legacy !== canonical) map[legacy] = canonical;
+  });
+  return map;
+}
+
+function _buildCodeAliasMap(codes) {
+  var map = {};
+  (codes || []).forEach(function(rawCode) {
+    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
+    if (!canonical) return;
+    map[canonical] = canonical;
+    var legacy = _legacyDigitsCode(rawCode);
+    if (legacy && legacy !== canonical) map[legacy] = canonical;
+  });
+  return map;
+}
+
+function _buildCodeAliasMap(codes) {
+  var map = {};
+  (codes || []).forEach(function(rawCode) {
+    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
+    if (!canonical) return;
+    map[canonical] = canonical;
+    var legacy = _legacyDigitsCode(rawCode);
+    if (legacy && legacy !== canonical) map[legacy] = canonical;
+  });
+  return map;
 }
 
 function _buildCodeAliasMap(codes) {
