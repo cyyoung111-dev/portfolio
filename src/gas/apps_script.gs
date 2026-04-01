@@ -556,11 +556,11 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
     var dateMap  = {};
 
     data.forEach(function(row) {
-      var date  = (row[0] || '').toString().trim();
+      var date  = _normalizeDate(row[0]);
       var code  = _cleanCode(row[1]) || (row[1] || '').toString().trim();
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
-      var savedAt = (row[4] || '').toString().trim();
+      var savedAt = _normalizeDatetime(row[4]);
       var key   = code || name;
       if (!date || !key || price <= 0) return;
       if (fromStr && date < fromStr) return;
@@ -619,11 +619,25 @@ function handleSaveManualPrice(dateStr, name, priceStr) {
     var saveCode, saveName;
     if (isCodeLike) {
       saveCode = name.trim();
-      // 종목명은 종목코드 시트에서 찾기, 없으면 빈 문자열
+      // ★ 종목명: 종목코드 시트 → 설정 시트 EDITABLE_PRICES 순으로 찾기
+      // 펀드·TDF는 종목코드 시트에 없고 설정에만 있으므로 두 곳 모두 확인
       var codeItems = getCodeItems(ss);
       saveName = '';
       for (var ci = 0; ci < codeItems.length; ci++) {
         if (codeItems[ci].code === saveCode) { saveName = codeItems[ci].name; break; }
+      }
+      if (!saveName) {
+        // 종목코드 시트에 없으면 설정 시트 EDITABLE_PRICES에서 찾기
+        try {
+          var settingsMap = _readSettingsMap();
+          var epList = settingsMap.EDITABLE_PRICES;
+          if (Array.isArray(epList)) {
+            for (var ei = 0; ei < epList.length; ei++) {
+              var epCode = epList[ei].code ? epList[ei].code.toString().trim().toUpperCase() : '';
+              if (epCode === saveCode.toUpperCase()) { saveName = epList[ei].name || ''; break; }
+            }
+          }
+        } catch(e) { /* 찾기 실패해도 빈 문자열로 진행 */ }
       }
     } else {
       saveCode = '';
@@ -655,7 +669,7 @@ function getPriceHistoryRow(ss, dateStr) {
       if (legacy && canonical && legacy !== canonical) legacyToCanonical[legacy] = canonical;
     });
     data.forEach(function(row) {
-      if ((row[0] || '').toString().trim() !== dateStr) return;
+      if (_normalizeDate(row[0]) !== dateStr) return;
       var code  = _cleanCode(row[1]) || (row[1] || '').toString().trim();
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
@@ -663,8 +677,8 @@ function getPriceHistoryRow(ss, dateStr) {
       if (key && price > 0) {
         var existing = result[key];
         // 같은 날짜에서 수동입력 행(savedAt 있음) 우선
-        if (!(existing && existing._savedAt && !((row[4] || '').toString().trim()))) {
-          var savedAt = (row[4] || '').toString().trim();
+        if (!(existing && existing._savedAt && !(_normalizeDatetime(row[4])))) {
+          var savedAt = _normalizeDatetime(row[4]);
           result[key] = { _price: price, _savedAt: savedAt };
           if (code && legacyToCanonical[code]) result[legacyToCanonical[code]] = { _price: price, _savedAt: savedAt };
         }
@@ -691,7 +705,7 @@ function getLatestPriceHistory(ss, codes) {
     // code → { date, price } 최신값 유지
     var latest = {};
     data.forEach(function(row) {
-      var date  = (row[0] || '').toString().trim();
+      var date  = _normalizeDate(row[0]);
       var code  = _cleanCode(row[1]) || (row[1] || '').toString().trim();
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
@@ -699,7 +713,7 @@ function getLatestPriceHistory(ss, codes) {
       if (!date || !key || price <= 0) return;
       var outKey = codeAliasToCanonical[key];
       if (!outKey) return;
-      var savedAt = (row[4] || '').toString().trim();
+      var savedAt = _normalizeDatetime(row[4]);
       if (!latest[outKey] || date > latest[outKey].date) {
         latest[outKey] = { date: date, price: price, savedAt: savedAt };
       } else if (date === latest[outKey].date) {
@@ -800,15 +814,17 @@ function upsertPriceHistory(ss, dateStr, code, name, price, savedAt) {
     var matchKey    = cleanedCode || cleanedName;
     var lastRow     = ph.getLastRow();
     if (lastRow > 1) {
-      var data = ph.getRange(2, 1, lastRow - 1, 3).getValues();
+      var data = ph.getRange(2, 1, lastRow - 1, 5).getValues();
       for (var i = 0; i < data.length; i++) {
-        var rowDate = data[i][0].toString().trim();
+        var rowDate = _normalizeDate(data[i][0]);
         var rowCode = data[i][1].toString().trim();
         var rowName = data[i][2].toString().trim();
         var rowKey  = rowCode || rowName;
         if (rowDate === dateStr && rowKey === matchKey) {
+          // ★ 수동저장(savedAt 있음)이면 항상 덮어씌움
+          // ★ 기존 행이 자동조회(savedAt 없음)였어도 수동저장으로 업그레이드
           ph.getRange(i + 2, 4).setValue(price);
-          if (savedAt) ph.getRange(i + 2, 5).setValue(savedAt);
+          ph.getRange(i + 2, 5).setValue(savedAt || '');
           SpreadsheetApp.flush();
           return;
         }
@@ -1990,6 +2006,21 @@ function _normalizeDate(raw) {
     if (!isNaN(d.getTime())) return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd');
   } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
   return s.slice(0, 10); // 최후 fallback
+}
+
+// ★ savedAt(날짜+시간) 정규화 — Date 객체 또는 임의 문자열 → 'yyyy-MM-dd HH:mm:ss'
+function _normalizeDatetime(raw) {
+  if (!raw) return '';
+  if (raw instanceof Date) return Utilities.formatDate(raw, CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+  var s = raw.toString().trim();
+  // 이미 yyyy-MM-dd HH:mm:ss 형식
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return s;
+  // 'Thu Apr 02 2026 04:31:48 GMT+0900 ...' 형식 등 → new Date() 파싱
+  try {
+    var d = new Date(s);
+    if (!isNaN(d.getTime())) return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+  } catch(e) {}
+  return s; // 최후 fallback — 원본 반환
 }
 function jsonOk(extra) {
   return ContentService.createTextOutput(JSON.stringify(Object.assign({ status: 'ok' }, extra || {})))
