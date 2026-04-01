@@ -1,6 +1,8 @@
 let _editorRefDate = '';
 let _editorItemMap = {};
 let _editorManualHistory = {};
+let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
+let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
 
 function openEditor() {
   buildEditorUI();
@@ -501,10 +503,30 @@ function markChanged(name, val) {
   }
 }
 
+// ★ GAS saveManualPrice 전용 fetch — fetchWithTimeout과 AbortController 공유 안 함
+async function _gasDirectFetch(url, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs || 15000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timer);
+    return res;
+  } catch(e) {
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 async function applyPrices() {
+  // ★ 중복 클릭 방지 — 저장 진행 중이면 무시
+  if (_applyPricesRunning) {
+    showToast('저장 중입니다. 잠시 기다려주세요.', 'warn');
+    return;
+  }
   if(Object.keys(editedPrices).length === 0) {
     closeEditor(); return;
   }
+  _applyPricesRunning = true;
   const now = new Date();
   // ★ editorDate 입력값 우선, 없으면 오늘
   const editorDateRaw = $el('editorDate')?.value; // YYYY-MM-DD
@@ -543,7 +565,7 @@ async function applyPrices() {
       try {
         const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(target.date)
                   + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price;
-        const res = await fetchWithTimeout(url, 15000);
+        const res = await _gasDirectFetch(url, 15000);
         const d = await res.json();
         if (d.status !== 'ok') {
           gasFailedCount++;
@@ -602,6 +624,7 @@ async function applyPrices() {
     }
     body.prepend(done);
   }
+  _applyPricesRunning = false;
   setTimeout(() => {
     closeEditor();
     renderView();
