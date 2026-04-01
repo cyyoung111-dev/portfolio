@@ -328,27 +328,32 @@ async function loadEditorPricesByDate(dateStr) {
   }
 
   // 1) GAS 자동조회 가격 (fetchFromGsheet는 내부적으로 getPrices 호출 — 항상 "오늘" 기준)
-  //    수동입력값(2단계)이 존재하는 키는 이 레이블이 덮어씌워짐
+  //    실패해도 2단계(수동입력값 조회)는 반드시 실행됨 — try/catch로 감쌈
   const autoLabel = dateStr.replace(/-/g,'.') + ' 조회값';
-  const results = await fetchFromGsheet(dateStr);
-  if (results && Object.keys(results).length > 0) {
-    const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
-    Object.entries(results).forEach(([key, price]) => {
-      savedPrices[key] = price;
-      const savedAt = meta[key]?.savedAt || '';
-      const sourceDate = meta[key]?.sourceDate || '';
-      const isFallback = !!meta[key]?.isFallback;
-      // 임시 레이블 — 2단계에서 수동입력값이 있으면 반드시 덮어씌워짐
-      if (savedAt) savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
-      else if (isFallback && sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 기준일 이전값';
-      else if (sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 조회값';
-      else savedPriceDates[key] = autoLabel;
-    });
+  try {
+    const results = await fetchFromGsheet(dateStr);
+    if (results && Object.keys(results).length > 0) {
+      const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
+      Object.entries(results).forEach(([key, price]) => {
+        savedPrices[key] = price;
+        const savedAt = meta[key]?.savedAt || '';
+        const sourceDate = meta[key]?.sourceDate || '';
+        const isFallback = !!meta[key]?.isFallback;
+        // 임시 레이블 — 2단계에서 수동입력값이 있으면 반드시 덮어씌워짐
+        if (savedAt) savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
+        else if (isFallback && sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 기준일 이전값';
+        else if (sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 조회값';
+        else savedPriceDates[key] = autoLabel;
+      });
+    }
+  } catch (e) {
+    // ★ fetchFromGsheet abort/timeout 실패해도 수동입력값 조회(2단계)는 반드시 진행
+    console.warn('[loadEditorPricesByDate] fetchFromGsheet 실패, 수동입력값만 표시:', e.message);
   }
 
   // 2) ★ 수동 입력값 — 180일 범위에서 가장 최근 수동저장값 조회
   //    오늘(4/1)에 저장값이 없어도 3/31 저장값을 자동으로 불러와 표시
-  //    1단계 자동조회 결과를 무조건 덮어씌움
+  //    fetchFromGsheet 성공/실패 무관하게 항상 실행, 1단계 결과를 무조건 덮어씌움
   const manual = await fetchEditorManualPrices(dateStr);
   Object.entries(manual).forEach(([key, obj]) => {
     savedPrices[key] = obj.price;
