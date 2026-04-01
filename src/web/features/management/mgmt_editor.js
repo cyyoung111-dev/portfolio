@@ -248,67 +248,56 @@ function buildEditorUI() {
       || savedPriceDates[item.name]
       || savedPriceDates[normName(item.name)]
     );
-
     const displayLabel = (hasDate && rawDateLabel === '실시간' && _editorRefDate)
       ? _editorRefDate.replace(/-/g,'.') + ' 조회값'
       : rawDateLabel;
 
-    // 상태 뱃지
-    let statusBadge, statusColor;
-    if (hasDate && displayLabel.includes('저장')) {
-      statusBadge = '저장됨'; statusColor = 'var(--green)';
-    } else if (hasDate) {
-      statusBadge = '조회됨'; statusColor = 'var(--blue-lt,#60a5fa)';
-    } else if (current) {
-      statusBadge = '매입단가'; statusColor = 'var(--muted)';
-    } else {
-      statusBadge = '미조회'; statusColor = 'var(--red)';
-    }
+    // 상태 색상
+    let statusColor;
+    if (hasDate && displayLabel.includes('저장')) statusColor = 'var(--green)';
+    else if (hasDate) statusColor = 'var(--blue-lt,#60a5fa)';
+    else if (current) statusColor = 'var(--muted)';
+    else statusColor = 'var(--red)';
 
-    // ★ 이력: 최신순(역순) 3건, 날짜+시간+금액
+    // ★ 이력: 최신순 3건 → 한 줄 요약 "04.01 08:15→29,750,642  03.31→30,037,571"
     const historyKey = code || item.name;
     const historyRows = (_editorManualHistory[historyKey] || []).slice().reverse();
-    const historyHtml = historyRows.length > 0
-      ? `<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px">
-          <div style="font-size:.58rem;color:var(--muted);margin-bottom:3px;letter-spacing:.03em">📋 최근 입력 이력</div>
-          ${historyRows.map((h, i) => {
-            const dateStr = (h.date || '').replace(/-/g,'.');
-            const timeStr = h.savedAt ? h.savedAt.slice(11,16) : '';
-            const isLatest = i === 0;
-            return `<div style="display:flex;justify-content:space-between;align-items:center;padding:2px 0;${isLatest?'opacity:1':'opacity:.65'}">
-              <span style="font-size:.60rem;color:${isLatest?'var(--text)':'var(--muted)'}">${dateStr}${timeStr ? ' '+timeStr : ''}</span>
-              <span style="font-size:.62rem;font-weight:${isLatest?'700':'400'};color:${isLatest?'var(--gold)':'var(--muted)'}">${Number(h.price).toLocaleString()}</span>
-            </div>`;
-          }).join('')}
-        </div>`
+    const historyLine = historyRows.length > 0
+      ? historyRows.map((h, i) => {
+          const d = (h.date || '').slice(5).replace('-','.');  // "04.01"
+          const t = h.savedAt ? ' ' + h.savedAt.slice(11,16) : '';
+          const p = Number(h.price).toLocaleString();
+          return `<span style="color:${i===0?'var(--gold)':'var(--muted)'};font-weight:${i===0?'600':'400'}">${d}${t} ${p}</span>`;
+        }).join('<span style="color:var(--border);margin:0 4px">·</span>')
       : '';
 
     const safeId  = item.name.replace(/\s/g, '_');
     const safeName = item.name.replace(/'/g, "\\'");
 
-    // ★ 카드형 레이아웃
-    return `<div id="card_${safeId}" style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">
-      <div style="display:flex;align-items:flex-start;gap:8px">
-        <!-- 종목 정보 -->
+    // ★ 한 줄 압축형 레이아웃
+    return `<div style="padding:7px 2px;border-bottom:1px solid var(--border)">
+      <!-- 1행: 종목명 + 입력칸 + 상태 -->
+      <div style="display:flex;align-items:center;gap:6px">
         <div style="flex:1;min-width:0">
-          <div style="font-size:.80rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.name}</div>
-          <div style="font-size:.62rem;color:var(--muted);margin-top:1px">${typeLabel}${item.code ? ' · ' + item.code : ''}</div>
+          <span style="font-size:.78rem;font-weight:600;color:var(--text)">${item.name}</span>
+          <span style="font-size:.60rem;color:var(--muted);margin-left:5px">${item.code ? item.code : ''}</span>
         </div>
-        <!-- 입력+상태 -->
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0">
-          <input type="number" id="ep_${safeId}"
-            value="${current || ''}"
-            placeholder="현재가"
-            oninput="markChanged('${safeName}', this.value)"
-            style="width:120px;background:var(--s1,#0d1117);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.80rem;text-align:right"
-          />
-          <div style="display:flex;align-items:center;gap:4px">
-            <span id="ps_${safeId}" style="font-size:.58rem;padding:1px 6px;border-radius:10px;background:${statusColor}22;color:${statusColor};border:1px solid ${statusColor}44">${statusBadge}</span>
-            <span style="font-size:.60rem;color:var(--muted)">${displayLabel || ''}</span>
-          </div>
+        <input type="number" id="ep_${safeId}"
+          value="${current || ''}"
+          placeholder="현재가"
+          oninput="markChanged('${safeName}', this.value)"
+          style="width:115px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 7px;color:var(--text);font-size:.78rem;text-align:right;flex-shrink:0"
+        />
+        <span id="ps_${safeId}" style="font-size:.65rem;color:${statusColor};flex-shrink:0;width:14px;text-align:center">✓</span>
+      </div>
+      <!-- 2행: 저장일시 + 이력 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px;padding-left:0">
+        <span style="font-size:.58rem;color:var(--muted)">${typeLabel}</span>
+        <div style="font-size:.60rem;display:flex;align-items:center;gap:6px">
+          ${displayLabel ? `<span style="color:${statusColor}">${displayLabel}</span>` : ''}
+          ${historyLine ? `<span style="color:var(--border)">|</span>${historyLine}` : ''}
         </div>
       </div>
-      ${historyHtml}
     </div>`;
   }
 
