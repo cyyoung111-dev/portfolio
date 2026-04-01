@@ -234,7 +234,9 @@ function buildEditorUI() {
       || savedPrices[item.name]
       || savedPrices[normName(item.name)]
       || getCurrentPriceFromData(item.name);
-    const dateLabel = (code && savedPriceDates[code])
+
+    // ★ 저장일시 표시: savedPriceDates에서 날짜+시간 모두 표시
+    const rawDateLabel = (code && savedPriceDates[code])
       || savedPriceDates[item.name]
       || savedPriceDates[normName(item.name)]
       || (current ? '매입단가' : '');
@@ -244,20 +246,29 @@ function buildEditorUI() {
       || savedPriceDates[normName(item.name)]
     );
     const statusIcon = hasDate
-      ? `<span class="c-green" title="${dateLabel}">✓</span>`
+      ? `<span class="c-green" title="${rawDateLabel}">✓</span>`
       : current
         ? `<span class="c-muted" title="매입단가">○</span>`
         : `<span style="color:var(--red)" title="미조회">✕</span>`;
-    const displayLabel = (hasDate && dateLabel === '실시간' && _editorRefDate)
+
+    // ★ 날짜 표시 레이블 — "실시간" 이면 기준일로 치환, 아니면 원본 그대로 (시간 포함)
+    const displayLabel = (hasDate && rawDateLabel === '실시간' && _editorRefDate)
       ? _editorRefDate.replace(/-/g,'.') + ' 조회값'
-      : dateLabel;
+      : rawDateLabel;
+
+    // ★ 히스토리: savedAt(날짜+시간) 포함해서 표시
     const historyKey = code || item.name;
     const historyRows = _editorManualHistory[historyKey] || [];
     const historyHtml = historyRows.length > 0
-      ? `<div style="font-size:.60rem;color:var(--muted);margin-top:3px;text-align:right;line-height:1.35">
-          최근 입력: ${historyRows.map(h => `${h.date.replace(/-/g,'.')} ${Number(h.price).toLocaleString()}`).join(' · ')}
+      ? `<div style="font-size:.60rem;color:var(--muted);margin-top:3px;text-align:right;line-height:1.6">
+          최근 입력:<br>${historyRows.map(h => {
+            const dateStr = (h.date || '').replace(/-/g,'.');
+            const timeStr = h.savedAt ? ' ' + h.savedAt.slice(11,16) : '';
+            return `<span style="color:var(--text-dim)">${dateStr}${timeStr}</span> <span style="color:var(--gold);font-weight:600">${Number(h.price).toLocaleString()}</span>`;
+          }).join('<br>')}
         </div>`
       : '';
+
     const dateHtml = displayLabel
       ? `<div style="font-size:.60rem;color:${hasDate?'var(--green)':'var(--muted)'};margin-top:2px;text-align:right">${displayLabel}</div>${historyHtml}`
       : `<div style="font-size:.60rem;color:var(--red);margin-top:2px;text-align:right">미조회</div>${historyHtml}`;
@@ -303,10 +314,20 @@ function buildEditorUI() {
 async function loadEditorPricesByDate(dateStr) {
   if (!dateStr) return;
   _editorRefDate = dateStr;
+
+  // ★ GAS 없는 환경이면 로컬 데이터로만 UI 구성
   if (!GSHEET_API_URL || typeof fetchFromGsheet !== 'function') {
     buildEditorUI();
     return;
   }
+
+  // ★ 로딩 표시
+  const body = $el('editorBody');
+  if (body) {
+    body.innerHTML = '<div style="text-align:center;padding:30px 0;color:var(--muted);font-size:.80rem">⏳ GAS에서 최신 가격 불러오는 중...</div>';
+  }
+
+  // 1) GAS 자동조회 가격
   const label = dateStr.replace(/-/g,'.') + ' 조회값';
   const results = await fetchFromGsheet(dateStr);
   if (results && Object.keys(results).length > 0) {
@@ -323,15 +344,21 @@ async function loadEditorPricesByDate(dateStr) {
     });
   }
 
-  // ★ 현재가 편집용 우선값: 수동 입력 이력(getPriceHistory)을 조회값 위에 덮어씀
-  //   (사용자 저장값이 있으면 항상 우선 표시)
+  // 2) ★ 수동 입력 이력 — GAS 저장값이 자동조회값보다 항상 우선
+  //    savedAt(날짜+시간)을 그대로 표시해 다른 기기에서도 최신 저장시점 확인 가능
   const manual = await fetchEditorManualPrices(dateStr);
   Object.entries(manual).forEach(([key, obj]) => {
     savedPrices[key] = obj.price;
-    savedPriceDates[key] = obj.savedAt
-      ? obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 입력'
-      : (dateStr.replace(/-/g,'.') + ' 입력');
+    if (obj.savedAt) {
+      // GAS savedAt 형식: "yyyy-MM-dd HH:mm:ss" → "yyyy.MM.dd HH:mm 저장"
+      const displayAt = obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 저장';
+      savedPriceDates[key] = displayAt;
+    } else {
+      savedPriceDates[key] = dateStr.replace(/-/g,'.') + ' 저장';
+    }
   });
+
+  // 3) 이력 (최근 3건) — savedAt 포함해서 가져옴
   _editorManualHistory = await fetchEditorManualHistory(dateStr);
   buildEditorUI();
 }
@@ -360,6 +387,7 @@ async function fetchEditorManualPrices(dateStr) {
       if (!Array.isArray(entries) || entries.length === 0) return;
       const latest = entries[entries.length - 1];
       if (!latest || !(latest.price > 0)) return;
+      // ★ savedAt(날짜+시간 문자열) 원본 보존 — 다른 기기에서도 저장시점 표시
       out[key] = { price: Math.round(latest.price), savedAt: latest.savedAt || '' };
     });
     return out;
@@ -397,10 +425,15 @@ async function fetchEditorManualHistory(dateStr) {
     Object.entries(data.prices).forEach(([key, entries]) => {
       if (!Array.isArray(entries) || entries.length === 0) return;
       // savedAt가 있는 항목 = 수동입력 이력
+      // ★ savedAt(날짜+시간 원본) 포함해서 저장 — renderRow에서 시간까지 표시
       const manualOnly = entries
         .filter(e => e && e.price > 0 && e.savedAt)
         .slice(-3)
-        .map(e => ({ date: e.date || '', price: Math.round(e.price) }));
+        .map(e => ({
+          date: e.date || '',
+          price: Math.round(e.price),
+          savedAt: e.savedAt || ''   // ★ 시간 포함 원본 보존
+        }));
       if (manualOnly.length > 0) out[key] = manualOnly;
     });
     return out;
@@ -460,9 +493,13 @@ async function applyPrices() {
     dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
   }
   const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+  // ★ GAS에 저장할 savedAt — 날짜+시간 (초 단위까지, KST 기준)
+  const savedAtDisplay = dateStr + ' ' + timeStr + ' 저장';
+
   const updatedCount = Object.keys(editedPrices).length;
   const gasManualPriceSaves = []; // GAS 저장 Promise 모음
   const gasSaveTargets = [];      // GAS 저장 대상 추적 (실패 안내용)
+
   Object.keys(editedPrices).forEach(name => {
     // ★ 코드 있는 종목은 코드 키로 저장, 코드 없는 펀드는 이름 키로 저장
     const mappedCode = _editorItemMap[name]?.code || _editorItemMap[normName(name)]?.code || '';
@@ -470,7 +507,9 @@ async function applyPrices() {
     const key = code || name;
     console.log('[applyPrices] save key resolved:', { name, mappedCode, code, key });
     savedPrices[key] = editedPrices[name];
-    savedPriceDates[key] = dateStr + ' ' + timeStr; // savedPriceDates는 표시용이라 시분 유지
+    // ★ savedPriceDates에 날짜+시간 모두 기록 — 로컬 표시용
+    savedPriceDates[key] = savedAtDisplay;
+
     // ★ GAS에도 날짜별 저장 (saveManualPrice 액션)
     // 버그수정: 코드 있는 종목은 name 대신 code(=key)로 저장해야
     //          getPriceHistory 조회 시 코드 키로 찾을 수 있음
@@ -538,7 +577,7 @@ async function applyPrices() {
       done.innerHTML = `⚠️ 로컬 저장 완료 · GAS 저장 실패 ${gasFailedCount}건<br><span style="font-size:.70rem;color:var(--muted)">웹앱 재배포/연결 URL 확인 후 다시 저장하세요</span>`;
       done.style.color = 'var(--amber)';
     } else {
-      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${dateStr} ${timeStr} 기준</span>`;
+      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${dateStr} ${timeStr} 기준 · GAS 동기화 완료</span>`;
     }
     body.prepend(done);
   }
