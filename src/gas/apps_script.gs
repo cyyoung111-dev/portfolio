@@ -1488,6 +1488,15 @@ function handleGetHoldings() {
 //  설정 저장 / 불러오기
 // ════════════════════════════════════════════════════════════════════
 // ★ _parseArrayParam: JSON 파싱 후 배열인지 검증
+function _parseJsonParam(dataJson, label) {
+  var parsed;
+  try { parsed = JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
+    try { parsed = JSON.parse(dataJson); } catch(e2) { throw new Error(label + ' 파싱 실패'); }
+  }
+  if (!parsed || Object.prototype.toString.call(parsed) !== '[object Object]') throw new Error(label + ' 객체 형식 필요');
+  return parsed;
+}
+
 function _parseArrayParam(dataJson, label) {
   var parsed;
   try { parsed = JSON.parse(decodeURIComponent(dataJson)); } catch(e) {
