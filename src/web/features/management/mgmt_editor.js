@@ -520,47 +520,45 @@ async function applyPrices() {
   const savedAtDisplay = dateStr + ' ' + timeStr + ' 저장';
 
   const updatedCount = Object.keys(editedPrices).length;
-  const gasManualPriceSaves = []; // GAS 저장 Promise 모음
-  const gasSaveTargets = [];      // GAS 저장 대상 추적 (실패 안내용)
+  const gasSaveTargets = []; // GAS 저장 대상 목록
 
+  // 로컬 저장 먼저 처리
   Object.keys(editedPrices).forEach(name => {
-    // ★ 코드 있는 종목은 코드 키로 저장, 코드 없는 펀드는 이름 키로 저장
     const mappedCode = _editorItemMap[name]?.code || _editorItemMap[normName(name)]?.code || '';
     const code = mappedCode || getCode(normName(name));
     const key = code || name;
     console.log('[applyPrices] save key resolved:', { name, mappedCode, code, key });
     savedPrices[key] = editedPrices[name];
-    // ★ savedPriceDates에 날짜+시간 모두 기록 — 로컬 표시용
     savedPriceDates[key] = savedAtDisplay;
-
-    // ★ GAS에도 날짜별 저장 (saveManualPrice 액션)
-    // 버그수정: 코드 있는 종목은 name 대신 code(=key)로 저장해야
-    //          getPriceHistory 조회 시 코드 키로 찾을 수 있음
     if (GSHEET_API_URL) {
       const gasDate = editorDateRaw || `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-      const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(gasDate)
-                + '&name=' + encodeURIComponent(key) + '&price=' + editedPrices[name];
-      gasSaveTargets.push({ name, key, date: gasDate });
-      gasManualPriceSaves.push(
-        fetchWithTimeout(url, 10000)
-          .then(r => r.json())
-          .then(d => ({ ok: d.status === 'ok', data: d, name, key }))
-          .catch(e => ({ ok: false, error: e.message, name, key }))
-      );
+      gasSaveTargets.push({ name, key, date: gasDate, price: editedPrices[name] });
     }
   });
 
-  // GAS 저장 완료 대기 + 실패 안내
+  // ★ GAS 저장 — 순차 처리 (동시 요청 시 abort 방지)
   let gasFailedCount = 0;
-  if (gasManualPriceSaves.length > 0) {
-    const results = await Promise.all(gasManualPriceSaves);
-    const failed = results.filter(r => !r || !r.ok);
-    gasFailedCount = failed.length;
+  if (gasSaveTargets.length > 0) {
+    for (const target of gasSaveTargets) {
+      try {
+        const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(target.date)
+                  + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price;
+        const res = await fetchWithTimeout(url, 15000);
+        const d = await res.json();
+        if (d.status !== 'ok') {
+          gasFailedCount++;
+          console.warn('[saveManualPrice] 실패:', target.key, d);
+        }
+      } catch(e) {
+        gasFailedCount++;
+        console.warn('[saveManualPrice] 오류:', target.key, e.message);
+      }
+      // ★ 요청 사이 300ms 대기 — GAS 동시 요청 충돌 방지
+      await new Promise(r => setTimeout(r, 300));
+    }
     if (gasFailedCount > 0) {
-      console.warn('[saveManualPrice] GAS 저장 실패:', failed);
       if (typeof showToast === 'function') {
-        const ex = failed[0] ? `${failed[0].key || failed[0].name}` : '';
-        showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${ex ? ` (예: ${ex})` : ''} · 웹앱 재배포/URL 확인 필요`, 'warn');
+        showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건 · 웹앱 재배포/URL 확인 필요`, 'warn');
       }
     } else {
       console.log('[saveManualPrice] GAS 저장 완료:', gasSaveTargets.length + '건');
