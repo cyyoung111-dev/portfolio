@@ -327,8 +327,9 @@ async function loadEditorPricesByDate(dateStr) {
     body.innerHTML = '<div style="text-align:center;padding:30px 0;color:var(--muted);font-size:.80rem">⏳ GAS에서 최신 가격 불러오는 중...</div>';
   }
 
-  // 1) GAS 자동조회 가격
-  const label = dateStr.replace(/-/g,'.') + ' 조회값';
+  // 1) GAS 자동조회 가격 (fetchFromGsheet는 내부적으로 getPrices 호출 — 항상 "오늘" 기준)
+  //    수동입력값(2단계)이 존재하는 키는 이 레이블이 덮어씌워짐
+  const autoLabel = dateStr.replace(/-/g,'.') + ' 조회값';
   const results = await fetchFromGsheet(dateStr);
   if (results && Object.keys(results).length > 0) {
     const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
@@ -337,22 +338,27 @@ async function loadEditorPricesByDate(dateStr) {
       const savedAt = meta[key]?.savedAt || '';
       const sourceDate = meta[key]?.sourceDate || '';
       const isFallback = !!meta[key]?.isFallback;
+      // 임시 레이블 — 2단계에서 수동입력값이 있으면 반드시 덮어씌워짐
       if (savedAt) savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
       else if (isFallback && sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 기준일 이전값';
       else if (sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 조회값';
-      else savedPriceDates[key] = label;
+      else savedPriceDates[key] = autoLabel;
     });
   }
 
-  // 2) ★ 수동 입력 이력 — GAS 저장값이 자동조회값보다 항상 우선
-  //    savedAt(날짜+시간)을 그대로 표시해 다른 기기에서도 최신 저장시점 확인 가능
+  // 2) ★ 수동 입력값 — 180일 범위에서 가장 최근 수동저장값 조회
+  //    오늘(4/1)에 저장값이 없어도 3/31 저장값을 자동으로 불러와 표시
+  //    1단계 자동조회 결과를 무조건 덮어씌움
   const manual = await fetchEditorManualPrices(dateStr);
   Object.entries(manual).forEach(([key, obj]) => {
     savedPrices[key] = obj.price;
     if (obj.savedAt) {
       // GAS savedAt 형식: "yyyy-MM-dd HH:mm:ss" → "yyyy.MM.dd HH:mm 저장"
-      const displayAt = obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 저장';
-      savedPriceDates[key] = displayAt;
+      // 실제 저장된 날짜(obj.date)가 기준일과 다를 수 있으므로 savedAt 기준으로 표시
+      savedPriceDates[key] = obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 저장';
+    } else if (obj.date) {
+      // savedAt 없는 구버전 — 저장된 날짜라도 표시
+      savedPriceDates[key] = obj.date.replace(/-/g,'.') + ' 저장';
     } else {
       savedPriceDates[key] = dateStr.replace(/-/g,'.') + ' 저장';
     }
@@ -374,8 +380,15 @@ async function fetchEditorManualPrices(dateStr) {
     const uniqTargets = Array.from(new Set(targets.filter(Boolean)));
     if (uniqTargets.length === 0) return {};
 
+    // ★ from=180일 전 ~ to=dateStr 범위로 조회 — 오늘 저장값이 없어도
+    //   가장 최근 수동저장값(예: 3/31)을 자동으로 불러와 표시
+    const fromDate = (function() {
+      const d = new Date(dateStr);
+      d.setDate(d.getDate() - 180);
+      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    })();
     const url = GSHEET_API_URL
-      + '?action=getPriceHistory&from=' + dateStr + '&to=' + dateStr
+      + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr
       + '&codes=' + encodeURIComponent(uniqTargets.join(','));
     const res = await fetchWithTimeout(url, 20000);
     if (!res.ok) return {};
@@ -385,10 +398,15 @@ async function fetchEditorManualPrices(dateStr) {
     const out = {};
     Object.entries(data.prices).forEach(([key, entries]) => {
       if (!Array.isArray(entries) || entries.length === 0) return;
-      const latest = entries[entries.length - 1];
-      if (!latest || !(latest.price > 0)) return;
+      // ★ savedAt 있는 것(수동입력)만 필터 후 가장 최근 것 선택
+      //   savedAt 없는 것(자동조회)은 제외 — 수동저장값만 표시 대상
+      const manualEntries = entries.filter(e => e && e.price > 0 && e.savedAt);
+      const latest = manualEntries.length > 0
+        ? manualEntries[manualEntries.length - 1]  // 수동입력 중 가장 최근
+        : null;
+      if (!latest) return;
       // ★ savedAt(날짜+시간 문자열) 원본 보존 — 다른 기기에서도 저장시점 표시
-      out[key] = { price: Math.round(latest.price), savedAt: latest.savedAt || '' };
+      out[key] = { price: Math.round(latest.price), savedAt: latest.savedAt || '', date: latest.date || '' };
     });
     return out;
   } catch (e) {
