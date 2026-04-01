@@ -2,7 +2,6 @@ let _editorRefDate = '';
 let _editorItemMap = {};
 let _editorManualHistory = {};
 let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
-let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
 
 function openEditor() {
   buildEditorUI();
@@ -85,6 +84,9 @@ function saveGsheetUrlFromUI() {
       });
       if (restored) {
         try { refreshAll(); _mgmtRefresh(); } catch(e){}
+        // ★ refreshAll()이 DOM 재생성 후 gsheetTestResult가 새 엘리먼트로 교체됨
+        //    → 다음 tick에서 setRes() 호출해야 새 엘리먼트에 메시지가 써짐
+        await new Promise(r => setTimeout(r, 50));
         setRes('✅ [1/3] 설정 복원 완료', 'var(--green-lt)');
       } else {
         setRes('⚠️ [1/3] 설정 복원 실패 — GS 연결 확인 필요', 'var(--red-lt)');
