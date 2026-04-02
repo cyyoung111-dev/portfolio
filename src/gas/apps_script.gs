@@ -402,12 +402,28 @@ function handleGetHistory(fromStr, toStr) {
     if (!sh || sh.getLastRow() < 2) return jsonOk({ history: [] });
 
     var data = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues();
-    var map  = {};
+    // date → { evalAmt, costAmt, latestTs } 구조
+    // 1단계: 날짜별 가장 늦은 타임스탬프 찾기
+    var tsMap = {};
     data.forEach(function(row) {
-      var date = (row[0] || '').toString().trim();
+      var rawDate = row[0];
+      var date = _normalizeDate(rawDate);
       if (!date) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
+      var ts = rawDate instanceof Date ? rawDate.getTime() : new Date(rawDate).getTime();
+      if (!tsMap[date] || ts > tsMap[date]) tsMap[date] = ts;
+    });
+    // 2단계: 가장 늦은 타임스탬프 행만 집계
+    var map = {};
+    data.forEach(function(row) {
+      var rawDate = row[0];
+      var date = _normalizeDate(rawDate);
+      if (!date || !tsMap[date]) return;
+      if (fromStr && date < fromStr) return;
+      if (toStr   && date > toStr)   return;
+      var ts = rawDate instanceof Date ? rawDate.getTime() : new Date(rawDate).getTime();
+      if (ts < tsMap[date]) return; // 최신 타임스탬프가 아니면 스킵
       if (!map[date]) map[date] = { evalAmt: 0, costAmt: 0 };
       map[date].evalAmt += parseFloat(row[5]) || 0;
       map[date].costAmt += parseFloat(row[4]) || 0;
