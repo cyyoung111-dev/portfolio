@@ -1,6 +1,8 @@
 let _editorRefDate = '';
 let _editorItemMap = {};
 let _editorManualHistory = {};
+let _editorSectionPage = { fund: 1, noprice: 1 };
+const EDITOR_PAGE_SIZE = 5;
 let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
 let _editorFetchController = null; // ★ 날짜 변경 시 이전 fetch abort용
 
@@ -37,6 +39,14 @@ function closeEditor() {
   $el('priceEditor').classList.remove('open');
   editedPrices = {};
   _editorManualHistory = {};
+  _editorSectionPage = { fund: 1, noprice: 1 };
+}
+
+function _setEditorSectionPage(section, page, totalPages) {
+  const safeTotal = Math.max(1, Number(totalPages) || 1);
+  const next = Math.max(1, Math.min(safeTotal, Number(page) || 1));
+  _editorSectionPage[section] = next;
+  buildEditorUI();
 }
 
 // ── 구글 시트 URL 관리
@@ -90,7 +100,8 @@ function saveGsheetUrlFromUI() {
         await new Promise(r => setTimeout(r, 50));
         setRes('✅ [1/3] 설정 복원 완료', 'var(--green-lt)');
       } else {
-        setRes('⚠️ [1/3] 설정 복원 실패 — GS 연결 확인 필요', 'var(--red-lt)');
+        const reason = await _diagnoseGsheetGetSettings();
+        setRes(`⚠️ [1/3] 설정 복원 실패 — ${reason}`, 'var(--red-lt)');
         return;
       }
     } catch(e) {
@@ -125,6 +136,23 @@ function saveGsheetUrlFromUI() {
       setRes('⚠️ [3/3] 종목코드 동기화 실패 — 전송할 코드가 없거나 GS 응답 오류', 'var(--amber)');
     }
   })();
+}
+
+async function _diagnoseGsheetGetSettings() {
+  if (!GSHEET_API_URL) return 'URL 미설정';
+  try {
+    const url = GSHEET_API_URL + '?action=getSettings';
+    const res = await fetchWithTimeout(url, 10000);
+    if (!res.ok) return `HTTP ${res.status}`;
+    let data = null;
+    try { data = await res.json(); } catch(e) {}
+    if (!data) return 'JSON 파싱 실패(응답 포맷 확인)';
+    if (data.status !== 'ok') return data.message || 'status!=ok';
+    if (!data.settings) return 'settings 필드 누락(getSettings 구현/배포 확인)';
+    return '원인 미상(콘솔 로그 확인)';
+  } catch (e) {
+    return e?.message || '요청 예외';
+  }
 }
 
 function clearGsheetUrl() {
@@ -275,25 +303,25 @@ function buildEditorUI() {
     const safeName = item.name.replace(/'/g, "\\'");
 
     // ★ 한 줄 압축형 레이아웃
-    return `<div style="padding:7px 2px;border-bottom:1px solid var(--border)">
+    return `<div class="editor-price-row">
       <!-- 1행: 종목명 + 입력칸 + 상태 -->
-      <div style="display:flex;align-items:center;gap:6px">
-        <div style="flex:1;min-width:0">
-          <span style="font-size:.78rem;font-weight:600;color:var(--text)">${item.name}</span>
-          <span style="font-size:.60rem;color:var(--muted);margin-left:5px">${item.code ? item.code : ''}</span>
+      <div class="editor-price-row-main">
+        <div class="editor-price-main-title">
+          <span class="editor-price-name">${item.name}</span>
+          <span class="editor-price-code">${item.code ? item.code : ''}</span>
         </div>
         <input type="number" id="ep_${safeId}"
           value="${current || ''}"
           placeholder="현재가"
           oninput="markChanged('${safeName}', this.value)"
-          style="width:115px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 7px;color:var(--text);font-size:.78rem;text-align:right;flex-shrink:0"
+          class="editor-price-input"
         />
         <span id="ps_${safeId}" style="font-size:.65rem;color:${statusColor};flex-shrink:0;width:14px;text-align:center">✓</span>
       </div>
       <!-- 2행: 저장일시 + 이력 -->
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:3px;padding-left:0">
-        <span style="font-size:.58rem;color:var(--muted)">${typeLabel}</span>
-        <div style="font-size:.60rem;display:flex;align-items:center;gap:6px">
+      <div class="editor-price-row-sub">
+        <span class="editor-price-type">${typeLabel}</span>
+        <div class="editor-price-meta">
           ${displayLabel ? `<span style="color:${statusColor}">${displayLabel}</span>` : ''}
           ${historyLine ? `<span style="color:var(--border)">|</span>${historyLine}` : ''}
         </div>
@@ -301,17 +329,39 @@ function buildEditorUI() {
     </div>`;
   }
 
-  let html = '<div class="p-0-4">';
+  function renderSection(sectionKey, title, items, typeLabelResolver) {
+    const totalPages = Math.max(1, Math.ceil(items.length / EDITOR_PAGE_SIZE));
+    const currentPage = Math.min(_editorSectionPage[sectionKey] || 1, totalPages);
+    _editorSectionPage[sectionKey] = currentPage;
+    const start = (currentPage - 1) * EDITOR_PAGE_SIZE;
+    const pageItems = items.slice(start, start + EDITOR_PAGE_SIZE);
+
+    let sectionHtml = '<section class="editor-price-section">';
+    sectionHtml += `<div class="editor-price-section-title">${title}</div>`;
+    sectionHtml += '<div class="editor-price-list">';
+    pageItems.forEach(item => {
+      sectionHtml += renderRow(item, typeLabelResolver(item));
+    });
+    sectionHtml += '</div>';
+    if (totalPages > 1) {
+      sectionHtml += `<div class="editor-price-pagination">
+        <button class="editor-page-btn" onclick="_setEditorSectionPage('${sectionKey}', ${currentPage - 1}, ${totalPages})" ${currentPage <= 1 ? 'disabled' : ''}>이전</button>
+        <span>${currentPage} / ${totalPages} 페이지</span>
+        <button class="editor-page-btn" onclick="_setEditorSectionPage('${sectionKey}', ${currentPage + 1}, ${totalPages})" ${currentPage >= totalPages ? 'disabled' : ''}>다음</button>
+      </div>`;
+    }
+    sectionHtml += '</section>';
+    return sectionHtml;
+  }
+
+  let html = `<div class="editor-price-summary">총 ${totalItems.length}개 종목 · 섹션별 페이지로 이동해 입력하세요</div><div class="p-0-4">`;
 
   if (fundItems.length > 0) {
-    html += `<div class="editor-section-title">📦 펀드·TDF (${fundItems.length})</div>`;
-    fundItems.forEach(item => { html += renderRow(item, '펀드·TDF'); });
+    html += renderSection('fund', `📦 펀드·TDF (${fundItems.length})`, fundItems, () => '펀드·TDF');
   }
 
   if (nopriceItems.length > 0) {
-    if (fundItems.length > 0) html += '<div style="margin-top:14px"></div>';
-    html += `<div class="editor-section-title">⚠️ 자동 조회 실패 종목 (${nopriceItems.length})</div>`;
-    nopriceItems.forEach(item => { html += renderRow(item, item.assetType || '주식'); });
+    html += renderSection('noprice', `⚠️ 자동 조회 실패 종목 (${nopriceItems.length})`, nopriceItems, item => item.assetType || '주식');
   }
 
   html += '</div>';
