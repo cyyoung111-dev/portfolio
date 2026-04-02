@@ -25,6 +25,16 @@ function renderHistoryView(area) {
             <option value="730">2년</option>
             <option value="0">전체</option>
           </select>
+          <input id="histStartMonth" type="month" title="시작 연월"
+            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem"/>
+          <div style="display:flex;background:var(--s2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <button id="histPnlTotal" onclick="_setHistPnlScope('total')"
+              style="padding:4px 8px;font-size:.68rem;border:none;cursor:pointer;transition:all .15s">합산손익</button>
+            <button id="histPnlStock" onclick="_setHistPnlScope('stock')"
+              style="padding:4px 8px;font-size:.68rem;border:none;cursor:pointer;transition:all .15s">주식손익</button>
+            <button id="histPnlReal" onclick="_setHistPnlScope('real')"
+              style="padding:4px 8px;font-size:.68rem;border:none;cursor:pointer;transition:all .15s">부동산손익</button>
+          </div>
           <button onclick="loadHistoryChart()" class="btn-ghost-sm">🔄</button>
         </div>
       </div>
@@ -34,9 +44,18 @@ function renderHistoryView(area) {
     </div>`;
 
   window._histMode = window._histMode || 'week';
+  window._histPnlScope = window._histPnlScope || 'total';
   _applyHistModeUI(window._histMode);
+  _applyHistPnlScopeUI(window._histPnlScope);
+  const monthEl = $el('histStartMonth');
+  if (monthEl && !monthEl.value) {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 12);
+    monthEl.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
+  $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
 }
 
 function _setHistMode(mode) {
@@ -60,6 +79,32 @@ function _applyHistModeUI(mode) {
   active.style.fontWeight = '600';
 }
 
+function _setHistPnlScope(scope) {
+  window._histPnlScope = scope;
+  _applyHistPnlScopeUI(scope);
+  loadHistoryChart();
+}
+
+function _applyHistPnlScopeUI(scope) {
+  const map = {
+    total: $el('histPnlTotal'),
+    stock: $el('histPnlStock'),
+    real: $el('histPnlReal'),
+  };
+  Object.values(map).forEach(b => {
+    if (!b) return;
+    b.style.background = 'transparent';
+    b.style.color = 'var(--muted)';
+    b.style.fontWeight = '400';
+  });
+  const active = map[scope] || map.total;
+  if (active) {
+    active.style.background = 'var(--c-purple-45,#7c3aed)';
+    active.style.color = '#fff';
+    active.style.fontWeight = '600';
+  }
+}
+
 async function loadHistoryChart() {
   const statusEl  = $el('histStatusMsg');
   const chartWrap = $el('histChartWrap');
@@ -79,8 +124,11 @@ async function loadHistoryChart() {
 
   try {
     const days = parseInt($el('histRangeSelect')?.value || '365');
+    const startMonth = String($el('histStartMonth')?.value || '').trim();
     let fromStr = '';
-    if (days > 0) {
+    if (/^\d{4}-\d{2}$/.test(startMonth)) {
+      fromStr = `${startMonth}-01`;
+    } else if (days > 0) {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
       fromStr = cutoff.getFullYear() + '-' + String(cutoff.getMonth()+1).padStart(2,'0') + '-' + String(cutoff.getDate()).padStart(2,'0');
@@ -109,8 +157,10 @@ async function loadHistoryChart() {
     }
 
     const modeLabel = mode === 'week' ? `${snapshots.length}주` : `${snapshots.length}개월`;
+    const scopeLabel = window._histPnlScope === 'stock' ? '주식손익' : (window._histPnlScope === 'real' ? '부동산손익' : '합산손익');
+    const monthLabel = /^\d{4}-\d{2}$/.test(startMonth) ? ` · 시작 ${startMonth}` : '';
     if (statusEl) statusEl.innerHTML =
-      `총 ${modeLabel} · 최근: <b>${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</b> · KST 기준`;
+      `총 ${modeLabel} · 기준 ${scopeLabel}${monthLabel} · 최근: <b>${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</b> · KST 기준`;
 
     snapshots = _mergeTradeBasedCost(snapshots);
     _drawHistoryChart(chartWrap, snapshots, mode);
@@ -167,13 +217,20 @@ function _drawHistoryChart(wrap, snapshots, mode) {
   const CH  = H - PAD.top - PAD.bottom;
   const n   = snapshots.length;
 
+  const realEstatePnl = (REAL_ESTATE?.value || 0) - (REAL_ESTATE?.purchasePrice || 0);
+  const scope = window._histPnlScope || 'total';
   const pts = snapshots.map(s => ({
     label:    mode === 'week' ? _fmtHistDateShortWeek(s.date || '') : _fmtHistDateShortMonth(s.date || ''),
     fullDate: _fmtHistDateCompact(s.date || ''),
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     cost: parseFloat(s.costAmt || s.cost || 0),
+    realPnl: realEstatePnl,
   }));
-  pts.forEach(p => { p.pnl = p.eval - p.cost; });
+  pts.forEach(p => {
+    p.stockPnl = p.eval - p.cost;
+    p.totalPnl = p.stockPnl + p.realPnl;
+    p.pnl = scope === 'stock' ? p.stockPnl : (scope === 'real' ? p.realPnl : p.totalPnl);
+  });
 
   const eVals = pts.map(p => p.eval), pVals = pts.map(p => p.pnl);
   const minE = Math.min(...eVals), maxE = Math.max(...eVals);
@@ -237,7 +294,14 @@ function _drawHistoryChart(wrap, snapshots, mode) {
   const evalChg     = lastPt.eval - firstPt.eval;
   const evalChgPct  = firstPt.eval > 0 ? (evalChg / firstPt.eval * 100).toFixed(1) : '0.0';
   const evalChgClr  = evalChg >= 0 ? '#22c55e' : '#ef4444';
-  const pnlPct      = lastPt.cost > 0 ? (lastPt.pnl / lastPt.cost * 100).toFixed(1) : '-';
+  const pnlBase     = scope === 'stock' ? lastPt.cost : (scope === 'real' ? (REAL_ESTATE?.purchasePrice || 0) : (lastPt.cost + (REAL_ESTATE?.purchasePrice || 0)));
+  const pnlPct      = pnlBase > 0 ? (lastPt.pnl / pnlBase * 100).toFixed(1) : '-';
+  const pnlTitle    = scope === 'stock' ? '현재 주식손익' : (scope === 'real' ? '현재 부동산손익' : '현재 합산손익');
+  const pnlBaseText = scope === 'stock'
+    ? `주식 원가 ${_fmtKrw(lastPt.cost)}`
+    : (scope === 'real'
+      ? `부동산 매입 ${_fmtKrw(REAL_ESTATE?.purchasePrice || 0)}`
+      : `합산 원가 ${_fmtKrw(lastPt.cost + (REAL_ESTATE?.purchasePrice || 0))}`);
 
   wrap.innerHTML = `
     <!-- 요약 카드 3개 -->
@@ -248,9 +312,9 @@ function _drawHistoryChart(wrap, snapshots, mode) {
         <div style="font-size:.60rem;color:${evalChgClr};margin-top:3px">${evalChg>=0?'▲':'▼'} ${_fmtKrw(Math.abs(evalChg))} <span style="opacity:.7">(${evalChg>=0?'+':''}${evalChgPct}%)</span></div>
       </div>
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
-        <div style="font-size:.60rem;color:var(--muted);margin-bottom:3px">현재 손익</div>
+        <div style="font-size:.60rem;color:var(--muted);margin-bottom:3px">${pnlTitle}</div>
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${lastPt.pnl>=0?'+':''}${_fmtKrw(lastPt.pnl)}</div>
-        <div style="font-size:.60rem;color:var(--muted);margin-top:3px">원가 ${_fmtKrw(lastPt.cost)}</div>
+        <div style="font-size:.60rem;color:var(--muted);margin-top:3px">${pnlBaseText}</div>
       </div>
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
         <div style="font-size:.60rem;color:var(--muted);margin-bottom:3px">수익률</div>
@@ -269,9 +333,9 @@ function _drawHistoryChart(wrap, snapshots, mode) {
         </div>
         <div style="display:flex;align-items:center;gap:5px">
           <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke="${pnlColor}" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="4" r="2" fill="${pnlColor}"/></svg>
-          <span style="font-size:.64rem;color:var(--muted)">손익</span>
+          <span style="font-size:.64rem;color:var(--muted)">${scope === 'stock' ? '주식손익' : (scope === 'real' ? '부동산손익' : '합산손익')}</span>
         </div>
-        <div style="margin-left:auto;font-size:.60rem;color:rgba(200,200,220,.4);padding-right:8px">좌: 평가금액 · 우: 손익</div>
+        <div style="margin-left:auto;font-size:.60rem;color:rgba(200,200,220,.4);padding-right:8px">좌: 투자 평가금액 · 우: ${scope === 'stock' ? '주식손익' : (scope === 'real' ? '부동산손익' : '합산손익')}</div>
       </div>
       <svg width="${W}" height="${H}" style="display:block;max-width:100%;overflow:visible">
         <defs>
@@ -303,8 +367,10 @@ function _drawHistoryChart(wrap, snapshots, mode) {
 function _drawHistoryTable(wrap, snapshots) {
   if (!wrap) return;
   const recent = [...snapshots].reverse().slice(0, 20);
+  const realPnl = (REAL_ESTATE?.value || 0) - (REAL_ESTATE?.purchasePrice || 0);
   let html = `
-    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:8px">최근 내역 (최대 20개)</div>
+    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 내역 (최대 20개)</div>
+    <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">※ 부동산손익은 현재 입력된 매입가/시가 기준으로 표시됩니다.</div>
     <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
     <table style="width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums">
       <thead>
@@ -312,7 +378,9 @@ function _drawHistoryTable(wrap, snapshots) {
           <th style="text-align:left;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">날짜</th>
           <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">평가금액</th>
           <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">매입원가</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">손익</th>
+          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">합산손익</th>
+          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">주식손익</th>
+          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">부동산손익</th>
           <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">수익률</th>
         </tr>
       </thead><tbody>`;
@@ -320,15 +388,20 @@ function _drawHistoryTable(wrap, snapshots) {
   recent.forEach((s, idx) => {
     const ev  = parseFloat(s.evalAmt || s.total || s.eval || 0);
     const co  = parseFloat(s.costAmt || s.cost || 0);
-    const pnl = ev - co;
-    const pct = co > 0 ? (pnl / co * 100).toFixed(1) : '-';
-    const c   = pnl >= 0 ? '#22c55e' : '#ef4444';
+    const stockPnl = ev - co;
+    const totalPnl = stockPnl + realPnl;
+    const pct = co > 0 ? (stockPnl / co * 100).toFixed(1) : '-';
+    const cTotal = totalPnl >= 0 ? '#22c55e' : '#ef4444';
+    const cStock = stockPnl >= 0 ? '#22c55e' : '#ef4444';
+    const cReal = realPnl >= 0 ? '#22c55e' : '#ef4444';
     html += `<tr style="background:${idx%2===0?'transparent':'rgba(255,255,255,.015)'};border-bottom:1px solid rgba(255,255,255,.04)">
       <td style="padding:7px 10px;color:var(--text);font-weight:500;white-space:nowrap">${_fmtHistDateCompact(s.date||'')}</td>
       <td style="padding:7px 10px;text-align:right;color:var(--text)">${_fmtKrw(ev)}</td>
       <td style="padding:7px 10px;text-align:right;color:var(--muted)">${_fmtKrw(co)}</td>
-      <td style="padding:7px 10px;text-align:right;color:${c};font-weight:600">${pnl>=0?'+':''}${_fmtKrw(pnl)}</td>
-      <td style="padding:7px 10px;text-align:right;color:${c};font-weight:600">${pct!=='-'?(pnl>=0?'+':'')+pct+'%':'-'}</td>
+      <td style="padding:7px 10px;text-align:right;color:${cTotal};font-weight:600">${totalPnl>=0?'+':''}${_fmtKrw(totalPnl)}</td>
+      <td style="padding:7px 10px;text-align:right;color:${cStock};font-weight:600">${stockPnl>=0?'+':''}${_fmtKrw(stockPnl)}</td>
+      <td style="padding:7px 10px;text-align:right;color:${cReal};font-weight:600">${realPnl>=0?'+':''}${_fmtKrw(realPnl)}</td>
+      <td style="padding:7px 10px;text-align:right;color:${cStock};font-weight:600">${pct!=='-'?(stockPnl>=0?'+':'')+pct+'%':'-'}</td>
     </tr>`;
   });
   html += `</tbody></table></div>`;
