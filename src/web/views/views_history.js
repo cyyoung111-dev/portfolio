@@ -36,6 +36,7 @@ function renderHistoryView(area) {
     </div>`;
 
   window._histMode = window._histMode || 'week';
+  window._histPnlScope = window._histPnlScope || 'total';
   _applyHistModeUI(window._histMode);
   const monthEl = $el('histStartMonth');
   if (monthEl && !monthEl.value) {
@@ -66,6 +67,32 @@ function _applyHistModeUI(mode) {
   active.style.background = 'var(--c-purple-45,#7c3aed)';
   active.style.color = '#fff';
   active.style.fontWeight = '600';
+}
+
+function _setHistPnlScope(scope) {
+  window._histPnlScope = scope;
+  _applyHistPnlScopeUI(scope);
+  loadHistoryChart();
+}
+
+function _applyHistPnlScopeUI(scope) {
+  const map = {
+    total: $el('histPnlTotal'),
+    stock: $el('histPnlStock'),
+    real: $el('histPnlReal'),
+  };
+  Object.values(map).forEach(b => {
+    if (!b) return;
+    b.style.background = 'transparent';
+    b.style.color = 'var(--muted)';
+    b.style.fontWeight = '400';
+  });
+  const active = map[scope] || map.total;
+  if (active) {
+    active.style.background = 'var(--c-purple-45,#7c3aed)';
+    active.style.color = '#fff';
+    active.style.fontWeight = '600';
+  }
 }
 
 async function loadHistoryChart() {
@@ -179,11 +206,14 @@ function _drawHistoryChart(wrap, snapshots, mode) {
   const CH  = H - PAD.top - PAD.bottom;
   const n   = snapshots.length;
 
+  const realEstatePnl = (REAL_ESTATE?.value || 0) - (REAL_ESTATE?.purchasePrice || 0);
+  const scope = window._histPnlScope || 'total';
   const pts = snapshots.map(s => ({
     label:    mode === 'week' ? _fmtHistDateShortWeek(s.date || '') : _fmtHistDateShortMonth(s.date || ''),
     fullDate: _fmtHistDateCompact(s.date || ''),
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     cost: parseFloat(s.costAmt || s.cost || 0),
+    realPnl: realEstatePnl,
   }));
   pts.forEach(p => {
     p.pnl = p.eval - p.cost;
@@ -286,7 +316,7 @@ function _drawHistoryChart(wrap, snapshots, mode) {
         </div>
         <div style="display:flex;align-items:center;gap:5px">
           <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke="${pnlColor}" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="4" r="2" fill="${pnlColor}"/></svg>
-          <span style="font-size:.64rem;color:var(--muted)">손익</span>
+          <span style="font-size:.64rem;color:var(--muted)">${scope === 'stock' ? '주식손익' : (scope === 'real' ? '부동산손익' : '합산손익')}</span>
         </div>
         <div style="margin-left:auto;font-size:.60rem;color:rgba(200,200,220,.4);padding-right:8px">좌: 투자 평가금액 · 우: 손익</div>
       </div>
