@@ -329,12 +329,11 @@ function _drawHistoryTable(wrap, snapshots) {
     <table style="width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums">
       <thead>
         <tr style="background:var(--s2)">
-          <th style="text-align:left;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">날짜</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">평가금액</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">매입원가</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">손익</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">수익률</th>
-          <th style="text-align:left;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">진단</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">평가금액</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">매입원가</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">손익</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">수익률</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">진단</th>
         </tr>
       </thead><tbody>`;
 
@@ -347,8 +346,10 @@ function _drawHistoryTable(wrap, snapshots) {
     const d = diagnostics[s.date] || {};
     const noteColor = d.level === 'warn' ? 'var(--amber)' : 'var(--muted)';
     html += `<tr style="background:${idx%2===0?'transparent':'rgba(255,255,255,.015)'};border-bottom:1px solid rgba(255,255,255,.04)">
-      <td style="padding:7px 10px;color:var(--text);font-weight:500;white-space:nowrap">${_fmtHistDateCompact(s.date||'')}</td>
-      <td style="padding:7px 10px;text-align:right;color:var(--text)">${_fmtKrw(ev)}</td>
+      <td style="padding:7px 10px;text-align:right;color:var(--text)">
+        <div>${_fmtKrw(ev)}</div>
+        <div style="font-size:.60rem;color:var(--muted);margin-top:2px">${_fmtHistDateCompact(s.date||'')}</div>
+      </td>
       <td style="padding:7px 10px;text-align:right;color:var(--muted)">${_fmtKrw(co)}</td>
       <td style="padding:7px 10px;text-align:right;color:${c};font-weight:600">${pnl>=0?'+':''}${_fmtKrw(pnl)}</td>
       <td style="padding:7px 10px;text-align:right;color:${c};font-weight:600">${pct!=='-'?(pnl>=0?'+':'')+pct+'%':'-'}</td>
