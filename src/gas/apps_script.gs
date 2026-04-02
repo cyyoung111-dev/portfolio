@@ -408,17 +408,21 @@ function handleGetHistory(fromStr, toStr) {
       if (!date) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
-      if (!map[date]) map[date] = { evalAmt: 0, costAmt: 0 };
+      if (!map[date]) map[date] = { evalAmt: 0, costAmt: 0, qty: 0 };
       map[date].evalAmt += parseFloat(row[5]) || 0;
       map[date].costAmt += parseFloat(row[4]) || 0;
+      map[date].qty += parseFloat(row[3]) || 0;
     });
 
     var history = Object.keys(map).sort().map(function(date) {
       var ev  = Math.round(map[date].evalAmt);
       var co  = Math.round(map[date].costAmt);
+      var qt  = parseFloat(map[date].qty) || 0;
       var pnl = ev - co;
       var pct = co > 0 ? parseFloat(((pnl / co) * 100).toFixed(2)) : 0;
-      return { date: date, evalAmt: ev, costAmt: co, pnl: pnl, pct: pct };
+      var evalUnit = qt > 0 ? parseFloat((ev / qt).toFixed(2)) : 0;
+      var costUnit = qt > 0 ? parseFloat((co / qt).toFixed(2)) : 0;
+      return { date: date, evalAmt: ev, costAmt: co, qty: qt, evalUnit: evalUnit, costUnit: costUnit, pnl: pnl, pct: pct };
     });
     return jsonOk({ snapshots: history });
   } catch(err) {
