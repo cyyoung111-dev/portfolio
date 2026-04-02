@@ -359,14 +359,12 @@ function _drawHistoryTable(wrap, snapshots) {
     <table style="width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums">
       <thead>
         <tr style="background:var(--s2)">
-          <th style="text-align:left;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">날짜</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">평가금액</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">매입원가</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">합산손익</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">주식손익</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">부동산손익</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">수익률</th>
-          <th style="text-align:left;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">진단</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">날짜</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">평가금액</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">매입원가</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">손익</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">수익률</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">진단</th>
         </tr>
       </thead><tbody>`;
 

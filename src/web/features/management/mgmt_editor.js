@@ -100,7 +100,8 @@ function saveGsheetUrlFromUI() {
         await new Promise(r => setTimeout(r, 50));
         setRes('✅ [1/3] 설정 복원 완료', 'var(--green-lt)');
       } else {
-        setRes('⚠️ [1/3] 설정 복원 실패 — GS 연결 확인 필요', 'var(--red-lt)');
+        const reason = await _diagnoseGsheetGetSettings();
+        setRes(`⚠️ [1/3] 설정 복원 실패 — ${reason}`, 'var(--red-lt)');
         return;
       }
     } catch(e) {
@@ -135,6 +136,23 @@ function saveGsheetUrlFromUI() {
       setRes('⚠️ [3/3] 종목코드 동기화 실패 — 전송할 코드가 없거나 GS 응답 오류', 'var(--amber)');
     }
   })();
+}
+
+async function _diagnoseGsheetGetSettings() {
+  if (!GSHEET_API_URL) return 'URL 미설정';
+  try {
+    const url = GSHEET_API_URL + '?action=getSettings';
+    const res = await fetchWithTimeout(url, 10000);
+    if (!res.ok) return `HTTP ${res.status}`;
+    let data = null;
+    try { data = await res.json(); } catch(e) {}
+    if (!data) return 'JSON 파싱 실패(응답 포맷 확인)';
+    if (data.status !== 'ok') return data.message || 'status!=ok';
+    if (!data.settings) return 'settings 필드 누락(getSettings 구현/배포 확인)';
+    return '원인 미상(콘솔 로그 확인)';
+  } catch (e) {
+    return e?.message || '요청 예외';
+  }
 }
 
 function clearGsheetUrl() {
