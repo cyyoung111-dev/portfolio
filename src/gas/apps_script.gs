@@ -402,39 +402,27 @@ function handleGetHistory(fromStr, toStr) {
     if (!sh || sh.getLastRow() < 2) return jsonOk({ history: [] });
 
     var data = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues();
-    // date → { evalAmt, costAmt, latestTs } 구조
-    // 1단계: 날짜별 가장 늦은 타임스탬프 찾기
-    var tsMap = {};
+    var map  = {};
     data.forEach(function(row) {
-      var rawDate = row[0];
-      var date = _normalizeDate(rawDate);
+      var date = (row[0] || '').toString().trim();
       if (!date) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
-      var ts = rawDate instanceof Date ? rawDate.getTime() : new Date(rawDate).getTime();
-      if (!tsMap[date] || ts > tsMap[date]) tsMap[date] = ts;
-    });
-    // 2단계: 가장 늦은 타임스탬프 행만 집계
-    var map = {};
-    data.forEach(function(row) {
-      var rawDate = row[0];
-      var date = _normalizeDate(rawDate);
-      if (!date || !tsMap[date]) return;
-      if (fromStr && date < fromStr) return;
-      if (toStr   && date > toStr)   return;
-      var ts = rawDate instanceof Date ? rawDate.getTime() : new Date(rawDate).getTime();
-      if (ts < tsMap[date]) return; // 최신 타임스탬프가 아니면 스킵
-      if (!map[date]) map[date] = { evalAmt: 0, costAmt: 0 };
+      if (!map[date]) map[date] = { evalAmt: 0, costAmt: 0, qty: 0 };
       map[date].evalAmt += parseFloat(row[5]) || 0;
       map[date].costAmt += parseFloat(row[4]) || 0;
+      map[date].qty += parseFloat(row[3]) || 0;
     });
 
     var history = Object.keys(map).sort().map(function(date) {
       var ev  = Math.round(map[date].evalAmt);
       var co  = Math.round(map[date].costAmt);
+      var qt  = parseFloat(map[date].qty) || 0;
       var pnl = ev - co;
       var pct = co > 0 ? parseFloat(((pnl / co) * 100).toFixed(2)) : 0;
-      return { date: date, evalAmt: ev, costAmt: co, pnl: pnl, pct: pct };
+      var evalUnit = qt > 0 ? parseFloat((ev / qt).toFixed(2)) : 0;
+      var costUnit = qt > 0 ? parseFloat((co / qt).toFixed(2)) : 0;
+      return { date: date, evalAmt: ev, costAmt: co, qty: qt, evalUnit: evalUnit, costUnit: costUnit, pnl: pnl, pct: pct };
     });
     return jsonOk({ snapshots: history });
   } catch(err) {

@@ -56,7 +56,8 @@ async function fetchFromGsheet(dateStr) {
             const data2 = await res2.json();
             if (data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
-                const entry = (data2.prices[m.code] || [])[0];
+                const list = data2.prices[m.code] || [];
+                const entry = list.length > 0 ? list[list.length - 1] : null;
                 if (entry && entry.price > 0) {
                   codeResults[m.code] = Math.round(entry.price);
                   if (entry.savedAt) priceMeta[m.code] = { savedAt: entry.savedAt };
@@ -75,7 +76,8 @@ async function fetchFromGsheet(dateStr) {
         const data = await res.json();
         if (data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
-            const entry = (data.prices[i.code] || [])[0];
+            const list = data.prices[i.code] || [];
+            const entry = list.length > 0 ? list[list.length - 1] : null;
             if (entry && entry.price > 0) {
               codeResults[i.code] = Math.round(entry.price);  // ★ 코드 키로 저장
               if (entry.savedAt) priceMeta[i.code] = { savedAt: entry.savedAt };

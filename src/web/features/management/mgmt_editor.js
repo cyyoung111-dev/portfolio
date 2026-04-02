@@ -464,11 +464,16 @@ async function fetchEditorManualPrices(dateStr) {
     if (data.status !== 'ok' || !data.prices) return {};
 
     const out = {};
+    const byLatest = (a, b) => {
+      const ak = (a?.savedAt || a?.date || '');
+      const bk = (b?.savedAt || b?.date || '');
+      return ak.localeCompare(bk);
+    };
     Object.entries(data.prices).forEach(([key, entries]) => {
       if (!Array.isArray(entries) || entries.length === 0) return;
       // ★ savedAt 있는 것(수동입력)만 필터 후 가장 최근 것 선택
       //   savedAt 없는 것(자동조회)은 제외 — 수동저장값만 표시 대상
-      const manualEntries = entries.filter(e => e && e.price > 0 && e.savedAt);
+      const manualEntries = entries.filter(e => e && e.price > 0 && e.savedAt).sort(byLatest);
       const latest = manualEntries.length > 0
         ? manualEntries[manualEntries.length - 1]  // 수동입력 중 가장 최근
         : null;
@@ -508,12 +513,18 @@ async function fetchEditorManualHistory(dateStr) {
     if (data.status !== 'ok' || !data.prices) return {};
 
     const out = {};
+    const byLatest = (a, b) => {
+      const ak = (a?.savedAt || a?.date || '');
+      const bk = (b?.savedAt || b?.date || '');
+      return ak.localeCompare(bk);
+    };
     Object.entries(data.prices).forEach(([key, entries]) => {
       if (!Array.isArray(entries) || entries.length === 0) return;
       // savedAt가 있는 항목 = 수동입력 이력
       // ★ savedAt(날짜+시간 원본) 포함해서 저장 — renderRow에서 시간까지 표시
       const manualOnly = entries
         .filter(e => e && e.price > 0 && e.savedAt)
+        .sort(byLatest)
         .slice(-3)
         .map(e => ({
           date: e.date || '',

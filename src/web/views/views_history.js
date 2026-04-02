@@ -401,6 +401,8 @@ function _buildHistoryDiagnostics(snapshots) {
     const curCost = parseFloat(cur.costAmt || cur.cost || 0);
     const prevEval = parseFloat(prev.evalAmt || prev.total || prev.eval || 0);
     const prevCost = parseFloat(prev.costAmt || prev.cost || 0);
+    const curQty = parseFloat(cur.qty || 0);
+    const prevQty = parseFloat(prev.qty || 0);
     const dEval = curEval - prevEval;
     const dCost = curCost - prevCost;
     const absEval = Math.abs(dEval);
@@ -411,19 +413,19 @@ function _buildHistoryDiagnostics(snapshots) {
       out[cur.date] = {
         level: 'warn',
         note: `중복집계 의심 (평가 ${dEval>=0?'+':''}${_fmtKrw(dEval)}, 원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
-        curEval, prevEval, curCost, prevCost, dEval, dCost, evalJumpPct,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
       };
     } else if (absEval >= 500000000 && absCost <= Math.max(100000000, absEval * 0.12)) {
       out[cur.date] = {
         level: 'warn',
         note: `가격 영향 큼 (평가 ${dEval>=0?'+':''}${_fmtKrw(dEval)}, 원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
-        curEval, prevEval, curCost, prevCost, dEval, dCost, evalJumpPct,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
       };
     } else if (absCost >= 300000000) {
       out[cur.date] = {
         level: 'info',
         note: `매수/매도 영향 (원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
-        curEval, prevEval, curCost, prevCost, dEval, dCost, evalJumpPct,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
       };
     }
   }
@@ -454,6 +456,8 @@ function _renderHistDebugPanel(date) {
         <div>• 진단: <span style="color:${tone}">${d.note}</span></div>
         <div>• 평가금액: ${_fmtKrw(d.prevEval)} → ${_fmtKrw(d.curEval)} (${d.dEval>=0?'+':''}${_fmtKrw(d.dEval)})</div>
         <div>• 매입원가: ${_fmtKrw(d.prevCost)} → ${_fmtKrw(d.curCost)} (${d.dCost>=0?'+':''}${_fmtKrw(d.dCost)})</div>
+        <div>• 수량: ${(d.prevQty||0).toLocaleString()} → ${(d.curQty||0).toLocaleString()}</div>
+        <div>• 평가단가(역산): ${d.prevQty>0 ? Math.round(d.prevEval/d.prevQty).toLocaleString() : '-'} → ${d.curQty>0 ? Math.round(d.curEval/d.curQty).toLocaleString() : '-'}</div>
         <div>• 평가 변동률(직전 대비): ${(d.evalJumpPct*100).toFixed(1)}%</div>
       </div>
     </div>`;
