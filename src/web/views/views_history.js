@@ -25,6 +25,8 @@ function renderHistoryView(area) {
             <option value="730">2년</option>
             <option value="0">전체</option>
           </select>
+          <input id="histStartMonth" type="month" title="시작 연월"
+            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem"/>
           <button onclick="loadHistoryChart()" class="btn-ghost-sm">🔄</button>
         </div>
       </div>
@@ -35,8 +37,14 @@ function renderHistoryView(area) {
 
   window._histMode = window._histMode || 'week';
   _applyHistModeUI(window._histMode);
+  const monthEl = $el('histStartMonth');
+  if (monthEl && !monthEl.value) {
+    const d = new Date();
+    monthEl.value = `${d.getFullYear()}-01`;
+  }
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
+  $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
 }
 
 function _setHistMode(mode) {
@@ -79,8 +87,11 @@ async function loadHistoryChart() {
 
   try {
     const days = parseInt($el('histRangeSelect')?.value || '365');
+    const startMonth = String($el('histStartMonth')?.value || '').trim();
     let fromStr = '';
-    if (days > 0) {
+    if (/^\d{4}-\d{2}$/.test(startMonth)) {
+      fromStr = `${startMonth}-01`;
+    } else if (days > 0) {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
       fromStr = cutoff.getFullYear() + '-' + String(cutoff.getMonth()+1).padStart(2,'0') + '-' + String(cutoff.getDate()).padStart(2,'0');
@@ -109,8 +120,9 @@ async function loadHistoryChart() {
     }
 
     const modeLabel = mode === 'week' ? `${snapshots.length}주` : `${snapshots.length}개월`;
+    const monthLabel = /^\d{4}-\d{2}$/.test(startMonth) ? ` · 시작 ${startMonth}` : '';
     if (statusEl) statusEl.innerHTML =
-      `총 ${modeLabel} · 최근: <b>${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</b> · KST 기준`;
+      `총 ${modeLabel}${monthLabel} · 최근: <b>${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</b> · KST 기준`;
 
     snapshots = _mergeTradeBasedCost(snapshots);
     _drawHistoryChart(chartWrap, snapshots, mode);
@@ -173,7 +185,9 @@ function _drawHistoryChart(wrap, snapshots, mode) {
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     cost: parseFloat(s.costAmt || s.cost || 0),
   }));
-  pts.forEach(p => { p.pnl = p.eval - p.cost; });
+  pts.forEach(p => {
+    p.pnl = p.eval - p.cost;
+  });
 
   const eVals = pts.map(p => p.eval), pVals = pts.map(p => p.pnl);
   const minE = Math.min(...eVals), maxE = Math.max(...eVals);
@@ -237,7 +251,10 @@ function _drawHistoryChart(wrap, snapshots, mode) {
   const evalChg     = lastPt.eval - firstPt.eval;
   const evalChgPct  = firstPt.eval > 0 ? (evalChg / firstPt.eval * 100).toFixed(1) : '0.0';
   const evalChgClr  = evalChg >= 0 ? '#22c55e' : '#ef4444';
-  const pnlPct      = lastPt.cost > 0 ? (lastPt.pnl / lastPt.cost * 100).toFixed(1) : '-';
+  const pnlBase     = lastPt.cost;
+  const pnlPct      = pnlBase > 0 ? (lastPt.pnl / pnlBase * 100).toFixed(1) : '-';
+  const pnlTitle    = '현재 손익';
+  const pnlBaseText = `원가 ${_fmtKrw(lastPt.cost)}`;
 
   wrap.innerHTML = `
     <!-- 요약 카드 3개 -->
@@ -248,9 +265,9 @@ function _drawHistoryChart(wrap, snapshots, mode) {
         <div style="font-size:.60rem;color:${evalChgClr};margin-top:3px">${evalChg>=0?'▲':'▼'} ${_fmtKrw(Math.abs(evalChg))} <span style="opacity:.7">(${evalChg>=0?'+':''}${evalChgPct}%)</span></div>
       </div>
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
-        <div style="font-size:.60rem;color:var(--muted);margin-bottom:3px">현재 손익</div>
+        <div style="font-size:.60rem;color:var(--muted);margin-bottom:3px">${pnlTitle}</div>
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${lastPt.pnl>=0?'+':''}${_fmtKrw(lastPt.pnl)}</div>
-        <div style="font-size:.60rem;color:var(--muted);margin-top:3px">원가 ${_fmtKrw(lastPt.cost)}</div>
+        <div style="font-size:.60rem;color:var(--muted);margin-top:3px">${pnlBaseText}</div>
       </div>
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
         <div style="font-size:.60rem;color:var(--muted);margin-bottom:3px">수익률</div>
@@ -271,7 +288,7 @@ function _drawHistoryChart(wrap, snapshots, mode) {
           <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke="${pnlColor}" stroke-width="2" stroke-linecap="round"/><circle cx="8" cy="4" r="2" fill="${pnlColor}"/></svg>
           <span style="font-size:.64rem;color:var(--muted)">손익</span>
         </div>
-        <div style="margin-left:auto;font-size:.60rem;color:rgba(200,200,220,.4);padding-right:8px">좌: 평가금액 · 우: 손익</div>
+        <div style="margin-left:auto;font-size:.60rem;color:rgba(200,200,220,.4);padding-right:8px">좌: 투자 평가금액 · 우: 손익</div>
       </div>
       <svg width="${W}" height="${H}" style="display:block;max-width:100%;overflow:visible">
         <defs>
@@ -303,17 +320,21 @@ function _drawHistoryChart(wrap, snapshots, mode) {
 function _drawHistoryTable(wrap, snapshots) {
   if (!wrap) return;
   const recent = [...snapshots].reverse().slice(0, 20);
+  const diagnostics = _buildHistoryDiagnostics(snapshots);
+  window._histDebugByDate = diagnostics;
   let html = `
-    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:8px">최근 내역 (최대 20개)</div>
+    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 내역 (최대 20개)</div>
+    <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">※ 원가와 평가금액 차이 원인을 빠르게 보도록 진단 컬럼을 추가했습니다.</div>
     <div style="overflow-x:auto;border-radius:10px;border:1px solid var(--border)">
     <table style="width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums">
       <thead>
         <tr style="background:var(--s2)">
-          <th style="text-align:left;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">날짜</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">평가금액</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">매입원가</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">손익</th>
-          <th style="text-align:right;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">수익률</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">날짜</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">평가금액</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">매입원가</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">손익</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">수익률</th>
+          <th style="text-align:center;padding:8px 10px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">진단</th>
         </tr>
       </thead><tbody>`;
 
@@ -322,17 +343,94 @@ function _drawHistoryTable(wrap, snapshots) {
     const co  = parseFloat(s.costAmt || s.cost || 0);
     const pnl = ev - co;
     const pct = co > 0 ? (pnl / co * 100).toFixed(1) : '-';
-    const c   = pnl >= 0 ? '#22c55e' : '#ef4444';
+    const c = pnl >= 0 ? '#22c55e' : '#ef4444';
+    const d = diagnostics[s.date] || {};
+    const noteColor = d.level === 'warn' ? 'var(--amber)' : 'var(--muted)';
     html += `<tr style="background:${idx%2===0?'transparent':'rgba(255,255,255,.015)'};border-bottom:1px solid rgba(255,255,255,.04)">
       <td style="padding:7px 10px;color:var(--text);font-weight:500;white-space:nowrap">${_fmtHistDateCompact(s.date||'')}</td>
       <td style="padding:7px 10px;text-align:right;color:var(--text)">${_fmtKrw(ev)}</td>
       <td style="padding:7px 10px;text-align:right;color:var(--muted)">${_fmtKrw(co)}</td>
       <td style="padding:7px 10px;text-align:right;color:${c};font-weight:600">${pnl>=0?'+':''}${_fmtKrw(pnl)}</td>
       <td style="padding:7px 10px;text-align:right;color:${c};font-weight:600">${pct!=='-'?(pnl>=0?'+':'')+pct+'%':'-'}</td>
+      <td style="padding:7px 10px;color:${noteColor};font-size:.66rem;white-space:nowrap">
+        ${d.note ? `<button onclick="_toggleHistDebug('${s.date}')" style="border:1px solid var(--border);background:var(--s2);color:${noteColor};border-radius:6px;padding:2px 6px;font-size:.62rem;cursor:pointer;margin-right:4px">디버그</button>${d.note}` : '-'}
+      </td>
     </tr>`;
   });
-  html += `</tbody></table></div>`;
+  html += `</tbody></table></div><div id="histDebugPanel" style="margin-top:8px"></div>`;
   wrap.innerHTML = html;
+  _renderHistDebugPanel(window._histDebugDate || '');
+}
+
+function _buildHistoryDiagnostics(snapshots) {
+  const out = {};
+  if (!Array.isArray(snapshots) || snapshots.length < 2) return out;
+  for (let i = 1; i < snapshots.length; i++) {
+    const cur = snapshots[i], prev = snapshots[i - 1];
+    const curEval = parseFloat(cur.evalAmt || cur.total || cur.eval || 0);
+    const curCost = parseFloat(cur.costAmt || cur.cost || 0);
+    const prevEval = parseFloat(prev.evalAmt || prev.total || prev.eval || 0);
+    const prevCost = parseFloat(prev.costAmt || prev.cost || 0);
+    const curQty = parseFloat(cur.qty || 0);
+    const prevQty = parseFloat(prev.qty || 0);
+    const dEval = curEval - prevEval;
+    const dCost = curCost - prevCost;
+    const absEval = Math.abs(dEval);
+    const absCost = Math.abs(dCost);
+    const prevEvalAbs = Math.max(1, Math.abs(prevEval));
+    const evalJumpPct = absEval / prevEvalAbs;
+    if (evalJumpPct >= 0.6 && absCost <= Math.max(100000000, prevCost * 0.1)) {
+      out[cur.date] = {
+        level: 'warn',
+        note: `중복집계 의심 (평가 ${dEval>=0?'+':''}${_fmtKrw(dEval)}, 원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
+      };
+    } else if (absEval >= 500000000 && absCost <= Math.max(100000000, absEval * 0.12)) {
+      out[cur.date] = {
+        level: 'warn',
+        note: `가격 영향 큼 (평가 ${dEval>=0?'+':''}${_fmtKrw(dEval)}, 원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
+      };
+    } else if (absCost >= 300000000) {
+      out[cur.date] = {
+        level: 'info',
+        note: `매수/매도 영향 (원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
+      };
+    }
+  }
+  return out;
+}
+
+function _toggleHistDebug(date) {
+  window._histDebugDate = (window._histDebugDate === date) ? '' : date;
+  _renderHistDebugPanel(window._histDebugDate);
+}
+
+function _renderHistDebugPanel(date) {
+  const panel = $el('histDebugPanel');
+  if (!panel) return;
+  const d = (window._histDebugByDate || {})[date];
+  if (!date || !d) {
+    panel.innerHTML = '';
+    return;
+  }
+  const tone = d.level === 'warn' ? 'var(--amber)' : 'var(--muted)';
+  panel.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:10px;background:var(--s2);padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:.72rem;font-weight:700;color:${tone}">🧪 ${_fmtHistDateCompact(date)} 디버그</div>
+        <button onclick="_toggleHistDebug('${date}')" style="border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:.7rem">닫기</button>
+      </div>
+      <div style="font-size:.66rem;color:var(--text);line-height:1.7">
+        <div>• 진단: <span style="color:${tone}">${d.note}</span></div>
+        <div>• 평가금액: ${_fmtKrw(d.prevEval)} → ${_fmtKrw(d.curEval)} (${d.dEval>=0?'+':''}${_fmtKrw(d.dEval)})</div>
+        <div>• 매입원가: ${_fmtKrw(d.prevCost)} → ${_fmtKrw(d.curCost)} (${d.dCost>=0?'+':''}${_fmtKrw(d.dCost)})</div>
+        <div>• 수량: ${(d.prevQty||0).toLocaleString()} → ${(d.curQty||0).toLocaleString()}</div>
+        <div>• 평가단가(역산): ${d.prevQty>0 ? Math.round(d.prevEval/d.prevQty).toLocaleString() : '-'} → ${d.curQty>0 ? Math.round(d.curEval/d.curQty).toLocaleString() : '-'}</div>
+        <div>• 평가 변동률(직전 대비): ${(d.evalJumpPct*100).toFixed(1)}%</div>
+      </div>
+    </div>`;
 }
 
 // ── 거래이력 기반 원가 재계산
