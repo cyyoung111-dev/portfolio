@@ -2,6 +2,10 @@
 //  views_history.js — 스냅샷 히스토리, 구글시트탭, 종목코드탭
 //  의존: data.js, settings.js, views_system.js
 // ════════════════════════════════════════════════════════════════
+// 과거 버전에서 참조하던 전역 방어 (캐시된 스크립트 혼재 시 ReferenceError 방지)
+if (typeof window.realEstatePnl === 'undefined') window.realEstatePnl = 0;
+var realEstatePnl = window.realEstatePnl || 0;
+
 function renderHistoryView(area) {
   area.innerHTML = `
     <div style="padding:12px 0 8px">
@@ -25,7 +29,6 @@ function renderHistoryView(area) {
     </div>`;
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
-  $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
 }
 
 async function loadHistoryChart() {
@@ -101,9 +104,7 @@ function _drawHistoryChart(wrap, snapshots) {
     cost: parseFloat(s.costAmt || s.cost || 0),
     realPnl: realEstatePnl,
   }));
-  pts.forEach(p => {
-    p.pnl = p.eval - p.cost;
-  });
+  pts.forEach(p => { p.pnl = p.eval - p.cost; });
 
   const minEval = Math.min(...pts.map(p => p.eval));
   const maxEval = Math.max(...pts.map(p => p.eval));
