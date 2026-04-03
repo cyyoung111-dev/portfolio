@@ -45,6 +45,27 @@ function renderHistoryView(area) {
   $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
 }
 
+function _setHistMode(mode) {
+  window._histMode = mode;
+  _applyHistModeUI(mode);
+  loadHistoryChart();
+}
+
+function _applyHistModeUI(mode) {
+  const wBtn = $el('histModeWeek');
+  const mBtn = $el('histModeMonth');
+  if (!wBtn || !mBtn) return;
+  [wBtn, mBtn].forEach(b => {
+    b.style.background = 'transparent';
+    b.style.color = 'var(--muted)';
+    b.style.fontWeight = '400';
+  });
+  const active = mode === 'week' ? wBtn : mBtn;
+  active.style.background = 'var(--c-purple-45,#7c3aed)';
+  active.style.color = '#fff';
+  active.style.fontWeight = '600';
+}
+
 async function loadHistoryChart() {
   const statusEl = $el('histStatusMsg');
   const chartWrap = $el('histChartWrap');
@@ -64,12 +85,12 @@ async function loadHistoryChart() {
 
   try {
     const startMonth = String($el('histStartMonth')?.value || '').trim();
-    const days = parseInt($el('histRangeSelect')?.value || '365', 10);
+    var rangeDays = parseInt($el('histRangeSelect')?.value || '365', 10);
     let fromStr = '';
     if (/^\d{4}-\d{2}$/.test(startMonth)) fromStr = `${startMonth}-01`;
-    else if (days > 0) {
+    else if (rangeDays > 0) {
       const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
+      cutoff.setDate(cutoff.getDate() - rangeDays);
       fromStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
     }
     const url = GSHEET_API_URL + '?action=getHistory' + (fromStr ? ('&from=' + fromStr) : '');
