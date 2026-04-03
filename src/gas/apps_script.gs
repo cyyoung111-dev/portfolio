@@ -104,6 +104,7 @@ function doGet(e) {
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
+  if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes);
   if (params.action === 'dividend') {
@@ -622,6 +623,54 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
     return jsonOk({ dates: allDates, prices: pricesByCode });
   } catch(err) {
     return jsonError('getPriceHistory 실패: ' + err.message);
+  }
+}
+
+function handleGetBenchmark(benchmark, fromStr, toStr) {
+  try {
+    var ss = getss();
+    var fromDate = _normalizeDate(fromStr || '') || '2024-01-01';
+    var toDate = _normalizeDate(toStr || '') || today();
+    if (fromDate > toDate) {
+      var t = fromDate; fromDate = toDate; toDate = t;
+    }
+
+    var map = {
+      KOSPI: 'INDEXKRX:KOSPI',
+      SP500: 'INDEXSP:.INX',
+      NASDAQ100: 'INDEXNASDAQ:NDX'
+    };
+    var key = (benchmark || '').toString().trim().toUpperCase();
+    var symbol = map[key];
+    if (!symbol) return jsonError('지원하지 않는 비교지수: ' + benchmark);
+
+    var tmp = ss.getSheetByName(CONFIG.SHEET_TMP) || ss.insertSheet(CONFIG.SHEET_TMP);
+    tmp.clearContents();
+
+    var fs = fromDate.split('-');
+    var ts = toDate.split('-');
+    var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
+    tmp.getRange(1, 1).setFormula(formula);
+    SpreadsheetApp.flush();
+    Utilities.sleep(1600);
+
+    var lastRow = tmp.getLastRow();
+    if (lastRow < 2) {
+      tmp.clearContents();
+      return jsonOk({ benchmark: key, points: [] });
+    }
+
+    var data = tmp.getRange(2, 1, lastRow - 1, 2).getValues();
+    var points = data.map(function(r) {
+      var d = _normalizeDate(r[0]);
+      var v = parseFloat(r[1]) || 0;
+      return { date: d, value: v };
+    }).filter(function(p) { return p.date && p.value > 0; });
+
+    tmp.clearContents();
+    return jsonOk({ benchmark: key, points: points });
+  } catch(err) {
+    return jsonError('getBenchmark 실패: ' + err.message);
   }
 }
 

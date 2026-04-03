@@ -29,6 +29,13 @@ function renderHistoryView(area) {
             <option value="730">2년</option>
             <option value="0">전체</option>
           </select>
+          <select id="histBenchmarkSelect" title="비교지수"
+            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem">
+            <option value="">비교지수 없음</option>
+            <option value="KOSPI" selected>KOSPI</option>
+            <option value="SP500">S&P500</option>
+            <option value="NASDAQ100">NASDAQ100</option>
+          </select>
           <button onclick="loadHistoryChart()" class="btn-ghost-sm">🔄 새로고침</button>
         </div>
       </div>
@@ -46,6 +53,7 @@ function renderHistoryView(area) {
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
   $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
+  $el('histBenchmarkSelect')?.addEventListener('change', loadHistoryChart);
 }
 
 function _setHistMode(mode) {
@@ -133,7 +141,12 @@ async function loadHistoryChart() {
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
 
-    _drawHistoryChart(chartWrap, snapshots, mode);
+    const benchmarkType = String($el('histBenchmarkSelect')?.value || '').trim();
+    const benchSeries = benchmarkType
+      ? await _fetchBenchmarkSeries(benchmarkType, snapshots[0].date, snapshots[snapshots.length - 1].date)
+      : [];
+
+    _drawHistoryChart(chartWrap, snapshots, mode, { type: benchmarkType, series: benchSeries });
     _drawHistoryTable(tableWrap, snapshots);
 
   } catch(e) {
@@ -141,7 +154,28 @@ async function loadHistoryChart() {
   }
 }
 
-function _drawHistoryChart(wrap, snapshots) {
+async function _fetchBenchmarkSeries(type, fromDate, toDate) {
+  if (!GSHEET_API_URL || !type || !fromDate || !toDate) return [];
+  try {
+    const url = GSHEET_API_URL
+      + '?action=getBenchmark'
+      + '&benchmark=' + encodeURIComponent(type)
+      + '&from=' + encodeURIComponent(fromDate)
+      + '&to=' + encodeURIComponent(toDate);
+    const res = await fetchWithTimeout(url, 15000);
+    const data = await res.json();
+    if (!data || data.status === 'error') return [];
+    const arr = Array.isArray(data.points) ? data.points : [];
+    return arr
+      .map(p => ({ date: _normalizeHistDate(p.date || ''), value: parseFloat(p.value || 0) }))
+      .filter(p => p.date && p.value > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch(_) {
+    return [];
+  }
+}
+
+function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const fmt = _fmtKrw;
   const mode = window._histMode || 'week';
   const W = Math.min(wrap.clientWidth || 700, 900);
@@ -159,31 +193,23 @@ function _drawHistoryChart(wrap, snapshots) {
   }));
   pts.forEach(p => { p.pnl = p.eval - p.cost; });
 
-  const minEval = Math.min(...pts.map(p => p.eval));
-  const maxEval = Math.max(...pts.map(p => p.eval));
-  const minPnl  = Math.min(...pts.map(p => p.pnl));
-  const maxPnl  = Math.max(...pts.map(p => p.pnl));
-
-  // y축 범위 (약간 여백)
-  const evalPad = (maxEval - minEval) * 0.1 || maxEval * 0.05 || 1000000;
-  const pnlPad  = (Math.max(Math.abs(maxPnl), Math.abs(minPnl))) * 0.15 || 1000000;
-  const yEvalMin = minEval - evalPad;
-  const yEvalMax = maxEval + evalPad;
-  const yPnlMin  = minPnl  - pnlPad;
-  const yPnlMax  = maxPnl  + pnlPad;
+  const minMoney = Math.min(...pts.map(p => Math.min(p.eval, p.pnl)));
+  const maxMoney = Math.max(...pts.map(p => Math.max(p.eval, p.pnl)));
+  const moneyPad = (maxMoney - minMoney) * 0.1 || Math.max(Math.abs(maxMoney), Math.abs(minMoney)) * 0.08 || 1000000;
+  const yMoneyMin = minMoney - moneyPad;
+  const yMoneyMax = maxMoney + moneyPad;
 
   const xScale = i => PAD.left + (i / (pts.length - 1 || 1)) * CW;
-  const yEval  = v => PAD.top + CH - ((v - yEvalMin) / (yEvalMax - yEvalMin || 1)) * CH;
-  const yPnl   = v => PAD.top + CH - ((v - yPnlMin) / (yPnlMax - yPnlMin || 1)) * CH;
+  const yMoney = v => PAD.top + CH - ((v - yMoneyMin) / (yMoneyMax - yMoneyMin || 1)) * CH;
 
   // 평가금액 polyline
-  const evalPts = pts.map((p, i) => `${xScale(i).toFixed(1)},${yEval(p.eval).toFixed(1)}`).join(' ');
+  const evalPts = pts.map((p, i) => `${xScale(i).toFixed(1)},${yMoney(p.eval).toFixed(1)}`).join(' ');
   // 손익 polyline
-  const pnlPts  = pts.map((p, i) => `${xScale(i).toFixed(1)},${yPnl(p.pnl).toFixed(1)}`).join(' ');
+  const pnlPts  = pts.map((p, i) => `${xScale(i).toFixed(1)},${yMoney(p.pnl).toFixed(1)}`).join(' ');
   // 손익 fill path (0선 기준)
-  const zero    = yPnl(0).toFixed(1);
+  const zero    = yMoney(0).toFixed(1);
   const pnlFill = `M${xScale(0).toFixed(1)},${zero} ` +
-    pts.map((p, i) => `L${xScale(i).toFixed(1)},${yPnl(p.pnl).toFixed(1)}`).join(' ') +
+    pts.map((p, i) => `L${xScale(i).toFixed(1)},${yMoney(p.pnl).toFixed(1)}`).join(' ') +
     ` L${xScale(pts.length-1).toFixed(1)},${zero} Z`;
 
   // x축 레이블 (최대 5개 + 마지막)
@@ -196,16 +222,41 @@ function _drawHistoryChart(wrap, snapshots) {
     xLabels += `<text x="${xScale(pts.length - 1).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--muted)">${pts[pts.length - 1].date || ''}</text>`;
   }
 
-  // y축 레이블 (왼쪽: 평가금액, 오른쪽: 손익)
+  // 비교지수 정렬 (우측축)
+  const benchType = benchmarkOpt?.type || '';
+  const benchRaw = Array.isArray(benchmarkOpt?.series) ? benchmarkOpt.series : [];
+  const benchByDate = {};
+  benchRaw.forEach(b => { if (b.date && b.value > 0) benchByDate[b.date] = b.value; });
+  let lastBench = 0;
+  const benchPts = pts.map((p, i) => {
+    const date = snapshots[i]?.date || '';
+    const now = benchByDate[date];
+    if (now > 0) lastBench = now;
+    return { date, raw: lastBench || 0 };
+  }).filter(b => b.raw > 0);
+  const benchBase = benchPts.length ? benchPts[0].raw : 0;
+  benchPts.forEach(b => { b.idx = benchBase > 0 ? (b.raw / benchBase * 100) : 0; });
+  const hasBench = !!benchType && benchPts.length > 1;
+  const minIdx = hasBench ? Math.min(...benchPts.map(b => b.idx)) : 90;
+  const maxIdx = hasBench ? Math.max(...benchPts.map(b => b.idx)) : 110;
+  const idxPad = (maxIdx - minIdx) * 0.15 || 5;
+  const yIdxMin = minIdx - idxPad;
+  const yIdxMax = maxIdx + idxPad;
+  const yIdx = v => PAD.top + CH - ((v - yIdxMin) / (yIdxMax - yIdxMin || 1)) * CH;
+  const benchLinePts = hasBench
+    ? benchPts.map((b, i) => `${xScale(i).toFixed(1)},${yIdx(b.idx).toFixed(1)}`).join(' ')
+    : '';
+
+  // y축 레이블 (왼쪽: 금액, 오른쪽: 지수)
   let yLabels = '';
   let yLabelsRight = '';
   const yTicks = 4;
   for (let i = 0; i <= yTicks; i++) {
-    const evalV = yEvalMin + (yEvalMax - yEvalMin) * (i / yTicks);
-    const pnlV  = yPnlMin + (yPnlMax - yPnlMin) * (i / yTicks);
-    const y = yEval(evalV).toFixed(1);
-    yLabels += `<text x="${PAD.left - 5}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="10" fill="var(--muted)">${_fmtAxisKrw(evalV)}</text>`;
-    yLabelsRight += `<text x="${PAD.left + CW + 5}" y="${y}" dominant-baseline="middle" font-size="10" fill="var(--muted)">${_fmtAxisKrw(pnlV)}</text>`;
+    const moneyV = yMoneyMin + (yMoneyMax - yMoneyMin) * (i / yTicks);
+    const idxV   = yIdxMin + (yIdxMax - yIdxMin) * (i / yTicks);
+    const y = yMoney(moneyV).toFixed(1);
+    yLabels += `<text x="${PAD.left - 5}" y="${y}" text-anchor="end" dominant-baseline="middle" font-size="10" fill="var(--muted)">${_fmtAxisKrw(moneyV)}</text>`;
+    yLabelsRight += `<text x="${PAD.left + CW + 5}" y="${y}" dominant-baseline="middle" font-size="10" fill="var(--muted)">${hasBench ? idxV.toFixed(1) : ''}</text>`;
     yLabels += `<line x1="${PAD.left}" y1="${y}" x2="${PAD.left + CW}" y2="${y}" stroke="var(--border)" stroke-width="0.5"/>`;
   }
 
@@ -234,14 +285,17 @@ function _drawHistoryChart(wrap, snapshots) {
       <polyline points="${evalPts}" fill="none" stroke="var(--c-purple-45)" stroke-width="1.8" stroke-linejoin="round"/>
       <!-- 손익 라인 -->
       <polyline points="${pnlPts}" fill="none" stroke="${pnlColor}" stroke-width="2" stroke-linejoin="round"/>
+      ${hasBench ? `<polyline points="${benchLinePts}" fill="none" stroke="var(--amber)" stroke-width="1.8" stroke-dasharray="4,3" stroke-linejoin="round"/>` : ''}
       <!-- 마지막 포인트 dot -->
-      <circle cx="${lastX.toFixed(1)}" cy="${yEval(lastPt.eval).toFixed(1)}" r="3.5" fill="var(--c-purple-45)"/>
-      <circle cx="${lastX.toFixed(1)}" cy="${yPnl(lastPt.pnl).toFixed(1)}" r="3.5" fill="${pnlColor}"/>
+      <circle cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.eval).toFixed(1)}" r="3.5" fill="var(--c-purple-45)"/>
+      <circle cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="3.5" fill="${pnlColor}"/>
       <!-- 범례 -->
       <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="var(--c-purple-45)" stroke-width="2"/>
       <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">평가금액</text>
       <line x1="${PAD.left + 74}" y1="${PAD.top + 10}" x2="${PAD.left + 90}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
       <text x="${PAD.left + 94}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
+      ${hasBench ? `<line x1="${PAD.left + 128}" y1="${PAD.top + 10}" x2="${PAD.left + 144}" y2="${PAD.top + 10}" stroke="var(--amber)" stroke-width="2" stroke-dasharray="4,3"/>
+      <text x="${PAD.left + 148}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${benchType} 지수</text>` : ''}
     </svg>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:10px;font-variant-numeric:tabular-nums">
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
@@ -261,11 +315,12 @@ function _drawHistoryChart(wrap, snapshots) {
 
 function _drawHistoryTable(wrap, snapshots) {
   const fmt = _fmtKrw;
+  const mode = window._histMode || 'week';
   const recent = [...snapshots].reverse().slice(0, 20);
   const diagnostics = _buildHistoryDiagnostics(snapshots);
   window._histDebugByDate = diagnostics;
   let html = `
-    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개)</div>
+    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개 · ${mode==='week'?'주간 기준':'월간 기준'})</div>
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums">
       <thead>
