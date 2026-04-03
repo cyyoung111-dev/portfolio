@@ -5,14 +5,6 @@
 async function fetchFromGsheet(dateStr) {
   if (!GSHEET_API_URL) return null;
   try {
-    const pickLatestPreferManual = (list) => {
-      if (!Array.isArray(list) || list.length === 0) return null;
-      const byLatest = (a, b) => (a?.savedAt || a?.date || '').localeCompare(b?.savedAt || b?.date || '');
-      const manual = list.filter(e => e && e.price > 0 && e.savedAt).sort(byLatest);
-      if (manual.length > 0) return manual[manual.length - 1];
-      const valid = list.filter(e => e && e.price > 0).sort(byLatest);
-      return valid.length > 0 ? valid[valid.length - 1] : null;
-    };
     // ★ EDITABLE_PRICES 코드 + rawHoldings STOCK_CODE + GSheet 코드목록 합산 (중복 제거)
     const epWithCode = getEPWithCode();
     const epCodeSet = new Set(epWithCode.map(i => i.code));
@@ -65,7 +57,7 @@ async function fetchFromGsheet(dateStr) {
             if (data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
                 const list = data2.prices[m.code] || [];
-                const entry = pickLatestPreferManual(list);
+                const entry = list.length > 0 ? list[list.length - 1] : null;
                 if (entry && entry.price > 0) {
                   codeResults[m.code] = Math.round(entry.price);
                   if (entry.savedAt) priceMeta[m.code] = { savedAt: entry.savedAt };
@@ -85,7 +77,7 @@ async function fetchFromGsheet(dateStr) {
         if (data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
             const list = data.prices[i.code] || [];
-            const entry = pickLatestPreferManual(list);
+            const entry = list.length > 0 ? list[list.length - 1] : null;
             if (entry && entry.price > 0) {
               codeResults[i.code] = Math.round(entry.price);  // ★ 코드 키로 저장
               if (entry.savedAt) priceMeta[i.code] = { savedAt: entry.savedAt };
