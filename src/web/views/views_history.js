@@ -25,6 +25,7 @@ function renderHistoryView(area) {
     </div>`;
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
+  $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
 }
 
 async function loadHistoryChart() {
@@ -98,8 +99,11 @@ function _drawHistoryChart(wrap, snapshots) {
     date: _fmtHistDateShort(s.date || ''),
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     cost: parseFloat(s.costAmt || s.cost || 0),
+    realPnl: realEstatePnl,
   }));
-  pts.forEach(p => { p.pnl = p.eval - p.cost; });
+  pts.forEach(p => {
+    p.pnl = p.eval - p.cost;
+  });
 
   const minEval = Math.min(...pts.map(p => p.eval));
   const maxEval = Math.max(...pts.map(p => p.eval));
@@ -203,6 +207,8 @@ function _drawHistoryChart(wrap, snapshots) {
 
 function _drawHistoryTable(wrap, snapshots) {
   const recent = [...snapshots].reverse().slice(0, 20);
+  const diagnostics = _buildHistoryDiagnostics(snapshots);
+  window._histDebugByDate = diagnostics;
   let html = `
     <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개)</div>
     <div style="overflow-x:auto">
@@ -231,8 +237,80 @@ function _drawHistoryTable(wrap, snapshots) {
       <td style="padding:5px 6px;text-align:right;color:${c}">${pct !== '-' ? pSign(pnl) + pct + '%' : '-'}</td>
     </tr>`;
   });
-  html += `</tbody></table></div>`;
+  html += `</tbody></table></div><div id="histDebugPanel" style="margin-top:8px"></div>`;
   wrap.innerHTML = html;
+  _renderHistDebugPanel(window._histDebugDate || '');
+}
+
+function _buildHistoryDiagnostics(snapshots) {
+  const out = {};
+  if (!Array.isArray(snapshots) || snapshots.length < 2) return out;
+  for (let i = 1; i < snapshots.length; i++) {
+    const cur = snapshots[i], prev = snapshots[i - 1];
+    const curEval = parseFloat(cur.evalAmt || cur.total || cur.eval || 0);
+    const curCost = parseFloat(cur.costAmt || cur.cost || 0);
+    const prevEval = parseFloat(prev.evalAmt || prev.total || prev.eval || 0);
+    const prevCost = parseFloat(prev.costAmt || prev.cost || 0);
+    const curQty = parseFloat(cur.qty || 0);
+    const prevQty = parseFloat(prev.qty || 0);
+    const dEval = curEval - prevEval;
+    const dCost = curCost - prevCost;
+    const absEval = Math.abs(dEval);
+    const absCost = Math.abs(dCost);
+    const prevEvalAbs = Math.max(1, Math.abs(prevEval));
+    const evalJumpPct = absEval / prevEvalAbs;
+    if (evalJumpPct >= 0.6 && absCost <= Math.max(100000000, prevCost * 0.1)) {
+      out[cur.date] = {
+        level: 'warn',
+        note: `중복집계 의심 (평가 ${dEval>=0?'+':''}${_fmtKrw(dEval)}, 원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
+      };
+    } else if (absEval >= 500000000 && absCost <= Math.max(100000000, absEval * 0.12)) {
+      out[cur.date] = {
+        level: 'warn',
+        note: `가격 영향 큼 (평가 ${dEval>=0?'+':''}${_fmtKrw(dEval)}, 원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
+      };
+    } else if (absCost >= 300000000) {
+      out[cur.date] = {
+        level: 'info',
+        note: `매수/매도 영향 (원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
+        curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
+      };
+    }
+  }
+  return out;
+}
+
+function _toggleHistDebug(date) {
+  window._histDebugDate = (window._histDebugDate === date) ? '' : date;
+  _renderHistDebugPanel(window._histDebugDate);
+}
+
+function _renderHistDebugPanel(date) {
+  const panel = $el('histDebugPanel');
+  if (!panel) return;
+  const d = (window._histDebugByDate || {})[date];
+  if (!date || !d) {
+    panel.innerHTML = '';
+    return;
+  }
+  const tone = d.level === 'warn' ? 'var(--amber)' : 'var(--muted)';
+  panel.innerHTML = `
+    <div style="border:1px solid var(--border);border-radius:10px;background:var(--s2);padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:.72rem;font-weight:700;color:${tone}">🧪 ${_fmtHistDateCompact(date)} 디버그</div>
+        <button onclick="_toggleHistDebug('${date}')" style="border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:.7rem">닫기</button>
+      </div>
+      <div style="font-size:.66rem;color:var(--text);line-height:1.7">
+        <div>• 진단: <span style="color:${tone}">${d.note}</span></div>
+        <div>• 평가금액: ${_fmtKrw(d.prevEval)} → ${_fmtKrw(d.curEval)} (${d.dEval>=0?'+':''}${_fmtKrw(d.dEval)})</div>
+        <div>• 매입원가: ${_fmtKrw(d.prevCost)} → ${_fmtKrw(d.curCost)} (${d.dCost>=0?'+':''}${_fmtKrw(d.dCost)})</div>
+        <div>• 수량: ${(d.prevQty||0).toLocaleString()} → ${(d.curQty||0).toLocaleString()}</div>
+        <div>• 평가단가(역산): ${d.prevQty>0 ? Math.round(d.prevEval/d.prevQty).toLocaleString() : '-'} → ${d.curQty>0 ? Math.round(d.curEval/d.curQty).toLocaleString() : '-'}</div>
+        <div>• 평가 변동률(직전 대비): ${(d.evalJumpPct*100).toFixed(1)}%</div>
+      </div>
+    </div>`;
 }
 
 function _mergeTradeBasedCost(snapshots) {
