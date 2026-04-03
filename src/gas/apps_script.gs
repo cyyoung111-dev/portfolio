@@ -402,23 +402,41 @@ function handleGetHistory(fromStr, toStr) {
     if (!sh || sh.getLastRow() < 2) return jsonOk({ history: [] });
 
     var data = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues();
-    var map  = {};
+    var dateItemMap = {};
     data.forEach(function(row) {
       var date = (row[0] || '').toString().trim();
+      var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+      var name = (row[2] || '').toString().trim();
+      var qty  = parseFloat(row[3]) || 0;
+      var cost = parseFloat(row[4]) || 0;
+      var evalAmt = parseFloat(row[5]) || 0;
       if (!date) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
-      if (!map[date]) map[date] = { evalAmt: 0, costAmt: 0 };
-      map[date].evalAmt += parseFloat(row[5]) || 0;
-      map[date].costAmt += parseFloat(row[4]) || 0;
+      // ★ 같은 날짜/같은 종목(코드 우선) 중복 행 방어: 마지막/더 큰 수량 행을 대표값으로 사용
+      //    일부 동기화 이슈로 같은 종목이 중복 저장되면 단순합산 시 평가금액이 2배로 튈 수 있음
+      var itemKey = code ? ('C:' + code) : ('N:' + name);
+      if (!itemKey || itemKey === 'N:') return;
+      if (!dateItemMap[date]) dateItemMap[date] = {};
+      var prev = dateItemMap[date][itemKey];
+      if (!prev) {
+        dateItemMap[date][itemKey] = { qty: qty, costAmt: cost, evalAmt: evalAmt };
+      } else {
+        var pickNew = (qty > prev.qty) || (qty === prev.qty && evalAmt >= prev.evalAmt);
+        if (pickNew) dateItemMap[date][itemKey] = { qty: qty, costAmt: cost, evalAmt: evalAmt };
+      }
     });
 
-    var history = Object.keys(map).sort().map(function(date) {
-      var ev  = Math.round(map[date].evalAmt);
-      var co  = Math.round(map[date].costAmt);
+    var history = Object.keys(dateItemMap).sort().map(function(date) {
+      var rows = Object.keys(dateItemMap[date]).map(function(k){ return dateItemMap[date][k]; });
+      var ev = Math.round(rows.reduce(function(s, r){ return s + (parseFloat(r.evalAmt) || 0); }, 0));
+      var co = Math.round(rows.reduce(function(s, r){ return s + (parseFloat(r.costAmt) || 0); }, 0));
+      var qt = rows.reduce(function(s, r){ return s + (parseFloat(r.qty) || 0); }, 0);
       var pnl = ev - co;
       var pct = co > 0 ? parseFloat(((pnl / co) * 100).toFixed(2)) : 0;
-      return { date: date, evalAmt: ev, costAmt: co, pnl: pnl, pct: pct };
+      var evalUnit = qt > 0 ? parseFloat((ev / qt).toFixed(2)) : 0;
+      var costUnit = qt > 0 ? parseFloat((co / qt).toFixed(2)) : 0;
+      return { date: date, evalAmt: ev, costAmt: co, qty: qt, evalUnit: evalUnit, costUnit: costUnit, pnl: pnl, pct: pct };
     });
     return jsonOk({ snapshots: history });
   } catch(err) {
