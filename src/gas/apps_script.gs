@@ -104,7 +104,7 @@ function doGet(e) {
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
-  if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0');
+  if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes);
   if (params.action === 'dividend') {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
@@ -628,7 +628,7 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
 // ════════════════════════════════════════════════════════════════════
 //  saveManualPrice — 펀드·TDF NAV 수동 입력
 // ════════════════════════════════════════════════════════════════════
-function handleSaveManualPrice(dateStr, name, priceStr) {
+function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
   try {
     if (!dateStr || !name || !priceStr) return jsonError('date, name, price 필요');
     var price = parseFloat(priceStr);
@@ -671,10 +671,56 @@ function handleSaveManualPrice(dateStr, name, priceStr) {
 
     var savedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
     upsertPriceHistory(ss, dateStr, saveCode, saveName, price, savedAt);
-    return jsonOk({ saved: true, date: dateStr, name: name, price: price });
+
+    var keepLatest = /^1|true|y|yes$/i.test((keepLatestParam || '').toString().trim());
+    var pruned = 0;
+    if (keepLatest) pruned = _pruneManualPriceHistoryKeepLatest(ss, saveCode, saveName);
+
+    return jsonOk({ saved: true, date: dateStr, name: name, price: price, keepLatest: keepLatest, pruned: pruned });
   } catch(err) {
     return jsonError('saveManualPrice 실패: ' + err.message);
   }
+}
+
+function _pruneManualPriceHistoryKeepLatest(ss, code, name) {
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!ph || ph.getLastRow() < 2) return 0;
+
+  var readCols = ph.getLastColumn() >= 5 ? 5 : 4;
+  var data = ph.getRange(2, 1, ph.getLastRow() - 1, readCols).getValues();
+  var key = _cleanCode(code) || (name || '').toString().trim();
+  if (!key) return 0;
+
+  var matches = [];
+  for (var i = 0; i < data.length; i++) {
+    var row = data[i];
+    var rowCode = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+    var rowName = (row[2] || '').toString().trim();
+    var rowKey = rowCode || rowName;
+    if (rowKey !== key) continue;
+
+    var savedAt = _normalizeDatetime(row[4]);
+    if (!savedAt) continue; // 수동입력(savedAt 있음)만 정리
+    var date = _normalizeDate(row[0]);
+    matches.push({ rowNo: i + 2, savedAt: savedAt, date: date });
+  }
+  if (matches.length <= 1) return 0;
+
+  matches.sort(function(a, b) {
+    var ak = (a.savedAt || a.date || '') + '#' + _pad(a.rowNo);
+    var bk = (b.savedAt || b.date || '') + '#' + _pad(b.rowNo);
+    return ak.localeCompare(bk);
+  });
+
+  var keepRow = matches[matches.length - 1].rowNo;
+  var toDelete = matches
+    .filter(function(m){ return m.rowNo !== keepRow; })
+    .map(function(m){ return m.rowNo; })
+    .sort(function(a,b){ return b-a; }); // 아래서부터 삭제
+
+  toDelete.forEach(function(rowNo){ ph.deleteRow(rowNo); });
+  SpreadsheetApp.flush();
+  return toDelete.length;
 }
 
 // ════════════════════════════════════════════════════════════════════
