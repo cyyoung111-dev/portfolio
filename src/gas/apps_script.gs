@@ -672,7 +672,10 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
     var savedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
     upsertPriceHistory(ss, dateStr, saveCode, saveName, price, savedAt);
 
-    var keepLatest = /^1|true|y|yes$/i.test((keepLatestParam || '').toString().trim());
+    var keepLatestRaw = (keepLatestParam || '').toString().trim();
+    var keepLatest = keepLatestRaw
+      ? /^1|true|y|yes$/i.test(keepLatestRaw)
+      : _isManualKeepLatestEnabled();
     var pruned = 0;
     if (keepLatest) pruned = _pruneManualPriceHistoryKeepLatest(ss, saveCode, saveName);
 
@@ -680,6 +683,20 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
   } catch(err) {
     return jsonError('saveManualPrice 실패: ' + err.message);
   }
+}
+
+function _isManualKeepLatestEnabled() {
+  var props = PropertiesService.getScriptProperties();
+  return (props.getProperty('manual_keep_latest') || 'false') === 'true';
+}
+
+function toggleManualKeepLatestOption() {
+  var props = PropertiesService.getScriptProperties();
+  var next = !_isManualKeepLatestEnabled();
+  props.setProperty('manual_keep_latest', next ? 'true' : 'false');
+  var msg = '⚙️ 수동가격 최신값만 유지 옵션: ' + (next ? 'ON' : 'OFF');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _pruneManualPriceHistoryKeepLatest(ss, code, name) {
@@ -2116,6 +2133,9 @@ function initSheet() {
 function onOpen() {
   // 트리거가 실수로 삭제된 경우 자동 복구(중복 생성 없음)
   try { _ensureDailyTriggers(true); } catch(e) { Logger.log('트리거 자동복구 실패: ' + e.message); }
+  var manualKeepLabel = _isManualKeepLatestEnabled()
+    ? '🧷 수동가격 최신값만 유지: ON'
+    : '🧷 수동가격 최신값만 유지: OFF';
 
   SpreadsheetApp.getUi()
     .createMenu('📊 포트폴리오')
@@ -2126,6 +2146,7 @@ function onOpen() {
     // ── 종가 갱신 ──
     .addItem('🔄 종가 갱신 (GOOGLEFINANCE)', 'updatePrices')
     .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
+    .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
     .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
     .addSeparator()
     // ── 과거 소급채우기 ──
