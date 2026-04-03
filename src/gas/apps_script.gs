@@ -878,16 +878,19 @@ function handleSyncHoldings(dataJson) {
       sh = ss.insertSheet(CONFIG.SHEET_HOLD);
       sh.setColumnWidth(1,90); sh.setColumnWidth(2,180);
       sh.setColumnWidth(3,70); sh.setColumnWidth(4,110); sh.setColumnWidth(5,100);
-      sh.setColumnWidth(6,120);
+      sh.setColumnWidth(6,100); sh.setColumnWidth(7,120);
     }
     sh.clearContents();
-    sh.getRange(1,1,1,6).setValues([['종목코드','종목명','수량','매수원금','자산유형','계좌']]);
-    sh.getRange(1,1,1,6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    sh.getRange(1,1,1,7).setValues([['종목코드','종목명','수량','매수단가','매수원금','자산유형','계좌']]);
+    sh.getRange(1,1,1,7).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
     if (holdings.length > 0) {
       var rows = holdings.map(function(h) {
-        return [h.code||'', h.name||'', h.qty||0, h.costAmt||0, h.assetType||'주식', h.acct||''];
+        var qty = parseFloat(h.qty) || 0;
+        var costAmt = parseFloat(h.costAmt) || 0;
+        var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
+        return [h.code||'', h.name||'', qty, costUnit, costAmt, h.assetType||'주식', h.acct||''];
       });
-      sh.getRange(2, 1, rows.length, 6).setValues(rows);
+      sh.getRange(2, 1, rows.length, 7).setValues(rows);
     }
     SpreadsheetApp.flush();
     return jsonOk({ synced: holdings.length });
@@ -964,14 +967,16 @@ function saveDailyPriceHistory() {
     if (!holdSh || holdSh.getLastRow() < 2) {
       Logger.log('⚠️ 보유현황 시트 없음 — HTML에서 한 번 접속하면 자동 동기화됩니다'); return;
     }
-    var holdData = holdSh.getRange(2, 1, holdSh.getLastRow() - 1, 5).getValues();
+    var holdCols = Math.max(5, holdSh.getLastColumn());
+    var holdData = holdSh.getRange(2, 1, holdSh.getLastRow() - 1, holdCols).getValues();
 
     var snapRows = [];
     holdData.forEach(function(row) {
       var code    = (row[0] || '').toString().trim();
       var name    = (row[1] || '').toString().trim();
       var qty     = parseFloat(row[2]) || 0;
-      var costAmt = parseFloat(row[3]) || 0;
+      var isNewHoldFormat = row.length >= 7;
+      var costAmt = parseFloat(isNewHoldFormat ? row[4] : row[3]) || 0;
       if (!name || qty <= 0) return;
       var price   = (code && prices[code]) ? prices[code] : 0;
       var evalAmt = price > 0 ? Math.round(price * qty) : costAmt;
@@ -999,9 +1004,60 @@ function setupTrigger() {
     if (fn === 'saveDailyPriceHistory' || fn === 'cleanDeadCodes') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('cleanDeadCodes').timeBased().everyDays(1).atHour(16).nearMinute(30).create();
-  ScriptApp.newTrigger('saveDailyPriceHistory').timeBased().everyDays(1).atHour(17).create();
+  ScriptApp.newTrigger('saveDailyPriceHistory').timeBased().everyDays(1).atHour(17).nearMinute(0).create();
   Logger.log('트리거 등록 완료: 매일 16:30 cleanDeadCodes → 17:00 saveDailyPriceHistory');
   try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n16:30 종목코드 정리 → 17:00 가격이력 자동 저장'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+}
+
+function _ensureDailyTriggers(autoFix) {
+  var hasClean = false;
+  var hasSave = false;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    var fn = t.getHandlerFunction();
+    if (fn === 'cleanDeadCodes') hasClean = true;
+    if (fn === 'saveDailyPriceHistory') hasSave = true;
+  });
+
+  if (autoFix) {
+    if (!hasClean) {
+      ScriptApp.newTrigger('cleanDeadCodes').timeBased().everyDays(1).atHour(16).nearMinute(30).create();
+      hasClean = true;
+    }
+    if (!hasSave) {
+      ScriptApp.newTrigger('saveDailyPriceHistory').timeBased().everyDays(1).atHour(17).nearMinute(0).create();
+      hasSave = true;
+    }
+  }
+  return { hasClean: hasClean, hasSave: hasSave };
+}
+
+function checkDailyAutomationStatus() {
+  var ss = getss();
+  var trig = _ensureDailyTriggers(false);
+  var snapLast = '-';
+  var phLast = '-';
+
+  var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  if (snapSh && snapSh.getLastRow() > 1) {
+    var snapVal = snapSh.getRange(snapSh.getLastRow(), 1).getValue();
+    snapLast = _normalizeDate(snapVal) || (snapVal || '').toString();
+  }
+  var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (phSh && phSh.getLastRow() > 1) {
+    var phVal = phSh.getRange(phSh.getLastRow(), 1).getValue();
+    phLast = _normalizeDate(phVal) || (phVal || '').toString();
+  }
+
+  var msg = '⏰ 자동화 상태 점검\n\n'
+    + 'cleanDeadCodes 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
+    + 'saveDailyPriceHistory 트리거: ' + (trig.hasSave ? '정상' : '없음') + '\n\n'
+    + '스냅샷 마지막 날짜: ' + snapLast + '\n'
+    + '가격이력 마지막 날짜: ' + phLast + '\n\n'
+    + (!trig.hasClean || !trig.hasSave
+      ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
+      : '✅ 트리거는 등록되어 있습니다. 누락 일자는 [소급채우기]로 복구할 수 있습니다.');
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1128,11 +1184,19 @@ function _backfillExecute() {
   });
 
   var existingDates = {};
+  var existingPhDates = {};
   if (!overwrite) {
     var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     if (snapSh && snapSh.getLastRow() > 1) {
       snapSh.getRange(2, 1, snapSh.getLastRow() - 1, 1).getValues().forEach(function(r) {
         existingDates[(r[0]||'').toString().trim()] = true;
+      });
+    }
+    var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
+    if (phSh && phSh.getLastRow() > 1) {
+      phSh.getRange(2, 1, phSh.getLastRow() - 1, 1).getValues().forEach(function(r) {
+        var d = _normalizeDate(r[0]);
+        if (d) existingPhDates[d] = true;
       });
     }
   }
@@ -1150,7 +1214,7 @@ function _backfillExecute() {
     var tradingDays = getTradingDays(curYear, curMonth);
     var toFetch     = overwrite
       ? tradingDays
-      : tradingDays.filter(function(d){ return !existingDates[d]; });
+      : tradingDays.filter(function(d){ return !existingDates[d] || !existingPhDates[d]; });
 
     Logger.log(curYear + '-' + _pad(curMonth) + ' 처리 시작: ' + toFetch.length + '일');
 
@@ -1523,18 +1587,19 @@ function handleGetHoldings() {
     var ss      = getss();
     var sh      = ss.getSheetByName(CONFIG.SHEET_HOLD);
     if (!sh || sh.getLastRow() < 2) return jsonOk({ holdings: [] });
-    var numCols  = Math.max(sh.getLastColumn(), 5);
+    var numCols  = Math.max(sh.getLastColumn(), 6);
     var data     = sh.getRange(2, 1, sh.getLastRow() - 1, numCols).getValues();
     var holdings = data
       .filter(function(r){ return r[1]; })
       .map(function(r) {
+        var isNewFormat = r.length >= 7;
         return {
           code:      (r[0] || '').toString(),
           name:      (r[1] || '').toString(),
           qty:       parseFloat(r[2]) || 0,
-          costAmt:   parseFloat(r[3]) || 0,
-          assetType: (r[4] || '주식').toString(),
-          acct:      (r[5] || '').toString(),
+          costAmt:   parseFloat(isNewFormat ? r[4] : r[3]) || 0,
+          assetType: (isNewFormat ? r[5] : r[4] || '주식').toString(),
+          acct:      (isNewFormat ? r[6] : r[5] || '').toString(),
         };
       });
     return jsonOk({ holdings: holdings });
@@ -2003,6 +2068,9 @@ function initSheet() {
 //  메뉴
 // ════════════════════════════════════════════════════════════════════
 function onOpen() {
+  // 트리거가 실수로 삭제된 경우 자동 복구(중복 생성 없음)
+  try { _ensureDailyTriggers(true); } catch(e) { Logger.log('트리거 자동복구 실패: ' + e.message); }
+
   SpreadsheetApp.getUi()
     .createMenu('📊 포트폴리오')
     // ── 초기 설정 (처음 1회) ──
@@ -2012,6 +2080,7 @@ function onOpen() {
     // ── 종가 갱신 ──
     .addItem('🔄 종가 갱신 (GOOGLEFINANCE)', 'updatePrices')
     .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
+    .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
     .addSeparator()
     // ── 과거 소급채우기 ──
     .addItem('📆 소급채우기 시작 (범위 지정)', 'backfillRangePrompt')
