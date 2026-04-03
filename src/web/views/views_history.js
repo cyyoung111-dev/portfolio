@@ -12,6 +12,12 @@ function renderHistoryView(area) {
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">
         <div style="font-size:.80rem;font-weight:700;color:var(--text)">📈 손익 그래프</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <div style="display:flex;background:var(--s2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <button id="histModeWeek" onclick="_setHistMode('week')" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">주간</button>
+            <button id="histModeMonth" onclick="_setHistMode('month')" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">월간</button>
+          </div>
+          <input id="histStartMonth" type="month" title="시작 연월"
+            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem" />
           <select id="histRangeSelect"
             style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem">
             <option value="90">3개월</option>
@@ -27,8 +33,16 @@ function renderHistoryView(area) {
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
       <div id="histTableWrap" style="margin-top:18px"></div>
     </div>`;
+  window._histMode = window._histMode || 'week';
+  _applyHistModeUI(window._histMode);
+  const monthEl = $el('histStartMonth');
+  if (monthEl && !monthEl.value) {
+    const d = new Date();
+    monthEl.value = `${d.getFullYear()}-01`;
+  }
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
+  $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
 }
 
 async function loadHistoryChart() {
@@ -49,7 +63,17 @@ async function loadHistoryChart() {
   if (tableWrap) tableWrap.innerHTML = '';
 
   try {
-    const res  = await fetchWithTimeout(GSHEET_API_URL + '?action=getHistory', 15000);
+    const startMonth = String($el('histStartMonth')?.value || '').trim();
+    const days = parseInt($el('histRangeSelect')?.value || '365', 10);
+    let fromStr = '';
+    if (/^\d{4}-\d{2}$/.test(startMonth)) fromStr = `${startMonth}-01`;
+    else if (days > 0) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      fromStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
+    }
+    const url = GSHEET_API_URL + '?action=getHistory' + (fromStr ? ('&from=' + fromStr) : '');
+    const res  = await fetchWithTimeout(url, 15000);
     const data = await res.json();
     if (!data || data.status === 'error') throw new Error(data?.message || '응답 오류');
 
@@ -59,8 +83,10 @@ async function loadHistoryChart() {
       return;
     }
 
-    // 날짜 기준 정렬
-    snapshots.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    snapshots = snapshots
+      .map(s => ({ ...s, date: _normalizeHistDate(s.date || '') }))
+      .filter(s => !!s.date)
+      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
     // 범위 필터
     const days = parseInt($el('histRangeSelect')?.value || '365');
@@ -77,12 +103,12 @@ async function loadHistoryChart() {
     }
 
     if (statusEl) statusEl.innerHTML =
-      `<span style="color:var(--muted)">총 ${snapshots.length}개 스냅샷 · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
+      `<span style="color:var(--muted)">총 ${snapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
 
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
 
-    _drawHistoryChart(chartWrap, snapshots);
+    _drawHistoryChart(chartWrap, snapshots, mode);
     _drawHistoryTable(tableWrap, snapshots);
 
   } catch(e) {
@@ -90,7 +116,7 @@ async function loadHistoryChart() {
   }
 }
 
-function _drawHistoryChart(wrap, snapshots) {
+function _drawHistoryChart(wrap, snapshots, mode) {
   const fmt = _fmtKrw;
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
@@ -100,7 +126,7 @@ function _drawHistoryChart(wrap, snapshots) {
 
   // 데이터 추출 (evalAmt = 평가금액, pnl = 손익)
   const pts = snapshots.map(s => ({
-    date: _fmtHistDateShort(s.date || ''),
+    date: mode === 'week' ? _fmtHistDateShortWeek(s.date || '') : _fmtHistDateShortMonth(s.date || ''),
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     cost: parseFloat(s.costAmt || s.cost || 0),
     realPnl: realEstatePnl,
@@ -405,6 +431,57 @@ function _fmtHistDateShort(v) {
   const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
   if (!m) return '';
   return `${m[2]}.${m[3]}`;
+}
+
+function _fmtHistDateShortWeek(v) {
+  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
+  if (!m) return '';
+  return `${m[2]}.${m[3]}`;
+}
+
+function _fmtHistDateShortMonth(v) {
+  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})/);
+  if (!m) return '';
+  return `${m[1].slice(2)}.${m[2]}`;
+}
+
+function _normalizeHistDate(v) {
+  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const d = new Date(v);
+  if (!isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  return '';
+}
+
+function _filterWeeklyFriday(snapshots) {
+  const toWeekKey = (dateStr) => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dt = new Date(y, m - 1, d);
+    const dow = dt.getDay();
+    const toFri = dow <= 5 ? 5 - dow : 6;
+    const fri = new Date(dt);
+    fri.setDate(dt.getDate() + toFri);
+    return `${fri.getFullYear()}-${String(fri.getMonth()+1).padStart(2,'0')}-${String(fri.getDate()).padStart(2,'0')}`;
+  };
+  const weekMap = {};
+  snapshots.forEach(s => {
+    const wk = toWeekKey(s.date || '');
+    if (!weekMap[wk] || (s.date || '') > (weekMap[wk].date || '')) weekMap[wk] = s;
+  });
+  return Object.keys(weekMap).sort().map(k => weekMap[k]);
+}
+
+function _filterMonthEnd(snapshots) {
+  const monthMap = {};
+  snapshots.forEach(s => {
+    const m = String(s.date || '').match(/^(\d{4})-(\d{2})/);
+    if (!m) return;
+    const key = `${m[1]}-${m[2]}`;
+    if (!monthMap[key] || (s.date || '') > (monthMap[key].date || '')) monthMap[key] = s;
+  });
+  return Object.keys(monthMap).sort().map(k => monthMap[k]);
 }
 
 function _fmtHistDateCompact(v) {
