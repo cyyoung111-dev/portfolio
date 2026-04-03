@@ -137,8 +137,9 @@ async function loadHistoryChart() {
   }
 }
 
-function _drawHistoryChart(wrap, snapshots, mode) {
+function _drawHistoryChart(wrap, snapshots) {
   const fmt = _fmtKrw;
+  const mode = window._histMode || 'week';
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
   const PAD = { top: 20, right: 54, bottom: 52, left: 72 };

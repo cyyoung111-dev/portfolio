@@ -144,6 +144,8 @@ async function fetchFromGsheet(dateStr) {
     return Object.keys(results).length > 0 ? results : null;
 
   } catch(e) {
+    const msg = String(e?.message || '').toLowerCase();
+    if (msg.includes('aborted') || msg.includes('abort')) return null;
     console.warn('[fetchFromGsheet]', e.message);
     return null;
   }
