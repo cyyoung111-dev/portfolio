@@ -91,6 +91,7 @@ async function loadHistoryChart() {
 }
 
 function _drawHistoryChart(wrap, snapshots) {
+  const fmt = _fmtKrw;
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
   const PAD = { top: 20, right: 54, bottom: 52, left: 72 };
@@ -207,6 +208,7 @@ function _drawHistoryChart(wrap, snapshots) {
 }
 
 function _drawHistoryTable(wrap, snapshots) {
+  const fmt = _fmtKrw;
   const recent = [...snapshots].reverse().slice(0, 20);
   const diagnostics = _buildHistoryDiagnostics(snapshots);
   window._histDebugByDate = diagnostics;
@@ -386,6 +388,17 @@ function _fmtAxisKrw(v) {
   if (abs >= 1e8) return (v / 1e8).toFixed(1) + '억';
   if (abs >= 1e4) return (v / 1e4).toFixed(0) + '만';
   return Math.round(v).toLocaleString();
+}
+
+function _fmtKrw(v) {
+  const abs = Math.abs(v), sign = v < 0 ? '-' : '';
+  if (abs >= 1e8) {
+    const uk = Math.floor(abs / 1e8);
+    const man = Math.round((abs % 1e8) / 1e4);
+    return man > 0 ? `${sign}${uk}억 ${man.toLocaleString()}만` : `${sign}${uk}억`;
+  }
+  if (abs >= 1e4) return sign + Math.round(abs / 1e4).toLocaleString() + '만';
+  return sign + Math.round(abs).toLocaleString();
 }
 
 function _fmtHistDateShort(v) {
