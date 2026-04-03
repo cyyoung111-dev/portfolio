@@ -381,8 +381,13 @@ function handleSaveSnapshot(dateStr, dataJson) {
     var ss        = getss();
     var normDate  = _normalizeDate(dateStr);
     var newRows = rows.map(function(r) {
-      return [normDate, r.code||'', r.name||'', r.qty||0,
-              r.costAmt||0, r.evalAmt||0, r.pnl||0,
+      var qty = parseFloat(r.qty) || 0;
+      var costAmt = parseFloat(r.costAmt) || 0;
+      var evalAmt = parseFloat(r.evalAmt) || 0;
+      var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
+      var evalUnit = qty > 0 ? parseFloat((evalAmt / qty).toFixed(2)) : 0;
+      return [normDate, r.code||'', r.name||'', qty,
+              costUnit, costAmt, evalUnit, evalAmt, r.pnl||0,
               r.pct ? parseFloat(r.pct.toFixed(2)) : 0];
     });
     writeSnapshotRows(ss, normDate, newRows, true);
@@ -401,24 +406,44 @@ function handleGetHistory(fromStr, toStr) {
     var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     if (!sh || sh.getLastRow() < 2) return jsonOk({ history: [] });
 
-    var data = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues();
-    var map  = {};
+    var snapLastCol = Math.max(8, sh.getLastColumn());
+    var data = sh.getRange(2, 1, sh.getLastRow() - 1, snapLastCol).getValues();
+    var dateItemMap = {};
     data.forEach(function(row) {
       var date = (row[0] || '').toString().trim();
+      var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+      var name = (row[2] || '').toString().trim();
+      var qty  = parseFloat(row[3]) || 0;
+      var isNewFormat = row.length >= 10;
+      var cost = parseFloat(isNewFormat ? row[5] : row[4]) || 0;
+      var evalAmt = parseFloat(isNewFormat ? row[7] : row[5]) || 0;
       if (!date) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
-      if (!map[date]) map[date] = { evalAmt: 0, costAmt: 0 };
-      map[date].evalAmt += parseFloat(row[5]) || 0;
-      map[date].costAmt += parseFloat(row[4]) || 0;
+      // ★ 같은 날짜/같은 종목(코드 우선) 중복 행 방어: 마지막/더 큰 수량 행을 대표값으로 사용
+      //    일부 동기화 이슈로 같은 종목이 중복 저장되면 단순합산 시 평가금액이 2배로 튈 수 있음
+      var itemKey = code ? ('C:' + code) : ('N:' + name);
+      if (!itemKey || itemKey === 'N:') return;
+      if (!dateItemMap[date]) dateItemMap[date] = {};
+      var prev = dateItemMap[date][itemKey];
+      if (!prev) {
+        dateItemMap[date][itemKey] = { qty: qty, costAmt: cost, evalAmt: evalAmt };
+      } else {
+        var pickNew = (qty > prev.qty) || (qty === prev.qty && evalAmt >= prev.evalAmt);
+        if (pickNew) dateItemMap[date][itemKey] = { qty: qty, costAmt: cost, evalAmt: evalAmt };
+      }
     });
 
-    var history = Object.keys(map).sort().map(function(date) {
-      var ev  = Math.round(map[date].evalAmt);
-      var co  = Math.round(map[date].costAmt);
+    var history = Object.keys(dateItemMap).sort().map(function(date) {
+      var rows = Object.keys(dateItemMap[date]).map(function(k){ return dateItemMap[date][k]; });
+      var ev = Math.round(rows.reduce(function(s, r){ return s + (parseFloat(r.evalAmt) || 0); }, 0));
+      var co = Math.round(rows.reduce(function(s, r){ return s + (parseFloat(r.costAmt) || 0); }, 0));
+      var qt = rows.reduce(function(s, r){ return s + (parseFloat(r.qty) || 0); }, 0);
       var pnl = ev - co;
       var pct = co > 0 ? parseFloat(((pnl / co) * 100).toFixed(2)) : 0;
-      return { date: date, evalAmt: ev, costAmt: co, pnl: pnl, pct: pct };
+      var evalUnit = qt > 0 ? parseFloat((ev / qt).toFixed(2)) : 0;
+      var costUnit = qt > 0 ? parseFloat((co / qt).toFixed(2)) : 0;
+      return { date: date, evalAmt: ev, costAmt: co, qty: qt, evalUnit: evalUnit, costUnit: costUnit, pnl: pnl, pct: pct };
     });
     return jsonOk({ snapshots: history });
   } catch(err) {
@@ -952,7 +977,9 @@ function saveDailyPriceHistory() {
       var evalAmt = price > 0 ? Math.round(price * qty) : costAmt;
       var pnl     = evalAmt - costAmt;
       var pct     = costAmt > 0 ? parseFloat(((pnl / costAmt) * 100).toFixed(2)) : 0;
-      snapRows.push([todayStr, code, name, qty, costAmt, evalAmt, pnl, pct]);
+      var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
+      var evalUnit = qty > 0 ? parseFloat((evalAmt / qty).toFixed(2)) : 0;
+      snapRows.push([todayStr, code, name, qty, costUnit, costAmt, evalUnit, evalAmt, pnl, pct]);
     });
 
     if (snapRows.length === 0) { Logger.log('스냅샷 저장할 데이터 없음'); return; }
@@ -1169,7 +1196,9 @@ function _backfillExecute() {
           var evalAmt = price > 0 ? Math.round(price * h.qty) : h.costAmt;
           var pnl     = evalAmt - h.costAmt;
           var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
-          snapRows.push([dateStr, h.code, h.name, h.qty, h.costAmt, evalAmt, pnl, pct]);
+          var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
+          var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
+          snapRows.push([dateStr, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct]);
         });
 
         if (snapRows.length > 0) {
@@ -1287,27 +1316,41 @@ function getTradingDays(year, month) {
 function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
   try {
     var sh     = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
-    var header = [['날짜','종목코드','종목명','수량','매수원금','평가금액','손익','수익률(%)']];
+    var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)']];
+    var colSize = header[0].length;
+    var toNewSnapshotRow = function(r) {
+      if (!Array.isArray(r)) return ['', '', '', 0, 0, 0, 0, 0, 0, 0];
+      if (r.length >= 10) return r.slice(0, 10);
+      var qty = parseFloat(r[3]) || 0;
+      var costAmt = parseFloat(r[4]) || 0;
+      var evalAmt = parseFloat(r[5]) || 0;
+      var pnl = parseFloat(r[6]) || (evalAmt - costAmt);
+      var pct = parseFloat(r[7]) || (costAmt > 0 ? parseFloat(((pnl / costAmt) * 100).toFixed(2)) : 0);
+      var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
+      var evalUnit = qty > 0 ? parseFloat((evalAmt / qty).toFixed(2)) : 0;
+      return [r[0] || '', r[1] || '', r[2] || '', qty, costUnit, costAmt, evalUnit, evalAmt, pnl, pct];
+    };
+    newRows = (newRows || []).map(toNewSnapshotRow);
 
     if (!sh) {
       sh = ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
-      sh.getRange(1,1,1,8).setValues(header);
-      sh.getRange(1,1,1,8).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-      if (newRows.length > 0) sh.getRange(2, 1, newRows.length, 8).setValues(newRows);
+      sh.getRange(1,1,1,colSize).setValues(header);
+      sh.getRange(1,1,1,colSize).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+      if (newRows.length > 0) sh.getRange(2, 1, newRows.length, colSize).setValues(newRows);
       return;
     }
 
     if (sh.getLastRow() > 1) {
-      var existing = sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues();
+      var existing = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(8, sh.getLastColumn())).getValues().map(toNewSnapshotRow);
       var kept     = existing.filter(function(r){ return (r[0]||'').toString().trim() !== dateStr; });
       if (!overwrite && kept.length < existing.length) return;
       var combined = kept.concat(newRows);
       sh.clearContents();
-      sh.getRange(1,1,1,8).setValues(header);
-      sh.getRange(1,1,1,8).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-      if (combined.length > 0) sh.getRange(2, 1, combined.length, 8).setValues(combined);
+      sh.getRange(1,1,1,colSize).setValues(header);
+      sh.getRange(1,1,1,colSize).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+      if (combined.length > 0) sh.getRange(2, 1, combined.length, colSize).setValues(combined);
     } else {
-      sh.getRange(sh.getLastRow() + 1, 1, newRows.length, 8).setValues(newRows);
+      if (newRows.length > 0) sh.getRange(sh.getLastRow() + 1, 1, newRows.length, colSize).setValues(newRows);
     }
   } catch(err) {
     Logger.log('❌ writeSnapshotRows 실패: ' + err.message);
@@ -1938,8 +1981,8 @@ function initSheet() {
 
   var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) || ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
   if (snap.getLastRow() === 0) {
-    snap.getRange(1,1,1,8).setValues([['날짜','종목코드','종목명','수량','매수원금','평가금액','손익','수익률(%)']]);
-    snap.getRange(1,1,1,8).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    snap.getRange(1,1,1,10).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)']]);
+    snap.getRange(1,1,1,10).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   }
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH) || ss.insertSheet(CONFIG.SHEET_PH);
