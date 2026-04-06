@@ -2,7 +2,7 @@
 //  settings_sync.js — GAS 종목코드·보유현황·거래이력 동기화
 //  의존: settings.js, data.js
 // ════════════════════════════════════════════════════════════════
-function _normalizeCodeForSync(code) {
+function _normalizeSyncCode(code) {
   if (typeof normalizeStockCode === 'function') return normalizeStockCode(code);
   return String(code || '').trim();
 }
@@ -41,7 +41,7 @@ async function loadGsheetCodeList() {
     if (data.status === 'ok' && Array.isArray(data.codes)) {
       _gsheetCodeList = data.codes
         .map(item => ({
-          code: _normalizeCodeForSync(item?.code),
+          code: _normalizeSyncCode(item?.code),
           name: String(item?.name || '').trim(),
           type: String(item?.type || '').trim(),
           sector: String(item?.sector || '').trim(),
@@ -65,7 +65,7 @@ async function syncCodesToGsheet() {
     EDITABLE_PRICES.forEach(i => {
       if (!i.name) return;
       codeMap[i.name] = {
-        code:   _normalizeCodeForSync(i.code),
+        code:   _normalizeSyncCode(i.code),
         type:   i.assetType || i.type || '주식',
         sector: i.sector    || '기타',
       };
@@ -138,7 +138,7 @@ async function syncTradesToGsheet() {
     const trades = rawTrades
       .filter(t => t.name && t.tradeType && t.date)
       .map(t => {
-        const tCode = _normalizeCodeForSync(t.code || '');
+        const tCode = _normalizeSyncCode(t.code || '');
         const epByCode = tCode ? getEPByCode(tCode) : null;
         const epByName = getEP(t.name);
         const ep = epByCode || epByName;
@@ -147,7 +147,7 @@ async function syncTradesToGsheet() {
         }
         // ★ 기초정보 우선: 거래이력 코드가 달라도 EDITABLE_PRICES 기준 코드로 정규화
         const baseCode = ep?.code || STOCK_CODE[ep?.name || t.name] || '';
-        const code = _normalizeCodeForSync(baseCode || t.code || '');
+        const code = _normalizeSyncCode(baseCode || t.code || '');
         return {
           date:      t.date,
           tradeType: t.tradeType,
@@ -187,12 +187,12 @@ async function syncTradesToGsheet() {
 
 async function lookupNameByCode(code) {
   if (!code) return '';
-  const trimCode = _normalizeCodeForSync(code);
+  const trimCode = _normalizeSyncCode(code);
   // 1. EDITABLE_PRICES 역방향 검색 (최우선)
   const epItem = getEPByCode(trimCode);
   if (epItem) return epItem.name;
   // 2. 로컬 STOCK_CODE 역방향 검색
-  const localEntry = Object.entries(STOCK_CODE).find(([n,c]) => _normalizeCodeForSync(c) === trimCode);
+  const localEntry = Object.entries(STOCK_CODE).find(([n,c]) => _normalizeSyncCode(c) === trimCode);
   if (localEntry) return localEntry[0];
   // 3. GSheet 캐시 검색
   const gItem = _gsheetCodeList.find(item => item.code === trimCode);
