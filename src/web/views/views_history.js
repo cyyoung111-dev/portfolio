@@ -34,6 +34,7 @@ function renderHistoryView(area) {
             <option value="">비교지수 없음</option>
             <option value="KOSPI" selected>KOSPI</option>
             <option value="SP500">S&P500</option>
+            <option value="NASDAQ">NASDAQ</option>
             <option value="NASDAQ100">NASDAQ100</option>
           </select>
           <button onclick="loadHistoryChart()" class="btn-ghost-sm">🔄 새로고침</button>
@@ -121,25 +122,18 @@ async function loadHistoryChart() {
       .filter(s => !!s.date)
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
-    // 범위 필터
-    const days = parseInt($el('histRangeSelect')?.value || '365');
-    if (days > 0) {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - days);
-      const cutStr = cutoff.toISOString().slice(0, 10).replace(/-/g, '.');
-      snapshots = snapshots.filter(s => (s.date || '') >= cutStr);
-    }
-
     if (!snapshots.length) {
       if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">선택한 기간에 데이터가 없습니다.</span>';
       return;
     }
 
-    if (statusEl) statusEl.innerHTML =
-      `<span style="color:var(--muted)">총 ${snapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
-
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
+    const mode = window._histMode || 'week';
+    const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
+
+    if (statusEl) statusEl.innerHTML =
+      `<span style="color:var(--muted)">그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
 
     const benchmarkType = String($el('histBenchmarkSelect')?.value || '').trim();
     const benchSeries = benchmarkType
@@ -147,7 +141,7 @@ async function loadHistoryChart() {
       : [];
 
     _drawHistoryChart(chartWrap, snapshots, mode, { type: benchmarkType, series: benchSeries });
-    _drawHistoryTable(tableWrap, snapshots);
+    _drawHistoryTable(tableWrap, tableSnapshots);
 
   } catch(e) {
     if (statusEl) statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${e.message}</span>`;
@@ -176,25 +170,22 @@ async function _fetchBenchmarkSeries(type, fromDate, toDate) {
 }
 
 function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
-  const fmt = _fmtKrw;
-  const mode = window._histMode || 'week';
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
   const PAD = { top: 20, right: 54, bottom: 52, left: 72 };
   const CW = W - PAD.left - PAD.right;
   const CH = H - PAD.top - PAD.bottom;
 
-  // 데이터 추출 (evalAmt = 평가금액, pnl = 손익)
+  // 데이터 추출 (손익 중심)
   const pts = snapshots.map(s => ({
-    date: mode === 'week' ? _fmtHistDateShortWeek(s.date || '') : _fmtHistDateShortMonth(s.date || ''),
-    eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
+    date: _fmtHistDateShort(s.date || ''),
     cost: parseFloat(s.costAmt || s.cost || 0),
-    realPnl: realEstatePnl,
+    eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
   }));
   pts.forEach(p => { p.pnl = p.eval - p.cost; });
 
-  const minMoney = Math.min(...pts.map(p => Math.min(p.eval, p.pnl)));
-  const maxMoney = Math.max(...pts.map(p => Math.max(p.eval, p.pnl)));
+  const minMoney = Math.min(...pts.map(p => p.pnl));
+  const maxMoney = Math.max(...pts.map(p => p.pnl));
   const moneyPad = (maxMoney - minMoney) * 0.1 || Math.max(Math.abs(maxMoney), Math.abs(minMoney)) * 0.08 || 1000000;
   const yMoneyMin = minMoney - moneyPad;
   const yMoneyMax = maxMoney + moneyPad;
@@ -202,8 +193,6 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const xScale = i => PAD.left + (i / (pts.length - 1 || 1)) * CW;
   const yMoney = v => PAD.top + CH - ((v - yMoneyMin) / (yMoneyMax - yMoneyMin || 1)) * CH;
 
-  // 평가금액 polyline
-  const evalPts = pts.map((p, i) => `${xScale(i).toFixed(1)},${yMoney(p.eval).toFixed(1)}`).join(' ');
   // 손익 polyline
   const pnlPts  = pts.map((p, i) => `${xScale(i).toFixed(1)},${yMoney(p.pnl).toFixed(1)}`).join(' ');
   // 손익 fill path (0선 기준)
@@ -281,35 +270,30 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       <!-- 0선 -->
       <line x1="${PAD.left}" y1="${zero}" x2="${PAD.left + CW}" y2="${zero}"
         stroke="${lastPt.pnl >= 0 ? 'var(--green)' : 'var(--red)'}" stroke-width="0.8" stroke-dasharray="3,3"/>
-      <!-- 평가금액 라인 -->
-      <polyline points="${evalPts}" fill="none" stroke="var(--c-purple-45)" stroke-width="1.8" stroke-linejoin="round"/>
       <!-- 손익 라인 -->
       <polyline points="${pnlPts}" fill="none" stroke="${pnlColor}" stroke-width="2" stroke-linejoin="round"/>
       ${hasBench ? `<polyline points="${benchLinePts}" fill="none" stroke="var(--amber)" stroke-width="1.8" stroke-dasharray="4,3" stroke-linejoin="round"/>` : ''}
       <!-- 마지막 포인트 dot -->
-      <circle cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.eval).toFixed(1)}" r="3.5" fill="var(--c-purple-45)"/>
       <circle cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="3.5" fill="${pnlColor}"/>
       <!-- 범례 -->
-      <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="var(--c-purple-45)" stroke-width="2"/>
-      <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">평가금액</text>
-      <line x1="${PAD.left + 74}" y1="${PAD.top + 10}" x2="${PAD.left + 90}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
-      <text x="${PAD.left + 94}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
-      ${hasBench ? `<line x1="${PAD.left + 128}" y1="${PAD.top + 10}" x2="${PAD.left + 144}" y2="${PAD.top + 10}" stroke="var(--amber)" stroke-width="2" stroke-dasharray="4,3"/>
-      <text x="${PAD.left + 148}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${benchType} 지수</text>` : ''}
+      <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
+      <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
+      ${hasBench ? `<line x1="${PAD.left + 72}" y1="${PAD.top + 10}" x2="${PAD.left + 88}" y2="${PAD.top + 10}" stroke="var(--amber)" stroke-width="2" stroke-dasharray="4,3"/>
+      <text x="${PAD.left + 92}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${benchType} 지수</text>` : ''}
     </svg>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:10px;font-variant-numeric:tabular-nums">
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">현재 평가금액</div>
-        <div style="font-size:.88rem;font-weight:700;color:var(--c-purple-45)">${fmt(lastPt.eval)}</div>
-      </div>
-      <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">현재 손익</div>
-        <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${pSign(lastPt.pnl)}${fmt(lastPt.pnl)}</div>
+        <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${pSign(lastPt.pnl)}${_fmtKrw(lastPt.pnl)}</div>
       </div>
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">수익률</div>
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${lastPt.cost > 0 ? (pSign(lastPt.pnl) + (lastPt.pnl/lastPt.cost*100).toFixed(1) + '%') : '-'}</div>
       </div>
+      ${hasBench ? `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+        <div style="font-size:.62rem;color:var(--muted)">${benchType} 변화</div>
+        <div style="font-size:.88rem;font-weight:700;color:var(--amber)">${(benchPts[benchPts.length-1].idx - 100 >= 0 ? '+' : '') + (benchPts[benchPts.length-1].idx - 100).toFixed(1)}%</div>
+      </div>` : ''}
     </div>`;
 }
 
@@ -537,21 +521,12 @@ function _normalizeHistDate(v) {
 }
 
 function _filterWeeklyFriday(snapshots) {
-  const toWeekKey = (dateStr) => {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const dt = new Date(y, m - 1, d);
-    const dow = dt.getDay();
-    const toFri = dow <= 5 ? 5 - dow : 6;
-    const fri = new Date(dt);
-    fri.setDate(dt.getDate() + toFri);
-    return `${fri.getFullYear()}-${String(fri.getMonth()+1).padStart(2,'0')}-${String(fri.getDate()).padStart(2,'0')}`;
-  };
-  const weekMap = {};
-  snapshots.forEach(s => {
-    const wk = toWeekKey(s.date || '');
-    if (!weekMap[wk] || (s.date || '') > (weekMap[wk].date || '')) weekMap[wk] = s;
+  return snapshots.filter(s => {
+    const m = String(s.date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return false;
+    const dowKst = new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10))).getUTCDay();
+    return dowKst === 5; // 금요일(KST 날짜 기준)
   });
-  return Object.keys(weekMap).sort().map(k => weekMap[k]);
 }
 
 function _filterMonthEnd(snapshots) {
