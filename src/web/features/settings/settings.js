@@ -35,30 +35,8 @@ const TAB_SYNC_BUSY = {};
 let _gsBootRestored = false;
 
 // ════════════════════════════════════════════════════════════════
-//  settings_net.js — 설정 네트워크 유틸
-// ════════════════════════════════════════════════════════════════
-
-// AbortSignal.timeout 미지원 브라우저 대응
-function fetchWithTimeout(url, ms, options) {
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, { ...options, signal: ctrl.signal })
-    .finally(() => clearTimeout(tid));
-}
-
-function saveGsheetUrl(url) {
-  GSHEET_API_URL = url.trim();
-  lsSave(GSHEET_KEY, GSHEET_API_URL);
-}
-
-// ════════════════════════════════════════════════════════════════
 //  settings_persistence.js — 설정 저장/복원
 // ════════════════════════════════════════════════════════════════
-
-function _toNum(v, fallback) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 // ★ 버그수정: loadSettings에서 EDITABLE_PRICES 코드 복원 시 사용
 // normalizeStockCode(data.js)의 settings.js 내 별칭
@@ -67,39 +45,6 @@ function _normalizeCodeForSync(raw) {
   return (typeof normalizeStockCode === 'function')
     ? normalizeStockCode(raw)
     : String(raw || '').trim().toUpperCase().replace(/^A(?=\d{6}$)/, '');
-}
-
-function _toMonths(v) {
-  if (Array.isArray(v)) {
-    return v.map(m => Number(m)).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
-  }
-  if (typeof v === 'string') {
-    return v.split(',').map(m => Number(String(m).trim())).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
-  }
-  return [];
-}
-
-function _normalizeDivData(raw) {
-  const next = {};
-  if (!raw || typeof raw !== 'object') return next;
-  Object.entries(raw).forEach(([key, v]) => {
-    const prev = (v && typeof v === 'object') ? v : {};
-    // ★ key가 name이면 code로 변환 (getDivKey 사용)
-    const storeKey = (typeof getDivKey === 'function') ? getDivKey(key) : key;
-    next[storeKey] = {
-      perShare: _toNum(prev.perShare, 0),
-      freq: typeof prev.freq === 'string' ? prev.freq : '-',
-      months: _toMonths(prev.months),
-      note: typeof prev.note === 'string' ? prev.note : '',
-    };
-  });
-  return next;
-}
-
-function _applyDivData(raw) {
-  const normalized = _normalizeDivData(raw);
-  Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]);
-  Object.assign(DIVDATA, normalized);
 }
 
 function saveDividendSettings(immediate) {

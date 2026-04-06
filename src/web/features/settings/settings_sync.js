@@ -7,6 +7,11 @@ function _normalizeSyncCode(code) {
   return String(code || '').trim();
 }
 
+function _syncWarn(...args) {
+  if (typeof logWarn === 'function') logWarn('SETTINGS_SYNC', ...args);
+  else console.warn('[SETTINGS_SYNC]', ...args);
+}
+
 async function syncIssuesToGsheet(source, issues) {
   if (!GSHEET_API_URL || !Array.isArray(issues) || issues.length === 0) return null;
   try {
@@ -18,12 +23,12 @@ async function syncIssuesToGsheet(source, issues) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body
     });
-    if (!res.ok) { console.warn('[saveSyncIssues] HTTP', res.status); return null; }
+    if (!res.ok) { _syncWarn('[saveSyncIssues] HTTP', res.status); return null; }
     const data = await res.json();
-    if (data.status !== 'ok') { console.warn('[saveSyncIssues] GAS 오류:', data); return null; }
+    if (data.status !== 'ok') { _syncWarn('[saveSyncIssues] GAS 오류:', data); return null; }
     return data;
   } catch (e) {
-    console.warn('[saveSyncIssues]', e.message);
+    _syncWarn('[saveSyncIssues]', e.message);
     return null;
   }
 }
@@ -71,19 +76,19 @@ async function syncCodesToGsheet() {
       };
     });
     // 중요: 기초정보(EDITABLE_PRICES)만 동기화해 GS 데이터가 자동으로 흔들리지 않도록 유지
-    if (Object.keys(codeMap).length === 0) { console.warn('[syncCodes] 전송할 코드 없음'); return null; }
+    if (Object.keys(codeMap).length === 0) { _syncWarn('[syncCodes] 전송할 코드 없음'); return null; }
     const body = 'action=syncCodes&codes=' + encodeURIComponent(JSON.stringify(codeMap));
     const res = await fetchWithTimeout(GSHEET_API_URL, 20000, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body
     });
-    if (!res.ok) { console.warn('[GSheet 동기화] HTTP', res.status); return null; }
+    if (!res.ok) { _syncWarn('[GSheet 동기화] HTTP', res.status); return null; }
     const data = await res.json();
-    if (data.status !== 'ok') { console.warn('[GSheet 동기화] 응답 오류', data); return null; }
+    if (data.status !== 'ok') { _syncWarn('[GSheet 동기화] 응답 오류', data); return null; }
     return data; // { synced, updated, removed, total }
   } catch(e) {
-    console.warn('[GSheet 동기화] 예외:', e);
+    _syncWarn('[GSheet 동기화] 예외:', e);
     return null;
   }
 }
@@ -122,11 +127,11 @@ async function syncHoldingsToGsheet() {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body
     });
-    if (!res.ok) { console.warn('[보유현황 동기화] HTTP', res.status); return; }
+    if (!res.ok) { _syncWarn('[보유현황 동기화] HTTP', res.status); return; }
     const data = await res.json();
-    if (data.status === 'ok') console.warn('[보유현황 동기화] ✅', data.synced + '개');
+    if (data.status === 'ok') _syncWarn('[보유현황 동기화] ✅', data.synced + '개');
   } catch(e) {
-    console.warn('[보유현황 동기화]', e.message);
+    _syncWarn('[보유현황 동기화]', e.message);
   }
 }
 
@@ -164,7 +169,7 @@ async function syncTradesToGsheet() {
     if (trades.length === 0) return;
     if (unmatchedTrades.length > 0) {
       const uniq = Array.from(new Set(unmatchedTrades.map(t => `${t.name}|${t.code}`)));
-      console.warn('[거래이력 동기화] 기초정보 미매칭 거래 포함:', unmatchedTrades);
+      _syncWarn('[거래이력 동기화] 기초정보 미매칭 거래 포함:', unmatchedTrades);
       if (typeof showToast === 'function') {
         showToast(`⚠️ 기초정보 미매칭 거래 ${uniq.length}건 포함 (동기화 전 기초정보 점검 권장)`, 'warn');
       }
@@ -177,11 +182,11 @@ async function syncTradesToGsheet() {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body
     });
-    if (!res.ok) { console.warn('[거래이력 동기화] HTTP', res.status); return; }
+    if (!res.ok) { _syncWarn('[거래이력 동기화] HTTP', res.status); return; }
     const data = await res.json();
-    if (data.status === 'ok') console.warn('[거래이력 동기화] ✅', data.synced + '건');
+    if (data.status === 'ok') _syncWarn('[거래이력 동기화] ✅', data.synced + '건');
   } catch(e) {
-    console.warn('[거래이력 동기화]', e.message);
+    _syncWarn('[거래이력 동기화]', e.message);
   }
 }
 
