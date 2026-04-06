@@ -2,13 +2,6 @@
 //  views_history.js — 스냅샷 히스토리, 구글시트탭, 종목코드탭
 //  의존: data.js, settings.js, views_system.js
 // ════════════════════════════════════════════════════════════════
-// 과거 버전에서 참조하던 전역 방어 (캐시된 스크립트 혼재 시 ReferenceError 방지)
-if (typeof window.realEstatePnl === 'undefined') window.realEstatePnl = 0;
-var realEstatePnl = window.realEstatePnl || 0;
-// 과거/캐시된 코드에서 bare `mode` 참조 시 안전장치
-if (typeof window.mode === 'undefined') window.mode = 'week';
-var mode = window.mode;
-
 function renderHistoryView(area) {
   area.innerHTML = `
     <div style="padding:12px 0 8px">
@@ -466,84 +459,6 @@ function _buildCostTimelineFromTrades(snapshotDateKeys) {
     out[target] = Math.max(0, totalCost());
   }
   return out;
-}
-
-function _histDateKey(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (!m) return '';
-  return `${m[1]}.${m[2]}.${m[3]}`;
-}
-
-function _fmtAxisKrw(v) {
-  const abs = Math.abs(v);
-  if (abs >= 1e8) return (v / 1e8).toFixed(1) + '억';
-  if (abs >= 1e4) return (v / 1e4).toFixed(0) + '만';
-  return Math.round(v).toLocaleString();
-}
-
-function _fmtKrw(v) {
-  const abs = Math.abs(v), sign = v < 0 ? '-' : '';
-  if (abs >= 1e8) {
-    const uk = Math.floor(abs / 1e8);
-    const man = Math.round((abs % 1e8) / 1e4);
-    return man > 0 ? `${sign}${uk}억 ${man.toLocaleString()}만` : `${sign}${uk}억`;
-  }
-  if (abs >= 1e4) return sign + Math.round(abs / 1e4).toLocaleString() + '만';
-  return sign + Math.round(abs).toLocaleString();
-}
-
-function _fmtHistDateShort(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (!m) return '';
-  return `${m[2]}.${m[3]}`;
-}
-
-function _fmtHistDateShortWeek(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (!m) return '';
-  return `${m[2]}.${m[3]}`;
-}
-
-function _fmtHistDateShortMonth(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})/);
-  if (!m) return '';
-  return `${m[1].slice(2)}.${m[2]}`;
-}
-
-function _normalizeHistDate(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  const d = new Date(v);
-  if (!isNaN(d.getTime())) {
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-  return '';
-}
-
-function _filterWeeklyFriday(snapshots) {
-  return snapshots.filter(s => {
-    const m = String(s.date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return false;
-    const dowKst = new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10))).getUTCDay();
-    return dowKst === 5; // 금요일(KST 날짜 기준)
-  });
-}
-
-function _filterMonthEnd(snapshots) {
-  const monthMap = {};
-  snapshots.forEach(s => {
-    const m = String(s.date || '').match(/^(\d{4})-(\d{2})/);
-    if (!m) return;
-    const key = `${m[1]}-${m[2]}`;
-    if (!monthMap[key] || (s.date || '') > (monthMap[key].date || '')) monthMap[key] = s;
-  });
-  return Object.keys(monthMap).sort().map(k => monthMap[k]);
-}
-
-function _fmtHistDateCompact(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (!m) return fmtDateDot(v || '');
-  return `${m[1]}.${m[2]}.${m[3]}`;
 }
 
 // ════════════════════════════════════════════════════════════════
