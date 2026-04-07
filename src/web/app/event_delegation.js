@@ -16,6 +16,12 @@ function registerGlobalEventDelegation() {
       if (typeof manualSyncByTab === 'function') manualSyncByTab(syncTab);
       return;
     }
+    const action = btn.dataset.action;
+    if (action === 'toggle-hist-debug') {
+      const dt = btn.dataset.date || '';
+      if (typeof _toggleHistDebug === 'function') _toggleHistDebug(dt);
+      return;
+    }
 
     const id = btn.id;
     if (!id) return;
@@ -56,6 +62,11 @@ function registerGlobalEventDelegation() {
         typeof closeLoanEditor === 'function' && closeLoanEditor();
         break;
       case 'btn-apply-loan': typeof applyLoan === 'function' && applyLoan(); break;
+      case 'histModeWeek': typeof _setHistMode === 'function' && _setHistMode('week'); break;
+      case 'histModeMonth': typeof _setHistMode === 'function' && _setHistMode('month'); break;
+      case 'btn-history-refresh': typeof loadHistoryChart === 'function' && loadHistoryChart(); break;
+      case 'btn-clear-gsheet-url': typeof clearGsheetUrl === 'function' && clearGsheetUrl(); break;
+      case 'btn-save-gsheet-url': typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(); break;
       case 'btn-acct-add':     typeof acctMgmtAddNew          === 'function' && acctMgmtAddNew();          break;
       case 'btn-acct-confirm': typeof acctMgmtConfirm         === 'function' && acctMgmtConfirm();         break;
       case 'btn-acct-cancel':  typeof acctMgmtCancel          === 'function' && acctMgmtCancel();          break;
@@ -97,6 +108,9 @@ function registerGlobalEventDelegation() {
       case 'secMgmtNewName':
         isEnter ? (typeof secMgmtConfirm === 'function' && secMgmtConfirm())
                 : (typeof secMgmtCancel  === 'function' && secMgmtCancel());
+        break;
+      case 'gsheetUrlInput':
+        if (isEnter && typeof saveGsheetUrlFromUI === 'function') saveGsheetUrlFromUI();
         break;
     }
   });
