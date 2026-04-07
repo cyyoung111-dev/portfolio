@@ -2,13 +2,6 @@
 //  views_history.js — 스냅샷 히스토리, 구글시트탭, 종목코드탭
 //  의존: data.js, settings.js, views_system.js
 // ════════════════════════════════════════════════════════════════
-// 과거 버전에서 참조하던 전역 방어 (캐시된 스크립트 혼재 시 ReferenceError 방지)
-if (typeof window.realEstatePnl === 'undefined') window.realEstatePnl = 0;
-var realEstatePnl = window.realEstatePnl || 0;
-// 과거/캐시된 코드에서 bare `mode` 참조 시 안전장치
-if (typeof window.mode === 'undefined') window.mode = 'week';
-var mode = window.mode;
-
 function renderHistoryView(area) {
   area.innerHTML = `
     <div style="padding:12px 0 8px">
@@ -16,8 +9,8 @@ function renderHistoryView(area) {
         <div style="font-size:.80rem;font-weight:700;color:var(--text)">📈 손익 그래프</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <div style="display:flex;background:var(--s2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-            <button id="histModeWeek" onclick="_setHistMode('week')" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">주간</button>
-            <button id="histModeMonth" onclick="_setHistMode('month')" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">월간</button>
+            <button id="histModeWeek" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">주간</button>
+            <button id="histModeMonth" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">월간</button>
           </div>
           <input id="histStartMonth" type="month" title="시작 연월"
             style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem" />
@@ -37,7 +30,7 @@ function renderHistoryView(area) {
             <option value="NASDAQ">NASDAQ</option>
             <option value="NASDAQ100">NASDAQ100</option>
           </select>
-          <button onclick="loadHistoryChart()" class="btn-ghost-sm">🔄 새로고침</button>
+          <button id="btn-history-refresh" class="btn-ghost-sm">🔄 새로고침</button>
         </div>
       </div>
       <div id="histStatusMsg" style="font-size:.72rem;color:var(--muted);margin-bottom:8px"></div>
@@ -394,7 +387,7 @@ function _renderHistDebugPanel(date) {
     <div style="border:1px solid var(--border);border-radius:10px;background:var(--s2);padding:10px 12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <div style="font-size:.72rem;font-weight:700;color:${tone}">🧪 ${_fmtHistDateCompact(date)} 디버그</div>
-        <button onclick="_toggleHistDebug('${date}')" style="border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:.7rem">닫기</button>
+        <button data-action="toggle-hist-debug" data-date="${date}" style="border:none;background:transparent;color:var(--muted);cursor:pointer;font-size:.7rem">닫기</button>
       </div>
       <div style="font-size:.66rem;color:var(--text);line-height:1.7">
         <div>• 진단: <span style="color:${tone}">${d.note}</span></div>
@@ -468,84 +461,6 @@ function _buildCostTimelineFromTrades(snapshotDateKeys) {
   return out;
 }
 
-function _histDateKey(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (!m) return '';
-  return `${m[1]}.${m[2]}.${m[3]}`;
-}
-
-function _fmtAxisKrw(v) {
-  const abs = Math.abs(v);
-  if (abs >= 1e8) return (v / 1e8).toFixed(1) + '억';
-  if (abs >= 1e4) return (v / 1e4).toFixed(0) + '만';
-  return Math.round(v).toLocaleString();
-}
-
-function _fmtKrw(v) {
-  const abs = Math.abs(v), sign = v < 0 ? '-' : '';
-  if (abs >= 1e8) {
-    const uk = Math.floor(abs / 1e8);
-    const man = Math.round((abs % 1e8) / 1e4);
-    return man > 0 ? `${sign}${uk}억 ${man.toLocaleString()}만` : `${sign}${uk}억`;
-  }
-  if (abs >= 1e4) return sign + Math.round(abs / 1e4).toLocaleString() + '만';
-  return sign + Math.round(abs).toLocaleString();
-}
-
-function _fmtHistDateShort(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (!m) return '';
-  return `${m[2]}.${m[3]}`;
-}
-
-function _fmtHistDateShortWeek(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (!m) return '';
-  return `${m[2]}.${m[3]}`;
-}
-
-function _fmtHistDateShortMonth(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})/);
-  if (!m) return '';
-  return `${m[1].slice(2)}.${m[2]}`;
-}
-
-function _normalizeHistDate(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  const d = new Date(v);
-  if (!isNaN(d.getTime())) {
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-  return '';
-}
-
-function _filterWeeklyFriday(snapshots) {
-  return snapshots.filter(s => {
-    const m = String(s.date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return false;
-    const dowKst = new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10))).getUTCDay();
-    return dowKst === 5; // 금요일(KST 날짜 기준)
-  });
-}
-
-function _filterMonthEnd(snapshots) {
-  const monthMap = {};
-  snapshots.forEach(s => {
-    const m = String(s.date || '').match(/^(\d{4})-(\d{2})/);
-    if (!m) return;
-    const key = `${m[1]}-${m[2]}`;
-    if (!monthMap[key] || (s.date || '') > (monthMap[key].date || '')) monthMap[key] = s;
-  });
-  return Object.keys(monthMap).sort().map(k => monthMap[k]);
-}
-
-function _fmtHistDateCompact(v) {
-  const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
-  if (!m) return fmtDateDot(v || '');
-  return `${m[1]}.${m[2]}.${m[3]}`;
-}
-
 // ════════════════════════════════════════════════════════════════
 //  renderGsheetView — 구글시트 연동 설정 탭
 // ════════════════════════════════════════════════════════════════
@@ -566,7 +481,7 @@ function renderGsheetView(area) {
           <div style="font-size:.78rem;font-weight:700;color:${isLinked ? 'var(--green)' : 'var(--muted)'}">${isLinked ? '연동됨' : '연동 안됨'}</div>
           <div style="font-size:.65rem;color:var(--muted);margin-top:2px;word-break:break-all">${isLinked ? currentUrl.slice(0, 60) + (currentUrl.length > 60 ? '…' : '') : '구글 Apps Script 웹앱 URL을 입력하세요'}</div>
         </div>
-        ${isLinked ? `<button onclick="clearGsheetUrl()" class="btn-del-sm" style="margin-left:auto;flex-shrink:0">해제</button>` : ''}
+        ${isLinked ? `<button id="btn-clear-gsheet-url" class="btn-del-sm" style="margin-left:auto;flex-shrink:0">해제</button>` : ''}
       </div>
 
       <!-- URL 입력 -->
@@ -577,8 +492,8 @@ function renderGsheetView(area) {
             value="${currentUrl.replace(/"/g,'&quot;')}"
             placeholder="https://script.google.com/macros/s/..."
             style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:0"
-            onkeydown="if(event.key==='Enter') saveGsheetUrlFromUI()" />
-          <button onclick="saveGsheetUrlFromUI()" class="btn-purple-sm">저장 · 연결 테스트</button>
+          />
+          <button id="btn-save-gsheet-url" class="btn-purple-sm">저장 · 연결 테스트</button>
         </div>
         <div id="gsheetTestResult" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em"></div>
       </div>
