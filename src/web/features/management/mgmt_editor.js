@@ -26,7 +26,7 @@ function openEditor() {
 }
 
 function _resetEditorApplyButton() {
-  const applyBtn = $el('priceEditor')?.querySelector('[onclick*="applyPrices"]')
+  const applyBtn = $el('pe-panel-price-footer')
                 || $el('priceEditor')?.querySelector('.btn-apply-prices');
   if (!applyBtn) return;
   if (!applyBtn.dataset.baseHtml) applyBtn.dataset.baseHtml = applyBtn.innerHTML;
