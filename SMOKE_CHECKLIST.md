@@ -27,7 +27,6 @@
   - 예: `요청일(YYYY.MM.DD) 데이터 없음 → YYYY.MM.DD 사용`
 
 ## 6) 기본 정적 체크
-- [ ] 전체 JS 문법 체크 통과 (`node --check`)
-- [ ] `index.html`, `views_history.js` inline `onclick/onchange/onkeydown` 없음
-- [ ] 중복 top-level 함수명 없음
-
+- [x] 전체 JS 문법 체크 통과 (`node --check`, 대상 파일)
+- [x] `index.html`, `views_history.js` inline `onclick/onchange/onkeydown` 없음
+- [x] 중복 top-level 함수명 없음 (`src/web/**/*.js` 스캔, duplicate 0건)

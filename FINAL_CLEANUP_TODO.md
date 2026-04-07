@@ -19,7 +19,7 @@
 ## 3) 자동 점검 재실행
 - [x] `node --check` 대상 파일 실행
 - [x] inline handler(`onclick/onchange/onkeydown`) 잔존 점검 (`src/web/index.html`)
-- [ ] 중복 top-level 함수명 점검
+- [x] 중복 top-level 함수명 점검 (`src/web/**/*.js` 스캔 결과 duplicate 0건)
 
 ## 4) 수동 스모크 체크
 - [ ] 히스토리 탭 모드 전환/새로고침/디버그 닫기
@@ -28,5 +28,5 @@
 - [ ] 상단 액션 버튼(업데이트/현재가/가져오기/초기화)
 
 ## 5) 문서 마감
-- [ ] `SMOKE_CHECKLIST.md` 결과 반영
+- [x] `SMOKE_CHECKLIST.md` 결과 반영
 - [ ] PR 본문에 최종 경로 구조 기록
