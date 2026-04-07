@@ -200,6 +200,7 @@ async function quickFetchByDate() {
 
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDate === getDateStr(0));
+      const isFallback = (usedDate !== targetDate);
       const label = isToday ? '실시간' : usedDate.replace(/-/g, '.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
@@ -212,6 +213,9 @@ async function quickFetchByDate() {
       const total = getEPWithCode().length;
       const dayLabel = isToday ? '실시간' : usedDate.replace(/-/g,'.') + ' 종가';
       let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
+      if (isFallback) {
+        html += ` · <span style="color:var(--amber)">↩ 요청일(${targetDate.replace(/-/g,'.')}) 데이터 없음 → ${usedDate.replace(/-/g,'.')} 사용</span>`;
+      }
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
         const missingStr = missing.map(m => `${m.code} ${m.name}`).join(', ');
@@ -297,6 +301,7 @@ async function autoLoadPrices() {
 
     if (results && Object.keys(results).length > 0) {
       const isToday = (usedDateStr === dateStr);
+      const isFallback = (usedDateStr !== dateStr);
       const dateLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
@@ -308,7 +313,10 @@ async function autoLoadPrices() {
       const cnt      = Object.keys(results).length;
       const total    = getEPWithCode().length;
       const dayLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
-      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개`, 'ok');
+      const fallbackMsg = isFallback
+        ? ` · <span style="color:var(--amber)">↩ 오늘(${dateStr.replace(/-/g,'.')}) 데이터 없음 → ${usedDateStr.replace(/-/g,'.')} 사용</span>`
+        : '';
+      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개${fallbackMsg}`, 'ok');
 
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
