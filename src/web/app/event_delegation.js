@@ -4,6 +4,69 @@
 // ════════════════════════════════════════════════════════════════
 
 function registerGlobalEventDelegation() {
+  const clickHandlers = {
+    // action bar / fixed tab
+    quickFetchBtn:          () => typeof quickFetchByDate === 'function' && quickFetchByDate(),
+    'btn-open-editor':      () => typeof openEditor === 'function' && openEditor(),
+    'btn-export-data':      () => typeof exportData === 'function' && exportData(),
+    'btn-trigger-import':   () => { const input = $el('importFileInput'); if (input) input.click(); },
+    'btn-open-reset-dialog':() => typeof openResetDialog === 'function' && openResetDialog(),
+    'fixed-btn-stocks':     () => typeof switchView === 'function' && switchView('stocks'),
+    'fixed-btn-gsheet':     () => typeof switchView === 'function' && switchView('gsheet'),
+    'btn-open-tab-settings':() => typeof openTabSettings === 'function' && openTabSettings(),
+
+    // settings modal
+    'btn-close-tab-settings-top':    () => typeof closeTabSettings === 'function' && closeTabSettings(),
+    'btn-close-tab-settings-footer': () => typeof closeTabSettings === 'function' && closeTabSettings(),
+    settingsTabBtn_tab:              () => typeof switchSettingsTab === 'function' && switchSettingsTab('tab'),
+    settingsTabBtn_theme:            () => typeof switchSettingsTab === 'function' && switchSettingsTab('theme'),
+    settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
+
+    // editors
+    'btn-close-realestate-editor-top':    () => typeof closeRealEstateEditor === 'function' && closeRealEstateEditor(),
+    'btn-close-realestate-editor-footer': () => typeof closeRealEstateEditor === 'function' && closeRealEstateEditor(),
+    'btn-apply-realestate':               () => typeof applyRealEstate === 'function' && applyRealEstate(),
+    'btn-close-price-editor-top':         () => typeof closeEditor === 'function' && closeEditor(),
+    'btn-close-price-editor-footer':      () => typeof closeEditor === 'function' && closeEditor(),
+    'pe-panel-price-footer':              () => typeof applyPrices === 'function' && applyPrices(),
+    'btn-close-loan-editor-top':          () => typeof closeLoanEditor === 'function' && closeLoanEditor(),
+    'btn-close-loan-editor-footer':       () => typeof closeLoanEditor === 'function' && closeLoanEditor(),
+    'btn-apply-loan':                     () => typeof applyLoan === 'function' && applyLoan(),
+
+    // history / gsheet
+    histModeWeek:          () => typeof _setHistMode === 'function' && _setHistMode('week'),
+    histModeMonth:         () => typeof _setHistMode === 'function' && _setHistMode('month'),
+    'btn-history-refresh': () => typeof loadHistoryChart === 'function' && loadHistoryChart(),
+    'btn-clear-gsheet-url':() => typeof clearGsheetUrl === 'function' && clearGsheetUrl(),
+    'btn-save-gsheet-url': () => typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
+
+    // management
+    'btn-acct-add':        () => typeof acctMgmtAddNew === 'function' && acctMgmtAddNew(),
+    'btn-acct-confirm':    () => typeof acctMgmtConfirm === 'function' && acctMgmtConfirm(),
+    'btn-acct-cancel':     () => typeof acctMgmtCancel === 'function' && acctMgmtCancel(),
+    'btn-sm-add':          () => typeof smMgmtAddNew === 'function' && smMgmtAddNew(),
+    'btn-sm-confirm':      () => typeof smMgmtConfirm === 'function' && smMgmtConfirm(),
+    'btn-sm-cancel':       () => typeof smMgmtCancel === 'function' && smMgmtCancel(),
+    'btn-sm-template':     () => typeof smCsvDownloadTemplate === 'function' && smCsvDownloadTemplate(),
+    'btn-sec-add':         () => typeof secMgmtAddNew === 'function' && secMgmtAddNew(),
+    'btn-sec-confirm':     () => typeof secMgmtConfirm === 'function' && secMgmtConfirm(),
+    'btn-sec-cancel':      () => typeof secMgmtCancel === 'function' && secMgmtCancel(),
+    'btn-sec-template':    () => typeof secCsvDownloadTemplate === 'function' && secCsvDownloadTemplate(),
+  };
+
+  const enterEscapeHandlers = {
+    acctMgmtNewInput: (isEnter) => isEnter
+      ? (typeof acctMgmtConfirm === 'function' && acctMgmtConfirm())
+      : (typeof acctMgmtCancel  === 'function' && acctMgmtCancel()),
+    smMgmtNewName: (isEnter) => isEnter
+      ? (typeof smMgmtConfirm === 'function' && smMgmtConfirm())
+      : (typeof smMgmtCancel  === 'function' && smMgmtCancel()),
+    secMgmtNewName: (isEnter) => isEnter
+      ? (typeof secMgmtConfirm === 'function' && secMgmtConfirm())
+      : (typeof secMgmtCancel  === 'function' && secMgmtCancel()),
+    gsheetUrlInput: (isEnter) => isEnter && typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
+  };
+
   // ── 클릭 위임
   document.addEventListener('click', function(e) {
     const btn = e.target.closest('button');
@@ -16,30 +79,24 @@ function registerGlobalEventDelegation() {
       if (typeof manualSyncByTab === 'function') manualSyncByTab(syncTab);
       return;
     }
+    const action = btn.dataset.action;
+    if (action === 'toggle-hist-debug') {
+      const dt = btn.dataset.date || '';
+      if (typeof _toggleHistDebug === 'function') _toggleHistDebug(dt);
+      return;
+    }
 
     const id = btn.id;
     if (!id) return;
-
-    // ── 기초정보 탭 버튼
-    switch (id) {
-      case 'btn-acct-add':     typeof acctMgmtAddNew          === 'function' && acctMgmtAddNew();          break;
-      case 'btn-acct-confirm': typeof acctMgmtConfirm         === 'function' && acctMgmtConfirm();         break;
-      case 'btn-acct-cancel':  typeof acctMgmtCancel          === 'function' && acctMgmtCancel();          break;
-      case 'btn-sm-add':       typeof smMgmtAddNew            === 'function' && smMgmtAddNew();            break;
-      case 'btn-sm-confirm':   typeof smMgmtConfirm           === 'function' && smMgmtConfirm();           break;
-      case 'btn-sm-cancel':    typeof smMgmtCancel            === 'function' && smMgmtCancel();            break;
-      case 'btn-sm-template':  typeof smCsvDownloadTemplate   === 'function' && smCsvDownloadTemplate();   break;
-      case 'btn-sec-add':      typeof secMgmtAddNew           === 'function' && secMgmtAddNew();           break;
-      case 'btn-sec-confirm':  typeof secMgmtConfirm          === 'function' && secMgmtConfirm();          break;
-      case 'btn-sec-cancel':   typeof secMgmtCancel           === 'function' && secMgmtCancel();           break;
-      case 'btn-sec-template': typeof secCsvDownloadTemplate  === 'function' && secCsvDownloadTemplate();  break;
-    }
+    const run = clickHandlers[id];
+    if (typeof run === 'function') run();
   });
 
   // ── 파일 input change 위임
   document.addEventListener('change', function(e) {
     const inp = e.target;
     if (!inp) return;
+    if (inp.id === 'importFileInput' && typeof importData === 'function') importData(inp);
     if (inp.id === 'smCsvFileInput'  && typeof smCsvImport  === 'function') smCsvImport(inp);
     if (inp.id === 'secCsvFileInput' && typeof secCsvImport === 'function') secCsvImport(inp);
   });
@@ -50,19 +107,7 @@ function registerGlobalEventDelegation() {
     const id = e.target && e.target.id;
     if (!id) return;
     const isEnter = e.key === 'Enter';
-    switch (id) {
-      case 'acctMgmtNewInput':
-        isEnter ? (typeof acctMgmtConfirm === 'function' && acctMgmtConfirm())
-                : (typeof acctMgmtCancel  === 'function' && acctMgmtCancel());
-        break;
-      case 'smMgmtNewName':
-        isEnter ? (typeof smMgmtConfirm === 'function' && smMgmtConfirm())
-                : (typeof smMgmtCancel  === 'function' && smMgmtCancel());
-        break;
-      case 'secMgmtNewName':
-        isEnter ? (typeof secMgmtConfirm === 'function' && secMgmtConfirm())
-                : (typeof secMgmtCancel  === 'function' && secMgmtCancel());
-        break;
-    }
+    const run = enterEscapeHandlers[id];
+    if (typeof run === 'function') run(isEnter);
   });
 }
