@@ -66,7 +66,7 @@
 <!-- 왼쪽: 날짜 + 업데이트 카드 -->
 <div class="action-update-card">
 <input type="date" id="quickDateInput" class="action-date-input" title="기준일 직접 지정"/>
-<button onclick="quickFetchByDate()" id="quickFetchBtn" class="action-refresh-btn" title="현재가 업데이트">
+<button id="quickFetchBtn" class="action-refresh-btn" title="현재가 업데이트">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c-1.66 0-3-4.03-3-9s1.34-9 3-9m0 18c1.66 0 3-4.03 3-9s-1.34-9-3-9m-9 9a9 9 0 019-9"/></svg>
 <span>업데이트</span>
 </button>
@@ -74,20 +74,20 @@
 </div>
 <!-- 오른쪽 끝: 현재가/내보내기/가져오기/초기화 -->
 <div style="margin-left:auto;display:flex;gap:6px">
-<button onclick="openEditor()" class="action-icon-btn" title="현재가 편집">
+<button id="btn-open-editor" class="action-icon-btn" title="현재가 편집">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 <span>현재가</span>
 </button>
-<button onclick="exportData()" class="action-icon-btn action-icon-green" title="내보내기">
+<button id="btn-export-data" class="action-icon-btn action-icon-green" title="내보내기">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
 <span>내보내기</span>
 </button>
-<button onclick="$el('importFileInput').click()" class="action-icon-btn action-icon-blue" title="가져오기">
+<button id="btn-trigger-import" class="action-icon-btn action-icon-blue" title="가져오기">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
 <span>가져오기</span>
 </button>
-<input type="file" id="importFileInput" accept=".json" class="d-none" onchange="importData(this)">
-<button onclick="openResetDialog()" class="action-icon-btn action-icon-red" title="초기화">
+<input type="file" id="importFileInput" accept=".json" class="d-none">
+<button id="btn-open-reset-dialog" class="action-icon-btn action-icon-red" title="초기화">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
 <span>초기화</span>
 </button>
@@ -99,15 +99,15 @@
 </div>
 <!-- 오른쪽 고정 버튼: 기초정보 / 구글시트 / 설정 -->
 <div class="fixed-tab-btns">
-<button onclick="switchView('stocks')" id="fixed-btn-stocks" class="vs-btn v-stocks" style="min-width:46px">
+<button id="fixed-btn-stocks" class="vs-btn v-stocks" style="min-width:46px">
 <span class="vs-btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07M8.46 8.46a5 5 0 000 7.07"/></svg></span>
 <span class="vs-btn-label">기초정보</span>
 </button>
-<button onclick="switchView('gsheet')" id="fixed-btn-gsheet" class="vs-btn v-gsheet" style="min-width:46px">
+<button id="fixed-btn-gsheet" class="vs-btn v-gsheet" style="min-width:46px">
 <span class="vs-btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg></span>
 <span class="vs-btn-label">구글시트</span>
 </button>
-<button onclick="openTabSettings()" title="탭 순서 설정" class="vs-btn" style="min-width:46px">
+<button id="btn-open-tab-settings" title="탭 순서 설정" class="vs-btn" style="min-width:46px">
 <span class="vs-btn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
 <span class="vs-btn-label">설정</span>
 </button>
@@ -118,15 +118,15 @@
 <div style="background:var(--s1);border:1px solid var(--border);border-radius:16px;width:100%;max-width:360px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column">
 <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
 <h3 style="margin:0;font-size:.95rem;font-weight:700">⚙️ 설정</h3>
-<button onclick="closeTabSettings()" class="btn-close-icon">✕</button>
+<button id="btn-close-tab-settings-top" class="btn-close-icon">✕</button>
 </div>
 <!-- 섹션 탭 -->
 <div style="display:flex;gap:0;border-bottom:1px solid var(--border);flex-shrink:0">
-  <button id="settingsTabBtn_tab" onclick="switchSettingsTab('tab')"
+  <button id="settingsTabBtn_tab"
     style="flex:1;padding:10px;font-size:.75rem;font-weight:600;cursor:pointer;border:none;border-bottom:2px solid var(--amber);background:var(--c-amber-08);color:var(--gold);transition:all .15s">
     📋 탭 순서
   </button>
-  <button id="settingsTabBtn_theme" onclick="switchSettingsTab('theme')"
+  <button id="settingsTabBtn_theme"
     style="flex:1;padding:10px;font-size:.75rem;font-weight:600;cursor:pointer;border:none;border-bottom:2px solid transparent;background:transparent;color:var(--muted);transition:all .15s">
     🎨 테마
   </button>
@@ -142,8 +142,8 @@
 </div>
 <!-- 푸터 -->
 <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
-<button onclick="resetTabOrder()" id="settingsResetBtn" class="btn-ghost-muted" style="font-size:.72rem">↺ 기본값</button>
-<button onclick="closeTabSettings()" class="btn-amber">💾 저장</button>
+<button id="settingsResetBtn" class="btn-ghost-muted" style="font-size:.72rem">↺ 기본값</button>
+<button id="btn-close-tab-settings-footer" class="btn-amber">💾 저장</button>
 </div>
 </div>
 </div>
@@ -162,6 +162,7 @@
 </div><!-- /wrap -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script defer src="core/core_storage.js"></script>
+<script defer src="core/core_log.js"></script>
 <script defer src="shared/theme.js"></script>
 <script defer src="core/core_ui.js"></script>
 <script defer src="core/core_color.js"></script>
@@ -178,9 +179,13 @@
 <script defer src="views/views_asset_loan.js"></script>
 
 <script defer src="views/views_asset.js"></script>
+<script defer src="views/views_history_legacy_guard.js"></script>
+<script defer src="views/views_history_utils.js"></script>
 <script defer src="views/views_history.js?v=20260406-2"></script>
 
 <script defer src="views/views_system.js"></script>
+<script defer src="features/settings/settings_net.js"></script>
+<script defer src="features/settings/settings_persistence_utils.js"></script>
 <script defer src="features/settings/settings.js"></script>
 <script defer src="features/settings/settings_sync.js"></script>
 <script defer src="features/settings/settings_fetch.js"></script>
@@ -203,7 +208,7 @@
         <h3>🏠 부동산 정보 입력</h3>
         <p>실거래가 · 매입가 · 추가비용 입력 시 손익 자동 계산</p>
       </div>
-      <button class="editor-close" onclick="closeRealEstateEditor()">✕</button>
+      <button id="btn-close-realestate-editor-top" class="editor-close">✕</button>
     </div>
     <div class="editor-body" style="padding:16px">
 
@@ -259,8 +264,8 @@
       </div>
     </div>
     <div class="editor-footer">
-      <button class="btn-cancel" onclick="closeRealEstateEditor()">취소</button>
-      <button class="btn-apply" onclick="applyRealEstate()">✅ 저장</button>
+      <button id="btn-close-realestate-editor-footer" class="btn-cancel">취소</button>
+      <button id="btn-apply-realestate" class="btn-apply">✅ 저장</button>
     </div>
   </div>
 </div>
@@ -273,7 +278,7 @@
         <h3>✏️ 현재가 편집</h3>
         <p>펀드·TDF 및 자동 조회 실패 종목의 현재가를 수동 입력합니다</p>
       </div>
-      <button class="editor-close" onclick="closeEditor()">✕</button>
+      <button id="btn-close-price-editor-top" class="editor-close">✕</button>
     </div>
     <div id="pe-panel-price" class="editor-body">
       <!-- 날짜 선택 -->
@@ -285,8 +290,8 @@
       <div id="editorBody"></div>
     </div>
     <div class="editor-footer">
-      <button class="btn-cancel" onclick="closeEditor()">취소</button>
-      <button class="btn-apply" id="pe-panel-price-footer" onclick="applyPrices()">✅ 적용하기</button>
+      <button id="btn-close-price-editor-footer" class="btn-cancel">취소</button>
+      <button class="btn-apply" id="pe-panel-price-footer">✅ 적용하기</button>
     </div>
   </div>
 </div>
@@ -299,7 +304,7 @@
         <h3>🏦 주담대 정보 편집</h3>
         <p>월 납입 후 잔액·잔여 개월수를 업데이트하세요</p>
       </div>
-      <button class="editor-close" onclick="closeLoanEditor()">✕</button>
+      <button id="btn-close-loan-editor-top" class="editor-close">✕</button>
     </div>
     <div class="editor-body">
       <div class="editor-group">
@@ -350,8 +355,8 @@
     </div>
     <div class="editor-footer">
       <div class="last-updated"></div>
-      <button class="btn-cancel" onclick="closeLoanEditor()">취소</button>
-      <button class="btn-apply" onclick="applyLoan()">✅ 적용하기</button>
+      <button id="btn-close-loan-editor-footer" class="btn-cancel">취소</button>
+      <button id="btn-apply-loan" class="btn-apply">✅ 적용하기</button>
     </div>
   </div>
 </div>

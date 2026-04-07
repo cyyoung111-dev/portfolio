@@ -16,12 +16,57 @@ function registerGlobalEventDelegation() {
       if (typeof manualSyncByTab === 'function') manualSyncByTab(syncTab);
       return;
     }
+    const action = btn.dataset.action;
+    if (action === 'toggle-hist-debug') {
+      const dt = btn.dataset.date || '';
+      if (typeof _toggleHistDebug === 'function') _toggleHistDebug(dt);
+      return;
+    }
 
     const id = btn.id;
     if (!id) return;
 
     // ── 기초정보 탭 버튼
     switch (id) {
+      case 'quickFetchBtn':    typeof quickFetchByDate      === 'function' && quickFetchByDate();      break;
+      case 'btn-open-editor':  typeof openEditor            === 'function' && openEditor();            break;
+      case 'btn-export-data':  typeof exportData            === 'function' && exportData();            break;
+      case 'btn-trigger-import': {
+        const input = $el('importFileInput');
+        if (input) input.click();
+        break;
+      }
+      case 'btn-open-reset-dialog': typeof openResetDialog  === 'function' && openResetDialog();      break;
+      case 'fixed-btn-stocks': typeof switchView            === 'function' && switchView('stocks');    break;
+      case 'fixed-btn-gsheet': typeof switchView            === 'function' && switchView('gsheet');    break;
+      case 'btn-open-tab-settings': typeof openTabSettings  === 'function' && openTabSettings();       break;
+      case 'btn-close-tab-settings-top':
+      case 'btn-close-tab-settings-footer':
+        typeof closeTabSettings === 'function' && closeTabSettings();
+        break;
+      case 'settingsTabBtn_tab':   typeof switchSettingsTab === 'function' && switchSettingsTab('tab');   break;
+      case 'settingsTabBtn_theme': typeof switchSettingsTab === 'function' && switchSettingsTab('theme'); break;
+      case 'settingsResetBtn':     typeof resetTabOrder     === 'function' && resetTabOrder();             break;
+      case 'btn-close-realestate-editor-top':
+      case 'btn-close-realestate-editor-footer':
+        typeof closeRealEstateEditor === 'function' && closeRealEstateEditor();
+        break;
+      case 'btn-apply-realestate': typeof applyRealEstate === 'function' && applyRealEstate(); break;
+      case 'btn-close-price-editor-top':
+      case 'btn-close-price-editor-footer':
+        typeof closeEditor === 'function' && closeEditor();
+        break;
+      case 'pe-panel-price-footer': typeof applyPrices === 'function' && applyPrices(); break;
+      case 'btn-close-loan-editor-top':
+      case 'btn-close-loan-editor-footer':
+        typeof closeLoanEditor === 'function' && closeLoanEditor();
+        break;
+      case 'btn-apply-loan': typeof applyLoan === 'function' && applyLoan(); break;
+      case 'histModeWeek': typeof _setHistMode === 'function' && _setHistMode('week'); break;
+      case 'histModeMonth': typeof _setHistMode === 'function' && _setHistMode('month'); break;
+      case 'btn-history-refresh': typeof loadHistoryChart === 'function' && loadHistoryChart(); break;
+      case 'btn-clear-gsheet-url': typeof clearGsheetUrl === 'function' && clearGsheetUrl(); break;
+      case 'btn-save-gsheet-url': typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(); break;
       case 'btn-acct-add':     typeof acctMgmtAddNew          === 'function' && acctMgmtAddNew();          break;
       case 'btn-acct-confirm': typeof acctMgmtConfirm         === 'function' && acctMgmtConfirm();         break;
       case 'btn-acct-cancel':  typeof acctMgmtCancel          === 'function' && acctMgmtCancel();          break;
@@ -40,6 +85,7 @@ function registerGlobalEventDelegation() {
   document.addEventListener('change', function(e) {
     const inp = e.target;
     if (!inp) return;
+    if (inp.id === 'importFileInput' && typeof importData === 'function') importData(inp);
     if (inp.id === 'smCsvFileInput'  && typeof smCsvImport  === 'function') smCsvImport(inp);
     if (inp.id === 'secCsvFileInput' && typeof secCsvImport === 'function') secCsvImport(inp);
   });
@@ -62,6 +108,9 @@ function registerGlobalEventDelegation() {
       case 'secMgmtNewName':
         isEnter ? (typeof secMgmtConfirm === 'function' && secMgmtConfirm())
                 : (typeof secMgmtCancel  === 'function' && secMgmtCancel());
+        break;
+      case 'gsheetUrlInput':
+        if (isEnter && typeof saveGsheetUrlFromUI === 'function') saveGsheetUrlFromUI();
         break;
     }
   });
