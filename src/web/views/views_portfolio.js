@@ -114,15 +114,16 @@ function renderSectorView(area) {
 
     const secMerged = {};
     d.rows.forEach(r => {
-      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0, totalCostAmt:0, curPrice:null };
+      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, acctSet:new Set(), totalQty:0, totalCostAmt:0, curPrice:null };
       const m = secMerged[r.name];
       m.evalAmt    += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
       m.totalQty   += (r.qty||0);
       m.totalCostAmt += (r.costAmt||0);
-      if (!m.accts.includes(r.acct)) m.accts.push(r.acct);
+      if (r.acct) m.acctSet.add(r.acct);
       if (m.curPrice == null && r.price != null) m.curPrice = r.price;
     });
     Object.values(secMerged).sort((a,b) => b.evalAmt - a.evalAmt).forEach(m => {
+      const accts = [...m.acctSet];
       const mPct = m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0;
       const rC = pColor(m.pnl), rS = pSign(m.pnl);
       const epType = (() => { const ep = getEP(m.name); return getEPType(ep, null); })();
@@ -138,7 +139,7 @@ function renderSectorView(area) {
         </td>
         <td style="padding:7px 8px;font-size:.72rem;text-align:center">
           <div class="flex-wrap-gap6">
-            ${m.accts.map(a=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span><span style="font-size:.62rem;color:var(--muted)">${a}</span></div>`).join('')}
+            ${accts.map(a=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><span class="adot" style="background:${ACCT_COLORS[a]}" title="${a}"></span><span style="font-size:.62rem;color:var(--muted)">${a}</span></div>`).join('')}
           </div>
         </td>
         <td style="padding:7px 8px;font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
