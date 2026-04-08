@@ -70,9 +70,10 @@ function renderSectorView(area) {
     const pnl = d.eval - d.cost, pct = d.cost > 0 ? pnl/d.cost*100 : 0;
     const pC = pColor(pnl), pS = pSign(pnl);
     const color = SECTOR_COLORS[sec] || 'var(--muted)';
+    const uniqueNames = new Set(d.rows.map(r => r.name));
     html += `<div class="sector-card">
       <div class="sector-hdr" style="border-left:3px solid ${color};flex-wrap:wrap;gap:6px">
-        <h4 style="color:${color}">${sec} <span style="color:var(--muted);font-size:.72rem;font-weight:400">${Object.keys((() => { const m={}; d.rows.forEach(r=>m[r.name]=1); return m; })()).length}종목</span></h4>
+        <h4 style="color:${color}">${sec} <span style="color:var(--muted);font-size:.72rem;font-weight:400">${uniqueNames.size}종목</span></h4>
         <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
           <div class="td-right"><div class="lbl-62-muted">평가금액</div><div class="sval">${fmt(d.eval)}</div></div>
           <div class="td-right"><div class="lbl-62-muted">손익</div><div class="sval" style="color:${pC}">${pS}${fmt(pnl)}</div></div>
@@ -142,6 +143,14 @@ function renderSectorView(area) {
 
 // ── 도넛 차트 (섹터/종류/종목별)
 function renderDonut() {
+  const perfRun = window.__pfPerfRun;
+  if (window.__pfPerfMode && typeof perfRun === 'function') {
+    return perfRun(`renderDonut:${currentView}`, renderDonutCore);
+  }
+  return renderDonutCore();
+}
+
+function renderDonutCore() {
   const canvas = $el('donut-canvas');
   if (!canvas) return;
 
@@ -229,12 +238,12 @@ function renderDonut() {
   ctx.fillStyle = resolveColor('var(--s1)'); ctx.fill();
 
   if (!leg) return;
-  leg.innerHTML = '';
-  entries.forEach(([k, val]) => {
+  const legendRows = entries.map(([k, val]) => {
     const rc = resolveColor(getColor(k));
     const pct = (val/total*100).toFixed(1);
-    leg.innerHTML += `<div class="legend-item"><div class="legend-dot" style="background:${rc}"></div><div class="legend-label">${k}</div><div class="legend-val" style="color:${rc}">${pct}% · ${fmt(val)}</div></div>`;
+    return `<div class="legend-item"><div class="legend-dot" style="background:${rc}"></div><div class="legend-label">${k}</div><div class="legend-val" style="color:${rc}">${pct}% · ${fmt(val)}</div></div>`;
   });
+  leg.innerHTML = legendRows.join('');
 }
 
 // ── 종목별 합산 뷰
