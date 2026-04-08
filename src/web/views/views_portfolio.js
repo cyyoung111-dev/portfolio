@@ -18,6 +18,16 @@ let _donutModelCache = { key: '', model: null };
 let _acctEnrichedCache = { key: '', data: [] };
 let _mergeListCache = { key: '', list: [] };
 
+function _portfolioDataKey() {
+  return [
+    rows.length,
+    rawTrades.length,
+    rawHoldings.length,
+    EDITABLE_PRICES.length,
+    lastUpdated || ''
+  ].join('|');
+}
+
 function renderAcctView(area) {
   const accts = ACCT_ORDER.filter(a => a !== '전체');
   const acctOpts = ['전체',...accts].map(a =>
@@ -46,13 +56,7 @@ function renderAcctView(area) {
     </div>
   </div>`;
 
-  const acctDataKey = [
-    rawTrades.length,
-    rawHoldings.length,
-    EDITABLE_PRICES.length,
-    lastUpdated || '',
-    rows.length
-  ].join('|');
+  const acctDataKey = _portfolioDataKey();
   if (_acctEnrichedCache.key !== acctDataKey) {
     _acctEnrichedCache = {
       key: acctDataKey,
@@ -195,8 +199,7 @@ function renderDonutCore() {
     return result;
   };
 
-  const dataHash = (typeof _getDataHash === 'function') ? _getDataHash() : String(rows.length);
-  const donutCacheKey = `${currentView}|${acctFilter}|${dataHash}`;
+  const donutCacheKey = `${currentView}|${acctFilter}|${_portfolioDataKey()}`;
   let model = _donutModelCache.key === donutCacheKey ? _donutModelCache.model : null;
   if (!model) {
     let totals = {}, getColor, title;
@@ -283,13 +286,7 @@ let mergeSortKey = 'eval';
 function setMergeSortKey(k) { mergeSortKey = k; renderView(); }
 
 function renderMergeView(area) {
-  const mergeDataKey = [
-    rows.length,
-    rawTrades.length,
-    rawHoldings.length,
-    EDITABLE_PRICES.length,
-    lastUpdated || ''
-  ].join('|');
+  const mergeDataKey = _portfolioDataKey();
 
   if (_mergeListCache.key !== mergeDataKey) {
     const merged = {};
