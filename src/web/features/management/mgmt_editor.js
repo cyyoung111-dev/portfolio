@@ -583,6 +583,25 @@ async function _gasDirectFetch(url, timeoutMs) {
   }
 }
 
+async function _saveManualPriceWithRetry(target, maxRetry) {
+  const retries = Number.isFinite(maxRetry) ? maxRetry : 1;
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(target.date)
+                + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price;
+      const res = await _gasDirectFetch(url, 30000);
+      const d = await res.json();
+      if (d.status === 'ok') return { ok: true };
+      lastErr = new Error((d && d.message) ? d.message : 'status not ok');
+    } catch (e) {
+      lastErr = e;
+    }
+    if (attempt < retries) await new Promise(r => setTimeout(r, 700));
+  }
+  return { ok: false, err: lastErr };
+}
+
 async function applyPrices() {
   // ★ 중복 클릭 방지 — 저장 진행 중이면 무시
   if (_applyPricesRunning) {
@@ -626,27 +645,22 @@ async function applyPrices() {
 
   // ★ GAS 저장 — 순차 처리 (동시 요청 시 abort 방지)
   let gasFailedCount = 0;
+  const gasFailedKeys = [];
   if (gasSaveTargets.length > 0) {
     for (const target of gasSaveTargets) {
-      try {
-        const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(target.date)
-                  + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price;
-        const res = await _gasDirectFetch(url, 15000);
-        const d = await res.json();
-        if (d.status !== 'ok') {
-          gasFailedCount++;
-          console.warn('[saveManualPrice] 실패:', target.key, d);
-        }
-      } catch(e) {
+      const r = await _saveManualPriceWithRetry(target, 1);
+      if (!r.ok) {
         gasFailedCount++;
-        console.warn('[saveManualPrice] 오류:', target.key, e.message);
+        gasFailedKeys.push(target.key);
+        console.warn('[saveManualPrice] 오류:', target.key, (r.err && r.err.message) ? r.err.message : r.err);
       }
       // ★ 요청 사이 300ms 대기 — GAS 동시 요청 충돌 방지
       await new Promise(r => setTimeout(r, 300));
     }
     if (gasFailedCount > 0) {
       if (typeof showToast === 'function') {
-        showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건 · 웹앱 재배포/URL 확인 필요`, 'warn');
+        const sample = gasFailedKeys.slice(0, 3).join(', ');
+        showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
       }
     } else {
       console.log('[saveManualPrice] GAS 저장 완료:', gasSaveTargets.length + '건');
@@ -683,7 +697,8 @@ async function applyPrices() {
     const done = document.createElement('div');
     done.style.cssText = 'text-align:center;padding:18px 0 8px;font-size:.82rem;color:var(--green-lt);font-weight:600';
     if (gasFailedCount > 0) {
-      done.innerHTML = `⚠️ 로컬 저장 완료 · GAS 저장 실패 ${gasFailedCount}건<br><span style="font-size:.70rem;color:var(--muted)">웹앱 재배포/연결 URL 확인 후 다시 저장하세요</span>`;
+      const sample = gasFailedKeys.slice(0, 3).join(', ');
+      done.innerHTML = `⚠️ 로컬 저장 완료 · GAS 저장 실패 ${gasFailedCount}건${sample ? '<br><span style="font-size:.70rem;color:var(--muted)">실패 키: ' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + '</span>' : ''}`;
       done.style.color = 'var(--amber)';
     } else {
       done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${dateStr} ${timeStr} 기준 · GAS 동기화 완료</span>`;
