@@ -86,6 +86,7 @@ function renderSectorView(area) {
     const pnl = d.eval - d.cost, pct = d.cost > 0 ? pnl/d.cost*100 : 0;
     const pC = pColor(pnl), pS = pSign(pnl);
     const color = SECTOR_COLORS[sec] || 'var(--muted)';
+    const uniqueNames = new Set(d.rows.map(r => r.name));
     html += `<div class="sector-card">
       <div class="sector-hdr" style="border-left:3px solid ${color};flex-wrap:wrap;gap:6px">
         <h4 style="color:${color}">${sec} <span style="color:var(--muted);font-size:.72rem;font-weight:400">${d.names.size}종목</span></h4>
