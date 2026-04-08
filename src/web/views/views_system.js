@@ -270,6 +270,13 @@ function _perfRun(label, fn) {
 }
 window.__pfPerfRun = _perfRun;
 window.__pfPerfMode = PERF_MODE;
+window.__pfPerfSnapshot = function() {
+  return JSON.parse(JSON.stringify(PERF_STATS));
+};
+window.__pfPerfReset = function() {
+  Object.keys(PERF_STATS).forEach(k => delete PERF_STATS[k]);
+  window.__PF_PERF_STATS = PERF_STATS;
+};
 
 function switchView(v) {
   currentView = v;

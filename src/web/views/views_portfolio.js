@@ -16,6 +16,17 @@ let acctFilter = '전체';
 let typeFilter = '전체';
 let _donutModelCache = { key: '', model: null };
 let _acctEnrichedCache = { key: '', data: [] };
+let _mergeListCache = { key: '', list: [] };
+
+function _portfolioDataKey() {
+  return [
+    rows.length,
+    rawTrades.length,
+    rawHoldings.length,
+    EDITABLE_PRICES.length,
+    lastUpdated || ''
+  ].join('|');
+}
 
 function renderAcctView(area) {
   const accts = ACCT_ORDER.filter(a => a !== '전체');
@@ -45,13 +56,7 @@ function renderAcctView(area) {
     </div>
   </div>`;
 
-  const acctDataKey = [
-    rawTrades.length,
-    rawHoldings.length,
-    EDITABLE_PRICES.length,
-    lastUpdated || '',
-    rows.length
-  ].join('|');
+  const acctDataKey = _portfolioDataKey();
   if (_acctEnrichedCache.key !== acctDataKey) {
     _acctEnrichedCache = {
       key: acctDataKey,
@@ -195,8 +200,7 @@ function renderDonutCore() {
     return result;
   };
 
-  const dataHash = (typeof _getDataHash === 'function') ? _getDataHash() : String(rows.length);
-  const donutCacheKey = `${currentView}|${acctFilter}|${dataHash}`;
+  const donutCacheKey = `${currentView}|${acctFilter}|${_portfolioDataKey()}`;
   let model = _donutModelCache.key === donutCacheKey ? _donutModelCache.model : null;
   if (!model) {
     let totals = {}, getColor, title;
@@ -283,27 +287,35 @@ let mergeSortKey = 'eval';
 function setMergeSortKey(k) { mergeSortKey = k; renderView(); }
 
 function renderMergeView(area) {
-  const merged = {};
-  rows.forEach(r => {
-    const key = r.name;
-    if (!merged[key]) {
-      merged[key] = { name:r.name, type:r.type, sector:r.sector, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, acctSet:new Set(), totalQty:0, breakdown:[] };
-    }
-    const m = merged[key];
-    m.evalAmt += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
-    m.totalQty += (r.qty || 0);
-    if (r.acct) m.acctSet.add(r.acct);
-    m.breakdown.push(r);
-  });
+  const mergeDataKey = _portfolioDataKey();
 
-  const list = Object.values(merged).map(m => {
-    const { acctSet, ...rest } = m;
-    return {
-      ...rest,
-      accts: [...acctSet],
-      pct: m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0
+  if (_mergeListCache.key !== mergeDataKey) {
+    const merged = {};
+    rows.forEach(r => {
+      const key = r.name;
+      if (!merged[key]) {
+        merged[key] = { name:r.name, type:r.type, sector:r.sector, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, acctSet:new Set(), totalQty:0, breakdown:[] };
+      }
+      const m = merged[key];
+      m.evalAmt += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
+      m.totalQty += (r.qty || 0);
+      if (r.acct) m.acctSet.add(r.acct);
+      m.breakdown.push(r);
+    });
+
+    _mergeListCache = {
+      key: mergeDataKey,
+      list: Object.values(merged).map(m => {
+        const { acctSet, ...rest } = m;
+        return {
+          ...rest,
+          accts: [...acctSet],
+          pct: m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0
+        };
+      })
     };
-  });
+  }
+  const list = _mergeListCache.list;
 
   const sortOpts = [{k:'eval',l:'평가금액순'},{k:'pct',l:'수익률순'},{k:'pnl',l:'손익순'},{k:'name',l:'이름순'}];
   const sortLabel = sortOpts.find(o => o.k === mergeSortKey)?.l || '평가금액순';
