@@ -76,8 +76,9 @@ function renderSectorView(area) {
   const sectors = {};
   rows.forEach(r => {
     const s = r.sector || '기타';
-    if (!sectors[s]) sectors[s] = { rows:[], eval:0, cost:0 };
+    if (!sectors[s]) sectors[s] = { rows:[], eval:0, cost:0, names:new Set() };
     sectors[s].rows.push(r); sectors[s].eval += r.evalAmt; sectors[s].cost += r.costAmt;
+    sectors[s].names.add(r.name);
   });
 
   let html = `<div class="sector-grid">`;
@@ -88,7 +89,7 @@ function renderSectorView(area) {
     const uniqueNames = new Set(d.rows.map(r => r.name));
     html += `<div class="sector-card">
       <div class="sector-hdr" style="border-left:3px solid ${color};flex-wrap:wrap;gap:6px">
-        <h4 style="color:${color}">${sec} <span style="color:var(--muted);font-size:.72rem;font-weight:400">${uniqueNames.size}종목</span></h4>
+        <h4 style="color:${color}">${sec} <span style="color:var(--muted);font-size:.72rem;font-weight:400">${d.names.size}종목</span></h4>
         <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
           <div class="td-right"><div class="lbl-62-muted">평가금액</div><div class="sval">${fmt(d.eval)}</div></div>
           <div class="td-right"><div class="lbl-62-muted">손익</div><div class="sval" style="color:${pC}">${pS}${fmt(pnl)}</div></div>
