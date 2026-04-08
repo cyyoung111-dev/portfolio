@@ -33,11 +33,14 @@ function calcRealizedPnl() {
 
 // ── 거래이력: 필터·정렬 적용 리스트 반환
 function _getFilteredTrades() {
-  let list = [...rawTrades];
-  if (_tradeFilter.acct) list = list.filter(t => t.acct === _tradeFilter.acct);
-  if (_tradeFilter.name) list = list.filter(t => t.name.includes(_tradeFilter.name));
-  if (_tradeFilter.type === 'buy')  list = list.filter(t => t.tradeType === 'buy');
-  if (_tradeFilter.type === 'sell') list = list.filter(t => t.tradeType === 'sell');
+  const { acct: filterAcct, name: filterName, type: filterType } = _tradeFilter;
+  let list = rawTrades.filter(t => {
+    if (filterAcct && t.acct !== filterAcct) return false;
+    if (filterName && !(t.name || '').includes(filterName)) return false;
+    if (filterType === 'buy' && t.tradeType !== 'buy') return false;
+    if (filterType === 'sell' && t.tradeType !== 'sell') return false;
+    return true;
+  });
   const { key, dir } = _tradeSort;
   list.sort((a, b) => {
     let va, vb;
