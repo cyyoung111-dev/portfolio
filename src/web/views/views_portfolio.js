@@ -99,12 +99,13 @@ function renderSectorView(area) {
 
     const secMerged = {};
     d.rows.forEach(r => {
-      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0, totalCostAmt:0 };
+      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0, totalCostAmt:0, curPrice:null };
       const m = secMerged[r.name];
       m.evalAmt    += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
       m.totalQty   += (r.qty||0);
       m.totalCostAmt += (r.costAmt||0);
       if (!m.accts.includes(r.acct)) m.accts.push(r.acct);
+      if (m.curPrice == null && r.price != null) m.curPrice = r.price;
     });
     Object.values(secMerged).sort((a,b) => b.evalAmt - a.evalAmt).forEach(m => {
       const mPct = m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0;
@@ -112,9 +113,7 @@ function renderSectorView(area) {
       const epType = (() => { const ep = getEP(m.name); return getEPType(ep, null); })();
       // 평균 매입단가: totalCostAmt / totalQty
       const avgCost = m.totalQty > 0 ? Math.round(m.totalCostAmt / m.totalQty) : null;
-      // 현재단가: rows에서 찾기
-      const rowRef = d.rows.find(r => r.name === m.name);
-      const curPrice = rowRef?.price ?? null;
+      const curPrice = m.curPrice;
       html += `<tr style="border-bottom:1px solid var(--border)">
         <td style="padding:7px 8px;font-size:.78rem;font-weight:600;text-align:left">
           ${m.name}${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:1px">${m.code}</span>`:''}
