@@ -14,6 +14,7 @@ function isEtfByName(name) {
 // ── 계좌별 + 종류별 뷰
 let acctFilter = '전체';
 let typeFilter = '전체';
+let _donutModelCache = { key: '', model: null };
 
 function renderAcctView(area) {
   const accts = ACCT_ORDER.filter(a => a !== '전체');
@@ -173,45 +174,55 @@ function renderDonutCore() {
     return result;
   };
 
-  let totals = {}, getColor, title;
-  if (currentView === 'acct') {
-    const filteredRows = (acctFilter && acctFilter !== '전체')
-      ? rows.filter(r => r.acct === acctFilter)
-      : rows;
-    if (acctFilter && acctFilter !== '전체') {
-      // 특정 계좌 선택 시: 종목별 비중
-      title = acctFilter + ' · 종목별 비중';
-      filteredRows.forEach(r => { totals[r.name] = (totals[r.name]||0) + r.evalAmt; });
+  const dataHash = (typeof _getDataHash === 'function') ? _getDataHash() : String(rows.length);
+  const donutCacheKey = `${currentView}|${acctFilter}|${dataHash}`;
+  let model = _donutModelCache.key === donutCacheKey ? _donutModelCache.model : null;
+  if (!model) {
+    let totals = {}, getColor, title;
+    if (currentView === 'acct') {
+      const filteredRows = (acctFilter && acctFilter !== '전체')
+        ? rows.filter(r => r.acct === acctFilter)
+        : rows;
+      if (acctFilter && acctFilter !== '전체') {
+        // 특정 계좌 선택 시: 종목별 비중
+        title = acctFilter + ' · 종목별 비중';
+        filteredRows.forEach(r => { totals[r.name] = (totals[r.name]||0) + r.evalAmt; });
+        totals = collapseToTop(totals, 8);
+        const acctKeys = Object.keys(totals);
+        getColor = k => k === '기타' ? 'var(--muted)' : ACCT_PALETTE_FALLBACK[acctKeys.indexOf(k) % ACCT_PALETTE_FALLBACK.length];
+      } else {
+        // 전체 계좌: 종류별 비중
+        title = '종류별 자산 비중';
+        filteredRows.forEach(r => { const k = TYPE_CLASSIFY(r); totals[k] = (totals[k]||0) + r.evalAmt; });
+        getColor = k => TYPE_COLORS[k] || 'var(--muted)';
+      }
+    } else if (currentView === 'sector') {
+      title = '섹터별 자산 비중';
+      rows.forEach(r => { const k = r.sector||'기타'; totals[k] = (totals[k]||0) + r.evalAmt; });
+      getColor = k => SECTOR_COLORS[k] || 'var(--muted)';
+    } else if (currentView === 'merge') {
+      title = '종목별 자산 비중';
+      rows.forEach(r => { const k = r.name; totals[k] = (totals[k]||0) + r.evalAmt; });
       totals = collapseToTop(totals, 8);
-      const acctKeys = Object.keys(totals);
-      getColor = k => k === '기타' ? 'var(--muted)' : ACCT_PALETTE_FALLBACK[acctKeys.indexOf(k) % ACCT_PALETTE_FALLBACK.length];
+      const mergeKeys = Object.keys(totals);
+      getColor = k => k === '기타' ? 'var(--muted)' : ACCT_PALETTE_FALLBACK[mergeKeys.indexOf(k) % ACCT_PALETTE_FALLBACK.length];
     } else {
-      // 전체 계좌: 종류별 비중
-      title = '종류별 자산 비중';
-      filteredRows.forEach(r => { const k = TYPE_CLASSIFY(r); totals[k] = (totals[k]||0) + r.evalAmt; });
-      getColor = k => TYPE_COLORS[k] || 'var(--muted)';
+      title = '섹터별 자산 비중';
+      rows.forEach(r => { const k = r.sector||'기타'; totals[k] = (totals[k]||0) + r.evalAmt; });
+      getColor = k => SECTOR_COLORS[k] || 'var(--muted)';
     }
-  } else if (currentView === 'sector') {
-    title = '섹터별 자산 비중';
-    rows.forEach(r => { const k = r.sector||'기타'; totals[k] = (totals[k]||0) + r.evalAmt; });
-    getColor = k => SECTOR_COLORS[k] || 'var(--muted)';
-  } else if (currentView === 'merge') {
-    title = '종목별 자산 비중';
-    rows.forEach(r => { const k = r.name; totals[k] = (totals[k]||0) + r.evalAmt; });
-    totals = collapseToTop(totals, 8);
-    const mergeKeys = Object.keys(totals);
-    getColor = k => k === '기타' ? 'var(--muted)' : ACCT_PALETTE_FALLBACK[mergeKeys.indexOf(k) % ACCT_PALETTE_FALLBACK.length];
-  } else {
-    title = '섹터별 자산 비중';
-    rows.forEach(r => { const k = r.sector||'기타'; totals[k] = (totals[k]||0) + r.evalAmt; });
-    getColor = k => SECTOR_COLORS[k] || 'var(--muted)';
+    model = {
+      title,
+      getColor,
+      entries: Object.entries(totals).sort((a,b) => b[1] - a[1]),
+    };
+    model.total = model.entries.reduce((s,[,v]) => s+v, 0);
+    _donutModelCache = { key: donutCacheKey, model };
   }
+  const { title, getColor, entries, total } = model;
 
   const titleEl = $el('donut-title');
   if (titleEl) titleEl.textContent = title;
-
-  const entries = Object.entries(totals).sort((a,b) => b[1] - a[1]);
-  const total = entries.reduce((s,[,v]) => s+v, 0);
 
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, 120, 120);
