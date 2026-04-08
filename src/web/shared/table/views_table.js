@@ -28,6 +28,14 @@ function buildActiveFiltersBar(tableId) {
 
 // 테이블 내부 HTML 빌더 (필터/정렬 상태 반영)
 function buildTableInner(rawData, tableId, extraCol) {
+  const perfRun = window.__pfPerfRun;
+  if (window.__pfPerfMode && typeof perfRun === 'function') {
+    return perfRun(`buildTableInner:${tableId}`, () => buildTableInnerCore(rawData, tableId, extraCol));
+  }
+  return buildTableInnerCore(rawData, tableId, extraCol);
+}
+
+function buildTableInnerCore(rawData, tableId, extraCol) {
   const st = getTableState(tableId);
   const data = applyFiltersAndSort(rawData, tableId);
 
