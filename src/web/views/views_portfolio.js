@@ -265,18 +265,23 @@ function renderMergeView(area) {
   rows.forEach(r => {
     const key = r.name;
     if (!merged[key]) {
-      merged[key] = { name:r.name, type:r.type, sector:r.sector, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, accts:[], totalQty:0, breakdown:[] };
+      merged[key] = { name:r.name, type:r.type, sector:r.sector, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, acctSet:new Set(), totalQty:0, breakdown:[] };
     }
     const m = merged[key];
     m.evalAmt += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
     m.totalQty += (r.qty || 0);
-    if (!m.accts.includes(r.acct)) m.accts.push(r.acct);
+    if (r.acct) m.acctSet.add(r.acct);
     m.breakdown.push(r);
   });
 
-  const list = Object.values(merged).map(m => ({
-    ...m, pct: m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0
-  }));
+  const list = Object.values(merged).map(m => {
+    const { acctSet, ...rest } = m;
+    return {
+      ...rest,
+      accts: [...acctSet],
+      pct: m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0
+    };
+  });
 
   const sortOpts = [{k:'eval',l:'평가금액순'},{k:'pct',l:'수익률순'},{k:'pnl',l:'손익순'},{k:'name',l:'이름순'}];
   const sortLabel = sortOpts.find(o => o.k === mergeSortKey)?.l || '평가금액순';
