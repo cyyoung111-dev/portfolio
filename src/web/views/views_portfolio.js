@@ -15,6 +15,7 @@ function isEtfByName(name) {
 let acctFilter = '전체';
 let typeFilter = '전체';
 let _donutModelCache = { key: '', model: null };
+let _acctEnrichedCache = { key: '', data: [] };
 
 function renderAcctView(area) {
   const accts = ACCT_ORDER.filter(a => a !== '전체');
@@ -44,7 +45,20 @@ function renderAcctView(area) {
     </div>
   </div>`;
 
-  const enriched = rows.map(r => ({...r, classType: classify(r)}));
+  const acctDataKey = [
+    rawTrades.length,
+    rawHoldings.length,
+    EDITABLE_PRICES.length,
+    lastUpdated || '',
+    rows.length
+  ].join('|');
+  if (_acctEnrichedCache.key !== acctDataKey) {
+    _acctEnrichedCache = {
+      key: acctDataKey,
+      data: rows.map(r => ({...r, classType: classify(r)}))
+    };
+  }
+  const enriched = _acctEnrichedCache.data;
   let data = acctFilter === '전체' ? enriched : enriched.filter(r => r.acct === acctFilter);
   data = typeFilter === '전체' ? data : data.filter(r => r.classType === typeFilter);
 
