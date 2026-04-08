@@ -114,7 +114,14 @@ function renderSectorView(area) {
 
     const secMerged = {};
     d.rows.forEach(r => {
-      if (!secMerged[r.name]) secMerged[r.name] = { name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0, acctSet:new Set(), totalQty:0, totalCostAmt:0, curPrice:null };
+      if (!secMerged[r.name]) {
+        const ep = getEP(r.name);
+        secMerged[r.name] = {
+          name:r.name, code:r.code||'', evalAmt:0, costAmt:0, pnl:0,
+          acctSet:new Set(), totalQty:0, totalCostAmt:0, curPrice:null,
+          epType:getEPType(ep, null)
+        };
+      }
       const m = secMerged[r.name];
       m.evalAmt    += r.evalAmt; m.costAmt += r.costAmt; m.pnl += r.pnl;
       m.totalQty   += (r.qty||0);
@@ -126,7 +133,6 @@ function renderSectorView(area) {
       const accts = [...m.acctSet];
       const mPct = m.costAmt > 0 ? m.pnl/m.costAmt*100 : 0;
       const rC = pColor(m.pnl), rS = pSign(m.pnl);
-      const epType = (() => { const ep = getEP(m.name); return getEPType(ep, null); })();
       // 평균 매입단가: totalCostAmt / totalQty
       const avgCost = m.totalQty > 0 ? Math.round(m.totalCostAmt / m.totalQty) : null;
       const curPrice = m.curPrice;
@@ -135,7 +141,7 @@ function renderSectorView(area) {
           ${m.name}${m.code?`<span style="display:block;font-size:.65rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:1px">${m.code}</span>`:''}
         </td>
         <td style="padding:7px 8px;font-size:.72rem;text-align:center">
-          <span class="tag tg-${epType}">${epType}</span>
+          <span class="tag tg-${m.epType}">${m.epType}</span>
         </td>
         <td style="padding:7px 8px;font-size:.72rem;text-align:center">
           <div class="flex-wrap-gap6">
