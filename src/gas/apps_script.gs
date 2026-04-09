@@ -323,59 +323,40 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
 function fetchPricesKrx(items, dateStr) {
   if (!items || items.length === 0) return {};
   var cfg = _getKrxApiConfig();
-  if (!cfg.endpoint) {
-    Logger.log('ℹ️ KRX endpoint 미설정: KRX OTP/CSV 조회 시도');
-    return fetchPricesKrxViaOtp(items, dateStr);
-  }
-  var endpoint = cfg.endpoint;
   var ymd = (dateStr || '').replace(/-/g, '');
   if (!/^\d{8}$/.test(ymd)) return {};
 
-  var payload = {
-    bld: cfg.bld,
-    mktId: 'ALL',
-    trdDd: ymd,
-    share: '1',
-    money: '1',
-    csvxls_isNo: 'false'
-  };
-  var headers = {
-    'User-Agent': 'Mozilla/5.0 (compatible; AppsScript)',
-    'Referer': 'https://data.krx.co.kr/'
-  };
-  if (cfg.apiKey) {
-    headers['Authorization'] = 'Bearer ' + cfg.apiKey;
-    headers['X-API-KEY'] = cfg.apiKey;
-  }
-  var resp = UrlFetchApp.fetch(endpoint, {
-    method: 'post',
-    payload: payload,
-    headers: headers,
-    muteHttpExceptions: true
-  });
-  var status = resp.getResponseCode();
-  if (status >= 400) {
-    Logger.log('⚠️ KRX 조회 HTTP ' + status + ': endpoint=' + endpoint);
-    if (status === 403) Logger.log('⚠️ KRX 403: 공개 웹 엔드포인트 차단 가능성이 큽니다. OpenAPI 키/엔드포인트 설정을 권장합니다.');
-    Logger.log('ℹ️ KRX API 실패: OTP/CSV fallback 시도');
+  if (!cfg.apiKey) {
+    Logger.log('ℹ️ KRX AUTH_KEY 미설정: KRX OTP/CSV 조회 시도');
     return fetchPricesKrxViaOtp(items, dateStr);
   }
-  var raw = resp.getContentText() || '{}';
-  var json = JSON.parse(raw);
-  var rows = _extractKrxRows(json);
-  if (!rows || rows.length === 0) return {};
 
   var wanted = {};
   items.forEach(function(item) { wanted[item.code] = item; });
-
   var out = {};
-  rows.forEach(function(r) {
-    var code = _pickKrxCode(r);
-    if (!wanted[code]) return;
-    var p = _parseKrxNumber(_pickKrxClose(r));
-    if (!(p > 0)) return;
-    out[code] = { price: p, name: wanted[code].name, officialName: (r.ISU_ABBRV || wanted[code].name || code), source: 'KRX' };
+  ['KOSPI', 'KOSDAQ', 'ETF'].forEach(function(market) {
+    try {
+      var rows = _fetchKrxDailyOutBlock(market, ymd, cfg.apiKey);
+      (rows || []).forEach(function(r) {
+        var code = _cleanCode(r.ISU_CD || r.ISU_SRT_CD || '');
+        if (!wanted[code]) return;
+        var p = _parseKrxNumber(r.TDD_CLSPRC);
+        if (!(p > 0)) return;
+        out[code] = {
+          price: p,
+          name: wanted[code].name,
+          officialName: (r.ISU_NM || wanted[code].name || code),
+          source: 'KRX'
+        };
+      });
+    } catch (e) {
+      Logger.log('⚠️ KRX OpenAPI 조회 실패(' + market + '): ' + e.message);
+    }
   });
+  if (Object.keys(out).length === 0) {
+    Logger.log('ℹ️ KRX OpenAPI 결과 없음: OTP/CSV fallback 시도');
+    return fetchPricesKrxViaOtp(items, dateStr);
+  }
   return out;
 }
 
@@ -478,7 +459,7 @@ function _getKrxApiConfig() {
   var props = PropertiesService.getScriptProperties();
   var endpoint = (props.getProperty('krx_api_endpoint') || '').trim();
   var bld = (props.getProperty('krx_api_bld') || 'dbms/MDC/STAT/standard/MDCSTAT01501').trim();
-  var apiKey = (props.getProperty('krx_api_key') || '').trim();
+  var apiKey = _getKrxAuthKey();
   return { endpoint: endpoint, bld: bld, apiKey: apiKey };
 }
 
@@ -518,50 +499,7 @@ function configureKrxApiPrompt() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
-
-  var props = PropertiesService.getScriptProperties();
-  var current = _getKrxApiConfig();
-  var endpointResp = ui.prompt(
-    'KRX API 주소 설정',
-    'KRX endpoint URL(https://...)을 입력하세요.\n예) https://.../market...\n※ API Key만 있는 경우 endpoint는 비워두세요(OTP/CSV 자동모드 사용).',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (endpointResp.getSelectedButton() !== ui.Button.OK) return;
-  var nextEndpoint = (endpointResp.getResponseText() || '').trim();
-  if (nextEndpoint && !/^https?:\/\//i.test(nextEndpoint)) {
-    ui.alert(
-      '⚠️ endpoint 형식 오류',
-      'endpoint는 https:// 로 시작하는 URL이어야 합니다.\n현재 입력값은 URL 형식이 아니라 API Key 또는 잘못된 값으로 보입니다.',
-      ui.ButtonSet.OK
-    );
-    return;
-  }
-  props.setProperty('krx_api_endpoint', nextEndpoint);
-
-  var bldResp = ui.prompt(
-    'KRX BLD 코드 설정',
-    'BLD 코드를 입력하세요.\n비우면 기본값 사용: ' + current.bld,
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (bldResp.getSelectedButton() !== ui.Button.OK) return;
-  var nextBld = (bldResp.getResponseText() || '').trim();
-  if (!nextBld) nextBld = 'dbms/MDC/STAT/standard/MDCSTAT01501';
-  props.setProperty('krx_api_bld', nextBld);
-
-  var keyResp = ui.prompt(
-    'KRX API Key 설정(선택)',
-    'OpenAPI 키를 입력하세요. 비우면 기존 키 유지/삭제하려면 "-" 입력',
-    ui.ButtonSet.OK_CANCEL
-  );
-  if (keyResp.getSelectedButton() !== ui.Button.OK) return;
-  var keyTxt = (keyResp.getResponseText() || '').trim();
-  if (keyTxt === '-') props.deleteProperty('krx_api_key');
-  else if (keyTxt) props.setProperty('krx_api_key', keyTxt);
-
-  var endpointLabel = nextEndpoint || '(미입력: KRX OTP/CSV 자동모드)';
-  var msg = '✅ KRX API 설정 저장 완료\nendpoint: ' + endpointLabel + '\nbld: ' + nextBld + '\napiKey: ' + (keyTxt && keyTxt !== '-' ? '설정됨' : (keyTxt === '-' ? '삭제됨' : '변경없음'));
-  Logger.log(msg);
-  ui.alert(msg);
+  ui.alert('안내', '이제 endpoint/BLD 입력은 필수가 아닙니다.\n메뉴의 "🔑 KRX AUTH_KEY 설정"만 입력해서 사용하세요.', ui.ButtonSet.OK);
 }
 
 function _extractKrxRows(json) {
@@ -2991,7 +2929,6 @@ function onOpen() {
     .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
     .addItem(priceSourceLabel, 'togglePriceSourceMode')
     .addItem('🔑 KRX AUTH_KEY 설정', 'configureKrxAuthKeyPrompt')
-    .addItem('🔌 KRX API 주소/BLD 설정', 'configureKrxApiPrompt')
     .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
     .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
     .addSeparator()
