@@ -237,6 +237,24 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
 //  GOOGLEFINANCE 가격 조회 핵심
 // ════════════════════════════════════════════════════════════════════
 function fetchPricesGoogleFinance(items, dateStr, ss) {
+  var sourceMode = _getPriceSourceMode();
+  var prices = {};
+  var gfItems = items.slice();
+
+  if (sourceMode === 'krx_first') {
+    try {
+      var krxPrices = fetchPricesKrx(items, dateStr);
+      Object.keys(krxPrices).forEach(function(code) { prices[code] = krxPrices[code]; });
+      gfItems = items.filter(function(item) { return !(prices[item.code] && prices[item.code].price > 0); });
+      Logger.log('[price-source] krx_first: KRX ' + Object.keys(krxPrices).length + '건, GF fallback 대상 ' + gfItems.length + '건');
+    } catch (e) {
+      Logger.log('⚠️ KRX 조회 실패, GOOGLEFINANCE로 fallback: ' + e.message);
+      gfItems = items.slice();
+    }
+  }
+
+  if (gfItems.length === 0) return prices;
+
   var tmp = ss.getSheetByName(CONFIG.SHEET_TMP);
   if (!tmp) tmp = ss.insertSheet(CONFIG.SHEET_TMP);
   tmp.clearContents();
@@ -250,7 +268,7 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
   var fromFmt  = fmtDate(fromObj);
   var toFmt    = fmtDate(dtObj);
 
-  var formulas = items.map(function(item) {
+  var formulas = gfItems.map(function(item) {
     var krx    = '"KRX:' + item.code + '"';
     var kosdaq = '"KOSDAQ:' + item.code + '"';
     if (isToday) {
@@ -292,8 +310,7 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
     Logger.log('⚠️ tmp 시트 정리 실패: ' + e.message);
   }
 
-  var prices = {};
-  items.forEach(function(item, i) {
+  gfItems.forEach(function(item, i) {
     var val   = values[i][0];
     var str   = String(val || '');
     var price = (val && val !== '-' && !str.startsWith('#')) ? Math.round(parseFloat(val)) : 0;
@@ -301,6 +318,94 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
   });
 
   return prices;
+}
+
+function fetchPricesKrx(items, dateStr) {
+  if (!items || items.length === 0) return {};
+  var cfg = _getKrxApiConfig();
+  var endpoint = cfg.endpoint;
+  var ymd = (dateStr || '').replace(/-/g, '');
+  if (!/^\d{8}$/.test(ymd)) return {};
+
+  var payload = {
+    bld: cfg.bld,
+    mktId: 'ALL',
+    trdDd: ymd,
+    share: '1',
+    money: '1',
+    csvxls_isNo: 'false'
+  };
+  var resp = UrlFetchApp.fetch(endpoint, {
+    method: 'post',
+    payload: payload,
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() >= 400) {
+    throw new Error('HTTP ' + resp.getResponseCode());
+  }
+  var raw = resp.getContentText() || '{}';
+  var json = JSON.parse(raw);
+  var rows = json && json.OutBlock_1 ? json.OutBlock_1 : [];
+  if (!rows || rows.length === 0) return {};
+
+  var wanted = {};
+  items.forEach(function(item) { wanted[item.code] = item; });
+
+  var out = {};
+  rows.forEach(function(r) {
+    var code = (r.ISU_SRT_CD || '').toString().trim();
+    if (!wanted[code]) return;
+    var p = _parseKrxNumber(r.TDD_CLSPRC);
+    if (!(p > 0)) return;
+    out[code] = { price: p, name: wanted[code].name, officialName: (r.ISU_ABBRV || wanted[code].name || code) };
+  });
+  return out;
+}
+
+function _parseKrxNumber(v) {
+  var s = (v || '').toString().replace(/[,\s]/g, '').trim();
+  if (!s || s === '-' || s === '0') return 0;
+  var n = parseFloat(s);
+  return isNaN(n) ? 0 : Math.round(n);
+}
+
+function _getKrxApiConfig() {
+  var props = PropertiesService.getScriptProperties();
+  var endpoint = (props.getProperty('krx_api_endpoint') || 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd').trim();
+  var bld = (props.getProperty('krx_api_bld') || 'dbms/MDC/STAT/standard/MDCSTAT01501').trim();
+  return { endpoint: endpoint, bld: bld };
+}
+
+function configureKrxApiPrompt() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+
+  var props = PropertiesService.getScriptProperties();
+  var current = _getKrxApiConfig();
+  var endpointResp = ui.prompt(
+    'KRX API 주소 설정',
+    'KRX endpoint를 입력하세요.\n비우면 기본값 사용: ' + current.endpoint,
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (endpointResp.getSelectedButton() !== ui.Button.OK) return;
+  var nextEndpoint = (endpointResp.getResponseText() || '').trim();
+  if (!nextEndpoint) nextEndpoint = 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
+  props.setProperty('krx_api_endpoint', nextEndpoint);
+
+  var bldResp = ui.prompt(
+    'KRX BLD 코드 설정',
+    'BLD 코드를 입력하세요.\n비우면 기본값 사용: ' + current.bld,
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (bldResp.getSelectedButton() !== ui.Button.OK) return;
+  var nextBld = (bldResp.getResponseText() || '').trim();
+  if (!nextBld) nextBld = 'dbms/MDC/STAT/standard/MDCSTAT01501';
+  props.setProperty('krx_api_bld', nextBld);
+
+  var msg = '✅ KRX API 설정 저장 완료\nendpoint: ' + nextEndpoint + '\nbld: ' + nextBld;
+  Logger.log(msg);
+  ui.alert(msg);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -755,6 +860,35 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
 function _isManualKeepLatestEnabled() {
   var props = PropertiesService.getScriptProperties();
   return (props.getProperty('manual_keep_latest') || 'false') === 'true';
+}
+
+function _getPriceSourceMode() {
+  var props = PropertiesService.getScriptProperties();
+  var mode = (props.getProperty('price_source_mode') || 'google').toLowerCase();
+  if (mode !== 'krx_first') mode = 'google';
+  return mode;
+}
+
+function _priceSourceModeLabel() {
+  var mode = _getPriceSourceMode();
+  return mode === 'krx_first'
+    ? '📡 가격소스: KRX 우선 (GF 보조)'
+    : '📡 가격소스: GOOGLEFINANCE 전용';
+}
+
+function togglePriceSourceMode() {
+  var props = PropertiesService.getScriptProperties();
+  var next = _getPriceSourceMode() === 'krx_first' ? 'google' : 'krx_first';
+  props.setProperty('price_source_mode', next);
+  var msg = '⚙️ 가격소스 모드: ' + (next === 'krx_first' ? 'KRX 우선 (GF fallback)' : 'GOOGLEFINANCE 전용');
+  Logger.log(msg);
+  try {
+    SpreadsheetApp.getUi().alert(
+      msg +
+      '\n※ 과거 거래일 종가 정확도는 KRX 우선이 일반적으로 유리합니다.' +
+      '\n※ KRX 조회 실패 시 GOOGLEFINANCE로 자동 fallback 됩니다.'
+    );
+  } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function toggleManualKeepLatestOption() {
@@ -2520,6 +2654,7 @@ function onOpen() {
   var manualKeepLabel = _isManualKeepLatestEnabled()
     ? '🧷 수동가격 최신값만 유지: ON'
     : '🧷 수동가격 최신값만 유지: OFF';
+  var priceSourceLabel = _priceSourceModeLabel();
 
   SpreadsheetApp.getUi()
     .createMenu('📊 포트폴리오')
@@ -2528,8 +2663,10 @@ function onOpen() {
     .addItem('⏰ 자동 트리거 등록 (1회만)', 'setupTrigger')
     .addSeparator()
     // ── 종가 갱신 ──
-    .addItem('🔄 종가 갱신 (GOOGLEFINANCE)', 'updatePrices')
+    .addItem('🔄 종가 갱신 (소스설정 반영)', 'updatePrices')
     .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
+    .addItem(priceSourceLabel, 'togglePriceSourceMode')
+    .addItem('🔌 KRX API 주소/BLD 설정', 'configureKrxApiPrompt')
     .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
     .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
     .addSeparator()
