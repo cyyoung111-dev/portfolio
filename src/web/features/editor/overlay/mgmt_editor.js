@@ -191,7 +191,7 @@ function queueMgmtGsheetSync(immediate) {
 function _mgmtRefresh() {
   recomputeRows();
   renderSummary();
-  renderDonut();
+  if (typeof shouldRenderCharts !== 'function' || shouldRenderCharts(currentView)) renderDonut();
   if(currentView !== 'stocks') renderView();
   // 거래수정 팝업이 열려있으면 종목 버튼 목록 갱신
   if($el('tradeEditOverlay') && $el('tradeEditOverlay').style.display !== 'none') {
@@ -710,6 +710,6 @@ async function applyPrices() {
     closeEditor();
     renderView();
     renderSummary();
-    renderDonut();
+    if (typeof shouldRenderCharts !== 'function' || shouldRenderCharts(currentView)) renderDonut();
   }, 1500);
 }

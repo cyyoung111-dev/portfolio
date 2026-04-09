@@ -234,6 +234,10 @@ function renderTabSettingsBody() {
 let currentView = 'acct';
 
 const TABS_NO_CHARTS = new Set(['trades','tradegroup','history','div','asset','stocks','gsheet']);
+function shouldRenderCharts(viewId) {
+  const v = viewId || currentView;
+  return !TABS_NO_CHARTS.has(v);
+}
 const PERF_MODE = (function() {
   try {
     const qsOn = /(?:\?|&)perf=1(?:&|$)/.test(location.search || '');
@@ -287,11 +291,11 @@ function switchView(v) {
       buildTabBar();
       buildMobileNav();
       renderView();
-      renderDonut();
+      if (shouldRenderCharts(v)) renderDonut();
     });
   } catch(e) { console.warn('뷰 전환 실패:', e); buildTabBar(); }
   const charts = $el('chartsRow');
-  if (charts) charts.style.display = TABS_NO_CHARTS.has(v) ? 'none' : '';
+  if (charts) charts.style.display = shouldRenderCharts(v) ? '' : 'none';
 }
 
 // ── 뷰 캐시: 동일 탭·동일 데이터 상태면 재렌더 생략
