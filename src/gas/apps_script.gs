@@ -323,6 +323,10 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
 function fetchPricesKrx(items, dateStr) {
   if (!items || items.length === 0) return {};
   var cfg = _getKrxApiConfig();
+  if (!cfg.endpoint) {
+    Logger.log('⚠️ KRX endpoint 미설정: KRX 조회를 건너뜁니다. [🔌 KRX API 주소/BLD 설정]에서 입력하세요.');
+    return {};
+  }
   var endpoint = cfg.endpoint;
   var ymd = (dateStr || '').replace(/-/g, '');
   if (!/^\d{8}$/.test(ymd)) return {};
@@ -335,17 +339,29 @@ function fetchPricesKrx(items, dateStr) {
     money: '1',
     csvxls_isNo: 'false'
   };
+  var headers = {
+    'User-Agent': 'Mozilla/5.0 (compatible; AppsScript)',
+    'Referer': 'https://data.krx.co.kr/'
+  };
+  if (cfg.apiKey) {
+    headers['Authorization'] = 'Bearer ' + cfg.apiKey;
+    headers['X-API-KEY'] = cfg.apiKey;
+  }
   var resp = UrlFetchApp.fetch(endpoint, {
     method: 'post',
     payload: payload,
+    headers: headers,
     muteHttpExceptions: true
   });
-  if (resp.getResponseCode() >= 400) {
-    throw new Error('HTTP ' + resp.getResponseCode());
+  var status = resp.getResponseCode();
+  if (status >= 400) {
+    Logger.log('⚠️ KRX 조회 HTTP ' + status + ': endpoint=' + endpoint);
+    if (status === 403) Logger.log('⚠️ KRX 403: 공개 웹 엔드포인트 차단 가능성이 큽니다. OpenAPI 키/엔드포인트 설정을 권장합니다.');
+    throw new Error('HTTP ' + status);
   }
   var raw = resp.getContentText() || '{}';
   var json = JSON.parse(raw);
-  var rows = json && json.OutBlock_1 ? json.OutBlock_1 : [];
+  var rows = _extractKrxRows(json);
   if (!rows || rows.length === 0) return {};
 
   var wanted = {};
@@ -353,9 +369,9 @@ function fetchPricesKrx(items, dateStr) {
 
   var out = {};
   rows.forEach(function(r) {
-    var code = (r.ISU_SRT_CD || '').toString().trim();
+    var code = _pickKrxCode(r);
     if (!wanted[code]) return;
-    var p = _parseKrxNumber(r.TDD_CLSPRC);
+    var p = _parseKrxNumber(_pickKrxClose(r));
     if (!(p > 0)) return;
     out[code] = { price: p, name: wanted[code].name, officialName: (r.ISU_ABBRV || wanted[code].name || code), source: 'KRX' };
   });
@@ -371,9 +387,10 @@ function _parseKrxNumber(v) {
 
 function _getKrxApiConfig() {
   var props = PropertiesService.getScriptProperties();
-  var endpoint = (props.getProperty('krx_api_endpoint') || 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd').trim();
+  var endpoint = (props.getProperty('krx_api_endpoint') || '').trim();
   var bld = (props.getProperty('krx_api_bld') || 'dbms/MDC/STAT/standard/MDCSTAT01501').trim();
-  return { endpoint: endpoint, bld: bld };
+  var apiKey = (props.getProperty('krx_api_key') || '').trim();
+  return { endpoint: endpoint, bld: bld, apiKey: apiKey };
 }
 
 function configureKrxApiPrompt() {
@@ -385,12 +402,11 @@ function configureKrxApiPrompt() {
   var current = _getKrxApiConfig();
   var endpointResp = ui.prompt(
     'KRX API 주소 설정',
-    'KRX endpoint를 입력하세요.\n비우면 기본값 사용: ' + current.endpoint,
+    'KRX endpoint를 입력하세요.\n예) OpenAPI endpoint URL\n비우면 KRX 조회 비활성화',
     ui.ButtonSet.OK_CANCEL
   );
   if (endpointResp.getSelectedButton() !== ui.Button.OK) return;
   var nextEndpoint = (endpointResp.getResponseText() || '').trim();
-  if (!nextEndpoint) nextEndpoint = 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
   props.setProperty('krx_api_endpoint', nextEndpoint);
 
   var bldResp = ui.prompt(
@@ -403,9 +419,38 @@ function configureKrxApiPrompt() {
   if (!nextBld) nextBld = 'dbms/MDC/STAT/standard/MDCSTAT01501';
   props.setProperty('krx_api_bld', nextBld);
 
-  var msg = '✅ KRX API 설정 저장 완료\nendpoint: ' + nextEndpoint + '\nbld: ' + nextBld;
+  var keyResp = ui.prompt(
+    'KRX API Key 설정(선택)',
+    'OpenAPI 키를 입력하세요. 비우면 기존 키 유지/삭제하려면 "-" 입력',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (keyResp.getSelectedButton() !== ui.Button.OK) return;
+  var keyTxt = (keyResp.getResponseText() || '').trim();
+  if (keyTxt === '-') props.deleteProperty('krx_api_key');
+  else if (keyTxt) props.setProperty('krx_api_key', keyTxt);
+
+  var msg = '✅ KRX API 설정 저장 완료\nendpoint: ' + (nextEndpoint || '(비활성)') + '\nbld: ' + nextBld + '\napiKey: ' + (keyTxt && keyTxt !== '-' ? '설정됨' : (keyTxt === '-' ? '삭제됨' : '변경없음'));
   Logger.log(msg);
   ui.alert(msg);
+}
+
+function _extractKrxRows(json) {
+  if (!json) return [];
+  if (Array.isArray(json.OutBlock_1)) return json.OutBlock_1;
+  if (Array.isArray(json.output)) return json.output;
+  if (json.data && Array.isArray(json.data)) return json.data;
+  if (json.response && Array.isArray(json.response.body)) return json.response.body;
+  return [];
+}
+
+function _pickKrxCode(r) {
+  if (!r) return '';
+  return (r.ISU_SRT_CD || r.code || r.shrt_code || r.symbol || '').toString().trim();
+}
+
+function _pickKrxClose(r) {
+  if (!r) return 0;
+  return r.TDD_CLSPRC || r.clsprc || r.close || r.price || r.end_price || 0;
 }
 
 // ════════════════════════════════════════════════════════════════════
