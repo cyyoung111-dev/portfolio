@@ -324,8 +324,8 @@ function fetchPricesKrx(items, dateStr) {
   if (!items || items.length === 0) return {};
   var cfg = _getKrxApiConfig();
   if (!cfg.endpoint) {
-    Logger.log('⚠️ KRX endpoint 미설정: KRX 조회를 건너뜁니다. [🔌 KRX API 주소/BLD 설정]에서 입력하세요.');
-    return {};
+    Logger.log('ℹ️ KRX endpoint 미설정: KRX OTP/CSV 조회 시도');
+    return fetchPricesKrxViaOtp(items, dateStr);
   }
   var endpoint = cfg.endpoint;
   var ymd = (dateStr || '').replace(/-/g, '');
@@ -357,7 +357,8 @@ function fetchPricesKrx(items, dateStr) {
   if (status >= 400) {
     Logger.log('⚠️ KRX 조회 HTTP ' + status + ': endpoint=' + endpoint);
     if (status === 403) Logger.log('⚠️ KRX 403: 공개 웹 엔드포인트 차단 가능성이 큽니다. OpenAPI 키/엔드포인트 설정을 권장합니다.');
-    throw new Error('HTTP ' + status);
+    Logger.log('ℹ️ KRX API 실패: OTP/CSV fallback 시도');
+    return fetchPricesKrxViaOtp(items, dateStr);
   }
   var raw = resp.getContentText() || '{}';
   var json = JSON.parse(raw);
@@ -378,11 +379,99 @@ function fetchPricesKrx(items, dateStr) {
   return out;
 }
 
+function fetchPricesKrxViaOtp(items, dateStr) {
+  var ymd = (dateStr || '').replace(/-/g, '');
+  if (!/^\d{8}$/.test(ymd)) return {};
+  var wanted = {};
+  items.forEach(function(item) { wanted[item.code] = item; });
+  if (Object.keys(wanted).length === 0) return {};
+
+  var headers = {
+    'User-Agent': 'Mozilla/5.0 (compatible; AppsScript)',
+    'Referer': 'https://data.krx.co.kr/contents/MDC/MDI/mdiLoader'
+  };
+  var otpResp = UrlFetchApp.fetch('https://data.krx.co.kr/comm/fileDn/GenerateOTP/generate.cmd', {
+    method: 'post',
+    payload: {
+      locale: 'ko_KR',
+      mktId: 'ALL',
+      trdDd: ymd,
+      share: '1',
+      money: '1',
+      csvxls_isNo: 'false',
+      name: 'fileDown',
+      url: 'dbms/MDC/STAT/standard/MDCSTAT01501'
+    },
+    headers: headers,
+    muteHttpExceptions: true
+  });
+  if (otpResp.getResponseCode() >= 400) {
+    Logger.log('⚠️ KRX OTP 발급 실패 HTTP ' + otpResp.getResponseCode());
+    return {};
+  }
+  var otp = (otpResp.getContentText() || '').trim();
+  if (!otp || otp.length < 8) {
+    Logger.log('⚠️ KRX OTP 응답 비정상: ' + otp);
+    return {};
+  }
+
+  var csvResp = UrlFetchApp.fetch('https://data.krx.co.kr/comm/fileDn/download_csv/download.cmd', {
+    method: 'post',
+    payload: { code: otp },
+    headers: headers,
+    muteHttpExceptions: true
+  });
+  if (csvResp.getResponseCode() >= 400) {
+    Logger.log('⚠️ KRX CSV 다운로드 실패 HTTP ' + csvResp.getResponseCode());
+    return {};
+  }
+  var text = csvResp.getContentText('EUC-KR');
+  var rows = Utilities.parseCsv(text);
+  if (!rows || rows.length < 2) return {};
+
+  var header = rows[0];
+  var idxCode = _findCsvIndex(header, ['단축코드', '종목코드', 'ISU_SRT_CD']);
+  var idxName = _findCsvIndex(header, ['한글 종목약명', '종목명', 'ISU_ABBRV']);
+  var idxClose = _findCsvIndex(header, ['종가', 'TDD_CLSPRC', '종가(원)']);
+  if (idxCode < 0 || idxClose < 0) {
+    Logger.log('⚠️ KRX CSV 컬럼 해석 실패: ' + header.join('|'));
+    return {};
+  }
+
+  var out = {};
+  for (var i = 1; i < rows.length; i++) {
+    var r = rows[i] || [];
+    var code = _cleanCode(r[idxCode]);
+    if (!wanted[code]) continue;
+    var p = _parseKrxNumber(r[idxClose]);
+    if (!(p > 0)) continue;
+    out[code] = {
+      price: p,
+      name: wanted[code].name,
+      officialName: idxName >= 0 ? (r[idxName] || wanted[code].name || code) : (wanted[code].name || code),
+      source: 'KRX_OTP'
+    };
+  }
+  Logger.log('[price-source] KRX OTP/CSV 조회 결과 ' + Object.keys(out).length + '건');
+  return out;
+}
+
 function _parseKrxNumber(v) {
   var s = (v || '').toString().replace(/[,\s]/g, '').trim();
   if (!s || s === '-' || s === '0') return 0;
   var n = parseFloat(s);
   return isNaN(n) ? 0 : Math.round(n);
+}
+
+function _findCsvIndex(header, candidates) {
+  if (!Array.isArray(header)) return -1;
+  for (var i = 0; i < candidates.length; i++) {
+    var target = candidates[i];
+    for (var j = 0; j < header.length; j++) {
+      if ((header[j] || '').toString().trim() === target) return j;
+    }
+  }
+  return -1;
 }
 
 function _getKrxApiConfig() {
@@ -391,6 +480,38 @@ function _getKrxApiConfig() {
   var bld = (props.getProperty('krx_api_bld') || 'dbms/MDC/STAT/standard/MDCSTAT01501').trim();
   var apiKey = (props.getProperty('krx_api_key') || '').trim();
   return { endpoint: endpoint, bld: bld, apiKey: apiKey };
+}
+
+function _getKrxAuthKey() {
+  var props = PropertiesService.getScriptProperties();
+  return (props.getProperty('krx_auth_key') || props.getProperty('krx_api_key') || '').trim();
+}
+
+function configureKrxAuthKeyPrompt() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+
+  var current = _getKrxAuthKey();
+  var resp = ui.prompt(
+    'KRX AUTH_KEY 설정',
+    'KRX Open API AUTH_KEY를 입력하세요.\n삭제하려면 "-" 입력',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var input = (resp.getResponseText() || '').trim();
+  var props = PropertiesService.getScriptProperties();
+  if (input === '-') {
+    props.deleteProperty('krx_auth_key');
+    ui.alert('✅ krx_auth_key 삭제 완료');
+    return;
+  }
+  if (!input) {
+    ui.alert(current ? '변경 없음' : '⚠️ AUTH_KEY가 비어 있습니다.');
+    return;
+  }
+  props.setProperty('krx_auth_key', input);
+  ui.alert('✅ krx_auth_key 저장 완료');
 }
 
 function configureKrxApiPrompt() {
@@ -402,11 +523,19 @@ function configureKrxApiPrompt() {
   var current = _getKrxApiConfig();
   var endpointResp = ui.prompt(
     'KRX API 주소 설정',
-    'KRX endpoint를 입력하세요.\n예) OpenAPI endpoint URL\n비우면 KRX 조회 비활성화',
+    'KRX endpoint URL(https://...)을 입력하세요.\n예) https://.../market...\n※ API Key만 있는 경우 endpoint는 비워두세요(OTP/CSV 자동모드 사용).',
     ui.ButtonSet.OK_CANCEL
   );
   if (endpointResp.getSelectedButton() !== ui.Button.OK) return;
   var nextEndpoint = (endpointResp.getResponseText() || '').trim();
+  if (nextEndpoint && !/^https?:\/\//i.test(nextEndpoint)) {
+    ui.alert(
+      '⚠️ endpoint 형식 오류',
+      'endpoint는 https:// 로 시작하는 URL이어야 합니다.\n현재 입력값은 URL 형식이 아니라 API Key 또는 잘못된 값으로 보입니다.',
+      ui.ButtonSet.OK
+    );
+    return;
+  }
   props.setProperty('krx_api_endpoint', nextEndpoint);
 
   var bldResp = ui.prompt(
@@ -429,7 +558,8 @@ function configureKrxApiPrompt() {
   if (keyTxt === '-') props.deleteProperty('krx_api_key');
   else if (keyTxt) props.setProperty('krx_api_key', keyTxt);
 
-  var msg = '✅ KRX API 설정 저장 완료\nendpoint: ' + (nextEndpoint || '(비활성)') + '\nbld: ' + nextBld + '\napiKey: ' + (keyTxt && keyTxt !== '-' ? '설정됨' : (keyTxt === '-' ? '삭제됨' : '변경없음'));
+  var endpointLabel = nextEndpoint || '(미입력: KRX OTP/CSV 자동모드)';
+  var msg = '✅ KRX API 설정 저장 완료\nendpoint: ' + endpointLabel + '\nbld: ' + nextBld + '\napiKey: ' + (keyTxt && keyTxt !== '-' ? '설정됨' : (keyTxt === '-' ? '삭제됨' : '변경없음'));
   Logger.log(msg);
   ui.alert(msg);
 }
@@ -451,6 +581,148 @@ function _pickKrxCode(r) {
 function _pickKrxClose(r) {
   if (!r) return 0;
   return r.TDD_CLSPRC || r.clsprc || r.close || r.price || r.end_price || 0;
+}
+
+function importKrxClosesFromSettings() {
+  var ss = getss();
+  var req = _readKrxImportRequestFromSettings(ss);
+  var authKey = _getKrxAuthKey();
+  if (!authKey) throw new Error('krx_auth_key가 비어 있습니다. 메뉴에서 AUTH_KEY를 먼저 설정하세요.');
+
+  var outSheet = ss.getSheetByName('종가데이터') || ss.insertSheet('종가데이터');
+  _clearKrxCloseOutputSheet(outSheet);
+
+  var rows = [];
+  var dayList = _buildDateRangeYmd(req.startYmd, req.endYmd);
+  Logger.log('[KRX-IMPORT] 시작: 기간=' + req.startYmd + '~' + req.endYmd + ', 종목=' + Object.keys(req.wantedByMarket).length + '건, 일수=' + dayList.length);
+
+  dayList.forEach(function(ymd) {
+    ['KOSPI', 'KOSDAQ', 'ETF'].forEach(function(market) {
+      var wanted = req.wantedByMarket[market];
+      if (!wanted || Object.keys(wanted).length === 0) return;
+      try {
+        var list = _fetchKrxDailyOutBlock(market, ymd, authKey);
+        if (!list || list.length === 0) {
+          Logger.log('[KRX-IMPORT] ' + ymd + ' ' + market + ' 데이터 없음(휴장/무응답 가능)');
+          return;
+        }
+        var added = _collectFilteredKrxRows(rows, list, wanted, ymd, market);
+        Logger.log('[KRX-IMPORT] ' + ymd + ' ' + market + ' 매칭 ' + added + '건');
+      } catch (e) {
+        Logger.log('⚠️ [KRX-IMPORT] ' + ymd + ' ' + market + ' 실패: ' + e.message);
+      }
+    });
+  });
+
+  if (rows.length > 0) {
+    outSheet.getRange(2, 1, rows.length, 5).setValues(rows);
+    outSheet.getRange(2, 5, rows.length, 1).setNumberFormat('#,##0');
+  }
+
+  var msg = '✅ KRX 종가 불러오기 완료\n기간: ' + req.startYmd + ' ~ ' + req.endYmd + '\n저장 행수: ' + rows.length;
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+}
+
+function _readKrxImportRequestFromSettings(ss) {
+  var sh = ss.getSheetByName(CONFIG.SHEET_SETTINGS) || ss.insertSheet(CONFIG.SHEET_SETTINGS);
+  var startYmd = _normalizeYmd(sh.getRange('B1').getDisplayValue());
+  var endYmd = _normalizeYmd(sh.getRange('B2').getDisplayValue());
+  if (!startYmd || !endYmd) throw new Error('설정!B1/B2에 시작일/종료일(YYYYMMDD)을 입력하세요.');
+  if (startYmd > endYmd) throw new Error('시작일이 종료일보다 늦습니다. (B1 <= B2)');
+
+  var last = sh.getLastRow();
+  if (last < 3) throw new Error('설정!B3:C에 종목코드/시장구분을 입력하세요.');
+  var rows = sh.getRange(3, 2, last - 2, 2).getValues();
+  var wantedByMarket = { KOSPI: {}, KOSDAQ: {}, ETF: {} };
+  var inputCount = 0;
+
+  rows.forEach(function(r) {
+    var code = _cleanCode(r[0]);
+    var market = _normalizeMarketType(r[1]);
+    if (!code || !market) return;
+    if (!wantedByMarket[market]) return;
+    wantedByMarket[market][code] = true;
+    inputCount++;
+  });
+  if (inputCount === 0) throw new Error('유효한 대상 없음: C열 시장구분은 KOSPI/KOSDAQ/ETF만 허용됩니다.');
+  return { startYmd: startYmd, endYmd: endYmd, wantedByMarket: wantedByMarket };
+}
+
+function _normalizeMarketType(v) {
+  var raw = (v || '').toString().trim().toUpperCase();
+  if (!raw) return '';
+  if (raw === 'KOSPI' || raw === '코스피' || raw === '유가증권') return 'KOSPI';
+  if (raw === 'KOSDAQ' || raw === '코스닥' || raw === 'KOSDAQ시장') return 'KOSDAQ';
+  if (raw === 'ETF' || raw === 'ETP') return 'ETF';
+  return '';
+}
+
+function _buildDateRangeYmd(startYmd, endYmd) {
+  var out = [];
+  var d = _ymdToDate(startYmd);
+  var e = _ymdToDate(endYmd);
+  while (d.getTime() <= e.getTime()) {
+    out.push(Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyyMMdd'));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+function _ymdToDate(ymd) {
+  var y = parseInt(ymd.slice(0, 4), 10);
+  var m = parseInt(ymd.slice(4, 6), 10) - 1;
+  var d = parseInt(ymd.slice(6, 8), 10);
+  return new Date(y, m, d);
+}
+
+function _normalizeYmd(v) {
+  var s = (v || '').toString().replace(/[^0-9]/g, '');
+  if (!/^\d{8}$/.test(s)) return '';
+  return s;
+}
+
+function _getKrxEndpointByMarket(market) {
+  if (market === 'KOSPI') return 'https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd';
+  if (market === 'KOSDAQ') return 'https://data-dbg.krx.co.kr/svc/apis/sto/ksq_bydd_trd';
+  if (market === 'ETF') return 'https://data-dbg.krx.co.kr/svc/apis/etp/etf_bydd_trd';
+  throw new Error('지원하지 않는 시장구분: ' + market);
+}
+
+function _fetchKrxDailyOutBlock(market, ymd, authKey) {
+  var endpoint = _getKrxEndpointByMarket(market);
+  var url = endpoint + '?basDd=' + encodeURIComponent(ymd);
+  var resp = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: { AUTH_KEY: authKey },
+    muteHttpExceptions: true
+  });
+  var status = resp.getResponseCode();
+  if (status >= 400) throw new Error('HTTP ' + status + ' (' + market + ')');
+  var raw = resp.getContentText() || '{}';
+  var json = JSON.parse(raw);
+  var list = json.OutBlock_1;
+  if (!Array.isArray(list)) return [];
+  return list;
+}
+
+function _collectFilteredKrxRows(accRows, apiRows, wantedMap, ymd, market) {
+  var added = 0;
+  apiRows.forEach(function(r) {
+    var code = _cleanCode(r.ISU_CD || r.ISU_SRT_CD || '');
+    if (!code || !wantedMap[code]) return;
+    var close = _parseKrxNumber(r.TDD_CLSPRC);
+    if (!(close > 0)) return;
+    accRows.push([ymd, code, (r.ISU_NM || '').toString().trim(), market, close]);
+    added++;
+  });
+  return added;
+}
+
+function _clearKrxCloseOutputSheet(sh) {
+  sh.clearContents();
+  sh.getRange(1, 1, 1, 5).setValues([['날짜', '종목코드', '종목명', '시장구분', '종가']]);
+  sh.getRange(1, 1, 1, 5).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2112,42 +2384,6 @@ function _buildCodeAliasMap(codes) {
   return map;
 }
 
-function _buildCodeAliasMap(codes) {
-  var map = {};
-  (codes || []).forEach(function(rawCode) {
-    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
-    if (!canonical) return;
-    map[canonical] = canonical;
-    var legacy = _legacyDigitsCode(rawCode);
-    if (legacy && legacy !== canonical) map[legacy] = canonical;
-  });
-  return map;
-}
-
-function _buildCodeAliasMap(codes) {
-  var map = {};
-  (codes || []).forEach(function(rawCode) {
-    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
-    if (!canonical) return;
-    map[canonical] = canonical;
-    var legacy = _legacyDigitsCode(rawCode);
-    if (legacy && legacy !== canonical) map[legacy] = canonical;
-  });
-  return map;
-}
-
-function _buildCodeAliasMap(codes) {
-  var map = {};
-  (codes || []).forEach(function(rawCode) {
-    var canonical = _cleanCode(rawCode) || (rawCode || '').toString().trim();
-    if (!canonical) return;
-    map[canonical] = canonical;
-    var legacy = _legacyDigitsCode(rawCode);
-    if (legacy && legacy !== canonical) map[legacy] = canonical;
-  });
-  return map;
-}
-
 function _pad(n) { return n < 10 ? '0' + n : '' + n; }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2700,6 +2936,38 @@ function initSheet() {
     );
   } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
+
+function clearPriceAndSnapshotRows() {
+  var ss = getss();
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+
+  var ans = ui.alert(
+    '가격이력/스냅샷 데이터 삭제',
+    '제목행(1행)은 유지하고 2행 이하 데이터만 모두 삭제합니다.\n계속할까요?',
+    ui.ButtonSet.YES_NO
+  );
+  if (ans !== ui.Button.YES) return;
+
+  var deleted = 0;
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH) || ss.insertSheet(CONFIG.SHEET_PH);
+  if (ph.getLastRow() === 0) ph.getRange(1,1,1,6).setValues([['날짜','종목코드','종목명','가격','입력일시','가격소스']]);
+  if (ph.getLastRow() > 1) {
+    deleted += ph.getLastRow() - 1;
+    ph.getRange(2, 1, ph.getLastRow() - 1, Math.max(1, ph.getLastColumn())).clearContent();
+  }
+
+  var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) || ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
+  if (snap.getLastRow() === 0) snap.getRange(1,1,1,11).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스']]);
+  if (snap.getLastRow() > 1) {
+    deleted += snap.getLastRow() - 1;
+    snap.getRange(2, 1, snap.getLastRow() - 1, Math.max(1, snap.getLastColumn())).clearContent();
+  }
+  var msg = '✅ 삭제 완료 (총 ' + deleted + '행)';
+  Logger.log(msg);
+  ui.alert(msg);
+}
 // ════════════════════════════════════════════════════════════════════
 //  메뉴
 // ════════════════════════════════════════════════════════════════════
@@ -2719,8 +2987,10 @@ function onOpen() {
     .addSeparator()
     // ── 종가 갱신 ──
     .addItem('🔄 종가 갱신 (소스설정 반영)', 'updatePrices')
+    .addItem('📥 KRX 불러오기 (설정 B1:B2/B3:C)', 'importKrxClosesFromSettings')
     .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
     .addItem(priceSourceLabel, 'togglePriceSourceMode')
+    .addItem('🔑 KRX AUTH_KEY 설정', 'configureKrxAuthKeyPrompt')
     .addItem('🔌 KRX API 주소/BLD 설정', 'configureKrxApiPrompt')
     .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
     .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
@@ -2733,6 +3003,7 @@ function onOpen() {
     // ── 유지보수 ──
     .addItem('🧹 죽은 코드 정리', 'cleanDeadCodes')
     .addItem('🔧 가격이력 종목명 보정', 'fixPriceHistoryNames')
+    .addItem('🗑️ 가격이력/스냅샷 데이터 삭제(헤더 유지)', 'clearPriceAndSnapshotRows')
     .addItem('🩺 최근 가격 이상치 점검', 'detectPriceAnomalyDates')
     .addItem('🩹 기간 지정 점검 후 업데이트/복구', 'detectPriceAnomalyPromptAndMaybeRepair')
     .addToUi();
