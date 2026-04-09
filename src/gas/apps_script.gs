@@ -1076,22 +1076,22 @@ function saveDailyPriceHistory() {
     if (items.length === 0) { Logger.log('종목코드 없음'); return; }
 
     var existing = getPriceHistoryRow(ss, todayStr);
-    var toFetch  = items.filter(function(item){ return !existing[item.code]; });
     var prices   = {};
     Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
 
-    if (toFetch.length > 0) {
-      var gfPrices    = fetchPricesGoogleFinance(toFetch, todayStr, ss);
-      var newPriceRows = [];
-      toFetch.forEach(function(item) {
-        var p = gfPrices[item.code];
-        if (p && p.price > 0) {
+    // ★ 기존 오늘 값이 있어도 전 종목 재조회해 종가/최신값 반영
+    var gfPrices = fetchPricesGoogleFinance(items, todayStr, ss);
+    var newPriceRows = [];
+    items.forEach(function(item) {
+      var p = gfPrices[item.code];
+      if (p && p.price > 0) {
+        prices[item.code] = p.price;
+        if (!existing[item.code] || Number(existing[item.code]) !== Number(p.price)) {
           newPriceRows.push({ code: item.code, name: item.name, price: p.price });
-          prices[item.code] = p.price;
         }
-      });
-      if (newPriceRows.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceRows);
-    }
+      }
+    });
+    if (newPriceRows.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceRows);
 
     var holdSh = ss.getSheetByName(CONFIG.SHEET_HOLD);
     if (!holdSh || holdSh.getLastRow() < 2) {
