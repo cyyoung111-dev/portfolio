@@ -28,14 +28,16 @@ function buildActiveFiltersBar(tableId) {
 
 // 테이블 내부 HTML 빌더 (필터/정렬 상태 반영)
 function buildTableInner(rawData, tableId, extraCol) {
+  const perfRun = window.__pfPerfRun;
+  if (window.__pfPerfMode && typeof perfRun === 'function') {
+    return perfRun(`buildTableInner:${tableId}`, () => buildTableInnerCore(rawData, tableId, extraCol));
+  }
+  return buildTableInnerCore(rawData, tableId, extraCol);
+}
+
+function buildTableInnerCore(rawData, tableId, extraCol) {
   const st = getTableState(tableId);
   const data = applyFiltersAndSort(rawData, tableId);
-
-  const totalEval = data.reduce((s,r)=>s+r.evalAmt,0);
-  const totalCost = data.reduce((s,r)=>s+r.costAmt,0);
-  const totalPnl  = totalEval - totalCost;
-  const totalPct  = totalCost > 0 ? totalPnl / totalCost * 100 : 0;
-  const pC = pColor(totalPnl), pS = pSign(totalPnl);
 
   const hasFilters = Object.keys(st.filters).length > 0;
   const filteredBadge = hasFilters
@@ -70,19 +72,15 @@ function buildTableInner(rawData, tableId, extraCol) {
     thSort('pct','수익률'),
   ].join('');
 
-  let html = `${buildActiveFiltersBar(tableId)}
-  <div class="tbl-wrap">
-    <div class="tbl-head">
-      <h3>종목 목록 ${filteredBadge}</h3>
-      <div class="tsum">평가 <b>${fmt(totalEval)}</b> &nbsp; 손익 <span style="color:${pC}">${pS}${fmt(totalPnl)} (${pS}${totalPct.toFixed(1)}%)</span> <span class="txt-muted-68">(단위:원)</span></div>
-    </div>
-    <div class="overflow-x-auto"><table><thead><tr>${headerCols}</tr></thead><tbody>`;
-
+  let totalEval = 0;
+  let totalCost = 0;
   let smallCount = 0;
   let smallEvalSum = 0;
   const rowsHtml = [];
 
   data.forEach(r => {
+    totalEval += (r.evalAmt || 0);
+    totalCost += (r.costAmt || 0);
     const isSmall = r.evalAmt < SMALL_THRESHOLD && !r.fund;
     if (isSmall) {
       smallCount += 1;
@@ -118,6 +116,17 @@ function buildTableInner(rawData, tableId, extraCol) {
     </tr>`);
   });
 
+  const totalPnl  = totalEval - totalCost;
+  const totalPct  = totalCost > 0 ? totalPnl / totalCost * 100 : 0;
+  const pC = pColor(totalPnl), pS = pSign(totalPnl);
+
+  let html = `${buildActiveFiltersBar(tableId)}
+  <div class="tbl-wrap">
+    <div class="tbl-head">
+      <h3>종목 목록 ${filteredBadge}</h3>
+      <div class="tsum">평가 <b>${fmt(totalEval)}</b> &nbsp; 손익 <span style="color:${pC}">${pS}${fmt(totalPnl)} (${pS}${totalPct.toFixed(1)}%)</span> <span class="txt-muted-68">(단위:원)</span></div>
+    </div>
+    <div class="overflow-x-auto"><table><thead><tr>${headerCols}</tr></thead><tbody>`;
   html += rowsHtml.join('');
   html += `</tbody></table></div></div>`;
 
