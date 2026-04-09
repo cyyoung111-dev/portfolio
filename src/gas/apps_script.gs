@@ -1126,6 +1126,142 @@ function saveDailyPriceHistory() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+//  단일 날짜 가격/스냅샷 복구
+//  예: repairPriceAndSnapshotForDate('2026-04-08')
+// ════════════════════════════════════════════════════════════════════
+function repairPriceAndSnapshotForDate(dateStr) {
+  try {
+    var normDate = _normalizeDate(dateStr);
+    if (!normDate) throw new Error('유효한 날짜가 아닙니다: ' + dateStr);
+    var ss = getss();
+
+    var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+    if (!tradeSh || tradeSh.getLastRow() < 2) throw new Error('거래이력 시트가 없습니다');
+    var tradeData = tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1, 8).getValues();
+
+    var nameToCode = {};
+    getCodeItems(ss).forEach(function(item){ nameToCode[item.name] = item.code; });
+    tradeData.forEach(function(row) {
+      var name = (row[3]||'').toString().trim();
+      var code = (row[4]||'').toString().trim();
+      if (name && code && !nameToCode[name]) nameToCode[name] = code;
+    });
+
+    var holdAtDate = calcHoldingsAtDate(tradeData, normDate, nameToCode);
+    if (Object.keys(holdAtDate).length === 0) {
+      Logger.log('[repair] 보유 종목 없음: ' + normDate);
+      return;
+    }
+
+    var codeItems = Object.keys(holdAtDate)
+      .map(function(k){ return holdAtDate[k]; })
+      .filter(function(h){ return h.code && h.qty > 0; })
+      .map(function(h){ return { code: h.code, name: h.name }; });
+
+    var gfResult = fetchPricesGoogleFinance(codeItems, normDate, ss);
+    var prices = {};
+    Object.keys(gfResult).forEach(function(code) {
+      var val = gfResult[code];
+      prices[code] = val.price || val;
+    });
+
+    var phItems = Object.keys(holdAtDate)
+      .map(function(k){ return holdAtDate[k]; })
+      .filter(function(h){ return h.code && h.qty > 0 && prices[h.code] > 0; })
+      .map(function(h){ return { code: h.code, name: h.name, price: prices[h.code] }; });
+    if (phItems.length > 0) batchUpsertPriceHistory(ss, normDate, phItems);
+
+    var snapRows = [];
+    Object.keys(holdAtDate).forEach(function(k) {
+      var h = holdAtDate[k];
+      if (h.qty <= 0) return;
+      var price   = (h.code && prices[h.code]) ? prices[h.code] : 0;
+      var evalAmt = price > 0 ? Math.round(price * h.qty) : h.costAmt;
+      var pnl     = evalAmt - h.costAmt;
+      var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
+      var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
+      var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
+      snapRows.push([normDate, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct]);
+    });
+    if (snapRows.length > 0) writeSnapshotRows(ss, normDate, snapRows, true);
+
+    Logger.log('[repair] 완료: ' + normDate + ' · 가격 ' + phItems.length + '건 · 스냅샷 ' + snapRows.length + '건');
+  } catch (err) {
+    Logger.log('❌ repairPriceAndSnapshotForDate 실패: ' + err.message);
+    throw err;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  최근 날짜 가격 이상치 점검 (GF 대비)
+//  예: detectPriceAnomalyDates(7, 8) // 최근 7일, 8% 이상 차이
+// ════════════════════════════════════════════════════════════════════
+function detectPriceAnomalyDates(days, thresholdPct) {
+  var maxDays = Math.max(1, parseInt(days || 7, 10));
+  var threshold = Math.max(1, parseFloat(thresholdPct || 8));
+  var ss = getss();
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!ph || ph.getLastRow() < 2) {
+    Logger.log('[anomaly] 가격이력 시트 데이터 없음');
+    return [];
+  }
+
+  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+  var byDate = {};
+  rows.forEach(function(r) {
+    var d = _normalizeDate(r[0]);
+    var code = _cleanCode(r[1]) || (r[1] || '').toString().trim();
+    var name = (r[2] || '').toString().trim();
+    var price = parseFloat(r[3]) || 0;
+    var key = code || name;
+    if (!d || !key || price <= 0) return;
+    if (!byDate[d]) byDate[d] = {};
+    byDate[d][key] = { code: code, name: name || key, price: price };
+  });
+
+  var dates = Object.keys(byDate).sort().reverse().slice(0, maxDays);
+  var anomalies = [];
+
+  dates.forEach(function(d) {
+    var map = byDate[d];
+    var items = Object.keys(map)
+      .map(function(k){ return map[k]; })
+      .filter(function(i){ return i.code; })
+      .map(function(i){ return { code: i.code, name: i.name }; });
+    if (items.length === 0) return;
+
+    var gf = fetchPricesGoogleFinance(items, d, ss);
+    Object.keys(map).forEach(function(k) {
+      var row = map[k];
+      if (!row.code || !(gf[row.code] && gf[row.code].price > 0)) return;
+      var gfPrice = parseFloat(gf[row.code].price) || 0;
+      if (gfPrice <= 0) return;
+      var diffPct = Math.abs((row.price - gfPrice) / gfPrice * 100);
+      if (diffPct >= threshold) {
+        anomalies.push({
+          date: d,
+          code: row.code,
+          name: row.name,
+          hist: row.price,
+          gf: gfPrice,
+          diffPct: +diffPct.toFixed(2)
+        });
+      }
+    });
+  });
+
+  var summary = '[anomaly] 최근 ' + dates.length + '일 점검, 이상치 ' + anomalies.length + '건';
+  Logger.log(summary);
+  anomalies.slice(0, 30).forEach(function(a) {
+    Logger.log(a.date + ' ' + a.code + ' ' + a.name + ' hist=' + a.hist + ' gf=' + a.gf + ' diff=' + a.diffPct + '%');
+  });
+  try {
+    SpreadsheetApp.getUi().alert(summary + (anomalies.length ? '\n(자세한 목록은 실행 로그 참고)' : ''));
+  } catch(e) {}
+  return anomalies;
+}
+
+// ════════════════════════════════════════════════════════════════════
 //  트리거 등록
 // ════════════════════════════════════════════════════════════════════
 function setupTrigger() {
@@ -2224,6 +2360,7 @@ function onOpen() {
     // ── 유지보수 ──
     .addItem('🧹 죽은 코드 정리', 'cleanDeadCodes')
     .addItem('🔧 가격이력 종목명 보정', 'fixPriceHistoryNames')
+    .addItem('🩺 최근 가격 이상치 점검', 'detectPriceAnomalyDates')
     .addToUi();
 }
 
