@@ -1256,9 +1256,126 @@ function detectPriceAnomalyDates(days, thresholdPct) {
     Logger.log(a.date + ' ' + a.code + ' ' + a.name + ' hist=' + a.hist + ' gf=' + a.gf + ' diff=' + a.diffPct + '%');
   });
   try {
-    SpreadsheetApp.getUi().alert(summary + (anomalies.length ? '\n(자세한 목록은 실행 로그 참고)' : ''));
+    var logGuide = '\n실행 로그: 확장 프로그램 > Apps Script > 실행(Executions) > detectPriceAnomalyDates';
+    SpreadsheetApp.getUi().alert(summary + (anomalies.length ? logGuide : ''));
   } catch(e) {}
   return anomalies;
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  특정 일자 가격 이상치 점검 + 복구 여부 확인
+//  예: detectPriceAnomalyForDate('2026-04-08', 8)
+// ════════════════════════════════════════════════════════════════════
+function detectPriceAnomalyForDate(dateStr, thresholdPct) {
+  var targetDate = _normalizeDate(dateStr || '');
+  if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    throw new Error('유효한 일자를 입력하세요. 예) 2026-04-08');
+  }
+  var threshold = Math.max(1, parseFloat(thresholdPct || 8));
+  var ss = getss();
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!ph || ph.getLastRow() < 2) {
+    Logger.log('[anomaly/date] 가격이력 시트 데이터 없음');
+    return { date: targetDate, threshold: threshold, anomalies: [], summary: '[anomaly/date] 가격이력 시트 데이터 없음' };
+  }
+
+  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+  var map = {};
+  rows.forEach(function(r) {
+    var d = _normalizeDate(r[0]);
+    if (d !== targetDate) return;
+    var code = _cleanCode(r[1]) || (r[1] || '').toString().trim();
+    var name = (r[2] || '').toString().trim();
+    var price = parseFloat(r[3]) || 0;
+    var key = code || name;
+    if (!key || price <= 0) return;
+    map[key] = { code: code, name: name || key, price: price };
+  });
+
+  var items = Object.keys(map)
+    .map(function(k){ return map[k]; })
+    .filter(function(i){ return i.code; })
+    .map(function(i){ return { code: i.code, name: i.name }; });
+
+  if (items.length === 0) {
+    var noDataSummary = '[anomaly/date] ' + targetDate + ' 가격이력 데이터 없음';
+    Logger.log(noDataSummary);
+    return { date: targetDate, threshold: threshold, anomalies: [], summary: noDataSummary };
+  }
+
+  var gf = fetchPricesGoogleFinance(items, targetDate, ss);
+  var anomalies = [];
+  Object.keys(map).forEach(function(k) {
+    var row = map[k];
+    if (!row.code || !(gf[row.code] && gf[row.code].price > 0)) return;
+    var gfPrice = parseFloat(gf[row.code].price) || 0;
+    if (gfPrice <= 0) return;
+    var diffPct = Math.abs((row.price - gfPrice) / gfPrice * 100);
+    if (diffPct >= threshold) {
+      anomalies.push({
+        date: targetDate,
+        code: row.code,
+        name: row.name,
+        hist: row.price,
+        gf: gfPrice,
+        diffPct: +diffPct.toFixed(2)
+      });
+    }
+  });
+
+  var summary = '[anomaly/date] ' + targetDate + ' 점검, 이상치 ' + anomalies.length + '건 (기준 ' + threshold + '%)';
+  Logger.log(summary);
+  anomalies.slice(0, 50).forEach(function(a) {
+    Logger.log(a.date + ' ' + a.code + ' ' + a.name + ' hist=' + a.hist + ' gf=' + a.gf + ' diff=' + a.diffPct + '%');
+  });
+  return { date: targetDate, threshold: threshold, anomalies: anomalies, summary: summary };
+}
+
+function detectPriceAnomalyPromptAndMaybeRepair() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+
+  var dateResp = ui.prompt(
+    '특정 일자 이상치 점검',
+    '검토할 일자를 입력하세요. (예: 2026-04-08)',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (dateResp.getSelectedButton() !== ui.Button.OK) return;
+  var targetDate = _normalizeDate(dateResp.getResponseText() || '');
+  if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    ui.alert('유효한 날짜 형식이 아닙니다. 예: 2026-04-08');
+    return;
+  }
+
+  var thresholdResp = ui.prompt(
+    '이상치 기준(%)',
+    '차이율 임계값을 입력하세요. (기본 8)',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (thresholdResp.getSelectedButton() !== ui.Button.OK) return;
+  var threshold = parseFloat((thresholdResp.getResponseText() || '').trim());
+  if (!(threshold > 0)) threshold = 8;
+
+  var result = detectPriceAnomalyForDate(targetDate, threshold);
+  var logGuide = '\n실행 로그: 확장 프로그램 > Apps Script > 실행(Executions) > detectPriceAnomalyPromptAndMaybeRepair';
+  if (!result.anomalies.length) {
+    ui.alert(result.summary + '\n이상치가 없어 자동 복구를 건너뜁니다.' + logGuide);
+    return;
+  }
+
+  var ask = ui.alert(
+    '이상치 발견',
+    result.summary + '\n복구(가격이력+스냅샷 재생성)를 진행할까요?' + logGuide,
+    ui.ButtonSet.YES_NO
+  );
+  if (ask !== ui.Button.YES) {
+    ui.alert('복구를 취소했습니다. 필요 시 메뉴에서 다시 실행해 주세요.');
+    return;
+  }
+
+  repairPriceAndSnapshotForDate(targetDate);
+  ui.alert('✅ 복구 완료: ' + targetDate + '\n다시 이상치 점검을 실행해 결과를 확인하세요.');
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2361,6 +2478,7 @@ function onOpen() {
     .addItem('🧹 죽은 코드 정리', 'cleanDeadCodes')
     .addItem('🔧 가격이력 종목명 보정', 'fixPriceHistoryNames')
     .addItem('🩺 최근 가격 이상치 점검', 'detectPriceAnomalyDates')
+    .addItem('🩹 특정 일자 점검 후 복구 여부 확인', 'detectPriceAnomalyPromptAndMaybeRepair')
     .addToUi();
 }
 
