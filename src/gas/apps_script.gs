@@ -237,6 +237,24 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
 //  GOOGLEFINANCE 가격 조회 핵심
 // ════════════════════════════════════════════════════════════════════
 function fetchPricesGoogleFinance(items, dateStr, ss) {
+  var sourceMode = _getPriceSourceMode();
+  var prices = {};
+  var gfItems = items.slice();
+
+  if (sourceMode === 'krx_first') {
+    try {
+      var krxPrices = fetchPricesKrx(items, dateStr);
+      Object.keys(krxPrices).forEach(function(code) { prices[code] = krxPrices[code]; });
+      gfItems = items.filter(function(item) { return !(prices[item.code] && prices[item.code].price > 0); });
+      Logger.log('[price-source] krx_first: KRX ' + Object.keys(krxPrices).length + '건, GF fallback 대상 ' + gfItems.length + '건');
+    } catch (e) {
+      Logger.log('⚠️ KRX 조회 실패, GOOGLEFINANCE로 fallback: ' + e.message);
+      gfItems = items.slice();
+    }
+  }
+
+  if (gfItems.length === 0) return prices;
+
   var tmp = ss.getSheetByName(CONFIG.SHEET_TMP);
   if (!tmp) tmp = ss.insertSheet(CONFIG.SHEET_TMP);
   tmp.clearContents();
@@ -250,7 +268,7 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
   var fromFmt  = fmtDate(fromObj);
   var toFmt    = fmtDate(dtObj);
 
-  var formulas = items.map(function(item) {
+  var formulas = gfItems.map(function(item) {
     var krx    = '"KRX:' + item.code + '"';
     var kosdaq = '"KOSDAQ:' + item.code + '"';
     if (isToday) {
@@ -292,8 +310,7 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
     Logger.log('⚠️ tmp 시트 정리 실패: ' + e.message);
   }
 
-  var prices = {};
-  items.forEach(function(item, i) {
+  gfItems.forEach(function(item, i) {
     var val   = values[i][0];
     var str   = String(val || '');
     var price = (val && val !== '-' && !str.startsWith('#')) ? Math.round(parseFloat(val)) : 0;
@@ -301,6 +318,94 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
   });
 
   return prices;
+}
+
+function fetchPricesKrx(items, dateStr) {
+  if (!items || items.length === 0) return {};
+  var cfg = _getKrxApiConfig();
+  var endpoint = cfg.endpoint;
+  var ymd = (dateStr || '').replace(/-/g, '');
+  if (!/^\d{8}$/.test(ymd)) return {};
+
+  var payload = {
+    bld: cfg.bld,
+    mktId: 'ALL',
+    trdDd: ymd,
+    share: '1',
+    money: '1',
+    csvxls_isNo: 'false'
+  };
+  var resp = UrlFetchApp.fetch(endpoint, {
+    method: 'post',
+    payload: payload,
+    muteHttpExceptions: true
+  });
+  if (resp.getResponseCode() >= 400) {
+    throw new Error('HTTP ' + resp.getResponseCode());
+  }
+  var raw = resp.getContentText() || '{}';
+  var json = JSON.parse(raw);
+  var rows = json && json.OutBlock_1 ? json.OutBlock_1 : [];
+  if (!rows || rows.length === 0) return {};
+
+  var wanted = {};
+  items.forEach(function(item) { wanted[item.code] = item; });
+
+  var out = {};
+  rows.forEach(function(r) {
+    var code = (r.ISU_SRT_CD || '').toString().trim();
+    if (!wanted[code]) return;
+    var p = _parseKrxNumber(r.TDD_CLSPRC);
+    if (!(p > 0)) return;
+    out[code] = { price: p, name: wanted[code].name, officialName: (r.ISU_ABBRV || wanted[code].name || code) };
+  });
+  return out;
+}
+
+function _parseKrxNumber(v) {
+  var s = (v || '').toString().replace(/[,\s]/g, '').trim();
+  if (!s || s === '-' || s === '0') return 0;
+  var n = parseFloat(s);
+  return isNaN(n) ? 0 : Math.round(n);
+}
+
+function _getKrxApiConfig() {
+  var props = PropertiesService.getScriptProperties();
+  var endpoint = (props.getProperty('krx_api_endpoint') || 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd').trim();
+  var bld = (props.getProperty('krx_api_bld') || 'dbms/MDC/STAT/standard/MDCSTAT01501').trim();
+  return { endpoint: endpoint, bld: bld };
+}
+
+function configureKrxApiPrompt() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+
+  var props = PropertiesService.getScriptProperties();
+  var current = _getKrxApiConfig();
+  var endpointResp = ui.prompt(
+    'KRX API 주소 설정',
+    'KRX endpoint를 입력하세요.\n비우면 기본값 사용: ' + current.endpoint,
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (endpointResp.getSelectedButton() !== ui.Button.OK) return;
+  var nextEndpoint = (endpointResp.getResponseText() || '').trim();
+  if (!nextEndpoint) nextEndpoint = 'http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd';
+  props.setProperty('krx_api_endpoint', nextEndpoint);
+
+  var bldResp = ui.prompt(
+    'KRX BLD 코드 설정',
+    'BLD 코드를 입력하세요.\n비우면 기본값 사용: ' + current.bld,
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (bldResp.getSelectedButton() !== ui.Button.OK) return;
+  var nextBld = (bldResp.getResponseText() || '').trim();
+  if (!nextBld) nextBld = 'dbms/MDC/STAT/standard/MDCSTAT01501';
+  props.setProperty('krx_api_bld', nextBld);
+
+  var msg = '✅ KRX API 설정 저장 완료\nendpoint: ' + nextEndpoint + '\nbld: ' + nextBld;
+  Logger.log(msg);
+  ui.alert(msg);
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -533,19 +638,24 @@ function handleGetPricesCompat(codesParam) {
       else missing.push(code);
     });
 
-    if (missing.length > 0) {
+    // ★ 오늘 가격이력 값이 있어도 GOOGLEFINANCE 최신값으로 재검증/갱신
+    //    (장중 조회값이 종가로 굳어지는 문제 방지)
+    if (reqCodes.length > 0) {
       var codeNameMap = {};
       getCodeItems(ss).forEach(function(item) { codeNameMap[item.code] = item.name; });
-      var missingItems = missing.map(function(c){ return { code: c, name: codeNameMap[c] || c }; });
+      var missingItems = reqCodes.map(function(c){ return { code: c, name: codeNameMap[c] || c }; });
       var gfPrices     = fetchPricesGoogleFinance(missingItems, todayStr, ss);
       var newPriceItems = [];
       var stillMissing  = [];
-      missing.forEach(function(code) {
+      reqCodes.forEach(function(code) {
         if (gfPrices[code] && gfPrices[code].price > 0) {
-          prices[code] = gfPrices[code].price;
-          newPriceItems.push({ code: code, name: codeNameMap[code] || code, price: gfPrices[code].price });
+          var nextPrice = gfPrices[code].price;
+          prices[code] = nextPrice;
+          if (!phPrices[code] || Number(phPrices[code]) !== Number(nextPrice)) {
+            newPriceItems.push({ code: code, name: codeNameMap[code] || code, price: nextPrice });
+          }
         } else {
-          stillMissing.push(code);
+          if (!prices[code]) stillMissing.push(code);
         }
       });
       if (newPriceItems.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceItems);
@@ -750,6 +860,35 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
 function _isManualKeepLatestEnabled() {
   var props = PropertiesService.getScriptProperties();
   return (props.getProperty('manual_keep_latest') || 'false') === 'true';
+}
+
+function _getPriceSourceMode() {
+  var props = PropertiesService.getScriptProperties();
+  var mode = (props.getProperty('price_source_mode') || 'google').toLowerCase();
+  if (mode !== 'krx_first') mode = 'google';
+  return mode;
+}
+
+function _priceSourceModeLabel() {
+  var mode = _getPriceSourceMode();
+  return mode === 'krx_first'
+    ? '📡 가격소스: KRX 우선 (GF 보조)'
+    : '📡 가격소스: GOOGLEFINANCE 전용';
+}
+
+function togglePriceSourceMode() {
+  var props = PropertiesService.getScriptProperties();
+  var next = _getPriceSourceMode() === 'krx_first' ? 'google' : 'krx_first';
+  props.setProperty('price_source_mode', next);
+  var msg = '⚙️ 가격소스 모드: ' + (next === 'krx_first' ? 'KRX 우선 (GF fallback)' : 'GOOGLEFINANCE 전용');
+  Logger.log(msg);
+  try {
+    SpreadsheetApp.getUi().alert(
+      msg +
+      '\n※ 과거 거래일 종가 정확도는 KRX 우선이 일반적으로 유리합니다.' +
+      '\n※ KRX 조회 실패 시 GOOGLEFINANCE로 자동 fallback 됩니다.'
+    );
+  } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function toggleManualKeepLatestOption() {
@@ -1071,22 +1210,22 @@ function saveDailyPriceHistory() {
     if (items.length === 0) { Logger.log('종목코드 없음'); return; }
 
     var existing = getPriceHistoryRow(ss, todayStr);
-    var toFetch  = items.filter(function(item){ return !existing[item.code]; });
     var prices   = {};
     Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
 
-    if (toFetch.length > 0) {
-      var gfPrices    = fetchPricesGoogleFinance(toFetch, todayStr, ss);
-      var newPriceRows = [];
-      toFetch.forEach(function(item) {
-        var p = gfPrices[item.code];
-        if (p && p.price > 0) {
+    // ★ 기존 오늘 값이 있어도 전 종목 재조회해 종가/최신값 반영
+    var gfPrices = fetchPricesGoogleFinance(items, todayStr, ss);
+    var newPriceRows = [];
+    items.forEach(function(item) {
+      var p = gfPrices[item.code];
+      if (p && p.price > 0) {
+        prices[item.code] = p.price;
+        if (!existing[item.code] || Number(existing[item.code]) !== Number(p.price)) {
           newPriceRows.push({ code: item.code, name: item.name, price: p.price });
-          prices[item.code] = p.price;
         }
-      });
-      if (newPriceRows.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceRows);
-    }
+      }
+    });
+    if (newPriceRows.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceRows);
 
     var holdSh = ss.getSheetByName(CONFIG.SHEET_HOLD);
     if (!holdSh || holdSh.getLastRow() < 2) {
@@ -1118,6 +1257,323 @@ function saveDailyPriceHistory() {
   } catch(err) {
     Logger.log('❌ saveDailyPriceHistory 실패: ' + err.message);
   }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  단일 날짜 가격/스냅샷 복구
+//  예: repairPriceAndSnapshotForDate('2026-04-08')
+// ════════════════════════════════════════════════════════════════════
+function repairPriceAndSnapshotForDate(dateStr) {
+  try {
+    var normDate = _normalizeDate(dateStr);
+    if (!normDate) throw new Error('유효한 날짜가 아닙니다: ' + dateStr);
+    var ss = getss();
+
+    var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+    if (!tradeSh || tradeSh.getLastRow() < 2) throw new Error('거래이력 시트가 없습니다');
+    var tradeData = tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1, 8).getValues();
+
+    var nameToCode = {};
+    getCodeItems(ss).forEach(function(item){ nameToCode[item.name] = item.code; });
+    tradeData.forEach(function(row) {
+      var name = (row[3]||'').toString().trim();
+      var code = (row[4]||'').toString().trim();
+      if (name && code && !nameToCode[name]) nameToCode[name] = code;
+    });
+
+    var holdAtDate = calcHoldingsAtDate(tradeData, normDate, nameToCode);
+    if (Object.keys(holdAtDate).length === 0) {
+      Logger.log('[repair] 보유 종목 없음: ' + normDate);
+      return;
+    }
+
+    var codeItems = Object.keys(holdAtDate)
+      .map(function(k){ return holdAtDate[k]; })
+      .filter(function(h){ return h.code && h.qty > 0; })
+      .map(function(h){ return { code: h.code, name: h.name }; });
+
+    var gfResult = fetchPricesGoogleFinance(codeItems, normDate, ss);
+    var prices = {};
+    Object.keys(gfResult).forEach(function(code) {
+      var val = gfResult[code];
+      prices[code] = val.price || val;
+    });
+
+    var phItems = Object.keys(holdAtDate)
+      .map(function(k){ return holdAtDate[k]; })
+      .filter(function(h){ return h.code && h.qty > 0 && prices[h.code] > 0; })
+      .map(function(h){ return { code: h.code, name: h.name, price: prices[h.code] }; });
+    if (phItems.length > 0) batchUpsertPriceHistory(ss, normDate, phItems);
+
+    var snapRows = [];
+    Object.keys(holdAtDate).forEach(function(k) {
+      var h = holdAtDate[k];
+      if (h.qty <= 0) return;
+      var price   = (h.code && prices[h.code]) ? prices[h.code] : 0;
+      var evalAmt = price > 0 ? Math.round(price * h.qty) : h.costAmt;
+      var pnl     = evalAmt - h.costAmt;
+      var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
+      var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
+      var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
+      snapRows.push([normDate, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct]);
+    });
+    if (snapRows.length > 0) writeSnapshotRows(ss, normDate, snapRows, true);
+
+    Logger.log('[repair] 완료: ' + normDate + ' · 가격 ' + phItems.length + '건 · 스냅샷 ' + snapRows.length + '건');
+  } catch (err) {
+    Logger.log('❌ repairPriceAndSnapshotForDate 실패: ' + err.message);
+    throw err;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  최근 날짜 가격 이상치 점검 (GF 대비)
+//  예: detectPriceAnomalyDates(7, 8) // 최근 7일, 8% 이상 차이
+// ════════════════════════════════════════════════════════════════════
+function detectPriceAnomalyDates(days, thresholdPct) {
+  var maxDays = Math.max(1, parseInt(days || 7, 10));
+  var threshold = Math.max(1, parseFloat(thresholdPct || 8));
+  var ss = getss();
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!ph || ph.getLastRow() < 2) {
+    Logger.log('[anomaly] 가격이력 시트 데이터 없음');
+    return [];
+  }
+
+  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+  var byDate = {};
+  rows.forEach(function(r) {
+    var d = _normalizeDate(r[0]);
+    var code = _cleanCode(r[1]) || (r[1] || '').toString().trim();
+    var name = (r[2] || '').toString().trim();
+    var price = parseFloat(r[3]) || 0;
+    var key = code || name;
+    if (!d || !key || price <= 0) return;
+    if (!byDate[d]) byDate[d] = {};
+    byDate[d][key] = { code: code, name: name || key, price: price };
+  });
+
+  var dates = Object.keys(byDate).sort().reverse().slice(0, maxDays);
+  var anomalies = [];
+
+  dates.forEach(function(d) {
+    var map = byDate[d];
+    var items = Object.keys(map)
+      .map(function(k){ return map[k]; })
+      .filter(function(i){ return i.code; })
+      .map(function(i){ return { code: i.code, name: i.name }; });
+    if (items.length === 0) return;
+
+    var gf = fetchPricesGoogleFinance(items, d, ss);
+    Object.keys(map).forEach(function(k) {
+      var row = map[k];
+      if (!row.code || !(gf[row.code] && gf[row.code].price > 0)) return;
+      var gfPrice = parseFloat(gf[row.code].price) || 0;
+      if (gfPrice <= 0) return;
+      var diffPct = Math.abs((row.price - gfPrice) / gfPrice * 100);
+      if (diffPct >= threshold) {
+        anomalies.push({
+          date: d,
+          code: row.code,
+          name: row.name,
+          hist: row.price,
+          gf: gfPrice,
+          diffPct: +diffPct.toFixed(2)
+        });
+      }
+    });
+  });
+
+  var summary = '[anomaly] 최근 ' + dates.length + '일 점검, 이상치 ' + anomalies.length + '건';
+  Logger.log(summary);
+  anomalies.slice(0, 30).forEach(function(a) {
+    Logger.log(a.date + ' ' + a.code + ' ' + a.name + ' hist=' + a.hist + ' gf=' + a.gf + ' diff=' + a.diffPct + '%');
+  });
+  try {
+    var logGuide = '\n실행 로그: 확장 프로그램 > Apps Script > 실행(Executions) > detectPriceAnomalyDates';
+    SpreadsheetApp.getUi().alert(summary + (anomalies.length ? logGuide : ''));
+  } catch(e) {}
+  return anomalies;
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  특정 일자 가격 이상치 점검 + 복구 여부 확인
+//  예: detectPriceAnomalyForDate('2026-04-08', 8)
+// ════════════════════════════════════════════════════════════════════
+function detectPriceAnomalyForDate(dateStr, thresholdPct) {
+  var targetDate = _normalizeDate(dateStr || '');
+  if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+    throw new Error('유효한 일자를 입력하세요. 예) 2026-04-08');
+  }
+  var threshold = Math.max(1, parseFloat(thresholdPct || 8));
+  var ss = getss();
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!ph || ph.getLastRow() < 2) {
+    Logger.log('[anomaly/date] 가격이력 시트 데이터 없음');
+    return { date: targetDate, threshold: threshold, anomalies: [], summary: '[anomaly/date] 가격이력 시트 데이터 없음' };
+  }
+
+  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+  var map = {};
+  rows.forEach(function(r) {
+    var d = _normalizeDate(r[0]);
+    if (d !== targetDate) return;
+    var code = _cleanCode(r[1]) || (r[1] || '').toString().trim();
+    var name = (r[2] || '').toString().trim();
+    var price = parseFloat(r[3]) || 0;
+    var key = code || name;
+    if (!key || price <= 0) return;
+    map[key] = { code: code, name: name || key, price: price };
+  });
+
+  var items = Object.keys(map)
+    .map(function(k){ return map[k]; })
+    .filter(function(i){ return i.code; })
+    .map(function(i){ return { code: i.code, name: i.name }; });
+
+  if (items.length === 0) {
+    var noDataSummary = '[anomaly/date] ' + targetDate + ' 가격이력 데이터 없음';
+    Logger.log(noDataSummary);
+    return { date: targetDate, threshold: threshold, anomalies: [], summary: noDataSummary };
+  }
+
+  var gf = fetchPricesGoogleFinance(items, targetDate, ss);
+  var anomalies = [];
+  Object.keys(map).forEach(function(k) {
+    var row = map[k];
+    if (!row.code || !(gf[row.code] && gf[row.code].price > 0)) return;
+    var gfPrice = parseFloat(gf[row.code].price) || 0;
+    if (gfPrice <= 0) return;
+    var diffPct = Math.abs((row.price - gfPrice) / gfPrice * 100);
+    if (diffPct >= threshold) {
+      anomalies.push({
+        date: targetDate,
+        code: row.code,
+        name: row.name,
+        hist: row.price,
+        gf: gfPrice,
+        diffPct: +diffPct.toFixed(2)
+      });
+    }
+  });
+
+  var summary = '[anomaly/date] ' + targetDate + ' 점검, 이상치 ' + anomalies.length + '건 (기준 ' + threshold + '%)';
+  Logger.log(summary);
+  anomalies.slice(0, 50).forEach(function(a) {
+    Logger.log(a.date + ' ' + a.code + ' ' + a.name + ' hist=' + a.hist + ' gf=' + a.gf + ' diff=' + a.diffPct + '%');
+  });
+  return { date: targetDate, threshold: threshold, anomalies: anomalies, summary: summary };
+}
+
+function detectPriceAnomalyPromptAndMaybeRepair() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+
+  var rangeResp = ui.prompt(
+    '기간 지정 이상치 점검',
+    '조회 기간을 입력하세요. 예: 2026-04-01~2026-04-08 (하루만 점검 시 같은 날짜 입력)',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (rangeResp.getSelectedButton() !== ui.Button.OK) return;
+
+  var rawRange = (rangeResp.getResponseText() || '').trim();
+  if (!rawRange) {
+    ui.alert('조회 기간을 입력해 주세요. 예: 2026-04-01~2026-04-08');
+    return;
+  }
+  var rangeParts = rawRange.split('~');
+  var fromDate = _normalizeDate((rangeParts[0] || '').trim());
+  var toDate = _normalizeDate((rangeParts[1] || rangeParts[0] || '').trim());
+  if (!fromDate || !toDate || !/^\d{4}-\d{2}-\d{2}$/.test(fromDate) || !/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+    ui.alert('유효한 기간 형식이 아닙니다. 예: 2026-04-01~2026-04-08');
+    return;
+  }
+  if (fromDate > toDate) {
+    var tmp = fromDate;
+    fromDate = toDate;
+    toDate = tmp;
+  }
+
+  var thresholdResp = ui.prompt(
+    '이상치 기준(%)',
+    '차이율 임계값을 입력하세요. (기본 8)',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (thresholdResp.getSelectedButton() !== ui.Button.OK) return;
+  var threshold = parseFloat((thresholdResp.getResponseText() || '').trim());
+  if (!(threshold > 0)) threshold = 8;
+
+  var ss = getss();
+  var targetDates = _listPriceHistoryDatesInRange(ss, fromDate, toDate);
+  var allAnomalies = [];
+  targetDates.forEach(function(d) {
+    var one = detectPriceAnomalyForDate(d, threshold);
+    if (one.anomalies && one.anomalies.length) {
+      allAnomalies = allAnomalies.concat(one.anomalies);
+    }
+  });
+
+  var summary = '[anomaly/range] ' + fromDate + '~' + toDate + ' 점검일 ' + targetDates.length + '일, 이상치 ' + allAnomalies.length + '건';
+  Logger.log(summary);
+
+  var logGuide = '\n실행 로그: 확장 프로그램 > Apps Script > 실행(Executions) > detectPriceAnomalyPromptAndMaybeRepair';
+  if (!allAnomalies.length) {
+    ui.alert(summary + '\n이상치가 없어 업데이트를 건너뜁니다.' + logGuide);
+    return;
+  }
+
+  var ask = ui.alert(
+    '이상치 발견',
+    summary + '\n이상 항목을 해당일 GOOGLEFINANCE 값으로 가격이력에 반영할까요?' + logGuide,
+    ui.ButtonSet.YES_NO
+  );
+  if (ask !== ui.Button.YES) {
+    ui.alert('업데이트를 취소했습니다. 필요 시 메뉴에서 다시 실행해 주세요.');
+    return;
+  }
+
+  var byDate = {};
+  allAnomalies.forEach(function(a) {
+    if (!byDate[a.date]) byDate[a.date] = [];
+    byDate[a.date].push({
+      code: a.code,
+      name: a.name,
+      price: a.gf,
+      savedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
+    });
+  });
+
+  var updatedRows = 0;
+  Object.keys(byDate).sort().forEach(function(d) {
+    batchUpsertPriceHistory(ss, d, byDate[d]);
+    updatedRows += byDate[d].length;
+  });
+
+  var syncAsk = ui.alert(
+    '가격이력 업데이트 완료',
+    '총 ' + updatedRows + '건 반영했습니다.\n해당 일자 스냅샷도 재생성할까요?',
+    ui.ButtonSet.YES_NO
+  );
+  if (syncAsk === ui.Button.YES) {
+    Object.keys(byDate).sort().forEach(function(d) { repairPriceAndSnapshotForDate(d); });
+    ui.alert('✅ 스냅샷 재생성 완료\n점검 기간: ' + fromDate + '~' + toDate);
+    return;
+  }
+  ui.alert('✅ 가격이력 업데이트 완료\n점검 기간: ' + fromDate + '~' + toDate + '\n(스냅샷 재생성은 건너뜀)');
+}
+
+function _listPriceHistoryDatesInRange(ss, fromDate, toDate) {
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!ph || ph.getLastRow() < 2) return [];
+  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, 1).getValues();
+  var seen = {};
+  rows.forEach(function(r) {
+    var d = _normalizeDate(r[0]);
+    if (!d || d < fromDate || d > toDate) return;
+    seen[d] = true;
+  });
+  return Object.keys(seen).sort();
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2198,6 +2654,7 @@ function onOpen() {
   var manualKeepLabel = _isManualKeepLatestEnabled()
     ? '🧷 수동가격 최신값만 유지: ON'
     : '🧷 수동가격 최신값만 유지: OFF';
+  var priceSourceLabel = _priceSourceModeLabel();
 
   SpreadsheetApp.getUi()
     .createMenu('📊 포트폴리오')
@@ -2206,8 +2663,10 @@ function onOpen() {
     .addItem('⏰ 자동 트리거 등록 (1회만)', 'setupTrigger')
     .addSeparator()
     // ── 종가 갱신 ──
-    .addItem('🔄 종가 갱신 (GOOGLEFINANCE)', 'updatePrices')
+    .addItem('🔄 종가 갱신 (소스설정 반영)', 'updatePrices')
     .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
+    .addItem(priceSourceLabel, 'togglePriceSourceMode')
+    .addItem('🔌 KRX API 주소/BLD 설정', 'configureKrxApiPrompt')
     .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
     .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
     .addSeparator()
@@ -2219,6 +2678,8 @@ function onOpen() {
     // ── 유지보수 ──
     .addItem('🧹 죽은 코드 정리', 'cleanDeadCodes')
     .addItem('🔧 가격이력 종목명 보정', 'fixPriceHistoryNames')
+    .addItem('🩺 최근 가격 이상치 점검', 'detectPriceAnomalyDates')
+    .addItem('🩹 기간 지정 점검 후 업데이트/복구', 'detectPriceAnomalyPromptAndMaybeRepair')
     .addToUi();
 }
 
