@@ -336,7 +336,9 @@ function fetchPricesKrx(items, dateStr) {
   var out = {};
   ['KOSPI', 'KOSDAQ', 'ETF'].forEach(function(market) {
     try {
-      var rows = _fetchKrxDailyOutBlock(market, ymd, cfg.apiKey);
+      var pack = _fetchKrxDailyOutBlockWithFallback(market, ymd, cfg.apiKey, 7);
+      var rows = pack.rows;
+      if (pack.usedYmd !== ymd) Logger.log('ℹ️ ' + market + ' ' + ymd + ' 휴일/무데이터 → 직전 거래일 ' + pack.usedYmd + ' 사용');
       (rows || []).forEach(function(r) {
         var code = _cleanCode(r.ISU_CD || r.ISU_SRT_CD || '');
         if (!wanted[code]) return;
@@ -524,42 +526,89 @@ function _pickKrxClose(r) {
 function importKrxClosesFromSettings() {
   var ss = getss();
   var req = _readKrxImportRequestFromSettings(ss);
+  return _runKrxImport(req.startYmd, req.endYmd, req.wantedByMarket, false);
+}
+
+function importKrxClosesPrompt() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+  var ss = getss();
+  var seed = _readKrxImportRequestFromSettings(ss);
+  var rangeResp = ui.prompt(
+    'KRX 기간 불러오기',
+    '기간을 입력하세요. (예: 20260401~20260408)\n빈값이면 설정 시트 B1/B2 사용',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (rangeResp.getSelectedButton() !== ui.Button.OK) return;
+  var rangeText = (rangeResp.getResponseText() || '').trim();
+  var startYmd = seed.startYmd;
+  var endYmd = seed.endYmd;
+  if (rangeText) {
+    var m = rangeText.match(/^(\d{8})\s*~\s*(\d{8})$/);
+    if (!m) throw new Error('형식 오류: YYYYMMDD~YYYYMMDD');
+    startYmd = m[1]; endYmd = m[2];
+  }
+  var overwrite = ui.alert(
+    '가격이력 덮어쓰기',
+    '조회한 KRX 종가를 가격이력(해당 기간/종목)에 덮어쓸까요?\nYES=덮어쓰기, NO=종가데이터 시트만 갱신',
+    ui.ButtonSet.YES_NO
+  ) === ui.Button.YES;
+  return _runKrxImport(startYmd, endYmd, seed.wantedByMarket, overwrite);
+}
+
+function _runKrxImport(startYmd, endYmd, wantedByMarket, overwriteHistory) {
+  var ss = getss();
   var authKey = _getKrxAuthKey();
   if (!authKey) throw new Error('krx_auth_key가 비어 있습니다. 메뉴에서 AUTH_KEY를 먼저 설정하세요.');
+  if (startYmd > endYmd) throw new Error('시작일이 종료일보다 늦습니다.');
 
   var outSheet = ss.getSheetByName('종가데이터') || ss.insertSheet('종가데이터');
   _clearKrxCloseOutputSheet(outSheet);
-
   var rows = [];
-  var dayList = _buildDateRangeYmd(req.startYmd, req.endYmd);
-  Logger.log('[KRX-IMPORT] 시작: 기간=' + req.startYmd + '~' + req.endYmd + ', 종목=' + Object.keys(req.wantedByMarket).length + '건, 일수=' + dayList.length);
+  var dayList = _buildDateRangeYmd(startYmd, endYmd);
+  var fallbackCount = 0;
 
   dayList.forEach(function(ymd) {
     ['KOSPI', 'KOSDAQ', 'ETF'].forEach(function(market) {
-      var wanted = req.wantedByMarket[market];
+      var wanted = wantedByMarket[market];
       if (!wanted || Object.keys(wanted).length === 0) return;
       try {
-        var list = _fetchKrxDailyOutBlock(market, ymd, authKey);
-        if (!list || list.length === 0) {
-          Logger.log('[KRX-IMPORT] ' + ymd + ' ' + market + ' 데이터 없음(휴장/무응답 가능)');
-          return;
-        }
-        var added = _collectFilteredKrxRows(rows, list, wanted, ymd, market);
-        Logger.log('[KRX-IMPORT] ' + ymd + ' ' + market + ' 매칭 ' + added + '건');
+        var pack = _fetchKrxDailyOutBlockWithFallback(market, ymd, authKey, 7);
+        if (!pack.rows || pack.rows.length === 0) return;
+        if (pack.usedYmd !== ymd) fallbackCount++;
+        var added = _collectFilteredKrxRows(rows, pack.rows, wanted, ymd, market);
+        Logger.log('[KRX-IMPORT] ' + ymd + ' ' + market + ' 매칭 ' + added + '건' + (pack.usedYmd !== ymd ? (' (기준 ' + pack.usedYmd + ')') : ''));
       } catch (e) {
         Logger.log('⚠️ [KRX-IMPORT] ' + ymd + ' ' + market + ' 실패: ' + e.message);
       }
     });
   });
-
   if (rows.length > 0) {
     outSheet.getRange(2, 1, rows.length, 5).setValues(rows);
     outSheet.getRange(2, 5, rows.length, 1).setNumberFormat('#,##0');
   }
-
-  var msg = '✅ KRX 종가 불러오기 완료\n기간: ' + req.startYmd + ' ~ ' + req.endYmd + '\n저장 행수: ' + rows.length;
+  if (overwriteHistory) _overwritePriceHistoryFromKrxRows(ss, rows);
+  var msg = '✅ KRX 불러오기 완료\n기간: ' + startYmd + ' ~ ' + endYmd + '\n저장 행수: ' + rows.length +
+    '\n휴일 대체(전일 종가) 적용: ' + fallbackCount + '회' +
+    (overwriteHistory ? '\n가격이력 덮어쓰기: 적용' : '\n가격이력 덮어쓰기: 미적용');
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+}
+
+function _overwritePriceHistoryFromKrxRows(ss, rows) {
+  if (!rows || rows.length === 0) return;
+  var byDate = {};
+  rows.forEach(function(r) {
+    var ymd = (r[0] || '').toString();
+    if (!/^\d{8}$/.test(ymd)) return;
+    var dateStr = ymd.slice(0,4) + '-' + ymd.slice(4,6) + '-' + ymd.slice(6,8);
+    if (!byDate[dateStr]) byDate[dateStr] = [];
+    byDate[dateStr].push({ code: r[1], name: r[2], price: r[4], source: 'KRX' });
+  });
+  Object.keys(byDate).forEach(function(dateStr) {
+    batchUpsertPriceHistory(ss, dateStr, byDate[dateStr]);
+  });
 }
 
 function _readKrxImportRequestFromSettings(ss) {
@@ -642,6 +691,23 @@ function _fetchKrxDailyOutBlock(market, ymd, authKey) {
   var list = json.OutBlock_1;
   if (!Array.isArray(list)) return [];
   return list;
+}
+
+function _fetchKrxDailyOutBlockWithFallback(market, ymd, authKey, maxLookback) {
+  var days = maxLookback || 7;
+  var cur = ymd;
+  for (var i = 0; i <= days; i++) {
+    var rows = _fetchKrxDailyOutBlock(market, cur, authKey);
+    if (rows && rows.length > 0) return { rows: rows, usedYmd: cur };
+    cur = _prevYmd(cur);
+  }
+  return { rows: [], usedYmd: ymd };
+}
+
+function _prevYmd(ymd) {
+  var d = _ymdToDate(ymd);
+  d.setDate(d.getDate() - 1);
+  return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyyMMdd');
 }
 
 function _collectFilteredKrxRows(accRows, apiRows, wantedMap, ymd, market) {
@@ -2925,7 +2991,8 @@ function onOpen() {
     .addSeparator()
     // ── 종가 갱신 ──
     .addItem('🔄 종가 갱신 (소스설정 반영)', 'updatePrices')
-    .addItem('📥 KRX 불러오기 (설정 B1:B2/B3:C)', 'importKrxClosesFromSettings')
+    .addItem('📥 KRX 불러오기 (설정 기간)', 'importKrxClosesFromSettings')
+    .addItem('🗓️ KRX 기간 불러오기/덮어쓰기(팝업)', 'importKrxClosesPrompt')
     .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
     .addItem(priceSourceLabel, 'togglePriceSourceMode')
     .addItem('🔑 KRX AUTH_KEY 설정', 'configureKrxAuthKeyPrompt')
