@@ -533,19 +533,24 @@ function handleGetPricesCompat(codesParam) {
       else missing.push(code);
     });
 
-    if (missing.length > 0) {
+    // ★ 오늘 가격이력 값이 있어도 GOOGLEFINANCE 최신값으로 재검증/갱신
+    //    (장중 조회값이 종가로 굳어지는 문제 방지)
+    if (reqCodes.length > 0) {
       var codeNameMap = {};
       getCodeItems(ss).forEach(function(item) { codeNameMap[item.code] = item.name; });
-      var missingItems = missing.map(function(c){ return { code: c, name: codeNameMap[c] || c }; });
+      var missingItems = reqCodes.map(function(c){ return { code: c, name: codeNameMap[c] || c }; });
       var gfPrices     = fetchPricesGoogleFinance(missingItems, todayStr, ss);
       var newPriceItems = [];
       var stillMissing  = [];
-      missing.forEach(function(code) {
+      reqCodes.forEach(function(code) {
         if (gfPrices[code] && gfPrices[code].price > 0) {
-          prices[code] = gfPrices[code].price;
-          newPriceItems.push({ code: code, name: codeNameMap[code] || code, price: gfPrices[code].price });
+          var nextPrice = gfPrices[code].price;
+          prices[code] = nextPrice;
+          if (!phPrices[code] || Number(phPrices[code]) !== Number(nextPrice)) {
+            newPriceItems.push({ code: code, name: codeNameMap[code] || code, price: nextPrice });
+          }
         } else {
-          stillMissing.push(code);
+          if (!prices[code]) stillMissing.push(code);
         }
       });
       if (newPriceItems.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceItems);
@@ -1071,22 +1076,22 @@ function saveDailyPriceHistory() {
     if (items.length === 0) { Logger.log('종목코드 없음'); return; }
 
     var existing = getPriceHistoryRow(ss, todayStr);
-    var toFetch  = items.filter(function(item){ return !existing[item.code]; });
     var prices   = {};
     Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
 
-    if (toFetch.length > 0) {
-      var gfPrices    = fetchPricesGoogleFinance(toFetch, todayStr, ss);
-      var newPriceRows = [];
-      toFetch.forEach(function(item) {
-        var p = gfPrices[item.code];
-        if (p && p.price > 0) {
+    // ★ 기존 오늘 값이 있어도 전 종목 재조회해 종가/최신값 반영
+    var gfPrices = fetchPricesGoogleFinance(items, todayStr, ss);
+    var newPriceRows = [];
+    items.forEach(function(item) {
+      var p = gfPrices[item.code];
+      if (p && p.price > 0) {
+        prices[item.code] = p.price;
+        if (!existing[item.code] || Number(existing[item.code]) !== Number(p.price)) {
           newPriceRows.push({ code: item.code, name: item.name, price: p.price });
-          prices[item.code] = p.price;
         }
-      });
-      if (newPriceRows.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceRows);
-    }
+      }
+    });
+    if (newPriceRows.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceRows);
 
     var holdSh = ss.getSheetByName(CONFIG.SHEET_HOLD);
     if (!holdSh || holdSh.getLastRow() < 2) {
