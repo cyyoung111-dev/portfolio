@@ -124,7 +124,10 @@ function syncHoldingsFromTrades() {
 function computeRows(holdings) {
   return holdings.map(h => {
     const nn = normName(h.name);
-    const code = getCode(nn);
+    const ep = getEP(nn);
+    // ★ 코드 우선순위: EDITABLE_PRICES.code > STOCK_CODE
+    // 기기별 STOCK_CODE 불일치가 있어도 기초정보 코드로 평가가를 맞춤
+    const code = normalizeStockCode(ep?.code || getCode(nn));
     if (h.fund) {
       const fd = fundDirect[h.name];
       if (!fd) return null;
@@ -146,7 +149,6 @@ function computeRows(holdings) {
     const evalAmt = p * h.qty, costAmt = h.cost * h.qty;
     // 우선순위 ①: EDITABLE_PRICES.assetType 또는 .type
     //             ②: rawHoldings(거래이력 기반).type
-    const ep = getEP(nn);
     const type = getEPType(ep, h.type);
     const sector = getSector(nn);
     return {...h, name:nn, type, sector, code, evalAmt, costAmt, pnl:evalAmt-costAmt, price:p, pct:(evalAmt-costAmt)/costAmt*100};
