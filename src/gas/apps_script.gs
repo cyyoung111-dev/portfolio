@@ -1199,7 +1199,7 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
 
     // ★ 수동 현재가 저장 직후, 해당 기준일 스냅샷도 즉시 재작성
     //   → 다른 기기에서도 동일 평가단가/평가금액이 보이도록 맞춤
-    _rebuildSnapshotForDateFromHistory(ss, dateStr);
+    _rebuildSnapshotForDateFromHistory(ss, dateStr, saveCode, saveName);
 
     return jsonOk({ saved: true, date: dateStr, name: name, price: price, keepLatest: keepLatest, pruned: pruned });
   } catch(err) {
@@ -1207,7 +1207,7 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
   }
 }
 
-function _rebuildSnapshotForDateFromHistory(ss, dateStr) {
+function _rebuildSnapshotForDateFromHistory(ss, dateStr, targetCode, targetName) {
   try {
     var holdSh = ss.getSheetByName(CONFIG.SHEET_HOLD);
     if (!holdSh || holdSh.getLastRow() < 2) return;
@@ -1220,6 +1220,11 @@ function _rebuildSnapshotForDateFromHistory(ss, dateStr) {
     holdData.forEach(function(row) {
       var code = _cleanCode(row[0]) || (row[0] || '').toString().trim();
       var name = (row[1] || '').toString().trim();
+      if (targetCode || targetName) {
+        var codeMatch = targetCode && code === targetCode;
+        var nameMatch = targetName && name === targetName;
+        if (!(codeMatch || nameMatch)) return;
+      }
       var qty = parseFloat(row[2]) || 0;
       var isNewHoldFormat = row.length >= 7;
       var costAmt = parseFloat(isNewHoldFormat ? row[4] : row[3]) || 0;
@@ -2502,9 +2507,9 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
 
     if (sh.getLastRow() > 1) {
       var existing = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(8, sh.getLastColumn())).getValues().map(toNewSnapshotRow);
-      var kept     = existing.filter(function(r){ return (r[0]||'').toString().trim() !== dateStr; });
+      var kept     = existing.filter(function(r){ return _normalizeDate(r[0]) !== dateStr; });
       if (!overwrite && kept.length < existing.length) return;
-      var combined = kept.concat(newRows);
+      var combined = _dedupeSnapshotRows(kept.concat(newRows));
       sh.clearContents();
       sh.getRange(1,1,1,colSize).setValues(header);
       sh.getRange(1,1,1,colSize).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
@@ -2516,6 +2521,24 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
     Logger.log('❌ writeSnapshotRows 실패: ' + err.message);
     throw err;
   }
+}
+
+function _dedupeSnapshotRows(rows) {
+  var seen = {};
+  var out = [];
+  (rows || []).forEach(function(r) {
+    if (!Array.isArray(r)) return;
+    var date = _normalizeDate(r[0]);
+    if (!date) return;
+    var code = _cleanCode(r[1]) || (r[2] || '').toString().trim();
+    var key = date + '|' + code;
+    if (seen[key]) return;
+    seen[key] = true;
+    var row = r.slice(0, 11);
+    row[0] = date;
+    out.push(row);
+  });
+  return out;
 }
 
 // ════════════════════════════════════════════════════════════════════
