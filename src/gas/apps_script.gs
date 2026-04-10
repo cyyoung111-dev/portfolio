@@ -1092,6 +1092,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 
     var map = {
       KOSPI: ['INDEXKRX:KOSPI', 'KRX:KOSPI', 'INDEXKRX:KOSPI200'],
+      KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11'],
       SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
       NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
       NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX']
