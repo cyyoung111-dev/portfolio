@@ -524,9 +524,7 @@ function _pickKrxClose(r) {
 }
 
 function importKrxClosesFromSettings() {
-  var ss = getss();
-  var req = _readKrxImportRequestFromSettings(ss);
-  return _runKrxImport(req.startYmd, req.endYmd, req.wantedByMarket, false);
+  return importKrxClosesPrompt();
 }
 
 function importKrxClosesPrompt() {
@@ -534,16 +532,18 @@ function importKrxClosesPrompt() {
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
   var ss = getss();
-  var seed = _readKrxImportRequestFromSettings(ss);
+  var wantedByMarket = _buildWantedByMarketFromCodeSheet(ss);
+  var seedStart = Utilities.formatDate(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), CONFIG.TIMEZONE, 'yyyyMMdd');
+  var seedEnd = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd');
   var rangeResp = ui.prompt(
     'KRX 기간 불러오기',
-    '기간을 입력하세요. (예: 20260401~20260408)\n빈값이면 설정 시트 B1/B2 사용',
+    '기간을 입력하세요. (예: 20260401~20260408)\n빈값이면 최근 7일(' + seedStart + '~' + seedEnd + ')',
     ui.ButtonSet.OK_CANCEL
   );
   if (rangeResp.getSelectedButton() !== ui.Button.OK) return;
   var rangeText = (rangeResp.getResponseText() || '').trim();
-  var startYmd = seed.startYmd;
-  var endYmd = seed.endYmd;
+  var startYmd = seedStart;
+  var endYmd = seedEnd;
   if (rangeText) {
     var m = rangeText.match(/^(\d{8})\s*~\s*(\d{8})$/);
     if (!m) throw new Error('형식 오류: YYYYMMDD~YYYYMMDD');
@@ -554,7 +554,7 @@ function importKrxClosesPrompt() {
     '조회한 KRX 종가를 가격이력(해당 기간/종목)에 덮어쓸까요?\nYES=덮어쓰기, NO=종가데이터 시트만 갱신',
     ui.ButtonSet.YES_NO
   ) === ui.Button.YES;
-  return _runKrxImport(startYmd, endYmd, seed.wantedByMarket, overwrite);
+  return _runKrxImport(startYmd, endYmd, wantedByMarket, overwrite);
 }
 
 function _runKrxImport(startYmd, endYmd, wantedByMarket, overwriteHistory) {
@@ -634,6 +634,22 @@ function _readKrxImportRequestFromSettings(ss) {
   });
   if (inputCount === 0) throw new Error('유효한 대상 없음: C열 시장구분은 KOSPI/KOSDAQ/ETF만 허용됩니다.');
   return { startYmd: startYmd, endYmd: endYmd, wantedByMarket: wantedByMarket };
+}
+
+function _buildWantedByMarketFromCodeSheet(ss) {
+  var items = getCodeItems(ss);
+  if (!items || items.length === 0) throw new Error('종목코드 시트에 유효 종목이 없습니다.');
+  var wantedByMarket = { KOSPI: {}, KOSDAQ: {}, ETF: {} };
+  items.forEach(function(item) {
+    var t = (item.type || '').toString();
+    if (/펀드|TDF/i.test(t)) return;
+    // 시장 정보가 없는 경우를 위해 3개 시장 모두 조회 대상으로 넣고,
+    // 실제 응답에서 일치하는 시장의 코드만 매칭/적재한다.
+    wantedByMarket.KOSPI[item.code] = true;
+    wantedByMarket.KOSDAQ[item.code] = true;
+    wantedByMarket.ETF[item.code] = true;
+  });
+  return wantedByMarket;
 }
 
 function _normalizeMarketType(v) {
@@ -2991,8 +3007,7 @@ function onOpen() {
     .addSeparator()
     // ── 종가 갱신 ──
     .addItem('🔄 종가 갱신 (소스설정 반영)', 'updatePrices')
-    .addItem('📥 KRX 불러오기 (설정 기간)', 'importKrxClosesFromSettings')
-    .addItem('🗓️ KRX 기간 불러오기/덮어쓰기(팝업)', 'importKrxClosesPrompt')
+    .addItem('🗓️ KRX 불러오기/덮어쓰기(기간 팝업)', 'importKrxClosesPrompt')
     .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
     .addItem(priceSourceLabel, 'togglePriceSourceMode')
     .addItem('🔑 KRX AUTH_KEY 설정', 'configureKrxAuthKeyPrompt')
