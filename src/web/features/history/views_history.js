@@ -22,10 +22,10 @@ function renderHistoryView(area) {
             <option value="730">2년</option>
             <option value="0">전체</option>
           </select>
-          <select id="histBenchmarkSelect" title="비교지수"
-            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem">
-            <option value="">비교지수 없음</option>
+          <select id="histBenchmarkSelect" title="비교지수(복수선택 가능)" multiple
+            style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem;min-width:130px;height:68px">
             <option value="KOSPI" selected>KOSPI</option>
+            <option value="KOSDAQ">KOSDAQ</option>
             <option value="SP500">S&P500</option>
             <option value="NASDAQ">NASDAQ</option>
             <option value="NASDAQ100">NASDAQ100</option>
@@ -128,12 +128,16 @@ async function loadHistoryChart() {
     if (statusEl) statusEl.innerHTML =
       `<span style="color:var(--muted)">그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
 
-    const benchmarkType = String($el('histBenchmarkSelect')?.value || '').trim();
-    const benchSeries = benchmarkType
-      ? await _fetchBenchmarkSeries(benchmarkType, snapshots[0].date, snapshots[snapshots.length - 1].date)
+    const benchSelectEl = $el('histBenchmarkSelect');
+    const benchmarkTypes = benchSelectEl
+      ? Array.from(benchSelectEl.selectedOptions || []).map(o => String(o.value || '').trim()).filter(Boolean)
       : [];
+    const benchEntries = await Promise.all(
+      benchmarkTypes.map(async (type) => [type, await _fetchBenchmarkSeries(type, snapshots[0].date, snapshots[snapshots.length - 1].date)])
+    );
+    const benchSeriesMap = Object.fromEntries(benchEntries);
 
-    _drawHistoryChart(chartWrap, snapshots, mode, { type: benchmarkType, series: benchSeries });
+    _drawHistoryChart(chartWrap, snapshots, mode, { types: benchmarkTypes, seriesMap: benchSeriesMap });
     _drawHistoryTable(tableWrap, tableSnapshots);
 
   } catch(e) {
@@ -204,29 +208,38 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     xLabels += `<text x="${xScale(pts.length - 1).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="var(--muted)">${pts[pts.length - 1].date || ''}</text>`;
   }
 
-  // 비교지수 정렬 (우측축)
-  const benchType = benchmarkOpt?.type || '';
-  const benchRaw = Array.isArray(benchmarkOpt?.series) ? benchmarkOpt.series : [];
-  const benchByDate = {};
-  benchRaw.forEach(b => { if (b.date && b.value > 0) benchByDate[b.date] = b.value; });
-  let lastBench = 0;
-  const benchPts = pts.map((p, i) => {
-    const date = snapshots[i]?.date || '';
-    const now = benchByDate[date];
-    if (now > 0) lastBench = now;
-    return { date, raw: lastBench || 0 };
-  }).filter(b => b.raw > 0);
-  const benchBase = benchPts.length ? benchPts[0].raw : 0;
-  benchPts.forEach(b => { b.idx = benchBase > 0 ? (b.raw / benchBase * 100) : 0; });
-  const hasBench = !!benchType && benchPts.length > 1;
-  const minIdx = hasBench ? Math.min(...benchPts.map(b => b.idx)) : 90;
-  const maxIdx = hasBench ? Math.max(...benchPts.map(b => b.idx)) : 110;
+  // 비교지수 정렬 (우측축, 복수 선택)
+  const benchTypes = Array.isArray(benchmarkOpt?.types) ? benchmarkOpt.types : [];
+  const benchSeriesMap = benchmarkOpt?.seriesMap || {};
+  const benchColors = ['#60a5fa', '#22c55e', '#f59e0b', '#a78bfa', '#fb7185'];
+  const benchLines = benchTypes.map((benchType, idx) => {
+    const benchRaw = Array.isArray(benchSeriesMap[benchType]) ? benchSeriesMap[benchType] : [];
+    const benchByDate = {};
+    benchRaw.forEach(b => { if (b.date && b.value > 0) benchByDate[b.date] = b.value; });
+    let lastBench = 0;
+    const arr = pts.map((p, i) => {
+      const date = snapshots[i]?.date || '';
+      const now = benchByDate[date];
+      if (now > 0) lastBench = now;
+      return { date, raw: lastBench || 0 };
+    }).filter(b => b.raw > 0);
+    const base = arr.length ? arr[0].raw : 0;
+    arr.forEach(b => { b.idx = base > 0 ? (b.raw / base * 100) : 0; });
+    return { type: benchType, color: benchColors[idx % benchColors.length], pts: arr };
+  }).filter(x => x.pts.length > 1);
+  const hasBench = benchLines.length > 0;
+  const allIdx = hasBench ? benchLines.flatMap(x => x.pts.map(p => p.idx)) : [];
+  const minIdx = hasBench ? Math.min(...allIdx) : 90;
+  const maxIdx = hasBench ? Math.max(...allIdx) : 110;
   const idxPad = (maxIdx - minIdx) * 0.15 || 5;
   const yIdxMin = minIdx - idxPad;
   const yIdxMax = maxIdx + idxPad;
   const yIdx = v => PAD.top + CH - ((v - yIdxMin) / (yIdxMax - yIdxMin || 1)) * CH;
-  const benchLinePts = hasBench
-    ? benchPts.map((b, i) => `${xScale(i).toFixed(1)},${yIdx(b.idx).toFixed(1)}`).join(' ')
+  const benchLineSvg = hasBench
+    ? benchLines.map(line => {
+        const ptsStr = line.pts.map((b, i) => `${xScale(i).toFixed(1)},${yIdx(b.idx).toFixed(1)}`).join(' ');
+        return `<polyline points="${ptsStr}" fill="none" stroke="${line.color}" stroke-width="1.8" stroke-dasharray="4,3" stroke-linejoin="round"/>`;
+      }).join('')
     : '';
 
   // y축 레이블 (왼쪽: 금액, 오른쪽: 지수)
@@ -265,14 +278,17 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         stroke="${lastPt.pnl >= 0 ? 'var(--green)' : 'var(--red)'}" stroke-width="0.8" stroke-dasharray="3,3"/>
       <!-- 손익 라인 -->
       <polyline points="${pnlPts}" fill="none" stroke="${pnlColor}" stroke-width="2" stroke-linejoin="round"/>
-      ${hasBench ? `<polyline points="${benchLinePts}" fill="none" stroke="var(--amber)" stroke-width="1.8" stroke-dasharray="4,3" stroke-linejoin="round"/>` : ''}
+      ${benchLineSvg}
       <!-- 마지막 포인트 dot -->
       <circle cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="3.5" fill="${pnlColor}"/>
       <!-- 범례 -->
       <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
       <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
-      ${hasBench ? `<line x1="${PAD.left + 72}" y1="${PAD.top + 10}" x2="${PAD.left + 88}" y2="${PAD.top + 10}" stroke="var(--amber)" stroke-width="2" stroke-dasharray="4,3"/>
-      <text x="${PAD.left + 92}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${benchType} 지수</text>` : ''}
+      ${hasBench ? benchLines.map((line, i) => {
+        const sx = PAD.left + 72 + i * 86;
+        return `<line x1="${sx}" y1="${PAD.top + 10}" x2="${sx + 14}" y2="${PAD.top + 10}" stroke="${line.color}" stroke-width="2" stroke-dasharray="4,3"/>
+      <text x="${sx + 18}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${line.type}</text>`;
+      }).join('') : ''}
     </svg>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:10px;font-variant-numeric:tabular-nums">
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
@@ -283,10 +299,14 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         <div style="font-size:.62rem;color:var(--muted)">수익률</div>
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${lastPt.cost > 0 ? (pSign(lastPt.pnl) + (lastPt.pnl/lastPt.cost*100).toFixed(1) + '%') : '-'}</div>
       </div>
-      ${hasBench ? `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">${benchType} 변화</div>
-        <div style="font-size:.88rem;font-weight:700;color:var(--amber)">${(benchPts[benchPts.length-1].idx - 100 >= 0 ? '+' : '') + (benchPts[benchPts.length-1].idx - 100).toFixed(1)}%</div>
-      </div>` : ''}
+      ${hasBench ? benchLines.map(line => {
+        const last = line.pts[line.pts.length - 1];
+        const delta = last ? (last.idx - 100) : 0;
+        return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+        <div style="font-size:.62rem;color:var(--muted)">${line.type} 변화</div>
+        <div style="font-size:.88rem;font-weight:700;color:${line.color}">${(delta >= 0 ? '+' : '') + delta.toFixed(1)}%</div>
+      </div>`;
+      }).join('') : ''}
     </div>`;
 }
 
