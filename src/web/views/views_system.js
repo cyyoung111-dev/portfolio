@@ -234,14 +234,68 @@ function renderTabSettingsBody() {
 let currentView = 'acct';
 
 const TABS_NO_CHARTS = new Set(['trades','tradegroup','history','div','asset','stocks','gsheet']);
+function shouldRenderCharts(viewId) {
+  const v = viewId || currentView;
+  return !TABS_NO_CHARTS.has(v);
+}
+const PERF_MODE = (function() {
+  try {
+    const qsOn = /(?:\?|&)perf=1(?:&|$)/.test(location.search || '');
+    const savedOn = localStorage.getItem('pf_perf_mode') === '1';
+    return qsOn || savedOn;
+  } catch (_) {
+    return false;
+  }
+})();
+const PERF_STATS = {};
+
+function _perfRun(label, fn) {
+  if (!PERF_MODE || typeof performance === 'undefined' || typeof fn !== 'function') return fn();
+  const t0 = performance.now();
+  const result = fn();
+  const ms = performance.now() - t0;
+  const row = PERF_STATS[label] || (PERF_STATS[label] = { count: 0, totalMs: 0, maxMs: 0 });
+  row.count += 1;
+  row.totalMs += ms;
+  if (ms > row.maxMs) row.maxMs = ms;
+
+  if (row.count % 10 === 0) {
+    const avg = row.totalMs / row.count;
+    const rounded = {
+      count: row.count,
+      avgMs: +avg.toFixed(2),
+      maxMs: +row.maxMs.toFixed(2),
+      lastMs: +ms.toFixed(2),
+    };
+    logInfo('PERF', `${label}`, rounded);
+  }
+  window.__PF_PERF_STATS = PERF_STATS;
+  return result;
+}
+window.__pfPerfRun = _perfRun;
+window.__pfPerfMode = PERF_MODE;
+window.__pfPerfSnapshot = function() {
+  return JSON.parse(JSON.stringify(PERF_STATS));
+};
+window.__pfPerfReset = function() {
+  Object.keys(PERF_STATS).forEach(k => delete PERF_STATS[k]);
+  window.__PF_PERF_STATS = PERF_STATS;
+};
 
 function switchView(v) {
   currentView = v;
   // 탭 전환 시 해당 탭 캐시만 무효화 → 항상 새로 그림
   invalidateViewCache(v);
-  try { buildTabBar(); buildMobileNav(); renderView(); renderDonut(); } catch(e) { console.warn('뷰 전환 실패:', e); buildTabBar(); }
+  try {
+    _perfRun(`switchView:${v}`, () => {
+      buildTabBar();
+      buildMobileNav();
+      renderView();
+      if (shouldRenderCharts(v)) renderDonut();
+    });
+  } catch(e) { console.warn('뷰 전환 실패:', e); buildTabBar(); }
   const charts = $el('chartsRow');
-  if (charts) charts.style.display = TABS_NO_CHARTS.has(v) ? 'none' : '';
+  if (charts) charts.style.display = shouldRenderCharts(v) ? '' : 'none';
 }
 
 // ── 뷰 캐시: 동일 탭·동일 데이터 상태면 재렌더 생략
@@ -277,16 +331,18 @@ function renderView(forceRender) {
 
   _viewCache[currentView] = cacheKey;
 
-  if      (currentView === 'acct')       renderAcctView(area);
-  else if (currentView === 'sector')     renderSectorView(area);
-  else if (currentView === 'merge')      renderMergeView(area);
-  else if (currentView === 'trades')     renderTradesView(area);
-  else if (currentView === 'tradegroup') renderTradeGroupView(area);
-  else if (currentView === 'history')    renderHistoryView(area);
-  else if (currentView === 'div')        renderDivView(area);
-  else if (currentView === 'asset')      renderAssetView(area);
-  else if (currentView === 'stocks')     renderStocksView(area);
-  else if (currentView === 'gsheet')     renderGsheetView(area);
+  _perfRun(`renderView:${currentView}`, () => {
+    if      (currentView === 'acct')       renderAcctView(area);
+    else if (currentView === 'sector')     renderSectorView(area);
+    else if (currentView === 'merge')      renderMergeView(area);
+    else if (currentView === 'trades')     renderTradesView(area);
+    else if (currentView === 'tradegroup') renderTradeGroupView(area);
+    else if (currentView === 'history')    renderHistoryView(area);
+    else if (currentView === 'div')        renderDivView(area);
+    else if (currentView === 'asset')      renderAssetView(area);
+    else if (currentView === 'stocks')     renderStocksView(area);
+    else if (currentView === 'gsheet')     renderGsheetView(area);
+  });
 }
 
 // ════════════════════════════════════════════════════════════════

@@ -187,6 +187,10 @@ function saveSettings(immediate) {
           SECTOR_COLORS,
           fundDirect,
           EDITABLE_PRICES,
+          SAVED_PRICES: savedPrices,
+          SAVED_PRICE_DATES: savedPriceDates,
+          APP_THEME: (typeof lsGet === 'function') ? lsGet('app_theme', 'ocean') : 'ocean',
+          APP_THEME_MODE: (typeof lsGet === 'function') ? lsGet('app_theme_mode', 'dark') : 'dark',
           // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
           // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
           DIVDATA,
@@ -243,6 +247,17 @@ async function loadSettings(onProgress) {
     if (data.status !== 'ok' || !data.settings) return false;
     const s = data.settings;
 
+    // Theme (기기 간 동일 UI 유지)
+    if (s.APP_THEME_MODE && typeof lsSave === 'function') {
+      lsSave('app_theme_mode', s.APP_THEME_MODE);
+    }
+    if (s.APP_THEME && typeof lsSave === 'function') {
+      lsSave('app_theme', s.APP_THEME);
+    }
+    if (typeof applyTheme === 'function' && s.APP_THEME) {
+      applyTheme(s.APP_THEME, { skipModeSave: true });
+    }
+
     // ACCT_COLORS
     if (s.ACCT_COLORS && typeof s.ACCT_COLORS === 'object') {
       Object.keys(ACCT_COLORS).forEach(k => delete ACCT_COLORS[k]);
@@ -269,6 +284,17 @@ async function loadSettings(onProgress) {
     if (s.fundDirect && typeof s.fundDirect === 'object') {
       Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
       Object.assign(fundDirect, s.fundDirect);
+    }
+    // SAVED_PRICES / SAVED_PRICE_DATES (기기 간 현재가 일치)
+    if (s.SAVED_PRICES && typeof s.SAVED_PRICES === 'object') {
+      Object.keys(savedPrices).forEach(k => delete savedPrices[k]);
+      Object.assign(savedPrices, s.SAVED_PRICES);
+      if (typeof lsSave === 'function' && typeof PRICES_KEY !== 'undefined') lsSave(PRICES_KEY, savedPrices);
+    }
+    if (s.SAVED_PRICE_DATES && typeof s.SAVED_PRICE_DATES === 'object') {
+      Object.keys(savedPriceDates).forEach(k => delete savedPriceDates[k]);
+      Object.assign(savedPriceDates, s.SAVED_PRICE_DATES);
+      if (typeof lsSave === 'function' && typeof PRICE_DATES_KEY !== 'undefined') lsSave(PRICE_DATES_KEY, savedPriceDates);
     }
     // EDITABLE_PRICES — 기초정보(종목명·코드·유형·섹터) 복원
     if (Array.isArray(s.EDITABLE_PRICES) && s.EDITABLE_PRICES.length > 0) {
