@@ -626,7 +626,7 @@ function refreshAll() {
   if (typeof invalidateViewCache === 'function') invalidateViewCache();
   renderSummary();
   try { buildTabBar(); } catch(e) {}
-  renderDonut();
+  if (typeof shouldRenderCharts !== 'function' || shouldRenderCharts(currentView)) renderDonut();
   renderView();
 }
 
