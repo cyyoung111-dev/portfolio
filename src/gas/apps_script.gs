@@ -1684,6 +1684,7 @@ function saveDailyPriceHistory() {
 
     var existing = getPriceHistoryRow(ss, todayStr);
     var prices   = {};
+    var priceSources = {};
     Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
 
     // ★ 자동 트리거: KRX 우선 확정, 실패분만 GF fallback
