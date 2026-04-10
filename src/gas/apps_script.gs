@@ -1196,10 +1196,65 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
     var pruned = 0;
     if (keepLatest) pruned = _pruneManualPriceHistoryKeepLatest(ss, saveCode, saveName);
 
+    // ★ 수동 현재가 저장 직후, 해당 기준일 스냅샷도 즉시 재작성
+    //   → 다른 기기에서도 동일 평가단가/평가금액이 보이도록 맞춤
+    _rebuildSnapshotForDateFromHistory(ss, dateStr);
+
     return jsonOk({ saved: true, date: dateStr, name: name, price: price, keepLatest: keepLatest, pruned: pruned });
   } catch(err) {
     return jsonError('saveManualPrice 실패: ' + err.message);
   }
+}
+
+function _rebuildSnapshotForDateFromHistory(ss, dateStr) {
+  try {
+    var holdSh = ss.getSheetByName(CONFIG.SHEET_HOLD);
+    if (!holdSh || holdSh.getLastRow() < 2) return;
+    var holdCols = Math.max(5, holdSh.getLastColumn());
+    var holdData = holdSh.getRange(2, 1, holdSh.getLastRow() - 1, holdCols).getValues();
+    var prices = getPriceHistoryRow(ss, dateStr);
+    var sourceMap = _getPriceSourceByDate(ss, dateStr);
+    var snapRows = [];
+
+    holdData.forEach(function(row) {
+      var code = _cleanCode(row[0]) || (row[0] || '').toString().trim();
+      var name = (row[1] || '').toString().trim();
+      var qty = parseFloat(row[2]) || 0;
+      var isNewHoldFormat = row.length >= 7;
+      var costAmt = parseFloat(isNewHoldFormat ? row[4] : row[3]) || 0;
+      if (!name || qty <= 0) return;
+      var price = (code && prices[code]) ? prices[code] : 0;
+      var evalAmt = price > 0 ? Math.round(price * qty) : costAmt;
+      var pnl = evalAmt - costAmt;
+      var pct = costAmt > 0 ? parseFloat(((pnl / costAmt) * 100).toFixed(2)) : 0;
+      var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
+      var evalUnit = qty > 0 ? parseFloat((evalAmt / qty).toFixed(2)) : 0;
+      var src = (code && sourceMap[code]) ? sourceMap[code] : 'UNKNOWN';
+      snapRows.push([dateStr, code, name, qty, costUnit, costAmt, evalUnit, evalAmt, pnl, pct, src]);
+    });
+    if (snapRows.length > 0) writeSnapshotRows(ss, dateStr, snapRows, true);
+  } catch (e) {
+    Logger.log('⚠️ 수동저장 후 스냅샷 재작성 실패(' + dateStr + '): ' + e.message);
+  }
+}
+
+function _getPriceSourceByDate(ss, dateStr) {
+  var out = {};
+  try {
+    var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+    if (!ph || ph.getLastRow() < 2) return out;
+    var data = ph.getRange(2, 1, ph.getLastRow() - 1, Math.max(6, ph.getLastColumn())).getValues();
+    data.forEach(function(r) {
+      var d = _normalizeDate(r[0]);
+      if (d !== dateStr) return;
+      var code = _cleanCode(r[1]) || (r[1] || '').toString().trim();
+      var src = (r[5] || '').toString().trim();
+      if (code && src) out[code] = src;
+    });
+  } catch (e) {
+    Logger.log('⚠️ 가격소스 조회 실패(' + dateStr + '): ' + e.message);
+  }
+  return out;
 }
 
 function _isManualKeepLatestEnabled() {
