@@ -254,7 +254,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       const date = snapshots[i]?.date || '';
       const now = benchByDate[date];
       if (now > 0) lastBench = now;
-      return { date, raw: lastBench || 0 };
+      return { i, date, raw: lastBench || 0 };
     }).filter(b => b.raw > 0);
     const base = arr.length ? arr[0].raw : 0;
     arr.forEach(b => { b.idx = base > 0 ? (b.raw / base * 100) : 0; });
@@ -270,8 +270,8 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const yIdx = v => PAD.top + CH - ((v - yIdxMin) / (yIdxMax - yIdxMin || 1)) * CH;
   const benchLineSvg = hasBench
     ? benchLines.map(line => {
-        const ptsStr = line.pts.map((b, i) => `${xScale(i).toFixed(1)},${yIdx(b.idx).toFixed(1)}`).join(' ');
-        return `<polyline points="${ptsStr}" fill="none" stroke="${line.color}" stroke-width="1.8" stroke-dasharray="4,3" stroke-linejoin="round"/>`;
+        const ptsStr = line.pts.map((b) => `${xScale(b.i).toFixed(1)},${yIdx(b.idx).toFixed(1)}`).join(' ');
+        return `<polyline points="${ptsStr}" fill="none" stroke="${line.color}" stroke-width="2.1" stroke-linejoin="round"/>`;
       }).join('')
     : '';
 
@@ -318,11 +318,22 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
       <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
       ${hasBench ? benchLines.map((line, i) => {
-        const sx = PAD.left + 72 + i * 86;
-        return `<line x1="${sx}" y1="${PAD.top + 10}" x2="${sx + 14}" y2="${PAD.top + 10}" stroke="${line.color}" stroke-width="2" stroke-dasharray="4,3"/>
+        const sx = PAD.left + 72 + i * 100;
+        return `<line x1="${sx}" y1="${PAD.top + 10}" x2="${sx + 14}" y2="${PAD.top + 10}" stroke="${line.color}" stroke-width="2"/>
       <text x="${sx + 18}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${line.type}</text>`;
       }).join('') : ''}
     </svg>
+    ${hasBench ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.68rem">
+      ${benchLines.map(line => {
+        const last = line.pts[line.pts.length - 1];
+        const delta = last ? (last.idx - 100) : 0;
+        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
+          <span style="width:8px;height:8px;border-radius:999px;background:${line.color}"></span>
+          <span style="color:var(--muted)">${line.type}</span>
+          <span style="color:${line.color};font-weight:700">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>
+        </span>`;
+      }).join('')}
+    </div>` : ''}
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:10px;font-variant-numeric:tabular-nums">
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">현재 손익</div>
