@@ -151,6 +151,24 @@ async function fetchFromGsheet(dateStr) {
   }
 }
 
+const PRICE_DIAG_MODE = /(?:\?|&)diag=1(?:&|$)/.test(location.search || '');
+
+function _priceDiagSummary(results) {
+  if (!PRICE_DIAG_MODE || !results || typeof results !== 'object') return '';
+  const entries = Object.entries(results);
+  if (entries.length === 0) return '';
+  const changed = [];
+  entries.forEach(([key, next]) => {
+    const prev = savedPrices[key];
+    if (prev > 0 && next > 0 && Math.round(prev) !== Math.round(next)) {
+      changed.push({ key, prev: Math.round(prev), next: Math.round(next) });
+    }
+  });
+  if (changed.length === 0) return ` · <span class="c-muted">🧪검증 변경 0/${entries.length}</span>`;
+  const sample = changed.slice(0, 3).map(i => `${i.key}:${i.prev}→${i.next}`).join(', ');
+  return ` · <span style="color:var(--amber)">🧪검증 변경 ${changed.length}/${entries.length}${sample ? ' (' + sample + (changed.length > 3 ? ' 외' : '') + ')' : ''}</span>`;
+}
+
 function setStatusLabel(html, type) {
   // type: 'idle' | 'loading' | 'ok' | 'warn' | 'error'
   const el = $el('price-updated-label');
@@ -213,6 +231,7 @@ async function quickFetchByDate() {
       const total = getEPWithCode().length;
       const dayLabel = isToday ? '실시간' : usedDate.replace(/-/g,'.') + ' 종가';
       let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
+      html += _priceDiagSummary(results);
       if (isFallback) {
         html += ` · <span style="color:var(--amber)">↩ 요청일(${targetDate.replace(/-/g,'.')}) 데이터 없음 → ${usedDate.replace(/-/g,'.')} 사용</span>`;
       }
@@ -247,20 +266,12 @@ async function autoLoadPrices() {
   const dateStr = getDateStr(0);
   const badge = $el('dateBadge');
 
-  // ── 캐시된 가격이 오늘 날짜면 GSheet 재조회 스킵 ──
-  // 버그수정: 코드 없는 종목(펀드·TDF)이 있으면 캐시 스킵 불가
-  //          다른 기기에서 저장한 최신값을 놓칠 수 있음
+  // ── 중요: GSHEET 연동 시에는 항상 원격 재조회 ──
+  // 과거에는 "오늘 캐시가 있으면 스킵" 최적화가 있었지만,
+  // 같은 날짜 내 다른 기기/GAS 수동저장 최신값을 놓쳐 평가금액 불일치가 발생할 수 있어 제거.
   const cachedDate = lastUpdated;
   const todayLabel = dateStr.replace(/-/g,'.');
   const cacheCount = Object.keys(savedPrices).length;
-  const hasFundItems = (typeof EDITABLE_PRICES !== 'undefined') && EDITABLE_PRICES.some(i => !i.code);
-  if (cachedDate && cachedDate.startsWith(todayLabel) && cacheCount > 0 && GSHEET_API_URL && !hasFundItems) {
-    updateDateBadge(todayLabel, true);
-    const total = getEPWithCode().length;
-    setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">실시간 (캐시)</span> · ${cacheCount}/${total}개`, 'ok');
-    refreshAll();
-    return;
-  }
 
   if (!GSHEET_API_URL) {
     updateDateBadge(cachedDate || todayLabel, false);
@@ -316,7 +327,8 @@ async function autoLoadPrices() {
       const fallbackMsg = isFallback
         ? ` · <span style="color:var(--amber)">↩ 오늘(${dateStr.replace(/-/g,'.')}) 데이터 없음 → ${usedDateStr.replace(/-/g,'.')} 사용</span>`
         : '';
-      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개${fallbackMsg}`, 'ok');
+      const diagMsg = _priceDiagSummary(results);
+      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개${diagMsg}${fallbackMsg}`, 'ok');
 
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
