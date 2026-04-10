@@ -62,7 +62,10 @@ function renderHistoryView(area) {
   });
 }
 
+const HIST_BENCHMARK_TYPES = ['KOSPI', 'KOSDAQ', 'SP500', 'NASDAQ', 'NASDAQ100'];
+
 function _toggleHistBenchmark(type) {
+  if (!HIST_BENCHMARK_TYPES.includes(type)) return;
   const next = new Set(Array.isArray(window._histBenchmarks) ? window._histBenchmarks : []);
   if (next.has(type)) next.delete(type);
   else next.add(type);
@@ -164,13 +167,32 @@ async function loadHistoryChart() {
     if (statusEl) statusEl.innerHTML =
       `<span style="color:var(--muted)">그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
 
-    const benchmarkTypes = Array.isArray(window._histBenchmarks) ? window._histBenchmarks.slice() : [];
+    const benchmarkTypes = Array.from(new Set(
+      (Array.isArray(window._histBenchmarks) ? window._histBenchmarks : [])
+        .map(v => String(v || '').toUpperCase().trim())
+        .filter(v => HIST_BENCHMARK_TYPES.includes(v))
+    ));
     const benchEntries = await Promise.all(
       benchmarkTypes.map(async (type) => [type, await _fetchBenchmarkSeries(type, snapshots[0].date, snapshots[snapshots.length - 1].date)])
     );
-    const benchSeriesMap = Object.fromEntries(benchEntries);
+    const benchSeriesMap = {};
+    const benchMetaMap = {};
+    benchEntries.forEach(([type, payload]) => {
+      benchSeriesMap[type] = Array.isArray(payload?.points) ? payload.points : [];
+      benchMetaMap[type] = payload?.symbol || '';
+    });
 
-    _drawHistoryChart(chartWrap, snapshots, mode, { types: benchmarkTypes, seriesMap: benchSeriesMap });
+    const missing = benchmarkTypes.filter(type => (benchSeriesMap[type] || []).length === 0);
+    if (statusEl) {
+      const baseMsg = `그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}`;
+      const benchMsg = benchmarkTypes.length === 0
+        ? '비교지수 없음'
+        : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
+      const missingMsg = missing.length ? ` (실패: ${missing.join(', ')})` : '';
+      statusEl.innerHTML = `<span style="color:var(--muted)">${baseMsg} · ${benchMsg}${missingMsg}</span>`;
+    }
+
+    _drawHistoryChart(chartWrap, snapshots, mode, { types: benchmarkTypes, seriesMap: benchSeriesMap, metaMap: benchMetaMap });
     _drawHistoryTable(tableWrap, tableSnapshots);
 
   } catch(e) {
@@ -179,7 +201,7 @@ async function loadHistoryChart() {
 }
 
 async function _fetchBenchmarkSeries(type, fromDate, toDate) {
-  if (!GSHEET_API_URL || !type || !fromDate || !toDate) return [];
+  if (!GSHEET_API_URL || !type || !fromDate || !toDate) return { points: [], symbol: '' };
   try {
     const url = GSHEET_API_URL
       + '?action=getBenchmark'
@@ -188,14 +210,15 @@ async function _fetchBenchmarkSeries(type, fromDate, toDate) {
       + '&to=' + encodeURIComponent(toDate);
     const res = await fetchWithTimeout(url, 15000);
     const data = await res.json();
-    if (!data || data.status === 'error') return [];
+    if (!data || data.status === 'error') return { points: [], symbol: '' };
     const arr = Array.isArray(data.points) ? data.points : [];
-    return arr
+    const points = arr
       .map(p => ({ date: _normalizeHistDate(p.date || ''), value: parseFloat(p.value || 0) }))
       .filter(p => p.date && p.value > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
+    return { points, symbol: (data.symbol || '').toString().trim() };
   } catch(_) {
-    return [];
+    return { points: [], symbol: '' };
   }
 }
 
