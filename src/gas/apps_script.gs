@@ -2052,6 +2052,15 @@ function _ensureDailyTriggers(autoFix) {
 function checkDailyAutomationStatus() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
+  var autoFixed = false;
+  if (!trig.hasClean || !trig.hasSave) {
+    try {
+      trig = _ensureDailyTriggers(true);
+      autoFixed = true;
+    } catch(e) {
+      Logger.log('⚠️ checkDailyAutomationStatus 자동복구 실패: ' + e.message);
+    }
+  }
   var snapLast = '-';
   var phLast = '-';
 
@@ -2073,7 +2082,9 @@ function checkDailyAutomationStatus() {
     + '가격이력 마지막 날짜: ' + phLast + '\n\n'
     + (!trig.hasClean || !trig.hasSave
       ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
-      : '✅ 트리거는 등록되어 있습니다. 누락 일자는 [소급채우기]로 복구할 수 있습니다.');
+      : (autoFixed
+          ? '✅ 트리거 누락을 자동 복구했습니다.'
+          : '✅ 트리거는 등록되어 있습니다. 누락 일자는 [소급채우기]로 복구할 수 있습니다.'));
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
