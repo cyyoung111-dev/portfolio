@@ -210,20 +210,19 @@ function buildEditorUI() {
     item.fund || item.assetType === '펀드' || item.assetType === 'TDF'
   );
 
-  // ② 코드 있는 일반 종목 중 현재가 미조회된 것
+  // ② 코드 있는 일반 종목 중 "실제 자동조회 실패" 대상만 노출
   // savedPrices 조회 시 코드 키 + 이름 키 모두 확인
-  // ★ 영문 포함 코드(F00001, 0046Y0 등)는 GOOGLEFINANCE 조회 불가 → 항상 포함
   const nopriceCodes = new Set();
   const nopriceItems = [];
+  const missingSet = new Set((Array.isArray(window._gsheetMissingCodes) ? window._gsheetMissingCodes : []).map(m => normalizeStockCode(m.code)));
   EDITABLE_PRICES.forEach(item => {
     // 펀드·TDF는 ①에서 처리
     if (item.fund || item.assetType === '펀드' || item.assetType === 'TDF') return;
     if (!item.code) return;
     const code = (typeof normalizeStockCode === 'function') ? normalizeStockCode(item.code) : item.code;
-    // ★ 영문 포함 코드 = GOOGLEFINANCE 자동조회 불가 → 항상 수동 입력 목록에 포함
-    const isAlphanumeric = /[A-Z]/.test(code);
-    const hasPrice = !isAlphanumeric && (savedPrices[code] || savedPrices[item.code] || savedPrices[item.name]);
-    if (!hasPrice) {
+    const hasPrice = !!(savedPrices[code] || savedPrices[item.code] || savedPrices[item.name] || getCurrentPriceFromData(item.name));
+    const isMissing = missingSet.has(code);
+    if (!hasPrice && isMissing) {
       nopriceCodes.add(code);
       nopriceItems.push(item);
     }
@@ -589,7 +588,7 @@ async function _saveManualPriceWithRetry(target, maxRetry) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(target.date)
-                + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price;
+                + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price + '&keepLatest=0';
       const res = await _gasDirectFetch(url, 30000);
       const d = await res.json();
       if (d.status === 'ok') return { ok: true };
