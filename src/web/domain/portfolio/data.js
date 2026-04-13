@@ -3,6 +3,73 @@
 // ═══════════════════════════════════════════════════════════════=
 
 // ════════════════════════════════════════════════════════════════
+//  ★ KST(한국 표준시) 날짜 헬퍼 — 전역 공통 사용
+//  문제: new Date() 및 new Date('YYYY-MM-DD')는 브라우저 로컬/UTC 기준
+//       → 자정 경계에서 날짜가 하루 밀리거나 UTC 기준으로 파싱됨
+//  해결: 항상 UTC+9 오프셋을 명시적으로 적용
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * 현재 시각을 KST 기준 Date 객체로 반환
+ * getFullYear/getMonth/getDate/getHours 등이 모두 KST 값을 반환함
+ */
+function _kstNow() {
+  const now = new Date();
+  // UTC+9 오프셋 적용: UTC ms + 9시간 ms → 그 시각을 UTC로 가진 Date 객체
+  return new Date(now.getTime() + 9 * 60 * 60 * 1000);
+}
+
+/**
+ * 현재 날짜를 KST 기준 'YYYY-MM-DD' 문자열로 반환
+ */
+function _kstTodayStr() {
+  const t = _kstNow();
+  return t.getUTCFullYear() + '-'
+    + String(t.getUTCMonth() + 1).padStart(2, '0') + '-'
+    + String(t.getUTCDate()).padStart(2, '0');
+}
+
+/**
+ * 현재 연도를 KST 기준으로 반환
+ */
+function _kstYear() {
+  return _kstNow().getUTCFullYear();
+}
+
+/**
+ * 현재 연-월을 KST 기준 'YYYY-MM' 문자열로 반환
+ */
+function _kstMonthStr() {
+  const t = _kstNow();
+  return t.getUTCFullYear() + '-' + String(t.getUTCMonth() + 1).padStart(2, '0');
+}
+
+/**
+ * 'YYYY-MM-DD' 문자열을 KST 기준 Date 객체로 파싱
+ * new Date('2026-04-13')은 UTC 00:00으로 파싱되어 KST에서 하루 밀리는 문제를 방지
+ */
+function _kstDateFromStr(dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) return new Date(NaN);
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  // KST 00:00 = UTC 전날 15:00 → Date.UTC로 직접 생성
+  return new Date(Date.UTC(y, m - 1, d, 0, 0, 0) - 9 * 60 * 60 * 1000);
+}
+
+/**
+ * 'YYYY-MM-DD' 문자열로부터 N일 전/후 날짜를 'YYYY-MM-DD'로 반환
+ * new Date(dateStr) UTC 파싱 문제를 우회
+ */
+function _kstDateOffset(dateStr, offsetDays) {
+  const base = _kstDateFromStr(dateStr);
+  const result = new Date(base.getTime() + offsetDays * 24 * 60 * 60 * 1000);
+  // KST 기준으로 날짜 추출
+  const kst = new Date(result.getTime() + 9 * 60 * 60 * 1000);
+  return kst.getUTCFullYear() + '-'
+    + String(kst.getUTCMonth() + 1).padStart(2, '0') + '-'
+    + String(kst.getUTCDate()).padStart(2, '0');
+}
+
+// ════════════════════════════════════════════════════════════════
 //  data_migration.js — 거래/데이터 마이그레이션
 // ════════════════════════════════════════════════════════════════
 
@@ -161,10 +228,7 @@ function getCode(name) {
 // dateStr: 'YYYY-MM-DD' 형식, 해당 날짜 이하의 거래만 반영
 // 미래 날짜 → 현재 수량(rawHoldings) 사용
 function getQtyAtDate(name, dateStr) {
-  const todayStr = (()=>{
-    const t = new Date();
-    return t.getFullYear() + '-' + String(t.getMonth()+1).padStart(2,'0') + '-' + String(t.getDate()).padStart(2,'0');
-  })();
+  const todayStr = _kstTodayStr(); // ★ KST 기준 오늘 날짜
   // 미래 날짜면 현재 보유수량 사용
   if (dateStr > todayStr) {
     return rawHoldings.filter(h => h.name === name && !h.fund)
@@ -302,7 +366,7 @@ let LOAN = {
   annualRate: 0,
   totalMonths: 0,
   remainingMonths: 0,
-  startYear: new Date().getFullYear(),
+  startYear: _kstYear(),     // ★ KST 기준 현재 연도
   startDate: '',          // 대출실행일 (YYYY-MM-DD)
   monthlyInterestPaid: 0, // 실제 이자지급액 (원, 이번달 기준)
   totalInterestPaid: 0,   // 누적 이자 지급액 (대출 실행일부터 현재까지 합산)
@@ -433,7 +497,7 @@ function _commitTrades() {
 let _loanSyncedMonth = null; // 마지막으로 동기화한 YYYY-MM
 function syncLoanFromSchedule() {
   if (!LOAN_SCHEDULE || LOAN_SCHEDULE.length === 0) return;
-  const todayStr = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const todayStr = _kstMonthStr(); // ★ KST 기준 YYYY-MM (toISOString은 UTC 기준이라 자정 이후 전날로 밀릴 수 있음)
   if (_loanSyncedMonth === todayStr) return; // 이번 달 이미 동기화됨
 
   // 현재 월 행 (없으면 가장 최근 과거 행)
