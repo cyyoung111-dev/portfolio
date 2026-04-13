@@ -44,8 +44,8 @@ function renderHistoryView(area) {
   _renderHistBenchmarkButtons();
   const monthEl = $el('histStartMonth');
   if (monthEl && !monthEl.value) {
-    const d = new Date();
-    monthEl.value = `${d.getFullYear()}-01`;
+    const d = _kstNow(); // ★ KST 기준 현재 날짜
+    monthEl.value = `${d.getUTCFullYear()}-01`;
   }
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
@@ -134,9 +134,8 @@ async function loadHistoryChart() {
     let fromStr = '';
     if (/^\d{4}-\d{2}$/.test(startMonth)) fromStr = `${startMonth}-01`;
     else if (rangeDays > 0) {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - rangeDays);
-      fromStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
+      // ★ KST 기준 오늘에서 rangeDays 일 전 계산
+      fromStr = _kstDateOffset(_kstTodayStr(), -rangeDays);
     }
     const url = GSHEET_API_URL + '?action=getHistory' + (fromStr ? ('&from=' + fromStr) : '');
     const res  = await fetchWithTimeout(url, 15000);
