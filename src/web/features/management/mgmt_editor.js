@@ -12,8 +12,7 @@ function openEditor() {
   // ★ 날짜 입력란 오늘 날짜로 초기화
   const editorDateEl = $el('editorDate');
   if (editorDateEl && !editorDateEl.value) {
-    const t = new Date();
-    editorDateEl.value = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+    editorDateEl.value = _kstTodayStr(); // ★ KST 기준 오늘 날짜
   }
   if (editorDateEl) {
     _editorRefDate = editorDateEl.value || '';
@@ -130,7 +129,7 @@ function saveGsheetUrlFromUI() {
       const codeMsg = parts.length
         ? `종목코드 ${parts.join(' · ')} (총 ${total}개)`
         : `종목코드 ${total}개`;
-      const dateStr = fmtDateDot(new Date().toISOString().slice(0, 10));
+      const dateStr = fmtDateDot(_kstTodayStr()); // ★ KST 기준 오늘 날짜
       setRes(`✅ 연결 성공! ${codeMsg} · 기준일: ${dateStr}`, 'var(--green-lt)');
     } else {
       setRes('⚠️ [3/3] 종목코드 동기화 실패 — 전송할 코드가 없거나 GS 응답 오류', 'var(--amber)');
@@ -449,11 +448,7 @@ async function fetchEditorManualPrices(dateStr) {
 
     // ★ from=180일 전 ~ to=dateStr 범위로 조회 — 오늘 저장값이 없어도
     //   가장 최근 수동저장값(예: 3/31)을 자동으로 불러와 표시
-    const fromDate = (function() {
-      const d = new Date(dateStr);
-      d.setDate(d.getDate() - 180);
-      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    })();
+    const fromDate = _kstDateOffset(dateStr, -180); // ★ KST 기준 날짜 오프셋 (new Date(dateStr)은 UTC로 파싱되어 하루 밀림)
     const url = GSHEET_API_URL
       + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr
       + '&codes=' + encodeURIComponent(uniqTargets.join(','));
@@ -498,11 +493,7 @@ async function fetchEditorManualHistory(dateStr) {
     const uniqTargets = Array.from(new Set(targets.filter(Boolean)));
     if (uniqTargets.length === 0) return {};
 
-    const fromDate = (function() {
-      const d = new Date(dateStr);
-      d.setDate(d.getDate() - 180);
-      return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    })();
+    const fromDate = _kstDateOffset(dateStr, -180); // ★ KST 기준 날짜 오프셋
     const url = GSHEET_API_URL
       + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr
       + '&codes=' + encodeURIComponent(uniqTargets.join(','));
@@ -611,7 +602,7 @@ async function applyPrices() {
     closeEditor(); return;
   }
   _applyPricesRunning = true;
-  const now = new Date();
+  const now = _kstNow(); // ★ KST 기준 현재 시각
   // ★ editorDate 입력값 우선, 없으면 오늘
   const editorDateRaw = $el('editorDate')?.value; // YYYY-MM-DD
   let dateStr;
@@ -619,10 +610,10 @@ async function applyPrices() {
     const [y,m,d] = editorDateRaw.split('-');
     dateStr = `${y}.${m}.${d}`;
   } else {
-    dateStr = `${now.getFullYear()}.${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')}`;
+    dateStr = `${now.getUTCFullYear()}.${String(now.getUTCMonth()+1).padStart(2,'0')}.${String(now.getUTCDate()).padStart(2,'0')}`;
   }
-  const timeStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  // ★ GAS에 저장할 savedAt — 날짜+시간 (초 단위까지, KST 기준)
+  const timeStr = `${String(now.getUTCHours()).padStart(2,'0')}:${String(now.getUTCMinutes()).padStart(2,'0')}`;
+  // ★ GAS에 저장할 savedAt — 날짜+시간 (KST 기준)
   const savedAtDisplay = dateStr + ' ' + timeStr + ' 저장';
 
   const updatedCount = Object.keys(editedPrices).length;
@@ -637,7 +628,7 @@ async function applyPrices() {
     savedPrices[key] = editedPrices[name];
     savedPriceDates[key] = savedAtDisplay;
     if (GSHEET_API_URL) {
-      const gasDate = editorDateRaw || `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+      const gasDate = editorDateRaw || `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`; // ★ KST 기준
       gasSaveTargets.push({ name, key, date: gasDate, price: editedPrices[name] });
     }
   });
@@ -672,7 +663,7 @@ async function applyPrices() {
   if (_lbl) setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${lastUpdated}</span> · ${updatedCount}개 종목 반영`, 'ok');
 
   const fetchedDate = $el('quickDateInput')?.value || '';
-  const todayStr = (()=>{ const t=new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0'); })();
+  const todayStr = _kstTodayStr(); // ★ KST 기준 오늘 날짜
   const isToday = fetchedDate === todayStr;
   updateDateBadge(lastUpdated, isToday);
 
