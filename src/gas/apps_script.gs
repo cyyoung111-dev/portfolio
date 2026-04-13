@@ -1118,7 +1118,13 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 }
 
 function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
-  var tmp = ss.getSheetByName(CONFIG.SHEET_TMP) || ss.insertSheet(CONFIG.SHEET_TMP);
+  // ★ [버그수정] 지수별 전용 시트 사용 — 동시 요청 시 _gf_tmp 충돌 방지
+  //   여러 지수를 동시에 요청할 때 같은 _gf_tmp 시트를 덮어써서 결과가 사라지는 문제 수정
+  //   예: _bm_KOSPI, _bm_SP500, _bm_NASDAQ 등 별도 시트 사용
+  var sheetKey = '_bm_' + symbol.replace(/[^A-Za-z0-9]/g, '_');
+  if (sheetKey.length > 30) sheetKey = sheetKey.slice(0, 30); // 시트명 길이 제한
+  var tmp = ss.getSheetByName(sheetKey);
+  if (!tmp) tmp = ss.insertSheet(sheetKey);
   tmp.clearContents();
 
   var fs = fromDate.split('-');
@@ -2121,10 +2127,12 @@ function setupTrigger() {
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620'
     ) ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).atHour(15).nearMinute(50).create();
-  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).atHour(16).nearMinute(20).create();
-  Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
-  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  // ★ [버그수정] inTimezone('Asia/Seoul') 명시 — GAS 프로젝트 시간대가 UTC 등으로 설정된 경우
+  //   atHour()만 쓰면 프로젝트 시간대 기준으로 실행되어 한국 시간과 최대 9시간 차이 발생
+  ScriptApp.newTrigger('runCodeNormalize1550').timeBased().inTimezone('Asia/Seoul').everyDays(1).atHour(15).nearMinute(50).create();
+  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().inTimezone('Asia/Seoul').everyDays(1).atHour(16).nearMinute(20).create();
+  Logger.log('트리거 등록 완료: 매일 한국시간 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
+  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n한국시간 15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
@@ -2138,11 +2146,13 @@ function _ensureDailyTriggers(autoFix) {
 
   if (autoFix) {
     if (!hasClean) {
-      ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).atHour(15).nearMinute(50).create();
+      // ★ [버그수정] inTimezone('Asia/Seoul') 명시 — 한국시간 기준 실행 보장
+      ScriptApp.newTrigger('runCodeNormalize1550').timeBased().inTimezone('Asia/Seoul').everyDays(1).atHour(15).nearMinute(50).create();
       hasClean = true;
     }
     if (!hasSave) {
-      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).atHour(16).nearMinute(20).create();
+      // ★ [버그수정] inTimezone('Asia/Seoul') 명시 — 한국시간 기준 실행 보장
+      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().inTimezone('Asia/Seoul').everyDays(1).atHour(16).nearMinute(20).create();
       hasSave = true;
     }
   }
