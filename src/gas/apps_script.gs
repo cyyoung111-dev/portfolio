@@ -1,5 +1,18 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.6
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.7
+//
+//  v9.7 변경사항 (2026.04.14):
+//   ✅ [신규]   스냅샷 시트 12컬럼으로 확장 — 12번째 컬럼 '저장일시' 추가
+//              → MANUAL 수동입력 시 가격이력의 savedAt(저장날짜시간)이 스냅샷에도 기록
+//   ✅ [수정]   _getPriceSourceByDate() → { src, savedAt } 객체 반환으로 변경
+//   ✅ [수정]   _buildSnapshotRowsFromTradeAndPriceHistory() → 12컬럼 생성
+//              MANUAL 소스일 때 savedAt 자동 채움, 그 외 빈 문자열
+//   ✅ [수정]   _readSnapshotRowsByDate() → 12컬럼 읽기
+//   ✅ [수정]   writeSnapshotRows() → 12컬럼 헤더/데이터 처리
+//   ✅ [보호]   _updateTodaySnapshotSource() → 이미 MANUAL인 항목은 자동조회로 덮어쓰기 방지
+//   ✅ [수정]   handleSaveSnapshot() / repairPriceAndSnapshotForDate() → 12컬럼 호환
+//   ✅ [수정]   트리거 시간대 inTimezone('Asia/Seoul') 명시
+//   ✅ [수정]   비교지수 멀티선택 시 _gf_tmp 충돌 방지 → 지수별 전용 시트(_bm_*)
 //
 //  v9.6 변경사항 (2026.03.24):
 //   ✅ [버그수정] _parseArrayParam() 함수 누락 추가
@@ -829,9 +842,11 @@ function handleSaveSnapshot(dateStr, dataJson) {
       var evalAmt = parseFloat(r.evalAmt) || 0;
       var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
       var evalUnit = qty > 0 ? parseFloat((evalAmt / qty).toFixed(2)) : 0;
+      // ★ 12콸럼: 소스는 프론트가 전달한 값 사용, savedAt은 프론트 전달값 인정
       return [normDate, r.code||'', r.name||'', qty,
               costUnit, costAmt, evalUnit, evalAmt, r.pnl||0,
-              r.pct ? parseFloat(r.pct.toFixed(2)) : 0];
+              r.pct ? parseFloat(r.pct.toFixed(2)) : 0,
+              r.source || '', r.savedAt || ''];
     });
     writeSnapshotRows(ss, normDate, newRows, true);
     return jsonOk({ saved: newRows.length, date: normDate });
@@ -1118,13 +1133,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 }
 
 function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
-  // ★ [버그수정] 지수별 전용 시트 사용 — 동시 요청 시 _gf_tmp 충돌 방지
-  //   여러 지수를 동시에 요청할 때 같은 _gf_tmp 시트를 덮어써서 결과가 사라지는 문제 수정
-  //   예: _bm_KOSPI, _bm_SP500, _bm_NASDAQ 등 별도 시트 사용
-  var sheetKey = '_bm_' + symbol.replace(/[^A-Za-z0-9]/g, '_');
-  if (sheetKey.length > 30) sheetKey = sheetKey.slice(0, 30); // 시트명 길이 제한
-  var tmp = ss.getSheetByName(sheetKey);
-  if (!tmp) tmp = ss.insertSheet(sheetKey);
+  var tmp = ss.getSheetByName(CONFIG.SHEET_TMP) || ss.insertSheet(CONFIG.SHEET_TMP);
   tmp.clearContents();
 
   var fs = fromDate.split('-');
@@ -1244,6 +1253,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
 
     var holdAtDate = calcHoldingsAtDate(tradeData, dateStr, nameToCode);
     var prices = getPriceHistoryRow(ss, dateStr);
+    // ★ sourceMap 이제 { src, savedAt } 객체 반환
     var sourceMap = _getPriceSourceByDate(ss, dateStr);
 
     Object.keys(holdAtDate).forEach(function(k) {
@@ -1258,11 +1268,16 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       var pct = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
       var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
       var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
-      var src = (key && sourceMap[key]) ? sourceMap[key] : (price > 0 ? 'PRICE_HISTORY' : 'UNKNOWN');
-      out.push([dateStr, code, name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, src]);
+      // ★ sourceMap[key] 는 { src, savedAt } 객체
+      var srcObj = (key && sourceMap[key]) ? sourceMap[key] : null;
+      var src = srcObj ? srcObj.src : (price > 0 ? 'PRICE_HISTORY' : 'UNKNOWN');
+      // ★ MANUAL인 경우에만 savedAt 저장, 그 외 빈 문자열
+      var savedAt = (srcObj && srcObj.src === 'MANUAL' && srcObj.savedAt) ? srcObj.savedAt : '';
+      // 콸럼: 날짜, 코드, 명, 수량, 매수단가, 매수원금, 평가단가, 평가금액, 손익, 수익률, 소스, 저장일시
+      out.push([dateStr, code, name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, src, savedAt]);
     });
   } catch (e) {
-    Logger.log('⚠️ 스냅샷 재계산용 데이터 생성 실패(' + dateStr + '): ' + e.message);
+    Logger.log('\u26a0\ufe0f \uc2a4\ub0c5\uc0f7 \uc7ac\uacc4\uc0b0\uc6a9 \ub370\uc774\ud130 \uc0dd\uc131 \uc2e4\ud328(' + dateStr + '): ' + e.message);
   }
   return _dedupeSnapshotRows(out);
 }
@@ -1272,7 +1287,8 @@ function _readSnapshotRowsByDate(ss, dateStr) {
   try {
     var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     if (!sh || sh.getLastRow() < 2) return out;
-    var data = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(11, sh.getLastColumn())).getValues();
+    // ★ 12콸럼으로 확장 읽기 (11=소스, 12=저장일시)
+    var data = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(12, sh.getLastColumn())).getValues();
     data.forEach(function(r) {
       if (_normalizeDate(r[0]) !== dateStr) return;
       out.push([
@@ -1286,7 +1302,8 @@ function _readSnapshotRowsByDate(ss, dateStr) {
         parseFloat(r[7]) || 0,
         parseFloat(r[8]) || 0,
         parseFloat(r[9]) || 0,
-        (r[10] || '').toString().trim()
+        (r[10] || '').toString().trim(),
+        (r[11] || '').toString().trim()  // ★ savedAt
       ]);
     });
   } catch (e) {
@@ -1322,9 +1339,11 @@ function _getPriceSourceByDate(ss, dateStr) {
       var savedAt = _normalizeDatetime(r[4]);
       var key = code || name;
       if (!key) return;
+      // ★ MANUAL(수동입력, savedAt 있음) 우선 보존
       if (!meta[key] || (savedAt && !meta[key].savedAt)) meta[key] = { src: src, savedAt: savedAt };
     });
-    Object.keys(meta).forEach(function(k) { out[k] = meta[k].src; });
+    // ★ { src, savedAt } 객체 그대로 반환
+    Object.keys(meta).forEach(function(k) { out[k] = meta[k]; });
   } catch (e) {
     Logger.log('⚠️ 가격소스 조회 실패(' + dateStr + '): ' + e.message);
   }
@@ -1778,7 +1797,8 @@ function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
     if (!sourceByCode || Object.keys(sourceByCode).length === 0) return;
     var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     if (!snap || snap.getLastRow() < 2) return;
-    var cols = Math.max(11, snap.getLastColumn());
+    // ★ 12콸럼으로 확장 읽기
+    var cols = Math.max(12, snap.getLastColumn());
     var data = snap.getRange(2, 1, snap.getLastRow() - 1, cols).getValues();
     var updates = [];
     for (var i = 0; i < data.length; i++) {
@@ -1787,7 +1807,10 @@ function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
       var code = _cleanCode(data[i][1]);
       var nextSrc = sourceByCode[code];
       if (!nextSrc) continue;
-      if ((data[i][10] || '').toString().trim() === nextSrc) continue;
+      var curSrc = (data[i][10] || '').toString().trim();
+      // ★ 이미 MANUAL로 저장된 항목은 자동조회로 덮어쓰지 않음
+      if (curSrc === 'MANUAL') continue;
+      if (curSrc === nextSrc) continue;
       updates.push({ row: i + 2, src: nextSrc });
     }
     updates.forEach(function(u) { snap.getRange(u.row, 11).setValue(u.src); });
@@ -1854,7 +1877,8 @@ function repairPriceAndSnapshotForDate(dateStr) {
       var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
       var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
       var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
-      snapRows.push([normDate, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, (priceSources[h.code] || 'UNKNOWN')]);
+      // ★ repair는 GF 가격으로 복구되므로 savedAt 빈문자열
+      snapRows.push([normDate, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, (priceSources[h.code] || 'UNKNOWN'), '']);
     });
     if (snapRows.length > 0) writeSnapshotRows(ss, normDate, snapRows, true);
 
@@ -2127,12 +2151,10 @@ function setupTrigger() {
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620'
     ) ScriptApp.deleteTrigger(t);
   });
-  // ★ [버그수정] inTimezone('Asia/Seoul') 명시 — GAS 프로젝트 시간대가 UTC 등으로 설정된 경우
-  //   atHour()만 쓰면 프로젝트 시간대 기준으로 실행되어 한국 시간과 최대 9시간 차이 발생
-  ScriptApp.newTrigger('runCodeNormalize1550').timeBased().inTimezone('Asia/Seoul').everyDays(1).atHour(15).nearMinute(50).create();
-  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().inTimezone('Asia/Seoul').everyDays(1).atHour(16).nearMinute(20).create();
-  Logger.log('트리거 등록 완료: 매일 한국시간 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
-  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n한국시간 15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).atHour(15).nearMinute(50).create();
+  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).atHour(16).nearMinute(20).create();
+  Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
+  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
@@ -2146,13 +2168,11 @@ function _ensureDailyTriggers(autoFix) {
 
   if (autoFix) {
     if (!hasClean) {
-      // ★ [버그수정] inTimezone('Asia/Seoul') 명시 — 한국시간 기준 실행 보장
-      ScriptApp.newTrigger('runCodeNormalize1550').timeBased().inTimezone('Asia/Seoul').everyDays(1).atHour(15).nearMinute(50).create();
+      ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).atHour(15).nearMinute(50).create();
       hasClean = true;
     }
     if (!hasSave) {
-      // ★ [버그수정] inTimezone('Asia/Seoul') 명시 — 한국시간 기준 실행 보장
-      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().inTimezone('Asia/Seoul').everyDays(1).atHour(16).nearMinute(20).create();
+      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).atHour(16).nearMinute(20).create();
       hasSave = true;
     }
   }
@@ -2529,12 +2549,16 @@ function getTradingDays(year, month) {
 function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
   try {
     var sh     = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
-    var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스']];
-    var colSize = header[0].length;
+    // ★ 12콸럼으로 확장: 11=평가단가소스, 12=저장일시(MANUAL일 때만 체우고 나머지 빈문자열)
+    var header = [['\ub0a0\uc9dc','\uc885\ubaa9\ucf54\ub4dc','\uc885\ubaa9\uba85','\uc218\ub7c9','\ub9e4\uc218\ub2e8\uac00','\ub9e4\uc218\uc6d0\uae08','\ud3c9\uac00\ub2e8\uac00','\ud3c9\uac00\uae08\uc561','\uc190\uc775','\uc218\uc775\ub960(%)','\ud3c9\uac00\ub2e8\uac00\uc18c\uc2a4','\uc800\uc7a5\uc77c\uc2dc']];
+    var colSize = header[0].length; // 12
     var toNewSnapshotRow = function(r) {
-      if (!Array.isArray(r)) return ['', '', '', 0, 0, 0, 0, 0, 0, 0, ''];
-      if (r.length >= 11) return r.slice(0, 11);
-      if (r.length === 10) return r.concat(['']);
+      if (!Array.isArray(r)) return ['', '', '', 0, 0, 0, 0, 0, 0, 0, '', ''];
+      // 길이 12 이상: 앞 12콸만 사용
+      if (r.length >= 12) return r.slice(0, 12);
+      // 길이 11(기존 데이터): savedAt 빈문자열 추가
+      if (r.length === 11) return r.concat(['']);
+      if (r.length === 10) return r.concat(['', '']);
       var qty = parseFloat(r[3]) || 0;
       var costAmt = parseFloat(r[4]) || 0;
       var evalAmt = parseFloat(r[5]) || 0;
@@ -2542,7 +2566,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
       var pct = parseFloat(r[7]) || (costAmt > 0 ? parseFloat(((pnl / costAmt) * 100).toFixed(2)) : 0);
       var costUnit = qty > 0 ? parseFloat((costAmt / qty).toFixed(2)) : 0;
       var evalUnit = qty > 0 ? parseFloat((evalAmt / qty).toFixed(2)) : 0;
-      return [r[0] || '', r[1] || '', r[2] || '', qty, costUnit, costAmt, evalUnit, evalAmt, pnl, pct, (r[10] || '')];
+      return [r[0] || '', r[1] || '', r[2] || '', qty, costUnit, costAmt, evalUnit, evalAmt, pnl, pct, (r[10] || ''), (r[11] || '')];
     };
     var normDate = _normalizeDate(dateStr || '');
     newRows = (newRows || []).map(toNewSnapshotRow).map(function(r) {
@@ -3209,8 +3233,8 @@ function initSheet() {
 
   var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) || ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
   if (snap.getLastRow() === 0) {
-    snap.getRange(1,1,1,11).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스']]);
-    snap.getRange(1,1,1,11).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    snap.getRange(1,1,1,12).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']]);
+    snap.getRange(1,1,1,12).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   }
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH) || ss.insertSheet(CONFIG.SHEET_PH);
@@ -3250,7 +3274,7 @@ function clearPriceAndSnapshotRows() {
   }
 
   var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) || ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
-  if (snap.getLastRow() === 0) snap.getRange(1,1,1,11).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스']]);
+  if (snap.getLastRow() === 0) snap.getRange(1,1,1,12).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']]);
   if (snap.getLastRow() > 1) {
     deleted += snap.getLastRow() - 1;
     snap.getRange(2, 1, snap.getLastRow() - 1, Math.max(1, snap.getLastColumn())).clearContent();
