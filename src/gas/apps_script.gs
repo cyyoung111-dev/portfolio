@@ -1,5 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.8
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.9
+//
+//  v9.9 변경사항 (2026.04.17):
+//   ✅ [버그수정] _backfillExecute() — existingDates 읽기 시 _normalizeDate() 미적용 버그
+//              → 스냅샷 날짜가 Date 객체로 저장된 경우 'Mon Apr 13 2026...' 형태로 읽혀
+//                 이미 채워진 날짜도 없는 것으로 판단하거나 덮어쓰기가 정상 작동하지 않던 문제
+//   ✅ [수정]   _backfillExecute() snapRows → 12컬럼 일치 (savedAt 빈 문자열 추가)
 //
 //  v9.8 변경사항 (2026.04.16):
 //   ✅ [개선]   onOpen 메뉴 서브메뉴 구조로 재편 (4개 서브메뉴)
@@ -2364,7 +2370,10 @@ function _backfillExecute() {
     var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     if (snapSh && snapSh.getLastRow() > 1) {
       snapSh.getRange(2, 1, snapSh.getLastRow() - 1, 1).getValues().forEach(function(r) {
-        existingDates[(r[0]||'').toString().trim()] = true;
+        // ★ [버그수정] _normalizeDate() 적용 — Date 객체/문자열 모두 YYYY-MM-DD 로 정규화
+        //   미적용 시 Date 객체가 'Mon Apr 13 2026...' 형태로 읽혀 날짜 비교 실패
+        var d = _normalizeDate(r[0]);
+        if (d) existingDates[d] = true;
       });
     }
     var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -2439,7 +2448,8 @@ function _backfillExecute() {
           var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
           var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
           var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
-          snapRows.push([dateStr, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, (priceSources[h.code] || 'UNKNOWN')]);
+          // ★ 12컬럼: 소급채우기는 자동조회이므로 savedAt 빈 문자열
+          snapRows.push([dateStr, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, (priceSources[h.code] || 'UNKNOWN'), '']);
         });
 
         if (snapRows.length > 0) {
