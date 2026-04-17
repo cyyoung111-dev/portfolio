@@ -1,0 +1,44 @@
+name: web-check
+
+on:
+  pull_request:
+    paths:
+      - 'src/web/**'
+      - 'scripts/check-web-*.mjs'
+      - 'package.json'
+      - '.github/workflows/web-check.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/web/**'
+      - 'scripts/check-web-*.mjs'
+      - 'package.json'
+      - '.github/workflows/web-check.yml'
+
+jobs:
+  web-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps (if lockfile exists)
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-package-lock --no-audit --no-fund
+          fi
+
+      - name: Run web checks
+        run: npm run check:web:ci
+
+      - name: Web check summary
+        if: always()
+        run: npm run check:web:report >> $GITHUB_STEP_SUMMARY
