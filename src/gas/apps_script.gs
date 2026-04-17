@@ -1,5 +1,13 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.7
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.8
+//
+//  v9.8 변경사항 (2026.04.16):
+//   ✅ [개선]   onOpen 메뉴 서브메뉴 구조로 재편 (4개 서브메뉴)
+//              ⚙️ 초기 설정 / 📈 종가 관리 / 📆 소급채우기 / 🛠️ 유지보수
+//   ✅ [삭제]   '📅 오늘 가격이력 저장' 메뉴 제거 (종가 갱신에 포함됨, 중복)
+//   ✅ [통합]   죽은 코드 정리 + 종목명 보정 + 스냅샷 중복 → runDataCleanup() 하나로
+//   ✅ [통합]   최근 이상치 점검 + 기간 지정 복구 → detectPriceAnomalyPromptAndMaybeRepair() 하나로
+//   ✅ [문구]   메뉴 항목 문구 전반 간소화·통일
 //
 //  v9.7 변경사항 (2026.04.14):
 //   ✅ [신규]   스냅샷 시트 12컬럼으로 확장 — 12번째 컬럼 '저장일시' 추가
@@ -3293,35 +3301,77 @@ function onOpen() {
     ? '🧷 수동가격 최신값만 유지: ON'
     : '🧷 수동가격 최신값만 유지: OFF';
   var priceSourceLabel = _priceSourceModeLabel();
+  var ui = SpreadsheetApp.getUi();
 
-  SpreadsheetApp.getUi()
-    .createMenu('📊 포트폴리오')
-    // ── 초기 설정 (처음 1회) ──
-    .addItem('⚙️ 초기 설정 (처음만)', 'initSheet')
-    .addItem('⏰ 자동 트리거 등록 (1회만)', 'setupTrigger')
+  // ── 서브메뉴: 초기 설정 ──
+  var menuInit = ui.createMenu('⚙️ 초기 설정')
+    .addItem('시트 초기화 (최초 1회)', 'initSheet')
+    .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger');
+
+  // ── 서브메뉴: 종가 관리 ──
+  var menuPrice = ui.createMenu('📈 종가 관리')
+    .addItem('🔄 오늘 종가 갱신', 'updatePrices')
+    .addItem('🗓️ KRX 기간 불러오기', 'importKrxClosesPrompt')
     .addSeparator()
-    // ── 종가 갱신 ──
-    .addItem('🔄 종가 갱신 (소스설정 반영)', 'updatePrices')
-    .addItem('🗓️ KRX 불러오기/덮어쓰기(기간 팝업)', 'importKrxClosesPrompt')
-    .addItem('📅 오늘 가격이력 저장', 'saveDailyPriceHistory')
     .addItem(priceSourceLabel, 'togglePriceSourceMode')
-    .addItem('🔑 KRX AUTH_KEY 설정', 'configureKrxAuthKeyPrompt')
+    .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
     .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
+    .addSeparator()
+    .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus');
+
+  // ── 서브메뉴: 소급채우기 ──
+  var menuBackfill = ui.createMenu('📆 소급채우기')
+    .addItem('▶️ 소급채우기 시작', 'backfillRangePrompt')
+    .addItem('⏩ 이어서 실행', 'backfillResume')
+    .addItem('📊 진행상황 확인', 'backfillStatus');
+
+  // ── 서브메뉴: 유지보수 ──
+  var menuMaint = ui.createMenu('🛠️ 유지보수')
     .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
+    .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
+    .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
+    .addItem('🗑️ 가격이력·스냅샷 초기화', 'clearPriceAndSnapshotRows');
+
+  // ── 메인 메뉴 조합 ──
+  ui.createMenu('📊 포트폴리오')
+    .addSubMenu(menuInit)
     .addSeparator()
-    // ── 과거 소급채우기 ──
-    .addItem('📆 소급채우기 시작 (범위 지정)', 'backfillRangePrompt')
-    .addItem('▶️ 소급채우기 이어서', 'backfillResume')
-    .addItem('📊 소급채우기 진행상황', 'backfillStatus')
+    .addSubMenu(menuPrice)
     .addSeparator()
-    // ── 유지보수 ──
-    .addItem('🧹 죽은 코드 정리', 'cleanDeadCodes')
-    .addItem('🔧 가격이력 종목명 보정', 'fixPriceHistoryNames')
-    .addItem('🧼 스냅샷 중복 정리', 'cleanupSnapshotDuplicates')
-    .addItem('🗑️ 가격이력/스냅샷 데이터 삭제(헤더 유지)', 'clearPriceAndSnapshotRows')
-    .addItem('🩺 최근 가격 이상치 점검', 'detectPriceAnomalyDates')
-    .addItem('🩹 기간 지정 점검 후 업데이트/복구', 'detectPriceAnomalyPromptAndMaybeRepair')
+    .addSubMenu(menuBackfill)
+    .addSeparator()
+    .addSubMenu(menuMaint)
     .addToUi();
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  데이터 정리 통합 실행 — 죽은 코드 + 종목명 보정 + 스냅샷 중복 한 번에
+// ════════════════════════════════════════════════════════════════════
+function runDataCleanup() {
+  try {
+    var ui;
+    try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+    Logger.log('[runDataCleanup] 시작');
+
+    // 1) 죽은 코드 정리
+    cleanDeadCodes();
+    Logger.log('[runDataCleanup] 죽은 코드 정리 완료');
+
+    // 2) 가격이력 종목명 보정
+    fixPriceHistoryNames();
+    Logger.log('[runDataCleanup] 가격이력 종목명 보정 완료');
+
+    // 3) 스냅샷 중복 정리
+    cleanupSnapshotDuplicates();
+    Logger.log('[runDataCleanup] 스냅샷 중복 정리 완료');
+
+    var msg = '✅ 데이터 정리 완료\n- 죽은 코드 정리\n- 가격이력 종목명 보정\n- 스냅샷 중복 제거';
+    Logger.log(msg);
+    if (ui) ui.alert(msg);
+  } catch(err) {
+    Logger.log('❌ runDataCleanup 실패: ' + err.message);
+    try { SpreadsheetApp.getUi().alert('❌ 데이터 정리 중 오류 발생:\n' + err.message); } catch(e) {}
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
