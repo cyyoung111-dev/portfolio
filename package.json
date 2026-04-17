@@ -6,11 +6,12 @@
     "serve:web:py": "python -m http.server 4173 --directory src/web",
     "check:web-structure": "node scripts/check-web-structure.mjs",
     "check:web-syntax": "node scripts/check-web-syntax.mjs",
-    "check:web": "npm run check:web-structure && npm run check:web-syntax && npm run check:web-globals && npm run check:web-inline",
+    "check:web": "npm run check:web-structure && npm run check:web-manifest && npm run check:web-syntax && npm run check:web-globals && npm run check:web-inline",
     "check:web-structure:strict": "node scripts/check-web-structure.mjs --fail-on-unreferenced",
-    "check:web:ci": "npm run check:web-structure:strict && npm run check:web-syntax && npm run check:web-globals && npm run check:web-inline",
+    "check:web:ci": "npm run check:web-structure:strict && npm run check:web-manifest && npm run check:web-syntax && npm run check:web-globals && npm run check:web-inline",
     "check:web-globals": "node scripts/check-web-globals.mjs",
     "check:web-inline": "node scripts/check-web-inline-handlers.mjs",
-    "check:web:report": "node scripts/check-web-report.mjs"
+    "check:web:report": "node scripts/check-web-report.mjs",
+    "check:web-manifest": "node scripts/check-web-manifest.mjs"
   }
 }
