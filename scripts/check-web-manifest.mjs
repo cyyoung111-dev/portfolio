@@ -32,6 +32,7 @@ if (!expected) {
 
 if (expected.length !== indexLocal.length) {
   console.error(`❌ Manifest/index include count mismatch: manifest=${expected.length}, index=${indexLocal.length}`);
+  console.error('   ↳ If intentional, run: npm run sync:web-manifest');
   process.exit(1);
 }
 
@@ -40,6 +41,7 @@ for (let i = 0; i < expected.length; i += 1) {
   if (expected[i] !== indexLocal[i]) {
     mismatch = true;
     console.error(`❌ Include order mismatch at #${i + 1}: expected="${expected[i]}" actual="${indexLocal[i]}"`);
+    console.error('   ↳ If intentional, run: npm run sync:web-manifest');
   }
 }
 

@@ -12,6 +12,7 @@
     "check:web-globals": "node scripts/check-web-globals.mjs",
     "check:web-inline": "node scripts/check-web-inline-handlers.mjs",
     "check:web:report": "node scripts/check-web-report.mjs",
-    "check:web-manifest": "node scripts/check-web-manifest.mjs"
+    "check:web-manifest": "node scripts/check-web-manifest.mjs",
+    "sync:web-manifest": "node scripts/update-web-manifest.mjs"
   }
 }
