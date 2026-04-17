@@ -29,4 +29,4 @@
 
 ## 5) 문서 마감
 - [x] `SMOKE_CHECKLIST.md` 결과 반영
-- [ ] PR 본문에 최종 경로 구조 기록
+- [x] PR 본문에 최종 경로 구조 기록 (`docs/PHASE10_FINAL_PATH_STRUCTURE.md` 기준)
