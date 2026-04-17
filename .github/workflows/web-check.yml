@@ -38,3 +38,7 @@ jobs:
 
       - name: Run web checks
         run: npm run check:web:ci
+
+      - name: Web check summary
+        if: always()
+        run: npm run check:web:report >> $GITHUB_STEP_SUMMARY
