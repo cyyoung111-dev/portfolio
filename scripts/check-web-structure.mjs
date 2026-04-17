@@ -6,6 +6,8 @@ const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'src/web');
 const indexPath = path.join(webRoot, 'index.html');
 
+const failOnUnreferenced = process.argv.includes('--fail-on-unreferenced');
+
 const fail = (msg) => {
   console.error(`❌ ${msg}`);
   process.exitCode = 1;
@@ -90,6 +92,12 @@ const unreferenced = allJs
 
 if (unreferenced.length > 0) {
   warn(`Unreferenced JS files from index.html includes: ${unreferenced.length}`);
+  for (const rel of unreferenced) {
+    warn(`  - ${rel}`);
+  }
+  if (failOnUnreferenced) {
+    fail('Unreferenced JS files detected in strict mode');
+  }
 }
 
 if (process.exitCode && process.exitCode !== 0) {

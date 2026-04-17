@@ -6,6 +6,8 @@
     "serve:web:py": "python -m http.server 4173 --directory src/web",
     "check:web-structure": "node scripts/check-web-structure.mjs",
     "check:web-syntax": "node scripts/check-web-syntax.mjs",
-    "check:web": "npm run check:web-structure && npm run check:web-syntax"
+    "check:web": "npm run check:web-structure && npm run check:web-syntax",
+    "check:web-structure:strict": "node scripts/check-web-structure.mjs --fail-on-unreferenced",
+    "check:web:ci": "npm run check:web-structure:strict && npm run check:web-syntax"
   }
 }
