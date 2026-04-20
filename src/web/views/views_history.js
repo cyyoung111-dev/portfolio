@@ -44,8 +44,8 @@ function renderHistoryView(area) {
   _renderHistBenchmarkButtons();
   const monthEl = $el('histStartMonth');
   if (monthEl && !monthEl.value) {
-    const d = _kstNow(); // ★ KST 기준 현재 날짜
-    monthEl.value = `${d.getUTCFullYear()}-01`;
+    const d = new Date();
+    monthEl.value = `${d.getFullYear()}-01`;
   }
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
@@ -134,8 +134,9 @@ async function loadHistoryChart() {
     let fromStr = '';
     if (/^\d{4}-\d{2}$/.test(startMonth)) fromStr = `${startMonth}-01`;
     else if (rangeDays > 0) {
-      // ★ KST 기준 오늘에서 rangeDays 일 전 계산
-      fromStr = _kstDateOffset(_kstTodayStr(), -rangeDays);
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - rangeDays);
+      fromStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
     }
     const url = GSHEET_API_URL + '?action=getHistory' + (fromStr ? ('&from=' + fromStr) : '');
     const res  = await fetchWithTimeout(url, 15000);
@@ -171,15 +172,16 @@ async function loadHistoryChart() {
         .map(v => String(v || '').toUpperCase().trim())
         .filter(v => HIST_BENCHMARK_TYPES.includes(v))
     ));
-    const benchEntries = await Promise.all(
-      benchmarkTypes.map(async (type) => [type, await _fetchBenchmarkSeries(type, snapshots[0].date, snapshots[snapshots.length - 1].date)])
-    );
+    // ★ [버그수정] Promise.all → 순차 직렬 요청
+    //   GAS 웹앱은 동시 다중 요청을 직렬로 처리하므로 병렬 요청 시
+    //   _bm_* 시트 간 flush/sleep 타이밍이 겹쳐 대부분 빈 결과 반환됨
     const benchSeriesMap = {};
     const benchMetaMap = {};
-    benchEntries.forEach(([type, payload]) => {
+    for (const type of benchmarkTypes) {
+      const payload = await _fetchBenchmarkSeries(type, snapshots[0].date, snapshots[snapshots.length - 1].date);
       benchSeriesMap[type] = Array.isArray(payload?.points) ? payload.points : [];
       benchMetaMap[type] = payload?.symbol || '';
-    });
+    }
 
     const missing = benchmarkTypes.filter(type => (benchSeriesMap[type] || []).length === 0);
     if (statusEl) {
@@ -271,6 +273,31 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     const benchRaw = Array.isArray(benchSeriesMap[benchType]) ? benchSeriesMap[benchType] : [];
     const benchByDate = {};
     benchRaw.forEach(b => { if (b.date && b.value > 0) benchByDate[b.date] = b.value; });
+
+    // ★ [버그수정] base 계산 개선 — 스냅샷 시작일 기준 지수값을 정확히 찾기
+    //   기존: carry-over 후 arr[0].raw → 지수 데이터가 스냅샷 시작일보다 늦게 시작하면
+    //         첫 carry값이 base가 되어 수익률이 왜곡됨
+    //   수정: 스냅샷 첫 날짜 이전 중 가장 가까운 지수값을 base로 사용
+    const firstSnapshotDate = snapshots[0]?.date || '';
+    let base = 0;
+    if (firstSnapshotDate) {
+      if (benchByDate[firstSnapshotDate]) {
+        base = benchByDate[firstSnapshotDate];
+      } else {
+        const sortedBenchDates = Object.keys(benchByDate).sort();
+        // 스냅샷 시작일 이전 중 가장 가까운 날짜 (carry-back)
+        for (let di = sortedBenchDates.length - 1; di >= 0; di--) {
+          if (sortedBenchDates[di] <= firstSnapshotDate) {
+            base = benchByDate[sortedBenchDates[di]];
+            break;
+          }
+        }
+        // carry-back 없으면 가장 첫 값 사용
+        if (!base && sortedBenchDates.length > 0) base = benchByDate[sortedBenchDates[0]];
+      }
+    }
+
+    // carry-over: 스냅샷 날짜별 지수값 매핑 (해당 날짜 없으면 직전값 사용)
     let lastBench = 0;
     const arr = pts.map((p, i) => {
       const date = snapshots[i]?.date || '';
@@ -278,7 +305,6 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       if (now > 0) lastBench = now;
       return { i, date, raw: lastBench || 0 };
     }).filter(b => b.raw > 0);
-    const base = arr.length ? arr[0].raw : 0;
     arr.forEach(b => { b.idx = base > 0 ? (b.raw / base * 100) : 0; });
     return { type: benchType, color: benchColors[idx % benchColors.length], pts: arr };
   }).filter(x => x.pts.length > 1);
