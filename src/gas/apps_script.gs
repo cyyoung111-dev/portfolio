@@ -1,5 +1,21 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.9
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.11
+//
+//  v9.11 변경사항 (2026.04.20):
+//   ✅ [버그수정] batchUpsertPriceHistory() — MANUAL 보호 + 날짜 정규화
+//              → existingMap 키 생성 시 _normalizeDate() 미적용으로 중복 감지 실패 수정
+//              → MANUAL 소스 행은 자동조회(KRX/GF)로 덮어쓰지 않도록 manualSet 보호
+//              → toUpdate 시 savedAt도 함께 업데이트 (MANUAL인 경우만)
+//   ✅ [버그수정] _repairRecentNonKrxHistory() — MANUAL 소스도 skip 대상에 추가
+//              → 매일 트리거 실행 시 최근 7일 MANUAL 가격이 KRX로 덮어씌워지던 문제 수정
+//
+//  v9.10 변경사항 (2026.04.20):
+//   ✅ [버그수정] _dedupeSnapshotRows() — slice(0,11)로 savedAt 잘리던 문제
+//              → slice(0,12) + 부족 시 빈 문자열 채움으로 컬럼 불일치 에러 방지
+//   ✅ [버그수정] writeSnapshotRows() overwrite=false 판단 로직
+//              → 기존: 날짜 행 하나라도 있으면 전체 skip (일부 종목 누락 발생)
+//              → 수정: 이미 있는 종목만 제외하고 없는 종목만 추가
+//   ✅ [버그수정] cleanupSnapshotDuplicates() — 11컬럼 하드코딩 → 12컬럼으로 통일
 //
 //  v9.9 변경사항 (2026.04.17):
 //   ✅ [버그수정] _backfillExecute() — existingDates 읽기 시 _normalizeDate() 미적용 버그
@@ -1542,13 +1558,22 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
     }
 
     var lastRow     = ph.getLastRow();
-    var existingMap = {};
+    var existingMap = {};   // key → 행번호
+    var manualSet   = {};   // key → true (MANUAL 보호 대상)
     if (lastRow > 1) {
-      var data = ph.getRange(2, 1, lastRow - 1, 3).getValues();
+      // ★ [버그수정] 날짜 _normalizeDate() 적용 — Date 객체가 'Mon Apr 13...' 형태로
+      //   읽혀 중복 감지 실패하던 문제 수정. 6컬럼(소스)까지 읽어 MANUAL 여부 판단
+      var readCols = Math.min(6, ph.getLastColumn());
+      var data = ph.getRange(2, 1, lastRow - 1, readCols).getValues();
       data.forEach(function(row, i) {
-        var d = (row[0]||'').toString().trim();
+        var d = _normalizeDate(row[0]);
         var c = _cleanCode(row[1]) || (row[2]||'').toString().trim();
-        if (d && c) existingMap[d + '|' + c] = i + 2;
+        if (!d || !c) return;
+        var mapKey = d + '|' + c;
+        existingMap[mapKey] = i + 2;
+        // ★ MANUAL 소스인 행은 보호 대상으로 표시
+        var src = (row[5] || '').toString().trim().toUpperCase();
+        if (src === 'MANUAL') manualSet[mapKey] = true;
       });
     }
 
@@ -1558,12 +1583,18 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       var cleanedCode = _cleanCode(item.code);
       var rawName     = (item.name || '').toString().trim();
       var cleanedName = (rawName && isNaN(Number(rawName))) ? rawName : '';
-      var key         = dateStr + '|' + (cleanedCode || cleanedName);
+      var normDateStr = _normalizeDate(dateStr) || dateStr;
+      var key         = normDateStr + '|' + (cleanedCode || cleanedName);
 
       if (existingMap[key]) {
-        toUpdate.push({ row: existingMap[key], price: item.price, source: (item.source || '') });
+        // ★ [버그수정] 이미 MANUAL로 저장된 행은 자동조회(KRX/GF)로 덮어쓰지 않음
+        var incomingSrc = (item.source || '').toString().trim().toUpperCase();
+        var isIncomingManual = (incomingSrc === 'MANUAL');
+        if (manualSet[key] && !isIncomingManual) return; // MANUAL 보호
+        toUpdate.push({ row: existingMap[key], price: item.price, source: (item.source || ''),
+                        savedAt: (item.savedAt || ''), isManual: isIncomingManual });
       } else {
-        toAppend.push([dateStr, cleanedCode, cleanedName, item.price, (item.savedAt || ''), (item.source || '')]);
+        toAppend.push([normDateStr, cleanedCode, cleanedName, item.price, (item.savedAt || ''), (item.source || '')]);
       }
     });
 
@@ -1580,7 +1611,11 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
         ph.getRange(startRow, 4, prices.length, 1).setValues(prices.map(function(p){ return [p]; }));
         i++;
       }
-      toUpdate.forEach(function(u) { ph.getRange(u.row, 6).setValue(u.source || ''); });
+      // ★ 소스와 savedAt 동시 업데이트 (MANUAL이면 savedAt도 기록)
+      toUpdate.forEach(function(u) {
+        ph.getRange(u.row, 5).setValue(u.isManual ? (u.savedAt || '') : '');
+        ph.getRange(u.row, 6).setValue(u.source || '');
+      });
     }
     if (toAppend.length > 0) {
       ph.getRange(ph.getLastRow() + 1, 1, toAppend.length, 6).setValues(toAppend);
@@ -1776,7 +1811,8 @@ function _repairRecentNonKrxHistory(ss, todayStr, items, daysBack) {
       var code = _cleanCode(r[1]);
       if (!code || !byCode[code]) return;
       var src = (r[5] || '').toString().trim().toUpperCase();
-      if (src === 'KRX' || src === 'KRX_OTP') return;
+      // ★ [버그수정] MANUAL 소스도 보호 — 수동입력 가격을 KRX로 덮어쓰지 않음
+      if (src === 'KRX' || src === 'KRX_OTP' || src === 'MANUAL') return;
       if (!targets[dateStr]) targets[dateStr] = {};
       targets[dateStr][code] = true;
     });
@@ -2602,9 +2638,28 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite) {
     }
 
     if (sh.getLastRow() > 1) {
-      var existing = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(8, sh.getLastColumn())).getValues().map(toNewSnapshotRow);
+      var existing = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(12, sh.getLastColumn())).getValues().map(toNewSnapshotRow);
       var kept     = existing.filter(function(r){ return _normalizeDate(r[0]) !== normDate; });
-      if (!overwrite && kept.length < existing.length) return;
+      // ★ [버그수정] overwrite=false 시 판단 기준 변경
+      //   기존: 해당 날짜 행이 하나라도 있으면 전체 skip → 일부 종목만 있어도 나머지 미기록
+      //   수정: newRows 의 종목 중 이미 기록된 종목만 제외하고, 없는 종목은 추가
+      if (!overwrite && kept.length < existing.length) {
+        // 이미 해당 날짜 데이터가 일부라도 있는 경우:
+        // newRows 중 아직 없는 종목(코드)만 걸러서 추가
+        var existingKeys = {};
+        existing.forEach(function(r) {
+          var d = _normalizeDate(r[0]);
+          if (d !== normDate) return;
+          var k = _cleanCode(r[1]) || (r[2] || '').toString().trim();
+          if (k) existingKeys[d + '|' + k] = true;
+        });
+        var toAdd = newRows.filter(function(r) {
+          var k = _cleanCode(r[1]) || (r[2] || '').toString().trim();
+          return k && !existingKeys[normDate + '|' + k];
+        });
+        if (toAdd.length === 0) return; // 추가할 신규 종목 없음 → skip
+        newRows = toAdd; // 없는 종목만 추가
+      }
       var combined = _dedupeSnapshotRows(kept.concat(newRows));
       sh.clearContents();
       sh.getRange(1,1,1,colSize).setValues(header);
@@ -2630,7 +2685,11 @@ function _dedupeSnapshotRows(rows) {
     var key = date + '|' + code;
     if (seen[key]) return;
     seen[key] = true;
-    var row = r.slice(0, 11);
+    // ★ [버그수정] 12컬럼 유지 — 기존 slice(0,11)은 savedAt(12번째)을 잘라버려
+    //   writeSnapshotRows의 colSize=12와 불일치 발생
+    var row = r.slice(0, 12);
+    // 12번째 컬럼(savedAt)이 없는 구형 데이터는 빈 문자열로 채움
+    while (row.length < 12) row.push('');
     row[0] = date;
     out.push(row);
   });
@@ -2645,8 +2704,9 @@ function cleanupSnapshotDuplicates() {
     return;
   }
 
-  var colSize = 11;
-  var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스']];
+  // ★ [버그수정] 12컬럼으로 업데이트 (11컬럼 하드코딩 제거)
+  var colSize = 12;
+  var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']];
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues();
   var deduped = _dedupeSnapshotRows(rows);
   var removed = rows.length - deduped.length;
