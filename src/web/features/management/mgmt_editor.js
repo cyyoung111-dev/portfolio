@@ -579,7 +579,8 @@ async function _saveManualPriceWithRetry(target, maxRetry) {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(target.date)
-                + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price + '&keepLatest=0';
+                + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price;
+                // ★ keepLatest 파라미터 제거 → GAS의 _isManualKeepLatestEnabled() 설정값 사용
       const res = await _gasDirectFetch(url, 30000);
       const d = await res.json();
       if (d.status === 'ok') return { ok: true };
