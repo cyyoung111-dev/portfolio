@@ -11,6 +11,58 @@ function fetchWithTimeout(url, ms, options) {
     .finally(() => clearTimeout(tid));
 }
 
+function buildGsheetActionUrl(action, params) {
+  if (!GSHEET_API_URL || !action) return '';
+  const q = new URLSearchParams();
+  q.set('action', action);
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v === null || v === undefined || v === '') return;
+    q.set(k, String(v));
+  });
+  return `${GSHEET_API_URL}?${q.toString()}`;
+}
+
+async function requestJsonWithPolicy(url, opts) {
+  if (!url) return null;
+  const o = opts || {};
+  const timeoutMs = Number.isFinite(o.timeoutMs) ? Math.max(1000, o.timeoutMs) : 15000;
+  const retry = Number.isFinite(o.retry) ? Math.max(0, o.retry) : 0;
+  const delayMs = Number.isFinite(o.delayMs) ? Math.max(0, o.delayMs) : 180;
+  const fetchOptions = o.fetchOptions || {};
+  for (let i = 0; i <= retry; i++) {
+    try {
+      const res = await fetchWithTimeout(url, timeoutMs, fetchOptions);
+      return await res.json();
+    } catch (_) {
+      if (i < retry) await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  return null;
+}
+
+async function requestGsheetActionJson(action, params, opts) {
+  const url = buildGsheetActionUrl(action, params);
+  return requestJsonWithPolicy(url, opts);
+}
+
+async function requestGsheetFormJson(action, params, opts) {
+  if (!GSHEET_API_URL || !action) return null;
+  const form = new URLSearchParams();
+  form.set('action', action);
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v === null || v === undefined || v === '') return;
+    form.set(k, String(v));
+  });
+  const o = opts || {};
+  const fetchOptions = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
+    ...(o.fetchOptions || {}),
+  };
+  return requestJsonWithPolicy(GSHEET_API_URL, { ...o, fetchOptions });
+}
+
 function saveGsheetUrl(url) {
   GSHEET_API_URL = url.trim();
   lsSave(GSHEET_KEY, GSHEET_API_URL);

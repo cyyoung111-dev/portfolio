@@ -29,7 +29,7 @@ function renderHistoryView(area) {
             <button type="button" class="hist-bench-btn" data-bench="SP500">S&P500</button>
             <button type="button" class="hist-bench-btn" data-bench="NASDAQ">NASDAQ</button>
             <button type="button" class="hist-bench-btn" data-bench="NASDAQ100">NASDAQ100</button>
-            <button type="button" id="histBenchClear" class="hist-bench-btn" data-bench="CLEAR" style="border-style:dashed;color:var(--muted)">해제</button>
+            <button type="button" id="histBenchClear" class="hist-bench-btn hist-bench-btn-clear" data-bench="CLEAR">해제</button>
           </div>
           <button id="btn-history-refresh" class="btn-ghost-sm">🔄 새로고침</button>
         </div>
@@ -38,9 +38,8 @@ function renderHistoryView(area) {
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
       <div id="histTableWrap" style="margin-top:18px"></div>
     </div>`;
-  window._histMode = window._histMode || 'week';
-  window._histBenchmarks = Array.isArray(window._histBenchmarks) ? window._histBenchmarks : ['KOSPI'];
-  _applyHistModeUI(window._histMode);
+  _initHistState();
+  _applyHistModeUI(_getHistMode());
   _renderHistBenchmarkButtons();
   const monthEl = $el('histStartMonth');
   if (monthEl && !monthEl.value) {
@@ -55,172 +54,11 @@ function renderHistoryView(area) {
     if (!btn) return;
     const type = btn.dataset?.bench || '';
     if (!type) return;
-    if (type === 'CLEAR') window._histBenchmarks = [];
+    if (type === 'CLEAR') _setHistBenchmarks([]);
     else _toggleHistBenchmark(type);
     _renderHistBenchmarkButtons();
     loadHistoryChart();
   });
-}
-
-const HIST_BENCHMARK_TYPES = ['KOSPI', 'KOSDAQ', 'SP500', 'NASDAQ', 'NASDAQ100'];
-
-function _toggleHistBenchmark(type) {
-  if (!HIST_BENCHMARK_TYPES.includes(type)) return;
-  const next = new Set(Array.isArray(window._histBenchmarks) ? window._histBenchmarks : []);
-  if (next.has(type)) next.delete(type);
-  else next.add(type);
-  window._histBenchmarks = Array.from(next);
-}
-
-function _renderHistBenchmarkButtons() {
-  const selected = new Set(Array.isArray(window._histBenchmarks) ? window._histBenchmarks : []);
-  document.querySelectorAll('#histBenchmarkMulti .hist-bench-btn').forEach(btn => {
-    const type = btn.dataset?.bench || '';
-    const isClear = type === 'CLEAR';
-    const active = !isClear && selected.has(type);
-    btn.style.border = active ? '1px solid var(--amber)' : '1px solid var(--border)';
-    btn.style.background = active ? 'var(--c-amber-15)' : 'transparent';
-    btn.style.color = active ? 'var(--gold)' : 'var(--muted)';
-    btn.style.padding = '4px 8px';
-    btn.style.borderRadius = '6px';
-    btn.style.cursor = 'pointer';
-    btn.style.fontSize = '.68rem';
-    btn.style.fontWeight = active ? '700' : '500';
-  });
-}
-
-function _setHistMode(mode) {
-  window._histMode = mode;
-  window.mode = mode;
-  _applyHistModeUI(mode);
-  loadHistoryChart();
-}
-
-function _applyHistModeUI(mode) {
-  const wBtn = $el('histModeWeek');
-  const mBtn = $el('histModeMonth');
-  if (!wBtn || !mBtn) return;
-  [wBtn, mBtn].forEach(b => {
-    b.style.background = 'transparent';
-    b.style.color = 'var(--muted)';
-    b.style.fontWeight = '400';
-  });
-  const active = mode === 'week' ? wBtn : mBtn;
-  active.style.background = 'var(--c-purple-45,#7c3aed)';
-  active.style.color = '#fff';
-  active.style.fontWeight = '600';
-}
-
-async function loadHistoryChart() {
-  const statusEl = $el('histStatusMsg');
-  const chartWrap = $el('histChartWrap');
-  const tableWrap = $el('histTableWrap');
-  if (!chartWrap) return;
-
-  if (!GSHEET_API_URL) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠️ 재동기화 설정 후 이용 가능합니다.</span>';
-    chartWrap.innerHTML = '';
-    if (tableWrap) tableWrap.innerHTML = '';
-    return;
-  }
-
-  if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">⏳ 불러오는 중...</span>';
-  chartWrap.innerHTML = '';
-  if (tableWrap) tableWrap.innerHTML = '';
-
-  try {
-    const startMonth = String($el('histStartMonth')?.value || '').trim();
-    var rangeDays = parseInt($el('histRangeSelect')?.value || '365', 10);
-    let fromStr = '';
-    if (/^\d{4}-\d{2}$/.test(startMonth)) fromStr = `${startMonth}-01`;
-    else if (rangeDays > 0) {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - rangeDays);
-      fromStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
-    }
-    const url = GSHEET_API_URL + '?action=getHistory' + (fromStr ? ('&from=' + fromStr) : '');
-    const res  = await fetchWithTimeout(url, 15000);
-    const data = await res.json();
-    if (!data || data.status === 'error') throw new Error(data?.message || '응답 오류');
-
-    let snapshots = Array.isArray(data.snapshots) ? data.snapshots : (Array.isArray(data) ? data : []);
-    if (!snapshots.length) {
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">스냅샷 데이터가 없습니다. 데이터가 쌓이면 자동으로 표시됩니다.</span>';
-      return;
-    }
-
-    snapshots = snapshots
-      .map(s => ({ ...s, date: _normalizeHistDate(s.date || '') }))
-      .filter(s => !!s.date)
-      .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-
-    if (!snapshots.length) {
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">선택한 기간에 데이터가 없습니다.</span>';
-      return;
-    }
-
-    // 거래이력 기반 원가 재계산값이 있으면 우선 적용
-    snapshots = _mergeTradeBasedCost(snapshots);
-    const mode = window._histMode || 'week';
-    const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
-
-    if (statusEl) statusEl.innerHTML =
-      `<span style="color:var(--muted)">그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
-
-    const benchmarkTypes = Array.from(new Set(
-      (Array.isArray(window._histBenchmarks) ? window._histBenchmarks : [])
-        .map(v => String(v || '').toUpperCase().trim())
-        .filter(v => HIST_BENCHMARK_TYPES.includes(v))
-    ));
-    // ★ [버그수정] Promise.all → 순차 직렬 요청
-    //   GAS 웹앱은 동시 다중 요청을 직렬로 처리하므로 병렬 요청 시
-    //   _bm_* 시트 간 flush/sleep 타이밍이 겹쳐 대부분 빈 결과 반환됨
-    const benchSeriesMap = {};
-    const benchMetaMap = {};
-    for (const type of benchmarkTypes) {
-      const payload = await _fetchBenchmarkSeries(type, snapshots[0].date, snapshots[snapshots.length - 1].date);
-      benchSeriesMap[type] = Array.isArray(payload?.points) ? payload.points : [];
-      benchMetaMap[type] = payload?.symbol || '';
-    }
-
-    const missing = benchmarkTypes.filter(type => (benchSeriesMap[type] || []).length === 0);
-    if (statusEl) {
-      const baseMsg = `그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}`;
-      const benchMsg = benchmarkTypes.length === 0
-        ? '비교지수 없음'
-        : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
-      const missingMsg = missing.length ? ` (실패: ${missing.join(', ')})` : '';
-      statusEl.innerHTML = `<span style="color:var(--muted)">${baseMsg} · ${benchMsg}${missingMsg}</span>`;
-    }
-
-    _drawHistoryChart(chartWrap, snapshots, mode, { types: benchmarkTypes, seriesMap: benchSeriesMap, metaMap: benchMetaMap });
-    _drawHistoryTable(tableWrap, tableSnapshots);
-
-  } catch(e) {
-    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${e.message}</span>`;
-  }
-}
-
-async function _fetchBenchmarkSeries(type, fromDate, toDate) {
-  if (!GSHEET_API_URL || !type || !fromDate || !toDate) return { points: [], symbol: '' };
-  try {
-    const url = GSHEET_API_URL
-      + '?action=getBenchmark'
-      + '&benchmark=' + encodeURIComponent(type)
-      + '&from=' + encodeURIComponent(fromDate)
-      + '&to=' + encodeURIComponent(toDate);
-    const res = await fetchWithTimeout(url, 15000);
-    const data = await res.json();
-    if (!data || data.status === 'error') return { points: [], symbol: '' };
-    const arr = Array.isArray(data.points) ? data.points : [];
-    const points = arr
-      .map(p => ({ date: _normalizeHistDate(p.date || ''), value: parseFloat(p.value || 0) }))
-      .filter(p => p.date && p.value > 0)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    return { points, symbol: (data.symbol || '').toString().trim() };
-  } catch(_) {
-    return { points: [], symbol: '' };
-  }
 }
 
 function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
@@ -404,10 +242,10 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
 
 function _drawHistoryTable(wrap, snapshots) {
   const fmt = _fmtKrw;
-  const mode = window._histMode || 'week';
+  const mode = _getHistMode();
   const recent = [...snapshots].reverse().slice(0, 20);
   const diagnostics = _buildHistoryDiagnostics(snapshots);
-  window._histDebugByDate = diagnostics;
+  __histState.debugByDate = diagnostics;
   let html = `
     <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개 · ${mode==='week'?'주간 기준':'월간 기준'})</div>
     <div style="overflow-x:auto">
@@ -438,7 +276,7 @@ function _drawHistoryTable(wrap, snapshots) {
   });
   html += `</tbody></table></div><div id="histDebugPanel" style="margin-top:8px"></div>`;
   wrap.innerHTML = html;
-  _renderHistDebugPanel(window._histDebugDate || '');
+  _renderHistDebugPanel(__histState.debugDate || '');
 }
 
 function _buildHistoryDiagnostics(snapshots) {
@@ -482,14 +320,14 @@ function _buildHistoryDiagnostics(snapshots) {
 }
 
 function _toggleHistDebug(date) {
-  window._histDebugDate = (window._histDebugDate === date) ? '' : date;
-  _renderHistDebugPanel(window._histDebugDate);
+  __histState.debugDate = (__histState.debugDate === date) ? '' : date;
+  _renderHistDebugPanel(__histState.debugDate);
 }
 
 function _renderHistDebugPanel(date) {
   const panel = $el('histDebugPanel');
   if (!panel) return;
-  const d = (window._histDebugByDate || {})[date];
+  const d = (__histState.debugByDate || {})[date];
   if (!date || !d) {
     panel.innerHTML = '';
     return;
@@ -510,67 +348,6 @@ function _renderHistDebugPanel(date) {
         <div>• 평가 변동률(직전 대비): ${(d.evalJumpPct*100).toFixed(1)}%</div>
       </div>
     </div>`;
-}
-
-function _mergeTradeBasedCost(snapshots) {
-  if (!Array.isArray(snapshots) || snapshots.length === 0) return snapshots;
-  if (!Array.isArray(rawTrades) || rawTrades.length === 0) return snapshots;
-
-  const timeline = _buildCostTimelineFromTrades(snapshots.map(s => _histDateKey(s.date || '')));
-  return snapshots.map(s => {
-    const key = _histDateKey(s.date || '');
-    const tradeCost = timeline[key];
-    if (!Number.isFinite(tradeCost)) return s;
-    return { ...s, costAmt: Math.round(tradeCost) };
-  });
-}
-
-function _buildCostTimelineFromTrades(snapshotDateKeys) {
-  const targets = [...new Set(snapshotDateKeys.filter(Boolean))].sort();
-  const out = {};
-  if (!targets.length) return out;
-
-  const trades = rawTrades
-    .map(t => ({
-      date: _histDateKey(t.date || ''),
-      tradeType: (t.tradeType || '').toLowerCase(),
-      qty: parseFloat(t.qty || 0),
-      price: parseFloat(t.price || 0),
-      name: (t.name || '').trim(),
-      acct: (t.acct || '').trim(),
-    }))
-    .filter(t => t.date && t.name && t.qty > 0 && t.price >= 0)
-    .sort((a, b) => a.date.localeCompare(b.date));
-
-  const posMap = {}; // key -> { qty, totalCost }
-  const posKey = t => `${t.acct}||${t.name}`;
-  const totalCost = () => Object.values(posMap).reduce((s, p) => s + (p.totalCost || 0), 0);
-
-  let ti = 0;
-  for (let i = 0; i < targets.length; i++) {
-    const target = targets[i];
-    while (ti < trades.length && trades[ti].date <= target) {
-      const t = trades[ti++];
-      const key = posKey(t);
-      if (!posMap[key]) posMap[key] = { qty: 0, totalCost: 0 };
-      const p = posMap[key];
-      if (t.tradeType === 'buy') {
-        p.qty += t.qty;
-        p.totalCost += t.qty * t.price;
-      } else if (t.tradeType === 'sell') {
-        const avg = p.qty > 0 ? p.totalCost / p.qty : 0;
-        const sellQty = Math.min(t.qty, p.qty);
-        p.qty -= sellQty;
-        p.totalCost -= avg * sellQty;
-        if (p.qty <= 0) {
-          p.qty = 0;
-          p.totalCost = 0;
-        }
-      }
-    }
-    out[target] = Math.max(0, totalCost());
-  }
-  return out;
 }
 
 // ════════════════════════════════════════════════════════════════
