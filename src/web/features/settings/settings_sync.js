@@ -39,10 +39,7 @@ let _gsheetCodeList = []; // [{code, name}]
 async function loadGsheetCodeList() {
   if (!GSHEET_API_URL) return;
   try {
-    const url = GSHEET_API_URL + '?action=getCodeList';
-    const res = await fetchWithTimeout(url, 10000);
-    if (!res.ok) return;
-    const data = await res.json();
+    const data = await requestGsheetActionJson('getCodeList', {}, { timeoutMs: 10000, retry: 1 });
     if (data.status === 'ok' && Array.isArray(data.codes)) {
       _gsheetCodeList = data.codes
         .map(item => ({
@@ -205,10 +202,8 @@ async function lookupNameByCode(code) {
   // 4. GSheet API 조회 (GOOGLEFINANCE name)
   if (!GSHEET_API_URL) return '';
   try {
-    const url = GSHEET_API_URL + '?action=name&code=' + encodeURIComponent(trimCode);
-    const res = await fetchWithTimeout(url, 8000);
-    if (!res.ok) return '';
-    const data = await res.json();
+    const data = await requestGsheetActionJson('name', { code: trimCode }, { timeoutMs: 8000, retry: 1 });
+    if (!data || data.status === 'error') return '';
     return data.name || data.officialName || '';
   } catch(e) { return ''; }
 }

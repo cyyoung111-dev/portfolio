@@ -158,6 +158,30 @@ function migrateLegacyTrades() {
 // ════════════════════════════════════════════════════════════════
 
 let EDITABLE_PRICES = [];  // 현재가 편집기에서 관리, localStorage 복원
+let _epIndexByName = null;
+let _epIndexByCode = null;
+let _epIndexLength = -1;
+
+function _invalidateEPIndex() {
+  _epIndexByName = null;
+  _epIndexByCode = null;
+  _epIndexLength = -1;
+}
+
+function _ensureEPIndex() {
+  if (_epIndexByName && _epIndexByCode && _epIndexLength === EDITABLE_PRICES.length) return;
+  _epIndexByName = new Map();
+  _epIndexByCode = new Map();
+  EDITABLE_PRICES.forEach(item => {
+    if (!item || !item.name) return;
+    _epIndexByName.set(item.name, item);
+    if (item.code) {
+      const c = normalizeStockCode(item.code);
+      if (c) _epIndexByCode.set(c, item);
+    }
+  });
+  _epIndexLength = EDITABLE_PRICES.length;
+}
 
 function normalizeStockCode(raw) {
   let s = String(raw || '').trim().toUpperCase();
@@ -185,13 +209,28 @@ function normalizeStockCode(raw) {
 
 // EDITABLE_PRICES 단일 조회 헬퍼 (name 기준) — 전체에서 공통 사용
 function getEP(name) {
-  return EDITABLE_PRICES.find(i => i.name === name) || null;
+  _ensureEPIndex();
+  const key = String(name || '').trim();
+  if (!key) return null;
+  const hit = _epIndexByName.get(key);
+  if (hit && hit.name === key) return hit;
+  const found = EDITABLE_PRICES.find(i => i.name === key) || null;
+  if (found) _epIndexByName.set(key, found);
+  else _epIndexByName.delete(key);
+  return found;
 }
 
 function getEPByCode(code) {
   if (!code) return null;
+  _ensureEPIndex();
   const c = normalizeStockCode(code);
-  return EDITABLE_PRICES.find(i => i.code && normalizeStockCode(i.code) === c) || null;
+  if (!c) return null;
+  const hit = _epIndexByCode.get(c);
+  if (hit && normalizeStockCode(hit.code) === c) return hit;
+  const found = EDITABLE_PRICES.find(i => i.code && normalizeStockCode(i.code) === c) || null;
+  if (found) _epIndexByCode.set(c, found);
+  else _epIndexByCode.delete(c);
+  return found;
 }
 
 // 종목코드가 있는 EDITABLE_PRICES 항목만 반환
@@ -208,6 +247,7 @@ function getEPType(ep, fallback) {
 
 function epPush(name, code, assetType) {
   EDITABLE_PRICES.push({ name, code: normalizeStockCode(code), sector: '기타', assetType: assetType||'주식' });
+  _invalidateEPIndex();
 }
 
 // EDITABLE_PRICES에서 섹터 조회 (기초정보 관리가 최우선 기준)
@@ -545,6 +585,7 @@ function syncLoanFromSchedule() {
     const savedE = lsGet(EDITABLES_KEY, null);
     if (savedE && Array.isArray(savedE) && savedE.length > 0) {
       EDITABLE_PRICES.length = 0;
+      _invalidateEPIndex();
       // ★ normName 적용: 구버전 종목명 자동 변환 후 중복 제거
       const seenNames = new Set();
       const seenCodes = new Set();
@@ -567,6 +608,7 @@ function syncLoanFromSchedule() {
         };
         EDITABLE_PRICES.push(next);
       });
+      _invalidateEPIndex();
     }
 
     // ② 기초정보의 코드를 STOCK_CODE에 반영 (기초정보 → STOCK_CODE 단방향)

@@ -45,11 +45,8 @@ async function fetchFromGsheet(dateStr) {
       const codes = epItems.map(i => i.code).join(',');
       if (isToday) {
         // 오늘 (주말 포함) → getPrices 실시간 조회
-        const url  = GSHEET_API_URL + '?action=getPrices&codes=' + encodeURIComponent(codes);
-        const res  = await fetchWithTimeout(url, 30000);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
+        const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
+        if (!data || data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
         epItems.forEach(i => {
           const price = data.prices[i.code];
           if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
@@ -59,10 +56,12 @@ async function fetchFromGsheet(dateStr) {
         if (missingCodes.length > 0) {
           try {
             const missingCodesStr = missingCodes.map(m => m.code).join(',');
-            const url2 = GSHEET_API_URL + '?action=getPriceHistory&from=' + dateStr + '&to=' + dateStr + '&codes=' + encodeURIComponent(missingCodesStr);
-            const res2 = await fetchWithTimeout(url2, 15000);
-            const data2 = await res2.json();
-            if (data2.status === 'ok' && data2.prices) {
+            const data2 = await requestGsheetActionJson(
+              'getPriceHistory',
+              { from: dateStr, to: dateStr, codes: missingCodesStr },
+              { timeoutMs: 15000, retry: 1 }
+            );
+            if (data2 && data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
                 const list = data2.prices[m.code] || [];
                 const entry = pickLatestPreferManual(list);
@@ -78,11 +77,12 @@ async function fetchFromGsheet(dateStr) {
         }
       } else {
         // 과거 날짜 → getPriceHistory
-        const url  = GSHEET_API_URL + '?action=getPriceHistory&from=' + dateStr + '&to=' + dateStr + '&codes=' + encodeURIComponent(codes);
-        const res  = await fetchWithTimeout(url, 20000);
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (data.status === 'ok' && data.prices) {
+        const data = await requestGsheetActionJson(
+          'getPriceHistory',
+          { from: dateStr, to: dateStr, codes },
+          { timeoutMs: 20000, retry: 1 }
+        );
+        if (data && data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
             const list = data.prices[i.code] || [];
             const entry = pickLatestPreferManual(list);
@@ -106,11 +106,13 @@ async function fetchFromGsheet(dateStr) {
         const d = new Date(dateStr); d.setDate(d.getDate() - 90);
         return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
       })();
-      const url = GSHEET_API_URL + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr + '&codes=' + encodeURIComponent(epNoCode.map(i=>i.name).join(','));
       try {
-        const res  = await fetchWithTimeout(url, 15000);
-        const data = await res.json();
-        if (data.status === 'ok' && data.prices) {
+        const data = await requestGsheetActionJson(
+          'getPriceHistory',
+          { from: fromDate, to: dateStr, codes: epNoCode.map(i => i.name).join(',') },
+          { timeoutMs: 15000, retry: 1 }
+        );
+        if (data && data.status === 'ok' && data.prices) {
           epNoCode.forEach(i => {
             const entries = data.prices[i.name];
             if (!entries || entries.length === 0) return;
