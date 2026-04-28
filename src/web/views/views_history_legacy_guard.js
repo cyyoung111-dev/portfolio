@@ -6,6 +6,4 @@
 if (typeof window.realEstatePnl === 'undefined') window.realEstatePnl = 0;
 var realEstatePnl = window.realEstatePnl || 0;
 
-// 과거/캐시된 코드에서 bare `mode` 참조 시 안전장치
-if (typeof window.mode === 'undefined') window.mode = 'week';
-var mode = window.mode;
+// mode 전역은 더 이상 사용하지 않음 (히스토리 상태는 _histState로 관리)
