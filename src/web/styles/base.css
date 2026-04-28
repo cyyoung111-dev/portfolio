@@ -84,3 +84,7 @@
   
   /* 헤더 정렬 오버라이드 */
   .hdr{align-items:center}
+
+.hist-bench-btn{padding:4px 8px;border-radius:6px;cursor:pointer;font-size:.68rem;font-weight:500;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}
+.hist-bench-btn.active{border-color:var(--amber);background:var(--c-amber-15);color:var(--gold);font-weight:700}
+.hist-bench-btn.hist-bench-btn-clear{border-style:dashed}
