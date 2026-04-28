@@ -33,6 +33,38 @@ function _setHistBenchmarks(next) {
   window._histBenchmarks = _histState.benchmarks.slice(); // 레거시 호환
 }
 
+function _setHistoryStatus(statusEl, type, payload) {
+  if (!statusEl) return;
+  const meta = payload || {};
+  if (type === 'no_api') {
+    statusEl.innerHTML = '<span style="color:var(--amber)">⚠️ 재동기화 설정 후 이용 가능합니다.</span>';
+    return;
+  }
+  if (type === 'loading') {
+    statusEl.innerHTML = '<span style="color:var(--muted)">⏳ 불러오는 중...</span>';
+    return;
+  }
+  if (type === 'empty_data') {
+    statusEl.innerHTML = '<span style="color:var(--muted)">스냅샷 데이터가 없습니다. 데이터가 쌓이면 자동으로 표시됩니다.</span>';
+    return;
+  }
+  if (type === 'empty_range') {
+    statusEl.innerHTML = '<span style="color:var(--muted)">선택한 기간에 데이터가 없습니다.</span>';
+    return;
+  }
+  if (type === 'summary') {
+    statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${meta.graphCount || 0}일 · 표 ${meta.tableCount || 0}${meta.mode==='week'?'주':'개월'} · 최근: ${meta.latestDate || '-'}</span>`;
+    return;
+  }
+  if (type === 'summary_benchmark') {
+    statusEl.innerHTML = `<span style="color:var(--muted)">${meta.baseMsg || ''} · ${meta.benchMsg || ''}${meta.missingMsg || ''}</span>`;
+    return;
+  }
+  if (type === 'error') {
+    statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${meta.message || '알 수 없는 오류'}</span>`;
+  }
+}
+
 function renderHistoryView(area) {
   area.innerHTML = `
     <div style="padding:12px 0 8px">
@@ -140,13 +172,13 @@ async function loadHistoryChart() {
   if (!chartWrap) return;
 
   if (!GSHEET_API_URL) {
-    if (statusEl) statusEl.innerHTML = '<span style="color:var(--amber)">⚠️ 재동기화 설정 후 이용 가능합니다.</span>';
+    _setHistoryStatus(statusEl, 'no_api');
     chartWrap.innerHTML = '';
     if (tableWrap) tableWrap.innerHTML = '';
     return;
   }
 
-  if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">⏳ 불러오는 중...</span>';
+  _setHistoryStatus(statusEl, 'loading');
   chartWrap.innerHTML = '';
   if (tableWrap) tableWrap.innerHTML = '';
 
@@ -167,7 +199,7 @@ async function loadHistoryChart() {
 
     let snapshots = Array.isArray(data.snapshots) ? data.snapshots : (Array.isArray(data) ? data : []);
     if (!snapshots.length) {
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">스냅샷 데이터가 없습니다. 데이터가 쌓이면 자동으로 표시됩니다.</span>';
+      _setHistoryStatus(statusEl, 'empty_data');
       return;
     }
 
@@ -177,7 +209,7 @@ async function loadHistoryChart() {
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
     if (!snapshots.length) {
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--muted)">선택한 기간에 데이터가 없습니다.</span>';
+      _setHistoryStatus(statusEl, 'empty_range');
       return;
     }
 
@@ -186,8 +218,13 @@ async function loadHistoryChart() {
     const mode = _getHistMode();
     const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
 
-    if (statusEl) statusEl.innerHTML =
-      `<span style="color:var(--muted)">그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
+    const latestDate = _fmtHistDateCompact(snapshots[snapshots.length-1].date || '');
+    _setHistoryStatus(statusEl, 'summary', {
+      graphCount: snapshots.length,
+      tableCount: tableSnapshots.length,
+      mode,
+      latestDate
+    });
 
     const benchmarkTypes = Array.from(new Set(
       _getHistBenchmarks()
@@ -206,20 +243,18 @@ async function loadHistoryChart() {
     }
 
     const missing = benchmarkTypes.filter(type => (benchSeriesMap[type] || []).length === 0);
-    if (statusEl) {
-      const baseMsg = `그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}`;
-      const benchMsg = benchmarkTypes.length === 0
-        ? '비교지수 없음'
-        : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
-      const missingMsg = missing.length ? ` (실패: ${missing.join(', ')})` : '';
-      statusEl.innerHTML = `<span style="color:var(--muted)">${baseMsg} · ${benchMsg}${missingMsg}</span>`;
-    }
+    const baseMsg = `그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${latestDate}`;
+    const benchMsg = benchmarkTypes.length === 0
+      ? '비교지수 없음'
+      : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
+    const missingMsg = missing.length ? ` (실패: ${missing.join(', ')})` : '';
+    _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg });
 
     _drawHistoryChart(chartWrap, snapshots, mode, { types: benchmarkTypes, seriesMap: benchSeriesMap, metaMap: benchMetaMap });
     _drawHistoryTable(tableWrap, tableSnapshots);
 
   } catch(e) {
-    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${e.message}</span>`;
+    _setHistoryStatus(statusEl, 'error', { message: e.message });
   }
 }
 
