@@ -10,10 +10,8 @@ const _histState = {
 };
 
 function _initHistState() {
-  if (window._histMode === 'week' || window._histMode === 'month') _histState.mode = window._histMode;
-  if (Array.isArray(window._histBenchmarks)) _histState.benchmarks = window._histBenchmarks.slice();
-  window._histMode = _histState.mode;
-  window._histBenchmarks = _histState.benchmarks.slice();
+  _histState.mode = _histState.mode === 'month' ? 'month' : 'week';
+  _histState.benchmarks = Array.isArray(_histState.benchmarks) ? _histState.benchmarks.slice() : ['KOSPI'];
 }
 
 function _getHistMode() {
@@ -22,8 +20,6 @@ function _getHistMode() {
 
 function _setHistModeState(mode) {
   _histState.mode = mode === 'month' ? 'month' : 'week';
-  window._histMode = _histState.mode; // 레거시 호환
-  window.mode = _histState.mode; // views_history_legacy_guard 호환
 }
 
 function _getHistBenchmarks() {
@@ -32,7 +28,6 @@ function _getHistBenchmarks() {
 
 function _setHistBenchmarks(next) {
   _histState.benchmarks = Array.isArray(next) ? next.slice() : [];
-  window._histBenchmarks = _histState.benchmarks.slice(); // 레거시 호환
 }
 
 function _setHistoryStatus(statusEl, type, payload) {
