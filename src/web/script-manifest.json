@@ -20,6 +20,7 @@
     "views/views_history_legacy_guard.js",
     "views/views_history_utils.js",
     "views/views_history_benchmark.js",
+    "views/views_history_pipeline.js",
     "views/views_history.js",
     "views/views_system.js",
     "features/settings/settings_net.js",
