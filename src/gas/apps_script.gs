@@ -1,5 +1,79 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.11
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.20
+//
+//  v9.20 변경사항 (2026.04.23):
+//   ✅ [버그수정] handleGetTrades() — 거래 레코드 fund 필드 누락
+//              → 펀드/TDF 종목이 프론트에서 fund=false로 잘못 인식되던 문제
+//   ✅ [버그수정] handleGetPricesCompat() — stillMissing 수집하고도 응답에 미포함
+//              → { prices, missing } 으로 응답 통일
+//   ✅ [개선]   handleGetPriceHistory() — source 컬럼(6번째) 포함 (readCols 4→6)
+//              → pricesByCode 각 entry에 source 필드 추가
+//   ✅ [버그수정] mgmt_editor.js _saveManualPriceWithRetry() — keepLatest=0 하드코딩
+//              → 파라미터 제거해 GAS의 _isManualKeepLatestEnabled() 설정값 사용
+//
+//  v9.19 변경사항 (2026.04.22):
+//   ✅ [버그수정] _getPriceSourceByDate() — 당일 소스 없을 때 MANUAL fallback 누락
+//              원인: KRX fallback으로 전일 날짜에 MANUAL 가격 저장 시
+//                   당일 sourceMap 비어있어 소스가 PRICE_HISTORY로 잘못 표시
+//                   → 스냅샷 평가단가소스 = PRICE_HISTORY, 저장일시 = 빈칸
+//              수정: 1단계 당일 소스 수집 후
+//                   2단계 당일 소스 없는 종목 → dateStr 이하 최근 MANUAL 소스로 fallback
+//                   → 스냅샷 소스 = MANUAL, 저장일시 정상 표시
+//
+//  v9.18 변경사항 (2026.04.22):
+//   ✅ [버그수정] _buildSnapshotRowsFromTradeAndPriceHistory() — 해당 날짜 가격 없을 때 evalAmt 오류
+//              원인: KRX fallback으로 전일 날짜에 가격 저장 시 오늘 prices 맵에 해당 종목 없음
+//                   → evalAmt = h.costAmt(매수원금) 으로 계산되어 평가금액 = 매수원금이 됨
+//              수정: 해당 날짜 가격 없는 종목에 대해 getLatestPriceHistory()로 최근 가격 fallback
+//                   → 전일 종가라도 있으면 정상 평가금액 계산
+//
+//  v9.17 변경사항 (2026.04.22):
+//   ✅ [버그수정] fetchPricesKrxViaOtp() — usedDate 필드 누락
+//              → fetchPricesKrx()와 반환 구조 통일 (OTP는 fallback 없으므로 usedDate=요청날짜)
+//   ✅ [버그수정] fetchPricesGoogleFinance() — new Date(dateStr.replace(/-/g,"/")) UTC 파싱
+//              → _ymdToDate() 사용으로 시간대 명확화
+//   ✅ [버그수정] handleDividendFetch() — _gf_tmp 시트 충돌 위험
+//              → 배당 전용 _div_tmp 시트 사용으로 분리
+//   ✅ [개선]   _cleanupBenchmarkTempSheets() — _div_tmp 도 정리 대상에 포함
+//
+//  v9.16 변경사항 (2026.04.22):
+//   ✅ [버그수정] handleGetHistory() — date 읽기 시 _normalizeDate() 미적용
+//              → 스냅샷 시트 날짜가 Date 객체인 경우 'Mon Apr 21 2026...' 형태로 읽혀
+//                 from/to 필터 비교 실패 및 dateItemMap 키 불일치 문제
+//   ✅ [버그수정] handleGetPricesCompat() — KRX fallback 시 usedDate 무시하고 todayStr 저장
+//              → saveDailyPriceHistory와 동일한 날짜 오기입 버그
+//              → usedDate 기준으로 날짜 분리 저장하도록 수정
+//
+//  v9.15 변경사항 (2026.04.22):
+//   ✅ [버그수정] handleGetHistory() — 빈 결과 반환 키 불일치
+//              { history: [] } → { snapshots: [] } (프론트 data.snapshots 키와 일치)
+//   ✅ [버그수정] handleGetHistory() — 스냅샷 읽기 컬럼 Math.max(8→12)
+//              12컬럼 확장 이후 저장일시 컬럼이 읽히지 않던 문제
+//
+//  v9.14 변경사항 (2026.04.22):
+//   ✅ [버그수정] 가격이력 날짜 오기입 — KRX fallback 시 전일 데이터가 당일 날짜로 저장되는 문제
+//              원인: fetchPricesKrx()가 당일 데이터 없으면 자동으로 직전 거래일 데이터 반환하는데
+//                   saveDailyPriceHistory()는 실제 날짜 무관하게 todayStr로 저장
+//              수정: fetchPricesKrx() 반환값에 usedDate(실제 데이터 날짜) 포함
+//                   saveDailyPriceHistory()에서 usedDate별로 분리하여 실제 날짜에 저장
+//              효과: 4/22 16:20 실행 → KRX 4/22 데이터 없음 → 4/21 종가 → 4/21에 저장
+//                   (4/22 스냅샷은 가장 최근 가격인 4/21 종가를 참조해서 생성)
+//
+//  v9.13 변경사항 (2026.04.21):
+//   ✅ [정리]   데드코드 7개 함수 삭제 (117 → 111개)
+//              configureKrxApiPrompt / _extractKrxRows / _pickKrxCode / _pickKrxClose
+//              importKrxClosesFromSettings / _readKrxImportRequestFromSettings / migratePriceHistory
+//   ✅ [최적화] upsertPriceHistory() — 3번 setValue → 1번 setValues 배치화
+//   ✅ [최적화] batchUpsertPriceHistory() — savedAt+source 업데이트를 연속행 묶음 setValues
+//
+//  v9.12 변경사항 (2026.04.21):
+//   ✅ [버그수정] _readBenchmarkPoints() — _bm_* 전용 시트 미적용 수정 (이전 패치 누락)
+//   ✅ [버그수정] cleanupSnapshotDuplicates() — SpreadsheetApp.getActiveSpreadsheet()
+//              → getss() 로 교체 (웹앱/트리거 환경에서 null 반환 방지)
+//   ✅ [개선]   KOSDAQ 심볼 — GOOGLEFINANCE 미지원 확인
+//              → KRX:229200 (KODEX코스닥150 ETF) fallback 추가로 근사값 표시
+//   ✅ [신규]   _cleanupBenchmarkTempSheets() — _bm_*, _gf_tmp 임시 시트 일괄 삭제
+//   ✅ [개선]   runDataCleanup() — 임시 시트 정리 단계 추가
 //
 //  v9.11 변경사항 (2026.04.20):
 //   ✅ [버그수정] batchUpsertPriceHistory() — MANUAL 보호 + 날짜 정규화
@@ -303,8 +377,10 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
   tmp.clearContents();
 
   var isToday = (dateStr === today());
-  var dtObj   = new Date(dateStr.replace(/-/g, '/'));
-  var fromObj = new Date(dtObj);
+  // ★ new Date(dateStr.replace(/-/g,'/')) 대신 _ymdToDate 사용 — 시간대 명확
+  var ymdStr  = dateStr.replace(/-/g, '');
+  var dtObj   = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
+  var fromObj = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
   fromObj.setDate(fromObj.getDate() - 5);
 
   var fmtDate  = function(d) { return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd'); };
@@ -377,11 +453,15 @@ function fetchPricesKrx(items, dateStr) {
   var wanted = {};
   items.forEach(function(item) { wanted[item.code] = item; });
   var out = {};
+  // ★ fallback 시 실제 사용된 날짜 추적 — 코드별로 실제 날짜 기록
+  var usedDateByCode = {};
   ['KOSPI', 'KOSDAQ', 'ETF'].forEach(function(market) {
     try {
       var pack = _fetchKrxDailyOutBlockWithFallback(market, ymd, cfg.apiKey, 7);
       var rows = pack.rows;
-      if (pack.usedYmd !== ymd) Logger.log('ℹ️ ' + market + ' ' + ymd + ' 휴일/무데이터 → 직전 거래일 ' + pack.usedYmd + ' 사용');
+      // ★ fallback 발생 시 로그 및 실제 날짜 기록
+      var usedDate = pack.usedYmd.slice(0,4) + '-' + pack.usedYmd.slice(4,6) + '-' + pack.usedYmd.slice(6,8);
+      if (pack.usedYmd !== ymd) Logger.log('ℹ️ ' + market + ' ' + ymd + ' 당일 데이터 없음 → 직전 거래일 ' + pack.usedYmd + ' 사용');
       (rows || []).forEach(function(r) {
         var code = _cleanCode(r.ISU_CD || r.ISU_SRT_CD || '');
         if (!wanted[code]) return;
@@ -391,8 +471,10 @@ function fetchPricesKrx(items, dateStr) {
           price: p,
           name: wanted[code].name,
           officialName: (r.ISU_NM || wanted[code].name || code),
-          source: 'KRX'
+          source: 'KRX',
+          usedDate: usedDate  // ★ 실제 데이터 날짜 포함
         };
+        usedDateByCode[code] = usedDate;
       });
     } catch (e) {
       Logger.log('⚠️ KRX OpenAPI 조회 실패(' + market + '): ' + e.message);
@@ -475,7 +557,9 @@ function fetchPricesKrxViaOtp(items, dateStr) {
       price: p,
       name: wanted[code].name,
       officialName: idxName >= 0 ? (r[idxName] || wanted[code].name || code) : (wanted[code].name || code),
-      source: 'KRX_OTP'
+      source: 'KRX_OTP',
+      // ★ OTP는 단일 날짜 조회 (fallback 없음) → usedDate = 요청 날짜
+      usedDate: ymd.slice(0,4) + '-' + ymd.slice(4,6) + '-' + ymd.slice(6,8)
     };
   }
   Logger.log('[price-source] KRX OTP/CSV 조회 결과 ' + Object.keys(out).length + '건');
@@ -538,36 +622,6 @@ function configureKrxAuthKeyPrompt() {
   }
   props.setProperty('krx_auth_key', input);
   ui.alert('✅ krx_auth_key 저장 완료');
-}
-
-function configureKrxApiPrompt() {
-  var ui;
-  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
-  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
-  ui.alert('안내', '이제 endpoint/BLD 입력은 필수가 아닙니다.\n메뉴의 "🔑 KRX AUTH_KEY 설정"만 입력해서 사용하세요.', ui.ButtonSet.OK);
-}
-
-function _extractKrxRows(json) {
-  if (!json) return [];
-  if (Array.isArray(json.OutBlock_1)) return json.OutBlock_1;
-  if (Array.isArray(json.output)) return json.output;
-  if (json.data && Array.isArray(json.data)) return json.data;
-  if (json.response && Array.isArray(json.response.body)) return json.response.body;
-  return [];
-}
-
-function _pickKrxCode(r) {
-  if (!r) return '';
-  return (r.ISU_SRT_CD || r.code || r.shrt_code || r.symbol || '').toString().trim();
-}
-
-function _pickKrxClose(r) {
-  if (!r) return 0;
-  return r.TDD_CLSPRC || r.clsprc || r.close || r.price || r.end_price || 0;
-}
-
-function importKrxClosesFromSettings() {
-  return importKrxClosesPrompt();
 }
 
 function importKrxClosesPrompt() {
@@ -652,31 +706,6 @@ function _overwritePriceHistoryFromKrxRows(ss, rows) {
   Object.keys(byDate).forEach(function(dateStr) {
     batchUpsertPriceHistory(ss, dateStr, byDate[dateStr]);
   });
-}
-
-function _readKrxImportRequestFromSettings(ss) {
-  var sh = ss.getSheetByName(CONFIG.SHEET_SETTINGS) || ss.insertSheet(CONFIG.SHEET_SETTINGS);
-  var startYmd = _normalizeYmd(sh.getRange('B1').getDisplayValue());
-  var endYmd = _normalizeYmd(sh.getRange('B2').getDisplayValue());
-  if (!startYmd || !endYmd) throw new Error('설정!B1/B2에 시작일/종료일(YYYYMMDD)을 입력하세요.');
-  if (startYmd > endYmd) throw new Error('시작일이 종료일보다 늦습니다. (B1 <= B2)');
-
-  var last = sh.getLastRow();
-  if (last < 3) throw new Error('설정!B3:C에 종목코드/시장구분을 입력하세요.');
-  var rows = sh.getRange(3, 2, last - 2, 2).getValues();
-  var wantedByMarket = { KOSPI: {}, KOSDAQ: {}, ETF: {} };
-  var inputCount = 0;
-
-  rows.forEach(function(r) {
-    var code = _cleanCode(r[0]);
-    var market = _normalizeMarketType(r[1]);
-    if (!code || !market) return;
-    if (!wantedByMarket[market]) return;
-    wantedByMarket[market][code] = true;
-    inputCount++;
-  });
-  if (inputCount === 0) throw new Error('유효한 대상 없음: C열 시장구분은 KOSPI/KOSDAQ/ETF만 허용됩니다.');
-  return { startYmd: startYmd, endYmd: endYmd, wantedByMarket: wantedByMarket };
 }
 
 function _buildWantedByMarketFromCodeSheet(ss) {
@@ -892,16 +921,23 @@ function handleGetHistory(fromStr, toStr) {
   try {
     var ss = getss();
     var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
-    if (!sh || sh.getLastRow() < 2) return jsonOk({ history: [] });
+    // ★ [버그수정] 빈 결과 반환 키 통일 — 기존 { history: [] } → { snapshots: [] }
+    //   프론트 views_history.js 가 data.snapshots 키를 읽으므로 일치시킴
+    if (!sh || sh.getLastRow() < 2) return jsonOk({ snapshots: [] });
 
-    var snapLastCol = Math.max(8, sh.getLastColumn());
+    // ★ [버그수정] 스냅샷 12컬럼으로 확장됐으므로 Math.max(8→12)
+    var snapLastCol = Math.max(12, sh.getLastColumn());
     var data = sh.getRange(2, 1, sh.getLastRow() - 1, snapLastCol).getValues();
     var dateItemMap = {};
     data.forEach(function(row) {
-      var date = (row[0] || '').toString().trim();
+      // ★ [버그수정] _normalizeDate() 적용 — Date 객체가 'Mon Apr 21 2026...' 형태로
+      //   읽혀 날짜 비교/필터가 실패하던 문제 수정
+      var date = _normalizeDate(row[0]);
       var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
       var name = (row[2] || '').toString().trim();
       var qty  = parseFloat(row[3]) || 0;
+      // 컬럼 구조: [날짜,코드,명,수량,매수단가,매수원금,평가단가,평가금액,손익,수익률,소스,저장일시]
+      // 매수원금=col5(idx5), 평가금액=col8(idx7) — 10컬럼 이상이면 신포맷
       var isNewFormat = row.length >= 10;
       var cost = parseFloat(isNewFormat ? row[5] : row[4]) || 0;
       var evalAmt = parseFloat(isNewFormat ? row[7] : row[5]) || 0;
@@ -945,7 +981,9 @@ function handleGetHistory(fromStr, toStr) {
 function handleDividendFetch(codes) {
   try {
     var ss  = getss();
-    var tmp = ss.getSheetByName(CONFIG.SHEET_TMP) || ss.insertSheet(CONFIG.SHEET_TMP);
+    // ★ 배당 조회 전용 시트 사용 — fetchPricesGoogleFinance의 _gf_tmp 와 충돌 방지
+    var DIV_TMP = '_div_tmp';
+    var tmp = ss.getSheetByName(DIV_TMP) || ss.insertSheet(DIV_TMP);
     tmp.clearContents();
 
     var toDate   = new Date();
@@ -995,7 +1033,7 @@ function handleDividendFetch(codes) {
       results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count };
     });
 
-    try { ss.deleteSheet(tmp); SpreadsheetApp.flush(); } catch(e) { try { tmp.clearContents(); SpreadsheetApp.flush(); } catch(e2) {} }
+    try { tmp.clearContents(); SpreadsheetApp.flush(); } catch(e) { Logger.log('배당 tmp 시트 정리 실패: ' + e.message); }
     return jsonOk({ dividends: results });
   } catch(err) {
     return jsonError('배당 조회 실패: ' + err.message);
@@ -1030,9 +1068,11 @@ function handleGetPricesCompat(codesParam) {
       try { krxPrices = fetchPricesKrx(targetItems, todayStr); } catch(e) { Logger.log('⚠️ handleGetPricesCompat KRX 실패: ' + e.message); }
       var gfNeed = targetItems.filter(function(it){ return !(krxPrices[it.code] && krxPrices[it.code].price > 0); });
       var gfPrices = gfNeed.length > 0 ? fetchPricesGoogleFinance(gfNeed, todayStr, ss) : {};
-      var newPriceItems = [];
       var stillMissing  = [];
       var sourceByCode = {};
+      // ★ [버그수정] KRX fallback usedDate 기준으로 날짜 분리 저장
+      //   usedDate != todayStr 인 경우 전일 종가를 todayStr로 저장하는 문제 방지
+      var newItemsByDate = {};  // saveDate → items[]
       reqCodes.forEach(function(code) {
         var val = (krxPrices[code] && krxPrices[code].price > 0) ? krxPrices[code]
                  : ((gfPrices[code] && gfPrices[code].price > 0) ? gfPrices[code] : null);
@@ -1040,14 +1080,19 @@ function handleGetPricesCompat(codesParam) {
           var nextPrice = val.price;
           prices[code] = nextPrice;
           sourceByCode[code] = val.source || 'UNKNOWN';
-          if (!phPrices[code] || Number(phPrices[code]) !== Number(nextPrice)) {
-            newPriceItems.push({ code: code, name: codeNameMap[code] || code, price: nextPrice, source: (val.source || 'UNKNOWN') });
+          var saveDate = (val.usedDate && val.usedDate !== todayStr) ? val.usedDate : todayStr;
+          var existingForDate = (saveDate === todayStr) ? phPrices : getPriceHistoryRow(ss, saveDate);
+          if (!existingForDate[code] || Number(existingForDate[code]) !== Number(nextPrice)) {
+            if (!newItemsByDate[saveDate]) newItemsByDate[saveDate] = [];
+            newItemsByDate[saveDate].push({ code: code, name: codeNameMap[code] || code, price: nextPrice, source: (val.source || 'UNKNOWN') });
           }
         } else {
           if (!prices[code]) stillMissing.push(code);
         }
       });
-      if (newPriceItems.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceItems);
+      Object.keys(newItemsByDate).forEach(function(saveDate) {
+        if (newItemsByDate[saveDate].length > 0) batchUpsertPriceHistory(ss, saveDate, newItemsByDate[saveDate]);
+      });
 
       // ★ KRX/GF 모두 실패한 종목은 가격이력 시트에서 가장 최근 날짜 값으로 fallback
       if (stillMissing.length > 0) {
@@ -1060,7 +1105,7 @@ function handleGetPricesCompat(codesParam) {
       }
       _updateTodaySnapshotSource(ss, todayStr, sourceByCode);
     }
-    return jsonOk({ prices: prices });
+    return jsonOk({ prices: prices, missing: stillMissing }); // ★ stillMissing 응답에 포함
   } catch(err) {
     return jsonError('getPrices 실패: ' + err.message);
   }
@@ -1075,19 +1120,21 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return jsonOk({ dates: [], prices: {} });
 
-    var readCols = ph.getLastColumn() >= 5 ? 5 : 4;
+    // ★ source(6번째) 컬럼도 포함해 읽기 — MANUAL/KRX 구분 가능
+    var readCols = ph.getLastColumn() >= 6 ? 6 : (ph.getLastColumn() >= 5 ? 5 : 4);
     var data     = ph.getRange(2, 1, ph.getLastRow() - 1, readCols).getValues();
     var reqCodes = codesParam ? codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean) : null;
     var reqAliasToCanonical = reqCodes ? _buildCodeAliasMap(reqCodes) : null;
     var dateMap  = {};
 
     data.forEach(function(row) {
-      var date  = _normalizeDate(row[0]);
-      var code  = _cleanCode(row[1]) || (row[1] || '').toString().trim();
-      var name  = (row[2] || '').toString().trim();
-      var price = parseFloat(row[3]) || 0;
+      var date   = _normalizeDate(row[0]);
+      var code   = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+      var name   = (row[2] || '').toString().trim();
+      var price  = parseFloat(row[3]) || 0;
       var savedAt = _normalizeDatetime(row[4]);
-      var key   = code || name;
+      var source = readCols >= 6 ? (row[5] || '').toString().trim() : '';
+      var key    = code || name;
       if (!date || !key || price <= 0) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
@@ -1096,15 +1143,15 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
       if (!dateMap[date]) dateMap[date] = {};
       var prev = dateMap[date][outKey];
       if (!prev) {
-        dateMap[date][outKey] = { price: price, savedAt: savedAt };
+        dateMap[date][outKey] = { price: price, savedAt: savedAt, source: source };
       } else {
-        // 같은 날짜/키 중 수동입력(savedAt 있음) 값 우선
+        // 같은 날짜/키 중 MANUAL(savedAt 있음) 값 우선
         if (prev.savedAt && !savedAt) return;
         if (!prev.savedAt && savedAt) {
-          dateMap[date][outKey] = { price: price, savedAt: savedAt };
+          dateMap[date][outKey] = { price: price, savedAt: savedAt, source: source };
           return;
         }
-        dateMap[date][outKey] = { price: price, savedAt: savedAt };
+        dateMap[date][outKey] = { price: price, savedAt: savedAt, source: source };
       }
     });
 
@@ -1116,7 +1163,7 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
       Object.keys(dateMap[date]).forEach(function(key) {
         if (!pricesByCode[key]) pricesByCode[key] = [];
         var entry = dateMap[date][key];
-        pricesByCode[key].push({ date: date, price: entry.price, savedAt: entry.savedAt || '' });
+        pricesByCode[key].push({ date: date, price: entry.price, savedAt: entry.savedAt || '', source: entry.source || '' });
       });
     });
 
@@ -1137,7 +1184,8 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 
     var map = {
       KOSPI: ['INDEXKRX:KOSPI', 'KRX:KOSPI', 'INDEXKRX:KOSPI200'],
-      KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11'],
+      // ★ KOSDAQ 종합지수는 GOOGLEFINANCE 미지원 → KODEX코스닥150(229200) ETF로 근사 대체
+      KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
       SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
       NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
       NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX']
@@ -1163,7 +1211,12 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 }
 
 function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
-  var tmp = ss.getSheetByName(CONFIG.SHEET_TMP) || ss.insertSheet(CONFIG.SHEET_TMP);
+  // ★ 지수별 전용 시트 사용 — 동시 요청 시 _gf_tmp 충돌 방지
+  //   _bm_INDEXKRX_KOSPI, _bm_INDEXSP__INX 등 지수별로 독립된 시트 사용
+  var sheetKey = '_bm_' + symbol.replace(/[^A-Za-z0-9]/g, '_');
+  if (sheetKey.length > 30) sheetKey = sheetKey.slice(0, 30);
+  var tmp = ss.getSheetByName(sheetKey);
+  if (!tmp) tmp = ss.insertSheet(sheetKey);
   tmp.clearContents();
 
   var fs = fromDate.split('-');
@@ -1286,6 +1339,25 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
     // ★ sourceMap 이제 { src, savedAt } 객체 반환
     var sourceMap = _getPriceSourceByDate(ss, dateStr);
 
+    // ★ [버그수정] 해당 날짜 가격이 없는 종목은 가장 최근 가격으로 fallback
+    //   KRX fallback으로 전일 날짜에 저장된 경우 오늘 prices 맵에 없어
+    //   evalAmt = h.costAmt(매수원금)으로 잘못 계산되는 문제 방지
+    var missingCodes = [];
+    Object.keys(holdAtDate).forEach(function(k) {
+      var h = holdAtDate[k];
+      if (!h || h.qty <= 0) return;
+      var key = _cleanCode(h.code) || h.code || h.name;
+      if (!prices[key]) missingCodes.push(key);
+    });
+    if (missingCodes.length > 0) {
+      var latestPrices = getLatestPriceHistory(ss, missingCodes);
+      Object.keys(latestPrices).forEach(function(k) {
+        if (!prices[k] && latestPrices[k] > 0) prices[k] = latestPrices[k];
+        // ★ sourceMap도 함께 채움 — _getPriceSourceByDate가 이미 MANUAL fallback을 처리하지만
+        //   prices fallback과 sourceMap fallback이 일치하도록 보장
+      });
+    }
+
     Object.keys(holdAtDate).forEach(function(k) {
       var h = holdAtDate[k];
       if (!h || h.qty <= 0) return;
@@ -1358,10 +1430,17 @@ function _getPriceSourceByDate(ss, dateStr) {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return out;
     var data = ph.getRange(2, 1, ph.getLastRow() - 1, Math.max(6, ph.getLastColumn())).getValues();
-    var meta = {};
+
+    // ★ [버그수정] 두 단계로 처리:
+    //   1단계: dateStr 당일 소스 수집
+    //   2단계: 당일 소스 없는 종목 → 가장 최근 MANUAL 소스 fallback
+    //   이유: KRX fallback으로 전일 날짜에 저장된 경우 당일 sourceMap이 비어있어
+    //         MANUAL 가격임에도 소스가 PRICE_HISTORY로 잘못 표시됨
+    var meta = {};       // 당일 소스
+    var latestManual = {}; // 종목별 가장 최근 MANUAL { src, savedAt, date }
+
     data.forEach(function(r) {
       var d = _normalizeDate(r[0]);
-      if (d !== dateStr) return;
       var code = _cleanCode(r[1]) || (r[1] || '').toString().trim();
       var name = (r[2] || '').toString().trim();
       var src = (r[5] || '').toString().trim();
@@ -1369,11 +1448,34 @@ function _getPriceSourceByDate(ss, dateStr) {
       var savedAt = _normalizeDatetime(r[4]);
       var key = code || name;
       if (!key) return;
-      // ★ MANUAL(수동입력, savedAt 있음) 우선 보존
-      if (!meta[key] || (savedAt && !meta[key].savedAt)) meta[key] = { src: src, savedAt: savedAt };
+
+      // 당일 소스 수집
+      if (d === dateStr) {
+        if (!meta[key] || (savedAt && !meta[key].savedAt)) {
+          meta[key] = { src: src, savedAt: savedAt };
+        }
+      }
+      // MANUAL 최근값 추적 (날짜 무관, dateStr 이하만)
+      if (src === 'MANUAL' && savedAt && d <= dateStr) {
+        if (!latestManual[key] || d > latestManual[key].date ||
+            (d === latestManual[key].date && savedAt > latestManual[key].savedAt)) {
+          latestManual[key] = { src: 'MANUAL', savedAt: savedAt, date: d };
+        }
+      }
     });
-    // ★ { src, savedAt } 객체 그대로 반환
-    Object.keys(meta).forEach(function(k) { out[k] = meta[k]; });
+
+    // 당일 소스 우선, 없으면 최근 MANUAL fallback
+    var allKeys = {};
+    Object.keys(meta).forEach(function(k){ allKeys[k] = true; });
+    Object.keys(latestManual).forEach(function(k){ allKeys[k] = true; });
+    Object.keys(allKeys).forEach(function(k) {
+      if (meta[k]) {
+        out[k] = meta[k];
+      } else if (latestManual[k]) {
+        // 당일 소스 없고 최근 MANUAL 있으면 MANUAL로 표시
+        out[k] = { src: 'MANUAL', savedAt: latestManual[k].savedAt };
+      }
+    });
   } catch (e) {
     Logger.log('⚠️ 가격소스 조회 실패(' + dateStr + '): ' + e.message);
   }
@@ -1611,11 +1713,19 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
         ph.getRange(startRow, 4, prices.length, 1).setValues(prices.map(function(p){ return [p]; }));
         i++;
       }
-      // ★ 소스와 savedAt 동시 업데이트 (MANUAL이면 savedAt도 기록)
-      toUpdate.forEach(function(u) {
-        ph.getRange(u.row, 5).setValue(u.isManual ? (u.savedAt || '') : '');
-        ph.getRange(u.row, 6).setValue(u.source || '');
-      });
+      // ★ savedAt + source 배치 업데이트 — 행마다 2번 setValue → 연속행 묶음 setValues
+      toUpdate.sort(function(a, b) { return a.row - b.row; });
+      var j = 0;
+      while (j < toUpdate.length) {
+        var sr = toUpdate[j].row;
+        var batch = [[toUpdate[j].isManual ? (toUpdate[j].savedAt || '') : '', toUpdate[j].source || '']];
+        while (j + 1 < toUpdate.length && toUpdate[j + 1].row === toUpdate[j].row + 1) {
+          j++;
+          batch.push([toUpdate[j].isManual ? (toUpdate[j].savedAt || '') : '', toUpdate[j].source || '']);
+        }
+        ph.getRange(sr, 5, batch.length, 2).setValues(batch);
+        j++;
+      }
     }
     if (toAppend.length > 0) {
       ph.getRange(ph.getLastRow() + 1, 1, toAppend.length, 6).setValues(toAppend);
@@ -1655,9 +1765,8 @@ function upsertPriceHistory(ss, dateStr, code, name, price, savedAt, source) {
         if (rowDate === dateStr && rowKey === matchKey) {
           // ★ 수동저장(savedAt 있음)이면 항상 덮어씌움
           // ★ 기존 행이 자동조회(savedAt 없음)였어도 수동저장으로 업그레이드
-          ph.getRange(i + 2, 4).setValue(price);
-          ph.getRange(i + 2, 5).setValue(savedAt || '');
-          ph.getRange(i + 2, 6).setValue(source || '');
+          // ★ 3번 setValue → 1번 setValues로 최적화
+          ph.getRange(i + 2, 4, 1, 3).setValues([[price, (savedAt || ''), (source || '')]]);
           SpreadsheetApp.flush();
           return;
         }
@@ -1764,20 +1873,54 @@ function saveDailyPriceHistory() {
     // ★ 자동 트리거: KRX 우선 확정, 실패분만 GF fallback
     var krxPrices = {};
     try { krxPrices = fetchPricesKrx(items, todayStr); } catch(e) { Logger.log('⚠️ saveDailyPriceHistory KRX 실패: ' + e.message); }
+
+    // ★ [버그수정] KRX fallback 날짜 처리
+    //   KRX는 당일 장 마감 전/직후엔 데이터 없음 → 자동으로 직전 거래일 데이터 반환
+    //   이때 반환된 가격의 usedDate(실제 날짜)가 todayStr과 다를 수 있음
+    //   → 실제 날짜(usedDate)별로 분리해서 저장해야 날짜 오기입 방지
+    var krxByDate = {};  // usedDate → [{ code, name, price, source }]
+    items.forEach(function(item) {
+      var p = krxPrices[item.code];
+      if (!p || !(p.price > 0)) return;
+      var saveDate = (p.usedDate && p.usedDate !== todayStr) ? p.usedDate : todayStr;
+      if (!krxByDate[saveDate]) krxByDate[saveDate] = [];
+      krxByDate[saveDate].push({ code: item.code, name: item.name, price: p.price, source: 'KRX' });
+    });
+
+    // KRX로 확정된 종목 제외하고 GF로 보완 (당일 날짜 기준)
     var gfNeedItems = items.filter(function(item){ return !(krxPrices[item.code] && krxPrices[item.code].price > 0); });
     var gfPrices = gfNeedItems.length > 0 ? fetchPricesGoogleFinance(gfNeedItems, todayStr, ss) : {};
-    var newPriceRows = [];
-    items.forEach(function(item) {
-      var p = (krxPrices[item.code] && krxPrices[item.code].price > 0) ? krxPrices[item.code] : gfPrices[item.code];
-      if (p && p.price > 0) {
-        prices[item.code] = p.price;
-        if (!existing[item.code] || Number(existing[item.code]) !== Number(p.price)) {
-          newPriceRows.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'UNKNOWN') });
-        }
+
+    // GF 결과는 todayStr 기준으로만 저장
+    var gfRows = [];
+    gfNeedItems.forEach(function(item) {
+      var p = gfPrices[item.code];
+      if (p && p.price > 0) gfRows.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'GOOGLEFINANCE') });
+    });
+    if (gfRows.length > 0) {
+      if (!krxByDate[todayStr]) krxByDate[todayStr] = [];
+      krxByDate[todayStr] = krxByDate[todayStr].concat(gfRows);
+    }
+
+    // 날짜별로 분리 저장 — KRX fallback이 전일이면 전일 날짜로 저장
+    Object.keys(krxByDate).forEach(function(saveDate) {
+      var rows = krxByDate[saveDate];
+      if (!rows || rows.length === 0) return;
+      var existingForDate = getPriceHistoryRow(ss, saveDate);
+      var toSave = rows.filter(function(r) {
+        return !existingForDate[r.code] || Number(existingForDate[r.code]) !== Number(r.price);
+      });
+      if (toSave.length > 0) {
+        batchUpsertPriceHistory(ss, saveDate, toSave);
+        Logger.log('[saveDailyPriceHistory] ' + saveDate + ' 저장 ' + toSave.length + '건');
+      }
+      // prices 맵 갱신 (스냅샷 계산용) — todayStr 기준으로만
+      if (saveDate === todayStr) {
+        rows.forEach(function(r){ prices[r.code] = r.price; });
       }
     });
-    if (newPriceRows.length > 0) batchUpsertPriceHistory(ss, todayStr, newPriceRows);
 
+    // 스냅샷은 todayStr 기준 (오늘 보유 현황 + 가장 최근 가격 반영)
     var snapRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, todayStr);
 
     if (snapRows.length === 0) { Logger.log('스냅샷 저장할 데이터 없음'); return; }
@@ -2697,7 +2840,7 @@ function _dedupeSnapshotRows(rows) {
 }
 
 function cleanupSnapshotDuplicates() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = getss(); // ★ 웹앱 트리거 호환 — getActiveSpreadsheet() null 방지
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (!sh || sh.getLastRow() < 2) {
     SpreadsheetApp.getUi().alert('스냅샷 데이터가 없습니다.');
@@ -2839,6 +2982,8 @@ function handleGetTrades() {
           price:     parseFloat(r[6]) || 0,
           assetType: (r[7] || '주식').toString(),
           memo:      (r[8] || '').toString(),
+          // ★ fund 필드: 거래 레코드 구조에 포함 (펀드/TDF 종목 식별용)
+          fund:      !!(r[9]),
         };
       });
     return jsonOk({ trades: trades });
@@ -3250,50 +3395,6 @@ function fixPriceHistoryNames() {
 // ════════════════════════════════════════════════════════════════════
 //  가격이력 시트 마이그레이션 (구버전 → 신버전, 1회 실행)
 // ════════════════════════════════════════════════════════════════════
-function migratePriceHistory() {
-  var ss = getss();
-  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
-  if (!ph) { Logger.log('가격이력 시트 없음 — 마이그레이션 불필요'); return; }
-  var lastRow = ph.getLastRow();
-  if (lastRow < 2) { Logger.log('데이터 없음 — 마이그레이션 불필요'); return; }
-  var header = ph.getRange(1, 1, 1, 4).getValues()[0];
-  if (header[1] === '종목코드' && header[2] === '종목명' && header[3] === '가격') {
-    // ✅ v9.1 버그수정: 신버전 감지 후 return (불필요한 재변환 방지)
-    Logger.log('✅ 이미 신버전 구조입니다 — 마이그레이션 불필요');
-    try { SpreadsheetApp.getUi().alert('✅ 이미 신버전 구조입니다. 마이그레이션이 필요하지 않습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
-    return;
-  }
-  var data       = ph.getRange(2, 1, lastRow - 1, 4).getValues();
-  var codeToName = {}, nameToCode = {};
-  var cs         = ss.getSheetByName(CONFIG.SHEET_CODES);
-  if (cs && cs.getLastRow() > 1) {
-    cs.getRange(2, 1, cs.getLastRow() - 1, 2).getValues().forEach(function(r) {
-      var c = (r[0]||'').toString().trim(); var n = (r[1]||'').toString().trim();
-      if (c && n) { codeToName[c] = n; nameToCode[n] = c; }
-    });
-  }
-  var newRows = data.map(function(row) {
-    var date       = (row[0]||'').toString().trim();
-    var codeOrName = (row[1]||'').toString().trim();
-    var oldPrice   = parseFloat(row[2]) || 0;
-    var refName    = (row[3]||'').toString().trim();
-    var isCode     = /^\d{6}$/.test(codeOrName);
-    var code       = isCode ? codeOrName : (nameToCode[codeOrName] || '');
-    var name       = isCode ? (codeToName[codeOrName] || refName || codeOrName) : codeOrName;
-    return [date, code, name, oldPrice];
-  });
-  ph.clearContents();
-  ph.getRange(1,1,1,6).setValues([['날짜','종목코드','종목명','가격','입력일시','가격소스']]);
-  ph.getRange(1,1,1,6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-  ph.setColumnWidth(1,100); ph.setColumnWidth(2,100); ph.setColumnWidth(3,200); ph.setColumnWidth(4,100);
-  if (newRows.length > 0) ph.getRange(2, 1, newRows.length, 5).setValues(newRows.map(function(r){ return [r[0], r[1], r[2], r[3], '']; }));
-  SpreadsheetApp.flush();
-  try { SpreadsheetApp.getUi().alert('✅ 마이그레이션 완료!\n' + newRows.length + '행이 신버전 구조로 변환됐습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
-}
-
-// ════════════════════════════════════════════════════════════════════
-//  초기 설정
-// ════════════════════════════════════════════════════════════════════
 function initSheet() {
   var ss = getss();
   if (!ss) { try { SpreadsheetApp.getUi().alert('스프레드시트에서 실행하세요.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); } return; }
@@ -3435,7 +3536,11 @@ function runDataCleanup() {
     cleanupSnapshotDuplicates();
     Logger.log('[runDataCleanup] 스냅샷 중복 정리 완료');
 
-    var msg = '✅ 데이터 정리 완료\n- 죽은 코드 정리\n- 가격이력 종목명 보정\n- 스냅샷 중복 제거';
+    // 4) 지수 조회용 임시 시트(_bm_*, _gf_tmp) 정리
+    _cleanupBenchmarkTempSheets();
+    Logger.log('[runDataCleanup] 임시 시트 정리 완료');
+
+    var msg = '✅ 데이터 정리 완료\n- 죽은 코드 정리\n- 가격이력 종목명 보정\n- 스냅샷 중복 제거\n- 임시 시트 정리';
     Logger.log(msg);
     if (ui) ui.alert(msg);
   } catch(err) {
@@ -3444,6 +3549,22 @@ function runDataCleanup() {
   }
 }
 
+// ★ 지수 조회 후 남은 _bm_*, _gf_tmp 임시 시트 일괄 삭제
+function _cleanupBenchmarkTempSheets() {
+  var ss = getss();
+  var sheets = ss.getSheets();
+  var removed = 0;
+  sheets.forEach(function(sh) {
+    var name = sh.getName();
+    // _gf_tmp, _bm_*(지수), _div_tmp(배당) 모두 정리
+    if (name === CONFIG.SHEET_TMP || name.indexOf('_bm_') === 0 || name === '_div_tmp') {
+      try { ss.deleteSheet(sh); removed++; } catch(e) {
+        try { sh.clearContents(); } catch(e2) {}
+      }
+    }
+  });
+  if (removed > 0) Logger.log('[_cleanupBenchmarkTempSheets] ' + removed + '개 임시 시트 삭제');
+}
 // ════════════════════════════════════════════════════════════════════
 //  유틸
 // ════════════════════════════════════════════════════════════════════
