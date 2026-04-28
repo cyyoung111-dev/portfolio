@@ -121,47 +121,6 @@ function renderHistoryView(area) {
   });
 }
 
-const HIST_BENCHMARK_TYPES = ['KOSPI', 'KOSDAQ', 'SP500', 'NASDAQ', 'NASDAQ100'];
-
-function _toggleHistBenchmark(type) {
-  if (!HIST_BENCHMARK_TYPES.includes(type)) return;
-  const next = new Set(_getHistBenchmarks());
-  if (next.has(type)) next.delete(type);
-  else next.add(type);
-  _setHistBenchmarks(Array.from(next));
-}
-
-function _renderHistBenchmarkButtons() {
-  const selected = new Set(_getHistBenchmarks());
-  document.querySelectorAll('#histBenchmarkMulti .hist-bench-btn').forEach(btn => {
-    const type = btn.dataset?.bench || '';
-    const isClear = type === 'CLEAR';
-    const active = !isClear && selected.has(type);
-    btn.classList.toggle('active', active);
-  });
-}
-
-function _setHistMode(mode) {
-  _setHistModeState(mode);
-  _applyHistModeUI(_getHistMode());
-  loadHistoryChart();
-}
-
-function _applyHistModeUI(mode) {
-  const wBtn = $el('histModeWeek');
-  const mBtn = $el('histModeMonth');
-  if (!wBtn || !mBtn) return;
-  [wBtn, mBtn].forEach(b => {
-    b.style.background = 'transparent';
-    b.style.color = 'var(--muted)';
-    b.style.fontWeight = '400';
-  });
-  const active = mode === 'week' ? wBtn : mBtn;
-  active.style.background = 'var(--c-purple-45,#7c3aed)';
-  active.style.color = '#fff';
-  active.style.fontWeight = '600';
-}
-
 function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
