@@ -7,7 +7,6 @@ function buildStockMgmt() {
   if(!container) return;
 
   const SM_SECTORS = [...new Set([...Object.keys(SECTOR_COLORS), '기타'])];
-  const secOpts  = (sel) => SM_SECTORS.map(s=>`<option value="${s}" ${sel===s?'selected':''}>${s}</option>`).join('');
   const selIdx    = container._selectedIdx ?? null;
   const editMode  = container._editMode    ?? false;
 
@@ -68,7 +67,6 @@ function buildStockMgmt() {
     <span class="lbl-65-muted-center">유형</span>
     <span class="lbl-65-muted-center">섹터</span>
   </div>`;
-  const atOpts = (sel) => ['주식','ETF','ISA','IRP','연금','펀드','TDF'].map(t=>`<option value="${t}" ${sel===t?'selected':''}>${t}</option>`).join('');
 
   // 섹터별 구분선 표시용 (섹터 정렬 시)
   let lastSector = null;
@@ -106,14 +104,14 @@ function buildStockMgmt() {
         <input type="hidden" class="sm-sec-sel" data-idx="${idx}" value="${sec}"/>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
-            <div class="lbl-60-muted" class="fw7-mb5-ls">유형</div>
+            <div class="lbl-60-muted fw7-mb5-ls">유형</div>
             <div class="sm-type-grp flex-wrap-gap3" data-idx="${idx}">
               ${ ['주식','ETF','ISA','IRP','연금','펀드','TDF'].map(t=>
                 `<button type="button" onclick="_smPickType(${idx},'${t}')" class="btn-toggle-purple-sm${t===curType?' active':''}">${t}</button>`).join('') }
             </div>
           </div>
           <div>
-            <div class="lbl-60-muted" class="fw7-mb5-ls">섹터</div>
+            <div class="lbl-60-muted fw7-mb5-ls">섹터</div>
             <div class="sm-sec-grp flex-wrap-gap3" data-idx="${idx}">
               ${ SM_SECTORS.map(s=>
                 `<button type="button" onclick="_smPickSec(${idx},'${s}')" class="btn-toggle-purple-sm${s===sec?' active':''}">${s}</button>`).join('') }
