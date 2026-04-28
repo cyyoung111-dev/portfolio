@@ -2,6 +2,37 @@
 //  views_history.js — 스냅샷 히스토리, 구글시트탭, 종목코드탭
 //  의존: data.js, settings.js, views_system.js
 // ════════════════════════════════════════════════════════════════
+const _histState = {
+  mode: 'week',
+  benchmarks: ['KOSPI'],
+};
+
+function _initHistState() {
+  if (window._histMode === 'week' || window._histMode === 'month') _histState.mode = window._histMode;
+  if (Array.isArray(window._histBenchmarks)) _histState.benchmarks = window._histBenchmarks.slice();
+  window._histMode = _histState.mode;
+  window._histBenchmarks = _histState.benchmarks.slice();
+}
+
+function _getHistMode() {
+  return _histState.mode === 'month' ? 'month' : 'week';
+}
+
+function _setHistModeState(mode) {
+  _histState.mode = mode === 'month' ? 'month' : 'week';
+  window._histMode = _histState.mode; // 레거시 호환
+  window.mode = _histState.mode; // views_history_legacy_guard 호환
+}
+
+function _getHistBenchmarks() {
+  return Array.isArray(_histState.benchmarks) ? _histState.benchmarks.slice() : [];
+}
+
+function _setHistBenchmarks(next) {
+  _histState.benchmarks = Array.isArray(next) ? next.slice() : [];
+  window._histBenchmarks = _histState.benchmarks.slice(); // 레거시 호환
+}
+
 function renderHistoryView(area) {
   area.innerHTML = `
     <div style="padding:12px 0 8px">
@@ -38,9 +69,8 @@ function renderHistoryView(area) {
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
       <div id="histTableWrap" style="margin-top:18px"></div>
     </div>`;
-  window._histMode = window._histMode || 'week';
-  window._histBenchmarks = Array.isArray(window._histBenchmarks) ? window._histBenchmarks : ['KOSPI'];
-  _applyHistModeUI(window._histMode);
+  _initHistState();
+  _applyHistModeUI(_getHistMode());
   _renderHistBenchmarkButtons();
   const monthEl = $el('histStartMonth');
   if (monthEl && !monthEl.value) {
@@ -55,7 +85,7 @@ function renderHistoryView(area) {
     if (!btn) return;
     const type = btn.dataset?.bench || '';
     if (!type) return;
-    if (type === 'CLEAR') window._histBenchmarks = [];
+    if (type === 'CLEAR') _setHistBenchmarks([]);
     else _toggleHistBenchmark(type);
     _renderHistBenchmarkButtons();
     loadHistoryChart();
@@ -66,14 +96,14 @@ const HIST_BENCHMARK_TYPES = ['KOSPI', 'KOSDAQ', 'SP500', 'NASDAQ', 'NASDAQ100']
 
 function _toggleHistBenchmark(type) {
   if (!HIST_BENCHMARK_TYPES.includes(type)) return;
-  const next = new Set(Array.isArray(window._histBenchmarks) ? window._histBenchmarks : []);
+  const next = new Set(_getHistBenchmarks());
   if (next.has(type)) next.delete(type);
   else next.add(type);
-  window._histBenchmarks = Array.from(next);
+  _setHistBenchmarks(Array.from(next));
 }
 
 function _renderHistBenchmarkButtons() {
-  const selected = new Set(Array.isArray(window._histBenchmarks) ? window._histBenchmarks : []);
+  const selected = new Set(_getHistBenchmarks());
   document.querySelectorAll('#histBenchmarkMulti .hist-bench-btn').forEach(btn => {
     const type = btn.dataset?.bench || '';
     const isClear = type === 'CLEAR';
@@ -83,9 +113,8 @@ function _renderHistBenchmarkButtons() {
 }
 
 function _setHistMode(mode) {
-  window._histMode = mode;
-  window.mode = mode;
-  _applyHistModeUI(mode);
+  _setHistModeState(mode);
+  _applyHistModeUI(_getHistMode());
   loadHistoryChart();
 }
 
@@ -154,14 +183,14 @@ async function loadHistoryChart() {
 
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
-    const mode = window._histMode || 'week';
+    const mode = _getHistMode();
     const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
 
     if (statusEl) statusEl.innerHTML =
       `<span style="color:var(--muted)">그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${_fmtHistDateCompact(snapshots[snapshots.length-1].date || '')}</span>`;
 
     const benchmarkTypes = Array.from(new Set(
-      (Array.isArray(window._histBenchmarks) ? window._histBenchmarks : [])
+      _getHistBenchmarks()
         .map(v => String(v || '').toUpperCase().trim())
         .filter(v => HIST_BENCHMARK_TYPES.includes(v))
     ));
@@ -397,7 +426,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
 
 function _drawHistoryTable(wrap, snapshots) {
   const fmt = _fmtKrw;
-  const mode = window._histMode || 'week';
+  const mode = _getHistMode();
   const recent = [...snapshots].reverse().slice(0, 20);
   const diagnostics = _buildHistoryDiagnostics(snapshots);
   window._histDebugByDate = diagnostics;
