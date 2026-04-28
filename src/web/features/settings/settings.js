@@ -54,14 +54,12 @@ function saveDividendSettings(immediate) {
   return new Promise(resolve => {
     _saveDividendTimer = setTimeout(async () => {
       try {
-        const body = 'action=saveDividendSettings&data=' + encodeURIComponent(JSON.stringify(DIVDATA));
-        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
+        const data = await requestGsheetFormJson(
+          'saveDividendSettings',
+          { data: JSON.stringify(DIVDATA) },
+          { timeoutMs: 15000, retry: 1 }
+        );
+        if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
@@ -86,14 +84,12 @@ function saveRealEstateSettings(immediate) {
           LOAN_SCHEDULE,
           RE_VALUE_HIST,
         };
-        const body = 'action=saveRealEstateSettings&data=' + encodeURIComponent(JSON.stringify(payload));
-        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
+        const data = await requestGsheetFormJson(
+          'saveRealEstateSettings',
+          { data: JSON.stringify(payload) },
+          { timeoutMs: 15000, retry: 1 }
+        );
+        if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
@@ -107,10 +103,8 @@ function saveRealEstateSettings(immediate) {
 async function loadRealEstateSettings() {
   if (!GSHEET_API_URL) return false;
   try {
-    const res = await fetchWithTimeout(GSHEET_API_URL + '?action=getRealEstateSettings', 10000);
-    if (!res.ok) return false;
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
+    const data = await requestGsheetActionJson('getRealEstateSettings', {}, { timeoutMs: 10000, retry: 1 });
+    if (!data || data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
     const s = data.settings;
     if (s.LOAN && typeof s.LOAN === 'object') {
       Object.assign(LOAN, {
@@ -162,10 +156,8 @@ async function loadRealEstateSettings() {
 async function loadDividendSettings() {
   if (!GSHEET_API_URL) return false;
   try {
-    const res = await fetchWithTimeout(GSHEET_API_URL + '?action=getDividendSettings', 10000);
-    if (!res.ok) return false;
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') return false;
+    const data = await requestGsheetActionJson('getDividendSettings', {}, { timeoutMs: 10000, retry: 1 });
+    if (!data || data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') return false;
     _applyDivData(data.divData);
     lsSave(DIVDATA_KEY, DIVDATA);
     return true;
@@ -199,14 +191,12 @@ function saveSettings(immediate) {
           LOAN_SCHEDULE,
           RE_VALUE_HIST,
         };
-        const body = 'action=saveSettings&data=' + encodeURIComponent(JSON.stringify(settings));
-        const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body,
-        });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
+        const data = await requestGsheetFormJson(
+          'saveSettings',
+          { data: JSON.stringify(settings) },
+          { timeoutMs: 15000, retry: 1 }
+        );
+        if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         resolve(true);
       } catch(e) {
@@ -241,10 +231,8 @@ async function loadSettings(onProgress) {
   if (!GSHEET_API_URL) return false;
   try {
     prog('설정 데이터 로드 중...');
-    const res = await fetchWithTimeout(GSHEET_API_URL + '?action=getSettings', 10000);
-    if (!res.ok) return false;
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.settings) return false;
+    const data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1 });
+    if (!data || data.status !== 'ok' || !data.settings) return false;
     const s = data.settings;
 
     // Theme (기기 간 동일 UI 유지)
@@ -433,9 +421,8 @@ async function loadSettings(onProgress) {
     if (rawTrades.length === 0) {
       try {
         prog('거래이력 복원 중...');
-        const trRes  = await fetchWithTimeout(GSHEET_API_URL + '?action=getTrades', 15000);
-        const trData = await trRes.json();
-        if (trData.status === 'ok' && Array.isArray(trData.trades) && trData.trades.length > 0) {
+        const trData = await requestGsheetActionJson('getTrades', {}, { timeoutMs: 15000, retry: 1 });
+        if (trData && trData.status === 'ok' && Array.isArray(trData.trades) && trData.trades.length > 0) {
           rawTrades.length = 0;
           trData.trades.forEach(t => {
             rawTrades.push({ ...t, id: t.id || genTradeId() });
@@ -446,9 +433,8 @@ async function loadSettings(onProgress) {
           // ── 거래이력도 없을 때 → 보유현황 시트에서 직접 복원 (최후 fallback)
           try {
             prog('보유현황 복원 중...');
-            const hRes  = await fetchWithTimeout(GSHEET_API_URL + '?action=getHoldings', 15000);
-            const hData = await hRes.json();
-            if (hData.status === 'ok' && Array.isArray(hData.holdings) && hData.holdings.length > 0) {
+            const hData = await requestGsheetActionJson('getHoldings', {}, { timeoutMs: 15000, retry: 1 });
+            if (hData && hData.status === 'ok' && Array.isArray(hData.holdings) && hData.holdings.length > 0) {
               rawHoldings.length = 0;
               hData.holdings.forEach(h => {
                 // ★ fundDirect 항목(TDF/펀드, qty=1 & 코드 없음)은 fundDirect로 복원
