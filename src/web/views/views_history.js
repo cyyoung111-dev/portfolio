@@ -305,7 +305,7 @@ function _drawHistoryTable(wrap, snapshots) {
   const mode = _getHistMode();
   const recent = [...snapshots].reverse().slice(0, 20);
   const diagnostics = _buildHistoryDiagnostics(snapshots);
-  _histState.debugByDate = diagnostics;
+  __histState.debugByDate = diagnostics;
   let html = `
     <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개 · ${mode==='week'?'주간 기준':'월간 기준'})</div>
     <div style="overflow-x:auto">
@@ -336,7 +336,7 @@ function _drawHistoryTable(wrap, snapshots) {
   });
   html += `</tbody></table></div><div id="histDebugPanel" style="margin-top:8px"></div>`;
   wrap.innerHTML = html;
-  _renderHistDebugPanel(_histState.debugDate || '');
+  _renderHistDebugPanel(__histState.debugDate || '');
 }
 
 function _buildHistoryDiagnostics(snapshots) {
@@ -380,14 +380,14 @@ function _buildHistoryDiagnostics(snapshots) {
 }
 
 function _toggleHistDebug(date) {
-  _histState.debugDate = (_histState.debugDate === date) ? '' : date;
-  _renderHistDebugPanel(_histState.debugDate);
+  __histState.debugDate = (__histState.debugDate === date) ? '' : date;
+  _renderHistDebugPanel(__histState.debugDate);
 }
 
 function _renderHistDebugPanel(date) {
   const panel = $el('histDebugPanel');
   if (!panel) return;
-  const d = (_histState.debugByDate || {})[date];
+  const d = (__histState.debugByDate || {})[date];
   if (!date || !d) {
     panel.innerHTML = '';
     return;

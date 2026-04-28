@@ -2,34 +2,35 @@
 //  views_history_state.js — 히스토리 상태/컨트롤/UI 상태 메시지
 // ════════════════════════════════════════════════════════════════
 
-const _histState = {
+const __histState = window.__histState || {
   mode: 'week',
   benchmarks: ['KOSPI'],
   debugByDate: {},
   debugDate: '',
 };
+window.__histState = __histState;
 
 const HIST_BENCHMARK_TYPES = ['KOSPI', 'KOSDAQ', 'SP500', 'NASDAQ', 'NASDAQ100'];
 
 function _initHistState() {
-  _histState.mode = _histState.mode === 'month' ? 'month' : 'week';
-  _histState.benchmarks = Array.isArray(_histState.benchmarks) ? _histState.benchmarks.slice() : ['KOSPI'];
+  __histState.mode = __histState.mode === 'month' ? 'month' : 'week';
+  __histState.benchmarks = Array.isArray(__histState.benchmarks) ? __histState.benchmarks.slice() : ['KOSPI'];
 }
 
 function _getHistMode() {
-  return _histState.mode === 'month' ? 'month' : 'week';
+  return __histState.mode === 'month' ? 'month' : 'week';
 }
 
 function _setHistModeState(mode) {
-  _histState.mode = mode === 'month' ? 'month' : 'week';
+  __histState.mode = mode === 'month' ? 'month' : 'week';
 }
 
 function _getHistBenchmarks() {
-  return Array.isArray(_histState.benchmarks) ? _histState.benchmarks.slice() : [];
+  return Array.isArray(__histState.benchmarks) ? __histState.benchmarks.slice() : [];
 }
 
 function _setHistBenchmarks(next) {
-  _histState.benchmarks = Array.isArray(next) ? next.slice() : [];
+  __histState.benchmarks = Array.isArray(next) ? next.slice() : [];
 }
 
 function _setHistoryStatus(statusEl, type, payload) {
