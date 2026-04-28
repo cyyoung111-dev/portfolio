@@ -231,18 +231,14 @@ async function loadHistoryChart() {
         .map(v => String(v || '').toUpperCase().trim())
         .filter(v => HIST_BENCHMARK_TYPES.includes(v))
     ));
-    // ★ [버그수정] Promise.all → 순차 직렬 요청
-    //   GAS 웹앱은 동시 다중 요청을 직렬로 처리하므로 병렬 요청 시
-    //   _bm_* 시트 간 flush/sleep 타이밍이 겹쳐 대부분 빈 결과 반환됨
-    const benchSeriesMap = {};
-    const benchMetaMap = {};
-    for (const type of benchmarkTypes) {
-      const payload = await _fetchBenchmarkSeries(type, snapshots[0].date, snapshots[snapshots.length - 1].date);
-      benchSeriesMap[type] = Array.isArray(payload?.points) ? payload.points : [];
-      benchMetaMap[type] = payload?.symbol || '';
-    }
-
-    const missing = benchmarkTypes.filter(type => (benchSeriesMap[type] || []).length === 0);
+    const benchBundle = await _loadBenchmarkBundle(
+      benchmarkTypes,
+      snapshots[0].date,
+      snapshots[snapshots.length - 1].date
+    );
+    const benchSeriesMap = benchBundle.seriesMap;
+    const benchMetaMap = benchBundle.metaMap;
+    const missing = benchBundle.failedTypes;
     const baseMsg = `그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${latestDate}`;
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
@@ -256,6 +252,32 @@ async function loadHistoryChart() {
   } catch(e) {
     _setHistoryStatus(statusEl, 'error', { message: e.message });
   }
+}
+
+async function _loadBenchmarkBundle(types, fromDate, toDate) {
+  const seriesMap = {};
+  const metaMap = {};
+  const failedTypes = [];
+  // ★ GAS 제약 대응: 병렬 Promise.all 대신 직렬 큐
+  for (const type of types) {
+    const payload = await _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, 1);
+    const points = Array.isArray(payload?.points) ? payload.points : [];
+    const symbol = payload?.symbol || '';
+    seriesMap[type] = points;
+    metaMap[type] = symbol;
+    if (points.length === 0) failedTypes.push(type);
+  }
+  return { seriesMap, metaMap, failedTypes };
+}
+
+async function _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, maxRetry) {
+  const retry = Number.isFinite(maxRetry) ? Math.max(0, maxRetry) : 0;
+  for (let attempt = 0; attempt <= retry; attempt++) {
+    const payload = await _fetchBenchmarkSeries(type, fromDate, toDate);
+    if (Array.isArray(payload?.points) && payload.points.length > 0) return payload;
+    if (attempt < retry) await new Promise(r => setTimeout(r, 180));
+  }
+  return { points: [], symbol: '' };
 }
 
 async function _fetchBenchmarkSeries(type, fromDate, toDate) {
