@@ -5,6 +5,8 @@
 const _histState = {
   mode: 'week',
   benchmarks: ['KOSPI'],
+  debugByDate: {},
+  debugDate: '',
 };
 
 function _initHistState() {
@@ -192,9 +194,7 @@ async function loadHistoryChart() {
       cutoff.setDate(cutoff.getDate() - rangeDays);
       fromStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
     }
-    const url = GSHEET_API_URL + '?action=getHistory' + (fromStr ? ('&from=' + fromStr) : '');
-    const res  = await fetchWithTimeout(url, 15000);
-    const data = await res.json();
+    const data = await _historyRequestJson('getHistory', { from: fromStr }, { timeoutMs: 15000, retry: 0 });
     if (!data || data.status === 'error') throw new Error(data?.message || '응답 오류');
 
     let snapshots = Array.isArray(data.snapshots) ? data.snapshots : (Array.isArray(data) ? data : []);
@@ -438,7 +438,7 @@ function _drawHistoryTable(wrap, snapshots) {
   const mode = _getHistMode();
   const recent = [...snapshots].reverse().slice(0, 20);
   const diagnostics = _buildHistoryDiagnostics(snapshots);
-  window._histDebugByDate = diagnostics;
+  _histState.debugByDate = diagnostics;
   let html = `
     <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개 · ${mode==='week'?'주간 기준':'월간 기준'})</div>
     <div style="overflow-x:auto">
@@ -469,7 +469,7 @@ function _drawHistoryTable(wrap, snapshots) {
   });
   html += `</tbody></table></div><div id="histDebugPanel" style="margin-top:8px"></div>`;
   wrap.innerHTML = html;
-  _renderHistDebugPanel(window._histDebugDate || '');
+  _renderHistDebugPanel(_histState.debugDate || '');
 }
 
 function _buildHistoryDiagnostics(snapshots) {
@@ -513,14 +513,14 @@ function _buildHistoryDiagnostics(snapshots) {
 }
 
 function _toggleHistDebug(date) {
-  window._histDebugDate = (window._histDebugDate === date) ? '' : date;
-  _renderHistDebugPanel(window._histDebugDate);
+  _histState.debugDate = (_histState.debugDate === date) ? '' : date;
+  _renderHistDebugPanel(_histState.debugDate);
 }
 
 function _renderHistDebugPanel(date) {
   const panel = $el('histDebugPanel');
   if (!panel) return;
-  const d = (window._histDebugByDate || {})[date];
+  const d = (_histState.debugByDate || {})[date];
   if (!date || !d) {
     panel.innerHTML = '';
     return;

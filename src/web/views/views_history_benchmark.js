@@ -3,6 +3,36 @@
 //  의존: views_history.js (_normalizeHistDate), settings fetch helper
 // ════════════════════════════════════════════════════════════════
 
+function _historyBuildUrl(action, params) {
+  if (!GSHEET_API_URL || !action) return '';
+  const query = new URLSearchParams();
+  query.set('action', action);
+  const entries = Object.entries(params || {});
+  entries.forEach(([k, v]) => {
+    if (v === null || v === undefined || v === '') return;
+    query.set(k, String(v));
+  });
+  return `${GSHEET_API_URL}?${query.toString()}`;
+}
+
+async function _historyRequestJson(action, params, options) {
+  const opts = options || {};
+  const retry = Number.isFinite(opts.retry) ? Math.max(0, opts.retry) : 0;
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(1000, opts.timeoutMs) : 15000;
+  const delayMs = Number.isFinite(opts.delayMs) ? Math.max(0, opts.delayMs) : 180;
+  const url = _historyBuildUrl(action, params);
+  if (!url) return null;
+  for (let attempt = 0; attempt <= retry; attempt++) {
+    try {
+      const res = await fetchWithTimeout(url, timeoutMs);
+      return await res.json();
+    } catch (_) {
+      if (attempt < retry) await new Promise(r => setTimeout(r, delayMs));
+    }
+  }
+  return null;
+}
+
 async function _loadBenchmarkBundle(types, fromDate, toDate) {
   const seriesMap = {};
   const metaMap = {};
@@ -31,22 +61,16 @@ async function _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, maxRetry) 
 
 async function _fetchBenchmarkSeries(type, fromDate, toDate) {
   if (!GSHEET_API_URL || !type || !fromDate || !toDate) return { points: [], symbol: '' };
-  try {
-    const url = GSHEET_API_URL
-      + '?action=getBenchmark'
-      + '&benchmark=' + encodeURIComponent(type)
-      + '&from=' + encodeURIComponent(fromDate)
-      + '&to=' + encodeURIComponent(toDate);
-    const res = await fetchWithTimeout(url, 15000);
-    const data = await res.json();
-    if (!data || data.status === 'error') return { points: [], symbol: '' };
-    const arr = Array.isArray(data.points) ? data.points : [];
-    const points = arr
-      .map(p => ({ date: _normalizeHistDate(p.date || ''), value: parseFloat(p.value || 0) }))
-      .filter(p => p.date && p.value > 0)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    return { points, symbol: (data.symbol || '').toString().trim() };
-  } catch(_) {
-    return { points: [], symbol: '' };
-  }
+  const data = await _historyRequestJson(
+    'getBenchmark',
+    { benchmark: type, from: fromDate, to: toDate },
+    { timeoutMs: 15000, retry: 0 }
+  );
+  if (!data || data.status === 'error') return { points: [], symbol: '' };
+  const arr = Array.isArray(data.points) ? data.points : [];
+  const points = arr
+    .map(p => ({ date: _normalizeHistDate(p.date || ''), value: parseFloat(p.value || 0) }))
+    .filter(p => p.date && p.value > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  return { points, symbol: (data.symbol || '').toString().trim() };
 }
