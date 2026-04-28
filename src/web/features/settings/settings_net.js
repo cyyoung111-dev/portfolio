@@ -45,6 +45,24 @@ async function requestGsheetActionJson(action, params, opts) {
   return requestJsonWithPolicy(url, opts);
 }
 
+async function requestGsheetFormJson(action, params, opts) {
+  if (!GSHEET_API_URL || !action) return null;
+  const form = new URLSearchParams();
+  form.set('action', action);
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v === null || v === undefined || v === '') return;
+    form.set(k, String(v));
+  });
+  const o = opts || {};
+  const fetchOptions = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
+    ...(o.fetchOptions || {}),
+  };
+  return requestJsonWithPolicy(GSHEET_API_URL, { ...o, fetchOptions });
+}
+
 function saveGsheetUrl(url) {
   GSHEET_API_URL = url.trim();
   lsSave(GSHEET_KEY, GSHEET_API_URL);

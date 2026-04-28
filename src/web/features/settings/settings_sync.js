@@ -15,16 +15,12 @@ function _syncWarn(...args) {
 async function syncIssuesToGsheet(source, issues) {
   if (!GSHEET_API_URL || !Array.isArray(issues) || issues.length === 0) return null;
   try {
-    const body = 'action=saveSyncIssues'
-      + '&source=' + encodeURIComponent(source || 'unknown')
-      + '&data=' + encodeURIComponent(JSON.stringify(issues));
-    const res = await fetchWithTimeout(GSHEET_API_URL, 15000, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body
-    });
-    if (!res.ok) { _syncWarn('[saveSyncIssues] HTTP', res.status); return null; }
-    const data = await res.json();
+    const data = await requestGsheetFormJson(
+      'saveSyncIssues',
+      { source: source || 'unknown', data: JSON.stringify(issues) },
+      { timeoutMs: 15000, retry: 1 }
+    );
+    if (!data) { _syncWarn('[saveSyncIssues] 네트워크 오류'); return null; }
     if (data.status !== 'ok') { _syncWarn('[saveSyncIssues] GAS 오류:', data); return null; }
     return data;
   } catch (e) {
@@ -74,14 +70,12 @@ async function syncCodesToGsheet() {
     });
     // 중요: 기초정보(EDITABLE_PRICES)만 동기화해 GS 데이터가 자동으로 흔들리지 않도록 유지
     if (Object.keys(codeMap).length === 0) { _syncWarn('[syncCodes] 전송할 코드 없음'); return null; }
-    const body = 'action=syncCodes&codes=' + encodeURIComponent(JSON.stringify(codeMap));
-    const res = await fetchWithTimeout(GSHEET_API_URL, 20000, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body
-    });
-    if (!res.ok) { _syncWarn('[GSheet 동기화] HTTP', res.status); return null; }
-    const data = await res.json();
+    const data = await requestGsheetFormJson(
+      'syncCodes',
+      { codes: JSON.stringify(codeMap) },
+      { timeoutMs: 20000, retry: 1 }
+    );
+    if (!data) { _syncWarn('[GSheet 동기화] 네트워크 오류'); return null; }
     if (data.status !== 'ok') { _syncWarn('[GSheet 동기화] 응답 오류', data); return null; }
     return data; // { synced, updated, removed, total }
   } catch(e) {
@@ -118,14 +112,12 @@ async function syncHoldingsToGsheet() {
     const holdings = Object.values(holdMap).filter(h => h.qty > 0);
     if (holdings.length === 0) return;
 
-    const body = 'action=syncHoldings&data=' + encodeURIComponent(JSON.stringify(holdings));
-    const res  = await fetchWithTimeout(GSHEET_API_URL, 20000, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body
-    });
-    if (!res.ok) { _syncWarn('[보유현황 동기화] HTTP', res.status); return; }
-    const data = await res.json();
+    const data = await requestGsheetFormJson(
+      'syncHoldings',
+      { data: JSON.stringify(holdings) },
+      { timeoutMs: 20000, retry: 1 }
+    );
+    if (!data) { _syncWarn('[보유현황 동기화] 네트워크 오류'); return; }
     if (data.status === 'ok') _syncWarn('[보유현황 동기화] ✅', data.synced + '개');
   } catch(e) {
     _syncWarn('[보유현황 동기화]', e.message);
@@ -173,14 +165,12 @@ async function syncTradesToGsheet() {
       syncIssuesToGsheet('syncTradesToGsheet', unmatchedTrades).catch(()=>{});
     }
 
-    const body = 'action=syncTrades&data=' + encodeURIComponent(JSON.stringify(trades));
-    const res  = await fetchWithTimeout(GSHEET_API_URL, 30000, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body
-    });
-    if (!res.ok) { _syncWarn('[거래이력 동기화] HTTP', res.status); return; }
-    const data = await res.json();
+    const data = await requestGsheetFormJson(
+      'syncTrades',
+      { data: JSON.stringify(trades) },
+      { timeoutMs: 30000, retry: 1 }
+    );
+    if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
     if (data.status === 'ok') _syncWarn('[거래이력 동기화] ✅', data.synced + '건');
   } catch(e) {
     _syncWarn('[거래이력 동기화]', e.message);
