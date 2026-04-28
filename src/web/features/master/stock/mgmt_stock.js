@@ -141,53 +141,75 @@ function buildStockMgmt() {
   _bindStockMgmtEvents(container);
 }
 function _bindStockMgmtEvents(container) {
-  ['default','name','code','type','sector'].forEach(key => {
-    $el(`smSort_${key}`)?.addEventListener('click', function() {
+  const sortDiv = $el('stockMgmtSort');
+  if (sortDiv && !sortDiv._delegatedBound) {
+    sortDiv._delegatedBound = true;
+    sortDiv.addEventListener('click', function(e) {
+      const btn = e.target?.closest?.('button[id^="smSort_"]');
+      if (!btn) return;
+      const key = String(btn.id || '').replace('smSort_', '');
+      if (!['default','name','code','type','sector'].includes(key)) return;
       container._sortKey = key;
       container._selectedIdx = null;
       container._editMode = false;
       buildStockMgmt();
     });
-  });
-  container.querySelectorAll('.sm-row').forEach(row => {
-    row.addEventListener('click', function(e) {
-      if(container._editMode && ['INPUT','SELECT','BUTTON'].includes(e.target.tagName)) return;
-      const idx = parseInt(this.dataset.idx);
-      if(container._selectedIdx === idx && !container._editMode) {
-        container._selectedIdx = null;
-      } else {
+  }
+
+  if (container._delegatedBound) return;
+  container._delegatedBound = true;
+
+  container.addEventListener('click', function(e) {
+    const target = e.target;
+
+    const row = target?.closest?.('.sm-row');
+    if (row && container.contains(row)) {
+      if (container._editMode && ['INPUT','SELECT','BUTTON'].includes(target.tagName)) return;
+      const idx = parseInt(row.dataset.idx, 10);
+      if (Number.isNaN(idx)) return;
+      if (container._selectedIdx === idx && !container._editMode) container._selectedIdx = null;
+      else {
         container._selectedIdx = idx;
         container._editMode = false;
       }
       buildStockMgmt();
-    });
-  });
-  $el('smEditBtn')?.addEventListener('click', function() {
-    container._editMode = true;
-    buildStockMgmt();
-    container.querySelector('.sm-name-inp[data-idx="'+container._selectedIdx+'"]')?.focus();
-  });
-  $el('smSaveBtn')?.addEventListener('mousedown', function(e) {
-    e.preventDefault();
-    smSave(container._selectedIdx);
-    container._editMode = false;
-    container._selectedIdx = null;
-    buildStockMgmt(); // ★ 상태 리셋 후 호출 → 편집 폼 없이 목록만 렌더링
-    showMgmtMsg('smMgmtMsg', '✅ 종목이 저장됐습니다', false);
-  });
-  $el('smEditCancel')?.addEventListener('click', function() {
-    container._editMode = false;
-    buildStockMgmt();
-  });
-  $el('smDelBtn')?.addEventListener('mousedown', function(e) {
-    e.preventDefault();
-    const idxSnap = container._selectedIdx;
-    smDelete(idxSnap);
-  });
-  $el('smSelCancel')?.addEventListener('click', function() {
-    container._selectedIdx = null;
-    container._editMode = false;
-    buildStockMgmt();
+      return;
+    }
+
+    if (target?.id === 'smEditBtn') {
+      container._editMode = true;
+      buildStockMgmt();
+      container.querySelector('.sm-name-inp[data-idx="' + container._selectedIdx + '"]')?.focus();
+      return;
+    }
+
+    if (target?.id === 'smSaveBtn') {
+      e.preventDefault();
+      smSave(container._selectedIdx);
+      container._editMode = false;
+      container._selectedIdx = null;
+      buildStockMgmt(); // ★ 상태 리셋 후 호출 → 편집 폼 없이 목록만 렌더링
+      showMgmtMsg('smMgmtMsg', '✅ 종목이 저장됐습니다', false);
+      return;
+    }
+
+    if (target?.id === 'smEditCancel') {
+      container._editMode = false;
+      buildStockMgmt();
+      return;
+    }
+
+    if (target?.id === 'smDelBtn') {
+      e.preventDefault();
+      smDelete(container._selectedIdx);
+      return;
+    }
+
+    if (target?.id === 'smSelCancel') {
+      container._selectedIdx = null;
+      container._editMode = false;
+      buildStockMgmt();
+    }
   });
 }
 // 즉시 삭제 + 저장
