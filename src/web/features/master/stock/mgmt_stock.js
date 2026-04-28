@@ -2,12 +2,26 @@
 //  mgmt_stock.js — 종목 관리 (추가·수정·삭제·CSV)
 //  의존: data.js
 // ════════════════════════════════════════════════════════════════
+function _escapeHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function _escapeJsSingleQuoted(text) {
+  return String(text ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'");
+}
+
 function buildStockMgmt() {
   const container = $el('stockMgmtBody');
   if(!container) return;
 
   const SM_SECTORS = [...new Set([...Object.keys(SECTOR_COLORS), '기타'])];
-  const secOpts  = (sel) => SM_SECTORS.map(s=>`<option value="${s}" ${sel===s?'selected':''}>${s}</option>`).join('');
   const selIdx    = container._selectedIdx ?? null;
   const editMode  = container._editMode    ?? false;
 
@@ -68,7 +82,6 @@ function buildStockMgmt() {
     <span class="lbl-65-muted-center">유형</span>
     <span class="lbl-65-muted-center">섹터</span>
   </div>`;
-  const atOpts = (sel) => ['주식','ETF','ISA','IRP','연금','펀드','TDF'].map(t=>`<option value="${t}" ${sel===t?'selected':''}>${t}</option>`).join('');
 
   // 섹터별 구분선 표시용 (섹터 정렬 시)
   let lastSector = null;
@@ -76,47 +89,49 @@ function buildStockMgmt() {
   sortedIndices.forEach((idx) => {
     const item = EDITABLE_PRICES[idx];
     const sec    = item.sector || '기타';
+    const secEsc = _escapeHtml(sec);
     const isSel  = selIdx === idx;
     const isEdit = isSel && editMode;
 
     // 섹터순 정렬 시 섹터 구분 헤더 삽입
     if(container._sortKey === 'sector' && sec !== lastSector) {
       const secColor = SECTOR_COLORS[sec] || 'var(--muted)';
-      html += `<div style="font-size:.65rem;font-weight:700;color:${secColor};padding:6px 4px 2px;margin-top:${lastSector===null?'0':'8px'};border-bottom:1px solid ${secColor}33;letter-spacing:.06em">📂 ${sec}</div>`;
+      html += `<div style="font-size:.65rem;font-weight:700;color:${secColor};padding:6px 4px 2px;margin-top:${lastSector===null?'0':'8px'};border-bottom:1px solid ${secColor}33;letter-spacing:.06em">📂 ${secEsc}</div>`;
       lastSector = sec;
     }
 
     const curType = item.assetType || item.type || '주식';
+    const curTypeEsc = _escapeHtml(curType);
     html += `<div class="sm-row" data-idx="${idx}"
       style="display:grid;grid-template-columns:1fr 80px 72px 72px;gap:5px;align-items:center;padding:4px;
              border-radius:${isEdit?'6px 6px 0 0':'6px'};border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
              border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'transparent')};
              background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:${isEdit?'0':'3px'};cursor:pointer;transition:all .15s">
-      <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.name.replace(/"/g,'&quot;')}"
+      <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${_escapeHtml(item.name)}"
         ${isEdit?'':'readonly tabindex="-1"'} />
-      <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${item.code||''}"
+      <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${_escapeHtml(item.code||'')}"
         style="font-family:'Courier New',monospace;text-align:center" maxlength="6" placeholder="예) 005930, F00001" ${isEdit?'':'readonly tabindex="-1"'} />
-      <span class="txt-muted-68">${curType}</span>
-      <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${sec}</span>
+      <span class="txt-muted-68">${curTypeEsc}</span>
+      <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${secEsc}</span>
     </div>`;
 
     if(isEdit) {
       html += `<div style="border:1px solid var(--c-purple-45);border-top:none;border-radius:0 0 6px 6px;background:var(--c-purple-06);padding:10px 10px 8px;margin-bottom:6px">
-        <input type="hidden" class="sm-type-sel" data-idx="${idx}" value="${curType}"/>
-        <input type="hidden" class="sm-sec-sel" data-idx="${idx}" value="${sec}"/>
+        <input type="hidden" class="sm-type-sel" data-idx="${idx}" value="${curTypeEsc}"/>
+        <input type="hidden" class="sm-sec-sel" data-idx="${idx}" value="${secEsc}"/>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
-            <div class="lbl-60-muted" class="fw7-mb5-ls">유형</div>
+            <div class="lbl-60-muted fw7-mb5-ls">유형</div>
             <div class="sm-type-grp flex-wrap-gap3" data-idx="${idx}">
               ${ ['주식','ETF','ISA','IRP','연금','펀드','TDF'].map(t=>
-                `<button type="button" onclick="_smPickType(${idx},'${t}')" class="btn-toggle-purple-sm${t===curType?' active':''}">${t}</button>`).join('') }
+                `<button type="button" onclick="_smPickType(${idx},'${_escapeJsSingleQuoted(t)}')" class="btn-toggle-purple-sm${t===curType?' active':''}">${_escapeHtml(t)}</button>`).join('') }
             </div>
           </div>
           <div>
-            <div class="lbl-60-muted" class="fw7-mb5-ls">섹터</div>
+            <div class="lbl-60-muted fw7-mb5-ls">섹터</div>
             <div class="sm-sec-grp flex-wrap-gap3" data-idx="${idx}">
               ${ SM_SECTORS.map(s=>
-                `<button type="button" onclick="_smPickSec(${idx},'${s}')" class="btn-toggle-purple-sm${s===sec?' active':''}">${s}</button>`).join('') }
+                `<button type="button" onclick="_smPickSec(${idx},'${_escapeJsSingleQuoted(s)}')" class="btn-toggle-purple-sm${s===sec?' active':''}">${_escapeHtml(s)}</button>`).join('') }
             </div>
           </div>
         </div>
@@ -143,53 +158,75 @@ function buildStockMgmt() {
   _bindStockMgmtEvents(container);
 }
 function _bindStockMgmtEvents(container) {
-  ['default','name','code','type','sector'].forEach(key => {
-    $el(`smSort_${key}`)?.addEventListener('click', function() {
+  const sortDiv = $el('stockMgmtSort');
+  if (sortDiv && !sortDiv._delegatedBound) {
+    sortDiv._delegatedBound = true;
+    sortDiv.addEventListener('click', function(e) {
+      const btn = e.target?.closest?.('button[id^="smSort_"]');
+      if (!btn) return;
+      const key = String(btn.id || '').replace('smSort_', '');
+      if (!['default','name','code','type','sector'].includes(key)) return;
       container._sortKey = key;
       container._selectedIdx = null;
       container._editMode = false;
       buildStockMgmt();
     });
-  });
-  container.querySelectorAll('.sm-row').forEach(row => {
-    row.addEventListener('click', function(e) {
-      if(container._editMode && ['INPUT','SELECT','BUTTON'].includes(e.target.tagName)) return;
-      const idx = parseInt(this.dataset.idx);
-      if(container._selectedIdx === idx && !container._editMode) {
-        container._selectedIdx = null;
-      } else {
+  }
+
+  if (container._delegatedBound) return;
+  container._delegatedBound = true;
+
+  container.addEventListener('click', function(e) {
+    const target = e.target;
+
+    const row = target?.closest?.('.sm-row');
+    if (row && container.contains(row)) {
+      if (container._editMode && ['INPUT','SELECT','BUTTON'].includes(target.tagName)) return;
+      const idx = parseInt(row.dataset.idx, 10);
+      if (Number.isNaN(idx)) return;
+      if (container._selectedIdx === idx && !container._editMode) container._selectedIdx = null;
+      else {
         container._selectedIdx = idx;
         container._editMode = false;
       }
       buildStockMgmt();
-    });
-  });
-  $el('smEditBtn')?.addEventListener('click', function() {
-    container._editMode = true;
-    buildStockMgmt();
-    container.querySelector('.sm-name-inp[data-idx="'+container._selectedIdx+'"]')?.focus();
-  });
-  $el('smSaveBtn')?.addEventListener('mousedown', function(e) {
-    e.preventDefault();
-    smSave(container._selectedIdx);
-    container._editMode = false;
-    container._selectedIdx = null;
-    buildStockMgmt(); // ★ 상태 리셋 후 호출 → 편집 폼 없이 목록만 렌더링
-    showMgmtMsg('smMgmtMsg', '✅ 종목이 저장됐습니다', false);
-  });
-  $el('smEditCancel')?.addEventListener('click', function() {
-    container._editMode = false;
-    buildStockMgmt();
-  });
-  $el('smDelBtn')?.addEventListener('mousedown', function(e) {
-    e.preventDefault();
-    const idxSnap = container._selectedIdx;
-    smDelete(idxSnap);
-  });
-  $el('smSelCancel')?.addEventListener('click', function() {
-    container._selectedIdx = null;
-    container._editMode = false;
-    buildStockMgmt();
+      return;
+    }
+
+    if (target?.id === 'smEditBtn') {
+      container._editMode = true;
+      buildStockMgmt();
+      container.querySelector('.sm-name-inp[data-idx="' + container._selectedIdx + '"]')?.focus();
+      return;
+    }
+
+    if (target?.id === 'smSaveBtn') {
+      e.preventDefault();
+      smSave(container._selectedIdx);
+      container._editMode = false;
+      container._selectedIdx = null;
+      buildStockMgmt(); // ★ 상태 리셋 후 호출 → 편집 폼 없이 목록만 렌더링
+      showMgmtMsg('smMgmtMsg', '✅ 종목이 저장됐습니다', false);
+      return;
+    }
+
+    if (target?.id === 'smEditCancel') {
+      container._editMode = false;
+      buildStockMgmt();
+      return;
+    }
+
+    if (target?.id === 'smDelBtn') {
+      e.preventDefault();
+      smDelete(container._selectedIdx);
+      return;
+    }
+
+    if (target?.id === 'smSelCancel') {
+      container._selectedIdx = null;
+      container._editMode = false;
+      buildStockMgmt();
+    }
   });
 }
 // 즉시 삭제 + 저장
