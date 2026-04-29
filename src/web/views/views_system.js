@@ -227,7 +227,19 @@ const _viewCache = {};
 
 function _getDataHash() {
   // 핵심 데이터 변경 감지용 해시 (필터 상태 포함)
+  // 주의: 거래 건수만 쓰면 "기존 거래의 수량/단가 수정"을 놓칠 수 있어 요약 체크섬 포함
+  const tradeChecksum = rawTrades.reduce((s, t) => {
+    const q = Number(t?.qty || 0);
+    const p = Number(t?.price || 0);
+    const d = String(t?.date || '');
+    const a = String(t?.acct || '');
+    const n = String(t?.name || '');
+    // 문자열 길이와 수치 합을 함께 사용해 경량 체크섬 구성
+    return s + q + p + (q * p) + d.length + a.length + n.length;
+  }, 0);
+
   return rawTrades.length + '|' +
+    tradeChecksum + '|' +
     (EDITABLE_PRICES.length) + '|' +
     (rawHoldings.length) + '|' +
     (lastUpdated || '') + '|' +
