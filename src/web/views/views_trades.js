@@ -8,7 +8,7 @@ function tradeFilterNameInput(el) {
   clearTimeout(_tradeNameFilterTimer);
   _tradeNameFilterTimer = setTimeout(() => {
     renderView();
-    const inp = document.querySelector('input[placeholder="종목 검색..."]');
+    const inp = document.getElementById('tradeNameFilter');
     if (inp) {
       const v = inp.value;
       inp.focus();
@@ -194,7 +194,7 @@ function renderTradesView(area) {
 
     <!-- 필터 바 -->
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-      <input type="text" placeholder="종목 검색..." value="${_tradeFilter.name||''}"
+      <input id="tradeNameFilter" type="text" placeholder="종목 검색..." value="${_tradeFilter.name||''}"
         oninput="tradeFilterNameInput(this)" oncompositionstart="tradeFilterNameCompStart()" oncompositionend="tradeFilterNameCompEnd(this)"
         style="flex:1;min-width:80px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 9px;color:var(--text);font-size:.72rem">
       <select onchange="_tradeFilter.acct=this.value;renderView()"
