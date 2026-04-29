@@ -22,6 +22,7 @@
     "views/views_history_benchmark.js",
     "views/views_history_state.js",
     "views/views_history_pipeline.js",
+    "views/views_history_render.js",
     "views/views_history.js",
     "views/views_system.js",
     "features/settings/settings_net.js",
