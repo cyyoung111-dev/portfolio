@@ -14,6 +14,12 @@ npm run serve:web:py
 
 기본 주소: `http://localhost:4173`
 
+
+## 엔트리포인트 정책 (Canonical)
+- **운영/로컬 정적 서버 canonical entry는 `src/web/index.html`** 입니다.
+- 루트 `index.html`은 레거시 진입(호환용 포워딩)으로만 유지합니다.
+- 신규 문서/스크립트에서 엔트리포인트를 표기할 때는 `src/web/index.html`을 기준으로 작성합니다.
+
 ## 운영 반영 체크리스트
 - [ ] 정적 서버 document root를 `src/web`로 지정
 - [ ] `/` 요청이 `src/web/index.html`을 반환하는지 확인

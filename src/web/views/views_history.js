@@ -2,66 +2,6 @@
 //  views_history.js — 스냅샷 히스토리, 구글시트탭, 종목코드탭
 //  의존: data.js, settings.js, views_system.js
 // ════════════════════════════════════════════════════════════════
-const _histState = {
-  mode: 'week',
-  benchmarks: ['KOSPI'],
-  debugByDate: {},
-  debugDate: '',
-};
-
-function _initHistState() {
-  _histState.mode = _histState.mode === 'month' ? 'month' : 'week';
-  _histState.benchmarks = Array.isArray(_histState.benchmarks) ? _histState.benchmarks.slice() : ['KOSPI'];
-}
-
-function _getHistMode() {
-  return _histState.mode === 'month' ? 'month' : 'week';
-}
-
-function _setHistModeState(mode) {
-  _histState.mode = mode === 'month' ? 'month' : 'week';
-}
-
-function _getHistBenchmarks() {
-  return Array.isArray(_histState.benchmarks) ? _histState.benchmarks.slice() : [];
-}
-
-function _setHistBenchmarks(next) {
-  _histState.benchmarks = Array.isArray(next) ? next.slice() : [];
-}
-
-function _setHistoryStatus(statusEl, type, payload) {
-  if (!statusEl) return;
-  const meta = payload || {};
-  if (type === 'no_api') {
-    statusEl.innerHTML = '<span style="color:var(--amber)">⚠️ 재동기화 설정 후 이용 가능합니다.</span>';
-    return;
-  }
-  if (type === 'loading') {
-    statusEl.innerHTML = '<span style="color:var(--muted)">⏳ 불러오는 중...</span>';
-    return;
-  }
-  if (type === 'empty_data') {
-    statusEl.innerHTML = '<span style="color:var(--muted)">스냅샷 데이터가 없습니다. 데이터가 쌓이면 자동으로 표시됩니다.</span>';
-    return;
-  }
-  if (type === 'empty_range') {
-    statusEl.innerHTML = '<span style="color:var(--muted)">선택한 기간에 데이터가 없습니다.</span>';
-    return;
-  }
-  if (type === 'summary') {
-    statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${meta.graphCount || 0}일 · 표 ${meta.tableCount || 0}${meta.mode==='week'?'주':'개월'} · 최근: ${meta.latestDate || '-'}</span>`;
-    return;
-  }
-  if (type === 'summary_benchmark') {
-    statusEl.innerHTML = `<span style="color:var(--muted)">${meta.baseMsg || ''} · ${meta.benchMsg || ''}${meta.missingMsg || ''}</span>`;
-    return;
-  }
-  if (type === 'error') {
-    statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${meta.message || '알 수 없는 오류'}</span>`;
-  }
-}
-
 function renderHistoryView(area) {
   area.innerHTML = `
     <div style="padding:12px 0 8px">
