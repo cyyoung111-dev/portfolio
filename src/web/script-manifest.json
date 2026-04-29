@@ -18,6 +18,8 @@
     "views/views_asset_loan.js",
     "views/views_asset.js",
     "views/views_asset_schedule.js",
+    "views/views_asset_schedule_data.js",
+    "views/views_asset_schedule_chart.js",
     "views/views_history_legacy_guard.js",
     "views/views_history_utils.js",
     "views/views_history_benchmark.js",
