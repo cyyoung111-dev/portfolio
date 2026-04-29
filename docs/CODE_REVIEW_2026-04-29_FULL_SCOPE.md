@@ -61,13 +61,14 @@
 ### P1 (다음 스프린트)
 - `src/web/views`의 상위 1~2개 대형 파일을 시범 분할
 - `features/settings` 호출 그래프(간단 다이어그램 or 표) 문서화
+- 진행 현황(2026-04-29): `renderHistoryView`를 `views_history_render.js`로 분리 완료
 
 ### P2 (중기)
 - 모듈 책임 규칙(네이밍/파일 길이 상한/의존 방향) 정의
 - 신규 기능 추가 시 `features/*` 템플릿(boilerplate) 도입
 
 ## 5) 점검 커맨드 결과
-- `npm run check:web`: 실패 (기존 중복 전역 함수 6건 탐지)
+- `npm run check:web`: 통과 (중복 전역 함수 정리 후 확인)
 
 ---
 필요하면 다음 단계로, 폴더별 "실제 의존 관계 그래프"까지 뽑아 병목 파일 우선순위를 정량화해드리겠습니다.
