@@ -2844,7 +2844,7 @@ function cleanupPriceHistoryDuplicates() {
   var ss = getss();
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   if (!ph || ph.getLastRow() < 2) {
-    SpreadsheetApp.getUi().alert('가격이력 데이터가 없습니다.');
+    try { SpreadsheetApp.getUi().alert('가격이력 데이터가 없습니다.'); } catch(e) { Logger.log('가격이력 데이터가 없습니다.'); }
     return;
   }
 
@@ -2892,7 +2892,7 @@ function cleanupPriceHistoryDuplicates() {
 
   var removed = rows.length - deduped.length;
   if (removed <= 0) {
-    SpreadsheetApp.getUi().alert('가격이력 중복이 없습니다.');
+    try { SpreadsheetApp.getUi().alert('가격이력 중복이 없습니다.'); } catch(e) { Logger.log('가격이력 중복이 없습니다.'); }
     return;
   }
 
@@ -2900,7 +2900,7 @@ function cleanupPriceHistoryDuplicates() {
   ph.getRange(1, 1, 1, 6).setValues(header);
   ph.getRange(1, 1, 1, 6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   if (deduped.length > 0) ph.getRange(2, 1, deduped.length, 6).setValues(deduped);
-  SpreadsheetApp.getUi().alert('가격이력 중복 정리 완료: ' + removed + '행 삭제');
+  try { SpreadsheetApp.getUi().alert('가격이력 중복 정리 완료: ' + removed + '행 삭제'); } catch(e) { Logger.log('가격이력 중복 정리 완료: ' + removed + '행 삭제'); }
 }
 
 function cleanupSnapshotDuplicates() {
