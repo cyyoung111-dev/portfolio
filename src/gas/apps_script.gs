@@ -2344,8 +2344,8 @@ function setupTrigger() {
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620'
     ) ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).atHour(15).nearMinute(50).create();
-  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).atHour(16).nearMinute(20).create();
+  ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
+  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
   Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
   try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -2361,11 +2361,11 @@ function _ensureDailyTriggers(autoFix) {
 
   if (autoFix) {
     if (!hasClean) {
-      ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).atHour(15).nearMinute(50).create();
+      ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
       hasClean = true;
     }
     if (!hasSave) {
-      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).atHour(16).nearMinute(20).create();
+      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
       hasSave = true;
     }
   }
