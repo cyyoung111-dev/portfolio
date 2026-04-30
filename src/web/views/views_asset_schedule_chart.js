@@ -134,7 +134,7 @@ function renderScheduleChart() {
   const pnlColor     = latestPnl !== null ? (latestPnl >= 0 ? 'var(--green-lt)' : 'var(--red-lt)') : 'var(--muted)';
 
   wrap.innerHTML = `
-  <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:var(--c-white-03);border:1px solid var(--border);border-radius:10px">
+  <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:12px;padding:10px 14px;background:color-mix(in srgb, var(--s1) 78%, var(--s2) 22%);border:1px solid var(--border);border-radius:10px">
     <div class="flex-gap6-ai">
       <svg width="28" height="12"><line x1="0" y1="6" x2="28" y2="6" stroke="var(--blue-lt)" stroke-width="2.5" stroke-linecap="round"/></svg>
       <span class="txt-75-slate">대출 잔액</span>
@@ -146,13 +146,13 @@ function renderScheduleChart() {
       <span class="txt-75-slate">순자산 (시가−잔액)</span>
       ${latestEq != null ? `<span style="font-size:.78rem;font-weight:700;color:var(--amber);margin-left:4px">${yLbl(latestEq)}</span>` : ''}
     </div>` : ''}
-    <div style="margin-left:0;display:flex;align-items:center;gap:8px;background:var(--c-black-20);padding:6px 12px;border-radius:8px;flex-shrink:0">
+    <div style="margin-left:0;display:flex;align-items:center;gap:8px;background:color-mix(in srgb, var(--s2) 82%, var(--bg) 18%);padding:6px 12px;border-radius:8px;flex-shrink:0">
       <span style="font-size:.70rem;color:var(--muted)">이자포함 순손익</span>
       <span style="font-size:.90rem;font-weight:800;color:${pnlColor}">${latestPnl !== null ? (latestPnl >= 0 ? '+' : '') + yLbl(latestPnl) : '시가 미입력'}</span>
     </div>
   </div>
 
-  <div style="background:var(--c-s1-60);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;margin-bottom:8px;-webkit-overflow-scrolling:touch">
+  <div style="background:color-mix(in srgb, var(--s1) 86%, var(--s2) 14%);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;margin-bottom:8px;-webkit-overflow-scrolling:touch">
     <div class="section-label">잔액 · 순자산</div>
     <svg viewBox="0 0 ${W} ${H1}" width="${W}" height="${H1}" style="display:block;min-width:${W}px">
       <defs>
@@ -178,7 +178,7 @@ function renderScheduleChart() {
     </svg>
   </div>
 
-  <div style="background:var(--c-s1-60);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;-webkit-overflow-scrolling:touch">
+  <div style="background:color-mix(in srgb, var(--s1) 86%, var(--s2) 14%);border:1px solid var(--border);border-radius:10px;overflow:hidden;overflow-x:auto;-webkit-overflow-scrolling:touch">
     <div class="section-label">이자포함 순손익</div>
     <svg viewBox="0 0 ${W} ${H2}" width="${W}" height="${H2}" style="display:block;min-width:${W}px">
       ${pnlTicks.map(v => {
