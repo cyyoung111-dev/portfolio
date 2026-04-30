@@ -5,8 +5,10 @@
 
 let _tgFilter      = { name: '' };
 let _tgFilterTimer = null;
+let _tgFilterComposing = false;
 
 function _tgFilterDebounce() {
+  if (_tgFilterComposing) return;
   clearTimeout(_tgFilterTimer);
   _tgFilterTimer = setTimeout(() => {
     const area = document.querySelector('[data-view="tradegroup"]') || document.getElementById('main-area');
@@ -15,6 +17,13 @@ function _tgFilterDebounce() {
     const inp = document.getElementById('tgFilterName');
     if (inp) { const v = inp.value; inp.focus(); inp.setSelectionRange(v.length, v.length); }
   }, 120);
+}
+
+
+function tgFilterCompStart() { _tgFilterComposing = true; }
+function tgFilterCompEnd() {
+  _tgFilterComposing = false;
+  _tgFilterDebounce();
 }
 
 function renderTradeGroupView(area) {
@@ -58,7 +67,7 @@ function renderTradeGroupView(area) {
         <p class="mt-3-muted-72">종목 클릭 → 거래 상세 펼치기</p>
       </div>
       <input id="tgFilterName" placeholder="🔍 종목명 검색" value="${_tgFilter.name}"
-        oninput="_tgFilter.name=this.value; _tgFilterDebounce()"
+        oninput="_tgFilter.name=this.value; _tgFilterDebounce()" oncompositionstart="tgFilterCompStart()" oncompositionend="tgFilterCompEnd()"
         style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:.75rem;width:150px"/>
     </div>
 
