@@ -5,8 +5,10 @@
 
 let _tgFilter      = { name: '' };
 let _tgFilterTimer = null;
+let _tgFilterComposing = false;
 
 function _tgFilterDebounce() {
+  if (_tgFilterComposing) return;
   clearTimeout(_tgFilterTimer);
   _tgFilterTimer = setTimeout(() => {
     const area = document.querySelector('[data-view="tradegroup"]') || document.getElementById('main-area');
@@ -15,6 +17,13 @@ function _tgFilterDebounce() {
     const inp = document.getElementById('tgFilterName');
     if (inp) { const v = inp.value; inp.focus(); inp.setSelectionRange(v.length, v.length); }
   }, 120);
+}
+
+
+function tgFilterCompStart() { _tgFilterComposing = true; }
+function tgFilterCompEnd() {
+  _tgFilterComposing = false;
+  _tgFilterDebounce();
 }
 
 function renderTradeGroupView(area) {
@@ -58,7 +67,7 @@ function renderTradeGroupView(area) {
         <p class="mt-3-muted-72">종목 클릭 → 거래 상세 펼치기</p>
       </div>
       <input id="tgFilterName" placeholder="🔍 종목명 검색" value="${_tgFilter.name}"
-        oninput="_tgFilter.name=this.value; _tgFilterDebounce()"
+        oninput="_tgFilter.name=this.value; _tgFilterDebounce()" oncompositionstart="tgFilterCompStart()" oncompositionend="tgFilterCompEnd()"
         style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:.75rem;width:150px"/>
     </div>
 
@@ -111,6 +120,7 @@ function renderTradeGroupView(area) {
             <div style="display:flex;align-items:center;gap:5px;flex-shrink:0" onclick="event.stopPropagation()">
               <span style="font-size:.70rem;color:var(--muted);white-space:nowrap;margin-right:4px">${g.trades.length}건</span>
               <button data-bname="${name}" onclick="openAddTrade({name:this.dataset.bname},'buy')" title="매수 추가" class="btn-buy-sm">＋ 매수</button>
+              <button data-bname="${name}" onclick="tgAuditStock(this.dataset.bname)" title="계좌/거래 대조" class="btn-edit-sm">🧪 검증</button>
               ${isHolding ? `<button data-bname="${name}" onclick="openAddTrade({name:this.dataset.bname},'sell')" title="매도 추가" class="btn-sell-sm">－ 매도</button>` : ''}
             </div>
           </div>
@@ -219,4 +229,46 @@ function goToTradeGroup(name) {
       }
     });
   });
+}
+
+
+function tgAuditStock(name) {
+  const target = String(name || '').trim();
+  if (!target) return;
+
+  const byAcctTrades = {};
+  rawTrades
+    .filter(t => (t.name || '').trim() === target)
+    .forEach(t => {
+      const acct = t.acct || '(미지정)';
+      const row = byAcctTrades[acct] || (byAcctTrades[acct] = { buyQty: 0, sellQty: 0, netQty: 0, buyAmt: 0 });
+      const q = Number(t.qty || 0);
+      const p = Number(t.price || 0);
+      if (t.tradeType === 'buy') {
+        row.buyQty += q;
+        row.buyAmt += q * p;
+        row.netQty += q;
+      } else if (t.tradeType === 'sell') {
+        row.sellQty += q;
+        row.netQty -= q;
+      }
+    });
+
+  const byAcctHoldings = {};
+  rawHoldings
+    .filter(h => (h.name || '').trim() === target)
+    .forEach(h => {
+      byAcctHoldings[h.acct || '(미지정)'] = Number(h.qty || 0);
+    });
+
+  const accts = Array.from(new Set([...Object.keys(byAcctTrades), ...Object.keys(byAcctHoldings)])).sort((a,b)=>a.localeCompare(b,'ko'));
+  const lines = accts.map(acct => {
+    const t = byAcctTrades[acct] || { buyQty: 0, sellQty: 0, netQty: 0, buyAmt: 0 };
+    const hQty = byAcctHoldings[acct] || 0;
+    const diff = Math.round((hQty - t.netQty) * 10000) / 10000;
+    return `${acct} | 매수 ${t.buyQty.toLocaleString()} / 매도 ${t.sellQty.toLocaleString()} / 순수량 ${t.netQty.toLocaleString()} | 보유 ${hQty.toLocaleString()} | 차이 ${diff.toLocaleString()}`;
+  });
+
+  const msg = [`[${target}] 계좌별 대조`, ...lines, '', '※ 차이가 0이 아니면 해당 계좌 거래 내역 점검 필요'].join('\n');
+  alert(msg);
 }

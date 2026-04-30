@@ -2344,8 +2344,8 @@ function setupTrigger() {
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620'
     ) ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).atHour(15).nearMinute(50).create();
-  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).atHour(16).nearMinute(20).create();
+  ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
+  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
   Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
   try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -2361,11 +2361,11 @@ function _ensureDailyTriggers(autoFix) {
 
   if (autoFix) {
     if (!hasClean) {
-      ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).atHour(15).nearMinute(50).create();
+      ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
       hasClean = true;
     }
     if (!hasSave) {
-      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).atHour(16).nearMinute(20).create();
+      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
       hasSave = true;
     }
   }
@@ -2837,6 +2837,70 @@ function _dedupeSnapshotRows(rows) {
     out.push(row);
   });
   return out;
+}
+
+
+function cleanupPriceHistoryDuplicates() {
+  var ss = getss();
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!ph || ph.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert('가격이력 데이터가 없습니다.');
+    return;
+  }
+
+  var colSize = Math.max(6, ph.getLastColumn());
+  var header = [['날짜','종목코드','종목명','가격','입력일시','가격소스']];
+  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, colSize).getValues();
+
+  var bestByKey = {};
+  rows.forEach(function(r, idx) {
+    var date = _normalizeDate(r[0]);
+    if (!date) return;
+    var code = _cleanCode(r[1]) || '';
+    var name = (r[2] || '').toString().trim();
+    var keyId = code || name;
+    if (!keyId) return;
+    var key = date + '|' + keyId;
+
+    var savedAt = _normalizeDatetime(r[4]);
+    var src = (r[5] || '').toString().trim().toUpperCase();
+    var isManual = (src === 'MANUAL') || !!savedAt;
+
+    var rowOut = [date, code, name, Number(r[3] || 0), savedAt || '', (r[5] || '')];
+    var cand = { row: rowOut, idx: idx, isManual: isManual, savedAt: savedAt };
+    var prev = bestByKey[key];
+    if (!prev) { bestByKey[key] = cand; return; }
+
+    // 우선순위: MANUAL > savedAt 최신 > 뒤에 나온 행
+    if (cand.isManual && !prev.isManual) { bestByKey[key] = cand; return; }
+    if (!cand.isManual && prev.isManual) return;
+    if (cand.savedAt && prev.savedAt && cand.savedAt > prev.savedAt) { bestByKey[key] = cand; return; }
+    if (!prev.savedAt && cand.savedAt) { bestByKey[key] = cand; return; }
+    if (cand.idx > prev.idx) bestByKey[key] = cand;
+  });
+
+  var deduped = Object.keys(bestByKey)
+    .map(function(k){ return bestByKey[k]; })
+    .sort(function(a,b){
+      var d = (a.row[0] || '').localeCompare(b.row[0] || '');
+      if (d !== 0) return d;
+      var ca = _cleanCode(a.row[1]) || (a.row[2] || '');
+      var cb = _cleanCode(b.row[1]) || (b.row[2] || '');
+      return String(ca).localeCompare(String(cb));
+    })
+    .map(function(v){ return v.row; });
+
+  var removed = rows.length - deduped.length;
+  if (removed <= 0) {
+    SpreadsheetApp.getUi().alert('가격이력 중복이 없습니다.');
+    return;
+  }
+
+  ph.clearContents();
+  ph.getRange(1, 1, 1, 6).setValues(header);
+  ph.getRange(1, 1, 1, 6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+  if (deduped.length > 0) ph.getRange(2, 1, deduped.length, 6).setValues(deduped);
+  SpreadsheetApp.getUi().alert('가격이력 중복 정리 완료: ' + removed + '행 삭제');
 }
 
 function cleanupSnapshotDuplicates() {
@@ -3532,15 +3596,19 @@ function runDataCleanup() {
     fixPriceHistoryNames();
     Logger.log('[runDataCleanup] 가격이력 종목명 보정 완료');
 
-    // 3) 스냅샷 중복 정리
+    // 3) 가격이력 중복 정리
+    cleanupPriceHistoryDuplicates();
+    Logger.log('[runDataCleanup] 가격이력 중복 정리 완료');
+
+    // 4) 스냅샷 중복 정리
     cleanupSnapshotDuplicates();
     Logger.log('[runDataCleanup] 스냅샷 중복 정리 완료');
 
-    // 4) 지수 조회용 임시 시트(_bm_*, _gf_tmp) 정리
+    // 5) 지수 조회용 임시 시트(_bm_*, _gf_tmp) 정리
     _cleanupBenchmarkTempSheets();
     Logger.log('[runDataCleanup] 임시 시트 정리 완료');
 
-    var msg = '✅ 데이터 정리 완료\n- 죽은 코드 정리\n- 가격이력 종목명 보정\n- 스냅샷 중복 제거\n- 임시 시트 정리';
+    var msg = '✅ 데이터 정리 완료\n- 죽은 코드 정리\n- 가격이력 종목명 보정\n- 가격이력 중복 제거\n- 스냅샷 중복 제거\n- 임시 시트 정리';
     Logger.log(msg);
     if (ui) ui.alert(msg);
   } catch(err) {
