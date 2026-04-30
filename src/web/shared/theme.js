@@ -101,6 +101,31 @@ const THEMES = {
       '--blue-lt': '#93c5fd', '--purple-lt': '#c4b5fd', '--purple-dk': '#6d28d9', '--red-lt': '#fca5a5',
     }
   },
+
+  aurora: {
+    mode: 'dark',
+    label: '🌌 오로라',
+    desc: '네이비 + 민트/바이올렛',
+    vars: {
+      '--bg': '#07111d', '--s1': '#0d1b2b', '--s2': '#14263a', '--border': '#284362',
+      '--green': '#2dd4bf', '--red': '#fb7185', '--blue': '#60a5fa', '--amber': '#22d3ee',
+      '--purple': '#a78bfa', '--cyan': '#67e8f9', '--text': '#e6f1ff', '--muted': '#7f9ab8',
+      '--gold': '#22d3ee', '--gold2': '#0ea5e9', '--green-lt': '#5eead4', '--green-md': '#2dd4bf',
+      '--blue-lt': '#93c5fd', '--purple-lt': '#c4b5fd', '--purple-dk': '#6d28d9', '--red-lt': '#fda4af',
+    }
+  },
+  cyber: {
+    mode: 'dark',
+    label: '🕹️ 사이버',
+    desc: '네온 블루/핑크 포인트',
+    vars: {
+      '--bg': '#070b14', '--s1': '#0d1322', '--s2': '#131c31', '--border': '#2a3d66',
+      '--green': '#22d3ee', '--red': '#fb7185', '--blue': '#38bdf8', '--amber': '#f472b6',
+      '--purple': '#a78bfa', '--cyan': '#67e8f9', '--text': '#e2e8f0', '--muted': '#7f8fb2',
+      '--gold': '#f472b6', '--gold2': '#ec4899', '--green-lt': '#67e8f9', '--green-md': '#22d3ee',
+      '--blue-lt': '#7dd3fc', '--purple-lt': '#c4b5fd', '--purple-dk': '#7c3aed', '--red-lt': '#fda4af',
+    }
+  },
   graphite: {
     mode: 'dark',
     label: '🪨 그래파이트',
@@ -163,6 +188,31 @@ const THEMES = {
       '--blue-lt': '#2563eb', '--purple-lt': '#7c3aed', '--purple-dk': '#5b21b6', '--red-lt': '#dc2626',
     }
   },
+
+  light_lavender: {
+    mode: 'light',
+    label: '🪻 라이트 라벤더',
+    desc: '부드러운 퍼플 라이트',
+    vars: {
+      '--bg': '#f7f5ff', '--s1': '#ffffff', '--s2': '#f1edff', '--border': '#d8cff7',
+      '--green': '#0f766e', '--red': '#dc2626', '--blue': '#4f46e5', '--amber': '#7c3aed',
+      '--purple': '#7c3aed', '--cyan': '#6366f1', '--text': '#1f2040', '--muted': '#7570a3',
+      '--gold': '#6d28d9', '--gold2': '#7c3aed', '--green-lt': '#0f766e', '--green-md': '#14b8a6',
+      '--blue-lt': '#4f46e5', '--purple-lt': '#8b5cf6', '--purple-dk': '#5b21b6', '--red-lt': '#dc2626',
+    }
+  },
+  light_olive: {
+    mode: 'light',
+    label: '🫒 라이트 올리브',
+    desc: '편안한 올리브 톤',
+    vars: {
+      '--bg': '#f7f8f2', '--s1': '#ffffff', '--s2': '#eef1e4', '--border': '#d2d9bf',
+      '--green': '#3f6212', '--red': '#b91c1c', '--blue': '#1d4ed8', '--amber': '#4d7c0f',
+      '--purple': '#6d28d9', '--cyan': '#0f766e', '--text': '#1f2937', '--muted': '#6b7280',
+      '--gold': '#4d7c0f', '--gold2': '#65a30d', '--green-lt': '#3f6212', '--green-md': '#4d7c0f',
+      '--blue-lt': '#2563eb', '--purple-lt': '#7c3aed', '--purple-dk': '#5b21b6', '--red-lt': '#dc2626',
+    }
+  },
   light_sky: {
     mode: 'light',
     label: '🌤️ 라이트 스카이',
@@ -182,8 +232,8 @@ const THEME_MODE_KEY = 'app_theme_mode';
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
 const LEGACY_LIGHT_THEMES = ['light'];
 const THEME_VISIBLE_PRESETS = {
-  dark: ['ocean', 'black', 'midnight', 'slate', 'graphite'],
-  light: ['light', 'light_mint', 'light_rose', 'light_sand', 'light_sky'],
+  dark: ['ocean', 'black', 'midnight', 'slate', 'aurora', 'cyber', 'graphite'],
+  light: ['light', 'light_mint', 'light_rose', 'light_sand', 'light_lavender', 'light_olive', 'light_sky'],
 };
 let _currentTheme = 'ocean';
 let _themeMode = 'dark';
