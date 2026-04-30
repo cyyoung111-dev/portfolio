@@ -88,3 +88,80 @@
 .hist-bench-btn{padding:4px 8px;border-radius:6px;cursor:pointer;font-size:.68rem;font-weight:500;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}
 .hist-bench-btn.active{border-color:var(--amber);background:var(--c-amber-15);color:var(--gold);font-weight:700}
 .hist-bench-btn.hist-bench-btn-clear{border-style:dashed}
+
+/* === UI polish pass (card/table readability) === */
+.sector-card{
+  border-radius:14px;
+  border:1px solid color-mix(in srgb, var(--border) 80%, white 20%);
+  box-shadow:0 8px 20px rgba(0,0,0,.18);
+  overflow:hidden;
+}
+.sector-hdr{
+  background:linear-gradient(180deg, color-mix(in srgb, var(--s2) 88%, white 12%), var(--s1));
+  padding:14px 16px;
+}
+.sector-hdr h4{font-size:.92rem;letter-spacing:-.01em}
+.sector-hdr .sval{font-weight:700}
+
+.sector-card table thead th{
+  background:color-mix(in srgb, var(--s2) 92%, white 8%);
+  border-bottom:1px solid var(--border);
+}
+.sector-card table tbody tr:hover td{
+  background:color-mix(in srgb, var(--s2) 84%, var(--cyan) 16%);
+}
+.sector-card td{
+  padding:11px 10px;
+}
+
+.sum-row .sc{
+  box-shadow:0 6px 16px rgba(0,0,0,.16);
+}
+
+.view-switcher .vs-btn{
+  backdrop-filter:blur(4px);
+}
+
+/* === UI polish pass #2 (rhythm + legibility) === */
+:root{
+  --elev-1:0 4px 12px rgba(0,0,0,.14);
+  --elev-2:0 10px 26px rgba(0,0,0,.18);
+}
+
+.action-update-card,
+.action-icon-btn,
+.vs-btn,
+.sc,
+.sector-card{
+  transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease, background-color .18s ease;
+}
+
+.action-icon-btn:hover,
+.vs-btn:hover{
+  transform:translateY(-1px);
+}
+
+.sc{ box-shadow:var(--elev-1); }
+.sector-card{ box-shadow:var(--elev-2); }
+
+/* 표 가독성 강화 */
+.sector-card table tbody tr:nth-child(odd) td{
+  background:color-mix(in srgb, var(--s1) 92%, white 8%);
+}
+.sector-card table tbody tr:nth-child(even) td{
+  background:color-mix(in srgb, var(--s1) 84%, white 16%);
+}
+
+/* 헤더 숫자 정렬/강조 */
+.sector-hdr .sval,
+.sector-hdr .mono,
+.sector-hdr [class*='num']{
+  font-variant-numeric:tabular-nums;
+}
+
+/* 모바일에서 카드 여백/줄간격 보정 */
+@media (max-width: 768px){
+  .sector-card td{padding:10px 8px}
+  .sector-hdr{padding:12px 12px}
+  .sector-hdr h4{font-size:.86rem}
+}
