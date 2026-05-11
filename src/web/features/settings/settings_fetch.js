@@ -102,10 +102,9 @@ async function fetchFromGsheet(dateStr) {
     //   ② 없을 때만 기준일 이전 최근값 fallback (다른 기기 저장값 연동 보완)
     let noCodeResults = {};
     if (epNoCode.length > 0) {
-      const fromDate = (function() {
-        const d = new Date(dateStr); d.setDate(d.getDate() - 90);
-        return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-      })();
+      // ★ [버그수정] new Date(dateStr)는 'YYYY-MM-DD'를 UTC 00:00으로 파싱 후 로컬 getDate()와 혼용
+      //   KST 자정 경계에서 날짜가 하루 밀리는 문제 → _kstDateOffset()으로 교체
+      const fromDate = _kstDateOffset(dateStr, -90);
       try {
         const data = await requestGsheetActionJson(
           'getPriceHistory',
@@ -254,14 +253,13 @@ async function quickFetchByDate() {
   }
 }
 
-// ── 접속 시 자동 종가 조회
-// 날짜 문자열 생성 (daysAgo=0: 오늘, 1: 어제, ...)
+// ★ [버그수정] new Date() 로컬 타임존 의존 → _kstNow() / _kstDateOffset() 으로 교체
+//   시스템 타임존이 KST가 아닌 환경(해외, VPN 등)에서 날짜가 하루 밀리는 문제 방지
+//   daysAgo=0: 오늘(KST), 1: 어제(KST), ...
 function getDateStr(daysAgo) {
-  const d = new Date();
-  d.setDate(d.getDate() - (daysAgo || 0));
-  return d.getFullYear() + '-'
-    + String(d.getMonth()+1).padStart(2,'0') + '-'
-    + String(d.getDate()).padStart(2,'0');
+  const base = _kstTodayStr();
+  if (!daysAgo) return base;
+  return _kstDateOffset(base, -(daysAgo || 0));
 }
 
 async function autoLoadPrices() {
@@ -374,13 +372,10 @@ async function autoLoadPrices() {
 // ── applyPrices 날짜 뱃지 연동 (특정일 지정 시)
 
 // INIT — localStorage 불러오기가 이미 완료된 상태에서 렌더링
-// quickDateInput 오늘 날짜로 초기화
+// quickDateInput 오늘 날짜로 초기화 (★ KST 기준)
 (function() {
   const qi = $el('quickDateInput');
-  if (qi) qi.value = (function() {
-    const d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-  })();
+  if (qi) qi.value = _kstTodayStr();
 })();
 // EDITABLE_PRICES 기본값 (하드코딩) — syncEditables에서 localStorage로 덮어씌워짐
 
