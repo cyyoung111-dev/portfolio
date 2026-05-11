@@ -412,77 +412,33 @@ async function loadEditorPricesByDate(dateStr) {
     console.warn('[loadEditorPricesByDate] fetchFromGsheet 실패, 수동입력값만 표시:', e.message);
   }
 
-  // 2) ★ 수동 입력값 — 180일 범위에서 가장 최근 수동저장값 조회
-  //    오늘(4/1)에 저장값이 없어도 3/31 저장값을 자동으로 불러와 표시
-  //    fetchFromGsheet 성공/실패 무관하게 항상 실행, 1단계 결과를 무조건 덮어씌움
-  const manual = await fetchEditorManualPrices(dateStr);
+  // ★ [개선] fetchEditorManualPrices와 fetchEditorManualHistory가 동일한 GAS URL로
+  //   중복 요청하던 문제 해결 — 1회 공유 요청으로 통합
+  //   기존: getPriceHistory 2회 호출 → 로딩 시간 2배
+  //   수정: _fetchEditorPriceHistoryRaw() 1회 호출 후 최신값/이력 분리 파싱
+  const rawHistory = await _fetchEditorPriceHistoryRaw(dateStr);
+
+  // 2) 수동 입력값 파싱 (rawHistory에서 최신값 추출)
+  const manual = _parseEditorManualPrices(rawHistory);
   Object.entries(manual).forEach(([key, obj]) => {
     savedPrices[key] = obj.price;
     if (obj.savedAt) {
-      // GAS savedAt 형식: "yyyy-MM-dd HH:mm:ss" → "yyyy.MM.dd HH:mm 저장"
-      // 실제 저장된 날짜(obj.date)가 기준일과 다를 수 있으므로 savedAt 기준으로 표시
       savedPriceDates[key] = obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 저장';
     } else if (obj.date) {
-      // savedAt 없는 구버전 — 저장된 날짜라도 표시
       savedPriceDates[key] = obj.date.replace(/-/g,'.') + ' 저장';
     } else {
       savedPriceDates[key] = dateStr.replace(/-/g,'.') + ' 저장';
     }
   });
 
-  // 3) 이력 (최근 3건) — savedAt 포함해서 가져옴
-  _editorManualHistory = await fetchEditorManualHistory(dateStr);
+  // 3) 이력 파싱 (rawHistory에서 최근 3건 추출)
+  _editorManualHistory = _parseEditorManualHistory(rawHistory);
   buildEditorUI();
 }
 
-async function fetchEditorManualPrices(dateStr) {
-  try {
-    if (!GSHEET_API_URL) return {};
-    const targets = [];
-    EDITABLE_PRICES.forEach(item => {
-      if (item.code) targets.push(normalizeStockCode(item.code));
-      else if (item.name) targets.push(item.name);
-    });
-    const uniqTargets = Array.from(new Set(targets.filter(Boolean)));
-    if (uniqTargets.length === 0) return {};
-
-    // ★ from=180일 전 ~ to=dateStr 범위로 조회 — 오늘 저장값이 없어도
-    //   가장 최근 수동저장값(예: 3/31)을 자동으로 불러와 표시
-    const fromDate = _kstDateOffset(dateStr, -180); // ★ KST 기준 날짜 오프셋 (new Date(dateStr)은 UTC로 파싱되어 하루 밀림)
-    const url = GSHEET_API_URL
-      + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr
-      + '&codes=' + encodeURIComponent(uniqTargets.join(','));
-    const res = await fetchWithTimeout(url, 20000);
-    if (!res.ok) return {};
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.prices) return {};
-
-    const out = {};
-    const byLatest = (a, b) => {
-      const ak = (a?.savedAt || a?.date || '');
-      const bk = (b?.savedAt || b?.date || '');
-      return ak.localeCompare(bk);
-    };
-    Object.entries(data.prices).forEach(([key, entries]) => {
-      if (!Array.isArray(entries) || entries.length === 0) return;
-      // ★ savedAt 있는 것(수동입력)만 필터 후 가장 최근 것 선택
-      //   savedAt 없는 것(자동조회)은 제외 — 수동저장값만 표시 대상
-      const manualEntries = entries.filter(e => e && e.price > 0 && e.savedAt).sort(byLatest);
-      const latest = manualEntries.length > 0
-        ? manualEntries[manualEntries.length - 1]  // 수동입력 중 가장 최근
-        : null;
-      if (!latest) return;
-      // ★ savedAt(날짜+시간 문자열) 원본 보존 — 다른 기기에서도 저장시점 표시
-      out[key] = { price: Math.round(latest.price), savedAt: latest.savedAt || '', date: latest.date || '' };
-    });
-    return out;
-  } catch (e) {
-    console.warn('[fetchEditorManualPrices]', e.message);
-    return {};
-  }
-}
-
-async function fetchEditorManualHistory(dateStr) {
+// ★ [개선] GAS getPriceHistory 공유 요청 — 1회만 호출
+//   fetchEditorManualPrices / fetchEditorManualHistory 공통 베이스
+async function _fetchEditorPriceHistoryRaw(dateStr) {
   try {
     if (!GSHEET_API_URL) return {};
     const targets = [];
@@ -501,33 +457,66 @@ async function fetchEditorManualHistory(dateStr) {
     if (!res.ok) return {};
     const data = await res.json();
     if (data.status !== 'ok' || !data.prices) return {};
-
-    const out = {};
-    const byLatest = (a, b) => {
-      const ak = (a?.savedAt || a?.date || '');
-      const bk = (b?.savedAt || b?.date || '');
-      return ak.localeCompare(bk);
-    };
-    Object.entries(data.prices).forEach(([key, entries]) => {
-      if (!Array.isArray(entries) || entries.length === 0) return;
-      // savedAt가 있는 항목 = 수동입력 이력
-      // ★ savedAt(날짜+시간 원본) 포함해서 저장 — renderRow에서 시간까지 표시
-      const manualOnly = entries
-        .filter(e => e && e.price > 0 && e.savedAt)
-        .sort(byLatest)
-        .slice(-3)
-        .map(e => ({
-          date: e.date || '',
-          price: Math.round(e.price),
-          savedAt: e.savedAt || ''   // ★ 시간 포함 원본 보존
-        }));
-      if (manualOnly.length > 0) out[key] = manualOnly;
-    });
-    return out;
+    return data.prices; // { [key]: entries[] } 원본 반환
   } catch (e) {
-    console.warn('[fetchEditorManualHistory]', e.message);
+    console.warn('[_fetchEditorPriceHistoryRaw]', e.message);
     return {};
   }
+}
+
+// ★ [개선] 공유 rawHistory에서 최신 수동입력값 추출 (구 fetchEditorManualPrices 역할)
+function _parseEditorManualPrices(rawPrices) {
+  const out = {};
+  const byLatest = (a, b) => {
+    const ak = (a?.savedAt || a?.date || '');
+    const bk = (b?.savedAt || b?.date || '');
+    return ak.localeCompare(bk);
+  };
+  Object.entries(rawPrices).forEach(([key, entries]) => {
+    if (!Array.isArray(entries) || entries.length === 0) return;
+    const manualEntries = entries.filter(e => e && e.price > 0 && e.savedAt).sort(byLatest);
+    const latest = manualEntries.length > 0
+      ? manualEntries[manualEntries.length - 1]
+      : null;
+    if (!latest) return;
+    out[key] = { price: Math.round(latest.price), savedAt: latest.savedAt || '', date: latest.date || '' };
+  });
+  return out;
+}
+
+// ★ [개선] 공유 rawHistory에서 최근 3건 이력 추출 (구 fetchEditorManualHistory 역할)
+function _parseEditorManualHistory(rawPrices) {
+  const out = {};
+  const byLatest = (a, b) => {
+    const ak = (a?.savedAt || a?.date || '');
+    const bk = (b?.savedAt || b?.date || '');
+    return ak.localeCompare(bk);
+  };
+  Object.entries(rawPrices).forEach(([key, entries]) => {
+    if (!Array.isArray(entries) || entries.length === 0) return;
+    const manualOnly = entries
+      .filter(e => e && e.price > 0 && e.savedAt)
+      .sort(byLatest)
+      .slice(-3)
+      .map(e => ({
+        date: e.date || '',
+        price: Math.round(e.price),
+        savedAt: e.savedAt || ''
+      }));
+    if (manualOnly.length > 0) out[key] = manualOnly;
+  });
+  return out;
+}
+
+// ── 하위 호환: 외부에서 직접 호출하는 경우를 위한 래퍼 유지
+async function fetchEditorManualPrices(dateStr) {
+  const raw = await _fetchEditorPriceHistoryRaw(dateStr);
+  return _parseEditorManualPrices(raw);
+}
+
+async function fetchEditorManualHistory(dateStr) {
+  const raw = await _fetchEditorPriceHistoryRaw(dateStr);
+  return _parseEditorManualHistory(raw);
 }
 
 function getCurrentPriceFromData(name) {
