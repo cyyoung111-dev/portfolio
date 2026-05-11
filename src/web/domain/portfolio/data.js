@@ -540,9 +540,14 @@ function syncLoanFromSchedule() {
   const todayStr = _kstMonthStr(); // ★ KST 기준 YYYY-MM (toISOString은 UTC 기준이라 자정 이후 전날로 밀릴 수 있음)
   if (_loanSyncedMonth === todayStr) return; // 이번 달 이미 동기화됨
 
-  // 현재 월 행 (없으면 가장 최근 과거 행)
+  // ★ [개선] [...LOAN_SCHEDULE].reverse() 배열 복사 제거
+  //   역방향 순회로 가장 최근 과거 행을 찾음
   let curRow = LOAN_SCHEDULE.find(r => r.date === todayStr);
-  if (!curRow) curRow = [...LOAN_SCHEDULE].reverse().find(r => r.date <= todayStr);
+  if (!curRow) {
+    for (let i = LOAN_SCHEDULE.length - 1; i >= 0; i--) {
+      if (LOAN_SCHEDULE[i].date <= todayStr) { curRow = LOAN_SCHEDULE[i]; break; }
+    }
+  }
   if (!curRow) return; // 스케줄이 모두 미래면 스킵
 
   const totalMonths     = LOAN_SCHEDULE.length;
@@ -557,8 +562,12 @@ function syncLoanFromSchedule() {
   LOAN.remainingMonths     = remainingMonths;
   LOAN.totalInterestPaid   = totalInterestPaid;
   _loanSyncedMonth = todayStr;
+
+  // ★ [버그수정] 레이스컨디션 방지: saveSettings() 대신 lsSave() 직접 호출
+  //   bootstrap.js에서 syncLoanFromSchedule() 호출 시점에
+  //   bootstrapGsheetSettings()가 비동기 실행 중일 수 있음
+  //   → saveSettings()가 아직 로드 안 된 빈 DIVDATA를 GAS에 덮어쓰는 위험 제거
   lsSave(LOAN_KEY, LOAN);
-  saveSettings();
 }
 
 // EDITABLE_PRICES를 localStorage에서 복원 (신규 추가 종목 포함)
@@ -615,6 +624,13 @@ function syncLoanFromSchedule() {
     EDITABLE_PRICES.forEach(ep => {
       if (ep.code && ep.name) STOCK_CODE[ep.name] = normalizeStockCode(ep.code);
     });
+
+    // ★ [버그수정] migrateLegacyTrades() 호출 — EDITABLE_PRICES 로드 후 실행해야
+    //   normName, STOCK_CODE 등이 준비된 상태에서 구형 거래 레코드를 정확히 변환함
+    //   미호출 시 tradeType 없는 레코드가 이후 로직에서 무시/오작동할 수 있음
+    if (rawTrades.length > 0) {
+      migrateLegacyTrades();
+    }
 
     // ③ EDITABLE_PRICES 로드 완료 후 거래이력으로 rawHoldings 재생성
     //    이 시점에서 syncHoldingsFromTrades가 기초정보를 참조할 수 있음
