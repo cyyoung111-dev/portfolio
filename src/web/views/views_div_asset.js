@@ -2,7 +2,9 @@
 //  views_div_asset.js — 배당 뷰 (calcDividends, renderDivView)
 //  의존: data.js, settings.js, mgmt_div.js
 // ════════════════════════════════════════════════════════════════
-const NOW_MONTH = new Date().getMonth() + 1; // 1~12
+// ★ [버그수정] new Date().getMonth() 파일 로드 시 1회 고정 → 함수 호출로 교체
+//   calcDividends() / renderDivView() 호출 시점의 KST 월을 정확히 반영
+function _getNowMonth() { return _kstNow().getUTCMonth() + 1; }
 
 // ════════════════════════════════════════════════════════════════
 //  calcDividends — DIVDATA + rawHoldings 기반 배당 계산
@@ -19,8 +21,8 @@ function calcDividends() {
     if (h.acct && !acctMap[h.name].includes(h.acct)) acctMap[h.name].push(h.acct);
   });
 
-  const now = new Date();
-  const thisYear = now.getFullYear();
+  // ★ [버그수정] new Date() 로컬 타임존 → _kstYear() 으로 교체
+  const thisYear = _kstYear();
 
   const result = [];
 
@@ -70,6 +72,10 @@ function renderDivView(area, skipFetch) {
   // GS 연동 시 탭 진입마다 자동 fetch → 완료 후 재렌더 (skipFetch=true 시 생략 — 재귀 방지)
   if (GSHEET_API_URL && !skipFetch) _autoFetchDiv(area);
 
+  // ★ [버그수정] NOW_MONTH(파일 로드 시 고정값) 대신 렌더링 시점의 KST 월/연도 사용
+  const nowMonth  = _getNowMonth();
+  const nowYear   = _kstYear();
+
   // 수량 0 숨김 적용
   const allDivRows = calcDividends();
   const divRows = _divHideZeroQty ? allDivRows.filter(r => r.qty > 0) : allDivRows;
@@ -95,8 +101,8 @@ function renderDivView(area, skipFetch) {
   });
 
   // 올해 지난달까지 누적 수령액
-  const receivedSoFar = monthly.slice(0, NOW_MONTH - 1).reduce((s,v)=>s+v, 0);
-  const remainingYear = monthly.slice(NOW_MONTH - 1).reduce((s,v)=>s+v, 0);
+  const receivedSoFar = monthly.slice(0, nowMonth - 1).reduce((s,v)=>s+v, 0);
+  const remainingYear = monthly.slice(nowMonth - 1).reduce((s,v)=>s+v, 0);
 
   let html = `
 
@@ -147,7 +153,7 @@ function renderDivView(area, skipFetch) {
       <div class="div-stat-sub">투자원금 대비 연간</div>
     </div>
     <div class="div-stat-card">
-      <div class="div-stat-label">✅ 올해 수령 (${NOW_MONTH-1}월까지)</div>
+      <div class="div-stat-label">✅ 올해 수령 (${nowMonth-1}월까지)</div>
       <div class="div-stat-value c-green">${fmtW(Math.round(receivedSoFar))}</div>
       <div class="div-stat-sub">남은 예상 ${fmtW(Math.round(remainingYear))}</div>
     </div>
@@ -157,8 +163,8 @@ function renderDivView(area, skipFetch) {
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
       <div>
-        <div style="font-size:.85rem;font-weight:700">📅 ${new Date().getFullYear()}년 월별 배당 예상</div>
-        <div style="font-size:.65rem;color:var(--muted);margin-top:2px">세전 기준 · 현재월 <span style="color:var(--cyan)">${NOW_MONTH}월</span></div>
+        <div style="font-size:.85rem;font-weight:700">📅 ${nowYear}년 월별 배당 예상</div>
+        <div style="font-size:.65rem;color:var(--muted);margin-top:2px">세전 기준 · 현재월 <span style="color:var(--cyan)">${nowMonth}월</span></div>
       </div>
       <div style="display:flex;gap:10px;font-size:.63rem;color:var(--muted);align-items:center;flex-shrink:0">
         <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:3px;vertical-align:middle"></span>지난달</span>
@@ -170,8 +176,8 @@ function renderDivView(area, skipFetch) {
       ${(() => {
         const maxV = Math.max(...monthly, 1);
         return monthly.map((v, i) => {
-          const isPast    = (i + 1) < NOW_MONTH;
-          const isCurrent = (i + 1) === NOW_MONTH;
+          const isPast    = (i + 1) < nowMonth;
+          const isCurrent = (i + 1) === nowMonth;
           const pct = v > 0 ? Math.max((v / maxV) * 100, 3) : 1;
           const label = v > 0 ? (v >= 1000000 ? (v/10000).toFixed(0)+'만' : v >= 10000 ? Math.round(v/1000)+'천' : v.toLocaleString()) : '';
           const bg = isCurrent

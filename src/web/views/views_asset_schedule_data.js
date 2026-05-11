@@ -124,8 +124,9 @@ function uploadScheduleCsv(input) {
       if (!rawDate) return;
       let date;
       if (/^\d{5}$/.test(rawDate)) {
+        // ★ [버그수정] UTC ms로 Date 생성 후 로컬 getFullYear/getMonth 혼용 → getUTC* 으로 통일
         const d = new Date(Math.round((Number(rawDate) - 25569) * 86400 * 1000));
-        date = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+        date = d.getUTCFullYear() + '-' + String(d.getUTCMonth()+1).padStart(2,'0');
       } else {
         date = String(rawDate).slice(0,7);
       }
@@ -148,7 +149,9 @@ function uploadScheduleCsv(input) {
 }
 
 function _promptLoanFromSchedule(schedule) {
-  const todayStr = new Date().toISOString().slice(0, 7);
+  // ★ [버그수정] toISOString()은 UTC 기준 → KST 자정(00:00~08:59)에 전달로 밀리는 문제
+  //   _kstMonthStr()으로 교체 — data.js KST 헬퍼와 통일
+  const todayStr = _kstMonthStr();
   let curRow = schedule.find(r => r.date === todayStr);
   if (!curRow) curRow = [...schedule].reverse().find(r => r.date <= todayStr);
   if (!curRow) return;
