@@ -87,7 +87,13 @@ function renderAssetView(area) {
   const interestPaid = LOAN.monthlyInterestPaid || 0;
   const interestDiff = interestPaid > 0 ? interestPaid - monthlyInterest : null;
   const startDateLabel = LOAN.startDate
-    ? (() => { const d = new Date(LOAN.startDate.replace(/-/g,'/')); return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`; })()
+    ? (() => {
+        // ★ [버그수정] new Date(replace(/-/g,'/'))는 로컬 파싱 의존
+        //   _kstDateFromStr()으로 교체 — KST 기준 날짜 파싱 통일
+        const d = _kstDateFromStr(LOAN.startDate);
+        const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+        return `${kst.getUTCFullYear()}년 ${kst.getUTCMonth()+1}월 ${kst.getUTCDate()}일`;
+      })()
     : '-';
   h += `<div class="card-12-p20">
     <div class="flex-between-mb14">
@@ -100,7 +106,9 @@ function renderAssetView(area) {
         ['월 납입 (계산)', `${fmt(pmt)}`],
         ...(hasSched ? [
           ['이자 (스케줄)', `${fmt(LOAN.monthlyInterestPaid || 0)}`],
-          ['원금상환 (스케줄)', (() => { const cur = LOAN_SCHEDULE.find(r => r.date === new Date().toISOString().slice(0,7)); return cur ? fmt(cur.principal) : (pmt > 0 ? fmt(pmt - (LOAN.monthlyInterestPaid||0)) : '-'); })()],
+          // ★ [버그수정] toISOString()은 UTC 기준 → KST 자정에 전달로 밀리는 문제
+          //   _kstMonthStr()으로 교체 — views_asset_schedule_data.js와 동일한 패턴
+          ['원금상환 (스케줄)', (() => { const cur = LOAN_SCHEDULE.find(r => r.date === _kstMonthStr()); return cur ? fmt(cur.principal) : (pmt > 0 ? fmt(pmt - (LOAN.monthlyInterestPaid||0)) : '-'); })()],
         ] : [
           ['이 중 이자 (계산)', `${fmt(monthlyInterest)}`],
           ['실제 이자지급액', interestPaid > 0
