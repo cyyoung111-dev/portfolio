@@ -22,13 +22,15 @@ async function loadHistoryChart() {
 
   try {
     const startMonth = String($el('histStartMonth')?.value || '').trim();
-    var rangeDays = parseInt($el('histRangeSelect')?.value || '365', 10);
+    // ★ [버그수정] var → const (async 함수 내 var 호이스팅 리스크 제거)
+    const rangeDays = parseInt($el('histRangeSelect')?.value || '365', 10);
     let fromStr = '';
     if (/^\d{4}-\d{2}$/.test(startMonth)) fromStr = `${startMonth}-01`;
     else if (rangeDays > 0) {
-      const cutoff = new Date();
-      cutoff.setDate(cutoff.getDate() - rangeDays);
-      fromStr = `${cutoff.getFullYear()}-${String(cutoff.getMonth()+1).padStart(2,'0')}-${String(cutoff.getDate()).padStart(2,'0')}`;
+      // ★ [버그수정] new Date() 로컬 타임존 → _kstNow() + _kstDateOffset() 으로 교체
+      //   settings_fetch.js getDateStr()과 동일한 패턴 — KST 기준으로 통일
+      const todayStr = _kstTodayStr();
+      fromStr = _kstDateOffset(todayStr, -rangeDays);
     }
     const data = await _historyRequestJson('getHistory', { from: fromStr }, { timeoutMs: 15000, retry: 0 });
     if (!data || data.status === 'error') throw new Error(data?.message || '응답 오류');

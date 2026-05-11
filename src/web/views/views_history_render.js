@@ -42,8 +42,9 @@ function renderHistoryView(area) {
   _renderHistBenchmarkButtons();
   const monthEl = $el('histStartMonth');
   if (monthEl && !monthEl.value) {
-    const d = new Date();
-    monthEl.value = `${d.getFullYear()}-01`;
+    // ★ [버그수정] new Date() 로컬 타임존 → _kstNow() 으로 교체 (KST 기준 연도)
+    const kst = _kstNow();
+    monthEl.value = `${kst.getUTCFullYear()}-01`;
   }
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
