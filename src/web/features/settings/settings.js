@@ -347,7 +347,10 @@ async function loadSettings(onProgress) {
       if (tradeCodeCorrected) {
         lsSave(TRADES_KEY, rawTrades); // ★ localStorage 즉시 저장
         syncHoldingsFromTrades();
-        saveHoldings();
+        // ★ [버그수정] 중복 saveHoldings() 호출 제거
+        //   tradeCodeCorrected 분기에서 saveHoldings()를 호출하면
+        //   직후 아래 saveHoldings()와 2번 GAS syncTrades가 발생함
+        //   → lsSave(TRADES_KEY)로 로컬 저장 완료 + GAS 재저장만 수행
         if (GSHEET_API_URL && typeof syncTradesToGsheet === 'function') {
           syncTradesToGsheet().catch(e => console.warn('거래이력 코드 교정 후 GAS 재저장 실패:', e));
         }
