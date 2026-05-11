@@ -1,5 +1,16 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.20
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.21
+//
+//  v9.21 변경사항 (2026.05.11):
+//   ✅ [버그수정] handleGetTrades() — fund 필드 항상 false 버그
+//              원인: 거래이력 시트는 9컬럼(날짜~메모)까지만 저장되므로 r[9]는 항상 undefined
+//              수정: assetType('펀드'|'TDF') 으로 fund 여부 추론
+//   ✅ [버그수정] cleanupSnapshotDuplicates() — getUi() 직접 호출
+//              원인: 웹앱/트리거 컨텍스트에서 getUi()가 예외를 던져 crash 발생
+//              수정: 모든 alert을 try/catch + Logger.log fallback으로 교체
+//   ✅ [개선]   fixPriceHistoryNames() — 루프 내 개별 setValue() → 배치 setValues()
+//              원인: 종목 수만큼 시트 API 호출 → 대량 데이터 시 느림
+//              수정: 연속 행 묶음 setValues() 배치 처리로 API 호출 최소화
 //
 //  v9.20 변경사항 (2026.04.23):
 //   ✅ [버그수정] handleGetTrades() — 거래 레코드 fund 필드 누락
@@ -2906,8 +2917,13 @@ function cleanupPriceHistoryDuplicates() {
 function cleanupSnapshotDuplicates() {
   var ss = getss(); // ★ 웹앱 트리거 호환 — getActiveSpreadsheet() null 방지
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  // ★ [버그수정] getUi()를 try/catch로 감싸 웹앱/트리거 환경에서의 crash 방지
+  //   웹앱 배포 컨텍스트에서 getUi()는 null을 반환하거나 예외를 던질 수 있음
+  var _alert = function(msg) {
+    try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log(msg); }
+  };
   if (!sh || sh.getLastRow() < 2) {
-    SpreadsheetApp.getUi().alert('스냅샷 데이터가 없습니다.');
+    _alert('스냅샷 데이터가 없습니다.');
     return;
   }
 
@@ -2919,7 +2935,7 @@ function cleanupSnapshotDuplicates() {
   var removed = rows.length - deduped.length;
 
   if (removed <= 0) {
-    SpreadsheetApp.getUi().alert('중복 스냅샷이 없습니다.');
+    _alert('중복 스냅샷이 없습니다.');
     return;
   }
 
@@ -2927,7 +2943,7 @@ function cleanupSnapshotDuplicates() {
   sh.getRange(1,1,1,colSize).setValues(header);
   sh.getRange(1,1,1,colSize).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   sh.getRange(2, 1, deduped.length, colSize).setValues(deduped);
-  SpreadsheetApp.getUi().alert('중복 정리 완료: ' + removed + '행 삭제');
+  _alert('중복 정리 완료: ' + removed + '행 삭제');
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -3034,6 +3050,7 @@ function handleGetTrades() {
     var trades  = data
       .filter(function(r){ return r[0] || r[3]; })
       .map(function(r) {
+        var assetType = (r[7] || '주식').toString();
         return {
           date:      (r[0] instanceof Date)
                        ? Utilities.formatDate(r[0], CONFIG.TIMEZONE, 'yyyy-MM-dd')
@@ -3044,10 +3061,12 @@ function handleGetTrades() {
           code:      (r[4] || '').toString(),
           qty:       parseFloat(r[5]) || 0,
           price:     parseFloat(r[6]) || 0,
-          assetType: (r[7] || '주식').toString(),
+          assetType: assetType,
           memo:      (r[8] || '').toString(),
-          // ★ fund 필드: 거래 레코드 구조에 포함 (펀드/TDF 종목 식별용)
-          fund:      !!(r[9]),
+          // ★ [버그수정] fund 필드: 거래이력 시트는 9컬럼(날짜~메모)까지만 저장
+          //   r[9]는 항상 undefined → fund 항상 false 버그 수정
+          //   assetType으로 펀드/TDF 여부를 추론하도록 변경
+          fund:      (assetType === '펀드' || assetType === 'TDF'),
         };
       });
     return jsonOk({ trades: trades });
@@ -3436,22 +3455,44 @@ function fixPriceHistoryNames() {
 
   var lastRow = ph.getLastRow();
   var data    = ph.getRange(2, 1, lastRow - 1, 3).getValues();
-  var fixed   = 0;
 
+  // ★ [개선] 루프 내 개별 setValue() → 배치 setValues()로 변경
+  //   종목 수만큼 시트 API 호출하던 문제 → 연속행 묶음으로 일괄 처리
+  //   예) 50건 수정 → API 1~수회 호출 (연속 행 기준)
+  var pending = []; // { rowNo, name }
   data.forEach(function(r, i) {
     var code    = _cleanCode(r[1]);
     var nameVal = (r[2] || '').toString().trim();
     if (!nameVal || !isNaN(Number(nameVal))) {
       var correctName = codeToName[code] || '';
       if (correctName) {
-        ph.getRange(i + 2, 3).setValue(correctName);
-        fixed++;
+        pending.push({ rowNo: i + 2, name: correctName });
       }
     }
   });
 
-  if (fixed > 0) SpreadsheetApp.flush();
-  var msg = '✅ 가격이력 종목명 보정 완료: ' + fixed + '건 수정';
+  if (pending.length === 0) {
+    Logger.log('가격이력 종목명 보정: 수정 대상 없음');
+    try { SpreadsheetApp.getUi().alert('✅ 가격이력 종목명 보정 완료: 수정 대상 없음'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+    return;
+  }
+
+  // 행 번호 오름차순 정렬 후 연속 행 묶어서 setValues 배치 호출
+  pending.sort(function(a, b) { return a.rowNo - b.rowNo; });
+  var i = 0;
+  while (i < pending.length) {
+    var startRow = pending[i].rowNo;
+    var batch = [pending[i].name];
+    while (i + 1 < pending.length && pending[i + 1].rowNo === pending[i].rowNo + 1) {
+      i++;
+      batch.push(pending[i].name);
+    }
+    ph.getRange(startRow, 3, batch.length, 1).setValues(batch.map(function(n){ return [n]; }));
+    i++;
+  }
+
+  SpreadsheetApp.flush();
+  var msg = '✅ 가격이력 종목명 보정 완료: ' + pending.length + '건 수정';
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
