@@ -254,7 +254,8 @@ function _tePickName(name) {
     status.textContent = '✅ ' + name + (code ? ' (' + code + ')' : '');
     status.style.color = 'var(--green)';
   } else {
-    const ep     = EDITABLE_PRICES.find(e => e.name === name);
+    // ★ [버그수정] const ep 재선언 제거 — 위에서 이미 getEP(name)으로 조회했으므로
+    //   ep가 null인 경우에만 이 else 블록 진입 → ep?.code는 항상 '' → 불필요한 재조회 제거
     const epCode = ep?.code || '';
     if (epCode) {
       $el('te-code').value   = epCode;
@@ -488,10 +489,15 @@ function saveTrade() {
   if (!date)                      { err.textContent='❌ 날짜를 입력하세요'; err.style.display='block'; return; }
   if (isNaN(price) || price < 0) { err.textContent='❌ 단가를 입력하세요'; err.style.display='block'; return; }
 
+  const code  = f('te-code').value.trim();
+  // ★ [버그수정] normN을 매도 수량 체크 블록 밖으로 호이스팅
+  //   기존: if(sell) 블록 안 + 블록 밖에 const normN 중복 선언 → strict mode/번들러에서 SyntaxError
+  //   수정: 유효성 검사 통과 후 1회만 선언, 이하 모든 로직에서 공유
+  const normN = normName(name) || name;
+
   // 매도 시 현재 보유 수량 초과 체크
   if (tradeType === 'sell' && !_editingTradeId) {
     const acct = acctVal || '';
-    const normN = normName(name) || name;
     // 현재 보유 수량 계산 (해당 계좌, 해당 종목)
     const currentQty = rawTrades
       .filter(t => t.name === normN && t.acct === acct)
@@ -507,9 +513,6 @@ function saveTrade() {
       return;
     }
   }
-
-  const code  = f('te-code').value.trim();
-  const normN = normName(name) || name;
 
   const trade = {
     id:        _editingTradeId || genTradeId(),
