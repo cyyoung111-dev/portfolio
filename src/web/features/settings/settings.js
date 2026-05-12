@@ -106,6 +106,8 @@ async function loadRealEstateSettings() {
     const data = await requestGsheetActionJson('getRealEstateSettings', {}, { timeoutMs: 10000, retry: 1 });
     if (!data || data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
     const s = data.settings;
+    // ★ [개선] GAS 버전 저장 — bootstrapGsheetSettings에서 불일치 감지에 사용
+    if (data.gasVersion) window._lastGasVersion = String(data.gasVersion);
     if (s.LOAN && typeof s.LOAN === 'object') {
       Object.assign(LOAN, {
         ...s.LOAN,
@@ -320,8 +322,10 @@ async function loadSettings(onProgress) {
       rawTrades.forEach(t => {
         if (!t.name) return;
         const tCode = _normalizeCodeForSync(t.code || '');
-        const epByCode = tCode ? EDITABLE_PRICES.find(e => _normalizeCodeForSync(e.code) === tCode) : null;
-        const epByName = EDITABLE_PRICES.find(e => e.name === t.name);
+        // ★ [개선] EDITABLE_PRICES.find() → getEPByCode() / getEP() 교체
+        //   Map 인덱스 캐시를 활용해 O(n) 선형 탐색 → O(1) 조회로 성능 개선
+        const epByCode = tCode ? getEPByCode(tCode) : null;
+        const epByName = getEP(t.name);
         const ep = epByCode || epByName;
         if (!ep) {
           unmatchedTrades.push({
@@ -475,6 +479,14 @@ async function bootstrapGsheetSettings() {
   _gsBootRestored = true;
   try {
     const ok = await loadSettings();
+    // ★ [개선] GAS 버전 불일치 감지 — 재배포 필요 여부를 사용자에게 알림
+    if (ok && typeof EXPECTED_GAS_VERSION !== 'undefined') {
+      const serverVer = window._lastGasVersion;
+      if (serverVer && serverVer !== EXPECTED_GAS_VERSION) {
+        showToast(`⚠️ GAS 버전 불일치 (서버: ${serverVer} / 기대: ${EXPECTED_GAS_VERSION}) — 재배포가 필요할 수 있어요`, 'warn', 6000);
+        console.warn('[GAS 버전 불일치]', { serverVer, expected: EXPECTED_GAS_VERSION });
+      }
+    }
     if (!ok) {
       // Settings 시트 읽기 실패 시에도 배당/부동산 별도 액션은 시도
       try { await loadDividendSettings(); } catch(e) {}
