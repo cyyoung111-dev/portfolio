@@ -25,7 +25,8 @@ let rawTrades = [];
 // { [종목명]: { freq, months, perShare, currency } }
 let DIVDATA = {};
 
-function normName(n){ return n || ''; }
+// ★ [개선] trim 추가 — ' 삼성전자' 같은 공백 입력 실수로 인한 미매칭 버그 방지
+function normName(n){ return (n || '').trim(); }
 
 function saveAcctColors() {
   // ACCT_COLORS: var() 문자열 → hex 변환 후 저장 (Canvas fillStyle 깨짐 방지)
