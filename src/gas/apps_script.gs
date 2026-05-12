@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════════
 //  📊 포트폴리오 대시보드 — Google Apps Script  v9.21
 //
-//  v9.21 변경사항 (2026.05.11):
+//  v9.21 변경사항 (2026.05.12):
 //   ✅ [버그수정] handleGetTrades() — fund 필드 항상 false 버그
 //              원인: 거래이력 시트는 9컬럼(날짜~메모)까지만 저장되므로 r[9]는 항상 undefined
 //              수정: assetType('펀드'|'TDF') 으로 fund 여부 추론
@@ -11,6 +11,8 @@
 //   ✅ [개선]   fixPriceHistoryNames() — 루프 내 개별 setValue() → 배치 setValues()
 //              원인: 종목 수만큼 시트 API 호출 → 대량 데이터 시 느림
 //              수정: 연속 행 묶음 setValues() 배치 처리로 API 호출 최소화
+//   ✅ [개선]   handleGetSettings() — gasVersion 필드 추가
+//              프론트에서 GAS 버전 불일치를 감지해 재배포 필요 여부 안내
 //
 //  v9.20 변경사항 (2026.04.23):
 //   ✅ [버그수정] handleGetTrades() — 거래 레코드 fund 필드 누락
@@ -2915,10 +2917,9 @@ function cleanupPriceHistoryDuplicates() {
 }
 
 function cleanupSnapshotDuplicates() {
-  var ss = getss(); // ★ 웹앱 트리거 호환 — getActiveSpreadsheet() null 방지
+  var ss = getss();
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   // ★ [버그수정] getUi()를 try/catch로 감싸 웹앱/트리거 환경에서의 crash 방지
-  //   웹앱 배포 컨텍스트에서 getUi()는 null을 반환하거나 예외를 던질 수 있음
   var _alert = function(msg) {
     try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log(msg); }
   };
@@ -2927,7 +2928,6 @@ function cleanupSnapshotDuplicates() {
     return;
   }
 
-  // ★ [버그수정] 12컬럼으로 업데이트 (11컬럼 하드코딩 제거)
   var colSize = 12;
   var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']];
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues();
@@ -3188,7 +3188,7 @@ function handleSaveSettings(dataJson) {
 
 function handleGetSettings() {
   try {
-    return jsonOk({ settings: _readSettingsMap() });
+    return jsonOk({ settings: _readSettingsMap(), gasVersion: '9.21' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -3457,27 +3457,23 @@ function fixPriceHistoryNames() {
   var data    = ph.getRange(2, 1, lastRow - 1, 3).getValues();
 
   // ★ [개선] 루프 내 개별 setValue() → 배치 setValues()로 변경
-  //   종목 수만큼 시트 API 호출하던 문제 → 연속행 묶음으로 일괄 처리
-  //   예) 50건 수정 → API 1~수회 호출 (연속 행 기준)
-  var pending = []; // { rowNo, name }
+  //   종목 수만큼 시트 API 호출하던 문제 → 연속 행 묶음으로 일괄 처리
+  var pending = [];
   data.forEach(function(r, i) {
     var code    = _cleanCode(r[1]);
     var nameVal = (r[2] || '').toString().trim();
     if (!nameVal || !isNaN(Number(nameVal))) {
       var correctName = codeToName[code] || '';
-      if (correctName) {
-        pending.push({ rowNo: i + 2, name: correctName });
-      }
+      if (correctName) pending.push({ rowNo: i + 2, name: correctName });
     }
   });
 
   if (pending.length === 0) {
     Logger.log('가격이력 종목명 보정: 수정 대상 없음');
-    try { SpreadsheetApp.getUi().alert('✅ 가격이력 종목명 보정 완료: 수정 대상 없음'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+    try { SpreadsheetApp.getUi().alert('✅ 가격이력 종목명 보정 완료: 수정 대상 없음'); } catch(e) { Logger.log('UI 알림 실패'); }
     return;
   }
 
-  // 행 번호 오름차순 정렬 후 연속 행 묶어서 setValues 배치 호출
   pending.sort(function(a, b) { return a.rowNo - b.rowNo; });
   var i = 0;
   while (i < pending.length) {
@@ -3494,7 +3490,7 @@ function fixPriceHistoryNames() {
   SpreadsheetApp.flush();
   var msg = '✅ 가격이력 종목명 보정 완료: ' + pending.length + '건 수정';
   Logger.log(msg);
-  try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패'); }
 }
 
 // ════════════════════════════════════════════════════════════════════
