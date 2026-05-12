@@ -262,6 +262,10 @@ function getDateStr(daysAgo) {
   return _kstDateOffset(base, -(daysAgo || 0));
 }
 
+// ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
+//   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
+const EXPECTED_GAS_VERSION = '9.21';
+
 async function autoLoadPrices() {
   const dateStr = getDateStr(0);
   const badge = $el('dateBadge');
