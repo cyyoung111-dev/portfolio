@@ -47,11 +47,18 @@ function _getHistorySnapshotGap(latestDate) {
   const todayMs = _historyDateToUtcMs(today);
   if (!Number.isFinite(latestMs) || !Number.isFinite(todayMs)) return null;
   const days = Math.floor((todayMs - latestMs) / 86400000);
-  return { days: Math.max(0, days), latest, today };
+  const kstNow = (typeof _kstNow === 'function') ? _kstNow() : new Date();
+  const kstMinutes = kstNow.getUTCHours() * 60 + kstNow.getUTCMinutes();
+  const triggerMinutes = 16 * 60 + 30; // GAS runEvalPriceUpdate1620 nearMinute 여유 포함
+  const isTodayPending = days === 1 && kstMinutes < triggerMinutes;
+  return { days: Math.max(0, days), latest, today, isTodayPending };
 }
 
 function _historySnapshotGapHtml(gap) {
   if (!gap || !Number.isFinite(gap.days) || gap.days <= 0) return '';
+  if (gap.isTodayPending) {
+    return ` · <span style="color:var(--muted)">🕓 오늘 스냅샷 대기중 (16:20 이후 확인)</span>`;
+  }
   const dayLabel = gap.days === 1 ? '오늘 스냅샷 미생성' : `${gap.days}일간 스냅샷 누락`;
   return ` · <span style="color:var(--amber)">⚠️ ${_escapeHtml(dayLabel)} (${_escapeHtml(gap.latest)} → ${_escapeHtml(gap.today)})</span>`;
 }

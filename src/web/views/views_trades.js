@@ -386,6 +386,10 @@ function tradeFillMissingDates() {
     showToast('날짜를 지정할 거래가 없습니다', 'warn');
     return;
   }
+  if (targets.length > 1) {
+    const scope = checkedSet.size > 0 ? '선택한 날짜 없는 거래' : '모든 날짜 없는 거래';
+    if (!confirm(`${scope} ${targets.length}건의 날짜를 ${date}로 일괄 지정할까요?`)) return;
+  }
   targets.forEach(t => { t.date = date; });
   _commitTrades();
   showToast(`날짜 없는 거래 ${targets.length}건에 ${date}를 지정했습니다`, 'ok');
