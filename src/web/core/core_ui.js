@@ -1,6 +1,30 @@
 // 필터 버튼 클래스 헬퍼
 function _fBtnClass(active) { return active ? 'f-btn active' : 'f-btn'; }
 
+function _escapeHtml(text) {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+
+function _normalizeSearchText(text) {
+  return String(text ?? '')
+    .normalize('NFC')
+    .trim()
+    .toLocaleLowerCase('ko')
+    .replace(/\s+/g, '');
+}
+
+function _searchIncludes(value, query) {
+  const q = _normalizeSearchText(query);
+  if (!q) return true;
+  return _normalizeSearchText(value).includes(q);
+}
+
 // 토스트 알림 헬퍼 (alert 대체)
 // type: 'ok' | 'error' | 'warn' | 'info'
 function showToast(msg, type='info', duration=3200) {
@@ -9,7 +33,16 @@ function showToast(msg, type='info', duration=3200) {
   const icons = {ok:'✅', error:'❌', warn:'⚠️', info:'💡'};
   const t = document.createElement('div');
   t.className = `toast toast-${type}`;
-  t.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ️'}</span><span class="toast-msg">${msg}</span>`;
+
+  const icon = document.createElement('span');
+  icon.className = 'toast-icon';
+  icon.textContent = icons[type] || 'ℹ️';
+
+  const message = document.createElement('span');
+  message.className = 'toast-msg';
+  message.textContent = String(msg ?? '');
+
+  t.append(icon, message);
   container.appendChild(t);
   setTimeout(() => {
     t.classList.add('toast-out');

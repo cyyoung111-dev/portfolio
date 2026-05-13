@@ -16,9 +16,12 @@ function openEditor() {
   }
   if (editorDateEl) {
     _editorRefDate = editorDateEl.value || '';
-    editorDateEl.onchange = async () => {
-      await loadEditorPricesByDate(editorDateEl.value);
-    };
+    if (!editorDateEl._editorDateBound) {
+      editorDateEl._editorDateBound = true;
+      editorDateEl.addEventListener('change', async () => {
+        await loadEditorPricesByDate(editorDateEl.value);
+      });
+    }
   }
   $el('priceEditor').classList.add('open');
   if (editorDateEl?.value) loadEditorPricesByDate(editorDateEl.value);
@@ -311,7 +314,7 @@ function buildEditorUI() {
         <input type="number" id="ep_${safeId}"
           value="${current || ''}"
           placeholder="현재가"
-          oninput="markChanged('${safeName}', this.value)"
+          data-editor-price-name="${_escapeHtml(item.name)}"
           class="editor-price-input"
         />
         <span id="ps_${safeId}" style="font-size:.65rem;color:${statusColor};flex-shrink:0;width:14px;text-align:center">✓</span>
@@ -343,9 +346,9 @@ function buildEditorUI() {
     sectionHtml += '</div>';
     if (totalPages > 1) {
       sectionHtml += `<div class="editor-price-pagination">
-        <button class="editor-page-btn" onclick="_setEditorSectionPage('${sectionKey}', ${currentPage - 1}, ${totalPages})" ${currentPage <= 1 ? 'disabled' : ''}>이전</button>
+        <button class="editor-page-btn" data-editor-page-section="${_escapeHtml(sectionKey)}" data-page="${currentPage - 1}" data-total-pages="${totalPages}" ${currentPage <= 1 ? 'disabled' : ''}>이전</button>
         <span>${currentPage} / ${totalPages} 페이지</span>
-        <button class="editor-page-btn" onclick="_setEditorSectionPage('${sectionKey}', ${currentPage + 1}, ${totalPages})" ${currentPage >= totalPages ? 'disabled' : ''}>다음</button>
+        <button class="editor-page-btn" data-editor-page-section="${_escapeHtml(sectionKey)}" data-page="${currentPage + 1}" data-total-pages="${totalPages}" ${currentPage >= totalPages ? 'disabled' : ''}>다음</button>
       </div>`;
     }
     sectionHtml += '</section>';
@@ -660,7 +663,7 @@ async function applyPrices() {
   saveHoldings();
 
   // ★ 저장 완료 피드백 — 버튼·본문에 표시 후 1.5초 뒤 닫힘
-  const applyBtn = $el('priceEditor')?.querySelector('[onclick*="applyPrices"]')
+  const applyBtn = $el('pe-panel-price-footer')
                 || $el('priceEditor')?.querySelector('.btn-apply-prices');
   if (applyBtn) {
     applyBtn.disabled = true;
@@ -677,11 +680,11 @@ async function applyPrices() {
     const done = document.createElement('div');
     done.style.cssText = 'text-align:center;padding:18px 0 8px;font-size:.82rem;color:var(--green-lt);font-weight:600';
     if (gasFailedCount > 0) {
-      const sample = gasFailedKeys.slice(0, 3).join(', ');
+      const sample = gasFailedKeys.slice(0, 3).map(key => _escapeHtml(key)).join(', ');
       done.innerHTML = `⚠️ 로컬 저장 완료 · GAS 저장 실패 ${gasFailedCount}건${sample ? '<br><span style="font-size:.70rem;color:var(--muted)">실패 키: ' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + '</span>' : ''}`;
       done.style.color = 'var(--amber)';
     } else {
-      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${dateStr} ${timeStr} 기준 · GAS 동기화 완료</span>`;
+      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${_escapeHtml(dateStr)} ${_escapeHtml(timeStr)} 기준 · GAS 동기화 완료</span>`;
     }
     body.prepend(done);
   }
@@ -693,3 +696,14 @@ async function applyPrices() {
     if (typeof shouldRenderCharts !== 'function' || shouldRenderCharts(currentView)) renderDonut();
   }, 1500);
 }
+
+
+document.addEventListener('input', function(e) {
+  if (e.target.dataset?.editorPriceName) markChanged(e.target.dataset.editorPriceName, e.target.value);
+});
+
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-editor-page-section]');
+  if (!btn) return;
+  _setEditorSectionPage(btn.dataset.editorPageSection, parseInt(btn.dataset.page || '1', 10), parseInt(btn.dataset.totalPages || '1', 10));
+});

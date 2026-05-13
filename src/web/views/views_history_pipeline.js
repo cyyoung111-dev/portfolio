@@ -56,12 +56,15 @@ async function loadHistoryChart() {
     const mode = _getHistMode();
     const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
 
-    const latestDate = _fmtHistDateCompact(snapshots[snapshots.length-1].date || '');
+    const latestSnapshotDate = snapshots[snapshots.length-1].date || '';
+    const latestDate = _fmtHistDateCompact(latestSnapshotDate);
+    const snapshotGap = _getHistorySnapshotGap(latestSnapshotDate);
     _setHistoryStatus(statusEl, 'summary', {
       graphCount: snapshots.length,
       tableCount: tableSnapshots.length,
       mode,
-      latestDate
+      latestDate,
+      snapshotGap
     });
 
     const benchmarkTypes = Array.from(new Set(
@@ -82,7 +85,7 @@ async function loadHistoryChart() {
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
     const missingMsg = missing.length ? ` (실패: ${missing.join(', ')})` : '';
-    _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg });
+    _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
     _drawHistoryChart(chartWrap, snapshots, mode, { types: benchmarkTypes, seriesMap: benchSeriesMap, metaMap: benchMetaMap });
     _drawHistoryTable(tableWrap, tableSnapshots);

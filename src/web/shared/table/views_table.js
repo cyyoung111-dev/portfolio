@@ -9,20 +9,21 @@ function buildActiveFiltersBar(tableId) {
   const entries = Object.entries(st.filters);
   if (entries.length === 0) return '';
 
+  const tableIdEsc = _escapeHtml(tableId);
   const colLabels = { acct:'계좌', type:'구분', name:'종목명', sector:'섹터' };
   const chips = entries.map(([col, vals]) => {
     const label = colLabels[col] || col;
-    const valStr = vals.size <= 3 ? [...vals].join(', ') : `${vals.size}개 선택`;
+    const valStr = vals.size <= 3 ? [...vals].map(v => _escapeHtml(v)).join(', ') : `${vals.size}개 선택`;
     return `<span class="active-filter-chip">
-      ${label}: <strong>${valStr}</strong>
-      <button onclick="clearTableFilter('${tableId}','${col}')">✕</button>
+      ${_escapeHtml(label)}: <strong>${valStr}</strong>
+      <button data-table-action="clear-filter" data-table-id="${tableIdEsc}" data-col="${_escapeHtml(col)}">✕</button>
     </span>`;
   }).join('');
 
   return `<div class="active-filters-bar">
     <span class="txt-muted-68">🔍 활성 필터:</span>
     ${chips}
-    <button onclick="clearAllTableFilters('${tableId}')" class="btn-link">전체 해제</button>
+    <button data-table-action="clear-all-filters" data-table-id="${tableIdEsc}" class="btn-link">전체 해제</button>
   </div>`;
 }
 
@@ -46,15 +47,15 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
   function thFilter(col, label) {
     const isFiltered = !!st.filters[col];
     const badge = isFiltered ? `<span class="c-amber">▼</span>` : `<span style="opacity:.35">▼</span>`;
-    return `<th class="th-filter" onclick="openColFilterDropdown('${tableId}','${col}',this)">
-      ${label} ${badge}
+    return `<th class="th-filter" data-table-action="open-filter" data-table-id="${_escapeHtml(tableId)}" data-col="${_escapeHtml(col)}">
+      ${_escapeHtml(label)} ${badge}
     </th>`;
   }
 
   function thSort(col, label) {
     const cls = st.sortCol === col ? ' ' + st.sortDir : '';
-    return `<th class="th-filter num${cls}" onclick="setTableSort('${tableId}','${col}')">
-      ${label} <span class="sort-icon"></span>
+    return `<th class="th-filter num${cls}" data-table-action="sort" data-table-id="${_escapeHtml(tableId)}" data-col="${_escapeHtml(col)}">
+      ${_escapeHtml(label)} <span class="sort-icon"></span>
     </th>`;
   }
 
@@ -98,14 +99,14 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
     let sectorCell = '';
     if (extraCol === '섹터') {
       const sectorColor = SECTOR_COLORS[r.sector] || 'var(--muted)';
-      sectorCell = `<td><span style="font-size:.70rem;padding:2px 8px;border-radius:4px;background:${sectorColor}22;color:${sectorColor}">${r.sector}</span></td>`;
+      sectorCell = `<td><span style="font-size:.70rem;padding:2px 8px;border-radius:4px;background:${sectorColor}22;color:${sectorColor}">${_escapeHtml(r.sector || '기타')}</span></td>`;
     }
 
     rowsHtml.push(`<tr class="${isSmall ? `small-pos-row small-pos-row-${tableId}" style="display:none` : ''}">
       ${sectorCell}
-      <td><span class="adot" style="background:${ACCT_COLORS[r.acct]||'var(--muted)'}"></span>${r.acct}</td>
-      <td><span class="tag tg-${r.type}">${r.type}</span></td>
-      <td class="fw6"><span data-gname="${r.name}" onclick="goToTradeGroup(this.dataset.gname)" class="dotted-link" title="종목별 거래 보기">${r.name}</span>${r.code?`<span class="lbl-62-mt2">${r.code}</span>`:''}</td>
+      <td><span class="adot" style="background:${ACCT_COLORS[r.acct]||'var(--muted)'}"></span>${_escapeHtml(r.acct || '-')}</td>
+      <td><span class="tag">${_escapeHtml(r.type || '-')}</span></td>
+      <td class="fw6"><span data-table-action="go-trade-group" data-gname="${_escapeHtml(r.name || '')}" class="dotted-link" title="종목별 거래 보기">${_escapeHtml(r.name || '-')}</span>${r.code?`<span class="lbl-62-mt2">${_escapeHtml(r.code)}</span>`:''}</td>
       <td class="num">${qtyCell}</td>
       <td class="num">${costCell}</td>
       <td class="num">${costAmtCell}</td>

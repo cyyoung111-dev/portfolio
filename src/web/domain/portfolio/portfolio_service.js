@@ -34,11 +34,16 @@ function calcRealizedPnl() {
 // ── 거래이력: 필터·정렬 적용 리스트 반환
 function _getFilteredTrades() {
   const { acct: filterAcct, name: filterName, type: filterType } = _tradeFilter;
-  const hasFilter = !!(filterAcct || filterName || filterType === 'buy' || filterType === 'sell');
+  const query = _normalizeSearchText(filterName || '');
+  const hasFilter = !!(filterAcct || query || filterType === 'buy' || filterType === 'sell');
   let list = hasFilter
     ? rawTrades.filter(t => {
       if (filterAcct && t.acct !== filterAcct) return false;
-      if (filterName && !(t.name || '').includes(filterName)) return false;
+      if (query) {
+        const ep = getEP(t.name);
+        const targets = [t.name, t.code, ep?.code, ep?.sector, getEPType(ep, t.assetType || t.type || ''), t.memo];
+        if (!targets.some(value => _searchIncludes(value, query))) return false;
+      }
       if (filterType === 'buy' && t.tradeType !== 'buy') return false;
       if (filterType === 'sell' && t.tradeType !== 'sell') return false;
       return true;
@@ -67,7 +72,8 @@ function syncHoldingsFromTrades() {
   const map = {};
   const sorted = [...rawTrades].sort((a,b) => (a.date||'').localeCompare(b.date||''));
 
-  sorted.filter(t => t.name && t.acct).forEach(t => {
+  sorted.forEach(t => {
+    if (!t.name || !t.acct) return;
     const key = t.acct + '||' + t.name;
     if (!map[key]) {
       // 우선순위 ①: EDITABLE_PRICES.assetType/type  ②: 거래이력.assetType  ③: '주식'
@@ -101,22 +107,20 @@ function syncHoldingsFromTrades() {
   // ── Step 3: 거래이력 종목을 EDITABLE_PRICES에 자동 등록
   // 우선순위: EDITABLE_PRICES에 없는 종목만 추가, 있으면 절대 덮어쓰지 않음
   if (typeof EDITABLE_PRICES !== 'undefined') {
-    rawTrades.filter(t => t.name).forEach(t => {
-      if (!getEP(t.name)) {
-        const code = t.code || STOCK_CODE[t.name] || '';
-        // sector는 '기타'로 — 사용자가 기초정보 관리탭에서 직접 설정해야 함
-        epPush(t.name, code, t.assetType);
-        if (code) STOCK_CODE[t.name] = code;
-      }
+    rawTrades.forEach(t => {
+      if (!t.name || getEP(t.name)) return;
+      const code = t.code || STOCK_CODE[t.name] || '';
+      // sector는 '기타'로 — 사용자가 기초정보 관리탭에서 직접 설정해야 함
+      epPush(t.name, code, t.assetType);
+      if (code) STOCK_CODE[t.name] = code;
     });
   }
 
   // ── Step 4: fund 항목을 fundDirect에 초기 등록 (미등록 시 computeRows에서 null 처리됨)
   if (typeof fundDirect !== 'undefined') {
-    newH.filter(h => h.fund && h.name).forEach(h => {
-      if (!fundDirect[h.name]) {
-        fundDirect[h.name] = { eval: h.cost, cost: h.cost, type: h.type || 'TDF' };
-      }
+    newH.forEach(h => {
+      if (!h.fund || !h.name || fundDirect[h.name]) return;
+      fundDirect[h.name] = { eval: h.cost, cost: h.cost, type: h.type || 'TDF' };
     });
   }
 }
@@ -127,7 +131,10 @@ function computeRows(holdings) {
     const ep = getEP(nn);
     // ★ 코드 우선순위: EDITABLE_PRICES.code > STOCK_CODE
     // 기기별 STOCK_CODE 불일치가 있어도 기초정보 코드로 평가가를 맞춤
-    const code = normalizeStockCode(ep?.code || getCode(nn));
+    // getCode()/getSector()를 다시 호출하지 않고 이미 조회한 ep를 재사용해
+    // 보유 종목 렌더링 때 반복 Map 조회를 줄인다.
+    const code = normalizeStockCode(ep?.code || STOCK_CODE[nn] || STOCK_CODE[h.name] || '');
+    const sector = (ep && ep.sector && ep.sector !== 'mixed') ? ep.sector : '기타';
     if (h.fund) {
       const fd = fundDirect[h.name];
       if (!fd) return null;
@@ -142,7 +149,7 @@ function computeRows(holdings) {
           ? namePrice
         : (fd.eval > 0 ? fd.eval : fd.cost);
       const evalAmt = evalPrice;
-      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector:getSector(h.name), code:code || ''};
+      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector, code:code || ''};
     }
     // ★ 가격 우선순위: ① 코드 키 ② 이름 키(하위호환) ③ 취득단가
     const p = (code && savedPrices[code]) || savedPrices[nn] || savedPrices[h.name] || h.cost;
@@ -150,7 +157,6 @@ function computeRows(holdings) {
     // 우선순위 ①: EDITABLE_PRICES.assetType 또는 .type
     //             ②: rawHoldings(거래이력 기반).type
     const type = getEPType(ep, h.type);
-    const sector = getSector(nn);
     return {...h, name:nn, type, sector, code, evalAmt, costAmt, pnl:evalAmt-costAmt, price:p, pct:(evalAmt-costAmt)/costAmt*100};
   }).filter(Boolean);
 }

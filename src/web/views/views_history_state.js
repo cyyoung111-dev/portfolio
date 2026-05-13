@@ -33,6 +33,36 @@ function _setHistBenchmarks(next) {
   __histState.benchmarks = Array.isArray(next) ? next.slice() : [];
 }
 
+
+function _historyDateToUtcMs(dateStr) {
+  const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return NaN;
+  return Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+}
+
+function _getHistorySnapshotGap(latestDate) {
+  const latest = _normalizeHistDate(latestDate || '');
+  const today = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : _normalizeHistDate(new Date());
+  const latestMs = _historyDateToUtcMs(latest);
+  const todayMs = _historyDateToUtcMs(today);
+  if (!Number.isFinite(latestMs) || !Number.isFinite(todayMs)) return null;
+  const days = Math.floor((todayMs - latestMs) / 86400000);
+  const kstNow = (typeof _kstNow === 'function') ? _kstNow() : new Date();
+  const kstMinutes = kstNow.getUTCHours() * 60 + kstNow.getUTCMinutes();
+  const triggerMinutes = 16 * 60 + 30; // GAS runEvalPriceUpdate1620 nearMinute 여유 포함
+  const isTodayPending = days === 1 && kstMinutes < triggerMinutes;
+  return { days: Math.max(0, days), latest, today, isTodayPending };
+}
+
+function _historySnapshotGapHtml(gap) {
+  if (!gap || !Number.isFinite(gap.days) || gap.days <= 0) return '';
+  if (gap.isTodayPending) {
+    return ` · <span style="color:var(--muted)">🕓 오늘 스냅샷 대기중 (16:20 이후 확인)</span>`;
+  }
+  const dayLabel = gap.days === 1 ? '오늘 스냅샷 미생성' : `${gap.days}일간 스냅샷 누락`;
+  return ` · <span style="color:var(--amber)">⚠️ ${_escapeHtml(dayLabel)} (${_escapeHtml(gap.latest)} → ${_escapeHtml(gap.today)})</span>`;
+}
+
 function _setHistoryStatus(statusEl, type, payload) {
   if (!statusEl) return;
   const meta = payload || {};
@@ -53,15 +83,21 @@ function _setHistoryStatus(statusEl, type, payload) {
     return;
   }
   if (type === 'summary') {
-    statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${meta.graphCount || 0}일 · 표 ${meta.tableCount || 0}${meta.mode==='week'?'주':'개월'} · 최근: ${meta.latestDate || '-'}</span>`;
+    const graphCount = Number.isFinite(Number(meta.graphCount)) ? Number(meta.graphCount) : 0;
+    const tableCount = Number.isFinite(Number(meta.tableCount)) ? Number(meta.tableCount) : 0;
+    const unit = meta.mode === 'week' ? '주' : '개월';
+    statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${graphCount}일 · 표 ${tableCount}${unit} · 최근: ${_escapeHtml(meta.latestDate || '-')}${_historySnapshotGapHtml(meta.snapshotGap)}</span>`;
     return;
   }
   if (type === 'summary_benchmark') {
-    statusEl.innerHTML = `<span style="color:var(--muted)">${meta.baseMsg || ''} · ${meta.benchMsg || ''}${meta.missingMsg || ''}</span>`;
+    const baseMsg = _escapeHtml(meta.baseMsg || '');
+    const benchMsg = _escapeHtml(meta.benchMsg || '');
+    const missingMsg = _escapeHtml(meta.missingMsg || '');
+    statusEl.innerHTML = `<span style="color:var(--muted)">${baseMsg} · ${benchMsg}${missingMsg}${_historySnapshotGapHtml(meta.snapshotGap)}</span>`;
     return;
   }
   if (type === 'error') {
-    statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${meta.message || '알 수 없는 오류'}</span>`;
+    statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${_escapeHtml(meta.message || '알 수 없는 오류')}</span>`;
   }
 }
 
