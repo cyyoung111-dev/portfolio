@@ -66,8 +66,8 @@ function renderTradeGroupView(area) {
         <h3 class="h3-section">📊 종목별 거래내역</h3>
         <p class="mt-3-muted-72">종목 클릭 → 거래 상세 펼치기</p>
       </div>
-      <input id="tgFilterName" placeholder="🔍 종목명 검색" value="${_tgFilter.name}"
-        oninput="_tgFilter.name=this.value; _tgFilterDebounce()" oncompositionstart="tgFilterCompStart()" oncompositionend="tgFilterCompEnd()"
+      <input id="tgFilterName" placeholder="🔍 종목명 검색" value="${_escapeHtml(_tgFilter.name)}"
+        data-tg-filter="name"
         style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:.75rem;width:150px"/>
     </div>
 
@@ -94,14 +94,14 @@ function renderTradeGroupView(area) {
         return `
         <div class="tg-group" style="background:var(--s1);border:1px solid var(--border);border-radius:10px;overflow:hidden">
           <!-- 종목 요약 헤더 (클릭으로 토글) -->
-          <div onclick="tgToggle(this)" style="display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;user-select:none">
+          <div data-tg-action="toggle" style="display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;user-select:none">
             <span style="font-size:.65rem;color:var(--muted);transform:rotate(0deg);transition:transform .2s;display:inline-block" class="tg-arrow">▶</span>
             <div style="flex:1;min-width:0">
               <div class="flex-ac-g8-wrap">
-                <span class="tg-name" style="font-weight:700;font-size:.85rem">${name}</span>
-                ${g.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:1px">${g.code}</span>` : ''}
-                <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-purple2-10);color:var(--purple-lt)">${g.type}</span>
-                <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-muted-10);color:var(--muted)">${g.sector}</span>
+                <span class="tg-name" style="font-weight:700;font-size:.85rem">${_escapeHtml(name)}</span>
+                ${g.code ? `<span style="display:block;font-size:.65rem;color:var(--muted);font-variant-numeric:tabular-nums;margin-top:1px">${_escapeHtml(g.code)}</span>` : ''}
+                <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-purple2-10);color:var(--purple-lt)">${_escapeHtml(g.type)}</span>
+                <span style="font-size:.65rem;padding:2px 6px;border-radius:4px;background:var(--c-muted-10);color:var(--muted)">${_escapeHtml(g.sector)}</span>
                 ${isHolding
                   ? `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:rgba(74,222,128,.12);color:var(--green-lt);font-weight:600">보유중 ${g.qty.toLocaleString()}주</span>`
                   : `<span style="font-size:.65rem;padding:2px 7px;border-radius:10px;background:var(--c-muted-10);color:var(--muted)">청산완료</span>`}
@@ -117,11 +117,11 @@ function renderTradeGroupView(area) {
                 ${g.sellCount > 0 ? `<span>실현손익 <b style="color:${pnlColor}">${pnlSign}${Math.round(g.realizedPnl).toLocaleString()}</b></span>` : ''}
               </div>
             </div>
-            <div style="display:flex;align-items:center;gap:5px;flex-shrink:0" onclick="event.stopPropagation()">
+            <div style="display:flex;align-items:center;gap:5px;flex-shrink:0" data-tg-no-toggle="1">
               <span style="font-size:.70rem;color:var(--muted);white-space:nowrap;margin-right:4px">${g.trades.length}건</span>
-              <button data-bname="${name}" onclick="openAddTrade({name:this.dataset.bname},'buy')" title="매수 추가" class="btn-buy-sm">＋ 매수</button>
-              <button data-bname="${name}" onclick="tgAuditStock(this.dataset.bname)" title="계좌/거래 대조" class="btn-edit-sm">🧪 검증</button>
-              ${isHolding ? `<button data-bname="${name}" onclick="openAddTrade({name:this.dataset.bname},'sell')" title="매도 추가" class="btn-sell-sm">－ 매도</button>` : ''}
+              <button data-tg-action="add-buy" data-bname="${_escapeHtml(name)}" title="매수 추가" class="btn-buy-sm">＋ 매수</button>
+              <button data-tg-action="audit" data-bname="${_escapeHtml(name)}" title="계좌/거래 대조" class="btn-edit-sm">🧪 검증</button>
+              ${isHolding ? `<button data-tg-action="add-sell" data-bname="${_escapeHtml(name)}" title="매도 추가" class="btn-sell-sm">－ 매도</button>` : ''}
             </div>
           </div>
 
@@ -167,12 +167,12 @@ function renderTradeGroupView(area) {
                       runQty   -= Math.min(qty, runQty);
                     }
                     return `<tr style="border-bottom:1px solid var(--border);background:${isSell?'rgba(239,68,68,.03)':'transparent'}">
-                      <td style="padding:7px 12px;text-align:center;color:var(--muted);white-space:nowrap;font-size:.72rem">${fmtDateDot(t.date)||'⚠️없음'}</td>
+                      <td style="padding:7px 12px;text-align:center;color:var(--muted);white-space:nowrap;font-size:.72rem">${_escapeHtml(fmtDateDot(t.date)||'⚠️없음')}</td>
                       <td style="padding:7px 12px;text-align:center">
                         ${isSell ? `<span class="trade-badge-sell">📉 매도</span>` : `<span class="trade-badge-hold">📈 매수</span>`}
                       </td>
                       <td style="padding:7px 12px;text-align:center;white-space:nowrap;font-size:.72rem">
-                        <span class="adot" style="background:${ACCT_COLORS[t.acct]||'var(--muted)'}"></span>${t.acct}
+                        <span class="adot" style="background:${ACCT_COLORS[t.acct]||'var(--muted)'}"></span>${_escapeHtml(t.acct || '-')}
                       </td>
                       <td style="padding:7px 12px;text-align:right;font-variant-numeric:tabular-nums;font-size:.78rem">${qty.toLocaleString()}</td>
                       <td style="padding:7px 12px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;font-size:.78rem;color:${isSell?'var(--red-lt)':'var(--green-lt)'}">
@@ -182,9 +182,9 @@ function renderTradeGroupView(area) {
                       <td style="padding:7px 12px;text-align:right">
                         ${pnlCell || '<span style="color:var(--muted)">-</span>'}
                       </td>
-                      <td style="padding:7px 12px;text-align:left;color:var(--muted);font-size:.70rem">${t.memo||''}</td>
+                      <td style="padding:7px 12px;text-align:left;color:var(--muted);font-size:.70rem">${_escapeHtml(t.memo||'')}</td>
                       <td style="padding:7px 12px;text-align:center">
-                        <button onclick="editTrade('${t.id}')" class="btn-edit-sm">✏️</button>
+                        <button data-tg-action="edit" data-trade-id="${_escapeHtml(String(t.id ?? ''))}" class="btn-edit-sm">✏️</button>
                       </td>
                     </tr>`;
                   }).join('');
@@ -193,14 +193,57 @@ function renderTradeGroupView(area) {
             </table>
             <!-- 이 종목 거래 추가 버튼 -->
             <div style="display:flex;gap:8px;padding:9px 12px;border-top:1px solid var(--border);background:var(--s2)">
-              <button data-bname="${name}" onclick="openAddTrade({name:this.dataset.bname},'buy')" class="btn-buy-lg">📈 매수 추가</button>
-              ${isHolding ? `<button data-bname="${name}" onclick="openAddTrade({name:this.dataset.bname},'sell')" class="btn-sell-lg">📉 매도 추가</button>` : ''}
+              <button data-tg-action="add-buy" data-bname="${_escapeHtml(name)}" class="btn-buy-lg">📈 매수 추가</button>
+              ${isHolding ? `<button data-tg-action="add-sell" data-bname="${_escapeHtml(name)}" class="btn-sell-lg">📉 매도 추가</button>` : ''}
             </div>
           </div>
         </div>`;
       }).join('')}
     </div>`}
   </div>`;
+
+  _bindTradeGroupViewEvents(area);
+}
+
+
+function _bindTradeGroupViewEvents(area) {
+  if (!area || area._tradeGroupDelegatedBound) return;
+  area._tradeGroupDelegatedBound = true;
+
+  area.addEventListener('click', function(e) {
+    const actionEl = e.target.closest('[data-tg-action]');
+    if (!actionEl || !area.contains(actionEl)) return;
+    const action = actionEl.dataset.tgAction;
+    const name = actionEl.dataset.bname || '';
+    if (action === 'toggle') {
+      if (e.target.closest('[data-tg-no-toggle]')) return;
+      tgToggle(actionEl);
+    } else if (action === 'add-buy' && typeof openAddTrade === 'function') {
+      openAddTrade({ name }, 'buy');
+    } else if (action === 'add-sell' && typeof openAddTrade === 'function') {
+      openAddTrade({ name }, 'sell');
+    } else if (action === 'audit') {
+      tgAuditStock(name);
+    } else if (action === 'edit') {
+      const id = actionEl.dataset.tradeId;
+      if (id) editTrade(id);
+    }
+  });
+
+  area.addEventListener('input', function(e) {
+    if (e.target.dataset?.tgFilter === 'name') {
+      _tgFilter.name = e.target.value;
+      _tgFilterDebounce();
+    }
+  });
+
+  area.addEventListener('compositionstart', function(e) {
+    if (e.target.dataset?.tgFilter === 'name') tgFilterCompStart();
+  });
+
+  area.addEventListener('compositionend', function(e) {
+    if (e.target.dataset?.tgFilter === 'name') tgFilterCompEnd();
+  });
 }
 
 function tgToggle(header) {

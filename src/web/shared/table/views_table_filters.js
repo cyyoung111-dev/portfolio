@@ -16,6 +16,34 @@ document.addEventListener('click', (e) => {
   }
 });
 
+document.addEventListener('click', (e) => {
+  const tableAction = e.target.closest('[data-table-action]');
+  if (tableAction) {
+    const action = tableAction.dataset.tableAction;
+    const tableId = tableAction.dataset.tableId || '';
+    const col = tableAction.dataset.col || '';
+    if (action === 'open-filter') openColFilterDropdown(tableId, col, tableAction);
+    else if (action === 'sort') setTableSort(tableId, col);
+    else if (action === 'clear-filter') clearTableFilter(tableId, col);
+    else if (action === 'clear-all-filters') clearAllTableFilters(tableId);
+    else if (action === 'toggle-small') toggleSmall(tableId);
+    else if (action === 'go-trade-group' && typeof goToTradeGroup === 'function') goToTradeGroup(tableAction.dataset.gname || '');
+    return;
+  }
+
+  const cfdAction = e.target.closest('[data-cfd-action]');
+  if (cfdAction) {
+    const action = cfdAction.dataset.cfdAction;
+    const dropId = cfdAction.dataset.dropId || '';
+    if (action === 'toggle-all') cfdToggleAll(dropId, cfdAction.dataset.checked === '1');
+    else if (action === 'apply') cfdApply(cfdAction.dataset.tableId || '', cfdAction.dataset.col || '', dropId);
+  }
+});
+
+document.addEventListener('input', (e) => {
+  if (e.target.classList?.contains('cfd-search')) cfdSearch(e.target);
+});
+
 function applyTableFilter(tableId, col, checkedVals) {
   const st = getTableState(tableId);
   if (checkedVals === null || checkedVals.size === 0) {
@@ -70,7 +98,7 @@ function openColFilterDropdown(tableId, col, thEl) {
   const vals = getDistinctFilterValuesCached(tableId, rawData, col).slice().sort(compareKo);
 
   let searchHtml = vals.length > 6
-    ? `<input class="cfd-search" placeholder="검색..." oninput="cfdSearch(this,'${dropId}')" />`
+    ? `<input class="cfd-search" placeholder="검색..." />`
     : '';
 
   const itemsHtml = vals.map(v => {
@@ -78,9 +106,9 @@ function openColFilterDropdown(tableId, col, thEl) {
     const dot = col === 'acct' && ACCT_COLORS[v]
       ? `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${ACCT_COLORS[v]};flex-shrink:0"></span>` : '';
     const colorStyle = col === 'sector' && SECTOR_COLORS[v] ? `color:${SECTOR_COLORS[v]}` : '';
-    return `<label data-cfd-item="${v}">
-      <input type="checkbox" value="${v}" ${checked} />
-      ${dot}<span style="${colorStyle}">${v}</span>
+    return `<label data-cfd-item="${_escapeHtml(v)}">
+      <input type="checkbox" value="${_escapeHtml(v)}" ${checked} />
+      ${dot}<span style="${colorStyle}">${_escapeHtml(v)}</span>
     </label>`;
   }).join('');
 
@@ -91,9 +119,9 @@ function openColFilterDropdown(tableId, col, thEl) {
     ${searchHtml}
     <div class="cfd-items">${itemsHtml}</div>
     <div class="cfd-actions">
-      <button class="cfd-btn" onclick="cfdToggleAll('${dropId}',true)">전체선택</button>
-      <button class="cfd-btn" onclick="cfdToggleAll('${dropId}',false)">전체해제</button>
-      <button class="cfd-btn apply" onclick="cfdApply('${tableId}','${col}','${dropId}')">적용</button>
+      <button class="cfd-btn" data-cfd-action="toggle-all" data-drop-id="${_escapeHtml(dropId)}" data-checked="1">전체선택</button>
+      <button class="cfd-btn" data-cfd-action="toggle-all" data-drop-id="${_escapeHtml(dropId)}" data-checked="0">전체해제</button>
+      <button class="cfd-btn apply" data-cfd-action="apply" data-table-id="${_escapeHtml(tableId)}" data-col="${_escapeHtml(col)}" data-drop-id="${_escapeHtml(dropId)}">적용</button>
     </div>
   `;
 
@@ -101,9 +129,9 @@ function openColFilterDropdown(tableId, col, thEl) {
   thEl.appendChild(div);
 }
 
-function cfdSearch(input, dropId) {
+function cfdSearch(input) {
   const q = input.value.toLowerCase();
-  const drop = $el(dropId);
+  const drop = input.closest('.col-filter-dropdown');
   if (!drop) return;
   drop.querySelectorAll('[data-cfd-item]').forEach(label => {
     const val = label.dataset.cfdItem || '';
