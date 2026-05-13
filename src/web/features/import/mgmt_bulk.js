@@ -95,6 +95,7 @@ function openBulkImport(defaultMode) {
     document.body.insertAdjacentHTML('beforeend', buildBulkOverlayHTML());
     return $el('bulkImportOverlay');
   })();
+  _bindBulkImportEvents(el);
   el.style.display = 'flex';
   switchBulkTab(_bulkMode);
 }
@@ -108,7 +109,7 @@ function closeBulkImport() {
 
 function buildBulkOverlayHTML() {
   const tabBtn = (mode, label, color) =>
-    `<button id="bulkTab_${mode}" onclick="switchBulkTab('${mode}')"
+    `<button id="bulkTab_${mode}" data-bulk-action="tab" data-mode="${mode}"
       style="padding:7px 20px;border-radius:8px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid ${color};transition:all .15s"
       >${label}</button>`;
   return `<div id="bulkImportOverlay"
@@ -120,7 +121,7 @@ function buildBulkOverlayHTML() {
           <h3 class="h3-95">📊 거래 이력 일괄 입력</h3>
           <p style="margin:3px 0 0;font-size:.70rem;color:var(--muted)">엑셀처럼 직접 입력하거나 CSV 파일을 붙여넣기 하세요 · Tab키로 셀 이동</p>
         </div>
-        <button onclick="closeBulkImport()" class="btn-close-icon">✕</button>
+        <button data-bulk-action="close" class="btn-close-icon">✕</button>
       </div>
       <!-- 탭 -->
       <div style="padding:12px 22px 0;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -131,12 +132,12 @@ function buildBulkOverlayHTML() {
       </div>
       <!-- 툴바 -->
       <div style="padding:10px 22px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button onclick="addBulkRows(5)" class="btn-ghost-sm">+ 5행 추가</button>
-        <button onclick="clearBulkGrid()" class="btn-danger-ghost">전체 지우기</button>
+        <button data-bulk-action="add-rows" data-count="5" class="btn-ghost-sm">+ 5행 추가</button>
+        <button data-bulk-action="clear" class="btn-danger-ghost">전체 지우기</button>
         <label style="padding:4px 12px;border-radius:6px;border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);color:var(--blue-lt);font-size:.72rem;cursor:pointer">
-          📁 CSV 불러오기<input type="file" accept=".csv,.txt" onchange="loadBulkCSV(event)" class="d-none"/>
+          📁 CSV 불러오기<input type="file" accept=".csv,.txt" data-bulk-file="csv" class="d-none"/>
         </label>
-        <a href="#" onclick="downloadBulkTemplate();return false"
+        <a href="#" data-bulk-action="download-template"
           style="padding:4px 12px;border-radius:6px;border:1px solid var(--c-green-30);background:var(--c-green-08);color:var(--green-md);font-size:.72rem;cursor:pointer;text-decoration:none">
           ⬇ 템플릿 다운로드
         </a>
@@ -147,11 +148,51 @@ function buildBulkOverlayHTML() {
       <div id="bulkError" style="display:none;padding:8px 22px;background:var(--c-red-10);color:var(--red-lt);font-size:.75rem;flex-shrink:0"></div>
       <!-- 푸터 -->
       <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px;border-top:1px solid var(--border);flex-shrink:0;flex-wrap:wrap">
-        <button onclick="closeBulkImport()" class="btn-ghost-muted">취소</button>
-        <button id="bulkApplyBtn" onclick="applyBulkImport()" class="btn-amber">✅ 가져오기</button>
+        <button data-bulk-action="close" class="btn-ghost-muted">취소</button>
+        <button id="bulkApplyBtn" data-bulk-action="apply" class="btn-amber">✅ 가져오기</button>
       </div>
     </div>
   </div>`;
+}
+
+
+function _bindBulkImportEvents(el) {
+  if (!el || el._bulkDelegatedBound) return;
+  el._bulkDelegatedBound = true;
+
+  el.addEventListener('click', function(e) {
+    const actionEl = e.target.closest('[data-bulk-action]');
+    if (!actionEl || !el.contains(actionEl)) return;
+    e.preventDefault();
+    const action = actionEl.dataset.bulkAction;
+    if (action === 'tab') switchBulkTab(actionEl.dataset.mode || 'buy');
+    else if (action === 'close') closeBulkImport();
+    else if (action === 'add-rows') addBulkRows(parseInt(actionEl.dataset.count || '5', 10) || 5);
+    else if (action === 'clear') clearBulkGrid();
+    else if (action === 'download-template') downloadBulkTemplate();
+    else if (action === 'apply') applyBulkImport();
+    else if (action === 'remove-row') removeBulkRow(parseInt(actionEl.dataset.row || '', 10));
+  });
+
+  el.addEventListener('change', function(e) {
+    if (e.target.dataset?.bulkFile === 'csv') {
+      loadBulkCSV(e);
+      return;
+    }
+    const rowIdx = parseInt(e.target.dataset?.bulkRow ?? '', 10);
+    const col = e.target.dataset?.bulkCol || '';
+    if (Number.isNaN(rowIdx) || !col) return;
+    if (e.target.dataset.bulkNameSelect === '1') bulkNameChange(rowIdx, e.target.value);
+    else bulkCellChange(rowIdx, col, e.target.value);
+  });
+
+  el.addEventListener('focusin', function(e) {
+    if (e.target.dataset?.bulkRow != null) e.target.style.border = '1px solid var(--amber)';
+  });
+
+  el.addEventListener('focusout', function(e) {
+    if (e.target.dataset?.bulkRow != null) e.target.style.border = '1px solid ' + (e.target.value ? 'var(--border)' : 'transparent');
+  });
 }
 
 // ── 그리드 렌더링 ──────────────────────────────────────────────
@@ -175,27 +216,24 @@ function renderBulkGrid() {
 
       if (col.type === 'acct_select') {
         const accts = getAcctList();
-        const opts  = ['', ...accts].map(o => `<option value="${o}" ${val===o?'selected':''}>${o||'-- 계좌 선택 --'}</option>`).join('');
-        return `<td class="p-2"><select onchange="bulkCellChange(${ri},'${col.key}',this.value)" style="${selStyle}">${opts}</select></td>`;
+        const opts  = ['', ...accts].map(o => `<option value="${_escapeHtml(o)}" ${val===o?'selected':''}>${_escapeHtml(o||'-- 계좌 선택 --')}</option>`).join('');
+        return `<td class="p-2"><select data-bulk-row="${ri}" data-bulk-col="${_escapeHtml(col.key)}" style="${selStyle}">${opts}</select></td>`;
       }
       if (col.type === 'name_select') {
         const names = EDITABLE_PRICES.map(i => i.name);
-        const opts  = ['', ...names].map(o => `<option value="${o}" ${val===o?'selected':''}>${o||'-- 종목 선택 --'}</option>`).join('');
-        return `<td class="p-2"><select onchange="bulkNameChange(${ri},this.value)" style="${selStyle}">${opts}</select></td>`;
+        const opts  = ['', ...names].map(o => `<option value="${_escapeHtml(o)}" ${val===o?'selected':''}>${_escapeHtml(o||'-- 종목 선택 --')}</option>`).join('');
+        return `<td class="p-2"><select data-bulk-row="${ri}" data-bulk-col="${_escapeHtml(col.key)}" data-bulk-name-select="1" style="${selStyle}">${opts}</select></td>`;
       }
       if (col.type === 'select') {
-        return `<td class="p-2"><select data-row="${ri}" data-col="${col.key}"
-          onchange="bulkCellChange(${ri},'${col.key}',this.value)"
+        return `<td class="p-2"><select data-bulk-row="${ri}" data-bulk-col="${_escapeHtml(col.key)}"
           style="${selStyle}">
-          ${(col.opts||[]).map((o,oi)=>`<option value="${o}" ${val===o?'selected':''}>${(col.labels&&col.labels[oi])||o}</option>`).join('')}
+          ${(col.opts||[]).map((o,oi)=>`<option value="${_escapeHtml(o)}" ${val===o?'selected':''}>${_escapeHtml((col.labels&&col.labels[oi])||o)}</option>`).join('')}
         </select></td>`;
       }
-      return `<td class="p-2"><input type="${col.type==='number'?'number':'text'}" value="${val}"
-        data-row="${ri}" data-col="${col.key}"
-        onchange="bulkCellChange(${ri},'${col.key}',this.value)"
+      return `<td class="p-2"><input type="${col.type==='number'?'number':'text'}" value="${_escapeHtml(val)}"
+        data-bulk-row="${ri}" data-bulk-col="${_escapeHtml(col.key)}"
         ${col.type==='date'?'placeholder="YYYY.MM.DD"':''}
-        style="width:${col.w}px;background:${val?'var(--s2)':'var(--c-white-03)'};border:1px solid ${val?'var(--border)':'transparent'};border-radius:4px;padding:5px 6px;color:var(--text);font-size:.75rem"
-        onfocus="this.style.border='1px solid var(--amber)'" onblur="this.style.border='1px solid '+(this.value?'var(--border)':'transparent')"/></td>`;
+        style="width:${col.w}px;background:${val?'var(--s2)':'var(--c-white-03)'};border:1px solid ${val?'var(--border)':'transparent'};border-radius:4px;padding:5px 6px;color:var(--text);font-size:.75rem"/></td>`;
     }).join('');
 
     let rowBg = '';
@@ -205,7 +243,7 @@ function renderBulkGrid() {
     }
     return `<tr style="border-bottom:1px solid var(--border);${rowBg}">${cells}
       <td style="padding:2px;text-align:center">
-        <button onclick="removeBulkRow(${ri})" class="btn-icon-muted">✕</button>
+        <button data-bulk-action="remove-row" data-row="${ri}" class="btn-icon-muted">✕</button>
       </td></tr>`;
   }).join('');
 

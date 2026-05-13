@@ -199,7 +199,7 @@ async function quickFetchByDate() {
   setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...', 'loading');
 
   if (!GSHEET_API_URL) {
-    setStatusLabel('❌ 구글시트 미연동 · <button onclick="switchView(\'gsheet\')" class="btn-link">🔗 연동 →</button>', 'error');
+    setStatusLabel('❌ 구글시트 미연동 · <button data-status-action="gsheet" class="btn-link">🔗 연동 →</button>', 'error');
     btn.disabled = false; btn.querySelector('span').textContent = '업데이트';
     return;
   }
@@ -281,9 +281,9 @@ async function autoLoadPrices() {
     updateDateBadge(cachedDate || todayLabel, false);
     if (cacheCount > 0) {
       const total = getEPWithCode().length;
-      setStatusLabel(`📦 캐시 종가 사용 중 · ${cacheCount}/${total}개 · <button onclick="switchView('gsheet')" class="btn-link-blue">⚙️ 재동기화 설정 →</button>`, 'warn');
+      setStatusLabel(`📦 캐시 종가 사용 중 · ${cacheCount}/${total}개 · <button data-status-action="gsheet" class="btn-link-blue">⚙️ 재동기화 설정 →</button>`, 'warn');
     } else {
-      setStatusLabel('💡 재동기화 설정 시 자동 종가 조회 · <button onclick="switchView(\'gsheet\')" class="btn-link-blue">⚙️ 설정하기 →</button>', 'idle');
+      setStatusLabel('💡 재동기화 설정 시 자동 종가 조회 · <button data-status-action="gsheet" class="btn-link-blue">⚙️ 설정하기 →</button>', 'idle');
     }
     refreshAll();
     return;
@@ -342,7 +342,7 @@ async function autoLoadPrices() {
         hint.title = '미조회 종목: ' + missingStr;
         hint.style.cssText = 'margin-left:6px;cursor:pointer;font-size:.70rem;color:var(--red)';
         hint.textContent = '⚠️ 미조회 ' + missing.length + '개: ' + missingStr;
-        hint.onclick = () => switchView('gsheet');
+        hint.addEventListener('click', () => switchView('gsheet'));
         const existing = $el('gsheetMissingHint');
         if (existing) existing.remove();
         if (badge) badge.appendChild(hint);
@@ -389,3 +389,9 @@ async function autoLoadPrices() {
 // ★ 기존 펀드·TDF 가상코드 마이그레이션 (코드 없는 종목 → F001~)
 setTimeout(() => { if (typeof migrateFundCodes === 'function') migrateFundCodes(); }, 0);
 setTimeout(() => { bootstrapGsheetSettings(); }, 100);
+
+
+document.addEventListener('click', function(e) {
+  const action = e.target.dataset?.statusAction;
+  if (action === 'gsheet') switchView('gsheet');
+});
