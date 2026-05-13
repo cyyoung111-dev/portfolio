@@ -2,24 +2,25 @@
 let _tradeNameFilterTimer = null;
 let _tradeNameComposing = false;
 
-function tradeFilterNameInput(el) {
+function tradeFilterNameInput(el, evt) {
   _tradeFilter.name = el?.value || '';
-  if (_tradeNameComposing) return;
+  if (_tradeNameComposing || evt?.isComposing) return;
   clearTimeout(_tradeNameFilterTimer);
   _tradeNameFilterTimer = setTimeout(() => {
-    renderView();
+    renderView(true);
     const inp = document.getElementById('tradeNameFilter');
     if (inp) {
       const v = inp.value;
       inp.focus();
       inp.setSelectionRange(v.length, v.length);
     }
-  }, 120);
+  }, 160);
 }
 
 function tradeFilterNameCompStart() { _tradeNameComposing = true; }
 function tradeFilterNameCompEnd(el) {
   _tradeNameComposing = false;
+  _tradeFilter.name = el?.value || '';
   tradeFilterNameInput(el);
 }
 
@@ -313,7 +314,7 @@ function _bindTradesViewEvents(area) {
   });
 
   area.addEventListener('input', function(e) {
-    if (e.target.dataset?.tradeFilter === 'name') tradeFilterNameInput(e.target);
+    if (e.target.dataset?.tradeFilter === 'name') tradeFilterNameInput(e.target, e);
   });
 
   area.addEventListener('compositionstart', function(e) {

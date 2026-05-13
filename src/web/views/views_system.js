@@ -252,6 +252,7 @@ function _getDataHash() {
     (typeof acctFilter !== 'undefined' ? acctFilter : '') + '|' +
     (typeof typeFilter !== 'undefined' ? typeFilter : '') + '|' +
     (typeof _tradeFilter !== 'undefined' ? JSON.stringify(_tradeFilter) : '') + '|' +
+    (typeof _tgFilter !== 'undefined' ? JSON.stringify(_tgFilter) : '') + '|' +
     (typeof _divHideZeroQty !== 'undefined' ? _divHideZeroQty : '');
 }
 

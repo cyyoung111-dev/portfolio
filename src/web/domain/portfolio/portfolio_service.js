@@ -34,11 +34,16 @@ function calcRealizedPnl() {
 // ── 거래이력: 필터·정렬 적용 리스트 반환
 function _getFilteredTrades() {
   const { acct: filterAcct, name: filterName, type: filterType } = _tradeFilter;
-  const hasFilter = !!(filterAcct || filterName || filterType === 'buy' || filterType === 'sell');
+  const query = _normalizeSearchText(filterName || '');
+  const hasFilter = !!(filterAcct || query || filterType === 'buy' || filterType === 'sell');
   let list = hasFilter
     ? rawTrades.filter(t => {
       if (filterAcct && t.acct !== filterAcct) return false;
-      if (filterName && !(t.name || '').includes(filterName)) return false;
+      if (query) {
+        const ep = getEP(t.name);
+        const targets = [t.name, t.code, ep?.code, ep?.sector, getEPType(ep, t.assetType || t.type || ''), t.memo];
+        if (!targets.some(value => _searchIncludes(value, query))) return false;
+      }
       if (filterType === 'buy' && t.tradeType !== 'buy') return false;
       if (filterType === 'sell' && t.tradeType !== 'sell') return false;
       return true;

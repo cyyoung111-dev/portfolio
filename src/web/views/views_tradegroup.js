@@ -7,29 +7,48 @@ let _tgFilter      = { name: '' };
 let _tgFilterTimer = null;
 let _tgFilterComposing = false;
 
-function _tgFilterDebounce() {
-  if (_tgFilterComposing) return;
+function _tgFilterDebounce(evt) {
+  if (_tgFilterComposing || evt?.isComposing) return;
   clearTimeout(_tgFilterTimer);
   _tgFilterTimer = setTimeout(() => {
-    const area = document.querySelector('[data-view="tradegroup"]') || document.getElementById('main-area');
-    if (area) renderTradeGroupView(area);
-    else renderView();
+    renderView(true);
     const inp = document.getElementById('tgFilterName');
     if (inp) { const v = inp.value; inp.focus(); inp.setSelectionRange(v.length, v.length); }
-  }, 120);
+  }, 160);
 }
 
 
 function tgFilterCompStart() { _tgFilterComposing = true; }
-function tgFilterCompEnd() {
+function tgFilterCompEnd(el) {
   _tgFilterComposing = false;
+  _tgFilter.name = el?.value || _tgFilter.name || '';
   _tgFilterDebounce();
+}
+
+function _tgSearchKey(value) {
+  return _normalizeSearchText(value);
+}
+
+function _tgSearchTargets(name) {
+  const ep = getEP(name);
+  return [
+    name,
+    ep?.code || '',
+    ep?.sector || '',
+    getEPType(ep, ''),
+  ];
+}
+
+function _tgMatchesFilter(name, queryKey) {
+  if (!queryKey) return true;
+  return _tgSearchTargets(name).some(value => _searchIncludes(value, queryKey));
 }
 
 function renderTradeGroupView(area) {
   const nameList = [...new Set(rawTrades.map(t => t.name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'ko'));
-  const filtered = _tgFilter.name
-    ? nameList.filter(n => n.includes(_tgFilter.name))
+  const queryKey = _tgSearchKey(_tgFilter.name);
+  const filtered = queryKey
+    ? nameList.filter(n => _tgMatchesFilter(n, queryKey))
     : nameList;
 
   function calcGroup(name) {
@@ -66,9 +85,12 @@ function renderTradeGroupView(area) {
         <h3 class="h3-section">📊 종목별 거래내역</h3>
         <p class="mt-3-muted-72">종목 클릭 → 거래 상세 펼치기</p>
       </div>
-      <input id="tgFilterName" placeholder="🔍 종목명 검색" value="${_escapeHtml(_tgFilter.name)}"
-        data-tg-filter="name"
-        style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:.75rem;width:150px"/>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <input id="tgFilterName" placeholder="🔍 종목명·코드 검색" value="${_escapeHtml(_tgFilter.name)}"
+          data-tg-filter="name"
+          style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:.75rem;width:150px"/>
+        <button data-tg-action="audit-all" class="btn-edit-sm" title="현재 검색 결과 전체 계좌/거래 대조">🧪 전체 검증</button>
+      </div>
     </div>
 
     ${rawTrades.length === 0 ? `
@@ -224,6 +246,8 @@ function _bindTradeGroupViewEvents(area) {
       openAddTrade({ name }, 'sell');
     } else if (action === 'audit') {
       tgAuditStock(name);
+    } else if (action === 'audit-all') {
+      tgAuditAllStocks();
     } else if (action === 'edit') {
       const id = actionEl.dataset.tradeId;
       if (id) editTrade(id);
@@ -233,7 +257,7 @@ function _bindTradeGroupViewEvents(area) {
   area.addEventListener('input', function(e) {
     if (e.target.dataset?.tgFilter === 'name') {
       _tgFilter.name = e.target.value;
-      _tgFilterDebounce();
+      _tgFilterDebounce(e);
     }
   });
 
@@ -242,7 +266,7 @@ function _bindTradeGroupViewEvents(area) {
   });
 
   area.addEventListener('compositionend', function(e) {
-    if (e.target.dataset?.tgFilter === 'name') tgFilterCompEnd();
+    if (e.target.dataset?.tgFilter === 'name') tgFilterCompEnd(e.target);
   });
 }
 
@@ -275,9 +299,10 @@ function goToTradeGroup(name) {
 }
 
 
-function tgAuditStock(name) {
+
+function _tgBuildAuditRows(name) {
   const target = String(name || '').trim();
-  if (!target) return;
+  if (!target) return { target, rows: [] };
 
   const byAcctTrades = {};
   rawTrades
@@ -305,13 +330,58 @@ function tgAuditStock(name) {
     });
 
   const accts = Array.from(new Set([...Object.keys(byAcctTrades), ...Object.keys(byAcctHoldings)])).sort((a,b)=>a.localeCompare(b,'ko'));
-  const lines = accts.map(acct => {
+  const rows = accts.map(acct => {
     const t = byAcctTrades[acct] || { buyQty: 0, sellQty: 0, netQty: 0, buyAmt: 0 };
     const hQty = byAcctHoldings[acct] || 0;
     const diff = Math.round((hQty - t.netQty) * 10000) / 10000;
-    return `${acct} | 매수 ${t.buyQty.toLocaleString()} / 매도 ${t.sellQty.toLocaleString()} / 순수량 ${t.netQty.toLocaleString()} | 보유 ${hQty.toLocaleString()} | 차이 ${diff.toLocaleString()}`;
+    return { acct, ...t, hQty, diff };
+  });
+  return { target, rows };
+}
+
+function _tgFormatAuditLine(row) {
+  return `${row.acct} | 매수 ${row.buyQty.toLocaleString()} / 매도 ${row.sellQty.toLocaleString()} / 순수량 ${row.netQty.toLocaleString()} | 보유 ${row.hQty.toLocaleString()} | 차이 ${row.diff.toLocaleString()}`;
+}
+
+function tgAuditAllStocks() {
+  const nameList = [...new Set(rawTrades.map(t => t.name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'ko'));
+  const queryKey = _tgSearchKey(_tgFilter.name);
+  const targets = queryKey ? nameList.filter(n => _tgMatchesFilter(n, queryKey)) : nameList;
+  if (targets.length === 0) {
+    alert('검증할 종목이 없습니다.');
+    return;
+  }
+
+  const mismatches = [];
+  let checkedRows = 0;
+  targets.forEach(name => {
+    const audit = _tgBuildAuditRows(name);
+    checkedRows += audit.rows.length;
+    const badRows = audit.rows.filter(row => row.diff !== 0);
+    if (badRows.length > 0) mismatches.push({ name, rows: badRows });
   });
 
-  const msg = [`[${target}] 계좌별 대조`, ...lines, '', '※ 차이가 0이 아니면 해당 계좌 거래 내역 점검 필요'].join('\n');
+  const title = queryKey ? `검색 결과 ${targets.length}개 종목` : `전체 ${targets.length}개 종목`;
+  if (mismatches.length === 0) {
+    alert(`[종목별 전체 검증] ${title}\n계좌 ${checkedRows}개 항목 모두 차이 0입니다.`);
+    return;
+  }
+
+  const lines = [`[종목별 전체 검증] ${title}`, `불일치 ${mismatches.length}개 종목`, ''];
+  mismatches.slice(0, 30).forEach(item => {
+    lines.push(`■ ${item.name}`);
+    item.rows.forEach(row => lines.push('  ' + _tgFormatAuditLine(row)));
+  });
+  if (mismatches.length > 30) lines.push(`... 외 ${mismatches.length - 30}개 종목`);
+  lines.push('', '※ 차이가 0이 아니면 해당 계좌 거래 내역 점검 필요');
+  alert(lines.join('\n'));
+}
+
+function tgAuditStock(name) {
+  const audit = _tgBuildAuditRows(name);
+  if (!audit.target) return;
+
+  const lines = audit.rows.map(_tgFormatAuditLine);
+  const msg = [`[${audit.target}] 계좌별 대조`, ...lines, '', '※ 차이가 0이 아니면 해당 계좌 거래 내역 점검 필요'].join('\n');
   alert(msg);
 }

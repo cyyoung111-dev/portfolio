@@ -130,12 +130,12 @@ function openColFilterDropdown(tableId, col, thEl) {
 }
 
 function cfdSearch(input) {
-  const q = input.value.toLowerCase();
+  const q = _normalizeSearchText(input.value);
   const drop = input.closest('.col-filter-dropdown');
   if (!drop) return;
   drop.querySelectorAll('[data-cfd-item]').forEach(label => {
     const val = label.dataset.cfdItem || '';
-    label.style.display = val.toLowerCase().includes(q) ? '' : 'none';
+    label.style.display = _searchIncludes(val, q) ? '' : 'none';
   });
 }
 

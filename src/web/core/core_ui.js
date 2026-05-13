@@ -10,6 +10,21 @@ function _escapeHtml(text) {
     .replace(/'/g, '&#39;');
 }
 
+
+function _normalizeSearchText(text) {
+  return String(text ?? '')
+    .normalize('NFC')
+    .trim()
+    .toLocaleLowerCase('ko')
+    .replace(/\s+/g, '');
+}
+
+function _searchIncludes(value, query) {
+  const q = _normalizeSearchText(query);
+  if (!q) return true;
+  return _normalizeSearchText(value).includes(q);
+}
+
 // 토스트 알림 헬퍼 (alert 대체)
 // type: 'ok' | 'error' | 'warn' | 'info'
 function showToast(msg, type='info', duration=3200) {
