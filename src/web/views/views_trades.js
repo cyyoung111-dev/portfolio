@@ -2,26 +2,48 @@
 let _tradeNameFilterTimer = null;
 let _tradeNameComposing = false;
 
-function tradeFilterNameInput(el, evt) {
-  _tradeFilter.name = el?.value || '';
-  if (_tradeNameComposing || evt?.isComposing) return;
+function _tradeNameInputIsComposing(evt) {
+  return !!(_tradeNameComposing || evt?.isComposing || evt?.inputType === 'insertCompositionText');
+}
+
+function _scheduleTradeNameFilterRender(el) {
   clearTimeout(_tradeNameFilterTimer);
+  const caretStart = Number.isFinite(el?.selectionStart) ? el.selectionStart : null;
+  const caretEnd = Number.isFinite(el?.selectionEnd) ? el.selectionEnd : caretStart;
   _tradeNameFilterTimer = setTimeout(() => {
+    if (_tradeNameComposing) return;
     renderView(true);
     const inp = document.getElementById('tradeNameFilter');
     if (inp) {
       const v = inp.value;
+      const start = caretStart === null ? v.length : Math.min(caretStart, v.length);
+      const end = caretEnd === null ? start : Math.min(caretEnd, v.length);
       inp.focus();
-      inp.setSelectionRange(v.length, v.length);
+      inp.setSelectionRange(start, end);
     }
-  }, 160);
+  }, 260);
 }
 
-function tradeFilterNameCompStart() { _tradeNameComposing = true; }
+function tradeFilterNameInput(el, evt) {
+  _tradeFilter.name = el?.value || '';
+  clearTimeout(_tradeNameFilterTimer);
+  if (_tradeNameInputIsComposing(evt)) return;
+  _scheduleTradeNameFilterRender(el);
+}
+
+function tradeFilterNameCompStart() {
+  _tradeNameComposing = true;
+  clearTimeout(_tradeNameFilterTimer);
+}
 function tradeFilterNameCompEnd(el) {
   _tradeNameComposing = false;
-  _tradeFilter.name = el?.value || '';
-  tradeFilterNameInput(el);
+  // 일부 한글 IME는 compositionend 직후 input 이벤트에서 최종 문자열을 확정한다.
+  // 다음 tick에 값을 다시 읽어 렌더링하면 조합 중 DOM 교체로 "증권"이 "중구ㅓ니"처럼
+  // 깨지는 현상을 피할 수 있다.
+  setTimeout(() => {
+    _tradeFilter.name = el?.value || '';
+    _scheduleTradeNameFilterRender(el);
+  }, 0);
 }
 
 function _buildTradesSummaryHTML() {

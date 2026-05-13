@@ -7,22 +7,64 @@ let _tgFilter      = { name: '' };
 let _tgFilterTimer = null;
 let _tgFilterComposing = false;
 
-function _tgFilterDebounce(evt) {
-  if (_tgFilterComposing || evt?.isComposing) return;
+function _tgFilterIsComposing(evt) {
+  return !!(_tgFilterComposing || evt?.isComposing || evt?.inputType === 'insertCompositionText');
+}
+
+function _scheduleTgFilterRender(el) {
   clearTimeout(_tgFilterTimer);
+  const caretStart = Number.isFinite(el?.selectionStart) ? el.selectionStart : null;
+  const caretEnd = Number.isFinite(el?.selectionEnd) ? el.selectionEnd : caretStart;
   _tgFilterTimer = setTimeout(() => {
+    if (_tgFilterComposing) return;
     renderView(true);
     const inp = document.getElementById('tgFilterName');
-    if (inp) { const v = inp.value; inp.focus(); inp.setSelectionRange(v.length, v.length); }
-  }, 160);
+    if (inp) {
+      const v = inp.value;
+      const start = caretStart === null ? v.length : Math.min(caretStart, v.length);
+      const end = caretEnd === null ? start : Math.min(caretEnd, v.length);
+      inp.focus();
+      inp.setSelectionRange(start, end);
+    }
+  }, 260);
+}
+
+function _tgFilterDebounce(evt, el) {
+  clearTimeout(_tgFilterTimer);
+  if (_tgFilterIsComposing(evt)) return;
+  _scheduleTgFilterRender(el || document.getElementById('tgFilterName'));
 }
 
 
-function tgFilterCompStart() { _tgFilterComposing = true; }
+function tgFilterCompStart() {
+  _tgFilterComposing = true;
+  clearTimeout(_tgFilterTimer);
+}
 function tgFilterCompEnd(el) {
   _tgFilterComposing = false;
-  _tgFilter.name = el?.value || _tgFilter.name || '';
-  _tgFilterDebounce();
+  setTimeout(() => {
+    _tgFilter.name = el?.value || _tgFilter.name || '';
+    _scheduleTgFilterRender(el);
+  }, 0);
+}
+
+function _tgSearchKey(value) {
+  return _normalizeSearchText(value);
+}
+
+function _tgSearchTargets(name) {
+  const ep = getEP(name);
+  return [
+    name,
+    ep?.code || '',
+    ep?.sector || '',
+    getEPType(ep, ''),
+  ];
+}
+
+function _tgMatchesFilter(name, queryKey) {
+  if (!queryKey) return true;
+  return _tgSearchTargets(name).some(value => _searchIncludes(value, queryKey));
 }
 
 function _tgSearchKey(value) {
@@ -257,7 +299,7 @@ function _bindTradeGroupViewEvents(area) {
   area.addEventListener('input', function(e) {
     if (e.target.dataset?.tgFilter === 'name') {
       _tgFilter.name = e.target.value;
-      _tgFilterDebounce(e);
+      _tgFilterDebounce(e, e.target);
     }
   });
 
