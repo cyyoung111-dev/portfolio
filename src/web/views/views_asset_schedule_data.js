@@ -11,8 +11,7 @@ function buildScheduleSection() {
       <td style="padding:5px 8px;font-size:.78rem;font-weight:600;color:var(--amber);text-align:right">${fmt(r.value)}</td>
       <td style="padding:5px 8px;text-align:right">
         <button data-schedule-action="remove-re-value" data-index="${i}"
-          style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.72rem;padding:2px 6px;border-radius:4px"
-          onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">✕</button>
+          style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.72rem;padding:2px 6px;border-radius:4px">✕</button>
       </td>
     </tr>`).join('');
 

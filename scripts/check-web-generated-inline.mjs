@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const webRoot = path.join(root, 'src', 'web');
-const INLINE_ATTR_RE = /\bon(?:click|change|input|compositionstart|compositionend|focus|blur|keydown|keyup)\s*=/g;
+const INLINE_ATTR_RE = /\bon[a-z]+\s*=\s*[\"'`]/g;
 
 function walk(dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
