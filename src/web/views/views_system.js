@@ -143,7 +143,7 @@ function buildMobileNav() {
   const navTabs = visible.slice(0, 5);
   inner.innerHTML = navTabs.map(tab => `
     <button class="mnav-btn${currentView === tab.id ? ' active' : ''}"
-      onclick="switchView('${tab.id}')" aria-label="${tab.label}">
+      data-system-action="switch-view" data-view-id="${_escapeHtml(tab.id)}" aria-label="${_escapeHtml(tab.label)}">
       ${tab.icon || ''}
       <span class="mnav-label">${tab.label}</span>
     </button>`
@@ -252,6 +252,7 @@ function _getDataHash() {
     (typeof acctFilter !== 'undefined' ? acctFilter : '') + '|' +
     (typeof typeFilter !== 'undefined' ? typeFilter : '') + '|' +
     (typeof _tradeFilter !== 'undefined' ? JSON.stringify(_tradeFilter) : '') + '|' +
+    (typeof _tgFilter !== 'undefined' ? JSON.stringify(_tgFilter) : '') + '|' +
     (typeof _divHideZeroQty !== 'undefined' ? _divHideZeroQty : '');
 }
 
@@ -439,10 +440,10 @@ function openResetDialog() {
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 22px 16px;border-top:1px solid var(--border);gap:8px">
-        <button onclick="$el('rst-confirm-wrap').style.display='block';$el('rst-confirm-input').focus()" class="btn-amber">다음 →</button>
+<button data-system-action="reset-next" class="btn-amber">다음 →</button>
         <div class="flex-gap8">
-          <button onclick="$el('resetOverlay').style.display='none'" class="btn-ghost-muted">취소</button>
-          <button onclick="applyReset()" class="btn-danger-lg">🗑 초기화 실행</button>
+          <button data-system-action="reset-cancel" class="btn-ghost-muted">취소</button>
+          <button data-system-action="reset-apply" class="btn-danger-lg">🗑 초기화 실행</button>
         </div>
       </div>
     </div>
@@ -523,3 +524,19 @@ function applyReset() {
 // ════════════════════════════════════════════════════════════════
 //  renderHistoryView — 손익 그래프 (스냅샷 이력 기반)
 // ════════════════════════════════════════════════════════════════
+
+
+document.addEventListener('click', function(e) {
+  const systemAction = e.target.closest('[data-system-action]');
+  if (!systemAction) return;
+  const action = systemAction.dataset.systemAction;
+  if (action === 'switch-view') switchView(systemAction.dataset.viewId || '');
+  else if (action === 'reset-next') {
+    const wrap = $el('rst-confirm-wrap');
+    if (wrap) wrap.style.display = 'block';
+    $el('rst-confirm-input')?.focus();
+  } else if (action === 'reset-cancel') {
+    const overlay = $el('resetOverlay');
+    if (overlay) overlay.style.display = 'none';
+  } else if (action === 'reset-apply') applyReset();
+});

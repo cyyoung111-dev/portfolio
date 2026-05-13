@@ -92,6 +92,13 @@ function registerGlobalEventDelegation() {
     if (typeof run === 'function') run();
   });
 
+  // ── 부동산 미리보기 input 위임
+  document.addEventListener('input', function(e) {
+    const id = e.target && e.target.id;
+    if (!['re-value', 're-purchase', 're-tax', 're-interior', 're-etc'].includes(id)) return;
+    if (typeof updateRePreview === 'function') updateRePreview();
+  });
+
   // ── 파일 input change 위임
   document.addEventListener('change', function(e) {
     const inp = e.target;
