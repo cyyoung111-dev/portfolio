@@ -47,8 +47,8 @@ function buildMigrationHTML() {
           💡 나중에 하려면 닫기 · 거래이력 탭 → 📊 일괄 입력에서도 가능해요
         </div>
         <div class="flex-gap8">
-          <button onclick="closeMigration()" class="btn-ghost-muted">나중에</button>
-          <button onclick="applyMigration()" class="btn-amber">✅ 거래 이력으로 가져오기</button>
+          <button data-mig-action="close" class="btn-ghost-muted">나중에</button>
+          <button data-mig-action="apply" class="btn-amber">✅ 거래 이력으로 가져오기</button>
         </div>
       </div>
     </div>
@@ -78,7 +78,7 @@ function renderMigrationTable() {
     <thead>
       <tr style="background:var(--s2)">
         <th style="padding:7px 8px;text-align:center;width:32px">
-          <input type="checkbox" id="mig-all" onchange="migToggleAll(this.checked)" checked/>
+          <input type="checkbox" id="mig-all" data-mig-action="toggle-all" checked/>
         </th>
         <th class="th-left-muted">계좌</th>
         <th class="th-left-muted">종목명</th>
@@ -92,18 +92,17 @@ function renderMigrationTable() {
       ${_migrationRows.map((r, i) => `
       <tr class="bd-bottom">
         <td class="td-center-p6">
-          <input type="checkbox" data-mig-idx="${i}" onchange="_migrationRows[${i}].include=this.checked" checked/>
+          <input type="checkbox" data-mig-idx="${i}" data-mig-action="include" checked/>
         </td>
         <td class="td-p6">
-          <span class="adot" style="background:${ACCT_COLORS[r.acct]||'var(--muted)'}"></span>${r.acct}
+          <span class="adot" style="background:${ACCT_COLORS[r.acct]||'var(--muted)'}"></span>${_escapeHtml(r.acct || '-')}
         </td>
-        <td style="padding:6px 8px;font-weight:600">${r.name}</td>
-        <td style="padding:6px 8px;color:var(--muted)">${r.code||'-'}</td>
+        <td style="padding:6px 8px;font-weight:600">${_escapeHtml(r.name || '-')}</td>
+        <td style="padding:6px 8px;color:var(--muted)">${_escapeHtml(r.code||'-')}</td>
         <td class="td-right-p6">${r.qty.toLocaleString()}</td>
         <td class="td-right-p6">${r.buyPrice.toLocaleString()}</td>
         <td class="td-p6">
-          <input type="date" value="${r.buyDate}"
-            onchange="_migrationRows[${i}].buyDate=this.value"
+          <input type="date" value="${_escapeHtml(r.buyDate)}" data-mig-idx="${i}" data-mig-action="buy-date"
             style="background:var(--s2);border:1px solid var(--border);border-radius:5px;padding:4px 7px;color:var(--text);font-size:.72rem;width:130px"/>
         </td>
       </tr>`).join('')}
@@ -158,3 +157,25 @@ function closeMigration() {
   const el = $el('migrationOverlay');
   if (el) el.style.display = 'none';
 }
+
+
+document.addEventListener('click', function(e) {
+  const actionEl = e.target.closest('[data-mig-action]');
+  if (!actionEl) return;
+  const action = actionEl.dataset.migAction;
+  if (action === 'close') closeMigration();
+  else if (action === 'apply') applyMigration();
+});
+
+document.addEventListener('change', function(e) {
+  const action = e.target.dataset?.migAction;
+  if (!action) return;
+  if (action === 'toggle-all') migToggleAll(e.target.checked);
+  else if (action === 'include') {
+    const idx = parseInt(e.target.dataset.migIdx || '', 10);
+    if (!Number.isNaN(idx) && _migrationRows[idx]) _migrationRows[idx].include = e.target.checked;
+  } else if (action === 'buy-date') {
+    const idx = parseInt(e.target.dataset.migIdx || '', 10);
+    if (!Number.isNaN(idx) && _migrationRows[idx]) _migrationRows[idx].buyDate = e.target.value;
+  }
+});

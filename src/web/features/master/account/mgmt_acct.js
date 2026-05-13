@@ -44,8 +44,7 @@ function buildAcctMgmt() {
       html += `<div style="padding:10px 12px;border-radius:8px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3);margin:0 0 8px 0">
         <div style="font-size:.65rem;color:var(--amber);font-weight:700;margin-bottom:8px">✏️ 계좌 수정</div>
         <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
-          <input id="acctEditName" type="text" value="${acct.replace(/"/g,'&quot;')}" style="${inpStyle}"
-            onkeydown="if(event.key==='Enter')$el('acctSaveBtn')?.click(); if(event.key==='Escape')$el('acctEditCancel')?.click();" />
+          <input id="acctEditName" type="text" value="${acct.replace(/"/g,'&quot;')}" style="${inpStyle}" data-acct-edit-name="1" />
         </div>
         <div class="txt-65-muted-mb5">색상 선택</div>
         <div class="flex-wrap-g5-mb8">
@@ -148,7 +147,7 @@ function acctMgmtAddNew() {
       const rc = resolveColor(c).toLowerCase();
       const isUsed    = used.includes(rc) && c !== autoColor;
       const isSelected = resolveColor(c).toLowerCase() === resolveColor(autoColor).toLowerCase();
-      return `<span onclick="_acctNewPickColor('${c}')"
+      return `<span data-acct-new-color="${_escapeHtml(c)}"
         style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
         border:3px solid ${isSelected?'#fff':'transparent'};
         opacity:${isUsed?'0.3':'1'};
@@ -355,3 +354,15 @@ function applyRealEstate() {
   showToast('부동산 정보 저장 완료 · GAS 동기화 중', 'ok');
 }
 
+
+
+document.addEventListener('click', function(e) {
+  const acctNewColor = e.target.closest('[data-acct-new-color]');
+  if (acctNewColor) _acctNewPickColor(acctNewColor.dataset.acctNewColor || '');
+});
+
+document.addEventListener('keydown', function(e) {
+  if (!e.target.dataset?.acctEditName) return;
+  if (e.key === 'Enter') $el('acctSaveBtn')?.click();
+  if (e.key === 'Escape') $el('acctEditCancel')?.click();
+});
