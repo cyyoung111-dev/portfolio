@@ -10,7 +10,7 @@ function buildScheduleSection() {
       <td style="padding:5px 8px;font-size:.75rem;color:var(--muted)">${fmtDateDot(r.date)}</td>
       <td style="padding:5px 8px;font-size:.78rem;font-weight:600;color:var(--amber);text-align:right">${fmt(r.value)}</td>
       <td style="padding:5px 8px;text-align:right">
-        <button onclick="removeReValue(${i})"
+        <button data-schedule-action="remove-re-value" data-index="${i}"
           style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:.72rem;padding:2px 6px;border-radius:4px"
           onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">✕</button>
       </td>
@@ -22,12 +22,12 @@ function buildScheduleSection() {
     <div class="flex-between-mb14">
       <h4 class="h3-card">📋 상환스케줄 · 손익 분석</h4>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button onclick="downloadScheduleTemplate()" class="btn-amber-outline" style="font-size:.72rem">📥 양식</button>
+        <button data-schedule-action="download-template" class="btn-amber-outline" style="font-size:.72rem">📥 양식</button>
         <label class="btn-amber-outline" style="font-size:.72rem;cursor:pointer">
           📂 CSV 업로드
-          <input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="uploadScheduleCsv(this)">
+          <input type="file" accept=".csv,.xlsx,.xls" style="display:none" data-schedule-file="upload">
         </label>
-        ${hasSched ? `<button onclick="clearSchedule()" style="background:none;border:1px solid var(--c-red-30);color:var(--red);border-radius:6px;padding:4px 10px;font-size:.72rem;cursor:pointer">🗑 초기화</button>` : ''}
+        ${hasSched ? `<button data-schedule-action="clear" style="background:none;border:1px solid var(--c-red-30);color:var(--red);border-radius:6px;padding:4px 10px;font-size:.72rem;cursor:pointer">🗑 초기화</button>` : ''}
       </div>
     </div>
 
@@ -59,9 +59,9 @@ function buildScheduleSection() {
         <div class="txt-70-muted-mb4">시가 (원)</div>
         <input type="text" id="re-val-price" placeholder="480,000,000"
           style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem;width:150px"
-          oninput="this.value=this.value.replace(/[^0-9]/g,'').replace(/\B(?=(\d{3})+(?!\d))/g,',')">
+          data-format="number-comma">
       </div>
-      <button onclick="addReValue()"
+      <button data-schedule-action="add-re-value"
         style="background:var(--c-amber-15);border:1px solid var(--c-amber-30);color:var(--amber);border-radius:6px;padding:6px 14px;font-size:.78rem;cursor:pointer">
         ➕ 추가
       </button>
@@ -223,3 +223,24 @@ function removeReValue(sortedIdx) {
   if (currentView === 'asset') renderView();
 }
 
+
+
+document.addEventListener('click', function(e) {
+  const actionEl = e.target.closest('[data-schedule-action]');
+  if (!actionEl) return;
+  const action = actionEl.dataset.scheduleAction;
+  if (action === 'remove-re-value') removeReValue(parseInt(actionEl.dataset.index || '', 10));
+  else if (action === 'download-template') downloadScheduleTemplate();
+  else if (action === 'clear') clearSchedule();
+  else if (action === 'add-re-value') addReValue();
+});
+
+document.addEventListener('change', function(e) {
+  if (e.target.dataset?.scheduleFile === 'upload') uploadScheduleCsv(e.target);
+});
+
+document.addEventListener('input', function(e) {
+  if (e.target.dataset?.format === 'number-comma') {
+    e.target.value = e.target.value.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+});

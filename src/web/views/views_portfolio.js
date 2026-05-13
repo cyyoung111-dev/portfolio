@@ -31,7 +31,7 @@ function _portfolioDataKey() {
 function renderAcctView(area) {
   const accts = ACCT_ORDER.filter(a => a !== '전체');
   const acctOpts = ['전체',...accts].map(a =>
-    `<button onclick="setAcctFilter('${a.replace(/'/g,"\\'")}')" class="${_fBtnClass(acctFilter===a)}">${a}</button>`).join('');
+    `<button data-portfolio-action="acct-filter" data-value="${_escapeHtml(a)}" class="${_fBtnClass(acctFilter===a)}">${_escapeHtml(a)}</button>`).join('');
 
   const typeList = ['전체','주식','ETF','ISA','IRP','연금','펀드','TDF'];
   const classify = r => {
@@ -43,7 +43,7 @@ function renderAcctView(area) {
     return '주식';
   };
   const typeOpts = typeList.map(t =>
-    `<button onclick="setTypeFilter('${t}')" class="${_fBtnClass(typeFilter===t)}">${t}</button>`).join('');
+    `<button data-portfolio-action="type-filter" data-value="${_escapeHtml(t)}" class="${_fBtnClass(typeFilter===t)}">${_escapeHtml(t)}</button>`).join('');
 
   let html = `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -337,7 +337,7 @@ function renderMergeView(area) {
     const active = mergeSortKey === key;
     const icon = active ? (key==='name' ? ' ▲' : ' ▼') : '';
     return `<th class="${isNum?'num':''}" style="cursor:pointer;user-select:none;${active?'color:var(--amber)':''}"
-      onclick="setMergeSortKey('${key}')">${label}${icon}</th>`;
+      data-portfolio-action="merge-sort" data-key="${_escapeHtml(key)}">${_escapeHtml(label)}${icon}</th>`;
   };
 
   let html = `<div class="tbl-wrap">
@@ -370,10 +370,10 @@ function renderMergeView(area) {
     const avgCostMerge = m.totalQty > 0 ? Math.round(m.costAmt / m.totalQty) : null;
     const curPriceMerge = m.breakdown[0]?.price ?? null;
 
-    html += `<tr style="cursor:${isMulti?'pointer':'default'}" onclick="${isMulti?`toggleMergeDetail('${detailId}')`:''}" title="${isMulti?'클릭하면 계좌별 상세 보기':''}">
-      <td class="fw6"><span data-gname="${m.name}" onclick="event.stopPropagation();goToTradeGroup(this.dataset.gname)" class="dotted-link" title="종목별 거래 보기">${m.name}</span>${isMulti?` <span style="font-size:.65rem;color:var(--pink);margin-left:4px">▸ ${m.breakdown.length}계좌</span>`:''}${m.code?`<span class="lbl-62-mt2">${m.code}</span>`:''}</td>
-      <td><span class="tag tg-${m.type}">${m.type}</span></td>
-      <td>${acctDots} <span class="txt-muted-72">${acctNames}</span></td>
+    html += `<tr style="cursor:${isMulti?'pointer':'default'}" ${isMulti?`data-portfolio-action="merge-detail" data-detail-id="${_escapeHtml(detailId)}"`:''} title="${isMulti?'클릭하면 계좌별 상세 보기':''}">
+      <td class="fw6"><span data-portfolio-action="trade-group" data-gname="${_escapeHtml(m.name)}" class="dotted-link" title="종목별 거래 보기">${_escapeHtml(m.name)}</span>${isMulti?` <span style="font-size:.65rem;color:var(--pink);margin-left:4px">▸ ${m.breakdown.length}계좌</span>`:''}${m.code?`<span class="lbl-62-mt2">${_escapeHtml(m.code)}</span>`:''}</td>
+      <td><span class="tag">${_escapeHtml(m.type)}</span></td>
+      <td>${acctDots} <span class="txt-muted-72">${_escapeHtml(acctNames)}</span></td>
       <td class="num">${m.totalQty > 0 ? m.totalQty.toLocaleString() : '-'}</td>
       <td class="num">${avgCostMerge != null ? avgCostMerge.toLocaleString() : '-'}</td>
       <td class="num">${fmtW(m.costAmt)}</td>
@@ -400,7 +400,7 @@ function renderMergeView(area) {
         const rC = pColor(r.pnl), rS = pSign(r.pnl);
         const priceCell = r.fund ? `<span class="c-cyan">${r.price.toLocaleString()}</span>` : r.price ? r.price.toLocaleString() : '-';
         html += `<tr style="border-top:1px solid var(--border)">
-          <td class="p-8-14"><span class="adot" style="background:${ACCT_COLORS[r.acct]}"></span>${r.acct}</td>
+          <td class="p-8-14"><span class="adot" style="background:${ACCT_COLORS[r.acct]}"></span>${_escapeHtml(r.acct || '-')}</td>
           <td class="mono">${r.qty!=null?r.qty.toLocaleString():'-'}</td>
           <td class="mono">${r.cost!=null?r.cost.toLocaleString():'-'}</td>
           <td class="mono">${priceCell}</td>
@@ -421,3 +421,20 @@ function toggleMergeDetail(id) {
   const el = $el(id);
   if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
 }
+
+
+document.addEventListener('click', function(e) {
+  const actionEl = e.target.closest('[data-portfolio-action]');
+  if (!actionEl) return;
+  const action = actionEl.dataset.portfolioAction;
+  if (action === 'acct-filter') setAcctFilter(actionEl.dataset.value || '전체');
+  else if (action === 'type-filter') setTypeFilter(actionEl.dataset.value || '전체');
+  else if (action === 'merge-sort') setMergeSortKey(actionEl.dataset.key || 'eval');
+  else if (action === 'merge-detail') {
+    if (e.target.closest('[data-portfolio-action="trade-group"]')) return;
+    toggleMergeDetail(actionEl.dataset.detailId || '');
+  } else if (action === 'trade-group' && typeof goToTradeGroup === 'function') {
+    e.stopPropagation();
+    goToTradeGroup(actionEl.dataset.gname || '');
+  }
+});

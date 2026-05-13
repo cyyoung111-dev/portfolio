@@ -53,15 +53,21 @@ function _setHistoryStatus(statusEl, type, payload) {
     return;
   }
   if (type === 'summary') {
-    statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${meta.graphCount || 0}일 · 표 ${meta.tableCount || 0}${meta.mode==='week'?'주':'개월'} · 최근: ${meta.latestDate || '-'}</span>`;
+    const graphCount = Number.isFinite(Number(meta.graphCount)) ? Number(meta.graphCount) : 0;
+    const tableCount = Number.isFinite(Number(meta.tableCount)) ? Number(meta.tableCount) : 0;
+    const unit = meta.mode === 'week' ? '주' : '개월';
+    statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${graphCount}일 · 표 ${tableCount}${unit} · 최근: ${_escapeHtml(meta.latestDate || '-')}</span>`;
     return;
   }
   if (type === 'summary_benchmark') {
-    statusEl.innerHTML = `<span style="color:var(--muted)">${meta.baseMsg || ''} · ${meta.benchMsg || ''}${meta.missingMsg || ''}</span>`;
+    const baseMsg = _escapeHtml(meta.baseMsg || '');
+    const benchMsg = _escapeHtml(meta.benchMsg || '');
+    const missingMsg = _escapeHtml(meta.missingMsg || '');
+    statusEl.innerHTML = `<span style="color:var(--muted)">${baseMsg} · ${benchMsg}${missingMsg}</span>`;
     return;
   }
   if (type === 'error') {
-    statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${meta.message || '알 수 없는 오류'}</span>`;
+    statusEl.innerHTML = `<span style="color:var(--red-lt)">❌ 불러오기 실패: ${_escapeHtml(meta.message || '알 수 없는 오류')}</span>`;
   }
 }
 
