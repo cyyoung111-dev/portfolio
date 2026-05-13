@@ -35,6 +35,11 @@ function _tgFilterDebounce(evt, el) {
   _scheduleTgFilterRender(el || document.getElementById('tgFilterName'));
 }
 
+function _tgFilterDebounce(evt, el) {
+  clearTimeout(_tgFilterTimer);
+  if (_tgFilterIsComposing(evt)) return;
+  _scheduleTgFilterRender(el || document.getElementById('tgFilterName'));
+}
 
 function tgFilterCompStart() {
   _tgFilterComposing = true;
