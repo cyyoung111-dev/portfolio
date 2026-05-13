@@ -114,7 +114,7 @@ function renderDivView(area, skipFetch) {
         <span id="sync-badge-div" style="font-size:.68rem;color:var(--muted)"></span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        ${GSHEET_API_URL ? `<button id="divFetchBtn" onclick="startDivFetch()" class="btn-amber-sm">🔄 배당금 불러오기</button>` : ''}
+        ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm">🔄 배당금 불러오기</button>` : ''}
         <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" ${GSHEET_API_URL ? '' : 'disabled'}>🔄 재동기화</button>
       </div>
     </div>
@@ -125,7 +125,7 @@ function renderDivView(area, skipFetch) {
 
   <!-- ── 수량 0 숨김 토글 ── -->
   <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-    <button onclick="_toggleDivHideZero()" class="btn-sort-toggle${_divHideZeroQty?' active':''}" style="font-size:.70rem">
+    <button data-div-action="toggle-zero" class="btn-sort-toggle${_divHideZeroQty?' active':''}" style="font-size:.70rem">
       ${_divHideZeroQty ? '👁 전체 보기' : '🙈 수량 0 숨김'}
     </button>
   </div>
@@ -315,7 +315,7 @@ function renderDivView(area, skipFetch) {
   html += `<div class="card-12">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <div style="font-size:.78rem;font-weight:700;color:var(--gold)">⚙️ 배당 설정 수동 편집</div>
-      <button onclick="applyDivChanges()" class="btn-amber-sm">💾 저장</button>
+      <button data-div-action="apply" class="btn-amber-sm">💾 저장</button>
     </div>
     <div id="divMgmtBody" style="max-height:420px;overflow-y:auto"></div>
   </div>`;
@@ -351,3 +351,13 @@ function _toggleDivHideZero() {
   const area = $el('view-area');
   if (area) renderDivView(area, true);
 }
+
+
+document.addEventListener('click', function(e) {
+  const divAction = e.target.closest('[data-div-action]');
+  if (!divAction) return;
+  const action = divAction.dataset.divAction;
+  if (action === 'fetch') startDivFetch();
+  else if (action === 'toggle-zero') _toggleDivHideZero();
+  else if (action === 'apply') applyDivChanges();
+});

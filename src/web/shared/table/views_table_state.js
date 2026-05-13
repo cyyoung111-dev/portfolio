@@ -79,7 +79,7 @@ const _smallOpen = {};
 
 function makeSmallToggleBar(smallCount, smallEvalSum, tableId) {
   if (smallCount === 0) return '';
-  return `<div class="small-toggle-bar" id="stb_${tableId}" onclick="toggleSmall('${tableId}')">
+  return `<div class="small-toggle-bar" id="stb_${_escapeHtml(tableId)}" data-table-action="toggle-small" data-table-id="${_escapeHtml(tableId)}">
     <div class="st-left">
       <span>👁 소액 종목 숨김 (10만원 미만)</span>
       <span class="st-cnt">${smallCount}개 · ${fmt(smallEvalSum)} 숨겨짐 (합산엔 포함)</span>

@@ -62,7 +62,7 @@ function renderAssetView(area) {
   h += `<div class="card-12-p20">
     <div class="flex-between-mb14">
       <h4 class="h3-card">🏠 부동산 · ${reName}</h4>
-      <button onclick="openRealEstateEditor()" class="btn-amber-outline">✏️ 수정</button>
+      <button data-asset-action="realestate-editor" class="btn-amber-outline">✏️ 수정</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.80rem">
       ${[
@@ -98,7 +98,7 @@ function renderAssetView(area) {
   h += `<div class="card-12-p20">
     <div class="flex-between-mb14">
       <h4 class="h3-card">🏦 주담대 현황</h4>
-      <button onclick="openLoanEditor()" class="btn-amber-outline">✏️ 수정</button>
+      <button data-asset-action="loan-editor" class="btn-amber-outline">✏️ 수정</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:.80rem;margin-bottom:14px">
       ${[
@@ -143,3 +143,12 @@ function renderAssetView(area) {
   // 차트는 DOM 삽입 후 렌더링
   renderScheduleChart();
 }
+
+
+document.addEventListener('click', function(e) {
+  const assetAction = e.target.closest('[data-asset-action]');
+  if (!assetAction) return;
+  const action = assetAction.dataset.assetAction;
+  if (action === 'realestate-editor') openRealEstateEditor();
+  else if (action === 'loan-editor') openLoanEditor();
+});
