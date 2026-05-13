@@ -387,8 +387,8 @@ function _smRenderTypeButtons(active) {
   if(!group) return;
   if(inp) inp.value = active;
   group.innerHTML = types.map(t => `
-    <button type="button" onclick="_smRenderTypeButtons('${t}')"
-      class="btn-toggle-purple${t===active?' active':''}">${t}</button>`).join('');
+    <button type="button" data-sm-new-type="${_escapeHtml(t)}"
+      class="btn-toggle-purple${t===active?' active':''}">${_escapeHtml(t)}</button>`).join('');
 }
 
 function _smRenderSecButtons(active, sectors) {
@@ -398,9 +398,10 @@ function _smRenderSecButtons(active, sectors) {
   if(!group) return;
   if(inp) inp.value = active;
   group.innerHTML = sectors.map(s => `
-    <button type="button" onclick="_smRenderSecButtons('${s.replace(/'/g,"\'")}')"
-      class="btn-toggle-purple${s===active?' active':''}">${s}</button>`).join('');
+    <button type="button" data-sm-new-sector="${_escapeHtml(s)}"
+      class="btn-toggle-purple${s===active?' active':''}">${_escapeHtml(s)}</button>`).join('');
 }
+
 
 function smMgmtCancel() {
   const wrap = $el('smMgmtNewWrap');
@@ -549,3 +550,11 @@ function smSave(idx) {
   _mgmtRefresh();
   // ★ buildStockMgmt()는 호출하지 않음 — 상태 리셋 후 mousedown 핸들러에서 호출
 }
+
+
+document.addEventListener('click', function(e) {
+  const smNewType = e.target.closest('[data-sm-new-type]');
+  if (smNewType) { _smRenderTypeButtons(smNewType.dataset.smNewType || '주식'); return; }
+  const smNewSector = e.target.closest('[data-sm-new-sector]');
+  if (smNewSector) _smRenderSecButtons(smNewSector.dataset.smNewSector || '기타');
+});

@@ -80,7 +80,7 @@ function buildDivMgmt() {
     const d = DIVDATA[divKey];
     const _fk = _divKey(name);
     const freqOpts = FREQ_OPTIONS.map(f =>
-      `<button type="button" onclick="_dvPickFreq('${_fk}','${f}')" class="${_fBtnClass(d.freq === f)}">${f}</button>`
+      `<button type="button" data-div-freq-key="${_escapeHtml(_fk)}" data-div-freq="${_escapeHtml(f)}" class="${_fBtnClass(d.freq === f)}">${_escapeHtml(f)}</button>`
     ).join('');
 
     h += `<div style="border-bottom:1px solid rgba(255,255,255,.06);padding:10px 2px">
@@ -350,3 +350,9 @@ async function startDivFetch() {
 
 // ── 종목 관리 탭
 // ── 섹터 관리
+
+
+document.addEventListener('click', function(e) {
+  const divFreq = e.target.closest('[data-div-freq-key]');
+  if (divFreq) _dvPickFreq(divFreq.dataset.divFreqKey || '', divFreq.dataset.divFreq || '-');
+});

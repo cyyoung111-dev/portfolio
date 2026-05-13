@@ -16,9 +16,12 @@ function openEditor() {
   }
   if (editorDateEl) {
     _editorRefDate = editorDateEl.value || '';
-    editorDateEl.onchange = async () => {
-      await loadEditorPricesByDate(editorDateEl.value);
-    };
+    if (!editorDateEl._editorDateBound) {
+      editorDateEl._editorDateBound = true;
+      editorDateEl.addEventListener('change', async () => {
+        await loadEditorPricesByDate(editorDateEl.value);
+      });
+    }
   }
   $el('priceEditor').classList.add('open');
   if (editorDateEl?.value) loadEditorPricesByDate(editorDateEl.value);
@@ -311,7 +314,7 @@ function buildEditorUI() {
         <input type="number" id="ep_${safeId}"
           value="${current || ''}"
           placeholder="현재가"
-          oninput="markChanged('${safeName}', this.value)"
+          data-editor-price-name="${_escapeHtml(item.name)}"
           class="editor-price-input"
         />
         <span id="ps_${safeId}" style="font-size:.65rem;color:${statusColor};flex-shrink:0;width:14px;text-align:center">✓</span>
@@ -343,9 +346,9 @@ function buildEditorUI() {
     sectionHtml += '</div>';
     if (totalPages > 1) {
       sectionHtml += `<div class="editor-price-pagination">
-        <button class="editor-page-btn" onclick="_setEditorSectionPage('${sectionKey}', ${currentPage - 1}, ${totalPages})" ${currentPage <= 1 ? 'disabled' : ''}>이전</button>
+        <button class="editor-page-btn" data-editor-page-section="${_escapeHtml(sectionKey)}" data-page="${currentPage - 1}" data-total-pages="${totalPages}" ${currentPage <= 1 ? 'disabled' : ''}>이전</button>
         <span>${currentPage} / ${totalPages} 페이지</span>
-        <button class="editor-page-btn" onclick="_setEditorSectionPage('${sectionKey}', ${currentPage + 1}, ${totalPages})" ${currentPage >= totalPages ? 'disabled' : ''}>다음</button>
+        <button class="editor-page-btn" data-editor-page-section="${_escapeHtml(sectionKey)}" data-page="${currentPage + 1}" data-total-pages="${totalPages}" ${currentPage >= totalPages ? 'disabled' : ''}>다음</button>
       </div>`;
     }
     sectionHtml += '</section>';
@@ -693,3 +696,14 @@ async function applyPrices() {
     if (typeof shouldRenderCharts !== 'function' || shouldRenderCharts(currentView)) renderDonut();
   }, 1500);
 }
+
+
+document.addEventListener('input', function(e) {
+  if (e.target.dataset?.editorPriceName) markChanged(e.target.dataset.editorPriceName, e.target.value);
+});
+
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-editor-page-section]');
+  if (!btn) return;
+  _setEditorSectionPage(btn.dataset.editorPageSection, parseInt(btn.dataset.page || '1', 10), parseInt(btn.dataset.totalPages || '1', 10));
+});

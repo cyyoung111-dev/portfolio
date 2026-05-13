@@ -321,7 +321,7 @@ function renderThemeSelector(containerId) {
 function _buildThemeSelectorHTML() {
   const modeBtn = (mode, label) => {
     const active = _themeMode === mode;
-    return `<button onclick="setThemeMode('${mode}')" id="theme-mode-${mode}"
+    return `<button data-theme-action="mode" data-mode="${_escapeHtml(mode)}" id="theme-mode-${mode}"
       style="padding:6px 10px;border-radius:7px;border:1px solid ${active ? 'var(--amber)' : 'var(--border)'};
              background:${active ? 'var(--c-amber-08)' : 'transparent'};color:${active ? 'var(--gold)' : 'var(--muted)'};
              font-size:.70rem;font-weight:700;cursor:pointer">${label}</button>`;
@@ -335,7 +335,7 @@ function _buildThemeSelectorHTML() {
     const s2 = theme.vars['--s2'];
     const accent = theme.vars['--amber'];
     const border = theme.vars['--border'];
-    return `<button onclick="applyTheme('${key}')" id="theme-btn-${key}"
+    return `<button data-theme-action="apply" data-theme-key="${_escapeHtml(key)}" id="theme-btn-${key}"
       style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 14px;border-radius:8px;cursor:pointer;
              border:1px solid ${isActive ? accent : border};background:${isActive ? 'rgba(255,255,255,.06)' : 'transparent'};
              transition:all .15s;text-align:left;">
@@ -419,4 +419,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof _origOpen === 'function') _origOpen();
     switchSettingsTab('tab');
   };
+});
+
+
+document.addEventListener('click', function(e) {
+  const themeAction = e.target.closest('[data-theme-action]');
+  if (!themeAction) return;
+  if (themeAction.dataset.themeAction === 'mode') setThemeMode(themeAction.dataset.mode || 'system');
+  else if (themeAction.dataset.themeAction === 'apply') applyTheme(themeAction.dataset.themeKey || '');
 });
