@@ -2,21 +2,6 @@
 //  mgmt_stock.js — 종목 관리 (추가·수정·삭제·CSV)
 //  의존: data.js
 // ════════════════════════════════════════════════════════════════
-function _escapeHtml(text) {
-  return String(text ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function _escapeJsSingleQuoted(text) {
-  return String(text ?? '')
-    .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'");
-}
-
 function buildStockMgmt() {
   const container = $el('stockMgmtBody');
   if(!container) return;
@@ -124,14 +109,14 @@ function buildStockMgmt() {
             <div class="lbl-60-muted fw7-mb5-ls">유형</div>
             <div class="sm-type-grp flex-wrap-gap3" data-idx="${idx}">
               ${ ['주식','ETF','ISA','IRP','연금','펀드','TDF'].map(t=>
-                `<button type="button" onclick="_smPickType(${idx},'${_escapeJsSingleQuoted(t)}')" class="btn-toggle-purple-sm${t===curType?' active':''}">${_escapeHtml(t)}</button>`).join('') }
+                `<button type="button" data-sm-type="${_escapeHtml(t)}" class="btn-toggle-purple-sm${t===curType?' active':''}">${_escapeHtml(t)}</button>`).join('') }
             </div>
           </div>
           <div>
             <div class="lbl-60-muted fw7-mb5-ls">섹터</div>
             <div class="sm-sec-grp flex-wrap-gap3" data-idx="${idx}">
               ${ SM_SECTORS.map(s=>
-                `<button type="button" onclick="_smPickSec(${idx},'${_escapeJsSingleQuoted(s)}')" class="btn-toggle-purple-sm${s===sec?' active':''}">${_escapeHtml(s)}</button>`).join('') }
+                `<button type="button" data-sm-sector="${_escapeHtml(s)}" class="btn-toggle-purple-sm${s===sec?' active':''}">${_escapeHtml(s)}</button>`).join('') }
             </div>
           </div>
         </div>
@@ -178,6 +163,24 @@ function _bindStockMgmtEvents(container) {
 
   container.addEventListener('click', function(e) {
     const target = e.target;
+
+    const typeBtn = target?.closest?.('button[data-sm-type]');
+    if (typeBtn && container.contains(typeBtn)) {
+      e.preventDefault();
+      const group = typeBtn.closest('.sm-type-grp');
+      const idx = parseInt(group?.dataset.idx ?? '', 10);
+      if (!Number.isNaN(idx)) _smPickType(idx, typeBtn.dataset.smType || '주식');
+      return;
+    }
+
+    const sectorBtn = target?.closest?.('button[data-sm-sector]');
+    if (sectorBtn && container.contains(sectorBtn)) {
+      e.preventDefault();
+      const group = sectorBtn.closest('.sm-sec-grp');
+      const idx = parseInt(group?.dataset.idx ?? '', 10);
+      if (!Number.isNaN(idx)) _smPickSec(idx, sectorBtn.dataset.smSector || '기타');
+      return;
+    }
 
     const row = target?.closest?.('.sm-row');
     if (row && container.contains(row)) {
@@ -384,8 +387,8 @@ function _smRenderTypeButtons(active) {
   if(!group) return;
   if(inp) inp.value = active;
   group.innerHTML = types.map(t => `
-    <button type="button" onclick="_smRenderTypeButtons('${t}')"
-      class="btn-toggle-purple${t===active?' active':''}">${t}</button>`).join('');
+    <button type="button" data-sm-new-type="${_escapeHtml(t)}"
+      class="btn-toggle-purple${t===active?' active':''}">${_escapeHtml(t)}</button>`).join('');
 }
 
 function _smRenderSecButtons(active, sectors) {
@@ -395,9 +398,10 @@ function _smRenderSecButtons(active, sectors) {
   if(!group) return;
   if(inp) inp.value = active;
   group.innerHTML = sectors.map(s => `
-    <button type="button" onclick="_smRenderSecButtons('${s.replace(/'/g,"\'")}')"
-      class="btn-toggle-purple${s===active?' active':''}">${s}</button>`).join('');
+    <button type="button" data-sm-new-sector="${_escapeHtml(s)}"
+      class="btn-toggle-purple${s===active?' active':''}">${_escapeHtml(s)}</button>`).join('');
 }
+
 
 function smMgmtCancel() {
   const wrap = $el('smMgmtNewWrap');
@@ -546,3 +550,11 @@ function smSave(idx) {
   _mgmtRefresh();
   // ★ buildStockMgmt()는 호출하지 않음 — 상태 리셋 후 mousedown 핸들러에서 호출
 }
+
+
+document.addEventListener('click', function(e) {
+  const smNewType = e.target.closest('[data-sm-new-type]');
+  if (smNewType) { _smRenderTypeButtons(smNewType.dataset.smNewType || '주식'); return; }
+  const smNewSector = e.target.closest('[data-sm-new-sector]');
+  if (smNewSector) _smRenderSecButtons(smNewSector.dataset.smNewSector || '기타');
+});
