@@ -39,10 +39,10 @@ function _renderTeAcctBtns(active, acctList) {
   if (!grp) return;
   const isNew = _teIsNewMode;
   grp.innerHTML = acctList.map(a =>
-    `<button type="button" onclick="_tePickAcct('${a.replace(/'/g,"\\'")}')"`+
-    ` class="${_fBtnClass(!isNew && a===active)}">${a}</button>`
+    `<button type="button" data-te-action="pick-acct" data-value="${_escapeHtml(a)}"`+
+    ` class="${_fBtnClass(!isNew && a===active)}">${_escapeHtml(a)}</button>`
   ).join('') +
-  `<button type="button" onclick="_tePickNewMode()" class="${_fBtnClass(isNew)}" ` +
+  `<button type="button" data-te-action="new-mode" class="${_fBtnClass(isNew)}" ` +
   `style="border-color:var(--c-cyan-40);${isNew?'background:rgba(6,182,212,.15);color:var(--cyan)':'color:var(--cyan)'}">✨ 신규</button>`;
 }
 
@@ -89,8 +89,8 @@ function _teRenderNewFilter() {
         <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">계좌</span>
         <div class="flex-wrap-gap3">
           ${realAccts.map(a =>
-            `<button type="button" onclick="_teNewPickAcct('${a.replace(/'/g,"\'")}')" ` +
-            `class="f-btn-sm ${curAcct===a?'active':''}">${a}</button>`
+            `<button type="button" data-te-action="new-acct" data-value="${_escapeHtml(a)}" ` +
+            `class="f-btn-sm ${curAcct===a?'active':''}">${_escapeHtml(a)}</button>`
           ).join('')}
         </div>
       </div>
@@ -98,8 +98,8 @@ function _teRenderNewFilter() {
         <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">섹터</span>
         <div class="flex-wrap-gap3" id="te-new-sector-btns">
           ${sectors.map(s =>
-            `<button type="button" onclick="_teNewPickSector('${s.replace(/'/g,"\'")}')" ` +
-            `class="f-btn-sm ${_teNewSectorFilter===s||(!_teNewSectorFilter&&s==='전체')?'active':''}">${s}</button>`
+            `<button type="button" data-te-action="new-sector" data-value="${_escapeHtml(s)}" ` +
+            `class="f-btn-sm ${_teNewSectorFilter===s||(!_teNewSectorFilter&&s==='전체')?'active':''}">${_escapeHtml(s)}</button>`
           ).join('')}
         </div>
       </div>
@@ -107,8 +107,8 @@ function _teRenderNewFilter() {
         <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">구분</span>
         <div class="flex-wrap-gap3" id="te-new-type-btns">
           ${types.map(t =>
-            `<button type="button" onclick="_teNewPickType('${t}')" ` +
-            `class="f-btn-sm ${_teNewTypeFilter===t||(!_teNewTypeFilter&&t==='전체')?'active':''}">${t}</button>`
+            `<button type="button" data-te-action="new-type" data-value="${_escapeHtml(t)}" ` +
+            `class="f-btn-sm ${_teNewTypeFilter===t||(!_teNewTypeFilter&&t==='전체')?'active':''}">${_escapeHtml(t)}</button>`
           ).join('')}
         </div>
       </div>
@@ -148,10 +148,11 @@ function _refreshTeCodeListNew(selectedName) {
     grp.innerHTML = `<span style="font-size:.72rem;color:var(--muted)">해당 조건의 종목이 없습니다</span>`;
   } else {
     grp.innerHTML = names.map(n =>
-      `<button type="button" onclick="_tePickName('${n.replace(/'/g,"\\'")}')"`+
-      ` class="${_fBtnClass(n===selectedName)} f-btn-sm">${n}</button>`
+      `<button type="button" data-te-action="pick-name" data-value="${_escapeHtml(n)}"`+
+      ` class="${_fBtnClass(n===selectedName)} f-btn-sm">${_escapeHtml(n)}</button>`
     ).join('');
   }
+
 
   // 선택 초기화
   const nameHid = $el('te-name'); if (nameHid) nameHid.value = selectedName || '';
@@ -164,7 +165,7 @@ function _tePickAssetType(val) {
   const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
   const grp   = $el('te-assettype-group'); if (!grp) return;
   grp.innerHTML = types.map(t =>
-    `<button type="button" onclick="_tePickAssetType('${t}')" class="${_fBtnClass(t===val)}">${t}</button>`
+    `<button type="button" data-te-action="asset-type" data-value="${_escapeHtml(t)}" class="${_fBtnClass(t===val)}">${_escapeHtml(t)}</button>`
   ).join('');
 }
 
@@ -194,8 +195,8 @@ function _refreshTeCodeList(selectedName, selectedCode, acctFilter) {
       const hint = $el('te-no-ep-hint');
       if (hint) hint.style.display = 'none';
       grp.innerHTML = names.map(n =>
-        `<button type="button" onclick="_tePickName('${n.replace(/'/g,"\\'")}')"`+
-        ` class="${_fBtnClass(n===selectedName)} f-btn-sm">${n}</button>`
+        `<button type="button" data-te-action="pick-name" data-value="${_escapeHtml(n)}"`+
+        ` class="${_fBtnClass(n===selectedName)} f-btn-sm">${_escapeHtml(n)}</button>`
       ).join('');
     }
   }
@@ -233,7 +234,7 @@ function _tePickName(name) {
   if (grpAt) {
     grpAt.innerHTML = `<span style="display:inline-block;padding:4px 10px;border-radius:6px;
       background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--gold);
-      font-size:.72rem;font-weight:600">${assetType}</span>
+      font-size:.72rem;font-weight:600">${_escapeHtml(assetType)}</span>
       <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
   }
 
@@ -329,9 +330,7 @@ function openAddTrade(prefill, forceTradeType) {
 
   if (!$el('tradeEditOverlay')) {
     document.body.insertAdjacentHTML('beforeend', buildTradeEditOverlayHTML());
-    $el('tradeEditOverlay').addEventListener('click', e => {
-      if (e.target === $el('tradeEditOverlay')) closeTradeEdit();
-    });
+    _bindTradeEditEvents($el('tradeEditOverlay'));
   }
 
   const el = $el('tradeEditOverlay');
@@ -358,13 +357,13 @@ function openAddTrade(prefill, forceTradeType) {
       // 잠금: 선택된 값만 표시, 클릭 비활성화
       grp.innerHTML = `<span style="display:inline-block;padding:4px 10px;border-radius:6px;
         background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--gold);
-        font-size:.72rem;font-weight:600">${_teAssetType}</span>
+        font-size:.72rem;font-weight:600">${_escapeHtml(_teAssetType)}</span>
         <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
     } else {
       // 신규 종목: 자유롭게 선택 가능
       const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
       grp.innerHTML = types.map(t =>
-        `<button type="button" onclick="_tePickAssetType('${t}')" class="${_fBtnClass(_teAssetType===t)}">${t}</button>`
+        `<button type="button" data-te-action="asset-type" data-value="${_escapeHtml(t)}" class="${_fBtnClass(_teAssetType===t)}">${_escapeHtml(t)}</button>`
       ).join('');
     }
   })();
@@ -389,17 +388,17 @@ function buildTradeEditOverlayHTML() {
     <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;margin:auto;min-height:min-content">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px 12px;border-bottom:1px solid var(--border)">
         <h3 id="te-title" class="h3-95">거래 추가</h3>
-        <button onclick="closeTradeEdit()" class="btn-close-icon">✕</button>
+        <button data-te-action="close" class="btn-close-icon">✕</button>
       </div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px">
         <div id="te-error" style="display:none;background:var(--c-red-10);border:1px solid var(--c-red-30);border-radius:6px;padding:8px 12px;font-size:.75rem;color:var(--red-lt)"></div>
 
         <!-- 매수 / 매도 탭 -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <button id="te-tradetype-buy" onclick="_teSetTradeType('buy')"
+          <button id="te-tradetype-buy" data-te-action="trade-type" data-value="buy"
             style="padding:9px;font-size:.80rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s"
             class="te-type-btn">📈 매수</button>
-          <button id="te-tradetype-sell" onclick="_teSetTradeType('sell')"
+          <button id="te-tradetype-sell" data-te-action="trade-type" data-value="sell"
             style="padding:9px;font-size:.80rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border);transition:all .15s"
             class="te-type-btn">📉 매도</button>
         </div>
@@ -454,11 +453,34 @@ function buildTradeEditOverlayHTML() {
         <div>${lbl('메모',false)}${inp('te-memo','선택사항')}</div>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px;border-top:1px solid var(--border)">
-        <button onclick="closeTradeEdit()" class="btn-ghost-muted">취소</button>
-        <button onclick="saveTrade()" class="btn-amber">💾 저장</button>
+        <button data-te-action="close" class="btn-ghost-muted">취소</button>
+        <button data-te-action="save" class="btn-amber">💾 저장</button>
       </div>
     </div>
   </div>`;
+}
+
+
+function _bindTradeEditEvents(el) {
+  if (!el || el._tradeEditDelegatedBound) return;
+  el._tradeEditDelegatedBound = true;
+  el.addEventListener('click', function(e) {
+    if (e.target === el) { closeTradeEdit(); return; }
+    const actionEl = e.target.closest('[data-te-action]');
+    if (!actionEl || !el.contains(actionEl)) return;
+    const action = actionEl.dataset.teAction;
+    const value = actionEl.dataset.value || '';
+    if (action === 'close') closeTradeEdit();
+    else if (action === 'save') saveTrade();
+    else if (action === 'trade-type') _teSetTradeType(value || 'buy');
+    else if (action === 'pick-acct') _tePickAcct(value);
+    else if (action === 'new-mode') _tePickNewMode();
+    else if (action === 'new-acct') _teNewPickAcct(value);
+    else if (action === 'new-sector') _teNewPickSector(value);
+    else if (action === 'new-type') _teNewPickType(value);
+    else if (action === 'pick-name') _tePickName(value);
+    else if (action === 'asset-type') _tePickAssetType(value);
+  });
 }
 
 function closeTradeEdit() {
