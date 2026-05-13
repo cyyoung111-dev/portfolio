@@ -67,6 +67,25 @@ function _tgMatchesFilter(name, queryKey) {
   return _tgSearchTargets(name).some(value => _searchIncludes(value, queryKey));
 }
 
+function _tgSearchKey(value) {
+  return _normalizeSearchText(value);
+}
+
+function _tgSearchTargets(name) {
+  const ep = getEP(name);
+  return [
+    name,
+    ep?.code || '',
+    ep?.sector || '',
+    getEPType(ep, ''),
+  ];
+}
+
+function _tgMatchesFilter(name, queryKey) {
+  if (!queryKey) return true;
+  return _tgSearchTargets(name).some(value => _searchIncludes(value, queryKey));
+}
+
 function renderTradeGroupView(area) {
   const nameList = [...new Set(rawTrades.map(t => t.name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'ko'));
   const queryKey = _tgSearchKey(_tgFilter.name);
