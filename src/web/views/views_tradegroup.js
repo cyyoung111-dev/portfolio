@@ -35,6 +35,11 @@ function _tgFilterDebounce(evt, el) {
   _scheduleTgFilterRender(el || document.getElementById('tgFilterName'));
 }
 
+function _tgFilterDebounce(evt, el) {
+  clearTimeout(_tgFilterTimer);
+  if (_tgFilterIsComposing(evt)) return;
+  _scheduleTgFilterRender(el || document.getElementById('tgFilterName'));
+}
 
 function tgFilterCompStart() {
   _tgFilterComposing = true;
@@ -46,25 +51,6 @@ function tgFilterCompEnd(el) {
     _tgFilter.name = el?.value || _tgFilter.name || '';
     _scheduleTgFilterRender(el);
   }, 0);
-}
-
-function _tgSearchKey(value) {
-  return _normalizeSearchText(value);
-}
-
-function _tgSearchTargets(name) {
-  const ep = getEP(name);
-  return [
-    name,
-    ep?.code || '',
-    ep?.sector || '',
-    getEPType(ep, ''),
-  ];
-}
-
-function _tgMatchesFilter(name, queryKey) {
-  if (!queryKey) return true;
-  return _tgSearchTargets(name).some(value => _searchIncludes(value, queryKey));
 }
 
 function _tgSearchKey(value) {
