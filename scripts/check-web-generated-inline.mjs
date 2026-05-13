@@ -19,14 +19,22 @@ function walk(dir, out = []) {
 const rows = walk(webRoot)
   .map(file => {
     const text = fs.readFileSync(file, 'utf8');
-    const matches = text.match(INLINE_ATTR_RE) || [];
-    return { file: path.relative(root, file), count: matches.length };
+    const matches = [...text.matchAll(INLINE_ATTR_RE)];
+    return {
+      file: path.relative(root, file),
+      refs: matches.map(match => text.slice(0, match.index).split('\n').length),
+    };
   })
-  .filter(row => row.count > 0)
-  .sort((a, b) => b.count - a.count || a.file.localeCompare(b.file));
+  .filter(row => row.refs.length > 0)
+  .sort((a, b) => b.refs.length - a.refs.length || a.file.localeCompare(b.file));
 
-const total = rows.reduce((sum, row) => sum + row.count, 0);
-console.log(`Generated inline handler report: ${total} handler attribute refs across ${rows.length} files`);
-for (const row of rows) {
-  console.log(`- ${row.count.toString().padStart(2, ' ')} ${row.file}`);
+const total = rows.reduce((sum, row) => sum + row.refs.length, 0);
+if (total > 0) {
+  console.error(`❌ Generated inline handler check failed: ${total} handler attribute refs across ${rows.length} files`);
+  for (const row of rows) {
+    console.error(`- ${row.refs.length.toString().padStart(2, ' ')} ${row.file}:${row.refs.join(',')}`);
+  }
+  process.exit(1);
 }
+
+console.log('✅ Generated inline handler check passed (0 handler attribute refs)');

@@ -663,7 +663,7 @@ async function applyPrices() {
   saveHoldings();
 
   // ★ 저장 완료 피드백 — 버튼·본문에 표시 후 1.5초 뒤 닫힘
-  const applyBtn = $el('priceEditor')?.querySelector('[onclick*="applyPrices"]')
+  const applyBtn = $el('pe-panel-price-footer')
                 || $el('priceEditor')?.querySelector('.btn-apply-prices');
   if (applyBtn) {
     applyBtn.disabled = true;
@@ -680,11 +680,11 @@ async function applyPrices() {
     const done = document.createElement('div');
     done.style.cssText = 'text-align:center;padding:18px 0 8px;font-size:.82rem;color:var(--green-lt);font-weight:600';
     if (gasFailedCount > 0) {
-      const sample = gasFailedKeys.slice(0, 3).join(', ');
+      const sample = gasFailedKeys.slice(0, 3).map(key => _escapeHtml(key)).join(', ');
       done.innerHTML = `⚠️ 로컬 저장 완료 · GAS 저장 실패 ${gasFailedCount}건${sample ? '<br><span style="font-size:.70rem;color:var(--muted)">실패 키: ' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + '</span>' : ''}`;
       done.style.color = 'var(--amber)';
     } else {
-      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${dateStr} ${timeStr} 기준 · GAS 동기화 완료</span>`;
+      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${_escapeHtml(dateStr)} ${_escapeHtml(timeStr)} 기준 · GAS 동기화 완료</span>`;
     }
     body.prepend(done);
   }

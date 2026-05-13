@@ -27,7 +27,7 @@ function showMgmtMsg(id, text, isError) {
   el._t = setTimeout(() => { el.style.display = 'none'; }, isError ? 3500 : 1800);
 }
 
-// ★ 배당 주기 버튼 클릭 핸들러 (buildDivMgmt에서 onclick으로 호출)
+// ★ 배당 주기 버튼 클릭 핸들러 (buildDivMgmt의 위임 이벤트에서 호출)
 function _dvPickFreq(key, freq) {
   // 1. hidden input 값 갱신
   const freqInp = $el('dv_freq_' + key);
