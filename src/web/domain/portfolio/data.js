@@ -377,8 +377,13 @@ const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';  // 배당 수량0 숨김 상태
   }
 })();
 
+// ★ [최적화] GAS 동기화 debounce 타이머
+// saveHoldings()가 연속 호출될 때 GAS fetch(3개)가 중복 발사되면
+// 429(Too Many Requests) 오류가 발생함 → 300ms 내 마지막 호출만 실제 전송
+let _saveHoldingsGasTimer = null;
+
 function saveHoldings() {
-  // 항상 저장 (기초정보 관리 변경도 저장되어야 함)
+  // ── 1단계: localStorage는 즉시 저장 (UI 반응성 유지)
   try {
     lsSave(HOLDINGS_KEY, rawHoldings);
     lsSave(STOCKCODE_KEY, STOCK_CODE);
@@ -405,15 +410,20 @@ function saveHoldings() {
       clearTimeout(badge._t);
       badge._t = setTimeout(() => { badge.style.display = 'none'; }, 2000);
     }
-    // 구글시트 즉시 동기화 (저장과 동시에 GAS 반영)
-    // ★ saveSettings는 여기서 호출하지 않음 — loadSettings 도중 빈 DIVDATA를 덮어쓰는 문제 방지
-    if (typeof syncCodesToGsheet    === 'function') syncCodesToGsheet();
-    if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet();
-    if (typeof syncTradesToGsheet   === 'function') syncTradesToGsheet();
   } catch(e) {
     console.error('saveHoldings 실패:', e);
     showToast('저장 실패: ' + e.message + ' · 브라우저 설정에서 로컬 저장소를 허용해주세요.', 'error', 5000);
+    return;
   }
+
+  // ── 2단계: GAS 동기화는 300ms debounce — 연속 호출 시 마지막 1회만 전송
+  // ★ saveSettings는 여기서 호출하지 않음 — loadSettings 도중 빈 DIVDATA를 덮어쓰는 문제 방지
+  clearTimeout(_saveHoldingsGasTimer);
+  _saveHoldingsGasTimer = setTimeout(function() {
+    if (typeof syncCodesToGsheet    === 'function') syncCodesToGsheet();
+    if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet();
+    if (typeof syncTradesToGsheet   === 'function') syncTradesToGsheet();
+  }, 300);
 }
 
 // ── LOAN / REAL_ESTATE 초기값 선언 (loadHoldings 복원보다 반드시 먼저 위치해야 함)
