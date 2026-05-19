@@ -701,9 +701,3 @@ async function applyPrices() {
 document.addEventListener('input', function(e) {
   if (e.target.dataset?.editorPriceName) markChanged(e.target.dataset.editorPriceName, e.target.value);
 });
-
-document.addEventListener('click', function(e) {
-  const btn = e.target.closest('[data-editor-page-section]');
-  if (!btn) return;
-  _setEditorSectionPage(btn.dataset.editorPageSection, parseInt(btn.dataset.page || '1', 10), parseInt(btn.dataset.totalPages || '1', 10));
-});
