@@ -390,8 +390,3 @@ async function autoLoadPrices() {
 setTimeout(() => { if (typeof migrateFundCodes === 'function') migrateFundCodes(); }, 0);
 setTimeout(() => { bootstrapGsheetSettings(); }, 100);
 
-
-document.addEventListener('click', function(e) {
-  const action = e.target.dataset?.statusAction;
-  if (action === 'gsheet') switchView('gsheet');
-});
