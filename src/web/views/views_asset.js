@@ -144,11 +144,3 @@ function renderAssetView(area) {
   renderScheduleChart();
 }
 
-
-document.addEventListener('click', function(e) {
-  const assetAction = e.target.closest('[data-asset-action]');
-  if (!assetAction) return;
-  const action = assetAction.dataset.assetAction;
-  if (action === 'realestate-editor') openRealEstateEditor();
-  else if (action === 'loan-editor') openLoanEditor();
-});

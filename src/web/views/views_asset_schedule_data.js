@@ -223,23 +223,3 @@ function removeReValue(sortedIdx) {
 }
 
 
-
-document.addEventListener('click', function(e) {
-  const actionEl = e.target.closest('[data-schedule-action]');
-  if (!actionEl) return;
-  const action = actionEl.dataset.scheduleAction;
-  if (action === 'remove-re-value') removeReValue(parseInt(actionEl.dataset.index || '', 10));
-  else if (action === 'download-template') downloadScheduleTemplate();
-  else if (action === 'clear') clearSchedule();
-  else if (action === 'add-re-value') addReValue();
-});
-
-document.addEventListener('change', function(e) {
-  if (e.target.dataset?.scheduleFile === 'upload') uploadScheduleCsv(e.target);
-});
-
-document.addEventListener('input', function(e) {
-  if (e.target.dataset?.format === 'number-comma') {
-    e.target.value = e.target.value.replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  }
-});

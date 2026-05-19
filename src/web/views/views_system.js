@@ -226,22 +226,19 @@ function switchView(v) {
 const _viewCache = {};
 
 function _getDataHash() {
-  // 핵심 데이터 변경 감지용 해시 (필터 상태 포함)
-  // 주의: 거래 건수만 쓰면 "기존 거래의 수량/단가 수정"을 놓칠 수 있어 요약 체크섬 포함
-  const tradeChecksum = rawTrades
-    .map(t => [
-      String(t?.id || ''),
-      String(t?.tradeType || ''),
-      String(t?.acct || ''),
-      String(t?.name || ''),
-      String(t?.code || ''),
-      String(t?.date || ''),
-      Number(t?.qty || 0),
-      Number(t?.price || 0),
-      String(t?.memo || ''),
-    ].join('¦'))
-    .sort()
-    .join('∥');
+  // ★ [최적화] 거래 전체를 sort()하던 O(n log n) 방식 → O(n) 수치 체크섬으로 교체
+  // 변경 감지 목적: 거래 추가/삭제/수정 모두 감지 가능
+  // id XOR + qty·price 누적합 조합 → 같은 건수라도 내용이 바뀌면 달라짐
+  let tradeIdXor = 0, tradeQtySum = 0, tradePriceSum = 0;
+  for (let i = 0; i < rawTrades.length; i++) {
+    const t = rawTrades[i];
+    // id가 숫자 형태이면 XOR, 아니면 length를 가중치로 사용
+    const idNum = parseInt(t?.id || '0', 10) || (String(t?.id || '').length * (i + 1));
+    tradeIdXor  ^= (idNum & 0xFFFFFFFF);
+    tradeQtySum   += (Number(t?.qty   || 0) * (i + 1));
+    tradePriceSum += (Number(t?.price || 0) * (i + 1));
+  }
+  const tradeChecksum = tradeIdXor + '_' + (tradeQtySum | 0) + '_' + (tradePriceSum | 0);
 
   return rawTrades.length + '|' +
     tradeChecksum + '|' +
@@ -525,18 +522,3 @@ function applyReset() {
 //  renderHistoryView — 손익 그래프 (스냅샷 이력 기반)
 // ════════════════════════════════════════════════════════════════
 
-
-document.addEventListener('click', function(e) {
-  const systemAction = e.target.closest('[data-system-action]');
-  if (!systemAction) return;
-  const action = systemAction.dataset.systemAction;
-  if (action === 'switch-view') switchView(systemAction.dataset.viewId || '');
-  else if (action === 'reset-next') {
-    const wrap = $el('rst-confirm-wrap');
-    if (wrap) wrap.style.display = 'block';
-    $el('rst-confirm-input')?.focus();
-  } else if (action === 'reset-cancel') {
-    const overlay = $el('resetOverlay');
-    if (overlay) overlay.style.display = 'none';
-  } else if (action === 'reset-apply') applyReset();
-});

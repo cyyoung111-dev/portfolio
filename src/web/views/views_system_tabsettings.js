@@ -82,12 +82,3 @@ function renderTabSettingsBody() {
 }
 
 
-
-document.addEventListener('click', function(e) {
-  const tabAction = e.target.closest('[data-tab-action]');
-  if (!tabAction) return;
-  const idx = parseInt(tabAction.dataset.idx || '', 10);
-  if (Number.isNaN(idx)) return;
-  if (tabAction.dataset.tabAction === 'move') moveTab(idx, parseInt(tabAction.dataset.delta || '0', 10));
-  else if (tabAction.dataset.tabAction === 'toggle-hidden') toggleTabHidden(idx);
-});

@@ -422,19 +422,3 @@ function toggleMergeDetail(id) {
   if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
 }
 
-
-document.addEventListener('click', function(e) {
-  const actionEl = e.target.closest('[data-portfolio-action]');
-  if (!actionEl) return;
-  const action = actionEl.dataset.portfolioAction;
-  if (action === 'acct-filter') setAcctFilter(actionEl.dataset.value || '전체');
-  else if (action === 'type-filter') setTypeFilter(actionEl.dataset.value || '전체');
-  else if (action === 'merge-sort') setMergeSortKey(actionEl.dataset.key || 'eval');
-  else if (action === 'merge-detail') {
-    if (e.target.closest('[data-portfolio-action="trade-group"]')) return;
-    toggleMergeDetail(actionEl.dataset.detailId || '');
-  } else if (action === 'trade-group' && typeof goToTradeGroup === 'function') {
-    e.stopPropagation();
-    goToTradeGroup(actionEl.dataset.gname || '');
-  }
-});

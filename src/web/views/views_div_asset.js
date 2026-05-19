@@ -352,12 +352,3 @@ function _toggleDivHideZero() {
   if (area) renderDivView(area, true);
 }
 
-
-document.addEventListener('click', function(e) {
-  const divAction = e.target.closest('[data-div-action]');
-  if (!divAction) return;
-  const action = divAction.dataset.divAction;
-  if (action === 'fetch') startDivFetch();
-  else if (action === 'toggle-zero') _toggleDivHideZero();
-  else if (action === 'apply') applyDivChanges();
-});
