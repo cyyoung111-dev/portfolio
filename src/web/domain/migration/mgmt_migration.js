@@ -158,24 +158,3 @@ function closeMigration() {
   if (el) el.style.display = 'none';
 }
 
-
-document.addEventListener('click', function(e) {
-  const actionEl = e.target.closest('[data-mig-action]');
-  if (!actionEl) return;
-  const action = actionEl.dataset.migAction;
-  if (action === 'close') closeMigration();
-  else if (action === 'apply') applyMigration();
-});
-
-document.addEventListener('change', function(e) {
-  const action = e.target.dataset?.migAction;
-  if (!action) return;
-  if (action === 'toggle-all') migToggleAll(e.target.checked);
-  else if (action === 'include') {
-    const idx = parseInt(e.target.dataset.migIdx || '', 10);
-    if (!Number.isNaN(idx) && _migrationRows[idx]) _migrationRows[idx].include = e.target.checked;
-  } else if (action === 'buy-date') {
-    const idx = parseInt(e.target.dataset.migIdx || '', 10);
-    if (!Number.isNaN(idx) && _migrationRows[idx]) _migrationRows[idx].buyDate = e.target.value;
-  }
-});
