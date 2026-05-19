@@ -425,15 +425,3 @@ document.addEventListener('DOMContentLoaded', function() {
 function _queueThemeSettingsSync() {
   if (typeof saveSettings === 'function') saveSettings(false);
 }
-
-document.addEventListener('click', function(e) {
-  const themeAction = e.target.closest('[data-theme-action]');
-  if (!themeAction) return;
-  if (themeAction.dataset.themeAction === 'mode') {
-    setThemeMode(themeAction.dataset.mode || 'system');
-    _queueThemeSettingsSync();
-  } else if (themeAction.dataset.themeAction === 'apply') {
-    applyTheme(themeAction.dataset.themeKey || '');
-    _queueThemeSettingsSync();
-  }
-});
