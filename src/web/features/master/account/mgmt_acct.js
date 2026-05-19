@@ -355,14 +355,3 @@ function applyRealEstate() {
 }
 
 
-
-document.addEventListener('click', function(e) {
-  const acctNewColor = e.target.closest('[data-acct-new-color]');
-  if (acctNewColor) _acctNewPickColor(acctNewColor.dataset.acctNewColor || '');
-});
-
-document.addEventListener('keydown', function(e) {
-  if (!e.target.dataset?.acctEditName) return;
-  if (e.key === 'Enter') $el('acctSaveBtn')?.click();
-  if (e.key === 'Escape') $el('acctEditCancel')?.click();
-});
