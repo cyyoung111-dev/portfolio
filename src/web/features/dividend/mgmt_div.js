@@ -28,6 +28,7 @@ function showMgmtMsg(id, text, isError) {
 }
 
 // ★ 배당 주기 버튼 클릭 핸들러 (buildDivMgmt의 위임 이벤트에서 호출)
+// key는 _divIdKey(name) 결과값 — DOM id용 안전 문자열
 function _dvPickFreq(key, freq) {
   // 1. hidden input 값 갱신
   const freqInp = $el('dv_freq_' + key);
@@ -56,10 +57,15 @@ function _dvPickFreq(key, freq) {
   }
 }
 
-function _divKey(name) {
-  return 'k' + Array.from(String(name || ''))
-    .map(ch => ch.charCodeAt(0).toString(16).padStart(4, '0'))
-    .join('');
+// ★ [버그수정] DOM id용 키 함수 분리
+// - _divIdKey(name): getDivKey() 결과를 HTML id에 안전한 문자열로 변환
+//   (종목코드 또는 종목명 → 영문/숫자/하이픈만 허용, 나머지는 '_'로 치환)
+// - 기존 _divKey()는 유니코드 hex 인코딩을 써서 getDivKey()와 키가 달랐음
+//   → DOM id 생성과 DIVDATA 저장 키가 불일치 → 배당 저장 항상 실패하는 버그
+function _divIdKey(name) {
+  const base = (typeof getDivKey === 'function') ? getDivKey(name) : name;
+  // HTML id에 안전하게: 영문자·숫자·하이픈·점 이외는 '_'로 치환
+  return 'dik_' + String(base || '').replace(/[^A-Za-z0-9\-\.]/g, '_');
 }
 
 // ── 배당 관리 DOM 생성 (buildDivMgmt)
@@ -78,7 +84,8 @@ function buildDivMgmt() {
   names.forEach(name => {
     const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
     const d = DIVDATA[divKey];
-    const _fk = _divKey(name);
+    // ★ [버그수정] DOM id에 _divIdKey 사용 (getDivKey 기반 → DIVDATA 키와 일치)
+    const _fk = _divIdKey(name);
     const freqOpts = FREQ_OPTIONS.map(f =>
       `<button type="button" data-div-freq-key="${_escapeHtml(_fk)}" data-div-freq="${_escapeHtml(f)}" class="${_fBtnClass(d.freq === f)}">${_escapeHtml(f)}</button>`
     ).join('');
@@ -112,11 +119,13 @@ function buildDivMgmt() {
     el.style.gridTemplateColumns = isMobile ? '1fr' : '1fr 1fr 1fr';
   });
 }
+
 function applyDivChanges() {
   const names = [...new Set(rawHoldings.filter(h=>!h.fund).map(h=>h.name))];
   let changed = 0;
   names.forEach(name => {
-    const key = _divKey(name);
+    // ★ [버그수정] DOM id 조회도 _divIdKey 사용 (buildDivMgmt와 동일한 키)
+    const key = _divIdKey(name);
     const amtEl   = $el('dv_amt_'   + key);
     const freqEl  = $el('dv_freq_'  + key);
     const monthsEl= $el('dv_months_'+ key);
@@ -249,7 +258,7 @@ async function _autoFetchDiv(area) {
   }
 }
 
-// ── 배당금 Claude API 자동 조회
+// ── 배당금 자동 조회
 async function startDivFetch() {
   const btn    = $el('divFetchBtn');
   const status = $el('divFetchStatus');
