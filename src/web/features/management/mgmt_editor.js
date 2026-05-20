@@ -84,6 +84,11 @@ function saveGsheetUrlFromUI() {
     if (!el) return;
     el.style.color = color || 'var(--muted)';
     el.textContent = msg;
+    // ★ [개선] 렌더링 후에도 메시지가 유지되도록 localStorage에 저장
+    // renderGsheetView()가 innerHTML을 통째로 교체해도 복원됨
+    try {
+      localStorage.setItem('pf_gsheet_test_result', JSON.stringify({ msg, color: color || 'var(--muted)' }));
+    } catch(e) {}
   }
   updateGsheetBadge();
 
@@ -166,6 +171,8 @@ function clearGsheetUrl() {
     res.style.color = 'var(--muted)';
     res.textContent = '연동 해제됨. 구글시트 연동 시 자동 조회가 활성화됩니다.';
   }
+  // ★ [개선] 연동 해제 시 저장된 결과 메시지도 삭제
+  try { localStorage.removeItem('pf_gsheet_test_result'); } catch(e) {}
   updateGsheetBadge();
 }
 
@@ -700,4 +707,10 @@ async function applyPrices() {
 
 document.addEventListener('input', function(e) {
   if (e.target.dataset?.editorPriceName) markChanged(e.target.dataset.editorPriceName, e.target.value);
+});
+
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-editor-page-section]');
+  if (!btn) return;
+  _setEditorSectionPage(btn.dataset.editorPageSection, parseInt(btn.dataset.page || '1', 10), parseInt(btn.dataset.totalPages || '1', 10));
 });
