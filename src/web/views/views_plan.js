@@ -471,7 +471,11 @@ function _bindPlanEvents(area, totalEval, totalCost) {
         const ep   = getEP(name);
         if (ep) ep.targetWeight = parseFloat(inp.value) || 0;
       });
+      // ★ saveHoldings: localStorage 저장 + GAS syncCodes/Holdings/Trades
       saveHoldings();
+      // ★ saveSettings도 호출 — GSheet 연동 모드에서 EDITABLE_PRICES(targetWeight 포함)를 GAS에 저장
+      // REMOTE_ONLY_KEYS로 인해 lsSave(EDITABLES_KEY)가 차단되는 경우를 대비
+      if (typeof saveSettings === 'function') saveSettings(true);
       showToast('목표 비중 저장 완료', 'ok');
       renderView(true);
     }
