@@ -117,6 +117,7 @@ function _buildTradesTableHTML(list) {
     {k:'date',  label:'날짜',   align:'left',  cls:'col-hide-mobile'},
     {k:'price', label:'단가',   align:'right', cls:''},
     {k:null,    label:'손익',   align:'right', cls:''},
+    {k:null,    label:'손익분기', align:'right', cls:'col-hide-mobile'},
   ];
   const headerHTML = headerCols.map(col => {
     const clsAttr = col.cls ? ` class="${col.cls}"` : '';
@@ -129,7 +130,8 @@ function _buildTradesTableHTML(list) {
       style="padding:9px 10px;text-align:center;font-size:.68rem;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}">${col.label}<span style="font-size:.60rem;opacity:.7">${arrow}</span></th>`;
   }).join('');
 
-  const avgMap = {};
+    const avgMap = {};
+  const breakevenMap = {}; // mapKey → 현재 평균단가 (현재 보유 포지션 기준)
   const rowsHTML = list.map((t) => {
     const tradeId = String(t.id ?? '');
     const tradeIdEsc = _escapeHtml(tradeId);
@@ -155,6 +157,13 @@ function _buildTradesTableHTML(list) {
       avgMap[mapKey].qty       -= sellQty;
       avgMap[mapKey].totalCost -= sellQty * avgCost;
     }
+    // ★ 손익분기 단가: 현재 포지션의 평균 매수단가
+    const currentAvg  = avgMap[mapKey].qty > 0 ? avgMap[mapKey].totalCost / avgMap[mapKey].qty : 0;
+    // 현재가 대비 손익분기까지 남은 %
+    const currentPrice = (savedPrices[getCode(name)] || savedPrices[name] || 0);
+    const beGap = currentAvg > 0 && currentPrice > 0
+      ? ((currentAvg - currentPrice) / currentPrice * 100)
+      : null;
     const pC = pnl === null ? '' : pnl >= 0 ? 'var(--green)' : 'var(--red)';
     const pS = pnl === null ? '' : pnl >= 0 ? '+' : '';
     const noDate = !date;
@@ -192,6 +201,14 @@ function _buildTradesTableHTML(list) {
             <div style="color:${pC};font-weight:600;font-size:.78rem;font-variant-numeric:tabular-nums">${pS}${Math.round(pnl).toLocaleString()}</div>
             <div style="font-size:.65rem;color:${pC}">${pS}${pct!==null?pct.toFixed(1):'0.0'}%</div>
           ` : `<span style="color:var(--muted)">-</span>`}
+        </td>
+        <td class="col-hide-mobile" style="padding:8px 10px;text-align:right">
+          ${isBuy && currentAvg > 0 ? `
+            <div style="font-size:.75rem;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums">${Math.round(currentAvg).toLocaleString()}</div>
+            ${beGap !== null ? `<div style="font-size:.65rem;color:${beGap > 0 ? 'var(--red-lt)' : 'var(--green)'}">
+              ${beGap > 0 ? `+${beGap.toFixed(1)}% 필요` : `${Math.abs(beGap).toFixed(1)}% 여유`}
+            </div>` : ''}
+          ` : `<span style="color:var(--muted);font-size:.72rem">-</span>`}
         </td>
       </tr>`;
   }).join('');

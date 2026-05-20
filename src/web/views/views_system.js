@@ -68,6 +68,7 @@ const TAB_DEFAULTS = [
   {id:'history',    label:'손익 그래프', icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>'},
   {id:'div',        label:'배당',       icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>'},
   {id:'asset',      label:'부동산',     icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>'},
+  {id:'plan',       label:'투자 계획',  icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-6"/></svg>'},
 ];
 
 // TAB_ORDER: localStorage 복원 (새 탭이 추가돼도 안전하게 병합)
@@ -279,6 +280,7 @@ function renderView(forceRender) {
     else if (currentView === 'history')    renderHistoryView(area);
     else if (currentView === 'div')        renderDivView(area);
     else if (currentView === 'asset')      renderAssetView(area);
+    else if (currentView === 'plan')       renderPlanView(area);
     else if (currentView === 'stocks')     renderStocksView(area);
     else if (currentView === 'gsheet')     renderGsheetView(area);
   });
