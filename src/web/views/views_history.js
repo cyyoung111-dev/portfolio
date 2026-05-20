@@ -325,7 +325,7 @@ function renderGsheetView(area) {
           />
           <button id="btn-save-gsheet-url" class="btn-purple-sm">저장 · 연결 테스트</button>
         </div>
-        <div id="gsheetTestResult" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em"></div>
+        <div id="gsheetTestResult" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${(()=>{try{const s=localStorage.getItem('pf_gsheet_test_result');if(s){const p=JSON.parse(s);return `<span style="color:${p.color||'var(--muted)'}">${p.msg||''}</span>`;}}catch(e){}return '';})()}</div>
       </div>
 
       <!-- 안내 -->
