@@ -1118,10 +1118,40 @@ function handleGetPricesCompat(codesParam) {
       }
       _updateTodaySnapshotSource(ss, todayStr, sourceByCode);
     }
-    return jsonOk({ prices: prices, missing: stillMissing }); // ★ stillMissing 응답에 포함
+    // ★ [환율 연동] GOOGLEFINANCE로 주요 통화 환율 조회 후 응답에 포함
+    var exchangeRates = fetchExchangeRates(ss);
+    return jsonOk({ prices: prices, missing: stillMissing, exchangeRates: exchangeRates });
   } catch(err) {
     return jsonError('getPrices 실패: ' + err.message);
   }
+}
+
+// ── 환율 조회 (GOOGLEFINANCE 기반)
+// 지원 통화: USD, JPY, EUR, CNY, HKD
+// 임시 시트에 수식 삽입 후 읽는 방식 (GAS에서 GOOGLEFINANCE 직접 호출 불가)
+function fetchExchangeRates(ss) {
+  var CURRENCIES = ['USD', 'JPY', 'EUR', 'CNY', 'HKD'];
+  var rates = {};
+  try {
+    var tmpName = '_fx_tmp_';
+    var tmp = ss.getSheetByName(tmpName);
+    if (!tmp) tmp = ss.insertSheet(tmpName);
+    tmp.clearContents();
+    var formulas = CURRENCIES.map(function(cur) {
+      return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW"), 0)'];
+    });
+    tmp.getRange(1, 1, formulas.length, 1).setFormulas(formulas);
+    SpreadsheetApp.flush();
+    var values = tmp.getRange(1, 1, formulas.length, 1).getValues();
+    CURRENCIES.forEach(function(cur, i) {
+      var v = Number(values[i][0]);
+      if (v > 0) rates[cur] = Math.round(v * 10) / 10;
+    });
+    tmp.clearContents();
+  } catch(e) {
+    Logger.log('⚠️ fetchExchangeRates 실패: ' + e.message);
+  }
+  return rates;
 }
 
 // ════════════════════════════════════════════════════════════════════
