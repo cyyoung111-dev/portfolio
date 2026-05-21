@@ -47,6 +47,10 @@ async function fetchFromGsheet(dateStr) {
         // 오늘 (주말 포함) → getPrices 실시간 조회
         const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
         if (!data || data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
+        // ★ [환율 연동] 응답에 환율 데이터가 있으면 전역 exchangeRates에 저장
+        if (data.exchangeRates && typeof data.exchangeRates === 'object') {
+          Object.assign(exchangeRates, data.exchangeRates);
+        }
         epItems.forEach(i => {
           const price = data.prices[i.code];
           if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
