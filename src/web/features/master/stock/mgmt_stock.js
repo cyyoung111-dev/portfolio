@@ -399,6 +399,8 @@ function smMgmtAddNew() {
   _smRenderTypeButtons('주식');
   const sectors = [...new Set([...Object.keys(SECTOR_COLORS), '기타'])];
   _smRenderSecButtons(sectors[0] || '기타', sectors);
+  // ★ [환율 연동] 통화 버튼 렌더링 (기본 KRW)
+  _smRenderCurButtons('KRW');
   setTimeout(() => $el('smMgmtNewName')?.focus(), 50);
 }
 
@@ -424,6 +426,17 @@ function _smRenderSecButtons(active, sectors) {
       class="btn-toggle-purple${s===active?' active':''}">${_escapeHtml(s)}</button>`).join('');
 }
 
+// ★ [환율 연동] 통화 버튼 렌더링
+function _smRenderCurButtons(active) {
+  const currencies = ['KRW','USD','JPY','EUR','CNY','HKD'];
+  const group = $el('smCurGroup');
+  const inp   = $el('smMgmtNewCur');
+  if(!group) return;
+  if(inp) inp.value = active || 'KRW';
+  group.innerHTML = currencies.map(c => `
+    <button type="button" data-sm-new-currency="${c}"
+      class="btn-toggle-purple${c===active?' active':''}">${c}</button>`).join('');
+}
 
 function smMgmtCancel() {
   const wrap = $el('smMgmtNewWrap');
@@ -432,16 +445,19 @@ function smMgmtCancel() {
   const c = $el('smMgmtNewCode'); if(c) c.value = '';
   const t = $el('smMgmtNewType'); if(t) t.value = '주식';
   const s = $el('smMgmtNewSec');  if(s) s.value = '기타';
+  // ★ [환율 연동] 통화 초기화
+  const cu = $el('smMgmtNewCur'); if(cu) cu.value = 'KRW';
 }
+
 function smMgmtConfirm() {
   const name      = ($el('smMgmtNewName')?.value || '').trim();
   const code      = normalizeStockCode(($el('smMgmtNewCode')?.value || '').trim());
   const assetType = $el('smMgmtNewType')?.value || '주식';
   const sector    = $el('smMgmtNewSec')?.value || '기타';
+  // ★ [환율 연동] 통화 읽기
+  const currency  = ($el('smMgmtNewCur')?.value || 'KRW').toUpperCase();
   if(!name) { showMgmtMsg('smMgmtMsg','⚠️ 종목명을 입력해주세요',true); return; }
-  // ★ 종목코드 입력 시 6자리 강제 (숫자만 또는 영문+숫자 혼합 허용: 005930, F00001, 0046Y0)
   if(code && code.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
-  // ★ 주식·ETF는 종목코드 필수
   if(!code && (assetType === '주식' || assetType === 'ETF')) {
     showMgmtMsg('smMgmtMsg', `⚠️ ${assetType}은 종목코드(6자리)를 반드시 입력해주세요`, true); return;
   }
@@ -450,12 +466,14 @@ function smMgmtConfirm() {
     const dup = EDITABLE_PRICES.find(i => i.code === code);
     showMgmtMsg('smMgmtMsg',`❌ 종목코드 ${code}는 "${dup.name}"에서 이미 사용 중입니다`,true); return;
   }
-  // 기초정보에 assetType 저장 (사용자가 선택한 유형)
   const isFund = (assetType === '펀드' || assetType === 'TDF');
-  EDITABLE_PRICES.push({ name, code, sector, assetType, ...(isFund ? { fund: true } : {}) });
-  // SECTOR_MAP은 더 이상 단독 진실소스 아님 (getSector → EDITABLE_PRICES 우선 참조)
+  // ★ [환율 연동] currency 필드 포함 저장 (KRW면 생략)
+  EDITABLE_PRICES.push({
+    name, code, sector, assetType,
+    ...(isFund ? { fund: true } : {}),
+    ...(currency !== 'KRW' ? { currency } : {}),
+  });
   if(code) STOCK_CODE[name] = normalizeStockCode(code);
-  // ★ rawHoldings type/sector 즉시 재생성 → GAS syncHoldings에 최신 내용 전송
   syncHoldingsFromTrades();
   saveHoldings();
   queueMgmtGsheetSync();
