@@ -87,8 +87,10 @@ function buildStockMgmt() {
 
     const curType = item.assetType || item.type || '주식';
     const curTypeEsc = _escapeHtml(curType);
+    const curCurrency = (item.currency || 'KRW').toUpperCase();
+    const isForeign = curCurrency !== 'KRW';
     html += `<div class="sm-row" data-idx="${idx}"
-      style="display:grid;grid-template-columns:1fr 80px 72px 72px;gap:5px;align-items:center;padding:4px;
+      style="display:grid;grid-template-columns:1fr 80px 72px 72px ${isForeign?'48px':''};gap:5px;align-items:center;padding:4px;
              border-radius:${isEdit?'6px 6px 0 0':'6px'};border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
              border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'transparent')};
              background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:${isEdit?'0':'3px'};cursor:pointer;transition:all .15s">
@@ -98,12 +100,14 @@ function buildStockMgmt() {
         style="font-family:'Courier New',monospace;text-align:center" maxlength="6" placeholder="예) 005930, F00001" ${isEdit?'':'readonly tabindex="-1"'} />
       <span class="txt-muted-68">${curTypeEsc}</span>
       <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${secEsc}</span>
+      ${isForeign ? `<span style="font-size:.62rem;font-weight:700;color:var(--amber);background:rgba(245,158,11,.12);border-radius:4px;padding:1px 5px">${curCurrency}</span>` : ''}
     </div>`;
 
     if(isEdit) {
       html += `<div style="border:1px solid var(--c-purple-45);border-top:none;border-radius:0 0 6px 6px;background:var(--c-purple-06);padding:10px 10px 8px;margin-bottom:6px">
         <input type="hidden" class="sm-type-sel" data-idx="${idx}" value="${curTypeEsc}"/>
-        <input type="hidden" class="sm-sec-sel" data-idx="${idx}" value="${secEsc}"/>
+        <input type="hidden" class="sm-sec-sel"  data-idx="${idx}" value="${secEsc}"/>
+        <input type="hidden" class="sm-cur-sel"  data-idx="${idx}" value="${_escapeHtml(curCurrency)}"/>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
             <div class="lbl-60-muted fw7-mb5-ls">유형</div>
@@ -118,6 +122,14 @@ function buildStockMgmt() {
               ${ SM_SECTORS.map(s=>
                 `<button type="button" data-sm-sector="${_escapeHtml(s)}" class="btn-toggle-purple-sm${s===sec?' active':''}">${_escapeHtml(s)}</button>`).join('') }
             </div>
+          </div>
+        </div>
+        <!-- ★ [환율 연동] 통화 선택 -->
+        <div style="margin-top:8px">
+          <div class="lbl-60-muted fw7-mb5-ls">통화 <span style="font-weight:400;color:var(--muted)">(해외주식은 해당 통화 선택)</span></div>
+          <div class="sm-cur-grp flex-wrap-gap3" data-idx="${idx}">
+            ${ ['KRW','USD','JPY','EUR','CNY','HKD'].map(c=>
+              `<button type="button" data-sm-currency="${c}" class="btn-toggle-purple-sm${c===curCurrency?' active':''}">${c}</button>`).join('') }
           </div>
         </div>
         <div class="gap-mb6" style="margin-top:8px">
@@ -179,6 +191,16 @@ function _bindStockMgmtEvents(container) {
       const group = sectorBtn.closest('.sm-sec-grp');
       const idx = parseInt(group?.dataset.idx ?? '', 10);
       if (!Number.isNaN(idx)) _smPickSec(idx, sectorBtn.dataset.smSector || '기타');
+      return;
+    }
+
+    // ★ [환율 연동] 통화 버튼 클릭
+    const currencyBtn = target?.closest?.('button[data-sm-currency]');
+    if (currencyBtn && container.contains(currencyBtn)) {
+      e.preventDefault();
+      const group = currencyBtn.closest('.sm-cur-grp');
+      const idx = parseInt(group?.dataset.idx ?? '', 10);
+      if (!Number.isNaN(idx)) _smPickCurrency(idx, currencyBtn.dataset.smCurrency || 'KRW');
       return;
     }
 
@@ -460,6 +482,14 @@ function _smPickSec(idx, val) {
     btn.classList.toggle('active', btn.textContent === val);
   });
 }
+// ★ [환율 연동] 통화 선택 핸들러
+function _smPickCurrency(idx, val) {
+  const inp = document.querySelector(`.sm-cur-sel[data-idx="${idx}"]`);
+  if(inp) inp.value = val;
+  document.querySelectorAll(`.sm-cur-grp[data-idx="${idx}"] button`).forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.smCurrency === val);
+  });
+}
 
 // 즉시 저장 (DOM 재생성 없이 데이터만 갱신)
 function smSave(idx) {
@@ -523,6 +553,9 @@ function smSave(idx) {
   item.code      = newCode;
   item.assetType = newType;
   item.sector    = newSec;
+  // ★ [환율 연동] 통화 저장
+  const newCurrency = (document.querySelector(`.sm-cur-sel[data-idx="${idx}"]`)?.value || 'KRW').toUpperCase();
+  item.currency = newCurrency;
   if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
   // ★ EDITABLE_PRICES 중복 항목 제거 (idx 파라미터 직접 사용 — indexOf보다 안전)
@@ -551,3 +584,10 @@ function smSave(idx) {
   // ★ buildStockMgmt()는 호출하지 않음 — 상태 리셋 후 mousedown 핸들러에서 호출
 }
 
+
+document.addEventListener('click', function(e) {
+  const smNewType = e.target.closest('[data-sm-new-type]');
+  if (smNewType) { _smRenderTypeButtons(smNewType.dataset.smNewType || '주식'); return; }
+  const smNewSector = e.target.closest('[data-sm-new-sector]');
+  if (smNewSector) _smRenderSecButtons(smNewSector.dataset.smNewSector || '기타');
+});
