@@ -238,6 +238,30 @@ function _tePickName(name) {
       <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
   }
 
+  // ★ [환율 연동] 외화 종목이면 FX 입력 UI로 전환
+  const currency = (ep?.currency || 'KRW').toUpperCase();
+  const isForeign = currency !== 'KRW';
+  const priceWrap = $el('te-price-wrap');
+  const fxWrap    = $el('te-fx-wrap');
+  if (priceWrap) priceWrap.style.display = isForeign ? 'none' : '';
+  if (fxWrap)    fxWrap.style.display    = isForeign ? '' : 'none';
+  if (isForeign) {
+    const fxLabel = $el('te-price-fx-label');
+    if (fxLabel) fxLabel.textContent = `매수단가 (${currency}) *`;
+    // 현재 환율 자동 채움
+    const curRate = exchangeRates[currency] || 0;
+    const fxRateEl = $el('te-fx-rate');
+    if (fxRateEl && curRate > 0 && !fxRateEl.value) fxRateEl.value = curRate;
+    // 미리보기 이벤트 등록 (중복 방지)
+    const fxPriceEl = $el('te-price-fx');
+    if (fxPriceEl && !fxPriceEl._fxBound) {
+      fxPriceEl._fxBound = true;
+      const updatePreview = () => _teUpdateFxPreview(currency);
+      fxPriceEl.addEventListener('input', updatePreview);
+      if (fxRateEl) fxRateEl.addEventListener('input', updatePreview);
+    }
+  }
+
   // 선택된 종목명 표시 업데이트
   const selEl = $el('te-selected-name');
   if (selEl) { selEl.textContent = name; selEl.style.display = 'block'; }
@@ -370,6 +394,15 @@ function openAddTrade(prefill, forceTradeType) {
 
   f('te-qty').value   = t.qty   || '';
   f('te-price').value = t.price ?? '';
+  // ★ [환율 연동] 외화 단가 복원
+  if (t.priceRaw) {
+    const fxEl = $el('te-price-fx');
+    if (fxEl) fxEl.value = t.priceRaw;
+  }
+  if (t.fxRateAtBuy) {
+    const rateEl = $el('te-fx-rate');
+    if (rateEl) rateEl.value = t.fxRateAtBuy;
+  }
   f('te-date').value  = t.date  || '';
   f('te-memo').value  = t.memo  || '';
   f('te-title').textContent       = _editingTradeId ? '거래 수정' : '거래 추가';
@@ -445,9 +478,24 @@ function buildTradeEditOverlayHTML() {
         </div>
 
         <!-- 단가 -->
-        <div>
+        <div id="te-price-wrap">
           <label id="te-price-label" class="form-label">매수단가 (원) *</label>
           ${inp('te-price','58000','number')}
+        </div>
+        <!-- ★ [환율 연동] 외화 종목 선택 시 표시 (기본 hidden) -->
+        <div id="te-fx-wrap" style="display:none">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div>
+              <label id="te-price-fx-label" class="form-label">매수단가 (외화) *</label>
+              <input id="te-price-fx" type="number" class="input-full-82" placeholder="150.00" step="0.01"/>
+            </div>
+            <div>
+              <label class="form-label">매입 환율 (원) *</label>
+              <input id="te-fx-rate" type="number" class="input-full-82" placeholder="1380"/>
+            </div>
+          </div>
+          <div id="te-fx-preview" style="margin-top:6px;font-size:.70rem;color:var(--green);min-height:16px"></div>
+          <input type="hidden" id="te-price"/>
         </div>
 
         <div>${lbl('메모',false)}${inp('te-memo','선택사항')}</div>
@@ -487,6 +535,23 @@ function closeTradeEdit() {
   const el = $el('tradeEditOverlay');
   if (el) el.style.display = 'none';
   _editingTradeId = null;
+}
+
+// ★ [환율 연동] 외화 단가 × 환율 → 원화 미리보기
+function _teUpdateFxPreview(currency) {
+  const fxPrice = parseFloat($el('te-price-fx')?.value || '0') || 0;
+  const fxRate  = parseFloat($el('te-fx-rate')?.value  || '0') || 0;
+  const preview = $el('te-fx-preview');
+  const hidden  = $el('te-price');
+  if (!preview) return;
+  if (fxPrice > 0 && fxRate > 0) {
+    const krw = Math.round(fxPrice * fxRate);
+    preview.textContent = `→ 원화 단가: ${krw.toLocaleString()}원 (${currency} ${fxPrice} × ${fxRate})`;
+    if (hidden) hidden.value = krw;
+  } else {
+    preview.textContent = '';
+    if (hidden) hidden.value = '';
+  }
 }
 
 function saveTrade() {
@@ -544,6 +609,16 @@ function saveTrade() {
     name: normN, code, qty, price, date,
     memo: f('te-memo').value.trim(),
   };
+
+  // ★ [환율 연동] 외화 종목이면 외화 단가 + 매입 환율도 저장
+  const ep2 = getEP(normN);
+  const currency2 = (ep2?.currency || 'KRW').toUpperCase();
+  if (currency2 !== 'KRW') {
+    const fxPrice = parseFloat(f('te-price-fx')?.value || '0') || 0;
+    const fxRate  = parseFloat(f('te-fx-rate')?.value  || '0') || 0;
+    if (fxPrice > 0) trade.priceRaw = fxPrice;
+    if (fxRate  > 0) trade.fxRateAtBuy = fxRate;
+  }
 
   if (trade.assetType === '펀드' || trade.assetType === 'TDF') trade.fund = true;
 
