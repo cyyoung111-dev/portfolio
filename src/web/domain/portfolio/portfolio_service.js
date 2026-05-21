@@ -129,18 +129,16 @@ function computeRows(holdings) {
   return holdings.map(h => {
     const nn = normName(h.name);
     const ep = getEP(nn);
-    // ★ 코드 우선순위: EDITABLE_PRICES.code > STOCK_CODE
-    // 기기별 STOCK_CODE 불일치가 있어도 기초정보 코드로 평가가를 맞춤
-    // getCode()/getSector()를 다시 호출하지 않고 이미 조회한 ep를 재사용해
-    // 보유 종목 렌더링 때 반복 Map 조회를 줄인다.
     const code = normalizeStockCode(ep?.code || STOCK_CODE[nn] || STOCK_CODE[h.name] || '');
     const sector = (ep && ep.sector && ep.sector !== 'mixed') ? ep.sector : '기타';
+    // ★ [환율 연동] 통화 정보 (기본 KRW)
+    const currency = (ep?.currency || 'KRW').toUpperCase();
+    const fxRate   = currency !== 'KRW' ? (exchangeRates[currency] || 0) : 1;
+    const hasFx    = currency !== 'KRW' && fxRate > 0;
+
     if (h.fund) {
       const fd = fundDirect[h.name];
       if (!fd) return null;
-      // ★ 펀드/TDF 현재가 우선순위:
-      //    ① 종목코드 키(다른 기기/GAS 연동 공통 키) ② 이름 키(하위호환) ③ fundDirect.eval ④ 취득가
-      //    (이전에는 이름 키만 확인해 코드 기준 수동입력값이 평가금액에 반영되지 않던 문제)
       const codePrice = code && savedPrices[code];
       const namePrice = savedPrices[nn] || savedPrices[h.name];
       const evalPrice = (codePrice > 0)
@@ -149,15 +147,26 @@ function computeRows(holdings) {
           ? namePrice
         : (fd.eval > 0 ? fd.eval : fd.cost);
       const evalAmt = evalPrice;
-      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector, code:code || ''};
+      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector, code:code || '', currency:'KRW', fxRate:1};
     }
     // ★ 가격 우선순위: ① 코드 키 ② 이름 키(하위호환) ③ 취득단가
-    const p = (code && savedPrices[code]) || savedPrices[nn] || savedPrices[h.name] || h.cost;
-    const evalAmt = p * h.qty, costAmt = h.cost * h.qty;
-    // 우선순위 ①: EDITABLE_PRICES.assetType 또는 .type
-    //             ②: rawHoldings(거래이력 기반).type
+    const pRaw = (code && savedPrices[code]) || savedPrices[nn] || savedPrices[h.name] || h.cost;
+    // ★ [환율 연동] 외화 종목은 원화로 환산
+    // priceKrw: 화면 표시용 원화 단가, pRaw: 원래 외화 단가(외화 표시용)
+    const priceKrw = hasFx ? Math.round(pRaw * fxRate) : pRaw;
+    const costKrw  = hasFx ? Math.round(h.cost * fxRate) : h.cost;
+    const evalAmt  = priceKrw * h.qty;
+    const costAmt  = costKrw  * h.qty;
     const type = getEPType(ep, h.type);
-    return {...h, name:nn, type, sector, code, evalAmt, costAmt, pnl:evalAmt-costAmt, price:p, pct:(evalAmt-costAmt)/costAmt*100};
+    return {
+      ...h, name:nn, type, sector, code,
+      price:    priceKrw,   // 원화 환산 단가
+      priceRaw: pRaw,       // 원화 단가 (외화 종목은 외화 그대로)
+      evalAmt, costAmt,
+      pnl:  evalAmt - costAmt,
+      pct:  costAmt > 0 ? (evalAmt - costAmt) / costAmt * 100 : 0,
+      currency, fxRate,
+    };
   }).filter(Boolean);
 }
 

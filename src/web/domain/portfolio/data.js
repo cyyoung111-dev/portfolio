@@ -487,6 +487,9 @@ let REAL_ESTATE = {
 let savedPrices = {};
 let savedPriceDates = {};
 let lastUpdated = null;
+// ★ [환율 연동] 통화별 원화 환율 캐시 (getPrices 응답에서 자동 갱신)
+// { USD: 1380.5, JPY: 920.3, EUR: 1510.0, CNY: 190.5, HKD: 176.2 }
+let exchangeRates = {};
 let editedPrices = {};  // 현재가 편집기 임시 저장용
 
 // ── 가격 캐시 localStorage 복원
