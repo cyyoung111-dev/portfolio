@@ -96,6 +96,9 @@ function registerGlobalEventDelegation() {
     if (smNewType) { if (typeof _smRenderTypeButtons === 'function') _smRenderTypeButtons(smNewType.dataset.smNewType || '주식'); return; }
     const smNewSector = e.target.closest('[data-sm-new-sector]');
     if (smNewSector) { if (typeof _smRenderSecButtons === 'function') _smRenderSecButtons(smNewSector.dataset.smNewSector || '기타'); return; }
+    // ★ [환율 연동] 종목 추가 폼 통화 버튼
+    const smNewCurrency = e.target.closest('[data-sm-new-currency]');
+    if (smNewCurrency) { if (typeof _smRenderCurButtons === 'function') _smRenderCurButtons(smNewCurrency.dataset.smNewCurrency || 'KRW'); return; }
 
     // ── data-status-action (settings_fetch.js)
     const statusAction = e.target.dataset?.statusAction;
