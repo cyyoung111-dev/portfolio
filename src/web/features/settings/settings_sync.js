@@ -63,9 +63,11 @@ async function syncCodesToGsheet() {
     EDITABLE_PRICES.forEach(i => {
       if (!i.name) return;
       codeMap[i.name] = {
-        code:   _normalizeSyncCode(i.code),
-        type:   i.assetType || i.type || '주식',
-        sector: i.sector    || '기타',
+        code:     _normalizeSyncCode(i.code),
+        type:     i.assetType || i.type || '주식',
+        sector:   i.sector    || '기타',
+        // ★ [환율 연동] currency 전송 (KRW는 생략 가능이지만 명시 전송)
+        currency: (i.currency || 'KRW').toUpperCase(),
       };
     });
     // 중요: 기초정보(EDITABLE_PRICES)만 동기화해 GS 데이터가 자동으로 흔들리지 않도록 유지
