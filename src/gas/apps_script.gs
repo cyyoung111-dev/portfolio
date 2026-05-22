@@ -1401,6 +1401,25 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       });
     }
 
+    // ★ [환율 연동] 외화 종목 평가금액 원화 환산용 환율 미리 조회
+    var fxRates = {};
+    try { fxRates = fetchExchangeRates(ss); } catch(e) {}
+
+    // ★ 종목코드→통화 맵 (종목코드 시트에서 currency 컬럼 읽기)
+    var codeToCurrency = {};
+    try {
+      var codeSh = ss.getSheetByName(CONFIG.SHEET_CODES);
+      if (codeSh && codeSh.getLastRow() > 1) {
+        // 종목코드 시트: 코드(A), 이름(B), 유형(C), 섹터(D), 통화(E) — 컬럼 수 유동적이므로 방어적 읽기
+        var codeData = codeSh.getRange(2, 1, codeSh.getLastRow() - 1, Math.min(5, codeSh.getLastColumn())).getValues();
+        codeData.forEach(function(row) {
+          var code = _cleanCode(row[0]) || (row[0] || '').toString().trim();
+          var cur  = (row[4] || '').toString().trim().toUpperCase();
+          if (code && cur && cur !== 'KRW') codeToCurrency[code] = cur;
+        });
+      }
+    } catch(e) {}
+
     Object.keys(holdAtDate).forEach(function(k) {
       var h = holdAtDate[k];
       if (!h || h.qty <= 0) return;
@@ -1408,7 +1427,11 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       var name = (h.name || '').toString().trim();
       var key = code || name;
       var price = key && prices[key] ? prices[key] : 0;
-      var evalAmt = price > 0 ? Math.round(price * h.qty) : h.costAmt;
+      // ★ [환율 연동] 외화 종목이면 원화로 환산
+      var currency = (code && codeToCurrency[code]) ? codeToCurrency[code] : 'KRW';
+      var fxRate   = (currency !== 'KRW' && fxRates[currency] > 0) ? fxRates[currency] : 1;
+      var priceKrw = price > 0 ? Math.round(price * fxRate) : 0;
+      var evalAmt  = priceKrw > 0 ? Math.round(priceKrw * h.qty) : h.costAmt;
       var pnl = evalAmt - h.costAmt;
       var pct = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
       var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
@@ -3289,22 +3312,26 @@ function handleSyncCodes(codesParam) {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs) {
       cs = ss.insertSheet(CONFIG.SHEET_CODES);
-      cs.getRange(1,1,1,4).setValues([['종목코드','종목명','유형','섹터']]);
+      cs.getRange(1,1,1,5).setValues([['종목코드','종목명','유형','섹터','통화']]);
     } else if (cs.getLastColumn() < 4) {
-      cs.getRange(1,1,1,4).setValues([['종목코드','종목명','유형','섹터']]);
+      cs.getRange(1,1,1,5).setValues([['종목코드','종목명','유형','섹터','통화']]);
+    } else if (cs.getLastColumn() < 5) {
+      // ★ [환율 연동] 기존 4컬럼 시트에 통화 컬럼 추가
+      cs.getRange(1,5,1,1).setValues([['통화']]);
     }
 
-    // 구버전({종목명:'코드'})·신버전({종목명:{code,type,sector}}) 모두 처리
+    // 구버전({종목명:'코드'})·신버전({종목명:{code,type,sector,currency}}) 모두 처리
     var incomingNorm = {};
     Object.keys(incoming).forEach(function(name) {
       var val = incoming[name];
       if (typeof val === 'string') {
-        incomingNorm[name] = { code: val, type: '주식', sector: '기타' };
+        incomingNorm[name] = { code: val, type: '주식', sector: '기타', currency: 'KRW' };
       } else {
         incomingNorm[name] = {
-          code:   (val.code   || '').toString().trim(),
-          type:   (val.type   || '주식').toString().trim(),
-          sector: (val.sector || '기타').toString().trim(),
+          code:     (val.code     || '').toString().trim(),
+          type:     (val.type     || '주식').toString().trim(),
+          sector:   (val.sector   || '기타').toString().trim(),
+          currency: (val.currency || 'KRW').toString().trim().toUpperCase(),
         };
       }
     });
@@ -3376,7 +3403,9 @@ function handleSyncCodes(codesParam) {
       }
 
       var inheritedType = existingTypeByCode[code] || newType || '주식';
-      toAppend.push([code, normalName, inheritedType, newSector || '기타']);
+      // ★ [환율 연동] currency 컬럼(5번째) 추가
+      var newCurrency = obj.currency || 'KRW';
+      toAppend.push([code, normalName, inheritedType, newSector || '기타', newCurrency !== 'KRW' ? newCurrency : '']);
       synced++;
     });
 
@@ -3403,7 +3432,7 @@ function handleSyncCodes(codesParam) {
       });
     }
     if (toAppend.length > 0) {
-      cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 4).setValues(toAppend);
+      cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 5).setValues(toAppend);
     }
 
     if (synced > 0 || updated > 0) SpreadsheetApp.flush();
