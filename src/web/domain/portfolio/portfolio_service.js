@@ -151,12 +151,12 @@ function computeRows(holdings) {
     }
     // ★ 가격 우선순위: ① 코드 키 ② 이름 키(하위호환) ③ 취득단가
     const pRaw = (code && savedPrices[code]) || savedPrices[nn] || savedPrices[h.name] || h.cost;
-    // ★ [환율 연동] 외화 종목은 원화로 환산
-    // priceKrw: 화면 표시용 원화 단가, pRaw: 원래 외화 단가(외화 표시용)
+    // ★ [환율 연동] 외화 종목 현재가는 원화로 환산
+    // pRaw: GAS에서 받은 외화 단가 → fxRate 곱해 원화로 환산
+    // h.cost: syncHoldingsFromTrades()에서 t.price(이미 원화)로 채워짐 → 환율 곱하면 이중 환산 버그
     const priceKrw = hasFx ? Math.round(pRaw * fxRate) : pRaw;
-    const costKrw  = hasFx ? Math.round(h.cost * fxRate) : h.cost;
     const evalAmt  = priceKrw * h.qty;
-    const costAmt  = costKrw  * h.qty;
+    const costAmt  = h.cost * h.qty;  // ★ h.cost는 이미 원화 — fxRate 곱하지 않음
     const type = getEPType(ep, h.type);
     return {
       ...h, name:nn, type, sector, code,
