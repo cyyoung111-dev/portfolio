@@ -89,9 +89,13 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
     }
 
     const pC2 = pColor(r.pnl), pS2 = pSign(r.pnl);
+    const currency = (r.currency || 'KRW').toUpperCase();
+    const isForeign = currency !== 'KRW';
     const priceCell = r.fund
       ? `<span style='color:var(--cyan)'>${r.price.toLocaleString()}</span>`
-      : r.price ? r.price.toLocaleString() : '<span class="c-muted">-</span>';
+      : r.price
+        ? `${r.price.toLocaleString()}${isForeign ? `<span style="font-size:.60rem;color:var(--amber);margin-left:3px;font-weight:700">${currency}</span>` : ''}`
+        : '<span class="c-muted">-</span>';
     const qtyCell = r.qty != null ? r.qty.toLocaleString() : '-';
     const costCell = r.cost != null ? r.cost.toLocaleString() : '-';
     const costAmtCell = r.costAmt != null ? fmtW(r.costAmt) : '-';
