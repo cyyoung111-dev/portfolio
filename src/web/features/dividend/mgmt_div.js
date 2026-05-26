@@ -62,6 +62,13 @@ function _divKey(name) {
     .join('');
 }
 
+// ★ [버그수정] DOM id용 키 — getDivKey(종목코드/종목명) 기반으로 통일
+// 기존 _divKey()는 유니코드 hex 인코딩 → getDivKey()와 키 불일치 → 배당 저장 항상 실패
+function _divIdKey(name) {
+  const base = (typeof getDivKey === 'function') ? getDivKey(name) : name;
+  return 'dik_' + String(base || '').replace(/[^A-Za-z0-9\-\.]/g, '_');
+}
+
 // ── 배당 관리 DOM 생성 (buildDivMgmt)
 function buildDivMgmt() {
   const container = $el('divMgmtBody');
@@ -78,7 +85,7 @@ function buildDivMgmt() {
   names.forEach(name => {
     const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
     const d = DIVDATA[divKey];
-    const _fk = _divKey(name);
+    const _fk = _divIdKey(name);
     const freqOpts = FREQ_OPTIONS.map(f =>
       `<button type="button" data-div-freq-key="${_escapeHtml(_fk)}" data-div-freq="${_escapeHtml(f)}" class="${_fBtnClass(d.freq === f)}">${_escapeHtml(f)}</button>`
     ).join('');
@@ -116,7 +123,7 @@ function applyDivChanges() {
   const names = [...new Set(rawHoldings.filter(h=>!h.fund).map(h=>h.name))];
   let changed = 0;
   names.forEach(name => {
-    const key = _divKey(name);
+    const key = _divIdKey(name);
     const amtEl   = $el('dv_amt_'   + key);
     const freqEl  = $el('dv_freq_'  + key);
     const monthsEl= $el('dv_months_'+ key);
