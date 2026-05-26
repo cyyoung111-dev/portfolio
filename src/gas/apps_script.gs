@@ -1129,13 +1129,19 @@ function handleGetPricesCompat(codesParam) {
 // ── 환율 조회 (GOOGLEFINANCE 기반)
 // 지원 통화: USD, JPY, EUR, CNY, HKD
 // 임시 시트에 수식 삽입 후 읽는 방식 (GAS에서 GOOGLEFINANCE 직접 호출 불가)
+// ── 환율 인메모리 캐시 (GAS 인스턴스 내 재사용 — 반복 flush 방지)
+var _fxRatesCache = null;
+var _fxRatesCacheDate = '';
+
 function fetchExchangeRates(ss) {
   var CURRENCIES = ['USD', 'JPY', 'EUR', 'CNY', 'HKD'];
   var rates = {};
+  // ★ 당일 캐시 재사용 — getPrices 호출마다 flush하면 2~5초 추가되므로
+  var todayStr = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  if (_fxRatesCache && _fxRatesCacheDate === todayStr) return _fxRatesCache;
   try {
-    var tmpName = '_fx_tmp_';
-    var tmp = ss.getSheetByName(tmpName);
-    if (!tmp) tmp = ss.insertSheet(tmpName);
+    var tmp = ss.getSheetByName(CONFIG.SHEET_TMP);
+    if (!tmp) tmp = ss.insertSheet(CONFIG.SHEET_TMP);
     tmp.clearContents();
     var formulas = CURRENCIES.map(function(cur) {
       return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW"), 0)'];
@@ -1148,6 +1154,9 @@ function fetchExchangeRates(ss) {
       if (v > 0) rates[cur] = Math.round(v * 10) / 10;
     });
     tmp.clearContents();
+    // 캐시 저장
+    _fxRatesCache = rates;
+    _fxRatesCacheDate = todayStr;
   } catch(e) {
     Logger.log('⚠️ fetchExchangeRates 실패: ' + e.message);
   }
@@ -2707,7 +2716,7 @@ function _backfillExecute() {
             return codeToCurrencyBf[holdAtDate[k].code || ''];
           });
           if (hasForeignStock) {
-            var fxSheet = ss.getSheetByName('_fx_tmp_') || ss.insertSheet('_fx_tmp_');
+            var fxSheet = ss.getSheetByName(CONFIG.SHEET_TMP) || ss.insertSheet(CONFIG.SHEET_TMP);
             fxSheet.clearContents();
             var fxFormulas = fxCurrencies.map(function(cur) {
               return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW","price","' + dateStr + '"),0)'];
@@ -3388,7 +3397,7 @@ function handleSyncCodes(codesParam) {
     var existingRowData    = {};
     var lastRow = cs.getLastRow();
     if (lastRow > 1) {
-      var numCols = Math.max(cs.getLastColumn(), 4);
+      var numCols = Math.max(cs.getLastColumn(), 5);
       var sheetData = cs.getRange(2, 1, lastRow - 1, numCols).getValues();
       sheetData.forEach(function(r, i) {
         var c = _cleanCode(r[0]);
@@ -3401,7 +3410,8 @@ function handleSyncCodes(codesParam) {
           if (n) existingByName[n] = c;
         }
         var sec = (r[3] || '').toString().trim();
-        existingRowData[rowIdx] = { name: n, type: t, sector: sec };
+        var cur = (r[4] || '').toString().trim().toUpperCase();
+        existingRowData[rowIdx] = { name: n, type: t, sector: sec, currency: cur };
       });
     }
 
@@ -3421,14 +3431,21 @@ function handleSyncCodes(codesParam) {
 
       if (existingByCode[code]) {
         var rowIdx   = existingByCode[code];
-        var existing = existingRowData[rowIdx] || { name: '', type: '', sector: '' };
-        var nameChanged = existing.name !== normalName;
-        var typeChanged = newType && existing.type !== newType;
-        var sectorChanged = newSector && existing.sector !== newSector;
-        if (nameChanged) pendingUpdates.push({ row: rowIdx, col: 2, val: normalName });
-        if (typeChanged) pendingUpdates.push({ row: rowIdx, col: 3, val: newType });
+        var existing = existingRowData[rowIdx] || { name: '', type: '', sector: '', currency: '' };
+        var nameChanged     = existing.name !== normalName;
+        var typeChanged     = newType && existing.type !== newType;
+        var sectorChanged   = newSector && existing.sector !== newSector;
+        // ★ [환율 연동] currency 변경 반영
+        var newCurrencyVal  = obj.currency || 'KRW';
+        var existingCur     = (existing.currency || '').toUpperCase();
+        var curChanged      = newCurrencyVal !== 'KRW'
+          ? existingCur !== newCurrencyVal
+          : existingCur !== '' && existingCur !== 'KRW';
+        if (nameChanged)   pendingUpdates.push({ row: rowIdx, col: 2, val: normalName });
+        if (typeChanged)   pendingUpdates.push({ row: rowIdx, col: 3, val: newType });
         if (sectorChanged) pendingUpdates.push({ row: rowIdx, col: 4, val: newSector });
-        if (nameChanged || typeChanged || sectorChanged) updated++;
+        if (curChanged)    pendingUpdates.push({ row: rowIdx, col: 5, val: newCurrencyVal !== 'KRW' ? newCurrencyVal : '' });
+        if (nameChanged || typeChanged || sectorChanged || curChanged) updated++;
         return;
       }
 
@@ -3437,8 +3454,10 @@ function handleSyncCodes(codesParam) {
         var oldRowIdx = existingByCode[oldCode];
         if (oldRowIdx) {
           pendingUpdates.push({ row: oldRowIdx, col: 1, val: code });
-          if (newType) pendingUpdates.push({ row: oldRowIdx, col: 3, val: newType });
+          if (newType)   pendingUpdates.push({ row: oldRowIdx, col: 3, val: newType });
           if (newSector) pendingUpdates.push({ row: oldRowIdx, col: 4, val: newSector });
+          var newCurVal = obj.currency || 'KRW';
+          pendingUpdates.push({ row: oldRowIdx, col: 5, val: newCurVal !== 'KRW' ? newCurVal : '' });
           delete existingByCode[oldCode];
           existingByCode[code]       = oldRowIdx;
           existingByName[normalName] = code;
