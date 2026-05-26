@@ -398,6 +398,13 @@ function openAddTrade(prefill, forceTradeType) {
   if (t.priceRaw) {
     const fxEl = $el('te-price-fx');
     if (fxEl) fxEl.value = t.priceRaw;
+    // hidden에 원화값도 복원
+    const fxKrwEl = $el('te-price-fx-krw');
+    if (fxKrwEl) fxKrwEl.value = t.price || '';
+  } else {
+    // 원화 종목 단가 복원
+    const krwEl = $el('te-price-krw');
+    if (krwEl) krwEl.value = t.price ?? '';
   }
   if (t.fxRateAtBuy) {
     const rateEl = $el('te-fx-rate');
@@ -480,7 +487,7 @@ function buildTradeEditOverlayHTML() {
         <!-- 단가 -->
         <div id="te-price-wrap">
           <label id="te-price-label" class="form-label">매수단가 (원) *</label>
-          ${inp('te-price','58000','number')}
+          ${inp('te-price-krw','58000','number')}
         </div>
         <!-- ★ [환율 연동] 외화 종목 선택 시 표시 (기본 hidden) -->
         <div id="te-fx-wrap" style="display:none">
@@ -495,7 +502,7 @@ function buildTradeEditOverlayHTML() {
             </div>
           </div>
           <div id="te-fx-preview" style="margin-top:6px;font-size:.70rem;color:var(--green);min-height:16px"></div>
-          <input type="hidden" id="te-price"/>
+          <input type="hidden" id="te-price-fx-krw"/>
         </div>
 
         <div>${lbl('메모',false)}${inp('te-memo','선택사항')}</div>
@@ -542,7 +549,7 @@ function _teUpdateFxPreview(currency) {
   const fxPrice = parseFloat($el('te-price-fx')?.value || '0') || 0;
   const fxRate  = parseFloat($el('te-fx-rate')?.value  || '0') || 0;
   const preview = $el('te-fx-preview');
-  const hidden  = $el('te-price');
+  const hidden  = $el('te-price-fx-krw');
   if (!preview) return;
   if (fxPrice > 0 && fxRate > 0) {
     const krw = Math.round(fxPrice * fxRate);
@@ -560,7 +567,11 @@ function saveTrade() {
   const name      = f('te-name').value.trim();
   const qty       = parseInt(f('te-qty').value);
   const date      = f('te-date').value;
-  const price     = parseFloat(f('te-price').value);
+  // ★ [환율 연동] 외화 모드(te-fx-wrap 표시 중)면 te-price-fx-krw, 원화면 te-price-krw
+  const isFxMode  = $el('te-fx-wrap')?.style.display !== 'none';
+  const price     = isFxMode
+    ? parseFloat(f('te-price-fx-krw')?.value || '0')
+    : parseFloat(f('te-price-krw')?.value || '0');
   const tradeType = window._currentTradeType || 'buy';
 
   const acctVal = f('te-acct').value;
@@ -574,7 +585,15 @@ function saveTrade() {
   }
   if (!qty || qty <= 0)           { err.textContent='❌ 수량을 입력하세요 (양수)'; err.style.display='block'; return; }
   if (!date)                      { err.textContent='❌ 날짜를 입력하세요'; err.style.display='block'; return; }
-  if (isNaN(price) || price < 0) { err.textContent='❌ 단가를 입력하세요'; err.style.display='block'; return; }
+  // ★ [환율 연동] 외화 모드 유효성 검사
+  if (isFxMode) {
+    const fxPriceVal = parseFloat(f('te-price-fx')?.value || '0') || 0;
+    const fxRateVal  = parseFloat(f('te-fx-rate')?.value  || '0') || 0;
+    if (!fxPriceVal || fxPriceVal <= 0) { err.textContent='❌ 외화 단가를 입력하세요'; err.style.display='block'; return; }
+    if (!fxRateVal  || fxRateVal  <= 0) { err.textContent='❌ 매입 환율을 입력하세요'; err.style.display='block'; return; }
+  } else {
+    if (isNaN(price) || price <= 0) { err.textContent='❌ 단가를 입력하세요'; err.style.display='block'; return; }
+  }
 
   const code  = f('te-code').value.trim();
   // ★ [버그수정] normN을 매도 수량 체크 블록 밖으로 호이스팅
