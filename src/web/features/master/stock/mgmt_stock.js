@@ -602,10 +602,3 @@ function smSave(idx) {
   // ★ buildStockMgmt()는 호출하지 않음 — 상태 리셋 후 mousedown 핸들러에서 호출
 }
 
-
-document.addEventListener('click', function(e) {
-  const smNewType = e.target.closest('[data-sm-new-type]');
-  if (smNewType) { _smRenderTypeButtons(smNewType.dataset.smNewType || '주식'); return; }
-  const smNewSector = e.target.closest('[data-sm-new-sector]');
-  if (smNewSector) _smRenderSecButtons(smNewSector.dataset.smNewSector || '기타');
-});
