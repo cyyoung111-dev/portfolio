@@ -624,7 +624,6 @@ async function applyPrices() {
     const mappedCode = _editorItemMap[name]?.code || _editorItemMap[normName(name)]?.code || '';
     const code = mappedCode || getCode(normName(name));
     const key = code || name;
-    console.log('[applyPrices] save key resolved:', { name, mappedCode, code, key });
     savedPrices[key] = editedPrices[name];
     savedPriceDates[key] = savedAtDisplay;
     if (GSHEET_API_URL) {
@@ -653,7 +652,7 @@ async function applyPrices() {
         showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
       }
     } else {
-      console.log('[saveManualPrice] GAS 저장 완료:', gasSaveTargets.length + '건');
+      // GAS 저장 완료 (토스트는 applyPrices 완료 후 표시)
     }
   }
 
