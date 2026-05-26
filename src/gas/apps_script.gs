@@ -2609,6 +2609,20 @@ function _backfillExecute() {
     if (name && code && !nameToCode[name]) nameToCode[name] = code;
   });
 
+  // ★ [환율 연동] 종목코드→통화 맵 (소급 스냅샷 환율 환산용)
+  var codeToCurrencyBf = {};
+  try {
+    var codeSh2 = ss.getSheetByName(CONFIG.SHEET_CODES);
+    if (codeSh2 && codeSh2.getLastRow() > 1) {
+      var codeData2 = codeSh2.getRange(2, 1, codeSh2.getLastRow() - 1, Math.min(5, codeSh2.getLastColumn())).getValues();
+      codeData2.forEach(function(row) {
+        var code = _cleanCode(row[0]) || (row[0] || '').toString().trim();
+        var cur  = (row[4] || '').toString().trim().toUpperCase();
+        if (code && cur && cur !== 'KRW') codeToCurrencyBf[code] = cur;
+      });
+    }
+  } catch(e) {}
+
   var existingDates = {};
   var existingPhDates = {};
   if (!overwrite) {
@@ -2684,11 +2698,42 @@ function _backfillExecute() {
         }
 
         var snapRows = [];
+        // ★ [환율 연동] 소급 스냅샷에서도 외화 종목 원화 환산
+        // 해당 날짜의 환율을 GOOGLEFINANCE로 조회 (과거 환율)
+        var bfFxRates = {};
+        try {
+          var fxCurrencies = ['USD','JPY','EUR','CNY','HKD'];
+          var hasForeignStock = Object.keys(holdAtDate).some(function(k) {
+            return codeToCurrencyBf[holdAtDate[k].code || ''];
+          });
+          if (hasForeignStock) {
+            var fxSheet = ss.getSheetByName('_fx_tmp_') || ss.insertSheet('_fx_tmp_');
+            fxSheet.clearContents();
+            var fxFormulas = fxCurrencies.map(function(cur) {
+              return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW","price","' + dateStr + '"),0)'];
+            });
+            fxSheet.getRange(1, 1, fxFormulas.length, 1).setFormulas(fxFormulas);
+            SpreadsheetApp.flush();
+            var fxVals = fxSheet.getRange(1, 1, fxFormulas.length, 1).getValues();
+            fxCurrencies.forEach(function(cur, i) {
+              var v = Number(fxVals[i][0]);
+              if (v > 0) bfFxRates[cur] = Math.round(v * 10) / 10;
+            });
+            fxSheet.clearContents();
+          }
+        } catch(fxErr) {
+          Logger.log('소급 환율 조회 실패 ' + dateStr + ': ' + fxErr.message);
+        }
+
         Object.keys(holdAtDate).forEach(function(k) {
           var h = holdAtDate[k];
           if (h.qty <= 0) return;
           var price   = (h.code && prices[h.code]) ? prices[h.code] : 0;
-          var evalAmt = price > 0 ? Math.round(price * h.qty) : h.costAmt;
+          // ★ [환율 연동] 외화 종목 원화 환산
+          var hCurrency = (h.code && codeToCurrencyBf[h.code]) ? codeToCurrencyBf[h.code] : 'KRW';
+          var hFxRate   = (hCurrency !== 'KRW' && bfFxRates[hCurrency] > 0) ? bfFxRates[hCurrency] : 1;
+          var priceKrw  = price > 0 ? Math.round(price * hFxRate) : 0;
+          var evalAmt   = priceKrw > 0 ? Math.round(priceKrw * h.qty) : h.costAmt;
           var pnl     = evalAmt - h.costAmt;
           var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
           var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
