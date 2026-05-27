@@ -659,21 +659,28 @@ async function applyPrices() {
         const d = await res.json();
         batchOk = (d && d.status === 'ok');
         if (!batchOk) {
-          console.warn('[batchSaveManualPrices] GAS 오류:', d);
-          gasSaveTargets.forEach(t => gasFailedKeys.push(t.key));
-          gasFailedCount = gasSaveTargets.length;
+          console.warn('[batchSaveManualPrices] GAS 오류 → 건당 fallback 시작:', d);
+          // ★ GAS status:error 응답 시에도 건당 fallback — 배포 전 구버전 GAS 대응
+          for (const target of gasSaveTargets) {
+            const r = await _saveManualPriceWithRetry(target, 1);
+            if (!r.ok) {
+              gasFailedCount++;
+              gasFailedKeys.push(target.key);
+            }
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
         }
       } catch(fetchErr) {
         clearTimeout(timer);
-        console.warn('[batchSaveManualPrices] 네트워크 오류:', fetchErr.message);
-        // ★ 배치 실패 시 건당 개별 저장으로 fallback
+        console.warn('[batchSaveManualPrices] 네트워크 오류 → 건당 fallback 시작:', fetchErr.message);
+        // ★ 네트워크 오류 시에도 건당 fallback
         for (const target of gasSaveTargets) {
           const r = await _saveManualPriceWithRetry(target, 1);
           if (!r.ok) {
             gasFailedCount++;
             gasFailedKeys.push(target.key);
           }
-          await new Promise(r => setTimeout(r, 300));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
     } catch(e) {
