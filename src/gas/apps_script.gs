@@ -281,6 +281,8 @@ function doPost(e) {
   if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
+  // ★ [최적화] 배치 수동가격 저장 — 건당 개별 요청 → 1회 일괄 처리
+  if (params.action === 'batchSaveManualPrices' && params.data) return handleBatchSaveManualPrices(params.date || '', params.data);
   return jsonError('알 수 없는 action: ' + (params.action || '없음'));
 }
 
@@ -1357,6 +1359,76 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  배치 수동가격 저장 — 건당 GAS 왕복 → 1회 일괄 처리
+//  요청: { date, data: JSON.stringify([{key, price}, ...]) }
+//  효과: 종목 N개 → GAS 왕복 1회 + 스냅샷 재작성 1회
+// ════════════════════════════════════════════════════════════════════
+function handleBatchSaveManualPrices(dateStr, dataJson) {
+  try {
+    if (!dateStr || !dataJson) return jsonError('date, data 필요');
+    var items;
+    try { items = JSON.parse(dataJson); } catch(e) { return jsonError('data JSON 파싱 실패: ' + e.message); }
+    if (!Array.isArray(items) || items.length === 0) return jsonError('items 배열 필요');
+
+    var ss      = getss();
+    var savedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    var keepLatest = _isManualKeepLatestEnabled();
+
+    // ── Step 1: 전체 종목 일괄 upsert (batchUpsertPriceHistory 재사용)
+    var batchItems = items.map(function(item) {
+      var rawKey = (item.key || '').toString().trim();
+      // key가 코드 형식이면 code로, 아니면 name으로
+      var isCodeLike = /^[A-Z0-9]{5,8}$/.test(rawKey.toUpperCase()) && !/^[가-힣a-z\s]+$/.test(rawKey);
+      var saveCode = isCodeLike ? rawKey : '';
+      var saveName = isCodeLike ? '' : rawKey;
+      // 코드인 경우 종목명 보완
+      if (isCodeLike && !saveName) {
+        var codeItems = getCodeItems(ss);
+        for (var ci = 0; ci < codeItems.length; ci++) {
+          if (codeItems[ci].code === rawKey) { saveName = codeItems[ci].name; break; }
+        }
+      }
+      return {
+        code:    saveCode,
+        name:    saveName,
+        price:   parseFloat(item.price) || 0,
+        savedAt: savedAt,
+        source:  'MANUAL',
+      };
+    }).filter(function(i) { return i.price > 0 && (i.code || i.name); });
+
+    if (batchItems.length === 0) return jsonError('유효한 가격 데이터 없음');
+
+    batchUpsertPriceHistory(ss, dateStr, batchItems);
+
+    // ── Step 2: keepLatest 처리 (중복 수동가격 정리)
+    if (keepLatest) {
+      batchItems.forEach(function(item) {
+        try { _pruneManualPriceHistoryKeepLatest(ss, item.code, item.name); } catch(e) {}
+      });
+    }
+
+    // ── Step 3: 스냅샷 재작성 — 모든 종목 저장 완료 후 1회만 실행
+    try {
+      var normDate   = _normalizeDate(dateStr);
+      if (normDate) {
+        var expectedRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, normDate);
+        var existingRows = _readSnapshotRowsByDate(ss, normDate);
+        if (_snapshotRowsSignature(existingRows) !== _snapshotRowsSignature(expectedRows)) {
+          writeSnapshotRows(ss, normDate, expectedRows, true);
+        }
+      }
+    } catch(snapErr) {
+      Logger.log('⚠️ 배치저장 후 스냅샷 재작성 실패: ' + snapErr.message);
+    }
+
+    return jsonOk({ saved: batchItems.length, date: dateStr, keepLatest: keepLatest });
+  } catch(err) {
+    return jsonError('batchSaveManualPrices 실패: ' + err.message);
+  }
+}
+
 function _rebuildSnapshotForDateFromHistory(ss, dateStr, targetCode, targetName) {
   try {
     var normDate = _normalizeDate(dateStr);
@@ -1926,34 +1998,99 @@ function handleSyncTrades(dataJson) {
   }
 }
 
+function _getPrevTradingDay(fromDateStr, maxDaysBack) {
+  var max = maxDaysBack || 7;
+  var dt  = new Date(fromDateStr + 'T00:00:00');
+  for (var i = 1; i <= max; i++) {
+    dt.setDate(dt.getDate() - 1);
+    var dow = dt.getDay();
+    if (dow === 0 || dow === 6) continue; // 주말 건너뜀
+    return Utilities.formatDate(dt, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  }
+  return null;
+}
+
 // ════════════════════════════════════════════════════════════════════
-//  매일 오후 4시 자동 실행 — 가격이력 저장 + 스냅샷 생성
+//  가격이력·스냅샷 일치 보장 — 전일(T-1) 확정 종가 기준 정합성 유지
+//
+//  [기존 문제]
+//  - 16:20 트리거에서 "당일" 종가를 저장하는데, 장 마감(15:30) 직후라
+//    KRX가 전일 종가를 반환하는 경우가 있음
+//  - 가격이력은 다음날 _repairRecentNonKrxHistory()로 보정되지만
+//    스냅샷은 재작성되지 않아 가격이력·스냅샷 단가 불일치 발생
+//
+//  [해결]
+//  - 전일(T-1) KRX 확정 종가를 명시적으로 가져와 가격이력에 저장
+//  - 전일 가격이력과 전일 스냅샷을 비교 → 불일치 시 스냅샷 재작성
+//  - 오늘(T) 스냅샷도 전일 확정 종가 기준으로 작성
 // ════════════════════════════════════════════════════════════════════
 function saveDailyPriceHistory() {
   try {
     var ss       = getss();
     var todayStr = today();
+    var prevDay  = _getPrevTradingDay(todayStr, 7);
 
     var items = getCodeItems(ss);
     if (items.length === 0) { Logger.log('종목코드 없음'); return; }
 
-    // ★ 최근 7일 보정: KRX로 저장되지 않은 건만 KRX 기준으로 재확정
+    // ── Step 1: 전일(T-1) KRX 확정 종가 조회 및 가격이력 저장
+    var prevPrices = {};
+    if (prevDay) {
+      Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 확정 종가 조회 시작');
+      try {
+        var krxPrev = fetchPricesKrx(items, prevDay);
+        var prevSavedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+
+        // 전일 KRX 데이터를 가격이력에 저장 (MANUAL 보호)
+        var prevRows = [];
+        items.forEach(function(item) {
+          var p = krxPrev[item.code];
+          if (!p || !(p.price > 0)) return;
+          prevPrices[item.code] = p.price;
+          prevRows.push({ code: item.code, name: item.name, price: p.price,
+                          savedAt: prevSavedAt, source: 'KRX' });
+        });
+        if (prevRows.length > 0) {
+          batchUpsertPriceHistory(ss, prevDay, prevRows);
+          Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 가격이력 저장: ' + prevRows.length + '건');
+        }
+      } catch(e) {
+        Logger.log('⚠️ 전일 KRX 조회 실패: ' + e.message);
+      }
+
+      // ── Step 2: 전일 가격이력 재조회 (MANUAL 포함 최종 확정값)
+      var prevHistPrices = getPriceHistoryRow(ss, prevDay);
+
+      // ── Step 3: 전일 스냅샷 검증 및 불일치 시 재작성
+      Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 스냅샷 정합성 검증');
+      try {
+        var prevExpected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, prevDay);
+        var prevExisting = _readSnapshotRowsByDate(ss, prevDay);
+        if (_snapshotRowsSignature(prevExisting) !== _snapshotRowsSignature(prevExpected)) {
+          writeSnapshotRows(ss, prevDay, prevExpected, true);
+          Logger.log('✅ 전일(' + prevDay + ') 스냅샷 불일치 → 재작성 완료');
+        } else {
+          Logger.log('ℹ️ 전일(' + prevDay + ') 스냅샷 이미 일치');
+        }
+      } catch(e) {
+        Logger.log('⚠️ 전일 스냅샷 재작성 실패: ' + e.message);
+      }
+    }
+
+    // ── Step 4: 최근 7일 비-KRX 가격이력 보정 (기존 로직 유지)
     _repairRecentNonKrxHistory(ss, todayStr, items, 7);
 
+    // ── Step 5: 오늘(T) 가격이력 저장 (당일 실시간 + GF fallback)
     var existing = getPriceHistoryRow(ss, todayStr);
     var prices   = {};
-    var priceSources = {};
     Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
 
-    // ★ 자동 트리거: KRX 우선 확정, 실패분만 GF fallback
     var krxPrices = {};
-    try { krxPrices = fetchPricesKrx(items, todayStr); } catch(e) { Logger.log('⚠️ saveDailyPriceHistory KRX 실패: ' + e.message); }
+    try { krxPrices = fetchPricesKrx(items, todayStr); } catch(e) {
+      Logger.log('⚠️ saveDailyPriceHistory KRX 실패: ' + e.message);
+    }
 
-    // ★ [버그수정] KRX fallback 날짜 처리
-    //   KRX는 당일 장 마감 전/직후엔 데이터 없음 → 자동으로 직전 거래일 데이터 반환
-    //   이때 반환된 가격의 usedDate(실제 날짜)가 todayStr과 다를 수 있음
-    //   → 실제 날짜(usedDate)별로 분리해서 저장해야 날짜 오기입 방지
-    var krxByDate = {};  // usedDate → [{ code, name, price, source }]
+    var krxByDate = {};
     items.forEach(function(item) {
       var p = krxPrices[item.code];
       if (!p || !(p.price > 0)) return;
@@ -1962,22 +2099,22 @@ function saveDailyPriceHistory() {
       krxByDate[saveDate].push({ code: item.code, name: item.name, price: p.price, source: 'KRX' });
     });
 
-    // KRX로 확정된 종목 제외하고 GF로 보완 (당일 날짜 기준)
-    var gfNeedItems = items.filter(function(item){ return !(krxPrices[item.code] && krxPrices[item.code].price > 0); });
+    var gfNeedItems = items.filter(function(item){
+      return !(krxPrices[item.code] && krxPrices[item.code].price > 0);
+    });
     var gfPrices = gfNeedItems.length > 0 ? fetchPricesGoogleFinance(gfNeedItems, todayStr, ss) : {};
 
-    // GF 결과는 todayStr 기준으로만 저장
     var gfRows = [];
     gfNeedItems.forEach(function(item) {
       var p = gfPrices[item.code];
-      if (p && p.price > 0) gfRows.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'GOOGLEFINANCE') });
+      if (p && p.price > 0) gfRows.push({ code: item.code, name: item.name, price: p.price,
+                                           source: (p.source || 'GOOGLEFINANCE') });
     });
     if (gfRows.length > 0) {
       if (!krxByDate[todayStr]) krxByDate[todayStr] = [];
       krxByDate[todayStr] = krxByDate[todayStr].concat(gfRows);
     }
 
-    // 날짜별로 분리 저장 — KRX fallback이 전일이면 전일 날짜로 저장
     Object.keys(krxByDate).forEach(function(saveDate) {
       var rows = krxByDate[saveDate];
       if (!rows || rows.length === 0) return;
@@ -1989,106 +2126,25 @@ function saveDailyPriceHistory() {
         batchUpsertPriceHistory(ss, saveDate, toSave);
         Logger.log('[saveDailyPriceHistory] ' + saveDate + ' 저장 ' + toSave.length + '건');
       }
-      // prices 맵 갱신 (스냅샷 계산용) — todayStr 기준으로만
       if (saveDate === todayStr) {
         rows.forEach(function(r){ prices[r.code] = r.price; });
       }
     });
 
-    // 스냅샷은 todayStr 기준 (오늘 보유 현황 + 가장 최근 가격 반영)
+    // ── Step 6: 오늘(T) 스냅샷 작성
+    // ★ 오늘 스냅샷도 전일 확정 종가 기준으로 _buildSnapshotRows가 처리함
+    // (가격이력 시트에 전일 종가가 저장됐으므로 자동으로 전일 종가 참조)
     var snapRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, todayStr);
-
     if (snapRows.length === 0) { Logger.log('스냅샷 저장할 데이터 없음'); return; }
     writeSnapshotRows(ss, todayStr, snapRows, true);
+
     SpreadsheetApp.flush();
+    Logger.log('✅ saveDailyPriceHistory 완료: 전일(' + (prevDay||'-') + ') + 오늘(' + todayStr + ')');
   } catch(err) {
     Logger.log('❌ saveDailyPriceHistory 실패: ' + err.message);
   }
 }
 
-function _repairRecentNonKrxHistory(ss, todayStr, items, daysBack) {
-  try {
-    var ph = ss.getSheetByName(CONFIG.SHEET_PH);
-    if (!ph || ph.getLastRow() < 2) return;
-    var byCode = {};
-    items.forEach(function(it){ byCode[it.code] = it; });
-    var recentDateSet = {};
-    var td = new Date(todayStr + 'T00:00:00');
-    var n = daysBack || 7;
-    for (var i = 1; i <= n; i++) {
-      var d = new Date(td);
-      d.setDate(d.getDate() - i);
-      recentDateSet[Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd')] = true;
-    }
-
-    var data = ph.getRange(2, 1, ph.getLastRow() - 1, Math.max(6, ph.getLastColumn())).getValues();
-    var targets = {};
-    data.forEach(function(r) {
-      var dateStr = _normalizeDate(r[0]);
-      if (!recentDateSet[dateStr]) return;
-      var code = _cleanCode(r[1]);
-      if (!code || !byCode[code]) return;
-      var src = (r[5] || '').toString().trim().toUpperCase();
-      // ★ [버그수정] MANUAL 소스도 보호 — 수동입력 가격을 KRX로 덮어쓰지 않음
-      if (src === 'KRX' || src === 'KRX_OTP' || src === 'MANUAL') return;
-      if (!targets[dateStr]) targets[dateStr] = {};
-      targets[dateStr][code] = true;
-    });
-
-    var fixedTotal = 0;
-    Object.keys(targets).forEach(function(dateStr) {
-      var subset = Object.keys(targets[dateStr]).map(function(code){ return byCode[code]; }).filter(Boolean);
-      if (subset.length === 0) return;
-      var krxMap = fetchPricesKrx(subset, dateStr);
-      var rows = [];
-      subset.forEach(function(item) {
-        var p = krxMap[item.code];
-        if (p && p.price > 0) rows.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'KRX') });
-      });
-      if (rows.length > 0) {
-        batchUpsertPriceHistory(ss, dateStr, rows);
-        fixedTotal += rows.length;
-      }
-    });
-    if (fixedTotal > 0) {
-      Logger.log('✅ 최근 ' + n + '일 비-KRX 가격이력 보정 완료: ' + fixedTotal + '건');
-    } else {
-      Logger.log('ℹ️ 최근 ' + n + '일 비-KRX 보정 대상 없음');
-    }
-  } catch (e) {
-    Logger.log('⚠️ 최근 비-KRX 보정 실패: ' + e.message);
-  }
-}
-
-function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
-  try {
-    if (!sourceByCode || Object.keys(sourceByCode).length === 0) return;
-    var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
-    if (!snap || snap.getLastRow() < 2) return;
-    // ★ 12콸럼으로 확장 읽기
-    var cols = Math.max(12, snap.getLastColumn());
-    var data = snap.getRange(2, 1, snap.getLastRow() - 1, cols).getValues();
-    var updates = [];
-    for (var i = 0; i < data.length; i++) {
-      var d = _normalizeDate(data[i][0]);
-      if (d !== dateStr) continue;
-      var code = _cleanCode(data[i][1]);
-      var nextSrc = sourceByCode[code];
-      if (!nextSrc) continue;
-      var curSrc = (data[i][10] || '').toString().trim();
-      // ★ 이미 MANUAL로 저장된 항목은 자동조회로 덮어쓰지 않음
-      if (curSrc === 'MANUAL') continue;
-      if (curSrc === nextSrc) continue;
-      updates.push({ row: i + 2, src: nextSrc });
-    }
-    updates.forEach(function(u) { snap.getRange(u.row, 11).setValue(u.src); });
-  } catch (e) {
-    Logger.log('⚠️ 스냅샷 소스 업데이트 실패: ' + e.message);
-  }
-}
-
-// ════════════════════════════════════════════════════════════════════
-//  단일 날짜 가격/스냅샷 복구
 //  예: repairPriceAndSnapshotForDate('2026-04-08')
 // ════════════════════════════════════════════════════════════════════
 function repairPriceAndSnapshotForDate(dateStr) {
@@ -2495,6 +2551,9 @@ function runEvalPriceUpdate1620() {
   saveDailyPriceHistory();
 }
 
+// ════════════════════════════════════════════════════════════════════
+//  전일(T-1) 거래일 계산 — 주말/공휴일 건너뜀 (최대 7일 전까지)
+// ════════════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════════════
 //  소급채우기 — 팝업 입력창
 // ════════════════════════════════════════════════════════════════════
