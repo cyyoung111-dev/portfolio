@@ -632,27 +632,56 @@ async function applyPrices() {
     }
   });
 
-  // ★ GAS 저장 — 순차 처리 (동시 요청 시 abort 방지)
+  // ★ [최적화] GAS 저장 — 건당 개별 요청 → 배치 1회 요청
+  // 기존: N개 종목 × (GAS 왕복 + 스냅샷 재작성 + 300ms 대기) = 매우 느림
+  // 개선: 전체 종목 JSON 1회 POST → GAS에서 일괄 처리 후 스냅샷 1회 재작성
   let gasFailedCount = 0;
   const gasFailedKeys = [];
-  if (gasSaveTargets.length > 0) {
-    for (const target of gasSaveTargets) {
-      const r = await _saveManualPriceWithRetry(target, 1);
-      if (!r.ok) {
-        gasFailedCount++;
-        gasFailedKeys.push(target.key);
-        console.warn('[saveManualPrice] 오류:', target.key, (r.err && r.err.message) ? r.err.message : r.err);
+  if (gasSaveTargets.length > 0 && GSHEET_API_URL) {
+    try {
+      const gasDate = editorDateRaw || `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
+      const batchPayload = gasSaveTargets.map(t => ({ key: t.key, price: t.price }));
+      const form = new URLSearchParams();
+      form.set('action', 'batchSaveManualPrices');
+      form.set('date', gasDate);
+      form.set('data', JSON.stringify(batchPayload));
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 60000); // 60초 타임아웃
+      let batchOk = false;
+      try {
+        const res = await fetch(GSHEET_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: form.toString(),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        const d = await res.json();
+        batchOk = (d && d.status === 'ok');
+        if (!batchOk) {
+          console.warn('[batchSaveManualPrices] GAS 오류:', d);
+          gasSaveTargets.forEach(t => gasFailedKeys.push(t.key));
+          gasFailedCount = gasSaveTargets.length;
+        }
+      } catch(fetchErr) {
+        clearTimeout(timer);
+        console.warn('[batchSaveManualPrices] 네트워크 오류:', fetchErr.message);
+        // ★ 배치 실패 시 건당 개별 저장으로 fallback
+        for (const target of gasSaveTargets) {
+          const r = await _saveManualPriceWithRetry(target, 1);
+          if (!r.ok) {
+            gasFailedCount++;
+            gasFailedKeys.push(target.key);
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
       }
-      // ★ 요청 사이 300ms 대기 — GAS 동시 요청 충돌 방지
-      await new Promise(r => setTimeout(r, 300));
+    } catch(e) {
+      console.warn('[applyPrices] GAS 저장 예외:', e.message);
     }
-    if (gasFailedCount > 0) {
-      if (typeof showToast === 'function') {
-        const sample = gasFailedKeys.slice(0, 3).join(', ');
-        showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
-      }
-    } else {
-      // GAS 저장 완료 (토스트는 applyPrices 완료 후 표시)
+    if (gasFailedCount > 0 && typeof showToast === 'function') {
+      const sample = gasFailedKeys.slice(0, 3).join(', ');
+      showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
     }
   }
 
@@ -690,7 +719,7 @@ async function applyPrices() {
       done.innerHTML = `⚠️ 로컬 저장 완료 · GAS 저장 실패 ${gasFailedCount}건${sample ? '<br><span style="font-size:.70rem;color:var(--muted)">실패 키: ' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + '</span>' : ''}`;
       done.style.color = 'var(--amber)';
     } else {
-      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${_escapeHtml(dateStr)} ${_escapeHtml(timeStr)} 기준 · GAS 동기화 완료</span>`;
+      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${_escapeHtml(dateStr)} ${_escapeHtml(timeStr)} 기준 · GAS 일괄 동기화 완료</span>`;
     }
     body.prepend(done);
   }
