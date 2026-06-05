@@ -20,8 +20,10 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-// Heuristic: detect top-level function declarations in classic script files.
-const fnDecl = /^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/;
+// Detect global function declarations in classic script files.
+// Top-level declarations in this codebase are intentionally column-aligned.
+// Nested helper declarations are indented and must not be treated as globals.
+const fnDecl = /^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/;
 const hits = new Map();
 
 for (const file of files) {
