@@ -1376,19 +1376,19 @@ function handleBatchSaveManualPrices(dateStr, dataJson) {
     var keepLatest = _isManualKeepLatestEnabled();
 
     // ── Step 1: 전체 종목 일괄 upsert (batchUpsertPriceHistory 재사용)
+    // 코드→종목명 매핑은 한 번만 읽는다. 기존처럼 map() 내부에서 getCodeItems()를 반복 호출하면
+    // 수동 입력 종목 수만큼 시트 read가 발생해 저장 시간이 길어진다.
+    var codeNameMap = {};
+    getCodeItems(ss).forEach(function(codeItem) {
+      if (codeItem.code && codeItem.name) codeNameMap[codeItem.code] = codeItem.name;
+    });
+
     var batchItems = items.map(function(item) {
       var rawKey = (item.key || '').toString().trim();
       // key가 코드 형식이면 code로, 아니면 name으로
       var isCodeLike = /^[A-Z0-9]{5,8}$/.test(rawKey.toUpperCase()) && !/^[가-힣a-z\s]+$/.test(rawKey);
       var saveCode = isCodeLike ? rawKey : '';
-      var saveName = isCodeLike ? '' : rawKey;
-      // 코드인 경우 종목명 보완
-      if (isCodeLike && !saveName) {
-        var codeItems = getCodeItems(ss);
-        for (var ci = 0; ci < codeItems.length; ci++) {
-          if (codeItems[ci].code === rawKey) { saveName = codeItems[ci].name; break; }
-        }
-      }
+      var saveName = isCodeLike ? (codeNameMap[rawKey] || '') : rawKey;
       return {
         code:    saveCode,
         name:    saveName,
