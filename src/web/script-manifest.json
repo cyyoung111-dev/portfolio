@@ -17,6 +17,7 @@
     "views/views_div_asset.js",
     "views/views_asset_loan.js",
     "views/views_asset.js",
+    "views/views_plan.js",
     "views/views_asset_schedule.js",
     "views/views_asset_schedule_data.js",
     "views/views_asset_schedule_chart.js",
