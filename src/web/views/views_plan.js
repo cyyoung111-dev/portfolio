@@ -32,6 +32,9 @@ function renderPlanView(area) {
   area.innerHTML = `
 <div style="display:flex;flex-direction:column;gap:20px;padding:4px 0">
 
+  <!-- ⓪ 엑셀 내보내기 -->
+  ${_buildExportSection(totalEval, totalCost)}
+
   <!-- ① 목표 비중 관리 -->
   ${_buildWeightSection(totalEval)}
 
@@ -47,6 +50,158 @@ function renderPlanView(area) {
 </div>`;
 
   _bindPlanEvents(area, totalEval, totalCost);
+}
+
+// ════════════════════════════════════
+// ⓪ 엑셀 내보내기
+// ════════════════════════════════════
+function _buildExportSection(totalEval, totalCost) {
+  const totalPnl = totalEval - totalCost;
+  const acctCount = new Set(rows.map(r => r.acct).filter(Boolean)).size;
+  const stockCount = rows.length;
+  return `<div class="card-12-p20">
+    <div class="flex-between-mb14">
+      <h4 class="h3-card">📊 포트폴리오 엑셀 내보내기</h4>
+      <button data-plan-action="export-excel" class="btn-purple-sm">📥 엑셀 다운로드</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:.78rem">
+      ${[
+        ['계좌 수', `${acctCount}개`],
+        ['종목 수', `${stockCount}개`],
+        ['총 평가금액', fmt(totalEval)],
+        ['총 손익', `${pSign(totalPnl)}${fmt(Math.abs(totalPnl))}`],
+      ].map(([l,v])=>`<div class="s2-rounded">
+        <div class="lbl-62-muted-3">${l}</div>
+        <div class="fw-600">${v}</div>
+      </div>`).join('')}
+    </div>
+    <div style="font-size:.68rem;color:var(--muted);margin-top:10px">
+      종목별 상세 · 계좌별 요약 · 섹터별 요약 3개 시트로 구성된 엑셀 파일을 받습니다.
+    </div>
+  </div>`;
+}
+
+// 현재 보유 종목(rows)을 엑셀(.xlsx)로 내보내기
+// 시트1: 종목별 상세 (계좌/종목/유형/섹터/수량/단가/평가금액/손익/수익률/통화)
+// 시트2: 계좌별 요약
+// 시트3: 섹터별 요약
+function exportPortfolioExcel() {
+  if (typeof XLSX === 'undefined') { showToast('라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.', 'warn'); return; }
+  if (!rows || rows.length === 0) { showToast('내보낼 보유 종목이 없습니다', 'warn'); return; }
+
+  const wb = XLSX.utils.book_new();
+  const todayStr = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : new Date().toISOString().slice(0,10);
+
+  // ── 시트1: 종목별 상세
+  const headerRow1 = ['계좌','종목명','종목코드','유형','섹터','수량','매입단가','매입금액','현재단가','평가금액','손익','수익률(%)','통화'];
+  const dataRows1 = [...rows]
+    .sort((a,b) => (b.evalAmt||0) - (a.evalAmt||0))
+    .map(r => [
+      r.acct || '',
+      r.name || '',
+      r.code || '',
+      r.type || '',
+      r.sector || '기타',
+      r.qty != null ? r.qty : '',
+      Math.round(r.cost || 0),
+      Math.round(r.costAmt || 0),
+      Math.round(r.price || 0),
+      Math.round(r.evalAmt || 0),
+      Math.round(r.pnl || 0),
+      Number((r.pct || 0).toFixed(2)),
+      (r.currency || 'KRW'),
+    ]);
+  const totalEval1 = rows.reduce((s,r)=>s+(r.evalAmt||0),0);
+  const totalCost1 = rows.reduce((s,r)=>s+(r.costAmt||0),0);
+  const totalPnl1  = totalEval1 - totalCost1;
+  const totalPct1  = totalCost1 > 0 ? (totalPnl1/totalCost1*100) : 0;
+  const footerRow1 = ['합계','','','','','','', Math.round(totalCost1), '', Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), ''];
+
+  const ws1 = XLSX.utils.aoa_to_sheet([headerRow1, ...dataRows1, footerRow1]);
+  ws1['!cols'] = [
+    {wch:10},{wch:18},{wch:10},{wch:8},{wch:10},
+    {wch:10},{wch:12},{wch:14},{wch:12},{wch:14},
+    {wch:14},{wch:10},{wch:8},
+  ];
+  // 헤더 스타일
+  headerRow1.forEach((_, i) => {
+    const cell = XLSX.utils.encode_cell({ r:0, c:i });
+    if (ws1[cell]) ws1[cell].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E293B'}}, alignment:{horizontal:'center'} };
+  });
+  // 합계 행 스타일
+  const footerIdx = dataRows1.length + 1;
+  footerRow1.forEach((_, i) => {
+    const cell = XLSX.utils.encode_cell({ r:footerIdx, c:i });
+    if (ws1[cell]) ws1[cell].s = { font:{bold:true}, fill:{fgColor:{rgb:'F1F5F9'}} };
+  });
+  XLSX.utils.book_append_sheet(wb, ws1, '종목별 상세');
+
+  // ── 시트2: 계좌별 요약
+  const acctMap = {};
+  rows.forEach(r => {
+    const acct = r.acct || '미분류';
+    if (!acctMap[acct]) acctMap[acct] = { evalAmt:0, costAmt:0, count:0 };
+    acctMap[acct].evalAmt += (r.evalAmt || 0);
+    acctMap[acct].costAmt += (r.costAmt || 0);
+    acctMap[acct].count   += 1;
+  });
+  const headerRow2 = ['계좌','종목 수','매입금액','평가금액','손익','수익률(%)','비중(%)'];
+  const dataRows2 = Object.entries(acctMap)
+    .sort((a,b) => b[1].evalAmt - a[1].evalAmt)
+    .map(([acct, v]) => {
+      const pnl = v.evalAmt - v.costAmt;
+      const pct = v.costAmt > 0 ? (pnl/v.costAmt*100) : 0;
+      const weight = totalEval1 > 0 ? (v.evalAmt/totalEval1*100) : 0;
+      return [acct, v.count, Math.round(v.costAmt), Math.round(v.evalAmt), Math.round(pnl), Number(pct.toFixed(2)), Number(weight.toFixed(1))];
+    });
+  const ws2 = XLSX.utils.aoa_to_sheet([headerRow2, ...dataRows2,
+    ['합계', rows.length, Math.round(totalCost1), Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), 100]]);
+  ws2['!cols'] = [{wch:12},{wch:8},{wch:14},{wch:14},{wch:14},{wch:10},{wch:10}];
+  headerRow2.forEach((_, i) => {
+    const cell = XLSX.utils.encode_cell({ r:0, c:i });
+    if (ws2[cell]) ws2[cell].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E293B'}}, alignment:{horizontal:'center'} };
+  });
+  const footer2Idx = dataRows2.length + 1;
+  headerRow2.forEach((_, i) => {
+    const cell = XLSX.utils.encode_cell({ r:footer2Idx, c:i });
+    if (ws2[cell]) ws2[cell].s = { font:{bold:true}, fill:{fgColor:{rgb:'F1F5F9'}} };
+  });
+  XLSX.utils.book_append_sheet(wb, ws2, '계좌별 요약');
+
+  // ── 시트3: 섹터별 요약
+  const secMap = {};
+  rows.forEach(r => {
+    const sec = r.sector || '기타';
+    if (!secMap[sec]) secMap[sec] = { evalAmt:0, costAmt:0, count:0 };
+    secMap[sec].evalAmt += (r.evalAmt || 0);
+    secMap[sec].costAmt += (r.costAmt || 0);
+    secMap[sec].count   += 1;
+  });
+  const headerRow3 = ['섹터','종목 수','매입금액','평가금액','손익','수익률(%)','비중(%)'];
+  const dataRows3 = Object.entries(secMap)
+    .sort((a,b) => b[1].evalAmt - a[1].evalAmt)
+    .map(([sec, v]) => {
+      const pnl = v.evalAmt - v.costAmt;
+      const pct = v.costAmt > 0 ? (pnl/v.costAmt*100) : 0;
+      const weight = totalEval1 > 0 ? (v.evalAmt/totalEval1*100) : 0;
+      return [sec, v.count, Math.round(v.costAmt), Math.round(v.evalAmt), Math.round(pnl), Number(pct.toFixed(2)), Number(weight.toFixed(1))];
+    });
+  const ws3 = XLSX.utils.aoa_to_sheet([headerRow3, ...dataRows3,
+    ['합계', rows.length, Math.round(totalCost1), Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), 100]]);
+  ws3['!cols'] = [{wch:14},{wch:8},{wch:14},{wch:14},{wch:14},{wch:10},{wch:10}];
+  headerRow3.forEach((_, i) => {
+    const cell = XLSX.utils.encode_cell({ r:0, c:i });
+    if (ws3[cell]) ws3[cell].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E293B'}}, alignment:{horizontal:'center'} };
+  });
+  const footer3Idx = dataRows3.length + 1;
+  headerRow3.forEach((_, i) => {
+    const cell = XLSX.utils.encode_cell({ r:footer3Idx, c:i });
+    if (ws3[cell]) ws3[cell].s = { font:{bold:true}, fill:{fgColor:{rgb:'F1F5F9'}} };
+  });
+  XLSX.utils.book_append_sheet(wb, ws3, '섹터별 요약');
+
+  XLSX.writeFile(wb, `포트폴리오_${todayStr.replace(/-/g,'')}.xlsx`);
+  showToast('📥 엑셀 다운로드 완료', 'ok');
 }
 
 // ════════════════════════════════════
@@ -462,6 +617,11 @@ function _bindPlanEvents(area, totalEval, totalCost) {
       _planSettings.taxAcctType = acctType;
       _savePlanSettings();
       renderView(true);
+      return;
+    }
+
+    if (action === 'export-excel') {
+      exportPortfolioExcel();
       return;
     }
 
