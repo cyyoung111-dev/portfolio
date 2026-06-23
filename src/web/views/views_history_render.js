@@ -24,7 +24,6 @@ function renderHistoryView(area) {
           <div id="histBenchmarkMulti" title="비교지수(복수선택)"
             style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--s2)">
             <button type="button" class="hist-bench-btn" data-bench="KOSPI">KOSPI</button>
-            <button type="button" class="hist-bench-btn" data-bench="KOSDAQ">KOSDAQ</button>
             <button type="button" class="hist-bench-btn" data-bench="SP500">S&P500</button>
             <button type="button" class="hist-bench-btn" data-bench="NASDAQ">NASDAQ</button>
             <button type="button" class="hist-bench-btn" data-bench="NASDAQ100">NASDAQ100</button>
