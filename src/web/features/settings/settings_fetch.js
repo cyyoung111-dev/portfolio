@@ -13,6 +13,17 @@ async function fetchFromGsheet(dateStr) {
       const valid = list.filter(e => e && e.price > 0).sort(byLatest);
       return valid.length > 0 ? valid[valid.length - 1] : null;
     };
+    const pickLatestOnOrBefore = (list, targetDate) => {
+      if (!Array.isArray(list) || list.length === 0) return null;
+      const valid = list
+        .filter(e => e && e.price > 0 && (!e.date || e.date <= targetDate))
+        .sort((a, b) => {
+          const byDate = (a?.date || '').localeCompare(b?.date || '');
+          if (byDate !== 0) return byDate;
+          return (a?.savedAt || '').localeCompare(b?.savedAt || '');
+        });
+      return valid.length > 0 ? valid[valid.length - 1] : null;
+    };
     // ★ EDITABLE_PRICES 코드 + rawHoldings STOCK_CODE + GSheet 코드목록 합산 (중복 제거)
     const epWithCode = getEPWithCode();
     const epCodeSet = new Set(epWithCode.map(i => i.code));
@@ -69,18 +80,23 @@ async function fetchFromGsheet(dateStr) {
         if (missingCodes.length > 0) {
           try {
             const missingCodesStr = missingCodes.map(m => m.code).join(',');
+            const fallbackFromDate = _kstDateOffset(dateStr, -7);
             const data2 = await requestGsheetActionJson(
               'getPriceHistory',
-              { from: dateStr, to: dateStr, codes: missingCodesStr },
+              { from: fallbackFromDate, to: dateStr, codes: missingCodesStr },
               { timeoutMs: 15000, retry: 1 }
             );
             if (data2 && data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
                 const list = data2.prices[m.code] || [];
-                const entry = pickLatestPreferManual(list);
+                const entry = pickLatestOnOrBefore(list, dateStr);
                 if (entry && entry.price > 0) {
                   codeResults[m.code] = Math.round(entry.price);
-                  if (entry.savedAt) priceMeta[m.code] = { savedAt: entry.savedAt };
+                  priceMeta[m.code] = {
+                    savedAt: entry.savedAt || '',
+                    sourceDate: entry.date || '',
+                    isFallback: !!entry.date && entry.date !== dateStr
+                  };
                   return false;
                 }
                 return true;
