@@ -45,17 +45,26 @@ async function fetchFromGsheet(dateStr) {
       const codes = epItems.map(i => i.code).join(',');
       if (isToday) {
         // 오늘 (주말 포함) → getPrices 실시간 조회
-        const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
-        if (!data || data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
-        // ★ [환율 연동] 응답에 환율 데이터가 있으면 전역 exchangeRates에 저장
-        if (data.exchangeRates && typeof data.exchangeRates === 'object') {
-          Object.assign(exchangeRates, data.exchangeRates);
+        // 실시간 응답이 일시적으로 실패해도 전체 자동로드를 중단하지 않고
+        // 가격 이력 조회로 fallback 하여 콘솔의 불필요한 '응답 오류'를 방지한다.
+        try {
+          const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
+          if (!data || data.status !== 'ok' || !data.prices) {
+            throw new Error(data?.message || '실시간 가격 응답 오류');
+          }
+          // ★ [환율 연동] 응답에 환율 데이터가 있으면 전역 exchangeRates에 저장
+          if (data.exchangeRates && typeof data.exchangeRates === 'object') {
+            Object.assign(exchangeRates, data.exchangeRates);
+          }
+          epItems.forEach(i => {
+            const price = data.prices[i.code];
+            if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
+            else missingCodes.push({ name: i.name, code: i.code });
+          });
+        } catch(e) {
+          console.warn('[fetchFromGsheet] getPrices 실패, 가격 이력으로 대체:', e.message);
+          missingCodes = epItems.map(i => ({ name: i.name, code: i.code }));
         }
-        epItems.forEach(i => {
-          const price = data.prices[i.code];
-          if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
-          else missingCodes.push({ name: i.name, code: i.code });
-        });
         // ★ 실시간 조회에서 못 받은 종목은 getPriceHistory로 재시도
         if (missingCodes.length > 0) {
           try {
