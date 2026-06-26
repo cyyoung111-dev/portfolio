@@ -76,10 +76,13 @@ function syncHoldingsFromTrades() {
     if (!t.name || !t.acct) return;
     const key = t.acct + '||' + t.name;
     if (!map[key]) {
-      // 우선순위 ①: EDITABLE_PRICES.assetType/type  ②: 거래이력.assetType  ③: '주식'
       const _ep = getEP(t.name);
-      const epType = getEPType(_ep, t.assetType);
-      map[key] = { acct: t.acct, name: t.name, type: epType, qty: 0, totalCost: 0, fund: !!t.fund };
+      const epType    = getEPType(_ep, t.assetType);
+      // ★ [taxType 분리] taxType 우선순위: EDITABLE_PRICES > 거래이력 > '일반'
+      const epTaxType = (typeof getEPTaxType === 'function')
+        ? getEPTaxType(_ep, t.taxType || '일반')
+        : (t.taxType || '일반');
+      map[key] = { acct: t.acct, name: t.name, type: epType, taxType: epTaxType, qty: 0, totalCost: 0, fund: !!t.fund };
     }
     if (t.tradeType === 'buy') {
       map[key].qty       += (t.qty || 0);
@@ -95,7 +98,7 @@ function syncHoldingsFromTrades() {
 
   // ── Step 2: rawHoldings 재생성
   const newH = Object.values(map).filter(m => m.qty > 0).map(m => ({
-    acct: m.acct, type: m.type, name: m.name, qty: m.qty,
+    acct: m.acct, type: m.type, taxType: m.taxType || '일반', name: m.name, qty: m.qty,
     cost: m.qty > 0 ? Math.round(m.totalCost / m.qty) : 0,
     ...(m.fund ? {fund: true} : {})
   }));
@@ -158,10 +161,14 @@ function computeRows(holdings) {
     const evalAmt  = priceKrw * h.qty;
     const costAmt  = h.cost * h.qty;  // ★ h.cost는 이미 원화 — fxRate 곱하지 않음
     const type = getEPType(ep, h.type);
+    // ★ [taxType 분리] taxType: EDITABLE_PRICES > rawHoldings > '일반'
+    const taxType = (typeof getEPTaxType === 'function')
+      ? getEPTaxType(ep, h.taxType || '일반')
+      : (h.taxType || '일반');
     return {
-      ...h, name:nn, type, sector, code,
-      price:    priceKrw,   // 원화 환산 단가
-      priceRaw: pRaw,       // 원화 단가 (외화 종목은 외화 그대로)
+      ...h, name:nn, type, taxType, sector, code,
+      price:    priceKrw,
+      priceRaw: pRaw,
       evalAmt, costAmt,
       pnl:  evalAmt - costAmt,
       pct:  costAmt > 0 ? (evalAmt - costAmt) / costAmt * 100 : 0,

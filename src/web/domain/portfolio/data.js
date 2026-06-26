@@ -262,8 +262,21 @@ function getEPType(ep, fallback) {
   return (ep && (ep.assetType || ep.type)) || fallback || '주식';
 }
 
-function epPush(name, code, assetType) {
-  EDITABLE_PRICES.push({ name, code: normalizeStockCode(code), sector: '기타', assetType: assetType||'주식' });
+// ★ [taxType 분리] 세금 구분 조회 헬퍼
+// taxType: 일반 | ISA | IRP | 연금 (계좌/세금 처리 방식)
+// assetType과 완전히 별개 개념
+function getEPTaxType(ep, fallback) {
+  return (ep && ep.taxType) || fallback || '일반';
+}
+
+function epPush(name, code, assetType, taxType) {
+  EDITABLE_PRICES.push({
+    name,
+    code: normalizeStockCode(code),
+    sector: '기타',
+    assetType: assetType || '주식',
+    taxType:   taxType   || '일반',
+  });
   _invalidateEPIndex();
 }
 
@@ -638,12 +651,18 @@ function syncLoanFromSchedule() {
         // 같은 코드 중복 제거 (코드 있는 항목만)
         if (normalizedCode && seenCodes.has(normalizedCode)) return;
         if (normalizedCode) seenCodes.add(normalizedCode);
+        // ★ [taxType 분리] 기존 assetType이 세금구분(ISA/IRP/연금)이면 taxType으로 이전
+        const rawAsset = e?.assetType || e?.type || '주식';
+        const TAX_TYPES = ['ISA','IRP','연금'];
+        const migratedTaxType  = TAX_TYPES.includes(rawAsset) ? rawAsset : (e?.taxType || '일반');
+        const migratedAssetType = TAX_TYPES.includes(rawAsset) ? '주식' : rawAsset;
         const next = {
           ...e,
-          name: normalizedName,
-          code: normalizedCode,
-          sector: e?.sector || '기타',
-          assetType: e?.assetType || e?.type || '주식',
+          name:      normalizedName,
+          code:      normalizedCode,
+          sector:    e?.sector    || '기타',
+          assetType: migratedAssetType,
+          taxType:   migratedTaxType,
         };
         EDITABLE_PRICES.push(next);
       });
