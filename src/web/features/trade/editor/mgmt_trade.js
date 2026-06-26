@@ -5,7 +5,8 @@
 let _editingTradeId = null;
 let _teIsNewMode    = false; // 신규 종목 선택 모드
 let _teNewSectorFilter = '';  // 신규 모드 섹터 필터
-let _teNewTypeFilter   = '';  // 신규 모드 자산구분 필터
+let _teNewTypeFilter   = '';  // 신규 모드 유형(자산종류) 필터
+let _teNewTaxFilter    = '';  // 신규 모드 구분(세금/계좌) 필터
 
 function _teSetTradeType(type) {
   const f      = id => $el(id);
@@ -49,7 +50,8 @@ function _renderTeAcctBtns(active, acctList) {
 function _tePickAcct(val) {
   _teIsNewMode = false;
   _teNewSectorFilter = '';
-  _teNewTypeFilter = '';
+  _teNewTypeFilter   = '';
+  _teNewTaxFilter    = '';
   const inp = $el('te-acct'); if (inp) inp.value = val;
   _renderTeAcctBtns(val, getAcctList().filter(a => a !== '전체'));
   // 계좌 선택 시 해당 계좌 종목만 필터링
@@ -74,10 +76,10 @@ function _teRenderNewFilter() {
   const nf = $el('te-new-filter');
   if (!nf) return;
 
-  // 섹터 목록: EDITABLE_PRICES에서 추출
-  const sectors = ['전체', ...new Set(EDITABLE_PRICES.map(e => e.sector || '기타').filter(Boolean)).values()].sort((a,b) => a==='전체'?-1:b==='전체'?1:a.localeCompare(b));
-  // 자산구분 목록
-  const types = ['전체','주식','ETF','ISA','IRP','연금','펀드','TDF'];
+  const sectors  = ['전체', ...new Set(EDITABLE_PRICES.map(e => e.sector || '기타').filter(Boolean)).values()].sort((a,b) => a==='전체'?-1:b==='전체'?1:a.localeCompare(b));
+  // ★ [taxType 분리] 유형(자산종류)과 구분(세금/계좌)을 별도 필터로 분리
+  const assetTypes = ['전체','주식','ETF','펀드','TDF'];
+  const taxTypes   = ['전체','일반','ISA','IRP','연금'];
 
   const realAccts = getAcctList().filter(a => a !== '전체');
   const curAcct = $el('te-acct')?.value || '';
@@ -104,11 +106,20 @@ function _teRenderNewFilter() {
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">구분</span>
+        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">유형</span>
         <div class="flex-wrap-gap3" id="te-new-type-btns">
-          ${types.map(t =>
+          ${assetTypes.map(t =>
             `<button type="button" data-te-action="new-type" data-value="${_escapeHtml(t)}" ` +
             `class="f-btn-sm ${_teNewTypeFilter===t||(!_teNewTypeFilter&&t==='전체')?'active':''}">${_escapeHtml(t)}</button>`
+          ).join('')}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span style="font-size:.68rem;color:var(--muted);flex-shrink:0;min-width:24px">구분</span>
+        <div class="flex-wrap-gap3" id="te-new-tax-btns">
+          ${taxTypes.map(tx =>
+            `<button type="button" data-te-action="new-tax" data-value="${_escapeHtml(tx)}" ` +
+            `class="f-btn-sm ${_teNewTaxFilter===tx||(!_teNewTaxFilter&&tx==='전체')?'active':''}">${_escapeHtml(tx)}</button>`
           ).join('')}
         </div>
       </div>
@@ -135,11 +146,20 @@ function _teNewPickType(t) {
   _refreshTeCodeListNew('', '');
 }
 
+// ★ [taxType 분리] 구분 필터 핸들러
+function _teNewPickTax(tx) {
+  _teNewTaxFilter = tx === '전체' ? '' : tx;
+  _teRenderNewFilter();
+  _refreshTeCodeListNew('', '');
+}
+
 function _refreshTeCodeListNew(selectedName) {
-  // 기초정보 전체에서 섹터/자산구분 필터 적용
+  // 기초정보 전체에서 섹터/유형/구분 필터 적용
   let items = EDITABLE_PRICES.filter(e => e.name);
   if (_teNewSectorFilter) items = items.filter(e => (e.sector||'기타') === _teNewSectorFilter);
   if (_teNewTypeFilter)   items = items.filter(e => (e.assetType||'주식') === _teNewTypeFilter);
+  // ★ [taxType 분리] 구분 필터 적용
+  if (_teNewTaxFilter)    items = items.filter(e => (e.taxType||'일반') === _teNewTaxFilter);
   const names = items.map(e => e.name).sort();
 
   const grp = $el('te-name-btns');
@@ -229,12 +249,18 @@ function _tePickName(name) {
 
   // 자산구분 자동 반영 (기초정보 우선)
   const assetType = getEPType(ep, '주식');
+  // ★ [taxType 분리] 구분도 함께 자동 세팅
+  const taxType = (typeof getEPTaxType === 'function') ? getEPTaxType(ep, '일반') : (ep?.taxType || '일반');
   $el('te-assettype').value = assetType;
+  if ($el('te-taxtype')) $el('te-taxtype').value = taxType;
   const grpAt = $el('te-assettype-group');
   if (grpAt) {
+    const taxBadge = taxType !== '일반'
+      ? `<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:rgba(139,92,246,.12);border:1px solid var(--c-purple-30);color:var(--purple);font-size:.68rem;font-weight:600;margin-left:6px">${_escapeHtml(taxType)}</span>`
+      : '';
     grpAt.innerHTML = `<span style="display:inline-block;padding:4px 10px;border-radius:6px;
       background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--gold);
-      font-size:.72rem;font-weight:600">${_escapeHtml(assetType)}</span>
+      font-size:.72rem;font-weight:600">${_escapeHtml(assetType)}</span>${taxBadge}
       <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
   }
 
@@ -349,7 +375,8 @@ function openAddTrade(prefill, forceTradeType) {
   _editingTradeId = prefill?.id || null;
   _teIsNewMode = false;
   _teNewSectorFilter = '';
-  _teNewTypeFilter = '';
+  _teNewTypeFilter   = '';
+  _teNewTaxFilter    = '';
   const t = prefill || {};
 
   if (!$el('tradeEditOverlay')) {
@@ -371,17 +398,21 @@ function openAddTrade(prefill, forceTradeType) {
 
   const _teEp        = getEP(normName(t.name) || t.name);
   const _teAssetType = getEPType(_teEp, t.assetType || t.type || '주식');
+  const _teTaxType   = (typeof getEPTaxType === 'function') ? getEPTaxType(_teEp, t.taxType || '일반') : (t.taxType || '일반');
   f('te-assettype').value = _teAssetType;
+  if (f('te-taxtype')) f('te-taxtype').value = _teTaxType;
 
   (function(){
     const grp = $el('te-assettype-group'); if (!grp) return;
     // 기존 종목이면 자산구분 잠금 (사용자 수정 불가)
     const isLocked = !!_teEp;
     if (isLocked) {
-      // 잠금: 선택된 값만 표시, 클릭 비활성화
+      const taxBadge = _teTaxType !== '일반'
+        ? `<span style="display:inline-block;padding:2px 8px;border-radius:6px;background:rgba(139,92,246,.12);border:1px solid var(--c-purple-30);color:var(--purple);font-size:.68rem;font-weight:600;margin-left:6px">${_escapeHtml(_teTaxType)}</span>`
+        : '';
       grp.innerHTML = `<span style="display:inline-block;padding:4px 10px;border-radius:6px;
         background:var(--c-amber-10);border:1px solid var(--c-amber-30);color:var(--gold);
-        font-size:.72rem;font-weight:600">${_escapeHtml(_teAssetType)}</span>
+        font-size:.72rem;font-weight:600">${_escapeHtml(_teAssetType)}</span>${taxBadge}
         <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
     } else {
       // 신규 종목: 자유롭게 선택 가능
@@ -450,8 +481,9 @@ function buildTradeEditOverlayHTML() {
           <div id="te-acct-group" class="flex-wrap-gap4-mt"></div>
         </div>
         <div>
-          ${lbl('자산 구분',false)}
+          ${lbl('유형 / 구분',false)}
           <input type="hidden" id="te-assettype" value="주식"/>
+          <input type="hidden" id="te-taxtype"   value="일반"/>
           <div id="te-assettype-group" class="flex-wrap-gap4-mt"></div>
         </div>
 
@@ -533,6 +565,7 @@ function _bindTradeEditEvents(el) {
     else if (action === 'new-acct') _teNewPickAcct(value);
     else if (action === 'new-sector') _teNewPickSector(value);
     else if (action === 'new-type') _teNewPickType(value);
+    else if (action === 'new-tax')    _teNewPickTax(value);
     else if (action === 'pick-name') _tePickName(value);
     else if (action === 'asset-type') _tePickAssetType(value);
   });
@@ -625,6 +658,8 @@ function saveTrade() {
     tradeType,
     acct:      acctVal,
     assetType: f('te-assettype').value,
+    // ★ [taxType 분리] 세금 구분 저장
+    taxType:   f('te-taxtype')?.value || '일반',
     name: normN, code, qty, price, date,
     memo: f('te-memo').value.trim(),
   };
