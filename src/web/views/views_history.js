@@ -47,13 +47,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   // 비교지수 정렬 (우측축, 복수 선택)
   const benchTypes = Array.isArray(benchmarkOpt?.types) ? benchmarkOpt.types : [];
   const benchSeriesMap = benchmarkOpt?.seriesMap || {};
-  const benchColorMap = {
-    KOSPI: '#60a5fa',
-    SP500: '#f59e0b',
-    NASDAQ: '#a78bfa',
-    NASDAQ100: '#fb7185',
-  };
-  const benchFallbackColors = ['#38bdf8', '#f97316', '#818cf8', '#e879f9'];
+  const benchColors = ['#60a5fa', '#22c55e', '#f59e0b', '#a78bfa', '#fb7185'];
   const benchLines = benchTypes.map((benchType, idx) => {
     const benchRaw = Array.isArray(benchSeriesMap[benchType]) ? benchSeriesMap[benchType] : [];
     const benchByDate = {};
@@ -91,7 +85,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       return { i, date, raw: lastBench || 0 };
     }).filter(b => b.raw > 0);
     arr.forEach(b => { b.idx = base > 0 ? (b.raw / base * 100) : 0; });
-    return { type: benchType, color: benchColorMap[benchType] || benchFallbackColors[idx % benchFallbackColors.length], pts: arr };
+    return { type: benchType, color: benchColors[idx % benchColors.length], pts: arr };
   }).filter(x => x.pts.length > 1);
   const hasBench = benchLines.length > 0;
   const allIdx = hasBench ? benchLines.flatMap(x => x.pts.map(p => p.idx)) : [];
@@ -411,9 +405,12 @@ function renderStocksView(area) {
             <input id="smMgmtNewCode" type="text" placeholder="종목코드" maxlength="6"
               style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem;font-family:'Courier New',monospace;text-align:center" />
           </div>
-          <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">유형</div>
+          <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">유형 <span style="font-weight:400">(자산 종류)</span></div>
           <div id="smTypeGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
           <input type="hidden" id="smMgmtNewType" value="주식"/>
+          <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">구분 <span style="font-weight:400">(세금/계좌)</span></div>
+          <div id="smTaxGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
+          <input type="hidden" id="smMgmtNewTax" value="일반"/>
           <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">섹터</div>
           <div id="smSecGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
           <input type="hidden" id="smMgmtNewSec" value="기타"/>

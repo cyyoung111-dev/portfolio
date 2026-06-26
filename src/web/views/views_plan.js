@@ -363,29 +363,45 @@ function _calcBuyingPower(items, totalEval, cash) {
 function _buildTaxSection(totalCost) {
   const totalEvalNow = rows.reduce((s, r) => s + (r.evalAmt || 0), 0);
   const totalPnl     = totalEvalNow - totalCost;
-  const acctType     = _planSettings.taxAcctType || 'normal';
   const taxRate      = _planSettings.taxRate || 22;
 
-  // 계좌별 손익 분리
+  // ★ [taxType 분리] taxType 기준으로 구분별 손익 집계
+  const taxPnl  = { '일반': 0, 'ISA': 0, 'IRP': 0, '연금': 0 };
+  const taxCost = { '일반': 0, 'ISA': 0, 'IRP': 0, '연금': 0 };
+  rows.forEach(r => {
+    const tx = ['ISA','IRP','연금'].includes(r.taxType) ? r.taxType : '일반';
+    taxPnl[tx]  += (r.pnl    || 0);
+    taxCost[tx] += (r.costAmt || 0);
+  });
+
+  const results = Object.entries(taxPnl).map(([tx, pnl]) => {
+    if (Math.abs(pnl) < 1 && taxCost[tx] < 1) return null;
+    const { taxable, tax, note } = _calcTaxByType(pnl, tx, taxRate);
+    return { tx, pnl, cost: taxCost[tx], taxable, tax, note };
+  }).filter(Boolean);
+
+  const totalTax     = results.reduce((s, r) => s + r.tax, 0);
+  const totalTaxable = results.reduce((s, r) => s + r.taxable, 0);
+
   const acctPnl = {};
   rows.forEach(r => {
     if (!r.acct) return;
-    if (!acctPnl[r.acct]) acctPnl[r.acct] = { eval: 0, cost: 0 };
+    if (!acctPnl[r.acct]) acctPnl[r.acct] = { eval: 0, cost: 0, taxType: r.taxType || '일반' };
     acctPnl[r.acct].eval += (r.evalAmt || 0);
     acctPnl[r.acct].cost += (r.costAmt || 0);
   });
-
-  // 세금 계산
-  const { taxable, tax, note } = _calcTax(totalPnl, acctType, taxRate);
 
   const acctRows = Object.entries(acctPnl).map(([acct, v]) => {
     const pnl   = v.eval - v.cost;
     const pct   = v.cost > 0 ? pnl / v.cost * 100 : 0;
     const color = pColor(pnl);
+    const txBadge = v.taxType !== '일반'
+      ? `<span style="font-size:.60rem;color:var(--purple);background:rgba(139,92,246,.12);border-radius:3px;padding:1px 4px;margin-left:4px">${v.taxType}</span>`
+      : '';
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--s2);border-radius:8px;margin-bottom:5px">
       <div style="display:flex;align-items:center;gap:6px">
         <span style="width:7px;height:7px;border-radius:50%;background:${ACCT_COLORS[acct]||'var(--muted)'}"></span>
-        <span style="font-size:.73rem;color:var(--text)">${_escapeHtml(acct)}</span>
+        <span style="font-size:.73rem;color:var(--text)">${_escapeHtml(acct)}</span>${txBadge}
       </div>
       <div style="text-align:right">
         <span style="font-size:.75rem;font-weight:600;color:${color}">${pSign(pnl)}${fmt(pnl)}</span>
@@ -394,77 +410,76 @@ function _buildTaxSection(totalCost) {
     </div>`;
   }).join('');
 
+  const taxRows = results.map(r => {
+    const color = r.tax > 0 ? 'var(--red-lt)' : 'var(--muted)';
+    return `<div style="display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:8px;align-items:center;padding:7px 10px;background:var(--s2);border-radius:8px;margin-bottom:5px;font-size:.73rem">
+      <span style="font-weight:700;color:${r.tx==='일반'?'var(--text)':'var(--purple)'}">${r.tx}</span>
+      <span style="text-align:right;color:${pColor(r.pnl)}">${pSign(r.pnl)}${fmt(r.pnl)}</span>
+      <span style="text-align:right;color:var(--muted)">${fmt(r.taxable)}</span>
+      <span style="text-align:right;color:${color}">${r.tax > 0 ? '-'+fmt(r.tax) : '-'}</span>
+    </div>`;
+  }).join('');
+
   return `<div class="card-12-p20">
     <h4 class="h3-card" style="margin-bottom:14px">🧾 세금 시뮬레이터</h4>
-
-    <!-- 계좌 유형 선택 -->
-    <div style="margin-bottom:12px">
-      <div class="lbl-62-muted-3" style="margin-bottom:6px">계좌 유형</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${[['normal','일반계좌'],['isa','ISA'],['irp','IRP/연금']].map(([v,l])=>
-          `<button data-plan-acct-type="${v}" class="${acctType===v?'btn-purple-sm':'btn-ghost-sm'}">${l}</button>`
-        ).join('')}
-      </div>
-    </div>
-
-    <!-- 세율 입력 (일반계좌만) -->
-    ${acctType === 'normal' ? `
     <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px">
       <div>
-        <div class="lbl-62-muted-3">양도소득세율 (%)</div>
+        <div class="lbl-62-muted-3">일반계좌 양도소득세율 (%)</div>
         <input type="number" id="plan-tax-rate" value="${taxRate}" min="0" max="50" step="0.1"
-          style="width:90px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem"/>
+          style="width:100px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem"/>
       </div>
       <button data-plan-action="calc-tax" class="btn-ghost-sm">계산</button>
-    </div>` : ''}
-
-    <!-- 계좌별 손익 -->
+    </div>
     <div style="margin-bottom:14px">${acctRows}</div>
-
-    <!-- 세금 결과 -->
-    <div style="background:${tax > 0 ? 'rgba(239,68,68,.08)' : 'var(--s2)'};border:1px solid ${tax > 0 ? 'rgba(239,68,68,.25)' : 'var(--border)'};border-radius:10px;padding:14px 16px">
+    ${results.length > 0 ? `
+    <div style="margin-bottom:8px">
+      <div style="display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:8px;padding:4px 10px;font-size:.65rem;color:var(--muted)">
+        <span>구분</span><span style="text-align:right">손익</span><span style="text-align:right">과세대상</span><span style="text-align:right">예상세금</span>
+      </div>
+      ${taxRows}
+    </div>` : ''}
+    <div style="background:${totalTax > 0 ? 'rgba(239,68,68,.08)' : 'var(--s2)'};border:1px solid ${totalTax > 0 ? 'rgba(239,68,68,.25)' : 'var(--border)'};border-radius:10px;padding:14px 16px">
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
         ${[
           ['총 손익', totalPnl, pColor(totalPnl)],
-          ['과세 대상 손익', taxable, pColor(taxable)],
-          ['예상 세금', -tax, tax > 0 ? 'var(--red-lt)' : 'var(--muted)'],
+          ['과세 대상 합계', totalTaxable, pColor(totalTaxable)],
+          ['예상 세금 합계', -totalTax, totalTax > 0 ? 'var(--red-lt)' : 'var(--muted)'],
         ].map(([l,v,c])=>`<div class="s2-rounded">
           <div class="lbl-62-muted-3">${l}</div>
           <div style="font-size:.82rem;font-weight:700;color:${c}">${pSign(v)}${fmt(Math.abs(v))}</div>
         </div>`).join('')}
       </div>
-      <div style="font-size:.68rem;color:var(--muted)">${_escapeHtml(note)}</div>
-      ${tax > 0 ? `
+      ${totalTax > 0 ? `
       <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)">
-        <div class="lbl-62-muted-3" style="margin-bottom:4px">세후 실현 손익</div>
-        <div style="font-size:1rem;font-weight:800;color:${pColor(totalPnl - tax)}">${pSign(totalPnl - tax)}${fmt(Math.abs(totalPnl - tax))}</div>
+        <div class="lbl-62-muted-3" style="margin-bottom:4px">세후 실현 손익 (합산)</div>
+        <div style="font-size:1rem;font-weight:800;color:${pColor(totalPnl - totalTax)}">${pSign(totalPnl - totalTax)}${fmt(Math.abs(totalPnl - totalTax))}</div>
       </div>` : ''}
+    </div>
+    <div style="font-size:.65rem;color:var(--muted);margin-top:8px">
+      ※ 기초정보에서 종목별 구분(일반/ISA/IRP/연금)을 설정하면 자동으로 반영됩니다.
     </div>
   </div>`;
 }
 
+function _calcTaxByType(pnl, taxType, taxRate) {
+  if (pnl <= 0) return { taxable: 0, tax: 0, note: '손실 — 세금 없음' };
+  if (taxType === 'ISA') {
+    const taxable = Math.max(0, pnl - 2000000);
+    return { taxable, tax: Math.round(taxable * 0.099), note: 'ISA: 200만원 비과세 후 9.9%' };
+  }
+  if (taxType === 'IRP') {
+    return { taxable: pnl, tax: Math.round(pnl * 0.055), note: 'IRP: 연금소득세 5.5%' };
+  }
+  if (taxType === '연금') {
+    return { taxable: pnl, tax: Math.round(pnl * 0.033), note: '연금: 연금소득세 3.3%' };
+  }
+  const taxable = Math.max(0, pnl - 2500000);
+  return { taxable, tax: Math.round(taxable * taxRate / 100), note: `일반: 250만원 공제 후 ${taxRate}%` };
+}
+
 function _calcTax(pnl, acctType, taxRate) {
-  if (pnl <= 0) {
-    return { taxable: 0, tax: 0, note: '손실 구간 — 양도소득세 없음' };
-  }
-  if (acctType === 'isa') {
-    // ISA: 200만원 비과세, 초과분 9.9% 분리과세
-    const exempt = 2000000;
-    const taxable = Math.max(0, pnl - exempt);
-    const tax = Math.round(taxable * 0.099);
-    return { taxable, tax, note: `ISA 계좌: 200만원 비과세 후 초과분 9.9% 분리과세 (서민형/농어민 400만원 비과세)` };
-  }
-  if (acctType === 'irp') {
-    // IRP/연금: 인출 시 연금소득세 3.3~5.5%, 여기서는 5.5% 기본 적용
-    const taxable = pnl;
-    const tax = Math.round(taxable * 0.055);
-    return { taxable, tax, note: `IRP/연금 계좌: 연금 수령 시 3.3~5.5% 연금소득세 (55세 이상 3.3% ~ 69세 이하 5.5%)` };
-  }
-  // 일반계좌: 기본공제 250만원 후 과세
-  const exempt = 2500000;
-  const taxable = Math.max(0, pnl - exempt);
-  const tax = Math.round(taxable * taxRate / 100);
-  return { taxable, tax, note: `일반계좌: 250만원 기본공제 후 ${taxRate}% 과세 (지방소득세 포함 시 약 ${(taxRate * 1.1).toFixed(1)}%)` };
+  const map = { 'isa': 'ISA', 'irp': 'IRP', 'normal': '일반' };
+  return _calcTaxByType(pnl, map[acctType] || acctType, taxRate);
 }
 
 // ════════════════════════════════════
