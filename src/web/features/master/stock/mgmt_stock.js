@@ -216,6 +216,9 @@ function _bindStockMgmtEvents(container) {
       if (!Number.isNaN(idx)) _smPickTax(idx, taxBtn.dataset.smTax || '일반');
       return;
     }
+
+    // ★ [환율 연동] 통화 버튼 클릭
+    const currencyBtn = target?.closest?.('button[data-sm-currency]');
     if (currencyBtn && container.contains(currencyBtn)) {
       e.preventDefault();
       const group = currencyBtn.closest('.sm-cur-grp');
