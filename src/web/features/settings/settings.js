@@ -300,12 +300,18 @@ async function loadSettings(onProgress) {
         const normalizedCode = _normalizeCodeForSync(ep?.code);
         if (normalizedCode && seenCodes.has(normalizedCode)) return;
         if (normalizedCode) seenCodes.add(normalizedCode);
+        // ★ [taxType 분리] 기존 assetType이 ISA/IRP/연금이면 taxType으로 이전
+        const rawAsset = ep?.assetType || ep?.type || '주식';
+        const _TAX = ['ISA','IRP','연금'];
+        const migratedTaxType   = _TAX.includes(rawAsset) ? rawAsset : (ep?.taxType || '일반');
+        const migratedAssetType = _TAX.includes(rawAsset) ? '주식' : rawAsset;
         const next = {
           ...ep,
-          name: normalizedName,
-          code: normalizedCode,
-          sector: ep?.sector || '기타',
-          assetType: ep?.assetType || ep?.type || '주식',
+          name:      normalizedName,
+          code:      normalizedCode,
+          sector:    ep?.sector || '기타',
+          assetType: migratedAssetType,
+          taxType:   migratedTaxType,
         };
         EDITABLE_PRICES.push(next);
       });
