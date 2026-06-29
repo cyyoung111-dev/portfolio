@@ -67,8 +67,6 @@ async function syncCodesToGsheet() {
         type:     i.assetType || i.type || '주식',
         sector:   i.sector    || '기타',
         currency: (i.currency || 'KRW').toUpperCase(),
-        // ★ [taxType 분리] 구분 전송
-        taxType:  i.taxType   || '일반',
       };
     });
     // 중요: 기초정보(EDITABLE_PRICES)만 동기화해 GS 데이터가 자동으로 흔들리지 않도록 유지

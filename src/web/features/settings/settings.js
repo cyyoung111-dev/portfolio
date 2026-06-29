@@ -181,6 +181,8 @@ function saveSettings(immediate) {
           SECTOR_COLORS,
           fundDirect,
           EDITABLE_PRICES,
+          // ★ [계좌별 taxType] 계좌→세금구분 매핑 저장
+          ACCT_TAX_TYPES,
           SAVED_PRICES: savedPrices,
           SAVED_PRICE_DATES: savedPriceDates,
           APP_THEME: (typeof lsGet === 'function') ? lsGet('app_theme', 'ocean') : 'ocean',
@@ -252,9 +254,9 @@ async function loadSettings(onProgress) {
     if (s.ACCT_COLORS && typeof s.ACCT_COLORS === 'object') {
       Object.keys(ACCT_COLORS).forEach(k => delete ACCT_COLORS[k]);
       Object.entries(s.ACCT_COLORS).forEach(([k,v]) => {
-        if (!k || !v) return; // ★ 빈 키/값 방어
+        if (!k || !v) return;
         ACCT_COLORS[k] = (typeof v==='string' && v.startsWith('var('))
-          ? resolveColor(v)   // var(--xxx) → hex 변환
+          ? resolveColor(v)
           : v;
       });
     }
@@ -262,6 +264,14 @@ async function loadSettings(onProgress) {
     if (Array.isArray(s.ACCT_ORDER)) {
       ACCT_ORDER.length = 0;
       s.ACCT_ORDER.forEach(a => ACCT_ORDER.push(a));
+    }
+    // ★ [계좌별 taxType] 계좌→세금구분 매핑 복원
+    if (s.ACCT_TAX_TYPES && typeof s.ACCT_TAX_TYPES === 'object') {
+      Object.keys(ACCT_TAX_TYPES).forEach(k => delete ACCT_TAX_TYPES[k]);
+      Object.entries(s.ACCT_TAX_TYPES).forEach(([k,v]) => {
+        if (k && v && v !== '일반') ACCT_TAX_TYPES[k] = v;
+      });
+      saveAcctTaxTypes();
     }
     // SECTOR_COLORS
     if (s.SECTOR_COLORS && typeof s.SECTOR_COLORS === 'object') {
@@ -300,18 +310,12 @@ async function loadSettings(onProgress) {
         const normalizedCode = _normalizeCodeForSync(ep?.code);
         if (normalizedCode && seenCodes.has(normalizedCode)) return;
         if (normalizedCode) seenCodes.add(normalizedCode);
-        // ★ [taxType 분리] 기존 assetType이 ISA/IRP/연금이면 taxType으로 이전
-        const rawAsset = ep?.assetType || ep?.type || '주식';
-        const _TAX = ['ISA','IRP','연금'];
-        const migratedTaxType   = _TAX.includes(rawAsset) ? rawAsset : (ep?.taxType || '일반');
-        const migratedAssetType = _TAX.includes(rawAsset) ? '주식' : rawAsset;
         const next = {
           ...ep,
           name:      normalizedName,
           code:      normalizedCode,
           sector:    ep?.sector || '기타',
-          assetType: migratedAssetType,
-          taxType:   migratedTaxType,
+          assetType: ep?.assetType || ep?.type || '주식',
         };
         EDITABLE_PRICES.push(next);
       });
