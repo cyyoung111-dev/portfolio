@@ -262,20 +262,12 @@ function getEPType(ep, fallback) {
   return (ep && (ep.assetType || ep.type)) || fallback || '주식';
 }
 
-// ★ [taxType 분리] 세금 구분 조회 헬퍼
-// taxType: 일반 | ISA | IRP | 연금 (계좌/세금 처리 방식)
-// assetType과 완전히 별개 개념
-function getEPTaxType(ep, fallback) {
-  return (ep && ep.taxType) || fallback || '일반';
-}
-
-function epPush(name, code, assetType, taxType) {
+function epPush(name, code, assetType) {
   EDITABLE_PRICES.push({
     name,
     code: normalizeStockCode(code),
     sector: '기타',
     assetType: assetType || '주식',
-    taxType:   taxType   || '일반',
   });
   _invalidateEPIndex();
 }
@@ -363,8 +355,8 @@ const ACCT_ORDER_KEY    = 'pf_v6_acct_order';
 const SECTOR_COLORS_KEY = 'pf_v6_sector_colors';
 const LOAN_KEY          = 'pf_v6_loan';
 const REALESTATE_KEY    = 'pf_v6_realestate';
-const LOAN_SCHEDULE_KEY = 'pf_v6_loan_schedule'; // 상환스케줄 CSV 데이터
-const RE_VALUE_KEY      = 'pf_v6_re_value_hist'; // 부동산 시가 이력
+const LOAN_SCHEDULE_KEY = 'pf_v6_loan_schedule';
+const RE_VALUE_KEY      = 'pf_v6_re_value_hist';
 const FUNDDIRECT_KEY    = 'pf_v6_funddirect';
 const DIVDATA_KEY       = 'pf_v6_divdata';
 const PRICES_KEY        = 'pf_v6_prices';
@@ -376,19 +368,35 @@ const HOLDINGS_KEY   = 'pf_v6_holdings';
 const STOCKCODE_KEY  = 'pf_v6_stockcodes';
 const EDITABLES_KEY  = 'pf_v6_editables';
 const TRADES_KEY     = 'pf_v6_trades';
-const PRICE_BACKUP_KEY  = 'pf_price_backup';   // GAS 실패 시 백업
-const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';  // 배당 수량0 숨김 상태
+const PRICE_BACKUP_KEY  = 'pf_price_backup';
+const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';
+// ★ [계좌별 taxType] 계좌→세금구분 매핑 키
+const ACCT_TAX_TYPES_KEY = 'pf_v6_acct_tax_types';
 
 // ── localStorage 복원 (KEY 상수 선언 후 실행)
 (function(){
   const saved = lsGet(ACCT_COLORS_KEY, null);
   if (saved) {
-    // var() 문자열 → hex 변환 (Canvas fillStyle 깨짐 방지)
     Object.entries(saved).forEach(([k, v]) => {
       ACCT_COLORS[k] = (typeof v === 'string' && v.startsWith('var(')) ? resolveColor(v) : v;
     });
   }
 })();
+
+// ★ [계좌별 taxType] 계좌→세금구분 매핑
+// { '키움증권': '일반', '미래에셋IRP': 'IRP', '삼성ISA': 'ISA', '연금저축': '연금' }
+let ACCT_TAX_TYPES = (function() {
+  return lsGet(ACCT_TAX_TYPES_KEY, {});
+})();
+
+function saveAcctTaxTypes() {
+  lsSave(ACCT_TAX_TYPES_KEY, ACCT_TAX_TYPES);
+}
+
+// 계좌의 taxType 조회 (기본값: '일반')
+function getAcctTaxType(acct) {
+  return ACCT_TAX_TYPES[acct] || '일반';
+}
 
 // ★ [최적화] GAS 동기화 debounce 타이머
 // saveHoldings()가 연속 호출될 때 GAS fetch(3개)가 중복 발사되면
@@ -651,18 +659,12 @@ function syncLoanFromSchedule() {
         // 같은 코드 중복 제거 (코드 있는 항목만)
         if (normalizedCode && seenCodes.has(normalizedCode)) return;
         if (normalizedCode) seenCodes.add(normalizedCode);
-        // ★ [taxType 분리] 기존 assetType이 세금구분(ISA/IRP/연금)이면 taxType으로 이전
-        const rawAsset = e?.assetType || e?.type || '주식';
-        const TAX_TYPES = ['ISA','IRP','연금'];
-        const migratedTaxType  = TAX_TYPES.includes(rawAsset) ? rawAsset : (e?.taxType || '일반');
-        const migratedAssetType = TAX_TYPES.includes(rawAsset) ? '주식' : rawAsset;
         const next = {
           ...e,
           name:      normalizedName,
           code:      normalizedCode,
           sector:    e?.sector    || '기타',
-          assetType: migratedAssetType,
-          taxType:   migratedTaxType,
+          assetType: e?.assetType || e?.type || '주식',
         };
         EDITABLE_PRICES.push(next);
       });

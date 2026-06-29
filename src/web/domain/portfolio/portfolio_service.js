@@ -77,12 +77,10 @@ function syncHoldingsFromTrades() {
     const key = t.acct + '||' + t.name;
     if (!map[key]) {
       const _ep = getEP(t.name);
-      const epType    = getEPType(_ep, t.assetType);
-      // ★ [taxType 분리] taxType 우선순위: EDITABLE_PRICES > 거래이력 > '일반'
-      const epTaxType = (typeof getEPTaxType === 'function')
-        ? getEPTaxType(_ep, t.taxType || '일반')
-        : (t.taxType || '일반');
-      map[key] = { acct: t.acct, name: t.name, type: epType, taxType: epTaxType, qty: 0, totalCost: 0, fund: !!t.fund };
+      const epType = getEPType(_ep, t.assetType);
+      // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정 (종목 단위 아님)
+      const acctTax = (typeof getAcctTaxType === 'function') ? getAcctTaxType(t.acct) : '일반';
+      map[key] = { acct: t.acct, name: t.name, type: epType, taxType: acctTax, qty: 0, totalCost: 0, fund: !!t.fund };
     }
     if (t.tradeType === 'buy') {
       map[key].qty       += (t.qty || 0);
@@ -98,7 +96,7 @@ function syncHoldingsFromTrades() {
 
   // ── Step 2: rawHoldings 재생성
   const newH = Object.values(map).filter(m => m.qty > 0).map(m => ({
-    acct: m.acct, type: m.type, taxType: m.taxType || '일반', name: m.name, qty: m.qty,
+    acct: m.acct, type: m.type, name: m.name, qty: m.qty,
     cost: m.qty > 0 ? Math.round(m.totalCost / m.qty) : 0,
     ...(m.fund ? {fund: true} : {})
   }));
@@ -161,10 +159,8 @@ function computeRows(holdings) {
     const evalAmt  = priceKrw * h.qty;
     const costAmt  = h.cost * h.qty;  // ★ h.cost는 이미 원화 — fxRate 곱하지 않음
     const type = getEPType(ep, h.type);
-    // ★ [taxType 분리] taxType: EDITABLE_PRICES > rawHoldings > '일반'
-    const taxType = (typeof getEPTaxType === 'function')
-      ? getEPTaxType(ep, h.taxType || '일반')
-      : (h.taxType || '일반');
+    // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정
+    const taxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '일반';
     return {
       ...h, name:nn, type, taxType, sector, code,
       price:    priceKrw,
