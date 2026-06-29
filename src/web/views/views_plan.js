@@ -365,7 +365,7 @@ function _buildTaxSection(totalCost) {
   const totalPnl     = totalEvalNow - totalCost;
   const taxRate      = _planSettings.taxRate || 22;
 
-  // ★ [taxType 분리] taxType 기준으로 구분별 손익 집계
+  // ★ [계좌별 taxType] computeRows()에서 이미 r.taxType = getAcctTaxType(r.acct) 로 설정됨
   const taxPnl  = { '일반': 0, 'ISA': 0, 'IRP': 0, '연금': 0 };
   const taxCost = { '일반': 0, 'ISA': 0, 'IRP': 0, '연금': 0 };
   rows.forEach(r => {

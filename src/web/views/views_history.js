@@ -408,9 +408,6 @@ function renderStocksView(area) {
           <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">유형 <span style="font-weight:400">(자산 종류)</span></div>
           <div id="smTypeGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
           <input type="hidden" id="smMgmtNewType" value="주식"/>
-          <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">구분 <span style="font-weight:400">(세금/계좌)</span></div>
-          <div id="smTaxGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
-          <input type="hidden" id="smMgmtNewTax" value="일반"/>
           <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">섹터</div>
           <div id="smSecGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
           <input type="hidden" id="smMgmtNewSec" value="기타"/>
