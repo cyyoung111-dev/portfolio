@@ -3429,11 +3429,10 @@ function handleSyncCodes(codesParam) {
     } else if (cs.getLastColumn() < 4) {
       cs.getRange(1,1,1,5).setValues([['종목코드','종목명','유형','섹터','통화']]);
     } else if (cs.getLastColumn() < 5) {
-      // ★ [환율 연동] 기존 4컬럼 시트에 통화 컬럼 추가
       cs.getRange(1,5,1,1).setValues([['통화']]);
     }
 
-    // 구버전({종목명:'코드'})·신버전({종목명:{code,type,sector,currency}}) 모두 처리
+    // 구버전·신버전 모두 처리 (taxType 포함)
     var incomingNorm = {};
     Object.keys(incoming).forEach(function(name) {
       var val = incoming[name];
@@ -3445,6 +3444,7 @@ function handleSyncCodes(codesParam) {
           type:     (val.type     || '주식').toString().trim(),
           sector:   (val.sector   || '기타').toString().trim(),
           currency: (val.currency || 'KRW').toString().trim().toUpperCase(),
+          // ★ [taxType 분리] 구분 컬럼
         };
       }
     });
@@ -3494,7 +3494,6 @@ function handleSyncCodes(codesParam) {
         var nameChanged     = existing.name !== normalName;
         var typeChanged     = newType && existing.type !== newType;
         var sectorChanged   = newSector && existing.sector !== newSector;
-        // ★ [환율 연동] currency 변경 반영
         var newCurrencyVal  = obj.currency || 'KRW';
         var existingCur     = (existing.currency || '').toUpperCase();
         var curChanged      = newCurrencyVal !== 'KRW'
@@ -3526,7 +3525,6 @@ function handleSyncCodes(codesParam) {
       }
 
       var inheritedType = existingTypeByCode[code] || newType || '주식';
-      // ★ [환율 연동] currency 컬럼(5번째) 추가
       var newCurrency = obj.currency || 'KRW';
       toAppend.push([code, normalName, inheritedType, newSector || '기타', newCurrency !== 'KRW' ? newCurrency : '']);
       synced++;
