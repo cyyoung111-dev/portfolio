@@ -87,14 +87,10 @@ function buildStockMgmt() {
 
     const curType = item.assetType || item.type || '주식';
     const curTypeEsc = _escapeHtml(curType);
-    const curTaxType = item.taxType || '일반';
     const curCurrency = (item.currency || 'KRW').toUpperCase();
     const isForeign = curCurrency !== 'KRW';
-    const taxBadge = curTaxType !== '일반'
-      ? `<span style="font-size:.60rem;font-weight:700;color:var(--purple);background:rgba(139,92,246,.12);border-radius:4px;padding:1px 5px">${curTaxType}</span>`
-      : '';
     html += `<div class="sm-row" data-idx="${idx}"
-      style="display:grid;grid-template-columns:1fr 80px 72px 72px ${isForeign||curTaxType!=='일반'?'48px':''};gap:5px;align-items:center;padding:4px;
+      style="display:grid;grid-template-columns:1fr 80px 72px 72px ${isForeign?'48px':''};gap:5px;align-items:center;padding:4px;
              border-radius:${isEdit?'6px 6px 0 0':'6px'};border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};
              border-bottom:${isEdit?'1px solid var(--c-purple-20)':'1px solid ' + (isSel?'var(--c-purple-45)':'transparent')};
              background:${isSel?'var(--c-purple-10)':'transparent'};margin-bottom:${isEdit?'0':'3px'};cursor:pointer;transition:all .15s">
@@ -104,29 +100,19 @@ function buildStockMgmt() {
         style="font-family:'Courier New',monospace;text-align:center" maxlength="6" placeholder="예) 005930, F00001" ${isEdit?'':'readonly tabindex="-1"'} />
       <span class="txt-muted-68">${curTypeEsc}</span>
       <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${secEsc}</span>
-      ${isForeign ? `<span style="font-size:.62rem;font-weight:700;color:var(--amber);background:rgba(245,158,11,.12);border-radius:4px;padding:1px 5px">${curCurrency}</span>` : taxBadge}
+      ${isForeign ? `<span style="font-size:.62rem;font-weight:700;color:var(--amber);background:rgba(245,158,11,.12);border-radius:4px;padding:1px 5px">${curCurrency}</span>` : ''}
     </div>`;
 
     if(isEdit) {
       html += `<div style="border:1px solid var(--c-purple-45);border-top:none;border-radius:0 0 6px 6px;background:var(--c-purple-06);padding:10px 10px 8px;margin-bottom:6px">
         <input type="hidden" class="sm-type-sel"    data-idx="${idx}" value="${curTypeEsc}"/>
-        <input type="hidden" class="sm-tax-sel"     data-idx="${idx}" value="${_escapeHtml(curTaxType)}"/>
         <input type="hidden" class="sm-sec-sel"     data-idx="${idx}" value="${secEsc}"/>
         <input type="hidden" class="sm-cur-sel"     data-idx="${idx}" value="${_escapeHtml(curCurrency)}"/>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <div>
-            <div class="lbl-60-muted fw7-mb5-ls">유형 <span style="font-weight:400;color:var(--muted)">(자산 종류)</span></div>
-            <div class="sm-type-grp flex-wrap-gap3" data-idx="${idx}">
-              ${ ['주식','ETF','펀드','TDF'].map(t=>
-                `<button type="button" data-sm-type="${_escapeHtml(t)}" class="btn-toggle-purple-sm${t===curType?' active':''}">${_escapeHtml(t)}</button>`).join('') }
-            </div>
-          </div>
-          <div>
-            <div class="lbl-60-muted fw7-mb5-ls">구분 <span style="font-weight:400;color:var(--muted)">(세금/계좌)</span></div>
-            <div class="sm-tax-grp flex-wrap-gap3" data-idx="${idx}">
-              ${ ['일반','ISA','IRP','연금'].map(tx=>
-                `<button type="button" data-sm-tax="${_escapeHtml(tx)}" class="btn-toggle-purple-sm${tx===curTaxType?' active':''}">${_escapeHtml(tx)}</button>`).join('') }
-            </div>
+        <div>
+          <div class="lbl-60-muted fw7-mb5-ls">유형 <span style="font-weight:400;color:var(--muted)">(자산 종류)</span></div>
+          <div class="sm-type-grp flex-wrap-gap3" data-idx="${idx}">
+            ${ ['주식','ETF','펀드','TDF'].map(t=>
+              `<button type="button" data-sm-type="${_escapeHtml(t)}" class="btn-toggle-purple-sm${t===curType?' active':''}">${_escapeHtml(t)}</button>`).join('') }
           </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
@@ -204,16 +190,6 @@ function _bindStockMgmtEvents(container) {
       const group = sectorBtn.closest('.sm-sec-grp');
       const idx = parseInt(group?.dataset.idx ?? '', 10);
       if (!Number.isNaN(idx)) _smPickSec(idx, sectorBtn.dataset.smSector || '기타');
-      return;
-    }
-
-    // ★ [taxType 분리] 구분 버튼 클릭
-    const taxBtn = target?.closest?.('button[data-sm-tax]');
-    if (taxBtn && container.contains(taxBtn)) {
-      e.preventDefault();
-      const group = taxBtn.closest('.sm-tax-grp');
-      const idx = parseInt(group?.dataset.idx ?? '', 10);
-      if (!Number.isNaN(idx)) _smPickTax(idx, taxBtn.dataset.smTax || '일반');
       return;
     }
 
@@ -420,7 +396,6 @@ function smMgmtAddNew() {
   const wrap = $el('smMgmtNewWrap');
   if(wrap) { wrap.style.display = 'block'; }
   _smRenderTypeButtons('주식');
-  _smRenderTaxButtons('일반');
   const sectors = [...new Set([...Object.keys(SECTOR_COLORS), '기타'])];
   _smRenderSecButtons(sectors[0] || '기타', sectors);
   _smRenderCurButtons('KRW');
@@ -437,18 +412,6 @@ function _smRenderTypeButtons(active) {
   group.innerHTML = types.map(t => `
     <button type="button" data-sm-new-type="${_escapeHtml(t)}"
       class="btn-toggle-purple${t===active?' active':''}">${_escapeHtml(t)}</button>`).join('');
-}
-
-// ★ [taxType 분리] 구분 버튼 렌더링 (신규 추가 팝업)
-function _smRenderTaxButtons(active) {
-  const taxTypes = ['일반','ISA','IRP','연금'];
-  const group = $el('smTaxGroup');
-  const inp   = $el('smMgmtNewTax');
-  if(!group) return;
-  if(inp) inp.value = active || '일반';
-  group.innerHTML = taxTypes.map(tx => `
-    <button type="button" data-sm-new-tax="${_escapeHtml(tx)}"
-      class="btn-toggle-purple${tx===active?' active':''}">${_escapeHtml(tx)}</button>`).join('');
 }
 
 function _smRenderSecButtons(active, sectors) {
@@ -481,7 +444,6 @@ function smMgmtCancel() {
   const c = $el('smMgmtNewCode'); if(c) c.value = '';
   const t = $el('smMgmtNewType'); if(t) t.value = '주식';
   const s = $el('smMgmtNewSec');  if(s) s.value = '기타';
-  const tx = $el('smMgmtNewTax'); if(tx) tx.value = '일반';
   const cu = $el('smMgmtNewCur'); if(cu) cu.value = 'KRW';
 }
 
@@ -489,7 +451,6 @@ function smMgmtConfirm() {
   const name      = ($el('smMgmtNewName')?.value || '').trim();
   const code      = normalizeStockCode(($el('smMgmtNewCode')?.value || '').trim());
   const assetType = $el('smMgmtNewType')?.value || '주식';
-  const taxType   = $el('smMgmtNewTax')?.value  || '일반';
   const sector    = $el('smMgmtNewSec')?.value  || '기타';
   const currency  = ($el('smMgmtNewCur')?.value || 'KRW').toUpperCase();
   if(!name) { showMgmtMsg('smMgmtMsg','⚠️ 종목명을 입력해주세요',true); return; }
@@ -504,7 +465,7 @@ function smMgmtConfirm() {
   }
   const isFund = (assetType === '펀드' || assetType === 'TDF');
   EDITABLE_PRICES.push({
-    name, code, sector, assetType, taxType,
+    name, code, sector, assetType,
     ...(isFund ? { fund: true } : {}),
     ...(currency !== 'KRW' ? { currency } : {}),
   });
@@ -533,14 +494,6 @@ function _smPickSec(idx, val) {
   if(inp) inp.value = val;
   document.querySelectorAll(`.sm-sec-grp[data-idx="${idx}"] button`).forEach(btn => {
     btn.classList.toggle('active', btn.textContent === val);
-  });
-}
-// ★ [taxType 분리] 구분 선택 핸들러
-function _smPickTax(idx, val) {
-  const inp = document.querySelector(`.sm-tax-sel[data-idx="${idx}"]`);
-  if(inp) inp.value = val;
-  document.querySelectorAll(`.sm-tax-grp[data-idx="${idx}"] button`).forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.smTax === val);
   });
 }
 // ★ [환율 연동] 통화 선택 핸들러
@@ -614,9 +567,6 @@ function smSave(idx) {
   item.code      = newCode;
   item.assetType = newType;
   item.sector    = newSec;
-  // ★ [taxType 분리] 구분 저장
-  const newTaxType = (document.querySelector(`.sm-tax-sel[data-idx="${idx}"]`)?.value || '일반');
-  item.taxType = newTaxType;
   // ★ [환율 연동] 통화 저장
   const newCurrency = (document.querySelector(`.sm-cur-sel[data-idx="${idx}"]`)?.value || 'KRW').toUpperCase();
   item.currency = newCurrency;
