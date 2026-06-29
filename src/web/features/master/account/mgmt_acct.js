@@ -20,14 +20,19 @@ function buildAcctMgmt() {
     const hasData  = tradeN > 0 || rawHoldings.some(h => h.acct === acct);
     const isSel    = sel === acct;
     const isEdit   = isSel && editMode;
+    // ★ [계좌별 taxType] 구분 배지
+    const acctTax  = ACCT_TAX_TYPES[acct] || '일반';
+    const taxBadge = acctTax !== '일반'
+      ? `<span style="font-size:.60rem;font-weight:700;color:var(--purple);background:rgba(139,92,246,.12);border-radius:4px;padding:1px 5px;flex-shrink:0">${acctTax}</span>`
+      : '';
 
-    // 읽기전용 행
     html += `<div class="acct-row" data-acct="${acct}"
       style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;
              background:${isSel?'var(--c-purple-12)':'var(--s2)'};margin-bottom:4px;cursor:pointer;
              border:1px solid ${isSel?'var(--c-purple-45)':'transparent'};transition:all .15s">
       <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
       <span class="item-title">${acct}</span>
+      ${taxBadge}
       <span class="lbl-64-muted">${hasData?`거래 ${tradeN}건`:'거래 없음'}</span>
     </div>`;
 
@@ -40,12 +45,21 @@ function buildAcctMgmt() {
       </div>`;
     }
     if(isEdit) {
-      // 수정 폼 — 계좌명 + 색상
+      // 수정 폼 — 계좌명 + 색상 + 구분
+      const curTaxType = ACCT_TAX_TYPES[acct] || '일반';
       html += `<div style="padding:10px 12px;border-radius:8px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3);margin:0 0 8px 0">
         <div style="font-size:.65rem;color:var(--amber);font-weight:700;margin-bottom:8px">✏️ 계좌 수정</div>
         <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
           <input id="acctEditName" type="text" value="${acct.replace(/"/g,'&quot;')}" style="${inpStyle}" data-acct-edit-name="1" />
         </div>
+        <div class="txt-65-muted-mb5">구분 (세금/계좌 유형)</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px" id="acctEditTaxGroup">
+          ${['일반','ISA','IRP','연금'].map(tx =>
+            `<button type="button" data-acct-tax="${tx}"
+              class="btn-toggle-purple-sm${tx===curTaxType?' active':''}">${tx}</button>`
+          ).join('')}
+        </div>
+        <input type="hidden" id="acctEditTaxType" value="${curTaxType}"/>
         <div class="txt-65-muted-mb5">색상 선택</div>
         <div class="flex-wrap-g5-mb8">
           ${ACCT_PALETTE.map(c => {
@@ -92,7 +106,21 @@ function _bindAcctMgmtEvents(container) {
     if(newName !== oldName && getAcctNames().includes(newName)) {
       showMgmtMsg('acctMgmtMsg',`❌ "${newName}" 계좌는 이미 존재합니다`,true); return;
     }
+    // ★ [계좌별 taxType] 구분 저장
+    const newTaxType = $el('acctEditTaxType')?.value || '일반';
+    if (newTaxType !== '일반') {
+      ACCT_TAX_TYPES[newName] = newTaxType;
+    } else {
+      delete ACCT_TAX_TYPES[newName];
+    }
+    saveAcctTaxTypes();
     if(newName !== oldName) {
+      // 계좌명 변경 시 ACCT_TAX_TYPES 키도 이전
+      if (ACCT_TAX_TYPES[oldName]) {
+        ACCT_TAX_TYPES[newName] = ACCT_TAX_TYPES[oldName];
+        delete ACCT_TAX_TYPES[oldName];
+        saveAcctTaxTypes();
+      }
       const idx = ACCT_ORDER.indexOf(oldName);
       if(idx > -1) ACCT_ORDER[idx] = newName;
       if(ACCT_COLORS[oldName] !== undefined) { ACCT_COLORS[newName] = ACCT_COLORS[oldName]; delete ACCT_COLORS[oldName]; }
@@ -106,6 +134,15 @@ function _bindAcctMgmtEvents(container) {
     container._editMode = false;
     buildAcctMgmt();
     _mgmtRefresh();
+  });
+  // ★ [계좌별 taxType] 구분 버튼 클릭 핸들러
+  $el('acctEditTaxGroup')?.querySelectorAll('button[data-acct-tax]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const tx = this.dataset.acctTax;
+      const hidden = $el('acctEditTaxType');
+      if (hidden) hidden.value = tx;
+      $el('acctEditTaxGroup')?.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.acctTax === tx));
+    });
   });
   $el('acctEditCancel')?.addEventListener('click', function() {
     container._editMode = false;
