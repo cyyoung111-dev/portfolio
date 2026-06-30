@@ -10,14 +10,16 @@ let _planSettings = (function() {
   try {
     const s = lsGet(PLAN_KEY, {});
     return {
-      cash:        s.cash        || 0,       // 현재 보유 현금 (원)
-      taxAcctType: s.taxAcctType || 'normal', // normal | isa | irp
-      taxRate:     s.taxRate     || 22,       // 양도세율 % (기본 22%)
-      simMonthly:  s.simMonthly  || 500000,   // 월 추가 투자금
-      simYears:    s.simYears    || 10,        // 시뮬레이션 기간 (년)
-      simReturn:   s.simReturn   || 7,         // 연 수익률 가정 %
+      cash:          s.cash          || 0,         // 현재 보유 현금 (원)
+      // ★ [한국 세제 반영] ISA 비과세 유형: general(일반형 200만) | special(서민형/농어민 400만)
+      isaExemptType: s.isaExemptType || 'general',
+      // ★ [정확한 배당 추적] 세금 계산 귀속연도 (기본값: 올해)
+      taxYear:       s.taxYear       || null,
+      simMonthly:    s.simMonthly    || 500000,     // 월 추가 투자금
+      simYears:      s.simYears      || 10,          // 시뮬레이션 기간 (년)
+      simReturn:     s.simReturn     || 7,            // 연 수익률 가정 %
     };
-  } catch(e) { return { cash:0, taxAcctType:'normal', taxRate:22, simMonthly:500000, simYears:10, simReturn:7 }; }
+  } catch(e) { return { cash:0, isaExemptType:'general', simMonthly:500000, simYears:10, simReturn:7 }; }
 })();
 
 function _savePlanSettings() {
@@ -361,126 +363,206 @@ function _calcBuyingPower(items, totalEval, cash) {
 // ③ 세금 시뮬레이터
 // ════════════════════════════════════
 function _buildTaxSection(totalCost) {
-  const totalEvalNow = rows.reduce((s, r) => s + (r.evalAmt || 0), 0);
-  const totalPnl     = totalEvalNow - totalCost;
-  const taxRate      = _planSettings.taxRate || 22;
+  // ★ [한국 세제 반영] 일반계좌는 매매차익 비과세(거래세만 발생), 배당/이자만 과세
+  //   - 일반: 배당소득세 15.4% 원천징수, 연 2천만원 초과 시 금융소득종합과세 대상
+  //   - ISA : 손익(매매차익+배당) 통산 후 200만원(서민형 400만원) 비과세, 초과분 9.9% 분리과세 (종합과세 미포함)
+  //   - IRP/연금: 과세이연 — 보유 중에는 비과세, 인출 시에만 연금소득세 3.3~5.5%
+  const isaExemptType = _planSettings.isaExemptType || 'general'; // general(200만) | special(400만, 서민형/농어민)
 
-  // ★ [계좌별 taxType] computeRows()에서 이미 r.taxType = getAcctTaxType(r.acct) 로 설정됨
-  const taxPnl  = { '일반': 0, 'ISA': 0, 'IRP': 0, '연금': 0 };
-  const taxCost = { '일반': 0, 'ISA': 0, 'IRP': 0, '연금': 0 };
+  // 계좌별 taxType 분류 (ACCT_TAX_TYPES 사용 — 종목이 아닌 계좌 기준)
+  const acctGroups = { '일반': [], 'ISA': [], 'IRP': [], '연금': [] };
+  const acctSeen = new Set();
   rows.forEach(r => {
+    if (!r.acct || acctSeen.has(r.acct)) return;
+    acctSeen.add(r.acct);
     const tx = ['ISA','IRP','연금'].includes(r.taxType) ? r.taxType : '일반';
-    taxPnl[tx]  += (r.pnl    || 0);
-    taxCost[tx] += (r.costAmt || 0);
+    acctGroups[tx].push(r.acct);
   });
 
-  const results = Object.entries(taxPnl).map(([tx, pnl]) => {
-    if (Math.abs(pnl) < 1 && taxCost[tx] < 1) return null;
-    const { taxable, tax, note } = _calcTaxByType(pnl, tx, taxRate);
-    return { tx, pnl, cost: taxCost[tx], taxable, tax, note };
-  }).filter(Boolean);
+  // 계좌별 매매차익(미실현 손익) + 배당소득 집계
+  function _sumByAccts(accts) {
+    let pnl = 0, cost = 0, evalAmt = 0;
+    rows.forEach(r => { if (accts.includes(r.acct)) { pnl += (r.pnl||0); cost += (r.costAmt||0); evalAmt += (r.evalAmt||0); } });
+    return { pnl, cost, evalAmt };
+  }
 
-  const totalTax     = results.reduce((s, r) => s + r.tax, 0);
-  const totalTaxable = results.reduce((s, r) => s + r.taxable, 0);
-
-  const acctPnl = {};
-  rows.forEach(r => {
-    if (!r.acct) return;
-    if (!acctPnl[r.acct]) acctPnl[r.acct] = { eval: 0, cost: 0, taxType: r.taxType || '일반' };
-    acctPnl[r.acct].eval += (r.evalAmt || 0);
-    acctPnl[r.acct].cost += (r.costAmt || 0);
+  // ── [정확한 배당소득 계산] 거래이력 기반으로 계좌별·월별 실제 보유수량 추적
+  // 기존 방식(현재 보유비율로 배분)은 계좌 변경/중도매도 시 부정확 → getQtyAtDate(name, date, acct)로 시점별 정확 계산
+  const nowYear = _kstYear ? _kstYear() : new Date().getFullYear();
+  const taxYear = _planSettings.taxYear || nowYear;
+  let totalDivAnnual = 0;
+  const divByAcct = {};
+  Object.keys(DIVDATA || {}).forEach(divKey => {
+    const dd = DIVDATA[divKey];
+    if (!dd || !dd.perShare || !Array.isArray(dd.months) || dd.months.length === 0) return;
+    // divKey가 코드면 종목명 역매핑, 아니면 이름 그대로
+    const ep = (typeof getEPByCode === 'function') ? getEPByCode(divKey) : null;
+    const name = ep?.name || divKey;
+    // 이 종목을 보유했던 모든 계좌 (현재+과거)
+    const accts = [...new Set(rawTrades.filter(t => t.name === name).map(t => t.acct).filter(Boolean))];
+    accts.forEach(acct => {
+      dd.months.forEach(month => {
+        const refDate = getDivRefDate(taxYear, month);
+        // ★ 해당 계좌가 그 배당 기준일에 실제로 보유했던 수량만 정확히 계산
+        const qty = getQtyAtDate(name, refDate, acct);
+        if (qty > 0) {
+          const div = dd.perShare * qty;
+          divByAcct[acct] = (divByAcct[acct] || 0) + div;
+          totalDivAnnual += div;
+        }
+      });
+    });
   });
 
-  const acctRows = Object.entries(acctPnl).map(([acct, v]) => {
-    const pnl   = v.eval - v.cost;
-    const pct   = v.cost > 0 ? pnl / v.cost * 100 : 0;
-    const color = pColor(pnl);
-    const txBadge = v.taxType !== '일반'
-      ? `<span style="font-size:.60rem;color:var(--purple);background:rgba(139,92,246,.12);border-radius:3px;padding:1px 4px;margin-left:4px">${v.taxType}</span>`
-      : '';
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:var(--s2);border-radius:8px;margin-bottom:5px">
-      <div style="display:flex;align-items:center;gap:6px">
-        <span style="width:7px;height:7px;border-radius:50%;background:${ACCT_COLORS[acct]||'var(--muted)'}"></span>
-        <span style="font-size:.73rem;color:var(--text)">${_escapeHtml(acct)}</span>${txBadge}
-      </div>
-      <div style="text-align:right">
-        <span style="font-size:.75rem;font-weight:600;color:${color}">${pSign(pnl)}${fmt(pnl)}</span>
-        <span style="font-size:.65rem;color:var(--muted);margin-left:6px">(${pSign(pct)}${pct.toFixed(1)}%)</span>
-      </div>
-    </div>`;
-  }).join('');
+  function _divSum(accts) {
+    return accts.reduce((s,a) => s + (divByAcct[a] || 0), 0);
+  }
 
-  const taxRows = results.map(r => {
-    const color = r.tax > 0 ? 'var(--red-lt)' : 'var(--muted)';
-    return `<div style="display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:8px;align-items:center;padding:7px 10px;background:var(--s2);border-radius:8px;margin-bottom:5px;font-size:.73rem">
-      <span style="font-weight:700;color:${r.tx==='일반'?'var(--text)':'var(--purple)'}">${r.tx}</span>
-      <span style="text-align:right;color:${pColor(r.pnl)}">${pSign(r.pnl)}${fmt(r.pnl)}</span>
-      <span style="text-align:right;color:var(--muted)">${fmt(r.taxable)}</span>
-      <span style="text-align:right;color:${color}">${r.tax > 0 ? '-'+fmt(r.tax) : '-'}</span>
-    </div>`;
-  }).join('');
+  // ── ① 일반계좌
+  const normalSum = _sumByAccts(acctGroups['일반']);
+  const normalDiv = _divSum(acctGroups['일반']);
+  // 거래세: 매도 시 0.18% (코스피/코스닥 공통, 2025년 기준) — 평가금액 매도 가정 시 참고용
+  const sellTaxRate = 0.18;
+  const estSellTax  = Math.round(normalSum.evalAmt * sellTaxRate / 100);
+  // 배당소득세 15.4% 원천징수
+  const normalDivTax = Math.round(normalDiv * 0.154);
+
+  // ── ② ISA
+  const isaSum = _sumByAccts(acctGroups['ISA']);
+  const isaDiv = _divSum(acctGroups['ISA']);
+  const isaTotalGain = isaSum.pnl + isaDiv; // 매매차익 + 배당 통산
+  const isaExempt = isaExemptType === 'special' ? 4000000 : 2000000;
+  const isaTaxable = Math.max(0, isaTotalGain - isaExempt);
+  const isaTax = Math.round(isaTaxable * 0.099);
+
+  // ── ③ IRP/연금 (과세이연)
+  const irpSum = _sumByAccts(acctGroups['IRP']);
+  const pensionSum = _sumByAccts(acctGroups['연금']);
+  const irpDiv = _divSum(acctGroups['IRP']);
+  const pensionDiv = _divSum(acctGroups['연금']);
+
+  // ── 금융소득종합과세 판단 (일반계좌 배당/이자만 해당 — ISA는 분리과세라 제외)
+  const FIN_INCOME_THRESHOLD = 20000000;
+  const isOverThreshold = normalDiv > FIN_INCOME_THRESHOLD;
+
+  function _acctListHtml(accts, emptyMsg) {
+    if (accts.length === 0) return `<span style="font-size:.68rem;color:var(--muted)">${emptyMsg}</span>`;
+    return accts.map(a => `<span style="font-size:.65rem;color:var(--text);background:var(--s2);border-radius:4px;padding:1px 6px;margin-right:4px">${_escapeHtml(a)}</span>`).join('');
+  }
 
   return `<div class="card-12-p20">
-    <h4 class="h3-card" style="margin-bottom:14px">🧾 세금 시뮬레이터</h4>
-    <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:14px">
-      <div>
-        <div class="lbl-62-muted-3">일반계좌 양도소득세율 (%)</div>
-        <input type="number" id="plan-tax-rate" value="${taxRate}" min="0" max="50" step="0.1"
-          style="width:100px;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.78rem"/>
+    <div class="flex-between-mb14">
+      <h4 class="h3-card" style="margin-bottom:0">🧾 세금 시뮬레이터</h4>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:.68rem;color:var(--muted)">귀속연도</span>
+        <select id="plan-tax-year" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.75rem">
+          ${Array.from({length:5},(_,i)=>nowYear-i).map(y=>
+            `<option value="${y}" ${y===taxYear?'selected':''}>${y}년</option>`).join('')}
+        </select>
       </div>
-      <button data-plan-action="calc-tax" class="btn-ghost-sm">계산</button>
     </div>
-    <div style="margin-bottom:14px">${acctRows}</div>
-    ${results.length > 0 ? `
-    <div style="margin-bottom:8px">
-      <div style="display:grid;grid-template-columns:60px 1fr 1fr 1fr;gap:8px;padding:4px 10px;font-size:.65rem;color:var(--muted)">
-        <span>구분</span><span style="text-align:right">손익</span><span style="text-align:right">과세대상</span><span style="text-align:right">예상세금</span>
+    <div style="font-size:.65rem;color:var(--muted);margin-bottom:14px">
+      한국 주식 매매차익은 원칙적으로 비과세(대주주 제외)이며, 매도 시 거래세만 발생합니다. 과세는 배당·이자소득 중심으로 계산됩니다. 배당소득은 거래이력 기준 ${taxYear}년 실제 보유수량으로 계산됩니다.
+    </div>
+
+    <!-- ① 일반계좌 -->
+    <div style="background:var(--s2);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:.78rem;font-weight:700;color:var(--text)">💼 일반계좌</span>
+        <span>${_acctListHtml(acctGroups['일반'], '해당 계좌 없음')}</span>
       </div>
-      ${taxRows}
-    </div>` : ''}
-    <div style="background:${totalTax > 0 ? 'rgba(239,68,68,.08)' : 'var(--s2)'};border:1px solid ${totalTax > 0 ? 'rgba(239,68,68,.25)' : 'var(--border)'};border-radius:10px;padding:14px 16px">
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px">
-        ${[
-          ['총 손익', totalPnl, pColor(totalPnl)],
-          ['과세 대상 합계', totalTaxable, pColor(totalTaxable)],
-          ['예상 세금 합계', -totalTax, totalTax > 0 ? 'var(--red-lt)' : 'var(--muted)'],
-        ].map(([l,v,c])=>`<div class="s2-rounded">
-          <div class="lbl-62-muted-3">${l}</div>
-          <div style="font-size:.82rem;font-weight:700;color:${c}">${pSign(v)}${fmt(Math.abs(v))}</div>
-        </div>`).join('')}
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px">
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">평가손익 (매매차익, 비과세)</div>
+          <div style="font-size:.80rem;font-weight:700;color:${pColor(normalSum.pnl)}">${pSign(normalSum.pnl)}${fmt(Math.abs(normalSum.pnl))}</div>
+        </div>
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">매도 시 예상 거래세 (${sellTaxRate}%)</div>
+          <div style="font-size:.80rem;font-weight:700;color:var(--amber)">-${fmt(estSellTax)}</div>
+        </div>
       </div>
-      ${totalTax > 0 ? `
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)">
-        <div class="lbl-62-muted-3" style="margin-bottom:4px">세후 실현 손익 (합산)</div>
-        <div style="font-size:1rem;font-weight:800;color:${pColor(totalPnl - totalTax)}">${pSign(totalPnl - totalTax)}${fmt(Math.abs(totalPnl - totalTax))}</div>
-      </div>` : ''}
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">연간 배당소득 (세전)</div>
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">${fmt(normalDiv)}</div>
+        </div>
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">배당소득세 (15.4% 원천징수)</div>
+          <div style="font-size:.80rem;font-weight:700;color:var(--red-lt)">-${fmt(normalDivTax)}</div>
+        </div>
+      </div>
+      ${isOverThreshold ? `
+      <div style="margin-top:10px;padding:8px 10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:8px;font-size:.68rem;color:var(--red-lt)">
+        ⚠️ 연간 금융소득(배당) ${fmt(normalDiv)}원이 2,000만원을 초과했습니다. 초과분은 다른 소득과 합산해 <b>금융소득종합과세</b> 대상이 될 수 있습니다 (누진세율 적용, 정확한 세액은 세무사 상담 필요).
+      </div>` : `
+      <div style="margin-top:10px;font-size:.65rem;color:var(--muted)">
+        금융소득종합과세 기준 2,000만원 중 ${fmt(normalDiv)}원 (${(normalDiv/FIN_INCOME_THRESHOLD*100).toFixed(1)}%) 사용 중
+      </div>`}
     </div>
-    <div style="font-size:.65rem;color:var(--muted);margin-top:8px">
-      ※ 기초정보에서 종목별 구분(일반/ISA/IRP/연금)을 설정하면 자동으로 반영됩니다.
+
+    <!-- ② ISA -->
+    <div style="background:var(--s2);border-radius:10px;padding:12px 14px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:.78rem;font-weight:700;color:var(--purple)">🛡️ ISA 계좌</span>
+        <span>${_acctListHtml(acctGroups['ISA'], '해당 계좌 없음')}</span>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        ${[['general','일반형 (200만원)'],['special','서민형/농어민 (400만원)']].map(([v,l])=>
+          `<button data-plan-isa-type="${v}" class="${isaExemptType===v?'btn-purple-sm':'btn-ghost-sm'}">${l}</button>`
+        ).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px">
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">매매차익 + 배당 통산</div>
+          <div style="font-size:.80rem;font-weight:700;color:${pColor(isaTotalGain)}">${pSign(isaTotalGain)}${fmt(Math.abs(isaTotalGain))}</div>
+        </div>
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">비과세 한도</div>
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">${fmt(isaExempt)}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">과세대상 (한도 초과분)</div>
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">${fmt(isaTaxable)}</div>
+        </div>
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">예상 세금 (9.9% 분리과세)</div>
+          <div style="font-size:.80rem;font-weight:700;color:${isaTax>0?'var(--red-lt)':'var(--muted)'}">${isaTax>0?'-'+fmt(isaTax):'-'}</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:.65rem;color:var(--muted)">
+        ISA는 손익 통산 후 한도 초과분만 9.9% 분리과세되며, <b>금융소득종합과세에 포함되지 않습니다.</b>
+      </div>
     </div>
+
+    <!-- ③ IRP / 연금 -->
+    <div style="background:var(--s2);border-radius:10px;padding:12px 14px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:.78rem;font-weight:700;color:var(--amber)">🏦 IRP / 연금계좌</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+        <div>
+          <div class="lbl-62-muted-3" style="margin-bottom:3px">IRP</div>
+          <div>${_acctListHtml(acctGroups['IRP'], '해당 계좌 없음')}</div>
+          <div style="font-size:.78rem;font-weight:700;color:${pColor(irpSum.pnl)};margin-top:4px">평가손익 ${pSign(irpSum.pnl)}${fmt(Math.abs(irpSum.pnl))}</div>
+          <div style="font-size:.68rem;color:var(--muted)">배당 ${fmt(irpDiv)} (과세이연)</div>
+        </div>
+        <div>
+          <div class="lbl-62-muted-3" style="margin-bottom:3px">연금저축</div>
+          <div>${_acctListHtml(acctGroups['연금'], '해당 계좌 없음')}</div>
+          <div style="font-size:.78rem;font-weight:700;color:${pColor(pensionSum.pnl)};margin-top:4px">평가손익 ${pSign(pensionSum.pnl)}${fmt(Math.abs(pensionSum.pnl))}</div>
+          <div style="font-size:.68rem;color:var(--muted)">배당 ${fmt(pensionDiv)} (과세이연)</div>
+        </div>
+      </div>
+      <div style="font-size:.65rem;color:var(--muted)">
+        IRP/연금저축은 보유·운용 중 발생하는 매매차익과 배당소득에 <b>세금이 부과되지 않습니다(과세이연)</b>. 추후 연금으로 수령 시 연령에 따라 3.3~5.5% 연금소득세가 적용되며, 일시금으로 중도 인출하면 기타소득세(16.5%) 등 불이익이 있을 수 있습니다.
+      </div>
+    </div>
+
   </div>`;
 }
 
-function _calcTaxByType(pnl, taxType, taxRate) {
-  if (pnl <= 0) return { taxable: 0, tax: 0, note: '손실 — 세금 없음' };
-  if (taxType === 'ISA') {
-    const taxable = Math.max(0, pnl - 2000000);
-    return { taxable, tax: Math.round(taxable * 0.099), note: 'ISA: 200만원 비과세 후 9.9%' };
-  }
-  if (taxType === 'IRP') {
-    return { taxable: pnl, tax: Math.round(pnl * 0.055), note: 'IRP: 연금소득세 5.5%' };
-  }
-  if (taxType === '연금') {
-    return { taxable: pnl, tax: Math.round(pnl * 0.033), note: '연금: 연금소득세 3.3%' };
-  }
-  const taxable = Math.max(0, pnl - 2500000);
-  return { taxable, tax: Math.round(taxable * taxRate / 100), note: `일반: 250만원 공제 후 ${taxRate}%` };
-}
-
-function _calcTax(pnl, acctType, taxRate) {
-  const map = { 'isa': 'ISA', 'irp': 'IRP', 'normal': '일반' };
-  return _calcTaxByType(pnl, map[acctType] || acctType, taxRate);
-}
 
 // ════════════════════════════════════
 // ④ 자산 시뮬레이터
@@ -624,12 +706,20 @@ function _bindPlanEvents(area, totalEval, totalCost) {
     });
   });
 
+  // ★ [정확한 배당 추적] 귀속연도 변경 시 재계산
+  area.querySelector('#plan-tax-year')?.addEventListener('change', function() {
+    _planSettings.taxYear = parseInt(this.value, 10) || null;
+    _savePlanSettings();
+    renderView(true);
+  });
+
   area.addEventListener('click', function(e) {
     const action = e.target.closest('[data-plan-action]')?.dataset?.planAction;
-    const acctType = e.target.closest('[data-plan-acct-type]')?.dataset?.planAcctType;
+    // ★ [한국 세제 반영] ISA 비과세 유형 선택
+    const isaType = e.target.closest('[data-plan-isa-type]')?.dataset?.planIsaType;
 
-    if (acctType) {
-      _planSettings.taxAcctType = acctType;
+    if (isaType) {
+      _planSettings.isaExemptType = isaType;
       _savePlanSettings();
       renderView(true);
       return;
@@ -658,13 +748,6 @@ function _bindPlanEvents(area, totalEval, totalCost) {
     if (action === 'calc-buying-power') {
       const raw = ($el('plan-cash-input')?.value || '').replace(/[^0-9]/g, '');
       _planSettings.cash = parseInt(raw) || 0;
-      _savePlanSettings();
-      renderView(true);
-    }
-
-    if (action === 'calc-tax') {
-      const rate = parseFloat($el('plan-tax-rate')?.value || '22') || 22;
-      _planSettings.taxRate = rate;
       _savePlanSettings();
       renderView(true);
     }
