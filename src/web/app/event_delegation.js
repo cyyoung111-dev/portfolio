@@ -73,6 +73,24 @@ function registerGlobalEventDelegation() {
     // ── data-acct-new-color (mgmt_acct.js)
     const acctNewColor = e.target.closest('[data-acct-new-color]');
     if (acctNewColor) { if (typeof _acctNewPickColor === 'function') _acctNewPickColor(acctNewColor.dataset.acctNewColor || ''); return; }
+    // ★ [계좌별 taxType] 신규 계좌 구분 버튼
+    const acctNewTax = e.target.closest('[data-acct-new-tax]');
+    if (acctNewTax) {
+      const tx = acctNewTax.dataset.acctNewTax || '일반';
+      const hidden = document.getElementById('acctMgmtNewTaxType');
+      if (hidden) hidden.value = tx;
+      document.querySelectorAll('#acctNewTaxGroup button').forEach(b => b.classList.toggle('active', b.dataset.acctNewTax === tx));
+      return;
+    }
+    // ★ [계좌별 taxType] 계좌 수정 시 구분 버튼 (mgmt_acct.js의 acctEditTaxGroup)
+    const acctTax = e.target.closest('[data-acct-tax]');
+    if (acctTax) {
+      const tx = acctTax.dataset.acctTax || '일반';
+      const hidden = document.getElementById('acctEditTaxType');
+      if (hidden) hidden.value = tx;
+      document.querySelectorAll('#acctEditTaxGroup button').forEach(b => b.classList.toggle('active', b.dataset.acctTax === tx));
+      return;
+    }
 
     // ── data-div-freq-key (mgmt_div.js)
     const divFreq = e.target.closest('[data-div-freq-key]');
