@@ -135,15 +135,7 @@ function _bindAcctMgmtEvents(container) {
     buildAcctMgmt();
     _mgmtRefresh();
   });
-  // ★ [계좌별 taxType] 구분 버튼 클릭 핸들러
-  $el('acctEditTaxGroup')?.querySelectorAll('button[data-acct-tax]').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const tx = this.dataset.acctTax;
-      const hidden = $el('acctEditTaxType');
-      if (hidden) hidden.value = tx;
-      $el('acctEditTaxGroup')?.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.acctTax === tx));
-    });
-  });
+  // ★ [계좌별 taxType] 구분 버튼은 event_delegation.js에서 처리
   $el('acctEditCancel')?.addEventListener('click', function() {
     container._editMode = false;
     buildAcctMgmt();
@@ -217,13 +209,19 @@ function acctMgmtConfirm() {
   if (getAcctNames().includes(name)) {
     showMgmtMsg('acctMgmtMsg',`❌ "${name}" 계좌는 이미 존재합니다`,true); inp.select(); return;
   }
+  // ★ [계좌별 taxType] 구분 저장
+  const newTaxType = $el('acctMgmtNewTaxType')?.value || '일반';
+  if (newTaxType !== '일반') {
+    ACCT_TAX_TYPES[name] = newTaxType;
+    saveAcctTaxTypes();
+  }
   // 팔레트에서 선택한 색상 우선 적용
   const pickedColor = $el('acctMgmtNewColor')?.value;
   if (pickedColor && !ACCT_COLORS[name]) {
-    ACCT_COLORS[name] = resolveColor(pickedColor); // ★ 원칙3
+    ACCT_COLORS[name] = resolveColor(pickedColor);
     saveAcctColors();
   }
-  getOrAssignColor(name); // 미지정 시 자동 배정 fallback + saveAcctColors
+  getOrAssignColor(name);
   if (!ACCT_ORDER.includes(name)) { ACCT_ORDER.push(name); saveAcctOrder(); }
   saveSettings();
   queueMgmtGsheetSync();
@@ -240,6 +238,9 @@ function acctMgmtCancel() {
   const inp = $el('acctMgmtNewInput');
   if (inp) inp.value = '';
   const c = $el('acctMgmtNewColor'); if (c) c.value = '';
+  const tx = $el('acctMgmtNewTaxType'); if (tx) tx.value = '일반';
+  // 구분 버튼 초기화
+  $el('acctNewTaxGroup')?.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.acctNewTax === '일반'));
   const dotsWrap = $el('acctNewColorDots'); if (dotsWrap) dotsWrap.innerHTML = '';
 }
 
