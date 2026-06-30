@@ -148,7 +148,9 @@ function computeRows(holdings) {
           ? namePrice
         : (fd.eval > 0 ? fd.eval : fd.cost);
       const evalAmt = evalPrice;
-      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector, code:code || '', currency:'KRW', fxRate:1};
+      // ★ [계좌별 taxType] 펀드/TDF도 계좌 기준으로 taxType 결정 (이전에 누락됐던 버그 수정)
+      const fundTaxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '일반';
+      return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector, code:code || '', currency:'KRW', fxRate:1, taxType: fundTaxType};
     }
     // ★ 가격 우선순위: ① 코드 키 ② 이름 키(하위호환) ③ 취득단가
     const pRaw = (code && savedPrices[code]) || savedPrices[nn] || savedPrices[h.name] || h.cost;
