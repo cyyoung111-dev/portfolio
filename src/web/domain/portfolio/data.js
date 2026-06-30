@@ -289,17 +289,19 @@ function getCode(name) {
 // ★ 특정 날짜 기준 보유수량 계산 (배당 계산용)
 // dateStr: 'YYYY-MM-DD' 형식, 해당 날짜 이하의 거래만 반영
 // 미래 날짜 → 현재 수량(rawHoldings) 사용
-function getQtyAtDate(name, dateStr) {
+// ★ [정확한 배당 추적] acct 파라미터 추가 — 특정 계좌만 필터링 가능
+// acct가 없으면 기존처럼 전체 계좌 합산 (하위 호환)
+function getQtyAtDate(name, dateStr, acct) {
   const todayStr = _kstTodayStr(); // ★ KST 기준 오늘 날짜
   // 미래 날짜면 현재 보유수량 사용
   if (dateStr > todayStr) {
-    return rawHoldings.filter(h => h.name === name && !h.fund)
+    return rawHoldings.filter(h => h.name === name && !h.fund && (!acct || h.acct === acct))
       .reduce((s, h) => s + (h.qty || 0), 0);
   }
   // 과거/오늘: rawTrades에서 해당 날짜 이하 buy/sell 합산
   let qty = 0;
   rawTrades
-    .filter(t => t.name === name && t.date && t.date <= dateStr)
+    .filter(t => t.name === name && t.date && t.date <= dateStr && (!acct || t.acct === acct))
     .sort((a, b) => a.date.localeCompare(b.date))
     .forEach(t => {
       if (t.tradeType === 'buy')  qty += (t.qty || 0);
