@@ -283,9 +283,15 @@ function renderTradesView(area) {
     <!-- 선택 액션바 -->
     <div id="tradeSelBar" style="display:none;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--c-amber-08);border:1px solid var(--c-amber-30);border-radius:8px;margin-bottom:8px">
       <span id="tradeSelCount" style="font-size:.78rem;font-weight:600;color:var(--gold)">0건 선택됨</span>
-      <div class="flex-gap6">
+      <div class="flex-gap6" style="flex-wrap:wrap">
         <button data-trade-action="select-all" class="btn-outline-sm">전체선택</button>
         <button data-trade-action="select-none" class="btn-outline-sm">선택해제</button>
+        <!-- ★ [계좌별 taxType] 일괄 계좌 변경 -->
+        <select id="tradeBulkAcctSelect" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.72rem">
+          <option value="">계좌 변경...</option>
+          ${getAcctList().filter(a=>a!=='전체').map(a=>`<option value="${_escapeHtml(a)}">${_escapeHtml(a)}</option>`).join('')}
+        </select>
+        <button data-trade-action="change-acct" class="btn-purple-sm">계좌 변경</button>
         <button data-trade-action="delete-selected" class="btn-danger">🗑 선택 삭제</button>
       </div>
     </div>
@@ -327,6 +333,8 @@ function _bindTradesViewEvents(area) {
       else if (action === 'select-all') tradeToggleAll(true);
       else if (action === 'select-none') tradeToggleAll(false);
       else if (action === 'delete-selected') deleteSelectedTrades();
+      // ★ [계좌별 taxType] 일괄 계좌 변경
+      else if (action === 'change-acct')   changeSelectedTradesAcct();
       else if (action === 'select-missing-dates') tradeSelectMissingDateRows();
       else if (action === 'fill-missing-dates') tradeFillMissingDates();
       return;
@@ -466,4 +474,23 @@ function deleteSelectedTrades() {
     return;
   }
   _commitTrades();
+}
+
+// ★ [계좌별 taxType] 선택된 거래이력 계좌 일괄 변경
+function changeSelectedTradesAcct() {
+  const newAcct = $el('tradeBulkAcctSelect')?.value || '';
+  if (!newAcct) { showToast('변경할 계좌를 선택해주세요', 'warn'); return; }
+  const checked = document.querySelectorAll('.trade-check:checked');
+  if (checked.length === 0) { showToast('계좌를 변경할 거래를 선택해주세요', 'warn'); return; }
+  const ids = [...checked].map(cb => String(cb.dataset.id)).filter(id => id && id !== 'undefined');
+  if (!confirm(`선택한 ${ids.length}건의 계좌를 "${newAcct}"(으)로 변경할까요?`)) return;
+  const idSet = new Set(ids);
+  let changed = 0;
+  rawTrades.forEach(t => {
+    const rid = t.id != null ? String(t.id) : null;
+    if (rid && idSet.has(rid)) { t.acct = newAcct; changed++; }
+  });
+  if (changed === 0) { showToast('변경된 항목이 없습니다', 'warn'); return; }
+  _commitTrades();
+  showToast(`${changed}건의 계좌를 "${newAcct}"으로 변경했습니다`, 'ok');
 }

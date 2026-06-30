@@ -33,12 +33,13 @@ function renderAcctView(area) {
   const acctOpts = ['전체',...accts].map(a =>
     `<button data-portfolio-action="acct-filter" data-value="${_escapeHtml(a)}" class="${_fBtnClass(acctFilter===a)}">${_escapeHtml(a)}</button>`).join('');
 
-  const typeList = ['전체','주식','ETF','ISA','IRP','연금','펀드','TDF'];
+  // ★ [계좌별 taxType] 종류 필터 = 자산 종류만 (ISA/IRP/연금은 계좌 구분으로 이동)
+  const typeList = ['전체','주식','ETF','펀드','TDF'];
   const classify = r => {
     const ep = getEP(r.name);
     const epType = getEPType(ep, null);
     if (epType) return epType;
-    if (r.type==='ISA'||r.type==='IRP'||r.type==='연금'||r.type==='펀드'||r.type==='TDF') return r.type;
+    if (r.type==='펀드'||r.type==='TDF') return r.type;
     if (!r.fund && isEtfByName(r.name)) return 'ETF';
     return '주식';
   };
@@ -183,7 +184,9 @@ function renderDonutCore() {
 
   const TYPE_CLASSIFY = r => {
     if (r.type==='펀드'||r.type==='TDF') return '펀드/TDF';
-    if (r.type==='ISA'||r.type==='IRP'||r.type==='연금') return '절세계좌';
+    // ★ [계좌별 taxType] 절세계좌 판별은 taxType(계좌 기준) 사용
+    const tx = r.taxType || (typeof getAcctTaxType === 'function' ? getAcctTaxType(r.acct) : '일반');
+    if (tx==='ISA'||tx==='IRP'||tx==='연금') return '절세계좌';
     if (!r.fund && isEtfByName(r.name)) return 'ETF';
     return '개별주식';
   };
@@ -422,3 +425,5 @@ function toggleMergeDetail(id) {
   if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
 }
 
+
+// ★ click 핸들러는 event_delegation.js에서 통합 처리
