@@ -6,7 +6,7 @@
 // 매수 컬럼
 const BULK_COLS_BUY = [
   {key:'acct',     label:'계좌',     w:110, type:'acct_select', req:true},
-  {key:'type',     label:'유형',     w:70,  type:'select', opts:['주식','ETF','ISA','IRP','연금','펀드','TDF']},
+  {key:'type',     label:'유형',     w:70,  type:'select', opts:['주식','ETF','펀드','TDF']},
   {key:'name',     label:'종목명',   w:160, type:'name_select', req:true},
   {key:'code',     label:'종목코드', w:90,  type:'text'},
   {key:'qty',      label:'수량',     w:70,  type:'number', req:true},
@@ -27,7 +27,7 @@ const BULK_COLS_SELL = [
 const BULK_COLS_MIX = [
   {key:'tradeType', label:'구분',     w:70,  type:'select', opts:['buy','sell'], labels:['매수','매도'], req:true},
   {key:'acct',      label:'계좌',     w:110, type:'acct_select', req:true},
-  {key:'type',      label:'유형',     w:70,  type:'select', opts:['주식','ETF','ISA','IRP','연금','펀드','TDF']},
+  {key:'type',      label:'유형',     w:70,  type:'select', opts:['주식','ETF','펀드','TDF']},
   {key:'name',      label:'종목명',   w:160, type:'name_select', req:true},
   {key:'code',      label:'종목코드', w:90,  type:'text'},
   {key:'qty',       label:'수량',     w:70,  type:'number', req:true},
