@@ -541,21 +541,31 @@ function _buildTaxSection(totalCost) {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
         <span style="font-size:.78rem;font-weight:700;color:var(--amber)">🏦 IRP / 연금계좌</span>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
-        <div>
-          <div class="lbl-62-muted-3" style="margin-bottom:3px">IRP</div>
-          <div>${_acctListHtml(acctGroups['IRP'], '해당 계좌 없음')}</div>
-          <div style="font-size:.78rem;font-weight:700;color:${pColor(irpSum.pnl)};margin-top:4px">평가손익 ${pSign(irpSum.pnl)}${fmt(Math.abs(irpSum.pnl))}</div>
-          <div style="font-size:.68rem;color:var(--muted)">배당 ${fmt(irpDiv)} (과세이연)</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px">
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3" style="display:flex;justify-content:space-between;align-items:center">
+            <span>IRP</span><span>${_acctListHtml(acctGroups['IRP'], '없음')}</span>
+          </div>
+          <div style="font-size:.80rem;font-weight:700;color:${pColor(irpSum.pnl)}">${pSign(irpSum.pnl)}${fmt(Math.abs(irpSum.pnl))}</div>
         </div>
-        <div>
-          <div class="lbl-62-muted-3" style="margin-bottom:3px">연금저축</div>
-          <div>${_acctListHtml(acctGroups['연금'], '해당 계좌 없음')}</div>
-          <div style="font-size:.78rem;font-weight:700;color:${pColor(pensionSum.pnl)};margin-top:4px">평가손익 ${pSign(pensionSum.pnl)}${fmt(Math.abs(pensionSum.pnl))}</div>
-          <div style="font-size:.68rem;color:var(--muted)">배당 ${fmt(pensionDiv)} (과세이연)</div>
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3" style="display:flex;justify-content:space-between;align-items:center">
+            <span>연금저축</span><span>${_acctListHtml(acctGroups['연금'], '없음')}</span>
+          </div>
+          <div style="font-size:.80rem;font-weight:700;color:${pColor(pensionSum.pnl)}">${pSign(pensionSum.pnl)}${fmt(Math.abs(pensionSum.pnl))}</div>
         </div>
       </div>
-      <div style="font-size:.65rem;color:var(--muted)">
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">IRP 배당소득 (과세이연)</div>
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">${fmt(irpDiv)}</div>
+        </div>
+        <div class="s2-rounded" style="background:var(--s1)">
+          <div class="lbl-62-muted-3">연금 배당소득 (과세이연)</div>
+          <div style="font-size:.80rem;font-weight:700;color:var(--text)">${fmt(pensionDiv)}</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;font-size:.65rem;color:var(--muted)">
         IRP/연금저축은 보유·운용 중 발생하는 매매차익과 배당소득에 <b>세금이 부과되지 않습니다(과세이연)</b>. 추후 연금으로 수령 시 연령에 따라 3.3~5.5% 연금소득세가 적용되며, 일시금으로 중도 인출하면 기타소득세(16.5%) 등 불이익이 있을 수 있습니다.
       </div>
     </div>
