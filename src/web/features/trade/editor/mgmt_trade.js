@@ -162,7 +162,8 @@ function _refreshTeCodeListNew(selectedName) {
 
 function _tePickAssetType(val) {
   const inp = $el('te-assettype'); if (inp) inp.value = val;
-  const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
+  // ★ [계좌별 taxType] 유형은 자산 종류만 — ISA/IRP/연금은 계좌 구분으로 이동
+  const types = ['주식','ETF','펀드','TDF'];
   const grp   = $el('te-assettype-group'); if (!grp) return;
   grp.innerHTML = types.map(t =>
     `<button type="button" data-te-action="asset-type" data-value="${_escapeHtml(t)}" class="${_fBtnClass(t===val)}">${_escapeHtml(t)}</button>`
@@ -393,8 +394,8 @@ function openAddTrade(prefill, forceTradeType) {
         font-size:.72rem;font-weight:600">${_escapeHtml(_teAssetType)}</span>${taxBadge}
         <span style="font-size:.65rem;color:var(--muted);margin-left:6px">기초정보에서 변경</span>`;
     } else {
-      // 신규 종목: 자유롭게 선택 가능
-      const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
+      // 신규 종목: 자유롭게 선택 가능 (유형은 자산 종류만)
+      const types = ['주식','ETF','펀드','TDF'];
       grp.innerHTML = types.map(t =>
         `<button type="button" data-te-action="asset-type" data-value="${_escapeHtml(t)}" class="${_fBtnClass(_teAssetType===t)}">${_escapeHtml(t)}</button>`
       ).join('');
