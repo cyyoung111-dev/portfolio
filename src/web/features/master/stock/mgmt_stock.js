@@ -351,7 +351,7 @@ function smCsvImport(input) {
     };
     if (col.name === -1) { showToast('❌ "종목명" 컬럼이 없습니다', 'error'); return; }
 
-    const VALID_TYPES = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
+    const VALID_TYPES = ['주식','ETF','펀드','TDF'];
     let added = 0, skipped = 0, updated = 0;
 
     rows.forEach(cols => {
