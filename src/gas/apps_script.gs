@@ -3175,7 +3175,7 @@ function getCodeItems(ss) {
   try {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs || cs.getLastRow() < 2) return [];
-    var numCols = Math.max(cs.getLastColumn(), 4);
+    var numCols = Math.max(cs.getLastColumn(), 5);
     return cs.getRange(2, 1, cs.getLastRow() - 1, numCols).getValues()
       .map(function(row) {
         return {
@@ -3183,6 +3183,7 @@ function getCodeItems(ss) {
           name: (row[1]||'').toString().trim(),
           type: (row[2]||'주식').toString().trim(),
           sector: (row[3]||'기타').toString().trim(),
+          currency: (row[4]||'KRW').toString().trim().toUpperCase() || 'KRW',
         };
       })
       .filter(function(item){ return item.code && item.code !== '000000'; });
