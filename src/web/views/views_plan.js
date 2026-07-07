@@ -387,9 +387,40 @@ function _buildTaxSection(totalCost) {
   }
 
   // ── [정확한 배당소득 계산] 거래이력 기반으로 계좌별·월별 실제 보유수량 추적
-  // 기존 방식(현재 보유비율로 배분)은 계좌 변경/중도매도 시 부정확 → getQtyAtDate(name, date, acct)로 시점별 정확 계산
+  // 기존 방식(현재 보유비율로 배분)은 계좌 변경/중도매도 시 부정확 → 시점별 정확 계산으로 개선
+  // ★ [최적화] 종목별 거래내역을 미리 한 번만 정리해서 재사용 (반복 전체탐색 방지)
+  //   기존: 종목 × 계좌 × 월(최대 240회 이상) 마다 전체 거래이력(rawTrades)을 매번 훑음
+  //   개선: rawTrades를 종목별로 1회만 그룹핑·정렬해두고, 그 안에서만 조회
   const nowYear = _kstYear ? _kstYear() : new Date().getFullYear();
   const taxYear = _planSettings.taxYear || nowYear;
+
+  const _tradesByName = {};
+  rawTrades.forEach(t => {
+    if (!t.name) return;
+    (_tradesByName[t.name] = _tradesByName[t.name] || []).push(t);
+  });
+  Object.values(_tradesByName).forEach(arr => arr.sort((a,b) => (a.date||'').localeCompare(b.date||'')));
+
+  const _todayStr = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : new Date().toISOString().slice(0,10);
+  // 종목별로 미리 정리해둔 거래내역만 훑는 경량 버전 (전체 rawTrades 재탐색 없음)
+  function _qtyAtDateFast(name, dateStr, acct) {
+    if (dateStr > _todayStr) {
+      return rawHoldings.filter(h => h.name === name && !h.fund && (!acct || h.acct === acct))
+        .reduce((s, h) => s + (h.qty || 0), 0);
+    }
+    const arr = _tradesByName[name];
+    if (!arr) return 0;
+    let qty = 0;
+    for (let i = 0; i < arr.length; i++) {
+      const t = arr[i];
+      if (t.date > dateStr) break; // 날짜순 정렬이므로 여기서부터는 볼 필요 없음
+      if (acct && t.acct !== acct) continue;
+      if (t.tradeType === 'buy')  qty += (t.qty || 0);
+      if (t.tradeType === 'sell') qty -= (t.qty || 0);
+    }
+    return Math.max(0, qty);
+  }
+
   let totalDivAnnual = 0;
   const divByAcct = {};
   Object.keys(DIVDATA || {}).forEach(divKey => {
@@ -398,13 +429,13 @@ function _buildTaxSection(totalCost) {
     // divKey가 코드면 종목명 역매핑, 아니면 이름 그대로
     const ep = (typeof getEPByCode === 'function') ? getEPByCode(divKey) : null;
     const name = ep?.name || divKey;
-    // 이 종목을 보유했던 모든 계좌 (현재+과거)
-    const accts = [...new Set(rawTrades.filter(t => t.name === name).map(t => t.acct).filter(Boolean))];
+    // 이 종목을 보유했던 모든 계좌 (현재+과거) — 미리 그룹핑해둔 배열에서 바로 추출
+    const nameTradesArr = _tradesByName[name] || [];
+    const accts = [...new Set(nameTradesArr.map(t => t.acct).filter(Boolean))];
     accts.forEach(acct => {
       dd.months.forEach(month => {
         const refDate = getDivRefDate(taxYear, month);
-        // ★ 해당 계좌가 그 배당 기준일에 실제로 보유했던 수량만 정확히 계산
-        const qty = getQtyAtDate(name, refDate, acct);
+        const qty = _qtyAtDateFast(name, refDate, acct);
         if (qty > 0) {
           const div = dd.perShare * qty;
           divByAcct[acct] = (divByAcct[acct] || 0) + div;
