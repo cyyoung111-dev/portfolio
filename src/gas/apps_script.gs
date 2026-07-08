@@ -416,25 +416,39 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
 
   if (formulas.length === 0) return {};
   tmp.getRange(1, 1, formulas.length, 1).setFormulas(formulas);
-  SpreadsheetApp.flush();
 
-  var sleepMs = Math.min(800 + items.length * 30, 4000);
-  Utilities.sleep(sleepMs);
-
-  var actualRows = tmp.getLastRow();
+  // ★ [버그수정] 종목이 많으면 구글시트 수식(GOOGLEFINANCE) 계산이 한 번의 대기로는
+  //   끝나지 않아 일부 종목이 빈 값으로 조회되고, 사용자가 "업데이트"를 두 번 눌러야만
+  //   (두번째부터는 구글이 이미 계산해둔 값이 남아있어) 정상 반영되는 문제가 있었음
+  //   → 계산이 덜 끝난 항목이 있으면 서버에서 자동으로 한두 번 더 기다렸다가 재조회
   var values;
-  if (actualRows >= formulas.length) {
-    values = tmp.getRange(1, 1, formulas.length, 1).getValues();
-  } else if (actualRows > 0) {
-    var partial = tmp.getRange(1, 1, actualRows, 1).getValues();
-    values = [];
-    for (var vi = 0; vi < formulas.length; vi++) {
-      values.push(vi < actualRows ? partial[vi] : ['']);
+  var maxAttempts = 3;
+  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+    SpreadsheetApp.flush();
+    var waitMs = (attempt === 1) ? Math.min(800 + items.length * 30, 4000) : 1500;
+    Utilities.sleep(waitMs);
+
+    var actualRows = tmp.getLastRow();
+    if (actualRows >= formulas.length) {
+      values = tmp.getRange(1, 1, formulas.length, 1).getValues();
+    } else if (actualRows > 0) {
+      var partial = tmp.getRange(1, 1, actualRows, 1).getValues();
+      values = [];
+      for (var vi = 0; vi < formulas.length; vi++) {
+        values.push(vi < actualRows ? partial[vi] : ['']);
+      }
+    } else {
+      values = formulas.map(function() { return ['']; });
     }
-    Logger.log('⚠️ fetchPricesGoogleFinance: 계산 완료 행(' + actualRows + ') < 요청 행(' + formulas.length + ') — 재시도 권장');
-  } else {
-    values = formulas.map(function() { return ['']; });
-    Logger.log('⚠️ fetchPricesGoogleFinance: tmp 시트 비어있음 — GOOGLEFINANCE 계산 실패');
+
+    // 아직 계산 안 끝난(빈 값) 항목이 있으면 한 번 더 대기 후 재시도
+    var hasBlank = values.some(function(v) { return v[0] === '' || v[0] === null || v[0] === undefined; });
+    if (!hasBlank) break;
+    if (attempt < maxAttempts) {
+      Logger.log('[fetchPricesGoogleFinance] 계산 미완료 항목 있음 → ' + (attempt+1) + '차 재조회');
+    } else {
+      Logger.log('⚠️ fetchPricesGoogleFinance: ' + maxAttempts + '회 재시도 후에도 일부 항목 계산 미완료');
+    }
   }
 
   try {
