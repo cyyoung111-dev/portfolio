@@ -78,7 +78,7 @@ function _buildExportSection(totalEval, totalCost) {
       </div>`).join('')}
     </div>
     <div style="font-size:.68rem;color:var(--muted);margin-top:10px">
-      종목별 상세 · 계좌별 요약 · 섹터별 요약 3개 시트로 구성된 엑셀 파일을 받습니다.
+      종목별 비중 포함 상세 · 계좌별 요약 · 섹터별 요약 3개 시트로 구성된 엑셀 파일을 받습니다.
     </div>
   </div>`;
 }
@@ -95,7 +95,12 @@ function exportPortfolioExcel() {
   const todayStr = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : new Date().toISOString().slice(0,10);
 
   // ── 시트1: 종목별 상세
-  const headerRow1 = ['계좌','종목명','종목코드','유형','섹터','수량','매입단가','매입금액','현재단가','평가금액','손익','수익률(%)','통화'];
+  const totalEval1 = rows.reduce((s,r)=>s+(r.evalAmt||0),0);
+  const totalCost1 = rows.reduce((s,r)=>s+(r.costAmt||0),0);
+  const totalPnl1  = totalEval1 - totalCost1;
+  const totalPct1  = totalCost1 > 0 ? (totalPnl1/totalCost1*100) : 0;
+
+  const headerRow1 = ['계좌','종목명','종목코드','유형','섹터','수량','매입단가','매입금액','현재단가','평가금액','손익','수익률(%)','비중(%)','통화'];
   const dataRows1 = [...rows]
     .sort((a,b) => (b.evalAmt||0) - (a.evalAmt||0))
     .map(r => [
@@ -111,19 +116,17 @@ function exportPortfolioExcel() {
       Math.round(r.evalAmt || 0),
       Math.round(r.pnl || 0),
       Number((r.pct || 0).toFixed(2)),
+      // ★ [추가] 종목별 비중(%) — 전체 평가금액 대비 이 종목의 비중
+      Number((totalEval1 > 0 ? (r.evalAmt||0)/totalEval1*100 : 0).toFixed(2)),
       (r.currency || 'KRW'),
     ]);
-  const totalEval1 = rows.reduce((s,r)=>s+(r.evalAmt||0),0);
-  const totalCost1 = rows.reduce((s,r)=>s+(r.costAmt||0),0);
-  const totalPnl1  = totalEval1 - totalCost1;
-  const totalPct1  = totalCost1 > 0 ? (totalPnl1/totalCost1*100) : 0;
-  const footerRow1 = ['합계','','','','','','', Math.round(totalCost1), '', Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), ''];
+  const footerRow1 = ['합계','','','','','','', Math.round(totalCost1), '', Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), 100, ''];
 
   const ws1 = XLSX.utils.aoa_to_sheet([headerRow1, ...dataRows1, footerRow1]);
   ws1['!cols'] = [
     {wch:10},{wch:18},{wch:10},{wch:8},{wch:10},
     {wch:10},{wch:12},{wch:14},{wch:12},{wch:14},
-    {wch:14},{wch:10},{wch:8},
+    {wch:14},{wch:10},{wch:10},{wch:8},
   ];
   // 헤더 스타일
   headerRow1.forEach((_, i) => {
