@@ -387,75 +387,75 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
 
   if (gfItems.length === 0) return prices;
 
-  var tmp = ss.getSheetByName(CONFIG.SHEET_TMP);
-  if (!tmp) tmp = ss.insertSheet(CONFIG.SHEET_TMP);
-  tmp.clearContents();
-
-  var isToday = (dateStr === today());
-  // ★ new Date(dateStr.replace(/-/g,'/')) 대신 _ymdToDate 사용 — 시간대 명확
-  var ymdStr  = dateStr.replace(/-/g, '');
-  var dtObj   = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
-  var fromObj = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
-  fromObj.setDate(fromObj.getDate() - 5);
-
-  var fmtDate  = function(d) { return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd'); };
-  var fromFmt  = fmtDate(fromObj);
-  var toFmt    = fmtDate(dtObj);
-
-  var formulas = gfItems.map(function(item) {
-    var krx    = '"KRX:' + item.code + '"';
-    var kosdaq = '"KOSDAQ:' + item.code + '"';
-    if (isToday) {
-      return ['=IFERROR(GOOGLEFINANCE(' + krx + ',"price"),' +
-              'IFERROR(GOOGLEFINANCE(' + kosdaq + ',"price"),"-"))'];
-    } else {
-      return ['=IFERROR(INDEX(GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),' +
-              'IFERROR(INDEX(GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),"-"))'];
-    }
-  });
-
-  if (formulas.length === 0) return {};
-  tmp.getRange(1, 1, formulas.length, 1).setFormulas(formulas);
-
-  // ★ [버그수정] 종목이 많으면 구글시트 수식(GOOGLEFINANCE) 계산이 한 번의 대기로는
-  //   끝나지 않아 일부 종목이 빈 값으로 조회되고, 사용자가 "업데이트"를 두 번 눌러야만
-  //   (두번째부터는 구글이 이미 계산해둔 값이 남아있어) 정상 반영되는 문제가 있었음
-  //   → 계산이 덜 끝난 항목이 있으면 서버에서 자동으로 한두 번 더 기다렸다가 재조회
+  // ★ [버그수정] 동시에 여러 요청(자동조회 + 수동 업데이트 등)이 겹치면
+  //   공유 임시 시트를 서로 지웠다 썼다 하며 충돌 → "첫 클릭은 안 되고 두 번째부터 되는" 현상 발생
+  //   → 요청마다 자기만의 고유한 임시 시트를 새로 만들어 쓰고 끝나면 삭제
+  // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
+  //   (임시 시트 정리는 자동 트리거가 없고 수동 메뉴로만 실행되므로, 누락되면 계속 쌓일 수 있음)
+  var tmp = ss.insertSheet('_gf_tmp_' + Utilities.getUuid().slice(0, 8));
   var values;
-  var maxAttempts = 3;
-  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-    SpreadsheetApp.flush();
-    var waitMs = (attempt === 1) ? Math.min(800 + items.length * 30, 4000) : 1500;
-    Utilities.sleep(waitMs);
-
-    var actualRows = tmp.getLastRow();
-    if (actualRows >= formulas.length) {
-      values = tmp.getRange(1, 1, formulas.length, 1).getValues();
-    } else if (actualRows > 0) {
-      var partial = tmp.getRange(1, 1, actualRows, 1).getValues();
-      values = [];
-      for (var vi = 0; vi < formulas.length; vi++) {
-        values.push(vi < actualRows ? partial[vi] : ['']);
-      }
-    } else {
-      values = formulas.map(function() { return ['']; });
-    }
-
-    // 아직 계산 안 끝난(빈 값) 항목이 있으면 한 번 더 대기 후 재시도
-    var hasBlank = values.some(function(v) { return v[0] === '' || v[0] === null || v[0] === undefined; });
-    if (!hasBlank) break;
-    if (attempt < maxAttempts) {
-      Logger.log('[fetchPricesGoogleFinance] 계산 미완료 항목 있음 → ' + (attempt+1) + '차 재조회');
-    } else {
-      Logger.log('⚠️ fetchPricesGoogleFinance: ' + maxAttempts + '회 재시도 후에도 일부 항목 계산 미완료');
-    }
-  }
 
   try {
-    tmp.clearContents();
-    SpreadsheetApp.flush();
-  } catch (e) {
-    Logger.log('⚠️ tmp 시트 정리 실패: ' + e.message);
+    var isToday = (dateStr === today());
+    // ★ new Date(dateStr.replace(/-/g,'/')) 대신 _ymdToDate 사용 — 시간대 명확
+    var ymdStr  = dateStr.replace(/-/g, '');
+    var dtObj   = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
+    var fromObj = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
+    fromObj.setDate(fromObj.getDate() - 5);
+
+    var fmtDate  = function(d) { return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd'); };
+    var fromFmt  = fmtDate(fromObj);
+    var toFmt    = fmtDate(dtObj);
+
+    var formulas = gfItems.map(function(item) {
+      var krx    = '"KRX:' + item.code + '"';
+      var kosdaq = '"KOSDAQ:' + item.code + '"';
+      if (isToday) {
+        return ['=IFERROR(GOOGLEFINANCE(' + krx + ',"price"),' +
+                'IFERROR(GOOGLEFINANCE(' + kosdaq + ',"price"),"-"))'];
+      } else {
+        return ['=IFERROR(INDEX(GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),' +
+                'IFERROR(INDEX(GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),"-"))'];
+      }
+    });
+
+    if (formulas.length === 0) return {};
+    tmp.getRange(1, 1, formulas.length, 1).setFormulas(formulas);
+
+    // ★ [버그수정] 종목이 많으면 구글시트 수식(GOOGLEFINANCE) 계산이 한 번의 대기로는
+    //   끝나지 않아 일부 종목이 빈 값으로 조회되고, 사용자가 "업데이트"를 두 번 눌러야만
+    //   (두번째부터는 구글이 이미 계산해둔 값이 남아있어) 정상 반영되는 문제가 있었음
+    //   → 계산이 덜 끝난 항목이 있으면 서버에서 자동으로 한두 번 더 기다렸다가 재조회
+    var maxAttempts = 3;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      SpreadsheetApp.flush();
+      var waitMs = (attempt === 1) ? Math.min(800 + items.length * 30, 4000) : 1500;
+      Utilities.sleep(waitMs);
+
+      var actualRows = tmp.getLastRow();
+      if (actualRows >= formulas.length) {
+        values = tmp.getRange(1, 1, formulas.length, 1).getValues();
+      } else if (actualRows > 0) {
+        var partial = tmp.getRange(1, 1, actualRows, 1).getValues();
+        values = [];
+        for (var vi = 0; vi < formulas.length; vi++) {
+          values.push(vi < actualRows ? partial[vi] : ['']);
+        }
+      } else {
+        values = formulas.map(function() { return ['']; });
+      }
+
+      // 아직 계산 안 끝난(빈 값) 항목이 있으면 한 번 더 대기 후 재시도
+      var hasBlank = values.some(function(v) { return v[0] === '' || v[0] === null || v[0] === undefined; });
+      if (!hasBlank) break;
+      if (attempt < maxAttempts) {
+        Logger.log('[fetchPricesGoogleFinance] 계산 미완료 항목 있음 → ' + (attempt+1) + '차 재조회');
+      } else {
+        Logger.log('⚠️ fetchPricesGoogleFinance: ' + maxAttempts + '회 재시도 후에도 일부 항목 계산 미완료');
+      }
+    }
+  } finally {
+    try { ss.deleteSheet(tmp); } catch (e) { Logger.log('⚠️ 임시 시트 삭제 실패: ' + e.message); }
   }
 
   gfItems.forEach(function(item, i) {
@@ -894,10 +894,10 @@ function updatePrices() {
 //  종목명 조회
 // ════════════════════════════════════════════════════════════════════
 function handleNameLookup(code) {
+  var ss  = getss();
+  // ★ [버그수정] 공유 임시 시트 대신 고유 임시 시트 사용 (동시 요청 충돌 방지)
+  var tmp = ss.insertSheet('_name_tmp_' + Utilities.getUuid().slice(0, 8));
   try {
-    var ss  = getss();
-    var tmp = ss.getSheetByName(CONFIG.SHEET_TMP) || ss.insertSheet(CONFIG.SHEET_TMP);
-    tmp.clearContents();
     tmp.getRange(1, 1).setFormula(
       '=IFERROR(GOOGLEFINANCE("KRX:'    + code + '","name"),' +
       'IFERROR(GOOGLEFINANCE("KOSDAQ:' + code + '","name"),"-"))'
@@ -905,11 +905,12 @@ function handleNameLookup(code) {
     SpreadsheetApp.flush();
     Utilities.sleep(1500);
     var val  = tmp.getRange(1, 1).getValue();
-    try { ss.deleteSheet(tmp); SpreadsheetApp.flush(); } catch(e) { try { tmp.clearContents(); SpreadsheetApp.flush(); } catch(e2) {} }
     var name = (val && val !== '-' && !String(val).startsWith('#')) ? val.toString().trim() : '';
     return jsonOk({ name: name, officialName: name });
   } catch(err) {
     return jsonError('종목명 조회 실패: ' + err.message);
+  } finally {
+    try { ss.deleteSheet(tmp); } catch(e) {}
   }
 }
 
@@ -1155,10 +1156,11 @@ function fetchExchangeRates(ss) {
   // ★ 당일 캐시 재사용 — getPrices 호출마다 flush하면 2~5초 추가되므로
   var todayStr = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
   if (_fxRatesCache && _fxRatesCacheDate === todayStr) return _fxRatesCache;
+
+  // ★ [버그수정] 공유 임시 시트 대신 요청마다 고유한 임시 시트 사용 (동시 요청 충돌 방지)
+  // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
+  var tmp = ss.insertSheet('_fx_tmp_' + Utilities.getUuid().slice(0, 8));
   try {
-    var tmp = ss.getSheetByName(CONFIG.SHEET_TMP);
-    if (!tmp) tmp = ss.insertSheet(CONFIG.SHEET_TMP);
-    tmp.clearContents();
     var formulas = CURRENCIES.map(function(cur) {
       return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW"), 0)'];
     });
@@ -1169,12 +1171,12 @@ function fetchExchangeRates(ss) {
       var v = Number(values[i][0]);
       if (v > 0) rates[cur] = Math.round(v * 10) / 10;
     });
-    tmp.clearContents();
-    // 캐시 저장
     _fxRatesCache = rates;
     _fxRatesCacheDate = todayStr;
   } catch(e) {
     Logger.log('⚠️ fetchExchangeRates 실패: ' + e.message);
+  } finally {
+    try { ss.deleteSheet(tmp); } catch(delErr) {}
   }
   return rates;
 }
@@ -2789,19 +2791,23 @@ function _backfillExecute() {
             return codeToCurrencyBf[holdAtDate[k].code || ''];
           });
           if (hasForeignStock) {
-            var fxSheet = ss.getSheetByName(CONFIG.SHEET_TMP) || ss.insertSheet(CONFIG.SHEET_TMP);
-            fxSheet.clearContents();
-            var fxFormulas = fxCurrencies.map(function(cur) {
-              return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW","price","' + dateStr + '"),0)'];
-            });
-            fxSheet.getRange(1, 1, fxFormulas.length, 1).setFormulas(fxFormulas);
-            SpreadsheetApp.flush();
-            var fxVals = fxSheet.getRange(1, 1, fxFormulas.length, 1).getValues();
-            fxCurrencies.forEach(function(cur, i) {
-              var v = Number(fxVals[i][0]);
-              if (v > 0) bfFxRates[cur] = Math.round(v * 10) / 10;
-            });
-            fxSheet.clearContents();
+            // ★ [버그수정] 공유 임시 시트 대신 고유 임시 시트 사용 (동시 요청 충돌 방지)
+            // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
+            var fxSheet = ss.insertSheet('_bffx_tmp_' + Utilities.getUuid().slice(0, 8));
+            try {
+              var fxFormulas = fxCurrencies.map(function(cur) {
+                return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW","price","' + dateStr + '"),0)'];
+              });
+              fxSheet.getRange(1, 1, fxFormulas.length, 1).setFormulas(fxFormulas);
+              SpreadsheetApp.flush();
+              var fxVals = fxSheet.getRange(1, 1, fxFormulas.length, 1).getValues();
+              fxCurrencies.forEach(function(cur, i) {
+                var v = Number(fxVals[i][0]);
+                if (v > 0) bfFxRates[cur] = Math.round(v * 10) / 10;
+              });
+            } finally {
+              try { ss.deleteSheet(fxSheet); } catch(delErr) {}
+            }
           }
         } catch(fxErr) {
           Logger.log('소급 환율 조회 실패 ' + dateStr + ': ' + fxErr.message);
@@ -3856,8 +3862,11 @@ function _cleanupBenchmarkTempSheets() {
   var removed = 0;
   sheets.forEach(function(sh) {
     var name = sh.getName();
-    // _gf_tmp, _bm_*(지수), _div_tmp(배당) 모두 정리
-    if (name === CONFIG.SHEET_TMP || name.indexOf('_bm_') === 0 || name === '_div_tmp') {
+    // ★ [버그수정] 요청마다 고유 이름으로 만드는 임시 시트들(_gf_tmp_*, _fx_tmp_*, _name_tmp_*, _bffx_tmp_*)도
+    //   혹시 중간에 오류로 정리가 안 됐을 경우를 대비해 함께 청소
+    if (name === CONFIG.SHEET_TMP || name.indexOf('_bm_') === 0 || name === '_div_tmp'
+        || name.indexOf('_gf_tmp_') === 0 || name.indexOf('_fx_tmp_') === 0
+        || name.indexOf('_name_tmp_') === 0 || name.indexOf('_bffx_tmp_') === 0) {
       try { ss.deleteSheet(sh); removed++; } catch(e) {
         try { sh.clearContents(); } catch(e2) {}
       }
