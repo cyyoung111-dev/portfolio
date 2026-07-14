@@ -223,3 +223,11 @@ function removeReValue(sortedIdx) {
 }
 
 
+
+// ★ [통일] data-schedule-action 클릭 처리는 event_delegation.js로 통합됨
+
+document.addEventListener('change', function(e) {
+  if (e.target.dataset?.scheduleFile === 'upload') uploadScheduleCsv(e.target);
+});
+
+// ★ [통일] number-comma 입력 서식 처리는 event_delegation.js의 전역 input 리스너로 통합됨

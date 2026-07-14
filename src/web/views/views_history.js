@@ -412,7 +412,7 @@ function renderStocksView(area) {
             <input id="smMgmtNewName" type="text" placeholder="종목명"
               style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem" />
             <input id="smMgmtNewCode" type="text" placeholder="종목코드" maxlength="6"
-              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem;font-family:'Courier New',monospace;text-align:center" />
+              style="background:var(--s1);border:1px solid var(--c-purple-30);border-radius:6px;padding:6px 10px;color:var(--text);font-size:.75rem;text-align:center" />
           </div>
           <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">유형 <span style="font-weight:400">(자산 종류)</span></div>
           <div id="smTypeGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>

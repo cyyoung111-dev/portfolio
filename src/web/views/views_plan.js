@@ -78,7 +78,7 @@ function _buildExportSection(totalEval, totalCost) {
       </div>`).join('')}
     </div>
     <div style="font-size:.68rem;color:var(--muted);margin-top:10px">
-      종목별 비중 포함 상세 · 계좌별 요약 · 섹터별 요약 3개 시트로 구성된 엑셀 파일을 받습니다.
+      종목별 상세 · 계좌별 요약 · 섹터별 요약 3개 시트로 구성된 엑셀 파일을 받습니다.
     </div>
   </div>`;
 }
@@ -95,12 +95,7 @@ function exportPortfolioExcel() {
   const todayStr = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : new Date().toISOString().slice(0,10);
 
   // ── 시트1: 종목별 상세
-  const totalEval1 = rows.reduce((s,r)=>s+(r.evalAmt||0),0);
-  const totalCost1 = rows.reduce((s,r)=>s+(r.costAmt||0),0);
-  const totalPnl1  = totalEval1 - totalCost1;
-  const totalPct1  = totalCost1 > 0 ? (totalPnl1/totalCost1*100) : 0;
-
-  const headerRow1 = ['계좌','종목명','종목코드','유형','섹터','수량','매입단가','매입금액','현재단가','평가금액','손익','수익률(%)','비중(%)','통화'];
+  const headerRow1 = ['계좌','종목명','종목코드','유형','섹터','수량','매입단가','매입금액','현재단가','평가금액','손익','수익률(%)','통화'];
   const dataRows1 = [...rows]
     .sort((a,b) => (b.evalAmt||0) - (a.evalAmt||0))
     .map(r => [
@@ -116,17 +111,19 @@ function exportPortfolioExcel() {
       Math.round(r.evalAmt || 0),
       Math.round(r.pnl || 0),
       Number((r.pct || 0).toFixed(2)),
-      // ★ [추가] 종목별 비중(%) — 전체 평가금액 대비 이 종목의 비중
-      Number((totalEval1 > 0 ? (r.evalAmt||0)/totalEval1*100 : 0).toFixed(2)),
       (r.currency || 'KRW'),
     ]);
-  const footerRow1 = ['합계','','','','','','', Math.round(totalCost1), '', Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), 100, ''];
+  const totalEval1 = rows.reduce((s,r)=>s+(r.evalAmt||0),0);
+  const totalCost1 = rows.reduce((s,r)=>s+(r.costAmt||0),0);
+  const totalPnl1  = totalEval1 - totalCost1;
+  const totalPct1  = totalCost1 > 0 ? (totalPnl1/totalCost1*100) : 0;
+  const footerRow1 = ['합계','','','','','','', Math.round(totalCost1), '', Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), ''];
 
   const ws1 = XLSX.utils.aoa_to_sheet([headerRow1, ...dataRows1, footerRow1]);
   ws1['!cols'] = [
     {wch:10},{wch:18},{wch:10},{wch:8},{wch:10},
     {wch:10},{wch:12},{wch:14},{wch:12},{wch:14},
-    {wch:14},{wch:10},{wch:10},{wch:8},
+    {wch:14},{wch:10},{wch:8},
   ];
   // 헤더 스타일
   headerRow1.forEach((_, i) => {
@@ -372,7 +369,7 @@ function _buildTaxSection(totalCost) {
   //   - IRP/연금: 과세이연 — 보유 중에는 비과세, 인출 시에만 연금소득세 3.3~5.5%
   const isaExemptType = _planSettings.isaExemptType || 'general'; // general(200만) | special(400만, 서민형/농어민)
 
-  // 계좌별 taxType 분류 (ACCT_TAX_TYPES 사용 — 종목이 아닌 계좌 기준)
+  // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정 — computeRows()에서 r.taxType = getAcctTaxType(r.acct)로 이미 설정됨
   const acctGroups = { '일반': [], 'ISA': [], 'IRP': [], '연금': [] };
   const acctSeen = new Set();
   rows.forEach(r => {
@@ -382,7 +379,6 @@ function _buildTaxSection(totalCost) {
     acctGroups[tx].push(r.acct);
   });
 
-  // 계좌별 매매차익(미실현 손익) + 배당소득 집계
   function _sumByAccts(accts) {
     let pnl = 0, cost = 0, evalAmt = 0;
     rows.forEach(r => { if (accts.includes(r.acct)) { pnl += (r.pnl||0); cost += (r.costAmt||0); evalAmt += (r.evalAmt||0); } });
@@ -392,8 +388,6 @@ function _buildTaxSection(totalCost) {
   // ── [정확한 배당소득 계산] 거래이력 기반으로 계좌별·월별 실제 보유수량 추적
   // 기존 방식(현재 보유비율로 배분)은 계좌 변경/중도매도 시 부정확 → 시점별 정확 계산으로 개선
   // ★ [최적화] 종목별 거래내역을 미리 한 번만 정리해서 재사용 (반복 전체탐색 방지)
-  //   기존: 종목 × 계좌 × 월(최대 240회 이상) 마다 전체 거래이력(rawTrades)을 매번 훑음
-  //   개선: rawTrades를 종목별로 1회만 그룹핑·정렬해두고, 그 안에서만 조회
   const nowYear = _kstYear ? _kstYear() : new Date().getFullYear();
   const taxYear = _planSettings.taxYear || nowYear;
 
@@ -405,7 +399,6 @@ function _buildTaxSection(totalCost) {
   Object.values(_tradesByName).forEach(arr => arr.sort((a,b) => (a.date||'').localeCompare(b.date||'')));
 
   const _todayStr = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : new Date().toISOString().slice(0,10);
-  // 종목별로 미리 정리해둔 거래내역만 훑는 경량 버전 (전체 rawTrades 재탐색 없음)
   function _qtyAtDateFast(name, dateStr, acct) {
     if (dateStr > _todayStr) {
       return rawHoldings.filter(h => h.name === name && !h.fund && (!acct || h.acct === acct))
@@ -416,7 +409,7 @@ function _buildTaxSection(totalCost) {
     let qty = 0;
     for (let i = 0; i < arr.length; i++) {
       const t = arr[i];
-      if (t.date > dateStr) break; // 날짜순 정렬이므로 여기서부터는 볼 필요 없음
+      if (t.date > dateStr) break;
       if (acct && t.acct !== acct) continue;
       if (t.tradeType === 'buy')  qty += (t.qty || 0);
       if (t.tradeType === 'sell') qty -= (t.qty || 0);
@@ -429,10 +422,8 @@ function _buildTaxSection(totalCost) {
   Object.keys(DIVDATA || {}).forEach(divKey => {
     const dd = DIVDATA[divKey];
     if (!dd || !dd.perShare || !Array.isArray(dd.months) || dd.months.length === 0) return;
-    // divKey가 코드면 종목명 역매핑, 아니면 이름 그대로
     const ep = (typeof getEPByCode === 'function') ? getEPByCode(divKey) : null;
     const name = ep?.name || divKey;
-    // 이 종목을 보유했던 모든 계좌 (현재+과거) — 미리 그룹핑해둔 배열에서 바로 추출
     const nameTradesArr = _tradesByName[name] || [];
     const accts = [...new Set(nameTradesArr.map(t => t.acct).filter(Boolean))];
     accts.forEach(acct => {
@@ -455,16 +446,14 @@ function _buildTaxSection(totalCost) {
   // ── ① 일반계좌
   const normalSum = _sumByAccts(acctGroups['일반']);
   const normalDiv = _divSum(acctGroups['일반']);
-  // 거래세: 매도 시 0.18% (코스피/코스닥 공통, 2025년 기준) — 평가금액 매도 가정 시 참고용
   const sellTaxRate = 0.18;
   const estSellTax  = Math.round(normalSum.evalAmt * sellTaxRate / 100);
-  // 배당소득세 15.4% 원천징수
   const normalDivTax = Math.round(normalDiv * 0.154);
 
   // ── ② ISA
   const isaSum = _sumByAccts(acctGroups['ISA']);
   const isaDiv = _divSum(acctGroups['ISA']);
-  const isaTotalGain = isaSum.pnl + isaDiv; // 매매차익 + 배당 통산
+  const isaTotalGain = isaSum.pnl + isaDiv;
   const isaExempt = isaExemptType === 'special' ? 4000000 : 2000000;
   const isaTaxable = Math.max(0, isaTotalGain - isaExempt);
   const isaTax = Math.round(isaTaxable * 0.099);
@@ -475,7 +464,6 @@ function _buildTaxSection(totalCost) {
   const irpDiv = _divSum(acctGroups['IRP']);
   const pensionDiv = _divSum(acctGroups['연금']);
 
-  // ── 금융소득종합과세 판단 (일반계좌 배당/이자만 해당 — ISA는 분리과세라 제외)
   const FIN_INCOME_THRESHOLD = 20000000;
   const isOverThreshold = normalDiv > FIN_INCOME_THRESHOLD;
 
@@ -740,15 +728,7 @@ function _renderSimChart(data, years) {
 // 이벤트 바인딩
 // ════════════════════════════════════
 function _bindPlanEvents(area, totalEval, totalCost) {
-  // number-comma 포맷 인풋
-  area.querySelectorAll('[data-format="number-comma"]').forEach(inp => {
-    inp.addEventListener('input', function() {
-      const pos = this.selectionStart;
-      const raw = this.value.replace(/[^0-9]/g, '');
-      this.value = raw ? Number(raw).toLocaleString() : '';
-      try { this.setSelectionRange(pos, pos); } catch(e) {}
-    });
-  });
+  // ★ [통일] number-comma 서식은 event_delegation.js 전역 리스너로 통합됨 (로컬 중복 제거)
 
   // ★ [정확한 배당 추적] 귀속연도 변경 시 재계산
   area.querySelector('#plan-tax-year')?.addEventListener('change', function() {
