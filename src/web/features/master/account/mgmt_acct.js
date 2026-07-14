@@ -290,11 +290,12 @@ function deleteAcct(acct) {
 // ── 부동산 편집
 function openRealEstateEditor() {
   $el('re-name').value     = REAL_ESTATE.name || '';
-  $el('re-value').value    = REAL_ESTATE.currentValue || '';
-  $el('re-purchase').value = REAL_ESTATE.purchasePrice || '';
-  $el('re-tax').value      = REAL_ESTATE.taxCost || '';
-  $el('re-interior').value = REAL_ESTATE.interiorCost || '';
-  $el('re-etc').value      = REAL_ESTATE.etcCost || '';
+  // ★ [숫자 콤마 서식] 초기값도 콤마 표시로 넣어줌
+  $el('re-value').value    = REAL_ESTATE.currentValue  ? Number(REAL_ESTATE.currentValue).toLocaleString()  : '';
+  $el('re-purchase').value = REAL_ESTATE.purchasePrice ? Number(REAL_ESTATE.purchasePrice).toLocaleString() : '';
+  $el('re-tax').value      = REAL_ESTATE.taxCost       ? Number(REAL_ESTATE.taxCost).toLocaleString()       : '';
+  $el('re-interior').value = REAL_ESTATE.interiorCost  ? Number(REAL_ESTATE.interiorCost).toLocaleString()  : '';
+  $el('re-etc').value      = REAL_ESTATE.etcCost       ? Number(REAL_ESTATE.etcCost).toLocaleString()       : '';
   $el('re-memo').value     = REAL_ESTATE.memo || '';
   updateRePreview();
   $el('realEstateEditor').classList.add('open');
@@ -305,11 +306,12 @@ function closeRealEstateEditor() {
 }
 
 function updateRePreview() {
-  const val      = parseInt($el('re-value')?.value) || 0;
-  const pur      = parseInt($el('re-purchase')?.value) || 0;
-  const tax      = parseInt($el('re-tax')?.value) || 0;
-  const interior = parseInt($el('re-interior')?.value) || 0;
-  const etc      = parseInt($el('re-etc')?.value) || 0;
+  // ★ [숫자 콤마 서식] 콤마 제거 후 파싱
+  const val      = parseInt(($el('re-value')?.value || '').replace(/,/g,'')) || 0;
+  const pur      = parseInt(($el('re-purchase')?.value || '').replace(/,/g,'')) || 0;
+  const tax      = parseInt(($el('re-tax')?.value || '').replace(/,/g,'')) || 0;
+  const interior = parseInt(($el('re-interior')?.value || '').replace(/,/g,'')) || 0;
+  const etc      = parseInt(($el('re-etc')?.value || '').replace(/,/g,'')) || 0;
   const prev = $el('re-preview');
   const cont = $el('re-preview-content');
   if(!prev || !cont) return;
@@ -368,11 +370,12 @@ function updateRePreview() {
 }
 
 function applyRealEstate() {
-  const val      = parseInt($el('re-value')?.value) || 0;
-  const pur      = parseInt($el('re-purchase')?.value) || 0;
-  const tax      = parseInt($el('re-tax')?.value) || 0;
-  const interior = parseInt($el('re-interior')?.value) || 0;
-  const etc      = parseInt($el('re-etc')?.value) || 0;
+  // ★ [숫자 콤마 서식] 콤마 제거 후 파싱
+  const val      = parseInt(($el('re-value')?.value || '').replace(/,/g,'')) || 0;
+  const pur      = parseInt(($el('re-purchase')?.value || '').replace(/,/g,'')) || 0;
+  const tax      = parseInt(($el('re-tax')?.value || '').replace(/,/g,'')) || 0;
+  const interior = parseInt(($el('re-interior')?.value || '').replace(/,/g,'')) || 0;
+  const etc      = parseInt(($el('re-etc')?.value || '').replace(/,/g,'')) || 0;
   const name     = $el('re-name')?.value?.trim() || '보유 부동산';
   const memo     = $el('re-memo')?.value?.trim() || '';
 
