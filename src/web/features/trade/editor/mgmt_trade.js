@@ -412,9 +412,9 @@ function openAddTrade(prefill, forceTradeType) {
     const fxKrwEl = $el('te-price-fx-krw');
     if (fxKrwEl) fxKrwEl.value = t.price || '';
   } else {
-    // 원화 종목 단가 복원
+    // 원화 종목 단가 복원 (콤마 서식 표시)
     const krwEl = $el('te-price-krw');
-    if (krwEl) krwEl.value = t.price ?? '';
+    if (krwEl) krwEl.value = t.price != null ? Number(t.price).toLocaleString() : '';
   }
   if (t.fxRateAtBuy) {
     const rateEl = $el('te-fx-rate');
@@ -497,7 +497,7 @@ function buildTradeEditOverlayHTML() {
         <!-- 단가 -->
         <div id="te-price-wrap">
           <label id="te-price-label" class="form-label">매수단가 (원) *</label>
-          ${inp('te-price-krw','58000','number')}
+          <input id="te-price-krw" type="text" inputmode="numeric" data-format="number-comma" placeholder="58,000" class="input-full-82"/>
         </div>
         <!-- ★ [환율 연동] 외화 종목 선택 시 표시 (기본 hidden) -->
         <div id="te-fx-wrap" style="display:none">
@@ -581,7 +581,7 @@ function saveTrade() {
   const isFxMode  = $el('te-fx-wrap')?.style.display !== 'none';
   const price     = isFxMode
     ? parseFloat(f('te-price-fx-krw')?.value || '0')
-    : parseFloat(f('te-price-krw')?.value || '0');
+    : parseFloat((f('te-price-krw')?.value || '0').replace(/,/g, ''));
   const tradeType = window._currentTradeType || 'buy';
 
   const acctVal = f('te-acct').value;
