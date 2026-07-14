@@ -97,7 +97,7 @@ function buildStockMgmt() {
       <input type="text" class="sm-name-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${_escapeHtml(item.name)}"
         ${isEdit?'':'readonly tabindex="-1"'} />
       <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${_escapeHtml(item.code||'')}"
-        style="font-family:'Courier New',monospace;text-align:center" maxlength="6" placeholder="예) 005930, F00001" ${isEdit?'':'readonly tabindex="-1"'} />
+        style="text-align:center" maxlength="6" placeholder="예) 005930, F00001" ${isEdit?'':'readonly tabindex="-1"'} />
       <span class="txt-muted-68">${curTypeEsc}</span>
       <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${secEsc}</span>
       ${isForeign ? `<span style="font-size:.62rem;font-weight:700;color:var(--amber);background:rgba(245,158,11,.12);border-radius:4px;padding:1px 5px">${curCurrency}</span>` : ''}
@@ -105,17 +105,17 @@ function buildStockMgmt() {
 
     if(isEdit) {
       html += `<div style="border:1px solid var(--c-purple-45);border-top:none;border-radius:0 0 6px 6px;background:var(--c-purple-06);padding:10px 10px 8px;margin-bottom:6px">
-        <input type="hidden" class="sm-type-sel"    data-idx="${idx}" value="${curTypeEsc}"/>
-        <input type="hidden" class="sm-sec-sel"     data-idx="${idx}" value="${secEsc}"/>
-        <input type="hidden" class="sm-cur-sel"     data-idx="${idx}" value="${_escapeHtml(curCurrency)}"/>
-        <div>
-          <div class="lbl-60-muted fw7-mb5-ls">유형 <span style="font-weight:400;color:var(--muted)">(자산 종류)</span></div>
-          <div class="sm-type-grp flex-wrap-gap3" data-idx="${idx}">
-            ${ ['주식','ETF','펀드','TDF'].map(t=>
-              `<button type="button" data-sm-type="${_escapeHtml(t)}" class="btn-toggle-purple-sm${t===curType?' active':''}">${_escapeHtml(t)}</button>`).join('') }
+        <input type="hidden" class="sm-type-sel" data-idx="${idx}" value="${curTypeEsc}"/>
+        <input type="hidden" class="sm-sec-sel"  data-idx="${idx}" value="${secEsc}"/>
+        <input type="hidden" class="sm-cur-sel"  data-idx="${idx}" value="${_escapeHtml(curCurrency)}"/>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div class="lbl-60-muted fw7-mb5-ls">유형</div>
+            <div class="sm-type-grp flex-wrap-gap3" data-idx="${idx}">
+              ${ ['주식','ETF','ISA','IRP','연금','펀드','TDF'].map(t=>
+                `<button type="button" data-sm-type="${_escapeHtml(t)}" class="btn-toggle-purple-sm${t===curType?' active':''}">${_escapeHtml(t)}</button>`).join('') }
+            </div>
           </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
           <div>
             <div class="lbl-60-muted fw7-mb5-ls">섹터</div>
             <div class="sm-sec-grp flex-wrap-gap3" data-idx="${idx}">
@@ -123,12 +123,13 @@ function buildStockMgmt() {
                 `<button type="button" data-sm-sector="${_escapeHtml(s)}" class="btn-toggle-purple-sm${s===sec?' active':''}">${_escapeHtml(s)}</button>`).join('') }
             </div>
           </div>
-          <div>
-            <div class="lbl-60-muted fw7-mb5-ls">통화 <span style="font-weight:400;color:var(--muted)">(해외주식)</span></div>
-            <div class="sm-cur-grp flex-wrap-gap3" data-idx="${idx}">
-              ${ ['KRW','USD','JPY','EUR','CNY','HKD'].map(c=>
-                `<button type="button" data-sm-currency="${c}" class="btn-toggle-purple-sm${c===curCurrency?' active':''}">${c}</button>`).join('') }
-            </div>
+        </div>
+        <!-- ★ [환율 연동] 통화 선택 -->
+        <div style="margin-top:8px">
+          <div class="lbl-60-muted fw7-mb5-ls">통화 <span style="font-weight:400;color:var(--muted)">(해외주식은 해당 통화 선택)</span></div>
+          <div class="sm-cur-grp flex-wrap-gap3" data-idx="${idx}">
+            ${ ['KRW','USD','JPY','EUR','CNY','HKD'].map(c=>
+              `<button type="button" data-sm-currency="${c}" class="btn-toggle-purple-sm${c===curCurrency?' active':''}">${c}</button>`).join('') }
           </div>
         </div>
         <div class="gap-mb6" style="margin-top:8px">
@@ -351,7 +352,7 @@ function smCsvImport(input) {
     };
     if (col.name === -1) { showToast('❌ "종목명" 컬럼이 없습니다', 'error'); return; }
 
-    const VALID_TYPES = ['주식','ETF','펀드','TDF'];
+    const VALID_TYPES = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
     let added = 0, skipped = 0, updated = 0;
 
     rows.forEach(cols => {
@@ -398,13 +399,13 @@ function smMgmtAddNew() {
   _smRenderTypeButtons('주식');
   const sectors = [...new Set([...Object.keys(SECTOR_COLORS), '기타'])];
   _smRenderSecButtons(sectors[0] || '기타', sectors);
+  // ★ [환율 연동] 통화 버튼 렌더링 (기본 KRW)
   _smRenderCurButtons('KRW');
   setTimeout(() => $el('smMgmtNewName')?.focus(), 50);
 }
 
 function _smRenderTypeButtons(active) {
-  // ★ [taxType 분리] 유형은 자산 종류만 (ISA/IRP/연금 제거)
-  const types = ['주식','ETF','펀드','TDF'];
+  const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
   const group = $el('smTypeGroup');
   const inp   = $el('smMgmtNewType');
   if(!group) return;
@@ -444,6 +445,7 @@ function smMgmtCancel() {
   const c = $el('smMgmtNewCode'); if(c) c.value = '';
   const t = $el('smMgmtNewType'); if(t) t.value = '주식';
   const s = $el('smMgmtNewSec');  if(s) s.value = '기타';
+  // ★ [환율 연동] 통화 초기화
   const cu = $el('smMgmtNewCur'); if(cu) cu.value = 'KRW';
 }
 
@@ -451,7 +453,8 @@ function smMgmtConfirm() {
   const name      = ($el('smMgmtNewName')?.value || '').trim();
   const code      = normalizeStockCode(($el('smMgmtNewCode')?.value || '').trim());
   const assetType = $el('smMgmtNewType')?.value || '주식';
-  const sector    = $el('smMgmtNewSec')?.value  || '기타';
+  const sector    = $el('smMgmtNewSec')?.value || '기타';
+  // ★ [환율 연동] 통화 읽기
   const currency  = ($el('smMgmtNewCur')?.value || 'KRW').toUpperCase();
   if(!name) { showMgmtMsg('smMgmtMsg','⚠️ 종목명을 입력해주세요',true); return; }
   if(code && code.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
@@ -464,6 +467,7 @@ function smMgmtConfirm() {
     showMgmtMsg('smMgmtMsg',`❌ 종목코드 ${code}는 "${dup.name}"에서 이미 사용 중입니다`,true); return;
   }
   const isFund = (assetType === '펀드' || assetType === 'TDF');
+  // ★ [환율 연동] currency 필드 포함 저장 (KRW면 생략)
   EDITABLE_PRICES.push({
     name, code, sector, assetType,
     ...(isFund ? { fund: true } : {}),
