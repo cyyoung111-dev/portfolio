@@ -5,7 +5,6 @@ let _editorSectionPage = { fund: 1, noprice: 1 };
 const EDITOR_PAGE_SIZE = 5;
 let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
 let _editorFetchController = null; // ★ 날짜 변경 시 이전 fetch abort용
-let _editorLoadSeq = 0; // ★ 느린 원격 조회 응답이 최신 화면을 덮어쓰지 않도록 순번 관리
 
 function openEditor() {
   buildEditorUI();
@@ -39,7 +38,6 @@ function _resetEditorApplyButton() {
 }
 
 function closeEditor() {
-  _editorLoadSeq++; // 닫힌 뒤 늦게 도착한 원격 조회가 편집창을 다시 그리지 않도록 무효화
   $el('priceEditor').classList.remove('open');
   editedPrices = {};
   _editorManualHistory = {};
@@ -51,26 +49,6 @@ function _setEditorSectionPage(section, page, totalPages) {
   const next = Math.max(1, Math.min(safeTotal, Number(page) || 1));
   _editorSectionPage[section] = next;
   buildEditorUI();
-}
-
-function _setEditorLoadStatus(message, type = 'info') {
-  const body = $el('editorBody');
-  if (!body) return;
-  let status = $el('editorLoadStatus');
-  if (!status) {
-    status = document.createElement('div');
-    status.id = 'editorLoadStatus';
-    body.prepend(status);
-  }
-  const colorMap = {
-    info: 'var(--blue-lt)',
-    ok: 'var(--green-lt)',
-    warn: 'var(--amber)',
-    error: 'var(--red-lt)',
-  };
-  status.style.cssText = 'margin:0 0 10px;padding:8px 10px;border-radius:8px;background:rgba(59,130,246,.08);border:1px solid var(--border);font-size:.70rem;line-height:1.35';
-  status.style.color = colorMap[type] || colorMap.info;
-  status.textContent = message || '';
 }
 
 // ── 구글 시트 URL 관리
@@ -340,8 +318,8 @@ function buildEditorUI() {
           <span class="editor-price-name">${item.name}</span>
           <span class="editor-price-code">${item.code ? item.code : ''}</span>
         </div>
-        <input type="number" id="ep_${safeId}"
-          value="${current || ''}"
+        <input type="text" inputmode="numeric" data-format="number-comma" id="ep_${safeId}"
+          value="${current ? Number(current).toLocaleString() : ''}"
           placeholder="현재가"
           data-editor-price-name="${_escapeHtml(item.name)}"
           class="editor-price-input"
@@ -401,7 +379,6 @@ function buildEditorUI() {
 async function loadEditorPricesByDate(dateStr) {
   if (!dateStr) return;
   _editorRefDate = dateStr;
-  const loadSeq = ++_editorLoadSeq;
 
   // ★ 이전 날짜 변경 요청이 진행 중이면 abort
   if (_editorFetchController) {
@@ -409,65 +386,52 @@ async function loadEditorPricesByDate(dateStr) {
   }
   _editorFetchController = new AbortController();
 
-  // ★ 먼저 캐시/로컬 값으로 즉시 렌더링 — 원격 조회 때문에 입력창이 늦게 뜨지 않도록 함
-  buildEditorUI();
-
   // ★ GAS 없는 환경이면 로컬 데이터로만 UI 구성
   if (!GSHEET_API_URL || typeof fetchFromGsheet !== 'function') {
-    _setEditorLoadStatus('📦 로컬 캐시 기준으로 표시 중입니다.', 'info');
+    buildEditorUI();
     return;
   }
 
-  _setEditorLoadStatus('⏳ 캐시를 먼저 표시했습니다. GAS 최신값과 수동입력 이력을 백그라운드로 확인 중...', 'info');
+  // ★ 로딩 표시
+  const body = $el('editorBody');
+  if (body) {
+    body.innerHTML = '<div style="text-align:center;padding:30px 0;color:var(--muted);font-size:.80rem">⏳ GAS에서 최신 가격 불러오는 중...</div>';
+  }
 
-  // ★ 자동조회 가격과 수동 이력은 서로 독립적이므로 병렬 조회
-  //   기존 순차 처리(fetchFromGsheet → getPriceHistory)보다 대기 시간을 줄임
-  const [autoResult, historyResult] = await Promise.allSettled([
-    fetchFromGsheet(dateStr),
-    _fetchEditorPriceHistoryRaw(dateStr),
-  ]);
-
-  // 늦게 도착한 이전 요청이 최신 날짜 화면을 덮어쓰지 않게 방지
-  if (loadSeq !== _editorLoadSeq || _editorRefDate !== dateStr) return;
-
+  // 1) GAS 자동조회 가격 (fetchFromGsheet는 내부적으로 getPrices 호출 — 항상 "오늘" 기준)
+  //    실패해도 2단계(수동입력값 조회)는 반드시 실행됨 — try/catch로 감쌈
   const autoLabel = dateStr.replace(/-/g,'.') + ' 조회값';
-  let appliedAuto = 0;
-  let appliedManual = 0;
-  let failed = 0;
-
-  if (autoResult.status === 'fulfilled') {
-    const results = autoResult.value;
+  try {
+    const results = await fetchFromGsheet(dateStr);
     if (results && Object.keys(results).length > 0) {
       const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key] = price;
-        appliedAuto++;
         const savedAt = meta[key]?.savedAt || '';
         const sourceDate = meta[key]?.sourceDate || '';
         const isFallback = !!meta[key]?.isFallback;
-        // 임시 레이블 — 수동입력값이 있으면 아래에서 덮어씌워짐
+        // 임시 레이블 — 2단계에서 수동입력값이 있으면 반드시 덮어씌워짐
         if (savedAt) savedPriceDates[key] = savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
         else if (isFallback && sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 기준일 이전값';
         else if (sourceDate) savedPriceDates[key] = sourceDate.replace(/-/g,'.') + ' 조회값';
         else savedPriceDates[key] = autoLabel;
       });
     }
-  } else {
-    failed++;
-    console.warn('[loadEditorPricesByDate] fetchFromGsheet 실패, 수동입력값만 표시:', autoResult.reason?.message || autoResult.reason);
+  } catch (e) {
+    // ★ fetchFromGsheet abort/timeout 실패해도 수동입력값 조회(2단계)는 반드시 진행
+    console.warn('[loadEditorPricesByDate] fetchFromGsheet 실패, 수동입력값만 표시:', e.message);
   }
 
-  const rawHistory = historyResult.status === 'fulfilled' ? historyResult.value : {};
-  if (historyResult.status === 'rejected') {
-    failed++;
-    console.warn('[loadEditorPricesByDate] getPriceHistory 실패:', historyResult.reason?.message || historyResult.reason);
-  }
+  // ★ [개선] fetchEditorManualPrices와 fetchEditorManualHistory가 동일한 GAS URL로
+  //   중복 요청하던 문제 해결 — 1회 공유 요청으로 통합
+  //   기존: getPriceHistory 2회 호출 → 로딩 시간 2배
+  //   수정: _fetchEditorPriceHistoryRaw() 1회 호출 후 최신값/이력 분리 파싱
+  const rawHistory = await _fetchEditorPriceHistoryRaw(dateStr);
 
-  // 수동 입력값 파싱 (rawHistory에서 최신값 추출) — 자동조회값보다 우선
+  // 2) 수동 입력값 파싱 (rawHistory에서 최신값 추출)
   const manual = _parseEditorManualPrices(rawHistory);
   Object.entries(manual).forEach(([key, obj]) => {
     savedPrices[key] = obj.price;
-    appliedManual++;
     if (obj.savedAt) {
       savedPriceDates[key] = obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 저장';
     } else if (obj.date) {
@@ -477,17 +441,9 @@ async function loadEditorPricesByDate(dateStr) {
     }
   });
 
-  // 이력 파싱 (rawHistory에서 최근 3건 추출)
+  // 3) 이력 파싱 (rawHistory에서 최근 3건 추출)
   _editorManualHistory = _parseEditorManualHistory(rawHistory);
-
-  // 사용자가 이미 입력을 시작했다면 원격 응답으로 입력값을 덮어쓰지 않음
-  if (Object.keys(editedPrices).length > 0) {
-    _setEditorLoadStatus(`✅ 최신값 확인 완료 · 자동 ${appliedAuto}개 · 수동 ${appliedManual}개 (입력 중인 값은 유지)`, failed ? 'warn' : 'ok');
-    return;
-  }
-
   buildEditorUI();
-  _setEditorLoadStatus(`✅ 최신값 반영 완료 · 자동 ${appliedAuto}개 · 수동 ${appliedManual}개${failed ? ' · 일부 조회 실패' : ''}`, failed ? 'warn' : 'ok');
 }
 
 // ★ [개선] GAS getPriceHistory 공유 요청 — 1회만 호출
@@ -636,46 +592,6 @@ async function _saveManualPriceWithRetry(target, maxRetry) {
   return { ok: false, err: lastErr };
 }
 
-async function _saveManualPricesToGas(gasSaveTargets, gasDate) {
-  let gasFailedCount = 0;
-  const gasFailedKeys = [];
-  if (!gasSaveTargets.length || !GSHEET_API_URL) return { gasFailedCount, gasFailedKeys };
-
-  const batchPayload = gasSaveTargets.map(t => ({ key: t.key, price: t.price }));
-  const form = new URLSearchParams();
-  form.set('action', 'batchSaveManualPrices');
-  form.set('date', gasDate);
-  form.set('data', JSON.stringify(batchPayload));
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 60000);
-  try {
-    const res = await fetch(GSHEET_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: form.toString(),
-      signal: ctrl.signal,
-    });
-    clearTimeout(timer);
-    const d = await res.json();
-    if (d && d.status === 'ok') return { gasFailedCount, gasFailedKeys };
-    console.warn('[batchSaveManualPrices] GAS 오류 → 건당 fallback 시작:', d);
-  } catch(fetchErr) {
-    clearTimeout(timer);
-    console.warn('[batchSaveManualPrices] 네트워크 오류 → 건당 fallback 시작:', fetchErr.message);
-  }
-
-  // 배치 미지원/실패 시 구버전 GAS 대응 fallback. UI는 이미 로컬 반영 후 닫히므로 백그라운드로 처리한다.
-  for (const target of gasSaveTargets) {
-    const r = await _saveManualPriceWithRetry(target, 1);
-    if (!r.ok) {
-      gasFailedCount++;
-      gasFailedKeys.push(target.key);
-    }
-  }
-  return { gasFailedCount, gasFailedKeys };
-}
-
 async function applyPrices() {
   // ★ 중복 클릭 방지 — 저장 진행 중이면 무시
   if (_applyPricesRunning) {
@@ -716,22 +632,64 @@ async function applyPrices() {
     }
   });
 
-  // ★ [최적화] GAS 저장은 백그라운드로 처리
-  // 로컬 반영/화면 갱신은 즉시 끝내고, 느린 GAS 왕복·스냅샷 재작성은 사용자를 기다리게 하지 않음
-  const gasSyncStarted = gasSaveTargets.length > 0 && !!GSHEET_API_URL;
-  if (gasSyncStarted) {
-    const gasDate = editorDateRaw || `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
-    _saveManualPricesToGas(gasSaveTargets, gasDate).then(({ gasFailedCount, gasFailedKeys }) => {
-      if (gasFailedCount > 0 && typeof showToast === 'function') {
-        const sample = gasFailedKeys.slice(0, 3).join(', ');
-        showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
-      } else if (typeof showToast === 'function') {
-        showToast(`☁️ GAS 동기화 완료 (${gasSaveTargets.length}개)`, 'ok');
+  // ★ [최적화] GAS 저장 — 건당 개별 요청 → 배치 1회 요청
+  // 기존: N개 종목 × (GAS 왕복 + 스냅샷 재작성 + 300ms 대기) = 매우 느림
+  // 개선: 전체 종목 JSON 1회 POST → GAS에서 일괄 처리 후 스냅샷 1회 재작성
+  let gasFailedCount = 0;
+  const gasFailedKeys = [];
+  if (gasSaveTargets.length > 0 && GSHEET_API_URL) {
+    try {
+      const gasDate = editorDateRaw || `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
+      const batchPayload = gasSaveTargets.map(t => ({ key: t.key, price: t.price }));
+      const form = new URLSearchParams();
+      form.set('action', 'batchSaveManualPrices');
+      form.set('date', gasDate);
+      form.set('data', JSON.stringify(batchPayload));
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 60000); // 60초 타임아웃
+      let batchOk = false;
+      try {
+        const res = await fetch(GSHEET_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: form.toString(),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timer);
+        const d = await res.json();
+        batchOk = (d && d.status === 'ok');
+        if (!batchOk) {
+          console.warn('[batchSaveManualPrices] GAS 오류 → 건당 fallback 시작:', d);
+          // ★ GAS status:error 응답 시에도 건당 fallback — 배포 전 구버전 GAS 대응
+          for (const target of gasSaveTargets) {
+            const r = await _saveManualPriceWithRetry(target, 1);
+            if (!r.ok) {
+              gasFailedCount++;
+              gasFailedKeys.push(target.key);
+            }
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+        }
+      } catch(fetchErr) {
+        clearTimeout(timer);
+        console.warn('[batchSaveManualPrices] 네트워크 오류 → 건당 fallback 시작:', fetchErr.message);
+        // ★ 네트워크 오류 시에도 건당 fallback
+        for (const target of gasSaveTargets) {
+          const r = await _saveManualPriceWithRetry(target, 1);
+          if (!r.ok) {
+            gasFailedCount++;
+            gasFailedKeys.push(target.key);
+          }
+          await new Promise(resolve => setTimeout(resolve, 300));
+        }
       }
-    }).catch(e => {
-      console.warn('[applyPrices] GAS 백그라운드 저장 예외:', e.message);
-      if (typeof showToast === 'function') showToast('⚠️ 로컬 저장 완료 · GAS 동기화는 실패했습니다', 'warn');
-    });
+    } catch(e) {
+      console.warn('[applyPrices] GAS 저장 예외:', e.message);
+    }
+    if (gasFailedCount > 0 && typeof showToast === 'function') {
+      const sample = gasFailedKeys.slice(0, 3).join(', ');
+      showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
+    }
   }
 
   recomputeRows();
@@ -746,21 +704,30 @@ async function applyPrices() {
 
   saveHoldings();
 
-  // ★ 저장 완료 피드백 — 로컬 저장 완료를 짧게 보여준 뒤 닫힘
+  // ★ 저장 완료 피드백 — 버튼·본문에 표시 후 1.5초 뒤 닫힘
   const applyBtn = $el('pe-panel-price-footer')
                 || $el('priceEditor')?.querySelector('.btn-apply-prices');
   if (applyBtn) {
     applyBtn.disabled = true;
-    applyBtn.innerHTML = gasSyncStarted
-      ? `✅ 로컬 저장 완료 (${updatedCount}개) · GAS 동기화 중`
-      : `✅ 저장 완료 (${updatedCount}개)`;
-    applyBtn.style.background = 'var(--green)';
+    if (gasFailedCount > 0) {
+      applyBtn.innerHTML = `⚠️ 일부 저장 실패 (GAS ${gasFailedCount}건)`;
+      applyBtn.style.background = 'var(--amber)';
+    } else {
+      applyBtn.innerHTML = `✅ 저장 완료 (${updatedCount}개)`;
+      applyBtn.style.background = 'var(--green)';
+    }
   }
   const body = $el('editorBody');
   if (body) {
     const done = document.createElement('div');
     done.style.cssText = 'text-align:center;padding:18px 0 8px;font-size:.82rem;color:var(--green-lt);font-weight:600';
-    done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${_escapeHtml(dateStr)} ${_escapeHtml(timeStr)} 기준${gasSyncStarted ? ' · GAS는 백그라운드 동기화 중' : ''}</span>`;
+    if (gasFailedCount > 0) {
+      const sample = gasFailedKeys.slice(0, 3).map(key => _escapeHtml(key)).join(', ');
+      done.innerHTML = `⚠️ 로컬 저장 완료 · GAS 저장 실패 ${gasFailedCount}건${sample ? '<br><span style="font-size:.70rem;color:var(--muted)">실패 키: ' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + '</span>' : ''}`;
+      done.style.color = 'var(--amber)';
+    } else {
+      done.innerHTML = `✅ ${updatedCount}개 종목 현재가가 저장되었습니다.<br><span style="font-size:.70rem;color:var(--muted)">${_escapeHtml(dateStr)} ${_escapeHtml(timeStr)} 기준 · GAS 일괄 동기화 완료</span>`;
+    }
     body.prepend(done);
   }
   _applyPricesRunning = false;
@@ -769,7 +736,7 @@ async function applyPrices() {
     renderView();
     renderSummary();
     if (typeof shouldRenderCharts !== 'function' || shouldRenderCharts(currentView)) renderDonut();
-  }, gasSyncStarted ? 500 : 900);
+  }, 1500);
 }
 
 
