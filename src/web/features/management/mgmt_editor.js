@@ -740,6 +740,6 @@ async function applyPrices() {
 }
 
 
-document.addEventListener('input', function(e) {
-  if (e.target.dataset?.editorPriceName) markChanged(e.target.dataset.editorPriceName, e.target.value);
-});
+// ★ [통일] data-editor-price-name 입력 처리는 event_delegation.js의 전역 input 리스너로 통합됨
+//   (기존: 이 파일에 별도 document.addEventListener('input', ...)가 있어서
+//    event_delegation.js의 콤마 서식 리스너와 매 키 입력마다 동시에 실행 → 타이핑 지연 원인)
