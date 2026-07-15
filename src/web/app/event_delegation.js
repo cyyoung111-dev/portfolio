@@ -203,17 +203,27 @@ function registerGlobalEventDelegation() {
   // ── 부동산 미리보기 input 위임
   document.addEventListener('input', function(e) {
     // ★ [통일] 금액 입력창 자동 콤마 서식 — 여러 파일에 흩어져 있던 동일 로직을 이 한 곳으로 통합
-    //   (기존: views_asset_schedule_data.js와 views_plan.js에 각각 따로 구현되어 있었음)
+    //   (기존: views_asset_schedule_data.js, views_plan.js, mgmt_editor.js에 각각 따로 구현되어 있었음
+    //    → 리스너 2개가 매 키 입력마다 같이 실행되며 타이핑 지연 + 처리 순서 불안정 문제 발생)
     if (e.target && e.target.dataset && e.target.dataset.format === 'number-comma') {
       const pos = e.target.selectionStart;
       const lenBefore = e.target.value.length;
       const raw = e.target.value.replace(/[^0-9]/g, '');
+      // ★ 현재가 편집(ep_ 입력)은 콤마 제거한 순수 숫자를 markChanged로 먼저 전달 — 한 번에 처리
+      if (e.target.dataset.editorPriceName && typeof markChanged === 'function') {
+        markChanged(e.target.dataset.editorPriceName, raw);
+      }
       e.target.value = raw ? Number(raw).toLocaleString() : '';
       const lenAfter = e.target.value.length;
       try {
         const newPos = Math.max(0, (pos || 0) + (lenAfter - lenBefore));
         e.target.setSelectionRange(newPos, newPos);
       } catch(err) {}
+      return;
+    }
+    // ★ [통일] data-editor-price-name만 있고 number-comma가 없는 경우 대비 (하위 호환)
+    if (e.target && e.target.dataset && e.target.dataset.editorPriceName && typeof markChanged === 'function') {
+      markChanged(e.target.dataset.editorPriceName, e.target.value);
       return;
     }
     const id = e.target && e.target.id;
