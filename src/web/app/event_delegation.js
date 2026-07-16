@@ -238,6 +238,8 @@ function registerGlobalEventDelegation() {
     if (inp.id === 'importFileInput' && typeof importData === 'function') importData(inp);
     if (inp.id === 'smCsvFileInput'  && typeof smCsvImport  === 'function') smCsvImport(inp);
     if (inp.id === 'secCsvFileInput' && typeof secCsvImport === 'function') secCsvImport(inp);
+    // ★ [통일] 상환스케줄 CSV 업로드 (views_asset_schedule_data.js에 흩어져 있던 것 통합)
+    if (inp.dataset?.scheduleFile === 'upload' && typeof uploadScheduleCsv === 'function') uploadScheduleCsv(inp);
   });
 
   // ── keydown 위임 (Enter / Escape)
