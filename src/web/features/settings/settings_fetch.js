@@ -2,7 +2,29 @@
 //  settings_fetch.js — GAS 가격 조회·자동로드 (fetchFromGsheet, autoLoadPrices)
 //  의존: settings.js, data.js
 // ════════════════════════════════════════════════════════════════
+
+// ★ [버그수정] 같은 날짜에 대한 가격 조회가 동시에 여러 곳(자동조회/업데이트 버튼/현재가 편집창)에서
+//   겹쳐 호출되면, 나중에 도착한 응답이 먼저 것을 덮어써서 "2번 눌러야 반영되는" 문제와
+//   "이미 조회 중인데 또 새로 조회를 시작해 오래 걸리는" 문제가 함께 발생했음
+//   → 같은 날짜 요청이 이미 진행 중이면 새로 조회하지 않고 그 결과를 같이 기다림 (요청 1개로 통합)
+const _inFlightFetches = {};
+
 async function fetchFromGsheet(dateStr) {
+  // 이미 같은 날짜로 진행 중인 요청이 있으면 새로 만들지 않고 그 결과를 재사용
+  if (_inFlightFetches[dateStr]) {
+    return _inFlightFetches[dateStr];
+  }
+  const promise = _fetchFromGsheetInner(dateStr);
+  _inFlightFetches[dateStr] = promise;
+  try {
+    return await promise;
+  } finally {
+    // 완료되면(성공/실패 무관) 다음 요청은 새로 조회할 수 있도록 정리
+    if (_inFlightFetches[dateStr] === promise) delete _inFlightFetches[dateStr];
+  }
+}
+
+async function _fetchFromGsheetInner(dateStr) {
   if (!GSHEET_API_URL) return null;
   try {
     const pickLatestPreferManual = (list) => {
@@ -11,17 +33,6 @@ async function fetchFromGsheet(dateStr) {
       const manual = list.filter(e => e && e.price > 0 && e.savedAt).sort(byLatest);
       if (manual.length > 0) return manual[manual.length - 1];
       const valid = list.filter(e => e && e.price > 0).sort(byLatest);
-      return valid.length > 0 ? valid[valid.length - 1] : null;
-    };
-    const pickLatestOnOrBefore = (list, targetDate) => {
-      if (!Array.isArray(list) || list.length === 0) return null;
-      const valid = list
-        .filter(e => e && e.price > 0 && (!e.date || e.date <= targetDate))
-        .sort((a, b) => {
-          const byDate = (a?.date || '').localeCompare(b?.date || '');
-          if (byDate !== 0) return byDate;
-          return (a?.savedAt || '').localeCompare(b?.savedAt || '');
-        });
       return valid.length > 0 ? valid[valid.length - 1] : null;
     };
     // ★ EDITABLE_PRICES 코드 + rawHoldings STOCK_CODE + GSheet 코드목록 합산 (중복 제거)
@@ -56,47 +67,33 @@ async function fetchFromGsheet(dateStr) {
       const codes = epItems.map(i => i.code).join(',');
       if (isToday) {
         // 오늘 (주말 포함) → getPrices 실시간 조회
-        // 실시간 응답이 일시적으로 실패해도 전체 자동로드를 중단하지 않고
-        // 가격 이력 조회로 fallback 하여 콘솔의 불필요한 '응답 오류'를 방지한다.
-        try {
-          const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
-          if (!data || data.status !== 'ok' || !data.prices) {
-            throw new Error(data?.message || '실시간 가격 응답 오류');
-          }
-          // ★ [환율 연동] 응답에 환율 데이터가 있으면 전역 exchangeRates에 저장
-          if (data.exchangeRates && typeof data.exchangeRates === 'object') {
-            Object.assign(exchangeRates, data.exchangeRates);
-          }
-          epItems.forEach(i => {
-            const price = data.prices[i.code];
-            if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
-            else missingCodes.push({ name: i.name, code: i.code });
-          });
-        } catch(e) {
-          console.warn('[fetchFromGsheet] getPrices 실패, 가격 이력으로 대체:', e.message);
-          missingCodes = epItems.map(i => ({ name: i.name, code: i.code }));
+        const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
+        if (!data || data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
+        // ★ [환율 연동] 응답에 환율 데이터가 있으면 전역 exchangeRates에 저장
+        if (data.exchangeRates && typeof data.exchangeRates === 'object') {
+          Object.assign(exchangeRates, data.exchangeRates);
         }
+        epItems.forEach(i => {
+          const price = data.prices[i.code];
+          if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
+          else missingCodes.push({ name: i.name, code: i.code });
+        });
         // ★ 실시간 조회에서 못 받은 종목은 getPriceHistory로 재시도
         if (missingCodes.length > 0) {
           try {
             const missingCodesStr = missingCodes.map(m => m.code).join(',');
-            const fallbackFromDate = _kstDateOffset(dateStr, -7);
             const data2 = await requestGsheetActionJson(
               'getPriceHistory',
-              { from: fallbackFromDate, to: dateStr, codes: missingCodesStr },
+              { from: dateStr, to: dateStr, codes: missingCodesStr },
               { timeoutMs: 15000, retry: 1 }
             );
             if (data2 && data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
                 const list = data2.prices[m.code] || [];
-                const entry = pickLatestOnOrBefore(list, dateStr);
+                const entry = pickLatestPreferManual(list);
                 if (entry && entry.price > 0) {
                   codeResults[m.code] = Math.round(entry.price);
-                  priceMeta[m.code] = {
-                    savedAt: entry.savedAt || '',
-                    sourceDate: entry.date || '',
-                    isFallback: !!entry.date && entry.date !== dateStr
-                  };
+                  if (entry.savedAt) priceMeta[m.code] = { savedAt: entry.savedAt };
                   return false;
                 }
                 return true;
