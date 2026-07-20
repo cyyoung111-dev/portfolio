@@ -18,6 +18,8 @@ function registerGlobalEventDelegation() {
     // settings modal
     'btn-close-tab-settings-top':    () => typeof closeTabSettings === 'function' && closeTabSettings(),
     'btn-close-tab-settings-footer': () => typeof closeTabSettings === 'function' && closeTabSettings(),
+    // ★ [버그수정] 기본값 버튼이 아예 연결돼 있지 않아 눌러도 반응 없었음
+    settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
     settingsTabBtn_tab:              () => typeof switchSettingsTab === 'function' && switchSettingsTab('tab'),
     settingsTabBtn_theme:            () => typeof switchSettingsTab === 'function' && switchSettingsTab('theme'),
     settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
@@ -122,7 +124,7 @@ function registerGlobalEventDelegation() {
       const action = tabAction.dataset.tabAction;
       const idx = parseInt(tabAction.dataset.idx || '', 10);
       if (action === 'toggle-hidden' && typeof toggleTabHidden === 'function') toggleTabHidden(idx);
-      else if (action === 'move' && typeof moveTab === 'function') moveTab(idx, tabAction.dataset.dir || 'up');
+      else if (action === 'move' && typeof moveTab === 'function') moveTab(idx, parseInt(tabAction.dataset.delta || '0', 10));
       return;
     }
 
@@ -134,6 +136,42 @@ function registerGlobalEventDelegation() {
       else if (action === 'download-template') { if (typeof downloadScheduleTemplate === 'function') downloadScheduleTemplate(); }
       else if (action === 'clear') { if (typeof clearSchedule === 'function') clearSchedule(); }
       else if (action === 'add-re-value') { if (typeof addReValue === 'function') addReValue(); }
+      return;
+    }
+
+    // ── data-mig-action (mgmt_migration.js, 보유종목→거래이력 변환 팝업)
+    // ★ [버그수정] 이 버튼들이 어디에도 연결돼 있지 않아 전혀 동작하지 않았음
+    const migAction = e.target.closest('[data-mig-action]');
+    if (migAction) {
+      const action = migAction.dataset.migAction;
+      if (action === 'close' && typeof closeMigration === 'function') closeMigration();
+      else if (action === 'apply' && typeof applyMigration === 'function') applyMigration();
+      return;
+    }
+
+    // ── data-system-action (views_system.js, 데이터 초기화 확인 절차)
+    // ★ [버그수정] 이 버튼들이 어디에도 연결돼 있지 않아 초기화 팝업의 다음/취소/실행 버튼이 전혀 동작하지 않았음
+    const systemAction = e.target.closest('[data-system-action]');
+    if (systemAction) {
+      const action = systemAction.dataset.systemAction;
+      if (action === 'reset-next') {
+        const wrap = document.getElementById('rst-confirm-wrap');
+        if (wrap) { wrap.style.display = 'block'; document.getElementById('rst-confirm-input')?.focus(); }
+      } else if (action === 'reset-cancel') {
+        const ov = document.getElementById('resetOverlay');
+        if (ov) ov.style.display = 'none';
+      } else if (action === 'reset-apply' && typeof applyReset === 'function') {
+        applyReset();
+      }
+      return;
+    }
+
+    // ── data-status-action (settings_fetch.js, 상태 라벨 안의 "연동 →" 링크)
+    // ★ [버그수정] 이 링크가 어디에도 연결돼 있지 않아 눌러도 반응 없었음
+    const statusAction = e.target.closest('[data-status-action]');
+    if (statusAction) {
+      const action = statusAction.dataset.statusAction;
+      if (action === 'gsheet' && typeof switchView === 'function') switchView('gsheet');
       return;
     }
 
@@ -240,6 +278,19 @@ function registerGlobalEventDelegation() {
     if (inp.id === 'secCsvFileInput' && typeof secCsvImport === 'function') secCsvImport(inp);
     // ★ [통일] 상환스케줄 CSV 업로드 (views_asset_schedule_data.js에 흩어져 있던 것 통합)
     if (inp.dataset?.scheduleFile === 'upload' && typeof uploadScheduleCsv === 'function') uploadScheduleCsv(inp);
+
+    // ── data-mig-action (마이그레이션 팝업의 개별 체크박스/날짜 입력)
+    // ★ [버그수정] 전체선택(toggle-all)은 click으로 처리되지만, 개별 행 체크박스·날짜는 change로 처리해야 함
+    const migAct = inp.dataset?.migAction;
+    if (migAct === 'include') {
+      const idx = parseInt(inp.dataset.migIdx || '', 10);
+      if (typeof _migrationRows !== 'undefined' && _migrationRows[idx]) _migrationRows[idx].include = inp.checked;
+    } else if (migAct === 'buy-date') {
+      const idx = parseInt(inp.dataset.migIdx || '', 10);
+      if (typeof _migrationRows !== 'undefined' && _migrationRows[idx]) _migrationRows[idx].buyDate = inp.value;
+    } else if (migAct === 'toggle-all' && typeof migToggleAll === 'function') {
+      migToggleAll(inp.checked);
+    }
   });
 
   // ── keydown 위임 (Enter / Escape)
