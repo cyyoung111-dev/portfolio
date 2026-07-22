@@ -241,6 +241,11 @@ function doGet(e) {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     return handleDividendFetch(codes);
   }
+  if (params.action === 'dividendPublic') {
+    var publicCodes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
+    var publicNames = params.names ? params.names.split('|') : [];
+    return handleDividendPublicFetch(publicCodes, publicNames, params.serviceKey || '');
+  }
   if (params.action === 'getSettings')          return handleGetSettings();
   if (params.action === 'getDividendSettings')  return handleGetDividendSettings();
   if (params.action === 'getRealEstateSettings')return handleGetRealEstateSettings();
@@ -1006,6 +1011,107 @@ function handleGetHistory(fromStr, toStr) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+
+//  공공데이터포털 주식배당정보 조회 (무료 API)
+//  - 서비스키는 브라우저가 전달합니다. 공공데이터포털 "Encoding" 인증키 사용 권장.
+//  - 회사명 기준 조회 후 현재 앱의 events 형식으로 정규화합니다.
+// ════════════════════════════════════════════════════════════════════
+function handleDividendPublicFetch(codes, names, serviceKey) {
+  try {
+    var key = (serviceKey || '').toString().trim();
+    if (!key) return jsonError('공공데이터포털 API 키가 없습니다.');
+    var results = {};
+    var namesArr = Array.isArray(names) ? names : [];
+    codes.forEach(function(rawCode, i) {
+      var code = rawCode.toString().trim();
+      if (!code) return;
+      var companyName = (namesArr[i] || '').toString().trim() || code;
+      var rows = _fetchPublicDividendRowsByName(companyName, key);
+      results[code] = _normalizePublicDividendRows(rows, code, companyName);
+    });
+    return jsonOk({ dividends: results, source: 'PUBLIC_DATA' });
+  } catch(err) {
+    return jsonError('공공데이터 배당 조회 실패: ' + err.message);
+  }
+}
+
+function _fetchPublicDividendRowsByName(companyName, serviceKey) {
+  var base = 'https://apis.data.go.kr/1160100/service/GetStocDiviInfoService/getDiviInfo';
+  var url = base
+    + '?serviceKey=' + serviceKey
+    + '&pageNo=1&numOfRows=100&resultType=json'
+    + '&stckIssuCmpyNm=' + encodeURIComponent(companyName);
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  var code = res.getResponseCode();
+  var text = res.getContentText() || '';
+  if (code < 200 || code >= 300) throw new Error('PUBLIC_DATA HTTP ' + code);
+  var json;
+  try { json = JSON.parse(text); }
+  catch(e) { throw new Error('PUBLIC_DATA JSON 파싱 실패'); }
+  var body = json && json.response && json.response.body ? json.response.body : null;
+  var items = body && body.items ? body.items.item : null;
+  if (!items) return [];
+  return Array.isArray(items) ? items : [items];
+}
+
+function _normalizePublicDividendRows(rows, code, companyName) {
+  var events = [];
+  (rows || []).forEach(function(row) {
+    if (!row) return;
+    var name = (row.stckIssuCmpyNm || row.isuNm || row.corpNm || '').toString().trim();
+    if (name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) return;
+    var amount = _publicDividendAmount(row);
+    if (!(amount > 0)) return;
+    var baseDate = _publicDividendDate(row.basDt || row.dvdnBasDt || row.recordDate || row.stckBasDt);
+    var payDate = _publicDividendDate(row.cashDvdnPayDt || row.dvdnPayDt || row.payDt || row.pymntDt);
+    var eventDate = baseDate || payDate;
+    if (!eventDate) return;
+    var monthDate = payDate || eventDate;
+    events.push({
+      date: eventDate,
+      payDate: payDate || '',
+      month: parseInt(monthDate.substring(5, 7), 10),
+      amount: amount,
+      source: 'PUBLIC_DATA'
+    });
+  });
+  events.sort(function(a,b){ return (a.date || '').localeCompare(b.date || ''); });
+  var seen = {};
+  events = events.filter(function(ev) {
+    var key = [ev.date, ev.payDate, ev.amount].join('|');
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+  if (!events.length) return { perShare: 0, freq: '-', months: [], count: 0, events: [], source: 'PUBLIC_DATA' };
+  var months = events.map(function(ev){ return ev.month; }).filter(function(m){ return m >= 1 && m <= 12; });
+  var uniqM = months.filter(function(v,i,a){ return a.indexOf(v) === i; }).sort(function(a,b){ return a-b; });
+  var count = events.length;
+  var freq = count >= 10 ? '월배당' : count >= 4 ? '분기' : count >= 2 ? '반기' : '연간';
+  var perShare = parseFloat((events.reduce(function(s, ev){ return s + ev.amount; }, 0) / count).toFixed(4));
+  return { perShare: perShare, freq: freq, months: uniqM, count: count, events: events, source: 'PUBLIC_DATA' };
+}
+
+function _publicDividendAmount(row) {
+  var candidates = [
+    row.stckGenrDvdnAmt, row.stckGrdnDvdnAmt, row.cashDvdnAmt, row.dvdnAmt,
+    row.dividend, row.perShare, row.amount
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    var n = parseFloat(String(candidates[i] || '').replace(/,/g, ''));
+    if (n > 0) return n;
+  }
+  return 0;
+}
+
+function _publicDividendDate(value) {
+  var s = (value || '').toString().trim();
+  if (!s) return '';
+  var m = s.match(/^(\d{4})[-.]?(\d{2})[-.]?(\d{2})/);
+  if (!m) return '';
+  return m[1] + '-' + m[2] + '-' + m[3];
+}
+
 //  배당 조회
 // ════════════════════════════════════════════════════════════════════
 function handleDividendFetch(codes) {

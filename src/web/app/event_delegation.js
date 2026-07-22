@@ -113,6 +113,7 @@ function registerGlobalEventDelegation() {
       const action = divAction.dataset.divAction;
       if (action === 'apply' && typeof applyDivChanges === 'function') applyDivChanges();
       else if (action === 'fetch' && typeof startDivFetch === 'function') startDivFetch();
+      else if (action === 'save-public-key' && typeof savePublicDataApiKeyFromUI === 'function') savePublicDataApiKeyFromUI();
       else if (action === 'toggle-zero' && typeof _toggleDivHideZero === 'function') _toggleDivHideZero();
       return;
     }
