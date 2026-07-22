@@ -142,7 +142,7 @@ function renderDivView(area, skipFetch) {
       </div>
     </div>
     <div style="font-size:.65rem;color:var(--muted);margin-top:4px;padding:0 2px">
-      ${GSHEET_API_URL ? '탭 진입 시 자동 조회 · 필요 시 🔄 재동기화로 즉시 갱신' : '재동기화 설정 필요'}
+      ${GSHEET_API_URL ? '탭 진입 시 GOOGLEFINANCE(가능 종목만) 자동 조회 · 누락 종목은 수동 입력값 유지' : '재동기화 설정 필요'}
     </div>
   </div>
 

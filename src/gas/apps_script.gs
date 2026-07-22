@@ -1039,7 +1039,7 @@ function handleDividendFetch(codes) {
       var startRow = i * 20 + 1;
       var cellVal  = tmp.getRange(startRow, 1).getValue();
       if (!cellVal || cellVal === 'NO_DATA' || String(cellVal).startsWith('#')) {
-         results[code] = { perShare: 0, freq: '-', months: [], count: 0 }; return;
+         results[code] = { perShare: 0, freq: '-', months: [], count: 0, source: 'GOOGLEFINANCE' }; return;
       }
 // GOOGLEFINANCE dividends: 첫 행은 헤더("Date","Amount"), 데이터는 2번째 행부터
      var divRows  = [];
@@ -1059,13 +1059,13 @@ function handleDividendFetch(codes) {
           amount: parseFloat(av) || 0
         });
       }
-      if (divRows.length === 0) { results[code] = { perShare: 0, freq: '-', months: [], count: 0 }; return; }
+      if (divRows.length === 0) { results[code] = { perShare: 0, freq: '-', months: [], count: 0, source: 'GOOGLEFINANCE' }; return; }
       var months   = divRows.map(function(r) { return r.month; });
       var uniqM    = months.filter(function(v,i,a){ return a.indexOf(v)===i; }).sort(function(a,b){return a-b;});
       var count    = divRows.length;
       var freq     = count >= 10 ? '월배당' : count >= 4 ? '분기' : count >= 2 ? '반기' : '연간';
       var perShare = parseFloat((divRows.reduce(function(s,r){return s+r.amount;},0)/count).toFixed(4));
-      results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count, events: divRows };
+      results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count, events: divRows, source: 'GOOGLEFINANCE' };
     });
 
     try { tmp.clearContents(); SpreadsheetApp.flush(); } catch(e) { Logger.log('배당 tmp 시트 정리 실패: ' + e.message); }

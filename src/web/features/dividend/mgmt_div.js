@@ -1,5 +1,7 @@
 // ── 배당 관리 상수
 const FREQ_OPTIONS = ['-', '월배당', '분기', '반기', '연간'];
+const DIV_AUTO_SOURCE_LABEL = 'GOOGLEFINANCE(가능 종목만)';
+const DIV_MANUAL_GUIDE = '한국 주식 배당 자동조회는 종목별 누락 가능성이 있어, 조회 실패 종목은 수동 입력을 기준으로 유지합니다.';
 const MONTHS_OPTIONS = {
   '-':    [],
   '월배당': [1,2,3,4,5,6,7,8,9,10,11,12],
@@ -200,19 +202,22 @@ function _normalizeDividendResponse(obj, prev) {
     } else if (Array.isArray(prev?.events)) {
       next.events = prev.events;
     }
-    next.note = next.events?.length ? 'GOOGLEFINANCE 실제 배당일 기준 자동갱신' : 'GOOGLEFINANCE 자동갱신';
+    next.source = obj?.source || 'GOOGLEFINANCE';
+    next.note = next.events?.length ? `${DIV_AUTO_SOURCE_LABEL} 실제 배당일 기준 자동갱신` : `${DIV_AUTO_SOURCE_LABEL} 자동갱신`;
   } else {
     // 조회 실패/무배당 응답이 와도 기존 수동값/이전 정상값은 보존 (0으로 덮어쓰기 방지)
     if (Number(prev?.perShare || 0) > 0) {
       next.perShare = Number(prev.perShare || 0);
       next.freq = prev?.freq || next.freq || '-';
       next.months = Array.isArray(prev?.months) ? prev.months : (next.months || []);
-      next.note = 'GOOGLEFINANCE: 배당내역 없음(기존 값 유지)';
+      next.source = obj?.source || prev?.source || 'GOOGLEFINANCE';
+      next.note = `${DIV_AUTO_SOURCE_LABEL}: 배당내역 없음(기존 값 유지)`;
     } else {
       next.perShare = 0;
+      next.source = obj?.source || prev?.source || 'GOOGLEFINANCE';
       next.note = prev?.note && !prev.note.startsWith('GOOGLEFINANCE')
         ? prev.note
-        : 'GOOGLEFINANCE: 배당내역 없음';
+        : `${DIV_AUTO_SOURCE_LABEL}: 배당내역 없음`;
     }
   }
   return next;
@@ -283,7 +288,7 @@ async function startDivFetch() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 조회 중...'; }
   if (status) {
     status.style.color = 'var(--amber)';
-    status.textContent = '구글시트 GOOGLEFINANCE로 배당 내역 조회 중... (약 10~20초)';
+    status.textContent = `구글시트 ${DIV_AUTO_SOURCE_LABEL}로 배당 내역 조회 중... (약 10~20초) · ${DIV_MANUAL_GUIDE}`;
   }
 
   // 보유 종목 코드 목록 (펀드 제외, 코드 있는 것만)
@@ -333,17 +338,19 @@ async function startDivFetch() {
       const prev = DIVDATA[storeKey] || {};
       DIVDATA[storeKey] = _normalizeDividendResponse(obj, prev);
       if (Number(obj?.perShare || 0) > 0) {
-        DIVDATA[storeKey].note = 'GOOGLEFINANCE 최근 13개월 기준';
+        DIVDATA[storeKey].source = obj?.source || 'GOOGLEFINANCE';
+        DIVDATA[storeKey].note = `${DIV_AUTO_SOURCE_LABEL} 최근 13개월 기준`;
         updated++;
       } else {
-        DIVDATA[storeKey].note = DIVDATA[storeKey].note === 'GOOGLEFINANCE: 배당내역 없음'
-          ? 'GOOGLEFINANCE: 배당내역 없음 (수동입력 가능)'
+        DIVDATA[storeKey].source = obj?.source || DIVDATA[storeKey].source || 'GOOGLEFINANCE';
+        DIVDATA[storeKey].note = DIVDATA[storeKey].note === `${DIV_AUTO_SOURCE_LABEL}: 배당내역 없음`
+          ? `${DIV_AUTO_SOURCE_LABEL}: 배당내역 없음 (수동입력 가능)`
           : DIVDATA[storeKey].note;
         skipped++;
       }
     });
 
-    const resultMsg = '✅ ' + updated + '개 종목 배당 조회 완료' + (skipped > 0 ? ' (' + skipped + '개 배당없음)' : '');
+    const resultMsg = `✅ ${updated}개 종목 배당 조회 완료 · 원천 ${DIV_AUTO_SOURCE_LABEL}` + (skipped > 0 ? ` (${skipped}개 배당없음/수동확인)` : '');
     persistDividendSettings(true);
     saveHoldings();
     // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
