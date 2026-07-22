@@ -680,3 +680,51 @@ input[type="number"]{
     top:64px!important;
   }
 }
+
+
+/* === Retirement plan readability pass === */
+.retire-metric-grid,
+.retire-input-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+  margin-bottom:14px;
+}
+.retire-metric-grid{gap:8px}
+.retire-flow-grid,
+.retire-check-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+}
+.retire-flow-grid{margin-bottom:12px}
+.retire-check-item{
+  display:flex;
+  gap:8px;
+  align-items:flex-start;
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:8px 10px;
+  font-size:.72rem;
+  line-height:1.35;
+}
+.retire-input-grid input{min-width:0}
+@media(max-width:768px){
+  .retire-metric-grid,
+  .retire-input-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+@media(max-width:480px){
+  .retire-metric-grid,
+  .retire-input-grid,
+  .retire-flow-grid,
+  .retire-check-grid{
+    grid-template-columns:1fr;
+  }
+  .retire-check-item{
+    min-height:36px;
+    padding:9px 10px;
+  }
+}
