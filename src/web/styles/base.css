@@ -617,3 +617,123 @@ input[type="number"]{
   .vs-btn{min-width:43px}
   .mnav-label{font-size:.54rem}
 }
+
+/* === Overall visibility polish pass === */
+.sc,
+.tbl-wrap,
+.chart-card,
+.card-12,
+.card-12-mb16,
+.card-12-p20,
+.sector-card,
+.action-update-card,
+.toolbar-btn,
+.vs-btn,
+.mobile-nav{
+  box-shadow:0 8px 24px rgba(0,0,0,.10);
+}
+.sc,
+.tbl-wrap,
+.chart-card,
+.sector-card{
+  border-color:color-mix(in srgb, var(--border) 82%, white 18%);
+}
+.action-status-label{
+  max-width:100%;
+  font-weight:700;
+  word-break:keep-all;
+  overflow-wrap:anywhere;
+}
+.sl-ok{background:rgba(16,185,129,.12);color:var(--green-lt)}
+.sl-warn{background:rgba(245,158,11,.12);color:var(--gold)}
+.sl-error{background:rgba(239,68,68,.12);color:var(--red-lt)}
+.date-badge{
+  font-weight:800;
+  box-shadow:0 6px 18px rgba(0,0,0,.12);
+}
+.tbl-head h3,
+.h3-section,
+.h3-card,
+.editor-header h3{
+  letter-spacing:-.025em;
+}
+.tbl-head .tsum,
+.sc .sub,
+.editor-header p,
+.txt-muted-68,
+.txt-muted-72,
+.txt-muted-75{
+  color:var(--muted);
+}
+.table-scroll-hint{
+  display:none;
+}
+@media(max-width:768px){
+  #toast-container{
+    bottom:calc(var(--mobile-bottom-nav-h) + env(safe-area-inset-bottom) + 18px);
+  }
+  .toolbar-btn-group::-webkit-scrollbar,
+  #viewSwitcher::-webkit-scrollbar{
+    height:0;
+  }
+  .toolbar-btn-group,
+  #viewSwitcher{
+    scrollbar-width:none;
+  }
+  .toolbar-btn,
+  .vs-btn,
+  .mnav-btn{
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  .tbl-wrap,
+  .overflow-x-auto,
+  [style*="overflow-x:auto"]{
+    border-radius:12px;
+  }
+  th,
+  td{
+    line-height:1.35;
+  }
+  .col-filter-dropdown{
+    max-width:min(92vw,320px);
+    min-width:210px;
+    position:fixed;
+    left:50%!important;
+    right:auto!important;
+    top:72px!important;
+    transform:translateX(-50%);
+    max-height:calc(100vh - var(--mobile-bottom-nav-h) - 110px);
+  }
+  .col-filter-dropdown label,
+  .col-filter-dropdown .cfd-btn{
+    min-height:34px;
+  }
+  .active-filters-bar{
+    padding:0 2px;
+  }
+  .active-filter-chip{
+    max-width:100%;
+    min-height:30px;
+  }
+}
+@media(max-width:480px){
+  .action-status-label,
+  .date-badge{
+    font-size:.66rem;
+  }
+  .toast{
+    max-width:92vw;
+    padding:9px 13px;
+    font-size:.76rem;
+  }
+  .editor-footer .btn-cancel,
+  .editor-footer .btn-apply,
+  .editor-footer .btn-ghost-muted{
+    flex:1 1 0;
+    min-width:0;
+  }
+  .col-filter-dropdown{
+    top:64px!important;
+  }
+}
