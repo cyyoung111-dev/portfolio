@@ -737,3 +737,31 @@ input[type="number"]{
     top:64px!important;
   }
 }
+
+/* === Mobile bottom nav icon sizing fix === */
+@media(max-width:768px){
+  .mobile-nav{
+    min-height:0;
+  }
+  .mnav-btn svg{
+    width:22px;
+    height:22px;
+    max-width:22px;
+    max-height:22px;
+    flex:0 0 22px;
+    display:block;
+    stroke:currentColor;
+  }
+  .mnav-btn{
+    overflow:hidden;
+  }
+}
+@media(max-width:480px){
+  .mnav-btn svg{
+    width:20px;
+    height:20px;
+    max-width:20px;
+    max-height:20px;
+    flex-basis:20px;
+  }
+}
