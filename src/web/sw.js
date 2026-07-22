@@ -34,24 +34,32 @@ self.addEventListener('activate', (event) => {
 
 // 요청 가로채기: 네트워크 우선, 실패하면 캐시 사용 (구글시트 API 요청은 캐싱하지 않음)
 self.addEventListener('fetch', (event) => {
-  const url = event.request.url;
+  const { request } = event;
+  const url = new URL(request.url);
 
-  // GAS(구글 앱스크립트) API 요청은 항상 네트워크로만 — 캐싱하면 오래된 가격이 보일 수 있음
-  if (url.includes('script.google.com')) {
+  // GET 요청만 캐싱합니다. POST/PUT 같은 쓰기 요청을 캐시에 넣으면 저장/동기화가 꼬일 수 있습니다.
+  if (request.method !== 'GET') {
+    return;
+  }
+
+  // 같은 출처의 정적 리소스만 캐싱합니다. GAS/외부 API 응답은 항상 네트워크로만 처리합니다.
+  if (url.origin !== self.location.origin || url.hostname === 'script.google.com') {
     return;
   }
 
   event.respondWith(
-    fetch(event.request)
+    fetch(request)
       .then((response) => {
-        // 성공하면 캐시도 최신화
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        // 실패/리다이렉트/opaque 응답은 캐시하지 않아 오프라인 캐시 오염을 줄입니다.
+        if (response.ok && response.type === 'basic') {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        }
         return response;
       })
       .catch(() => {
         // 네트워크 실패(오프라인) 시 캐시에서 꺼내기
-        return caches.match(event.request);
+        return caches.match(request);
       })
   );
 });
