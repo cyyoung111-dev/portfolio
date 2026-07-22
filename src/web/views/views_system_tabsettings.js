@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════════
 //  views_system_tabsettings.js — 탭 순서 설정 패널
-//  의존: views_system.js (TAB_ORDER/TAB_DEFAULTS/saveTabOrder/buildTabBar/buildMobileNav/currentView/switchView)
+//  의존: views_system.js (TAB_ORDER/TAB_DEFAULTS/saveTabOrder/buildTabBar/currentView/switchView)
 // ════════════════════════════════════════════════════════════════
 
 function openTabSettings() {
@@ -19,7 +19,6 @@ function resetTabOrder() {
   TAB_DEFAULTS.forEach(t => TAB_ORDER.push({ ...t, hidden: false }));
   saveTabOrder();
   buildTabBar();
-  buildMobileNav();
   renderTabSettingsBody();
 }
 function toggleTabHidden(idx) {
@@ -32,7 +31,6 @@ function toggleTabHidden(idx) {
     }
     saveTabOrder();
     buildTabBar();
-    buildMobileNav();
     renderTabSettingsBody();
   }
 }
