@@ -19,7 +19,6 @@ function registerGlobalEventDelegation() {
     'btn-close-tab-settings-top':    () => typeof closeTabSettings === 'function' && closeTabSettings(),
     'btn-close-tab-settings-footer': () => typeof closeTabSettings === 'function' && closeTabSettings(),
     // ★ [버그수정] 기본값 버튼이 아예 연결돼 있지 않아 눌러도 반응 없었음
-    settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
     settingsTabBtn_tab:              () => typeof switchSettingsTab === 'function' && switchSettingsTab('tab'),
     settingsTabBtn_theme:            () => typeof switchSettingsTab === 'function' && switchSettingsTab('theme'),
     settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
