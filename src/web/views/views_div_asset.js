@@ -53,7 +53,9 @@ function calcDividends() {
       const amount = Number(ev?.amount || 0);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(evDate) || !amount || amount <= 0) return;
       if (Number(evDate.slice(0, 4)) !== thisYear) return;
-      const month = Number(evDate.slice(5, 7));
+      const payDate = String(ev?.payDate || '').slice(0, 10);
+      const cashflowDate = /^\d{4}-\d{2}-\d{2}$/.test(payDate) ? payDate : evDate;
+      const month = Number(cashflowDate.slice(5, 7));
       const qty = (typeof getQtyAtDate === 'function')
         ? getQtyAtDate(name, evDate)
         : rawHoldings.filter(h => h.name === name && !h.fund).reduce((s,h) => s+(h.qty||0), 0);
