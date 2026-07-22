@@ -73,31 +73,6 @@ function getDistinctFilterValuesCached(tableId, rows, col) {
   return cache.byCol[col];
 }
 
-// SMALL POSITION FILTER
-const SMALL_THRESHOLD = 100000; // 10만원
-const _smallOpen = {};
-
-function makeSmallToggleBar(smallCount, smallEvalSum, tableId) {
-  if (smallCount === 0) return '';
-  return `<div class="small-toggle-bar" id="stb_${_escapeHtml(tableId)}" data-table-action="toggle-small" data-table-id="${_escapeHtml(tableId)}">
-    <div class="st-left">
-      <span>👁 소액 종목 숨김 (10만원 미만)</span>
-      <span class="st-cnt">${smallCount}개 · ${fmt(smallEvalSum)} 숨겨짐 (합산엔 포함)</span>
-    </div>
-    <span class="st-arrow">▼</span>
-  </div>`;
-}
-
-function toggleSmall(tableId) {
-  const bar = $el('stb_' + tableId);
-  const smalls = document.querySelectorAll('.small-pos-row-' + tableId);
-  bar.classList.toggle('open');
-  const isOpen = bar.classList.contains('open');
-  _smallOpen[tableId] = isOpen;
-  bar.querySelector('.st-left span:first-child').textContent = isOpen ? '👁 소액 종목 표시 중 (10만원 미만)' : '👁 소액 종목 숨김 (10만원 미만)';
-  smalls.forEach(el => { el.style.display = isOpen ? '' : 'none'; });
-}
-
 // 테이블 전체 재렌더링 (state 기반)
 function rerenderTable(tableId) {
   const container = $el('tc_' + tableId);
