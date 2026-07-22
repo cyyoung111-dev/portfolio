@@ -112,7 +112,7 @@ function buildStockMgmt() {
           <div>
             <div class="lbl-60-muted fw7-mb5-ls">유형</div>
             <div class="sm-type-grp flex-wrap-gap3" data-idx="${idx}">
-              ${ ['주식','ETF','ISA','IRP','연금','펀드','TDF'].map(t=>
+              ${ ['주식','ETF','펀드','TDF'].map(t=>
                 `<button type="button" data-sm-type="${_escapeHtml(t)}" class="btn-toggle-purple-sm${t===curType?' active':''}">${_escapeHtml(t)}</button>`).join('') }
             </div>
           </div>
@@ -352,7 +352,7 @@ function smCsvImport(input) {
     };
     if (col.name === -1) { showToast('❌ "종목명" 컬럼이 없습니다', 'error'); return; }
 
-    const VALID_TYPES = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
+    const VALID_TYPES = ['주식','ETF','펀드','TDF'];
     let added = 0, skipped = 0, updated = 0;
 
     rows.forEach(cols => {
@@ -405,7 +405,7 @@ function smMgmtAddNew() {
 }
 
 function _smRenderTypeButtons(active) {
-  const types = ['주식','ETF','ISA','IRP','연금','펀드','TDF'];
+  const types = ['주식','ETF','펀드','TDF'];
   const group = $el('smTypeGroup');
   const inp   = $el('smMgmtNewType');
   if(!group) return;
