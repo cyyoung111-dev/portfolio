@@ -18,8 +18,12 @@ let _planSettings = (function() {
       simMonthly:    s.simMonthly    || 500000,     // 월 추가 투자금
       simYears:      s.simYears      || 10,          // 시뮬레이션 기간 (년)
       simReturn:     s.simReturn     || 7,            // 연 수익률 가정 %
+      retireMonthlyExpense: s.retireMonthlyExpense || 3000000, // 은퇴 후 월 생활비 목표
+      retireYears:          s.retireYears          || 30,      // 은퇴자금 지속 기간(참고)
+      retireReturn:         s.retireReturn         || 4,       // 은퇴 후 연 수익률 가정 %
+      retireWithdrawalRate: s.retireWithdrawalRate || 4,       // 안전 인출률 %
     };
-  } catch(e) { return { cash:0, isaExemptType:'general', simMonthly:500000, simYears:10, simReturn:7 }; }
+  } catch(e) { return { cash:0, isaExemptType:'general', simMonthly:500000, simYears:10, simReturn:7, retireMonthlyExpense:3000000, retireYears:30, retireReturn:4, retireWithdrawalRate:4 }; }
 })();
 
 function _savePlanSettings() {
@@ -46,7 +50,10 @@ function renderPlanView(area) {
   <!-- ③ 세금 시뮬레이터 -->
   ${_buildTaxSection(totalCost)}
 
-  <!-- ④ 자산 시뮬레이터 -->
+  <!-- ④ 은퇴 포트폴리오 점검 -->
+  ${_buildRetirementSection(totalEval)}
+
+  <!-- ⑤ 자산 시뮬레이터 -->
   ${_buildSimSection(totalEval)}
 
 </div>`;
@@ -596,8 +603,101 @@ function _buildTaxSection(totalCost) {
 }
 
 
+
 // ════════════════════════════════════
-// ④ 자산 시뮬레이터
+// ④ 은퇴 포트폴리오 점검
+// ════════════════════════════════════
+function _buildRetirementSection(totalEval) {
+  const monthlyExpense = _planSettings.retireMonthlyExpense || 3000000;
+  const retireYears    = _planSettings.retireYears || 30;
+  const retireReturn   = _planSettings.retireReturn || 4;
+  const withdrawalRate = _planSettings.retireWithdrawalRate || 4;
+  const annualExpense  = monthlyExpense * 12;
+  const fireNumber     = withdrawalRate > 0 ? Math.round(annualExpense / (withdrawalRate / 100)) : 0;
+  const gap            = Math.max(0, fireNumber - totalEval);
+  const coveragePct    = fireNumber > 0 ? Math.min(999, totalEval / fireNumber * 100) : 0;
+  const dividendAnnual = (typeof calcDividends === 'function')
+    ? calcDividends().reduce((s, r) => s + (r.annualDiv || 0), 0)
+    : 0;
+  const dividendAfterTaxMonthly = Math.round(dividendAnnual * 0.846 / 12);
+  const dividendCoveragePct = monthlyExpense > 0 ? Math.min(999, dividendAfterTaxMonthly / monthlyExpense * 100) : 0;
+  const monthlyInvest = _planSettings.simMonthly || 0;
+  const yearsToTarget = _calcYearsToRetirementTarget(totalEval, monthlyInvest, gap, retireReturn, fireNumber);
+  const status = coveragePct >= 100 ? '은퇴 가능권' : coveragePct >= 70 ? '근접' : coveragePct >= 40 ? '축적 중' : '초기 구축';
+  const statusColor = coveragePct >= 100 ? 'var(--green)' : coveragePct >= 70 ? 'var(--amber)' : 'var(--muted)';
+
+  const checkpoints = [
+    [coveragePct >= 100, '목표 생활비 기준 FIRE 필요자금 충족'],
+    [dividendCoveragePct >= 50, '세후 월 배당이 목표 생활비의 50% 이상'],
+    [monthlyInvest > 0, '월 추가 투자금 입력됨'],
+    [retireYears >= 20, '은퇴 후 20년 이상 현금흐름 점검 기간 설정'],
+  ];
+
+  return `<div class="card-12-p20">
+    <div class="flex-between-mb14">
+      <h4 class="h3-card" style="margin-bottom:0">🏖️ 은퇴 포트폴리오 점검</h4>
+      <span style="font-size:.72rem;font-weight:700;color:${statusColor};background:var(--s2);border:1px solid var(--border);border-radius:999px;padding:4px 10px">${status}</span>
+    </div>
+    <div style="font-size:.66rem;color:var(--muted);margin-bottom:14px">
+      목표 생활비, 배당 현금흐름, 안전 인출률을 한 화면에서 점검합니다. 세금·물가·국민연금·건강보험료는 단순화된 참고값입니다.
+    </div>
+
+    <div class="retire-metric-grid">
+      ${[
+        ['현재 평가자산', fmt(totalEval), 'var(--text)'],
+        ['필요 은퇴자금', fmt(fireNumber), 'var(--amber)'],
+        ['부족 금액', gap > 0 ? fmt(gap) : '충족', gap > 0 ? 'var(--red-lt)' : 'var(--green)'],
+        ['달성률', coveragePct.toFixed(1) + '%', statusColor],
+      ].map(([l,v,c])=>`<div class="s2-rounded">
+        <div class="lbl-62-muted-3">${l}</div>
+        <div style="font-size:.86rem;font-weight:800;color:${c}">${v}</div>
+      </div>`).join('')}
+    </div>
+
+    <div class="retire-input-grid">
+      <div><div class="lbl-62-muted-3">목표 월 생활비</div><input type="text" id="retire-monthly-expense" value="${monthlyExpense.toLocaleString()}" data-format="number-comma" style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem"/></div>
+      <div><div class="lbl-62-muted-3">안전 인출률 (%)</div><input type="number" id="retire-withdrawal-rate" value="${withdrawalRate}" min="1" max="10" step="0.1" style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem"/></div>
+      <div><div class="lbl-62-muted-3">은퇴 후 기간 (년)</div><input type="number" id="retire-years" value="${retireYears}" min="1" max="60" style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem"/></div>
+      <div><div class="lbl-62-muted-3">목표 도달 수익률 (%)</div><input type="number" id="retire-return" value="${retireReturn}" min="0" max="20" step="0.5" style="width:100%;background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.75rem"/></div>
+    </div>
+    <button data-plan-action="save-retirement" class="btn-purple-sm" style="margin-bottom:14px">💾 은퇴 기준 저장</button>
+
+    <div class="retire-flow-grid">
+      <div class="s2-rounded">
+        <div class="lbl-62-muted-3">세후 월 배당 현금흐름</div>
+        <div style="font-size:.86rem;font-weight:800;color:var(--green)">${fmt(dividendAfterTaxMonthly)}</div>
+        <div style="font-size:.65rem;color:var(--muted)">목표 생활비의 ${dividendCoveragePct.toFixed(1)}% · 연 세전 ${fmt(dividendAnnual)}</div>
+      </div>
+      <div class="s2-rounded">
+        <div class="lbl-62-muted-3">목표 도달 예상</div>
+        <div style="font-size:.86rem;font-weight:800;color:${yearsToTarget === 0 ? 'var(--green)' : 'var(--amber)'}">${yearsToTarget === 0 ? '현재 충족' : yearsToTarget ? `약 ${yearsToTarget}년` : '계산 불가'}</div>
+        <div style="font-size:.65rem;color:var(--muted)">월 추가 투자 ${fmt(monthlyInvest)} · 목표 도달 전 연 ${retireReturn}% 가정</div>
+      </div>
+    </div>
+
+    <div class="retire-check-grid">
+      ${checkpoints.map(([ok,label])=>`<div class="retire-check-item" style="color:${ok?'var(--text)':'var(--muted)'}">
+        <span>${ok?'✅':'▫️'}</span><span>${label}</span>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function _calcYearsToRetirementTarget(initAmt, monthly, gap, annualRate, targetAmt) {
+  if (!targetAmt || targetAmt <= 0) return null;
+  if (gap <= 0) return 0;
+  if ((!monthly || monthly <= 0) && (!annualRate || annualRate <= 0)) return null;
+  const monthlyRate = (annualRate || 0) / 100 / 12;
+  let current = initAmt || 0;
+  for (let m = 1; m <= 60 * 12; m++) {
+    current = current * (1 + monthlyRate) + (monthly || 0);
+    if (current >= targetAmt) return Math.ceil(m / 12);
+  }
+  return null;
+}
+
+// ════════════════════════════════════
+// ⑤ 자산 시뮬레이터
 // ════════════════════════════════════
 function _buildSimSection(totalEval) {
   const monthly = _planSettings.simMonthly || 500000;
@@ -774,6 +874,18 @@ function _bindPlanEvents(area, totalEval, totalCost) {
       _planSettings.cash = parseInt(raw) || 0;
       _savePlanSettings();
       renderView(true);
+    }
+
+    if (action === 'save-retirement') {
+      const rawExpense = ($el('retire-monthly-expense')?.value || '').replace(/[^0-9]/g, '');
+      _planSettings.retireMonthlyExpense = parseInt(rawExpense, 10) || 0;
+      _planSettings.retireWithdrawalRate = parseFloat($el('retire-withdrawal-rate')?.value || '4') || 4;
+      _planSettings.retireYears          = parseInt($el('retire-years')?.value || '30', 10) || 30;
+      _planSettings.retireReturn         = parseFloat($el('retire-return')?.value || '4') || 4;
+      _savePlanSettings();
+      showToast('은퇴 포트폴리오 기준 저장 완료', 'ok');
+      renderView(true);
+      return;
     }
 
     if (action === 'run-sim') {
