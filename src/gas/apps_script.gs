@@ -1052,7 +1052,11 @@ function handleDividendFetch(codes) {
         if (!dv || !av) break;
         var d = new Date(dv);
         if (isNaN(d.getTime())) break;
-        divRows.push({ month: d.getMonth() + 1, amount: parseFloat(av) || 0 });
+        divRows.push({
+          date: Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd'),
+          month: d.getMonth() + 1,
+          amount: parseFloat(av) || 0
+        });
       }
       if (divRows.length === 0) { results[code] = { perShare: 0, freq: '-', months: [], count: 0 }; return; }
       var months   = divRows.map(function(r) { return r.month; });
@@ -1060,7 +1064,7 @@ function handleDividendFetch(codes) {
       var count    = divRows.length;
       var freq     = count >= 10 ? '월배당' : count >= 4 ? '분기' : count >= 2 ? '반기' : '연간';
       var perShare = parseFloat((divRows.reduce(function(s,r){return s+r.amount;},0)/count).toFixed(4));
-      results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count };
+      results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count, events: divRows };
     });
 
     try { tmp.clearContents(); SpreadsheetApp.flush(); } catch(e) { Logger.log('배당 tmp 시트 정리 실패: ' + e.message); }

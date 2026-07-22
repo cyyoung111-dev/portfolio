@@ -41,10 +41,32 @@ function calcDividends() {
     const name = codeToNameMap[key] || key;
     const accts = acctMap[name] || [];
 
-    // ★ 월별 기준일(해당 월 말일) 보유수량으로 배당금 계산
+    // ★ 실제 배당 이벤트가 있으면 해당 배당 기준일 보유수량 × 실제 주당배당금으로 우선 계산
+    //   아직 이벤트가 없는 미래 지급월은 기존 perShare 평균값으로 예상치를 채워 연간 전망을 유지합니다.
     let annualDiv = 0;
-    const monthlyDiv = {}; // month → 배당금
+    let actualDiv = 0;
+    const monthlyDiv = {}; // month → 실제+예상 배당금
+    const actualMonths = new Set();
+    const events = Array.isArray(dd.events) ? dd.events : [];
+    events.forEach(ev => {
+      const evDate = String(ev?.date || '').slice(0, 10);
+      const amount = Number(ev?.amount || 0);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(evDate) || !amount || amount <= 0) return;
+      if (Number(evDate.slice(0, 4)) !== thisYear) return;
+      const month = Number(evDate.slice(5, 7));
+      const qty = (typeof getQtyAtDate === 'function')
+        ? getQtyAtDate(name, evDate)
+        : rawHoldings.filter(h => h.name === name && !h.fund).reduce((s,h) => s+(h.qty||0), 0);
+      if (qty <= 0) return;
+      const div = amount * qty;
+      actualMonths.add(month);
+      actualDiv += div;
+      annualDiv += div;
+      monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
+    });
+
     dd.months.forEach(month => {
+      if (actualMonths.has(Number(month))) return;
       const refDate = getDivRefDate(thisYear, month);
       const qty = (typeof getQtyAtDate === 'function')
         ? getQtyAtDate(name, refDate)
@@ -52,7 +74,7 @@ function calcDividends() {
       if (qty > 0) {
         const div = dd.perShare * qty;
         annualDiv += div;
-        monthlyDiv[month] = div;
+        monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
       }
     });
 
@@ -61,7 +83,7 @@ function calcDividends() {
       .reduce((s, h) => s + (h.qty || 0), 0);
 
     if (annualDiv > 0 || totalQty > 0) {
-      result.push({ name, totalQty, accts, dd, annualDiv, monthlyDiv });
+      result.push({ name, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv });
     }
   });
 
@@ -164,7 +186,7 @@ function renderDivView(area, skipFetch) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
       <div>
         <div style="font-size:.85rem;font-weight:700">📅 ${nowYear}년 월별 배당 예상</div>
-        <div style="font-size:.65rem;color:var(--muted);margin-top:2px">세전 기준 · 현재월 <span style="color:var(--cyan)">${nowMonth}월</span></div>
+        <div style="font-size:.65rem;color:var(--muted);margin-top:2px">확정+예상 · 현재월 <span style="color:var(--cyan)">${nowMonth}월</span></div>
       </div>
       <div style="display:flex;gap:10px;font-size:.63rem;color:var(--muted);align-items:center;flex-shrink:0">
         <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:3px;vertical-align:middle"></span>지난달</span>

@@ -190,7 +190,17 @@ function _normalizeDividendResponse(obj, prev) {
     } else {
       next.months = Array.isArray(prev?.months) ? prev.months : [];
     }
-    next.note = 'GOOGLEFINANCE 자동갱신';
+    if (Array.isArray(obj?.events)) {
+      next.events = obj.events
+        .map(ev => ({
+          date: String(ev?.date || '').slice(0, 10),
+          amount: Number(ev?.amount || 0),
+        }))
+        .filter(ev => /^\d{4}-\d{2}-\d{2}$/.test(ev.date) && ev.amount > 0);
+    } else if (Array.isArray(prev?.events)) {
+      next.events = prev.events;
+    }
+    next.note = next.events?.length ? 'GOOGLEFINANCE 실제 배당일 기준 자동갱신' : 'GOOGLEFINANCE 자동갱신';
   } else {
     // 조회 실패/무배당 응답이 와도 기존 수동값/이전 정상값은 보존 (0으로 덮어쓰기 방지)
     if (Number(prev?.perShare || 0) > 0) {
