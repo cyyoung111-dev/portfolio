@@ -40,6 +40,7 @@ function moveTab(idx, dir) {
   [TAB_ORDER[idx], TAB_ORDER[ni]] = [TAB_ORDER[ni], TAB_ORDER[idx]];
   saveTabOrder();
   buildTabBar();
+  buildMobileNav();
   renderTabSettingsBody();
 }
 function renderTabSettingsBody() {
@@ -74,7 +75,7 @@ function renderTabSettingsBody() {
       if (dragSrcIdx === null || dragSrcIdx === toIdx) return;
       const [moved] = TAB_ORDER.splice(dragSrcIdx, 1);
       TAB_ORDER.splice(toIdx, 0, moved);
-      saveTabOrder(); buildTabBar(); renderTabSettingsBody();
+      saveTabOrder(); buildTabBar(); buildMobileNav(); renderTabSettingsBody();
     });
   });
 }
