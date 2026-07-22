@@ -1052,9 +1052,10 @@ function handleDividendFetch(codes) {
         if (!dv || !av) break;
         var d = new Date(dv);
         if (isNaN(d.getTime())) break;
+        var divDateStr = Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd');
         divRows.push({
-          date: Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd'),
-          month: d.getMonth() + 1,
+          date: divDateStr,
+          month: parseInt(divDateStr.substring(5, 7), 10),
           amount: parseFloat(av) || 0
         });
       }

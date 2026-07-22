@@ -100,8 +100,9 @@ function renderDivView(area, skipFetch) {
 
   // 수량 0 숨김 적용
   const allDivRows = calcDividends();
-  const divRows = _divHideZeroQty ? allDivRows.filter(r => r.qty > 0) : allDivRows;
+  const divRows = _divHideZeroQty ? allDivRows.filter(r => r.totalQty > 0) : allDivRows;
   const totalAnnual   = divRows.reduce((s,r)=>s+r.annualDiv,0);
+  const totalActual   = divRows.reduce((s,r)=>s+(r.actualDiv||0),0);
   const totalAfterTax = Math.round(totalAnnual * 0.846);
   const monthlyAvg    = Math.round(totalAnnual / 12);
   const monthlyAfter  = Math.round(totalAfterTax / 12);
@@ -157,7 +158,7 @@ function renderDivView(area, skipFetch) {
     <div class="div-stat-card">
       <div class="div-stat-label">💸 연간 예상 (세전)</div>
       <div class="div-stat-value" style="color:var(--cyan)">${fmtW(Math.round(totalAnnual))}</div>
-      <div class="div-stat-sub">배당 종목 ${divRows.length}개</div>
+      <div class="div-stat-sub">확정 ${fmtW(Math.round(totalActual))} · ${divRows.length}개</div>
     </div>
     <div class="div-stat-card">
       <div class="div-stat-label">📅 월 평균 (세전)</div>
@@ -185,7 +186,7 @@ function renderDivView(area, skipFetch) {
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
       <div>
-        <div style="font-size:.85rem;font-weight:700">📅 ${nowYear}년 월별 배당 예상</div>
+        <div style="font-size:.85rem;font-weight:700">📅 ${nowYear}년 월별 배당</div>
         <div style="font-size:.65rem;color:var(--muted);margin-top:2px">확정+예상 · 현재월 <span style="color:var(--cyan)">${nowMonth}월</span></div>
       </div>
       <div style="display:flex;gap:10px;font-size:.63rem;color:var(--muted);align-items:center;flex-shrink:0">
