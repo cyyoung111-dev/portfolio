@@ -133,23 +133,6 @@ function buildTabBar() {
   });
 }
 
-
-// ── 모바일 하단 네비게이션 빌더
-// 숨기지 않은 탭 중 최대 5개를 하단 네비로 표시
-function buildMobileNav() {
-  const inner = $el('mobileNavInner');
-  if (!inner) return;
-  const visible = TAB_ORDER.filter(t => !t.hidden);
-  // 최대 5개 (공간 제약)
-  const navTabs = visible.slice(0, 5);
-  inner.innerHTML = navTabs.map(tab => `
-    <button class="mnav-btn${currentView === tab.id ? ' active' : ''}"
-      data-system-action="switch-view" data-view-id="${_escapeHtml(tab.id)}" aria-label="${_escapeHtml(tab.label)}">
-      ${tab.icon || ''}
-      <span class="mnav-label">${tab.label}</span>
-    </button>`
-  ).join('');
-}
 // ── 탭 순서 설정 패널
 // 탭 설정 함수들은 views_system_tabsettings.js 로 분리
 
@@ -214,7 +197,6 @@ function switchView(v) {
   try {
     _perfRun(`switchView:${v}`, () => {
       buildTabBar();
-      buildMobileNav();
       renderView();
       if (shouldRenderCharts(v)) renderDonut();
     });
