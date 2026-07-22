@@ -1,6 +1,7 @@
 let _editorRefDate = '';
 let _editorItemMap = {};
 let _editorManualHistory = {};
+let _editorGasLastDates = {};
 let _editorSectionPage = { fund: 1, noprice: 1 };
 const EDITOR_PAGE_SIZE = 5;
 let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
@@ -41,6 +42,7 @@ function closeEditor() {
   $el('priceEditor').classList.remove('open');
   editedPrices = {};
   _editorManualHistory = {};
+  _editorGasLastDates = {};
   _editorSectionPage = { fund: 1, noprice: 1 };
 }
 
@@ -298,6 +300,14 @@ function buildEditorUI() {
     // ★ 이력: 최신순 3건 → 한 줄 요약 "04.01 08:15→29,750,642  03.31→30,037,571"
     const historyKey = code || item.name;
     const historyRows = (_editorManualHistory[historyKey] || []).slice().reverse();
+    const gasLast = _editorGasLastDates[historyKey]
+      || (code && _editorGasLastDates[code])
+      || _editorGasLastDates[item.name]
+      || _editorGasLastDates[normName(item.name)]
+      || null;
+    const gasLastLabel = gasLast
+      ? _formatEditorGasLastLabel(gasLast)
+      : '';
     const historyLine = historyRows.length > 0
       ? historyRows.map((h, i) => {
           const d = (h.date || '').slice(5).replace('-','.');  // "04.01"
@@ -331,6 +341,7 @@ function buildEditorUI() {
         <span class="editor-price-type">${typeLabel}</span>
         <div class="editor-price-meta">
           ${displayLabel ? `<span style="color:${statusColor}">${displayLabel}</span>` : ''}
+          ${gasLastLabel ? `<span class="editor-gas-last">${_escapeHtml(gasLastLabel)}</span>` : ''}
           ${historyLine ? `<span style="color:var(--border)">|</span>${historyLine}` : ''}
         </div>
       </div>
@@ -427,6 +438,7 @@ async function loadEditorPricesByDate(dateStr) {
   });
 
   _editorManualHistory = _parseEditorManualHistory(rawHistory);
+  _editorGasLastDates = _parseEditorGasLastDates(rawHistory);
   buildEditorUI();
 }
 
@@ -500,6 +512,42 @@ function _parseEditorManualHistory(rawPrices) {
     if (manualOnly.length > 0) out[key] = manualOnly;
   });
   return out;
+}
+
+
+function _parseEditorGasLastDates(rawPrices) {
+  const out = {};
+  const byLatest = (a, b) => {
+    const ak = (a?.savedAt || a?.date || '');
+    const bk = (b?.savedAt || b?.date || '');
+    return ak.localeCompare(bk);
+  };
+  Object.entries(rawPrices || {}).forEach(([key, entries]) => {
+    if (!Array.isArray(entries) || entries.length === 0) return;
+    const valid = entries
+      .filter(e => e && e.price > 0 && (e.date || e.savedAt))
+      .sort(byLatest);
+    const latest = valid.length > 0 ? valid[valid.length - 1] : null;
+    if (!latest) return;
+    out[key] = {
+      date: latest.date || '',
+      savedAt: latest.savedAt || '',
+      price: Math.round(latest.price),
+      source: latest.source || ''
+    };
+  });
+  return out;
+}
+
+function _formatEditorGasLastLabel(info) {
+  if (!info) return '';
+  const when = info.savedAt
+    ? info.savedAt.replace(/-/g,'.').slice(0,16)
+    : (info.date || '').replace(/-/g,'.');
+  if (!when) return '';
+  const source = info.source ? ` · ${info.source}` : '';
+  const price = info.price > 0 ? ` · ${Number(info.price).toLocaleString()}` : '';
+  return `GAS 마지막 ${when}${source}${price}`;
 }
 
 // ── 하위 호환: 외부에서 직접 호출하는 경우를 위한 래퍼 유지

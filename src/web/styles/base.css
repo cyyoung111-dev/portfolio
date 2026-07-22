@@ -320,3 +320,12 @@ input[type="number"]{
   .editor-footer{flex-wrap:wrap}
   .editor-footer .last-updated{flex-basis:100%}
 }
+
+.editor-gas-last{
+  color:var(--muted);
+  border:1px solid var(--border);
+  border-radius:999px;
+  padding:1px 6px;
+  background:color-mix(in srgb, var(--s2) 82%, transparent);
+  flex-shrink:0;
+}
