@@ -154,7 +154,7 @@ function renderDivView(area, skipFetch) {
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
       <div>
         <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 공공데이터포털 배당 API</div>
-        <div style="font-size:.62rem;color:var(--muted);margin-top:2px">무료 API 키가 있으면 주식배당정보를 먼저 조회하고, 실패/누락분만 GOOGLEFINANCE로 보완합니다.</div>
+        <div style="font-size:.62rem;color:var(--muted);margin-top:2px">무료 API 키가 있으면 KRX상장종목정보로 종목코드를 공식명/법인번호에 매핑한 뒤 주식배당정보를 조회합니다.</div>
       </div>
       <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeySaved ? '키 저장됨' : '키 미설정'}</span>
     </div>

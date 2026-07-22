@@ -449,13 +449,19 @@ function smMgmtCancel() {
   const cu = $el('smMgmtNewCur'); if(cu) cu.value = 'KRW';
 }
 
-function smMgmtConfirm() {
-  const name      = ($el('smMgmtNewName')?.value || '').trim();
+async function smMgmtConfirm() {
+  let name        = ($el('smMgmtNewName')?.value || '').trim();
   const code      = normalizeStockCode(($el('smMgmtNewCode')?.value || '').trim());
   const assetType = $el('smMgmtNewType')?.value || '주식';
   const sector    = $el('smMgmtNewSec')?.value || '기타';
   // ★ [환율 연동] 통화 읽기
   const currency  = ($el('smMgmtNewCur')?.value || 'KRW').toUpperCase();
+  if(!name && code && typeof lookupNameByCode === 'function') {
+    showMgmtMsg('smMgmtMsg','⏳ 종목코드로 공식 종목명 조회 중...',false);
+    name = await lookupNameByCode(code);
+    const nameInput = $el('smMgmtNewName');
+    if (nameInput && name) nameInput.value = name;
+  }
   if(!name) { showMgmtMsg('smMgmtMsg','⚠️ 종목명을 입력해주세요',true); return; }
   if(code && code.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
   if(!code && (assetType === '주식' || assetType === 'ETF')) {
@@ -509,6 +515,78 @@ function _smPickCurrency(idx, val) {
   });
 }
 
+
+function _smRenameStockItem(item, newName) {
+  if (!item || !newName || newName === item.name) return false;
+  const oldName = item.name;
+  if (EDITABLE_PRICES.some(other => other !== item && other.name === newName)) return false;
+  if (item.code) delete STOCK_CODE[oldName];
+  if (!item.code) {
+    if (savedPrices[oldName])     { savedPrices[newName]     = savedPrices[oldName];     delete savedPrices[oldName]; }
+    if (savedPriceDates[oldName]) { savedPriceDates[newName] = savedPriceDates[oldName]; delete savedPriceDates[oldName]; }
+  }
+  rawTrades.forEach(t   => { if(t.name   === oldName) t.name   = newName; });
+  rawHoldings.forEach(h => { if(h.name   === oldName) h.name   = newName; });
+  if(DIVDATA[oldName] !== undefined) { DIVDATA[newName] = DIVDATA[oldName]; delete DIVDATA[oldName]; }
+  item.name = newName;
+  if (item.code) STOCK_CODE[newName] = normalizeStockCode(item.code);
+  return true;
+}
+
+async function smSyncOfficialNames() {
+  if (typeof lookupOfficialStockByCode !== 'function') {
+    showMgmtMsg('smMgmtMsg', '⚠️ KRX 상장종목정보 조회 기능을 사용할 수 없습니다', true);
+    return;
+  }
+  if (typeof getPublicDataApiKey !== 'function' || !getPublicDataApiKey()) {
+    showMgmtMsg('smMgmtMsg', '⚠️ 배당탭에서 공공데이터포털 Encoding 인증키를 먼저 저장해주세요', true);
+    return;
+  }
+  const targets = EDITABLE_PRICES
+    .filter(item => normalizeStockCode(item.code) && (item.assetType || item.type || '주식') !== '펀드')
+    .map(item => ({ item, code: normalizeStockCode(item.code), oldName: item.name }));
+  if (!targets.length) {
+    showMgmtMsg('smMgmtMsg', 'ℹ️ 공식명을 확인할 종목코드가 없습니다', false);
+    return;
+  }
+  if (!confirm(`기존 등록 종목 ${targets.length}개의 종목코드를 KRX상장종목정보로 확인하고, 공식 종목명이 다르면 거래/보유/배당 데이터까지 함께 이름을 바꿀까요?`)) return;
+
+  showMgmtMsg('smMgmtMsg', `⏳ KRX상장종목정보 확인 중... (0/${targets.length})`, false);
+  let updated = 0, skipped = 0, failed = 0;
+  const samples = [];
+  for (let i = 0; i < targets.length; i++) {
+    const { item, code, oldName } = targets[i];
+    try {
+      const info = await lookupOfficialStockByCode(code);
+      const officialName = String(info?.officialName || info?.name || '').trim();
+      if (!officialName) { failed++; continue; }
+      if (officialName !== item.name) {
+        if (_smRenameStockItem(item, officialName)) {
+          updated++;
+          if (samples.length < 3) samples.push(`${oldName}→${officialName}`);
+        } else skipped++;
+      } else skipped++;
+      item.listedName = officialName;
+      if (info?.crno) item.crno = info.crno;
+      if (info?.market) item.market = info.market;
+    } catch(e) { failed++; }
+    if ((i + 1) % 5 === 0 || i === targets.length - 1) {
+      showMgmtMsg('smMgmtMsg', `⏳ KRX상장종목정보 확인 중... (${i + 1}/${targets.length})`, false);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+  if (updated > 0) {
+    syncHoldingsFromTrades();
+    saveHoldings();
+    queueMgmtGsheetSync();
+    refreshAll();
+    _mgmtRefresh();
+    buildStockMgmt();
+  }
+  const detail = samples.length ? ` · ${samples.join(', ')}${updated > samples.length ? ' 외' : ''}` : '';
+  showMgmtMsg('smMgmtMsg', `✅ KRX 공식명 반영 완료: 변경 ${updated}개 · 유지 ${skipped}개 · 실패 ${failed}개${detail}`, failed > 0 && updated === 0);
+}
+
 // 즉시 저장 (DOM 재생성 없이 데이터만 갱신)
 function smSave(idx) {
   const item = EDITABLE_PRICES[idx];
@@ -529,20 +607,7 @@ function smSave(idx) {
     showMgmtMsg('smMgmtMsg',`❌ 종목코드 ${newCode}는 "${dup.name}"에서 이미 사용 중입니다`,true); return;
   }
   if(newName !== item.name) {
-    const oldName = item.name;
-    if(item.code) delete STOCK_CODE[oldName];
-    // ★ 코드 있는 종목은 savedPrices 키가 코드이므로 rename 불필요
-    // 코드 없는 종목(펀드)만 이름 키 rename
-    if(!item.code) {
-      if(savedPrices[oldName])     { savedPrices[newName]     = savedPrices[oldName];     delete savedPrices[oldName]; }
-      if(savedPriceDates[oldName]) { savedPriceDates[newName] = savedPriceDates[oldName]; delete savedPriceDates[oldName]; }
-    }
-    // ★ 거래이력·보유현황 종목명 일괄 변경 (계좌명 변경과 동일한 방식)
-    rawTrades.forEach(t   => { if(t.name   === oldName) t.name   = newName; });
-    rawHoldings.forEach(h => { if(h.name   === oldName) h.name   = newName; });
-    // DIVDATA 키도 함께 변경
-    if(DIVDATA[oldName] !== undefined) { DIVDATA[newName] = DIVDATA[oldName]; delete DIVDATA[oldName]; }
-    item.name = newName;
+    if (!_smRenameStockItem(item, newName)) return;
   }
   // ★ 코드 변경 시 rawTrades.code + savedPrices/savedPriceDates 키도 일괄 이전
   const oldCode = item.code;

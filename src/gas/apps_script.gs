@@ -230,7 +230,7 @@ function getss() {
 // ════════════════════════════════════════════════════════════════════
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
-  if (params.action === 'name'           && params.code)  return handleNameLookup(params.code);
+  if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, params.serviceKey || '');
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
@@ -898,20 +898,35 @@ function updatePrices() {
 // ════════════════════════════════════════════════════════════════════
 //  종목명 조회
 // ════════════════════════════════════════════════════════════════════
-function handleNameLookup(code) {
+function handleNameLookup(code, serviceKey) {
+  var cleanCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+  var key = (serviceKey || '').toString().trim();
+  if (key) {
+    var listed = _fetchPublicListedInfoByCode(cleanCode, key);
+    if (listed && listed.name) {
+      return jsonOk({
+        name: listed.name,
+        officialName: listed.name,
+        crno: listed.crno || '',
+        market: listed.market || '',
+        source: 'PUBLIC_LISTED_INFO'
+      });
+    }
+  }
+
   var ss  = getss();
   // ★ [버그수정] 공유 임시 시트 대신 고유 임시 시트 사용 (동시 요청 충돌 방지)
   var tmp = ss.insertSheet('_name_tmp_' + Utilities.getUuid().slice(0, 8));
   try {
     tmp.getRange(1, 1).setFormula(
-      '=IFERROR(GOOGLEFINANCE("KRX:'    + code + '","name"),' +
-      'IFERROR(GOOGLEFINANCE("KOSDAQ:' + code + '","name"),"-"))'
+      '=IFERROR(GOOGLEFINANCE("KRX:'    + cleanCode + '","name"),' +
+      'IFERROR(GOOGLEFINANCE("KOSDAQ:' + cleanCode + '","name"),"-"))'
     );
     SpreadsheetApp.flush();
     Utilities.sleep(1500);
     var val  = tmp.getRange(1, 1).getValue();
     var name = (val && val !== '-' && !String(val).startsWith('#')) ? val.toString().trim() : '';
-    return jsonOk({ name: name, officialName: name });
+    return jsonOk({ name: name, officialName: name, source: 'GOOGLEFINANCE' });
   } catch(err) {
     return jsonError('종목명 조회 실패: ' + err.message);
   } finally {
@@ -1021,13 +1036,20 @@ function handleDividendPublicFetch(codes, names, serviceKey) {
     var key = (serviceKey || '').toString().trim();
     if (!key) return jsonError('공공데이터포털 API 키가 없습니다.');
     var results = {};
+    var listedCache = {};
     var namesArr = Array.isArray(names) ? names : [];
     codes.forEach(function(rawCode, i) {
       var code = rawCode.toString().trim();
       if (!code) return;
       var companyName = (namesArr[i] || '').toString().trim() || code;
-      var rows = _fetchPublicDividendRowsByName(companyName, key);
-      results[code] = _normalizePublicDividendRows(rows, code, companyName);
+      if (!listedCache[code]) listedCache[code] = _fetchPublicListedInfoByCode(code, key) || {};
+      var listedInfo = listedCache[code];
+      var lookupName = listedInfo.name || companyName;
+      var rows = _fetchPublicDividendRows(lookupName, key, listedInfo.crno || '');
+      if ((!rows || rows.length === 0) && lookupName !== companyName) {
+        rows = _fetchPublicDividendRows(companyName, key, '');
+      }
+      results[code] = _normalizePublicDividendRows(rows, code, lookupName, listedInfo);
     });
     return jsonOk({ dividends: results, source: 'PUBLIC_DATA' });
   } catch(err) {
@@ -1035,12 +1057,57 @@ function handleDividendPublicFetch(codes, names, serviceKey) {
   }
 }
 
-function _fetchPublicDividendRowsByName(companyName, serviceKey) {
+
+function _publicServiceKeyParam(serviceKey) {
+  var key = (serviceKey || '').toString().trim();
+  if (!key) return '';
+  // data.go.kr에서 제공하는 Encoding 키는 %2B/%2F처럼 이미 인코딩돼 있습니다.
+  // Decoding 키를 붙여넣은 경우에는 URL 쿼리에서 +가 공백으로 해석되지 않도록 인코딩합니다.
+  return /%[0-9A-Fa-f]{2}/.test(key) ? key : encodeURIComponent(key);
+}
+
+function _fetchPublicListedInfoByCode(code, serviceKey) {
+  var normCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+  if (!/^\d{6}$/.test(normCode)) return null;
+  var base = 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo';
+  var url = base
+    + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
+    + '&pageNo=1&numOfRows=10&resultType=json'
+    + '&likeSrtnCd=' + encodeURIComponent(normCode)
+    + '&srtnCd=' + encodeURIComponent(normCode);
+  try {
+    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    if (res.getResponseCode() < 200 || res.getResponseCode() >= 300) return null;
+    var json = JSON.parse(res.getContentText() || '{}');
+    var body = json && json.response && json.response.body ? json.response.body : null;
+    var items = body && body.items ? body.items.item : null;
+    if (!items) return null;
+    var list = Array.isArray(items) ? items : [items];
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i] || {};
+      var srtnCd = (row.srtnCd || row.shortCode || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+      if (srtnCd && srtnCd !== normCode) continue;
+      return {
+        code: normCode,
+        name: (row.itmsNm || row.stckIssuCmpyNm || row.corpNm || '').toString().trim(),
+        corpName: (row.corpNm || '').toString().trim(),
+        crno: (row.crno || '').toString().trim(),
+        market: (row.mrktCtg || row.mrktCls || '').toString().trim(),
+        source: 'PUBLIC_LISTED_INFO'
+      };
+    }
+  } catch(e) {
+    Logger.log('KRX상장종목정보 조회 실패(' + normCode + '): ' + e.message);
+  }
+  return null;
+}
+
+function _fetchPublicDividendRows(companyName, serviceKey, crno) {
   var base = 'https://apis.data.go.kr/1160100/service/GetStocDiviInfoService/getDiviInfo';
   var url = base
-    + '?serviceKey=' + serviceKey
+    + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
     + '&pageNo=1&numOfRows=100&resultType=json'
-    + '&stckIssuCmpyNm=' + encodeURIComponent(companyName);
+    + (crno ? '&crno=' + encodeURIComponent(crno) : '&stckIssuCmpyNm=' + encodeURIComponent(companyName));
   var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
   var code = res.getResponseCode();
   var text = res.getContentText() || '';
@@ -1054,7 +1121,7 @@ function _fetchPublicDividendRowsByName(companyName, serviceKey) {
   return Array.isArray(items) ? items : [items];
 }
 
-function _normalizePublicDividendRows(rows, code, companyName) {
+function _normalizePublicDividendRows(rows, code, companyName, listedInfo) {
   var events = [];
   (rows || []).forEach(function(row) {
     if (!row) return;
@@ -1083,13 +1150,14 @@ function _normalizePublicDividendRows(rows, code, companyName) {
     seen[key] = true;
     return true;
   });
-  if (!events.length) return { perShare: 0, freq: '-', months: [], count: 0, events: [], source: 'PUBLIC_DATA' };
+  var meta = listedInfo || {};
+  if (!events.length) return { perShare: 0, freq: '-', months: [], count: 0, events: [], source: 'PUBLIC_DATA', listedName: meta.name || companyName || '', crno: meta.crno || '' };
   var months = events.map(function(ev){ return ev.month; }).filter(function(m){ return m >= 1 && m <= 12; });
   var uniqM = months.filter(function(v,i,a){ return a.indexOf(v) === i; }).sort(function(a,b){ return a-b; });
   var count = events.length;
   var freq = count >= 10 ? '월배당' : count >= 4 ? '분기' : count >= 2 ? '반기' : '연간';
   var perShare = parseFloat((events.reduce(function(s, ev){ return s + ev.amount; }, 0) / count).toFixed(4));
-  return { perShare: perShare, freq: freq, months: uniqM, count: count, events: events, source: 'PUBLIC_DATA' };
+  return { perShare: perShare, freq: freq, months: uniqM, count: count, events: events, source: 'PUBLIC_DATA', listedName: meta.name || companyName || '', crno: meta.crno || '' };
 }
 
 function _publicDividendAmount(row) {

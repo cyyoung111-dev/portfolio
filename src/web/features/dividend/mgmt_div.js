@@ -3,7 +3,7 @@ const FREQ_OPTIONS = ['-', '월배당', '분기', '반기', '연간'];
 const DIV_AUTO_SOURCE_LABEL = '공공데이터 우선 · GOOGLEFINANCE fallback';
 const DIV_GF_SOURCE_LABEL = 'GOOGLEFINANCE(가능 종목만)';
 const DIV_PUBLIC_KEY = 'public_data_api_key';
-const DIV_MANUAL_GUIDE = '공공데이터포털 키가 있으면 무료 공공데이터를 먼저 조회하고, 누락 종목만 GOOGLEFINANCE로 보완합니다.';
+const DIV_MANUAL_GUIDE = '공공데이터포털 키가 있으면 KRX상장종목정보로 종목코드를 공식명/법인번호에 매핑한 뒤 주식배당정보를 조회합니다.';
 const MONTHS_OPTIONS = {
   '-':    [],
   '월배당': [1,2,3,4,5,6,7,8,9,10,11,12],
@@ -207,6 +207,8 @@ function _normalizeDividendResponse(obj, prev) {
       next.events = prev.events;
     }
     next.source = obj?.source || 'GOOGLEFINANCE';
+    next.listedName = obj?.listedName || prev?.listedName || '';
+    next.crno = obj?.crno || prev?.crno || '';
     const srcLabel = next.source === 'PUBLIC_DATA' ? '공공데이터' : DIV_GF_SOURCE_LABEL;
     next.note = next.events?.length ? `${srcLabel} 실제 배당일 기준 자동갱신` : `${srcLabel} 자동갱신`;
   } else {
@@ -216,10 +218,14 @@ function _normalizeDividendResponse(obj, prev) {
       next.freq = prev?.freq || next.freq || '-';
       next.months = Array.isArray(prev?.months) ? prev.months : (next.months || []);
       next.source = obj?.source || prev?.source || 'GOOGLEFINANCE';
+      next.listedName = obj?.listedName || prev?.listedName || '';
+      next.crno = obj?.crno || prev?.crno || '';
       next.note = `${next.source === 'PUBLIC_DATA' ? '공공데이터' : DIV_GF_SOURCE_LABEL}: 배당내역 없음(기존 값 유지)`;
     } else {
       next.perShare = 0;
       next.source = obj?.source || prev?.source || 'GOOGLEFINANCE';
+      next.listedName = obj?.listedName || prev?.listedName || '';
+      next.crno = obj?.crno || prev?.crno || '';
       next.note = prev?.note && !prev.note.startsWith('GOOGLEFINANCE')
         ? prev.note
         : `${next.source === 'PUBLIC_DATA' ? '공공데이터' : DIV_GF_SOURCE_LABEL}: 배당내역 없음`;
