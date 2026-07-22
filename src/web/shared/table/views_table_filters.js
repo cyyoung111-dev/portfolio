@@ -26,7 +26,6 @@ document.addEventListener('click', (e) => {
     else if (action === 'sort') setTableSort(tableId, col);
     else if (action === 'clear-filter') clearTableFilter(tableId, col);
     else if (action === 'clear-all-filters') clearAllTableFilters(tableId);
-    else if (action === 'toggle-small') toggleSmall(tableId);
     else if (action === 'go-trade-group' && typeof goToTradeGroup === 'function') goToTradeGroup(tableAction.dataset.gname || '');
     return;
   }
