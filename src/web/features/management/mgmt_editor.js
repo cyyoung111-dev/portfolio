@@ -286,9 +286,9 @@ function buildEditorUI() {
       || savedPriceDates[item.name]
       || savedPriceDates[normName(item.name)]
     );
-    const displayLabel = (hasDate && rawDateLabel === '실시간' && _editorRefDate)
+    const displayLabel = _compactEditorPriceMetaLabel((hasDate && rawDateLabel === '실시간' && _editorRefDate)
       ? _editorRefDate.replace(/-/g,'.') + ' 조회값'
-      : rawDateLabel;
+      : rawDateLabel);
 
     // 상태 색상
     let statusColor;
@@ -297,9 +297,9 @@ function buildEditorUI() {
     else if (current) statusColor = 'var(--muted)';
     else statusColor = 'var(--red)';
 
-    // ★ 이력: 최신순 3건 → 한 줄 요약 "04.01 08:15→29,750,642  03.31→30,037,571"
+    // ★ 이력: 최신순 2건만 짧게 표시해 현재가 편집 카드가 가로로 터지지 않도록 함
     const historyKey = code || item.name;
-    const historyRows = (_editorManualHistory[historyKey] || []).slice().reverse();
+    const historyRows = (_editorManualHistory[historyKey] || []).slice().reverse().slice(0, 2);
     const gasLast = _editorGasLastDates[historyKey]
       || (code && _editorGasLastDates[code])
       || _editorGasLastDates[item.name]
@@ -313,8 +313,8 @@ function buildEditorUI() {
           const d = (h.date || '').slice(5).replace('-','.');  // "04.01"
           const t = h.savedAt ? ' ' + h.savedAt.slice(11,16) : '';
           const p = Number(h.price).toLocaleString();
-          return `<span style="color:${i===0?'var(--gold)':'var(--muted)'};font-weight:${i===0?'600':'400'}">${d}${t} ${p}</span>`;
-        }).join('<span style="color:var(--border);margin:0 4px">·</span>')
+          return `<span class="editor-history-item" style="color:${i===0?'var(--gold)':'var(--muted)'};font-weight:${i===0?'600':'400'}">${d}${t} · ${p}</span>`;
+        }).join('')
       : '';
 
     const safeId  = item.name.replace(/\s/g, '_');
@@ -340,9 +340,9 @@ function buildEditorUI() {
       <div class="editor-price-row-sub">
         <span class="editor-price-type">${typeLabel}</span>
         <div class="editor-price-meta">
-          ${displayLabel ? `<span style="color:${statusColor}">${displayLabel}</span>` : ''}
+          ${displayLabel ? `<span class="editor-current-label" style="color:${statusColor}">${displayLabel}</span>` : ''}
           ${gasLastLabel ? `<span class="editor-gas-last">${_escapeHtml(gasLastLabel)}</span>` : ''}
-          ${historyLine ? `<span style="color:var(--border)">|</span>${historyLine}` : ''}
+          ${historyLine ? `<span class="editor-history-line">${historyLine}</span>` : ''}
         </div>
       </div>
     </div>`;
@@ -542,12 +542,30 @@ function _parseEditorGasLastDates(rawPrices) {
 function _formatEditorGasLastLabel(info) {
   if (!info) return '';
   const when = info.savedAt
-    ? info.savedAt.replace(/-/g,'.').slice(0,16)
-    : (info.date || '').replace(/-/g,'.');
+    ? _compactEditorDateTime(info.savedAt)
+    : _compactEditorDate(info.date || '');
   if (!when) return '';
-  const source = info.source ? ` · ${info.source}` : '';
   const price = info.price > 0 ? ` · ${Number(info.price).toLocaleString()}` : '';
-  return `GAS 마지막 ${when}${source}${price}`;
+  return `GAS ${when}${price}`;
+}
+
+function _compactEditorPriceMetaLabel(label) {
+  if (!label) return '';
+  return String(label)
+    .replace(/(\d{4})[.-](\d{2})[.-](\d{2})[ T](\d{2}:\d{2})(?::\d{2})?/g, '$2.$3 $4')
+    .replace(/(\d{4})[.-](\d{2})[.-](\d{2})/g, '$2.$3');
+}
+
+function _compactEditorDateTime(value) {
+  const s = String(value || '').replace(/-/g,'.');
+  const m = s.match(/^(\d{4})\.(\d{2})\.(\d{2})[ T](\d{2}:\d{2})/);
+  return m ? `${m[2]}.${m[3]} ${m[4]}` : _compactEditorDate(s);
+}
+
+function _compactEditorDate(value) {
+  const s = String(value || '').replace(/-/g,'.');
+  const m = s.match(/^(\d{4})\.(\d{2})\.(\d{2})/);
+  return m ? `${m[2]}.${m[3]}` : s;
 }
 
 // ── 하위 호환: 외부에서 직접 호출하는 경우를 위한 래퍼 유지
