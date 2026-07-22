@@ -1,5 +1,9 @@
 // ── 배당 관리 상수
 const FREQ_OPTIONS = ['-', '월배당', '분기', '반기', '연간'];
+const DIV_AUTO_SOURCE_LABEL = '공공데이터 우선 · GOOGLEFINANCE fallback';
+const DIV_GF_SOURCE_LABEL = 'GOOGLEFINANCE(가능 종목만)';
+const DIV_PUBLIC_KEY = 'public_data_api_key';
+const DIV_MANUAL_GUIDE = '공공데이터포털 키가 있으면 무료 공공데이터를 먼저 조회하고, 누락 종목만 GOOGLEFINANCE로 보완합니다.';
 const MONTHS_OPTIONS = {
   '-':    [],
   '월배당': [1,2,3,4,5,6,7,8,9,10,11,12],
@@ -190,22 +194,80 @@ function _normalizeDividendResponse(obj, prev) {
     } else {
       next.months = Array.isArray(prev?.months) ? prev.months : [];
     }
-    next.note = 'GOOGLEFINANCE 자동갱신';
+    if (Array.isArray(obj?.events)) {
+      next.events = obj.events
+        .map(ev => ({
+          date: String(ev?.date || '').slice(0, 10),
+          payDate: String(ev?.payDate || '').slice(0, 10),
+          amount: Number(ev?.amount || 0),
+          source: ev?.source || obj?.source || '',
+        }))
+        .filter(ev => /^\d{4}-\d{2}-\d{2}$/.test(ev.date) && ev.amount > 0);
+    } else if (Array.isArray(prev?.events)) {
+      next.events = prev.events;
+    }
+    next.source = obj?.source || 'GOOGLEFINANCE';
+    const srcLabel = next.source === 'PUBLIC_DATA' ? '공공데이터' : DIV_GF_SOURCE_LABEL;
+    next.note = next.events?.length ? `${srcLabel} 실제 배당일 기준 자동갱신` : `${srcLabel} 자동갱신`;
   } else {
     // 조회 실패/무배당 응답이 와도 기존 수동값/이전 정상값은 보존 (0으로 덮어쓰기 방지)
     if (Number(prev?.perShare || 0) > 0) {
       next.perShare = Number(prev.perShare || 0);
       next.freq = prev?.freq || next.freq || '-';
       next.months = Array.isArray(prev?.months) ? prev.months : (next.months || []);
-      next.note = 'GOOGLEFINANCE: 배당내역 없음(기존 값 유지)';
+      next.source = obj?.source || prev?.source || 'GOOGLEFINANCE';
+      next.note = `${next.source === 'PUBLIC_DATA' ? '공공데이터' : DIV_GF_SOURCE_LABEL}: 배당내역 없음(기존 값 유지)`;
     } else {
       next.perShare = 0;
+      next.source = obj?.source || prev?.source || 'GOOGLEFINANCE';
       next.note = prev?.note && !prev.note.startsWith('GOOGLEFINANCE')
         ? prev.note
-        : 'GOOGLEFINANCE: 배당내역 없음';
+        : `${next.source === 'PUBLIC_DATA' ? '공공데이터' : DIV_GF_SOURCE_LABEL}: 배당내역 없음`;
     }
   }
   return next;
+}
+
+
+function getPublicDataApiKey() {
+  return (typeof lsGet === 'function') ? String(lsGet(DIV_PUBLIC_KEY, '') || '').trim() : '';
+}
+
+function savePublicDataApiKeyFromUI() {
+  const input = $el('divPublicKeyInput');
+  const key = String(input?.value || '').trim();
+  if (typeof lsSave === 'function') lsSave(DIV_PUBLIC_KEY, key);
+  showToast(key ? '공공데이터 API 키 저장 완료' : '공공데이터 API 키를 비웠습니다', key ? 'ok' : 'warn');
+  const status = $el('divFetchStatus');
+  if (status) {
+    status.style.color = key ? 'var(--green-lt)' : 'var(--amber)';
+    status.textContent = key ? '공공데이터 우선 조회가 활성화됩니다.' : '키가 없으면 GOOGLEFINANCE fallback만 사용합니다.';
+  }
+}
+
+async function _fetchDividendSource(action, codeItems, extraParams) {
+  const codes = codeItems.map(ep => _normDivCode(ep.code)).filter(Boolean).join(',');
+  if (!codes) return null;
+  const params = { codes, ...(extraParams || {}) };
+  if (action === 'dividendPublic') {
+    params.names = codeItems.map(ep => ep.name || '').join('|');
+  }
+  const url = buildGsheetActionUrl(action, params);
+  const res = await fetchWithTimeout(url, action === 'dividendPublic' ? 45000 : 65000);
+  if (!res.ok) throw new Error(action + ' HTTP ' + res.status);
+  const data = await res.json();
+  if (data.status !== 'ok' || !data.dividends) throw new Error(data.message || action + ' 응답 오류');
+  return data.dividends;
+}
+
+function _mergeDividendResults(targetCodes, primary, fallback) {
+  const merged = {};
+  targetCodes.forEach(code => {
+    const p = primary && primary[code];
+    const f = fallback && fallback[code];
+    merged[code] = Number(p?.perShare || 0) > 0 ? p : (f || p || { perShare: 0, freq: '-', months: [], count: 0 });
+  });
+  return merged;
 }
 
 async function _autoFetchDiv(area) {
@@ -273,7 +335,7 @@ async function startDivFetch() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 조회 중...'; }
   if (status) {
     status.style.color = 'var(--amber)';
-    status.textContent = '구글시트 GOOGLEFINANCE로 배당 내역 조회 중... (약 10~20초)';
+    status.textContent = `구글시트 ${DIV_AUTO_SOURCE_LABEL} 조회 중... · ${DIV_MANUAL_GUIDE}`;
   }
 
   // 보유 종목 코드 목록 (펀드 제외, 코드 있는 것만)
@@ -305,17 +367,31 @@ async function startDivFetch() {
   }
 
   try {
-    const url = GSHEET_API_URL + '?action=dividend&codes=' + encodeURIComponent(codes);
-    const res = await fetchWithTimeout(url, 65000); // 배당 조회는 더 오래 걸림
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.dividends) throw new Error(data.message || '응답 오류');
+    const publicKey = getPublicDataApiKey();
+    let publicDividends = null;
+    let gfDividends = null;
+    const targetCodes = codes.split(',').filter(Boolean);
+    const sourceStats = { public: 0, gf: 0 };
+    if (publicKey) {
+      try {
+        publicDividends = await _fetchDividendSource('dividendPublic', codeItems, { serviceKey: publicKey });
+      } catch(e) {
+        console.warn('공공데이터 배당 조회 실패, GOOGLEFINANCE fallback:', e.message);
+      }
+    }
+    const missingCodeItems = publicDividends
+      ? codeItems.filter(ep => Number(publicDividends[_normDivCode(ep.code)]?.perShare || 0) <= 0)
+      : codeItems;
+    if (missingCodeItems.length > 0) {
+      gfDividends = await _fetchDividendSource('dividend', missingCodeItems, {});
+    }
+    const dividends = _mergeDividendResults(targetCodes, publicDividends, gfDividends);
 
     // 코드 → 이름 역매핑
     const codeToName = _buildDivCodeToNameMap();
 
     let updated = 0, skipped = 0;
-    Object.entries(data.dividends).forEach(([code, obj]) => {
+    Object.entries(dividends).forEach(([code, obj]) => {
       const name = codeToName[String(code || '').trim()] || codeToName[_normDivCode(code)];
       if (!name) return;
       const normCode = _normDivCode(String(code || '').trim());
@@ -323,17 +399,22 @@ async function startDivFetch() {
       const prev = DIVDATA[storeKey] || {};
       DIVDATA[storeKey] = _normalizeDividendResponse(obj, prev);
       if (Number(obj?.perShare || 0) > 0) {
-        DIVDATA[storeKey].note = 'GOOGLEFINANCE 최근 13개월 기준';
+        DIVDATA[storeKey].source = obj?.source || 'GOOGLEFINANCE';
+        const noteLabel = DIVDATA[storeKey].source === 'PUBLIC_DATA' ? '공공데이터' : DIV_GF_SOURCE_LABEL;
+        DIVDATA[storeKey].note = `${noteLabel} 최근 배당정보 기준`;
+        if (DIVDATA[storeKey].source === 'PUBLIC_DATA') sourceStats.public++;
+        else sourceStats.gf++;
         updated++;
       } else {
-        DIVDATA[storeKey].note = DIVDATA[storeKey].note === 'GOOGLEFINANCE: 배당내역 없음'
-          ? 'GOOGLEFINANCE: 배당내역 없음 (수동입력 가능)'
+        DIVDATA[storeKey].source = obj?.source || DIVDATA[storeKey].source || 'GOOGLEFINANCE';
+        DIVDATA[storeKey].note = DIVDATA[storeKey].note === `${DIV_GF_SOURCE_LABEL}: 배당내역 없음`
+          ? `${DIV_GF_SOURCE_LABEL}: 배당내역 없음 (수동입력 가능)`
           : DIVDATA[storeKey].note;
         skipped++;
       }
     });
 
-    const resultMsg = '✅ ' + updated + '개 종목 배당 조회 완료' + (skipped > 0 ? ' (' + skipped + '개 배당없음)' : '');
+    const resultMsg = `✅ ${updated}개 종목 배당 조회 완료 · 공공데이터 ${sourceStats.public}개 · GF ${sourceStats.gf}개` + (skipped > 0 ? ` (${skipped}개 배당없음/수동확인)` : '');
     persistDividendSettings(true);
     saveHoldings();
     // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
