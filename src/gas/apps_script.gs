@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.24
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.25
+//
+//  v9.25 변경사항 (2026.07.23):
+//   ✅ [개선]   onOpen — 포트폴리오 최상위 메뉴에 공공데이터 API 인증키/상태 항목 직접 노출
+//              → 사용자가 메뉴를 열자마자 상장종목정보·배당정보 API 설정을 찾을 수 있게 개선
 //
 //  v9.24 변경사항 (2026.07.23):
 //   ✅ [개선]   onOpen — 공공데이터 API 전용 서브메뉴 추가
@@ -3626,7 +3630,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     var publicKey = _getPublicDataApiKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
-    return jsonOk({ settings: settings, gasVersion: '9.24' });
+    return jsonOk({ settings: settings, gasVersion: '9.25' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4039,6 +4043,11 @@ function onOpen() {
     .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
     .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
 
+  // ── 서브메뉴: 공공데이터 API ──
+  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
+    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
+    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
+
   // ── 서브메뉴: 종가 관리 ──
   var menuPrice = ui.createMenu('📈 종가 관리')
     .addItem('🔄 오늘 종가 갱신', 'updatePrices')
@@ -4065,6 +4074,9 @@ function onOpen() {
 
   // ── 메인 메뉴 조합 ──
   ui.createMenu('📊 포트폴리오')
+    .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+    .addItem('ℹ️ 공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
+    .addSeparator()
     .addSubMenu(menuInit)
     .addSeparator()
     .addSubMenu(menuPublicData)
