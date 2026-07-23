@@ -75,19 +75,11 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
 
   let totalEval = 0;
   let totalCost = 0;
-  let smallCount = 0;
-  let smallEvalSum = 0;
   const rowsHtml = [];
 
   data.forEach(r => {
     totalEval += (r.evalAmt || 0);
     totalCost += (r.costAmt || 0);
-    const isSmall = r.evalAmt < SMALL_THRESHOLD && !r.fund;
-    if (isSmall) {
-      smallCount += 1;
-      smallEvalSum += r.evalAmt;
-    }
-
     const pC2 = pColor(r.pnl), pS2 = pSign(r.pnl);
     const currency = (r.currency || 'KRW').toUpperCase();
     const isForeign = currency !== 'KRW';
@@ -106,7 +98,7 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
       sectorCell = `<td><span style="font-size:.70rem;padding:2px 8px;border-radius:4px;background:${sectorColor}22;color:${sectorColor}">${_escapeHtml(r.sector || '기타')}</span></td>`;
     }
 
-    rowsHtml.push(`<tr class="${isSmall ? `small-pos-row small-pos-row-${tableId}" style="display:none` : ''}">
+    rowsHtml.push(`<tr>
       ${sectorCell}
       <td><span class="adot" style="background:${ACCT_COLORS[r.acct]||'var(--muted)'}"></span>${_escapeHtml(r.acct || '-')}</td>
       <td><span class="tag">${_escapeHtml(r.type || '-')}</span></td>
@@ -134,10 +126,6 @@ function buildTableInnerCore(rawData, tableId, extraCol) {
     <div class="overflow-x-auto"><table><thead><tr>${headerCols}</tr></thead><tbody>`;
   html += rowsHtml.join('');
   html += `</tbody></table></div></div>`;
-
-  if (smallCount > 0) {
-    html = `${makeSmallToggleBar(smallCount, smallEvalSum, tableId)}` + html;
-  }
 
   return html;
 }
