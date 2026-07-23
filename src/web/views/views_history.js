@@ -297,6 +297,7 @@ function _renderHistDebugPanel(date) {
 function renderGsheetView(area) {
   const currentUrl = GSHEET_API_URL || '';
   const isLinked = !!currentUrl;
+  const krxAuthKey = (typeof getKrxAuthKey === 'function') ? getKrxAuthKey() : '';
 
   area.innerHTML = `
     <div style="padding:12px 0 8px">
@@ -326,6 +327,24 @@ function renderGsheetView(area) {
           <button id="btn-save-gsheet-url" class="btn-purple-sm">저장 · 연결 테스트</button>
         </div>
         <div id="gsheetTestResult" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${(()=>{try{const s=localStorage.getItem('pf_gsheet_test_result');if(s){const p=JSON.parse(s);return `<span style="color:${p.color||'var(--muted)'}">${p.msg||''}</span>`;}}catch(e){}return '';})()}</div>
+      </div>
+
+      <!-- KRX AUTH_KEY 입력 -->
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <div>
+            <div style="font-size:.72rem;font-weight:700;color:var(--text)">🔑 KRX Open API AUTH_KEY</div>
+            <div style="font-size:.62rem;color:var(--muted);margin-top:2px">가격소스를 KRX 우선으로 사용할 때 GAS의 KRX 종가 조회에 사용됩니다.</div>
+          </div>
+          <span style="font-size:.62rem;color:${krxAuthKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${krxAuthKey ? '키 저장됨' : '키 미설정'}</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
+          <input id="krxAuthKeyInput" type="password" value="${krxAuthKey.replace(/"/g,'&quot;')}" placeholder="KRX Open API AUTH_KEY"
+            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"
+          />
+          <button id="btn-save-krx-auth-key" class="btn-purple-sm">키 저장</button>
+        </div>
+        <div id="krxAuthKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${krxAuthKey ? 'KRX AUTH_KEY가 저장되어 있습니다.' : 'KRX AUTH_KEY가 없으면 GOOGLEFINANCE 또는 기존 fallback을 사용합니다.'}</div>
       </div>
 
       <!-- 안내 -->
@@ -401,6 +420,7 @@ function renderStocksView(area) {
               📂 xlsx/csv 업로드
               <input id="smCsvFileInput" type="file" accept=".xlsx,.csv" style="display:none"/>
             </label>
+            <button id="btn-sm-sync-official" class="btn-ghost-sm">🏛️ KRX 공식명 반영</button>
             <button id="btn-sm-template" class="btn-ghost-sm">⬇️ 양식</button>
           </div>
         </div>

@@ -19,7 +19,6 @@ function registerGlobalEventDelegation() {
     'btn-close-tab-settings-top':    () => typeof closeTabSettings === 'function' && closeTabSettings(),
     'btn-close-tab-settings-footer': () => typeof closeTabSettings === 'function' && closeTabSettings(),
     // ★ [버그수정] 기본값 버튼이 아예 연결돼 있지 않아 눌러도 반응 없었음
-    settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
     settingsTabBtn_tab:              () => typeof switchSettingsTab === 'function' && switchSettingsTab('tab'),
     settingsTabBtn_theme:            () => typeof switchSettingsTab === 'function' && switchSettingsTab('theme'),
     settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
@@ -41,6 +40,7 @@ function registerGlobalEventDelegation() {
     'btn-history-refresh': () => typeof loadHistoryChart === 'function' && loadHistoryChart(),
     'btn-clear-gsheet-url':() => typeof clearGsheetUrl === 'function' && clearGsheetUrl(),
     'btn-save-gsheet-url': () => typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
+    'btn-save-krx-auth-key': () => typeof saveKrxAuthKeyFromUI === 'function' && saveKrxAuthKeyFromUI(),
 
     // management
     'btn-acct-add':        () => typeof acctMgmtAddNew === 'function' && acctMgmtAddNew(),
@@ -50,6 +50,7 @@ function registerGlobalEventDelegation() {
     'btn-sm-confirm':      () => typeof smMgmtConfirm === 'function' && smMgmtConfirm(),
     'btn-sm-cancel':       () => typeof smMgmtCancel === 'function' && smMgmtCancel(),
     'btn-sm-template':     () => typeof smCsvDownloadTemplate === 'function' && smCsvDownloadTemplate(),
+    'btn-sm-sync-official':() => typeof smSyncOfficialNames === 'function' && smSyncOfficialNames(),
     'btn-sec-add':         () => typeof secMgmtAddNew === 'function' && secMgmtAddNew(),
     'btn-sec-confirm':     () => typeof secMgmtConfirm === 'function' && secMgmtConfirm(),
     'btn-sec-cancel':      () => typeof secMgmtCancel === 'function' && secMgmtCancel(),
@@ -114,6 +115,7 @@ function registerGlobalEventDelegation() {
       const action = divAction.dataset.divAction;
       if (action === 'apply' && typeof applyDivChanges === 'function') applyDivChanges();
       else if (action === 'fetch' && typeof startDivFetch === 'function') startDivFetch();
+      else if (action === 'save-public-key' && typeof savePublicDataApiKeyFromUI === 'function') savePublicDataApiKeyFromUI();
       else if (action === 'toggle-zero' && typeof _toggleDivHideZero === 'function') _toggleDivHideZero();
       return;
     }
