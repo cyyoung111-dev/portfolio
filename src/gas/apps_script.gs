@@ -4087,7 +4087,19 @@ function onOpen() {
   // ── 서브메뉴: 초기 설정 ──
   var menuInit = ui.createMenu('⚙️ 초기 설정')
     .addItem('시트 초기화 (최초 1회)', 'initSheet')
-    .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger');
+    .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
+    .addSeparator()
+    .addItem('🔑 공공데이터포털 인증키 설정', 'configurePublicDataApiKeyPrompt');
+
+  // ── 서브메뉴: 공공데이터 API ──
+  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
+    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
+    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
+
+  // ── 서브메뉴: 공공데이터 API ──
+  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
+    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
+    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
 
   // ── 서브메뉴: 공공데이터 API ──
   var menuPublicData = ui.createMenu('🌐 공공데이터 API')
