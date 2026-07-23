@@ -35,6 +35,17 @@ async function _fetchFromGsheetInner(dateStr) {
       const valid = list.filter(e => e && e.price > 0).sort(byLatest);
       return valid.length > 0 ? valid[valid.length - 1] : null;
     };
+    const pickLatestOnOrBefore = (list, targetDate) => {
+      if (!Array.isArray(list) || list.length === 0) return null;
+      const valid = list
+        .filter(e => e && e.price > 0 && (!e.date || e.date <= targetDate))
+        .sort((a, b) => {
+          const byDate = (a?.date || '').localeCompare(b?.date || '');
+          if (byDate !== 0) return byDate;
+          return (a?.savedAt || '').localeCompare(b?.savedAt || '');
+        });
+      return valid.length > 0 ? valid[valid.length - 1] : null;
+    };
     // ★ EDITABLE_PRICES 코드 + rawHoldings STOCK_CODE + GSheet 코드목록 합산 (중복 제거)
     const epWithCode = getEPWithCode();
     const epCodeSet = new Set(epWithCode.map(i => i.code));
@@ -67,33 +78,45 @@ async function _fetchFromGsheetInner(dateStr) {
       const codes = epItems.map(i => i.code).join(',');
       if (isToday) {
         // 오늘 (주말 포함) → getPrices 실시간 조회
-        const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
-        if (!data || data.status !== 'ok' || !data.prices) throw new Error('응답 오류');
-        // ★ [환율 연동] 응답에 환율 데이터가 있으면 전역 exchangeRates에 저장
-        if (data.exchangeRates && typeof data.exchangeRates === 'object') {
-          Object.assign(exchangeRates, data.exchangeRates);
+        // 실시간 응답이 일시 실패해도 전체 조회를 중단하지 않고 가격 이력으로 대체합니다.
+        try {
+          const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
+          if (!data || data.status !== 'ok' || !data.prices) {
+            throw new Error(data?.message || '실시간 가격 응답 오류');
+          }
+          // ★ [환율 연동] 응답에 환율 데이터가 있으면 전역 exchangeRates에 저장
+          if (data.exchangeRates && typeof data.exchangeRates === 'object') {
+            Object.assign(exchangeRates, data.exchangeRates);
+          }
+          epItems.forEach(i => {
+            const price = data.prices[i.code];
+            if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
+            else missingCodes.push({ name: i.name, code: i.code });
+          });
+        } catch(e) {
+          console.warn('[fetchFromGsheet] getPrices 실패, 가격 이력으로 대체:', e.message);
+          missingCodes = epItems.map(i => ({ name: i.name, code: i.code }));
         }
-        epItems.forEach(i => {
-          const price = data.prices[i.code];
-          if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
-          else missingCodes.push({ name: i.name, code: i.code });
-        });
         // ★ 실시간 조회에서 못 받은 종목은 getPriceHistory로 재시도
         if (missingCodes.length > 0) {
           try {
             const missingCodesStr = missingCodes.map(m => m.code).join(',');
             const data2 = await requestGsheetActionJson(
               'getPriceHistory',
-              { from: dateStr, to: dateStr, codes: missingCodesStr },
+              { from: _kstDateOffset(dateStr, -7), to: dateStr, codes: missingCodesStr },
               { timeoutMs: 15000, retry: 1 }
             );
             if (data2 && data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
                 const list = data2.prices[m.code] || [];
-                const entry = pickLatestPreferManual(list);
+                const entry = pickLatestOnOrBefore(list, dateStr);
                 if (entry && entry.price > 0) {
                   codeResults[m.code] = Math.round(entry.price);
-                  if (entry.savedAt) priceMeta[m.code] = { savedAt: entry.savedAt };
+                  priceMeta[m.code] = {
+                    savedAt: entry.savedAt || '',
+                    sourceDate: entry.date || '',
+                    isFallback: !!entry.date && entry.date !== dateStr
+                  };
                   return false;
                 }
                 return true;
@@ -290,7 +313,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.21';
+const EXPECTED_GAS_VERSION = '9.25';
 
 async function autoLoadPrices() {
   const dateStr = getDateStr(0);

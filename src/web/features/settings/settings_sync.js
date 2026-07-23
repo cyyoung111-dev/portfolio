@@ -178,6 +178,29 @@ async function syncTradesToGsheet() {
   }
 }
 
+async function lookupOfficialStockByCode(code) {
+  if (!code) return null;
+  const trimCode = _normalizeSyncCode(code);
+  if (!trimCode || !GSHEET_API_URL) return null;
+  if (typeof getPublicDataApiKey !== 'function') return null;
+  const key = getPublicDataApiKey();
+  if (!key) return null;
+  try {
+    const data = await requestGsheetActionJson('name', { code: trimCode, serviceKey: key }, { timeoutMs: 8000, retry: 1 });
+    if (!data || data.status === 'error') return null;
+    const name = String(data.officialName || data.name || '').trim();
+    if (!name) return null;
+    return {
+      code: trimCode,
+      name,
+      officialName: String(data.officialName || name).trim(),
+      crno: String(data.crno || '').trim(),
+      market: String(data.market || '').trim(),
+      source: String(data.source || '').trim(),
+    };
+  } catch(e) { return null; }
+}
+
 async function lookupNameByCode(code) {
   if (!code) return '';
   const trimCode = _normalizeSyncCode(code);
@@ -190,10 +213,15 @@ async function lookupNameByCode(code) {
   // 3. GSheet 캐시 검색
   const gItem = _gsheetCodeList.find(item => item.code === trimCode);
   if (gItem) return gItem.name;
-  // 4. GSheet API 조회 (GOOGLEFINANCE name)
+  // 4. GSheet API 조회 (공공데이터 KRX상장종목정보 우선, GOOGLEFINANCE fallback)
   if (!GSHEET_API_URL) return '';
   try {
-    const data = await requestGsheetActionJson('name', { code: trimCode }, { timeoutMs: 8000, retry: 1 });
+    const params = { code: trimCode };
+    if (typeof getPublicDataApiKey === 'function') {
+      const key = getPublicDataApiKey();
+      if (key) params.serviceKey = key;
+    }
+    const data = await requestGsheetActionJson('name', params, { timeoutMs: 8000, retry: 1 });
     if (!data || data.status === 'error') return '';
     return data.name || data.officialName || '';
   } catch(e) { return ''; }
