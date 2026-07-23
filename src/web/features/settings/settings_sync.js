@@ -178,6 +178,29 @@ async function syncTradesToGsheet() {
   }
 }
 
+async function lookupOfficialStockByCode(code) {
+  if (!code) return null;
+  const trimCode = _normalizeSyncCode(code);
+  if (!trimCode || !GSHEET_API_URL) return null;
+  if (typeof getPublicDataApiKey !== 'function') return null;
+  const key = getPublicDataApiKey();
+  if (!key) return null;
+  try {
+    const data = await requestGsheetActionJson('name', { code: trimCode, serviceKey: key }, { timeoutMs: 8000, retry: 1 });
+    if (!data || data.status === 'error') return null;
+    const name = String(data.officialName || data.name || '').trim();
+    if (!name) return null;
+    return {
+      code: trimCode,
+      name,
+      officialName: String(data.officialName || name).trim(),
+      crno: String(data.crno || '').trim(),
+      market: String(data.market || '').trim(),
+      source: String(data.source || '').trim(),
+    };
+  } catch(e) { return null; }
+}
+
 async function lookupNameByCode(code) {
   if (!code) return '';
   const trimCode = _normalizeSyncCode(code);
@@ -190,11 +213,52 @@ async function lookupNameByCode(code) {
   // 3. GSheet 캐시 검색
   const gItem = _gsheetCodeList.find(item => item.code === trimCode);
   if (gItem) return gItem.name;
-  // 4. GSheet API 조회 (GOOGLEFINANCE name)
+  // 4. GSheet API 조회 (공공데이터 KRX상장종목정보 우선, GOOGLEFINANCE fallback)
   if (!GSHEET_API_URL) return '';
   try {
-    const data = await requestGsheetActionJson('name', { code: trimCode }, { timeoutMs: 8000, retry: 1 });
+    const params = { code: trimCode };
+    if (typeof getPublicDataApiKey === 'function') {
+      const key = getPublicDataApiKey();
+      if (key) params.serviceKey = key;
+    }
+    const data = await requestGsheetActionJson('name', params, { timeoutMs: 8000, retry: 1 });
     if (!data || data.status === 'error') return '';
     return data.name || data.officialName || '';
   } catch(e) { return ''; }
+}
+
+function getKrxAuthKey() {
+  return (typeof lsGet === 'function') ? String(lsGet('krx_auth_key', '') || '').trim() : '';
+}
+
+async function saveKrxAuthKeyFromUI() {
+  const input = $el('krxAuthKeyInput');
+  const key = String(input?.value || '').trim();
+  if (typeof lsSave === 'function') lsSave('krx_auth_key', key);
+  const status = $el('krxAuthKeyStatus');
+  const setStatus = (msg, ok) => {
+    if (!status) return;
+    status.style.color = ok ? 'var(--green-lt)' : 'var(--amber)';
+    status.textContent = msg;
+  };
+
+  if (GSHEET_API_URL && typeof requestGsheetFormJson === 'function') {
+    setStatus('KRX AUTH_KEY를 GAS에 저장 중...', true);
+    const data = await requestGsheetFormJson(
+      'saveKrxAuthKey',
+      { key: key || '-' },
+      { timeoutMs: 10000, retry: 1 }
+    );
+    if (data && data.status === 'ok') {
+      showToast(key ? 'KRX AUTH_KEY 저장 완료 (GAS 동기화)' : 'KRX AUTH_KEY 삭제 완료 (GAS 동기화)', key ? 'ok' : 'warn');
+      setStatus(key ? 'KRX 우선 가격 조회에 사용할 수 있습니다. 다른 브라우저에서도 설정 복원됩니다.' : 'KRX AUTH_KEY가 비어 있습니다.', !!key);
+      return;
+    }
+    showToast('KRX AUTH_KEY는 이 브라우저에 저장됐지만 GAS 저장은 실패했습니다', 'warn', 5000);
+    setStatus('로컬 저장 완료 · GAS 저장 실패로 다른 브라우저 복원은 제한됩니다.', false);
+    return;
+  }
+
+  showToast(key ? 'KRX AUTH_KEY 저장 완료 (이 브라우저)' : 'KRX AUTH_KEY를 비웠습니다', key ? 'ok' : 'warn');
+  setStatus(key ? '구글시트 미연동 상태라 이 브라우저에만 저장됩니다.' : 'KRX AUTH_KEY가 비어 있습니다.', !!key);
 }

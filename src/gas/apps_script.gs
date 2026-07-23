@@ -1,5 +1,50 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.21
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.29
+//
+//  v9.29 변경사항 (2026.07.23):
+//   ✅ [개선]   onOpen — 메뉴 생성 로직을 전체 try/catch로 보호하고 최소 메뉴 fallback 추가
+//              → 보조 라벨/트리거 오류가 나도 API 인증키 메뉴는 반드시 노출
+//   ✅ [신규]   showMenuBuildError() — 스프레드시트에서 최근 메뉴 생성 오류 확인
+//
+//  v9.28 변경사항 (2026.07.23):
+//   ✅ [개선]   onOpen — 기존에 보이던 초기 설정/종가 관리 메뉴에도 API 키 설정 항목 중복 배치
+//              → 새 서브메뉴가 캐시/권한 문제로 늦게 보일 때도 기존 메뉴 경로에서 접근 가능
+//   ✅ [개선]   KRX AUTH_KEY — 배당 탭/구글시트 연동 탭 모두에서 앱 입력 가능하도록 프론트와 연동
+//
+//  v9.27 변경사항 (2026.07.23):
+//   ✅ [신규]   saveKrxAuthKey POST 액션 추가
+//              → 웹앱 구글시트 연동 탭에서 KRX Open API AUTH_KEY를 GAS에 저장
+//   ✅ [개선]   handleGetSettings — 저장된 krx_auth_key를 프론트 설정 복원에 포함
+//   ✅ [개선]   onInstall(e) — 설치/권한 승인 후 메뉴 재생성 보조
+//
+//  v9.26 변경사항 (2026.07.23):
+//   ✅ [신규]   savePublicDataApiKey POST 액션 추가
+//              → 웹앱 배당 탭에서 저장한 공공데이터 API 키도 GAS ScriptProperties에 저장
+//   ✅ [개선]   공공데이터 키 저장 흐름 — 로컬 전용이 아니라 다른 브라우저에서도 getSettings로 복원 가능
+//
+//  v9.25 변경사항 (2026.07.23):
+//   ✅ [개선]   onOpen — 포트폴리오 최상위 메뉴에 공공데이터 API 인증키/상태 항목 직접 노출
+//              → 사용자가 메뉴를 열자마자 상장종목정보·배당정보 API 설정을 찾을 수 있게 개선
+//
+//  v9.24 변경사항 (2026.07.23):
+//   ✅ [개선]   onOpen — 공공데이터 API 전용 서브메뉴 추가
+//              → KRX상장종목정보(종목코드)/주식배당정보 인증키 설정 위치 명확화
+//   ✅ [신규]   showPublicDataApiKeyStatus() — 스프레드시트 메뉴에서 저장 상태 확인
+//
+//  v9.23 변경사항 (2026.07.23):
+//   ✅ [신규]   configurePublicDataApiKeyPrompt() — 스프레드시트 메뉴에서 공공데이터포털 인증키 입력
+//              → KRX상장종목정보/주식배당정보 API 키를 GAS ScriptProperties에 저장
+//   ✅ [개선]   dividendPublic/name — 요청 serviceKey가 없으면 GAS 저장 키를 fallback 사용
+//              → 브라우저별 키 입력 없이도 배당 조회·공식명 조회 가능
+//
+//  v9.22 변경사항 (2026.07.23):
+//   ✅ [신규]   dividendPublic — 공공데이터포털 주식배당정보/KRX상장종목정보 연동
+//              → 종목코드 기준 공식명·법인번호 조회 후 배당 이벤트 정규화
+//   ✅ [신규]   handleNameLookup(serviceKey) — KRX상장종목정보 기반 공식 종목명 조회
+//              → 프론트 종목 추가/기존 종목 공식명 반영 기능에서 사용
+//   ✅ [개선]   _publicServiceKeyParam() — Encoding/Decoding 인증키 모두 안전 처리
+//              → serviceKey 쿼리에서 +, / 문자가 깨질 가능성 완화
+//   ✅ [개선]   batchSaveManualPrices — 현재가 편집 저장을 배치 처리하고 스냅샷 재작성 최소화
 //
 //  v9.21 변경사항 (2026.05.12):
 //   ✅ [버그수정] handleGetTrades() — fund 필드 항상 false 버그
@@ -230,7 +275,7 @@ function getss() {
 // ════════════════════════════════════════════════════════════════════
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
-  if (params.action === 'name'           && params.code)  return handleNameLookup(params.code);
+  if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, params.serviceKey || '');
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
@@ -241,6 +286,11 @@ function doGet(e) {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     return handleDividendFetch(codes);
   }
+  if (params.action === 'dividendPublic') {
+    var publicCodes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
+    var publicNames = params.names ? params.names.split('|') : [];
+    return handleDividendPublicFetch(publicCodes, publicNames, params.serviceKey || '');
+  }
   if (params.action === 'getSettings')          return handleGetSettings();
   if (params.action === 'getDividendSettings')  return handleGetDividendSettings();
   if (params.action === 'getRealEstateSettings')return handleGetRealEstateSettings();
@@ -249,7 +299,8 @@ function doGet(e) {
   if (params.action === 'saveSnapshot' || params.action === 'syncCodes' ||
       params.action === 'syncHoldings' || params.action === 'syncTrades' ||
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
-      params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues') {
+      params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
+      params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -281,6 +332,8 @@ function doPost(e) {
   if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
+  if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
+  if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
   // ★ [최적화] 배치 수동가격 저장 — 건당 개별 요청 → 1회 일괄 처리
   if (params.action === 'batchSaveManualPrices' && params.data) return handleBatchSaveManualPrices(params.date || '', params.data);
   return jsonError('알 수 없는 action: ' + (params.action || '없음'));
@@ -653,6 +706,88 @@ function configureKrxAuthKeyPrompt() {
   ui.alert('✅ krx_auth_key 저장 완료');
 }
 
+
+function _getPublicDataApiKey() {
+  var props = PropertiesService.getScriptProperties();
+  return (props.getProperty('public_data_api_key') ||
+          props.getProperty('public_listed_api_key') ||
+          props.getProperty('public_dividend_api_key') || '').trim();
+}
+
+function handleSaveKrxAuthKey(rawKey) {
+  try {
+    var key = (rawKey || '').toString().trim();
+    var props = PropertiesService.getScriptProperties();
+    if (!key || key === '-') {
+      props.deleteProperty('krx_auth_key');
+      props.deleteProperty('krx_api_key');
+      return jsonOk({ saved: false, cleared: true });
+    }
+    props.setProperty('krx_auth_key', key);
+    return jsonOk({ saved: true, cleared: false });
+  } catch(err) {
+    return jsonError('KRX AUTH_KEY 저장 실패: ' + err.message);
+  }
+}
+
+function configurePublicDataApiKeyPrompt() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+
+  var current = _getPublicDataApiKey();
+  var resp = ui.prompt(
+    '공공데이터 API 인증키 설정',
+    '금융위원회_KRX상장종목정보(종목코드) / 금융위원회_주식배당정보에 사용할 인증키를 입력하세요.\n' +
+    'Encoding 키 권장, Decoding 키도 자동 보정됩니다.\n' +
+    '삭제하려면 "-" 입력' + (current ? '\n\n현재: 저장됨' : '\n\n현재: 미설정'),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var input = (resp.getResponseText() || '').trim();
+  var props = PropertiesService.getScriptProperties();
+  if (input === '-') {
+    props.deleteProperty('public_data_api_key');
+    props.deleteProperty('public_listed_api_key');
+    props.deleteProperty('public_dividend_api_key');
+    ui.alert('✅ 공공데이터포털 인증키 삭제 완료');
+    return;
+  }
+  if (!input) {
+    ui.alert(current ? '변경 없음' : '⚠️ 공공데이터포털 인증키가 비어 있습니다.');
+    return;
+  }
+  props.setProperty('public_data_api_key', input);
+  ui.alert('✅ 공공데이터포털 인증키 저장 완료\n배당 조회와 KRX 공식명 조회에서 사용됩니다.');
+}
+
+function handleSavePublicDataApiKey(rawKey) {
+  try {
+    var key = (rawKey || '').toString().trim();
+    var props = PropertiesService.getScriptProperties();
+    if (!key || key === '-') {
+      props.deleteProperty('public_data_api_key');
+      props.deleteProperty('public_listed_api_key');
+      props.deleteProperty('public_dividend_api_key');
+      return jsonOk({ saved: false, cleared: true });
+    }
+    props.setProperty('public_data_api_key', key);
+    return jsonOk({ saved: true, cleared: false });
+  } catch(err) {
+    return jsonError('공공데이터 API 키 저장 실패: ' + err.message);
+  }
+}
+
+function showPublicDataApiKeyStatus() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+  var key = _getPublicDataApiKey();
+  ui.alert(key
+    ? '✅ 공공데이터 API 인증키가 저장되어 있습니다.\nKRX상장종목정보(종목코드)와 주식배당정보 조회에 사용됩니다.'
+    : '⚠️ 공공데이터 API 인증키가 없습니다.\n📊 포트폴리오 > 🌐 공공데이터 API > 🔑 인증키 설정 메뉴에서 입력하세요.');
+}
+
 function importKrxClosesPrompt() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
@@ -893,20 +1028,35 @@ function updatePrices() {
 // ════════════════════════════════════════════════════════════════════
 //  종목명 조회
 // ════════════════════════════════════════════════════════════════════
-function handleNameLookup(code) {
+function handleNameLookup(code, serviceKey) {
+  var cleanCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+  var key = (serviceKey || _getPublicDataApiKey()).toString().trim();
+  if (key) {
+    var listed = _fetchPublicListedInfoByCode(cleanCode, key);
+    if (listed && listed.name) {
+      return jsonOk({
+        name: listed.name,
+        officialName: listed.name,
+        crno: listed.crno || '',
+        market: listed.market || '',
+        source: 'PUBLIC_LISTED_INFO'
+      });
+    }
+  }
+
   var ss  = getss();
   // ★ [버그수정] 공유 임시 시트 대신 고유 임시 시트 사용 (동시 요청 충돌 방지)
   var tmp = ss.insertSheet('_name_tmp_' + Utilities.getUuid().slice(0, 8));
   try {
     tmp.getRange(1, 1).setFormula(
-      '=IFERROR(GOOGLEFINANCE("KRX:'    + code + '","name"),' +
-      'IFERROR(GOOGLEFINANCE("KOSDAQ:' + code + '","name"),"-"))'
+      '=IFERROR(GOOGLEFINANCE("KRX:'    + cleanCode + '","name"),' +
+      'IFERROR(GOOGLEFINANCE("KOSDAQ:' + cleanCode + '","name"),"-"))'
     );
     SpreadsheetApp.flush();
     Utilities.sleep(1500);
     var val  = tmp.getRange(1, 1).getValue();
     var name = (val && val !== '-' && !String(val).startsWith('#')) ? val.toString().trim() : '';
-    return jsonOk({ name: name, officialName: name });
+    return jsonOk({ name: name, officialName: name, source: 'GOOGLEFINANCE' });
   } catch(err) {
     return jsonError('종목명 조회 실패: ' + err.message);
   } finally {
@@ -1006,6 +1156,160 @@ function handleGetHistory(fromStr, toStr) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+
+//  공공데이터포털 주식배당정보 조회 (무료 API)
+//  - 서비스키는 브라우저가 전달합니다. 공공데이터포털 "Encoding" 인증키 사용 권장.
+//  - 회사명 기준 조회 후 현재 앱의 events 형식으로 정규화합니다.
+// ════════════════════════════════════════════════════════════════════
+function handleDividendPublicFetch(codes, names, serviceKey) {
+  try {
+    var key = (serviceKey || _getPublicDataApiKey()).toString().trim();
+    if (!key) return jsonError('공공데이터포털 API 키가 없습니다.');
+    var results = {};
+    var listedCache = {};
+    var namesArr = Array.isArray(names) ? names : [];
+    codes.forEach(function(rawCode, i) {
+      var code = rawCode.toString().trim();
+      if (!code) return;
+      var companyName = (namesArr[i] || '').toString().trim() || code;
+      if (!listedCache[code]) listedCache[code] = _fetchPublicListedInfoByCode(code, key) || {};
+      var listedInfo = listedCache[code];
+      var lookupName = listedInfo.name || companyName;
+      var rows = _fetchPublicDividendRows(lookupName, key, listedInfo.crno || '');
+      if ((!rows || rows.length === 0) && lookupName !== companyName) {
+        rows = _fetchPublicDividendRows(companyName, key, '');
+      }
+      results[code] = _normalizePublicDividendRows(rows, code, lookupName, listedInfo);
+    });
+    return jsonOk({ dividends: results, source: 'PUBLIC_DATA' });
+  } catch(err) {
+    return jsonError('공공데이터 배당 조회 실패: ' + err.message);
+  }
+}
+
+
+function _publicServiceKeyParam(serviceKey) {
+  var key = (serviceKey || '').toString().trim();
+  if (!key) return '';
+  // data.go.kr에서 제공하는 Encoding 키는 %2B/%2F처럼 이미 인코딩돼 있습니다.
+  // Decoding 키를 붙여넣은 경우에는 URL 쿼리에서 +가 공백으로 해석되지 않도록 인코딩합니다.
+  return /%[0-9A-Fa-f]{2}/.test(key) ? key : encodeURIComponent(key);
+}
+
+function _fetchPublicListedInfoByCode(code, serviceKey) {
+  var normCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+  if (!/^\d{6}$/.test(normCode)) return null;
+  var base = 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo';
+  var url = base
+    + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
+    + '&pageNo=1&numOfRows=10&resultType=json'
+    + '&likeSrtnCd=' + encodeURIComponent(normCode)
+    + '&srtnCd=' + encodeURIComponent(normCode);
+  try {
+    var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+    if (res.getResponseCode() < 200 || res.getResponseCode() >= 300) return null;
+    var json = JSON.parse(res.getContentText() || '{}');
+    var body = json && json.response && json.response.body ? json.response.body : null;
+    var items = body && body.items ? body.items.item : null;
+    if (!items) return null;
+    var list = Array.isArray(items) ? items : [items];
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i] || {};
+      var srtnCd = (row.srtnCd || row.shortCode || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+      if (srtnCd && srtnCd !== normCode) continue;
+      return {
+        code: normCode,
+        name: (row.itmsNm || row.stckIssuCmpyNm || row.corpNm || '').toString().trim(),
+        corpName: (row.corpNm || '').toString().trim(),
+        crno: (row.crno || '').toString().trim(),
+        market: (row.mrktCtg || row.mrktCls || '').toString().trim(),
+        source: 'PUBLIC_LISTED_INFO'
+      };
+    }
+  } catch(e) {
+    Logger.log('KRX상장종목정보 조회 실패(' + normCode + '): ' + e.message);
+  }
+  return null;
+}
+
+function _fetchPublicDividendRows(companyName, serviceKey, crno) {
+  var base = 'https://apis.data.go.kr/1160100/service/GetStocDiviInfoService/getDiviInfo';
+  var url = base
+    + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
+    + '&pageNo=1&numOfRows=100&resultType=json'
+    + (crno ? '&crno=' + encodeURIComponent(crno) : '&stckIssuCmpyNm=' + encodeURIComponent(companyName));
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  var code = res.getResponseCode();
+  var text = res.getContentText() || '';
+  if (code < 200 || code >= 300) throw new Error('PUBLIC_DATA HTTP ' + code);
+  var json;
+  try { json = JSON.parse(text); }
+  catch(e) { throw new Error('PUBLIC_DATA JSON 파싱 실패'); }
+  var body = json && json.response && json.response.body ? json.response.body : null;
+  var items = body && body.items ? body.items.item : null;
+  if (!items) return [];
+  return Array.isArray(items) ? items : [items];
+}
+
+function _normalizePublicDividendRows(rows, code, companyName, listedInfo) {
+  var events = [];
+  (rows || []).forEach(function(row) {
+    if (!row) return;
+    var name = (row.stckIssuCmpyNm || row.isuNm || row.corpNm || '').toString().trim();
+    if (name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) return;
+    var amount = _publicDividendAmount(row);
+    if (!(amount > 0)) return;
+    var baseDate = _publicDividendDate(row.basDt || row.dvdnBasDt || row.recordDate || row.stckBasDt);
+    var payDate = _publicDividendDate(row.cashDvdnPayDt || row.dvdnPayDt || row.payDt || row.pymntDt);
+    var eventDate = baseDate || payDate;
+    if (!eventDate) return;
+    var monthDate = payDate || eventDate;
+    events.push({
+      date: eventDate,
+      payDate: payDate || '',
+      month: parseInt(monthDate.substring(5, 7), 10),
+      amount: amount,
+      source: 'PUBLIC_DATA'
+    });
+  });
+  events.sort(function(a,b){ return (a.date || '').localeCompare(b.date || ''); });
+  var seen = {};
+  events = events.filter(function(ev) {
+    var key = [ev.date, ev.payDate, ev.amount].join('|');
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+  var meta = listedInfo || {};
+  if (!events.length) return { perShare: 0, freq: '-', months: [], count: 0, events: [], source: 'PUBLIC_DATA', listedName: meta.name || companyName || '', crno: meta.crno || '' };
+  var months = events.map(function(ev){ return ev.month; }).filter(function(m){ return m >= 1 && m <= 12; });
+  var uniqM = months.filter(function(v,i,a){ return a.indexOf(v) === i; }).sort(function(a,b){ return a-b; });
+  var count = events.length;
+  var freq = count >= 10 ? '월배당' : count >= 4 ? '분기' : count >= 2 ? '반기' : '연간';
+  var perShare = parseFloat((events.reduce(function(s, ev){ return s + ev.amount; }, 0) / count).toFixed(4));
+  return { perShare: perShare, freq: freq, months: uniqM, count: count, events: events, source: 'PUBLIC_DATA', listedName: meta.name || companyName || '', crno: meta.crno || '' };
+}
+
+function _publicDividendAmount(row) {
+  var candidates = [
+    row.stckGenrDvdnAmt, row.stckGrdnDvdnAmt, row.cashDvdnAmt, row.dvdnAmt,
+    row.dividend, row.perShare, row.amount
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    var n = parseFloat(String(candidates[i] || '').replace(/,/g, ''));
+    if (n > 0) return n;
+  }
+  return 0;
+}
+
+function _publicDividendDate(value) {
+  var s = (value || '').toString().trim();
+  if (!s) return '';
+  var m = s.match(/^(\d{4})[-.]?(\d{2})[-.]?(\d{2})/);
+  if (!m) return '';
+  return m[1] + '-' + m[2] + '-' + m[3];
+}
+
 //  배당 조회
 // ════════════════════════════════════════════════════════════════════
 function handleDividendFetch(codes) {
@@ -1039,7 +1343,7 @@ function handleDividendFetch(codes) {
       var startRow = i * 20 + 1;
       var cellVal  = tmp.getRange(startRow, 1).getValue();
       if (!cellVal || cellVal === 'NO_DATA' || String(cellVal).startsWith('#')) {
-         results[code] = { perShare: 0, freq: '-', months: [], count: 0 }; return;
+         results[code] = { perShare: 0, freq: '-', months: [], count: 0, source: 'GOOGLEFINANCE' }; return;
       }
 // GOOGLEFINANCE dividends: 첫 행은 헤더("Date","Amount"), 데이터는 2번째 행부터
      var divRows  = [];
@@ -1052,15 +1356,20 @@ function handleDividendFetch(codes) {
         if (!dv || !av) break;
         var d = new Date(dv);
         if (isNaN(d.getTime())) break;
-        divRows.push({ month: d.getMonth() + 1, amount: parseFloat(av) || 0 });
+        var divDateStr = Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+        divRows.push({
+          date: divDateStr,
+          month: parseInt(divDateStr.substring(5, 7), 10),
+          amount: parseFloat(av) || 0
+        });
       }
-      if (divRows.length === 0) { results[code] = { perShare: 0, freq: '-', months: [], count: 0 }; return; }
+      if (divRows.length === 0) { results[code] = { perShare: 0, freq: '-', months: [], count: 0, source: 'GOOGLEFINANCE' }; return; }
       var months   = divRows.map(function(r) { return r.month; });
       var uniqM    = months.filter(function(v,i,a){ return a.indexOf(v)===i; }).sort(function(a,b){return a-b;});
       var count    = divRows.length;
       var freq     = count >= 10 ? '월배당' : count >= 4 ? '분기' : count >= 2 ? '반기' : '연간';
       var perShare = parseFloat((divRows.reduce(function(s,r){return s+r.amount;},0)/count).toFixed(4));
-      results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count };
+      results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count, events: divRows, source: 'GOOGLEFINANCE' };
     });
 
     try { tmp.clearContents(); SpreadsheetApp.flush(); } catch(e) { Logger.log('배당 tmp 시트 정리 실패: ' + e.message); }
@@ -3375,7 +3684,12 @@ function handleSaveSettings(dataJson) {
 
 function handleGetSettings() {
   try {
-    return jsonOk({ settings: _readSettingsMap(), gasVersion: '9.21' });
+    var settings = _readSettingsMap();
+    var publicKey = _getPublicDataApiKey();
+    var krxKey = _getKrxAuthKey();
+    if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
+    if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
+    return jsonOk({ settings: settings, gasVersion: '9.29' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -3767,54 +4081,109 @@ function clearPriceAndSnapshotRows() {
 // ════════════════════════════════════════════════════════════════════
 //  메뉴
 // ════════════════════════════════════════════════════════════════════
+function onInstall(e) {
+  onOpen(e);
+}
+
 function onOpen() {
-  // 트리거가 실수로 삭제된 경우 자동 복구(중복 생성 없음)
-  try { _ensureDailyTriggers(true); } catch(e) { Logger.log('트리거 자동복구 실패: ' + e.message); }
-  var manualKeepLabel = _isManualKeepLatestEnabled()
-    ? '🧷 수동가격 최신값만 유지: ON'
-    : '🧷 수동가격 최신값만 유지: OFF';
-  var priceSourceLabel = _priceSourceModeLabel();
-  var ui = SpreadsheetApp.getUi();
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) return;
 
-  // ── 서브메뉴: 초기 설정 ──
-  var menuInit = ui.createMenu('⚙️ 초기 설정')
-    .addItem('시트 초기화 (최초 1회)', 'initSheet')
-    .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger');
+  try {
+    var manualKeepLabel = '🧷 수동가격 최신값만 유지: OFF';
+    try {
+      manualKeepLabel = _isManualKeepLatestEnabled()
+        ? '🧷 수동가격 최신값만 유지: ON'
+        : '🧷 수동가격 최신값만 유지: OFF';
+    } catch(e1) {
+      Logger.log('수동가격 최신값 메뉴 라벨 생성 실패: ' + e1.message);
+    }
 
-  // ── 서브메뉴: 종가 관리 ──
-  var menuPrice = ui.createMenu('📈 종가 관리')
-    .addItem('🔄 오늘 종가 갱신', 'updatePrices')
-    .addItem('🗓️ KRX 기간 불러오기', 'importKrxClosesPrompt')
-    .addSeparator()
-    .addItem(priceSourceLabel, 'togglePriceSourceMode')
-    .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-    .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
-    .addSeparator()
-    .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus');
+    var priceSourceLabel = '⚙️ 가격소스: 현재 설정 확인';
+    try { priceSourceLabel = _priceSourceModeLabel(); }
+    catch(e2) { Logger.log('가격소스 메뉴 라벨 생성 실패: ' + e2.message); }
 
-  // ── 서브메뉴: 소급채우기 ──
-  var menuBackfill = ui.createMenu('📆 소급채우기')
-    .addItem('▶️ 소급채우기 시작', 'backfillRangePrompt')
-    .addItem('⏩ 이어서 실행', 'backfillResume')
-    .addItem('📊 진행상황 확인', 'backfillStatus');
+    // ── 서브메뉴: 초기 설정 ──
+    var menuInit = ui.createMenu('⚙️ 초기 설정')
+      .addItem('시트 초기화 (최초 1회)', 'initSheet')
+      .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
+      .addSeparator()
+      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt');
 
-  // ── 서브메뉴: 유지보수 ──
-  var menuMaint = ui.createMenu('🛠️ 유지보수')
-    .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
-    .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
-    .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
-    .addItem('🗑️ 가격이력·스냅샷 초기화', 'clearPriceAndSnapshotRows');
+    // ── 서브메뉴: 공공데이터 API ──
+    var menuPublicData = ui.createMenu('🌐 공공데이터 API')
+      .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
+      .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
 
-  // ── 메인 메뉴 조합 ──
-  ui.createMenu('📊 포트폴리오')
-    .addSubMenu(menuInit)
-    .addSeparator()
-    .addSubMenu(menuPrice)
-    .addSeparator()
-    .addSubMenu(menuBackfill)
-    .addSeparator()
-    .addSubMenu(menuMaint)
-    .addToUi();
+    // ── 서브메뉴: 종가 관리 ──
+    var menuPrice = ui.createMenu('📈 종가 관리')
+      .addItem('🔄 오늘 종가 갱신', 'updatePrices')
+      .addItem('🗓️ KRX 기간 불러오기', 'importKrxClosesPrompt')
+      .addSeparator()
+      .addItem(priceSourceLabel, 'togglePriceSourceMode')
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
+      .addSeparator()
+      .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus');
+
+    // ── 서브메뉴: 소급채우기 ──
+    var menuBackfill = ui.createMenu('📆 소급채우기')
+      .addItem('▶️ 소급채우기 시작', 'backfillRangePrompt')
+      .addItem('⏩ 이어서 실행', 'backfillResume')
+      .addItem('📊 진행상황 확인', 'backfillStatus');
+
+    // ── 서브메뉴: 유지보수 ──
+    var menuMaint = ui.createMenu('🛠️ 유지보수')
+      .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
+      .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
+      .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
+      .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
+      .addItem('🗑️ 가격이력·스냅샷 초기화', 'clearPriceAndSnapshotRows');
+
+    // ── 메인 메뉴 조합 ──
+    ui.createMenu('📊 포트폴리오')
+      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem('ℹ️ 공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
+      .addSeparator()
+      .addSubMenu(menuInit)
+      .addSeparator()
+      .addSubMenu(menuPublicData)
+      .addSeparator()
+      .addSubMenu(menuPrice)
+      .addSeparator()
+      .addSubMenu(menuBackfill)
+      .addSeparator()
+      .addSubMenu(menuMaint)
+      .addToUi();
+
+    try { PropertiesService.getScriptProperties().deleteProperty('last_menu_build_error'); } catch(e3) {}
+  } catch(err) {
+    try { PropertiesService.getScriptProperties().setProperty('last_menu_build_error', err.message || String(err)); } catch(e4) {}
+    Logger.log('포트폴리오 메뉴 생성 실패: ' + (err.message || err));
+    ui.createMenu('📊 포트폴리오')
+      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
+      .addToUi();
+  }
+
+  // 메뉴 생성 후 트리거 자동 복구를 시도해, 트리거/권한 문제가 메뉴 노출을 막지 않도록 한다.
+  try { _ensureDailyTriggers(true); } catch(e5) { Logger.log('트리거 자동복구 실패: ' + e5.message); }
+}
+
+function showMenuBuildError() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  var msg = '';
+  try { msg = PropertiesService.getScriptProperties().getProperty('last_menu_build_error') || ''; } catch(e2) {}
+  if (!ui) {
+    Logger.log(msg || '최근 메뉴 생성 오류가 없습니다.');
+    return;
+  }
+  ui.alert(msg ? ('최근 메뉴 생성 오류:\n' + msg) : '최근 메뉴 생성 오류가 없습니다.');
 }
 
 // ════════════════════════════════════════════════════════════════════
