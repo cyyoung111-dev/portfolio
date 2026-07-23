@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.27
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.28
+//
+//  v9.28 변경사항 (2026.07.23):
+//   ✅ [개선]   onOpen — 기존에 보이던 초기 설정/종가 관리 메뉴에도 API 키 설정 항목 중복 배치
+//              → 새 서브메뉴가 캐시/권한 문제로 늦게 보일 때도 기존 메뉴 경로에서 접근 가능
+//   ✅ [개선]   KRX AUTH_KEY — 배당 탭/구글시트 연동 탭 모두에서 앱 입력 가능하도록 프론트와 연동
 //
 //  v9.27 변경사항 (2026.07.23):
 //   ✅ [신규]   saveKrxAuthKey POST 액션 추가
@@ -3679,7 +3684,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.27' });
+    return jsonOk({ settings: settings, gasVersion: '9.28' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4089,17 +4094,8 @@ function onOpen() {
     .addItem('시트 초기화 (최초 1회)', 'initSheet')
     .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
     .addSeparator()
-    .addItem('🔑 공공데이터포털 인증키 설정', 'configurePublicDataApiKeyPrompt');
-
-  // ── 서브메뉴: 공공데이터 API ──
-  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
-    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
-    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
-
-  // ── 서브메뉴: 공공데이터 API ──
-  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
-    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
-    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
+    .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+    .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt');
 
   // ── 서브메뉴: 공공데이터 API ──
   var menuPublicData = ui.createMenu('🌐 공공데이터 API')
@@ -4133,6 +4129,7 @@ function onOpen() {
   // ── 메인 메뉴 조합 ──
   ui.createMenu('📊 포트폴리오')
     .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+    .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
     .addItem('ℹ️ 공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
     .addSeparator()
     .addSubMenu(menuInit)

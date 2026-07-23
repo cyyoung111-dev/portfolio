@@ -150,19 +150,13 @@ function renderDivView(area, skipFetch) {
     </div>
   </div>
 
-  <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-      <div>
-        <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 공공데이터포털 배당 API</div>
-        <div style="font-size:.62rem;color:var(--muted);margin-top:2px">무료 API 키가 있으면 KRX상장종목정보로 종목코드를 공식명/법인번호에 매핑한 뒤 주식배당정보를 조회합니다.</div>
-      </div>
-      <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeySaved ? '키 저장됨' : '키 미설정'}</span>
+  <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div>
+      <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 배당 API 상태</div>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">API 키 관리는 구글시트 연동 탭에서 합니다. 배당 조회는 공공데이터 우선, 누락 시 GOOGLEFINANCE fallback입니다.</div>
     </div>
-    <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
-      <input id="divPublicKeyInput" type="password" value="${publicKeySaved.replace(/"/g,'&quot;')}" placeholder="공공데이터포털 Encoding 인증키"
-        style="flex:1;min-width:220px;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.72rem" />
-      <button data-div-action="save-public-key" class="btn-purple-sm">키 저장</button>
-    </div>
+    <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeySaved ? '공공데이터 키 저장됨' : '공공데이터 키 미설정'}</span>
+    <div id="divFetchStatus" style="flex-basis:100%;font-size:.66rem;color:var(--muted);min-height:1.2em"></div>
   </div>
 
   <!-- ── 수량 0 숨김 토글 ── -->

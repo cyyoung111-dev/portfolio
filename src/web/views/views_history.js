@@ -297,6 +297,7 @@ function _renderHistDebugPanel(date) {
 function renderGsheetView(area) {
   const currentUrl = GSHEET_API_URL || '';
   const isLinked = !!currentUrl;
+  const publicDataKey = (typeof getPublicDataApiKey === 'function') ? getPublicDataApiKey() : ((typeof lsGet === 'function') ? String(lsGet('public_data_api_key', '') || '').trim() : '');
   const krxAuthKey = (typeof getKrxAuthKey === 'function') ? getKrxAuthKey() : '';
 
   area.innerHTML = `
@@ -327,6 +328,25 @@ function renderGsheetView(area) {
           <button id="btn-save-gsheet-url" class="btn-purple-sm">저장 · 연결 테스트</button>
         </div>
         <div id="gsheetTestResult" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${(()=>{try{const s=localStorage.getItem('pf_gsheet_test_result');if(s){const p=JSON.parse(s);return `<span style="color:${p.color||'var(--muted)'}">${p.msg||''}</span>`;}}catch(e){}return '';})()}</div>
+      </div>
+
+
+      <!-- 공공데이터포털 API 키 입력 -->
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <div>
+            <div style="font-size:.72rem;font-weight:700;color:var(--text)">🧾 공공데이터포털 API 인증키</div>
+            <div style="font-size:.62rem;color:var(--muted);margin-top:2px">KRX상장종목정보(종목코드)와 주식배당정보 조회에 사용됩니다.</div>
+          </div>
+          <span style="font-size:.62rem;color:${publicDataKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicDataKey ? '키 저장됨' : '키 미설정'}</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
+          <input id="publicDataKeyInput" type="password" value="${publicDataKey.replace(/"/g,'&quot;')}" placeholder="공공데이터포털 Encoding 인증키"
+            style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"
+          />
+          <button id="btn-save-public-data-key" class="btn-purple-sm">키 저장</button>
+        </div>
+        <div id="publicDataKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${publicDataKey ? '공공데이터포털 API 키가 저장되어 있습니다.' : '공공데이터 키가 없으면 GOOGLEFINANCE fallback을 사용합니다.'}</div>
       </div>
 
       <!-- KRX AUTH_KEY 입력 -->

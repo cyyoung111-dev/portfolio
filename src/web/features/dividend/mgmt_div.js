@@ -240,10 +240,10 @@ function getPublicDataApiKey() {
 }
 
 async function savePublicDataApiKeyFromUI() {
-  const input = $el('divPublicKeyInput');
+  const input = $el('publicDataKeyInput') || $el('divPublicKeyInput');
   const key = String(input?.value || '').trim();
   if (typeof lsSave === 'function') lsSave(DIV_PUBLIC_KEY, key);
-  const status = $el('divFetchStatus');
+  const status = $el('publicDataKeyStatus') || $el('divFetchStatus');
   const setStatus = (msg, ok) => {
     if (!status) return;
     status.style.color = ok ? 'var(--green-lt)' : 'var(--amber)';
@@ -262,8 +262,9 @@ async function savePublicDataApiKeyFromUI() {
       setStatus(key ? '공공데이터 우선 조회가 활성화됩니다. 다른 브라우저에서도 설정 복원됩니다.' : '키가 없으면 GOOGLEFINANCE fallback만 사용합니다.', !!key);
       return;
     }
+    const reason = data && data.message ? ` · ${data.message}` : '';
     showToast('공공데이터 API 키는 이 브라우저에 저장됐지만 GAS 저장은 실패했습니다', 'warn', 5000);
-    setStatus('로컬 저장 완료 · GAS 저장 실패로 다른 브라우저 복원은 제한됩니다.', false);
+    setStatus(`로컬 저장 완료 · GAS 저장 실패${reason} · 구글시트 연동 URL/배포 버전을 확인하세요.`, false);
     return;
   }
 
