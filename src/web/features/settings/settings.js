@@ -246,6 +246,9 @@ async function loadSettings(onProgress) {
     if (s.APP_THEME && typeof lsSave === 'function') {
       lsSave('app_theme', s.APP_THEME);
     }
+    if (s.public_data_api_key && typeof lsSave === 'function') {
+      lsSave('public_data_api_key', String(s.public_data_api_key || '').trim());
+    }
     if (typeof applyTheme === 'function' && s.APP_THEME) {
       applyTheme(s.APP_THEME, { skipModeSave: true });
     }

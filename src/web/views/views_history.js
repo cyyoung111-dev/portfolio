@@ -401,6 +401,7 @@ function renderStocksView(area) {
               📂 xlsx/csv 업로드
               <input id="smCsvFileInput" type="file" accept=".xlsx,.csv" style="display:none"/>
             </label>
+            <button id="btn-sm-sync-official" class="btn-ghost-sm">🏛️ KRX 공식명 반영</button>
             <button id="btn-sm-template" class="btn-ghost-sm">⬇️ 양식</button>
           </div>
         </div>
