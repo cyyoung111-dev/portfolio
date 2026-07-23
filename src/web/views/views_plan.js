@@ -6,22 +6,27 @@
 
 // ── 상태
 const PLAN_KEY = 'pf_plan_settings';
+function _planNumber(val, fallback) {
+  const n = Number(val);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 let _planSettings = (function() {
   try {
     const s = lsGet(PLAN_KEY, {});
     return {
-      cash:          s.cash          || 0,         // 현재 보유 현금 (원)
+      cash:          _planNumber(s.cash, 0),         // 현재 보유 현금 (원)
       // ★ [한국 세제 반영] ISA 비과세 유형: general(일반형 200만) | special(서민형/농어민 400만)
       isaExemptType: s.isaExemptType || 'general',
       // ★ [정확한 배당 추적] 세금 계산 귀속연도 (기본값: 올해)
       taxYear:       s.taxYear       || null,
-      simMonthly:    s.simMonthly    || 500000,     // 월 추가 투자금
-      simYears:      s.simYears      || 10,          // 시뮬레이션 기간 (년)
-      simReturn:     s.simReturn     || 7,            // 연 수익률 가정 %
-      retireMonthlyExpense: s.retireMonthlyExpense || 3000000, // 은퇴 후 월 생활비 목표
-      retireYears:          s.retireYears          || 30,      // 은퇴자금 지속 기간(참고)
-      retireReturn:         s.retireReturn         || 4,       // 은퇴 후 연 수익률 가정 %
-      retireWithdrawalRate: s.retireWithdrawalRate || 4,       // 안전 인출률 %
+      simMonthly:    _planNumber(s.simMonthly, 500000),     // 월 추가 투자금
+      simYears:      _planNumber(s.simYears, 10),            // 시뮬레이션 기간 (년)
+      simReturn:     _planNumber(s.simReturn, 7),            // 연 수익률 가정 %
+      retireMonthlyExpense: _planNumber(s.retireMonthlyExpense, 3000000), // 은퇴 후 월 생활비 목표
+      retireYears:          _planNumber(s.retireYears, 30),                // 은퇴자금 지속 기간(참고)
+      retireReturn:         _planNumber(s.retireReturn, 4),                // 목표 도달 연 수익률 가정 %
+      retireWithdrawalRate: _planNumber(s.retireWithdrawalRate, 4),        // 안전 인출률 %
     };
   } catch(e) { return { cash:0, isaExemptType:'general', simMonthly:500000, simYears:10, simReturn:7, retireMonthlyExpense:3000000, retireYears:30, retireReturn:4, retireWithdrawalRate:4 }; }
 })();
@@ -608,10 +613,10 @@ function _buildTaxSection(totalCost) {
 // ④ 은퇴 포트폴리오 점검
 // ════════════════════════════════════
 function _buildRetirementSection(totalEval) {
-  const monthlyExpense = _planSettings.retireMonthlyExpense || 3000000;
-  const retireYears    = _planSettings.retireYears || 30;
-  const retireReturn   = _planSettings.retireReturn || 4;
-  const withdrawalRate = _planSettings.retireWithdrawalRate || 4;
+  const monthlyExpense = _planNumber(_planSettings.retireMonthlyExpense, 3000000);
+  const retireYears    = _planNumber(_planSettings.retireYears, 30);
+  const retireReturn   = _planNumber(_planSettings.retireReturn, 4);
+  const withdrawalRate = _planNumber(_planSettings.retireWithdrawalRate, 4);
   const annualExpense  = monthlyExpense * 12;
   const fireNumber     = withdrawalRate > 0 ? Math.round(annualExpense / (withdrawalRate / 100)) : 0;
   const gap            = Math.max(0, fireNumber - totalEval);
@@ -621,7 +626,7 @@ function _buildRetirementSection(totalEval) {
     : 0;
   const dividendAfterTaxMonthly = Math.round(dividendAnnual * 0.846 / 12);
   const dividendCoveragePct = monthlyExpense > 0 ? Math.min(999, dividendAfterTaxMonthly / monthlyExpense * 100) : 0;
-  const monthlyInvest = _planSettings.simMonthly || 0;
+  const monthlyInvest = _planNumber(_planSettings.simMonthly, 0);
   const yearsToTarget = _calcYearsToRetirementTarget(totalEval, monthlyInvest, gap, retireReturn, fireNumber);
   const status = coveragePct >= 100 ? '은퇴 가능권' : coveragePct >= 70 ? '근접' : coveragePct >= 40 ? '축적 중' : '초기 구축';
   const statusColor = coveragePct >= 100 ? 'var(--green)' : coveragePct >= 70 ? 'var(--amber)' : 'var(--muted)';
@@ -700,9 +705,9 @@ function _calcYearsToRetirementTarget(initAmt, monthly, gap, annualRate, targetA
 // ⑤ 자산 시뮬레이터
 // ════════════════════════════════════
 function _buildSimSection(totalEval) {
-  const monthly = _planSettings.simMonthly || 500000;
-  const years   = _planSettings.simYears   || 10;
-  const rate    = _planSettings.simReturn  || 7;
+  const monthly = _planNumber(_planSettings.simMonthly, 500000);
+  const years   = _planNumber(_planSettings.simYears, 10);
+  const rate    = _planNumber(_planSettings.simReturn, 7);
   const simData = _calcSimData(totalEval, monthly, years, rate);
   const last    = simData[simData.length - 1];
 
@@ -878,10 +883,10 @@ function _bindPlanEvents(area, totalEval, totalCost) {
 
     if (action === 'save-retirement') {
       const rawExpense = ($el('retire-monthly-expense')?.value || '').replace(/[^0-9]/g, '');
-      _planSettings.retireMonthlyExpense = parseInt(rawExpense, 10) || 0;
-      _planSettings.retireWithdrawalRate = parseFloat($el('retire-withdrawal-rate')?.value || '4') || 4;
-      _planSettings.retireYears          = parseInt($el('retire-years')?.value || '30', 10) || 30;
-      _planSettings.retireReturn         = parseFloat($el('retire-return')?.value || '4') || 4;
+      _planSettings.retireMonthlyExpense = _planNumber(parseInt(rawExpense, 10), 0);
+      _planSettings.retireWithdrawalRate = _planNumber(parseFloat($el('retire-withdrawal-rate')?.value || '4'), 4);
+      _planSettings.retireYears          = _planNumber(parseInt($el('retire-years')?.value || '30', 10), 30);
+      _planSettings.retireReturn         = _planNumber(parseFloat($el('retire-return')?.value || '4'), 4);
       _savePlanSettings();
       showToast('은퇴 포트폴리오 기준 저장 완료', 'ok');
       renderView(true);
@@ -890,9 +895,9 @@ function _bindPlanEvents(area, totalEval, totalCost) {
 
     if (action === 'run-sim') {
       const raw     = ($el('sim-monthly')?.value || '').replace(/[^0-9]/g, '');
-      _planSettings.simMonthly = parseInt(raw) || 0;
-      _planSettings.simYears   = parseInt($el('sim-years')?.value || '10') || 10;
-      _planSettings.simReturn  = parseFloat($el('sim-rate')?.value || '7') || 7;
+      _planSettings.simMonthly = _planNumber(parseInt(raw, 10), 0);
+      _planSettings.simYears   = _planNumber(parseInt($el('sim-years')?.value || '10', 10), 10);
+      _planSettings.simReturn  = _planNumber(parseFloat($el('sim-rate')?.value || '7'), 7);
       _savePlanSettings();
       renderView(true);
     }
