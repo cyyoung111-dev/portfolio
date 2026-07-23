@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.23
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.24
+//
+//  v9.24 변경사항 (2026.07.23):
+//   ✅ [개선]   onOpen — 공공데이터 API 전용 서브메뉴 추가
+//              → KRX상장종목정보(종목코드)/주식배당정보 인증키 설정 위치 명확화
+//   ✅ [신규]   showPublicDataApiKeyStatus() — 스프레드시트 메뉴에서 저장 상태 확인
 //
 //  v9.23 변경사항 (2026.07.23):
 //   ✅ [신규]   configurePublicDataApiKeyPrompt() — 스프레드시트 메뉴에서 공공데이터포털 인증키 입력
@@ -688,8 +693,8 @@ function configurePublicDataApiKeyPrompt() {
 
   var current = _getPublicDataApiKey();
   var resp = ui.prompt(
-    '공공데이터포털 인증키 설정',
-    '금융위원회_KRX상장종목정보 / 금융위원회_주식배당정보에 사용할 인증키를 입력하세요.\n' +
+    '공공데이터 API 인증키 설정',
+    '금융위원회_KRX상장종목정보(종목코드) / 금융위원회_주식배당정보에 사용할 인증키를 입력하세요.\n' +
     'Encoding 키 권장, Decoding 키도 자동 보정됩니다.\n' +
     '삭제하려면 "-" 입력' + (current ? '\n\n현재: 저장됨' : '\n\n현재: 미설정'),
     ui.ButtonSet.OK_CANCEL
@@ -710,6 +715,16 @@ function configurePublicDataApiKeyPrompt() {
   }
   props.setProperty('public_data_api_key', input);
   ui.alert('✅ 공공데이터포털 인증키 저장 완료\n배당 조회와 KRX 공식명 조회에서 사용됩니다.');
+}
+
+function showPublicDataApiKeyStatus() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+  var key = _getPublicDataApiKey();
+  ui.alert(key
+    ? '✅ 공공데이터 API 인증키가 저장되어 있습니다.\nKRX상장종목정보(종목코드)와 주식배당정보 조회에 사용됩니다.'
+    : '⚠️ 공공데이터 API 인증키가 없습니다.\n📊 포트폴리오 > 🌐 공공데이터 API > 🔑 인증키 설정 메뉴에서 입력하세요.');
 }
 
 function importKrxClosesPrompt() {
@@ -3611,7 +3626,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     var publicKey = _getPublicDataApiKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
-    return jsonOk({ settings: settings, gasVersion: '9.23' });
+    return jsonOk({ settings: settings, gasVersion: '9.24' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4019,6 +4034,11 @@ function onOpen() {
     .addSeparator()
     .addItem('🔑 공공데이터포털 인증키 설정', 'configurePublicDataApiKeyPrompt');
 
+  // ── 서브메뉴: 공공데이터 API ──
+  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
+    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
+    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
+
   // ── 서브메뉴: 종가 관리 ──
   var menuPrice = ui.createMenu('📈 종가 관리')
     .addItem('🔄 오늘 종가 갱신', 'updatePrices')
@@ -4046,6 +4066,8 @@ function onOpen() {
   // ── 메인 메뉴 조합 ──
   ui.createMenu('📊 포트폴리오')
     .addSubMenu(menuInit)
+    .addSeparator()
+    .addSubMenu(menuPublicData)
     .addSeparator()
     .addSubMenu(menuPrice)
     .addSeparator()
