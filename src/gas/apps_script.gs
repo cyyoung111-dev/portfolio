@@ -4039,6 +4039,11 @@ function onOpen() {
     .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
     .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
 
+  // ── 서브메뉴: 공공데이터 API ──
+  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
+    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
+    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
+
   // ── 서브메뉴: 종가 관리 ──
   var menuPrice = ui.createMenu('📈 종가 관리')
     .addItem('🔄 오늘 종가 갱신', 'updatePrices')
