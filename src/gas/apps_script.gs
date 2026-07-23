@@ -1,5 +1,14 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.21
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.22
+//
+//  v9.22 변경사항 (2026.07.23):
+//   ✅ [신규]   dividendPublic — 공공데이터포털 주식배당정보/KRX상장종목정보 연동
+//              → 종목코드 기준 공식명·법인번호 조회 후 배당 이벤트 정규화
+//   ✅ [신규]   handleNameLookup(serviceKey) — KRX상장종목정보 기반 공식 종목명 조회
+//              → 프론트 종목 추가/기존 종목 공식명 반영 기능에서 사용
+//   ✅ [개선]   _publicServiceKeyParam() — Encoding/Decoding 인증키 모두 안전 처리
+//              → serviceKey 쿼리에서 +, / 문자가 깨질 가능성 완화
+//   ✅ [개선]   batchSaveManualPrices — 현재가 편집 저장을 배치 처리하고 스냅샷 재작성 최소화
 //
 //  v9.21 변경사항 (2026.05.12):
 //   ✅ [버그수정] handleGetTrades() — fund 필드 항상 false 버그
@@ -3554,7 +3563,7 @@ function handleSaveSettings(dataJson) {
 
 function handleGetSettings() {
   try {
-    return jsonOk({ settings: _readSettingsMap(), gasVersion: '9.21' });
+    return jsonOk({ settings: _readSettingsMap(), gasVersion: '9.22' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
