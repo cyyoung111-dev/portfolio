@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.28
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.29
+//
+//  v9.29 변경사항 (2026.07.23):
+//   ✅ [개선]   onOpen — 메뉴 생성 로직을 전체 try/catch로 보호하고 최소 메뉴 fallback 추가
+//              → 보조 라벨/트리거 오류가 나도 API 인증키 메뉴는 반드시 노출
+//   ✅ [신규]   showMenuBuildError() — 스프레드시트에서 최근 메뉴 생성 오류 확인
 //
 //  v9.28 변경사항 (2026.07.23):
 //   ✅ [개선]   onOpen — 기존에 보이던 초기 설정/종가 관리 메뉴에도 API 키 설정 항목 중복 배치
@@ -3684,7 +3689,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.28' });
+    return jsonOk({ settings: settings, gasVersion: '9.29' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4081,67 +4086,104 @@ function onInstall(e) {
 }
 
 function onOpen() {
-  // 트리거가 실수로 삭제된 경우 자동 복구(중복 생성 없음)
-  try { _ensureDailyTriggers(true); } catch(e) { Logger.log('트리거 자동복구 실패: ' + e.message); }
-  var manualKeepLabel = _isManualKeepLatestEnabled()
-    ? '🧷 수동가격 최신값만 유지: ON'
-    : '🧷 수동가격 최신값만 유지: OFF';
-  var priceSourceLabel = _priceSourceModeLabel();
-  var ui = SpreadsheetApp.getUi();
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) return;
 
-  // ── 서브메뉴: 초기 설정 ──
-  var menuInit = ui.createMenu('⚙️ 초기 설정')
-    .addItem('시트 초기화 (최초 1회)', 'initSheet')
-    .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
-    .addSeparator()
-    .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
-    .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt');
+  try {
+    var manualKeepLabel = '🧷 수동가격 최신값만 유지: OFF';
+    try {
+      manualKeepLabel = _isManualKeepLatestEnabled()
+        ? '🧷 수동가격 최신값만 유지: ON'
+        : '🧷 수동가격 최신값만 유지: OFF';
+    } catch(e1) {
+      Logger.log('수동가격 최신값 메뉴 라벨 생성 실패: ' + e1.message);
+    }
 
-  // ── 서브메뉴: 공공데이터 API ──
-  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
-    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
-    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
+    var priceSourceLabel = '⚙️ 가격소스: 현재 설정 확인';
+    try { priceSourceLabel = _priceSourceModeLabel(); }
+    catch(e2) { Logger.log('가격소스 메뉴 라벨 생성 실패: ' + e2.message); }
 
-  // ── 서브메뉴: 종가 관리 ──
-  var menuPrice = ui.createMenu('📈 종가 관리')
-    .addItem('🔄 오늘 종가 갱신', 'updatePrices')
-    .addItem('🗓️ KRX 기간 불러오기', 'importKrxClosesPrompt')
-    .addSeparator()
-    .addItem(priceSourceLabel, 'togglePriceSourceMode')
-    .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-    .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
-    .addSeparator()
-    .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus');
+    // ── 서브메뉴: 초기 설정 ──
+    var menuInit = ui.createMenu('⚙️ 초기 설정')
+      .addItem('시트 초기화 (최초 1회)', 'initSheet')
+      .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
+      .addSeparator()
+      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt');
 
-  // ── 서브메뉴: 소급채우기 ──
-  var menuBackfill = ui.createMenu('📆 소급채우기')
-    .addItem('▶️ 소급채우기 시작', 'backfillRangePrompt')
-    .addItem('⏩ 이어서 실행', 'backfillResume')
-    .addItem('📊 진행상황 확인', 'backfillStatus');
+    // ── 서브메뉴: 공공데이터 API ──
+    var menuPublicData = ui.createMenu('🌐 공공데이터 API')
+      .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
+      .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
 
-  // ── 서브메뉴: 유지보수 ──
-  var menuMaint = ui.createMenu('🛠️ 유지보수')
-    .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
-    .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
-    .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
-    .addItem('🗑️ 가격이력·스냅샷 초기화', 'clearPriceAndSnapshotRows');
+    // ── 서브메뉴: 종가 관리 ──
+    var menuPrice = ui.createMenu('📈 종가 관리')
+      .addItem('🔄 오늘 종가 갱신', 'updatePrices')
+      .addItem('🗓️ KRX 기간 불러오기', 'importKrxClosesPrompt')
+      .addSeparator()
+      .addItem(priceSourceLabel, 'togglePriceSourceMode')
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
+      .addSeparator()
+      .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus');
 
-  // ── 메인 메뉴 조합 ──
-  ui.createMenu('📊 포트폴리오')
-    .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
-    .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-    .addItem('ℹ️ 공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
-    .addSeparator()
-    .addSubMenu(menuInit)
-    .addSeparator()
-    .addSubMenu(menuPublicData)
-    .addSeparator()
-    .addSubMenu(menuPrice)
-    .addSeparator()
-    .addSubMenu(menuBackfill)
-    .addSeparator()
-    .addSubMenu(menuMaint)
-    .addToUi();
+    // ── 서브메뉴: 소급채우기 ──
+    var menuBackfill = ui.createMenu('📆 소급채우기')
+      .addItem('▶️ 소급채우기 시작', 'backfillRangePrompt')
+      .addItem('⏩ 이어서 실행', 'backfillResume')
+      .addItem('📊 진행상황 확인', 'backfillStatus');
+
+    // ── 서브메뉴: 유지보수 ──
+    var menuMaint = ui.createMenu('🛠️ 유지보수')
+      .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
+      .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
+      .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
+      .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
+      .addItem('🗑️ 가격이력·스냅샷 초기화', 'clearPriceAndSnapshotRows');
+
+    // ── 메인 메뉴 조합 ──
+    ui.createMenu('📊 포트폴리오')
+      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem('ℹ️ 공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
+      .addSeparator()
+      .addSubMenu(menuInit)
+      .addSeparator()
+      .addSubMenu(menuPublicData)
+      .addSeparator()
+      .addSubMenu(menuPrice)
+      .addSeparator()
+      .addSubMenu(menuBackfill)
+      .addSeparator()
+      .addSubMenu(menuMaint)
+      .addToUi();
+
+    try { PropertiesService.getScriptProperties().deleteProperty('last_menu_build_error'); } catch(e3) {}
+  } catch(err) {
+    try { PropertiesService.getScriptProperties().setProperty('last_menu_build_error', err.message || String(err)); } catch(e4) {}
+    Logger.log('포트폴리오 메뉴 생성 실패: ' + (err.message || err));
+    ui.createMenu('📊 포트폴리오')
+      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
+      .addToUi();
+  }
+
+  // 메뉴 생성 후 트리거 자동 복구를 시도해, 트리거/권한 문제가 메뉴 노출을 막지 않도록 한다.
+  try { _ensureDailyTriggers(true); } catch(e5) { Logger.log('트리거 자동복구 실패: ' + e5.message); }
+}
+
+function showMenuBuildError() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  var msg = '';
+  try { msg = PropertiesService.getScriptProperties().getProperty('last_menu_build_error') || ''; } catch(e2) {}
+  if (!ui) {
+    Logger.log(msg || '최근 메뉴 생성 오류가 없습니다.');
+    return;
+  }
+  ui.alert(msg ? ('최근 메뉴 생성 오류:\n' + msg) : '최근 메뉴 생성 오류가 없습니다.');
 }
 
 // ════════════════════════════════════════════════════════════════════
