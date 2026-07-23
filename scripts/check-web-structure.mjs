@@ -7,6 +7,10 @@ const webRoot = path.join(repoRoot, 'src/web');
 const indexPath = path.join(webRoot, 'index.html');
 
 const failOnUnreferenced = process.argv.includes('--fail-on-unreferenced');
+const allowedUnreferencedJs = new Set([
+  // Registered from inline bootstrap code, not loaded as a deferred script tag.
+  'src/web/sw.js',
+]);
 
 const fail = (msg) => {
   console.error(`❌ ${msg}`);
@@ -88,7 +92,7 @@ if (duplicateGroups.length > 0) {
 const loadedSet = new Set(normalizedLocalSrcs.map((s) => path.join('src/web', s).replace(/\\/g, '/')));
 const unreferenced = allJs
   .map((f) => path.relative(repoRoot, f).replace(/\\/g, '/'))
-  .filter((rel) => !loadedSet.has(rel));
+  .filter((rel) => !loadedSet.has(rel) && !allowedUnreferencedJs.has(rel));
 
 if (unreferenced.length > 0) {
   warn(`Unreferenced JS files from index.html includes: ${unreferenced.length}`);
