@@ -56,6 +56,7 @@ cp src/gas/apps_script.gs /tmp/apps_script.js && node --check /tmp/apps_script.j
 
 - 공공데이터포털 인증키 1개
 - 배당 탭의 `공공데이터포털 배당 API` 입력칸에 저장
+- 스프레드시트 메뉴 `📊 포트폴리오 > ⚙️ 초기 설정 > 🔑 공공데이터포털 인증키 설정`에서도 저장할 수 있습니다.
 - Encoding 키/Decoding 키 모두 처리되도록 GAS에서 보정하지만, 포털에서 제공하는 Encoding 키 사용을 권장
 
 동작 방식:

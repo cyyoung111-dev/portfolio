@@ -1,5 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.22
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.23
+//
+//  v9.23 변경사항 (2026.07.23):
+//   ✅ [신규]   configurePublicDataApiKeyPrompt() — 스프레드시트 메뉴에서 공공데이터포털 인증키 입력
+//              → KRX상장종목정보/주식배당정보 API 키를 GAS ScriptProperties에 저장
+//   ✅ [개선]   dividendPublic/name — 요청 serviceKey가 없으면 GAS 저장 키를 fallback 사용
+//              → 브라우저별 키 입력 없이도 배당 조회·공식명 조회 가능
 //
 //  v9.22 변경사항 (2026.07.23):
 //   ✅ [신규]   dividendPublic — 공공데이터포털 주식배당정보/KRX상장종목정보 연동
@@ -667,6 +673,45 @@ function configureKrxAuthKeyPrompt() {
   ui.alert('✅ krx_auth_key 저장 완료');
 }
 
+
+function _getPublicDataApiKey() {
+  var props = PropertiesService.getScriptProperties();
+  return (props.getProperty('public_data_api_key') ||
+          props.getProperty('public_listed_api_key') ||
+          props.getProperty('public_dividend_api_key') || '').trim();
+}
+
+function configurePublicDataApiKeyPrompt() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+
+  var current = _getPublicDataApiKey();
+  var resp = ui.prompt(
+    '공공데이터포털 인증키 설정',
+    '금융위원회_KRX상장종목정보 / 금융위원회_주식배당정보에 사용할 인증키를 입력하세요.\n' +
+    'Encoding 키 권장, Decoding 키도 자동 보정됩니다.\n' +
+    '삭제하려면 "-" 입력' + (current ? '\n\n현재: 저장됨' : '\n\n현재: 미설정'),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp.getSelectedButton() !== ui.Button.OK) return;
+  var input = (resp.getResponseText() || '').trim();
+  var props = PropertiesService.getScriptProperties();
+  if (input === '-') {
+    props.deleteProperty('public_data_api_key');
+    props.deleteProperty('public_listed_api_key');
+    props.deleteProperty('public_dividend_api_key');
+    ui.alert('✅ 공공데이터포털 인증키 삭제 완료');
+    return;
+  }
+  if (!input) {
+    ui.alert(current ? '변경 없음' : '⚠️ 공공데이터포털 인증키가 비어 있습니다.');
+    return;
+  }
+  props.setProperty('public_data_api_key', input);
+  ui.alert('✅ 공공데이터포털 인증키 저장 완료\n배당 조회와 KRX 공식명 조회에서 사용됩니다.');
+}
+
 function importKrxClosesPrompt() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
@@ -909,7 +954,7 @@ function updatePrices() {
 // ════════════════════════════════════════════════════════════════════
 function handleNameLookup(code, serviceKey) {
   var cleanCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
-  var key = (serviceKey || '').toString().trim();
+  var key = (serviceKey || _getPublicDataApiKey()).toString().trim();
   if (key) {
     var listed = _fetchPublicListedInfoByCode(cleanCode, key);
     if (listed && listed.name) {
@@ -1042,7 +1087,7 @@ function handleGetHistory(fromStr, toStr) {
 // ════════════════════════════════════════════════════════════════════
 function handleDividendPublicFetch(codes, names, serviceKey) {
   try {
-    var key = (serviceKey || '').toString().trim();
+    var key = (serviceKey || _getPublicDataApiKey()).toString().trim();
     if (!key) return jsonError('공공데이터포털 API 키가 없습니다.');
     var results = {};
     var listedCache = {};
@@ -3563,7 +3608,10 @@ function handleSaveSettings(dataJson) {
 
 function handleGetSettings() {
   try {
-    return jsonOk({ settings: _readSettingsMap(), gasVersion: '9.22' });
+    var settings = _readSettingsMap();
+    var publicKey = _getPublicDataApiKey();
+    if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
+    return jsonOk({ settings: settings, gasVersion: '9.23' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -3967,7 +4015,9 @@ function onOpen() {
   // ── 서브메뉴: 초기 설정 ──
   var menuInit = ui.createMenu('⚙️ 초기 설정')
     .addItem('시트 초기화 (최초 1회)', 'initSheet')
-    .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger');
+    .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
+    .addSeparator()
+    .addItem('🔑 공공데이터포털 인증키 설정', 'configurePublicDataApiKeyPrompt');
 
   // ── 서브메뉴: 종가 관리 ──
   var menuPrice = ui.createMenu('📈 종가 관리')
