@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.29
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.30
+//
+//  v9.30 변경사항 (2026.07.23):
+//   ✅ [개선]   setupTrigger — 설치형 onOpen 메뉴 트리거도 함께 등록
+//              → 단순 onOpen이 스프레드시트에서 실행되지 않는 환경에서도 메뉴 재생성 보조
+//   ✅ [신규]   _ensureOpenMenuTrigger() — 메뉴용 열기 트리거 중복 방지/상태 확인
 //
 //  v9.29 변경사항 (2026.07.23):
 //   ✅ [개선]   onOpen — 메뉴 생성 로직을 전체 try/catch로 보호하고 최소 메뉴 fallback 추가
@@ -2797,13 +2802,30 @@ function setupTrigger() {
     var fn = t.getHandlerFunction();
     if (
       fn === 'saveDailyPriceHistory' || fn === 'cleanDeadCodes' ||
-      fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620'
+      fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
+      fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
   ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
-  Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
-  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  _ensureOpenMenuTrigger(true);
+  try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
+  Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620 + onOpen 메뉴 트리거');
+  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트\n스프레드시트 열기 메뉴 트리거도 함께 등록했습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+}
+
+
+function _ensureOpenMenuTrigger(autoFix) {
+  var hasOpen = false;
+  ScriptApp.getProjectTriggers().forEach(function(t) {
+    if (t.getHandlerFunction && t.getHandlerFunction() === 'onOpen') hasOpen = true;
+  });
+  if (autoFix && !hasOpen) {
+    var ss = getss();
+    ScriptApp.newTrigger('onOpen').forSpreadsheet(ss).onOpen().create();
+    hasOpen = true;
+  }
+  return { hasOpen: hasOpen };
 }
 
 function _ensureDailyTriggers(autoFix) {
@@ -3689,7 +3711,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.29' });
+    return jsonOk({ settings: settings, gasVersion: '9.30' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4172,6 +4194,7 @@ function onOpen() {
 
   // 메뉴 생성 후 트리거 자동 복구를 시도해, 트리거/권한 문제가 메뉴 노출을 막지 않도록 한다.
   try { _ensureDailyTriggers(true); } catch(e5) { Logger.log('트리거 자동복구 실패: ' + e5.message); }
+  try { _ensureOpenMenuTrigger(true); } catch(e6) { Logger.log('메뉴 열기 트리거 자동복구 실패: ' + e6.message); }
 }
 
 function showMenuBuildError() {
