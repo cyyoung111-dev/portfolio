@@ -1,5 +1,16 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.25
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.27
+//
+//  v9.27 변경사항 (2026.07.23):
+//   ✅ [신규]   saveKrxAuthKey POST 액션 추가
+//              → 웹앱 구글시트 연동 탭에서 KRX Open API AUTH_KEY를 GAS에 저장
+//   ✅ [개선]   handleGetSettings — 저장된 krx_auth_key를 프론트 설정 복원에 포함
+//   ✅ [개선]   onInstall(e) — 설치/권한 승인 후 메뉴 재생성 보조
+//
+//  v9.26 변경사항 (2026.07.23):
+//   ✅ [신규]   savePublicDataApiKey POST 액션 추가
+//              → 웹앱 배당 탭에서 저장한 공공데이터 API 키도 GAS ScriptProperties에 저장
+//   ✅ [개선]   공공데이터 키 저장 흐름 — 로컬 전용이 아니라 다른 브라우저에서도 getSettings로 복원 가능
 //
 //  v9.25 변경사항 (2026.07.23):
 //   ✅ [개선]   onOpen — 포트폴리오 최상위 메뉴에 공공데이터 API 인증키/상태 항목 직접 노출
@@ -278,7 +289,8 @@ function doGet(e) {
   if (params.action === 'saveSnapshot' || params.action === 'syncCodes' ||
       params.action === 'syncHoldings' || params.action === 'syncTrades' ||
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
-      params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues') {
+      params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
+      params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -310,6 +322,8 @@ function doPost(e) {
   if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
+  if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
+  if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
   // ★ [최적화] 배치 수동가격 저장 — 건당 개별 요청 → 1회 일괄 처리
   if (params.action === 'batchSaveManualPrices' && params.data) return handleBatchSaveManualPrices(params.date || '', params.data);
   return jsonError('알 수 없는 action: ' + (params.action || '없음'));
@@ -690,6 +704,22 @@ function _getPublicDataApiKey() {
           props.getProperty('public_dividend_api_key') || '').trim();
 }
 
+function handleSaveKrxAuthKey(rawKey) {
+  try {
+    var key = (rawKey || '').toString().trim();
+    var props = PropertiesService.getScriptProperties();
+    if (!key || key === '-') {
+      props.deleteProperty('krx_auth_key');
+      props.deleteProperty('krx_api_key');
+      return jsonOk({ saved: false, cleared: true });
+    }
+    props.setProperty('krx_auth_key', key);
+    return jsonOk({ saved: true, cleared: false });
+  } catch(err) {
+    return jsonError('KRX AUTH_KEY 저장 실패: ' + err.message);
+  }
+}
+
 function configurePublicDataApiKeyPrompt() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
@@ -719,6 +749,23 @@ function configurePublicDataApiKeyPrompt() {
   }
   props.setProperty('public_data_api_key', input);
   ui.alert('✅ 공공데이터포털 인증키 저장 완료\n배당 조회와 KRX 공식명 조회에서 사용됩니다.');
+}
+
+function handleSavePublicDataApiKey(rawKey) {
+  try {
+    var key = (rawKey || '').toString().trim();
+    var props = PropertiesService.getScriptProperties();
+    if (!key || key === '-') {
+      props.deleteProperty('public_data_api_key');
+      props.deleteProperty('public_listed_api_key');
+      props.deleteProperty('public_dividend_api_key');
+      return jsonOk({ saved: false, cleared: true });
+    }
+    props.setProperty('public_data_api_key', key);
+    return jsonOk({ saved: true, cleared: false });
+  } catch(err) {
+    return jsonError('공공데이터 API 키 저장 실패: ' + err.message);
+  }
 }
 
 function showPublicDataApiKeyStatus() {
@@ -3629,8 +3676,10 @@ function handleGetSettings() {
   try {
     var settings = _readSettingsMap();
     var publicKey = _getPublicDataApiKey();
+    var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
-    return jsonOk({ settings: settings, gasVersion: '9.25' });
+    if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
+    return jsonOk({ settings: settings, gasVersion: '9.27' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4022,6 +4071,10 @@ function clearPriceAndSnapshotRows() {
 // ════════════════════════════════════════════════════════════════════
 //  메뉴
 // ════════════════════════════════════════════════════════════════════
+function onInstall(e) {
+  onOpen(e);
+}
+
 function onOpen() {
   // 트리거가 실수로 삭제된 경우 자동 복구(중복 생성 없음)
   try { _ensureDailyTriggers(true); } catch(e) { Logger.log('트리거 자동복구 실패: ' + e.message); }
@@ -4037,6 +4090,11 @@ function onOpen() {
     .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
     .addSeparator()
     .addItem('🔑 공공데이터포털 인증키 설정', 'configurePublicDataApiKeyPrompt');
+
+  // ── 서브메뉴: 공공데이터 API ──
+  var menuPublicData = ui.createMenu('🌐 공공데이터 API')
+    .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
+    .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
 
   // ── 서브메뉴: 공공데이터 API ──
   var menuPublicData = ui.createMenu('🌐 공공데이터 API')

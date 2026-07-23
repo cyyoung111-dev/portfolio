@@ -56,6 +56,7 @@ cp src/gas/apps_script.gs /tmp/apps_script.js && node --check /tmp/apps_script.j
 
 - 공공데이터포털 인증키 1개
 - 배당 탭의 `공공데이터포털 배당 API` 입력칸에 저장
+- 앱에서 저장하면 GAS에도 동기화되어 다른 브라우저에서 설정을 복원할 수 있습니다.
 - 스프레드시트 메뉴 `📊 포트폴리오 > 🔑 공공데이터 API 인증키 설정`에서 바로 저장할 수 있고, `🌐 공공데이터 API` 서브메뉴에서도 확인할 수 있습니다.
 - Encoding 키/Decoding 키 모두 처리되도록 GAS에서 보정하지만, 포털에서 제공하는 Encoding 키 사용을 권장
 
@@ -65,6 +66,12 @@ cp src/gas/apps_script.gs /tmp/apps_script.js && node --check /tmp/apps_script.j
 2. 법인번호 또는 공식 종목명으로 주식배당정보를 조회합니다.
 3. 결과가 없으면 앱에 등록된 종목명으로 한 번 더 조회합니다.
 4. 그래도 누락된 종목은 `GOOGLEFINANCE` 배당 조회로 fallback합니다.
+
+## KRX 가격 API 연동
+
+- KRX Open API AUTH_KEY는 구글시트 연동 탭에서 저장하면 GAS에도 동기화됩니다.
+- 스프레드시트 메뉴 `📊 포트폴리오 > 📈 종가 관리 > 🔑 KRX 인증키 설정`에서도 입력할 수 있습니다.
+- 이 키는 공공데이터포털 키와 별개이며, 가격소스를 KRX 우선으로 사용할 때 종가 조회에 사용됩니다.
 
 ## 종목코드/공식명 관리
 

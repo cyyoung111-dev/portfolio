@@ -249,6 +249,9 @@ async function loadSettings(onProgress) {
     if (s.public_data_api_key && typeof lsSave === 'function') {
       lsSave('public_data_api_key', String(s.public_data_api_key || '').trim());
     }
+    if (s.krx_auth_key && typeof lsSave === 'function') {
+      lsSave('krx_auth_key', String(s.krx_auth_key || '').trim());
+    }
     if (typeof applyTheme === 'function' && s.APP_THEME) {
       applyTheme(s.APP_THEME, { skipModeSave: true });
     }

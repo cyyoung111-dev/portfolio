@@ -40,6 +40,7 @@ function registerGlobalEventDelegation() {
     'btn-history-refresh': () => typeof loadHistoryChart === 'function' && loadHistoryChart(),
     'btn-clear-gsheet-url':() => typeof clearGsheetUrl === 'function' && clearGsheetUrl(),
     'btn-save-gsheet-url': () => typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
+    'btn-save-krx-auth-key': () => typeof saveKrxAuthKeyFromUI === 'function' && saveKrxAuthKeyFromUI(),
 
     // management
     'btn-acct-add':        () => typeof acctMgmtAddNew === 'function' && acctMgmtAddNew(),

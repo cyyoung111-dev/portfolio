@@ -239,16 +239,36 @@ function getPublicDataApiKey() {
   return (typeof lsGet === 'function') ? String(lsGet(DIV_PUBLIC_KEY, '') || '').trim() : '';
 }
 
-function savePublicDataApiKeyFromUI() {
+async function savePublicDataApiKeyFromUI() {
   const input = $el('divPublicKeyInput');
   const key = String(input?.value || '').trim();
   if (typeof lsSave === 'function') lsSave(DIV_PUBLIC_KEY, key);
-  showToast(key ? '공공데이터 API 키 저장 완료' : '공공데이터 API 키를 비웠습니다', key ? 'ok' : 'warn');
   const status = $el('divFetchStatus');
-  if (status) {
-    status.style.color = key ? 'var(--green-lt)' : 'var(--amber)';
-    status.textContent = key ? '공공데이터 우선 조회가 활성화됩니다.' : '키가 없으면 GOOGLEFINANCE fallback만 사용합니다.';
+  const setStatus = (msg, ok) => {
+    if (!status) return;
+    status.style.color = ok ? 'var(--green-lt)' : 'var(--amber)';
+    status.textContent = msg;
+  };
+
+  if (GSHEET_API_URL && typeof requestGsheetFormJson === 'function') {
+    setStatus('공공데이터 API 키를 GAS에 저장 중...', true);
+    const data = await requestGsheetFormJson(
+      'savePublicDataApiKey',
+      { key: key || '-' },
+      { timeoutMs: 10000, retry: 1 }
+    );
+    if (data && data.status === 'ok') {
+      showToast(key ? '공공데이터 API 키 저장 완료 (GAS 동기화)' : '공공데이터 API 키 삭제 완료 (GAS 동기화)', key ? 'ok' : 'warn');
+      setStatus(key ? '공공데이터 우선 조회가 활성화됩니다. 다른 브라우저에서도 설정 복원됩니다.' : '키가 없으면 GOOGLEFINANCE fallback만 사용합니다.', !!key);
+      return;
+    }
+    showToast('공공데이터 API 키는 이 브라우저에 저장됐지만 GAS 저장은 실패했습니다', 'warn', 5000);
+    setStatus('로컬 저장 완료 · GAS 저장 실패로 다른 브라우저 복원은 제한됩니다.', false);
+    return;
   }
+
+  showToast(key ? '공공데이터 API 키 저장 완료 (이 브라우저)' : '공공데이터 API 키를 비웠습니다', key ? 'ok' : 'warn');
+  setStatus(key ? '공공데이터 우선 조회가 활성화됩니다. 구글시트 미연동 상태라 이 브라우저에만 저장됩니다.' : '키가 없으면 GOOGLEFINANCE fallback만 사용합니다.', !!key);
 }
 
 async function _fetchDividendSource(action, codeItems, extraParams) {
