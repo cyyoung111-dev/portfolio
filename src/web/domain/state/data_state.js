@@ -26,7 +26,28 @@ let rawTrades = [];
 let DIVDATA = {};
 
 // ★ [개선] trim 추가 — ' 삼성전자' 같은 공백 입력 실수로 인한 미매칭 버그 방지
-function normName(n){ return (n || '').trim(); }
+// ★ [버그수정] KRX 공식명 반영으로 ETF명이 영문 공식명으로 바뀐 경우 기존 한글 표시명으로 복구
+const ETF_LEGACY_DISPLAY_NAME_ALIASES = {
+  'mirae asset tiger securities etf': 'TIGER 증권',
+  'samsung kodex ai electric power core facilitiesetf': 'KODEX AI전력핵심설비',
+  'samsung kodex ai electric power core facilities etf': 'KODEX AI전력핵심설비',
+  'samsung kodex semicon etf': 'KODEX 반도체',
+  'samsung kodex autos etf': 'KODEX 자동차',
+  'mirae asset tiger cosmetics etf': 'TIGER 화장품',
+  'samsung kodex banks etf': 'KODEX 은행',
+  'mirae asset tiger 200 constructions etf': 'TIGER 200 건설',
+  'mirae asset tiger holdings company etf': 'TIGER 지주회사',
+  'mirae asset tiger korea top 10 etf': 'TIGER TOP10',
+  'samsung kodex defense top 10 etf': 'KODEX 방산TOP10',
+  'mirae asset tiger kosdaq 150 etf': 'TIGER 코스닥150',
+  'timefolio time korea plus dividend active etf': 'TIMEFOLIO Korea플러스배당액티브',
+};
+
+function normName(n){
+  const trimmed = (n || '').trim();
+  const aliasKey = trimmed.replace(/\s+/g, ' ').toLowerCase();
+  return ETF_LEGACY_DISPLAY_NAME_ALIASES[aliasKey] || trimmed;
+}
 
 function saveAcctColors() {
   // ACCT_COLORS: var() 문자열 → hex 변환 후 저장 (Canvas fillStyle 깨짐 방지)

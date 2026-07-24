@@ -651,9 +651,12 @@ function syncLoanFromSchedule() {
       // ★ normName 적용: 구버전 종목명 자동 변환 후 중복 제거
       const seenNames = new Set();
       const seenCodes = new Set();
+      let editablesNameFixed = false;
       savedE.forEach(e => {
-        const normalizedName = normName(e?.name || '');
+        const originalName = (e?.name || '').trim();
+        const normalizedName = normName(originalName);
         if (!normalizedName) return;
+        if (normalizedName !== originalName) editablesNameFixed = true;
         // 같은 이름 중복 제거 (normName 변환으로 동일해진 항목)
         if (seenNames.has(normalizedName)) return;
         seenNames.add(normalizedName);
@@ -671,6 +674,7 @@ function syncLoanFromSchedule() {
         EDITABLE_PRICES.push(next);
       });
       _invalidateEPIndex();
+      if (editablesNameFixed) lsSave(EDITABLES_KEY, EDITABLE_PRICES);
     }
 
     // ② 기초정보의 코드를 STOCK_CODE에 반영 (기초정보 → STOCK_CODE 단방향)
