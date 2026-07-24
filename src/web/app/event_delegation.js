@@ -51,7 +51,6 @@ function registerGlobalEventDelegation() {
     'btn-sm-confirm':      () => typeof smMgmtConfirm === 'function' && smMgmtConfirm(),
     'btn-sm-cancel':       () => typeof smMgmtCancel === 'function' && smMgmtCancel(),
     'btn-sm-template':     () => typeof smCsvDownloadTemplate === 'function' && smCsvDownloadTemplate(),
-    'btn-sm-sync-official':() => typeof smSyncOfficialNames === 'function' && smSyncOfficialNames(),
     'btn-sec-add':         () => typeof secMgmtAddNew === 'function' && secMgmtAddNew(),
     'btn-sec-confirm':     () => typeof secMgmtConfirm === 'function' && secMgmtConfirm(),
     'btn-sec-cancel':      () => typeof secMgmtCancel === 'function' && secMgmtCancel(),
