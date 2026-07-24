@@ -1,5 +1,22 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.31
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.33
+//
+//  v9.33 변경사항 (2026.07.24):
+//   ✅ [성능개선] handleDividendPublicFetch — 종목별 순차 호출(2회×N종목) → UrlFetchApp.fetchAll()
+//              일괄 병렬 요청으로 변경. 종목 30개 이상일 때 전체 소요시간이 100초 이상 걸려
+//              프론트엔드 타임아웃으로 중간에 끊기던 문제 해결 (수 초 수준으로 단축)
+//   ✅ [신규]   _fetchPublicListedInfoBatch() / _fetchPublicDividendRowsBatch() — 병렬 배치 조회 헬퍼
+//
+//  v9.32 변경사항 (2026.07.24):
+//   ✅ [버그수정] _fetchPublicDividendRows() — 공공데이터 배당정보 엔드포인트 주소 오류
+//              원인: GetStocDiviInfoService/getDiviInfo (구버전 경로, 404)
+//              수정: GetStocDiviInfoService_V2/getDiviInfo_V2 (실제 서비스 주소로 교체, 실 응답으로 검증완료)
+//   ✅ [버그수정] _normalizePublicDividendRows() — 배당일자 필드 우선순위 오류
+//              원인: row.basDt(조회 당일 날짜, 매번 오늘 날짜로 찍힘)를 1순위로 사용
+//                   → 모든 배당 이벤트 날짜가 실제 배당기준일 대신 "오늘 날짜"로 잘못 기록됨
+//              수정: row.dvdnBasDt(실제 배당기준일)를 1순위로 사용, basDt는 후보에서 제외
+//   ✅ [신규]   PUBLIC_DIVIDEND_MIN_DATE 설정 — 2026-01-01 이전 배당 이벤트는 결과에서 제외
+//              → 대시보드가 2026년부터 관리 중이므로 오래된 배당 이력은 노이즈로 제외
 //
 //  v9.31 변경사항 (2026.07.23):
 //   ✅ [개선]   onOpen — 이모지/서브메뉴와 무관한 일반 텍스트 빠른 설정 메뉴 추가
@@ -252,6 +269,13 @@ var BACKFILL_CONFIG = {
   toYear:    new Date().getFullYear(), toMonth: new Date().getMonth() + 1,
   overwrite: false,
 };
+
+// ════════════════════════════════════════════════════════════════════
+//  공공데이터 배당정보 설정
+//  ★ v9.32: 대시보드가 2026년부터 관리 중이므로 이 날짜 이전 배당 이벤트는 제외
+//     필요시 이 값만 바꾸면 필터 기준이 바뀝니다.
+// ════════════════════════════════════════════════════════════════════
+var PUBLIC_DIVIDEND_MIN_DATE = '2026-01-01';
 
 // ════════════════════════════════════════════════════════════════════
 //  시트 이름 설정
@@ -1170,31 +1194,160 @@ function handleGetHistory(fromStr, toStr) {
 //  공공데이터포털 주식배당정보 조회 (무료 API)
 //  - 서비스키는 브라우저가 전달합니다. 공공데이터포털 "Encoding" 인증키 사용 권장.
 //  - 회사명 기준 조회 후 현재 앱의 events 형식으로 정규화합니다.
+//  ★ v9.32: 엔드포인트를 GetStocDiviInfoService_V2/getDiviInfo_V2 로 교체 (실 응답으로 검증완료)
+//  ★ v9.33: 종목별 순차 호출(2회×N, 예: 36종목=72회 순차) → UrlFetchApp.fetchAll()로
+//           일괄 병렬 요청으로 변경. 종목이 많을 때(30개 이상) 전체 소요시간이
+//           140초 안팎까지 걸려 프론트엔드 타임아웃(45~150초)으로 중간에 끊기던 문제 해결.
 // ════════════════════════════════════════════════════════════════════
 function handleDividendPublicFetch(codes, names, serviceKey) {
   try {
     var key = (serviceKey || _getPublicDataApiKey()).toString().trim();
     if (!key) return jsonError('공공데이터포털 API 키가 없습니다.');
-    var results = {};
-    var listedCache = {};
     var namesArr = Array.isArray(names) ? names : [];
+    var cleanCodes = [];
+    var companyNameByCode = {};
     codes.forEach(function(rawCode, i) {
-      var code = rawCode.toString().trim();
-      if (!code) return;
-      var companyName = (namesArr[i] || '').toString().trim() || code;
-      if (!listedCache[code]) listedCache[code] = _fetchPublicListedInfoByCode(code, key) || {};
-      var listedInfo = listedCache[code];
-      var lookupName = listedInfo.name || companyName;
-      var rows = _fetchPublicDividendRows(lookupName, key, listedInfo.crno || '');
-      if ((!rows || rows.length === 0) && lookupName !== companyName) {
-        rows = _fetchPublicDividendRows(companyName, key, '');
+      var code = (rawCode || '').toString().trim();
+      if (!code || companyNameByCode[code] !== undefined) return; // 중복 코드 제거
+      cleanCodes.push(code);
+      companyNameByCode[code] = (namesArr[i] || '').toString().trim() || code;
+    });
+    if (cleanCodes.length === 0) return jsonOk({ dividends: {}, source: 'PUBLIC_DATA' });
+
+    // ── 1단계: 상장종목정보 일괄 병렬 조회 (종목코드 → 공식명/법인번호)
+    var listedMap = _fetchPublicListedInfoBatch(cleanCodes, key);
+
+    // ── 2단계: 법인번호(crno) 기준 배당정보 일괄 병렬 조회
+    var divQueries = cleanCodes.map(function(code) {
+      var listed = listedMap[code] || null;
+      var lookupName = (listed && listed.name) || companyNameByCode[code];
+      return { code: code, crno: (listed && listed.crno) || '', name: lookupName };
+    });
+    var divRowsMap = _fetchPublicDividendRowsBatch(divQueries, key);
+
+    // ── 3단계: crno 조회 결과가 0건인 종목만 회사명 기준으로 한 번 더 재시도 (역시 일괄 병렬)
+    var retryQueries = [];
+    cleanCodes.forEach(function(code) {
+      var listed = listedMap[code];
+      var rows = divRowsMap[code] || [];
+      if (rows.length === 0 && listed && listed.crno && listed.name !== companyNameByCode[code]) {
+        retryQueries.push({ code: code, crno: '', name: companyNameByCode[code] });
       }
-      results[code] = _normalizePublicDividendRows(rows, code, lookupName, listedInfo);
+    });
+    if (retryQueries.length > 0) {
+      var retryMap = _fetchPublicDividendRowsBatch(retryQueries, key);
+      retryQueries.forEach(function(q) {
+        if (retryMap[q.code] && retryMap[q.code].length > 0) divRowsMap[q.code] = retryMap[q.code];
+      });
+    }
+
+    var results = {};
+    cleanCodes.forEach(function(code) {
+      var listed = listedMap[code] || {};
+      var lookupName = listed.name || companyNameByCode[code];
+      results[code] = _normalizePublicDividendRows(divRowsMap[code] || [], code, lookupName, listed);
     });
     return jsonOk({ dividends: results, source: 'PUBLIC_DATA' });
   } catch(err) {
     return jsonError('공공데이터 배당 조회 실패: ' + err.message);
   }
+}
+
+// ★ [v9.33 신규] 여러 종목코드의 상장종목정보를 UrlFetchApp.fetchAll()로 한 번에 병렬 조회
+function _fetchPublicListedInfoBatch(codes, serviceKey) {
+  var base = 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo';
+  var out = {};
+  var validCodes = [];
+  var requests = [];
+  codes.forEach(function(code) {
+    var normCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+    if (!/^\d{6}$/.test(normCode)) return;
+    validCodes.push(code);
+    var url = base
+      + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
+      + '&pageNo=1&numOfRows=10&resultType=json'
+      + '&likeSrtnCd=' + encodeURIComponent(normCode)
+      + '&srtnCd=' + encodeURIComponent(normCode);
+    requests.push({ url: url, muteHttpExceptions: true, followRedirects: true });
+  });
+  if (requests.length === 0) return out;
+
+  var responses;
+  try {
+    responses = UrlFetchApp.fetchAll(requests);
+  } catch(e) {
+    Logger.log('⚠️ KRX상장종목정보 일괄 조회 실패: ' + e.message);
+    return out;
+  }
+
+  validCodes.forEach(function(code, i) {
+    var normCode = (code || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+    try {
+      var res = responses[i];
+      if (res.getResponseCode() < 200 || res.getResponseCode() >= 300) return;
+      var json = JSON.parse(res.getContentText() || '{}');
+      var body = json && json.response && json.response.body ? json.response.body : null;
+      var items = body && body.items ? body.items.item : null;
+      if (!items) return;
+      var list = Array.isArray(items) ? items : [items];
+      for (var j = 0; j < list.length; j++) {
+        var row = list[j] || {};
+        var srtnCd = (row.srtnCd || row.shortCode || '').toString().trim().replace(/^A(?=\d{6}$)/, '');
+        if (srtnCd && srtnCd !== normCode) continue;
+        out[code] = {
+          code: normCode,
+          name: (row.itmsNm || row.stckIssuCmpyNm || row.corpNm || '').toString().trim(),
+          corpName: (row.corpNm || '').toString().trim(),
+          crno: (row.crno || '').toString().trim(),
+          market: (row.mrktCtg || row.mrktCls || '').toString().trim(),
+          source: 'PUBLIC_LISTED_INFO'
+        };
+        break;
+      }
+    } catch(e) {
+      Logger.log('KRX상장종목정보 파싱 실패(' + code + '): ' + e.message);
+    }
+  });
+  return out;
+}
+
+// ★ [v9.33 신규] 여러 종목의 배당정보를 UrlFetchApp.fetchAll()로 한 번에 병렬 조회
+//   queries: [{ code, crno, name }, ...] — crno가 있으면 crno 우선, 없으면 회사명으로 조회
+function _fetchPublicDividendRowsBatch(queries, serviceKey) {
+  var base = 'https://apis.data.go.kr/1160100/GetStocDiviInfoService_V2/getDiviInfo_V2';
+  var out = {};
+  if (!queries || queries.length === 0) return out;
+  var requests = queries.map(function(q) {
+    var url = base
+      + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
+      + '&pageNo=1&numOfRows=100&resultType=json'
+      + (q.crno ? '&crno=' + encodeURIComponent(q.crno) : '&stckIssuCmpyNm=' + encodeURIComponent(q.name || ''));
+    return { url: url, muteHttpExceptions: true, followRedirects: true };
+  });
+
+  var responses;
+  try {
+    responses = UrlFetchApp.fetchAll(requests);
+  } catch(e) {
+    Logger.log('⚠️ 주식배당정보 일괄 조회 실패: ' + e.message);
+    return out;
+  }
+
+  queries.forEach(function(q, i) {
+    try {
+      var res = responses[i];
+      var code = res.getResponseCode();
+      if (code < 200 || code >= 300) { out[q.code] = out[q.code] || []; return; }
+      var json = JSON.parse(res.getContentText() || '{}');
+      var body = json && json.response && json.response.body ? json.response.body : null;
+      var items = body && body.items ? body.items.item : null;
+      out[q.code] = !items ? [] : (Array.isArray(items) ? items : [items]);
+    } catch(e) {
+      Logger.log('주식배당정보 파싱 실패(' + q.code + '): ' + e.message);
+      out[q.code] = out[q.code] || [];
+    }
+  });
+  return out;
 }
 
 
@@ -1243,7 +1396,9 @@ function _fetchPublicListedInfoByCode(code, serviceKey) {
 }
 
 function _fetchPublicDividendRows(companyName, serviceKey, crno) {
-  var base = 'https://apis.data.go.kr/1160100/service/GetStocDiviInfoService/getDiviInfo';
+  // ★ [v9.32 버그수정] 구버전 경로(/service/GetStocDiviInfoService/getDiviInfo, 404)를
+  //   실제 서비스 주소(GetStocDiviInfoService_V2/getDiviInfo_V2)로 교체. 실 응답으로 검증완료.
+  var base = 'https://apis.data.go.kr/1160100/GetStocDiviInfoService_V2/getDiviInfo_V2';
   var url = base
     + '?serviceKey=' + _publicServiceKeyParam(serviceKey)
     + '&pageNo=1&numOfRows=100&resultType=json'
@@ -1269,10 +1424,14 @@ function _normalizePublicDividendRows(rows, code, companyName, listedInfo) {
     if (name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) return;
     var amount = _publicDividendAmount(row);
     if (!(amount > 0)) return;
-    var baseDate = _publicDividendDate(row.basDt || row.dvdnBasDt || row.recordDate || row.stckBasDt);
+    // ★ [v9.32 버그수정] row.basDt는 "조회 당일 날짜"라 배당기준일이 아님(매번 오늘 날짜로 찍힘).
+    //   실제 배당기준일 필드인 dvdnBasDt를 1순위로 사용, basDt는 후보에서 제외.
+    var baseDate = _publicDividendDate(row.dvdnBasDt || row.recordDate || row.stckBasDt);
     var payDate = _publicDividendDate(row.cashDvdnPayDt || row.dvdnPayDt || row.payDt || row.pymntDt);
     var eventDate = baseDate || payDate;
     if (!eventDate) return;
+    // ★ [v9.32 신규] 대시보드 관리 시작일(PUBLIC_DIVIDEND_MIN_DATE) 이전 배당 이벤트는 제외
+    if (eventDate < PUBLIC_DIVIDEND_MIN_DATE) return;
     var monthDate = payDate || eventDate;
     events.push({
       date: eventDate,
@@ -1861,7 +2020,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       out.push([dateStr, code, name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, src, savedAt]);
     });
   } catch (e) {
-    Logger.log('\u26a0\ufe0f \uc2a4\ub0c5\uc0f7 \uc7ac\uacc4\uc0b0\uc6a9 \ub370\uc774\ud130 \uc0dd\uc131 \uc2e4\ud328(' + dateStr + '): ' + e.message);
+    Logger.log('\u26a0\ufe0f \uc2a4\ub0c5\uc0f7 \uc7ac\uacc4\uc0f0\uc6a9 \ub370\uc774\ud130 \uc0dd\uc131 \uc2e4\ud328(' + dateStr + '): ' + e.message);
   }
   return _dedupeSnapshotRows(out);
 }
@@ -3716,7 +3875,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.31' });
+    return jsonOk({ settings: settings, gasVersion: '9.33' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
