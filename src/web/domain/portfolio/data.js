@@ -649,32 +649,48 @@ function syncLoanFromSchedule() {
       EDITABLE_PRICES.length = 0;
       _invalidateEPIndex();
       // ★ normName 적용: 구버전 종목명 자동 변환 후 중복 제거
+      // KRX 공식명으로 생성된 중복이 있으면, 사용자가 원래 저장했던 한글명 항목의
+      // 종목코드/섹터/유형을 우선 보존한다.
       const seenNames = new Set();
       const seenCodes = new Set();
-      let editablesNameFixed = false;
-      savedE.forEach(e => {
+      let editablesFixed = false;
+      const editableCandidates = savedE.map((e, order) => {
         const originalName = (e?.name || '').trim();
         const normalizedName = normName(originalName);
-        if (!normalizedName) return;
-        if (normalizedName !== originalName) editablesNameFixed = true;
+        return { e, order, originalName, normalizedName, isOriginalName: normalizedName === originalName };
+      });
+      const preferredByName = new Map();
+      editableCandidates.forEach(candidate => {
+        const current = preferredByName.get(candidate.normalizedName);
+        if (!current || (!current.isOriginalName && candidate.isOriginalName)) {
+          preferredByName.set(candidate.normalizedName, candidate);
+        }
+      });
+      const normalizedEditables = editableCandidates.filter(candidate => preferredByName.get(candidate.normalizedName) === candidate);
+      if (normalizedEditables.length !== editableCandidates.length) editablesFixed = true;
+      normalizedEditables.forEach(({ e, originalName, normalizedName }) => {
+        if (!normalizedName) { editablesFixed = true; return; }
+        if (normalizedName !== originalName) editablesFixed = true;
         // 같은 이름 중복 제거 (normName 변환으로 동일해진 항목)
-        if (seenNames.has(normalizedName)) return;
+        if (seenNames.has(normalizedName)) { editablesFixed = true; return; }
         seenNames.add(normalizedName);
         const normalizedCode = normalizeStockCode(e?.code);
         // 같은 코드 중복 제거 (코드 있는 항목만)
-        if (normalizedCode && seenCodes.has(normalizedCode)) return;
-        if (normalizedCode) seenCodes.add(normalizedCode);
+        const assetType = e?.assetType || e?.type || '주식';
+        const hasExchangeCode = assetType !== '펀드' && assetType !== 'TDF';
+        if (hasExchangeCode && normalizedCode && seenCodes.has(normalizedCode)) { editablesFixed = true; return; }
+        if (hasExchangeCode && normalizedCode) seenCodes.add(normalizedCode);
         const next = {
           ...e,
           name:      normalizedName,
           code:      normalizedCode,
           sector:    e?.sector    || '기타',
-          assetType: e?.assetType || e?.type || '주식',
+          assetType,
         };
         EDITABLE_PRICES.push(next);
       });
       _invalidateEPIndex();
-      if (editablesNameFixed) lsSave(EDITABLES_KEY, EDITABLE_PRICES);
+      if (editablesFixed) lsSave(EDITABLES_KEY, EDITABLE_PRICES);
     }
 
     // ② 기초정보의 코드를 STOCK_CODE에 반영 (기초정보 → STOCK_CODE 단방향)
