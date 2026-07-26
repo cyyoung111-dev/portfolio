@@ -51,7 +51,6 @@ function registerGlobalEventDelegation() {
     'btn-sm-confirm':      () => typeof smMgmtConfirm === 'function' && smMgmtConfirm(),
     'btn-sm-cancel':       () => typeof smMgmtCancel === 'function' && smMgmtCancel(),
     'btn-sm-template':     () => typeof smCsvDownloadTemplate === 'function' && smCsvDownloadTemplate(),
-    'btn-sm-sync-official':() => typeof smSyncOfficialNames === 'function' && smSyncOfficialNames(),
     'btn-sec-add':         () => typeof secMgmtAddNew === 'function' && secMgmtAddNew(),
     'btn-sec-confirm':     () => typeof secMgmtConfirm === 'function' && secMgmtConfirm(),
     'btn-sec-cancel':      () => typeof secMgmtCancel === 'function' && secMgmtCancel(),
@@ -114,10 +113,20 @@ function registerGlobalEventDelegation() {
     const divAction = e.target.closest('[data-div-action]');
     if (divAction) {
       const action = divAction.dataset.divAction;
-      if (action === 'apply' && typeof applyDivChanges === 'function') applyDivChanges();
-      else if (action === 'fetch' && typeof startDivFetch === 'function') startDivFetch();
+      if (action === 'fetch' && typeof startDivFetch === 'function') startDivFetch();
       else if (action === 'save-public-key' && typeof savePublicDataApiKeyFromUI === 'function') savePublicDataApiKeyFromUI();
       else if (action === 'toggle-zero' && typeof _toggleDivHideZero === 'function') _toggleDivHideZero();
+      else if (action === 'manual-open' && typeof openDivManualEditor === 'function') openDivManualEditor(divAction.dataset.divName || '');
+      else if (action === 'manual-close' && typeof closeDivManualEditor === 'function') closeDivManualEditor();
+      else if (action === 'manual-save' && typeof saveDivManualEditor === 'function') saveDivManualEditor();
+      else if (action === 'manual-event-add' && typeof addDivManualEventRow === 'function') addDivManualEventRow();
+      else if (action === 'manual-event-remove' && typeof removeDivManualEventRow === 'function') removeDivManualEventRow(divAction);
+      return;
+    }
+
+    const divFreq = e.target.closest('[data-div-freq]');
+    if (divFreq) {
+      if (typeof _dvPickFreq === 'function') _dvPickFreq(divFreq.dataset.divFreqKey || '', divFreq.dataset.divFreq || '-');
       return;
     }
 
