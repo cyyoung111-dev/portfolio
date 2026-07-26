@@ -339,11 +339,38 @@ function parseUploadFile(file, callback) {
   }
 }
 
+function _smIsCustomCodeType(assetType) {
+  return assetType === '펀드' || assetType === 'TDF';
+}
+
+function _smFindDuplicateCode(code, exceptItem) {
+  const normalized = normalizeStockCode(code);
+  if (!normalized) return null;
+  return EDITABLE_PRICES.find(item => item !== exceptItem
+    && !_smIsCustomCodeType(item.assetType || item.type || '주식')
+    && normalizeStockCode(item.code) === normalized) || null;
+}
+
+async function _smValidateListedCode(code, assetType, currency) {
+  if (!code || _smIsCustomCodeType(assetType) || (currency && currency !== 'KRW')) return { ok: true };
+  if (typeof lookupOfficialStockByCode !== 'function') {
+    return { ok: false, message: 'KRX 종목코드 확인 기능을 사용할 수 없습니다' };
+  }
+  if (typeof getPublicDataApiKey !== 'function' || !getPublicDataApiKey()) {
+    return { ok: false, message: '배당 탭에서 공공데이터포털 Encoding 인증키를 먼저 저장해주세요' };
+  }
+  const info = await lookupOfficialStockByCode(code);
+  if (!info) {
+    return { ok: false, message: `종목코드 ${code}를 KRX 상장종목정보에서 확인할 수 없습니다` };
+  }
+  return { ok: true, info };
+}
+
 function smCsvImport(input) {
   const file = input.files[0];
   if (!file) return;
   input.value = '';
-  parseUploadFile(file, (headers, rows) => {
+  parseUploadFile(file, async (headers, rows) => {
     const col = {
       name:   headers.findIndex(h => h === '종목명'),
       code:   headers.findIndex(h => h === '종목코드'),
@@ -355,19 +382,23 @@ function smCsvImport(input) {
     const VALID_TYPES = ['주식','ETF','펀드','TDF'];
     let added = 0, skipped = 0, updated = 0;
 
-    rows.forEach(cols => {
+    for (const cols of rows) {
       const name   = col.name   >= 0 ? cols[col.name]   || '' : '';
       const codeRaw = col.code   >= 0 ? cols[col.code]   || '' : '';
       const code   = normalizeStockCode(codeRaw);
       const type   = col.type   >= 0 ? cols[col.type]   || '주식' : '주식';
       const sector = col.sector >= 0 ? cols[col.sector] || '기타' : '기타';
-      if (!name) { skipped++; return; }
+      if (!name) { skipped++; continue; }
       const assetType = VALID_TYPES.includes(type) ? type : '주식';
       // ★ 주식·ETF는 종목코드 필수, 코드 입력 시 영문+숫자 혼합 포함 6자리 강제
-      if (code && code.length !== 6) { skipped++; return; }
-      if (!code && (assetType === '주식' || assetType === 'ETF')) { skipped++; return; }
-      const isFund    = ['펀드','TDF'].includes(assetType);
+      if (!_smIsCustomCodeType(assetType) && code && code.length !== 6) { skipped++; continue; }
+      if (!code && (assetType === '주식' || assetType === 'ETF')) { skipped++; continue; }
+      const isFund = _smIsCustomCodeType(assetType);
       const existing  = EDITABLE_PRICES.findIndex(ep => ep.name === name);
+      const duplicate = !isFund ? _smFindDuplicateCode(code, existing >= 0 ? EDITABLE_PRICES[existing] : null) : null;
+      if (duplicate) { skipped++; continue; }
+      const validation = await _smValidateListedCode(code, assetType, 'KRW');
+      if (!validation.ok) { skipped++; continue; }
       if (existing >= 0) {
         if (code)   EDITABLE_PRICES[existing].code      = code;
         if (type)   EDITABLE_PRICES[existing].assetType = assetType;
@@ -382,7 +413,7 @@ function smCsvImport(input) {
         added++;
       }
       if (code && name) STOCK_CODE[name] = normalizeStockCode(code);
-    });
+    }
 
     saveHoldings();
     buildStockMgmt();
@@ -463,15 +494,18 @@ async function smMgmtConfirm() {
     if (nameInput && name) nameInput.value = name;
   }
   if(!name) { showMgmtMsg('smMgmtMsg','⚠️ 종목명을 입력해주세요',true); return; }
-  if(code && code.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
+  if(!_smIsCustomCodeType(assetType) && code && code.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
   if(!code && (assetType === '주식' || assetType === 'ETF')) {
     showMgmtMsg('smMgmtMsg', `⚠️ ${assetType}은 종목코드(6자리)를 반드시 입력해주세요`, true); return;
   }
   if(EDITABLE_PRICES.some(i => i.name === name)) { showMgmtMsg('smMgmtMsg',`❌ "${name}"은(는) 이미 등록된 종목명입니다`,true); return; }
-  if(code && EDITABLE_PRICES.some(i => i.code && i.code === code)) {
-    const dup = EDITABLE_PRICES.find(i => i.code === code);
+  const dup = !_smIsCustomCodeType(assetType) ? _smFindDuplicateCode(code, null) : null;
+  if(dup) {
     showMgmtMsg('smMgmtMsg',`❌ 종목코드 ${code}는 "${dup.name}"에서 이미 사용 중입니다`,true); return;
   }
+  showMgmtMsg('smMgmtMsg','⏳ 종목코드 확인 중...',false);
+  const validation = await _smValidateListedCode(code, assetType, currency);
+  if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   const isFund = (assetType === '펀드' || assetType === 'TDF');
   // ★ [환율 연동] currency 필드 포함 저장 (KRW면 생략)
   EDITABLE_PRICES.push({
@@ -533,62 +567,9 @@ function _smRenameStockItem(item, newName) {
   return true;
 }
 
-async function smSyncOfficialNames() {
-  if (typeof lookupOfficialStockByCode !== 'function') {
-    showMgmtMsg('smMgmtMsg', '⚠️ KRX 상장종목정보 조회 기능을 사용할 수 없습니다', true);
-    return;
-  }
-  if (typeof getPublicDataApiKey !== 'function' || !getPublicDataApiKey()) {
-    showMgmtMsg('smMgmtMsg', '⚠️ 배당탭에서 공공데이터포털 Encoding 인증키를 먼저 저장해주세요', true);
-    return;
-  }
-  const targets = EDITABLE_PRICES
-    .filter(item => normalizeStockCode(item.code) && (item.assetType || item.type || '주식') !== '펀드')
-    .map(item => ({ item, code: normalizeStockCode(item.code), oldName: item.name }));
-  if (!targets.length) {
-    showMgmtMsg('smMgmtMsg', 'ℹ️ 공식명을 확인할 종목코드가 없습니다', false);
-    return;
-  }
-  if (!confirm(`기존 등록 종목 ${targets.length}개의 종목코드를 KRX상장종목정보로 확인하고, 공식 종목명이 다르면 거래/보유/배당 데이터까지 함께 이름을 바꿀까요?`)) return;
-
-  showMgmtMsg('smMgmtMsg', `⏳ KRX상장종목정보 확인 중... (0/${targets.length})`, false);
-  let updated = 0, skipped = 0, failed = 0;
-  const samples = [];
-  for (let i = 0; i < targets.length; i++) {
-    const { item, code, oldName } = targets[i];
-    try {
-      const info = await lookupOfficialStockByCode(code);
-      const officialName = String(info?.officialName || info?.name || '').trim();
-      if (!officialName) { failed++; continue; }
-      if (officialName !== item.name) {
-        if (_smRenameStockItem(item, officialName)) {
-          updated++;
-          if (samples.length < 3) samples.push(`${oldName}→${officialName}`);
-        } else skipped++;
-      } else skipped++;
-      item.listedName = officialName;
-      if (info?.crno) item.crno = info.crno;
-      if (info?.market) item.market = info.market;
-    } catch(e) { failed++; }
-    if ((i + 1) % 5 === 0 || i === targets.length - 1) {
-      showMgmtMsg('smMgmtMsg', `⏳ KRX상장종목정보 확인 중... (${i + 1}/${targets.length})`, false);
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-  }
-  if (updated > 0) {
-    syncHoldingsFromTrades();
-    saveHoldings();
-    queueMgmtGsheetSync();
-    refreshAll();
-    _mgmtRefresh();
-    buildStockMgmt();
-  }
-  const detail = samples.length ? ` · ${samples.join(', ')}${updated > samples.length ? ' 외' : ''}` : '';
-  showMgmtMsg('smMgmtMsg', `✅ KRX 공식명 반영 완료: 변경 ${updated}개 · 유지 ${skipped}개 · 실패 ${failed}개${detail}`, failed > 0 && updated === 0);
-}
 
 // 즉시 저장 (DOM 재생성 없이 데이터만 갱신)
-function smSave(idx) {
+async function smSave(idx) {
   const item = EDITABLE_PRICES[idx];
   if(!item) return;
   const newName = (document.querySelector(`.sm-name-inp[data-idx="${idx}"]`)?.value || '').trim();
@@ -597,14 +578,20 @@ function smSave(idx) {
   const newSec  = document.querySelector(`.sm-sec-sel[data-idx="${idx}"]`)?.value || '기타';
   if(!newName) return;
   // ★ 종목코드 입력 시 6자리 강제 (숫자만 또는 영문+숫자 혼합 허용: 005930, F00001, 0046Y0)
-  if(newCode && newCode.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
+  if(!_smIsCustomCodeType(newType) && newCode && newCode.length !== 6) { showMgmtMsg('smMgmtMsg','⚠️ 종목코드는 6자리로 입력해주세요 (예: 005930, F00001)', true); return; }
   // ★ 주식·ETF는 종목코드 필수
   if(!newCode && (newType === '주식' || newType === 'ETF')) {
     showMgmtMsg('smMgmtMsg', `⚠️ ${newType}은 종목코드(6자리)를 반드시 입력해주세요`, true); return;
   }
-  if(newCode && newCode !== item.code && EDITABLE_PRICES.some((i, i2) => i2 !== idx && i.code && i.code === newCode)) {
-    const dup = EDITABLE_PRICES.find((i, i2) => i2 !== idx && i.code === newCode);
+  const dup = !_smIsCustomCodeType(newType) ? _smFindDuplicateCode(newCode, item) : null;
+  if(dup) {
     showMgmtMsg('smMgmtMsg',`❌ 종목코드 ${newCode}는 "${dup.name}"에서 이미 사용 중입니다`,true); return;
+  }
+  const newCurrency = (document.querySelector(`.sm-cur-sel[data-idx="${idx}"]`)?.value || 'KRW').toUpperCase();
+  if(newCode !== normalizeStockCode(item.code) || newType !== (item.assetType || item.type || '주식')) {
+    showMgmtMsg('smMgmtMsg','⏳ 종목코드 확인 중...',false);
+    const validation = await _smValidateListedCode(newCode, newType, newCurrency);
+    if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   }
   if(newName !== item.name) {
     if (!_smRenameStockItem(item, newName)) return;
@@ -637,7 +624,6 @@ function smSave(idx) {
   item.assetType = newType;
   item.sector    = newSec;
   // ★ [환율 연동] 통화 저장
-  const newCurrency = (document.querySelector(`.sm-cur-sel[data-idx="${idx}"]`)?.value || 'KRW').toUpperCase();
   item.currency = newCurrency;
   if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
@@ -666,4 +652,3 @@ function smSave(idx) {
   _mgmtRefresh();
   // ★ buildStockMgmt()는 호출하지 않음 — 상태 리셋 후 mousedown 핸들러에서 호출
 }
-

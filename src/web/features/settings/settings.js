@@ -25,7 +25,7 @@ let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 
 // debounce 타이머
 let _saveSettingsTimer = null;
-let _saveDividendTimer = null;
+let _dividendSaveQueue = Promise.resolve();
 let _saveRealEstateTimer = null;
 
 const TAB_SYNC_STATUS_KEY = 'tab_sync_status';
@@ -47,28 +47,29 @@ function _normalizeCodeForSync(raw) {
     : String(raw || '').trim().toUpperCase().replace(/^A(?=\d{6}$)/, '');
 }
 
-function saveDividendSettings(immediate) {
+function saveDividendSettings(_immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
-  clearTimeout(_saveDividendTimer);
-  const delay = immediate ? 0 : 2500;
-  return new Promise(resolve => {
-    _saveDividendTimer = setTimeout(async () => {
-      try {
-        const data = await requestGsheetFormJson(
-          'saveDividendSettings',
-          { data: JSON.stringify(DIVDATA) },
-          { timeoutMs: 15000, retry: 1 }
-        );
-        if (!data) throw new Error('네트워크 오류');
-        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        resolve(true);
-      } catch(e) {
-        // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
-        console.warn('saveDividendSettings 실패:', e);
-        resolve(false);
-      }
-    }, delay);
-  });
+  // 호출 시점의 데이터를 캡처하고 저장을 직렬화합니다. 기존 debounce는 앞선 타이머를
+  // 취소하면서 그 Promise를 영원히 pending 상태로 남길 수 있었습니다.
+  const payload = JSON.stringify(DIVDATA);
+  const run = async () => {
+    try {
+      const data = await requestGsheetFormJson(
+        'saveDividendSettings',
+        { data: payload },
+        { timeoutMs: 15000, retry: 1 }
+      );
+      if (!data) throw new Error('네트워크 오류');
+      if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+      return true;
+    } catch(e) {
+      // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
+      console.warn('saveDividendSettings 실패:', e);
+      return false;
+    }
+  };
+  _dividendSaveQueue = _dividendSaveQueue.then(run, run);
+  return _dividendSaveQueue;
 }
 
 function saveRealEstateSettings(immediate) {
@@ -161,7 +162,6 @@ async function loadDividendSettings() {
     const data = await requestGsheetActionJson('getDividendSettings', {}, { timeoutMs: 10000, retry: 1 });
     if (!data || data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') return false;
     _applyDivData(data.divData);
-    lsSave(DIVDATA_KEY, DIVDATA);
     return true;
   } catch(e) {
     return false;
