@@ -119,6 +119,8 @@ function registerGlobalEventDelegation() {
       else if (action === 'manual-open' && typeof openDivManualEditor === 'function') openDivManualEditor(divAction.dataset.divName || '');
       else if (action === 'manual-close' && typeof closeDivManualEditor === 'function') closeDivManualEditor();
       else if (action === 'manual-save' && typeof saveDivManualEditor === 'function') saveDivManualEditor();
+      else if (action === 'manual-event-add' && typeof addDivManualEventRow === 'function') addDivManualEventRow();
+      else if (action === 'manual-event-remove' && typeof removeDivManualEventRow === 'function') removeDivManualEventRow(divAction);
       return;
     }
 

@@ -85,21 +85,32 @@ function buildDivMgmt() {
     if (!DIVDATA[divKey]) DIVDATA[divKey] = { perShare: 0, freq: '-', months: [], note: '' };
   });
 
-  let h = '';
-  names.forEach(name => {
+  const renderItems = (items, label, color) => {
+    if (!items.length) return '';
+    let section = `<div style="font-size:.66rem;font-weight:800;color:${color};padding:8px 2px 5px;border-bottom:1px solid var(--border)">${label} <span style="color:var(--muted);font-weight:500">${items.length}종목</span></div>`;
+    items.forEach(name => {
     const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
     const d = DIVDATA[divKey];
-    const ep = typeof getEP === 'function' ? getEP(name) : null;
-    const isEtf = (ep?.assetType || ep?.type) === 'ETF';
     const source = d.source === 'MANUAL' ? '수동 입력' : (d.note || '배당 정보 없음');
-    h += `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(255,255,255,.06);padding:10px 2px">
+    const eventCount = Array.isArray(d.events) ? d.events.length : 0;
+    section += `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(255,255,255,.06);padding:10px 2px">
       <div style="min-width:0">
-        <div style="font-size:.72rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escapeHtml(name)} ${isEtf ? '<span style="color:var(--cyan);font-size:.60rem">ETF</span>' : ''}</div>
-        <div class="lbl-60-muted-mt">${d.perShare > 0 ? `주당 ${Number(d.perShare).toLocaleString()}원 · ${_escapeHtml(d.freq || '-')} · ${Array.isArray(d.months) && d.months.length ? d.months.join(', ') + '월' : '지급월 미설정'}` : _escapeHtml(source)}</div>
+        <div style="font-size:.72rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escapeHtml(name)}</div>
+        <div class="lbl-60-muted-mt">${eventCount ? `배당 ${eventCount}건 · ${_escapeHtml(source)}` : d.perShare > 0 ? `주당 ${Number(d.perShare).toLocaleString()}원 · ${_escapeHtml(d.freq || '-')}` : _escapeHtml(source)}</div>
       </div>
       <button type="button" data-div-action="manual-open" data-div-name="${_escapeHtml(name)}" class="btn-amber-sm" style="flex-shrink:0">✏️ 입력</button>
     </div>`;
+    });
+    return section;
+  };
+
+  const etfNames = names.filter(name => {
+    const ep = typeof getEP === 'function' ? getEP(name) : null;
+    return (ep?.assetType || ep?.type) === 'ETF';
   });
+  const stockNames = names.filter(name => !etfNames.includes(name));
+  const h = renderItems(stockNames, '📈 일반 종목', 'var(--text)')
+    + renderItems(etfNames, '🧺 ETF', 'var(--cyan)');
 
   container.innerHTML = h || '<div style="color:var(--muted);font-size:.75rem;padding:20px;text-align:center">보유 종목이 없어요</div>';
 
@@ -119,8 +130,32 @@ function openDivManualEditor(name) {
   $el('dv_months_manual').value = Array.isArray(d.months) ? d.months.join(',') : '';
   const group = $el('dv_freq_grp_manual');
   group.innerHTML = FREQ_OPTIONS.map(f => `<button type="button" data-div-freq-key="manual" data-div-freq="${_escapeHtml(f)}" class="${_fBtnClass(freq === f)}">${_escapeHtml(f)}</button>`).join('');
+  const events = Array.isArray(d.events) ? d.events : [];
+  $el('divManualEvents').innerHTML = '';
+  if (events.length) events.forEach(event => addDivManualEventRow(event));
+  else addDivManualEventRow();
   modal.style.display = 'flex';
   setTimeout(() => $el('dv_amt_manual')?.focus(), 30);
+}
+
+function addDivManualEventRow(event) {
+  const container = $el('divManualEvents');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'div-manual-event-row';
+  row.style.cssText = `display:grid;grid-template-columns:${window.innerWidth <= 480 ? '1fr 1fr' : '1fr 1fr 90px 30px'};gap:5px;align-items:end;margin-bottom:6px`;
+  row.innerHTML = `
+    <label class="lbl-60-muted-mt">배당 기준일<input type="date" data-div-event="date" value="${_escapeHtml(String(event?.date || '').slice(0, 10))}" class="input-full-73" style="margin-top:3px"/></label>
+    <label class="lbl-60-muted-mt">지급일<input type="date" data-div-event="payDate" value="${_escapeHtml(String(event?.payDate || '').slice(0, 10))}" class="input-full-73" style="margin-top:3px"/></label>
+    <label class="lbl-60-muted-mt">주당 금액<input type="number" min="0" step="any" data-div-event="amount" value="${Number(event?.amount || 0) || ''}" placeholder="원" class="input-full-73" style="margin-top:3px"/></label>
+    <button type="button" data-div-action="manual-event-remove" class="btn-cancel-sm" title="배당 건 삭제">−</button>`;
+  container.appendChild(row);
+}
+
+function removeDivManualEventRow(button) {
+  const row = button?.closest?.('.div-manual-event-row');
+  if (row) row.remove();
+  if (!$el('divManualEvents')?.children.length) addDivManualEventRow();
 }
 
 function closeDivManualEditor() {
@@ -136,13 +171,26 @@ function saveDivManualEditor() {
   const freq = $el('dv_freq_manual')?.value || '-';
   const months = String($el('dv_months_manual')?.value || '').split(',')
     .map(m => Number(m.trim())).filter(m => Number.isInteger(m) && m >= 1 && m <= 12);
-  if (perShare <= 0) { showToast('주당 배당금을 0보다 크게 입력해주세요', 'error'); return; }
-  if (freq === '-' || months.length === 0) { showToast('지급 주기와 지급 월을 입력해주세요', 'error'); return; }
+  const events = [...document.querySelectorAll('#divManualEvents .div-manual-event-row')].map(row => ({
+    date: row.querySelector('[data-div-event="date"]')?.value || '',
+    payDate: row.querySelector('[data-div-event="payDate"]')?.value || '',
+    amount: Number(row.querySelector('[data-div-event="amount"]')?.value || 0),
+    source: 'MANUAL',
+  })).filter(event => event.date || event.payDate || event.amount).sort((a, b) => a.date.localeCompare(b.date));
+  if (events.some(event => !/^\d{4}-\d{2}-\d{2}$/.test(event.date) || event.amount <= 0)) {
+    showToast('각 배당 건의 기준일과 주당 금액을 확인해주세요', 'error'); return;
+  }
+  if (!events.length && perShare <= 0) { showToast('배당 건 또는 예상 주당 배당금을 입력해주세요', 'error'); return; }
+  if (!events.length && (freq === '-' || months.length === 0)) { showToast('예상 배당의 지급 주기와 지급 월을 입력해주세요', 'error'); return; }
+  const eventMonths = events.map(event => Number((event.payDate || event.date).slice(5, 7))).filter(Boolean);
+  const savedMonths = [...new Set([...months, ...eventMonths])].sort((a, b) => a - b);
+  const latestEventAmount = events.length ? events[events.length - 1].amount : perShare;
   const divKey = (typeof getDivKey === 'function') ? getDivKey(_divManualName) : _divManualName;
   DIVDATA[divKey] = {
     ...(DIVDATA[divKey] || DIVDATA[_divManualName] || {}),
-    perShare, freq, months: [...new Set(months)].sort((a, b) => a - b),
-    events: [], source: 'MANUAL', note: '수동 입력', updatedAt: new Date().toISOString(),
+    perShare: perShare > 0 ? perShare : latestEventAmount,
+    freq, months: savedMonths, events,
+    source: 'MANUAL', note: `수동 입력${events.length ? ` · 배당 ${events.length}건` : ''}`, updatedAt: new Date().toISOString(),
   };
   saveHoldings();
   persistDividendSettings(true);

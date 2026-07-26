@@ -374,12 +374,21 @@ function renderDivView(area, skipFetch) {
       </div>
       <label class="lbl-62-muted-3" for="dv_amt_manual">주당 배당금 (원)</label>
       <input type="number" min="0" step="any" id="dv_amt_manual" placeholder="예: 350" class="input-full-73" style="margin:5px 0 12px"/>
+      <div style="font-size:.61rem;color:var(--muted);margin:-7px 0 12px">향후 예상 계산용 기본 금액입니다. 실제 지급액은 아래 배당 건별 금액을 우선 적용합니다.</div>
       <div class="lbl-62-muted-3">지급 주기</div>
       <input type="hidden" id="dv_freq_manual" value="-"/>
       <div id="dv_freq_grp_manual" style="display:flex;flex-wrap:wrap;gap:4px;margin:5px 0 12px"></div>
       <label class="lbl-62-muted-3" for="dv_months_manual">지급 월</label>
       <input type="text" id="dv_months_manual" placeholder="예: 1,4,7,10" class="input-full-73" style="margin:5px 0 4px"/>
       <div style="font-size:.61rem;color:var(--muted);margin-bottom:14px">여러 달은 쉼표로 구분하며 1~12월만 입력할 수 있습니다.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 7px">
+        <div>
+          <div class="lbl-62-muted-3">배당 건별 입력</div>
+          <div style="font-size:.60rem;color:var(--muted);margin-top:2px">금액이 매번 다르면 기준일·지급일·주당 금액을 각각 입력하세요.</div>
+        </div>
+        <button type="button" data-div-action="manual-event-add" class="btn-purple-sm">＋ 배당 건</button>
+      </div>
+      <div id="divManualEvents" style="max-height:220px;overflow-y:auto;padding-right:2px"></div>
       <div style="display:flex;justify-content:flex-end;gap:7px">
         <button type="button" data-div-action="manual-close" class="btn-cancel-sm">취소</button>
         <button type="button" data-div-action="manual-save" class="btn-amber-sm">💾 저장</button>
