@@ -211,7 +211,7 @@ function renderDivView(area, skipFetch) {
         <div style="font-size:.65rem;color:var(--muted);margin-top:2px">확정+예상 · 현재월 <span style="color:var(--cyan)">${nowMonth}월</span></div>
       </div>
       <div style="display:flex;gap:10px;font-size:.63rem;color:var(--muted);align-items:center;flex-shrink:0">
-        <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:3px;vertical-align:middle"></span>지난달</span>
+        <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--muted);opacity:.72;margin-right:3px;vertical-align:middle"></span>지난달</span>
         <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--cyan);margin-right:3px;vertical-align:middle"></span>이번달</span>
         <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--green);margin-right:3px;vertical-align:middle"></span>예정</span>
       </div>
@@ -225,13 +225,13 @@ function renderDivView(area, skipFetch) {
           const pct = v > 0 ? Math.max((v / maxV) * 100, 3) : 1;
           const label = v > 0 ? (v >= 1000000 ? (v/10000).toFixed(0)+'만' : v >= 10000 ? Math.round(v/1000)+'천' : v.toLocaleString()) : '';
           const bg = isCurrent
-            ? 'linear-gradient(to top,rgba(6,182,212,.3),rgba(6,182,212,1))'
+            ? 'linear-gradient(to top,color-mix(in srgb,var(--cyan) 32%,transparent),var(--cyan))'
             : isPast
-            ? 'rgba(255,255,255,.12)'
-            : 'linear-gradient(to top,rgba(16,185,129,.25),rgba(16,185,129,.85))';
-          const border = isCurrent ? '1px solid rgba(6,182,212,.8)' : 'none';
-          const labelColor = isCurrent ? 'var(--cyan)' : isPast ? 'rgba(255,255,255,.3)' : 'var(--green)';
-          const monthColor = isCurrent ? 'var(--cyan)' : 'rgba(100,116,139,.85)';
+            ? 'linear-gradient(to top,color-mix(in srgb,var(--muted) 38%,transparent),var(--muted))'
+            : 'linear-gradient(to top,color-mix(in srgb,var(--green) 28%,transparent),var(--green))';
+          const border = isCurrent ? '1px solid var(--cyan)' : isPast ? '1px solid color-mix(in srgb,var(--muted) 72%,transparent)' : 'none';
+          const labelColor = isCurrent ? 'var(--cyan)' : isPast ? 'var(--text)' : 'var(--green)';
+          const monthColor = isCurrent ? 'var(--cyan)' : 'var(--muted)';
           const fw = isCurrent ? '700' : '400';
           return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
             ${label ? `<div style="font-size:8px;color:${labelColor};font-weight:${fw};margin-bottom:2px;white-space:nowrap;overflow:hidden;max-width:100%;text-align:center">${label}</div>` : '<div style="margin-bottom:10px"></div>'}

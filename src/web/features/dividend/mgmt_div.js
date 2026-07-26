@@ -93,7 +93,7 @@ function buildDivMgmt() {
     const d = DIVDATA[divKey];
     const source = d.source === 'MANUAL' ? '수동 입력' : (d.note || '배당 정보 없음');
     const eventCount = Array.isArray(d.events) ? d.events.length : 0;
-    section += `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid rgba(255,255,255,.06);padding:10px 2px">
+    section += `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid var(--border);padding:10px 2px">
       <div style="min-width:0">
         <div style="font-size:.72rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escapeHtml(name)}</div>
         <div class="lbl-60-muted-mt">${eventCount ? `배당 ${eventCount}건 · ${_escapeHtml(source)}` : d.perShare > 0 ? `주당 ${Number(d.perShare).toLocaleString()}원 · ${_escapeHtml(d.freq || '-')}` : _escapeHtml(source)}</div>
