@@ -161,7 +161,6 @@ async function loadDividendSettings() {
     const data = await requestGsheetActionJson('getDividendSettings', {}, { timeoutMs: 10000, retry: 1 });
     if (!data || data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') return false;
     _applyDivData(data.divData);
-    lsSave(DIVDATA_KEY, DIVDATA);
     return true;
   } catch(e) {
     return false;
