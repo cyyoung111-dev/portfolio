@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.33
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.34
+//
+//  v9.34 변경사항 (2026.07.24):
+//   ✅ [버그수정] _normalizePublicDividendRows() — 법인번호(crno)로 조회한 배당 행은
+//              공식 종목명 표기(SK ↔ 에스케이 등)가 달라도 같은 법인으로 보고 포함
+//              → SK하이닉스처럼 공공데이터 상장명/배당명 표기가 달라 배당 없음으로 분류되던 문제 완화
 //
 //  v9.33 변경사항 (2026.07.24):
 //   ✅ [성능개선] handleDividendPublicFetch — 종목별 순차 호출(2회×N종목) → UrlFetchApp.fetchAll()
@@ -1198,6 +1203,7 @@ function handleGetHistory(fromStr, toStr) {
 //  ★ v9.33: 종목별 순차 호출(2회×N, 예: 36종목=72회 순차) → UrlFetchApp.fetchAll()로
 //           일괄 병렬 요청으로 변경. 종목이 많을 때(30개 이상) 전체 소요시간이
 //           140초 안팎까지 걸려 프론트엔드 타임아웃(45~150초)으로 중간에 끊기던 문제 해결.
+//  ★ v9.34: 법인번호(crno)가 일치하는 배당 행은 종목명 표기가 달라도 포함.
 // ════════════════════════════════════════════════════════════════════
 function handleDividendPublicFetch(codes, names, serviceKey) {
   try {
@@ -1421,7 +1427,13 @@ function _normalizePublicDividendRows(rows, code, companyName, listedInfo) {
   (rows || []).forEach(function(row) {
     if (!row) return;
     var name = (row.stckIssuCmpyNm || row.isuNm || row.corpNm || '').toString().trim();
-    if (name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) return;
+    var rowCrno = (row.crno || '').toString().trim();
+    var listedCrno = (listedInfo && listedInfo.crno ? listedInfo.crno : '').toString().trim();
+    var sameCrno = !!(rowCrno && listedCrno && rowCrno === listedCrno);
+    // 공공데이터 배당정보의 종목명은 상장종목정보와 표기가 다를 수 있습니다.
+    // 예: 상장종목정보 itmsNm="SK하이닉스", 배당정보 stckIssuCmpyNm="에스케이하이닉스".
+    // crno로 조회해 같은 법인번호가 확인된 행은 이름 불일치만으로 제외하지 않습니다.
+    if (!sameCrno && name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) return;
     var amount = _publicDividendAmount(row);
     if (!(amount > 0)) return;
     // ★ [v9.32 버그수정] row.basDt는 "조회 당일 날짜"라 배당기준일이 아님(매번 오늘 날짜로 찍힘).
@@ -3875,7 +3887,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.33' });
+    return jsonOk({ settings: settings, gasVersion: '9.34' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

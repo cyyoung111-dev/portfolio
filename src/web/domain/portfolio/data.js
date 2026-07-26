@@ -360,6 +360,7 @@ const REALESTATE_KEY    = 'pf_v6_realestate';
 const LOAN_SCHEDULE_KEY = 'pf_v6_loan_schedule';
 const RE_VALUE_KEY      = 'pf_v6_re_value_hist';
 const FUNDDIRECT_KEY    = 'pf_v6_funddirect';
+// 기존 브라우저 캐시 삭제 기능과의 호환용 키. 배당 데이터 저장/복원에는 사용하지 않습니다.
 const DIVDATA_KEY       = 'pf_v6_divdata';
 const PRICES_KEY        = 'pf_v6_prices';
 const PRICE_DATES_KEY   = 'pf_v6_price_dates';
@@ -419,7 +420,6 @@ function saveHoldings() {
     });
     lsSave(SECTOR_COLORS_KEY, SECTOR_COLORS);
     lsSave(FUNDDIRECT_KEY, fundDirect);
-    lsSave(DIVDATA_KEY, DIVDATA);
     // ★ LOAN / REAL_ESTATE도 localStorage에 저장 (부동산탭 데이터 유지)
     if (typeof LOAN !== 'undefined') lsSave(LOAN_KEY, LOAN);
     if (typeof REAL_ESTATE !== 'undefined') lsSave(REALESTATE_KEY, REAL_ESTATE);
@@ -498,9 +498,6 @@ let REAL_ESTATE = {
     // fundDirect 복원
     const savedFD = lsGet(FUNDDIRECT_KEY, null);
     if (savedFD && typeof savedFD === 'object') { Object.keys(fundDirect).forEach(k => delete fundDirect[k]); Object.assign(fundDirect, savedFD); }
-    // DIVDATA 복원
-    const savedDD = lsGet(DIVDATA_KEY, null);
-    if (savedDD && typeof savedDD === 'object') { Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]); Object.assign(DIVDATA, savedDD); }
   } catch(e) {
     console.error('loadHoldings 실패:', e);
   }
@@ -649,28 +646,48 @@ function syncLoanFromSchedule() {
       EDITABLE_PRICES.length = 0;
       _invalidateEPIndex();
       // ★ normName 적용: 구버전 종목명 자동 변환 후 중복 제거
+      // KRX 공식명으로 생성된 중복이 있으면, 사용자가 원래 저장했던 한글명 항목의
+      // 종목코드/섹터/유형을 우선 보존한다.
       const seenNames = new Set();
       const seenCodes = new Set();
-      savedE.forEach(e => {
-        const normalizedName = normName(e?.name || '');
-        if (!normalizedName) return;
+      let editablesFixed = false;
+      const editableCandidates = savedE.map((e, order) => {
+        const originalName = (e?.name || '').trim();
+        const normalizedName = normName(originalName);
+        return { e, order, originalName, normalizedName, isOriginalName: normalizedName === originalName };
+      });
+      const preferredByName = new Map();
+      editableCandidates.forEach(candidate => {
+        const current = preferredByName.get(candidate.normalizedName);
+        if (!current || (!current.isOriginalName && candidate.isOriginalName)) {
+          preferredByName.set(candidate.normalizedName, candidate);
+        }
+      });
+      const normalizedEditables = editableCandidates.filter(candidate => preferredByName.get(candidate.normalizedName) === candidate);
+      if (normalizedEditables.length !== editableCandidates.length) editablesFixed = true;
+      normalizedEditables.forEach(({ e, originalName, normalizedName }) => {
+        if (!normalizedName) { editablesFixed = true; return; }
+        if (normalizedName !== originalName) editablesFixed = true;
         // 같은 이름 중복 제거 (normName 변환으로 동일해진 항목)
-        if (seenNames.has(normalizedName)) return;
+        if (seenNames.has(normalizedName)) { editablesFixed = true; return; }
         seenNames.add(normalizedName);
         const normalizedCode = normalizeStockCode(e?.code);
         // 같은 코드 중복 제거 (코드 있는 항목만)
-        if (normalizedCode && seenCodes.has(normalizedCode)) return;
-        if (normalizedCode) seenCodes.add(normalizedCode);
+        const assetType = e?.assetType || e?.type || '주식';
+        const hasExchangeCode = assetType !== '펀드' && assetType !== 'TDF';
+        if (hasExchangeCode && normalizedCode && seenCodes.has(normalizedCode)) { editablesFixed = true; return; }
+        if (hasExchangeCode && normalizedCode) seenCodes.add(normalizedCode);
         const next = {
           ...e,
           name:      normalizedName,
           code:      normalizedCode,
           sector:    e?.sector    || '기타',
-          assetType: e?.assetType || e?.type || '주식',
+          assetType,
         };
         EDITABLE_PRICES.push(next);
       });
       _invalidateEPIndex();
+      if (editablesFixed) lsSave(EDITABLES_KEY, EDITABLE_PRICES);
     }
 
     // ② 기초정보의 코드를 STOCK_CODE에 반영 (기초정보 → STOCK_CODE 단방향)

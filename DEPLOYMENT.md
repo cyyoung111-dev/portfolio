@@ -67,6 +67,12 @@ cp src/gas/apps_script.gs /tmp/apps_script.js && node --check /tmp/apps_script.j
 3. 결과가 없으면 앱에 등록된 종목명으로 한 번 더 조회합니다.
 4. 그래도 누락된 종목은 `GOOGLEFINANCE` 배당 조회로 fallback합니다.
 
+배당 데이터 저장 방식:
+
+- 자동 조회 결과와 수동 입력(ETF 포함)은 브라우저 localStorage가 아니라 연결된 GAS의 `설정` 시트 `DIVDATA` 항목에 저장됩니다.
+- 수동 입력 팝업은 GAS 저장 응답을 확인한 뒤에만 완료 처리하며, 저장 실패 시 입력창을 유지하고 오류를 표시합니다.
+- 새 기기나 새 브라우저에서는 `getDividendSettings`로 GAS 저장값을 다시 불러옵니다.
+
 ## KRX 가격 API 연동
 
 - KRX Open API AUTH_KEY는 구글시트 연동 탭에서 저장하면 GAS에도 동기화됩니다.
