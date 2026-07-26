@@ -113,10 +113,18 @@ function registerGlobalEventDelegation() {
     const divAction = e.target.closest('[data-div-action]');
     if (divAction) {
       const action = divAction.dataset.divAction;
-      if (action === 'apply' && typeof applyDivChanges === 'function') applyDivChanges();
-      else if (action === 'fetch' && typeof startDivFetch === 'function') startDivFetch();
+      if (action === 'fetch' && typeof startDivFetch === 'function') startDivFetch();
       else if (action === 'save-public-key' && typeof savePublicDataApiKeyFromUI === 'function') savePublicDataApiKeyFromUI();
       else if (action === 'toggle-zero' && typeof _toggleDivHideZero === 'function') _toggleDivHideZero();
+      else if (action === 'manual-open' && typeof openDivManualEditor === 'function') openDivManualEditor(divAction.dataset.divName || '');
+      else if (action === 'manual-close' && typeof closeDivManualEditor === 'function') closeDivManualEditor();
+      else if (action === 'manual-save' && typeof saveDivManualEditor === 'function') saveDivManualEditor();
+      return;
+    }
+
+    const divFreq = e.target.closest('[data-div-freq]');
+    if (divFreq) {
+      if (typeof _dvPickFreq === 'function') _dvPickFreq(divFreq.dataset.divFreqKey || '', divFreq.dataset.divFreq || '-');
       return;
     }
 
