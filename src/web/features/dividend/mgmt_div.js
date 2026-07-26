@@ -239,6 +239,8 @@ function _buildDivCodeToNameMap() {
 }
 
 function _normalizeDividendResponse(obj, prev) {
+  // 수동 입력은 사용자가 명시적으로 관리하는 값이므로 자동 조회 결과로 덮어쓰지 않습니다.
+  if (prev?.source === 'MANUAL') return { ...prev };
   const next = { ...prev };
   const perShare = Number(obj?.perShare || 0);
   if (perShare > 0) {

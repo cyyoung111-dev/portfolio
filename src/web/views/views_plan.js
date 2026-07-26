@@ -234,7 +234,7 @@ function _buildWeightSection(totalEval) {
     const diffLabel   = Math.abs(diff) < 0.1 ? '균형' : (diff > 0 ? `+${diff.toFixed(1)}%` : `${diff.toFixed(1)}%`);
     const sectorColor = SECTOR_COLORS[item.sector] || 'var(--muted)';
 
-    return `<div style="display:grid;grid-template-columns:110px 1fr 60px 60px 70px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+    return `<div style="display:grid;grid-template-columns:110px 1fr 60px 60px 70px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <div style="font-size:.73rem;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_escapeHtml(item.name)}">${_escapeHtml(item.name)}</div>
       <div style="position:relative;height:18px;background:var(--s2);border-radius:4px;overflow:hidden">
         <div style="position:absolute;left:0;top:0;height:100%;width:${bar_current}%;background:${resolveColor(sectorColor)};opacity:.7;border-radius:4px;transition:width .3s"></div>
