@@ -360,6 +360,7 @@ const REALESTATE_KEY    = 'pf_v6_realestate';
 const LOAN_SCHEDULE_KEY = 'pf_v6_loan_schedule';
 const RE_VALUE_KEY      = 'pf_v6_re_value_hist';
 const FUNDDIRECT_KEY    = 'pf_v6_funddirect';
+// 기존 브라우저 캐시 삭제 기능과의 호환용 키. 배당 데이터 저장/복원에는 사용하지 않습니다.
 const DIVDATA_KEY       = 'pf_v6_divdata';
 const PRICES_KEY        = 'pf_v6_prices';
 const PRICE_DATES_KEY   = 'pf_v6_price_dates';
@@ -419,7 +420,6 @@ function saveHoldings() {
     });
     lsSave(SECTOR_COLORS_KEY, SECTOR_COLORS);
     lsSave(FUNDDIRECT_KEY, fundDirect);
-    lsSave(DIVDATA_KEY, DIVDATA);
     // ★ LOAN / REAL_ESTATE도 localStorage에 저장 (부동산탭 데이터 유지)
     if (typeof LOAN !== 'undefined') lsSave(LOAN_KEY, LOAN);
     if (typeof REAL_ESTATE !== 'undefined') lsSave(REALESTATE_KEY, REAL_ESTATE);
@@ -498,9 +498,6 @@ let REAL_ESTATE = {
     // fundDirect 복원
     const savedFD = lsGet(FUNDDIRECT_KEY, null);
     if (savedFD && typeof savedFD === 'object') { Object.keys(fundDirect).forEach(k => delete fundDirect[k]); Object.assign(fundDirect, savedFD); }
-    // DIVDATA 복원
-    const savedDD = lsGet(DIVDATA_KEY, null);
-    if (savedDD && typeof savedDD === 'object') { Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]); Object.assign(DIVDATA, savedDD); }
   } catch(e) {
     console.error('loadHoldings 실패:', e);
   }

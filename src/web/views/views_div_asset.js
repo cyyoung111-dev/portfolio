@@ -360,7 +360,7 @@ function renderDivView(area, skipFetch) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
       <div>
         <div style="font-size:.78rem;font-weight:700;color:var(--gold)">⚙️ 배당 설정 수동 편집</div>
-        <div style="font-size:.62rem;color:var(--muted);margin-top:2px">ETF 등 자동 조회가 안 되는 종목은 입력 버튼을 눌러 직접 등록하세요.</div>
+        <div style="font-size:.62rem;color:var(--muted);margin-top:2px">ETF 등 자동 조회가 안 되는 종목은 직접 등록할 수 있으며, 입력값은 GAS에 저장됩니다.</div>
       </div>
     </div>
     <div id="divMgmtBody" style="max-height:420px;overflow-y:auto"></div>
@@ -389,6 +389,7 @@ function renderDivView(area, skipFetch) {
         <button type="button" data-div-action="manual-event-add" class="btn-purple-sm">＋ 배당 건</button>
       </div>
       <div id="divManualEvents" style="max-height:220px;overflow-y:auto;padding-right:2px"></div>
+      <div style="font-size:.60rem;color:var(--cyan);margin:8px 0 10px">☁️ 저장 시 연결된 Google Apps Script의 설정 시트에 반영됩니다.</div>
       <div style="display:flex;justify-content:flex-end;gap:7px">
         <button type="button" data-div-action="manual-close" class="btn-cancel-sm">취소</button>
         <button type="button" data-div-action="manual-save" class="btn-amber-sm">💾 저장</button>

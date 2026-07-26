@@ -164,7 +164,7 @@ function closeDivManualEditor() {
   _divManualName = '';
 }
 
-function saveDivManualEditor() {
+async function saveDivManualEditor() {
   if (!_divManualName) return;
   const savedName = _divManualName;
   const perShare = Number($el('dv_amt_manual')?.value || 0);
@@ -186,16 +186,27 @@ function saveDivManualEditor() {
   const savedMonths = [...new Set([...months, ...eventMonths])].sort((a, b) => a - b);
   const latestEventAmount = events.length ? events[events.length - 1].amount : perShare;
   const divKey = (typeof getDivKey === 'function') ? getDivKey(_divManualName) : _divManualName;
+  const hadPrevious = Object.prototype.hasOwnProperty.call(DIVDATA, divKey);
+  const previous = hadPrevious ? DIVDATA[divKey] : undefined;
   DIVDATA[divKey] = {
     ...(DIVDATA[divKey] || DIVDATA[_divManualName] || {}),
     perShare: perShare > 0 ? perShare : latestEventAmount,
     freq, months: savedMonths, events,
     source: 'MANUAL', note: `수동 입력${events.length ? ` · 배당 ${events.length}건` : ''}`, updatedAt: new Date().toISOString(),
   };
-  saveHoldings();
-  persistDividendSettings(true);
+  const saveButton = document.querySelector('#divManualModal [data-div-action="manual-save"]');
+  if (saveButton) { saveButton.disabled = true; saveButton.textContent = '저장 중...'; }
+  const savedToGas = await persistDividendSettings(true);
+  if (!savedToGas) {
+    if (hadPrevious) DIVDATA[divKey] = previous;
+    else delete DIVDATA[divKey];
+    if (saveButton) { saveButton.disabled = false; saveButton.textContent = '💾 저장'; }
+    showToast('GAS 저장에 실패했습니다. 구글시트 연동 상태를 확인해주세요.', 'error', 5000);
+    return;
+  }
+  if (saveButton) { saveButton.disabled = false; saveButton.textContent = '💾 저장'; }
   closeDivManualEditor();
-  showToast(`${savedName} 배당 정보 저장 완료`, 'ok');
+  showToast(`${savedName} 배당 정보가 GAS에 저장되었습니다`, 'ok');
   const area = $el('view-area');
   if (area) renderDivView(area, true);
 }
@@ -398,8 +409,8 @@ async function _autoFetchDiv(area) {
     });
 
     if (changed) {
-      persistDividendSettings(true);
-      saveHoldings();
+      const savedToGas = await persistDividendSettings(true);
+      if (!savedToGas) console.warn('_autoFetchDiv: 배당 조회 결과 GAS 저장 실패');
       // 항상 현재 DOM의 view-area 참조 (area 클로저 stale 방지)
       if (currentView === 'div') {
         const _liveArea = $el('view-area');
@@ -509,8 +520,8 @@ async function startDivFetch() {
     });
 
     const resultMsg = `✅ ${updated}개 종목 배당 조회 완료 · 공공데이터 ${sourceStats.public}개 · GF ${sourceStats.gf}개` + (skipped > 0 ? ` (${skipped}개 배당없음/수동확인)` : '');
-    persistDividendSettings(true);
-    saveHoldings();
+    const savedToGas = await persistDividendSettings(true);
+    if (!savedToGas) throw new Error('배당 조회 결과를 GAS에 저장하지 못했습니다. 구글시트 연동 상태를 확인해주세요.');
     // ★ 상단 요약 숫자 + 테이블 전체 갱신 (skipFetch=true로 재귀 방지)
     const _area = $el('view-area');
     renderDivView(_area, true);
