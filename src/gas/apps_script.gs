@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.35
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.36
+//
+//  v9.36 변경사항 (2026.07.27):
+//   ✅ [버그수정] onOpen(e) — 현재 문서 ID를 ScriptProperties에 저장해 복사된 GAS가 이전 문서를 열지 않도록 수정
+//   ✅ [안내]   initSheet — 문서 접근 실패를 사용자용 안내창으로 표시하고 권한/연결 확인 경로 제공
 //
 //  v9.35 변경사항 (2026.07.27):
 //   ✅ [정리]   onOpen — 중복 API/상태/점검 메뉴와 중복 실행되던 설치형 onOpen 트리거 제거
@@ -265,9 +269,9 @@
 // ════════════════════════════════════════════════════════════════════
 var SS_ID = (function(){
   try {
-    return PropertiesService.getScriptProperties().getProperty('SS_ID') || '1oyk6qY4pRV3zB_n_ldHeIKLbFS6ZbVLKp0t5OBWZV5c';
+    return PropertiesService.getScriptProperties().getProperty('SS_ID') || '';
   } catch(e) {
-    return '1oyk6qY4pRV3zB_n_ldHeIKLbFS6ZbVLKp0t5OBWZV5c';
+    return '';
   }
 })();
 
@@ -311,7 +315,14 @@ function getss() {
     var active = SpreadsheetApp.getActiveSpreadsheet();
     if (active) return active;
   } catch(e) { Logger.log('⚠️ getActiveSpreadsheet 실패, openById로 fallback: ' + e.message); }
-  return SpreadsheetApp.openById(SS_ID);
+  var configuredId = '';
+  try { configuredId = PropertiesService.getScriptProperties().getProperty('SS_ID') || SS_ID || ''; } catch(e2) { configuredId = SS_ID || ''; }
+  if (!configuredId) throw new Error('연결된 스프레드시트 ID가 없습니다. 스프레드시트를 새로고침한 뒤 다시 실행해주세요.');
+  try {
+    return SpreadsheetApp.openById(configuredId);
+  } catch(e3) {
+    throw new Error('저장된 스프레드시트에 접근할 수 없습니다. 현재 문서를 새로고침하거나 GAS 실행 계정의 권한을 확인해주세요. (' + e3.message + ')');
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -843,6 +854,33 @@ function showApiKeyStatus() {
     (publicSaved ? '✅' : '⚠️') + ' 공공데이터포털: ' + (publicSaved ? '저장됨' : '미설정') + '\n' +
     (krxSaved ? '✅' : '⚠️') + ' KRX Open API: ' + (krxSaved ? '저장됨' : '미설정')
   );
+}
+
+function configureSpreadsheetIdPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var current = '';
+  try { current = PropertiesService.getScriptProperties().getProperty('SS_ID') || ''; } catch(e) {}
+  var response = ui.prompt(
+    '연결 스프레드시트 설정',
+    '현재 스프레드시트의 URL 또는 문서 ID를 입력하세요.\n현재 저장값: ' + (current || '없음'),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var raw = (response.getResponseText() || '').trim();
+  var match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  var id = match ? match[1] : raw;
+  if (!/^[a-zA-Z0-9-_]{20,}$/.test(id)) {
+    ui.alert('⚠️ 스프레드시트 URL 또는 문서 ID 형식을 확인해주세요.');
+    return;
+  }
+  try {
+    var target = SpreadsheetApp.openById(id);
+    PropertiesService.getScriptProperties().setProperty('SS_ID', id);
+    SS_ID = id;
+    ui.alert('✅ 연결 완료\n' + target.getName());
+  } catch(err) {
+    ui.alert('❌ 연결 실패\n\n문서 ID와 GAS 실행 계정의 접근 권한을 확인해주세요.\n' + err.message);
+  }
 }
 
 function importKrxClosesPrompt() {
@@ -3889,7 +3927,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.35' });
+    return jsonOk({ settings: settings, gasVersion: '9.36' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4212,8 +4250,15 @@ function fixPriceHistoryNames() {
 //  가격이력 시트 마이그레이션 (구버전 → 신버전, 1회 실행)
 // ════════════════════════════════════════════════════════════════════
 function initSheet() {
-  var ss = getss();
-  if (!ss) { try { SpreadsheetApp.getUi().alert('스프레드시트에서 실행하세요.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); } return; }
+  var ss;
+  try {
+    ss = getss();
+  } catch(openError) {
+    var openMsg = '❌ 시트 구성 확인 실패\n\n' + openError.message + '\n\n현재 스프레드시트를 새로고침한 뒤 다시 시도해주세요.';
+    Logger.log(openMsg);
+    try { SpreadsheetApp.getUi().alert(openMsg); } catch(uiError) {}
+    return;
+  }
 
   var specs = [
     [CONFIG.SHEET_CODES, ['종목코드','종목명(참고)','구분'], [90,200,100]],
@@ -4286,16 +4331,29 @@ function onInstall(e) {
 
 function _addFallbackMenu(ui) {
   ui.createMenu('📊 포트폴리오')
+    .addItem('연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
     .addItem('공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
     .addItem('KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
     .addItem('메뉴 생성 오류 확인', 'showMenuBuildError')
     .addToUi();
 }
 
-function onOpen() {
+function onOpen(e) {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) return;
+
+  // 컨테이너에 복사된 스크립트가 과거 기본 문서 ID를 계속 사용하지 않도록
+  // 열기 이벤트의 실제 문서를 웹앱/트리거용 연결 대상으로 기억합니다.
+  try {
+    var source = e && e.source ? e.source : SpreadsheetApp.getActiveSpreadsheet();
+    if (source && source.getId()) {
+      PropertiesService.getScriptProperties().setProperty('SS_ID', source.getId());
+      SS_ID = source.getId();
+    }
+  } catch(idError) {
+    Logger.log('현재 스프레드시트 ID 저장 실패: ' + idError.message);
+  }
 
   try {
     var manualKeepLabel = '🧷 수동가격 최신값만 유지: OFF';
@@ -4313,6 +4371,7 @@ function onOpen() {
 
     // ── 서브메뉴: 초기 설정 ──
     var menuInit = ui.createMenu('⚙️ 설정')
+      .addItem('🔗 연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
       .addItem('시트 구성 확인·복구', 'initSheet')
       .addItem('자동 트리거 등록·복구', 'setupTrigger')
       .addSeparator()
