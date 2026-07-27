@@ -69,7 +69,7 @@ function buildAcctMgmt() {
             const usedByOther = Object.entries(ACCT_COLORS).filter(([k])=>k!==acct).some(([,v])=>resolveColor(v).toLowerCase()===rc.toLowerCase());
             return `<span class="acct-color-dot" data-color="${c}" data-acct="${acct}"
               style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
-              border:3px solid ${isSel?'#fff':'transparent'};opacity:${usedByOther?'0.3':'1'};
+              border:3px solid ${isSel?'var(--text)':'transparent'};opacity:${usedByOther?'0.3':'1'};
               transition:border .1s,opacity .1s" title="${usedByOther?'다른 계좌 사용 중':''}"></span>`;
           }).join('')}
         </div>
@@ -178,7 +178,7 @@ function acctMgmtAddNew() {
       const isSelected = resolveColor(c).toLowerCase() === resolveColor(autoColor).toLowerCase();
       return `<span data-acct-new-color="${_escapeHtml(c)}"
         style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
-        border:3px solid ${isSelected?'#fff':'transparent'};
+        border:3px solid ${isSelected?'var(--text)':'transparent'};
         opacity:${isUsed?'0.3':'1'};
         transition:border .1s,opacity .1s" title="${isUsed?'사용 중':''}"></span>`;
     }).join('');
@@ -196,7 +196,7 @@ function _acctNewPickColor(c) {
       const dc = ACCT_PALETTE[i];
       const isSelected = dc === c;
       const isUsed = used.includes(dc) && !isSelected;
-      dot.style.border = `3px solid ${isSelected?'#fff':'transparent'}`;
+      dot.style.border = `3px solid ${isSelected?'var(--text)':'transparent'}`;
       dot.style.opacity = isUsed ? '0.3' : '1';
     });
   }
@@ -394,5 +394,4 @@ function applyRealEstate() {
   closeRealEstateEditor();
   showToast('부동산 정보 저장 완료 · GAS 동기화 중', 'ok');
 }
-
 

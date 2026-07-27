@@ -313,7 +313,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.31';
+const EXPECTED_GAS_VERSION = '9.35';
 
 async function autoLoadPrices() {
   const dateStr = getDateStr(0);
@@ -438,4 +438,3 @@ async function autoLoadPrices() {
 // ★ 기존 펀드·TDF 가상코드 마이그레이션 (코드 없는 종목 → F001~)
 setTimeout(() => { if (typeof migrateFundCodes === 'function') migrateFundCodes(); }, 0);
 setTimeout(() => { bootstrapGsheetSettings(); }, 100);
-
