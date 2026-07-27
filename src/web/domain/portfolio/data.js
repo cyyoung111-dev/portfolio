@@ -582,13 +582,12 @@ function _commitTrades() {
 }
 
 // ★ 상환스케줄 기준으로 LOAN 자동 갱신
-// - 페이지 로드 시 1회 호출, 이후 날짜가 바뀐 달에만 재적용
+// - 페이지 로드·GAS 복원·매시간 확인 시 호출하며, 값이 달라진 경우에만 저장
 // - annualRate / startDate / originalAmt 는 스케줄에 없으므로 유지
 let _loanSyncedMonth = null; // 마지막으로 동기화한 YYYY-MM
 function syncLoanFromSchedule() {
   if (!LOAN_SCHEDULE || LOAN_SCHEDULE.length === 0) return;
   const todayStr = _kstMonthStr(); // ★ KST 기준 YYYY-MM (toISOString은 UTC 기준이라 자정 이후 전날로 밀릴 수 있음)
-  if (_loanSyncedMonth === todayStr) return; // 이번 달 이미 동기화됨
 
   // ★ [개선] [...LOAN_SCHEDULE].reverse() 배열 복사 제거
   //   역방향 순회로 가장 최근 과거 행을 찾음
@@ -606,8 +605,13 @@ function syncLoanFromSchedule() {
     .filter(r => r.date <= todayStr)
     .reduce((s, r) => s + (r.interest || 0), 0);
 
-  LOAN.balance             = curRow.balance;
-  LOAN.monthlyInterestPaid = curRow.interest;
+  const changed = Number(LOAN.balance || 0) !== Number(curRow.balance || 0)
+    || Number(LOAN.monthlyInterestPaid || 0) !== Number(curRow.interest || 0)
+    || Number(LOAN.totalMonths || 0) !== totalMonths
+    || Number(LOAN.remainingMonths || 0) !== remainingMonths
+    || Number(LOAN.totalInterestPaid || 0) !== totalInterestPaid;
+  LOAN.balance             = Number(curRow.balance || 0);
+  LOAN.monthlyInterestPaid = Number(curRow.interest || 0);
   LOAN.totalMonths         = totalMonths;
   LOAN.remainingMonths     = remainingMonths;
   LOAN.totalInterestPaid   = totalInterestPaid;
@@ -618,6 +622,7 @@ function syncLoanFromSchedule() {
   //   bootstrapGsheetSettings()가 비동기 실행 중일 수 있음
   //   → saveSettings()가 아직 로드 안 된 빈 DIVDATA를 GAS에 덮어쓰는 위험 제거
   lsSave(LOAN_KEY, LOAN);
+  return changed;
 }
 
 // EDITABLE_PRICES를 localStorage에서 복원 (신규 추가 종목 포함)

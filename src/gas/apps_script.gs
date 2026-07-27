@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.36
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.37
+//
+//  v9.37 변경사항 (2026.07.27):
+//   ✅ [자동화] syncMortgageFromSchedule — 현재월 상환스케줄 기준 잔액·이자·잔여기간을 GAS에서 매일 갱신
+//   ✅ [트리거] 주담대 자동 갱신 트리거 추가 및 자동화 상태 점검에 포함
 //
 //  v9.36 변경사항 (2026.07.27):
 //   ✅ [버그수정] onOpen(e) — 현재 문서 ID를 ScriptProperties에 저장해 복사된 GAS가 이전 문서를 열지 않도록 수정
@@ -3034,23 +3038,27 @@ function setupTrigger() {
     var fn = t.getHandlerFunction();
     if (
       fn === 'saveDailyPriceHistory' || fn === 'cleanDeadCodes' ||
-      fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' || fn === 'onOpen'
+      fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
+      fn === 'syncMortgageFromSchedule' || fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
   ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
+  ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
-  Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
-  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  Logger.log('트리거 등록 완료: 01:10 주담대 갱신 → 15:50 종목코드 보정 → 16:20 평가단가 업데이트');
+  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
   var hasClean = false;
   var hasSave = false;
+  var hasMortgage = false;
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (fn === 'runCodeNormalize1550') hasClean = true;
     if (fn === 'runEvalPriceUpdate1620') hasSave = true;
+    if (fn === 'syncMortgageFromSchedule') hasMortgage = true;
   });
 
   if (autoFix) {
@@ -3062,15 +3070,19 @@ function _ensureDailyTriggers(autoFix) {
       ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
       hasSave = true;
     }
+    if (!hasMortgage) {
+      ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
+      hasMortgage = true;
+    }
   }
-  return { hasClean: hasClean, hasSave: hasSave };
+  return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage };
 }
 
 function checkDailyAutomationStatus() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
   var autoFixed = false;
-  if (!trig.hasClean || !trig.hasSave) {
+  if (!trig.hasClean || !trig.hasSave || !trig.hasMortgage) {
     try {
       trig = _ensureDailyTriggers(true);
       autoFixed = true;
@@ -3095,9 +3107,10 @@ function checkDailyAutomationStatus() {
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
     + 'runEvalPriceUpdate1620(16:20) 트리거: ' + (trig.hasSave ? '정상' : '없음') + '\n\n'
+    + 'syncMortgageFromSchedule(01:10) 트리거: ' + (trig.hasMortgage ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
     + '가격이력 마지막 날짜: ' + phLast + '\n\n'
-    + (!trig.hasClean || !trig.hasSave
+    + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage
       ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
       : (autoFixed
           ? '✅ 트리거 누락을 자동 복구했습니다.'
@@ -3910,6 +3923,56 @@ function _writeSettingsMap(settings) {
   SpreadsheetApp.flush();
   return rows.length;
 }
+
+// 상환스케줄의 현재월 행을 기준으로 주담대 상태를 자동 갱신합니다.
+// 매일 실행하지만 값이 달라질 때만 설정 시트를 다시 씁니다.
+function syncMortgageFromSchedule() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var settings = _readSettingsMap();
+    var loan = settings.LOAN;
+    var schedule = settings.LOAN_SCHEDULE;
+    if (!loan || typeof loan !== 'object' || !Array.isArray(schedule) || schedule.length === 0) {
+      return { updated: false, reason: '상환스케줄 없음' };
+    }
+    var month = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM');
+    var valid = schedule.filter(function(row) {
+      return row && /^\d{4}-\d{2}$/.test(String(row.date || '').slice(0, 7));
+    }).sort(function(a, b) { return String(a.date).localeCompare(String(b.date)); });
+    var current = null;
+    valid.forEach(function(row) {
+      var rowMonth = String(row.date).slice(0, 7);
+      if (rowMonth <= month) current = row;
+    });
+    if (!current) return { updated: false, reason: '현재월 이전 스케줄 없음' };
+
+    var remaining = valid.filter(function(row) { return String(row.date).slice(0, 7) >= month; }).length;
+    var interestPaid = valid.filter(function(row) { return String(row.date).slice(0, 7) <= month; })
+      .reduce(function(sum, row) { return sum + (Number(row.interest) || 0); }, 0);
+    var nextBalance = Number(current.balance) || 0;
+    var nextInterest = Number(current.interest) || 0;
+    var changed = Number(loan.balance || 0) !== nextBalance
+      || Number(loan.monthlyInterestPaid || 0) !== nextInterest
+      || Number(loan.totalMonths || 0) !== valid.length
+      || Number(loan.remainingMonths || 0) !== remaining
+      || Number(loan.totalInterestPaid || 0) !== interestPaid;
+    if (!changed) return { updated: false, month: month, balance: nextBalance };
+
+    loan.balance = nextBalance;
+    loan.monthlyInterestPaid = nextInterest;
+    loan.totalMonths = valid.length;
+    loan.remainingMonths = remaining;
+    loan.totalInterestPaid = interestPaid;
+    loan.scheduleUpdatedMonth = month;
+    settings.LOAN = loan;
+    _writeSettingsMap(settings);
+    Logger.log('[syncMortgageFromSchedule] ' + month + ' 잔액 ' + nextBalance + '원으로 갱신');
+    return { updated: true, month: month, balance: nextBalance };
+  } finally {
+    lock.releaseLock();
+  }
+}
 function handleSaveSettings(dataJson) {
   try {
     var settings = _parseJsonParam(dataJson, 'settings');
@@ -3927,7 +3990,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.36' });
+    return jsonOk({ settings: settings, gasVersion: '9.37' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

@@ -150,6 +150,10 @@ async function loadRealEstateSettings() {
         RE_VALUE_HIST.push({ date: String(r.date), value: _toNum(r.value, 0) });
       });
     }
+    // GAS에서 상환스케줄을 모두 복원한 뒤 현재월 잔액을 다시 계산합니다.
+    // bootstrap 초기에 로컬 스케줄로 계산했던 값이 원격 LOAN에 덮이는 것을 방지합니다.
+    const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
+    if (loanChanged) await persistRealEstateSettings(true);
     return true;
   } catch(e) {
     return false;
@@ -482,6 +486,9 @@ async function loadSettings(onProgress) {
       } catch(e) { console.warn('거래이력 복원 실패:', e); }
     }
 
+    // 구버전 GAS fallback으로 LOAN_SCHEDULE을 복원한 경우에도 현재월 값을 반영합니다.
+    const fallbackLoanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
+    if (fallbackLoanChanged) await persistRealEstateSettings(true);
     return true;
   } catch(e) {
     console.warn('loadSettings 실패:', e);
@@ -507,6 +514,8 @@ async function bootstrapGsheetSettings() {
       // Settings 시트 읽기 실패 시에도 배당/부동산 별도 액션은 시도
       try { await loadDividendSettings(); } catch(e) {}
       try { await loadRealEstateSettings(); } catch(e) {}
+      const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
+      if (loanChanged) await persistRealEstateSettings(true);
     }
     try { refreshAll(); } catch(e) {}
     try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
