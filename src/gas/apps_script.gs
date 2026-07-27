@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.34
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.35
+//
+//  v9.35 변경사항 (2026.07.27):
+//   ✅ [정리]   onOpen — 중복 API/상태/점검 메뉴와 중복 실행되던 설치형 onOpen 트리거 제거
+//   ✅ [안전]   initSheet — 기존 데이터를 지우지 않는 시트 구성 확인/복구 방식으로 변경
+//              운영 시트 8종의 제목행·열 너비·고정행을 한 번에 일관되게 정리
 //
 //  v9.34 변경사항 (2026.07.24):
 //   ✅ [버그수정] _normalizePublicDividendRows() — 법인번호(crno)로 조회한 배당 행은
@@ -824,7 +829,20 @@ function showPublicDataApiKeyStatus() {
   var key = _getPublicDataApiKey();
   ui.alert(key
     ? '✅ 공공데이터 API 인증키가 저장되어 있습니다.\nKRX상장종목정보(종목코드)와 주식배당정보 조회에 사용됩니다.'
-    : '⚠️ 공공데이터 API 인증키가 없습니다.\n📊 포트폴리오 > 🌐 공공데이터 API > 🔑 인증키 설정 메뉴에서 입력하세요.');
+    : '⚠️ 공공데이터 API 인증키가 없습니다.\n📊 포트폴리오 > ⚙️ 설정 > 🔑 공공데이터 API 인증키 설정에서 입력하세요.');
+}
+
+function showApiKeyStatus() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+  var publicSaved = !!_getPublicDataApiKey();
+  var krxSaved = !!_getKrxAuthKey();
+  ui.alert(
+    'API 인증키 저장 상태\n\n' +
+    (publicSaved ? '✅' : '⚠️') + ' 공공데이터포털: ' + (publicSaved ? '저장됨' : '미설정') + '\n' +
+    (krxSaved ? '✅' : '⚠️') + ' KRX Open API: ' + (krxSaved ? '저장됨' : '미설정')
+  );
 }
 
 function importKrxClosesPrompt() {
@@ -2978,30 +2996,14 @@ function setupTrigger() {
     var fn = t.getHandlerFunction();
     if (
       fn === 'saveDailyPriceHistory' || fn === 'cleanDeadCodes' ||
-      fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
-      fn === 'onOpen'
+      fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' || fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
   ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
-  _ensureOpenMenuTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
-  Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620 + onOpen 메뉴 트리거');
-  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트\n스프레드시트 열기 메뉴 트리거도 함께 등록했습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
-}
-
-
-function _ensureOpenMenuTrigger(autoFix) {
-  var hasOpen = false;
-  ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (t.getHandlerFunction && t.getHandlerFunction() === 'onOpen') hasOpen = true;
-  });
-  if (autoFix && !hasOpen) {
-    var ss = getss();
-    ScriptApp.newTrigger('onOpen').forSpreadsheet(ss).onOpen().create();
-    hasOpen = true;
-  }
-  return { hasOpen: hasOpen };
+  Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620');
+  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
@@ -3887,7 +3889,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.34' });
+    return jsonOk({ settings: settings, gasVersion: '9.35' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4213,34 +4215,33 @@ function initSheet() {
   var ss = getss();
   if (!ss) { try { SpreadsheetApp.getUi().alert('스프레드시트에서 실행하세요.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); } return; }
 
-  var cs = ss.getSheetByName(CONFIG.SHEET_CODES) || ss.insertSheet(CONFIG.SHEET_CODES);
-  cs.clearContents();
-  cs.getRange(1,1,1,3).setValues([['종목코드','종목명(참고)','구분']]);
-  cs.getRange(1,1,1,3).setBackground('#0d1117').setFontColor('#10b981').setFontWeight('bold');
-
-  var ps = ss.getSheetByName(CONFIG.SHEET_PRICES) || ss.insertSheet(CONFIG.SHEET_PRICES);
-  ps.clearContents();
-  ps.getRange(1,1,1,4).setValues([['종목코드','종가','종목명','갱신일시']]);
-  ps.getRange(1,1,1,4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-  ps.setColumnWidth(1,90); ps.setColumnWidth(2,90); ps.setColumnWidth(3,200); ps.setColumnWidth(4,160);
-
-  var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) || ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
-  if (snap.getLastRow() === 0) {
-    snap.getRange(1,1,1,12).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']]);
-    snap.getRange(1,1,1,12).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-  }
-
-  var ph = ss.getSheetByName(CONFIG.SHEET_PH) || ss.insertSheet(CONFIG.SHEET_PH);
-  if (ph.getLastRow() === 0) {
-    ph.getRange(1,1,1,6).setValues([['날짜','종목코드','종목명','가격','입력일시','가격소스']]);
-    ph.getRange(1,1,1,6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-  }
+  var specs = [
+    [CONFIG.SHEET_CODES, ['종목코드','종목명(참고)','구분'], [90,200,100]],
+    [CONFIG.SHEET_PRICES, ['종목코드','종가','종목명','갱신일시'], [90,90,200,160]],
+    [CONFIG.SHEET_SNAPSHOT, ['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시'], [100,90,180,70,100,110,100,110,100,90,120,160]],
+    [CONFIG.SHEET_PH, ['날짜','종목코드','종목명','가격','입력일시','가격소스'], [100,90,180,100,160,120]],
+    [CONFIG.SHEET_HOLD, ['종목코드','종목명','수량','매수단가','매수원금','자산유형','계좌'], [90,180,70,110,110,100,120]],
+    [CONFIG.SHEET_TRADES, ['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모'], [100,80,100,180,90,70,100,90,200]],
+    [CONFIG.SHEET_SYNC_LOG, ['기록시각','소스','거래일','종목코드','종목명','계좌','메시지'], [160,100,100,90,180,120,300]],
+    [CONFIG.SHEET_SETTINGS, ['키','값'], [180,600]]
+  ];
+  var created = 0;
+  specs.forEach(function(spec) {
+    var sh = ss.getSheetByName(spec[0]);
+    if (!sh) { sh = ss.insertSheet(spec[0]); created++; }
+    sh.getRange(1, 1, 1, spec[1].length).setValues([spec[1]])
+      .setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    sh.setFrozenRows(1);
+    spec[2].forEach(function(width, idx) { sh.setColumnWidth(idx + 1, width); });
+  });
+  SpreadsheetApp.flush();
 
   try {
     SpreadsheetApp.getUi().alert(
-      '✅ 초기화 완료!\n\n다음 단계:\n' +
-      '1. [📊 포트폴리오] → [🔄 종가 갱신]\n' +
-      '2. [📊 포트폴리오] → [⏰ 자동 트리거 등록] (1회만)'
+      '✅ 시트 구성 확인 완료\n\n' +
+      '- 새로 생성한 시트: ' + created + '개\n' +
+      '- 기존 데이터는 삭제하지 않았습니다.\n\n' +
+      '다음 단계: [📊 포트폴리오] → [⚙️ 설정] → [자동 트리거 등록]'
     );
   } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -4283,11 +4284,10 @@ function onInstall(e) {
   onOpen(e);
 }
 
-function _addApiQuickMenu(ui) {
-  ui.createMenu('포트폴리오 설정')
+function _addFallbackMenu(ui) {
+  ui.createMenu('📊 포트폴리오')
     .addItem('공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
     .addItem('KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-    .addItem('공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
     .addItem('메뉴 생성 오류 확인', 'showMenuBuildError')
     .addToUi();
 }
@@ -4296,10 +4296,6 @@ function onOpen() {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) return;
-
-  // 일반 텍스트 + 단일 레벨 메뉴를 먼저 추가한다.
-  // 이 메뉴도 보이지 않으면 최신 bound script의 onOpen 자체가 실행되지 않은 것이다.
-  try { _addApiQuickMenu(ui); } catch(eQuick) { Logger.log('빠른 API 설정 메뉴 생성 실패: ' + eQuick.message); }
 
   try {
     var manualKeepLabel = '🧷 수동가격 최신값만 유지: OFF';
@@ -4316,17 +4312,13 @@ function onOpen() {
     catch(e2) { Logger.log('가격소스 메뉴 라벨 생성 실패: ' + e2.message); }
 
     // ── 서브메뉴: 초기 설정 ──
-    var menuInit = ui.createMenu('⚙️ 초기 설정')
-      .addItem('시트 초기화 (최초 1회)', 'initSheet')
-      .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
+    var menuInit = ui.createMenu('⚙️ 설정')
+      .addItem('시트 구성 확인·복구', 'initSheet')
+      .addItem('자동 트리거 등록·복구', 'setupTrigger')
       .addSeparator()
       .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
-      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt');
-
-    // ── 서브메뉴: 공공데이터 API ──
-    var menuPublicData = ui.createMenu('🌐 공공데이터 API')
-      .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
-      .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem('ℹ️ API 인증키 저장 상태', 'showApiKeyStatus');
 
     // ── 서브메뉴: 종가 관리 ──
     var menuPrice = ui.createMenu('📈 종가 관리')
@@ -4334,10 +4326,7 @@ function onOpen() {
       .addItem('🗓️ KRX 기간 불러오기', 'importKrxClosesPrompt')
       .addSeparator()
       .addItem(priceSourceLabel, 'togglePriceSourceMode')
-      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-      .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
-      .addSeparator()
-      .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus');
+      .addItem(manualKeepLabel, 'toggleManualKeepLatestOption');
 
     // ── 서브메뉴: 소급채우기 ──
     var menuBackfill = ui.createMenu('📆 소급채우기')
@@ -4355,13 +4344,7 @@ function onOpen() {
 
     // ── 메인 메뉴 조합 ──
     ui.createMenu('📊 포트폴리오')
-      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
-      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-      .addItem('ℹ️ 공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
-      .addSeparator()
       .addSubMenu(menuInit)
-      .addSeparator()
-      .addSubMenu(menuPublicData)
       .addSeparator()
       .addSubMenu(menuPrice)
       .addSeparator()
@@ -4374,17 +4357,9 @@ function onOpen() {
   } catch(err) {
     try { PropertiesService.getScriptProperties().setProperty('last_menu_build_error', err.message || String(err)); } catch(e4) {}
     Logger.log('포트폴리오 메뉴 생성 실패: ' + (err.message || err));
-    try { _addApiQuickMenu(ui); } catch(eQuick2) { Logger.log('fallback 빠른 API 설정 메뉴 생성 실패: ' + eQuick2.message); }
-    ui.createMenu('📊 포트폴리오')
-      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
-      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-      .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
-      .addToUi();
+    try { _addFallbackMenu(ui); } catch(eFallback) { Logger.log('fallback 메뉴 생성 실패: ' + eFallback.message); }
   }
 
-  // 메뉴 생성 후 트리거 자동 복구를 시도해, 트리거/권한 문제가 메뉴 노출을 막지 않도록 한다.
-  try { _ensureDailyTriggers(true); } catch(e5) { Logger.log('트리거 자동복구 실패: ' + e5.message); }
-  try { _ensureOpenMenuTrigger(true); } catch(e6) { Logger.log('메뉴 열기 트리거 자동복구 실패: ' + e6.message); }
 }
 
 function showMenuBuildError() {
