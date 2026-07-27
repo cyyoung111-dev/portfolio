@@ -90,7 +90,7 @@ function _buildExportSection(totalEval, totalCost) {
       </div>`).join('')}
     </div>
     <div style="font-size:.68rem;color:var(--muted);margin-top:10px">
-      종목별 상세 · 계좌별 요약 · 섹터별 요약 3개 시트로 구성된 엑셀 파일을 받습니다.
+      종목별 상세 · 계좌별 요약 · 섹터별 요약 · 부동산·주담대 · 상환스케줄을 함께 받습니다.
     </div>
   </div>`;
 }
@@ -99,9 +99,16 @@ function _buildExportSection(totalEval, totalCost) {
 // 시트1: 종목별 상세 (계좌/종목/유형/섹터/수량/단가/평가금액/손익/수익률/통화)
 // 시트2: 계좌별 요약
 // 시트3: 섹터별 요약
+let _portfolioExportBusy = false;
 function exportPortfolioExcel() {
+  if (_portfolioExportBusy) return;
   if (typeof XLSX === 'undefined') { showToast('라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.', 'warn'); return; }
-  if (!rows || rows.length === 0) { showToast('내보낼 보유 종목이 없습니다', 'warn'); return; }
+  const hasPortfolio = Array.isArray(rows) && rows.length > 0;
+  const hasRealEstate = Number(REAL_ESTATE?.currentValue || REAL_ESTATE?.purchasePrice || 0) > 0;
+  const hasLoan = Number(LOAN?.originalAmt || LOAN?.balance || 0) > 0 || (Array.isArray(LOAN_SCHEDULE) && LOAN_SCHEDULE.length > 0);
+  if (!hasPortfolio && !hasRealEstate && !hasLoan) { showToast('내보낼 자산 데이터가 없습니다', 'warn'); return; }
+  _portfolioExportBusy = true;
+  setTimeout(() => { _portfolioExportBusy = false; }, 2000); // 중간 오류가 발생해도 잠금 자동 해제
 
   const wb = XLSX.utils.book_new();
   const todayStr = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : new Date().toISOString().slice(0,10);
@@ -214,8 +221,58 @@ function exportPortfolioExcel() {
   });
   XLSX.utils.book_append_sheet(wb, ws3, '섹터별 요약');
 
-  XLSX.writeFile(wb, `포트폴리오_${todayStr.replace(/-/g,'')}.xlsx`);
-  showToast('📥 엑셀 다운로드 완료', 'ok');
+  // ── 시트4: 부동산·주담대 요약 (현재 시세 포함)
+  const currentValue = Number(REAL_ESTATE?.currentValue || 0);
+  const purchasePrice = Number(REAL_ESTATE?.purchasePrice || 0);
+  const taxCost = Number(REAL_ESTATE?.taxCost || 0);
+  const interiorCost = Number(REAL_ESTATE?.interiorCost || 0);
+  const etcCost = Number(REAL_ESTATE?.etcCost || 0);
+  const totalAcquisition = purchasePrice + taxCost + interiorCost + etcCost;
+  const loanBalance = Number(LOAN?.balance || 0);
+  const realEstateRows = [
+    ['구분','항목','값','비고'],
+    ['부동산','자산명', REAL_ESTATE?.name || '보유 부동산',''],
+    ['부동산','현재 시세', Math.round(currentValue),'최근 입력 시세'],
+    ['부동산','매입가', Math.round(purchasePrice),''],
+    ['부동산','취득세 등', Math.round(taxCost),''],
+    ['부동산','인테리어 비용', Math.round(interiorCost),''],
+    ['부동산','기타 비용', Math.round(etcCost),''],
+    ['부동산','총 취득원가', Math.round(totalAcquisition),'매입가와 부대비용 합계'],
+    ['부동산','평가손익', Math.round(currentValue - totalAcquisition),'현재 시세 - 총 취득원가'],
+    ['주담대','최초 대출금', Math.round(Number(LOAN?.originalAmt || 0)),''],
+    ['주담대','현재 대출잔액', Math.round(loanBalance),''],
+    ['주담대','금리(%)', Number(LOAN?.annualRate || 0),'연 금리'],
+    ['주담대','대출 실행일', LOAN?.startDate || '',''],
+    ['주담대','전체 상환개월', Number(LOAN?.totalMonths || 0),''],
+    ['주담대','남은 상환개월', Number(LOAN?.remainingMonths || 0),''],
+    ['주담대','이번 달 이자', Math.round(Number(LOAN?.monthlyInterestPaid || 0)),''],
+    ['주담대','누적 납부이자', Math.round(Number(LOAN?.totalInterestPaid || 0)),''],
+    ['순자산','부동산 순자산', Math.round(currentValue - loanBalance),'현재 시세 - 현재 대출잔액'],
+    ['메모','부동산 메모', REAL_ESTATE?.memo || '',''],
+  ];
+  const ws4 = XLSX.utils.aoa_to_sheet(realEstateRows);
+  ws4['!cols'] = [{wch:10},{wch:18},{wch:16},{wch:30}];
+  XLSX.utils.book_append_sheet(wb, ws4, '부동산·주담대');
+
+  // ── 시트5: 주담대 월별 상환스케줄
+  const scheduleRows = [['상환월','상환 후 잔액','원금','이자'],
+    ...(Array.isArray(LOAN_SCHEDULE) ? LOAN_SCHEDULE : []).map(item => [
+      item?.date || '',
+      Math.round(Number(item?.balance || 0)),
+      Math.round(Number(item?.principal || 0)),
+      Math.round(Number(item?.interest || 0)),
+    ])
+  ];
+  const ws5 = XLSX.utils.aoa_to_sheet(scheduleRows);
+  ws5['!cols'] = [{wch:12},{wch:16},{wch:14},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws5, '주담대 상환스케줄');
+
+  try {
+    XLSX.writeFile(wb, `포트폴리오_${todayStr.replace(/-/g,'')}.xlsx`);
+    showToast('📥 엑셀 다운로드 완료', 'ok');
+  } finally {
+    setTimeout(() => { _portfolioExportBusy = false; }, 500);
+  }
 }
 
 // ════════════════════════════════════
@@ -842,7 +899,8 @@ function _bindPlanEvents(area, totalEval, totalCost) {
     renderView(true);
   });
 
-  area.addEventListener('click', function(e) {
+  if (area._planClickHandler) area.removeEventListener('click', area._planClickHandler);
+  area._planClickHandler = function(e) {
     const action = e.target.closest('[data-plan-action]')?.dataset?.planAction;
     // ★ [한국 세제 반영] ISA 비과세 유형 선택
     const isaType = e.target.closest('[data-plan-isa-type]')?.dataset?.planIsaType;
@@ -901,5 +959,6 @@ function _bindPlanEvents(area, totalEval, totalCost) {
       _savePlanSettings();
       renderView(true);
     }
-  });
+  };
+  area.addEventListener('click', area._planClickHandler);
 }
