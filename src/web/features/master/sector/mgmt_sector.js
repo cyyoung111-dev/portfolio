@@ -210,7 +210,7 @@ function _renderSecNewColorDots(selectedColor) {
     const isSelected = resolved.toLowerCase() === resolveColor(selectedColor).toLowerCase();
     return `<span data-color="${c}"
       style="width:26px;height:26px;border-radius:50%;background:${c};cursor:pointer;flex-shrink:0;
-      border:3px solid ${isSelected?'#fff':'transparent'};
+      border:3px solid ${isSelected?'var(--text)':'transparent'};
       opacity:${isUsed && !isSelected?'0.3':'1'};
       transition:border .1s,opacity .1s" title="${isUsed && !isSelected?'사용 중':''}"></span>`;
   }).join('');
