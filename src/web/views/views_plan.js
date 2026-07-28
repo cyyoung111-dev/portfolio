@@ -78,7 +78,7 @@ function _buildExportSection(totalEval, totalCost) {
       <h4 class="h3-card">📊 포트폴리오 엑셀 내보내기</h4>
       <button data-plan-action="export-excel" class="btn-purple-sm">📥 엑셀 다운로드</button>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:.78rem">
+    <div class="plan-export-grid">
       ${[
         ['계좌 수', `${acctCount}개`],
         ['종목 수', `${stockCount}개`],
@@ -393,7 +393,7 @@ function _buildBuyingPowerSection(totalEval) {
       <button data-plan-action="calc-buying-power" class="btn-purple-sm">계산</button>
     </div>
     ${cash > 0 ? `
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+    <div class="plan-metric-grid">
       ${[['💰 현금', fmt(cash)],['📈 주식 평가액', fmt(totalEval)],['🏦 총 자산', fmt(totalAssets)]].map(([l,v])=>`
       <div class="s2-rounded"><div class="lbl-62-muted-3">${l}</div><div class="fw-600 c-amber">${v}</div></div>`).join('')}
     </div>` : ''}
@@ -772,7 +772,7 @@ function _buildSimSection(totalEval) {
     <h4 class="h3-card" style="margin-bottom:14px">📈 자산 시뮬레이터</h4>
 
     <!-- 파라미터 입력 -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px">
+    <div class="plan-metric-grid plan-sim-grid">
       <div>
         <div class="lbl-62-muted-3">월 추가 투자 (원)</div>
         <input type="text" id="sim-monthly" value="${monthly.toLocaleString()}" data-format="number-comma"
