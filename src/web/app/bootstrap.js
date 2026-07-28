@@ -16,6 +16,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // 상환스케줄 기반 LOAN 자동 갱신
   if (typeof syncLoanFromSchedule === 'function') syncLoanFromSchedule();
+  // 앱을 장시간 열어둔 상태에서 월이 바뀌어도 현재월 스케줄을 다시 반영합니다.
+  setInterval(() => {
+    if (typeof syncLoanFromSchedule !== 'function') return;
+    const changed = syncLoanFromSchedule();
+    if (changed && typeof persistRealEstateSettings === 'function') persistRealEstateSettings(true);
+    if (changed) { try { refreshAll(); } catch(e) {} }
+  }, 60 * 60 * 1000);
 
   // 종가 자동 조회 (GSheet 연동 시)
   if (typeof autoLoadPrices === 'function') autoLoadPrices();
