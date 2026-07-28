@@ -266,6 +266,8 @@ function applyTheme(themeKey, opts = {}) {
 
   _currentTheme = normalized;
   _themeMode = _normalizeThemeMode(theme.mode);
+  // CSS에서도 라이트/다크 모드별 대비를 안전하게 조정할 수 있도록 현재 모드를 노출합니다.
+  document.documentElement.dataset.themeMode = _themeMode;
 
   if (typeof lsSave === 'function') {
     lsSave(THEME_STORAGE_KEY, normalized);
