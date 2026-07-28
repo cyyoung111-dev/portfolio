@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.37
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.38
+//
+//  v9.38 변경사항 (2026.07.28):
+//   ✅ [동시성] 설정·배당·부동산 저장에 Script Lock을 적용해 자동 트리거와 웹 저장 충돌 방지
+//   ✅ [안정성] 프론트 저장 debounce 대기 Promise가 취소 후 남는 문제 수정
 //
 //  v9.37 변경사항 (2026.07.27):
 //   ✅ [자동화] syncMortgageFromSchedule — 현재월 상환스케줄 기준 잔액·이자·잔여기간을 GAS에서 매일 갱신
@@ -3974,12 +3978,17 @@ function syncMortgageFromSchedule() {
   }
 }
 function handleSaveSettings(dataJson) {
+  var lock = LockService.getScriptLock();
+  var locked = false;
   try {
+    lock.waitLock(30000); locked = true;
     var settings = _parseJsonParam(dataJson, 'settings');
     var saved = _writeSettingsMap(settings);
     return jsonOk({ saved: saved });
   } catch(err) {
     return jsonError('saveSettings 실패: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
@@ -3990,14 +3999,17 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.37' });
+    return jsonOk({ settings: settings, gasVersion: '9.38' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
 }
 
 function handleSaveDividendSettings(dataJson) {
+  var lock = LockService.getScriptLock();
+  var locked = false;
   try {
+    lock.waitLock(30000); locked = true;
     var divData = _parseJsonParam(dataJson, 'dividend data');
     var settings = _readSettingsMap();
     settings.DIVDATA = divData;
@@ -4005,6 +4017,8 @@ function handleSaveDividendSettings(dataJson) {
     return jsonOk({ saved: true, key: 'DIVDATA' });
   } catch(err) {
     return jsonError('saveDividendSettings 실패: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
@@ -4018,7 +4032,10 @@ function handleGetDividendSettings() {
 }
 
 function handleSaveRealEstateSettings(dataJson) {
+  var lock = LockService.getScriptLock();
+  var locked = false;
   try {
+    lock.waitLock(30000); locked = true;
     var payload = _parseJsonParam(dataJson, 'realEstate data');
     var settings = _readSettingsMap();
     settings.LOAN = payload.LOAN || {};
@@ -4029,6 +4046,8 @@ function handleSaveRealEstateSettings(dataJson) {
     return jsonOk({ saved: true, keys: ['LOAN','REAL_ESTATE','LOAN_SCHEDULE','RE_VALUE_HIST'] });
   } catch(err) {
     return jsonError('saveRealEstateSettings 실패: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 

@@ -27,6 +27,8 @@ let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 let _saveSettingsTimer = null;
 let _dividendSaveQueue = Promise.resolve();
 let _saveRealEstateTimer = null;
+let _saveSettingsWaiters = [];
+let _saveRealEstateWaiters = [];
 
 const TAB_SYNC_STATUS_KEY = 'tab_sync_status';
 let TAB_SYNC_STATUS = lsGet(TAB_SYNC_STATUS_KEY, {});
@@ -77,7 +79,11 @@ function saveRealEstateSettings(immediate) {
   clearTimeout(_saveRealEstateTimer);
   const delay = immediate ? 0 : 2500;
   return new Promise(resolve => {
+    _saveRealEstateWaiters.push(resolve);
     _saveRealEstateTimer = setTimeout(async () => {
+      const waiters = _saveRealEstateWaiters;
+      _saveRealEstateWaiters = [];
+      let ok = false;
       try {
         const payload = {
           LOAN,
@@ -92,10 +98,11 @@ function saveRealEstateSettings(immediate) {
         );
         if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        resolve(true);
+        ok = true;
       } catch(e) {
         console.warn('saveRealEstateSettings 실패:', e);
-        resolve(false);
+      } finally {
+        waiters.forEach(done => done(ok));
       }
     }, delay);
   });
@@ -177,7 +184,11 @@ function saveSettings(immediate) {
   clearTimeout(_saveSettingsTimer);
   const delay = immediate ? 0 : 4000;
   return new Promise(resolve => {
+    _saveSettingsWaiters.push(resolve);
     _saveSettingsTimer = setTimeout(async () => {
+      const waiters = _saveSettingsWaiters;
+      _saveSettingsWaiters = [];
+      let ok = false;
       try {
         const settings = {
           ACCT_COLORS,
@@ -206,10 +217,11 @@ function saveSettings(immediate) {
         );
         if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        resolve(true);
+        ok = true;
       } catch(e) {
         console.warn('saveSettings 실패:', e);
-        resolve(false);
+      } finally {
+        waiters.forEach(done => done(ok));
       }
     }, delay);
   });

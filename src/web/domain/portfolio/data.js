@@ -584,7 +584,6 @@ function _commitTrades() {
 // ★ 상환스케줄 기준으로 LOAN 자동 갱신
 // - 페이지 로드·GAS 복원·매시간 확인 시 호출하며, 값이 달라진 경우에만 저장
 // - annualRate / startDate / originalAmt 는 스케줄에 없으므로 유지
-let _loanSyncedMonth = null; // 마지막으로 동기화한 YYYY-MM
 function syncLoanFromSchedule() {
   if (!LOAN_SCHEDULE || LOAN_SCHEDULE.length === 0) return;
   const todayStr = _kstMonthStr(); // ★ KST 기준 YYYY-MM (toISOString은 UTC 기준이라 자정 이후 전날로 밀릴 수 있음)
@@ -615,8 +614,6 @@ function syncLoanFromSchedule() {
   LOAN.totalMonths         = totalMonths;
   LOAN.remainingMonths     = remainingMonths;
   LOAN.totalInterestPaid   = totalInterestPaid;
-  _loanSyncedMonth = todayStr;
-
   // ★ [버그수정] 레이스컨디션 방지: saveSettings() 대신 lsSave() 직접 호출
   //   bootstrap.js에서 syncLoanFromSchedule() 호출 시점에
   //   bootstrapGsheetSettings()가 비동기 실행 중일 수 있음
