@@ -229,6 +229,25 @@ const THEMES = {
 
 const THEME_STORAGE_KEY = 'app_theme';
 const THEME_MODE_KEY = 'app_theme_mode';
+const FONT_STORAGE_KEY = 'app_font';
+const FONT_PRESETS = {
+  pretendard: {
+    label: 'Pretendard',
+    desc: '현재 사용 중 · 균형 잡힌 한글과 숫자',
+    family: "'Pretendard Variable',Pretendard,'맑은 고딕','Malgun Gothic',sans-serif",
+  },
+  noto_sans_kr: {
+    label: 'Noto Sans KR',
+    desc: '획 구분이 선명하고 작은 한글도 안정적',
+    family: "'Noto Sans KR','맑은 고딕','Malgun Gothic',sans-serif",
+  },
+  ibm_plex_sans_kr: {
+    label: 'IBM Plex Sans KR',
+    desc: '숫자 형태가 뚜렷한 데이터 화면용 서체',
+    family: "'IBM Plex Sans KR','맑은 고딕','Malgun Gothic',sans-serif",
+  },
+};
+let _currentFont = 'pretendard';
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
 const LEGACY_LIGHT_THEMES = ['light'];
 const THEME_VISIBLE_PRESETS = {
@@ -314,6 +333,43 @@ function loadTheme() {
   applyTheme(normalized, { skipModeSave: true });
 }
 
+function applyFont(fontKey, opts = {}) {
+  const normalized = FONT_PRESETS[fontKey] ? fontKey : 'pretendard';
+  const preset = FONT_PRESETS[normalized];
+  document.documentElement.style.setProperty('--font-ui', preset.family);
+  document.documentElement.dataset.appFont = normalized;
+  _currentFont = normalized;
+  if (!opts.skipSave && typeof lsSave === 'function') lsSave(FONT_STORAGE_KEY, normalized);
+  _refreshThemeSelectorIfOpen();
+}
+
+function loadFont() {
+  const saved = typeof lsGet === 'function' ? lsGet(FONT_STORAGE_KEY, 'pretendard') : 'pretendard';
+  applyFont(saved, { skipSave: true });
+}
+
+function _buildFontSelectorHTML() {
+  const sample = '총 평가금액 987,654,321원 · 수익률 +12.48%';
+  const buttons = Object.entries(FONT_PRESETS).map(([key, preset]) => {
+    const active = key === _currentFont;
+    return `<button type="button" data-theme-action="font" data-font-key="${_escapeHtml(key)}"
+      style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid ${active ? 'var(--amber)' : 'var(--border)'};
+             background:${active ? 'var(--c-amber-08)' : 'var(--s1)'};color:var(--text);cursor:pointer;text-align:left;font-family:${preset.family}">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span style="font-size:.80rem;font-weight:700">${preset.label}</span>
+        ${active ? '<span style="color:var(--gold);font-size:.68rem;font-weight:700">현재 적용</span>' : ''}
+      </div>
+      <div style="font-size:.66rem;color:var(--muted);margin-top:2px">${preset.desc}</div>
+      <div style="font-size:.76rem;font-weight:600;margin-top:6px;font-variant-numeric:tabular-nums">${sample}</div>
+    </button>`;
+  }).join('');
+  return `<div style="margin-top:16px">
+    <div style="font-size:.70rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔤 글꼴 선택</div>
+    <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">선택한 글꼴은 GAS에 저장되어 다른 기기에도 동일하게 적용됩니다.</div>
+    <div style="display:flex;flex-direction:column;gap:6px">${buttons}</div>
+  </div>`;
+}
+
 function renderThemeSelector(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -364,6 +420,7 @@ function _buildThemeSelectorHTML() {
       ${modeBtn('light', '☀️ 라이트')}
     </div>
     <div style="display:flex;flex-direction:column;gap:6px">${btns}</div>
+    ${_buildFontSelectorHTML()}
   </div>`;
 }
 
@@ -389,6 +446,7 @@ function _renderThemeButtons() {
 }
 
 loadTheme();
+loadFont();
 
 function switchSettingsTab(tab) {
   const panels = ['tab', 'theme'];

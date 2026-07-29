@@ -97,6 +97,7 @@ function registerGlobalEventDelegation() {
       const action = themeAction.dataset.themeAction;
       if (action === 'mode') { if (typeof setThemeMode === 'function') { setThemeMode(themeAction.dataset.mode || 'system'); if (typeof _queueThemeSettingsSync === 'function') _queueThemeSettingsSync(); } }
       else if (action === 'apply') { if (typeof applyTheme === 'function') { applyTheme(themeAction.dataset.themeKey || ''); if (typeof _queueThemeSettingsSync === 'function') _queueThemeSettingsSync(); } }
+      else if (action === 'font') { if (typeof applyFont === 'function') { applyFont(themeAction.dataset.fontKey || 'pretendard'); if (typeof _queueThemeSettingsSync === 'function') _queueThemeSettingsSync(); } }
       return;
     }
 
