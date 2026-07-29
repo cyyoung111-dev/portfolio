@@ -179,7 +179,6 @@ function _promptLoanFromSchedule(schedule) {
   LOAN.totalMonths         = totalMonths;
   LOAN.remainingMonths     = remainingMonths;
   LOAN.totalInterestPaid   = totalInterestPaid;
-  _loanSyncedMonth = todayStr;
   persistRealEstateSettings(true);
   renderSummary();
   if (currentView === 'asset') renderView();

@@ -2,6 +2,30 @@
 //  views_history.js — 스냅샷 히스토리, 구글시트탭, 종목코드탭
 //  의존: data.js, settings.js, views_system.js
 // ════════════════════════════════════════════════════════════════
+function _calcHistoryMdd(points, valueKey) {
+  let peak = -Infinity;
+  let peakDate = '';
+  let maxDrawdown = 0;
+  let maxPeakDate = '';
+  let troughDate = '';
+  (Array.isArray(points) ? points : []).forEach(point => {
+    const value = Number(point?.[valueKey]);
+    if (!Number.isFinite(value) || value <= 0) return;
+    if (value > peak) {
+      peak = value;
+      peakDate = point?.date || '';
+      return;
+    }
+    const drawdown = peak > 0 ? ((value / peak) - 1) * 100 : 0;
+    if (drawdown < maxDrawdown) {
+      maxDrawdown = drawdown;
+      maxPeakDate = peakDate;
+      troughDate = point?.date || '';
+    }
+  });
+  return { pct: maxDrawdown, peakDate: maxPeakDate, troughDate };
+}
+
 function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
@@ -85,7 +109,17 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       return { i, date, raw: lastBench || 0 };
     }).filter(b => b.raw > 0);
     arr.forEach(b => { b.idx = base > 0 ? (b.raw / base * 100) : 0; });
-    return { type: benchType, color: benchColors[idx % benchColors.length], pts: arr };
+    // MDD는 주간/월간 스냅샷 간격이 아니라 조회된 지수의 일별 원자료로 계산해
+    // 기간 중간의 실제 저점을 놓치지 않도록 합니다.
+    const lastSnapshotDate = snapshots[snapshots.length - 1]?.date || '';
+    const dailyMddPoints = benchRaw
+      .filter(b => b?.date && Number(b?.value) > 0
+        && (!firstSnapshotDate || b.date >= firstSnapshotDate)
+        && (!lastSnapshotDate || b.date <= lastSnapshotDate))
+      .map(b => ({ date: b.date, raw: Number(b.value) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const mdd = _calcHistoryMdd(dailyMddPoints.length ? dailyMddPoints : arr, dailyMddPoints.length ? 'raw' : 'idx');
+    return { type: benchType, color: benchColors[idx % benchColors.length], pts: arr, mdd };
   }).filter(x => x.pts.length > 1);
   const hasBench = benchLines.length > 0;
   const allIdx = hasBench ? benchLines.flatMap(x => x.pts.map(p => p.idx)) : [];
@@ -154,10 +188,14 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       ${benchLines.map(line => {
         const last = line.pts[line.pts.length - 1];
         const delta = last ? (last.idx - 100) : 0;
-        return `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
+        const mddTitle = line.mdd?.troughDate
+          ? `${line.mdd.peakDate || '-'} → ${line.mdd.troughDate}`
+          : '선택 기간 내 하락 없음';
+        return `<span title="MDD 구간: ${_escapeHtml(mddTitle)}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
           <span style="width:8px;height:8px;border-radius:999px;background:${line.color}"></span>
           <span style="color:var(--muted)">${line.type}</span>
           <span style="color:${line.color};font-weight:700">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>
+          <span style="color:var(--red-lt);font-weight:700">MDD ${line.mdd.pct.toFixed(1)}%</span>
         </span>`;
       }).join('')}
     </div>` : ''}
@@ -176,6 +214,8 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">${line.type} 변화</div>
         <div style="font-size:.88rem;font-weight:700;color:${line.color}">${(delta >= 0 ? '+' : '') + delta.toFixed(1)}%</div>
+        <div style="font-size:.68rem;font-weight:700;color:var(--red-lt);margin-top:2px">MDD ${line.mdd.pct.toFixed(1)}%</div>
+        ${line.mdd?.troughDate ? `<div style="font-size:.58rem;color:var(--muted);margin-top:1px">${_fmtHistDateCompact(line.mdd.peakDate)} → ${_fmtHistDateCompact(line.mdd.troughDate)}</div>` : ''}
       </div>`;
       }).join('') : ''}
     </div>`;
@@ -440,7 +480,6 @@ function renderStocksView(area) {
               📂 xlsx/csv 업로드
               <input id="smCsvFileInput" type="file" accept=".xlsx,.csv" style="display:none"/>
             </label>
-            <button id="btn-sm-sync-official" class="btn-ghost-sm">🏛️ KRX 공식명 반영</button>
             <button id="btn-sm-template" class="btn-ghost-sm">⬇️ 양식</button>
           </div>
         </div>
