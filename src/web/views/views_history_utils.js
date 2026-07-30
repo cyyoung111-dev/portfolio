@@ -55,13 +55,34 @@ function _normalizeHistDate(v) {
   return '';
 }
 
+function _historyUtcDate(dateStr) {
+  const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10)));
+}
+
+function _historyDateStr(date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+}
+
+function _historyWeekStart(dateStr) {
+  const date = _historyUtcDate(dateStr);
+  if (!date) return '';
+  const day = date.getUTCDay();
+  date.setUTCDate(date.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return _historyDateStr(date);
+}
+
+// 금요일 자료가 없더라도 해당 주의 마지막 스냅샷을 사용합니다.
+// 휴일·트리거 실패 때문에 주간 데이터가 통째로 사라지는 문제를 방지합니다.
 function _filterWeeklyFriday(snapshots) {
-  return snapshots.filter(s => {
-    const m = String(s.date || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return false;
-    const dowKst = new Date(Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10))).getUTCDay();
-    return dowKst === 5; // 금요일(KST 날짜 기준)
+  const weekMap = {};
+  snapshots.forEach(s => {
+    const key = _historyWeekStart(s.date || '');
+    if (!key) return;
+    if (!weekMap[key] || (s.date || '') > (weekMap[key].date || '')) weekMap[key] = s;
   });
+  return Object.keys(weekMap).sort().map(k => weekMap[k]);
 }
 
 function _filterMonthEnd(snapshots) {
@@ -73,6 +94,47 @@ function _filterMonthEnd(snapshots) {
     if (!monthMap[key] || (s.date || '') > (monthMap[key].date || '')) monthMap[key] = s;
   });
   return Object.keys(monthMap).sort().map(k => monthMap[k]);
+}
+
+function _historyTargetDate(periodStart, mode) {
+  const date = _historyUtcDate(periodStart);
+  if (!date) return '';
+  if (mode === 'week') {
+    date.setUTCDate(date.getUTCDate() + 4); // 금요일
+  } else {
+    date.setUTCMonth(date.getUTCMonth() + 1, 0);
+    if (date.getUTCDay() === 0) date.setUTCDate(date.getUTCDate() - 2);
+    else if (date.getUTCDay() === 6) date.setUTCDate(date.getUTCDate() - 1);
+  }
+  return _historyDateStr(date);
+}
+
+function _analyzeHistoryCoverage(snapshots, mode) {
+  const normalizedMode = mode === 'month' ? 'month' : 'week';
+  const dates = (Array.isArray(snapshots) ? snapshots : [])
+    .map(s => _normalizeHistDate(s?.date || ''))
+    .filter(Boolean)
+    .sort();
+  if (dates.length < 2) return { missing: [], first: dates[0] || '', last: dates[0] || '' };
+
+  const present = new Set(dates.map(date => normalizedMode === 'week' ? _historyWeekStart(date) : date.slice(0, 7) + '-01'));
+  let cursor = _historyUtcDate(normalizedMode === 'week' ? _historyWeekStart(dates[0]) : dates[0].slice(0, 7) + '-01');
+  const endKey = normalizedMode === 'week' ? _historyWeekStart(dates[dates.length - 1]) : dates[dates.length - 1].slice(0, 7) + '-01';
+  const missing = [];
+  while (cursor && _historyDateStr(cursor) <= endKey) {
+    const key = _historyDateStr(cursor);
+    if (!present.has(key)) {
+      const targetDate = _historyTargetDate(key, normalizedMode);
+      missing.push({
+        key,
+        targetDate,
+        label: normalizedMode === 'week' ? `${key.slice(5).replace('-', '.')} 주` : key.slice(0, 7).replace('-', '.')
+      });
+    }
+    if (normalizedMode === 'week') cursor.setUTCDate(cursor.getUTCDate() + 7);
+    else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return { missing, first: dates[0], last: dates[dates.length - 1] };
 }
 
 function _fmtHistDateCompact(v) {
