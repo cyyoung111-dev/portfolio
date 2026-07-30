@@ -7,18 +7,21 @@ async function loadHistoryChart() {
   const statusEl = $el('histStatusMsg');
   const chartWrap = $el('histChartWrap');
   const tableWrap = $el('histTableWrap');
+  const coverageEl = $el('histCoveragePanel');
   if (!chartWrap) return;
 
   if (!GSHEET_API_URL) {
     _setHistoryStatus(statusEl, 'no_api');
     chartWrap.innerHTML = '';
     if (tableWrap) tableWrap.innerHTML = '';
+    if (coverageEl) coverageEl.innerHTML = '';
     return;
   }
 
   _setHistoryStatus(statusEl, 'loading');
   chartWrap.innerHTML = '';
   if (tableWrap) tableWrap.innerHTML = '';
+  if (coverageEl) coverageEl.innerHTML = '';
 
   try {
     const startMonth = String($el('histStartMonth')?.value || '').trim();
@@ -55,12 +58,16 @@ async function loadHistoryChart() {
     snapshots = _mergeTradeBasedCost(snapshots);
     const mode = _getHistMode();
     const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
+    const graphSnapshots = tableSnapshots;
+    const coverage = _analyzeHistoryCoverage(snapshots, mode);
+    __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
+    _renderHistoryCoverage(coverageEl, coverage, mode);
 
     const latestSnapshotDate = snapshots[snapshots.length-1].date || '';
     const latestDate = _fmtHistDateCompact(latestSnapshotDate);
     const snapshotGap = _getHistorySnapshotGap(latestSnapshotDate);
     _setHistoryStatus(statusEl, 'summary', {
-      graphCount: snapshots.length,
+      graphCount: graphSnapshots.length,
       tableCount: tableSnapshots.length,
       mode,
       latestDate,
@@ -80,18 +87,66 @@ async function loadHistoryChart() {
     const benchSeriesMap = benchBundle.seriesMap;
     const benchMetaMap = benchBundle.metaMap;
     const missing = benchBundle.failedTypes;
-    const baseMsg = `그래프 ${snapshots.length}일 · 표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 최근: ${latestDate}`;
+    const baseMsg = `그래프·표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 원본 ${snapshots.length}일 · 최근: ${latestDate}`;
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
     const missingMsg = missing.length ? ` (실패: ${missing.join(', ')})` : '';
     _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
-    _drawHistoryChart(chartWrap, snapshots, mode, { types: benchmarkTypes, seriesMap: benchSeriesMap, metaMap: benchMetaMap });
+    _drawHistoryChart(chartWrap, graphSnapshots, mode, {
+      types: benchmarkTypes,
+      seriesMap: benchSeriesMap,
+      metaMap: benchMetaMap,
+      portfolioSnapshots: snapshots
+    });
     _drawHistoryTable(tableWrap, tableSnapshots);
 
   } catch(e) {
     _setHistoryStatus(statusEl, 'error', { message: e.message });
+  }
+}
+
+function _renderHistoryCoverage(el, coverage, mode) {
+  if (!el) return;
+  const missing = Array.isArray(coverage?.missing) ? coverage.missing : [];
+  if (!missing.length) {
+    el.innerHTML = '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 스냅샷 주기가 연속적입니다.</div>';
+    return;
+  }
+  const labels = missing.slice(0, 6).map(item => item.label).join(', ');
+  const more = missing.length > 6 ? ` 외 ${missing.length - 6}개` : '';
+  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 11px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
+    <div style="min-width:0;font-size:.67rem;color:var(--text);line-height:1.55">
+      <b style="color:var(--amber)">⚠️ ${mode === 'week' ? '주간' : '월간'} 스냅샷 ${missing.length}개 누락</b><br>
+      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · 금요일/월말 영업일 기준으로 복구합니다.</span>
+    </div>
+    <button type="button" class="btn-ghost-sm" data-history-action="repair-gaps">🛠️ 누락 보완</button>
+  </div>`;
+}
+
+async function repairHistorySnapshotGaps() {
+  const dates = Array.from(new Set(__histState.missingSnapshotDates || [])).filter(Boolean);
+  if (!dates.length || !GSHEET_API_URL) return;
+  if (!confirm(`${dates.length}개의 누락 스냅샷을 가격이력과 거래이력으로 복구할까요?\n처리 중에는 화면을 닫지 마세요.`)) return;
+  const btn = document.querySelector('[data-history-action="repair-gaps"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 복구 중...'; }
+  let repaired = 0;
+  const failed = [];
+  try {
+    for (let i = 0; i < dates.length; i += 4) {
+      const chunk = dates.slice(i, i + 4);
+      const data = await requestGsheetFormJson('repairSnapshots', { data: JSON.stringify({ dates: chunk }) }, { timeoutMs: 120000, retry: 0 });
+      if (!data || data.status === 'error') throw new Error(data?.message || 'GAS 복구 응답 오류');
+      repaired += Array.isArray(data.repaired) ? data.repaired.length : 0;
+      if (Array.isArray(data.failed)) failed.push(...data.failed);
+      if (btn) btn.textContent = `⏳ ${Math.min(i + chunk.length, dates.length)}/${dates.length}`;
+    }
+    showToast(`스냅샷 ${repaired}개 복구 완료${failed.length ? ` · 실패 ${failed.length}개` : ''}`, failed.length ? 'warn' : 'ok');
+    await loadHistoryChart();
+  } catch (e) {
+    showToast(`스냅샷 복구 실패: ${e.message}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '🛠️ 다시 시도'; }
   }
 }
 

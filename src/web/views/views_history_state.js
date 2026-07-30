@@ -7,6 +7,7 @@ const __histState = window.__histState || {
   benchmarks: ['KOSPI'],
   debugByDate: {},
   debugDate: '',
+  missingSnapshotDates: [],
 };
 window.__histState = __histState;
 
@@ -136,6 +137,7 @@ function _applyHistModeUI(mode) {
   });
   const active = mode === 'week' ? wBtn : mBtn;
   active.style.background = 'var(--c-purple-45,#7c3aed)';
+  // 활성 배경은 모든 프리셋에서 진한 보라색이므로 흰색 텍스트로 대비를 유지합니다.
   active.style.color = '#fff';
   active.style.fontWeight = '600';
 }
