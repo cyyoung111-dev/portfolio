@@ -246,6 +246,16 @@ const FONT_PRESETS = {
     desc: '숫자 형태가 뚜렷한 데이터 화면용 서체',
     family: "'IBM Plex Sans KR','맑은 고딕','Malgun Gothic',sans-serif",
   },
+  gothic_a1: {
+    label: 'Gothic A1',
+    desc: '단정한 획과 넉넉한 자간의 화면용 고딕',
+    family: "'Gothic A1','맑은 고딕','Malgun Gothic',sans-serif",
+  },
+  nanum_gothic: {
+    label: 'Nanum Gothic',
+    desc: '친숙한 한글 형태와 안정적인 본문 가독성',
+    family: "'Nanum Gothic','맑은 고딕','Malgun Gothic',sans-serif",
+  },
 };
 let _currentFont = 'pretendard';
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
