@@ -34,6 +34,7 @@ function renderHistoryView(area) {
       </div>
       <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</div>
       <div id="histStatusMsg" style="font-size:.72rem;color:var(--muted);margin-bottom:8px"></div>
+      <div id="histCoveragePanel"></div>
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
       <div id="histTableWrap" style="margin-top:18px"></div>
     </div>`;
@@ -49,6 +50,9 @@ function renderHistoryView(area) {
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
   $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
+  $el('histCoveragePanel')?.addEventListener('click', e => {
+    if (e.target?.closest?.('[data-history-action="repair-gaps"]')) repairHistorySnapshotGaps();
+  });
   $el('histBenchmarkMulti')?.addEventListener('click', e => {
     const btn = e.target?.closest?.('.hist-bench-btn');
     if (!btn) return;

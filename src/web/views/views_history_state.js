@@ -7,6 +7,7 @@ const __histState = window.__histState || {
   benchmarks: ['KOSPI'],
   debugByDate: {},
   debugDate: '',
+  missingSnapshotDates: [],
 };
 window.__histState = __histState;
 

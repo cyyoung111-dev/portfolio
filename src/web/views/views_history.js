@@ -35,11 +35,24 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
 
   // 데이터 추출 (손익 중심)
   const pts = snapshots.map(s => ({
-    date: _fmtHistDateShort(s.date || ''),
+    date: _mode === 'month' ? _fmtHistDateShortMonth(s.date || '') : _fmtHistDateShortWeek(s.date || ''),
+    rawDate: _normalizeHistDate(s.date || ''),
     cost: parseFloat(s.costAmt || s.cost || 0),
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
   }));
   pts.forEach(p => { p.pnl = p.eval - p.cost; });
+
+  // 입출금 영향을 줄이기 위해 평가금액 자체가 아닌 스냅샷 수익률 지수
+  // (평가금액 ÷ 거래기준 매입원가)를 이용해 나의 손익 MDD를 계산합니다.
+  const portfolioMddPoints = (Array.isArray(benchmarkOpt?.portfolioSnapshots) ? benchmarkOpt.portfolioSnapshots : snapshots)
+    .map(s => {
+      const cost = parseFloat(s.costAmt || s.cost || 0);
+      const evalAmt = parseFloat(s.evalAmt || s.total || s.eval || 0);
+      return { date: _normalizeHistDate(s.date || ''), returnIndex: cost > 0 && evalAmt > 0 ? evalAmt / cost * 100 : 0 };
+    })
+    .filter(p => p.date && p.returnIndex > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const portfolioMdd = _calcHistoryMdd(portfolioMddPoints, 'returnIndex');
 
   const minMoney = Math.min(...pts.map(p => p.pnl));
   const maxMoney = Math.max(...pts.map(p => p.pnl));
@@ -207,6 +220,11 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">수익률</div>
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${lastPt.cost > 0 ? (pSign(lastPt.pnl) + (lastPt.pnl/lastPt.cost*100).toFixed(1) + '%') : '-'}</div>
+      </div>
+      <div title="평가금액÷거래기준 매입원가로 만든 수익률 지수의 고점 대비 최대 하락률" style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+        <div style="font-size:.62rem;color:var(--muted)">나의 손익 MDD</div>
+        <div style="font-size:.88rem;font-weight:700;color:var(--red-lt)">${portfolioMdd.pct.toFixed(1)}%</div>
+        ${portfolioMdd.troughDate ? `<div style="font-size:.58rem;color:var(--muted);margin-top:1px">${_fmtHistDateCompact(portfolioMdd.peakDate)} → ${_fmtHistDateCompact(portfolioMdd.troughDate)}</div>` : '<div style="font-size:.58rem;color:var(--muted);margin-top:1px">선택 기간 내 하락 없음</div>'}
       </div>
       ${hasBench ? benchLines.map(line => {
         const last = line.pts[line.pts.length - 1];

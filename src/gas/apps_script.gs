@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.38
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.39
+//
+//  v9.39 변경사항 (2026.07.30):
+//   ✅ [복구]   웹 손익 그래프에서 누락된 주간·월간 스냅샷을 날짜별로 일괄 보완하는 POST 기능 추가
+//   ✅ [정확성] 금요일 자료가 없어도 주간 마지막 스냅샷을 사용하고 월간 연속성도 함께 진단
+//   ✅ [지표]   거래기준 수익률 지수로 계산한 나의 손익 MDD 표시
 //
 //  v9.38 변경사항 (2026.07.28):
 //   ✅ [동시성] 설정·배당·부동산 저장에 Script Lock을 적용해 자동 트리거와 웹 저장 충돌 방지
@@ -363,7 +368,8 @@ function doGet(e) {
       params.action === 'syncHoldings' || params.action === 'syncTrades' ||
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
-      params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey') {
+      params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
+      params.action === 'repairSnapshots') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -397,6 +403,7 @@ function doPost(e) {
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
+  if (params.action === 'repairSnapshots' && params.data) return handleRepairSnapshots(params.data);
   // ★ [최적화] 배치 수동가격 저장 — 건당 개별 요청 → 1회 일괄 처리
   if (params.action === 'batchSaveManualPrices' && params.data) return handleBatchSaveManualPrices(params.date || '', params.data);
   return jsonError('알 수 없는 action: ' + (params.action || '없음'));
@@ -2738,7 +2745,7 @@ function repairPriceAndSnapshotForDate(dateStr) {
     var holdAtDate = calcHoldingsAtDate(tradeData, normDate, nameToCode);
     if (Object.keys(holdAtDate).length === 0) {
       Logger.log('[repair] 보유 종목 없음: ' + normDate);
-      return;
+      return { date: normDate, priceCount: 0, snapshotCount: 0 };
     }
 
     var codeItems = Object.keys(holdAtDate)
@@ -2777,9 +2784,42 @@ function repairPriceAndSnapshotForDate(dateStr) {
     if (snapRows.length > 0) writeSnapshotRows(ss, normDate, snapRows, true);
 
     Logger.log('[repair] 완료: ' + normDate + ' · 가격 ' + phItems.length + '건 · 스냅샷 ' + snapRows.length + '건');
+    return { date: normDate, priceCount: phItems.length, snapshotCount: snapRows.length };
   } catch (err) {
     Logger.log('❌ repairPriceAndSnapshotForDate 실패: ' + err.message);
     throw err;
+  }
+}
+
+function handleRepairSnapshots(dataJson) {
+  try {
+    var payload = JSON.parse(dataJson || '{}');
+    var dates = Array.isArray(payload.dates) ? payload.dates : [];
+    var unique = [];
+    var seen = {};
+    dates.forEach(function(value) {
+      var date = _normalizeDate(value);
+      if (!date || seen[date]) return;
+      seen[date] = true;
+      unique.push(date);
+    });
+    if (unique.length === 0) return jsonError('복구할 날짜가 없습니다');
+    if (unique.length > 8) return jsonError('한 번에 최대 8개 날짜만 복구할 수 있습니다');
+
+    var repaired = [];
+    var failed = [];
+    unique.forEach(function(date) {
+      try {
+        var result = repairPriceAndSnapshotForDate(date);
+        if (result && result.snapshotCount > 0) repaired.push(result);
+        else failed.push({ date: date, message: '해당 날짜의 보유 종목이 없습니다' });
+      } catch (err) {
+        failed.push({ date: date, message: err.message || String(err) });
+      }
+    });
+    return jsonOk({ repaired: repaired, failed: failed });
+  } catch (err) {
+    return jsonError('스냅샷 복구 실패: ' + err.message);
   }
 }
 
@@ -3999,7 +4039,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.38' });
+    return jsonOk({ settings: settings, gasVersion: '9.39' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
