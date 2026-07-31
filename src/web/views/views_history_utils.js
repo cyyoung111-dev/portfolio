@@ -96,7 +96,7 @@ function _filterMonthEnd(snapshots) {
   return Object.keys(monthMap).sort().map(k => monthMap[k]);
 }
 
-function _historyTargetDate(periodStart, mode) {
+function _historyTargetDate(periodStart, mode, maxDate) {
   const date = _historyUtcDate(periodStart);
   if (!date) return '';
   if (mode === 'week') {
@@ -106,7 +106,8 @@ function _historyTargetDate(periodStart, mode) {
     if (date.getUTCDay() === 0) date.setUTCDate(date.getUTCDate() - 2);
     else if (date.getUTCDay() === 6) date.setUTCDate(date.getUTCDate() - 1);
   }
-  return _historyDateStr(date);
+  const target = _historyDateStr(date);
+  return maxDate && target > maxDate ? maxDate : target;
 }
 
 function _analyzeHistoryCoverage(snapshots, mode) {
@@ -117,14 +118,16 @@ function _analyzeHistoryCoverage(snapshots, mode) {
     .sort();
   if (dates.length < 2) return { missing: [], first: dates[0] || '', last: dates[0] || '' };
 
+  const today = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : _normalizeHistDate(new Date());
+  const expectedLast = today && today > dates[dates.length - 1] ? today : dates[dates.length - 1];
   const present = new Set(dates.map(date => normalizedMode === 'week' ? _historyWeekStart(date) : date.slice(0, 7) + '-01'));
   let cursor = _historyUtcDate(normalizedMode === 'week' ? _historyWeekStart(dates[0]) : dates[0].slice(0, 7) + '-01');
-  const endKey = normalizedMode === 'week' ? _historyWeekStart(dates[dates.length - 1]) : dates[dates.length - 1].slice(0, 7) + '-01';
+  const endKey = normalizedMode === 'week' ? _historyWeekStart(expectedLast) : expectedLast.slice(0, 7) + '-01';
   const missing = [];
   while (cursor && _historyDateStr(cursor) <= endKey) {
     const key = _historyDateStr(cursor);
     if (!present.has(key)) {
-      const targetDate = _historyTargetDate(key, normalizedMode);
+      const targetDate = _historyTargetDate(key, normalizedMode, today);
       missing.push({
         key,
         targetDate,
@@ -134,7 +137,7 @@ function _analyzeHistoryCoverage(snapshots, mode) {
     if (normalizedMode === 'week') cursor.setUTCDate(cursor.getUTCDate() + 7);
     else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
-  return { missing, first: dates[0], last: dates[dates.length - 1] };
+  return { missing, first: dates[0], last: dates[dates.length - 1], expectedLast: today };
 }
 
 function _fmtHistDateCompact(v) {

@@ -1,5 +1,14 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.39
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.41
+//
+//  v9.41 변경사항 (2026.07.31):
+//   ✅ [정확성] 펀드·TDF는 스냅샷 기준일 이전의 가장 최근 수동가격만 이월하고 미래 입력값 참조 차단
+//   ✅ [복구]   누락 스냅샷 복구도 공통 스냅샷 생성기를 사용해 펀드·TDF 수동가격을 동일하게 반영
+//   ✅ [보존]   과거 스냅샷 재현에 필요한 수동가격 이력을 삭제하던 최신값만 유지 옵션 비활성화
+//
+//  v9.40 변경사항 (2026.07.31):
+//   ✅ [복구]   마지막 스냅샷 이후부터 오늘까지의 누락 주간·월간 스냅샷도 보완 대상에 포함
+//   ✅ [자동화] 스냅샷 보완 시 16:20 평가단가 자동 트리거를 함께 점검하고 누락 시 자동 복구
 //
 //  v9.39 변경사항 (2026.07.30):
 //   ✅ [복구]   웹 손익 그래프에서 누락된 주간·월간 스냅샷을 날짜별로 일괄 보완하는 POST 기능 추가
@@ -1919,12 +1928,10 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
     var savedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
     upsertPriceHistory(ss, dateStr, saveCode, saveName, price, savedAt, 'MANUAL');
 
-    var keepLatestRaw = (keepLatestParam || '').toString().trim();
-    var keepLatest = keepLatestRaw
-      ? /^1|true|y|yes$/i.test(keepLatestRaw)
-      : _isManualKeepLatestEnabled();
+    // 과거 스냅샷 재현을 위해 날짜별 수동가격은 항상 보존합니다.
+    // 기존 manual_keep_latest 속성이 켜져 있어도 더 이상 과거 행을 삭제하지 않습니다.
+    var keepLatest = false;
     var pruned = 0;
-    if (keepLatest) pruned = _pruneManualPriceHistoryKeepLatest(ss, saveCode, saveName);
 
     // ★ 수동 현재가 저장 직후, 해당 기준일 스냅샷도 즉시 재작성
     //   → 다른 기기에서도 동일 평가단가/평가금액이 보이도록 맞춤
@@ -1950,7 +1957,7 @@ function handleBatchSaveManualPrices(dateStr, dataJson) {
 
     var ss      = getss();
     var savedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
-    var keepLatest = _isManualKeepLatestEnabled();
+    var keepLatest = false;
 
     // ── Step 1: 전체 종목 일괄 upsert (batchUpsertPriceHistory 재사용)
     // 코드→종목명 매핑은 한 번만 읽는다. 기존처럼 map() 내부에서 getCodeItems()를 반복 호출하면
@@ -1979,14 +1986,7 @@ function handleBatchSaveManualPrices(dateStr, dataJson) {
 
     batchUpsertPriceHistory(ss, dateStr, batchItems);
 
-    // ── Step 2: keepLatest 처리 (중복 수동가격 정리)
-    if (keepLatest) {
-      batchItems.forEach(function(item) {
-        try { _pruneManualPriceHistoryKeepLatest(ss, item.code, item.name); } catch(e) {}
-      });
-    }
-
-    // ── Step 3: 스냅샷 재작성 — 모든 종목 저장 완료 후 1회만 실행
+    // ── Step 2: 스냅샷 재작성 — 모든 종목 저장 완료 후 1회만 실행
     try {
       var normDate   = _normalizeDate(dateStr);
       if (normDate) {
@@ -2051,7 +2051,9 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       if (!prices[key]) missingCodes.push(key);
     });
     if (missingCodes.length > 0) {
-      var latestPrices = getLatestPriceHistory(ss, missingCodes);
+      // 기준일 이후에 입력한 수동 NAV가 과거 스냅샷으로 역류하지 않도록
+      // 반드시 스냅샷 날짜 이하의 가격만 이월합니다.
+      var latestPrices = getLatestPriceHistory(ss, missingCodes, dateStr);
       Object.keys(latestPrices).forEach(function(k) {
         if (!prices[k] && latestPrices[k] > 0) prices[k] = latestPrices[k];
         // ★ sourceMap도 함께 채움 — _getPriceSourceByDate가 이미 MANUAL fallback을 처리하지만
@@ -2096,7 +2098,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
       // ★ sourceMap[key] 는 { src, savedAt } 객체
       var srcObj = (key && sourceMap[key]) ? sourceMap[key] : null;
-      var src = srcObj ? srcObj.src : (price > 0 ? 'PRICE_HISTORY' : 'UNKNOWN');
+      var src = srcObj ? srcObj.src : (price > 0 ? 'PRICE_HISTORY' : 'COST_FALLBACK');
       // ★ MANUAL인 경우에만 savedAt 저장, 그 외 빈 문자열
       var savedAt = (srcObj && srcObj.src === 'MANUAL' && srcObj.savedAt) ? srcObj.savedAt : '';
       // 콸럼: 날짜, 코드, 명, 수량, 매수단가, 매수원금, 평가단가, 평가금액, 손익, 수익률, 소스, 저장일시
@@ -2207,8 +2209,7 @@ function _getPriceSourceByDate(ss, dateStr) {
 }
 
 function _isManualKeepLatestEnabled() {
-  var props = PropertiesService.getScriptProperties();
-  return (props.getProperty('manual_keep_latest') || 'false') === 'true';
+  return false;
 }
 
 function _getPriceSourceMode() {
@@ -2242,9 +2243,8 @@ function togglePriceSourceMode() {
 
 function toggleManualKeepLatestOption() {
   var props = PropertiesService.getScriptProperties();
-  var next = !_isManualKeepLatestEnabled();
-  props.setProperty('manual_keep_latest', next ? 'true' : 'false');
-  var msg = '⚙️ 수동가격 최신값만 유지 옵션: ' + (next ? 'ON' : 'OFF');
+  props.setProperty('manual_keep_latest', 'false');
+  var msg = '⚙️ 수동가격 날짜별 이력 보존: ON\n과거 스냅샷 재현을 위해 최신값만 유지 옵션은 사용하지 않습니다.';
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -2333,7 +2333,7 @@ function getPriceHistoryRow(ss, dateStr) {
 // ════════════════════════════════════════════════════════════════════
 //  내부 — 가격이력 시트에서 지정 코드들의 가장 최근 날짜 가격 조회
 // ════════════════════════════════════════════════════════════════════
-function getLatestPriceHistory(ss, codes) {
+function getLatestPriceHistory(ss, codes, maxDate) {
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
@@ -2348,7 +2348,7 @@ function getLatestPriceHistory(ss, codes) {
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
       var key   = code || name;
-      if (!date || !key || price <= 0) return;
+      if (!date || !key || price <= 0 || (maxDate && date > maxDate)) return;
       var outKey = codeAliasToCanonical[key];
       if (!outKey) return;
       var savedAt = _normalizeDatetime(row[4]);
@@ -2768,19 +2768,9 @@ function repairPriceAndSnapshotForDate(dateStr) {
       .map(function(h){ return { code: h.code, name: h.name, price: prices[h.code], source: (priceSources[h.code] || 'UNKNOWN') }; });
     if (phItems.length > 0) batchUpsertPriceHistory(ss, normDate, phItems);
 
-    var snapRows = [];
-    Object.keys(holdAtDate).forEach(function(k) {
-      var h = holdAtDate[k];
-      if (h.qty <= 0) return;
-      var price   = (h.code && prices[h.code]) ? prices[h.code] : 0;
-      var evalAmt = price > 0 ? Math.round(price * h.qty) : h.costAmt;
-      var pnl     = evalAmt - h.costAmt;
-      var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
-      var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
-      var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
-      // ★ repair는 GF 가격으로 복구되므로 savedAt 빈문자열
-      snapRows.push([normDate, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, (priceSources[h.code] || 'UNKNOWN'), '']);
-    });
+    // 공통 생성기를 사용해야 펀드·TDF도 기준일 이전 최근 MANUAL 가격을
+    // 동일하게 이월하고, 해당 기준일보다 미래의 수동가격은 참조하지 않습니다.
+    var snapRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, normDate);
     if (snapRows.length > 0) writeSnapshotRows(ss, normDate, snapRows, true);
 
     Logger.log('[repair] 완료: ' + normDate + ' · 가격 ' + phItems.length + '건 · 스냅샷 ' + snapRows.length + '건');
@@ -2806,6 +2796,7 @@ function handleRepairSnapshots(dataJson) {
     if (unique.length === 0) return jsonError('복구할 날짜가 없습니다');
     if (unique.length > 8) return jsonError('한 번에 최대 8개 날짜만 복구할 수 있습니다');
 
+    var beforeTriggers = _ensureDailyTriggers(false);
     var repaired = [];
     var failed = [];
     unique.forEach(function(date) {
@@ -2817,7 +2808,20 @@ function handleRepairSnapshots(dataJson) {
         failed.push({ date: date, message: err.message || String(err) });
       }
     });
-    return jsonOk({ repaired: repaired, failed: failed });
+    var afterTriggers = beforeTriggers;
+    var automationRestored = false;
+    try {
+      afterTriggers = _ensureDailyTriggers(true);
+      automationRestored = !beforeTriggers.hasSave && afterTriggers.hasSave;
+    } catch (triggerErr) {
+      failed.push({ date: '', message: '자동 트리거 점검 실패: ' + triggerErr.message });
+    }
+    return jsonOk({
+      repaired: repaired,
+      failed: failed,
+      automationRestored: automationRestored,
+      automation: afterTriggers
+    });
   } catch (err) {
     return jsonError('스냅샷 복구 실패: ' + err.message);
   }
@@ -4039,7 +4043,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.39' });
+    return jsonOk({ settings: settings, gasVersion: '9.41' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4478,14 +4482,7 @@ function onOpen(e) {
   }
 
   try {
-    var manualKeepLabel = '🧷 수동가격 최신값만 유지: OFF';
-    try {
-      manualKeepLabel = _isManualKeepLatestEnabled()
-        ? '🧷 수동가격 최신값만 유지: ON'
-        : '🧷 수동가격 최신값만 유지: OFF';
-    } catch(e1) {
-      Logger.log('수동가격 최신값 메뉴 라벨 생성 실패: ' + e1.message);
-    }
+    var manualKeepLabel = '🧷 수동가격 날짜별 이력 보존: ON';
 
     var priceSourceLabel = '⚙️ 가격소스: 현재 설정 확인';
     try { priceSourceLabel = _priceSourceModeLabel(); }

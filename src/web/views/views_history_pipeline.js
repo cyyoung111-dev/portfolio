@@ -119,7 +119,7 @@ function _renderHistoryCoverage(el, coverage, mode) {
   el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 11px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
     <div style="min-width:0;font-size:.67rem;color:var(--text);line-height:1.55">
       <b style="color:var(--amber)">⚠️ ${mode === 'week' ? '주간' : '월간'} 스냅샷 ${missing.length}개 누락</b><br>
-      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · 금요일/월말 영업일 기준으로 복구합니다.</span>
+      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · 오늘까지 금요일/월말 영업일 기준으로 복구합니다.<br>장기간 누락은 16:20 평가단가 자동 트리거 중단 또는 실행 오류일 수 있으며, 보완 실행 시 트리거도 점검합니다.</span>
     </div>
     <button type="button" class="btn-ghost-sm" data-history-action="repair-gaps">🛠️ 누락 보완</button>
   </div>`;
@@ -133,6 +133,7 @@ async function repairHistorySnapshotGaps() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 복구 중...'; }
   let repaired = 0;
   const failed = [];
+  let automationRestored = false;
   try {
     for (let i = 0; i < dates.length; i += 4) {
       const chunk = dates.slice(i, i + 4);
@@ -140,9 +141,10 @@ async function repairHistorySnapshotGaps() {
       if (!data || data.status === 'error') throw new Error(data?.message || 'GAS 복구 응답 오류');
       repaired += Array.isArray(data.repaired) ? data.repaired.length : 0;
       if (Array.isArray(data.failed)) failed.push(...data.failed);
+      automationRestored = automationRestored || !!data.automationRestored;
       if (btn) btn.textContent = `⏳ ${Math.min(i + chunk.length, dates.length)}/${dates.length}`;
     }
-    showToast(`스냅샷 ${repaired}개 복구 완료${failed.length ? ` · 실패 ${failed.length}개` : ''}`, failed.length ? 'warn' : 'ok');
+    showToast(`스냅샷 ${repaired}개 복구 완료${failed.length ? ` · 실패 ${failed.length}개` : ''}${automationRestored ? ' · 자동 트리거 복구' : ''}`, failed.length ? 'warn' : 'ok');
     await loadHistoryChart();
   } catch (e) {
     showToast(`스냅샷 복구 실패: ${e.message}`, 'error');
