@@ -1,5 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.44
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.45
+//
+//  v9.45 변경사항 (2026.07.31):
+//   ✅ [정합성] 일반 설정 저장이 트리거가 갱신한 배당·주담대·부동산 전용 데이터를 덮어쓰지 않도록 병합 저장
+//   ✅ [정확성] 소급채우기도 기준일 이하 최근 MANUAL 펀드·TDF 가격을 반영하고 미래 가격 참조 차단
+//   ✅ [초기화] GAS 설정 복원 완료 후 현재가를 조회해 최신 조회값이 오래된 설정 캐시에 덮이는 경쟁상태 제거
+//   ✅ [최적화] 소급채우기 환율도 실제 보유 외화만 계산
 //
 //  v9.44 변경사항 (2026.07.31):
 //   ✅ [성능]   KOSPI·KOSDAQ·ETF와 최대 7일 fallback KRX 요청을 fetchAll 병렬 처리
@@ -3524,16 +3530,38 @@ function _backfillExecute() {
           });
         }
 
+        // 수동 펀드·TDF와 수동 보정가격은 기준일 이하 가격이력에서 복원합니다.
+        // 같은 날짜 MANUAL은 자동조회보다 우선하며, 이후 날짜의 가격은 조회하지 않습니다.
+        var historyKeys = Object.keys(holdAtDate).map(function(k) {
+          var h = holdAtDate[k];
+          return _cleanCode(h.code) || h.code || h.name;
+        }).filter(Boolean);
+        var exactHistory = getPriceHistoryRow(ss, dateStr);
+        var latestHistory = getLatestPriceHistory(ss, historyKeys, dateStr);
+        var historySources = _getPriceSourceByDate(ss, dateStr);
+        Object.keys(holdAtDate).forEach(function(k) {
+          var h = holdAtDate[k];
+          var key = _cleanCode(h.code) || h.code || h.name;
+          if (!key) return;
+          var sourceMeta = historySources[key];
+          var historyPrice = exactHistory[key] || latestHistory[key] || 0;
+          if (historyPrice > 0 && ((sourceMeta && sourceMeta.src === 'MANUAL') || !prices[key])) {
+            prices[key] = historyPrice;
+            priceSources[key] = sourceMeta ? sourceMeta.src : 'PRICE_HISTORY';
+          }
+        });
+
         var snapRows = [];
         // ★ [환율 연동] 소급 스냅샷에서도 외화 종목 원화 환산
         // 해당 날짜의 환율을 GOOGLEFINANCE로 조회 (과거 환율)
         var bfFxRates = {};
         try {
-          var fxCurrencies = ['USD','JPY','EUR','CNY','HKD'];
-          var hasForeignStock = Object.keys(holdAtDate).some(function(k) {
-            return codeToCurrencyBf[holdAtDate[k].code || ''];
+          var fxCurrencies = [];
+          Object.keys(holdAtDate).forEach(function(k) {
+            var cur = codeToCurrencyBf[holdAtDate[k].code || ''];
+            if (cur && fxCurrencies.indexOf(cur) === -1) fxCurrencies.push(cur);
           });
-          if (hasForeignStock) {
+          if (fxCurrencies.length > 0) {
             // ★ [버그수정] 공유 임시 시트 대신 고유 임시 시트 사용 (동시 요청 충돌 방지)
             // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
             var fxSheet = ss.insertSheet('_bffx_tmp_' + Utilities.getUuid().slice(0, 8));
@@ -3559,7 +3587,8 @@ function _backfillExecute() {
         Object.keys(holdAtDate).forEach(function(k) {
           var h = holdAtDate[k];
           if (h.qty <= 0) return;
-          var price   = (h.code && prices[h.code]) ? prices[h.code] : 0;
+          var priceKey = _cleanCode(h.code) || h.code || h.name;
+          var price   = priceKey && prices[priceKey] ? prices[priceKey] : 0;
           // ★ [환율 연동] 외화 종목 원화 환산
           var hCurrency = (h.code && codeToCurrencyBf[h.code]) ? codeToCurrencyBf[h.code] : 'KRW';
           var hFxRate   = (hCurrency !== 'KRW' && bfFxRates[hCurrency] > 0) ? bfFxRates[hCurrency] : 1;
@@ -3569,8 +3598,10 @@ function _backfillExecute() {
           var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
           var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
           var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
-          // ★ 12컬럼: 소급채우기는 자동조회이므로 savedAt 빈 문자열
-          snapRows.push([dateStr, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, (priceSources[h.code] || 'UNKNOWN'), '']);
+          var sourceMeta = priceKey ? historySources[priceKey] : null;
+          var rowSource = priceSources[priceKey] || (price > 0 ? 'PRICE_HISTORY' : 'COST_FALLBACK');
+          var rowSavedAt = rowSource === 'MANUAL' && sourceMeta ? (sourceMeta.savedAt || '') : '';
+          snapRows.push([dateStr, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, rowSource, rowSavedAt]);
         });
 
         if (snapRows.length > 0) {
@@ -3578,8 +3609,15 @@ function _backfillExecute() {
           // ★ 가격이력 시트도 함께 저장 — 프론트 과거 날짜 조회용
           var phItems = Object.keys(holdAtDate)
             .map(function(k){ return holdAtDate[k]; })
-            .filter(function(h){ return h.code && h.qty > 0 && prices[h.code] > 0; })
-            .map(function(h){ return { code: h.code, name: h.name, price: prices[h.code], source: (priceSources[h.code] || 'UNKNOWN') }; });
+            .filter(function(h){
+              var key = _cleanCode(h.code) || h.code || h.name;
+              var src = key ? priceSources[key] : '';
+              return h.code && h.qty > 0 && prices[key] > 0 && src !== 'MANUAL' && src !== 'PRICE_HISTORY';
+            })
+            .map(function(h){
+              var key = _cleanCode(h.code) || h.code || h.name;
+              return { code: h.code, name: h.name, price: prices[key], source: (priceSources[key] || 'UNKNOWN') };
+            });
           if (phItems.length > 0) batchUpsertPriceHistory(ss, dateStr, phItems);
           totalSuccess++;
         }
@@ -4161,7 +4199,16 @@ function handleSaveSettings(dataJson) {
   var locked = false;
   try {
     lock.waitLock(30000); locked = true;
-    var settings = _parseJsonParam(dataJson, 'settings');
+    var incoming = _parseJsonParam(dataJson, 'settings');
+    var settings = _readSettingsMap();
+    var protectedKeys = ['DIVDATA', 'LOAN', 'REAL_ESTATE', 'LOAN_SCHEDULE', 'RE_VALUE_HIST'];
+    var protectedValues = {};
+    protectedKeys.forEach(function(key) {
+      if (Object.prototype.hasOwnProperty.call(settings, key)) protectedValues[key] = settings[key];
+    });
+    Object.keys(incoming).forEach(function(key) { settings[key] = incoming[key]; });
+    // 전용 저장 API·자동 트리거가 관리하는 기존 값은 일반 설정 저장보다 우선합니다.
+    Object.keys(protectedValues).forEach(function(key) { settings[key] = protectedValues[key]; });
     var saved = _writeSettingsMap(settings);
     return jsonOk({ saved: saved });
   } catch(err) {
@@ -4178,7 +4225,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.44' });
+    return jsonOk({ settings: settings, gasVersion: '9.45' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

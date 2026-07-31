@@ -24,9 +24,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (changed) { try { refreshAll(); } catch(e) {} }
   }, 60 * 60 * 1000);
 
-  // 종가 자동 조회 (GSheet 연동 시)
-  if (typeof autoLoadPrices === 'function') autoLoadPrices();
-
   // ── 전역 이벤트 위임 등록
   if (typeof registerGlobalEventDelegation === 'function') {
     registerGlobalEventDelegation();

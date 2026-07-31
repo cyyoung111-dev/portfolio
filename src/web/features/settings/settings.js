@@ -232,6 +232,9 @@ async function persistDividendSettings(immediate) {
   if (!GSHEET_API_URL) return false;
   const ok = await saveDividendSettings(immediate);
   if (ok) return true;
+  // 최신 GAS에서 전용 저장이 실패했는데 일반 설정 저장으로 우회하면
+  // 기존 DIVDATA를 보존하는 서버 병합 정책 때문에 성공처럼 보일 수 있습니다.
+  if (Number.parseFloat(window._lastGasVersion || '0') >= 9.34) return false;
   return saveSettings(true);
 }
 
@@ -239,6 +242,7 @@ async function persistRealEstateSettings(immediate) {
   if (!GSHEET_API_URL) return false;
   const ok = await saveRealEstateSettings(immediate);
   if (ok) return true;
+  if (Number.parseFloat(window._lastGasVersion || '0') >= 9.34) return false;
   return saveSettings(true);
 }
 
