@@ -313,7 +313,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.31';
+const EXPECTED_GAS_VERSION = '9.45';
 
 async function autoLoadPrices() {
   const dateStr = getDateStr(0);
@@ -437,5 +437,9 @@ async function autoLoadPrices() {
 // GS URL이 이미 저장돼 있으면 앱 시작 시 1회 자동 복원
 // ★ 기존 펀드·TDF 가상코드 마이그레이션 (코드 없는 종목 → F001~)
 setTimeout(() => { if (typeof migrateFundCodes === 'function') migrateFundCodes(); }, 0);
-setTimeout(() => { bootstrapGsheetSettings(); }, 100);
-
+setTimeout(async () => {
+  // GAS 설정·기초정보·수동가격을 먼저 복원한 뒤 현재가를 조회합니다.
+  // 두 작업을 동시에 시작하면 늦게 끝난 설정 복원이 방금 조회한 현재가를 과거 캐시로 덮어쓸 수 있습니다.
+  if (typeof bootstrapGsheetSettings === 'function') await bootstrapGsheetSettings();
+  if (typeof autoLoadPrices === 'function') await autoLoadPrices();
+}, 100);

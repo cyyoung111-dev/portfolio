@@ -25,8 +25,10 @@ let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
 
 // debounce 타이머
 let _saveSettingsTimer = null;
-let _saveDividendTimer = null;
+let _dividendSaveQueue = Promise.resolve();
 let _saveRealEstateTimer = null;
+let _saveSettingsWaiters = [];
+let _saveRealEstateWaiters = [];
 
 const TAB_SYNC_STATUS_KEY = 'tab_sync_status';
 let TAB_SYNC_STATUS = lsGet(TAB_SYNC_STATUS_KEY, {});
@@ -47,28 +49,29 @@ function _normalizeCodeForSync(raw) {
     : String(raw || '').trim().toUpperCase().replace(/^A(?=\d{6}$)/, '');
 }
 
-function saveDividendSettings(immediate) {
+function saveDividendSettings(_immediate) {
   if (!GSHEET_API_URL) return Promise.resolve(false);
-  clearTimeout(_saveDividendTimer);
-  const delay = immediate ? 0 : 2500;
-  return new Promise(resolve => {
-    _saveDividendTimer = setTimeout(async () => {
-      try {
-        const data = await requestGsheetFormJson(
-          'saveDividendSettings',
-          { data: JSON.stringify(DIVDATA) },
-          { timeoutMs: 15000, retry: 1 }
-        );
-        if (!data) throw new Error('네트워크 오류');
-        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        resolve(true);
-      } catch(e) {
-        // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
-        console.warn('saveDividendSettings 실패:', e);
-        resolve(false);
-      }
-    }, delay);
-  });
+  // 호출 시점의 데이터를 캡처하고 저장을 직렬화합니다. 기존 debounce는 앞선 타이머를
+  // 취소하면서 그 Promise를 영원히 pending 상태로 남길 수 있었습니다.
+  const payload = JSON.stringify(DIVDATA);
+  const run = async () => {
+    try {
+      const data = await requestGsheetFormJson(
+        'saveDividendSettings',
+        { data: payload },
+        { timeoutMs: 15000, retry: 1 }
+      );
+      if (!data) throw new Error('네트워크 오류');
+      if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+      return true;
+    } catch(e) {
+      // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
+      console.warn('saveDividendSettings 실패:', e);
+      return false;
+    }
+  };
+  _dividendSaveQueue = _dividendSaveQueue.then(run, run);
+  return _dividendSaveQueue;
 }
 
 function saveRealEstateSettings(immediate) {
@@ -76,7 +79,11 @@ function saveRealEstateSettings(immediate) {
   clearTimeout(_saveRealEstateTimer);
   const delay = immediate ? 0 : 2500;
   return new Promise(resolve => {
+    _saveRealEstateWaiters.push(resolve);
     _saveRealEstateTimer = setTimeout(async () => {
+      const waiters = _saveRealEstateWaiters;
+      _saveRealEstateWaiters = [];
+      let ok = false;
       try {
         const payload = {
           LOAN,
@@ -91,10 +98,11 @@ function saveRealEstateSettings(immediate) {
         );
         if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        resolve(true);
+        ok = true;
       } catch(e) {
         console.warn('saveRealEstateSettings 실패:', e);
-        resolve(false);
+      } finally {
+        waiters.forEach(done => done(ok));
       }
     }, delay);
   });
@@ -149,6 +157,10 @@ async function loadRealEstateSettings() {
         RE_VALUE_HIST.push({ date: String(r.date), value: _toNum(r.value, 0) });
       });
     }
+    // GAS에서 상환스케줄을 모두 복원한 뒤 현재월 잔액을 다시 계산합니다.
+    // bootstrap 초기에 로컬 스케줄로 계산했던 값이 원격 LOAN에 덮이는 것을 방지합니다.
+    const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
+    if (loanChanged) await persistRealEstateSettings(true);
     return true;
   } catch(e) {
     return false;
@@ -161,7 +173,6 @@ async function loadDividendSettings() {
     const data = await requestGsheetActionJson('getDividendSettings', {}, { timeoutMs: 10000, retry: 1 });
     if (!data || data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') return false;
     _applyDivData(data.divData);
-    lsSave(DIVDATA_KEY, DIVDATA);
     return true;
   } catch(e) {
     return false;
@@ -173,7 +184,11 @@ function saveSettings(immediate) {
   clearTimeout(_saveSettingsTimer);
   const delay = immediate ? 0 : 4000;
   return new Promise(resolve => {
+    _saveSettingsWaiters.push(resolve);
     _saveSettingsTimer = setTimeout(async () => {
+      const waiters = _saveSettingsWaiters;
+      _saveSettingsWaiters = [];
+      let ok = false;
       try {
         const settings = {
           ACCT_COLORS,
@@ -187,6 +202,7 @@ function saveSettings(immediate) {
           SAVED_PRICE_DATES: savedPriceDates,
           APP_THEME: (typeof lsGet === 'function') ? lsGet('app_theme', 'ocean') : 'ocean',
           APP_THEME_MODE: (typeof lsGet === 'function') ? lsGet('app_theme_mode', 'dark') : 'dark',
+          APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'pretendard') : 'pretendard',
           // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
           // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
           DIVDATA,
@@ -202,10 +218,11 @@ function saveSettings(immediate) {
         );
         if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        resolve(true);
+        ok = true;
       } catch(e) {
         console.warn('saveSettings 실패:', e);
-        resolve(false);
+      } finally {
+        waiters.forEach(done => done(ok));
       }
     }, delay);
   });
@@ -215,6 +232,9 @@ async function persistDividendSettings(immediate) {
   if (!GSHEET_API_URL) return false;
   const ok = await saveDividendSettings(immediate);
   if (ok) return true;
+  // 최신 GAS에서 전용 저장이 실패했는데 일반 설정 저장으로 우회하면
+  // 기존 DIVDATA를 보존하는 서버 병합 정책 때문에 성공처럼 보일 수 있습니다.
+  if (Number.parseFloat(window._lastGasVersion || '0') >= 9.34) return false;
   return saveSettings(true);
 }
 
@@ -222,6 +242,7 @@ async function persistRealEstateSettings(immediate) {
   if (!GSHEET_API_URL) return false;
   const ok = await saveRealEstateSettings(immediate);
   if (ok) return true;
+  if (Number.parseFloat(window._lastGasVersion || '0') >= 9.34) return false;
   return saveSettings(true);
 }
 
@@ -246,6 +267,9 @@ async function loadSettings(onProgress) {
     if (s.APP_THEME && typeof lsSave === 'function') {
       lsSave('app_theme', s.APP_THEME);
     }
+    if (s.APP_FONT && typeof lsSave === 'function') {
+      lsSave('app_font', s.APP_FONT);
+    }
     if (s.public_data_api_key && typeof lsSave === 'function') {
       lsSave('public_data_api_key', String(s.public_data_api_key || '').trim());
     }
@@ -254,6 +278,9 @@ async function loadSettings(onProgress) {
     }
     if (typeof applyTheme === 'function' && s.APP_THEME) {
       applyTheme(s.APP_THEME, { skipModeSave: true });
+    }
+    if (typeof applyFont === 'function' && s.APP_FONT) {
+      applyFont(s.APP_FONT, { skipSave: true });
     }
 
     // ACCT_COLORS
@@ -482,6 +509,9 @@ async function loadSettings(onProgress) {
       } catch(e) { console.warn('거래이력 복원 실패:', e); }
     }
 
+    // 구버전 GAS fallback으로 LOAN_SCHEDULE을 복원한 경우에도 현재월 값을 반영합니다.
+    const fallbackLoanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
+    if (fallbackLoanChanged) await persistRealEstateSettings(true);
     return true;
   } catch(e) {
     console.warn('loadSettings 실패:', e);
@@ -507,6 +537,8 @@ async function bootstrapGsheetSettings() {
       // Settings 시트 읽기 실패 시에도 배당/부동산 별도 액션은 시도
       try { await loadDividendSettings(); } catch(e) {}
       try { await loadRealEstateSettings(); } catch(e) {}
+      const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
+      if (loanChanged) await persistRealEstateSettings(true);
     }
     try { refreshAll(); } catch(e) {}
     try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
