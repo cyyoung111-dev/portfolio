@@ -1,5 +1,52 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.33
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.43
+//
+//  v9.43 변경사항 (2026.07.31):
+//   ✅ [버그수정] getPrices가 정의되지 않은 _updateTodaySnapshotSource()를 호출해 응답이 실패하던 문제 수정
+//   ✅ [보호]   오늘 스냅샷의 MANUAL 소스·저장시각은 유지하고 자동조회 종목의 소스만 일괄 갱신
+//   ✅ [검증]   GAS의 정의되지 않은 내부 헬퍼 호출을 CI에서 탐지하는 check:gas 추가
+//
+//  v9.42 변경사항 (2026.07.31):
+//   ✅ [안정성] 자동 스냅샷 생성에 Script Lock·성공/실패 상태 기록을 추가하고 실패를 트리거 실행기록에 전파
+//   ✅ [정확성] 종목코드 시트가 비어도 펀드·TDF 거래와 수동가격만으로 오늘 스냅샷 생성
+//   ✅ [점검]   자동화 상태 메뉴가 시트 마지막 행이 아닌 실제 최신 날짜와 최근 실행결과를 표시
+//   ✅ [버그수정] 삭제된 _repairRecentNonKrxHistory() 호출로 16:20 자동 실행이 중단되던 오류 제거
+//
+//  v9.41 변경사항 (2026.07.31):
+//   ✅ [정확성] 펀드·TDF는 스냅샷 기준일 이전의 가장 최근 수동가격만 이월하고 미래 입력값 참조 차단
+//   ✅ [복구]   누락 스냅샷 복구도 공통 스냅샷 생성기를 사용해 펀드·TDF 수동가격을 동일하게 반영
+//   ✅ [보존]   과거 스냅샷 재현에 필요한 수동가격 이력을 삭제하던 최신값만 유지 옵션 비활성화
+//
+//  v9.40 변경사항 (2026.07.31):
+//   ✅ [복구]   마지막 스냅샷 이후부터 오늘까지의 누락 주간·월간 스냅샷도 보완 대상에 포함
+//   ✅ [자동화] 스냅샷 보완 시 16:20 평가단가 자동 트리거를 함께 점검하고 누락 시 자동 복구
+//
+//  v9.39 변경사항 (2026.07.30):
+//   ✅ [복구]   웹 손익 그래프에서 누락된 주간·월간 스냅샷을 날짜별로 일괄 보완하는 POST 기능 추가
+//   ✅ [정확성] 금요일 자료가 없어도 주간 마지막 스냅샷을 사용하고 월간 연속성도 함께 진단
+//   ✅ [지표]   거래기준 수익률 지수로 계산한 나의 손익 MDD 표시
+//
+//  v9.38 변경사항 (2026.07.28):
+//   ✅ [동시성] 설정·배당·부동산 저장에 Script Lock을 적용해 자동 트리거와 웹 저장 충돌 방지
+//   ✅ [안정성] 프론트 저장 debounce 대기 Promise가 취소 후 남는 문제 수정
+//
+//  v9.37 변경사항 (2026.07.27):
+//   ✅ [자동화] syncMortgageFromSchedule — 현재월 상환스케줄 기준 잔액·이자·잔여기간을 GAS에서 매일 갱신
+//   ✅ [트리거] 주담대 자동 갱신 트리거 추가 및 자동화 상태 점검에 포함
+//
+//  v9.36 변경사항 (2026.07.27):
+//   ✅ [버그수정] onOpen(e) — 현재 문서 ID를 ScriptProperties에 저장해 복사된 GAS가 이전 문서를 열지 않도록 수정
+//   ✅ [안내]   initSheet — 문서 접근 실패를 사용자용 안내창으로 표시하고 권한/연결 확인 경로 제공
+//
+//  v9.35 변경사항 (2026.07.27):
+//   ✅ [정리]   onOpen — 중복 API/상태/점검 메뉴와 중복 실행되던 설치형 onOpen 트리거 제거
+//   ✅ [안전]   initSheet — 기존 데이터를 지우지 않는 시트 구성 확인/복구 방식으로 변경
+//              운영 시트 8종의 제목행·열 너비·고정행을 한 번에 일관되게 정리
+//
+//  v9.34 변경사항 (2026.07.24):
+//   ✅ [버그수정] _normalizePublicDividendRows() — 법인번호(crno)로 조회한 배당 행은
+//              공식 종목명 표기(SK ↔ 에스케이 등)가 달라도 같은 법인으로 보고 포함
+//              → SK하이닉스처럼 공공데이터 상장명/배당명 표기가 달라 배당 없음으로 분류되던 문제 완화
 //
 //  v9.33 변경사항 (2026.07.24):
 //   ✅ [성능개선] handleDividendPublicFetch — 종목별 순차 호출(2회×N종목) → UrlFetchApp.fetchAll()
@@ -255,9 +302,9 @@
 // ════════════════════════════════════════════════════════════════════
 var SS_ID = (function(){
   try {
-    return PropertiesService.getScriptProperties().getProperty('SS_ID') || '1oyk6qY4pRV3zB_n_ldHeIKLbFS6ZbVLKp0t5OBWZV5c';
+    return PropertiesService.getScriptProperties().getProperty('SS_ID') || '';
   } catch(e) {
-    return '1oyk6qY4pRV3zB_n_ldHeIKLbFS6ZbVLKp0t5OBWZV5c';
+    return '';
   }
 })();
 
@@ -301,7 +348,14 @@ function getss() {
     var active = SpreadsheetApp.getActiveSpreadsheet();
     if (active) return active;
   } catch(e) { Logger.log('⚠️ getActiveSpreadsheet 실패, openById로 fallback: ' + e.message); }
-  return SpreadsheetApp.openById(SS_ID);
+  var configuredId = '';
+  try { configuredId = PropertiesService.getScriptProperties().getProperty('SS_ID') || SS_ID || ''; } catch(e2) { configuredId = SS_ID || ''; }
+  if (!configuredId) throw new Error('연결된 스프레드시트 ID가 없습니다. 스프레드시트를 새로고침한 뒤 다시 실행해주세요.');
+  try {
+    return SpreadsheetApp.openById(configuredId);
+  } catch(e3) {
+    throw new Error('저장된 스프레드시트에 접근할 수 없습니다. 현재 문서를 새로고침하거나 GAS 실행 계정의 권한을 확인해주세요. (' + e3.message + ')');
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -334,7 +388,8 @@ function doGet(e) {
       params.action === 'syncHoldings' || params.action === 'syncTrades' ||
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
-      params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey') {
+      params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
+      params.action === 'repairSnapshots') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -368,6 +423,7 @@ function doPost(e) {
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
+  if (params.action === 'repairSnapshots' && params.data) return handleRepairSnapshots(params.data);
   // ★ [최적화] 배치 수동가격 저장 — 건당 개별 요청 → 1회 일괄 처리
   if (params.action === 'batchSaveManualPrices' && params.data) return handleBatchSaveManualPrices(params.date || '', params.data);
   return jsonError('알 수 없는 action: ' + (params.action || '없음'));
@@ -819,7 +875,47 @@ function showPublicDataApiKeyStatus() {
   var key = _getPublicDataApiKey();
   ui.alert(key
     ? '✅ 공공데이터 API 인증키가 저장되어 있습니다.\nKRX상장종목정보(종목코드)와 주식배당정보 조회에 사용됩니다.'
-    : '⚠️ 공공데이터 API 인증키가 없습니다.\n📊 포트폴리오 > 🌐 공공데이터 API > 🔑 인증키 설정 메뉴에서 입력하세요.');
+    : '⚠️ 공공데이터 API 인증키가 없습니다.\n📊 포트폴리오 > ⚙️ 설정 > 🔑 공공데이터 API 인증키 설정에서 입력하세요.');
+}
+
+function showApiKeyStatus() {
+  var ui;
+  try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
+  if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
+  var publicSaved = !!_getPublicDataApiKey();
+  var krxSaved = !!_getKrxAuthKey();
+  ui.alert(
+    'API 인증키 저장 상태\n\n' +
+    (publicSaved ? '✅' : '⚠️') + ' 공공데이터포털: ' + (publicSaved ? '저장됨' : '미설정') + '\n' +
+    (krxSaved ? '✅' : '⚠️') + ' KRX Open API: ' + (krxSaved ? '저장됨' : '미설정')
+  );
+}
+
+function configureSpreadsheetIdPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var current = '';
+  try { current = PropertiesService.getScriptProperties().getProperty('SS_ID') || ''; } catch(e) {}
+  var response = ui.prompt(
+    '연결 스프레드시트 설정',
+    '현재 스프레드시트의 URL 또는 문서 ID를 입력하세요.\n현재 저장값: ' + (current || '없음'),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var raw = (response.getResponseText() || '').trim();
+  var match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  var id = match ? match[1] : raw;
+  if (!/^[a-zA-Z0-9-_]{20,}$/.test(id)) {
+    ui.alert('⚠️ 스프레드시트 URL 또는 문서 ID 형식을 확인해주세요.');
+    return;
+  }
+  try {
+    var target = SpreadsheetApp.openById(id);
+    PropertiesService.getScriptProperties().setProperty('SS_ID', id);
+    SS_ID = id;
+    ui.alert('✅ 연결 완료\n' + target.getName());
+  } catch(err) {
+    ui.alert('❌ 연결 실패\n\n문서 ID와 GAS 실행 계정의 접근 권한을 확인해주세요.\n' + err.message);
+  }
 }
 
 function importKrxClosesPrompt() {
@@ -1198,6 +1294,7 @@ function handleGetHistory(fromStr, toStr) {
 //  ★ v9.33: 종목별 순차 호출(2회×N, 예: 36종목=72회 순차) → UrlFetchApp.fetchAll()로
 //           일괄 병렬 요청으로 변경. 종목이 많을 때(30개 이상) 전체 소요시간이
 //           140초 안팎까지 걸려 프론트엔드 타임아웃(45~150초)으로 중간에 끊기던 문제 해결.
+//  ★ v9.34: 법인번호(crno)가 일치하는 배당 행은 종목명 표기가 달라도 포함.
 // ════════════════════════════════════════════════════════════════════
 function handleDividendPublicFetch(codes, names, serviceKey) {
   try {
@@ -1421,7 +1518,13 @@ function _normalizePublicDividendRows(rows, code, companyName, listedInfo) {
   (rows || []).forEach(function(row) {
     if (!row) return;
     var name = (row.stckIssuCmpyNm || row.isuNm || row.corpNm || '').toString().trim();
-    if (name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) return;
+    var rowCrno = (row.crno || '').toString().trim();
+    var listedCrno = (listedInfo && listedInfo.crno ? listedInfo.crno : '').toString().trim();
+    var sameCrno = !!(rowCrno && listedCrno && rowCrno === listedCrno);
+    // 공공데이터 배당정보의 종목명은 상장종목정보와 표기가 다를 수 있습니다.
+    // 예: 상장종목정보 itmsNm="SK하이닉스", 배당정보 stckIssuCmpyNm="에스케이하이닉스".
+    // crno로 조회해 같은 법인번호가 확인된 행은 이름 불일치만으로 제외하지 않습니다.
+    if (!sameCrno && name && companyName && name.indexOf(companyName) === -1 && companyName.indexOf(name) === -1) return;
     var amount = _publicDividendAmount(row);
     if (!(amount > 0)) return;
     // ★ [v9.32 버그수정] row.basDt는 "조회 당일 날짜"라 배당기준일이 아님(매번 오늘 날짜로 찍힘).
@@ -1836,12 +1939,10 @@ function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
     var savedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
     upsertPriceHistory(ss, dateStr, saveCode, saveName, price, savedAt, 'MANUAL');
 
-    var keepLatestRaw = (keepLatestParam || '').toString().trim();
-    var keepLatest = keepLatestRaw
-      ? /^1|true|y|yes$/i.test(keepLatestRaw)
-      : _isManualKeepLatestEnabled();
+    // 과거 스냅샷 재현을 위해 날짜별 수동가격은 항상 보존합니다.
+    // 기존 manual_keep_latest 속성이 켜져 있어도 더 이상 과거 행을 삭제하지 않습니다.
+    var keepLatest = false;
     var pruned = 0;
-    if (keepLatest) pruned = _pruneManualPriceHistoryKeepLatest(ss, saveCode, saveName);
 
     // ★ 수동 현재가 저장 직후, 해당 기준일 스냅샷도 즉시 재작성
     //   → 다른 기기에서도 동일 평가단가/평가금액이 보이도록 맞춤
@@ -1867,7 +1968,7 @@ function handleBatchSaveManualPrices(dateStr, dataJson) {
 
     var ss      = getss();
     var savedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
-    var keepLatest = _isManualKeepLatestEnabled();
+    var keepLatest = false;
 
     // ── Step 1: 전체 종목 일괄 upsert (batchUpsertPriceHistory 재사용)
     // 코드→종목명 매핑은 한 번만 읽는다. 기존처럼 map() 내부에서 getCodeItems()를 반복 호출하면
@@ -1896,14 +1997,7 @@ function handleBatchSaveManualPrices(dateStr, dataJson) {
 
     batchUpsertPriceHistory(ss, dateStr, batchItems);
 
-    // ── Step 2: keepLatest 처리 (중복 수동가격 정리)
-    if (keepLatest) {
-      batchItems.forEach(function(item) {
-        try { _pruneManualPriceHistoryKeepLatest(ss, item.code, item.name); } catch(e) {}
-      });
-    }
-
-    // ── Step 3: 스냅샷 재작성 — 모든 종목 저장 완료 후 1회만 실행
+    // ── Step 2: 스냅샷 재작성 — 모든 종목 저장 완료 후 1회만 실행
     try {
       var normDate   = _normalizeDate(dateStr);
       if (normDate) {
@@ -1968,7 +2062,9 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       if (!prices[key]) missingCodes.push(key);
     });
     if (missingCodes.length > 0) {
-      var latestPrices = getLatestPriceHistory(ss, missingCodes);
+      // 기준일 이후에 입력한 수동 NAV가 과거 스냅샷으로 역류하지 않도록
+      // 반드시 스냅샷 날짜 이하의 가격만 이월합니다.
+      var latestPrices = getLatestPriceHistory(ss, missingCodes, dateStr);
       Object.keys(latestPrices).forEach(function(k) {
         if (!prices[k] && latestPrices[k] > 0) prices[k] = latestPrices[k];
         // ★ sourceMap도 함께 채움 — _getPriceSourceByDate가 이미 MANUAL fallback을 처리하지만
@@ -2013,7 +2109,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
       // ★ sourceMap[key] 는 { src, savedAt } 객체
       var srcObj = (key && sourceMap[key]) ? sourceMap[key] : null;
-      var src = srcObj ? srcObj.src : (price > 0 ? 'PRICE_HISTORY' : 'UNKNOWN');
+      var src = srcObj ? srcObj.src : (price > 0 ? 'PRICE_HISTORY' : 'COST_FALLBACK');
       // ★ MANUAL인 경우에만 savedAt 저장, 그 외 빈 문자열
       var savedAt = (srcObj && srcObj.src === 'MANUAL' && srcObj.savedAt) ? srcObj.savedAt : '';
       // 콸럼: 날짜, 코드, 명, 수량, 매수단가, 매수원금, 평가단가, 평가금액, 손익, 수익률, 소스, 저장일시
@@ -2123,9 +2219,29 @@ function _getPriceSourceByDate(ss, dateStr) {
   return out;
 }
 
+function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
+  if (!sourceByCode || Object.keys(sourceByCode).length === 0) return 0;
+  var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var rowCount = sh.getLastRow() - 1;
+  var data = sh.getRange(2, 1, rowCount, Math.max(12, sh.getLastColumn())).getValues();
+  var sourceCells = data.map(function(row) { return [(row[10] || '').toString().trim(), (row[11] || '').toString().trim()]; });
+  var changed = 0;
+  data.forEach(function(row, index) {
+    if (_normalizeDate(row[0]) !== dateStr) return;
+    var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+    var nextSource = code ? (sourceByCode[code] || '') : '';
+    var currentSource = (row[10] || '').toString().trim();
+    if (!nextSource || currentSource === 'MANUAL' || currentSource === nextSource) return;
+    sourceCells[index] = [nextSource, ''];
+    changed++;
+  });
+  if (changed > 0) sh.getRange(2, 11, rowCount, 2).setValues(sourceCells);
+  return changed;
+}
+
 function _isManualKeepLatestEnabled() {
-  var props = PropertiesService.getScriptProperties();
-  return (props.getProperty('manual_keep_latest') || 'false') === 'true';
+  return false;
 }
 
 function _getPriceSourceMode() {
@@ -2159,9 +2275,8 @@ function togglePriceSourceMode() {
 
 function toggleManualKeepLatestOption() {
   var props = PropertiesService.getScriptProperties();
-  var next = !_isManualKeepLatestEnabled();
-  props.setProperty('manual_keep_latest', next ? 'true' : 'false');
-  var msg = '⚙️ 수동가격 최신값만 유지 옵션: ' + (next ? 'ON' : 'OFF');
+  props.setProperty('manual_keep_latest', 'false');
+  var msg = '⚙️ 수동가격 날짜별 이력 보존: ON\n과거 스냅샷 재현을 위해 최신값만 유지 옵션은 사용하지 않습니다.';
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -2250,7 +2365,7 @@ function getPriceHistoryRow(ss, dateStr) {
 // ════════════════════════════════════════════════════════════════════
 //  내부 — 가격이력 시트에서 지정 코드들의 가장 최근 날짜 가격 조회
 // ════════════════════════════════════════════════════════════════════
-function getLatestPriceHistory(ss, codes) {
+function getLatestPriceHistory(ss, codes, maxDate) {
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
@@ -2265,7 +2380,7 @@ function getLatestPriceHistory(ss, codes) {
       var name  = (row[2] || '').toString().trim();
       var price = parseFloat(row[3]) || 0;
       var key   = code || name;
-      if (!date || !key || price <= 0) return;
+      if (!date || !key || price <= 0 || (maxDate && date > maxDate)) return;
       var outKey = codeAliasToCanonical[key];
       if (!outKey) return;
       var savedAt = _normalizeDatetime(row[4]);
@@ -2510,8 +2625,8 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  [기존 문제]
 //  - 16:20 트리거에서 "당일" 종가를 저장하는데, 장 마감(15:30) 직후라
 //    KRX가 전일 종가를 반환하는 경우가 있음
-//  - 가격이력은 다음날 _repairRecentNonKrxHistory()로 보정되지만
-//    스냅샷은 재작성되지 않아 가격이력·스냅샷 단가 불일치 발생
+//  - 가격이력만 이후에 보정되고 스냅샷은 재작성되지 않으면
+//    가격이력·스냅샷 단가 불일치가 발생
 //
 //  [해결]
 //  - 전일(T-1) KRX 확정 종가를 명시적으로 가져와 가격이력에 저장
@@ -2519,13 +2634,21 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  - 오늘(T) 스냅샷도 전일 확정 종가 기준으로 작성
 // ════════════════════════════════════════════════════════════════════
 function saveDailyPriceHistory() {
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  var props = PropertiesService.getScriptProperties();
+  var startedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
   try {
+    lock.waitLock(30000);
+    locked = true;
     var ss       = getss();
     var todayStr = today();
     var prevDay  = _getPrevTradingDay(todayStr, 7);
 
     var items = getCodeItems(ss);
-    if (items.length === 0) { Logger.log('종목코드 없음'); return; }
+    // 펀드·TDF는 종목코드 시트에 없을 수 있으므로 여기서 종료하면 안 됩니다.
+    // 자동가격 조회는 건너뛰더라도 아래 공통 생성기가 거래이력+수동가격으로 스냅샷을 만듭니다.
+    if (items.length === 0) Logger.log('상장 종목코드 없음 — 펀드·TDF 수동가격 기준 스냅샷 생성 계속');
 
     // ── Step 1: 전일(T-1) KRX 확정 종가 조회 및 가격이력 저장
     var prevPrices = {};
@@ -2552,10 +2675,7 @@ function saveDailyPriceHistory() {
         Logger.log('⚠️ 전일 KRX 조회 실패: ' + e.message);
       }
 
-      // ── Step 2: 전일 가격이력 재조회 (MANUAL 포함 최종 확정값)
-      var prevHistPrices = getPriceHistoryRow(ss, prevDay);
-
-      // ── Step 3: 전일 스냅샷 검증 및 불일치 시 재작성
+      // ── Step 2: 전일 스냅샷 검증 및 불일치 시 재작성
       Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 스냅샷 정합성 검증');
       try {
         var prevExpected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, prevDay);
@@ -2571,10 +2691,7 @@ function saveDailyPriceHistory() {
       }
     }
 
-    // ── Step 4: 최근 7일 비-KRX 가격이력 보정 (기존 로직 유지)
-    _repairRecentNonKrxHistory(ss, todayStr, items, 7);
-
-    // ── Step 5: 오늘(T) 가격이력 저장 (당일 실시간 + GF fallback)
+    // ── Step 3: 오늘(T) 가격이력 저장 (당일 실시간 + GF fallback)
     var existing = getPriceHistoryRow(ss, todayStr);
     var prices   = {};
     Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
@@ -2625,17 +2742,26 @@ function saveDailyPriceHistory() {
       }
     });
 
-    // ── Step 6: 오늘(T) 스냅샷 작성
+    // ── Step 4: 오늘(T) 스냅샷 작성
     // ★ 오늘 스냅샷도 전일 확정 종가 기준으로 _buildSnapshotRows가 처리함
     // (가격이력 시트에 전일 종가가 저장됐으므로 자동으로 전일 종가 참조)
     var snapRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, todayStr);
-    if (snapRows.length === 0) { Logger.log('스냅샷 저장할 데이터 없음'); return; }
+    if (snapRows.length === 0) throw new Error('스냅샷 저장 대상 없음: 거래이력과 기준일 보유수량을 확인하세요');
     writeSnapshotRows(ss, todayStr, snapRows, true);
 
     SpreadsheetApp.flush();
+    props.setProperty('snapshot_last_success_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
+    props.setProperty('snapshot_last_success_date', todayStr);
+    props.deleteProperty('snapshot_last_error');
     Logger.log('✅ saveDailyPriceHistory 완료: 전일(' + (prevDay||'-') + ') + 오늘(' + todayStr + ')');
+    return { ok: true, date: todayStr, rows: snapRows.length, startedAt: startedAt };
   } catch(err) {
+    props.setProperty('snapshot_last_failure_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
+    props.setProperty('snapshot_last_error', ((err && err.message) ? err.message : String(err)).slice(0, 1000));
     Logger.log('❌ saveDailyPriceHistory 실패: ' + err.message);
+    throw err;
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
@@ -2662,7 +2788,7 @@ function repairPriceAndSnapshotForDate(dateStr) {
     var holdAtDate = calcHoldingsAtDate(tradeData, normDate, nameToCode);
     if (Object.keys(holdAtDate).length === 0) {
       Logger.log('[repair] 보유 종목 없음: ' + normDate);
-      return;
+      return { date: normDate, priceCount: 0, snapshotCount: 0 };
     }
 
     var codeItems = Object.keys(holdAtDate)
@@ -2685,25 +2811,62 @@ function repairPriceAndSnapshotForDate(dateStr) {
       .map(function(h){ return { code: h.code, name: h.name, price: prices[h.code], source: (priceSources[h.code] || 'UNKNOWN') }; });
     if (phItems.length > 0) batchUpsertPriceHistory(ss, normDate, phItems);
 
-    var snapRows = [];
-    Object.keys(holdAtDate).forEach(function(k) {
-      var h = holdAtDate[k];
-      if (h.qty <= 0) return;
-      var price   = (h.code && prices[h.code]) ? prices[h.code] : 0;
-      var evalAmt = price > 0 ? Math.round(price * h.qty) : h.costAmt;
-      var pnl     = evalAmt - h.costAmt;
-      var pct     = h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0;
-      var costUnit = h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0;
-      var evalUnit = h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0;
-      // ★ repair는 GF 가격으로 복구되므로 savedAt 빈문자열
-      snapRows.push([normDate, h.code, h.name, h.qty, costUnit, h.costAmt, evalUnit, evalAmt, pnl, pct, (priceSources[h.code] || 'UNKNOWN'), '']);
-    });
+    // 공통 생성기를 사용해야 펀드·TDF도 기준일 이전 최근 MANUAL 가격을
+    // 동일하게 이월하고, 해당 기준일보다 미래의 수동가격은 참조하지 않습니다.
+    var snapRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, normDate);
     if (snapRows.length > 0) writeSnapshotRows(ss, normDate, snapRows, true);
 
     Logger.log('[repair] 완료: ' + normDate + ' · 가격 ' + phItems.length + '건 · 스냅샷 ' + snapRows.length + '건');
+    return { date: normDate, priceCount: phItems.length, snapshotCount: snapRows.length };
   } catch (err) {
     Logger.log('❌ repairPriceAndSnapshotForDate 실패: ' + err.message);
     throw err;
+  }
+}
+
+function handleRepairSnapshots(dataJson) {
+  try {
+    var payload = JSON.parse(dataJson || '{}');
+    var dates = Array.isArray(payload.dates) ? payload.dates : [];
+    var unique = [];
+    var seen = {};
+    dates.forEach(function(value) {
+      var date = _normalizeDate(value);
+      if (!date || seen[date]) return;
+      seen[date] = true;
+      unique.push(date);
+    });
+    if (unique.length === 0) return jsonError('복구할 날짜가 없습니다');
+    if (unique.length > 8) return jsonError('한 번에 최대 8개 날짜만 복구할 수 있습니다');
+
+    var beforeTriggers = _ensureDailyTriggers(false);
+    var repaired = [];
+    var failed = [];
+    unique.forEach(function(date) {
+      try {
+        var result = repairPriceAndSnapshotForDate(date);
+        if (result && result.snapshotCount > 0) repaired.push(result);
+        else failed.push({ date: date, message: '해당 날짜의 보유 종목이 없습니다' });
+      } catch (err) {
+        failed.push({ date: date, message: err.message || String(err) });
+      }
+    });
+    var afterTriggers = beforeTriggers;
+    var automationRestored = false;
+    try {
+      afterTriggers = _ensureDailyTriggers(true);
+      automationRestored = !beforeTriggers.hasSave && afterTriggers.hasSave;
+    } catch (triggerErr) {
+      failed.push({ date: '', message: '자동 트리거 점검 실패: ' + triggerErr.message });
+    }
+    return jsonOk({
+      repaired: repaired,
+      failed: failed,
+      automationRestored: automationRestored,
+      automation: afterTriggers
+    });
+  } catch (err) {
+    return jsonError('스냅샷 복구 실패: ' + err.message);
   }
 }
 
@@ -2967,38 +3130,26 @@ function setupTrigger() {
     if (
       fn === 'saveDailyPriceHistory' || fn === 'cleanDeadCodes' ||
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
-      fn === 'onOpen'
+      fn === 'syncMortgageFromSchedule' || fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
   ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
-  _ensureOpenMenuTrigger(true);
+  ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
-  Logger.log('트리거 등록 완료: 매일 15:50 runCodeNormalize1550 → 16:20 runEvalPriceUpdate1620 + onOpen 메뉴 트리거');
-  try { SpreadsheetApp.getUi().alert('✅ 트리거 등록 완료!\n15:50 종목코드 보정 → 16:20 평가단가 업데이트\n스프레드시트 열기 메뉴 트리거도 함께 등록했습니다.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
-}
-
-
-function _ensureOpenMenuTrigger(autoFix) {
-  var hasOpen = false;
-  ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (t.getHandlerFunction && t.getHandlerFunction() === 'onOpen') hasOpen = true;
-  });
-  if (autoFix && !hasOpen) {
-    var ss = getss();
-    ScriptApp.newTrigger('onOpen').forSpreadsheet(ss).onOpen().create();
-    hasOpen = true;
-  }
-  return { hasOpen: hasOpen };
+  Logger.log('트리거 등록 완료: 01:10 주담대 갱신 → 15:50 종목코드 보정 → 16:20 평가단가 업데이트');
+  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
   var hasClean = false;
   var hasSave = false;
+  var hasMortgage = false;
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (fn === 'runCodeNormalize1550') hasClean = true;
     if (fn === 'runEvalPriceUpdate1620') hasSave = true;
+    if (fn === 'syncMortgageFromSchedule') hasMortgage = true;
   });
 
   if (autoFix) {
@@ -3010,15 +3161,30 @@ function _ensureDailyTriggers(autoFix) {
       ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
       hasSave = true;
     }
+    if (!hasMortgage) {
+      ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
+      hasMortgage = true;
+    }
   }
-  return { hasClean: hasClean, hasSave: hasSave };
+  return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage };
+}
+
+function _getLatestDateInColumn(sheet, column) {
+  if (!sheet || sheet.getLastRow() < 2) return '-';
+  var values = sheet.getRange(2, column || 1, sheet.getLastRow() - 1, 1).getValues();
+  var latest = '';
+  values.forEach(function(row) {
+    var date = _normalizeDate(row[0]);
+    if (date && date > latest) latest = date;
+  });
+  return latest || '-';
 }
 
 function checkDailyAutomationStatus() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
   var autoFixed = false;
-  if (!trig.hasClean || !trig.hasSave) {
+  if (!trig.hasClean || !trig.hasSave || !trig.hasMortgage) {
     try {
       trig = _ensureDailyTriggers(true);
       autoFixed = true;
@@ -3030,22 +3196,29 @@ function checkDailyAutomationStatus() {
   var phLast = '-';
 
   var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
-  if (snapSh && snapSh.getLastRow() > 1) {
-    var snapVal = snapSh.getRange(snapSh.getLastRow(), 1).getValue();
-    snapLast = _normalizeDate(snapVal) || (snapVal || '').toString();
-  }
   var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
-  if (phSh && phSh.getLastRow() > 1) {
-    var phVal = phSh.getRange(phSh.getLastRow(), 1).getValue();
-    phLast = _normalizeDate(phVal) || (phVal || '').toString();
-  }
+  snapLast = _getLatestDateInColumn(snapSh, 1);
+  phLast = _getLatestDateInColumn(phSh, 1);
+
+  var props = PropertiesService.getScriptProperties();
+  var lastSuccessAt = props.getProperty('snapshot_last_success_at') || '-';
+  var lastSuccessDate = props.getProperty('snapshot_last_success_date') || '-';
+  var lastFailureAt = props.getProperty('snapshot_last_failure_at') || '-';
+  var lastError = props.getProperty('snapshot_last_error') || '-';
+  var isSnapshotStale = snapLast !== '-' && snapLast < today();
 
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
     + 'runEvalPriceUpdate1620(16:20) 트리거: ' + (trig.hasSave ? '정상' : '없음') + '\n\n'
+    + 'syncMortgageFromSchedule(01:10) 트리거: ' + (trig.hasMortgage ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
-    + '가격이력 마지막 날짜: ' + phLast + '\n\n'
-    + (!trig.hasClean || !trig.hasSave
+    + '가격이력 마지막 날짜: ' + phLast + '\n'
+    + '자동 생성 최근 성공: ' + lastSuccessAt + ' (기준일 ' + lastSuccessDate + ')\n'
+    + '자동 생성 최근 실패: ' + lastFailureAt + '\n'
+    + (lastError !== '-' ? '최근 오류: ' + lastError + '\n' : '')
+    + (isSnapshotStale ? '⚠️ 오늘 스냅샷이 아직 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
+    + '\n'
+    + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage
       ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
       : (autoFixed
           ? '✅ 트리거 누락을 자동 복구했습니다.'
@@ -3858,13 +4031,68 @@ function _writeSettingsMap(settings) {
   SpreadsheetApp.flush();
   return rows.length;
 }
-function handleSaveSettings(dataJson) {
+
+// 상환스케줄의 현재월 행을 기준으로 주담대 상태를 자동 갱신합니다.
+// 매일 실행하지만 값이 달라질 때만 설정 시트를 다시 씁니다.
+function syncMortgageFromSchedule() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
   try {
+    var settings = _readSettingsMap();
+    var loan = settings.LOAN;
+    var schedule = settings.LOAN_SCHEDULE;
+    if (!loan || typeof loan !== 'object' || !Array.isArray(schedule) || schedule.length === 0) {
+      return { updated: false, reason: '상환스케줄 없음' };
+    }
+    var month = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM');
+    var valid = schedule.filter(function(row) {
+      return row && /^\d{4}-\d{2}$/.test(String(row.date || '').slice(0, 7));
+    }).sort(function(a, b) { return String(a.date).localeCompare(String(b.date)); });
+    var current = null;
+    valid.forEach(function(row) {
+      var rowMonth = String(row.date).slice(0, 7);
+      if (rowMonth <= month) current = row;
+    });
+    if (!current) return { updated: false, reason: '현재월 이전 스케줄 없음' };
+
+    var remaining = valid.filter(function(row) { return String(row.date).slice(0, 7) >= month; }).length;
+    var interestPaid = valid.filter(function(row) { return String(row.date).slice(0, 7) <= month; })
+      .reduce(function(sum, row) { return sum + (Number(row.interest) || 0); }, 0);
+    var nextBalance = Number(current.balance) || 0;
+    var nextInterest = Number(current.interest) || 0;
+    var changed = Number(loan.balance || 0) !== nextBalance
+      || Number(loan.monthlyInterestPaid || 0) !== nextInterest
+      || Number(loan.totalMonths || 0) !== valid.length
+      || Number(loan.remainingMonths || 0) !== remaining
+      || Number(loan.totalInterestPaid || 0) !== interestPaid;
+    if (!changed) return { updated: false, month: month, balance: nextBalance };
+
+    loan.balance = nextBalance;
+    loan.monthlyInterestPaid = nextInterest;
+    loan.totalMonths = valid.length;
+    loan.remainingMonths = remaining;
+    loan.totalInterestPaid = interestPaid;
+    loan.scheduleUpdatedMonth = month;
+    settings.LOAN = loan;
+    _writeSettingsMap(settings);
+    Logger.log('[syncMortgageFromSchedule] ' + month + ' 잔액 ' + nextBalance + '원으로 갱신');
+    return { updated: true, month: month, balance: nextBalance };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function handleSaveSettings(dataJson) {
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lock.waitLock(30000); locked = true;
     var settings = _parseJsonParam(dataJson, 'settings');
     var saved = _writeSettingsMap(settings);
     return jsonOk({ saved: saved });
   } catch(err) {
     return jsonError('saveSettings 실패: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
@@ -3875,14 +4103,17 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.33' });
+    return jsonOk({ settings: settings, gasVersion: '9.43' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
 }
 
 function handleSaveDividendSettings(dataJson) {
+  var lock = LockService.getScriptLock();
+  var locked = false;
   try {
+    lock.waitLock(30000); locked = true;
     var divData = _parseJsonParam(dataJson, 'dividend data');
     var settings = _readSettingsMap();
     settings.DIVDATA = divData;
@@ -3890,6 +4121,8 @@ function handleSaveDividendSettings(dataJson) {
     return jsonOk({ saved: true, key: 'DIVDATA' });
   } catch(err) {
     return jsonError('saveDividendSettings 실패: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
@@ -3903,7 +4136,10 @@ function handleGetDividendSettings() {
 }
 
 function handleSaveRealEstateSettings(dataJson) {
+  var lock = LockService.getScriptLock();
+  var locked = false;
   try {
+    lock.waitLock(30000); locked = true;
     var payload = _parseJsonParam(dataJson, 'realEstate data');
     var settings = _readSettingsMap();
     settings.LOAN = payload.LOAN || {};
@@ -3914,6 +4150,8 @@ function handleSaveRealEstateSettings(dataJson) {
     return jsonOk({ saved: true, keys: ['LOAN','REAL_ESTATE','LOAN_SCHEDULE','RE_VALUE_HIST'] });
   } catch(err) {
     return jsonError('saveRealEstateSettings 실패: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
@@ -4198,37 +4436,43 @@ function fixPriceHistoryNames() {
 //  가격이력 시트 마이그레이션 (구버전 → 신버전, 1회 실행)
 // ════════════════════════════════════════════════════════════════════
 function initSheet() {
-  var ss = getss();
-  if (!ss) { try { SpreadsheetApp.getUi().alert('스프레드시트에서 실행하세요.'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); } return; }
-
-  var cs = ss.getSheetByName(CONFIG.SHEET_CODES) || ss.insertSheet(CONFIG.SHEET_CODES);
-  cs.clearContents();
-  cs.getRange(1,1,1,3).setValues([['종목코드','종목명(참고)','구분']]);
-  cs.getRange(1,1,1,3).setBackground('#0d1117').setFontColor('#10b981').setFontWeight('bold');
-
-  var ps = ss.getSheetByName(CONFIG.SHEET_PRICES) || ss.insertSheet(CONFIG.SHEET_PRICES);
-  ps.clearContents();
-  ps.getRange(1,1,1,4).setValues([['종목코드','종가','종목명','갱신일시']]);
-  ps.getRange(1,1,1,4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-  ps.setColumnWidth(1,90); ps.setColumnWidth(2,90); ps.setColumnWidth(3,200); ps.setColumnWidth(4,160);
-
-  var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) || ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
-  if (snap.getLastRow() === 0) {
-    snap.getRange(1,1,1,12).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']]);
-    snap.getRange(1,1,1,12).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+  var ss;
+  try {
+    ss = getss();
+  } catch(openError) {
+    var openMsg = '❌ 시트 구성 확인 실패\n\n' + openError.message + '\n\n현재 스프레드시트를 새로고침한 뒤 다시 시도해주세요.';
+    Logger.log(openMsg);
+    try { SpreadsheetApp.getUi().alert(openMsg); } catch(uiError) {}
+    return;
   }
 
-  var ph = ss.getSheetByName(CONFIG.SHEET_PH) || ss.insertSheet(CONFIG.SHEET_PH);
-  if (ph.getLastRow() === 0) {
-    ph.getRange(1,1,1,6).setValues([['날짜','종목코드','종목명','가격','입력일시','가격소스']]);
-    ph.getRange(1,1,1,6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-  }
+  var specs = [
+    [CONFIG.SHEET_CODES, ['종목코드','종목명(참고)','구분'], [90,200,100]],
+    [CONFIG.SHEET_PRICES, ['종목코드','종가','종목명','갱신일시'], [90,90,200,160]],
+    [CONFIG.SHEET_SNAPSHOT, ['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시'], [100,90,180,70,100,110,100,110,100,90,120,160]],
+    [CONFIG.SHEET_PH, ['날짜','종목코드','종목명','가격','입력일시','가격소스'], [100,90,180,100,160,120]],
+    [CONFIG.SHEET_HOLD, ['종목코드','종목명','수량','매수단가','매수원금','자산유형','계좌'], [90,180,70,110,110,100,120]],
+    [CONFIG.SHEET_TRADES, ['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모'], [100,80,100,180,90,70,100,90,200]],
+    [CONFIG.SHEET_SYNC_LOG, ['기록시각','소스','거래일','종목코드','종목명','계좌','메시지'], [160,100,100,90,180,120,300]],
+    [CONFIG.SHEET_SETTINGS, ['키','값'], [180,600]]
+  ];
+  var created = 0;
+  specs.forEach(function(spec) {
+    var sh = ss.getSheetByName(spec[0]);
+    if (!sh) { sh = ss.insertSheet(spec[0]); created++; }
+    sh.getRange(1, 1, 1, spec[1].length).setValues([spec[1]])
+      .setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    sh.setFrozenRows(1);
+    spec[2].forEach(function(width, idx) { sh.setColumnWidth(idx + 1, width); });
+  });
+  SpreadsheetApp.flush();
 
   try {
     SpreadsheetApp.getUi().alert(
-      '✅ 초기화 완료!\n\n다음 단계:\n' +
-      '1. [📊 포트폴리오] → [🔄 종가 갱신]\n' +
-      '2. [📊 포트폴리오] → [⏰ 자동 트리거 등록] (1회만)'
+      '✅ 시트 구성 확인 완료\n\n' +
+      '- 새로 생성한 시트: ' + created + '개\n' +
+      '- 기존 데이터는 삭제하지 않았습니다.\n\n' +
+      '다음 단계: [📊 포트폴리오] → [⚙️ 설정] → [자동 트리거 등록]'
     );
   } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -4271,50 +4515,48 @@ function onInstall(e) {
   onOpen(e);
 }
 
-function _addApiQuickMenu(ui) {
-  ui.createMenu('포트폴리오 설정')
+function _addFallbackMenu(ui) {
+  ui.createMenu('📊 포트폴리오')
+    .addItem('연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
     .addItem('공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
     .addItem('KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-    .addItem('공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
     .addItem('메뉴 생성 오류 확인', 'showMenuBuildError')
     .addToUi();
 }
 
-function onOpen() {
+function onOpen(e) {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) return;
 
-  // 일반 텍스트 + 단일 레벨 메뉴를 먼저 추가한다.
-  // 이 메뉴도 보이지 않으면 최신 bound script의 onOpen 자체가 실행되지 않은 것이다.
-  try { _addApiQuickMenu(ui); } catch(eQuick) { Logger.log('빠른 API 설정 메뉴 생성 실패: ' + eQuick.message); }
+  // 컨테이너에 복사된 스크립트가 과거 기본 문서 ID를 계속 사용하지 않도록
+  // 열기 이벤트의 실제 문서를 웹앱/트리거용 연결 대상으로 기억합니다.
+  try {
+    var source = e && e.source ? e.source : SpreadsheetApp.getActiveSpreadsheet();
+    if (source && source.getId()) {
+      PropertiesService.getScriptProperties().setProperty('SS_ID', source.getId());
+      SS_ID = source.getId();
+    }
+  } catch(idError) {
+    Logger.log('현재 스프레드시트 ID 저장 실패: ' + idError.message);
+  }
 
   try {
-    var manualKeepLabel = '🧷 수동가격 최신값만 유지: OFF';
-    try {
-      manualKeepLabel = _isManualKeepLatestEnabled()
-        ? '🧷 수동가격 최신값만 유지: ON'
-        : '🧷 수동가격 최신값만 유지: OFF';
-    } catch(e1) {
-      Logger.log('수동가격 최신값 메뉴 라벨 생성 실패: ' + e1.message);
-    }
+    var manualKeepLabel = '🧷 수동가격 날짜별 이력 보존: ON';
 
     var priceSourceLabel = '⚙️ 가격소스: 현재 설정 확인';
     try { priceSourceLabel = _priceSourceModeLabel(); }
     catch(e2) { Logger.log('가격소스 메뉴 라벨 생성 실패: ' + e2.message); }
 
     // ── 서브메뉴: 초기 설정 ──
-    var menuInit = ui.createMenu('⚙️ 초기 설정')
-      .addItem('시트 초기화 (최초 1회)', 'initSheet')
-      .addItem('자동 트리거 등록 (최초 1회)', 'setupTrigger')
+    var menuInit = ui.createMenu('⚙️ 설정')
+      .addItem('🔗 연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
+      .addItem('시트 구성 확인·복구', 'initSheet')
+      .addItem('자동 트리거 등록·복구', 'setupTrigger')
       .addSeparator()
       .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
-      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt');
-
-    // ── 서브메뉴: 공공데이터 API ──
-    var menuPublicData = ui.createMenu('🌐 공공데이터 API')
-      .addItem('🔑 인증키 설정 (상장종목정보·배당정보)', 'configurePublicDataApiKeyPrompt')
-      .addItem('ℹ️ 저장 상태 확인', 'showPublicDataApiKeyStatus');
+      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem('ℹ️ API 인증키 저장 상태', 'showApiKeyStatus');
 
     // ── 서브메뉴: 종가 관리 ──
     var menuPrice = ui.createMenu('📈 종가 관리')
@@ -4322,10 +4564,7 @@ function onOpen() {
       .addItem('🗓️ KRX 기간 불러오기', 'importKrxClosesPrompt')
       .addSeparator()
       .addItem(priceSourceLabel, 'togglePriceSourceMode')
-      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-      .addItem(manualKeepLabel, 'toggleManualKeepLatestOption')
-      .addSeparator()
-      .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus');
+      .addItem(manualKeepLabel, 'toggleManualKeepLatestOption');
 
     // ── 서브메뉴: 소급채우기 ──
     var menuBackfill = ui.createMenu('📆 소급채우기')
@@ -4343,13 +4582,7 @@ function onOpen() {
 
     // ── 메인 메뉴 조합 ──
     ui.createMenu('📊 포트폴리오')
-      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
-      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-      .addItem('ℹ️ 공공데이터 API 상태 확인', 'showPublicDataApiKeyStatus')
-      .addSeparator()
       .addSubMenu(menuInit)
-      .addSeparator()
-      .addSubMenu(menuPublicData)
       .addSeparator()
       .addSubMenu(menuPrice)
       .addSeparator()
@@ -4362,17 +4595,9 @@ function onOpen() {
   } catch(err) {
     try { PropertiesService.getScriptProperties().setProperty('last_menu_build_error', err.message || String(err)); } catch(e4) {}
     Logger.log('포트폴리오 메뉴 생성 실패: ' + (err.message || err));
-    try { _addApiQuickMenu(ui); } catch(eQuick2) { Logger.log('fallback 빠른 API 설정 메뉴 생성 실패: ' + eQuick2.message); }
-    ui.createMenu('📊 포트폴리오')
-      .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
-      .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-      .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
-      .addToUi();
+    try { _addFallbackMenu(ui); } catch(eFallback) { Logger.log('fallback 메뉴 생성 실패: ' + eFallback.message); }
   }
 
-  // 메뉴 생성 후 트리거 자동 복구를 시도해, 트리거/권한 문제가 메뉴 노출을 막지 않도록 한다.
-  try { _ensureDailyTriggers(true); } catch(e5) { Logger.log('트리거 자동복구 실패: ' + e5.message); }
-  try { _ensureOpenMenuTrigger(true); } catch(e6) { Logger.log('메뉴 열기 트리거 자동복구 실패: ' + e6.message); }
 }
 
 function showMenuBuildError() {
