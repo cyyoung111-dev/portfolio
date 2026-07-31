@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.43
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.44
+//
+//  v9.44 변경사항 (2026.07.31):
+//   ✅ [성능]   KOSPI·KOSDAQ·ETF와 최대 7일 fallback KRX 요청을 fetchAll 병렬 처리
+//   ✅ [캐시]   동일 종목 현재가 응답을 60초간 GAS CacheService에서 재사용해 중복 조회 제거
+//   ✅ [최적화] 요청 종목에 필요한 외화 환율만 GOOGLEFINANCE로 조회
 //
 //  v9.43 변경사항 (2026.07.31):
 //   ✅ [버그수정] getPrices가 정의되지 않은 _updateTodaySnapshotSource()를 호출해 응답이 실패하던 문제 수정
@@ -625,11 +630,11 @@ function fetchPricesKrx(items, dateStr) {
   var wanted = {};
   items.forEach(function(item) { wanted[item.code] = item; });
   var out = {};
-  // ★ fallback 시 실제 사용된 날짜 추적 — 코드별로 실제 날짜 기록
-  var usedDateByCode = {};
-  ['KOSPI', 'KOSDAQ', 'ETF'].forEach(function(market) {
+  var markets = ['KOSPI', 'KOSDAQ', 'ETF'];
+  var packs = _fetchKrxMarketsParallelWithFallback(markets, ymd, cfg.apiKey, 7);
+  markets.forEach(function(market) {
     try {
-      var pack = _fetchKrxDailyOutBlockWithFallback(market, ymd, cfg.apiKey, 7);
+      var pack = packs[market] || { rows: [], usedYmd: ymd };
       var rows = pack.rows;
       // ★ fallback 발생 시 로그 및 실제 날짜 기록
       var usedDate = pack.usedYmd.slice(0,4) + '-' + pack.usedYmd.slice(4,6) + '-' + pack.usedYmd.slice(6,8);
@@ -646,7 +651,6 @@ function fetchPricesKrx(items, dateStr) {
           source: 'KRX',
           usedDate: usedDate  // ★ 실제 데이터 날짜 포함
         };
-        usedDateByCode[code] = usedDate;
       });
     } catch (e) {
       Logger.log('⚠️ KRX OpenAPI 조회 실패(' + market + '): ' + e.message);
@@ -657,6 +661,46 @@ function fetchPricesKrx(items, dateStr) {
     return fetchPricesKrxViaOtp(items, dateStr);
   }
   return out;
+}
+
+function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback) {
+  var result = {};
+  var fetchPairs = function(pairs) {
+    if (pairs.length === 0) return;
+    var requests = pairs.map(function(info) {
+      return {
+        url: _getKrxEndpointByMarket(info.market) + '?basDd=' + encodeURIComponent(info.ymd),
+        method: 'get', headers: { AUTH_KEY: authKey }, muteHttpExceptions: true
+      };
+    });
+    UrlFetchApp.fetchAll(requests).forEach(function(resp, index) {
+      var info = pairs[index];
+      if (result[info.market] && result[info.market].rows.length > 0) return;
+      if (resp.getResponseCode() >= 400) return;
+      try {
+        var json = JSON.parse(resp.getContentText() || '{}');
+        var rows = Array.isArray(json.OutBlock_1) ? json.OutBlock_1 : [];
+        if (rows.length > 0) result[info.market] = { rows: rows, usedYmd: info.ymd };
+      } catch(e) {}
+    });
+  };
+
+  // 정상 거래일에는 시장별 오늘 요청 3개만 병렬 실행합니다.
+  fetchPairs(markets.map(function(market){ return { market: market, ymd: ymd }; }));
+  var missingMarkets = markets.filter(function(market){ return !result[market]; });
+  if (missingMarkets.length > 0) {
+    var fallbackPairs = [];
+    var cur = ymd;
+    for (var i = 0; i < (maxLookback || 7); i++) {
+      cur = _prevYmd(cur);
+      missingMarkets.forEach(function(market){ fallbackPairs.push({ market: market, ymd: cur }); });
+    }
+    fetchPairs(fallbackPairs);
+  }
+  markets.forEach(function(market) {
+    if (!result[market]) result[market] = { rows: [], usedYmd: ymd };
+  });
+  return result;
 }
 
 function fetchPricesKrxViaOtp(items, dateStr) {
@@ -1659,6 +1703,20 @@ function handleGetPricesCompat(codesParam) {
     var ss       = getss();
     var todayStr = today();
     var reqCodes = codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean);
+    var cache = CacheService.getScriptCache();
+    var cacheRaw = todayStr + '|' + reqCodes.slice().sort().join(',');
+    var cacheHash = Utilities.base64EncodeWebSafe(
+      Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
+    ).replace(/=+$/g, '').slice(0, 40);
+    var cacheKey = 'prices_v944_' + cacheHash;
+    var cached = cache.get(cacheKey);
+    if (cached) {
+      try {
+        var cachedPayload = JSON.parse(cached);
+        cachedPayload.cached = true;
+        return jsonOk(cachedPayload);
+      } catch(cacheErr) {}
+    }
 
     var phPrices = getPriceHistoryRow(ss, todayStr);
     var prices   = {};
@@ -1716,9 +1774,18 @@ function handleGetPricesCompat(codesParam) {
       }
       _updateTodaySnapshotSource(ss, todayStr, sourceByCode);
     }
-    // ★ [환율 연동] GOOGLEFINANCE로 주요 통화 환율 조회 후 응답에 포함
-    var exchangeRates = fetchExchangeRates(ss);
-    return jsonOk({ prices: prices, missing: stillMissing, exchangeRates: exchangeRates });
+    // 요청 종목에서 실제 사용하는 외화만 조회합니다.
+    var requestedSet = {};
+    reqCodes.forEach(function(code){ requestedSet[code] = true; });
+    var neededCurrencies = [];
+    getCodeItems(ss).forEach(function(item) {
+      if (!requestedSet[item.code] || !item.currency || item.currency === 'KRW') return;
+      if (neededCurrencies.indexOf(item.currency) === -1) neededCurrencies.push(item.currency);
+    });
+    var exchangeRates = neededCurrencies.length > 0 ? fetchExchangeRates(ss, neededCurrencies) : {};
+    var payload = { prices: prices, missing: stillMissing, exchangeRates: exchangeRates };
+    try { cache.put(cacheKey, JSON.stringify(payload), 60); } catch(cacheWriteErr) {}
+    return jsonOk(payload);
   } catch(err) {
     return jsonError('getPrices 실패: ' + err.message);
   }
@@ -1731,12 +1798,20 @@ function handleGetPricesCompat(codesParam) {
 var _fxRatesCache = null;
 var _fxRatesCacheDate = '';
 
-function fetchExchangeRates(ss) {
-  var CURRENCIES = ['USD', 'JPY', 'EUR', 'CNY', 'HKD'];
+function fetchExchangeRates(ss, requestedCurrencies) {
+  var supported = ['USD', 'JPY', 'EUR', 'CNY', 'HKD'];
+  var CURRENCIES = Array.isArray(requestedCurrencies) && requestedCurrencies.length > 0
+    ? requestedCurrencies.filter(function(cur, index, arr) { return supported.indexOf(cur) >= 0 && arr.indexOf(cur) === index; })
+    : supported;
   var rates = {};
+  if (CURRENCIES.length === 0) return rates;
   // ★ 당일 캐시 재사용 — getPrices 호출마다 flush하면 2~5초 추가되므로
   var todayStr = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd');
-  if (_fxRatesCache && _fxRatesCacheDate === todayStr) return _fxRatesCache;
+  if (_fxRatesCache && _fxRatesCacheDate === todayStr) {
+    var cachedRates = {};
+    CURRENCIES.forEach(function(cur){ if (_fxRatesCache[cur] > 0) cachedRates[cur] = _fxRatesCache[cur]; });
+    if (Object.keys(cachedRates).length === CURRENCIES.length) return cachedRates;
+  }
 
   // ★ [버그수정] 공유 임시 시트 대신 요청마다 고유한 임시 시트 사용 (동시 요청 충돌 방지)
   // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
@@ -1752,7 +1827,7 @@ function fetchExchangeRates(ss) {
       var v = Number(values[i][0]);
       if (v > 0) rates[cur] = Math.round(v * 10) / 10;
     });
-    _fxRatesCache = rates;
+    _fxRatesCache = Object.assign({}, _fxRatesCache || {}, rates);
     _fxRatesCacheDate = todayStr;
   } catch(e) {
     Logger.log('⚠️ fetchExchangeRates 실패: ' + e.message);
@@ -4103,7 +4178,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.43' });
+    return jsonOk({ settings: settings, gasVersion: '9.44' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
