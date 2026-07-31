@@ -1,5 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.41
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.42
+//
+//  v9.42 변경사항 (2026.07.31):
+//   ✅ [안정성] 자동 스냅샷 생성에 Script Lock·성공/실패 상태 기록을 추가하고 실패를 트리거 실행기록에 전파
+//   ✅ [정확성] 종목코드 시트가 비어도 펀드·TDF 거래와 수동가격만으로 오늘 스냅샷 생성
+//   ✅ [점검]   자동화 상태 메뉴가 시트 마지막 행이 아닌 실제 최신 날짜와 최근 실행결과를 표시
+//   ✅ [버그수정] 삭제된 _repairRecentNonKrxHistory() 호출로 16:20 자동 실행이 중단되던 오류 제거
 //
 //  v9.41 변경사항 (2026.07.31):
 //   ✅ [정확성] 펀드·TDF는 스냅샷 기준일 이전의 가장 최근 수동가격만 이월하고 미래 입력값 참조 차단
@@ -2593,8 +2599,8 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  [기존 문제]
 //  - 16:20 트리거에서 "당일" 종가를 저장하는데, 장 마감(15:30) 직후라
 //    KRX가 전일 종가를 반환하는 경우가 있음
-//  - 가격이력은 다음날 _repairRecentNonKrxHistory()로 보정되지만
-//    스냅샷은 재작성되지 않아 가격이력·스냅샷 단가 불일치 발생
+//  - 가격이력만 이후에 보정되고 스냅샷은 재작성되지 않으면
+//    가격이력·스냅샷 단가 불일치가 발생
 //
 //  [해결]
 //  - 전일(T-1) KRX 확정 종가를 명시적으로 가져와 가격이력에 저장
@@ -2602,13 +2608,21 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  - 오늘(T) 스냅샷도 전일 확정 종가 기준으로 작성
 // ════════════════════════════════════════════════════════════════════
 function saveDailyPriceHistory() {
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  var props = PropertiesService.getScriptProperties();
+  var startedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
   try {
+    lock.waitLock(30000);
+    locked = true;
     var ss       = getss();
     var todayStr = today();
     var prevDay  = _getPrevTradingDay(todayStr, 7);
 
     var items = getCodeItems(ss);
-    if (items.length === 0) { Logger.log('종목코드 없음'); return; }
+    // 펀드·TDF는 종목코드 시트에 없을 수 있으므로 여기서 종료하면 안 됩니다.
+    // 자동가격 조회는 건너뛰더라도 아래 공통 생성기가 거래이력+수동가격으로 스냅샷을 만듭니다.
+    if (items.length === 0) Logger.log('상장 종목코드 없음 — 펀드·TDF 수동가격 기준 스냅샷 생성 계속');
 
     // ── Step 1: 전일(T-1) KRX 확정 종가 조회 및 가격이력 저장
     var prevPrices = {};
@@ -2635,10 +2649,7 @@ function saveDailyPriceHistory() {
         Logger.log('⚠️ 전일 KRX 조회 실패: ' + e.message);
       }
 
-      // ── Step 2: 전일 가격이력 재조회 (MANUAL 포함 최종 확정값)
-      var prevHistPrices = getPriceHistoryRow(ss, prevDay);
-
-      // ── Step 3: 전일 스냅샷 검증 및 불일치 시 재작성
+      // ── Step 2: 전일 스냅샷 검증 및 불일치 시 재작성
       Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 스냅샷 정합성 검증');
       try {
         var prevExpected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, prevDay);
@@ -2654,10 +2665,7 @@ function saveDailyPriceHistory() {
       }
     }
 
-    // ── Step 4: 최근 7일 비-KRX 가격이력 보정 (기존 로직 유지)
-    _repairRecentNonKrxHistory(ss, todayStr, items, 7);
-
-    // ── Step 5: 오늘(T) 가격이력 저장 (당일 실시간 + GF fallback)
+    // ── Step 3: 오늘(T) 가격이력 저장 (당일 실시간 + GF fallback)
     var existing = getPriceHistoryRow(ss, todayStr);
     var prices   = {};
     Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
@@ -2708,17 +2716,26 @@ function saveDailyPriceHistory() {
       }
     });
 
-    // ── Step 6: 오늘(T) 스냅샷 작성
+    // ── Step 4: 오늘(T) 스냅샷 작성
     // ★ 오늘 스냅샷도 전일 확정 종가 기준으로 _buildSnapshotRows가 처리함
     // (가격이력 시트에 전일 종가가 저장됐으므로 자동으로 전일 종가 참조)
     var snapRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, todayStr);
-    if (snapRows.length === 0) { Logger.log('스냅샷 저장할 데이터 없음'); return; }
+    if (snapRows.length === 0) throw new Error('스냅샷 저장 대상 없음: 거래이력과 기준일 보유수량을 확인하세요');
     writeSnapshotRows(ss, todayStr, snapRows, true);
 
     SpreadsheetApp.flush();
+    props.setProperty('snapshot_last_success_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
+    props.setProperty('snapshot_last_success_date', todayStr);
+    props.deleteProperty('snapshot_last_error');
     Logger.log('✅ saveDailyPriceHistory 완료: 전일(' + (prevDay||'-') + ') + 오늘(' + todayStr + ')');
+    return { ok: true, date: todayStr, rows: snapRows.length, startedAt: startedAt };
   } catch(err) {
+    props.setProperty('snapshot_last_failure_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
+    props.setProperty('snapshot_last_error', ((err && err.message) ? err.message : String(err)).slice(0, 1000));
     Logger.log('❌ saveDailyPriceHistory 실패: ' + err.message);
+    throw err;
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
@@ -3126,6 +3143,17 @@ function _ensureDailyTriggers(autoFix) {
   return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage };
 }
 
+function _getLatestDateInColumn(sheet, column) {
+  if (!sheet || sheet.getLastRow() < 2) return '-';
+  var values = sheet.getRange(2, column || 1, sheet.getLastRow() - 1, 1).getValues();
+  var latest = '';
+  values.forEach(function(row) {
+    var date = _normalizeDate(row[0]);
+    if (date && date > latest) latest = date;
+  });
+  return latest || '-';
+}
+
 function checkDailyAutomationStatus() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
@@ -3142,22 +3170,28 @@ function checkDailyAutomationStatus() {
   var phLast = '-';
 
   var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
-  if (snapSh && snapSh.getLastRow() > 1) {
-    var snapVal = snapSh.getRange(snapSh.getLastRow(), 1).getValue();
-    snapLast = _normalizeDate(snapVal) || (snapVal || '').toString();
-  }
   var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
-  if (phSh && phSh.getLastRow() > 1) {
-    var phVal = phSh.getRange(phSh.getLastRow(), 1).getValue();
-    phLast = _normalizeDate(phVal) || (phVal || '').toString();
-  }
+  snapLast = _getLatestDateInColumn(snapSh, 1);
+  phLast = _getLatestDateInColumn(phSh, 1);
+
+  var props = PropertiesService.getScriptProperties();
+  var lastSuccessAt = props.getProperty('snapshot_last_success_at') || '-';
+  var lastSuccessDate = props.getProperty('snapshot_last_success_date') || '-';
+  var lastFailureAt = props.getProperty('snapshot_last_failure_at') || '-';
+  var lastError = props.getProperty('snapshot_last_error') || '-';
+  var isSnapshotStale = snapLast !== '-' && snapLast < today();
 
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
     + 'runEvalPriceUpdate1620(16:20) 트리거: ' + (trig.hasSave ? '정상' : '없음') + '\n\n'
     + 'syncMortgageFromSchedule(01:10) 트리거: ' + (trig.hasMortgage ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
-    + '가격이력 마지막 날짜: ' + phLast + '\n\n'
+    + '가격이력 마지막 날짜: ' + phLast + '\n'
+    + '자동 생성 최근 성공: ' + lastSuccessAt + ' (기준일 ' + lastSuccessDate + ')\n'
+    + '자동 생성 최근 실패: ' + lastFailureAt + '\n'
+    + (lastError !== '-' ? '최근 오류: ' + lastError + '\n' : '')
+    + (isSnapshotStale ? '⚠️ 오늘 스냅샷이 아직 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
+    + '\n'
     + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage
       ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
       : (autoFixed
@@ -4043,7 +4077,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.41' });
+    return jsonOk({ settings: settings, gasVersion: '9.42' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
