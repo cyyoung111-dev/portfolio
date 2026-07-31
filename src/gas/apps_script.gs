@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.42
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.43
+//
+//  v9.43 변경사항 (2026.07.31):
+//   ✅ [버그수정] getPrices가 정의되지 않은 _updateTodaySnapshotSource()를 호출해 응답이 실패하던 문제 수정
+//   ✅ [보호]   오늘 스냅샷의 MANUAL 소스·저장시각은 유지하고 자동조회 종목의 소스만 일괄 갱신
+//   ✅ [검증]   GAS의 정의되지 않은 내부 헬퍼 호출을 CI에서 탐지하는 check:gas 추가
 //
 //  v9.42 변경사항 (2026.07.31):
 //   ✅ [안정성] 자동 스냅샷 생성에 Script Lock·성공/실패 상태 기록을 추가하고 실패를 트리거 실행기록에 전파
@@ -2214,6 +2219,27 @@ function _getPriceSourceByDate(ss, dateStr) {
   return out;
 }
 
+function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
+  if (!sourceByCode || Object.keys(sourceByCode).length === 0) return 0;
+  var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  var rowCount = sh.getLastRow() - 1;
+  var data = sh.getRange(2, 1, rowCount, Math.max(12, sh.getLastColumn())).getValues();
+  var sourceCells = data.map(function(row) { return [(row[10] || '').toString().trim(), (row[11] || '').toString().trim()]; });
+  var changed = 0;
+  data.forEach(function(row, index) {
+    if (_normalizeDate(row[0]) !== dateStr) return;
+    var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+    var nextSource = code ? (sourceByCode[code] || '') : '';
+    var currentSource = (row[10] || '').toString().trim();
+    if (!nextSource || currentSource === 'MANUAL' || currentSource === nextSource) return;
+    sourceCells[index] = [nextSource, ''];
+    changed++;
+  });
+  if (changed > 0) sh.getRange(2, 11, rowCount, 2).setValues(sourceCells);
+  return changed;
+}
+
 function _isManualKeepLatestEnabled() {
   return false;
 }
@@ -4077,7 +4103,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.42' });
+    return jsonOk({ settings: settings, gasVersion: '9.43' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
