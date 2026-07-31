@@ -99,6 +99,13 @@ function renderDivView(area, skipFetch) {
   // ★ [버그수정] NOW_MONTH(파일 로드 시 고정값) 대신 렌더링 시점의 KST 월/연도 사용
   const nowMonth  = _getNowMonth();
   const nowYear   = _kstYear();
+  const dividendUpdatedTimes = Object.values(DIVDATA || {})
+    .map(d => Date.parse(d?.updatedAt || ''))
+    .filter(Number.isFinite);
+  const dividendUpdatedAt = dividendUpdatedTimes.length ? new Date(Math.max(...dividendUpdatedTimes)) : null;
+  const dividendUpdatedLabel = dividendUpdatedAt
+    ? new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(dividendUpdatedAt)
+    : '업데이트 기록 없음';
 
   // 수량 0 숨김 적용
   const allDivRows = calcDividends();
@@ -139,6 +146,7 @@ function renderDivView(area, skipFetch) {
       <div style="display:flex;flex-direction:column;gap:2px">
         <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔄 수동 재동기화</div>
         <span id="sync-badge-div" style="font-size:.68rem;color:var(--muted)"></span>
+        <span style="font-size:.62rem;color:var(--muted)">최종 업데이트: ${dividendUpdatedLabel}</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm">🔄 배당금 불러오기</button>` : ''}
@@ -203,7 +211,7 @@ function renderDivView(area, skipFetch) {
         <div style="font-size:.65rem;color:var(--muted);margin-top:2px">확정+예상 · 현재월 <span style="color:var(--cyan)">${nowMonth}월</span></div>
       </div>
       <div style="display:flex;gap:10px;font-size:.63rem;color:var(--muted);align-items:center;flex-shrink:0">
-        <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,.18);margin-right:3px;vertical-align:middle"></span>지난달</span>
+        <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--muted);opacity:.72;margin-right:3px;vertical-align:middle"></span>지난달</span>
         <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--cyan);margin-right:3px;vertical-align:middle"></span>이번달</span>
         <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--green);margin-right:3px;vertical-align:middle"></span>예정</span>
       </div>
@@ -217,13 +225,13 @@ function renderDivView(area, skipFetch) {
           const pct = v > 0 ? Math.max((v / maxV) * 100, 3) : 1;
           const label = v > 0 ? (v >= 1000000 ? (v/10000).toFixed(0)+'만' : v >= 10000 ? Math.round(v/1000)+'천' : v.toLocaleString()) : '';
           const bg = isCurrent
-            ? 'linear-gradient(to top,rgba(6,182,212,.3),rgba(6,182,212,1))'
+            ? 'linear-gradient(to top,color-mix(in srgb,var(--cyan) 32%,transparent),var(--cyan))'
             : isPast
-            ? 'rgba(255,255,255,.12)'
-            : 'linear-gradient(to top,rgba(16,185,129,.25),rgba(16,185,129,.85))';
-          const border = isCurrent ? '1px solid rgba(6,182,212,.8)' : 'none';
-          const labelColor = isCurrent ? 'var(--cyan)' : isPast ? 'rgba(255,255,255,.3)' : 'var(--green)';
-          const monthColor = isCurrent ? 'var(--cyan)' : 'rgba(100,116,139,.85)';
+            ? 'linear-gradient(to top,color-mix(in srgb,var(--muted) 38%,transparent),var(--muted))'
+            : 'linear-gradient(to top,color-mix(in srgb,var(--green) 28%,transparent),var(--green))';
+          const border = isCurrent ? '1px solid var(--cyan)' : isPast ? '1px solid color-mix(in srgb,var(--muted) 72%,transparent)' : 'none';
+          const labelColor = isCurrent ? 'var(--cyan)' : isPast ? 'var(--text)' : 'var(--green)';
+          const monthColor = isCurrent ? 'var(--cyan)' : 'var(--muted)';
           const fw = isCurrent ? '700' : '400';
           return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
             ${label ? `<div style="font-size:8px;color:${labelColor};font-weight:${fw};margin-bottom:2px;white-space:nowrap;overflow:hidden;max-width:100%;text-align:center">${label}</div>` : '<div style="margin-bottom:10px"></div>'}
@@ -350,10 +358,43 @@ function renderDivView(area, skipFetch) {
   // 배당 설정 수동 편집
   html += `<div class="card-12">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div style="font-size:.78rem;font-weight:700;color:var(--gold)">⚙️ 배당 설정 수동 편집</div>
-      <button data-div-action="apply" class="btn-amber-sm">💾 저장</button>
+      <div>
+        <div style="font-size:.78rem;font-weight:700;color:var(--gold)">⚙️ 배당 설정 수동 편집</div>
+        <div style="font-size:.62rem;color:var(--muted);margin-top:2px">ETF 등 자동 조회가 안 되는 종목은 직접 등록할 수 있으며, 입력값은 GAS에 저장됩니다.</div>
+      </div>
     </div>
     <div id="divMgmtBody" style="max-height:420px;overflow-y:auto"></div>
+  </div>
+
+  <div id="divManualModal" style="display:none;position:fixed;inset:0;z-index:10020;background:rgba(2,6,23,.72);align-items:center;justify-content:center;padding:16px">
+    <div style="width:min(440px,100%);background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.45)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px">
+        <div id="divManualTitle" style="font-size:.90rem;font-weight:800;color:var(--text)">배당 수동 입력</div>
+        <button type="button" data-div-action="manual-close" class="btn-cancel-sm">✕</button>
+      </div>
+      <label class="lbl-62-muted-3" for="dv_amt_manual">주당 배당금 (원)</label>
+      <input type="number" min="0" step="any" id="dv_amt_manual" placeholder="예: 350" class="input-full-73" style="margin:5px 0 12px"/>
+      <div style="font-size:.61rem;color:var(--muted);margin:-7px 0 12px">향후 예상 계산용 기본 금액입니다. 실제 지급액은 아래 배당 건별 금액을 우선 적용합니다.</div>
+      <div class="lbl-62-muted-3">지급 주기</div>
+      <input type="hidden" id="dv_freq_manual" value="-"/>
+      <div id="dv_freq_grp_manual" style="display:flex;flex-wrap:wrap;gap:4px;margin:5px 0 12px"></div>
+      <label class="lbl-62-muted-3" for="dv_months_manual">지급 월</label>
+      <input type="text" id="dv_months_manual" placeholder="예: 1,4,7,10" class="input-full-73" style="margin:5px 0 4px"/>
+      <div style="font-size:.61rem;color:var(--muted);margin-bottom:14px">여러 달은 쉼표로 구분하며 1~12월만 입력할 수 있습니다.</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0 7px">
+        <div>
+          <div class="lbl-62-muted-3">배당 건별 입력</div>
+          <div style="font-size:.60rem;color:var(--muted);margin-top:2px">금액이 매번 다르면 기준일·지급일·주당 금액을 각각 입력하세요.</div>
+        </div>
+        <button type="button" data-div-action="manual-event-add" class="btn-purple-sm">＋ 배당 건</button>
+      </div>
+      <div id="divManualEvents" style="max-height:220px;overflow-y:auto;padding-right:2px"></div>
+      <div style="font-size:.60rem;color:var(--cyan);margin:8px 0 10px">☁️ 저장 시 연결된 Google Apps Script의 설정 시트에 반영됩니다.</div>
+      <div style="display:flex;justify-content:flex-end;gap:7px">
+        <button type="button" data-div-action="manual-close" class="btn-cancel-sm">취소</button>
+        <button type="button" data-div-action="manual-save" class="btn-amber-sm">💾 저장</button>
+      </div>
+    </div>
   </div>`;
 
   area.innerHTML = html;
@@ -387,4 +428,3 @@ function _toggleDivHideZero() {
   const area = $el('view-area');
   if (area) renderDivView(area, true);
 }
-
