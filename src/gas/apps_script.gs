@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.45
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.46
+//
+//  v9.46 변경사항 (2026.08.01):
+//   ✅ [지표]   손익 그래프 비교지수에 VKOSPI(코스피200 변동성지수) 조회 지원 추가
 //
 //  v9.45 변경사항 (2026.07.31):
 //   ✅ [정합성] 일반 설정 저장이 트리거가 갱신한 배당·주담대·부동산 전용 데이터를 덮어쓰지 않도록 병합 저장
@@ -1920,7 +1923,10 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
       SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
       NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
-      NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX']
+      NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
+      // Google Finance의 KRX 변동성지수 심볼. 공급처가 일시적으로 값을 주지 않으면
+      // 빈 points를 반환해 프론트가 다른 지수 결과와 구분해 실패 상태를 표시합니다.
+      VKOSPI: ['INDEXKRX:KSVKOSPI', 'INDEXKRX:VKOSPI', 'KRX:VKOSPI']
     };
     var key = (benchmark || '').toString().trim().toUpperCase();
     var symbols = map[key];
@@ -4225,7 +4231,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.45' });
+    return jsonOk({ settings: settings, gasVersion: '9.46' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

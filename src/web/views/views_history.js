@@ -84,8 +84,14 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   // 비교지수 정렬 (우측축, 복수 선택)
   const benchTypes = Array.isArray(benchmarkOpt?.types) ? benchmarkOpt.types : [];
   const benchSeriesMap = benchmarkOpt?.seriesMap || {};
-  const benchColors = ['#60a5fa', '#22c55e', '#f59e0b', '#a78bfa', '#fb7185'];
-  const benchLines = benchTypes.map((benchType, idx) => {
+  const benchColorMap = {
+    KOSPI: '#60a5fa',
+    SP500: '#22c55e',
+    NASDAQ: '#f59e0b',
+    NASDAQ100: '#a78bfa',
+    VKOSPI: '#fb7185',
+  };
+  const benchLines = benchTypes.map((benchType) => {
     const benchRaw = Array.isArray(benchSeriesMap[benchType]) ? benchSeriesMap[benchType] : [];
     const benchByDate = {};
     benchRaw.forEach(b => { if (b.date && b.value > 0) benchByDate[b.date] = b.value; });
@@ -132,7 +138,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       .map(b => ({ date: b.date, raw: Number(b.value) }))
       .sort((a, b) => a.date.localeCompare(b.date));
     const mdd = _calcHistoryMdd(dailyMddPoints.length ? dailyMddPoints : arr, dailyMddPoints.length ? 'raw' : 'idx');
-    return { type: benchType, color: benchColors[idx % benchColors.length], pts: arr, mdd };
+    return { type: benchType, color: benchColorMap[benchType] || '#94a3b8', pts: arr, mdd };
   }).filter(x => x.pts.length > 1);
   const hasBench = benchLines.length > 0;
   const allIdx = hasBench ? benchLines.flatMap(x => x.pts.map(p => p.idx)) : [];
