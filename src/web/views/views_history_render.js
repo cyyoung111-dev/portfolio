@@ -21,18 +21,21 @@ function renderHistoryView(area) {
             <option value="730">2년</option>
             <option value="0">전체</option>
           </select>
-          <div id="histBenchmarkMulti" title="비교지수(복수선택)"
+          <div id="histBenchmarkMulti" title="비교지수(복수선택) · 선택 기간 수익률과 MDD 표시"
             style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--s2)">
             <button type="button" class="hist-bench-btn" data-bench="KOSPI">KOSPI</button>
             <button type="button" class="hist-bench-btn" data-bench="SP500">S&P500</button>
             <button type="button" class="hist-bench-btn" data-bench="NASDAQ">NASDAQ</button>
             <button type="button" class="hist-bench-btn" data-bench="NASDAQ100">NASDAQ100</button>
+            <button type="button" class="hist-bench-btn" data-bench="VKOSPI">VKOSPI</button>
             <button type="button" id="histBenchClear" class="hist-bench-btn hist-bench-btn-clear" data-bench="CLEAR">해제</button>
           </div>
           <button id="btn-history-refresh" class="btn-ghost-sm">🔄 새로고침</button>
         </div>
       </div>
+      <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다. VKOSPI 상승은 시장 불안 확대를 뜻합니다.</div>
       <div id="histStatusMsg" style="font-size:.72rem;color:var(--muted);margin-bottom:8px"></div>
+      <div id="histCoveragePanel"></div>
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
       <div id="histTableWrap" style="margin-top:18px"></div>
     </div>`;
@@ -48,6 +51,9 @@ function renderHistoryView(area) {
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
   $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
+  $el('histCoveragePanel')?.addEventListener('click', e => {
+    if (e.target?.closest?.('[data-history-action="repair-gaps"]')) repairHistorySnapshotGaps();
+  });
   $el('histBenchmarkMulti')?.addEventListener('click', e => {
     const btn = e.target?.closest?.('.hist-bench-btn');
     if (!btn) return;
