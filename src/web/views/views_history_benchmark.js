@@ -36,27 +36,34 @@ async function _historyRequestJson(action, params, options) {
 async function _loadBenchmarkBundle(types, fromDate, toDate) {
   const seriesMap = {};
   const metaMap = {};
+  const errorMap = {};
   const failedTypes = [];
   // ★ GAS 제약 대응: 병렬 Promise.all 대신 직렬 큐
   for (const type of types) {
-    const payload = await _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, 1);
+    // VKOSPI는 기간 내 영업일을 KRX에서 일괄 조회하므로 같은 대량 요청을 즉시 반복하지 않습니다.
+    const payload = await _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, type === 'VKOSPI' ? 0 : 1);
     const points = Array.isArray(payload?.points) ? payload.points : [];
     const symbol = payload?.symbol || '';
     seriesMap[type] = points;
     metaMap[type] = symbol;
-    if (points.length === 0) failedTypes.push(type);
+    if (points.length === 0) {
+      failedTypes.push(type);
+      if (payload?.error) errorMap[type] = payload.error;
+    }
   }
-  return { seriesMap, metaMap, failedTypes };
+  return { seriesMap, metaMap, errorMap, failedTypes };
 }
 
 async function _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, maxRetry) {
   const retry = Number.isFinite(maxRetry) ? Math.max(0, maxRetry) : 0;
+  let lastError = '';
   for (let attempt = 0; attempt <= retry; attempt++) {
     const payload = await _fetchBenchmarkSeries(type, fromDate, toDate);
     if (Array.isArray(payload?.points) && payload.points.length > 0) return payload;
+    if (payload?.error) lastError = payload.error;
     if (attempt < retry) await new Promise(r => setTimeout(r, 180));
   }
-  return { points: [], symbol: '' };
+  return { points: [], symbol: '', error: lastError || `${type} 데이터를 불러오지 못했습니다.` };
 }
 
 async function _fetchBenchmarkSeries(type, fromDate, toDate) {
@@ -64,9 +71,11 @@ async function _fetchBenchmarkSeries(type, fromDate, toDate) {
   const data = await _historyRequestJson(
     'getBenchmark',
     { benchmark: type, from: fromDate, to: toDate },
-    { timeoutMs: 15000, retry: 0 }
+    // VKOSPI는 KRX의 날짜별 응답을 병렬 취합하므로 최초 조회에 더 긴 시간을 허용합니다.
+    { timeoutMs: type === 'VKOSPI' ? 45000 : 15000, retry: 0 }
   );
-  if (!data || data.status === 'error') return { points: [], symbol: '' };
+  if (!data) return { points: [], symbol: '', error: 'GAS 응답이 없거나 조회 시간이 초과되었습니다.' };
+  if (data.status === 'error') return { points: [], symbol: '', error: (data.message || '비교지수 조회 실패').toString() };
   const arr = Array.isArray(data.points) ? data.points : [];
   const points = arr
     .map(p => ({ date: _normalizeHistDate(p.date || ''), value: parseFloat(p.value || 0) }))

@@ -91,7 +91,12 @@ async function loadHistoryChart() {
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
-    const missingMsg = missing.length ? ` (실패: ${missing.join(', ')})` : '';
+    const missingMsg = missing.length
+      ? ` (실패: ${missing.map(type => {
+          const detail = benchBundle.errorMap?.[type];
+          return detail ? `${type} — ${detail}` : type;
+        }).join(', ')})`
+      : '';
     _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
     _drawHistoryChart(chartWrap, graphSnapshots, mode, {

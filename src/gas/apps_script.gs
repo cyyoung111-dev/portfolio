@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.46
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.47
+//
+//  v9.47 변경사항 (2026.08.03):
+//   ✅ [버그수정] VKOSPI를 지원하지 않는 Google Finance 심볼 대신 KRX Open API의
+//              코스피 지수 일별시세에서 직접 조회하고, 동일 기간 결과를 6시간 캐시
 //
 //  v9.46 변경사항 (2026.08.01):
 //   ✅ [지표]   손익 그래프 비교지수에 VKOSPI(코스피200 변동성지수) 조회 지원 추가
@@ -1924,9 +1928,8 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
       NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
       NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
-      // Google Finance의 KRX 변동성지수 심볼. 공급처가 일시적으로 값을 주지 않으면
-      // 빈 points를 반환해 프론트가 다른 지수 결과와 구분해 실패 상태를 표시합니다.
-      VKOSPI: ['INDEXKRX:KSVKOSPI', 'INDEXKRX:VKOSPI', 'KRX:VKOSPI']
+      // VKOSPI는 아래 KRX Open API 전용 경로로 조회합니다.
+      VKOSPI: []
     };
     var key = (benchmark || '').toString().trim().toUpperCase();
     var symbols = map[key];
@@ -1934,7 +1937,14 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 
     var points = [];
     var usedSymbol = '';
+    // GOOGLEFINANCE는 VKOSPI 과거 시세를 정상적으로 반환하지 않습니다.
+    // 이미 가격조회에 사용하는 KRX Open API AUTH_KEY로 공식 지수 데이터를 먼저 조회합니다.
+    if (key === 'VKOSPI') {
+      points = _readVkospiPointsFromKrx(fromDate, toDate);
+      if (points.length > 0) usedSymbol = 'KRX_OPEN_API:VKOSPI';
+    }
     for (var i = 0; i < symbols.length; i++) {
+      if (points.length > 0) break;
       var candidate = symbols[i];
       points = _readBenchmarkPoints(ss, candidate, fromDate, toDate);
       if (points.length > 0) {
@@ -1942,10 +1952,74 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
         break;
       }
     }
+    if (key === 'VKOSPI' && points.length === 0) {
+      return jsonError('선택 기간의 VKOSPI 데이터를 KRX Open API에서 찾지 못했습니다.');
+    }
     return jsonOk({ benchmark: key, symbol: usedSymbol, points: points });
   } catch(err) {
     return jsonError('getBenchmark 실패: ' + err.message);
   }
+}
+
+function _readVkospiPointsFromKrx(fromDate, toDate) {
+  var authKey = _getKrxAuthKey();
+  if (!authKey) throw new Error('VKOSPI 조회에는 KRX AUTH_KEY가 필요합니다. 설정에서 KRX 인증키를 등록하세요.');
+
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'vkospi_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+  var cached = cache.get(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch(e) { /* 손상된 캐시는 다시 조회 */ }
+  }
+
+  var ymDates = _buildDateRangeYmd(fromDate.replace(/-/g, ''), toDate.replace(/-/g, ''))
+    .filter(function(ymd) {
+      var day = _ymdToDate(ymd).getDay();
+      return day !== 0 && day !== 6;
+    });
+  var endpoint = 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd';
+  var pointsByDate = {};
+  var batchSize = 50;
+  var authFailed = false;
+
+  for (var start = 0; start < ymDates.length; start += batchSize) {
+    var batch = ymDates.slice(start, start + batchSize);
+    var requests = batch.map(function(ymd) {
+      return {
+        url: endpoint + '?basDd=' + encodeURIComponent(ymd),
+        method: 'get',
+        headers: { AUTH_KEY: authKey },
+        muteHttpExceptions: true
+      };
+    });
+    var responses = UrlFetchApp.fetchAll(requests);
+    responses.forEach(function(resp, idx) {
+      var status = resp.getResponseCode();
+      if (status === 401 || status === 403) authFailed = true;
+      if (status >= 400) return;
+      var json;
+      try { json = JSON.parse(resp.getContentText() || '{}'); } catch(e) { return; }
+      var rows = Array.isArray(json.OutBlock_1) ? json.OutBlock_1 : [];
+      var row = rows.find(function(item) {
+        var name = (item.IDX_NM || item.idxNm || '').toString();
+        return /VKOSPI|코스피\s*200\s*변동성|변동성지수/i.test(name);
+      });
+      if (!row) return;
+      var date = _normalizeDate(row.BAS_DD || row.basDd || batch[idx]);
+      var value = parseFloat((row.CLSPRC_IDX || row.clsprcIdx || '').toString().replace(/,/g, '')) || 0;
+      if (date && value > 0) pointsByDate[date] = value;
+    });
+  }
+
+  if (authFailed) throw new Error('KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.');
+
+  var points = Object.keys(pointsByDate).sort().map(function(date) {
+    return { date: date, value: pointsByDate[date] };
+  });
+  if (points.length > 0) {
+    try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(e) { /* 캐시 용량 초과는 무시 */ }
+  }
+  return points;
 }
 
 function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
@@ -4231,7 +4305,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.46' });
+    return jsonOk({ settings: settings, gasVersion: '9.47' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
