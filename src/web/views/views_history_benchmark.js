@@ -40,7 +40,8 @@ async function _loadBenchmarkBundle(types, fromDate, toDate) {
   const failedTypes = [];
   // ★ GAS 제약 대응: 병렬 Promise.all 대신 직렬 큐
   for (const type of types) {
-    const payload = await _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, 1);
+    // VKOSPI는 기간 내 영업일을 KRX에서 일괄 조회하므로 같은 대량 요청을 즉시 반복하지 않습니다.
+    const payload = await _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, type === 'VKOSPI' ? 0 : 1);
     const points = Array.isArray(payload?.points) ? payload.points : [];
     const symbol = payload?.symbol || '';
     seriesMap[type] = points;
@@ -70,7 +71,8 @@ async function _fetchBenchmarkSeries(type, fromDate, toDate) {
   const data = await _historyRequestJson(
     'getBenchmark',
     { benchmark: type, from: fromDate, to: toDate },
-    { timeoutMs: 15000, retry: 0 }
+    // VKOSPI는 KRX의 날짜별 응답을 병렬 취합하므로 최초 조회에 더 긴 시간을 허용합니다.
+    { timeoutMs: type === 'VKOSPI' ? 45000 : 15000, retry: 0 }
   );
   if (!data) return { points: [], symbol: '', error: 'GAS 응답이 없거나 조회 시간이 초과되었습니다.' };
   if (data.status === 'error') return { points: [], symbol: '', error: (data.message || '비교지수 조회 실패').toString() };
