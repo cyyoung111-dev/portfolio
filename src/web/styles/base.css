@@ -457,6 +457,63 @@ input[type="number"]{
   }
 }
 
+/* === Compact action button sizing ===
+   같은 행에서 용도별 색상만 달라지고 크기는 달라지지 않도록 공통 규격을 적용합니다. */
+.btn-sm,
+.btn-amber-sm,
+.btn-purple-sm,
+.btn-purple-sm-700,
+.btn-outline-sm,
+.btn-edit-sm,
+.btn-del-sm,
+.btn-danger,
+.btn-danger-ghost,
+.btn-ghost-sm,
+.btn-cancel-sm,
+.btn-buy-sm,
+.btn-sell-sm,
+.btn-amber-outline,
+.btn-purple{
+  box-sizing:border-box;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:32px;
+  padding:5px 12px;
+  border-radius:6px;
+  font-size:.72rem;
+  line-height:1.2;
+  white-space:nowrap;
+  vertical-align:middle;
+}
+
+#tgFilterName{
+  box-sizing:border-box;
+  height:32px;
+  line-height:1.2;
+}
+
+@media(max-width:480px){
+  .btn-sm,
+  .btn-amber-sm,
+  .btn-purple-sm,
+  .btn-purple-sm-700,
+  .btn-outline-sm,
+  .btn-edit-sm,
+  .btn-del-sm,
+  .btn-danger,
+  .btn-danger-ghost,
+  .btn-ghost-sm,
+  .btn-cancel-sm,
+  .btn-buy-sm,
+  .btn-sell-sm,
+  .btn-amber-outline,
+  .btn-purple{
+    min-height:36px;
+  }
+  #tgFilterName{height:36px}
+}
+
 
 /* === Mobile viewport optimization pass === */
 @media(max-width:768px){
