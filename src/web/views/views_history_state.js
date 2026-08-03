@@ -7,6 +7,7 @@ const __histState = window.__histState || {
   benchmarks: ['KOSPI'],
   debugByDate: {},
   debugDate: '',
+  missingSnapshotDates: [],
 };
 window.__histState = __histState;
 
@@ -14,7 +15,9 @@ const HIST_BENCHMARK_TYPES = ['KOSPI', 'SP500', 'NASDAQ', 'NASDAQ100'];
 
 function _initHistState() {
   __histState.mode = __histState.mode === 'month' ? 'month' : 'week';
-  __histState.benchmarks = Array.isArray(__histState.benchmarks) ? __histState.benchmarks.slice() : ['KOSPI'];
+  // 이전 배포에서 선택했던 지원 종료 지수가 메모리에 남아 있어도 즉시 제거합니다.
+  const saved = Array.isArray(__histState.benchmarks) ? __histState.benchmarks : ['KOSPI'];
+  __histState.benchmarks = saved.filter(type => HIST_BENCHMARK_TYPES.includes(type));
 }
 
 function _getHistMode() {
@@ -136,6 +139,7 @@ function _applyHistModeUI(mode) {
   });
   const active = mode === 'week' ? wBtn : mBtn;
   active.style.background = 'var(--c-purple-45,#7c3aed)';
+  // 활성 배경은 모든 프리셋에서 진한 보라색이므로 흰색 텍스트로 대비를 유지합니다.
   active.style.color = '#fff';
   active.style.fontWeight = '600';
 }
