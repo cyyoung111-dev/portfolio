@@ -15,7 +15,9 @@ const HIST_BENCHMARK_TYPES = ['KOSPI', 'SP500', 'NASDAQ', 'NASDAQ100', 'VKOSPI']
 
 function _initHistState() {
   __histState.mode = __histState.mode === 'month' ? 'month' : 'week';
-  __histState.benchmarks = Array.isArray(__histState.benchmarks) ? __histState.benchmarks.slice() : ['KOSPI'];
+  // 이전 배포에서 선택했던 지원 종료 지수가 메모리에 남아 있어도 즉시 제거합니다.
+  const saved = Array.isArray(__histState.benchmarks) ? __histState.benchmarks : ['KOSPI'];
+  __histState.benchmarks = saved.filter(type => HIST_BENCHMARK_TYPES.includes(type));
 }
 
 function _getHistMode() {

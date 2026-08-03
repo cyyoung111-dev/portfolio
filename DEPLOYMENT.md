@@ -32,6 +32,7 @@ cp src/gas/apps_script.gs /tmp/apps_script.js && node --check /tmp/apps_script.j
 - [ ] 정적 서버 document root가 `src/web`인지 확인
 - [ ] `/` 요청이 `src/web/index.html`을 반환하는지 확인
 - [ ] 배포 후 JS/CSS/icon/manifest 404가 없는지 확인
+- [ ] 변경한 JS/CSS의 `?v=` 자산 버전과 `sw.js`의 `CACHE_NAME`을 갱신했는지 확인
 - [ ] 캐시 이슈가 있으면 브라우저 새로고침 또는 서비스워커 업데이트 확인
 
 ### Google Apps Script
@@ -53,6 +54,11 @@ GAS 메뉴 및 시트 구성:
 - 메뉴 표시에는 기본 `onOpen()`만 사용합니다. 기존 설치형 `onOpen` 트리거는 `자동 트리거 등록·복구` 실행 시 제거됩니다.
 - 스프레드시트를 열면 `onOpen(e)`가 현재 문서 ID를 GAS `ScriptProperties`의 `SS_ID`로 갱신합니다. 다른 문서에서 복사한 GAS가 과거 문서 ID에 접근하는 오류를 방지합니다.
 - 자동 연결이 되지 않으면 `⚙️ 설정 > 연결 스프레드시트 설정`에 현재 시트 URL을 입력해 연결 상태와 접근 권한을 확인할 수 있습니다.
+
+웹 배포 캐시 확인:
+
+- 손익 그래프처럼 분리된 JS 파일을 수정한 경우 파일 내용뿐 아니라 `index.html`의 `?v=` 자산 버전도 갱신해야 기존 브라우저/CDN 캐시가 새 파일로 교체됩니다.
+- 서비스워커는 버전이 붙은 URL과 `updateViaCache: 'none'`으로 등록하며, 캐시 이름이 변경되면 활성화 단계에서 이전 캐시를 삭제합니다.
 
 주담대 잔액 자동 갱신:
 
