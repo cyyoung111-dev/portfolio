@@ -89,7 +89,6 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     SP500: '#22c55e',
     NASDAQ: '#f59e0b',
     NASDAQ100: '#a78bfa',
-    VKOSPI: '#fb7185',
   };
   const benchLines = benchTypes.map((benchType) => {
     const benchRaw = Array.isArray(benchSeriesMap[benchType]) ? benchSeriesMap[benchType] : [];

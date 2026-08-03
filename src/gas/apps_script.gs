@@ -1,12 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.47
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.48
 //
-//  v9.47 변경사항 (2026.08.03):
-//   ✅ [버그수정] VKOSPI를 지원하지 않는 Google Finance 심볼 대신 KRX Open API의
-//              코스피 지수 일별시세에서 직접 조회하고, 동일 기간 결과를 6시간 캐시
-//
-//  v9.46 변경사항 (2026.08.01):
-//   ✅ [지표]   손익 그래프 비교지수에 VKOSPI(코스피200 변동성지수) 조회 지원 추가
+//  v9.48 변경사항 (2026.08.03):
+//   ✅ [정확성] 실제 데이터 제공 여부를 검증하지 못한 VKOSPI 비교지수 기능 제거
 //
 //  v9.45 변경사항 (2026.07.31):
 //   ✅ [정합성] 일반 설정 저장이 트리거가 갱신한 배당·주담대·부동산 전용 데이터를 덮어쓰지 않도록 병합 저장
@@ -4305,7 +4301,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.47' });
+    return jsonOk({ settings: settings, gasVersion: '9.48' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

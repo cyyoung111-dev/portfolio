@@ -33,7 +33,7 @@ function renderHistoryView(area) {
           <button id="btn-history-refresh" class="btn-ghost-sm">🔄 새로고침</button>
         </div>
       </div>
-      <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다. VKOSPI 상승은 시장 불안 확대를 뜻합니다.</div>
+      <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</div>
       <div id="histStatusMsg" style="font-size:.72rem;color:var(--muted);margin-bottom:8px"></div>
       <div id="histCoveragePanel"></div>
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
