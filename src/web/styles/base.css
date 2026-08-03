@@ -138,6 +138,31 @@
   }
 
 .hist-bench-btn{padding:4px 8px;border-radius:6px;cursor:pointer;font-size:.68rem;font-weight:500;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}
+
+/* 테마별 네이티브 날짜 입력 아이콘 대비 */
+html[data-theme-mode="light"] input[type=date]::-webkit-calendar-picker-indicator,
+html[data-theme-mode="light"] input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:none;opacity:.72}
+html[data-theme-mode="dark"] input[type=date]::-webkit-calendar-picker-indicator,
+html[data-theme-mode="dark"] input[type=datetime-local]::-webkit-calendar-picker-indicator{filter:invert(1);opacity:.72}
+
+/* 자산·계획 뷰: PC 밀도는 유지하고 태블릿/모바일에서는 읽기 쉬운 열 수로 축소 */
+.asset-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.asset-detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-size:.80rem}
+.asset-loan-grid{margin-bottom:14px}
+.plan-export-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-size:.78rem}
+.plan-metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.plan-sim-grid{gap:10px;margin-bottom:16px}
+tr:hover td,.col-filter-dropdown label:hover{background:color-mix(in srgb,var(--text) 5%,transparent)}
+.btn-amber,.btn-amber-sm{color:#111827}
+@media(max-width:768px){
+  .asset-summary-grid,.asset-detail-grid,.plan-export-grid,.plan-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .card-12-p20{padding:14px 15px}
+}
+@media(max-width:480px){
+  .asset-summary-grid,.asset-detail-grid,.plan-export-grid,.plan-metric-grid{gap:6px}
+  .asset-summary-grid>div,.asset-detail-grid>div,.plan-export-grid>div,.plan-metric-grid>div{min-width:0;overflow-wrap:anywhere}
+  .asset-detail-grid,.plan-metric-grid{grid-template-columns:1fr}
+}
 .hist-bench-btn.active{border-color:var(--amber);background:var(--c-amber-15);color:var(--gold);font-weight:700}
 .hist-bench-btn.hist-bench-btn-clear{border-style:dashed}
 
