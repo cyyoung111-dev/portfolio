@@ -9,8 +9,16 @@
 //   → 같은 날짜 요청이 이미 진행 중이면 새로 조회하지 않고 그 결과를 같이 기다림 (요청 1개로 통합)
 const _inFlightFetches = {};
 
-async function fetchFromGsheet(dateStr) {
-  // 이미 같은 날짜로 진행 중인 요청이 있으면 새로 만들지 않고 그 결과를 재사용
+async function fetchFromGsheet(dateStr, options) {
+  const forceFresh = !!options?.forceFresh;
+  // 사용자가 업데이트를 누른 경우 진행 중인 자동 조회가 끝난 뒤 반드시 GAS를 다시 조회합니다.
+  // 자동 조회가 설정/종목 복원 전의 목록으로 시작됐더라도 첫 클릭에서 최종 평가단가가 반영됩니다.
+  if (forceFresh && _inFlightFetches[dateStr]) {
+    const pending = _inFlightFetches[dateStr];
+    await pending;
+    if (_inFlightFetches[dateStr] === pending) delete _inFlightFetches[dateStr];
+  }
+  // 일반 자동 조회는 같은 날짜로 진행 중인 요청 결과를 재사용합니다.
   if (_inFlightFetches[dateStr]) {
     return _inFlightFetches[dateStr];
   }
@@ -254,7 +262,8 @@ async function quickFetchByDate() {
   }
 
   try {
-    let results = await fetchFromGsheet(targetDate);
+    // 버튼 클릭은 자동 조회 중 생성된 결과를 재사용하지 않고 GAS 최종값을 새로 확인합니다.
+    let results = await fetchFromGsheet(targetDate, { forceFresh: true });
     let usedDate = targetDate;
 
     // 오늘 날짜 조회 시 주말/공휴일 fallback (최대 5일 전)
@@ -313,7 +322,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.48';
+const EXPECTED_GAS_VERSION = '9.49';
 
 async function autoLoadPrices() {
   const dateStr = getDateStr(0);

@@ -87,6 +87,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const benchColorMap = {
     KOSPI: '#60a5fa',
     SP500: '#22c55e',
+    DOW: '#f472b6',
     NASDAQ: '#f59e0b',
     NASDAQ100: '#a78bfa',
   };
