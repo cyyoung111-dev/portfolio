@@ -810,3 +810,23 @@ input[type="number"]{
     padding:9px 10px;
   }
 }
+
+/* 배당 월별 필터 및 종목별 월별 금액표 */
+.div-month-filter{display:flex;gap:4px;overflow-x:auto;padding:2px 0 9px;margin-bottom:8px;scrollbar-width:thin}
+.div-month-filter button{flex:0 0 auto;padding:5px 9px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:.65rem;cursor:pointer}
+.div-month-filter button.active{border-color:var(--cyan);background:var(--c-cyan-15);color:var(--cyan);font-weight:700}
+.div-month-selection{display:flex;align-items:baseline;gap:7px;padding:9px 11px;margin-bottom:10px;border-radius:8px;background:var(--s2);font-size:.68rem;color:var(--muted)}
+.div-month-selection strong{font-size:.88rem;color:var(--cyan)}
+.div-month-selection small{margin-left:auto;color:var(--muted)}
+.div-monthly-matrix{background:var(--s1);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.div-monthly-matrix-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.div-monthly-matrix-head strong{font-size:.86rem}
+.div-monthly-matrix-head span{display:block;margin-top:2px;font-size:.62rem;color:var(--muted);font-weight:400}
+.div-monthly-matrix-head small{font-size:.62rem;color:var(--muted);white-space:nowrap}
+.div-monthly-matrix-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.div-monthly-matrix table{min-width:1050px}
+.div-monthly-matrix th,.div-monthly-matrix td{padding:7px 9px;font-size:.67rem;text-align:right}
+.div-monthly-matrix th:first-child,.div-monthly-matrix td:first-child{position:sticky;left:0;z-index:1;min-width:145px;text-align:left;background:var(--s1)}
+.div-monthly-matrix thead th:first-child{z-index:3;background:var(--s2)}
+.div-monthly-matrix tbody td.selected,.div-monthly-matrix thead th.selected,.div-monthly-matrix tfoot th.selected{background:var(--c-cyan-15);color:var(--cyan);font-weight:700}
+.div-monthly-matrix tfoot th{border-top:1px solid var(--border);background:var(--s2);color:var(--text)}
