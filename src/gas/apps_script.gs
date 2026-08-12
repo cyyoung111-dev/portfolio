@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.48
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.49
+//
+//  v9.49 변경사항 (2026.08.12):
+//   ✅ [지표]   손익 그래프 비교지수에 다우존스 산업평균지수(DOW)를 추가
 //
 //  v9.48 변경사항 (2026.08.03):
 //   ✅ [정확성] 실제 데이터 제공 여부를 검증하지 못한 VKOSPI 비교지수 기능 제거
@@ -1922,6 +1925,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       // ★ KOSDAQ 종합지수는 GOOGLEFINANCE 미지원 → KODEX코스닥150(229200) ETF로 근사 대체
       KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
       SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
+      DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
       NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
       NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
       // VKOSPI는 아래 KRX Open API 전용 경로로 조회합니다.
@@ -4301,7 +4305,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.48' });
+    return jsonOk({ settings: settings, gasVersion: '9.49' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

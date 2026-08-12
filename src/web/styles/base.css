@@ -830,3 +830,6 @@ input[type="number"]{
 .div-monthly-matrix thead th:first-child{z-index:3;background:var(--s2)}
 .div-monthly-matrix tbody td.selected,.div-monthly-matrix thead th.selected,.div-monthly-matrix tfoot th.selected{background:var(--c-cyan-15);color:var(--cyan);font-weight:700}
 .div-monthly-matrix tfoot th{border-top:1px solid var(--border);background:var(--s2);color:var(--text)}
+.div-asset-badge{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:999px;font-size:.58rem;font-weight:800;vertical-align:middle}
+.div-asset-badge.stock{border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);color:var(--blue-lt)}
+.div-asset-badge.etf{border:1px solid var(--c-cyan-40);background:rgba(6,182,212,.15);color:var(--cyan)}

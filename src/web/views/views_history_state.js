@@ -11,7 +11,7 @@ const __histState = window.__histState || {
 };
 window.__histState = __histState;
 
-const HIST_BENCHMARK_TYPES = ['KOSPI', 'SP500', 'NASDAQ', 'NASDAQ100'];
+const HIST_BENCHMARK_TYPES = ['KOSPI', 'SP500', 'DOW', 'NASDAQ', 'NASDAQ100'];
 
 function _initHistState() {
   __histState.mode = __histState.mode === 'month' ? 'month' : 'week';

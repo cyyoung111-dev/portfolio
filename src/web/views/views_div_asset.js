@@ -48,6 +48,8 @@ function calcDividends() {
     // key가 코드이면 name으로 역매핑, 아니면 key 자체가 name
     const name = codeToNameMap[key] || key;
     const accts = acctMap[name] || [];
+    const ep = typeof getEP === 'function' ? getEP(name) : null;
+    const assetType = (ep?.assetType || ep?.type) === 'ETF' ? 'ETF' : '주식';
 
     // ★ 실제 배당 이벤트가 있으면 해당 배당 기준일 보유수량 × 실제 주당배당금으로 우선 계산
     //   아직 이벤트가 없는 미래 지급월은 기존 perShare 평균값으로 예상치를 채워 연간 전망을 유지합니다.
@@ -93,7 +95,7 @@ function calcDividends() {
       .reduce((s, h) => s + (h.qty || 0), 0);
 
     if (annualDiv > 0 || totalQty > 0) {
-      result.push({ name, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv });
+      result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv });
     }
   });
 
@@ -171,7 +173,7 @@ function renderDivView(area, skipFetch) {
   <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div>
       <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 배당 API 상태</div>
-      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">API 키 관리는 구글시트 연동 탭에서 합니다. 배당 조회는 공공데이터 우선, 누락 시 GOOGLEFINANCE fallback입니다.</div>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">주식은 공공데이터 우선, 누락 시 GOOGLEFINANCE fallback입니다. ETF는 GOOGLEFINANCE 조회 결과가 없으면 수동 입력값을 사용합니다.</div>
     </div>
     <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeySaved ? '공공데이터 키 저장됨' : '공공데이터 키 미설정'}</span>
     <div id="divFetchStatus" style="flex-basis:100%;font-size:.66rem;color:var(--muted);min-height:1.2em"></div>
@@ -272,7 +274,7 @@ function renderDivView(area, skipFetch) {
     <div class="div-monthly-matrix-scroll">
       <table>
         <thead><tr><th>종목명</th>${Array.from({length:12}, (_, i) => `<th class="${selectedMonth === i+1 ? 'selected' : ''}">${i+1}월</th>`).join('')}<th>연간</th></tr></thead>
-        <tbody>${divRows.map(r => `<tr><td>${_escapeHtml(r.name)}</td>${Array.from({length:12}, (_, i) => { const value = Number(r.monthlyDiv?.[i+1] || 0); return `<td class="${selectedMonth === i+1 ? 'selected' : ''}">${value > 0 ? Math.round(value).toLocaleString() : '–'}</td>`; }).join('')}<td>${Math.round(r.annualDiv).toLocaleString()}</td></tr>`).join('')}</tbody>
+        <tbody>${divRows.map(r => `<tr><td><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span>${_escapeHtml(r.name)}</td>${Array.from({length:12}, (_, i) => { const value = Number(r.monthlyDiv?.[i+1] || 0); return `<td class="${selectedMonth === i+1 ? 'selected' : ''}">${value > 0 ? Math.round(value).toLocaleString() : '–'}</td>`; }).join('')}<td>${Math.round(r.annualDiv).toLocaleString()}</td></tr>`).join('')}</tbody>
         <tfoot><tr><th>합계</th>${monthly.map((value, i) => `<th class="${selectedMonth === i+1 ? 'selected' : ''}">${value > 0 ? Math.round(value).toLocaleString() : '–'}</th>`).join('')}<th>${Math.round(totalAnnual).toLocaleString()}</th></tr></tfoot>
       </table>
     </div>
@@ -297,6 +299,7 @@ function renderDivView(area, skipFetch) {
       <thead>
         <tr style="background:var(--s2)">
           <th style="padding:7px 14px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600">종목명</th>
+          <th style="padding:7px 8px;text-align:center;font-size:.68rem;color:var(--muted);font-weight:600">구분</th>
           <th style="padding:7px 8px;text-align:center;font-size:.68rem;color:var(--muted);font-weight:600">주기</th>
           <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">수량</th>
           <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">주당</th>
@@ -322,6 +325,7 @@ function renderDivView(area, skipFetch) {
         <div style="font-weight:600;font-size:.82rem">${r.name}</div>
         <div style="font-size:.63rem;color:var(--muted);margin-top:1px">${acctDots} ${r.accts.join('·')}</div>
       </td>
+      <td style="padding:9px 8px;text-align:center"><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span></td>
       <td style="padding:9px 8px;text-align:center">
         <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:.63rem;font-weight:700;background:${fCol}22;color:${fCol}">${r.dd.freq}</span>
       </td>
@@ -353,7 +357,7 @@ function renderDivView(area, skipFetch) {
           <div style="font-weight:700;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
           <div style="font-size:.62rem;color:var(--muted);margin-top:1px">${acctDots} ${r.accts.join('·')}</div>
         </div>
-        <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.62rem;font-weight:700;background:${fCol}22;color:${fCol};flex-shrink:0;margin-left:8px">${r.dd.freq}</span>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:8px"><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span><span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.62rem;font-weight:700;background:${fCol}22;color:${fCol}">${r.dd.freq}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:.75rem">
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
