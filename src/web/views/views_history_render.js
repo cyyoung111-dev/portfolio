@@ -27,7 +27,6 @@ function renderHistoryView(area) {
             <button type="button" class="hist-bench-btn" data-bench="SP500">S&P500</button>
             <button type="button" class="hist-bench-btn" data-bench="NASDAQ">NASDAQ</button>
             <button type="button" class="hist-bench-btn" data-bench="NASDAQ100">NASDAQ100</button>
-            <button type="button" class="hist-bench-btn" data-bench="VKOSPI">VKOSPI</button>
             <button type="button" id="histBenchClear" class="hist-bench-btn hist-bench-btn-clear" data-bench="CLEAR">해제</button>
           </div>
           <button id="btn-history-refresh" class="btn-ghost-sm">🔄 새로고침</button>
