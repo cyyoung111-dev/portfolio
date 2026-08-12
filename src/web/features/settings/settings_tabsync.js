@@ -8,9 +8,12 @@ function _tabSyncText(tabId) {
   if (!GSHEET_API_URL) return { text: '재동기화 설정 필요', color: 'var(--muted)' };
   if (!info || !info.ts) return { text: '동기화 기록 없음', color: 'var(--muted)' };
   const t = new Date(info.ts);
+  const yyyy = t.getFullYear();
+  const month = String(t.getMonth() + 1).padStart(2, '0');
+  const day = String(t.getDate()).padStart(2, '0');
   const hh = String(t.getHours()).padStart(2, '0');
   const mm = String(t.getMinutes()).padStart(2, '0');
-  const base = `${hh}:${mm}`;
+  const base = `${yyyy}.${month}.${day} ${hh}:${mm}`;
   if (info.state === 'ok') return { text: `✅ 마지막 동기화 ${base}`, color: 'var(--green)' };
   if (info.state === 'syncing') return { text: `⏳ 동기화 중... (${base})`, color: 'var(--amber)' };
   return { text: `⚠️ 마지막 동기화 실패 ${base}`, color: 'var(--red-lt)' };
