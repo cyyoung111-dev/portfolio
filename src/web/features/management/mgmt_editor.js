@@ -401,6 +401,9 @@ async function loadEditorPricesByDate(dateStr) {
   }
 
   const autoLabel = dateStr.replace(/-/g,'.') + ' 조회값';
+  // 현재가와 과거 입력이력은 서로 독립된 GAS 요청이므로 동시에 시작합니다.
+  // 기존 순차 호출은 현재가 조회가 끝난 뒤에야 이력 조회를 시작해 표시가 불필요하게 늦었습니다.
+  const historyPromise = _fetchEditorPriceHistoryRaw(dateStr);
   try {
     const results = await fetchFromGsheet(dateStr);
     if (loadSeq !== _editorLoadSeq || _editorRefDate !== dateStr) return;
@@ -422,7 +425,7 @@ async function loadEditorPricesByDate(dateStr) {
     console.warn('[loadEditorPricesByDate] fetchFromGsheet 실패, 수동입력값만 표시:', e.message);
   }
 
-  const rawHistory = await _fetchEditorPriceHistoryRaw(dateStr);
+  const rawHistory = await historyPromise;
   if (loadSeq !== _editorLoadSeq || _editorRefDate !== dateStr) return;
 
   const manual = _parseEditorManualPrices(rawHistory);
@@ -444,6 +447,9 @@ async function loadEditorPricesByDate(dateStr) {
 
 // ★ [개선] GAS getPriceHistory 공유 요청 — 1회만 호출
 //   fetchEditorManualPrices / fetchEditorManualHistory 공통 베이스
+const _editorHistoryCache = new Map();
+const EDITOR_HISTORY_CACHE_MS = 30000;
+
 async function _fetchEditorPriceHistoryRaw(dateStr) {
   try {
     if (!GSHEET_API_URL) return {};
@@ -454,16 +460,23 @@ async function _fetchEditorPriceHistoryRaw(dateStr) {
     });
     const uniqTargets = Array.from(new Set(targets.filter(Boolean)));
     if (uniqTargets.length === 0) return {};
+    const cacheKey = `${dateStr}|${uniqTargets.join(',')}`;
+    const cached = _editorHistoryCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < EDITOR_HISTORY_CACHE_MS) return cached.promise;
 
     const fromDate = _kstDateOffset(dateStr, -180); // ★ KST 기준 날짜 오프셋
     const url = GSHEET_API_URL
       + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr
       + '&codes=' + encodeURIComponent(uniqTargets.join(','));
-    const res = await fetchWithTimeout(url, 20000);
-    if (!res.ok) return {};
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.prices) return {};
-    return data.prices; // { [key]: entries[] } 원본 반환
+    const promise = (async () => {
+      const res = await fetchWithTimeout(url, 20000);
+      if (!res.ok) return {};
+      const data = await res.json();
+      if (data.status !== 'ok' || !data.prices) return {};
+      return data.prices; // { [key]: entries[] } 원본 반환
+    })();
+    _editorHistoryCache.set(cacheKey, { ts: Date.now(), promise });
+    return await promise;
   } catch (e) {
     console.warn('[_fetchEditorPriceHistoryRaw]', e.message);
     return {};
@@ -663,6 +676,7 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
       clearTimeout(timer);
       const d = await res.json();
       if (d && d.status === 'ok') {
+        _editorHistoryCache.clear();
         if (typeof showToast === 'function') showToast(`☁️ GAS 동기화 완료 (${gasSaveTargets.length}건)`, 'ok');
         return;
       }
@@ -690,6 +704,7 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
     const sample = gasFailedKeys.slice(0, 3).join(', ');
     showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
   } else if (typeof showToast === 'function') {
+    _editorHistoryCache.clear();
     showToast(`☁️ GAS 동기화 완료 (${gasSaveTargets.length}건)`, 'ok');
   }
 }
