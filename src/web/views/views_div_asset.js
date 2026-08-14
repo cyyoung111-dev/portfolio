@@ -24,9 +24,11 @@ function _setDivMonthFilter(month) {
 function calcDividends() {
   // 보유 종목별 계좌 집계 (펀드 제외)
   const acctMap = {};
+  const currentQtyMap = {};
   rawHoldings.filter(h => !h.fund && h.name).forEach(h => {
     if (!acctMap[h.name]) acctMap[h.name] = [];
     if (h.acct && !acctMap[h.name].includes(h.acct)) acctMap[h.name].push(h.acct);
+    currentQtyMap[h.name] = (currentQtyMap[h.name] || 0) + (Number(h.qty) || 0);
   });
 
   // ★ [버그수정] new Date() 로컬 타임존 → _kstYear() 으로 교체
@@ -68,7 +70,7 @@ function calcDividends() {
       const month = Number(cashflowDate.slice(5, 7));
       const qty = (typeof getQtyAtDate === 'function')
         ? getQtyAtDate(name, evDate)
-        : rawHoldings.filter(h => h.name === name && !h.fund).reduce((s,h) => s+(h.qty||0), 0);
+        : (currentQtyMap[name] || 0);
       if (qty <= 0) return;
       const div = amount * qty;
       actualMonths.add(month);
@@ -82,7 +84,7 @@ function calcDividends() {
       const refDate = getDivRefDate(thisYear, month);
       const qty = (typeof getQtyAtDate === 'function')
         ? getQtyAtDate(name, refDate)
-        : rawHoldings.filter(h => h.name === name && !h.fund).reduce((s,h) => s+(h.qty||0), 0);
+        : (currentQtyMap[name] || 0);
       if (qty > 0) {
         const div = dd.perShare * qty;
         annualDiv += div;
@@ -91,8 +93,7 @@ function calcDividends() {
     });
 
     // 현재 보유수량 (표시용)
-    const totalQty = rawHoldings.filter(h => h.name === name && !h.fund)
-      .reduce((s, h) => s + (h.qty || 0), 0);
+    const totalQty = currentQtyMap[name] || 0;
 
     if (annualDiv > 0 || totalQty > 0) {
       result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv });
