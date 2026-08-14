@@ -259,6 +259,14 @@ async function loadSettings(onProgress) {
     const data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1 });
     if (!data || data.status !== 'ok' || !data.settings) return false;
     const s = data.settings;
+    // 설정·배당·부동산 처리와 동시에 거래/보유 시트를 미리 읽습니다.
+    // 기존에는 모든 설정 복원이 끝난 뒤 순차 요청해 주식 데이터 표시가 불필요하게 늦었습니다.
+    const portfolioRestorePromise = rawTrades.length === 0
+      ? Promise.all([
+          requestGsheetActionJson('getTrades', {}, { timeoutMs: 15000, retry: 1 }).catch(() => null),
+          requestGsheetActionJson('getHoldings', {}, { timeoutMs: 15000, retry: 1 }).catch(() => null),
+        ])
+      : null;
 
     // Theme (기기 간 동일 UI 유지)
     if (s.APP_THEME_MODE && typeof lsSave === 'function') {
@@ -415,11 +423,14 @@ async function loadSettings(onProgress) {
       }
     }
     // ── GSheet 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
-    saveHoldings();
+    // 원격 거래/보유현황 복원이 끝나기 전의 로컬 값으로 GAS 시트를 덮어쓰지 않습니다.
+    saveHoldings({ skipGsheet: true });
     saveAcctColors();
     saveAcctOrder();
-    const divLoaded = await loadDividendSettings();   // 배당 별도 시트 우선
-    const reLoaded  = await loadRealEstateSettings(); // 부동산/대출 별도 시트 우선
+    const [divLoaded, reLoaded] = await Promise.all([
+      loadDividendSettings(),   // 배당 별도 시트 우선
+      loadRealEstateSettings(), // 부동산/대출 별도 시트 우선
+    ]);
 
     // 하위 호환 fallback: 별도 시트 액션이 없으면 기존 Settings 시트 데이터 사용
     if (!divLoaded && s.DIVDATA && typeof s.DIVDATA === 'object') {
@@ -471,7 +482,8 @@ async function loadSettings(onProgress) {
     if (rawTrades.length === 0) {
       try {
         prog('거래이력 복원 중...');
-        const trData = await requestGsheetActionJson('getTrades', {}, { timeoutMs: 15000, retry: 1 });
+        const restoredPortfolio = portfolioRestorePromise ? await portfolioRestorePromise : [null, null];
+        const trData = restoredPortfolio[0];
         if (trData && trData.status === 'ok' && Array.isArray(trData.trades) && trData.trades.length > 0) {
           rawTrades.length = 0;
           trData.trades.forEach(t => {
@@ -483,7 +495,7 @@ async function loadSettings(onProgress) {
           // ── 거래이력도 없을 때 → 보유현황 시트에서 직접 복원 (최후 fallback)
           try {
             prog('보유현황 복원 중...');
-            const hData = await requestGsheetActionJson('getHoldings', {}, { timeoutMs: 15000, retry: 1 });
+            const hData = restoredPortfolio[1];
             if (hData && hData.status === 'ok' && Array.isArray(hData.holdings) && hData.holdings.length > 0) {
               rawHoldings.length = 0;
               hData.holdings.forEach(h => {

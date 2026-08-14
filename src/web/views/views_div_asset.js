@@ -12,6 +12,14 @@ function _getNowMonth() { return _kstNow().getUTCMonth() + 1; }
 // ════════════════════════════════════════════════════════════════
 // 수량 0 종목 숨김 상태
 let _divHideZeroQty = typeof lsGet === 'function' ? lsGet(DIV_HIDE_ZERO_KEY, false) : false;
+let _divSelectedMonth = 0; // 0=연간 전체, 1~12=선택 월
+
+function _setDivMonthFilter(month) {
+  const next = Number(month);
+  _divSelectedMonth = Number.isInteger(next) && next >= 1 && next <= 12 ? next : 0;
+  const area = $el('view-area');
+  if (area) renderDivView(area, true);
+}
 
 function calcDividends() {
   // 보유 종목별 계좌 집계 (펀드 제외)
@@ -40,6 +48,8 @@ function calcDividends() {
     // key가 코드이면 name으로 역매핑, 아니면 key 자체가 name
     const name = codeToNameMap[key] || key;
     const accts = acctMap[name] || [];
+    const ep = typeof getEP === 'function' ? getEP(name) : null;
+    const assetType = (ep?.assetType || ep?.type) === 'ETF' ? 'ETF' : '주식';
 
     // ★ 실제 배당 이벤트가 있으면 해당 배당 기준일 보유수량 × 실제 주당배당금으로 우선 계산
     //   아직 이벤트가 없는 미래 지급월은 기존 perShare 평균값으로 예상치를 채워 연간 전망을 유지합니다.
@@ -85,7 +95,7 @@ function calcDividends() {
       .reduce((s, h) => s + (h.qty || 0), 0);
 
     if (annualDiv > 0 || totalQty > 0) {
-      result.push({ name, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv });
+      result.push({ name, assetType, totalQty, accts, dd, annualDiv, monthlyDiv, actualDiv });
     }
   });
 
@@ -135,6 +145,8 @@ function renderDivView(area, skipFetch) {
   // 올해 지난달까지 누적 수령액
   const receivedSoFar = monthly.slice(0, nowMonth - 1).reduce((s,v)=>s+v, 0);
   const remainingYear = monthly.slice(nowMonth - 1).reduce((s,v)=>s+v, 0);
+  const selectedMonth = _divSelectedMonth;
+  const selectedMonthTotal = selectedMonth ? monthly[selectedMonth - 1] : totalAnnual;
 
   const publicKeySaved = (typeof lsGet === 'function') ? String(lsGet('public_data_api_key', '') || '') : '';
 
@@ -149,6 +161,7 @@ function renderDivView(area, skipFetch) {
         <span style="font-size:.62rem;color:var(--muted)">최종 업데이트: ${dividendUpdatedLabel}</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span class="div-gas-link-badge ${GSHEET_API_URL ? 'connected' : 'disconnected'}">${GSHEET_API_URL ? '☁️ GAS 연동 설정됨 · 저장 시 동기화' : '○ GAS 미연동'}</span>
         ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm">🔄 배당금 불러오기</button>` : ''}
         <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" ${GSHEET_API_URL ? '' : 'disabled'}>🔄 재동기화</button>
       </div>
@@ -161,7 +174,7 @@ function renderDivView(area, skipFetch) {
   <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div>
       <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 배당 API 상태</div>
-      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">API 키 관리는 구글시트 연동 탭에서 합니다. 배당 조회는 공공데이터 우선, 누락 시 GOOGLEFINANCE fallback입니다.</div>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">주식은 공공데이터 우선, 누락 시 GOOGLEFINANCE fallback입니다. ETF는 GOOGLEFINANCE 조회 결과가 없으면 수동 입력값을 사용합니다.</div>
     </div>
     <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeySaved ? '공공데이터 키 저장됨' : '공공데이터 키 미설정'}</span>
     <div id="divFetchStatus" style="flex-basis:100%;font-size:.66rem;color:var(--muted);min-height:1.2em"></div>
@@ -203,7 +216,7 @@ function renderDivView(area, skipFetch) {
     </div>
   </div>
 
-  <!-- ── 월별 바 차트 ── -->
+  <!-- ── 월별 필터 + 바 차트 ── -->
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:14px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
       <div>
@@ -215,6 +228,15 @@ function renderDivView(area, skipFetch) {
         <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--cyan);margin-right:3px;vertical-align:middle"></span>이번달</span>
         <span><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--green);margin-right:3px;vertical-align:middle"></span>예정</span>
       </div>
+    </div>
+    <div class="div-month-filter" role="group" aria-label="배당 월 필터">
+      <button type="button" data-div-action="filter-month" data-div-month="0" class="${selectedMonth === 0 ? 'active' : ''}">연간 전체</button>
+      ${Array.from({length:12}, (_, i) => `<button type="button" data-div-action="filter-month" data-div-month="${i+1}" class="${selectedMonth === i+1 ? 'active' : ''}">${i+1}월</button>`).join('')}
+    </div>
+    <div class="div-month-selection">
+      <span>${selectedMonth ? `${selectedMonth}월 예상 배당` : '연간 예상 배당'}</span>
+      <strong>${fmtW(Math.round(selectedMonthTotal))}</strong>
+      <small>${selectedMonth ? `${divRows.filter(r => Number(r.monthlyDiv?.[selectedMonth] || 0) > 0).length}개 종목` : `${divRows.length}개 종목`}</small>
     </div>
     <div style="display:flex;align-items:flex-end;gap:3px;height:110px;padding-bottom:18px;position:relative">
       ${(() => {
@@ -233,37 +255,58 @@ function renderDivView(area, skipFetch) {
           const labelColor = isCurrent ? 'var(--cyan)' : isPast ? 'var(--text)' : 'var(--green)';
           const monthColor = isCurrent ? 'var(--cyan)' : 'var(--muted)';
           const fw = isCurrent ? '700' : '400';
-          return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">
+          const isSelected = selectedMonth === i + 1;
+          return `<button type="button" data-div-action="filter-month" data-div-month="${i+1}" aria-label="${i+1}월 배당 ${Math.round(v).toLocaleString()}원" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;border:none;background:transparent;cursor:pointer;padding:0;opacity:${selectedMonth && !isSelected ? '.45' : '1'}">
             ${label ? `<div style="font-size:8px;color:${labelColor};font-weight:${fw};margin-bottom:2px;white-space:nowrap;overflow:hidden;max-width:100%;text-align:center">${label}</div>` : '<div style="margin-bottom:10px"></div>'}
-            <div style="width:100%;height:${pct}%;background:${bg};border:${border};border-radius:3px 3px 0 0;box-shadow:${isCurrent?'0 0 6px var(--c-cyan-50)':'none'}"></div>
+            <div style="width:100%;height:${pct}%;background:${bg};border:${isSelected ? '2px solid var(--gold)' : border};border-radius:3px 3px 0 0;box-shadow:${isSelected ? '0 0 8px var(--c-amber-40)' : isCurrent?'0 0 6px var(--c-cyan-50)':'none'}"></div>
             <div style="font-size:8px;color:${monthColor};font-weight:${fw};margin-top:2px">${i+1}월</div>
-          </div>`;
+          </button>`;
         }).join('');
       })()}
+    </div>
+  </div>
+
+  <!-- ── 종목별 월별 배당 매트릭스 ── -->
+  <div class="div-monthly-matrix">
+    <div class="div-monthly-matrix-head">
+      <div><strong>📊 종목별 월별 배당</strong><span>각 종목의 월별 확정+예상 금액</span></div>
+      <small>단위: 원</small>
+    </div>
+    <div class="div-monthly-matrix-scroll">
+      <table>
+        <thead><tr><th>종목명</th>${Array.from({length:12}, (_, i) => `<th class="${selectedMonth === i+1 ? 'selected' : ''}">${i+1}월</th>`).join('')}<th>연간</th></tr></thead>
+        <tbody>${divRows.map(r => `<tr><td><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span>${_escapeHtml(r.name)}</td>${Array.from({length:12}, (_, i) => { const value = Number(r.monthlyDiv?.[i+1] || 0); return `<td class="${selectedMonth === i+1 ? 'selected' : ''}">${value > 0 ? Math.round(value).toLocaleString() : '–'}</td>`; }).join('')}<td>${Math.round(r.annualDiv).toLocaleString()}</td></tr>`).join('')}</tbody>
+        <tfoot><tr><th>합계</th>${monthly.map((value, i) => `<th class="${selectedMonth === i+1 ? 'selected' : ''}">${value > 0 ? Math.round(value).toLocaleString() : '–'}</th>`).join('')}<th>${Math.round(totalAnnual).toLocaleString()}</th></tr></tfoot>
+      </table>
     </div>
   </div>`;
 
   // ── 종목별 배당 테이블 (PC: 풀 테이블, 모바일: 카드형)
-  const sorted = [...divRows].sort((a,b)=>b.annualDiv-a.annualDiv);
+  const sorted = [...divRows]
+    .filter(r => !selectedMonth || Number(r.monthlyDiv?.[selectedMonth] || 0) > 0)
+    .sort((a,b) => selectedMonth
+      ? Number(b.monthlyDiv?.[selectedMonth] || 0) - Number(a.monthlyDiv?.[selectedMonth] || 0)
+      : b.annualDiv - a.annualDiv);
 
   // PC 테이블
   html += `
   <div style="background:var(--s1);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden" class="div-tbl-wrap">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border)">
-      <h3 style="margin:0;font-size:.88rem;font-weight:700">💸 종목별 배당 상세</h3>
-      <div style="font-size:.70rem;color:var(--cyan)">연간 합계 <b>${fmtW(Math.round(totalAnnual))}</b></div>
+      <h3 style="margin:0;font-size:.88rem;font-weight:700">💸 종목별 배당 상세${selectedMonth ? ` · ${selectedMonth}월` : ''}</h3>
+      <div style="font-size:.70rem;color:var(--cyan)">${selectedMonth ? `${selectedMonth}월` : '연간'} 합계 <b>${fmtW(Math.round(selectedMonthTotal))}</b></div>
     </div>
     <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
     <table style="width:100%;border-collapse:collapse;min-width:560px">
       <thead>
         <tr style="background:var(--s2)">
           <th style="padding:7px 14px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600">종목명</th>
+          <th style="padding:7px 8px;text-align:center;font-size:.68rem;color:var(--muted);font-weight:600">구분</th>
           <th style="padding:7px 8px;text-align:center;font-size:.68rem;color:var(--muted);font-weight:600">주기</th>
           <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">수량</th>
           <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">주당</th>
           <th style="padding:7px 8px;text-align:left;font-size:.68rem;color:var(--muted);font-weight:600">지급월</th>
           <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">연간(세전)</th>
-          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">월(세전)</th>
+          <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">${selectedMonth ? `${selectedMonth}월` : '월평균'}(세전)</th>
           <th style="padding:7px 8px;text-align:right;font-size:.68rem;color:var(--muted);font-weight:600">수익률</th>
         </tr>
       </thead>
@@ -276,13 +319,14 @@ function renderDivView(area, skipFetch) {
     const fCol = freqColors[r.dd.freq] || 'var(--muted)';
     const costAmt = rows.filter(rr=>rr.name===r.name).reduce((s,rr)=>s+(rr.costAmt||0),0);
     const yld = costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
-    const monthlyDiv = Math.round(r.annualDiv / 12);
+    const monthlyDiv = Math.round(selectedMonth ? Number(r.monthlyDiv?.[selectedMonth] || 0) : r.annualDiv / 12);
 
     html += `<tr style="border-top:1px solid var(--border)">
       <td style="padding:9px 14px">
         <div style="font-weight:600;font-size:.82rem">${r.name}</div>
         <div style="font-size:.63rem;color:var(--muted);margin-top:1px">${acctDots} ${r.accts.join('·')}</div>
       </td>
+      <td style="padding:9px 8px;text-align:center"><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span></td>
       <td style="padding:9px 8px;text-align:center">
         <span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:.63rem;font-weight:700;background:${fCol}22;color:${fCol}">${r.dd.freq}</span>
       </td>
@@ -304,7 +348,7 @@ function renderDivView(area, skipFetch) {
     const fCol = freqColors[r.dd.freq] || 'var(--muted)';
     const costAmt = rows.filter(rr=>rr.name===r.name).reduce((s,rr)=>s+(rr.costAmt||0),0);
     const yld = costAmt > 0 ? (r.annualDiv / costAmt * 100).toFixed(2) : '-';
-    const monthlyDiv = Math.round(r.annualDiv / 12);
+    const monthlyDiv = Math.round(selectedMonth ? Number(r.monthlyDiv?.[selectedMonth] || 0) : r.annualDiv / 12);
     const monthBadges = r.dd.months.map(m=>`<span style="display:inline-block;padding:1px 4px;border-radius:3px;font-size:.65rem;background:rgba(34,211,238,.12);color:var(--cyan);margin:1px">${m}월</span>`).join('');
     const acctDots = r.accts.map(a=>`<span class="adot" style="background:${ACCT_COLORS[a]}"></span>`).join('');
     html += `
@@ -314,7 +358,7 @@ function renderDivView(area, skipFetch) {
           <div style="font-weight:700;font-size:.82rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>
           <div style="font-size:.62rem;color:var(--muted);margin-top:1px">${acctDots} ${r.accts.join('·')}</div>
         </div>
-        <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.62rem;font-weight:700;background:${fCol}22;color:${fCol};flex-shrink:0;margin-left:8px">${r.dd.freq}</span>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:8px"><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span><span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:.62rem;font-weight:700;background:${fCol}22;color:${fCol}">${r.dd.freq}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:.75rem">
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
@@ -322,7 +366,7 @@ function renderDivView(area, skipFetch) {
           <div style="font-weight:700;color:var(--cyan);font-variant-numeric:tabular-nums">${fmtW(Math.round(r.annualDiv))}</div>
         </div>
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
-          <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">월(세전)</div>
+          <div style="font-size:.65rem;color:var(--muted);margin-bottom:2px">${selectedMonth ? `${selectedMonth}월` : '월평균'}(세전)</div>
           <div style="font-weight:600;color:var(--green);font-variant-numeric:tabular-nums">${fmtW(monthlyDiv)}</div>
         </div>
         <div style="background:var(--s2);border-radius:6px;padding:7px 10px">
