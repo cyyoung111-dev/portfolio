@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.52
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.53
+//
+//  v9.53 변경사항 (2026.08.14):
+//   ✅ [정리]   응답 지연을 유발하던 SOX 비교지수 및 SOXX 대체 조회 제거
 //
 //  v9.52 변경사항 (2026.08.14):
 //   ✅ [정리]   지수·배당 GOOGLEFINANCE 임시 시트를 요청 종료 시 자동 삭제
@@ -1939,8 +1942,6 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
       SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
       DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
-      // SOX 지수를 우선 조회하고, GOOGLEFINANCE에서 지수 이력을 반환하지 않을 때만 SOXX ETF로 대체합니다.
-      SOX: ['INDEXNASDAQ:SOX', 'NASDAQ:SOX', 'NASDAQ:SOXX'],
       NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
       NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
       // VKOSPI는 아래 KRX Open API 전용 경로로 조회합니다.
@@ -4315,7 +4316,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.52' });
+    return jsonOk({ settings: settings, gasVersion: '9.53' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

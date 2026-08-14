@@ -89,7 +89,6 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     KOSPI: '#60a5fa',
     SP500: '#22c55e',
     DOW: '#f472b6',
-    SOX: '#06b6d4',
     NASDAQ: '#f59e0b',
     NASDAQ100: '#a78bfa',
   };
@@ -141,10 +140,8 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       .sort((a, b) => a.date.localeCompare(b.date));
     const mdd = _calcHistoryMdd(dailyMddPoints.length ? dailyMddPoints : arr, dailyMddPoints.length ? 'raw' : 'idx');
     const usedSymbol = String(benchMetaMap[benchType] || '');
-    const displayType = benchType === 'SOX' && /(?:^|:)SOXX$/i.test(usedSymbol)
-      ? 'SOX (SOXX 대체)'
-      : benchType;
-    const chartDisplayType = displayType === 'SOX (SOXX 대체)' ? 'SOX*' : displayType;
+    const displayType = benchType;
+    const chartDisplayType = displayType;
     return { type: benchType, displayType, chartDisplayType, usedSymbol, color: benchColorMap[benchType] || '#94a3b8', pts: arr, mdd };
   }).filter(x => x.pts.length > 1);
   const hasBench = benchLines.length > 0;
