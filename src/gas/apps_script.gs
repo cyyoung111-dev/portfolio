@@ -1,5 +1,18 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.48
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.52
+//
+//  v9.52 변경사항 (2026.08.14):
+//   ✅ [정리]   지수·배당 GOOGLEFINANCE 임시 시트를 요청 종료 시 자동 삭제
+//   ✅ [복구]   자동 트리거 등록 시 이전 배포에서 남은 임시 시트를 일괄 삭제
+//
+//  v9.51 변경사항 (2026.08.14):
+//   ✅ [복원력] SOX 지수 조회 실패 시 SOXX ETF 가격으로 자동 대체
+//
+//  v9.50 변경사항 (2026.08.12):
+//   ✅ [지표]   손익 그래프 비교지수에 필라델피아 반도체지수(SOX)를 추가
+//
+//  v9.49 변경사항 (2026.08.12):
+//   ✅ [지표]   손익 그래프 비교지수에 다우존스 산업평균지수(DOW)를 추가
 //
 //  v9.48 변경사항 (2026.08.03):
 //   ✅ [정확성] 실제 데이터 제공 여부를 검증하지 못한 VKOSPI 비교지수 기능 제거
@@ -1638,12 +1651,12 @@ function _publicDividendDate(value) {
 //  배당 조회
 // ════════════════════════════════════════════════════════════════════
 function handleDividendFetch(codes) {
+  var ss = null;
+  var tmp = null;
   try {
-    var ss  = getss();
-    // ★ 배당 조회 전용 시트 사용 — fetchPricesGoogleFinance의 _gf_tmp 와 충돌 방지
-    var DIV_TMP = '_div_tmp';
-    var tmp = ss.getSheetByName(DIV_TMP) || ss.insertSheet(DIV_TMP);
-    tmp.clearContents();
+    ss = getss();
+    // 요청별 고유 시트를 사용해 동시 배당 조회 충돌을 막고 finally에서 즉시 삭제합니다.
+    tmp = ss.insertSheet('_div_tmp_' + Utilities.getUuid().slice(0, 8));
 
     var toDate   = new Date();
     var fromDate = new Date();
@@ -1697,10 +1710,13 @@ function handleDividendFetch(codes) {
       results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count, events: divRows, source: 'GOOGLEFINANCE' };
     });
 
-    try { tmp.clearContents(); SpreadsheetApp.flush(); } catch(e) { Logger.log('배당 tmp 시트 정리 실패: ' + e.message); }
     return jsonOk({ dividends: results });
   } catch(err) {
     return jsonError('배당 조회 실패: ' + err.message);
+  } finally {
+    if (ss && tmp) {
+      try { ss.deleteSheet(tmp); } catch(e) { Logger.log('⚠️ 배당 임시 시트 삭제 실패: ' + e.message); }
+    }
   }
 }
 
@@ -1922,6 +1938,9 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       // ★ KOSDAQ 종합지수는 GOOGLEFINANCE 미지원 → KODEX코스닥150(229200) ETF로 근사 대체
       KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
       SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
+      DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
+      // SOX 지수를 우선 조회하고, GOOGLEFINANCE에서 지수 이력을 반환하지 않을 때만 SOXX ETF로 대체합니다.
+      SOX: ['INDEXNASDAQ:SOX', 'NASDAQ:SOX', 'NASDAQ:SOXX'],
       NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
       NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
       // VKOSPI는 아래 KRX Open API 전용 경로로 조회합니다.
@@ -2019,34 +2038,27 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
 }
 
 function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
-  // ★ 지수별 전용 시트 사용 — 동시 요청 시 _gf_tmp 충돌 방지
-  //   _bm_INDEXKRX_KOSPI, _bm_INDEXSP__INX 등 지수별로 독립된 시트 사용
-  var sheetKey = '_bm_' + symbol.replace(/[^A-Za-z0-9]/g, '_');
-  if (sheetKey.length > 30) sheetKey = sheetKey.slice(0, 30);
-  var tmp = ss.getSheetByName(sheetKey);
-  if (!tmp) tmp = ss.insertSheet(sheetKey);
-  tmp.clearContents();
+  // 요청별 고유 시트를 사용해 다른 지수 조회와 충돌하지 않으며, 성공·실패와 무관하게 삭제합니다.
+  var tmp = ss.insertSheet('_bm_' + Utilities.getUuid().slice(0, 8));
+  try {
+    var fs = fromDate.split('-');
+    var ts = toDate.split('-');
+    var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
+    tmp.getRange(1, 1).setFormula(formula);
+    SpreadsheetApp.flush();
+    Utilities.sleep(1600);
 
-  var fs = fromDate.split('-');
-  var ts = toDate.split('-');
-  var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
-  tmp.getRange(1, 1).setFormula(formula);
-  SpreadsheetApp.flush();
-  Utilities.sleep(1600);
-
-  var lastRow = tmp.getLastRow();
-  if (lastRow < 2) {
-    tmp.clearContents();
-    return [];
+    var lastRow = tmp.getLastRow();
+    if (lastRow < 2) return [];
+    var data = tmp.getRange(2, 1, lastRow - 1, 2).getValues();
+    return data.map(function(r) {
+      var d = _normalizeDate(r[0]);
+      var v = parseFloat(r[1]) || 0;
+      return { date: d, value: v };
+    }).filter(function(p) { return p.date && p.value > 0; });
+  } finally {
+    try { ss.deleteSheet(tmp); } catch(e) { Logger.log('⚠️ 지수 임시 시트 삭제 실패: ' + e.message); }
   }
-  var data = tmp.getRange(2, 1, lastRow - 1, 2).getValues();
-  var points = data.map(function(r) {
-    var d = _normalizeDate(r[0]);
-    var v = parseFloat(r[1]) || 0;
-    return { date: d, value: v };
-  }).filter(function(p) { return p.date && p.value > 0; });
-  tmp.clearContents();
-  return points;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -3282,6 +3294,8 @@ function _listPriceHistoryDatesInRange(ss, fromDate, toDate) {
 //  트리거 등록
 // ════════════════════════════════════════════════════════════════════
 function setupTrigger() {
+  // 이전 배포에서 clearContents만 실행해 남아 있던 _bm_*, _gf_tmp*, _div_tmp* 시트를 한 번 정리합니다.
+  try { _cleanupBenchmarkTempSheets(); } catch(cleanupErr) { Logger.log('기존 임시 시트 정리 실패: ' + cleanupErr.message); }
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (
@@ -4301,7 +4315,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.48' });
+    return jsonOk({ settings: settings, gasVersion: '9.52' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4857,7 +4871,7 @@ function _cleanupBenchmarkTempSheets() {
     var name = sh.getName();
     // ★ [버그수정] 요청마다 고유 이름으로 만드는 임시 시트들(_gf_tmp_*, _fx_tmp_*, _name_tmp_*, _bffx_tmp_*)도
     //   혹시 중간에 오류로 정리가 안 됐을 경우를 대비해 함께 청소
-    if (name === CONFIG.SHEET_TMP || name.indexOf('_bm_') === 0 || name === '_div_tmp'
+    if (name === CONFIG.SHEET_TMP || name.indexOf('_bm_') === 0 || name === '_div_tmp' || name.indexOf('_div_tmp_') === 0
         || name.indexOf('_gf_tmp_') === 0 || name.indexOf('_fx_tmp_') === 0
         || name.indexOf('_name_tmp_') === 0 || name.indexOf('_bffx_tmp_') === 0) {
       try { ss.deleteSheet(sh); removed++; } catch(e) {
