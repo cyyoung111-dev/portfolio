@@ -84,6 +84,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   // 비교지수 정렬 (우측축, 복수 선택)
   const benchTypes = Array.isArray(benchmarkOpt?.types) ? benchmarkOpt.types : [];
   const benchSeriesMap = benchmarkOpt?.seriesMap || {};
+  const benchMetaMap = benchmarkOpt?.metaMap || {};
   const benchColorMap = {
     KOSPI: '#60a5fa',
     SP500: '#22c55e',
@@ -139,7 +140,12 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       .map(b => ({ date: b.date, raw: Number(b.value) }))
       .sort((a, b) => a.date.localeCompare(b.date));
     const mdd = _calcHistoryMdd(dailyMddPoints.length ? dailyMddPoints : arr, dailyMddPoints.length ? 'raw' : 'idx');
-    return { type: benchType, color: benchColorMap[benchType] || '#94a3b8', pts: arr, mdd };
+    const usedSymbol = String(benchMetaMap[benchType] || '');
+    const displayType = benchType === 'SOX' && /(?:^|:)SOXX$/i.test(usedSymbol)
+      ? 'SOX (SOXX 대체)'
+      : benchType;
+    const chartDisplayType = displayType === 'SOX (SOXX 대체)' ? 'SOX*' : displayType;
+    return { type: benchType, displayType, chartDisplayType, usedSymbol, color: benchColorMap[benchType] || '#94a3b8', pts: arr, mdd };
   }).filter(x => x.pts.length > 1);
   const hasBench = benchLines.length > 0;
   const allIdx = hasBench ? benchLines.flatMap(x => x.pts.map(p => p.idx)) : [];
@@ -201,7 +207,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       ${hasBench ? benchLines.map((line, i) => {
         const sx = PAD.left + 72 + i * 100;
         return `<line x1="${sx}" y1="${PAD.top + 10}" x2="${sx + 14}" y2="${PAD.top + 10}" stroke="${line.color}" stroke-width="2"/>
-      <text x="${sx + 18}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${line.type}</text>`;
+      <text x="${sx + 18}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${line.chartDisplayType}</text>`;
       }).join('') : ''}
     </svg>
     ${hasBench ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.68rem">
@@ -213,7 +219,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
           : '선택 기간 내 하락 없음';
         return `<span title="MDD 구간: ${_escapeHtml(mddTitle)}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
           <span style="width:8px;height:8px;border-radius:999px;background:${line.color}"></span>
-          <span style="color:var(--muted)">${line.type}</span>
+          <span style="color:var(--muted)">${line.displayType}</span>
           <span style="color:${line.color};font-weight:700">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>
           <span style="color:var(--red-lt);font-weight:700">MDD ${line.mdd.pct.toFixed(1)}%</span>
         </span>`;
@@ -237,7 +243,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         const last = line.pts[line.pts.length - 1];
         const delta = last ? (last.idx - 100) : 0;
         return `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">${line.type} 변화</div>
+        <div style="font-size:.62rem;color:var(--muted)">${line.displayType} 변화</div>
         <div style="font-size:.88rem;font-weight:700;color:${line.color}">${(delta >= 0 ? '+' : '') + delta.toFixed(1)}%</div>
         <div style="font-size:.68rem;font-weight:700;color:var(--red-lt);margin-top:2px">MDD ${line.mdd.pct.toFixed(1)}%</div>
         ${line.mdd?.troughDate ? `<div style="font-size:.58rem;color:var(--muted);margin-top:1px">${_fmtHistDateCompact(line.mdd.peakDate)} → ${_fmtHistDateCompact(line.mdd.troughDate)}</div>` : ''}
