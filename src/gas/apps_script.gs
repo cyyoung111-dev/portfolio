@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.53
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.54
+//
+//  v9.54 변경사항 (2026.08.14):
+//   ✅ [버그수정] Settings 저장 시 모든 비고정 행 삭제 오류를 피하도록 내용만 초기화
 //
 //  v9.53 변경사항 (2026.08.14):
 //   ✅ [정리]   응답 지연을 유발하던 SOX 비교지수 및 SOXX 대체 조회 제거
@@ -4226,10 +4229,17 @@ function _writeSettingsMap(settings) {
     .filter(function(k) { return k in settings; })
     .map(function(k) { return [k, JSON.stringify(settings[k])]; });
 
+  // 데이터 행 자체를 모두 삭제하면 헤더만 고정된 시트에서
+  // "고정되지 않은 행을 모두 삭제할 수 없습니다" 오류가 발생합니다.
+  // 행은 유지하고 기존 내용만 비운 뒤 한 번에 다시 기록합니다.
   if (lastRow > 1) {
-    sh.deleteRows(2, lastRow - 1);
+    sh.getRange(2, 1, lastRow - 1, Math.max(2, sh.getLastColumn())).clearContent();
   }
   if (rows.length > 0) {
+    var requiredRows = rows.length + 1;
+    if (sh.getMaxRows() < requiredRows) {
+      sh.insertRowsAfter(sh.getMaxRows(), requiredRows - sh.getMaxRows());
+    }
     sh.getRange(2, 1, rows.length, 2).setValues(rows);
   }
   SpreadsheetApp.flush();
@@ -4316,7 +4326,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.53' });
+    return jsonOk({ settings: settings, gasVersion: '9.54' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
