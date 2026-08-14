@@ -62,6 +62,16 @@ async function manualSyncByTab(tabId) {
     } else if (tabId === 'asset') {
       const r1 = await persistRealEstateSettings(true);
       ok = !!r1;
+    } else if (tabId === 'trades' && rawTrades.length === 0) {
+      // 거래 탭의 재동기화는 기초정보만 로컬에 복원된 새 브라우저에서도
+      // 빈 거래를 GAS로 올리지 않고 원격 거래/보유현황을 먼저 내려받습니다.
+      const loaded = await loadSettings();
+      ok = !!loaded && (rawTrades.length > 0 || rawHoldings.length > 0 || Object.keys(fundDirect).length > 0);
+      if (ok) {
+        try { refreshAll(); } catch(e) {}
+        try { if (typeof renderView === 'function') renderView(); } catch(e) {}
+        showToast(`거래 ${rawTrades.length}건 · 보유 ${rawHoldings.length}건 복원`, 'ok');
+      }
     } else {
       // ★ 기초정보 탭: 로컬 데이터 있으면 로컬→GAS, 없으면 GAS→로컬
       const hasLocalData = EDITABLE_PRICES.length > 0 || rawTrades.length > 0;

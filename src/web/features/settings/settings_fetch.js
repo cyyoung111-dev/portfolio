@@ -262,6 +262,28 @@ async function quickFetchByDate() {
   }
 
   try {
+    // 상단 업데이트 버튼은 현재가뿐 아니라 GAS에 저장된 설정·거래·보유·배당·부동산도
+    // 다시 읽어야 합니다. 초기 부트스트랩이 일시적으로 실패했더라도 사용자가 이 버튼으로
+    // 전체 데이터를 재복원할 수 있도록 가격 조회보다 먼저 통합 로드를 재시도합니다.
+    let restoreSummary = '';
+    setStatusLabel('⏳ GAS 전체 데이터 복원 중...', 'loading');
+    const settingsLoaded = typeof loadSettings === 'function'
+      ? await loadSettings(message => setStatusLabel('⏳ ' + message, 'loading'))
+      : false;
+    if (settingsLoaded) {
+      try { refreshAll(); } catch(e) { console.warn('GAS 복원 후 화면 갱신 실패:', e); }
+      const tradeCount = Array.isArray(rawTrades) ? rawTrades.length : 0;
+      const holdingCount = (Array.isArray(rawHoldings) ? rawHoldings.length : 0)
+        + ((fundDirect && typeof fundDirect === 'object') ? Object.keys(fundDirect).length : 0);
+      restoreSummary = ` · 거래 ${tradeCount}건 · 보유 ${holdingCount}건 복원`;
+      if (tradeCount === 0 && holdingCount === 0) {
+        restoreSummary = ' · <span style="color:var(--amber)">⚠️ GAS 거래·보유 데이터 없음</span>';
+      }
+    } else {
+      restoreSummary = ' · <span style="color:var(--red-lt)">⚠️ GAS 전체 데이터 복원 실패</span>';
+    }
+
+    setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...' + restoreSummary, 'loading');
     // 버튼 클릭은 자동 조회 중 생성된 결과를 재사용하지 않고 GAS 최종값을 새로 확인합니다.
     let results = await fetchFromGsheet(targetDate, { forceFresh: true });
     let usedDate = targetDate;
@@ -290,6 +312,7 @@ async function quickFetchByDate() {
       const total = getEPWithCode().length;
       const dayLabel = isToday ? '실시간' : usedDate.replace(/-/g,'.') + ' 종가';
       let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
+      html += restoreSummary;
       html += _priceDiagSummary(results);
       if (isFallback) {
         html += ` · <span style="color:var(--amber)">↩ 요청일(${targetDate.replace(/-/g,'.')}) 데이터 없음 → ${usedDate.replace(/-/g,'.')} 사용</span>`;
@@ -302,7 +325,7 @@ async function quickFetchByDate() {
       setStatusLabel(html, 'ok');
       refreshAll();
     } else {
-      setStatusLabel('❌ ' + targetDate + ' 데이터 없음 (주말/공휴일 또는 종목코드 미등록)', 'error');
+      setStatusLabel('❌ ' + targetDate + ' 데이터 없음 (주말/공휴일 또는 종목코드 미등록)' + restoreSummary, 'error');
     }
   } catch(e) {
     setStatusLabel('❌ 조회 실패: ' + e.message, 'error');
