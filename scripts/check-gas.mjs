@@ -68,3 +68,42 @@ if (!dryRunUiMatch
   console.error('❌ ETF 2단계 드라이런은 동적으로 선정된 전체 종목 결과를 빠짐없이 표시해야 합니다.');
   process.exit(1);
 }
+
+const applyMatch = source.match(/function\s+handleApplyEtfDividends\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+if (!applyMatch
+    || !/LockService\.getScriptLock\(\)/.test(applyMatch[1])
+    || !/_writeEtfDividendHistory\(/.test(applyMatch[1])
+    || !/_writeSettingsMap\(nextSettings\)/.test(applyMatch[1])
+    || !/failed\.length/.test(applyMatch[1])
+    || !source.includes("'runEtfDividendApply'")) {
+  console.error('❌ ETF 3단계 반영은 전체 검증, 잠금, 이력·DIVDATA 저장 및 메뉴 실행을 포함해야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes('SHEET_ETF_DIVIDENDS')
+    || !source.includes("String(event.source || '').toUpperCase() === 'MANUAL'")) {
+  console.error('❌ ETF 분배금 이력 시트 또는 MANUAL 이벤트 보존 로직이 누락됐습니다.');
+  process.exit(1);
+}
+
+const gasContext = vm.createContext({ console });
+new vm.Script(source, { filename: path }).runInContext(gasContext);
+const sampleComparisons = [{
+  code: '0046Y0', isin: 'KR0000000001', name: '문자열코드검증',
+  proposed: {
+    perShare: 5, ttmPerShare: 5, freq: '연간', months: [1],
+    events: [{ date: '2026-01-01', payDate: '2026-01-02', amount: 5, source: 'SEIBRO' }]
+  }
+}];
+const historyMerge = gasContext._mergeEtfDividendHistory([], sampleComparisons, '2026-08-18T00:00:00+09:00');
+const divDataMerge = gasContext._mergeSeibroDivData({
+  '0046Y0': { events: [{ date: '2026-01-01', payDate: '2026-01-02', amount: 7, source: 'MANUAL' }] }
+}, sampleComparisons, '2026-08-18T00:00:00+09:00');
+if (historyMerge.summary.added !== 1
+    || historyMerge.rows[0].code !== '0046Y0'
+    || divDataMerge['0046Y0'].events.length !== 1
+    || divDataMerge['0046Y0'].events[0].amount !== 7
+    || divDataMerge['0046Y0'].events[0].source !== 'MANUAL') {
+  console.error('❌ ETF 이력 증분 병합, 문자열 코드 또는 MANUAL 이벤트 보존 검사가 실패했습니다.');
+  process.exit(1);
+}
