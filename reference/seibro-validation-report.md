@@ -132,3 +132,26 @@ node scripts/validate-seibro-etf.mjs --codes '458730,0046Y0,0080G0,...'
 4. **운영 활성화 단계**: 실제 응답 필드 의미와 전체 결과표를 확인한 뒤 자동 트리거와 배당 탭 기본 소스로 활성화한다.
 
 이 순서라면 코드·파싱·TTM 연결 문제는 일찍 찾을 수 있으면서도 현재 운영 배당 데이터가 부분 결과나 잘못 해석한 필드로 오염되는 것을 막을 수 있다. 현재 확인된 `REQUEST_ERROR`가 해소되기 전에는 1~2단계까지만 실행할 수 있고, 3~4단계 운영 쓰기는 활성화하지 않는다.
+
+### 1단계 실행 방법
+
+GAS v9.57을 새 버전으로 배포한 뒤 배포 URL에 다음 query를 붙여 실행한다.
+
+```text
+?action=diagnoseEtfDividends&raw=1
+```
+
+날짜 범위를 고정해서 재검증하려면 `from`, `to`를 `YYYY-MM-DD`로 지정한다.
+
+```text
+?action=diagnoseEtfDividends&from=2025-08-18&to=2026-08-18&raw=1
+```
+
+응답의 `readOnly`, `wroteSheets`, `wroteDivData`는 각각 `true`, `false`, `false`여야 한다. 사용자가 확인해 전달할 값은 다음과 같다.
+
+1. 최상위 `status`, `targetCount`, `counts`
+2. 각 `results[]`의 `code`, `portfolioName`, `reasons`, `status`, `isin`, `seibroName`, `paymentCount`
+3. 오류 행이 있으면 해당 행의 `error`, `searchXml`, `paymentXml`
+4. 성공 행 `458730`의 `firstRecordDate`, `firstPayDate`, `firstEstmStdprc`
+
+이 진단은 `보유현황`과 `거래이력`을 읽고 SEIBro에 요청하지만 시트 생성·수정, `DIVDATA` 저장, 트리거 등록을 실행하지 않는다.
