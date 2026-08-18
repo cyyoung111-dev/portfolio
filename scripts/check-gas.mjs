@@ -107,3 +107,37 @@ if (historyMerge.summary.added !== 1
   console.error('❌ ETF 이력 증분 병합, 문자열 코드 또는 MANUAL 이벤트 보존 검사가 실패했습니다.');
   process.exit(1);
 }
+
+const protectedSave = gasContext._preserveSeibroDivData({
+  '0046Y0': { source: 'SEIBRO', perShare: 16 },
+  '005930': { source: 'PUBLIC_DATA', perShare: 100 }
+}, {
+  '0046Y0': { source: 'GOOGLEFINANCE', perShare: 1 },
+  '005930': { source: 'PUBLIC_DATA', perShare: 200 }
+});
+const manualSave = gasContext._preserveSeibroDivData({
+  '0046Y0': { source: 'SEIBRO', perShare: 16 }
+}, {
+  '0046Y0': { source: 'MANUAL', perShare: 20 }
+});
+if (protectedSave['0046Y0'].source !== 'SEIBRO'
+    || protectedSave['0046Y0'].perShare !== 16
+    || protectedSave['005930'].perShare !== 200
+    || manualSave['0046Y0'].source !== 'MANUAL') {
+  console.error('❌ 구버전 웹 저장의 SEIBro 보호 또는 MANUAL 편집 허용 검사가 실패했습니다.');
+  process.exit(1);
+}
+
+const currentTargets = [{ code: '0046Y0' }, { code: '0080G0' }];
+const currentSettings = { DIVDATA: {
+  '0046Y0': { source: 'SEIBRO', updatedAt: '2026-08-18T09:00:00+09:00', events: [{}] },
+  '0080G0': { source: 'SEIBRO', updatedAt: '2026-08-18T09:01:00+09:00', events: [{}] }
+} };
+if (!gasContext._isEtfDividendRefreshCurrent(currentSettings, currentTargets, '2026-08-18')
+    || gasContext._isEtfDividendRefreshCurrent(currentSettings, currentTargets.concat([{ code: '458730' }]), '2026-08-18')
+    || gasContext._isEtfDividendRefreshCurrent(currentSettings, currentTargets, '2026-08-19')
+    || !source.includes("params.action === 'refreshEtfDividends'")
+    || !source.includes('handleRefreshEtfDividends(params.force')) {
+  console.error('❌ SEIBro ETF 일 1회 자동 갱신 판정 또는 POST route 검사가 실패했습니다.');
+  process.exit(1);
+}

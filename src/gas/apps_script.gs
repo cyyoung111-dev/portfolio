@@ -1,5 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.61
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.63
+//
+//  v9.63 변경사항 (2026.08.18):
+//   ✅ [자동화] 배당 탭 요청으로 SEIBro ETF를 일 1회 검증·증분 갱신하고 최신 데이터 반환
+//
+//  v9.62 변경사항 (2026.08.18):
+//   ✅ [보호]   구버전 웹의 공공데이터/GF 저장이 SEIBro ETF DIVDATA를 덮어쓰지 않도록 서버 병합
 //
 //  v9.61 변경사항 (2026.08.18):
 //   ✅ [저장]   전체 검증 성공 후 ETF분배금이력과 DIVDATA를 잠금 안에서 함께 증분 갱신
@@ -462,7 +468,7 @@ function doGet(e) {
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
       params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
-      params.action === 'repairSnapshots') {
+      params.action === 'repairSnapshots' || params.action === 'refreshEtfDividends') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -492,6 +498,7 @@ function doPost(e) {
   if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data);
   if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
   if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
+  if (params.action === 'refreshEtfDividends') return handleRefreshEtfDividends(params.force || '');
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
@@ -2213,6 +2220,43 @@ function handleApplyEtfDividends() {
     return jsonError('3단계 저장 실패, 저장 전 상태로 복구했습니다: ' + err.message);
   } finally {
     if (locked) lock.releaseLock();
+  }
+}
+
+function _isEtfDividendRefreshCurrent(settings, targets, dateStr) {
+  var divData = (settings && settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {};
+  return targets.length > 0 && targets.every(function(target) {
+    var row = divData[target.code];
+    return row
+      && String(row.source || '').toUpperCase() === 'SEIBRO'
+      && Array.isArray(row.events) && row.events.length > 0
+      && String(row.updatedAt || '').slice(0, 10) === dateStr;
+  });
+}
+
+function handleRefreshEtfDividends(forceInput) {
+  try {
+    var toDate = today();
+    var fromDate = _seibroTtmStartDate(toDate);
+    var targets = _getEtfDividendDiagnosticTargets(getss(), fromDate, toDate);
+    var settings = _readSettingsMap();
+    if (!targets.length) return jsonOk({ refreshed: false, skipped: true, reason: 'NO_TARGETS', targetCount: 0, divData: settings.DIVDATA || {} });
+    var force = String(forceInput || '') === '1';
+    if (!force && _isEtfDividendRefreshCurrent(settings, targets, toDate)) {
+      return jsonOk({
+        refreshed: false, skipped: true, reason: 'TODAY_ALREADY_UPDATED',
+        targetCount: targets.length, divData: settings.DIVDATA || {}
+      });
+    }
+    var output = handleApplyEtfDividends();
+    var result = JSON.parse(output.getContent());
+    if (result.status !== 'ok') return jsonError(result.message || 'SEIBro ETF 자동 갱신 실패');
+    var refreshedSettings = _readSettingsMap();
+    return jsonOk(Object.assign({}, result, {
+      refreshed: true, skipped: false, divData: refreshedSettings.DIVDATA || {}
+    }));
+  } catch(err) {
+    return jsonError('SEIBro ETF 자동 갱신 실패: ' + err.message);
   }
 }
 
@@ -4878,10 +4922,23 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.61' });
+    return jsonOk({ settings: settings, gasVersion: '9.63' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
+}
+
+function _preserveSeibroDivData(existingDivData, incomingDivData) {
+  var merged = incomingDivData;
+  Object.keys(existingDivData || {}).forEach(function(key) {
+    var existing = existingDivData[key];
+    var incoming = merged[key];
+    if (!existing || String(existing.source || '').toUpperCase() !== 'SEIBRO') return;
+    var incomingSource = String(incoming && incoming.source || '').toUpperCase();
+    // 명시적인 SEIBro 갱신이나 사용자의 MANUAL 편집만 기존 SEIBro 값을 교체할 수 있습니다.
+    if (incomingSource !== 'SEIBRO' && incomingSource !== 'MANUAL') merged[key] = existing;
+  });
+  return merged;
 }
 
 function handleSaveDividendSettings(dataJson) {
@@ -4891,7 +4948,10 @@ function handleSaveDividendSettings(dataJson) {
     lock.waitLock(30000); locked = true;
     var divData = _parseJsonParam(dataJson, 'dividend data');
     var settings = _readSettingsMap();
-    settings.DIVDATA = divData;
+    var existingDivData = (settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {};
+    // SEIBro 운영 반영 이후에도 구버전 웹이 탭 진입 자동조회 결과(PUBLIC_DATA/GF)를
+    // 다시 저장할 수 있으므로 서버에서도 기존 SEIBro 값을 보호합니다.
+    settings.DIVDATA = _preserveSeibroDivData(existingDivData, divData);
     _writeSettingsMap(settings);
     return jsonOk({ saved: true, key: 'DIVDATA' });
   } catch(err) {
