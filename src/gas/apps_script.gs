@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.58
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.59
+//
+//  v9.59 변경사항 (2026.08.18):
+//   ✅ [드라이런] SEIBro 전체 분배금 행의 TTM 합계와 DIVDATA 증분 병합안을 저장 없이 비교
+//   ✅ [사용성]   스프레드시트 메뉴에서 2단계 드라이런을 실행하고 신규·정정·유지 건수 표시
 //
 //  v9.58 변경사항 (2026.08.18):
 //   ✅ [사용성] 스프레드시트 메뉴에서 SEIBro ETF 읽기 전용 진단을 한 번에 실행하고 결과 요약 표시
@@ -1774,6 +1778,25 @@ function _seibroVectorCount(xml) {
   return match ? parseInt(match[1], 10) : null;
 }
 
+function _seibroPaymentEvents(xml) {
+  var events = [];
+  var resultPattern = /<result>([\s\S]*?)<\/result>/g;
+  var match;
+  while ((match = resultPattern.exec(String(xml || ''))) !== null) {
+    var block = match[1];
+    var dateRaw = _seibroXmlValue(block, 'RGT_STD_DT');
+    var payDateRaw = _seibroXmlValue(block, 'TH1_PAY_TERM_BEGIN_DT');
+    var amountRaw = _seibroXmlValue(block, 'ESTM_STDPRC');
+    var date = dateRaw && dateRaw.length === 8 ? dateRaw.slice(0, 4) + '-' + dateRaw.slice(4, 6) + '-' + dateRaw.slice(6, 8) : '';
+    var payDate = payDateRaw && payDateRaw.length === 8 ? payDateRaw.slice(0, 4) + '-' + payDateRaw.slice(4, 6) + '-' + payDateRaw.slice(6, 8) : '';
+    var amount = parseFloat(amountRaw);
+    if (!date || !isFinite(amount) || amount <= 0) continue;
+    events.push({ date: date, payDate: payDate, amount: amount, source: 'SEIBRO' });
+  }
+  events.sort(function(a, b) { return a.date.localeCompare(b.date) || a.payDate.localeCompare(b.payDate); });
+  return events;
+}
+
 function _seibroDateParam(value, fallbackDate) {
   var normalized = _normalizeDate(value || fallbackDate);
   if (!normalized) return '';
@@ -1923,7 +1946,13 @@ function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
         row.firstRecordDate = _seibroXmlValue(xml, 'RGT_STD_DT');
         row.firstPayDate = _seibroXmlValue(xml, 'TH1_PAY_TERM_BEGIN_DT');
         row.firstEstmStdprc = _seibroXmlValue(xml, 'ESTM_STDPRC');
-        if (!row.firstRecordDate || !row.firstEstmStdprc) {
+        row.events = _seibroPaymentEvents(xml);
+        row.ttmPerShare = row.events.reduce(function(sum, event) { return sum + event.amount; }, 0);
+        row.months = row.events.map(function(event) { return parseInt((event.payDate || event.date).slice(5, 7), 10); })
+          .filter(function(month, pos, all) { return month >= 1 && month <= 12 && all.indexOf(month) === pos; })
+          .sort(function(a, b) { return a - b; });
+        row.freq = row.events.length >= 10 ? '월배당' : row.events.length >= 4 ? '분기' : row.events.length >= 2 ? '반기' : '연간';
+        if (!row.firstRecordDate || !row.firstEstmStdprc || row.events.length !== count) {
           row.status = 'PARSE_ERROR'; row.error = '분배금 필수 필드 없음';
         }
       });
@@ -1933,6 +1962,105 @@ function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
     return jsonOk({ readOnly: true, wroteSheets: false, wroteDivData: false, from: fromDate, to: toDate, targetCount: targets.length, counts: counts, results: results });
   } catch(err) {
     return jsonError('SEIBro ETF 읽기 전용 진단 실패: ' + err.message);
+  }
+}
+
+function _seibroEventKey(event) {
+  return String(event.date || '').slice(0, 10) + '|' + String(event.payDate || '').slice(0, 10);
+}
+
+function _buildEtfDividendDryRun(diagnostic, divData) {
+  var summary = { targets: diagnostic.targetCount || 0, events: 0, newEvents: 0, correctedEvents: 0, unchangedEvents: 0, changedDivData: 0 };
+  var comparisons = [];
+  (diagnostic.results || []).forEach(function(row) {
+    if (row.status !== 'OK') return;
+    var previous = divData[row.code] || {};
+    var previousByKey = {};
+    (Array.isArray(previous.events) ? previous.events : []).forEach(function(event) { previousByKey[_seibroEventKey(event)] = event; });
+    var proposedEvents = (row.events || []).map(function(event) {
+      var old = previousByKey[_seibroEventKey(event)];
+      summary.events++;
+      if (!old) summary.newEvents++;
+      else if (Number(old.amount || 0) !== Number(event.amount || 0)) summary.correctedEvents++;
+      else summary.unchangedEvents++;
+      return event;
+    });
+    var proposed = {
+      perShare: proposedEvents.length ? Number((row.ttmPerShare / proposedEvents.length).toFixed(4)) : 0,
+      ttmPerShare: Number(Number(row.ttmPerShare || 0).toFixed(4)),
+      freq: row.freq,
+      months: row.months,
+      count: proposedEvents.length,
+      events: proposedEvents,
+      source: 'SEIBRO',
+      listedName: row.seibroName,
+      isin: row.isin
+    };
+    var changed = JSON.stringify({ perShare: Number(previous.perShare || 0), freq: previous.freq || '-', months: previous.months || [], events: previous.events || [] }) !==
+      JSON.stringify({ perShare: proposed.perShare, freq: proposed.freq, months: proposed.months, events: proposed.events });
+    if (changed) summary.changedDivData++;
+    comparisons.push({
+      code: row.code,
+      name: row.portfolioName,
+      isin: row.isin,
+      status: row.status,
+      existingPerShare: Number(previous.perShare || 0),
+      proposedPerShare: proposed.perShare,
+      ttmPerShare: proposed.ttmPerShare,
+      eventCount: proposed.count,
+      changed: changed,
+      proposed: proposed
+    });
+  });
+  return { readOnly: true, wroteSheets: false, wroteDivData: false, summary: summary, comparisons: comparisons };
+}
+
+function handleDryRunEtfDividends(fromInput, toInput) {
+  try {
+    var output = handleDiagnoseEtfDividends(fromInput || '', toInput || '', '');
+    var diagnostic = JSON.parse(output.getContent());
+    if (diagnostic.status !== 'ok') return jsonError(diagnostic.message || 'SEIBro 진단 실패');
+    var failed = (diagnostic.results || []).filter(function(row) { return row.status !== 'OK'; });
+    if (failed.length) return jsonOk({ readOnly: true, wroteSheets: false, wroteDivData: false, blocked: true, counts: diagnostic.counts, results: diagnostic.results });
+    var settings = _readSettingsMap();
+    var dryRun = _buildEtfDividendDryRun(diagnostic, settings.DIVDATA || {});
+    return jsonOk(Object.assign({ blocked: false, from: diagnostic.from, to: diagnostic.to }, dryRun));
+  } catch(err) {
+    return jsonError('SEIBro ETF 2단계 드라이런 실패: ' + err.message);
+  }
+}
+
+function runEtfDividendDryRun() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    ui.alert('SEIBro ETF 2단계 드라이런', '분배금 전체 행과 TTM 계산안을 기존 DIVDATA와 비교합니다.\n시트와 배당 데이터는 수정하지 않습니다.', ui.ButtonSet.OK);
+    var data = JSON.parse(handleDryRunEtfDividends('', '').getContent());
+    if (data.status !== 'ok') throw new Error(data.message || '드라이런 응답 오류');
+    if (data.blocked) throw new Error('1단계 오류가 있어 드라이런이 중단됐습니다: ' + JSON.stringify(data.counts || {}));
+    var summary = data.summary || {};
+    var changed = (data.comparisons || []).filter(function(row) { return row.changed; });
+    var lines = [
+      '대상 ETF: ' + (summary.targets || 0) + '개',
+      '분배금 행: ' + (summary.events || 0) + '건',
+      '신규: ' + (summary.newEvents || 0) + '건',
+      '정정: ' + (summary.correctedEvents || 0) + '건',
+      '기존 일치: ' + (summary.unchangedEvents || 0) + '건',
+      'DIVDATA 변경 예상: ' + (summary.changedDivData || 0) + '종목',
+      '', '시트 수정: 없음', 'DIVDATA 수정: 없음'
+    ];
+    if (changed.length) {
+      lines.push('', 'TTM 계산 확인(최대 12종목):');
+      changed.slice(0, 12).forEach(function(row) {
+        lines.push('- ' + row.code + ' ' + row.name + ': TTM ' + row.ttmPerShare + '원 / ' + row.eventCount + '건');
+      });
+    }
+    Logger.log('[SEIBro ETF 2단계 드라이런] ' + JSON.stringify(data));
+    ui.alert('✅ SEIBro ETF 2단계 드라이런 완료', lines.join('\n'), ui.ButtonSet.OK);
+    return data;
+  } catch(err) {
+    Logger.log('[SEIBro ETF 2단계 드라이런 실패] ' + err.message);
+    ui.alert('❌ SEIBro ETF 2단계 드라이런 실패', err.message + '\n\n시트와 배당 데이터는 수정되지 않았습니다.', ui.ButtonSet.OK);
+    return { status: 'error', message: err.message, readOnly: true };
   }
 }
 
@@ -4574,7 +4702,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.58' });
+    return jsonOk({ settings: settings, gasVersion: '9.59' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5047,6 +5175,7 @@ function onOpen(e) {
     var menuMaint = ui.createMenu('🛠️ 유지보수')
       .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
       .addItem('🧾 SEIBro ETF 읽기 전용 진단', 'runEtfDividendDiagnosis')
+      .addItem('🧮 SEIBro ETF 2단계 드라이런', 'runEtfDividendDryRun')
       .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
       .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
       .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
