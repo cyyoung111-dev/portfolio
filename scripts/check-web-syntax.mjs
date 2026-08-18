@@ -36,4 +36,14 @@ if (failed) {
   process.exit(1);
 }
 
+const dividendSource = fs.readFileSync(path.join(webRoot, 'features/dividend/mgmt_div.js'), 'utf8');
+if (!dividendSource.includes('await loadDividendSettings()')
+    || !dividendSource.includes("String(data?.source || '').toUpperCase() === 'SEIBRO'")
+    || !dividendSource.includes('_getLegacyDividendFetchItems()')
+    || !dividendSource.includes("'refreshEtfDividends'")
+    || !dividendSource.includes('await _refreshSeibroEtfDividends()')) {
+  console.error('❌ 배당 탭은 GAS의 SEIBro ETF 이력을 먼저 복원하고 기존 API 덮어쓰기를 차단해야 합니다.');
+  process.exit(1);
+}
+
 console.log(`✅ Syntax check passed (${files.length} files)`);

@@ -168,14 +168,14 @@ function renderDivView(area, skipFetch) {
       </div>
     </div>
     <div style="font-size:.65rem;color:var(--muted);margin-top:4px;padding:0 2px">
-      ${GSHEET_API_URL ? '탭 진입 시 공공데이터 우선 조회 · 누락 종목은 GOOGLEFINANCE fallback/수동 입력값 유지' : '재동기화 설정 필요'}
+      ${GSHEET_API_URL ? '탭 진입 시 SEIBro ETF를 일 1회 자동 검증·증분 갱신 · 그 외 종목은 공공데이터 우선/GOOGLEFINANCE fallback' : '재동기화 설정 필요'}
     </div>
   </div>
 
   <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
     <div>
       <div style="font-size:.70rem;font-weight:700;color:var(--text)">🧾 배당 API 상태</div>
-      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">주식은 공공데이터 우선, 누락 시 GOOGLEFINANCE fallback입니다. ETF는 GOOGLEFINANCE 조회 결과가 없으면 수동 입력값을 사용합니다.</div>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">ETF는 배당 탭 진입 시 GAS가 SEIBro 이력을 자동 갱신합니다. 그 외 종목은 공공데이터 우선, 누락 시 GOOGLEFINANCE fallback입니다.</div>
     </div>
     <span style="font-size:.62rem;color:${publicKeySaved ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicKeySaved ? '공공데이터 키 저장됨' : '공공데이터 키 미설정'}</span>
     <div id="divFetchStatus" style="flex-basis:100%;font-size:.66rem;color:var(--muted);min-height:1.2em"></div>
