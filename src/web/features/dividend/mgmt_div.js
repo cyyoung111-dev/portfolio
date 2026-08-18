@@ -364,12 +364,66 @@ function _mergeDividendResults(targetCodes, primary, fallback) {
   return merged;
 }
 
-async function _autoFetchDiv(area) {
-  const codeItems = EDITABLE_PRICES.filter(ep => {
+function _hasSeibroDividend(code, name) {
+  const normCode = _normDivCode(code);
+  const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
+  const data = DIVDATA[normCode] || DIVDATA[divKey];
+  return String(data?.source || '').toUpperCase() === 'SEIBRO'
+    && Array.isArray(data?.events)
+    && data.events.length > 0;
+}
+
+function _getLegacyDividendFetchItems() {
+  return EDITABLE_PRICES.filter(ep => {
     const holding = rawHoldings.find(h => h.name === ep.name && !h.fund);
-    return holding && ep.code;
+    if (!holding || !ep.code) return false;
+    // SEIBro로 확정된 ETF는 Settings.DIVDATA를 그대로 사용하고 공공데이터/GF로 덮어쓰지 않습니다.
+    const isEtf = (ep.assetType || ep.type) === 'ETF';
+    return !(isEtf && _hasSeibroDividend(ep.code, ep.name));
   });
-  if (!codeItems.length) return;
+}
+
+let _seibroRefreshPromise = null;
+async function _refreshSeibroEtfDividends() {
+  if (!GSHEET_API_URL || typeof requestGsheetFormJson !== 'function') return false;
+  if (_seibroRefreshPromise) return _seibroRefreshPromise;
+  _seibroRefreshPromise = (async () => {
+    try {
+      const data = await requestGsheetFormJson(
+        'refreshEtfDividends',
+        {},
+        { timeoutMs: 180000, retry: 0 }
+      );
+      if (!data || data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') {
+        throw new Error(data?.message || 'SEIBro ETF 자동 갱신 응답 오류');
+      }
+      _applyDivData(data.divData);
+      return true;
+    } catch (e) {
+      console.warn('_refreshSeibroEtfDividends 실패:', e.message);
+      return false;
+    } finally {
+      _seibroRefreshPromise = null;
+    }
+  })();
+  return _seibroRefreshPromise;
+}
+
+async function _autoFetchDiv(area) {
+  // GAS가 오늘 아직 갱신하지 않았다면 전체 검증 후 SEIBro 이력을 증분 저장합니다.
+  // 실패하더라도 마지막 정상 DIVDATA를 다시 읽어 화면과 기존 데이터는 유지합니다.
+  const refreshedSeibro = await _refreshSeibroEtfDividends();
+  const loadedFromGas = refreshedSeibro || ((typeof loadDividendSettings === 'function')
+    ? await loadDividendSettings()
+    : false);
+  const codeItems = _getLegacyDividendFetchItems();
+  if (!codeItems.length) {
+    if (loadedFromGas && currentView === 'div') {
+      const liveArea = $el('view-area');
+      if (liveArea) renderDivView(liveArea, true);
+    }
+    return;
+  }
 
   const codes = codeItems
     .map(ep => _normDivCode(ep.code))
@@ -445,16 +499,15 @@ async function startDivFetch() {
     status.textContent = `구글시트 ${DIV_AUTO_SOURCE_LABEL} 조회 중... · ${DIV_MANUAL_GUIDE}`;
   }
 
-  // 보유 종목 코드 목록 (펀드 제외, 코드 있는 것만)
-  const codeItems = EDITABLE_PRICES.filter(ep => {
-    const holding = rawHoldings.find(h => h.name === ep.name && !h.fund);
-    return holding && ep.code;
-  });
+  // SEIBro ETF를 일 1회 자동 갱신한 뒤, SEIBro가 없는 종목만 기존 API로 조회합니다.
+  const refreshedSeibro = await _refreshSeibroEtfDividends();
+  if (!refreshedSeibro && typeof loadDividendSettings === 'function') await loadDividendSettings();
+  const codeItems = _getLegacyDividendFetchItems();
 
   if (codeItems.length === 0) {
     if (status) {
       status.style.color = 'var(--amber)';
-      status.textContent = '⚠️ 조회 가능한 종목코드가 없습니다. 종목코드를 먼저 등록해주세요.';
+      status.textContent = '✅ SEIBro ETF 배당은 최신 GAS 데이터로 복원됐으며 추가 조회할 종목이 없습니다.';
     }
     if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
     return false;
