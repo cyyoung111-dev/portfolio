@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.57
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.58
+//
+//  v9.58 변경사항 (2026.08.18):
+//   ✅ [사용성] 스프레드시트 메뉴에서 SEIBro ETF 읽기 전용 진단을 한 번에 실행하고 결과 요약 표시
 //
 //  v9.57 변경사항 (2026.08.18):
 //   ✅ [진단]   보유현황·TTM 거래이력에서 ETF를 동적 선정해 SEIBro 검색·분배금 XML을 읽기 전용 검증
@@ -1930,6 +1933,43 @@ function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
     return jsonOk({ readOnly: true, wroteSheets: false, wroteDivData: false, from: fromDate, to: toDate, targetCount: targets.length, counts: counts, results: results });
   } catch(err) {
     return jsonError('SEIBro ETF 읽기 전용 진단 실패: ' + err.message);
+  }
+}
+
+function runEtfDividendDiagnosis() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    ui.alert('SEIBro ETF 읽기 전용 진단', '현재 보유현황과 최근 1년 거래이력의 ETF를 조회합니다.\n시트와 배당 데이터는 수정하지 않습니다.\n\n조회에 잠시 시간이 걸릴 수 있습니다.', ui.ButtonSet.OK);
+    var output = handleDiagnoseEtfDividends('', '', '');
+    var data = JSON.parse(output.getContent());
+    if (data.status !== 'ok') throw new Error(data.message || '진단 응답 오류');
+    var counts = data.counts || {};
+    var failures = (data.results || []).filter(function(row) { return row.status !== 'OK'; });
+    var lines = [
+      '조회 대상: ' + (data.targetCount || 0) + '개',
+      '정상: ' + (counts.OK || 0) + '개',
+      'NOT_FOUND: ' + (counts.NOT_FOUND || 0),
+      'REQUEST_ERROR: ' + (counts.REQUEST_ERROR || 0),
+      'PARSE_ERROR: ' + (counts.PARSE_ERROR || 0),
+      'MAPPING_ERROR: ' + (counts.MAPPING_ERROR || 0),
+      '',
+      '시트 수정: 없음',
+      'DIVDATA 수정: 없음'
+    ];
+    if (failures.length) {
+      lines.push('', '확인이 필요한 종목:');
+      failures.slice(0, 15).forEach(function(row) {
+        lines.push('- ' + row.code + ' ' + (row.portfolioName || '') + ': ' + row.status + (row.error ? ' (' + row.error + ')' : ''));
+      });
+      if (failures.length > 15) lines.push('- 외 ' + (failures.length - 15) + '개');
+    }
+    Logger.log('[SEIBro ETF 진단] ' + JSON.stringify(data));
+    ui.alert(failures.length ? '⚠️ SEIBro ETF 진단 확인 필요' : '✅ SEIBro ETF 진단 성공', lines.join('\n'), ui.ButtonSet.OK);
+    return data;
+  } catch(err) {
+    Logger.log('[SEIBro ETF 진단 실패] ' + err.message);
+    ui.alert('❌ SEIBro ETF 진단 실패', err.message + '\n\n시트와 배당 데이터는 수정되지 않았습니다.', ui.ButtonSet.OK);
+    return { status: 'error', message: err.message, readOnly: true };
   }
 }
 
@@ -4534,7 +4574,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.57' });
+    return jsonOk({ settings: settings, gasVersion: '9.58' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5006,6 +5046,7 @@ function onOpen(e) {
     // ── 서브메뉴: 유지보수 ──
     var menuMaint = ui.createMenu('🛠️ 유지보수')
       .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
+      .addItem('🧾 SEIBro ETF 읽기 전용 진단', 'runEtfDividendDiagnosis')
       .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
       .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
       .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
