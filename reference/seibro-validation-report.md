@@ -65,3 +65,23 @@ server: envoy
 - 배당 탭 연동
 
 외부 연결이 허용된 환경에서 `458730` 재현을 먼저 통과시키고, 실제 18개 ETF 종목코드 목록을 확인한 뒤 전체 결과표에서 `NOT_FOUND`, `REQUEST_ERROR`, `PARSE_ERROR`, `MAPPING_ERROR`가 모두 0건일 때만 구현을 진행해야 한다. 종목코드는 검증과 후속 구현 전 과정에서 문자열로 유지해 `0046Y0`, `0080G0`의 영문과 leading zero를 보존해야 한다.
+
+## 재검증 명령
+
+HAR에 저장된 `458730` 응답의 파싱·매핑 검증은 다음 명령으로 반복할 수 있다.
+
+```bash
+npm run check:seibro-har
+```
+
+외부 연결이 허용된 환경에서는 다음 명령으로 HAR에서 추출한 실제 endpoint와 요청 형식을 사용해 단일 종목을 재현한다.
+
+```bash
+node scripts/validate-seibro-etf.mjs --codes 458730
+```
+
+검증 대상 18개 종목코드를 확인한 뒤에는 문자열을 쉼표로 구분해 전체 결과표를 출력할 수 있다. `OK` 이외의 상태가 하나라도 있으면 명령은 종료 코드 1을 반환한다.
+
+```bash
+node scripts/validate-seibro-etf.mjs --codes '458730,0046Y0,0080G0,...'
+```
