@@ -16,6 +16,7 @@
     "check:web-dom-contract": "node scripts/check-web-dom-contract.mjs",
     "check:web-generated-inline": "node scripts/check-web-generated-inline.mjs",
     "check:gas": "node scripts/check-gas.mjs",
+    "check:seibro-har": "node scripts/validate-seibro-etf.mjs --har-only",
     "check:ci": "npm run check:web:ci && npm run check:gas"
   }
 }
