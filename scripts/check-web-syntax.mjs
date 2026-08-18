@@ -46,4 +46,14 @@ if (!dividendSource.includes('await loadDividendSettings()')
   process.exit(1);
 }
 
+const dividendViewSource = fs.readFileSync(path.join(webRoot, 'views/views_div_asset.js'), 'utf8');
+if (!dividendViewSource.includes('_formatDividendChartManwon(v)')
+    || !dividendViewSource.includes('_sortDividendMatrixRows(divRows)')
+    || !dividendViewSource.includes("renderGroup('주식', groups.stocks")
+    || !dividendViewSource.includes("renderGroup('ETF', groups.etfs")
+    || !dividendViewSource.includes('Number(b.annualDiv || 0) - Number(a.annualDiv || 0)')) {
+  console.error('❌ 배당 그래프 만원 표기 또는 주식/ETF 그룹별 연간금액 내림차순 표시가 누락됐습니다.');
+  process.exit(1);
+}
+
 console.log(`✅ Syntax check passed (${files.length} files)`);

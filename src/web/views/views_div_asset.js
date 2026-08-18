@@ -21,6 +21,20 @@ function _setDivMonthFilter(month) {
   if (area) renderDivView(area, true);
 }
 
+function _formatDividendChartManwon(value) {
+  const amount = Number(value || 0);
+  return amount > 0 ? `${Math.round(amount / 10000).toLocaleString()}만원` : '';
+}
+
+function _sortDividendMatrixRows(rows) {
+  const annualDesc = (a, b) => Number(b.annualDiv || 0) - Number(a.annualDiv || 0)
+    || String(a.name || '').localeCompare(String(b.name || ''), 'ko');
+  return {
+    stocks: rows.filter(row => row.assetType !== 'ETF').sort(annualDesc),
+    etfs: rows.filter(row => row.assetType === 'ETF').sort(annualDesc),
+  };
+}
+
 function calcDividends() {
   // 보유 종목별 계좌 집계 (펀드 제외)
   const acctMap = {};
@@ -246,7 +260,7 @@ function renderDivView(area, skipFetch) {
           const isPast    = (i + 1) < nowMonth;
           const isCurrent = (i + 1) === nowMonth;
           const pct = v > 0 ? Math.max((v / maxV) * 100, 3) : 1;
-          const label = v > 0 ? (v >= 1000000 ? (v/10000).toFixed(0)+'만' : v >= 10000 ? Math.round(v/1000)+'천' : v.toLocaleString()) : '';
+          const label = _formatDividendChartManwon(v);
           const bg = isCurrent
             ? 'linear-gradient(to top,color-mix(in srgb,var(--cyan) 32%,transparent),var(--cyan))'
             : isPast
@@ -271,12 +285,17 @@ function renderDivView(area, skipFetch) {
   <div class="div-monthly-matrix">
     <div class="div-monthly-matrix-head">
       <div><strong>📊 종목별 월별 배당</strong><span>각 종목의 월별 확정+예상 금액</span></div>
-      <small>단위: 원</small>
+      <small>단위: 원 · 주식/ETF 구분 · 연간금액 내림차순</small>
     </div>
     <div class="div-monthly-matrix-scroll">
       <table>
         <thead><tr><th>종목명</th>${Array.from({length:12}, (_, i) => `<th class="${selectedMonth === i+1 ? 'selected' : ''}">${i+1}월</th>`).join('')}<th>연간</th></tr></thead>
-        <tbody>${divRows.map(r => `<tr><td><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span>${_escapeHtml(r.name)}</td>${Array.from({length:12}, (_, i) => { const value = Number(r.monthlyDiv?.[i+1] || 0); return `<td class="${selectedMonth === i+1 ? 'selected' : ''}">${value > 0 ? Math.round(value).toLocaleString() : '–'}</td>`; }).join('')}<td>${Math.round(r.annualDiv).toLocaleString()}</td></tr>`).join('')}</tbody>
+        <tbody>${(() => {
+          const groups = _sortDividendMatrixRows(divRows);
+          const renderRows = rows => rows.map(r => `<tr><td><span class="div-asset-badge ${r.assetType === 'ETF' ? 'etf' : 'stock'}">${r.assetType}</span>${_escapeHtml(r.name)}</td>${Array.from({length:12}, (_, i) => { const value = Number(r.monthlyDiv?.[i+1] || 0); return `<td class="${selectedMonth === i+1 ? 'selected' : ''}">${value > 0 ? Math.round(value).toLocaleString() : '–'}</td>`; }).join('')}<td>${Math.round(r.annualDiv).toLocaleString()}</td></tr>`).join('');
+          const renderGroup = (label, rows, badgeClass) => rows.length ? `<tr class="div-monthly-group"><th colspan="14"><span class="div-asset-badge ${badgeClass}">${label}</span> 연간금액 높은 순 · ${rows.length}종목</th></tr>${renderRows(rows)}` : '';
+          return renderGroup('주식', groups.stocks, 'stock') + renderGroup('ETF', groups.etfs, 'etf');
+        })()}</tbody>
         <tfoot><tr><th>합계</th>${monthly.map((value, i) => `<th class="${selectedMonth === i+1 ? 'selected' : ''}">${value > 0 ? Math.round(value).toLocaleString() : '–'}</th>`).join('')}<th>${Math.round(totalAnnual).toLocaleString()}</th></tr></tfoot>
       </table>
     </div>
