@@ -406,7 +406,7 @@ function getAcctTaxType(acct) {
 // 429(Too Many Requests) 오류가 발생함 → 300ms 내 마지막 호출만 실제 전송
 let _saveHoldingsGasTimer = null;
 
-function saveHoldings() {
+function saveHoldings(options) {
   // ── 1단계: localStorage는 즉시 저장 (UI 반응성 유지)
   try {
     lsSave(HOLDINGS_KEY, rawHoldings);
@@ -441,6 +441,7 @@ function saveHoldings() {
 
   // ── 2단계: GAS 동기화는 300ms debounce — 연속 호출 시 마지막 1회만 전송
   // ★ saveSettings는 여기서 호출하지 않음 — loadSettings 도중 빈 DIVDATA를 덮어쓰는 문제 방지
+  if (options?.skipGsheet) return;
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(function() {
     if (typeof syncCodesToGsheet    === 'function') syncCodesToGsheet();

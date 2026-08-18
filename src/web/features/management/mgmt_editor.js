@@ -6,6 +6,7 @@ let _editorSectionPage = { fund: 1, noprice: 1 };
 const EDITOR_PAGE_SIZE = 5;
 let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
 let _editorLoadSeq = 0; // ★ 날짜 변경 시 이전 로딩 결과 무시용
+let _editorHistoryTargets = [];
 
 function openEditor() {
   buildEditorUI();
@@ -190,10 +191,19 @@ function queueMgmtGsheetSync(immediate) {
   clearTimeout(_mgmtGsheetSyncTimer);
   const delay = immediate ? 0 : 1200;
   _mgmtGsheetSyncTimer = setTimeout(async () => {
-    saveSettings(true);
-    try { await syncCodesToGsheet(); } catch (e) { console.warn('syncCodesToGsheet 실패:', e); }
+    // Settings 저장이 끝나기 전에 별도 시트 동기화를 시작하면 사용자는 일부 성공 로그만 보고
+    // 기초정보도 저장된 것으로 오인할 수 있습니다. 일반 설정 저장 결과를 먼저 확인합니다.
+    const settingsSaved = await saveSettings(true);
+    let codesSaved = false;
+    try { codesSaved = !!(await syncCodesToGsheet()); } catch (e) { console.warn('syncCodesToGsheet 실패:', e); }
     try { await syncHoldingsToGsheet(); } catch (e) { console.warn('syncHoldingsToGsheet 실패:', e); }
     try { await syncTradesToGsheet(); } catch (e) { console.warn('syncTradesToGsheet 실패:', e); }
+    if (!settingsSaved || !codesSaved) {
+      console.warn('[기초정보 GAS 저장 실패]', { settingsSaved, codesSaved });
+      if (typeof showToast === 'function') {
+        showToast('⚠️ 기초정보의 GAS 저장에 실패했습니다. 연결 상태와 GAS 배포 버전을 확인해주세요.', 'warn', 6000);
+      }
+    }
   }, delay);
 }
 
@@ -254,6 +264,10 @@ function buildEditorUI() {
   }
 
   const totalItems = [...fundItems, ...nopriceItems];
+  _editorHistoryTargets = totalItems.map(item => ({
+    name: item.name || '',
+    code: item.code ? normalizeStockCode(item.code) : '',
+  }));
   totalItems.forEach(item => {
     const nn = normName(item.name || '');
     _editorItemMap[item.name] = { code: item.code ? normalizeStockCode(item.code) : '', normName: nn };
@@ -299,7 +313,13 @@ function buildEditorUI() {
 
     // ★ 이력: 최신순 2건만 짧게 표시해 현재가 편집 카드가 가로로 터지지 않도록 함
     const historyKey = code || item.name;
-    const historyRows = (_editorManualHistory[historyKey] || []).slice().reverse().slice(0, 2);
+    const historyRows = (
+      _editorManualHistory[historyKey]
+      || (code && _editorManualHistory[code])
+      || _editorManualHistory[item.name]
+      || _editorManualHistory[normName(item.name)]
+      || []
+    ).slice().reverse().slice(0, 2);
     const gasLast = _editorGasLastDates[historyKey]
       || (code && _editorGasLastDates[code])
       || _editorGasLastDates[item.name]
@@ -401,8 +421,9 @@ async function loadEditorPricesByDate(dateStr) {
   }
 
   const autoLabel = dateStr.replace(/-/g,'.') + ' 조회값';
-  try {
-    const results = await fetchFromGsheet(dateStr);
+  // 현재가와 과거 입력이력은 서로 독립된 GAS 요청이므로 동시에 시작합니다.
+  // 기존 순차 호출은 현재가 조회가 끝난 뒤에야 이력 조회를 시작해 표시가 불필요하게 늦었습니다.
+  const currentPromise = fetchFromGsheet(dateStr).then(results => {
     if (loadSeq !== _editorLoadSeq || _editorRefDate !== dateStr) return;
     if (results && Object.keys(results).length > 0) {
       const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
@@ -418,52 +439,75 @@ async function loadEditorPricesByDate(dateStr) {
       });
       buildEditorUI();
     }
-  } catch (e) {
+  }).catch(e => {
     console.warn('[loadEditorPricesByDate] fetchFromGsheet 실패, 수동입력값만 표시:', e.message);
-  }
-
-  const rawHistory = await _fetchEditorPriceHistoryRaw(dateStr);
-  if (loadSeq !== _editorLoadSeq || _editorRefDate !== dateStr) return;
-
-  const manual = _parseEditorManualPrices(rawHistory);
-  Object.entries(manual).forEach(([key, obj]) => {
-    savedPrices[key] = obj.price;
-    if (obj.savedAt) {
-      savedPriceDates[key] = obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 저장';
-    } else if (obj.date) {
-      savedPriceDates[key] = obj.date.replace(/-/g,'.') + ' 저장';
-    } else {
-      savedPriceDates[key] = dateStr.replace(/-/g,'.') + ' 저장';
-    }
   });
 
-  _editorManualHistory = _parseEditorManualHistory(rawHistory);
-  _editorGasLastDates = _parseEditorGasLastDates(rawHistory);
-  buildEditorUI();
+  // 현재가 조회를 기다리지 않고 이력이 도착하는 즉시 별도로 화면에 표시합니다.
+  // GOOGLEFINANCE 조회가 느리거나 실패해도 GAS 저장 내역은 먼저 확인할 수 있습니다.
+  const historyPromise = _fetchEditorPriceHistoryRaw(dateStr).then(rawHistory => {
+    if (loadSeq !== _editorLoadSeq || _editorRefDate !== dateStr) return;
+
+    const manual = _parseEditorManualPrices(rawHistory);
+    Object.entries(manual).forEach(([key, obj]) => {
+      savedPrices[key] = obj.price;
+      if (obj.savedAt) {
+        savedPriceDates[key] = obj.savedAt.replace(/-/g,'.').slice(0,16) + ' 저장';
+      } else if (obj.date) {
+        savedPriceDates[key] = obj.date.replace(/-/g,'.') + ' 저장';
+      } else {
+        savedPriceDates[key] = dateStr.replace(/-/g,'.') + ' 저장';
+      }
+    });
+
+    _editorManualHistory = _parseEditorManualHistory(rawHistory);
+    _editorGasLastDates = _parseEditorGasLastDates(rawHistory);
+    buildEditorUI();
+  });
+
+  await Promise.allSettled([currentPromise, historyPromise]);
 }
 
 // ★ [개선] GAS getPriceHistory 공유 요청 — 1회만 호출
 //   fetchEditorManualPrices / fetchEditorManualHistory 공통 베이스
+const _editorHistoryCache = new Map();
+const EDITOR_HISTORY_CACHE_MS = 30000;
+
 async function _fetchEditorPriceHistoryRaw(dateStr) {
   try {
     if (!GSHEET_API_URL) return {};
     const targets = [];
-    EDITABLE_PRICES.forEach(item => {
+    // 편집창에 실제 표시되는 종목만 요청합니다. 이전에는 전체 기초정보 종목을 전송해
+    // 펀드·TDF 몇 개를 표시할 때도 불필요한 주식 이력까지 조회했습니다.
+    _editorHistoryTargets.forEach(item => {
       if (item.code) targets.push(normalizeStockCode(item.code));
-      else if (item.name) targets.push(item.name);
+      // 구버전 가격이력에는 가상코드 대신 종목명만 저장된 행이 있으므로 이름도 함께 요청합니다.
+      if (item.name) targets.push(item.name);
     });
     const uniqTargets = Array.from(new Set(targets.filter(Boolean)));
     if (uniqTargets.length === 0) return {};
+    const cacheKey = `${dateStr}|${uniqTargets.join(',')}`;
+    const cached = _editorHistoryCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < EDITOR_HISTORY_CACHE_MS) return cached.promise;
 
-    const fromDate = _kstDateOffset(dateStr, -180); // ★ KST 기준 날짜 오프셋
     const url = GSHEET_API_URL
-      + '?action=getPriceHistory&from=' + fromDate + '&to=' + dateStr
+      + '?action=getPriceHistory&to=' + dateStr
       + '&codes=' + encodeURIComponent(uniqTargets.join(','));
-    const res = await fetchWithTimeout(url, 20000);
-    if (!res.ok) return {};
-    const data = await res.json();
-    if (data.status !== 'ok' || !data.prices) return {};
-    return data.prices; // { [key]: entries[] } 원본 반환
+    const promise = (async () => {
+      const res = await fetchWithTimeout(url, 20000);
+      if (!res.ok) throw new Error(`가격이력 HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.status !== 'ok' || !data.prices) throw new Error(data.message || '가격이력 응답 오류');
+      return data.prices; // { [key]: entries[] } 원본 반환
+    })();
+    _editorHistoryCache.set(cacheKey, { ts: Date.now(), promise });
+    try {
+      return await promise;
+    } catch (e) {
+      // 실패 결과를 30초간 재사용하면 일시 오류가 복구돼도 내역이 계속 비어 보입니다.
+      _editorHistoryCache.delete(cacheKey);
+      throw e;
+    }
   } catch (e) {
     console.warn('[_fetchEditorPriceHistoryRaw]', e.message);
     return {};
@@ -663,6 +707,7 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
       clearTimeout(timer);
       const d = await res.json();
       if (d && d.status === 'ok') {
+        _editorHistoryCache.clear();
         if (typeof showToast === 'function') showToast(`☁️ GAS 동기화 완료 (${gasSaveTargets.length}건)`, 'ok');
         return;
       }
@@ -690,6 +735,7 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
     const sample = gasFailedKeys.slice(0, 3).join(', ');
     showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
   } else if (typeof showToast === 'function') {
+    _editorHistoryCache.clear();
     showToast(`☁️ GAS 동기화 완료 (${gasSaveTargets.length}건)`, 'ok');
   }
 }

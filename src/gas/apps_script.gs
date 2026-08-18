@@ -1,5 +1,30 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.48
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.56
+//
+//  v9.56 변경사항 (2026.08.18):
+//   ✅ [복구]   Settings 저장 실패 시 종목코드 시트의 유형·섹터·통화로 기초정보 복원 지원
+//
+//  v9.55 변경사항 (2026.08.14):
+//   ✅ [안정성] 사용 중인 임시 시트를 정리 작업이 삭제하지 않도록 생성시각 기반 만료 정리 적용
+//
+//  v9.54 변경사항 (2026.08.14):
+//   ✅ [버그수정] Settings 저장 시 모든 비고정 행 삭제 오류를 피하도록 내용만 초기화
+//
+//  v9.53 변경사항 (2026.08.14):
+//   ✅ [정리]   응답 지연을 유발하던 SOX 비교지수 및 SOXX 대체 조회 제거
+//
+//  v9.52 변경사항 (2026.08.14):
+//   ✅ [정리]   지수·배당 GOOGLEFINANCE 임시 시트를 요청 종료 시 자동 삭제
+//   ✅ [복구]   자동 트리거 등록 시 이전 배포에서 남은 임시 시트를 일괄 삭제
+//
+//  v9.51 변경사항 (2026.08.14):
+//   ✅ [복원력] SOX 지수 조회 실패 시 SOXX ETF 가격으로 자동 대체
+//
+//  v9.50 변경사항 (2026.08.12):
+//   ✅ [지표]   손익 그래프 비교지수에 필라델피아 반도체지수(SOX)를 추가
+//
+//  v9.49 변경사항 (2026.08.12):
+//   ✅ [지표]   손익 그래프 비교지수에 다우존스 산업평균지수(DOW)를 추가
 //
 //  v9.48 변경사항 (2026.08.03):
 //   ✅ [정확성] 실제 데이터 제공 여부를 검증하지 못한 VKOSPI 비교지수 기능 제거
@@ -354,6 +379,20 @@ var CONFIG = {
   TIMEZONE:       'Asia/Seoul',
 };
 
+// 임시 시트 이름에 생성시각을 넣어 정리 작업이 현재 실행 중인 요청의 시트를 삭제하지 않도록 합니다.
+// 형식: <prefix><base36 timestamp>_<uuid>
+var TEMP_SHEET_MAX_AGE_MS = 10 * 60 * 1000;
+function _tempSheetName(prefix) {
+  return prefix + Date.now().toString(36) + '_' + Utilities.getUuid().slice(0, 8);
+}
+
+function _isExpiredTempSheet(name, nowMs) {
+  var match = (name || '').match(/^_(?:bm|div_tmp|gf_tmp|fx_tmp|name_tmp|bffx_tmp)_([0-9a-z]+)_[0-9a-f-]+$/i);
+  if (!match) return false;
+  var createdAt = parseInt(match[1], 36);
+  return isFinite(createdAt) && nowMs - createdAt >= TEMP_SHEET_MAX_AGE_MS;
+}
+
 // ════════════════════════════════════════════════════════════════════
 //  스프레드시트 핸들러 — 웹앱 배포 시 null 방지
 // ════════════════════════════════════════════════════════════════════
@@ -549,7 +588,7 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
   //   → 요청마다 자기만의 고유한 임시 시트를 새로 만들어 쓰고 끝나면 삭제
   // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
   //   (임시 시트 정리는 자동 트리거가 없고 수동 메뉴로만 실행되므로, 누락되면 계속 쌓일 수 있음)
-  var tmp = ss.insertSheet('_gf_tmp_' + Utilities.getUuid().slice(0, 8));
+  var tmp = ss.insertSheet(_tempSheetName('_gf_tmp_'));
   var values;
 
   try {
@@ -1229,7 +1268,7 @@ function handleNameLookup(code, serviceKey) {
 
   var ss  = getss();
   // ★ [버그수정] 공유 임시 시트 대신 고유 임시 시트 사용 (동시 요청 충돌 방지)
-  var tmp = ss.insertSheet('_name_tmp_' + Utilities.getUuid().slice(0, 8));
+  var tmp = ss.insertSheet(_tempSheetName('_name_tmp_'));
   try {
     tmp.getRange(1, 1).setFormula(
       '=IFERROR(GOOGLEFINANCE("KRX:'    + cleanCode + '","name"),' +
@@ -1638,12 +1677,12 @@ function _publicDividendDate(value) {
 //  배당 조회
 // ════════════════════════════════════════════════════════════════════
 function handleDividendFetch(codes) {
+  var ss = null;
+  var tmp = null;
   try {
-    var ss  = getss();
-    // ★ 배당 조회 전용 시트 사용 — fetchPricesGoogleFinance의 _gf_tmp 와 충돌 방지
-    var DIV_TMP = '_div_tmp';
-    var tmp = ss.getSheetByName(DIV_TMP) || ss.insertSheet(DIV_TMP);
-    tmp.clearContents();
+    ss = getss();
+    // 요청별 고유 시트를 사용해 동시 배당 조회 충돌을 막고 finally에서 즉시 삭제합니다.
+    tmp = ss.insertSheet(_tempSheetName('_div_tmp_'));
 
     var toDate   = new Date();
     var fromDate = new Date();
@@ -1697,10 +1736,13 @@ function handleDividendFetch(codes) {
       results[code] = { perShare: perShare, freq: freq, months: uniqM, count: count, events: divRows, source: 'GOOGLEFINANCE' };
     });
 
-    try { tmp.clearContents(); SpreadsheetApp.flush(); } catch(e) { Logger.log('배당 tmp 시트 정리 실패: ' + e.message); }
     return jsonOk({ dividends: results });
   } catch(err) {
     return jsonError('배당 조회 실패: ' + err.message);
+  } finally {
+    if (ss && tmp) {
+      try { ss.deleteSheet(tmp); } catch(e) { Logger.log('⚠️ 배당 임시 시트 삭제 실패: ' + e.message); }
+    }
   }
 }
 
@@ -1824,7 +1866,7 @@ function fetchExchangeRates(ss, requestedCurrencies) {
 
   // ★ [버그수정] 공유 임시 시트 대신 요청마다 고유한 임시 시트 사용 (동시 요청 충돌 방지)
   // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
-  var tmp = ss.insertSheet('_fx_tmp_' + Utilities.getUuid().slice(0, 8));
+  var tmp = ss.insertSheet(_tempSheetName('_fx_tmp_'));
   try {
     var formulas = CURRENCIES.map(function(cur) {
       return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW"), 0)'];
@@ -1922,6 +1964,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       // ★ KOSDAQ 종합지수는 GOOGLEFINANCE 미지원 → KODEX코스닥150(229200) ETF로 근사 대체
       KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
       SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
+      DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
       NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
       NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
       // VKOSPI는 아래 KRX Open API 전용 경로로 조회합니다.
@@ -2019,34 +2062,27 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
 }
 
 function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
-  // ★ 지수별 전용 시트 사용 — 동시 요청 시 _gf_tmp 충돌 방지
-  //   _bm_INDEXKRX_KOSPI, _bm_INDEXSP__INX 등 지수별로 독립된 시트 사용
-  var sheetKey = '_bm_' + symbol.replace(/[^A-Za-z0-9]/g, '_');
-  if (sheetKey.length > 30) sheetKey = sheetKey.slice(0, 30);
-  var tmp = ss.getSheetByName(sheetKey);
-  if (!tmp) tmp = ss.insertSheet(sheetKey);
-  tmp.clearContents();
+  // 요청별 고유 시트를 사용해 다른 지수 조회와 충돌하지 않으며, 성공·실패와 무관하게 삭제합니다.
+  var tmp = ss.insertSheet(_tempSheetName('_bm_'));
+  try {
+    var fs = fromDate.split('-');
+    var ts = toDate.split('-');
+    var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
+    tmp.getRange(1, 1).setFormula(formula);
+    SpreadsheetApp.flush();
+    Utilities.sleep(1600);
 
-  var fs = fromDate.split('-');
-  var ts = toDate.split('-');
-  var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
-  tmp.getRange(1, 1).setFormula(formula);
-  SpreadsheetApp.flush();
-  Utilities.sleep(1600);
-
-  var lastRow = tmp.getLastRow();
-  if (lastRow < 2) {
-    tmp.clearContents();
-    return [];
+    var lastRow = tmp.getLastRow();
+    if (lastRow < 2) return [];
+    var data = tmp.getRange(2, 1, lastRow - 1, 2).getValues();
+    return data.map(function(r) {
+      var d = _normalizeDate(r[0]);
+      var v = parseFloat(r[1]) || 0;
+      return { date: d, value: v };
+    }).filter(function(p) { return p.date && p.value > 0; });
+  } finally {
+    try { ss.deleteSheet(tmp); } catch(e) { Logger.log('⚠️ 지수 임시 시트 삭제 실패: ' + e.message); }
   }
-  var data = tmp.getRange(2, 1, lastRow - 1, 2).getValues();
-  var points = data.map(function(r) {
-    var d = _normalizeDate(r[0]);
-    var v = parseFloat(r[1]) || 0;
-    return { date: d, value: v };
-  }).filter(function(p) { return p.date && p.value > 0; });
-  tmp.clearContents();
-  return points;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -3282,6 +3318,8 @@ function _listPriceHistoryDatesInRange(ss, fromDate, toDate) {
 //  트리거 등록
 // ════════════════════════════════════════════════════════════════════
 function setupTrigger() {
+  // 구버전 고정 이름 및 만료된 요청별 임시 시트를 안전하게 정리합니다.
+  try { _cleanupBenchmarkTempSheets(); } catch(cleanupErr) { Logger.log('기존 임시 시트 정리 실패: ' + cleanupErr.message); }
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (
@@ -3640,7 +3678,7 @@ function _backfillExecute() {
           if (fxCurrencies.length > 0) {
             // ★ [버그수정] 공유 임시 시트 대신 고유 임시 시트 사용 (동시 요청 충돌 방지)
             // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
-            var fxSheet = ss.insertSheet('_bffx_tmp_' + Utilities.getUuid().slice(0, 8));
+            var fxSheet = ss.insertSheet(_tempSheetName('_bffx_tmp_'));
             try {
               var fxFormulas = fxCurrencies.map(function(cur) {
                 return ['=IFERROR(GOOGLEFINANCE("CURRENCY:' + cur + 'KRW","price","' + dateStr + '"),0)'];
@@ -4059,7 +4097,8 @@ function getCodeItems(ss) {
           code: _cleanCode(row[0]),
           name: (row[1]||'').toString().trim(),
           type: (row[2]||'주식').toString().trim(),
-          sector: (row[3]||'기타').toString().trim(),
+          // 빈 구버전 섹터를 '기타'로 강제하면 Settings의 정상 섹터를 덮을 수 있으므로 원문 유지
+          sector: (row[3]||'').toString().trim(),
           currency: (row[4]||'KRW').toString().trim().toUpperCase() || 'KRW',
         };
       })
@@ -4211,10 +4250,17 @@ function _writeSettingsMap(settings) {
     .filter(function(k) { return k in settings; })
     .map(function(k) { return [k, JSON.stringify(settings[k])]; });
 
+  // 데이터 행 자체를 모두 삭제하면 헤더만 고정된 시트에서
+  // "고정되지 않은 행을 모두 삭제할 수 없습니다" 오류가 발생합니다.
+  // 행은 유지하고 기존 내용만 비운 뒤 한 번에 다시 기록합니다.
   if (lastRow > 1) {
-    sh.deleteRows(2, lastRow - 1);
+    sh.getRange(2, 1, lastRow - 1, Math.max(2, sh.getLastColumn())).clearContent();
   }
   if (rows.length > 0) {
+    var requiredRows = rows.length + 1;
+    if (sh.getMaxRows() < requiredRows) {
+      sh.insertRowsAfter(sh.getMaxRows(), requiredRows - sh.getMaxRows());
+    }
     sh.getRange(2, 1, rows.length, 2).setValues(rows);
   }
   SpreadsheetApp.flush();
@@ -4301,7 +4347,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.48' });
+    return jsonOk({ settings: settings, gasVersion: '9.56' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4645,7 +4691,7 @@ function initSheet() {
   }
 
   var specs = [
-    [CONFIG.SHEET_CODES, ['종목코드','종목명(참고)','구분'], [90,200,100]],
+    [CONFIG.SHEET_CODES, ['종목코드','종목명','유형','섹터','통화'], [90,200,100,120,80]],
     [CONFIG.SHEET_PRICES, ['종목코드','종가','종목명','갱신일시'], [90,90,200,160]],
     [CONFIG.SHEET_SNAPSHOT, ['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시'], [100,90,180,70,100,110,100,110,100,90,120,160]],
     [CONFIG.SHEET_PH, ['날짜','종목코드','종목명','가격','입력일시','가격소스'], [100,90,180,100,160,120]],
@@ -4835,7 +4881,7 @@ function runDataCleanup() {
     cleanupSnapshotDuplicates();
     Logger.log('[runDataCleanup] 스냅샷 중복 정리 완료');
 
-    // 5) 지수 조회용 임시 시트(_bm_*, _gf_tmp) 정리
+    // 5) 구버전 또는 만료된 조회용 임시 시트 정리
     _cleanupBenchmarkTempSheets();
     Logger.log('[runDataCleanup] 임시 시트 정리 완료');
 
@@ -4848,20 +4894,22 @@ function runDataCleanup() {
   }
 }
 
-// ★ 지수 조회 후 남은 _bm_*, _gf_tmp 임시 시트 일괄 삭제
+// ★ 구버전 고정 이름과 만료된 요청별 임시 시트 정리
 function _cleanupBenchmarkTempSheets() {
   var ss = getss();
   var sheets = ss.getSheets();
   var removed = 0;
+  var nowMs = Date.now();
   sheets.forEach(function(sh) {
     var name = sh.getName();
-    // ★ [버그수정] 요청마다 고유 이름으로 만드는 임시 시트들(_gf_tmp_*, _fx_tmp_*, _name_tmp_*, _bffx_tmp_*)도
-    //   혹시 중간에 오류로 정리가 안 됐을 경우를 대비해 함께 청소
-    if (name === CONFIG.SHEET_TMP || name.indexOf('_bm_') === 0 || name === '_div_tmp'
-        || name.indexOf('_gf_tmp_') === 0 || name.indexOf('_fx_tmp_') === 0
-        || name.indexOf('_name_tmp_') === 0 || name.indexOf('_bffx_tmp_') === 0) {
+    // 고정 이름을 쓰던 구버전 임시 시트는 즉시 삭제합니다.
+    // 요청별 시트는 10분 이상 지난 경우만 삭제해 현재 계산 중인 요청과 충돌하지 않게 합니다.
+    var isLegacyBenchmark = name.indexOf('_bm_') === 0
+      && /^(?:INDEX|NASDAQ|SP|KRX)/i.test(name.slice(4));
+    var isLegacy = name === CONFIG.SHEET_TMP || name === '_div_tmp' || isLegacyBenchmark;
+    if (isLegacy || _isExpiredTempSheet(name, nowMs)) {
       try { ss.deleteSheet(sh); removed++; } catch(e) {
-        try { sh.clearContents(); } catch(e2) {}
+        Logger.log('⚠️ 임시 시트 삭제 실패(' + name + '): ' + e.message);
       }
     }
   });

@@ -24,4 +24,14 @@ if (missing.length) {
   process.exit(1);
 }
 
+// Settings 시트의 헤더만 남기려고 데이터 행 전체를 deleteRows()로 삭제하면
+// Google Sheets가 "고정되지 않은 행을 모두 삭제할 수 없습니다" 오류를 반환합니다.
+const writeSettingsMatch = source.match(/function\s+_writeSettingsMap\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+if (!writeSettingsMatch
+    || /\.deleteRows\s*\(/.test(writeSettingsMatch[1])
+    || !/\.clearContent\s*\(/.test(writeSettingsMatch[1])) {
+  console.error('❌ _writeSettingsMap은 데이터 행을 삭제하지 말고 clearContent()로 초기화해야 합니다.');
+  process.exit(1);
+}
+
 console.log(`✅ GAS syntax/internal helper check passed (${declared.size} helpers)`);
