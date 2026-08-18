@@ -35,3 +35,27 @@ if (!writeSettingsMatch
 }
 
 console.log(`✅ GAS syntax/internal helper check passed (${declared.size} helpers)`);
+
+const diagnoseMatch = source.match(/function\s+handleDiagnoseEtfDividends\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+if (!diagnoseMatch
+    || /\.(?:setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet)\s*\(/.test(diagnoseMatch[1])
+    || !/wroteSheets:\s*false/.test(diagnoseMatch[1])
+    || !/wroteDivData:\s*false/.test(diagnoseMatch[1])) {
+  console.error('❌ handleDiagnoseEtfDividends는 시트와 DIVDATA를 수정하지 않는 읽기 전용이어야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes("params.action === 'diagnoseEtfDividends'")
+    || !source.includes('searchEtfContentList')
+    || !source.includes('exerInfoDtramtPayStatPlist')) {
+  console.error('❌ SEIBro 읽기 전용 진단 route 또는 HAR 기반 action이 누락됐습니다.');
+  process.exit(1);
+}
+
+const dryRunMatch = source.match(/function\s+handleDryRunEtfDividends\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+if (!dryRunMatch
+    || /\.(?:setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet)\s*\(/.test(dryRunMatch[1])
+    || !source.includes("'runEtfDividendDryRun'")) {
+  console.error('❌ ETF 2단계 드라이런은 시트를 수정하지 않고 메뉴에서 실행할 수 있어야 합니다.');
+  process.exit(1);
+}
