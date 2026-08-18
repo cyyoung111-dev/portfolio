@@ -59,3 +59,12 @@ if (!dryRunMatch
   console.error('❌ ETF 2단계 드라이런은 시트를 수정하지 않고 메뉴에서 실행할 수 있어야 합니다.');
   process.exit(1);
 }
+
+const dryRunUiMatch = source.match(/function\s+runEtfDividendDryRun\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+if (!dryRunUiMatch
+    || !/comparisons\.length/.test(dryRunUiMatch[1])
+    || !/Math\.ceil\(comparisons\.length\s*\/\s*pageSize\)/.test(dryRunUiMatch[1])
+    || /changed\.slice\(0,\s*12\)/.test(dryRunUiMatch[1])) {
+  console.error('❌ ETF 2단계 드라이런은 동적으로 선정된 전체 종목 결과를 빠짐없이 표시해야 합니다.');
+  process.exit(1);
+}

@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.59
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.60
+//
+//  v9.60 변경사항 (2026.08.18):
+//   ✅ [사용성] 2단계 드라이런 결과를 동적 대상 종목 수에 맞춰 여러 창으로 나누어 모두 표시
 //
 //  v9.59 변경사항 (2026.08.18):
 //   ✅ [드라이런] SEIBro 전체 분배금 행의 TTM 합계와 DIVDATA 증분 병합안을 저장 없이 비교
@@ -2038,7 +2041,7 @@ function runEtfDividendDryRun() {
     if (data.status !== 'ok') throw new Error(data.message || '드라이런 응답 오류');
     if (data.blocked) throw new Error('1단계 오류가 있어 드라이런이 중단됐습니다: ' + JSON.stringify(data.counts || {}));
     var summary = data.summary || {};
-    var changed = (data.comparisons || []).filter(function(row) { return row.changed; });
+    var comparisons = data.comparisons || [];
     var lines = [
       '대상 ETF: ' + (summary.targets || 0) + '개',
       '분배금 행: ' + (summary.events || 0) + '건',
@@ -2048,14 +2051,22 @@ function runEtfDividendDryRun() {
       'DIVDATA 변경 예상: ' + (summary.changedDivData || 0) + '종목',
       '', '시트 수정: 없음', 'DIVDATA 수정: 없음'
     ];
-    if (changed.length) {
-      lines.push('', 'TTM 계산 확인(최대 12종목):');
-      changed.slice(0, 12).forEach(function(row) {
-        lines.push('- ' + row.code + ' ' + row.name + ': TTM ' + row.ttmPerShare + '원 / ' + row.eventCount + '건');
-      });
-    }
     Logger.log('[SEIBro ETF 2단계 드라이런] ' + JSON.stringify(data));
     ui.alert('✅ SEIBro ETF 2단계 드라이런 완료', lines.join('\n'), ui.ButtonSet.OK);
+    var pageSize = 10;
+    var pageCount = Math.ceil(comparisons.length / pageSize);
+    for (var page = 0; page < pageCount; page++) {
+      var start = page * pageSize;
+      var detailLines = comparisons.slice(start, start + pageSize).map(function(row) {
+        return '- ' + row.code + ' ' + row.name + ': TTM ' + row.ttmPerShare + '원 / ' + row.eventCount + '건 / ' +
+          (row.changed ? '변경 예상' : '기존 일치');
+      });
+      ui.alert(
+        'TTM 전체 종목 확인 (' + (page + 1) + '/' + pageCount + ')',
+        '전체 ' + comparisons.length + '종목 중 ' + (start + 1) + '~' + (start + detailLines.length) + '번째\n\n' + detailLines.join('\n'),
+        ui.ButtonSet.OK
+      );
+    }
     return data;
   } catch(err) {
     Logger.log('[SEIBro ETF 2단계 드라이런 실패] ' + err.message);
@@ -4702,7 +4713,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.59' });
+    return jsonOk({ settings: settings, gasVersion: '9.60' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
