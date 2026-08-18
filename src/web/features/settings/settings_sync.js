@@ -43,6 +43,7 @@ async function loadGsheetCodeList() {
           name: String(item?.name || '').trim(),
           type: String(item?.type || '').trim(),
           sector: String(item?.sector || '').trim(),
+          currency: String(item?.currency || '').trim().toUpperCase(),
         }))
         .filter(item => item.code && item.name);
 
@@ -51,6 +52,61 @@ async function loadGsheetCodeList() {
     }
   } catch(e) {
   }
+}
+
+// Settings 저장이 과거 오류로 실패했어도 종목코드 시트 동기화가 성공했다면
+// 코드·유형·섹터·통화 정보를 복구할 수 있도록 별도 시트 값을 기초정보에 병합합니다.
+function reconcileEditablesFromGsheetCodeList() {
+  if (!Array.isArray(_gsheetCodeList) || _gsheetCodeList.length === 0) return 0;
+  const byCode = new Map();
+  const byName = new Map();
+  _gsheetCodeList.forEach(item => {
+    if (item.code) byCode.set(_normalizeSyncCode(item.code), item);
+    if (item.name) byName.set(item.name, item);
+  });
+
+  let changed = 0;
+  EDITABLE_PRICES.forEach(ep => {
+    const remote = byCode.get(_normalizeSyncCode(ep.code)) || byName.get(ep.name);
+    if (!remote) return;
+    const nextType = remote.type || '';
+    const nextSector = remote.sector || '';
+    const nextCurrency = (remote.currency || '').toUpperCase();
+    if (nextType && nextType !== (ep.assetType || ep.type || '주식')) {
+      ep.assetType = nextType;
+      changed++;
+    }
+    if (nextSector && nextSector !== (ep.sector || '기타')) {
+      ep.sector = nextSector;
+      changed++;
+    }
+    if (nextCurrency && nextCurrency !== (ep.currency || 'KRW').toUpperCase()) {
+      ep.currency = nextCurrency;
+      changed++;
+    }
+  });
+  const localCodes = new Set(EDITABLE_PRICES.map(ep => _normalizeSyncCode(ep.code)).filter(Boolean));
+  const localNames = new Set(EDITABLE_PRICES.map(ep => ep.name).filter(Boolean));
+  _gsheetCodeList.forEach(remote => {
+    const code = _normalizeSyncCode(remote.code);
+    if (!remote.name || !code || localCodes.has(code) || localNames.has(remote.name)) return;
+    EDITABLE_PRICES.push({
+      name: remote.name,
+      code,
+      assetType: remote.type || '주식',
+      sector: remote.sector || '기타',
+      ...(remote.currency && remote.currency !== 'KRW' ? { currency: remote.currency } : {}),
+    });
+    if (typeof STOCK_CODE !== 'undefined') STOCK_CODE[remote.name] = code;
+    localCodes.add(code);
+    localNames.add(remote.name);
+    changed++;
+  });
+  if (changed > 0) {
+    if (typeof _invalidateEPIndex === 'function') _invalidateEPIndex();
+    if (typeof lsSave === 'function' && typeof EDITABLES_KEY !== 'undefined') lsSave(EDITABLES_KEY, EDITABLE_PRICES);
+  }
+  return changed;
 }
 
 // ── 종목코드 GSheet 자동 등록

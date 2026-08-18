@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.55
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.56
+//
+//  v9.56 변경사항 (2026.08.18):
+//   ✅ [복구]   Settings 저장 실패 시 종목코드 시트의 유형·섹터·통화로 기초정보 복원 지원
 //
 //  v9.55 변경사항 (2026.08.14):
 //   ✅ [안정성] 사용 중인 임시 시트를 정리 작업이 삭제하지 않도록 생성시각 기반 만료 정리 적용
@@ -4094,7 +4097,8 @@ function getCodeItems(ss) {
           code: _cleanCode(row[0]),
           name: (row[1]||'').toString().trim(),
           type: (row[2]||'주식').toString().trim(),
-          sector: (row[3]||'기타').toString().trim(),
+          // 빈 구버전 섹터를 '기타'로 강제하면 Settings의 정상 섹터를 덮을 수 있으므로 원문 유지
+          sector: (row[3]||'').toString().trim(),
           currency: (row[4]||'KRW').toString().trim().toUpperCase() || 'KRW',
         };
       })
@@ -4343,7 +4347,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.55' });
+    return jsonOk({ settings: settings, gasVersion: '9.56' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -4687,7 +4691,7 @@ function initSheet() {
   }
 
   var specs = [
-    [CONFIG.SHEET_CODES, ['종목코드','종목명(참고)','구분'], [90,200,100]],
+    [CONFIG.SHEET_CODES, ['종목코드','종목명','유형','섹터','통화'], [90,200,100,120,80]],
     [CONFIG.SHEET_PRICES, ['종목코드','종가','종목명','갱신일시'], [90,90,200,160]],
     [CONFIG.SHEET_SNAPSHOT, ['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시'], [100,90,180,70,100,110,100,110,100,90,120,160]],
     [CONFIG.SHEET_PH, ['날짜','종목코드','종목명','가격','입력일시','가격소스'], [100,90,180,100,160,120]],

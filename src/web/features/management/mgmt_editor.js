@@ -191,10 +191,19 @@ function queueMgmtGsheetSync(immediate) {
   clearTimeout(_mgmtGsheetSyncTimer);
   const delay = immediate ? 0 : 1200;
   _mgmtGsheetSyncTimer = setTimeout(async () => {
-    saveSettings(true);
-    try { await syncCodesToGsheet(); } catch (e) { console.warn('syncCodesToGsheet 실패:', e); }
+    // Settings 저장이 끝나기 전에 별도 시트 동기화를 시작하면 사용자는 일부 성공 로그만 보고
+    // 기초정보도 저장된 것으로 오인할 수 있습니다. 일반 설정 저장 결과를 먼저 확인합니다.
+    const settingsSaved = await saveSettings(true);
+    let codesSaved = false;
+    try { codesSaved = !!(await syncCodesToGsheet()); } catch (e) { console.warn('syncCodesToGsheet 실패:', e); }
     try { await syncHoldingsToGsheet(); } catch (e) { console.warn('syncHoldingsToGsheet 실패:', e); }
     try { await syncTradesToGsheet(); } catch (e) { console.warn('syncTradesToGsheet 실패:', e); }
+    if (!settingsSaved || !codesSaved) {
+      console.warn('[기초정보 GAS 저장 실패]', { settingsSaved, codesSaved });
+      if (typeof showToast === 'function') {
+        showToast('⚠️ 기초정보의 GAS 저장에 실패했습니다. 연결 상태와 GAS 배포 버전을 확인해주세요.', 'warn', 6000);
+      }
+    }
   }, delay);
 }
 

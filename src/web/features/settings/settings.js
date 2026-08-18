@@ -524,6 +524,13 @@ async function loadSettings(onProgress) {
     // 구버전 GAS fallback으로 LOAN_SCHEDULE을 복원한 경우에도 현재월 값을 반영합니다.
     const fallbackLoanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
     if (fallbackLoanChanged) await persistRealEstateSettings(true);
+    // 일반 Settings 저장이 과거에 실패했더라도 별도로 동기화된 종목코드 시트에서
+    // 유형·섹터·통화를 복구합니다. 상단 업데이트와 수동 재동기화에도 동일하게 적용됩니다.
+    try { await loadGsheetCodeList(); } catch(e) {}
+    const reconciled = typeof reconcileEditablesFromGsheetCodeList === 'function'
+      ? reconcileEditablesFromGsheetCodeList()
+      : 0;
+    if (reconciled > 0) console.log(`[GAS 기초정보 복구] 종목코드 시트에서 ${reconciled}개 필드 반영`);
     return true;
   } catch(e) {
     console.warn('loadSettings 실패:', e);
@@ -554,7 +561,6 @@ async function bootstrapGsheetSettings() {
     }
     try { refreshAll(); } catch(e) {}
     try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
-    try { await loadGsheetCodeList(); } catch(e) {}
   } catch(e) {
     console.warn('bootstrapGsheetSettings 실패:', e);
   }
