@@ -34,10 +34,16 @@ if (context.rawHoldings.length !== 0) {
 }
 
 context.rawTrades.length = 0;
-context.rawTrades.push({ date: '2026-01-03', tradeType: 'buy', acct: '계좌1', name: '테스트', qty: 3, price: 1200, assetType: '주식' });
+context.rawTrades.push(
+  { date: '2026-01-03', tradeType: 'buy', acct: '계좌1', name: '테스트', qty: 3, price: 1200, assetType: '주식' },
+  { date: '2026-01-04', tradeType: 'buy', acct: '계좌1', name: '테스트', qty: 2, price: 1201, assetType: '주식' },
+);
 context.syncHoldingsFromTrades({ clearWhenEmpty: true });
-if (context.rawHoldings.length !== 1 || context.rawHoldings[0].qty !== 3 || context.rawHoldings[0].cost !== 1200) {
-  console.error('❌ 거래 저장 후 보유수량·평균단가 즉시 계산이 실패했습니다.');
+if (context.rawHoldings.length !== 1
+    || context.rawHoldings[0].qty !== 5
+    || context.rawHoldings[0].cost !== 1200
+    || context.rawHoldings[0].costAmt !== 6002) {
+  console.error('❌ 거래 저장 후 보유수량·평균단가·실제 매입금액 계산이 실패했습니다.');
   process.exit(1);
 }
 

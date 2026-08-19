@@ -103,6 +103,8 @@ function syncHoldingsFromTrades(options) {
   const newH = Object.values(map).filter(m => m.qty > 0).map(m => ({
     acct: m.acct, type: m.type, name: m.name, qty: m.qty,
     cost: m.qty > 0 ? Math.round(m.totalCost / m.qty) : 0,
+    // 표시용 평균단가를 정수로 반올림해도 실제 매입금액 합계는 별도로 보존합니다.
+    costAmt: Math.round(m.totalCost),
     ...(m.fund ? {fund: true} : {})
   }));
   // 모든 종목을 전량 매도한 경우 newH가 빈 배열이어도 과거 보유현황을 남기지 않습니다.
@@ -163,7 +165,13 @@ function computeRows(holdings) {
     // h.cost: syncHoldingsFromTrades()에서 t.price(이미 원화)로 채워짐 → 환율 곱하면 이중 환산 버그
     const priceKrw = hasFx ? Math.round(pRaw * fxRate) : pRaw;
     const evalAmt  = priceKrw * h.qty;
-    const costAmt  = h.cost * h.qty;  // ★ h.cost는 이미 원화 — fxRate 곱하지 않음
+    // 거래 합계가 있으면 반올림된 평균단가×수량 대신 실제 거래원가를 사용합니다.
+    // 레거시 보유현황은 costAmt가 없으므로 기존 계산으로 호환합니다.
+    const hasStoredCostAmt = h.costAmt !== undefined && h.costAmt !== null && h.costAmt !== '';
+    const storedCostAmt = hasStoredCostAmt ? Number(h.costAmt) : Number.NaN;
+    const costAmt = Number.isFinite(storedCostAmt)
+      ? storedCostAmt
+      : h.cost * h.qty;  // ★ h.cost는 이미 원화 — fxRate 곱하지 않음
     const type = getEPType(ep, h.type);
     // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정
     const taxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '일반';
