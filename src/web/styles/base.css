@@ -154,6 +154,8 @@ html[data-theme-mode="dark"] input[type=datetime-local]::-webkit-calendar-picker
 .plan-sim-grid{gap:10px;margin-bottom:16px}
 tr:hover td,.col-filter-dropdown label:hover{background:color-mix(in srgb,var(--text) 5%,transparent)}
 .btn-amber,.btn-amber-sm{color:#111827}
+html[data-theme-mode="light"] .btn-amber,
+html[data-theme-mode="light"] .btn-amber-sm{background:var(--gold);color:#fff}
 @media(max-width:768px){
   .asset-summary-grid,.asset-detail-grid,.plan-export-grid,.plan-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .card-12-p20{padding:14px 15px}
@@ -835,10 +837,29 @@ input[type="number"]{
 .div-asset-badge{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:999px;font-size:.58rem;font-weight:800;vertical-align:middle}
 .div-asset-badge.stock{border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);color:var(--blue-lt)}
 .div-asset-badge.etf{border:1px solid var(--c-cyan-40);background:rgba(6,182,212,.15);color:var(--cyan)}
-#dividendLinkStatus[data-state="idle"]{color:var(--muted)}
-#dividendLinkStatus[data-state="syncing"]{color:var(--amber);font-weight:700}
-#dividendLinkStatus[data-state="ok"]{color:var(--green-lt)}
-#dividendLinkStatus[data-state="fail"]{color:var(--red-lt)}
+#dividendLinkStatus[data-state="idle"]{color:color-mix(in srgb,var(--muted) 78%,var(--text) 22%)}
+#dividendLinkStatus[data-state="syncing"]{color:color-mix(in srgb,var(--amber) 72%,var(--text) 28%);font-weight:700}
+#dividendLinkStatus[data-state="ok"]{color:color-mix(in srgb,var(--green-lt) 78%,var(--text) 22%);font-weight:650}
+#dividendLinkStatus[data-state="fail"]{color:color-mix(in srgb,var(--red-lt) 78%,var(--text) 22%);font-weight:700}
 .div-gas-link-badge{padding:4px 8px;border-radius:999px;font-size:.62rem;font-weight:700;white-space:nowrap}
 .div-gas-link-badge.connected{border:1px solid var(--c-green-30);background:var(--c-green-10);color:var(--green)}
 .div-gas-link-badge.disconnected{border:1px solid var(--border);background:var(--s1);color:var(--muted)}
+.div-month-chart-scroll{overflow-x:visible;-webkit-overflow-scrolling:touch}
+.div-month-chart{min-width:0}
+.div-month-bar-label{font-size:9px;line-height:1.2}
+.div-month-bar-month{font-size:9px;line-height:1.2}
+@media(max-width:600px){
+  .div-link-panel{align-items:stretch!important;padding:12px!important}
+  .div-link-actions{width:100%;display:grid!important;grid-template-columns:1fr 1fr;gap:7px!important}
+  .div-link-actions .div-gas-link-badge{grid-column:1/-1;width:max-content}
+  .div-link-actions button{width:100%;min-height:40px;padding:7px 8px;white-space:normal;line-height:1.25}
+  .div-month-chart-scroll{overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+  .div-month-chart{min-width:620px}
+  .div-month-bar-label,.div-month-bar-month{font-size:10px}
+  .div-monthly-matrix-head{align-items:flex-start;flex-direction:column}
+  .div-monthly-matrix-head small{white-space:normal;line-height:1.35}
+}
+@media(max-width:360px){
+  .div-link-actions{grid-template-columns:1fr}
+  .div-link-actions .div-gas-link-badge{grid-column:auto}
+}

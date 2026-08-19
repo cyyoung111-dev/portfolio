@@ -21,6 +21,7 @@ function registerGlobalEventDelegation() {
     // ★ [버그수정] 기본값 버튼이 아예 연결돼 있지 않아 눌러도 반응 없었음
     settingsTabBtn_tab:              () => typeof switchSettingsTab === 'function' && switchSettingsTab('tab'),
     settingsTabBtn_theme:            () => typeof switchSettingsTab === 'function' && switchSettingsTab('theme'),
+    settingsTabBtn_font:             () => typeof switchSettingsTab === 'function' && switchSettingsTab('font'),
     settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
 
     // editors

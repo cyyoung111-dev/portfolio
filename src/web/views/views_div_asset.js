@@ -169,14 +169,14 @@ function renderDivView(area, skipFetch) {
 
   <!-- ── 배당 자동 연동 + 수동 갱신 ── -->
   <div style="margin-bottom:14px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">
+    <div class="div-link-panel" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">
       <div style="display:flex;flex-direction:column;gap:2px">
         <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔗 배당 연동 상태</div>
         <span id="dividendLinkStatus" data-state="${_dividendLinkState?.state || 'idle'}" style="font-size:.68rem">${_escapeHtml(_dividendLinkState?.message || (GSHEET_API_URL ? '자동 연동 대기 중' : 'GAS 연동 설정 필요'))}</span>
         <span id="sync-badge-div" style="font-size:.64rem;color:var(--muted)">${typeof _tabSyncText === 'function' ? _tabSyncText('div').text : ''}</span>
         <span style="font-size:.62rem;color:var(--muted)">최종 업데이트: ${dividendUpdatedLabel}</span>
       </div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div class="div-link-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="div-gas-link-badge ${GSHEET_API_URL ? 'connected' : 'disconnected'}">${GSHEET_API_URL ? '☁️ GAS 연동 설정됨 · 저장 시 동기화' : '○ GAS 미연동'}</span>
         ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm" title="ETF는 SEIBro에서 강제 재조회하고, 그 외 종목은 공공데이터·GOOGLEFINANCE에서 다시 조회한 뒤 GAS에 저장합니다.">📥 배당 데이터 갱신</button>` : ''}
         <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" title="외부 배당 API를 호출하지 않고 GAS에 마지막으로 저장된 DIVDATA를 현재 브라우저로 다시 받습니다." ${GSHEET_API_URL ? '' : 'disabled'}>☁️ GAS 데이터 다시 받기</button>
@@ -254,7 +254,8 @@ function renderDivView(area, skipFetch) {
       <strong>${fmtW(Math.round(selectedMonthTotal))}</strong>
       <small>${selectedMonth ? `${divRows.filter(r => Number(r.monthlyDiv?.[selectedMonth] || 0) > 0).length}개 종목` : `${divRows.length}개 종목`}</small>
     </div>
-    <div style="display:flex;align-items:flex-end;gap:3px;height:110px;padding-bottom:18px;position:relative">
+    <div class="div-month-chart-scroll">
+    <div class="div-month-chart" style="display:flex;align-items:flex-end;gap:3px;height:110px;padding-bottom:18px;position:relative">
       ${(() => {
         const maxV = Math.max(...monthly, 1);
         return monthly.map((v, i) => {
@@ -273,13 +274,13 @@ function renderDivView(area, skipFetch) {
           const fw = isCurrent ? '700' : '400';
           const isSelected = selectedMonth === i + 1;
           return `<button type="button" data-div-action="filter-month" data-div-month="${i+1}" aria-label="${i+1}월 배당 ${Math.round(v).toLocaleString()}원" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;border:none;background:transparent;cursor:pointer;padding:0;opacity:${selectedMonth && !isSelected ? '.45' : '1'}">
-            ${label ? `<div style="font-size:8px;color:${labelColor};font-weight:${fw};margin-bottom:2px;white-space:nowrap;overflow:hidden;max-width:100%;text-align:center">${label}</div>` : '<div style="margin-bottom:10px"></div>'}
+            ${label ? `<div class="div-month-bar-label" style="color:${labelColor};font-weight:${fw};margin-bottom:2px;white-space:nowrap;max-width:100%;text-align:center">${label}</div>` : '<div style="margin-bottom:10px"></div>'}
             <div style="width:100%;height:${pct}%;background:${bg};border:${isSelected ? '2px solid var(--gold)' : border};border-radius:3px 3px 0 0;box-shadow:${isSelected ? '0 0 8px var(--c-amber-40)' : isCurrent?'0 0 6px var(--c-cyan-50)':'none'}"></div>
-            <div style="font-size:8px;color:${monthColor};font-weight:${fw};margin-top:2px">${i+1}월</div>
+            <div class="div-month-bar-month" style="color:${monthColor};font-weight:${fw};margin-top:2px">${i+1}월</div>
           </button>`;
         }).join('');
       })()}
-    </div>
+    </div></div>
   </div>
 
   <!-- ── 종목별 월별 배당 매트릭스 ── -->

@@ -66,6 +66,9 @@ if (!historyBenchmarkSource.includes("'getBenchmarks'")
 }
 
 const tabSyncSource = fs.readFileSync(path.join(webRoot, 'features/settings/settings_tabsync.js'), 'utf8');
+const baseCssSource = fs.readFileSync(path.join(webRoot, 'styles/base.css'), 'utf8');
+const indexSource = fs.readFileSync(path.join(webRoot, 'index.html'), 'utf8');
+const themeSource = fs.readFileSync(path.join(webRoot, 'shared/theme.js'), 'utf8');
 if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendSource.includes('_refreshSeibroEtfDividends(true)')
     || !dividendViewSource.includes('id="dividendLinkStatus"')
@@ -73,6 +76,28 @@ if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendViewSource.includes('☁️ GAS 데이터 다시 받기')
     || !tabSyncSource.includes('const loaded = await loadDividendSettings()')) {
   console.error('❌ 배당 연동 중 상태 또는 수동 갱신/GAS 복원 버튼 역할 구분이 누락됐습니다.');
+  process.exit(1);
+}
+
+if (!indexSource.includes('id="settingsTabBtn_tab"')
+    || !indexSource.includes('id="settingsTabBtn_theme"')
+    || !indexSource.includes('id="settingsTabBtn_font"')
+    || !indexSource.includes('id="settingsPanel_font"')
+    || !indexSource.includes('id="fontSettingsBody"')
+    || !themeSource.includes("const panels = ['tab', 'theme', 'font']")
+    || !themeSource.includes("if (tab === 'font')")
+    || /\$\{_buildFontSelectorHTML\(\)\}/.test(themeSource.slice(themeSource.indexOf('function _buildThemeSelectorHTML'), themeSource.indexOf('function _renderThemeButtons')))) {
+  console.error('❌ 설정은 탭 순서·테마·글꼴의 독립된 세 패널로 표시되어야 합니다.');
+  process.exit(1);
+}
+
+if (!dividendViewSource.includes('class="div-link-panel"')
+    || !dividendViewSource.includes('class="div-link-actions"')
+    || !dividendViewSource.includes('class="div-month-chart-scroll"')
+    || !baseCssSource.includes('@media(max-width:600px)')
+    || !baseCssSource.includes('.div-month-chart{min-width:620px}')
+    || !baseCssSource.includes('.div-link-actions{width:100%;display:grid!important;grid-template-columns:1fr 1fr')) {
+  console.error('❌ 배당 탭 모바일 버튼 배치 또는 월별 그래프 가로 스크롤 최적화가 누락됐습니다.');
   process.exit(1);
 }
 
