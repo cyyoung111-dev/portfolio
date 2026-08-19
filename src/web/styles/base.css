@@ -829,10 +829,16 @@ input[type="number"]{
 .div-monthly-matrix th:first-child,.div-monthly-matrix td:first-child{position:sticky;left:0;z-index:1;min-width:145px;text-align:left;background:var(--s1)}
 .div-monthly-matrix thead th:first-child{z-index:3;background:var(--s2)}
 .div-monthly-matrix tbody td.selected,.div-monthly-matrix thead th.selected,.div-monthly-matrix tfoot th.selected{background:var(--c-cyan-15);color:var(--cyan);font-weight:700}
+.div-monthly-matrix .div-monthly-group th:first-child{position:static;min-width:0;padding:8px 10px;text-align:left;background:color-mix(in srgb,var(--s2) 88%,var(--cyan) 12%);border-top:1px solid var(--border);border-bottom:1px solid var(--border);color:var(--text);font-size:.68rem;letter-spacing:.01em}
+.div-monthly-matrix .div-monthly-group:first-child th{border-top:0}
 .div-monthly-matrix tfoot th{border-top:1px solid var(--border);background:var(--s2);color:var(--text)}
 .div-asset-badge{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:999px;font-size:.58rem;font-weight:800;vertical-align:middle}
 .div-asset-badge.stock{border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);color:var(--blue-lt)}
 .div-asset-badge.etf{border:1px solid var(--c-cyan-40);background:rgba(6,182,212,.15);color:var(--cyan)}
+#dividendLinkStatus[data-state="idle"]{color:var(--muted)}
+#dividendLinkStatus[data-state="syncing"]{color:var(--amber);font-weight:700}
+#dividendLinkStatus[data-state="ok"]{color:var(--green-lt)}
+#dividendLinkStatus[data-state="fail"]{color:var(--red-lt)}
 .div-gas-link-badge{padding:4px 8px;border-radius:999px;font-size:.62rem;font-weight:700;white-space:nowrap}
 .div-gas-link-badge.connected{border:1px solid var(--c-green-30);background:var(--c-green-10);color:var(--green)}
 .div-gas-link-badge.disconnected{border:1px solid var(--border);background:var(--s1);color:var(--muted)}
