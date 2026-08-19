@@ -141,3 +141,11 @@ if (!gasContext._isEtfDividendRefreshCurrent(currentSettings, currentTargets, '2
   console.error('❌ SEIBro ETF 일 1회 자동 갱신 판정 또는 POST route 검사가 실패했습니다.');
   process.exit(1);
 }
+
+if (!source.includes("params.action === 'getBenchmarks'")
+    || !source.includes('function handleGetBenchmarks(')
+    || !source.includes("ss.insertSheet(_tempSheetName('_bm_'))")
+    || !source.includes("cache.put(cacheKey, JSON.stringify(result), 21600)")) {
+  console.error('❌ 비교지수 단일 요청·단일 임시 시트 일괄 조회 또는 6시간 캐시가 누락됐습니다.');
+  process.exit(1);
+}

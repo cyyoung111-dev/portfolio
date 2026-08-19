@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.63
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.64
+//
+//  v9.64 변경사항 (2026.08.19):
+//   ✅ [성능]   손익 그래프 비교지수 5개를 단일 GAS 요청·단일 임시 시트로 일괄 조회
 //
 //  v9.63 변경사항 (2026.08.18):
 //   ✅ [자동화] 배당 탭 요청으로 SEIBro ETF를 일 1회 검증·증분 갱신하고 최신 데이터 반환
@@ -447,6 +450,7 @@ function doGet(e) {
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
+  if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes);
   if (params.action === 'dividend') {
@@ -2525,6 +2529,18 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
   }
 }
 
+function _benchmarkSymbolMap() {
+  return {
+    KOSPI: ['INDEXKRX:KOSPI', 'KRX:KOSPI', 'INDEXKRX:KOSPI200'],
+    KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
+    SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
+    DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
+    NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
+    NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
+    VKOSPI: []
+  };
+}
+
 function handleGetBenchmark(benchmark, fromStr, toStr) {
   try {
     var ss = getss();
@@ -2534,17 +2550,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       var t = fromDate; fromDate = toDate; toDate = t;
     }
 
-    var map = {
-      KOSPI: ['INDEXKRX:KOSPI', 'KRX:KOSPI', 'INDEXKRX:KOSPI200'],
-      // ★ KOSDAQ 종합지수는 GOOGLEFINANCE 미지원 → KODEX코스닥150(229200) ETF로 근사 대체
-      KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
-      SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
-      DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
-      NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
-      NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
-      // VKOSPI는 아래 KRX Open API 전용 경로로 조회합니다.
-      VKOSPI: []
-    };
+    var map = _benchmarkSymbolMap();
     var key = (benchmark || '').toString().trim().toUpperCase();
     var symbols = map[key];
     if (!symbols) return jsonError('지원하지 않는 비교지수: ' + benchmark);
@@ -2572,6 +2578,74 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
     return jsonOk({ benchmark: key, symbol: usedSymbol, points: points });
   } catch(err) {
     return jsonError('getBenchmark 실패: ' + err.message);
+  }
+}
+
+function handleGetBenchmarks(benchmarksInput, fromStr, toStr) {
+  try {
+    var map = _benchmarkSymbolMap();
+    var requested = String(benchmarksInput || '').split(',').map(function(value) {
+      return value.trim().toUpperCase();
+    }).filter(function(value, index, all) {
+      return value && value !== 'VKOSPI' && map[value] && all.indexOf(value) === index;
+    });
+    if (!requested.length) return jsonError('조회할 비교지수가 없습니다.');
+
+    var fromDate = _normalizeDate(fromStr || '') || '2024-01-01';
+    var toDate = _normalizeDate(toStr || '') || today();
+    if (fromDate > toDate) { var swap = fromDate; fromDate = toDate; toDate = swap; }
+
+    var cache = CacheService.getScriptCache();
+    var cacheKey = 'benchmarks_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+    var cached = cache.get(cacheKey);
+    if (cached) return jsonOk(JSON.parse(cached));
+
+    var ss = getss();
+    var tmp = ss.insertSheet(_tempSheetName('_bm_'));
+    var series = {};
+    var symbols = {};
+    requested.forEach(function(type) { series[type] = []; symbols[type] = ''; });
+    try {
+      var maxCandidates = requested.reduce(function(max, type) { return Math.max(max, map[type].length); }, 0);
+      for (var candidateIndex = 0; candidateIndex < maxCandidates; candidateIndex++) {
+        var pending = requested.filter(function(type) { return series[type].length === 0 && map[type][candidateIndex]; });
+        if (!pending.length) continue;
+        tmp.clearContents();
+        var fs = fromDate.split('-');
+        var ts = toDate.split('-');
+        pending.forEach(function(type, columnIndex) {
+          var symbol = map[type][candidateIndex];
+          var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
+          tmp.getRange(1, columnIndex * 3 + 1).setFormula(formula);
+        });
+        SpreadsheetApp.flush();
+        Utilities.sleep(2000);
+        var lastRow = tmp.getLastRow();
+        pending.forEach(function(type, columnIndex) {
+          if (lastRow < 2) return;
+          var values = tmp.getRange(2, columnIndex * 3 + 1, lastRow - 1, 2).getValues();
+          var points = values.map(function(row) {
+            return { date: _normalizeDate(row[0]), value: parseFloat(row[1]) || 0 };
+          }).filter(function(point) { return point.date && point.value > 0; });
+          if (points.length) {
+            series[type] = points;
+            symbols[type] = map[type][candidateIndex];
+          }
+        });
+      }
+    } finally {
+      try { ss.deleteSheet(tmp); } catch(deleteError) { Logger.log('⚠️ 비교지수 일괄 임시 시트 삭제 실패: ' + deleteError.message); }
+    }
+
+    var errors = {};
+    requested.forEach(function(type) {
+      if (!series[type].length) errors[type] = '선택 기간의 데이터를 찾지 못했습니다.';
+    });
+    var result = { benchmarks: requested, series: series, symbols: symbols, errors: errors };
+    try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch(cacheError) { /* 캐시 용량 초과는 무시 */ }
+    return jsonOk(result);
+  } catch(err) {
+    return jsonError('getBenchmarks 실패: ' + err.message);
   }
 }
 
@@ -4922,7 +4996,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.63' });
+    return jsonOk({ settings: settings, gasVersion: '9.64' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

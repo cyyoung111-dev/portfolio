@@ -56,4 +56,12 @@ if (!dividendViewSource.includes('_formatDividendChartManwon(v)')
   process.exit(1);
 }
 
+const historyBenchmarkSource = fs.readFileSync(path.join(webRoot, 'views/views_history_benchmark.js'), 'utf8');
+if (!historyBenchmarkSource.includes("'getBenchmarks'")
+    || !historyBenchmarkSource.includes("benchmarks: types.join(',')")
+    || !historyBenchmarkSource.includes('{ timeoutMs: 45000, retry: 0 }')) {
+  console.error('❌ 손익 그래프 비교지수는 단일 GAS 요청으로 일괄 조회해야 합니다.');
+  process.exit(1);
+}
+
 console.log(`✅ Syntax check passed (${files.length} files)`);
