@@ -133,16 +133,6 @@ function registerGlobalEventDelegation() {
       return;
     }
 
-    // ── data-tab-action (views_system_tabsettings.js)
-    const tabAction = e.target.closest('[data-tab-action]');
-    if (tabAction) {
-      const action = tabAction.dataset.tabAction;
-      const idx = parseInt(tabAction.dataset.idx || '', 10);
-      if (action === 'toggle-hidden' && typeof toggleTabHidden === 'function') toggleTabHidden(idx);
-      else if (action === 'move' && typeof moveTab === 'function') moveTab(idx, parseInt(tabAction.dataset.delta || '0', 10));
-      return;
-    }
-
     // ── data-schedule-action (views_asset_schedule_data.js)
     const scheduleAction = e.target.closest('[data-schedule-action]');
     if (scheduleAction) {
