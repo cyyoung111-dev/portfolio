@@ -50,7 +50,9 @@ function moveTab(idx, dir) {
   if (!_moveTabOrderItem(TAB_ORDER, idx, dir)) return false;
   saveTabOrder();
   buildTabBar();
-  buildMobileNav();
+  // 현재 웹에는 buildMobileNav가 없는 배포도 있으므로, 미정의 함수 때문에
+  // 설정 목록 재렌더링이 중단되지 않게 선택적으로 호출합니다.
+  if (typeof buildMobileNav === 'function') buildMobileNav();
   renderTabSettingsBody();
   if (panel) panel.scrollTop = previousScrollTop;
   return true;
@@ -99,8 +101,10 @@ function renderTabSettingsBody() {
       if (dragSrcIdx === null || dragSrcIdx === toIdx) return;
       const [moved] = TAB_ORDER.splice(dragSrcIdx, 1);
       TAB_ORDER.splice(toIdx, 0, moved);
-      saveTabOrder(); buildTabBar(); buildMobileNav(); renderTabSettingsBody();
+      saveTabOrder();
+      buildTabBar();
+      if (typeof buildMobileNav === 'function') buildMobileNav();
+      renderTabSettingsBody();
     });
   });
 }
-
