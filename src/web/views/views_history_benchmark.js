@@ -38,17 +38,29 @@ async function _loadBenchmarkBundle(types, fromDate, toDate) {
   const metaMap = {};
   const errorMap = {};
   const failedTypes = [];
-  // ★ GAS 제약 대응: 병렬 Promise.all 대신 직렬 큐
+  if (!types.length) return { seriesMap, metaMap, errorMap, failedTypes };
+
+  const data = await _historyRequestJson(
+    'getBenchmarks',
+    { benchmarks: types.join(','), from: fromDate, to: toDate },
+    { timeoutMs: 45000, retry: 0 }
+  );
+  const requestError = !data
+    ? 'GAS 응답이 없거나 일괄 조회 시간이 초과되었습니다.'
+    : data.status === 'error'
+      ? String(data.message || '비교지수 일괄 조회 실패')
+      : '';
   for (const type of types) {
-    // VKOSPI는 기간 내 영업일을 KRX에서 일괄 조회하므로 같은 대량 요청을 즉시 반복하지 않습니다.
-    const payload = await _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, type === 'VKOSPI' ? 0 : 1);
-    const points = Array.isArray(payload?.points) ? payload.points : [];
-    const symbol = payload?.symbol || '';
+    const rawPoints = Array.isArray(data?.series?.[type]) ? data.series[type] : [];
+    const points = rawPoints
+      .map(point => ({ date: _normalizeHistDate(point.date || ''), value: parseFloat(point.value || 0) }))
+      .filter(point => point.date && point.value > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
     seriesMap[type] = points;
-    metaMap[type] = symbol;
-    if (points.length === 0) {
+    metaMap[type] = String(data?.symbols?.[type] || '').trim();
+    if (!points.length) {
       failedTypes.push(type);
-      if (payload?.error) errorMap[type] = payload.error;
+      errorMap[type] = requestError || String(data?.errors?.[type] || '선택 기간의 데이터를 찾지 못했습니다.');
     }
   }
   return { seriesMap, metaMap, errorMap, failedTypes };
