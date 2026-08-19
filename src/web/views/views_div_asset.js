@@ -167,22 +167,23 @@ function renderDivView(area, skipFetch) {
 
   let html = `
 
-  <!-- ── 배당 재동기화 + 배당금 불러오기 ── -->
+  <!-- ── 배당 자동 연동 + 수동 갱신 ── -->
   <div style="margin-bottom:14px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;padding:10px 12px;background:var(--s2);border:1px solid var(--border);border-radius:10px">
       <div style="display:flex;flex-direction:column;gap:2px">
-        <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔄 수동 재동기화</div>
-        <span id="sync-badge-div" style="font-size:.68rem;color:var(--muted)"></span>
+        <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔗 배당 연동 상태</div>
+        <span id="dividendLinkStatus" data-state="${_dividendLinkState?.state || 'idle'}" style="font-size:.68rem">${_escapeHtml(_dividendLinkState?.message || (GSHEET_API_URL ? '자동 연동 대기 중' : 'GAS 연동 설정 필요'))}</span>
+        <span id="sync-badge-div" style="font-size:.64rem;color:var(--muted)">${typeof _tabSyncText === 'function' ? _tabSyncText('div').text : ''}</span>
         <span style="font-size:.62rem;color:var(--muted)">최종 업데이트: ${dividendUpdatedLabel}</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="div-gas-link-badge ${GSHEET_API_URL ? 'connected' : 'disconnected'}">${GSHEET_API_URL ? '☁️ GAS 연동 설정됨 · 저장 시 동기화' : '○ GAS 미연동'}</span>
-        ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm">🔄 배당금 불러오기</button>` : ''}
-        <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" ${GSHEET_API_URL ? '' : 'disabled'}>🔄 재동기화</button>
+        ${GSHEET_API_URL ? `<button id="divFetchBtn" data-div-action="fetch" class="btn-amber-sm" title="ETF는 SEIBro에서 강제 재조회하고, 그 외 종목은 공공데이터·GOOGLEFINANCE에서 다시 조회한 뒤 GAS에 저장합니다.">📥 배당 데이터 갱신</button>` : ''}
+        <button data-sync-tab="div" id="sync-btn-div" class="btn-purple-sm" title="외부 배당 API를 호출하지 않고 GAS에 마지막으로 저장된 DIVDATA를 현재 브라우저로 다시 받습니다." ${GSHEET_API_URL ? '' : 'disabled'}>☁️ GAS 데이터 다시 받기</button>
       </div>
     </div>
     <div style="font-size:.65rem;color:var(--muted);margin-top:4px;padding:0 2px">
-      ${GSHEET_API_URL ? '탭 진입 시 SEIBro ETF를 일 1회 자동 검증·증분 갱신 · 그 외 종목은 공공데이터 우선/GOOGLEFINANCE fallback' : '재동기화 설정 필요'}
+      ${GSHEET_API_URL ? '자동: 탭 진입 시 일 1회 갱신 · 배당 데이터 갱신: 외부 소스 강제 재조회·저장 · GAS 데이터 다시 받기: 저장값만 브라우저로 복원' : '재동기화 설정 필요'}
     </div>
   </div>
 

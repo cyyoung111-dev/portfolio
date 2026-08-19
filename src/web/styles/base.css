@@ -835,6 +835,10 @@ input[type="number"]{
 .div-asset-badge{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:999px;font-size:.58rem;font-weight:800;vertical-align:middle}
 .div-asset-badge.stock{border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);color:var(--blue-lt)}
 .div-asset-badge.etf{border:1px solid var(--c-cyan-40);background:rgba(6,182,212,.15);color:var(--cyan)}
+#dividendLinkStatus[data-state="idle"]{color:var(--muted)}
+#dividendLinkStatus[data-state="syncing"]{color:var(--amber);font-weight:700}
+#dividendLinkStatus[data-state="ok"]{color:var(--green-lt)}
+#dividendLinkStatus[data-state="fail"]{color:var(--red-lt)}
 .div-gas-link-badge{padding:4px 8px;border-radius:999px;font-size:.62rem;font-weight:700;white-space:nowrap}
 .div-gas-link-badge.connected{border:1px solid var(--c-green-30);background:var(--c-green-10);color:var(--green)}
 .div-gas-link-badge.disconnected{border:1px solid var(--border);background:var(--s1);color:var(--muted)}
