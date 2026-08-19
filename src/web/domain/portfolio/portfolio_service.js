@@ -62,8 +62,13 @@ function _getFilteredTrades() {
   return list;
 }
 
-function syncHoldingsFromTrades() {
-  if (rawTrades.length === 0) return;
+function syncHoldingsFromTrades(options) {
+  if (rawTrades.length === 0) {
+    // 거래 편집으로 마지막 거래까지 삭제한 경우에는 기존 보유현황을 즉시 비웁니다.
+    // 초기 레거시 보유현황 복원 경로는 옵션 없이 호출하므로 기존 마이그레이션 동작을 유지합니다.
+    if (options?.clearWhenEmpty) rawHoldings.length = 0;
+    return;
+  }
 
   // 레거시 데이터 자동 마이그레이션
   migrateLegacyTrades();
@@ -100,10 +105,9 @@ function syncHoldingsFromTrades() {
     cost: m.qty > 0 ? Math.round(m.totalCost / m.qty) : 0,
     ...(m.fund ? {fund: true} : {})
   }));
-  if (newH.length > 0) {
-    rawHoldings.length = 0;
-    newH.forEach(h => rawHoldings.push(h));
-  }
+  // 모든 종목을 전량 매도한 경우 newH가 빈 배열이어도 과거 보유현황을 남기지 않습니다.
+  rawHoldings.length = 0;
+  newH.forEach(h => rawHoldings.push(h));
 
   // ── Step 3: 거래이력 종목을 EDITABLE_PRICES에 자동 등록
   // 우선순위: EDITABLE_PRICES에 없는 종목만 추가, 있으면 절대 덮어쓰지 않음

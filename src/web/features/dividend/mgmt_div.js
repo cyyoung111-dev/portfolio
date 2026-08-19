@@ -364,18 +364,92 @@ function _mergeDividendResults(targetCodes, primary, fallback) {
   return merged;
 }
 
-async function _autoFetchDiv(area) {
-  const codeItems = EDITABLE_PRICES.filter(ep => {
+function _hasSeibroDividend(code, name) {
+  const normCode = _normDivCode(code);
+  const divKey = (typeof getDivKey === 'function') ? getDivKey(name) : name;
+  const data = DIVDATA[normCode] || DIVDATA[divKey];
+  return String(data?.source || '').toUpperCase() === 'SEIBRO'
+    && Array.isArray(data?.events)
+    && data.events.length > 0;
+}
+
+function _getLegacyDividendFetchItems() {
+  return EDITABLE_PRICES.filter(ep => {
     const holding = rawHoldings.find(h => h.name === ep.name && !h.fund);
-    return holding && ep.code;
+    if (!holding || !ep.code) return false;
+    // SEIBro로 확정된 ETF는 Settings.DIVDATA를 그대로 사용하고 공공데이터/GF로 덮어쓰지 않습니다.
+    const isEtf = (ep.assetType || ep.type) === 'ETF';
+    return !(isEtf && _hasSeibroDividend(ep.code, ep.name));
   });
-  if (!codeItems.length) return;
+}
+
+let _seibroRefreshPromise = null;
+let _dividendLinkState = { state: 'idle', message: '' };
+
+function _setDividendLinkState(state, message) {
+  _dividendLinkState = { state, message: String(message || '') };
+  const status = $el('dividendLinkStatus');
+  if (status) {
+    status.textContent = _dividendLinkState.message;
+    status.dataset.state = state;
+  }
+  const fetchButton = $el('divFetchBtn');
+  if (fetchButton) fetchButton.disabled = state === 'syncing';
+  const syncButton = $el('sync-btn-div');
+  if (syncButton) syncButton.disabled = state === 'syncing' || !GSHEET_API_URL;
+}
+
+async function _refreshSeibroEtfDividends(force) {
+  if (!GSHEET_API_URL || typeof requestGsheetFormJson !== 'function') return false;
+  if (_seibroRefreshPromise) return _seibroRefreshPromise;
+  _seibroRefreshPromise = (async () => {
+    try {
+      const data = await requestGsheetFormJson(
+        'refreshEtfDividends',
+        { force: force ? '1' : '' },
+        { timeoutMs: 180000, retry: 0 }
+      );
+      if (!data || data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') {
+        throw new Error(data?.message || 'SEIBro ETF 자동 갱신 응답 오류');
+      }
+      _applyDivData(data.divData);
+      return true;
+    } catch (e) {
+      console.warn('_refreshSeibroEtfDividends 실패:', e.message);
+      return false;
+    } finally {
+      _seibroRefreshPromise = null;
+    }
+  })();
+  return _seibroRefreshPromise;
+}
+
+async function _autoFetchDiv(area) {
+  // GAS가 오늘 아직 갱신하지 않았다면 전체 검증 후 SEIBro 이력을 증분 저장합니다.
+  // 실패하더라도 마지막 정상 DIVDATA를 다시 읽어 화면과 기존 데이터는 유지합니다.
+  _setDividendLinkState('syncing', '⏳ GAS·SEIBro 자동 연동 중...');
+  const refreshedSeibro = await _refreshSeibroEtfDividends(false);
+  const loadedFromGas = refreshedSeibro || ((typeof loadDividendSettings === 'function')
+    ? await loadDividendSettings()
+    : false);
+  const codeItems = _getLegacyDividendFetchItems();
+  if (!codeItems.length) {
+    if (loadedFromGas && currentView === 'div') {
+      const liveArea = $el('view-area');
+      if (liveArea) renderDivView(liveArea, true);
+    }
+    _setDividendLinkState(loadedFromGas ? 'ok' : 'fail', loadedFromGas ? '✅ GAS 배당 데이터 연동 완료' : '⚠️ 자동 연동 실패 · 마지막 정상 데이터를 표시합니다.');
+    return;
+  }
 
   const codes = codeItems
     .map(ep => _normDivCode(ep.code))
     .filter(Boolean)
     .join(',');
-  if (!codes) return;
+  if (!codes) {
+    _setDividendLinkState('fail', '⚠️ 자동 연동 실패 · 유효한 종목코드를 확인해주세요.');
+    return;
+  }
   try {
     const publicKey = getPublicDataApiKey();
     let publicDividends = null;
@@ -419,9 +493,11 @@ async function _autoFetchDiv(area) {
         if (_liveArea) renderDivView(_liveArea, true);
       }
     }
+    _setDividendLinkState('ok', '✅ GAS·SEIBro 및 주식 배당 데이터 연동 완료');
   } catch(e) {
     // 자동 fetch 실패 시 조용히 무시 (수동 버튼으로 재시도 가능)
     console.warn('_autoFetchDiv 실패:', e.message);
+    _setDividendLinkState('fail', '⚠️ 자동 연동 실패 · 마지막 정상 데이터를 표시합니다.');
   }
 }
 
@@ -439,24 +515,25 @@ async function startDivFetch() {
     return false;
   }
 
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ 조회 중...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 전체 갱신 중...'; }
+  _setDividendLinkState('syncing', '⏳ ETF는 SEIBro, 그 외 종목은 공공데이터/GOOGLEFINANCE에서 강제 갱신 중...');
   if (status) {
     status.style.color = 'var(--amber)';
     status.textContent = `구글시트 ${DIV_AUTO_SOURCE_LABEL} 조회 중... · ${DIV_MANUAL_GUIDE}`;
   }
 
-  // 보유 종목 코드 목록 (펀드 제외, 코드 있는 것만)
-  const codeItems = EDITABLE_PRICES.filter(ep => {
-    const holding = rawHoldings.find(h => h.name === ep.name && !h.fund);
-    return holding && ep.code;
-  });
+  // SEIBro ETF를 일 1회 자동 갱신한 뒤, SEIBro가 없는 종목만 기존 API로 조회합니다.
+  const refreshedSeibro = await _refreshSeibroEtfDividends(true);
+  if (!refreshedSeibro && typeof loadDividendSettings === 'function') await loadDividendSettings();
+  const codeItems = _getLegacyDividendFetchItems();
 
   if (codeItems.length === 0) {
     if (status) {
       status.style.color = 'var(--amber)';
-      status.textContent = '⚠️ 조회 가능한 종목코드가 없습니다. 종목코드를 먼저 등록해주세요.';
+      status.textContent = '✅ SEIBro ETF 배당은 최신 GAS 데이터로 복원됐으며 추가 조회할 종목이 없습니다.';
     }
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
+    if (btn) { btn.disabled = false; btn.textContent = '📥 배당 데이터 갱신'; }
+    _setDividendLinkState('ok', '✅ SEIBro ETF 배당 데이터 강제 갱신 완료');
     return false;
   }
 
@@ -469,7 +546,8 @@ async function startDivFetch() {
       status.style.color = 'var(--amber)';
       status.textContent = '⚠️ 유효한 종목코드가 없습니다. 종목코드를 확인해주세요.';
     }
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 배당금 불러오기'; }
+    if (btn) { btn.disabled = false; btn.textContent = '📥 배당 데이터 갱신'; }
+    _setDividendLinkState('fail', '⚠️ 강제 갱신 실패 · 유효한 종목코드를 확인해주세요.');
     return false;
   }
 
@@ -531,12 +609,14 @@ async function startDivFetch() {
     const _st2 = $el('divFetchStatus');
     if (_st2) { _st2.style.color = 'var(--green-lt)'; _st2.textContent = resultMsg; }
     const _btn = $el('divFetchBtn');
-    if (_btn) { _btn.disabled = false; _btn.textContent = '🔄 배당금 불러오기'; }
+    if (_btn) { _btn.disabled = false; _btn.textContent = '📥 배당 데이터 갱신'; }
+    _setDividendLinkState('ok', '✅ ETF·주식 배당 데이터 강제 갱신 및 GAS 저장 완료');
 
   } catch(e) {
     showToast('❌ 배당 조회 실패: ' + e.message, 'error', 5000);
     const _btnE = $el('divFetchBtn');
-    if (_btnE) { _btnE.disabled = false; _btnE.textContent = '🔄 배당금 불러오기'; }
+    if (_btnE) { _btnE.disabled = false; _btnE.textContent = '📥 배당 데이터 갱신'; }
+    _setDividendLinkState('fail', '❌ 배당 데이터 갱신 실패 · 마지막 정상 데이터를 유지합니다.');
     return false;
   }
 

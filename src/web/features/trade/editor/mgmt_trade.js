@@ -53,7 +53,7 @@ function _tePickAcct(val) {
   const inp = $el('te-acct'); if (inp) inp.value = val;
   _renderTeAcctBtns(val, getAcctList().filter(a => a !== '전체'));
   // 계좌 선택 시 해당 계좌 종목만 필터링
-  _refreshTeCodeList('', '', val);
+  _refreshTeCodeList('', '', val, $el('te-assettype')?.value || '주식');
   // 신규 필터 UI 숨김
   const nf = $el('te-new-filter'); if (nf) nf.style.display = 'none';
 }
@@ -168,13 +168,28 @@ function _tePickAssetType(val) {
   grp.innerHTML = types.map(t =>
     `<button type="button" data-te-action="asset-type" data-value="${_escapeHtml(t)}" class="${_fBtnClass(t===val)}">${_escapeHtml(t)}</button>`
   ).join('');
+
+  // 유형을 바꾸면 현재 계좌 안에서 해당 유형의 종목만 즉시 다시 표시합니다.
+  const selectedName = $el('te-name')?.value || '';
+  const selectedEp = selectedName ? getEP(selectedName) : null;
+  const keepSelected = selectedName && getEPType(selectedEp, '') === val;
+  _refreshTeCodeList(
+    keepSelected ? selectedName : '',
+    keepSelected ? ($el('te-code')?.value || '') : '',
+    $el('te-acct')?.value || '',
+    val
+  );
 }
 
 // ── 종목 datalist / 버튼 그룹 ──────────────────────────────────
 
-function _refreshTeCodeList(selectedName, selectedCode, acctFilter) {
+function _refreshTeCodeList(selectedName, selectedCode, acctFilter, assetTypeFilter) {
   // 소스: EDITABLE_PRICES만 사용 (기초정보 등록 종목만 허용)
-  let allNames = EDITABLE_PRICES.map(i => i.name).filter(Boolean).sort();
+  let items = EDITABLE_PRICES.filter(i => i.name);
+  if (assetTypeFilter) {
+    items = items.filter(i => getEPType(i, '주식') === assetTypeFilter);
+  }
+  const allNames = items.map(i => i.name).sort();
 
   // 계좌 필터가 있으면 해당 계좌에서 거래된 종목만 우선 표시
   let names;
@@ -353,7 +368,7 @@ async function teCodeLookup(code) {
 }
 
 function openAddTrade(prefill, forceTradeType) {
-  _editingTradeId = prefill?.id || null;
+  _editingTradeId = prefill?.id ?? null;
   _teIsNewMode = false;
   _teNewSectorFilter = '';
   _teNewTypeFilter   = '';
@@ -373,11 +388,10 @@ function openAddTrade(prefill, forceTradeType) {
   f('te-tradetype-sell').classList.toggle('active', tradeType === 'sell');
   _teSetTradeType(tradeType);
 
-  _refreshTeAcctList(t.acct);
-  _refreshTeCodeList(t.name, t.code, t.acct);
-
   const _teEp        = getEP(normName(t.name) || t.name);
   const _teAssetType = getEPType(_teEp, t.assetType || t.type || '주식');
+  _refreshTeAcctList(t.acct);
+  _refreshTeCodeList(t.name || '', t.code || '', t.acct || '', _teAssetType);
   // ★ [계좌별 taxType] 계좌 기준으로 구분 표시
   const _teTaxType   = (typeof getAcctTaxType === 'function') ? getAcctTaxType(t.acct) : '일반';
   f('te-assettype').value = _teAssetType;
@@ -402,27 +416,41 @@ function openAddTrade(prefill, forceTradeType) {
     }
   })();
 
-  f('te-qty').value   = t.qty   || '';
-  f('te-price').value = t.price ?? '';
+  f('te-qty').value = t.qty ?? '';
+
+  // 재사용되는 편집창에 직전 거래의 환율·단가가 남지 않도록 먼저 초기화합니다.
+  const currency = (_teEp?.currency || 'KRW').toUpperCase();
+  const isForeign = currency !== 'KRW';
+  const priceWrap = f('te-price-wrap');
+  const fxWrap = f('te-fx-wrap');
+  if (priceWrap) priceWrap.style.display = isForeign ? 'none' : '';
+  if (fxWrap) fxWrap.style.display = isForeign ? '' : 'none';
+  const krwEl = f('te-price-krw');
+  const fxEl = f('te-price-fx');
+  const fxRateEl = f('te-fx-rate');
+  const fxKrwEl = f('te-price-fx-krw');
+  const fxPreview = f('te-fx-preview');
+  if (krwEl) krwEl.value = '';
+  if (fxEl) fxEl.value = '';
+  if (fxRateEl) fxRateEl.value = '';
+  if (fxKrwEl) fxKrwEl.value = '';
+  if (fxPreview) fxPreview.textContent = '';
+
   // ★ [환율 연동] 외화 단가 복원
-  if (t.priceRaw) {
-    const fxEl = $el('te-price-fx');
-    if (fxEl) fxEl.value = t.priceRaw;
-    // hidden에 원화값도 복원
-    const fxKrwEl = $el('te-price-fx-krw');
-    if (fxKrwEl) fxKrwEl.value = t.price || '';
+  if (isForeign) {
+    if (fxEl) fxEl.value = t.priceRaw ?? '';
+    if (fxRateEl) fxRateEl.value = t.fxRateAtBuy ?? '';
+    if (fxKrwEl) fxKrwEl.value = t.price ?? '';
+    const fxLabel = f('te-price-fx-label');
+    if (fxLabel) fxLabel.textContent = `${tradeType === 'sell' ? '매도' : '매수'}단가 (${currency}) *`;
+    if (t.priceRaw != null && t.fxRateAtBuy != null) _teUpdateFxPreview(currency);
   } else {
     // 원화 종목 단가 복원 (콤마 서식 표시)
-    const krwEl = $el('te-price-krw');
     if (krwEl) krwEl.value = t.price != null ? Number(t.price).toLocaleString() : '';
   }
-  if (t.fxRateAtBuy) {
-    const rateEl = $el('te-fx-rate');
-    if (rateEl) rateEl.value = t.fxRateAtBuy;
-  }
-  f('te-date').value  = t.date  || '';
-  f('te-memo').value  = t.memo  || '';
-  f('te-title').textContent       = _editingTradeId ? '거래 수정' : '거래 추가';
+  f('te-date').value = t.date ?? '';
+  f('te-memo').value = t.memo ?? '';
+  f('te-title').textContent       = _editingTradeId != null ? '거래 수정' : '거래 추가';
   f('te-error').style.display     = 'none';
   f('te-code-status').textContent = '';
 }
@@ -583,13 +611,14 @@ function saveTrade() {
     ? parseFloat(f('te-price-fx-krw')?.value || '0')
     : parseFloat((f('te-price-krw')?.value || '0').replace(/,/g, ''));
   const tradeType = window._currentTradeType || 'buy';
+  const isEditing = _editingTradeId != null;
 
   const acctVal = f('te-acct').value;
   if (_teIsNewMode && !acctVal) { err.textContent='❌ 계좌를 선택해주세요'; err.style.display='block'; return; }
   if (!name)                      { err.textContent='❌ 종목명을 선택하세요'; err.style.display='block'; return; }
   // 기초정보 미등록 종목 차단
   const epCheck = getEP(normName(name) || name);
-  if (!epCheck && !_editingTradeId) {
+  if (!epCheck && !isEditing) {
     err.textContent = '❌ 기초정보에 등록되지 않은 종목입니다. 기초정보 탭에서 먼저 등록해주세요';
     err.style.display = 'block'; return;
   }
@@ -612,7 +641,7 @@ function saveTrade() {
   const normN = normName(name) || name;
 
   // 매도 시 현재 보유 수량 초과 체크
-  if (tradeType === 'sell' && !_editingTradeId) {
+  if (tradeType === 'sell' && !isEditing) {
     const acct = acctVal || '';
     // 현재 보유 수량 계산 (해당 계좌, 해당 종목)
     const currentQty = rawTrades
@@ -631,7 +660,7 @@ function saveTrade() {
   }
 
   const trade = {
-    id:        _editingTradeId || genTradeId(),
+    id:        _editingTradeId ?? genTradeId(),
     tradeType,
     acct:      acctVal,
     assetType: f('te-assettype').value,
@@ -651,7 +680,7 @@ function saveTrade() {
 
   if (trade.assetType === '펀드' || trade.assetType === 'TDF') trade.fund = true;
 
-  if (_editingTradeId) {
+  if (isEditing) {
     const idx = rawTrades.findIndex(t => t.id === _editingTradeId);
     if (idx !== -1) rawTrades[idx] = trade;
   } else {
@@ -678,6 +707,7 @@ function saveTrade() {
 }
 
 function editTrade(id) {
-  const t = rawTrades.find(t => t.id === id);
+  // DOM dataset은 항상 문자열이므로 숫자형 레거시 ID도 동일하게 비교합니다.
+  const t = rawTrades.find(t => String(t.id) === String(id));
   if (t) openAddTrade(t);
 }
