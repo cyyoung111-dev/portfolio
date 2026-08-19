@@ -577,7 +577,8 @@ function savePriceCache() {
 }
 
 function _commitTrades() {
-  syncHoldingsFromTrades();
+  // 거래 편집 직후에는 거래이력이 보유현황의 단일 기준이므로 마지막 거래 삭제까지 반영합니다.
+  syncHoldingsFromTrades({ clearWhenEmpty: true });
   saveHoldings();
   refreshAll();
 }

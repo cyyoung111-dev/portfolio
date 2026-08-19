@@ -57,8 +57,15 @@ async function manualSyncByTab(tabId) {
   let ok = false;
   try {
     if (tabId === 'div') {
-      const r1 = await persistDividendSettings(true);
-      ok = !!r1;
+      // 배당 탭 재동기화는 GAS의 마지막 정상 DIVDATA를 현재 브라우저로 다시 받습니다.
+      // 외부 SEIBro/공공데이터/GF 강제 재조회는 별도의 "배당 데이터 갱신" 버튼이 담당합니다.
+      if (typeof _setDividendLinkState === 'function') _setDividendLinkState('syncing', '⏳ GAS 저장 배당 데이터를 다시 받는 중...');
+      const loaded = await loadDividendSettings();
+      ok = !!loaded;
+      if (ok && currentView === 'div') {
+        const area = $el('view-area');
+        if (area) renderDivView(area, true);
+      }
     } else if (tabId === 'asset') {
       const r1 = await persistRealEstateSettings(true);
       ok = !!r1;
@@ -109,9 +116,11 @@ async function manualSyncByTab(tabId) {
 
   if (ok) {
     _setTabSyncStatus(tabId, 'ok');
+    if (tabId === 'div' && typeof _setDividendLinkState === 'function') _setDividendLinkState('ok', '✅ GAS 저장 배당 데이터를 현재 화면에 다시 반영했습니다.');
     showToast('재동기화 완료', 'ok');
   } else {
     _setTabSyncStatus(tabId, 'fail');
+    if (tabId === 'div' && typeof _setDividendLinkState === 'function') _setDividendLinkState('fail', '❌ GAS 배당 데이터 다시 받기에 실패했습니다.');
     showToast('재동기화 실패', 'error');
   }
 }
