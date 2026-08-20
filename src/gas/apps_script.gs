@@ -1,5 +1,51 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.56
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.68
+//
+//  v9.68 변경사항 (2026.08.20):
+//   ✅ [성능]   16:20 자동화는 확정 거래일(T-1) 가격을 한 번만 조회하고 해당 스냅샷만 검증
+//   ✅ [안정성] 당일 가격 중복조회·최근 2일 반복 재작성을 전체 이력 복구로 분리해 자동 실행 타임아웃 완화
+//   ✅ [상태]   자동 생성 성공 시 이전 실패 표시를 정리하고 동일 경로 수동 점검 메뉴 제공
+//
+//  v9.67 변경사항 (2026.08.20):
+//   ✅ [검증]   수동 정합성 복구 대상을 최근 2일이 아닌 전체 가격이력 날짜로 확대
+//   ✅ [안정성] 전체 날짜를 소량 배치·시간 트리거로 이어서 처리해 Spreadsheet 타임아웃 방지
+//   ✅ [가시성] 전체 복구 진행상황·재작성·일치·자료없음·실패 건수 확인 메뉴 추가
+//
+//  v9.66 변경사항 (2026.08.20):
+//   ✅ [성능]   수동 스냅샷 정합성 복구에서 KRX·GOOGLEFINANCE 재조회와 당일 종가 갱신을 제외
+//   ✅ [안정성] 기존 가격이력만으로 최근 2거래일을 재작성해 Spreadsheet 서비스 타임아웃 완화
+//
+//  v9.65 변경사항 (2026.08.20):
+//   ✅ [정확성] 스냅샷 날짜를 실행일이 아닌 실제 확정 종가 거래일(T-1)에 맞춰 저장
+//   ✅ [복구]   최근 2개 확정 거래일 스냅샷을 함께 검증해 하루 밀린 기존 자료와 누락일 자동 보완
+//   ✅ [정확성] 과거 GOOGLEFINANCE 범위 조회에서 첫 행이 아닌 요청일까지의 마지막 종가 선택
+//
+//  v9.64 변경사항 (2026.08.19):
+//   ✅ [성능]   손익 그래프 비교지수 5개를 단일 GAS 요청·단일 임시 시트로 일괄 조회
+//
+//  v9.63 변경사항 (2026.08.18):
+//   ✅ [자동화] 배당 탭 요청으로 SEIBro ETF를 일 1회 검증·증분 갱신하고 최신 데이터 반환
+//
+//  v9.62 변경사항 (2026.08.18):
+//   ✅ [보호]   구버전 웹의 공공데이터/GF 저장이 SEIBro ETF DIVDATA를 덮어쓰지 않도록 서버 병합
+//
+//  v9.61 변경사항 (2026.08.18):
+//   ✅ [저장]   전체 검증 성공 후 ETF분배금이력과 DIVDATA를 잠금 안에서 함께 증분 갱신
+//   ✅ [보존]   기존 이력과 MANUAL 배당 이벤트를 보존하고 실패 시 저장 전 상태로 복구
+//
+//  v9.60 변경사항 (2026.08.18):
+//   ✅ [사용성] 2단계 드라이런 결과를 동적 대상 종목 수에 맞춰 여러 창으로 나누어 모두 표시
+//
+//  v9.59 변경사항 (2026.08.18):
+//   ✅ [드라이런] SEIBro 전체 분배금 행의 TTM 합계와 DIVDATA 증분 병합안을 저장 없이 비교
+//   ✅ [사용성]   스프레드시트 메뉴에서 2단계 드라이런을 실행하고 신규·정정·유지 건수 표시
+//
+//  v9.58 변경사항 (2026.08.18):
+//   ✅ [사용성] 스프레드시트 메뉴에서 SEIBro ETF 읽기 전용 진단을 한 번에 실행하고 결과 요약 표시
+//
+//  v9.57 변경사항 (2026.08.18):
+//   ✅ [진단]   보유현황·TTM 거래이력에서 ETF를 동적 선정해 SEIBro 검색·분배금 XML을 읽기 전용 검증
+//   ✅ [안전]   diagnoseEtfDividends는 시트와 DIVDATA를 수정하지 않고 종목별 오류 상태와 원문만 반환
 //
 //  v9.56 변경사항 (2026.08.18):
 //   ✅ [복구]   Settings 저장 실패 시 종목코드 시트의 유형·섹터·통화로 기초정보 복원 지원
@@ -373,6 +419,7 @@ var CONFIG = {
   SHEET_PH:       '가격이력',
   SHEET_HOLD:     '보유현황',
   SHEET_TRADES:   '거래이력',
+  SHEET_ETF_DIVIDENDS: 'ETF분배금이력',
   SHEET_SYNC_LOG: '동기화로그',
   SHEET_TMP:      '_gf_tmp',
   SHEET_SETTINGS: '설정',
@@ -416,11 +463,13 @@ function getss() {
 // ════════════════════════════════════════════════════════════════════
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
+  if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, params.serviceKey || '');
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
+  if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes);
   if (params.action === 'dividend') {
@@ -442,7 +491,7 @@ function doGet(e) {
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
       params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
-      params.action === 'repairSnapshots') {
+      params.action === 'repairSnapshots' || params.action === 'refreshEtfDividends') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -472,6 +521,7 @@ function doPost(e) {
   if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data);
   if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
   if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
+  if (params.action === 'refreshEtfDividends') return handleRefreshEtfDividends(params.force || '');
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
@@ -610,8 +660,8 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
         return ['=IFERROR(GOOGLEFINANCE(' + krx + ',"price"),' +
                 'IFERROR(GOOGLEFINANCE(' + kosdaq + ',"price"),"-"))'];
       } else {
-        return ['=IFERROR(INDEX(GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),' +
-                'IFERROR(INDEX(GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),"-"))'];
+        return ['=IFERROR(LET(x,GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),INDEX(x,ROWS(x),2)),' +
+                'IFERROR(LET(x,GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),INDEX(x,ROWS(x),2)),"-"))'];
       }
     });
 
@@ -1747,6 +1797,554 @@ function handleDividendFetch(codes) {
 }
 
 // ════════════════════════════════════════════════════════════════════
+//  SEIBro ETF 분배금 읽기 전용 진단
+//  HAR에서 확인한 실제 요청만 사용하며 시트/DIVDATA를 변경하지 않습니다.
+// ════════════════════════════════════════════════════════════════════
+var SEIBRO_ETF_ENDPOINT = 'https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp';
+
+function _seibroXmlEscape(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/\x22/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function _seibroXmlValue(xml, tag) {
+  var match = String(xml || '').match(new RegExp('<' + tag + '\\s+value="([^"]*)"\\s*\\/>'));
+  return match ? match[1] : '';
+}
+
+function _seibroVectorCount(xml) {
+  var match = String(xml || '').match(new RegExp('<vector\\b[^>]*\\bresult="(\\d+)"'));
+  return match ? parseInt(match[1], 10) : null;
+}
+
+function _seibroPaymentEvents(xml) {
+  var events = [];
+  var resultPattern = /<result>([\s\S]*?)<\/result>/g;
+  var match;
+  while ((match = resultPattern.exec(String(xml || ''))) !== null) {
+    var block = match[1];
+    var dateRaw = _seibroXmlValue(block, 'RGT_STD_DT');
+    var payDateRaw = _seibroXmlValue(block, 'TH1_PAY_TERM_BEGIN_DT');
+    var amountRaw = _seibroXmlValue(block, 'ESTM_STDPRC');
+    var date = dateRaw && dateRaw.length === 8 ? dateRaw.slice(0, 4) + '-' + dateRaw.slice(4, 6) + '-' + dateRaw.slice(6, 8) : '';
+    var payDate = payDateRaw && payDateRaw.length === 8 ? payDateRaw.slice(0, 4) + '-' + payDateRaw.slice(4, 6) + '-' + payDateRaw.slice(6, 8) : '';
+    var amount = parseFloat(amountRaw);
+    if (!date || !isFinite(amount) || amount <= 0) continue;
+    events.push({ date: date, payDate: payDate, amount: amount, source: 'SEIBRO' });
+  }
+  events.sort(function(a, b) { return a.date.localeCompare(b.date) || a.payDate.localeCompare(b.payDate); });
+  return events;
+}
+
+function _seibroDateParam(value, fallbackDate) {
+  var normalized = _normalizeDate(value || fallbackDate);
+  if (!normalized) return '';
+  return normalized.replace(/-/g, '');
+}
+
+function _seibroTtmStartDate(toDate) {
+  var parts = String(toDate || '').split('-').map(function(v) { return parseInt(v, 10); });
+  if (parts.length !== 3 || parts.some(function(v) { return !isFinite(v); })) return '';
+  var date = new Date(Date.UTC(parts[0] - 1, parts[1] - 1, parts[2]));
+  return Utilities.formatDate(date, 'UTC', 'yyyy-MM-dd');
+}
+
+function _getEtfDividendDiagnosticTargets(ss, fromDate, toDate) {
+  var targets = {};
+  var add = function(rawCode, name, reason) {
+    var code = _cleanCode(rawCode);
+    if (!code) return;
+    if (!targets[code]) targets[code] = { code: code, name: String(name || ''), reasons: [] };
+    if (name && !targets[code].name) targets[code].name = String(name);
+    if (targets[code].reasons.indexOf(reason) === -1) targets[code].reasons.push(reason);
+  };
+
+  var holdings = ss.getSheetByName(CONFIG.SHEET_HOLD);
+  if (holdings && holdings.getLastRow() >= 2) {
+    var holdCols = Math.max(holdings.getLastColumn(), 7);
+    var holdRows = holdings.getRange(2, 1, holdings.getLastRow() - 1, holdCols).getValues();
+    var qtyByCode = {};
+    var holdMeta = {};
+    holdRows.forEach(function(row) {
+      var isNew = row.length >= 7;
+      var assetType = String(isNew ? row[5] : row[4] || '').trim().toUpperCase();
+      var code = _cleanCode(row[0]);
+      if (assetType !== 'ETF' || !code) return;
+      qtyByCode[code] = (qtyByCode[code] || 0) + (parseFloat(row[2]) || 0);
+      holdMeta[code] = { name: String(row[1] || '') };
+    });
+    Object.keys(qtyByCode).forEach(function(code) {
+      if (qtyByCode[code] > 0) add(code, holdMeta[code].name, 'CURRENT_HOLDING');
+    });
+  }
+
+  var trades = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (trades && trades.getLastRow() >= 2) {
+    var tradeCols = Math.max(trades.getLastColumn(), 9);
+    trades.getRange(2, 1, trades.getLastRow() - 1, tradeCols).getValues().forEach(function(row) {
+      var assetType = String(row[7] || '').trim().toUpperCase();
+      if (assetType !== 'ETF') return;
+      var date = _normalizeDate(row[0]);
+      if (!date || date < fromDate || date > toDate) return;
+      add(row[4], row[3], 'TTM_TRADE');
+    });
+  }
+  return Object.keys(targets).sort().map(function(code) { return targets[code]; });
+}
+
+function _seibroSearchRequest(target) {
+  return {
+    url: SEIBRO_ETF_ENDPOINT,
+    method: 'post',
+    contentType: 'application/xml; charset=UTF-8',
+    headers: {
+      Origin: 'https://seibro.or.kr',
+      Referer: 'https://seibro.or.kr/websquare/control.jsp?w2xPath=/IPORTAL/user/etc/BIP_CMUC01039P.xml&ret_code_nm=INPUT_SN2&ret_code=INPUT_SN1',
+      submissionid: 'submission_contentList'
+    },
+    payload: '<reqParam action="searchEtfContentList" task="ksd.safe.bip.cmuc.User.process.SearchPTask"><search_string value="' + _seibroXmlEscape(target.code) + '"/></reqParam>',
+    muteHttpExceptions: true
+  };
+}
+
+function _seibroPaymentRequest(isin, fromParam, toParam) {
+  var body = '<reqParam action="exerInfoDtramtPayStatPlist" task="ksd.safe.bip.cnts.etf.process.EtfExerInfoPTask">' +
+    '<MENU_NO value="179"/><CMM_BTN_ABBR_NM value="total_search,openall,print,hwp,word,pdf,searchIcon,searchIcon,seach,searchIcon,seach,"/>' +
+    '<W2XPATH value="/IPORTAL/user/etf/BIP_CNTS06030V.xml"/><etf_sort_level_cd value="0"/><etf_big_sort_cd value=""/>' +
+    '<START_PAGE value="1"/><END_PAGE value="30"/><etf_sort_cd value=""/><isin value="' + _seibroXmlEscape(isin) + '"/>' +
+    '<mngco_custno value=""/><RGT_RSN_DTAIL_SORT_CD value=""/><fromRGT_STD_DT value="' + fromParam + '"/><toRGT_STD_DT value="' + toParam + '"/></reqParam>';
+  return {
+    url: SEIBRO_ETF_ENDPOINT,
+    method: 'post',
+    contentType: 'application/xml; charset=UTF-8',
+    headers: {
+      Origin: 'https://seibro.or.kr',
+      Referer: 'https://seibro.or.kr/websquare/control.jsp?w2xPath=/IPORTAL/user/etf/BIP_CNTS06030V.xml&menuNo=179',
+      submissionid: 'submission_exerInfoDtramtPayStatPlist'
+    },
+    payload: body,
+    muteHttpExceptions: true
+  };
+}
+
+function handleDiagnoseEtfDividends(fromInput, toInput, rawInput) {
+  try {
+    var toDate = _normalizeDate(toInput) || today();
+    var fromDate = _normalizeDate(fromInput) || _seibroTtmStartDate(toDate);
+    if (!fromDate || !toDate || fromDate > toDate) return jsonError('SEIBro 진단 날짜 범위를 확인해주세요.');
+    var targets = _getEtfDividendDiagnosticTargets(getss(), fromDate, toDate);
+    if (!targets.length) return jsonOk({ readOnly: true, from: fromDate, to: toDate, targetCount: 0, results: [] });
+    var includeRaw = String(rawInput || '') === '1';
+    var searchResponses = UrlFetchApp.fetchAll(targets.map(_seibroSearchRequest));
+    var results = targets.map(function(target, index) {
+      var response = searchResponses[index];
+      var xml = response.getContentText('UTF-8');
+      var row = { code: target.code, portfolioName: target.name, reasons: target.reasons, status: 'OK' };
+      if (includeRaw) row.searchXml = xml;
+      if (response.getResponseCode() !== 200) {
+        row.status = 'REQUEST_ERROR'; row.error = 'search HTTP ' + response.getResponseCode(); return row;
+      }
+      if (xml.indexOf('<?xml') !== 0 && xml.trim().indexOf('<?xml') !== 0) {
+        row.status = 'PARSE_ERROR'; row.error = 'search XML 선언 없음'; return row;
+      }
+      row.isin = _seibroXmlValue(xml, 'ISIN');
+      row.seibroName = _seibroXmlValue(xml, 'KOR_SECN_NM');
+      if (!row.isin || !row.seibroName) {
+        row.status = 'NOT_FOUND'; row.error = '검색 결과 없음'; return row;
+      }
+      if (!/^KR[A-Z0-9]{10}$/.test(row.isin)) {
+        row.status = 'MAPPING_ERROR'; row.error = 'ISIN 형식 오류'; return row;
+      }
+      return row;
+    });
+
+    var payable = results.filter(function(row) { return row.status === 'OK'; });
+    if (payable.length) {
+      var fromParam = _seibroDateParam(fromDate, fromDate);
+      var toParam = _seibroDateParam(toDate, toDate);
+      var paymentResponses = UrlFetchApp.fetchAll(payable.map(function(row) { return _seibroPaymentRequest(row.isin, fromParam, toParam); }));
+      payable.forEach(function(row, index) {
+        var response = paymentResponses[index];
+        var xml = response.getContentText('UTF-8');
+        if (includeRaw) row.paymentXml = xml;
+        if (response.getResponseCode() !== 200) {
+          row.status = 'REQUEST_ERROR'; row.error = 'payment HTTP ' + response.getResponseCode(); return;
+        }
+        var count = _seibroVectorCount(xml);
+        if (count === null) {
+          row.status = 'PARSE_ERROR'; row.error = '분배금 건수 파싱 실패'; return;
+        }
+        if (count === 0) {
+          row.status = 'NOT_FOUND'; row.error = '분배금 내역 없음'; return;
+        }
+        var paymentIsin = _seibroXmlValue(xml, 'ISIN');
+        if (paymentIsin !== row.isin) {
+          row.status = 'MAPPING_ERROR'; row.error = '검색/분배금 ISIN 불일치'; return;
+        }
+        row.paymentCount = count;
+        row.firstRecordDate = _seibroXmlValue(xml, 'RGT_STD_DT');
+        row.firstPayDate = _seibroXmlValue(xml, 'TH1_PAY_TERM_BEGIN_DT');
+        row.firstEstmStdprc = _seibroXmlValue(xml, 'ESTM_STDPRC');
+        row.events = _seibroPaymentEvents(xml);
+        row.ttmPerShare = row.events.reduce(function(sum, event) { return sum + event.amount; }, 0);
+        row.months = row.events.map(function(event) { return parseInt((event.payDate || event.date).slice(5, 7), 10); })
+          .filter(function(month, pos, all) { return month >= 1 && month <= 12 && all.indexOf(month) === pos; })
+          .sort(function(a, b) { return a - b; });
+        row.freq = row.events.length >= 10 ? '월배당' : row.events.length >= 4 ? '분기' : row.events.length >= 2 ? '반기' : '연간';
+        if (!row.firstRecordDate || !row.firstEstmStdprc || row.events.length !== count) {
+          row.status = 'PARSE_ERROR'; row.error = '분배금 필수 필드 없음';
+        }
+      });
+    }
+    var counts = { OK: 0, NOT_FOUND: 0, REQUEST_ERROR: 0, PARSE_ERROR: 0, MAPPING_ERROR: 0 };
+    results.forEach(function(row) { counts[row.status] = (counts[row.status] || 0) + 1; });
+    return jsonOk({ readOnly: true, wroteSheets: false, wroteDivData: false, from: fromDate, to: toDate, targetCount: targets.length, counts: counts, results: results });
+  } catch(err) {
+    return jsonError('SEIBro ETF 읽기 전용 진단 실패: ' + err.message);
+  }
+}
+
+function _seibroEventKey(event) {
+  return String(event.date || '').slice(0, 10) + '|' + String(event.payDate || '').slice(0, 10);
+}
+
+function _buildEtfDividendDryRun(diagnostic, divData) {
+  var summary = { targets: diagnostic.targetCount || 0, events: 0, newEvents: 0, correctedEvents: 0, unchangedEvents: 0, changedDivData: 0 };
+  var comparisons = [];
+  (diagnostic.results || []).forEach(function(row) {
+    if (row.status !== 'OK') return;
+    var previous = divData[row.code] || {};
+    var previousByKey = {};
+    (Array.isArray(previous.events) ? previous.events : []).forEach(function(event) { previousByKey[_seibroEventKey(event)] = event; });
+    var proposedEvents = (row.events || []).map(function(event) {
+      var old = previousByKey[_seibroEventKey(event)];
+      summary.events++;
+      if (!old) summary.newEvents++;
+      else if (Number(old.amount || 0) !== Number(event.amount || 0)) summary.correctedEvents++;
+      else summary.unchangedEvents++;
+      return event;
+    });
+    var proposed = {
+      perShare: proposedEvents.length ? Number((row.ttmPerShare / proposedEvents.length).toFixed(4)) : 0,
+      ttmPerShare: Number(Number(row.ttmPerShare || 0).toFixed(4)),
+      freq: row.freq,
+      months: row.months,
+      count: proposedEvents.length,
+      events: proposedEvents,
+      source: 'SEIBRO',
+      listedName: row.seibroName,
+      isin: row.isin
+    };
+    var changed = JSON.stringify({ perShare: Number(previous.perShare || 0), freq: previous.freq || '-', months: previous.months || [], events: previous.events || [] }) !==
+      JSON.stringify({ perShare: proposed.perShare, freq: proposed.freq, months: proposed.months, events: proposed.events });
+    if (changed) summary.changedDivData++;
+    comparisons.push({
+      code: row.code,
+      name: row.portfolioName,
+      isin: row.isin,
+      status: row.status,
+      existingPerShare: Number(previous.perShare || 0),
+      proposedPerShare: proposed.perShare,
+      ttmPerShare: proposed.ttmPerShare,
+      eventCount: proposed.count,
+      changed: changed,
+      proposed: proposed
+    });
+  });
+  return { readOnly: true, wroteSheets: false, wroteDivData: false, summary: summary, comparisons: comparisons };
+}
+
+function handleDryRunEtfDividends(fromInput, toInput) {
+  try {
+    var output = handleDiagnoseEtfDividends(fromInput || '', toInput || '', '');
+    var diagnostic = JSON.parse(output.getContent());
+    if (diagnostic.status !== 'ok') return jsonError(diagnostic.message || 'SEIBro 진단 실패');
+    var failed = (diagnostic.results || []).filter(function(row) { return row.status !== 'OK'; });
+    if (failed.length) return jsonOk({ readOnly: true, wroteSheets: false, wroteDivData: false, blocked: true, counts: diagnostic.counts, results: diagnostic.results });
+    var settings = _readSettingsMap();
+    var dryRun = _buildEtfDividendDryRun(diagnostic, settings.DIVDATA || {});
+    return jsonOk(Object.assign({ blocked: false, from: diagnostic.from, to: diagnostic.to }, dryRun));
+  } catch(err) {
+    return jsonError('SEIBro ETF 2단계 드라이런 실패: ' + err.message);
+  }
+}
+
+function runEtfDividendDryRun() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    ui.alert('SEIBro ETF 2단계 드라이런', '분배금 전체 행과 TTM 계산안을 기존 DIVDATA와 비교합니다.\n시트와 배당 데이터는 수정하지 않습니다.', ui.ButtonSet.OK);
+    var data = JSON.parse(handleDryRunEtfDividends('', '').getContent());
+    if (data.status !== 'ok') throw new Error(data.message || '드라이런 응답 오류');
+    if (data.blocked) throw new Error('1단계 오류가 있어 드라이런이 중단됐습니다: ' + JSON.stringify(data.counts || {}));
+    var summary = data.summary || {};
+    var comparisons = data.comparisons || [];
+    var lines = [
+      '대상 ETF: ' + (summary.targets || 0) + '개',
+      '분배금 행: ' + (summary.events || 0) + '건',
+      '신규: ' + (summary.newEvents || 0) + '건',
+      '정정: ' + (summary.correctedEvents || 0) + '건',
+      '기존 일치: ' + (summary.unchangedEvents || 0) + '건',
+      'DIVDATA 변경 예상: ' + (summary.changedDivData || 0) + '종목',
+      '', '시트 수정: 없음', 'DIVDATA 수정: 없음'
+    ];
+    Logger.log('[SEIBro ETF 2단계 드라이런] ' + JSON.stringify(data));
+    ui.alert('✅ SEIBro ETF 2단계 드라이런 완료', lines.join('\n'), ui.ButtonSet.OK);
+    var pageSize = 10;
+    var pageCount = Math.ceil(comparisons.length / pageSize);
+    for (var page = 0; page < pageCount; page++) {
+      var start = page * pageSize;
+      var detailLines = comparisons.slice(start, start + pageSize).map(function(row) {
+        return '- ' + row.code + ' ' + row.name + ': TTM ' + row.ttmPerShare + '원 / ' + row.eventCount + '건 / ' +
+          (row.changed ? '변경 예상' : '기존 일치');
+      });
+      ui.alert(
+        'TTM 전체 종목 확인 (' + (page + 1) + '/' + pageCount + ')',
+        '전체 ' + comparisons.length + '종목 중 ' + (start + 1) + '~' + (start + detailLines.length) + '번째\n\n' + detailLines.join('\n'),
+        ui.ButtonSet.OK
+      );
+    }
+    return data;
+  } catch(err) {
+    Logger.log('[SEIBro ETF 2단계 드라이런 실패] ' + err.message);
+    ui.alert('❌ SEIBro ETF 2단계 드라이런 실패', err.message + '\n\n시트와 배당 데이터는 수정되지 않았습니다.', ui.ButtonSet.OK);
+    return { status: 'error', message: err.message, readOnly: true };
+  }
+}
+
+function _etfDividendHistoryKey(row) {
+  return _cleanCode(row.code) + '|' + String(row.isin || '') + '|' + String(row.date || '').slice(0, 10) + '|' + String(row.payDate || '').slice(0, 10);
+}
+
+function _readEtfDividendHistory(sheet) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 8).getValues().map(function(row) {
+    return {
+      code: _cleanCode(row[0]), isin: String(row[1] || ''), name: String(row[2] || ''),
+      date: _normalizeDate(row[3]), payDate: _normalizeDate(row[4]), amount: Number(row[5] || 0),
+      collectedAt: row[6], source: String(row[7] || '')
+    };
+  }).filter(function(row) { return row.code && row.isin && row.date && row.amount > 0; });
+}
+
+function _mergeEtfDividendHistory(existing, comparisons, collectedAt) {
+  var byKey = {};
+  (existing || []).forEach(function(row) { byKey[_etfDividendHistoryKey(row)] = row; });
+  var summary = { added: 0, corrected: 0, unchanged: 0 };
+  (comparisons || []).forEach(function(comparison) {
+    (comparison.proposed.events || []).forEach(function(event) {
+      var incoming = {
+        code: _cleanCode(comparison.code), isin: comparison.isin, name: comparison.name,
+        date: event.date, payDate: event.payDate, amount: Number(event.amount),
+        collectedAt: collectedAt, source: 'SEIBRO'
+      };
+      var key = _etfDividendHistoryKey(incoming);
+      var previous = byKey[key];
+      if (!previous) summary.added++;
+      else if (Number(previous.amount) !== incoming.amount) summary.corrected++;
+      else summary.unchanged++;
+      byKey[key] = incoming;
+    });
+  });
+  var rows = Object.keys(byKey).map(function(key) { return byKey[key]; });
+  rows.sort(function(a, b) { return a.code.localeCompare(b.code) || a.date.localeCompare(b.date) || a.payDate.localeCompare(b.payDate); });
+  return { rows: rows, summary: summary };
+}
+
+function _mergeSeibroDivData(existingDivData, comparisons, updatedAt) {
+  var merged = JSON.parse(JSON.stringify(existingDivData || {}));
+  (comparisons || []).forEach(function(comparison) {
+    var previous = merged[comparison.code] || {};
+    var manualByKey = {};
+    (Array.isArray(previous.events) ? previous.events : []).forEach(function(event) {
+      if (String(event.source || '').toUpperCase() === 'MANUAL') manualByKey[_seibroEventKey(event)] = event;
+    });
+    var events = (comparison.proposed.events || []).filter(function(event) {
+      return !manualByKey[_seibroEventKey(event)];
+    });
+    Object.keys(manualByKey).forEach(function(key) { events.push(manualByKey[key]); });
+    events.sort(function(a, b) { return String(a.date).localeCompare(String(b.date)) || String(a.payDate).localeCompare(String(b.payDate)); });
+    var seibroEvents = events.filter(function(event) { return String(event.source || '').toUpperCase() !== 'MANUAL'; });
+    merged[comparison.code] = Object.assign({}, previous, comparison.proposed, {
+      events: events,
+      ttmPerShare: Number(seibroEvents.reduce(function(sum, event) { return sum + Number(event.amount || 0); }, 0).toFixed(4)),
+      updatedAt: updatedAt,
+      note: 'SEIBro ETF 분배금 이력 기준'
+    });
+  });
+  return merged;
+}
+
+function _writeEtfDividendHistory(sheet, rows) {
+  var header = ['종목코드','ISIN','종목명','기준일','지급일','주당분배금','수집일시','원본소스'];
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, header.length).setValues([header])
+    .setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  if (rows.length) {
+    sheet.getRange(2, 1, rows.length, 8).setValues(rows.map(function(row) {
+      return [row.code, row.isin, row.name, row.date, row.payDate, row.amount, row.collectedAt, row.source];
+    }));
+    sheet.getRange(2, 1, rows.length, 1).setNumberFormat('@');
+  }
+}
+
+function handleApplyEtfDividends() {
+  var diagnosticOutput = handleDiagnoseEtfDividends('', '', '');
+  var diagnostic = JSON.parse(diagnosticOutput.getContent());
+  if (diagnostic.status !== 'ok') return jsonError(diagnostic.message || 'SEIBro 진단 실패');
+  var failed = (diagnostic.results || []).filter(function(row) { return row.status !== 'OK'; });
+  if (failed.length) return jsonError('전체 검증 실패로 저장하지 않았습니다: ' + JSON.stringify(diagnostic.counts || {}));
+
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  var ss = getss();
+  var sheet = null;
+  var createdSheet = false;
+  var oldSheetValues = null;
+  var oldSettings = null;
+  try {
+    lock.waitLock(30000); locked = true;
+    oldSettings = _readSettingsMap();
+    var dryRun = _buildEtfDividendDryRun(diagnostic, oldSettings.DIVDATA || {});
+    if ((dryRun.comparisons || []).length !== diagnostic.targetCount) throw new Error('저장 대상 종목 수 불일치');
+
+    sheet = ss.getSheetByName(CONFIG.SHEET_ETF_DIVIDENDS);
+    if (sheet) {
+      oldSheetValues = sheet.getDataRange().getValues();
+    } else {
+      sheet = ss.insertSheet(CONFIG.SHEET_ETF_DIVIDENDS);
+      createdSheet = true;
+    }
+    var existingHistory = _readEtfDividendHistory(sheet);
+    var updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, "yyyy-MM-dd'T'HH:mm:ssXXX");
+    var history = _mergeEtfDividendHistory(existingHistory, dryRun.comparisons, updatedAt);
+    var nextSettings = JSON.parse(JSON.stringify(oldSettings));
+    nextSettings.DIVDATA = _mergeSeibroDivData(oldSettings.DIVDATA || {}, dryRun.comparisons, updatedAt);
+
+    _writeEtfDividendHistory(sheet, history.rows);
+    _writeSettingsMap(nextSettings);
+    SpreadsheetApp.flush();
+    return jsonOk({
+      saved: true, targetCount: diagnostic.targetCount, historyRows: history.rows.length,
+      added: history.summary.added, corrected: history.summary.corrected, unchanged: history.summary.unchanged,
+      wroteSheets: true, wroteDivData: true, updatedAt: updatedAt
+    });
+  } catch(err) {
+    try {
+      if (oldSettings) _writeSettingsMap(oldSettings);
+      if (createdSheet && sheet) ss.deleteSheet(sheet);
+      else if (sheet && oldSheetValues) {
+        sheet.clearContents();
+        if (oldSheetValues.length && oldSheetValues[0].length) sheet.getRange(1, 1, oldSheetValues.length, oldSheetValues[0].length).setValues(oldSheetValues);
+      }
+      SpreadsheetApp.flush();
+    } catch(rollbackError) {
+      return jsonError('3단계 저장 실패 및 복구 실패: ' + err.message + ' / ' + rollbackError.message);
+    }
+    return jsonError('3단계 저장 실패, 저장 전 상태로 복구했습니다: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function _isEtfDividendRefreshCurrent(settings, targets, dateStr) {
+  var divData = (settings && settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {};
+  return targets.length > 0 && targets.every(function(target) {
+    var row = divData[target.code];
+    return row
+      && String(row.source || '').toUpperCase() === 'SEIBRO'
+      && Array.isArray(row.events) && row.events.length > 0
+      && String(row.updatedAt || '').slice(0, 10) === dateStr;
+  });
+}
+
+function handleRefreshEtfDividends(forceInput) {
+  try {
+    var toDate = today();
+    var fromDate = _seibroTtmStartDate(toDate);
+    var targets = _getEtfDividendDiagnosticTargets(getss(), fromDate, toDate);
+    var settings = _readSettingsMap();
+    if (!targets.length) return jsonOk({ refreshed: false, skipped: true, reason: 'NO_TARGETS', targetCount: 0, divData: settings.DIVDATA || {} });
+    var force = String(forceInput || '') === '1';
+    if (!force && _isEtfDividendRefreshCurrent(settings, targets, toDate)) {
+      return jsonOk({
+        refreshed: false, skipped: true, reason: 'TODAY_ALREADY_UPDATED',
+        targetCount: targets.length, divData: settings.DIVDATA || {}
+      });
+    }
+    var output = handleApplyEtfDividends();
+    var result = JSON.parse(output.getContent());
+    if (result.status !== 'ok') return jsonError(result.message || 'SEIBro ETF 자동 갱신 실패');
+    var refreshedSettings = _readSettingsMap();
+    return jsonOk(Object.assign({}, result, {
+      refreshed: true, skipped: false, divData: refreshedSettings.DIVDATA || {}
+    }));
+  } catch(err) {
+    return jsonError('SEIBro ETF 자동 갱신 실패: ' + err.message);
+  }
+}
+
+function runEtfDividendApply() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert(
+    'SEIBro ETF 3단계 운영 반영',
+    '전체 SEIBro 검증을 다시 실행한 뒤 오류가 0건일 때만 ETF분배금이력 시트와 DIVDATA를 갱신합니다.\n기존 이력과 MANUAL 이벤트는 보존됩니다.\n\n계속하시겠습니까?',
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return { status: 'cancelled' };
+  var data = JSON.parse(handleApplyEtfDividends().getContent());
+  if (data.status !== 'ok') {
+    ui.alert('❌ SEIBro ETF 3단계 반영 실패', data.message || '알 수 없는 오류', ui.ButtonSet.OK);
+    return data;
+  }
+  ui.alert('✅ SEIBro ETF 3단계 반영 완료', [
+    '대상 ETF: ' + data.targetCount + '개',
+    '이력 전체: ' + data.historyRows + '건',
+    '신규: ' + data.added + '건',
+    '정정: ' + data.corrected + '건',
+    '기존 일치: ' + data.unchanged + '건',
+    '', 'ETF분배금이력 수정: 완료', 'DIVDATA 수정: 완료'
+  ].join('\n'), ui.ButtonSet.OK);
+  return data;
+}
+
+function runEtfDividendDiagnosis() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    ui.alert('SEIBro ETF 읽기 전용 진단', '현재 보유현황과 최근 1년 거래이력의 ETF를 조회합니다.\n시트와 배당 데이터는 수정하지 않습니다.\n\n조회에 잠시 시간이 걸릴 수 있습니다.', ui.ButtonSet.OK);
+    var output = handleDiagnoseEtfDividends('', '', '');
+    var data = JSON.parse(output.getContent());
+    if (data.status !== 'ok') throw new Error(data.message || '진단 응답 오류');
+    var counts = data.counts || {};
+    var failures = (data.results || []).filter(function(row) { return row.status !== 'OK'; });
+    var lines = [
+      '조회 대상: ' + (data.targetCount || 0) + '개',
+      '정상: ' + (counts.OK || 0) + '개',
+      'NOT_FOUND: ' + (counts.NOT_FOUND || 0),
+      'REQUEST_ERROR: ' + (counts.REQUEST_ERROR || 0),
+      'PARSE_ERROR: ' + (counts.PARSE_ERROR || 0),
+      'MAPPING_ERROR: ' + (counts.MAPPING_ERROR || 0),
+      '',
+      '시트 수정: 없음',
+      'DIVDATA 수정: 없음'
+    ];
+    if (failures.length) {
+      lines.push('', '확인이 필요한 종목:');
+      failures.slice(0, 15).forEach(function(row) {
+        lines.push('- ' + row.code + ' ' + (row.portfolioName || '') + ': ' + row.status + (row.error ? ' (' + row.error + ')' : ''));
+      });
+      if (failures.length > 15) lines.push('- 외 ' + (failures.length - 15) + '개');
+    }
+    Logger.log('[SEIBro ETF 진단] ' + JSON.stringify(data));
+    ui.alert(failures.length ? '⚠️ SEIBro ETF 진단 확인 필요' : '✅ SEIBro ETF 진단 성공', lines.join('\n'), ui.ButtonSet.OK);
+    return data;
+  } catch(err) {
+    Logger.log('[SEIBro ETF 진단 실패] ' + err.message);
+    ui.alert('❌ SEIBro ETF 진단 실패', err.message + '\n\n시트와 배당 데이터는 수정되지 않았습니다.', ui.ButtonSet.OK);
+    return { status: 'error', message: err.message, readOnly: true };
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
 //  getPrices — 가격이력 캐시 우선, 없으면 GOOGLEFINANCE
 // ════════════════════════════════════════════════════════════════════
 function handleGetPricesCompat(codesParam) {
@@ -1950,6 +2548,18 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
   }
 }
 
+function _benchmarkSymbolMap() {
+  return {
+    KOSPI: ['INDEXKRX:KOSPI', 'KRX:KOSPI', 'INDEXKRX:KOSPI200'],
+    KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
+    SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
+    DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
+    NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
+    NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
+    VKOSPI: []
+  };
+}
+
 function handleGetBenchmark(benchmark, fromStr, toStr) {
   try {
     var ss = getss();
@@ -1959,17 +2569,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
       var t = fromDate; fromDate = toDate; toDate = t;
     }
 
-    var map = {
-      KOSPI: ['INDEXKRX:KOSPI', 'KRX:KOSPI', 'INDEXKRX:KOSPI200'],
-      // ★ KOSDAQ 종합지수는 GOOGLEFINANCE 미지원 → KODEX코스닥150(229200) ETF로 근사 대체
-      KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
-      SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
-      DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
-      NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
-      NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
-      // VKOSPI는 아래 KRX Open API 전용 경로로 조회합니다.
-      VKOSPI: []
-    };
+    var map = _benchmarkSymbolMap();
     var key = (benchmark || '').toString().trim().toUpperCase();
     var symbols = map[key];
     if (!symbols) return jsonError('지원하지 않는 비교지수: ' + benchmark);
@@ -1997,6 +2597,74 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
     return jsonOk({ benchmark: key, symbol: usedSymbol, points: points });
   } catch(err) {
     return jsonError('getBenchmark 실패: ' + err.message);
+  }
+}
+
+function handleGetBenchmarks(benchmarksInput, fromStr, toStr) {
+  try {
+    var map = _benchmarkSymbolMap();
+    var requested = String(benchmarksInput || '').split(',').map(function(value) {
+      return value.trim().toUpperCase();
+    }).filter(function(value, index, all) {
+      return value && value !== 'VKOSPI' && map[value] && all.indexOf(value) === index;
+    });
+    if (!requested.length) return jsonError('조회할 비교지수가 없습니다.');
+
+    var fromDate = _normalizeDate(fromStr || '') || '2024-01-01';
+    var toDate = _normalizeDate(toStr || '') || today();
+    if (fromDate > toDate) { var swap = fromDate; fromDate = toDate; toDate = swap; }
+
+    var cache = CacheService.getScriptCache();
+    var cacheKey = 'benchmarks_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+    var cached = cache.get(cacheKey);
+    if (cached) return jsonOk(JSON.parse(cached));
+
+    var ss = getss();
+    var tmp = ss.insertSheet(_tempSheetName('_bm_'));
+    var series = {};
+    var symbols = {};
+    requested.forEach(function(type) { series[type] = []; symbols[type] = ''; });
+    try {
+      var maxCandidates = requested.reduce(function(max, type) { return Math.max(max, map[type].length); }, 0);
+      for (var candidateIndex = 0; candidateIndex < maxCandidates; candidateIndex++) {
+        var pending = requested.filter(function(type) { return series[type].length === 0 && map[type][candidateIndex]; });
+        if (!pending.length) continue;
+        tmp.clearContents();
+        var fs = fromDate.split('-');
+        var ts = toDate.split('-');
+        pending.forEach(function(type, columnIndex) {
+          var symbol = map[type][candidateIndex];
+          var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
+          tmp.getRange(1, columnIndex * 3 + 1).setFormula(formula);
+        });
+        SpreadsheetApp.flush();
+        Utilities.sleep(2000);
+        var lastRow = tmp.getLastRow();
+        pending.forEach(function(type, columnIndex) {
+          if (lastRow < 2) return;
+          var values = tmp.getRange(2, columnIndex * 3 + 1, lastRow - 1, 2).getValues();
+          var points = values.map(function(row) {
+            return { date: _normalizeDate(row[0]), value: parseFloat(row[1]) || 0 };
+          }).filter(function(point) { return point.date && point.value > 0; });
+          if (points.length) {
+            series[type] = points;
+            symbols[type] = map[type][candidateIndex];
+          }
+        });
+      }
+    } finally {
+      try { ss.deleteSheet(tmp); } catch(deleteError) { Logger.log('⚠️ 비교지수 일괄 임시 시트 삭제 실패: ' + deleteError.message); }
+    }
+
+    var errors = {};
+    requested.forEach(function(type) {
+      if (!series[type].length) errors[type] = '선택 기간의 데이터를 찾지 못했습니다.';
+    });
+    var result = { benchmarks: requested, series: series, symbols: symbols, errors: errors };
+    try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch(cacheError) { /* 캐시 용량 초과는 무시 */ }
+    return jsonOk(result);
+  } catch(err) {
+    return jsonError('getBenchmarks 실패: ' + err.message);
   }
 }
 
@@ -2824,7 +3492,7 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  [해결]
 //  - 전일(T-1) KRX 확정 종가를 명시적으로 가져와 가격이력에 저장
 //  - 전일 가격이력과 전일 스냅샷을 비교 → 불일치 시 스냅샷 재작성
-//  - 오늘(T) 스냅샷도 전일 확정 종가 기준으로 작성
+//  - 실행일(T) 행을 만들지 않고 확정 종가 거래일(T-1) 스냅샷만 작성
 // ════════════════════════════════════════════════════════════════════
 function saveDailyPriceHistory() {
   var lock = LockService.getScriptLock();
@@ -2837,6 +3505,7 @@ function saveDailyPriceHistory() {
     var ss       = getss();
     var todayStr = today();
     var prevDay  = _getPrevTradingDay(todayStr, 7);
+    var confirmedSnapshotRows = [];
 
     var items = getCodeItems(ss);
     // 펀드·TDF는 종목코드 시트에 없을 수 있으므로 여기서 종료하면 안 됩니다.
@@ -2848,106 +3517,66 @@ function saveDailyPriceHistory() {
     if (prevDay) {
       Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 확정 종가 조회 시작');
       try {
-        var krxPrev = fetchPricesKrx(items, prevDay);
+        var krxPrev = {};
+        try {
+          krxPrev = fetchPricesKrx(items, prevDay);
+        } catch(krxError) {
+          Logger.log('⚠️ 확정 거래일 KRX 조회 실패, GOOGLEFINANCE fallback 계속: ' + krxError.message);
+        }
+        var gfPrevItems = items.filter(function(item) {
+          return !(krxPrev[item.code] && krxPrev[item.code].price > 0);
+        });
+        var gfPrev = gfPrevItems.length > 0 ? fetchPricesGoogleFinance(gfPrevItems, prevDay, ss) : {};
         var prevSavedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
 
-        // 전일 KRX 데이터를 가격이력에 저장 (MANUAL 보호)
+        // 확정 거래일 KRX 데이터와 필요한 GF fallback만 가격이력에 저장 (MANUAL 보호)
         var prevRows = [];
         items.forEach(function(item) {
-          var p = krxPrev[item.code];
+          var p = krxPrev[item.code] || gfPrev[item.code];
           if (!p || !(p.price > 0)) return;
           prevPrices[item.code] = p.price;
           prevRows.push({ code: item.code, name: item.name, price: p.price,
-                          savedAt: prevSavedAt, source: 'KRX' });
+                          savedAt: prevSavedAt, source: (p.source || 'GOOGLEFINANCE') });
         });
         if (prevRows.length > 0) {
           batchUpsertPriceHistory(ss, prevDay, prevRows);
           Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 가격이력 저장: ' + prevRows.length + '건');
         }
-      } catch(e) {
-        Logger.log('⚠️ 전일 KRX 조회 실패: ' + e.message);
-      }
-
-      // ── Step 2: 전일 스냅샷 검증 및 불일치 시 재작성
-      Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 스냅샷 정합성 검증');
-      try {
-        var prevExpected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, prevDay);
-        var prevExisting = _readSnapshotRowsByDate(ss, prevDay);
-        if (_snapshotRowsSignature(prevExisting) !== _snapshotRowsSignature(prevExpected)) {
-          writeSnapshotRows(ss, prevDay, prevExpected, true);
-          Logger.log('✅ 전일(' + prevDay + ') 스냅샷 불일치 → 재작성 완료');
-        } else {
-          Logger.log('ℹ️ 전일(' + prevDay + ') 스냅샷 이미 일치');
+        if (items.length > 0 && prevRows.length === 0) {
+          throw new Error('상장 종목 확정 종가를 한 건도 가져오지 못했습니다.');
         }
       } catch(e) {
-        Logger.log('⚠️ 전일 스냅샷 재작성 실패: ' + e.message);
+        Logger.log('⚠️ 확정 거래일 가격 조회·저장 실패: ' + e.message);
+        throw e;
       }
+
+      // ── Step 2: 이번 확정 거래일 스냅샷만 검증
+      // 전체 과거 검증은 별도 배치 복구가 담당해 일일 자동화의 시트 접근량을 제한합니다.
+      Logger.log('[saveDailyPriceHistory] 확정 거래일(' + prevDay + ') 스냅샷 정합성 검증');
+      var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, prevDay);
+      var existingRows = _readSnapshotRowsByDate(ss, prevDay);
+      if (_snapshotRowsSignature(existingRows) !== _snapshotRowsSignature(expected)) {
+        writeSnapshotRows(ss, prevDay, expected, true);
+        Logger.log('✅ 확정 거래일(' + prevDay + ') 스냅샷 불일치·누락 → 재작성 완료');
+      } else {
+        Logger.log('ℹ️ 확정 거래일(' + prevDay + ') 스냅샷 이미 일치');
+      }
+      confirmedSnapshotRows = expected;
     }
 
-    // ── Step 3: 오늘(T) 가격이력 저장 (당일 실시간 + GF fallback)
-    var existing = getPriceHistoryRow(ss, todayStr);
-    var prices   = {};
-    Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
-
-    var krxPrices = {};
-    try { krxPrices = fetchPricesKrx(items, todayStr); } catch(e) {
-      Logger.log('⚠️ saveDailyPriceHistory KRX 실패: ' + e.message);
+    // ── Step 3: 실행일(T) 스냅샷은 생성하지 않음
+    // 확정 종가의 실제 거래일은 prevDay(T-1)이므로 Step 2에서 그 날짜로만 저장합니다.
+    if (!prevDay || confirmedSnapshotRows.length === 0) {
+      throw new Error('확정 거래일 스냅샷 저장 대상 없음: 거래이력과 가격이력을 확인하세요');
     }
-
-    var krxByDate = {};
-    items.forEach(function(item) {
-      var p = krxPrices[item.code];
-      if (!p || !(p.price > 0)) return;
-      var saveDate = (p.usedDate && p.usedDate !== todayStr) ? p.usedDate : todayStr;
-      if (!krxByDate[saveDate]) krxByDate[saveDate] = [];
-      krxByDate[saveDate].push({ code: item.code, name: item.name, price: p.price, source: 'KRX' });
-    });
-
-    var gfNeedItems = items.filter(function(item){
-      return !(krxPrices[item.code] && krxPrices[item.code].price > 0);
-    });
-    var gfPrices = gfNeedItems.length > 0 ? fetchPricesGoogleFinance(gfNeedItems, todayStr, ss) : {};
-
-    var gfRows = [];
-    gfNeedItems.forEach(function(item) {
-      var p = gfPrices[item.code];
-      if (p && p.price > 0) gfRows.push({ code: item.code, name: item.name, price: p.price,
-                                           source: (p.source || 'GOOGLEFINANCE') });
-    });
-    if (gfRows.length > 0) {
-      if (!krxByDate[todayStr]) krxByDate[todayStr] = [];
-      krxByDate[todayStr] = krxByDate[todayStr].concat(gfRows);
-    }
-
-    Object.keys(krxByDate).forEach(function(saveDate) {
-      var rows = krxByDate[saveDate];
-      if (!rows || rows.length === 0) return;
-      var existingForDate = getPriceHistoryRow(ss, saveDate);
-      var toSave = rows.filter(function(r) {
-        return !existingForDate[r.code] || Number(existingForDate[r.code]) !== Number(r.price);
-      });
-      if (toSave.length > 0) {
-        batchUpsertPriceHistory(ss, saveDate, toSave);
-        Logger.log('[saveDailyPriceHistory] ' + saveDate + ' 저장 ' + toSave.length + '건');
-      }
-      if (saveDate === todayStr) {
-        rows.forEach(function(r){ prices[r.code] = r.price; });
-      }
-    });
-
-    // ── Step 4: 오늘(T) 스냅샷 작성
-    // ★ 오늘 스냅샷도 전일 확정 종가 기준으로 _buildSnapshotRows가 처리함
-    // (가격이력 시트에 전일 종가가 저장됐으므로 자동으로 전일 종가 참조)
-    var snapRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, todayStr);
-    if (snapRows.length === 0) throw new Error('스냅샷 저장 대상 없음: 거래이력과 기준일 보유수량을 확인하세요');
-    writeSnapshotRows(ss, todayStr, snapRows, true);
 
     SpreadsheetApp.flush();
     props.setProperty('snapshot_last_success_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
-    props.setProperty('snapshot_last_success_date', todayStr);
+    props.setProperty('snapshot_last_success_date', prevDay);
+    props.deleteProperty('snapshot_last_failure_at');
     props.deleteProperty('snapshot_last_error');
-    Logger.log('✅ saveDailyPriceHistory 완료: 전일(' + (prevDay||'-') + ') + 오늘(' + todayStr + ')');
-    return { ok: true, date: todayStr, rows: snapRows.length, startedAt: startedAt };
+    Logger.log('✅ saveDailyPriceHistory 완료: 확정 거래일(' + prevDay + '), 실행일(' + todayStr + ')');
+    return { ok: true, date: prevDay, runDate: todayStr, rows: confirmedSnapshotRows.length, startedAt: startedAt };
   } catch(err) {
     props.setProperty('snapshot_last_failure_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
     props.setProperty('snapshot_last_error', ((err && err.message) ? err.message : String(err)).slice(0, 1000));
@@ -2956,6 +3585,125 @@ function saveDailyPriceHistory() {
   } finally {
     if (locked) lock.releaseLock();
   }
+}
+
+var SNAPSHOT_REPAIR_STATE_KEY = 'snapshot_consistency_repair_state';
+var SNAPSHOT_REPAIR_BATCH_SIZE = 3;
+
+function _getAllPriceHistoryDates(ss, maxDate) {
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!ph || ph.getLastRow() < 2) return [];
+  var found = {};
+  ph.getRange(2, 1, ph.getLastRow() - 1, 1).getValues().forEach(function(row) {
+    var date = _normalizeDate(row[0]);
+    if (date && (!maxDate || date <= maxDate)) found[date] = true;
+  });
+  return Object.keys(found).sort();
+}
+
+function _clearSnapshotRepairContinuationTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function(trigger) {
+    if (trigger.getHandlerFunction() === 'continueSnapshotConsistencyRepair') ScriptApp.deleteTrigger(trigger);
+  });
+}
+
+function _scheduleSnapshotRepairContinuation() {
+  _clearSnapshotRepairContinuationTriggers();
+  ScriptApp.newTrigger('continueSnapshotConsistencyRepair').timeBased().after(60 * 1000).create();
+}
+
+function _snapshotRepairStatusMessage(state) {
+  if (!state) return '전체 가격이력·스냅샷 정합성 복구 기록이 없습니다.';
+  return '📸 전체 가격이력·스냅샷 정합성 복구\n\n' +
+    '상태: ' + (state.done ? '완료' : '진행 중') + '\n' +
+    '전체 날짜: ' + state.total + '개\n' +
+    '점검 완료: ' + state.checked + '개\n' +
+    '남은 날짜: ' + Math.max(0, state.total - state.checked) + '개\n' +
+    '재작성: ' + state.repaired + '개\n' +
+    '이미 일치: ' + state.unchanged + '개\n' +
+    '가격이력/보유자료 없음: ' + state.skipped + '개\n' +
+    '실패: ' + state.failed + '개\n' +
+    '마지막 점검일: ' + (state.lastDate || '-') +
+    (state.lastError ? '\n최근 오류: ' + state.lastError : '');
+}
+
+function runSnapshotConsistencyRepair() {
+  try {
+    var ss = getss();
+    var maxDate = _getPrevTradingDay(today(), 7) || today();
+    var dates = _getAllPriceHistoryDates(ss, maxDate);
+    if (dates.length === 0) throw new Error('확정 거래일까지의 가격이력이 없습니다.');
+    var state = {
+      startedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+      maxDate: maxDate, total: dates.length, nextIndex: 0,
+      checked: 0, repaired: 0, unchanged: 0, skipped: 0, failed: 0,
+      lastDate: '', lastError: '', done: false
+    };
+    PropertiesService.getScriptProperties().setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+    _clearSnapshotRepairContinuationTriggers();
+    var result = continueSnapshotConsistencyRepair();
+    SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(result) +
+      (result.done ? '' : '\n\n남은 날짜는 1분 간격의 후속 실행으로 계속 처리합니다.'));
+    return result;
+  } catch (e) {
+    try { SpreadsheetApp.getUi().alert('❌ 전체 가격이력·스냅샷 정합성 복구 시작 실패\n\n' + e.message); } catch (_) {}
+    throw e;
+  }
+}
+
+function continueSnapshotConsistencyRepair() {
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lock.waitLock(30000);
+    locked = true;
+    _clearSnapshotRepairContinuationTriggers();
+    var props = PropertiesService.getScriptProperties();
+    var rawState = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    if (!rawState) throw new Error('진행 중인 전체 정합성 복구가 없습니다.');
+    var state = JSON.parse(rawState);
+    var ss = getss();
+    var allDates = _getAllPriceHistoryDates(ss, state.maxDate);
+    state.total = allDates.length;
+    var dates = allDates.slice(state.nextIndex, state.nextIndex + SNAPSHOT_REPAIR_BATCH_SIZE);
+    dates.forEach(function(snapshotDate) {
+      try {
+        var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
+        if (expected.length === 0) {
+          state.skipped++;
+        } else {
+          var existing = _readSnapshotRowsByDate(ss, snapshotDate);
+          if (_snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
+            state.unchanged++;
+          } else {
+            writeSnapshotRows(ss, snapshotDate, expected, true);
+            state.repaired++;
+          }
+        }
+      } catch (dateError) {
+        state.failed++;
+        state.lastError = snapshotDate + ': ' + dateError.message;
+      }
+      state.checked++;
+      state.nextIndex++;
+      state.lastDate = snapshotDate;
+    });
+    SpreadsheetApp.flush();
+    state.done = state.nextIndex >= allDates.length;
+    state.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+    if (!state.done) _scheduleSnapshotRepairContinuation();
+    return state;
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function showSnapshotConsistencyRepairStatus() {
+  var raw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+  var state = raw ? JSON.parse(raw) : null;
+  SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(state));
+  return state;
 }
 
 //  예: repairPriceAndSnapshotForDate('2026-04-08')
@@ -3400,7 +4148,8 @@ function checkDailyAutomationStatus() {
   var lastSuccessDate = props.getProperty('snapshot_last_success_date') || '-';
   var lastFailureAt = props.getProperty('snapshot_last_failure_at') || '-';
   var lastError = props.getProperty('snapshot_last_error') || '-';
-  var isSnapshotStale = snapLast !== '-' && snapLast < today();
+  var expectedSnapshotDate = _getPrevTradingDay(today(), 7) || today();
+  var isSnapshotStale = snapLast === '-' || snapLast < expectedSnapshotDate;
 
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
@@ -3411,7 +4160,7 @@ function checkDailyAutomationStatus() {
     + '자동 생성 최근 성공: ' + lastSuccessAt + ' (기준일 ' + lastSuccessDate + ')\n'
     + '자동 생성 최근 실패: ' + lastFailureAt + '\n'
     + (lastError !== '-' ? '최근 오류: ' + lastError + '\n' : '')
-    + (isSnapshotStale ? '⚠️ 오늘 스냅샷이 아직 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
+    + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + '\n'
     + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage
       ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
@@ -3428,6 +4177,20 @@ function runCodeNormalize1550() {
 
 function runEvalPriceUpdate1620() {
   saveDailyPriceHistory();
+}
+
+function runDailyPriceSnapshotNow() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var result = saveDailyPriceHistory();
+    ui.alert('✅ 확정 평가단가·스냅샷 갱신 완료\n\n'
+      + '기준일: ' + result.date + '\n'
+      + '스냅샷: ' + result.rows + '행\n\n'
+      + '이 메뉴는 16:20 자동 트리거와 동일한 경로를 실행합니다.');
+  } catch(err) {
+    ui.alert('❌ 확정 평가단가·스냅샷 갱신 실패\n\n' + (err.message || String(err)));
+    throw err;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -4347,10 +5110,23 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.56' });
+    return jsonOk({ settings: settings, gasVersion: '9.68' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
+}
+
+function _preserveSeibroDivData(existingDivData, incomingDivData) {
+  var merged = incomingDivData;
+  Object.keys(existingDivData || {}).forEach(function(key) {
+    var existing = existingDivData[key];
+    var incoming = merged[key];
+    if (!existing || String(existing.source || '').toUpperCase() !== 'SEIBRO') return;
+    var incomingSource = String(incoming && incoming.source || '').toUpperCase();
+    // 명시적인 SEIBro 갱신이나 사용자의 MANUAL 편집만 기존 SEIBro 값을 교체할 수 있습니다.
+    if (incomingSource !== 'SEIBRO' && incomingSource !== 'MANUAL') merged[key] = existing;
+  });
+  return merged;
 }
 
 function handleSaveDividendSettings(dataJson) {
@@ -4360,7 +5136,10 @@ function handleSaveDividendSettings(dataJson) {
     lock.waitLock(30000); locked = true;
     var divData = _parseJsonParam(dataJson, 'dividend data');
     var settings = _readSettingsMap();
-    settings.DIVDATA = divData;
+    var existingDivData = (settings.DIVDATA && typeof settings.DIVDATA === 'object') ? settings.DIVDATA : {};
+    // SEIBro 운영 반영 이후에도 구버전 웹이 탭 진입 자동조회 결과(PUBLIC_DATA/GF)를
+    // 다시 저장할 수 있으므로 서버에서도 기존 SEIBro 값을 보호합니다.
+    settings.DIVDATA = _preserveSeibroDivData(existingDivData, divData);
     _writeSettingsMap(settings);
     return jsonOk({ saved: true, key: 'DIVDATA' });
   } catch(err) {
@@ -4697,6 +5476,7 @@ function initSheet() {
     [CONFIG.SHEET_PH, ['날짜','종목코드','종목명','가격','입력일시','가격소스'], [100,90,180,100,160,120]],
     [CONFIG.SHEET_HOLD, ['종목코드','종목명','수량','매수단가','매수원금','자산유형','계좌'], [90,180,70,110,110,100,120]],
     [CONFIG.SHEET_TRADES, ['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모'], [100,80,100,180,90,70,100,90,200]],
+    [CONFIG.SHEET_ETF_DIVIDENDS, ['종목코드','ISIN','종목명','기준일','지급일','주당분배금','수집일시','원본소스'], [90,130,200,100,100,100,170,100]],
     [CONFIG.SHEET_SYNC_LOG, ['기록시각','소스','거래일','종목코드','종목명','계좌','메시지'], [160,100,100,90,180,120,300]],
     [CONFIG.SHEET_SETTINGS, ['키','값'], [180,600]]
   ];
@@ -4819,6 +5599,12 @@ function onOpen(e) {
     // ── 서브메뉴: 유지보수 ──
     var menuMaint = ui.createMenu('🛠️ 유지보수')
       .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
+      .addItem('▶️ 확정 평가단가·스냅샷 지금 갱신', 'runDailyPriceSnapshotNow')
+      .addItem('📸 전체 가격이력·스냅샷 정합성 복구', 'runSnapshotConsistencyRepair')
+      .addItem('📊 전체 스냅샷 복구 진행상황', 'showSnapshotConsistencyRepairStatus')
+      .addItem('🧾 SEIBro ETF 읽기 전용 진단', 'runEtfDividendDiagnosis')
+      .addItem('🧮 SEIBro ETF 2단계 드라이런', 'runEtfDividendDryRun')
+      .addItem('💾 SEIBro ETF 3단계 운영 반영', 'runEtfDividendApply')
       .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
       .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
       .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')

@@ -3,7 +3,7 @@
 // tgToggle, goToTradeGroup
 // ─────────────────────────────────────────────────────────────
 
-let _tgFilter      = { name: '' };
+let _tgFilter      = { name: '', acct: '' };
 let _tgFilterTimer = null;
 let _tgFilterComposing = false;
 
@@ -66,38 +66,64 @@ function _tgMatchesFilter(name, queryKey) {
   return _tgSearchTargets(name).some(value => _searchIncludes(value, queryKey));
 }
 
+function _tgCalcPosition(trades) {
+  let qty = 0, totalCost = 0, realizedPnl = 0, buyCount = 0, sellCount = 0;
+  [...trades].sort((a,b) => (a.date||'').localeCompare(b.date||'')).forEach(t => {
+    if (t.tradeType === 'buy') {
+      qty += Number(t.qty || 0);
+      totalCost += Number(t.qty || 0) * Number(t.price || 0);
+      buyCount++;
+    } else if (t.tradeType === 'sell') {
+      const avgCost = qty > 0 ? totalCost / qty : 0;
+      const sellQty = Math.min(Number(t.qty || 0), qty);
+      realizedPnl += (Number(t.price || 0) - avgCost) * sellQty;
+      totalCost -= sellQty * avgCost;
+      qty -= sellQty;
+      sellCount++;
+    }
+  });
+  return { qty, totalCost, avgCost: qty > 0 ? totalCost / qty : 0, realizedPnl, buyCount, sellCount };
+}
+
+function _tgBuildGroup(name, acctFilter) {
+  const allTrades = rawTrades.filter(t => t.name === name);
+  const trades = (acctFilter ? allTrades.filter(t => t.acct === acctFilter) : allTrades)
+    .sort((a,b) => (a.date||'').localeCompare(b.date||''));
+  const byAcct = {};
+  trades.forEach(t => {
+    const acct = t.acct || '(미지정)';
+    (byAcct[acct] || (byAcct[acct] = [])).push(t);
+  });
+  const accounts = Object.entries(byAcct)
+    .sort(([a], [b]) => a.localeCompare(b, 'ko'))
+    .map(([acct, acctTrades]) => ({ acct, trades: acctTrades, ..._tgCalcPosition(acctTrades) }));
+  const summary = accounts.reduce((out, account) => {
+    out.qty += account.qty;
+    out.totalCost += account.totalCost;
+    out.realizedPnl += account.realizedPnl;
+    out.buyCount += account.buyCount;
+    out.sellCount += account.sellCount;
+    return out;
+  }, { qty: 0, totalCost: 0, realizedPnl: 0, buyCount: 0, sellCount: 0 });
+  summary.avgCost = summary.qty > 0 ? summary.totalCost / summary.qty : 0;
+  return { trades, accounts, ...summary };
+}
+
 function renderTradeGroupView(area) {
-  const nameList = [...new Set(rawTrades.map(t => t.name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'ko'));
+  const sourceTrades = _tgFilter.acct ? rawTrades.filter(t => t.acct === _tgFilter.acct) : rawTrades;
+  const nameList = [...new Set(sourceTrades.map(t => t.name).filter(Boolean))].sort((a,b) => a.localeCompare(b,'ko'));
   const queryKey = _tgSearchKey(_tgFilter.name);
   const filtered = queryKey
     ? nameList.filter(n => _tgMatchesFilter(n, queryKey))
     : nameList;
 
   function calcGroup(name) {
-    const trades = rawTrades
-      .filter(t => t.name === name)
-      .sort((a,b) => (a.date||'').localeCompare(b.date||''));
-    let qty = 0, totalCost = 0, realizedPnl = 0, buyCount = 0, sellCount = 0;
-    trades.forEach(t => {
-      if (t.tradeType === 'buy') {
-        qty       += (t.qty || 0);
-        totalCost += (t.qty || 0) * (t.price || 0);
-        buyCount++;
-      } else if (t.tradeType === 'sell') {
-        const avgCost = qty > 0 ? totalCost / qty : 0;
-        const sellQty = Math.min(t.qty || 0, qty);
-        realizedPnl  += (t.price - avgCost) * sellQty;
-        totalCost    -= sellQty * avgCost;
-        qty          -= sellQty;
-        sellCount++;
-      }
-    });
-    const avgCost = qty > 0 ? totalCost / qty : 0;
+    const position = _tgBuildGroup(name, _tgFilter.acct);
     const ep      = getEP(name);
     const code    = (ep && ep.code) || '';
     const sector  = (ep && ep.sector) || '기타';
-    const type    = getEPType(ep, trades[0]?.assetType || '주식');
-    return { trades, qty, avgCost, realizedPnl, buyCount, sellCount, code, sector, type };
+    const type    = getEPType(ep, position.trades[0]?.assetType || '주식');
+    return { ...position, code, sector, type };
   }
 
   area.innerHTML = `
@@ -111,6 +137,10 @@ function renderTradeGroupView(area) {
         <input id="tgFilterName" placeholder="🔍 종목명·코드 검색" value="${_escapeHtml(_tgFilter.name)}"
           data-tg-filter="name"
           style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:.75rem;width:150px"/>
+        <select data-tg-filter="acct" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem">
+          <option value="">전체 계좌</option>
+          ${getAcctList().filter(a => a !== '전체' && a !== '합계').map(a => `<option value="${_escapeHtml(a)}"${_tgFilter.acct===a?' selected':''}>${_escapeHtml(a)}</option>`).join('')}
+        </select>
         <button data-tg-action="audit-all" class="btn-edit-sm" title="현재 검색 결과 전체 계좌/거래 대조">🧪 전체 검증</button>
       </div>
     </div>
@@ -160,6 +190,11 @@ function renderTradeGroupView(area) {
                 ${isHolding && evalAmt != null ? `<span>평가금액 <b style="color:var(--cyan)">${Math.round(evalAmt).toLocaleString()}</b></span>` : ''}
                 ${g.sellCount > 0 ? `<span>실현손익 <b style="color:${pnlColor}">${pnlSign}${Math.round(g.realizedPnl).toLocaleString()}</b></span>` : ''}
               </div>
+              ${g.accounts.length > 1 && !_tgFilter.acct ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:6px">
+                ${g.accounts.map(a => `<span style="font-size:.64rem;padding:3px 7px;border:1px solid var(--border);border-radius:999px;color:var(--muted);background:var(--s2)">
+                  ${_escapeHtml(a.acct)} · ${a.qty.toLocaleString()}주 · ${Math.round(a.totalCost).toLocaleString()}원
+                </span>`).join('')}
+              </div>` : ''}
             </div>
             <div style="display:flex;align-items:center;gap:5px;flex-shrink:0" data-tg-no-toggle="1">
               <span style="font-size:.70rem;color:var(--muted);white-space:nowrap;margin-right:4px">${g.trades.length}건</span>
@@ -188,8 +223,10 @@ function renderTradeGroupView(area) {
               </thead>
               <tbody>
                 ${(() => {
-                  let runQty = 0, runCost = 0;
+                  const runByAcct = {};
                   return g.trades.map(t => {
+                    const acctKey = t.acct || '(미지정)';
+                    const run = runByAcct[acctKey] || (runByAcct[acctKey] = { qty: 0, cost: 0 });
                     const isBuy  = t.tradeType === 'buy';
                     const isSell = t.tradeType === 'sell';
                     const price  = t.price || 0;
@@ -197,18 +234,18 @@ function renderTradeGroupView(area) {
                     const amount = price * qty;
                     let pnlCell  = '';
                     if (isBuy) {
-                      runQty  += qty;
-                      runCost += qty * price;
+                      run.qty  += qty;
+                      run.cost += qty * price;
                     } else if (isSell) {
-                      const avg = runQty > 0 ? runCost / runQty : 0;
-                      const pnl = (price - avg) * Math.min(qty, runQty);
+                      const avg = run.qty > 0 ? run.cost / run.qty : 0;
+                      const pnl = (price - avg) * Math.min(qty, run.qty);
                       const pct = avg > 0 ? ((price - avg) / avg * 100) : 0;
                       const pc  = pnl >= 0 ? 'var(--green)' : 'var(--red)';
                       const ps  = pnl >= 0 ? '+' : '';
                       pnlCell   = `<div style="color:${pc};font-weight:600">${ps}${Math.round(pnl).toLocaleString()}</div>
                                    <div style="font-size:.65rem;color:${pc}">${ps}${pct.toFixed(1)}%</div>`;
-                      runCost  -= Math.min(qty, runQty) * avg;
-                      runQty   -= Math.min(qty, runQty);
+                      run.cost -= Math.min(qty, run.qty) * avg;
+                      run.qty  -= Math.min(qty, run.qty);
                     }
                     return `<tr style="border-bottom:1px solid var(--border);background:${isSell?'rgba(239,68,68,.03)':'transparent'}">
                       <td style="padding:7px 12px;text-align:center;color:var(--muted);white-space:nowrap;font-size:.72rem">${_escapeHtml(fmtDateDot(t.date)||'⚠️없음')}</td>
@@ -280,6 +317,13 @@ function _bindTradeGroupViewEvents(area) {
     if (e.target.dataset?.tgFilter === 'name') {
       _tgFilter.name = e.target.value;
       _tgFilterDebounce(e, e.target);
+    }
+  });
+
+  area.addEventListener('change', function(e) {
+    if (e.target.dataset?.tgFilter === 'acct') {
+      _tgFilter.acct = e.target.value || '';
+      renderView();
     }
   });
 

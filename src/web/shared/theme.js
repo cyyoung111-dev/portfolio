@@ -12,7 +12,7 @@ const THEMES = {
     vars: {
       '--bg': '#080d18', '--s1': '#0e1726', '--s2': '#141f33', '--border': '#1c2a42',
       '--green': '#10b981', '--red': '#E52E2E', '--blue': '#0057FF', '--amber': '#f59e0b',
-      '--purple': '#8b5cf6', '--cyan': '#06b6d4', '--text': '#e2e8f0', '--muted': '#64748b',
+      '--purple': '#8b5cf6', '--cyan': '#06b6d4', '--text': '#e2e8f0', '--muted': '#8b9bb2',
       '--gold': '#f59e0b', '--gold2': '#f97316', '--green-lt': '#4ade80', '--green-md': '#34d399',
       '--blue-lt': '#5B8EFF', '--purple-lt': '#a78bfa', '--purple-dk': '#7c3aed', '--red-lt': '#FF6B6B',
     }
@@ -24,7 +24,7 @@ const THEMES = {
     vars: {
       '--bg': '#141414', '--s1': '#1e1e1e', '--s2': '#2a2a2a', '--border': '#3d3d3d',
       '--green': '#10b981', '--red': '#ff5c5c', '--blue': '#4d9fff', '--amber': '#f59e0b',
-      '--purple': '#8b5cf6', '--cyan': '#06b6d4', '--text': '#e2e8f0', '--muted': '#888888',
+      '--purple': '#8b5cf6', '--cyan': '#06b6d4', '--text': '#e2e8f0', '--muted': '#a0a0a0',
       '--gold': '#f59e0b', '--gold2': '#f97316', '--green-lt': '#4ade80', '--green-md': '#34d399',
       '--blue-lt': '#5B8EFF', '--purple-lt': '#a78bfa', '--purple-dk': '#7c3aed', '--red-lt': '#FF6B6B',
     }
@@ -38,7 +38,7 @@ const THEMES = {
       '--green': '#4ade80', '--red': '#ff5c5c', '--blue': '#fb923c', '--amber': '#fbbf24',
       '--purple': '#fcd34d', '--cyan': '#fdba74', '--text': '#fef3c7', '--muted': '#c9821a',
       '--gold': '#fbbf24', '--gold2': '#f97316', '--green-lt': '#86efac', '--green-md': '#4ade80',
-      '--blue-lt': '#fed7aa', '--purple-lt': '#fde68a', '--purple-dk': '#d97706', '--red-lt': '#fca5a5',
+      '--blue-lt': '#fed7aa', '--purple-lt': '#fde68a', '--purple-dk': '#92400e', '--red-lt': '#fca5a5',
     }
   },
   purple: {
@@ -84,7 +84,7 @@ const THEMES = {
     vars: {
       '--bg': '#200d14', '--s1': '#30121e', '--s2': '#431a2b', '--border': '#842d48',
       '--green': '#fb7185', '--red': '#ff4d6d', '--blue': '#f43f5e', '--amber': '#fda4af',
-      '--purple': '#fb7185', '--cyan': '#fecdd3', '--text': '#fff1f2', '--muted': '#d96882',
+      '--purple': '#fb7185', '--cyan': '#fecdd3', '--text': '#fff1f2', '--muted': '#df8298',
       '--gold': '#fda4af', '--gold2': '#f43f5e', '--green-lt': '#fecdd3', '--green-md': '#fda4af',
       '--blue-lt': '#fda4af', '--purple-lt': '#ffb3c1', '--purple-dk': '#be123c', '--red-lt': '#ff8fa3',
     }
@@ -147,7 +147,7 @@ const THEMES = {
     vars: {
       '--bg': '#f5f7fb', '--s1': '#ffffff', '--s2': '#eef2f8', '--border': '#d1d9e8',
       '--green': '#047857', '--red': '#dc2626', '--blue': '#2563eb', '--amber': '#d97706',
-      '--purple': '#7c3aed', '--cyan': '#0891b2', '--text': '#0f172a', '--muted': '#64748b',
+      '--purple': '#7c3aed', '--cyan': '#0891b2', '--text': '#0f172a', '--muted': '#566579',
       '--gold': '#b45309', '--gold2': '#c2410c', '--green-lt': '#047857', '--green-md': '#059669',
       '--blue-lt': '#2563eb', '--purple-lt': '#8b5cf6', '--purple-dk': '#6d28d9', '--red-lt': '#dc2626',
     }
@@ -159,7 +159,7 @@ const THEMES = {
     vars: {
       '--bg': '#f4fbf8', '--s1': '#ffffff', '--s2': '#ecf7f1', '--border': '#c7e3d5',
       '--green': '#047857', '--red': '#dc2626', '--blue': '#0f766e', '--amber': '#0d9488',
-      '--purple': '#0f766e', '--cyan': '#0891b2', '--text': '#0f172a', '--muted': '#5f7f74',
+      '--purple': '#0f766e', '--cyan': '#0891b2', '--text': '#0f172a', '--muted': '#506f65',
       '--gold': '#0f766e', '--gold2': '#0d9488', '--green-lt': '#047857', '--green-md': '#059669',
       '--blue-lt': '#0f766e', '--purple-lt': '#14b8a6', '--purple-dk': '#0f766e', '--red-lt': '#dc2626',
     }
@@ -171,7 +171,7 @@ const THEMES = {
     vars: {
       '--bg': '#fff7fa', '--s1': '#ffffff', '--s2': '#fff0f5', '--border': '#f3c9d8',
       '--green': '#be185d', '--red': '#e11d48', '--blue': '#db2777', '--amber': '#ec4899',
-      '--purple': '#d946ef', '--cyan': '#f472b6', '--text': '#3b0a1f', '--muted': '#9f5f78',
+      '--purple': '#d946ef', '--cyan': '#f472b6', '--text': '#3b0a1f', '--muted': '#8c5068',
       '--gold': '#db2777', '--gold2': '#be185d', '--green-lt': '#be185d', '--green-md': '#db2777',
       '--blue-lt': '#ec4899', '--purple-lt': '#f472b6', '--purple-dk': '#be185d', '--red-lt': '#e11d48',
     }
@@ -183,7 +183,7 @@ const THEMES = {
     vars: {
       '--bg': '#f8f6f1', '--s1': '#fffdf8', '--s2': '#f3eee3', '--border': '#decfb6',
       '--green': '#166534', '--red': '#b91c1c', '--blue': '#1d4ed8', '--amber': '#b45309',
-      '--purple': '#6d28d9', '--cyan': '#0e7490', '--text': '#1f2937', '--muted': '#6b7280',
+      '--purple': '#6d28d9', '--cyan': '#0e7490', '--text': '#1f2937', '--muted': '#5d6470',
       '--gold': '#a16207', '--gold2': '#b45309', '--green-lt': '#15803d', '--green-md': '#16a34a',
       '--blue-lt': '#2563eb', '--purple-lt': '#7c3aed', '--purple-dk': '#5b21b6', '--red-lt': '#dc2626',
     }
@@ -196,7 +196,7 @@ const THEMES = {
     vars: {
       '--bg': '#f7f5ff', '--s1': '#ffffff', '--s2': '#f1edff', '--border': '#d8cff7',
       '--green': '#0f766e', '--red': '#dc2626', '--blue': '#4f46e5', '--amber': '#7c3aed',
-      '--purple': '#7c3aed', '--cyan': '#6366f1', '--text': '#1f2040', '--muted': '#7570a3',
+      '--purple': '#7c3aed', '--cyan': '#6366f1', '--text': '#1f2040', '--muted': '#67618f',
       '--gold': '#6d28d9', '--gold2': '#7c3aed', '--green-lt': '#0f766e', '--green-md': '#14b8a6',
       '--blue-lt': '#4f46e5', '--purple-lt': '#8b5cf6', '--purple-dk': '#5b21b6', '--red-lt': '#dc2626',
     }
@@ -208,7 +208,7 @@ const THEMES = {
     vars: {
       '--bg': '#f7f8f2', '--s1': '#ffffff', '--s2': '#eef1e4', '--border': '#d2d9bf',
       '--green': '#3f6212', '--red': '#b91c1c', '--blue': '#1d4ed8', '--amber': '#4d7c0f',
-      '--purple': '#6d28d9', '--cyan': '#0f766e', '--text': '#1f2937', '--muted': '#6b7280',
+      '--purple': '#6d28d9', '--cyan': '#0f766e', '--text': '#1f2937', '--muted': '#5f6656',
       '--gold': '#4d7c0f', '--gold2': '#65a30d', '--green-lt': '#3f6212', '--green-md': '#4d7c0f',
       '--blue-lt': '#2563eb', '--purple-lt': '#7c3aed', '--purple-dk': '#5b21b6', '--red-lt': '#dc2626',
     }
@@ -220,7 +220,7 @@ const THEMES = {
     vars: {
       '--bg': '#f2f8ff', '--s1': '#ffffff', '--s2': '#eaf2ff', '--border': '#c8d9f4',
       '--green': '#065f46', '--red': '#dc2626', '--blue': '#1d4ed8', '--amber': '#0369a1',
-      '--purple': '#4338ca', '--cyan': '#0284c7', '--text': '#0f172a', '--muted': '#64748b',
+      '--purple': '#4338ca', '--cyan': '#0284c7', '--text': '#0f172a', '--muted': '#566579',
       '--gold': '#0369a1', '--gold2': '#0284c7', '--green-lt': '#047857', '--green-md': '#059669',
       '--blue-lt': '#2563eb', '--purple-lt': '#6366f1', '--purple-dk': '#3730a3', '--red-lt': '#dc2626',
     }
@@ -321,10 +321,14 @@ function setThemeMode(mode) {
 }
 
 function _refreshThemeSelectorIfOpen() {
-  const container = document.getElementById('themeSettingsBody');
-  if (!container) return;
-  if (container.closest('#settingsPanel_theme')?.style.display === 'none') return;
-  container.innerHTML = _buildThemeSelectorHTML();
+  const themeContainer = document.getElementById('themeSettingsBody');
+  if (themeContainer && themeContainer.closest('#settingsPanel_theme')?.style.display !== 'none') {
+    themeContainer.innerHTML = _buildThemeSelectorHTML();
+  }
+  const fontContainer = document.getElementById('fontSettingsBody');
+  if (fontContainer && fontContainer.closest('#settingsPanel_font')?.style.display !== 'none') {
+    fontContainer.innerHTML = _buildFontSelectorHTML();
+  }
 }
 
 function loadTheme() {
@@ -373,7 +377,7 @@ function _buildFontSelectorHTML() {
       <div style="font-size:.76rem;font-weight:600;margin-top:6px;font-variant-numeric:tabular-nums">${sample}</div>
     </button>`;
   }).join('');
-  return `<div style="margin-top:16px">
+  return `<div>
     <div style="font-size:.70rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔤 글꼴 선택</div>
     <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">선택한 글꼴은 GAS에 저장되어 다른 기기에도 동일하게 적용됩니다.</div>
     <div style="display:flex;flex-direction:column;gap:6px">${buttons}</div>
@@ -384,6 +388,12 @@ function renderThemeSelector(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = _buildThemeSelectorHTML();
+}
+
+function renderFontSelector(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = _buildFontSelectorHTML();
 }
 
 function _buildThemeSelectorHTML() {
@@ -430,7 +440,6 @@ function _buildThemeSelectorHTML() {
       ${modeBtn('light', '☀️ 라이트')}
     </div>
     <div style="display:flex;flex-direction:column;gap:6px">${btns}</div>
-    ${_buildFontSelectorHTML()}
   </div>`;
 }
 
@@ -459,7 +468,7 @@ loadTheme();
 loadFont();
 
 function switchSettingsTab(tab) {
-  const panels = ['tab', 'theme'];
+  const panels = ['tab', 'theme', 'font'];
   panels.forEach(p => {
     const panel = document.getElementById('settingsPanel_' + p);
     const btn = document.getElementById('settingsTabBtn_' + p);
@@ -480,6 +489,10 @@ function switchSettingsTab(tab) {
       container.innerHTML = _buildThemeSelectorHTML();
       _renderThemeButtons();
     }
+  }
+  if (tab === 'font') {
+    const container = document.getElementById('fontSettingsBody');
+    if (container) container.innerHTML = _buildFontSelectorHTML();
   }
 }
 
