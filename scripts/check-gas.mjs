@@ -159,3 +159,16 @@ if (!source.includes("props.setProperty('snapshot_last_success_date', prevDay)")
   console.error('❌ 스냅샷은 확정 종가 거래일로 저장하고 최근 2거래일 및 과거 마지막 종가를 검증해야 합니다.');
   process.exit(1);
 }
+
+const snapshotRepairMatch = source.match(/function\s+runSnapshotConsistencyRepair\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+if (!snapshotRepairMatch
+    || /saveDailyPriceHistory\s*\(/.test(snapshotRepairMatch[1])
+    || /fetchPrices(?:Krx|GoogleFinance)\s*\(/.test(snapshotRepairMatch[1])
+    || !/_getAllPriceHistoryDates\s*\(/.test(snapshotRepairMatch[1])
+    || !/continueSnapshotConsistencyRepair\s*\(/.test(snapshotRepairMatch[1])
+    || !source.includes('SNAPSHOT_REPAIR_BATCH_SIZE = 3')
+    || !source.includes("newTrigger('continueSnapshotConsistencyRepair')")
+    || !source.includes("'showSnapshotConsistencyRepairStatus'")) {
+  console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');
+  process.exit(1);
+}
