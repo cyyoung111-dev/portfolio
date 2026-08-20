@@ -248,7 +248,7 @@ function renderTradesView(area) {
     <!-- 헤더 -->
     <div style="margin-bottom:14px">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <h3 class="h3-section" style="margin:0">📋 거래 이력</h3>
+        <h3 class="h3-section" style="margin:0">📋 거래 관리</h3>
         <div id="tradesHeaderBtns" style="display:flex;gap:6px;flex-wrap:wrap">
           <button data-trade-action="bulk" class="btn-sm btn-gold">📊 일괄 입력</button>
           <button data-trade-action="add-buy" class="btn-sm-purple">📈 매수</button>

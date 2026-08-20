@@ -34,14 +34,28 @@ function toggleTabHidden(idx) {
     renderTabSettingsBody();
   }
 }
+function _moveTabOrderItem(order, idx, dir) {
+  const from = Number(idx);
+  const delta = Number(dir);
+  const to = from + delta;
+  if (!Array.isArray(order) || !Number.isInteger(from) || !Number.isInteger(delta) || !delta || from < 0 || from >= order.length || to < 0 || to >= order.length) return false;
+  const moved = order.splice(from, 1)[0];
+  order.splice(to, 0, moved);
+  return true;
+}
+
 function moveTab(idx, dir) {
-  const ni = idx + dir;
-  if (ni < 0 || ni >= TAB_ORDER.length) return;
-  [TAB_ORDER[idx], TAB_ORDER[ni]] = [TAB_ORDER[ni], TAB_ORDER[idx]];
+  const panel = $el('settingsPanel_tab');
+  const previousScrollTop = panel ? panel.scrollTop : 0;
+  if (!_moveTabOrderItem(TAB_ORDER, idx, dir)) return false;
   saveTabOrder();
   buildTabBar();
-  buildMobileNav();
+  // 현재 웹에는 buildMobileNav가 없는 배포도 있으므로, 미정의 함수 때문에
+  // 설정 목록 재렌더링이 중단되지 않게 선택적으로 호출합니다.
+  if (typeof buildMobileNav === 'function') buildMobileNav();
   renderTabSettingsBody();
+  if (panel) panel.scrollTop = previousScrollTop;
+  return true;
 }
 function renderTabSettingsBody() {
   const body = $el('tabSettingsBody');
@@ -49,7 +63,7 @@ function renderTabSettingsBody() {
   let html = '';
   TAB_ORDER.forEach((tab, i) => {
     const isFirst = i === 0, isLast = i === TAB_ORDER.length - 1;
-    html += `<div class="tab-setting-row" draggable="true" data-idx="${i}"
+    html += `<div class="tab-setting-row" draggable="true" data-idx="${i}" data-tab-id="${tab.id}"
       style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);margin-bottom:6px;background:var(--s2);cursor:grab;transition:background .12s;opacity:${tab.hidden?'.45':'1'}">
       <span style="font-size:.75rem;color:var(--muted);cursor:grab;user-select:none">⠿</span>
       <span style="display:flex;align-items:center;gap:8px;flex:1;font-size:.80rem"><span style="width:16px;height:16px;display:inline-flex;align-items:center">${tab.icon||''}</span>${tab.label}${tab.hidden?'<span style="font-size:.60rem;color:var(--muted);margin-left:4px">(숨김)</span>':''}</span>
@@ -63,6 +77,18 @@ function renderTabSettingsBody() {
   });
   body.innerHTML = html;
 
+  // 설정 패널 내부에서 직접 처리해 문서 전역 이벤트 캐시 버전과 무관하게 화살표·숨김 버튼이 동작하도록 합니다.
+  body.onclick = function(event) {
+    const control = event.target.closest('[data-tab-action]');
+    if (!control || !body.contains(control)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const action = control.dataset.tabAction;
+    const idx = Number(control.dataset.idx);
+    if (action === 'move') moveTab(idx, Number(control.dataset.delta));
+    else if (action === 'toggle-hidden') toggleTabHidden(idx);
+  };
+
   let dragSrcIdx = null;
   body.querySelectorAll('.tab-setting-row').forEach(row => {
     row.addEventListener('dragstart', e => { dragSrcIdx = parseInt(row.dataset.idx); row.style.opacity = '.4'; });
@@ -75,9 +101,10 @@ function renderTabSettingsBody() {
       if (dragSrcIdx === null || dragSrcIdx === toIdx) return;
       const [moved] = TAB_ORDER.splice(dragSrcIdx, 1);
       TAB_ORDER.splice(toIdx, 0, moved);
-      saveTabOrder(); buildTabBar(); buildMobileNav(); renderTabSettingsBody();
+      saveTabOrder();
+      buildTabBar();
+      if (typeof buildMobileNav === 'function') buildMobileNav();
+      renderTabSettingsBody();
     });
   });
 }
-
-
