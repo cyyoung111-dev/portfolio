@@ -152,11 +152,28 @@ if (!source.includes("params.action === 'getBenchmarks'")
 
 if (!source.includes("props.setProperty('snapshot_last_success_date', prevDay)")
     || source.includes('writeSnapshotRows(ss, todayStr, snapRows, true)')
-    || !source.includes('[prevPrevDay, prevDay].filter(Boolean)')
     || !source.includes('INDEX(x,ROWS(x),2)')
     || !source.includes('snapLast < expectedSnapshotDate')
     || !source.includes("'runSnapshotConsistencyRepair'")) {
   console.error('❌ 스냅샷은 확정 종가 거래일로 저장하고 최근 2거래일 및 과거 마지막 종가를 검증해야 합니다.');
+  process.exit(1);
+}
+
+const dailySnapshotMatch = source.match(/function\s+saveDailyPriceHistory\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+if (!dailySnapshotMatch
+    || /fetchPricesKrx\(items,\s*todayStr\)/.test(dailySnapshotMatch[1])
+    || /\[prevPrevDay,\s*prevDay\]/.test(dailySnapshotMatch[1])
+    || !/fetchPricesKrx\(items,\s*prevDay\)/.test(dailySnapshotMatch[1])
+    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*prevDay,\s*ss\)/.test(dailySnapshotMatch[1])
+    || !/items\.length\s*>\s*0\s*&&\s*prevRows\.length\s*===\s*0/.test(dailySnapshotMatch[1])
+    || !/deleteProperty\('snapshot_last_failure_at'\)/.test(dailySnapshotMatch[1])) {
+  console.error('❌ 일일 스냅샷은 확정 거래일 가격을 한 번만 조회하고 과거 전체 검증과 분리해야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes(".addItem('▶️ 확정 평가단가·스냅샷 지금 갱신', 'runDailyPriceSnapshotNow')")
+    || !source.includes('function runDailyPriceSnapshotNow()')) {
+  console.error('❌ 16:20 자동 경로를 즉시 확인할 수 있는 수동 점검 메뉴가 필요합니다.');
   process.exit(1);
 }
 

@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.67
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.68
+//
+//  v9.68 변경사항 (2026.08.20):
+//   ✅ [성능]   16:20 자동화는 확정 거래일(T-1) 가격을 한 번만 조회하고 해당 스냅샷만 검증
+//   ✅ [안정성] 당일 가격 중복조회·최근 2일 반복 재작성을 전체 이력 복구로 분리해 자동 실행 타임아웃 완화
+//   ✅ [상태]   자동 생성 성공 시 이전 실패 표시를 정리하고 동일 경로 수동 점검 메뉴 제공
 //
 //  v9.67 변경사항 (2026.08.20):
 //   ✅ [검증]   수동 정합성 복구 대상을 최근 2일이 아닌 전체 가격이력 날짜로 확대
@@ -3500,7 +3505,6 @@ function saveDailyPriceHistory() {
     var ss       = getss();
     var todayStr = today();
     var prevDay  = _getPrevTradingDay(todayStr, 7);
-    var prevPrevDay = prevDay ? _getPrevTradingDay(prevDay, 7) : '';
     var confirmedSnapshotRows = [];
 
     var items = getCodeItems(ss);
@@ -3513,98 +3517,54 @@ function saveDailyPriceHistory() {
     if (prevDay) {
       Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 확정 종가 조회 시작');
       try {
-        var krxPrev = fetchPricesKrx(items, prevDay);
+        var krxPrev = {};
+        try {
+          krxPrev = fetchPricesKrx(items, prevDay);
+        } catch(krxError) {
+          Logger.log('⚠️ 확정 거래일 KRX 조회 실패, GOOGLEFINANCE fallback 계속: ' + krxError.message);
+        }
+        var gfPrevItems = items.filter(function(item) {
+          return !(krxPrev[item.code] && krxPrev[item.code].price > 0);
+        });
+        var gfPrev = gfPrevItems.length > 0 ? fetchPricesGoogleFinance(gfPrevItems, prevDay, ss) : {};
         var prevSavedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
 
-        // 전일 KRX 데이터를 가격이력에 저장 (MANUAL 보호)
+        // 확정 거래일 KRX 데이터와 필요한 GF fallback만 가격이력에 저장 (MANUAL 보호)
         var prevRows = [];
         items.forEach(function(item) {
-          var p = krxPrev[item.code];
+          var p = krxPrev[item.code] || gfPrev[item.code];
           if (!p || !(p.price > 0)) return;
           prevPrices[item.code] = p.price;
           prevRows.push({ code: item.code, name: item.name, price: p.price,
-                          savedAt: prevSavedAt, source: 'KRX' });
+                          savedAt: prevSavedAt, source: (p.source || 'GOOGLEFINANCE') });
         });
         if (prevRows.length > 0) {
           batchUpsertPriceHistory(ss, prevDay, prevRows);
           Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 가격이력 저장: ' + prevRows.length + '건');
         }
-      } catch(e) {
-        Logger.log('⚠️ 전일 KRX 조회 실패: ' + e.message);
-      }
-
-      // ── Step 2: 최근 2개 확정 거래일 스냅샷 검증 및 불일치·누락 자동 복구
-      // 실행일(T)에 전 거래일(T-1) 가격을 사용하면서 날짜만 T로 적던 하루 밀림을 방지합니다.
-      [prevPrevDay, prevDay].filter(Boolean).forEach(function(snapshotDate) {
-        Logger.log('[saveDailyPriceHistory] 확정 거래일(' + snapshotDate + ') 스냅샷 정합성 검증');
-        try {
-          var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
-          var existingRows = _readSnapshotRowsByDate(ss, snapshotDate);
-          if (_snapshotRowsSignature(existingRows) !== _snapshotRowsSignature(expected)) {
-            writeSnapshotRows(ss, snapshotDate, expected, true);
-            Logger.log('✅ 확정 거래일(' + snapshotDate + ') 스냅샷 불일치·누락 → 재작성 완료');
-          } else {
-            Logger.log('ℹ️ 확정 거래일(' + snapshotDate + ') 스냅샷 이미 일치');
-          }
-          if (snapshotDate === prevDay) confirmedSnapshotRows = expected;
-        } catch(e) {
-          Logger.log('⚠️ 확정 거래일 스냅샷 재작성 실패(' + snapshotDate + '): ' + e.message);
+        if (items.length > 0 && prevRows.length === 0) {
+          throw new Error('상장 종목 확정 종가를 한 건도 가져오지 못했습니다.');
         }
-      });
-    }
-
-    // ── Step 3: 오늘(T) 가격이력 저장 (당일 실시간 + GF fallback)
-    var existing = getPriceHistoryRow(ss, todayStr);
-    var prices   = {};
-    Object.keys(existing).forEach(function(k){ prices[k] = existing[k]; });
-
-    var krxPrices = {};
-    try { krxPrices = fetchPricesKrx(items, todayStr); } catch(e) {
-      Logger.log('⚠️ saveDailyPriceHistory KRX 실패: ' + e.message);
-    }
-
-    var krxByDate = {};
-    items.forEach(function(item) {
-      var p = krxPrices[item.code];
-      if (!p || !(p.price > 0)) return;
-      var saveDate = (p.usedDate && p.usedDate !== todayStr) ? p.usedDate : todayStr;
-      if (!krxByDate[saveDate]) krxByDate[saveDate] = [];
-      krxByDate[saveDate].push({ code: item.code, name: item.name, price: p.price, source: 'KRX' });
-    });
-
-    var gfNeedItems = items.filter(function(item){
-      return !(krxPrices[item.code] && krxPrices[item.code].price > 0);
-    });
-    var gfPrices = gfNeedItems.length > 0 ? fetchPricesGoogleFinance(gfNeedItems, todayStr, ss) : {};
-
-    var gfRows = [];
-    gfNeedItems.forEach(function(item) {
-      var p = gfPrices[item.code];
-      if (p && p.price > 0) gfRows.push({ code: item.code, name: item.name, price: p.price,
-                                           source: (p.source || 'GOOGLEFINANCE') });
-    });
-    if (gfRows.length > 0) {
-      if (!krxByDate[todayStr]) krxByDate[todayStr] = [];
-      krxByDate[todayStr] = krxByDate[todayStr].concat(gfRows);
-    }
-
-    Object.keys(krxByDate).forEach(function(saveDate) {
-      var rows = krxByDate[saveDate];
-      if (!rows || rows.length === 0) return;
-      var existingForDate = getPriceHistoryRow(ss, saveDate);
-      var toSave = rows.filter(function(r) {
-        return !existingForDate[r.code] || Number(existingForDate[r.code]) !== Number(r.price);
-      });
-      if (toSave.length > 0) {
-        batchUpsertPriceHistory(ss, saveDate, toSave);
-        Logger.log('[saveDailyPriceHistory] ' + saveDate + ' 저장 ' + toSave.length + '건');
+      } catch(e) {
+        Logger.log('⚠️ 확정 거래일 가격 조회·저장 실패: ' + e.message);
+        throw e;
       }
-      if (saveDate === todayStr) {
-        rows.forEach(function(r){ prices[r.code] = r.price; });
-      }
-    });
 
-    // ── Step 4: 실행일(T) 스냅샷은 생성하지 않음
+      // ── Step 2: 이번 확정 거래일 스냅샷만 검증
+      // 전체 과거 검증은 별도 배치 복구가 담당해 일일 자동화의 시트 접근량을 제한합니다.
+      Logger.log('[saveDailyPriceHistory] 확정 거래일(' + prevDay + ') 스냅샷 정합성 검증');
+      var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, prevDay);
+      var existingRows = _readSnapshotRowsByDate(ss, prevDay);
+      if (_snapshotRowsSignature(existingRows) !== _snapshotRowsSignature(expected)) {
+        writeSnapshotRows(ss, prevDay, expected, true);
+        Logger.log('✅ 확정 거래일(' + prevDay + ') 스냅샷 불일치·누락 → 재작성 완료');
+      } else {
+        Logger.log('ℹ️ 확정 거래일(' + prevDay + ') 스냅샷 이미 일치');
+      }
+      confirmedSnapshotRows = expected;
+    }
+
+    // ── Step 3: 실행일(T) 스냅샷은 생성하지 않음
     // 확정 종가의 실제 거래일은 prevDay(T-1)이므로 Step 2에서 그 날짜로만 저장합니다.
     if (!prevDay || confirmedSnapshotRows.length === 0) {
       throw new Error('확정 거래일 스냅샷 저장 대상 없음: 거래이력과 가격이력을 확인하세요');
@@ -3613,6 +3573,7 @@ function saveDailyPriceHistory() {
     SpreadsheetApp.flush();
     props.setProperty('snapshot_last_success_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
     props.setProperty('snapshot_last_success_date', prevDay);
+    props.deleteProperty('snapshot_last_failure_at');
     props.deleteProperty('snapshot_last_error');
     Logger.log('✅ saveDailyPriceHistory 완료: 확정 거래일(' + prevDay + '), 실행일(' + todayStr + ')');
     return { ok: true, date: prevDay, runDate: todayStr, rows: confirmedSnapshotRows.length, startedAt: startedAt };
@@ -4216,6 +4177,20 @@ function runCodeNormalize1550() {
 
 function runEvalPriceUpdate1620() {
   saveDailyPriceHistory();
+}
+
+function runDailyPriceSnapshotNow() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var result = saveDailyPriceHistory();
+    ui.alert('✅ 확정 평가단가·스냅샷 갱신 완료\n\n'
+      + '기준일: ' + result.date + '\n'
+      + '스냅샷: ' + result.rows + '행\n\n'
+      + '이 메뉴는 16:20 자동 트리거와 동일한 경로를 실행합니다.');
+  } catch(err) {
+    ui.alert('❌ 확정 평가단가·스냅샷 갱신 실패\n\n' + (err.message || String(err)));
+    throw err;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -5135,7 +5110,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.67' });
+    return jsonOk({ settings: settings, gasVersion: '9.68' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5624,6 +5599,7 @@ function onOpen(e) {
     // ── 서브메뉴: 유지보수 ──
     var menuMaint = ui.createMenu('🛠️ 유지보수')
       .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
+      .addItem('▶️ 확정 평가단가·스냅샷 지금 갱신', 'runDailyPriceSnapshotNow')
       .addItem('📸 전체 가격이력·스냅샷 정합성 복구', 'runSnapshotConsistencyRepair')
       .addItem('📊 전체 스냅샷 복구 진행상황', 'showSnapshotConsistencyRepairStatus')
       .addItem('🧾 SEIBro ETF 읽기 전용 진단', 'runEtfDividendDiagnosis')
