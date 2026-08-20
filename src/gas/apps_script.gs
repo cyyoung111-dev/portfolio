@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.64
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.65
+//
+//  v9.65 변경사항 (2026.08.20):
+//   ✅ [정확성] 스냅샷 날짜를 실행일이 아닌 실제 확정 종가 거래일(T-1)에 맞춰 저장
+//   ✅ [복구]   최근 2개 확정 거래일 스냅샷을 함께 검증해 하루 밀린 기존 자료와 누락일 자동 보완
+//   ✅ [정확성] 과거 GOOGLEFINANCE 범위 조회에서 첫 행이 아닌 요청일까지의 마지막 종가 선택
 //
 //  v9.64 변경사항 (2026.08.19):
 //   ✅ [성능]   손익 그래프 비교지수 5개를 단일 GAS 요청·단일 임시 시트로 일괄 조회
@@ -641,8 +646,8 @@ function fetchPricesGoogleFinance(items, dateStr, ss) {
         return ['=IFERROR(GOOGLEFINANCE(' + krx + ',"price"),' +
                 'IFERROR(GOOGLEFINANCE(' + kosdaq + ',"price"),"-"))'];
       } else {
-        return ['=IFERROR(INDEX(GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),' +
-                'IFERROR(INDEX(GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),2,2),"-"))'];
+        return ['=IFERROR(LET(x,GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),INDEX(x,ROWS(x),2)),' +
+                'IFERROR(LET(x,GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),INDEX(x,ROWS(x),2)),"-"))'];
       }
     });
 
@@ -3473,7 +3478,7 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  [해결]
 //  - 전일(T-1) KRX 확정 종가를 명시적으로 가져와 가격이력에 저장
 //  - 전일 가격이력과 전일 스냅샷을 비교 → 불일치 시 스냅샷 재작성
-//  - 오늘(T) 스냅샷도 전일 확정 종가 기준으로 작성
+//  - 실행일(T) 행을 만들지 않고 확정 종가 거래일(T-1) 스냅샷만 작성
 // ════════════════════════════════════════════════════════════════════
 function saveDailyPriceHistory() {
   var lock = LockService.getScriptLock();
@@ -3486,6 +3491,8 @@ function saveDailyPriceHistory() {
     var ss       = getss();
     var todayStr = today();
     var prevDay  = _getPrevTradingDay(todayStr, 7);
+    var prevPrevDay = prevDay ? _getPrevTradingDay(prevDay, 7) : '';
+    var confirmedSnapshotRows = [];
 
     var items = getCodeItems(ss);
     // 펀드·TDF는 종목코드 시트에 없을 수 있으므로 여기서 종료하면 안 됩니다.
@@ -3517,20 +3524,24 @@ function saveDailyPriceHistory() {
         Logger.log('⚠️ 전일 KRX 조회 실패: ' + e.message);
       }
 
-      // ── Step 2: 전일 스냅샷 검증 및 불일치 시 재작성
-      Logger.log('[saveDailyPriceHistory] 전일(' + prevDay + ') 스냅샷 정합성 검증');
-      try {
-        var prevExpected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, prevDay);
-        var prevExisting = _readSnapshotRowsByDate(ss, prevDay);
-        if (_snapshotRowsSignature(prevExisting) !== _snapshotRowsSignature(prevExpected)) {
-          writeSnapshotRows(ss, prevDay, prevExpected, true);
-          Logger.log('✅ 전일(' + prevDay + ') 스냅샷 불일치 → 재작성 완료');
-        } else {
-          Logger.log('ℹ️ 전일(' + prevDay + ') 스냅샷 이미 일치');
+      // ── Step 2: 최근 2개 확정 거래일 스냅샷 검증 및 불일치·누락 자동 복구
+      // 실행일(T)에 전 거래일(T-1) 가격을 사용하면서 날짜만 T로 적던 하루 밀림을 방지합니다.
+      [prevPrevDay, prevDay].filter(Boolean).forEach(function(snapshotDate) {
+        Logger.log('[saveDailyPriceHistory] 확정 거래일(' + snapshotDate + ') 스냅샷 정합성 검증');
+        try {
+          var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
+          var existingRows = _readSnapshotRowsByDate(ss, snapshotDate);
+          if (_snapshotRowsSignature(existingRows) !== _snapshotRowsSignature(expected)) {
+            writeSnapshotRows(ss, snapshotDate, expected, true);
+            Logger.log('✅ 확정 거래일(' + snapshotDate + ') 스냅샷 불일치·누락 → 재작성 완료');
+          } else {
+            Logger.log('ℹ️ 확정 거래일(' + snapshotDate + ') 스냅샷 이미 일치');
+          }
+          if (snapshotDate === prevDay) confirmedSnapshotRows = expected;
+        } catch(e) {
+          Logger.log('⚠️ 확정 거래일 스냅샷 재작성 실패(' + snapshotDate + '): ' + e.message);
         }
-      } catch(e) {
-        Logger.log('⚠️ 전일 스냅샷 재작성 실패: ' + e.message);
-      }
+      });
     }
 
     // ── Step 3: 오늘(T) 가격이력 저장 (당일 실시간 + GF fallback)
@@ -3584,19 +3595,18 @@ function saveDailyPriceHistory() {
       }
     });
 
-    // ── Step 4: 오늘(T) 스냅샷 작성
-    // ★ 오늘 스냅샷도 전일 확정 종가 기준으로 _buildSnapshotRows가 처리함
-    // (가격이력 시트에 전일 종가가 저장됐으므로 자동으로 전일 종가 참조)
-    var snapRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, todayStr);
-    if (snapRows.length === 0) throw new Error('스냅샷 저장 대상 없음: 거래이력과 기준일 보유수량을 확인하세요');
-    writeSnapshotRows(ss, todayStr, snapRows, true);
+    // ── Step 4: 실행일(T) 스냅샷은 생성하지 않음
+    // 확정 종가의 실제 거래일은 prevDay(T-1)이므로 Step 2에서 그 날짜로만 저장합니다.
+    if (!prevDay || confirmedSnapshotRows.length === 0) {
+      throw new Error('확정 거래일 스냅샷 저장 대상 없음: 거래이력과 가격이력을 확인하세요');
+    }
 
     SpreadsheetApp.flush();
     props.setProperty('snapshot_last_success_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
-    props.setProperty('snapshot_last_success_date', todayStr);
+    props.setProperty('snapshot_last_success_date', prevDay);
     props.deleteProperty('snapshot_last_error');
-    Logger.log('✅ saveDailyPriceHistory 완료: 전일(' + (prevDay||'-') + ') + 오늘(' + todayStr + ')');
-    return { ok: true, date: todayStr, rows: snapRows.length, startedAt: startedAt };
+    Logger.log('✅ saveDailyPriceHistory 완료: 확정 거래일(' + prevDay + '), 실행일(' + todayStr + ')');
+    return { ok: true, date: prevDay, runDate: todayStr, rows: confirmedSnapshotRows.length, startedAt: startedAt };
   } catch(err) {
     props.setProperty('snapshot_last_failure_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
     props.setProperty('snapshot_last_error', ((err && err.message) ? err.message : String(err)).slice(0, 1000));
@@ -3604,6 +3614,23 @@ function saveDailyPriceHistory() {
     throw err;
   } finally {
     if (locked) lock.releaseLock();
+  }
+}
+
+function runSnapshotConsistencyRepair() {
+  try {
+    var result = saveDailyPriceHistory();
+    SpreadsheetApp.getUi().alert(
+      '✅ 가격이력·스냅샷 정합성 복구 완료\n\n' +
+      '확정 종가 기준일: ' + (result.date || '-') + '\n' +
+      '실행일: ' + (result.runDate || '-') + '\n' +
+      '스냅샷 종목: ' + (result.rows || 0) + '건\n\n' +
+      '최근 2개 확정 거래일을 실제 날짜로 재검증했습니다.'
+    );
+    return result;
+  } catch (e) {
+    try { SpreadsheetApp.getUi().alert('❌ 가격이력·스냅샷 정합성 복구 실패\n\n' + e.message); } catch (_) {}
+    throw e;
   }
 }
 
@@ -4049,7 +4076,8 @@ function checkDailyAutomationStatus() {
   var lastSuccessDate = props.getProperty('snapshot_last_success_date') || '-';
   var lastFailureAt = props.getProperty('snapshot_last_failure_at') || '-';
   var lastError = props.getProperty('snapshot_last_error') || '-';
-  var isSnapshotStale = snapLast !== '-' && snapLast < today();
+  var expectedSnapshotDate = _getPrevTradingDay(today(), 7) || today();
+  var isSnapshotStale = snapLast === '-' || snapLast < expectedSnapshotDate;
 
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
@@ -4060,7 +4088,7 @@ function checkDailyAutomationStatus() {
     + '자동 생성 최근 성공: ' + lastSuccessAt + ' (기준일 ' + lastSuccessDate + ')\n'
     + '자동 생성 최근 실패: ' + lastFailureAt + '\n'
     + (lastError !== '-' ? '최근 오류: ' + lastError + '\n' : '')
-    + (isSnapshotStale ? '⚠️ 오늘 스냅샷이 아직 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
+    + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + '\n'
     + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage
       ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
@@ -4996,7 +5024,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.64' });
+    return jsonOk({ settings: settings, gasVersion: '9.65' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5485,6 +5513,7 @@ function onOpen(e) {
     // ── 서브메뉴: 유지보수 ──
     var menuMaint = ui.createMenu('🛠️ 유지보수')
       .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
+      .addItem('📸 최근 가격이력·스냅샷 정합성 복구', 'runSnapshotConsistencyRepair')
       .addItem('🧾 SEIBro ETF 읽기 전용 진단', 'runEtfDividendDiagnosis')
       .addItem('🧮 SEIBro ETF 2단계 드라이런', 'runEtfDividendDryRun')
       .addItem('💾 SEIBro ETF 3단계 운영 반영', 'runEtfDividendApply')

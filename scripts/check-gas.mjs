@@ -149,3 +149,13 @@ if (!source.includes("params.action === 'getBenchmarks'")
   console.error('❌ 비교지수 단일 요청·단일 임시 시트 일괄 조회 또는 6시간 캐시가 누락됐습니다.');
   process.exit(1);
 }
+
+if (!source.includes("props.setProperty('snapshot_last_success_date', prevDay)")
+    || source.includes('writeSnapshotRows(ss, todayStr, snapRows, true)')
+    || !source.includes('[prevPrevDay, prevDay].filter(Boolean)')
+    || !source.includes('INDEX(x,ROWS(x),2)')
+    || !source.includes('snapLast < expectedSnapshotDate')
+    || !source.includes("'runSnapshotConsistencyRepair'")) {
+  console.error('❌ 스냅샷은 확정 종가 거래일로 저장하고 최근 2거래일 및 과거 마지막 종가를 검증해야 합니다.');
+  process.exit(1);
+}
