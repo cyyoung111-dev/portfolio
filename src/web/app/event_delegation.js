@@ -21,6 +21,7 @@ function registerGlobalEventDelegation() {
     // ★ [버그수정] 기본값 버튼이 아예 연결돼 있지 않아 눌러도 반응 없었음
     settingsTabBtn_tab:              () => typeof switchSettingsTab === 'function' && switchSettingsTab('tab'),
     settingsTabBtn_theme:            () => typeof switchSettingsTab === 'function' && switchSettingsTab('theme'),
+    settingsTabBtn_font:             () => typeof switchSettingsTab === 'function' && switchSettingsTab('font'),
     settingsResetBtn:                () => typeof resetTabOrder === 'function' && resetTabOrder(),
 
     // editors
@@ -129,16 +130,6 @@ function registerGlobalEventDelegation() {
     const divFreq = e.target.closest('[data-div-freq]');
     if (divFreq) {
       if (typeof _dvPickFreq === 'function') _dvPickFreq(divFreq.dataset.divFreqKey || '', divFreq.dataset.divFreq || '-');
-      return;
-    }
-
-    // ── data-tab-action (views_system_tabsettings.js)
-    const tabAction = e.target.closest('[data-tab-action]');
-    if (tabAction) {
-      const action = tabAction.dataset.tabAction;
-      const idx = parseInt(tabAction.dataset.idx || '', 10);
-      if (action === 'toggle-hidden' && typeof toggleTabHidden === 'function') toggleTabHidden(idx);
-      else if (action === 'move' && typeof moveTab === 'function') moveTab(idx, parseInt(tabAction.dataset.delta || '0', 10));
       return;
     }
 
