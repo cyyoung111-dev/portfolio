@@ -36,6 +36,16 @@ if (!writeSettingsMatch
 
 console.log(`✅ GAS syntax/internal helper check passed (${declared.size} helpers)`);
 
+if (!source.includes("params.action === 'getBootstrap'")
+    || !source.includes('function handleGetBootstrap()')
+    || !/handleGetBootstrap[\s\S]*?_readSettingsMap\(ss\)/.test(source)
+    || !/handleGetBootstrap[\s\S]*?handleGetTrades\(ss\)/.test(source)
+    || !/handleGetBootstrap[\s\S]*?handleGetHoldings\(ss\)/.test(source)
+    || !/handleGetBootstrap[\s\S]*?getCodeItems\(ss\)/.test(source)) {
+  console.error('❌ 앱 초기 복원은 단일 스프레드시트 핸들로 설정·거래·보유·종목코드를 일괄 반환해야 합니다.');
+  process.exit(1);
+}
+
 const diagnoseMatch = source.match(/function\s+handleDiagnoseEtfDividends\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
 if (!diagnoseMatch
     || /\.(?:setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet)\s*\(/.test(diagnoseMatch[1])

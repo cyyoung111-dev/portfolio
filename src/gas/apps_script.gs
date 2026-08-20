@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.68
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.69
+//
+//  v9.69 변경사항 (2026.08.20):
+//   ✅ [성능]   앱 초기 복원 데이터를 getBootstrap 단일 요청으로 묶어 GAS 왕복과 설정 시트 중복 읽기 제거
+//   ✅ [호환]   기존 개별 getSettings/getTrades/getHoldings/getCodeList API는 그대로 유지
 //
 //  v9.68 변경사항 (2026.08.20):
 //   ✅ [성능]   16:20 자동화는 확정 거래일(T-1) 가격을 한 번만 조회하고 해당 스냅샷만 검증
@@ -467,6 +471,7 @@ function doGet(e) {
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, params.serviceKey || '');
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
+  if (params.action === 'getBootstrap')                   return handleGetBootstrap();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
@@ -4886,9 +4891,9 @@ function handleGetCodeList() {
 // ════════════════════════════════════════════════════════════════════
 //  거래이력 / 보유현황 읽기
 // ════════════════════════════════════════════════════════════════════
-function handleGetTrades() {
+function handleGetTrades(existingSs) {
   try {
-    var ss = getss();
+    var ss = existingSs || getss();
     var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
     if (!sh || sh.getLastRow() < 2) return jsonOk({ trades: [] });
     var numCols = sh.getLastColumn();
@@ -4921,9 +4926,9 @@ function handleGetTrades() {
   }
 }
 
-function handleGetHoldings() {
+function handleGetHoldings(existingSs) {
   try {
-    var ss      = getss();
+    var ss      = existingSs || getss();
     var sh      = ss.getSheetByName(CONFIG.SHEET_HOLD);
     if (!sh || sh.getLastRow() < 2) return jsonOk({ holdings: [] });
     var numCols  = Math.max(sh.getLastColumn(), 6);
@@ -4969,8 +4974,8 @@ function _parseArrayParam(dataJson, label) {
   return parsed;
 }
 
-function _readSettingsMap() {
-  var ss = getss();
+function _readSettingsMap(existingSs) {
+  var ss = existingSs || getss();
   var sh = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
   if (!sh || sh.getLastRow() < 2) return {};
 
@@ -5110,9 +5115,34 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.68' });
+    return jsonOk({ settings: settings, gasVersion: '9.69' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
+  }
+}
+
+// 앱 시작에 필요한 읽기 전용 데이터를 한 번에 반환합니다. 각 데이터를 별도 웹앱
+// 실행으로 요청할 때 발생하는 왕복 지연과 설정 시트의 반복 읽기를 줄입니다.
+function handleGetBootstrap() {
+  try {
+    var ss = getss();
+    var settings = _readSettingsMap(ss);
+    var publicKey = _getPublicDataApiKey();
+    var krxKey = _getKrxAuthKey();
+    if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
+    if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
+
+    var tradesResponse = JSON.parse(handleGetTrades(ss).getContent());
+    var holdingsResponse = JSON.parse(handleGetHoldings(ss).getContent());
+    return jsonOk({
+      settings: settings,
+      trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
+      holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
+      codes: getCodeItems(ss),
+      gasVersion: '9.69'
+    });
+  } catch(err) {
+    return jsonError('getBootstrap 실패: ' + err.message);
   }
 }
 
