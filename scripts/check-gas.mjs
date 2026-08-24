@@ -174,10 +174,26 @@ if (!dailySnapshotMatch
     || /fetchPricesKrx\(items,\s*todayStr\)/.test(dailySnapshotMatch[1])
     || /\[prevPrevDay,\s*prevDay\]/.test(dailySnapshotMatch[1])
     || !/fetchPricesKrx\(items,\s*prevDay\)/.test(dailySnapshotMatch[1])
-    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*prevDay,\s*ss\)/.test(dailySnapshotMatch[1])
+    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*prevDay,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(dailySnapshotMatch[1])
     || !/items\.length\s*>\s*0\s*&&\s*prevRows\.length\s*===\s*0/.test(dailySnapshotMatch[1])
     || !/deleteProperty\('snapshot_last_failure_at'\)/.test(dailySnapshotMatch[1])) {
   console.error('❌ 일일 스냅샷은 확정 거래일 가격을 한 번만 조회하고 과거 전체 검증과 분리해야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes('function _hasUsdPriceItems(items)')
+    || !/gfNeed\.length\s*>\s*0\s*&&\s*_hasUsdPriceItems\(targetItems\)/.test(source)
+    || !/gfPrevItems\.length\s*>\s*0\s*&&\s*_hasUsdPriceItems\(items\)/.test(source)
+    || !/fetchPricesGoogleFinance\(gfNeed,\s*todayStr,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(source)
+    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*prevDay,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(source)) {
+  console.error('❌ USD 종목이 없는 평가가격 갱신은 GOOGLEFINANCE 임시 시트 조회를 생략해야 합니다.');
+  process.exit(1);
+}
+
+if (gasContext._hasUsdPriceItems([{ code: '005930', currency: 'KRW' }])
+    || !gasContext._hasUsdPriceItems([{ code: 'AAPL', currency: 'USD' }])
+    || gasContext._hasUsdPriceItems([{ code: '005930' }])) {
+  console.error('❌ USD 종목 유무 판정은 USD만 true이고 KRW·통화 미지정은 false여야 합니다.');
   process.exit(1);
 }
 

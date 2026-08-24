@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.69
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.70
+//
+//  v9.70 변경사항 (2026.08.24):
+//   ✅ [성능]   USD 종목이 없으면 평가가격 갱신의 GOOGLEFINANCE 임시 시트 계산을 생략
+//   ✅ [성능]   KRX 조회 직후 GF fallback에서 동일 KRX 시장 조회를 다시 실행하지 않도록 중복 제거
+//   ✅ [정확성] 국내 종목은 KRX 결과를 우선 사용하고 누락분은 저장된 최근 가격이력으로 보완
 //
 //  v9.69 변경사항 (2026.08.20):
 //   ✅ [성능]   앱 초기 복원 데이터를 getBootstrap 단일 요청으로 묶어 GAS 왕복과 설정 시트 중복 읽기 제거
@@ -619,12 +624,12 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
 // ════════════════════════════════════════════════════════════════════
 //  GOOGLEFINANCE 가격 조회 핵심
 // ════════════════════════════════════════════════════════════════════
-function fetchPricesGoogleFinance(items, dateStr, ss) {
+function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   var sourceMode = _getPriceSourceMode();
   var prices = {};
   var gfItems = items.slice();
 
-  if (sourceMode === 'krx_first') {
+  if (sourceMode === 'krx_first' && !(options && options.skipKrx)) {
     try {
       var krxPrices = fetchPricesKrx(items, dateStr);
       Object.keys(krxPrices).forEach(function(code) { prices[code] = krxPrices[code]; });
@@ -883,6 +888,14 @@ function fetchPricesKrxViaOtp(items, dateStr) {
   }
   Logger.log('[price-source] KRX OTP/CSV 조회 결과 ' + Object.keys(out).length + '건');
   return out;
+}
+
+// 종목코드 시트의 통화가 USD인 항목이 있을 때만 미국주식 조회 필요가 있다고 판정합니다.
+// 통화 정보가 없던 구버전 행은 getCodeItems()에서 KRW로 정규화됩니다.
+function _hasUsdPriceItems(items) {
+  return (items || []).some(function(item) {
+    return String(item && item.currency || 'KRW').toUpperCase() === 'USD';
+  });
 }
 
 function _parseKrxNumber(v) {
@@ -2385,12 +2398,22 @@ function handleGetPricesCompat(codesParam) {
     //    (가능하면 KRX 값으로 확정, 실패분만 GF fallback)
     if (reqCodes.length > 0) {
       var codeNameMap = {};
-      getCodeItems(ss).forEach(function(item) { codeNameMap[item.code] = item.name; });
-      var targetItems = reqCodes.map(function(c){ return { code: c, name: codeNameMap[c] || c }; });
+      var codeItemMap = {};
+      getCodeItems(ss).forEach(function(item) {
+        codeNameMap[item.code] = item.name;
+        codeItemMap[item.code] = item;
+      });
+      var targetItems = reqCodes.map(function(c){
+        return codeItemMap[c] || { code: c, name: codeNameMap[c] || c, currency: 'KRW' };
+      });
       var krxPrices = {};
       try { krxPrices = fetchPricesKrx(targetItems, todayStr); } catch(e) { Logger.log('⚠️ handleGetPricesCompat KRX 실패: ' + e.message); }
       var gfNeed = targetItems.filter(function(it){ return !(krxPrices[it.code] && krxPrices[it.code].price > 0); });
-      var gfPrices = gfNeed.length > 0 ? fetchPricesGoogleFinance(gfNeed, todayStr, ss) : {};
+      // USD 종목이 하나도 없으면 국내 종목의 KRX 누락분 때문에 GOOGLEFINANCE
+      // 임시 시트를 만들지 않습니다. 아래 최근 가격이력 fallback이 누락분을 보완합니다.
+      var gfPrices = gfNeed.length > 0 && _hasUsdPriceItems(targetItems)
+        ? fetchPricesGoogleFinance(gfNeed, todayStr, ss, { skipKrx: true })
+        : {};
       var stillMissing  = [];
       var sourceByCode = {};
       // ★ [버그수정] KRX fallback usedDate 기준으로 날짜 분리 저장
@@ -3531,7 +3554,9 @@ function saveDailyPriceHistory() {
         var gfPrevItems = items.filter(function(item) {
           return !(krxPrev[item.code] && krxPrev[item.code].price > 0);
         });
-        var gfPrev = gfPrevItems.length > 0 ? fetchPricesGoogleFinance(gfPrevItems, prevDay, ss) : {};
+        var gfPrev = gfPrevItems.length > 0 && _hasUsdPriceItems(items)
+          ? fetchPricesGoogleFinance(gfPrevItems, prevDay, ss, { skipKrx: true })
+          : {};
         var prevSavedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
 
         // 확정 거래일 KRX 데이터와 필요한 GF fallback만 가격이력에 저장 (MANUAL 보호)
@@ -5115,7 +5140,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.69' });
+    return jsonOk({ settings: settings, gasVersion: '9.70' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5139,7 +5164,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.69'
+      gasVersion: '9.70'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

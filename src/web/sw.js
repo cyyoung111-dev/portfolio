@@ -3,7 +3,7 @@
 //  캐시 버전을 올리면(예: v2, v3) 브라우저가 자동으로 새 파일을 받습니다.
 //  파일을 대량 수정해서 배포할 때는 CACHE_NAME 뒤 숫자만 바꿔주세요.
 // ════════════════════════════════════════════════════════════════
-const CACHE_NAME = 'portfolio-cache-v4';
+const CACHE_NAME = 'portfolio-cache-v5';
 
 // 오프라인에서도 최소한 앱 껍데기는 뜨도록 미리 저장해둘 파일들
 const PRECACHE_URLS = [
