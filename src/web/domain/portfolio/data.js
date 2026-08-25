@@ -581,6 +581,10 @@ function _commitTrades() {
   syncHoldingsFromTrades({ clearWhenEmpty: true });
   saveHoldings();
   refreshAll();
+  // 현재가 편집창이 열린 상태에서 전량 매도하면 목록도 즉시 다시 계산합니다.
+  // 상단 업데이트 버튼이나 팝업 재실행을 요구하지 않습니다.
+  const editor = $el('priceEditor');
+  if (editor?.classList.contains('open') && typeof buildEditorUI === 'function') buildEditorUI();
 }
 
 // ★ 상환스케줄 기준으로 LOAN 자동 갱신

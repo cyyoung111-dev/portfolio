@@ -279,22 +279,6 @@ function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
   </div>`;
 }
 
-function _priceLookupSummary() {
-  const meta = window._lastPriceLookup;
-  if (!meta || typeof meta !== 'object') return '';
-  const elapsed = Number.isFinite(Number(meta.serverElapsedMs)) ? `${Math.max(0, Math.round(Number(meta.serverElapsedMs)))}ms` : '?';
-  const roundTrip = Number.isFinite(Number(meta.clientRoundTripMs)) ? `${Math.max(0, Math.round(Number(meta.clientRoundTripMs)))}ms` : '?';
-  const krx = Math.max(0, Number(meta.krxResultCount) || 0);
-  const history = Math.max(0, Number(meta.recentHistoryFallbackCount) || 0);
-  let gf;
-  if (meta.googleFinanceSkipped) gf = `GF 생략(${meta.googleFinanceSkipReason || '대상 없음'})`;
-  else if (meta.googleFinanceExecuted) gf = `GF ${Math.max(0, Number(meta.googleFinanceResultCount) || 0)}건`;
-  else gf = 'GF 불필요';
-  const cache = meta.cacheHit ? ' · 60초 캐시' : '';
-  const fallback = history > 0 ? ` · 최근이력 ${history}건` : '';
-  return ` · <span class="c-muted">조회경로 KRX ${krx}건 · ${gf}${fallback} · 왕복 ${roundTrip} · GAS ${elapsed}${cache}</span>`;
-}
-
 function setStatusLabel(html, type) {
   // type: 'idle' | 'loading' | 'ok' | 'warn' | 'error'
   const el = $el('price-updated-label');
