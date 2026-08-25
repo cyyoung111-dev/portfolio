@@ -36,6 +36,16 @@ if (!writeSettingsMatch
 
 console.log(`✅ GAS syntax/internal helper check passed (${declared.size} helpers)`);
 
+if (!source.includes("params.action === 'getBootstrap'")
+    || !source.includes('function handleGetBootstrap()')
+    || !/handleGetBootstrap[\s\S]*?_readSettingsMap\(ss\)/.test(source)
+    || !/handleGetBootstrap[\s\S]*?handleGetTrades\(ss\)/.test(source)
+    || !/handleGetBootstrap[\s\S]*?handleGetHoldings\(ss\)/.test(source)
+    || !/handleGetBootstrap[\s\S]*?getCodeItems\(ss\)/.test(source)) {
+  console.error('❌ 앱 초기 복원은 단일 스프레드시트 핸들로 설정·거래·보유·종목코드를 일괄 반환해야 합니다.');
+  process.exit(1);
+}
+
 const diagnoseMatch = source.match(/function\s+handleDiagnoseEtfDividends\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
 if (!diagnoseMatch
     || /\.(?:setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet)\s*\(/.test(diagnoseMatch[1])
@@ -150,7 +160,7 @@ if (!source.includes("params.action === 'getBenchmarks'")
   process.exit(1);
 }
 
-if (!source.includes("props.setProperty('snapshot_last_success_date', prevDay)")
+if (!source.includes("props.setProperty('snapshot_last_success_date', snapshotDate)")
     || source.includes('writeSnapshotRows(ss, todayStr, snapRows, true)')
     || !source.includes('INDEX(x,ROWS(x),2)')
     || !source.includes('snapLast < expectedSnapshotDate')
@@ -163,11 +173,69 @@ const dailySnapshotMatch = source.match(/function\s+saveDailyPriceHistory\s*\([^
 if (!dailySnapshotMatch
     || /fetchPricesKrx\(items,\s*todayStr\)/.test(dailySnapshotMatch[1])
     || /\[prevPrevDay,\s*prevDay\]/.test(dailySnapshotMatch[1])
-    || !/fetchPricesKrx\(items,\s*prevDay\)/.test(dailySnapshotMatch[1])
-    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*prevDay,\s*ss\)/.test(dailySnapshotMatch[1])
-    || !/items\.length\s*>\s*0\s*&&\s*prevRows\.length\s*===\s*0/.test(dailySnapshotMatch[1])
+    || !/fetchPricesKrx\(items,\s*requestedPrevDay\)/.test(dailySnapshotMatch[1])
+    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*requestedPrevDay,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(dailySnapshotMatch[1])
+    || !/_getLatestPriceHistoryDate\(ss,\s*requestedPrevDay\)/.test(dailySnapshotMatch[1])
+    || !/writeSnapshotRows\(ss,\s*snapshotDate,\s*expected,\s*true\)/.test(dailySnapshotMatch[1])
     || !/deleteProperty\('snapshot_last_failure_at'\)/.test(dailySnapshotMatch[1])) {
   console.error('❌ 일일 스냅샷은 확정 거래일 가격을 한 번만 조회하고 과거 전체 검증과 분리해야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes('function _hasUsdPriceItems(items)')
+    || !/gfNeed\.length\s*>\s*0\s*&&\s*_hasUsdPriceItems\(targetItems\)/.test(source)
+    || !/gfPrevItems\.length\s*>\s*0\s*&&\s*_hasUsdPriceItems\(items\)/.test(source)
+    || !/fetchPricesGoogleFinance\(gfNeed,\s*todayStr,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(source)
+    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*requestedPrevDay,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(source)) {
+  console.error('❌ USD 종목이 없는 평가가격 갱신은 GOOGLEFINANCE 임시 시트 조회를 생략해야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes('function getLatestPriceHistoryEntries(ss, codes, maxDate)')
+    || !source.includes('latestEntry.date > priceDates[code]')
+    || !source.includes('priceDates: priceDates')
+    || !source.includes('_rebuildSnapshotForDateFromHistory(ss, latestDisplayDate)')
+    || !source.includes('var actualPriceDate = p.usedDate || requestedPrevDay')) {
+  console.error('❌ 이전 거래일 KRX 응답은 최신 가격이력을 덮지 않고 실제 최신 날짜 스냅샷을 복구해야 합니다.');
+  process.exit(1);
+}
+
+const priceHistoryRows = [
+  ['2026-08-21', '000660', 'SK하이닉스', 1730000, '', 'KRX'],
+  ['2026-08-24', '000660', 'SK하이닉스', 1671000, '', 'KRX'],
+];
+const priceHistorySheet = {
+  getLastRow: () => priceHistoryRows.length + 1,
+  getLastColumn: () => 6,
+  getRange: (...args) => ({
+    getValues: () => args[3] === 1 ? priceHistoryRows.map(row => [row[0]]) : priceHistoryRows,
+  }),
+};
+const priceHistorySs = {
+  getSheetByName: name => name === gasContext.CONFIG.SHEET_PH ? priceHistorySheet : null,
+};
+const latestHynix = gasContext.getLatestPriceHistoryEntries(priceHistorySs, ['000660'], '2026-08-25');
+if (!latestHynix['000660']
+    || latestHynix['000660'].date !== '2026-08-24'
+    || latestHynix['000660'].price !== 1671000
+    || gasContext._getLatestPriceHistoryDate(priceHistorySs, '2026-08-25') !== '2026-08-24') {
+  console.error('❌ 8월 21일 KRX 값보다 8월 24일 가격이력을 최신 평가단가·스냅샷 날짜로 선택해야 합니다.');
+  process.exit(1);
+}
+
+if (gasContext._hasUsdPriceItems([{ code: '005930', currency: 'KRW' }])
+    || !gasContext._hasUsdPriceItems([{ code: 'AAPL', currency: 'USD' }])
+    || gasContext._hasUsdPriceItems([{ code: '005930' }])) {
+  console.error('❌ USD 종목 유무 판정은 USD만 true이고 KRW·통화 미지정은 false여야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes('googleFinanceSkipReason')
+    || !source.includes('recentHistoryFallbackCount')
+    || !source.includes('serverElapsedMs')
+    || !source.includes("Logger.log('[price-lookup] ' + JSON.stringify(lookupMeta))")
+    || !source.includes('priceLookup: lookupMeta')) {
+  console.error('❌ 평가가격 응답과 GAS 로그에서 KRX/GF 생략·최근이력 보완·소요시간을 확인할 수 있어야 합니다.');
   process.exit(1);
 }
 

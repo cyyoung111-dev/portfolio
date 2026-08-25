@@ -88,6 +88,9 @@ async function _fetchFromGsheetInner(dateStr) {
         // 오늘 (주말 포함) → getPrices 실시간 조회
         // 실시간 응답이 일시 실패해도 전체 조회를 중단하지 않고 가격 이력으로 대체합니다.
         try {
+          window._lastPriceLookup = null;
+          window._gsheetResolvedPriceDate = '';
+          const roundTripStarted = Date.now();
           const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
           if (!data || data.status !== 'ok' || !data.prices) {
             throw new Error(data?.message || '실시간 가격 응답 오류');
@@ -96,9 +99,28 @@ async function _fetchFromGsheetInner(dateStr) {
           if (data.exchangeRates && typeof data.exchangeRates === 'object') {
             Object.assign(exchangeRates, data.exchangeRates);
           }
+          if (data.priceLookup && typeof data.priceLookup === 'object') {
+            data.priceLookup.clientRoundTripMs = Date.now() - roundTripStarted;
+            window._lastPriceLookup = data.priceLookup;
+            console.info('[평가가격 조회 경로]', data.priceLookup);
+          }
+          const responsePriceDates = data.priceDates && typeof data.priceDates === 'object' ? data.priceDates : {};
+          window._gsheetResolvedPriceDate = Object.values(responsePriceDates)
+            .map(v => String(v || ''))
+            .filter(v => /^\d{4}-\d{2}-\d{2}$/.test(v))
+            .sort()
+            .slice(-1)[0] || '';
           epItems.forEach(i => {
             const price = data.prices[i.code];
-            if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
+            if (price > 0) {
+              codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
+              if (responsePriceDates[i.code]) {
+                priceMeta[i.code] = {
+                  sourceDate: String(responsePriceDates[i.code]),
+                  isFallback: String(responsePriceDates[i.code]) !== dateStr
+                };
+              }
+            }
             else missingCodes.push({ name: i.name, code: i.code });
           });
         } catch(e) {
@@ -227,6 +249,22 @@ function _priceDiagSummary(results) {
   return ` · <span style="color:var(--amber)">🧪검증 변경 ${changed.length}/${entries.length}${sample ? ' (' + sample + (changed.length > 3 ? ' 외' : '') + ')' : ''}</span>`;
 }
 
+function _priceLookupSummary() {
+  const meta = window._lastPriceLookup;
+  if (!meta || typeof meta !== 'object') return '';
+  const elapsed = Number.isFinite(Number(meta.serverElapsedMs)) ? `${Math.max(0, Math.round(Number(meta.serverElapsedMs)))}ms` : '?';
+  const roundTrip = Number.isFinite(Number(meta.clientRoundTripMs)) ? `${Math.max(0, Math.round(Number(meta.clientRoundTripMs)))}ms` : '?';
+  const krx = Math.max(0, Number(meta.krxResultCount) || 0);
+  const history = Math.max(0, Number(meta.recentHistoryFallbackCount) || 0);
+  let gf;
+  if (meta.googleFinanceSkipped) gf = `GF 생략(${meta.googleFinanceSkipReason || '대상 없음'})`;
+  else if (meta.googleFinanceExecuted) gf = `GF ${Math.max(0, Number(meta.googleFinanceResultCount) || 0)}건`;
+  else gf = 'GF 불필요';
+  const cache = meta.cacheHit ? ' · 60초 캐시' : '';
+  const fallback = history > 0 ? ` · 최근이력 ${history}건` : '';
+  return ` · <span class="c-muted">조회경로 KRX ${krx}건 · ${gf}${fallback} · 왕복 ${roundTrip} · GAS ${elapsed}${cache}</span>`;
+}
+
 function setStatusLabel(html, type) {
   // type: 'idle' | 'loading' | 'ok' | 'warn' | 'error'
   const el = $el('price-updated-label');
@@ -287,6 +325,9 @@ async function quickFetchByDate() {
     // 버튼 클릭은 자동 조회 중 생성된 결과를 재사용하지 않고 GAS 최종값을 새로 확인합니다.
     let results = await fetchFromGsheet(targetDate, { forceFresh: true });
     let usedDate = targetDate;
+    if (targetDate === getDateStr(0) && window._gsheetResolvedPriceDate && window._gsheetResolvedPriceDate < targetDate) {
+      usedDate = window._gsheetResolvedPriceDate;
+    }
 
     // 오늘 날짜 조회 시 주말/공휴일 fallback (최대 5일 전)
     if ((!results || Object.keys(results).length === 0) && targetDate === getDateStr(0)) {
@@ -314,6 +355,7 @@ async function quickFetchByDate() {
       let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
       html += restoreSummary;
       html += _priceDiagSummary(results);
+      html += _priceLookupSummary();
       if (isFallback) {
         html += ` · <span style="color:var(--amber)">↩ 요청일(${targetDate.replace(/-/g,'.')}) 데이터 없음 → ${usedDate.replace(/-/g,'.')} 사용</span>`;
       }
@@ -345,7 +387,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.68';
+const EXPECTED_GAS_VERSION = '9.72';
 
 async function autoLoadPrices() {
   const dateStr = getDateStr(0);
@@ -377,7 +419,7 @@ async function autoLoadPrices() {
     badge.style.color = 'var(--blue-lt)';
     badge.style.border = '1px solid var(--c-blue2-30)';
   }
-  setStatusLabel('⏳ GOOGLEFINANCE로 종가 조회 중...', 'loading');
+  setStatusLabel('⏳ KRX 평가가격 조회 중...', 'loading');
 
   try {
     let results = null;
@@ -385,6 +427,9 @@ async function autoLoadPrices() {
 
     // 오늘 조회
     results = await fetchFromGsheet(dateStr);
+    if (window._gsheetResolvedPriceDate && window._gsheetResolvedPriceDate < dateStr) {
+      usedDateStr = window._gsheetResolvedPriceDate;
+    }
 
     // 주말/공휴일 fallback (최대 5일 전)
     if (!results || Object.keys(results).length === 0) {
@@ -413,7 +458,8 @@ async function autoLoadPrices() {
         ? ` · <span style="color:var(--amber)">↩ 오늘(${dateStr.replace(/-/g,'.')}) 데이터 없음 → ${usedDateStr.replace(/-/g,'.')} 사용</span>`
         : '';
       const diagMsg = _priceDiagSummary(results);
-      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개${diagMsg}${fallbackMsg}`, 'ok');
+      const lookupMsg = _priceLookupSummary();
+      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개${diagMsg}${lookupMsg}${fallbackMsg}`, 'ok');
 
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
