@@ -256,12 +256,23 @@ async function loadSettings(onProgress) {
   if (!GSHEET_API_URL) return false;
   try {
     prog('설정 데이터 로드 중...');
-    const data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1 });
+    // 설정·거래·보유·종목코드를 단일 GAS 실행에서 받아 웹앱 왕복 지연을 줄입니다.
+    // 구버전 GAS는 getBootstrap을 모르므로 기존 getSettings 요청으로 자동 대체합니다.
+    let data = await requestGsheetActionJson('getBootstrap', {}, { timeoutMs: 15000, retry: 1 });
+    const isBootstrap = !!(data && data.status === 'ok' && data.settings && Array.isArray(data.codes));
+    if (!isBootstrap) {
+      data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1 });
+    }
     if (!data || data.status !== 'ok' || !data.settings) return false;
     const s = data.settings;
     // 설정·배당·부동산 처리와 동시에 거래/보유 시트를 미리 읽습니다.
     // 기존에는 모든 설정 복원이 끝난 뒤 순차 요청해 주식 데이터 표시가 불필요하게 늦었습니다.
-    const portfolioRestorePromise = rawTrades.length === 0
+    const portfolioRestorePromise = rawTrades.length === 0 && isBootstrap
+      ? Promise.resolve([
+          { status: 'ok', trades: Array.isArray(data.trades) ? data.trades : [] },
+          { status: 'ok', holdings: Array.isArray(data.holdings) ? data.holdings : [] },
+        ])
+      : rawTrades.length === 0
       ? Promise.all([
           requestGsheetActionJson('getTrades', {}, { timeoutMs: 15000, retry: 1 }).catch(() => null),
           requestGsheetActionJson('getHoldings', {}, { timeoutMs: 15000, retry: 1 }).catch(() => null),
@@ -427,10 +438,14 @@ async function loadSettings(onProgress) {
     saveHoldings({ skipGsheet: true });
     saveAcctColors();
     saveAcctOrder();
-    const [divLoaded, reLoaded] = await Promise.all([
-      loadDividendSettings(),   // 배당 별도 시트 우선
-      loadRealEstateSettings(), // 부동산/대출 별도 시트 우선
-    ]);
+    // 통합 응답의 settings에는 전용 데이터도 포함됩니다. 최신 GAS에서는 같은 설정
+    // 시트를 다시 두 번 읽지 않고 아래 하위 호환 적용 경로를 그대로 사용합니다.
+    const [divLoaded, reLoaded] = isBootstrap
+      ? [false, false]
+      : await Promise.all([
+          loadDividendSettings(),   // 배당 별도 시트 우선
+          loadRealEstateSettings(), // 부동산/대출 별도 시트 우선
+        ]);
 
     // 하위 호환 fallback: 별도 시트 액션이 없으면 기존 Settings 시트 데이터 사용
     if (!divLoaded && s.DIVDATA && typeof s.DIVDATA === 'object') {
@@ -526,7 +541,10 @@ async function loadSettings(onProgress) {
     if (fallbackLoanChanged) await persistRealEstateSettings(true);
     // 일반 Settings 저장이 과거에 실패했더라도 별도로 동기화된 종목코드 시트에서
     // 유형·섹터·통화를 복구합니다. 상단 업데이트와 수동 재동기화에도 동일하게 적용됩니다.
-    try { await loadGsheetCodeList(); } catch(e) {}
+    try {
+      if (isBootstrap && typeof applyGsheetCodeList === 'function') applyGsheetCodeList(data.codes);
+      else await loadGsheetCodeList();
+    } catch(e) {}
     const reconciled = typeof reconcileEditablesFromGsheetCodeList === 'function'
       ? reconcileEditablesFromGsheetCodeList()
       : 0;

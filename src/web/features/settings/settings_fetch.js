@@ -88,6 +88,9 @@ async function _fetchFromGsheetInner(dateStr) {
         // 오늘 (주말 포함) → getPrices 실시간 조회
         // 실시간 응답이 일시 실패해도 전체 조회를 중단하지 않고 가격 이력으로 대체합니다.
         try {
+          window._lastPriceLookup = null;
+          window._gsheetResolvedPriceDate = '';
+          const roundTripStarted = Date.now();
           const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
           if (!data || data.status !== 'ok' || !data.prices) {
             throw new Error(data?.message || '실시간 가격 응답 오류');
@@ -96,9 +99,28 @@ async function _fetchFromGsheetInner(dateStr) {
           if (data.exchangeRates && typeof data.exchangeRates === 'object') {
             Object.assign(exchangeRates, data.exchangeRates);
           }
+          if (data.priceLookup && typeof data.priceLookup === 'object') {
+            data.priceLookup.clientRoundTripMs = Date.now() - roundTripStarted;
+            window._lastPriceLookup = data.priceLookup;
+            console.info('[평가가격 조회 경로]', data.priceLookup);
+          }
+          const responsePriceDates = data.priceDates && typeof data.priceDates === 'object' ? data.priceDates : {};
+          window._gsheetResolvedPriceDate = Object.values(responsePriceDates)
+            .map(v => String(v || ''))
+            .filter(v => /^\d{4}-\d{2}-\d{2}$/.test(v))
+            .sort()
+            .slice(-1)[0] || '';
           epItems.forEach(i => {
             const price = data.prices[i.code];
-            if (price > 0) codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
+            if (price > 0) {
+              codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
+              if (responsePriceDates[i.code]) {
+                priceMeta[i.code] = {
+                  sourceDate: String(responsePriceDates[i.code]),
+                  isFallback: String(responsePriceDates[i.code]) !== dateStr
+                };
+              }
+            }
             else missingCodes.push({ name: i.name, code: i.code });
           });
         } catch(e) {
@@ -222,16 +244,47 @@ function _priceDiagSummary(results) {
       changed.push({ key, prev: Math.round(prev), next: Math.round(next) });
     }
   });
-  if (changed.length === 0) return ` · <span class="c-muted">🧪검증 변경 0/${entries.length}</span>`;
+  if (changed.length === 0) return `<span class="c-muted">🧪 검증 변경 0/${entries.length}</span>`;
   const sample = changed.slice(0, 3).map(i => `${i.key}:${i.prev}→${i.next}`).join(', ');
-  return ` · <span style="color:var(--amber)">🧪검증 변경 ${changed.length}/${entries.length}${sample ? ' (' + sample + (changed.length > 3 ? ' 외' : '') + ')' : ''}</span>`;
+  return `<span style="color:var(--amber)">🧪 검증 변경 ${changed.length}/${entries.length}${sample ? ' (' + sample + (changed.length > 3 ? ' 외' : '') + ')' : ''}</span>`;
+}
+
+function _priceLookupSummary() {
+  const meta = window._lastPriceLookup;
+  if (!meta || typeof meta !== 'object') return '';
+  const elapsed = Number.isFinite(Number(meta.serverElapsedMs)) ? `${Math.max(0, Math.round(Number(meta.serverElapsedMs)))}ms` : '?';
+  const roundTrip = Number.isFinite(Number(meta.clientRoundTripMs)) ? `${Math.max(0, Math.round(Number(meta.clientRoundTripMs)))}ms` : '?';
+  const krx = Math.max(0, Number(meta.krxResultCount) || 0);
+  const history = Math.max(0, Number(meta.recentHistoryFallbackCount) || 0);
+  let gf;
+  if (meta.googleFinanceSkipped) gf = `GF 생략 · ${meta.googleFinanceSkipReason || '대상 없음'}`;
+  else if (meta.googleFinanceExecuted) gf = `GF ${Math.max(0, Number(meta.googleFinanceResultCount) || 0)}건`;
+  else gf = 'GF 불필요';
+  const chips = [
+    `KRX ${krx}건`,
+    gf,
+    ...(history > 0 ? [`최근이력 ${history}건`] : []),
+    `왕복 ${roundTrip}`,
+    `GAS ${elapsed}`,
+    ...(meta.cacheHit ? ['60초 캐시'] : []),
+  ];
+  return `<span class="price-status-chips">${chips.map((label, index) => `<span class="price-status-chip${index === 1 && meta.googleFinanceSkipped ? ' is-skip' : ''}">${label}</span>`).join('')}</span>`;
+}
+
+function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
+  return `<div class="price-status-content">
+    <div class="price-status-primary">${primaryHtml}</div>
+    ${metaHtml ? `<div class="price-status-meta">${metaHtml}</div>` : ''}
+    ${noteHtml ? `<div class="price-status-note">${noteHtml}</div>` : ''}
+  </div>`;
 }
 
 function setStatusLabel(html, type) {
   // type: 'idle' | 'loading' | 'ok' | 'warn' | 'error'
   const el = $el('price-updated-label');
   if (!el) return;
-  el.className = `action-status-label sl-${type in {idle:1,loading:1,ok:1,warn:1,error:1} ? type : 'idle'}`;
+  const hasDetails = String(html || '').includes('price-status-content');
+  el.className = `action-status-label sl-${type in {idle:1,loading:1,ok:1,warn:1,error:1} ? type : 'idle'}${hasDetails ? ' has-price-details' : ''}`;
   el.innerHTML = html;
 }
 
@@ -275,18 +328,21 @@ async function quickFetchByDate() {
       const tradeCount = Array.isArray(rawTrades) ? rawTrades.length : 0;
       const holdingCount = (Array.isArray(rawHoldings) ? rawHoldings.length : 0)
         + ((fundDirect && typeof fundDirect === 'object') ? Object.keys(fundDirect).length : 0);
-      restoreSummary = ` · 거래 ${tradeCount}건 · 보유 ${holdingCount}건 복원`;
+      restoreSummary = `<span class="price-status-chip">거래 ${tradeCount}건</span><span class="price-status-chip">보유 ${holdingCount}건</span>`;
       if (tradeCount === 0 && holdingCount === 0) {
-        restoreSummary = ' · <span style="color:var(--amber)">⚠️ GAS 거래·보유 데이터 없음</span>';
+        restoreSummary = '<span style="color:var(--amber)">⚠️ GAS 거래·보유 데이터 없음</span>';
       }
     } else {
-      restoreSummary = ' · <span style="color:var(--red-lt)">⚠️ GAS 전체 데이터 복원 실패</span>';
+      restoreSummary = '<span style="color:var(--red-lt)">⚠️ GAS 전체 데이터 복원 실패</span>';
     }
 
-    setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...' + restoreSummary, 'loading');
+    setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...' + (restoreSummary ? ' · GAS 데이터 확인 완료' : ''), 'loading');
     // 버튼 클릭은 자동 조회 중 생성된 결과를 재사용하지 않고 GAS 최종값을 새로 확인합니다.
     let results = await fetchFromGsheet(targetDate, { forceFresh: true });
     let usedDate = targetDate;
+    if (targetDate === getDateStr(0) && window._gsheetResolvedPriceDate && window._gsheetResolvedPriceDate < targetDate) {
+      usedDate = window._gsheetResolvedPriceDate;
+    }
 
     // 오늘 날짜 조회 시 주말/공휴일 fallback (최대 5일 전)
     if ((!results || Object.keys(results).length === 0) && targetDate === getDateStr(0)) {
@@ -311,18 +367,18 @@ async function quickFetchByDate() {
       const cnt   = Object.keys(results).length;
       const total = getEPWithCode().length;
       const dayLabel = isToday ? '실시간' : usedDate.replace(/-/g,'.') + ' 종가';
-      let html = `✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · <b>${cnt}/${total}개</b>`;
-      html += restoreSummary;
-      html += _priceDiagSummary(results);
+      const primary = `✅ 업데이트 완료 <span class="price-status-divider">·</span> <span class="c-gold">${dayLabel}</span> <span class="price-status-count">${cnt}/${total}개</span>`;
+      let meta = restoreSummary + _priceDiagSummary(results) + _priceLookupSummary();
+      let note = '';
       if (isFallback) {
-        html += ` · <span style="color:var(--amber)">↩ 요청일(${targetDate.replace(/-/g,'.')}) 데이터 없음 → ${usedDate.replace(/-/g,'.')} 사용</span>`;
+        note = `↩ 요청일 ${targetDate.replace(/-/g,'.')} 데이터 없음 · ${usedDate.replace(/-/g,'.')} 사용`;
       }
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {
         const missingStr = missing.map(m => `${m.code} ${m.name}`).join(', ');
-        html += ` · <span style="color:var(--red-lt)">⚠️ 미조회 ${missing.length}개: ${missingStr}</span>`;
+        note += `${note ? ' · ' : ''}<span style="color:var(--red-lt)">⚠️ 미조회 ${missing.length}개: ${missingStr}</span>`;
       }
-      setStatusLabel(html, 'ok');
+      setStatusLabel(_priceStatusLayout(primary, meta, note), 'ok');
       refreshAll();
     } else {
       setStatusLabel('❌ ' + targetDate + ' 데이터 없음 (주말/공휴일 또는 종목코드 미등록)' + restoreSummary, 'error');
@@ -345,7 +401,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.68';
+const EXPECTED_GAS_VERSION = '9.73';
 
 async function autoLoadPrices() {
   const dateStr = getDateStr(0);
@@ -377,7 +433,7 @@ async function autoLoadPrices() {
     badge.style.color = 'var(--blue-lt)';
     badge.style.border = '1px solid var(--c-blue2-30)';
   }
-  setStatusLabel('⏳ GOOGLEFINANCE로 종가 조회 중...', 'loading');
+  setStatusLabel('⏳ KRX 평가가격 조회 중...', 'loading');
 
   try {
     let results = null;
@@ -385,6 +441,9 @@ async function autoLoadPrices() {
 
     // 오늘 조회
     results = await fetchFromGsheet(dateStr);
+    if (window._gsheetResolvedPriceDate && window._gsheetResolvedPriceDate < dateStr) {
+      usedDateStr = window._gsheetResolvedPriceDate;
+    }
 
     // 주말/공휴일 fallback (최대 5일 전)
     if (!results || Object.keys(results).length === 0) {
@@ -409,11 +468,11 @@ async function autoLoadPrices() {
       const cnt      = Object.keys(results).length;
       const total    = getEPWithCode().length;
       const dayLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
-      const fallbackMsg = isFallback
-        ? ` · <span style="color:var(--amber)">↩ 오늘(${dateStr.replace(/-/g,'.')}) 데이터 없음 → ${usedDateStr.replace(/-/g,'.')} 사용</span>`
-        : '';
       const diagMsg = _priceDiagSummary(results);
-      setStatusLabel(`✅ 업데이트 완료 · <span class="c-gold">${dayLabel}</span> · ${cnt}/${total}개${diagMsg}${fallbackMsg}`, 'ok');
+      const lookupMsg = _priceLookupSummary();
+      const primary = `✅ 업데이트 완료 <span class="price-status-divider">·</span> <span class="c-gold">${dayLabel}</span> <span class="price-status-count">${cnt}/${total}개</span>`;
+      const note = isFallback ? `↩ 오늘 ${dateStr.replace(/-/g,'.')} 데이터 없음 · ${usedDateStr.replace(/-/g,'.')} 사용` : '';
+      setStatusLabel(_priceStatusLayout(primary, diagMsg + lookupMsg, note), 'ok');
 
       const missing = window._gsheetMissingCodes || [];
       if (missing.length > 0) {

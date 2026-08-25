@@ -224,11 +224,24 @@ function _mgmtRefresh() {
 
 // ── 계좌 관리 (기초정보 관리 탭)
 
+function _isCurrentEditorHolding(item) {
+  const itemName = normName(item?.name || '');
+  const itemCode = normalizeStockCode(item?.code || '');
+  return rawHoldings.some(holding => {
+    if (!(Number(holding?.qty) > 0)) return false;
+    const holdingName = normName(holding?.name || '');
+    const holdingCode = normalizeStockCode(holding?.code || STOCK_CODE[holdingName] || STOCK_CODE[holding?.name] || '');
+    return (itemCode && holdingCode === itemCode) || (itemName && holdingName === itemName);
+  });
+}
+
 function buildEditorUI() {
   _editorItemMap = {};
-  // ① 펀드·TDF — assetType 또는 fund 플래그 기준 (코드 유무와 무관)
+  // ① 펀드·TDF — 현재 보유수량이 있는 종목만 표시합니다.
+  // 기초정보와 과거 가격이력은 보존하되 전량 매도 종목은 편집 대상에서 제외합니다.
   const fundItems = EDITABLE_PRICES.filter(item =>
-    item.fund || item.assetType === '펀드' || item.assetType === 'TDF'
+    (item.fund || item.assetType === '펀드' || item.assetType === 'TDF')
+    && _isCurrentEditorHolding(item)
   );
 
   // ② 코드 있는 일반 종목 중 "실제 자동조회 실패" 대상만 노출
@@ -244,6 +257,7 @@ function buildEditorUI() {
     const hasPrice = !!(savedPrices[code] || savedPrices[item.code] || savedPrices[item.name] || getCurrentPriceFromData(item.name));
     const isMissing = missingSet.has(code);
     if (!hasPrice && isMissing) {
+      if (!_isCurrentEditorHolding(item)) return;
       nopriceCodes.add(code);
       nopriceItems.push(item);
     }
@@ -258,6 +272,7 @@ function buildEditorUI() {
       const epByCode = EDITABLE_PRICES.find(i => i.code && normalizeStockCode(i.code) === code);
       const epByName = EDITABLE_PRICES.find(i => i.name === m.name);
       if (epByCode || epByName) return;
+      if (!_isCurrentEditorHolding(m)) return;
       nopriceCodes.add(code);
       nopriceItems.push({ name: m.name, code: m.code, assetType: '주식' });
     });

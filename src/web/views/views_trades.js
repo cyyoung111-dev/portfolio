@@ -106,6 +106,41 @@ function _buildTradeDateRepairHTML() {
     </div>`;
 }
 
+// 거래표 정렬/필터와 무관하게 전체 원장을 날짜순으로 계산합니다.
+// 화면이 최신순이면 매도행이 매수행보다 먼저 렌더링되어 원가 0으로 계산되던 문제를 방지합니다.
+function _buildTradeRealizedContext(trades) {
+  const positions = {};
+  const realizedByTrade = new Map();
+  const sorted = [...(trades || [])].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  sorted.forEach(t => {
+    const key = String(t.acct || '') + '||' + String(t.name || '');
+    if (!positions[key]) positions[key] = { qty: 0, totalCost: 0 };
+    const position = positions[key];
+    if (t.tradeType === 'buy') {
+      position.qty += Number(t.qty) || 0;
+      position.totalCost += (Number(t.qty) || 0) * (Number(t.price) || 0);
+      return;
+    }
+    if (t.tradeType !== 'sell') return;
+    const avgCost = position.qty > 0 ? position.totalCost / position.qty : 0;
+    const sellQty = Math.min(Number(t.qty) || 0, position.qty);
+    const pnl = ((Number(t.price) || 0) - avgCost) * sellQty;
+    const pct = avgCost > 0 ? (((Number(t.price) || 0) - avgCost) / avgCost * 100) : null;
+    realizedByTrade.set(t, { pnl, pct, avgCost, sellQty });
+    position.qty -= sellQty;
+    position.totalCost -= sellQty * avgCost;
+    if (position.qty < 0.0001) {
+      position.qty = 0;
+      position.totalCost = 0;
+    }
+  });
+  const currentAvgByKey = {};
+  Object.entries(positions).forEach(([key, position]) => {
+    currentAvgByKey[key] = position.qty > 0 ? position.totalCost / position.qty : 0;
+  });
+  return { realizedByTrade, currentAvgByKey };
+}
+
 // ── 거래이력: 테이블 HTML 생성 (행별 평균단가 계산 포함)
 
 function _buildTradesTableHTML(list) {
@@ -130,8 +165,7 @@ function _buildTradesTableHTML(list) {
       style="padding:9px 10px;text-align:center;font-size:.68rem;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;${color}">${col.label}<span style="font-size:.60rem;opacity:.7">${arrow}</span></th>`;
   }).join('');
 
-    const avgMap = {};
-  const breakevenMap = {}; // mapKey → 현재 평균단가 (현재 보유 포지션 기준)
+  const tradePnlContext = _buildTradeRealizedContext(rawTrades);
   const rowsHTML = list.map((t) => {
     const tradeId = String(t.id ?? '');
     const tradeIdEsc = _escapeHtml(tradeId);
@@ -140,25 +174,15 @@ function _buildTradesTableHTML(list) {
     const code = String(t.code || '');
     const memo = String(t.memo || '');
     const mapKey = acct + '||' + name;
-    if (!avgMap[mapKey]) avgMap[mapKey] = { qty: 0, totalCost: 0 };
     const isBuy  = t.tradeType === 'buy';
     const isSell = t.tradeType === 'sell';
     const price  = t.price ?? 0;
     const date   = t.date  || '';
-    let pnl = null, pct = null;
-    if (isBuy) {
-      avgMap[mapKey].qty       += (t.qty || 0);
-      avgMap[mapKey].totalCost += (t.qty || 0) * price;
-    } else if (isSell) {
-      const avgCost = avgMap[mapKey].qty > 0 ? avgMap[mapKey].totalCost / avgMap[mapKey].qty : 0;
-      pnl = (price - avgCost) * (t.qty || 0);
-      pct = avgCost > 0 ? ((price - avgCost) / avgCost * 100) : 0;
-      const sellQty = Math.min(t.qty || 0, avgMap[mapKey].qty);
-      avgMap[mapKey].qty       -= sellQty;
-      avgMap[mapKey].totalCost -= sellQty * avgCost;
-    }
+    const realized = isSell ? tradePnlContext.realizedByTrade.get(t) : null;
+    const pnl = realized ? realized.pnl : null;
+    const pct = realized ? realized.pct : null;
     // ★ 손익분기 단가: 현재 포지션의 평균 매수단가
-    const currentAvg  = avgMap[mapKey].qty > 0 ? avgMap[mapKey].totalCost / avgMap[mapKey].qty : 0;
+    const currentAvg = tradePnlContext.currentAvgByKey[mapKey] || 0;
     // 현재가 대비 손익분기까지 남은 %
     const currentPrice = (savedPrices[getCode(name)] || savedPrices[name] || 0);
     const beGap = currentAvg > 0 && currentPrice > 0
