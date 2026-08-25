@@ -200,6 +200,15 @@ if (!source.includes('function getLatestPriceHistoryEntries(ss, codes, maxDate)'
   process.exit(1);
 }
 
+if (!source.includes('function _ensureDailyTriggersOncePerDay(dateStr)')
+    || !source.includes('var triggerState = _ensureDailyTriggersOncePerDay(todayStr)')
+    || !source.includes("props.setProperty('daily_triggers_checked_date', dateStr)")
+    || !source.includes('function _ensureSnapshotExistsForDate(ss, dateStr)')
+    || !source.includes('_ensureSnapshotExistsForDate(ss, cachedLatestDate)')) {
+  console.error('❌ 웹 조회는 트리거를 일 1회 자동 점검하고 캐시 응답에서도 누락 스냅샷을 복구해야 합니다.');
+  process.exit(1);
+}
+
 const priceHistoryRows = [
   ['2026-08-21', '000660', 'SK하이닉스', 1730000, '', 'KRX'],
   ['2026-08-24', '000660', 'SK하이닉스', 1671000, '', 'KRX'],

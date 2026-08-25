@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.72
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.73
+//
+//  v9.73 변경사항 (2026.08.25):
+//   ✅ [자동화] 웹 평가가격 조회 시 16:20 스냅샷 트리거를 일 1회 점검하고 누락 시 자동 복구
+//   ✅ [복구]   60초 가격 캐시 응답에서도 최신 가격이력 날짜의 누락 스냅샷 생성 보장
 //
 //  v9.72 변경사항 (2026.08.25):
 //   ✅ [정확성] KRX가 이전 거래일을 반환해도 더 최신 가격이력이 있으면 웹 평가단가에 최신 이력을 적용
@@ -2379,6 +2383,7 @@ function handleGetPricesCompat(codesParam) {
     var requestStartedMs = Date.now();
     var ss       = getss();
     var todayStr = today();
+    var triggerState = _ensureDailyTriggersOncePerDay(todayStr);
     var reqCodes = codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean);
     var cache = CacheService.getScriptCache();
     var cacheRaw = todayStr + '|' + reqCodes.slice().sort().join(',');
@@ -2394,6 +2399,12 @@ function handleGetPricesCompat(codesParam) {
         cachedPayload.priceLookup = cachedPayload.priceLookup || {};
         cachedPayload.priceLookup.cacheHit = true;
         cachedPayload.priceLookup.serverElapsedMs = Date.now() - requestStartedMs;
+        cachedPayload.priceLookup.triggerAutoFixed = !!triggerState.autoFixed;
+        var cachedLatestDate = _latestDateFromPriceDates(cachedPayload.priceDates || {});
+        cachedPayload.priceLookup.snapshotDate = cachedLatestDate;
+        cachedPayload.priceLookup.snapshotCreated = cachedLatestDate
+          ? _ensureSnapshotExistsForDate(ss, cachedLatestDate)
+          : false;
         return jsonOk(cachedPayload);
       } catch(cacheErr) {}
     }
@@ -2497,11 +2508,11 @@ function handleGetPricesCompat(codesParam) {
 
       // 웹에서 평가가격을 갱신할 때도 최신 가격이력 날짜의 스냅샷을 즉시 맞춥니다.
       // 16:20 트리거가 누락됐더라도 다음 웹 갱신에서 자동 복구됩니다.
-      var latestDisplayDate = '';
-      Object.keys(priceDates).forEach(function(code) {
-        if (priceDates[code] > latestDisplayDate) latestDisplayDate = priceDates[code];
-      });
+      var latestDisplayDate = _latestDateFromPriceDates(priceDates);
       if (latestDisplayDate) _rebuildSnapshotForDateFromHistory(ss, latestDisplayDate);
+      lookupMeta.snapshotDate = latestDisplayDate;
+      lookupMeta.snapshotCreated = false;
+      lookupMeta.triggerAutoFixed = !!triggerState.autoFixed;
     }
     // 요청 종목에서 실제 사용하는 외화만 조회합니다.
     var requestedSet = {};
@@ -2520,6 +2531,25 @@ function handleGetPricesCompat(codesParam) {
   } catch(err) {
     return jsonError('getPrices 실패: ' + err.message);
   }
+}
+
+function _latestDateFromPriceDates(priceDates) {
+  var latest = '';
+  Object.keys(priceDates || {}).forEach(function(code) {
+    var date = _normalizeDate(priceDates[code]);
+    if (date && date > latest) latest = date;
+  });
+  return latest;
+}
+
+// 캐시 응답은 가격 재조회는 생략하되 스냅샷 누락 여부는 확인합니다.
+// 이미 해당 날짜 행이 있으면 재계산하지 않아 캐시 응답의 장점을 유지합니다.
+function _ensureSnapshotExistsForDate(ss, dateStr) {
+  if (!dateStr) return false;
+  var existing = _readSnapshotRowsByDate(ss, dateStr);
+  if (existing.length > 0) return false;
+  _rebuildSnapshotForDateFromHistory(ss, dateStr);
+  return _readSnapshotRowsByDate(ss, dateStr).length > 0;
 }
 
 // ── 환율 조회 (GOOGLEFINANCE 기반)
@@ -4241,6 +4271,25 @@ function _ensureDailyTriggers(autoFix) {
   return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage };
 }
 
+function _ensureDailyTriggersOncePerDay(dateStr) {
+  var props = PropertiesService.getScriptProperties();
+  var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
+  if (checkedDate === dateStr) return { checked: false, autoFixed: false };
+  try {
+    var before = _ensureDailyTriggers(false);
+    var missing = !before.hasClean || !before.hasSave || !before.hasMortgage;
+    var after = missing ? _ensureDailyTriggers(true) : before;
+    if (after.hasClean && after.hasSave && after.hasMortgage) {
+      props.setProperty('daily_triggers_checked_date', dateStr);
+    }
+    if (missing) Logger.log('✅ 웹 평가가격 조회에서 누락 자동 트리거 복구 완료');
+    return { checked: true, autoFixed: missing };
+  } catch(err) {
+    Logger.log('⚠️ 웹 평가가격 조회의 자동 트리거 점검 실패: ' + err.message);
+    return { checked: true, autoFixed: false, error: err.message };
+  }
+}
+
 function _getLatestDateInColumn(sheet, column) {
   if (!sheet || sheet.getLastRow() < 2) return '-';
   var values = sheet.getRange(2, column || 1, sheet.getLastRow() - 1, 1).getValues();
@@ -5239,7 +5288,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.72' });
+    return jsonOk({ settings: settings, gasVersion: '9.73' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5263,7 +5312,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.72'
+      gasVersion: '9.73'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
