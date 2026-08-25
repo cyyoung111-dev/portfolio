@@ -32,20 +32,25 @@ async function syncIssuesToGsheet(source, issues) {
 // ── 구글시트 종목코드 목록 로드
 let _gsheetCodeList = []; // [{code, name}]
 
+function applyGsheetCodeList(codes) {
+  if (!Array.isArray(codes)) return false;
+  _gsheetCodeList = codes
+    .map(item => ({
+      code: _normalizeSyncCode(item?.code),
+      name: String(item?.name || '').trim(),
+      type: String(item?.type || '').trim(),
+      sector: String(item?.sector || '').trim(),
+      currency: String(item?.currency || '').trim().toUpperCase(),
+    }))
+    .filter(item => item.code && item.name);
+  return true;
+}
+
 async function loadGsheetCodeList() {
   if (!GSHEET_API_URL) return;
   try {
     const data = await requestGsheetActionJson('getCodeList', {}, { timeoutMs: 10000, retry: 1 });
-    if (data.status === 'ok' && Array.isArray(data.codes)) {
-      _gsheetCodeList = data.codes
-        .map(item => ({
-          code: _normalizeSyncCode(item?.code),
-          name: String(item?.name || '').trim(),
-          type: String(item?.type || '').trim(),
-          sector: String(item?.sector || '').trim(),
-          currency: String(item?.currency || '').trim().toUpperCase(),
-        }))
-        .filter(item => item.code && item.name);
+    if (data.status === 'ok' && applyGsheetCodeList(data.codes)) {
 
       // ⚠️ STOCK_CODE는 건드리지 않음 — HTML 직접 입력이 항상 우선
       // GSheet 코드는 _gsheetCodeList에만 보관, lookupNameByCode()에서 3순위 참고용으로만 사용
