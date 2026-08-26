@@ -6,6 +6,7 @@ function buildSectorMgmt() {
   const container = $el('sectorMgmtBody');
   if(!container) return;
 
+  _ensureSectorColors();
   const selIdx   = container._selectedIdx ?? null;
   const editMode = container._editMode    ?? false;
   const sectors  = Object.keys(SECTOR_COLORS);
@@ -67,6 +68,20 @@ function buildSectorMgmt() {
 
   container.innerHTML = html;
   _bindSectorMgmtEvents(container);
+}
+
+// 종목에는 섹터가 있지만 색상 설정이 없는 경우 섹터 관리 목록이 비어 보이지 않도록 보정한다.
+// 삭제 동작은 해당 종목을 '기타'로 이동시키므로 삭제한 섹터를 다시 생성하지 않는다.
+function _ensureSectorColors() {
+  const sectorNames = [...new Set(EDITABLE_PRICES.map(item => (item.sector || '기타').trim() || '기타'))];
+  let changed = false;
+  sectorNames.forEach(sec => {
+    if (SECTOR_COLORS[sec]) return;
+    SECTOR_COLORS[sec] = _secAutoColor();
+    changed = true;
+  });
+  if (changed && typeof lsSave === 'function') lsSave(SECTOR_COLORS_KEY, SECTOR_COLORS);
+  return changed;
 }
 function _bindSectorMgmtEvents(container) {
   container.querySelectorAll('.sec-row').forEach(row => {
