@@ -15,7 +15,8 @@ function buildAcctMgmt() {
   let html = `<div style="font-size:.70rem;color:var(--muted);margin-bottom:8px">계좌를 클릭하면 수정·삭제를 선택할 수 있습니다.</div>`;
 
   accts.forEach(acct => {
-    const color    = resolveColor(ACCT_COLORS[acct] || 'var(--muted)');
+    // 거래/보유 데이터에서 처음 발견된 계좌도 관리 화면 진입 시 고유 색상을 갖게 한다.
+    const color    = getOrAssignColor(acct);
     const tradeN   = rawTrades.filter(t => t.acct === acct).length;
     const hasData  = tradeN > 0 || rawHoldings.some(h => h.acct === acct);
     const isSel    = sel === acct;
@@ -394,4 +395,3 @@ function applyRealEstate() {
   closeRealEstateEditor();
   showToast('부동산 정보 저장 완료 · GAS 동기화 중', 'ok');
 }
-
