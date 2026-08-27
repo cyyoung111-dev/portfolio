@@ -173,8 +173,8 @@ function renderDivView(area, skipFetch) {
       <div style="display:flex;flex-direction:column;gap:2px">
         <div style="font-size:.70rem;font-weight:700;color:var(--text)">🔗 배당 연동 상태</div>
         <span id="dividendLinkStatus" data-state="${_dividendLinkState?.state || 'idle'}" style="font-size:.68rem">${_escapeHtml(_dividendLinkState?.message || (GSHEET_API_URL ? '자동 연동 대기 중' : 'GAS 연동 설정 필요'))}</span>
-        <span id="sync-badge-div" style="font-size:.64rem;color:var(--muted)">${typeof _tabSyncText === 'function' ? _tabSyncText('div').text : ''}</span>
-        <span style="font-size:.62rem;color:var(--muted)">최종 업데이트: ${dividendUpdatedLabel}</span>
+        <span id="sync-badge-div" title="외부 배당 API 조회와 무관하게, GAS에 저장된 배당 데이터를 이 브라우저로 다시 받은 최근 실행 결과입니다." style="font-size:.64rem;color:var(--muted)">${typeof _tabSyncText === 'function' ? _tabSyncText('div').text : ''}</span>
+        <span title="현재 화면의 종목별 배당 데이터 updatedAt 중 가장 최근 시각입니다." style="font-size:.62rem;color:var(--muted)">📅 화면 배당 데이터 최근 갱신 · ${dividendUpdatedLabel}</span>
       </div>
       <div class="div-link-actions" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="div-gas-link-badge ${GSHEET_API_URL ? 'connected' : 'disconnected'}">${GSHEET_API_URL ? '☁️ GAS 연동 설정됨 · 저장 시 동기화' : '○ GAS 미연동'}</span>
@@ -183,7 +183,7 @@ function renderDivView(area, skipFetch) {
       </div>
     </div>
     <div style="font-size:.65rem;color:var(--muted);margin-top:4px;padding:0 2px">
-      ${GSHEET_API_URL ? '자동: 탭 진입 시 일 1회 갱신 · 배당 데이터 갱신: 외부 소스 강제 재조회·저장 · GAS 데이터 다시 받기: 저장값만 브라우저로 복원' : '재동기화 설정 필요'}
+      ${GSHEET_API_URL ? '배당 데이터 갱신 = 외부 소스 재조회 후 GAS 저장 · GAS 데이터 다시 받기 = 저장된 데이터를 이 브라우저로 복원' : 'GAS 연동 설정이 필요합니다.'}
     </div>
   </div>
 
