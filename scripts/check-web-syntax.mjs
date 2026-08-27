@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
 
 const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'src/web');
@@ -72,6 +73,7 @@ const themeSource = fs.readFileSync(path.join(webRoot, 'shared/theme.js'), 'utf8
 const tabSettingsSource = fs.readFileSync(path.join(webRoot, 'views/views_system_tabsettings.js'), 'utf8');
 const historyRenderSource = fs.readFileSync(path.join(webRoot, 'views/views_history_render.js'), 'utf8');
 const historyPipelineSource = fs.readFileSync(path.join(webRoot, 'views/views_history_pipeline.js'), 'utf8');
+const historyUtilsSource = fs.readFileSync(path.join(webRoot, 'views/views_history_utils.js'), 'utf8');
 if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendSource.includes('_refreshSeibroEtfDividends(true)')
     || !dividendViewSource.includes('id="dividendLinkStatus"')
@@ -89,6 +91,15 @@ if (!historyRenderSource.includes('id="histDetailDate"')
     || !historyPipelineSource.includes('function _renderHistoryDateDetail(')
     || !historyPipelineSource.includes('손익 스냅샷이 없습니다.')) {
   console.error('❌ 특정일 손익 스냅샷 조회 UI 또는 데이터 없음 안내가 누락됐습니다.');
+  process.exit(1);
+}
+
+const historyUtilsContext = { fmtDateDot: value => String(value || '') };
+vm.runInNewContext(`${historyUtilsSource}\n` +
+  `globalThis.__dateKey = _histDateKey;`, historyUtilsContext);
+if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
+    || historyUtilsContext.__dateKey('2026-06-19') !== '2026-06-19') {
+  console.error('❌ 특정일 손익 조회 날짜 키는 date input과 같은 YYYY-MM-DD 형식이어야 합니다.');
   process.exit(1);
 }
 
