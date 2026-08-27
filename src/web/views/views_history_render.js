@@ -36,6 +36,13 @@ function renderHistoryView(area) {
       <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</div>
       <div id="histStatusMsg" style="font-size:.72rem;color:var(--muted);margin-bottom:8px"></div>
       <div id="histCoveragePanel"></div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--s2)">
+        <label for="histDetailDate" style="font-size:.70rem;font-weight:700;color:var(--text)">📅 특정일 손익</label>
+        <input id="histDetailDate" type="date" title="조회할 스냅샷 날짜"
+          style="background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem" />
+        <span style="font-size:.63rem;color:var(--muted)">상단 기준일 업데이트와 별개로 저장된 손익 스냅샷을 조회합니다.</span>
+      </div>
+      <div id="histDateDetail"></div>
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
       <div id="histTableWrap" style="margin-top:18px"></div>
     </div>`;
@@ -51,6 +58,11 @@ function renderHistoryView(area) {
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
   $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
+  $el('histDetailDate')?.addEventListener('change', async () => {
+    __histState.detailDate = String($el('histDetailDate')?.value || '');
+    _renderHistoryDateDetail(__histState.snapshots || []);
+    await _loadHistoryDateItems(__histState.detailDate);
+  });
   $el('histCoveragePanel')?.addEventListener('click', e => {
     if (e.target?.closest?.('[data-history-action="repair-gaps"]')) repairHistorySnapshotGaps();
   });
