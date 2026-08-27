@@ -75,6 +75,7 @@ const historyRenderSource = fs.readFileSync(path.join(webRoot, 'views/views_hist
 const historyPipelineSource = fs.readFileSync(path.join(webRoot, 'views/views_history_pipeline.js'), 'utf8');
 const historyUtilsSource = fs.readFileSync(path.join(webRoot, 'views/views_history_utils.js'), 'utf8');
 const portfolioSource = fs.readFileSync(path.join(webRoot, 'views/views_portfolio.js'), 'utf8');
+const planSource = fs.readFileSync(path.join(webRoot, 'views/views_plan.js'), 'utf8');
 if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendSource.includes('_refreshSeibroEtfDividends(true)')
     || !dividendViewSource.includes('id="dividendLinkStatus"')
@@ -113,15 +114,13 @@ if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
   process.exit(1);
 }
 
-if (!portfolioSource.includes('function _buildPortfolioDividendSummary()')
-    || !portfolioSource.includes('연간 예상 배당 (세전)')
-    || !portfolioSource.includes('올해 확정 배당')
-    || !portfolioSource.includes('세후 월 현금흐름 참고')
-    || !portfolioSource.includes('주담대 상환스케줄')
-    || !portfolioSource.includes('다음 납입 원금')
-    || !portfolioSource.includes('data-portfolio-action="open-mortgage"')
-    || !portfolioSource.includes('data-portfolio-action="open-retirement"')) {
-  console.error('❌ 포트폴리오 배당·은퇴·주담대 요약 또는 상세 이동 기능이 누락됐습니다.');
+if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
+    || !planSource.includes('function _buildPlanCashflowOverview()')
+    || !planSource.includes('배당·부동산 현금흐름')
+    || !planSource.includes("book_append_sheet(wb, ws6, '배당 현황')")
+    || !planSource.includes("book_append_sheet(wb, ws7, '은퇴 계획')")
+    || !planSource.includes('data-plan-action="open-property"')) {
+  console.error('❌ 투자계획의 배당·부동산 현황 또는 엑셀 배당·은퇴 시트 구성이 누락됐습니다.');
   process.exit(1);
 }
 
