@@ -56,6 +56,8 @@ async function loadHistoryChart() {
 
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
+    __histState.snapshots = snapshots;
+    _renderHistoryDateDetail(snapshots);
     const mode = _getHistMode();
     const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
     const graphSnapshots = tableSnapshots;
@@ -110,6 +112,41 @@ async function loadHistoryChart() {
   } catch(e) {
     _setHistoryStatus(statusEl, 'error', { message: e.message });
   }
+}
+
+function _renderHistoryDateDetail(snapshots) {
+  const wrap = $el('histDateDetail');
+  if (!wrap) return;
+  const list = Array.isArray(snapshots) ? snapshots : [];
+  const selected = String($el('histDetailDate')?.value || __histState.detailDate || '');
+  if (!selected) {
+    wrap.innerHTML = '<div style="font-size:.65rem;color:var(--muted);margin:-4px 0 10px">날짜를 선택하면 해당 일자의 평가금액·매입원가·손익·수익률을 표시합니다.</div>';
+    return;
+  }
+  __histState.detailDate = selected;
+  const exact = list.find(item => _histDateKey(item.date || '') === selected);
+  if (!exact) {
+    const before = [...list].reverse().find(item => _histDateKey(item.date || '') < selected);
+    const after = list.find(item => _histDateKey(item.date || '') > selected);
+    const nearby = [before && `직전 ${_fmtHistDateCompact(before.date)}`, after && `직후 ${_fmtHistDateCompact(after.date)}`].filter(Boolean).join(' · ');
+    wrap.innerHTML = `<div style="margin:-2px 0 12px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.68rem;color:var(--text)">
+      ⚠️ ${_escapeHtml(selected)} 손익 스냅샷이 없습니다.${nearby ? ` <span style="color:var(--muted)">${_escapeHtml(nearby)}</span>` : ''}
+    </div>`;
+    return;
+  }
+  const evalAmt = Number(exact.evalAmt || exact.total || exact.eval || 0);
+  const costAmt = Number(exact.costAmt || exact.cost || 0);
+  const pnl = evalAmt - costAmt;
+  const pct = costAmt > 0 ? pnl / costAmt * 100 : 0;
+  const color = pnl >= 0 ? 'var(--green)' : 'var(--red-lt)';
+  const item = (label, value, valueColor = 'var(--text)') => `<div style="padding:8px 10px;border-radius:8px;background:var(--s1);border:1px solid var(--border)"><div style="font-size:.61rem;color:var(--muted)">${label}</div><div style="font-size:.82rem;font-weight:700;color:${valueColor};font-variant-numeric:tabular-nums">${value}</div></div>`;
+  wrap.innerHTML = `<div style="margin:-2px 0 12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--s2)">
+    <div style="font-size:.70rem;font-weight:700;color:var(--text);margin-bottom:7px">${_escapeHtml(_fmtHistDateCompact(selected))} 저장 스냅샷</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px">
+      ${item('평가금액', _fmtKrw(evalAmt))}${item('매입원가', _fmtKrw(costAmt), 'var(--muted)')}${item('손익', `${pSign(pnl)}${_fmtKrw(pnl)}`, color)}${item('수익률', `${pSign(pnl)}${pct.toFixed(1)}%`, color)}
+    </div>
+    <div style="font-size:.61rem;color:var(--muted);margin-top:7px">GAS 손익 스냅샷 합계 기준이며, 상단 기준일 업데이트로 현재 화면 가격을 바꾸지 않습니다.</div>
+  </div>`;
 }
 
 function _renderHistoryCoverage(el, coverage, mode) {

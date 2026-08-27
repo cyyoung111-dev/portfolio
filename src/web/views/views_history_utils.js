@@ -6,7 +6,9 @@
 function _histDateKey(v) {
   const m = String(v || '').trim().match(/^(\d{4})[.-](\d{2})[.-](\d{2})/);
   if (!m) return '';
-  return `${m[1]}.${m[2]}.${m[3]}`;
+  // 날짜 input과 스냅샷 정규화 형식(YYYY-MM-DD)에 맞춘다.
+  // 점 형식으로 반환하면 같은 날짜도 input 값과 일치하지 않아 "스냅샷 없음"으로 오판한다.
+  return `${m[1]}-${m[2]}-${m[3]}`;
 }
 
 function _fmtAxisKrw(v) {

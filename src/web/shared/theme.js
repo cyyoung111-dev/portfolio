@@ -138,6 +138,18 @@ const THEMES = {
       '--blue-lt': '#93c5fd', '--purple-lt': '#c4b5fd', '--purple-dk': '#7c3aed', '--red-lt': '#fda4af',
     }
   },
+  contrast: {
+    mode: 'dark',
+    label: '◐ 고대비 다크',
+    desc: '검정 배경 + 밝은 글자와 경계',
+    vars: {
+      '--bg': '#000000', '--s1': '#0a0a0a', '--s2': '#171717', '--border': '#737373',
+      '--green': '#4ade80', '--red': '#fb7185', '--blue': '#60a5fa', '--amber': '#facc15',
+      '--purple': '#c4b5fd', '--cyan': '#67e8f9', '--text': '#ffffff', '--muted': '#d4d4d4',
+      '--gold': '#facc15', '--gold2': '#fb923c', '--green-lt': '#86efac', '--green-md': '#4ade80',
+      '--blue-lt': '#93c5fd', '--purple-lt': '#ddd6fe', '--purple-dk': '#6d28d9', '--red-lt': '#fda4af',
+    }
+  },
 
   // ── 라이트 프리셋
   light: {
@@ -224,6 +236,18 @@ const THEMES = {
       '--gold': '#0369a1', '--gold2': '#0284c7', '--green-lt': '#047857', '--green-md': '#059669',
       '--blue-lt': '#2563eb', '--purple-lt': '#6366f1', '--purple-dk': '#3730a3', '--red-lt': '#dc2626',
     }
+  },
+  light_contrast: {
+    mode: 'light',
+    label: '◑ 고대비 라이트',
+    desc: '흰 배경 + 짙은 글자와 경계',
+    vars: {
+      '--bg': '#ffffff', '--s1': '#ffffff', '--s2': '#f3f4f6', '--border': '#4b5563',
+      '--green': '#166534', '--red': '#991b1b', '--blue': '#1e40af', '--amber': '#92400e',
+      '--purple': '#5b21b6', '--cyan': '#155e75', '--text': '#000000', '--muted': '#374151',
+      '--gold': '#92400e', '--gold2': '#9a3412', '--green-lt': '#166534', '--green-md': '#15803d',
+      '--blue-lt': '#1d4ed8', '--purple-lt': '#6d28d9', '--purple-dk': '#4c1d95', '--red-lt': '#991b1b',
+    }
   }
 };
 
@@ -231,6 +255,11 @@ const THEME_STORAGE_KEY = 'app_theme';
 const THEME_MODE_KEY = 'app_theme_mode';
 const FONT_STORAGE_KEY = 'app_font';
 const FONT_PRESETS = {
+  system: {
+    label: '시스템 기본 글꼴',
+    desc: '추가 다운로드 없이 기기의 기본 화면 글꼴 사용',
+    family: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Apple SD Gothic Neo','맑은 고딕','Malgun Gothic',sans-serif",
+  },
   pretendard: {
     label: 'Pretendard',
     desc: '현재 사용 중 · 균형 잡힌 한글과 숫자',
@@ -261,8 +290,8 @@ let _currentFont = 'pretendard';
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
 const LEGACY_LIGHT_THEMES = ['light'];
 const THEME_VISIBLE_PRESETS = {
-  dark: ['ocean', 'black', 'midnight', 'slate', 'aurora', 'cyber', 'graphite'],
-  light: ['light', 'light_mint', 'light_rose', 'light_sand', 'light_lavender', 'light_olive', 'light_sky'],
+  dark: ['ocean', 'black', 'midnight', 'slate', 'aurora', 'cyber', 'graphite', 'contrast'],
+  light: ['light', 'light_mint', 'light_rose', 'light_sand', 'light_lavender', 'light_olive', 'light_sky', 'light_contrast'],
 };
 let _currentTheme = 'ocean';
 let _themeMode = 'dark';
