@@ -43,6 +43,13 @@ function renderPlanView(area) {
   area.innerHTML = `
 <div style="display:flex;flex-direction:column;gap:20px;padding:4px 0">
 
+  <nav class="plan-section-nav" aria-label="투자계획 섹션 바로가기">
+    <a href="#plan-cashflow">현금흐름</a><a href="#plan-export">엑셀</a><a href="#plan-weights">목표비중</a><a href="#plan-tax">세금</a><a href="#plan-retirement">은퇴</a><a href="#plan-simulation">시뮬레이션</a>
+  </nav>
+
+  <!-- 배당·부동산·주담대 통합 현황 -->
+  ${_buildPlanCashflowOverview()}
+
   <!-- ⓪ 엑셀 내보내기 -->
   ${_buildExportSection(totalEval, totalCost)}
 
@@ -76,7 +83,7 @@ function _buildExportSection(totalEval, totalCost) {
   const totalPnl = totalEval - totalCost;
   const acctCount = new Set(rows.map(r => r.acct).filter(Boolean)).size;
   const stockCount = rows.length;
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-export">
     <div class="flex-between-mb14">
       <h4 class="h3-card">📊 포트폴리오 엑셀 내보내기</h4>
       <button data-plan-action="export-excel" class="btn-purple-sm">📥 엑셀 다운로드</button>
@@ -325,7 +332,7 @@ function _buildPlanCashflowOverview() {
   const currentValue = Number(REAL_ESTATE?.currentValue || 0);
   const balance = Number(currentLoan?.balance ?? LOAN?.balance ?? 0);
   const item = (label, value, sub, color='var(--text)') => `<div class="s2-rounded"><div class="lbl-62-muted-3">${label}</div><div style="font-size:.86rem;font-weight:800;color:${color}">${value}</div><div style="font-size:.61rem;color:var(--muted);margin-top:2px">${sub}</div></div>`;
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-cashflow">
     <div class="flex-between-mb14"><h4 class="h3-card">💰 배당·부동산 현금흐름</h4><div style="display:flex;gap:6px"><button type="button" class="btn-ghost-sm" data-plan-action="open-dividend">배당 상세</button><button type="button" class="btn-ghost-sm" data-plan-action="open-property">부동산 상세</button></div></div>
     <div class="retire-metric-grid">
       ${item('연간 예상 배당 (세전)', fmt(annual), `${dividendRows.length}개 종목`, 'var(--green)')}
@@ -373,7 +380,7 @@ function _buildWeightSection(totalEval) {
     </div>`;
   }).join('');
 
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-weights">
     <div class="flex-between-mb14">
       <h4 class="h3-card">🎯 목표 비중 관리</h4>
       <div style="display:flex;gap:6px;align-items:center">
@@ -605,7 +612,7 @@ function _buildTaxSection(totalCost) {
     return accts.map(a => `<span style="font-size:.65rem;color:var(--text);background:var(--s2);border-radius:4px;padding:1px 6px;margin-right:4px">${_escapeHtml(a)}</span>`).join('');
   }
 
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-tax">
     <div class="flex-between-mb14">
       <h4 class="h3-card" style="margin-bottom:0">🧾 세금 시뮬레이터</h4>
       <div style="display:flex;align-items:center;gap:6px">
@@ -759,7 +766,7 @@ function _buildRetirementSection(totalEval) {
     [retireYears >= 20, '은퇴 후 20년 이상 현금흐름 점검 기간 설정'],
   ];
 
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-retirement">
     <div class="flex-between-mb14">
       <h4 class="h3-card" style="margin-bottom:0">🏖️ 은퇴 포트폴리오 점검</h4>
       <span style="font-size:.72rem;font-weight:700;color:${statusColor};background:var(--s2);border:1px solid var(--border);border-radius:999px;padding:4px 10px">${status}</span>
@@ -790,9 +797,9 @@ function _buildRetirementSection(totalEval) {
 
     <div class="retire-flow-grid">
       <div class="s2-rounded">
-        <div class="lbl-62-muted-3">세후 월 배당 현금흐름</div>
-        <div style="font-size:.86rem;font-weight:800;color:var(--green)">${fmt(dividendAfterTaxMonthly)}</div>
-        <div style="font-size:.65rem;color:var(--muted)">목표 생활비의 ${dividendCoveragePct.toFixed(1)}% · 연 세전 ${fmt(dividendAnnual)}</div>
+        <div class="lbl-62-muted-3">배당 생활비 충당률</div>
+        <div style="font-size:.86rem;font-weight:800;color:var(--green)">${dividendCoveragePct.toFixed(1)}%</div>
+        <div style="font-size:.65rem;color:var(--muted)">세후 월 ${fmt(dividendAfterTaxMonthly)} ÷ 목표 ${fmt(monthlyExpense)}</div>
       </div>
       <div class="s2-rounded">
         <div class="lbl-62-muted-3">목표 도달 예상</div>
@@ -832,7 +839,7 @@ function _buildSimSection(totalEval) {
   const simData = _calcSimData(totalEval, monthly, years, rate);
   const last    = simData[simData.length - 1];
 
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-simulation">
     <h4 class="h3-card" style="margin-bottom:14px">📈 자산 시뮬레이터</h4>
 
     <!-- 파라미터 입력 -->

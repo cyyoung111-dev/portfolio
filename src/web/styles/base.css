@@ -150,6 +150,9 @@ html[data-theme-mode="dark"] input[type=datetime-local]::-webkit-calendar-picker
 .asset-detail-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;font-size:.80rem}
 .asset-loan-grid{margin-bottom:14px}
 .plan-export-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-size:.78rem}
+.plan-section-nav{display:flex;gap:6px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--s1)}
+.plan-section-nav a{padding:5px 10px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:.68rem;font-weight:700;text-decoration:none;transition:var(--tr)}
+.plan-section-nav a:hover,.plan-section-nav a:focus-visible{border-color:var(--amber);color:var(--gold)}
 .plan-metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
 .plan-sim-grid{gap:10px;margin-bottom:16px}
 tr:hover td,.col-filter-dropdown label:hover{background:color-mix(in srgb,var(--text) 5%,transparent)}

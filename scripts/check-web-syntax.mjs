@@ -117,6 +117,8 @@ if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
 if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || !planSource.includes('function _buildPlanCashflowOverview()')
     || !planSource.includes('배당·부동산 현금흐름')
+    || !planSource.includes('class="plan-section-nav"')
+    || !planSource.includes('배당 생활비 충당률')
     || !planSource.includes("book_append_sheet(wb, ws6, '배당 현황')")
     || !planSource.includes("book_append_sheet(wb, ws7, '은퇴 계획')")
     || !planSource.includes('data-plan-action="open-property"')) {
