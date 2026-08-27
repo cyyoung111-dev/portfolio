@@ -254,6 +254,15 @@ if (!source.includes(".addItem('▶️ 확정 평가단가·스냅샷 지금 갱
   process.exit(1);
 }
 
+if (!source.includes("params.action === 'getHistoryDetail'")
+    || !source.includes('function handleGetHistoryDetail(dateStr)')
+    || !source.includes('costUnit: costUnit')
+    || !source.includes('evalUnit: evalUnit')
+    || !source.includes('source: (row[10]')) {
+  console.error('❌ 특정일 손익 상세 API는 종목별 매입·평가단가와 가격소스를 반환해야 합니다.');
+  process.exit(1);
+}
+
 const snapshotRepairMatch = source.match(/function\s+runSnapshotConsistencyRepair\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
 if (!snapshotRepairMatch
     || /saveDailyPriceHistory\s*\(/.test(snapshotRepairMatch[1])

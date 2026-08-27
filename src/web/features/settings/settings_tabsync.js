@@ -5,8 +5,9 @@
 
 function _tabSyncText(tabId) {
   const info = TAB_SYNC_STATUS[tabId];
-  if (!GSHEET_API_URL) return { text: '재동기화 설정 필요', color: 'var(--muted)' };
-  if (!info || !info.ts) return { text: '동기화 기록 없음', color: 'var(--muted)' };
+  const actionLabel = tabId === 'div' ? 'GAS 데이터 다시 받기' : '재동기화';
+  if (!GSHEET_API_URL) return { text: `${actionLabel}: 연동 설정 필요`, color: 'var(--muted)' };
+  if (!info || !info.ts) return { text: `${actionLabel}: 실행 기록 없음`, color: 'var(--muted)' };
   const t = new Date(info.ts);
   const yyyy = t.getFullYear();
   const month = String(t.getMonth() + 1).padStart(2, '0');
@@ -14,9 +15,9 @@ function _tabSyncText(tabId) {
   const hh = String(t.getHours()).padStart(2, '0');
   const mm = String(t.getMinutes()).padStart(2, '0');
   const base = `${yyyy}.${month}.${day} ${hh}:${mm}`;
-  if (info.state === 'ok') return { text: `✅ 마지막 동기화 ${base}`, color: 'var(--green)' };
-  if (info.state === 'syncing') return { text: `⏳ 동기화 중... (${base})`, color: 'var(--amber)' };
-  return { text: `⚠️ 마지막 동기화 실패 ${base}`, color: 'var(--red-lt)' };
+  if (info.state === 'ok') return { text: `✅ ${actionLabel}: 최근 성공 · ${base}`, color: 'var(--green)' };
+  if (info.state === 'syncing') return { text: `⏳ ${actionLabel}: 실행 중...`, color: 'var(--amber)' };
+  return { text: `⚠️ ${actionLabel}: 최근 실패 · ${base}`, color: 'var(--red-lt)' };
 }
 
 function renderTabSyncPanel(tabId) {
