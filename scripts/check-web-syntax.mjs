@@ -114,15 +114,20 @@ if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
   process.exit(1);
 }
 
+const planCashflowRenderCount = (planSource.match(/\$\{_buildPlanCashflowOverview\(\)\}/g) || []).length;
 if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
+    || portfolioSource.includes('포트폴리오 배당·은퇴 현황')
+    || portfolioSource.includes('주담대 상환스케줄')
+    || planCashflowRenderCount !== 1
     || !planSource.includes('function _buildPlanCashflowOverview()')
-    || !planSource.includes('배당·부동산 현금흐름')
+    || !planSource.includes('포트폴리오 배당·은퇴 현황')
+    || !planSource.includes('주담대 상환스케줄')
     || !planSource.includes('class="plan-section-nav"')
-    || !planSource.includes('배당 생활비 충당률')
+    || !planSource.includes('배당 생활비 충당률은 상단')
     || !planSource.includes("book_append_sheet(wb, ws6, '배당 현황')")
     || !planSource.includes("book_append_sheet(wb, ws7, '은퇴 계획')")
     || !planSource.includes('data-plan-action="open-property"')) {
-  console.error('❌ 투자계획의 배당·부동산 현황 또는 엑셀 배당·은퇴 시트 구성이 누락됐습니다.');
+  console.error('❌ 계좌별 요약 제거 또는 투자계획의 단일 배당·은퇴·주담대 현황 구성이 잘못됐습니다.');
   process.exit(1);
 }
 
