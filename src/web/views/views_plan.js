@@ -50,8 +50,18 @@ function renderPlanView(area) {
   <!-- 배당·부동산·주담대 통합 현황 -->
   ${_buildPlanCashflowOverview()}
 
+  <nav class="plan-section-nav" aria-label="투자계획 섹션 바로가기">
+    <a href="#plan-cashflow">현금흐름</a><a href="#plan-export">엑셀</a><a href="#plan-weights">목표비중</a><a href="#plan-tax">세금</a><a href="#plan-retirement">은퇴</a><a href="#plan-simulation">시뮬레이션</a>
+  </nav>
+
+  <!-- 배당·부동산·주담대 통합 현황 -->
+  ${_buildPlanCashflowOverview()}
+
   <!-- ⓪ 엑셀 내보내기 -->
   ${_buildExportSection(totalEval, totalCost)}
+
+  <!-- 배당·부동산·주담대 통합 현황 -->
+  ${_buildPlanCashflowOverview()}
 
   <!-- ① 목표 비중 관리 -->
   ${_buildWeightSection(totalEval)}
