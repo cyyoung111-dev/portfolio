@@ -74,8 +74,11 @@ function getAcctList() {
 
 function getOrAssignColor(acct) {
   if (!ACCT_COLORS[acct]) {
-    const used = Object.values(ACCT_COLORS);
-    const next = ACCT_PALETTE.find(c => !used.includes(c)) || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
+    // 저장된 색상은 hex, 팔레트는 CSS 변수일 수 있으므로 실제 색상값끼리 비교한다.
+    // 형식이 다른 값을 직접 비교하면 모든 신규 계좌에 첫 번째 색상이 반복 배정된다.
+    const used = new Set(Object.values(ACCT_COLORS).map(c => resolveColor(c).toLowerCase()));
+    const next = ACCT_PALETTE.find(c => !used.has(resolveColor(c).toLowerCase()))
+      || ACCT_PALETTE[Object.keys(ACCT_COLORS).length % ACCT_PALETTE.length];
     ACCT_COLORS[acct] = resolveColor(next); // ★ 원칙3: 대입 시점에 var()→hex 변환
     saveAcctColors();
     if (!ACCT_ORDER.includes(acct)) {

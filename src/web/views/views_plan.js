@@ -43,6 +43,13 @@ function renderPlanView(area) {
   area.innerHTML = `
 <div style="display:flex;flex-direction:column;gap:20px;padding:4px 0">
 
+  <nav class="plan-section-nav" aria-label="투자계획 섹션 바로가기">
+    <a href="#plan-cashflow">현금흐름</a><a href="#plan-export">엑셀</a><a href="#plan-weights">목표비중</a><a href="#plan-tax">세금</a><a href="#plan-retirement">은퇴</a><a href="#plan-simulation">시뮬레이션</a>
+  </nav>
+
+  <!-- 배당·부동산·주담대 통합 현황 -->
+  ${_buildPlanCashflowOverview()}
+
   <!-- ⓪ 엑셀 내보내기 -->
   ${_buildExportSection(totalEval, totalCost)}
 
@@ -73,7 +80,7 @@ function _buildExportSection(totalEval, totalCost) {
   const totalPnl = totalEval - totalCost;
   const acctCount = new Set(rows.map(r => r.acct).filter(Boolean)).size;
   const stockCount = rows.length;
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-export">
     <div class="flex-between-mb14">
       <h4 class="h3-card">📊 포트폴리오 엑셀 내보내기</h4>
       <button data-plan-action="export-excel" class="btn-purple-sm">📥 엑셀 다운로드</button>
@@ -90,7 +97,7 @@ function _buildExportSection(totalEval, totalCost) {
       </div>`).join('')}
     </div>
     <div style="font-size:.68rem;color:var(--muted);margin-top:10px">
-      종목별 상세 · 계좌별 요약 · 섹터별 요약 · 부동산·주담대 · 상환스케줄을 함께 받습니다.
+      종목별 상세 · 계좌/섹터 요약 · 배당 현황 · 은퇴 계획 · 부동산·주담대 · 상환스케줄을 함께 받습니다.
     </div>
   </div>`;
 }
@@ -267,12 +274,73 @@ function exportPortfolioExcel() {
   ws5['!cols'] = [{wch:12},{wch:16},{wch:14},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws5, '주담대 상환스케줄');
 
+  // ── 시트6: 종목별 배당 현황
+  const dividendRows = typeof calcDividends === 'function' ? calcDividends() : [];
+  const dividendSheetRows = [['종목명','유형','보유수량','보유계좌','연간 예상 배당','올해 확정 배당','월평균 예상 배당'],
+    ...dividendRows.map(item => [
+      item.name || '', item.assetType || '', Number(item.totalQty || 0), (item.accts || []).join(', '),
+      Math.round(Number(item.annualDiv || 0)), Math.round(Number(item.actualDiv || 0)), Math.round(Number(item.annualDiv || 0) / 12),
+    ]),
+    ['합계','','','',Math.round(dividendRows.reduce((s,item)=>s+Number(item.annualDiv||0),0)),
+      Math.round(dividendRows.reduce((s,item)=>s+Number(item.actualDiv||0),0)),
+      Math.round(dividendRows.reduce((s,item)=>s+Number(item.annualDiv||0),0) / 12)]
+  ];
+  const ws6 = XLSX.utils.aoa_to_sheet(dividendSheetRows);
+  ws6['!cols'] = [{wch:24},{wch:10},{wch:12},{wch:24},{wch:16},{wch:16},{wch:18}];
+  XLSX.utils.book_append_sheet(wb, ws6, '배당 현황');
+
+  // ── 시트7: 저장된 은퇴 계획과 현금흐름 기준
+  const annualDividend = dividendRows.reduce((s,item)=>s+Number(item.annualDiv||0),0);
+  const retirementRows = [
+    ['항목','값','비고'],
+    ['목표 월 생활비', Number(_planSettings.retireMonthlyExpense || 0),'저장된 투자계획 기준'],
+    ['안전 인출률(%)', Number(_planSettings.retireWithdrawalRate || 0),''],
+    ['은퇴 후 기간(년)', Number(_planSettings.retireYears || 0),''],
+    ['목표 도달 수익률(%)', Number(_planSettings.retireReturn || 0),''],
+    ['현재 평가자산', Math.round(totalEval1),''],
+    ['연간 예상 배당(세전)', Math.round(annualDividend),'배당 현황 합계'],
+    ['월평균 예상 배당(세전)', Math.round(annualDividend / 12),''],
+    ['월평균 참고 배당(15.4% 차감)', Math.round(annualDividend * 0.846 / 12),'일반계좌 일괄 가정'],
+  ];
+  const ws7 = XLSX.utils.aoa_to_sheet(retirementRows);
+  ws7['!cols'] = [{wch:28},{wch:18},{wch:30}];
+  XLSX.utils.book_append_sheet(wb, ws7, '은퇴 계획');
+
   try {
     XLSX.writeFile(wb, `포트폴리오_${todayStr.replace(/-/g,'')}.xlsx`);
     showToast('📥 엑셀 다운로드 완료', 'ok');
   } finally {
     setTimeout(() => { _portfolioExportBusy = false; }, 500);
   }
+}
+
+function _buildPlanCashflowOverview() {
+  const dividendRows = typeof calcDividends === 'function' ? calcDividends() : [];
+  const annual = dividendRows.reduce((sum, item) => sum + Number(item.annualDiv || 0), 0);
+  const actual = dividendRows.reduce((sum, item) => sum + Number(item.actualDiv || 0), 0);
+  const currentMonth = typeof _getNowMonth === 'function' ? _getNowMonth() : 0;
+  const monthDividend = dividendRows.reduce((sum, item) => sum + Number(item.monthlyDiv?.[currentMonth] || 0), 0);
+  const schedule = Array.isArray(LOAN_SCHEDULE)
+    ? [...LOAN_SCHEDULE].sort((a,b)=>String(a?.date||'').localeCompare(String(b?.date||''))) : [];
+  const monthKey = typeof _kstMonthStr === 'function' ? _kstMonthStr() : '';
+  const currentLoan = monthKey ? [...schedule].reverse().find(item => String(item.date || '') <= monthKey) : null;
+  const nextLoan = monthKey ? schedule.find(item => String(item.date || '') >= monthKey) : null;
+  const remainingMonths = monthKey ? schedule.filter(item => String(item.date || '') >= monthKey).length : 0;
+  const currentValue = Number(REAL_ESTATE?.currentValue || 0);
+  const balance = Number(currentLoan?.balance ?? LOAN?.balance ?? 0);
+  const item = (label, value, sub, color='var(--text)') => `<div class="s2-rounded"><div class="lbl-62-muted-3">${label}</div><div style="font-size:.86rem;font-weight:800;color:${color}">${value}</div><div style="font-size:.61rem;color:var(--muted);margin-top:2px">${sub}</div></div>`;
+  return `<div class="card-12-p20" id="plan-cashflow">
+    <div class="flex-between-mb14"><h4 class="h3-card">💰 배당·부동산 현금흐름</h4><div style="display:flex;gap:6px"><button type="button" class="btn-ghost-sm" data-plan-action="open-dividend">배당 상세</button><button type="button" class="btn-ghost-sm" data-plan-action="open-property">부동산 상세</button></div></div>
+    <div class="retire-metric-grid">
+      ${item('연간 예상 배당 (세전)', fmt(annual), `${dividendRows.length}개 종목`, 'var(--green)')}
+      ${item('이번 달 예상 배당', fmt(Math.round(monthDividend)), `올해 확정 ${fmt(Math.round(actual))}`, 'var(--cyan)')}
+      ${item('부동산 현재 시세', fmt(currentValue), REAL_ESTATE?.name || '보유 부동산', 'var(--gold)')}
+      ${item('주담대 잔액', fmt(balance), currentLoan ? `${currentLoan.date} 스케줄 기준` : '대출 입력값 기준', 'var(--red-lt)')}
+      ${item('부동산 순자산', fmt(currentValue - balance), '현재 시세 - 주담대 잔액', 'var(--purple-lt)')}
+      ${item('다음 원금·이자', nextLoan ? `${fmt(Number(nextLoan.principal||0))} · ${fmt(Number(nextLoan.interest||0))}` : '-', nextLoan ? `${nextLoan.date} 예정 · ${remainingMonths}개월 남음` : '남은 스케줄 없음', 'var(--amber)')}
+    </div>
+    <div style="font-size:.62rem;color:var(--muted);margin-top:9px">배당 예상액은 현재 보유수량과 등록된 배당정보 기준이며, 부동산·대출은 저장된 시세와 상환스케줄 기준입니다.</div>
+  </div>`;
 }
 
 // ════════════════════════════════════
@@ -309,7 +377,7 @@ function _buildWeightSection(totalEval) {
     </div>`;
   }).join('');
 
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-weights">
     <div class="flex-between-mb14">
       <h4 class="h3-card">🎯 목표 비중 관리</h4>
       <div style="display:flex;gap:6px;align-items:center">
@@ -541,7 +609,7 @@ function _buildTaxSection(totalCost) {
     return accts.map(a => `<span style="font-size:.65rem;color:var(--text);background:var(--s2);border-radius:4px;padding:1px 6px;margin-right:4px">${_escapeHtml(a)}</span>`).join('');
   }
 
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-tax">
     <div class="flex-between-mb14">
       <h4 class="h3-card" style="margin-bottom:0">🧾 세금 시뮬레이터</h4>
       <div style="display:flex;align-items:center;gap:6px">
@@ -695,7 +763,7 @@ function _buildRetirementSection(totalEval) {
     [retireYears >= 20, '은퇴 후 20년 이상 현금흐름 점검 기간 설정'],
   ];
 
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-retirement">
     <div class="flex-between-mb14">
       <h4 class="h3-card" style="margin-bottom:0">🏖️ 은퇴 포트폴리오 점검</h4>
       <span style="font-size:.72rem;font-weight:700;color:${statusColor};background:var(--s2);border:1px solid var(--border);border-radius:999px;padding:4px 10px">${status}</span>
@@ -726,9 +794,9 @@ function _buildRetirementSection(totalEval) {
 
     <div class="retire-flow-grid">
       <div class="s2-rounded">
-        <div class="lbl-62-muted-3">세후 월 배당 현금흐름</div>
-        <div style="font-size:.86rem;font-weight:800;color:var(--green)">${fmt(dividendAfterTaxMonthly)}</div>
-        <div style="font-size:.65rem;color:var(--muted)">목표 생활비의 ${dividendCoveragePct.toFixed(1)}% · 연 세전 ${fmt(dividendAnnual)}</div>
+        <div class="lbl-62-muted-3">배당 생활비 충당률</div>
+        <div style="font-size:.86rem;font-weight:800;color:var(--green)">${dividendCoveragePct.toFixed(1)}%</div>
+        <div style="font-size:.65rem;color:var(--muted)">세후 월 ${fmt(dividendAfterTaxMonthly)} ÷ 목표 ${fmt(monthlyExpense)}</div>
       </div>
       <div class="s2-rounded">
         <div class="lbl-62-muted-3">목표 도달 예상</div>
@@ -768,7 +836,7 @@ function _buildSimSection(totalEval) {
   const simData = _calcSimData(totalEval, monthly, years, rate);
   const last    = simData[simData.length - 1];
 
-  return `<div class="card-12-p20">
+  return `<div class="card-12-p20" id="plan-simulation">
     <h4 class="h3-card" style="margin-bottom:14px">📈 자산 시뮬레이터</h4>
 
     <!-- 파라미터 입력 -->
@@ -914,6 +982,16 @@ function _bindPlanEvents(area, totalEval, totalCost) {
 
     if (action === 'export-excel') {
       exportPortfolioExcel();
+      return;
+    }
+
+    if (action === 'open-dividend') {
+      switchView('div');
+      return;
+    }
+
+    if (action === 'open-property') {
+      switchView('asset');
       return;
     }
 
