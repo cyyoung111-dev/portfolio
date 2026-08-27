@@ -41,7 +41,14 @@ function renderPlanView(area) {
   const totalCost  = rows.reduce((s, r) => s + (r.costAmt || 0), 0);
 
   area.innerHTML = `
-<div style="display:flex;flex-direction:column;gap:20px;padding:4px 0">
+<div data-view-section="plan" style="display:flex;flex-direction:column;gap:20px;padding:4px 0">
+
+  <nav class="plan-section-nav" aria-label="투자계획 섹션 바로가기">
+    <a href="#plan-cashflow">현금흐름</a><a href="#plan-export">엑셀</a><a href="#plan-weights">목표비중</a><a href="#plan-tax">세금</a><a href="#plan-retirement">은퇴</a><a href="#plan-simulation">시뮬레이션</a>
+  </nav>
+
+  <!-- 배당·부동산·주담대 통합 현황 -->
+  ${_buildPlanCashflowOverview()}
 
   <nav class="plan-section-nav" aria-label="투자계획 섹션 바로가기">
     <a href="#plan-cashflow">현금흐름</a><a href="#plan-export">엑셀</a><a href="#plan-weights">목표비중</a><a href="#plan-tax">세금</a><a href="#plan-retirement">은퇴</a><a href="#plan-simulation">시뮬레이션</a>
@@ -335,7 +342,7 @@ function _buildPlanCashflowOverview() {
   const remainingMonths = monthKey ? schedule.filter(item => String(item.date || '') >= monthKey).length : 0;
   const balance = Number(currentLoan?.balance ?? LOAN?.balance ?? 0);
   const item = (label, value, sub, color='var(--text)') => `<div class="s2-rounded"><div class="lbl-62-muted-3">${label}</div><div style="font-size:.86rem;font-weight:800;color:${color}">${value}</div><div style="font-size:.61rem;color:var(--muted);margin-top:2px">${sub}</div></div>`;
-  return `<div class="card-12-p20" id="plan-cashflow">
+  return `<div class="card-12-p20" id="plan-cashflow" data-plan-section="cashflow">
     <div class="flex-between-mb14"><div><h4 class="h3-card">💰 포트폴리오 배당·은퇴 현황</h4><div style="font-size:.62rem;color:var(--muted);margin-top:3px">현재 보유수량과 등록된 배당정보 기준 · 확정 지급액과 향후 예상액 포함</div></div><div style="display:flex;gap:6px"><button type="button" class="btn-ghost-sm" data-plan-action="open-dividend">배당 상세</button></div></div>
     <div class="retire-metric-grid">
       ${item('연간 예상 배당 (세전)', fmt(annual), `${dividendRows.length}개 종목`, 'var(--green)')}

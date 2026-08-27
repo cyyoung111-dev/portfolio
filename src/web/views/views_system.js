@@ -248,8 +248,9 @@ function renderView(forceRender) {
   const hash = _getDataHash();
   const cacheKey = currentView + '|' + hash;
 
-  // 캐시 히트: 같은 탭, 같은 데이터 → 재렌더 생략
-  if (!forceRender && _viewCache[currentView] === cacheKey) return;
+  // 캐시 히트: 같은 탭·같은 데이터이고, 실제 DOM도 해당 탭일 때만 재렌더 생략한다.
+  // 다른 탭의 DOM이 남아 있는데 데이터 캐시만 일치하면 잘못된 화면이 유지될 수 있다.
+  if (!forceRender && _viewCache[currentView] === cacheKey && area.dataset.renderedView === currentView) return;
 
   _viewCache[currentView] = cacheKey;
 
@@ -265,6 +266,7 @@ function renderView(forceRender) {
     else if (currentView === 'plan')       renderPlanView(area);
     else if (currentView === 'stocks')     renderStocksView(area);
     else if (currentView === 'gsheet')     renderGsheetView(area);
+    area.dataset.renderedView = currentView;
   });
 }
 

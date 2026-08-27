@@ -76,6 +76,7 @@ const historyPipelineSource = fs.readFileSync(path.join(webRoot, 'views/views_hi
 const historyUtilsSource = fs.readFileSync(path.join(webRoot, 'views/views_history_utils.js'), 'utf8');
 const portfolioSource = fs.readFileSync(path.join(webRoot, 'views/views_portfolio.js'), 'utf8');
 const planSource = fs.readFileSync(path.join(webRoot, 'views/views_plan.js'), 'utf8');
+const systemSource = fs.readFileSync(path.join(webRoot, 'views/views_system.js'), 'utf8');
 if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendSource.includes('_refreshSeibroEtfDividends(true)')
     || !dividendViewSource.includes('id="dividendLinkStatus"')
@@ -118,7 +119,9 @@ const planCashflowRenderCount = (planSource.match(/\$\{_buildPlanCashflowOvervie
 if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || portfolioSource.includes('포트폴리오 배당·은퇴 현황')
     || portfolioSource.includes('주담대 상환스케줄')
+    || !portfolioSource.includes('data-view-section="acct"')
     || planCashflowRenderCount !== 1
+    || (planSource.match(/data-plan-section="cashflow"/g) || []).length !== 1
     || !planSource.includes('function _buildPlanCashflowOverview()')
     || !planSource.includes('포트폴리오 배당·은퇴 현황')
     || !planSource.includes('주담대 상환스케줄')
@@ -128,6 +131,12 @@ if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || !planSource.includes("book_append_sheet(wb, ws7, '은퇴 계획')")
     || !planSource.includes('data-plan-action="open-property"')) {
   console.error('❌ 계좌별 요약 제거 또는 투자계획의 단일 배당·은퇴·주담대 현황 구성이 잘못됐습니다.');
+  process.exit(1);
+}
+
+if (!systemSource.includes('area.dataset.renderedView === currentView')
+    || !systemSource.includes('area.dataset.renderedView = currentView')) {
+  console.error('❌ 탭 캐시가 현재 DOM의 뷰 소유권을 확인하거나 기록하지 않습니다.');
   process.exit(1);
 }
 
