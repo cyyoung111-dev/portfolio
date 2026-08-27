@@ -53,6 +53,9 @@ function renderPlanView(area) {
   <!-- ⓪ 엑셀 내보내기 -->
   ${_buildExportSection(totalEval, totalCost)}
 
+  <!-- 배당·부동산·주담대 통합 현황 -->
+  ${_buildPlanCashflowOverview()}
+
   <!-- ① 목표 비중 관리 -->
   ${_buildWeightSection(totalEval)}
 
