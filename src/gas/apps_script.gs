@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.73
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.74
+//
+//  v9.74 변경사항 (2026.08.27):
+//   ✅ [상세조회] 특정일 손익 스냅샷의 종목코드·수량·매입/평가단가·손익·수익률·가격소스 제공
 //
 //  v9.73 변경사항 (2026.08.25):
 //   ✅ [자동화] 웹 평가가격 조회 시 16:20 스냅샷 트리거를 일 1회 점검하고 누락 시 자동 복구
@@ -488,6 +491,7 @@ function doGet(e) {
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, params.serviceKey || '');
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
+  if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getBootstrap')                   return handleGetBootstrap();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
@@ -1455,6 +1459,45 @@ function handleGetHistory(fromStr, toStr) {
     return jsonOk({ snapshots: history });
   } catch(err) {
     return jsonError('히스토리 조회 실패: ' + err.message);
+  }
+}
+
+// 특정일 스냅샷의 종목별 원본 행을 반환합니다. 합계 조회와 분리해 장기간 조회 응답이
+// 불필요하게 커지지 않도록 하고, 같은 종목의 중복 행은 합계 조회와 동일한 기준으로 제거합니다.
+function handleGetHistoryDetail(dateStr) {
+  try {
+    var date = _normalizeDate(dateStr);
+    if (!date) return jsonError('조회 날짜가 필요합니다.');
+    var ss = getss();
+    var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+    if (!sh || sh.getLastRow() < 2) return jsonOk({ date: date, items: [] });
+    var lastCol = Math.max(12, sh.getLastColumn());
+    var rows = sh.getRange(2, 1, sh.getLastRow() - 1, lastCol).getValues();
+    var itemMap = {};
+    rows.forEach(function(row) {
+      if (_normalizeDate(row[0]) !== date) return;
+      var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+      var name = (row[2] || '').toString().trim();
+      if (!code && !name) return;
+      var qty = parseFloat(row[3]) || 0;
+      var costUnit = parseFloat(row[4]) || 0;
+      var costAmt = parseFloat(row[5]) || 0;
+      var evalUnit = parseFloat(row[6]) || 0;
+      var evalAmt = parseFloat(row[7]) || 0;
+      var pnl = evalAmt - costAmt;
+      var pct = costAmt > 0 ? pnl / costAmt * 100 : 0;
+      var key = code ? ('C:' + code) : ('N:' + name);
+      var item = { code: code, name: name, qty: qty, costUnit: costUnit, costAmt: costAmt,
+        evalUnit: evalUnit, evalAmt: evalAmt, pnl: pnl, pct: pct,
+        source: (row[10] || '').toString().trim() };
+      var prev = itemMap[key];
+      if (!prev || qty > prev.qty || (qty === prev.qty && evalAmt >= prev.evalAmt)) itemMap[key] = item;
+    });
+    var items = Object.keys(itemMap).map(function(key) { return itemMap[key]; });
+    items.sort(function(a, b) { return (b.evalAmt || 0) - (a.evalAmt || 0); });
+    return jsonOk({ date: date, items: items });
+  } catch(err) {
+    return jsonError('특정일 손익 상세 조회 실패: ' + err.message);
   }
 }
 
@@ -5288,7 +5331,7 @@ function handleGetSettings() {
     var krxKey = _getKrxAuthKey();
     if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
     if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.73' });
+    return jsonOk({ settings: settings, gasVersion: '9.74' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5312,7 +5355,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.73'
+      gasVersion: '9.74'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

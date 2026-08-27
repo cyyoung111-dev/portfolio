@@ -58,9 +58,10 @@ function renderHistoryView(area) {
   loadHistoryChart();
   $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
   $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
-  $el('histDetailDate')?.addEventListener('change', () => {
+  $el('histDetailDate')?.addEventListener('change', async () => {
     __histState.detailDate = String($el('histDetailDate')?.value || '');
     _renderHistoryDateDetail(__histState.snapshots || []);
+    await _loadHistoryDateItems(__histState.detailDate);
   });
   $el('histCoveragePanel')?.addEventListener('click', e => {
     if (e.target?.closest?.('[data-history-action="repair-gaps"]')) repairHistorySnapshotGaps();

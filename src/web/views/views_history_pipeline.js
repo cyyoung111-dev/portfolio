@@ -58,6 +58,7 @@ async function loadHistoryChart() {
     snapshots = _mergeTradeBasedCost(snapshots);
     __histState.snapshots = snapshots;
     _renderHistoryDateDetail(snapshots);
+    if (__histState.detailDate) await _loadHistoryDateItems(__histState.detailDate);
     const mode = _getHistMode();
     const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
     const graphSnapshots = tableSnapshots;
@@ -146,7 +147,38 @@ function _renderHistoryDateDetail(snapshots) {
       ${item('평가금액', _fmtKrw(evalAmt))}${item('매입원가', _fmtKrw(costAmt), 'var(--muted)')}${item('손익', `${pSign(pnl)}${_fmtKrw(pnl)}`, color)}${item('수익률', `${pSign(pnl)}${pct.toFixed(1)}%`, color)}
     </div>
     <div style="font-size:.61rem;color:var(--muted);margin-top:7px">GAS 손익 스냅샷 합계 기준이며, 상단 기준일 업데이트로 현재 화면 가격을 바꾸지 않습니다.</div>
+    <div id="histDateItems" style="margin-top:10px"></div>
   </div>`;
+}
+
+async function _loadHistoryDateItems(date) {
+  const wrap = $el('histDateItems');
+  if (!wrap || !date) return;
+  wrap.innerHTML = '<div style="font-size:.65rem;color:var(--muted)">⏳ 종목별 스냅샷 불러오는 중...</div>';
+  const data = await _historyRequestJson('getHistoryDetail', { date }, { timeoutMs: 15000, retry: 1 });
+  if (!data || data.status === 'error') {
+    wrap.innerHTML = `<div style="font-size:.65rem;color:var(--red-lt)">❌ 종목별 상세 조회 실패${data?.message ? ` · ${_escapeHtml(data.message)}` : ''}</div>`;
+    return;
+  }
+  const items = Array.isArray(data.items) ? data.items : [];
+  if (!items.length) {
+    wrap.innerHTML = '<div style="font-size:.65rem;color:var(--muted)">종목별 스냅샷 행이 없습니다.</div>';
+    return;
+  }
+  const num = value => Math.round(Number(value || 0)).toLocaleString();
+  const rows = items.map(item => {
+    const pnl = Number(item.pnl || 0);
+    const color = pnl >= 0 ? 'var(--green)' : 'var(--red-lt)';
+    return `<tr>
+      <td>${_escapeHtml(item.name || '-')}</td><td class="mono">${_escapeHtml(item.code || '-')}</td>
+      <td class="num">${num(item.qty)}</td><td class="num">${num(item.costUnit)}</td><td class="num">${num(item.evalUnit)}</td>
+      <td class="num">${num(item.costAmt)}</td><td class="num">${num(item.evalAmt)}</td>
+      <td class="num" style="color:${color}">${pSign(pnl)}${num(pnl)}</td>
+      <td class="num" style="color:${color}">${pSign(pnl)}${Number(item.pct || 0).toFixed(1)}%</td>
+      <td>${_escapeHtml(item.source || '-')}</td></tr>`;
+  }).join('');
+  wrap.innerHTML = `<div style="font-size:.68rem;font-weight:700;color:var(--text);margin-bottom:6px">종목별 상세 · ${items.length}개</div>
+    <div class="tbl-wrap"><table><thead><tr><th>종목명</th><th>종목코드</th><th class="num">수량</th><th class="num">매입단가</th><th class="num">평가단가</th><th class="num">매입금액</th><th class="num">평가금액</th><th class="num">손익</th><th class="num">수익률</th><th>가격소스</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function _renderHistoryCoverage(el, coverage, mode) {

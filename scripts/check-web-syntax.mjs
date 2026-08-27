@@ -94,6 +94,15 @@ if (!historyRenderSource.includes('id="histDetailDate"')
   process.exit(1);
 }
 
+if (!historyPipelineSource.includes("_historyRequestJson('getHistoryDetail'")
+    || !historyPipelineSource.includes('<th>종목코드</th>')
+    || !historyPipelineSource.includes('<th class="num">매입단가</th>')
+    || !historyPipelineSource.includes('<th class="num">평가단가</th>')
+    || !historyPipelineSource.includes('<th class="num">수익률</th>')) {
+  console.error('❌ 특정일 손익의 종목별 코드·매입/평가단가·수익률 상세 표가 누락됐습니다.');
+  process.exit(1);
+}
+
 const historyUtilsContext = { fmtDateDot: value => String(value || '') };
 vm.runInNewContext(`${historyUtilsSource}\n` +
   `globalThis.__dateKey = _histDateKey;`, historyUtilsContext);
