@@ -117,8 +117,11 @@ if (!portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || !portfolioSource.includes('연간 예상 배당 (세전)')
     || !portfolioSource.includes('올해 확정 배당')
     || !portfolioSource.includes('세후 월 현금흐름 참고')
+    || !portfolioSource.includes('주담대 상환스케줄')
+    || !portfolioSource.includes('다음 납입 원금')
+    || !portfolioSource.includes('data-portfolio-action="open-mortgage"')
     || !portfolioSource.includes('data-portfolio-action="open-retirement"')) {
-  console.error('❌ 포트폴리오 배당·은퇴 요약 또는 상세 이동 기능이 누락됐습니다.');
+  console.error('❌ 포트폴리오 배당·은퇴·주담대 요약 또는 상세 이동 기능이 누락됐습니다.');
   process.exit(1);
 }
 

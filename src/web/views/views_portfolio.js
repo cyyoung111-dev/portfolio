@@ -43,6 +43,13 @@ function _buildPortfolioDividendSummary() {
   // 은퇴 계획과 동일한 일반계좌 원천징수 가정값이며 실제 계좌별 세액은 투자계획 탭에서 확인합니다.
   const afterTaxMonthly = Math.round(annual * 0.846 / 12);
   const coveragePct = monthlyExpense > 0 ? afterTaxMonthly / monthlyExpense * 100 : null;
+  const schedule = (typeof LOAN_SCHEDULE !== 'undefined' && Array.isArray(LOAN_SCHEDULE))
+    ? [...LOAN_SCHEDULE].sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')))
+    : [];
+  const monthKey = typeof _kstMonthStr === 'function' ? _kstMonthStr() : '';
+  const scheduleRow = monthKey ? [...schedule].reverse().find(item => String(item.date || '') <= monthKey) : null;
+  const nextRow = monthKey ? schedule.find(item => String(item.date || '') >= monthKey) : null;
+  const remainingMonths = monthKey ? schedule.filter(item => String(item.date || '') >= monthKey).length : 0;
   const metric = (label, value, sub, color = 'var(--text)') => `<div class="s2-rounded">
     <div class="lbl-62-muted-3">${label}</div><div style="font-size:.86rem;font-weight:800;color:${color}">${value}</div>
     <div style="font-size:.61rem;color:var(--muted);margin-top:2px">${sub}</div></div>`;
@@ -61,6 +68,18 @@ function _buildPortfolioDividendSummary() {
       ${metric('세후 월 현금흐름 참고', fmt(afterTaxMonthly), coveragePct == null ? '은퇴 목표 생활비 미설정' : `목표 월 생활비의 ${coveragePct.toFixed(1)}%`, 'var(--amber)')}
     </div>
     <div style="font-size:.60rem;color:var(--muted);margin-top:8px">세후 월 현금흐름은 일반계좌 배당소득세 15.4%를 일괄 가정한 참고값입니다. ISA·IRP·연금 및 실제 세액은 투자계획의 계좌별 계산을 확인하세요.</div>
+    <div style="height:1px;background:var(--border);margin:12px 0"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <div><div style="font-size:.74rem;font-weight:800;color:var(--text)">🏠 주담대 상환스케줄</div>
+      <div style="font-size:.61rem;color:var(--muted);margin-top:2px">${schedule.length ? `${_escapeHtml(schedule[0]?.date || '-')} ~ ${_escapeHtml(schedule[schedule.length - 1]?.date || '-')} · 총 ${schedule.length}개월` : '등록된 상환스케줄이 없습니다.'}</div></div>
+      <button type="button" class="btn-ghost-sm" data-portfolio-action="open-mortgage">부동산·스케줄</button>
+    </div>
+    ${scheduleRow ? `<div class="retire-metric-grid">
+      ${metric('스케줄 기준 대출잔액', fmt(Number(scheduleRow.balance || 0)), `${_escapeHtml(scheduleRow.date || '-')} 기준`, 'var(--red-lt)')}
+      ${metric('다음 납입 원금', fmt(Number(nextRow?.principal || 0)), nextRow ? `${_escapeHtml(nextRow.date)} 예정` : '남은 일정 없음', 'var(--cyan)')}
+      ${metric('다음 납입 이자', fmt(Number(nextRow?.interest || 0)), nextRow ? `${_escapeHtml(nextRow.date)} 예정` : '남은 일정 없음', 'var(--amber)')}
+      ${metric('남은 상환기간', `${remainingMonths.toLocaleString()}개월`, schedule.length ? `최종 ${_escapeHtml(schedule[schedule.length - 1]?.date || '-')}` : '-', 'var(--purple-lt)')}
+    </div>` : '<div style="font-size:.65rem;color:var(--muted);padding:8px 0">부동산 탭에서 상환스케줄 CSV를 업로드하면 잔액·다음 원금·이자·남은 기간을 함께 표시합니다.</div>'}
   </section>`;
 }
 
