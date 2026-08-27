@@ -74,6 +74,7 @@ const tabSettingsSource = fs.readFileSync(path.join(webRoot, 'views/views_system
 const historyRenderSource = fs.readFileSync(path.join(webRoot, 'views/views_history_render.js'), 'utf8');
 const historyPipelineSource = fs.readFileSync(path.join(webRoot, 'views/views_history_pipeline.js'), 'utf8');
 const historyUtilsSource = fs.readFileSync(path.join(webRoot, 'views/views_history_utils.js'), 'utf8');
+const portfolioSource = fs.readFileSync(path.join(webRoot, 'views/views_portfolio.js'), 'utf8');
 if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendSource.includes('_refreshSeibroEtfDividends(true)')
     || !dividendViewSource.includes('id="dividendLinkStatus"')
@@ -109,6 +110,15 @@ vm.runInNewContext(`${historyUtilsSource}\n` +
 if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
     || historyUtilsContext.__dateKey('2026-06-19') !== '2026-06-19') {
   console.error('❌ 특정일 손익 조회 날짜 키는 date input과 같은 YYYY-MM-DD 형식이어야 합니다.');
+  process.exit(1);
+}
+
+if (!portfolioSource.includes('function _buildPortfolioDividendSummary()')
+    || !portfolioSource.includes('연간 예상 배당 (세전)')
+    || !portfolioSource.includes('올해 확정 배당')
+    || !portfolioSource.includes('세후 월 현금흐름 참고')
+    || !portfolioSource.includes('data-portfolio-action="open-retirement"')) {
+  console.error('❌ 포트폴리오 배당·은퇴 요약 또는 상세 이동 기능이 누락됐습니다.');
   process.exit(1);
 }
 

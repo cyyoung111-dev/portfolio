@@ -28,6 +28,42 @@ function _portfolioDataKey() {
   ].join('|');
 }
 
+function _buildPortfolioDividendSummary() {
+  const dividendRows = typeof calcDividends === 'function' ? calcDividends() : [];
+  const annual = dividendRows.reduce((sum, item) => sum + Number(item.annualDiv || 0), 0);
+  const actual = dividendRows.reduce((sum, item) => sum + Number(item.actualDiv || 0), 0);
+  const nowMonth = typeof _getNowMonth === 'function' ? _getNowMonth() : 0;
+  const currentMonth = dividendRows.reduce((sum, item) => sum + Number(item.monthlyDiv?.[nowMonth] || 0), 0);
+  const dividendNames = new Set(dividendRows.map(item => item.name));
+  const dividendCost = rows.filter(row => dividendNames.has(row.name)).reduce((sum, row) => sum + Number(row.costAmt || 0), 0);
+  const yieldPct = dividendCost > 0 ? annual / dividendCost * 100 : 0;
+  const monthlyExpense = (typeof _planSettings !== 'undefined' && Number(_planSettings.retireMonthlyExpense) > 0)
+    ? Number(_planSettings.retireMonthlyExpense)
+    : 0;
+  // 은퇴 계획과 동일한 일반계좌 원천징수 가정값이며 실제 계좌별 세액은 투자계획 탭에서 확인합니다.
+  const afterTaxMonthly = Math.round(annual * 0.846 / 12);
+  const coveragePct = monthlyExpense > 0 ? afterTaxMonthly / monthlyExpense * 100 : null;
+  const metric = (label, value, sub, color = 'var(--text)') => `<div class="s2-rounded">
+    <div class="lbl-62-muted-3">${label}</div><div style="font-size:.86rem;font-weight:800;color:${color}">${value}</div>
+    <div style="font-size:.61rem;color:var(--muted);margin-top:2px">${sub}</div></div>`;
+
+  return `<section style="margin-bottom:12px;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--s1)" aria-label="포트폴리오 배당 현황">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <div><div style="font-size:.78rem;font-weight:800;color:var(--text)">💰 포트폴리오 배당·은퇴 현황</div>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:2px">현재 보유수량과 등록된 배당정보 기준 · 확정 지급액과 향후 예상액 포함</div></div>
+      <div style="display:flex;gap:6px"><button type="button" class="btn-ghost-sm" data-portfolio-action="open-dividend">배당 상세</button><button type="button" class="btn-purple-sm" data-portfolio-action="open-retirement">은퇴 점검</button></div>
+    </div>
+    <div class="retire-metric-grid">
+      ${metric('연간 예상 배당 (세전)', fmt(annual), `${dividendRows.length}개 배당 종목`, 'var(--green)')}
+      ${metric('월평균 예상 (세전)', fmt(Math.round(annual / 12)), `이번 달 ${fmt(Math.round(currentMonth))}`, 'var(--cyan)')}
+      ${metric('올해 확정 배당', fmt(Math.round(actual)), '등록된 실제 배당 이벤트 합계', 'var(--gold)')}
+      ${metric('배당수익률', `${yieldPct.toFixed(2)}%`, `배당 종목 매입금액 ${fmt(dividendCost)}`, 'var(--purple-lt)')}
+      ${metric('세후 월 현금흐름 참고', fmt(afterTaxMonthly), coveragePct == null ? '은퇴 목표 생활비 미설정' : `목표 월 생활비의 ${coveragePct.toFixed(1)}%`, 'var(--amber)')}
+    </div>
+    <div style="font-size:.60rem;color:var(--muted);margin-top:8px">세후 월 현금흐름은 일반계좌 배당소득세 15.4%를 일괄 가정한 참고값입니다. ISA·IRP·연금 및 실제 세액은 투자계획의 계좌별 계산을 확인하세요.</div>
+  </section>`;
+}
+
 function renderAcctView(area) {
   const accts = ACCT_ORDER.filter(a => a !== '전체');
   const acctOpts = ['전체',...accts].map(a =>
@@ -46,7 +82,7 @@ function renderAcctView(area) {
   const typeOpts = typeList.map(t =>
     `<button data-portfolio-action="type-filter" data-value="${_escapeHtml(t)}" class="${_fBtnClass(typeFilter===t)}">${_escapeHtml(t)}</button>`).join('');
 
-  let html = `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+  let html = _buildPortfolioDividendSummary() + `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span class="txt-muted-72">🏦 계좌</span>
       <div class="flex-wrap-gap4">${acctOpts}</div>
