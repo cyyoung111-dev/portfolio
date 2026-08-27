@@ -8,6 +8,8 @@ const __histState = window.__histState || {
   debugByDate: {},
   debugDate: '',
   missingSnapshotDates: [],
+  snapshots: [],
+  detailDate: '',
 };
 window.__histState = __histState;
 
