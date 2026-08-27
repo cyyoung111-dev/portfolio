@@ -81,6 +81,8 @@ function registerGlobalEventDelegation() {
       const action = portfolioAction.dataset.portfolioAction;
       if (action === 'acct-filter' && typeof setAcctFilter === 'function') setAcctFilter(portfolioAction.dataset.value || '전체');
       else if (action === 'type-filter' && typeof setTypeFilter === 'function') setTypeFilter(portfolioAction.dataset.value || '전체');
+      else if (action === 'open-dividend' && typeof switchView === 'function') switchView('div');
+      else if (action === 'open-retirement' && typeof switchView === 'function') switchView('plan');
       else if (action === 'merge-sort' && typeof setMergeSortKey === 'function') setMergeSortKey(portfolioAction.dataset.key || 'eval');
       else if (action === 'merge-detail') {
         if (e.target.closest('[data-portfolio-action="trade-group"]')) return;
