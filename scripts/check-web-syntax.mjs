@@ -75,8 +75,10 @@ if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendViewSource.includes('id="dividendLinkStatus"')
     || !dividendViewSource.includes('📥 배당 데이터 갱신')
     || !dividendViewSource.includes('☁️ GAS 데이터 다시 받기')
+    || !dividendViewSource.includes('화면 배당 데이터 최근 갱신')
+    || !tabSyncSource.includes("tabId === 'div' ? 'GAS 데이터 다시 받기' : '재동기화'")
     || !tabSyncSource.includes('const loaded = await loadDividendSettings()')) {
-  console.error('❌ 배당 연동 중 상태 또는 수동 갱신/GAS 복원 버튼 역할 구분이 누락됐습니다.');
+  console.error('❌ 배당 갱신 시각 또는 외부 갱신/GAS 복원 상태의 역할 구분이 누락됐습니다.');
   process.exit(1);
 }
 
