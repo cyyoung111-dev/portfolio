@@ -952,10 +952,43 @@ button{line-height:1.35}
 [style*="font-size:.62rem"],
 [style*="font-size:.63rem"],
 [style*="font-size:.64rem"],
-[style*="font-size:.65rem"]{
+[style*="font-size:.65rem"],
+[style*="font-size:.66rem"],
+[style*="font-size:.67rem"],
+[style*="font-size:.68rem"],
+[style*="font-size:.69rem"]{
   font-size:var(--type-caption)!important;
   line-height:var(--line-reading);
 }
+
+/* 모든 기본·관리 탭에서 제목, 표, 폼, 상태문구가 같은 위계를 공유한다. */
+#view-area[data-active-view]{font-size:var(--type-body);line-height:1.55}
+#view-area[data-active-view] .h3-section,
+#view-area[data-active-view] .h3-card,
+#view-area[data-active-view] .tbl-head h3{font-size:var(--type-title);line-height:1.35}
+#view-area[data-active-view] table th{font-size:var(--type-caption);line-height:1.4;font-weight:600}
+#view-area[data-active-view] table td{font-size:var(--type-body);line-height:1.45}
+#view-area[data-active-view] input,
+#view-area[data-active-view] select,
+#view-area[data-active-view] textarea{font-size:var(--type-body);min-height:36px}
+#view-area[data-active-view] .btn-sm,
+#view-area[data-active-view] .btn-ghost-sm,
+#view-area[data-active-view] .btn-purple-sm,
+#view-area[data-active-view] .btn-outline-sm,
+#view-area[data-active-view] .btn-sort-toggle,
+#view-area[data-active-view] .hist-bench-btn{font-size:var(--type-caption);min-height:32px}
+#view-area[data-active-view] .empty-msg,
+#view-area[data-active-view] .mt-3-muted-72,
+#view-area[data-active-view] [class*="txt-muted"],
+#view-area[data-active-view] [class*="label-muted"]{font-size:var(--type-caption);line-height:var(--line-reading)}
+.div-monthly-matrix-head span,
+.div-monthly-matrix-head small,
+.div-monthly-matrix th,
+.div-monthly-matrix td,
+.div-monthly-matrix .div-monthly-group th,
+.div-gas-link-badge{font-size:var(--type-caption)}
+.div-asset-badge{font-size:.7rem}
+.toolbar-btn,.vs-btn-label{font-size:.72rem;line-height:1.3}
 
 /* 투자계획은 의미가 같은 라벨·설명·값의 크기를 동일하게 유지한다. */
 [data-view-section="plan"]{font-size:var(--type-body)}

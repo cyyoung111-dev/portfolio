@@ -244,6 +244,7 @@ function invalidateViewCache(viewId) {
 function renderView(forceRender) {
   const area = $el('view-area');
   if (!area) return;
+  area.dataset.activeView = currentView;
 
   const hash = _getDataHash();
   const cacheKey = currentView + '|' + hash;
