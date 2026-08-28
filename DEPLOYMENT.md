@@ -25,6 +25,16 @@ cp src/gas/apps_script.gs /tmp/apps_script.js && node --check /tmp/apps_script.j
 
 `npm run check:web:ci`는 구조, manifest, JS syntax, 전역 함수명, DOM 계약, inline handler, 생성 HTML inline handler 검사를 한 번에 실행합니다.
 
+## API 비밀키와 선택적 요청 인증
+
+- GAS v9.75부터 KRX·공공데이터 API 키 원문은 `Script Properties`에만 저장하며 `getSettings`와 `getBootstrap`은 설정 여부만 반환합니다.
+- 구버전 `설정` 시트에 API 키가 남아 있다면 Apps Script 편집기에서 소유자 권한으로 `migrateLegacyApiKeysToScriptProperties()`를 한 번 실행합니다. 함수는 키를 `Script Properties`로 옮기고 설정 시트 원문을 제거합니다.
+- 마이그레이션과 코드 반영을 확인한 뒤 브라우저의 과거 `krx_auth_key`, `public_data_api_key` localStorage 항목을 삭제합니다. 새 웹 버전은 시작할 때 자동 삭제합니다.
+- 요청 인증은 기존 배포를 갑자기 차단하지 않도록 opt-in입니다. `Script Properties`에 `access_token`이 없으면 기존 요청을 허용하고, 값이 있으면 모든 GET·POST 요청에 같은 토큰을 요구합니다.
+- 인증을 켜려면 충분히 긴 임의 토큰을 `Script Properties`의 `access_token`에 저장하고, 개인 브라우저 콘솔에서 `localStorage.setItem('gsheet_access_token', JSON.stringify('동일한 토큰'))`을 실행한 뒤 새로고침합니다. 토큰은 공개 저장소에 커밋하거나 URL에 직접 붙이지 않습니다.
+- 정적 GitHub Pages 구조에서는 이 토큰이 브라우저 사용자·악성 확장프로그램·XSS에 노출될 수 있습니다. GAS URL만 유출된 경우의 방어에는 도움이 되지만 완전한 서버 인증은 아니며, 더 강한 보호에는 별도 인증 프록시가 필요합니다.
+- 토큰 설정 전에 현재 브라우저에 토큰을 먼저 저장해야 접근 중단을 피할 수 있습니다. 다른 브라우저·기기에도 각각 다시 입력해야 합니다.
+
 ## 운영 반영 체크리스트
 
 ### Web

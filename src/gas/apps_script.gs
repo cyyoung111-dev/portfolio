@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.74
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.75
+//
+//  v9.75 변경사항 (2026.08.28):
+//   ✅ [보안]   API 키 원문을 설정·부트스트랩 응답에서 제거하고 Script Properties 상태만 반환
+//   ✅ [보안]   Script Properties의 access_token 설정 시 모든 웹 요청에 opt-in 인증 적용
+//   ✅ [마이그레이션] 설정 시트의 레거시 API 키를 Script Properties로 옮기는 관리자 함수 추가
 //
 //  v9.74 변경사항 (2026.08.27):
 //   ✅ [상세조회] 특정일 손익 스냅샷의 종목코드·수량·매입/평가단가·손익·수익률·가격소스 제공
@@ -484,12 +489,36 @@ function getss() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+function _isAuthorizedRequest(params) {
+  var expected = (PropertiesService.getScriptProperties().getProperty('access_token') || '').trim();
+  if (!expected) return true; // 기존 배포 호환: 관리자가 토큰을 설정한 뒤부터 보호 활성화
+  var provided = String(params && params.accessToken || '');
+  if (provided.length !== expected.length) return false;
+  var mismatch = 0;
+  for (var i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+  return mismatch === 0;
+}
+
+function _removeSecretsFromSettings(settings) {
+  ['public_data_api_key', 'public_listed_api_key', 'public_dividend_api_key', 'krx_auth_key', 'krx_api_key', 'access_token'].forEach(function(key) { delete settings[key]; });
+  return settings;
+}
+
+function _getApiKeyStatus() {
+  return {
+    publicDataApiKeyConfigured: !!_getPublicDataApiKey(),
+    krxAuthKeyConfigured: !!_getKrxAuthKey(),
+    requestAuthenticationEnabled: !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim()
+  };
+}
+
 //  doGet
 // ════════════════════════════════════════════════════════════════════
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
+  if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
-  if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, params.serviceKey || '');
+  if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
@@ -506,7 +535,7 @@ function doGet(e) {
   if (params.action === 'dividendPublic') {
     var publicCodes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     var publicNames = params.names ? params.names.split('|') : [];
-    return handleDividendPublicFetch(publicCodes, publicNames, params.serviceKey || '');
+    return handleDividendPublicFetch(publicCodes, publicNames, _getPublicDataApiKey());
   }
   if (params.action === 'getSettings')          return handleGetSettings();
   if (params.action === 'getDividendSettings')  return handleGetDividendSettings();
@@ -542,6 +571,9 @@ function doPost(e) {
   } catch(err) {
     return jsonError('POST 파싱 실패: ' + err.message);
   }
+  if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
+  var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'syncHoldings' && params.data)  return handleSyncHoldings(params.data);
@@ -5251,6 +5283,20 @@ function _writeSettingsMap(settings) {
   return rows.length;
 }
 
+// 스프레드시트 소유자가 Apps Script 편집기에서 명시적으로 한 번 실행합니다.
+// 설정 시트의 레거시 키를 Script Properties로 옮긴 뒤 설정 시트 원문을 제거합니다.
+function migrateLegacyApiKeysToScriptProperties() {
+  var settings = _readSettingsMap();
+  var props = PropertiesService.getScriptProperties();
+  var publicKey = String(settings.public_data_api_key || settings.public_listed_api_key || settings.public_dividend_api_key || '').trim();
+  var krxKey = String(settings.krx_auth_key || settings.krx_api_key || '').trim();
+  if (publicKey && !_getPublicDataApiKey()) props.setProperty('public_data_api_key', publicKey);
+  if (krxKey && !_getKrxAuthKey()) props.setProperty('krx_auth_key', krxKey);
+  _removeSecretsFromSettings(settings);
+  _writeSettingsMap(settings);
+  return { publicDataApiKeyMigrated: !!publicKey, krxAuthKeyMigrated: !!krxKey };
+}
+
 // 상환스케줄의 현재월 행을 기준으로 주담대 상태를 자동 갱신합니다.
 // 매일 실행하지만 값이 달라질 때만 설정 시트를 다시 씁니다.
 function syncMortgageFromSchedule() {
@@ -5306,6 +5352,9 @@ function handleSaveSettings(dataJson) {
   try {
     lock.waitLock(30000); locked = true;
     var incoming = _parseJsonParam(dataJson, 'settings');
+    delete incoming.public_data_api_key;
+    delete incoming.krx_auth_key;
+    delete incoming.krx_api_key;
     var settings = _readSettingsMap();
     var protectedKeys = ['DIVDATA', 'LOAN', 'REAL_ESTATE', 'LOAN_SCHEDULE', 'RE_VALUE_HIST'];
     var protectedValues = {};
@@ -5327,11 +5376,9 @@ function handleSaveSettings(dataJson) {
 function handleGetSettings() {
   try {
     var settings = _readSettingsMap();
-    var publicKey = _getPublicDataApiKey();
-    var krxKey = _getKrxAuthKey();
-    if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
-    if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.74' });
+    _removeSecretsFromSettings(settings);
+    settings.apiKeyStatus = _getApiKeyStatus();
+    return jsonOk({ settings: settings, gasVersion: '9.75' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5343,10 +5390,8 @@ function handleGetBootstrap() {
   try {
     var ss = getss();
     var settings = _readSettingsMap(ss);
-    var publicKey = _getPublicDataApiKey();
-    var krxKey = _getKrxAuthKey();
-    if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
-    if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
+    _removeSecretsFromSettings(settings);
+    settings.apiKeyStatus = _getApiKeyStatus();
 
     var tradesResponse = JSON.parse(handleGetTrades(ss).getContent());
     var holdingsResponse = JSON.parse(handleGetHoldings(ss).getContent());
@@ -5355,7 +5400,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.74'
+      gasVersion: '9.75'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

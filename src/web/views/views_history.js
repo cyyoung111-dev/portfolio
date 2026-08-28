@@ -365,8 +365,8 @@ function _renderHistDebugPanel(date) {
 function renderGsheetView(area) {
   const currentUrl = GSHEET_API_URL || '';
   const isLinked = !!currentUrl;
-  const publicDataKey = (typeof getPublicDataApiKey === 'function') ? getPublicDataApiKey() : ((typeof lsGet === 'function') ? String(lsGet('public_data_api_key', '') || '').trim() : '');
-  const krxAuthKey = (typeof getKrxAuthKey === 'function') ? getKrxAuthKey() : '';
+  const publicDataKey = window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured ? 'configured' : '';
+  const krxAuthKey = window.GAS_API_KEY_STATUS?.krxAuthKeyConfigured ? 'configured' : '';
 
   area.innerHTML = `
     <div style="padding:12px 0 8px">
@@ -409,7 +409,7 @@ function renderGsheetView(area) {
           <span style="font-size:.62rem;color:${publicDataKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${publicDataKey ? '키 저장됨' : '키 미설정'}</span>
         </div>
         <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
-          <input id="publicDataKeyInput" type="password" value="${publicDataKey.replace(/"/g,'&quot;')}" placeholder="공공데이터포털 Encoding 인증키"
+          <input id="publicDataKeyInput" type="password" value="" placeholder="공공데이터포털 Encoding 인증키"
             style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"
           />
           <button id="btn-save-public-data-key" class="btn-purple-sm">키 저장</button>
@@ -427,7 +427,7 @@ function renderGsheetView(area) {
           <span style="font-size:.62rem;color:${krxAuthKey ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${krxAuthKey ? '키 저장됨' : '키 미설정'}</span>
         </div>
         <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
-          <input id="krxAuthKeyInput" type="password" value="${krxAuthKey.replace(/"/g,'&quot;')}" placeholder="KRX Open API AUTH_KEY"
+          <input id="krxAuthKeyInput" type="password" value="" placeholder="KRX Open API AUTH_KEY"
             style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:220px"
           />
           <button id="btn-save-krx-auth-key" class="btn-purple-sm">키 저장</button>

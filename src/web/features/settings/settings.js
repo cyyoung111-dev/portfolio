@@ -114,6 +114,7 @@ async function loadRealEstateSettings() {
     const data = await requestGsheetActionJson('getRealEstateSettings', {}, { timeoutMs: 10000, retry: 1 });
     if (!data || data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
     const s = data.settings;
+    window.GAS_API_KEY_STATUS = (s.apiKeyStatus && typeof s.apiKeyStatus === 'object') ? s.apiKeyStatus : {};
     // ★ [개선] GAS 버전 저장 — bootstrapGsheetSettings에서 불일치 감지에 사용
     if (data.gasVersion) window._lastGasVersion = String(data.gasVersion);
     if (s.LOAN && typeof s.LOAN === 'object') {
@@ -289,12 +290,9 @@ async function loadSettings(onProgress) {
     if (s.APP_FONT && typeof lsSave === 'function') {
       lsSave('app_font', s.APP_FONT);
     }
-    if (s.public_data_api_key && typeof lsSave === 'function') {
-      lsSave('public_data_api_key', String(s.public_data_api_key || '').trim());
-    }
-    if (s.krx_auth_key && typeof lsSave === 'function') {
-      lsSave('krx_auth_key', String(s.krx_auth_key || '').trim());
-    }
+    // 비밀키 원문은 GAS Script Properties에만 두고 브라우저에는 상태만 복원합니다.
+    lsRemove('public_data_api_key');
+    lsRemove('krx_auth_key');
     if (typeof applyTheme === 'function' && s.APP_THEME) {
       applyTheme(s.APP_THEME, { skipModeSave: true });
     }
