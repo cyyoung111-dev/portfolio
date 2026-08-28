@@ -375,6 +375,7 @@ const PRICE_BACKUP_KEY  = 'pf_price_backup';
 const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';
 // ★ [계좌별 taxType] 계좌→세금구분 매핑 키
 const ACCT_TAX_TYPES_KEY = 'pf_v6_acct_tax_types';
+const ACCOUNTS_MASTER_KEY = 'pf_v7_accounts';
 
 // ── localStorage 복원 (KEY 상수 선언 후 실행)
 (function(){
@@ -391,14 +392,56 @@ const ACCT_TAX_TYPES_KEY = 'pf_v6_acct_tax_types';
 let ACCT_TAX_TYPES = (function() {
   return lsGet(ACCT_TAX_TYPES_KEY, {});
 })();
+let ACCOUNTS_MASTER = (function() {
+  const saved = lsGet(ACCOUNTS_MASTER_KEY, []);
+  return Array.isArray(saved) ? saved : [];
+})();
+
+function _stableAccountId(seed, usedIds) {
+  let hash = 2166136261;
+  for (const char of String(seed || 'account')) { hash ^= char.codePointAt(0); hash = Math.imul(hash, 16777619); }
+  const base = `acct-${(hash >>> 0).toString(36)}`;
+  let id = base, suffix = 2;
+  while (usedIds.has(id)) id = `${base}-${suffix++}`;
+  return id;
+}
+
+function saveAccountsMaster() {
+  lsSave(ACCOUNTS_MASTER_KEY, ACCOUNTS_MASTER);
+  ACCT_TAX_TYPES = Object.fromEntries(ACCOUNTS_MASTER.filter(item => item.taxType && item.taxType !== 'UNCLASSIFIED').map(item => [item.displayName, ({ GENERAL:'일반', ISA:'ISA', PENSION_SAVINGS:'연금', IRP:'IRP' })[item.taxType]]));
+  lsSave(ACCT_TAX_TYPES_KEY, ACCT_TAX_TYPES);
+}
+
+function ensureAccountsMaster() {
+  const usedIds = new Set(ACCOUNTS_MASTER.map(item => item.id));
+  const names = [...new Set([...(ACCT_ORDER || []), ...rawTrades.map(item => item.acct), ...rawHoldings.map(item => item.acct)].filter(name => name && name !== '전체'))];
+  names.forEach((displayName, index) => {
+    let account = ACCOUNTS_MASTER.find(item => item.displayName === displayName);
+    if (!account) {
+      const legacyType = ({ '일반':'GENERAL', ISA:'ISA', '연금':'PENSION_SAVINGS', '연금저축':'PENSION_SAVINGS', IRP:'IRP' })[ACCT_TAX_TYPES[displayName]] || 'UNCLASSIFIED';
+      account = { id:_stableAccountId(displayName, usedIds), displayName, broker:'', taxType:legacyType, active:true, color:ACCT_COLORS[displayName] || '', sortOrder:index };
+      usedIds.add(account.id); ACCOUNTS_MASTER.push(account);
+    }
+  });
+  const byName = Object.fromEntries(ACCOUNTS_MASTER.map(item => [item.displayName, item]));
+  rawTrades.forEach(item => { if (!item.accountId && byName[item.acct]) item.accountId = byName[item.acct].id; });
+  rawHoldings.forEach(item => { if (!item.accountId && byName[item.acct]) item.accountId = byName[item.acct].id; });
+  saveAccountsMaster();
+  return ACCOUNTS_MASTER;
+}
+
+function getAccountByName(name) { return ACCOUNTS_MASTER.find(item => item.displayName === name) || null; }
+function getAccountById(id) { return ACCOUNTS_MASTER.find(item => item.id === id) || null; }
+function getAccountId(name) { return getAccountByName(name)?.id || null; }
 
 function saveAcctTaxTypes() {
   lsSave(ACCT_TAX_TYPES_KEY, ACCT_TAX_TYPES);
 }
 
-// 계좌의 taxType 조회 (기본값: '일반')
+// 미등록 계좌는 세금 계산에 조용히 포함하지 않고 사용자 분류를 기다립니다.
 function getAcctTaxType(acct) {
-  return ACCT_TAX_TYPES[acct] || '일반';
+  const canonical = getAccountByName(acct)?.taxType;
+  return ({ GENERAL:'일반', ISA:'ISA', PENSION_SAVINGS:'연금', IRP:'IRP' })[canonical] || '';
 }
 
 // ★ [최적화] GAS 동기화 debounce 타이머
