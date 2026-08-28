@@ -41,6 +41,8 @@ async function requestJsonWithPolicy(url, opts) {
 }
 
 async function requestGsheetActionJson(action, params, opts) {
+  const accessToken = String(lsGet('gsheet_access_token', '') || '').trim();
+  if (accessToken) return requestGsheetFormJson(action, params, opts);
   const url = buildGsheetActionUrl(action, params);
   return requestJsonWithPolicy(url, opts);
 }
@@ -49,6 +51,8 @@ async function requestGsheetFormJson(action, params, opts) {
   if (!GSHEET_API_URL || !action) return null;
   const form = new URLSearchParams();
   form.set('action', action);
+  const accessToken = String(lsGet('gsheet_access_token', '') || '').trim();
+  if (accessToken) form.set('accessToken', accessToken);
   Object.entries(params || {}).forEach(([k, v]) => {
     if (v === null || v === undefined || v === '') return;
     form.set(k, String(v));

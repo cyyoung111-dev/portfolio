@@ -123,9 +123,8 @@ if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || planCashflowRenderCount !== 1
     || (planSource.match(/data-plan-section="cashflow"/g) || []).length !== 1
     || !planSource.includes('area.replaceChildren(template.content)')
-    || !planSource.includes('function _removeDuplicatePlanSections(area)')
-    || !planSource.includes("'#plan-cashflow'")
-    || !planSource.includes("'#plan-export'")
+    || planSource.includes('function _removeDuplicatePlanSections(area)')
+    || (planSource.match(/\$\{_buildPlanCashflowOverview\(\)\}/g) || []).length !== 1
     || !planSource.includes('function _buildPlanCashflowOverview()')
     || !planSource.includes('포트폴리오 배당·은퇴 현황')
     || !planSource.includes('주담대 상환스케줄')
