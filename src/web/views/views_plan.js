@@ -795,6 +795,30 @@ function _buildTaxSection(totalCost) {
       <div style="font-size:.62rem;color:var(--muted);margin-top:8px">market이 명시적으로 US인 종목의 거래만 포함한 이동평균 추정치입니다. 통화만으로 국내·해외를 판단하지 않으며 증권사 계산과 다를 수 있습니다. 세율·공제는 ${foreignTax.appliedRuleYear}년 참고 상수입니다.</div>
     </div>
 
+    <div style="background:var(--s2);border-radius:10px;padding:14px;margin-bottom:10px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--cyan);margin-bottom:8px">🌐 해외주식 직접투자 양도세 추정</div>
+      <div class="plan-metric-grid">
+        <div><div class="lbl-62-muted-3">거래내역 기준 실현손익</div><div>${fmt(foreignTax.transactionEstimate)}</div></div>
+        <div><div class="lbl-62-muted-3">수동조정액</div><input id="foreign-tax-adjustment" type="text" value="${Number(_planSettings.foreignTaxAdjustment||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
+        <div><div class="lbl-62-muted-3">과세표준 추정</div><div>${fmt(foreignTax.taxableBase)}</div></div>
+        <div><div class="lbl-62-muted-3">예상세금</div><div style="color:var(--red-lt)">${fmt(foreignTax.estimatedTax)}</div></div>
+      </div>
+      <button data-plan-action="save-foreign-tax" class="btn-ghost-sm" style="margin-top:8px">수동조정 저장</button>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:8px">market이 명시적으로 US인 종목의 거래만 포함한 이동평균 추정치입니다. 통화만으로 국내·해외를 판단하지 않으며 증권사 계산과 다를 수 있습니다. 세율·공제는 ${foreignTax.appliedRuleYear}년 참고 상수입니다.</div>
+    </div>
+
+    <div style="background:var(--s2);border-radius:10px;padding:14px;margin-bottom:10px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--cyan);margin-bottom:8px">🌐 해외주식 직접투자 양도세 추정</div>
+      <div class="plan-metric-grid">
+        <div><div class="lbl-62-muted-3">거래내역 기준 실현손익</div><div>${fmt(foreignTax.transactionEstimate)}</div></div>
+        <div><div class="lbl-62-muted-3">수동조정액</div><input id="foreign-tax-adjustment" type="text" value="${Number(_planSettings.foreignTaxAdjustment||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
+        <div><div class="lbl-62-muted-3">과세표준 추정</div><div>${fmt(foreignTax.taxableBase)}</div></div>
+        <div><div class="lbl-62-muted-3">예상세금</div><div style="color:var(--red-lt)">${fmt(foreignTax.estimatedTax)}</div></div>
+      </div>
+      <button data-plan-action="save-foreign-tax" class="btn-ghost-sm" style="margin-top:8px">수동조정 저장</button>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:8px">market이 명시적으로 US인 종목의 거래만 포함한 이동평균 추정치입니다. 통화만으로 국내·해외를 판단하지 않으며 증권사 계산과 다를 수 있습니다. 세율·공제는 ${foreignTax.appliedRuleYear}년 참고 상수입니다.</div>
+    </div>
+
     <!-- ③ IRP / 연금 -->
     <div style="background:var(--s2);border-radius:10px;padding:12px 14px;margin-bottom:6px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
