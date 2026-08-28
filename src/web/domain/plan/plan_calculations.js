@@ -31,9 +31,9 @@
 
   function classifyTaxType(value) {
     const type = String(value || '').trim().toUpperCase();
-    if (type === '일반' || type === 'NORMAL') return 'normal';
+    if (type === '일반' || type === 'NORMAL' || type === 'GENERAL') return 'normal';
     if (type === 'ISA') return 'isa';
-    if (type === '연금' || type === '연금저축' || type === 'PENSION') return 'pension';
+    if (type === '연금' || type === '연금저축' || type === 'PENSION' || type === 'PENSION_SAVINGS') return 'pension';
     if (type === 'IRP') return 'irp';
     return 'unclassified';
   }
@@ -217,11 +217,16 @@
     const otherIncome = number(input.annualOtherIncome);
     const availableDividend = number(input.availableAnnualDividend);
     const loanMode = input.loanMode === 'payoff' ? 'payoff' : 'maintain';
-    const loan = aggregateLoanScheduleByYear({ schedule: input.loanSchedule }).byYear;
+    const asOfDate = String(input.asOfDate || input.dataAsOf || '');
+    const asOfMonth = /^\d{4}-(0[1-9]|1[0-2])/.test(asOfDate) ? asOfDate.slice(0, 7) : '';
+    // 기준월까지 지급된 행은 현재 자산에 이미 반영된 것으로 보고 다음 달 행부터 미래 현금흐름에 포함합니다.
+    const futureLoanSchedule = (Array.isArray(input.loanSchedule) ? input.loanSchedule : []).filter(item => !asOfMonth || String(item?.date || '').slice(0, 7) > asOfMonth);
+    const loan = aggregateLoanScheduleByYear({ schedule: futureLoanSchedule }).byYear;
     let assets = number(input.availableAssets);
     let pensionAssets = number(input.pensionAssets);
     const pensionStartAge = Math.max(55, number(input.pensionStartAge, 55));
     const annualPensionWithdrawal = number(input.annualPensionWithdrawal);
+    const pensionWithdrawalYears = Math.trunc(number(input.pensionWithdrawalYears));
     const pensionReturnRate = number(input.pensionReturnRate) / 100;
     const pensionTaxRate = number(input.pensionTaxRate) / 100;
     let pensionTransferred = 0; // 구버전 결과 필드 호환용: 자동 전환하지 않으므로 항상 0
@@ -237,8 +242,8 @@
       const loanPrincipal = number(loan[year]?.principal);
       const loanInterest = number(loan[year]?.interest);
       const loanPayment = loanPrincipal + loanInterest;
-      assets = adjustedBeginningAssets + investment + investmentReturn - loanPayment;
-      rows.push({ year, age, phase: 'accumulation', beginningAssets, pensionTransfer, additionalInvestment: investment, investmentReturn, livingExpense: 0, educationExpense: 0, taxExpense: 0, loanPrincipal, loanInterest, loanPayment, loanDeductedFromAssets: true, otherExpense: 0, availableIncome: 0, endingAssets: assets, pensionAvailable: age >= 55 });
+      assets = adjustedBeginningAssets + investment + investmentReturn;
+      rows.push({ year, age, phase: 'accumulation', beginningAssets, pensionTransfer, additionalInvestment: investment, investmentReturn, livingExpense: 0, educationExpense: 0, taxExpense: 0, loanPrincipal, loanInterest, loanPayment, loanCashOutflow:0, loanDeductedFromAssets: false, otherExpense: 0, availableIncome: 0, endingAssets: assets, pensionAvailable: age >= 55 });
     }
     let payoffAmount = 0;
     if (loanMode === 'payoff') {
@@ -258,7 +263,8 @@
       const pensionTransfer = 0;
       const pensionBeginningAssets = pensionAssets;
       const pensionInvestmentReturn = Math.max(0, pensionBeginningAssets) * pensionReturnRate;
-      const pensionWithdrawal = age >= pensionStartAge
+      const pensionWithdrawalOffset = age - pensionStartAge;
+      const pensionWithdrawal = age >= pensionStartAge && pensionWithdrawalYears > 0 && pensionWithdrawalOffset < pensionWithdrawalYears
         ? Math.min(pensionBeginningAssets + pensionInvestmentReturn, annualPensionWithdrawal)
         : 0;
       const pensionTax = pensionWithdrawal * pensionTaxRate;
@@ -275,12 +281,19 @@
       assets = endingAssets;
       minimumBalance = Math.min(minimumBalance, endingAssets);
       if (depletionYear === null && endingAssets < 0) depletionYear = year;
-      rows.push({ year, age, phase: 'retirement', beginningAssets, pensionTransfer, additionalInvestment: 0, investmentReturn, livingExpense, educationExpense: 0, taxExpense: pensionTax, loanPrincipal, loanInterest, loanPayment, loanDeductedFromAssets: true, otherExpense: extraExpense, availableIncome, endingAssets, pensionAvailable: age >= 55, pensionBeginningAssets, pensionInvestmentReturn, pensionWithdrawal, pensionEndingAssets: pensionAssets });
+      rows.push({ year, age, phase: 'retirement', beginningAssets, pensionTransfer, additionalInvestment: 0, investmentReturn, livingExpense, educationExpense: 0, taxExpense: pensionTax, loanPrincipal, loanInterest, loanPayment, loanCashOutflow:loanPayment, loanDeductedFromAssets: true, otherExpense: extraExpense, availableIncome, endingAssets, pensionAvailable: age >= 55, pensionBeginningAssets, pensionInvestmentReturn, pensionWithdrawal, pensionEndingAssets: pensionAssets });
     }
     const withdrawalRate = number(input.withdrawalRate) / 100;
     const simpleRequiredAssets = withdrawalRate > 0 ? baseLiving / withdrawalRate : null;
-    return { retirementYear, projectedAssetsAtRetirement: rows.find(row => row.year === retirementYear)?.beginningAssets ?? assets, availableAssetsBefore55: number(input.availableAssets), pensionAssetsAfter55: number(input.pensionAssets), pensionTransferred, remainingPensionAssets: pensionAssets, payoffAmount, rows, depletionYear, minimumBalance, sustainable: depletionYear === null, simpleRequiredAssets, cashflowDifference: simpleRequiredAssets === null ? null : (rows.find(row => row.year === retirementYear)?.beginningAssets ?? assets) - simpleRequiredAssets };
+    return { retirementYear, projectedAssetsAtRetirement: rows.find(row => row.year === retirementYear)?.beginningAssets ?? assets, availableAssetsBefore55: number(input.availableAssets), pensionAssetsAfter55: number(input.pensionAssets), pensionTransferred, remainingPensionAssets: pensionAssets, payoffAmount, rows, depletionYear, minimumBalance, sustainable: depletionYear === null, simpleRequiredAssets, cashflowDifference: simpleRequiredAssets === null ? null : (rows.find(row => row.year === retirementYear)?.beginningAssets ?? assets) - simpleRequiredAssets, asOfDate, pensionSettingsMissing: number(input.pensionAssets) > 0 && !(input.pensionStartAge != null && annualPensionWithdrawal > 0 && pensionWithdrawalYears > 0 && input.pensionReturnRate != null && input.pensionTaxRate != null) };
   }
 
-  return { TAX_RULES_BY_YEAR, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow };
+  function assessRetirementStatus({ retirement, unclassifiedAssets = 0, missingRequiredSettings = false, safetyFloor = 0 } = {}) {
+    if (!retirement || unclassifiedAssets > 0 || missingRequiredSettings || retirement.pensionSettingsMissing) return { code:'REVIEW_REQUIRED', label:'계좌·설정 확인 필요' };
+    if (!retirement.sustainable || retirement.depletionYear !== null) return { code:'INSUFFICIENT', label:'부족' };
+    if (retirement.minimumBalance < number(safetyFloor)) return { code:'CONDITIONAL', label:'조건부 가능' };
+    return { code:'SUSTAINABLE', label:'은퇴 가능' };
+  }
+
+  return { TAX_RULES_BY_YEAR, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, validateLoanScheduleDates, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateIsaPeriodEstimates, calculateYearsToTarget, calculateRetirementCashflow, assessRetirementStatus };
 });

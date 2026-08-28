@@ -663,6 +663,7 @@ function saveTrade() {
     id:        _editingTradeId ?? genTradeId(),
     tradeType,
     acct:      acctVal,
+    accountId: getAccountId(acctVal),
     assetType: f('te-assettype').value,
     name: normN, code, qty, price, date,
     memo: f('te-memo').value.trim(),

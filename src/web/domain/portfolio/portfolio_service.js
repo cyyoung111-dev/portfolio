@@ -85,7 +85,7 @@ function syncHoldingsFromTrades(options) {
       const epType = getEPType(_ep, t.assetType);
       // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정 (종목 단위 아님)
       const acctTax = (typeof getAcctTaxType === 'function') ? getAcctTaxType(t.acct) : '';
-      map[key] = { acct: t.acct, name: t.name, type: epType, taxType: acctTax, qty: 0, totalCost: 0, fund: !!t.fund };
+      map[key] = { accountId:t.accountId || (typeof getAccountId === 'function' ? getAccountId(t.acct) : null), acct: t.acct, name: t.name, type: epType, taxType: acctTax, qty: 0, totalCost: 0, fund: !!t.fund };
     }
     if (t.tradeType === 'buy') {
       map[key].qty       += (t.qty || 0);

@@ -306,24 +306,7 @@ function updateDateBadge(dateStr, isToday) {
 //  데이터 백업/복원
 // ════════════════════════════════════════════════════════════════
 function exportData() {
-  const accountNames = [...new Set([...(ACCT_ORDER || []), ...rawTrades.map(item => item.acct)].filter(name => name && name !== '전체'))];
-  const accounts = accountNames.map((displayName, sortOrder) => ({
-    id: `acct-${sortOrder + 1}`, displayName, broker: '',
-    taxType: ({ '일반':'GENERAL', ISA:'ISA', '연금':'PENSION_SAVINGS', '연금저축':'PENSION_SAVINGS', IRP:'IRP' })[ACCT_TAX_TYPES?.[displayName]] || 'UNCLASSIFIED',
-    active: true, color: ACCT_COLORS?.[displayName] || '', sortOrder,
-  }));
-  const accountIds = Object.fromEntries(accounts.map(item => [item.displayName, item.id]));
-  const isaAccount = accounts.find(item => item.taxType === 'ISA');
-  const isaHasSource = isaAccount && (_planSettings?.isaJoinDate || _planSettings?.isaMaturityDate || Number(_planSettings?.isaContributionLimit) > 0 || Number(_planSettings?.isaContributionUsed) > 0);
-  const data = BackupSchema.createBackup({
-    dataAsOf: lastUpdated || null, accounts,
-    transactions: rawTrades.map(item => ({ ...item, accountId: accountIds[item.acct] || null })),
-    portfolio: { stockCodes: STOCK_CODE, editablePrices: EDITABLE_PRICES, prices: savedPrices, priceDates: savedPriceDates, lastUpdated, sectorColors: SECTOR_COLORS, fundDirect, holdings: rawHoldings },
-    dividends: DIVDATA, realEstate: REAL_ESTATE, loan: LOAN, loanSchedule: LOAN_SCHEDULE, realEstateValueHistory: RE_VALUE_HIST,
-    planSettings: typeof _planSettings === 'object' ? _planSettings : {},
-    isaAccounts: isaHasSource ? [{ accountId: isaAccount.id, accountType: _planSettings.isaExemptType || null, joinDate: _planSettings.isaJoinDate || null, maturityDate: _planSettings.isaMaturityDate || null, contributionLimit: Number(_planSettings.isaContributionLimit || 0), contributionUsed: Number(_planSettings.isaContributionUsed || 0), contributionAvailable: Math.max(0, Number(_planSettings.isaContributionLimit || 0) - Number(_planSettings.isaContributionUsed || 0)) }] : [],
-    targets: _planSettings?.targets || {}, stockSettings: {},
-  });
+  const data = getPortfolioBackupState();
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -333,37 +316,62 @@ function exportData() {
   URL.revokeObjectURL(a.href);
 }
 
+function getPortfolioBackupState() {
+  ensureAccountsMaster();
+  const accounts = ACCOUNTS_MASTER.map(item => ({ ...item, color:ACCT_COLORS[item.displayName] || item.color || '', sortOrder:ACCT_ORDER.indexOf(item.displayName) >= 0 ? ACCT_ORDER.indexOf(item.displayName) : item.sortOrder }));
+  const accountIds = Object.fromEntries(accounts.map(item => [item.displayName, item.id]));
+  const isaAccount = accounts.find(item => item.taxType === 'ISA');
+  const isaHasSource = isaAccount && (_planSettings?.isaJoinDate || _planSettings?.isaMaturityDate || Number(_planSettings?.isaContributionLimit) > 0 || Number(_planSettings?.isaContributionUsed) > 0);
+  return BackupSchema.createBackup({
+    dataAsOf: lastUpdated || null, accounts,
+    transactions: rawTrades.map(item => ({ ...item, accountId: accountIds[item.acct] || null })),
+    portfolio: { stockCodes: STOCK_CODE, editablePrices: EDITABLE_PRICES, prices: savedPrices, priceDates: savedPriceDates, lastUpdated, sectorColors: SECTOR_COLORS, fundDirect, holdings: rawHoldings },
+    dividends: DIVDATA, realEstate: REAL_ESTATE, loan: LOAN, loanSchedule: LOAN_SCHEDULE, realEstateValueHistory: RE_VALUE_HIST,
+    planSettings: typeof _planSettings === 'object' ? _planSettings : {},
+    isaAccounts: isaHasSource ? [{ accountId: isaAccount.id, accountType: _planSettings.isaExemptType || null, joinDate: _planSettings.isaJoinDate || null, maturityDate: _planSettings.isaMaturityDate || null, contributionLimit: Number(_planSettings.isaContributionLimit || 0), contributionUsed: Number(_planSettings.isaContributionUsed || 0), contributionAvailable: Math.max(0, Number(_planSettings.isaContributionLimit || 0) - Number(_planSettings.isaContributionUsed || 0)) }] : [],
+    targets: _planSettings?.targets || {}, stockSettings: {},
+  });
+}
+
+function _applyValidatedPortfolioState(data) {
+  const accountById = Object.fromEntries(data.accounts.map(item => [item.id, item]));
+  const restoredTrades = data.transactions.map(item => ({ ...item, acct: accountById[item.accountId]?.displayName || item.acct || '' }));
+  ACCOUNTS_MASTER.length = 0; data.accounts.forEach(item => ACCOUNTS_MASTER.push({ ...item })); saveAccountsMaster();
+  rawTrades.length = 0; restoredTrades.forEach(item => rawTrades.push(item));
+  Object.keys(STOCK_CODE).forEach(k => delete STOCK_CODE[k]); Object.assign(STOCK_CODE, data.portfolio.stockCodes || {});
+  Object.keys(ACCT_COLORS).forEach(k => delete ACCT_COLORS[k]); data.accounts.forEach(item => { ACCT_COLORS[item.displayName] = item.color || ''; });
+  ACCT_ORDER.length = 0; [...data.accounts].sort((a,b) => a.sortOrder-b.sortOrder).forEach(item => ACCT_ORDER.push(item.displayName));
+  const taxLabels = { GENERAL:'일반', ISA:'ISA', PENSION_SAVINGS:'연금', IRP:'IRP', UNCLASSIFIED:'' };
+  Object.keys(ACCT_TAX_TYPES).forEach(k => delete ACCT_TAX_TYPES[k]); data.accounts.forEach(item => { if (taxLabels[item.taxType]) ACCT_TAX_TYPES[item.displayName] = taxLabels[item.taxType]; });
+  Object.keys(LOAN).forEach(k => delete LOAN[k]); Object.assign(LOAN, data.loan);
+  Object.keys(REAL_ESTATE).forEach(k => delete REAL_ESTATE[k]); Object.assign(REAL_ESTATE, data.realEstate);
+  EDITABLE_PRICES.length = 0; (data.portfolio.editablePrices || []).forEach(item => EDITABLE_PRICES.push(item));
+  Object.keys(SECTOR_COLORS).forEach(k => delete SECTOR_COLORS[k]); Object.assign(SECTOR_COLORS, data.portfolio.sectorColors || {});
+  Object.keys(savedPrices).forEach(k => delete savedPrices[k]); Object.assign(savedPrices, data.portfolio.prices || {});
+  Object.keys(savedPriceDates).forEach(k => delete savedPriceDates[k]); Object.assign(savedPriceDates, data.portfolio.priceDates || {});
+  lastUpdated = data.portfolio.lastUpdated || null;
+  Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]); Object.assign(DIVDATA, data.dividends);
+  Object.keys(fundDirect).forEach(k => delete fundDirect[k]); Object.assign(fundDirect, data.portfolio.fundDirect || {});
+  LOAN_SCHEDULE.length = 0; data.loanSchedule.forEach(item => LOAN_SCHEDULE.push(item));
+  RE_VALUE_HIST.length = 0; (data.realEstateValueHistory || []).forEach(item => RE_VALUE_HIST.push(item));
+  if (typeof _planSettings === 'object') { Object.keys(_planSettings).forEach(k => delete _planSettings[k]); Object.assign(_planSettings, data.planSettings); if (typeof _savePlanSettings === 'function') _savePlanSettings(); }
+  syncHoldingsFromTrades(); saveHoldings(); syncAcctOrder(); saveAcctColors(); saveAcctOrder(); saveRealEstate(); saveSchedule(); lsSave(LOAN_KEY, LOAN); saveAccountsMaster();
+}
+
 function importData(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      // 파싱·버전·enum·중복 ID·참조 무결성을 모두 확인한 뒤에만 현재 상태를 변경합니다.
       const data = BackupSchema.parseAndValidate(e.target.result);
       if (!confirm(`📂 "${file.name}" 파일로 데이터를 복원할까요?\n현재 데이터가 덮어씌워집니다.`)) return;
-      const accountById = Object.fromEntries(data.accounts.map(item => [item.id, item]));
-      const restoredTrades = data.transactions.map(item => ({ ...item, acct: item.acct || accountById[item.accountId]?.displayName || '' }));
-      rawTrades.length = 0; restoredTrades.forEach(item => rawTrades.push(item));
-      Object.keys(STOCK_CODE).forEach(k => delete STOCK_CODE[k]); Object.assign(STOCK_CODE, data.portfolio.stockCodes || {});
-      Object.keys(ACCT_COLORS).forEach(k => delete ACCT_COLORS[k]); data.accounts.forEach(item => { ACCT_COLORS[item.displayName] = item.color || ''; });
-      ACCT_ORDER.length = 0; [...data.accounts].sort((a,b) => a.sortOrder-b.sortOrder).forEach(item => ACCT_ORDER.push(item.displayName));
-      Object.keys(ACCT_TAX_TYPES).forEach(k => delete ACCT_TAX_TYPES[k]);
-      const taxLabels = { GENERAL:'일반', ISA:'ISA', PENSION_SAVINGS:'연금', IRP:'IRP', UNCLASSIFIED:'' };
-      data.accounts.forEach(item => { if (taxLabels[item.taxType]) ACCT_TAX_TYPES[item.displayName] = taxLabels[item.taxType]; });
-      Object.keys(LOAN).forEach(k => delete LOAN[k]); Object.assign(LOAN, data.loan);
-      Object.keys(REAL_ESTATE).forEach(k => delete REAL_ESTATE[k]); Object.assign(REAL_ESTATE, data.realEstate);
-      EDITABLE_PRICES.length = 0; (data.portfolio.editablePrices || []).forEach(item => EDITABLE_PRICES.push(item));
-      Object.keys(SECTOR_COLORS).forEach(k => delete SECTOR_COLORS[k]); Object.assign(SECTOR_COLORS, data.portfolio.sectorColors || {});
-      Object.keys(savedPrices).forEach(k => delete savedPrices[k]); Object.assign(savedPrices, data.portfolio.prices || {});
-      Object.keys(savedPriceDates).forEach(k => delete savedPriceDates[k]); Object.assign(savedPriceDates, data.portfolio.priceDates || {});
-      lastUpdated = data.portfolio.lastUpdated || null;
-      Object.keys(DIVDATA).forEach(k => delete DIVDATA[k]); Object.assign(DIVDATA, data.dividends);
-      Object.keys(fundDirect).forEach(k => delete fundDirect[k]); Object.assign(fundDirect, data.portfolio.fundDirect || {});
-      LOAN_SCHEDULE.length = 0; data.loanSchedule.forEach(item => LOAN_SCHEDULE.push(item));
-      RE_VALUE_HIST.length = 0; (data.realEstateValueHistory || []).forEach(item => RE_VALUE_HIST.push(item));
-      if (typeof _planSettings === 'object') { Object.keys(_planSettings).forEach(k => delete _planSettings[k]); Object.assign(_planSettings, data.planSettings); if (typeof _savePlanSettings === 'function') _savePlanSettings(); }
-      syncHoldingsFromTrades(); saveHoldings(); syncAcctOrder(); saveAcctColors(); saveAcctOrder(); saveRealEstate(); saveSchedule(); lsSave(LOAN_KEY, LOAN); lsSave(ACCT_TAX_TYPES_KEY, ACCT_TAX_TYPES);
+      const before = getPortfolioBackupState();
+      try { _applyValidatedPortfolioState(data); }
+      catch (applyError) {
+        try { _applyValidatedPortfolioState(before); } catch (_) {}
+        throw new Error(`적용 실패로 기존 상태를 복원했습니다: ${applyError.message}`);
+      }
       refreshAll();
       if (typeof _mgmtRefresh === 'function') _mgmtRefresh();
       if (typeof buildSectorMgmt === 'function') buildSectorMgmt();
@@ -371,9 +379,7 @@ function importData(input) {
       input.value = '';
       const reviewCount = data.metadata?.needsUserReview?.length || 0;
       showToast(`복원 완료! 거래 ${rawTrades.length}건 · 계좌 ${data.accounts.length}개${reviewCount ? ` · 확인 필요 ${reviewCount}개` : ''}`, reviewCount ? 'warn' : 'ok');
-    } catch(err) {
-      showToast('복원 검증 오류: ' + err.message, 'error');
-    }
+    } catch(err) { showToast('복원 검증 오류: ' + err.message, 'error'); }
   };
   reader.readAsText(file);
 }
