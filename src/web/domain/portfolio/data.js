@@ -396,9 +396,9 @@ function saveAcctTaxTypes() {
   lsSave(ACCT_TAX_TYPES_KEY, ACCT_TAX_TYPES);
 }
 
-// 계좌의 taxType 조회 (기본값: '일반')
+// 미등록 계좌는 세금 계산에 조용히 포함하지 않고 사용자 분류를 기다립니다.
 function getAcctTaxType(acct) {
-  return ACCT_TAX_TYPES[acct] || '일반';
+  return Object.prototype.hasOwnProperty.call(ACCT_TAX_TYPES, acct) ? ACCT_TAX_TYPES[acct] : '';
 }
 
 // ★ [최적화] GAS 동기화 debounce 타이머
