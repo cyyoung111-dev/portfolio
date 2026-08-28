@@ -40,15 +40,8 @@ function renderPlanView(area) {
   const totalEval  = rows.reduce((s, r) => s + (r.evalAmt || 0), 0);
   const totalCost  = rows.reduce((s, r) => s + (r.costAmt || 0), 0);
 
-  area.innerHTML = `
+  const viewHtml = `
 <div data-view-section="plan" style="display:flex;flex-direction:column;gap:20px;padding:4px 0">
-
-  <nav class="plan-section-nav" aria-label="투자계획 섹션 바로가기">
-    <a href="#plan-cashflow">현금흐름</a><a href="#plan-export">엑셀</a><a href="#plan-weights">목표비중</a><a href="#plan-tax">세금</a><a href="#plan-retirement">은퇴</a><a href="#plan-simulation">시뮬레이션</a>
-  </nav>
-
-  <!-- 배당·부동산·주담대 통합 현황 -->
-  ${_buildPlanCashflowOverview()}
 
   <nav class="plan-section-nav" aria-label="투자계획 섹션 바로가기">
     <a href="#plan-cashflow">현금흐름</a><a href="#plan-export">엑셀</a><a href="#plan-weights">목표비중</a><a href="#plan-tax">세금</a><a href="#plan-retirement">은퇴</a><a href="#plan-simulation">시뮬레이션</a>
@@ -80,7 +73,30 @@ function renderPlanView(area) {
 
 </div>`;
 
+  // 기존 DOM을 완전히 교체하고, 같은 섹션이 중복 생성되더라도 첫 영역만 유지한다.
+  // 투자계획은 각 주요 영역의 id가 고유하므로 중복 id는 화면 중복으로 간주할 수 있다.
+  const template = document.createElement('template');
+  template.innerHTML = viewHtml.trim();
+  area.replaceChildren(template.content);
+  _removeDuplicatePlanSections(area);
   _bindPlanEvents(area, totalEval, totalCost);
+}
+
+function _removeDuplicatePlanSections(area) {
+  const selectors = [
+    '.plan-section-nav',
+    '#plan-cashflow',
+    '#plan-export',
+    '#plan-weights',
+    '#plan-tax',
+    '#plan-retirement',
+    '#plan-simulation',
+  ];
+  selectors.forEach(selector => {
+    area.querySelectorAll(selector).forEach((node, index) => {
+      if (index > 0) node.remove();
+    });
+  });
 }
 
 // ════════════════════════════════════
