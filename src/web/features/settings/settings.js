@@ -199,11 +199,12 @@ function saveSettings(immediate) {
           EDITABLE_PRICES,
           // ★ [계좌별 taxType] 계좌→세금구분 매핑 저장
           ACCT_TAX_TYPES,
+          ACCOUNTS_MASTER,
           SAVED_PRICES: savedPrices,
           SAVED_PRICE_DATES: savedPriceDates,
           APP_THEME: (typeof lsGet === 'function') ? lsGet('app_theme', 'ocean') : 'ocean',
           APP_THEME_MODE: (typeof lsGet === 'function') ? lsGet('app_theme_mode', 'dark') : 'dark',
-          APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'pretendard') : 'pretendard',
+          APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'noto_sans_kr') : 'noto_sans_kr',
           // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
           // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
           DIVDATA,
@@ -315,12 +316,23 @@ async function loadSettings(onProgress) {
       ACCT_ORDER.length = 0;
       s.ACCT_ORDER.forEach(a => ACCT_ORDER.push(a));
     }
+    if (Array.isArray(s.ACCOUNTS_MASTER)) {
+      ACCOUNTS_MASTER.length = 0;
+      s.ACCOUNTS_MASTER.forEach(item => ACCOUNTS_MASTER.push({ ...item }));
+      saveAccountsMaster();
+    }
     // ★ [계좌별 taxType] 계좌→세금구분 매핑 복원
     if (s.ACCT_TAX_TYPES && typeof s.ACCT_TAX_TYPES === 'object') {
       Object.keys(ACCT_TAX_TYPES).forEach(k => delete ACCT_TAX_TYPES[k]);
-      Object.entries(s.ACCT_TAX_TYPES).forEach(([k,v]) => {
-        if (k && v && v !== '일반') ACCT_TAX_TYPES[k] = v;
-      });
+      Object.entries(s.ACCT_TAX_TYPES).forEach(([k,v]) => { if (k && v) ACCT_TAX_TYPES[k] = v; });
+      if (typeof ensureAccountsMaster === 'function') {
+        ensureAccountsMaster();
+        Object.entries(ACCT_TAX_TYPES).forEach(([name,label]) => {
+          const account = getAccountByName(name);
+          if (account) account.taxType = ({ '일반':'GENERAL', ISA:'ISA', '연금':'PENSION_SAVINGS', '연금저축':'PENSION_SAVINGS', IRP:'IRP' })[label] || 'UNCLASSIFIED';
+        });
+        saveAccountsMaster();
+      }
       saveAcctTaxTypes();
     }
     // SECTOR_COLORS

@@ -84,8 +84,8 @@ function syncHoldingsFromTrades(options) {
       const _ep = getEP(t.name);
       const epType = getEPType(_ep, t.assetType);
       // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정 (종목 단위 아님)
-      const acctTax = (typeof getAcctTaxType === 'function') ? getAcctTaxType(t.acct) : '일반';
-      map[key] = { acct: t.acct, name: t.name, type: epType, taxType: acctTax, qty: 0, totalCost: 0, fund: !!t.fund };
+      const acctTax = (typeof getAcctTaxType === 'function') ? getAcctTaxType(t.acct) : '';
+      map[key] = { accountId:t.accountId || (typeof getAccountId === 'function' ? getAccountId(t.acct) : null), acct: t.acct, name: t.name, type: epType, taxType: acctTax, qty: 0, totalCost: 0, fund: !!t.fund };
     }
     if (t.tradeType === 'buy') {
       map[key].qty       += (t.qty || 0);
@@ -155,7 +155,7 @@ function computeRows(holdings) {
         : (fd.eval > 0 ? fd.eval : fd.cost);
       const evalAmt = evalPrice;
       // ★ [계좌별 taxType] 펀드/TDF도 계좌 기준으로 taxType 결정 (이전에 누락됐던 버그 수정)
-      const fundTaxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '일반';
+      const fundTaxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '';
       return {...h, qty:1, cost:fd.cost, evalAmt, costAmt:fd.cost, pnl:evalAmt-fd.cost, price:evalPrice, pct:fd.cost>0?(evalAmt-fd.cost)/fd.cost*100:0, sector, code:code || '', currency:'KRW', fxRate:1, taxType: fundTaxType};
     }
     // ★ 가격 우선순위: ① 코드 키 ② 이름 키(하위호환) ③ 취득단가
@@ -174,7 +174,7 @@ function computeRows(holdings) {
       : h.cost * h.qty;  // ★ h.cost는 이미 원화 — fxRate 곱하지 않음
     const type = getEPType(ep, h.type);
     // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정
-    const taxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '일반';
+    const taxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(h.acct) : '';
     return {
       ...h, name:nn, type, taxType, sector, code,
       price:    priceKrw,

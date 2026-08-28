@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function() {
   if (dateInput) dateInput.value = getDateStr(0);
 
   syncAcctOrder();
+  if (typeof ensureAccountsMaster === 'function') ensureAccountsMaster();
   buildTabBar();
   switchView('acct');
 

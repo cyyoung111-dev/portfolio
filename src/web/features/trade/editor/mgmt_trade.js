@@ -247,7 +247,7 @@ function _tePickName(name) {
   const assetType = getEPType(ep, '주식');
   // ★ [계좌별 taxType] 선택된 계좌 기준으로 구분 표시
   const curAcct = $el('te-acct')?.value || '';
-  const taxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(curAcct) : '일반';
+  const taxType = (typeof getAcctTaxType === 'function') ? getAcctTaxType(curAcct) : '';
   $el('te-assettype').value = assetType;
   const grpAt = $el('te-assettype-group');
   if (grpAt) {
@@ -393,7 +393,7 @@ function openAddTrade(prefill, forceTradeType) {
   _refreshTeAcctList(t.acct);
   _refreshTeCodeList(t.name || '', t.code || '', t.acct || '', _teAssetType);
   // ★ [계좌별 taxType] 계좌 기준으로 구분 표시
-  const _teTaxType   = (typeof getAcctTaxType === 'function') ? getAcctTaxType(t.acct) : '일반';
+  const _teTaxType   = (typeof getAcctTaxType === 'function') ? getAcctTaxType(t.acct) : '';
   f('te-assettype').value = _teAssetType;
 
   (function(){
@@ -663,6 +663,7 @@ function saveTrade() {
     id:        _editingTradeId ?? genTradeId(),
     tradeType,
     acct:      acctVal,
+    accountId: getAccountId(acctVal),
     assetType: f('te-assettype').value,
     name: normN, code, qty, price, date,
     memo: f('te-memo').value.trim(),
