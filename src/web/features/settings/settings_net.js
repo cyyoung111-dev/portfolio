@@ -71,3 +71,14 @@ function saveGsheetUrl(url) {
   GSHEET_API_URL = url.trim();
   lsSave(GSHEET_KEY, GSHEET_API_URL);
 }
+
+function getGsheetAccessToken() {
+  return String(lsGet('gsheet_access_token', '') || '').trim();
+}
+
+function saveGsheetAccessToken(token) {
+  const normalized = String(token || '').trim();
+  if (normalized) lsSave('gsheet_access_token', normalized);
+  else lsRemove('gsheet_access_token');
+  return normalized;
+}

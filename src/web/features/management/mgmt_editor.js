@@ -151,11 +151,7 @@ function saveGsheetUrlFromUI() {
 async function _diagnoseGsheetGetSettings() {
   if (!GSHEET_API_URL) return 'URL 미설정';
   try {
-    const url = GSHEET_API_URL + '?action=getSettings';
-    const res = await fetchWithTimeout(url, 10000);
-    if (!res.ok) return `HTTP ${res.status}`;
-    let data = null;
-    try { data = await res.json(); } catch(e) {}
+    const data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 0 });
     if (!data) return 'JSON 파싱 실패(응답 포맷 확인)';
     if (data.status !== 'ok') return data.message || 'status!=ok';
     if (!data.settings) return 'settings 필드 누락(getSettings 구현/배포 확인)';
@@ -163,6 +159,36 @@ async function _diagnoseGsheetGetSettings() {
   } catch (e) {
     return e?.message || '요청 예외';
   }
+}
+
+async function saveGsheetAccessTokenFromUI() {
+  if (!GSHEET_API_URL) { showToast('먼저 Apps Script 웹앱 URL을 저장해주세요', 'warn'); return; }
+  const input = $el('gsheetAccessTokenInput');
+  const token = String(input?.value || '').trim();
+  if (!token) { showToast('GAS에서 설정한 접근 토큰을 입력해주세요', 'warn'); return; }
+  if (token.length < 24) { showToast('접근 토큰은 24자 이상을 권장합니다', 'warn', 5000); return; }
+  const previous = getGsheetAccessToken();
+  saveGsheetAccessToken(token);
+  const status = $el('gsheetAccessTokenStatus');
+  if (status) { status.style.color = 'var(--amber)'; status.textContent = '접근 토큰 검증 중...'; }
+  const data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 0 });
+  if (!data || data.status !== 'ok') {
+    saveGsheetAccessToken(previous);
+    if (status) { status.style.color = 'var(--red-lt)'; status.textContent = '검증 실패 · 이전 토큰을 복원했습니다. GAS 토큰과 입력값을 확인하세요.'; }
+    showToast('접근 토큰 검증 실패', 'error', 5000);
+    return;
+  }
+  if (input) input.value = '';
+  window.GAS_API_KEY_STATUS = data.settings?.apiKeyStatus || window.GAS_API_KEY_STATUS || {};
+  if (status) { status.style.color = 'var(--green-lt)'; status.textContent = '접근 토큰 검증 완료 · 이 브라우저에만 저장됨'; }
+  showToast('GAS 접근 토큰 저장 및 검증 완료', 'ok');
+  renderView(true);
+}
+
+function clearGsheetAccessTokenFromUI() {
+  saveGsheetAccessToken('');
+  showToast('이 브라우저의 GAS 접근 토큰을 삭제했습니다', 'warn');
+  renderView(true);
 }
 
 function clearGsheetUrl() {
