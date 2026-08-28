@@ -9,6 +9,7 @@
   const TAX_RULES_BY_YEAR = Object.freeze({
     2026: Object.freeze({
       normalDividendWithholdingRate: 0.154,
+      domesticStockSaleReferenceRate: 0.0018,
       foreignStockDeduction: 2500000,
       foreignStockTaxRate: 0.22,
       isa: Object.freeze({ generalExemption: 2000000, specialExemption: 4000000, separateTaxRate: 0.099 }),
@@ -120,6 +121,11 @@
     return { grossDividend: gross, withholdingReference: Math.round(gross * rules.normalDividendWithholdingRate), afterWithholdingReference: Math.round(gross * (1 - rules.normalDividendWithholdingRate)), appliedRuleYear: rules.year };
   }
 
+  function calculateDomesticStockTax({ saleValue = 0, realizedGain = 0, year = 2026 } = {}) {
+    const rules = rulesFor(year);
+    return { saleValue: number(saleValue), realizedGain: number(realizedGain, 0, true), saleTaxReference: Math.round(number(saleValue) * rules.domesticStockSaleReferenceRate), saleTaxRate: rules.domesticStockSaleReferenceRate, appliedRuleYear: rules.year };
+  }
+
   function calculateForeignStockTax({ realizedGain = 0, manualAdjustment = 0, year = 2026 } = {}) {
     const rules = rulesFor(year);
     const transactionEstimate = number(realizedGain, 0, true);
@@ -129,7 +135,7 @@
     return { transactionEstimate, manualAdjustment: adjustment, finalEstimatedGain, deduction: rules.foreignStockDeduction, taxableBase, taxRate: rules.foreignStockTaxRate, estimatedTax: Math.round(taxableBase * rules.foreignStockTaxRate), appliedRuleYear: rules.year };
   }
 
-  function calculateRealizedGainFromTrades({ trades = [], year, market } = {}) {
+  function calculateRealizedGainFromTrades({ trades = [], year, market, taxTypes = [] } = {}) {
     const positions = {};
     let realizedGain = 0;
     const seen = new Set();
@@ -138,6 +144,7 @@
       if (id && seen.has(id)) return;
       if (id) seen.add(id);
       if (market && String(trade?.market || '').toUpperCase() !== String(market).toUpperCase()) return;
+      if (taxTypes.length && !taxTypes.includes(classifyTaxType(trade?.taxType))) return;
       const key = `${trade?.acct || ''}||${trade?.name || trade?.code || ''}`;
       if (!positions[key]) positions[key] = { qty: 0, cost: 0 };
       const qty = number(trade?.qty);
@@ -193,19 +200,38 @@
     const loan = aggregateLoanScheduleByYear({ schedule: input.loanSchedule }).byYear;
     let assets = number(input.availableAssets);
     let pensionAssets = number(input.pensionAssets);
+    let pensionTransferred = 0;
+    if (currentAge >= 55 && pensionAssets > 0) {
+      pensionTransferred = pensionAssets;
+      assets += pensionAssets;
+      pensionAssets = 0;
+    }
     const rows = [];
     for (let offset = 0; offset < preYears; offset += 1) {
       const year = currentYear + offset;
       const beginningAssets = assets;
+      const age = currentAge + offset;
+      let pensionTransfer = 0;
+      if (age >= 55 && pensionAssets > 0) {
+        pensionTransfer = pensionAssets;
+        pensionTransferred += pensionAssets;
+        assets += pensionAssets;
+        pensionAssets = 0;
+      }
+      const adjustedBeginningAssets = assets;
       const investment = monthlyInvestment * 12;
-      const investmentReturn = (beginningAssets + investment) * preRate;
-      assets = beginningAssets + investment + investmentReturn;
-      rows.push({ year, phase: 'accumulation', beginningAssets, additionalInvestment: investment, investmentReturn, livingExpense: 0, loanPayment: 0, otherExpense: 0, availableIncome: 0, endingAssets: assets });
+      const investmentReturn = (adjustedBeginningAssets + investment) * preRate;
+      assets = adjustedBeginningAssets + investment + investmentReturn;
+      rows.push({ year, age, phase: 'accumulation', beginningAssets, pensionTransfer, additionalInvestment: investment, investmentReturn, livingExpense: 0, loanPayment: 0, otherExpense: 0, availableIncome: 0, endingAssets: assets, pensionAvailable: age >= 55 });
     }
     let payoffAmount = 0;
     if (loanMode === 'payoff') {
-      const retirementLoan = Object.values(loan).filter(item => item.year <= retirementYear).at(-1) || Object.values(loan)[0];
-      payoffAmount = number(input.loanBalanceAtRetirement ?? retirementLoan?.endingBalance);
+      const cutoff = `${retirementYear}-01`;
+      const scheduleRows = (Array.isArray(input.loanSchedule) ? input.loanSchedule : [])
+        .filter(item => /^\d{4}-(0[1-9]|1[0-2])/.test(String(item?.date || '')) && String(item.date) < cutoff)
+        .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      const balanceBeforeRetirement = scheduleRows.length ? scheduleRows[scheduleRows.length - 1].balance : input.loanBalanceAtRetirement;
+      payoffAmount = number(balanceBeforeRetirement);
       assets -= payoffAmount;
     }
     let depletionYear = null;
@@ -213,20 +239,29 @@
     for (let offset = 0; offset < retirementYears; offset += 1) {
       const year = retirementYear + offset;
       const beginningAssets = assets;
-      const investmentReturn = Math.max(0, beginningAssets) * postRate;
+      const age = currentAge + (year - currentYear);
+      let pensionTransfer = 0;
+      if (age >= 55 && pensionAssets > 0) {
+        pensionTransfer = pensionAssets;
+        pensionTransferred += pensionAssets;
+        assets += pensionAssets;
+        pensionAssets = 0;
+      }
+      const adjustedBeginningAssets = assets;
+      const investmentReturn = Math.max(0, adjustedBeginningAssets) * postRate;
       const livingExpense = baseLiving * Math.pow(1 + inflation, preYears + offset);
       const loanPayment = loanMode === 'maintain' ? number(loan[year]?.totalPayment) : 0;
       const availableIncome = availableDividend + otherIncome;
-      const endingAssets = beginningAssets + investmentReturn - livingExpense - loanPayment - extraExpense + availableIncome;
+      const endingAssets = adjustedBeginningAssets + investmentReturn - livingExpense - loanPayment - extraExpense + availableIncome;
       assets = endingAssets;
       minimumBalance = Math.min(minimumBalance, endingAssets);
       if (depletionYear === null && endingAssets < 0) depletionYear = year;
-      rows.push({ year, phase: 'retirement', beginningAssets, additionalInvestment: 0, investmentReturn, livingExpense, loanPayment, otherExpense: extraExpense, availableIncome, endingAssets, pensionAvailable: currentAge + (year - currentYear) >= 55 });
+      rows.push({ year, age, phase: 'retirement', beginningAssets, pensionTransfer, additionalInvestment: 0, investmentReturn, livingExpense, loanPayment, otherExpense: extraExpense, availableIncome, endingAssets, pensionAvailable: age >= 55 });
     }
     const withdrawalRate = number(input.withdrawalRate) / 100;
     const simpleRequiredAssets = withdrawalRate > 0 ? baseLiving / withdrawalRate : null;
-    return { retirementYear, projectedAssetsAtRetirement: rows.find(row => row.year === retirementYear)?.beginningAssets ?? assets, availableAssetsBefore55: number(input.availableAssets), pensionAssetsAfter55: pensionAssets, payoffAmount, rows, depletionYear, minimumBalance, sustainable: depletionYear === null, simpleRequiredAssets, cashflowDifference: simpleRequiredAssets === null ? null : (rows.find(row => row.year === retirementYear)?.beginningAssets ?? assets) - simpleRequiredAssets };
+    return { retirementYear, projectedAssetsAtRetirement: rows.find(row => row.year === retirementYear)?.beginningAssets ?? assets, availableAssetsBefore55: number(input.availableAssets), pensionAssetsAfter55: number(input.pensionAssets), pensionTransferred, remainingPensionAssets: pensionAssets, payoffAmount, rows, depletionYear, minimumBalance, sustainable: depletionYear === null, simpleRequiredAssets, cashflowDifference: simpleRequiredAssets === null ? null : (rows.find(row => row.year === retirementYear)?.beginningAssets ?? assets) - simpleRequiredAssets };
   }
 
-  return { TAX_RULES_BY_YEAR, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, calculateBuyingRecommendations, calculateNormalAccountTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateYearsToTarget, calculateRetirementCashflow };
+  return { TAX_RULES_BY_YEAR, number, classifyTaxType, calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear, calculateBuyingRecommendations, calculateNormalAccountTax, calculateDomesticStockTax, calculateForeignStockTax, calculateRealizedGainFromTrades, calculateIsaSettlementEstimate, calculateYearsToTarget, calculateRetirementCashflow };
 });

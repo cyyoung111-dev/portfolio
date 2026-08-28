@@ -41,6 +41,7 @@ function applyGsheetCodeList(codes) {
       type: String(item?.type || '').trim(),
       sector: String(item?.sector || '').trim(),
       currency: String(item?.currency || '').trim().toUpperCase(),
+      market: String(item?.market || '').trim().toUpperCase(),
     }))
     .filter(item => item.code && item.name);
   return true;
@@ -77,6 +78,7 @@ function reconcileEditablesFromGsheetCodeList() {
     const nextType = remote.type || '';
     const nextSector = remote.sector || '';
     const nextCurrency = (remote.currency || '').toUpperCase();
+    const nextMarket = (remote.market || '').toUpperCase();
     if (nextType && nextType !== (ep.assetType || ep.type || '주식')) {
       ep.assetType = nextType;
       changed++;
@@ -89,6 +91,7 @@ function reconcileEditablesFromGsheetCodeList() {
       ep.currency = nextCurrency;
       changed++;
     }
+    if (nextMarket && nextMarket !== (ep.market || '').toUpperCase()) { ep.market = nextMarket; changed++; }
   });
   const localCodes = new Set(EDITABLE_PRICES.map(ep => _normalizeSyncCode(ep.code)).filter(Boolean));
   const localNames = new Set(EDITABLE_PRICES.map(ep => ep.name).filter(Boolean));
@@ -101,6 +104,7 @@ function reconcileEditablesFromGsheetCodeList() {
       assetType: remote.type || '주식',
       sector: remote.sector || '기타',
       ...(remote.currency && remote.currency !== 'KRW' ? { currency: remote.currency } : {}),
+      ...(remote.market ? { market: remote.market } : {}),
     });
     if (typeof STOCK_CODE !== 'undefined') STOCK_CODE[remote.name] = code;
     localCodes.add(code);
@@ -128,6 +132,7 @@ async function syncCodesToGsheet() {
         type:     i.assetType || i.type || '주식',
         sector:   i.sector    || '기타',
         currency: (i.currency || 'KRW').toUpperCase(),
+        market:   (i.market || '').toUpperCase(),
       };
     });
     // 중요: 기초정보(EDITABLE_PRICES)만 동기화해 GS 데이터가 자동으로 흔들리지 않도록 유지
@@ -243,11 +248,9 @@ async function lookupOfficialStockByCode(code) {
   if (!code) return null;
   const trimCode = _normalizeSyncCode(code);
   if (!trimCode || !GSHEET_API_URL) return null;
-  if (typeof getPublicDataApiKey !== 'function') return null;
-  const key = getPublicDataApiKey();
-  if (!key) return null;
+  if (!window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured) return null;
   try {
-    const data = await requestGsheetActionJson('name', { code: trimCode, serviceKey: key }, { timeoutMs: 8000, retry: 1 });
+    const data = await requestGsheetActionJson('name', { code: trimCode }, { timeoutMs: 8000, retry: 1 });
     if (!data || data.status === 'error') return null;
     const name = String(data.officialName || data.name || '').trim();
     if (!name) return null;

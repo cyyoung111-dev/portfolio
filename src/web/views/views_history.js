@@ -550,6 +550,9 @@ function renderStocksView(area) {
           <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">통화 <span style="font-weight:400">(해외주식은 해당 통화 선택)</span></div>
           <div id="smCurGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
           <input type="hidden" id="smMgmtNewCur" value="KRW"/>
+          <div style="font-size:.65rem;color:var(--muted);font-weight:700;margin-bottom:4px">시장 구분 <span style="font-weight:400">(세금 계산 기준)</span></div>
+          <div id="smMarketGroup" class="flex-wrap-gap3" style="margin-bottom:10px"></div>
+          <input type="hidden" id="smMgmtNewMarket" value=""/>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button id="btn-sm-confirm" class="btn-purple-sm">✅ 추가</button>
             <button id="btn-sm-cancel" class="btn-cancel-sm">✕ 취소</button>

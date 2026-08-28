@@ -452,13 +452,13 @@ async function _autoFetchDiv(area) {
     return;
   }
   try {
-    const publicKey = getPublicDataApiKey();
+    const publicKeyConfigured = !!window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured;
     let publicDividends = null;
     let gfDividends = null;
     const targetCodes = codes.split(',').filter(Boolean);
-    if (publicKey) {
+    if (publicKeyConfigured) {
       try {
-        publicDividends = await _fetchDividendSource('dividendPublic', codeItems, { serviceKey: publicKey });
+        publicDividends = await _fetchDividendSource('dividendPublic', codeItems, {});
       } catch(e) {
         console.warn('자동 공공데이터 배당 조회 실패, GOOGLEFINANCE fallback:', e.message);
       }
@@ -553,14 +553,14 @@ async function startDivFetch() {
   }
 
   try {
-    const publicKey = getPublicDataApiKey();
+    const publicKeyConfigured = !!window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured;
     let publicDividends = null;
     let gfDividends = null;
     const targetCodes = codes.split(',').filter(Boolean);
     const sourceStats = { public: 0, gf: 0 };
-    if (publicKey) {
+    if (publicKeyConfigured) {
       try {
-        publicDividends = await _fetchDividendSource('dividendPublic', codeItems, { serviceKey: publicKey });
+        publicDividends = await _fetchDividendSource('dividendPublic', codeItems, {});
       } catch(e) {
         console.warn('공공데이터 배당 조회 실패, GOOGLEFINANCE fallback:', e.message);
       }

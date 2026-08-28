@@ -194,6 +194,8 @@ function registerGlobalEventDelegation() {
     // ★ [환율 연동] 종목 추가 폼 통화 버튼
     const smNewCurrency = e.target.closest('[data-sm-new-currency]');
     if (smNewCurrency) { if (typeof _smRenderCurButtons === 'function') _smRenderCurButtons(smNewCurrency.dataset.smNewCurrency || 'KRW'); return; }
+    const smNewMarket = e.target.closest('[data-sm-new-market]');
+    if (smNewMarket) { if (typeof _smRenderMarketButtons === 'function') _smRenderMarketButtons(smNewMarket.dataset.smNewMarket || ''); return; }
 
     // ★ [계좌별 taxType] 신규 계좌 구분 버튼
     const acctNewTax = e.target.closest('[data-acct-new-tax]');

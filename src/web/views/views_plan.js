@@ -20,6 +20,9 @@ let _planSettings = (function() {
       isaExemptType: s.isaExemptType || 'general',
       // ★ [정확한 배당 추적] 세금 계산 귀속연도 (기본값: 올해)
       taxYear:       s.taxYear       || null,
+      isaJoinDate: s.isaJoinDate || '', isaMaturityDate: s.isaMaturityDate || '',
+      isaContributionLimit: _planNumber(s.isaContributionLimit, 0),
+      isaContributionUsed: _planNumber(s.isaContributionUsed, 0),
       simMonthly:    _planNumber(s.simMonthly, 500000),     // 월 추가 투자금
       simYears:      _planNumber(s.simYears, 10),            // 시뮬레이션 기간 (년)
       simReturn:     _planNumber(s.simReturn, 7),            // 연 수익률 가정 %
@@ -369,6 +372,7 @@ function _buildPlanCashflowOverview() {
       ${item('연간 예상 배당 (세전)', fmt(annual), `${dividendRows.length}개 종목`, 'var(--green)')}
       ${item('일반계좌 세후 참고', fmt(dividendFlow.normalAfterTax), `세전 ${fmt(dividendFlow.normalGross)} · 단순 원천징수 기준`, 'var(--cyan)')}
       ${item('올해 확정 배당', fmt(Math.round(actual)), '등록된 실제 배당 이벤트 합계', 'var(--gold)')}
+      ${item('향후 예상 배당', fmt(Math.max(0, Math.round(annual-actual))), '연간 예상 - 올해 확정', 'var(--green)')}
       ${item('현재 사용 가능 월 배당', fmt(afterTaxMonthly), '일반계좌 세후 참고액만 포함', 'var(--amber)')}
       ${item('ISA 내부 연간 배당', fmt(dividendFlow.isaInternal), 'ISA 내부 재투자 가능액', 'var(--purple-lt)')}
       ${item('연금저축 내부 배당', fmt(dividendFlow.pensionSavingsInternal), '55세 전 생활비에서 제외', 'var(--purple-lt)')}
@@ -437,7 +441,7 @@ function _buildWeightSection(totalEval) {
     <div class="flex-between-mb14">
       <h4 class="h3-card">🎯 목표 비중 관리</h4>
       <div style="display:flex;gap:6px;align-items:center">
-        <span style="font-size:.68rem;color:${overTarget?'var(--red-lt)':'var(--muted)'}">합계 ${totalTarget.toFixed(1)}% ${overTarget?'⚠️ 100% 초과':''}</span>
+        <span style="font-size:.68rem;color:${overTarget?'var(--red-lt)':'var(--muted)'}">합계 ${totalTarget.toFixed(1)}% ${overTarget?'⚠️ 100% 초과':totalTarget<100?`· 현금 ${(100-totalTarget).toFixed(1)}%`:''}</span>
         <button data-plan-action="save-weights" class="btn-purple-sm">💾 저장</button>
       </div>
     </div>
@@ -459,6 +463,10 @@ function _getWeightItems(totalEval) {
     if (!r.name) return;
     if (!merged[r.name]) merged[r.name] = { name: r.name, evalAmt: 0, sector: r.sector || '기타' };
     merged[r.name].evalAmt += (r.evalAmt || 0);
+  });
+  EDITABLE_PRICES.forEach(ep => {
+    if (!ep?.name || merged[ep.name]) return;
+    merged[ep.name] = { name: ep.name, evalAmt: 0, sector: ep.sector || '기타' };
   });
   return Object.values(merged).map(m => {
     const ep = getEP(m.name);
@@ -483,8 +491,9 @@ function _buildBuyingPowerSection(totalEval) {
 
   let recHtml = '';
   if (hastarget && cash > 0) {
-    const recs = _calcBuyingPower(items, totalEval, cash);
-    recHtml = recs.length > 0
+    const buyingResult = _calcBuyingPower(items, totalEval, cash);
+    const recs = buyingResult.recommendations;
+    recHtml = `${buyingResult.cashTargetPct > 0 ? `<div style="font-size:.68rem;color:var(--cyan);margin-bottom:8px">목표비중 미배정 ${buyingResult.cashTargetPct.toFixed(1)}%는 현금 목표비중으로 표시합니다.</div>` : ''}` + (recs.length > 0
       ? recs.map(r => {
           const color = resolveColor(SECTOR_COLORS[r.sector] || 'var(--muted)');
           return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--s2);border-radius:8px;margin-bottom:6px">
@@ -495,10 +504,11 @@ function _buildBuyingPowerSection(totalEval) {
             <div style="text-align:right">
               <div style="font-size:.80rem;font-weight:700;color:var(--green)">+${fmt(r.buyAmt)}</div>
               <div style="font-size:.65rem;color:var(--muted)">${r.currentPct.toFixed(1)}% → ${r.targetPct.toFixed(1)}%</div>
+              <div style="font-size:.62rem;color:var(--muted)">${r.estimatedQuantity == null ? '현재가 없음 · 금액만 표시' : `현재가 기준 약 ${r.estimatedQuantity.toLocaleString()}주`}</div>
             </div>
           </div>`;
         }).join('')
-      : `<div style="font-size:.73rem;color:var(--muted);padding:10px 0">목표 비중이 현재 비중보다 높은 종목이 없습니다</div>`;
+      : `<div style="font-size:.73rem;color:var(--muted);padding:10px 0">목표 비중이 현재 비중보다 높은 종목이 없습니다</div>`);
   } else if (!hastarget) {
     recHtml = `<div style="font-size:.73rem;color:var(--muted);padding:10px 0">① 목표 비중을 먼저 설정하세요</div>`;
   } else {
@@ -531,7 +541,7 @@ function _calcBuyingPower(items, totalEval, cash) {
     newCash: cash,
     items: items.map(item => ({ ...item, currentValue: item.evalAmt, price: rows.find(row => row.name === item.name)?.price })),
   });
-  return result.recommendations.filter(item => item.buyAmount >= 1000).map(item => ({ ...item, buyAmt: item.buyAmount }));
+  return { ...result, recommendations: result.recommendations.filter(item => item.buyAmount >= 1000).map(item => ({ ...item, buyAmt: item.buyAmount })) };
 }
 
 // ════════════════════════════════════
@@ -621,20 +631,26 @@ function _buildTaxSection(totalCost) {
   // ── ① 일반계좌
   const normalSum = _sumByAccts(acctGroups['일반']);
   const normalDiv = _divSum(acctGroups['일반']);
-  const sellTaxRate = 0.18;
-  const estSellTax  = Math.round(normalSum.evalAmt * sellTaxRate / 100);
+  const domesticTax = PlanCalculations.calculateDomesticStockTax({ saleValue: normalSum.evalAmt, year: taxYear });
+  const sellTaxRate = domesticTax.saleTaxRate * 100;
+  const estSellTax  = domesticTax.saleTaxReference;
   const normalDivTax = Math.round(normalDiv * 0.154);
+  const enrichedTrades = rawTrades.map(trade => {
+    const ep = getEP(trade.name);
+    return { ...trade, market: String(ep?.market || '').toUpperCase(), taxType: ACCT_TAX_TYPES?.[trade.acct] || '' };
+  });
+  const domesticRealized = PlanCalculations.calculateRealizedGainFromTrades({ trades: enrichedTrades, year: taxYear, market: 'KR', taxTypes: ['normal'] });
 
   // ── ② ISA
   const isaSum = _sumByAccts(acctGroups['ISA']);
   const isaDiv = _divSum(acctGroups['ISA']);
-  const isaEstimate = PlanCalculations.calculateIsaSettlementEstimate({ unrealizedGain: isaSum.pnl, dividendAndInterest: isaDiv, isaType: isaExemptType, year: taxYear });
+  const isaRealizedResult = PlanCalculations.calculateRealizedGainFromTrades({ trades: enrichedTrades, year: taxYear, taxTypes: ['isa'] });
+  const isaEstimate = PlanCalculations.calculateIsaSettlementEstimate({ realizedGain: Math.max(0, isaRealizedResult.realizedGain), unrealizedGain: isaSum.pnl, dividendAndInterest: isaDiv, eligibleLoss: Math.max(0, -isaRealizedResult.realizedGain), isaType: isaExemptType, year: taxYear });
   const isaTotalGain = isaEstimate.estimatedNetTaxableProfit;
   const isaExempt = isaEstimate.exemption;
   const isaTaxable = isaEstimate.excess;
   const isaTax = isaEstimate.estimatedSettlementTax;
-  const foreignTrades = rawTrades.map(trade => ({ ...trade, market: getEP(trade.name)?.market || '' }));
-  const foreignRealized = PlanCalculations.calculateRealizedGainFromTrades({ trades: foreignTrades, year: taxYear, market: 'US' });
+  const foreignRealized = PlanCalculations.calculateRealizedGainFromTrades({ trades: enrichedTrades, year: taxYear, market: 'US', taxTypes: ['normal'] });
   const foreignTax = PlanCalculations.calculateForeignStockTax({ realizedGain: foreignRealized.realizedGain, manualAdjustment: _planSettings.foreignTaxAdjustment || 0, year: taxYear });
 
   // ── ③ IRP/연금 (과세이연)
@@ -663,7 +679,7 @@ function _buildTaxSection(totalCost) {
       </div>
     </div>
     <div style="font-size:.65rem;color:var(--muted);margin-bottom:14px">
-      한국 주식 매매차익은 원칙적으로 비과세(대주주 제외)이며, 매도 시 거래세만 발생합니다. 과세는 배당·이자소득 중심으로 계산됩니다. 배당소득은 거래이력 기준 ${taxYear}년 실제 보유수량으로 계산됩니다.
+      모든 금액은 거래내역 기반 추정치입니다. 국내주식 비과세에는 대주주 등 예외가 있으며 실제 신고·납부액은 증권사 원장과 세무 전문가에게 확인하세요. 배당소득은 거래이력 기준 ${taxYear}년 실제 보유수량으로 계산됩니다.
     </div>
 
     <!-- ① 일반계좌 -->
@@ -678,9 +694,14 @@ function _buildTaxSection(totalCost) {
           <div style="font-size:.80rem;font-weight:700;color:${pColor(normalSum.pnl)}">${pSign(normalSum.pnl)}${fmt(Math.abs(normalSum.pnl))}</div>
         </div>
         <div class="s2-rounded" style="background:var(--s1)">
-          <div class="lbl-62-muted-3">매도 시 예상 거래세 (${sellTaxRate}%)</div>
+          <div class="lbl-62-muted-3">전량 매도 가정 거래세 참고 (${sellTaxRate}%)</div>
           <div style="font-size:.80rem;font-weight:700;color:var(--amber)">-${fmt(estSellTax)}</div>
         </div>
+      </div>
+      <div class="s2-rounded" style="background:var(--s1);margin-bottom:8px">
+        <div class="lbl-62-muted-3">${taxYear}년 국내주식 거래내역 기준 실현손익</div>
+        <div style="font-size:.80rem;font-weight:700;color:${pColor(domesticRealized.realizedGain)}">${pSign(domesticRealized.realizedGain)}${fmt(Math.abs(domesticRealized.realizedGain))}</div>
+        <div style="font-size:.61rem;color:var(--muted)">market=KR · 일반계좌 · 이동평균 추정</div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
         <div class="s2-rounded" style="background:var(--s1)">
@@ -712,6 +733,14 @@ function _buildTaxSection(totalCost) {
           `<button data-plan-isa-type="${v}" class="${isaExemptType===v?'btn-purple-sm':'btn-ghost-sm'}">${l}</button>`
         ).join('')}
       </div>
+      <div class="plan-metric-grid" style="margin-bottom:8px">
+        <div><div class="lbl-62-muted-3">가입일</div><input id="isa-join-date" type="date" value="${_escapeHtml(_planSettings.isaJoinDate||'')}" style="width:100%"/></div>
+        <div><div class="lbl-62-muted-3">만기일</div><input id="isa-maturity-date" type="date" value="${_escapeHtml(_planSettings.isaMaturityDate||'')}" style="width:100%"/></div>
+        <div><div class="lbl-62-muted-3">총 납입한도</div><input id="isa-contribution-limit" type="text" value="${Number(_planSettings.isaContributionLimit||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
+        <div><div class="lbl-62-muted-3">한도사용금액</div><input id="isa-contribution-used" type="text" value="${Number(_planSettings.isaContributionUsed||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
+      </div>
+      <button data-plan-action="save-isa-settings" class="btn-ghost-sm" style="margin-bottom:8px">ISA 정보 저장</button>
+      <div style="font-size:.62rem;color:var(--muted);margin-bottom:8px">납입가능금액: ${_planSettings.isaContributionLimit>0 ? fmt(Math.max(0,_planSettings.isaContributionLimit-_planSettings.isaContributionUsed)) : '한도 미입력'}</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px">
         <div class="s2-rounded" style="background:var(--s1)">
           <div class="lbl-62-muted-3">실현손익 + 배당·이자 추정</div>
@@ -722,6 +751,7 @@ function _buildTaxSection(totalCost) {
           <div style="font-size:.80rem;font-weight:700;color:var(--text)">${fmt(isaExempt)}</div>
         </div>
       </div>
+      <div style="font-size:.63rem;color:var(--muted);margin-top:6px">실현이익 ${fmt(isaEstimate.realizedGain)} · 통산대상 손실 ${fmt(isaEstimate.eligibleLoss)} · 배당·이자 ${fmt(isaEstimate.dividendAndInterest)}</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
         <div class="s2-rounded" style="background:var(--s1)">
           <div class="lbl-62-muted-3">과세대상 (한도 초과분)</div>
@@ -735,6 +765,18 @@ function _buildTaxSection(totalCost) {
       <div style="margin-top:8px;font-size:.65rem;color:var(--muted)">
         ISA는 연간 납부세액이 아니라 만기·해지 시 누적 정산 성격의 추정치입니다. 미실현 평가손익 ${fmt(isaEstimate.unrealizedGain)}은 즉시 과세대상에 포함하지 않았습니다. 실제 적용 여부와 한도는 금융기관·세무 전문가에게 확인하세요.
       </div>
+    </div>
+
+    <div style="background:var(--s2);border-radius:10px;padding:14px;margin-bottom:10px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--cyan);margin-bottom:8px">🌐 해외주식 직접투자 양도세 추정</div>
+      <div class="plan-metric-grid">
+        <div><div class="lbl-62-muted-3">거래내역 기준 실현손익</div><div>${fmt(foreignTax.transactionEstimate)}</div></div>
+        <div><div class="lbl-62-muted-3">수동조정액</div><input id="foreign-tax-adjustment" type="text" value="${Number(_planSettings.foreignTaxAdjustment||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
+        <div><div class="lbl-62-muted-3">과세표준 추정</div><div>${fmt(foreignTax.taxableBase)}</div></div>
+        <div><div class="lbl-62-muted-3">예상세금</div><div style="color:var(--red-lt)">${fmt(foreignTax.estimatedTax)}</div></div>
+      </div>
+      <button data-plan-action="save-foreign-tax" class="btn-ghost-sm" style="margin-top:8px">수동조정 저장</button>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:8px">market이 명시적으로 US인 종목의 거래만 포함한 이동평균 추정치입니다. 통화만으로 국내·해외를 판단하지 않으며 증권사 계산과 다를 수 있습니다. 세율·공제는 ${foreignTax.appliedRuleYear}년 참고 상수입니다.</div>
     </div>
 
     <div style="background:var(--s2);border-radius:10px;padding:14px;margin-bottom:10px">
@@ -875,6 +917,19 @@ function _buildRetirementSection(totalEval) {
       </div>
     </div>
     <div style="font-size:.62rem;color:var(--muted);margin:-7px 0 12px">배당 생활비 충당률은 상단 ‘포트폴리오 배당·은퇴 현황’에서 확인합니다.</div>
+
+    <div style="font-size:.72rem;font-weight:700;color:var(--text);margin:12px 0 6px">연도별 은퇴 현금흐름</div>
+    <div style="overflow-x:auto;margin-bottom:12px">
+      <table style="width:100%;min-width:980px;border-collapse:collapse;font-size:.65rem">
+        <thead><tr style="color:var(--muted);border-bottom:1px solid var(--border)">
+          ${['연도/나이','단계','기초자산','연금편입','추가투자','투자수익','생활비','주담대','기타지출','배당·기타소득','기말자산'].map(label=>`<th style="padding:6px;text-align:right">${label}</th>`).join('')}
+        </tr></thead>
+        <tbody>${retirement.rows.map(row=>`<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px;text-align:right">${row.year} / ${row.age}세</td><td style="padding:6px;text-align:right">${row.phase==='retirement'?'은퇴':'축적'}</td>
+          ${[row.beginningAssets,row.pensionTransfer,row.additionalInvestment,row.investmentReturn,row.livingExpense,row.loanPayment,row.otherExpense,row.availableIncome,row.endingAssets].map(value=>`<td style="padding:6px;text-align:right;white-space:nowrap">${fmt(Math.round(value||0))}</td>`).join('')}
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>
 
     <div class="retire-check-grid">
       ${checkpoints.map(([ok,label])=>`<div class="retire-check-item" style="color:${ok?'var(--text)':'var(--muted)'}">
@@ -1097,6 +1152,17 @@ function _bindPlanEvents(area, totalEval, totalCost) {
     if (action === 'save-foreign-tax') {
       _planSettings.foreignTaxAdjustment = _planNumber(($el('foreign-tax-adjustment')?.value || '').replace(/,/g, ''), 0);
       _savePlanSettings();
+      renderView(true);
+      return;
+    }
+
+    if (action === 'save-isa-settings') {
+      _planSettings.isaJoinDate = $el('isa-join-date')?.value || '';
+      _planSettings.isaMaturityDate = $el('isa-maturity-date')?.value || '';
+      _planSettings.isaContributionLimit = _planNumber(($el('isa-contribution-limit')?.value || '').replace(/,/g, ''), 0);
+      _planSettings.isaContributionUsed = _planNumber(($el('isa-contribution-used')?.value || '').replace(/,/g, ''), 0);
+      _savePlanSettings();
+      showToast('ISA 정보 저장 완료', 'ok');
       renderView(true);
       return;
     }

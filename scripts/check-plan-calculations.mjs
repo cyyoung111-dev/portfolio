@@ -4,13 +4,14 @@ import calculations from '../src/web/domain/plan/plan_calculations.js';
 const {
   calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear,
   calculateBuyingRecommendations, calculateForeignStockTax, calculateIsaSettlementEstimate,
-  calculateRetirementCashflow,
+  calculateRetirementCashflow, calculateRealizedGainFromTrades,
 } = calculations;
 
 const buying = calculateBuyingRecommendations({ currentTotalValue: 100_000_000, newCash: 20_000_000, items: [{ name: '검증종목', currentValue: 10_000_000, targetPct: 20, price: 50_000 }] });
 assert.equal(buying.recommendations[0].targetValue, 24_000_000);
 assert.equal(buying.recommendations[0].buyAmount, 14_000_000);
 assert.equal(buying.recommendations[0].estimatedQuantity, 280);
+assert.equal(calculateBuyingRecommendations({ items: [{ targetPct: 80 }] }).cashTargetPct, 20);
 assert.deepEqual(calculateBuyingRecommendations({ newCash: 1_000, items: [{ targetPct: 101 }] }).errors, ['목표비중 합계가 100%를 초과합니다.']);
 
 const dividends = calculateDividendCashflow({ dividends: ['일반', 'ISA', '연금', 'IRP'].map(taxType => ({ taxType, amount: 1_000_000 })) });
@@ -41,6 +42,10 @@ assert.equal(thirty.rows[0].loanPayment, 1_320_000);
 const payoff = calculateRetirementCashflow({ ...baseRetirement, loanMode: 'payoff' });
 assert.equal(payoff.payoffAmount, 1_200_000);
 assert.equal(payoff.rows[0].loanPayment, 0);
+const pensionTransfer = calculateRetirementCashflow({ currentYear: 2030, currentAge: 54, retirementAge: 54, retirementYears: 3, availableAssets: 10_000_000, pensionAssets: 20_000_000 });
+assert.equal(pensionTransfer.rows[0].pensionTransfer, 0);
+assert.equal(pensionTransfer.rows[1].pensionTransfer, 20_000_000);
+assert.equal(pensionTransfer.pensionTransferred, 20_000_000);
 
 const isa = calculateIsaSettlementEstimate({ unrealizedGain: 10_000_000 });
 assert.equal(isa.estimatedSettlementTax, 0);
@@ -48,6 +53,12 @@ assert.equal(isa.unrealizedGain, 10_000_000);
 assert.equal(calculateIsaSettlementEstimate({ realizedGain: 5_000_000, isaType: 'general' }).exemption, 2_000_000);
 assert.equal(calculateIsaSettlementEstimate({ realizedGain: 5_000_000, isaType: 'special' }).exemption, 4_000_000);
 assert.equal(calculateForeignStockTax({ realizedGain: 10_000_000 }).estimatedTax, 1_650_000);
+const realizedTrades = [
+  { id:'1', date:'2026-01-01', tradeType:'buy', acct:'일반', name:'미국주식', qty:10, price:100, market:'US', taxType:'일반' },
+  { id:'2', date:'2026-06-01', tradeType:'sell', acct:'일반', name:'미국주식', qty:5, price:200, market:'US', taxType:'일반' },
+  { id:'3', date:'2026-06-01', tradeType:'sell', acct:'ISA', name:'ISA종목', qty:1, price:200, market:'KR', taxType:'ISA' },
+];
+assert.equal(calculateRealizedGainFromTrades({ trades: realizedTrades, year:2026, market:'US', taxTypes:['normal'] }).realizedGain, 500);
 
 for (const input of [undefined, null, '', Number.NaN, -1]) {
   assert.doesNotThrow(() => calculateDividendCashflow({ dividends: [{ amount: input }] }));

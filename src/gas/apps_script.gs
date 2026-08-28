@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.76
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.77
+//
+//  v9.77 변경사항 (2026.08.28):
+//   ✅ [세금] 종목코드 시트에 명시적 시장(KR/US/OTHER) 필드를 저장·복원
 //
 //  v9.76 변경사항 (2026.08.28):
 //   ✅ [사용성] 스프레드시트 메뉴에서 요청 접근 토큰 설정·해제 및 레거시 키 마이그레이션 지원
@@ -5138,7 +5141,7 @@ function getCodeItems(ss) {
   try {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs || cs.getLastRow() < 2) return [];
-    var numCols = Math.max(cs.getLastColumn(), 5);
+    var numCols = Math.max(cs.getLastColumn(), 6);
     return cs.getRange(2, 1, cs.getLastRow() - 1, numCols).getValues()
       .map(function(row) {
         return {
@@ -5148,6 +5151,7 @@ function getCodeItems(ss) {
           // 빈 구버전 섹터를 '기타'로 강제하면 Settings의 정상 섹터를 덮을 수 있으므로 원문 유지
           sector: (row[3]||'').toString().trim(),
           currency: (row[4]||'KRW').toString().trim().toUpperCase() || 'KRW',
+          market: (row[5]||'').toString().trim().toUpperCase(),
         };
       })
       .filter(function(item){ return item.code && item.code !== '000000'; });
@@ -5421,7 +5425,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.76' });
+    return jsonOk({ settings: settings, gasVersion: '9.77' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5443,7 +5447,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.76'
+      gasVersion: '9.77'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -5541,25 +5545,27 @@ function handleSyncCodes(codesParam) {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs) {
       cs = ss.insertSheet(CONFIG.SHEET_CODES);
-      cs.getRange(1,1,1,5).setValues([['종목코드','종목명','유형','섹터','통화']]);
+      cs.getRange(1,1,1,6).setValues([['종목코드','종목명','유형','섹터','통화','시장']]);
     } else if (cs.getLastColumn() < 4) {
-      cs.getRange(1,1,1,5).setValues([['종목코드','종목명','유형','섹터','통화']]);
+      cs.getRange(1,1,1,6).setValues([['종목코드','종목명','유형','섹터','통화','시장']]);
     } else if (cs.getLastColumn() < 5) {
       cs.getRange(1,5,1,1).setValues([['통화']]);
     }
+    if (cs.getLastColumn() < 6) cs.getRange(1,6,1,1).setValues([['시장']]);
 
     // 구버전·신버전 모두 처리 (taxType 포함)
     var incomingNorm = {};
     Object.keys(incoming).forEach(function(name) {
       var val = incoming[name];
       if (typeof val === 'string') {
-        incomingNorm[name] = { code: val, type: '주식', sector: '기타', currency: 'KRW' };
+        incomingNorm[name] = { code: val, type: '주식', sector: '기타', currency: 'KRW', market: '' };
       } else {
         incomingNorm[name] = {
           code:     (val.code     || '').toString().trim(),
           type:     (val.type     || '주식').toString().trim(),
           sector:   (val.sector   || '기타').toString().trim(),
           currency: (val.currency || 'KRW').toString().trim().toUpperCase(),
+          market:   (val.market || '').toString().trim().toUpperCase(),
           // ★ [taxType 분리] 구분 컬럼
         };
       }
@@ -5572,7 +5578,7 @@ function handleSyncCodes(codesParam) {
     var existingRowData    = {};
     var lastRow = cs.getLastRow();
     if (lastRow > 1) {
-      var numCols = Math.max(cs.getLastColumn(), 5);
+      var numCols = Math.max(cs.getLastColumn(), 6);
       var sheetData = cs.getRange(2, 1, lastRow - 1, numCols).getValues();
       sheetData.forEach(function(r, i) {
         var c = _cleanCode(r[0]);
@@ -5586,7 +5592,8 @@ function handleSyncCodes(codesParam) {
         }
         var sec = (r[3] || '').toString().trim();
         var cur = (r[4] || '').toString().trim().toUpperCase();
-        existingRowData[rowIdx] = { name: n, type: t, sector: sec, currency: cur };
+        var market = (r[5] || '').toString().trim().toUpperCase();
+        existingRowData[rowIdx] = { name: n, type: t, sector: sec, currency: cur, market: market };
       });
     }
 
@@ -5615,11 +5622,14 @@ function handleSyncCodes(codesParam) {
         var curChanged      = newCurrencyVal !== 'KRW'
           ? existingCur !== newCurrencyVal
           : existingCur !== '' && existingCur !== 'KRW';
+        var newMarketVal = obj.market || '';
+        var marketChanged = (existing.market || '') !== newMarketVal;
         if (nameChanged)   pendingUpdates.push({ row: rowIdx, col: 2, val: normalName });
         if (typeChanged)   pendingUpdates.push({ row: rowIdx, col: 3, val: newType });
         if (sectorChanged) pendingUpdates.push({ row: rowIdx, col: 4, val: newSector });
         if (curChanged)    pendingUpdates.push({ row: rowIdx, col: 5, val: newCurrencyVal !== 'KRW' ? newCurrencyVal : '' });
-        if (nameChanged || typeChanged || sectorChanged || curChanged) updated++;
+        if (marketChanged) pendingUpdates.push({ row: rowIdx, col: 6, val: newMarketVal });
+        if (nameChanged || typeChanged || sectorChanged || curChanged || marketChanged) updated++;
         return;
       }
 
@@ -5632,6 +5642,7 @@ function handleSyncCodes(codesParam) {
           if (newSector) pendingUpdates.push({ row: oldRowIdx, col: 4, val: newSector });
           var newCurVal = obj.currency || 'KRW';
           pendingUpdates.push({ row: oldRowIdx, col: 5, val: newCurVal !== 'KRW' ? newCurVal : '' });
+          pendingUpdates.push({ row: oldRowIdx, col: 6, val: obj.market || '' });
           delete existingByCode[oldCode];
           existingByCode[code]       = oldRowIdx;
           existingByName[normalName] = code;
@@ -5642,7 +5653,7 @@ function handleSyncCodes(codesParam) {
 
       var inheritedType = existingTypeByCode[code] || newType || '주식';
       var newCurrency = obj.currency || 'KRW';
-      toAppend.push([code, normalName, inheritedType, newSector || '기타', newCurrency !== 'KRW' ? newCurrency : '']);
+      toAppend.push([code, normalName, inheritedType, newSector || '기타', newCurrency !== 'KRW' ? newCurrency : '', obj.market || '']);
       synced++;
     });
 
@@ -5669,7 +5680,7 @@ function handleSyncCodes(codesParam) {
       });
     }
     if (toAppend.length > 0) {
-      cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 5).setValues(toAppend);
+      cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 6).setValues(toAppend);
     }
 
     if (synced > 0 || updated > 0) SpreadsheetApp.flush();
@@ -5804,7 +5815,7 @@ function initSheet() {
   }
 
   var specs = [
-    [CONFIG.SHEET_CODES, ['종목코드','종목명','유형','섹터','통화'], [90,200,100,120,80]],
+    [CONFIG.SHEET_CODES, ['종목코드','종목명','유형','섹터','통화','시장'], [90,200,100,120,80,80]],
     [CONFIG.SHEET_PRICES, ['종목코드','종가','종목명','갱신일시'], [90,90,200,160]],
     [CONFIG.SHEET_SNAPSHOT, ['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시'], [100,90,180,70,100,110,100,110,100,90,120,160]],
     [CONFIG.SHEET_PH, ['날짜','종목코드','종목명','가격','입력일시','가격소스'], [100,90,180,100,160,120]],
