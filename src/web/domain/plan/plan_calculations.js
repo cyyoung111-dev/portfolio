@@ -201,11 +201,6 @@
     let assets = number(input.availableAssets);
     let pensionAssets = number(input.pensionAssets);
     let pensionTransferred = 0;
-    if (currentAge >= 55 && pensionAssets > 0) {
-      pensionTransferred = pensionAssets;
-      assets += pensionAssets;
-      pensionAssets = 0;
-    }
     const rows = [];
     for (let offset = 0; offset < preYears; offset += 1) {
       const year = currentYear + offset;
@@ -221,8 +216,11 @@
       const adjustedBeginningAssets = assets;
       const investment = monthlyInvestment * 12;
       const investmentReturn = (adjustedBeginningAssets + investment) * preRate;
+      const loanPrincipal = number(loan[year]?.principal);
+      const loanInterest = number(loan[year]?.interest);
+      const loanPayment = loanPrincipal + loanInterest;
       assets = adjustedBeginningAssets + investment + investmentReturn;
-      rows.push({ year, age, phase: 'accumulation', beginningAssets, pensionTransfer, additionalInvestment: investment, investmentReturn, livingExpense: 0, loanPayment: 0, otherExpense: 0, availableIncome: 0, endingAssets: assets, pensionAvailable: age >= 55 });
+      rows.push({ year, age, phase: 'accumulation', beginningAssets, pensionTransfer, additionalInvestment: investment, investmentReturn, livingExpense: 0, loanPrincipal, loanInterest, loanPayment, loanDeductedFromAssets: false, otherExpense: 0, availableIncome: 0, endingAssets: assets, pensionAvailable: age >= 55 });
     }
     let payoffAmount = 0;
     if (loanMode === 'payoff') {
@@ -232,7 +230,6 @@
         .sort((a, b) => String(a.date).localeCompare(String(b.date)));
       const balanceBeforeRetirement = scheduleRows.length ? scheduleRows[scheduleRows.length - 1].balance : input.loanBalanceAtRetirement;
       payoffAmount = number(balanceBeforeRetirement);
-      assets -= payoffAmount;
     }
     let depletionYear = null;
     let minimumBalance = assets;
@@ -247,16 +244,19 @@
         assets += pensionAssets;
         pensionAssets = 0;
       }
-      const adjustedBeginningAssets = assets;
+      const retirementPayoff = loanMode === 'payoff' && offset === 0 ? payoffAmount : 0;
+      const adjustedBeginningAssets = assets - retirementPayoff;
       const investmentReturn = Math.max(0, adjustedBeginningAssets) * postRate;
       const livingExpense = baseLiving * Math.pow(1 + inflation, preYears + offset);
-      const loanPayment = loanMode === 'maintain' ? number(loan[year]?.totalPayment) : 0;
+      const loanPrincipal = loanMode === 'maintain' ? number(loan[year]?.principal) : retirementPayoff;
+      const loanInterest = loanMode === 'maintain' ? number(loan[year]?.interest) : 0;
+      const loanPayment = loanPrincipal + loanInterest;
       const availableIncome = availableDividend + otherIncome;
       const endingAssets = adjustedBeginningAssets + investmentReturn - livingExpense - loanPayment - extraExpense + availableIncome;
       assets = endingAssets;
       minimumBalance = Math.min(minimumBalance, endingAssets);
       if (depletionYear === null && endingAssets < 0) depletionYear = year;
-      rows.push({ year, age, phase: 'retirement', beginningAssets, pensionTransfer, additionalInvestment: 0, investmentReturn, livingExpense, loanPayment, otherExpense: extraExpense, availableIncome, endingAssets, pensionAvailable: age >= 55 });
+      rows.push({ year, age, phase: 'retirement', beginningAssets, pensionTransfer, additionalInvestment: 0, investmentReturn, livingExpense, loanPrincipal, loanInterest, loanPayment, loanDeductedFromAssets: true, otherExpense: extraExpense, availableIncome, endingAssets, pensionAvailable: age >= 55 });
     }
     const withdrawalRate = number(input.withdrawalRate) / 100;
     const simpleRequiredAssets = withdrawalRate > 0 ? baseLiving / withdrawalRate : null;

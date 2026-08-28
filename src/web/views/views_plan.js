@@ -11,6 +11,22 @@ function _planNumber(val, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function _formatPlanTableMoney(value) {
+  const amount = Math.round(Number(value) || 0);
+  if (amount === 0) return { compact: '0원', full: '0원' };
+  const sign = amount < 0 ? '-' : '';
+  const abs = Math.abs(amount);
+  let compact;
+  if (abs >= 100000000) {
+    const eok = Math.floor(abs / 100000000);
+    const man = Math.round((abs % 100000000) / 10000);
+    compact = `${sign}${eok.toLocaleString()}억${man ? ` ${man.toLocaleString()}만` : ''}원`;
+  } else if (abs >= 10000) {
+    compact = `${sign}${Math.round(abs / 10000).toLocaleString()}만원`;
+  } else compact = `${amount.toLocaleString()}원`;
+  return { compact, full: `${amount.toLocaleString()}원` };
+}
+
 let _planSettings = (function() {
   try {
     const s = lsGet(PLAN_KEY, {});
@@ -791,6 +807,18 @@ function _buildTaxSection(totalCost) {
       <div style="font-size:.62rem;color:var(--muted);margin-top:8px">market이 명시적으로 US인 종목의 거래만 포함한 이동평균 추정치입니다. 통화만으로 국내·해외를 판단하지 않으며 증권사 계산과 다를 수 있습니다. 세율·공제는 ${foreignTax.appliedRuleYear}년 참고 상수입니다.</div>
     </div>
 
+    <div style="background:var(--s2);border-radius:10px;padding:14px;margin-bottom:10px">
+      <div style="font-size:.78rem;font-weight:700;color:var(--cyan);margin-bottom:8px">🌐 해외주식 직접투자 양도세 추정</div>
+      <div class="plan-metric-grid">
+        <div><div class="lbl-62-muted-3">거래내역 기준 실현손익</div><div>${fmt(foreignTax.transactionEstimate)}</div></div>
+        <div><div class="lbl-62-muted-3">수동조정액</div><input id="foreign-tax-adjustment" type="text" value="${Number(_planSettings.foreignTaxAdjustment||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
+        <div><div class="lbl-62-muted-3">과세표준 추정</div><div>${fmt(foreignTax.taxableBase)}</div></div>
+        <div><div class="lbl-62-muted-3">예상세금</div><div style="color:var(--red-lt)">${fmt(foreignTax.estimatedTax)}</div></div>
+      </div>
+      <button data-plan-action="save-foreign-tax" class="btn-ghost-sm" style="margin-top:8px">수동조정 저장</button>
+      <div style="font-size:.62rem;color:var(--muted);margin-top:8px">market이 명시적으로 US인 종목의 거래만 포함한 이동평균 추정치입니다. 통화만으로 국내·해외를 판단하지 않으며 증권사 계산과 다를 수 있습니다. 세율·공제는 ${foreignTax.appliedRuleYear}년 참고 상수입니다.</div>
+    </div>
+
     <!-- ③ IRP / 연금 -->
     <div style="background:var(--s2);border-radius:10px;padding:12px 14px;margin-bottom:6px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -858,6 +886,8 @@ function _buildRetirementSection(totalEval) {
     availableAnnualDividend: dividendFlow.availableAnnual, loanMode: _planSettings.retireLoanMode,
     loanSchedule: LOAN_SCHEDULE, loanBalanceAtRetirement: LOAN?.balance, withdrawalRate,
   });
+  const retirementLoanSummary = PlanCalculations.aggregateLoanScheduleByYear({ schedule: LOAN_SCHEDULE });
+  const loanYearsInTable = retirement.rows.filter(row => Number(row.loanPayment || 0) > 0).length;
   const yearsToTarget = _calcYearsToRetirementTarget(totalEval, monthlyInvest, gap, retireReturn, fireNumber);
   const status = coveragePct >= 100 ? '은퇴 가능권' : coveragePct >= 70 ? '근접' : coveragePct >= 40 ? '축적 중' : '초기 구축';
   const statusColor = coveragePct >= 100 ? 'var(--green)' : coveragePct >= 70 ? 'var(--amber)' : 'var(--muted)';
@@ -918,15 +948,16 @@ function _buildRetirementSection(totalEval) {
     </div>
     <div style="font-size:.62rem;color:var(--muted);margin:-7px 0 12px">배당 생활비 충당률은 상단 ‘포트폴리오 배당·은퇴 현황’에서 확인합니다.</div>
 
-    <div style="font-size:.72rem;font-weight:700;color:var(--text);margin:12px 0 6px">연도별 은퇴 현금흐름</div>
-    <div style="overflow-x:auto;margin-bottom:12px">
-      <table style="width:100%;min-width:980px;border-collapse:collapse;font-size:.65rem">
-        <thead><tr style="color:var(--muted);border-bottom:1px solid var(--border)">
-          ${['연도/나이','단계','기초자산','연금편입','추가투자','투자수익','생활비','주담대','기타지출','배당·기타소득','기말자산'].map(label=>`<th style="padding:6px;text-align:right">${label}</th>`).join('')}
+    <div class="retirement-cashflow-heading">연도별 은퇴 현금흐름</div>
+    <div class="retirement-cashflow-note">축적기의 주담대 원금·이자는 실제 스케줄 확인용이며 월 추가투자액을 이미 순투자금으로 보아 금융자산에서 다시 차감하지 않습니다. 은퇴기에는 원금과 이자를 금융자산에서 차감합니다.<br>${retirementLoanSummary.years.length ? `등록 스케줄 ${retirementLoanSummary.years[0].year}~${retirementLoanSummary.years[retirementLoanSummary.years.length-1].year}년 · 표 반영 ${loanYearsInTable}개 연도` : '등록된 주담대 상환스케줄이 없습니다.'}</div>
+    <div class="retirement-cashflow-wrap">
+      <table class="retirement-cashflow-table">
+        <thead><tr>
+          ${['연도/나이','단계','기초자산','연금편입','추가투자','투자수익','생활비','주담대 원금','주담대 이자','기타지출','배당·기타소득','기말자산'].map(label=>`<th>${label}</th>`).join('')}
         </tr></thead>
-        <tbody>${retirement.rows.map(row=>`<tr style="border-bottom:1px solid var(--border)">
-          <td style="padding:6px;text-align:right">${row.year} / ${row.age}세</td><td style="padding:6px;text-align:right">${row.phase==='retirement'?'은퇴':'축적'}</td>
-          ${[row.beginningAssets,row.pensionTransfer,row.additionalInvestment,row.investmentReturn,row.livingExpense,row.loanPayment,row.otherExpense,row.availableIncome,row.endingAssets].map(value=>`<td style="padding:6px;text-align:right;white-space:nowrap">${fmt(Math.round(value||0))}</td>`).join('')}
+        <tbody>${retirement.rows.map(row=>`<tr class="${row.phase==='retirement'?'is-retirement':'is-accumulation'}">
+          <td class="year-cell">${row.year} / ${row.age}세</td><td class="phase-cell">${row.phase==='retirement'?'은퇴':'축적'}</td>
+          ${[row.beginningAssets,row.pensionTransfer,row.additionalInvestment,row.investmentReturn,row.livingExpense,row.loanPrincipal,row.loanInterest,row.otherExpense,row.availableIncome,row.endingAssets].map(value=>{const money=_formatPlanTableMoney(value);return `<td class="money-cell" title="${money.full}">${money.compact}</td>`;}).join('')}
         </tr>`).join('')}</tbody>
       </table>
     </div>

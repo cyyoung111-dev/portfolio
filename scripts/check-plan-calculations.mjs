@@ -39,13 +39,21 @@ const fifty = calculateRetirementCashflow({ ...baseRetirement, retirementYears: 
 assert.equal(thirty.rows.length, 30);
 assert.equal(fifty.rows.length, 50);
 assert.equal(thirty.rows[0].loanPayment, 1_320_000);
+assert.equal(thirty.rows[0].loanPrincipal, 1_200_000);
+assert.equal(thirty.rows[0].loanInterest, 120_000);
 const payoff = calculateRetirementCashflow({ ...baseRetirement, loanMode: 'payoff' });
 assert.equal(payoff.payoffAmount, 1_200_000);
-assert.equal(payoff.rows[0].loanPayment, 0);
+assert.equal(payoff.rows[0].loanPrincipal, 1_200_000);
+assert.equal(payoff.rows[0].loanInterest, 0);
+assert.equal(payoff.rows[1].loanPayment, 0);
 const pensionTransfer = calculateRetirementCashflow({ currentYear: 2030, currentAge: 54, retirementAge: 54, retirementYears: 3, availableAssets: 10_000_000, pensionAssets: 20_000_000 });
 assert.equal(pensionTransfer.rows[0].pensionTransfer, 0);
 assert.equal(pensionTransfer.rows[1].pensionTransfer, 20_000_000);
 assert.equal(pensionTransfer.pensionTransferred, 20_000_000);
+const accumulationLoan = calculateRetirementCashflow({ currentYear: 2030, currentAge: 40, retirementAge: 42, retirementYears: 1, availableAssets: 10_000_000, monthlyInvestment: 1_000_000, loanSchedule: schedule });
+assert.equal(accumulationLoan.rows[0].loanPrincipal, 1_200_000);
+assert.equal(accumulationLoan.rows[0].loanInterest, 120_000);
+assert.equal(accumulationLoan.rows[0].loanDeductedFromAssets, false);
 
 const isa = calculateIsaSettlementEstimate({ unrealizedGain: 10_000_000 });
 assert.equal(isa.estimatedSettlementTax, 0);
