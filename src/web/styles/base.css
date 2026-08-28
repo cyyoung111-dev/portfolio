@@ -270,10 +270,10 @@ html[data-theme-mode="light"] .btn-amber-sm{background:var(--gold);color:#fff}
 .editor-page-btn:disabled{opacity:.35;cursor:default}
 
 :root{
-  --font-ui:'Pretendard Variable',Pretendard,'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-  --font-size-body:15px;
-  --font-size-body-mobile:14px;
-  --line-ui:1.45;
+  --font-ui:'Noto Sans KR','Pretendard Variable',Pretendard,'Malgun Gothic','맑은 고딕','Apple SD Gothic Neo',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --font-size-body:16px;
+  --font-size-body-mobile:15px;
+  --line-ui:1.55;
   --muted:#94a3b8;
   --border:#26364f;
 }
@@ -916,4 +916,95 @@ input[type="number"]{
 @media(max-width:360px){
   .div-link-actions{grid-template-columns:1fr}
   .div-link-actions .div-gas-link-badge{grid-column:auto}
+}
+
+/* === Typography system: consistent hierarchy and legibility === */
+:root{
+  --type-caption:.75rem;
+  --type-label:.78rem;
+  --type-body:.875rem;
+  --type-value:.95rem;
+  --type-title:1rem;
+  --line-compact:1.4;
+  --line-reading:1.65;
+}
+body{font-weight:400}
+p,.txt-muted-68,.txt-muted-72,.txt-muted-75,.txt-73-muted{line-height:var(--line-reading)}
+.h3-card,.tbl-head h3{font-size:var(--type-title);font-weight:700;line-height:1.35}
+.lbl-62-muted,.lbl-62-muted-3,.lbl-62-mt2,.lbl-63-muted-4,
+.lbl-60-muted,.lbl-60-muted-mt,.lbl-64-muted,.lbl-67-muted,
+.txt-65-muted-mb5,.txt-65-400,.filter-badge{
+  font-size:var(--type-caption);
+  line-height:var(--line-compact);
+}
+.label-muted-68,.txt-muted-68,.txt-muted-68-left,.txt-muted-68-right,
+.txt-muted-72,.form-label,.editor-header p,.editor-row label span{
+  font-size:var(--type-caption);
+  line-height:var(--line-reading);
+}
+input,select,textarea{font-size:var(--type-body);line-height:1.45}
+button{line-height:1.35}
+.s2-rounded>.fw-600,.s2-rounded>.c-amber{font-size:var(--type-value);line-height:1.4}
+
+/* 10px 안팎으로 흩어진 inline 보조문구는 화면 전체에서 동일한 caption 크기로 보정한다. */
+[style*="font-size:.60rem"],
+[style*="font-size:.61rem"],
+[style*="font-size:.62rem"],
+[style*="font-size:.63rem"],
+[style*="font-size:.64rem"],
+[style*="font-size:.65rem"]{
+  font-size:var(--type-caption)!important;
+  line-height:var(--line-reading);
+}
+
+/* 투자계획은 의미가 같은 라벨·설명·값의 크기를 동일하게 유지한다. */
+[data-view-section="plan"]{font-size:var(--type-body)}
+[data-view-section="plan"] [style*="font-size:.60rem"],
+[data-view-section="plan"] [style*="font-size:.61rem"],
+[data-view-section="plan"] [style*="font-size:.62rem"],
+[data-view-section="plan"] [style*="font-size:.63rem"],
+[data-view-section="plan"] [style*="font-size:.64rem"],
+[data-view-section="plan"] [style*="font-size:.65rem"],
+[data-view-section="plan"] [style*="font-size:.66rem"],
+[data-view-section="plan"] [style*="font-size:.67rem"],
+[data-view-section="plan"] [style*="font-size:.68rem"]{
+  font-size:var(--type-caption)!important;
+  line-height:var(--line-reading);
+}
+[data-view-section="plan"] .lbl-62-muted-3,
+[data-view-section="plan"] .retire-input-grid>div>div:first-child,
+[data-view-section="plan"] .plan-metric-grid>div>div:first-child{
+  color:color-mix(in srgb,var(--text) 72%,var(--muted) 28%);
+  font-size:var(--type-label)!important;
+  font-weight:500;
+  line-height:1.45;
+  margin-bottom:5px;
+}
+[data-view-section="plan"] input,
+[data-view-section="plan"] select{
+  min-height:38px;
+  padding:7px 10px!important;
+  font-size:var(--type-body)!important;
+  font-weight:500;
+}
+[data-view-section="plan"] .s2-rounded{line-height:1.5}
+[data-view-section="plan"] .retire-metric-grid .s2-rounded>div:last-child{
+  font-size:var(--type-value)!important;
+  font-weight:700!important;
+}
+.retirement-cashflow-heading{font-size:var(--type-title);line-height:1.4;margin:18px 0 7px}
+.retirement-cashflow-note{font-size:var(--type-caption);line-height:var(--line-reading);color:color-mix(in srgb,var(--text) 66%,var(--muted) 34%)}
+.retirement-cashflow-table{font-size:.8rem;line-height:1.45}
+.retirement-cashflow-table th{font-size:var(--type-caption);font-weight:600;color:color-mix(in srgb,var(--text) 66%,var(--muted) 34%);padding:10px 11px}
+.retirement-cashflow-table td{font-size:.8rem;font-weight:500;padding:10px 11px}
+.retirement-cashflow-table .year-cell{font-weight:700}
+.retirement-cashflow-table .money-cell{font-weight:500}
+.retire-check-item{font-size:var(--type-label);line-height:1.5}
+
+@media(max-width:768px){
+  html{font-size:var(--font-size-body-mobile)}
+  :root{--type-caption:.78rem;--type-label:.8rem;--type-body:.9rem;--type-value:1rem}
+  .sc .lbl,.sc .sub{font-size:var(--type-caption)}
+  th{font-size:var(--type-caption)}
+  td{font-size:var(--type-body)}
 }

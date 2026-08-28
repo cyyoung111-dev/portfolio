@@ -204,7 +204,7 @@ function saveSettings(immediate) {
           SAVED_PRICE_DATES: savedPriceDates,
           APP_THEME: (typeof lsGet === 'function') ? lsGet('app_theme', 'ocean') : 'ocean',
           APP_THEME_MODE: (typeof lsGet === 'function') ? lsGet('app_theme_mode', 'dark') : 'dark',
-          APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'pretendard') : 'pretendard',
+          APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'noto_sans_kr') : 'noto_sans_kr',
           // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
           // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
           DIVDATA,

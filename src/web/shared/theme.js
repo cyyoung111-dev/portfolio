@@ -262,12 +262,12 @@ const FONT_PRESETS = {
   },
   pretendard: {
     label: 'Pretendard',
-    desc: '현재 사용 중 · 균형 잡힌 한글과 숫자',
-    family: "'Pretendard Variable',Pretendard,'맑은 고딕','Malgun Gothic',sans-serif",
+    desc: '설치된 환경에서 사용하는 균형 잡힌 한글과 숫자',
+    family: "'Pretendard Variable',Pretendard,'Noto Sans KR','맑은 고딕','Malgun Gothic',sans-serif",
   },
   noto_sans_kr: {
     label: 'Noto Sans KR',
-    desc: '획 구분이 선명하고 작은 한글도 안정적',
+    desc: '기본값 · 획 구분이 선명하고 작은 한글도 안정적',
     family: "'Noto Sans KR','맑은 고딕','Malgun Gothic',sans-serif",
   },
   ibm_plex_sans_kr: {
@@ -286,7 +286,7 @@ const FONT_PRESETS = {
     family: "'Nanum Gothic','맑은 고딕','Malgun Gothic',sans-serif",
   },
 };
-let _currentFont = 'pretendard';
+let _currentFont = 'noto_sans_kr';
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
 const LEGACY_LIGHT_THEMES = ['light'];
 const THEME_VISIBLE_PRESETS = {
@@ -377,7 +377,7 @@ function loadTheme() {
 }
 
 function applyFont(fontKey, opts = {}) {
-  const normalized = FONT_PRESETS[fontKey] ? fontKey : 'pretendard';
+  const normalized = FONT_PRESETS[fontKey] ? fontKey : 'noto_sans_kr';
   const preset = FONT_PRESETS[normalized];
   document.documentElement.style.setProperty('--font-ui', preset.family);
   document.documentElement.dataset.appFont = normalized;
@@ -387,7 +387,7 @@ function applyFont(fontKey, opts = {}) {
 }
 
 function loadFont() {
-  const saved = typeof lsGet === 'function' ? lsGet(FONT_STORAGE_KEY, 'pretendard') : 'pretendard';
+  const saved = typeof lsGet === 'function' ? lsGet(FONT_STORAGE_KEY, 'noto_sans_kr') : 'noto_sans_kr';
   applyFont(saved, { skipSave: true });
 }
 

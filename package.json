@@ -22,6 +22,7 @@
     "check:web-dom-contract": "node scripts/check-web-dom-contract.mjs",
     "check:web-generated-inline": "node scripts/check-web-generated-inline.mjs",
     "check:theme-contrast": "node scripts/check-theme-contrast.mjs",
+    "check:typography": "node scripts/check-typography.mjs",
     "check:tab-settings": "node scripts/check-tab-settings.mjs",
     "check:master-management": "node scripts/check-master-management.mjs",
     "check:trade-holdings": "node scripts/check-trade-holdings.mjs",
@@ -29,6 +30,6 @@
     "check:tradegroup-accounts": "node scripts/check-tradegroup-accounts.mjs",
     "check:gas": "node scripts/check-gas.mjs",
     "check:seibro-har": "node scripts/validate-seibro-etf.mjs --har-only",
-    "check:ci": "npm run check:reference-regression && npm run check:storage-migration && npm run check:export-consistency && npm run check:web:ci && npm run check:gas"
+    "check:ci": "npm run check:reference-regression && npm run check:storage-migration && npm run check:export-consistency && npm run check:typography && npm run check:web:ci && npm run check:gas"
   }
 }
