@@ -835,6 +835,19 @@ input[type="number"]{
   line-height:1.35;
 }
 .retire-input-grid input{min-width:0}
+.retirement-cashflow-heading{font-size:.78rem;font-weight:700;color:var(--text);margin:14px 0 5px}
+.retirement-cashflow-note{font-size:.68rem;line-height:1.55;color:var(--muted);margin-bottom:8px}
+.retirement-cashflow-wrap{overflow:auto;max-height:520px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;background:var(--s1)}
+.retirement-cashflow-table{width:100%;min-width:1240px;border-collapse:separate;border-spacing:0;table-layout:auto;font-size:.72rem;font-variant-numeric:tabular-nums}
+.retirement-cashflow-table th{position:sticky;top:0;z-index:1;padding:8px 9px;text-align:right;white-space:nowrap;color:var(--muted);font-size:.66rem;font-weight:700;background:var(--s2);border-bottom:1px solid var(--border)}
+.retirement-cashflow-table td{padding:8px 9px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border);color:var(--text);font-weight:500}
+.retirement-cashflow-table tbody tr:last-child td{border-bottom:none}
+.retirement-cashflow-table tbody tr:hover td{background:var(--s2)}
+.retirement-cashflow-table .year-cell{font-weight:700;min-width:92px}
+.retirement-cashflow-table .phase-cell{font-weight:700;min-width:48px}
+.retirement-cashflow-table .money-cell{min-width:90px}
+.retirement-cashflow-table .is-retirement .phase-cell{color:var(--amber)}
+.retirement-cashflow-table .is-accumulation .phase-cell{color:var(--cyan)}
 @media(max-width:768px){
   .retire-metric-grid,
   .retire-input-grid{

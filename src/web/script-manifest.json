@@ -8,6 +8,7 @@
     "domain/state/data_state.js",
     "domain/portfolio/portfolio_service.js",
     "domain/portfolio/data.js",
+    "domain/plan/plan_calculations.js",
     "shared/table/views_table_state.js",
     "shared/table/views_table_filters.js",
     "shared/table/views_table.js",

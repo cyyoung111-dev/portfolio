@@ -43,6 +43,8 @@ function registerGlobalEventDelegation() {
     'btn-save-gsheet-url': () => typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
     'btn-save-public-data-key': () => typeof savePublicDataApiKeyFromUI === 'function' && savePublicDataApiKeyFromUI(),
     'btn-save-krx-auth-key': () => typeof saveKrxAuthKeyFromUI === 'function' && saveKrxAuthKeyFromUI(),
+    'btn-save-gsheet-access-token': () => typeof saveGsheetAccessTokenFromUI === 'function' && saveGsheetAccessTokenFromUI(),
+    'btn-clear-gsheet-access-token': () => typeof clearGsheetAccessTokenFromUI === 'function' && clearGsheetAccessTokenFromUI(),
 
     // management
     'btn-acct-add':        () => typeof acctMgmtAddNew === 'function' && acctMgmtAddNew(),
@@ -69,6 +71,7 @@ function registerGlobalEventDelegation() {
       ? (typeof secMgmtConfirm === 'function' && secMgmtConfirm())
       : (typeof secMgmtCancel  === 'function' && secMgmtCancel()),
     gsheetUrlInput: (isEnter) => isEnter && typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
+    gsheetAccessTokenInput: (isEnter) => isEnter && typeof saveGsheetAccessTokenFromUI === 'function' && saveGsheetAccessTokenFromUI(),
   };
 
   // ── 클릭 위임
@@ -191,6 +194,8 @@ function registerGlobalEventDelegation() {
     // ★ [환율 연동] 종목 추가 폼 통화 버튼
     const smNewCurrency = e.target.closest('[data-sm-new-currency]');
     if (smNewCurrency) { if (typeof _smRenderCurButtons === 'function') _smRenderCurButtons(smNewCurrency.dataset.smNewCurrency || 'KRW'); return; }
+    const smNewMarket = e.target.closest('[data-sm-new-market]');
+    if (smNewMarket) { if (typeof _smRenderMarketButtons === 'function') _smRenderMarketButtons(smNewMarket.dataset.smNewMarket || ''); return; }
 
     // ★ [계좌별 taxType] 신규 계좌 구분 버튼
     const acctNewTax = e.target.closest('[data-acct-new-tax]');

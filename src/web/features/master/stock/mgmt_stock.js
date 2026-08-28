@@ -88,6 +88,7 @@ function buildStockMgmt() {
     const curType = item.assetType || item.type || '주식';
     const curTypeEsc = _escapeHtml(curType);
     const curCurrency = (item.currency || 'KRW').toUpperCase();
+    const curMarket = String(item.market || '').toUpperCase();
     const isForeign = curCurrency !== 'KRW';
     html += `<div class="sm-row" data-idx="${idx}"
       style="display:grid;grid-template-columns:1fr 80px 72px 72px ${isForeign?'48px':''};gap:5px;align-items:center;padding:4px;
@@ -99,7 +100,7 @@ function buildStockMgmt() {
       <input type="text" class="sm-code-inp ${isEdit?'inp-mgmt-base':'inp-mgmt-lock'}" data-idx="${idx}" value="${_escapeHtml(item.code||'')}"
         style="text-align:center" maxlength="6" placeholder="예) 005930, F00001" ${isEdit?'':'readonly tabindex="-1"'} />
       <span class="txt-muted-68">${curTypeEsc}</span>
-      <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${secEsc}</span>
+      <span class="txt-muted-68" style="overflow:hidden;text-overflow:ellipsis">${secEsc}${curMarket?` · ${curMarket}`:' · 미분류'}</span>
       ${isForeign ? `<span style="font-size:.62rem;font-weight:700;color:var(--amber);background:rgba(245,158,11,.12);border-radius:4px;padding:1px 5px">${curCurrency}</span>` : ''}
     </div>`;
 
@@ -108,6 +109,7 @@ function buildStockMgmt() {
         <input type="hidden" class="sm-type-sel" data-idx="${idx}" value="${curTypeEsc}"/>
         <input type="hidden" class="sm-sec-sel"  data-idx="${idx}" value="${secEsc}"/>
         <input type="hidden" class="sm-cur-sel"  data-idx="${idx}" value="${_escapeHtml(curCurrency)}"/>
+        <input type="hidden" class="sm-market-sel" data-idx="${idx}" value="${_escapeHtml(curMarket)}"/>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
           <div>
             <div class="lbl-60-muted fw7-mb5-ls">유형</div>
@@ -130,6 +132,13 @@ function buildStockMgmt() {
           <div class="sm-cur-grp flex-wrap-gap3" data-idx="${idx}">
             ${ ['KRW','USD','JPY','EUR','CNY','HKD'].map(c=>
               `<button type="button" data-sm-currency="${c}" class="btn-toggle-purple-sm${c===curCurrency?' active':''}">${c}</button>`).join('') }
+          </div>
+        </div>
+        <div style="margin-top:8px">
+          <div class="lbl-60-muted fw7-mb5-ls">시장 구분 <span style="font-weight:400;color:var(--muted)">(통화로 추정하지 않음)</span></div>
+          <div class="sm-market-grp flex-wrap-gap3" data-idx="${idx}">
+            ${ [['','미분류'],['KR','KR'],['US','US'],['OTHER','OTHER']].map(([value,label])=>
+              `<button type="button" data-sm-market="${value}" class="btn-toggle-purple-sm${value===curMarket?' active':''}">${label}</button>`).join('') }
           </div>
         </div>
         <div class="gap-mb6" style="margin-top:8px">
@@ -201,6 +210,14 @@ function _bindStockMgmtEvents(container) {
       const group = currencyBtn.closest('.sm-cur-grp');
       const idx = parseInt(group?.dataset.idx ?? '', 10);
       if (!Number.isNaN(idx)) _smPickCurrency(idx, currencyBtn.dataset.smCurrency || 'KRW');
+      return;
+    }
+    const marketBtn = target?.closest?.('button[data-sm-market]');
+    if (marketBtn && container.contains(marketBtn)) {
+      e.preventDefault();
+      const group = marketBtn.closest('.sm-market-grp');
+      const idx = parseInt(group?.dataset.idx ?? '', 10);
+      if (!Number.isNaN(idx)) _smPickMarket(idx, marketBtn.dataset.smMarket || '');
       return;
     }
 
@@ -286,14 +303,14 @@ function smCsvDownloadTemplate() {
   if (typeof XLSX === 'undefined') { showToast('라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.', 'warn'); return; }
   const wb  = XLSX.utils.book_new();
   const rows = [
-    ['종목명', '종목코드', '유형', '섹터'],
-    ['삼성전자', '005930', '주식', '반도체'],
-    ['TIGER미국S&P500', '360750', 'ETF', '해외주식'],
-    ['내펀드A', '', '펀드', '기타'],
+    ['종목명', '종목코드', '유형', '섹터', '통화', '시장'],
+    ['삼성전자', '005930', '주식', '반도체', 'KRW', 'KR'],
+    ['미국주식예시', 'US0001', '주식', '해외주식', 'USD', 'US'],
+    ['내펀드A', '', '펀드', '기타', 'KRW', 'OTHER'],
   ];
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:20},{wch:12},{wch:10},{wch:14}];
-  ['A1','B1','C1','D1'].forEach(cell => {
+  ws['!cols'] = [{wch:20},{wch:12},{wch:10},{wch:14},{wch:10},{wch:10}];
+  ['A1','B1','C1','D1','E1','F1'].forEach(cell => {
     if (!ws[cell]) return;
     ws[cell].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E293B'}}, alignment:{horizontal:'center'} };
   });
@@ -356,8 +373,8 @@ async function _smValidateListedCode(code, assetType, currency) {
   if (typeof lookupOfficialStockByCode !== 'function') {
     return { ok: false, message: 'KRX 종목코드 확인 기능을 사용할 수 없습니다' };
   }
-  if (typeof getPublicDataApiKey !== 'function' || !getPublicDataApiKey()) {
-    return { ok: false, message: '배당 탭에서 공공데이터포털 Encoding 인증키를 먼저 저장해주세요' };
+  if (!window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured) {
+    return { ok: false, message: '구글시트 연동에서 공공데이터 API 키를 GAS에 먼저 저장해주세요' };
   }
   const info = await lookupOfficialStockByCode(code);
   if (!info) {
@@ -376,6 +393,8 @@ function smCsvImport(input) {
       code:   headers.findIndex(h => h === '종목코드'),
       type:   headers.findIndex(h => h === '유형'),
       sector: headers.findIndex(h => h === '섹터'),
+      currency: headers.findIndex(h => h === '통화'),
+      market: headers.findIndex(h => h === '시장'),
     };
     if (col.name === -1) { showToast('❌ "종목명" 컬럼이 없습니다', 'error'); return; }
 
@@ -388,6 +407,8 @@ function smCsvImport(input) {
       const code   = normalizeStockCode(codeRaw);
       const type   = col.type   >= 0 ? cols[col.type]   || '주식' : '주식';
       const sector = col.sector >= 0 ? cols[col.sector] || '기타' : '기타';
+      const currency = (col.currency >= 0 ? cols[col.currency] || 'KRW' : 'KRW').toUpperCase();
+      const market = (col.market >= 0 ? cols[col.market] || '' : '').toUpperCase();
       if (!name) { skipped++; continue; }
       const assetType = VALID_TYPES.includes(type) ? type : '주식';
       // ★ 주식·ETF는 종목코드 필수, 코드 입력 시 영문+숫자 혼합 포함 6자리 강제
@@ -397,12 +418,15 @@ function smCsvImport(input) {
       const existing  = EDITABLE_PRICES.findIndex(ep => ep.name === name);
       const duplicate = !isFund ? _smFindDuplicateCode(code, existing >= 0 ? EDITABLE_PRICES[existing] : null) : null;
       if (duplicate) { skipped++; continue; }
-      const validation = await _smValidateListedCode(code, assetType, 'KRW');
+      if (!['','KR','US','OTHER'].includes(market)) { skipped++; continue; }
+      const validation = await _smValidateListedCode(code, assetType, currency);
       if (!validation.ok) { skipped++; continue; }
       if (existing >= 0) {
         if (code)   EDITABLE_PRICES[existing].code      = code;
         if (type)   EDITABLE_PRICES[existing].assetType = assetType;
         if (sector) EDITABLE_PRICES[existing].sector    = sector;
+        EDITABLE_PRICES[existing].currency = currency;
+        EDITABLE_PRICES[existing].market = market;
         if (isFund) EDITABLE_PRICES[existing].fund      = true;
         updated++;
       } else {
@@ -410,6 +434,8 @@ function smCsvImport(input) {
         const newIdx = EDITABLE_PRICES.length - 1;
         EDITABLE_PRICES[newIdx].sector = sector || '기타';
         EDITABLE_PRICES[newIdx].fund   = isFund;
+        EDITABLE_PRICES[newIdx].currency = currency;
+        EDITABLE_PRICES[newIdx].market = market;
         added++;
       }
       if (code && name) STOCK_CODE[name] = normalizeStockCode(code);
@@ -432,6 +458,7 @@ function smMgmtAddNew() {
   _smRenderSecButtons(sectors[0] || '기타', sectors);
   // ★ [환율 연동] 통화 버튼 렌더링 (기본 KRW)
   _smRenderCurButtons('KRW');
+  _smRenderMarketButtons('');
   setTimeout(() => $el('smMgmtNewName')?.focus(), 50);
 }
 
@@ -469,6 +496,15 @@ function _smRenderCurButtons(active) {
       class="btn-toggle-purple${c===active?' active':''}">${c}</button>`).join('');
 }
 
+function _smRenderMarketButtons(active) {
+  const group = $el('smMarketGroup');
+  const inp = $el('smMgmtNewMarket');
+  if (!group) return;
+  if (inp) inp.value = active || '';
+  group.innerHTML = [['','미분류'],['KR','KR'],['US','US'],['OTHER','OTHER']].map(([value,label]) =>
+    `<button type="button" data-sm-new-market="${value}" class="btn-toggle-purple${value===(active||'')?' active':''}">${label}</button>`).join('');
+}
+
 function smMgmtCancel() {
   const wrap = $el('smMgmtNewWrap');
   if(wrap) wrap.style.display = 'none';
@@ -478,6 +514,7 @@ function smMgmtCancel() {
   const s = $el('smMgmtNewSec');  if(s) s.value = '기타';
   // ★ [환율 연동] 통화 초기화
   const cu = $el('smMgmtNewCur'); if(cu) cu.value = 'KRW';
+  const mk = $el('smMgmtNewMarket'); if(mk) mk.value = '';
 }
 
 async function smMgmtConfirm() {
@@ -487,6 +524,7 @@ async function smMgmtConfirm() {
   const sector    = $el('smMgmtNewSec')?.value || '기타';
   // ★ [환율 연동] 통화 읽기
   const currency  = ($el('smMgmtNewCur')?.value || 'KRW').toUpperCase();
+  const market = ($el('smMgmtNewMarket')?.value || '').toUpperCase();
   if(!name && code && typeof lookupNameByCode === 'function') {
     showMgmtMsg('smMgmtMsg','⏳ 종목코드로 공식 종목명 조회 중...',false);
     name = await lookupNameByCode(code);
@@ -512,6 +550,7 @@ async function smMgmtConfirm() {
     name, code, sector, assetType,
     ...(isFund ? { fund: true } : {}),
     ...(currency !== 'KRW' ? { currency } : {}),
+    ...(market ? { market } : {}),
   });
   if(code) STOCK_CODE[name] = normalizeStockCode(code);
   syncHoldingsFromTrades();
@@ -546,6 +585,14 @@ function _smPickCurrency(idx, val) {
   if(inp) inp.value = val;
   document.querySelectorAll(`.sm-cur-grp[data-idx="${idx}"] button`).forEach(btn => {
     btn.classList.toggle('active', btn.dataset.smCurrency === val);
+  });
+}
+
+function _smPickMarket(idx, val) {
+  const inp = document.querySelector(`.sm-market-sel[data-idx="${idx}"]`);
+  if (inp) inp.value = val;
+  document.querySelectorAll(`.sm-market-grp[data-idx="${idx}"] button`).forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.smMarket === val);
   });
 }
 
@@ -588,6 +635,7 @@ async function smSave(idx) {
     showMgmtMsg('smMgmtMsg',`❌ 종목코드 ${newCode}는 "${dup.name}"에서 이미 사용 중입니다`,true); return;
   }
   const newCurrency = (document.querySelector(`.sm-cur-sel[data-idx="${idx}"]`)?.value || 'KRW').toUpperCase();
+  const newMarket = (document.querySelector(`.sm-market-sel[data-idx="${idx}"]`)?.value || '').toUpperCase();
   if(newCode !== normalizeStockCode(item.code) || newType !== (item.assetType || item.type || '주식')) {
     showMgmtMsg('smMgmtMsg','⏳ 종목코드 확인 중...',false);
     const validation = await _smValidateListedCode(newCode, newType, newCurrency);
@@ -625,6 +673,7 @@ async function smSave(idx) {
   item.sector    = newSec;
   // ★ [환율 연동] 통화 저장
   item.currency = newCurrency;
+  item.market = newMarket;
   if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
   // ★ EDITABLE_PRICES 중복 항목 제거 (idx 파라미터 직접 사용 — indexOf보다 안전)
