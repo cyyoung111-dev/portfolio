@@ -46,7 +46,7 @@ function renderAcctView(area) {
   const typeOpts = typeList.map(t =>
     `<button data-portfolio-action="type-filter" data-value="${_escapeHtml(t)}" class="${_fBtnClass(typeFilter===t)}">${_escapeHtml(t)}</button>`).join('');
 
-  let html = `<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+  let html = `<div data-view-section="acct"><div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span class="txt-muted-72">🏦 계좌</span>
       <div class="flex-wrap-gap4">${acctOpts}</div>
@@ -71,7 +71,7 @@ function renderAcctView(area) {
   const tableId = 'tbl_acct';
   window._tableData.set(tableId, data);
   window._tableExtra.set(tableId, null);
-  html += `<div id="tc_${tableId}">${buildTableInner(data, tableId, null)}</div>`;
+  html += `<div id="tc_${tableId}">${buildTableInner(data, tableId, null)}</div></div>`;
   area.innerHTML = html;
 }
 function setAcctFilter(f) { acctFilter = f; renderView(); renderDonut(); }
