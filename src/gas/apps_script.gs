@@ -1,5 +1,17 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.74
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.77
+//
+//  v9.77 변경사항 (2026.08.28):
+//   ✅ [세금] 종목코드 시트에 명시적 시장(KR/US/OTHER) 필드를 저장·복원
+//
+//  v9.76 변경사항 (2026.08.28):
+//   ✅ [사용성] 스프레드시트 메뉴에서 요청 접근 토큰 설정·해제 및 레거시 키 마이그레이션 지원
+//   ✅ [진단]   웹 연결 진단도 접근 토큰을 포함한 공용 요청 경로 사용
+//
+//  v9.75 변경사항 (2026.08.28):
+//   ✅ [보안]   API 키 원문을 설정·부트스트랩 응답에서 제거하고 Script Properties 상태만 반환
+//   ✅ [보안]   Script Properties의 access_token 설정 시 모든 웹 요청에 opt-in 인증 적용
+//   ✅ [마이그레이션] 설정 시트의 레거시 API 키를 Script Properties로 옮기는 관리자 함수 추가
 //
 //  v9.74 변경사항 (2026.08.27):
 //   ✅ [상세조회] 특정일 손익 스냅샷의 종목코드·수량·매입/평가단가·손익·수익률·가격소스 제공
@@ -484,12 +496,62 @@ function getss() {
 }
 
 // ════════════════════════════════════════════════════════════════════
+function _isAuthorizedRequest(params) {
+  var expected = (PropertiesService.getScriptProperties().getProperty('access_token') || '').trim();
+  if (!expected) return true; // 기존 배포 호환: 관리자가 토큰을 설정한 뒤부터 보호 활성화
+  var provided = String(params && params.accessToken || '');
+  if (provided.length !== expected.length) return false;
+  var mismatch = 0;
+  for (var i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ provided.charCodeAt(i);
+  return mismatch === 0;
+}
+
+function _removeSecretsFromSettings(settings) {
+  ['public_data_api_key', 'public_listed_api_key', 'public_dividend_api_key', 'krx_auth_key', 'krx_api_key', 'access_token'].forEach(function(key) { delete settings[key]; });
+  return settings;
+}
+
+function _getApiKeyStatus() {
+  return {
+    publicDataApiKeyConfigured: !!_getPublicDataApiKey(),
+    krxAuthKeyConfigured: !!_getKrxAuthKey(),
+    requestAuthenticationEnabled: !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim()
+  };
+}
+
+function configureAccessTokenPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var enabled = !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim();
+  var response = ui.prompt(
+    'GAS 요청 접근 토큰 설정',
+    '개인 비밀번호 관리자에서 24자 이상의 임의 문자열을 만들어 입력하세요.\n' +
+    '웹앱의 구글시트 연동 화면에도 같은 값을 입력해야 합니다.\n' +
+    '해제하려면 - 를 입력하세요.\n\n현재 상태: ' + (enabled ? '인증 사용 중' : '호환 모드(인증 꺼짐)'),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var token = String(response.getResponseText() || '').trim();
+  var props = PropertiesService.getScriptProperties();
+  if (token === '-') {
+    props.deleteProperty('access_token');
+    ui.alert('✅ 요청 인증을 해제했습니다. GAS URL만으로 접근 가능한 호환 모드입니다.');
+    return;
+  }
+  if (token.length < 24) {
+    ui.alert('⚠️ 토큰을 저장하지 않았습니다. 24자 이상으로 입력하세요.');
+    return;
+  }
+  props.setProperty('access_token', token);
+  ui.alert('✅ 요청 인증을 활성화했습니다.\n\n이제 웹앱의 구글시트 연동 화면에서 같은 토큰을 저장·검증하세요. 다른 브라우저에도 각각 입력해야 합니다.');
+}
+
 //  doGet
 // ════════════════════════════════════════════════════════════════════
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
+  if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
-  if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, params.serviceKey || '');
+  if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
   if (params.action === 'getCodeList')                    return handleGetCodeList();
@@ -506,7 +568,7 @@ function doGet(e) {
   if (params.action === 'dividendPublic') {
     var publicCodes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     var publicNames = params.names ? params.names.split('|') : [];
-    return handleDividendPublicFetch(publicCodes, publicNames, params.serviceKey || '');
+    return handleDividendPublicFetch(publicCodes, publicNames, _getPublicDataApiKey());
   }
   if (params.action === 'getSettings')          return handleGetSettings();
   if (params.action === 'getDividendSettings')  return handleGetDividendSettings();
@@ -542,6 +604,9 @@ function doPost(e) {
   } catch(err) {
     return jsonError('POST 파싱 실패: ' + err.message);
   }
+  if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
+  var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'syncHoldings' && params.data)  return handleSyncHoldings(params.data);
@@ -1061,10 +1126,12 @@ function showApiKeyStatus() {
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
   var publicSaved = !!_getPublicDataApiKey();
   var krxSaved = !!_getKrxAuthKey();
+  var requestAuthEnabled = !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim();
   ui.alert(
     'API 인증키 저장 상태\n\n' +
     (publicSaved ? '✅' : '⚠️') + ' 공공데이터포털: ' + (publicSaved ? '저장됨' : '미설정') + '\n' +
-    (krxSaved ? '✅' : '⚠️') + ' KRX Open API: ' + (krxSaved ? '저장됨' : '미설정')
+    (krxSaved ? '✅' : '⚠️') + ' KRX Open API: ' + (krxSaved ? '저장됨' : '미설정') + '\n' +
+    (requestAuthEnabled ? '✅' : '⚠️') + ' GAS 요청 인증: ' + (requestAuthEnabled ? '사용 중' : '호환 모드')
   );
 }
 
@@ -5074,7 +5141,7 @@ function getCodeItems(ss) {
   try {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs || cs.getLastRow() < 2) return [];
-    var numCols = Math.max(cs.getLastColumn(), 5);
+    var numCols = Math.max(cs.getLastColumn(), 6);
     return cs.getRange(2, 1, cs.getLastRow() - 1, numCols).getValues()
       .map(function(row) {
         return {
@@ -5084,6 +5151,7 @@ function getCodeItems(ss) {
           // 빈 구버전 섹터를 '기타'로 강제하면 Settings의 정상 섹터를 덮을 수 있으므로 원문 유지
           sector: (row[3]||'').toString().trim(),
           currency: (row[4]||'KRW').toString().trim().toUpperCase() || 'KRW',
+          market: (row[5]||'').toString().trim().toUpperCase(),
         };
       })
       .filter(function(item){ return item.code && item.code !== '000000'; });
@@ -5251,6 +5319,31 @@ function _writeSettingsMap(settings) {
   return rows.length;
 }
 
+// 스프레드시트 소유자가 Apps Script 편집기에서 명시적으로 한 번 실행합니다.
+// 설정 시트의 레거시 키를 Script Properties로 옮긴 뒤 설정 시트 원문을 제거합니다.
+function migrateLegacyApiKeysToScriptProperties() {
+  var settings = _readSettingsMap();
+  var props = PropertiesService.getScriptProperties();
+  var publicKey = String(settings.public_data_api_key || settings.public_listed_api_key || settings.public_dividend_api_key || '').trim();
+  var krxKey = String(settings.krx_auth_key || settings.krx_api_key || '').trim();
+  if (publicKey && !_getPublicDataApiKey()) props.setProperty('public_data_api_key', publicKey);
+  if (krxKey && !_getKrxAuthKey()) props.setProperty('krx_auth_key', krxKey);
+  _removeSecretsFromSettings(settings);
+  _writeSettingsMap(settings);
+  return { publicDataApiKeyMigrated: !!publicKey, krxAuthKeyMigrated: !!krxKey };
+}
+
+function migrateLegacyApiKeysPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var result = migrateLegacyApiKeysToScriptProperties();
+  ui.alert(
+    '레거시 API 키 마이그레이션 완료\n\n' +
+    '공공데이터 키: ' + (result.publicDataApiKeyMigrated ? '이전 또는 기존 서버 키 유지' : '설정 시트 원문 없음') + '\n' +
+    'KRX 키: ' + (result.krxAuthKeyMigrated ? '이전 또는 기존 서버 키 유지' : '설정 시트 원문 없음') + '\n\n' +
+    '설정 시트의 키 원문 필드는 제거했습니다.'
+  );
+}
+
 // 상환스케줄의 현재월 행을 기준으로 주담대 상태를 자동 갱신합니다.
 // 매일 실행하지만 값이 달라질 때만 설정 시트를 다시 씁니다.
 function syncMortgageFromSchedule() {
@@ -5306,6 +5399,9 @@ function handleSaveSettings(dataJson) {
   try {
     lock.waitLock(30000); locked = true;
     var incoming = _parseJsonParam(dataJson, 'settings');
+    delete incoming.public_data_api_key;
+    delete incoming.krx_auth_key;
+    delete incoming.krx_api_key;
     var settings = _readSettingsMap();
     var protectedKeys = ['DIVDATA', 'LOAN', 'REAL_ESTATE', 'LOAN_SCHEDULE', 'RE_VALUE_HIST'];
     var protectedValues = {};
@@ -5327,11 +5423,9 @@ function handleSaveSettings(dataJson) {
 function handleGetSettings() {
   try {
     var settings = _readSettingsMap();
-    var publicKey = _getPublicDataApiKey();
-    var krxKey = _getKrxAuthKey();
-    if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
-    if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
-    return jsonOk({ settings: settings, gasVersion: '9.74' });
+    _removeSecretsFromSettings(settings);
+    settings.apiKeyStatus = _getApiKeyStatus();
+    return jsonOk({ settings: settings, gasVersion: '9.77' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5343,10 +5437,8 @@ function handleGetBootstrap() {
   try {
     var ss = getss();
     var settings = _readSettingsMap(ss);
-    var publicKey = _getPublicDataApiKey();
-    var krxKey = _getKrxAuthKey();
-    if (publicKey && !settings.public_data_api_key) settings.public_data_api_key = publicKey;
-    if (krxKey && !settings.krx_auth_key) settings.krx_auth_key = krxKey;
+    _removeSecretsFromSettings(settings);
+    settings.apiKeyStatus = _getApiKeyStatus();
 
     var tradesResponse = JSON.parse(handleGetTrades(ss).getContent());
     var holdingsResponse = JSON.parse(handleGetHoldings(ss).getContent());
@@ -5355,7 +5447,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.74'
+      gasVersion: '9.77'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -5453,25 +5545,27 @@ function handleSyncCodes(codesParam) {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs) {
       cs = ss.insertSheet(CONFIG.SHEET_CODES);
-      cs.getRange(1,1,1,5).setValues([['종목코드','종목명','유형','섹터','통화']]);
+      cs.getRange(1,1,1,6).setValues([['종목코드','종목명','유형','섹터','통화','시장']]);
     } else if (cs.getLastColumn() < 4) {
-      cs.getRange(1,1,1,5).setValues([['종목코드','종목명','유형','섹터','통화']]);
+      cs.getRange(1,1,1,6).setValues([['종목코드','종목명','유형','섹터','통화','시장']]);
     } else if (cs.getLastColumn() < 5) {
       cs.getRange(1,5,1,1).setValues([['통화']]);
     }
+    if (cs.getLastColumn() < 6) cs.getRange(1,6,1,1).setValues([['시장']]);
 
     // 구버전·신버전 모두 처리 (taxType 포함)
     var incomingNorm = {};
     Object.keys(incoming).forEach(function(name) {
       var val = incoming[name];
       if (typeof val === 'string') {
-        incomingNorm[name] = { code: val, type: '주식', sector: '기타', currency: 'KRW' };
+        incomingNorm[name] = { code: val, type: '주식', sector: '기타', currency: 'KRW', market: '' };
       } else {
         incomingNorm[name] = {
           code:     (val.code     || '').toString().trim(),
           type:     (val.type     || '주식').toString().trim(),
           sector:   (val.sector   || '기타').toString().trim(),
           currency: (val.currency || 'KRW').toString().trim().toUpperCase(),
+          market:   (val.market || '').toString().trim().toUpperCase(),
           // ★ [taxType 분리] 구분 컬럼
         };
       }
@@ -5484,7 +5578,7 @@ function handleSyncCodes(codesParam) {
     var existingRowData    = {};
     var lastRow = cs.getLastRow();
     if (lastRow > 1) {
-      var numCols = Math.max(cs.getLastColumn(), 5);
+      var numCols = Math.max(cs.getLastColumn(), 6);
       var sheetData = cs.getRange(2, 1, lastRow - 1, numCols).getValues();
       sheetData.forEach(function(r, i) {
         var c = _cleanCode(r[0]);
@@ -5498,7 +5592,8 @@ function handleSyncCodes(codesParam) {
         }
         var sec = (r[3] || '').toString().trim();
         var cur = (r[4] || '').toString().trim().toUpperCase();
-        existingRowData[rowIdx] = { name: n, type: t, sector: sec, currency: cur };
+        var market = (r[5] || '').toString().trim().toUpperCase();
+        existingRowData[rowIdx] = { name: n, type: t, sector: sec, currency: cur, market: market };
       });
     }
 
@@ -5527,11 +5622,14 @@ function handleSyncCodes(codesParam) {
         var curChanged      = newCurrencyVal !== 'KRW'
           ? existingCur !== newCurrencyVal
           : existingCur !== '' && existingCur !== 'KRW';
+        var newMarketVal = obj.market || '';
+        var marketChanged = (existing.market || '') !== newMarketVal;
         if (nameChanged)   pendingUpdates.push({ row: rowIdx, col: 2, val: normalName });
         if (typeChanged)   pendingUpdates.push({ row: rowIdx, col: 3, val: newType });
         if (sectorChanged) pendingUpdates.push({ row: rowIdx, col: 4, val: newSector });
         if (curChanged)    pendingUpdates.push({ row: rowIdx, col: 5, val: newCurrencyVal !== 'KRW' ? newCurrencyVal : '' });
-        if (nameChanged || typeChanged || sectorChanged || curChanged) updated++;
+        if (marketChanged) pendingUpdates.push({ row: rowIdx, col: 6, val: newMarketVal });
+        if (nameChanged || typeChanged || sectorChanged || curChanged || marketChanged) updated++;
         return;
       }
 
@@ -5544,6 +5642,7 @@ function handleSyncCodes(codesParam) {
           if (newSector) pendingUpdates.push({ row: oldRowIdx, col: 4, val: newSector });
           var newCurVal = obj.currency || 'KRW';
           pendingUpdates.push({ row: oldRowIdx, col: 5, val: newCurVal !== 'KRW' ? newCurVal : '' });
+          pendingUpdates.push({ row: oldRowIdx, col: 6, val: obj.market || '' });
           delete existingByCode[oldCode];
           existingByCode[code]       = oldRowIdx;
           existingByName[normalName] = code;
@@ -5554,7 +5653,7 @@ function handleSyncCodes(codesParam) {
 
       var inheritedType = existingTypeByCode[code] || newType || '주식';
       var newCurrency = obj.currency || 'KRW';
-      toAppend.push([code, normalName, inheritedType, newSector || '기타', newCurrency !== 'KRW' ? newCurrency : '']);
+      toAppend.push([code, normalName, inheritedType, newSector || '기타', newCurrency !== 'KRW' ? newCurrency : '', obj.market || '']);
       synced++;
     });
 
@@ -5581,7 +5680,7 @@ function handleSyncCodes(codesParam) {
       });
     }
     if (toAppend.length > 0) {
-      cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 5).setValues(toAppend);
+      cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 6).setValues(toAppend);
     }
 
     if (synced > 0 || updated > 0) SpreadsheetApp.flush();
@@ -5716,7 +5815,7 @@ function initSheet() {
   }
 
   var specs = [
-    [CONFIG.SHEET_CODES, ['종목코드','종목명','유형','섹터','통화'], [90,200,100,120,80]],
+    [CONFIG.SHEET_CODES, ['종목코드','종목명','유형','섹터','통화','시장'], [90,200,100,120,80,80]],
     [CONFIG.SHEET_PRICES, ['종목코드','종가','종목명','갱신일시'], [90,90,200,160]],
     [CONFIG.SHEET_SNAPSHOT, ['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시'], [100,90,180,70,100,110,100,110,100,90,120,160]],
     [CONFIG.SHEET_PH, ['날짜','종목코드','종목명','가격','입력일시','가격소스'], [100,90,180,100,160,120]],
@@ -5790,6 +5889,7 @@ function _addFallbackMenu(ui) {
     .addItem('연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
     .addItem('공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
     .addItem('KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+    .addItem('요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')
     .addItem('메뉴 생성 오류 확인', 'showMenuBuildError')
     .addToUi();
 }
@@ -5826,7 +5926,10 @@ function onOpen(e) {
       .addSeparator()
       .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
       .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
-      .addItem('ℹ️ API 인증키 저장 상태', 'showApiKeyStatus');
+      .addItem('ℹ️ API 인증키 저장 상태', 'showApiKeyStatus')
+      .addSeparator()
+      .addItem('🛡️ 요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')
+      .addItem('🔐 레거시 API 키 안전 이전', 'migrateLegacyApiKeysPrompt');
 
     // ── 서브메뉴: 종가 관리 ──
     var menuPrice = ui.createMenu('📈 종가 관리')
