@@ -289,13 +289,12 @@ async function lookupNameByCode(code) {
 }
 
 function getKrxAuthKey() {
-  return (typeof lsGet === 'function') ? String(lsGet('krx_auth_key', '') || '').trim() : '';
+  return '';
 }
 
 async function saveKrxAuthKeyFromUI() {
   const input = $el('krxAuthKeyInput');
   const key = String(input?.value || '').trim();
-  if (typeof lsSave === 'function') lsSave('krx_auth_key', key);
   const status = $el('krxAuthKeyStatus');
   const setStatus = (msg, ok) => {
     if (!status) return;
@@ -311,15 +310,17 @@ async function saveKrxAuthKeyFromUI() {
       { timeoutMs: 10000, retry: 1 }
     );
     if (data && data.status === 'ok') {
+      if (input) input.value = '';
+      if (typeof lsRemove === 'function') lsRemove('krx_auth_key');
       showToast(key ? 'KRX AUTH_KEY 저장 완료 (GAS 동기화)' : 'KRX AUTH_KEY 삭제 완료 (GAS 동기화)', key ? 'ok' : 'warn');
       setStatus(key ? 'KRX 우선 가격 조회에 사용할 수 있습니다. 다른 브라우저에서도 설정 복원됩니다.' : 'KRX AUTH_KEY가 비어 있습니다.', !!key);
       return;
     }
-    showToast('KRX AUTH_KEY는 이 브라우저에 저장됐지만 GAS 저장은 실패했습니다', 'warn', 5000);
-    setStatus('로컬 저장 완료 · GAS 저장 실패로 다른 브라우저 복원은 제한됩니다.', false);
+    showToast('KRX AUTH_KEY를 저장하지 못했습니다. 브라우저에는 키를 보관하지 않습니다', 'warn', 5000);
+    setStatus('GAS 저장 실패 · 키 원문은 브라우저에 저장하지 않았습니다.', false);
     return;
   }
 
-  showToast(key ? 'KRX AUTH_KEY 저장 완료 (이 브라우저)' : 'KRX AUTH_KEY를 비웠습니다', key ? 'ok' : 'warn');
-  setStatus(key ? '구글시트 미연동 상태라 이 브라우저에만 저장됩니다.' : 'KRX AUTH_KEY가 비어 있습니다.', !!key);
+  showToast('GAS 연결 후 서버 측에 저장할 수 있습니다', 'warn');
+  setStatus('보안을 위해 API 키를 브라우저에 저장하지 않습니다.', false);
 }

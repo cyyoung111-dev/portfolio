@@ -301,13 +301,12 @@ function _normalizeDividendResponse(obj, prev) {
 
 
 function getPublicDataApiKey() {
-  return (typeof lsGet === 'function') ? String(lsGet(DIV_PUBLIC_KEY, '') || '').trim() : '';
+  return '';
 }
 
 async function savePublicDataApiKeyFromUI() {
   const input = $el('publicDataKeyInput') || $el('divPublicKeyInput');
   const key = String(input?.value || '').trim();
-  if (typeof lsSave === 'function') lsSave(DIV_PUBLIC_KEY, key);
   const status = $el('publicDataKeyStatus') || $el('divFetchStatus');
   const setStatus = (msg, ok) => {
     if (!status) return;
@@ -323,18 +322,20 @@ async function savePublicDataApiKeyFromUI() {
       { timeoutMs: 10000, retry: 1 }
     );
     if (data && data.status === 'ok') {
+      if (input) input.value = '';
+      if (typeof lsRemove === 'function') lsRemove(DIV_PUBLIC_KEY);
       showToast(key ? '공공데이터 API 키 저장 완료 (GAS 동기화)' : '공공데이터 API 키 삭제 완료 (GAS 동기화)', key ? 'ok' : 'warn');
       setStatus(key ? '공공데이터 우선 조회가 활성화됩니다. 다른 브라우저에서도 설정 복원됩니다.' : '키가 없으면 GOOGLEFINANCE fallback만 사용합니다.', !!key);
       return;
     }
     const reason = data && data.message ? ` · ${data.message}` : '';
-    showToast('공공데이터 API 키는 이 브라우저에 저장됐지만 GAS 저장은 실패했습니다', 'warn', 5000);
-    setStatus(`로컬 저장 완료 · GAS 저장 실패${reason} · 구글시트 연동 URL/배포 버전을 확인하세요.`, false);
+    showToast('공공데이터 API 키를 저장하지 못했습니다. 브라우저에는 키를 보관하지 않습니다', 'warn', 5000);
+    setStatus(`GAS 저장 실패${reason} · 구글시트 연동 URL/배포 버전을 확인하세요.`, false);
     return;
   }
 
-  showToast(key ? '공공데이터 API 키 저장 완료 (이 브라우저)' : '공공데이터 API 키를 비웠습니다', key ? 'ok' : 'warn');
-  setStatus(key ? '공공데이터 우선 조회가 활성화됩니다. 구글시트 미연동 상태라 이 브라우저에만 저장됩니다.' : '키가 없으면 GOOGLEFINANCE fallback만 사용합니다.', !!key);
+  showToast('GAS 연결 후 서버 측에 저장할 수 있습니다', 'warn');
+  setStatus('보안을 위해 API 키를 브라우저에 저장하지 않습니다.', false);
 }
 
 async function _fetchDividendSource(action, codeItems, extraParams) {
