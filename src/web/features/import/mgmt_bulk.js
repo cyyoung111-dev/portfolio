@@ -371,7 +371,7 @@ function applyBulkImport() {
       const isFund = (r.type === '펀드' || r.type === 'TDF');
       const trade  = {
         id: genTradeId(), tradeType: 'buy',
-        acct: r.acct, assetType: r.type||'주식',
+        acct: r.acct, accountId:getAccountId(r.acct), assetType: r.type||'주식',
         name: normN,  code: r.code||'',
         qty: parseInt(r.qty)||0, price: parseFloat(r.buyPrice)||0,
         date: r.buyDate||'', memo: r.memo||''
@@ -396,7 +396,7 @@ function applyBulkImport() {
       const isFund = ep && (ep.assetType === '펀드' || ep.assetType === 'TDF');
       const trade  = {
         id: genTradeId(), tradeType: 'sell',
-        acct: r.acct, assetType: ep ? ep.assetType : '주식',
+        acct: r.acct, accountId:getAccountId(r.acct), assetType: ep ? ep.assetType : '주식',
         name: normN,  code: ep ? ep.code||'' : '',
         qty: parseInt(r.qty)||0, price: parseFloat(r.sellPrice)||0,
         date: r.sellDate||'', memo: r.memo||''
@@ -421,7 +421,7 @@ function applyBulkImport() {
       const isFund    = (assetType === '펀드' || assetType === 'TDF');
       const trade     = {
         id: genTradeId(), tradeType: tt,
-        acct: r.acct, assetType,
+        acct: r.acct, accountId:getAccountId(r.acct), assetType,
         name: normN,  code: r.code || (ep ? ep.code||'' : ''),
         qty: parseInt(r.qty)||0, price: parseFloat(r.price)||0,
         date: r.date||'', memo: r.memo||''

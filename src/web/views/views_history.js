@@ -500,10 +500,10 @@ function renderStocksView(area) {
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px" id="acctNewTaxGroup">
             ${['일반','ISA','IRP','연금'].map(tx =>
               `<button type="button" data-acct-new-tax="${tx}"
-                class="btn-toggle-purple-sm${tx==='일반'?' active':''}">${tx}</button>`
+                class="btn-toggle-purple-sm">${tx}</button>`
             ).join('')}
           </div>
-          <input type="hidden" id="acctMgmtNewTaxType" value="일반"/>
+          <input type="hidden" id="acctMgmtNewTaxType" value=""/>
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:6px">색상 선택</div>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <div id="acctNewColorPreview" style="width:18px;height:18px;border-radius:50%;flex-shrink:0;border:2px solid var(--border)"></div>

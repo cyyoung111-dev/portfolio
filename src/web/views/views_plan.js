@@ -53,6 +53,11 @@ let _planSettings = (function() {
       retireOtherIncome:    _planNumber(s.retireOtherIncome, 0),
       retireLoanMode:       s.retireLoanMode === 'payoff' ? 'payoff' : 'maintain',
       retireWithdrawalRate: _planNumber(s.retireWithdrawalRate, 4),        // 안전 인출률 %
+      pensionStartAge: s.pensionStartAge === undefined ? null : _planNumber(s.pensionStartAge, null),
+      annualPensionWithdrawal: s.annualPensionWithdrawal === undefined ? null : _planNumber(s.annualPensionWithdrawal, null),
+      pensionWithdrawalYears: s.pensionWithdrawalYears === undefined ? null : _planNumber(s.pensionWithdrawalYears, null),
+      pensionReturnRate: s.pensionReturnRate === undefined ? null : _planNumber(s.pensionReturnRate, null),
+      pensionTaxRate: s.pensionTaxRate === undefined ? null : _planNumber(s.pensionTaxRate, null),
     };
   } catch(e) { return { cash:0, isaExemptType:'general', simMonthly:500000, simYears:10, simReturn:7, retireMonthlyExpense:3000000, retireYears:30, retireReturn:4, retireWithdrawalRate:4 }; }
 })();
@@ -174,7 +179,13 @@ function exportPortfolioExcel() {
   const totalPct1  = totalCost1 > 0 ? (totalPnl1/totalCost1*100) : 0;
   const footerRow1 = ['합계','','','','','','', Math.round(totalCost1), '', Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), ''];
 
-  const ws1 = XLSX.utils.aoa_to_sheet([headerRow1, ...dataRows1, footerRow1]);
+  const snapshotNotice = [
+    ['기준일', todayStr],
+    ['문서 유형', '값 기준 스냅샷 문서'],
+    ['갱신 방법', '웹앱에서 다시 내보내야 갱신됩니다.'],
+    ['주의', '수식으로 자동 갱신되지 않습니다.'],
+  ];
+  const ws1 = XLSX.utils.aoa_to_sheet([...snapshotNotice, headerRow1, ...dataRows1, footerRow1]);
   ws1['!cols'] = [
     {wch:10},{wch:18},{wch:10},{wch:8},{wch:10},
     {wch:10},{wch:12},{wch:14},{wch:12},{wch:14},
@@ -182,11 +193,11 @@ function exportPortfolioExcel() {
   ];
   // 헤더 스타일
   headerRow1.forEach((_, i) => {
-    const cell = XLSX.utils.encode_cell({ r:0, c:i });
+    const cell = XLSX.utils.encode_cell({ r:snapshotNotice.length, c:i });
     if (ws1[cell]) ws1[cell].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E293B'}}, alignment:{horizontal:'center'} };
   });
   // 합계 행 스타일
-  const footerIdx = dataRows1.length + 1;
+  const footerIdx = snapshotNotice.length + dataRows1.length + 1;
   footerRow1.forEach((_, i) => {
     const cell = XLSX.utils.encode_cell({ r:footerIdx, c:i });
     if (ws1[cell]) ws1[cell].s = { font:{bold:true}, fill:{fgColor:{rgb:'F1F5F9'}} };
@@ -202,18 +213,19 @@ function exportPortfolioExcel() {
     acctMap[acct].costAmt += (r.costAmt || 0);
     acctMap[acct].count   += 1;
   });
-  const headerRow2 = ['계좌','종목 수','매입금액','평가금액','손익','수익률(%)','비중(%)'];
+  ensureAccountsMaster();
+  const headerRow2 = ['계좌','계좌 ID','종목 수','매입금액','평가금액','손익','수익률(%)','비중(%)'];
   const dataRows2 = Object.entries(acctMap)
     .sort((a,b) => b[1].evalAmt - a[1].evalAmt)
     .map(([acct, v]) => {
       const pnl = v.evalAmt - v.costAmt;
       const pct = v.costAmt > 0 ? (pnl/v.costAmt*100) : 0;
       const weight = totalEval1 > 0 ? (v.evalAmt/totalEval1*100) : 0;
-      return [acct, v.count, Math.round(v.costAmt), Math.round(v.evalAmt), Math.round(pnl), Number(pct.toFixed(2)), Number(weight.toFixed(1))];
+      return [acct, getAccountId(acct) || '', v.count, Math.round(v.costAmt), Math.round(v.evalAmt), Math.round(pnl), Number(pct.toFixed(2)), Number(weight.toFixed(1))];
     });
   const ws2 = XLSX.utils.aoa_to_sheet([headerRow2, ...dataRows2,
-    ['합계', rows.length, Math.round(totalCost1), Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), 100]]);
-  ws2['!cols'] = [{wch:12},{wch:8},{wch:14},{wch:14},{wch:14},{wch:10},{wch:10}];
+    ['합계','', rows.length, Math.round(totalCost1), Math.round(totalEval1), Math.round(totalPnl1), Number(totalPct1.toFixed(2)), 100]]);
+  ws2['!cols'] = [{wch:12},{wch:16},{wch:8},{wch:14},{wch:14},{wch:14},{wch:10},{wch:10}];
   headerRow2.forEach((_, i) => {
     const cell = XLSX.utils.encode_cell({ r:0, c:i });
     if (ws2[cell]) ws2[cell].s = { font:{bold:true,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:'1E293B'}}, alignment:{horizontal:'center'} };
@@ -265,6 +277,9 @@ function exportPortfolioExcel() {
   const etcCost = Number(REAL_ESTATE?.etcCost || 0);
   const totalAcquisition = purchasePrice + taxCost + interiorCost + etcCost;
   const loanBalance = Number(LOAN?.balance || 0);
+  ensureAccountsMaster();
+  const exportAsOfMonth = todayStr.slice(0,7);
+  const exportLoanValidation = PlanCalculations.validateLoanScheduleDates({ startDate:LOAN?.startDate, schedule:LOAN_SCHEDULE, remainingMonths:LOAN?.remainingMonths, asOfMonth:exportAsOfMonth });
   const realEstateRows = [
     ['구분','항목','값','비고'],
     ['부동산','자산명', REAL_ESTATE?.name || '보유 부동산',''],
@@ -283,6 +298,7 @@ function exportPortfolioExcel() {
     ['주담대','남은 상환개월', Number(LOAN?.remainingMonths || 0),''],
     ['주담대','이번 달 이자', Math.round(Number(LOAN?.monthlyInterestPaid || 0)),''],
     ['주담대','누적 납부이자', Math.round(Number(LOAN?.totalInterestPaid || 0)),''],
+    ['주담대','일정 검증 경고', exportLoanValidation.warnings.join(' ') || '없음','원본 일정은 자동 수정하지 않음'],
     ['순자산','부동산 순자산', Math.round(currentValue - loanBalance),'현재 시세 - 현재 대출잔액'],
     ['메모','부동산 메모', REAL_ESTATE?.memo || '',''],
   ];
@@ -305,21 +321,27 @@ function exportPortfolioExcel() {
 
   // ── 시트6: 종목별 배당 현황
   const dividendRows = typeof calcDividends === 'function' ? calcDividends() : [];
-  const dividendSheetRows = [['종목명','유형','보유수량','보유계좌','연간 예상 배당','올해 확정 배당','월평균 예상 배당'],
-    ...dividendRows.map(item => [
-      item.name || '', item.assetType || '', Number(item.totalQty || 0), (item.accts || []).join(', '),
-      Math.round(Number(item.annualDiv || 0)), Math.round(Number(item.actualDiv || 0)), Math.round(Number(item.annualDiv || 0) / 12),
-    ]),
-    ['합계','','','',Math.round(dividendRows.reduce((s,item)=>s+Number(item.annualDiv||0),0)),
-      Math.round(dividendRows.reduce((s,item)=>s+Number(item.actualDiv||0),0)),
-      Math.round(dividendRows.reduce((s,item)=>s+Number(item.annualDiv||0),0) / 12)]
+  const dividendEntries = _getPlanDividendEntries(dividendRows);
+  const dividendFlow = PlanCalculations.calculateDividendCashflow({ dividends: dividendEntries, year: _planSettings.taxYear || Number(todayStr.slice(0,4)) });
+  const accountIdsForExport = Object.fromEntries(ACCOUNTS_MASTER.map(item => [item.displayName, item.id]));
+  const dividendSheetRows = [['계좌','계좌 ID','세제유형','종목','세전 예상 배당','현재 생활비 사용 가능 여부','일반계좌 참고 세후액','ISA 내부 배당','연금저축 내부 배당','IRP 내부 배당','기록된 실제 배당','데이터 기준일'],
+    ...dividendEntries.map(item => {
+      const type = PlanCalculations.classifyTaxType(item.taxType);
+      const gross = Math.round(Number(item.amount || 0));
+      return [item.acct || '', accountIdsForExport[item.acct] || '', type, item.name || '', gross, type === 'normal' ? '예' : '아니오', type === 'normal' ? Math.round(gross * 0.846) : 0, type === 'isa' ? gross : 0, type === 'pension' ? gross : 0, type === 'irp' ? gross : 0, 0, todayStr];
+    }),
+    ['합계','','','',Math.round(dividendFlow.totalGross),'',Math.round(dividendFlow.normalAfterTax),Math.round(dividendFlow.isaInternal),Math.round(dividendFlow.pensionSavingsInternal),Math.round(dividendFlow.irpInternal),0,todayStr]
   ];
   const ws6 = XLSX.utils.aoa_to_sheet(dividendSheetRows);
-  ws6['!cols'] = [{wch:24},{wch:10},{wch:12},{wch:24},{wch:16},{wch:16},{wch:18}];
+  ws6['!cols'] = [{wch:14},{wch:12},{wch:18},{wch:24},{wch:16},{wch:18},{wch:20},{wch:16},{wch:20},{wch:16},{wch:18},{wch:14}];
   XLSX.utils.book_append_sheet(wb, ws6, '배당 현황');
 
   // ── 시트7: 저장된 은퇴 계획과 현금흐름 기준
-  const annualDividend = dividendRows.reduce((s,item)=>s+Number(item.annualDiv||0),0);
+  const annualDividend = dividendFlow.totalGross;
+  const exportLiquidity = PlanCalculations.calculateAccountLiquidity({ accounts:rows.map(item => ({ taxType:getAcctTaxType(item.acct), value:item.evalAmt, acct:item.acct })) });
+  const exportPensionSavings = rows.filter(item => PlanCalculations.classifyTaxType(getAcctTaxType(item.acct)) === 'pension').reduce((sum,item)=>sum+Number(item.evalAmt||0),0);
+  const exportIrp = rows.filter(item => PlanCalculations.classifyTaxType(getAcctTaxType(item.acct)) === 'irp').reduce((sum,item)=>sum+Number(item.evalAmt||0),0);
+  const pensionSettingsMissing = _planSettings.pensionStartAge == null || !_planSettings.annualPensionWithdrawal || !_planSettings.pensionWithdrawalYears || _planSettings.pensionReturnRate == null || _planSettings.pensionTaxRate == null;
   const retirementRows = [
     ['항목','값','비고'],
     ['목표 월 생활비', Number(_planSettings.retireMonthlyExpense || 0),'저장된 투자계획 기준'],
@@ -327,9 +349,22 @@ function exportPortfolioExcel() {
     ['은퇴 후 기간(년)', Number(_planSettings.retireYears || 0),''],
     ['목표 도달 수익률(%)', Number(_planSettings.retireReturn || 0),''],
     ['현재 평가자산', Math.round(totalEval1),''],
-    ['연간 예상 배당(세전)', Math.round(annualDividend),'배당 현황 합계'],
-    ['월평균 예상 배당(세전)', Math.round(annualDividend / 12),''],
-    ['월평균 참고 배당(15.4% 차감)', Math.round(annualDividend * 0.846 / 12),'일반계좌 일괄 가정'],
+    ['일반계좌', Math.round(exportLiquidity.availableBefore55-exportLiquidity.isaAssets),''],
+    ['ISA', Math.round(exportLiquidity.isaAssets),''],
+    ['55세 전 접근 가능 자산', Math.round(exportLiquidity.availableBefore55),'일반계좌 + ISA'],
+    ['연금저축', Math.round(exportPensionSavings),''],
+    ['IRP', Math.round(exportIrp),''],
+    ['연금자산 합계', Math.round(exportLiquidity.pensionAssets),''],
+    ['전체 예상 배당 세전', Math.round(annualDividend),'배당 현황 합계'],
+    ['일반계좌 예상 배당 세전', Math.round(dividendFlow.normalGross),''],
+    ['일반계좌 참고 세후 배당', Math.round(dividendFlow.normalAfterTax),'15.4% 단순 원천징수 참고'],
+    ['현재 사용 가능 월 배당', Math.round(dividendFlow.availableMonthly),'일반계좌 참고 세후액만 포함'],
+    ['ISA 내부 예상 배당', Math.round(dividendFlow.isaInternal),'즉시 생활비에 포함하지 않음'],
+    ['연금저축 내부 예상 배당', Math.round(dividendFlow.pensionSavingsInternal),'즉시 생활비에 포함하지 않음'],
+    ['IRP 내부 예상 배당', Math.round(dividendFlow.irpInternal),'즉시 생활비에 포함하지 않음'],
+    ['미분류 계좌 경고', exportLiquidity.warnings.join(' ') || '없음','미분류 자산은 가용자산에서 제외'],
+    ['연금설정 경고', pensionSettingsMissing ? '연금 수령설정 미입력' : '없음',''],
+    ['대출일정 경고', exportLoanValidation.warnings.join(' ') || '없음',''],
   ];
   const ws7 = XLSX.utils.aoa_to_sheet(retirementRows);
   ws7['!cols'] = [{wch:28},{wch:18},{wch:30}];
@@ -571,12 +606,12 @@ function _buildTaxSection(totalCost) {
   const isaExemptType = _planSettings.isaExemptType || 'general'; // general(200만) | special(400만, 서민형/농어민)
 
   // ★ [계좌별 taxType] 계좌 기준으로 taxType 결정 — computeRows()에서 r.taxType = getAcctTaxType(r.acct)로 이미 설정됨
-  const acctGroups = { '일반': [], 'ISA': [], 'IRP': [], '연금': [] };
+  const acctGroups = { '일반': [], 'ISA': [], 'IRP': [], '연금': [], '미분류': [] };
   const acctSeen = new Set();
   rows.forEach(r => {
     if (!r.acct || acctSeen.has(r.acct)) return;
     acctSeen.add(r.acct);
-    const tx = ['ISA','IRP','연금'].includes(r.taxType) ? r.taxType : '일반';
+    const tx = ['일반','ISA','IRP','연금'].includes(r.taxType) ? r.taxType : '미분류';
     acctGroups[tx].push(r.acct);
   });
 
@@ -661,7 +696,16 @@ function _buildTaxSection(totalCost) {
   const isaSum = _sumByAccts(acctGroups['ISA']);
   const isaDiv = _divSum(acctGroups['ISA']);
   const isaRealizedResult = PlanCalculations.calculateRealizedGainFromTrades({ trades: enrichedTrades, year: taxYear, taxTypes: ['isa'] });
-  const isaEstimate = PlanCalculations.calculateIsaSettlementEstimate({ realizedGain: Math.max(0, isaRealizedResult.realizedGain), unrealizedGain: isaSum.pnl, dividendAndInterest: isaDiv, eligibleLoss: Math.max(0, -isaRealizedResult.realizedGain), isaType: isaExemptType, year: taxYear });
+  const isaJoinYear = /^\d{4}-/.test(_planSettings.isaJoinDate || '') ? Number(_planSettings.isaJoinDate.slice(0,4)) : taxYear;
+  let isaCumulativeRealized = 0;
+  for (let year = isaJoinYear; year <= taxYear; year += 1) isaCumulativeRealized += PlanCalculations.calculateRealizedGainFromTrades({ trades: enrichedTrades, year, taxTypes: ['isa'] }).realizedGain;
+  const isaPeriods = PlanCalculations.calculateIsaPeriodEstimates({
+    selectedYear: { realizedGain: Math.max(0, isaRealizedResult.realizedGain), dividendAndInterest: isaDiv, eligibleLoss: Math.max(0, -isaRealizedResult.realizedGain) },
+    cumulative: { realizedGain: Math.max(0, isaCumulativeRealized), unrealizedGain: isaSum.pnl, dividendAndInterest: isaDiv, eligibleLoss: Math.max(0, -isaCumulativeRealized) },
+    isaType: isaExemptType, year: taxYear, calculationDate: _todayStr,
+    dataGaps: ['과거연도 배당·이자 원장이 없으면 누적액에서 누락됩니다.'],
+  });
+  const isaEstimate = isaPeriods.cumulative;
   const isaTotalGain = isaEstimate.estimatedNetTaxableProfit;
   const isaExempt = isaEstimate.exemption;
   const isaTaxable = isaEstimate.excess;
@@ -759,7 +803,7 @@ function _buildTaxSection(totalCost) {
       <div style="font-size:.62rem;color:var(--muted);margin-bottom:8px">납입가능금액: ${_planSettings.isaContributionLimit>0 ? fmt(Math.max(0,_planSettings.isaContributionLimit-_planSettings.isaContributionUsed)) : '한도 미입력'}</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px">
         <div class="s2-rounded" style="background:var(--s1)">
-          <div class="lbl-62-muted-3">실현손익 + 배당·이자 추정</div>
+          <div class="lbl-62-muted-3">가입 이후 누적 과세대상 추정 순이익</div>
           <div style="font-size:.80rem;font-weight:700;color:${pColor(isaTotalGain)}">${pSign(isaTotalGain)}${fmt(Math.abs(isaTotalGain))}</div>
         </div>
         <div class="s2-rounded" style="background:var(--s1)">
@@ -768,6 +812,7 @@ function _buildTaxSection(totalCost) {
         </div>
       </div>
       <div style="font-size:.63rem;color:var(--muted);margin-top:6px">실현이익 ${fmt(isaEstimate.realizedGain)} · 통산대상 손실 ${fmt(isaEstimate.eligibleLoss)} · 배당·이자 ${fmt(isaEstimate.dividendAndInterest)}</div>
+      <div style="font-size:.63rem;color:var(--muted);margin-top:6px">선택연도 참고: 실현손익 ${fmt(isaPeriods.selectedYear.realizedGain)} · 배당·이자 ${fmt(isaPeriods.selectedYear.dividendAndInterest)} · 예상 분리과세 ${fmt(isaPeriods.selectedYear.estimatedSettlementTax)}</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
         <div class="s2-rounded" style="background:var(--s1)">
           <div class="lbl-62-muted-3">과세대상 (한도 초과분)</div>
@@ -779,32 +824,8 @@ function _buildTaxSection(totalCost) {
         </div>
       </div>
       <div style="margin-top:8px;font-size:.65rem;color:var(--muted)">
-        ISA는 연간 납부세액이 아니라 만기·해지 시 누적 정산 성격의 추정치입니다. 미실현 평가손익 ${fmt(isaEstimate.unrealizedGain)}은 즉시 과세대상에 포함하지 않았습니다. 실제 적용 여부와 한도는 금융기관·세무 전문가에게 확인하세요.
+        누적 계산 기준일 ${isaPeriods.calculationDate} · 세법 기준연도 ${isaPeriods.appliedRuleYear}년. 미실현 평가손익 ${fmt(isaEstimate.unrealizedGain)}은 즉시 과세대상에 포함하지 않았습니다. 데이터 누락 범위: ${isaPeriods.dataGaps.join(' ')} 확정세액이 아니며 실제 적용 여부와 한도는 금융기관·세무 전문가에게 확인하세요.
       </div>
-    </div>
-
-    <div style="background:var(--s2);border-radius:10px;padding:14px;margin-bottom:10px">
-      <div style="font-size:.78rem;font-weight:700;color:var(--cyan);margin-bottom:8px">🌐 해외주식 직접투자 양도세 추정</div>
-      <div class="plan-metric-grid">
-        <div><div class="lbl-62-muted-3">거래내역 기준 실현손익</div><div>${fmt(foreignTax.transactionEstimate)}</div></div>
-        <div><div class="lbl-62-muted-3">수동조정액</div><input id="foreign-tax-adjustment" type="text" value="${Number(_planSettings.foreignTaxAdjustment||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
-        <div><div class="lbl-62-muted-3">과세표준 추정</div><div>${fmt(foreignTax.taxableBase)}</div></div>
-        <div><div class="lbl-62-muted-3">예상세금</div><div style="color:var(--red-lt)">${fmt(foreignTax.estimatedTax)}</div></div>
-      </div>
-      <button data-plan-action="save-foreign-tax" class="btn-ghost-sm" style="margin-top:8px">수동조정 저장</button>
-      <div style="font-size:.62rem;color:var(--muted);margin-top:8px">market이 명시적으로 US인 종목의 거래만 포함한 이동평균 추정치입니다. 통화만으로 국내·해외를 판단하지 않으며 증권사 계산과 다를 수 있습니다. 세율·공제는 ${foreignTax.appliedRuleYear}년 참고 상수입니다.</div>
-    </div>
-
-    <div style="background:var(--s2);border-radius:10px;padding:14px;margin-bottom:10px">
-      <div style="font-size:.78rem;font-weight:700;color:var(--cyan);margin-bottom:8px">🌐 해외주식 직접투자 양도세 추정</div>
-      <div class="plan-metric-grid">
-        <div><div class="lbl-62-muted-3">거래내역 기준 실현손익</div><div>${fmt(foreignTax.transactionEstimate)}</div></div>
-        <div><div class="lbl-62-muted-3">수동조정액</div><input id="foreign-tax-adjustment" type="text" value="${Number(_planSettings.foreignTaxAdjustment||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
-        <div><div class="lbl-62-muted-3">과세표준 추정</div><div>${fmt(foreignTax.taxableBase)}</div></div>
-        <div><div class="lbl-62-muted-3">예상세금</div><div style="color:var(--red-lt)">${fmt(foreignTax.estimatedTax)}</div></div>
-      </div>
-      <button data-plan-action="save-foreign-tax" class="btn-ghost-sm" style="margin-top:8px">수동조정 저장</button>
-      <div style="font-size:.62rem;color:var(--muted);margin-top:8px">market이 명시적으로 US인 종목의 거래만 포함한 이동평균 추정치입니다. 통화만으로 국내·해외를 판단하지 않으며 증권사 계산과 다를 수 있습니다. 세율·공제는 ${foreignTax.appliedRuleYear}년 참고 상수입니다.</div>
     </div>
 
     <div style="background:var(--s2);border-radius:10px;padding:14px;margin-bottom:10px">
@@ -885,12 +906,18 @@ function _buildRetirementSection(totalEval) {
     annualExtraExpense: _planSettings.retireExtraExpense, annualOtherIncome: _planSettings.retireOtherIncome,
     availableAnnualDividend: dividendFlow.availableAnnual, loanMode: _planSettings.retireLoanMode,
     loanSchedule: LOAN_SCHEDULE, loanBalanceAtRetirement: LOAN?.balance, withdrawalRate,
+    asOfDate: /^\d{4}-\d{2}/.test(String(lastUpdated || '')) ? String(lastUpdated).slice(0,10) : ((typeof _kstTodayStr === 'function') ? _kstTodayStr() : new Date().toISOString().slice(0,10)),
+    pensionStartAge:_planSettings.pensionStartAge, annualPensionWithdrawal:_planSettings.annualPensionWithdrawal,
+    pensionWithdrawalYears:_planSettings.pensionWithdrawalYears, pensionReturnRate:_planSettings.pensionReturnRate, pensionTaxRate:_planSettings.pensionTaxRate,
   });
   const retirementLoanSummary = PlanCalculations.aggregateLoanScheduleByYear({ schedule: LOAN_SCHEDULE });
   const loanYearsInTable = retirement.rows.filter(row => Number(row.loanPayment || 0) > 0).length;
   const yearsToTarget = _calcYearsToRetirementTarget(totalEval, monthlyInvest, gap, retireReturn, fireNumber);
-  const status = coveragePct >= 100 ? '은퇴 가능권' : coveragePct >= 70 ? '근접' : coveragePct >= 40 ? '축적 중' : '초기 구축';
-  const statusColor = coveragePct >= 100 ? 'var(--green)' : coveragePct >= 70 ? 'var(--amber)' : 'var(--muted)';
+  const retirementStatus = PlanCalculations.assessRetirementStatus({ retirement, unclassifiedAssets:liquidity.unclassifiedAssets, missingRequiredSettings:withdrawalRate <= 0 });
+  const status = retirementStatus.label;
+  const statusColor = retirementStatus.code === 'SUSTAINABLE' ? 'var(--green)' : retirementStatus.code === 'INSUFFICIENT' ? 'var(--red-lt)' : 'var(--amber)';
+  const asOfMonth = retirement.asOfDate.slice(0,7);
+  const loanDateValidation = PlanCalculations.validateLoanScheduleDates({ startDate:LOAN?.startDate, schedule:LOAN_SCHEDULE, remainingMonths:LOAN?.remainingMonths, asOfMonth });
 
   const checkpoints = [
     [coveragePct >= 100, '목표 생활비 기준 FIRE 필요자금 충족'],
@@ -913,10 +940,11 @@ function _buildRetirementSection(totalEval) {
         ['현재 평가자산', fmt(totalEval), 'var(--text)'],
         ['필요 은퇴자금', fmt(fireNumber), 'var(--amber)'],
         ['부족 금액', gap > 0 ? fmt(gap) : '충족', gap > 0 ? 'var(--red-lt)' : 'var(--green)'],
-        ['달성률', coveragePct.toFixed(1) + '%', statusColor],
+        ['단순 FIRE 달성률', coveragePct.toFixed(1) + '%', 'var(--muted)'],
         ['현금흐름 결과', retirement.sustainable ? '기간 내 유지' : `${retirement.depletionYear}년 고갈`, retirement.sustainable ? 'var(--green)' : 'var(--red-lt)'],
         ['은퇴시점 예상자산', fmt(Math.round(retirement.projectedAssetsAtRetirement)), 'var(--cyan)'],
-        ['55세 이후 연금자산', fmt(retirement.pensionAssetsAfter55), 'var(--purple-lt)'],
+        ['55세 전 브리지 자산', fmt(retirement.availableAssetsBefore55), 'var(--cyan)'],
+        ['연금자산', fmt(retirement.pensionAssetsAfter55), 'var(--purple-lt)'],
         ['최저 자산잔액', fmt(Math.round(retirement.minimumBalance)), retirement.minimumBalance >= 0 ? 'var(--text)' : 'var(--red-lt)'],
       ].map(([l,v,c])=>`<div class="s2-rounded">
         <div class="lbl-62-muted-3">${l}</div>
@@ -936,7 +964,14 @@ function _buildRetirementSection(totalEval) {
       <div><div class="lbl-62-muted-3">기타 연간지출</div><input type="text" id="retire-extra-expense" value="${_planSettings.retireExtraExpense.toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
       <div><div class="lbl-62-muted-3">기타 연간소득</div><input type="text" id="retire-other-income" value="${_planSettings.retireOtherIncome.toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
       <div><div class="lbl-62-muted-3">주담대 처리</div><select id="retire-loan-mode" style="width:100%"><option value="maintain" ${_planSettings.retireLoanMode==='maintain'?'selected':''}>주담대 유지</option><option value="payoff" ${_planSettings.retireLoanMode==='payoff'?'selected':''}>은퇴시점 전액 상환</option></select></div>
+      <div><div class="lbl-62-muted-3">연금 개시연령</div><input type="number" id="pension-start-age" value="${_planSettings.pensionStartAge ?? ''}" min="55" max="100" style="width:100%"/></div>
+      <div><div class="lbl-62-muted-3">연간 연금수령액</div><input type="text" id="pension-annual-withdrawal" value="${_planSettings.annualPensionWithdrawal == null ? '' : _planSettings.annualPensionWithdrawal.toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
+      <div><div class="lbl-62-muted-3">연금 수령기간(년)</div><input type="number" id="pension-withdrawal-years" value="${_planSettings.pensionWithdrawalYears ?? ''}" min="1" max="60" style="width:100%"/></div>
+      <div><div class="lbl-62-muted-3">연금계좌 수익률(%)</div><input type="number" id="pension-return-rate" value="${_planSettings.pensionReturnRate ?? ''}" min="0" max="20" step="0.1" style="width:100%"/></div>
+      <div><div class="lbl-62-muted-3">연금수령 세율 가정(%)</div><input type="number" id="pension-tax-rate" value="${_planSettings.pensionTaxRate ?? ''}" min="0" max="100" step="0.1" style="width:100%"/></div>
     </div>
+    ${retirement.pensionSettingsMissing ? '<div class="retirement-cashflow-note" style="color:var(--amber)">⚠️ 연금 수령설정 미입력: 연금자산을 생활비에 자동 투입하지 않으며 은퇴 가능 여부를 확정하지 않습니다.</div>' : ''}
+    ${loanDateValidation.warnings.length ? `<div class="retirement-cashflow-note" style="color:var(--amber)">⚠️ ${loanDateValidation.warnings.join(' ')}</div>` : ''}
     <button data-plan-action="save-retirement" class="btn-purple-sm" style="margin-bottom:14px">💾 은퇴 기준 저장</button>
 
     <div class="retire-flow-grid retire-flow-grid-single">
@@ -953,11 +988,11 @@ function _buildRetirementSection(totalEval) {
     <div class="retirement-cashflow-wrap">
       <table class="retirement-cashflow-table">
         <thead><tr>
-          ${['연도/나이','단계','기초자산','연금편입','추가투자','투자수익','생활비','주담대 원금','주담대 이자','기타지출','배당·기타소득','기말자산'].map(label=>`<th>${label}</th>`).join('')}
+          ${['연도/나이','단계','기초자산','연금 기초','연금수익','연금인출','연금세금','연금 기말','추가투자','투자수익','생활비','주담대 원금','주담대 이자','기타지출','배당·기타소득','기말자산'].map(label=>`<th>${label}</th>`).join('')}
         </tr></thead>
         <tbody>${retirement.rows.map(row=>`<tr class="${row.phase==='retirement'?'is-retirement':'is-accumulation'}">
           <td class="year-cell">${row.year} / ${row.age}세</td><td class="phase-cell">${row.phase==='retirement'?'은퇴':'축적'}</td>
-          ${[row.beginningAssets,row.pensionTransfer,row.additionalInvestment,row.investmentReturn,row.livingExpense,row.loanPrincipal,row.loanInterest,row.otherExpense,row.availableIncome,row.endingAssets].map(value=>{const money=_formatPlanTableMoney(value);return `<td class="money-cell" title="${money.full}">${money.compact}</td>`;}).join('')}
+          ${[row.beginningAssets,row.pensionBeginningAssets||0,row.pensionInvestmentReturn||0,row.pensionWithdrawal||0,row.taxExpense||0,row.pensionEndingAssets||0,row.additionalInvestment,row.investmentReturn,row.livingExpense,row.loanPrincipal,row.loanInterest,row.otherExpense,row.availableIncome,row.endingAssets].map(value=>{const money=_formatPlanTableMoney(value);return `<td class="money-cell" title="${money.full}">${money.compact}</td>`;}).join('')}
         </tr>`).join('')}</tbody>
       </table>
     </div>
@@ -1211,6 +1246,12 @@ function _bindPlanEvents(area, totalEval, totalCost) {
       _planSettings.retireExtraExpense   = _planNumber(($el('retire-extra-expense')?.value || '').replace(/,/g, ''), 0);
       _planSettings.retireOtherIncome    = _planNumber(($el('retire-other-income')?.value || '').replace(/,/g, ''), 0);
       _planSettings.retireLoanMode       = $el('retire-loan-mode')?.value === 'payoff' ? 'payoff' : 'maintain';
+      const optionalNumber = id => { const value = $el(id)?.value?.replace?.(/,/g, '').trim(); return value ? _planNumber(value, null) : null; };
+      _planSettings.pensionStartAge = optionalNumber('pension-start-age');
+      _planSettings.annualPensionWithdrawal = optionalNumber('pension-annual-withdrawal');
+      _planSettings.pensionWithdrawalYears = optionalNumber('pension-withdrawal-years');
+      _planSettings.pensionReturnRate = optionalNumber('pension-return-rate');
+      _planSettings.pensionTaxRate = optionalNumber('pension-tax-rate');
       _savePlanSettings();
       showToast('은퇴 포트폴리오 기준 저장 완료', 'ok');
       renderView(true);

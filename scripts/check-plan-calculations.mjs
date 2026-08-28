@@ -3,8 +3,9 @@ import calculations from '../src/web/domain/plan/plan_calculations.js';
 
 const {
   calculateAccountLiquidity, calculateDividendCashflow, aggregateLoanScheduleByYear,
+  validateLoanScheduleDates,
   calculateBuyingRecommendations, calculateForeignStockTax, calculateIsaSettlementEstimate,
-  calculateRetirementCashflow, calculateRealizedGainFromTrades,
+  calculateIsaPeriodEstimates, calculateRetirementCashflow, calculateRealizedGainFromTrades, assessRetirementStatus,
 } = calculations;
 
 const buying = calculateBuyingRecommendations({ currentTotalValue: 100_000_000, newCash: 20_000_000, items: [{ name: '검증종목', currentValue: 10_000_000, targetPct: 20, price: 50_000 }] });
@@ -32,6 +33,8 @@ const annualLoan = aggregateLoanScheduleByYear({ schedule }).byYear[2030];
 assert.equal(annualLoan.principal, 1_200_000);
 assert.equal(annualLoan.interest, 120_000);
 assert.equal(annualLoan.totalPayment, 1_320_000);
+const dateCheck = validateLoanScheduleDates({ startDate:'2023-06-02', schedule:[{date:'2023-04'}], remainingMonths:440, asOfMonth:'2026-08' });
+assert.equal(dateCheck.warnings.length, 2);
 
 const baseRetirement = { currentYear: 2030, currentAge: 60, retirementAge: 60, availableAssets: 100_000_000, monthlyLivingExpense: 1_000_000, postRetirementReturnRate: 0, retirementYears: 30, loanSchedule: schedule, loanBalanceAtRetirement: 1_200_000 };
 const thirty = calculateRetirementCashflow(baseRetirement);
@@ -46,20 +49,44 @@ assert.equal(payoff.payoffAmount, 1_200_000);
 assert.equal(payoff.rows[0].loanPrincipal, 1_200_000);
 assert.equal(payoff.rows[0].loanInterest, 0);
 assert.equal(payoff.rows[1].loanPayment, 0);
-const pensionTransfer = calculateRetirementCashflow({ currentYear: 2030, currentAge: 54, retirementAge: 54, retirementYears: 3, availableAssets: 10_000_000, pensionAssets: 20_000_000 });
-assert.equal(pensionTransfer.rows[0].pensionTransfer, 0);
-assert.equal(pensionTransfer.rows[1].pensionTransfer, 20_000_000);
-assert.equal(pensionTransfer.pensionTransferred, 20_000_000);
+assert.equal(payoff.rows[0].endingAssets, 86_800_000, '상환액은 기말자산에서 정확히 한 번만 차감');
+for (const row of payoff.rows) {
+  assert.equal(row.endingAssets, row.beginningAssets + row.investmentReturn + row.additionalInvestment + row.availableIncome - row.livingExpense - (row.educationExpense || 0) - (row.taxExpense || 0) - row.loanCashOutflow - row.otherExpense, `${row.year}년 현금흐름 항등식`);
+}
+const pensionTransfer = calculateRetirementCashflow({ currentYear: 2030, currentAge: 54, retirementAge: 54, retirementYears: 4, availableAssets: 10_000_000, pensionAssets: 20_000_000, pensionStartAge:55, annualPensionWithdrawal:2_000_000, pensionWithdrawalYears:2, pensionReturnRate:10, pensionTaxRate:5 });
+assert.equal(pensionTransfer.rows[1].pensionTransfer, 0);
+assert.equal(pensionTransfer.pensionTransferred, 0);
+assert.equal(pensionTransfer.rows[1].pensionWithdrawal, 2_000_000);
+assert.equal(pensionTransfer.rows[1].pensionEndingAssets, 22_200_000);
+assert.equal(pensionTransfer.rows[1].taxExpense, 100_000);
+assert.equal(pensionTransfer.rows[3].pensionWithdrawal, 0, '수령기간 종료 후 인출 없음');
+for (const row of pensionTransfer.rows) assert.equal(row.endingAssets, row.beginningAssets + row.investmentReturn + row.additionalInvestment + row.availableIncome - row.livingExpense - (row.educationExpense || 0) - (row.taxExpense || 0) - row.loanCashOutflow - row.otherExpense);
 const accumulationLoan = calculateRetirementCashflow({ currentYear: 2030, currentAge: 40, retirementAge: 42, retirementYears: 1, availableAssets: 10_000_000, monthlyInvestment: 1_000_000, loanSchedule: schedule });
 assert.equal(accumulationLoan.rows[0].loanPrincipal, 1_200_000);
 assert.equal(accumulationLoan.rows[0].loanInterest, 120_000);
 assert.equal(accumulationLoan.rows[0].loanDeductedFromAssets, false);
+assert.equal(accumulationLoan.rows[0].endingAssets, 22_000_000);
+const datedSchedule = [{date:'2026-07',principal:100,interest:10,balance:900},{date:'2026-09',principal:200,interest:20,balance:700}];
+const afterAsOf = calculateRetirementCashflow({ currentYear:2026,currentAge:60,retirementAge:60,retirementYears:1,availableAssets:1_000,loanSchedule:datedSchedule,asOfDate:'2026-08-28' });
+assert.equal(afterAsOf.rows[0].loanPayment, 220, '기준월 이전 지급액 제외');
+
+assert.equal(assessRetirementStatus({ retirement:{ sustainable:false,depletionYear:2040,minimumBalance:-1,pensionSettingsMissing:false } }).code, 'INSUFFICIENT');
+assert.equal(assessRetirementStatus({ retirement:{ sustainable:true,depletionYear:null,minimumBalance:1,pensionSettingsMissing:false }, unclassifiedAssets:1 }).code, 'REVIEW_REQUIRED');
+assert.equal(assessRetirementStatus({ retirement:{ sustainable:true,depletionYear:null,minimumBalance:1,pensionSettingsMissing:false } }).code, 'SUSTAINABLE');
+assert.equal(assessRetirementStatus({ retirement:{ sustainable:true,depletionYear:null,minimumBalance:1,pensionSettingsMissing:false }, missingRequiredSettings:true }).code, 'REVIEW_REQUIRED');
+const otherIncomeSustains = calculateRetirementCashflow({currentYear:2030,currentAge:60,retirementAge:60,retirementYears:30,availableAssets:10_000_000,monthlyLivingExpense:1_000_000,annualOtherIncome:12_000_000,withdrawalRate:4});
+assert.equal(otherIncomeSustains.sustainable,true,'단순 FIRE 미달이어도 기타소득으로 유지');
 
 const isa = calculateIsaSettlementEstimate({ unrealizedGain: 10_000_000 });
 assert.equal(isa.estimatedSettlementTax, 0);
 assert.equal(isa.unrealizedGain, 10_000_000);
 assert.equal(calculateIsaSettlementEstimate({ realizedGain: 5_000_000, isaType: 'general' }).exemption, 2_000_000);
 assert.equal(calculateIsaSettlementEstimate({ realizedGain: 5_000_000, isaType: 'special' }).exemption, 4_000_000);
+const isaPeriods = calculateIsaPeriodEstimates({ selectedYear:{realizedGain:1_000_000}, cumulative:{realizedGain:5_000_000,unrealizedGain:10_000_000}, calculationDate:'2026-08-28', dataGaps:['이자 원장 미입력'] });
+assert.equal(isaPeriods.selectedYear.estimatedSettlementTax, 0);
+assert.equal(isaPeriods.cumulative.estimatedSettlementTax, 297_000);
+assert.equal(isaPeriods.cumulative.unrealizedGain, 10_000_000);
+assert.equal(isaPeriods.complete, false);
 assert.equal(calculateForeignStockTax({ realizedGain: 10_000_000 }).estimatedTax, 1_650_000);
 const realizedTrades = [
   { id:'1', date:'2026-01-01', tradeType:'buy', acct:'일반', name:'미국주식', qty:10, price:100, market:'US', taxType:'일반' },

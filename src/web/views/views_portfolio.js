@@ -185,7 +185,7 @@ function renderDonutCore() {
   const TYPE_CLASSIFY = r => {
     if (r.type==='펀드'||r.type==='TDF') return '펀드/TDF';
     // ★ [계좌별 taxType] 절세계좌 판별은 taxType(계좌 기준) 사용
-    const tx = r.taxType || (typeof getAcctTaxType === 'function' ? getAcctTaxType(r.acct) : '일반');
+    const tx = r.taxType || (typeof getAcctTaxType === 'function' ? getAcctTaxType(r.acct) : '');
     if (tx==='ISA'||tx==='IRP'||tx==='연금') return '절세계좌';
     if (!r.fund && isEtfByName(r.name)) return 'ETF';
     return '개별주식';

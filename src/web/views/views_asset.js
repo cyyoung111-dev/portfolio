@@ -98,6 +98,9 @@ function renderAssetView(area) {
         return `${kst.getUTCFullYear()}년 ${kst.getUTCMonth()+1}월 ${kst.getUTCDate()}일`;
       })()
     : '-';
+  const loanDateValidation = typeof PlanCalculations !== 'undefined'
+    ? PlanCalculations.validateLoanScheduleDates({ startDate:LOAN.startDate, schedule:LOAN_SCHEDULE, remainingMonths:LOAN.remainingMonths, asOfMonth:_kstMonthStr() })
+    : { warnings:[] };
   h += `<div class="card-12-p20">
     <div class="flex-between-mb14">
       <h4 class="h3-card">🏦 주담대 현황</h4>
@@ -135,6 +138,7 @@ function renderAssetView(area) {
       <div style="height:100%;width:${progressPct}%;background:linear-gradient(90deg,var(--amber),var(--gold));border-radius:4px;transition:width .4s"></div>
     </div>
     <div style="margin-top:8px;font-size:.70rem;color:var(--muted);text-align:right">총 이자 ${fmt(totalInterest)} · ${elapsedMonths}개월 납입 완료</div>
+    ${loanDateValidation.warnings.length ? `<div style="margin-top:10px;padding:8px 10px;border:1px solid var(--c-amber2-50);border-radius:8px;color:var(--amber);font-size:.70rem">⚠️ ${loanDateValidation.warnings.join(' ')} remainingMonths는 현재월 포함 여부를 원본 상환표와 확인해야 합니다.</div>` : ''}
   </div>`;
 
   // ── 상환스케줄 / 손익 차트 섹션 ──

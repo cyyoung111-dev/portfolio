@@ -9,6 +9,7 @@
     "domain/portfolio/portfolio_service.js",
     "domain/portfolio/data.js",
     "domain/plan/plan_calculations.js",
+    "domain/migration/backup_schema.js",
     "shared/table/views_table_state.js",
     "shared/table/views_table_filters.js",
     "shared/table/views_table.js",
