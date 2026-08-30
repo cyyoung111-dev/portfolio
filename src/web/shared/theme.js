@@ -255,38 +255,13 @@ const THEME_STORAGE_KEY = 'app_theme';
 const THEME_MODE_KEY = 'app_theme_mode';
 const FONT_STORAGE_KEY = 'app_font';
 const FONT_PRESETS = {
-  system: {
-    label: '시스템 기본 글꼴',
-    desc: '추가 다운로드 없이 기기의 기본 화면 글꼴 사용',
-    family: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Apple SD Gothic Neo','맑은 고딕','Malgun Gothic',sans-serif",
-  },
   pretendard: {
-    label: 'Pretendard',
-    desc: '설치된 환경에서 사용하는 균형 잡힌 한글과 숫자',
-    family: "'Pretendard Variable',Pretendard,'Noto Sans KR','맑은 고딕','Malgun Gothic',sans-serif",
-  },
-  noto_sans_kr: {
-    label: 'Noto Sans KR',
-    desc: '기본값 · 획 구분이 선명하고 작은 한글도 안정적',
-    family: "'Noto Sans KR','맑은 고딕','Malgun Gothic',sans-serif",
-  },
-  ibm_plex_sans_kr: {
-    label: 'IBM Plex Sans KR',
-    desc: '숫자 형태가 뚜렷한 데이터 화면용 서체',
-    family: "'IBM Plex Sans KR','맑은 고딕','Malgun Gothic',sans-serif",
-  },
-  gothic_a1: {
-    label: 'Gothic A1',
-    desc: '단정한 획과 넉넉한 자간의 화면용 고딕',
-    family: "'Gothic A1','맑은 고딕','Malgun Gothic',sans-serif",
-  },
-  nanum_gothic: {
-    label: 'Nanum Gothic',
-    desc: '친숙한 한글 형태와 안정적인 본문 가독성',
-    family: "'Nanum Gothic','맑은 고딕','Malgun Gothic',sans-serif",
+    label: 'Pretendard Variable',
+    desc: '전체 화면에 공통 적용되는 가변 한글 UI 글꼴',
+    family: "'Pretendard Variable',Pretendard,'Apple SD Gothic Neo','Malgun Gothic',sans-serif",
   },
 };
-let _currentFont = 'noto_sans_kr';
+let _currentFont = 'pretendard';
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
 const LEGACY_LIGHT_THEMES = ['light'];
 const THEME_VISIBLE_PRESETS = {
@@ -377,7 +352,8 @@ function loadTheme() {
 }
 
 function applyFont(fontKey, opts = {}) {
-  const normalized = FONT_PRESETS[fontKey] ? fontKey : 'noto_sans_kr';
+  // 기존 저장값은 데이터 호환성을 위해 읽되 UI 글꼴은 Pretendard로 정규화한다.
+  const normalized = FONT_PRESETS[fontKey] ? fontKey : 'pretendard';
   const preset = FONT_PRESETS[normalized];
   document.documentElement.style.setProperty('--font-ui', preset.family);
   document.documentElement.dataset.appFont = normalized;
@@ -387,7 +363,7 @@ function applyFont(fontKey, opts = {}) {
 }
 
 function loadFont() {
-  const saved = typeof lsGet === 'function' ? lsGet(FONT_STORAGE_KEY, 'noto_sans_kr') : 'noto_sans_kr';
+  const saved = typeof lsGet === 'function' ? lsGet(FONT_STORAGE_KEY, 'pretendard') : 'pretendard';
   applyFont(saved, { skipSave: true });
 }
 
@@ -408,7 +384,7 @@ function _buildFontSelectorHTML() {
   }).join('');
   return `<div>
     <div style="font-size:.70rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔤 글꼴 선택</div>
-    <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">선택한 글꼴은 GAS에 저장되어 다른 기기에도 동일하게 적용됩니다.</div>
+    <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">모든 기기와 화면에 Pretendard Variable을 동일하게 적용합니다.</div>
     <div style="display:flex;flex-direction:column;gap:6px">${buttons}</div>
   </div>`;
 }
@@ -504,9 +480,7 @@ function switchSettingsTab(tab) {
     if (!panel || !btn) return;
     const isActive = p === tab;
     panel.style.display = isActive ? 'block' : 'none';
-    btn.style.borderBottom = isActive ? '2px solid var(--amber)' : '2px solid transparent';
-    btn.style.background = isActive ? 'var(--c-amber-08)' : 'transparent';
-    btn.style.color = isActive ? 'var(--gold)' : 'var(--muted)';
+    btn.classList.toggle('is-active', isActive);
   });
 
   const resetBtn = document.getElementById('settingsResetBtn');

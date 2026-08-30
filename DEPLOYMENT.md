@@ -1,5 +1,13 @@
 # Deployment Notes
 
+## 정적 자산·서비스워커 캐시 갱신
+
+- CSS 또는 JS를 수정하면 `src/web/index.html`의 해당 파일 `?v=YYYYMMDD-N`과 `src/web/sw.js`의 precache URL을 같은 값으로 갱신합니다.
+- 서비스워커 등록 URL, `CACHE_NAME`, 핵심 precache 자산은 동일한 배포 버전을 사용합니다. 활성화 단계에서 이전 `portfolio-cache-*`를 삭제합니다.
+- 동일 출처 정적 자산은 네트워크 우선 및 HTTP 캐시 우회로 조회하고, 오프라인일 때만 현재 서비스워커 캐시를 사용합니다. 내비게이션 요청은 오프라인에서 precache된 `index.html`로 대체합니다.
+- 배포 후 기존 브라우저에서 앱을 닫았다 다시 열어 새 서비스워커가 활성화되는지, 개발자 도구 Application의 Cache Storage에 현재 캐시 하나만 남는지 확인합니다.
+- `npm run check:typography`는 HTML의 CSS·서비스워커 등록 버전과 서비스워커의 캐시·precache 버전 일치를 함께 검사합니다.
+
 ## Canonical web root
 
 - 운영/로컬 정적 서버의 canonical web root는 `src/web`입니다.
