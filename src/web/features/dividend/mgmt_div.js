@@ -345,12 +345,15 @@ async function _fetchDividendSource(action, codeItems, extraParams) {
   if (action === 'dividendPublic') {
     params.names = codeItems.map(ep => ep.name || '').join('|');
   }
-  const url = buildGsheetActionUrl(action, params);
   // ★ [버그수정] dividendPublic은 종목당 공공데이터 API를 2회씩(상장정보+배당정보) 순차 호출하므로
   //   종목 수가 많으면(30개 이상) 45초를 넘겨 중간에 abort되는 문제가 있었음 → 150초로 상향
-  const res = await fetchWithTimeout(url, action === 'dividendPublic' ? 150000 : 65000);
-  if (!res.ok) throw new Error(action + ' HTTP ' + res.status);
-  const data = await res.json();
+  // 접근 토큰이 설정된 브라우저에서는 공통 유틸이 인증 form POST로 전환합니다.
+  const data = await requestGsheetActionJson(
+    action,
+    params,
+    { timeoutMs: action === 'dividendPublic' ? 150000 : 65000, retry: 0 }
+  );
+  if (!data) throw new Error(action + ' 네트워크 응답 없음');
   if (data.status !== 'ok' || !data.dividends) throw new Error(data.message || action + ' 응답 오류');
   return data.dividends;
 }
