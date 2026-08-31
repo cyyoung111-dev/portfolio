@@ -1,15 +1,25 @@
 // ════════════════════════════════════════════════════════════════
 //  sw.js — 서비스워커 (PWA 오프라인 캐싱)
-//  캐시 버전을 올리면(예: v2, v3) 브라우저가 자동으로 새 파일을 받습니다.
-//  파일을 대량 수정해서 배포할 때는 CACHE_NAME 뒤 숫자만 바꿔주세요.
+//  정적 파일 배포 시 CACHE_NAME과 PRECACHE_URLS의 쿼리 버전을 함께 올립니다.
 // ════════════════════════════════════════════════════════════════
-const CACHE_NAME = 'portfolio-cache-v23';
+const CACHE_NAME = 'portfolio-cache-20260831-4';
 
 // 오프라인에서도 최소한 앱 껍데기는 뜨도록 미리 저장해둘 파일들
 const PRECACHE_URLS = [
   './',
   './index.html',
   './manifest.json',
+  './styles/base.css?v=20260831-2',
+  './shared/theme.js?v=20260831-1',
+  './domain/portfolio/data.js?v=20260831-4',
+  './domain/plan/plan_calculations.js?v=20260831-4',
+  './views/views_asset.js?v=20260831-3',
+  './views/views_portfolio.js?v=20260830-1',
+  './views/views_plan.js?v=20260831-4',
+  './views/views_asset_schedule_data.js?v=20260831-4',
+  './views/views_system.js?v=20260830-1',
+  './features/settings/settings.js?v=20260830-1',
+  './features/settings/settings_fetch.js?v=20260831-4',
 ];
 
 // 설치 시: 기본 파일 미리 캐싱
@@ -48,7 +58,8 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    fetch(request)
+    // HTTP 캐시도 우회해 재접속 시 배포된 최신 응답을 우선 확인한다.
+    fetch(request, { cache: 'no-store' })
       .then((response) => {
         // 실패/리다이렉트/opaque 응답은 캐시하지 않아 오프라인 캐시 오염을 줄입니다.
         if (response.ok && response.type === 'basic') {
@@ -59,7 +70,11 @@ self.addEventListener('fetch', (event) => {
       })
       .catch(() => {
         // 네트워크 실패(오프라인) 시 캐시에서 꺼내기
-        return caches.match(request);
+        return caches.match(request).then((cached) => {
+          if (cached) return cached;
+          if (request.mode === 'navigate') return caches.match('./index.html');
+          return Response.error();
+        });
       })
   );
 });

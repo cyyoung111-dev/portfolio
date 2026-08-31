@@ -35,6 +35,9 @@ assert.equal(annualLoan.interest, 120_000);
 assert.equal(annualLoan.totalPayment, 1_320_000);
 const dateCheck = validateLoanScheduleDates({ startDate:'2023-06-02', schedule:[{date:'2023-04'}], remainingMonths:440, asOfMonth:'2026-08' });
 assert.equal(dateCheck.warnings.length, 2);
+const currentMonthReflected = validateLoanScheduleDates({ startDate:'2023-04-09', schedule:[{date:'2023-04'},{date:'2026-08'},{date:'2026-09'}], remainingMonths:1, asOfMonth:'2026-08' });
+assert.equal(currentMonthReflected.futureRows, 1);
+assert.deepEqual(currentMonthReflected.warnings, []);
 
 const baseRetirement = { currentYear: 2030, currentAge: 60, retirementAge: 60, availableAssets: 100_000_000, monthlyLivingExpense: 1_000_000, postRetirementReturnRate: 0, retirementYears: 30, loanSchedule: schedule, loanBalanceAtRetirement: 1_200_000 };
 const thirty = calculateRetirementCashflow(baseRetirement);

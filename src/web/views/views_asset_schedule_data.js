@@ -156,7 +156,8 @@ function _promptLoanFromSchedule(schedule) {
   if (!curRow) return;
 
   const totalMonths     = schedule.length;
-  const remainingMonths = schedule.filter(r => r.date >= todayStr).length;
+  // 현재월 행의 잔액·이자를 반영한 뒤이므로 다음 달 이후만 잔여 개월이다.
+  const remainingMonths = schedule.filter(r => r.date > todayStr).length;
   const totalInterestPaid = schedule
     .filter(r => r.date <= todayStr)
     .reduce((s, r) => s + (r.interest || 0), 0);
