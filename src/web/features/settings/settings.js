@@ -204,7 +204,7 @@ function saveSettings(immediate) {
           SAVED_PRICE_DATES: savedPriceDates,
           APP_THEME: (typeof lsGet === 'function') ? lsGet('app_theme', 'ocean') : 'ocean',
           APP_THEME_MODE: (typeof lsGet === 'function') ? lsGet('app_theme_mode', 'dark') : 'dark',
-          APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'noto_sans_kr') : 'noto_sans_kr',
+          APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'pretendard') : 'pretendard',
           // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
           // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
           DIVDATA,
@@ -288,17 +288,16 @@ async function loadSettings(onProgress) {
     if (s.APP_THEME && typeof lsSave === 'function') {
       lsSave('app_theme', s.APP_THEME);
     }
-    if (s.APP_FONT && typeof lsSave === 'function') {
-      lsSave('app_font', s.APP_FONT);
-    }
+    const restoredFont = s.APP_FONT === 'system' ? 'system' : 'pretendard';
+    if (typeof lsSave === 'function') lsSave('app_font', restoredFont);
     // 비밀키 원문은 GAS Script Properties에만 두고 브라우저에는 상태만 복원합니다.
     lsRemove('public_data_api_key');
     lsRemove('krx_auth_key');
     if (typeof applyTheme === 'function' && s.APP_THEME) {
       applyTheme(s.APP_THEME, { skipModeSave: true });
     }
-    if (typeof applyFont === 'function' && s.APP_FONT) {
-      applyFont(s.APP_FONT, { skipSave: true });
+    if (typeof applyFont === 'function') {
+      applyFont(restoredFont, { skipSave: true });
     }
 
     // ACCT_COLORS

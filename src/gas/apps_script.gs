@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.77
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.78
+//
+//  v9.78 변경사항 (2026.08.31):
+//   ✅ [주담대] 현재월 납입 후 잔액 반영 시 잔여기간은 다음 달 이후 스케줄만 계산
 //
 //  v9.77 변경사항 (2026.08.28):
 //   ✅ [세금] 종목코드 시트에 명시적 시장(KR/US/OTHER) 필드를 저장·복원
@@ -5367,7 +5370,8 @@ function syncMortgageFromSchedule() {
     });
     if (!current) return { updated: false, reason: '현재월 이전 스케줄 없음' };
 
-    var remaining = valid.filter(function(row) { return String(row.date).slice(0, 7) >= month; }).length;
+    // 현재월 행의 납입 후 잔액·이자를 반영하므로 다음 달 이후만 잔여 개월이다.
+    var remaining = valid.filter(function(row) { return String(row.date).slice(0, 7) > month; }).length;
     var interestPaid = valid.filter(function(row) { return String(row.date).slice(0, 7) <= month; })
       .reduce(function(sum, row) { return sum + (Number(row.interest) || 0); }, 0);
     var nextBalance = Number(current.balance) || 0;
@@ -5425,7 +5429,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.77' });
+    return jsonOk({ settings: settings, gasVersion: '9.78' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5447,7 +5451,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.77'
+      gasVersion: '9.78'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
