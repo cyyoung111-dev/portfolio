@@ -32,7 +32,7 @@ for (const selector of ['.sc .lbl','.sc .sub','.f-btn','.f-btn-sm','.date-badge'
 assert.match(css, /@media\(max-width:768px\)[\s\S]*\.sum-row-2 \.lbl,[\s\S]*font-size:var\(--type-caption\)/);
 assert.match(css, /@media\(max-width:768px\)[\s\S]*\.settings-tab \{[\s\S]*min-height:40px/);
 assert.match(theme, /lsGet\(FONT_STORAGE_KEY, 'pretendard'\)/);
-assert.match(settings, /APP_FONT: 'pretendard'/);
+assert.match(settings, /APP_FONT: \(typeof lsGet === 'function'\) \? lsGet\('app_font', 'pretendard'\) : 'pretendard'/);
 assert.doesNotMatch(html, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
 assert.doesNotMatch(html, /Noto\+Sans|Gothic\+A1|IBM\+Plex|Nanum\+Gothic/);
 const coreUiIndex = html.indexOf('<script defer src="core/core_ui.js"></script>');
@@ -41,7 +41,9 @@ assert.ok(coreUiIndex >= 0 && themeIndex >= 0 && coreUiIndex < themeIndex, 'core
 assert.match(coreUi, /function _escapeHtml\s*\(/, '_escapeHtml 정의 누락');
 assert.match(theme, /loadTheme\(\);\s*loadFont\(\);/, '테마·글꼴 초기화 호출 누락');
 const fontPresetBlock = theme.match(/const FONT_PRESETS = \{([\s\S]*?)\n\};/)?.[1] || '';
-assert.equal((fontPresetBlock.match(/^[ ]{2}[a-z0-9_]+:/gm) || []).length, 1, '단일 글꼴 preset만 허용');
+assert.equal((fontPresetBlock.match(/^[ ]{2}[a-z0-9_]+:/gm) || []).length, 2, 'Pretendard와 시스템 기본 글꼴만 허용');
+assert.match(fontPresetBlock, /^  system:/m, '시스템 기본 글꼴 preset 누락');
+assert.match(fontPresetBlock, /^  pretendard:/m, 'Pretendard preset 누락');
 const assetVersion = html.match(/styles\/base\.css\?v=([0-9-]+)/)?.[1];
 assert.ok(assetVersion, 'CSS 캐시 버전 누락');
 assert.ok(serviceWorker.includes(`./styles/base.css?v=${assetVersion}`), '서비스워커 CSS precache 버전 불일치');

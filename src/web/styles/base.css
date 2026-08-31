@@ -940,6 +940,19 @@ input[type="number"]{
   --control-height-md:38px;
   --control-height-lg:44px;
 }
+/* Pretendard는 고정하고 정보 밀도만 선택적으로 낮춘다. 일반 문구는 12px 미만으로 줄이지 않는다. */
+html[data-ui-density="compact"]{
+  --type-caption:.75rem;
+  --type-label:.75rem;
+  --type-body:.8125rem;
+  --type-value:.9375rem;
+  --type-title:.9375rem;
+  --line-body:1.45;
+  --line-reading:1.5;
+  --control-height-sm:30px;
+  --control-height-md:34px;
+  --control-height-lg:40px;
+}
 body{font-weight:400}
 p,.txt-muted-68,.txt-muted-72,.txt-muted-75,.txt-73-muted{line-height:var(--line-reading)}
 .h3-card,.tbl-head h3{font-size:var(--type-title);font-weight:700;line-height:1.35}
@@ -1076,6 +1089,7 @@ table,.num,.mono,input[type="number"]{font-variant-numeric:tabular-nums}
 @media(max-width:768px){
   html{font-size:var(--font-size-body-mobile)}
   :root{--type-caption:.8rem;--type-label:.875rem;--type-body:.933rem;--type-value:1rem}
+  html[data-ui-density="compact"]{--type-caption:.8rem;--type-label:.8125rem;--type-body:.9rem;--type-value:.933rem;--type-title:.933rem;--control-height-sm:32px;--control-height-md:40px;--control-height-lg:40px}
   .sc .lbl,.sc .sub{font-size:var(--type-caption)}
   th{font-size:var(--type-caption)}
   td{font-size:var(--type-body)}

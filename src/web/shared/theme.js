@@ -254,7 +254,13 @@ const THEMES = {
 const THEME_STORAGE_KEY = 'app_theme';
 const THEME_MODE_KEY = 'app_theme_mode';
 const FONT_STORAGE_KEY = 'app_font';
+const DENSITY_STORAGE_KEY = 'app_density';
 const FONT_PRESETS = {
+  system: {
+    label: '시스템 기본 글꼴',
+    desc: '추가 다운로드 없이 운영체제의 기본 UI 글꼴을 사용합니다.',
+    family: "system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI','Apple SD Gothic Neo','Malgun Gothic',sans-serif",
+  },
   pretendard: {
     label: 'Pretendard Variable',
     desc: '전체 화면에 공통 적용되는 가변 한글 UI 글꼴',
@@ -262,6 +268,7 @@ const FONT_PRESETS = {
   },
 };
 let _currentFont = 'pretendard';
+let _currentDensity = 'default';
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
 const LEGACY_LIGHT_THEMES = ['light'];
 const THEME_VISIBLE_PRESETS = {
@@ -352,7 +359,7 @@ function loadTheme() {
 }
 
 function applyFont(fontKey, opts = {}) {
-  // 기존 저장값은 데이터 호환성을 위해 읽되 UI 글꼴은 Pretendard로 정규화한다.
+  // 지원하지 않는 기존 저장값만 Pretendard로 정규화한다.
   const normalized = FONT_PRESETS[fontKey] ? fontKey : 'pretendard';
   const preset = FONT_PRESETS[normalized];
   document.documentElement.style.setProperty('--font-ui', preset.family);
@@ -365,6 +372,19 @@ function applyFont(fontKey, opts = {}) {
 function loadFont() {
   const saved = typeof lsGet === 'function' ? lsGet(FONT_STORAGE_KEY, 'pretendard') : 'pretendard';
   applyFont(saved, { skipSave: true });
+}
+
+function applyDensity(densityKey, opts = {}) {
+  const normalized = densityKey === 'compact' ? 'compact' : 'default';
+  document.documentElement.dataset.uiDensity = normalized;
+  _currentDensity = normalized;
+  if (!opts.skipSave && typeof lsSave === 'function') lsSave(DENSITY_STORAGE_KEY, normalized);
+  _refreshThemeSelectorIfOpen();
+}
+
+function loadDensity() {
+  const saved = typeof lsGet === 'function' ? lsGet(DENSITY_STORAGE_KEY, 'default') : 'default';
+  applyDensity(saved, { skipSave: true });
 }
 
 function _buildFontSelectorHTML() {
@@ -382,10 +402,24 @@ function _buildFontSelectorHTML() {
       <div style="font-size:.76rem;font-weight:600;margin-top:6px;font-variant-numeric:tabular-nums">${sample}</div>
     </button>`;
   }).join('');
+  const densityButtons = [
+    ['default', '기본', '현재 가독성과 여백을 유지합니다.'],
+    ['compact', '컴팩트', '최소 12px을 유지하며 본문과 컨트롤 밀도를 낮춥니다.'],
+  ].map(([key, label, desc]) => {
+    const active = key === _currentDensity;
+    return `<button type="button" data-theme-action="density" data-density-key="${key}"
+      style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid ${active ? 'var(--amber)' : 'var(--border)'};
+             background:${active ? 'var(--c-amber-08)' : 'var(--s1)'};color:var(--text);cursor:pointer;text-align:left">
+      <div style="font-size:.80rem;font-weight:700">${label}${active ? ' <span style="color:var(--gold);font-size:.68rem">현재 적용</span>' : ''}</div>
+      <div style="font-size:.75rem;color:var(--muted);margin-top:2px">${desc}</div>
+    </button>`;
+  }).join('');
   return `<div>
     <div style="font-size:.70rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔤 글꼴 선택</div>
     <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">모든 기기와 화면에 Pretendard Variable을 동일하게 적용합니다.</div>
     <div style="display:flex;flex-direction:column;gap:6px">${buttons}</div>
+    <div style="font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">↔ 화면 밀도</div>
+    <div style="display:flex;flex-direction:column;gap:6px">${densityButtons}</div>
   </div>`;
 }
 
@@ -471,6 +505,7 @@ function _renderThemeButtons() {
 
 loadTheme();
 loadFont();
+loadDensity();
 
 function switchSettingsTab(tab) {
   const panels = ['tab', 'theme', 'font'];
