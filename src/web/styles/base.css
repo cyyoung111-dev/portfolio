@@ -1245,9 +1245,35 @@ input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):
   }
 }
 
-/* 사용자가 직접 선택한 경우에만 최소 12px 제한을 완화한다. 숫자는 caption의 실제 px 크기다. */
-html[data-ui-font-size="8"]{--type-caption:8px;--type-label:9px;--type-body:10px;--type-value:12px;--type-title:12px}
-html[data-ui-font-size="9"]{--type-caption:9px;--type-label:10px;--type-body:11px;--type-value:13px;--type-title:13px}
-html[data-ui-font-size="10"]{--type-caption:10px;--type-label:11px;--type-body:12px;--type-value:14px;--type-title:14px}
-html[data-ui-font-size="11"]{--type-caption:11px;--type-label:12px;--type-body:13px;--type-value:15px;--type-title:15px}
-html[data-ui-font-size="12"]{--type-caption:12px;--type-label:13px;--type-body:14px;--type-value:16px;--type-title:16px}
+/* UI 크기는 글자뿐 아니라 컨트롤·모서리·간격을 같은 단계로 조절한다. */
+html[data-ui-font-size="8"]{--type-caption:8px;--type-label:9px;--type-body:10px;--type-value:12px;--type-title:12px;--line-body:1.35;--line-reading:1.4;--radius-control:4px;--radius-card:8px;--radius-panel:10px;--space-xs:2px;--space-sm:4px;--space-md:6px;--space-lg:8px;--space-xl:10px;--control-height-sm:22px;--control-height-md:26px;--control-height-lg:30px;--ui-card-padding:8px;--ui-cell-y:5px;--ui-cell-x:7px}
+html[data-ui-font-size="9"]{--type-caption:9px;--type-label:10px;--type-body:11px;--type-value:13px;--type-title:13px;--line-body:1.4;--line-reading:1.45;--radius-control:5px;--radius-card:9px;--radius-panel:11px;--space-xs:3px;--space-sm:5px;--space-md:8px;--space-lg:10px;--space-xl:12px;--control-height-sm:24px;--control-height-md:28px;--control-height-lg:32px;--ui-card-padding:10px;--ui-cell-y:6px;--ui-cell-x:8px}
+html[data-ui-font-size="10"]{--type-caption:10px;--type-label:11px;--type-body:12px;--type-value:14px;--type-title:14px;--line-body:1.45;--line-reading:1.5;--radius-control:6px;--radius-card:10px;--radius-panel:12px;--space-xs:3px;--space-sm:6px;--space-md:9px;--space-lg:12px;--space-xl:15px;--control-height-sm:26px;--control-height-md:30px;--control-height-lg:34px;--ui-card-padding:12px;--ui-cell-y:7px;--ui-cell-x:10px}
+html[data-ui-font-size="11"]{--type-caption:11px;--type-label:12px;--type-body:13px;--type-value:15px;--type-title:15px;--line-body:1.5;--line-reading:1.55;--radius-control:7px;--radius-card:11px;--radius-panel:14px;--space-xs:4px;--space-sm:7px;--space-md:10px;--space-lg:14px;--space-xl:17px;--control-height-sm:28px;--control-height-md:34px;--control-height-lg:38px;--ui-card-padding:14px;--ui-cell-y:9px;--ui-cell-x:12px}
+html[data-ui-font-size="12"]{--type-caption:12px;--type-label:13px;--type-body:14px;--type-value:16px;--type-title:16px;--line-body:1.55;--line-reading:1.65;--radius-control:8px;--radius-card:12px;--radius-panel:16px;--space-xs:4px;--space-sm:8px;--space-md:12px;--space-lg:16px;--space-xl:20px;--control-height-sm:32px;--control-height-md:38px;--control-height-lg:44px;--ui-card-padding:16px;--ui-cell-y:11px;--ui-cell-x:16px}
+
+html[data-ui-font-size] input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):not([type=range]),
+html[data-ui-font-size] select,
+html[data-ui-font-size] textarea,
+html[data-ui-font-size] .settings-dialog button{min-height:var(--control-height-md);border-radius:var(--radius-control)}
+html[data-ui-font-size] .btn-sm,html[data-ui-font-size] .btn-ghost-sm,html[data-ui-font-size] .btn-cancel-sm,
+html[data-ui-font-size] .btn-edit-sm,html[data-ui-font-size] .btn-del-sm,html[data-ui-font-size] .btn-outline-sm,
+html[data-ui-font-size] .btn-purple-sm,html[data-ui-font-size] .f-btn,html[data-ui-font-size] .f-btn-sm,
+html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padding:var(--space-xs) var(--space-sm);border-radius:var(--radius-control)}
+html[data-ui-font-size] .btn-amber,html[data-ui-font-size] .btn-apply,html[data-ui-font-size] .btn-cancel,
+html[data-ui-font-size] .btn-ghost-muted,html[data-ui-font-size] .toolbar-btn,html[data-ui-font-size] .vs-btn,
+html[data-ui-font-size] .action-refresh-btn,html[data-ui-font-size] .settings-tab{min-height:var(--control-height-md);padding:var(--space-sm) var(--space-md);border-radius:var(--radius-control)}
+html[data-ui-font-size] .sc,html[data-ui-font-size] .chart-card,html[data-ui-font-size] .stat-card,
+html[data-ui-font-size] .trade-stat-card,html[data-ui-font-size] .div-stat-card,html[data-ui-font-size] .card-12,
+html[data-ui-font-size] .card-12-mb16,html[data-ui-font-size] .card-12-p20{padding:var(--ui-card-padding);border-radius:var(--radius-card)}
+html[data-ui-font-size] th,html[data-ui-font-size] td{padding:var(--ui-cell-y) var(--ui-cell-x)}
+html[data-ui-font-size] .tbl-head,html[data-ui-font-size] .settings-panel{padding:var(--space-md) var(--space-lg)}
+
+/* 모바일은 작은 UI를 선택해도 터치 영역을 32~40px 범위로 보존한다. */
+@media(max-width:768px){
+  html[data-ui-font-size="8"]{--control-height-sm:32px;--control-height-md:34px;--control-height-lg:36px}
+  html[data-ui-font-size="9"]{--control-height-sm:33px;--control-height-md:35px;--control-height-lg:37px}
+  html[data-ui-font-size="10"]{--control-height-sm:34px;--control-height-md:36px;--control-height-lg:38px}
+  html[data-ui-font-size="11"]{--control-height-sm:36px;--control-height-md:38px;--control-height-lg:40px}
+  html[data-ui-font-size="12"]{--control-height-sm:40px;--control-height-md:40px;--control-height-lg:44px}
+}

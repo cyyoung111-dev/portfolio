@@ -418,18 +418,6 @@ function _buildFontSelectorHTML() {
       <div style="font-size:.76rem;font-weight:600;margin-top:6px;font-variant-numeric:tabular-nums">${sample}</div>
     </button>`;
   }).join('');
-  const densityButtons = [
-    ['default', '기본', '현재 가독성과 여백을 유지합니다.'],
-    ['compact', '컴팩트', '최소 12px을 유지하며 본문과 컨트롤 밀도를 낮춥니다.'],
-  ].map(([key, label, desc]) => {
-    const active = key === _currentDensity;
-    return `<button type="button" data-theme-action="density" data-density-key="${key}"
-      style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid ${active ? 'var(--amber)' : 'var(--border)'};
-             background:${active ? 'var(--c-amber-08)' : 'var(--s1)'};color:var(--text);cursor:pointer;text-align:left">
-      <div style="font-size:.80rem;font-weight:700">${label}${active ? ' <span style="color:var(--gold);font-size:.68rem">현재 적용</span>' : ''}</div>
-      <div style="font-size:.75rem;color:var(--muted);margin-top:2px">${desc}</div>
-    </button>`;
-  }).join('');
   const sizeButtons = [8, 9, 10, 11, 12].map(size => {
     const active = size === _currentFontSize;
     return `<button type="button" data-theme-action="font-size" data-font-size="${size}"
@@ -442,10 +430,8 @@ function _buildFontSelectorHTML() {
     <div style="font-size:.70rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔤 글꼴 선택</div>
     <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">모든 기기와 화면에 Pretendard Variable을 동일하게 적용합니다.</div>
     <div style="display:flex;flex-direction:column;gap:6px">${buttons}</div>
-    <div style="font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">↔ 화면 밀도</div>
-    <div style="display:flex;flex-direction:column;gap:6px">${densityButtons}</div>
-    <div style="font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔎 글자 크기</div>
-    <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">각 숫자는 실제 표시 크기입니다. 8~11px은 작은 글자가 편한 경우에만 선택하세요.</div>
+    <div style="font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔎 UI 크기</div>
+    <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">글자·버튼·입력창·카드와 표 간격을 함께 조절합니다. 모바일 터치 영역은 단계별 최소 높이를 유지합니다.</div>
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">${sizeButtons}</div>
   </div>`;
 }

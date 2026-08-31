@@ -17,6 +17,9 @@ assert.match(css, /--font-size-body-mobile:15px/);
 for (const size of [8, 9, 10, 11, 12]) {
   assert.match(css, new RegExp(`html\\[data-ui-font-size="${size}"\\]\\{--type-caption:${size}px`), `${size}px 사용자 글자 크기 토큰 누락`);
 }
+assert.match(css, /html\[data-ui-font-size="8"\][^\n]+--control-height-sm:22px[^\n]+--ui-card-padding:8px/, '8단계 데스크톱 UI 크기 토큰 누락');
+assert.match(css, /@media\(max-width:768px\)[\s\S]+html\[data-ui-font-size="8"\]\{--control-height-sm:32px/, '8단계 모바일 터치 높이 절충 누락');
+assert.match(css, /html\[data-ui-font-size\] \.sc,[\s\S]+padding:var\(--ui-card-padding\)/, 'UI 크기 카드 패딩 연결 누락');
 assert.match(css, /\[data-view-section="plan"\][\s\S]+font-size:var\(--type-caption\)!important/);
 assert.match(css, /\[style\*="font-size:\.60rem"\][\s\S]+font-size:var\(--type-caption\)!important/);
 assert.match(css, /\[style\*="font-size:\.69rem"\][\s\S]+font-size:var\(--type-caption\)!important/);
