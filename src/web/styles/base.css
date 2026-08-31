@@ -164,11 +164,13 @@ html[data-theme-mode="light"] .btn-amber-sm{background:var(--gold);color:#fff}
   .asset-summary-grid,.asset-detail-grid,.plan-export-grid,.plan-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .card-12-p20{padding:14px 15px}
 }
+
 @media(max-width:480px){
   .asset-summary-grid,.asset-detail-grid,.plan-export-grid,.plan-metric-grid{gap:6px}
   .asset-summary-grid>div,.asset-detail-grid>div,.plan-export-grid>div,.plan-metric-grid>div{min-width:0;overflow-wrap:anywhere}
   .asset-detail-grid,.plan-metric-grid{grid-template-columns:1fr}
 }
+
 .hist-bench-btn.active{border-color:var(--amber);background:var(--c-amber-15);color:var(--gold);font-weight:700}
 .hist-bench-btn.hist-bench-btn-clear{border-style:dashed}
 
@@ -1242,3 +1244,10 @@ input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):
     min-height:40px;
   }
 }
+
+/* 사용자가 직접 선택한 경우에만 최소 12px 제한을 완화한다. 숫자는 caption의 실제 px 크기다. */
+html[data-ui-font-size="8"]{--type-caption:8px;--type-label:9px;--type-body:10px;--type-value:12px;--type-title:12px}
+html[data-ui-font-size="9"]{--type-caption:9px;--type-label:10px;--type-body:11px;--type-value:13px;--type-title:13px}
+html[data-ui-font-size="10"]{--type-caption:10px;--type-label:11px;--type-body:12px;--type-value:14px;--type-title:14px}
+html[data-ui-font-size="11"]{--type-caption:11px;--type-label:12px;--type-body:13px;--type-value:15px;--type-title:15px}
+html[data-ui-font-size="12"]{--type-caption:12px;--type-label:13px;--type-body:14px;--type-value:16px;--type-title:16px}

@@ -14,6 +14,9 @@ for (const token of ['--type-caption:.75rem','--type-label:.8125rem','--type-bod
 }
 assert.match(css, /--font-size-body:16px/);
 assert.match(css, /--font-size-body-mobile:15px/);
+for (const size of [8, 9, 10, 11, 12]) {
+  assert.match(css, new RegExp(`html\\[data-ui-font-size="${size}"\\]\\{--type-caption:${size}px`), `${size}px 사용자 글자 크기 토큰 누락`);
+}
 assert.match(css, /\[data-view-section="plan"\][\s\S]+font-size:var\(--type-caption\)!important/);
 assert.match(css, /\[style\*="font-size:\.60rem"\][\s\S]+font-size:var\(--type-caption\)!important/);
 assert.match(css, /\[style\*="font-size:\.69rem"\][\s\S]+font-size:var\(--type-caption\)!important/);

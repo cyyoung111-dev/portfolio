@@ -8,6 +8,7 @@ const saved = new Map([
   ['app_theme_mode', JSON.stringify('light')],
   ['app_font', JSON.stringify('noto_sans_kr')],
   ['app_density', JSON.stringify('compact')],
+  ['app_font_size', JSON.stringify(9)],
 ]);
 const cssVars = new Map();
 const elements = new Map();
@@ -49,6 +50,7 @@ for (const file of ['core/core_storage.js', 'core/core_ui.js', 'shared/theme.js'
 assert.equal(context.document.documentElement.dataset.themeMode, 'light', '저장된 테마 모드 복원 실패');
 assert.equal(context.document.documentElement.dataset.appFont, 'pretendard', '기존 글꼴 설정의 Pretendard 정규화 실패');
 assert.equal(context.document.documentElement.dataset.uiDensity, 'compact', '저장된 화면 밀도 복원 실패');
+assert.equal(context.document.documentElement.dataset.uiFontSize, '9', '저장된 글자 크기 복원 실패');
 assert.equal(cssVars.get('--bg'), '#f5f7fb', '저장된 light 테마 변수 적용 실패');
 assert.match(cssVars.get('--font-ui'), /Pretendard Variable/, 'Pretendard Variable 적용 실패');
 
@@ -57,10 +59,16 @@ assert.match(elements.get('themeSettingsBody').innerHTML, /data-theme-action="ap
 assert.match(elements.get('fontSettingsBody').innerHTML, /Pretendard Variable/, '글꼴 탭 렌더링 실패');
 assert.match(elements.get('fontSettingsBody').innerHTML, /시스템 기본 글꼴/, '시스템 기본 글꼴 선택 렌더링 실패');
 assert.match(elements.get('fontSettingsBody').innerHTML, /data-theme-action="density"/, '화면 밀도 선택 렌더링 실패');
+assert.match(elements.get('fontSettingsBody').innerHTML, /data-theme-action="font-size"/, '글자 크기 선택 렌더링 실패');
 vm.runInContext("applyFont('system');", context);
 assert.equal(context.document.documentElement.dataset.appFont, 'system', '시스템 기본 글꼴 적용 실패');
 assert.match(cssVars.get('--font-ui'), /system-ui/, '시스템 기본 글꼴 family 적용 실패');
 assert.equal(JSON.parse(saved.get('app_font')), 'system', '시스템 기본 글꼴 저장 실패');
+vm.runInContext("applyFontSize(8);", context);
+assert.equal(context.document.documentElement.dataset.uiFontSize, '8', '8px 글자 크기 적용 실패');
+assert.equal(JSON.parse(saved.get('app_font_size')), 8, '글자 크기 저장 실패');
+vm.runInContext("applyFontSize(20);", context);
+assert.equal(context.document.documentElement.dataset.uiFontSize, '12', '범위 밖 글자 크기 기본값 처리 실패');
 vm.runInContext("applyDensity('default');", context);
 assert.equal(JSON.parse(saved.get('app_density')), 'default', '변경한 화면 밀도 저장 실패');
 vm.runInContext("applyTheme('ocean');", context);

@@ -255,6 +255,7 @@ const THEME_STORAGE_KEY = 'app_theme';
 const THEME_MODE_KEY = 'app_theme_mode';
 const FONT_STORAGE_KEY = 'app_font';
 const DENSITY_STORAGE_KEY = 'app_density';
+const FONT_SIZE_STORAGE_KEY = 'app_font_size';
 const FONT_PRESETS = {
   system: {
     label: '시스템 기본 글꼴',
@@ -269,6 +270,7 @@ const FONT_PRESETS = {
 };
 let _currentFont = 'pretendard';
 let _currentDensity = 'default';
+let _currentFontSize = 12;
 const LEGACY_DARK_THEMES = ['ocean', 'black', 'amber', 'purple', 'forest', 'midnight', 'rose', 'dark'];
 const LEGACY_LIGHT_THEMES = ['light'];
 const THEME_VISIBLE_PRESETS = {
@@ -387,6 +389,20 @@ function loadDensity() {
   applyDensity(saved, { skipSave: true });
 }
 
+function applyFontSize(size, opts = {}) {
+  const parsed = Number.parseInt(size, 10);
+  const normalized = Number.isFinite(parsed) && parsed >= 8 && parsed <= 12 ? parsed : 12;
+  document.documentElement.dataset.uiFontSize = String(normalized);
+  _currentFontSize = normalized;
+  if (!opts.skipSave && typeof lsSave === 'function') lsSave(FONT_SIZE_STORAGE_KEY, normalized);
+  _refreshThemeSelectorIfOpen();
+}
+
+function loadFontSize() {
+  const saved = typeof lsGet === 'function' ? lsGet(FONT_SIZE_STORAGE_KEY, 12) : 12;
+  applyFontSize(saved, { skipSave: true });
+}
+
 function _buildFontSelectorHTML() {
   const sample = '총 평가금액 987,654,321원 · 수익률 +12.48%';
   const buttons = Object.entries(FONT_PRESETS).map(([key, preset]) => {
@@ -414,12 +430,23 @@ function _buildFontSelectorHTML() {
       <div style="font-size:.75rem;color:var(--muted);margin-top:2px">${desc}</div>
     </button>`;
   }).join('');
+  const sizeButtons = [8, 9, 10, 11, 12].map(size => {
+    const active = size === _currentFontSize;
+    return `<button type="button" data-theme-action="font-size" data-font-size="${size}"
+      style="min-height:40px;padding:6px 8px;border-radius:8px;border:1px solid ${active ? 'var(--amber)' : 'var(--border)'};
+             background:${active ? 'var(--c-amber-08)' : 'var(--s1)'};color:var(--text);cursor:pointer;font-size:${size}px;font-weight:700">
+      ${size}px${active ? ' ✓' : ''}
+    </button>`;
+  }).join('');
   return `<div>
     <div style="font-size:.70rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔤 글꼴 선택</div>
     <div style="font-size:.65rem;color:var(--muted);margin-bottom:8px">모든 기기와 화면에 Pretendard Variable을 동일하게 적용합니다.</div>
     <div style="display:flex;flex-direction:column;gap:6px">${buttons}</div>
     <div style="font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">↔ 화면 밀도</div>
     <div style="display:flex;flex-direction:column;gap:6px">${densityButtons}</div>
+    <div style="font-size:.75rem;font-weight:700;color:var(--muted);letter-spacing:.08em;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)">🔎 글자 크기</div>
+    <div style="font-size:.75rem;color:var(--muted);margin-bottom:8px">각 숫자는 실제 표시 크기입니다. 8~11px은 작은 글자가 편한 경우에만 선택하세요.</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px">${sizeButtons}</div>
   </div>`;
 }
 
@@ -506,6 +533,7 @@ function _renderThemeButtons() {
 loadTheme();
 loadFont();
 loadDensity();
+loadFontSize();
 
 function switchSettingsTab(tab) {
   const panels = ['tab', 'theme', 'font'];
