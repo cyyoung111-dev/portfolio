@@ -9,6 +9,11 @@
 - `npm run check:typography`는 HTML의 CSS·서비스워커 등록 버전과 서비스워커의 캐시·precache 버전 일치를 함께 검사합니다.
 - `core_ui.js`는 초기 테마 렌더링이 사용하는 `_escapeHtml()`을 제공하므로 `shared/theme.js`보다 먼저 로드해야 합니다.
 
+## GAS v9.78 주담대 잔여기간
+
+- 현재월 상환스케줄 행의 납입 후 잔액·이자는 현재 상태에 반영하고, `remainingMonths`는 다음 달 이후 스케줄 행만 계산합니다.
+- 웹과 GAS의 자동 동기화 기준을 맞추려면 `src/gas/apps_script.gs` v9.78을 새 버전으로 재배포해야 합니다.
+
 ## Canonical web root
 
 - 운영/로컬 정적 서버의 canonical web root는 `src/web`입니다.

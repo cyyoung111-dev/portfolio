@@ -44,11 +44,12 @@ const fontPresetBlock = theme.match(/const FONT_PRESETS = \{([\s\S]*?)\n\};/)?.[
 assert.equal((fontPresetBlock.match(/^[ ]{2}[a-z0-9_]+:/gm) || []).length, 1, '단일 글꼴 preset만 허용');
 const assetVersion = html.match(/styles\/base\.css\?v=([0-9-]+)/)?.[1];
 assert.ok(assetVersion, 'CSS 캐시 버전 누락');
-assert.match(serviceWorker, new RegExp(`portfolio-cache-${assetVersion}`));
 assert.ok(serviceWorker.includes(`./styles/base.css?v=${assetVersion}`), '서비스워커 CSS precache 버전 불일치');
 const themeVersion = html.match(/shared\/theme\.js\?v=([0-9-]+)/)?.[1];
 assert.ok(themeVersion && serviceWorker.includes(`./shared/theme.js?v=${themeVersion}`), '서비스워커 theme.js precache 버전 불일치');
-assert.ok(html.includes(`sw.js?v=${assetVersion}`), '서비스워커 등록 버전 불일치');
+const serviceWorkerVersion = html.match(/sw\.js\?v=([0-9-]+)/)?.[1];
+assert.ok(serviceWorkerVersion, '서비스워커 등록 버전 누락');
+assert.match(serviceWorker, new RegExp(`portfolio-cache-${serviceWorkerVersion}`));
 assert.doesNotMatch(css, /--font-size-body:1[0-4]px/);
 assert.match(systemView, /area\.dataset\.activeView = currentView/);
 for (const tabId of ['acct','sector','merge','trades','tradegroup','history','div','asset','plan']) {

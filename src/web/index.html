@@ -164,8 +164,8 @@
 <script defer src="core/core_color.js"></script>
 <script defer src="domain/state/data_state.js?v=20260826-1"></script>
 <script defer src="domain/portfolio/portfolio_service.js?v=20260819-2"></script>
-<script defer src="domain/portfolio/data.js?v=20260825-1"></script>
-<script defer src="domain/plan/plan_calculations.js?v=20260828-2"></script>
+<script defer src="domain/portfolio/data.js?v=20260831-4"></script>
+<script defer src="domain/plan/plan_calculations.js?v=20260831-4"></script>
 <script defer src="domain/migration/backup_schema.js?v=20260828-1"></script>
 <script defer src="shared/table/views_table_state.js"></script>
 <script defer src="shared/table/views_table_filters.js"></script>
@@ -176,10 +176,10 @@
 <script defer src="views/views_div_asset.js?v=20260827-1"></script>
 <script defer src="views/views_asset_loan.js"></script>
 
-<script defer src="views/views_asset.js"></script>
-<script defer src="views/views_plan.js?v=20260830-1"></script>
+<script defer src="views/views_asset.js?v=20260831-3"></script>
+<script defer src="views/views_plan.js?v=20260831-4"></script>
 <script defer src="views/views_asset_schedule.js"></script>
-<script defer src="views/views_asset_schedule_data.js"></script>
+<script defer src="views/views_asset_schedule_data.js?v=20260831-4"></script>
 <script defer src="views/views_asset_schedule_chart.js"></script>
 <script defer src="views/views_history_legacy_guard.js"></script>
 <script defer src="views/views_history_utils.js?v=20260827-1"></script>
@@ -196,7 +196,7 @@
 <script defer src="features/settings/settings.js?v=20260830-1"></script>
 <script defer src="features/settings/settings_sync.js?v=20260828-1"></script>
 <script defer src="features/settings/settings_tabsync.js?v=20260827-1"></script>
-<script defer src="features/settings/settings_fetch.js?v=20260828-2"></script>
+<script defer src="features/settings/settings_fetch.js?v=20260831-4"></script>
 <script defer src="features/management/mgmt_editor.js?v=20260828-1"></script>
 <script defer src="features/master/account/mgmt_acct.js?v=20260826-1"></script>
 <script defer src="features/dividend/mgmt_div.js?v=20260828-1"></script>
@@ -373,7 +373,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js?v=20260831-2', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20260831-4', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>

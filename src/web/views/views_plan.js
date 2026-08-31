@@ -414,7 +414,7 @@ function _buildPlanCashflowOverview() {
   const monthKey = typeof _kstMonthStr === 'function' ? _kstMonthStr() : '';
   const currentLoan = monthKey ? [...schedule].reverse().find(item => String(item.date || '') <= monthKey) : null;
   const nextLoan = monthKey ? schedule.find(item => String(item.date || '') >= monthKey) : null;
-  const remainingMonths = monthKey ? schedule.filter(item => String(item.date || '') >= monthKey).length : 0;
+  const remainingMonths = monthKey ? schedule.filter(item => String(item.date || '') > monthKey).length : 0;
   const balance = Number(currentLoan?.balance ?? LOAN?.balance ?? 0);
   const item = (label, value, sub, color='var(--text)') => `<div class="s2-rounded"><div class="lbl-62-muted-3">${label}</div><div style="font-size:.86rem;font-weight:800;color:${color}">${value}</div><div class="caption-text mt-2">${sub}</div></div>`;
   return `<div class="card-12-p20" id="plan-cashflow" data-plan-section="cashflow">
