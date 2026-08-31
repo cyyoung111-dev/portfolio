@@ -1136,6 +1136,7 @@ input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):
 .action-icon-btn,
 .action-icon-btn span,
 .btn-sm,
+.btn-sm-purple,
 .btn-amber-sm,
 .btn-purple-sm,
 .btn-purple-sm-700,
@@ -1182,8 +1183,19 @@ input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):
 .txt-muted-68-right,
 .txt-muted-72,
 .form-label,
-.hidden-hint {
+.hidden-hint,
+.div-month-filter button,
+.div-month-selection,
+.div-month-selection span,
+.div-month-selection small,
+.plan-section-nav a {
   font-size:var(--type-caption);
+}
+
+/* 렌더 템플릿의 inline font-size를 덮어야 하므로 이 두 ID에만 우선순위를 부여한다. */
+#histModeWeek,
+#histModeMonth {
+  font-size:var(--type-caption)!important;
 }
 
 /* 모바일도 루트 15px × caption .8rem = 12px을 그대로 유지한다. */
