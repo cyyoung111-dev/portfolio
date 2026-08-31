@@ -1,6 +1,18 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 
+const editorSource = fs.readFileSync('src/web/features/management/mgmt_editor.js', 'utf8');
+for (const contract of [
+  /requestGsheetActionJson\(\s*'getPriceHistory'/,
+  /requestGsheetActionJson\(\s*'saveManualPrice'/,
+  /requestGsheetFormJson\(\s*'batchSaveManualPrices'/,
+]) {
+  if (!contract.test(editorSource)) throw new Error(`현재가 편집 GAS 인증 공통 경로 누락: ${contract}`);
+}
+if (/fetch\(GSHEET_API_URL/.test(editorSource) || /GSHEET_API_URL\s*\+\s*['"]\?action=(?:getPriceHistory|saveManualPrice)/.test(editorSource)) {
+  throw new Error('현재가 편집에서 접근 토큰을 우회하는 GAS 직접 요청이 남아 있습니다.');
+}
+
 const colorMap = {
   'var(--green)': '#10b981',
   'var(--blue)': '#0057ff',

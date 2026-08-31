@@ -14,6 +14,11 @@
 - 현재월 상환스케줄 행의 납입 후 잔액·이자는 현재 상태에 반영하고, `remainingMonths`는 다음 달 이후 스케줄 행만 계산합니다.
 - 웹과 GAS의 자동 동기화 기준을 맞추려면 `src/gas/apps_script.gs` v9.78을 새 버전으로 재배포해야 합니다.
 
+## 현재가 편집 요청 인증
+
+- GAS 요청 인증이 활성화된 경우 현재가 편집의 가격이력 조회, 배치 저장, 건당 fallback도 공통 요청 유틸을 통해 브라우저의 `gsheet_access_token`을 전송합니다.
+- 브라우저 토큰이 없거나 GAS Script Properties의 `access_token`과 다르면 `인증 실패`가 정상적으로 반환되므로 구글시트 연동 화면에서 동일 토큰을 다시 저장·검증합니다.
+
 ## Canonical web root
 
 - 운영/로컬 정적 서버의 canonical web root는 `src/web`입니다.
