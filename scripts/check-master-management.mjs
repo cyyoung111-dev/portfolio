@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const editorSource = fs.readFileSync('src/web/features/management/mgmt_editor.js', 'utf8');
+const dividendSource = fs.readFileSync('src/web/features/dividend/mgmt_div.js', 'utf8');
 for (const contract of [
   /requestGsheetActionJson\(\s*'getPriceHistory'/,
   /requestGsheetActionJson\(\s*'saveManualPrice'/,
@@ -11,6 +12,12 @@ for (const contract of [
 }
 if (/fetch\(GSHEET_API_URL/.test(editorSource) || /GSHEET_API_URL\s*\+\s*['"]\?action=(?:getPriceHistory|saveManualPrice)/.test(editorSource)) {
   throw new Error('현재가 편집에서 접근 토큰을 우회하는 GAS 직접 요청이 남아 있습니다.');
+}
+if (!/requestGsheetActionJson\(\s*action,\s*params,/.test(dividendSource)) {
+  throw new Error('배당 외부소스 조회의 GAS 인증 공통 경로가 누락됐습니다.');
+}
+if (/buildGsheetActionUrl\(action, params\)[\s\S]{0,300}fetchWithTimeout/.test(dividendSource)) {
+  throw new Error('배당 외부소스 조회에 접근 토큰을 우회하는 직접 요청이 남아 있습니다.');
 }
 
 const colorMap = {

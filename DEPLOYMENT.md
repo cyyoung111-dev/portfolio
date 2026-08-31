@@ -18,6 +18,7 @@
 
 - GAS 요청 인증이 활성화된 경우 현재가 편집의 가격이력 조회, 배치 저장, 건당 fallback도 공통 요청 유틸을 통해 브라우저의 `gsheet_access_token`을 전송합니다.
 - 브라우저 토큰이 없거나 GAS Script Properties의 `access_token`과 다르면 `인증 실패`가 정상적으로 반환되므로 구글시트 연동 화면에서 동일 토큰을 다시 저장·검증합니다.
+- 배당의 SEIBro 갱신·설정 읽기/쓰기뿐 아니라 공공데이터포털 및 GOOGLEFINANCE fallback 조회도 같은 인증 요청 유틸을 사용합니다.
 
 ## Canonical web root
 
