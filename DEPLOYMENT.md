@@ -7,6 +7,7 @@
 - 동일 출처 정적 자산은 네트워크 우선 및 HTTP 캐시 우회로 조회하고, 오프라인일 때만 현재 서비스워커 캐시를 사용합니다. 내비게이션 요청은 오프라인에서 precache된 `index.html`로 대체합니다.
 - 배포 후 기존 브라우저에서 앱을 닫았다 다시 열어 새 서비스워커가 활성화되는지, 개발자 도구 Application의 Cache Storage에 현재 캐시 하나만 남는지 확인합니다.
 - `npm run check:typography`는 HTML의 CSS·서비스워커 등록 버전과 서비스워커의 캐시·precache 버전 일치를 함께 검사합니다.
+- `core_ui.js`는 초기 테마 렌더링이 사용하는 `_escapeHtml()`을 제공하므로 `shared/theme.js`보다 먼저 로드해야 합니다.
 
 ## Canonical web root
 

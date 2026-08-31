@@ -2,8 +2,8 @@
   "localDeferredScripts": [
     "core/core_storage.js",
     "core/core_log.js",
-    "shared/theme.js",
     "core/core_ui.js",
+    "shared/theme.js",
     "core/core_color.js",
     "domain/state/data_state.js",
     "domain/portfolio/portfolio_service.js",

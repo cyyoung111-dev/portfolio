@@ -30,6 +30,7 @@
     "check:tradegroup-accounts": "node scripts/check-tradegroup-accounts.mjs",
     "check:gas": "node scripts/check-gas.mjs",
     "check:seibro-har": "node scripts/validate-seibro-etf.mjs --har-only",
-    "check:ci": "npm run check:reference-regression && npm run check:storage-migration && npm run check:export-consistency && npm run check:typography && npm run check:web:ci && npm run check:gas"
+    "check:ci": "npm run check:reference-regression && npm run check:storage-migration && npm run check:export-consistency && npm run check:typography && npm run check:theme-runtime && npm run check:web:ci && npm run check:gas",
+    "check:theme-runtime": "node scripts/check-theme-runtime.mjs"
   }
 }
