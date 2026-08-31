@@ -130,7 +130,7 @@ function _buildExportSection(totalEval, totalCost) {
         <div class="fw-600">${v}</div>
       </div>`).join('')}
     </div>
-    <div style="font-size:.68rem;color:var(--muted);margin-top:10px">
+    <div class="helper-text mt-8">
       종목별 상세 · 계좌/섹터 요약 · 배당 현황 · 은퇴 계획 · 부동산·주담대 · 상환스케줄을 함께 받습니다.
     </div>
   </div>`;
@@ -414,11 +414,11 @@ function _buildPlanCashflowOverview() {
   const monthKey = typeof _kstMonthStr === 'function' ? _kstMonthStr() : '';
   const currentLoan = monthKey ? [...schedule].reverse().find(item => String(item.date || '') <= monthKey) : null;
   const nextLoan = monthKey ? schedule.find(item => String(item.date || '') >= monthKey) : null;
-  const remainingMonths = monthKey ? schedule.filter(item => String(item.date || '') >= monthKey).length : 0;
+  const remainingMonths = monthKey ? schedule.filter(item => String(item.date || '') > monthKey).length : 0;
   const balance = Number(currentLoan?.balance ?? LOAN?.balance ?? 0);
-  const item = (label, value, sub, color='var(--text)') => `<div class="s2-rounded"><div class="lbl-62-muted-3">${label}</div><div style="font-size:.86rem;font-weight:800;color:${color}">${value}</div><div style="font-size:.61rem;color:var(--muted);margin-top:2px">${sub}</div></div>`;
+  const item = (label, value, sub, color='var(--text)') => `<div class="s2-rounded"><div class="lbl-62-muted-3">${label}</div><div style="font-size:.86rem;font-weight:800;color:${color}">${value}</div><div class="caption-text mt-2">${sub}</div></div>`;
   return `<div class="card-12-p20" id="plan-cashflow" data-plan-section="cashflow">
-    <div class="flex-between-mb14"><div><h4 class="h3-card">💰 포트폴리오 배당·은퇴 현황</h4><div style="font-size:.62rem;color:var(--muted);margin-top:3px">현재 보유수량과 등록된 배당정보 기준 · 확정 지급액과 향후 예상액 포함</div></div><div style="display:flex;gap:6px"><button type="button" class="btn-ghost-sm" data-plan-action="open-dividend">배당 상세</button></div></div>
+    <div class="flex-between-mb14"><div><h4 class="h3-card">💰 포트폴리오 배당·은퇴 현황</h4><div class="caption-text mt-3">현재 보유수량과 등록된 배당정보 기준 · 확정 지급액과 향후 예상액 포함</div></div><div style="display:flex;gap:6px"><button type="button" class="btn-ghost-sm" data-plan-action="open-dividend">배당 상세</button></div></div>
     <div class="retire-metric-grid">
       ${item('연간 예상 배당 (세전)', fmt(annual), `${dividendRows.length}개 종목`, 'var(--green)')}
       ${item('일반계좌 세후 참고', fmt(dividendFlow.normalAfterTax), `세전 ${fmt(dividendFlow.normalGross)} · 단순 원천징수 기준`, 'var(--cyan)')}
@@ -430,7 +430,7 @@ function _buildPlanCashflowOverview() {
       ${item('IRP 내부 연간 배당', fmt(dividendFlow.irpInternal), '55세 전 생활비에서 제외', 'var(--purple-lt)')}
       ${item('배당수익률', `${yieldPct.toFixed(2)}%`, `배당 종목 매입금액 ${fmt(dividendCost)}`, 'var(--purple-lt)')}
     </div>
-    <div style="font-size:.60rem;color:var(--muted);margin-top:8px">배당수익률 분모는 배당 종목의 매입금액입니다. 일반계좌 세후액은 단순 원천징수 기준 참고값이며 ISA·연금계좌 배당에는 즉시 차감하지 않습니다.</div>
+    <div class="caption-text mt-8">배당수익률 분모는 배당 종목의 매입금액입니다. 일반계좌 세후액은 단순 원천징수 기준 참고값이며 ISA·연금계좌 배당에는 즉시 차감하지 않습니다.</div>
     ${dividendFlow.warnings.length ? `<div style="font-size:.62rem;color:var(--amber);margin-top:6px">⚠️ ${dividendFlow.warnings.map(_escapeHtml).join(' · ')}</div>` : ''}
     <div style="height:1px;background:var(--border);margin:12px 0"></div>
     <div class="retire-metric-grid">
@@ -444,13 +444,13 @@ function _buildPlanCashflowOverview() {
     </div>
     ${liquidity.warnings.length ? `<div style="font-size:.62rem;color:var(--amber);margin-top:6px">⚠️ ${liquidity.warnings.map(_escapeHtml).join(' · ')}</div>` : ''}
     <div style="height:1px;background:var(--border);margin:12px 0"></div>
-    <div class="flex-between-mb14"><div><h4 class="h3-card">🏠 주담대 상환스케줄</h4><div style="font-size:.62rem;color:var(--muted);margin-top:3px">${schedule.length ? `${schedule[0]?.date || '-'} ~ ${schedule[schedule.length-1]?.date || '-'} · 총 ${schedule.length}개월` : '등록된 상환스케줄이 없습니다.'}</div></div><button type="button" class="btn-ghost-sm" data-plan-action="open-property">부동산·스케줄</button></div>
+    <div class="flex-between-mb14"><div><h4 class="h3-card">🏠 주담대 상환스케줄</h4><div class="caption-text mt-3">${schedule.length ? `${schedule[0]?.date || '-'} ~ ${schedule[schedule.length-1]?.date || '-'} · 총 ${schedule.length}개월` : '등록된 상환스케줄이 없습니다.'}</div></div><button type="button" class="btn-ghost-sm" data-plan-action="open-property">부동산·스케줄</button></div>
     ${currentLoan ? `<div class="retire-metric-grid">
       ${item('스케줄 기준 대출잔액', fmt(balance), `${currentLoan.date} 기준`, 'var(--red-lt)')}
       ${item('다음 납입 원금', nextLoan ? fmt(Number(nextLoan.principal||0)) : '-', nextLoan ? `${nextLoan.date} 예정` : '남은 일정 없음', 'var(--cyan)')}
       ${item('다음 납입 이자', nextLoan ? fmt(Number(nextLoan.interest||0)) : '-', nextLoan ? `${nextLoan.date} 예정` : '남은 일정 없음', 'var(--amber)')}
       ${item('남은 상환기간', `${remainingMonths}개월`, schedule.length ? `최종 ${schedule[schedule.length-1]?.date || '-'}` : '-', 'var(--purple-lt)')}
-    </div>` : '<div style="font-size:.65rem;color:var(--muted)">부동산 탭에서 상환스케줄을 등록하면 대출잔액·다음 원금·이자·남은 기간을 표시합니다.</div>'}
+    </div>` : '<div class="caption-text">부동산 탭에서 상환스케줄을 등록하면 대출잔액·다음 원금·이자·남은 기간을 표시합니다.</div>'}
   </div>`;
 }
 
@@ -503,7 +503,7 @@ function _buildWeightSection(totalEval) {
       <div class="lbl-62-muted-3" style="text-align:right">목표%</div>
       <div class="lbl-62-muted-3" style="text-align:right">차이</div>
     </div>
-    ${rows_html || '<div style="color:var(--muted);font-size:.75rem;padding:12px 0">보유 종목이 없습니다</div>'}
+    ${rows_html || '<div class="helper-text empty-state-inline">보유 종목이 없습니다</div>'}
   </div>`;
 }
 
@@ -554,16 +554,16 @@ function _buildBuyingPowerSection(totalEval) {
             </div>
             <div style="text-align:right">
               <div style="font-size:.80rem;font-weight:700;color:var(--green)">+${fmt(r.buyAmt)}</div>
-              <div style="font-size:.65rem;color:var(--muted)">${r.currentPct.toFixed(1)}% → ${r.targetPct.toFixed(1)}%</div>
+              <div class="caption-text">${r.currentPct.toFixed(1)}% → ${r.targetPct.toFixed(1)}%</div>
               <div style="font-size:.62rem;color:var(--muted)">${r.estimatedQuantity == null ? '현재가 없음 · 금액만 표시' : `현재가 기준 약 ${r.estimatedQuantity.toLocaleString()}주`}</div>
             </div>
           </div>`;
         }).join('')
-      : `<div style="font-size:.73rem;color:var(--muted);padding:10px 0">목표 비중이 현재 비중보다 높은 종목이 없습니다</div>`);
+      : `<div class="helper-text empty-state-inline">목표 비중이 현재 비중보다 높은 종목이 없습니다</div>`);
   } else if (!hastarget) {
-    recHtml = `<div style="font-size:.73rem;color:var(--muted);padding:10px 0">① 목표 비중을 먼저 설정하세요</div>`;
+    recHtml = `<div class="helper-text empty-state-inline">① 목표 비중을 먼저 설정하세요</div>`;
   } else {
-    recHtml = `<div style="font-size:.73rem;color:var(--muted);padding:10px 0">현금을 입력하면 매수 추천이 표시됩니다</div>`;
+    recHtml = `<div class="helper-text empty-state-inline">현금을 입력하면 매수 추천이 표시됩니다</div>`;
   }
 
   return `<div class="card-12-p20">
@@ -723,7 +723,7 @@ function _buildTaxSection(totalCost) {
   const isOverThreshold = normalDiv > FIN_INCOME_THRESHOLD;
 
   function _acctListHtml(accts, emptyMsg) {
-    if (accts.length === 0) return `<span style="font-size:.68rem;color:var(--muted)">${emptyMsg}</span>`;
+    if (accts.length === 0) return `<span class="caption-text">${emptyMsg}</span>`;
     return accts.map(a => `<span style="font-size:.65rem;color:var(--text);background:var(--s2);border-radius:4px;padding:1px 6px;margin-right:4px">${_escapeHtml(a)}</span>`).join('');
   }
 
@@ -731,7 +731,7 @@ function _buildTaxSection(totalCost) {
     <div class="flex-between-mb14">
       <h4 class="h3-card" style="margin-bottom:0">🧾 세금 시뮬레이터</h4>
       <div style="display:flex;align-items:center;gap:6px">
-        <span style="font-size:.68rem;color:var(--muted)">귀속연도</span>
+        <span class="caption-text">귀속연도</span>
         <select id="plan-tax-year" style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:.75rem">
           ${Array.from({length:5},(_,i)=>nowYear-i).map(y=>
             `<option value="${y}" ${y===taxYear?'selected':''}>${y}년</option>`).join('')}
@@ -800,7 +800,7 @@ function _buildTaxSection(totalCost) {
         <div><div class="lbl-62-muted-3">한도사용금액</div><input id="isa-contribution-used" type="text" value="${Number(_planSettings.isaContributionUsed||0).toLocaleString()}" data-format="number-comma" style="width:100%"/></div>
       </div>
       <button data-plan-action="save-isa-settings" class="btn-ghost-sm" style="margin-bottom:8px">ISA 정보 저장</button>
-      <div style="font-size:.62rem;color:var(--muted);margin-bottom:8px">납입가능금액: ${_planSettings.isaContributionLimit>0 ? fmt(Math.max(0,_planSettings.isaContributionLimit-_planSettings.isaContributionUsed)) : '한도 미입력'}</div>
+      <div class="caption-text mb-8">납입가능금액: ${_planSettings.isaContributionLimit>0 ? fmt(Math.max(0,_planSettings.isaContributionLimit-_planSettings.isaContributionUsed)) : '한도 미입력'}</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px">
         <div class="s2-rounded" style="background:var(--s1)">
           <div class="lbl-62-muted-3">가입 이후 누적 과세대상 추정 순이익</div>
@@ -978,7 +978,7 @@ function _buildRetirementSection(totalEval) {
       <div class="s2-rounded">
         <div class="lbl-62-muted-3">목표 도달 예상</div>
         <div style="font-size:.86rem;font-weight:800;color:${yearsToTarget === 0 ? 'var(--green)' : 'var(--amber)'}">${yearsToTarget === 0 ? '현재 충족' : yearsToTarget ? `약 ${yearsToTarget}년` : '계산 불가'}</div>
-        <div style="font-size:.65rem;color:var(--muted)">월 추가 투자 ${fmt(monthlyInvest)} · 목표 도달 전 연 ${retireReturn}% 가정</div>
+        <div class="caption-text">월 추가 투자 ${fmt(monthlyInvest)} · 목표 도달 전 연 ${retireReturn}% 가정</div>
       </div>
     </div>
     <div style="font-size:.62rem;color:var(--muted);margin:-7px 0 12px">배당 생활비 충당률은 상단 ‘포트폴리오 배당·은퇴 현황’에서 확인합니다.</div>

@@ -3,34 +3,9 @@
 //  의존: views_history.js (_normalizeHistDate), settings fetch helper
 // ════════════════════════════════════════════════════════════════
 
-function _historyBuildUrl(action, params) {
-  if (!GSHEET_API_URL || !action) return '';
-  const query = new URLSearchParams();
-  query.set('action', action);
-  const entries = Object.entries(params || {});
-  entries.forEach(([k, v]) => {
-    if (v === null || v === undefined || v === '') return;
-    query.set(k, String(v));
-  });
-  return `${GSHEET_API_URL}?${query.toString()}`;
-}
-
 async function _historyRequestJson(action, params, options) {
-  const opts = options || {};
-  const retry = Number.isFinite(opts.retry) ? Math.max(0, opts.retry) : 0;
-  const timeoutMs = Number.isFinite(opts.timeoutMs) ? Math.max(1000, opts.timeoutMs) : 15000;
-  const delayMs = Number.isFinite(opts.delayMs) ? Math.max(0, opts.delayMs) : 180;
-  const url = _historyBuildUrl(action, params);
-  if (!url) return null;
-  for (let attempt = 0; attempt <= retry; attempt++) {
-    try {
-      const res = await fetchWithTimeout(url, timeoutMs);
-      return await res.json();
-    } catch (_) {
-      if (attempt < retry) await new Promise(r => setTimeout(r, delayMs));
-    }
-  }
-  return null;
+  if (!GSHEET_API_URL || !action || typeof requestGsheetActionJson !== 'function') return null;
+  return requestGsheetActionJson(action, params, options);
 }
 
 async function _loadBenchmarkBundle(types, fromDate, toDate) {
