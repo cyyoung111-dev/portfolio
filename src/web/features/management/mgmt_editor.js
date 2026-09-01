@@ -531,13 +531,13 @@ async function _fetchEditorPriceHistoryRaw(dateStr) {
     const cached = _editorHistoryCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < EDITOR_HISTORY_CACHE_MS) return cached.promise;
 
-    const url = GSHEET_API_URL
-      + '?action=getPriceHistory&to=' + dateStr
-      + '&codes=' + encodeURIComponent(uniqTargets.join(','));
     const promise = (async () => {
-      const res = await fetchWithTimeout(url, 20000);
-      if (!res.ok) throw new Error(`가격이력 HTTP ${res.status}`);
-      const data = await res.json();
+      const data = await requestGsheetActionJson(
+        'getPriceHistory',
+        { to: dateStr, codes: uniqTargets.join(',') },
+        { timeoutMs: 20000, retry: 0 }
+      );
+      if (!data) throw new Error('가격이력 네트워크 응답 없음');
       if (data.status !== 'ok' || !data.prices) throw new Error(data.message || '가격이력 응답 오류');
       return data.prices; // { [key]: entries[] } 원본 반환
     })();
@@ -693,31 +693,18 @@ function markChanged(name, val) {
   }
 }
 
-// ★ GAS saveManualPrice 전용 fetch — fetchWithTimeout과 AbortController 공유 안 함
-async function _gasDirectFetch(url, timeoutMs) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs || 15000);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(timer);
-    return res;
-  } catch(e) {
-    clearTimeout(timer);
-    throw e;
-  }
-}
-
 async function _saveManualPriceWithRetry(target, maxRetry) {
   const retries = Number.isFinite(maxRetry) ? maxRetry : 1;
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const url = GSHEET_API_URL + '?action=saveManualPrice&date=' + encodeURIComponent(target.date)
-                + '&name=' + encodeURIComponent(target.key) + '&price=' + target.price;
-                // ★ keepLatest 파라미터 제거 → GAS의 _isManualKeepLatestEnabled() 설정값 사용
-      const res = await _gasDirectFetch(url, 30000);
-      const d = await res.json();
-      if (d.status === 'ok') return { ok: true };
+      // 접근 토큰이 설정된 브라우저에서는 공통 유틸이 인증 form POST로 전환합니다.
+      const d = await requestGsheetActionJson(
+        'saveManualPrice',
+        { date: target.date, name: target.key, price: target.price },
+        { timeoutMs: 30000, retry: 0 }
+      );
+      if (d && d.status === 'ok') return { ok: true };
       lastErr = new Error((d && d.message) ? d.message : 'status not ok');
     } catch (e) {
       lastErr = e;
@@ -732,30 +719,20 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
   const gasFailedKeys = [];
   try {
     const batchPayload = gasSaveTargets.map(t => ({ key: t.key, price: t.price }));
-    const form = new URLSearchParams();
-    form.set('action', 'batchSaveManualPrices');
-    form.set('date', gasDate);
-    form.set('data', JSON.stringify(batchPayload));
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60000);
     try {
-      const res = await fetch(GSHEET_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: form.toString(),
-        signal: ctrl.signal,
-      });
-      clearTimeout(timer);
-      const d = await res.json();
+      const d = await requestGsheetFormJson(
+        'batchSaveManualPrices',
+        { date: gasDate, data: JSON.stringify(batchPayload) },
+        { timeoutMs: 60000, retry: 0 }
+      );
       if (d && d.status === 'ok') {
         _editorHistoryCache.clear();
         if (typeof showToast === 'function') showToast(`☁️ GAS 동기화 완료 (${gasSaveTargets.length}건)`, 'ok');
         return;
       }
-      console.warn('[batchSaveManualPrices] GAS 오류 → 건당 fallback 시작:', d);
+      console.info('[batchSaveManualPrices] 배치 응답 없음 → 건별 저장으로 전환');
     } catch(fetchErr) {
-      clearTimeout(timer);
-      console.warn('[batchSaveManualPrices] 네트워크 오류 → 건당 fallback 시작:', fetchErr.message);
+      console.info('[batchSaveManualPrices] 배치 요청 미완료 → 건별 저장으로 전환');
     }
 
     for (const target of gasSaveTargets) {
@@ -774,6 +751,7 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
 
   if (gasFailedCount > 0 && typeof showToast === 'function') {
     const sample = gasFailedKeys.slice(0, 3).join(', ');
+    console.warn(`[_syncManualPricesToGsheet] GAS 저장 최종 실패 ${gasFailedCount}건:`, gasFailedKeys);
     showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
   } else if (typeof showToast === 'function') {
     _editorHistoryCache.clear();
