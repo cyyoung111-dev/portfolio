@@ -105,6 +105,8 @@ function registerGlobalEventDelegation() {
       if (action === 'mode') { if (typeof setThemeMode === 'function') { setThemeMode(themeAction.dataset.mode || 'system'); if (typeof _queueThemeSettingsSync === 'function') _queueThemeSettingsSync(); } }
       else if (action === 'apply') { if (typeof applyTheme === 'function') { applyTheme(themeAction.dataset.themeKey || ''); if (typeof _queueThemeSettingsSync === 'function') _queueThemeSettingsSync(); } }
       else if (action === 'font') { if (typeof applyFont === 'function') { applyFont(themeAction.dataset.fontKey || 'pretendard'); if (typeof _queueThemeSettingsSync === 'function') _queueThemeSettingsSync(); } }
+      else if (action === 'density') { if (typeof applyDensity === 'function') applyDensity(themeAction.dataset.densityKey || 'default'); }
+      else if (action === 'font-size') { if (typeof applyFontSize === 'function') applyFontSize(themeAction.dataset.fontSize || '12'); }
       return;
     }
 

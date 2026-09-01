@@ -1,5 +1,27 @@
 # Deployment Notes
 
+## 정적 자산·서비스워커 캐시 갱신
+
+- CSS 또는 JS를 수정하면 `src/web/index.html`의 해당 파일 `?v=YYYYMMDD-N`과 `src/web/sw.js`의 precache URL을 같은 값으로 갱신합니다.
+- 서비스워커 등록 URL, `CACHE_NAME`, 핵심 precache 자산은 동일한 배포 버전을 사용합니다. 활성화 단계에서 이전 `portfolio-cache-*`를 삭제합니다.
+- 동일 출처 정적 자산은 네트워크 우선 및 HTTP 캐시 우회로 조회하고, 오프라인일 때만 현재 서비스워커 캐시를 사용합니다. 내비게이션 요청은 오프라인에서 precache된 `index.html`로 대체합니다.
+- 배포 후 기존 브라우저에서 앱을 닫았다 다시 열어 새 서비스워커가 활성화되는지, 개발자 도구 Application의 Cache Storage에 현재 캐시 하나만 남는지 확인합니다.
+- `npm run check:typography`는 HTML의 CSS·서비스워커 등록 버전과 서비스워커의 캐시·precache 버전 일치를 함께 검사합니다.
+- `core_ui.js`는 초기 테마 렌더링이 사용하는 `_escapeHtml()`을 제공하므로 `shared/theme.js`보다 먼저 로드해야 합니다.
+
+## GAS v9.78 주담대 잔여기간
+
+- 현재월 상환스케줄 행의 납입 후 잔액·이자는 현재 상태에 반영하고, `remainingMonths`는 다음 달 이후 스케줄 행만 계산합니다.
+- 웹과 GAS의 자동 동기화 기준을 맞추려면 `src/gas/apps_script.gs` v9.78을 새 버전으로 재배포해야 합니다.
+
+## 현재가 편집 요청 인증
+
+- GAS 요청 인증이 활성화된 경우 현재가 편집의 가격이력 조회, 배치 저장, 건당 fallback도 공통 요청 유틸을 통해 브라우저의 `gsheet_access_token`을 전송합니다.
+- 브라우저 토큰이 없거나 GAS Script Properties의 `access_token`과 다르면 `인증 실패`가 정상적으로 반환되므로 구글시트 연동 화면에서 동일 토큰을 다시 저장·검증합니다.
+- 배당의 SEIBro 갱신·설정 읽기/쓰기뿐 아니라 공공데이터포털 및 GOOGLEFINANCE fallback 조회도 같은 인증 요청 유틸을 사용합니다.
+- 손익 그래프의 스냅샷·종목별 상세·비교지수 조회도 공통 인증 요청 유틸을 사용합니다.
+- 현재가 배치 저장이 응답 없이 건별 저장으로 전환되는 과정은 정보 로그로만 남기고, 건별 fallback까지 실패한 경우에만 경고를 표시합니다.
+
 ## Canonical web root
 
 - 운영/로컬 정적 서버의 canonical web root는 `src/web`입니다.

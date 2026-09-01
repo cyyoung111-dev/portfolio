@@ -99,10 +99,11 @@
     const validRows = (Array.isArray(schedule) ? schedule : []).filter(item => /^\d{4}-(0[1-9]|1[0-2])/.test(String(item?.date || ''))).sort((a,b) => String(a.date).localeCompare(String(b.date)));
     const startMonth = String(startDate || '').slice(0, 7);
     const firstScheduleMonth = validRows[0] ? String(validRows[0].date).slice(0, 7) : '';
+    // 현재월 행은 잔액·이자에 이미 반영되므로 남은 개월수에서는 제외한다.
     const futureRows = asOfMonth ? validRows.filter(item => String(item.date).slice(0,7) > asOfMonth).length : validRows.length;
     const warnings = [];
     if (startMonth && firstScheduleMonth && firstScheduleMonth < startMonth) warnings.push('대출 실행일보다 상환스케줄이 먼저 시작합니다. 원본 금융기관 상환표 확인이 필요합니다.');
-    if (remainingMonths !== null && Number.isFinite(Number(remainingMonths)) && Number(remainingMonths) !== futureRows) warnings.push('remainingMonths와 현재월 이후 스케줄 행 수가 다릅니다. 현재월 포함 여부를 확인하세요.');
+    if (remainingMonths !== null && Number.isFinite(Number(remainingMonths)) && Number(remainingMonths) !== futureRows) warnings.push('남은 상환개월과 현재월 다음 달부터의 잔여 스케줄 행 수가 다릅니다. 원본 상환표를 확인하세요.');
     return { startMonth, firstScheduleMonth, futureRows, remainingMonths: remainingMonths === null ? null : Number(remainingMonths), warnings };
   }
 

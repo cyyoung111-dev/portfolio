@@ -648,7 +648,8 @@ function syncLoanFromSchedule() {
   if (!curRow) return; // 스케줄이 모두 미래면 스킵
 
   const totalMonths     = LOAN_SCHEDULE.length;
-  const remainingMonths = LOAN_SCHEDULE.filter(r => r.date >= todayStr).length;
+  // 현재월 행의 납입 후 잔액을 이미 반영하므로 다음 달 이후 행만 남은 개월로 센다.
+  const remainingMonths = LOAN_SCHEDULE.filter(r => r.date > todayStr).length;
   const totalInterestPaid = LOAN_SCHEDULE
     .filter(r => r.date <= todayStr)
     .reduce((s, r) => s + (r.interest || 0), 0);
