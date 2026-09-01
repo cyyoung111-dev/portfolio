@@ -9,6 +9,26 @@
 //   → 같은 날짜 요청이 이미 진행 중이면 새로 조회하지 않고 그 결과를 같이 기다림 (요청 1개로 통합)
 const _inFlightFetches = {};
 
+function _isCurrentPriceTarget(item) {
+  const rawItemName = String(item?.name || '').trim();
+  const itemName = normName(rawItemName);
+  const itemCode = normalizeStockCode(item?.code || '');
+  if (fundDirect && (Object.prototype.hasOwnProperty.call(fundDirect, rawItemName)
+      || Object.prototype.hasOwnProperty.call(fundDirect, itemName))) return true;
+  return rawHoldings.some(holding => {
+    if (!(Number(holding?.qty) > 0)) return false;
+    const holdingName = normName(holding?.name || '');
+    const holdingCode = normalizeStockCode(holding?.code || STOCK_CODE[holdingName] || STOCK_CODE[holding?.name] || '');
+    return (itemCode && holdingCode === itemCode) || (itemName && holdingName === itemName);
+  });
+}
+
+function _currentPriceTargetCount() {
+  const fetchedCount = Number(window._gsheetPriceTargetCount);
+  if (Number.isFinite(fetchedCount) && fetchedCount >= 0) return fetchedCount;
+  return EDITABLE_PRICES.filter(_isCurrentPriceTarget).length;
+}
+
 async function fetchFromGsheet(dateStr, options) {
   const forceFresh = !!options?.forceFresh;
   // 사용자가 업데이트를 누른 경우 진행 중인 자동 조회가 끝난 뒤 반드시 GAS를 다시 조회합니다.
@@ -55,22 +75,23 @@ async function _fetchFromGsheetInner(dateStr) {
       return valid.length > 0 ? valid[valid.length - 1] : null;
     };
     // ★ EDITABLE_PRICES 코드 + rawHoldings STOCK_CODE + GSheet 코드목록 합산 (중복 제거)
-    const epWithCode = getEPWithCode();
+    const epWithCode = getEPWithCode().filter(_isCurrentPriceTarget);
     const epCodeSet = new Set(epWithCode.map(i => i.code));
     // rawHoldings 기반 보완: EDITABLE_PRICES에 없지만 STOCK_CODE에 등록된 종목
     const holdingExtras = rawHoldings
-      .filter(h => !h.fund && h.name)
+      .filter(h => !h.fund && h.name && Number(h.qty) > 0)
       .map(h => ({ name: h.name, code: STOCK_CODE[normName(h.name)] || STOCK_CODE[h.name] || '' }))
       .filter(i => i.code && !epCodeSet.has(i.code));
     holdingExtras.forEach(i => epCodeSet.add(i.code));
     // _gsheetCodeList에는 있지만 EDITABLE_PRICES엔 없는 종목 보완
     const extraItems = [
       ...holdingExtras,
-      ..._gsheetCodeList.filter(g => g.code && !epCodeSet.has(g.code))
+      ..._gsheetCodeList.filter(g => g.code && !epCodeSet.has(g.code) && _isCurrentPriceTarget(g))
     ];
     const epItems = [...epWithCode, ...extraItems];
 
-    const epNoCode  = EDITABLE_PRICES.filter(i => !i.code); // 코드 없는 종목 (펀드·TDF)
+    const epNoCode  = EDITABLE_PRICES.filter(i => !i.code && _isCurrentPriceTarget(i)); // 현재 보유 중인 코드 없는 종목 (펀드·TDF)
+    window._gsheetPriceTargetCount = epItems.length + epNoCode.length;
     // ★ isToday: 오늘 날짜면 주말 여부 관계없이 getPrices(실시간) 우선 시도
     const isToday = (dateStr === getDateStr(0));
 
@@ -215,6 +236,7 @@ async function _fetchFromGsheetInner(dateStr) {
     // 같은 종목명 중복 제거 (코드만 다른 항목은 첫 번째만 표시)
     const seenMissingNames = new Set();
     window._gsheetMissingCodes = missingCodes.filter(m => {
+      if (!_isCurrentPriceTarget(m)) return false;
       if (seenMissingNames.has(m.name)) return false;
       seenMissingNames.add(m.name);
       return true;
@@ -279,6 +301,16 @@ function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
   </div>`;
 }
 
+function _pricePortfolioSummary() {
+  const tradeCount = Array.isArray(rawTrades) ? rawTrades.length : 0;
+  const holdingCount = (Array.isArray(rawHoldings) ? rawHoldings.length : 0)
+    + ((fundDirect && typeof fundDirect === 'object') ? Object.keys(fundDirect).length : 0);
+  const missing = Array.isArray(window._gsheetMissingCodes) ? window._gsheetMissingCodes : [];
+  const missingStr = missing.map(item => `${item.code || ''} ${item.name || ''}`.trim()).filter(Boolean).join(', ');
+  const missingChip = `<button type="button" data-status-action="gsheet" class="price-status-chip${missing.length ? ' is-missing' : ''}" title="${_escapeHtml(missingStr ? '미조회 종목: ' + missingStr : '미조회 종목 없음')}">미조회 ${missing.length}개</button>`;
+  return `<span class="price-status-chips"><span class="price-status-chip">거래 ${tradeCount}건</span><span class="price-status-chip">보유 ${holdingCount}건</span>${missingChip}</span>`;
+}
+
 function setStatusLabel(html, type) {
   // type: 'idle' | 'loading' | 'ok' | 'warn' | 'error'
   const el = $el('price-updated-label');
@@ -318,25 +350,23 @@ async function quickFetchByDate() {
     // 상단 업데이트 버튼은 현재가뿐 아니라 GAS에 저장된 설정·거래·보유·배당·부동산도
     // 다시 읽어야 합니다. 초기 부트스트랩이 일시적으로 실패했더라도 사용자가 이 버튼으로
     // 전체 데이터를 재복원할 수 있도록 가격 조회보다 먼저 통합 로드를 재시도합니다.
-    let restoreSummary = '';
+    let restoreWarning = '';
     setStatusLabel('⏳ GAS 전체 데이터 복원 중...', 'loading');
     const settingsLoaded = typeof loadSettings === 'function'
       ? await loadSettings(message => setStatusLabel('⏳ ' + message, 'loading'))
       : false;
     if (settingsLoaded) {
       try { refreshAll(); } catch(e) { console.warn('GAS 복원 후 화면 갱신 실패:', e); }
-      const tradeCount = Array.isArray(rawTrades) ? rawTrades.length : 0;
-      const holdingCount = (Array.isArray(rawHoldings) ? rawHoldings.length : 0)
-        + ((fundDirect && typeof fundDirect === 'object') ? Object.keys(fundDirect).length : 0);
-      restoreSummary = `<span class="price-status-chip">거래 ${tradeCount}건</span><span class="price-status-chip">보유 ${holdingCount}건</span>`;
-      if (tradeCount === 0 && holdingCount === 0) {
-        restoreSummary = '<span style="color:var(--amber)">⚠️ GAS 거래·보유 데이터 없음</span>';
+      if ((Array.isArray(rawTrades) ? rawTrades.length : 0) === 0
+          && (Array.isArray(rawHoldings) ? rawHoldings.length : 0) === 0
+          && (!fundDirect || Object.keys(fundDirect).length === 0)) {
+        restoreWarning = '<span style="color:var(--amber)">⚠️ GAS 거래·보유 데이터 없음</span>';
       }
     } else {
-      restoreSummary = '<span style="color:var(--red-lt)">⚠️ GAS 전체 데이터 복원 실패</span>';
+      restoreWarning = '<span style="color:var(--red-lt)">⚠️ GAS 전체 데이터 복원 실패</span>';
     }
 
-    setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...' + (restoreSummary ? ' · GAS 데이터 확인 완료' : ''), 'loading');
+    setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...' + (settingsLoaded ? ' · GAS 데이터 확인 완료' : ''), 'loading');
     // 버튼 클릭은 자동 조회 중 생성된 결과를 재사용하지 않고 GAS 최종값을 새로 확인합니다.
     let results = await fetchFromGsheet(targetDate, { forceFresh: true });
     let usedDate = targetDate;
@@ -365,23 +395,18 @@ async function quickFetchByDate() {
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();
       const cnt   = Object.keys(results).length;
-      const total = getEPWithCode().length;
+      const total = _currentPriceTargetCount();
       const dayLabel = isToday ? '실시간' : usedDate.replace(/-/g,'.') + ' 종가';
       const primary = `✅ 업데이트 완료 <span class="price-status-divider">·</span> <span class="c-gold">${dayLabel}</span> <span class="price-status-count">${cnt}/${total}개</span>`;
-      let meta = restoreSummary + _priceDiagSummary(results) + _priceLookupSummary();
+      const meta = _pricePortfolioSummary() + restoreWarning + _priceDiagSummary(results) + _priceLookupSummary();
       let note = '';
       if (isFallback) {
         note = `↩ 요청일 ${targetDate.replace(/-/g,'.')} 데이터 없음 · ${usedDate.replace(/-/g,'.')} 사용`;
       }
-      const missing = window._gsheetMissingCodes || [];
-      if (missing.length > 0) {
-        const missingStr = missing.map(m => `${m.code} ${m.name}`).join(', ');
-        note += `${note ? ' · ' : ''}<span style="color:var(--red-lt)">⚠️ 미조회 ${missing.length}개: ${missingStr}</span>`;
-      }
       setStatusLabel(_priceStatusLayout(primary, meta, note), 'ok');
       refreshAll();
     } else {
-      setStatusLabel('❌ ' + targetDate + ' 데이터 없음 (주말/공휴일 또는 종목코드 미등록)' + restoreSummary, 'error');
+      setStatusLabel('❌ ' + targetDate + ' 데이터 없음 (주말/공휴일 또는 종목코드 미등록)' + restoreWarning, 'error');
     }
   } catch(e) {
     setStatusLabel('❌ 조회 실패: ' + e.message, 'error');
@@ -417,7 +442,7 @@ async function autoLoadPrices() {
   if (!GSHEET_API_URL) {
     updateDateBadge(cachedDate || todayLabel, false);
     if (cacheCount > 0) {
-      const total = getEPWithCode().length;
+      const total = _currentPriceTargetCount();
       setStatusLabel(`📦 캐시 종가 사용 중 · ${cacheCount}/${total}개 · <button data-status-action="gsheet" class="btn-link-blue">⚙️ 재동기화 설정 →</button>`, 'warn');
     } else {
       setStatusLabel('💡 재동기화 설정 시 자동 종가 조회 · <button data-status-action="gsheet" class="btn-link-blue">⚙️ 설정하기 →</button>', 'idle');
@@ -466,32 +491,19 @@ async function autoLoadPrices() {
       updateDateBadge(lastUpdated, isToday);
       savePriceCache();
       const cnt      = Object.keys(results).length;
-      const total    = getEPWithCode().length;
+      const total    = _currentPriceTargetCount();
       const dayLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
+      const portfolioMsg = _pricePortfolioSummary();
       const diagMsg = _priceDiagSummary(results);
       const lookupMsg = _priceLookupSummary();
       const primary = `✅ 업데이트 완료 <span class="price-status-divider">·</span> <span class="c-gold">${dayLabel}</span> <span class="price-status-count">${cnt}/${total}개</span>`;
       const note = isFallback ? `↩ 오늘 ${dateStr.replace(/-/g,'.')} 데이터 없음 · ${usedDateStr.replace(/-/g,'.')} 사용` : '';
-      setStatusLabel(_priceStatusLayout(primary, diagMsg + lookupMsg, note), 'ok');
-
-      const missing = window._gsheetMissingCodes || [];
-      if (missing.length > 0) {
-        const missingStr = missing.map(m => `${m.code} ${m.name}`).join(', ');
-        const hint = document.createElement('span');
-        hint.id = 'gsheetMissingHint';
-        hint.title = '미조회 종목: ' + missingStr;
-        hint.style.cssText = 'margin-left:6px;cursor:pointer;font-size:.70rem;color:var(--red)';
-        hint.textContent = '⚠️ 미조회 ' + missing.length + '개: ' + missingStr;
-        hint.addEventListener('click', () => switchView('gsheet'));
-        const existing = $el('gsheetMissingHint');
-        if (existing) existing.remove();
-        if (badge) badge.appendChild(hint);
-      }
+      setStatusLabel(_priceStatusLayout(primary, portfolioMsg + diagMsg + lookupMsg, note), 'ok');
       refreshAll();
     } else {
       // ── GSheet 실패 → 캐시 가격으로 대체 ──
       if (cacheCount > 0) {
-        const total = getEPWithCode().length;
+        const total = _currentPriceTargetCount();
         updateDateBadge(cachedDate || todayLabel, false);
         setStatusLabel(`⚠️ 조회 실패 · 캐시 종가 사용 중 <span class="c-muted">(${cachedDate||'?'})</span> · ${cacheCount}/${total}개`, 'warn');
         refreshAll();
@@ -502,7 +514,7 @@ async function autoLoadPrices() {
     }
   } catch(e) {
     if (cacheCount > 0) {
-      const total = getEPWithCode().length;
+      const total = _currentPriceTargetCount();
       updateDateBadge(cachedDate || todayLabel, false);
       setStatusLabel(`⚠️ 조회 오류 · 캐시 종가 사용 중 <span class="c-muted">(${cachedDate||'?'})</span> · ${cacheCount}/${total}개`, 'warn');
       refreshAll();

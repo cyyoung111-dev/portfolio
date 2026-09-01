@@ -5,6 +5,7 @@ const css = fs.readFileSync(new URL('../src/web/styles/base.css', import.meta.ur
 const html = fs.readFileSync(new URL('../src/web/index.html', import.meta.url), 'utf8');
 const theme = fs.readFileSync(new URL('../src/web/shared/theme.js', import.meta.url), 'utf8');
 const settings = fs.readFileSync(new URL('../src/web/features/settings/settings.js', import.meta.url), 'utf8');
+const settingsFetch = fs.readFileSync(new URL('../src/web/features/settings/settings_fetch.js', import.meta.url), 'utf8');
 const systemView = fs.readFileSync(new URL('../src/web/views/views_system.js', import.meta.url), 'utf8');
 const serviceWorker = fs.readFileSync(new URL('../src/web/sw.js', import.meta.url), 'utf8');
 const coreUi = fs.readFileSync(new URL('../src/web/core/core_ui.js', import.meta.url), 'utf8');
@@ -39,6 +40,15 @@ assert.match(css, /@media\(max-width:768px\)[\s\S]*\.sum-row-2 \.lbl,[\s\S]*font
 assert.match(css, /@media\(max-width:768px\)[\s\S]*\.settings-tab \{[\s\S]*min-height:40px/);
 assert.match(theme, /lsGet\(FONT_STORAGE_KEY, 'pretendard'\)/);
 assert.match(settings, /APP_FONT: \(typeof lsGet === 'function'\) \? lsGet\('app_font', 'pretendard'\) : 'pretendard'/);
+assert.match(settingsFetch, /function _pricePortfolioSummary\(\)/, '가격 상태 거래·보유·미조회 공통 요약 누락');
+assert.match(settingsFetch, /_pricePortfolioSummary\(\) \+ restoreWarning/, '수동 업데이트 공통 요약 연결 누락');
+assert.match(settingsFetch, /portfolioMsg \+ diagMsg \+ lookupMsg/, '자동 업데이트 공통 요약 연결 누락');
+assert.doesNotMatch(settingsFetch, /gsheetMissingHint/, '자동 업데이트 전용 미조회 표시가 남아 있습니다.');
+assert.doesNotMatch(settingsFetch, /restoreSummary/, '제거된 수동 업데이트 상태 변수가 남아 있습니다.');
+assert.match(settingsFetch, /function _isCurrentPriceTarget\(item\)/, '현재가 보유수량 대상 판정 누락');
+assert.match(settingsFetch, /if \(!\(Number\(holding\?\.qty\) > 0\)\) return false/, '수량 0 종목 조회 제외 누락');
+assert.match(settingsFetch, /getEPWithCode\(\)\.filter\(_isCurrentPriceTarget\)/, '현재가 조회 대상을 현재 보유 종목으로 제한하지 않았습니다.');
+assert.match(settingsFetch, /if \(!_isCurrentPriceTarget\(m\)\) return false/, '미조회 집계에서 수량 0 종목 제외 누락');
 assert.doesNotMatch(html, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
 assert.doesNotMatch(html, /Noto\+Sans|Gothic\+A1|IBM\+Plex|Nanum\+Gothic/);
 const coreUiIndex = html.indexOf('<script defer src="core/core_ui.js"></script>');

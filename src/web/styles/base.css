@@ -715,6 +715,7 @@ input[type="number"]{
 .price-status-chips{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
 .price-status-chip{display:inline-flex;align-items:center;min-height:20px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:.62rem;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 .price-status-chip.is-skip{border-color:var(--c-cyan-30);background:var(--c-cyan-08);color:var(--cyan)}
+.price-status-chip.is-missing{border-color:var(--c-amber-30);background:var(--c-amber-08);color:var(--gold);cursor:pointer;font-family:inherit}
 .price-status-note{padding-top:3px;border-top:1px dashed var(--border);color:var(--amber);font-size:.62rem;font-weight:600}
 .action-update-card{height:auto;min-height:52px}
 #price-updated-label.has-price-details{min-width:min(560px,55vw);padding:6px 10px}
