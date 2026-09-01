@@ -730,9 +730,9 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
         if (typeof showToast === 'function') showToast(`☁️ GAS 동기화 완료 (${gasSaveTargets.length}건)`, 'ok');
         return;
       }
-      console.warn('[batchSaveManualPrices] GAS 오류 → 건당 fallback 시작:', d);
+      console.info('[batchSaveManualPrices] 배치 응답 없음 → 건별 저장으로 전환');
     } catch(fetchErr) {
-      console.warn('[batchSaveManualPrices] 네트워크 오류 → 건당 fallback 시작:', fetchErr.message);
+      console.info('[batchSaveManualPrices] 배치 요청 미완료 → 건별 저장으로 전환');
     }
 
     for (const target of gasSaveTargets) {
@@ -751,6 +751,7 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
 
   if (gasFailedCount > 0 && typeof showToast === 'function') {
     const sample = gasFailedKeys.slice(0, 3).join(', ');
+    console.warn(`[_syncManualPricesToGsheet] GAS 저장 최종 실패 ${gasFailedCount}건:`, gasFailedKeys);
     showToast(`⚠️ GAS 저장 실패 ${gasFailedCount}건${sample ? ' (' + sample + (gasFailedKeys.length > 3 ? ' 외' : '') + ')' : ''}`, 'warn');
   } else if (typeof showToast === 'function') {
     _editorHistoryCache.clear();

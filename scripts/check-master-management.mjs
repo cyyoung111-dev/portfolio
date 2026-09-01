@@ -14,6 +14,12 @@ for (const contract of [
 if (/fetch\(GSHEET_API_URL/.test(editorSource) || /GSHEET_API_URL\s*\+\s*['"]\?action=(?:getPriceHistory|saveManualPrice)/.test(editorSource)) {
   throw new Error('현재가 편집에서 접근 토큰을 우회하는 GAS 직접 요청이 남아 있습니다.');
 }
+if (/console\.warn\(['"]\[batchSaveManualPrices\]/.test(editorSource)) {
+  throw new Error('현재가 배치 fallback 전환을 최종 저장 오류처럼 경고하면 안 됩니다.');
+}
+if (!/console\.warn\(`\[_syncManualPricesToGsheet\] GAS 저장 최종 실패/.test(editorSource)) {
+  throw new Error('현재가 건별 fallback 최종 실패 경고가 누락됐습니다.');
+}
 if (!/requestGsheetActionJson\(\s*action,\s*params,/.test(dividendSource)) {
   throw new Error('배당 외부소스 조회의 GAS 인증 공통 경로가 누락됐습니다.');
 }
