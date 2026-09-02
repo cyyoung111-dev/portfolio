@@ -1,0 +1,66 @@
+/* 배당 화면 전용 스타일 — base.css 3단계 분리 */
+.div-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:120px}
+.div-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:4px}
+.div-stat-value{font-size:.95rem;font-weight:700}
+.div-stat-sub{font-size:.65rem;color:var(--muted);margin-top:3px}
+.div-freq-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.65rem;font-weight:700}
+
+/* 배당 월별 필터 및 종목별 월별 금액표 */
+.div-month-filter{display:flex;gap:4px;overflow-x:auto;padding:2px 0 9px;margin-bottom:8px;scrollbar-width:thin}
+.div-month-filter button{flex:0 0 auto;padding:5px 9px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:.65rem;cursor:pointer}
+.div-month-filter button.active{border-color:var(--cyan);background:var(--c-cyan-15);color:var(--cyan);font-weight:700}
+.div-month-selection{display:flex;align-items:baseline;gap:7px;padding:9px 11px;margin-bottom:10px;border-radius:8px;background:var(--s2);font-size:.68rem;color:var(--muted)}
+.div-month-selection strong{font-size:.88rem;color:var(--cyan)}
+.div-month-selection small{margin-left:auto;color:var(--muted)}
+.div-monthly-matrix{background:var(--s1);border:1px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.div-monthly-matrix-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.div-monthly-matrix-head strong{font-size:.86rem}
+.div-monthly-matrix-head span{display:block;margin-top:2px;font-size:.62rem;color:var(--muted);font-weight:400}
+.div-monthly-matrix-head small{font-size:.62rem;color:var(--muted);white-space:nowrap}
+.div-monthly-matrix-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.div-monthly-matrix table{min-width:1050px}
+.div-monthly-matrix th,.div-monthly-matrix td{padding:7px 9px;font-size:.67rem;text-align:right}
+.div-monthly-matrix th:first-child,.div-monthly-matrix td:first-child{position:sticky;left:0;z-index:1;min-width:145px;text-align:left;background:var(--s1)}
+.div-monthly-matrix thead th:first-child{z-index:3;background:var(--s2)}
+.div-monthly-matrix tbody td.selected,.div-monthly-matrix thead th.selected,.div-monthly-matrix tfoot th.selected{background:var(--c-cyan-15);color:var(--cyan);font-weight:700}
+.div-monthly-matrix .div-monthly-group th:first-child{position:static;min-width:0;padding:8px 10px;text-align:left;background:color-mix(in srgb,var(--s2) 88%,var(--cyan) 12%);border-top:1px solid var(--border);border-bottom:1px solid var(--border);color:var(--text);font-size:.68rem;letter-spacing:.01em}
+.div-monthly-matrix .div-monthly-group:first-child th{border-top:0}
+.div-monthly-matrix tfoot th{border-top:1px solid var(--border);background:var(--s2);color:var(--text)}
+.div-asset-badge{display:inline-block;margin-right:6px;padding:2px 6px;border-radius:999px;font-size:.58rem;font-weight:800;vertical-align:middle}
+.div-asset-badge.stock{border:1px solid var(--c-blue2-30);background:var(--c-blue2-08);color:var(--blue-lt)}
+.div-asset-badge.etf{border:1px solid var(--c-cyan-40);background:rgba(6,182,212,.15);color:var(--cyan)}
+#dividendLinkStatus[data-state="idle"]{color:color-mix(in srgb,var(--muted) 78%,var(--text) 22%)}
+#dividendLinkStatus[data-state="syncing"]{color:color-mix(in srgb,var(--amber) 72%,var(--text) 28%);font-weight:700}
+#dividendLinkStatus[data-state="ok"]{color:color-mix(in srgb,var(--green-lt) 78%,var(--text) 22%);font-weight:650}
+#dividendLinkStatus[data-state="fail"]{color:color-mix(in srgb,var(--red-lt) 78%,var(--text) 22%);font-weight:700}
+.div-gas-link-badge{padding:4px 8px;border-radius:999px;font-size:.62rem;font-weight:700;white-space:nowrap}
+.div-gas-link-badge.connected{border:1px solid var(--c-green-30);background:var(--c-green-10);color:var(--green)}
+.div-gas-link-badge.disconnected{border:1px solid var(--border);background:var(--s1);color:var(--muted)}
+.div-month-chart-scroll{overflow-x:visible;-webkit-overflow-scrolling:touch}
+.div-month-chart{min-width:0}
+.div-month-bar-label{font-size:9px;line-height:1.2}
+.div-month-bar-month{font-size:9px;line-height:1.2}
+@media(max-width:600px){
+  .div-link-panel{align-items:stretch!important;padding:12px!important}
+  .div-link-actions{width:100%;display:grid!important;grid-template-columns:1fr 1fr;gap:7px!important}
+  .div-link-actions .div-gas-link-badge{grid-column:1/-1;width:max-content}
+  .div-link-actions button{width:100%;min-height:40px;padding:7px 8px;white-space:normal;line-height:1.25}
+  .div-month-chart-scroll{overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
+  .div-month-chart{min-width:620px}
+  .div-month-bar-label,.div-month-bar-month{font-size:10px}
+  .div-monthly-matrix-head{align-items:flex-start;flex-direction:column}
+  .div-monthly-matrix-head small{white-space:normal;line-height:1.35}
+}
+@media(max-width:360px){
+  .div-link-actions{grid-template-columns:1fr}
+  .div-link-actions .div-gas-link-badge{grid-column:auto}
+}
+
+@media(max-width:768px){
+  #div-month-chart{height:90px!important}
+}
+@media(max-width:480px){
+  .div-stat-card{min-width:calc(50% - 4px)!important;padding:9px 11px}
+  .div-stat-value{font-size:.85rem}
+  #div-month-chart{height:80px!important}
+}

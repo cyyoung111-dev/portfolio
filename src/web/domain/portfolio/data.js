@@ -376,6 +376,16 @@ const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';
 // ★ [계좌별 taxType] 계좌→세금구분 매핑 키
 const ACCT_TAX_TYPES_KEY = 'pf_v6_acct_tax_types';
 const ACCOUNTS_MASTER_KEY = 'pf_v7_accounts';
+const BROKER_CODES = Object.freeze(['MIRAE_ASSET','SHINHAN','WOORI','LS','SAMSUNG','EUGENE','NH','OTHER','UNCLASSIFIED']);
+const BROKER_LABELS = Object.freeze({ MIRAE_ASSET:'미래에셋', SHINHAN:'신한', WOORI:'우리', LS:'LS', SAMSUNG:'삼성', EUGENE:'유진', NH:'NH', OTHER:'기타', UNCLASSIFIED:'미분류' });
+const LEGACY_BROKER_BY_ACCOUNT = Object.freeze({ '미래에셋':'MIRAE_ASSET', '미래에셋 (ISA)':'MIRAE_ASSET', '미래에셋 (IRP)':'MIRAE_ASSET', '신한':'SHINHAN', '우리':'WOORI', '우리 (연금)':'WOORI', LS:'LS', '삼성':'SAMSUNG', '유진':'EUGENE', NH:'NH' });
+
+function normalizeBrokerCode(code, legacyName) {
+  const normalized = String(code || '').trim().toUpperCase();
+  if (BROKER_CODES.includes(normalized)) return normalized;
+  if (normalized) return 'UNCLASSIFIED';
+  return LEGACY_BROKER_BY_ACCOUNT[String(legacyName || '').trim()] || 'UNCLASSIFIED';
+}
 
 // ── localStorage 복원 (KEY 상수 선언 후 실행)
 (function(){
@@ -407,6 +417,7 @@ function _stableAccountId(seed, usedIds) {
 }
 
 function saveAccountsMaster() {
+  ACCOUNTS_MASTER.forEach(item => { item.brokerCode = normalizeBrokerCode(item.brokerCode || item.broker, item.displayName); delete item.broker; });
   lsSave(ACCOUNTS_MASTER_KEY, ACCOUNTS_MASTER);
   ACCT_TAX_TYPES = Object.fromEntries(ACCOUNTS_MASTER.filter(item => item.taxType && item.taxType !== 'UNCLASSIFIED').map(item => [item.displayName, ({ GENERAL:'일반', ISA:'ISA', PENSION_SAVINGS:'연금', IRP:'IRP' })[item.taxType]]));
   lsSave(ACCT_TAX_TYPES_KEY, ACCT_TAX_TYPES);
@@ -419,10 +430,11 @@ function ensureAccountsMaster() {
     let account = ACCOUNTS_MASTER.find(item => item.displayName === displayName);
     if (!account) {
       const legacyType = ({ '일반':'GENERAL', ISA:'ISA', '연금':'PENSION_SAVINGS', '연금저축':'PENSION_SAVINGS', IRP:'IRP' })[ACCT_TAX_TYPES[displayName]] || 'UNCLASSIFIED';
-      account = { id:_stableAccountId(displayName, usedIds), displayName, broker:'', taxType:legacyType, active:true, color:ACCT_COLORS[displayName] || '', sortOrder:index };
+      account = { id:_stableAccountId(displayName, usedIds), displayName, brokerCode:normalizeBrokerCode('', displayName), taxType:legacyType, active:true, color:ACCT_COLORS[displayName] || '', sortOrder:index };
       usedIds.add(account.id); ACCOUNTS_MASTER.push(account);
     }
   });
+  ACCOUNTS_MASTER.forEach(account => { account.brokerCode = normalizeBrokerCode(account.brokerCode || account.broker, account.displayName); delete account.broker; });
   const byName = Object.fromEntries(ACCOUNTS_MASTER.map(item => [item.displayName, item]));
   rawTrades.forEach(item => { if (!item.accountId && byName[item.acct]) item.accountId = byName[item.acct].id; });
   rawHoldings.forEach(item => { if (!item.accountId && byName[item.acct]) item.accountId = byName[item.acct].id; });
