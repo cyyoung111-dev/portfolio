@@ -51,7 +51,7 @@ assert.match(settingsFetch, /getEPWithCode\(\)\.filter\(_isCurrentPriceTarget\)/
 assert.match(settingsFetch, /if \(!_isCurrentPriceTarget\(m\)\) return false/, '미조회 집계에서 수량 0 종목 제외 누락');
 assert.doesNotMatch(html, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
 assert.doesNotMatch(html, /Noto\+Sans|Gothic\+A1|IBM\+Plex|Nanum\+Gothic/);
-const coreUiIndex = html.indexOf('<script defer src="core/core_ui.js"></script>');
+const coreUiIndex = html.indexOf('<script defer src="core/core_ui.js?');
 const themeIndex = html.indexOf('<script defer src="shared/theme.js?');
 assert.ok(coreUiIndex >= 0 && themeIndex >= 0 && coreUiIndex < themeIndex, 'core_ui.js는 theme.js보다 먼저 로드해야 함');
 assert.match(coreUi, /function _escapeHtml\s*\(/, '_escapeHtml 정의 누락');
