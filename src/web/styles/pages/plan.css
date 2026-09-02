@@ -1,0 +1,9 @@
+/* 투자계획 화면 구조만 분리하며 typography 값은 변경하지 않습니다. */
+.plan-view{display:flex;flex-direction:column;gap:14px;padding:4px 0;min-width:0}
+.plan-subtabs{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--s1);scrollbar-width:thin}
+.plan-subtab{flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:var(--type-caption);font-weight:700;cursor:pointer}
+.plan-subtab:hover,.plan-subtab:focus-visible,.plan-subtab.is-active{border-color:var(--amber);color:var(--gold)}
+.plan-tab-panel{display:flex;flex-direction:column;gap:20px;min-width:0}
+.plan-tab-panel[hidden]{display:none}
+.plan-tab-panel .tbl-wrap{max-width:100%}
+@media(max-width:480px){.plan-view{gap:10px}.plan-tab-panel{gap:12px}.plan-subtabs{padding:6px}}
