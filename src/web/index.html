@@ -209,14 +209,14 @@
 <script defer src="app/bootstrap.js"></script>
 <!-- HOLDING EDITOR MODAL -->
 
-<div class="editor-overlay" id="realEstateEditor">
+<div class="editor-overlay" id="realEstateEditor" role="dialog" aria-modal="true" aria-labelledby="realEstateEditorTitle">
   <div class="editor-box" style="max-width:440px">
     <div class="editor-header">
       <div>
-        <h3>🏠 부동산 정보 입력</h3>
+        <h3 id="realEstateEditorTitle">🏠 부동산 정보 입력</h3>
         <p>실거래가 · 매입가 · 추가비용 입력 시 손익 자동 계산</p>
       </div>
-      <button id="btn-close-realestate-editor-top" class="editor-close">✕</button>
+      <button id="btn-close-realestate-editor-top" class="editor-close" type="button" aria-label="부동산 정보 입력 닫기">✕</button>
     </div>
     <div class="editor-body" style="padding:16px">
 
@@ -279,14 +279,14 @@
 </div>
 
 <!-- PRICE EDITOR MODAL -->
-<div class="editor-overlay" id="priceEditor">
+<div class="editor-overlay" id="priceEditor" role="dialog" aria-modal="true" aria-labelledby="priceEditorTitle">
   <div class="editor-box" style="max-width:500px">
     <div class="editor-header">
       <div>
-        <h3>✏️ 현재가 편집</h3>
+        <h3 id="priceEditorTitle">✏️ 현재가 편집</h3>
         <p>펀드·TDF 및 자동 조회 실패 종목의 현재가를 수동 입력합니다</p>
       </div>
-      <button id="btn-close-price-editor-top" class="editor-close">✕</button>
+      <button id="btn-close-price-editor-top" class="editor-close" type="button" aria-label="현재가 편집 닫기">✕</button>
     </div>
     <div id="pe-panel-price" class="editor-body">
       <!-- 날짜 선택 -->
@@ -305,14 +305,14 @@
 </div>
 
 <!-- LOAN EDITOR MODAL -->
-<div class="editor-overlay" id="loanEditor">
+<div class="editor-overlay" id="loanEditor" role="dialog" aria-modal="true" aria-labelledby="loanEditorTitle">
   <div class="editor-box" style="max-width:420px">
     <div class="editor-header">
       <div>
-        <h3>🏦 주담대 정보 편집</h3>
+        <h3 id="loanEditorTitle">🏦 주담대 정보 편집</h3>
         <p>월 납입 후 잔액·잔여 개월수를 업데이트하세요</p>
       </div>
-      <button id="btn-close-loan-editor-top" class="editor-close">✕</button>
+      <button id="btn-close-loan-editor-top" class="editor-close" type="button" aria-label="주담대 정보 편집 닫기">✕</button>
     </div>
     <div class="editor-body">
       <div class="editor-group">
