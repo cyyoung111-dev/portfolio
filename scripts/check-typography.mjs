@@ -60,6 +60,9 @@ for (const width of ['768', '600', '480']) {
 assert.match(layoutCss, /\.action-refresh-btn\{[^}]*flex-direction:column[^}]*width:52px[^}]*height:52px/);
 assert.match(layoutCss, /\.toolbar-btn\{[^}]*width:52px[^}]*height:52px/);
 assert.match(layoutCss, /#price-updated-label\.has-price-details\{[^}]*width:max-content[^}]*max-width:680px/);
+assert.match(responsiveCss, /\.action-bar\{display:grid!important;grid-template-columns:minmax\(0,1fr\)/);
+assert.match(responsiveCss, /\.toolbar-btn-group\{position:relative;width:100%;min-width:0;margin:0;justify-content:flex-start;overflow-x:auto/);
+assert.match(responsiveCss, /\.toolbar-section-settings\{order:initial;width:auto;flex:none\}/);
 for (const token of ['--type-caption:.75rem','--type-label:.8125rem','--type-body:.875rem','--type-value:1rem','--line-body:1.55','--line-reading:1.65','--radius-control:8px','--radius-card:12px','--radius-panel:16px','--control-height-md:38px']) {
   assert.ok(css.includes(token), `타이포그래피 토큰 누락: ${token}`);
 }
