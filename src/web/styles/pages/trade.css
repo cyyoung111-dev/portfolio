@@ -1,0 +1,23 @@
+/* 거래 관리·종목별 거래 화면 전용 스타일 — base.css 6단계 분리 */
+.trade-badge-hold{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.65rem;font-weight:700;background:var(--c-green2-15);color:var(--green-lt);border:1px solid var(--c-green2-25)}
+.trade-badge-sell{display:inline-block;padding:2px 7px;border-radius:20px;font-size:.65rem;font-weight:700;background:var(--c-red-12);color:var(--red-lt);border:1px solid rgba(239,68,68,.2)}
+.trade-stat-card{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:10px 14px;flex:1;min-width:110px}
+.trade-stat-label{font-size:.65rem;color:var(--muted);margin-bottom:3px}
+.trade-stat-value{font-size:.90rem;font-weight:700}
+.trade-cb{width:15px;height:15px;cursor:pointer;accent-color:var(--amber)}
+#tradeSelBar{transition:all .2s}
+#te-tradetype-buy.active{background:var(--c-green2-15)!important;color:var(--green-lt)!important}
+#te-tradetype-sell.active{background:var(--c-red-12)!important;color:var(--red-lt)!important}
+.trade-check{transform:scale(1.2)}
+.btn-trade-type{padding:4px 10px;border-radius:6px;font-size:.72rem;cursor:pointer;transition:all .15s;border:1px solid var(--c-white-10);background:transparent;color:var(--muted)}
+.btn-trade-type.active{border-color:var(--amber);background:var(--c-amber-15);color:var(--gold)}
+
+@media(max-width:768px){
+  #tradesHeaderBtns .btn-sm{padding:4px 8px!important;font-size:var(--type-caption)!important}
+}
+@media(max-width:480px){
+  .trade-stat-card{padding:10px 14px;font-size:.72rem}
+  .trade-stat-value{font-size:.85rem}
+  #tradeSelBar{flex-wrap:wrap;gap:6px}
+  #tradesHeaderBtns{flex-wrap:wrap!important;gap:6px!important}
+}
