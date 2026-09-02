@@ -4,7 +4,8 @@ import calculations from '../src/web/domain/plan/plan_calculations.js';
 
 const flow = calculations.calculateDividendCashflow({ dividends:['일반','ISA','연금','IRP'].map(taxType => ({taxType,amount:1_000_000})) });
 assert.deepEqual({ total:flow.totalGross, available:flow.availableAnnual, isa:flow.isaInternal, pension:flow.pensionInternal }, { total:4_000_000, available:846_000, isa:1_000_000, pension:2_000_000 });
-const source = fs.readFileSync(new URL('../src/web/views/views_plan.js', import.meta.url), 'utf8');
+const planDir = new URL('../src/web/views/', import.meta.url);
+const source = fs.readdirSync(planDir).filter(name => /^views_plan(?:_[a-z]+)?\.js$/.test(name)).map(name => fs.readFileSync(new URL(name, planDir), 'utf8')).join('\n');
 const systemSource = fs.readFileSync(new URL('../src/web/views/views_system.js', import.meta.url), 'utf8');
 const assetSource = fs.readFileSync(new URL('../src/web/views/views_asset.js', import.meta.url), 'utf8');
 assert.equal((source.match(/id="foreign-tax-adjustment"/g) || []).length, 1);
