@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
+const tokensCss = fs.readFileSync(new URL('../src/web/styles/tokens.css', import.meta.url), 'utf8');
 const baseCss = fs.readFileSync(new URL('../src/web/styles/base.css', import.meta.url), 'utf8');
 const componentsCss = fs.readFileSync(new URL('../src/web/styles/components.css', import.meta.url), 'utf8');
 const layoutCss = fs.readFileSync(new URL('../src/web/styles/layout.css', import.meta.url), 'utf8');
@@ -10,7 +11,7 @@ const dividendCss = fs.readFileSync(new URL('../src/web/styles/pages/dividend.cs
 const assetCss = fs.readFileSync(new URL('../src/web/styles/pages/asset.css', import.meta.url), 'utf8');
 const historyCss = fs.readFileSync(new URL('../src/web/styles/pages/history.css', import.meta.url), 'utf8');
 const tradeCss = fs.readFileSync(new URL('../src/web/styles/pages/trade.css', import.meta.url), 'utf8');
-const css = [baseCss, componentsCss, layoutCss, responsiveCss, planCss, dividendCss, assetCss, historyCss, tradeCss].join('\n');
+const css = [tokensCss, baseCss, componentsCss, layoutCss, responsiveCss, planCss, dividendCss, assetCss, historyCss, tradeCss].join('\n');
 const html = fs.readFileSync(new URL('../src/web/index.html', import.meta.url), 'utf8');
 const theme = fs.readFileSync(new URL('../src/web/shared/theme.js', import.meta.url), 'utf8');
 const settings = fs.readFileSync(new URL('../src/web/features/settings/settings.js', import.meta.url), 'utf8');
@@ -47,6 +48,11 @@ assert.match(layoutCss, /\.view-switcher\{display:flex/);
 assert.match(layoutCss, /\.toolbar-btn\{/);
 assert.doesNotMatch(baseCss, /\.action-bar\{display:flex/,
   'base.css에 상단 작업 영역의 기본 레이아웃 선언이 남아 있습니다.');
+assert.equal((tokensCss.match(/:root\{/g) || []).length, 4, 'tokens.css의 최상위 토큰 블록이 보존되어야 합니다.');
+for (const token of ['--bg:', '--elev-1:', '--font-ui:', '--type-caption:.75rem']) {
+  assert.ok(tokensCss.includes(token), `tokens.css 토큰 누락: ${token}`);
+}
+assert.doesNotMatch(baseCss, /:root\{[^}]*--(?:bg|elev-1|font-ui|type-caption:\.75rem)/, 'base.css에 분리 대상 토큰 블록이 남아 있습니다.');
 assert.doesNotMatch(layoutCss, /@media\(/, 'layout.css에 통합 대상 반응형 규칙이 남아 있습니다.');
 for (const width of ['768', '600', '480']) {
   assert.equal((responsiveCss.match(new RegExp(`@media\\(max-width:${width}px\\)`, 'g')) || []).length, 1, `${width}px 반응형 구간은 하나여야 합니다.`);
