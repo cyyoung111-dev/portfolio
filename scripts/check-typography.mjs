@@ -4,12 +4,13 @@ import fs from 'node:fs';
 const baseCss = fs.readFileSync(new URL('../src/web/styles/base.css', import.meta.url), 'utf8');
 const componentsCss = fs.readFileSync(new URL('../src/web/styles/components.css', import.meta.url), 'utf8');
 const layoutCss = fs.readFileSync(new URL('../src/web/styles/layout.css', import.meta.url), 'utf8');
+const responsiveCss = fs.readFileSync(new URL('../src/web/styles/responsive.css', import.meta.url), 'utf8');
 const planCss = fs.readFileSync(new URL('../src/web/styles/pages/plan.css', import.meta.url), 'utf8');
 const dividendCss = fs.readFileSync(new URL('../src/web/styles/pages/dividend.css', import.meta.url), 'utf8');
 const assetCss = fs.readFileSync(new URL('../src/web/styles/pages/asset.css', import.meta.url), 'utf8');
 const historyCss = fs.readFileSync(new URL('../src/web/styles/pages/history.css', import.meta.url), 'utf8');
 const tradeCss = fs.readFileSync(new URL('../src/web/styles/pages/trade.css', import.meta.url), 'utf8');
-const css = [baseCss, componentsCss, layoutCss, planCss, dividendCss, assetCss, historyCss, tradeCss].join('\n');
+const css = [baseCss, componentsCss, layoutCss, responsiveCss, planCss, dividendCss, assetCss, historyCss, tradeCss].join('\n');
 const html = fs.readFileSync(new URL('../src/web/index.html', import.meta.url), 'utf8');
 const theme = fs.readFileSync(new URL('../src/web/shared/theme.js', import.meta.url), 'utf8');
 const settings = fs.readFileSync(new URL('../src/web/features/settings/settings.js', import.meta.url), 'utf8');
@@ -46,6 +47,13 @@ assert.match(layoutCss, /\.view-switcher\{display:flex/);
 assert.match(layoutCss, /\.toolbar-btn\{/);
 assert.doesNotMatch(baseCss, /\.action-bar\{display:flex/,
   'base.css에 상단 작업 영역의 기본 레이아웃 선언이 남아 있습니다.');
+assert.doesNotMatch(layoutCss, /@media\(/, 'layout.css에 통합 대상 반응형 규칙이 남아 있습니다.');
+for (const width of ['768', '600', '480']) {
+  assert.equal((responsiveCss.match(new RegExp(`@media\\(max-width:${width}px\\)`, 'g')) || []).length, 1, `${width}px 반응형 구간은 하나여야 합니다.`);
+}
+assert.match(layoutCss, /\.action-refresh-btn\{[^}]*flex-direction:column[^}]*width:52px[^}]*height:52px/);
+assert.match(layoutCss, /\.toolbar-btn\{[^}]*width:52px[^}]*height:52px/);
+assert.match(layoutCss, /#price-updated-label\.has-price-details\{[^}]*width:max-content[^}]*max-width:680px/);
 for (const token of ['--type-caption:.75rem','--type-label:.8125rem','--type-body:.875rem','--type-value:1rem','--line-body:1.55','--line-reading:1.65','--radius-control:8px','--radius-card:12px','--radius-panel:16px','--control-height-md:38px']) {
   assert.ok(css.includes(token), `타이포그래피 토큰 누락: ${token}`);
 }
