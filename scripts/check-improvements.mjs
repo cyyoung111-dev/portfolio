@@ -22,6 +22,14 @@ assert.match(html, /toolbar-section-danger/);
 assert.match(html, /aria-label="위험 작업"/);
 assert.ok(html.indexOf('id="viewSwitcher"') > html.indexOf('toolbar-section-settings'));
 
+const settingsFetch = read('src/web/features/settings/settings_fetch.js');
+const layoutCss = read('src/web/styles/layout.css');
+assert.match(settingsFetch, /setAttribute\('aria-busy', 'true'\)/);
+assert.match(settingsFetch, /textContent = '업데이트 중'/);
+assert.match(settingsFetch, /removeAttribute\('aria-busy'\)/);
+assert.doesNotMatch(settingsFetch, /textContent = '⏳'/);
+assert.match(layoutCss, /\.action-refresh-btn\[aria-busy="true"\] svg\{animation:action-refresh-spin/);
+
 const net = read('src/web/features/settings/settings_net.js');
 const editor = read('src/web/features/management/mgmt_editor.js');
 const backup = read('src/web/domain/migration/backup_schema.js');

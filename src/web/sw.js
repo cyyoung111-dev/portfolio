@@ -2,36 +2,36 @@
 //  sw.js — 서비스워커 (PWA 오프라인 캐싱)
 //  정적 파일 배포 시 CACHE_NAME과 PRECACHE_URLS의 쿼리 버전을 함께 올립니다.
 // ════════════════════════════════════════════════════════════════
-const CACHE_NAME = 'portfolio-cache-20260902-3';
+const CACHE_NAME = 'portfolio-cache-20260902-4';
 
 // 오프라인에서도 최소한 앱 껍데기는 뜨도록 미리 저장해둘 파일들
 const PRECACHE_URLS = [
   './',
   './index.html',
   './manifest.json',
-  './styles/base.css?v=20260902-3',
-  './styles/layout.css?v=20260902-3',
-  './styles/pages/plan.css?v=20260902-3',
-  './shared/theme.js?v=20260902-3',
-  './domain/portfolio/data.js?v=20260902-3',
-  './domain/plan/plan_calculations.js?v=20260902-3',
-  './views/views_asset.js?v=20260902-3',
-  './views/views_portfolio.js?v=20260902-3',
-  './views/views_plan.js?v=20260902-3',
-  './views/views_plan_overview.js?v=20260902-3',
-  './views/views_plan_export.js?v=20260902-3',
-  './views/views_plan_weights.js?v=20260902-3',
-  './views/views_plan_tax.js?v=20260902-3',
-  './views/views_plan_retirement.js?v=20260902-3',
-  './views/views_plan_simulation.js?v=20260902-3',
-  './views/views_asset_schedule_data.js?v=20260902-3',
-  './views/views_system.js?v=20260902-3',
-  './features/settings/settings.js?v=20260902-3',
-  './features/settings/settings_fetch.js?v=20260902-3',
-  './features/management/mgmt_editor.js?v=20260902-3',
-  './features/dividend/mgmt_div.js?v=20260902-3',
-  './views/views_history_benchmark.js?v=20260902-3',
-  './app/event_delegation.js?v=20260902-3',
+  './styles/base.css?v=20260902-4',
+  './styles/layout.css?v=20260902-4',
+  './styles/pages/plan.css?v=20260902-4',
+  './shared/theme.js?v=20260902-4',
+  './domain/portfolio/data.js?v=20260902-4',
+  './domain/plan/plan_calculations.js?v=20260902-4',
+  './views/views_asset.js?v=20260902-4',
+  './views/views_portfolio.js?v=20260902-4',
+  './views/views_plan.js?v=20260902-4',
+  './views/views_plan_overview.js?v=20260902-4',
+  './views/views_plan_export.js?v=20260902-4',
+  './views/views_plan_weights.js?v=20260902-4',
+  './views/views_plan_tax.js?v=20260902-4',
+  './views/views_plan_retirement.js?v=20260902-4',
+  './views/views_plan_simulation.js?v=20260902-4',
+  './views/views_asset_schedule_data.js?v=20260902-4',
+  './views/views_system.js?v=20260902-4',
+  './features/settings/settings.js?v=20260902-4',
+  './features/settings/settings_fetch.js?v=20260902-4',
+  './features/management/mgmt_editor.js?v=20260902-4',
+  './features/dividend/mgmt_div.js?v=20260902-4',
+  './views/views_history_benchmark.js?v=20260902-4',
+  './app/event_delegation.js?v=20260902-4',
 ];
 
 // 설치 시: 기본 파일 미리 캐싱
