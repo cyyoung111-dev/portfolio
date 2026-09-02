@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const baseCss = fs.readFileSync(new URL('../src/web/styles/base.css', import.meta.url), 'utf8');
+const layoutCss = fs.readFileSync(new URL('../src/web/styles/layout.css', import.meta.url), 'utf8');
 const planCss = fs.readFileSync(new URL('../src/web/styles/pages/plan.css', import.meta.url), 'utf8');
-const css = [baseCss, fs.readFileSync(new URL('../src/web/styles/layout.css', import.meta.url), 'utf8'), planCss].join('\n');
+const css = [baseCss, layoutCss, planCss].join('\n');
 const html = fs.readFileSync(new URL('../src/web/index.html', import.meta.url), 'utf8');
 const theme = fs.readFileSync(new URL('../src/web/shared/theme.js', import.meta.url), 'utf8');
 const settings = fs.readFileSync(new URL('../src/web/features/settings/settings.js', import.meta.url), 'utf8');
@@ -15,6 +16,11 @@ const coreUi = fs.readFileSync(new URL('../src/web/core/core_ui.js', import.meta
 assert.doesNotMatch(baseCss, /(?:\.plan-|\.retire-|\.retirement-|\[data-view-section="plan"\])/, 'base.css에 투자계획 전용 선택자가 남아 있습니다.');
 assert.match(planCss, /\.plan-export-grid/);
 assert.match(planCss, /\.retirement-cashflow-table/);
+assert.match(layoutCss, /\.action-bar\{display:flex/);
+assert.match(layoutCss, /\.view-switcher\{display:flex/);
+assert.match(layoutCss, /\.toolbar-btn\{/);
+assert.doesNotMatch(baseCss, /\.action-bar\{display:flex/,
+  'base.css에 상단 작업 영역의 기본 레이아웃 선언이 남아 있습니다.');
 for (const token of ['--type-caption:.75rem','--type-label:.8125rem','--type-body:.875rem','--type-value:1rem','--line-body:1.55','--line-reading:1.65','--radius-control:8px','--radius-card:12px','--radius-panel:16px','--control-height-md:38px']) {
   assert.ok(css.includes(token), `타이포그래피 토큰 누락: ${token}`);
 }
