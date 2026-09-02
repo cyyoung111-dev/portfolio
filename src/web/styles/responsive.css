@@ -1,0 +1,35 @@
+/* 공통 반응형 규칙 — base.css 8단계 분리 */
+@media(max-width:768px){
+  .toolbar-btn-group{width:100%;flex:none;align-items:stretch}
+  .toolbar-section{flex-wrap:wrap}
+  .toolbar-section-settings{flex:1}
+  .toolbar-section-danger{margin-left:0}
+}
+
+@media(max-width:600px){
+  .action-bar{display:grid!important;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:6px;overflow:visible}
+  .action-update-card{position:relative;width:100%;min-width:0;margin:0}
+  .toolbar-btn-group{position:relative;width:100%;min-width:0;margin:0;justify-content:flex-start;overflow-x:auto;overflow-y:hidden;padding-bottom:3px}
+  .toolbar-section{flex:0 0 auto}
+}
+
+@media(max-width:480px){
+  .toolbar-section{padding:2px;gap:3px}
+  .toolbar-section-settings{order:initial;width:auto;flex:none}
+  .toolbar-section-danger{margin-left:0}
+  .toolbar-btn{width:44px;height:44px}
+  .toolbar-btn svg{width:14px;height:14px}
+  .action-update-card{display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:6px;height:auto;min-height:52px;padding:3px;width:100%;overflow:visible}
+  .action-date-input{width:100%;min-width:0;font-size:.70rem}
+  .action-refresh-btn{width:44px;height:44px;padding:5px 8px;font-size:.60rem}
+  .action-refresh-btn svg{width:14px;height:14px}
+  .action-status-label,#price-updated-label.has-price-details{grid-column:1/-1;width:100%;max-width:100%;min-width:0;font-size:.65rem}
+  .action-icon-btn{min-width:42px;padding:5px 10px;border-radius:6px}
+  .action-icon-btn svg{width:15px;height:15px}
+  .action-icon-btn span{font-size:.60rem}
+  .vs-btn{min-width:46px;padding:6px 8px;border-radius:6px}
+  .vs-btn-icon{width:20px;height:20px}
+  .vs-btn-icon svg{width:16px;height:16px}
+  .vs-btn-label{font-size:.60rem}
+  .view-switcher{gap:5px}
+}
