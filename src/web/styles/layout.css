@@ -1,0 +1,21 @@
+/* 레이아웃 분리: 기존 글꼴·글자 크기·굵기는 base.css 값을 그대로 사용합니다. */
+.toolbar-btn-group,.toolbar-section{display:flex;align-items:center;gap:6px}
+.toolbar-btn-group{flex:1;min-width:0;flex-wrap:wrap}
+.toolbar-section{padding:3px;border:1px solid var(--border);border-radius:9px;background:var(--s1)}
+.toolbar-section-primary{order:-1;border-color:var(--c-amber2-50);background:var(--c-amber-10)}
+.toolbar-section-danger{margin-left:auto;border-color:var(--c-red-35);background:var(--c-red-08)}
+.account-broker-select{width:100%;margin-bottom:10px;padding:6px 9px}
+.account-broker-badge{font-size:.60rem;font-weight:700;color:var(--blue-lt);border:1px solid var(--border);border-radius:4px;padding:1px 5px;flex-shrink:0}
+.account-broker-badge.needs-review{color:var(--red-lt);border-color:var(--c-red-35)}
+@media(max-width:768px){
+  .action-bar{flex-wrap:wrap;overflow-x:visible}
+  .toolbar-btn-group{width:100%;flex:none;align-items:stretch}
+  .toolbar-section{flex-wrap:wrap}
+  .toolbar-section-settings{flex:1}
+  .toolbar-section-danger{margin-left:0}
+}
+@media(max-width:480px){
+  .toolbar-section{padding:2px;gap:3px}
+  .toolbar-section-settings{order:3;width:100%}
+  .toolbar-section-danger{margin-left:auto}
+}

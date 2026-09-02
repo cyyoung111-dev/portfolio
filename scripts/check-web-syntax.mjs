@@ -75,7 +75,7 @@ const historyRenderSource = fs.readFileSync(path.join(webRoot, 'views/views_hist
 const historyPipelineSource = fs.readFileSync(path.join(webRoot, 'views/views_history_pipeline.js'), 'utf8');
 const historyUtilsSource = fs.readFileSync(path.join(webRoot, 'views/views_history_utils.js'), 'utf8');
 const portfolioSource = fs.readFileSync(path.join(webRoot, 'views/views_portfolio.js'), 'utf8');
-const planSource = fs.readFileSync(path.join(webRoot, 'views/views_plan.js'), 'utf8');
+const planSource = fs.readdirSync(path.join(webRoot, 'views')).filter(name => /^views_plan(?:_[a-z]+)?\.js$/.test(name)).map(name => fs.readFileSync(path.join(webRoot, 'views', name), 'utf8')).join('\n');
 const systemSource = fs.readFileSync(path.join(webRoot, 'views/views_system.js'), 'utf8');
 if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendSource.includes('_refreshSeibroEtfDividends(true)')
@@ -115,7 +115,7 @@ if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
   process.exit(1);
 }
 
-const planCashflowRenderCount = (planSource.match(/\$\{_buildPlanCashflowOverview\(\)\}/g) || []).length;
+const planCashflowRenderCount = (planSource.match(/panel\('overview', _buildPlanCashflowOverview\(\)\)/g) || []).length;
 if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || portfolioSource.includes('포트폴리오 배당·은퇴 현황')
     || portfolioSource.includes('주담대 상환스케줄')
@@ -124,11 +124,10 @@ if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || (planSource.match(/data-plan-section="cashflow"/g) || []).length !== 1
     || !planSource.includes('area.replaceChildren(template.content)')
     || planSource.includes('function _removeDuplicatePlanSections(area)')
-    || (planSource.match(/\$\{_buildPlanCashflowOverview\(\)\}/g) || []).length !== 1
     || !planSource.includes('function _buildPlanCashflowOverview()')
     || !planSource.includes('포트폴리오 배당·은퇴 현황')
     || !planSource.includes('주담대 상환스케줄')
-    || !planSource.includes('class="plan-section-nav"')
+    || !planSource.includes('class="plan-subtabs"')
     || !planSource.includes('배당 생활비 충당률은 상단')
     || !planSource.includes("book_append_sheet(wb, ws6, '배당 현황')")
     || !planSource.includes("book_append_sheet(wb, ws7, '은퇴 계획')")
