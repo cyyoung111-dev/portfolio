@@ -55,7 +55,6 @@
 @media(max-width:480px){.wrap{padding:10px 8px}.hdr{flex-direction:column;gap:4px}.hdr>div:last-child{align-self:flex-start}.hdr h1{font-size:1rem}.sum-row{grid-template-columns:1fr 1fr!important;gap:8px}.sc{padding:12px 11px}.sc .val{font-size:1rem;font-weight:700}.sc .lbl{font-size:.65rem;font-weight:600}.sc .sub{font-size:.60rem}table{font-size:.70rem}th,td{padding:7px 7px!important}.sector-grid{grid-template-columns:1fr!important}.sector-hdr{flex-direction:column;align-items:flex-start;gap:8px}.donut-legend{margin-top:10px}.editor-box{max-height:95vh;max-width:100%!important}.trade-stat-card{padding:10px 14px;font-size:.72rem}.trade-stat-value{font-size:.85rem}.col-hide-mobile{display:none!important}#price-updated-label{font-size:.65rem}#tradeSelBar{flex-wrap:wrap;gap:6px}#tradesHeaderBtns{flex-wrap:wrap!important;gap:6px!important}.sum-row-2 .lbl{font-size:.60rem;font-weight:600}.sum-row-2 .val{font-size:.90rem;font-weight:700}#stockMgmtBody,#sectorMgmtBody,#acctMgmtList{font-size:.72rem}.date-badge{font-size:.70rem;min-width:120px;padding:4px 10px}.btn-amber,.btn-danger-lg,.btn-apply,.btn-ghost-muted,.btn-cancel,.btn-purple-700,.btn-add-green,.btn-add-purple,.btn-add-cyan{padding:6px 16px;font-size:.70rem}.vs-btn-label{font-size:.60rem}}
 
 
-.hist-bench-btn{padding:4px 8px;border-radius:6px;cursor:pointer;font-size:.68rem;font-weight:500;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}
 
 /* 테마별 네이티브 날짜 입력 아이콘 대비 */
 html[data-theme-mode="light"] input[type=date]::-webkit-calendar-picker-indicator,
@@ -71,8 +70,6 @@ html[data-theme-mode="light"] .btn-amber-sm{background:var(--gold);color:#fff}
   .card-12-p20{padding:14px 15px}
 }
 
-.hist-bench-btn.active{border-color:var(--amber);background:var(--c-amber-15);color:var(--gold);font-weight:700}
-.hist-bench-btn.hist-bench-btn-clear{border-style:dashed}
 
 /* === UI polish pass (card/table readability) === */
 .sector-card{
@@ -819,8 +816,7 @@ table,.num,.mono,input[type="number"]{font-variant-numeric:tabular-nums}
 #view-area[data-active-view] .btn-ghost-sm,
 #view-area[data-active-view] .btn-purple-sm,
 #view-area[data-active-view] .btn-outline-sm,
-#view-area[data-active-view] .btn-sort-toggle,
-#view-area[data-active-view] .hist-bench-btn{font-size:var(--type-caption);min-height:32px}
+#view-area[data-active-view] .btn-sort-toggle{font-size:var(--type-caption);min-height:32px}
 #view-area[data-active-view] .empty-msg,
 #view-area[data-active-view] .mt-3-muted-72,
 #view-area[data-active-view] [class*="txt-muted"],
@@ -953,12 +949,6 @@ input:not([type=checkbox]):not([type=radio]):not([type=color]):not([type=file]):
   font-size:var(--type-caption);
 }
 
-/* 렌더 템플릿의 inline font-size를 덮어야 하므로 이 두 ID에만 우선순위를 부여한다. */
-#histModeWeek,
-#histModeMonth {
-  font-size:var(--type-caption)!important;
-}
-
 /* 모바일도 루트 15px × caption .8rem = 12px을 그대로 유지한다. */
 @media(max-width:768px){
   .sc .lbl,
@@ -1003,8 +993,9 @@ html[data-ui-font-size] textarea,
 html[data-ui-font-size] .settings-dialog button{min-height:var(--control-height-md);border-radius:var(--radius-control)}
 html[data-ui-font-size] .btn-sm,html[data-ui-font-size] .btn-ghost-sm,html[data-ui-font-size] .btn-cancel-sm,
 html[data-ui-font-size] .btn-edit-sm,html[data-ui-font-size] .btn-del-sm,html[data-ui-font-size] .btn-outline-sm,
-html[data-ui-font-size] .btn-purple-sm,html[data-ui-font-size] .f-btn,html[data-ui-font-size] .f-btn-sm,
-html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padding:var(--space-xs) var(--space-sm);border-radius:var(--radius-control)}
+html[data-ui-font-size] .btn-purple-sm,html[data-ui-font-size] .f-btn,html[data-ui-font-size] .f-btn-sm{
+  min-height:var(--control-height-sm);padding:var(--space-xs) var(--space-sm);border-radius:var(--radius-control)
+}
 html[data-ui-font-size] .btn-amber,html[data-ui-font-size] .btn-apply,html[data-ui-font-size] .btn-cancel,
 html[data-ui-font-size] .btn-ghost-muted,html[data-ui-font-size] .toolbar-btn,html[data-ui-font-size] .vs-btn,
 html[data-ui-font-size] .action-refresh-btn,html[data-ui-font-size] .settings-tab{min-height:var(--control-height-md);padding:var(--space-sm) var(--space-md);border-radius:var(--radius-control)}
