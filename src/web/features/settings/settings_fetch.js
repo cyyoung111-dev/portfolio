@@ -337,12 +337,16 @@ async function quickFetchByDate() {
   if (!dateInput.value) dateInput.value = getDateStr(0);
   const targetDate = dateInput.value;
 
-  btn.disabled = true; btn.querySelector('span').textContent = '⏳';
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  btn.querySelector('span').textContent = '업데이트 중';
   setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...', 'loading');
 
   if (!GSHEET_API_URL) {
     setStatusLabel('❌ 구글시트 미연동 · <button data-status-action="gsheet" class="btn-link">🔗 연동 →</button>', 'error');
-    btn.disabled = false; btn.querySelector('span').textContent = '업데이트';
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+    btn.querySelector('span').textContent = '업데이트';
     return;
   }
 
@@ -411,7 +415,9 @@ async function quickFetchByDate() {
   } catch(e) {
     setStatusLabel('❌ 조회 실패: ' + e.message, 'error');
   } finally {
-    btn.disabled = false; btn.querySelector('span').textContent = '업데이트';
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+    btn.querySelector('span').textContent = '업데이트';
   }
 }
 

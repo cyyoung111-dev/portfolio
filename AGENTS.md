@@ -15,3 +15,12 @@
   - the `gasVersion` value returned by `handleGetSettings()`
   - `EXPECTED_GAS_VERSION` in `src/web/features/settings/settings_fetch.js`
 - Keep operational deployment notes in `DEPLOYMENT.md` current when deployment, GAS redeploy, public-data API, or web-root behavior changes.
+
+## 토큰 효율과 근거 확인
+
+- 이전 대화와 기존 보고 내용을 반복하지 말고, 현재 요청에 필요한 변경·검증·주의사항만 간결하게 보고한다.
+- 진행 상황은 별도 설명이 필요한 긴 작업에서만 짧게 알리고, 단순 조사·수정·검사는 중간 설명 없이 완료 결과로 보고한다.
+- 저장소 사실은 먼저 `rg`, `git diff`, 관련 파일 열람 또는 테스트로 확인한 뒤 답하고, 확인하지 못한 내용은 추측하지 말고 `확인하지 못함`으로 명시한다.
+- 외부·최신 정보가 필요한 요청은 실제 검색 결과를 근거로 작성하며, 검색할 수 없으면 확인할 수 없다고 밝힌다.
+- 테스트 로그 전체를 답변에 반복하지 말고, 실행한 정확한 명령과 통과·실패·환경 제약만 요약한다.
+- 사용자 확인 항목은 자동 검사로 확인할 수 없는 항목과 이번 변경 범위에 해당하는 항목만 안내한다.

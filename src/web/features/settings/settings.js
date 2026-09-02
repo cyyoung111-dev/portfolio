@@ -66,7 +66,7 @@ function saveDividendSettings(_immediate) {
       return true;
     } catch(e) {
       // 별도 배당 저장 미지원 Apps Script면 기존 saveSettings(DIVDATA 포함)로 백업됨
-      console.warn('saveDividendSettings 실패:', e);
+      logWarn('settings', 'saveDividendSettings 실패:', e);
       return false;
     }
   };
@@ -100,7 +100,7 @@ function saveRealEstateSettings(immediate) {
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
         ok = true;
       } catch(e) {
-        console.warn('saveRealEstateSettings 실패:', e);
+        logWarn('settings', 'saveRealEstateSettings 실패:', e);
       } finally {
         waiters.forEach(done => done(ok));
       }

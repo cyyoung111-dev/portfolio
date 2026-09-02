@@ -1,0 +1,128 @@
+/* 투자계획 전용 스타일. 공통 폰트·UI 크기 토큰 값은 base.css에서 유지합니다. */
+
+/* 투자계획 내보내기·지표 그리드 */
+.plan-export-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-size:.78rem}
+.retire-flow-grid-single{grid-template-columns:1fr}
+.plan-metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.plan-sim-grid{gap:10px;margin-bottom:16px}
+@media(max-width:768px){
+  .plan-export-grid,.plan-metric-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:480px){
+  .plan-export-grid,.plan-metric-grid{gap:6px}
+  .plan-export-grid>div,.plan-metric-grid>div{min-width:0;overflow-wrap:anywhere}
+  .plan-metric-grid{grid-template-columns:1fr}
+}
+
+/* === Retirement plan readability pass === */
+.retire-metric-grid,
+.retire-input-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px;
+  margin-bottom:14px;
+}
+.retire-metric-grid{gap:8px}
+.retire-flow-grid,
+.retire-check-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+}
+.retire-flow-grid{margin-bottom:12px}
+.retire-check-item{
+  display:flex;
+  gap:8px;
+  align-items:flex-start;
+  background:var(--s2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:8px 10px;
+  font-size:.72rem;
+  line-height:1.35;
+}
+.retire-input-grid input{min-width:0}
+.retirement-cashflow-heading{font-size:.78rem;font-weight:700;color:var(--text);margin:14px 0 5px}
+.retirement-cashflow-note{font-size:.68rem;line-height:1.55;color:var(--muted);margin-bottom:8px}
+.retirement-cashflow-wrap{overflow:auto;max-height:520px;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;background:var(--s1)}
+.retirement-cashflow-table{width:100%;min-width:1240px;border-collapse:separate;border-spacing:0;table-layout:auto;font-size:.72rem;font-variant-numeric:tabular-nums}
+.retirement-cashflow-table th{position:sticky;top:0;z-index:1;padding:8px 9px;text-align:right;white-space:nowrap;color:var(--muted);font-size:.66rem;font-weight:700;background:var(--s2);border-bottom:1px solid var(--border)}
+.retirement-cashflow-table td{padding:8px 9px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border);color:var(--text);font-weight:500}
+.retirement-cashflow-table tbody tr:last-child td{border-bottom:none}
+.retirement-cashflow-table tbody tr:hover td{background:var(--s2)}
+.retirement-cashflow-table .year-cell{font-weight:700;min-width:92px}
+.retirement-cashflow-table .phase-cell{font-weight:700;min-width:48px}
+.retirement-cashflow-table .money-cell{min-width:90px}
+.retirement-cashflow-table .is-retirement .phase-cell{color:var(--amber)}
+.retirement-cashflow-table .is-accumulation .phase-cell{color:var(--cyan)}
+@media(max-width:768px){
+  .retire-metric-grid,
+  .retire-input-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+@media(max-width:480px){
+  .retire-metric-grid,
+  .retire-input-grid,
+  .retire-flow-grid,
+  .retire-check-grid{
+    grid-template-columns:1fr;
+  }
+  .retire-check-item{
+    min-height:36px;
+    padding:9px 10px;
+  }
+}
+
+/* 투자계획은 의미가 같은 라벨·설명·값의 크기를 동일하게 유지한다. */
+[data-view-section="plan"]{font-size:var(--type-body)}
+[data-view-section="plan"] [style*="font-size:.60rem"],
+[data-view-section="plan"] [style*="font-size:.61rem"],
+[data-view-section="plan"] [style*="font-size:.62rem"],
+[data-view-section="plan"] [style*="font-size:.63rem"],
+[data-view-section="plan"] [style*="font-size:.64rem"],
+[data-view-section="plan"] [style*="font-size:.65rem"],
+[data-view-section="plan"] [style*="font-size:.66rem"],
+[data-view-section="plan"] [style*="font-size:.67rem"],
+[data-view-section="plan"] [style*="font-size:.68rem"]{
+  font-size:var(--type-caption)!important;
+  line-height:var(--line-reading);
+}
+[data-view-section="plan"] .lbl-62-muted-3,
+[data-view-section="plan"] .retire-input-grid>div>div:first-child,
+[data-view-section="plan"] .plan-metric-grid>div>div:first-child{
+  color:color-mix(in srgb,var(--text) 72%,var(--muted) 28%);
+  font-size:var(--type-label)!important;
+  font-weight:500;
+  line-height:1.45;
+  margin-bottom:5px;
+}
+[data-view-section="plan"] input,
+[data-view-section="plan"] select{
+  min-height:38px;
+  padding:7px 10px!important;
+  font-size:var(--type-body)!important;
+  font-weight:500;
+}
+[data-view-section="plan"] .s2-rounded{line-height:1.5}
+[data-view-section="plan"] .retire-metric-grid .s2-rounded>div:last-child{
+  font-size:var(--type-value)!important;
+  font-weight:700!important;
+}
+.retirement-cashflow-heading{font-size:var(--type-title);line-height:1.4;margin:18px 0 7px}
+.retirement-cashflow-note{font-size:var(--type-caption);line-height:var(--line-reading);color:color-mix(in srgb,var(--text) 66%,var(--muted) 34%)}
+.retirement-cashflow-table{font-size:.8rem;line-height:1.45}
+.retirement-cashflow-table th{font-size:var(--type-caption);font-weight:600;color:color-mix(in srgb,var(--text) 66%,var(--muted) 34%);padding:10px 11px}
+.retirement-cashflow-table td{font-size:.8rem;font-weight:500;padding:10px 11px}
+.retirement-cashflow-table .year-cell{font-weight:700}
+.retirement-cashflow-table .money-cell{font-weight:500}
+.retire-check-item{font-size:var(--type-label);line-height:1.5}
+
+.plan-view{display:flex;flex-direction:column;gap:14px;padding:4px 0;min-width:0}
+.plan-subtabs{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--s1);scrollbar-width:thin}
+.plan-subtab{flex:0 0 auto;padding:5px 10px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:var(--type-caption);font-weight:700;cursor:pointer}
+.plan-subtab:hover,.plan-subtab:focus-visible,.plan-subtab.is-active{border-color:var(--amber);color:var(--gold)}
+.plan-tab-panel{display:flex;flex-direction:column;gap:20px;min-width:0}
+.plan-tab-panel[hidden]{display:none}
+.plan-tab-panel .tbl-wrap{max-width:100%}
+@media(max-width:480px){.plan-view{gap:10px}.plan-tab-panel{gap:12px}.plan-subtabs{padding:6px}}
