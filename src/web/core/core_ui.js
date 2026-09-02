@@ -59,3 +59,22 @@ function fmtDateDot(v) {
   if (!m) return raw;
   return `${m[1]}.${m[2]}.${m[3]}${m[4] || ''}`;
 }
+
+function formatDisplayDate(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/);
+  if (!match) return '';
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() + 1 !== Number(match[2]) || date.getUTCDate() !== Number(match[3])) return '';
+  return `${match[1]}.${match[2]}.${match[3]}`;
+}
+
+function formatDisplayMonth(value) {
+  const match = String(value || '').trim().match(/^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/);
+  if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) return '';
+  return `${match[1]}년 ${Number(match[2])}월`;
+}
+
+const BENCHMARK_LABELS = Object.freeze({ KOSPI:'KOSPI', SP500:'S&P500', DOW:'DOW', NASDAQ:'NASDAQ', NASDAQ100:'NASDAQ100' });
+function formatBenchmarkLabel(code) { return BENCHMARK_LABELS[String(code || '')] || String(code || ''); }

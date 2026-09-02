@@ -68,6 +68,7 @@ if (!historyBenchmarkSource.includes("'getBenchmarks'")
 
 const tabSyncSource = fs.readFileSync(path.join(webRoot, 'features/settings/settings_tabsync.js'), 'utf8');
 const baseCssSource = fs.readFileSync(path.join(webRoot, 'styles/base.css'), 'utf8');
+const dividendCssSource = fs.readFileSync(path.join(webRoot, 'styles/pages/dividend.css'), 'utf8');
 const indexSource = fs.readFileSync(path.join(webRoot, 'index.html'), 'utf8');
 const themeSource = fs.readFileSync(path.join(webRoot, 'shared/theme.js'), 'utf8');
 const tabSettingsSource = fs.readFileSync(path.join(webRoot, 'views/views_system_tabsettings.js'), 'utf8');
@@ -75,7 +76,7 @@ const historyRenderSource = fs.readFileSync(path.join(webRoot, 'views/views_hist
 const historyPipelineSource = fs.readFileSync(path.join(webRoot, 'views/views_history_pipeline.js'), 'utf8');
 const historyUtilsSource = fs.readFileSync(path.join(webRoot, 'views/views_history_utils.js'), 'utf8');
 const portfolioSource = fs.readFileSync(path.join(webRoot, 'views/views_portfolio.js'), 'utf8');
-const planSource = fs.readFileSync(path.join(webRoot, 'views/views_plan.js'), 'utf8');
+const planSource = fs.readdirSync(path.join(webRoot, 'views')).filter(name => /^views_plan(?:_[a-z]+)?\.js$/.test(name)).map(name => fs.readFileSync(path.join(webRoot, 'views', name), 'utf8')).join('\n');
 const systemSource = fs.readFileSync(path.join(webRoot, 'views/views_system.js'), 'utf8');
 if (!dividendSource.includes("_setDividendLinkState('syncing'")
     || !dividendSource.includes('_refreshSeibroEtfDividends(true)')
@@ -115,7 +116,7 @@ if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
   process.exit(1);
 }
 
-const planCashflowRenderCount = (planSource.match(/\$\{_buildPlanCashflowOverview\(\)\}/g) || []).length;
+const planCashflowRenderCount = (planSource.match(/panel\('overview', _buildPlanCashflowOverview\(\)\)/g) || []).length;
 if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || portfolioSource.includes('포트폴리오 배당·은퇴 현황')
     || portfolioSource.includes('주담대 상환스케줄')
@@ -124,11 +125,10 @@ if (portfolioSource.includes('function _buildPortfolioDividendSummary()')
     || (planSource.match(/data-plan-section="cashflow"/g) || []).length !== 1
     || !planSource.includes('area.replaceChildren(template.content)')
     || planSource.includes('function _removeDuplicatePlanSections(area)')
-    || (planSource.match(/\$\{_buildPlanCashflowOverview\(\)\}/g) || []).length !== 1
     || !planSource.includes('function _buildPlanCashflowOverview()')
     || !planSource.includes('포트폴리오 배당·은퇴 현황')
     || !planSource.includes('주담대 상환스케줄')
-    || !planSource.includes('class="plan-section-nav"')
+    || !planSource.includes('class="plan-subtabs"')
     || !planSource.includes('배당 생활비 충당률은 상단')
     || !planSource.includes("book_append_sheet(wb, ws6, '배당 현황')")
     || !planSource.includes("book_append_sheet(wb, ws7, '은퇴 계획')")
@@ -166,9 +166,9 @@ if (!indexSource.includes('id="settingsTabBtn_tab"')
 if (!dividendViewSource.includes('class="div-link-panel"')
     || !dividendViewSource.includes('class="div-link-actions"')
     || !dividendViewSource.includes('class="div-month-chart-scroll"')
-    || !baseCssSource.includes('@media(max-width:600px)')
-    || !baseCssSource.includes('.div-month-chart{min-width:620px}')
-    || !baseCssSource.includes('.div-link-actions{width:100%;display:grid!important;grid-template-columns:1fr 1fr')) {
+    || !dividendCssSource.includes('@media(max-width:600px)')
+    || !dividendCssSource.includes('.div-month-chart{min-width:620px}')
+    || !dividendCssSource.includes('.div-link-actions{width:100%;display:grid!important;grid-template-columns:1fr 1fr')) {
   console.error('❌ 배당 탭 모바일 버튼 배치 또는 월별 그래프 가로 스크롤 최적화가 누락됐습니다.');
   process.exit(1);
 }

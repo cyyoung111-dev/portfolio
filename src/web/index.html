@@ -17,7 +17,13 @@
 
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<link rel="stylesheet" href="styles/base.css?v=20260901-2">
+<link rel="stylesheet" href="styles/base.css?v=20260902-9">
+<link rel="stylesheet" href="styles/layout.css?v=20260902-9">
+<link rel="stylesheet" href="styles/pages/plan.css?v=20260902-9">
+<link rel="stylesheet" href="styles/pages/dividend.css?v=20260902-9">
+<link rel="stylesheet" href="styles/pages/asset.css?v=20260902-9">
+<link rel="stylesheet" href="styles/pages/history.css?v=20260902-9">
+<link rel="stylesheet" href="styles/pages/trade.css?v=20260902-9">
 
 </head>
 <body>
@@ -66,6 +72,7 @@
 </div>
 <!-- 오른쪽: 보조 기능 버튼 통합 (현재가/내보내기/가져오기/초기화/기초정보/구글시트/탭설정) — 모두 동일한 스타일·크기 -->
 <div class="toolbar-btn-group">
+<div class="toolbar-section toolbar-section-secondary" aria-label="보조 작업">
 <button id="btn-open-editor" class="toolbar-btn" title="현재가 편집">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
 <span>현재가</span>
@@ -74,16 +81,21 @@
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
 <span>내보내기</span>
 </button>
+</div>
+<div class="toolbar-section toolbar-section-primary" aria-label="주요 작업">
 <button id="btn-trigger-import" class="toolbar-btn" title="가져오기">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
 <span>가져오기</span>
 </button>
 <input type="file" id="importFileInput" accept=".json" class="d-none">
+</div>
+<div class="toolbar-section toolbar-section-danger" aria-label="위험 작업">
 <button id="btn-open-reset-dialog" class="toolbar-btn toolbar-btn-danger" title="초기화">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
 <span>초기화</span>
 </button>
-<span class="toolbar-divider"></span>
+</div>
+<div class="toolbar-section toolbar-section-settings" aria-label="설정 작업">
 <button id="fixed-btn-stocks" class="toolbar-btn v-stocks" title="기초정보">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/><path d="M15.54 8.46a5 5 0 010 7.07M8.46 8.46a5 5 0 000 7.07"/></svg>
 <span>기초정보</span>
@@ -96,6 +108,7 @@
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
 <span>설정</span>
 </button>
+</div>
 </div>
 </div>
 <!-- VIEW SWITCHER (탭 메뉴는 독립된 줄로 분리 — 보조 버튼과 섞이지 않도록) -->
@@ -157,56 +170,62 @@
 </div>
 </div><!-- /wrap -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script defer src="core/core_storage.js"></script>
-<script defer src="core/core_log.js"></script>
-<script defer src="core/core_ui.js"></script>
-<script defer src="shared/theme.js?v=20260831-11"></script>
-<script defer src="core/core_color.js"></script>
-<script defer src="domain/state/data_state.js?v=20260826-1"></script>
-<script defer src="domain/portfolio/portfolio_service.js?v=20260819-2"></script>
-<script defer src="domain/portfolio/data.js?v=20260831-4"></script>
-<script defer src="domain/plan/plan_calculations.js?v=20260831-4"></script>
-<script defer src="domain/migration/backup_schema.js?v=20260828-1"></script>
-<script defer src="shared/table/views_table_state.js"></script>
-<script defer src="shared/table/views_table_filters.js"></script>
-<script defer src="shared/table/views_table.js"></script>
-<script defer src="views/views_portfolio.js?v=20260830-1"></script>
-<script defer src="views/views_trades.js?v=20260825-1"></script>
-<script defer src="views/views_tradegroup.js?v=20260819-1"></script>
-<script defer src="views/views_div_asset.js?v=20260827-1"></script>
-<script defer src="views/views_asset_loan.js"></script>
+<script defer src="core/core_storage.js?v=20260902-9"></script>
+<script defer src="core/core_log.js?v=20260902-9"></script>
+<script defer src="core/core_ui.js?v=20260902-9"></script>
+<script defer src="shared/theme.js?v=20260902-9"></script>
+<script defer src="core/core_color.js?v=20260902-9"></script>
+<script defer src="domain/state/data_state.js?v=20260902-9"></script>
+<script defer src="domain/portfolio/portfolio_service.js?v=20260902-9"></script>
+<script defer src="domain/portfolio/data.js?v=20260902-9"></script>
+<script defer src="domain/plan/plan_calculations.js?v=20260902-9"></script>
+<script defer src="domain/migration/backup_schema.js?v=20260902-9"></script>
+<script defer src="shared/table/views_table_state.js?v=20260902-9"></script>
+<script defer src="shared/table/views_table_filters.js?v=20260902-9"></script>
+<script defer src="shared/table/views_table.js?v=20260902-9"></script>
+<script defer src="views/views_portfolio.js?v=20260902-9"></script>
+<script defer src="views/views_trades.js?v=20260902-9"></script>
+<script defer src="views/views_tradegroup.js?v=20260902-9"></script>
+<script defer src="views/views_div_asset.js?v=20260902-9"></script>
+<script defer src="views/views_asset_loan.js?v=20260902-9"></script>
 
-<script defer src="views/views_asset.js?v=20260831-3"></script>
-<script defer src="views/views_plan.js?v=20260831-4"></script>
-<script defer src="views/views_asset_schedule.js"></script>
-<script defer src="views/views_asset_schedule_data.js?v=20260831-4"></script>
-<script defer src="views/views_asset_schedule_chart.js"></script>
-<script defer src="views/views_history_legacy_guard.js"></script>
-<script defer src="views/views_history_utils.js?v=20260827-1"></script>
-<script defer src="views/views_history_benchmark.js?v=20260831-7"></script>
-<script defer src="views/views_history_state.js?v=20260827-1"></script>
-<script defer src="views/views_history_pipeline.js?v=20260827-2"></script>
-<script defer src="views/views_history_render.js?v=20260827-2"></script>
-<script defer src="views/views_history.js?v=20260828-2"></script>
+<script defer src="views/views_asset.js?v=20260902-9"></script>
+<script defer src="views/views_plan.js?v=20260902-9"></script>
+<script defer src="views/views_plan_overview.js?v=20260902-9"></script>
+<script defer src="views/views_plan_export.js?v=20260902-9"></script>
+<script defer src="views/views_plan_weights.js?v=20260902-9"></script>
+<script defer src="views/views_plan_tax.js?v=20260902-9"></script>
+<script defer src="views/views_plan_retirement.js?v=20260902-9"></script>
+<script defer src="views/views_plan_simulation.js?v=20260902-9"></script>
+<script defer src="views/views_asset_schedule.js?v=20260902-9"></script>
+<script defer src="views/views_asset_schedule_data.js?v=20260902-9"></script>
+<script defer src="views/views_asset_schedule_chart.js?v=20260902-9"></script>
+<script defer src="views/views_history_legacy_guard.js?v=20260902-9"></script>
+<script defer src="views/views_history_utils.js?v=20260902-9"></script>
+<script defer src="views/views_history_benchmark.js?v=20260902-9"></script>
+<script defer src="views/views_history_state.js?v=20260902-9"></script>
+<script defer src="views/views_history_pipeline.js?v=20260902-9"></script>
+<script defer src="views/views_history_render.js?v=20260902-9"></script>
+<script defer src="views/views_history.js?v=20260902-9"></script>
 
-<script defer src="views/views_system.js?v=20260830-1"></script>
-<script defer src="views/views_system_tabsettings.js?v=20260819-2"></script>
-<script defer src="features/settings/settings_net.js?v=20260828-1"></script>
-<script defer src="features/settings/settings_persistence_utils.js"></script>
-<script defer src="features/settings/settings.js?v=20260831-9"></script>
-<script defer src="features/settings/settings_sync.js?v=20260828-1"></script>
-<script defer src="features/settings/settings_tabsync.js?v=20260827-1"></script>
-<script defer src="features/settings/settings_fetch.js?v=20260901-3"></script>
-<script defer src="features/management/mgmt_editor.js?v=20260901-1"></script>
-<script defer src="features/master/account/mgmt_acct.js?v=20260826-1"></script>
-<script defer src="features/dividend/mgmt_div.js?v=20260831-6"></script>
-<script defer src="features/master/stock/mgmt_stock.js?v=20260828-1"></script>
-<script defer src="features/master/sector/mgmt_sector.js?v=20260826-1"></script>
-<script defer src="features/trade/editor/mgmt_trade.js?v=20260819-1"></script>
-<script defer src="features/import/mgmt_bulk.js"></script>
-<script defer src="domain/migration/mgmt_migration.js"></script>
-<script defer src="app/event_delegation.js?v=20260831-11"></script>
-<script defer src="app/bootstrap.js"></script>
+<script defer src="views/views_system.js?v=20260902-9"></script>
+<script defer src="views/views_system_tabsettings.js?v=20260902-9"></script>
+<script defer src="features/settings/settings_net.js?v=20260902-9"></script>
+<script defer src="features/settings/settings_persistence_utils.js?v=20260902-9"></script>
+<script defer src="features/settings/settings.js?v=20260902-9"></script>
+<script defer src="features/settings/settings_sync.js?v=20260902-9"></script>
+<script defer src="features/settings/settings_tabsync.js?v=20260902-9"></script>
+<script defer src="features/settings/settings_fetch.js?v=20260902-9"></script>
+<script defer src="features/management/mgmt_editor.js?v=20260902-9"></script>
+<script defer src="features/master/account/mgmt_acct.js?v=20260902-9"></script>
+<script defer src="features/dividend/mgmt_div.js?v=20260902-9"></script>
+<script defer src="features/master/stock/mgmt_stock.js?v=20260902-9"></script>
+<script defer src="features/master/sector/mgmt_sector.js?v=20260902-9"></script>
+<script defer src="features/trade/editor/mgmt_trade.js?v=20260902-9"></script>
+<script defer src="features/import/mgmt_bulk.js?v=20260902-9"></script>
+<script defer src="domain/migration/mgmt_migration.js?v=20260902-9"></script>
+<script defer src="app/event_delegation.js?v=20260902-9"></script>
+<script defer src="app/bootstrap.js?v=20260902-9"></script>
 <!-- HOLDING EDITOR MODAL -->
 
 <div class="editor-overlay" id="realEstateEditor" role="dialog" aria-modal="true" aria-labelledby="realEstateEditorTitle">
@@ -373,7 +392,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js?v=20260901-3', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20260902-9', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>
