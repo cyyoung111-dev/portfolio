@@ -76,5 +76,5 @@ function formatDisplayMonth(value) {
   return `${match[1]}년 ${Number(match[2])}월`;
 }
 
-const BENCHMARK_LABELS = Object.freeze({ KOSPI:'코스피', SP500:'S&P 500', DOW:'다우존스', NASDAQ:'나스닥', NASDAQ100:'나스닥 100' });
+const BENCHMARK_LABELS = Object.freeze({ KOSPI:'KOSPI', SP500:'S&P500', DOW:'DOW', NASDAQ:'NASDAQ', NASDAQ100:'NASDAQ100' });
 function formatBenchmarkLabel(code) { return BENCHMARK_LABELS[String(code || '')] || String(code || ''); }

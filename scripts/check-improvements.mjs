@@ -10,7 +10,7 @@ assert.equal(uiContext.__date('2026-09-02'), '2026.09.02');
 assert.equal(uiContext.__date('2026-02-30'), '');
 assert.equal(uiContext.__date(''), '');
 assert.equal(uiContext.__month('2026-01'), '2026년 1월');
-assert.deepEqual(['KOSPI','SP500','DOW','NASDAQ','NASDAQ100'].map(uiContext.__bench), ['코스피','S&P 500','다우존스','나스닥','나스닥 100']);
+assert.deepEqual(['KOSPI','SP500','DOW','NASDAQ','NASDAQ100'].map(uiContext.__bench), ['KOSPI','S&P500','DOW','NASDAQ','NASDAQ100']);
 
 const plan = read('src/web/views/views_plan.js');
 assert.match(plan, /data-plan-tab="\$\{id\}"/);
@@ -29,6 +29,8 @@ assert.match(settingsFetch, /textContent = '업데이트 중'/);
 assert.match(settingsFetch, /removeAttribute\('aria-busy'\)/);
 assert.doesNotMatch(settingsFetch, /textContent = '⏳'/);
 assert.match(layoutCss, /\.action-refresh-btn\[aria-busy="true"\] svg\{animation:action-refresh-spin/);
+assert.match(layoutCss, /#price-updated-label\.has-price-details\{min-width:0/);
+assert.match(layoutCss, /\.price-status-primary\{flex-wrap:wrap;white-space:normal\}/);
 
 const net = read('src/web/features/settings/settings_net.js');
 const editor = read('src/web/features/management/mgmt_editor.js');
@@ -38,4 +40,4 @@ assert.match(editor, /if \(input\) input\.value = ''/);
 assert.match(editor, /saveGsheetAccessToken\(''\)/);
 assert.match(backup, /access\[_-\]\?token/);
 assert.doesNotMatch(read('src/web/views/views_history.js'), /value="\$\{[^}]*[Tt]oken/);
-console.log('계좌 보안·한국어 날짜/지수·투자계획 하위 탭·위험 작업 구조 검사 통과');
+console.log('계좌 보안·한국어 날짜·비교지수 라벨·투자계획 하위 탭·위험 작업 구조 검사 통과');

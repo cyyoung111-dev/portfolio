@@ -618,7 +618,7 @@ input[type="number"]{
   overflow-wrap:anywhere;
 }
 .price-status-content{display:flex;flex-direction:column;gap:4px;min-width:0;width:100%}
-.price-status-primary{display:flex;align-items:center;gap:6px;white-space:nowrap;color:var(--green-lt)}
+.price-status-primary{display:flex;align-items:center;gap:6px;flex-wrap:wrap;white-space:normal;color:var(--green-lt)}
 .price-status-divider{color:var(--muted);font-weight:400}
 .price-status-count{padding:2px 7px;border-radius:999px;background:var(--c-green-10);color:var(--green-lt);font-size:.66rem;font-variant-numeric:tabular-nums}
 .price-status-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:var(--muted);font-size:.65rem;font-weight:500}
@@ -629,7 +629,7 @@ input[type="number"]{
 .price-status-chip.is-missing{border-color:var(--c-amber-30);background:var(--c-amber-08);color:var(--gold);cursor:pointer;font-family:inherit}
 .price-status-note{padding-top:3px;border-top:1px dashed var(--border);color:var(--amber);font-size:.62rem;font-weight:600}
 .action-update-card{height:auto;min-height:52px}
-#price-updated-label.has-price-details{min-width:min(560px,55vw);padding:6px 10px}
+#price-updated-label.has-price-details{padding:6px 10px}
 .sl-ok{background:rgba(16,185,129,.12);color:var(--green-lt)}
 .sl-warn{background:rgba(245,158,11,.12);color:var(--gold)}
 .sl-error{background:rgba(239,68,68,.12);color:var(--red-lt)}

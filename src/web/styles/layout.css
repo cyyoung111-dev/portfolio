@@ -25,6 +25,12 @@
 .action-refresh-btn[aria-busy="true"]{cursor:wait;opacity:.85}
 .action-refresh-btn[aria-busy="true"] svg{animation:action-refresh-spin 1.1s linear infinite}
 @keyframes action-refresh-spin{to{transform:rotate(360deg)}}
+.action-update-card{flex:1 1 auto;min-width:0;max-width:100%}
+.action-date-input,.action-refresh-btn{flex-shrink:0}
+.action-status-label{flex:1 1 220px;min-width:0;max-width:100%}
+#price-updated-label.has-price-details{min-width:0;width:auto;overflow:hidden}
+.price-status-primary{flex-wrap:wrap;white-space:normal}
+.price-status-meta{min-width:0}
 
 /* ── PC/모바일 뷰 최적화 ── */
 
