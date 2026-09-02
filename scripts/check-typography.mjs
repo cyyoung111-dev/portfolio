@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const css = fs.readFileSync(new URL('../src/web/styles/base.css', import.meta.url), 'utf8');
+const baseCss = fs.readFileSync(new URL('../src/web/styles/base.css', import.meta.url), 'utf8');
+const componentsCss = fs.readFileSync(new URL('../src/web/styles/components.css', import.meta.url), 'utf8');
+const layoutCss = fs.readFileSync(new URL('../src/web/styles/layout.css', import.meta.url), 'utf8');
+const planCss = fs.readFileSync(new URL('../src/web/styles/pages/plan.css', import.meta.url), 'utf8');
+const dividendCss = fs.readFileSync(new URL('../src/web/styles/pages/dividend.css', import.meta.url), 'utf8');
+const assetCss = fs.readFileSync(new URL('../src/web/styles/pages/asset.css', import.meta.url), 'utf8');
+const historyCss = fs.readFileSync(new URL('../src/web/styles/pages/history.css', import.meta.url), 'utf8');
+const tradeCss = fs.readFileSync(new URL('../src/web/styles/pages/trade.css', import.meta.url), 'utf8');
+const css = [baseCss, componentsCss, layoutCss, planCss, dividendCss, assetCss, historyCss, tradeCss].join('\n');
 const html = fs.readFileSync(new URL('../src/web/index.html', import.meta.url), 'utf8');
 const theme = fs.readFileSync(new URL('../src/web/shared/theme.js', import.meta.url), 'utf8');
 const settings = fs.readFileSync(new URL('../src/web/features/settings/settings.js', import.meta.url), 'utf8');
@@ -10,6 +18,34 @@ const systemView = fs.readFileSync(new URL('../src/web/views/views_system.js', i
 const serviceWorker = fs.readFileSync(new URL('../src/web/sw.js', import.meta.url), 'utf8');
 const coreUi = fs.readFileSync(new URL('../src/web/core/core_ui.js', import.meta.url), 'utf8');
 
+assert.doesNotMatch(baseCss, /(?:\.plan-|\.retire-|\.retirement-|\[data-view-section="plan"\])/, 'base.css에 투자계획 전용 선택자가 남아 있습니다.');
+assert.match(planCss, /\.plan-export-grid/);
+assert.match(planCss, /\.retirement-cashflow-table/);
+assert.match(dividendCss, /\.div-monthly-matrix/);
+assert.match(dividendCss, /\.div-stat-card/);
+assert.doesNotMatch(baseCss, /\.div-monthly-matrix\{/, 'base.css에 배당 월별 표 기본 선택자가 남아 있습니다.');
+assert.match(assetCss, /\.asset-summary-grid/);
+assert.match(assetCss, /#realEstateEditor \.editor-row/);
+assert.doesNotMatch(baseCss, /\.asset-summary-grid\{/, 'base.css에 부동산 요약 그리드가 남아 있습니다.');
+assert.doesNotMatch(baseCss, /#realEstateEditor \.editor-row/, 'base.css에 부동산 편집기 반응형 규칙이 남아 있습니다.');
+assert.match(historyCss, /\.hist-bench-btn\{/);
+assert.match(historyCss, /#histModeWeek,#histModeMonth/);
+assert.doesNotMatch(baseCss, /\.hist-bench-btn\{/, 'base.css에 손익 비교지수 버튼 기본 규칙이 남아 있습니다.');
+assert.doesNotMatch(baseCss, /#histModeWeek,/, 'base.css에 손익 기간 버튼 규칙이 남아 있습니다.');
+assert.match(tradeCss, /\.trade-stat-card\{background/);
+assert.match(tradeCss, /\.btn-trade-type\{/);
+assert.doesNotMatch(baseCss, /\.trade-stat-card\{background/, 'base.css에 거래 요약 카드 기본 규칙이 남아 있습니다.');
+assert.doesNotMatch(baseCss, /\.btn-trade-type\{padding/, 'base.css에 거래 유형 버튼 기본 규칙이 남아 있습니다.');
+assert.match(componentsCss, /\.account-broker-select\{/);
+assert.match(componentsCss, /#toast-container\{/);
+assert.doesNotMatch(layoutCss, /\.account-broker-select\{/, 'layout.css에 계좌 증권사 입력 컴포넌트가 남아 있습니다.');
+assert.doesNotMatch(baseCss, /#toast-container\{/, 'base.css에 토스트 컴포넌트가 남아 있습니다.');
+assert.doesNotMatch(baseCss, /\.div-stat-card\{background:/, 'base.css에 배당 요약 카드 기본 선택자가 남아 있습니다.');
+assert.match(layoutCss, /\.action-bar\{display:flex/);
+assert.match(layoutCss, /\.view-switcher\{display:flex/);
+assert.match(layoutCss, /\.toolbar-btn\{/);
+assert.doesNotMatch(baseCss, /\.action-bar\{display:flex/,
+  'base.css에 상단 작업 영역의 기본 레이아웃 선언이 남아 있습니다.');
 for (const token of ['--type-caption:.75rem','--type-label:.8125rem','--type-body:.875rem','--type-value:1rem','--line-body:1.55','--line-reading:1.65','--radius-control:8px','--radius-card:12px','--radius-panel:16px','--control-height-md:38px']) {
   assert.ok(css.includes(token), `타이포그래피 토큰 누락: ${token}`);
 }
@@ -32,7 +68,7 @@ assert.match(css, /\.retirement-cashflow-table th\{font-size:var\(--type-caption
 assert.match(css, /\.retirement-cashflow-table td\{font-size:\.8rem/);
 assert.match(css, /--font-ui:'Pretendard Variable',Pretendard,'Apple SD Gothic Neo','Malgun Gothic',sans-serif/);
 assert.match(css, /table,button,input,select,textarea\{font-family:inherit\}/);
-for (const selector of ['.sc .lbl','.sc .sub','.f-btn','.f-btn-sm','.date-badge','.action-status-label','#price-updated-label','.btn-link-blue','.chart-card h4','.legend-label','.toolbar-btn','.vs-btn-label','.trade-stat-label','.div-stat-label','.div-stat-sub','.filter-badge','.editor-group-title','.btn-sm-purple','.div-month-filter button','.div-month-selection span','.div-month-selection small','.plan-section-nav a','#histModeWeek','#histModeMonth']) {
+for (const selector of ['.sc .lbl','.sc .sub','.f-btn','.f-btn-sm','.date-badge','.action-status-label','#price-updated-label','.btn-link-blue','.chart-card h4','.legend-label','.toolbar-btn','.vs-btn-label','.trade-stat-label','.div-stat-label','.div-stat-sub','.filter-badge','.editor-group-title','.btn-sm-purple','.div-month-filter button','.div-month-selection span','.div-month-selection small','.plan-subtab','#histModeWeek','#histModeMonth']) {
   const minimumUiBlock = css.slice(css.indexOf('/* === 일반 UI 최소 글자 크기 보장'));
   assert.ok(minimumUiBlock.includes(selector), `최소 글자 크기 선택자 누락: ${selector}`);
 }
@@ -51,7 +87,7 @@ assert.match(settingsFetch, /getEPWithCode\(\)\.filter\(_isCurrentPriceTarget\)/
 assert.match(settingsFetch, /if \(!_isCurrentPriceTarget\(m\)\) return false/, '미조회 집계에서 수량 0 종목 제외 누락');
 assert.doesNotMatch(html, /fonts\.googleapis\.com|fonts\.gstatic\.com/);
 assert.doesNotMatch(html, /Noto\+Sans|Gothic\+A1|IBM\+Plex|Nanum\+Gothic/);
-const coreUiIndex = html.indexOf('<script defer src="core/core_ui.js"></script>');
+const coreUiIndex = html.indexOf('<script defer src="core/core_ui.js?');
 const themeIndex = html.indexOf('<script defer src="shared/theme.js?');
 assert.ok(coreUiIndex >= 0 && themeIndex >= 0 && coreUiIndex < themeIndex, 'core_ui.js는 theme.js보다 먼저 로드해야 함');
 assert.match(coreUi, /function _escapeHtml\s*\(/, '_escapeHtml 정의 누락');
