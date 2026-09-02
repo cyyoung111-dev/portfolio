@@ -506,7 +506,7 @@ function renderStocksView(area) {
           <input type="hidden" id="acctMgmtNewTaxType" value=""/>
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:5px">증권사</div>
           <select id="acctMgmtNewBrokerCode" class="account-broker-select">
-            ${BROKER_CODES.map(code => `<option value="${code}">${_escapeHtml(BROKER_LABELS[code])}</option>`).join('')}
+            ${BROKER_CODES.map(code => `<option value="${code}"${code === 'UNCLASSIFIED' ? ' selected' : ''}>${_escapeHtml(BROKER_LABELS[code])}</option>`).join('')}
           </select>
           <div style="font-size:.65rem;color:var(--muted);margin-bottom:6px">색상 선택</div>
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">

@@ -118,6 +118,8 @@ function _bindAcctMgmtEvents(container) {
     const newTaxType = $el('acctEditTaxType')?.value || '미분류';
     const canonicalTax = ({ '일반':'GENERAL', ISA:'ISA', '연금':'PENSION_SAVINGS', IRP:'IRP', '미분류':'UNCLASSIFIED' })[newTaxType];
     const account = getAccountByName(oldName);
+    const previousTaxType = account?.taxType;
+    const previousBrokerCode = account?.brokerCode;
     const brokerCode = normalizeBrokerCode($el('acctEditBrokerCode')?.value, '');
     if (account) { account.displayName = newName; account.taxType = canonicalTax; account.brokerCode = brokerCode; }
     if(newName !== oldName) {
@@ -127,9 +129,11 @@ function _bindAcctMgmtEvents(container) {
       rawTrades.forEach(t   => { if(t.accountId === account?.id || t.acct === oldName) { t.accountId = account?.id || t.accountId; t.acct = newName; } });
       rawHoldings.forEach(h => { if(h.accountId === account?.id || h.acct === oldName) { h.accountId = account?.id || h.accountId; h.acct = newName; } });
       saveAcctOrder(); saveAcctColors(); saveHoldings();
-      queueMgmtGsheetSync();
     }
     saveAccountsMaster();
+    if (account && (newName !== oldName || canonicalTax !== previousTaxType || brokerCode !== previousBrokerCode)) {
+      queueMgmtGsheetSync();
+    }
     showMgmtMsg('acctMgmtMsg', `✅ "${newName}" 저장됐습니다`, false);
     container._selectedAcct = newName;
     container._editMode = false;
