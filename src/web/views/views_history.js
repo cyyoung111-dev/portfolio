@@ -53,6 +53,11 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     .filter(p => p.date && p.returnIndex > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
   const portfolioMdd = _calcHistoryMdd(portfolioMddPoints, 'returnIndex');
+  const portfolioFirst = portfolioMddPoints[0]?.returnIndex || 0;
+  const portfolioLast = portfolioMddPoints[portfolioMddPoints.length - 1]?.returnIndex || 0;
+  const portfolioDelta = portfolioFirst > 0 && portfolioLast > 0
+    ? (portfolioLast / portfolioFirst - 1) * 100
+    : 0;
 
   const minMoney = Math.min(...pts.map(p => p.pnl));
   const maxMoney = Math.max(...pts.map(p => p.pnl));
@@ -176,6 +181,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const lastPt = pts[pts.length - 1];
   const lastX  = xScale(pts.length - 1);
   const pnlColor = lastPt.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+  const portfolioDeltaColor = portfolioDelta >= 0 ? 'var(--green)' : 'var(--red-lt)';
 
   wrap.innerHTML = `
     <svg width="${W}" height="${H}" style="display:block;max-width:100%;font-variant-numeric:tabular-nums">
@@ -207,7 +213,14 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       <text x="${sx + 18}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${line.chartDisplayType}</text>`;
       }).join('') : ''}
     </svg>
-    ${hasBench ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.68rem">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.68rem">
+      <span title="나의 손익 MDD 구간: ${_escapeHtml(portfolioMdd.troughDate ? `${portfolioMdd.peakDate || '-'} → ${portfolioMdd.troughDate}` : '선택 기간 내 하락 없음')}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
+        <span style="width:8px;height:8px;border-radius:999px;background:${pnlColor}"></span>
+        <span style="color:var(--muted)">나의 손익</span>
+        <span style="color:${portfolioDeltaColor};font-weight:700">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</span>
+        <span style="color:var(--red-lt);font-weight:700">MDD ${portfolioMdd.pct.toFixed(1)}%</span>
+      </span>
+      ${hasBench ? `
       ${benchLines.map(line => {
         const last = line.pts[line.pts.length - 1];
         const delta = last ? (last.idx - 100) : 0;
@@ -220,20 +233,17 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
           <span style="color:${line.color};font-weight:700">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>
           <span style="color:var(--red-lt);font-weight:700">MDD ${line.mdd.pct.toFixed(1)}%</span>
         </span>`;
-      }).join('')}
-    </div>` : ''}
+      }).join('')}` : ''}
+    </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:6px;margin-top:10px;font-variant-numeric:tabular-nums">
       <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">현재 손익</div>
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${pSign(lastPt.pnl)}${_fmtKrw(lastPt.pnl)}</div>
       </div>
-      <div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">수익률</div>
-        <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${lastPt.cost > 0 ? (pSign(lastPt.pnl) + (lastPt.pnl/lastPt.cost*100).toFixed(1) + '%') : '-'}</div>
-      </div>
       <div title="평가금액÷거래기준 매입원가로 만든 수익률 지수의 고점 대비 최대 하락률" style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">나의 손익 MDD</div>
-        <div style="font-size:.88rem;font-weight:700;color:var(--red-lt)">${portfolioMdd.pct.toFixed(1)}%</div>
+        <div style="font-size:.62rem;color:var(--muted)">나의 손익 변화</div>
+        <div style="font-size:.88rem;font-weight:700;color:${portfolioDeltaColor}">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</div>
+        <div style="font-size:.68rem;font-weight:700;color:var(--red-lt);margin-top:2px">MDD ${portfolioMdd.pct.toFixed(1)}%</div>
         ${portfolioMdd.troughDate ? `<div style="font-size:.58rem;color:var(--muted);margin-top:1px">${_fmtHistDateCompact(portfolioMdd.peakDate)} → ${_fmtHistDateCompact(portfolioMdd.troughDate)}</div>` : '<div style="font-size:.58rem;color:var(--muted);margin-top:1px">선택 기간 내 하락 없음</div>'}
       </div>
       ${hasBench ? benchLines.map(line => {
@@ -251,12 +261,26 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
 
 function _drawHistoryTable(wrap, snapshots) {
   const fmt = _fmtKrw;
-  const mode = _getHistMode();
-  const recent = [...snapshots].reverse().slice(0, 20);
+  const recent = [...snapshots].reverse().slice(0, 10);
+  const valid = snapshots
+    .map(snapshot => ({ snapshot, evalAmt: parseFloat(snapshot.evalAmt || snapshot.total || snapshot.eval || 0) }))
+    .filter(item => Number.isFinite(item.evalAmt));
+  const highest = valid.reduce((best, item) => !best || item.evalAmt > best.evalAmt ? item : best, null);
+  const lowest = valid.reduce((best, item) => !best || item.evalAmt < best.evalAmt ? item : best, null);
+  const extremeCard = (label, item, color) => `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+    <div style="font-size:.62rem;color:var(--muted)">${label}</div>
+    <div style="font-size:.88rem;font-weight:700;color:${color}">${item ? fmt(item.evalAmt) : '-'}</div>
+    <div style="font-size:.58rem;color:var(--muted);margin-top:1px">${item ? _fmtHistDateCompact(item.snapshot.date || '') : '데이터 없음'}</div>
+  </div>`;
   const diagnostics = _buildHistoryDiagnostics(snapshots);
   __histState.debugByDate = diagnostics;
   let html = `
-    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개 · ${mode==='week'?'주간 기준':'월간 기준'})</div>
+    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">기준설정일 이후 평가금액</div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:6px;margin-bottom:12px;font-variant-numeric:tabular-nums">
+      ${extremeCard('가장 높은 날', highest, 'var(--green)')}
+      ${extremeCard('가장 낮은 날', lowest, 'var(--blue-lt)')}
+    </div>
+    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 10일 · 일별 기준)</div>
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums">
       <thead>
