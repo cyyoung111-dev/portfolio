@@ -23,6 +23,9 @@ function buildAcctMgmt() {
     const isEdit   = isSel && editMode;
     // ★ [계좌별 taxType] 구분 배지
     const acctTax  = getAcctTaxType(acct) || '미분류';
+    const account = getAccountByName(acct);
+    const brokerCode = normalizeBrokerCode(account?.brokerCode, acct);
+    const brokerBadge = `<span class="account-broker-badge${brokerCode==='UNCLASSIFIED'?' needs-review':''}">${_escapeHtml(BROKER_LABELS[brokerCode] || '미분류')}</span>`;
     const taxBadge = `<span style="font-size:.60rem;font-weight:700;color:${acctTax==='미분류'?'var(--red-lt)':'var(--purple)'};background:rgba(139,92,246,.12);border-radius:4px;padding:1px 5px;flex-shrink:0">${acctTax}</span>`;
 
     html += `<div class="acct-row" data-acct="${acct}"
@@ -32,6 +35,7 @@ function buildAcctMgmt() {
       <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0"></span>
       <span class="item-title">${acct}</span>
       ${taxBadge}
+      ${brokerBadge}
       <span class="lbl-64-muted">${hasData?`거래 ${tradeN}건`:'거래 없음'}</span>
     </div>`;
 
@@ -46,6 +50,7 @@ function buildAcctMgmt() {
     if(isEdit) {
       // 수정 폼 — 계좌명 + 색상 + 구분
       const curTaxType = getAcctTaxType(acct) || '미분류';
+      const curBrokerCode = normalizeBrokerCode(getAccountByName(acct)?.brokerCode, acct);
       html += `<div style="padding:10px 12px;border-radius:8px;background:rgba(251,191,36,.07);border:1px solid rgba(251,191,36,.3);margin:0 0 8px 0">
         <div style="font-size:.65rem;color:var(--amber);font-weight:700;margin-bottom:8px">✏️ 계좌 수정</div>
         <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
@@ -59,6 +64,10 @@ function buildAcctMgmt() {
           ).join('')}
         </div>
         <input type="hidden" id="acctEditTaxType" value="${curTaxType}"/>
+        <div class="txt-65-muted-mb5">증권사</div>
+        <select id="acctEditBrokerCode" class="account-broker-select">
+          ${BROKER_CODES.map(code => `<option value="${code}"${code===curBrokerCode?' selected':''}>${_escapeHtml(BROKER_LABELS[code])}</option>`).join('')}
+        </select>
         <div class="txt-65-muted-mb5">색상 선택</div>
         <div class="flex-wrap-g5-mb8">
           ${ACCT_PALETTE.map(c => {
@@ -109,7 +118,10 @@ function _bindAcctMgmtEvents(container) {
     const newTaxType = $el('acctEditTaxType')?.value || '미분류';
     const canonicalTax = ({ '일반':'GENERAL', ISA:'ISA', '연금':'PENSION_SAVINGS', IRP:'IRP', '미분류':'UNCLASSIFIED' })[newTaxType];
     const account = getAccountByName(oldName);
-    if (account) { account.displayName = newName; account.taxType = canonicalTax; }
+    const previousTaxType = account?.taxType;
+    const previousBrokerCode = account?.brokerCode;
+    const brokerCode = normalizeBrokerCode($el('acctEditBrokerCode')?.value, '');
+    if (account) { account.displayName = newName; account.taxType = canonicalTax; account.brokerCode = brokerCode; }
     if(newName !== oldName) {
       const idx = ACCT_ORDER.indexOf(oldName);
       if(idx > -1) ACCT_ORDER[idx] = newName;
@@ -117,9 +129,11 @@ function _bindAcctMgmtEvents(container) {
       rawTrades.forEach(t   => { if(t.accountId === account?.id || t.acct === oldName) { t.accountId = account?.id || t.accountId; t.acct = newName; } });
       rawHoldings.forEach(h => { if(h.accountId === account?.id || h.acct === oldName) { h.accountId = account?.id || h.accountId; h.acct = newName; } });
       saveAcctOrder(); saveAcctColors(); saveHoldings();
-      queueMgmtGsheetSync();
     }
     saveAccountsMaster();
+    if (account && (newName !== oldName || canonicalTax !== previousTaxType || brokerCode !== previousBrokerCode)) {
+      queueMgmtGsheetSync();
+    }
     showMgmtMsg('acctMgmtMsg', `✅ "${newName}" 저장됐습니다`, false);
     container._selectedAcct = newName;
     container._editMode = false;
@@ -203,6 +217,7 @@ function acctMgmtConfirm() {
   // ★ [계좌별 taxType] 구분 저장
   const newTaxType = $el('acctMgmtNewTaxType')?.value || '';
   if (!['일반','ISA','IRP','연금'].includes(newTaxType)) { showMgmtMsg('acctMgmtMsg','⚠️ 계좌 세제유형을 선택해주세요',true); return; }
+  const newBrokerCode = normalizeBrokerCode($el('acctMgmtNewBrokerCode')?.value, '');
   // 팔레트에서 선택한 색상 우선 적용
   const pickedColor = $el('acctMgmtNewColor')?.value;
   if (pickedColor && !ACCT_COLORS[name]) {
@@ -212,7 +227,7 @@ function acctMgmtConfirm() {
   getOrAssignColor(name);
   if (!ACCT_ORDER.includes(name)) { ACCT_ORDER.push(name); saveAcctOrder(); }
   const usedIds = new Set(ACCOUNTS_MASTER.map(item => item.id));
-  ACCOUNTS_MASTER.push({ id:_stableAccountId(name, usedIds), displayName:name, broker:'', taxType:({ '일반':'GENERAL', ISA:'ISA', IRP:'IRP', '연금':'PENSION_SAVINGS' })[newTaxType], active:true, color:ACCT_COLORS[name] || '', sortOrder:ACCT_ORDER.indexOf(name) });
+  ACCOUNTS_MASTER.push({ id:_stableAccountId(name, usedIds), displayName:name, brokerCode:newBrokerCode, taxType:({ '일반':'GENERAL', ISA:'ISA', IRP:'IRP', '연금':'PENSION_SAVINGS' })[newTaxType], active:true, color:ACCT_COLORS[name] || '', sortOrder:ACCT_ORDER.indexOf(name) });
   saveAccountsMaster();
   saveSettings();
   queueMgmtGsheetSync();
@@ -230,6 +245,7 @@ function acctMgmtCancel() {
   if (inp) inp.value = '';
   const c = $el('acctMgmtNewColor'); if (c) c.value = '';
   const tx = $el('acctMgmtNewTaxType'); if (tx) tx.value = '';
+  const broker = $el('acctMgmtNewBrokerCode'); if (broker) broker.value = 'UNCLASSIFIED';
   // 구분 버튼 초기화
   $el('acctNewTaxGroup')?.querySelectorAll('button').forEach(b => b.classList.remove('active'));
   const dotsWrap = $el('acctNewColorDots'); if (dotsWrap) dotsWrap.innerHTML = '';

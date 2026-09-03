@@ -1,0 +1,7 @@
+/* 손익 그래프 화면 전용 스타일 — base.css 5단계 분리 */
+.hist-bench-btn{padding:4px 8px;border-radius:6px;cursor:pointer;font-size:.68rem;font-weight:500;border:1px solid var(--border);background:transparent;color:var(--muted);transition:var(--tr)}
+.hist-bench-btn.active{border-color:var(--amber);background:var(--c-amber-15);color:var(--gold);font-weight:700}
+.hist-bench-btn.hist-bench-btn-clear{border-style:dashed}
+#view-area[data-active-view] .hist-bench-btn{font-size:var(--type-caption);min-height:32px}
+#histModeWeek,#histModeMonth{font-size:var(--type-caption)!important}
+html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padding:var(--space-xs) var(--space-sm);border-radius:var(--radius-control)}

@@ -1,0 +1,86 @@
+/* 디자인·타이포그래피 토큰 — base.css 9단계 분리 */
+:root{--bg:#080d18;--s1:#0e1726;--s2:#141f33;--border:#1c2a42;--green:#10b981;--red:#E52E2E;--blue:#0057FF;--amber:#f59e0b;--purple:#8b5cf6;--cyan:#06b6d4;--pink:#ec4899;--text:#e2e8f0;--muted:#64748b;--gold:#f59e0b;--gold2:#f97316;--red-lt:#FF6B6B;--green-lt:#4ade80;--green-md:#34d399;--blue-lt:#5B8EFF;--purple-lt:#a78bfa;--purple-dk:#7c3aed;--tr:all .15s;
+  --c-red-30:rgba(239,68,68,.3);
+  --c-purple-45:rgba(139,92,246,.45);
+  --c-purple-40:rgba(139,92,246,.4);
+  --c-red-12:rgba(239,68,68,.12);
+  --c-amber-15:rgba(245,158,11,.15);
+  --c-amber-20:rgba(245,158,11,.2);
+  --c-amber-10:rgba(245,158,11,.1);
+  --c-amber-30:rgba(245,158,11,.3);
+  --c-green2-15:rgba(34,197,94,.15);
+  --c-red-10:rgba(239,68,68,.1);
+  --c-purple2-25:rgba(167,139,250,.25);
+  --c-purple2-70:rgba(167,139,250,.7);
+  --c-amber-08:rgba(245,158,11,.08);
+  --c-red-08:rgba(239,68,68,.08);
+  --c-green-30:rgba(16,185,129,.3);
+  --c-amber-40:rgba(245,158,11,.4);
+  --c-purple-10:rgba(139,92,246,.1);
+  --c-white-10:rgba(255,255,255,.1);
+  --c-blue2-30:rgba(59,130,246,.3);
+  --c-cyan-40:rgba(6,182,212,.4);
+  --c-red-40:rgba(239,68,68,.4);
+  --c-purple-12:rgba(139,92,246,.12);
+  --c-black-70:rgba(0,0,0,.7);
+  --c-muted-14:rgba(100,116,139,.14);
+  --c-green2-25:rgba(34,197,94,.25);
+  --c-red-35:rgba(239,68,68,.35);
+  --c-red-80:rgba(239,68,68,.8);
+  --c-purple-20:rgba(139,92,246,.2);
+  --c-blue2-08:rgba(59,130,246,.08);
+  --c-green-08:rgba(16,185,129,.08);
+  --c-purple2-15:rgba(167,139,250,.15);
+  --c-green3-30:rgba(74,222,128,.3);
+  --c-green-10:rgba(16,185,129,.1);
+  --c-purple2-40:rgba(167,139,250,.4);
+  --c-purple2-10:rgba(167,139,250,.1);
+  --c-white-25:rgba(255,255,255,.25);
+  --c-amber2-50:rgba(251,191,36,.5);
+  --c-green-15:rgba(16,185,129,.15);
+  --c-red-04:rgba(239,68,68,.04);
+  --c-muted-10:rgba(100,116,139,.1);
+  --c-white-03:rgba(255,255,255,.03);
+  --c-black-82:rgba(0,0,0,.82);
+  --c-cyan-50:rgba(6,182,212,.5);
+  --c-black-20:rgba(0,0,0,.2);
+  --c-s1-60:rgba(14,23,38,.6);
+  --c-purple-06:rgba(139,92,246,.06);
+  --c-purple2-50:rgba(167,139,250,.5);
+}
+
+:root{
+  --elev-1:0 4px 12px rgba(0,0,0,.14);
+  --elev-2:0 10px 26px rgba(0,0,0,.18);
+}
+
+:root{
+  --font-ui:'Pretendard Variable',Pretendard,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+  --font-size-body:16px;
+  --font-size-body-mobile:15px;
+  --line-ui:1.55;
+  --muted:#94a3b8;
+  --border:#26364f;
+}
+
+:root{
+  --type-caption:.75rem;
+  --type-label:.8125rem;
+  --type-body:.875rem;
+  --type-value:1rem;
+  --type-title:1rem;
+  --line-compact:1.4;
+  --line-body:1.55;
+  --line-reading:1.65;
+  --radius-control:8px;
+  --radius-card:12px;
+  --radius-panel:16px;
+  --space-xs:4px;
+  --space-sm:8px;
+  --space-md:12px;
+  --space-lg:16px;
+  --space-xl:20px;
+  --control-height-sm:32px;
+  --control-height-md:38px;
+  --control-height-lg:44px;
+}
