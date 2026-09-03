@@ -107,6 +107,21 @@ if (!historyPipelineSource.includes("_historyRequestJson('getHistoryDetail'")
   process.exit(1);
 }
 
+if (!historyPipelineSource.includes('dates: [date]')
+    || !historyPipelineSource.includes('화면에서 사유 확인')
+    || !historyPipelineSource.includes('repairInProgress = false')) {
+  console.error('❌ 누락 스냅샷은 날짜별로 복구하고 실패 사유와 버튼 상태를 화면에 남겨야 합니다.');
+  process.exit(1);
+}
+
+const historyChartSource = fs.readFileSync(path.join(webRoot, 'views/views_history.js'), 'utf8');
+if (!historyChartSource.includes('const portfolioDelta =')
+    || !historyChartSource.includes('나의 손익 변화')
+    || !historyChartSource.includes('나의 손익 MDD 구간:')) {
+  console.error('❌ 나의 손익 변화율과 MDD를 비교지수와 같은 형식으로 표시해야 합니다.');
+  process.exit(1);
+}
+
 const historyUtilsContext = { fmtDateDot: value => String(value || '') };
 vm.runInNewContext(`${historyUtilsSource}\n` +
   `globalThis.__dateKey = _histDateKey;`, historyUtilsContext);
