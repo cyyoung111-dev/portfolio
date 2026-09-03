@@ -79,13 +79,13 @@
     if (source.version === 'pf_v6') return migrateV6(source);
     if (source.schemaVersion !== SCHEMA_VERSION) throw new Error(`지원하지 않는 schemaVersion: ${source.schemaVersion ?? '?'}`);
     const data = stripSecrets(clone(source));
-    data.accounts = (data.accounts || []).map(account => ({
+    if (Array.isArray(data.accounts)) data.accounts = data.accounts.map(account => ({
       ...account,
       brokerCode: legacyBrokerCode(account?.displayName, account?.brokerCode || account?.broker),
     }));
     data.metadata = data.metadata || {};
     const review = new Set(data.metadata.needsUserReview || []);
-    data.accounts.forEach(account => {
+    (Array.isArray(data.accounts) ? data.accounts : []).forEach(account => {
       if (account.brokerCode === 'UNCLASSIFIED') review.add(`accounts.${account.id}.brokerCode`);
     });
     data.metadata.needsUserReview = [...review];
