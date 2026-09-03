@@ -86,6 +86,10 @@ function _setHistoryStatus(statusEl, type, payload) {
     statusEl.innerHTML = '<span style="color:var(--muted)">조회 조건을 선택한 뒤 🔎 조회 버튼을 눌러주세요.</span>';
     return;
   }
+  if (type === 'query_ready') {
+    statusEl.innerHTML = '<span style="color:var(--muted)">조회 조건을 선택한 뒤 🔎 조회 버튼을 눌러주세요.</span>';
+    return;
+  }
   if (type === 'empty_data') {
     statusEl.innerHTML = '<span style="color:var(--muted)">스냅샷 데이터가 없습니다. 데이터가 쌓이면 자동으로 표시됩니다.</span>';
     return;
