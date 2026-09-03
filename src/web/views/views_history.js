@@ -10,7 +10,7 @@ function _calcHistoryMdd(points, valueKey) {
   let troughDate = '';
   (Array.isArray(points) ? points : []).forEach(point => {
     const value = Number(point?.[valueKey]);
-    if (!Number.isFinite(value) || value <= 0) return;
+    if (!Number.isFinite(value) || value < 0) return;
     if (value > peak) {
       peak = value;
       peakDate = point?.date || '';
@@ -42,16 +42,11 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   }));
   pts.forEach(p => { p.pnl = p.eval - p.cost; });
 
-  // 입출금 영향을 줄이기 위해 평가금액 자체가 아닌 스냅샷 수익률 지수
-  // (평가금액 ÷ 거래기준 매입원가)를 이용해 나의 손익 MDD를 계산합니다.
-  const portfolioMddPoints = (Array.isArray(benchmarkOpt?.portfolioSnapshots) ? benchmarkOpt.portfolioSnapshots : snapshots)
-    .map(s => {
-      const cost = parseFloat(s.costAmt || s.cost || 0);
-      const evalAmt = parseFloat(s.evalAmt || s.total || s.eval || 0);
-      return { date: _normalizeHistDate(s.date || ''), returnIndex: cost > 0 && evalAmt > 0 ? evalAmt / cost * 100 : 0 };
-    })
-    .filter(p => p.date && p.returnIndex > 0)
-    .sort((a, b) => a.date.localeCompare(b.date));
+  // 거래별 순현금흐름을 제거한 기간수익률을 연결해 추가 매수·매도를 성과로 오인하지 않습니다.
+  const portfolioMddPoints = _buildCashflowAdjustedReturnIndex(
+    Array.isArray(benchmarkOpt?.portfolioSnapshots) ? benchmarkOpt.portfolioSnapshots : snapshots,
+    typeof rawTrades !== 'undefined' ? rawTrades : []
+  );
   const portfolioMdd = _calcHistoryMdd(portfolioMddPoints, 'returnIndex');
   const portfolioFirst = portfolioMddPoints[0]?.returnIndex || 0;
   const portfolioLast = portfolioMddPoints[portfolioMddPoints.length - 1]?.returnIndex || 0;
@@ -214,7 +209,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       }).join('') : ''}
     </svg>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:.68rem">
-      <span title="나의 손익 MDD 구간: ${_escapeHtml(portfolioMdd.troughDate ? `${portfolioMdd.peakDate || '-'} → ${portfolioMdd.troughDate}` : '선택 기간 내 하락 없음')}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
+      <span title="현금흐름 반영 MDD 구간: ${_escapeHtml(portfolioMdd.troughDate ? `${portfolioMdd.peakDate || '-'} → ${portfolioMdd.troughDate}` : '선택 기간 내 하락 없음')}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
         <span style="width:8px;height:8px;border-radius:999px;background:${pnlColor}"></span>
         <span style="color:var(--muted)">나의 손익</span>
         <span style="color:${portfolioDeltaColor};font-weight:700">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</span>
@@ -241,7 +236,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         <div style="font-size:.88rem;font-weight:700;color:${pnlColor}">${pSign(lastPt.pnl)}${_fmtKrw(lastPt.pnl)}</div>
       </div>
       <div title="평가금액÷거래기준 매입원가로 만든 수익률 지수의 고점 대비 최대 하락률" style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-        <div style="font-size:.62rem;color:var(--muted)">나의 손익 변화</div>
+        <div style="font-size:.62rem;color:var(--muted)">나의 손익 변화 <span title="매수·매도 순현금흐름을 제외한 기간수익률">ⓘ</span></div>
         <div style="font-size:.88rem;font-weight:700;color:${portfolioDeltaColor}">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</div>
         <div style="font-size:.68rem;font-weight:700;color:var(--red-lt);margin-top:2px">MDD ${portfolioMdd.pct.toFixed(1)}%</div>
         ${portfolioMdd.troughDate ? `<div style="font-size:.58rem;color:var(--muted);margin-top:1px">${_fmtHistDateCompact(portfolioMdd.peakDate)} → ${_fmtHistDateCompact(portfolioMdd.troughDate)}</div>` : '<div style="font-size:.58rem;color:var(--muted);margin-top:1px">선택 기간 내 하락 없음</div>'}

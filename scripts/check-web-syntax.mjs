@@ -117,7 +117,8 @@ if (!historyPipelineSource.includes('dates: [date]')
 const historyChartSource = fs.readFileSync(path.join(webRoot, 'views/views_history.js'), 'utf8');
 if (!historyChartSource.includes('const portfolioDelta =')
     || !historyChartSource.includes('나의 손익 변화')
-    || !historyChartSource.includes('나의 손익 MDD 구간:')) {
+    || !historyChartSource.includes('현금흐름 반영 MDD 구간:')
+    || !historyChartSource.includes('_buildCashflowAdjustedReturnIndex(')) {
   console.error('❌ 나의 손익 변화율과 MDD를 비교지수와 같은 형식으로 표시해야 합니다.');
   process.exit(1);
 }
@@ -143,10 +144,18 @@ if (historyPipelineSource.indexOf('const resultHtml = repairResult') > historyPi
 
 const historyUtilsContext = { fmtDateDot: value => String(value || '') };
 vm.runInNewContext(`${historyUtilsSource}\n` +
-  `globalThis.__dateKey = _histDateKey;`, historyUtilsContext);
+  `globalThis.__dateKey = _histDateKey; globalThis.__returnIndex = _buildCashflowAdjustedReturnIndex;`, historyUtilsContext);
 if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
     || historyUtilsContext.__dateKey('2026-06-19') !== '2026-06-19') {
   console.error('❌ 특정일 손익 조회 날짜 키는 date input과 같은 YYYY-MM-DD 형식이어야 합니다.');
+  process.exit(1);
+}
+const cashflowAdjusted = historyUtilsContext.__returnIndex([
+  { date: '2026-01-01', evalAmt: 200 },
+  { date: '2026-01-02', evalAmt: 1100 },
+], [{ date: '2026-01-02', tradeType: 'buy', qty: 1, price: 900 }]);
+if (cashflowAdjusted.length !== 2 || Math.abs(cashflowAdjusted[1].returnIndex - 100) > 1e-9) {
+  console.error('❌ 추가 매수 현금흐름이 포트폴리오 수익률로 계산됐습니다.');
   process.exit(1);
 }
 
