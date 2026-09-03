@@ -8,6 +8,7 @@ function renderHistoryView(area) {
         <div style="font-size:.80rem;font-weight:700;color:var(--text)">📈 손익 그래프</div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <div style="display:flex;background:var(--s2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+            <button id="histModeDay" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">일별</button>
             <button id="histModeWeek" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">주간</button>
             <button id="histModeMonth" style="padding:4px 10px;font-size:.70rem;border:none;cursor:pointer">월간</button>
           </div>

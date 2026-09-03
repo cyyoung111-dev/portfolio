@@ -5,6 +5,7 @@ const repoRoot = process.cwd();
 const webRoot = path.join(repoRoot, 'src/web');
 const indexPath = path.join(webRoot, 'index.html');
 const manifestPath = path.join(webRoot, 'script-manifest.json');
+const serviceWorkerPath = path.join(webRoot, 'sw.js');
 
 if (!fs.existsSync(indexPath)) {
   console.error('❌ src/web/index.html not found');
@@ -16,6 +17,7 @@ if (!fs.existsSync(manifestPath)) {
 }
 
 const html = fs.readFileSync(indexPath, 'utf8');
+const serviceWorker = fs.readFileSync(serviceWorkerPath, 'utf8');
 const includeRe = /<script\s+defer\s+src="([^"]+)"\s*><\/script>/g;
 const indexLocal = [];
 let m;
@@ -44,5 +46,20 @@ for (let i = 0; i < expected.length; i += 1) {
 }
 
 if (mismatch) process.exit(1);
+
+const versionedAssetRe = /(?:src|href)="([^"?]+\?v=[^"]+)"/g;
+const indexVersionedAssets = new Map();
+while ((m = versionedAssetRe.exec(html)) !== null) {
+  indexVersionedAssets.set(m[1].split('?')[0], m[1]);
+}
+const precacheVersionedRe = /'\.\/([^'?]+\?v=[^']+)'/g;
+while ((m = precacheVersionedRe.exec(serviceWorker)) !== null) {
+  const pathKey = m[1].split('?')[0];
+  const indexAsset = indexVersionedAssets.get(pathKey);
+  if (indexAsset && indexAsset !== m[1]) {
+    console.error(`❌ Service worker/index asset version mismatch: index="${indexAsset}" precache="${m[1]}"`);
+    process.exit(1);
+  }
+}
 
 console.log(`✅ Script manifest check passed (${expected.length} entries)`);
