@@ -107,6 +107,13 @@ if (!historyPipelineSource.includes("_historyRequestJson('getHistoryDetail'")
   process.exit(1);
 }
 
+if (!historyPipelineSource.includes('dates: [date]')
+    || !historyPipelineSource.includes('화면에서 사유 확인')
+    || !historyPipelineSource.includes('repairInProgress = false')) {
+  console.error('❌ 누락 스냅샷은 날짜별로 복구하고 실패 사유와 버튼 상태를 화면에 남겨야 합니다.');
+  process.exit(1);
+}
+
 const historyUtilsContext = { fmtDateDot: value => String(value || '') };
 vm.runInNewContext(`${historyUtilsSource}\n` +
   `globalThis.__dateKey = _histDateKey;`, historyUtilsContext);

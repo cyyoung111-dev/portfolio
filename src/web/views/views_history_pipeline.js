@@ -95,10 +95,7 @@ async function loadHistoryChart() {
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
     const missingMsg = missing.length
-      ? ` (실패: ${missing.map(type => {
-          const detail = benchBundle.errorMap?.[type];
-          return detail ? `${type} — ${detail}` : type;
-        }).join(', ')})`
+      ? ` (실패: ${missing.join(', ')} · ${Array.from(new Set(missing.map(type => benchBundle.errorMap?.[type]).filter(Boolean))).join(' / ')})`
       : '';
     _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
@@ -190,12 +187,21 @@ function _renderHistoryCoverage(el, coverage, mode) {
   }
   const labels = missing.slice(0, 6).map(item => item.label).join(', ');
   const more = missing.length > 6 ? ` 외 ${missing.length - 6}개` : '';
+  const repairResult = __histState.repairResult;
+  const resultHtml = repairResult
+    ? `<div style="flex-basis:100%;padding-top:7px;border-top:1px solid var(--border);font-size:.65rem;color:${repairResult.failed.length ? 'var(--amber)' : 'var(--green)'}">
+        ${repairResult.failed.length
+          ? `⚠️ 복구 결과: 성공 ${repairResult.repaired}개 · 실패 ${repairResult.failed.length}개<br><span style="color:var(--muted)">${_escapeHtml(repairResult.failed.map(item => `${item.date || '날짜 없음'}: ${item.message}`).join(' / '))}</span>`
+          : `✅ 누락 스냅샷 ${repairResult.repaired}개를 복구했습니다.`}
+      </div>`
+    : '';
   el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 11px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
     <div style="min-width:0;font-size:.67rem;color:var(--text);line-height:1.55">
       <b style="color:var(--amber)">⚠️ ${mode === 'week' ? '주간' : '월간'} 스냅샷 ${missing.length}개 누락</b><br>
       <span style="color:var(--muted)">${_escapeHtml(labels + more)} · 오늘까지 금요일/월말 영업일 기준으로 복구합니다.<br>장기간 누락은 16:20 평가단가 자동 트리거 중단 또는 실행 오류일 수 있으며, 보완 실행 시 트리거도 점검합니다.</span>
     </div>
-    <button type="button" class="btn-ghost-sm" data-history-action="repair-gaps">🛠️ 누락 보완</button>
+    <button type="button" class="btn-ghost-sm" data-history-action="repair-gaps" ${__histState.repairInProgress ? 'disabled' : ''}>${__histState.repairInProgress ? '⏳ 복구 중...' : '🛠️ 누락 보완'}</button>
+    ${resultHtml}
   </div>`;
 }
 
@@ -205,24 +211,38 @@ async function repairHistorySnapshotGaps() {
   if (!confirm(`${dates.length}개의 누락 스냅샷을 가격이력과 거래이력으로 복구할까요?\n처리 중에는 화면을 닫지 마세요.`)) return;
   const btn = document.querySelector('[data-history-action="repair-gaps"]');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 복구 중...'; }
+  __histState.repairInProgress = true;
+  __histState.repairResult = null;
   let repaired = 0;
   const failed = [];
   let automationRestored = false;
   try {
-    for (let i = 0; i < dates.length; i += 4) {
-      const chunk = dates.slice(i, i + 4);
-      const data = await requestGsheetFormJson('repairSnapshots', { data: JSON.stringify({ dates: chunk }) }, { timeoutMs: 120000, retry: 0 });
-      if (!data || data.status === 'error') throw new Error(data?.message || 'GAS 복구 응답 오류');
+    // 과거 가격 조회는 날짜별로 GOOGLEFINANCE 계산을 수행할 수 있습니다. 여러 날짜를 한
+    // 요청에 묶으면 GAS 실행 제한에 걸려 전부 실패하므로 날짜별 요청으로 성공분을 보존합니다.
+    for (let i = 0; i < dates.length; i++) {
+      const date = dates[i];
+      const data = await requestGsheetFormJson('repairSnapshots', { data: JSON.stringify({ dates: [date] }) }, { timeoutMs: 120000, retry: 0 });
+      if (!data || data.status === 'error') {
+        failed.push({ date, message: data?.message || 'GAS 응답이 없거나 처리 시간이 초과되었습니다.' });
+        if (btn) btn.textContent = `⏳ ${i + 1}/${dates.length}`;
+        continue;
+      }
       repaired += Array.isArray(data.repaired) ? data.repaired.length : 0;
       if (Array.isArray(data.failed)) failed.push(...data.failed);
       automationRestored = automationRestored || !!data.automationRestored;
-      if (btn) btn.textContent = `⏳ ${Math.min(i + chunk.length, dates.length)}/${dates.length}`;
+      if (btn) btn.textContent = `⏳ ${i + 1}/${dates.length}`;
     }
-    showToast(`스냅샷 ${repaired}개 복구 완료${failed.length ? ` · 실패 ${failed.length}개` : ''}${automationRestored ? ' · 자동 트리거 복구' : ''}`, failed.length ? 'warn' : 'ok');
+    __histState.repairResult = { repaired, failed };
+    showToast(`스냅샷 ${repaired}개 복구 완료${failed.length ? ` · 실패 ${failed.length}개 (화면에서 사유 확인)` : ''}${automationRestored ? ' · 자동 트리거 복구' : ''}`, failed.length ? 'warn' : 'ok');
     await loadHistoryChart();
   } catch (e) {
-    showToast(`스냅샷 복구 실패: ${e.message}`, 'error');
-    if (btn) { btn.disabled = false; btn.textContent = '🛠️ 다시 시도'; }
+    __histState.repairResult = { repaired, failed: [...failed, { date: '', message: e.message || '알 수 없는 오류' }] };
+    showToast(`스냅샷 복구 중 오류: ${e.message || '알 수 없는 오류'}`, 'error');
+    await loadHistoryChart();
+  } finally {
+    __histState.repairInProgress = false;
+    const currentBtn = document.querySelector('[data-history-action="repair-gaps"]');
+    if (currentBtn) { currentBtn.disabled = false; currentBtn.textContent = '🛠️ 다시 시도'; }
   }
 }
 
