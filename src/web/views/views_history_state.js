@@ -8,6 +8,8 @@ const __histState = window.__histState || {
   debugByDate: {},
   debugDate: '',
   missingSnapshotDates: [],
+  repairResult: null,
+  repairInProgress: false,
   snapshots: [],
   detailDate: '',
 };
