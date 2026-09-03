@@ -130,6 +130,10 @@ if (!historyRenderSource.includes('id="histModeDay"')
   console.error('❌ 일별 손익 그래프와 평가금액 고점·저점 및 최근 10일 스냅샷 표시가 누락됐습니다.');
   process.exit(1);
 }
+if (!historyPipelineSource.includes('portfolioSnapshots: graphSnapshots')) {
+  console.error('❌ 포트폴리오와 비교지수 변화율은 같은 시작·종료 스냅샷을 사용해야 합니다.');
+  process.exit(1);
+}
 
 const historyUtilsContext = { fmtDateDot: value => String(value || '') };
 vm.runInNewContext(`${historyUtilsSource}\n` +

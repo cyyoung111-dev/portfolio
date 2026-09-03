@@ -108,7 +108,8 @@ async function loadHistoryChart() {
       types: benchmarkTypes,
       seriesMap: benchSeriesMap,
       metaMap: benchMetaMap,
-      portfolioSnapshots: snapshots
+      // 포트폴리오 변화율과 비교지수가 같은 시작·종료 스냅샷을 사용하도록 맞춥니다.
+      portfolioSnapshots: graphSnapshots
     });
     _drawHistoryTable(tableWrap, snapshots);
 
