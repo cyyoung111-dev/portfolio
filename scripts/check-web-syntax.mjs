@@ -131,6 +131,14 @@ if (!historyRenderSource.includes('id="histModeDay"')
   console.error('❌ 일별 손익 그래프와 평가금액 고점·저점 및 최근 10일 스냅샷 표시가 누락됐습니다.');
   process.exit(1);
 }
+const eventDelegationSource = fs.readFileSync(path.join(webRoot, 'app/event_delegation.js'), 'utf8');
+if (!historyRenderSource.includes('data-history-action="benchmark"')
+    || !eventDelegationSource.includes("action === 'benchmark'")
+    || !eventDelegationSource.includes('_toggleHistBenchmark(type)')
+    || !historyPipelineSource.includes('requestId !== __histState.loadRequestId')) {
+  console.error('❌ 비교지수 복수선택 위임 또는 연속 선택 요청의 최신 결과 보호가 누락됐습니다.');
+  process.exit(1);
+}
 if (!historyPipelineSource.includes('portfolioSnapshots: portfolioRangeSnapshots')
     || !historyPipelineSource.includes('snapshot.date >= graphStartDate')
     || !historyPipelineSource.includes('snapshot.date <= graphEndDate')) {

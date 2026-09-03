@@ -24,8 +24,8 @@ function renderHistoryView(area) {
           </select>
           <div id="histBenchmarkMulti" title="비교지수(복수선택) · 선택 기간 수익률과 MDD 표시"
             style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;padding:4px;border:1px solid var(--border);border-radius:8px;background:var(--s2)">
-            ${HIST_BENCHMARK_TYPES.map(code => `<button type="button" class="hist-bench-btn" data-bench="${code}">${_escapeHtml(formatBenchmarkLabel(code))}</button>`).join('')}
-            <button type="button" id="histBenchClear" class="hist-bench-btn hist-bench-btn-clear" data-bench="CLEAR">해제</button>
+            ${HIST_BENCHMARK_TYPES.map(code => `<button type="button" class="hist-bench-btn" data-history-action="benchmark" data-bench="${code}">${_escapeHtml(formatBenchmarkLabel(code))}</button>`).join('')}
+            <button type="button" id="histBenchClear" class="hist-bench-btn hist-bench-btn-clear" data-history-action="benchmark" data-bench="CLEAR">해제</button>
           </div>
           <button id="btn-history-refresh" class="btn-ghost-sm">🔄 새로고침</button>
         </div>
@@ -62,15 +62,5 @@ function renderHistoryView(area) {
   });
   $el('histCoveragePanel')?.addEventListener('click', e => {
     if (e.target?.closest?.('[data-history-action="repair-gaps"]')) repairHistorySnapshotGaps();
-  });
-  $el('histBenchmarkMulti')?.addEventListener('click', e => {
-    const btn = e.target?.closest?.('.hist-bench-btn');
-    if (!btn) return;
-    const type = btn.dataset?.bench || '';
-    if (!type) return;
-    if (type === 'CLEAR') _setHistBenchmarks([]);
-    else _toggleHistBenchmark(type);
-    _renderHistBenchmarkButtons();
-    loadHistoryChart();
   });
 }

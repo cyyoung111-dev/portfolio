@@ -189,6 +189,20 @@ function registerGlobalEventDelegation() {
       return;
     }
 
+    // ── data-history-action (동적 손익 화면에서도 비교지수 복수선택 유지)
+    const historyAction = e.target.closest('[data-history-action]');
+    if (historyAction) {
+      const action = historyAction.dataset.historyAction;
+      if (action === 'benchmark') {
+        const type = historyAction.dataset.bench || '';
+        if (type === 'CLEAR' && typeof _setHistBenchmarks === 'function') _setHistBenchmarks([]);
+        else if (type && typeof _toggleHistBenchmark === 'function') _toggleHistBenchmark(type);
+        if (typeof _renderHistBenchmarkButtons === 'function') _renderHistBenchmarkButtons();
+        if (typeof loadHistoryChart === 'function') loadHistoryChart();
+      }
+      return;
+    }
+
     // ── data-sm-new-type / data-sm-new-sector / data-sm-new-currency (mgmt_stock.js, 종목 추가 폼)
     const smNewType = e.target.closest('[data-sm-new-type]');
     if (smNewType) { if (typeof _smRenderTypeButtons === 'function') _smRenderTypeButtons(smNewType.dataset.smNewType || '주식'); return; }

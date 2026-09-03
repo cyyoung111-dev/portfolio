@@ -10,6 +10,7 @@ const __histState = window.__histState || {
   missingSnapshotDates: [],
   repairResult: null,
   repairInProgress: false,
+  loadRequestId: 0,
   snapshots: [],
   detailDate: '',
 };

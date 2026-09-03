@@ -4,6 +4,7 @@
 // ════════════════════════════════════════════════════════════════
 
 async function loadHistoryChart() {
+  const requestId = ++__histState.loadRequestId;
   const statusEl = $el('histStatusMsg');
   const chartWrap = $el('histChartWrap');
   const tableWrap = $el('histTableWrap');
@@ -36,6 +37,7 @@ async function loadHistoryChart() {
       fromStr = _kstDateOffset(todayStr, -rangeDays);
     }
     const data = await _historyRequestJson('getHistory', { from: fromStr }, { timeoutMs: 15000, retry: 0 });
+    if (requestId !== __histState.loadRequestId) return;
     if (!data || data.status === 'error') throw new Error(data?.message || '응답 오류');
 
     let snapshots = Array.isArray(data.snapshots) ? data.snapshots : (Array.isArray(data) ? data : []);
@@ -98,6 +100,7 @@ async function loadHistoryChart() {
       snapshots[0].date,
       snapshots[snapshots.length - 1].date
     );
+    if (requestId !== __histState.loadRequestId) return;
     const benchSeriesMap = benchBundle.seriesMap;
     const benchMetaMap = benchBundle.metaMap;
     const missing = benchBundle.failedTypes;
