@@ -8,6 +8,8 @@ const __histState = window.__histState || {
   debugByDate: {},
   debugDate: '',
   missingSnapshotDates: [],
+  repairResult: null,
+  repairInProgress: false,
   snapshots: [],
   detailDate: '',
 };
@@ -16,18 +18,18 @@ window.__histState = __histState;
 const HIST_BENCHMARK_TYPES = ['KOSPI', 'SP500', 'DOW', 'NASDAQ', 'NASDAQ100'];
 
 function _initHistState() {
-  __histState.mode = __histState.mode === 'month' ? 'month' : 'week';
+  __histState.mode = ['day', 'week', 'month'].includes(__histState.mode) ? __histState.mode : 'week';
   // 이전 배포에서 선택했던 지원 종료 지수가 메모리에 남아 있어도 즉시 제거합니다.
   const saved = Array.isArray(__histState.benchmarks) ? __histState.benchmarks : ['KOSPI'];
   __histState.benchmarks = saved.filter(type => HIST_BENCHMARK_TYPES.includes(type));
 }
 
 function _getHistMode() {
-  return __histState.mode === 'month' ? 'month' : 'week';
+  return ['day', 'week', 'month'].includes(__histState.mode) ? __histState.mode : 'week';
 }
 
 function _setHistModeState(mode) {
-  __histState.mode = mode === 'month' ? 'month' : 'week';
+  __histState.mode = ['day', 'week', 'month'].includes(mode) ? mode : 'week';
 }
 
 function _getHistBenchmarks() {
@@ -90,7 +92,7 @@ function _setHistoryStatus(statusEl, type, payload) {
   if (type === 'summary') {
     const graphCount = Number.isFinite(Number(meta.graphCount)) ? Number(meta.graphCount) : 0;
     const tableCount = Number.isFinite(Number(meta.tableCount)) ? Number(meta.tableCount) : 0;
-    const unit = meta.mode === 'week' ? '주' : '개월';
+    const unit = meta.mode === 'day' ? '일' : (meta.mode === 'week' ? '주' : '개월');
     statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${graphCount}일 · 표 ${tableCount}${unit} · 최근: ${_escapeHtml(meta.latestDate || '-')}${_historySnapshotGapHtml(meta.snapshotGap)}</span>`;
     return;
   }
@@ -131,15 +133,16 @@ function _setHistMode(mode) {
 }
 
 function _applyHistModeUI(mode) {
+  const dBtn = $el('histModeDay');
   const wBtn = $el('histModeWeek');
   const mBtn = $el('histModeMonth');
-  if (!wBtn || !mBtn) return;
-  [wBtn, mBtn].forEach(b => {
+  if (!dBtn || !wBtn || !mBtn) return;
+  [dBtn, wBtn, mBtn].forEach(b => {
     b.style.background = 'transparent';
     b.style.color = 'var(--muted)';
     b.style.fontWeight = '400';
   });
-  const active = mode === 'week' ? wBtn : mBtn;
+  const active = mode === 'day' ? dBtn : (mode === 'week' ? wBtn : mBtn);
   active.style.background = 'var(--c-purple-45,#7c3aed)';
   // 활성 배경은 모든 프리셋에서 진한 보라색이므로 흰색 텍스트로 대비를 유지합니다.
   active.style.color = '#fff';
