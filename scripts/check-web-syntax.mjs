@@ -74,6 +74,7 @@ const themeSource = fs.readFileSync(path.join(webRoot, 'shared/theme.js'), 'utf8
 const tabSettingsSource = fs.readFileSync(path.join(webRoot, 'views/views_system_tabsettings.js'), 'utf8');
 const historyRenderSource = fs.readFileSync(path.join(webRoot, 'views/views_history_render.js'), 'utf8');
 const historyPipelineSource = fs.readFileSync(path.join(webRoot, 'views/views_history_pipeline.js'), 'utf8');
+const historyStateSource = fs.readFileSync(path.join(webRoot, 'views/views_history_state.js'), 'utf8');
 const historyUtilsSource = fs.readFileSync(path.join(webRoot, 'views/views_history_utils.js'), 'utf8');
 const portfolioSource = fs.readFileSync(path.join(webRoot, 'views/views_portfolio.js'), 'utf8');
 const planSource = fs.readdirSync(path.join(webRoot, 'views')).filter(name => /^views_plan(?:_[a-z]+)?\.js$/.test(name)).map(name => fs.readFileSync(path.join(webRoot, 'views', name), 'utf8')).join('\n');
@@ -107,12 +108,75 @@ if (!historyPipelineSource.includes("_historyRequestJson('getHistoryDetail'")
   process.exit(1);
 }
 
+if (!historyPipelineSource.includes('dates: [date]')
+    || !historyPipelineSource.includes('화면에서 사유 확인')
+    || !historyPipelineSource.includes('repairInProgress = false')) {
+  console.error('❌ 누락 스냅샷은 날짜별로 복구하고 실패 사유와 버튼 상태를 화면에 남겨야 합니다.');
+  process.exit(1);
+}
+
+const historyChartSource = fs.readFileSync(path.join(webRoot, 'views/views_history.js'), 'utf8');
+if (!historyChartSource.includes('const portfolioDelta =')
+    || !historyChartSource.includes('나의 손익 변화')
+    || !historyChartSource.includes('현금흐름 반영 MDD 구간:')
+    || !historyChartSource.includes('_buildCashflowAdjustedReturnIndex(')) {
+  console.error('❌ 나의 손익 변화율과 MDD를 비교지수와 같은 형식으로 표시해야 합니다.');
+  process.exit(1);
+}
+if (!historyRenderSource.includes('id="histModeDay"')
+    || !historyPipelineSource.includes("mode === 'day'")
+    || !historyChartSource.includes('slice(0, 10)')
+    || !historyChartSource.includes('가장 높은 날')
+    || !historyChartSource.includes('가장 낮은 날')
+    || !historyChartSource.includes('최근 스냅샷 (최대 10일 · 일별 기준)')) {
+  console.error('❌ 일별 손익 그래프와 평가금액 고점·저점 및 최근 10일 스냅샷 표시가 누락됐습니다.');
+  process.exit(1);
+}
+const eventDelegationSource = fs.readFileSync(path.join(webRoot, 'app/event_delegation.js'), 'utf8');
+if (!historyRenderSource.includes('data-history-action="benchmark"')
+    || !eventDelegationSource.includes("action === 'benchmark'")
+    || !eventDelegationSource.includes('_toggleHistBenchmark(type)')
+    || !historyPipelineSource.includes('requestId !== __histState.loadRequestId')) {
+  console.error('❌ 비교지수 복수선택 위임 또는 연속 선택 요청의 최신 결과 보호가 누락됐습니다.');
+  process.exit(1);
+}
+if (!historyRenderSource.includes('id="btn-history-query"')
+    || historyRenderSource.includes('id="btn-history-refresh"')
+    || historyRenderSource.includes('addEventListener(\'change\', loadHistoryChart)')
+    || !historyRenderSource.includes("'query_ready'")
+    || !eventDelegationSource.includes("'btn-history-query'")
+    || eventDelegationSource.includes("if (typeof loadHistoryChart === 'function') loadHistoryChart();")
+    || !historyStateSource.includes('function _invalidateHistoryLoad()')
+    || historyStateSource.includes('_applyHistModeUI(_getHistMode());\n  loadHistoryChart();')
+    || historyPipelineSource.includes('if (__histState.detailDate) await _loadHistoryDateItems')) {
+  console.error('❌ 손익 그래프는 조건 변경이 아닌 조회 버튼으로만 요청하고 특정일 상세 요청과 분리해야 합니다.');
+  process.exit(1);
+}
+if (!historyPipelineSource.includes('portfolioSnapshots: portfolioRangeSnapshots')
+    || !historyPipelineSource.includes('snapshot.date >= graphStartDate')
+    || !historyPipelineSource.includes('snapshot.date <= graphEndDate')) {
+  console.error('❌ 포트폴리오 MDD는 그래프 시작·종료 사이의 일별 스냅샷을 유지해야 합니다.');
+  process.exit(1);
+}
+if (historyPipelineSource.indexOf('const resultHtml = repairResult') > historyPipelineSource.indexOf('if (!missing.length)')) {
+  console.error('❌ 누락이 모두 복구된 뒤에도 성공 결과를 표시해야 합니다.');
+  process.exit(1);
+}
+
 const historyUtilsContext = { fmtDateDot: value => String(value || '') };
 vm.runInNewContext(`${historyUtilsSource}\n` +
-  `globalThis.__dateKey = _histDateKey;`, historyUtilsContext);
+  `globalThis.__dateKey = _histDateKey; globalThis.__returnIndex = _buildCashflowAdjustedReturnIndex;`, historyUtilsContext);
 if (historyUtilsContext.__dateKey('2026.06.19') !== '2026-06-19'
     || historyUtilsContext.__dateKey('2026-06-19') !== '2026-06-19') {
   console.error('❌ 특정일 손익 조회 날짜 키는 date input과 같은 YYYY-MM-DD 형식이어야 합니다.');
+  process.exit(1);
+}
+const cashflowAdjusted = historyUtilsContext.__returnIndex([
+  { date: '2026-01-01', evalAmt: 200 },
+  { date: '2026-01-02', evalAmt: 1100 },
+], [{ date: '2026-01-02', tradeType: 'buy', qty: 1, price: 900 }]);
+if (cashflowAdjusted.length !== 2 || Math.abs(cashflowAdjusted[1].returnIndex - 100) > 1e-9) {
+  console.error('❌ 추가 매수 현금흐름이 포트폴리오 수익률로 계산됐습니다.');
   process.exit(1);
 }
 
