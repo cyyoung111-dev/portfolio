@@ -57,6 +57,47 @@ function _normalizeHistDate(v) {
   return '';
 }
 
+// 매수는 외부 자금 유입(+), 매도는 외부 자금 회수(-)로 분리해 기간별 수익률을 연결합니다.
+// 단순 평가금액/원가 비율과 달리 추가 매수·매도로 포트폴리오 규모가 바뀌어도 수익으로 보지 않습니다.
+function _buildCashflowAdjustedReturnIndex(snapshots, trades) {
+  const values = (Array.isArray(snapshots) ? snapshots : [])
+    .map(snapshot => ({
+      date: _histDateKey(snapshot?.date || ''),
+      evalAmt: Number(snapshot?.evalAmt || snapshot?.total || snapshot?.eval || 0),
+    }))
+    .filter(point => point.date && Number.isFinite(point.evalAmt) && point.evalAmt >= 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!values.length) return [];
+
+  const cashflowByDate = {};
+  (Array.isArray(trades) ? trades : []).forEach(trade => {
+    const date = _histDateKey(trade?.date || '');
+    const amount = Number(trade?.qty || 0) * Number(trade?.price || 0);
+    const type = String(trade?.tradeType || '').toLowerCase();
+    if (!date || !Number.isFinite(amount) || amount <= 0 || (type !== 'buy' && type !== 'sell')) return;
+    cashflowByDate[date] = (cashflowByDate[date] || 0) + (type === 'buy' ? amount : -amount);
+  });
+
+  let returnIndex = 100;
+  const points = [{ date: values[0].date, returnIndex }];
+  const cashflows = Object.keys(cashflowByDate).sort().map(date => ({ date, amount: cashflowByDate[date] }));
+  let cashflowIndex = 0;
+  while (cashflowIndex < cashflows.length && cashflows[cashflowIndex].date <= values[0].date) cashflowIndex++;
+  for (let i = 1; i < values.length; i++) {
+    const previous = values[i - 1];
+    const current = values[i];
+    let netCashflow = 0;
+    while (cashflowIndex < cashflows.length && cashflows[cashflowIndex].date <= current.date) {
+      if (cashflows[cashflowIndex].date > previous.date) netCashflow += cashflows[cashflowIndex].amount;
+      cashflowIndex++;
+    }
+    const growth = previous.evalAmt > 0 ? (current.evalAmt - netCashflow) / previous.evalAmt : NaN;
+    if (Number.isFinite(growth) && growth >= 0) returnIndex *= growth;
+    points.push({ date: current.date, returnIndex });
+  }
+  return points;
+}
+
 function _historyUtcDate(dateStr) {
   const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;

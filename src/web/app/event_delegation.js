@@ -36,6 +36,7 @@ function registerGlobalEventDelegation() {
     'btn-apply-loan':                     () => typeof applyLoan === 'function' && applyLoan(),
 
     // history / gsheet
+    histModeDay:           () => typeof _setHistMode === 'function' && _setHistMode('day'),
     histModeWeek:          () => typeof _setHistMode === 'function' && _setHistMode('week'),
     histModeMonth:         () => typeof _setHistMode === 'function' && _setHistMode('month'),
     'btn-history-refresh': () => typeof loadHistoryChart === 'function' && loadHistoryChart(),
@@ -185,6 +186,20 @@ function registerGlobalEventDelegation() {
     if (statusAction) {
       const action = statusAction.dataset.statusAction;
       if (action === 'gsheet' && typeof switchView === 'function') switchView('gsheet');
+      return;
+    }
+
+    // ── data-history-action (동적 손익 화면에서도 비교지수 복수선택 유지)
+    const historyAction = e.target.closest('[data-history-action]');
+    if (historyAction) {
+      const action = historyAction.dataset.historyAction;
+      if (action === 'benchmark') {
+        const type = historyAction.dataset.bench || '';
+        if (type === 'CLEAR' && typeof _setHistBenchmarks === 'function') _setHistBenchmarks([]);
+        else if (type && typeof _toggleHistBenchmark === 'function') _toggleHistBenchmark(type);
+        if (typeof _renderHistBenchmarkButtons === 'function') _renderHistBenchmarkButtons();
+        if (typeof loadHistoryChart === 'function') loadHistoryChart();
+      }
       return;
     }
 
