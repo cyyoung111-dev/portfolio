@@ -27,7 +27,7 @@ function renderHistoryView(area) {
             ${HIST_BENCHMARK_TYPES.map(code => `<button type="button" class="hist-bench-btn" data-history-action="benchmark" data-bench="${code}">${_escapeHtml(formatBenchmarkLabel(code))}</button>`).join('')}
             <button type="button" id="histBenchClear" class="hist-bench-btn hist-bench-btn-clear" data-history-action="benchmark" data-bench="CLEAR">해제</button>
           </div>
-          <button id="btn-history-refresh" class="btn-ghost-sm">🔄 새로고침</button>
+          <button id="btn-history-query" class="btn-ghost-sm">🔎 조회</button>
         </div>
       </div>
       <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</div>
@@ -52,9 +52,9 @@ function renderHistoryView(area) {
     const kst = _kstNow();
     monthEl.value = `${kst.getUTCFullYear()}-01`;
   }
-  loadHistoryChart();
-  $el('histRangeSelect')?.addEventListener('change', loadHistoryChart);
-  $el('histStartMonth')?.addEventListener('change', loadHistoryChart);
+  _setHistoryStatus($el('histStatusMsg'), 'query_ready');
+  $el('histRangeSelect')?.addEventListener('change', _invalidateHistoryLoad);
+  $el('histStartMonth')?.addEventListener('change', _invalidateHistoryLoad);
   $el('histDetailDate')?.addEventListener('change', async () => {
     __histState.detailDate = String($el('histDetailDate')?.value || '');
     _renderHistoryDateDetail(__histState.snapshots || []);

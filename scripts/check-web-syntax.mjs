@@ -74,6 +74,7 @@ const themeSource = fs.readFileSync(path.join(webRoot, 'shared/theme.js'), 'utf8
 const tabSettingsSource = fs.readFileSync(path.join(webRoot, 'views/views_system_tabsettings.js'), 'utf8');
 const historyRenderSource = fs.readFileSync(path.join(webRoot, 'views/views_history_render.js'), 'utf8');
 const historyPipelineSource = fs.readFileSync(path.join(webRoot, 'views/views_history_pipeline.js'), 'utf8');
+const historyStateSource = fs.readFileSync(path.join(webRoot, 'views/views_history_state.js'), 'utf8');
 const historyUtilsSource = fs.readFileSync(path.join(webRoot, 'views/views_history_utils.js'), 'utf8');
 const portfolioSource = fs.readFileSync(path.join(webRoot, 'views/views_portfolio.js'), 'utf8');
 const planSource = fs.readdirSync(path.join(webRoot, 'views')).filter(name => /^views_plan(?:_[a-z]+)?\.js$/.test(name)).map(name => fs.readFileSync(path.join(webRoot, 'views', name), 'utf8')).join('\n');
@@ -137,6 +138,18 @@ if (!historyRenderSource.includes('data-history-action="benchmark"')
     || !eventDelegationSource.includes('_toggleHistBenchmark(type)')
     || !historyPipelineSource.includes('requestId !== __histState.loadRequestId')) {
   console.error('❌ 비교지수 복수선택 위임 또는 연속 선택 요청의 최신 결과 보호가 누락됐습니다.');
+  process.exit(1);
+}
+if (!historyRenderSource.includes('id="btn-history-query"')
+    || historyRenderSource.includes('id="btn-history-refresh"')
+    || historyRenderSource.includes('addEventListener(\'change\', loadHistoryChart)')
+    || !historyRenderSource.includes("'query_ready'")
+    || !eventDelegationSource.includes("'btn-history-query'")
+    || eventDelegationSource.includes("if (typeof loadHistoryChart === 'function') loadHistoryChart();")
+    || !historyStateSource.includes('function _invalidateHistoryLoad()')
+    || historyStateSource.includes('_applyHistModeUI(_getHistMode());\n  loadHistoryChart();')
+    || historyPipelineSource.includes('if (__histState.detailDate) await _loadHistoryDateItems')) {
+  console.error('❌ 손익 그래프는 조건 변경이 아닌 조회 버튼으로만 요청하고 특정일 상세 요청과 분리해야 합니다.');
   process.exit(1);
 }
 if (!historyPipelineSource.includes('portfolioSnapshots: portfolioRangeSnapshots')

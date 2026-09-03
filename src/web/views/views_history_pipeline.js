@@ -60,7 +60,6 @@ async function loadHistoryChart() {
     snapshots = _mergeTradeBasedCost(snapshots);
     __histState.snapshots = snapshots;
     _renderHistoryDateDetail(snapshots);
-    if (__histState.detailDate) await _loadHistoryDateItems(__histState.detailDate);
     const mode = _getHistMode();
     const tableSnapshots = mode === 'day'
       ? snapshots
@@ -121,6 +120,7 @@ async function loadHistoryChart() {
       portfolioSnapshots: portfolioRangeSnapshots
     });
     _drawHistoryTable(tableWrap, snapshots);
+    // 특정일 상세는 그래프 조회와 분리합니다. 날짜 input 변경 시에만 별도 요청합니다.
 
   } catch(e) {
     _setHistoryStatus(statusEl, 'error', { message: e.message });

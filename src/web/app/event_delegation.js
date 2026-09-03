@@ -39,7 +39,7 @@ function registerGlobalEventDelegation() {
     histModeDay:           () => typeof _setHistMode === 'function' && _setHistMode('day'),
     histModeWeek:          () => typeof _setHistMode === 'function' && _setHistMode('week'),
     histModeMonth:         () => typeof _setHistMode === 'function' && _setHistMode('month'),
-    'btn-history-refresh': () => typeof loadHistoryChart === 'function' && loadHistoryChart(),
+    'btn-history-query':   () => typeof loadHistoryChart === 'function' && loadHistoryChart(),
     'btn-clear-gsheet-url':() => typeof clearGsheetUrl === 'function' && clearGsheetUrl(),
     'btn-save-gsheet-url': () => typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
     'btn-save-public-data-key': () => typeof savePublicDataApiKeyFromUI === 'function' && savePublicDataApiKeyFromUI(),
@@ -198,7 +198,7 @@ function registerGlobalEventDelegation() {
         if (type === 'CLEAR' && typeof _setHistBenchmarks === 'function') _setHistBenchmarks([]);
         else if (type && typeof _toggleHistBenchmark === 'function') _toggleHistBenchmark(type);
         if (typeof _renderHistBenchmarkButtons === 'function') _renderHistBenchmarkButtons();
-        if (typeof loadHistoryChart === 'function') loadHistoryChart();
+        if (typeof _invalidateHistoryLoad === 'function') _invalidateHistoryLoad();
       }
       return;
     }

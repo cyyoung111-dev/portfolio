@@ -82,6 +82,10 @@ function _setHistoryStatus(statusEl, type, payload) {
     statusEl.innerHTML = '<span style="color:var(--muted)">⏳ 불러오는 중...</span>';
     return;
   }
+  if (type === 'query_ready') {
+    statusEl.innerHTML = '<span style="color:var(--muted)">조회 조건을 선택한 뒤 🔎 조회 버튼을 눌러주세요.</span>';
+    return;
+  }
   if (type === 'empty_data') {
     statusEl.innerHTML = '<span style="color:var(--muted)">스냅샷 데이터가 없습니다. 데이터가 쌓이면 자동으로 표시됩니다.</span>';
     return;
@@ -130,7 +134,12 @@ function _renderHistBenchmarkButtons() {
 function _setHistMode(mode) {
   _setHistModeState(mode);
   _applyHistModeUI(_getHistMode());
-  loadHistoryChart();
+  _invalidateHistoryLoad();
+}
+
+function _invalidateHistoryLoad() {
+  __histState.loadRequestId++;
+  _setHistoryStatus($el('histStatusMsg'), 'query_ready');
 }
 
 function _applyHistModeUI(mode) {
