@@ -210,6 +210,14 @@ function _renderHistoryCoverage(el, coverage, mode) {
   }
   const labels = missing.slice(0, 6).map(item => item.label).join(', ');
   const more = missing.length > 6 ? ` 외 ${missing.length - 6}개` : '';
+  const repairResult = __histState.repairResult;
+  const resultHtml = repairResult
+    ? `<div style="flex-basis:100%;padding-top:7px;border-top:1px solid var(--border);font-size:.65rem;color:${repairResult.failed.length ? 'var(--amber)' : 'var(--green)'}">
+        ${repairResult.failed.length
+          ? `⚠️ 복구 결과: 성공 ${repairResult.repaired}개 · 실패 ${repairResult.failed.length}개<br><span style="color:var(--muted)">${_escapeHtml(repairResult.failed.map(item => `${item.date || '날짜 없음'}: ${item.message}`).join(' / '))}</span>`
+          : `✅ 누락 스냅샷 ${repairResult.repaired}개를 복구했습니다.`}
+      </div>`
+    : '';
   el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 11px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
     <div style="min-width:0;font-size:.67rem;color:var(--text);line-height:1.55">
       <b style="color:var(--amber)">⚠️ ${mode === 'week' ? '주간' : '월간'} 스냅샷 ${missing.length}개 누락</b><br>
