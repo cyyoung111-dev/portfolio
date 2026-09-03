@@ -20,6 +20,10 @@ const systemView = fs.readFileSync(new URL('../src/web/views/views_system.js', i
 const serviceWorker = fs.readFileSync(new URL('../src/web/sw.js', import.meta.url), 'utf8');
 const coreUi = fs.readFileSync(new URL('../src/web/core/core_ui.js', import.meta.url), 'utf8');
 
+assert.doesNotMatch(baseCss, /(?:\.wrap|\.sc|\.tbl-wrap|\.editor-|\.btn-|@media|!important)/,
+  'base.css에는 reset·기본 폼·글꼴·문서 배경만 남겨야 합니다.');
+assert.match(componentsCss, /\.wrap\{max-width:1200px/,
+  'base.css에서 이동한 공통 화면 컨테이너 규칙이 누락되었습니다.');
 assert.doesNotMatch(baseCss, /(?:\.plan-|\.retire-|\.retirement-|\[data-view-section="plan"\])/, 'base.css에 투자계획 전용 선택자가 남아 있습니다.');
 assert.match(planCss, /\.plan-export-grid/);
 assert.match(planCss, /\.retirement-cashflow-table/);
