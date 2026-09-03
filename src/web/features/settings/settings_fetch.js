@@ -339,7 +339,8 @@ async function quickFetchByDate() {
 
   btn.disabled = true;
   btn.setAttribute('aria-busy', 'true');
-  btn.querySelector('span').textContent = '업데이트 중';
+  // 고정 너비 버튼 안에서 날짜·상태 영역과 겹치지 않도록 로딩 문구를 짧게 유지합니다.
+  btn.querySelector('span').textContent = '로딩';
   setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...', 'loading');
 
   if (!GSHEET_API_URL) {

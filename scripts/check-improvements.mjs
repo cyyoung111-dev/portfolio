@@ -25,7 +25,7 @@ assert.ok(html.indexOf('id="viewSwitcher"') > html.indexOf('toolbar-section-sett
 const settingsFetch = read('src/web/features/settings/settings_fetch.js');
 const layoutCss = read('src/web/styles/layout.css');
 assert.match(settingsFetch, /setAttribute\('aria-busy', 'true'\)/);
-assert.match(settingsFetch, /textContent = '업데이트 중'/);
+assert.match(settingsFetch, /textContent = '로딩'/);
 assert.match(settingsFetch, /removeAttribute\('aria-busy'\)/);
 assert.doesNotMatch(settingsFetch, /textContent = '⏳'/);
 assert.match(layoutCss, /\.action-refresh-btn\[aria-busy="true"\] svg\{animation:action-refresh-spin/);
