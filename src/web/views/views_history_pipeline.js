@@ -60,9 +60,13 @@ async function loadHistoryChart() {
     _renderHistoryDateDetail(snapshots);
     if (__histState.detailDate) await _loadHistoryDateItems(__histState.detailDate);
     const mode = _getHistMode();
-    const tableSnapshots = mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots);
+    const tableSnapshots = mode === 'day'
+      ? snapshots
+      : (mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots));
     const graphSnapshots = tableSnapshots;
-    const coverage = _analyzeHistoryCoverage(snapshots, mode);
+    const coverage = mode === 'day'
+      ? { missing: [], first: snapshots[0].date, last: snapshots[snapshots.length - 1].date }
+      : _analyzeHistoryCoverage(snapshots, mode);
     __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
     _renderHistoryCoverage(coverageEl, coverage, mode);
 
@@ -90,7 +94,8 @@ async function loadHistoryChart() {
     const benchSeriesMap = benchBundle.seriesMap;
     const benchMetaMap = benchBundle.metaMap;
     const missing = benchBundle.failedTypes;
-    const baseMsg = `그래프·표 ${tableSnapshots.length}${mode==='week'?'주':'개월'} · 원본 ${snapshots.length}일 · 최근: ${latestDate}`;
+    const modeUnit = mode === 'day' ? '일' : (mode === 'week' ? '주' : '개월');
+    const baseMsg = `그래프 ${tableSnapshots.length}${modeUnit} · 원본 ${snapshots.length}일 · 최근: ${latestDate}`;
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
@@ -105,7 +110,7 @@ async function loadHistoryChart() {
       metaMap: benchMetaMap,
       portfolioSnapshots: snapshots
     });
-    _drawHistoryTable(tableWrap, tableSnapshots);
+    _drawHistoryTable(tableWrap, snapshots);
 
   } catch(e) {
     _setHistoryStatus(statusEl, 'error', { message: e.message });
@@ -182,7 +187,9 @@ function _renderHistoryCoverage(el, coverage, mode) {
   if (!el) return;
   const missing = Array.isArray(coverage?.missing) ? coverage.missing : [];
   if (!missing.length) {
-    el.innerHTML = '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 스냅샷 주기가 연속적입니다.</div>';
+    el.innerHTML = mode === 'day'
+      ? '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 저장된 일별 스냅샷을 그대로 표시합니다.</div>'
+      : '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 스냅샷 주기가 연속적입니다.</div>';
     return;
   }
   const labels = missing.slice(0, 6).map(item => item.label).join(', ');

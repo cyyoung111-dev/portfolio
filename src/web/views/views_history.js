@@ -261,12 +261,26 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
 
 function _drawHistoryTable(wrap, snapshots) {
   const fmt = _fmtKrw;
-  const mode = _getHistMode();
-  const recent = [...snapshots].reverse().slice(0, 20);
+  const recent = [...snapshots].reverse().slice(0, 10);
+  const valid = snapshots
+    .map(snapshot => ({ snapshot, evalAmt: parseFloat(snapshot.evalAmt || snapshot.total || snapshot.eval || 0) }))
+    .filter(item => Number.isFinite(item.evalAmt));
+  const highest = valid.reduce((best, item) => !best || item.evalAmt > best.evalAmt ? item : best, null);
+  const lowest = valid.reduce((best, item) => !best || item.evalAmt < best.evalAmt ? item : best, null);
+  const extremeCard = (label, item, color) => `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
+    <div style="font-size:.62rem;color:var(--muted)">${label}</div>
+    <div style="font-size:.88rem;font-weight:700;color:${color}">${item ? fmt(item.evalAmt) : '-'}</div>
+    <div style="font-size:.58rem;color:var(--muted);margin-top:1px">${item ? _fmtHistDateCompact(item.snapshot.date || '') : '데이터 없음'}</div>
+  </div>`;
   const diagnostics = _buildHistoryDiagnostics(snapshots);
   __histState.debugByDate = diagnostics;
   let html = `
-    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 20개 · ${mode==='week'?'주간 기준':'월간 기준'})</div>
+    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">기준설정일 이후 평가금액</div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:6px;margin-bottom:12px;font-variant-numeric:tabular-nums">
+      ${extremeCard('가장 높은 날', highest, 'var(--green)')}
+      ${extremeCard('가장 낮은 날', lowest, 'var(--blue-lt)')}
+    </div>
+    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">최근 스냅샷 (최대 10일 · 일별 기준)</div>
     <div style="overflow-x:auto">
     <table style="width:100%;border-collapse:collapse;font-size:.72rem;font-variant-numeric:tabular-nums">
       <thead>
