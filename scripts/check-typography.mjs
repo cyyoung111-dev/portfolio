@@ -35,7 +35,7 @@ assert.match(assetCss, /#realEstateEditor \.editor-row/);
 assert.doesNotMatch(baseCss, /\.asset-summary-grid\{/, 'base.css에 부동산 요약 그리드가 남아 있습니다.');
 assert.doesNotMatch(baseCss, /#realEstateEditor \.editor-row/, 'base.css에 부동산 편집기 반응형 규칙이 남아 있습니다.');
 assert.match(historyCss, /\.hist-bench-btn\{/);
-assert.match(historyCss, /#histModeWeek,#histModeMonth/);
+assert.match(historyCss, /#histModeDay,#histModeWeek,#histModeMonth/);
 assert.doesNotMatch(baseCss, /\.hist-bench-btn\{/, 'base.css에 손익 비교지수 버튼 기본 규칙이 남아 있습니다.');
 assert.doesNotMatch(baseCss, /#histModeWeek,/, 'base.css에 손익 기간 버튼 규칙이 남아 있습니다.');
 assert.match(tradeCss, /\.trade-stat-card\{background/);
@@ -89,7 +89,7 @@ assert.match(css, /\.retirement-cashflow-table th\{font-size:var\(--type-caption
 assert.match(css, /\.retirement-cashflow-table td\{font-size:\.8rem/);
 assert.match(css, /--font-ui:'Pretendard Variable',Pretendard,'Apple SD Gothic Neo','Malgun Gothic',sans-serif/);
 assert.match(css, /table,button,input,select,textarea\{font-family:inherit\}/);
-for (const selector of ['.sc .lbl','.sc .sub','.f-btn','.f-btn-sm','.date-badge','.action-status-label','#price-updated-label','.btn-link-blue','.chart-card h4','.legend-label','.toolbar-btn','.vs-btn-label','.trade-stat-label','.div-stat-label','.div-stat-sub','.filter-badge','.editor-group-title','.btn-sm-purple','.div-month-filter button','.div-month-selection span','.div-month-selection small','.plan-subtab','#histModeWeek','#histModeMonth']) {
+for (const selector of ['.sc .lbl','.sc .sub','.f-btn','.f-btn-sm','.date-badge','.action-status-label','#price-updated-label','.btn-link-blue','.chart-card h4','.legend-label','.toolbar-btn','.vs-btn-label','.trade-stat-label','.div-stat-label','.div-stat-sub','.filter-badge','.editor-group-title','.btn-sm-purple','.div-month-filter button','.div-month-selection span','.div-month-selection small','.plan-subtab','#histModeDay','#histModeWeek','#histModeMonth']) {
   const minimumUiBlock = css.slice(css.indexOf('/* === 일반 UI 최소 글자 크기 보장'));
   assert.ok(minimumUiBlock.includes(selector), `최소 글자 크기 선택자 누락: ${selector}`);
 }

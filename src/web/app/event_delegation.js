@@ -36,6 +36,7 @@ function registerGlobalEventDelegation() {
     'btn-apply-loan':                     () => typeof applyLoan === 'function' && applyLoan(),
 
     // history / gsheet
+    histModeDay:           () => typeof _setHistMode === 'function' && _setHistMode('day'),
     histModeWeek:          () => typeof _setHistMode === 'function' && _setHistMode('week'),
     histModeMonth:         () => typeof _setHistMode === 'function' && _setHistMode('month'),
     'btn-history-refresh': () => typeof loadHistoryChart === 'function' && loadHistoryChart(),
