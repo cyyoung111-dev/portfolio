@@ -4,6 +4,15 @@
 //  ★ 반드시 모든 JS 파일 중 맨 마지막에 로드되어야 함
 // ════════════════════════════════════════════════════════════════
 
+// 기존 전역 API를 깨지 않고 역할별 네임스페이스를 단계적으로 제공합니다.
+window.PortfolioApp = window.PortfolioApp || {};
+Object.assign(window.PortfolioApp, {
+  views: Object.freeze({ renderPlan: renderPlanView, switch: switchView }),
+  services: Object.freeze({ requestGsheetActionJson, requestGsheetFormJson }),
+  calculations: Object.freeze({ plan: window.PlanCalculations }),
+  storage: Object.freeze({ createBackup: getPortfolioBackupState, ensureAccounts: ensureAccountsMaster }),
+});
+
 document.addEventListener('DOMContentLoaded', function() {
 
   // ── 기본 초기화

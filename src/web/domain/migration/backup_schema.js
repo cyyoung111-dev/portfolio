@@ -8,6 +8,11 @@
 
   const SCHEMA_VERSION = 7;
   const TAX_TYPES = Object.freeze(['GENERAL', 'ISA', 'PENSION_SAVINGS', 'IRP', 'UNCLASSIFIED']);
+  const BROKER_CODES = Object.freeze(['MIRAE_ASSET', 'SHINHAN', 'WOORI', 'LS', 'SAMSUNG', 'EUGENE', 'NH', 'OTHER', 'UNCLASSIFIED']);
+  const LEGACY_BROKER_CODES = Object.freeze({
+    '미래에셋':'MIRAE_ASSET', '미래에셋 (ISA)':'MIRAE_ASSET', '미래에셋 (IRP)':'MIRAE_ASSET',
+    '신한':'SHINHAN', '우리':'WOORI', '우리 (연금)':'WOORI', LS:'LS', '삼성':'SAMSUNG', '유진':'EUGENE', NH:'NH',
+  });
   const SECRET_KEYS = /(?:gsheet(?:api)?url|access[_-]?token|api[_-]?key|auth[_-]?key|secret|credential|password)/i;
   const REFERENCE_20260828_TAX_TYPES = Object.freeze({ '미래에셋':'GENERAL', '신한':'GENERAL', 'LS':'GENERAL', '삼성':'GENERAL', '유진':'GENERAL', '우리':'GENERAL', 'NH':'GENERAL', '미래에셋 (ISA)':'ISA', '우리 (연금)':'PENSION_SAVINGS', '미래에셋 (IRP)':'IRP' });
 
@@ -30,6 +35,12 @@
     if (label === '미래에셋 (IRP)') return 'IRP';
     return 'UNCLASSIFIED';
   }
+  function legacyBrokerCode(name, explicit) {
+    const code = String(explicit || '').trim().toUpperCase();
+    if (BROKER_CODES.includes(code)) return code;
+    if (code) return 'UNCLASSIFIED';
+    return LEGACY_BROKER_CODES[String(name || '').trim()] || 'UNCLASSIFIED';
+  }
   function stripSecrets(value) {
     if (Array.isArray(value)) return value.map(stripSecrets);
     if (!value || typeof value !== 'object') return value;
@@ -45,14 +56,17 @@
     const isReferenceProfile = names.length === referenceNames.length && referenceNames.every(name => names.includes(name));
     const referenceProfile = isReferenceProfile ? REFERENCE_20260828_TAX_TYPES : null;
     const accounts = names.map((displayName, index) => ({
-      id: accountId(displayName, index), displayName, broker: '',
+      id: accountId(displayName, index), displayName, brokerCode: legacyBrokerCode(displayName),
       taxType: legacyTaxType(displayName, data.ACCT_TAX_TYPES?.[displayName], referenceProfile), active: true,
       color: data.ACCT_COLORS?.[displayName] || '', sortOrder: index,
     }));
     const idByName = Object.fromEntries(accounts.map(item => [item.displayName, item.id]));
     return stripSecrets({
       schemaVersion: SCHEMA_VERSION,
-      metadata: { migratedFrom: 'pf_v6', needsUserReview: accounts.filter(item => item.taxType === 'UNCLASSIFIED').map(item => `accounts.${item.id}.taxType`) },
+      metadata: { migratedFrom: 'pf_v6', needsUserReview: accounts.flatMap(item => [
+        ...(item.taxType === 'UNCLASSIFIED' ? [`accounts.${item.id}.taxType`] : []),
+        ...(item.brokerCode === 'UNCLASSIFIED' ? [`accounts.${item.id}.brokerCode`] : []),
+      ]) },
       accounts,
       transactions: (data.rawTrades || []).map(item => ({ ...item, accountId: idByName[item.acct] || null })),
       portfolio: { stockCodes: data.STOCK_CODE || {}, editablePrices: data.EDITABLE_PRICES || [], prices: data.savedPrices || {}, priceDates: data.savedPriceDates || {}, lastUpdated: data.lastUpdated || null, sectorColors: data.SECTOR_COLORS || {}, fundDirect: data.fundDirect || {}, holdings: data.rawHoldings || [] },
@@ -64,7 +78,18 @@
     if (!source || typeof source !== 'object' || Array.isArray(source)) throw new Error('백업 최상위 값은 객체여야 합니다.');
     if (source.version === 'pf_v6') return migrateV6(source);
     if (source.schemaVersion !== SCHEMA_VERSION) throw new Error(`지원하지 않는 schemaVersion: ${source.schemaVersion ?? '?'}`);
-    return stripSecrets(clone(source));
+    const data = stripSecrets(clone(source));
+    if (Array.isArray(data.accounts)) data.accounts = data.accounts.map(account => ({
+      ...account,
+      brokerCode: legacyBrokerCode(account?.displayName, account?.brokerCode || account?.broker),
+    }));
+    data.metadata = data.metadata || {};
+    const review = new Set(data.metadata.needsUserReview || []);
+    (Array.isArray(data.accounts) ? data.accounts : []).forEach(account => {
+      if (account.brokerCode === 'UNCLASSIFIED') review.add(`accounts.${account.id}.brokerCode`);
+    });
+    data.metadata.needsUserReview = [...review];
+    return data;
   }
   function validate(source) {
     const data = normalize(source);
@@ -77,6 +102,7 @@
       if (ids.has(account.id)) throw new Error(`중복 account ID: ${account.id}`);
       ids.add(account.id);
       if (!TAX_TYPES.includes(account.taxType)) throw new Error(`알 수 없는 taxType: ${account.taxType}`);
+      if (!BROKER_CODES.includes(account.brokerCode)) throw new Error(`알 수 없는 brokerCode: ${account.brokerCode}`);
     });
     data.transactions.forEach((item, index) => {
       if (!item.accountId) throw new Error(`transactions[${index}].accountId가 필요합니다.`);
@@ -100,5 +126,5 @@
     try { apply(clone(nextState)); return { applied:true }; }
     catch (error) { apply(before); return { applied:false, error }; }
   }
-  return { SCHEMA_VERSION, TAX_TYPES, SECRET_KEYS, REFERENCE_20260828_TAX_TYPES, stripSecrets, legacyTaxType, migrateV6, normalize, validate, createBackup, parseAndValidate, applyAtomically };
+  return { SCHEMA_VERSION, TAX_TYPES, BROKER_CODES, LEGACY_BROKER_CODES, SECRET_KEYS, REFERENCE_20260828_TAX_TYPES, stripSecrets, legacyTaxType, legacyBrokerCode, migrateV6, normalize, validate, createBackup, parseAndValidate, applyAtomically };
 });
