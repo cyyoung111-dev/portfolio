@@ -2,7 +2,7 @@
 //  sw.js — 서비스워커 (PWA 오프라인 캐싱)
 //  정적 파일 배포 시 CACHE_NAME과 PRECACHE_URLS의 쿼리 버전을 함께 올립니다.
 // ════════════════════════════════════════════════════════════════
-const CACHE_NAME = 'portfolio-cache-20260903-1';
+const CACHE_NAME = 'portfolio-cache-20260903-7';
 
 // 오프라인에서도 최소한 앱 껍데기는 뜨도록 미리 저장해둘 파일들
 const PRECACHE_URLS = [
@@ -17,7 +17,7 @@ const PRECACHE_URLS = [
   './styles/pages/plan.css?v=20260903-1',
   './styles/pages/dividend.css?v=20260903-1',
   './styles/pages/asset.css?v=20260903-1',
-  './styles/pages/history.css?v=20260903-1',
+  './styles/pages/history.css?v=20260903-2',
   './styles/pages/trade.css?v=20260903-1',
   './shared/theme.js?v=20260903-1',
   './domain/portfolio/data.js?v=20260903-1',
@@ -38,7 +38,12 @@ const PRECACHE_URLS = [
   './features/management/mgmt_editor.js?v=20260903-1',
   './features/dividend/mgmt_div.js?v=20260903-1',
   './views/views_history_benchmark.js?v=20260903-1',
-  './app/event_delegation.js?v=20260903-1',
+  './views/views_history_utils.js?v=20260903-2',
+  './views/views_history_state.js?v=20260903-5',
+  './views/views_history_pipeline.js?v=20260903-6',
+  './views/views_history_render.js?v=20260903-5',
+  './views/views_history.js?v=20260903-4',
+  './app/event_delegation.js?v=20260903-5',
 ];
 
 // 설치 시: 기본 파일 미리 캐싱
