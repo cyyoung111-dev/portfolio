@@ -130,8 +130,14 @@ if (!historyRenderSource.includes('id="histModeDay"')
   console.error('❌ 일별 손익 그래프와 평가금액 고점·저점 및 최근 10일 스냅샷 표시가 누락됐습니다.');
   process.exit(1);
 }
-if (!historyPipelineSource.includes('portfolioSnapshots: graphSnapshots')) {
-  console.error('❌ 포트폴리오와 비교지수 변화율은 같은 시작·종료 스냅샷을 사용해야 합니다.');
+if (!historyPipelineSource.includes('portfolioSnapshots: portfolioRangeSnapshots')
+    || !historyPipelineSource.includes('snapshot.date >= graphStartDate')
+    || !historyPipelineSource.includes('snapshot.date <= graphEndDate')) {
+  console.error('❌ 포트폴리오 MDD는 그래프 시작·종료 사이의 일별 스냅샷을 유지해야 합니다.');
+  process.exit(1);
+}
+if (historyPipelineSource.indexOf('const resultHtml = repairResult') > historyPipelineSource.indexOf('if (!missing.length)')) {
+  console.error('❌ 누락이 모두 복구된 뒤에도 성공 결과를 표시해야 합니다.');
   process.exit(1);
 }
 

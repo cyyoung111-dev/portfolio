@@ -64,6 +64,13 @@ async function loadHistoryChart() {
       ? snapshots
       : (mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots));
     const graphSnapshots = tableSnapshots;
+    const graphStartDate = graphSnapshots[0]?.date || '';
+    const graphEndDate = graphSnapshots[graphSnapshots.length - 1]?.date || '';
+    // 변화율은 그래프 양 끝점을 사용하고, MDD는 그 사이의 모든 일별 스냅샷을 유지합니다.
+    const portfolioRangeSnapshots = snapshots.filter(snapshot =>
+      (!graphStartDate || snapshot.date >= graphStartDate)
+      && (!graphEndDate || snapshot.date <= graphEndDate)
+    );
     const coverage = mode === 'day'
       ? { missing: [], first: snapshots[0].date, last: snapshots[snapshots.length - 1].date }
       : _analyzeHistoryCoverage(snapshots, mode);
@@ -108,8 +115,7 @@ async function loadHistoryChart() {
       types: benchmarkTypes,
       seriesMap: benchSeriesMap,
       metaMap: benchMetaMap,
-      // 포트폴리오 변화율과 비교지수가 같은 시작·종료 스냅샷을 사용하도록 맞춥니다.
-      portfolioSnapshots: graphSnapshots
+      portfolioSnapshots: portfolioRangeSnapshots
     });
     _drawHistoryTable(tableWrap, snapshots);
 
@@ -187,10 +193,19 @@ async function _loadHistoryDateItems(date) {
 function _renderHistoryCoverage(el, coverage, mode) {
   if (!el) return;
   const missing = Array.isArray(coverage?.missing) ? coverage.missing : [];
+  const repairResult = __histState.repairResult;
+  const resultHtml = repairResult
+    ? `<div style="padding-top:7px;${missing.length ? 'flex-basis:100%;border-top:1px solid var(--border);' : ''}font-size:.65rem;color:${repairResult.failed.length ? 'var(--amber)' : 'var(--green)'}">
+        ${repairResult.failed.length
+          ? `⚠️ 복구 결과: 성공 ${repairResult.repaired}개 · 실패 ${repairResult.failed.length}개<br><span style="color:var(--muted)">${_escapeHtml(repairResult.failed.map(item => `${item.date || '날짜 없음'}: ${item.message}`).join(' / '))}</span>`
+          : `✅ 누락 스냅샷 ${repairResult.repaired}개를 복구했습니다.`}
+      </div>`
+    : '';
   if (!missing.length) {
-    el.innerHTML = mode === 'day'
+    const coverageHtml = mode === 'day'
       ? '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 저장된 일별 스냅샷을 그대로 표시합니다.</div>'
       : '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 스냅샷 주기가 연속적입니다.</div>';
+    el.innerHTML = coverageHtml + resultHtml;
     return;
   }
   const labels = missing.slice(0, 6).map(item => item.label).join(', ');
