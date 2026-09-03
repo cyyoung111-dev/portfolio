@@ -39,7 +39,6 @@ function registerGlobalEventDelegation() {
     histModeDay:           () => typeof _setHistMode === 'function' && _setHistMode('day'),
     histModeWeek:          () => typeof _setHistMode === 'function' && _setHistMode('week'),
     histModeMonth:         () => typeof _setHistMode === 'function' && _setHistMode('month'),
-    'btn-history-query':   () => typeof loadHistoryChart === 'function' && loadHistoryChart(),
     'btn-clear-gsheet-url':() => typeof clearGsheetUrl === 'function' && clearGsheetUrl(),
     'btn-save-gsheet-url': () => typeof saveGsheetUrlFromUI === 'function' && saveGsheetUrlFromUI(),
     'btn-save-public-data-key': () => typeof savePublicDataApiKeyFromUI === 'function' && savePublicDataApiKeyFromUI(),

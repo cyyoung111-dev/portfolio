@@ -79,7 +79,11 @@ function _setHistoryStatus(statusEl, type, payload) {
     return;
   }
   if (type === 'loading') {
-    statusEl.innerHTML = '<span style="color:var(--muted)">⏳ 불러오는 중...</span>';
+    statusEl.innerHTML = `<span style="color:var(--blue-lt)">⏳ ${_escapeHtml(meta.message || '불러오는 중...')}</span>`;
+    return;
+  }
+  if (type === 'query_ready') {
+    statusEl.innerHTML = '<span style="color:var(--muted)">조회 조건을 선택한 뒤 🔎 조회 버튼을 눌러주세요.</span>';
     return;
   }
   if (type === 'query_ready') {
@@ -139,6 +143,12 @@ function _setHistMode(mode) {
 
 function _invalidateHistoryLoad() {
   __histState.loadRequestId++;
+  const queryBtn = $el('btn-history-query');
+  if (queryBtn) {
+    queryBtn.disabled = false;
+    queryBtn.removeAttribute('aria-busy');
+    queryBtn.textContent = '🔎 조회';
+  }
   _setHistoryStatus($el('histStatusMsg'), 'query_ready');
 }
 

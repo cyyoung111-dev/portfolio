@@ -53,6 +53,7 @@ function renderHistoryView(area) {
     monthEl.value = `${kst.getUTCFullYear()}-01`;
   }
   _setHistoryStatus($el('histStatusMsg'), 'query_ready');
+  $el('btn-history-query')?.addEventListener('click', loadHistoryChart);
   $el('histRangeSelect')?.addEventListener('change', _invalidateHistoryLoad);
   $el('histStartMonth')?.addEventListener('change', _invalidateHistoryLoad);
   $el('histDetailDate')?.addEventListener('change', async () => {

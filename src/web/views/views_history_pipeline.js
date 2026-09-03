@@ -5,6 +5,7 @@
 
 async function loadHistoryChart() {
   const requestId = ++__histState.loadRequestId;
+  const queryBtn = $el('btn-history-query');
   const statusEl = $el('histStatusMsg');
   const chartWrap = $el('histChartWrap');
   const tableWrap = $el('histTableWrap');
@@ -19,7 +20,12 @@ async function loadHistoryChart() {
     return;
   }
 
-  _setHistoryStatus(statusEl, 'loading');
+  if (queryBtn) {
+    queryBtn.disabled = true;
+    queryBtn.setAttribute('aria-busy', 'true');
+    queryBtn.textContent = '⏳ 조회 중...';
+  }
+  _setHistoryStatus(statusEl, 'loading', { message: '1/2 스냅샷 조회 중...' });
   chartWrap.innerHTML = '';
   if (tableWrap) tableWrap.innerHTML = '';
   if (coverageEl) coverageEl.innerHTML = '';
@@ -94,6 +100,9 @@ async function loadHistoryChart() {
         .map(v => String(v || '').toUpperCase().trim())
         .filter(v => HIST_BENCHMARK_TYPES.includes(v))
     ));
+    _setHistoryStatus(statusEl, 'loading', {
+      message: benchmarkTypes.length ? `2/2 비교지수 ${benchmarkTypes.length}개 조회 중...` : '2/2 그래프 작성 중...'
+    });
     const benchBundle = await _loadBenchmarkBundle(
       benchmarkTypes,
       snapshots[0].date,
@@ -123,7 +132,15 @@ async function loadHistoryChart() {
     // 특정일 상세는 그래프 조회와 분리합니다. 날짜 input 변경 시에만 별도 요청합니다.
 
   } catch(e) {
-    _setHistoryStatus(statusEl, 'error', { message: e.message });
+    if (requestId === __histState.loadRequestId) {
+      _setHistoryStatus(statusEl, 'error', { message: e.message });
+    }
+  } finally {
+    if (requestId === __histState.loadRequestId && queryBtn) {
+      queryBtn.disabled = false;
+      queryBtn.removeAttribute('aria-busy');
+      queryBtn.textContent = '🔎 조회';
+    }
   }
 }
 

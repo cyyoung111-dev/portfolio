@@ -144,12 +144,22 @@ if (!historyRenderSource.includes('id="btn-history-query"')
     || historyRenderSource.includes('id="btn-history-refresh"')
     || historyRenderSource.includes('addEventListener(\'change\', loadHistoryChart)')
     || !historyRenderSource.includes("'query_ready'")
-    || !eventDelegationSource.includes("'btn-history-query'")
+    || !historyRenderSource.includes("$el('btn-history-query')?.addEventListener('click', loadHistoryChart)")
+    || eventDelegationSource.includes("'btn-history-query'")
     || eventDelegationSource.includes("if (typeof loadHistoryChart === 'function') loadHistoryChart();")
     || !historyStateSource.includes('function _invalidateHistoryLoad()')
+    || !historyStateSource.includes("queryBtn.removeAttribute('aria-busy')")
     || historyStateSource.includes('_applyHistModeUI(_getHistMode());\n  loadHistoryChart();')
     || historyPipelineSource.includes('if (__histState.detailDate) await _loadHistoryDateItems')) {
   console.error('❌ 손익 그래프는 조건 변경이 아닌 조회 버튼으로만 요청하고 특정일 상세 요청과 분리해야 합니다.');
+  process.exit(1);
+}
+if (!historyPipelineSource.includes("queryBtn.textContent = '⏳ 조회 중...'")
+    || !historyPipelineSource.includes("message: '1/2 스냅샷 조회 중...'")
+    || !historyPipelineSource.includes('2/2 비교지수')
+    || !historyPipelineSource.includes("queryBtn.textContent = '🔎 조회'")
+    || !historyPipelineSource.includes("queryBtn.setAttribute('aria-busy', 'true')")) {
+  console.error('❌ 손익 조회 버튼의 실행 연결 또는 단계별 진행 상태 표시가 누락됐습니다.');
   process.exit(1);
 }
 if (!historyPipelineSource.includes('portfolioSnapshots: portfolioRangeSnapshots')
