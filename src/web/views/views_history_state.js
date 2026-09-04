@@ -79,11 +79,13 @@ function _setHistoryStatus(statusEl, type, payload) {
     return;
   }
   if (type === 'loading') {
-    statusEl.innerHTML = `<span style="color:var(--blue-lt)">⏳ ${_escapeHtml(meta.message || '불러오는 중...')}</span>`;
-    return;
-  }
-  if (type === 'query_ready') {
-    statusEl.innerHTML = '<span style="color:var(--muted)">조회 조건을 선택한 뒤 🔎 조회 버튼을 눌러주세요.</span>';
+    const step = Math.min(Math.max(Number(meta.step) || 1, 1), Math.max(Number(meta.total) || 2, 1));
+    const total = Math.max(Number(meta.total) || 2, 1);
+    const progress = Math.round(step / total * 100);
+    statusEl.innerHTML = `<div class="hist-progress" role="status">
+      <div class="hist-progress-copy"><span>⏳ ${_escapeHtml(meta.message || '불러오는 중...')}</span><b>${step}/${total}</b></div>
+      <div class="hist-progress-track" aria-hidden="true"><span style="width:${progress}%"></span></div>
+    </div>`;
     return;
   }
   if (type === 'query_ready') {
@@ -102,7 +104,7 @@ function _setHistoryStatus(statusEl, type, payload) {
     const graphCount = Number.isFinite(Number(meta.graphCount)) ? Number(meta.graphCount) : 0;
     const tableCount = Number.isFinite(Number(meta.tableCount)) ? Number(meta.tableCount) : 0;
     const unit = meta.mode === 'day' ? '일' : (meta.mode === 'week' ? '주' : '개월');
-    statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${graphCount}일 · 표 ${tableCount}${unit} · 최근: ${_escapeHtml(meta.latestDate || '-')}${_historySnapshotGapHtml(meta.snapshotGap)}</span>`;
+    statusEl.innerHTML = `<span style="color:var(--muted)">그래프 ${graphCount}${unit} · 표 ${tableCount}${unit} · 최근: ${_escapeHtml(meta.latestDate || '-')}${_historySnapshotGapHtml(meta.snapshotGap)}</span>`;
     return;
   }
   if (type === 'summary_benchmark') {
@@ -147,7 +149,8 @@ function _invalidateHistoryLoad() {
   if (queryBtn) {
     queryBtn.disabled = false;
     queryBtn.removeAttribute('aria-busy');
-    queryBtn.textContent = '🔎 조회';
+    const label = queryBtn.querySelector('span');
+    if (label) label.textContent = '조회';
   }
   _setHistoryStatus($el('histStatusMsg'), 'query_ready');
 }

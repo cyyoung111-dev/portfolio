@@ -139,6 +139,14 @@ function _filterMonthEnd(snapshots) {
   return Object.keys(monthMap).sort().map(k => monthMap[k]);
 }
 
+function _selectHistorySnapshots(snapshots, mode) {
+  const list = Array.isArray(snapshots) ? snapshots : [];
+  if (mode === 'day') return list.slice();
+  if (mode === 'week') return _filterWeeklyFriday(list);
+  if (mode === 'month') return _filterMonthEnd(list);
+  return _filterWeeklyFriday(list);
+}
+
 function _historyTargetDate(periodStart, mode, maxDate) {
   const date = _historyUtcDate(periodStart);
   if (!date) return '';
