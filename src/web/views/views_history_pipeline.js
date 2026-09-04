@@ -77,9 +77,7 @@ async function loadHistoryChart() {
       (!graphStartDate || snapshot.date >= graphStartDate)
       && (!graphEndDate || snapshot.date <= graphEndDate)
     );
-    const coverage = mode === 'day'
-      ? { missing: [], first: snapshots[0].date, last: snapshots[snapshots.length - 1].date }
-      : _analyzeHistoryCoverage(snapshots, mode);
+    const coverage = _analyzeHistoryCoverage(snapshots, mode);
     __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
     _renderHistoryCoverage(coverageEl, coverage, mode);
 
@@ -224,9 +222,7 @@ function _renderHistoryCoverage(el, coverage, mode) {
       </div>`
     : '';
   if (!missing.length) {
-    const coverageHtml = mode === 'day'
-      ? '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 저장된 일별 스냅샷을 그대로 표시합니다. 휴장일을 제외한 누락 검사는 주간·월간 조회에서 수행합니다.</div>'
-      : '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 스냅샷 누락이 없습니다.</div>';
+    const coverageHtml = '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 스냅샷 누락이 없습니다.</div>';
     el.innerHTML = coverageHtml + resultHtml;
     return;
   }
@@ -234,8 +230,8 @@ function _renderHistoryCoverage(el, coverage, mode) {
   const more = missing.length > 6 ? ` 외 ${missing.length - 6}개` : '';
   el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 11px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
     <div style="min-width:0;font-size:.67rem;color:var(--text);line-height:1.55">
-      <b style="color:var(--amber)">⚠️ ${mode === 'week' ? '주간' : '월간'} 스냅샷 ${missing.length}개 누락</b><br>
-      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · 오늘까지 금요일/월말 영업일 기준으로 복구합니다.<br>장기간 누락은 16:20 평가단가 자동 트리거 중단 또는 실행 오류일 수 있으며, 보완 실행 시 트리거도 점검합니다.</span>
+      <b style="color:var(--amber)">⚠️ ${mode === 'day' ? '일별' : (mode === 'week' ? '주간' : '월간')} 스냅샷 ${missing.length}개 누락</b><br>
+      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · ${mode === 'day' ? '오늘과 주말을 제외한 확정 평일' : '오늘까지 금요일/월말 영업일'} 기준으로 복구합니다.<br>날짜마다 별도 요청하므로 누락일이 많거나 Google Finance 응답이 늦으면 오래 걸릴 수 있습니다. 장기간 누락은 16:20 평가단가 자동 트리거 중단 또는 실행 오류일 수 있으며, 보완 실행 시 트리거도 점검합니다.</span>
     </div>
     <button type="button" class="btn-ghost-sm" data-history-action="repair-gaps" ${__histState.repairInProgress ? 'disabled' : ''}>${__histState.repairInProgress ? '⏳ 복구 중...' : '🛠️ 누락 보완'}</button>
     ${resultHtml}

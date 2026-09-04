@@ -54,8 +54,17 @@ const gapSamples = [
 ];
 const weeklyCoverage = context.analyzeCoverage(gapSamples, 'week');
 const monthlyCoverage = context.analyzeCoverage(gapSamples, 'month');
+const dailyCoverage = context.analyzeCoverage([
+  { date: '2026-08-28' },
+  { date: '2026-09-01' },
+], 'day');
 assert.ok(weeklyCoverage.missing.length > 0 && weeklyCoverage.missing.every(item => item.targetDate), '주간 누락 날짜를 실제 샘플에서 찾아야 합니다.');
 assert.ok(monthlyCoverage.missing.some(item => item.key === '2026-02-01'), '월간 샘플에서 2월 누락을 찾아야 합니다.');
+assert.deepEqual(
+  Array.from(dailyCoverage.missing, item => item.targetDate),
+  ['2026-08-31', '2026-09-02', '2026-09-03'],
+  '일별 누락은 오늘과 주말을 제외한 확정 평일 날짜를 찾아야 합니다.',
+);
 
 assert.match(viewSource, /metric\('매입원가'/, '가장 높은 날·가장 낮은 날 카드에는 매입원가가 있어야 합니다.');
 assert.match(viewSource, /metric\('수익률'/, '가장 높은 날·가장 낮은 날 카드에는 수익률이 있어야 합니다.');
@@ -67,7 +76,8 @@ assert.match(viewSource, /NASDAQ:\s*\{ color: '#22d3ee'/, 'NASDAQ은 나의 손�
 assert.ok(!/NASDAQ:\s*\{[^}]*#(?:22c55e|2dd4bf)/i.test(viewSource), 'NASDAQ은 손익선과 비슷한 green/teal 색상을 재사용하면 안 됩니다.');
 
 assert.match(pipelineSource, /선택 기간의 스냅샷 누락이 없습니다/, '누락 없음 안내를 표시해야 합니다.');
-assert.match(pipelineSource, /누락 검사는 주간·월간 조회에서 수행합니다/, '일별 조회의 누락 검사 범위를 안내해야 합니다.');
+assert.match(pipelineSource, /mode === 'day' \? '일별'/, '일별 누락 안내를 표시해야 합니다.');
+assert.match(pipelineSource, /오늘과 주말을 제외한 확정 평일/, '일별 복구 대상 기준을 안내해야 합니다.');
 assert.match(pipelineSource, /data-history-action="repair-gaps"/, '누락 보완 버튼이 있어야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('repairSnapshots'/, '프런트엔드가 GAS 복구 action을 호출해야 합니다.');
 assert.match(pipelineSource, /날짜별 진행 상태/, '날짜별 복구 진행 상태를 표시해야 합니다.');
