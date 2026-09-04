@@ -58,8 +58,12 @@ function calcDividends() {
   });
 
   Object.entries(DIVDATA).forEach(([key, dd]) => {
-    if (!dd || !dd.perShare || dd.perShare <= 0) return;
-    if (!dd.months || dd.months.length === 0) return;
+    if (!dd) return;
+    const events = Array.isArray(dd.events) ? dd.events : [];
+    const months = Array.isArray(dd.months) ? dd.months : [];
+    const hasEstimate = Number(dd.perShare || 0) > 0 && months.length > 0;
+    // 실제 배당 이벤트는 예상 주당 배당금/지급월이 없어도 집계할 수 있습니다.
+    if (!hasEstimate && events.length === 0) return;
 
     // key가 코드이면 name으로 역매핑, 아니면 key 자체가 name
     const name = codeToNameMap[key] || key;
@@ -73,14 +77,14 @@ function calcDividends() {
     let actualDiv = 0;
     const monthlyDiv = {}; // month → 실제+예상 배당금
     const actualMonths = new Set();
-    const events = Array.isArray(dd.events) ? dd.events : [];
     events.forEach(ev => {
       const evDate = String(ev?.date || '').slice(0, 10);
       const amount = Number(ev?.amount || 0);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(evDate) || !amount || amount <= 0) return;
-      if (Number(evDate.slice(0, 4)) !== thisYear) return;
       const payDate = String(ev?.payDate || '').slice(0, 10);
       const cashflowDate = /^\d{4}-\d{2}-\d{2}$/.test(payDate) ? payDate : evDate;
+      // 확정 배당의 귀속 연도는 배당기준일이 아니라 실제 지급일을 우선합니다.
+      if (Number(cashflowDate.slice(0, 4)) !== thisYear) return;
       const month = Number(cashflowDate.slice(5, 7));
       const qty = (typeof getQtyAtDate === 'function')
         ? getQtyAtDate(name, evDate)
@@ -93,7 +97,7 @@ function calcDividends() {
       monthlyDiv[month] = (monthlyDiv[month] || 0) + div;
     });
 
-    dd.months.forEach(month => {
+    if (hasEstimate) months.forEach(month => {
       if (actualMonths.has(Number(month))) return;
       const refDate = getDivRefDate(thisYear, month);
       const qty = (typeof getQtyAtDate === 'function')
