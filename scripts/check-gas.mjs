@@ -271,6 +271,9 @@ if (!snapshotRepairMatch
     || !/continueSnapshotConsistencyRepair\s*\(/.test(snapshotRepairMatch[1])
     || !source.includes('SNAPSHOT_REPAIR_BATCH_SIZE = 3')
     || !source.includes("newTrigger('continueSnapshotConsistencyRepair')")
+    || !source.includes('function _hasSnapshotRepairContinuationTrigger()')
+    || !source.includes("errorState.lastError = '배치 실행 오류: '")
+    || !source.includes('후속 실행 트리거가 없어 자동으로 다시 예약했습니다.')
     || !source.includes("'showSnapshotConsistencyRepairStatus'")) {
   console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');
   process.exit(1);

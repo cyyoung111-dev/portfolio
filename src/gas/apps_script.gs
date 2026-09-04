@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.79
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.80
+//
+//  v9.80 변경사항 (2026.09.04):
+//   ✅ [복구]   전체 스냅샷 복구 후속 트리거 유실 시 진행상황 확인 메뉴에서 자동 재예약
+//   ✅ [안정성] 배치 자체 오류도 상태에 저장하고 후속 실행을 예약해 점검 완료 정체 방지
 //
 //  v9.79 변경사항 (2026.09.04):
 //   ✅ [정확성] 스냅샷 기준일 가격이 비었고 이전 이력도 없으면 가장 가까운 이후 가격을 사용
@@ -3916,6 +3920,12 @@ function _clearSnapshotRepairContinuationTriggers() {
   });
 }
 
+function _hasSnapshotRepairContinuationTrigger() {
+  return ScriptApp.getProjectTriggers().some(function(trigger) {
+    return trigger.getHandlerFunction() === 'continueSnapshotConsistencyRepair';
+  });
+}
+
 function _scheduleSnapshotRepairContinuation() {
   _clearSnapshotRepairContinuationTriggers();
   ScriptApp.newTrigger('continueSnapshotConsistencyRepair').timeBased().after(60 * 1000).create();
@@ -4003,15 +4013,44 @@ function continueSnapshotConsistencyRepair() {
     props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
     if (!state.done) _scheduleSnapshotRepairContinuation();
     return state;
+  } catch (batchError) {
+    var errorProps = PropertiesService.getScriptProperties();
+    var savedRaw = errorProps.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    var errorState = savedRaw ? JSON.parse(savedRaw) : null;
+    if (errorState && !errorState.done) {
+      errorState.lastError = '배치 실행 오류: ' + batchError.message;
+      errorState.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+      errorProps.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(errorState));
+      try { _scheduleSnapshotRepairContinuation(); } catch (scheduleError) {
+        errorState.lastError += ' / 후속 실행 예약 실패: ' + scheduleError.message;
+        errorProps.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(errorState));
+      }
+    }
+    throw batchError;
   } finally {
     if (locked) lock.releaseLock();
   }
 }
 
 function showSnapshotConsistencyRepairStatus() {
-  var raw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+  var props = PropertiesService.getScriptProperties();
+  var raw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
   var state = raw ? JSON.parse(raw) : null;
-  SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(state));
+  var resumeMessage = '';
+  if (state && !state.done && !_hasSnapshotRepairContinuationTrigger()) {
+    try {
+      _scheduleSnapshotRepairContinuation();
+      state.lastError = '';
+      state.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+      props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+      resumeMessage = '\n\n⚠️ 후속 실행 트리거가 없어 자동으로 다시 예약했습니다.';
+    } catch (resumeError) {
+      state.lastError = '후속 실행 자동 재예약 실패: ' + resumeError.message;
+      props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+      resumeMessage = '\n\n❌ 후속 실행 자동 재예약에 실패했습니다.';
+    }
+  }
+  SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(state) + resumeMessage);
   return state;
 }
 
@@ -5466,7 +5505,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.79' });
+    return jsonOk({ settings: settings, gasVersion: '9.80' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5488,7 +5527,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.79'
+      gasVersion: '9.80'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
