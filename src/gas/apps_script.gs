@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.78
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.79
+//
+//  v9.79 변경사항 (2026.09.04):
+//   ✅ [정확성] 스냅샷 기준일 가격이 비었고 이전 이력도 없으면 가장 가까운 이후 가격을 사용
+//   ✅ [가시성] 손익 MDD가 평가금액 최고일이 아닌 현금흐름 보정 수익률의 고점→저점임을 명시
 //
 //  v9.78 변경사항 (2026.08.31):
 //   ✅ [주담대] 현재월 납입 후 잔액 반영 시 잔여기간은 다음 달 이후 스케줄만 계산
@@ -3137,7 +3141,8 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
     // ★ sourceMap 이제 { src, savedAt } 객체 반환
     var sourceMap = _getPriceSourceByDate(ss, dateStr);
 
-    // ★ [버그수정] 해당 날짜 가격이 없는 종목은 가장 최근 가격으로 fallback
+    // ★ 해당 날짜 가격이 없으면 직전 가격을 우선 사용합니다. 직전 이력도 없는
+    // 최초 구간만 가장 가까운 이후 가격을 사용해 빈 가격을 매입원가로 오인하지 않습니다.
     //   KRX fallback으로 전일 날짜에 저장된 경우 오늘 prices 맵에 없어
     //   evalAmt = h.costAmt(매수원금)으로 잘못 계산되는 문제 방지
     var missingCodes = [];
@@ -3148,14 +3153,19 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       if (!prices[key]) missingCodes.push(key);
     });
     if (missingCodes.length > 0) {
-      // 기준일 이후에 입력한 수동 NAV가 과거 스냅샷으로 역류하지 않도록
-      // 반드시 스냅샷 날짜 이하의 가격만 이월합니다.
       var latestPrices = getLatestPriceHistory(ss, missingCodes, dateStr);
       Object.keys(latestPrices).forEach(function(k) {
         if (!prices[k] && latestPrices[k] > 0) prices[k] = latestPrices[k];
         // ★ sourceMap도 함께 채움 — _getPriceSourceByDate가 이미 MANUAL fallback을 처리하지만
         //   prices fallback과 sourceMap fallback이 일치하도록 보장
       });
+      var stillMissingCodes = missingCodes.filter(function(k) { return !(prices[k] > 0); });
+      if (stillMissingCodes.length > 0) {
+        var nearestFuturePrices = getEarliestPriceHistory(ss, stillMissingCodes, dateStr);
+        Object.keys(nearestFuturePrices).forEach(function(k) {
+          if (!prices[k] && nearestFuturePrices[k] > 0) prices[k] = nearestFuturePrices[k];
+        });
+      }
     }
 
     // ★ 종목코드→통화 맵 (종목코드 시트에서 currency 컬럼 읽기)
@@ -3501,6 +3511,33 @@ function getLatestPriceHistoryEntries(ss, codes, maxDate) {
     return latest;
   } catch(err) {
     Logger.log('❌ getLatestPriceHistoryEntries 실패: ' + err.message);
+    return {};
+  }
+}
+
+// 기준일 이전 가격이 전혀 없는 최초 구간에서만 사용할 가장 가까운 이후 가격입니다.
+// 일반적인 누락일은 getLatestPriceHistory()의 직전값을 우선하므로 미래 가격이 덮어쓰지 않습니다.
+function getEarliestPriceHistory(ss, codes, minDate) {
+  try {
+    var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+    if (!ph || ph.getLastRow() < 2) return {};
+    var data = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+    var codeAliasToCanonical = _buildCodeAliasMap(codes);
+    var earliest = {};
+    data.forEach(function(row) {
+      var date = _normalizeDate(row[0]);
+      var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+      var name = (row[2] || '').toString().trim();
+      var price = parseFloat(row[3]) || 0;
+      var outKey = codeAliasToCanonical[code || name];
+      if (!date || !outKey || price <= 0 || (minDate && date < minDate)) return;
+      if (!earliest[outKey] || date < earliest[outKey].date) earliest[outKey] = { date: date, price: price };
+    });
+    var result = {};
+    Object.keys(earliest).forEach(function(key) { result[key] = earliest[key].price; });
+    return result;
+  } catch(err) {
+    Logger.log('❌ getEarliestPriceHistory 실패: ' + err.message);
     return {};
   }
 }
@@ -5429,7 +5466,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.78' });
+    return jsonOk({ settings: settings, gasVersion: '9.79' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5451,7 +5488,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.78'
+      gasVersion: '9.79'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
