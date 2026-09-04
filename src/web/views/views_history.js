@@ -30,7 +30,8 @@ const HISTORY_BENCHMARK_VISUALS = Object.freeze({
   KOSPI: { color: '#60a5fa', dash: '' },
   SP500: { color: '#f97316', dash: '7 4' },
   DOW: { color: '#f472b6', dash: '' },
-  NASDAQ: { color: '#2dd4bf', dash: '' },
+  // 손익 상승선의 초록색과 혼동되지 않도록 녹색 성분이 강한 teal 대신 밝은 cyan을 사용합니다.
+  NASDAQ: { color: '#22d3ee', dash: '' },
   NASDAQ100: { color: '#a78bfa', dash: '' },
 });
 

@@ -8,6 +8,7 @@ const pipelineSource = fs.readFileSync('src/web/views/views_history_pipeline.js'
 const stateSource = fs.readFileSync('src/web/views/views_history_state.js', 'utf8');
 const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 const gasSource = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const layoutSource = fs.readFileSync('src/web/styles/layout.css', 'utf8');
 const context = {
   fmtDateDot: value => String(value || ''),
   _kstTodayStr: () => '2026-09-04',
@@ -62,6 +63,8 @@ assert.match(viewSource, /\(item\.evalAmt - costAmt\) \/ costAmt \* 100/, '요�
 assert.match(viewSource, /SP500:\s*\{ color: '#f97316', dash: '7 4' \}/, 'S&P500은 전용 주황색과 점선을 사용해야 합니다.');
 assert.match(viewSource, /stroke-dasharray/, 'S&P500 점선은 그래프와 범례에 반영되어야 합니다.');
 assert.ok(!/SP500:\s*\{[^}]*#22c55e/.test(viewSource), 'S&P500은 나의 손익 녹색을 재사용하면 안 됩니다.');
+assert.match(viewSource, /NASDAQ:\s*\{ color: '#22d3ee'/, 'NASDAQ은 나의 손익 녹색과 구별되는 cyan을 사용해야 합니다.');
+assert.ok(!/NASDAQ:\s*\{[^}]*#(?:22c55e|2dd4bf)/i.test(viewSource), 'NASDAQ은 손익선과 비슷한 green/teal 색상을 재사용하면 안 됩니다.');
 
 assert.match(pipelineSource, /선택 기간의 스냅샷 누락이 없습니다/, '누락 없음 안내를 표시해야 합니다.');
 assert.match(pipelineSource, /누락 검사는 주간·월간 조회에서 수행합니다/, '일별 조회의 누락 검사 범위를 안내해야 합니다.');
@@ -76,5 +79,7 @@ assert.match(pipelineSource, /step: 1, total: 2, message: '스냅샷 조회 중\
 assert.match(pipelineSource, /step: 2,[\s\S]*total: 2,[\s\S]*비교지수/);
 assert.match(pipelineSource, /queryBtn\.disabled = true[\s\S]*finally[\s\S]*queryBtn\.disabled = false[\s\S]*label\.textContent = '조회'/, '조회 성공·오류 후 버튼을 복원해야 합니다.');
 assert.match(stateSource, /\$\{step\}\/\$\{total\}/, '조회 단계 번호를 화면에 표시해야 합니다.');
+assert.match(layoutSource, /\.action-bar\{[^}]*overflow-y:hidden/, '업데이트 결과 영역에는 세로 스크롤바가 생기면 안 됩니다.');
+assert.match(layoutSource, /\.action-update-card\{[^}]*min-height:60px;[^}]*height:auto/, '업데이트 결과가 여러 줄이면 카드 높이가 내용에 맞게 늘어나야 합니다.');
 
 console.log('✅ 손익 그래프 주기·누락 복구·요약 카드·비교지수·조회 회귀 검사 통과');

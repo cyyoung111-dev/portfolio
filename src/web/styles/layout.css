@@ -6,8 +6,8 @@
 .toolbar-section-danger{margin-left:auto;border-color:var(--c-red-35);background:var(--c-red-08)}
 
 /* 상단 작업 영역·주요 탭 내비게이션 — base.css 2단계 분리 */
-.action-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.action-update-card{display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;max-width:100%;height:60px;padding:3px;background:var(--s1);border:1px solid var(--border);border-radius:9px}
+.action-bar{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+.action-update-card{display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0;max-width:100%;min-height:60px;height:auto;padding:3px;background:var(--s1);border:1px solid var(--border);border-radius:9px}
 .action-date-input{width:140px;flex-shrink:0;background:var(--s2);border:1px solid var(--border);color:var(--text);font-size:.70rem}
 .action-refresh-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;width:52px;height:52px;flex-shrink:0;padding:5px 10px;border-radius:8px;border:1px solid rgba(245,158,11,.45);background:var(--c-amber-10);color:var(--gold);font-size:.60rem;cursor:pointer;font-weight:600;transition:var(--tr);white-space:nowrap}
 .action-refresh-btn:hover{background:var(--c-amber-20);transform:translateY(-1px)}
