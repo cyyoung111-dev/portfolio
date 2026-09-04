@@ -5,3 +5,14 @@
 #view-area[data-active-view] .hist-bench-btn{font-size:var(--type-caption);min-height:32px}
 #histModeDay,#histModeWeek,#histModeMonth{font-size:var(--type-caption)!important}
 html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padding:var(--space-xs) var(--space-sm);border-radius:var(--radius-control)}
+.hist-query-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-width:70px;color:var(--gold);border-color:var(--c-amber-40)}
+.hist-query-btn:disabled{cursor:wait;opacity:.85}
+.hist-query-icon{width:14px;height:14px;flex:none}
+.hist-query-btn[aria-busy="true"] .hist-query-icon{animation:hist-query-spin 1s linear infinite}
+.hist-progress{padding:9px 11px;border:1px solid var(--c-blue2-30);border-radius:8px;background:var(--c-blue2-08);color:var(--blue-lt)}
+.hist-progress-copy{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+.hist-progress-copy b{font-size:.65rem;font-variant-numeric:tabular-nums}
+.hist-progress-track{height:4px;overflow:hidden;border-radius:999px;background:var(--border)}
+.hist-progress-track span{display:block;height:100%;border-radius:inherit;background:var(--blue-lt);transition:width .25s ease}
+@keyframes hist-query-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.hist-query-btn[aria-busy="true"] .hist-query-icon{animation:none}}

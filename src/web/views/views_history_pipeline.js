@@ -23,9 +23,10 @@ async function loadHistoryChart() {
   if (queryBtn) {
     queryBtn.disabled = true;
     queryBtn.setAttribute('aria-busy', 'true');
-    queryBtn.textContent = '⏳ 조회 중...';
+    const label = queryBtn.querySelector('span');
+    if (label) label.textContent = '조회 중';
   }
-  _setHistoryStatus(statusEl, 'loading', { message: '1/2 스냅샷 조회 중...' });
+  _setHistoryStatus(statusEl, 'loading', { step: 1, total: 2, message: '스냅샷 조회 중...' });
   chartWrap.innerHTML = '';
   if (tableWrap) tableWrap.innerHTML = '';
   if (coverageEl) coverageEl.innerHTML = '';
@@ -67,9 +68,7 @@ async function loadHistoryChart() {
     __histState.snapshots = snapshots;
     _renderHistoryDateDetail(snapshots);
     const mode = _getHistMode();
-    const tableSnapshots = mode === 'day'
-      ? snapshots
-      : (mode === 'week' ? _filterWeeklyFriday(snapshots) : _filterMonthEnd(snapshots));
+    const tableSnapshots = _selectHistorySnapshots(snapshots, mode);
     const graphSnapshots = tableSnapshots;
     const graphStartDate = graphSnapshots[0]?.date || '';
     const graphEndDate = graphSnapshots[graphSnapshots.length - 1]?.date || '';
@@ -101,7 +100,9 @@ async function loadHistoryChart() {
         .filter(v => HIST_BENCHMARK_TYPES.includes(v))
     ));
     _setHistoryStatus(statusEl, 'loading', {
-      message: benchmarkTypes.length ? `2/2 비교지수 ${benchmarkTypes.length}개 조회 중...` : '2/2 그래프 작성 중...'
+      step: 2,
+      total: 2,
+      message: benchmarkTypes.length ? `비교지수 ${benchmarkTypes.length}개 조회 중...` : '그래프 작성 중...'
     });
     const benchBundle = await _loadBenchmarkBundle(
       benchmarkTypes,
@@ -139,7 +140,8 @@ async function loadHistoryChart() {
     if (requestId === __histState.loadRequestId && queryBtn) {
       queryBtn.disabled = false;
       queryBtn.removeAttribute('aria-busy');
-      queryBtn.textContent = '🔎 조회';
+      const label = queryBtn.querySelector('span');
+      if (label) label.textContent = '조회';
     }
   }
 }
@@ -230,14 +232,6 @@ function _renderHistoryCoverage(el, coverage, mode) {
   }
   const labels = missing.slice(0, 6).map(item => item.label).join(', ');
   const more = missing.length > 6 ? ` 외 ${missing.length - 6}개` : '';
-  const repairResult = __histState.repairResult;
-  const resultHtml = repairResult
-    ? `<div style="flex-basis:100%;padding-top:7px;border-top:1px solid var(--border);font-size:.65rem;color:${repairResult.failed.length ? 'var(--amber)' : 'var(--green)'}">
-        ${repairResult.failed.length
-          ? `⚠️ 복구 결과: 성공 ${repairResult.repaired}개 · 실패 ${repairResult.failed.length}개<br><span style="color:var(--muted)">${_escapeHtml(repairResult.failed.map(item => `${item.date || '날짜 없음'}: ${item.message}`).join(' / '))}</span>`
-          : `✅ 누락 스냅샷 ${repairResult.repaired}개를 복구했습니다.`}
-      </div>`
-    : '';
   el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 11px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
     <div style="min-width:0;font-size:.67rem;color:var(--text);line-height:1.55">
       <b style="color:var(--amber)">⚠️ ${mode === 'week' ? '주간' : '월간'} 스냅샷 ${missing.length}개 누락</b><br>

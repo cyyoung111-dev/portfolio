@@ -192,7 +192,9 @@ function registerGlobalEventDelegation() {
     const historyAction = e.target.closest('[data-history-action]');
     if (historyAction) {
       const action = historyAction.dataset.historyAction;
-      if (action === 'benchmark') {
+      if (action === 'query') {
+        if (typeof loadHistoryChart === 'function') loadHistoryChart();
+      } else if (action === 'benchmark') {
         const type = historyAction.dataset.bench || '';
         if (type === 'CLEAR' && typeof _setHistBenchmarks === 'function') _setHistBenchmarks([]);
         else if (type && typeof _toggleHistBenchmark === 'function') _toggleHistBenchmark(type);
