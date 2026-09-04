@@ -150,7 +150,9 @@ function _selectHistorySnapshots(snapshots, mode) {
 function _historyTargetDate(periodStart, mode, maxDate) {
   const date = _historyUtcDate(periodStart);
   if (!date) return '';
-  if (mode === 'week') {
+  if (mode === 'day') {
+    // 일별 누락은 해당 평일 자체를 복구 대상으로 사용합니다.
+  } else if (mode === 'week') {
     date.setUTCDate(date.getUTCDate() + 4); // 금요일
   } else {
     date.setUTCMonth(date.getUTCMonth() + 1, 0);
@@ -162,7 +164,7 @@ function _historyTargetDate(periodStart, mode, maxDate) {
 }
 
 function _analyzeHistoryCoverage(snapshots, mode) {
-  const normalizedMode = mode === 'month' ? 'month' : 'week';
+  const normalizedMode = mode === 'day' ? 'day' : (mode === 'month' ? 'month' : 'week');
   const dates = (Array.isArray(snapshots) ? snapshots : [])
     .map(s => _normalizeHistDate(s?.date || ''))
     .filter(Boolean)
@@ -170,25 +172,43 @@ function _analyzeHistoryCoverage(snapshots, mode) {
   if (dates.length < 2) return { missing: [], first: dates[0] || '', last: dates[0] || '' };
 
   const today = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : _normalizeHistDate(new Date());
-  const expectedLast = today && today > dates[dates.length - 1] ? today : dates[dates.length - 1];
-  const present = new Set(dates.map(date => normalizedMode === 'week' ? _historyWeekStart(date) : date.slice(0, 7) + '-01'));
-  let cursor = _historyUtcDate(normalizedMode === 'week' ? _historyWeekStart(dates[0]) : dates[0].slice(0, 7) + '-01');
-  const endKey = normalizedMode === 'week' ? _historyWeekStart(expectedLast) : expectedLast.slice(0, 7) + '-01';
+  let coverageEnd = today;
+  if (normalizedMode === 'day') {
+    const confirmedDate = _historyUtcDate(today);
+    if (confirmedDate) {
+      confirmedDate.setUTCDate(confirmedDate.getUTCDate() - 1);
+      while (confirmedDate.getUTCDay() === 0 || confirmedDate.getUTCDay() === 6) {
+        confirmedDate.setUTCDate(confirmedDate.getUTCDate() - 1);
+      }
+      coverageEnd = _historyDateStr(confirmedDate);
+    }
+  }
+  const expectedLast = coverageEnd && coverageEnd > dates[dates.length - 1] ? coverageEnd : dates[dates.length - 1];
+  const periodKey = date => normalizedMode === 'day'
+    ? date
+    : (normalizedMode === 'week' ? _historyWeekStart(date) : date.slice(0, 7) + '-01');
+  const present = new Set(dates.map(periodKey));
+  let cursor = _historyUtcDate(periodKey(dates[0]));
+  const endKey = periodKey(expectedLast);
   const missing = [];
   while (cursor && _historyDateStr(cursor) <= endKey) {
     const key = _historyDateStr(cursor);
-    if (!present.has(key)) {
+    const isWeekday = cursor.getUTCDay() !== 0 && cursor.getUTCDay() !== 6;
+    if (!present.has(key) && (normalizedMode !== 'day' || isWeekday)) {
       const targetDate = _historyTargetDate(key, normalizedMode, today);
       missing.push({
         key,
         targetDate,
-        label: normalizedMode === 'week' ? `${key.slice(5).replace('-', '.')} 주` : key.slice(0, 7).replace('-', '.')
+        label: normalizedMode === 'day'
+          ? key.slice(5).replace('-', '.')
+          : (normalizedMode === 'week' ? `${key.slice(5).replace('-', '.')} 주` : key.slice(0, 7).replace('-', '.'))
       });
     }
-    if (normalizedMode === 'week') cursor.setUTCDate(cursor.getUTCDate() + 7);
+    if (normalizedMode === 'day') cursor.setUTCDate(cursor.getUTCDate() + 1);
+    else if (normalizedMode === 'week') cursor.setUTCDate(cursor.getUTCDate() + 7);
     else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
-  return { missing, first: dates[0], last: dates[dates.length - 1], expectedLast: today };
+  return { missing, first: dates[0], last: dates[dates.length - 1], expectedLast: coverageEnd };
 }
 
 function _fmtHistDateCompact(v) {
