@@ -225,8 +225,8 @@ function _renderHistoryCoverage(el, coverage, mode) {
     : '';
   if (!missing.length) {
     const coverageHtml = mode === 'day'
-      ? '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 저장된 일별 스냅샷을 그대로 표시합니다.</div>'
-      : '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 스냅샷 주기가 연속적입니다.</div>';
+      ? '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 저장된 일별 스냅샷을 그대로 표시합니다. 휴장일을 제외한 누락 검사는 주간·월간 조회에서 수행합니다.</div>'
+      : '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 스냅샷 누락이 없습니다.</div>';
     el.innerHTML = coverageHtml + resultHtml;
     return;
   }
@@ -250,6 +250,21 @@ async function repairHistorySnapshotGaps() {
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 복구 중...'; }
   __histState.repairInProgress = true;
   __histState.repairResult = null;
+  __histState.repairProgress = { current: 0, total: dates.length, date: dates[0], status: '대기' };
+  const showProgress = () => {
+    const panel = $el('histCoveragePanel');
+    if (!panel || !__histState.repairProgress) return;
+    let progress = panel.querySelector('[data-history-repair-progress]');
+    if (!progress) {
+      progress = document.createElement('div');
+      progress.dataset.historyRepairProgress = '';
+      progress.className = 'hist-repair-progress';
+      panel.appendChild(progress);
+    }
+    const p = __histState.repairProgress;
+    progress.textContent = `날짜별 진행 상태 ${p.current}/${p.total} · ${p.date || '-'} · ${p.status}`;
+  };
+  showProgress();
   let repaired = 0;
   const failed = [];
   let automationRestored = false;
@@ -258,15 +273,22 @@ async function repairHistorySnapshotGaps() {
     // 요청에 묶으면 GAS 실행 제한에 걸려 전부 실패하므로 날짜별 요청으로 성공분을 보존합니다.
     for (let i = 0; i < dates.length; i++) {
       const date = dates[i];
+      __histState.repairProgress = { current: i + 1, total: dates.length, date, status: '복구 중' };
+      showProgress();
       const data = await requestGsheetFormJson('repairSnapshots', { data: JSON.stringify({ dates: [date] }) }, { timeoutMs: 120000, retry: 0 });
       if (!data || data.status === 'error') {
-        failed.push({ date, message: data?.message || 'GAS 응답이 없거나 처리 시간이 초과되었습니다.' });
+        const message = data?.message || 'GAS 응답이 없거나 처리 시간이 초과되었습니다.';
+        failed.push({ date, message });
+        __histState.repairProgress.status = `실패: ${message}`;
+        showProgress();
         if (btn) btn.textContent = `⏳ ${i + 1}/${dates.length}`;
         continue;
       }
       repaired += Array.isArray(data.repaired) ? data.repaired.length : 0;
       if (Array.isArray(data.failed)) failed.push(...data.failed);
       automationRestored = automationRestored || !!data.automationRestored;
+      __histState.repairProgress.status = '성공';
+      showProgress();
       if (btn) btn.textContent = `⏳ ${i + 1}/${dates.length}`;
     }
     __histState.repairResult = { repaired, failed };
@@ -278,6 +300,7 @@ async function repairHistorySnapshotGaps() {
     await loadHistoryChart();
   } finally {
     __histState.repairInProgress = false;
+    __histState.repairProgress = null;
     const currentBtn = document.querySelector('[data-history-action="repair-gaps"]');
     if (currentBtn) { currentBtn.disabled = false; currentBtn.textContent = '🛠️ 다시 시도'; }
   }

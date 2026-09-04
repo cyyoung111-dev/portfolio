@@ -26,6 +26,14 @@ function _calcHistoryMdd(points, valueKey) {
   return { pct: maxDrawdown, peakDate: maxPeakDate, troughDate };
 }
 
+const HISTORY_BENCHMARK_VISUALS = Object.freeze({
+  KOSPI: { color: '#60a5fa', dash: '' },
+  SP500: { color: '#f97316', dash: '7 4' },
+  DOW: { color: '#f472b6', dash: '' },
+  NASDAQ: { color: '#2dd4bf', dash: '' },
+  NASDAQ100: { color: '#a78bfa', dash: '' },
+});
+
 function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
@@ -85,13 +93,6 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const benchTypes = Array.isArray(benchmarkOpt?.types) ? benchmarkOpt.types : [];
   const benchSeriesMap = benchmarkOpt?.seriesMap || {};
   const benchMetaMap = benchmarkOpt?.metaMap || {};
-  const benchColorMap = {
-    KOSPI: '#60a5fa',
-    SP500: '#22c55e',
-    DOW: '#f472b6',
-    NASDAQ: '#f59e0b',
-    NASDAQ100: '#a78bfa',
-  };
   const benchLines = benchTypes.map((benchType) => {
     const benchRaw = Array.isArray(benchSeriesMap[benchType]) ? benchSeriesMap[benchType] : [];
     const benchByDate = {};
@@ -142,7 +143,8 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     const usedSymbol = String(benchMetaMap[benchType] || '');
     const displayType = benchType;
     const chartDisplayType = displayType;
-    return { type: benchType, displayType, chartDisplayType, usedSymbol, color: benchColorMap[benchType] || '#94a3b8', pts: arr, mdd };
+    const visual = HISTORY_BENCHMARK_VISUALS[benchType] || { color: '#94a3b8', dash: '' };
+    return { type: benchType, displayType, chartDisplayType, usedSymbol, color: visual.color, dash: visual.dash, pts: arr, mdd };
   }).filter(x => x.pts.length > 1);
   const hasBench = benchLines.length > 0;
   const allIdx = hasBench ? benchLines.flatMap(x => x.pts.map(p => p.idx)) : [];
@@ -155,7 +157,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const benchLineSvg = hasBench
     ? benchLines.map(line => {
         const ptsStr = line.pts.map((b) => `${xScale(b.i).toFixed(1)},${yIdx(b.idx).toFixed(1)}`).join(' ');
-        return `<polyline points="${ptsStr}" fill="none" stroke="${line.color}" stroke-width="2.1" stroke-linejoin="round"/>`;
+        return `<polyline points="${ptsStr}" fill="none" stroke="${line.color}" stroke-width="2.1" stroke-linejoin="round"${line.dash ? ` stroke-dasharray="${line.dash}"` : ''}/>`;
       }).join('')
     : '';
 
@@ -204,7 +206,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
       ${hasBench ? benchLines.map((line, i) => {
         const sx = PAD.left + 72 + i * 100;
-        return `<line x1="${sx}" y1="${PAD.top + 10}" x2="${sx + 14}" y2="${PAD.top + 10}" stroke="${line.color}" stroke-width="2"/>
+        return `<line x1="${sx}" y1="${PAD.top + 10}" x2="${sx + 14}" y2="${PAD.top + 10}" stroke="${line.color}" stroke-width="2"${line.dash ? ` stroke-dasharray="${line.dash}"` : ''}/>
       <text x="${sx + 18}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">${line.chartDisplayType}</text>`;
       }).join('') : ''}
     </svg>
@@ -223,7 +225,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
           ? `${line.mdd.peakDate || '-'} → ${line.mdd.troughDate}`
           : '선택 기간 내 하락 없음';
         return `<span title="MDD 구간: ${_escapeHtml(mddTitle)}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:var(--s2)">
-          <span style="width:8px;height:8px;border-radius:999px;background:${line.color}"></span>
+          <span style="width:14px;border-top:2px ${line.dash ? 'dashed' : 'solid'} ${line.color}"></span>
           <span style="color:var(--muted)">${line.displayType}</span>
           <span style="color:${line.color};font-weight:700">${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%</span>
           <span style="color:var(--red-lt);font-weight:700">MDD ${line.mdd.pct.toFixed(1)}%</span>
@@ -262,16 +264,27 @@ function _drawHistoryTable(wrap, snapshots) {
     .filter(item => Number.isFinite(item.evalAmt));
   const highest = valid.reduce((best, item) => !best || item.evalAmt > best.evalAmt ? item : best, null);
   const lowest = valid.reduce((best, item) => !best || item.evalAmt < best.evalAmt ? item : best, null);
-  const extremeCard = (label, item, color) => `<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
-    <div style="font-size:.62rem;color:var(--muted)">${label}</div>
-    <div style="font-size:.88rem;font-weight:700;color:${color}">${item ? fmt(item.evalAmt) : '-'}</div>
-    <div style="font-size:.58rem;color:var(--muted);margin-top:1px">${item ? _fmtHistDateCompact(item.snapshot.date || '') : '데이터 없음'}</div>
-  </div>`;
+  const extremeCard = (label, item, color) => {
+    const costAmt = item ? Number(item.snapshot.costAmt ?? item.snapshot.cost) : NaN;
+    const returnPct = item && Number.isFinite(costAmt) && costAmt > 0
+      ? (item.evalAmt - costAmt) / costAmt * 100
+      : NaN;
+    const metric = (metricLabel, value, valueColor = 'var(--text)') => `<div class="hist-extreme-metric"><span>${metricLabel}</span><b style="color:${valueColor}">${value}</b></div>`;
+    return `<article class="hist-extreme-card">
+      <div class="hist-extreme-title" style="color:${color}">${label}</div>
+      <div class="hist-extreme-values">
+        ${metric('날짜', item ? _fmtHistDateCompact(item.snapshot.date || '') : '데이터 없음')}
+        ${metric('평가금액', item ? fmt(item.evalAmt) : '-', color)}
+        ${metric('매입원가', Number.isFinite(costAmt) ? fmt(costAmt) : '-')}
+        ${metric('수익률', Number.isFinite(returnPct) ? `${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(1)}%` : '-', Number.isFinite(returnPct) ? (returnPct >= 0 ? 'var(--green)' : 'var(--red)') : 'var(--muted)')}
+      </div>
+    </article>`;
+  };
   const diagnostics = _buildHistoryDiagnostics(snapshots);
   __histState.debugByDate = diagnostics;
   let html = `
     <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">기준설정일 이후 평가금액</div>
-    <div style="display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:6px;margin-bottom:12px;font-variant-numeric:tabular-nums">
+    <div class="hist-extreme-grid">
       ${extremeCard('가장 높은 날', highest, 'var(--green)')}
       ${extremeCard('가장 낮은 날', lowest, 'var(--blue-lt)')}
     </div>

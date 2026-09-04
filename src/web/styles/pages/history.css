@@ -14,5 +14,14 @@ html[data-ui-font-size] .hist-bench-btn{min-height:var(--control-height-sm);padd
 .hist-progress-copy b{font-size:.65rem;font-variant-numeric:tabular-nums}
 .hist-progress-track{height:4px;overflow:hidden;border-radius:999px;background:var(--border)}
 .hist-progress-track span{display:block;height:100%;border-radius:inherit;background:var(--blue-lt);transition:width .25s ease}
+.hist-repair-progress{flex-basis:100%;padding-top:7px;border-top:1px solid var(--border);font-size:.65rem;color:var(--blue-lt);font-variant-numeric:tabular-nums}
 @keyframes hist-query-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.hist-query-btn[aria-busy="true"] .hist-query-icon{animation:none}}
+.hist-extreme-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px;font-variant-numeric:tabular-nums}
+.hist-extreme-card{display:flex;align-items:center;gap:14px;min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--s2)}
+.hist-extreme-title{flex:0 0 auto;font-size:.7rem;font-weight:750;white-space:nowrap}
+.hist-extreme-values{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;min-width:0;flex:1}
+.hist-extreme-metric{min-width:0}
+.hist-extreme-metric span{display:block;font-size:.58rem;color:var(--muted);white-space:nowrap}
+.hist-extreme-metric b{display:block;overflow:hidden;font-size:.72rem;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:720px){.hist-extreme-grid{grid-template-columns:1fr}.hist-extreme-card{align-items:flex-start;flex-direction:column;gap:7px}.hist-extreme-values{grid-template-columns:repeat(2,minmax(0,1fr));width:100%}.hist-extreme-metric b{overflow:visible;white-space:normal;word-break:keep-all}}
