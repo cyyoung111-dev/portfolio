@@ -4053,6 +4053,7 @@ function continueSnapshotConsistencyRepair() {
     var allDates = _getAllPriceHistoryDates(ss, state.maxDate);
     state.total = allDates.length;
     var dates = allDates.slice(state.nextIndex, state.nextIndex + SNAPSHOT_REPAIR_BATCH_SIZE);
+    var batchHadDateError = false;
     dates.forEach(function(snapshotDate) {
       try {
         var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
