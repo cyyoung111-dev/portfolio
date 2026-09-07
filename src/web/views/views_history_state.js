@@ -11,6 +11,7 @@ const __histState = window.__histState || {
   repairResult: null,
   repairInProgress: false,
   repairProgress: null,
+  fullRepairPolling: false,
   loadRequestId: 0,
   snapshots: [],
   detailDate: '',

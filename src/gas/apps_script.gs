@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.80
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.81
+//
+//  v9.81 변경사항 (2026.09.07):
+//   ✅ [사용성] 손익 그래프에서 전체 가격이력 스냅샷 재작성 시작·진행상황 조회 API 제공
 //
 //  v9.80 변경사항 (2026.09.04):
 //   ✅ [복구]   전체 스냅샷 복구 후속 트리거 유실 시 진행상황 확인 메뉴에서 자동 재예약
@@ -565,6 +568,7 @@ function doGet(e) {
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
+  if (params.action === 'getSnapshotRepairStatus')        return handleGetSnapshotRepairStatus();
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getBootstrap')                   return handleGetBootstrap();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
@@ -591,7 +595,7 @@ function doGet(e) {
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
       params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
-      params.action === 'repairSnapshots' || params.action === 'refreshEtfDividends') {
+      params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' || params.action === 'refreshEtfDividends') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -616,7 +620,7 @@ function doPost(e) {
     return jsonError('POST 파싱 실패: ' + err.message);
   }
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
-  var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -628,6 +632,7 @@ function doPost(e) {
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
+  if (params.action === 'startSnapshotRepair') return handleStartSnapshotRepair();
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
   if (params.action === 'repairSnapshots' && params.data) return handleRepairSnapshots(params.data);
   // ★ [최적화] 배치 수동가격 저장 — 건당 개별 요청 → 1회 일괄 처리
@@ -3946,27 +3951,55 @@ function _snapshotRepairStatusMessage(state) {
     (state.lastError ? '\n최근 오류: ' + state.lastError : '');
 }
 
+function _startSnapshotConsistencyRepair(forceRewrite) {
+  var ss = getss();
+  var maxDate = _getPrevTradingDay(today(), 7) || today();
+  var dates = _getAllPriceHistoryDates(ss, maxDate);
+  if (dates.length === 0) throw new Error('확정 거래일까지의 가격이력이 없습니다.');
+  var state = {
+    startedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+    maxDate: maxDate, total: dates.length, nextIndex: 0,
+    checked: 0, repaired: 0, unchanged: 0, skipped: 0, failed: 0,
+    lastDate: '', lastError: '', done: false, forceRewrite: !!forceRewrite
+  };
+  PropertiesService.getScriptProperties().setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+  _clearSnapshotRepairContinuationTriggers();
+  return continueSnapshotConsistencyRepair();
+}
+
 function runSnapshotConsistencyRepair() {
   try {
-    var ss = getss();
-    var maxDate = _getPrevTradingDay(today(), 7) || today();
-    var dates = _getAllPriceHistoryDates(ss, maxDate);
-    if (dates.length === 0) throw new Error('확정 거래일까지의 가격이력이 없습니다.');
-    var state = {
-      startedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
-      maxDate: maxDate, total: dates.length, nextIndex: 0,
-      checked: 0, repaired: 0, unchanged: 0, skipped: 0, failed: 0,
-      lastDate: '', lastError: '', done: false
-    };
-    PropertiesService.getScriptProperties().setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
-    _clearSnapshotRepairContinuationTriggers();
-    var result = continueSnapshotConsistencyRepair();
+    var result = _startSnapshotConsistencyRepair(false);
     SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(result) +
       (result.done ? '' : '\n\n남은 날짜는 1분 간격의 후속 실행으로 계속 처리합니다.'));
     return result;
   } catch (e) {
     try { SpreadsheetApp.getUi().alert('❌ 전체 가격이력·스냅샷 정합성 복구 시작 실패\n\n' + e.message); } catch (_) {}
     throw e;
+  }
+}
+
+function handleStartSnapshotRepair() {
+  try {
+    return jsonOk({ repairState: _startSnapshotConsistencyRepair(true) });
+  } catch (err) {
+    return jsonError('전체 스냅샷 재작성 시작 실패: ' + err.message);
+  }
+}
+
+function handleGetSnapshotRepairStatus() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    var state = raw ? JSON.parse(raw) : null;
+    var resumed = false;
+    if (state && !state.done && !_hasSnapshotRepairContinuationTrigger()) {
+      _scheduleSnapshotRepairContinuation();
+      resumed = true;
+    }
+    return jsonOk({ repairState: state, resumed: resumed });
+  } catch (err) {
+    return jsonError('전체 스냅샷 재작성 상태 조회 실패: ' + err.message);
   }
 }
 
@@ -3992,7 +4025,7 @@ function continueSnapshotConsistencyRepair() {
           state.skipped++;
         } else {
           var existing = _readSnapshotRowsByDate(ss, snapshotDate);
-          if (_snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
+          if (!state.forceRewrite && _snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
             state.unchanged++;
           } else {
             writeSnapshotRows(ss, snapshotDate, expected, true);
@@ -5505,7 +5538,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.80' });
+    return jsonOk({ settings: settings, gasVersion: '9.81' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5527,7 +5560,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.80'
+      gasVersion: '9.81'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

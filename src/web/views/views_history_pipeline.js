@@ -302,6 +302,67 @@ async function repairHistorySnapshotGaps() {
   }
 }
 
+function _renderFullHistoryRepairStatus(state, message) {
+  const el = $el('histFullRepairStatus');
+  if (!el) return;
+  if (!state) {
+    el.innerHTML = message ? `<div class="hist-repair-progress">${_escapeHtml(message)}</div>` : '';
+    return;
+  }
+  const total = Number(state.total || 0);
+  const checked = Number(state.checked || 0);
+  const color = state.done ? 'var(--green)' : 'var(--amber)';
+  el.innerHTML = `<div class="hist-repair-progress" style="margin-bottom:8px;color:${color}">
+    <b>${state.done ? '✅ 전체 스냅샷 재작성 완료' : '⏳ 전체 스냅샷 재작성 중'}</b>
+    · 점검 ${checked}/${total} · 재작성 ${Number(state.repaired || 0)} · 일치 ${Number(state.unchanged || 0)} · 자료없음 ${Number(state.skipped || 0)} · 실패 ${Number(state.failed || 0)}
+    ${state.lastDate ? ` · 최근 ${_escapeHtml(state.lastDate)}` : ''}${state.lastError ? `<br>⚠️ ${_escapeHtml(state.lastError)}` : ''}
+  </div>`;
+}
+
+async function _pollFullHistorySnapshotRepair() {
+  if (__histState.fullRepairPolling || !GSHEET_API_URL) return;
+  __histState.fullRepairPolling = true;
+  try {
+    while (__histState.fullRepairPolling) {
+      const data = await _historyRequestJson('getSnapshotRepairStatus', {}, { timeoutMs: 15000, retry: 1 });
+      if (!data || data.status === 'error') throw new Error(data?.message || '진행상황 응답이 없습니다.');
+      const state = data.repairState || null;
+      _renderFullHistoryRepairStatus(state, state ? '' : '전체 재작성 기록이 없습니다.');
+      if (!state || state.done) {
+        __histState.fullRepairPolling = false;
+        const btn = $el('btn-history-full-repair');
+        if (btn) { btn.disabled = false; btn.textContent = '🧰 전체 재작성'; }
+        if (state?.done) await loadHistoryChart();
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 10000));
+    }
+  } catch (e) {
+    __histState.fullRepairPolling = false;
+    _renderFullHistoryRepairStatus(null, `전체 재작성 진행상황 조회 실패: ${e.message || '알 수 없는 오류'}`);
+    const btn = $el('btn-history-full-repair');
+    if (btn) { btn.disabled = false; btn.textContent = '🧰 상태 다시 확인'; }
+  }
+}
+
+async function startFullHistorySnapshotRepair() {
+  if (!GSHEET_API_URL || __histState.fullRepairPolling) return;
+  if (!confirm('저장된 전체 가격이력과 거래이력으로 기존 스냅샷을 모두 다시 작성할까요?\n외부 가격을 새로 조회하지 않으며, 완료 후 손익 그래프를 다시 불러옵니다.')) return;
+  const btn = $el('btn-history-full-repair');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 재작성 시작 중'; }
+  _renderFullHistoryRepairStatus(null, '전체 스냅샷 재작성을 시작하는 중입니다.');
+  try {
+    const data = await requestGsheetFormJson('startSnapshotRepair', {}, { timeoutMs: 120000, retry: 0 });
+    if (!data || data.status === 'error') throw new Error(data?.message || 'GAS 응답이 없습니다.');
+    _renderFullHistoryRepairStatus(data.repairState || null, '전체 재작성을 시작했습니다.');
+    if (btn) btn.textContent = '⏳ 전체 재작성 중';
+    await _pollFullHistorySnapshotRepair();
+  } catch (e) {
+    _renderFullHistoryRepairStatus(null, `전체 재작성 시작 실패: ${e.message || '알 수 없는 오류'}`);
+    if (btn) { btn.disabled = false; btn.textContent = '🧰 전체 재작성'; }
+  }
+}
+
 function _mergeTradeBasedCost(snapshots) {
   if (!Array.isArray(snapshots) || snapshots.length === 0) return snapshots;
   if (!Array.isArray(rawTrades) || rawTrades.length === 0) return snapshots;

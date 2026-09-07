@@ -84,6 +84,9 @@ assert.match(pipelineSource, /mode === 'day' \? '일별'/, '일별 누락 안내
 assert.match(pipelineSource, /오늘과 주말을 제외한 확정 평일/, '일별 복구 대상 기준을 안내해야 합니다.');
 assert.match(pipelineSource, /data-history-action="repair-gaps"/, '누락 보완 버튼이 있어야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('repairSnapshots'/, '프런트엔드가 GAS 복구 action을 호출해야 합니다.');
+assert.match(pipelineSource, /requestGsheetFormJson\('startSnapshotRepair'/, '손익 그래프에서 전체 스냅샷 재작성을 시작할 수 있어야 합니다.');
+assert.match(pipelineSource, /_historyRequestJson\('getSnapshotRepairStatus'/, '전체 스냅샷 재작성 진행상황을 조회해야 합니다.');
+assert.match(gasSource, /params\.action === 'startSnapshotRepair'[\s\S]*handleStartSnapshotRepair\(\)/, 'GAS POST route가 전체 재작성 시작 API에 연결되어야 합니다.');
 assert.match(pipelineSource, /날짜별 진행 상태/, '날짜별 복구 진행 상태를 표시해야 합니다.');
 assert.match(pipelineSource, /성공 \$\{repairResult\.repaired\}개 · 실패/, '복구 성공 개수와 실패 내역을 표시해야 합니다.');
 assert.match(pipelineSource, /await loadHistoryChart\(\)/, '복구 후 손익 데이터를 다시 조회해야 합니다.');

@@ -194,6 +194,8 @@ function registerGlobalEventDelegation() {
       const action = historyAction.dataset.historyAction;
       if (action === 'query') {
         if (typeof loadHistoryChart === 'function') loadHistoryChart();
+      } else if (action === 'full-repair') {
+        if (typeof startFullHistorySnapshotRepair === 'function') startFullHistorySnapshotRepair();
       } else if (action === 'benchmark') {
         const type = historyAction.dataset.bench || '';
         if (type === 'CLEAR' && typeof _setHistBenchmarks === 'function') _setHistBenchmarks([]);

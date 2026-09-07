@@ -31,10 +31,12 @@ function renderHistoryView(area) {
             <svg class="hist-query-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 10-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
             <span>조회</span>
           </button>
+          <button type="button" id="btn-history-full-repair" class="btn-ghost-sm" data-history-action="full-repair" title="저장된 전체 가격이력으로 기존 스냅샷까지 다시 작성합니다.">🧰 전체 재작성</button>
         </div>
       </div>
       <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</div>
       <div id="histStatusMsg" class="hist-status" aria-live="polite" style="font-size:.72rem;color:var(--muted);margin-bottom:8px"></div>
+      <div id="histFullRepairStatus" aria-live="polite"></div>
       <div id="histCoveragePanel"></div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--s2)">
         <label for="histDetailDate" style="font-size:.70rem;font-weight:700;color:var(--text)">📅 특정일 손익</label>
