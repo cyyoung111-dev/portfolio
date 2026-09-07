@@ -1,5 +1,20 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.78
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.82
+//
+//  v9.82 변경사항 (2026.09.07):
+//   ✅ [동시성] 전체 스냅샷 배치 실행 중 트리거를 지워 상태조회가 중복 트리거를 만드는 경쟁상태 제거
+//   ✅ [상태]   재시도 성공 후 과거 배치 오류 문구를 정리해 진행 중 오류로 오인하지 않도록 개선
+//
+//  v9.81 변경사항 (2026.09.07):
+//   ✅ [사용성] 손익 그래프에서 전체 가격이력 스냅샷 재작성 시작·진행상황 조회 API 제공
+//
+//  v9.80 변경사항 (2026.09.04):
+//   ✅ [복구]   전체 스냅샷 복구 후속 트리거 유실 시 진행상황 확인 메뉴에서 자동 재예약
+//   ✅ [안정성] 배치 자체 오류도 상태에 저장하고 후속 실행을 예약해 점검 완료 정체 방지
+//
+//  v9.79 변경사항 (2026.09.04):
+//   ✅ [정확성] 스냅샷 기준일 가격이 비었고 이전 이력도 없으면 가장 가까운 이후 가격을 사용
+//   ✅ [가시성] 손익 MDD가 평가금액 최고일이 아닌 현금흐름 보정 수익률의 고점→저점임을 명시
 //
 //  v9.78 변경사항 (2026.08.31):
 //   ✅ [주담대] 현재월 납입 후 잔액 반영 시 잔여기간은 다음 달 이후 스케줄만 계산
@@ -557,6 +572,7 @@ function doGet(e) {
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
+  if (params.action === 'getSnapshotRepairStatus')        return handleGetSnapshotRepairStatus();
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getBootstrap')                   return handleGetBootstrap();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
@@ -583,7 +599,7 @@ function doGet(e) {
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
       params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
-      params.action === 'repairSnapshots' || params.action === 'refreshEtfDividends') {
+      params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' || params.action === 'refreshEtfDividends') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -608,7 +624,7 @@ function doPost(e) {
     return jsonError('POST 파싱 실패: ' + err.message);
   }
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
-  var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -620,6 +636,7 @@ function doPost(e) {
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
+  if (params.action === 'startSnapshotRepair') return handleStartSnapshotRepair();
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
   if (params.action === 'repairSnapshots' && params.data) return handleRepairSnapshots(params.data);
   // ★ [최적화] 배치 수동가격 저장 — 건당 개별 요청 → 1회 일괄 처리
@@ -3137,7 +3154,8 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
     // ★ sourceMap 이제 { src, savedAt } 객체 반환
     var sourceMap = _getPriceSourceByDate(ss, dateStr);
 
-    // ★ [버그수정] 해당 날짜 가격이 없는 종목은 가장 최근 가격으로 fallback
+    // ★ 해당 날짜 가격이 없으면 직전 가격을 우선 사용합니다. 직전 이력도 없는
+    // 최초 구간만 가장 가까운 이후 가격을 사용해 빈 가격을 매입원가로 오인하지 않습니다.
     //   KRX fallback으로 전일 날짜에 저장된 경우 오늘 prices 맵에 없어
     //   evalAmt = h.costAmt(매수원금)으로 잘못 계산되는 문제 방지
     var missingCodes = [];
@@ -3148,14 +3166,19 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
       if (!prices[key]) missingCodes.push(key);
     });
     if (missingCodes.length > 0) {
-      // 기준일 이후에 입력한 수동 NAV가 과거 스냅샷으로 역류하지 않도록
-      // 반드시 스냅샷 날짜 이하의 가격만 이월합니다.
       var latestPrices = getLatestPriceHistory(ss, missingCodes, dateStr);
       Object.keys(latestPrices).forEach(function(k) {
         if (!prices[k] && latestPrices[k] > 0) prices[k] = latestPrices[k];
         // ★ sourceMap도 함께 채움 — _getPriceSourceByDate가 이미 MANUAL fallback을 처리하지만
         //   prices fallback과 sourceMap fallback이 일치하도록 보장
       });
+      var stillMissingCodes = missingCodes.filter(function(k) { return !(prices[k] > 0); });
+      if (stillMissingCodes.length > 0) {
+        var nearestFuturePrices = getEarliestPriceHistory(ss, stillMissingCodes, dateStr);
+        Object.keys(nearestFuturePrices).forEach(function(k) {
+          if (!prices[k] && nearestFuturePrices[k] > 0) prices[k] = nearestFuturePrices[k];
+        });
+      }
     }
 
     // ★ 종목코드→통화 맵 (종목코드 시트에서 currency 컬럼 읽기)
@@ -3501,6 +3524,33 @@ function getLatestPriceHistoryEntries(ss, codes, maxDate) {
     return latest;
   } catch(err) {
     Logger.log('❌ getLatestPriceHistoryEntries 실패: ' + err.message);
+    return {};
+  }
+}
+
+// 기준일 이전 가격이 전혀 없는 최초 구간에서만 사용할 가장 가까운 이후 가격입니다.
+// 일반적인 누락일은 getLatestPriceHistory()의 직전값을 우선하므로 미래 가격이 덮어쓰지 않습니다.
+function getEarliestPriceHistory(ss, codes, minDate) {
+  try {
+    var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+    if (!ph || ph.getLastRow() < 2) return {};
+    var data = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+    var codeAliasToCanonical = _buildCodeAliasMap(codes);
+    var earliest = {};
+    data.forEach(function(row) {
+      var date = _normalizeDate(row[0]);
+      var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+      var name = (row[2] || '').toString().trim();
+      var price = parseFloat(row[3]) || 0;
+      var outKey = codeAliasToCanonical[code || name];
+      if (!date || !outKey || price <= 0 || (minDate && date < minDate)) return;
+      if (!earliest[outKey] || date < earliest[outKey].date) earliest[outKey] = { date: date, price: price };
+    });
+    var result = {};
+    Object.keys(earliest).forEach(function(key) { result[key] = earliest[key].price; });
+    return result;
+  } catch(err) {
+    Logger.log('❌ getEarliestPriceHistory 실패: ' + err.message);
     return {};
   }
 }
@@ -3879,6 +3929,12 @@ function _clearSnapshotRepairContinuationTriggers() {
   });
 }
 
+function _hasSnapshotRepairContinuationTrigger() {
+  return ScriptApp.getProjectTriggers().some(function(trigger) {
+    return trigger.getHandlerFunction() === 'continueSnapshotConsistencyRepair';
+  });
+}
+
 function _scheduleSnapshotRepairContinuation() {
   _clearSnapshotRepairContinuationTriggers();
   ScriptApp.newTrigger('continueSnapshotConsistencyRepair').timeBased().after(60 * 1000).create();
@@ -3899,21 +3955,25 @@ function _snapshotRepairStatusMessage(state) {
     (state.lastError ? '\n최근 오류: ' + state.lastError : '');
 }
 
+function _startSnapshotConsistencyRepair(forceRewrite) {
+  var ss = getss();
+  var maxDate = _getPrevTradingDay(today(), 7) || today();
+  var dates = _getAllPriceHistoryDates(ss, maxDate);
+  if (dates.length === 0) throw new Error('확정 거래일까지의 가격이력이 없습니다.');
+  var state = {
+    startedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+    maxDate: maxDate, total: dates.length, nextIndex: 0,
+    checked: 0, repaired: 0, unchanged: 0, skipped: 0, failed: 0,
+    lastDate: '', lastError: '', done: false, forceRewrite: !!forceRewrite
+  };
+  PropertiesService.getScriptProperties().setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+  _clearSnapshotRepairContinuationTriggers();
+  return continueSnapshotConsistencyRepair();
+}
+
 function runSnapshotConsistencyRepair() {
   try {
-    var ss = getss();
-    var maxDate = _getPrevTradingDay(today(), 7) || today();
-    var dates = _getAllPriceHistoryDates(ss, maxDate);
-    if (dates.length === 0) throw new Error('확정 거래일까지의 가격이력이 없습니다.');
-    var state = {
-      startedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
-      maxDate: maxDate, total: dates.length, nextIndex: 0,
-      checked: 0, repaired: 0, unchanged: 0, skipped: 0, failed: 0,
-      lastDate: '', lastError: '', done: false
-    };
-    PropertiesService.getScriptProperties().setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
-    _clearSnapshotRepairContinuationTriggers();
-    var result = continueSnapshotConsistencyRepair();
+    var result = _startSnapshotConsistencyRepair(false);
     SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(result) +
       (result.done ? '' : '\n\n남은 날짜는 1분 간격의 후속 실행으로 계속 처리합니다.'));
     return result;
@@ -3923,13 +3983,36 @@ function runSnapshotConsistencyRepair() {
   }
 }
 
+function handleStartSnapshotRepair() {
+  try {
+    return jsonOk({ repairState: _startSnapshotConsistencyRepair(true) });
+  } catch (err) {
+    return jsonError('전체 스냅샷 재작성 시작 실패: ' + err.message);
+  }
+}
+
+function handleGetSnapshotRepairStatus() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    var state = raw ? JSON.parse(raw) : null;
+    var resumed = false;
+    if (state && !state.done && !_hasSnapshotRepairContinuationTrigger()) {
+      _scheduleSnapshotRepairContinuation();
+      resumed = true;
+    }
+    return jsonOk({ repairState: state, resumed: resumed });
+  } catch (err) {
+    return jsonError('전체 스냅샷 재작성 상태 조회 실패: ' + err.message);
+  }
+}
+
 function continueSnapshotConsistencyRepair() {
   var lock = LockService.getScriptLock();
   var locked = false;
   try {
     lock.waitLock(30000);
     locked = true;
-    _clearSnapshotRepairContinuationTriggers();
     var props = PropertiesService.getScriptProperties();
     var rawState = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
     if (!rawState) throw new Error('진행 중인 전체 정합성 복구가 없습니다.');
@@ -3938,6 +4021,7 @@ function continueSnapshotConsistencyRepair() {
     var allDates = _getAllPriceHistoryDates(ss, state.maxDate);
     state.total = allDates.length;
     var dates = allDates.slice(state.nextIndex, state.nextIndex + SNAPSHOT_REPAIR_BATCH_SIZE);
+    var batchHadDateError = false;
     dates.forEach(function(snapshotDate) {
       try {
         var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
@@ -3945,7 +4029,7 @@ function continueSnapshotConsistencyRepair() {
           state.skipped++;
         } else {
           var existing = _readSnapshotRowsByDate(ss, snapshotDate);
-          if (_snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
+          if (!state.forceRewrite && _snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
             state.unchanged++;
           } else {
             writeSnapshotRows(ss, snapshotDate, expected, true);
@@ -3953,6 +4037,7 @@ function continueSnapshotConsistencyRepair() {
           }
         }
       } catch (dateError) {
+        batchHadDateError = true;
         state.failed++;
         state.lastError = snapshotDate + ': ' + dateError.message;
       }
@@ -3961,20 +4046,50 @@ function continueSnapshotConsistencyRepair() {
       state.lastDate = snapshotDate;
     });
     SpreadsheetApp.flush();
+    if (!batchHadDateError) state.lastError = '';
     state.done = state.nextIndex >= allDates.length;
     state.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
     props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
     if (!state.done) _scheduleSnapshotRepairContinuation();
     return state;
+  } catch (batchError) {
+    var errorProps = PropertiesService.getScriptProperties();
+    var savedRaw = errorProps.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    var errorState = savedRaw ? JSON.parse(savedRaw) : null;
+    if (errorState && !errorState.done) {
+      errorState.lastError = '배치 실행 오류: ' + batchError.message;
+      errorState.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+      errorProps.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(errorState));
+      try { _scheduleSnapshotRepairContinuation(); } catch (scheduleError) {
+        errorState.lastError += ' / 후속 실행 예약 실패: ' + scheduleError.message;
+        errorProps.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(errorState));
+      }
+    }
+    throw batchError;
   } finally {
     if (locked) lock.releaseLock();
   }
 }
 
 function showSnapshotConsistencyRepairStatus() {
-  var raw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+  var props = PropertiesService.getScriptProperties();
+  var raw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
   var state = raw ? JSON.parse(raw) : null;
-  SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(state));
+  var resumeMessage = '';
+  if (state && !state.done && !_hasSnapshotRepairContinuationTrigger()) {
+    try {
+      _scheduleSnapshotRepairContinuation();
+      state.lastError = '';
+      state.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+      props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+      resumeMessage = '\n\n⚠️ 후속 실행 트리거가 없어 자동으로 다시 예약했습니다.';
+    } catch (resumeError) {
+      state.lastError = '후속 실행 자동 재예약 실패: ' + resumeError.message;
+      props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+      resumeMessage = '\n\n❌ 후속 실행 자동 재예약에 실패했습니다.';
+    }
+  }
+  SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(state) + resumeMessage);
   return state;
 }
 
@@ -5429,7 +5544,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.78' });
+    return jsonOk({ settings: settings, gasVersion: '9.82' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5451,7 +5566,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.78'
+      gasVersion: '9.82'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

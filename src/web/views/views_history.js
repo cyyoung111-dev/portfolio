@@ -216,7 +216,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         <span style="width:8px;height:8px;border-radius:999px;background:${pnlColor}"></span>
         <span style="color:var(--muted)">나의 손익</span>
         <span style="color:${portfolioDeltaColor};font-weight:700">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</span>
-        <span style="color:var(--red-lt);font-weight:700">MDD ${portfolioMdd.pct.toFixed(1)}%</span>
+        <span style="color:var(--red-lt);font-weight:700">수익률 MDD ${portfolioMdd.pct.toFixed(1)}%</span>
       </span>
       ${hasBench ? `
       ${benchLines.map(line => {
@@ -241,7 +241,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       <div title="평가금액÷거래기준 매입원가로 만든 수익률 지수의 고점 대비 최대 하락률" style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:8px 10px">
         <div style="font-size:.62rem;color:var(--muted)">나의 손익 변화 <span title="매수·매도 순현금흐름을 제외한 기간수익률">ⓘ</span></div>
         <div style="font-size:.88rem;font-weight:700;color:${portfolioDeltaColor}">${portfolioDelta >= 0 ? '+' : ''}${portfolioDelta.toFixed(1)}%</div>
-        <div style="font-size:.68rem;font-weight:700;color:var(--red-lt);margin-top:2px">MDD ${portfolioMdd.pct.toFixed(1)}%</div>
+        <div style="font-size:.68rem;font-weight:700;color:var(--red-lt);margin-top:2px">수익률 MDD ${portfolioMdd.pct.toFixed(1)}%</div>
         ${portfolioMdd.troughDate ? `<div style="font-size:.58rem;color:var(--muted);margin-top:1px">${_fmtHistDateCompact(portfolioMdd.peakDate)} → ${_fmtHistDateCompact(portfolioMdd.troughDate)}</div>` : '<div style="font-size:.58rem;color:var(--muted);margin-top:1px">선택 기간 내 하락 없음</div>'}
       </div>
       ${hasBench ? benchLines.map(line => {
@@ -284,7 +284,7 @@ function _drawHistoryTable(wrap, snapshots) {
   const diagnostics = _buildHistoryDiagnostics(snapshots);
   __histState.debugByDate = diagnostics;
   let html = `
-    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">기준설정일 이후 평가금액</div>
+    <div style="font-size:.72rem;font-weight:700;color:var(--muted);margin-bottom:6px">기준설정일 이후 평가금액 <span title="아래 최고·최저는 입출금 영향을 포함한 평가금액 기준이며, 위 MDD의 현금흐름 보정 수익률 고점·저점과 다를 수 있습니다.">ⓘ</span></div>
     <div class="hist-extreme-grid">
       ${extremeCard('가장 높은 날', highest, 'var(--green)')}
       ${extremeCard('가장 낮은 날', lowest, 'var(--blue-lt)')}
