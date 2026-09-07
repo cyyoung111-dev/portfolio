@@ -31,7 +31,7 @@ function renderHistoryView(area) {
             <svg class="hist-query-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 10-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
             <span>조회</span>
           </button>
-          <button type="button" id="btn-history-full-repair" class="btn-ghost-sm" data-history-action="full-repair" title="저장된 전체 가격이력으로 기존 스냅샷까지 다시 작성합니다.">🧰 전체 재작성</button>
+          <button type="button" id="btn-history-full-repair" class="btn-ghost-sm" data-history-action="full-repair" title="연결된 GAS의 가격이력으로 구글시트 스냅샷 시트를 다시 작성합니다. 로컬 데이터만 변경하는 기능이 아닙니다.">🧰 GAS 전체 재작성</button>
         </div>
       </div>
       <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</div>

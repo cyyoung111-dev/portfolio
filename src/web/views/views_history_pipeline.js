@@ -313,7 +313,7 @@ function _renderFullHistoryRepairStatus(state, message) {
   const checked = Number(state.checked || 0);
   const color = state.done ? 'var(--green)' : 'var(--amber)';
   el.innerHTML = `<div class="hist-repair-progress" style="margin-bottom:8px;color:${color}">
-    <b>${state.done ? '✅ 전체 스냅샷 재작성 완료' : '⏳ 전체 스냅샷 재작성 중'}</b>
+    <b>${state.done ? '✅ GAS 스냅샷 시트 재작성 완료' : '⏳ GAS 스냅샷 시트 재작성 중'}</b>
     · 점검 ${checked}/${total} · 재작성 ${Number(state.repaired || 0)} · 일치 ${Number(state.unchanged || 0)} · 자료없음 ${Number(state.skipped || 0)} · 실패 ${Number(state.failed || 0)}
     ${state.lastDate ? ` · 최근 ${_escapeHtml(state.lastDate)}` : ''}${state.lastError ? `<br>⚠️ ${_escapeHtml(state.lastError)}` : ''}
   </div>`;
@@ -331,7 +331,7 @@ async function _pollFullHistorySnapshotRepair() {
       if (!state || state.done) {
         __histState.fullRepairPolling = false;
         const btn = $el('btn-history-full-repair');
-        if (btn) { btn.disabled = false; btn.textContent = '🧰 전체 재작성'; }
+        if (btn) { btn.disabled = false; btn.textContent = '🧰 GAS 전체 재작성'; }
         if (state?.done) await loadHistoryChart();
         break;
       }
@@ -347,7 +347,7 @@ async function _pollFullHistorySnapshotRepair() {
 
 async function startFullHistorySnapshotRepair() {
   if (!GSHEET_API_URL || __histState.fullRepairPolling) return;
-  if (!confirm('저장된 전체 가격이력과 거래이력으로 기존 스냅샷을 모두 다시 작성할까요?\n외부 가격을 새로 조회하지 않으며, 완료 후 손익 그래프를 다시 불러옵니다.')) return;
+  if (!confirm('연결된 GAS의 가격이력과 거래이력으로 구글시트의 기존 스냅샷을 모두 다시 작성할까요?\n로컬 데이터만 바꾸는 기능이 아니며, 외부 가격은 새로 조회하지 않습니다. 완료 후 GAS 데이터를 다시 받아 손익 그래프를 갱신합니다.')) return;
   const btn = $el('btn-history-full-repair');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 재작성 시작 중'; }
   _renderFullHistoryRepairStatus(null, '전체 스냅샷 재작성을 시작하는 중입니다.');
@@ -359,7 +359,7 @@ async function startFullHistorySnapshotRepair() {
     await _pollFullHistorySnapshotRepair();
   } catch (e) {
     _renderFullHistoryRepairStatus(null, `전체 재작성 시작 실패: ${e.message || '알 수 없는 오류'}`);
-    if (btn) { btn.disabled = false; btn.textContent = '🧰 전체 재작성'; }
+    if (btn) { btn.disabled = false; btn.textContent = '🧰 GAS 전체 재작성'; }
   }
 }
 

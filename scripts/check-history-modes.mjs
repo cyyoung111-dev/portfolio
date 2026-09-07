@@ -85,6 +85,8 @@ assert.match(pipelineSource, /오늘과 주말을 제외한 확정 평일/, '일
 assert.match(pipelineSource, /data-history-action="repair-gaps"/, '누락 보완 버튼이 있어야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('repairSnapshots'/, '프런트엔드가 GAS 복구 action을 호출해야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('startSnapshotRepair'/, '손익 그래프에서 전체 스냅샷 재작성을 시작할 수 있어야 합니다.');
+assert.match(pipelineSource, /구글시트의 기존 스냅샷을 모두 다시 작성/, '전체 재작성 확인창은 GAS 구글시트 데이터가 변경됨을 명시해야 합니다.');
+assert.match(pipelineSource, /로컬 데이터만 바꾸는 기능이 아니며/, '전체 재작성이 로컬 전용 작업으로 오해되지 않게 안내해야 합니다.');
 assert.match(pipelineSource, /_historyRequestJson\('getSnapshotRepairStatus'/, '전체 스냅샷 재작성 진행상황을 조회해야 합니다.');
 assert.match(gasSource, /params\.action === 'startSnapshotRepair'[\s\S]*handleStartSnapshotRepair\(\)/, 'GAS POST route가 전체 재작성 시작 API에 연결되어야 합니다.');
 assert.match(pipelineSource, /날짜별 진행 상태/, '날짜별 복구 진행 상태를 표시해야 합니다.');
