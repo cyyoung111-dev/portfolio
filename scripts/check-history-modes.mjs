@@ -69,6 +69,10 @@ assert.deepEqual(
 assert.match(viewSource, /metric\('매입원가'/, '가장 높은 날·가장 낮은 날 카드에는 매입원가가 있어야 합니다.');
 assert.match(viewSource, /metric\('수익률'/, '가장 높은 날·가장 낮은 날 카드에는 수익률이 있어야 합니다.');
 assert.match(viewSource, /\(item\.evalAmt - costAmt\) \/ costAmt \* 100/, '요약 카드 수익률은 평가금액과 매입원가로 계산해야 합니다.');
+assert.match(viewSource, /수익률 MDD/, '나의 MDD는 평가금액 최고·최저와 구분되는 수익률 지표임을 표시해야 합니다.');
+assert.match(viewSource, /현금흐름 보정 수익률 고점·저점과 다를 수 있습니다/, '평가금액 최고일과 MDD 고점일이 다를 수 있음을 안내해야 합니다.');
+assert.match(gasSource, /var latestPrices = getLatestPriceHistory\(ss, missingCodes, dateStr\)[\s\S]*var nearestFuturePrices = getEarliestPriceHistory\(ss, stillMissingCodes, dateStr\)/, '가격 누락 시 직전값을 우선하고 최초 구간만 가장 가까운 이후값으로 보완해야 합니다.');
+assert.match(gasSource, /function getEarliestPriceHistory\(ss, codes, minDate\)/, '최초 가격 이전 스냅샷을 위한 이후 최근접 가격 조회 함수가 있어야 합니다.');
 assert.match(viewSource, /SP500:\s*\{ color: '#f97316', dash: '7 4' \}/, 'S&P500은 전용 주황색과 점선을 사용해야 합니다.');
 assert.match(viewSource, /stroke-dasharray/, 'S&P500 점선은 그래프와 범례에 반영되어야 합니다.');
 assert.ok(!/SP500:\s*\{[^}]*#22c55e/.test(viewSource), 'S&P500은 나의 손익 녹색을 재사용하면 안 됩니다.');
@@ -80,6 +84,9 @@ assert.match(pipelineSource, /mode === 'day' \? '일별'/, '일별 누락 안내
 assert.match(pipelineSource, /오늘과 주말을 제외한 확정 평일/, '일별 복구 대상 기준을 안내해야 합니다.');
 assert.match(pipelineSource, /data-history-action="repair-gaps"/, '누락 보완 버튼이 있어야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('repairSnapshots'/, '프런트엔드가 GAS 복구 action을 호출해야 합니다.');
+assert.match(pipelineSource, /requestGsheetFormJson\('startSnapshotRepair'/, '손익 그래프에서 전체 스냅샷 재작성을 시작할 수 있어야 합니다.');
+assert.match(pipelineSource, /_historyRequestJson\('getSnapshotRepairStatus'/, '전체 스냅샷 재작성 진행상황을 조회해야 합니다.');
+assert.match(gasSource, /params\.action === 'startSnapshotRepair'[\s\S]*handleStartSnapshotRepair\(\)/, 'GAS POST route가 전체 재작성 시작 API에 연결되어야 합니다.');
 assert.match(pipelineSource, /날짜별 진행 상태/, '날짜별 복구 진행 상태를 표시해야 합니다.');
 assert.match(pipelineSource, /성공 \$\{repairResult\.repaired\}개 · 실패/, '복구 성공 개수와 실패 내역을 표시해야 합니다.');
 assert.match(pipelineSource, /await loadHistoryChart\(\)/, '복구 후 손익 데이터를 다시 조회해야 합니다.');
