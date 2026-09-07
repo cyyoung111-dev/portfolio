@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.82
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.83
+//
+//  v9.83 변경사항 (2026.09.07):
+//   ✅ [정합성] 강제 재작성 중 보유자료가 없는 날짜는 기존 스냅샷 행도 삭제
+//   ✅ [동시성] 복구 상태 초기화를 Script Lock으로 보호하고 진행 중 중복 시작 거부
+//   ✅ [진단]   날짜별 오류는 해당 날짜 재처리 성공 전까지 보존
 //
 //  v9.82 변경사항 (2026.09.07):
 //   ✅ [동시성] 전체 스냅샷 배치 실행 중 트리거를 지워 상태조회가 중복 트리거를 만드는 경쟁상태 제거
@@ -3956,18 +3961,30 @@ function _snapshotRepairStatusMessage(state) {
 }
 
 function _startSnapshotConsistencyRepair(forceRewrite) {
-  var ss = getss();
-  var maxDate = _getPrevTradingDay(today(), 7) || today();
-  var dates = _getAllPriceHistoryDates(ss, maxDate);
-  if (dates.length === 0) throw new Error('확정 거래일까지의 가격이력이 없습니다.');
-  var state = {
-    startedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
-    maxDate: maxDate, total: dates.length, nextIndex: 0,
-    checked: 0, repaired: 0, unchanged: 0, skipped: 0, failed: 0,
-    lastDate: '', lastError: '', done: false, forceRewrite: !!forceRewrite
-  };
-  PropertiesService.getScriptProperties().setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
-  _clearSnapshotRepairContinuationTriggers();
+  var lock = LockService.getScriptLock();
+  var locked = false;
+  try {
+    lock.waitLock(30000);
+    locked = true;
+    var ss = getss();
+    var maxDate = _getPrevTradingDay(today(), 7) || today();
+    var dates = _getAllPriceHistoryDates(ss, maxDate);
+    if (dates.length === 0) throw new Error('확정 거래일까지의 가격이력이 없습니다.');
+    var props = PropertiesService.getScriptProperties();
+    var currentRaw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    var current = currentRaw ? JSON.parse(currentRaw) : null;
+    if (current && !current.done) throw new Error('이미 전체 스냅샷 재작성이 진행 중입니다. 진행상황을 확인해주세요.');
+    var state = {
+      startedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+      maxDate: maxDate, total: dates.length, nextIndex: 0,
+      checked: 0, repaired: 0, unchanged: 0, skipped: 0, failed: 0,
+      failedDateErrors: {}, batchError: '', lastDate: '', lastError: '', done: false, forceRewrite: !!forceRewrite
+    };
+    props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
+    _clearSnapshotRepairContinuationTriggers();
+  } finally {
+    if (locked) lock.releaseLock();
+  }
   return continueSnapshotConsistencyRepair();
 }
 
@@ -4017,6 +4034,8 @@ function continueSnapshotConsistencyRepair() {
     var rawState = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
     if (!rawState) throw new Error('진행 중인 전체 정합성 복구가 없습니다.');
     var state = JSON.parse(rawState);
+    state.failedDateErrors = state.failedDateErrors || {};
+    state.batchError = '';
     var ss = getss();
     var allDates = _getAllPriceHistoryDates(ss, state.maxDate);
     state.total = allDates.length;
@@ -4026,7 +4045,13 @@ function continueSnapshotConsistencyRepair() {
       try {
         var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
         if (expected.length === 0) {
-          state.skipped++;
+          var emptyDateRows = _readSnapshotRowsByDate(ss, snapshotDate);
+          if (state.forceRewrite && emptyDateRows.length > 0) {
+            writeSnapshotRows(ss, snapshotDate, [], true);
+            state.repaired++;
+          } else {
+            state.skipped++;
+          }
         } else {
           var existing = _readSnapshotRowsByDate(ss, snapshotDate);
           if (!state.forceRewrite && _snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
@@ -4036,17 +4061,20 @@ function continueSnapshotConsistencyRepair() {
             state.repaired++;
           }
         }
+        delete state.failedDateErrors[snapshotDate];
       } catch (dateError) {
-        batchHadDateError = true;
-        state.failed++;
-        state.lastError = snapshotDate + ': ' + dateError.message;
+        state.failedDateErrors[snapshotDate] = dateError.message || String(dateError);
       }
       state.checked++;
       state.nextIndex++;
       state.lastDate = snapshotDate;
     });
     SpreadsheetApp.flush();
-    if (!batchHadDateError) state.lastError = '';
+    var failedDates = Object.keys(state.failedDateErrors);
+    state.failed = failedDates.length;
+    state.lastError = failedDates.length
+      ? failedDates[failedDates.length - 1] + ': ' + state.failedDateErrors[failedDates[failedDates.length - 1]]
+      : '';
     state.done = state.nextIndex >= allDates.length;
     state.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
     props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
@@ -4057,7 +4085,8 @@ function continueSnapshotConsistencyRepair() {
     var savedRaw = errorProps.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
     var errorState = savedRaw ? JSON.parse(savedRaw) : null;
     if (errorState && !errorState.done) {
-      errorState.lastError = '배치 실행 오류: ' + batchError.message;
+      errorState.batchError = '배치 실행 오류: ' + batchError.message;
+      errorState.lastError = errorState.batchError;
       errorState.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
       errorProps.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(errorState));
       try { _scheduleSnapshotRepairContinuation(); } catch (scheduleError) {
@@ -5544,7 +5573,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.82' });
+    return jsonOk({ settings: settings, gasVersion: '9.83' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5566,7 +5595,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.82'
+      gasVersion: '9.83'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

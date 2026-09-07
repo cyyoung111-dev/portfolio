@@ -274,13 +274,16 @@ if (!snapshotRepairMatch
     || !source.includes('SNAPSHOT_REPAIR_BATCH_SIZE = 3')
     || !source.includes("newTrigger('continueSnapshotConsistencyRepair')")
     || !source.includes('function _hasSnapshotRepairContinuationTrigger()')
-    || !source.includes("errorState.lastError = '배치 실행 오류: '")
+    || !source.includes("errorState.batchError = '배치 실행 오류: '")
     || !source.includes('후속 실행 트리거가 없어 자동으로 다시 예약했습니다.')
     || !source.includes('function handleStartSnapshotRepair()')
     || !source.includes('_startSnapshotConsistencyRepair(true)')
     || !source.includes('!state.forceRewrite && _snapshotRowsSignature(existing)')
     || /locked = true;\s*_clearSnapshotRepairContinuationTriggers\(\)/.test(snapshotContinuationMatch[1])
-    || !source.includes("if (!batchHadDateError) state.lastError = ''")
+    || !source.includes('이미 전체 스냅샷 재작성이 진행 중입니다.')
+    || !source.includes('writeSnapshotRows(ss, snapshotDate, [], true)')
+    || !source.includes('delete state.failedDateErrors[snapshotDate]')
+    || !source.includes('state.failed = failedDates.length')
     || !source.includes('function handleGetSnapshotRepairStatus()')
     || !source.includes("'showSnapshotConsistencyRepairStatus'")) {
   console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');
