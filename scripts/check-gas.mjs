@@ -277,6 +277,7 @@ if (!snapshotRepairMatch
     || !source.includes("errorState.batchError = '배치 실행 오류: '")
     || !source.includes('후속 실행 트리거가 없어 자동으로 다시 예약했습니다.')
     || !source.includes('function handleStartSnapshotRepair()')
+    || !source.includes('alreadyRunning: true')
     || !source.includes('_startSnapshotConsistencyRepair(true)')
     || !source.includes('!state.forceRewrite && _snapshotRowsSignature(existing)')
     || /locked = true;\s*_clearSnapshotRepairContinuationTriggers\(\)/.test(snapshotContinuationMatch[1])

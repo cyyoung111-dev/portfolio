@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.83
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.84
+//
+//  v9.84 변경사항 (2026.09.07):
+//   ✅ [사용성] 전체 재작성 실행 중 재요청은 잠금 대기 대신 기존 작업 상태를 반환
 //
 //  v9.83 변경사항 (2026.09.07):
 //   ✅ [정합성] 강제 재작성 중 보유자료가 없는 날짜는 기존 스냅샷 행도 삭제
@@ -4002,8 +4005,18 @@ function runSnapshotConsistencyRepair() {
 
 function handleStartSnapshotRepair() {
   try {
+    var props = PropertiesService.getScriptProperties();
+    var currentRaw = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    var current = currentRaw ? JSON.parse(currentRaw) : null;
+    if (current && !current.done) {
+      if (!_hasSnapshotRepairContinuationTrigger()) _scheduleSnapshotRepairContinuation();
+      return jsonOk({ repairState: current, alreadyRunning: true });
+    }
     return jsonOk({ repairState: _startSnapshotConsistencyRepair(true) });
   } catch (err) {
+    var retryRaw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    var retryState = retryRaw ? JSON.parse(retryRaw) : null;
+    if (retryState && !retryState.done) return jsonOk({ repairState: retryState, alreadyRunning: true });
     return jsonError('전체 스냅샷 재작성 시작 실패: ' + err.message);
   }
 }
@@ -5573,7 +5586,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.83' });
+    return jsonOk({ settings: settings, gasVersion: '9.84' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5595,7 +5608,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.83'
+      gasVersion: '9.84'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

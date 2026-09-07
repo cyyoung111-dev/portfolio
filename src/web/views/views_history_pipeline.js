@@ -357,7 +357,8 @@ async function startFullHistorySnapshotRepair() {
   try {
     const data = await requestGsheetFormJson('startSnapshotRepair', {}, { timeoutMs: 120000, retry: 0 });
     if (!data || data.status === 'error') throw new Error(data?.message || 'GAS 응답이 없습니다.');
-    _renderFullHistoryRepairStatus(data.repairState || null, '전체 재작성을 시작했습니다.');
+    _renderFullHistoryRepairStatus(data.repairState || null, data.alreadyRunning ? '기존 전체 재작성 작업을 계속 확인합니다.' : '전체 재작성을 시작했습니다.');
+    if (data.alreadyRunning) showToast('이미 진행 중인 GAS 전체 재작성 작업의 상태를 이어서 확인합니다.', 'info');
     if (btn) btn.textContent = '⏳ 전체 재작성 중';
     await _pollFullHistorySnapshotRepair();
   } catch (e) {
