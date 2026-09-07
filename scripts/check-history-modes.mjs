@@ -88,8 +88,8 @@ assert.match(pipelineSource, /requestGsheetFormJson\('startSnapshotRepair'/, '�
 assert.match(pipelineSource, /이미 진행 중인 GAS 전체 재작성 작업의 상태를 이어서 확인합니다/, '진행 중 재요청은 실패가 아니라 기존 작업 상태 확인으로 안내해야 합니다.');
 assert.match(pipelineSource, /구글시트의 기존 스냅샷을 모두 다시 작성/, '전체 재작성 확인창은 GAS 구글시트 데이터가 변경됨을 명시해야 합니다.');
 assert.match(pipelineSource, /로컬 데이터만 바꾸는 기능이 아니며/, '전체 재작성이 로컬 전용 작업으로 오해되지 않게 안내해야 합니다.');
-assert.match(pipelineSource, /예상 최소 \$\{estimatedMinutes\}분 \(분당 최대 3일 처리\)/, '전체 재작성 진행상황에 예상 최소 시간을 표시해야 합니다.');
-assert.match(pipelineSource, /_historyRequestJson\('getSnapshotRepairStatus'/, '전체 스냅샷 재작성 진행상황을 조회해야 합니다.');
+assert.match(pipelineSource, /requestGsheetFormJson\('continueSnapshotRepair'/, '화면이 열린 동안 다음 전체 재작성 배치를 직접 요청해야 합니다.');
+assert.match(pipelineSource, /화면 연결 중 연속 처리/, '화면 연결 여부에 따른 재작성 속도 차이를 안내해야 합니다.');
 assert.match(gasSource, /params\.action === 'startSnapshotRepair'[\s\S]*handleStartSnapshotRepair\(\)/, 'GAS POST route가 전체 재작성 시작 API에 연결되어야 합니다.');
 assert.match(pipelineSource, /날짜별 진행 상태/, '날짜별 복구 진행 상태를 표시해야 합니다.');
 assert.match(pipelineSource, /성공 \$\{repairResult\.repaired\}개 · 실패/, '복구 성공 개수와 실패 내역을 표시해야 합니다.');

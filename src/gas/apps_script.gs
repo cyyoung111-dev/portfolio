@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.84
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.85
+//
+//  v9.85 변경사항 (2026.09.07):
+//   ✅ [속도]   손익 그래프가 열린 동안 웹 요청으로 다음 재작성 배치를 즉시 연속 처리
+//   ✅ [정확성] 강제 재작성 시 스냅샷 생성 오류를 빈 보유내역과 구분해 기존 행 오삭제 방지
 //
 //  v9.84 변경사항 (2026.09.07):
 //   ✅ [사용성] 전체 재작성 실행 중 재요청은 잠금 대기 대신 기존 작업 상태를 반환
@@ -607,7 +611,8 @@ function doGet(e) {
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
       params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
-      params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' || params.action === 'refreshEtfDividends') {
+      params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' ||
+      params.action === 'continueSnapshotRepair' || params.action === 'refreshEtfDividends') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -645,6 +650,7 @@ function doPost(e) {
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
   if (params.action === 'startSnapshotRepair') return handleStartSnapshotRepair();
+  if (params.action === 'continueSnapshotRepair') return handleContinueSnapshotRepair();
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
   if (params.action === 'repairSnapshots' && params.data) return handleRepairSnapshots(params.data);
   // ★ [최적화] 배치 수동가격 저장 — 건당 개별 요청 → 1회 일괄 처리
@@ -3142,7 +3148,7 @@ function _rebuildSnapshotForDateFromHistory(ss, dateStr, targetCode, targetName)
   }
 }
 
-function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
+function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
   var out = [];
   try {
     var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
@@ -3244,6 +3250,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr) {
     });
   } catch (e) {
     Logger.log('\u26a0\ufe0f \uc2a4\ub0c5\uc0f7 \uc7ac\uacc4\uc0f0\uc6a9 \ub370\uc774\ud130 \uc0dd\uc131 \uc2e4\ud328(' + dateStr + '): ' + e.message);
+    if (throwOnError) throw e;
   }
   return _dedupeSnapshotRows(out);
 }
@@ -4037,6 +4044,17 @@ function handleGetSnapshotRepairStatus() {
   }
 }
 
+function handleContinueSnapshotRepair() {
+  try {
+    return jsonOk({ repairState: continueSnapshotConsistencyRepair() });
+  } catch (err) {
+    var raw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+    var state = raw ? JSON.parse(raw) : null;
+    if (state && !state.done) return jsonOk({ repairState: state, busy: true, message: err.message || String(err) });
+    return jsonError('전체 스냅샷 재작성 계속 처리 실패: ' + err.message);
+  }
+}
+
 function continueSnapshotConsistencyRepair() {
   var lock = LockService.getScriptLock();
   var locked = false;
@@ -4056,7 +4074,7 @@ function continueSnapshotConsistencyRepair() {
     var batchHadDateError = false;
     dates.forEach(function(snapshotDate) {
       try {
-        var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
+        var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate, !!state.forceRewrite);
         if (expected.length === 0) {
           var emptyDateRows = _readSnapshotRowsByDate(ss, snapshotDate);
           if (state.forceRewrite && emptyDateRows.length > 0) {
@@ -5586,7 +5604,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.84' });
+    return jsonOk({ settings: settings, gasVersion: '9.85' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5608,7 +5626,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.84'
+      gasVersion: '9.85'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

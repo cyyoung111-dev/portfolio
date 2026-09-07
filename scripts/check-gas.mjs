@@ -286,6 +286,9 @@ if (!snapshotRepairMatch
     || !source.includes('delete state.failedDateErrors[snapshotDate]')
     || !source.includes('state.failed = failedDates.length')
     || !source.includes('function handleGetSnapshotRepairStatus()')
+    || !source.includes('function handleContinueSnapshotRepair()')
+    || !source.includes('_buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate, !!state.forceRewrite)')
+    || !source.includes('if (throwOnError) throw e;')
     || !source.includes("'showSnapshotConsistencyRepairStatus'")) {
   console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');
   process.exit(1);
