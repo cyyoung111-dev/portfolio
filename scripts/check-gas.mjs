@@ -264,7 +264,9 @@ if (!source.includes("params.action === 'getHistoryDetail'")
 }
 
 const snapshotRepairMatch = source.match(/function\s+_startSnapshotConsistencyRepair\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+const snapshotContinuationMatch = source.match(/function\s+continueSnapshotConsistencyRepair\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
 if (!snapshotRepairMatch
+    || !snapshotContinuationMatch
     || /saveDailyPriceHistory\s*\(/.test(snapshotRepairMatch[1])
     || /fetchPrices(?:Krx|GoogleFinance)\s*\(/.test(snapshotRepairMatch[1])
     || !/_getAllPriceHistoryDates\s*\(/.test(snapshotRepairMatch[1])
@@ -277,6 +279,8 @@ if (!snapshotRepairMatch
     || !source.includes('function handleStartSnapshotRepair()')
     || !source.includes('_startSnapshotConsistencyRepair(true)')
     || !source.includes('!state.forceRewrite && _snapshotRowsSignature(existing)')
+    || /locked = true;\s*_clearSnapshotRepairContinuationTriggers\(\)/.test(snapshotContinuationMatch[1])
+    || !source.includes("if (!batchHadDateError) state.lastError = ''")
     || !source.includes('function handleGetSnapshotRepairStatus()')
     || !source.includes("'showSnapshotConsistencyRepairStatus'")) {
   console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');

@@ -311,10 +311,13 @@ function _renderFullHistoryRepairStatus(state, message) {
   }
   const total = Number(state.total || 0);
   const checked = Number(state.checked || 0);
+  const remaining = Math.max(0, total - checked);
+  const estimatedMinutes = Math.ceil(remaining / 3);
   const color = state.done ? 'var(--green)' : 'var(--amber)';
   el.innerHTML = `<div class="hist-repair-progress" style="margin-bottom:8px;color:${color}">
     <b>${state.done ? '✅ GAS 스냅샷 시트 재작성 완료' : '⏳ GAS 스냅샷 시트 재작성 중'}</b>
     · 점검 ${checked}/${total} · 재작성 ${Number(state.repaired || 0)} · 일치 ${Number(state.unchanged || 0)} · 자료없음 ${Number(state.skipped || 0)} · 실패 ${Number(state.failed || 0)}
+    ${!state.done && remaining > 0 ? ` · 예상 최소 ${estimatedMinutes}분 (분당 최대 3일 처리)` : ''}
     ${state.lastDate ? ` · 최근 ${_escapeHtml(state.lastDate)}` : ''}${state.lastError ? `<br>⚠️ ${_escapeHtml(state.lastError)}` : ''}
   </div>`;
 }

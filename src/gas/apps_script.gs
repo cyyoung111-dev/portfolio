@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.81
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.82
+//
+//  v9.82 변경사항 (2026.09.07):
+//   ✅ [동시성] 전체 스냅샷 배치 실행 중 트리거를 지워 상태조회가 중복 트리거를 만드는 경쟁상태 제거
+//   ✅ [상태]   재시도 성공 후 과거 배치 오류 문구를 정리해 진행 중 오류로 오인하지 않도록 개선
 //
 //  v9.81 변경사항 (2026.09.07):
 //   ✅ [사용성] 손익 그래프에서 전체 가격이력 스냅샷 재작성 시작·진행상황 조회 API 제공
@@ -4009,7 +4013,6 @@ function continueSnapshotConsistencyRepair() {
   try {
     lock.waitLock(30000);
     locked = true;
-    _clearSnapshotRepairContinuationTriggers();
     var props = PropertiesService.getScriptProperties();
     var rawState = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
     if (!rawState) throw new Error('진행 중인 전체 정합성 복구가 없습니다.');
@@ -4018,6 +4021,7 @@ function continueSnapshotConsistencyRepair() {
     var allDates = _getAllPriceHistoryDates(ss, state.maxDate);
     state.total = allDates.length;
     var dates = allDates.slice(state.nextIndex, state.nextIndex + SNAPSHOT_REPAIR_BATCH_SIZE);
+    var batchHadDateError = false;
     dates.forEach(function(snapshotDate) {
       try {
         var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
@@ -4033,6 +4037,7 @@ function continueSnapshotConsistencyRepair() {
           }
         }
       } catch (dateError) {
+        batchHadDateError = true;
         state.failed++;
         state.lastError = snapshotDate + ': ' + dateError.message;
       }
@@ -4041,6 +4046,7 @@ function continueSnapshotConsistencyRepair() {
       state.lastDate = snapshotDate;
     });
     SpreadsheetApp.flush();
+    if (!batchHadDateError) state.lastError = '';
     state.done = state.nextIndex >= allDates.length;
     state.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
     props.setProperty(SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify(state));
@@ -5538,7 +5544,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.81' });
+    return jsonOk({ settings: settings, gasVersion: '9.82' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5560,7 +5566,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.81'
+      gasVersion: '9.82'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
