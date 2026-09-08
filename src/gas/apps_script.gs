@@ -3590,6 +3590,33 @@ function getEarliestPriceHistory(ss, codes, minDate, throwOnError) {
   }
 }
 
+// 기준일 이전 가격이 전혀 없는 최초 구간에서만 사용할 가장 가까운 이후 가격입니다.
+// 일반적인 누락일은 getLatestPriceHistory()의 직전값을 우선하므로 미래 가격이 덮어쓰지 않습니다.
+function getEarliestPriceHistory(ss, codes, minDate) {
+  try {
+    var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+    if (!ph || ph.getLastRow() < 2) return {};
+    var data = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+    var codeAliasToCanonical = _buildCodeAliasMap(codes);
+    var earliest = {};
+    data.forEach(function(row) {
+      var date = _normalizeDate(row[0]);
+      var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+      var name = (row[2] || '').toString().trim();
+      var price = parseFloat(row[3]) || 0;
+      var outKey = codeAliasToCanonical[code || name];
+      if (!date || !outKey || price <= 0 || (minDate && date < minDate)) return;
+      if (!earliest[outKey] || date < earliest[outKey].date) earliest[outKey] = { date: date, price: price };
+    });
+    var result = {};
+    Object.keys(earliest).forEach(function(key) { result[key] = earliest[key].price; });
+    return result;
+  } catch(err) {
+    Logger.log('❌ getEarliestPriceHistory 실패: ' + err.message);
+    return {};
+  }
+}
+
 function _getLatestPriceHistoryDate(ss, maxDate) {
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -4091,6 +4118,7 @@ function continueSnapshotConsistencyRepair() {
     var allDates = _getAllPriceHistoryDates(ss, state.maxDate);
     state.total = allDates.length;
     var dates = allDates.slice(state.nextIndex, state.nextIndex + SNAPSHOT_REPAIR_BATCH_SIZE);
+    var batchHadDateError = false;
     dates.forEach(function(snapshotDate) {
       try {
         var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate, !!state.forceRewrite);
