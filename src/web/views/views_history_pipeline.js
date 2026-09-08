@@ -302,6 +302,71 @@ async function repairHistorySnapshotGaps() {
   }
 }
 
+function _renderFullHistoryRepairStatus(state, message) {
+  const el = $el('histFullRepairStatus');
+  if (!el) return;
+  if (!state) {
+    el.innerHTML = message ? `<div class="hist-repair-progress">${_escapeHtml(message)}</div>` : '';
+    return;
+  }
+  const total = Number(state.total || 0);
+  const checked = Number(state.checked || 0);
+  const remaining = Math.max(0, total - checked);
+  const fallbackMinutes = Math.ceil(remaining / 3);
+  const color = state.done ? 'var(--green)' : 'var(--amber)';
+  el.innerHTML = `<div class="hist-repair-progress" style="margin-bottom:8px;color:${color}">
+    <b>${state.done ? '✅ GAS 스냅샷 시트 재작성 완료' : '⏳ GAS 스냅샷 시트 재작성 중'}</b>
+    · 점검 ${checked}/${total} · 재작성 ${Number(state.repaired || 0)} · 일치 ${Number(state.unchanged || 0)} · 자료없음 ${Number(state.skipped || 0)} · 실패 ${Number(state.failed || 0)}
+    ${!state.done && remaining > 0 ? ` · 화면 연결 중 연속 처리 · 화면을 닫으면 약 ${fallbackMinutes}분 이상 (분당 최대 3일)` : ''}
+    ${state.lastDate ? ` · 최근 ${_escapeHtml(state.lastDate)}` : ''}${state.lastError ? `<br>⚠️ ${_escapeHtml(state.lastError)}` : ''}
+  </div>`;
+}
+
+async function _pollFullHistorySnapshotRepair() {
+  if (__histState.fullRepairPolling || !GSHEET_API_URL) return;
+  __histState.fullRepairPolling = true;
+  try {
+    while (__histState.fullRepairPolling) {
+      const data = await requestGsheetFormJson('continueSnapshotRepair', {}, { timeoutMs: 120000, retry: 0 });
+      if (!data || data.status === 'error') throw new Error(data?.message || '진행상황 응답이 없습니다.');
+      const state = data.repairState || null;
+      _renderFullHistoryRepairStatus(state, state ? '' : '전체 재작성 기록이 없습니다.');
+      if (!state || state.done) {
+        __histState.fullRepairPolling = false;
+        const btn = $el('btn-history-full-repair');
+        if (btn) { btn.disabled = false; btn.textContent = '🧰 GAS 전체 재작성'; }
+        if (state?.done) await loadHistoryChart();
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+  } catch (e) {
+    __histState.fullRepairPolling = false;
+    _renderFullHistoryRepairStatus(null, `전체 재작성 진행상황 조회 실패: ${e.message || '알 수 없는 오류'}`);
+    const btn = $el('btn-history-full-repair');
+    if (btn) { btn.disabled = false; btn.textContent = '🧰 상태 다시 확인'; }
+  }
+}
+
+async function startFullHistorySnapshotRepair() {
+  if (!GSHEET_API_URL || __histState.fullRepairPolling) return;
+  if (!confirm('연결된 GAS의 가격이력과 거래이력으로 구글시트의 기존 스냅샷을 모두 다시 작성할까요?\n로컬 데이터만 바꾸는 기능이 아니며, 외부 가격은 새로 조회하지 않습니다. 완료 후 GAS 데이터를 다시 받아 손익 그래프를 갱신합니다.')) return;
+  const btn = $el('btn-history-full-repair');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 재작성 시작 중'; }
+  _renderFullHistoryRepairStatus(null, '전체 스냅샷 재작성을 시작하는 중입니다.');
+  try {
+    const data = await requestGsheetFormJson('startSnapshotRepair', {}, { timeoutMs: 120000, retry: 0 });
+    if (!data || data.status === 'error') throw new Error(data?.message || 'GAS 응답이 없습니다.');
+    _renderFullHistoryRepairStatus(data.repairState || null, data.alreadyRunning ? '기존 전체 재작성 작업을 계속 확인합니다.' : '전체 재작성을 시작했습니다.');
+    if (data.alreadyRunning) showToast('이미 진행 중인 GAS 전체 재작성 작업의 상태를 이어서 확인합니다.', 'info');
+    if (btn) btn.textContent = '⏳ 전체 재작성 중';
+    await _pollFullHistorySnapshotRepair();
+  } catch (e) {
+    _renderFullHistoryRepairStatus(null, `전체 재작성 시작 실패: ${e.message || '알 수 없는 오류'}`);
+    if (btn) { btn.disabled = false; btn.textContent = '🧰 GAS 전체 재작성'; }
+  }
+}
+
 function _mergeTradeBasedCost(snapshots) {
   if (!Array.isArray(snapshots) || snapshots.length === 0) return snapshots;
   if (!Array.isArray(rawTrades) || rawTrades.length === 0) return snapshots;
