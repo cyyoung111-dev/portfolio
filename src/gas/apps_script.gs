@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.85
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.86
+//
+//  v9.86 변경사항 (2026.09.08):
+//   ✅ [정확성] 과거 환율 이력이 없는 외화 스냅샷 행은 전체 강제 재작성에서 기존 값 보존
+//   ✅ [오류]   가격·종목·소스 내부 조회 실패를 강제 재작성 날짜 실패로 전파
 //
 //  v9.85 변경사항 (2026.09.07):
 //   ✅ [속도]   손익 그래프가 열린 동안 웹 요청으로 다음 재작성 배치를 즉시 연속 처리
@@ -3156,7 +3160,8 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
     var tradeData = tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1, 8).getValues();
 
     var nameToCode = {};
-    getCodeItems(ss).forEach(function(item){ if (item.name && item.code) nameToCode[item.name] = item.code; });
+    var codeItems = getCodeItems(ss, throwOnError);
+    codeItems.forEach(function(item){ if (item.name && item.code) nameToCode[item.name] = item.code; });
     tradeData.forEach(function(row) {
       var name = (row[3] || '').toString().trim();
       var code = _cleanCode(row[4]) || (row[4] || '').toString().trim();
@@ -3164,9 +3169,9 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
     });
 
     var holdAtDate = calcHoldingsAtDate(tradeData, dateStr, nameToCode);
-    var prices = getPriceHistoryRow(ss, dateStr);
+    var prices = getPriceHistoryRow(ss, dateStr, throwOnError);
     // ★ sourceMap 이제 { src, savedAt } 객체 반환
-    var sourceMap = _getPriceSourceByDate(ss, dateStr);
+    var sourceMap = _getPriceSourceByDate(ss, dateStr, throwOnError);
 
     // ★ 해당 날짜 가격이 없으면 직전 가격을 우선 사용합니다. 직전 이력도 없는
     // 최초 구간만 가장 가까운 이후 가격을 사용해 빈 가격을 매입원가로 오인하지 않습니다.
@@ -3180,7 +3185,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
       if (!prices[key]) missingCodes.push(key);
     });
     if (missingCodes.length > 0) {
-      var latestPrices = getLatestPriceHistory(ss, missingCodes, dateStr);
+      var latestPrices = getLatestPriceHistory(ss, missingCodes, dateStr, throwOnError);
       Object.keys(latestPrices).forEach(function(k) {
         if (!prices[k] && latestPrices[k] > 0) prices[k] = latestPrices[k];
         // ★ sourceMap도 함께 채움 — _getPriceSourceByDate가 이미 MANUAL fallback을 처리하지만
@@ -3188,7 +3193,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
       });
       var stillMissingCodes = missingCodes.filter(function(k) { return !(prices[k] > 0); });
       if (stillMissingCodes.length > 0) {
-        var nearestFuturePrices = getEarliestPriceHistory(ss, stillMissingCodes, dateStr);
+        var nearestFuturePrices = getEarliestPriceHistory(ss, stillMissingCodes, dateStr, throwOnError);
         Object.keys(nearestFuturePrices).forEach(function(k) {
           if (!prices[k] && nearestFuturePrices[k] > 0) prices[k] = nearestFuturePrices[k];
         });
@@ -3197,18 +3202,11 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
 
     // ★ 종목코드→통화 맵 (종목코드 시트에서 currency 컬럼 읽기)
     var codeToCurrency = {};
-    try {
-      var codeSh = ss.getSheetByName(CONFIG.SHEET_CODES);
-      if (codeSh && codeSh.getLastRow() > 1) {
-        // 종목코드 시트: 코드(A), 이름(B), 유형(C), 섹터(D), 통화(E) — 컬럼 수 유동적이므로 방어적 읽기
-        var codeData = codeSh.getRange(2, 1, codeSh.getLastRow() - 1, Math.min(5, codeSh.getLastColumn())).getValues();
-        codeData.forEach(function(row) {
-          var code = _cleanCode(row[0]) || (row[0] || '').toString().trim();
-          var cur  = (row[4] || '').toString().trim().toUpperCase();
-          if (code && cur && cur !== 'KRW') codeToCurrency[code] = cur;
-        });
-      }
-    } catch(e) {}
+    codeItems.forEach(function(item) {
+      var code = _cleanCode(item.code) || (item.code || '').toString().trim();
+      var cur = (item.currency || '').toString().trim().toUpperCase();
+      if (code && cur && cur !== 'KRW') codeToCurrency[code] = cur;
+    });
 
     // 실제 보유 종목에 필요한 외화만 조회합니다. 국내 종목만 있으면 환율용
     // GOOGLEFINANCE 임시 시트를 만들지 않습니다.
@@ -3220,7 +3218,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
       if (currency !== 'KRW' && neededCurrencies.indexOf(currency) === -1) neededCurrencies.push(currency);
     });
     var fxRates = {};
-    if (neededCurrencies.length > 0) {
+    if (neededCurrencies.length > 0 && !throwOnError) {
       try { fxRates = fetchExchangeRates(ss, neededCurrencies); } catch(e) {}
     }
 
@@ -3295,7 +3293,25 @@ function _snapshotRowsSignature(rows) {
   return JSON.stringify(norm);
 }
 
-function _getPriceSourceByDate(ss, dateStr) {
+// 가격이력에는 외화 종목 가격만 있고 날짜별 환율 이력은 없으므로, 과거 날짜를
+// 현재 환율로 다시 계산하지 않습니다. 전체 강제 재작성에서는 국내 행만 새로 만들고
+// 기존 외화 행은 그대로 합칩니다.
+function _preserveExistingForeignSnapshotRows(ss, existingRows, expectedRows) {
+  var foreignCodes = {};
+  getCodeItems(ss, true).forEach(function(item) {
+    if (item.code && item.currency && item.currency !== 'KRW') foreignCodes[_cleanCode(item.code) || item.code] = true;
+  });
+  var isForeign = function(row) {
+    var code = _cleanCode(row && row[1]) || ((row && row[1]) || '').toString().trim();
+    return !!foreignCodes[code];
+  };
+  return _dedupeSnapshotRows(
+    (expectedRows || []).filter(function(row) { return !isForeign(row); })
+      .concat((existingRows || []).filter(isForeign))
+  );
+}
+
+function _getPriceSourceByDate(ss, dateStr, throwOnError) {
   var out = {};
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -3349,6 +3365,7 @@ function _getPriceSourceByDate(ss, dateStr) {
     });
   } catch (e) {
     Logger.log('⚠️ 가격소스 조회 실패(' + dateStr + '): ' + e.message);
+    if (throwOnError) throw e;
   }
   return out;
 }
@@ -3459,7 +3476,7 @@ function _pruneManualPriceHistoryKeepLatest(ss, code, name) {
 // ════════════════════════════════════════════════════════════════════
 //  내부 — 가격이력 시트 특정 날짜 행 읽기
 // ════════════════════════════════════════════════════════════════════
-function getPriceHistoryRow(ss, dateStr) {
+function getPriceHistoryRow(ss, dateStr, throwOnError) {
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
@@ -3492,6 +3509,7 @@ function getPriceHistoryRow(ss, dateStr) {
     return result;
   } catch(err) {
     Logger.log('❌ getPriceHistoryRow 실패: ' + err.message);
+    if (throwOnError) throw err;
     return {};
   }
 }
@@ -3499,8 +3517,8 @@ function getPriceHistoryRow(ss, dateStr) {
 // ════════════════════════════════════════════════════════════════════
 //  내부 — 가격이력 시트에서 지정 코드들의 가장 최근 날짜 가격 조회
 // ════════════════════════════════════════════════════════════════════
-function getLatestPriceHistory(ss, codes, maxDate) {
-  var entries = getLatestPriceHistoryEntries(ss, codes, maxDate);
+function getLatestPriceHistory(ss, codes, maxDate, throwOnError) {
+  var entries = getLatestPriceHistoryEntries(ss, codes, maxDate, throwOnError);
   var result = {};
   Object.keys(entries).forEach(function(key) { result[key] = entries[key].price; });
   return result;
@@ -3508,7 +3526,7 @@ function getLatestPriceHistory(ss, codes, maxDate) {
 
 // 최신 가격뿐 아니라 실제 가격이력 날짜도 함께 반환합니다.
 // KRX fallback 날짜보다 저장 이력이 최신인지 비교할 때 사용합니다.
-function getLatestPriceHistoryEntries(ss, codes, maxDate) {
+function getLatestPriceHistoryEntries(ss, codes, maxDate, throwOnError) {
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph || ph.getLastRow() < 2) return {};
@@ -3539,6 +3557,35 @@ function getLatestPriceHistoryEntries(ss, codes, maxDate) {
     return latest;
   } catch(err) {
     Logger.log('❌ getLatestPriceHistoryEntries 실패: ' + err.message);
+    if (throwOnError) throw err;
+    return {};
+  }
+}
+
+// 기준일 이전 가격이 전혀 없는 최초 구간에서만 사용할 가장 가까운 이후 가격입니다.
+// 일반적인 누락일은 getLatestPriceHistory()의 직전값을 우선하므로 미래 가격이 덮어쓰지 않습니다.
+function getEarliestPriceHistory(ss, codes, minDate, throwOnError) {
+  try {
+    var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+    if (!ph || ph.getLastRow() < 2) return {};
+    var data = ph.getRange(2, 1, ph.getLastRow() - 1, 4).getValues();
+    var codeAliasToCanonical = _buildCodeAliasMap(codes);
+    var earliest = {};
+    data.forEach(function(row) {
+      var date = _normalizeDate(row[0]);
+      var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
+      var name = (row[2] || '').toString().trim();
+      var price = parseFloat(row[3]) || 0;
+      var outKey = codeAliasToCanonical[code || name];
+      if (!date || !outKey || price <= 0 || (minDate && date < minDate)) return;
+      if (!earliest[outKey] || date < earliest[outKey].date) earliest[outKey] = { date: date, price: price };
+    });
+    var result = {};
+    Object.keys(earliest).forEach(function(key) { result[key] = earliest[key].price; });
+    return result;
+  } catch(err) {
+    Logger.log('❌ getEarliestPriceHistory 실패: ' + err.message);
+    if (throwOnError) throw err;
     return {};
   }
 }
@@ -4075,16 +4122,16 @@ function continueSnapshotConsistencyRepair() {
     dates.forEach(function(snapshotDate) {
       try {
         var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate, !!state.forceRewrite);
+        var existing = _readSnapshotRowsByDate(ss, snapshotDate);
+        if (state.forceRewrite) expected = _preserveExistingForeignSnapshotRows(ss, existing, expected);
         if (expected.length === 0) {
-          var emptyDateRows = _readSnapshotRowsByDate(ss, snapshotDate);
-          if (state.forceRewrite && emptyDateRows.length > 0) {
+          if (state.forceRewrite && existing.length > 0) {
             writeSnapshotRows(ss, snapshotDate, [], true);
             state.repaired++;
           } else {
             state.skipped++;
           }
         } else {
-          var existing = _readSnapshotRowsByDate(ss, snapshotDate);
           if (!state.forceRewrite && _snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
             state.unchanged++;
           } else {
@@ -5315,7 +5362,7 @@ function _pad(n) { return n < 10 ? '0' + n : '' + n; }
 // ════════════════════════════════════════════════════════════════════
 //  종목코드 목록 로드
 // ════════════════════════════════════════════════════════════════════
-function getCodeItems(ss) {
+function getCodeItems(ss, throwOnError) {
   try {
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     if (!cs || cs.getLastRow() < 2) return [];
@@ -5335,6 +5382,7 @@ function getCodeItems(ss) {
       .filter(function(item){ return item.code && item.code !== '000000'; });
   } catch(err) {
     Logger.log('❌ getCodeItems 실패: ' + err.message);
+    if (throwOnError) throw err;
     return [];
   }
 }
@@ -5604,7 +5652,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.85' });
+    return jsonOk({ settings: settings, gasVersion: '9.86' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5626,7 +5674,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.85'
+      gasVersion: '9.86'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

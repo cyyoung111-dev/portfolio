@@ -191,7 +191,7 @@ if (!source.includes('function _hasUsdPriceItems(items)')
   process.exit(1);
 }
 
-if (!source.includes('function getLatestPriceHistoryEntries(ss, codes, maxDate)')
+if (!source.includes('function getLatestPriceHistoryEntries(ss, codes, maxDate, throwOnError)')
     || !source.includes('latestEntry.date > priceDates[code]')
     || !source.includes('priceDates: priceDates')
     || !source.includes('_rebuildSnapshotForDateFromHistory(ss, latestDisplayDate)')
@@ -289,6 +289,10 @@ if (!snapshotRepairMatch
     || !source.includes('function handleContinueSnapshotRepair()')
     || !source.includes('_buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate, !!state.forceRewrite)')
     || !source.includes('if (throwOnError) throw e;')
+    || !source.includes('function _preserveExistingForeignSnapshotRows')
+    || !source.includes('if (state.forceRewrite) expected = _preserveExistingForeignSnapshotRows')
+    || !source.includes('getPriceHistoryRow(ss, dateStr, throwOnError)')
+    || !source.includes('getLatestPriceHistory(ss, missingCodes, dateStr, throwOnError)')
     || !source.includes("'showSnapshotConsistencyRepairStatus'")) {
   console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');
   process.exit(1);
