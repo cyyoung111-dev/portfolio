@@ -8,6 +8,7 @@ let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
 let _editorLoadSeq = 0; // ★ 날짜 변경 시 이전 로딩 결과 무시용
 let _editorHistoryTargets = [];
 let _fundUnitConfigs = [];
+let _fundUnitItems = [];
 let _fundUnitDrafts = {};
 let _fundUnitBusy = false;
 let _fundUnitsStatus = '';
@@ -28,21 +29,35 @@ function _renderFundUnitsEditor(items) {
     ['KB_VALUE_ST', 'KB 밸류포커스 소득공제 S-T'],
     ['FIDELITY_BIG4_S', '피델리티 월드Big4 S'],
   ];
-  return `<section class="editor-price-section fund-units-panel"><h4>펀드 좌수 자동 평가</h4>
-    <p>종목코드별 전체 좌수 × 일별 기준가격 ÷ 1,000. 등록 후 매일 한국시간 19시대에 누락분을 채웁니다. 좌수 변경은 변경일부터 등록하세요. 0좌는 자동 평가 중단입니다.</p>
-    ${items.filter(item => /^F\d{5}$/.test(item.code || '')).map(item => {
+  const today = _kstTodayStr();
+  const renderFund = item => {
       const code = item.code;
-      const saved = _fundUnitConfigs.filter(c => c.code === code).sort((a,b) => b.startDate.localeCompare(a.startDate))[0];
+      const history = _fundUnitConfigs.filter(c => c.code === code).sort((a,b) => b.startDate.localeCompare(a.startDate));
+      const current = history.find(config => config.startDate <= today) || null;
+      const latest = history[0] || null;
       const draft = _fundUnitDrafts[code] || {};
-      const provider = draft.provider ?? saved?.provider ?? '';
+      const provider = draft.provider ?? current?.provider ?? latest?.provider ?? '';
+      const units = draft.units ?? current?.units ?? latest?.units ?? '';
+      const startDate = draft.startDate ?? today;
       return `<fieldset><legend>${_escapeHtml(item.name)} (${_escapeHtml(code)})</legend>
         <label>정확한 클래스 <select data-fund-code="${code}" data-fund-field="provider"><option value="">선택하세요</option>${options.map(([id,label]) => `<option value="${id}" ${provider === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
-        <label>전체 좌수 <input type="number" min="0" step="any" data-fund-code="${code}" data-fund-field="units" value="${_escapeHtml(String(draft.units ?? saved?.units ?? ''))}"></label>
-        <label>적용 시작일 <input type="date" data-fund-code="${code}" data-fund-field="startDate" value="${_escapeHtml(draft.startDate ?? saved?.startDate ?? _kstTodayStr())}"></label>
+        <label>전체 좌수 <input type="number" min="0" step="any" data-fund-code="${code}" data-fund-field="units" value="${_escapeHtml(String(units))}"></label>
+        <label>적용 시작일 <input type="date" data-fund-code="${code}" data-fund-field="startDate" value="${_escapeHtml(startDate)}"></label>
         <button type="button" class="btn-ghost-sm" data-fund-action="save" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>좌수 저장</button>
-        ${saved ? `<p>저장됨: ${_escapeHtml(saved.startDate)}부터 ${Number(saved.units).toLocaleString()}좌</p>` : ''}
+        ${history.length ? `<div class="fund-units-history"><b>좌수 변경 이력</b>${history.map(config => {
+          const status = config.startDate === item.currentConfigStartDate
+            ? (Number(config.units) === 0 ? '현재 적용 · 자동평가 중단' : '현재 적용')
+            : (config.startDate > today ? '예약' : '이전');
+          return `<div><span>${_escapeHtml(config.startDate)}</span><span>${Number(config.units).toLocaleString()}좌</span><span>${_escapeHtml(options.find(option => option[0] === config.provider)?.[1] || config.provider)}</span><em>${status}</em></div>`;
+        }).join('')}</div>` : '<p>등록된 좌수 이력이 없습니다.</p>'}
       </fieldset>`;
-    }).join('')}
+    };
+  const currentItems = items.filter(item => item.currentHolding);
+  const pastItems = items.filter(item => !item.currentHolding);
+  return `<section class="editor-price-section fund-units-panel"><h4>펀드 좌수 자동 평가</h4>
+    <p>종목코드별 전체 좌수 × 일별 기준가격 ÷ 1,000. 좌수 변경은 변경일부터 새 이력을 추가하세요. 0좌부터 자동 평가는 중단하며 기존 기록은 보존합니다.</p>
+    ${currentItems.length ? `<div class="fund-units-group"><h5>현재 보유 펀드</h5>${currentItems.map(renderFund).join('')}</div>` : ''}
+    ${pastItems.length ? `<div class="fund-units-group"><h5>과거 보유 / 전량 매도 펀드</h5>${pastItems.map(renderFund).join('')}</div>` : ''}
     <p>기존 가격·수동 입력·스냅샷은 보존합니다. 아래 기간의 미작성 평가금액만 채웁니다.</p>
     <label>시작일 <input type="date" data-fund-code="range" data-fund-field="from" value="${_escapeHtml(_fundUnitDrafts.range?.from || _kstTodayStr().slice(0,4) + '-01-01')}"></label>
     <label>종료일 <input type="date" data-fund-code="range" data-fund-field="to" value="${_escapeHtml(_fundUnitDrafts.range?.to || _kstTodayStr())}"></label>
@@ -54,8 +69,9 @@ async function _loadFundUnitsEditor() {
   if (!GSHEET_API_URL) return;
   try {
     const result = await requestGsheetActionJson('getFundUnits', {}, { timeoutMs: 20000, retry: 0 });
-    if (result?.status !== 'ok') throw new Error(result?.message || 'GAS v9.87 재배포가 필요합니다.');
+    if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || 'GAS v9.88 재배포가 필요합니다.');
     _fundUnitConfigs = result.configs || [];
+    _fundUnitItems = result.funds;
     buildEditorUI();
   } catch (error) { _fundUnitsStatus = error.message; buildEditorUI(); }
 }
@@ -72,6 +88,7 @@ async function handleFundUnitAction(action, code) {
       const result = await requestGsheetFormJson('saveFundUnits', { data: JSON.stringify({ ...draft, code }) }, { timeoutMs: 60000, retry: 0 });
       if (result?.status !== 'ok') throw new Error(result?.message || '좌수 저장 실패');
       _fundUnitConfigs = result.configs || [];
+      _fundUnitItems = result.funds || _fundUnitItems;
       _fundUnitsStatus = '좌수 저장 완료. 과거 기간은 기간 평가금액 채우기를 실행하세요. 매일 자동 반영이 설정됐습니다.';
     } else if (action === 'fill') {
       const from = _fundUnitDrafts.range?.from;
@@ -388,9 +405,9 @@ function buildEditorUI() {
   );
 
   if (_editorMode === 'fund-units') {
-    $el('editorBody').innerHTML = fundItems.length
-      ? _renderFundUnitsEditor(fundItems)
-      : '<div class="empty-msg" style="padding:30px 0">현재 보유 중인 펀드·TDF가 없습니다.</div>';
+    $el('editorBody').innerHTML = _fundUnitItems.length
+      ? _renderFundUnitsEditor(_fundUnitItems)
+      : '<div class="empty-msg" style="padding:30px 0">기초정보·거래이력·기존 좌수 설정에 근거가 있는 F코드가 없습니다.</div>';
     return;
   }
 

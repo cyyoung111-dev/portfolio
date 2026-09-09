@@ -69,17 +69,35 @@ const configs = [
 const nav=[{date:'2025-12-31',nav:1000.25},{date:'2026-01-02',nav:1100.25},{date:'2026-01-07',nav:1200.25}];
 const daily=clone(context._fundDailyValues(configs,'F00001',nav,'2025-12-30','2026-01-08'));
 assert.equal(daily.length,5);
+assert.deepEqual(daily.map(row=>row.date),['2026-01-01','2026-01-02','2026-01-03','2026-01-04','2026-01-05']);
 assert.equal(daily[0].evalAmt,1000);
 assert.equal(daily[2].sourceDate,'2026-01-02');
 assert.equal(daily[3].evalAmt,2201);
 assert.equal(daily[0].units,1000);
+assert.equal(daily[3].units,2000,'추가매수 좌수는 변경일부터만 적용');
+assert.equal(daily.some(row=>row.date>='2026-01-06'),false,'0좌 적용일 이후에는 평가금액을 생성하지 않음');
 assert.throws(()=>context._fundDate('2026-02-30'));
 assert.equal(context._fundDailyValues(configs,'F00001',[],'2026-01-01','2026-01-02').length,0);
+
+// 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
+const retiredConfigs=[
+  {code:'F00003',name:'과거 펀드',provider:'FIDELITY_BIG4_S',startDate:'2024-01-01',units:10000},
+  {code:'F00003',name:'과거 펀드',provider:'FIDELITY_BIG4_S',startDate:'2024-01-03',units:12500},
+  {code:'F00003',name:'과거 펀드',provider:'FIDELITY_BIG4_S',startDate:'2024-01-05',units:8000},
+  {code:'F00003',name:'과거 펀드',provider:'FIDELITY_BIG4_S',startDate:'2024-01-07',units:0},
+];
+const retiredDaily=clone(context._fundDailyValues(retiredConfigs,'F00003',[
+  {date:'2024-01-01',nav:1000},{date:'2024-01-04',nav:1200},{date:'2024-01-08',nav:1500}
+],'2024-01-01','2024-01-09'));
+assert.deepEqual(retiredDaily.map(row=>[row.date,row.units,row.evalAmt]),[
+  ['2024-01-01',10000,10000],['2024-01-02',10000,10000],['2024-01-03',12500,12500],
+  ['2024-01-04',12500,15000],['2024-01-05',8000,9600],['2024-01-06',8000,9600]
+]);
 
 // NAV → 가격이력 → 전체 스냅샷 연결 및 재시도/수동값 보호.
 const fundConfig = new Sheet([['code','name','provider','start','units','at'],['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',1000,'']]);
 const prices = new Sheet([['date','code','name','price','at','source'],['2026-01-02','F00001','테스트 펀드',999,'2026-01-02 12:00:00','MANUAL']]);
-const trades = new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드'],['2026-01-01','buy','계좌','주식','000001',2,100,'주식']]);
+const trades = new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드'],['2026-01-01','buy','계좌','주식','000001',2,100,'주식'],['2024-01-01','buy','계좌','과거 펀드','F00003',10,900,'펀드'],['2025-08-25','sell','계좌','과거 펀드','F00003',10,1000,'펀드']]);
 const snapshots = new Sheet([header,snap('2026-01-02','000001',300)]);
 const sheets={'펀드좌수':fundConfig,'가격이력':prices,'거래이력':trades,'스냅샷':snapshots};
 context._fetchFundNav=()=>[{date:'2026-01-01',nav:1000},{date:'2026-01-02',nav:1100}];
@@ -99,6 +117,29 @@ assert(incomplete.missingHoldings.length>0);
 assert.equal(sheets['스냅샷'],undefined);
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
+// 과거 전량 매도 F코드는 보유 기간의 가격이력·스냅샷만 채우고 매도/0좌 이후에는 새 행을 만들지 않습니다.
+const retiredFundSheet = new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-01',10000,''],
+  ['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-03',0,'']]);
+const retiredPricesSheet = new Sheet([['date','code','name','price','at','source']]);
+const retiredTradesSheet = new Sheet([Array(8).fill('header'),
+  ['2024-01-01','buy','계좌','과거 펀드','F00003',10,900,'펀드'],
+  ['2024-01-03','sell','계좌','과거 펀드','F00003',10,1000,'펀드'],
+  ['2024-01-01','buy','계좌','주식','000001',2,100,'주식']]);
+const retiredSnapshotsSheet = new Sheet([header]);
+const retiredSheets={'펀드좌수':retiredFundSheet,'가격이력':retiredPricesSheet,'거래이력':retiredTradesSheet,'스냅샷':retiredSnapshotsSheet};
+context._fetchFundNav=()=>[{date:'2024-01-01',nav:1000},{date:'2024-01-02',nav:1100},{date:'2024-01-03',nav:1200},{date:'2024-01-04',nav:1300}];
+context._buildSnapshotRowsFromTradeAndPriceHistory=(_ss,date)=>[snap(date,'000001',300)];
+const retiredResult=context._refreshFundValuations(ssFor(retiredSheets),'2024-01-01','2024-01-04');
+assert.equal(retiredResult.saved,2);
+assert.deepEqual(retiredPricesSheet.rows.slice(1).map(row=>[row[0],row[1],row[3]]),[['2024-01-01','F00003',10000],['2024-01-02','F00003',11000]]);
+assert.equal(retiredSnapshotsSheet.rows.some(row=>row[0]>='2024-01-03' && row[1]==='F00003'),false);
+assert.equal(Object.keys(context.calcHoldingsAtDate(retiredTradesSheet.rows.slice(1),'2024-01-04',{'과거 펀드':'F00003'})).some(name=>name==='과거 펀드'),false);
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+const zeroOnlySheets={'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-01',0,'']])};
+context._fetchFundNav=()=>{ throw new Error('0좌만 남은 F코드는 조회하면 안 됩니다.'); };
+assert.equal(context._refreshFundValuations(ssFor(zeroOnlySheets),'2026-01-01','2026-01-02').saved,0);
+
 // 설정 저장은 같은 적용일 수정·과거 소급 변경을 거부하고 미래 변경만 추가합니다.
 context.jsonOk=extra=>({status:'ok',...extra});
 context.jsonError=message=>({status:'error',message});
@@ -115,6 +156,16 @@ assert.equal(saveConfig('2026-01-04',0).status,'ok');
 assert.equal(saveConfig('2026-01-05','').status,'error');
 assert.equal(saveConfig('2026-01-05',1000,'__proto__').status,'error');
 assert.equal(saveConfig('2026-01-05',1e30).status,'error');
+const catalog=context._getFundCodeCatalog(ssFor(sheets),context._readFundUnits(ssFor(sheets)));
+assert.equal(catalog.find(item=>item.code==='F00001').currentHolding,true,'현재 보유 F코드는 현재 보유로 분류');
+assert.equal(catalog.find(item=>item.code==='F00003').currentHolding,false,'전량 매도 F코드는 과거 보유로 분류');
+assert.equal(catalog.find(item=>item.code==='F00003').name,'과거 펀드');
+const fundUnitsResponse=context.handleGetFundUnits();
+assert.equal(fundUnitsResponse.funds.find(item=>item.code==='F00003').currentHolding,false,'조회 API도 과거 F코드를 반환');
+const saveRetired=(startDate,units)=>context.handleSaveFundUnits(JSON.stringify({code:'F00003',provider:'FIDELITY_BIG4_S',startDate,units}));
+assert.equal(saveRetired('2024-01-01',10000).status,'ok','거래이력에만 있는 과거 F코드도 좌수 이력을 등록');
+assert.equal(saveRetired('2024-01-01',12000).status,'error','같은 적용일의 다른 좌수는 덮어쓰지 않음');
+assert.equal(context._readFundUnits(ssFor(sheets)).some(c=>c.code==='F00003' && c.units===10000),true);
 
 // 실수량을 가진 펀드도 가격이력 총액을 다시 수량으로 곱하지 않습니다.
 const realSheets={'거래이력':new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','테스트 펀드','F00001',10,100,'펀드']]),
