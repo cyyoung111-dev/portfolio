@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.88
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.89
+//
+//  v9.89 변경사항 (2026.09.09):
+//   펀드 기간 기준가격 조회의 공급자 WAF 403 대응 헤더·원인 메시지 추가
 //
 //  v9.88 변경사항 (2026.09.09):
 //   모든 근거 있는 F코드의 좌수 변경 이력 조회·등록 및 과거 전량매도 종목 평가 지원
@@ -3181,6 +3184,31 @@ function handleSaveFundUnits(dataJson) {
   finally { lock.releaseLock(); }
 }
 
+function _fundNavFetchOptions(provider, spec) {
+  var referer = provider === 'HANWHA_2045_CRPE'
+    ? 'https://www.hanwhafund.co.kr/ko/fund/search/' + spec.id
+    : 'https://www.funetf.co.kr/product/fund/view/' + spec.id;
+  return {
+    method: 'get',
+    muteHttpExceptions: true,
+    followRedirects: true,
+    headers: {
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Referer': referer,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+    }
+  };
+}
+
+function _fundNavHttpError(provider, status) {
+  var providerName = provider === 'HANWHA_2045_CRPE' ? '한화펀드' : 'FunETF';
+  if (status === 401 || status === 403) {
+    return new Error('펀드 기간 기준가격 조회가 ' + providerName + ' 서버에서 거부되었습니다 (HTTP ' + status + '). 공개 API 요청에 브라우저 헤더를 적용했지만 계속되면 제공처의 Google Apps Script 요청 차단입니다. 기존 가격이력·펀드기준가격·스냅샷은 변경하지 않았습니다.');
+  }
+  return new Error('펀드 기간 기준가격 조회 실패: ' + providerName + ' HTTP ' + status + '. 기존 데이터는 변경하지 않았습니다.');
+}
+
 function _fetchFundNav(provider, from, to) {
   var spec = FUND_PROVIDERS[provider];
   if (!Object.prototype.hasOwnProperty.call(FUND_PROVIDERS, provider)) throw new Error('지원하지 않는 펀드 클래스');
@@ -3188,9 +3216,11 @@ function _fetchFundNav(provider, from, to) {
   var url = provider === 'HANWHA_2045_CRPE'
     ? 'https://www.hanwhafund.co.kr/api/fund/dailyPrice?fundCd=' + spec.id + '&startDate=' + start + '&endDate=' + to
     : 'https://www.funetf.co.kr/api/public/product/view/fundnav?fundCd=' + spec.id + '&gijunYmd=' + to.replace(/-/g, '') + '&schNavMode=&schNavStDt=' + start.replace(/-/g, '') + '&schNavEdDt=' + to.replace(/-/g, '');
-  var response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
-  if (response.getResponseCode() !== 200) throw new Error('기준가격 조회 HTTP ' + response.getResponseCode());
-  var payload = JSON.parse(response.getContentText());
+  var response = UrlFetchApp.fetch(url, _fundNavFetchOptions(provider, spec));
+  if (response.getResponseCode() !== 200) throw _fundNavHttpError(provider, response.getResponseCode());
+  var payload;
+  try { payload = JSON.parse(response.getContentText()); }
+  catch (err) { throw new Error('펀드 기간 기준가격 응답 형식이 JSON이 아닙니다: ' + (provider === 'HANWHA_2045_CRPE' ? '한화펀드' : 'FunETF')); }
   var data = provider === 'HANWHA_2045_CRPE' ? payload.list : payload;
   if (!Array.isArray(data) || !data.length) throw new Error('기준가격 조회 결과 없음');
   var seen = {};
