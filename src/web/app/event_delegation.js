@@ -76,6 +76,11 @@ function registerGlobalEventDelegation() {
 
   // ── 클릭 위임
   document.addEventListener('click', function(e) {
+    const fundAction = e.target.closest('[data-fund-action]');
+    if (fundAction) {
+      if (typeof handleFundUnitAction === 'function') handleFundUnitAction(fundAction.dataset.fundAction, fundAction.dataset.fundCode || '');
+      return;
+    }
     const btn = e.target.closest('button');
 
     // ── data-portfolio-action (views_portfolio.js)
@@ -273,6 +278,7 @@ function registerGlobalEventDelegation() {
 
   // ── 부동산 미리보기 input 위임
   document.addEventListener('input', function(e) {
+    if (e.target.matches('[data-fund-field]')) e.target.dataset.fundDirty = 'true';
     // ★ [통일] 금액 입력창 자동 콤마 서식 — 여러 파일에 흩어져 있던 동일 로직을 이 한 곳으로 통합
     //   (기존: views_asset_schedule_data.js, views_plan.js, mgmt_editor.js에 각각 따로 구현되어 있었음
     //    → 리스너 2개가 매 키 입력마다 같이 실행되며 타이핑 지연 + 처리 순서 불안정 문제 발생)
@@ -304,6 +310,7 @@ function registerGlobalEventDelegation() {
 
   // ── 파일 input change 위임
   document.addEventListener('change', function(e) {
+    if (e.target.matches('[data-fund-field]')) e.target.dataset.fundDirty = 'true';
     const inp = e.target;
     if (!inp) return;
     if (inp.id === 'importFileInput' && typeof importData === 'function') importData(inp);

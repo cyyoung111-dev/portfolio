@@ -282,7 +282,7 @@ if (!snapshotRepairMatch
     || !source.includes('!state.forceRewrite && _snapshotRowsSignature(existing)')
     || /locked = true;\s*_clearSnapshotRepairContinuationTriggers\(\)/.test(snapshotContinuationMatch[1])
     || !source.includes('이미 전체 스냅샷 재작성이 진행 중입니다.')
-    || !source.includes('writeSnapshotRows(ss, snapshotDate, [], true)')
+    || source.includes('writeSnapshotRows(ss, snapshotDate, [], true)')
     || !source.includes('delete state.failedDateErrors[snapshotDate]')
     || !source.includes('state.failed = failedDates.length')
     || !source.includes('function handleGetSnapshotRepairStatus()')

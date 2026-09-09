@@ -350,7 +350,7 @@ async function _pollFullHistorySnapshotRepair() {
 
 async function startFullHistorySnapshotRepair() {
   if (!GSHEET_API_URL || __histState.fullRepairPolling) return;
-  if (!confirm('연결된 GAS의 가격이력과 거래이력으로 구글시트의 기존 스냅샷을 모두 다시 작성할까요?\n로컬 데이터만 바꾸는 기능이 아니며, 외부 가격은 새로 조회하지 않습니다. 완료 후 GAS 데이터를 다시 받아 손익 그래프를 갱신합니다.')) return;
+  if (!confirm('연결된 GAS의 가격이력과 거래이력으로 스냅샷을 보완할까요?\n기존 수동 입력·누락된 종목·외화 기록을 보존하고, 쓰기 전 백업 시트를 만듭니다. 빈 계산 결과로 삭제하지 않습니다. 로컬 데이터만 바꾸는 기능이 아니며, 완료 후 구글시트 데이터를 다시 조회합니다.')) return;
   const btn = $el('btn-history-full-repair');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 재작성 시작 중'; }
   _renderFullHistoryRepairStatus(null, '전체 스냅샷 재작성을 시작하는 중입니다.');
