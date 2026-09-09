@@ -7,9 +7,103 @@ const EDITOR_PAGE_SIZE = 5;
 let _applyPricesRunning = false; // ★ 중복 클릭 방지 플래그
 let _editorLoadSeq = 0; // ★ 날짜 변경 시 이전 로딩 결과 무시용
 let _editorHistoryTargets = [];
+let _fundUnitConfigs = [];
+let _fundUnitDrafts = {};
+let _fundUnitBusy = false;
+let _fundUnitsStatus = '';
+
+function _captureFundUnitDrafts(force) {
+  document.querySelectorAll('[data-fund-field]').forEach(input => {
+    if (!force && input.dataset.fundDirty !== 'true') return;
+    const code = input.dataset.fundCode;
+    if (!_fundUnitDrafts[code]) _fundUnitDrafts[code] = {};
+    _fundUnitDrafts[code][input.dataset.fundField] = input.value;
+  });
+}
+
+function _renderFundUnitsEditor(items) {
+  const options = [
+    ['HANWHA_2045_CRPE', '한화 LIFEPLUS 적격 TDF 2045 C-RPe'],
+    ['KB_VALUE_ST', 'KB 밸류포커스 소득공제 S-T'],
+    ['FIDELITY_BIG4_S', '피델리티 월드Big4 S'],
+  ];
+  return `<section class="editor-price-section fund-units-panel"><h4>펀드 좌수 자동 평가</h4>
+    <p>종목코드별 전체 좌수 × 일별 기준가격 ÷ 1,000. 등록 후 매일 한국시간 19시대에 누락분을 채웁니다. 좌수 변경은 변경일부터 등록하세요. 0좌는 자동 평가 중단입니다.</p>
+    ${items.filter(item => /^F\d{5}$/.test(item.code || '')).map(item => {
+      const code = item.code;
+      const saved = _fundUnitConfigs.filter(c => c.code === code).sort((a,b) => b.startDate.localeCompare(a.startDate))[0];
+      const draft = _fundUnitDrafts[code] || {};
+      const provider = draft.provider ?? saved?.provider ?? '';
+      return `<fieldset><legend>${_escapeHtml(item.name)} (${_escapeHtml(code)})</legend>
+        <label>정확한 클래스 <select data-fund-code="${code}" data-fund-field="provider"><option value="">선택하세요</option>${options.map(([id,label]) => `<option value="${id}" ${provider === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+        <label>전체 좌수 <input type="number" min="0" step="any" data-fund-code="${code}" data-fund-field="units" value="${_escapeHtml(String(draft.units ?? saved?.units ?? ''))}"></label>
+        <label>적용 시작일 <input type="date" data-fund-code="${code}" data-fund-field="startDate" value="${_escapeHtml(draft.startDate ?? saved?.startDate ?? _kstTodayStr())}"></label>
+        <button type="button" class="btn-ghost-sm" data-fund-action="save" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>좌수 저장</button>
+        ${saved ? `<p>저장됨: ${_escapeHtml(saved.startDate)}부터 ${Number(saved.units).toLocaleString()}좌</p>` : ''}
+      </fieldset>`;
+    }).join('')}
+    <p>기존 가격·수동 입력·스냅샷은 보존합니다. 아래 기간의 미작성 평가금액만 채웁니다.</p>
+    <label>시작일 <input type="date" data-fund-code="range" data-fund-field="from" value="${_escapeHtml(_fundUnitDrafts.range?.from || _kstTodayStr().slice(0,4) + '-01-01')}"></label>
+    <label>종료일 <input type="date" data-fund-code="range" data-fund-field="to" value="${_escapeHtml(_fundUnitDrafts.range?.to || _kstTodayStr())}"></label>
+    <button type="button" class="btn-ghost-sm" data-fund-action="fill" ${_fundUnitBusy ? 'disabled' : ''}>기간 평가금액 채우기</button>
+    <p role="status">${_escapeHtml(_fundUnitsStatus)}</p></section>`;
+}
+
+async function _loadFundUnitsEditor() {
+  if (!GSHEET_API_URL) return;
+  try {
+    const result = await requestGsheetActionJson('getFundUnits', {}, { timeoutMs: 20000, retry: 0 });
+    if (result?.status !== 'ok') throw new Error(result?.message || 'GAS v9.87 재배포가 필요합니다.');
+    _fundUnitConfigs = result.configs || [];
+    buildEditorUI();
+  } catch (error) { _fundUnitsStatus = error.message; buildEditorUI(); }
+}
+
+async function handleFundUnitAction(action, code) {
+  if (_fundUnitBusy) return;
+  if (!GSHEET_API_URL) { showToast('구글시트를 먼저 연결하세요.', 'warn'); return; }
+  _captureFundUnitDrafts(true);
+  _fundUnitBusy = true;
+  try {
+    if (action === 'save') {
+      const draft = _fundUnitDrafts[code];
+      if (!draft?.provider || !draft.startDate || draft.units === '' || !Number.isFinite(Number(draft.units)) || Number(draft.units) < 0) throw new Error('클래스·적용일·좌수를 입력하세요.');
+      const result = await requestGsheetFormJson('saveFundUnits', { data: JSON.stringify({ ...draft, code }) }, { timeoutMs: 60000, retry: 0 });
+      if (result?.status !== 'ok') throw new Error(result?.message || '좌수 저장 실패');
+      _fundUnitConfigs = result.configs || [];
+      _fundUnitsStatus = '좌수 저장 완료. 과거 기간은 기간 평가금액 채우기를 실행하세요. 매일 자동 반영이 설정됐습니다.';
+    } else if (action === 'fill') {
+      const from = _fundUnitDrafts.range?.from;
+      const to = _fundUnitDrafts.range?.to;
+      if (!from || !to || from > to || to > _kstTodayStr()) throw new Error('조회 기간을 확인하세요.');
+      if (!_fundUnitConfigs.length) throw new Error('좌수를 먼저 저장하세요.');
+      let saved = 0;
+      let missing = 0;
+      let lastDate = '';
+      for (let start = from; start <= to;) {
+        const end = _kstDateOffset(start, 30) < to ? _kstDateOffset(start, 30) : to;
+        _fundUnitsStatus = `${start} ~ ${end} 반영 중 · 누적 ${saved}건`;
+        buildEditorUI();
+        const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end }, { timeoutMs: 120000, retry: 0 });
+        if (result?.status !== 'ok') throw new Error(result?.message || `${start} 반영 실패. 저장된 이전 구간은 유지됩니다.`);
+        saved += Number(result.saved || 0);
+        missing += (result.missingHoldings || []).length;
+        if (result.lastDate > lastDate) lastDate = result.lastDate;
+        start = _kstDateOffset(end, 1);
+      }
+      _editorHistoryCache.clear();
+      _fundUnitsStatus = `가격이력 ${saved}건 추가 · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. 기존 기록은 보존했습니다.`;
+      await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
+      recomputeRows(); saveHoldings(); renderSummary();
+    }
+  } catch (error) { _fundUnitsStatus = error.message; showToast(error.message, 'warn', 7000); }
+  finally { _fundUnitBusy = false; buildEditorUI(); }
+}
 
 function openEditor() {
+  _fundUnitDrafts = {};
   buildEditorUI();
+  _loadFundUnitsEditor();
   _resetEditorApplyButton();
   // ★ 날짜 입력란 오늘 날짜로 초기화
   const editorDateEl = $el('editorDate');
@@ -262,6 +356,7 @@ function _isCurrentEditorHolding(item) {
 }
 
 function buildEditorUI() {
+  _captureFundUnitDrafts();
   _editorItemMap = {};
   // ① 펀드·TDF — 현재 보유수량이 있는 종목만 표시합니다.
   // 기초정보와 과거 가격이력은 보존하되 전량 매도 종목은 편집 대상에서 제외합니다.
@@ -437,6 +532,7 @@ function buildEditorUI() {
   let html = `<div class="editor-price-summary">총 ${totalItems.length}개 종목 · 섹션별 페이지로 이동해 입력하세요</div><div class="p-0-4">`;
 
   if (fundItems.length > 0) {
+    html += _renderFundUnitsEditor(fundItems);
     html += renderSection('fund', `📦 펀드·TDF (${fundItems.length})`, fundItems, () => '펀드·TDF');
   }
 
@@ -704,7 +800,10 @@ async function _saveManualPriceWithRetry(target, maxRetry) {
         { date: target.date, name: target.key, price: target.price },
         { timeoutMs: 30000, retry: 0 }
       );
-      if (d && d.status === 'ok') return { ok: true };
+      if (d && d.status === 'ok') {
+        if (d.snapshotWarning) showToast('가격은 저장됐지만 스냅샷 갱신 실패: ' + d.snapshotWarning, 'warn', 8000);
+        return { ok: true };
+      }
       lastErr = new Error((d && d.message) ? d.message : 'status not ok');
     } catch (e) {
       lastErr = e;
@@ -726,6 +825,7 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
         { timeoutMs: 60000, retry: 0 }
       );
       if (d && d.status === 'ok') {
+        if (d.snapshotWarning) showToast('가격은 저장됐지만 스냅샷 갱신 실패: ' + d.snapshotWarning, 'warn', 8000);
         _editorHistoryCache.clear();
         if (typeof showToast === 'function') showToast(`☁️ GAS 동기화 완료 (${gasSaveTargets.length}건)`, 'ok');
         return;

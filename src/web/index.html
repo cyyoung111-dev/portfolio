@@ -19,7 +19,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="styles/tokens.css?v=20260903-1">
 <link rel="stylesheet" href="styles/base.css?v=20260903-1">
-<link rel="stylesheet" href="styles/components.css?v=20260903-1">
+<link rel="stylesheet" href="styles/components.css?v=20260909-1">
 <link rel="stylesheet" href="styles/layout.css?v=20260904-5">
 <link rel="stylesheet" href="styles/responsive.css?v=20260903-1">
 <link rel="stylesheet" href="styles/pages/plan.css?v=20260903-1">
@@ -76,9 +76,9 @@
 <!-- 오른쪽: 보조 기능 버튼 통합 (현재가/내보내기/가져오기/초기화/기초정보/구글시트/탭설정) — 모두 동일한 스타일·크기 -->
 <div class="toolbar-btn-group">
 <div class="toolbar-section toolbar-section-secondary" aria-label="보조 작업">
-<button id="btn-open-editor" class="toolbar-btn" title="현재가 편집">
+<button id="btn-open-editor" class="toolbar-btn" title="펀드 좌수 설정·현재가 편집">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-<span>현재가</span>
+<span>좌수·현재가</span>
 </button>
 <button id="btn-export-data" class="toolbar-btn" title="내보내기">
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -207,7 +207,7 @@
 <script defer src="views/views_history_utils.js?v=20260904-2"></script>
 <script defer src="views/views_history_benchmark.js?v=20260903-1"></script>
 <script defer src="views/views_history_state.js?v=20260907-1"></script>
-<script defer src="views/views_history_pipeline.js?v=20260907-5"></script>
+<script defer src="views/views_history_pipeline.js?v=20260909-1"></script>
 <script defer src="views/views_history_render.js?v=20260907-2"></script>
 <script defer src="views/views_history.js?v=20260904-6"></script>
 
@@ -218,8 +218,8 @@
 <script defer src="features/settings/settings.js?v=20260903-1"></script>
 <script defer src="features/settings/settings_sync.js?v=20260903-1"></script>
 <script defer src="features/settings/settings_tabsync.js?v=20260903-1"></script>
-<script defer src="features/settings/settings_fetch.js?v=20260908-1"></script>
-<script defer src="features/management/mgmt_editor.js?v=20260903-1"></script>
+<script defer src="features/settings/settings_fetch.js?v=20260909-1"></script>
+<script defer src="features/management/mgmt_editor.js?v=20260909-1"></script>
 <script defer src="features/master/account/mgmt_acct.js?v=20260903-1"></script>
 <script defer src="features/dividend/mgmt_div.js?v=20260903-1"></script>
 <script defer src="features/master/stock/mgmt_stock.js?v=20260903-1"></script>
@@ -227,7 +227,7 @@
 <script defer src="features/trade/editor/mgmt_trade.js?v=20260903-1"></script>
 <script defer src="features/import/mgmt_bulk.js?v=20260903-1"></script>
 <script defer src="domain/migration/mgmt_migration.js?v=20260903-1"></script>
-<script defer src="app/event_delegation.js?v=20260907-1"></script>
+<script defer src="app/event_delegation.js?v=20260909-1"></script>
 <script defer src="app/bootstrap.js?v=20260903-1"></script>
 <!-- HOLDING EDITOR MODAL -->
 
@@ -305,8 +305,8 @@
   <div class="editor-box" style="max-width:500px">
     <div class="editor-header">
       <div>
-        <h3 id="priceEditorTitle">✏️ 현재가 편집</h3>
-        <p>펀드·TDF 및 자동 조회 실패 종목의 현재가를 수동 입력합니다</p>
+        <h3 id="priceEditorTitle">좌수 설정 · 현재가 편집</h3>
+        <p>펀드는 좌수로 자동 평가하고, 필요한 종목만 수동 보정합니다</p>
       </div>
       <button id="btn-close-price-editor-top" class="editor-close" type="button" aria-label="현재가 편집 닫기">✕</button>
     </div>
@@ -395,7 +395,7 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js?v=20260908-1', { updateViaCache: 'none' }).catch(() => {});
+      navigator.serviceWorker.register('sw.js?v=20260909-1', { updateViaCache: 'none' }).catch(() => {});
     });
   }
 </script>
