@@ -11,6 +11,23 @@ const context = vm.createContext({ console, Logger: { log() {} }, LockService: {
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
 
+// 기간 NAV 요청은 공급자별 공개 API와 브라우저 헤더를 사용하고, 403을 빈 결과로 바꾸지 않습니다.
+const fundFetchCalls=[];
+context.UrlFetchApp={fetch(url, options){
+  fundFetchCalls.push({url,options});
+  const isHanwha=url.includes('hanwhafund.co.kr');
+  return {getResponseCode:()=>200,getContentText:()=>isHanwha
+    ? JSON.stringify({list:[{wkdate:'2026-01-02',price:'1000.25'}]})
+    : JSON.stringify([{gijunYmd:'20260102',gijunGa:1100.25}])};
+}};
+assert.equal(context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02')[0].nav,1000.25);
+assert.equal(context._fetchFundNav('FIDELITY_BIG4_S','2026-01-01','2026-01-02')[0].nav,1100.25);
+assert.equal(fundFetchCalls[0].options.method,'get');
+assert.match(fundFetchCalls[0].options.headers['User-Agent'],/Mozilla/);
+assert.match(fundFetchCalls[1].options.headers.Referer,/funetf\.co\.kr/);
+context.UrlFetchApp={fetch:()=>({getResponseCode:()=>403,getContentText:()=>'<html>forbidden</html>'})};
+assert.throws(()=>context._fetchFundNav('FIDELITY_BIG4_S','2026-01-01','2026-01-02'),/HTTP 403.*기존 가격이력.*변경하지 않았습니다/);
+
 class Sheet {
   constructor(rows = []) { this.rows = clone(rows); this.writes = 0; this.copies = 0; this.failWrite = false; }
   getLastRow() { return this.rows.length; }

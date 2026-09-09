@@ -69,7 +69,7 @@ async function _loadFundUnitsEditor() {
   if (!GSHEET_API_URL) return;
   try {
     const result = await requestGsheetActionJson('getFundUnits', {}, { timeoutMs: 20000, retry: 0 });
-    if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || 'GAS v9.88 재배포가 필요합니다.');
+    if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || 'GAS v9.89 재배포가 필요합니다.');
     _fundUnitConfigs = result.configs || [];
     _fundUnitItems = result.funds;
     buildEditorUI();
