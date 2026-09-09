@@ -7,6 +7,7 @@ function registerGlobalEventDelegation() {
   const clickHandlers = {
     // action bar / fixed tab
     quickFetchBtn:          () => typeof quickFetchByDate === 'function' && quickFetchByDate(),
+    'btn-open-fund-units':  () => typeof openFundUnitsEditor === 'function' && openFundUnitsEditor(),
     'btn-open-editor':      () => typeof openEditor === 'function' && openEditor(),
     'btn-export-data':      () => typeof exportData === 'function' && exportData(),
     'btn-trigger-import':   () => { const input = $el('importFileInput'); if (input) input.click(); },

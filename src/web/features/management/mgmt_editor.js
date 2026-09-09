@@ -11,6 +11,7 @@ let _fundUnitConfigs = [];
 let _fundUnitDrafts = {};
 let _fundUnitBusy = false;
 let _fundUnitsStatus = '';
+let _editorMode = 'price';
 
 function _captureFundUnitDrafts(force) {
   document.querySelectorAll('[data-fund-field]').forEach(input => {
@@ -100,10 +101,31 @@ async function handleFundUnitAction(action, code) {
   finally { _fundUnitBusy = false; buildEditorUI(); }
 }
 
-function openEditor() {
+function openFundUnitsEditor() {
+  _editorMode = 'fund-units';
   _fundUnitDrafts = {};
-  buildEditorUI();
+  _openEditorModal();
   _loadFundUnitsEditor();
+}
+
+function openEditor() {
+  _editorMode = 'price';
+  _openEditorModal();
+}
+
+function _openEditorModal() {
+  const isFundUnits = _editorMode === 'fund-units';
+  const title = $el('priceEditorTitle');
+  const description = $el('priceEditorDescription');
+  const dateRow = $el('editorDateRow');
+  const applyBtn = $el('pe-panel-price-footer');
+  if (title) title.textContent = isFundUnits ? '좌수 설정' : '현재가 편집';
+  if (description) description.textContent = isFundUnits
+    ? '펀드 좌수와 적용 시작일을 등록해 일별 평가금액을 자동 반영합니다'
+    : '자동 조회가 안 되는 종목의 현재가를 수동 보정합니다';
+  if (dateRow) dateRow.style.display = isFundUnits ? 'none' : 'flex';
+  if (applyBtn) applyBtn.style.display = isFundUnits ? 'none' : '';
+  buildEditorUI();
   _resetEditorApplyButton();
   // ★ 날짜 입력란 오늘 날짜로 초기화
   const editorDateEl = $el('editorDate');
@@ -120,7 +142,7 @@ function openEditor() {
     }
   }
   $el('priceEditor').classList.add('open');
-  if (editorDateEl?.value) loadEditorPricesByDate(editorDateEl.value);
+  if (!isFundUnits && editorDateEl?.value) loadEditorPricesByDate(editorDateEl.value);
 }
 
 function _resetEditorApplyButton() {
@@ -365,6 +387,13 @@ function buildEditorUI() {
     && _isCurrentEditorHolding(item)
   );
 
+  if (_editorMode === 'fund-units') {
+    $el('editorBody').innerHTML = fundItems.length
+      ? _renderFundUnitsEditor(fundItems)
+      : '<div class="empty-msg" style="padding:30px 0">현재 보유 중인 펀드·TDF가 없습니다.</div>';
+    return;
+  }
+
   // ② 코드 있는 일반 종목 중 "실제 자동조회 실패" 대상만 노출
   // savedPrices 조회 시 코드 키 + 이름 키 모두 확인
   const nopriceCodes = new Set();
@@ -532,7 +561,6 @@ function buildEditorUI() {
   let html = `<div class="editor-price-summary">총 ${totalItems.length}개 종목 · 섹션별 페이지로 이동해 입력하세요</div><div class="p-0-4">`;
 
   if (fundItems.length > 0) {
-    html += _renderFundUnitsEditor(fundItems);
     html += renderSection('fund', `📦 펀드·TDF (${fundItems.length})`, fundItems, () => '펀드·TDF');
   }
 

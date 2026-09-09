@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const editorSource = fs.readFileSync('src/web/features/management/mgmt_editor.js', 'utf8');
+const indexSource = fs.readFileSync('src/web/index.html', 'utf8');
+const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 const dividendSource = fs.readFileSync('src/web/features/dividend/mgmt_div.js', 'utf8');
 const historySource = fs.readFileSync('src/web/views/views_history_benchmark.js', 'utf8');
 for (const contract of [
@@ -19,6 +21,14 @@ if (/console\.warn\(['"]\[batchSaveManualPrices\]/.test(editorSource)) {
 }
 if (!/console\.warn\(`\[_syncManualPricesToGsheet\] GAS 저장 최종 실패/.test(editorSource)) {
   throw new Error('현재가 건별 fallback 최종 실패 경고가 누락됐습니다.');
+}
+if (!/id="btn-open-fund-units"/.test(indexSource) || !/id="btn-open-editor"/.test(indexSource)) {
+  throw new Error('좌수 설정과 현재가 편집 메뉴가 독립 버튼으로 분리되지 않았습니다.');
+}
+if (!/btn-open-fund-units[^\n]+openFundUnitsEditor/.test(eventSource)
+    || !/function openFundUnitsEditor\(\)/.test(editorSource)
+    || !/_editorMode === 'fund-units'/.test(editorSource)) {
+  throw new Error('좌수 설정 전용 편집 모드 연결이 누락됐습니다.');
 }
 if (!/requestGsheetActionJson\(\s*action,\s*params,/.test(dividendSource)) {
   throw new Error('배당 외부소스 조회의 GAS 인증 공통 경로가 누락됐습니다.');
