@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.87
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.88
+//
+//  v9.88 변경사항 (2026.09.09):
+//   모든 근거 있는 F코드의 좌수 변경 이력 조회·등록 및 과거 전량매도 종목 평가 지원
 //
 //  v9.87 변경사항 (2026.09.09):
 //   코드별 적용일·좌수로 펀드 평가 자동 저장, 스냅샷 보존 및 쓰기 전 백업
@@ -3066,8 +3069,70 @@ function _fundUnitsAtDate(configs, code, date) {
   return found;
 }
 
+function _fundHasActiveUnitsInRange(configs, code, from, to) {
+  for (var date = from; date <= to; date = _fundDateOffset(date, 1)) {
+    var config = _fundUnitsAtDate(configs, code, date);
+    if (config && config.units > 0) return true;
+  }
+  return false;
+}
+
+function _isFundCode(code) {
+  return /^F\d{5}$/.test(String(code || '').trim().toUpperCase());
+}
+
+// 기초정보·거래이력·기존 좌수 설정 중 하나라도 근거가 있는 F코드만 관리 대상에 포함합니다.
+// 현재 보유 여부는 거래이력으로 계산해 UI가 과거 전량매도 종목을 별도 표시할 수 있게 합니다.
+function _getFundCodeCatalog(ss, configs) {
+  var byCode = {};
+  function add(code, name, source) {
+    code = String(code || '').trim().toUpperCase();
+    name = String(name || '').trim();
+    if (!_isFundCode(code) || !name) return;
+    if (!byCode[code]) byCode[code] = { code: code, name: name, sources: {} };
+    if (!byCode[code].name) byCode[code].name = name;
+    byCode[code].sources[source] = true;
+  }
+  var settings = _readSettingsMap(ss);
+  var editablePrices = Array.isArray(settings.EDITABLE_PRICES) ? settings.EDITABLE_PRICES : [];
+  editablePrices.forEach(function(item) {
+    var code = String(item && item.code || '').trim().toUpperCase();
+    if (_isFundCode(code)) add(code, item.name, 'settings');
+  });
+  (configs || []).forEach(function(config) { add(config.code, config.name, 'units'); });
+  var tradeSheet = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  var trades = tradeSheet && tradeSheet.getLastRow() > 1
+    ? tradeSheet.getRange(2, 1, tradeSheet.getLastRow() - 1, 8).getValues() : [];
+  trades.forEach(function(row) { add(row[4], row[3], 'trades'); });
+  var nameToCode = {};
+  Object.keys(byCode).forEach(function(code) { nameToCode[byCode[code].name] = code; });
+  var holdings = calcHoldingsAtDate(trades, today(), nameToCode);
+  var holdingCodes = {};
+  Object.keys(holdings).forEach(function(name) {
+    var code = String(holdings[name].code || '').trim().toUpperCase();
+    if (_isFundCode(code)) holdingCodes[code] = true;
+  });
+  return Object.keys(byCode).map(function(code) {
+    var current = _fundUnitsAtDate(configs || [], code, today());
+    return {
+      code: code,
+      name: byCode[code].name,
+      currentHolding: !!holdingCodes[code],
+      currentConfigStartDate: current ? current.startDate : '',
+      sources: Object.keys(byCode[code].sources).sort()
+    };
+  }).sort(function(a, b) {
+    if (a.currentHolding !== b.currentHolding) return a.currentHolding ? -1 : 1;
+    return a.name.localeCompare(b.name) || a.code.localeCompare(b.code);
+  });
+}
+
 function handleGetFundUnits() {
-  try { return jsonOk({ configs: _readFundUnits(getss()), providers: FUND_PROVIDERS }); }
+  try {
+    var ss = getss();
+    var configs = _readFundUnits(ss);
+    return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS });
+  }
   catch (err) { return jsonError(err.message); }
 }
 
@@ -3103,15 +3168,15 @@ function handleSaveFundUnits(dataJson) {
       if (conflict) throw new Error('이미 평가금액이 작성된 날짜와 좌수 설정이 충돌합니다. 미작성 적용일부터 등록하세요.');
     }
     if (!old) {
-      var settings = _readSettingsMap(ss);
-      var item = (settings.EDITABLE_PRICES || []).find(function(ep) { return String(ep.code) === code; });
-      if (!item || !(item.fund || item.assetType === '펀드' || item.assetType === 'TDF')) throw new Error('기초정보를 GAS에 저장한 후 해당 펀드 코드를 선택하세요.');
+      var item = _getFundCodeCatalog(ss, configs).find(function(fund) { return fund.code === code; });
+      if (!item) throw new Error('기초정보·거래이력·기존 좌수 설정에 있는 F코드만 등록할 수 있습니다.');
       var sh = ss.getSheetByName(FUND_UNITS_SHEET);
       if (!sh) { sh = ss.insertSheet(FUND_UNITS_SHEET); sh.appendRow(['종목코드','종목명','클래스','적용시작일','좌수','등록일시']); }
       sh.appendRow([code, String(item.name), provider, startDate, units, new Date().toISOString()]);
     }
     _ensureFundDailyTrigger();
-    return jsonOk({ configs: _readFundUnits(ss), automaticHour: 19 });
+    var savedConfigs = _readFundUnits(ss);
+    return jsonOk({ configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19 });
   } catch (err) { return jsonError('좌수 저장 실패: ' + err.message); }
   finally { lock.releaseLock(); }
 }
@@ -3169,6 +3234,7 @@ function _refreshFundValuations(ss, from, to) {
   storedNav.forEach(function(row) { storedKeys[_normalizeDate(row[0]) + '|' + row[1]] = row; });
   var values = [];
   codes.forEach(function(code) {
+    if (!_fundHasActiveUnitsInRange(configs, code, from, to)) return;
     var config = configs.find(function(c) { return c.code === code; });
     values = values.concat(_fundDailyValues(configs, code, _fetchFundNav(config.provider, from, to), from, to));
   });
@@ -5936,7 +6002,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.87' });
+    return jsonOk({ settings: settings, gasVersion: '9.88' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -5958,7 +6024,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.87'
+      gasVersion: '9.88'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
