@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.89
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.90
+//
+//  v9.90 변경사항 (2026.09.10):
+//   한화 C-RPe 공식 NAV만 조회하고 미확정 클래스의 FunETF 대체 조회 제거
+//   외부 조회 실패 시 기존 펀드기준가격을 우선 보존·재사용
 //
 //  v9.89 변경사항 (2026.09.09):
 //   펀드 기간 기준가격 조회의 공급자 WAF 403 대응 헤더·원인 메시지 추가
@@ -3032,9 +3036,9 @@ function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
 // 가격이력의 기존 펀드 가격은 총 평가금액입니다. NAV와 좌수는 별도 시트에
 // 보관하고 총액으로 변환한 값만 가격이력에 넣어 기존 거래·화면과 호환합니다.
 var FUND_PROVIDERS = {
-  HANWHA_2045_CRPE: { id: '008942', name: '한화 LIFEPLUS 적격 TDF 2045 C-RPe' },
-  KB_VALUE_ST: { id: 'KR5223AQ0185', name: 'KB 밸류포커스 소득공제 S-T' },
-  FIDELITY_BIG4_S: { id: 'KR5235AP3996', name: '피델리티 월드Big4 S' }
+  HANWHA_2045_CRPE: { id: '008942', classCode: 'C-RPe', name: '한화 LIFEPLUS 적격 TDF 2045 C-RPe', source: 'HANWHA' },
+  KB_VALUE_ST: { id: 'AQ018', classCode: 'AQ018', name: 'KB 밸류포커스 소득공제 S-T', source: null },
+  FIDELITY_BIG4_S: { id: 'AP399', classCode: 'AP399', fundCode: '69083', name: '피델리티 월드Big4 S', source: null }
 };
 var FUND_UNITS_SHEET = '펀드좌수';
 var FUND_NAV_SHEET = '펀드기준가격';
@@ -3185,26 +3189,21 @@ function handleSaveFundUnits(dataJson) {
 }
 
 function _fundNavFetchOptions(provider, spec) {
-  var referer = provider === 'HANWHA_2045_CRPE'
-    ? 'https://www.hanwhafund.co.kr/ko/fund/search/' + spec.id
-    : 'https://www.funetf.co.kr/product/fund/view/' + spec.id;
   return {
     method: 'get',
     muteHttpExceptions: true,
     followRedirects: true,
     headers: {
       'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-      'Referer': referer,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+      'Accept-Language': 'ko-KR,ko;q=0.9'
     }
   };
 }
 
 function _fundNavHttpError(provider, status) {
-  var providerName = provider === 'HANWHA_2045_CRPE' ? '한화펀드' : 'FunETF';
+  var providerName = provider === 'HANWHA_2045_CRPE' ? '한화자산운용' : '확인된 공식 제공처';
   if (status === 401 || status === 403) {
-    return new Error('펀드 기간 기준가격 조회가 ' + providerName + ' 서버에서 거부되었습니다 (HTTP ' + status + '). 공개 API 요청에 브라우저 헤더를 적용했지만 계속되면 제공처의 Google Apps Script 요청 차단입니다. 기존 가격이력·펀드기준가격·스냅샷은 변경하지 않았습니다.');
+    return new Error('펀드 기간 기준가격 조회가 ' + providerName + ' 서버에서 거부되었습니다 (HTTP ' + status + ').');
   }
   return new Error('펀드 기간 기준가격 조회 실패: ' + providerName + ' HTTP ' + status + '. 기존 데이터는 변경하지 않았습니다.');
 }
@@ -3212,27 +3211,30 @@ function _fundNavHttpError(provider, status) {
 function _fetchFundNav(provider, from, to) {
   var spec = FUND_PROVIDERS[provider];
   if (!Object.prototype.hasOwnProperty.call(FUND_PROVIDERS, provider)) throw new Error('지원하지 않는 펀드 클래스');
+  if (spec.source !== 'HANWHA') throw new Error(spec.name + ' (' + spec.classCode + '): 정확한 클래스의 공식 일별 기준가격 제공처 미확인');
   var start = _fundDateOffset(from, -40);
-  var url = provider === 'HANWHA_2045_CRPE'
-    ? 'https://www.hanwhafund.co.kr/api/fund/dailyPrice?fundCd=' + spec.id + '&startDate=' + start + '&endDate=' + to
-    : 'https://www.funetf.co.kr/api/public/product/view/fundnav?fundCd=' + spec.id + '&gijunYmd=' + to.replace(/-/g, '') + '&schNavMode=&schNavStDt=' + start.replace(/-/g, '') + '&schNavEdDt=' + to.replace(/-/g, '');
+  var url = 'https://www.hanwhafund.co.kr/api/fund/dailyPrice?fundCd=' + encodeURIComponent(spec.id)
+    + '&period=&startDate=' + encodeURIComponent(start) + '&endDate=' + encodeURIComponent(to);
   var response = UrlFetchApp.fetch(url, _fundNavFetchOptions(provider, spec));
   if (response.getResponseCode() !== 200) throw _fundNavHttpError(provider, response.getResponseCode());
   var payload;
   try { payload = JSON.parse(response.getContentText()); }
-  catch (err) { throw new Error('펀드 기간 기준가격 응답 형식이 JSON이 아닙니다: ' + (provider === 'HANWHA_2045_CRPE' ? '한화펀드' : 'FunETF')); }
-  var data = provider === 'HANWHA_2045_CRPE' ? payload.list : payload;
+  catch (err) { throw new Error('펀드 기간 기준가격 응답 형식이 JSON이 아닙니다: 한화자산운용'); }
+  var data = payload.list;
   if (!Array.isArray(data) || !data.length) throw new Error('기준가격 조회 결과 없음');
   var seen = {};
   data.forEach(function(row) {
-    var raw = String(provider === 'HANWHA_2045_CRPE' ? row.wkdate : row.gijunYmd);
+    var raw = String(row.wktdate || '');
     var date = _fundDate(raw.length === 8 ? raw.slice(0,4) + '-' + raw.slice(4,6) + '-' + raw.slice(6,8) : raw);
-    var nav = Number(String(provider === 'HANWHA_2045_CRPE' ? row.price : row.gijunGa).replace(/,/g, ''));
+    var nav = Number(String(row.price).replace(/,/g, ''));
     if (!isFinite(nav) || nav <= 0) throw new Error('유효하지 않은 기준가격');
     if (seen[date] && seen[date] !== nav) throw new Error('같은 날짜의 기준가격 충돌');
-    if (date <= to) seen[date] = nav;
+    // API가 endDate 이후 값을 반환해도 사용자가 요청한 범위만 사용합니다.
+    if (date >= from && date <= to) seen[date] = nav;
   });
-  return Object.keys(seen).sort().map(function(date) { return { date: date, nav: seen[date] }; });
+  var dates = Object.keys(seen).sort();
+  if (!dates.length) throw new Error('요청한 날짜 범위의 기준가격 조회 결과 없음');
+  return dates.map(function(date) { return { date: date, nav: seen[date] }; });
 }
 
 function _fundDailyValues(configs, code, navRows, from, to) {
@@ -3253,6 +3255,20 @@ function _fundDailyValues(configs, code, navRows, from, to) {
   return result;
 }
 
+function _storedFundNavRows(storedNav, code, provider, from, to) {
+  var seen = {};
+  storedNav.forEach(function(row) {
+    var date = _normalizeDate(row[0]);
+    var sourceDate = _normalizeDate(row[4]);
+    var nav = Number(row[3]);
+    if (String(row[1]) !== code || String(row[8]) !== provider || !date || date < from || date > to) return;
+    if (!sourceDate || sourceDate > date || !(nav > 0)) throw new Error('저장된 펀드 기준가격 검증 실패: ' + date);
+    if (seen[date] && seen[date] !== nav) throw new Error('저장된 펀드 기준가격 충돌: ' + date);
+    seen[date] = nav;
+  });
+  return Object.keys(seen).sort().map(function(date) { return { date: date, nav: seen[date] }; });
+}
+
 function _refreshFundValuations(ss, from, to) {
   _fundDate(from); _fundDate(to);
   if (from > to || to > today() || to > _fundDateOffset(from, 31)) throw new Error('한 번에 과거 32일 이내를 조회하세요.');
@@ -3266,7 +3282,20 @@ function _refreshFundValuations(ss, from, to) {
   codes.forEach(function(code) {
     if (!_fundHasActiveUnitsInRange(configs, code, from, to)) return;
     var config = configs.find(function(c) { return c.code === code; });
-    values = values.concat(_fundDailyValues(configs, code, _fetchFundNav(config.provider, from, to), from, to));
+    var navRows;
+    var fetchError;
+    try { navRows = _fetchFundNav(config.provider, from, to); }
+    catch (err) { fetchError = err; navRows = _storedFundNavRows(storedNav, code, config.provider, from, to); }
+    var codeValues = _fundDailyValues(configs, code, navRows, from, to);
+    var activeDates = [];
+    for (var date = from; date <= to; date = _fundDateOffset(date, 1)) {
+      var datedConfig = _fundUnitsAtDate(configs, code, date);
+      if (datedConfig && datedConfig.units > 0) activeDates.push(date);
+    }
+    if (fetchError && (!codeValues.length || codeValues[0].date !== activeDates[0] || codeValues[codeValues.length - 1].date !== activeDates[activeDates.length - 1])) {
+      throw new Error(fetchError.message + '. 요청 범위를 대체할 기존 펀드기준가격이 충분하지 않습니다. 기존 데이터는 변경하지 않았습니다.');
+    }
+    values = values.concat(codeValues);
   });
   // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.
   var now = new Date().toISOString();
@@ -6032,7 +6061,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.88' });
+    return jsonOk({ settings: settings, gasVersion: '9.90' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6054,7 +6083,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.88'
+      gasVersion: '9.90'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

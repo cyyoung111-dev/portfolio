@@ -11,22 +11,23 @@ const context = vm.createContext({ console, Logger: { log() {} }, LockService: {
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
 
-// 기간 NAV 요청은 공급자별 공개 API와 브라우저 헤더를 사용하고, 403을 빈 결과로 바꾸지 않습니다.
+// 한화 공식 API는 요청 범위의 C-RPe만 반환하고 미확정 클래스는 외부 조회하지 않습니다.
 const fundFetchCalls=[];
 context.UrlFetchApp={fetch(url, options){
   fundFetchCalls.push({url,options});
-  const isHanwha=url.includes('hanwhafund.co.kr');
-  return {getResponseCode:()=>200,getContentText:()=>isHanwha
-    ? JSON.stringify({list:[{wkdate:'2026-01-02',price:'1000.25'}]})
-    : JSON.stringify([{gijunYmd:'20260102',gijunGa:1100.25}])};
+  return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({list:[
+    {wktdate:'2025-12-31',price:'900.25'}, {wktdate:'2026-01-02',price:'1000.25'},
+    {wktdate:'2026-01-03',price:'1001.25'}
+  ]})};
 }};
-assert.equal(context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02')[0].nav,1000.25);
-assert.equal(context._fetchFundNav('FIDELITY_BIG4_S','2026-01-01','2026-01-02')[0].nav,1100.25);
+assert.deepEqual(clone(context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02')),[{date:'2026-01-02',nav:1000.25}]);
 assert.equal(fundFetchCalls[0].options.method,'get');
-assert.match(fundFetchCalls[0].options.headers['User-Agent'],/Mozilla/);
-assert.match(fundFetchCalls[1].options.headers.Referer,/funetf\.co\.kr/);
+assert.match(fundFetchCalls[0].url,/hanwhafund\.co\.kr\/api\/fund\/dailyPrice\?fundCd=008942&period=&startDate=2025-11-22&endDate=2026-01-02/);
+assert.throws(()=>context._fetchFundNav('KB_VALUE_ST','2026-01-01','2026-01-02'),/AQ018.*미확인/);
+assert.throws(()=>context._fetchFundNav('FIDELITY_BIG4_S','2026-01-01','2026-01-02'),/AP399.*미확인/);
+assert.equal(fundFetchCalls.length,1,'미확정 클래스는 FunETF를 포함한 외부 요청을 하지 않음');
 context.UrlFetchApp={fetch:()=>({getResponseCode:()=>403,getContentText:()=>'<html>forbidden</html>'})};
-assert.throws(()=>context._fetchFundNav('FIDELITY_BIG4_S','2026-01-01','2026-01-02'),/HTTP 403.*기존 가격이력.*변경하지 않았습니다/);
+assert.throws(()=>context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02'),/HTTP 403/);
 
 class Sheet {
   constructor(rows = []) { this.rows = clone(rows); this.writes = 0; this.copies = 0; this.failWrite = false; }
@@ -48,6 +49,13 @@ class Sheet {
 const snap = (date, code, value, src='PRICE_HISTORY') => [date, code, code, 1, 50, 50, value, value, value-50, 0, src, src === 'MANUAL' ? '2026-01-02 12:00:00' : ''];
 const header = Array(12).fill('header');
 const ssFor = sheets => ({ getSheetByName: name => sheets[name] || null, insertSheet: name => (sheets[name] = new Sheet()) });
+
+const storedFallback=clone(context._storedFundNavRows([
+  ['2026-01-01','F00002','KB',1111,'2026-01-01',1000,1111,'','KB_VALUE_ST'],
+  ['2026-01-02','F00002','KB',1112,'2026-01-02',1000,1112,'','WRONG_CLASS'],
+  ['2026-01-02','F00003','피델리티',2222,'2026-01-02',1000,2222,'','FIDELITY_BIG4_S']
+],'F00002','KB_VALUE_ST','2026-01-01','2026-01-02'));
+assert.deepEqual(storedFallback,[{date:'2026-01-01',nav:1111}],'기존 NAV fallback도 같은 코드·클래스만 사용');
 
 // 실제 저장 경로에서 같은 날짜·다른 날짜·수동값 보존을 검증합니다.
 const a = snap('2026-01-02','000001',100,'MANUAL');
@@ -95,6 +103,17 @@ assert.equal(daily[3].units,2000,'추가매수 좌수는 변경일부터만 적�
 assert.equal(daily.some(row=>row.date>='2026-01-06'),false,'0좌 적용일 이후에는 평가금액을 생성하지 않음');
 assert.throws(()=>context._fundDate('2026-02-30'));
 assert.equal(context._fundDailyValues(configs,'F00001',[],'2026-01-01','2026-01-02').length,0);
+
+// F00003은 2026-08-25 0좌 적용일부터 평가하지 않습니다.
+const fidelity2026=[
+  {code:'F00003',name:'피델리티 월드Big4 S',provider:'FIDELITY_BIG4_S',startDate:'2026-01-01',units:15933.037},
+  {code:'F00003',name:'피델리티 월드Big4 S',provider:'FIDELITY_BIG4_S',startDate:'2026-08-25',units:0}
+];
+const fidelityBoundary=clone(context._fundDailyValues(fidelity2026,'F00003',[
+  {date:'2026-08-24',nav:1234.56},{date:'2026-08-25',nav:1235.67}
+],'2026-08-24','2026-08-26'));
+assert.deepEqual(fidelityBoundary.map(row=>row.date),['2026-08-24']);
+assert.equal(fidelityBoundary[0].evalAmt,Math.round(15933.037*1234.56/1000));
 
 // 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
 const retiredConfigs=[
