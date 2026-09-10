@@ -1,5 +1,12 @@
 # Deployment Notes
 
+## GAS v9.90: 정확한 펀드 클래스 NAV 제공처
+
+- `F00001` 한화 LIFEPLUS 적격 TDF 2045 `C-RPe`는 한화자산운용 `GET https://www.hanwhafund.co.kr/api/fund/dailyPrice` (`fundCd=008942`, `period`, `startDate`, `endDate`)만 사용합니다. 응답의 `list[].wktdate`, `list[].price`를 읽고 요청 범위 밖 날짜는 폐기합니다.
+- `F00002`는 `AQ018` S-T, `F00003`은 `AP399` S 클래스로 고정합니다. 정확히 일치하는 공식 일별 NAV endpoint가 확인되지 않아 외부 조회는 명시적으로 미지원 처리하며, FunETF나 다른 클래스로 대체하지 않습니다.
+- 공식 조회가 실패하면 같은 코드·클래스의 기존 `펀드기준가격`이 요청 범위 전체를 대체할 수 있을 때만 재사용합니다. 부족하면 쓰기 전에 실패하여 `펀드좌수`, `펀드기준가격`, `가격이력`, `스냅샷`을 보존합니다.
+- 운영 적용은 `src/gas/apps_script.gs` 전체를 Apps Script에 반영한 뒤 웹앱을 새 버전으로 재배포해야 합니다. 재배포 후 실제 GAS `UrlFetchApp` 응답과 일일 트리거 실행 기록을 확인합니다.
+
 ## GAS v9.89: 펀드 기간 기준가격 조회 403 진단
 
 - 기간 평가금액 채우기는 한화펀드와 FunETF의 공개 기간 NAV API를 `GET`으로 호출합니다. 단일 NAV 전용 경로는 별도로 사용하지 않습니다.
