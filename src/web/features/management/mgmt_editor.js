@@ -13,6 +13,169 @@ let _fundUnitDrafts = {};
 let _fundUnitBusy = false;
 let _fundUnitsStatus = '';
 let _editorMode = 'price';
+let _fundNavPasteTimer = 0;
+const FUND_NAV_CHANGE_WARNING_RATE = 0.20;
+const FUND_NAV_IMPORT_GUIDE = {
+  F00001: {
+    name: '한화 LIFEPLUS 적격 TDF 2045 C-RPe', provider: 'HANWHA_2045_CRPE', classCode: 'C-RPe', standardCode: '', lookupCode: '008942', className: 'C-RPe',
+    warning: '공식 자동조회가 기본이며, 장애나 과거 누락을 보완할 때만 검증된 NAV를 반영하세요.',
+    links: [['한화자산운용에서 확인', 'https://www.hanwhafund.co.kr/']],
+  },
+  F00002: {
+    name: 'KB 밸류포커스 소득공제 S-T', provider: 'KB_VALUE_ST', classCode: 'AQ018', standardCode: 'KR5223AQ0185', className: 'S-T',
+    warning: '주의: C(2K04), C-E(2K09)는 다른 클래스입니다.',
+    links: [
+      ['금융투자협회에서 조회', 'https://dis.kofia.or.kr/websquare/index.jsp?w2xPath=/wq/fundann/DISFundStdPrice.xml&divisionId=MDIS01004001000000&serviceId=SDIS01004001000'],
+      ['FunETF에서 확인', 'https://www.funetf.co.kr/product/fund/view/KR5223AQ0185'],
+    ],
+  },
+  F00003: {
+    name: '피델리티 월드Big4 S', provider: 'FIDELITY_BIG4_S', classCode: 'AP399', standardCode: 'KR5235AP3996', className: 'S', warning: '',
+    links: [
+      ['금융투자협회에서 조회', 'https://dis.kofia.or.kr/websquare/index.jsp?w2xPath=/wq/fundann/DISFundStdPrice.xml&divisionId=MDIS01004001000000&serviceId=SDIS01004001000'],
+      ['FunETF에서 확인', 'https://www.funetf.co.kr/product/fund/view/KR5235AP3996'],
+      ['FundDoctor에서 확인', 'https://www.funddoctor.co.kr/afn/fund/fprofile.jsp?fund_cd=KR5235AP3996'],
+    ],
+  },
+};
+let _fundNavImportState = { code: 'F00001', filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
+
+function _fundNavHeader(value) { return String(value ?? '').trim().replace(/\s+/g, '').toLowerCase(); }
+
+function _fundNavDate(value) {
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString().slice(0, 10);
+  if (typeof value === 'number' && Number.isFinite(value) && typeof XLSX !== 'undefined') {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) return `${String(parsed.y).padStart(4,'0')}-${String(parsed.m).padStart(2,'0')}-${String(parsed.d).padStart(2,'0')}`;
+  }
+  let text = String(value ?? '').trim();
+  const match = text.match(/^(\d{2}|\d{4})[./-](\d{1,2})[./-](\d{1,2})(?:[ T].*)?$/);
+  if (match) return `${match[1].length === 2 ? '20' : ''}${match[1]}-${match[2].padStart(2,'0')}-${match[3].padStart(2,'0')}`;
+  text = text.replace(/[./]/g, '-');
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  return compact ? `${compact[1]}-${compact[2]}-${compact[3]}` : text;
+}
+
+function _parseFundNavPaste(text, code) {
+  const lines = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const matrix = lines.map(line => line.includes('\t') ? line.split('\t') : line.split(/\s{2,}/)).map(row => row.map(cell => cell.trim()));
+  return _parseFundNavMatrix(matrix, code);
+}
+
+function _fundNavNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const text = String(value ?? '').trim().replace(/,/g, '').replace(/\s*원$/, '').trim();
+  return /^(?:\d+(?:\.\d+)?|\.\d+)$/.test(text) ? Number(text) : NaN;
+}
+
+function _parseFundNavMatrix(matrix, code) {
+  if (!FUND_NAV_IMPORT_GUIDE[code] || !Array.isArray(matrix)) throw new Error('가져올 펀드를 선택하세요.');
+  const dateHeaders = new Set(['일자','기준일','기준일자','날짜','기준가격일','date']);
+  const navHeaders = new Set(['기준가격','기준가','기준가격(원)','nav','기준가격(1000좌)']);
+  let headerRow = -1, dateCol = -1, navCol = -1;
+  matrix.slice(0, 30).some((row, rowIndex) => {
+    const normalized = (row || []).map(_fundNavHeader);
+    dateCol = normalized.findIndex(value => dateHeaders.has(value));
+    navCol = normalized.findIndex(value => navHeaders.has(value) && !value.includes('수정'));
+    if (dateCol >= 0 && navCol >= 0) { headerRow = rowIndex; return true; }
+    return false;
+  });
+  if (headerRow < 0) throw new Error('일자와 기준가격 컬럼을 찾지 못했습니다. 수정기준가는 사용할 수 없습니다.');
+  const rows = [], clientErrors = [];
+  matrix.slice(headerRow + 1).forEach((row, offset) => {
+    if (!(row || []).some(cell => String(cell ?? '').trim())) return;
+    const rowNumber = headerRow + offset + 2;
+    const date = _fundNavDate(row?.[dateCol]);
+    const nav = _fundNavNumber(row?.[navCol]);
+    if (!/^(?:\d{2}|\d{4})[./-]\d{2}[./-]\d{2}$/.test(String(row?.[dateCol] ?? '').trim()) && !String(row?.[navCol] ?? '').trim()) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) clientErrors.push({ rowNumber, reason: '잘못된 날짜' });
+    if (!(nav > 0)) clientErrors.push({ rowNumber, reason: '기준가격은 0보다 큰 숫자여야 합니다.' });
+    rows.push({ rowNumber, date, nav: Number.isFinite(nav) ? nav : null });
+  });
+  if (!rows.length) throw new Error('기준가격 데이터가 없습니다.');
+  const warnings = [];
+  rows.filter(row => row.nav > 0).sort((a,b) => a.date.localeCompare(b.date)).forEach((row, index, sorted) => {
+    if (!index) return;
+    const rate = Math.abs(row.nav / sorted[index - 1].nav - 1);
+    if (rate >= FUND_NAV_CHANGE_WARNING_RATE) warnings.push({ rowNumber: row.rowNumber, date: row.date, rate });
+  });
+  return { rows, clientErrors, warnings, sourceText: matrix.flat().map(value => String(value ?? '')).join(' | ').slice(0, 500000) };
+}
+
+function _buildFundNavTemplateRows(code) {
+  const guide = FUND_NAV_IMPORT_GUIDE[code];
+  if (!guide) throw new Error('양식을 만들 펀드를 선택하세요.');
+  return {
+    input: [['일자', '기준가격']],
+    guide: [
+      ['펀드명', guide.name], ['F코드', code], ['provider', guide.provider], ['정확한 클래스', guide.className],
+      ['클래스코드', guide.classCode], ['표준코드', guide.standardCode || '확인되지 않음'], ['운용사 펀드코드', guide.lookupCode || '해당 없음'], [], ['사용방법'],
+      ['1', '시스템에서 금융투자협회 또는 참고 사이트를 연다.'],
+      ['2', `${guide.classCode}${guide.standardCode ? ` 또는 ${guide.standardCode}` : ''}로 정확한 ${guide.className} 클래스를 확인한다.`],
+      ['3', '기간별 일자와 기준가격을 복사한다.'], ['4', 'NAV입력 시트 A2/B2부터 붙여넣는다.'],
+      ['5', '파일을 저장한다.'], ['6', '기준가격 가져오기에서 업로드한다.'],
+      ['7', '미리보기의 펀드·기간·NAV를 확인한다.'], ['8', '검증된 NAV를 반영한다.'],
+      ...(guide.warning ? [[], ['주의', guide.warning]] : []),
+    ],
+  };
+}
+
+function downloadFundNavTemplate(code) {
+  if (typeof XLSX === 'undefined') { showToast('SheetJS 라이브러리 로드 후 다시 시도하세요.', 'warn'); return; }
+  const rows = _buildFundNavTemplateRows(code);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows.input), 'NAV입력');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows.guide), '사용방법');
+  XLSX.writeFile(workbook, `${code}_NAV_입력양식.xlsx`);
+  showToast(`${code} NAV 입력양식 다운로드 완료`, 'ok');
+}
+
+function _renderFundNavImportResult(preview) {
+  if (!preview) return '';
+  const errors = preview.errors || [];
+  // 저장 판단은 브라우저 계산이 아니라 GAS가 다시 검증해 반환한 WARNING만 사용합니다.
+  const warnings = preview.warnings || [];
+  const updates = preview.updates || [];
+  const warningConfirmed = !warnings.length || _fundNavImportState.warningsAcknowledged;
+  return `<div class="fund-nav-import-result" role="status">
+    <b>미리보기 결과</b><div class="fund-nav-import-counts">
+    <span>총 ${Number(preview.total || 0)}건</span><span>정상 인식 ${Number(preview.recognized || 0)}건</span>
+    <span>신규 ${preview.candidates?.length || 0}건</span><span>기존 동일 ${preview.identical?.length || 0}건</span>
+    <span>기존값 갱신 예정 ${updates.length}건</span><span>ERROR ${errors.length}건</span><span>WARNING ${warnings.length}건</span>
+    <span>파일 중복 ${preview.duplicates?.length || 0}건</span><span>0좌 제외 ${preview.zeroUnits?.length || 0}건</span></div>
+    <p>저장 예정 기간: ${_escapeHtml(preview.from || '없음')} ~ ${_escapeHtml(preview.to || '없음')} · 최초 기준일 ${_escapeHtml(preview.firstDate || preview.from || '없음')} · 최신 기준일 ${_escapeHtml(preview.lastDate || preview.to || '없음')}</p>
+    ${errors.length ? `<details><summary>ERROR 상세</summary>${errors.slice(0,50).map(item => `<div>${Number(item.rowNumber)}행: ${_escapeHtml(item.reason)}</div>`).join('')}</details>` : ''}
+    ${warnings.length ? `<details><summary>WARNING 상세</summary>${warnings.slice(0,50).map(item => `<div>${Number(item.rowNumber || 0)}행: ${_escapeHtml(item.reason || (item.rate != null ? `${item.date}: NAV 변동률 ${(Number(item.rate) * 100).toFixed(1)}%` : item.date || '확인 필요'))}</div>`).join('')}</details>
+      <label class="fund-nav-warning-ack"><input type="checkbox" data-fund-nav-warning-ack ${_fundNavImportState.warningsAcknowledged ? 'checked' : ''}> 주의 항목을 확인했습니다.</label>` : ''}
+    ${updates.length ? `<details><summary>갱신 예정 상세</summary>${updates.slice(0,50).map(item => `<div>${_escapeHtml(item.date)}: ${Number(item.existingNav).toLocaleString()} → ${Number(item.uploadedNav).toLocaleString()}</div>`).join('')}</details>` : ''}
+    <p>확정 기준가를 저장하고 해당 날짜의 펀드 평가금액과 과거 스냅샷을 보완합니다.</p>
+    <button type="button" class="fund-action fund-action-primary" data-fund-action="import-nav" ${!preview.canSave || !warningConfirmed || _fundUnitBusy ? 'disabled' : ''}>기준가 반영</button></div>`;
+}
+
+function _renderFundNavImporter() {
+  const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
+  return `<section class="fund-nav-import"><h4>기준가격 가져오기</h4>
+    <label>펀드 선택<select data-fund-nav-target>${Object.entries(FUND_NAV_IMPORT_GUIDE).map(([code,item]) => `<option value="${code}" ${_fundNavImportState.code === code ? 'selected' : ''}>${code} · ${_escapeHtml(item.name)}</option>`).join('')}</select></label>
+    <div class="fund-nav-guide"><b>${_escapeHtml(guide.name)}</b><dl><dt>F코드</dt><dd>${_fundNavImportState.code}</dd><dt>provider</dt><dd>${guide.provider}</dd><dt>클래스</dt><dd>${guide.className}</dd><dt>클래스코드</dt><dd>${guide.classCode}</dd><dt>표준코드</dt><dd>${guide.standardCode || '확인되지 않음'}</dd></dl>
+    <div class="fund-nav-code-row"><span><small>클래스코드</small><b>${guide.classCode}</b></span><button type="button" class="fund-action fund-action-utility" data-fund-action="copy-nav-code" data-fund-code="${guide.classCode}">복사</button></div>
+    <div class="fund-nav-code-row"><span><small>${guide.standardCode ? '표준코드' : '운용사 펀드코드'}</small><b>${guide.standardCode || guide.lookupCode}</b></span><button type="button" class="fund-action fund-action-utility" data-fund-action="copy-nav-code" data-fund-code="${guide.standardCode || guide.lookupCode}">복사</button></div>
+    <div class="fund-nav-links">${guide.links.map(([label,url]) => `<a href="${_escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${_escapeHtml(label)}</a>`).join('')}</div>
+    <button type="button" class="btn-ghost-sm" data-fund-action="download-nav-template" data-fund-code="${_fundNavImportState.code}">NAV 입력양식.xlsx 다운로드</button>
+    <p>검색어: ${guide.classCode} · ${guide.standardCode || guide.lookupCode} · ${_escapeHtml(guide.name)}</p><p>참고 사이트는 정확한 클래스 자료 확보용이며 자동 scraping에 사용하지 않습니다.</p>
+    ${guide.warning ? `<p class="fund-nav-import-warning">${_escapeHtml(guide.warning)}</p>` : ''}</div>
+    <p>사이트의 일자/기준가격을 입력양식 A2/B2부터 붙여넣은 뒤 업로드하세요. 기존 xlsx/xls/csv도 계속 인식합니다.</p>
+    <p><b>선택한 펀드:</b> ${_fundNavImportState.code} / ${_escapeHtml(guide.name)} / ${guide.classCode}</p>
+    <fieldset class="fund-nav-manual"><legend>기준가격(NAV) 직접 입력</legend>
+      <label>기준일<input type="date" data-fund-nav-manual="date" value="${_escapeHtml(_fundNavImportState.manualDate || '')}"></label>
+      <label>기준가격(NAV)<input type="text" inputmode="decimal" data-fund-nav-manual="nav" value="${_escapeHtml(_fundNavImportState.manualNav || '')}" placeholder="3,215.42"></label>
+      <button type="button" class="fund-action fund-action-secondary" data-fund-action="preview-manual-nav">수동 NAV 검증</button>
+    </fieldset>
+    <label class="fund-nav-paste">웹사이트 표 붙여넣기<textarea data-fund-nav-paste rows="7" placeholder="기준일    펀드규모(억원)    수정기준가    기준가    과표기준가">${_escapeHtml(_fundNavImportState.pasteText || '')}</textarea></label>
+    <p>헤더의 '기준가' 열만 사용하며 수정기준가·과표기준가는 평가에 사용하지 않습니다.</p>
+    <label class="fund-nav-file">파일 선택<input type="file" accept=".xlsx,.xls,.csv" data-fund-nav-file ${_fundUnitBusy ? 'disabled' : ''}></label>
+    ${_fundNavImportState.filename ? `<p>파일: ${_escapeHtml(_fundNavImportState.filename)}</p>` : ''}${_fundNavImportState.parseError ? `<p class="fund-nav-import-warning">${_escapeHtml(_fundNavImportState.parseError)}</p>` : ''}
+    ${_renderFundNavImportResult(_fundNavImportState.preview)}</section>`;
+}
 
 function _captureFundUnitDrafts(force) {
   document.querySelectorAll('[data-fund-field]').forEach(input => {
@@ -43,12 +206,12 @@ function _renderFundUnitsEditor(items) {
         <label>정확한 클래스 <select data-fund-code="${code}" data-fund-field="provider"><option value="">선택하세요</option>${options.map(([id,label]) => `<option value="${id}" ${provider === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
         <label>전체 좌수 <input type="number" min="0" step="any" data-fund-code="${code}" data-fund-field="units" value="${_escapeHtml(String(units))}"></label>
         <label>적용 시작일 <input type="date" data-fund-code="${code}" data-fund-field="startDate" value="${_escapeHtml(startDate)}"></label>
-        <button type="button" class="btn-ghost-sm" data-fund-action="save" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>좌수 저장</button>
-        ${history.length ? `<div class="fund-units-history"><b>좌수 변경 이력</b>${history.map(config => {
+        <button type="button" class="fund-action fund-action-primary" data-fund-action="save" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>${_fundUnitBusy ? '저장 중...' : '좌수 저장'}</button>
+        ${history.length ? `<div class="fund-units-history"><b>좌수 변경 이력</b><div class="fund-units-history-head"><span>날짜</span><span>좌수</span><span>펀드명</span><span>상태</span></div>${history.map(config => {
           const status = config.startDate === item.currentConfigStartDate
             ? (Number(config.units) === 0 ? '현재 적용 · 자동평가 중단' : '현재 적용')
             : (config.startDate > today ? '예약' : '이전');
-          return `<div><span>${_escapeHtml(config.startDate)}</span><span>${Number(config.units).toLocaleString()}좌</span><span>${_escapeHtml(options.find(option => option[0] === config.provider)?.[1] || config.provider)}</span><em>${status}</em></div>`;
+          return `<div><span>${_escapeHtml(config.startDate)}</span><span>${Number(config.units).toLocaleString(undefined,{maximumFractionDigits:12})}좌</span><span>${_escapeHtml(item.name)}</span><em>${status}</em></div>`;
         }).join('')}</div>` : '<p>등록된 좌수 이력이 없습니다.</p>'}
       </fieldset>`;
     };
@@ -58,10 +221,11 @@ function _renderFundUnitsEditor(items) {
     <p>종목코드별 전체 좌수 × 일별 기준가격 ÷ 1,000. 좌수 변경은 변경일부터 새 이력을 추가하세요. 0좌부터 자동 평가는 중단하며 기존 기록은 보존합니다.</p>
     ${currentItems.length ? `<div class="fund-units-group"><h5>현재 보유 펀드</h5>${currentItems.map(renderFund).join('')}</div>` : ''}
     ${pastItems.length ? `<div class="fund-units-group"><h5>과거 보유 / 전량 매도 펀드</h5>${pastItems.map(renderFund).join('')}</div>` : ''}
-    <p>기존 가격·수동 입력·스냅샷은 보존합니다. 아래 기간의 미작성 평가금액만 채웁니다.</p>
+    ${_renderFundNavImporter()}
+    <p><b>누락 평가금액 복구</b> · 확정된 좌수·기준가를 기준으로 과거 누락 평가금액을 복구합니다.</p>
     <label>시작일 <input type="date" data-fund-code="range" data-fund-field="from" value="${_escapeHtml(_fundUnitDrafts.range?.from || _kstTodayStr().slice(0,4) + '-01-01')}"></label>
     <label>종료일 <input type="date" data-fund-code="range" data-fund-field="to" value="${_escapeHtml(_fundUnitDrafts.range?.to || _kstTodayStr())}"></label>
-    <button type="button" class="btn-ghost-sm" data-fund-action="fill" ${_fundUnitBusy ? 'disabled' : ''}>기간 평가금액 채우기</button>
+    <button type="button" class="fund-action fund-action-secondary" data-fund-action="fill" ${_fundUnitBusy ? 'disabled' : ''}>누락 평가금액 복구</button>
     <p role="status">${_escapeHtml(_fundUnitsStatus)}</p></section>`;
 }
 
@@ -78,18 +242,43 @@ async function _loadFundUnitsEditor() {
 
 async function handleFundUnitAction(action, code) {
   if (_fundUnitBusy) return;
+  if (action === 'copy-nav-code') {
+    const value = code;
+    const button = document.querySelector(`[data-fund-action="copy-nav-code"][data-fund-code="${value}"]`);
+    try {
+      await navigator.clipboard.writeText(value);
+      if (button) { button.textContent = '복사됨'; setTimeout(() => { if (button.isConnected) button.textContent = '복사'; }, 1400); }
+      showToast(`${value} 복사 완료`, 'ok');
+    } catch (_) { showToast('복사하지 못했습니다.', 'warn'); }
+    return;
+  }
+  if (action === 'download-nav-template') { downloadFundNavTemplate(code); return; }
   if (!GSHEET_API_URL) { showToast('구글시트를 먼저 연결하세요.', 'warn'); return; }
   _captureFundUnitDrafts(true);
   _fundUnitBusy = true;
   try {
-    if (action === 'save') {
+    if (action === 'import-nav') {
+      if (!_fundNavImportState.preview?.canSave || !_fundNavImportState.payload) throw new Error('먼저 파일을 검증하세요.');
+      const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
+      const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: _fundNavImportState.payload.rows, sourceText: _fundNavImportState.payload.sourceText, ackWarnings: _fundNavImportState.warningsAcknowledged };
+      const result = await requestGsheetFormJson('importFundNav', { data: JSON.stringify(data) }, { timeoutMs: 300000, retry: 0 });
+      if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 실패');
+      const imported = result.importResult || {}, evaluation = result.evaluation || {};
+      _fundUnitsStatus = `NAV 반영 완료 · ${_fundNavImportState.code} · 신규 ${Number(imported.saved || 0)}건 · 기존 동일 ${imported.identical?.length || 0}건 · 갱신 ${Number(imported.updated || 0)}건 · WARNING ${imported.warnings?.length || 0}건 · ERROR ${imported.errors?.length || 0}건 · 0좌 제외 ${imported.zeroUnits?.length || 0}건 · 재계산 ${evaluation.from || '없음'} ~ ${evaluation.to || '없음'} · 평가금액 ${Number(evaluation.valuations || 0)}건 · 가격이력 ${Number(evaluation.prices || 0)}건 · 스냅샷 ${Number(evaluation.snapshots || 0)}건`;
+      _fundNavImportState = { ..._fundNavImportState, preview: { ...imported, candidates: [], canSave: false } };
+      _editorHistoryCache.clear();
+    } else if (action === 'preview-manual-nav') {
+      const parsed = _parseFundNavMatrix([['일자','기준가격'], [_fundNavImportState.manualDate, _fundNavImportState.manualNav]], _fundNavImportState.code);
+      await _previewFundNavParsed(parsed);
+    } else if (action === 'save') {
       const draft = _fundUnitDrafts[code];
       if (!draft?.provider || !draft.startDate || draft.units === '' || !Number.isFinite(Number(draft.units)) || Number(draft.units) < 0) throw new Error('클래스·적용일·좌수를 입력하세요.');
+      _fundUnitsStatus = '저장 중...'; buildEditorUI();
       const result = await requestGsheetFormJson('saveFundUnits', { data: JSON.stringify({ ...draft, code }) }, { timeoutMs: 60000, retry: 0 });
       if (result?.status !== 'ok') throw new Error(result?.message || '좌수 저장 실패');
       _fundUnitConfigs = result.configs || [];
       _fundUnitItems = result.funds || _fundUnitItems;
-      _fundUnitsStatus = '좌수 저장 완료. 과거 기간은 기간 평가금액 채우기를 실행하세요. 매일 자동 반영이 설정됐습니다.';
+      _fundUnitsStatus = '좌수가 저장되었습니다. 과거 기간은 기간 평가금액 채우기를 실행하세요.';
     } else if (action === 'fill') {
       const from = _fundUnitDrafts.range?.from;
       const to = _fundUnitDrafts.range?.to;
@@ -114,15 +303,78 @@ async function handleFundUnitAction(action, code) {
       await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
       recomputeRows(); saveHoldings(); renderSummary();
     }
-  } catch (error) { _fundUnitsStatus = error.message; showToast(error.message, 'warn', 7000); }
+  } catch (error) { _fundUnitsStatus = action === 'save' ? `저장 실패: ${error.message}` : error.message; showToast(_fundUnitsStatus, 'warn', 7000); }
   finally { _fundUnitBusy = false; buildEditorUI(); }
 }
 
 function openFundUnitsEditor() {
   _editorMode = 'fund-units';
   _fundUnitDrafts = {};
+  _fundNavImportState = { code: 'F00001', filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
   _openEditorModal();
   _loadFundUnitsEditor();
+}
+
+async function handleFundNavImportTarget(code) {
+  if (!FUND_NAV_IMPORT_GUIDE[code]) return;
+  _fundNavImportState = { code, filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
+  buildEditorUI();
+}
+
+async function handleFundNavImportFile(file) {
+  if (!file || _fundUnitBusy) return;
+  if (!/\.(xlsx|xls|csv)$/i.test(file.name)) { _fundNavImportState.parseError = 'xlsx, xls, csv 파일만 지원합니다.'; buildEditorUI(); return; }
+  _fundUnitBusy = true;
+  _fundNavImportState = { ..._fundNavImportState, filename: file.name, payload: null, preview: null, parseError: '' };
+  buildEditorUI();
+  try {
+    if (typeof XLSX === 'undefined') throw new Error('SheetJS 라이브러리 로드 후 다시 시도하세요.');
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+    const parsed = _parseFundNavMatrix(matrix, _fundNavImportState.code);
+    const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
+    const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
+    const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0 });
+    if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
+    _fundNavImportState = { ..._fundNavImportState, payload: parsed, preview: result, warningsAcknowledged: false };
+  } catch (error) { _fundNavImportState = { ..._fundNavImportState, parseError: error.message, payload: null, preview: null }; showToast(error.message, 'warn', 7000); }
+  finally { _fundUnitBusy = false; buildEditorUI(); }
+}
+
+async function _previewFundNavParsed(parsed) {
+  if (!GSHEET_API_URL) throw new Error('구글시트를 먼저 연결하세요.');
+  const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
+  const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
+  const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0 });
+  if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
+  _fundNavImportState = { ..._fundNavImportState, payload: parsed, preview: result, parseError: '', warningsAcknowledged: false };
+}
+
+function handleFundNavPasteInput(value) {
+  _fundNavImportState = { ..._fundNavImportState, pasteText: value, filename: '', payload: null, preview: null, parseError: '' };
+  clearTimeout(_fundNavPasteTimer);
+  _fundNavPasteTimer = setTimeout(async () => {
+    if (!String(value || '').trim()) { buildEditorUI(); return; }
+    _fundUnitBusy = true;
+    try { await _previewFundNavParsed(_parseFundNavPaste(value, _fundNavImportState.code)); }
+    catch (error) { _fundNavImportState = { ..._fundNavImportState, parseError: error.message, payload: null, preview: null }; }
+    finally { _fundUnitBusy = false; buildEditorUI(); }
+  }, 350);
+}
+
+function handleFundNavWarningAck(checked) {
+  _fundNavImportState.warningsAcknowledged = !!checked;
+  buildEditorUI();
+}
+
+function handleFundNavManualInput(field, value) {
+  if (!['date','nav'].includes(field)) return;
+  _fundNavImportState[field === 'date' ? 'manualDate' : 'manualNav'] = value;
+  _fundNavImportState.payload = null;
+  _fundNavImportState.preview = null;
+  _fundNavImportState.warningsAcknowledged = false;
 }
 
 function openEditor() {
@@ -397,12 +649,8 @@ function _isCurrentEditorHolding(item) {
 function buildEditorUI() {
   _captureFundUnitDrafts();
   _editorItemMap = {};
-  // ① 펀드·TDF — 현재 보유수량이 있는 종목만 표시합니다.
-  // 기초정보와 과거 가격이력은 보존하되 전량 매도 종목은 편집 대상에서 제외합니다.
-  const fundItems = EDITABLE_PRICES.filter(item =>
-    (item.fund || item.assetType === '펀드' || item.assetType === 'TDF')
-    && _isCurrentEditorHolding(item)
-  );
+  // F코드는 전체 평가금액을 직접 편집하지 않고 좌수 설정의 NAV 입력 경로만 사용합니다.
+  const fundItems = [];
 
   if (_editorMode === 'fund-units') {
     $el('editorBody').innerHTML = _fundUnitItems.length
@@ -460,8 +708,8 @@ function buildEditorUI() {
     $el('editorBody').innerHTML =
       '<div class="empty-msg" style="padding:30px 0">' +
       '<div style="font-size:1.8rem;margin-bottom:8px">✅</div>' +
-      '모든 종목의 현재가가 자동 조회되고 있어요.<br>' +
-      '<span class="txt-muted-68">자동 조회가 안 되는 종목이 생기면 여기에 표시됩니다.</span>' +
+      '일반 종목의 현재가가 자동 조회되고 있어요.<br>' +
+      '<span class="txt-muted-68">펀드 F코드는 좌수 설정에서 기준가격(NAV)을 입력하세요.</span>' +
       '</div>';
     return;
   }
