@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.92
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.93
+//
+//  v9.93 변경사항 (2026.09.11):
+//   검증된 import NAV로 기존값을 갱신하고 다음 공시일 전까지 평가를 재계산
+//   펀드 가격이력·스냅샷만 NAV×좌수 기준으로 안전하게 갱신
 //
 //  v9.92 변경사항 (2026.09.11):
 //   AQ018/AP399 기간 NAV 파일을 기존 펀드기준가격에 누락분만 안전하게 import
@@ -3428,14 +3432,16 @@ function _inspectFundNavImport(ss, dataJson) {
   var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
   var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
   var existing = {};
-  stored.forEach(function(row) {
+  stored.forEach(function(row, index) {
     if (String(row[1]) !== code || String(row[8]) !== spec.provider) return;
     var storedDate = _normalizeDate(row[0]);
+    var sourceDate = _normalizeDate(row[4]);
+    if (storedDate !== sourceDate) return;
     var storedNav = Number(row[3]);
     if (Object.prototype.hasOwnProperty.call(existing, storedDate) && existing[storedDate] !== storedNav) throw new Error('기존 펀드기준가격 충돌: ' + storedDate);
-    existing[storedDate] = storedNav;
+    existing[storedDate] = { nav: storedNav, rowIndex: index };
   });
-  var candidates = [], errors = [], duplicates = [], identical = [], conflicts = [], zeroUnits = [], seen = {};
+  var candidates = [], errors = [], duplicates = [], identical = [], updates = [], zeroUnits = [], seen = {};
   rows.forEach(function(row, index) {
     var rowNumber = Number(row && row.rowNumber) || index + 2;
     var date, nav;
@@ -3454,8 +3460,8 @@ function _inspectFundNavImport(ss, dataJson) {
     if (config.provider !== spec.provider) { errors.push({ rowNumber: rowNumber, reason: '좌수 이력의 클래스 불일치' }); return; }
     if (config.units === 0) { zeroUnits.push({ rowNumber: rowNumber, date: date, nav: nav }); return; }
     if (Object.prototype.hasOwnProperty.call(existing, date)) {
-      var detail = { rowNumber: rowNumber, date: date, existingNav: existing[date], uploadedNav: nav };
-      if (existing[date] === nav) identical.push(detail); else conflicts.push(detail);
+      var detail = { rowNumber: rowNumber, date: date, existingNav: existing[date].nav, uploadedNav: nav, existingRowIndex: existing[date].rowIndex };
+      if (existing[date].nav === nav) identical.push(detail); else updates.push(detail);
       return;
     }
     var evalAmt = Math.round(nav * config.units / 1000);
@@ -3463,12 +3469,120 @@ function _inspectFundNavImport(ss, dataJson) {
     candidates.push({ rowNumber: rowNumber, date: date, nav: nav, units: config.units, evalAmt: evalAmt, name: config.name });
   });
   candidates.sort(function(a, b) { return a.date.localeCompare(b.date); });
-  return { code: code, spec: spec, total: rows.length, recognized: rows.length - errors.length, candidates: candidates, errors: errors, duplicates: duplicates, identical: identical, conflicts: conflicts, zeroUnits: zeroUnits, canSave: errors.length === 0 && candidates.length > 0, from: candidates.length ? candidates[0].date : '', to: candidates.length ? candidates[candidates.length - 1].date : '' };
+  var changed = candidates.concat(updates).sort(function(a, b) { return a.date.localeCompare(b.date); });
+  return { code: code, spec: spec, total: rows.length, recognized: rows.length - errors.length, candidates: candidates, updates: updates, errors: errors, duplicates: duplicates, identical: identical, zeroUnits: zeroUnits, canSave: errors.length === 0 && changed.length > 0, from: changed.length ? changed[0].date : '', to: changed.length ? changed[changed.length - 1].date : '' };
 }
 
 function handlePreviewFundNavImport(dataJson) {
   try { return jsonOk(_inspectFundNavImport(getss(), dataJson)); }
   catch (err) { return jsonError('NAV import 검증 실패: ' + err.message); }
+}
+
+function _fundNavImportImpactRanges(stored, code, provider, changedDates) {
+  var sourceDates = {};
+  stored.forEach(function(row) {
+    if (String(row[1]) !== code || String(row[8]) !== provider) return;
+    var sourceDate = _normalizeDate(row[4]);
+    if (sourceDate) sourceDates[sourceDate] = true;
+  });
+  changedDates.forEach(function(date) { sourceDates[date] = true; });
+  var sources = Object.keys(sourceDates).sort();
+  var ranges = changedDates.slice().sort().map(function(date) {
+    var next = sources.find(function(sourceDate) { return sourceDate > date; });
+    return { from: date, to: next ? _fundDateOffset(next, -1) : today() };
+  });
+  return ranges.reduce(function(merged, range) {
+    var last = merged[merged.length - 1];
+    if (last && range.from <= _fundDateOffset(last.to, 1)) { if (range.to > last.to) last.to = range.to; }
+    else merged.push(range);
+    return merged;
+  }, []);
+}
+
+function _backupFundImportSheet(ss, sheet, label) {
+  if (!sheet || typeof sheet.copyTo !== 'function') return;
+  sheet.copyTo(ss).setName(label + '_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6));
+}
+
+function _applyFundNavImport(ss, inspected) {
+  var configs = _readFundUnits(ss);
+  var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
+  var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
+  var imported = {};
+  inspected.candidates.concat(inspected.updates).forEach(function(row) { imported[row.date] = row.uploadedNav || row.nav; });
+  var published = {};
+  stored.forEach(function(row) {
+    if (String(row[1]) !== inspected.code || String(row[8]) !== inspected.spec.provider) return;
+    var sourceDate = _normalizeDate(row[4]);
+    var nav = Number(row[3]);
+    if (sourceDate && nav > 0 && !Object.prototype.hasOwnProperty.call(published, sourceDate)) published[sourceDate] = nav;
+  });
+  Object.keys(imported).forEach(function(date) { published[date] = imported[date]; });
+  var navRows = Object.keys(published).sort().map(function(date) { return { date: date, nav: published[date] }; });
+  var ranges = _fundNavImportImpactRanges(stored, inspected.code, inspected.spec.provider, Object.keys(imported));
+  var daily = [];
+  ranges.forEach(function(range) { daily = daily.concat(_fundDailyValues(configs, inspected.code, navRows, range.from, range.to)); });
+  var existingNavIndexes = {};
+  stored.forEach(function(row, index) {
+    if (String(row[1]) === inspected.code && String(row[8]) === inspected.spec.provider) existingNavIndexes[_normalizeDate(row[0])] = index;
+  });
+  var now = new Date().toISOString();
+  daily.forEach(function(value) {
+    var replacement = [value.date, value.code, value.name, value.nav, value.sourceDate, value.units, value.evalAmt, now, value.provider];
+    if (Object.prototype.hasOwnProperty.call(existingNavIndexes, value.date)) stored[existingNavIndexes[value.date]] = replacement;
+    else { existingNavIndexes[value.date] = stored.length; stored.push(replacement); }
+  });
+  if (!navSheet) { navSheet = ss.insertSheet(FUND_NAV_SHEET); navSheet.appendRow(['일자','종목코드','종목명','기준가격(1000좌)','가격공시일','좌수','평가금액','조회일시','클래스']); }
+  _backupFundImportSheet(ss, navSheet, FUND_NAV_SHEET);
+  if (stored.length) navSheet.getRange(2, 1, stored.length, 9).setValues(stored);
+
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
+  var priceIndexes = {};
+  prices.forEach(function(row, index) {
+    var rowCode = _cleanCode(row[1]);
+    if (rowCode === inspected.code || (!rowCode && daily.some(function(value) { return value.name === String(row[2]); }))) {
+      var priceDate = _normalizeDate(row[0]);
+      if (!priceIndexes[priceDate]) priceIndexes[priceDate] = [];
+      priceIndexes[priceDate].push(index);
+    }
+  });
+  var priceChanges = 0;
+  daily.forEach(function(value) {
+    var replacement = [value.date, value.code, value.name, value.evalAmt, now, 'FUND_NAV'];
+    if (Object.prototype.hasOwnProperty.call(priceIndexes, value.date)) {
+      priceIndexes[value.date].forEach(function(index) {
+        if (Number(prices[index][3]) !== value.evalAmt || String(prices[index][5]) !== 'FUND_NAV') { prices[index] = replacement.slice(); priceChanges++; }
+      });
+    } else { priceIndexes[value.date] = [prices.length]; prices.push(replacement); priceChanges++; }
+  });
+  if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
+  if (prices.length) { _backupFundImportSheet(ss, ph, CONFIG.SHEET_PH); ph.getRange(2, 1, prices.length, 6).setValues(prices); }
+
+  var tradeSheet = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  var trades = tradeSheet && tradeSheet.getLastRow() > 1 ? tradeSheet.getRange(2, 1, tradeSheet.getLastRow() - 1, 8).getValues() : [];
+  var names = {}; configs.forEach(function(config) { names[config.name] = config.code; });
+  var snapshotChanges = 0, missingHoldings = [];
+  daily.forEach(function(value) {
+    var holdings = calcHoldingsAtDate(trades, value.date, names);
+    var holding = Object.keys(holdings).map(function(key) { return holdings[key]; }).find(function(item) { return item.code === inspected.code; });
+    if (!holding) { missingHoldings.push(value.date + ':' + inspected.code); return; }
+    var pnl = value.evalAmt - holding.costAmt;
+    var fundRow = [value.date, value.code, value.name, 1, holding.costAmt, holding.costAmt, value.evalAmt, value.evalAmt, pnl, holding.costAmt > 0 ? Math.round(pnl / holding.costAmt * 10000) / 100 : 0, 'FUND_NAV', now];
+    var existing = _readSnapshotRowsByDate(ss, value.date);
+    if (existing.length) {
+      writeSnapshotRows(ss, value.date, [fundRow], true, [value.code]);
+      snapshotChanges++;
+      return;
+    }
+    var rebuilt = _buildSnapshotRowsFromTradeAndPriceHistory(ss, value.date, true);
+    var complete = Object.keys(holdings).every(function(key) {
+      var item = holdings[key]; return rebuilt.some(function(row) { return (item.code && row[1] === item.code) || row[2] === item.name; });
+    });
+    if (complete && rebuilt.length) { writeSnapshotRows(ss, value.date, rebuilt, true, [value.code]); snapshotChanges++; }
+    else missingHoldings.push(value.date + ':다른 보유종목의 평가자료 부족');
+  });
+  return { from: daily.length ? daily[0].date : '', to: daily.length ? daily[daily.length - 1].date : '', prices: priceChanges, snapshots: snapshotChanges, missingHoldings: missingHoldings, ranges: ranges };
 }
 
 function handleImportFundNav(dataJson) {
@@ -3478,28 +3592,10 @@ function handleImportFundNav(dataJson) {
     var ss = getss();
     var inspected = _inspectFundNavImport(ss, dataJson);
     if (inspected.errors.length) throw new Error('오류 행 ' + inspected.errors.length + '건을 먼저 수정하세요.');
-    if (!inspected.candidates.length) return jsonOk({ importResult: inspected, evaluation: { saved: 0, navSaved: 0, snapshots: 0, missingHoldings: [] } });
-    var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
-    if (!navSheet) { navSheet = ss.insertSheet(FUND_NAV_SHEET); navSheet.appendRow(['일자','종목코드','종목명','기준가격(1000좌)','가격공시일','좌수','평가금액','조회일시','클래스']); }
-    var now = new Date().toISOString();
-    var append = inspected.candidates.map(function(row) { return [row.date, inspected.code, row.name, row.nav, row.date, row.units, row.evalAmt, now, inspected.spec.provider]; });
-    navSheet.getRange(navSheet.getLastRow() + 1, 1, append.length, 9).setValues(append);
-    var evaluation = { saved: 0, navSaved: 0, snapshots: 0, missingHoldings: [] };
-    try {
-      for (var start = inspected.from; start <= inspected.to;) {
-        var end = _fundDateOffset(start, 31) < inspected.to ? _fundDateOffset(start, 31) : inspected.to;
-        var result = _refreshFundValuations(ss, start, end, inspected.code, true);
-        evaluation.saved += Number(result.saved || 0);
-        evaluation.navSaved += Number(result.navSaved || 0);
-        evaluation.snapshots += Number(result.snapshots || 0);
-        evaluation.missingHoldings = evaluation.missingHoldings.concat(result.missingHoldings || []);
-        start = _fundDateOffset(end, 1);
-      }
-    } catch (evaluationError) {
-      // NAV append는 완료됐으므로 재시도 시 중복 저장하지 않도록 반영 실패를 별도로 보고합니다.
-      evaluation.error = String(evaluationError.message || evaluationError);
-    }
-    inspected.saved = append.length;
+    if (!inspected.candidates.length && !inspected.updates.length) return jsonOk({ importResult: inspected, evaluation: { from: '', to: '', prices: 0, snapshots: 0, missingHoldings: [], ranges: [] } });
+    var evaluation = _applyFundNavImport(ss, inspected);
+    inspected.saved = inspected.candidates.length;
+    inspected.updated = inspected.updates.length;
     return jsonOk({ importResult: inspected, evaluation: evaluation });
   } catch (err) { return jsonError('NAV import 저장 실패: ' + err.message); }
   finally { lock.releaseLock(); }
@@ -6192,7 +6288,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.92' });
+    return jsonOk({ settings: settings, gasVersion: '9.93' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6214,7 +6310,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.92'
+      gasVersion: '9.93'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

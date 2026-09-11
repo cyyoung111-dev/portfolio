@@ -234,23 +234,44 @@ for (const row of [{date:'2026-09-10',nav:1000},{date:'2025-01-03',nav:0},{date:
   assert.equal(context._inspectFundNavImport(importSs,importPayload('F00002','KB_VALUE_ST','AQ018',[row])).errors.length,1);
 }
 const conflict=clone(context._inspectFundNavImport(importSs,importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:999}])));
-assert.equal(conflict.conflicts.length,1);
+assert.equal(conflict.updates.length,1);
+assert.deepEqual([conflict.updates[0].existingNav,conflict.updates[0].uploadedNav],[1000,999]);
 assert.equal(importNav.rows[1][3],1000,'미리보기 충돌은 기존 NAV를 변경하지 않음');
+assert.deepEqual(clone(context._fundNavImportImpactRanges([
+  ['2025-01-05','F00002','KB',1100,'2025-01-05',1000,1100,'','KB_VALUE_ST'],
+  ['2025-01-10','F00002','KB',1200,'2025-01-10',1000,1200,'','KB_VALUE_ST']
+],'F00002','KB_VALUE_ST',['2025-01-02','2025-01-05'])),[{from:'2025-01-02',to:'2025-01-09'}],'겹치거나 인접한 NAV 영향구간 병합');
 
-const importWriteNav = new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
-const importWriteSs = ssFor({'펀드좌수':importUnits,'펀드기준가격':importWriteNav});
+const importWriteNav = new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2025-01-02','F00002','KB 밸류포커스 소득공제 S-T',900,'2025-01-02',1000,900,'','KB_VALUE_ST'],
+  ['2025-01-03','F00002','KB 밸류포커스 소득공제 S-T',900,'2025-01-02',1000,900,'','KB_VALUE_ST'],
+  ['2025-01-05','F00002','KB 밸류포커스 소득공제 S-T',1100,'2025-01-05',1000,1100,'','KB_VALUE_ST']]);
+const importWritePrices = new Sheet([['date','code','name','price','at','source'],
+  ['2025-01-02','F00002','KB 밸류포커스 소득공제 S-T',900,'','MANUAL'],
+  ['2025-01-02','000001','일반주식',777,'','MANUAL']]);
+const importWriteTrades = new Sheet([Array(8).fill('header'),
+  ['2025-01-01','buy','계좌','KB 밸류포커스 소득공제 S-T','F00002',1,800,'펀드']]);
+const fxSnapshot = ['2025-01-02','US0001','해외자산',1,100,100,123,123,23,23,'FX_HISTORY',''];
+const importWriteSnapshots = new Sheet([header,snap('2025-01-02','F00002',900,'MANUAL'),fxSnapshot]);
+const importWriteSs = ssFor({'펀드좌수':importUnits,'펀드기준가격':importWriteNav,'가격이력':importWritePrices,'거래이력':importWriteTrades,'스냅샷':importWriteSnapshots});
 context.getss=()=>importWriteSs;
 context.jsonOk=extra=>({status:'ok',...extra}); context.jsonError=message=>({status:'error',message});
-const realRefresh=context._refreshFundValuations;
-context._refreshFundValuations=()=>({saved:2,navSaved:1,snapshots:1,missingHoldings:[]});
-const imported=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:1000},{date:'2025-01-03',nav:1001}]));
-assert.equal(imported.status,'ok'); assert.equal(imported.importResult.saved,2); assert.equal(importWriteNav.rows.length,3);
-const repeated=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:1000},{date:'2025-01-03',nav:1001}]));
-assert.equal(repeated.importResult.saved,undefined); assert.equal(importWriteNav.rows.length,3,'import 재실행은 idempotent');
+const imported=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:1000}]));
+assert.equal(imported.status,'ok'); assert.equal(imported.importResult.updated,1); assert.deepEqual(clone(imported.evaluation.ranges),[{from:'2025-01-02',to:'2025-01-04'}]);
+assert.deepEqual(importWriteNav.rows.slice(1,4).map(row=>[row[0],row[3],row[4],row[6]]),[
+  ['2025-01-02',1000,'2025-01-02',1000],['2025-01-03',1000,'2025-01-02',1000],['2025-01-05',1100,'2025-01-05',1100]
+]);
+assert.equal(importWriteNav.rows.find(row=>row[0]==='2025-01-04')[3],1000,'다음 NAV 직전까지 갱신 NAV 이월');
+assert.equal(importWritePrices.rows.find(row=>row[0]==='2025-01-02'&&row[1]==='F00002')[3],1000,'펀드 MANUAL 평가보다 검증 NAV×좌수 우선');
+assert.equal(importWritePrices.rows.find(row=>row[1]==='000001')[3],777,'관련 없는 일반주식 가격이력 보존');
+assert.equal(importWriteSnapshots.rows.find(row=>row[1]==='F00002')[7],1000);
+assert.deepEqual(importWriteSnapshots.rows.find(row=>row[1]==='US0001'),fxSnapshot,'해외자산 과거 FX 스냅샷 보존');
+const repeated=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:1000}]));
+assert.equal(repeated.importResult.saved,undefined); assert.equal(repeated.importResult.updated,undefined);
 const beforeImportFailure=clone(importWriteNav.rows); importWriteNav.failWrite=true;
-assert.equal(context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-04',nav:1002}])).status,'error');
+assert.equal(context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-03',nav:1002}])).status,'error');
 assert.deepEqual(importWriteNav.rows,beforeImportFailure,'부분 쓰기 실패 시 기존 NAV 보존');
-importWriteNav.failWrite=false; context._refreshFundValuations=realRefresh;
+importWriteNav.failWrite=false;
 
 // 설정 저장은 같은 적용일 수정·과거 소급 변경을 거부하고 미래 변경만 추가합니다.
 context.jsonOk=extra=>({status:'ok',...extra});
