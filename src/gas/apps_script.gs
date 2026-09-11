@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.90
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.91
+//
+//  v9.91 변경사항 (2026.09.11):
+//   기존 정확한 클래스 NAV를 먼저 재사용하고 누락 구간만 lookback 조회
+//   평가일 NAV가 없으면 미래 값 없이 직전 NAV를 사용하며 0좌 이후 조회 중단
 //
 //  v9.90 변경사항 (2026.09.10):
 //   한화 C-RPe 공식 NAV만 조회하고 미확정 클래스의 FunETF 대체 조회 제거
@@ -3229,11 +3233,12 @@ function _fetchFundNav(provider, from, to) {
     var nav = Number(String(row.price).replace(/,/g, ''));
     if (!isFinite(nav) || nav <= 0) throw new Error('유효하지 않은 기준가격');
     if (seen[date] && seen[date] !== nav) throw new Error('같은 날짜의 기준가격 충돌');
-    // API가 endDate 이후 값을 반환해도 사용자가 요청한 범위만 사용합니다.
-    if (date >= from && date <= to) seen[date] = nav;
+    // API가 실제 HTTP 요청 범위 밖의 값을 반환해도 사용하지 않습니다.
+    // from 이전 40일은 기간 시작일의 직전 공시 NAV를 찾기 위한 요청 범위입니다.
+    if (date >= start && date <= to) seen[date] = nav;
   });
   var dates = Object.keys(seen).sort();
-  if (!dates.length) throw new Error('요청한 날짜 범위의 기준가격 조회 결과 없음');
+  if (!dates.length) throw new Error('요청한 lookback 범위의 기준가격 조회 결과 없음');
   return dates.map(function(date) { return { date: date, nav: seen[date] }; });
 }
 
@@ -3245,9 +3250,7 @@ function _fundDailyValues(configs, code, navRows, from, to) {
     while (index < navRows.length && navRows[index].date <= date) latest = navRows[index++];
     var config = _fundUnitsAtDate(configs, code, date);
     if (!config || config.units === 0) continue;
-    // 공급자의 마지막 공시일 이후는 아직 미공시일일 수 있으므로 잠정값을 저장하지 않습니다.
-    if (!latest || !navRows.length || date > navRows[navRows.length - 1].date) continue;
-    if (date > _fundDateOffset(latest.date, 10)) throw new Error('기준가격 이력이 10일 넘게 비어 있습니다: ' + date);
+    if (!latest) continue;
     var evalAmt = Math.round(latest.nav * config.units / 1000);
     if (!Number.isSafeInteger(evalAmt) || evalAmt < 0) throw new Error('평가금액 계산 범위 초과');
     result.push({ date: date, code: code, name: config.name, nav: latest.nav, sourceDate: latest.date, units: config.units, evalAmt: evalAmt, provider: config.provider });
@@ -3263,8 +3266,8 @@ function _storedFundNavRows(storedNav, code, provider, from, to) {
     var nav = Number(row[3]);
     if (String(row[1]) !== code || String(row[8]) !== provider || !date || date < from || date > to) return;
     if (!sourceDate || sourceDate > date || !(nav > 0)) throw new Error('저장된 펀드 기준가격 검증 실패: ' + date);
-    if (seen[date] && seen[date] !== nav) throw new Error('저장된 펀드 기준가격 충돌: ' + date);
-    seen[date] = nav;
+    if (seen[sourceDate] && seen[sourceDate] !== nav) throw new Error('저장된 펀드 기준가격 충돌: ' + sourceDate);
+    seen[sourceDate] = nav;
   });
   return Object.keys(seen).sort().map(function(date) { return { date: date, nav: seen[date] }; });
 }
@@ -3277,23 +3280,43 @@ function _refreshFundValuations(ss, from, to) {
   var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
   var storedNav = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
   var storedKeys = {};
-  storedNav.forEach(function(row) { storedKeys[_normalizeDate(row[0]) + '|' + row[1]] = row; });
+  var providerByCode = {};
+  configs.forEach(function(config) { providerByCode[config.code] = config.provider; });
+  storedNav.forEach(function(row) {
+    if (String(row[8]) === providerByCode[String(row[1])]) storedKeys[_normalizeDate(row[0]) + '|' + row[1]] = row;
+  });
   var values = [];
   codes.forEach(function(code) {
     if (!_fundHasActiveUnitsInRange(configs, code, from, to)) return;
     var config = configs.find(function(c) { return c.code === code; });
-    var navRows;
-    var fetchError;
-    try { navRows = _fetchFundNav(config.provider, from, to); }
-    catch (err) { fetchError = err; navRows = _storedFundNavRows(storedNav, code, config.provider, from, to); }
-    var codeValues = _fundDailyValues(configs, code, navRows, from, to);
     var activeDates = [];
     for (var date = from; date <= to; date = _fundDateOffset(date, 1)) {
       var datedConfig = _fundUnitsAtDate(configs, code, date);
       if (datedConfig && datedConfig.units > 0) activeDates.push(date);
     }
-    if (fetchError && (!codeValues.length || codeValues[0].date !== activeDates[0] || codeValues[codeValues.length - 1].date !== activeDates[activeDates.length - 1])) {
-      throw new Error(fetchError.message + '. 요청 범위를 대체할 기존 펀드기준가격이 충분하지 않습니다. 기존 데이터는 변경하지 않았습니다.');
+    var activeTo = activeDates[activeDates.length - 1];
+    var missingDates = activeDates.filter(function(date) { return !storedKeys[date + '|' + code]; });
+    var navRows = _storedFundNavRows(storedNav, code, config.provider, _fundDateOffset(from, -40), activeTo);
+    var fetchError;
+    // 정확한 클래스의 모든 평가일이 저장돼 있으면 외부 요청을 생략합니다.
+    if (missingDates.length) {
+      try {
+        var fetched = _fetchFundNav(config.provider, missingDates[0], activeTo);
+        var bySourceDate = {};
+        navRows.concat(fetched).forEach(function(row) {
+          if (bySourceDate[row.date] && bySourceDate[row.date] !== row.nav) throw new Error('기존과 조회된 기준가격 충돌: ' + row.date);
+          bySourceDate[row.date] = row.nav;
+        });
+        navRows = Object.keys(bySourceDate).sort().map(function(sourceDate) { return { date: sourceDate, nav: bySourceDate[sourceDate] }; });
+      } catch (err) { fetchError = err; }
+    }
+    var codeValues = _fundDailyValues(configs, code, navRows, from, to);
+    var valuedDates = {};
+    codeValues.forEach(function(value) { valuedDates[value.date] = true; });
+    var firstUnvalued = activeDates.find(function(date) { return !valuedDates[date] && !storedKeys[date + '|' + code]; });
+    if (firstUnvalued) {
+      var reason = fetchError ? fetchError.message : firstUnvalued + ' 이전의 기준가격이 없습니다';
+      throw new Error(reason + '. 평가할 수 없는 날짜: ' + firstUnvalued + '. 기존 데이터는 변경하지 않았습니다.');
     }
     values = values.concat(codeValues);
   });
@@ -6061,7 +6084,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.90' });
+    return jsonOk({ settings: settings, gasVersion: '9.91' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6083,7 +6106,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.90'
+      gasVersion: '9.91'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
