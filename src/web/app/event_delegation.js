@@ -279,6 +279,10 @@ function registerGlobalEventDelegation() {
 
   // ── 부동산 미리보기 input 위임
   document.addEventListener('input', function(e) {
+    if (e.target.matches('[data-fund-nav-paste]') && typeof handleFundNavPasteInput === 'function') {
+      handleFundNavPasteInput(e.target.value);
+      return;
+    }
     if (e.target.matches('[data-fund-field]')) e.target.dataset.fundDirty = 'true';
     // ★ [통일] 금액 입력창 자동 콤마 서식 — 여러 파일에 흩어져 있던 동일 로직을 이 한 곳으로 통합
     //   (기존: views_asset_schedule_data.js, views_plan.js, mgmt_editor.js에 각각 따로 구현되어 있었음

@@ -13,6 +13,7 @@ let _fundUnitDrafts = {};
 let _fundUnitBusy = false;
 let _fundUnitsStatus = '';
 let _editorMode = 'price';
+let _fundNavPasteTimer = 0;
 const FUND_NAV_CHANGE_WARNING_RATE = 0.20;
 const FUND_NAV_IMPORT_GUIDE = {
   F00002: {
@@ -32,7 +33,7 @@ const FUND_NAV_IMPORT_GUIDE = {
     ],
   },
 };
-let _fundNavImportState = { code: 'F00002', filename: '', payload: null, preview: null, parseError: '' };
+let _fundNavImportState = { code: 'F00002', filename: '', pasteText: '', payload: null, preview: null, parseError: '' };
 
 function _fundNavHeader(value) { return String(value ?? '').trim().replace(/\s+/g, '').toLowerCase(); }
 
@@ -42,9 +43,16 @@ function _fundNavDate(value) {
     const parsed = XLSX.SSF.parse_date_code(value);
     if (parsed) return `${String(parsed.y).padStart(4,'0')}-${String(parsed.m).padStart(2,'0')}-${String(parsed.d).padStart(2,'0')}`;
   }
-  const text = String(value ?? '').trim().replace(/[./]/g, '-');
+  let text = String(value ?? '').trim().replace(/[./]/g, '-');
+  if (/^\d{2}-\d{2}-\d{2}$/.test(text)) text = `20${text}`;
   const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
   return compact ? `${compact[1]}-${compact[2]}-${compact[3]}` : text;
+}
+
+function _parseFundNavPaste(text, code) {
+  const lines = String(text || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const matrix = lines.map(line => line.includes('\t') ? line.split('\t') : line.split(/\s{2,}/)).map(row => row.map(cell => cell.trim()));
+  return _parseFundNavMatrix(matrix, code);
 }
 
 function _fundNavNumber(value) {
@@ -72,6 +80,7 @@ function _parseFundNavMatrix(matrix, code) {
     const rowNumber = headerRow + offset + 2;
     const date = _fundNavDate(row?.[dateCol]);
     const nav = _fundNavNumber(row?.[navCol]);
+    if (!/^(?:\d{2}|\d{4})[./-]\d{2}[./-]\d{2}$/.test(String(row?.[dateCol] ?? '').trim()) && !String(row?.[navCol] ?? '').trim()) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) clientErrors.push({ rowNumber, reason: '잘못된 날짜' });
     if (!(nav > 0)) clientErrors.push({ rowNumber, reason: '기준가격은 0보다 큰 숫자여야 합니다.' });
     rows.push({ rowNumber, date, nav: Number.isFinite(nav) ? nav : null });
@@ -116,17 +125,17 @@ function downloadFundNavTemplate(code) {
 
 function _renderFundNavImportResult(preview) {
   if (!preview) return '';
-  const details = [...(preview.errors || []), ...(preview.updates || []).map(item => ({ rowNumber:item.rowNumber, reason:`${item.date}: ${Number(item.existingNav).toLocaleString()} → ${Number(item.uploadedNav).toLocaleString()} 갱신 예정` }))];
+  const details = [...(preview.errors || []), ...(preview.conflicts || []).map(item => ({ rowNumber:item.rowNumber, reason:`${item.date}: 기존 ${Number(item.existingNav).toLocaleString()} / 입력 ${Number(item.uploadedNav).toLocaleString()} 충돌` }))];
   return `<div class="fund-nav-import-result" role="status">
     <b>미리보기 결과</b><div class="fund-nav-import-counts">
     <span>총 ${Number(preview.total || 0)}건</span><span>정상 인식 ${Number(preview.recognized || 0)}건</span>
     <span>신규 ${preview.candidates?.length || 0}건</span><span>기존 동일 ${preview.identical?.length || 0}건</span>
-    <span>기존값 갱신 ${preview.updates?.length || 0}건</span><span>오류 ${preview.errors?.length || 0}건</span>
+    <span>기존값 충돌 ${preview.conflicts?.length || 0}건</span><span>오류 ${preview.errors?.length || 0}건</span>
     <span>파일 중복 ${preview.duplicates?.length || 0}건</span><span>0좌 제외 ${preview.zeroUnits?.length || 0}건</span></div>
-    <p>저장 예정 기간: ${_escapeHtml(preview.from || '없음')} ~ ${_escapeHtml(preview.to || '없음')}</p>
-    ${details.length ? `<details><summary>오류/갱신 상세</summary>${details.slice(0,50).map(item => `<div>${Number(item.rowNumber)}행: ${_escapeHtml(item.reason)}</div>`).join('')}</details>` : ''}
+    <p>저장 예정 기간: ${_escapeHtml(preview.from || '없음')} ~ ${_escapeHtml(preview.to || '없음')} · 최초 기준일 ${_escapeHtml(preview.firstDate || preview.from || '없음')} · 최신 기준일 ${_escapeHtml(preview.lastDate || preview.to || '없음')}</p>
+    ${details.length ? `<details><summary>오류/충돌 상세</summary>${details.slice(0,50).map(item => `<div>${Number(item.rowNumber)}행: ${_escapeHtml(item.reason)}</div>`).join('')}</details>` : ''}
     ${(_fundNavImportState.payload?.warnings || []).length ? `<p class="fund-nav-import-warning">NAV 20% 이상 변동 경고 ${_fundNavImportState.payload.warnings.length}건</p>` : ''}
-    <button type="button" class="btn-ghost-sm" data-fund-action="import-nav" ${!preview.canSave || _fundUnitBusy ? 'disabled' : ''}>검증된 NAV 반영 및 재계산</button></div>`;
+    <button type="button" class="fund-action fund-action-primary" data-fund-action="import-nav" ${!preview.canSave || _fundUnitBusy ? 'disabled' : ''}>검증된 기준가 저장 및 재계산</button></div>`;
 }
 
 function _renderFundNavImporter() {
@@ -134,13 +143,16 @@ function _renderFundNavImporter() {
   return `<section class="fund-nav-import"><h4>기준가격 가져오기</h4>
     <label>펀드 선택<select data-fund-nav-target><option value="F00002" ${_fundNavImportState.code === 'F00002' ? 'selected' : ''}>F00002 · KB 밸류포커스 소득공제 S-T</option><option value="F00003" ${_fundNavImportState.code === 'F00003' ? 'selected' : ''}>F00003 · 피델리티 월드Big4 S</option></select></label>
     <div class="fund-nav-guide"><b>${_escapeHtml(guide.name)}</b><dl><dt>F코드</dt><dd>${_fundNavImportState.code}</dd><dt>provider</dt><dd>${guide.provider}</dd><dt>클래스</dt><dd>${guide.className}</dd><dt>KOFIA</dt><dd>${guide.classCode}</dd><dt>표준코드</dt><dd>${guide.standardCode}</dd></dl>
-    <div class="fund-nav-actions"><button type="button" class="btn-ghost-sm" data-fund-action="copy-nav-code" data-fund-code="${guide.classCode}">${guide.classCode} 복사</button><button type="button" class="btn-ghost-sm" data-fund-action="copy-nav-code" data-fund-code="${guide.standardCode}">${guide.standardCode} 복사</button></div>
+    <div class="fund-nav-code-row"><span><small>KOFIA</small><b>${guide.classCode}</b></span><button type="button" class="fund-action fund-action-utility" data-fund-action="copy-nav-code" data-fund-code="${guide.classCode}">복사</button></div>
+    <div class="fund-nav-code-row"><span><small>표준코드</small><b>${guide.standardCode}</b></span><button type="button" class="fund-action fund-action-utility" data-fund-action="copy-nav-code" data-fund-code="${guide.standardCode}">복사</button></div>
     <div class="fund-nav-links">${guide.links.map(([label,url]) => `<a href="${_escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${_escapeHtml(label)}</a>`).join('')}</div>
     <button type="button" class="btn-ghost-sm" data-fund-action="download-nav-template" data-fund-code="${_fundNavImportState.code}">NAV 입력양식.xlsx 다운로드</button>
     <p>검색어: ${guide.classCode} · ${guide.standardCode} · ${_escapeHtml(guide.name)}</p><p>참고 사이트는 정확한 클래스 자료 확보용이며 자동 NAV provider로 사용하지 않습니다.</p>
     ${guide.warning ? `<p class="fund-nav-import-warning">${_escapeHtml(guide.warning)}</p>` : ''}</div>
     <p>사이트의 일자/기준가격을 입력양식 A2/B2부터 붙여넣은 뒤 업로드하세요. 기존 xlsx/xls/csv도 계속 인식합니다.</p>
     <p><b>선택한 펀드:</b> ${_fundNavImportState.code} / ${_escapeHtml(guide.name)} / ${guide.classCode}</p>
+    <label class="fund-nav-paste">웹사이트 표 붙여넣기<textarea data-fund-nav-paste rows="7" placeholder="기준일    펀드규모(억원)    수정기준가    기준가    과표기준가">${_escapeHtml(_fundNavImportState.pasteText || '')}</textarea></label>
+    <p>헤더의 '기준가' 열만 사용하며 수정기준가·과표기준가는 평가에 사용하지 않습니다.</p>
     <label class="fund-nav-file">파일 선택<input type="file" accept=".xlsx,.xls,.csv" data-fund-nav-file ${_fundUnitBusy ? 'disabled' : ''}></label>
     ${_fundNavImportState.filename ? `<p>파일: ${_escapeHtml(_fundNavImportState.filename)}</p>` : ''}${_fundNavImportState.parseError ? `<p class="fund-nav-import-warning">${_escapeHtml(_fundNavImportState.parseError)}</p>` : ''}
     ${_renderFundNavImportResult(_fundNavImportState.preview)}</section>`;
@@ -175,12 +187,12 @@ function _renderFundUnitsEditor(items) {
         <label>정확한 클래스 <select data-fund-code="${code}" data-fund-field="provider"><option value="">선택하세요</option>${options.map(([id,label]) => `<option value="${id}" ${provider === id ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
         <label>전체 좌수 <input type="number" min="0" step="any" data-fund-code="${code}" data-fund-field="units" value="${_escapeHtml(String(units))}"></label>
         <label>적용 시작일 <input type="date" data-fund-code="${code}" data-fund-field="startDate" value="${_escapeHtml(startDate)}"></label>
-        <button type="button" class="btn-ghost-sm" data-fund-action="save" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>좌수 저장</button>
-        ${history.length ? `<div class="fund-units-history"><b>좌수 변경 이력</b>${history.map(config => {
+        <button type="button" class="fund-action fund-action-primary" data-fund-action="save" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>${_fundUnitBusy ? '저장 중...' : '좌수 저장'}</button>
+        ${history.length ? `<div class="fund-units-history"><b>좌수 변경 이력</b><div class="fund-units-history-head"><span>날짜</span><span>좌수</span><span>펀드명</span><span>상태</span></div>${history.map(config => {
           const status = config.startDate === item.currentConfigStartDate
             ? (Number(config.units) === 0 ? '현재 적용 · 자동평가 중단' : '현재 적용')
             : (config.startDate > today ? '예약' : '이전');
-          return `<div><span>${_escapeHtml(config.startDate)}</span><span>${Number(config.units).toLocaleString()}좌</span><span>${_escapeHtml(options.find(option => option[0] === config.provider)?.[1] || config.provider)}</span><em>${status}</em></div>`;
+          return `<div><span>${_escapeHtml(config.startDate)}</span><span>${Number(config.units).toLocaleString(undefined,{maximumFractionDigits:12})}좌</span><span>${_escapeHtml(item.name)}</span><em>${status}</em></div>`;
         }).join('')}</div>` : '<p>등록된 좌수 이력이 없습니다.</p>'}
       </fieldset>`;
     };
@@ -213,7 +225,12 @@ async function handleFundUnitAction(action, code) {
   if (_fundUnitBusy) return;
   if (action === 'copy-nav-code') {
     const value = code;
-    try { await navigator.clipboard.writeText(value); showToast(`${value} 복사 완료`, 'ok'); } catch (_) { showToast('복사하지 못했습니다.', 'warn'); }
+    const button = document.querySelector(`[data-fund-action="copy-nav-code"][data-fund-code="${value}"]`);
+    try {
+      await navigator.clipboard.writeText(value);
+      if (button) { button.textContent = '복사됨'; setTimeout(() => { if (button.isConnected) button.textContent = '복사'; }, 1400); }
+      showToast(`${value} 복사 완료`, 'ok');
+    } catch (_) { showToast('복사하지 못했습니다.', 'warn'); }
     return;
   }
   if (action === 'download-nav-template') { downloadFundNavTemplate(code); return; }
@@ -228,17 +245,18 @@ async function handleFundUnitAction(action, code) {
       const result = await requestGsheetFormJson('importFundNav', { data: JSON.stringify(data) }, { timeoutMs: 300000, retry: 0 });
       if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 실패');
       const imported = result.importResult || {}, evaluation = result.evaluation || {};
-      _fundUnitsStatus = `NAV 반영 완료 · 신규 ${Number(imported.saved || 0)}건 · 기존 동일 ${imported.identical?.length || 0}건 · 기존값 갱신 ${Number(imported.updated || 0)}건 · 0좌 제외 ${imported.zeroUnits?.length || 0}건 · 재계산 ${evaluation.from || '없음'} ~ ${evaluation.to || '없음'} · 가격이력 ${Number(evaluation.prices || 0)}건 · 스냅샷 ${Number(evaluation.snapshots || 0)}건${evaluation.error ? ` · 반영 주의: ${evaluation.error}` : ''}`;
+      _fundUnitsStatus = `NAV 반영 완료 · 신규 ${Number(imported.saved || 0)}건 · 기존 동일 ${imported.identical?.length || 0}건 · 0좌 제외 ${imported.zeroUnits?.length || 0}건 · 재계산 ${evaluation.from || '없음'} ~ ${evaluation.to || '없음'} · 가격이력 ${Number(evaluation.prices || 0)}건 · 스냅샷 ${Number(evaluation.snapshots || 0)}건`;
       _fundNavImportState = { ..._fundNavImportState, preview: { ...imported, candidates: [], canSave: false } };
       _editorHistoryCache.clear();
     } else if (action === 'save') {
       const draft = _fundUnitDrafts[code];
       if (!draft?.provider || !draft.startDate || draft.units === '' || !Number.isFinite(Number(draft.units)) || Number(draft.units) < 0) throw new Error('클래스·적용일·좌수를 입력하세요.');
+      _fundUnitsStatus = '저장 중...'; buildEditorUI();
       const result = await requestGsheetFormJson('saveFundUnits', { data: JSON.stringify({ ...draft, code }) }, { timeoutMs: 60000, retry: 0 });
       if (result?.status !== 'ok') throw new Error(result?.message || '좌수 저장 실패');
       _fundUnitConfigs = result.configs || [];
       _fundUnitItems = result.funds || _fundUnitItems;
-      _fundUnitsStatus = '좌수 저장 완료. 과거 기간은 기간 평가금액 채우기를 실행하세요. 매일 자동 반영이 설정됐습니다.';
+      _fundUnitsStatus = '좌수가 저장되었습니다. 과거 기간은 기간 평가금액 채우기를 실행하세요.';
     } else if (action === 'fill') {
       const from = _fundUnitDrafts.range?.from;
       const to = _fundUnitDrafts.range?.to;
@@ -263,21 +281,21 @@ async function handleFundUnitAction(action, code) {
       await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
       recomputeRows(); saveHoldings(); renderSummary();
     }
-  } catch (error) { _fundUnitsStatus = error.message; showToast(error.message, 'warn', 7000); }
+  } catch (error) { _fundUnitsStatus = action === 'save' ? `저장 실패: ${error.message}` : error.message; showToast(_fundUnitsStatus, 'warn', 7000); }
   finally { _fundUnitBusy = false; buildEditorUI(); }
 }
 
 function openFundUnitsEditor() {
   _editorMode = 'fund-units';
   _fundUnitDrafts = {};
-  _fundNavImportState = { code: 'F00002', filename: '', payload: null, preview: null, parseError: '' };
+  _fundNavImportState = { code: 'F00002', filename: '', pasteText: '', payload: null, preview: null, parseError: '' };
   _openEditorModal();
   _loadFundUnitsEditor();
 }
 
 async function handleFundNavImportTarget(code) {
   if (!FUND_NAV_IMPORT_GUIDE[code]) return;
-  _fundNavImportState = { code, filename: '', payload: null, preview: null, parseError: '' };
+  _fundNavImportState = { code, filename: '', pasteText: '', payload: null, preview: null, parseError: '' };
   buildEditorUI();
 }
 
@@ -301,6 +319,27 @@ async function handleFundNavImportFile(file) {
     _fundNavImportState = { ..._fundNavImportState, payload: parsed, preview: result };
   } catch (error) { _fundNavImportState = { ..._fundNavImportState, parseError: error.message, payload: null, preview: null }; showToast(error.message, 'warn', 7000); }
   finally { _fundUnitBusy = false; buildEditorUI(); }
+}
+
+async function _previewFundNavParsed(parsed) {
+  if (!GSHEET_API_URL) throw new Error('구글시트를 먼저 연결하세요.');
+  const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
+  const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
+  const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0 });
+  if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
+  _fundNavImportState = { ..._fundNavImportState, payload: parsed, preview: result, parseError: '' };
+}
+
+function handleFundNavPasteInput(value) {
+  _fundNavImportState = { ..._fundNavImportState, pasteText: value, filename: '', payload: null, preview: null, parseError: '' };
+  clearTimeout(_fundNavPasteTimer);
+  _fundNavPasteTimer = setTimeout(async () => {
+    if (!String(value || '').trim()) { buildEditorUI(); return; }
+    _fundUnitBusy = true;
+    try { await _previewFundNavParsed(_parseFundNavPaste(value, _fundNavImportState.code)); }
+    catch (error) { _fundNavImportState = { ..._fundNavImportState, parseError: error.message, payload: null, preview: null }; }
+    finally { _fundUnitBusy = false; buildEditorUI(); }
+  }, 350);
 }
 
 function openEditor() {

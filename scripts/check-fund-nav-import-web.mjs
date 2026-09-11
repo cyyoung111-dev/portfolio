@@ -25,6 +25,21 @@ assert.equal(invalid.rows.length,2);
 assert.equal(invalid.clientErrors.length,3);
 assert.throws(()=>context._parseFundNavMatrix([['일자','수정기준가'],['2025-01-01',1000]],'F00002'),/컬럼을 찾지 못/);
 
+const pasted = clone(context._parseFundNavPaste(`불필요한 안내 텍스트
+기준일\t펀드규모(억원)\t수정기준가\t기준가\t과표기준가
+26.09.10\t162\t3,135.81\t2,710.01\t998.51
+26.09.09\t162\t3,086.51\t2,667.40\t998.57
+
+26.09.08\t162\t3,104.44\t2,682.90\t998.62`, 'F00003'));
+assert.deepEqual(pasted.rows.map(row=>[row.date,row.nav]),[
+  ['2026-09-10',2710.01],['2026-09-09',2667.4],['2026-09-08',2682.9]
+],'수정기준가·과표기준가가 아닌 정확한 기준가 열 사용');
+assert.equal(context._fundNavDate('26-01-01'),'2026-01-01');
+assert.deepEqual(['26.01.02','2026.01.03','26-01-04','2026-01-05'].map(context._fundNavDate),['2026-01-02','2026-01-03','2026-01-04','2026-01-05']);
+assert.match(source,/button\.textContent = '복사됨'/,'복사 버튼 즉시 피드백');
+assert.match(source,/_fundUnitsStatus = '저장 중\.\.\.'/,'좌수 저장 진행 피드백');
+assert.match(source,/좌수가 저장되었습니다/,'좌수 저장 성공 피드백');
+
 for (const [code,classCode,standardCode,className] of [
   ['F00002','AQ018','KR5223AQ0185','S-T'], ['F00003','AP399','KR5235AP3996','S'],
 ]) {
