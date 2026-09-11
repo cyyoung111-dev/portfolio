@@ -309,6 +309,16 @@ function registerGlobalEventDelegation() {
     if (typeof updateRePreview === 'function') updateRePreview();
   });
 
+  document.addEventListener('change', function(e) {
+    if (e.target.matches('[data-fund-nav-target]') && typeof handleFundNavImportTarget === 'function') {
+      handleFundNavImportTarget(e.target.value);
+      return;
+    }
+    if (e.target.matches('[data-fund-nav-file]') && typeof handleFundNavImportFile === 'function') {
+      handleFundNavImportFile(e.target.files?.[0]);
+    }
+  });
+
   // ── 파일 input change 위임
   document.addEventListener('change', function(e) {
     if (e.target.matches('[data-fund-field]')) e.target.dataset.fundDirty = 'true';
