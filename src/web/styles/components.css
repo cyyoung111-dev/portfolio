@@ -948,10 +948,21 @@ html[data-ui-font-size] .tbl-head,html[data-ui-font-size] .settings-panel{paddin
 .fund-units-history{display:grid;gap:4px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:.68rem;color:var(--muted)}
 .fund-units-history>b{color:var(--text);font-size:.72rem}
 .fund-units-history>div{display:grid;grid-template-columns:76px 72px minmax(0,1fr) auto;gap:5px;align-items:center}
-.fund-units-history span:nth-child(3){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fund-units-history em{font-style:normal;color:var(--blue-lt);white-space:nowrap}
+.fund-units-history span:nth-child(2){text-align:right;font-variant-numeric:tabular-nums}.fund-units-history span:nth-child(3){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fund-units-history em{padding:2px 6px;border-radius:999px;background:rgba(0,87,255,.15);font-style:normal;color:var(--blue-lt);white-space:nowrap}.fund-units-history-head{color:var(--muted);font-weight:600}.fund-units-history-head em{background:none;color:var(--muted)}
 .fund-units-panel p{margin:8px 0;color:var(--muted)}
 .fund-units-panel fieldset{min-width:0;margin:12px 0;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--s2)}
 .fund-units-panel legend{padding:0 5px;color:var(--text);font-weight:600}
 .fund-units-panel label{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;color:var(--text)}
 .fund-units-panel input,.fund-units-panel select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;font-size:inherit;padding:8px}
 .fund-units-panel button{margin:4px 0}
+.fund-nav-import{margin:18px 0;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--s1)}
+.fund-nav-guide{padding:12px;border-radius:8px;background:var(--s2)}
+.fund-nav-guide dl{display:grid;grid-template-columns:72px 1fr;gap:3px 10px;margin:8px 0}.fund-nav-guide dt{color:var(--muted)}.fund-nav-guide dd{margin:0;color:var(--text);font-weight:600}
+.fund-nav-actions,.fund-nav-links{display:flex;flex-wrap:wrap;gap:6px}.fund-nav-links a{display:inline-flex;padding:6px 9px;border:1px solid var(--border);border-radius:6px;color:var(--blue-lt);text-decoration:none}
+.fund-nav-import ol{padding-left:20px;color:var(--muted)}.fund-nav-file{margin-top:12px;padding:10px;border:1px dashed var(--border);border-radius:8px}.fund-nav-import-warning{color:var(--amber)!important;font-weight:600}
+.fund-nav-import-result{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:8px}.fund-nav-import-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0}.fund-nav-import-result details{margin:8px 0;max-height:160px;overflow:auto}
+.fund-nav-code-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:7px 0;padding:7px 9px;border:1px solid var(--border);border-radius:7px}.fund-nav-code-row span{display:grid}.fund-nav-code-row small{color:var(--muted)}
+.fund-nav-paste textarea{box-sizing:border-box;width:100%;min-height:126px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--s2);color:var(--text);font:inherit;resize:vertical}.fund-nav-paste textarea:focus{outline:2px solid var(--blue);outline-offset:1px}
+.fund-action{min-height:36px;padding:8px 14px;border:1px solid transparent;border-radius:8px;font:inherit;font-weight:700;cursor:pointer;transition:background .16s ease,transform .08s ease,border-color .16s ease,box-shadow .16s ease}.fund-action:hover:not(:disabled){filter:brightness(1.12)}.fund-action:active:not(:disabled){transform:translateY(1px)}.fund-action:focus-visible{outline:3px solid var(--blue-lt);outline-offset:2px}.fund-action:disabled{cursor:not-allowed;opacity:.45}
+.fund-action-primary{background:var(--blue);color:#fff;box-shadow:0 2px 8px rgba(0,87,255,.35)}.fund-action-utility{min-width:58px;background:var(--s3);border-color:var(--border);color:var(--text)}
+@media(max-width:600px){.fund-units-history>div{grid-template-columns:72px 82px minmax(100px,1fr)}.fund-units-history>div em{grid-column:3;justify-self:start}.fund-nav-import-counts{grid-template-columns:1fr}}
