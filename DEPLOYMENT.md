@@ -1,5 +1,13 @@
 # Deployment Notes
 
+## GAS v9.92: AQ018/AP399 기준가격 파일 import
+
+- `F00002(AQ018/S-T)`와 `F00003(AP399/S)`은 공식 자동 NAV endpoint 미지원 상태를 유지하며, 좌수 설정 패널의 `기준가격 가져오기`에서 사용자가 확보한 정확한 클래스의 xlsx/xls/csv 기간 NAV를 import할 수 있습니다.
+- UI에서 KOFIA 클래스코드·표준코드와 KOFIA/FunETF/FundDoctor 참고 링크를 확인합니다. FunETF/FundDoctor는 자료 확인용이며 GAS 자동 provider로 사용하지 않습니다.
+- GAS가 provider·클래스·식별자·날짜·NAV·좌수 이력을 다시 검증합니다. 기존 NAV는 동일값과 충돌 모두 보존하고 누락 NAV만 추가하며, 미래 NAV는 거부합니다.
+- `F00003`은 2026-08-25 0좌 적용일부터 import 파일에 NAV가 있어도 평가에서 제외하며, import 후에는 기존 가격이력·스냅샷 누락 반영 경로만 재사용합니다.
+- 운영 적용 시 `src/gas/apps_script.gs` 전체를 Apps Script에 반영하고 웹앱을 새 버전으로 재배포합니다.
+
 ## GAS v9.91: 정확한 클래스 NAV 재사용·직전 공시일 이월
 
 - `F00001` 한화 LIFEPLUS 적격 TDF 2045 `C-RPe`는 한화자산운용 `GET https://www.hanwhafund.co.kr/api/fund/dailyPrice` (`fundCd=008942`, `period`, `startDate`, `endDate`)만 사용합니다. 응답의 `list[].wktdate`, `list[].price`를 읽고 HTTP 요청 범위 밖 날짜는 폐기합니다.

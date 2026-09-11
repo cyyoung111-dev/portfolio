@@ -126,17 +126,6 @@ const fidelityBoundary=clone(context._fundDailyValues(fidelity2026,'F00003',[
 assert.deepEqual(fidelityBoundary.map(row=>row.date),['2026-08-24']);
 assert.equal(fidelityBoundary[0].evalAmt,Math.round(15933.037*1234.56/1000));
 
-// F00003은 2026-08-25 0좌 적용일부터 평가하지 않습니다.
-const fidelity2026=[
-  {code:'F00003',name:'피델리티 월드Big4 S',provider:'FIDELITY_BIG4_S',startDate:'2026-01-01',units:15933.037},
-  {code:'F00003',name:'피델리티 월드Big4 S',provider:'FIDELITY_BIG4_S',startDate:'2026-08-25',units:0}
-];
-const fidelityBoundary=clone(context._fundDailyValues(fidelity2026,'F00003',[
-  {date:'2026-08-24',nav:1234.56},{date:'2026-08-25',nav:1235.67}
-],'2026-08-24','2026-08-26'));
-assert.deepEqual(fidelityBoundary.map(row=>row.date),['2026-08-24']);
-assert.equal(fidelityBoundary[0].evalAmt,Math.round(15933.037*1234.56/1000));
-
 // 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
 const retiredConfigs=[
   {code:'F00003',name:'과거 펀드',provider:'FIDELITY_BIG4_S',startDate:'2024-01-01',units:10000},
@@ -218,6 +207,50 @@ context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 const zeroOnlySheets={'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-01',0,'']])};
 context._fetchFundNav=()=>{ throw new Error('0좌만 남은 F코드는 조회하면 안 됩니다.'); };
 assert.equal(context._refreshFundValuations(ssFor(zeroOnlySheets),'2026-01-01','2026-01-02').saved,0);
+
+// AQ018/AP399 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증하고 누락분만 추가합니다.
+const importUnits = new Sheet([['code','name','provider','start','units','at'],
+  ['F00002','KB 밸류포커스 소득공제 S-T','KB_VALUE_ST','2025-01-01',1000,''],
+  ['F00003','피델리티 월드Big4 S','FIDELITY_BIG4_S','2026-01-01',15933.037,''],
+  ['F00003','피델리티 월드Big4 S','FIDELITY_BIG4_S','2026-08-25',0,'']]);
+const importNav = new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2025-01-02','F00002','KB 밸류포커스 소득공제 S-T',1000,'2025-01-02',1000,1000,'','KB_VALUE_ST']]);
+const importSs = ssFor({'펀드좌수':importUnits,'펀드기준가격':importNav});
+const importPayload = (code,provider,classCode,rows,sourceText='') => JSON.stringify({code,provider,classCode,rows,sourceText});
+const kbInspect=clone(context._inspectFundNavImport(importSs,importPayload('F00002','KB_VALUE_ST','AQ018',[
+  {rowNumber:2,date:'2025-01-02',nav:1000},{rowNumber:3,date:'2025-01-03',nav:1001},{rowNumber:4,date:'2025-01-03',nav:1001}
+],'AQ018 KR5223AQ0185')));
+assert.equal(kbInspect.candidates.length,1);
+assert.equal(kbInspect.identical.length,1);
+assert.equal(kbInspect.duplicates.length,1);
+const fidelityInspect=clone(context._inspectFundNavImport(importSs,importPayload('F00003','FIDELITY_BIG4_S','AP399',[
+  {rowNumber:2,date:'2026-08-24',nav:1234},{rowNumber:3,date:'2026-08-25',nav:1235},{rowNumber:4,date:'2026-08-26',nav:1236}
+],'AP399 KR5235AP3996')));
+assert.equal(fidelityInspect.candidates.length,1);
+assert.equal(fidelityInspect.zeroUnits.length,2,'F00003 0좌 전환일 이후 NAV는 평가로 다시 나타나지 않음');
+assert.throws(()=>context._inspectFundNavImport(importSs,importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-03',nav:1000}],'2K04')),/다른 클래스/);
+assert.throws(()=>context._inspectFundNavImport(importSs,importPayload('F00003','FIDELITY_BIG4_S','AP399',[{date:'2025-01-03',nav:1000}],'AQ018')),/다른 클래스/);
+for (const row of [{date:'2026-09-10',nav:1000},{date:'2025-01-03',nav:0},{date:'2025-01-03',nav:-1},{date:'bad',nav:1000}]) {
+  assert.equal(context._inspectFundNavImport(importSs,importPayload('F00002','KB_VALUE_ST','AQ018',[row])).errors.length,1);
+}
+const conflict=clone(context._inspectFundNavImport(importSs,importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:999}])));
+assert.equal(conflict.conflicts.length,1);
+assert.equal(importNav.rows[1][3],1000,'미리보기 충돌은 기존 NAV를 변경하지 않음');
+
+const importWriteNav = new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+const importWriteSs = ssFor({'펀드좌수':importUnits,'펀드기준가격':importWriteNav});
+context.getss=()=>importWriteSs;
+context.jsonOk=extra=>({status:'ok',...extra}); context.jsonError=message=>({status:'error',message});
+const realRefresh=context._refreshFundValuations;
+context._refreshFundValuations=()=>({saved:2,navSaved:1,snapshots:1,missingHoldings:[]});
+const imported=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:1000},{date:'2025-01-03',nav:1001}]));
+assert.equal(imported.status,'ok'); assert.equal(imported.importResult.saved,2); assert.equal(importWriteNav.rows.length,3);
+const repeated=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:1000},{date:'2025-01-03',nav:1001}]));
+assert.equal(repeated.importResult.saved,undefined); assert.equal(importWriteNav.rows.length,3,'import 재실행은 idempotent');
+const beforeImportFailure=clone(importWriteNav.rows); importWriteNav.failWrite=true;
+assert.equal(context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-04',nav:1002}])).status,'error');
+assert.deepEqual(importWriteNav.rows,beforeImportFailure,'부분 쓰기 실패 시 기존 NAV 보존');
+importWriteNav.failWrite=false; context._refreshFundValuations=realRefresh;
 
 // 설정 저장은 같은 적용일 수정·과거 소급 변경을 거부하고 미래 변경만 추가합니다.
 context.jsonOk=extra=>({status:'ok',...extra});
