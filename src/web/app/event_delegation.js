@@ -279,6 +279,10 @@ function registerGlobalEventDelegation() {
 
   // ── 부동산 미리보기 input 위임
   document.addEventListener('input', function(e) {
+    if (e.target.matches('[data-fund-nav-manual]') && typeof handleFundNavManualInput === 'function') {
+      handleFundNavManualInput(e.target.dataset.fundNavManual, e.target.value);
+      return;
+    }
     if (e.target.matches('[data-fund-nav-paste]') && typeof handleFundNavPasteInput === 'function') {
       handleFundNavPasteInput(e.target.value);
       return;
@@ -314,6 +318,10 @@ function registerGlobalEventDelegation() {
   });
 
   document.addEventListener('change', function(e) {
+    if (e.target.matches('[data-fund-nav-warning-ack]') && typeof handleFundNavWarningAck === 'function') {
+      handleFundNavWarningAck(e.target.checked);
+      return;
+    }
     if (e.target.matches('[data-fund-nav-target]') && typeof handleFundNavImportTarget === 'function') {
       handleFundNavImportTarget(e.target.value);
       return;

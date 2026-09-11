@@ -35,12 +35,17 @@ assert.deepEqual(pasted.rows.map(row=>[row.date,row.nav]),[
   ['2026-09-10',2710.01],['2026-09-09',2667.4],['2026-09-08',2682.9]
 ],'수정기준가·과표기준가가 아닌 정확한 기준가 열 사용');
 assert.equal(context._fundNavDate('26-01-01'),'2026-01-01');
+assert.deepEqual(['2026-9-1','2026.9.1','2026/9/1','20260901','2026-09-01 12:30:00'].map(context._fundNavDate),Array(5).fill('2026-09-01'));
 assert.deepEqual(['26.01.02','2026.01.03','26-01-04','2026-01-05'].map(context._fundNavDate),['2026-01-02','2026-01-03','2026-01-04','2026-01-05']);
 assert.match(source,/button\.textContent = '복사됨'/,'복사 버튼 즉시 피드백');
 assert.match(source,/_fundUnitsStatus = '저장 중\.\.\.'/,'좌수 저장 진행 피드백');
 assert.match(source,/좌수가 저장되었습니다/,'좌수 저장 성공 피드백');
+assert.match(source,/data-fund-nav-manual="date"/,'과거 기준일 수동 NAV 입력 제공');
+assert.match(source,/data-fund-nav-warning-ack/,'WARNING 확인 후 반영');
+assert.match(source,/const fundItems = \[\]/,'F코드를 일반 평가금액 수동 편집에서 제외');
 
 for (const [code,classCode,standardCode,className] of [
+  ['F00001','C-RPe','확인되지 않음','C-RPe'],
   ['F00002','AQ018','KR5223AQ0185','S-T'], ['F00003','AP399','KR5235AP3996','S'],
 ]) {
   const template = clone(context._buildFundNavTemplateRows(code));
@@ -54,8 +59,9 @@ for (const [code,classCode,standardCode,className] of [
 const written=[];
 context.XLSX.utils={book_new:()=>({sheets:[]}),aoa_to_sheet:rows=>({rows}),book_append_sheet:(book,sheet,name)=>book.sheets.push({sheet,name})};
 context.XLSX.writeFile=(book,name)=>written.push({book,name}); context.showToast=()=>{};
-context.downloadFundNavTemplate('F00002'); context.downloadFundNavTemplate('F00003');
+context.downloadFundNavTemplate('F00001'); context.downloadFundNavTemplate('F00002'); context.downloadFundNavTemplate('F00003');
 assert.deepEqual(written.map(item=>[item.name,...item.book.sheets.map(sheet=>sheet.name)]),[
+  ['F00001_NAV_입력양식.xlsx','NAV입력','사용방법'],
   ['F00002_NAV_입력양식.xlsx','NAV입력','사용방법'],['F00003_NAV_입력양식.xlsx','NAV입력','사용방법']
 ]);
 console.log('✅ 펀드 NAV xlsx/xls/csv 행 파싱·날짜·숫자·급변 경고 검사 통과');

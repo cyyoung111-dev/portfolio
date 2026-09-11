@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.94
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.95
+//
+//  v9.95 변경사항 (2026.09.11):
+//   실제 공시된 NAV 날짜만 확정 가격이력·스냅샷으로 backfill
+//   F00001 공통 import 지원과 수동 NAV 동일값·급변·기존값 변경 warning 추가
 //
 //  v9.94 변경사항 (2026.09.11):
 //   웹 표의 '기준가' 열 붙여넣기와 YY.MM.DD 파싱 지원
@@ -3062,6 +3066,7 @@ var FUND_PROVIDERS = {
 var FUND_UNITS_SHEET = '펀드좌수';
 var FUND_NAV_SHEET = '펀드기준가격';
 var FUND_NAV_IMPORT_SPECS = {
+  F00001: { provider: 'HANWHA_2045_CRPE', classCode: 'C-RPe', standardCode: '', className: 'C-RPe', forbidden: ['AQ018','KR5223AQ0185','AP399','KR5235AP3996','2K04','2K09'] },
   F00002: { provider: 'KB_VALUE_ST', classCode: 'AQ018', standardCode: 'KR5223AQ0185', className: 'S-T', forbidden: ['AP399','KR5235AP3996','2K04','2K09','피델리티 월드BIG4'] },
   F00003: { provider: 'FIDELITY_BIG4_S', classCode: 'AP399', standardCode: 'KR5235AP3996', className: 'S', forbidden: ['AQ018','KR5223AQ0185','2K04','2K09','PRS-E','KB 밸류포커스 소득공제'] }
 };
@@ -3322,7 +3327,10 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
     // 정확한 클래스의 모든 평가일이 저장돼 있으면 외부 요청을 생략합니다.
     if (missingDates.length && !skipExternal) {
       try {
-        var fetched = _fetchFundNav(config.provider, missingDates[0], activeTo);
+        var fetched = _fetchFundNav(config.provider, missingDates[0], activeTo).filter(function(row) {
+          return row.date >= _fundDateOffset(from, -40) && row.date <= activeTo;
+        });
+        if (!fetched.length && !navRows.length) throw new Error(from + ' 이전의 기준가격이 없습니다');
         var bySourceDate = {};
         navRows.concat(fetched).forEach(function(row) {
           if (bySourceDate[row.date] && bySourceDate[row.date] !== row.nav) throw new Error('기존과 조회된 기준가격 충돌: ' + row.date);
@@ -3331,10 +3339,14 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
         navRows = Object.keys(bySourceDate).sort().map(function(sourceDate) { return { date: sourceDate, nav: bySourceDate[sourceDate] }; });
       } catch (err) { fetchError = err; }
     }
-    var codeValues = _fundDailyValues(configs, code, navRows, from, to);
+    if (fetchError && !navRows.length) throw new Error(fetchError.message + '. 기존 데이터는 변경하지 않았습니다.');
+    // 가격이력·스냅샷은 공식 소스가 실제로 반환한 NAV 날짜만 확정 backfill합니다.
+    // 직전 NAV carry-forward는 현재 추정가 조회에서 사용하지만 당일 확정 행으로 복제하지 않습니다.
+    var codeValues = _fundDailyValues(configs, code, navRows, from, to).filter(function(value) { return value.date === value.sourceDate; });
     var valuedDates = {};
     codeValues.forEach(function(value) { valuedDates[value.date] = true; });
-    var firstUnvalued = activeDates.find(function(date) { return !valuedDates[date] && !storedKeys[date + '|' + code]; });
+    var confirmedDates = navRows.map(function(row) { return row.date; }).filter(function(date) { return date >= from && date <= to; });
+    var firstUnvalued = confirmedDates.find(function(date) { return !valuedDates[date] && !storedKeys[date + '|' + code]; });
     if (firstUnvalued) {
       var reason = fetchError ? fetchError.message : firstUnvalued + ' 이전의 기준가격이 없습니다';
       throw new Error(reason + '. 평가할 수 없는 날짜: ' + firstUnvalued + '. 기존 데이터는 변경하지 않았습니다.');
@@ -3423,7 +3435,7 @@ function _inspectFundNavImport(ss, dataJson) {
   try { input = JSON.parse(dataJson); } catch (err) { throw new Error('NAV import JSON 형식을 확인하세요.'); }
   var code = String(input.code || '').trim().toUpperCase();
   var spec = FUND_NAV_IMPORT_SPECS[code];
-  if (!Object.prototype.hasOwnProperty.call(FUND_NAV_IMPORT_SPECS, code)) throw new Error('수동 NAV import는 F00002/F00003만 지원합니다.');
+  if (!Object.prototype.hasOwnProperty.call(FUND_NAV_IMPORT_SPECS, code)) throw new Error('수동 NAV import는 F00001/F00002/F00003만 지원합니다.');
   if (String(input.provider || '') !== spec.provider || String(input.classCode || '') !== spec.classCode) throw new Error('선택한 펀드의 provider/클래스가 일치하지 않습니다.');
   var sourceText = String(input.sourceText || '').toUpperCase();
   if (sourceText.length > 500000) throw new Error('파일 식별 정보가 너무 큽니다.');
@@ -3445,7 +3457,7 @@ function _inspectFundNavImport(ss, dataJson) {
     if (Object.prototype.hasOwnProperty.call(existing, storedDate) && existing[storedDate] !== storedNav) throw new Error('기존 펀드기준가격 충돌: ' + storedDate);
     existing[storedDate] = { nav: storedNav, rowIndex: index };
   });
-  var candidates = [], errors = [], duplicates = [], identical = [], conflicts = [], zeroUnits = [], seen = {};
+  var candidates = [], errors = [], duplicates = [], identical = [], updates = [], warnings = [], zeroUnits = [], seen = {};
   rows.forEach(function(row, index) {
     var rowNumber = Number(row && row.rowNumber) || index + 2;
     var date, nav;
@@ -3465,7 +3477,8 @@ function _inspectFundNavImport(ss, dataJson) {
     if (config.units === 0) { zeroUnits.push({ rowNumber: rowNumber, date: date, nav: nav }); return; }
     if (Object.prototype.hasOwnProperty.call(existing, date)) {
       var detail = { rowNumber: rowNumber, date: date, existingNav: existing[date].nav, uploadedNav: nav, existingRowIndex: existing[date].rowIndex };
-      if (existing[date].nav === nav) identical.push(detail); else conflicts.push(detail);
+      if (existing[date].nav === nav) identical.push(detail);
+      else { updates.push(detail); warnings.push({ rowNumber: rowNumber, date: date, reason: '기존 NAV와 다른 값', previousNav: existing[date].nav, nav: nav }); }
       return;
     }
     var evalAmt = Math.round(nav * config.units / 1000);
@@ -3473,34 +3486,25 @@ function _inspectFundNavImport(ss, dataJson) {
     candidates.push({ rowNumber: rowNumber, date: date, nav: nav, units: config.units, evalAmt: evalAmt, name: config.name });
   });
   candidates.sort(function(a, b) { return a.date.localeCompare(b.date); });
-  var changed = candidates.slice().sort(function(a, b) { return a.date.localeCompare(b.date); });
-  return { code: code, spec: spec, total: rows.length, recognized: rows.length - errors.length, candidates: candidates, conflicts: conflicts, errors: errors, duplicates: duplicates, identical: identical, zeroUnits: zeroUnits, canSave: errors.length === 0 && conflicts.length === 0 && changed.length > 0, from: changed.length ? changed[0].date : '', to: changed.length ? changed[changed.length - 1].date : '', firstDate: Object.keys(seen).sort()[0] || '', lastDate: Object.keys(seen).sort().pop() || '' };
+  var changed = candidates.concat(updates).sort(function(a, b) { return a.date.localeCompare(b.date); });
+  var known = {};
+  Object.keys(existing).forEach(function(date) { known[date] = existing[date].nav; });
+  changed.forEach(function(row) { known[row.date] = row.uploadedNav || row.nav; });
+  var knownDates = Object.keys(known).sort();
+  changed.forEach(function(row) {
+    var previousDate = knownDates.filter(function(date) { return date < row.date; }).pop();
+    if (!previousDate) return;
+    var nav = row.uploadedNav || row.nav, previousNav = known[previousDate];
+    if (nav === previousNav) warnings.push({ rowNumber: row.rowNumber, date: row.date, reason: '직전 확정 NAV와 동일', previousDate: previousDate, previousNav: previousNav, nav: nav });
+    else if (Math.abs(nav / previousNav - 1) >= 0.20) warnings.push({ rowNumber: row.rowNumber, date: row.date, reason: '직전 확정 NAV 대비 20% 이상 변동', previousDate: previousDate, previousNav: previousNav, nav: nav });
+  });
+  if (changed.some(function(row) { return row.date === today(); })) warnings.push({ date: today(), reason: '오늘 NAV는 공식 확정값인지 확인 필요' });
+  return { code: code, spec: spec, total: rows.length, recognized: rows.length - errors.length, candidates: candidates, updates: updates, warnings: warnings, errors: errors, duplicates: duplicates, identical: identical, zeroUnits: zeroUnits, canSave: errors.length === 0 && changed.length > 0, from: changed.length ? changed[0].date : '', to: changed.length ? changed[changed.length - 1].date : '', firstDate: Object.keys(seen).sort()[0] || '', lastDate: Object.keys(seen).sort().pop() || '' };
 }
 
 function handlePreviewFundNavImport(dataJson) {
   try { return jsonOk(_inspectFundNavImport(getss(), dataJson)); }
   catch (err) { return jsonError('NAV import 검증 실패: ' + err.message); }
-}
-
-function _fundNavImportImpactRanges(stored, code, provider, changedDates) {
-  var sourceDates = {};
-  stored.forEach(function(row) {
-    if (String(row[1]) !== code || String(row[8]) !== provider) return;
-    var sourceDate = _normalizeDate(row[4]);
-    if (sourceDate) sourceDates[sourceDate] = true;
-  });
-  changedDates.forEach(function(date) { sourceDates[date] = true; });
-  var sources = Object.keys(sourceDates).sort();
-  var ranges = changedDates.slice().sort().map(function(date) {
-    var next = sources.find(function(sourceDate) { return sourceDate > date; });
-    return { from: date, to: next ? _fundDateOffset(next, -1) : today() };
-  });
-  return ranges.reduce(function(merged, range) {
-    var last = merged[merged.length - 1];
-    if (last && range.from <= _fundDateOffset(last.to, 1)) { if (range.to > last.to) last.to = range.to; }
-    else merged.push(range);
-    return merged;
-  }, []);
 }
 
 function _backupFundImportSheet(ss, sheet, label) {
@@ -3513,7 +3517,7 @@ function _applyFundNavImport(ss, inspected) {
   var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
   var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
   var imported = {};
-  inspected.candidates.forEach(function(row) { imported[row.date] = row.nav; });
+  inspected.candidates.concat(inspected.updates).forEach(function(row) { imported[row.date] = row.uploadedNav || row.nav; });
   var published = {};
   stored.forEach(function(row) {
     if (String(row[1]) !== inspected.code || String(row[8]) !== inspected.spec.provider) return;
@@ -3523,9 +3527,10 @@ function _applyFundNavImport(ss, inspected) {
   });
   Object.keys(imported).forEach(function(date) { published[date] = imported[date]; });
   var navRows = Object.keys(published).sort().map(function(date) { return { date: date, nav: published[date] }; });
-  var ranges = _fundNavImportImpactRanges(stored, inspected.code, inspected.spec.provider, Object.keys(imported));
+  var ranges = Object.keys(imported).sort().map(function(date) { return { from: date, to: date }; });
+  // 확정 backfill은 실제 NAV가 제공된 날짜만 대상으로 합니다. carry-forward는 현재 추정 조회에서만 사용합니다.
   var daily = [];
-  ranges.forEach(function(range) { daily = daily.concat(_fundDailyValues(configs, inspected.code, navRows, range.from, range.to)); });
+  Object.keys(imported).sort().forEach(function(date) { daily = daily.concat(_fundDailyValues(configs, inspected.code, navRows, date, date)); });
   var existingNavIndexes = {};
   stored.forEach(function(row, index) {
     if (String(row[1]) === inspected.code && String(row[8]) === inspected.spec.provider) existingNavIndexes[_normalizeDate(row[0])] = index;
@@ -3586,7 +3591,13 @@ function _applyFundNavImport(ss, inspected) {
     if (complete && rebuilt.length) { writeSnapshotRows(ss, value.date, rebuilt, true, [value.code]); snapshotChanges++; }
     else missingHoldings.push(value.date + ':다른 보유종목의 평가자료 부족');
   });
-  return { from: daily.length ? daily[0].date : '', to: daily.length ? daily[daily.length - 1].date : '', prices: priceChanges, snapshots: snapshotChanges, missingHoldings: missingHoldings, ranges: ranges };
+  return {
+    from: daily.length ? daily[0].date : '', to: daily.length ? daily[daily.length - 1].date : '',
+    processed: daily.length, total: Object.keys(imported).length,
+    currentDate: daily.length ? daily[daily.length - 1].date : '', navCount: Object.keys(imported).length,
+    valuations: daily.length, prices: priceChanges, snapshots: snapshotChanges,
+    errorCount: missingHoldings.length, missingHoldings: missingHoldings, ranges: ranges
+  };
 }
 
 function handleImportFundNav(dataJson) {
@@ -3596,10 +3607,11 @@ function handleImportFundNav(dataJson) {
     var ss = getss();
     var inspected = _inspectFundNavImport(ss, dataJson);
     if (inspected.errors.length) throw new Error('오류 행 ' + inspected.errors.length + '건을 먼저 수정하세요.');
-    if (inspected.conflicts.length) throw new Error('기존 NAV와 다른 값 ' + inspected.conflicts.length + '건을 확인하세요. 기존 데이터는 변경하지 않았습니다.');
-    if (!inspected.candidates.length) return jsonOk({ importResult: inspected, evaluation: { from: '', to: '', prices: 0, snapshots: 0, missingHoldings: [], ranges: [] } });
+    if (inspected.warnings.length && !JSON.parse(dataJson).ackWarnings) throw new Error('WARNING ' + inspected.warnings.length + '건을 확인한 후 반영하세요.');
+    if (!inspected.candidates.length && !inspected.updates.length) return jsonOk({ importResult: inspected, evaluation: { from: '', to: '', prices: 0, snapshots: 0, missingHoldings: [], ranges: [] } });
     var evaluation = _applyFundNavImport(ss, inspected);
     inspected.saved = inspected.candidates.length;
+    inspected.updated = inspected.updates.length;
     return jsonOk({ importResult: inspected, evaluation: evaluation });
   } catch (err) { return jsonError('NAV import 저장 실패: ' + err.message); }
   finally { lock.releaseLock(); }
@@ -6292,7 +6304,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.94' });
+    return jsonOk({ settings: settings, gasVersion: '9.95' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6314,7 +6326,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.94'
+      gasVersion: '9.95'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
