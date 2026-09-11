@@ -126,6 +126,17 @@ const fidelityBoundary=clone(context._fundDailyValues(fidelity2026,'F00003',[
 assert.deepEqual(fidelityBoundary.map(row=>row.date),['2026-08-24']);
 assert.equal(fidelityBoundary[0].evalAmt,Math.round(15933.037*1234.56/1000));
 
+// F00003은 2026-08-25 0좌 적용일부터 평가하지 않습니다.
+const fidelity2026=[
+  {code:'F00003',name:'피델리티 월드Big4 S',provider:'FIDELITY_BIG4_S',startDate:'2026-01-01',units:15933.037},
+  {code:'F00003',name:'피델리티 월드Big4 S',provider:'FIDELITY_BIG4_S',startDate:'2026-08-25',units:0}
+];
+const fidelityBoundary=clone(context._fundDailyValues(fidelity2026,'F00003',[
+  {date:'2026-08-24',nav:1234.56},{date:'2026-08-25',nav:1235.67}
+],'2026-08-24','2026-08-26'));
+assert.deepEqual(fidelityBoundary.map(row=>row.date),['2026-08-24']);
+assert.equal(fidelityBoundary[0].evalAmt,Math.round(15933.037*1234.56/1000));
+
 // 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
 const retiredConfigs=[
   {code:'F00003',name:'과거 펀드',provider:'FIDELITY_BIG4_S',startDate:'2024-01-01',units:10000},
