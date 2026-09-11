@@ -955,3 +955,9 @@ html[data-ui-font-size] .tbl-head,html[data-ui-font-size] .settings-panel{paddin
 .fund-units-panel label{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;color:var(--text)}
 .fund-units-panel input,.fund-units-panel select{box-sizing:border-box;width:100%;min-width:0;max-width:100%;font-size:inherit;padding:8px}
 .fund-units-panel button{margin:4px 0}
+.fund-nav-import{margin:18px 0;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--s1)}
+.fund-nav-guide{padding:12px;border-radius:8px;background:var(--s2)}
+.fund-nav-guide dl{display:grid;grid-template-columns:72px 1fr;gap:3px 10px;margin:8px 0}.fund-nav-guide dt{color:var(--muted)}.fund-nav-guide dd{margin:0;color:var(--text);font-weight:600}
+.fund-nav-actions,.fund-nav-links{display:flex;flex-wrap:wrap;gap:6px}.fund-nav-links a{display:inline-flex;padding:6px 9px;border:1px solid var(--border);border-radius:6px;color:var(--blue-lt);text-decoration:none}
+.fund-nav-import ol{padding-left:20px;color:var(--muted)}.fund-nav-file{margin-top:12px;padding:10px;border:1px dashed var(--border);border-radius:8px}.fund-nav-import-warning{color:var(--amber)!important;font-weight:600}
+.fund-nav-import-result{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:8px}.fund-nav-import-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0}.fund-nav-import-result details{margin:8px 0;max-height:160px;overflow:auto}
