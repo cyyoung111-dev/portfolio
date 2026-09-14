@@ -1,3 +1,9 @@
+## GAS v9.100: 펀드 복구 잠금 범위와 한화 공시일 파싱 보완
+
+- `handleRefreshFundValuations`는 전체 복구 동안 `ScriptLock`을 잡지 않습니다. 외부 HTTP 조회·NAV 파싱·평가 계산은 lock 밖에서 수행하고, NAV·가격이력 쓰기 직전에 최신 시트 상태를 재조회한 뒤 짧게 잠급니다.
+- 한화 `wktdate`는 전용 parser에서 `YYYYMMDD`, `YYYY-MM-DD`, `YYYY.MM.DD`, `YYYY/MM/DD`만 정규화하며 그 밖의 값은 원문을 포함한 오류로 거부합니다.
+- 운영 반영에는 Apps Script v9.100 재배포가 필요합니다.
+
 ## GAS v9.99: 확정 NAV 누락 판정 및 붙여넣기 미리보기 순서 보완
 
 - 누락 복구는 `펀드기준가격` 행의 평가일이 아니라 `가격공시일`을 기준으로 확정 NAV 존재 여부를 판단합니다. 과거 carry-forward 평가행이 있어도 실제 공시 NAV가 없으면 누락으로 조회합니다.

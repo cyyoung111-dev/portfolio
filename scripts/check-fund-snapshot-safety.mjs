@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+assert.doesNotMatch(source.match(/function handleRefreshFundValuations[\s\S]*?\n}/)?.[0] || '', /waitLock/, '복구 handler 전체 잠금 제거');
 const clone = value => JSON.parse(JSON.stringify(value));
 let held = false;
 const lock = { hasLock: () => held, waitLock: () => { held = true; }, releaseLock: () => { held = false; } };
@@ -14,6 +15,7 @@ context.today = () => '2026-09-09';
 // 한화 공식 API는 요청 범위의 C-RPe만 반환하고 미확정 클래스는 외부 조회하지 않습니다.
 const fundFetchCalls=[];
 context.UrlFetchApp={fetch(url, options){
+  assert.equal(held,false,'한화 외부 API 호출 중 ScriptLock 미보유');
   fundFetchCalls.push({url,options});
   return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({list:[
     {wktdate:'2025-12-31',price:'900.25'}, {wktdate:'2026-01-02',price:'1000.25'},
@@ -23,6 +25,10 @@ context.UrlFetchApp={fetch(url, options){
 assert.deepEqual(clone(context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02')),[
   {date:'2026-01-02',nav:1000.25}
 ]);
+assert.equal(context._parseHanwhaNavDate('2026.01.08'),'2026-01-08','한화 점 구분 공시일을 API 전용 parser에서 정규화');
+assert.equal(context._parseHanwhaNavDate('2026/01/08'),'2026-01-08');
+assert.equal(context._parseHanwhaNavDate('20260108'),'2026-01-08');
+assert.throws(()=>context._parseHanwhaNavDate('2026-01-08~2026-01-09'),/2026-01-08~2026-01-09/,'범위 문자열은 단일 공시일로 허용하지 않고 원문 표시');
 assert.equal(fundFetchCalls[0].options.method,'get');
 assert.match(fundFetchCalls[0].url,/hanwhafund\.co\.kr\/api\/fund\/dailyPrice\?fundCd=008942&period=&startDate=2026-01-01&endDate=2026-01-02/);
 assert.throws(()=>context._fetchFundNav('KB_VALUE_ST','2026-01-01','2026-01-02'),/AQ018.*미확인/);
