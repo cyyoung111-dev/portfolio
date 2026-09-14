@@ -45,12 +45,15 @@ assert.match(source,/data-fund-nav-warning-ack/,'WARNING 확인 후 반영');
 assert.match(source,/const fundItems = \[\]/,'F코드를 일반 평가금액 수동 편집에서 제외');
 const recoveryStatus = context._fundRecoverySummary('2026-01-01','2026-01-31',14,31,{
   F00001:{storedNav:2,apiRequested:1,apiSuccess:10,valuations:12,snapshots:11,zeroUnitsExcluded:0,apiErrors:[{from:'2026-01-10',to:'2026-01-14',message:'timeout'}]},
-  F00002:{storedNav:8,valuations:8,snapshots:8,apiErrors:[]},
+  F00002:{storedNav:8,valuations:8,prices:3,pricesExisting:5,snapshots:8,navMissing:1,noUnits:2,apiErrors:[]},
   F00003:{storedNav:5,valuations:5,snapshots:5,zeroUnitsExcluded:3,apiErrors:[]},
 },25,24,'2026-01-01 ~ 2026-01-14 완료');
-assert.match(recoveryStatus,/14\/31일 \(45%\)/);
+assert.match(recoveryStatus,/14\/31 펀드·일 \(45%\)/);
 assert.match(recoveryStatus,/F00001 저장 NAV 2 · API 조회 1구간 · API 성공 10건/);
 assert.match(recoveryStatus,/F00003.*0좌 제외 3/);
+assert.match(recoveryStatus,/F00002.*가격이력 신규 3\/기존 5.*NAV 없음 1.*좌수 없음 2/);
+assert.match(source,/\['F00002','F00003','F00001'\]/,'저장 NAV 펀드를 한화 API 펀드보다 먼저 독립 처리');
+assert.match(source,/code: fundCode/,'복구 요청을 F코드별로 분리');
 
 for (const [code,classCode,standardCode,className] of [
   ['F00001','C-RPe','확인되지 않음','C-RPe'],

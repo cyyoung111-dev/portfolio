@@ -1,8 +1,14 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.96
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.98
+//
+//  v9.98 변경사항 (2026.09.14):
+//   저장된 평일 NAV가 충분하면 주말 누락으로 한화 API를 다시 호출하지 않음
+//
+//  v9.97 변경사항 (2026.09.14):
+//   F00001 누락 NAV를 14일 batch·1회 재시도로 조회하고 40일 lookback 제거
+//   복구 API를 F코드별로 분리해 F00001 hard timeout에도 F00002/F00003 선처리
 //
 //  v9.96 변경사항 (2026.09.14):
-//   F00001 누락 NAV를 14일 batch·1회 재시도로 조회하고 40일 lookback 제거
 //   펀드별 실패 격리와 F00002/F00003 저장 NAV 전용 복구 결과 추가
 //
 //  v9.95 변경사항 (2026.09.11):
@@ -684,7 +690,7 @@ function doPost(e) {
   if (params.action === 'previewFundNavImport') return handlePreviewFundNavImport(params.data || '{}');
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
-  if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to);
+  if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '');
   var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
@@ -3302,6 +3308,11 @@ function _fetchMissingFundNavBatches(provider, missingDates, activeTo) {
   return { rows: rows, batches: batches, errors: errors };
 }
 
+function _fundNavExpectedPublicationDate(date) {
+  var day = new Date(_fundDate(date) + 'T00:00:00Z').getUTCDay();
+  return day !== 0 && day !== 6;
+}
+
 function _fundDailyValues(configs, code, navRows, from, to) {
   var result = [];
   var latest = null;
@@ -3349,7 +3360,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
   });
   var values = [], fundResults = {};
   codes.forEach(function(code) {
-    var fundResult = fundResults[code] = { code: code, status: 'ok', storedNav: 0, apiRequested: 0, apiSuccess: 0, apiFailed: 0, apiErrors: [], valuations: 0, prices: 0, snapshots: 0, zeroUnitsExcluded: 0 };
+    var fundResult = fundResults[code] = { code: code, status: 'ok', storedNav: 0, apiRequested: 0, apiSuccess: 0, apiFailed: 0, apiErrors: [], valuations: 0, prices: 0, pricesExisting: 0, snapshots: 0, navMissing: 0, noUnits: 0, zeroUnitsExcluded: 0 };
     try {
       var config = configs.find(function(c) { return c.code === code; });
       var activeDates = [];
@@ -3357,10 +3368,15 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
         var datedConfig = _fundUnitsAtDate(configs, code, date);
         if (datedConfig && datedConfig.units > 0) activeDates.push(date);
         else if (datedConfig && datedConfig.units === 0) fundResult.zeroUnitsExcluded++;
+        else fundResult.noUnits++;
       }
       if (!activeDates.length) return;
       var activeTo = activeDates[activeDates.length - 1];
-      var missingDates = activeDates.filter(function(date) { return !storedKeys[date + '|' + code]; });
+      // 주말은 새 NAV 공시 대상이 아니므로 저장 행이 없어도 API 누락으로 보지 않습니다.
+      // 국내 공휴일은 별도 달력을 추측하지 않고 평일 누락으로 조회하되, 응답된 실제 공시일만 저장합니다.
+      var missingDates = activeDates.filter(function(date) {
+        return _fundNavExpectedPublicationDate(date) && !storedKeys[date + '|' + code];
+      });
       var navRows = _storedFundNavRows(storedNav, code, config.provider, from, activeTo);
       fundResult.storedNav = navRows.filter(function(row) { return row.date >= from && row.date <= activeTo; }).length;
       // F00002/F00003은 저장된 검증 NAV만 사용합니다. 공식 자동조회는 F00001에만 허용합니다.
@@ -3387,6 +3403,9 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
         fundResult.status = 'partial';
         fundResult.apiErrors.push({ from: from, to: activeTo, message: FUND_PROVIDERS[config.provider].source === 'HANWHA' ? '확정 NAV를 확보하지 못함' : '저장된 확정 NAV 없음 (외부조회 금지)' });
       }
+      var confirmedNavDates = {};
+      navRows.forEach(function(row) { confirmedNavDates[row.date] = true; });
+      fundResult.navMissing = activeDates.filter(function(date) { return _fundNavExpectedPublicationDate(date) && !confirmedNavDates[date]; }).length;
       // 실제 공시 NAV 날짜만 확정 backfill하고 직전 NAV를 새 확정 행으로 복제하지 않습니다.
       var codeValues = _fundDailyValues(configs, code, navRows, from, to).filter(function(value) { return value.date === value.sourceDate; });
       fundResult.valuations = codeValues.length;
@@ -3429,7 +3448,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
     if (!priceKeys[key]) {
       var row = [value.date, value.code, value.name, value.evalAmt, '', 'FUND_NAV'];
       append.push(row); priceKeys[key] = row; fundResults[value.code].prices++;
-    }
+    } else fundResults[value.code].pricesExisting++;
   });
   if (append.length) {
     if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
@@ -3471,9 +3490,14 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
   return { completionStatus: Object.keys(fundResults).some(function(code) { return fundResults[code].status !== 'ok'; }) ? 'partial' : 'ok', saved: append.length, navSaved: newNav.length, snapshots: snapshotCount, missingHoldings: missingHoldings, lastDate: values.map(function(v) { return v.date; }).sort().pop() || '', fundResults: fundResults };
 }
 
-function handleRefreshFundValuations(from, to) {
+function handleRefreshFundValuations(from, to, code) {
   var lock = LockService.getScriptLock();
-  try { lock.waitLock(30000); return jsonOk(_refreshFundValuations(getss(), from, to)); }
+  try {
+    lock.waitLock(30000);
+    code = String(code || '').trim().toUpperCase();
+    if (code && ['F00001','F00002','F00003'].indexOf(code) === -1) throw new Error('지원하지 않는 펀드 코드');
+    return jsonOk(_refreshFundValuations(getss(), from, to, code || undefined));
+  }
   catch (err) { return jsonError('펀드 평가 반영 실패: ' + err.message); }
   finally { lock.releaseLock(); }
 }
@@ -6352,7 +6376,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.96' });
+    return jsonOk({ settings: settings, gasVersion: '9.98' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6374,7 +6398,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.96'
+      gasVersion: '9.98'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

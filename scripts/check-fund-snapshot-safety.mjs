@@ -176,11 +176,13 @@ let partialArgs;
 context._fetchFundNav=(provider,from,to)=>{ partialArgs={provider,from,to}; return [{date:'2026-01-02',nav:1000}]; };
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const partialResult=context._refreshFundValuations(ssFor(partialSheets),'2026-01-01','2026-01-04');
-assert.deepEqual(partialArgs,{provider:'HANWHA_2045_CRPE',from:'2026-01-02',to:'2026-01-04'});
+assert.deepEqual(partialArgs,{provider:'HANWHA_2045_CRPE',from:'2026-01-02',to:'2026-01-02'},'저장 NAV가 없는 평일만 조회하고 주말은 제외');
 assert.equal(partialResult.navSaved,1,'공식 API가 실제 반환한 날짜만 확정 NAV로 저장');
 assert.deepEqual(partialNav.rows.slice(1).map(row=>[row[0],row[4]]),[
   ['2026-01-01','2025-12-31'],['2026-01-02','2026-01-02']
 ]);
+context._fetchFundNav=()=>{ throw new Error('평일 확정 NAV가 충분하면 주말 때문에 재조회하면 안 됩니다.'); };
+assert.equal(context._refreshFundValuations(ssFor(partialSheets),'2026-01-01','2026-01-04').fundResults.F00001.apiRequested,0);
 context._fetchFundNav=()=>[{date:'2026-01-05',nav:1100}];
 const failedFundOnly=context._refreshFundValuations(ssFor({'펀드좌수':partialFund}),'2026-01-01','2026-01-02');
 assert.equal(failedFundOnly.completionStatus,'partial');
@@ -227,19 +229,21 @@ const mixedSs = ssFor({'펀드좌수':mixedUnits,'펀드기준가격':mixedNav,'
 const mixedCalls=[];
 context._fetchFundNav=(provider,from,to)=>{
   mixedCalls.push([provider,from,to]);
-  if (from === '2026-01-15') throw new Error('한화 NAV API timeout');
-  return [{date:from === '2026-01-01'?'2026-01-02':'2026-01-30',nav:1000}];
+  if (from === '2026-01-12') throw new Error('한화 NAV API timeout');
+  return [{date:from,nav:1000}];
 };
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const mixed=context._refreshFundValuations(mixedSs,'2026-01-01','2026-01-31');
 assert.equal(mixed.completionStatus,'partial');
 assert.equal(mixed.fundResults.F00001.apiFailed,1);
-assert.equal(mixed.fundResults.F00001.apiSuccess,2,'성공한 API batch NAV는 유지');
+assert.equal(mixed.fundResults.F00001.apiSuccess,4,'성공한 API batch NAV는 유지');
 assert.equal(mixed.fundResults.F00002.storedNav,1);
 assert.equal(mixed.fundResults.F00003.storedNav,1);
 assert.equal(mixed.fundResults.F00003.zeroUnitsExcluded,12,'0좌 이후 평가 제외');
 assert.equal(mixedCalls.filter(call=>call[0]!=='HANWHA_2045_CRPE').length,0,'F00002/F00003 외부조회 금지');
-assert.equal(mixedCalls.filter(call=>call[1]==='2026-01-15').length,2,'실패 batch는 최초 호출 후 1회만 재시도');
+assert.equal(mixedCalls.filter(call=>call[1]==='2026-01-12').length,2,'실패 batch는 최초 호출 후 1회만 재시도');
+const kbOnly=context._refreshFundValuations(mixedSs,'2026-01-01','2026-01-07','F00002');
+assert.deepEqual(Object.keys(kbOnly.fundResults),['F00002'],'웹 요청이 F코드별로 독립 실행 가능');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
 // 세 펀드 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증합니다.
