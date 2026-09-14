@@ -229,6 +229,17 @@ function _renderFundUnitsEditor(items) {
     <p role="status">${_escapeHtml(_fundUnitsStatus)}</p></section>`;
 }
 
+function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, currentRange) {
+  const percent = total ? Math.min(100, Math.round(processed / total * 100)) : 0;
+  const funds = ['F00001','F00002','F00003'].map(code => {
+    const item = fundStats[code];
+    if (!item) return `${code} 미처리`;
+    const errors = item.apiErrors?.length ? ` · 실패 ${item.apiErrors.length}구간 (${item.apiErrors.map(error => `${error.from}~${error.to} ${error.message}`).join('; ')})` : '';
+    return `${code} 저장 NAV ${item.storedNav || 0} · API 조회 ${item.apiRequested || 0}구간 · API 성공 ${item.apiSuccess || 0}건 · 평가 ${item.valuations || 0} · 스냅샷 ${item.snapshots || 0} · 0좌 제외 ${item.zeroUnitsExcluded || 0}${errors}`;
+  }).join(' / ');
+  return `누락 평가금액 복구 ${processed}/${total}일 (${percent}%) · 전체 ${from} ~ ${to}${currentRange ? ` · 현재 ${currentRange}` : ''} · ${funds} · 가격이력 ${saved}건 · 스냅샷 ${snapshots}건`;
+}
+
 async function _loadFundUnitsEditor() {
   if (!GSHEET_API_URL) return;
   try {
@@ -285,21 +296,41 @@ async function handleFundUnitAction(action, code) {
       if (!from || !to || from > to || to > _kstTodayStr()) throw new Error('조회 기간을 확인하세요.');
       if (!_fundUnitConfigs.length) throw new Error('좌수를 먼저 저장하세요.');
       let saved = 0;
+      let snapshots = 0;
       let missing = 0;
       let lastDate = '';
+      let processed = 0;
+      const total = Math.floor((new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000) + 1;
+      const fundStats = {};
       for (let start = from; start <= to;) {
         const end = _kstDateOffset(start, 30) < to ? _kstDateOffset(start, 30) : to;
-        _fundUnitsStatus = `${start} ~ ${end} 반영 중 · 누적 ${saved}건`;
+        _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${start} ~ ${end} 요청 중`);
         buildEditorUI();
         const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end }, { timeoutMs: 120000, retry: 0 });
         if (result?.status !== 'ok') throw new Error(result?.message || `${start} 반영 실패. 저장된 이전 구간은 유지됩니다.`);
         saved += Number(result.saved || 0);
+        snapshots += Number(result.snapshots || 0);
         missing += (result.missingHoldings || []).length;
+        Object.entries(result.fundResults || {}).forEach(([fundCode, item]) => {
+          const previous = fundStats[fundCode] || { apiErrors: [] };
+          fundStats[fundCode] = {
+            storedNav: Number(previous.storedNav || 0) + Number(item.storedNav || 0),
+            apiRequested: Number(previous.apiRequested || 0) + Number(item.apiRequested || 0),
+            apiSuccess: Number(previous.apiSuccess || 0) + Number(item.apiSuccess || 0),
+            valuations: Number(previous.valuations || 0) + Number(item.valuations || 0),
+            snapshots: Number(previous.snapshots || 0) + Number(item.snapshots || 0),
+            zeroUnitsExcluded: Number(previous.zeroUnitsExcluded || 0) + Number(item.zeroUnitsExcluded || 0),
+            apiErrors: [...(previous.apiErrors || []), ...(item.apiErrors || [])],
+          };
+        });
+        processed += Math.floor((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1;
+        _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${start} ~ ${end} 완료`);
+        buildEditorUI();
         if (result.lastDate > lastDate) lastDate = result.lastDate;
         start = _kstDateOffset(end, 1);
       }
       _editorHistoryCache.clear();
-      _fundUnitsStatus = `가격이력 ${saved}건 추가 · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. 기존 기록은 보존했습니다.`;
+      _fundUnitsStatus = `${_fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, '완료')} · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. 가능한 범위까지 완료했으며 기존 기록은 보존했습니다.`;
       await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
       recomputeRows(); saveHoldings(); renderSummary();
     }

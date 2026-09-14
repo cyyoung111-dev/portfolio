@@ -21,10 +21,10 @@ context.UrlFetchApp={fetch(url, options){
   ]})};
 }};
 assert.deepEqual(clone(context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02')),[
-  {date:'2025-12-31',nav:900.25},{date:'2026-01-02',nav:1000.25}
+  {date:'2026-01-02',nav:1000.25}
 ]);
 assert.equal(fundFetchCalls[0].options.method,'get');
-assert.match(fundFetchCalls[0].url,/hanwhafund\.co\.kr\/api\/fund\/dailyPrice\?fundCd=008942&period=&startDate=2025-11-22&endDate=2026-01-02/);
+assert.match(fundFetchCalls[0].url,/hanwhafund\.co\.kr\/api\/fund\/dailyPrice\?fundCd=008942&period=&startDate=2026-01-01&endDate=2026-01-02/);
 assert.throws(()=>context._fetchFundNav('KB_VALUE_ST','2026-01-01','2026-01-02'),/AQ018.*미확인/);
 assert.throws(()=>context._fetchFundNav('FIDELITY_BIG4_S','2026-01-01','2026-01-02'),/AP399.*미확인/);
 assert.equal(fundFetchCalls.length,1,'미확정 클래스는 FunETF를 포함한 외부 요청을 하지 않음');
@@ -182,7 +182,9 @@ assert.deepEqual(partialNav.rows.slice(1).map(row=>[row[0],row[4]]),[
   ['2026-01-01','2025-12-31'],['2026-01-02','2026-01-02']
 ]);
 context._fetchFundNav=()=>[{date:'2026-01-05',nav:1100}];
-assert.throws(()=>context._refreshFundValuations(ssFor({'펀드좌수':partialFund}),'2026-01-01','2026-01-02'),/이전의 기준가격.*기존 데이터는 변경하지 않았습니다/);
+const failedFundOnly=context._refreshFundValuations(ssFor({'펀드좌수':partialFund}),'2026-01-01','2026-01-02');
+assert.equal(failedFundOnly.completionStatus,'partial');
+assert.equal(failedFundOnly.fundResults.F00001.status,'partial','F00001 실패는 펀드별 결과로 반환');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
 // 과거 전량 매도 F코드는 보유 기간의 가격이력·스냅샷만 채우고 매도/0좌 이후에는 새 행을 만들지 않습니다.
@@ -195,8 +197,11 @@ const retiredTradesSheet = new Sheet([Array(8).fill('header'),
   ['2024-01-03','sell','계좌','과거 펀드','F00003',10,1000,'펀드'],
   ['2024-01-01','buy','계좌','주식','000001',2,100,'주식']]);
 const retiredSnapshotsSheet = new Sheet([header]);
-const retiredSheets={'펀드좌수':retiredFundSheet,'가격이력':retiredPricesSheet,'거래이력':retiredTradesSheet,'스냅샷':retiredSnapshotsSheet};
-context._fetchFundNav=()=>[{date:'2024-01-01',nav:1000},{date:'2024-01-02',nav:1100},{date:'2024-01-03',nav:1200},{date:'2024-01-04',nav:1300}];
+const retiredNavSheet = new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2024-01-01','F00003','과거 펀드',1000,'2024-01-01',10000,10000,'','FIDELITY_BIG4_S'],
+  ['2024-01-02','F00003','과거 펀드',1100,'2024-01-02',10000,11000,'','FIDELITY_BIG4_S']]);
+const retiredSheets={'펀드좌수':retiredFundSheet,'펀드기준가격':retiredNavSheet,'가격이력':retiredPricesSheet,'거래이력':retiredTradesSheet,'스냅샷':retiredSnapshotsSheet};
+context._fetchFundNav=()=>{ throw new Error('F00003은 외부조회하면 안 됩니다.'); };
 context._buildSnapshotRowsFromTradeAndPriceHistory=(_ss,date)=>[snap(date,'000001',300)];
 const retiredResult=context._refreshFundValuations(ssFor(retiredSheets),'2024-01-01','2024-01-04');
 assert.equal(retiredResult.saved,2);
@@ -207,6 +212,35 @@ context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 const zeroOnlySheets={'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-01',0,'']])};
 context._fetchFundNav=()=>{ throw new Error('0좌만 남은 F코드는 조회하면 안 됩니다.'); };
 assert.equal(context._refreshFundValuations(ssFor(zeroOnlySheets),'2026-01-01','2026-01-02').saved,0);
+
+// F00001 batch 일부 timeout이어도 저장 NAV 기반 F00002/F00003 복구는 계속합니다.
+const mixedUnits = new Sheet([['code','name','provider','start','units','at'],
+  ['F00001','한화','HANWHA_2045_CRPE','2026-01-01',1000,''],
+  ['F00002','KB','KB_VALUE_ST','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-20',0,'']]);
+const mixedNav = new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-01-02','F00002','KB',2000,'2026-01-02',1000,2000,'','KB_VALUE_ST'],
+  ['2026-01-02','F00003','피델리티',3000,'2026-01-02',1000,3000,'','FIDELITY_BIG4_S']]);
+const mixedPrices = new Sheet([['date','code','name','price','at','source']]);
+const mixedSs = ssFor({'펀드좌수':mixedUnits,'펀드기준가격':mixedNav,'가격이력':mixedPrices});
+const mixedCalls=[];
+context._fetchFundNav=(provider,from,to)=>{
+  mixedCalls.push([provider,from,to]);
+  if (from === '2026-01-15') throw new Error('한화 NAV API timeout');
+  return [{date:from === '2026-01-01'?'2026-01-02':'2026-01-30',nav:1000}];
+};
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+const mixed=context._refreshFundValuations(mixedSs,'2026-01-01','2026-01-31');
+assert.equal(mixed.completionStatus,'partial');
+assert.equal(mixed.fundResults.F00001.apiFailed,1);
+assert.equal(mixed.fundResults.F00001.apiSuccess,2,'성공한 API batch NAV는 유지');
+assert.equal(mixed.fundResults.F00002.storedNav,1);
+assert.equal(mixed.fundResults.F00003.storedNav,1);
+assert.equal(mixed.fundResults.F00003.zeroUnitsExcluded,12,'0좌 이후 평가 제외');
+assert.equal(mixedCalls.filter(call=>call[0]!=='HANWHA_2045_CRPE').length,0,'F00002/F00003 외부조회 금지');
+assert.equal(mixedCalls.filter(call=>call[1]==='2026-01-15').length,2,'실패 batch는 최초 호출 후 1회만 재시도');
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
 // 세 펀드 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증합니다.
 const importUnits = new Sheet([['code','name','provider','start','units','at'],

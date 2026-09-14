@@ -43,6 +43,14 @@ assert.match(source,/좌수가 저장되었습니다/,'좌수 저장 성공 피�
 assert.match(source,/data-fund-nav-manual="date"/,'과거 기준일 수동 NAV 입력 제공');
 assert.match(source,/data-fund-nav-warning-ack/,'WARNING 확인 후 반영');
 assert.match(source,/const fundItems = \[\]/,'F코드를 일반 평가금액 수동 편집에서 제외');
+const recoveryStatus = context._fundRecoverySummary('2026-01-01','2026-01-31',14,31,{
+  F00001:{storedNav:2,apiRequested:1,apiSuccess:10,valuations:12,snapshots:11,zeroUnitsExcluded:0,apiErrors:[{from:'2026-01-10',to:'2026-01-14',message:'timeout'}]},
+  F00002:{storedNav:8,valuations:8,snapshots:8,apiErrors:[]},
+  F00003:{storedNav:5,valuations:5,snapshots:5,zeroUnitsExcluded:3,apiErrors:[]},
+},25,24,'2026-01-01 ~ 2026-01-14 완료');
+assert.match(recoveryStatus,/14\/31일 \(45%\)/);
+assert.match(recoveryStatus,/F00001 저장 NAV 2 · API 조회 1구간 · API 성공 10건/);
+assert.match(recoveryStatus,/F00003.*0좌 제외 3/);
 
 for (const [code,classCode,standardCode,className] of [
   ['F00001','C-RPe','확인되지 않음','C-RPe'],
