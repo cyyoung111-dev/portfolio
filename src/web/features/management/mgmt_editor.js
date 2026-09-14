@@ -14,6 +14,7 @@ let _fundUnitBusy = false;
 let _fundUnitsStatus = '';
 let _editorMode = 'price';
 let _fundNavPasteTimer = 0;
+let _fundNavPasteRequestId = 0;
 const FUND_NAV_CHANGE_WARNING_RATE = 0.20;
 const FUND_NAV_IMPORT_GUIDE = {
   F00001: {
@@ -347,6 +348,7 @@ async function handleFundUnitAction(action, code) {
 }
 
 function openFundUnitsEditor() {
+  _fundNavPasteRequestId++;
   _editorMode = 'fund-units';
   _fundUnitDrafts = {};
   _fundNavImportState = { code: 'F00001', filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
@@ -356,12 +358,14 @@ function openFundUnitsEditor() {
 
 async function handleFundNavImportTarget(code) {
   if (!FUND_NAV_IMPORT_GUIDE[code]) return;
+  _fundNavPasteRequestId++;
   _fundNavImportState = { code, filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
   buildEditorUI();
 }
 
 async function handleFundNavImportFile(file) {
   if (!file || _fundUnitBusy) return;
+  _fundNavPasteRequestId++;
   if (!/\.(xlsx|xls|csv)$/i.test(file.name)) { _fundNavImportState.parseError = 'xlsx, xls, csv 파일만 지원합니다.'; buildEditorUI(); return; }
   _fundUnitBusy = true;
   _fundNavImportState = { ..._fundNavImportState, filename: file.name, payload: null, preview: null, parseError: '' };
@@ -382,24 +386,34 @@ async function handleFundNavImportFile(file) {
   finally { _fundUnitBusy = false; buildEditorUI(); }
 }
 
-async function _previewFundNavParsed(parsed) {
+async function _previewFundNavParsed(parsed, requestId = null, expectedCode = '') {
   if (!GSHEET_API_URL) throw new Error('구글시트를 먼저 연결하세요.');
-  const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
-  const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
+  const code = expectedCode || _fundNavImportState.code;
+  const guide = FUND_NAV_IMPORT_GUIDE[code];
+  const data = { code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
   const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0 });
   if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
+  // 이전 붙여넣기 요청이 늦게 완료되어도 현재 텍스트의 preview를 덮어쓰지 않습니다.
+  if (requestId !== null && (requestId !== _fundNavPasteRequestId || code !== _fundNavImportState.code)) return false;
   _fundNavImportState = { ..._fundNavImportState, payload: parsed, preview: result, parseError: '', warningsAcknowledged: false };
+  return true;
 }
 
 function handleFundNavPasteInput(value) {
+  const requestId = ++_fundNavPasteRequestId;
+  const code = _fundNavImportState.code;
   _fundNavImportState = { ..._fundNavImportState, pasteText: value, filename: '', payload: null, preview: null, parseError: '' };
   clearTimeout(_fundNavPasteTimer);
   _fundNavPasteTimer = setTimeout(async () => {
-    if (!String(value || '').trim()) { buildEditorUI(); return; }
+    if (!String(value || '').trim()) { _fundUnitBusy = false; buildEditorUI(); return; }
     _fundUnitBusy = true;
-    try { await _previewFundNavParsed(_parseFundNavPaste(value, _fundNavImportState.code)); }
-    catch (error) { _fundNavImportState = { ..._fundNavImportState, parseError: error.message, payload: null, preview: null }; }
-    finally { _fundUnitBusy = false; buildEditorUI(); }
+    try { await _previewFundNavParsed(_parseFundNavPaste(value, code), requestId, code); }
+    catch (error) {
+      if (requestId === _fundNavPasteRequestId && code === _fundNavImportState.code) _fundNavImportState = { ..._fundNavImportState, parseError: error.message, payload: null, preview: null };
+    }
+    finally {
+      if (requestId === _fundNavPasteRequestId) { _fundUnitBusy = false; buildEditorUI(); }
+    }
   }, 350);
 }
 

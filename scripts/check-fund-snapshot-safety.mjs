@@ -176,13 +176,13 @@ let partialArgs;
 context._fetchFundNav=(provider,from,to)=>{ partialArgs={provider,from,to}; return [{date:'2026-01-02',nav:1000}]; };
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const partialResult=context._refreshFundValuations(ssFor(partialSheets),'2026-01-01','2026-01-04');
-assert.deepEqual(partialArgs,{provider:'HANWHA_2045_CRPE',from:'2026-01-02',to:'2026-01-02'},'저장 NAV가 없는 평일만 조회하고 주말은 제외');
+assert.deepEqual(partialArgs,{provider:'HANWHA_2045_CRPE',from:'2026-01-01',to:'2026-01-02'},'carry-forward 평가행을 확정 NAV로 오인하지 않고 실제 공시일 누락을 조회');
 assert.equal(partialResult.navSaved,1,'공식 API가 실제 반환한 날짜만 확정 NAV로 저장');
 assert.deepEqual(partialNav.rows.slice(1).map(row=>[row[0],row[4]]),[
   ['2026-01-01','2025-12-31'],['2026-01-02','2026-01-02']
 ]);
 context._fetchFundNav=()=>{ throw new Error('평일 확정 NAV가 충분하면 주말 때문에 재조회하면 안 됩니다.'); };
-assert.equal(context._refreshFundValuations(ssFor(partialSheets),'2026-01-01','2026-01-04').fundResults.F00001.apiRequested,0);
+assert.equal(context._refreshFundValuations(ssFor(partialSheets),'2026-01-02','2026-01-04').fundResults.F00001.apiRequested,0);
 context._fetchFundNav=()=>[{date:'2026-01-05',nav:1100}];
 const failedFundOnly=context._refreshFundValuations(ssFor({'펀드좌수':partialFund}),'2026-01-01','2026-01-02');
 assert.equal(failedFundOnly.completionStatus,'partial');

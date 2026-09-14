@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.98
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.99
+//
+//  v9.99 변경사항 (2026.09.14):
+//   이전 평가일 carry-forward 행을 확정 NAV 공시일로 오인하지 않도록 누락 판정 보정
 //
 //  v9.98 변경사항 (2026.09.14):
 //   저장된 평일 NAV가 충분하면 주말 누락으로 한화 API를 다시 호출하지 않음
@@ -3335,7 +3338,7 @@ function _storedFundNavRows(storedNav, code, provider, from, to) {
     var date = _normalizeDate(row[0]);
     var sourceDate = _normalizeDate(row[4]);
     var nav = Number(row[3]);
-    if (String(row[1]) !== code || String(row[8]) !== provider || !date || date < from || date > to) return;
+    if (String(row[1]) !== code || String(row[8]) !== provider || !date || !sourceDate || sourceDate < from || sourceDate > to) return;
     if (!sourceDate || sourceDate > date || !(nav > 0)) throw new Error('저장된 펀드 기준가격 검증 실패: ' + date);
     if (seen[sourceDate] && seen[sourceDate] !== nav) throw new Error('저장된 펀드 기준가격 충돌: ' + sourceDate);
     seen[sourceDate] = nav;
@@ -3374,11 +3377,14 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
       var activeTo = activeDates[activeDates.length - 1];
       // 주말은 새 NAV 공시 대상이 아니므로 저장 행이 없어도 API 누락으로 보지 않습니다.
       // 국내 공휴일은 별도 달력을 추측하지 않고 평일 누락으로 조회하되, 응답된 실제 공시일만 저장합니다.
-      var missingDates = activeDates.filter(function(date) {
-        return _fundNavExpectedPublicationDate(date) && !storedKeys[date + '|' + code];
-      });
       var navRows = _storedFundNavRows(storedNav, code, config.provider, from, activeTo);
       fundResult.storedNav = navRows.filter(function(row) { return row.date >= from && row.date <= activeTo; }).length;
+      // carry-forward 평가행의 '일자'가 아니라 실제 '가격공시일'로만 확정 NAV 누락을 판정합니다.
+      var storedPublicationDates = {};
+      navRows.forEach(function(row) { storedPublicationDates[row.date] = true; });
+      var missingDates = activeDates.filter(function(date) {
+        return _fundNavExpectedPublicationDate(date) && !storedPublicationDates[date];
+      });
       // F00002/F00003은 저장된 검증 NAV만 사용합니다. 공식 자동조회는 F00001에만 허용합니다.
       if (missingDates.length && !skipExternal && FUND_PROVIDERS[config.provider].source === 'HANWHA') {
         var fetchedResult = _fetchMissingFundNavBatches(config.provider, missingDates, activeTo);
@@ -6376,7 +6382,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.98' });
+    return jsonOk({ settings: settings, gasVersion: '9.99' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6398,7 +6404,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.98'
+      gasVersion: '9.99'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
