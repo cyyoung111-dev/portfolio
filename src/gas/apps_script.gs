@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.100
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.101
+//
+//  v9.101 변경사항 (2026.09.14):
+//   한화 dailyPrice 응답의 wktDate/price 필드로 확정 NAV 파싱
 //
 //  v9.100 변경사항 (2026.09.14):
 //   한화 NAV 조회·파싱·계산 중 ScriptLock 제거, 시트 쓰기 구간만 잠금
@@ -3275,9 +3278,12 @@ function _fetchFundNav(provider, from, to) {
   catch (err) { throw new Error('펀드 기간 기준가격 응답 형식이 JSON이 아닙니다: 한화자산운용'); }
   var data = payload.list;
   if (!Array.isArray(data) || !data.length) throw new Error('기준가격 조회 결과 없음');
+  if (!Object.prototype.hasOwnProperty.call(data[0], 'wktDate') || !Object.prototype.hasOwnProperty.call(data[0], 'price')) {
+    throw new Error('한화 NAV 응답 필드 불일치: ' + Object.keys(data[0]).sort().join(','));
+  }
   var seen = {};
   data.forEach(function(row) {
-    var date = _parseHanwhaNavDate(row.wktdate);
+    var date = _parseHanwhaNavDate(row.wktDate);
     var nav = Number(String(row.price).replace(/,/g, ''));
     if (!isFinite(nav) || nav <= 0) throw new Error('유효하지 않은 기준가격');
     if (seen[date] && seen[date] !== nav) throw new Error('같은 날짜의 기준가격 충돌');
@@ -3529,193 +3535,6 @@ function handleRefreshFundValuations(from, to, code) {
     return jsonOk(_refreshFundValuations(getss(), from, to, code || undefined));
   }
   catch (err) { return jsonError('펀드 평가 반영 실패: ' + err.message); }
-}
-
-function _inspectFundNavImport(ss, dataJson) {
-  var input;
-  try { input = JSON.parse(dataJson); } catch (err) { throw new Error('NAV import JSON 형식을 확인하세요.'); }
-  var code = String(input.code || '').trim().toUpperCase();
-  var spec = FUND_NAV_IMPORT_SPECS[code];
-  if (!Object.prototype.hasOwnProperty.call(FUND_NAV_IMPORT_SPECS, code)) throw new Error('수동 NAV import는 F00001/F00002/F00003만 지원합니다.');
-  if (String(input.provider || '') !== spec.provider || String(input.classCode || '') !== spec.classCode) throw new Error('선택한 펀드의 provider/클래스가 일치하지 않습니다.');
-  var sourceText = String(input.sourceText || '').toUpperCase();
-  if (sourceText.length > 500000) throw new Error('파일 식별 정보가 너무 큽니다.');
-  var wrongIdentifier = spec.forbidden.find(function(identifier) { return sourceText.indexOf(identifier) !== -1; });
-  if (wrongIdentifier) throw new Error('다른 클래스 식별자가 발견됐습니다: ' + wrongIdentifier);
-  var rows = Array.isArray(input.rows) ? input.rows : [];
-  if (!rows.length || rows.length > 5000) throw new Error('NAV 행은 1~5,000건이어야 합니다.');
-  var configs = _readFundUnits(ss);
-  if (!configs.some(function(config) { return config.code === code && config.provider === spec.provider; })) throw new Error('선택한 펀드의 좌수 이력을 먼저 등록하세요.');
-  var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
-  var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
-  var existing = {};
-  stored.forEach(function(row, index) {
-    if (String(row[1]) !== code || String(row[8]) !== spec.provider) return;
-    var storedDate = _normalizeDate(row[0]);
-    var sourceDate = _normalizeDate(row[4]);
-    if (storedDate !== sourceDate) return;
-    var storedNav = Number(row[3]);
-    if (Object.prototype.hasOwnProperty.call(existing, storedDate) && existing[storedDate] !== storedNav) throw new Error('기존 펀드기준가격 충돌: ' + storedDate);
-    existing[storedDate] = { nav: storedNav, rowIndex: index };
-  });
-  var candidates = [], errors = [], duplicates = [], identical = [], updates = [], warnings = [], zeroUnits = [], seen = {};
-  rows.forEach(function(row, index) {
-    var rowNumber = Number(row && row.rowNumber) || index + 2;
-    var date, nav;
-    try { date = _fundDate(row && row.date); } catch (err) { errors.push({ rowNumber: rowNumber, reason: '잘못된 날짜' }); return; }
-    nav = Number(row && row.nav);
-    if (!isFinite(nav) || nav <= 0) { errors.push({ rowNumber: rowNumber, reason: '기준가격은 0보다 큰 숫자여야 합니다.' }); return; }
-    if (date > today()) { errors.push({ rowNumber: rowNumber, reason: '미래 날짜' }); return; }
-    if (Object.prototype.hasOwnProperty.call(seen, date)) {
-      duplicates.push({ rowNumber: rowNumber, date: date, nav: nav });
-      if (seen[date] !== nav) errors.push({ rowNumber: rowNumber, reason: '파일 내 동일 날짜 NAV 충돌' });
-      return;
-    }
-    seen[date] = nav;
-    var config = _fundUnitsAtDate(configs, code, date);
-    if (!config) { errors.push({ rowNumber: rowNumber, reason: '해당 날짜의 좌수 이력 없음' }); return; }
-    if (config.provider !== spec.provider) { errors.push({ rowNumber: rowNumber, reason: '좌수 이력의 클래스 불일치' }); return; }
-    if (config.units === 0) { zeroUnits.push({ rowNumber: rowNumber, date: date, nav: nav }); return; }
-    if (Object.prototype.hasOwnProperty.call(existing, date)) {
-      var detail = { rowNumber: rowNumber, date: date, existingNav: existing[date].nav, uploadedNav: nav, existingRowIndex: existing[date].rowIndex };
-      if (existing[date].nav === nav) identical.push(detail);
-      else { updates.push(detail); warnings.push({ rowNumber: rowNumber, date: date, reason: '기존 NAV와 다른 값', previousNav: existing[date].nav, nav: nav }); }
-      return;
-    }
-    var evalAmt = Math.round(nav * config.units / 1000);
-    if (!Number.isSafeInteger(evalAmt) || evalAmt < 0) { errors.push({ rowNumber: rowNumber, reason: '평가금액 계산 범위 초과' }); return; }
-    candidates.push({ rowNumber: rowNumber, date: date, nav: nav, units: config.units, evalAmt: evalAmt, name: config.name });
-  });
-  candidates.sort(function(a, b) { return a.date.localeCompare(b.date); });
-  var changed = candidates.concat(updates).sort(function(a, b) { return a.date.localeCompare(b.date); });
-  var known = {};
-  Object.keys(existing).forEach(function(date) { known[date] = existing[date].nav; });
-  changed.forEach(function(row) { known[row.date] = row.uploadedNav || row.nav; });
-  var knownDates = Object.keys(known).sort();
-  changed.forEach(function(row) {
-    var previousDate = knownDates.filter(function(date) { return date < row.date; }).pop();
-    if (!previousDate) return;
-    var nav = row.uploadedNav || row.nav, previousNav = known[previousDate];
-    if (nav === previousNav) warnings.push({ rowNumber: row.rowNumber, date: row.date, reason: '직전 확정 NAV와 동일', previousDate: previousDate, previousNav: previousNav, nav: nav });
-    else if (Math.abs(nav / previousNav - 1) >= 0.20) warnings.push({ rowNumber: row.rowNumber, date: row.date, reason: '직전 확정 NAV 대비 20% 이상 변동', previousDate: previousDate, previousNav: previousNav, nav: nav });
-  });
-  if (changed.some(function(row) { return row.date === today(); })) warnings.push({ date: today(), reason: '오늘 NAV는 공식 확정값인지 확인 필요' });
-  return { code: code, spec: spec, total: rows.length, recognized: rows.length - errors.length, candidates: candidates, updates: updates, warnings: warnings, errors: errors, duplicates: duplicates, identical: identical, zeroUnits: zeroUnits, canSave: errors.length === 0 && changed.length > 0, from: changed.length ? changed[0].date : '', to: changed.length ? changed[changed.length - 1].date : '', firstDate: Object.keys(seen).sort()[0] || '', lastDate: Object.keys(seen).sort().pop() || '' };
-}
-
-function handlePreviewFundNavImport(dataJson) {
-  try { return jsonOk(_inspectFundNavImport(getss(), dataJson)); }
-  catch (err) { return jsonError('NAV import 검증 실패: ' + err.message); }
-}
-
-function _backupFundImportSheet(ss, sheet, label) {
-  if (!sheet || typeof sheet.copyTo !== 'function') return;
-  sheet.copyTo(ss).setName(label + '_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6));
-}
-
-function _applyFundNavImport(ss, inspected) {
-  var configs = _readFundUnits(ss);
-  var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
-  var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
-  var imported = {};
-  inspected.candidates.concat(inspected.updates).forEach(function(row) { imported[row.date] = row.uploadedNav || row.nav; });
-  var published = {};
-  stored.forEach(function(row) {
-    if (String(row[1]) !== inspected.code || String(row[8]) !== inspected.spec.provider) return;
-    var sourceDate = _normalizeDate(row[4]);
-    var nav = Number(row[3]);
-    if (sourceDate && nav > 0 && !Object.prototype.hasOwnProperty.call(published, sourceDate)) published[sourceDate] = nav;
-  });
-  Object.keys(imported).forEach(function(date) { published[date] = imported[date]; });
-  var navRows = Object.keys(published).sort().map(function(date) { return { date: date, nav: published[date] }; });
-  var ranges = Object.keys(imported).sort().map(function(date) { return { from: date, to: date }; });
-  // 확정 backfill은 실제 NAV가 제공된 날짜만 대상으로 합니다. carry-forward는 현재 추정 조회에서만 사용합니다.
-  var daily = [];
-  Object.keys(imported).sort().forEach(function(date) { daily = daily.concat(_fundDailyValues(configs, inspected.code, navRows, date, date)); });
-  var existingNavIndexes = {};
-  stored.forEach(function(row, index) {
-    if (String(row[1]) === inspected.code && String(row[8]) === inspected.spec.provider) existingNavIndexes[_normalizeDate(row[0])] = index;
-  });
-  var now = new Date().toISOString();
-  daily.forEach(function(value) {
-    var replacement = [value.date, value.code, value.name, value.nav, value.sourceDate, value.units, value.evalAmt, now, value.provider];
-    if (Object.prototype.hasOwnProperty.call(existingNavIndexes, value.date)) stored[existingNavIndexes[value.date]] = replacement;
-    else { existingNavIndexes[value.date] = stored.length; stored.push(replacement); }
-  });
-  if (!navSheet) { navSheet = ss.insertSheet(FUND_NAV_SHEET); navSheet.appendRow(['일자','종목코드','종목명','기준가격(1000좌)','가격공시일','좌수','평가금액','조회일시','클래스']); }
-  _backupFundImportSheet(ss, navSheet, FUND_NAV_SHEET);
-  if (stored.length) navSheet.getRange(2, 1, stored.length, 9).setValues(stored);
-
-  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
-  var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
-  var priceIndexes = {};
-  prices.forEach(function(row, index) {
-    var rowCode = _cleanCode(row[1]);
-    if (rowCode === inspected.code || (!rowCode && daily.some(function(value) { return value.name === String(row[2]); }))) {
-      var priceDate = _normalizeDate(row[0]);
-      if (!priceIndexes[priceDate]) priceIndexes[priceDate] = [];
-      priceIndexes[priceDate].push(index);
-    }
-  });
-  var priceChanges = 0;
-  daily.forEach(function(value) {
-    var replacement = [value.date, value.code, value.name, value.evalAmt, now, 'FUND_NAV'];
-    if (Object.prototype.hasOwnProperty.call(priceIndexes, value.date)) {
-      priceIndexes[value.date].forEach(function(index) {
-        if (Number(prices[index][3]) !== value.evalAmt || String(prices[index][5]) !== 'FUND_NAV') { prices[index] = replacement.slice(); priceChanges++; }
-      });
-    } else { priceIndexes[value.date] = [prices.length]; prices.push(replacement); priceChanges++; }
-  });
-  if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
-  if (prices.length) { _backupFundImportSheet(ss, ph, CONFIG.SHEET_PH); ph.getRange(2, 1, prices.length, 6).setValues(prices); }
-
-  var tradeSheet = ss.getSheetByName(CONFIG.SHEET_TRADES);
-  var trades = tradeSheet && tradeSheet.getLastRow() > 1 ? tradeSheet.getRange(2, 1, tradeSheet.getLastRow() - 1, 8).getValues() : [];
-  var names = {}; configs.forEach(function(config) { names[config.name] = config.code; });
-  var snapshotChanges = 0, missingHoldings = [];
-  daily.forEach(function(value) {
-    var holdings = calcHoldingsAtDate(trades, value.date, names);
-    var holding = Object.keys(holdings).map(function(key) { return holdings[key]; }).find(function(item) { return item.code === inspected.code; });
-    if (!holding) { missingHoldings.push(value.date + ':' + inspected.code); return; }
-    var pnl = value.evalAmt - holding.costAmt;
-    var fundRow = [value.date, value.code, value.name, 1, holding.costAmt, holding.costAmt, value.evalAmt, value.evalAmt, pnl, holding.costAmt > 0 ? Math.round(pnl / holding.costAmt * 10000) / 100 : 0, 'FUND_NAV', now];
-    var existing = _readSnapshotRowsByDate(ss, value.date);
-    if (existing.length) {
-      writeSnapshotRows(ss, value.date, [fundRow], true, [value.code]);
-      snapshotChanges++;
-      return;
-    }
-    var rebuilt = _buildSnapshotRowsFromTradeAndPriceHistory(ss, value.date, true);
-    var complete = Object.keys(holdings).every(function(key) {
-      var item = holdings[key]; return rebuilt.some(function(row) { return (item.code && row[1] === item.code) || row[2] === item.name; });
-    });
-    if (complete && rebuilt.length) { writeSnapshotRows(ss, value.date, rebuilt, true, [value.code]); snapshotChanges++; }
-    else missingHoldings.push(value.date + ':다른 보유종목의 평가자료 부족');
-  });
-  return {
-    from: daily.length ? daily[0].date : '', to: daily.length ? daily[daily.length - 1].date : '',
-    processed: daily.length, total: Object.keys(imported).length,
-    currentDate: daily.length ? daily[daily.length - 1].date : '', navCount: Object.keys(imported).length,
-    valuations: daily.length, prices: priceChanges, snapshots: snapshotChanges,
-    errorCount: missingHoldings.length, missingHoldings: missingHoldings, ranges: ranges
-  };
-}
-
-function handleImportFundNav(dataJson) {
-  var lock = LockService.getScriptLock();
-  try {
-    lock.waitLock(30000);
-    var ss = getss();
-    var inspected = _inspectFundNavImport(ss, dataJson);
-    if (inspected.errors.length) throw new Error('오류 행 ' + inspected.errors.length + '건을 먼저 수정하세요.');
-    if (inspected.warnings.length && !JSON.parse(dataJson).ackWarnings) throw new Error('WARNING ' + inspected.warnings.length + '건을 확인한 후 반영하세요.');
-    if (!inspected.candidates.length && !inspected.updates.length) return jsonOk({ importResult: inspected, evaluation: { from: '', to: '', prices: 0, snapshots: 0, missingHoldings: [], ranges: [] } });
-    var evaluation = _applyFundNavImport(ss, inspected);
-    inspected.saved = inspected.candidates.length;
-    inspected.updated = inspected.updates.length;
-    return jsonOk({ importResult: inspected, evaluation: evaluation });
-  } catch (err) { return jsonError('NAV import 저장 실패: ' + err.message); }
-  finally { lock.releaseLock(); }
 }
 
 function _inspectFundNavImport(ss, dataJson) {
@@ -6592,7 +6411,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.100' });
+    return jsonOk({ settings: settings, gasVersion: '9.101' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6614,7 +6433,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.100'
+      gasVersion: '9.101'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

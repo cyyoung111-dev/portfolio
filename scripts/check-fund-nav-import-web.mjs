@@ -54,6 +54,7 @@ assert.match(recoveryStatus,/F00003.*0좌 제외 3/);
 assert.match(recoveryStatus,/F00002.*가격이력 신규 3\/기존 5.*NAV 없음 1.*좌수 없음 2/);
 assert.match(source,/\['F00002','F00003','F00001'\]/,'저장 NAV 펀드를 한화 API 펀드보다 먼저 독립 처리');
 assert.match(source,/code: fundCode/,'복구 요청을 F코드별로 분리');
+assert.match(source,/const chunkDays = 7;/,'세 펀드 복구를 모두 7일 chunk로 요청');
 assert.match(source,/requestId !== _fundNavPasteRequestId/,'이전 붙여넣기 응답 폐기');
 assert.match(source,/const requestId = \+\+_fundNavPasteRequestId/,'붙여넣기 요청별 순서 토큰 발급');
 

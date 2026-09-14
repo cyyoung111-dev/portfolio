@@ -306,7 +306,7 @@ async function handleFundUnitAction(action, code) {
       const total = days * recoveryCodes.length;
       const fundStats = {};
       for (const fundCode of recoveryCodes) {
-        const chunkDays = fundCode === 'F00001' ? 7 : 31;
+        const chunkDays = 7;
         for (let start = from; start <= to;) {
           const end = _kstDateOffset(start, chunkDays - 1) < to ? _kstDateOffset(start, chunkDays - 1) : to;
           const rangeDays = Math.floor((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1;

@@ -1,3 +1,9 @@
+## GAS v9.101: 한화 dailyPrice 필드 및 복구 요청 크기 보정
+
+- F00001 한화 `dailyPrice` 응답은 `list[].wktDate`와 `list[].price`를 사용하며, 첫 행에 계약 필드가 없으면 실제 key 목록을 오류로 반환합니다.
+- F00002/F00003 저장 NAV 복구도 웹에서 7일 단위로 호출합니다. 외부조회 금지와 F00003 0좌 정책은 유지합니다.
+- 운영 반영에는 Apps Script v9.101과 정적 웹/서비스워커 재배포가 필요합니다.
+
 ## GAS v9.100: 펀드 복구 잠금 범위와 한화 공시일 파싱 보완
 
 - `handleRefreshFundValuations`는 전체 복구 동안 `ScriptLock`을 잡지 않습니다. 외부 HTTP 조회·NAV 파싱·평가 계산은 lock 밖에서 수행하고, NAV·가격이력 쓰기 직전에 최신 시트 상태를 재조회한 뒤 짧게 잠급니다.
