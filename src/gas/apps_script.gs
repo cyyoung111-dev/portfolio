@@ -1,8 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.101
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.102
+//
+//  v9.102 변경사항 (2026.09.14):
+//   한화 dailyPrice 실제 응답의 wkdate/price 필드로 확정 NAV 파싱
 //
 //  v9.101 변경사항 (2026.09.14):
-//   한화 dailyPrice 응답의 wktDate/price 필드로 확정 NAV 파싱
+//   한화 dailyPrice 응답 필드 확인 및 복구 요청 크기 보정
 //
 //  v9.100 변경사항 (2026.09.14):
 //   한화 NAV 조회·파싱·계산 중 ScriptLock 제거, 시트 쓰기 구간만 잠금
@@ -3278,12 +3281,12 @@ function _fetchFundNav(provider, from, to) {
   catch (err) { throw new Error('펀드 기간 기준가격 응답 형식이 JSON이 아닙니다: 한화자산운용'); }
   var data = payload.list;
   if (!Array.isArray(data) || !data.length) throw new Error('기준가격 조회 결과 없음');
-  if (!Object.prototype.hasOwnProperty.call(data[0], 'wktDate') || !Object.prototype.hasOwnProperty.call(data[0], 'price')) {
+  if (!Object.prototype.hasOwnProperty.call(data[0], 'wkdate') || !Object.prototype.hasOwnProperty.call(data[0], 'price')) {
     throw new Error('한화 NAV 응답 필드 불일치: ' + Object.keys(data[0]).sort().join(','));
   }
   var seen = {};
   data.forEach(function(row) {
-    var date = _parseHanwhaNavDate(row.wktDate);
+    var date = _parseHanwhaNavDate(row.wkdate);
     var nav = Number(String(row.price).replace(/,/g, ''));
     if (!isFinite(nav) || nav <= 0) throw new Error('유효하지 않은 기준가격');
     if (seen[date] && seen[date] !== nav) throw new Error('같은 날짜의 기준가격 충돌');
@@ -6411,7 +6414,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.101' });
+    return jsonOk({ settings: settings, gasVersion: '9.102' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6433,7 +6436,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.101'
+      gasVersion: '9.102'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

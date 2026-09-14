@@ -18,15 +18,15 @@ context.UrlFetchApp={fetch(url, options){
   assert.equal(held,false,'한화 외부 API 호출 중 ScriptLock 미보유');
   fundFetchCalls.push({url,options});
   return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({list:[
-    {wktDate:'2025-12-31',price:'900.25'}, {wktDate:'2026-01-02',price:'1000.25'},
-    {wktDate:'2026-01-03',price:'1001.25'}
+    {wkdate:'2025-12-31',price:'900.25'}, {wkdate:'2026-01-02',price:'1000.25'},
+    {wkdate:'2026-01-03',price:'1001.25'}
   ]})};
 }};
 assert.deepEqual(clone(context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02')),[
   {date:'2026-01-02',nav:1000.25}
 ]);
-context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({list:[{wktdate:'2026-01-02',price:'1000'}]})})};
-assert.throws(()=>context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02'),/응답 필드 불일치: price,wktdate/,'잘못된 날짜 key는 빈 날짜 오류 대신 실제 key를 보고');
+context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({list:[{wktDate:'2026-01-02',price:'1000'}]})})};
+assert.throws(()=>context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02'),/응답 필드 불일치: price,wktDate/,'잘못된 날짜 key는 빈 날짜 오류 대신 실제 key를 보고');
 
 assert.equal(context._parseHanwhaNavDate('2026.01.08'),'2026-01-08','한화 점 구분 공시일을 API 전용 parser에서 정규화');
 assert.equal(context._parseHanwhaNavDate('2026/01/08'),'2026-01-08');
