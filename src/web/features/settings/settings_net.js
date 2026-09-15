@@ -29,13 +29,19 @@ async function requestJsonWithPolicy(url, opts) {
   const retry = Number.isFinite(o.retry) ? Math.max(0, o.retry) : 0;
   const delayMs = Number.isFinite(o.delayMs) ? Math.max(0, o.delayMs) : 180;
   const fetchOptions = o.fetchOptions || {};
+  let lastError = null;
   for (let i = 0; i <= retry; i++) {
     try {
       const res = await fetchWithTimeout(url, timeoutMs, fetchOptions);
       return await res.json();
-    } catch (_) {
+    } catch (error) {
+      lastError = error;
       if (i < retry) await new Promise(r => setTimeout(r, delayMs));
     }
+  }
+  if (o.preserveError) {
+    const reason = lastError?.name === 'AbortError' ? `요청 timeout (${timeoutMs}ms)` : `네트워크/응답 파싱 오류: ${lastError?.message || '원인 미확인'}`;
+    return { status: 'error', message: reason };
   }
   return null;
 }

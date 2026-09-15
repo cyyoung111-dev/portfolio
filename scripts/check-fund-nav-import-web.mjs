@@ -49,6 +49,7 @@ const recoveryStatus = context._fundRecoverySummary('2026-01-01','2026-01-31',14
   F00003:{storedNav:5,valuations:5,snapshots:5,zeroUnitsExcluded:3,apiErrors:[]},
 },25,24,'2026-01-01 ~ 2026-01-14 완료');
 assert.match(recoveryStatus,/14\/31 펀드·일 \(45%\)/);
+assert.match(recoveryStatus,/처리 시도 14\/31/,'진행률을 성공률이 아닌 처리 시도로 표시');
 assert.match(recoveryStatus,/F00001 저장 NAV 2 · API 조회 1구간 · API 성공 10건/);
 assert.match(recoveryStatus,/F00003.*0좌 제외 3/);
 assert.match(recoveryStatus,/F00002.*가격이력 신규 3\/기존 5.*NAV 없음 1.*좌수 없음 2/);
@@ -58,6 +59,7 @@ assert.match(source,/const chunkDays = 7;/,'세 펀드 복구를 모두 7일 chu
 assert.match(source,/requestId !== _fundNavPasteRequestId/,'이전 붙여넣기 응답 폐기');
 assert.match(source,/const requestId = \+\+_fundNavPasteRequestId/,'붙여넣기 요청별 순서 토큰 발급');
 assert.match(source,/handleFundNavImportFile[\s\S]*?requestId !== _fundNavPasteRequestId/,'펀드 변경 중 이전 파일 미리보기 응답 폐기');
+assert.match(source,/preserveError: true/,'펀드 API 오류 원인 보존 요청');
 
 for (const [code,classCode,standardCode,className] of [
   ['F00001','C-RPe','확인되지 않음','C-RPe'],

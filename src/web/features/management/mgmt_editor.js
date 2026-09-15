@@ -238,7 +238,13 @@ function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snap
     const errors = item.apiErrors?.length ? ` · 실패 ${item.apiErrors.length}구간 (${item.apiErrors.map(error => `${error.from}~${error.to} ${error.message}`).join('; ')})` : '';
     return `${code} 저장 NAV ${item.storedNav || 0} · API 조회 ${item.apiRequested || 0}구간 · API 성공 ${item.apiSuccess || 0}건 · 평가 ${item.valuations || 0} · 가격이력 신규 ${item.prices || 0}/기존 ${item.pricesExisting || 0} · 스냅샷 ${item.snapshots || 0} · NAV 없음 ${item.navMissing || 0} · 최신 미공시 ${item.latestUnpublished || 0} · 좌수 없음 ${item.noUnits || 0} · 0좌 제외 ${item.zeroUnitsExcluded || 0}${errors}`;
   }).join(' / ');
-  return `누락 평가금액 복구 ${processed}/${total} 펀드·일 (${percent}%) · 전체 ${from} ~ ${to}${currentRange ? ` · 현재 ${currentRange}` : ''} · ${funds} · 가격이력 ${saved}건 · 스냅샷 ${snapshots}건`;
+  const totals = Object.values(fundStats).reduce((sum, item) => ({
+    reflected: sum.reflected + Number(item.valuations || 0),
+    unpublished: sum.unpublished + Number(item.latestUnpublished || 0),
+    missing: sum.missing + Number(item.navMissing || 0),
+    failed: sum.failed + Number(item.apiErrors?.length || 0),
+  }), { reflected: 0, unpublished: 0, missing: 0, failed: 0 });
+  return `누락 평가금액 복구 처리 시도 ${processed}/${total} 펀드·일 (${percent}%) · 정상 평가 ${totals.reflected} · 최신 미공시 ${totals.unpublished} · NAV 미복구 ${totals.missing} · 실패 ${totals.failed}구간 · 전체 ${from} ~ ${to}${currentRange ? ` · 현재 ${currentRange}` : ''} · ${funds} · 가격이력 신규 ${saved}건 · 스냅샷 ${snapshots}건`;
 }
 
 async function _loadFundUnitsEditor() {
@@ -273,7 +279,7 @@ async function handleFundUnitAction(action, code) {
       if (!_fundNavImportState.preview?.canSave || !_fundNavImportState.payload) throw new Error('먼저 파일을 검증하세요.');
       const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
       const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: _fundNavImportState.payload.rows, sourceText: _fundNavImportState.payload.sourceText, ackWarnings: _fundNavImportState.warningsAcknowledged };
-      const result = await requestGsheetFormJson('importFundNav', { data: JSON.stringify(data) }, { timeoutMs: 300000, retry: 0 });
+      const result = await requestGsheetFormJson('importFundNav', { data: JSON.stringify(data) }, { timeoutMs: 300000, retry: 0, preserveError: true });
       if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 실패');
       const imported = result.importResult || {}, evaluation = result.evaluation || {};
       _fundUnitsStatus = `NAV 반영 완료 · ${_fundNavImportState.code} · 신규 ${Number(imported.saved || 0)}건 · 기존 동일 ${imported.identical?.length || 0}건 · 갱신 ${Number(imported.updated || 0)}건 · WARNING ${imported.warnings?.length || 0}건 · ERROR ${imported.errors?.length || 0}건 · 0좌 제외 ${imported.zeroUnits?.length || 0}건 · 재계산 ${evaluation.from || '없음'} ~ ${evaluation.to || '없음'} · 평가금액 ${Number(evaluation.valuations || 0)}건 · 가격이력 ${Number(evaluation.prices || 0)}건 · 스냅샷 ${Number(evaluation.snapshots || 0)}건`;
@@ -313,7 +319,7 @@ async function handleFundUnitAction(action, code) {
           _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 요청 중`);
           buildEditorUI();
           try {
-            const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end, code: fundCode }, { timeoutMs: 120000, retry: 0 });
+            const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end, code: fundCode }, { timeoutMs: 120000, retry: 0, preserveError: true });
             if (result?.status !== 'ok') throw new Error(result?.message || '응답 오류');
             saved += Number(result.saved || 0);
             snapshots += Number(result.snapshots || 0);
@@ -382,7 +388,7 @@ async function handleFundNavImportFile(file) {
     const parsed = _parseFundNavMatrix(matrix, code);
     const guide = FUND_NAV_IMPORT_GUIDE[code];
     const data = { code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
-    const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0 });
+    const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0, preserveError: true });
     if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
     if (requestId !== _fundNavPasteRequestId || code !== _fundNavImportState.code) return;
     _fundNavImportState = { ..._fundNavImportState, payload: parsed, preview: result, warningsAcknowledged: false };
@@ -400,7 +406,7 @@ async function _previewFundNavParsed(parsed, requestId = null, expectedCode = ''
   const code = expectedCode || _fundNavImportState.code;
   const guide = FUND_NAV_IMPORT_GUIDE[code];
   const data = { code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
-  const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0 });
+  const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0, preserveError: true });
   if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
   // 이전 붙여넣기 요청이 늦게 완료되어도 현재 텍스트의 preview를 덮어쓰지 않습니다.
   if (requestId !== null && (requestId !== _fundNavPasteRequestId || code !== _fundNavImportState.code)) return false;
