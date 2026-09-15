@@ -236,7 +236,7 @@ function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snap
     const item = fundStats[code];
     if (!item) return `${code} 미처리`;
     const errors = item.apiErrors?.length ? ` · 실패 ${item.apiErrors.length}구간 (${item.apiErrors.map(error => `${error.from}~${error.to} ${error.message}`).join('; ')})` : '';
-    return `${code} 저장 NAV ${item.storedNav || 0} · API 조회 ${item.apiRequested || 0}구간 · API 성공 ${item.apiSuccess || 0}건 · 평가 ${item.valuations || 0} · 가격이력 신규 ${item.prices || 0}/기존 ${item.pricesExisting || 0} · 스냅샷 ${item.snapshots || 0} · NAV 없음 ${item.navMissing || 0} · 좌수 없음 ${item.noUnits || 0} · 0좌 제외 ${item.zeroUnitsExcluded || 0}${errors}`;
+    return `${code} 저장 NAV ${item.storedNav || 0} · API 조회 ${item.apiRequested || 0}구간 · API 성공 ${item.apiSuccess || 0}건 · 평가 ${item.valuations || 0} · 가격이력 신규 ${item.prices || 0}/기존 ${item.pricesExisting || 0} · 스냅샷 ${item.snapshots || 0} · NAV 없음 ${item.navMissing || 0} · 최신 미공시 ${item.latestUnpublished || 0} · 좌수 없음 ${item.noUnits || 0} · 0좌 제외 ${item.zeroUnitsExcluded || 0}${errors}`;
   }).join(' / ');
   return `누락 평가금액 복구 ${processed}/${total} 펀드·일 (${percent}%) · 전체 ${from} ~ ${to}${currentRange ? ` · 현재 ${currentRange}` : ''} · ${funds} · 가격이력 ${saved}건 · 스냅샷 ${snapshots}건`;
 }
@@ -324,7 +324,7 @@ async function handleFundUnitAction(action, code) {
               storedNav: Number(previous.storedNav || 0) + Number(item.storedNav || 0), apiRequested: Number(previous.apiRequested || 0) + Number(item.apiRequested || 0),
               apiSuccess: Number(previous.apiSuccess || 0) + Number(item.apiSuccess || 0), valuations: Number(previous.valuations || 0) + Number(item.valuations || 0),
               prices: Number(previous.prices || 0) + Number(item.prices || 0), pricesExisting: Number(previous.pricesExisting || 0) + Number(item.pricesExisting || 0),
-              snapshots: Number(previous.snapshots || 0) + Number(item.snapshots || 0), navMissing: Number(previous.navMissing || 0) + Number(item.navMissing || 0), noUnits: Number(previous.noUnits || 0) + Number(item.noUnits || 0), zeroUnitsExcluded: Number(previous.zeroUnitsExcluded || 0) + Number(item.zeroUnitsExcluded || 0),
+              snapshots: Number(previous.snapshots || 0) + Number(item.snapshots || 0), navMissing: Number(previous.navMissing || 0) + Number(item.navMissing || 0), latestUnpublished: Number(previous.latestUnpublished || 0) + Number(item.latestUnpublished || 0), noUnits: Number(previous.noUnits || 0) + Number(item.noUnits || 0), zeroUnitsExcluded: Number(previous.zeroUnitsExcluded || 0) + Number(item.zeroUnitsExcluded || 0),
               apiErrors: [...(previous.apiErrors || []), ...(item.apiErrors || [])],
             };
             if (result.lastDate > lastDate) lastDate = result.lastDate;
@@ -349,6 +349,7 @@ async function handleFundUnitAction(action, code) {
 
 function openFundUnitsEditor() {
   _fundNavPasteRequestId++;
+  _fundUnitBusy = false;
   _editorMode = 'fund-units';
   _fundUnitDrafts = {};
   _fundNavImportState = { code: 'F00001', filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
@@ -359,13 +360,15 @@ function openFundUnitsEditor() {
 async function handleFundNavImportTarget(code) {
   if (!FUND_NAV_IMPORT_GUIDE[code]) return;
   _fundNavPasteRequestId++;
+  _fundUnitBusy = false;
   _fundNavImportState = { code, filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
   buildEditorUI();
 }
 
 async function handleFundNavImportFile(file) {
   if (!file || _fundUnitBusy) return;
-  _fundNavPasteRequestId++;
+  const requestId = ++_fundNavPasteRequestId;
+  const code = _fundNavImportState.code;
   if (!/\.(xlsx|xls|csv)$/i.test(file.name)) { _fundNavImportState.parseError = 'xlsx, xls, csv 파일만 지원합니다.'; buildEditorUI(); return; }
   _fundUnitBusy = true;
   _fundNavImportState = { ..._fundNavImportState, filename: file.name, payload: null, preview: null, parseError: '' };
@@ -376,14 +379,20 @@ async function handleFundNavImportFile(file) {
     const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
-    const parsed = _parseFundNavMatrix(matrix, _fundNavImportState.code);
-    const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
-    const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
+    const parsed = _parseFundNavMatrix(matrix, code);
+    const guide = FUND_NAV_IMPORT_GUIDE[code];
+    const data = { code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
     const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0 });
     if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
+    if (requestId !== _fundNavPasteRequestId || code !== _fundNavImportState.code) return;
     _fundNavImportState = { ..._fundNavImportState, payload: parsed, preview: result, warningsAcknowledged: false };
-  } catch (error) { _fundNavImportState = { ..._fundNavImportState, parseError: error.message, payload: null, preview: null }; showToast(error.message, 'warn', 7000); }
-  finally { _fundUnitBusy = false; buildEditorUI(); }
+  } catch (error) {
+    if (requestId === _fundNavPasteRequestId && code === _fundNavImportState.code) {
+      _fundNavImportState = { ..._fundNavImportState, parseError: error.message, payload: null, preview: null };
+      showToast(error.message, 'warn', 7000);
+    }
+  }
+  finally { if (requestId === _fundNavPasteRequestId) { _fundUnitBusy = false; buildEditorUI(); } }
 }
 
 async function _previewFundNavParsed(parsed, requestId = null, expectedCode = '') {

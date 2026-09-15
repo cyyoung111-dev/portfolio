@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.102
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.103
 //
 //  v9.102 변경사항 (2026.09.14):
 //   한화 dailyPrice 실제 응답의 wkdate/price 필드로 확정 NAV 파싱
@@ -3431,7 +3431,9 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
       }
       var confirmedNavDates = {};
       navRows.forEach(function(row) { confirmedNavDates[row.date] = true; });
-      fundResult.navMissing = activeDates.filter(function(date) { return _fundNavExpectedPublicationDate(date) && !confirmedNavDates[date]; }).length;
+      fundResult.latestUnpublished = activeDates.some(function(date) { return date === today() && !confirmedNavDates[date]; }) ? 1 : 0;
+      fundResult.navMissing = activeDates.filter(function(date) { return date < today() && _fundNavExpectedPublicationDate(date) && !confirmedNavDates[date]; }).length;
+      if (fundResult.navMissing > 0 && fundResult.status === 'ok') fundResult.status = 'partial';
       // 실제 공시 NAV 날짜만 확정 backfill하고 직전 NAV를 새 확정 행으로 복제하지 않습니다.
       var codeValues = _fundDailyValues(configs, code, navRows, from, to).filter(function(value) { return value.date === value.sourceDate; });
       fundResult.valuations = codeValues.length;
@@ -3528,7 +3530,16 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal) {
     snapshotCount++;
     byDate[date].forEach(function(value) { if (fundResults[value[1]]) fundResults[value[1]].snapshots++; });
   });
-  return { completionStatus: Object.keys(fundResults).some(function(code) { return fundResults[code].status !== 'ok'; }) ? 'partial' : 'ok', saved: append.length, navSaved: newNav.length, snapshots: snapshotCount, missingHoldings: missingHoldings, lastDate: values.map(function(v) { return v.date; }).sort().pop() || '', fundResults: fundResults };
+  return {
+    completionStatus: Object.keys(fundResults).some(function(code) { return fundResults[code].status !== 'ok'; }) ? 'partial' : 'ok',
+    saved: append.length, navSaved: newNav.length, snapshots: snapshotCount,
+    processing: {
+      nav: { processed: values.length, pending: Object.keys(fundResults).reduce(function(sum, code) { return sum + Number(fundResults[code].navMissing || 0); }, 0) },
+      priceHistory: { processed: values.length, pending: 0 },
+      snapshots: { processed: snapshotCount, pending: Math.max(0, Object.keys(byDate).length - snapshotCount), reasons: missingHoldings.slice() }
+    },
+    missingHoldings: missingHoldings, lastDate: values.map(function(v) { return v.date; }).sort().pop() || '', fundResults: fundResults
+  };
 }
 
 function handleRefreshFundValuations(from, to, code) {
@@ -3637,10 +3648,19 @@ function _applyFundNavImport(ss, inspected) {
   });
   Object.keys(imported).forEach(function(date) { published[date] = imported[date]; });
   var navRows = Object.keys(published).sort().map(function(date) { return { date: date, nav: published[date] }; });
-  var ranges = Object.keys(imported).sort().map(function(date) { return { from: date, to: date }; });
-  // 확정 backfill은 실제 NAV가 제공된 날짜만 대상으로 합니다. carry-forward는 현재 추정 조회에서만 사용합니다.
+  var affectedDates = {};
+  Object.keys(imported).forEach(function(date) { affectedDates[date] = true; });
+  // 정정된 공시 NAV를 참조하던 기존 carry-forward 행도 같은 sourceDate로 재계산합니다.
+  stored.forEach(function(row) {
+    if (String(row[1]) !== inspected.code || String(row[8]) !== inspected.spec.provider) return;
+    var date = _normalizeDate(row[0]);
+    var sourceDate = _normalizeDate(row[4]);
+    if (date && Object.prototype.hasOwnProperty.call(imported, sourceDate)) affectedDates[date] = true;
+  });
+  var affected = Object.keys(affectedDates).sort();
+  var ranges = affected.map(function(date) { return { from: date, to: date }; });
   var daily = [];
-  Object.keys(imported).sort().forEach(function(date) { daily = daily.concat(_fundDailyValues(configs, inspected.code, navRows, date, date)); });
+  affected.forEach(function(date) { daily = daily.concat(_fundDailyValues(configs, inspected.code, navRows, date, date)); });
   var existingNavIndexes = {};
   stored.forEach(function(row, index) {
     if (String(row[1]) === inspected.code && String(row[8]) === inspected.spec.provider) existingNavIndexes[_normalizeDate(row[0])] = index;
@@ -3671,6 +3691,7 @@ function _applyFundNavImport(ss, inspected) {
     var replacement = [value.date, value.code, value.name, value.evalAmt, now, 'FUND_NAV'];
     if (Object.prototype.hasOwnProperty.call(priceIndexes, value.date)) {
       priceIndexes[value.date].forEach(function(index) {
+        if (String(prices[index][5]).toUpperCase() === 'MANUAL') return;
         if (Number(prices[index][3]) !== value.evalAmt || String(prices[index][5]) !== 'FUND_NAV') { prices[index] = replacement.slice(); priceChanges++; }
       });
     } else { priceIndexes[value.date] = [prices.length]; prices.push(replacement); priceChanges++; }
@@ -3706,6 +3727,11 @@ function _applyFundNavImport(ss, inspected) {
     processed: daily.length, total: Object.keys(imported).length,
     currentDate: daily.length ? daily[daily.length - 1].date : '', navCount: Object.keys(imported).length,
     valuations: daily.length, prices: priceChanges, snapshots: snapshotChanges,
+    processing: {
+      nav: { processed: daily.length, pending: Math.max(0, Object.keys(imported).length - daily.length) },
+      priceHistory: { processed: daily.length, pending: 0 },
+      snapshots: { processed: snapshotChanges, pending: Math.max(0, daily.length - snapshotChanges), reasons: missingHoldings.slice() }
+    },
     errorCount: missingHoldings.length, missingHoldings: missingHoldings, ranges: ranges
   };
 }
@@ -3728,18 +3754,16 @@ function handleImportFundNav(dataJson) {
 }
 
 function runDailyFundValuations() {
-  var lock = LockService.getScriptLock();
   var props = PropertiesService.getScriptProperties();
   try {
-    lock.waitLock(30000);
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
     var result = _refreshFundValuations(getss(), _fundDateOffset(today(), -31), today());
+    if (result.completionStatus !== 'ok') throw new Error('펀드 평가 partial: 확정 NAV 미확보 또는 외부 조회 실패');
     if (result.missingHoldings.length) throw new Error('펀드 가격 저장됨, 거래이력 없는 스냅샷 ' + result.missingHoldings.length + '건');
     props.setProperty('fund_last_result', JSON.stringify(result));
     props.deleteProperty('fund_last_error');
     return result;
   } catch (err) { props.setProperty('fund_last_error', String(err.message)); throw err; }
-  finally { lock.releaseLock(); }
 }
 
 function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
@@ -6414,7 +6438,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.102' });
+    return jsonOk({ settings: settings, gasVersion: '9.103' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6436,7 +6460,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.102'
+      gasVersion: '9.103'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

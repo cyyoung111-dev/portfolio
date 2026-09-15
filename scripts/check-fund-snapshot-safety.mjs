@@ -8,7 +8,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 let held = false;
 const lock = { hasLock: () => held, waitLock: () => { held = true; }, releaseLock: () => { held = false; } };
 const context = vm.createContext({ console, Logger: { log() {} }, LockService: { getScriptLock: () => lock },
-  SpreadsheetApp: { flush() {} }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-id' } });
+  SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => ({ setProperty() {}, deleteProperty() {} }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-id' } });
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
 
@@ -134,6 +134,7 @@ const fidelityBoundary=clone(context._fundDailyValues(fidelity2026,'F00003',[
 ],'2026-08-24','2026-08-26'));
 assert.deepEqual(fidelityBoundary.map(row=>row.date),['2026-08-24']);
 assert.equal(fidelityBoundary[0].evalAmt,Math.round(15933.037*1234.56/1000));
+assert.equal(context._fundDailyValues(fidelity2026,'F00003',[{date:'2026-08-25',nav:1235.67}],'2026-08-25','2026-08-31').length,0,'F00003 8/25~8/31 0좌 평가 제외');
 
 // 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
 const retiredConfigs=[
@@ -311,13 +312,32 @@ const importWriteSnapshots = new Sheet([header,snap('2025-01-03','F00002',900,'M
 const importWriteSs = ssFor({'펀드좌수':importUnits,'펀드기준가격':importWriteNav,'가격이력':importWritePrices,'거래이력':importWriteTrades,'스냅샷':importWriteSnapshots});
 context.getss=()=>importWriteSs;
 context.jsonOk=extra=>({status:'ok',...extra}); context.jsonError=message=>({status:'error',message});
+// 같은 실제 공시일 정정은 그 sourceDate를 참조하는 기존 carry-forward 행과 파생값을 함께 갱신합니다.
+const correctionNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2025-01-02','F00002','KB 밸류포커스 소득공제 S-T',900,'2025-01-02',1000,900,'','KB_VALUE_ST'],
+  ['2025-01-03','F00002','KB 밸류포커스 소득공제 S-T',900,'2025-01-02',1000,900,'','KB_VALUE_ST']]);
+const correctionPrices=new Sheet([['date','code','name','price','at','source'],
+  ['2025-01-02','F00002','KB 밸류포커스 소득공제 S-T',900,'','FUND_NAV'],
+  ['2025-01-03','F00002','KB 밸류포커스 소득공제 S-T',900,'','FUND_NAV']]);
+const correctionSnapshots=new Sheet([header,snap('2025-01-02','F00002',900),snap('2025-01-03','F00002',900)]);
+const correctionSs=ssFor({'펀드좌수':importUnits,'펀드기준가격':correctionNav,'가격이력':correctionPrices,'거래이력':importWriteTrades,'스냅샷':correctionSnapshots});
+context.getss=()=>correctionSs;
+const correction=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:950}],'',true));
+assert.equal(correction.status,'ok');
+assert.deepEqual(correctionNav.rows.slice(1).map(row=>[row[0],row[3],row[4],row[6]]),[
+  ['2025-01-02',950,'2025-01-02',950],['2025-01-03',950,'2025-01-02',950]
+]);
+assert.deepEqual(correctionPrices.rows.slice(1).map(row=>[row[0],row[3]]),[['2025-01-02',950],['2025-01-03',950]]);
+assert.deepEqual(correctionSnapshots.rows.slice(1).map(row=>[row[0],row[7]]),[['2025-01-02',950],['2025-01-03',950]]);
+context.getss=()=>importWriteSs;
+
 const imported=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-03',nav:1000}]));
 assert.equal(imported.status,'ok'); assert.equal(imported.importResult.saved,1); assert.deepEqual(clone(imported.evaluation.ranges),[{from:'2025-01-03',to:'2025-01-03'}]);
 assert.deepEqual(importWriteNav.rows.slice(1,4).map(row=>[row[0],row[3],row[4],row[6]]),[
   ['2025-01-02',900,'2025-01-02',900],['2025-01-03',1000,'2025-01-03',1000],['2025-01-05',1100,'2025-01-05',1100]
 ]);
 assert.equal(importWriteNav.rows.some(row=>row[0]==='2025-01-04'),false,'직전 NAV를 미공시 날짜의 확정 NAV로 복제하지 않음');
-assert.equal(importWritePrices.rows.find(row=>row[0]==='2025-01-03'&&row[1]==='F00002')[3],1000,'펀드 MANUAL 평가보다 검증 NAV×좌수 우선');
+assert.equal(importWritePrices.rows.find(row=>row[0]==='2025-01-03'&&row[1]==='F00002')[3],900,'기존 MANUAL 가격 보존');
 assert.equal(importWritePrices.rows.find(row=>row[1]==='000001')[3],777,'관련 없는 일반주식 가격이력 보존');
 assert.equal(importWriteSnapshots.rows.find(row=>row[1]==='F00002')[7],1000);
 assert.deepEqual(importWriteSnapshots.rows.find(row=>row[1]==='US0001'),fxSnapshot,'해외자산 과거 FX 스냅샷 보존');
@@ -329,6 +349,12 @@ assert.deepEqual(importWriteNav.rows,beforeConflict,'WARNING 확인 전에는 �
 const updated=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-03',nav:1002}],'',true));
 assert.equal(updated.status,'ok'); assert.equal(updated.importResult.updated,1);
 assert.equal(importWriteNav.rows.find(row=>row[0]==='2025-01-03')[3],1002,'사용자 확인 후 동일 날짜 확정 NAV 갱신');
+const correctedSource=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:950}],'',true));
+assert.equal(correctedSource.status,'ok');
+assert.deepEqual(importWriteNav.rows.filter(row=>row[1]==='F00002'&&row[4]==='2025-01-02').map(row=>[row[0],row[3],row[6]]),[
+  ['2025-01-02',950,950]
+],'정정 공시일을 참조하는 현재 carry-forward 행은 이후 정정으로 sourceDate가 바뀐 행과 구분');
+
 const beforeImportFailure=clone(importWriteNav.rows); importWriteNav.failWrite=true;
 assert.equal(context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-04',nav:1002}],'',true)).status,'error');
 assert.deepEqual(importWriteNav.rows,beforeImportFailure,'부분 쓰기 실패 시 기존 NAV 보존');
@@ -375,6 +401,33 @@ const canonical=snap('2026-01-02','F00001',888); canonical[2]='테스트 펀드'
 const mergedLegacy=clone(context._mergeSnapshotRowsSafely([legacy],[canonical],true));
 assert.equal(mergedLegacy.length,1);
 assert.equal(mergedLegacy[0][7],777);
+
+// 오늘 미공시는 과거 확정 NAV 누락과 별도 상태로 집계합니다.
+const pendingTodaySs=ssFor({'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),
+  '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-09-08','F00002','KB',1200,'2026-09-08',1000,1200,'','KB_VALUE_ST']])});
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+const pendingToday=context._refreshFundValuations(pendingTodaySs,'2026-09-09','2026-09-09','F00002');
+assert.equal(pendingToday.fundResults.F00002.latestUnpublished,1);
+assert.equal(pendingToday.fundResults.F00002.navMissing,0);
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+
+// 일일 실행은 활성 보유기간의 과거 확정 NAV 누락을 성공으로 기록하지 않습니다.
+const savedRefresh=context._refreshFundValuations;
+context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],fundResults:{F00001:{navMissing:1}}});
+assert.throws(()=>context.runDailyFundValuations(),/partial/,'일일 partial 결과를 성공 처리하지 않음');
+context._refreshFundValuations=savedRefresh;
+
+// 파생 시트 쓰기 실패 뒤에도 저장 확정 NAV를 이용해 재실행할 수 있습니다.
+const retryUnits=new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-08-01',1000,'']]);
+const retryNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-08-03','F00002','KB',1200,'2026-08-03',1000,1200,'','KB_VALUE_ST']]);
+const retryPrices=new Sheet([['date','code','name','price','at','source']]); retryPrices.failWrite=true;
+const retrySheets={'펀드좌수':retryUnits,'펀드기준가격':retryNav,'가격이력':retryPrices};
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+assert.throws(()=>context._refreshFundValuations(ssFor(retrySheets),'2026-08-03','2026-08-03','F00002'),/write failed/);
+assert.equal(retryNav.rows[1][3],1200,'파생 시트 실패 시 기존 NAV 보존');
+retryPrices.failWrite=false;
+assert.equal(context._refreshFundValuations(ssFor(retrySheets),'2026-08-03','2026-08-03','F00002').saved,1,'재실행에서 저장 NAV로 가격이력 복구');
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
 // 전체 함수 선언이 중복돼 엄격 오류 옵션을 덮어쓰는 회귀 차단.
 const declarations=[...source.matchAll(/^function\s+(\w+)\s*\(/gm)].map(m=>m[1]);

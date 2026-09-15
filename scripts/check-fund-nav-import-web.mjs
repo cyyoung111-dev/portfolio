@@ -57,6 +57,7 @@ assert.match(source,/code: fundCode/,'복구 요청을 F코드별로 분리');
 assert.match(source,/const chunkDays = 7;/,'세 펀드 복구를 모두 7일 chunk로 요청');
 assert.match(source,/requestId !== _fundNavPasteRequestId/,'이전 붙여넣기 응답 폐기');
 assert.match(source,/const requestId = \+\+_fundNavPasteRequestId/,'붙여넣기 요청별 순서 토큰 발급');
+assert.match(source,/handleFundNavImportFile[\s\S]*?requestId !== _fundNavPasteRequestId/,'펀드 변경 중 이전 파일 미리보기 응답 폐기');
 
 for (const [code,classCode,standardCode,className] of [
   ['F00001','C-RPe','확인되지 않음','C-RPe'],
