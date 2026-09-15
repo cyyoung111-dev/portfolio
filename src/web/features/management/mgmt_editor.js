@@ -319,7 +319,8 @@ async function handleFundUnitAction(action, code) {
           _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 요청 중`);
           buildEditorUI();
           try {
-            const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end, code: fundCode }, { timeoutMs: 120000, retry: 0, preserveError: true });
+            const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end, code: fundCode, diagnostic: 'true' }, { timeoutMs: 120000, retry: 0, preserveError: true });
+            if (result?.diagnostic) console.info('[FUND_NAV_DIAGNOSTIC]', result.diagnostic);
             if (result?.status !== 'ok') throw new Error(result?.message || '응답 오류');
             saved += Number(result.saved || 0);
             snapshots += Number(result.snapshots || 0);

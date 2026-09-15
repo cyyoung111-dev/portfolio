@@ -311,7 +311,33 @@ const fxSnapshot = ['2025-01-02','US0001','해외자산',1,100,100,123,123,23,23
 const importWriteSnapshots = new Sheet([header,snap('2025-01-03','F00002',900,'MANUAL'),fxSnapshot]);
 const importWriteSs = ssFor({'펀드좌수':importUnits,'펀드기준가격':importWriteNav,'가격이력':importWritePrices,'거래이력':importWriteTrades,'스냅샷':importWriteSnapshots});
 context.getss=()=>importWriteSs;
-context.jsonOk=extra=>({status:'ok',...extra}); context.jsonError=message=>({status:'error',message});
+context.jsonOk=extra=>({status:'ok',...extra}); context.jsonError=(message,extra)=>({status:'error',message,...(extra||{})});
+// 선택적 진단은 단계별 시작/종료와 시간을 남기고, 꺼진 기존 실행에는 결과 필드를 추가하지 않습니다.
+context.getss=()=>mixedSs;
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+const diagnosticResponse=context.handleRefreshFundValuations('2026-01-01','2026-01-07','F00002','true');
+assert.equal(diagnosticResponse.status,'ok');
+assert.equal(diagnosticResponse.diagnostic.fundCode,'F00002');
+const diagnosticStages=diagnosticResponse.diagnostic.events.map(event=>event.stage+':'+event.status);
+for (const stage of ['request:start','fundUnitsRead:start','storedNavRead:start','fundUnitsResolve:start','storedNavResolve:start','navConfirm:start','valuationCalculate:start','writeLockWait:start','navWrite:start','priceHistoryRead:start','priceHistoryWrite:start','snapshotTargetCalculate:start','snapshotWrite:start','resultAggregate:start','request:end']) assert(diagnosticStages.includes(stage),stage+' 진단 누락');
+assert(diagnosticResponse.diagnostic.events.every(event=>Number.isFinite(event.elapsedMs)&&Number.isFinite(event.stageElapsedMs)),'진단 시간 기록');
+assert.equal(Object.prototype.hasOwnProperty.call(kbOnly,'diagnostic'),false,'diagnostic=false 기존 응답 유지');
+const forcedDiagnostic=context._createFundRecoveryDiagnostic(true,'2026-07-23','2026-07-29','F00002');
+const forcedError=Object.assign(new Error('지원되지 않는 작업입니다.'),{stack:'forced diagnostic stack'});
+context._fundRecoveryDiagnosticStart(forcedDiagnostic,'F00002','snapshotWrite','writeSnapshotRows');
+context._fundRecoveryDiagnosticFinish(forcedDiagnostic,'error',forcedError);
+const forcedEvent=forcedDiagnostic.events.find(event=>event.status==='error');
+assert.equal(forcedEvent.stage,'snapshotWrite'); assert.equal(forcedEvent.functionName,'writeSnapshotRows');
+assert.equal(forcedEvent.error,'지원되지 않는 작업입니다.'); assert.match(forcedEvent.stack,/forced diagnostic stack/);
+const savedReadFundUnits=context._readFundUnits;
+context._readFundUnits=()=>{ throw forcedError; };
+const diagnosticErrorResponse=context.handleRefreshFundValuations('2026-07-23','2026-07-29','F00002','true');
+assert.equal(diagnosticErrorResponse.status,'error');
+const responseErrorEvent=diagnosticErrorResponse.diagnostic.events.find(event=>event.stage==='fundUnitsRead'&&event.status==='error');
+assert.equal(responseErrorEvent.functionName,'_readFundUnits'); assert.equal(responseErrorEvent.error,'지원되지 않는 작업입니다.');
+context._readFundUnits=savedReadFundUnits;
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+context.getss=()=>importWriteSs;
 // 같은 실제 공시일 정정은 그 sourceDate를 참조하는 기존 carry-forward 행과 파생값을 함께 갱신합니다.
 const correctionNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
   ['2025-01-02','F00002','KB 밸류포커스 소득공제 S-T',900,'2025-01-02',1000,900,'','KB_VALUE_ST'],
@@ -383,7 +409,7 @@ importWriteNav.failWrite=false;
 
 // 설정 저장은 같은 적용일 수정·과거 소급 변경을 거부하고 미래 변경만 추가합니다.
 context.jsonOk=extra=>({status:'ok',...extra});
-context.jsonError=message=>({status:'error',message});
+context.jsonError=(message,extra)=>({status:'error',message,...(extra||{})});
 context.getss=()=>ssFor(sheets);
 context._ensureFundDailyTrigger=()=>{};
 context._readSettingsMap=()=>({EDITABLE_PRICES:[{code:'F00001',name:'테스트 펀드',fund:true}]});

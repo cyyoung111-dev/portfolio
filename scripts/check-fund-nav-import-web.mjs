@@ -60,6 +60,8 @@ assert.match(source,/requestId !== _fundNavPasteRequestId/,'이전 붙여넣기 
 assert.match(source,/const requestId = \+\+_fundNavPasteRequestId/,'붙여넣기 요청별 순서 토큰 발급');
 assert.match(source,/handleFundNavImportFile[\s\S]*?requestId !== _fundNavPasteRequestId/,'펀드 변경 중 이전 파일 미리보기 응답 폐기');
 assert.match(source,/preserveError: true/,'펀드 API 오류 원인 보존 요청');
+assert.match(source,/refreshFundValuations[\s\S]*?diagnostic: 'true'/,'누락 평가금액 복구에서만 선택적 진단 활성화');
+assert.match(source,/console\.info\('\[FUND_NAV_DIAGNOSTIC\]'/,'응답 진단을 브라우저 콘솔에 구조화 표시');
 
 for (const [code,classCode,standardCode,className] of [
   ['F00001','C-RPe','확인되지 않음','C-RPe'],
