@@ -826,9 +826,12 @@ function _tossRequest_(path, query, group) {
     if (status >= 200 && status < 300) return JSON.parse(response.getContentText() || '{}');
     var headers = response.getAllHeaders ? response.getAllHeaders() : {};
     var retryAfter = Number(headers['Retry-After'] || headers['retry-after'] || 0);
+    var rateReset = Number(headers['X-RateLimit-Reset'] || headers['x-ratelimit-reset'] || 0);
     if (status !== 429 && status < 500) throw new Error('Toss API 실패(' + status + '): ' + _tossSafeError_(response.getContentText() || ''));
     if (attempt === maxAttempts - 1) throw new Error('Toss API 재시도 초과(' + status + ')');
-    var waitMs = retryAfter > 0 ? retryAfter * 1000 : Math.min(4000, 250 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250);
+    var waitMs = retryAfter > 0
+      ? retryAfter * 1000
+      : (rateReset > 0 ? rateReset * 1000 : Math.min(4000, 250 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250));
     Utilities.sleep(waitMs);
   }
   return null;
@@ -916,7 +919,7 @@ function handleDiagnoseTossMarketData() {
   };
   run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
   run('marketCalendarKR', '/api/v1/market-calendar/KR', { date: today() });
-  run('marketCalendarUS', '/api/v1/market-calendar/US', { date: today() });
+  run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
   run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
   run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
   return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), endpoints: checks });

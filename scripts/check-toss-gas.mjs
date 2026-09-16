@@ -9,6 +9,7 @@ assert.match(source, /\/api\/v1\/prices/); assert.match(source, /symbols\.join\(
 assert.match(source, /\/api\/v1\/candles/); assert.match(source, /interval:\s*'1d'/);
 assert.match(source, /adjusted:\s*'false'/); assert.match(source, /nextBefore/);
 assert.match(source, /Retry-After/); assert.match(source, /Math\.pow\(2, attempt\)/);
+assert.match(source, /X-RateLimit-Reset/);
 assert.match(source, /fetchHistoricalPricesToss\(items, dateStr\)/);
 assert.match(source, /var val = \(tossPrices\[code\]/);
 assert.match(source, /diagnoseTossMarketData/);
