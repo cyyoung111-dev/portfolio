@@ -3554,15 +3554,28 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'priceHistoryWrite', '_refreshFundValuations');
   var append = [];
+  var pricesChanged = false;
   values.forEach(function(value) {
     var key = value.date + '|' + value.code;
-    // 기존 MANUAL을 포함한 모든 가격은 보존합니다.
+    // MANUAL은 항상 보존하되, 임시 이월행은 같은 날짜의 확정 NAV가 도착하면 교체합니다.
     if (!priceKeys[key]) {
       var rowSource = value.inputRequired ? 'FUND_NAV_CARRY_INPUT_REQUIRED' : (value.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV');
       var row = [value.date, value.code, value.name, value.evalAmt, '', rowSource];
       append.push(row); priceKeys[key] = row; fundResults[value.code].prices++;
-    } else fundResults[value.code].pricesExisting++;
+    } else {
+      var existing = priceKeys[key];
+      var existingSource = String(existing[5] || '').toUpperCase();
+      if (!value.carried && existingSource.indexOf('FUND_NAV_CARRY') === 0) {
+        existing[2] = value.name;
+        existing[3] = value.evalAmt;
+        existing[4] = '';
+        existing[5] = 'FUND_NAV';
+        pricesChanged = true;
+        fundResults[value.code].prices++;
+      } else fundResults[value.code].pricesExisting++;
+    }
   });
+  if (pricesChanged) ph.getRange(2, 1, prices.length, 6).setValues(prices);
   if (append.length) {
     if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
     ph.getRange(ph.getLastRow() + 1, 1, append.length, 6).setValues(append);
