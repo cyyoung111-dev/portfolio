@@ -406,6 +406,7 @@ function renderGsheetView(area) {
   const isLinked = !!currentUrl;
   const publicDataKey = window.GAS_API_KEY_STATUS?.publicDataApiKeyConfigured ? 'configured' : '';
   const krxAuthKey = window.GAS_API_KEY_STATUS?.krxAuthKeyConfigured ? 'configured' : '';
+  const toss = window.GAS_API_KEY_STATUS?.toss || {};
   const accessTokenConfigured = typeof getGsheetAccessToken === 'function' && !!getGsheetAccessToken();
   const serverAuthEnabled = !!window.GAS_API_KEY_STATUS?.requestAuthenticationEnabled;
 
@@ -492,6 +493,28 @@ function renderGsheetView(area) {
           <button id="btn-save-krx-auth-key" class="btn-purple-sm">키 저장</button>
         </div>
         <div id="krxAuthKeyStatus" style="margin-top:8px;font-size:.68rem;color:var(--muted);min-height:1.2em">${krxAuthKey ? 'KRX AUTH_KEY가 저장되어 있습니다.' : 'KRX AUTH_KEY가 없으면 GOOGLEFINANCE 또는 기존 fallback을 사용합니다.'}</div>
+      </div>
+
+      <!-- Toss Open API 설정: 원문은 GAS Script Properties에만 저장 -->
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <div>
+            <div style="font-size:.72rem;font-weight:700;color:var(--text)">📈 Toss Securities Open API</div>
+            <div style="font-size:.62rem;color:var(--muted);margin-top:2px">국내·미국 주식/ETF 가격과 KOSPI·KOSDAQ 지수 provider 설정입니다.</div>
+          </div>
+          <span style="font-size:.62rem;color:${toss.clientIdConfigured && toss.secretConfigured ? 'var(--green-lt)' : 'var(--amber)'};border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1)">${toss.clientIdConfigured && toss.secretConfigured ? '설정 완료' : '설정 필요'}</span>
+        </div>
+        <div id="tossConfigStatus" style="font-size:.68rem;color:var(--muted);margin-bottom:8px">Client ID: <b>${_escapeHtml(toss.clientIdConfigured ? (toss.clientIdMasked || '설정됨') : '미설정')}</b> · Client Secret: <b>${toss.secretConfigured ? '설정됨' : '미설정'}</b> · 최근 진단: <b>${toss.lastDiagnosticAt ? (toss.lastDiagnosticOk ? '성공' : '실패 · ' + (toss.lastDiagnosticCode || 'ERROR')) : '미실행'}</b></div>
+        <div style="display:flex;gap:6px;align-items:stretch;flex-wrap:wrap">
+          <input id="tossClientIdInput" type="text" value="" autocomplete="off" placeholder="Toss Client ID" style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:180px" />
+          <input id="tossClientSecretInput" type="password" value="" autocomplete="new-password" placeholder="새 Client Secret" style="flex:1;background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:7px 10px;color:var(--text);font-size:.73rem;min-width:180px" />
+          <button id="btn-save-toss-config" class="btn-purple-sm">저장</button>
+          <button id="btn-diagnose-toss" class="btn-purple-sm">연결 진단</button>
+          ${(toss.clientIdConfigured || toss.secretConfigured) ? '<button id="btn-clear-toss-config" class="btn-del-sm">설정 삭제</button>' : ''}
+        </div>
+        <div style="font-size:.64rem;color:var(--muted);line-height:1.6;margin-top:8px">빈 입력은 기존 값을 유지합니다. Secret 원문은 브라우저 저장소·시트·응답에 저장하지 않고 GAS Script Properties에만 전달합니다.</div>
+        <div id="tossDiagnosticResult" style="white-space:pre-line;font-size:.64rem;color:var(--muted);margin-top:8px;min-height:1.2em"></div>
+        <div style="font-size:.64rem;color:var(--amber);line-height:1.6;margin-top:8px">403이면 GAS에서 IP를 설정하는 것이 아니라 Toss WTS Open API 콘솔에 GAS UrlFetchApp의 Google IP range pool 허용 IP를 등록해야 합니다.</div>
       </div>
 
       <!-- 안내 -->

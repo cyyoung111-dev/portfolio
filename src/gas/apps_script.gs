@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.106
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.107
 //
+//  v9.107 변경사항 (2026.09.16):
+//   Toss Open API OAuth 토큰 캐시·429 재시도·현재가 batch·adjusted=false 일봉 우선 연결
+
 //  v9.106 변경사항 (2026.09.16):
 //   F00001 월·목 비공시일 제외, 직전 NAV 임시 스냅샷·NAV 입력 필요 표시, 펀드별 복구
 //
@@ -614,8 +617,68 @@ function _getApiKeyStatus() {
   return {
     publicDataApiKeyConfigured: !!_getPublicDataApiKey(),
     krxAuthKeyConfigured: !!_getKrxAuthKey(),
-    requestAuthenticationEnabled: !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim()
+    requestAuthenticationEnabled: !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim(),
+    toss: _getTossConfigStatus_()
   };
+}
+
+function _maskTossClientId_(value) {
+  var id = String(value || '').trim();
+  if (!id) return '';
+  if (id.length <= 4) return '****';
+  return id.slice(0, 2) + '••••' + id.slice(-2);
+}
+
+function _getTossConfigStatus_() {
+  var props = PropertiesService.getScriptProperties();
+  var clientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
+  var secret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
+  return {
+    clientIdConfigured: !!clientId,
+    clientIdMasked: _maskTossClientId_(clientId),
+    secretConfigured: !!secret,
+    lastDiagnosticAt: String(props.getProperty('TOSS_LAST_DIAGNOSTIC_AT') || ''),
+    lastDiagnosticOk: props.getProperty('TOSS_LAST_DIAGNOSTIC_OK') === 'true',
+    lastDiagnosticCode: String(props.getProperty('TOSS_LAST_DIAGNOSTIC_CODE') || '')
+  };
+}
+
+function handleSaveTossConfig(dataJson) {
+  try {
+    var data;
+    try { data = JSON.parse(String(dataJson || '{}')); }
+    catch(parseError) { data = _parseJsonParam(dataJson || '{}', 'Toss 설정'); }
+    var props = PropertiesService.getScriptProperties();
+    var changed = [];
+    var clientId = String(data.clientId == null ? '' : data.clientId).trim();
+    var secret = String(data.secret == null ? '' : data.secret).trim();
+    // 빈 입력은 기존 값을 유지합니다. 삭제는 별도 명시적 action에서만 허용합니다.
+    if (Object.prototype.hasOwnProperty.call(data, 'clientId') && clientId) {
+      props.setProperty('TOSS_CLIENT_ID', clientId); changed.push('clientId');
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'secret') && secret) {
+      props.setProperty('TOSS_CLIENT_SECRET', secret); changed.push('secret');
+      CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
+    }
+    return jsonOk({ saved: true, changed: changed, toss: _getTossConfigStatus_() });
+  } catch(err) {
+    return jsonError('Toss 설정 저장 실패: ' + err.message);
+  }
+}
+
+function handleClearTossConfig() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    props.deleteProperty('TOSS_CLIENT_ID');
+    props.deleteProperty('TOSS_CLIENT_SECRET');
+    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_AT');
+    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_OK');
+    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_CODE');
+    CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
+    return jsonOk({ cleared: true, toss: _getTossConfigStatus_() });
+  } catch(err) {
+    return jsonError('Toss 설정 삭제 실패: ' + err.message);
+  }
 }
 
 function configureAccessTokenPrompt() {
@@ -661,7 +724,8 @@ function doGet(e) {
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
-  if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes);
+  if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes, params.persist === '1');
+  if (params.action === 'diagnoseTossMarketData') return handleDiagnoseTossMarketData();
   if (params.action === 'dividend') {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     return handleDividendFetch(codes);
@@ -681,6 +745,7 @@ function doGet(e) {
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
       params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
+      params.action === 'saveTossConfig' || params.action === 'clearTossConfig' ||
       params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' ||
       params.action === 'continueSnapshotRepair' || params.action === 'refreshEtfDividends' ||
       params.action === 'previewFundNavImport' || params.action === 'importFundNav') {
@@ -713,7 +778,7 @@ function doPost(e) {
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
-  var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  var readActions = ['diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -725,6 +790,8 @@ function doPost(e) {
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
+  if (params.action === 'saveTossConfig') return handleSaveTossConfig(params.data || '{}');
+  if (params.action === 'clearTossConfig') return handleClearTossConfig();
   if (params.action === 'startSnapshotRepair') return handleStartSnapshotRepair();
   if (params.action === 'continueSnapshotRepair') return handleContinueSnapshotRepair();
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
@@ -768,7 +835,168 @@ function handleSaveSyncIssues(source, dataJson) {
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  종가 조회 — 오늘: 종가시트 캐시, 특정일/캐시없음: GOOGLEFINANCE
+//  Toss Securities Open API 시장데이터 provider
+//  공식 사양: https://openapi.tossinvest.com/openapi-docs/latest/openapi.json
+//  Client ID/Secret은 Script Properties에만 저장하며 로그·응답에 포함하지 않습니다.
+// ════════════════════════════════════════════════════════════════════
+var TOSS_API_BASE = 'https://openapi.tossinvest.com';
+var TOSS_TOKEN_CACHE_KEY = 'toss_oauth_token_v1';
+var TOSS_TOKEN_SKEW_SECONDS = 60;
+
+function _tossProperties_() {
+  var props = PropertiesService.getScriptProperties();
+  return { id: String(props.getProperty('TOSS_CLIENT_ID') || '').trim(), secret: String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim() };
+}
+
+function _tossAccessToken_() {
+  var cached = CacheService.getScriptCache().get(TOSS_TOKEN_CACHE_KEY);
+  if (cached) {
+    try {
+      var token = JSON.parse(cached);
+      if (token.accessToken && Number(token.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000) return token.accessToken;
+    } catch (e) {}
+  }
+  var credentials = _tossProperties_();
+  if (!credentials.id || !credentials.secret) return '';
+  var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
+    method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
+    payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
+  });
+  var status = response.getResponseCode();
+  var body = response.getContentText() || '{}';
+  if (status < 200 || status >= 300) throw new Error('Toss OAuth 실패(' + status + '): ' + _tossSafeError_(body));
+  var data = JSON.parse(body);
+  if (data.token_type !== 'Bearer' || !data.access_token || !Number(data.expires_in)) throw new Error('Toss OAuth 응답 필드 불일치');
+  var expiresAt = Date.now() + Number(data.expires_in) * 1000;
+  CacheService.getScriptCache().put(TOSS_TOKEN_CACHE_KEY, JSON.stringify({ accessToken: data.access_token, expiresAt: expiresAt }), Math.max(1, Math.min(21600, Number(data.expires_in) - TOSS_TOKEN_SKEW_SECONDS)));
+  return data.access_token;
+}
+
+function _tossSafeError_(body) {
+  try { var parsed = JSON.parse(body); return String(parsed.error?.code || parsed.error || parsed.error_description || 'unknown'); } catch (e) { return 'invalid-response'; }
+}
+
+function _tossRequest_(path, query, group) {
+  var token = _tossAccessToken_();
+  if (!token) return null;
+  var params = [];
+  Object.keys(query || {}).forEach(function(key) { if (query[key] !== '' && query[key] != null) params.push(encodeURIComponent(key) + '=' + encodeURIComponent(query[key])); });
+  var url = TOSS_API_BASE + path + (params.length ? '?' + params.join('&') : '');
+  var maxAttempts = 4;
+  for (var attempt = 0; attempt < maxAttempts; attempt++) {
+    var response = UrlFetchApp.fetch(url, { method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
+    var status = response.getResponseCode();
+    if (status >= 200 && status < 300) return JSON.parse(response.getContentText() || '{}');
+    var headers = response.getAllHeaders ? response.getAllHeaders() : {};
+    var retryAfter = Number(headers['Retry-After'] || headers['retry-after'] || 0);
+    var rateReset = Number(headers['X-RateLimit-Reset'] || headers['x-ratelimit-reset'] || 0);
+    if (status !== 429 && status < 500) throw new Error('Toss API 실패(' + status + '): ' + _tossSafeError_(response.getContentText() || ''));
+    if (attempt === maxAttempts - 1) throw new Error('Toss API 재시도 초과(' + status + ')');
+    var waitMs = retryAfter > 0
+      ? retryAfter * 1000
+      : (rateReset > 0 ? rateReset * 1000 : Math.min(4000, 250 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250));
+    Utilities.sleep(waitMs);
+  }
+  return null;
+}
+
+function _tossSymbol_(item) { return String(item.tossSymbol || item.code || '').trim(); }
+
+function fetchPricesToss(items) {
+  var symbols = (items || []).map(_tossSymbol_).filter(Boolean);
+  if (!symbols.length || symbols.length > 200 || !_tossProperties_().id) return {};
+  var payload = _tossRequest_('/api/v1/prices', { symbols: symbols.join(',') }, 'MARKET_DATA');
+  var rows = payload && Array.isArray(payload.result) ? payload.result : [];
+  var prices = {};
+  rows.forEach(function(row) {
+    var price = Number(row.lastPrice);
+    if (!row.symbol || !Number.isFinite(price) || price <= 0 || !row.currency) return;
+    prices[String(row.symbol)] = { price: price, currency: String(row.currency), timestamp: row.timestamp || null, source: 'TOSS', priceType: 'REGULAR_CLOSE', status: 'CONFIRMED', fetchedAt: new Date().toISOString() };
+  });
+  return prices;
+}
+
+function fetchHistoricalPricesToss(items, targetDate) {
+  var output = {};
+  (items || []).forEach(function(item) {
+    var symbol = _tossSymbol_(item);
+    if (!symbol || !_tossProperties_().id) return;
+    var before = '';
+    var guard = 0;
+    while (guard++ < 100) {
+      var payload = _tossRequest_('/api/v1/candles', { symbol: symbol, interval: '1d', count: 200, before: before, adjusted: 'false' }, 'MARKET_DATA_CHART');
+      var page = payload && payload.result;
+      if (!page || !Array.isArray(page.candles)) break;
+      var found = page.candles.filter(function(c) { return String(c.timestamp || '').slice(0, 10) === targetDate; })[0];
+      if (found && Number(found.closePrice) > 0) {
+        output[item.code] = { price: Number(found.closePrice), usedDate: targetDate, marketDate: targetDate, market: item.market || (String(found.currency) === 'USD' ? 'US' : 'KR'), currency: String(found.currency || item.currency || 'KRW'), source: 'TOSS', priceType: 'REGULAR_CLOSE', status: 'CONFIRMED', fetchedAt: new Date().toISOString() };
+        break;
+      }
+      var next = page.nextBefore;
+      if (!next || (page.candles.length && String(page.candles[page.candles.length - 1].timestamp).slice(0, 10) < targetDate)) break;
+      if (next === before) break;
+      before = next;
+    }
+  });
+  return output;
+}
+
+// 운영 점검용 read-only 호출. 자격증명·토큰·원문 응답은 반환하거나 로그에 남기지 않습니다.
+function _tossDiagnosticRequest_(path, query) {
+  var startedAt = Date.now();
+  try {
+    var token = _tossAccessToken_();
+    if (!token) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', elapsedMs: Date.now() - startedAt };
+    var params = [];
+    Object.keys(query || {}).forEach(function(key) {
+      if (query[key] !== '' && query[key] != null) params.push(encodeURIComponent(key) + '=' + encodeURIComponent(query[key]));
+    });
+    var response = UrlFetchApp.fetch(TOSS_API_BASE + path + (params.length ? '?' + params.join('&') : ''), {
+      method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true
+    });
+    var status = response.getResponseCode();
+    var body = response.getContentText() || '{}';
+    var parsed = {};
+    try { parsed = JSON.parse(body); } catch (e) {}
+    var error = parsed && parsed.error ? parsed.error : {};
+    var result = parsed && parsed.result;
+    var count = Array.isArray(result) ? result.length : (result && typeof result === 'object' ? Object.keys(result).length : 0);
+    return {
+      ok: status >= 200 && status < 300,
+      status: status,
+      code: status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (status >= 200 && status < 300 ? 'OK' : String(error.code || 'HTTP_ERROR')),
+      requestId: String(error.requestId || parsed.requestId || ''), count: count,
+      elapsedMs: Date.now() - startedAt
+    };
+  } catch (err) {
+    var message = String(err && err.message || '');
+    return { ok: false, status: message.indexOf('(403)') !== -1 ? 403 : null, code: message.indexOf('(403)') !== -1 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : 'REQUEST_ERROR', elapsedMs: Date.now() - startedAt };
+  }
+}
+
+function handleDiagnoseTossMarketData() {
+  var checks = [];
+  var run = function(name, path, query) {
+    var item = _tossDiagnosticRequest_(path, query);
+    checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code, requestId: item.requestId || '', count: item.count || 0, elapsedMs: item.elapsedMs });
+  };
+  run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
+  run('marketCalendarKR', '/api/v1/market-calendar/KR', { date: today() });
+  run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
+  run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
+  run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
+  var overallOk = checks.every(function(item) { return item.ok; });
+  try {
+    var props = PropertiesService.getScriptProperties();
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_AT', new Date().toISOString());
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (checks.find(function(item) { return !item.ok; }) || {}).code || 'ERROR');
+  } catch(ignore) {}
+  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, endpoints: checks });
+}
+
+// ════════════════════════════════════════════════════════════════════
+//  종가 조회 — Toss 우선, 기존 정상 공급원 fallback
 // ════════════════════════════════════════════════════════════════════
 function handlePriceFetch(dateParam, allCodesParam) {
   try {
@@ -805,9 +1033,13 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
   try {
     var items = getCodeItems(ss);
     if (items.length === 0) return jsonError('종목코드 없음. initSheet() 먼저 실행하세요.');
-    var prices = fetchPricesGoogleFinance(items, dateStr, ss);
+    var tossPrices = fetchHistoricalPricesToss(items, dateStr);
+    var fallbackItems = items.filter(function(item) { return !tossPrices[item.code]; });
+    var fallbackPrices = fallbackItems.length ? fetchPricesGoogleFinance(fallbackItems, dateStr, ss) : {};
+    var prices = Object.assign({}, fallbackPrices, tossPrices);
     return jsonOk({ date: dateStr, count: Object.keys(prices).length, prices: prices,
-      source: 'googlefinance', missingCodes: calcMissing(allCodesParam, Object.keys(prices)) });
+      source: Object.keys(tossPrices).length ? 'toss' : 'fallback', tossCount: Object.keys(tossPrices).length,
+      missingCodes: calcMissing(allCodesParam, Object.keys(prices)) });
   } catch(err) {
     return jsonError('특정일 조회 실패: ' + err.message);
   }
@@ -817,103 +1049,38 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
 //  GOOGLEFINANCE 가격 조회 핵심
 // ════════════════════════════════════════════════════════════════════
 function fetchPricesGoogleFinance(items, dateStr, ss, options) {
-  var sourceMode = _getPriceSourceMode();
+  // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다. 함수명은 하위 호출 호환용입니다.
   var prices = {};
   var gfItems = items.slice();
 
-  if (sourceMode === 'krx_first' && !(options && options.skipKrx)) {
+  // Toss 일봉(adjusted=false)을 우선 사용하고 미조회 종목만 기존 공급원으로 넘깁니다.
+  // 토큰/권한이 설정되지 않은 환경에서는 빈 결과를 반환하므로 기존 경로를 보존합니다.
+  if (!(options && options.skipToss) && dateStr && dateStr !== today()) {
     try {
-      var krxPrices = fetchPricesKrx(items, dateStr);
-      Object.keys(krxPrices).forEach(function(code) { prices[code] = krxPrices[code]; });
+      var tossPrices = fetchHistoricalPricesToss(items, dateStr);
+      Object.keys(tossPrices).forEach(function(code) { prices[code] = tossPrices[code]; });
       gfItems = items.filter(function(item) { return !(prices[item.code] && prices[item.code].price > 0); });
-      Logger.log('[price-source] krx_first: KRX ' + Object.keys(krxPrices).length + '건, GF fallback 대상 ' + gfItems.length + '건');
-    } catch (e) {
-      Logger.log('⚠️ KRX 조회 실패, GOOGLEFINANCE로 fallback: ' + e.message);
+    } catch (tossErr) {
+      Logger.log('⚠️ Toss 과거 종가 실패: ' + tossErr.message);
       gfItems = items.slice();
     }
   }
 
-  if (gfItems.length === 0) return prices;
-
-  // ★ [버그수정] 동시에 여러 요청(자동조회 + 수동 업데이트 등)이 겹치면
-  //   공유 임시 시트를 서로 지웠다 썼다 하며 충돌 → "첫 클릭은 안 되고 두 번째부터 되는" 현상 발생
-  //   → 요청마다 자기만의 고유한 임시 시트를 새로 만들어 쓰고 끝나면 삭제
-  // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
-  //   (임시 시트 정리는 자동 트리거가 없고 수동 메뉴로만 실행되므로, 누락되면 계속 쌓일 수 있음)
-  var tmp = ss.insertSheet(_tempSheetName('_gf_tmp_'));
-  var values;
-
-  try {
-    var isToday = (dateStr === today());
-    // ★ new Date(dateStr.replace(/-/g,'/')) 대신 _ymdToDate 사용 — 시간대 명확
-    var ymdStr  = dateStr.replace(/-/g, '');
-    var dtObj   = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
-    var fromObj = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
-    fromObj.setDate(fromObj.getDate() - 5);
-
-    var fmtDate  = function(d) { return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd'); };
-    var fromFmt  = fmtDate(fromObj);
-    var toFmt    = fmtDate(dtObj);
-
-    var formulas = gfItems.map(function(item) {
-      var krx    = '"KRX:' + item.code + '"';
-      var kosdaq = '"KOSDAQ:' + item.code + '"';
-      if (isToday) {
-        return ['=IFERROR(GOOGLEFINANCE(' + krx + ',"price"),' +
-                'IFERROR(GOOGLEFINANCE(' + kosdaq + ',"price"),"-"))'];
-      } else {
-        return ['=IFERROR(LET(x,GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),INDEX(x,ROWS(x),2)),' +
-                'IFERROR(LET(x,GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),INDEX(x,ROWS(x),2)),"-"))'];
-      }
-    });
-
-    if (formulas.length === 0) return {};
-    tmp.getRange(1, 1, formulas.length, 1).setFormulas(formulas);
-
-    // ★ [버그수정] 종목이 많으면 구글시트 수식(GOOGLEFINANCE) 계산이 한 번의 대기로는
-    //   끝나지 않아 일부 종목이 빈 값으로 조회되고, 사용자가 "업데이트"를 두 번 눌러야만
-    //   (두번째부터는 구글이 이미 계산해둔 값이 남아있어) 정상 반영되는 문제가 있었음
-    //   → 계산이 덜 끝난 항목이 있으면 서버에서 자동으로 한두 번 더 기다렸다가 재조회
-    var maxAttempts = 3;
-    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      SpreadsheetApp.flush();
-      var waitMs = (attempt === 1) ? Math.min(800 + items.length * 30, 4000) : 1500;
-      Utilities.sleep(waitMs);
-
-      var actualRows = tmp.getLastRow();
-      if (actualRows >= formulas.length) {
-        values = tmp.getRange(1, 1, formulas.length, 1).getValues();
-      } else if (actualRows > 0) {
-        var partial = tmp.getRange(1, 1, actualRows, 1).getValues();
-        values = [];
-        for (var vi = 0; vi < formulas.length; vi++) {
-          values.push(vi < actualRows ? partial[vi] : ['']);
-        }
-      } else {
-        values = formulas.map(function() { return ['']; });
-      }
-
-      // 아직 계산 안 끝난(빈 값) 항목이 있으면 한 번 더 대기 후 재시도
-      var hasBlank = values.some(function(v) { return v[0] === '' || v[0] === null || v[0] === undefined; });
-      if (!hasBlank) break;
-      if (attempt < maxAttempts) {
-        Logger.log('[fetchPricesGoogleFinance] 계산 미완료 항목 있음 → ' + (attempt+1) + '차 재조회');
-      } else {
-        Logger.log('⚠️ fetchPricesGoogleFinance: ' + maxAttempts + '회 재시도 후에도 일부 항목 계산 미완료');
-      }
+  if (gfItems.length > 0) {
+    try {
+      var krxPrices = fetchPricesKrx(gfItems, dateStr);
+      Object.keys(krxPrices).forEach(function(code) { prices[code] = krxPrices[code]; });
+      gfItems = items.filter(function(item) { return !(prices[item.code] && prices[item.code].price > 0); });
+      Logger.log('[price-source] Toss/기존 비-GOOGLE 공급원: KRX ' + Object.keys(krxPrices).length + '건, 저장 이력 fallback 대상 ' + gfItems.length + '건');
+    } catch (e) {
+      Logger.log('⚠️ 기존 비-GOOGLE 가격 조회 실패: ' + e.message);
+      gfItems = items.slice();
     }
-  } finally {
-    try { ss.deleteSheet(tmp); } catch (e) { Logger.log('⚠️ 임시 시트 삭제 실패: ' + e.message); }
   }
 
-  gfItems.forEach(function(item, i) {
-    var val   = values[i][0];
-    var str   = String(val || '');
-    var price = (val && val !== '-' && !str.startsWith('#')) ? Math.round(parseFloat(val)) : 0;
-    if (price > 0) prices[item.code] = { price: price, name: item.name, officialName: item.name, source: 'GOOGLEFINANCE' };
-  });
-
+  // 실패·누락은 저장 확정값 보존을 위해 빈 결과로 반환합니다.
   return prices;
+
 }
 
 function fetchPricesKrx(items, dateStr) {
@@ -2600,7 +2767,7 @@ function runEtfDividendDiagnosis() {
 // ════════════════════════════════════════════════════════════════════
 //  getPrices — 가격이력 캐시 우선, 없으면 GOOGLEFINANCE
 // ════════════════════════════════════════════════════════════════════
-function handleGetPricesCompat(codesParam) {
+function handleGetPricesCompat(codesParam, persist) {
   try {
     var requestStartedMs = Date.now();
     var ss       = getss();
@@ -2612,7 +2779,7 @@ function handleGetPricesCompat(codesParam) {
     var cacheHash = Utilities.base64EncodeWebSafe(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
     ).replace(/=+$/g, '').slice(0, 40);
-    var cacheKey = 'prices_v972_' + cacheHash;
+    var cacheKey = 'prices_v9107_' + cacheHash;
     var cached = cache.get(cacheKey);
     if (cached) {
       try {
@@ -2671,9 +2838,13 @@ function handleGetPricesCompat(codesParam) {
         return codeItemMap[c] || { code: c, name: codeNameMap[c] || c, currency: 'KRW' };
       });
       lookupMeta.usdItemPresent = _hasUsdPriceItems(targetItems);
+      var tossPrices = {};
+      try { tossPrices = fetchPricesToss(targetItems); } catch(e) { Logger.log('⚠️ Toss 현재가 실패: ' + e.message); }
+      var krxItems = targetItems.filter(function(it){ return !(tossPrices[it.code] && tossPrices[it.code].price > 0); });
       var krxPrices = {};
-      try { krxPrices = fetchPricesKrx(targetItems, todayStr); } catch(e) { Logger.log('⚠️ handleGetPricesCompat KRX 실패: ' + e.message); }
-      var gfNeed = targetItems.filter(function(it){ return !(krxPrices[it.code] && krxPrices[it.code].price > 0); });
+      try { krxPrices = fetchPricesKrx(krxItems, todayStr); } catch(e) { Logger.log('⚠️ handleGetPricesCompat KRX 실패: ' + e.message); }
+      var gfNeed = targetItems.filter(function(it){ return !(tossPrices[it.code] && tossPrices[it.code].price > 0) && !(krxPrices[it.code] && krxPrices[it.code].price > 0); });
+      lookupMeta.tossResultCount = Object.keys(tossPrices).length;
       lookupMeta.krxResultCount = Object.keys(krxPrices).length;
       lookupMeta.googleFinanceCandidateCount = gfNeed.length;
       // USD 종목이 하나도 없으면 국내 종목의 KRX 누락분 때문에 GOOGLEFINANCE
@@ -2690,8 +2861,9 @@ function handleGetPricesCompat(codesParam) {
       //   usedDate != todayStr 인 경우 전일 종가를 todayStr로 저장하는 문제 방지
       var newItemsByDate = {};  // saveDate → items[]
       reqCodes.forEach(function(code) {
-        var val = (krxPrices[code] && krxPrices[code].price > 0) ? krxPrices[code]
-                 : ((gfPrices[code] && gfPrices[code].price > 0) ? gfPrices[code] : null);
+        var val = (tossPrices[code] && tossPrices[code].price > 0) ? tossPrices[code]
+                 : ((krxPrices[code] && krxPrices[code].price > 0) ? krxPrices[code]
+                 : ((gfPrices[code] && gfPrices[code].price > 0) ? gfPrices[code] : null));
         if (val && val.price > 0) {
           var nextPrice = val.price;
           prices[code] = nextPrice;
@@ -2707,7 +2879,7 @@ function handleGetPricesCompat(codesParam) {
           if (!prices[code]) stillMissing.push(code);
         }
       });
-      Object.keys(newItemsByDate).forEach(function(saveDate) {
+      if (persist) Object.keys(newItemsByDate).forEach(function(saveDate) {
         if (newItemsByDate[saveDate].length > 0) batchUpsertPriceHistory(ss, saveDate, newItemsByDate[saveDate]);
       });
 
@@ -2726,12 +2898,12 @@ function handleGetPricesCompat(codesParam) {
       });
       stillMissing = reqCodes.filter(function(code) { return !(prices[code] > 0); });
       lookupMeta.recentHistoryFallbackCount = recentHistoryFallbackCount;
-      _updateTodaySnapshotSource(ss, todayStr, sourceByCode);
+      if (persist) _updateTodaySnapshotSource(ss, todayStr, sourceByCode);
 
       // 웹에서 평가가격을 갱신할 때도 최신 가격이력 날짜의 스냅샷을 즉시 맞춥니다.
       // 16:20 트리거가 누락됐더라도 다음 웹 갱신에서 자동 복구됩니다.
       var latestDisplayDate = _latestDateFromPriceDates(priceDates);
-      if (latestDisplayDate) _rebuildSnapshotForDateFromHistory(ss, latestDisplayDate);
+      if (persist && latestDisplayDate) _rebuildSnapshotForDateFromHistory(ss, latestDisplayDate);
       lookupMeta.snapshotDate = latestDisplayDate;
       lookupMeta.snapshotCreated = false;
       lookupMeta.triggerAutoFixed = !!triggerState.autoFixed;
@@ -2884,19 +3056,153 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
 
 function _benchmarkSymbolMap() {
   return {
-    KOSPI: ['INDEXKRX:KOSPI', 'KRX:KOSPI', 'INDEXKRX:KOSPI200'],
-    KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
-    SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
-    DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
-    NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
-    NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
+    KOSPI: ['KOSPI'],
+    KOSDAQ: ['KOSDAQ'],
+    SP500: ['^GSPC'],
+    DOW: ['^DJI'],
+    NASDAQ: ['^IXIC'],
+    NASDAQ100: ['^NDX'],
     VKOSPI: []
   };
 }
 
+var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
+var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI' };
+
+function _indicatorRows_(payload) {
+  var result = payload && payload.result;
+  if (Array.isArray(result)) return result;
+  if (result && Array.isArray(result.prices)) return result.prices;
+  if (Array.isArray(payload && payload.prices)) return payload.prices;
+  return [];
+}
+
+function fetchMarketIndicatorPricesToss(symbols) {
+  var requested = (symbols || []).map(function(symbol) { return String(symbol || '').trim().toUpperCase(); })
+    .filter(function(symbol, index, all) { return TOSS_MARKET_INDICATOR_SYMBOLS[symbol] && all.indexOf(symbol) === index; });
+  if (!requested.length) return {};
+  var payload = _tossRequest_('/api/v1/market-indicators/prices', { symbols: requested.join(',') }, 'MARKET_INDICATOR');
+  var output = {};
+  _indicatorRows_(payload).forEach(function(row) {
+    var symbol = String(row && row.symbol || '').trim().toUpperCase();
+    var value = Number(row && (row.lastPrice != null ? row.lastPrice : row.closePrice));
+    if (TOSS_MARKET_INDICATOR_SYMBOLS[symbol] && isFinite(value) && value > 0) output[symbol] = { value: value, timestamp: row.timestamp || '', source: 'TOSS', status: 'CONFIRMED' };
+  });
+  return output;
+}
+
+function _indicatorCandleRows_(payload) {
+  var result = payload && payload.result;
+  if (result && Array.isArray(result.candles)) return result.candles;
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(payload && payload.candles)) return payload.candles;
+  return [];
+}
+
+function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate) {
+  var normalized = String(symbol || '').trim().toUpperCase();
+  if (!TOSS_MARKET_INDICATOR_SYMBOLS[normalized]) return [];
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'toss_indicator_' + normalized + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+  var cached = cache.get(cacheKey);
+  if (cached) { try { return JSON.parse(cached); } catch(ignore) {} }
+  var pointsByDate = {};
+  var before = '';
+  for (var page = 0; page < 100; page++) {
+    var query = { interval: '1d', count: 200 };
+    if (before) query.before = before;
+    var payload = _tossRequest_('/api/v1/market-indicators/' + encodeURIComponent(normalized) + '/candles', query, 'MARKET_INDICATOR_CHART');
+    var rows = _indicatorCandleRows_(payload);
+    rows.forEach(function(row) {
+      var date = _normalizeDate(row && (row.timestamp || row.marketDate || row.date));
+      var value = Number(row && (row.closePrice != null ? row.closePrice : row.lastPrice));
+      if (date >= fromDate && date <= toDate && isFinite(value) && value > 0) pointsByDate[date] = value;
+    });
+    var nextBefore = payload && payload.nextBefore || (payload && payload.result && payload.result.nextBefore) || '';
+    if (!rows.length || !nextBefore || nextBefore === before) break;
+    var oldest = rows.map(function(row) { return _normalizeDate(row && (row.timestamp || row.marketDate || row.date)); }).filter(Boolean).sort()[0];
+    if (oldest && oldest < fromDate) break;
+    before = nextBefore;
+  }
+  var points = Object.keys(pointsByDate).sort().map(function(date) { return { date: date, value: pointsByDate[date] }; });
+  if (points.length) { try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(ignoreCache) {} }
+  return points;
+}
+
+// Yahoo Finance chart is an unofficial endpoint and may change without notice; it is only for US index series.
+function _parseYahooChart_(payload, timezone) {
+  var chart = payload && payload.chart;
+  var result = chart && Array.isArray(chart.result) ? chart.result[0] : null;
+  if (!result) return null;
+  var quote = result.indicators && result.indicators.quote && result.indicators.quote[0];
+  var timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+  var closes = quote && Array.isArray(quote.close) ? quote.close : [];
+  var points = [];
+  timestamps.forEach(function(timestamp, index) {
+    var value = Number(closes[index]);
+    if (!isFinite(value) || value <= 0) return;
+    points.push({ date: Utilities.formatDate(new Date(Number(timestamp) * 1000), timezone || CONFIG.TIMEZONE, 'yyyy-MM-dd'), value: value });
+  });
+  var meta = result.meta || {};
+  var current = Number(meta.regularMarketPrice);
+  var previousClose = Number(meta.previousClose != null ? meta.previousClose : meta.chartPreviousClose);
+  return { symbol: meta.symbol || '', points: points,
+    current: isFinite(current) && current > 0 ? current : (points.length ? points[points.length - 1].value : null),
+    previousClose: isFinite(previousClose) && previousClose > 0 ? previousClose : null,
+    timestamp: meta.regularMarketTime || (timestamps.length ? timestamps[timestamps.length - 1] : '') };
+}
+
+function _yahooRequest_(symbol, params) {
+  var query = Object.keys(params || {}).map(function(key) { return encodeURIComponent(key) + '=' + encodeURIComponent(params[key]); }).join('&');
+  var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + (query ? '?' + query : '');
+  var lastStatus = 0;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      var response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
+      lastStatus = response.getResponseCode();
+      if (lastStatus === 429 || lastStatus >= 500) {
+        var retryAfter = Number(response.getHeaders()['Retry-After'] || 0);
+        Utilities.sleep(Math.min(5000, (retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt) * 300) + Math.floor(Math.random() * 200)));
+        continue;
+      }
+      if (lastStatus >= 400) return { status: lastStatus, error: 'HTTP_' + lastStatus };
+      return { status: lastStatus, payload: JSON.parse(response.getContentText() || '{}') };
+    } catch(error) {
+      if (attempt === 2) return { status: 0, error: 'TIMEOUT_OR_NETWORK_ERROR' };
+      Utilities.sleep(Math.pow(2, attempt) * 300 + Math.floor(Math.random() * 200));
+    }
+  }
+  return { status: lastStatus || 429, error: 'RATE_LIMITED' };
+}
+
+function fetchYahooIndexSeries(benchmark, fromDate, toDate) {
+  var symbol = YAHOO_INDEX_SYMBOLS[benchmark];
+  if (!symbol) return { points: [], symbol: '', error: 'UNSUPPORTED_INDEX' };
+  var response = _yahooRequest_(symbol, { period1: Math.floor(new Date(fromDate + 'T00:00:00Z').getTime() / 1000), period2: Math.floor(new Date(toDate + 'T00:00:00Z').getTime() / 1000) + 86400, interval: '1d', events: 'history', includeAdjustedClose: 'false' });
+  if (!response.payload) return { points: [], symbol: symbol, error: response.error || ('HTTP_' + response.status) };
+  var parsed = _parseYahooChart_(response.payload, CONFIG.TIMEZONE);
+  if (!parsed || !parsed.points.length) return { points: [], symbol: symbol, error: 'EMPTY_OR_INVALID_RESPONSE' };
+  return { points: parsed.points, symbol: symbol, current: parsed.current, previousClose: parsed.previousClose, timestamp: parsed.timestamp };
+}
+
+function fetchYahooIndexCurrent(benchmark) {
+  var symbol = YAHOO_INDEX_SYMBOLS[benchmark];
+  if (!symbol) return null;
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'yahoo_index_current_' + benchmark;
+  var cached = cache.get(cacheKey);
+  if (cached) { try { return JSON.parse(cached); } catch(ignore) {} }
+  var response = _yahooRequest_(symbol, { range: '5d', interval: '1d', events: 'history' });
+  if (!response.payload) return null;
+  var parsed = _parseYahooChart_(response.payload, CONFIG.TIMEZONE);
+  if (!parsed || !isFinite(parsed.current) || !isFinite(parsed.previousClose) || parsed.previousClose <= 0) return null;
+  var output = { symbol: symbol, price: parsed.current, previousClose: parsed.previousClose, change: parsed.current - parsed.previousClose, changePct: (parsed.current - parsed.previousClose) / parsed.previousClose * 100, timestamp: parsed.timestamp, source: 'YAHOO_FINANCE', status: 'CONFIRMED' };
+  try { cache.put(cacheKey, JSON.stringify(output), 60); } catch(ignoreCache) {}
+  return output;
+}
+
 function handleGetBenchmark(benchmark, fromStr, toStr) {
   try {
-    var ss = getss();
     var fromDate = _normalizeDate(fromStr || '') || '2024-01-01';
     var toDate = _normalizeDate(toStr || '') || today();
     if (fromDate > toDate) {
@@ -2910,25 +3216,23 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 
     var points = [];
     var usedSymbol = '';
-    // GOOGLEFINANCE는 VKOSPI 과거 시세를 정상적으로 반환하지 않습니다.
-    // 이미 가격조회에 사용하는 KRX Open API AUTH_KEY로 공식 지수 데이터를 먼저 조회합니다.
     if (key === 'VKOSPI') {
       points = _readVkospiPointsFromKrx(fromDate, toDate);
       if (points.length > 0) usedSymbol = 'KRX_OPEN_API:VKOSPI';
+    } else if (key === 'KOSPI' || key === 'KOSDAQ') {
+      points = fetchMarketIndicatorCandlesToss(key, fromDate, toDate);
+      if (points.length) usedSymbol = key;
+    } else {
+      var yahoo = fetchYahooIndexSeries(key, fromDate, toDate);
+      points = yahoo.points;
+      usedSymbol = yahoo.symbol;
     }
-    for (var i = 0; i < symbols.length; i++) {
-      if (points.length > 0) break;
-      var candidate = symbols[i];
-      points = _readBenchmarkPoints(ss, candidate, fromDate, toDate);
-      if (points.length > 0) {
-        usedSymbol = candidate;
-        break;
-      }
+    if (points.length === 0) {
+      return jsonError('선택 기간의 ' + key + ' 데이터를 조회하지 못했습니다.');
     }
-    if (key === 'VKOSPI' && points.length === 0) {
-      return jsonError('선택 기간의 VKOSPI 데이터를 KRX Open API에서 찾지 못했습니다.');
-    }
-    return jsonOk({ benchmark: key, symbol: usedSymbol, points: points });
+    var current = null;
+    try { current = (key === 'KOSPI' || key === 'KOSDAQ') ? (fetchMarketIndicatorPricesToss([key])[key] || null) : fetchYahooIndexCurrent(key); } catch(ignoreCurrent) { /* 현재값 실패 시 확정 일봉은 보존 */ }
+    return jsonOk({ benchmark: key, symbol: usedSymbol, points: points, current: current });
   } catch(err) {
     return jsonError('getBenchmark 실패: ' + err.message);
   }
@@ -2953,48 +3257,33 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr) {
     var cached = cache.get(cacheKey);
     if (cached) return jsonOk(JSON.parse(cached));
 
-    var ss = getss();
-    var tmp = ss.insertSheet(_tempSheetName('_bm_'));
     var series = {};
     var symbols = {};
+    var current = {};
+    var providerErrors = {};
     requested.forEach(function(type) { series[type] = []; symbols[type] = ''; });
-    try {
-      var maxCandidates = requested.reduce(function(max, type) { return Math.max(max, map[type].length); }, 0);
-      for (var candidateIndex = 0; candidateIndex < maxCandidates; candidateIndex++) {
-        var pending = requested.filter(function(type) { return series[type].length === 0 && map[type][candidateIndex]; });
-        if (!pending.length) continue;
-        tmp.clearContents();
-        var fs = fromDate.split('-');
-        var ts = toDate.split('-');
-        pending.forEach(function(type, columnIndex) {
-          var symbol = map[type][candidateIndex];
-          var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
-          tmp.getRange(1, columnIndex * 3 + 1).setFormula(formula);
-        });
-        SpreadsheetApp.flush();
-        Utilities.sleep(2000);
-        var lastRow = tmp.getLastRow();
-        pending.forEach(function(type, columnIndex) {
-          if (lastRow < 2) return;
-          var values = tmp.getRange(2, columnIndex * 3 + 1, lastRow - 1, 2).getValues();
-          var points = values.map(function(row) {
-            return { date: _normalizeDate(row[0]), value: parseFloat(row[1]) || 0 };
-          }).filter(function(point) { return point.date && point.value > 0; });
-          if (points.length) {
-            series[type] = points;
-            symbols[type] = map[type][candidateIndex];
-          }
-        });
+    requested.forEach(function(type) {
+      if (type === 'KOSPI' || type === 'KOSDAQ') {
+        try { series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate); } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
+        if (series[type].length) {
+          try { symbols[type] = type; current[type] = fetchMarketIndicatorPricesToss([type])[type] || null; } catch(error) { providerErrors[type] = error.message || 'TOSS_INDICATOR_PRICE_ERROR'; }
+        }
+      } else {
+        try {
+          var yahoo = fetchYahooIndexSeries(type, fromDate, toDate);
+          series[type] = yahoo.points;
+          symbols[type] = yahoo.symbol;
+          current[type] = fetchYahooIndexCurrent(type);
+          if (yahoo.error) providerErrors[type] = yahoo.error;
+        } catch(error) { series[type] = []; providerErrors[type] = error.message || 'YAHOO_ERROR'; }
       }
-    } finally {
-      try { ss.deleteSheet(tmp); } catch(deleteError) { Logger.log('⚠️ 비교지수 일괄 임시 시트 삭제 실패: ' + deleteError.message); }
-    }
+    });
 
     var errors = {};
     requested.forEach(function(type) {
-      if (!series[type].length) errors[type] = '선택 기간의 데이터를 찾지 못했습니다.';
+      if (!series[type].length) errors[type] = providerErrors[type] || '선택 기간의 데이터를 찾지 못했습니다.';
     });
-    var result = { benchmarks: requested, series: series, symbols: symbols, errors: errors };
+    var result = { benchmarks: requested, series: series, symbols: symbols, current: current, errors: errors };
     try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch(cacheError) { /* 캐시 용량 초과는 무시 */ }
     return jsonOk(result);
   } catch(err) {
@@ -3061,30 +3350,6 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
     try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(e) { /* 캐시 용량 초과는 무시 */ }
   }
   return points;
-}
-
-function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
-  // 요청별 고유 시트를 사용해 다른 지수 조회와 충돌하지 않으며, 성공·실패와 무관하게 삭제합니다.
-  var tmp = ss.insertSheet(_tempSheetName('_bm_'));
-  try {
-    var fs = fromDate.split('-');
-    var ts = toDate.split('-');
-    var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
-    tmp.getRange(1, 1).setFormula(formula);
-    SpreadsheetApp.flush();
-    Utilities.sleep(1600);
-
-    var lastRow = tmp.getLastRow();
-    if (lastRow < 2) return [];
-    var data = tmp.getRange(2, 1, lastRow - 1, 2).getValues();
-    return data.map(function(r) {
-      var d = _normalizeDate(r[0]);
-      var v = parseFloat(r[1]) || 0;
-      return { date: d, value: v };
-    }).filter(function(p) { return p.date && p.value > 0; });
-  } finally {
-    try { ss.deleteSheet(tmp); } catch(e) { Logger.log('⚠️ 지수 임시 시트 삭제 실패: ' + e.message); }
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -4278,30 +4543,21 @@ function _isManualKeepLatestEnabled() {
 }
 
 function _getPriceSourceMode() {
-  var props = PropertiesService.getScriptProperties();
-  var mode = (props.getProperty('price_source_mode') || 'google').toLowerCase();
-  if (mode !== 'krx_first') mode = 'google';
-  return mode;
+  // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다.
+  return 'toss_first';
 }
 
 function _priceSourceModeLabel() {
-  var mode = _getPriceSourceMode();
-  return mode === 'krx_first'
-    ? '📡 가격소스: KRX 우선 (GF 보조)'
-    : '📡 가격소스: GOOGLEFINANCE 전용';
+  return '📡 가격소스: Toss 우선 → KRX/공공데이터 → 저장이력';
 }
 
 function togglePriceSourceMode() {
-  var props = PropertiesService.getScriptProperties();
-  var next = _getPriceSourceMode() === 'krx_first' ? 'google' : 'krx_first';
-  props.setProperty('price_source_mode', next);
-  var msg = '⚙️ 가격소스 모드: ' + (next === 'krx_first' ? 'KRX 우선 (GF fallback)' : 'GOOGLEFINANCE 전용');
+  var msg = '⚙️ 주식·ETF 가격소스는 Toss 우선 → KRX/공공데이터 → 저장이력으로 고정됩니다.';
   Logger.log(msg);
   try {
     SpreadsheetApp.getUi().alert(
       msg +
-      '\n※ 과거 거래일 종가 정확도는 KRX 우선이 일반적으로 유리합니다.' +
-      '\n※ KRX 조회 실패 시 GOOGLEFINANCE로 자동 fallback 됩니다.'
+      '\n※ 조회 실패·누락 시 기존 확정 가격과 갱신시각을 보존합니다.'
     );
   } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -4681,15 +4937,16 @@ function handleSyncTrades(dataJson) {
       sh.setColumnWidth(7,90);  sh.setColumnWidth(8,80);  sh.setColumnWidth(9,200);
     }
     sh.clearContents();
-    sh.getRange(1,1,1,9).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모']]);
-    sh.getRange(1,1,1,9).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    sh.getRange(1,1,1,11).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산']]);
+    sh.getRange(1,1,1,11).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
     if (trades.length > 0) {
       trades.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
       var rows = trades.map(function(t) {
         return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'',
-                t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||''];
+                t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'',
+                t.ratio || '', t.fractionalCash || ''];
       });
-      sh.getRange(2, 1, rows.length, 9).setValues(rows);
+      sh.getRange(2, 1, rows.length, 11).setValues(rows);
     }
     SpreadsheetApp.flush();
     return jsonOk({ synced: trades.length });
@@ -5931,6 +6188,9 @@ function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
       map[name].qty       -= sellQty;
       map[name].totalCost -= sellQty * avgCost;
       if (map[name].qty < 0.0001) { map[name].qty = 0; map[name].totalCost = 0; }
+    } else if (tradeType === 'split' || tradeType === 'reverse_split') {
+      var ratio = parseFloat(row[9]) || 0;
+      if (ratio > 0 && map[name].qty > 0) map[name].qty = tradeType === 'split' ? map[name].qty * ratio : map[name].qty / ratio;
     }
   });
 
@@ -6326,6 +6586,8 @@ function handleGetTrades(existingSs) {
           price:     parseFloat(r[6]) || 0,
           assetType: assetType,
           memo:      (r[8] || '').toString(),
+          ratio:     parseFloat(r[9]) || 0,
+          fractionalCash: parseFloat(r[10]) || 0,
           // ★ [버그수정] fund 필드: 거래이력 시트는 9컬럼(날짜~메모)까지만 저장
           //   r[9]는 항상 undefined → fund 항상 false 버그 수정
           //   assetType으로 펀드/TDF 여부를 추론하도록 변경
@@ -6554,7 +6816,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.106' });
+    return jsonOk({ settings: settings, gasVersion: '9.107' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6576,7 +6838,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.106'
+      gasVersion: '9.107'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -7009,6 +7271,58 @@ function clearPriceAndSnapshotRows() {
 // ════════════════════════════════════════════════════════════════════
 //  메뉴
 // ════════════════════════════════════════════════════════════════════
+function configureTossClientIdPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var current = _getTossConfigStatus_();
+  var response = ui.prompt('Toss Open API Client ID 설정', 'Client ID를 입력하세요.\n빈 입력은 기존 값을 유지합니다.\n현재: ' + (current.clientIdConfigured ? current.clientIdMasked : '미설정'), ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var input = String(response.getResponseText() || '').trim();
+  if (!input) { ui.alert(current.clientIdConfigured ? '변경 없음' : '⚠️ Client ID가 미설정 상태입니다.'); return; }
+  handleSaveTossConfig(JSON.stringify({ clientId: input }));
+  ui.alert('✅ Toss Client ID 저장 완료\n표시값: ' + _getTossConfigStatus_().clientIdMasked);
+}
+
+function configureTossClientSecretPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var current = _getTossConfigStatus_();
+  var response = ui.prompt('Toss Open API Client Secret 설정', '재발급한 Client Secret을 입력하세요.\n빈 입력은 기존 값을 유지합니다.\n현재: ' + (current.secretConfigured ? '설정됨' : '미설정'), ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var input = String(response.getResponseText() || '').trim();
+  if (!input) { ui.alert(current.secretConfigured ? '변경 없음' : '⚠️ Client Secret이 미설정 상태입니다.'); return; }
+  handleSaveTossConfig(JSON.stringify({ secret: input }));
+  ui.alert('✅ Toss Client Secret 저장 완료\nSecret 원문은 저장 상태 외에는 표시하지 않습니다.');
+}
+
+function showTossOpenApiStatus() {
+  var ui = SpreadsheetApp.getUi();
+  var status = _getTossConfigStatus_();
+  ui.alert('Toss Open API 설정 상태\n\n' +
+    (status.clientIdConfigured ? '✅' : '⚠️') + ' Client ID: ' + (status.clientIdConfigured ? status.clientIdMasked : '미설정') + '\n' +
+    (status.secretConfigured ? '✅' : '⚠️') + ' Client Secret: ' + (status.secretConfigured ? '설정됨' : '미설정') + '\n' +
+    '최근 진단: ' + (status.lastDiagnosticAt || '없음') + '\n' +
+    '진단 결과: ' + (status.lastDiagnosticAt ? (status.lastDiagnosticOk ? '성공' : '실패 · ' + (status.lastDiagnosticCode || 'ERROR')) : '미실행'));
+}
+
+function runTossMarketDataDiagnosis() {
+  var ui = SpreadsheetApp.getUi();
+  var result = JSON.parse(handleDiagnoseTossMarketData().getContent());
+  if (result.status !== 'ok') { ui.alert('❌ Toss 진단 실패\n' + String(result.message || '응답 오류')); return; }
+  var lines = (result.endpoints || []).map(function(item) {
+    return (item.ok ? '✅' : '❌') + ' ' + item.name + ': ' + (item.status == null ? '-' : item.status) + ' / ' + item.code + ' / ' + (item.count || 0) + '건 / ' + item.elapsedMs + 'ms';
+  });
+  var ipHint = (result.endpoints || []).some(function(item) { return item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN'; })
+    ? '\n\n403: Toss WTS Open API에서 GAS UrlFetchApp의 Google IP range pool을 허용 목록에 등록해야 합니다.' : '';
+  ui.alert('Toss Open API read-only 진단\n\n' + lines.join('\n') + ipHint);
+}
+
+function clearTossOpenApiConfigPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert('Toss 설정 삭제', 'Toss Client ID/Secret, 진단 상태와 Toss token cache만 삭제합니다.\n가격이력·Snapshot·펀드·배당·거래 및 다른 API 설정은 변경하지 않습니다.\n계속하시겠습니까?', ui.ButtonSet.YES_NO);
+  if (answer !== ui.Button.YES) return;
+  handleClearTossConfig();
+  ui.alert('✅ Toss 설정과 token cache만 삭제했습니다.');
+}
+
 function onInstall(e) {
   onOpen(e);
 }
@@ -7018,6 +7332,11 @@ function _addFallbackMenu(ui) {
     .addItem('연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
     .addItem('공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
     .addItem('KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+    .addItem('Toss Client ID 설정', 'configureTossClientIdPrompt')
+    .addItem('Toss Client Secret 설정', 'configureTossClientSecretPrompt')
+    .addItem('Toss 설정 상태', 'showTossOpenApiStatus')
+    .addItem('Toss API read-only 진단', 'runTossMarketDataDiagnosis')
+    .addItem('Toss 설정 삭제', 'clearTossOpenApiConfigPrompt')
     .addItem('요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')
     .addItem('메뉴 생성 오류 확인', 'showMenuBuildError')
     .addToUi();
@@ -7055,6 +7374,11 @@ function onOpen(e) {
       .addSeparator()
       .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
       .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem('🔑 Toss Client ID 설정', 'configureTossClientIdPrompt')
+      .addItem('🔐 Toss Client Secret 설정', 'configureTossClientSecretPrompt')
+      .addItem('ℹ️ Toss 설정 상태', 'showTossOpenApiStatus')
+      .addItem('🔎 Toss API read-only 진단', 'runTossMarketDataDiagnosis')
+      .addItem('🗑️ Toss 설정 삭제', 'clearTossOpenApiConfigPrompt')
       .addItem('ℹ️ API 인증키 저장 상태', 'showApiKeyStatus')
       .addSeparator()
       .addItem('🛡️ 요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')

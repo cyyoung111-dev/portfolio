@@ -503,3 +503,40 @@ GAS 메뉴 및 시트 구성:
 - 나머지 공통 화면·컴포넌트·유틸리티 선언은 기존 선언 순서를 유지한 채 `components.css`로 이동해 렌더링 우선순위 변화를 최소화했습니다.
 - 기존 CSS에 남아 있던 불필요한 닫는 중괄호 한 개를 제거하고, `base.css` 소유 범위가 다시 확장되지 않도록 정적 검사를 추가했습니다.
 - 글꼴, 글자 크기, 굵기 및 UI 크기 값은 변경하지 않았으며 자체 정적 자산과 서비스워커 캐시 버전은 `20260903-1`로 통일했습니다.
+### 시장데이터 provider 전환 준비
+
+### 시장데이터 가격 경로·거래 Corporate Action 보강 (2026-09-16)
+
+- 주식·ETF 현재가·과거 종가의 운영 fallback은 Toss → KRX/기존 공공데이터 → 저장된 확정 가격이력입니다. 가격 provider 함수와 UI 현재가 경로에서 GOOGLEFINANCE를 호출하지 않습니다.
+- Toss 실패·부분 누락은 0이나 빈 값으로 저장하지 않고 기존 정상 가격·갱신시각을 유지하며, 화면에는 미조회/stale/error 상태를 표시합니다.
+- 현재가 polling은 60초 간격 화면 갱신 전용이며 `persist=false`로 가격이력·Snapshot을 쓰지 않습니다. `document.hidden`일 때 중단하고 다시 보이면 즉시 한 번 확인합니다.
+- 거래 입력·GAS 원장에 `split`·`reverse_split`, `ratio`, `fractionalCash`를 연결했습니다. 분할·병합은 매수/매도가 아니며 기본 현금흐름은 0, 총 취득원가는 유지하고 병합 단주는 실제 처리수량·현금정산을 수기 입력합니다.
+
+- `diagnoseTossMarketData` read-only 점검 route가 환율(USD/KRW), KR/US 시장 캘린더, KOSPI/KOSDAQ 지수 현재가·일봉을 호출해 endpoint별 성공 여부·HTTP status·requestId·건수·소요시간만 반환합니다. 원문 응답·토큰·Authorization header·인증정보는 반환하거나 로그에 남기지 않으며 시트/Snapshot을 쓰지 않습니다.
+- OpenAPI의 Market Indicators 지원 심볼은 `KOSPI`, `KOSDAQ`, `KR_BOND_2Y/3Y/5Y/10Y/20Y/30Y`입니다. `S&P500`, `DOW`, `NASDAQ`, `NASDAQ100`은 지원 목록에 없어 기존 정상 지수 공급원을 유지합니다. ETF proxy는 사용하지 않습니다.
+
+- v9.107부터 GAS의 `getPrices`는 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`이 Script Properties에 모두 있을 때 Toss `GET /api/v1/prices`를 최대 200종목 batch로 우선 호출합니다. 과거 종가는 `/api/v1/candles?interval=1d&adjusted=false`와 `nextBefore`를 사용합니다.
+- Toss OAuth access token은 Script Cache에 만료 60초 전까지 캐시하고, refresh token은 사용하지 않습니다. 429 및 5xx는 `Retry-After` 우선, 없으면 지수 백오프+jitter로 최대 4회 재시도합니다.
+- Toss 키가 없거나 호출 실패하면 기존 KRX·저장된 확정 가격이력 경로를 유지합니다. Toss 응답으로 기존 확정 NAV·배당·스냅샷을 삭제하지 않습니다.
+
+- `src/web/domain/market/market_data_provider.js`는 Toss 및 기존 공급원 응답을 `marketDate`, `symbol`, `market`, `closePrice`, `currency`, `source`, `priceType=REGULAR_CLOSE`, `status`, `fetchedAt`로 정규화합니다.
+- Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
+- `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
+- 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.
+- GAS `UrlFetchApp`은 Google IP range pool에서 실행되므로 Toss 콘솔 허용 IP 미등록 시 OAuth/API가 403으로 차단될 수 있습니다. 고정 IP proxy는 구현하지 않으며, [Google UrlFetchApp 안내](https://developers.google.com/apps-script/reference/url-fetch/url-fetch-app)와 Toss 콘솔 허용 IP 정책을 배포 전에 확인해야 합니다.
+- Secret이 이미지·메신저·문서 등에 노출된 경우 해당 credential은 사용하지 말고 Toss 콘솔에서 재발급한 뒤 GAS Script Properties에만 설정합니다. 문서·예시·로그·PR에는 실제 값이나 토큰을 기록하지 않습니다.
+
+## 비교지수 provider 업데이트 (2026-09-16)
+
+- `getBenchmark(s)`의 KOSPI·KOSDAQ은 Toss 공식 Market Indicator `prices`/`candles(interval=1d)`를 사용하고, 동일 기간 결과를 Script Cache에 저장합니다. Toss 실패·빈 응답은 기존 성공 캐시를 우선 보존하며 0으로 저장하지 않습니다.
+- 미국 `SP500(^GSPC)`, `NASDAQ(^IXIC)`, `NASDAQ100(^NDX)`, `DOW(^DJI)`는 Yahoo Finance chart JSON endpoint를 사용합니다. 현재값·전일 종가·등락률은 60초 캐시하며, 일별 시계열은 기간 캐시를 사용합니다. 렌더링마다 직접 호출하지 않습니다.
+- Yahoo endpoint(`query1.finance.yahoo.com/v8/finance/chart`)는 비공식 인터페이스이며 계약·응답 변경, rate limit, 네트워크 차단 위험이 있습니다. 장애 시 GOOGLEFINANCE로 자동 전환하지 않고 기존 성공 캐시/빈 조회 오류를 유지합니다.
+- 이 변경에서 GOOGLEFINANCE를 제거한 범위는 위 4개 미국 지수와 KOSPI·KOSDAQ 비교지수 경로입니다. 환율·배당·종목명 등 다른 기존 기능의 GOOGLEFINANCE 사용은 범위 밖이며 유지됩니다.
+- GAS `UrlFetchApp`의 Google IP range pool 제약으로 Yahoo 또는 Toss가 403을 반환할 수 있습니다. 허용 IP 설정과 실제 응답을 배포 후 확인하며, proxy는 추가하지 않습니다.
+
+### Toss 인증정보 설정 UI
+
+- 웹앱 `설정 → 구글시트 연동`의 Toss 영역에서 Client ID와 새 Client Secret을 입력하고 저장합니다. 저장 성공 후 입력칸은 즉시 비우며, 브라우저 저장소·설정 시트·HTML 초기 데이터에는 원문을 남기지 않습니다.
+- 스프레드시트 `📊 포트폴리오 → ⚙️ 설정` 메뉴에서도 `Toss Client ID 설정`, `Toss Client Secret 설정`, `Toss 설정 상태`, `Toss API read-only 진단`, `Toss 설정 삭제`를 사용할 수 있습니다. 빈 입력은 기존 값을 유지합니다.
+- 서버 응답에는 Client ID 마스킹값, Secret 설정 여부, 마지막 진단 시각·성공 여부·오류 코드만 포함합니다. 삭제 확인 시 Toss Script Properties와 Toss token cache 및 Toss 진단 상태만 삭제하고 다른 API 설정과 Portfolio 시트는 건드리지 않습니다.
+- 403은 Toss WTS Open API 허용 IP 미등록으로 안내합니다. IP는 GAS에서 설정하지 않고 Toss 콘솔에 등록하며, GAS `UrlFetchApp`은 Google IP range pool에서 실행됩니다.

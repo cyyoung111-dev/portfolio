@@ -265,6 +265,68 @@ async function lookupOfficialStockByCode(code) {
   } catch(e) { return null; }
 }
 
+function _renderTossConfigStatus(status) {
+  const target = $el('tossConfigStatus');
+  if (!target) return;
+  const toss = status || {};
+  const id = toss.clientIdConfigured ? (toss.clientIdMasked || '설정됨') : '미설정';
+  const secret = toss.secretConfigured ? '설정됨' : '미설정';
+  const diag = toss.lastDiagnosticAt
+    ? `${toss.lastDiagnosticOk ? '성공' : '실패 · ' + (toss.lastDiagnosticCode || 'ERROR')} · ${toss.lastDiagnosticAt}`
+    : '미실행';
+  target.innerHTML = `Client ID: <b>${_escapeHtml(id)}</b> · Client Secret: <b>${secret}</b> · 최근 진단: <b>${_escapeHtml(diag)}</b>`;
+}
+
+async function saveTossConfigFromUI() {
+  if (!GSHEET_API_URL) return;
+  const clientId = String($el('tossClientIdInput')?.value || '').trim();
+  const secret = String($el('tossClientSecretInput')?.value || '').trim();
+  if (!clientId && !secret) {
+    const status = $el('tossConfigStatus');
+    if (status) status.textContent = '입력값이 없어 기존 설정을 유지했습니다.';
+    return;
+  }
+  try {
+    const data = await requestGsheetFormJson('saveTossConfig', { data: JSON.stringify({ clientId, secret }) }, { timeoutMs: 15000, retry: 0 });
+    if (!data || data.status !== 'ok') throw new Error(data?.message || '응답 오류');
+    if ($el('tossClientIdInput')) $el('tossClientIdInput').value = '';
+    if ($el('tossClientSecretInput')) $el('tossClientSecretInput').value = '';
+    _renderTossConfigStatus(data.toss);
+    if (typeof showToast === 'function') showToast('✅ Toss 설정을 저장했습니다. 원문은 브라우저에 보관하지 않습니다.', 'success');
+  } catch (error) {
+    if ($el('tossConfigStatus')) $el('tossConfigStatus').textContent = '❌ Toss 설정 저장 실패: ' + (error.message || '응답 오류');
+  }
+}
+
+async function diagnoseTossFromUI() {
+  if (!GSHEET_API_URL) return;
+  const target = $el('tossDiagnosticResult');
+  if (target) target.textContent = '진단 중...';
+  try {
+    const data = await requestGsheetActionJson('diagnoseTossMarketData', {}, { timeoutMs: 30000, retry: 0 });
+    if (!data || data.status !== 'ok') throw new Error(data?.message || '응답 오류');
+    const lines = (data.endpoints || []).map(item => `${item.ok ? '✅' : '❌'} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'} / ${Number(item.count || 0)}건 / ${Number(item.elapsedMs || 0)}ms`);
+    const ipBlocked = (data.endpoints || []).some(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN');
+    if (target) target.innerHTML = _escapeHtml(lines.join('\n') + (ipBlocked ? '\n\n403: Toss WTS Open API에 Google IP range pool 허용 IP 등록이 필요합니다.' : ''));
+    _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: data.ok ? 'OK' : ((data.endpoints || []).find(item => !item.ok)?.code || 'ERROR') });
+  } catch (error) {
+    if (target) target.textContent = '❌ Toss 진단 실패: ' + (error.message || '응답 오류');
+  }
+}
+
+async function clearTossConfigFromUI() {
+  if (!GSHEET_API_URL) return;
+  if (!window.confirm('Toss Client ID/Secret, 진단 상태와 token cache만 삭제합니다. 다른 API 설정과 Portfolio 데이터는 변경하지 않습니다. 계속하시겠습니까?')) return;
+  try {
+    const data = await requestGsheetFormJson('clearTossConfig', {}, { timeoutMs: 15000, retry: 0 });
+    if (!data || data.status !== 'ok') throw new Error(data?.message || '응답 오류');
+    _renderTossConfigStatus(data.toss);
+    if (typeof showToast === 'function') showToast('✅ Toss 설정과 token cache만 삭제했습니다.', 'success');
+  } catch (error) {
+    if ($el('tossConfigStatus')) $el('tossConfigStatus').textContent = '❌ Toss 설정 삭제 실패: ' + (error.message || '응답 오류');
+  }
+}
+
 async function lookupNameByCode(code) {
   if (!code) return '';
   const trimCode = _normalizeSyncCode(code);

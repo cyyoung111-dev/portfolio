@@ -42,7 +42,7 @@ async function fetchFromGsheet(dateStr, options) {
   if (_inFlightFetches[dateStr]) {
     return _inFlightFetches[dateStr];
   }
-  const promise = _fetchFromGsheetInner(dateStr);
+  const promise = _fetchFromGsheetInner(dateStr, options);
   _inFlightFetches[dateStr] = promise;
   try {
     return await promise;
@@ -52,7 +52,7 @@ async function fetchFromGsheet(dateStr, options) {
   }
 }
 
-async function _fetchFromGsheetInner(dateStr) {
+async function _fetchFromGsheetInner(dateStr, options) {
   if (!GSHEET_API_URL) return null;
   try {
     const pickLatestPreferManual = (list) => {
@@ -112,7 +112,7 @@ async function _fetchFromGsheetInner(dateStr) {
           window._lastPriceLookup = null;
           window._gsheetResolvedPriceDate = '';
           const roundTripStarted = Date.now();
-          const data = await requestGsheetActionJson('getPrices', { codes }, { timeoutMs: 30000, retry: 1 });
+          const data = await requestGsheetActionJson('getPrices', { codes, persist: options?.persist ? '1' : '0' }, { timeoutMs: 30000, retry: 1 });
           if (!data || data.status !== 'ok' || !data.prices) {
             throw new Error(data?.message || '실시간 가격 응답 오류');
           }
@@ -276,21 +276,19 @@ function _priceLookupSummary() {
   if (!meta || typeof meta !== 'object') return '';
   const elapsed = Number.isFinite(Number(meta.serverElapsedMs)) ? `${Math.max(0, Math.round(Number(meta.serverElapsedMs)))}ms` : '?';
   const roundTrip = Number.isFinite(Number(meta.clientRoundTripMs)) ? `${Math.max(0, Math.round(Number(meta.clientRoundTripMs)))}ms` : '?';
+  const toss = Math.max(0, Number(meta.tossResultCount) || 0);
   const krx = Math.max(0, Number(meta.krxResultCount) || 0);
   const history = Math.max(0, Number(meta.recentHistoryFallbackCount) || 0);
-  let gf;
-  if (meta.googleFinanceSkipped) gf = `GF 생략 · ${meta.googleFinanceSkipReason || '대상 없음'}`;
-  else if (meta.googleFinanceExecuted) gf = `GF ${Math.max(0, Number(meta.googleFinanceResultCount) || 0)}건`;
-  else gf = 'GF 불필요';
   const chips = [
+    `Toss ${toss}건`,
     `KRX ${krx}건`,
-    gf,
+    'GOOGLEFINANCE 가격 미사용',
     ...(history > 0 ? [`최근이력 ${history}건`] : []),
     `왕복 ${roundTrip}`,
     `GAS ${elapsed}`,
     ...(meta.cacheHit ? ['60초 캐시'] : []),
   ];
-  return `<span class="price-status-chips">${chips.map((label, index) => `<span class="price-status-chip${index === 1 && meta.googleFinanceSkipped ? ' is-skip' : ''}">${label}</span>`).join('')}</span>`;
+  return `<span class="price-status-chips">${chips.map(label => `<span class="price-status-chip">${label}</span>`).join('')}</span>`;
 }
 
 function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
@@ -373,7 +371,7 @@ async function quickFetchByDate() {
 
     setStatusLabel('⏳ ' + targetDate + ' 종가 조회 중...' + (settingsLoaded ? ' · GAS 데이터 확인 완료' : ''), 'loading');
     // 버튼 클릭은 자동 조회 중 생성된 결과를 재사용하지 않고 GAS 최종값을 새로 확인합니다.
-    let results = await fetchFromGsheet(targetDate, { forceFresh: true });
+    let results = await fetchFromGsheet(targetDate, { forceFresh: true, persist: true });
     let usedDate = targetDate;
     if (targetDate === getDateStr(0) && window._gsheetResolvedPriceDate && window._gsheetResolvedPriceDate < targetDate) {
       usedDate = window._gsheetResolvedPriceDate;
@@ -434,7 +432,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.106';
+const EXPECTED_GAS_VERSION = '9.107';
 
 
 async function autoLoadPrices() {
@@ -467,7 +465,7 @@ async function autoLoadPrices() {
     badge.style.color = 'var(--blue-lt)';
     badge.style.border = '1px solid var(--c-blue2-30)';
   }
-  setStatusLabel('⏳ KRX 평가가격 조회 중...', 'loading');
+  setStatusLabel('⏳ Toss·기존 공급원 평가가격 조회 중...', 'loading');
 
   try {
     let results = null;
@@ -534,6 +532,40 @@ async function autoLoadPrices() {
   }
 }
 
+// 현재가 polling은 화면 표시용으로만 사용합니다. GAS의 persist=0을 명시해
+// 가격이력·Snapshot을 매 주기 저장하지 않으며, 탭이 숨겨지면 요청 자체를 중단합니다.
+let _pricePollingTimer = null;
+let _pricePollingVisibilityBound = false;
+
+async function pollCurrentPrices() {
+  if (document.hidden || !GSHEET_API_URL) return;
+  try {
+    const results = await fetchFromGsheet(getDateStr(0), { persist: false, polling: true });
+    if (!results || Object.keys(results).length === 0) return;
+    Object.entries(results).forEach(([key, price]) => {
+      if (Number(price) > 0) savedPrices[key] = price;
+    });
+    lastUpdated = getDateStr(0).replace(/-/g, '.');
+    updateDateBadge(lastUpdated, true);
+    setStatusLabel(`✅ 현재가 갱신 · ${Object.keys(results).length}개 · 저장 이력/Snapshot 미변경`, 'ok');
+    refreshAll();
+  } catch (e) {
+    console.warn('[price-polling] 현재가 갱신 실패:', e.message);
+    setStatusLabel('⚠️ 현재가 polling 실패 · 마지막 정상값 유지', 'warn');
+  }
+}
+
+function startPricePolling() {
+  if (_pricePollingTimer || typeof document === 'undefined') return;
+  if (!_pricePollingVisibilityBound) {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) pollCurrentPrices();
+    });
+    _pricePollingVisibilityBound = true;
+  }
+  _pricePollingTimer = setInterval(pollCurrentPrices, 60 * 1000);
+}
+
 // ── applyPrices 날짜 뱃지 연동 (특정일 지정 시)
 
 // INIT — localStorage 불러오기가 이미 완료된 상태에서 렌더링
@@ -554,4 +586,5 @@ setTimeout(async () => {
   // 두 작업을 동시에 시작하면 늦게 끝난 설정 복원이 방금 조회한 현재가를 과거 캐시로 덮어쓸 수 있습니다.
   if (typeof bootstrapGsheetSettings === 'function') await bootstrapGsheetSettings();
   if (typeof autoLoadPrices === 'function') await autoLoadPrices();
+  startPricePolling();
 }, 100);

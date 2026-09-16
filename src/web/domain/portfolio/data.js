@@ -306,6 +306,8 @@ function getQtyAtDate(name, dateStr, acct) {
     .forEach(t => {
       if (t.tradeType === 'buy')  qty += (t.qty || 0);
       if (t.tradeType === 'sell') qty -= (t.qty || 0);
+      if (t.tradeType === 'split' && Number(t.ratio) > 0) qty *= Number(t.ratio);
+      if (t.tradeType === 'reverse_split' && Number(t.ratio) > 0) qty /= Number(t.ratio);
     });
   return Math.max(0, qty);
 }

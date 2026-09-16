@@ -10,12 +10,15 @@ let _teNewTypeFilter   = '';  // 신규 모드 유형(자산종류) 필터
 function _teSetTradeType(type) {
   const f      = id => $el(id);
   const isSell = type === 'sell';
-  f('te-tradetype-buy').classList.toggle('active', !isSell);
-  f('te-tradetype-sell').classList.toggle('active', isSell);
+  ['buy','sell','split','reverse_split'].forEach(value => f(`te-tradetype-${value}`)?.classList.toggle('active', type === value));
+  const isAction = type === 'split' || type === 'reverse_split';
   const priceLabel = f('te-price-label');
   if (priceLabel) priceLabel.textContent = isSell ? '매도단가 (원) *' : '매수단가 (원) *';
   const dateLabel = f('te-date-label');
   if (dateLabel)  dateLabel.textContent  = isSell ? '매도일자 *' : '매수일자 *';
+  ['te-price-wrap','te-fx-wrap'].forEach(id => { const el=f(id); if (el && isAction) el.style.display='none'; });
+  const actionWrap=f('te-action-wrap'); if (actionWrap) actionWrap.style.display=isAction?'':'none';
+  const qtyLabel=f('te-qty-label'); if (qtyLabel) qtyLabel.textContent=isAction?'현재 보유수량':'수량';
   window._currentTradeType = type;
 }
 
@@ -384,8 +387,7 @@ function openAddTrade(prefill, forceTradeType) {
 
   const tradeType = forceTradeType || t.tradeType || 'buy';
   const f = id => $el(id);
-  f('te-tradetype-buy').classList.toggle('active', tradeType === 'buy');
-  f('te-tradetype-sell').classList.toggle('active', tradeType === 'sell');
+  ['buy','sell','split','reverse_split'].forEach(value => f(`te-tradetype-${value}`)?.classList.toggle('active', tradeType === value));
   _teSetTradeType(tradeType);
 
   const _teEp        = getEP(normName(t.name) || t.name);
@@ -417,6 +419,8 @@ function openAddTrade(prefill, forceTradeType) {
   })();
 
   f('te-qty').value = t.qty ?? '';
+  f('te-ratio').value = t.ratio ?? '';
+  f('te-fractional-cash').value = t.fractionalCash ?? '';
 
   // 재사용되는 편집창에 직전 거래의 환율·단가가 남지 않도록 먼저 초기화합니다.
   const currency = (_teEp?.currency || 'KRW').toUpperCase();
@@ -425,6 +429,10 @@ function openAddTrade(prefill, forceTradeType) {
   const fxWrap = f('te-fx-wrap');
   if (priceWrap) priceWrap.style.display = isForeign ? 'none' : '';
   if (fxWrap) fxWrap.style.display = isForeign ? '' : 'none';
+  if (tradeType === 'split' || tradeType === 'reverse_split') {
+    if (priceWrap) priceWrap.style.display = 'none';
+    if (fxWrap) fxWrap.style.display = 'none';
+  }
   const krwEl = f('te-price-krw');
   const fxEl = f('te-price-fx');
   const fxRateEl = f('te-fx-rate');
@@ -471,14 +479,20 @@ function buildTradeEditOverlayHTML() {
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:11px">
         <div id="te-error" style="display:none;background:var(--c-red-10);border:1px solid var(--c-red-30);border-radius:6px;padding:8px 12px;font-size:.75rem;color:var(--red-lt)"></div>
 
-        <!-- 매수 / 매도 탭 -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <!-- 매수 / 매도 / 분할 / 병합 탭 -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden">
           <button id="te-tradetype-buy" data-te-action="trade-type" data-value="buy"
             style="padding:9px;font-size:.80rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:all .15s"
             class="te-type-btn">📈 매수</button>
           <button id="te-tradetype-sell" data-te-action="trade-type" data-value="sell"
             style="padding:9px;font-size:.80rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border);transition:all .15s"
             class="te-type-btn">📉 매도</button>
+          <button id="te-tradetype-split" data-te-action="trade-type" data-value="split"
+            style="padding:9px 3px;font-size:.72rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border)"
+            class="te-type-btn">➗ 분할</button>
+          <button id="te-tradetype-reverse_split" data-te-action="trade-type" data-value="reverse_split"
+            style="padding:9px 3px;font-size:.72rem;font-weight:700;cursor:pointer;border:none;background:transparent;color:var(--muted);border-left:1px solid var(--border)"
+            class="te-type-btn">🔗 병합</button>
         </div>
 
         <!-- 계좌 + 자산구분 -->
@@ -520,6 +534,14 @@ function buildTradeEditOverlayHTML() {
             <label id="te-date-label" class="form-label">매수일자 *</label>
             <input id="te-date" type="date" class="input-full-82" style="width:100%;box-sizing:border-box"/>
           </div>
+        </div>
+
+        <div id="te-action-wrap" style="display:none;background:var(--c-amber-10);border:1px solid var(--c-amber-30);border-radius:8px;padding:9px">
+          <label class="form-label">비율 *</label>
+          <input id="te-ratio" type="number" min="0.000001" step="0.000001" placeholder="2 (1주→2주)" class="input-full-82"/>
+          <div style="font-size:.68rem;color:var(--muted);margin-top:5px">분할·병합은 매수/매도가 아니며 총 취득원가는 유지됩니다.</div>
+          <label class="form-label" style="margin-top:7px">병합 단주 현금정산(선택)</label>
+          <input id="te-fractional-cash" type="number" min="0" step="0.01" placeholder="실제 단주 정산액" class="input-full-82"/>
         </div>
 
         <!-- 단가 -->
@@ -603,7 +625,7 @@ function saveTrade() {
   const f         = id => $el(id);
   const err       = f('te-error');
   const name      = f('te-name').value.trim();
-  const qty       = parseInt(f('te-qty').value);
+  const qty       = parseFloat(f('te-qty').value);
   const date      = f('te-date').value;
   // ★ [환율 연동] 외화 모드(te-fx-wrap 표시 중)면 te-price-fx-krw, 원화면 te-price-krw
   const isFxMode  = $el('te-fx-wrap')?.style.display !== 'none';
@@ -611,6 +633,8 @@ function saveTrade() {
     ? parseFloat(f('te-price-fx-krw')?.value || '0')
     : parseFloat((f('te-price-krw')?.value || '0').replace(/,/g, ''));
   const tradeType = window._currentTradeType || 'buy';
+  const isAction = tradeType === 'split' || tradeType === 'reverse_split';
+  const ratio = parseFloat(f('te-ratio')?.value || '0') || 0;
   const isEditing = _editingTradeId != null;
 
   const acctVal = f('te-acct').value;
@@ -624,14 +648,17 @@ function saveTrade() {
   }
   if (!qty || qty <= 0)           { err.textContent='❌ 수량을 입력하세요 (양수)'; err.style.display='block'; return; }
   if (!date)                      { err.textContent='❌ 날짜를 입력하세요'; err.style.display='block'; return; }
-  // ★ [환율 연동] 외화 모드 유효성 검사
-  if (isFxMode) {
-    const fxPriceVal = parseFloat(f('te-price-fx')?.value || '0') || 0;
-    const fxRateVal  = parseFloat(f('te-fx-rate')?.value  || '0') || 0;
-    if (!fxPriceVal || fxPriceVal <= 0) { err.textContent='❌ 외화 단가를 입력하세요'; err.style.display='block'; return; }
-    if (!fxRateVal  || fxRateVal  <= 0) { err.textContent='❌ 매입 환율을 입력하세요'; err.style.display='block'; return; }
-  } else {
-    if (isNaN(price) || price <= 0) { err.textContent='❌ 단가를 입력하세요'; err.style.display='block'; return; }
+  if (isAction && (!ratio || ratio <= 0)) { err.textContent='❌ 분할·병합 비율을 입력하세요 (양수)'; err.style.display='block'; return; }
+  // ★ [환율 연동] 외화 모드 유효성 검사. Corporate Action은 단가·환율을 받지 않습니다.
+  if (!isAction) {
+    if (isFxMode) {
+      const fxPriceVal = parseFloat(f('te-price-fx')?.value || '0') || 0;
+      const fxRateVal  = parseFloat(f('te-fx-rate')?.value  || '0') || 0;
+      if (!fxPriceVal || fxPriceVal <= 0) { err.textContent='❌ 외화 단가를 입력하세요'; err.style.display='block'; return; }
+      if (!fxRateVal  || fxRateVal  <= 0) { err.textContent='❌ 매입 환율을 입력하세요'; err.style.display='block'; return; }
+    } else if (isNaN(price) || price <= 0) {
+      err.textContent='❌ 단가를 입력하세요'; err.style.display='block'; return;
+    }
   }
 
   const code  = f('te-code').value.trim();
@@ -641,13 +668,20 @@ function saveTrade() {
   const normN = normName(name) || name;
 
   // 매도 시 현재 보유 수량 초과 체크
-  if (tradeType === 'sell' && !isEditing) {
+  let currentQty = null;
+  if ((tradeType === 'sell' || isAction) && !isEditing) {
     const acct = acctVal || '';
     // 현재 보유 수량 계산 (해당 계좌, 해당 종목)
-    const currentQty = rawTrades
+    currentQty = rawTrades
       .filter(t => t.name === normN && t.acct === acct)
-      .reduce((s, t) => t.tradeType === 'buy' ? s + (t.qty||0) : s - (t.qty||0), 0);
-    if (qty > currentQty) {
+      .reduce((s, t) => {
+        if (t.tradeType === 'buy') return s + (t.qty || 0);
+        if (t.tradeType === 'sell') return s - (t.qty || 0);
+        if (t.tradeType === 'split' && Number(t.ratio) > 0) return s * Number(t.ratio);
+        if (t.tradeType === 'reverse_split' && Number(t.ratio) > 0) return s / Number(t.ratio);
+        return s;
+      }, 0);
+    if (tradeType === 'sell' && qty > currentQty) {
       err.textContent = `❌ 매도 수량(${qty})이 보유 수량(${currentQty})을 초과합니다`;
       err.style.display = 'block';
       return;
@@ -665,9 +699,13 @@ function saveTrade() {
     acct:      acctVal,
     accountId: getAccountId(acctVal),
     assetType: f('te-assettype').value,
-    name: normN, code, qty, price, date,
+    name: normN, code, qty: isAction ? (isEditing ? qty : currentQty) : qty, price: isAction ? 0 : price, date,
     memo: f('te-memo').value.trim(),
   };
+  if (isAction) {
+    trade.ratio = ratio;
+    trade.fractionalCash = Math.max(0, parseFloat(f('te-fractional-cash')?.value || '0') || 0);
+  }
 
   // ★ [환율 연동] 외화 종목이면 외화 단가 + 매입 환율도 저장
   const ep2 = getEP(normN);
