@@ -2986,19 +2986,153 @@ function handleGetPriceHistory(fromStr, toStr, codesParam) {
 
 function _benchmarkSymbolMap() {
   return {
-    KOSPI: ['INDEXKRX:KOSPI', 'KRX:KOSPI', 'INDEXKRX:KOSPI200'],
-    KOSDAQ: ['INDEXKRX:KOSDAQ', 'KRX:KOSDAQ', 'INDEXKRX:KQ11', 'KRX:229200'],
-    SP500: ['INDEXSP:.INX', 'INDEXSP:INX', 'SP:SPX'],
-    DOW: ['INDEXDJX:.DJI', 'INDEXDJX:DJI'],
-    NASDAQ: ['INDEXNASDAQ:.IXIC', 'INDEXNASDAQ:IXIC', 'NASDAQ:IXIC'],
-    NASDAQ100: ['INDEXNASDAQ:NDX', 'NASDAQ:NDX'],
+    KOSPI: ['KOSPI'],
+    KOSDAQ: ['KOSDAQ'],
+    SP500: ['^GSPC'],
+    DOW: ['^DJI'],
+    NASDAQ: ['^IXIC'],
+    NASDAQ100: ['^NDX'],
     VKOSPI: []
   };
 }
 
+var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
+var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI' };
+
+function _indicatorRows_(payload) {
+  var result = payload && payload.result;
+  if (Array.isArray(result)) return result;
+  if (result && Array.isArray(result.prices)) return result.prices;
+  if (Array.isArray(payload && payload.prices)) return payload.prices;
+  return [];
+}
+
+function fetchMarketIndicatorPricesToss(symbols) {
+  var requested = (symbols || []).map(function(symbol) { return String(symbol || '').trim().toUpperCase(); })
+    .filter(function(symbol, index, all) { return TOSS_MARKET_INDICATOR_SYMBOLS[symbol] && all.indexOf(symbol) === index; });
+  if (!requested.length) return {};
+  var payload = _tossRequest_('/api/v1/market-indicators/prices', { symbols: requested.join(',') }, 'MARKET_INDICATOR');
+  var output = {};
+  _indicatorRows_(payload).forEach(function(row) {
+    var symbol = String(row && row.symbol || '').trim().toUpperCase();
+    var value = Number(row && (row.lastPrice != null ? row.lastPrice : row.closePrice));
+    if (TOSS_MARKET_INDICATOR_SYMBOLS[symbol] && isFinite(value) && value > 0) output[symbol] = { value: value, timestamp: row.timestamp || '', source: 'TOSS', status: 'CONFIRMED' };
+  });
+  return output;
+}
+
+function _indicatorCandleRows_(payload) {
+  var result = payload && payload.result;
+  if (result && Array.isArray(result.candles)) return result.candles;
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(payload && payload.candles)) return payload.candles;
+  return [];
+}
+
+function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate) {
+  var normalized = String(symbol || '').trim().toUpperCase();
+  if (!TOSS_MARKET_INDICATOR_SYMBOLS[normalized]) return [];
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'toss_indicator_' + normalized + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+  var cached = cache.get(cacheKey);
+  if (cached) { try { return JSON.parse(cached); } catch(ignore) {} }
+  var pointsByDate = {};
+  var before = '';
+  for (var page = 0; page < 100; page++) {
+    var query = { interval: '1d', count: 200 };
+    if (before) query.before = before;
+    var payload = _tossRequest_('/api/v1/market-indicators/' + encodeURIComponent(normalized) + '/candles', query, 'MARKET_INDICATOR_CHART');
+    var rows = _indicatorCandleRows_(payload);
+    rows.forEach(function(row) {
+      var date = _normalizeDate(row && (row.timestamp || row.marketDate || row.date));
+      var value = Number(row && (row.closePrice != null ? row.closePrice : row.lastPrice));
+      if (date >= fromDate && date <= toDate && isFinite(value) && value > 0) pointsByDate[date] = value;
+    });
+    var nextBefore = payload && payload.nextBefore || (payload && payload.result && payload.result.nextBefore) || '';
+    if (!rows.length || !nextBefore || nextBefore === before) break;
+    var oldest = rows.map(function(row) { return _normalizeDate(row && (row.timestamp || row.marketDate || row.date)); }).filter(Boolean).sort()[0];
+    if (oldest && oldest < fromDate) break;
+    before = nextBefore;
+  }
+  var points = Object.keys(pointsByDate).sort().map(function(date) { return { date: date, value: pointsByDate[date] }; });
+  if (points.length) { try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(ignoreCache) {} }
+  return points;
+}
+
+// Yahoo Finance chart is an unofficial endpoint and may change without notice; it is only for US index series.
+function _parseYahooChart_(payload, timezone) {
+  var chart = payload && payload.chart;
+  var result = chart && Array.isArray(chart.result) ? chart.result[0] : null;
+  if (!result) return null;
+  var quote = result.indicators && result.indicators.quote && result.indicators.quote[0];
+  var timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
+  var closes = quote && Array.isArray(quote.close) ? quote.close : [];
+  var points = [];
+  timestamps.forEach(function(timestamp, index) {
+    var value = Number(closes[index]);
+    if (!isFinite(value) || value <= 0) return;
+    points.push({ date: Utilities.formatDate(new Date(Number(timestamp) * 1000), timezone || CONFIG.TIMEZONE, 'yyyy-MM-dd'), value: value });
+  });
+  var meta = result.meta || {};
+  var current = Number(meta.regularMarketPrice);
+  var previousClose = Number(meta.previousClose != null ? meta.previousClose : meta.chartPreviousClose);
+  return { symbol: meta.symbol || '', points: points,
+    current: isFinite(current) && current > 0 ? current : (points.length ? points[points.length - 1].value : null),
+    previousClose: isFinite(previousClose) && previousClose > 0 ? previousClose : null,
+    timestamp: meta.regularMarketTime || (timestamps.length ? timestamps[timestamps.length - 1] : '') };
+}
+
+function _yahooRequest_(symbol, params) {
+  var query = Object.keys(params || {}).map(function(key) { return encodeURIComponent(key) + '=' + encodeURIComponent(params[key]); }).join('&');
+  var url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(symbol) + (query ? '?' + query : '');
+  var lastStatus = 0;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    try {
+      var response = UrlFetchApp.fetch(url, { method: 'get', muteHttpExceptions: true });
+      lastStatus = response.getResponseCode();
+      if (lastStatus === 429 || lastStatus >= 500) {
+        var retryAfter = Number(response.getHeaders()['Retry-After'] || 0);
+        Utilities.sleep(Math.min(5000, (retryAfter > 0 ? retryAfter * 1000 : Math.pow(2, attempt) * 300) + Math.floor(Math.random() * 200)));
+        continue;
+      }
+      if (lastStatus >= 400) return { status: lastStatus, error: 'HTTP_' + lastStatus };
+      return { status: lastStatus, payload: JSON.parse(response.getContentText() || '{}') };
+    } catch(error) {
+      if (attempt === 2) return { status: 0, error: 'TIMEOUT_OR_NETWORK_ERROR' };
+      Utilities.sleep(Math.pow(2, attempt) * 300 + Math.floor(Math.random() * 200));
+    }
+  }
+  return { status: lastStatus || 429, error: 'RATE_LIMITED' };
+}
+
+function fetchYahooIndexSeries(benchmark, fromDate, toDate) {
+  var symbol = YAHOO_INDEX_SYMBOLS[benchmark];
+  if (!symbol) return { points: [], symbol: '', error: 'UNSUPPORTED_INDEX' };
+  var response = _yahooRequest_(symbol, { period1: Math.floor(new Date(fromDate + 'T00:00:00Z').getTime() / 1000), period2: Math.floor(new Date(toDate + 'T00:00:00Z').getTime() / 1000) + 86400, interval: '1d', events: 'history', includeAdjustedClose: 'false' });
+  if (!response.payload) return { points: [], symbol: symbol, error: response.error || ('HTTP_' + response.status) };
+  var parsed = _parseYahooChart_(response.payload, CONFIG.TIMEZONE);
+  if (!parsed || !parsed.points.length) return { points: [], symbol: symbol, error: 'EMPTY_OR_INVALID_RESPONSE' };
+  return { points: parsed.points, symbol: symbol, current: parsed.current, previousClose: parsed.previousClose, timestamp: parsed.timestamp };
+}
+
+function fetchYahooIndexCurrent(benchmark) {
+  var symbol = YAHOO_INDEX_SYMBOLS[benchmark];
+  if (!symbol) return null;
+  var cache = CacheService.getScriptCache();
+  var cacheKey = 'yahoo_index_current_' + benchmark;
+  var cached = cache.get(cacheKey);
+  if (cached) { try { return JSON.parse(cached); } catch(ignore) {} }
+  var response = _yahooRequest_(symbol, { range: '5d', interval: '1d', events: 'history' });
+  if (!response.payload) return null;
+  var parsed = _parseYahooChart_(response.payload, CONFIG.TIMEZONE);
+  if (!parsed || !isFinite(parsed.current) || !isFinite(parsed.previousClose) || parsed.previousClose <= 0) return null;
+  var output = { symbol: symbol, price: parsed.current, previousClose: parsed.previousClose, change: parsed.current - parsed.previousClose, changePct: (parsed.current - parsed.previousClose) / parsed.previousClose * 100, timestamp: parsed.timestamp, source: 'YAHOO_FINANCE', status: 'CONFIRMED' };
+  try { cache.put(cacheKey, JSON.stringify(output), 60); } catch(ignoreCache) {}
+  return output;
+}
+
 function handleGetBenchmark(benchmark, fromStr, toStr) {
   try {
-    var ss = getss();
     var fromDate = _normalizeDate(fromStr || '') || '2024-01-01';
     var toDate = _normalizeDate(toStr || '') || today();
     if (fromDate > toDate) {
@@ -3012,25 +3146,23 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
 
     var points = [];
     var usedSymbol = '';
-    // GOOGLEFINANCE는 VKOSPI 과거 시세를 정상적으로 반환하지 않습니다.
-    // 이미 가격조회에 사용하는 KRX Open API AUTH_KEY로 공식 지수 데이터를 먼저 조회합니다.
     if (key === 'VKOSPI') {
       points = _readVkospiPointsFromKrx(fromDate, toDate);
       if (points.length > 0) usedSymbol = 'KRX_OPEN_API:VKOSPI';
+    } else if (key === 'KOSPI' || key === 'KOSDAQ') {
+      points = fetchMarketIndicatorCandlesToss(key, fromDate, toDate);
+      if (points.length) usedSymbol = key;
+    } else {
+      var yahoo = fetchYahooIndexSeries(key, fromDate, toDate);
+      points = yahoo.points;
+      usedSymbol = yahoo.symbol;
     }
-    for (var i = 0; i < symbols.length; i++) {
-      if (points.length > 0) break;
-      var candidate = symbols[i];
-      points = _readBenchmarkPoints(ss, candidate, fromDate, toDate);
-      if (points.length > 0) {
-        usedSymbol = candidate;
-        break;
-      }
+    if (points.length === 0) {
+      return jsonError('선택 기간의 ' + key + ' 데이터를 조회하지 못했습니다.');
     }
-    if (key === 'VKOSPI' && points.length === 0) {
-      return jsonError('선택 기간의 VKOSPI 데이터를 KRX Open API에서 찾지 못했습니다.');
-    }
-    return jsonOk({ benchmark: key, symbol: usedSymbol, points: points });
+    var current = null;
+    try { current = (key === 'KOSPI' || key === 'KOSDAQ') ? (fetchMarketIndicatorPricesToss([key])[key] || null) : fetchYahooIndexCurrent(key); } catch(ignoreCurrent) { /* 현재값 실패 시 확정 일봉은 보존 */ }
+    return jsonOk({ benchmark: key, symbol: usedSymbol, points: points, current: current });
   } catch(err) {
     return jsonError('getBenchmark 실패: ' + err.message);
   }
@@ -3055,48 +3187,33 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr) {
     var cached = cache.get(cacheKey);
     if (cached) return jsonOk(JSON.parse(cached));
 
-    var ss = getss();
-    var tmp = ss.insertSheet(_tempSheetName('_bm_'));
     var series = {};
     var symbols = {};
+    var current = {};
+    var providerErrors = {};
     requested.forEach(function(type) { series[type] = []; symbols[type] = ''; });
-    try {
-      var maxCandidates = requested.reduce(function(max, type) { return Math.max(max, map[type].length); }, 0);
-      for (var candidateIndex = 0; candidateIndex < maxCandidates; candidateIndex++) {
-        var pending = requested.filter(function(type) { return series[type].length === 0 && map[type][candidateIndex]; });
-        if (!pending.length) continue;
-        tmp.clearContents();
-        var fs = fromDate.split('-');
-        var ts = toDate.split('-');
-        pending.forEach(function(type, columnIndex) {
-          var symbol = map[type][candidateIndex];
-          var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
-          tmp.getRange(1, columnIndex * 3 + 1).setFormula(formula);
-        });
-        SpreadsheetApp.flush();
-        Utilities.sleep(2000);
-        var lastRow = tmp.getLastRow();
-        pending.forEach(function(type, columnIndex) {
-          if (lastRow < 2) return;
-          var values = tmp.getRange(2, columnIndex * 3 + 1, lastRow - 1, 2).getValues();
-          var points = values.map(function(row) {
-            return { date: _normalizeDate(row[0]), value: parseFloat(row[1]) || 0 };
-          }).filter(function(point) { return point.date && point.value > 0; });
-          if (points.length) {
-            series[type] = points;
-            symbols[type] = map[type][candidateIndex];
-          }
-        });
+    requested.forEach(function(type) {
+      if (type === 'KOSPI' || type === 'KOSDAQ') {
+        try { series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate); } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
+        if (series[type].length) {
+          try { symbols[type] = type; current[type] = fetchMarketIndicatorPricesToss([type])[type] || null; } catch(error) { providerErrors[type] = error.message || 'TOSS_INDICATOR_PRICE_ERROR'; }
+        }
+      } else {
+        try {
+          var yahoo = fetchYahooIndexSeries(type, fromDate, toDate);
+          series[type] = yahoo.points;
+          symbols[type] = yahoo.symbol;
+          current[type] = fetchYahooIndexCurrent(type);
+          if (yahoo.error) providerErrors[type] = yahoo.error;
+        } catch(error) { series[type] = []; providerErrors[type] = error.message || 'YAHOO_ERROR'; }
       }
-    } finally {
-      try { ss.deleteSheet(tmp); } catch(deleteError) { Logger.log('⚠️ 비교지수 일괄 임시 시트 삭제 실패: ' + deleteError.message); }
-    }
+    });
 
     var errors = {};
     requested.forEach(function(type) {
-      if (!series[type].length) errors[type] = '선택 기간의 데이터를 찾지 못했습니다.';
+      if (!series[type].length) errors[type] = providerErrors[type] || '선택 기간의 데이터를 찾지 못했습니다.';
     });
-    var result = { benchmarks: requested, series: series, symbols: symbols, errors: errors };
+    var result = { benchmarks: requested, series: series, symbols: symbols, current: current, errors: errors };
     try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch(cacheError) { /* 캐시 용량 초과는 무시 */ }
     return jsonOk(result);
   } catch(err) {
@@ -3163,30 +3280,6 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
     try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(e) { /* 캐시 용량 초과는 무시 */ }
   }
   return points;
-}
-
-function _readBenchmarkPoints(ss, symbol, fromDate, toDate) {
-  // 요청별 고유 시트를 사용해 다른 지수 조회와 충돌하지 않으며, 성공·실패와 무관하게 삭제합니다.
-  var tmp = ss.insertSheet(_tempSheetName('_bm_'));
-  try {
-    var fs = fromDate.split('-');
-    var ts = toDate.split('-');
-    var formula = '=GOOGLEFINANCE("' + symbol + '","close",DATE(' + fs[0] + ',' + parseInt(fs[1],10) + ',' + parseInt(fs[2],10) + '),DATE(' + ts[0] + ',' + parseInt(ts[1],10) + ',' + parseInt(ts[2],10) + '))';
-    tmp.getRange(1, 1).setFormula(formula);
-    SpreadsheetApp.flush();
-    Utilities.sleep(1600);
-
-    var lastRow = tmp.getLastRow();
-    if (lastRow < 2) return [];
-    var data = tmp.getRange(2, 1, lastRow - 1, 2).getValues();
-    return data.map(function(r) {
-      var d = _normalizeDate(r[0]);
-      var v = parseFloat(r[1]) || 0;
-      return { date: d, value: v };
-    }).filter(function(p) { return p.date && p.value > 0; });
-  } finally {
-    try { ss.deleteSheet(tmp); } catch(e) { Logger.log('⚠️ 지수 임시 시트 삭제 실패: ' + e.message); }
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════

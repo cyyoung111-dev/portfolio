@@ -154,9 +154,13 @@ if (!gasContext._isEtfDividendRefreshCurrent(currentSettings, currentTargets, '2
 
 if (!source.includes("params.action === 'getBenchmarks'")
     || !source.includes('function handleGetBenchmarks(')
-    || !source.includes("ss.insertSheet(_tempSheetName('_bm_'))")
+    || !source.includes('function fetchMarketIndicatorPricesToss(')
+    || !source.includes('function fetchMarketIndicatorCandlesToss(')
+    || !source.includes('function fetchYahooIndexSeries(')
+    || !source.includes("YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI' }")
+    || source.includes("GOOGLEFINANCE(\"' + symbol + '\",\"close\"")
     || !source.includes("cache.put(cacheKey, JSON.stringify(result), 21600)")) {
-  console.error('❌ 비교지수 단일 요청·단일 임시 시트 일괄 조회 또는 6시간 캐시가 누락됐습니다.');
+  console.error('❌ 비교지수 Toss/Yahoo provider 또는 6시간 캐시가 누락됐습니다.');
   process.exit(1);
 }
 

@@ -525,3 +525,11 @@ GAS 메뉴 및 시트 구성:
 - 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.
 - GAS `UrlFetchApp`은 Google IP range pool에서 실행되므로 Toss 콘솔 허용 IP 미등록 시 OAuth/API가 403으로 차단될 수 있습니다. 고정 IP proxy는 구현하지 않으며, [Google UrlFetchApp 안내](https://developers.google.com/apps-script/reference/url-fetch/url-fetch-app)와 Toss 콘솔 허용 IP 정책을 배포 전에 확인해야 합니다.
 - Secret이 이미지·메신저·문서 등에 노출된 경우 해당 credential은 사용하지 말고 Toss 콘솔에서 재발급한 뒤 GAS Script Properties에만 설정합니다. 문서·예시·로그·PR에는 실제 값이나 토큰을 기록하지 않습니다.
+
+## 비교지수 provider 업데이트 (2026-09-16)
+
+- `getBenchmark(s)`의 KOSPI·KOSDAQ은 Toss 공식 Market Indicator `prices`/`candles(interval=1d)`를 사용하고, 동일 기간 결과를 Script Cache에 저장합니다. Toss 실패·빈 응답은 기존 성공 캐시를 우선 보존하며 0으로 저장하지 않습니다.
+- 미국 `SP500(^GSPC)`, `NASDAQ(^IXIC)`, `NASDAQ100(^NDX)`, `DOW(^DJI)`는 Yahoo Finance chart JSON endpoint를 사용합니다. 현재값·전일 종가·등락률은 60초 캐시하며, 일별 시계열은 기간 캐시를 사용합니다. 렌더링마다 직접 호출하지 않습니다.
+- Yahoo endpoint(`query1.finance.yahoo.com/v8/finance/chart`)는 비공식 인터페이스이며 계약·응답 변경, rate limit, 네트워크 차단 위험이 있습니다. 장애 시 GOOGLEFINANCE로 자동 전환하지 않고 기존 성공 캐시/빈 조회 오류를 유지합니다.
+- 이 변경에서 GOOGLEFINANCE를 제거한 범위는 위 4개 미국 지수와 KOSPI·KOSDAQ 비교지수 경로입니다. 환율·배당·종목명 등 다른 기존 기능의 GOOGLEFINANCE 사용은 범위 밖이며 유지됩니다.
+- GAS `UrlFetchApp`의 Google IP range pool 제약으로 Yahoo 또는 Toss가 403을 반환할 수 있습니다. 허용 IP 설정과 실제 응답을 배포 후 확인하며, proxy는 추가하지 않습니다.
