@@ -48,6 +48,8 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     rawDate: _normalizeHistDate(s.date || ''),
     cost: parseFloat(s.costAmt || s.cost || 0),
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
+    navInputRequired: !!s.navInputRequired,
+    navInputRequiredCodes: Array.isArray(s.navInputRequiredCodes) ? s.navInputRequiredCodes : [],
   }));
   pts.forEach(p => { p.pnl = p.eval - p.cost; });
 
@@ -180,6 +182,9 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const lastX  = xScale(pts.length - 1);
   const pnlColor = lastPt.pnl >= 0 ? 'var(--green)' : 'var(--red)';
   const portfolioDeltaColor = portfolioDelta >= 0 ? 'var(--green)' : 'var(--red-lt)';
+  const navInputMarkers = pts.map((point, index) => point.navInputRequired
+    ? `<circle cx="${xScale(index).toFixed(1)}" cy="${yMoney(point.pnl).toFixed(1)}" r="5" fill="#f59e0b"><title>${_escapeHtml(point.rawDate)} ${_escapeHtml(point.navInputRequiredCodes.join(', '))} NAV 입력 필요</title></circle>`
+    : '').join('');
 
   wrap.innerHTML = `
     <svg width="${W}" height="${H}" style="display:block;max-width:100%;font-variant-numeric:tabular-nums">
@@ -199,6 +204,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
         stroke="${lastPt.pnl >= 0 ? 'var(--green)' : 'var(--red)'}" stroke-width="0.8" stroke-dasharray="3,3"/>
       <!-- 손익 라인 -->
       <polyline points="${pnlPts}" fill="none" stroke="${pnlColor}" stroke-width="2" stroke-linejoin="round"/>
+      ${navInputMarkers}
       ${benchLineSvg}
       <!-- 마지막 포인트 dot -->
       <circle cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="3.5" fill="${pnlColor}"/>
