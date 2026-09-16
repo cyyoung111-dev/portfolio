@@ -665,6 +665,7 @@ function doGet(e) {
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes, params.persist === '1');
+  if (params.action === 'diagnoseTossMarketData') return handleDiagnoseTossMarketData();
   if (params.action === 'dividend') {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     return handleDividendFetch(codes);
@@ -716,7 +717,7 @@ function doPost(e) {
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
-  var readActions = ['diagnoseEtfDividends', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  var readActions = ['diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -872,6 +873,53 @@ function fetchHistoricalPricesToss(items, targetDate) {
     }
   });
   return output;
+}
+
+// 운영 점검용 read-only 호출. 자격증명·토큰·원문 응답은 반환하거나 로그에 남기지 않습니다.
+function _tossDiagnosticRequest_(path, query) {
+  var startedAt = Date.now();
+  try {
+    var token = _tossAccessToken_();
+    if (!token) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', elapsedMs: Date.now() - startedAt };
+    var params = [];
+    Object.keys(query || {}).forEach(function(key) {
+      if (query[key] !== '' && query[key] != null) params.push(encodeURIComponent(key) + '=' + encodeURIComponent(query[key]));
+    });
+    var response = UrlFetchApp.fetch(TOSS_API_BASE + path + (params.length ? '?' + params.join('&') : ''), {
+      method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true
+    });
+    var status = response.getResponseCode();
+    var body = response.getContentText() || '{}';
+    var parsed = {};
+    try { parsed = JSON.parse(body); } catch (e) {}
+    var error = parsed && parsed.error ? parsed.error : {};
+    var result = parsed && parsed.result;
+    var count = Array.isArray(result) ? result.length : (result && typeof result === 'object' ? Object.keys(result).length : 0);
+    return {
+      ok: status >= 200 && status < 300,
+      status: status,
+      code: status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (status >= 200 && status < 300 ? 'OK' : String(error.code || 'HTTP_ERROR')),
+      requestId: String(error.requestId || parsed.requestId || ''), count: count,
+      elapsedMs: Date.now() - startedAt
+    };
+  } catch (err) {
+    var message = String(err && err.message || '');
+    return { ok: false, status: message.indexOf('(403)') !== -1 ? 403 : null, code: message.indexOf('(403)') !== -1 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : 'REQUEST_ERROR', elapsedMs: Date.now() - startedAt };
+  }
+}
+
+function handleDiagnoseTossMarketData() {
+  var checks = [];
+  var run = function(name, path, query) {
+    var item = _tossDiagnosticRequest_(path, query);
+    checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code, requestId: item.requestId || '', count: item.count || 0, elapsedMs: item.elapsedMs });
+  };
+  run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
+  run('marketCalendarKR', '/api/v1/market-calendar/KR', { date: today() });
+  run('marketCalendarUS', '/api/v1/market-calendar/US', { date: today() });
+  run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
+  run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
+  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), endpoints: checks });
 }
 
 // ════════════════════════════════════════════════════════════════════

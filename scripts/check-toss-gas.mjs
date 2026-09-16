@@ -11,6 +11,16 @@ assert.match(source, /adjusted:\s*'false'/); assert.match(source, /nextBefore/);
 assert.match(source, /Retry-After/); assert.match(source, /Math\.pow\(2, attempt\)/);
 assert.match(source, /fetchHistoricalPricesToss\(items, dateStr\)/);
 assert.match(source, /var val = \(tossPrices\[code\]/);
+assert.match(source, /diagnoseTossMarketData/);
+assert.match(source, /function handleDiagnoseTossMarketData\(\)/);
+assert.match(source, /\/api\/v1\/exchange-rate/);
+assert.match(source, /\/api\/v1\/market-calendar\/KR/);
+assert.match(source, /\/api\/v1\/market-calendar\/US/);
+assert.match(source, /\/api\/v1\/market-indicators\/prices/);
+assert.match(source, /\/api\/v1\/market-indicators\/KOSPI\/candles/);
+assert.match(source, /IP_NOT_ALLOWED_OR_FORBIDDEN/);
+assert.match(source, /function _tossDiagnosticRequest_\(/);
+const diagnosticMatch = source.match(/function handleDiagnoseTossMarketData\(\)\s*\{([\s\S]*?)\n\}/);
+assert.ok(diagnosticMatch && !/(?:setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet)\s*\(/.test(diagnosticMatch[1]));
 assert.ok(!/Logger\.log\([^\n]*(?:access_token|client_secret|TOSS_CLIENT_SECRET)/i.test(source));
 console.log('Toss GAS integration contract checks passed');
-

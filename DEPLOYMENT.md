@@ -512,6 +512,9 @@ GAS 메뉴 및 시트 구성:
 - 현재가 polling은 60초 간격 화면 갱신 전용이며 `persist=false`로 가격이력·Snapshot을 쓰지 않습니다. `document.hidden`일 때 중단하고 다시 보이면 즉시 한 번 확인합니다.
 - 거래 입력·GAS 원장에 `split`·`reverse_split`, `ratio`, `fractionalCash`를 연결했습니다. 분할·병합은 매수/매도가 아니며 기본 현금흐름은 0, 총 취득원가는 유지하고 병합 단주는 실제 처리수량·현금정산을 수기 입력합니다.
 
+- `diagnoseTossMarketData` read-only 점검 route가 환율(USD/KRW), KR/US 시장 캘린더, KOSPI/KOSDAQ 지수 현재가·일봉을 호출해 endpoint별 성공 여부·HTTP status·requestId·건수·소요시간만 반환합니다. 원문 응답·토큰·Authorization header·인증정보는 반환하거나 로그에 남기지 않으며 시트/Snapshot을 쓰지 않습니다.
+- OpenAPI의 Market Indicators 지원 심볼은 `KOSPI`, `KOSDAQ`, `KR_BOND_2Y/3Y/5Y/10Y/20Y/30Y`입니다. `S&P500`, `DOW`, `NASDAQ`, `NASDAQ100`은 지원 목록에 없어 기존 정상 지수 공급원을 유지합니다. ETF proxy는 사용하지 않습니다.
+
 - v9.107부터 GAS의 `getPrices`는 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`이 Script Properties에 모두 있을 때 Toss `GET /api/v1/prices`를 최대 200종목 batch로 우선 호출합니다. 과거 종가는 `/api/v1/candles?interval=1d&adjusted=false`와 `nextBefore`를 사용합니다.
 - Toss OAuth access token은 Script Cache에 만료 60초 전까지 캐시하고, refresh token은 사용하지 않습니다. 429 및 5xx는 `Retry-After` 우선, 없으면 지수 백오프+jitter로 최대 4회 재시도합니다.
 - Toss 키가 없거나 호출 실패하면 기존 KRX·저장된 확정 가격이력 경로를 유지합니다. Toss 응답으로 기존 확정 NAV·배당·스냅샷을 삭제하지 않습니다.
@@ -520,3 +523,5 @@ GAS 메뉴 및 시트 구성:
 - Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
 - `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
 - 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.
+- GAS `UrlFetchApp`은 Google IP range pool에서 실행되므로 Toss 콘솔 허용 IP 미등록 시 OAuth/API가 403으로 차단될 수 있습니다. 고정 IP proxy는 구현하지 않으며, [Google UrlFetchApp 안내](https://developers.google.com/apps-script/reference/url-fetch/url-fetch-app)와 Toss 콘솔 허용 IP 정책을 배포 전에 확인해야 합니다.
+- Secret이 이미지·메신저·문서 등에 노출된 경우 해당 credential은 사용하지 말고 Toss 콘솔에서 재발급한 뒤 GAS Script Properties에만 설정합니다. 문서·예시·로그·PR에는 실제 값이나 토큰을 기록하지 않습니다.
