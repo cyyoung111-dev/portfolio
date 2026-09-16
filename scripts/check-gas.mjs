@@ -162,7 +162,6 @@ if (!source.includes("params.action === 'getBenchmarks'")
 
 if (!source.includes("props.setProperty('snapshot_last_success_date', snapshotDate)")
     || source.includes('writeSnapshotRows(ss, todayStr, snapRows, true)')
-    || !source.includes('INDEX(x,ROWS(x),2)')
     || !source.includes('snapLast < expectedSnapshotDate')
     || !source.includes("'runSnapshotConsistencyRepair'")) {
   console.error('❌ 스냅샷은 확정 종가 거래일로 저장하고 최근 2거래일 및 과거 마지막 종가를 검증해야 합니다.');
@@ -182,12 +181,14 @@ if (!dailySnapshotMatch
   process.exit(1);
 }
 
+const priceProviderBody = source.match(/function\s+fetchPricesGoogleFinance\s*\([^)]*\)\s*\{([\s\S]*?)(?:\/\* legacy GOOGLEFINANCE|\n\})/);
 if (!source.includes('function _hasUsdPriceItems(items)')
-    || !/gfNeed\.length\s*>\s*0\s*&&\s*_hasUsdPriceItems\(targetItems\)/.test(source)
-    || !/gfPrevItems\.length\s*>\s*0\s*&&\s*_hasUsdPriceItems\(items\)/.test(source)
-    || !/fetchPricesGoogleFinance\(gfNeed,\s*todayStr,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(source)
-    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*requestedPrevDay,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(source)) {
-  console.error('❌ USD 종목이 없는 평가가격 갱신은 GOOGLEFINANCE 임시 시트 조회를 생략해야 합니다.');
+    || !source.includes('fetchHistoricalPricesToss')
+    || !source.includes('fetchPricesKrx')
+    || !priceProviderBody
+    || /GOOGLEFINANCE\s*\(/.test(priceProviderBody[1])
+    || !source.includes('저장 확정값 보존')) {
+  console.error('❌ 주식·ETF 가격은 Toss → 기존 비-GOOGLE 공급원 → 저장 확정값 순서여야 하며 GOOGLEFINANCE를 호출하면 안 됩니다.');
   process.exit(1);
 }
 

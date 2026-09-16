@@ -505,12 +505,18 @@ GAS 메뉴 및 시트 구성:
 - 글꼴, 글자 크기, 굵기 및 UI 크기 값은 변경하지 않았으며 자체 정적 자산과 서비스워커 캐시 버전은 `20260903-1`로 통일했습니다.
 ### 시장데이터 provider 전환 준비
 
+### 시장데이터 가격 경로·거래 Corporate Action 보강 (2026-09-16)
+
+- 주식·ETF 현재가·과거 종가의 운영 fallback은 Toss → KRX/기존 공공데이터 → 저장된 확정 가격이력입니다. 가격 provider 함수와 UI 현재가 경로에서 GOOGLEFINANCE를 호출하지 않습니다.
+- Toss 실패·부분 누락은 0이나 빈 값으로 저장하지 않고 기존 정상 가격·갱신시각을 유지하며, 화면에는 미조회/stale/error 상태를 표시합니다.
+- 현재가 polling은 60초 간격 화면 갱신 전용이며 `persist=false`로 가격이력·Snapshot을 쓰지 않습니다. `document.hidden`일 때 중단하고 다시 보이면 즉시 한 번 확인합니다.
+- 거래 입력·GAS 원장에 `split`·`reverse_split`, `ratio`, `fractionalCash`를 연결했습니다. 분할·병합은 매수/매도가 아니며 기본 현금흐름은 0, 총 취득원가는 유지하고 병합 단주는 실제 처리수량·현금정산을 수기 입력합니다.
+
 - v9.107부터 GAS의 `getPrices`는 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`이 Script Properties에 모두 있을 때 Toss `GET /api/v1/prices`를 최대 200종목 batch로 우선 호출합니다. 과거 종가는 `/api/v1/candles?interval=1d&adjusted=false`와 `nextBefore`를 사용합니다.
 - Toss OAuth access token은 Script Cache에 만료 60초 전까지 캐시하고, refresh token은 사용하지 않습니다. 429 및 5xx는 `Retry-After` 우선, 없으면 지수 백오프+jitter로 최대 4회 재시도합니다.
-- Toss 키가 없거나 호출 실패하면 기존 KRX·GOOGLEFINANCE·저장 가격이력 경로를 유지합니다. Toss 응답으로 기존 확정 NAV·배당·스냅샷을 삭제하지 않습니다.
+- Toss 키가 없거나 호출 실패하면 기존 KRX·저장된 확정 가격이력 경로를 유지합니다. Toss 응답으로 기존 확정 NAV·배당·스냅샷을 삭제하지 않습니다.
 
 - `src/web/domain/market/market_data_provider.js`는 Toss 및 기존 공급원 응답을 `marketDate`, `symbol`, `market`, `closePrice`, `currency`, `source`, `priceType=REGULAR_CLOSE`, `status`, `fetchedAt`로 정규화합니다.
 - Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
 - `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
 - 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.
-

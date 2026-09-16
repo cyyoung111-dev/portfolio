@@ -664,7 +664,7 @@ function doGet(e) {
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
-  if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes);
+  if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes, params.persist === '1');
   if (params.action === 'dividend') {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     return handleDividendFetch(codes);
@@ -928,7 +928,7 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
 //  GOOGLEFINANCE 가격 조회 핵심
 // ════════════════════════════════════════════════════════════════════
 function fetchPricesGoogleFinance(items, dateStr, ss, options) {
-  var sourceMode = _getPriceSourceMode();
+  // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다. 함수명은 하위 호출 호환용입니다.
   var prices = {};
   var gfItems = items.slice();
 
@@ -945,99 +945,21 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
     }
   }
 
-  if (sourceMode === 'krx_first' && !(options && options.skipKrx) && gfItems.length > 0) {
+  if (gfItems.length > 0) {
     try {
       var krxPrices = fetchPricesKrx(gfItems, dateStr);
       Object.keys(krxPrices).forEach(function(code) { prices[code] = krxPrices[code]; });
       gfItems = items.filter(function(item) { return !(prices[item.code] && prices[item.code].price > 0); });
-      Logger.log('[price-source] krx_first: KRX ' + Object.keys(krxPrices).length + '건, GF fallback 대상 ' + gfItems.length + '건');
+      Logger.log('[price-source] Toss/기존 비-GOOGLE 공급원: KRX ' + Object.keys(krxPrices).length + '건, 저장 이력 fallback 대상 ' + gfItems.length + '건');
     } catch (e) {
-      Logger.log('⚠️ KRX 조회 실패, GOOGLEFINANCE로 fallback: ' + e.message);
+      Logger.log('⚠️ 기존 비-GOOGLE 가격 조회 실패: ' + e.message);
       gfItems = items.slice();
     }
   }
 
-  if (gfItems.length === 0) return prices;
-
-  // ★ [버그수정] 동시에 여러 요청(자동조회 + 수동 업데이트 등)이 겹치면
-  //   공유 임시 시트를 서로 지웠다 썼다 하며 충돌 → "첫 클릭은 안 되고 두 번째부터 되는" 현상 발생
-  //   → 요청마다 자기만의 고유한 임시 시트를 새로 만들어 쓰고 끝나면 삭제
-  // ★ [안전장치] try/finally로 감싸 중간에 오류가 나도 임시 시트가 반드시 정리되도록 함
-  //   (임시 시트 정리는 자동 트리거가 없고 수동 메뉴로만 실행되므로, 누락되면 계속 쌓일 수 있음)
-  var tmp = ss.insertSheet(_tempSheetName('_gf_tmp_'));
-  var values;
-
-  try {
-    var isToday = (dateStr === today());
-    // ★ new Date(dateStr.replace(/-/g,'/')) 대신 _ymdToDate 사용 — 시간대 명확
-    var ymdStr  = dateStr.replace(/-/g, '');
-    var dtObj   = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
-    var fromObj = _ymdToDate(ymdStr.length === 8 ? ymdStr : dateStr.replace(/-/g,''));
-    fromObj.setDate(fromObj.getDate() - 5);
-
-    var fmtDate  = function(d) { return Utilities.formatDate(d, CONFIG.TIMEZONE, 'yyyy-MM-dd'); };
-    var fromFmt  = fmtDate(fromObj);
-    var toFmt    = fmtDate(dtObj);
-
-    var formulas = gfItems.map(function(item) {
-      var krx    = '"KRX:' + item.code + '"';
-      var kosdaq = '"KOSDAQ:' + item.code + '"';
-      if (isToday) {
-        return ['=IFERROR(GOOGLEFINANCE(' + krx + ',"price"),' +
-                'IFERROR(GOOGLEFINANCE(' + kosdaq + ',"price"),"-"))'];
-      } else {
-        return ['=IFERROR(LET(x,GOOGLEFINANCE(' + krx + ',"close","' + fromFmt + '","' + toFmt + '"),INDEX(x,ROWS(x),2)),' +
-                'IFERROR(LET(x,GOOGLEFINANCE(' + kosdaq + ',"close","' + fromFmt + '","' + toFmt + '"),INDEX(x,ROWS(x),2)),"-"))'];
-      }
-    });
-
-    if (formulas.length === 0) return {};
-    tmp.getRange(1, 1, formulas.length, 1).setFormulas(formulas);
-
-    // ★ [버그수정] 종목이 많으면 구글시트 수식(GOOGLEFINANCE) 계산이 한 번의 대기로는
-    //   끝나지 않아 일부 종목이 빈 값으로 조회되고, 사용자가 "업데이트"를 두 번 눌러야만
-    //   (두번째부터는 구글이 이미 계산해둔 값이 남아있어) 정상 반영되는 문제가 있었음
-    //   → 계산이 덜 끝난 항목이 있으면 서버에서 자동으로 한두 번 더 기다렸다가 재조회
-    var maxAttempts = 3;
-    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
-      SpreadsheetApp.flush();
-      var waitMs = (attempt === 1) ? Math.min(800 + items.length * 30, 4000) : 1500;
-      Utilities.sleep(waitMs);
-
-      var actualRows = tmp.getLastRow();
-      if (actualRows >= formulas.length) {
-        values = tmp.getRange(1, 1, formulas.length, 1).getValues();
-      } else if (actualRows > 0) {
-        var partial = tmp.getRange(1, 1, actualRows, 1).getValues();
-        values = [];
-        for (var vi = 0; vi < formulas.length; vi++) {
-          values.push(vi < actualRows ? partial[vi] : ['']);
-        }
-      } else {
-        values = formulas.map(function() { return ['']; });
-      }
-
-      // 아직 계산 안 끝난(빈 값) 항목이 있으면 한 번 더 대기 후 재시도
-      var hasBlank = values.some(function(v) { return v[0] === '' || v[0] === null || v[0] === undefined; });
-      if (!hasBlank) break;
-      if (attempt < maxAttempts) {
-        Logger.log('[fetchPricesGoogleFinance] 계산 미완료 항목 있음 → ' + (attempt+1) + '차 재조회');
-      } else {
-        Logger.log('⚠️ fetchPricesGoogleFinance: ' + maxAttempts + '회 재시도 후에도 일부 항목 계산 미완료');
-      }
-    }
-  } finally {
-    try { ss.deleteSheet(tmp); } catch (e) { Logger.log('⚠️ 임시 시트 삭제 실패: ' + e.message); }
-  }
-
-  gfItems.forEach(function(item, i) {
-    var val   = values[i][0];
-    var str   = String(val || '');
-    var price = (val && val !== '-' && !str.startsWith('#')) ? Math.round(parseFloat(val)) : 0;
-    if (price > 0) prices[item.code] = { price: price, name: item.name, officialName: item.name, source: 'GOOGLEFINANCE' };
-  });
-
+  // 실패·누락은 저장 확정값 보존을 위해 빈 결과로 반환합니다.
   return prices;
+
 }
 
 function fetchPricesKrx(items, dateStr) {
@@ -2724,7 +2646,7 @@ function runEtfDividendDiagnosis() {
 // ════════════════════════════════════════════════════════════════════
 //  getPrices — 가격이력 캐시 우선, 없으면 GOOGLEFINANCE
 // ════════════════════════════════════════════════════════════════════
-function handleGetPricesCompat(codesParam) {
+function handleGetPricesCompat(codesParam, persist) {
   try {
     var requestStartedMs = Date.now();
     var ss       = getss();
@@ -2836,7 +2758,7 @@ function handleGetPricesCompat(codesParam) {
           if (!prices[code]) stillMissing.push(code);
         }
       });
-      Object.keys(newItemsByDate).forEach(function(saveDate) {
+      if (persist) Object.keys(newItemsByDate).forEach(function(saveDate) {
         if (newItemsByDate[saveDate].length > 0) batchUpsertPriceHistory(ss, saveDate, newItemsByDate[saveDate]);
       });
 
@@ -2855,12 +2777,12 @@ function handleGetPricesCompat(codesParam) {
       });
       stillMissing = reqCodes.filter(function(code) { return !(prices[code] > 0); });
       lookupMeta.recentHistoryFallbackCount = recentHistoryFallbackCount;
-      _updateTodaySnapshotSource(ss, todayStr, sourceByCode);
+      if (persist) _updateTodaySnapshotSource(ss, todayStr, sourceByCode);
 
       // 웹에서 평가가격을 갱신할 때도 최신 가격이력 날짜의 스냅샷을 즉시 맞춥니다.
       // 16:20 트리거가 누락됐더라도 다음 웹 갱신에서 자동 복구됩니다.
       var latestDisplayDate = _latestDateFromPriceDates(priceDates);
-      if (latestDisplayDate) _rebuildSnapshotForDateFromHistory(ss, latestDisplayDate);
+      if (persist && latestDisplayDate) _rebuildSnapshotForDateFromHistory(ss, latestDisplayDate);
       lookupMeta.snapshotDate = latestDisplayDate;
       lookupMeta.snapshotCreated = false;
       lookupMeta.triggerAutoFixed = !!triggerState.autoFixed;
@@ -4407,30 +4329,21 @@ function _isManualKeepLatestEnabled() {
 }
 
 function _getPriceSourceMode() {
-  var props = PropertiesService.getScriptProperties();
-  var mode = (props.getProperty('price_source_mode') || 'google').toLowerCase();
-  if (mode !== 'krx_first') mode = 'google';
-  return mode;
+  // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다.
+  return 'toss_first';
 }
 
 function _priceSourceModeLabel() {
-  var mode = _getPriceSourceMode();
-  return mode === 'krx_first'
-    ? '📡 가격소스: KRX 우선 (GF 보조)'
-    : '📡 가격소스: GOOGLEFINANCE 전용';
+  return '📡 가격소스: Toss 우선 → KRX/공공데이터 → 저장이력';
 }
 
 function togglePriceSourceMode() {
-  var props = PropertiesService.getScriptProperties();
-  var next = _getPriceSourceMode() === 'krx_first' ? 'google' : 'krx_first';
-  props.setProperty('price_source_mode', next);
-  var msg = '⚙️ 가격소스 모드: ' + (next === 'krx_first' ? 'KRX 우선 (GF fallback)' : 'GOOGLEFINANCE 전용');
+  var msg = '⚙️ 주식·ETF 가격소스는 Toss 우선 → KRX/공공데이터 → 저장이력으로 고정됩니다.';
   Logger.log(msg);
   try {
     SpreadsheetApp.getUi().alert(
       msg +
-      '\n※ 과거 거래일 종가 정확도는 KRX 우선이 일반적으로 유리합니다.' +
-      '\n※ KRX 조회 실패 시 GOOGLEFINANCE로 자동 fallback 됩니다.'
+      '\n※ 조회 실패·누락 시 기존 확정 가격과 갱신시각을 보존합니다.'
     );
   } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -4810,15 +4723,16 @@ function handleSyncTrades(dataJson) {
       sh.setColumnWidth(7,90);  sh.setColumnWidth(8,80);  sh.setColumnWidth(9,200);
     }
     sh.clearContents();
-    sh.getRange(1,1,1,9).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모']]);
-    sh.getRange(1,1,1,9).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
+    sh.getRange(1,1,1,11).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산']]);
+    sh.getRange(1,1,1,11).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
     if (trades.length > 0) {
       trades.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
       var rows = trades.map(function(t) {
         return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'',
-                t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||''];
+                t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'',
+                t.ratio || '', t.fractionalCash || ''];
       });
-      sh.getRange(2, 1, rows.length, 9).setValues(rows);
+      sh.getRange(2, 1, rows.length, 11).setValues(rows);
     }
     SpreadsheetApp.flush();
     return jsonOk({ synced: trades.length });
@@ -6060,6 +5974,9 @@ function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
       map[name].qty       -= sellQty;
       map[name].totalCost -= sellQty * avgCost;
       if (map[name].qty < 0.0001) { map[name].qty = 0; map[name].totalCost = 0; }
+    } else if (tradeType === 'split' || tradeType === 'reverse_split') {
+      var ratio = parseFloat(row[9]) || 0;
+      if (ratio > 0 && map[name].qty > 0) map[name].qty = tradeType === 'split' ? map[name].qty * ratio : map[name].qty / ratio;
     }
   });
 
@@ -6455,6 +6372,8 @@ function handleGetTrades(existingSs) {
           price:     parseFloat(r[6]) || 0,
           assetType: assetType,
           memo:      (r[8] || '').toString(),
+          ratio:     parseFloat(r[9]) || 0,
+          fractionalCash: parseFloat(r[10]) || 0,
           // ★ [버그수정] fund 필드: 거래이력 시트는 9컬럼(날짜~메모)까지만 저장
           //   r[9]는 항상 undefined → fund 항상 false 버그 수정
           //   assetType으로 펀드/TDF 여부를 추론하도록 변경

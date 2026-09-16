@@ -97,4 +97,32 @@ if (context.rawHoldings.length !== 1
   process.exit(1);
 }
 
+context.rawTrades.length = 0;
+context.rawTrades.push(
+  { date: '2026-02-01', tradeType: 'buy', acct: '계좌1', name: '분할종목', qty: 10, price: 100, assetType: '주식' },
+  { date: '2026-02-02', tradeType: 'split', acct: '계좌1', name: '분할종목', qty: 10, price: 0, ratio: 2, fractionalCash: 0, assetType: '주식' },
+  { date: '2026-02-03', tradeType: 'sell', acct: '계좌1', name: '분할종목', qty: 5, price: 60, assetType: '주식' },
+);
+context.syncHoldingsFromTrades({ clearWhenEmpty: true });
+if (context.rawHoldings.length !== 1
+    || context.rawHoldings[0].qty !== 15
+    || context.rawHoldings[0].costAmt !== 750
+    || Math.round(context.calcRealizedPnl().totalPnl) !== 50) {
+  console.error('❌ SPLIT의 수량·주당원가·총취득원가 및 이후 매도 손익 반영이 실패했습니다.');
+  process.exit(1);
+}
+
+context.rawTrades.length = 0;
+context.rawTrades.push(
+  { date: '2026-03-01', tradeType: 'buy', acct: '계좌1', name: '병합종목', qty: 10, price: 100, assetType: 'ETF' },
+  { date: '2026-03-02', tradeType: 'reverse_split', acct: '계좌1', name: '병합종목', qty: 10, price: 0, ratio: 4, fractionalCash: 12.5, assetType: 'ETF' },
+);
+context.syncHoldingsFromTrades({ clearWhenEmpty: true });
+if (context.rawHoldings.length !== 1
+    || context.rawHoldings[0].qty !== 2.5
+    || context.rawHoldings[0].costAmt !== 1000) {
+  console.error('❌ REVERSE_SPLIT의 단주 보존·총취득원가 유지가 실패했습니다.');
+  process.exit(1);
+}
+
 console.log('✅ 거래 저장·전량 매도·마지막 거래 삭제의 보유현황 반영 검사 통과');

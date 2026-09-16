@@ -25,6 +25,12 @@ function calcRealizedPnl() {
       costMap[key].qty       -= sellQty;
       costMap[key].totalCost -= sellQty * avgCost;
       if (costMap[key].qty <= 0) { costMap[key].qty = 0; costMap[key].totalCost = 0; }
+    } else if (t.tradeType === 'split' || t.tradeType === 'reverse_split') {
+      const ratio = Number(t.ratio);
+      if (!(ratio > 0)) return;
+      costMap[key].qty = t.tradeType === 'split'
+        ? costMap[key].qty * ratio
+        : costMap[key].qty / ratio;
     }
   });
   const pct = totalCost > 0 ? (totalPnl / totalCost * 100) : 0;
@@ -96,6 +102,10 @@ function syncHoldingsFromTrades(options) {
       map[key].qty       -= sellQty;
       map[key].totalCost -= sellQty * avgCost;
       if (map[key].qty < 0.0001) { map[key].qty = 0; map[key].totalCost = 0; }
+    } else if (t.tradeType === 'split' || t.tradeType === 'reverse_split') {
+      const ratio = Number(t.ratio);
+      if (!(ratio > 0) || map[key].qty <= 0) return;
+      map[key].qty = t.tradeType === 'split' ? map[key].qty * ratio : map[key].qty / ratio;
     }
   });
 
