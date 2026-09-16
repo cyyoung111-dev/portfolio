@@ -503,3 +503,10 @@ GAS 메뉴 및 시트 구성:
 - 나머지 공통 화면·컴포넌트·유틸리티 선언은 기존 선언 순서를 유지한 채 `components.css`로 이동해 렌더링 우선순위 변화를 최소화했습니다.
 - 기존 CSS에 남아 있던 불필요한 닫는 중괄호 한 개를 제거하고, `base.css` 소유 범위가 다시 확장되지 않도록 정적 검사를 추가했습니다.
 - 글꼴, 글자 크기, 굵기 및 UI 크기 값은 변경하지 않았으며 자체 정적 자산과 서비스워커 캐시 버전은 `20260903-1`로 통일했습니다.
+### 시장데이터 provider 전환 준비
+
+- `src/web/domain/market/market_data_provider.js`는 Toss 및 기존 공급원 응답을 `marketDate`, `symbol`, `market`, `closePrice`, `currency`, `source`, `priceType=REGULAR_CLOSE`, `status`, `fetchedAt`로 정규화합니다.
+- Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
+- `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
+- 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.
+

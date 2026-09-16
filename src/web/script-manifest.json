@@ -6,6 +6,7 @@
     "shared/theme.js",
     "core/core_color.js",
     "domain/state/data_state.js",
+    "domain/market/market_data_provider.js",
     "domain/portfolio/portfolio_service.js",
     "domain/portfolio/data.js",
     "domain/plan/plan_calculations.js",
@@ -56,3 +57,4 @@
     "app/bootstrap.js"
   ]
 }
+

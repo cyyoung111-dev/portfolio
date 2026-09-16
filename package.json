@@ -12,6 +12,7 @@
     "check:plan-calculations": "node scripts/check-plan-calculations.mjs",
     "check:dividend-calculations": "node scripts/check-dividend-calculations.mjs",
     "check:history-modes": "node scripts/check-history-modes.mjs",
+    "check:market-data-provider": "node scripts/check-market-data-provider.mjs",
     "check:storage-migration": "node scripts/check-storage-migration.mjs",
     "check:reference-regression": "node scripts/check-reference-regression.mjs",
     "check:export-consistency": "node scripts/check-export-consistency.mjs",
@@ -38,3 +39,4 @@
     "check:improvements": "node scripts/check-improvements.mjs"
   }
 }
+
