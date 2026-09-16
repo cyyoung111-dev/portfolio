@@ -617,8 +617,68 @@ function _getApiKeyStatus() {
   return {
     publicDataApiKeyConfigured: !!_getPublicDataApiKey(),
     krxAuthKeyConfigured: !!_getKrxAuthKey(),
-    requestAuthenticationEnabled: !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim()
+    requestAuthenticationEnabled: !!(PropertiesService.getScriptProperties().getProperty('access_token') || '').trim(),
+    toss: _getTossConfigStatus_()
   };
+}
+
+function _maskTossClientId_(value) {
+  var id = String(value || '').trim();
+  if (!id) return '';
+  if (id.length <= 4) return '****';
+  return id.slice(0, 2) + '••••' + id.slice(-2);
+}
+
+function _getTossConfigStatus_() {
+  var props = PropertiesService.getScriptProperties();
+  var clientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
+  var secret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
+  return {
+    clientIdConfigured: !!clientId,
+    clientIdMasked: _maskTossClientId_(clientId),
+    secretConfigured: !!secret,
+    lastDiagnosticAt: String(props.getProperty('TOSS_LAST_DIAGNOSTIC_AT') || ''),
+    lastDiagnosticOk: props.getProperty('TOSS_LAST_DIAGNOSTIC_OK') === 'true',
+    lastDiagnosticCode: String(props.getProperty('TOSS_LAST_DIAGNOSTIC_CODE') || '')
+  };
+}
+
+function handleSaveTossConfig(dataJson) {
+  try {
+    var data;
+    try { data = JSON.parse(String(dataJson || '{}')); }
+    catch(parseError) { data = _parseJsonParam(dataJson || '{}', 'Toss 설정'); }
+    var props = PropertiesService.getScriptProperties();
+    var changed = [];
+    var clientId = String(data.clientId == null ? '' : data.clientId).trim();
+    var secret = String(data.secret == null ? '' : data.secret).trim();
+    // 빈 입력은 기존 값을 유지합니다. 삭제는 별도 명시적 action에서만 허용합니다.
+    if (Object.prototype.hasOwnProperty.call(data, 'clientId') && clientId) {
+      props.setProperty('TOSS_CLIENT_ID', clientId); changed.push('clientId');
+    }
+    if (Object.prototype.hasOwnProperty.call(data, 'secret') && secret) {
+      props.setProperty('TOSS_CLIENT_SECRET', secret); changed.push('secret');
+      CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
+    }
+    return jsonOk({ saved: true, changed: changed, toss: _getTossConfigStatus_() });
+  } catch(err) {
+    return jsonError('Toss 설정 저장 실패: ' + err.message);
+  }
+}
+
+function handleClearTossConfig() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    props.deleteProperty('TOSS_CLIENT_ID');
+    props.deleteProperty('TOSS_CLIENT_SECRET');
+    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_AT');
+    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_OK');
+    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_CODE');
+    CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
+    return jsonOk({ cleared: true, toss: _getTossConfigStatus_() });
+  } catch(err) {
+    return jsonError('Toss 설정 삭제 실패: ' + err.message);
+  }
 }
 
 function configureAccessTokenPrompt() {
@@ -685,6 +745,7 @@ function doGet(e) {
       params.action === 'saveSettings' || params.action === 'saveDividendSettings' ||
       params.action === 'saveRealEstateSettings' || params.action === 'saveSyncIssues' ||
       params.action === 'savePublicDataApiKey' || params.action === 'saveKrxAuthKey' ||
+      params.action === 'saveTossConfig' || params.action === 'clearTossConfig' ||
       params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' ||
       params.action === 'continueSnapshotRepair' || params.action === 'refreshEtfDividends' ||
       params.action === 'previewFundNavImport' || params.action === 'importFundNav') {
@@ -729,6 +790,8 @@ function doPost(e) {
   if (params.action === 'saveRealEstateSettings' && params.data) return handleSaveRealEstateSettings(params.data);
   if (params.action === 'saveSyncIssues' && params.data) return handleSaveSyncIssues(params.source || '', params.data);
   if (params.action === 'savePublicDataApiKey') return handleSavePublicDataApiKey(params.key || '');
+  if (params.action === 'saveTossConfig') return handleSaveTossConfig(params.data || '{}');
+  if (params.action === 'clearTossConfig') return handleClearTossConfig();
   if (params.action === 'startSnapshotRepair') return handleStartSnapshotRepair();
   if (params.action === 'continueSnapshotRepair') return handleContinueSnapshotRepair();
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
@@ -922,7 +985,14 @@ function handleDiagnoseTossMarketData() {
   run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
   run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
   run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
-  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), endpoints: checks });
+  var overallOk = checks.every(function(item) { return item.ok; });
+  try {
+    var props = PropertiesService.getScriptProperties();
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_AT', new Date().toISOString());
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (checks.find(function(item) { return !item.ok; }) || {}).code || 'ERROR');
+  } catch(ignore) {}
+  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, endpoints: checks });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -7201,6 +7271,58 @@ function clearPriceAndSnapshotRows() {
 // ════════════════════════════════════════════════════════════════════
 //  메뉴
 // ════════════════════════════════════════════════════════════════════
+function configureTossClientIdPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var current = _getTossConfigStatus_();
+  var response = ui.prompt('Toss Open API Client ID 설정', 'Client ID를 입력하세요.\n빈 입력은 기존 값을 유지합니다.\n현재: ' + (current.clientIdConfigured ? current.clientIdMasked : '미설정'), ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var input = String(response.getResponseText() || '').trim();
+  if (!input) { ui.alert(current.clientIdConfigured ? '변경 없음' : '⚠️ Client ID가 미설정 상태입니다.'); return; }
+  handleSaveTossConfig(JSON.stringify({ clientId: input }));
+  ui.alert('✅ Toss Client ID 저장 완료\n표시값: ' + _getTossConfigStatus_().clientIdMasked);
+}
+
+function configureTossClientSecretPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var current = _getTossConfigStatus_();
+  var response = ui.prompt('Toss Open API Client Secret 설정', '재발급한 Client Secret을 입력하세요.\n빈 입력은 기존 값을 유지합니다.\n현재: ' + (current.secretConfigured ? '설정됨' : '미설정'), ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var input = String(response.getResponseText() || '').trim();
+  if (!input) { ui.alert(current.secretConfigured ? '변경 없음' : '⚠️ Client Secret이 미설정 상태입니다.'); return; }
+  handleSaveTossConfig(JSON.stringify({ secret: input }));
+  ui.alert('✅ Toss Client Secret 저장 완료\nSecret 원문은 저장 상태 외에는 표시하지 않습니다.');
+}
+
+function showTossOpenApiStatus() {
+  var ui = SpreadsheetApp.getUi();
+  var status = _getTossConfigStatus_();
+  ui.alert('Toss Open API 설정 상태\n\n' +
+    (status.clientIdConfigured ? '✅' : '⚠️') + ' Client ID: ' + (status.clientIdConfigured ? status.clientIdMasked : '미설정') + '\n' +
+    (status.secretConfigured ? '✅' : '⚠️') + ' Client Secret: ' + (status.secretConfigured ? '설정됨' : '미설정') + '\n' +
+    '최근 진단: ' + (status.lastDiagnosticAt || '없음') + '\n' +
+    '진단 결과: ' + (status.lastDiagnosticAt ? (status.lastDiagnosticOk ? '성공' : '실패 · ' + (status.lastDiagnosticCode || 'ERROR')) : '미실행'));
+}
+
+function runTossMarketDataDiagnosis() {
+  var ui = SpreadsheetApp.getUi();
+  var result = JSON.parse(handleDiagnoseTossMarketData().getContent());
+  if (result.status !== 'ok') { ui.alert('❌ Toss 진단 실패\n' + String(result.message || '응답 오류')); return; }
+  var lines = (result.endpoints || []).map(function(item) {
+    return (item.ok ? '✅' : '❌') + ' ' + item.name + ': ' + (item.status == null ? '-' : item.status) + ' / ' + item.code + ' / ' + (item.count || 0) + '건 / ' + item.elapsedMs + 'ms';
+  });
+  var ipHint = (result.endpoints || []).some(function(item) { return item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN'; })
+    ? '\n\n403: Toss WTS Open API에서 GAS UrlFetchApp의 Google IP range pool을 허용 목록에 등록해야 합니다.' : '';
+  ui.alert('Toss Open API read-only 진단\n\n' + lines.join('\n') + ipHint);
+}
+
+function clearTossOpenApiConfigPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert('Toss 설정 삭제', 'Toss Client ID/Secret, 진단 상태와 Toss token cache만 삭제합니다.\n가격이력·Snapshot·펀드·배당·거래 및 다른 API 설정은 변경하지 않습니다.\n계속하시겠습니까?', ui.ButtonSet.YES_NO);
+  if (answer !== ui.Button.YES) return;
+  handleClearTossConfig();
+  ui.alert('✅ Toss 설정과 token cache만 삭제했습니다.');
+}
+
 function onInstall(e) {
   onOpen(e);
 }
@@ -7210,6 +7332,11 @@ function _addFallbackMenu(ui) {
     .addItem('연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
     .addItem('공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
     .addItem('KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+    .addItem('Toss Client ID 설정', 'configureTossClientIdPrompt')
+    .addItem('Toss Client Secret 설정', 'configureTossClientSecretPrompt')
+    .addItem('Toss 설정 상태', 'showTossOpenApiStatus')
+    .addItem('Toss API read-only 진단', 'runTossMarketDataDiagnosis')
+    .addItem('Toss 설정 삭제', 'clearTossOpenApiConfigPrompt')
     .addItem('요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')
     .addItem('메뉴 생성 오류 확인', 'showMenuBuildError')
     .addToUi();
@@ -7247,6 +7374,11 @@ function onOpen(e) {
       .addSeparator()
       .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
       .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
+      .addItem('🔑 Toss Client ID 설정', 'configureTossClientIdPrompt')
+      .addItem('🔐 Toss Client Secret 설정', 'configureTossClientSecretPrompt')
+      .addItem('ℹ️ Toss 설정 상태', 'showTossOpenApiStatus')
+      .addItem('🔎 Toss API read-only 진단', 'runTossMarketDataDiagnosis')
+      .addItem('🗑️ Toss 설정 삭제', 'clearTossOpenApiConfigPrompt')
       .addItem('ℹ️ API 인증키 저장 상태', 'showApiKeyStatus')
       .addSeparator()
       .addItem('🛡️ 요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')

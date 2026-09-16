@@ -34,7 +34,7 @@
     "check:trade-holdings": "node scripts/check-trade-holdings.mjs",
     "check:trade-editor": "node scripts/check-trade-editor.mjs",
     "check:tradegroup-accounts": "node scripts/check-tradegroup-accounts.mjs",
-    "check:gas": "node scripts/check-gas.mjs && node scripts/check-toss-gas.mjs && node scripts/check-index-providers.mjs && node scripts/check-price-polling.mjs && node scripts/check-market-safety.mjs && node scripts/check-fund-snapshot-safety.mjs",
+    "check:gas": "node scripts/check-gas.mjs && node scripts/check-toss-gas.mjs && node scripts/check-index-providers.mjs && node scripts/check-toss-settings.mjs && node scripts/check-price-polling.mjs && node scripts/check-market-safety.mjs && node scripts/check-fund-snapshot-safety.mjs",
     "check:fund-nav-import-web": "node scripts/check-fund-nav-import-web.mjs",
     "check:seibro-har": "node scripts/validate-seibro-etf.mjs --har-only",
     "check:ci": "npm run check:reference-regression && npm run check:storage-migration && npm run check:export-consistency && npm run check:improvements && npm run check:typography && npm run check:theme-runtime && npm run check:web:ci && npm run check:gas",

@@ -533,3 +533,10 @@ GAS 메뉴 및 시트 구성:
 - Yahoo endpoint(`query1.finance.yahoo.com/v8/finance/chart`)는 비공식 인터페이스이며 계약·응답 변경, rate limit, 네트워크 차단 위험이 있습니다. 장애 시 GOOGLEFINANCE로 자동 전환하지 않고 기존 성공 캐시/빈 조회 오류를 유지합니다.
 - 이 변경에서 GOOGLEFINANCE를 제거한 범위는 위 4개 미국 지수와 KOSPI·KOSDAQ 비교지수 경로입니다. 환율·배당·종목명 등 다른 기존 기능의 GOOGLEFINANCE 사용은 범위 밖이며 유지됩니다.
 - GAS `UrlFetchApp`의 Google IP range pool 제약으로 Yahoo 또는 Toss가 403을 반환할 수 있습니다. 허용 IP 설정과 실제 응답을 배포 후 확인하며, proxy는 추가하지 않습니다.
+
+### Toss 인증정보 설정 UI
+
+- 웹앱 `설정 → 구글시트 연동`의 Toss 영역에서 Client ID와 새 Client Secret을 입력하고 저장합니다. 저장 성공 후 입력칸은 즉시 비우며, 브라우저 저장소·설정 시트·HTML 초기 데이터에는 원문을 남기지 않습니다.
+- 스프레드시트 `📊 포트폴리오 → ⚙️ 설정` 메뉴에서도 `Toss Client ID 설정`, `Toss Client Secret 설정`, `Toss 설정 상태`, `Toss API read-only 진단`, `Toss 설정 삭제`를 사용할 수 있습니다. 빈 입력은 기존 값을 유지합니다.
+- 서버 응답에는 Client ID 마스킹값, Secret 설정 여부, 마지막 진단 시각·성공 여부·오류 코드만 포함합니다. 삭제 확인 시 Toss Script Properties와 Toss token cache 및 Toss 진단 상태만 삭제하고 다른 API 설정과 Portfolio 시트는 건드리지 않습니다.
+- 403은 Toss WTS Open API 허용 IP 미등록으로 안내합니다. IP는 GAS에서 설정하지 않고 Toss 콘솔에 등록하며, GAS `UrlFetchApp`은 Google IP range pool에서 실행됩니다.
