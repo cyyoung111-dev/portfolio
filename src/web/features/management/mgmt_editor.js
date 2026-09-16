@@ -226,17 +226,20 @@ function _renderFundUnitsEditor(items) {
     <p><b>누락 평가금액 복구</b> · 확정된 좌수·기준가를 기준으로 과거 누락 평가금액을 복구합니다.</p>
     <label>시작일 <input type="date" data-fund-code="range" data-fund-field="from" value="${_escapeHtml(_fundUnitDrafts.range?.from || _kstTodayStr().slice(0,4) + '-01-01')}"></label>
     <label>종료일 <input type="date" data-fund-code="range" data-fund-field="to" value="${_escapeHtml(_fundUnitDrafts.range?.to || _kstTodayStr())}"></label>
-    <button type="button" class="fund-action fund-action-secondary" data-fund-action="fill" ${_fundUnitBusy ? 'disabled' : ''}>누락 평가금액 복구</button>
+    <div class="fund-actions">
+      ${['F00001','F00002','F00003'].map(code => `<button type="button" class="fund-action fund-action-secondary" data-fund-action="fill" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>${code} 업데이트</button>`).join('')}
+    </div>
     <p role="status">${_escapeHtml(_fundUnitsStatus)}</p></section>`;
 }
 
-function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, currentRange) {
+function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, currentRange, recoveryCodes) {
   const percent = total ? Math.min(100, Math.round(processed / total * 100)) : 0;
-  const funds = ['F00001','F00002','F00003'].map(code => {
+  const funds = (recoveryCodes || ['F00001','F00002','F00003']).map(code => {
     const item = fundStats[code];
     if (!item) return `${code} 미처리`;
     const errors = item.apiErrors?.length ? ` · 실패 ${item.apiErrors.length}구간 (${item.apiErrors.map(error => `${error.from}~${error.to} ${error.message}`).join('; ')})` : '';
-    return `${code} 저장 NAV ${item.storedNav || 0} · API 조회 ${item.apiRequested || 0}구간 · API 성공 ${item.apiSuccess || 0}건 · 평가 ${item.valuations || 0} · 가격이력 신규 ${item.prices || 0}/기존 ${item.pricesExisting || 0} · 스냅샷 ${item.snapshots || 0} · NAV 없음 ${item.navMissing || 0} · 최신 미공시 ${item.latestUnpublished || 0} · 좌수 없음 ${item.noUnits || 0} · 0좌 제외 ${item.zeroUnitsExcluded || 0}${errors}`;
+    const inputDates = item.inputRequiredDates?.length ? ` · NAV 입력 필요 ${item.inputRequiredDates.join(', ')}` : '';
+    return `${code} 저장 NAV ${item.storedNav || 0} · API 조회 ${item.apiRequested || 0}구간 · API 성공 ${item.apiSuccess || 0}건 · 평가 ${item.valuations || 0} · 직전 NAV 이월 ${item.carried || 0} · 가격이력 신규 ${item.prices || 0}/기존 ${item.pricesExisting || 0} · 스냅샷 ${item.snapshots || 0} · NAV 없음 ${item.navMissing || 0}${inputDates} · 최신 미공시 ${item.latestUnpublished || 0} · 좌수 없음 ${item.noUnits || 0} · 0좌 제외 ${item.zeroUnitsExcluded || 0}${errors}`;
   }).join(' / ');
   const totals = Object.values(fundStats).reduce((sum, item) => ({
     reflected: sum.reflected + Number(item.valuations || 0),
@@ -308,7 +311,7 @@ async function handleFundUnitAction(action, code) {
       let lastDate = '';
       let processed = 0;
       const days = Math.floor((new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000) + 1;
-      const recoveryCodes = ['F00002','F00003','F00001']; // 저장 NAV 펀드를 먼저 끝내고 네트워크 조회 펀드를 마지막에 처리
+      const recoveryCodes = ['F00001','F00002','F00003'].includes(code) ? [code] : ['F00002','F00003','F00001'];
       const total = days * recoveryCodes.length;
       const fundStats = {};
       for (const fundCode of recoveryCodes) {
@@ -316,7 +319,7 @@ async function handleFundUnitAction(action, code) {
         for (let start = from; start <= to;) {
           const end = _kstDateOffset(start, chunkDays - 1) < to ? _kstDateOffset(start, chunkDays - 1) : to;
           const rangeDays = Math.floor((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1;
-          _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 요청 중`);
+          _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 요청 중`, recoveryCodes);
           buildEditorUI();
           try {
             const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end, code: fundCode, diagnostic: 'true' }, { timeoutMs: 120000, retry: 0, preserveError: true });
@@ -331,7 +334,7 @@ async function handleFundUnitAction(action, code) {
               storedNav: Number(previous.storedNav || 0) + Number(item.storedNav || 0), apiRequested: Number(previous.apiRequested || 0) + Number(item.apiRequested || 0),
               apiSuccess: Number(previous.apiSuccess || 0) + Number(item.apiSuccess || 0), valuations: Number(previous.valuations || 0) + Number(item.valuations || 0),
               prices: Number(previous.prices || 0) + Number(item.prices || 0), pricesExisting: Number(previous.pricesExisting || 0) + Number(item.pricesExisting || 0),
-              snapshots: Number(previous.snapshots || 0) + Number(item.snapshots || 0), navMissing: Number(previous.navMissing || 0) + Number(item.navMissing || 0), latestUnpublished: Number(previous.latestUnpublished || 0) + Number(item.latestUnpublished || 0), noUnits: Number(previous.noUnits || 0) + Number(item.noUnits || 0), zeroUnitsExcluded: Number(previous.zeroUnitsExcluded || 0) + Number(item.zeroUnitsExcluded || 0),
+              snapshots: Number(previous.snapshots || 0) + Number(item.snapshots || 0), carried: Number(previous.carried || 0) + Number(item.carried || 0), navMissing: Number(previous.navMissing || 0) + Number(item.navMissing || 0), inputRequiredDates: [...new Set([...(previous.inputRequiredDates || []), ...(item.inputRequiredDates || [])])], latestUnpublished: Number(previous.latestUnpublished || 0) + Number(item.latestUnpublished || 0), noUnits: Number(previous.noUnits || 0) + Number(item.noUnits || 0), zeroUnitsExcluded: Number(previous.zeroUnitsExcluded || 0) + Number(item.zeroUnitsExcluded || 0),
               apiErrors: [...(previous.apiErrors || []), ...(item.apiErrors || [])],
             };
             if (result.lastDate > lastDate) lastDate = result.lastDate;
@@ -340,13 +343,13 @@ async function handleFundUnitAction(action, code) {
             fundStats[fundCode] = { ...previous, apiErrors: [...(previous.apiErrors || []), { from: start, to: end, message: error.message }] };
           }
           processed += rangeDays;
-          _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 완료`);
+          _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 완료`, recoveryCodes);
           buildEditorUI();
           start = _kstDateOffset(end, 1);
         }
       }
       _editorHistoryCache.clear();
-      _fundUnitsStatus = `${_fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, '완료')} · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. 가능한 범위까지 완료했으며 기존 기록은 보존했습니다.`;
+      _fundUnitsStatus = `${_fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, '완료', recoveryCodes)} · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. NAV 입력 필요일은 직전 NAV로 임시 스냅샷을 생성했고 기존 기록은 보존했습니다.`;
       await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
       recomputeRows(); saveHoldings(); renderSummary();
     }
