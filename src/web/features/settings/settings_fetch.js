@@ -276,6 +276,7 @@ function _priceLookupSummary() {
   if (!meta || typeof meta !== 'object') return '';
   const elapsed = Number.isFinite(Number(meta.serverElapsedMs)) ? `${Math.max(0, Math.round(Number(meta.serverElapsedMs)))}ms` : '?';
   const roundTrip = Number.isFinite(Number(meta.clientRoundTripMs)) ? `${Math.max(0, Math.round(Number(meta.clientRoundTripMs)))}ms` : '?';
+  const toss = Math.max(0, Number(meta.tossResultCount) || 0);
   const krx = Math.max(0, Number(meta.krxResultCount) || 0);
   const history = Math.max(0, Number(meta.recentHistoryFallbackCount) || 0);
   let gf;
@@ -283,6 +284,7 @@ function _priceLookupSummary() {
   else if (meta.googleFinanceExecuted) gf = `GF ${Math.max(0, Number(meta.googleFinanceResultCount) || 0)}건`;
   else gf = 'GF 불필요';
   const chips = [
+    `Toss ${toss}건`,
     `KRX ${krx}건`,
     gf,
     ...(history > 0 ? [`최근이력 ${history}건`] : []),
@@ -290,7 +292,7 @@ function _priceLookupSummary() {
     `GAS ${elapsed}`,
     ...(meta.cacheHit ? ['60초 캐시'] : []),
   ];
-  return `<span class="price-status-chips">${chips.map((label, index) => `<span class="price-status-chip${index === 1 && meta.googleFinanceSkipped ? ' is-skip' : ''}">${label}</span>`).join('')}</span>`;
+  return `<span class="price-status-chips">${chips.map((label, index) => `<span class="price-status-chip${index === 2 && meta.googleFinanceSkipped ? ' is-skip' : ''}">${label}</span>`).join('')}</span>`;
 }
 
 function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
@@ -434,7 +436,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.106';
+const EXPECTED_GAS_VERSION = '9.107';
 
 
 async function autoLoadPrices() {
@@ -467,7 +469,7 @@ async function autoLoadPrices() {
     badge.style.color = 'var(--blue-lt)';
     badge.style.border = '1px solid var(--c-blue2-30)';
   }
-  setStatusLabel('⏳ KRX 평가가격 조회 중...', 'loading');
+  setStatusLabel('⏳ Toss·기존 공급원 평가가격 조회 중...', 'loading');
 
   try {
     let results = null;
@@ -555,3 +557,4 @@ setTimeout(async () => {
   if (typeof bootstrapGsheetSettings === 'function') await bootstrapGsheetSettings();
   if (typeof autoLoadPrices === 'function') await autoLoadPrices();
 }, 100);
+

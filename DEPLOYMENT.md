@@ -505,6 +505,10 @@ GAS 메뉴 및 시트 구성:
 - 글꼴, 글자 크기, 굵기 및 UI 크기 값은 변경하지 않았으며 자체 정적 자산과 서비스워커 캐시 버전은 `20260903-1`로 통일했습니다.
 ### 시장데이터 provider 전환 준비
 
+- v9.107부터 GAS의 `getPrices`는 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`이 Script Properties에 모두 있을 때 Toss `GET /api/v1/prices`를 최대 200종목 batch로 우선 호출합니다. 과거 종가는 `/api/v1/candles?interval=1d&adjusted=false`와 `nextBefore`를 사용합니다.
+- Toss OAuth access token은 Script Cache에 만료 60초 전까지 캐시하고, refresh token은 사용하지 않습니다. 429 및 5xx는 `Retry-After` 우선, 없으면 지수 백오프+jitter로 최대 4회 재시도합니다.
+- Toss 키가 없거나 호출 실패하면 기존 KRX·GOOGLEFINANCE·저장 가격이력 경로를 유지합니다. Toss 응답으로 기존 확정 NAV·배당·스냅샷을 삭제하지 않습니다.
+
 - `src/web/domain/market/market_data_provider.js`는 Toss 및 기존 공급원 응답을 `marketDate`, `symbol`, `market`, `closePrice`, `currency`, `source`, `priceType=REGULAR_CLOSE`, `status`, `fetchedAt`로 정규화합니다.
 - Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
 - `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
