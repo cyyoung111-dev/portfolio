@@ -153,15 +153,19 @@ assert.deepEqual(retiredDaily.map(row=>[row.date,row.units,row.evalAmt]),[
 
 // NAV → 가격이력 → 전체 스냅샷 연결 및 재시도/수동값 보호.
 const fundConfig = new Sheet([['code','name','provider','start','units','at'],['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',1000,'']]);
+const fundNav = new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2025-12-31','F00001','테스트 펀드',950,'2025-12-31',1000,950,'','HANWHA_2045_CRPE']]);
 const prices = new Sheet([['date','code','name','price','at','source'],['2026-01-02','F00001','테스트 펀드',999,'2026-01-02 12:00:00','MANUAL']]);
 const trades = new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드'],['2026-01-01','buy','계좌','주식','000001',2,100,'주식'],['2024-01-01','buy','계좌','과거 펀드','F00003',10,900,'펀드'],['2025-08-25','sell','계좌','과거 펀드','F00003',10,1000,'펀드']]);
 const snapshots = new Sheet([header,snap('2026-01-02','000001',300)]);
-const sheets={'펀드좌수':fundConfig,'가격이력':prices,'거래이력':trades,'스냅샷':snapshots};
+const sheets={'펀드좌수':fundConfig,'펀드기준가격':fundNav,'가격이력':prices,'거래이력':trades,'스냅샷':snapshots};
 context._fetchFundNav=()=>[{date:'2026-01-01',nav:1000},{date:'2026-01-02',nav:1100}];
 const realBuild=context._buildSnapshotRowsFromTradeAndPriceHistory;
 context._buildSnapshotRowsFromTradeAndPriceHistory=(_ss,date)=>[snap(date,'000001',300)];
 const result=context._refreshFundValuations(ssFor(sheets),'2026-01-01','2026-01-02');
 assert.equal(result.saved,1);
+assert.equal(result.fundResults.F00001.carried,1,'F00001 목요일은 직전 확정 NAV를 이월');
+assert.equal(result.fundResults.F00001.navMissing,0,'F00001 월·목은 NAV 누락 집계에서 제외');
+assert.equal(prices.rows.find(r=>r[0]==='2026-01-01')[5],'FUND_NAV_CARRY');
 assert.equal(prices.rows.find(r=>r[0]==='2026-01-02')[3],999);
 assert.equal(snapshots.rows.filter(r=>r[0]==='2026-01-01').length,2,'펀드만으로 신규 전체자산 스냅샷을 만들면 안 됩니다.');
 const count=prices.rows.length;
@@ -186,7 +190,7 @@ let partialArgs;
 context._fetchFundNav=(provider,from,to)=>{ partialArgs={provider,from,to}; return [{date:'2026-01-02',nav:1000}]; };
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const partialResult=context._refreshFundValuations(ssFor(partialSheets),'2026-01-01','2026-01-04');
-assert.deepEqual(partialArgs,{provider:'HANWHA_2045_CRPE',from:'2026-01-01',to:'2026-01-02'},'carry-forward 평가행을 확정 NAV로 오인하지 않고 실제 공시일 누락을 조회');
+assert.deepEqual(partialArgs,{provider:'HANWHA_2045_CRPE',from:'2026-01-02',to:'2026-01-02'},'F00001 목요일은 제외하고 실제 공시 예정일 누락만 조회');
 assert.equal(partialResult.navSaved,1,'공식 API가 실제 반환한 날짜만 확정 NAV로 저장');
 assert.deepEqual(partialNav.rows.slice(1).map(row=>[row[0],row[4]]),[
   ['2026-01-01','2025-12-31'],['2026-01-02','2026-01-02']
@@ -239,19 +243,22 @@ const mixedSs = ssFor({'펀드좌수':mixedUnits,'펀드기준가격':mixedNav,'
 const mixedCalls=[];
 context._fetchFundNav=(provider,from,to)=>{
   mixedCalls.push([provider,from,to]);
-  if (from === '2026-01-12') throw new Error('한화 NAV API timeout');
+  if (from === '2026-01-13') throw new Error('한화 NAV API timeout');
   return [{date:from,nav:1000}];
 };
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const mixed=context._refreshFundValuations(mixedSs,'2026-01-01','2026-01-31');
 assert.equal(mixed.completionStatus,'partial');
 assert.equal(mixed.fundResults.F00001.apiFailed,1);
-assert.equal(mixed.fundResults.F00001.apiSuccess,4,'성공한 API batch NAV는 유지');
+assert.equal(mixed.fundResults.F00001.apiSuccess,8,'성공한 API batch NAV는 유지');
 assert.equal(mixed.fundResults.F00002.storedNav,1);
+assert.equal(mixed.fundResults.F00002.apiRequested,0,'F00002는 외부 API를 호출하지 않음');
+assert(mixed.fundResults.F00002.carried>0,'F00002 누락일은 직전 확정 NAV로 임시 평가');
+assert(mixed.fundResults.F00002.inputRequiredDates.includes('2026-01-05'),'F00002 평일 NAV 누락일은 입력 필요로 반환');
 assert.equal(mixed.fundResults.F00003.storedNav,1);
 assert.equal(mixed.fundResults.F00003.zeroUnitsExcluded,12,'0좌 이후 평가 제외');
 assert.equal(mixedCalls.filter(call=>call[0]!=='HANWHA_2045_CRPE').length,0,'F00002/F00003 외부조회 금지');
-assert.equal(mixedCalls.filter(call=>call[1]==='2026-01-12').length,2,'실패 batch는 최초 호출 후 1회만 재시도');
+assert.equal(mixedCalls.filter(call=>call[1]==='2026-01-13').length,2,'실패 batch는 최초 호출 후 1회만 재시도');
 const kbOnly=context._refreshFundValuations(mixedSs,'2026-01-01','2026-01-07','F00002');
 assert.deepEqual(Object.keys(kbOnly.fundResults),['F00002'],'웹 요청이 F코드별로 독립 실행 가능');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
@@ -408,6 +415,7 @@ assert.deepEqual(importWriteNav.rows,beforeImportFailure,'부분 쓰기 실패 �
 importWriteNav.failWrite=false;
 
 // 설정 저장은 같은 적용일 수정·과거 소급 변경을 거부하고 미래 변경만 추가합니다.
+fundNav.rows = fundNav.rows.filter((row,index)=>index===0 || row[0]!=='2025-12-31');
 context.jsonOk=extra=>({status:'ok',...extra});
 context.jsonError=(message,extra)=>({status:'error',message,...(extra||{})});
 context.getss=()=>ssFor(sheets);
