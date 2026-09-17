@@ -8,5 +8,5 @@ assert.match(collector,/KOSPI200/);
 assert.match(collector,/SOX/);
 assert.match(collector,/VIX/);
 assert.match(source,/params\.action === 'getExchangeRateHistory'/);
-assert.match(collector,/if\(type==='KOSPI200'\)return 'YAHOO'/);
+assert.match(collector,/return type==='KOSPI'\|\|type==='KOSDAQ'\?'TOSS':'YAHOO'/);
 console.log('브리핑 provider 상태 검사: SOX/VIX/USDKRW 연결 및 KOSPI200 Yahoo 보조 연결 확인');
