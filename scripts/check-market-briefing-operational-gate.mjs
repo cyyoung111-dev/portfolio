@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import master from '../src/web/domain/market/market_briefing_master.js';
+import storeApi from '../src/web/domain/market/market_briefing_snapshot_store.js';
+import gate from '../src/web/domain/market/market_briefing_operational_gate.js';
+const d='2026-09-18'; let rows=[];
+const add=(id,status='FINAL',session='REGULAR',time='06:30:00')=>{rows=master.upsertObservation(rows,{seriesId:id,tradingDate:d,value:1,market:'TEST',session,source:'TEST',status,observedAt:`${d}T${time}+09:00`,receivedAt:`${d}T${time}+09:00`});};
+for(const id of gate.REQUIRED_BY_CHECKPOINT.MORNING.filter(x=>x!=='K200_NIGHT')) add(id,id==='NDX'?'DELAYED':'FINAL');
+add('K200_NIGHT','FINAL','NIGHT','06:00:00');
+let decision=gate.releaseDecision(master,storeApi,rows,[],d,'MORNING');
+assert.equal(decision.publishable,true); assert.equal(decision.status,'READY_WITH_CONTEXT_GAP');
+let snapshots=storeApi.appendSnapshot([],{tradingDate:'2026-09-17',checkpoint:'EVENING',asOf:'2026-09-17T20:15:00+09:00',values:{}},{scenario:{next:'context'}});
+decision=gate.releaseDecision(master,storeApi,rows,snapshots,d,'MORNING'); assert.equal(decision.status,'READY');
+rows=rows.filter(r=>r.seriesId!=='K200_NIGHT'); decision=gate.releaseDecision(master,storeApi,rows,snapshots,d,'MORNING'); assert.equal(decision.publishable,false); assert.ok(decision.data.missing.includes('K200_NIGHT'));
+console.log('장전·마감 브리핑 운영 게이트 회귀검사 통과');
