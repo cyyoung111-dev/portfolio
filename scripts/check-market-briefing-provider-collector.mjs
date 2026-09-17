@@ -7,7 +7,7 @@ const result=await collector.collect(request,'2026-09-18',{from:'2026-09-17'});
 assert.deepEqual(result.missing,[]);
 assert.equal(calls.length,2);
 assert.equal(result.payload.KOSPI.tradingDate,'2026-09-17');
-assert.equal(result.payload.KOSPI200.source,'TOSS');
+assert.equal(result.payload.KOSPI200.source,'YAHOO');
 assert.equal(result.payload.SOX.source,'YAHOO');
 assert.equal(result.payload.VIX.source,'YAHOO');
 assert.equal(result.payload.USDKRW.value,1380);
