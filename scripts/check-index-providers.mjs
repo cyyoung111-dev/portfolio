@@ -45,5 +45,5 @@ const timedOut = context._yahooRequest_('^GSPC', { range: '5d' });
 if (timedOut.status !== 0 || timedOut.error !== 'TIMEOUT_OR_NETWORK_ERROR') throw new Error('Yahoo timeout 실패 보존 계약 실패');
 
 const symbols = context.YAHOO_INDEX_SYMBOLS;
-if (Object.keys(symbols).length !== 4 || symbols.SP500 !== '^GSPC' || symbols.NASDAQ !== '^IXIC' || symbols.NASDAQ100 !== '^NDX' || symbols.DOW !== '^DJI') throw new Error('Yahoo 4개 지수 mapping 실패');
-console.log('✅ Toss KOSPI/KOSDAQ 및 Yahoo 4개 지수 provider 계약/파싱 테스트 통과');
+if (Object.keys(symbols).length !== 6 || symbols.SP500 !== '^GSPC' || symbols.NASDAQ !== '^IXIC' || symbols.NASDAQ100 !== '^NDX' || symbols.DOW !== '^DJI' || symbols.SOX !== '^SOX' || symbols.VIX !== '^VIX') throw new Error('Yahoo 6개 지수 mapping 실패');
+console.log('✅ Toss KOSPI/KOSDAQ 및 Yahoo 6개 지수 provider 계약/파싱 테스트 통과');
