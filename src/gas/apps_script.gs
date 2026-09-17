@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.115
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.116
+//
+//  v9.116 변경사항 (2026.09.18):
+//   MARKET_SNAPSHOTS 불변 체크포인트/시나리오 서버 저장·조회 추가
 //
 //  v9.115 변경사항 (2026.09.18):
 //   MARKET_MASTER 관측 원장을 GAS 시트에 append-only 저장/조회하는 인증 API 추가
@@ -746,6 +749,7 @@ function doGet(e) {
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
   if (params.action === 'getExchangeRateHistory')         return handleGetExchangeRateHistory(params.from || '', params.to || '', params.currencies || 'USD');
   if (params.action === 'getMarketBriefingMaster')        return handleGetMarketBriefingMaster(params.from || '', params.to || '', params.seriesIds || '');
+  if (params.action === 'getMarketBriefingSnapshots')     return handleGetMarketBriefingSnapshots(params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes, params.persist === '1');
   if (params.action === 'diagnoseTossMarketData') return handleDiagnoseTossMarketData();
@@ -807,6 +811,7 @@ function doPost(e) {
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
+  if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
   if (params.action === 'syncHoldings' && params.data)  return handleSyncHoldings(params.data);
   if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data);
   if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
@@ -862,7 +867,7 @@ function handleAppendMarketBriefingObservations(dataJson) {
       var key=[seriesId,tradingDate,String(r.session||'UNKNOWN'),observedAt,receivedAt].join('|');
       if (existing[key]) { duplicates++; return; }
       existing[key]=true;
-      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,String(r.timestampQuality||(observedAt?'OBSERVED':'RECEIVE_ONLY')),r.lagSeconds==null?'':Number(r.lagSeconds),Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
+      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,String(observedAt?'OBSERVED':'RECEIVE_ONLY'),r.lagSeconds==null?'':Number(r.lagSeconds),Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
     });
     if (values.length) sh.getRange(sh.getLastRow()+1,1,values.length,14).setValues(values);
     lock.releaseLock();
@@ -883,6 +888,39 @@ function handleGetMarketBriefingMaster(fromStr, toStr, seriesIdsInput) {
     });
     return jsonOk({ observations: observations, source: MARKET_BRIEFING_MASTER_SHEET });
   } catch(err) { return jsonError('MARKET_MASTER 조회 실패: '+err.message); }
+}
+
+var MARKET_BRIEFING_SNAPSHOT_SHEET = 'MARKET_SNAPSHOTS';
+var MARKET_BRIEFING_CHECKPOINTS = { NIGHT_FINAL:true, MORNING:true, KRX_FINAL:true, AFTER_FINAL:true, EVENING:true };
+
+function _marketBriefingSnapshotSheet_(ss) {
+  var sh=ss.getSheetByName(MARKET_BRIEFING_SNAPSHOT_SHEET);
+  if(!sh){sh=ss.insertSheet(MARKET_BRIEFING_SNAPSHOT_SHEET);sh.getRange(1,1,1,5).setValues([['trading_date','checkpoint','as_of','values_json','scenario_json']]);}
+  return sh;
+}
+
+function handleAppendMarketBriefingSnapshot(dataJson) {
+  var lock;
+  try {
+    var item=JSON.parse(dataJson||'{}'), d=_normalizeDate(item.tradingDate||''), cp=String(item.checkpoint||'');
+    if(!d||!MARKET_BRIEFING_CHECKPOINTS[cp]||!item.asOf) return jsonError('MARKET_SNAPSHOTS 필수값 오류');
+    lock=LockService.getScriptLock();lock.waitLock(30000);
+    var sh=_marketBriefingSnapshotSheet_(getss()), found=false;
+    if(sh.getLastRow()>1) sh.getRange(2,1,sh.getLastRow()-1,2).getValues().some(function(r){if((_normalizeDate(r[0])||'')===d&&String(r[1])===cp){found=true;return true;}return false;});
+    if(found){lock.releaseLock();return jsonOk({saved:0,immutable:true});}
+    sh.appendRow([d,cp,String(item.asOf),JSON.stringify(item.values||{}),item.scenario==null?'':JSON.stringify(item.scenario)]);
+    lock.releaseLock();return jsonOk({saved:1,immutable:true});
+  } catch(err){try{if(lock)lock.releaseLock();}catch(e){}return jsonError('MARKET_SNAPSHOTS 저장 실패: '+err.message);}
+}
+
+function handleGetMarketBriefingSnapshots(fromStr,toStr) {
+  try {
+    var sh=getss().getSheetByName(MARKET_BRIEFING_SNAPSHOT_SHEET);
+    if(!sh||sh.getLastRow()<2)return jsonOk({snapshots:[],source:MARKET_BRIEFING_SNAPSHOT_SHEET});
+    var from=_normalizeDate(fromStr||'')||'0000-01-01',to=_normalizeDate(toStr||'')||'9999-12-31',out=[];
+    sh.getRange(2,1,sh.getLastRow()-1,5).getValues().forEach(function(r){var d=_normalizeDate(r[0]);if(!d||d<from||d>to)return;var values={},scenario=null;try{values=JSON.parse(String(r[3]||'{}'));}catch(e){}try{scenario=r[4]?JSON.parse(String(r[4])):null;}catch(e2){}out.push({tradingDate:d,checkpoint:String(r[1]),asOf:String(r[2]),values:values,scenario:scenario});});
+    return jsonOk({snapshots:out,source:MARKET_BRIEFING_SNAPSHOT_SHEET});
+  } catch(err){return jsonError('MARKET_SNAPSHOTS 조회 실패: '+err.message);}
 }
 
 function handleSaveSyncIssues(source, dataJson) {
@@ -7186,7 +7224,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.115' });
+    return jsonOk({ settings: settings, gasVersion: '9.116' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7208,7 +7246,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.115'
+      gasVersion: '9.116'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
