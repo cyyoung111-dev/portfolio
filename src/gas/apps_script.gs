@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.113
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.114
+//
+//  v9.114 변경사항 (2026.09.18):
+//   KOSPI200 Yahoo ^KS200 보조 EOD provider 연결
 //
 //  v9.113 변경사항 (2026.09.18):
 //   기존 환율이력 시트의 USD/KRW 실제 날짜별 조회 API 추가
@@ -3194,6 +3197,7 @@ function _benchmarkSymbolMap() {
     DOW: ['^DJI'],
     NASDAQ: ['^IXIC'],
     NASDAQ100: ['^NDX'],
+    KOSPI200: ['^KS200'],
     SOX: ['^SOX'],
     VIX: ['^VIX'],
     VKOSPI: []
@@ -3201,7 +3205,7 @@ function _benchmarkSymbolMap() {
 }
 
 var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
-var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', SOX: '^SOX', VIX: '^VIX' };
+var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX' };
 
 function _indicatorRows_(payload) {
   var result = payload && payload.result;
@@ -7122,7 +7126,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.113' });
+    return jsonOk({ settings: settings, gasVersion: '9.114' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7144,7 +7148,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.113'
+      gasVersion: '9.114'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
