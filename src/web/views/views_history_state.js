@@ -18,13 +18,17 @@ const __histState = window.__histState || {
 };
 window.__histState = __histState;
 
-const HIST_BENCHMARK_TYPES = ['KOSPI', 'SP500', 'DOW', 'NASDAQ', 'NASDAQ100'];
+const HIST_BENCHMARK_TYPES = ['KOSPI', 'KOSDAQ', 'SP500', 'DOW', 'NASDAQ', 'NASDAQ100'];
+const HIST_BENCHMARK_STORAGE_KEY = 'pf_history_benchmarks';
 
 function _initHistState() {
   __histState.mode = ['day', 'week', 'month'].includes(__histState.mode) ? __histState.mode : 'week';
   // 이전 배포에서 선택했던 지원 종료 지수가 메모리에 남아 있어도 즉시 제거합니다.
-  const saved = Array.isArray(__histState.benchmarks) ? __histState.benchmarks : ['KOSPI'];
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem(HIST_BENCHMARK_STORAGE_KEY) || 'null'); } catch (e) {}
+  const saved = Array.isArray(stored) ? stored : (Array.isArray(__histState.benchmarks) ? __histState.benchmarks : ['KOSPI']);
   __histState.benchmarks = saved.filter(type => HIST_BENCHMARK_TYPES.includes(type));
+  try { localStorage.setItem(HIST_BENCHMARK_STORAGE_KEY, JSON.stringify(__histState.benchmarks)); } catch (e) {}
 }
 
 function _getHistMode() {
@@ -41,6 +45,7 @@ function _getHistBenchmarks() {
 
 function _setHistBenchmarks(next) {
   __histState.benchmarks = Array.isArray(next) ? next.slice() : [];
+  try { localStorage.setItem(HIST_BENCHMARK_STORAGE_KEY, JSON.stringify(__histState.benchmarks)); } catch (e) {}
 }
 
 

@@ -541,3 +541,31 @@ GAS 메뉴 및 시트 구성:
 - 스프레드시트 `📊 포트폴리오 → ⚙️ 설정` 메뉴에서도 `Toss Client ID 설정`, `Toss Client Secret 설정`, `Toss 설정 상태`, `Toss API read-only 진단`, `Toss 설정 삭제`를 사용할 수 있습니다. 빈 입력은 기존 값을 유지합니다.
 - 서버 응답에는 Client ID 마스킹값, Secret 설정 여부, 마지막 진단 시각·성공 여부·오류 코드만 포함합니다. 삭제 확인 시 Toss Script Properties와 Toss token cache 및 Toss 진단 상태만 삭제하고 다른 API 설정과 Portfolio 시트는 건드리지 않습니다.
 - 403은 Toss WTS Open API 허용 IP 미등록으로 안내합니다. IP는 GAS에서 설정하지 않고 Toss 콘솔에 등록하며, GAS `UrlFetchApp`은 Google IP range pool에서 실행됩니다.
+
+## GAS v9.109: 원자료 기반 일별 Snapshot 재생성
+
+- `rebuildDailySnapshots(from, to)`는 거래일만이 아니라 가격이력·거래·펀드 NAV·ETF 분배금·기존에 확인된 환율이력의 날짜와 그 범위의 평일을 후보로 구성합니다. 오늘은 제외하고, 전일 확정값을 포함합니다. 주말 거래·배당일은 원자료 날짜가 있으면 별도 후보로 남깁니다.
+- 계산 입력은 거래원장, 종목코드, 가격이력, `펀드기준가격`, 검증된 환율이력뿐입니다. 기존 `스냅샷`은 signature 비교용으로만 읽습니다. 대상 날짜별로 계산 성공 후 불일치할 때만 upsert하며, 실패·환율 미확인·가격 누락 날짜와 기존 행은 보존합니다.
+- 거래이력은 기존 9열과 신규 11열을 모두 읽고 `SPLIT`/`REVERSE_SPLIT`의 비율을 적용합니다. 분할·병합은 총 취득원가와 현금흐름을 바꾸지 않으며, 병합 단주는 자동 반올림하지 않습니다.
+- F00001/F00002/F00003은 `펀드기준가격`의 평가금액과 `가격공시일`을 사용하며, 날짜별 좌수와 NAV carry-forward를 유지합니다. 해당 NAV 또는 가격이 없으면 기존 Snapshot을 지우지 않고 해당 날짜를 보류합니다.
+- 현재 운영 코드에는 자동으로 기록되는 과거 환율 source가 없습니다. `환율이력`은 헤더가 `날짜|통화|환율`인 기존 운영 시트가 실제로 존재할 때만 읽는 read-only adapter이며, 시트가 없거나 구조가 다르면 현재 환율로 대체하지 않습니다. 새 시트를 만들거나 현재 환율을 과거에 주입하지 않습니다.
+- Snapshot의 손익은 평가금액−매수원금 기준입니다. 화면의 현금흐름 조정 수익률 지수는 기존 BUY/SELL만 현금흐름으로 분리하며, TWR은 현금·배당·입출금 원천이 완전 연결되지 않아 이번에 도입하지 않았습니다.
+- 비교지수는 Toss 확정 일봉 KOSPI/KOSDAQ 및 Yahoo의 비공식 확정 일봉을 Snapshot에 저장하지 않고 그래프 요청 시 cache로 조회합니다. 실시간 current 값은 전일 확정 Snapshot과 분리합니다.
+- 그래프에는 `확정 기준 YYYY-MM-DD`를 표시하고, 현재가 polling은 `화면만 반영`으로 별도 표시합니다. GAS v9.109 및 정적 웹 재배포가 필요합니다.
+
+### 시트 inventory
+
+| 시트명 | 역할 | read 함수 | write 함수 | 현재 사용 | source of truth/파생 | 신규 구조 사용 | LEGACY 후보 | 삭제 전 확인 |
+|---|---|---|---|---|---|---|---|---|
+| 종목코드 | 종목 master·통화·시장 | `getCodeItems` | `handleSyncCodes`/`initSheet` | 사용 | 원천 | 사용 | 없음 | 코드·통화·시장 |
+| 거래이력 | BUY/SELL/SPLIT/REVERSE_SPLIT 원장 | `handleGetTrades`/`calcHoldingsAtDate` | `handleSyncTrades` | 사용 | 원천 | 사용 | 없음 | 11열 비율·단주 |
+| 가격이력 | 날짜별 확정·수동 가격 | `getPriceHistoryRow`/`getLatestPriceHistoryEntries` | `batchUpsertPriceHistory`/`handleSaveManualPrice` | 사용 | 원천 | 사용 | 없음 | source·입력시각 |
+| 펀드좌수 | 적용일별 펀드 좌수 | `_readFundUnits` | `handleSaveFundUnits` | 사용 | 원천 | 사용 | 없음 | F00001~3 |
+| 펀드기준가격 | NAV·공시일·평가금액 | `_storedFundNavRows`/`_getFundEvaluationAtDate` | `_refreshFundValuations`/`handleImportFundNav` | 사용 | 원천 | 사용 | 없음 | sourceDate·provider |
+| ETF분배금이력 | SEIBro 분배금 확정 이력 | `_readEtfDividendHistory` | `_writeEtfDividendHistory` | 사용 | 원천 | 날짜 후보만 사용 | 없음 | SEIBro/MANUAL |
+| 설정 | DIVDATA·앱 설정 | `_readSettingsMap` | `_writeSettingsMap` | 사용 | 원천/설정 | 배당 날짜 후보 | 없음 | DIVDATA |
+| 스냅샷 | 평가 결과 materialized view | `_readSnapshotRowsByDate`/`handleGetHistory` | `writeSnapshotRows`/`handleSaveSnapshot` | 사용 | 파생 | 비교·upsert 대상 | 구형 10/11열 행 | 삭제·초기화 금지 |
+| 환율이력 | 운영자가 별도 확보한 과거 환율 adapter | `_getHistoricalExchangeRates` | 없음 | 현재 미확인 | 확인 전에는 원천 아님 | 선택적 read-only | 후보 자체를 새로 만들지 않음 | 실제 시트·헤더·출처 |
+| 종가·보유현황 | 현재/호환 보조 시트 | 기존 read/write 경로 | 기존 함수 | 사용 | 파생/호환 | 직접 재생성 입력 아님 | 운영 확인 후 판단 | 데이터 대조 |
+
+위 inventory의 시트는 이번 변경에서 삭제하지 않습니다. `환율이력`이 실제 운영에 없으면 외화 Snapshot 재생성을 보류하는 것이 정상 동작입니다.
