@@ -4,7 +4,6 @@
 //  ★ 반드시 모든 JS 파일 중 맨 마지막에 로드되어야 함
 // ════════════════════════════════════════════════════════════════
 
-// 기존 전역 API를 깨지 않고 역할별 네임스페이스를 단계적으로 제공합니다.
 window.PortfolioApp = window.PortfolioApp || {};
 Object.assign(window.PortfolioApp, {
   views: Object.freeze({ renderPlan: renderPlanView, switch: switchView }),
@@ -13,29 +12,47 @@ Object.assign(window.PortfolioApp, {
   storage: Object.freeze({ createBackup: getPortfolioBackupState, ensureAccounts: ensureAccountsMaster }),
 });
 
-document.addEventListener('DOMContentLoaded', function() {
+const MARKET_BRIEFING_RUNTIME_SCRIPTS = Object.freeze([
+  'domain/market/market_briefing_master.js?v=20260918-1',
+  'domain/market/market_briefing_provider_normalizer.js?v=20260918-1',
+  'domain/market/market_briefing_snapshot_store.js?v=20260918-1',
+  'domain/market/market_briefing_operational_gate.js?v=20260918-1',
+  'domain/market/market_briefing_runtime_store.js?v=20260918-1',
+  'domain/market/market_briefing_runtime.js?v=20260918-1',
+]);
 
-  // ── 기본 초기화
+function loadMarketBriefingRuntime() {
+  if (window.MarketBriefingRuntime) return Promise.resolve(window.MarketBriefingRuntime);
+  return MARKET_BRIEFING_RUNTIME_SCRIPTS.reduce((chain, src) => chain.then(() => new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = false;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`market briefing script load failed: ${src}`));
+    document.head.appendChild(script);
+  })), Promise.resolve()).then(() => {
+    if (!window.MarketBriefingRuntime) throw new Error('MarketBriefingRuntime unavailable after load');
+    window.PortfolioApp.marketBriefing = window.MarketBriefingRuntime;
+    return window.MarketBriefingRuntime;
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
   const dateInput = $el('quickDateInput');
   if (dateInput) dateInput.value = getDateStr(0);
-
   syncAcctOrder();
   if (typeof ensureAccountsMaster === 'function') ensureAccountsMaster();
   buildTabBar();
   switchView('acct');
 
-  // 상환스케줄 기반 LOAN 자동 갱신
+  loadMarketBriefingRuntime().catch((error) => console.warn('[market-briefing] runtime unavailable', error));
+
   if (typeof syncLoanFromSchedule === 'function') syncLoanFromSchedule();
-  // 앱을 장시간 열어둔 상태에서 월이 바뀌어도 현재월 스케줄을 다시 반영합니다.
   setInterval(() => {
     if (typeof syncLoanFromSchedule !== 'function') return;
     const changed = syncLoanFromSchedule();
     if (changed && typeof persistRealEstateSettings === 'function') persistRealEstateSettings(true);
     if (changed) { try { refreshAll(); } catch(e) {} }
   }, 60 * 60 * 1000);
-
-  // ── 전역 이벤트 위임 등록
-  if (typeof registerGlobalEventDelegation === 'function') {
-    registerGlobalEventDelegation();
-  }
+  if (typeof registerGlobalEventDelegation === 'function') registerGlobalEventDelegation();
 });
