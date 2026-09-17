@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const runtime=fs.readFileSync('src/web/domain/market/market_briefing_runtime.js','utf8');
+const store=fs.readFileSync('src/web/domain/market/market_briefing_runtime_store.js','utf8');
+const bootstrap=fs.readFileSync('src/web/app/bootstrap.js','utf8');
+assert.match(gas,/MARKET_BRIEFING_MASTER_SHEET = 'MARKET_MASTER'/);
+assert.match(gas,/appendMarketBriefingObservations/);
+assert.match(gas,/getMarketBriefingMaster/);
+assert.match(gas,/function handleAppendMarketBriefingObservations/);
+assert.match(gas,/function handleGetMarketBriefingMaster/);
+assert.match(gas,/LockService\.getScriptLock\(\)/);
+assert.match(gas,/_normalizeDate\(r\[1\]\)\|\|''/);
+assert.match(gas,/\[seriesId,tradingDate,String\(r\.session\|\|'UNKNOWN'\),observedAt,receivedAt\]\.join\('\|'\)/);
+assert.match(gas,/timestampQuality\|\|\(observedAt\?'OBSERVED':'RECEIVE_ONLY'\)/);
+assert.doesNotMatch(gas,/observedAt\s*=\s*receivedAt/);
+console.log('MARKET_MASTER append-only 서버 영속화/중복방지/timestamp 품질 계약 통과');
+
+assert.match(store,/function mergeObservations/);
+assert.match(runtime,/async function syncServerMaster/);
+assert.match(runtime,/getMarketBriefingMaster/);
+assert.match(runtime,/appendMarketBriefingObservations/);
+assert.match(bootstrap,/runtime\.syncServerMaster/);
