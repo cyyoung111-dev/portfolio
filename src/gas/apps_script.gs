@@ -6489,7 +6489,7 @@ function handleGetExchangeRateHistory(fromStr, toStr, currenciesInput) {
     var requested = String(currenciesInput || 'USD').split(',').map(function(value) {
       return String(value || '').trim().toUpperCase();
     }).filter(function(value, index, all) { return value && all.indexOf(value) === index; });
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = getss();
     var sh = ss.getSheetByName('환율이력');
     if (!sh || sh.getLastRow() < 2) return jsonOk({ history: [], source: '환율이력', status: 'MISSING_SOURCE' });
     var header = sh.getRange(1, 1, 1, Math.min(3, sh.getLastColumn())).getValues()[0].map(function(value) { return String(value || '').trim(); });
