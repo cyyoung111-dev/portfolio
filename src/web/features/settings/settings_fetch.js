@@ -283,12 +283,52 @@ function _priceLookupSummary() {
     `Toss ${toss}건`,
     `KRX ${krx}건`,
     'GOOGLEFINANCE 가격 미사용',
-    ...(history > 0 ? [`최근이력 ${history}건`] : []),
+    `<button type="button" class="price-status-chip is-action" data-price-detail="recent-history">최근이력 ${history}건</button>`,
     `왕복 ${roundTrip}`,
-    `GAS ${elapsed}`,
+    `<button type="button" class="price-status-chip is-action" data-price-detail="timings">GAS ${elapsed}</button>`,
     ...(meta.cacheHit ? ['60초 캐시'] : []),
   ];
-  return `<span class="price-status-chips">${chips.map(label => `<span class="price-status-chip">${label}</span>`).join('')}</span>`;
+  return `<span class="price-status-chips">${chips.map(label => label.startsWith('<button') ? label : `<span class="price-status-chip">${label}</span>`).join('')}</span>`;
+}
+
+function _priceLookupDetail(kind) {
+  const wrap = document.getElementById('price-lookup-detail');
+  const meta = window._lastPriceLookup;
+  if (!wrap) return;
+  if (kind === 'close') {
+    wrap.hidden = true;
+    wrap.dataset.open = '';
+    wrap.innerHTML = '';
+    return;
+  }
+  if (!meta || typeof meta !== 'object') return;
+  if (wrap.dataset.open === kind) {
+    wrap.hidden = true;
+    wrap.dataset.open = '';
+    wrap.innerHTML = '';
+    return;
+  }
+  const close = '<button type="button" class="price-lookup-detail-close" data-price-detail="close" aria-label="상세 닫기">닫기</button>';
+  if (kind === 'recent-history') {
+    const items = Array.isArray(meta.recentHistoryFallbackItems) ? meta.recentHistoryFallbackItems : [];
+    const rows = items.length
+      ? items.map(item => `<li><b>${_escapeHtml(item.name || item.code || '-')}</b> <span>${_escapeHtml(item.code || '-')}</span> · ${_escapeHtml(item.priceDate || '-')}</li>`).join('')
+      : '<li>최근 확정 이력 fallback 종목 없음</li>';
+    wrap.innerHTML = `<div class="price-lookup-detail-head"><b>최근 확정 이력 fallback</b>${close}</div><ul>${rows}</ul>`;
+  } else if (kind === 'timings') {
+    const timings = meta.timings && typeof meta.timings === 'object' ? meta.timings : {};
+    const labels = {
+      setup: '설정/캐시 준비', codeItems: '종목 master', initialPriceHistory: '초기 가격이력',
+      tossToken: 'Toss token', tossPricesHttp: 'Toss prices HTTP', krx: 'KRX',
+      recentHistory: '최근 확정 이력', snapshot: '가격이력/Snapshot', other: '기타', finalize: '마무리'
+    };
+    const rows = Object.keys(labels).map(key => `<li><span>${labels[key]}</span><b>${Math.max(0, Math.round(Number(timings[key]) || 0))}ms</b></li>`).join('');
+    wrap.innerHTML = `<div class="price-lookup-detail-head"><b>GAS 단계별 처리시간</b>${close}</div><ul>${rows}</ul>`;
+  } else {
+    return;
+  }
+  wrap.hidden = false;
+  wrap.dataset.open = kind;
 }
 
 function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
@@ -296,6 +336,7 @@ function _priceStatusLayout(primaryHtml, metaHtml, noteHtml) {
     <div class="price-status-primary">${primaryHtml}</div>
     ${metaHtml ? `<div class="price-status-meta">${metaHtml}</div>` : ''}
     ${noteHtml ? `<div class="price-status-note">${noteHtml}</div>` : ''}
+    <div id="price-lookup-detail" class="price-lookup-detail" hidden></div>
   </div>`;
 }
 
@@ -432,7 +473,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.109';
+const EXPECTED_GAS_VERSION = '9.110';
 
 
 async function autoLoadPrices() {

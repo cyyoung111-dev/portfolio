@@ -569,3 +569,12 @@ GAS 메뉴 및 시트 구성:
 | 종가·보유현황 | 현재/호환 보조 시트 | 기존 read/write 경로 | 기존 함수 | 사용 | 파생/호환 | 직접 재생성 입력 아님 | 운영 확인 후 판단 | 데이터 대조 |
 
 위 inventory의 시트는 이번 변경에서 삭제하지 않습니다. `환율이력`이 실제 운영에 없으면 외화 Snapshot 재생성을 보류하는 것이 정상 동작입니다.
+
+## GAS v9.110: getPrices 단계별 관측성
+
+- 기존 `serverElapsedMs`는 유지하고, `priceLookup.timings`에 `setup`, `codeItems`, `initialPriceHistory`, `tossToken`, `tossPricesHttp`, `krx`, `recentHistory`, `snapshot`, `other`, `finalize`를 추가했습니다. 모든 값은 GAS `Date.now()` 기반이며 음수로 내려가지 않습니다.
+- Toss는 기존 단일 batch 요청을 유지합니다. KRX는 `krxExecuted`, `krxElapsedMs`, `krxResultCount`로 실행 여부·소요시간·결과건수를 구분합니다. 추가 HTTP/Spreadsheet read, 종목별 호출·타이머는 없습니다.
+- `recentHistoryFallbackItems`는 최종적으로 저장된 최근 확정 가격이력으로 보완된 종목만 `code`, `name`, `priceDate`로 반환합니다. Toss/KRX 정상 결과를 중복 표시하지 않으며, 0건도 안전한 빈 배열로 처리합니다.
+- 웹의 기존 상태 chip을 유지하면서 `최근이력 N건`은 fallback 종목 목록을, `GAS Nms`는 단계별 timing을 탭/클릭으로 표시합니다. 모바일에서는 상태 영역을 눌러 상세를 확인할 수 있습니다.
+- `persist=false`의 가격이력·Snapshot 무쓰기와 `persist=true` 기존 저장 정책은 변경하지 않았습니다.
+- GAS 재배포 버전은 9.110, 정적 자산 및 Service Worker cache는 20260917-3입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.

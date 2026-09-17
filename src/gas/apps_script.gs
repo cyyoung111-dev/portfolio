@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.109
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.110
+//
+//  v9.110 변경사항 (2026.09.17):
+//   getPrices 단계별 저비용 timing metadata·최근 확정 이력 fallback 종목 상세 추가
 //
 //  v9.109 변경사항 (2026.09.17):
 //   원자료 기반 일별 Snapshot 재생성 날짜집합·펀드 NAV carry-forward·거래 Corporate Action 보강
@@ -884,22 +887,59 @@ function _tossSafeError_(body) {
   try { var parsed = JSON.parse(body); return String(parsed.error?.code || parsed.error || parsed.error_description || 'unknown'); } catch (e) { return 'invalid-response'; }
 }
 
-function _tossRequest_(path, query, group) {
+function _priceTimingAdd_(timings, key, startedMs) {
+  if (!timings || !key || !Number.isFinite(Number(startedMs))) return;
+  timings[key] = Math.max(0, Number(timings[key] || 0) + Math.max(0, Date.now() - startedMs));
+}
+
+function _newPriceLookupTimings_() {
+  return {
+    setup: 0, codeItems: 0, initialPriceHistory: 0, tossToken: 0,
+    tossPricesHttp: 0, krx: 0, recentHistory: 0, snapshot: 0,
+    other: 0, finalize: 0
+  };
+}
+
+function _tossRequest_(path, query, group, timings) {
+  var tokenStartedMs = Date.now();
   var token = _tossAccessToken_();
+  _priceTimingAdd_(timings, 'tossToken', tokenStartedMs);
   if (!token) return null;
   var params = [];
   Object.keys(query || {}).forEach(function(key) { if (query[key] !== '' && query[key] != null) params.push(encodeURIComponent(key) + '=' + encodeURIComponent(query[key])); });
   var url = TOSS_API_BASE + path + (params.length ? '?' + params.join('&') : '');
   var maxAttempts = 4;
+  var httpStartedMs = Date.now();
   for (var attempt = 0; attempt < maxAttempts; attempt++) {
-    var response = UrlFetchApp.fetch(url, { method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
+    var response;
+    try {
+      response = UrlFetchApp.fetch(url, { method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true });
+    } catch (fetchErr) {
+      _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
+      throw fetchErr;
+    }
     var status = response.getResponseCode();
-    if (status >= 200 && status < 300) return JSON.parse(response.getContentText() || '{}');
+    if (status >= 200 && status < 300) {
+      try {
+        var parsed = JSON.parse(response.getContentText() || '{}');
+        _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
+        return parsed;
+      } catch (parseErr) {
+        _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
+        throw parseErr;
+      }
+    }
     var headers = response.getAllHeaders ? response.getAllHeaders() : {};
     var retryAfter = Number(headers['Retry-After'] || headers['retry-after'] || 0);
     var rateReset = Number(headers['X-RateLimit-Reset'] || headers['x-ratelimit-reset'] || 0);
-    if (status !== 429 && status < 500) throw new Error('Toss API 실패(' + status + '): ' + _tossSafeError_(response.getContentText() || ''));
-    if (attempt === maxAttempts - 1) throw new Error('Toss API 재시도 초과(' + status + ')');
+    if (status !== 429 && status < 500) {
+      _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
+      throw new Error('Toss API 실패(' + status + '): ' + _tossSafeError_(response.getContentText() || ''));
+    }
+    if (attempt === maxAttempts - 1) {
+      _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
+      throw new Error('Toss API 재시도 초과(' + status + ')');
+    }
     var waitMs = retryAfter > 0
       ? retryAfter * 1000
       : (rateReset > 0 ? rateReset * 1000 : Math.min(4000, 250 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250));
@@ -915,7 +955,7 @@ function _normalizeTossSymbol_(value) {
   return symbol.replace(/^A(?=\d{6}$)/, '');
 }
 
-function fetchPricesToss(items) {
+function fetchPricesToss(items, timings) {
   var requestedBySymbol = {};
   var symbols = (items || []).map(function(item) {
     var requested = _tossSymbol_(item);
@@ -924,7 +964,7 @@ function fetchPricesToss(items) {
     return normalized;
   }).filter(Boolean);
   if (!symbols.length || symbols.length > 200 || !_tossProperties_().id) return {};
-  var payload = _tossRequest_('/api/v1/prices', { symbols: symbols.join(',') }, 'MARKET_DATA');
+  var payload = _tossRequest_('/api/v1/prices', { symbols: symbols.join(',') }, 'MARKET_DATA', timings);
   var rows = payload && Array.isArray(payload.result) ? payload.result : [];
   var prices = {};
   rows.forEach(function(row) {
@@ -2820,6 +2860,8 @@ function runEtfDividendDiagnosis() {
 function handleGetPricesCompat(codesParam, persist) {
   try {
     var requestStartedMs = Date.now();
+    var timings = _newPriceLookupTimings_();
+    var setupStartedMs = Date.now();
     var ss       = getss();
     var todayStr = today();
     var triggerState = _ensureDailyTriggersOncePerDay(todayStr);
@@ -2829,8 +2871,9 @@ function handleGetPricesCompat(codesParam, persist) {
     var cacheHash = Utilities.base64EncodeWebSafe(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
     ).replace(/=+$/g, '').slice(0, 40);
-    var cacheKey = 'prices_v9108_p' + (persist ? '1' : '0') + '_' + cacheHash;
+    var cacheKey = 'prices_v9110_p' + (persist ? '1' : '0') + '_' + cacheHash;
     var cached = cache.get(cacheKey);
+    _priceTimingAdd_(timings, 'setup', setupStartedMs);
     if (cached) {
       try {
         var cachedPayload = JSON.parse(cached);
@@ -2839,16 +2882,26 @@ function handleGetPricesCompat(codesParam, persist) {
         cachedPayload.priceLookup.cacheHit = true;
         cachedPayload.priceLookup.serverElapsedMs = Date.now() - requestStartedMs;
         cachedPayload.priceLookup.triggerAutoFixed = !!triggerState.autoFixed;
+        cachedPayload.priceLookup.timings = timings;
+        cachedPayload.priceLookup.recentHistoryFallbackItems = Array.isArray(cachedPayload.priceLookup.recentHistoryFallbackItems)
+          ? cachedPayload.priceLookup.recentHistoryFallbackItems : [];
         var cachedLatestDate = _latestDateFromPriceDates(cachedPayload.priceDates || {});
         cachedPayload.priceLookup.snapshotDate = cachedLatestDate;
+        var cachedSnapshotStartedMs = Date.now();
         cachedPayload.priceLookup.snapshotCreated = persist && cachedLatestDate
           ? _ensureSnapshotExistsForDate(ss, cachedLatestDate)
           : false;
+        _priceTimingAdd_(timings, 'snapshot', cachedSnapshotStartedMs);
+        var cachedFinalizeStartedMs = Date.now();
+        cachedPayload.priceLookup.serverElapsedMs = Date.now() - requestStartedMs;
+        _priceTimingAdd_(timings, 'finalize', cachedFinalizeStartedMs);
         return jsonOk(cachedPayload);
       } catch(cacheErr) {}
     }
 
+    var initialPriceHistoryStartedMs = Date.now();
     var phPrices = getPriceHistoryRow(ss, todayStr);
+    _priceTimingAdd_(timings, 'initialPriceHistory', initialPriceHistoryStartedMs);
     var prices   = {};
     var priceDates = {};
     var missing  = [];
@@ -2857,13 +2910,17 @@ function handleGetPricesCompat(codesParam, persist) {
     var lookupMeta = {
       requestedCount: reqCodes.length,
       usdItemPresent: false,
+      tossResultCount: 0,
+      krxExecuted: false,
       krxResultCount: 0,
+      krxElapsedMs: 0,
       googleFinanceCandidateCount: 0,
       googleFinanceExecuted: false,
       googleFinanceSkipped: false,
       googleFinanceSkipReason: '',
       googleFinanceResultCount: 0,
       recentHistoryFallbackCount: 0,
+      recentHistoryFallbackItems: [],
       cacheHit: false
     };
 
@@ -2880,21 +2937,27 @@ function handleGetPricesCompat(codesParam, persist) {
     if (reqCodes.length > 0) {
       var codeNameMap = {};
       var codeItemMap = {};
+      var codeItemsStartedMs = Date.now();
       getCodeItems(ss).forEach(function(item) {
         codeNameMap[item.code] = item.name;
         codeItemMap[item.code] = item;
       });
+      _priceTimingAdd_(timings, 'codeItems', codeItemsStartedMs);
       var targetItems = reqCodes.map(function(c){
         return codeItemMap[c] || { code: c, name: codeNameMap[c] || c, currency: 'KRW' };
       });
       lookupMeta.usdItemPresent = _hasUsdPriceItems(targetItems);
       var tossPrices = {};
-      try { tossPrices = fetchPricesToss(targetItems); } catch(e) { Logger.log('⚠️ Toss 현재가 실패: ' + e.message); }
+      try { tossPrices = fetchPricesToss(targetItems, timings); } catch(e) { Logger.log('⚠️ Toss 현재가 실패: ' + e.message); }
       var krxItems = targetItems.filter(function(it){ return !(tossPrices[it.code] && tossPrices[it.code].price > 0); });
       var krxPrices = {};
+      var krxStartedMs = Date.now();
       try { krxPrices = fetchPricesKrx(krxItems, todayStr); } catch(e) { Logger.log('⚠️ handleGetPricesCompat KRX 실패: ' + e.message); }
+      _priceTimingAdd_(timings, 'krx', krxStartedMs);
       lookupMeta.tossResultCount = Object.keys(tossPrices).length;
+      lookupMeta.krxExecuted = krxItems.length > 0;
       lookupMeta.krxResultCount = Object.keys(krxPrices).length;
+      lookupMeta.krxElapsedMs = timings.krx;
       lookupMeta.googleFinanceCandidateCount = 0;
       lookupMeta.googleFinanceExecuted = false;
       lookupMeta.googleFinanceSkipped = true;
@@ -2922,12 +2985,15 @@ function handleGetPricesCompat(codesParam, persist) {
           if (!prices[code]) stillMissing.push(code);
         }
       });
+      var snapshotStartedMs = Date.now();
       if (persist) Object.keys(newItemsByDate).forEach(function(saveDate) {
         if (newItemsByDate[saveDate].length > 0) batchUpsertPriceHistory(ss, saveDate, newItemsByDate[saveDate]);
       });
+      _priceTimingAdd_(timings, 'snapshot', snapshotStartedMs);
 
       // KRX가 휴일/지연으로 더 과거 usedDate를 반환해도 가격이력에 더 최신 날짜가
       // 있으면 최신 이력을 화면 값으로 사용합니다. 조회 성공 여부만으로 최신값을 덮지 않습니다.
+      var recentHistoryStartedMs = Date.now();
       var latestEntries = getLatestPriceHistoryEntries(ss, reqCodes, todayStr);
       reqCodes.forEach(function(code) {
         var latestEntry = latestEntries[code];
@@ -2936,23 +3002,32 @@ function handleGetPricesCompat(codesParam, persist) {
           prices[code] = latestEntry.price;
           priceDates[code] = latestEntry.date;
           recentHistoryFallbackCount++;
+          lookupMeta.recentHistoryFallbackItems.push({
+            code: code,
+            name: codeNameMap[code] || code,
+            priceDate: latestEntry.date
+          });
           delete sourceByCode[code];
         }
       });
+      _priceTimingAdd_(timings, 'recentHistory', recentHistoryStartedMs);
       stillMissing = reqCodes.filter(function(code) { return !(prices[code] > 0); });
       lookupMeta.recentHistoryFallbackCount = recentHistoryFallbackCount;
+      var snapshotUpdateStartedMs = Date.now();
       if (persist) _updateTodaySnapshotSource(ss, todayStr, sourceByCode);
 
       // 웹에서 평가가격을 갱신할 때도 최신 가격이력 날짜의 스냅샷을 즉시 맞춥니다.
       // 16:20 트리거가 누락됐더라도 다음 웹 갱신에서 자동 복구됩니다.
       var latestDisplayDate = _latestDateFromPriceDates(priceDates);
       if (persist && latestDisplayDate) _rebuildSnapshotForDateFromHistory(ss, latestDisplayDate);
+      _priceTimingAdd_(timings, 'snapshot', snapshotUpdateStartedMs);
       lookupMeta.snapshotDate = latestDisplayDate;
       lookupMeta.snapshotCreated = false;
       lookupMeta.triggerAutoFixed = !!triggerState.autoFixed;
     }
     // 요청 종목에서 실제 사용하는 외화만 조회합니다.
     var requestedSet = {};
+    var otherStartedMs = Date.now();
     reqCodes.forEach(function(code){ requestedSet[code] = true; });
     var neededCurrencies = [];
     getCodeItems(ss).forEach(function(item) {
@@ -2960,10 +3035,14 @@ function handleGetPricesCompat(codesParam, persist) {
       if (neededCurrencies.indexOf(item.currency) === -1) neededCurrencies.push(item.currency);
     });
     var exchangeRates = neededCurrencies.length > 0 ? fetchExchangeRates(ss, neededCurrencies) : {};
+    _priceTimingAdd_(timings, 'other', otherStartedMs);
+    var finalizeStartedMs = Date.now();
+    lookupMeta.timings = timings;
     lookupMeta.serverElapsedMs = Date.now() - requestStartedMs;
     Logger.log('[price-lookup] ' + JSON.stringify(lookupMeta));
     var payload = { prices: prices, priceDates: priceDates, missing: stillMissing, exchangeRates: exchangeRates, priceLookup: lookupMeta };
     try { cache.put(cacheKey, JSON.stringify(payload), 60); } catch(cacheWriteErr) {}
+    _priceTimingAdd_(timings, 'finalize', finalizeStartedMs);
     return jsonOk(payload);
   } catch(err) {
     return jsonError('getPrices 실패: ' + err.message);
@@ -7003,7 +7082,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.109' });
+    return jsonOk({ settings: settings, gasVersion: '9.110' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7025,7 +7104,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.109'
+      gasVersion: '9.110'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
