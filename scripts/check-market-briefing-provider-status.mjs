@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const collector=fs.readFileSync('src/web/domain/market/market_briefing_provider_collector.js','utf8');
+assert.match(source,/TOSS_MARKET_INDICATOR_SYMBOLS = \{ KOSPI: true, KOSDAQ: true/);
+assert.match(source,/YAHOO_INDEX_SYMBOLS = \{ SP500: '\^GSPC', NASDAQ: '\^IXIC', NASDAQ100: '\^NDX', DOW: '\^DJI' \}/);
+assert.match(collector,/KOSPI200/);
+assert.match(collector,/SOX/);
+assert.match(collector,/VIX/);
+console.log('브리핑 provider 상태 검사: collector 목표와 현재 GAS 실제 mapping 차이를 명시적으로 확인');
