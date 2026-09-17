@@ -10,8 +10,9 @@ const failOnUnreferenced = process.argv.includes('--fail-on-unreferenced');
 const allowedUnreferencedJs = new Set([
   // Registered from inline bootstrap code, not loaded as a deferred script tag.
   'src/web/sw.js',
-  // Pure QC contract helper loaded by Node regression checks, not by the browser runtime yet.
+  // Pure QC contract helpers loaded by Node regression checks, not by the browser runtime yet.
   'src/web/domain/market/market_briefing_qc.js',
+  'src/web/domain/market/market_briefing_continuity.js',
 ]);
 
 const fail = (msg) => {
@@ -107,7 +108,7 @@ if (unreferenced.length > 0) {
 }
 
 if (process.exitCode && process.exitCode !== 0) {
-  process.exit(process.exitCode);
+  process.exit(process.exitCode ?? 1);
 }
 
 ok('Web structure check passed');
