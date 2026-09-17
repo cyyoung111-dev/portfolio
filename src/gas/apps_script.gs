@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.115
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.116
+//
+//  v9.116 변경사항 (2026.09.18):
+//   MARKET_MASTER 입력 timestamp/status 검증과 서버 조회 timestamp 직렬화 보강
 //
 //  v9.115 변경사항 (2026.09.18):
 //   MARKET_MASTER 관측 원장을 GAS 시트에 append-only 저장/조회하는 인증 API 추가
@@ -858,11 +861,14 @@ function handleAppendMarketBriefingObservations(dataJson) {
     rows.forEach(function(r) {
       var seriesId=String(r.seriesId||'').trim(), tradingDate=_normalizeDate(r.tradingDate||''), value=Number(r.value);
       var receivedAt=String(r.receivedAt||'').trim(), observedAt=String(r.observedAt||'').trim();
-      if (!seriesId || !tradingDate || !isFinite(value) || !receivedAt) return;
+      var receivedMs=Date.parse(receivedAt), observedMs=observedAt ? Date.parse(observedAt) : NaN;
+      if (!seriesId || !tradingDate || !isFinite(value) || !receivedAt || !isFinite(receivedMs) || (observedAt && !isFinite(observedMs))) return;
+      var timestampQuality=observedAt ? 'OBSERVED' : 'RECEIVE_ONLY';
+      var lagSeconds=observedAt ? Math.max(0,Math.round((receivedMs-observedMs)/1000)) : null;
       var key=[seriesId,tradingDate,String(r.session||'UNKNOWN'),observedAt,receivedAt].join('|');
       if (existing[key]) { duplicates++; return; }
       existing[key]=true;
-      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,String(r.timestampQuality||(observedAt?'OBSERVED':'RECEIVE_ONLY')),r.lagSeconds==null?'':Number(r.lagSeconds),Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
+      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,timestampQuality,lagSeconds==null?'':lagSeconds,Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
     });
     if (values.length) sh.getRange(sh.getLastRow()+1,1,values.length,14).setValues(values);
     lock.releaseLock();
@@ -879,7 +885,7 @@ function handleGetMarketBriefingMaster(fromStr, toStr, seriesIdsInput) {
     var observations=[];
     sh.getRange(2,1,sh.getLastRow()-1,14).getValues().forEach(function(r){
       var d=_normalizeDate(r[1]); if(!d||d<fromDate||d>toDate||(ids.length&&ids.indexOf(String(r[0]))===-1))return;
-      observations.push({seriesId:String(r[0]),tradingDate:d,value:Number(r[2]),market:String(r[3]),session:String(r[4]),source:String(r[5]),status:String(r[6]),finality:r[7]||null,observedAt:r[8]||null,receivedAt:String(r[9]),timestampQuality:String(r[10]),lagSeconds:r[11]===''?null:Number(r[11]),revision:Number(r[12])||0,quality:r[13]||null});
+      observations.push({seriesId:String(r[0]),tradingDate:d,value:Number(r[2]),market:String(r[3]),session:String(r[4]),source:String(r[5]),status:String(r[6]),finality:r[7]||null,observedAt:r[8] ? (r[8] instanceof Date ? r[8].toISOString() : String(r[8])) : null,receivedAt:r[9] instanceof Date ? r[9].toISOString() : String(r[9]),timestampQuality:String(r[10]),lagSeconds:r[11]===''?null:Number(r[11]),revision:Number(r[12])||0,quality:r[13]||null});
     });
     return jsonOk({ observations: observations, source: MARKET_BRIEFING_MASTER_SHEET });
   } catch(err) { return jsonError('MARKET_MASTER 조회 실패: '+err.message); }
@@ -7186,7 +7192,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.115' });
+    return jsonOk({ settings: settings, gasVersion: '9.116' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7208,7 +7214,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.115'
+      gasVersion: '9.116'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

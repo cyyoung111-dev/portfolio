@@ -12,7 +12,11 @@ assert.match(gas,/function handleGetMarketBriefingMaster/);
 assert.match(gas,/LockService\.getScriptLock\(\)/);
 assert.match(gas,/_normalizeDate\(r\[1\]\)\|\|''/);
 assert.match(gas,/\[seriesId,tradingDate,String\(r\.session\|\|'UNKNOWN'\),observedAt,receivedAt\]\.join\('\|'\)/);
-assert.match(gas,/timestampQuality\|\|\(observedAt\?'OBSERVED':'RECEIVE_ONLY'\)/);
+assert.match(gas,/Date\.parse\(receivedAt\)/);
+assert.match(gas,/timestampQuality=observedAt \? 'OBSERVED' : 'RECEIVE_ONLY'/);
+assert.match(gas,/lagSeconds=observedAt \? Math\.max\(0,Math\.round/);
+assert.match(gas,/r\[8\] instanceof Date \? r\[8\]\.toISOString\(\)/);
+assert.match(gas,/r\[9\] instanceof Date \? r\[9\]\.toISOString\(\)/);
 assert.doesNotMatch(gas,/observedAt\s*=\s*receivedAt/);
 console.log('MARKET_MASTER append-only 서버 영속화/중복방지/timestamp 품질 계약 통과');
 
