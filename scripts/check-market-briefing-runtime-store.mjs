@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import master from '../src/web/domain/market/market_briefing_master.js';
+import normalizer from '../src/web/domain/market/market_briefing_provider_normalizer.js';
+import snapshots from '../src/web/domain/market/market_briefing_snapshot_store.js';
+import gate from '../src/web/domain/market/market_briefing_operational_gate.js';
+import runtime from '../src/web/domain/market/market_briefing_runtime_store.js';
+const mem=new Map();const storage={getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v)};const d='2026-09-18';
+const payload={KOSPI:{value:1},KOSDAQ:{value:1},KOSPI200:{value:1},SP500:{value:1},NASDAQ100:{value:1,delayed:true},SOX:{value:1},VIX:{value:1},USDKRW:{value:1}};
+runtime.ingest(storage,master,normalizer,payload,{tradingDate:d,receivedAt:`${d}T06:30:00+09:00`,status:'FINAL'});
+let state=runtime.load(storage);state.observations=master.upsertObservation(state.observations,{seriesId:'K200_NIGHT',tradingDate:d,value:550,market:'KRX',session:'NIGHT',source:'KIS',status:'FINAL',observedAt:`${d}T06:00:00+09:00`,receivedAt:`${d}T06:00:01+09:00`});runtime.save(storage,state);
+let out=runtime.checkpoint(storage,master,snapshots,gate,d,'MORNING',gate.REQUIRED_BY_CHECKPOINT.MORNING,{scenario:{base:'hold'}});assert.equal(out.decision.publishable,true);assert.equal(out.snapshot.scenario.base,'hold');
+out=runtime.checkpoint(storage,master,snapshots,gate,d,'MORNING',gate.REQUIRED_BY_CHECKPOINT.MORNING,{scenario:{base:'changed'}});assert.equal(out.snapshot.scenario.base,'hold');
+const reloaded=runtime.load(storage);assert.equal(reloaded.snapshots.length,1);assert.equal(runtime.bridge(storage,snapshots,d).morning.scenario.base,'hold');
+console.log('브리핑 런타임 영속 저장소 회귀검사 통과');
