@@ -12,7 +12,7 @@ assert.match(gas,/function handleGetMarketBriefingMaster/);
 assert.match(gas,/LockService\.getScriptLock\(\)/);
 assert.match(gas,/_normalizeDate\(r\[1\]\)\|\|''/);
 assert.match(gas,/\[seriesId,tradingDate,String\(r\.session\|\|'UNKNOWN'\),observedAt,receivedAt\]\.join\('\|'\)/);
-assert.match(gas,/timestampQuality\|\|\(observedAt\?'OBSERVED':'RECEIVE_ONLY'\)/);
+assert.match(gas,/String\(observedAt\?'OBSERVED':'RECEIVE_ONLY'\)/);
 assert.doesNotMatch(gas,/observedAt\s*=\s*receivedAt/);
 console.log('MARKET_MASTER append-only 서버 영속화/중복방지/timestamp 품질 계약 통과');
 
@@ -21,3 +21,10 @@ assert.match(runtime,/async function syncServerMaster/);
 assert.match(runtime,/getMarketBriefingMaster/);
 assert.match(runtime,/appendMarketBriefingObservations/);
 assert.match(bootstrap,/runtime\.syncServerMaster/);
+
+assert.match(gas,/MARKET_BRIEFING_SNAPSHOT_SHEET = 'MARKET_SNAPSHOTS'/);
+assert.match(gas,/function handleAppendMarketBriefingSnapshot/);
+assert.match(gas,/function handleGetMarketBriefingSnapshots/);
+assert.match(runtime,/getMarketBriefingSnapshots/);
+assert.match(runtime,/releaseAndPersist/);
+assert.match(store,/function mergeSnapshots/);
