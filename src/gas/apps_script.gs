@@ -847,10 +847,12 @@ function handleAppendMarketBriefingObservations(dataJson) {
     var rows = JSON.parse(dataJson || '[]');
     if (!Array.isArray(rows)) return jsonError('MARKET_MASTER 배열 형식 필요');
     if (!rows.length) return jsonOk({ saved: 0, duplicates: 0 });
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
     var ss = getss(), sh = _marketBriefingMasterSheet_(ss);
     var existing = {};
     if (sh.getLastRow() > 1) sh.getRange(2,1,sh.getLastRow()-1,14).getValues().forEach(function(r) {
-      existing[[r[0],r[1],r[4],r[8],r[9]].join('|')] = true;
+      existing[[String(r[0]),_normalizeDate(r[1])||'',String(r[4]||'UNKNOWN'),r[8] ? String(r[8]) : '',r[9] ? String(r[9]) : ''].join('|')] = true;
     });
     var values=[], duplicates=0;
     rows.forEach(function(r) {
@@ -863,8 +865,9 @@ function handleAppendMarketBriefingObservations(dataJson) {
       values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,String(r.timestampQuality||(observedAt?'OBSERVED':'RECEIVE_ONLY')),r.lagSeconds==null?'':Number(r.lagSeconds),Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
     });
     if (values.length) sh.getRange(sh.getLastRow()+1,1,values.length,14).setValues(values);
+    lock.releaseLock();
     return jsonOk({ saved: values.length, duplicates: duplicates });
-  } catch(err) { return jsonError('MARKET_MASTER 저장 실패: '+err.message); }
+  } catch(err) { try { if (lock) lock.releaseLock(); } catch(e) {} return jsonError('MARKET_MASTER 저장 실패: '+err.message); }
 }
 
 function handleGetMarketBriefingMaster(fromStr, toStr, seriesIdsInput) {
