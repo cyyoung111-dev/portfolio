@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.111
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.112
+//
+//  v9.112 변경사항 (2026.09.18):
+//   SOX/VIX를 benchmark 허용 map에 추가해 getBenchmarks 실제 요청 경로 연결
 //
 //  v9.111 변경사항 (2026.09.18):
 //   장전 브리핑 SOX/VIX Yahoo 확정 일봉 provider mapping 추가
@@ -3187,6 +3190,8 @@ function _benchmarkSymbolMap() {
     DOW: ['^DJI'],
     NASDAQ: ['^IXIC'],
     NASDAQ100: ['^NDX'],
+    SOX: ['^SOX'],
+    VIX: ['^VIX'],
     VKOSPI: []
   };
 }
@@ -7085,7 +7090,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.111' });
+    return jsonOk({ settings: settings, gasVersion: '9.112' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7107,7 +7112,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.111'
+      gasVersion: '9.112'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
