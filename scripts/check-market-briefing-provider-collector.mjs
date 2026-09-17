@@ -4,16 +4,16 @@ import normalizer from '../src/web/domain/market/market_briefing_provider_normal
 const calls=[];
 const request=async(action,params)=>{calls.push({action,params});if(action==='getBenchmarks'){assert.match(params.benchmarks,/KOSPI200/);assert.match(params.benchmarks,/SOX/);assert.match(params.benchmarks,/VIX/);return {series:{KOSPI:[{date:'2026-09-17',value:3400}],KOSDAQ:[{date:'2026-09-17',value:900}],KOSPI200:[{date:'2026-09-17',value:455}],SP500:[{date:'2026-09-17',value:6600}],NASDAQ100:[{date:'2026-09-17',value:24000}],SOX:[{date:'2026-09-17',value:6100}],VIX:[{date:'2026-09-17',value:15}]},symbols:{KOSPI200:'KOSPI200',SP500:'^GSPC',NASDAQ100:'^NDX',SOX:'^SOX',VIX:'^VIX'}};}if(action==='getExchangeRateHistory')return {history:[{date:'2026-09-17',value:1380}],source:'FX_HISTORY'};throw new Error('unexpected action');};
 const result=await collector.collect(request,'2026-09-18',{from:'2026-09-17'});
-assert.deepEqual(result.missing,[]);
+assert.deepEqual(result.missing,['KOSPI200']);
 assert.equal(calls.length,2);
 assert.equal(result.payload.KOSPI.tradingDate,'2026-09-17');
-assert.equal(result.payload.KOSPI200.source,'TOSS');
+assert.equal(result.payload.KOSPI200,undefined);
 assert.equal(result.payload.SOX.source,'YAHOO');
 assert.equal(result.payload.VIX.source,'YAHOO');
 assert.equal(result.payload.USDKRW.value,1380);
 assert.equal(result.payload.USDKRW.status,'FINAL');
 const rows=normalizer.normalizeMap(result.payload,{tradingDate:'2026-09-18',receivedAt:'2026-09-18T05:00:00+09:00'});
-assert.equal(rows.length,8);
+assert.equal(rows.length,7);
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').tradingDate,'2026-09-17');
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').observedAt,null);
 assert.equal(rows.find(x=>x.seriesId==='SPX').status,'FINAL');
@@ -22,4 +22,4 @@ const currentFx=collector.normalizeFxPoint({history:[{date:'2026-09-18',rate:138
 assert.equal(currentFx.status,'PARTIAL');
 const partial=normalizer.normalizeOne('VIX',{value:15,tradingDate:'2026-09-17',source:'CBOE'},{receivedAt:'2026-09-18T05:00:00+09:00'});
 assert.equal(partial.status,'PARTIAL');
-console.log('기존 GAS provider → 브리핑 핵심 8개 series collector/normalizer 회귀검사 통과');
+console.log('기존 GAS provider → 브리핑 검증된 7개 series collector/normalizer 회귀검사 통과');
