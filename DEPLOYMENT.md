@@ -577,7 +577,7 @@ GAS 메뉴 및 시트 구성:
 - `recentHistoryFallbackItems`는 최종적으로 저장된 최근 확정 가격이력으로 보완된 종목만 `code`, `name`, `priceDate`로 반환합니다. Toss/KRX 정상 결과를 중복 표시하지 않으며, 0건도 안전한 빈 배열로 처리합니다.
 - 웹의 기존 상태 chip을 유지하면서 `최근이력 N건`은 fallback 종목 목록을, `GAS Nms`는 단계별 timing을 탭/클릭으로 표시합니다. 모바일에서는 상태 영역을 눌러 상세를 확인할 수 있습니다.
 - `persist=false`의 가격이력·Snapshot 무쓰기와 `persist=true` 기존 저장 정책은 변경하지 않았습니다.
-- GAS 재배포 버전은 9.114, 정적 자산 및 Service Worker cache는 20260917-3입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.
+- GAS 재배포 버전은 9.115, 정적 자산 및 Service Worker cache는 20260917-3입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.
 
 
 ## v9.111 브리핑 지수 provider
@@ -597,3 +597,10 @@ GAS 메뉴 및 시트 구성:
 ## v9.114 KOSPI200 보조 EOD provider
 - KOSPI200은 공식 Toss identifier를 추측하지 않고 Yahoo `^KS200` 일봉을 보조 경로로 연결합니다.
 - 실제 관측일을 보존하며 Yahoo 비공식/지연 EOD 경로로 표시합니다.
+
+## v9.115 MARKET_MASTER 서버 영속화
+- 인증된 POST `appendMarketBriefingObservations`가 `MARKET_MASTER` 시트에 관측값을 append-only 저장합니다.
+- `(series_id,trading_date,session,observed_at,received_at)` 동일 관측은 중복 저장하지 않습니다.
+- GET `getMarketBriefingMaster`로 기간/series별 원장을 조회할 수 있습니다.
+- provider가 observed timestamp를 주지 않으면 `observed_at`을 비워 두고 `RECEIVE_ONLY`로 저장합니다.
+- 브라우저 localStorage만으로는 예약 브리핑 간 연속성이 보장되지 않으므로, 이 API가 서버측 연속 원장의 기반입니다.
