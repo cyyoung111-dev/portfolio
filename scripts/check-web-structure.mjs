@@ -17,6 +17,7 @@ const allowedUnreferencedJs = new Set([
   'src/web/domain/market/market_briefing_adapters.js',
   'src/web/domain/market/market_briefing_snapshot_store.js',
   'src/web/domain/market/morning_briefing_readiness.js',
+  'src/web/domain/market/market_briefing_operational_gate.js',
 ]);
 
 const fail = (msg) => {
