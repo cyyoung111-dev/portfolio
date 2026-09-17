@@ -9,8 +9,8 @@
 | SPX | Yahoo `^GSPC` | 연결됨 | EOD/비공식 endpoint |
 | NDX | Yahoo `^NDX` | 연결됨 | EOD/비공식 endpoint |
 | KOSPI200 | collector 계약 존재 | 미연결 | GAS 실제 symbol mapping 미구현 |
-| SOX | collector 계약 존재 | 미연결 | GAS Yahoo mapping 미구현 |
-| VIX | collector 계약 존재 | 미연결 | GAS Yahoo/CBOE 실제 mapping 미구현 |
+| SOX | Yahoo `^SOX` | 연결됨 | Yahoo 비공식 EOD/지연 지수 경로 |
+| VIX | Yahoo `^VIX` | 보조 연결됨 | CBOE 1차 원천은 후속 연결; Yahoo는 보조 EOD/지연 경로 |
 | USDKRW | collector 계약 존재 | 미확정 | 현재 GAS 공개 action과 응답형식 검증 필요 |
 | K200_NIGHT | KIS H0MFCNT0/H0MFASP0 계약 | 런타임 검증 대기 | raw frame 보존 후 field-count/schema 일치 시에만 semantic parse |
 
