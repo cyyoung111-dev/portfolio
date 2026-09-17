@@ -5,7 +5,9 @@ const expected=['market_briefing_master.js','market_briefing_provider_normalizer
 let previous=-1;
 for(const file of expected){const pos=source.indexOf(file);assert.ok(pos>previous,`${file} 로드 순서`);previous=pos;}
 assert.match(source,/loadMarketBriefingRuntime\(\)\.then\(/);
-assert.match(source,/collectExistingProvider\(requestGsheetActionJson, tradingDate\)\.catch/);
+assert.match(source,/runtime\.syncServerMaster\(requestGsheetActionJson, requestGsheetFormJson, tradingDate/);
+assert.match(source,/: runtime\.collectExistingProvider\(requestGsheetActionJson, tradingDate\)/);
+assert.match(source,/provider\/server sync unavailable/);
 assert.match(source,/\[market-briefing\] runtime unavailable/);
 assert.match(source,/window\.PortfolioApp\.marketBriefing = window\.MarketBriefingRuntime/);
 assert.doesNotMatch(source,/market_briefing_qc\.js/);
