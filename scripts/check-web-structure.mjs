@@ -10,6 +10,8 @@ const failOnUnreferenced = process.argv.includes('--fail-on-unreferenced');
 const allowedUnreferencedJs = new Set([
   // Registered from inline bootstrap code, not loaded as a deferred script tag.
   'src/web/sw.js',
+  // Pure QC contract helper loaded by Node regression checks, not by the browser runtime yet.
+  'src/web/domain/market/market_briefing_qc.js',
 ]);
 
 const fail = (msg) => {
