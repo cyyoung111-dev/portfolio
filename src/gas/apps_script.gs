@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.112
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.113
+//
+//  v9.113 변경사항 (2026.09.18):
+//   기존 환율이력 시트의 USD/KRW 실제 날짜별 조회 API 추가
 //
 //  v9.112 변경사항 (2026.09.18):
 //   SOX/VIX를 benchmark 허용 map에 추가해 getBenchmarks 실제 요청 경로 연결
@@ -735,6 +738,7 @@ function doGet(e) {
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
+  if (params.action === 'getExchangeRateHistory')         return handleGetExchangeRateHistory(params.from || '', params.to || '', params.currencies || 'USD');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes, params.persist === '1');
   if (params.action === 'diagnoseTossMarketData') return handleDiagnoseTossMarketData();
@@ -6413,6 +6417,34 @@ function _backfillExecute() {
 
 // 환율 과거 원천은 현재 운영 코드에서 생성하지 않습니다. 운영자가 이미 만든
 // '환율이력' 시트가 있고 헤더가 확인된 경우에만 읽으며, 없으면 현재 환율로 대체하지 않습니다.
+function handleGetExchangeRateHistory(fromStr, toStr, currenciesInput) {
+  try {
+    var fromDate = _normalizeDate(fromStr || '') || '2024-01-01';
+    var toDate = _normalizeDate(toStr || '') || today();
+    if (fromDate > toDate) { var swap = fromDate; fromDate = toDate; toDate = swap; }
+    var requested = String(currenciesInput || 'USD').split(',').map(function(value) {
+      return String(value || '').trim().toUpperCase();
+    }).filter(function(value, index, all) { return value && all.indexOf(value) === index; });
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss.getSheetByName('환율이력');
+    if (!sh || sh.getLastRow() < 2) return jsonOk({ history: [], source: '환율이력', status: 'MISSING_SOURCE' });
+    var header = sh.getRange(1, 1, 1, Math.min(3, sh.getLastColumn())).getValues()[0].map(function(value) { return String(value || '').trim(); });
+    if (header[0] !== '날짜' || header[1] !== '통화' || header[2] !== '환율') return jsonOk({ history: [], source: '환율이력', status: 'INVALID_SCHEMA' });
+    var history = [];
+    sh.getRange(2, 1, sh.getLastRow() - 1, 3).getValues().forEach(function(row) {
+      var date = _normalizeDate(row[0]);
+      var currency = String(row[1] || '').trim().toUpperCase();
+      var rate = Number(row[2]);
+      if (!date || date < fromDate || date > toDate || requested.indexOf(currency) === -1 || !(rate > 0)) return;
+      history.push({ date: date, currency: currency, rate: rate });
+    });
+    history.sort(function(a,b) { return a.date === b.date ? a.currency.localeCompare(b.currency) : a.date.localeCompare(b.date); });
+    return jsonOk({ history: history, source: '환율이력', status: history.length ? 'CONFIRMED' : 'NO_DATA' });
+  } catch(err) {
+    return jsonError('getExchangeRateHistory 실패: ' + err.message);
+  }
+}
+
 function _getHistoricalExchangeRates(ss, currencies, dateStr) {
   var requested = (currencies || []).map(function(value) { return String(value || '').trim().toUpperCase(); }).filter(Boolean);
   var sh = ss.getSheetByName('환율이력');
@@ -7090,7 +7122,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.112' });
+    return jsonOk({ settings: settings, gasVersion: '9.113' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7112,7 +7144,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.112'
+      gasVersion: '9.113'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
