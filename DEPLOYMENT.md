@@ -577,7 +577,7 @@ GAS 메뉴 및 시트 구성:
 - `recentHistoryFallbackItems`는 최종적으로 저장된 최근 확정 가격이력으로 보완된 종목만 `code`, `name`, `priceDate`로 반환합니다. Toss/KRX 정상 결과를 중복 표시하지 않으며, 0건도 안전한 빈 배열로 처리합니다.
 - 웹의 기존 상태 chip을 유지하면서 `최근이력 N건`은 fallback 종목 목록을, `GAS Nms`는 단계별 timing을 탭/클릭으로 표시합니다. 모바일에서는 상태 영역을 눌러 상세를 확인할 수 있습니다.
 - `persist=false`의 가격이력·Snapshot 무쓰기와 `persist=true` 기존 저장 정책은 변경하지 않았습니다.
-- GAS 재배포 버전은 9.112, 정적 자산 및 Service Worker cache는 20260917-3입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.
+- GAS 재배포 버전은 9.113, 정적 자산 및 Service Worker cache는 20260917-3입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.
 
 
 ## v9.111 브리핑 지수 provider
@@ -588,3 +588,8 @@ GAS 메뉴 및 시트 구성:
 ## v9.112 브리핑 지수 라우팅 수정
 - v9.111에서 provider symbol은 추가됐지만 `_benchmarkSymbolMap()` 허용 목록 누락으로 `getBenchmarks`가 SOX/VIX를 필터링하던 문제를 수정했습니다.
 - GAS/웹 기대 버전을 9.112로 동기화했습니다.
+
+## v9.113 USD/KRW 브리핑 조회
+- collector가 이미 호출하던 `getExchangeRateHistory` action을 GAS에 실제 구현했습니다.
+- 신규 외부 환율 provider를 만들지 않고 기존 운영 `환율이력` 시트의 `날짜|통화|환율` 확정 행만 기간 조회합니다.
+- 시트 부재/스키마 불일치/기간 데이터 없음은 빈 history와 명시 상태를 반환하며 현재 환율로 대체하지 않습니다.
