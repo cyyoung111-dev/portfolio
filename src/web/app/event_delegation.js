@@ -197,6 +197,12 @@ function registerGlobalEventDelegation() {
       return;
     }
 
+    const priceDetail = e.target.closest('[data-price-detail]');
+    if (priceDetail) {
+      if (typeof _priceLookupDetail === 'function') _priceLookupDetail(priceDetail.dataset.priceDetail || '');
+      return;
+    }
+
     // ── data-history-action (동적 손익 화면에서도 비교지수 복수선택 유지)
     const historyAction = e.target.closest('[data-history-action]');
     if (historyAction) {

@@ -556,6 +556,14 @@ input[type="number"]{
 .price-status-chip{display:inline-flex;align-items:center;min-height:20px;padding:2px 7px;border:1px solid var(--border);border-radius:999px;background:var(--s2);color:var(--muted);font-size:.62rem;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
 .price-status-chip.is-skip{border-color:var(--c-cyan-30);background:var(--c-cyan-08);color:var(--cyan)}
 .price-status-chip.is-missing{border-color:var(--c-amber-30);background:var(--c-amber-08);color:var(--gold);cursor:pointer;font-family:inherit}
+.price-status-chip.is-action{cursor:pointer;font-family:inherit}
+.price-status-chip.is-action:hover,.price-status-chip.is-action:focus{border-color:var(--c-blue2-30);color:var(--text);outline:none}
+.price-lookup-detail{margin-top:5px;padding:7px 9px;border:1px solid var(--border);border-radius:7px;background:var(--s2);color:var(--muted);font-size:.63rem}
+.price-lookup-detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--text);margin-bottom:4px}
+.price-lookup-detail ul{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.price-lookup-detail li{display:flex;justify-content:space-between;gap:8px;line-height:1.35}
+.price-lookup-detail li b{color:var(--text)}
+.price-lookup-detail-close{border:0;background:transparent;color:var(--muted);padding:1px 3px;font-size:.62rem;cursor:pointer}
 .price-status-note{padding-top:3px;border-top:1px dashed var(--border);color:var(--amber);font-size:.62rem;font-weight:600}
 .action-update-card{height:auto;min-height:52px}
 #price-updated-label.has-price-details{padding:6px 10px}
