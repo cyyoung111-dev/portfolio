@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.110
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.111
+//
+//  v9.111 변경사항 (2026.09.18):
+//   장전 브리핑 SOX/VIX Yahoo 확정 일봉 provider mapping 추가
 //
 //  v9.110 변경사항 (2026.09.17):
 //   getPrices 단계별 저비용 timing metadata·최근 확정 이력 fallback 종목 상세 추가
@@ -3189,7 +3192,7 @@ function _benchmarkSymbolMap() {
 }
 
 var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
-var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI' };
+var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', SOX: '^SOX', VIX: '^VIX' };
 
 function _indicatorRows_(payload) {
   var result = payload && payload.result;
@@ -7082,7 +7085,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.110' });
+    return jsonOk({ settings: settings, gasVersion: '9.111' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7104,7 +7107,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.110'
+      gasVersion: '9.111'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
