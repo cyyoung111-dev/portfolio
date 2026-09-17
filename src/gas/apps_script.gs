@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.107
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.108
+//
+//  v9.108 변경사항 (2026.09.17):
+//   Toss 현재가 symbol 정규화, persist=false 캐시 경로 무쓰기 보장, 005930 read-only smoke 진단
 //
 //  v9.107 변경사항 (2026.09.16):
 //   Toss Open API OAuth 토큰 캐시·429 재시도·현재가 batch·adjusted=false 일봉 우선 연결
@@ -902,16 +905,29 @@ function _tossRequest_(path, query, group) {
 
 function _tossSymbol_(item) { return String(item.tossSymbol || item.code || '').trim(); }
 
+function _normalizeTossSymbol_(value) {
+  var symbol = String(value == null ? '' : value).trim().toUpperCase();
+  return symbol.replace(/^A(?=\d{6}$)/, '');
+}
+
 function fetchPricesToss(items) {
-  var symbols = (items || []).map(_tossSymbol_).filter(Boolean);
+  var requestedBySymbol = {};
+  var symbols = (items || []).map(function(item) {
+    var requested = _tossSymbol_(item);
+    var normalized = _normalizeTossSymbol_(requested);
+    if (normalized) requestedBySymbol[normalized] = requested || normalized;
+    return normalized;
+  }).filter(Boolean);
   if (!symbols.length || symbols.length > 200 || !_tossProperties_().id) return {};
   var payload = _tossRequest_('/api/v1/prices', { symbols: symbols.join(',') }, 'MARKET_DATA');
   var rows = payload && Array.isArray(payload.result) ? payload.result : [];
   var prices = {};
   rows.forEach(function(row) {
     var price = Number(row.lastPrice);
-    if (!row.symbol || !Number.isFinite(price) || price <= 0 || !row.currency) return;
-    prices[String(row.symbol)] = { price: price, currency: String(row.currency), timestamp: row.timestamp || null, source: 'TOSS', priceType: 'REGULAR_CLOSE', status: 'CONFIRMED', fetchedAt: new Date().toISOString() };
+    var symbol = _normalizeTossSymbol_(row.symbol);
+    if (!symbol || !Number.isFinite(price) || price <= 0 || !row.currency) return;
+    var requestedCode = requestedBySymbol[symbol] || symbol;
+    prices[requestedCode] = { price: price, currency: String(row.currency), timestamp: row.timestamp || null, source: 'TOSS', priceType: 'REGULAR_CLOSE', status: 'CONFIRMED', fetchedAt: new Date().toISOString() };
   });
   return prices;
 }
@@ -974,6 +990,34 @@ function _tossDiagnosticRequest_(path, query) {
   }
 }
 
+function _tossPriceSmoke_() {
+  var startedAt = Date.now();
+  try {
+    var token = _tossAccessToken_();
+    if (!token) return { ok: false, status: null, resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
+    var response = UrlFetchApp.fetch(TOSS_API_BASE + '/api/v1/prices?symbols=005930', {
+      method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true
+    });
+    var status = response.getResponseCode();
+    var parsed = {};
+    try { parsed = JSON.parse(response.getContentText() || '{}'); } catch (ignore) {}
+    var rows = parsed && Array.isArray(parsed.result) ? parsed.result : [];
+    var row = rows.filter(function(item) { return _normalizeTossSymbol_(item && item.symbol) === '005930'; })[0] || null;
+    var price = row ? Number(row.lastPrice) : 0;
+    return {
+      ok: status >= 200 && status < 300,
+      status: status,
+      resultCount: rows.length,
+      symbol: row ? _normalizeTossSymbol_(row.symbol) : '',
+      validLastPrice: Number.isFinite(price) && price > 0,
+      timestampPresent: !!(row && row.timestamp),
+      elapsedMs: Date.now() - startedAt
+    };
+  } catch (err) {
+    return { ok: false, status: null, resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
+  }
+}
+
 function handleDiagnoseTossMarketData() {
   var checks = [];
   var run = function(name, path, query) {
@@ -985,14 +1029,15 @@ function handleDiagnoseTossMarketData() {
   run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
   run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
   run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
-  var overallOk = checks.every(function(item) { return item.ok; });
+  var smoke = _tossPriceSmoke_();
+  var overallOk = checks.every(function(item) { return item.ok; }) && smoke.ok && smoke.validLastPrice;
   try {
     var props = PropertiesService.getScriptProperties();
     props.setProperty('TOSS_LAST_DIAGNOSTIC_AT', new Date().toISOString());
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (checks.find(function(item) { return !item.ok; }) || {}).code || 'ERROR');
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, endpoints: checks });
+  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, endpoints: checks, priceSmoke: smoke });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -2765,7 +2810,7 @@ function runEtfDividendDiagnosis() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-//  getPrices — 가격이력 캐시 우선, 없으면 GOOGLEFINANCE
+//  getPrices — Toss → KRX → 기존 확정 가격이력
 // ════════════════════════════════════════════════════════════════════
 function handleGetPricesCompat(codesParam, persist) {
   try {
@@ -2775,11 +2820,11 @@ function handleGetPricesCompat(codesParam, persist) {
     var triggerState = _ensureDailyTriggersOncePerDay(todayStr);
     var reqCodes = codesParam.split(',').map(function(c){ return c.trim(); }).filter(Boolean);
     var cache = CacheService.getScriptCache();
-    var cacheRaw = todayStr + '|' + reqCodes.slice().sort().join(',');
+    var cacheRaw = todayStr + '|p=' + (persist ? '1' : '0') + '|' + reqCodes.slice().sort().join(',');
     var cacheHash = Utilities.base64EncodeWebSafe(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
     ).replace(/=+$/g, '').slice(0, 40);
-    var cacheKey = 'prices_v9107_' + cacheHash;
+    var cacheKey = 'prices_v9108_p' + (persist ? '1' : '0') + '_' + cacheHash;
     var cached = cache.get(cacheKey);
     if (cached) {
       try {
@@ -2791,7 +2836,7 @@ function handleGetPricesCompat(codesParam, persist) {
         cachedPayload.priceLookup.triggerAutoFixed = !!triggerState.autoFixed;
         var cachedLatestDate = _latestDateFromPriceDates(cachedPayload.priceDates || {});
         cachedPayload.priceLookup.snapshotDate = cachedLatestDate;
-        cachedPayload.priceLookup.snapshotCreated = cachedLatestDate
+        cachedPayload.priceLookup.snapshotCreated = persist && cachedLatestDate
           ? _ensureSnapshotExistsForDate(ss, cachedLatestDate)
           : false;
         return jsonOk(cachedPayload);
@@ -2843,27 +2888,20 @@ function handleGetPricesCompat(codesParam, persist) {
       var krxItems = targetItems.filter(function(it){ return !(tossPrices[it.code] && tossPrices[it.code].price > 0); });
       var krxPrices = {};
       try { krxPrices = fetchPricesKrx(krxItems, todayStr); } catch(e) { Logger.log('⚠️ handleGetPricesCompat KRX 실패: ' + e.message); }
-      var gfNeed = targetItems.filter(function(it){ return !(tossPrices[it.code] && tossPrices[it.code].price > 0) && !(krxPrices[it.code] && krxPrices[it.code].price > 0); });
       lookupMeta.tossResultCount = Object.keys(tossPrices).length;
       lookupMeta.krxResultCount = Object.keys(krxPrices).length;
-      lookupMeta.googleFinanceCandidateCount = gfNeed.length;
-      // USD 종목이 하나도 없으면 국내 종목의 KRX 누락분 때문에 GOOGLEFINANCE
-      // 임시 시트를 만들지 않습니다. 아래 최근 가격이력 fallback이 누락분을 보완합니다.
-      var gfPrices = gfNeed.length > 0 && _hasUsdPriceItems(targetItems)
-        ? fetchPricesGoogleFinance(gfNeed, todayStr, ss, { skipKrx: true })
-        : {};
-      lookupMeta.googleFinanceExecuted = gfNeed.length > 0 && lookupMeta.usdItemPresent;
-      lookupMeta.googleFinanceSkipped = gfNeed.length > 0 && !lookupMeta.usdItemPresent;
-      lookupMeta.googleFinanceSkipReason = lookupMeta.googleFinanceSkipped ? 'USD 종목 없음' : '';
-      lookupMeta.googleFinanceResultCount = Object.keys(gfPrices).length;
+      lookupMeta.googleFinanceCandidateCount = 0;
+      lookupMeta.googleFinanceExecuted = false;
+      lookupMeta.googleFinanceSkipped = true;
+      lookupMeta.googleFinanceSkipReason = '현재가 경로에서 사용하지 않음';
+      lookupMeta.googleFinanceResultCount = 0;
       var sourceByCode = {};
       // ★ [버그수정] KRX fallback usedDate 기준으로 날짜 분리 저장
       //   usedDate != todayStr 인 경우 전일 종가를 todayStr로 저장하는 문제 방지
       var newItemsByDate = {};  // saveDate → items[]
       reqCodes.forEach(function(code) {
         var val = (tossPrices[code] && tossPrices[code].price > 0) ? tossPrices[code]
-                 : ((krxPrices[code] && krxPrices[code].price > 0) ? krxPrices[code]
-                 : ((gfPrices[code] && gfPrices[code].price > 0) ? gfPrices[code] : null));
+                 : ((krxPrices[code] && krxPrices[code].price > 0) ? krxPrices[code] : null);
         if (val && val.price > 0) {
           var nextPrice = val.price;
           prices[code] = nextPrice;
@@ -6816,7 +6854,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.107' });
+    return jsonOk({ settings: settings, gasVersion: '9.108' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -6838,7 +6876,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.107'
+      gasVersion: '9.108'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
