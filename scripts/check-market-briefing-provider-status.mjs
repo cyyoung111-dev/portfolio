@@ -7,4 +7,6 @@ assert.match(source,/YAHOO_INDEX_SYMBOLS = \{ SP500: '\^GSPC', NASDAQ: '\^IXIC',
 assert.match(collector,/KOSPI200/);
 assert.match(collector,/SOX/);
 assert.match(collector,/VIX/);
-console.log('브리핑 provider 상태 검사: collector 목표와 현재 GAS 실제 mapping 차이를 명시적으로 확인');
+assert.match(source,/params\.action === 'getExchangeRateHistory'/);
+assert.match(collector,/if\(type==='KOSPI200'\)return 'UNVERIFIED'/);
+console.log('브리핑 provider 상태 검사: SOX/VIX/USDKRW 연결 및 KOSPI200 미검증 격리 확인');
