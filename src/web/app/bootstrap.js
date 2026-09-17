@@ -49,7 +49,10 @@ document.addEventListener('DOMContentLoaded', function() {
   loadMarketBriefingRuntime().then((runtime) => {
     if (typeof requestGsheetActionJson !== 'function') return;
     const tradingDate = typeof getDateStr === 'function' ? getDateStr(0) : new Date().toISOString().slice(0, 10);
-    runtime.collectExistingProvider(requestGsheetActionJson, tradingDate).catch((error) => console.warn('[market-briefing] provider collection unavailable', error));
+    const sync = typeof requestGsheetFormJson === 'function' && typeof runtime.syncServerMaster === 'function'
+      ? runtime.syncServerMaster(requestGsheetActionJson, requestGsheetFormJson, tradingDate, { from: typeof getDateStr === 'function' ? getDateStr(7) : tradingDate })
+      : runtime.collectExistingProvider(requestGsheetActionJson, tradingDate);
+    sync.catch((error) => console.warn('[market-briefing] provider/server sync unavailable', error));
   }).catch((error) => console.warn('[market-briefing] runtime unavailable', error));
 
   if (typeof syncLoanFromSchedule === 'function') syncLoanFromSchedule();
