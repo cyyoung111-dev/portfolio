@@ -13,6 +13,7 @@ const allowedUnreferencedJs = new Set([
   // Pure QC contract helpers loaded by Node regression checks, not by the browser runtime yet.
   'src/web/domain/market/market_briefing_qc.js',
   'src/web/domain/market/market_briefing_continuity.js',
+  'src/web/domain/market/market_briefing_master.js',
 ]);
 
 const fail = (msg) => {
