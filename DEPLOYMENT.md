@@ -268,6 +268,7 @@ v9.77은 `종목코드` 시트에 `시장` 열을 추가합니다. `시트 구�
 `src/gas/apps_script.gs`가 바뀐 경우에는 저장소 커밋만으로 운영 GAS가 자동 갱신되지 않습니다.
 
 - [ ] GAS 상단 버전/변경사항, `handleGetSettings()`의 `gasVersion`, 프론트 `EXPECTED_GAS_VERSION`을 함께 업데이트
+- v9.108: Toss 현재가 symbol 정규화, `persist=false` 캐시 경로의 가격이력/Snapshot 무쓰기, 005930 read-only smoke 진단
 - [ ] Apps Script 편집기에 `src/gas/apps_script.gs` 최신 내용을 반영
 - [ ] 웹앱 새 버전 배포 또는 기존 배포 업데이트
 - [ ] 앱의 구글시트 연동 화면에서 연결 상태 확인

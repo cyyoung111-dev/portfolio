@@ -432,7 +432,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.107';
+const EXPECTED_GAS_VERSION = '9.108';
 
 
 async function autoLoadPrices() {
@@ -547,7 +547,12 @@ async function pollCurrentPrices() {
     });
     lastUpdated = getDateStr(0).replace(/-/g, '.');
     updateDateBadge(lastUpdated, true);
-    setStatusLabel(`✅ 현재가 갱신 · ${Object.keys(results).length}개 · 저장 이력/Snapshot 미변경`, 'ok');
+    const lookupMsg = _priceLookupSummary();
+    setStatusLabel(_priceStatusLayout(
+      `✅ 현재가 갱신 · ${Object.keys(results).length}개 · 화면만 반영`,
+      lookupMsg,
+      '저장 이력/Snapshot 미변경'
+    ), 'ok');
     refreshAll();
   } catch (e) {
     console.warn('[price-polling] 현재가 갱신 실패:', e.message);
