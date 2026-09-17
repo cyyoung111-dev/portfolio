@@ -8,7 +8,7 @@
     "check:web-syntax": "node scripts/check-web-syntax.mjs",
     "check:web": "npm run check:plan-calculations && npm run check:dividend-calculations && npm run check:history-modes && npm run check:web-structure && npm run check:web-manifest && npm run check:web-syntax && npm run check:web-globals && npm run check:web-dom-contract && npm run check:web-inline && npm run check:web-generated-inline && npm run check:theme-contrast && npm run check:tab-settings && npm run check:master-management && npm run check:trade-holdings && npm run check:trade-editor && npm run check:tradegroup-accounts",
     "check:web-structure:strict": "node scripts/check-web-structure.mjs --fail-on-unreferenced",
-    "check:web:ci": "npm run check:plan-calculations && npm run check:dividend-calculations && npm run check:history-modes && npm run check:fund-nav-import-web && npm run check:market-briefing-qc && npm run check:market-briefing-continuity && npm run check:market-briefing-master && npm run check:web-structure:strict && npm run check:web-manifest && npm run check:web-syntax && npm run check:web-globals && npm run check:web-dom-contract && npm run check:web-inline && npm run check:web-generated-inline && npm run check:theme-contrast && npm run check:tab-settings && npm run check:master-management && npm run check:trade-holdings && npm run check:trade-editor && npm run check:tradegroup-accounts",
+    "check:web:ci": "npm run check:plan-calculations && npm run check:dividend-calculations && npm run check:history-modes && npm run check:fund-nav-import-web && npm run check:market-briefing-qc && npm run check:market-briefing-continuity && npm run check:market-briefing-master && npm run check:market-briefing-adapters && npm run check:web-structure:strict && npm run check:web-manifest && npm run check:web-syntax && npm run check:web-globals && npm run check:web-dom-contract && npm run check:web-inline && npm run check:web-generated-inline && npm run check:theme-contrast && npm run check:tab-settings && npm run check:master-management && npm run check:trade-holdings && npm run check:trade-editor && npm run check:tradegroup-accounts",
     "check:plan-calculations": "node scripts/check-plan-calculations.mjs",
     "check:dividend-calculations": "node scripts/check-dividend-calculations.mjs",
     "check:history-modes": "node scripts/check-history-modes.mjs",
@@ -17,6 +17,7 @@
     "check:market-briefing-qc": "node scripts/check-market-briefing-qc.mjs",
     "check:market-briefing-continuity": "node scripts/check-market-briefing-continuity.mjs",
     "check:market-briefing-master": "node scripts/check-market-briefing-master.mjs",
+    "check:market-briefing-adapters": "node scripts/check-market-briefing-adapters.mjs",
     "check:toss-gas": "node scripts/check-toss-gas.mjs",
     "check:toss-current-price-pipeline": "node scripts/check-toss-current-price-pipeline.mjs",
     "check:price-polling": "node scripts/check-price-polling.mjs",
@@ -42,7 +43,7 @@
     "check:gas": "node scripts/check-gas.mjs && node scripts/check-toss-gas.mjs && node scripts/check-toss-current-price-pipeline.mjs && node scripts/check-daily-snapshot-rebuild.mjs && node scripts/check-index-providers.mjs && node scripts/check-toss-settings.mjs && node scripts/check-price-polling.mjs && node scripts/check-market-safety.mjs && node scripts/check-fund-snapshot-safety.mjs",
     "check:fund-nav-import-web": "node scripts/check-fund-nav-import-web.mjs",
     "check:seibro-har": "node scripts/validate-seibro-etf.mjs --har-only",
-    "check:ci": "npm run check:reference-regression && npm run check:storage-migration && npm run check:export-consistency && npm run check:improvements && npm run check:typography && npm run check:theme-runtime && npm run check:market-briefing-qc && npm run check:market-briefing-continuity && npm run check:market-briefing-master && npm run check:web:ci && npm run check:gas",
+    "check:ci": "npm run check:reference-regression && npm run check:storage-migration && npm run check:export-consistency && npm run check:improvements && npm run check:typography && npm run check:theme-runtime && npm run check:market-briefing-qc && npm run check:market-briefing-continuity && npm run check:market-briefing-master && npm run check:market-briefing-adapters && npm run check:web:ci && npm run check:gas",
     "check:theme-runtime": "node scripts/check-theme-runtime.mjs",
     "check:improvements": "node scripts/check-improvements.mjs"
   }
