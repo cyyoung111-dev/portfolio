@@ -7,7 +7,6 @@
     "core/core_color.js",
     "domain/state/data_state.js",
     "domain/market/market_data_provider.js",
-    "domain/market/market_briefing_qc.js",
     "domain/portfolio/portfolio_service.js",
     "domain/portfolio/data.js",
     "domain/plan/plan_calculations.js",
