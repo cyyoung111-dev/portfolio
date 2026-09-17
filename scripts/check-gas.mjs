@@ -160,7 +160,7 @@ if (!source.includes("params.action === 'getBenchmarks'")
     || !source.includes("YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX' }")
     || source.includes("GOOGLEFINANCE(\"' + symbol + '\",\"close\"")
     || !source.includes("cache.put(cacheKey, JSON.stringify(result), 21600)")) {
-  console.error('❌ 비교지수 Toss/Yahoo provider 또는 6시간 캐시가 누락됐습니다.');
+  console.error('❌ 비교지수 Toss/Yahoo provider(KOSPI200 포함) 또는 6시간 캐시가 누락됐습니다.');
   process.exit(1);
 }
 
