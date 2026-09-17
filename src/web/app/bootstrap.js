@@ -13,12 +13,13 @@ Object.assign(window.PortfolioApp, {
 });
 
 const MARKET_BRIEFING_RUNTIME_SCRIPTS = Object.freeze([
-  'domain/market/market_briefing_master.js?v=20260918-1',
-  'domain/market/market_briefing_provider_normalizer.js?v=20260918-1',
-  'domain/market/market_briefing_snapshot_store.js?v=20260918-1',
-  'domain/market/market_briefing_operational_gate.js?v=20260918-1',
-  'domain/market/market_briefing_runtime_store.js?v=20260918-1',
-  'domain/market/market_briefing_runtime.js?v=20260918-1',
+  'domain/market/market_briefing_master.js?v=20260918-2',
+  'domain/market/market_briefing_provider_normalizer.js?v=20260918-2',
+  'domain/market/market_briefing_snapshot_store.js?v=20260918-2',
+  'domain/market/market_briefing_operational_gate.js?v=20260918-2',
+  'domain/market/market_briefing_runtime_store.js?v=20260918-2',
+  'domain/market/market_briefing_provider_collector.js?v=20260918-2',
+  'domain/market/market_briefing_runtime.js?v=20260918-2',
 ]);
 
 function loadMarketBriefingRuntime() {
@@ -45,7 +46,11 @@ document.addEventListener('DOMContentLoaded', function() {
   buildTabBar();
   switchView('acct');
 
-  loadMarketBriefingRuntime().catch((error) => console.warn('[market-briefing] runtime unavailable', error));
+  loadMarketBriefingRuntime().then((runtime) => {
+    if (typeof requestGsheetActionJson !== 'function') return;
+    const tradingDate = typeof getDateStr === 'function' ? getDateStr(0) : new Date().toISOString().slice(0, 10);
+    runtime.collectExistingProvider(requestGsheetActionJson, tradingDate).catch((error) => console.warn('[market-briefing] provider collection unavailable', error));
+  }).catch((error) => console.warn('[market-briefing] runtime unavailable', error));
 
   if (typeof syncLoanFromSchedule === 'function') syncLoanFromSchedule();
   setInterval(() => {
