@@ -30,17 +30,20 @@
     if (!input || !input.seriesId || !validDate(input.tradingDate)) throw new Error('seriesId/tradingDate are required');
     const value = Number(input.value);
     if (!Number.isFinite(value)) throw new Error('value must be finite');
-    const observedAt = input.observedAt || null;
-    const receivedAt = input.receivedAt || null;
-    if (!receivedAt || !Number.isFinite(Date.parse(receivedAt))) throw new Error('receivedAt is required');
-    if (observedAt && !Number.isFinite(Date.parse(observedAt))) throw new Error('invalid observedAt');
+    const receivedMs = Date.parse(input.receivedAt || '');
+    const observedMs = input.observedAt ? Date.parse(input.observedAt) : null;
+    if (!Number.isFinite(receivedMs)) throw new Error('receivedAt is required');
+    if (input.observedAt && !Number.isFinite(observedMs)) throw new Error('invalid observedAt');
+    if (Number.isFinite(observedMs) && observedMs > receivedMs) throw new Error('observedAt must not be after receivedAt');
+    const observedAt = Number.isFinite(observedMs) ? new Date(observedMs).toISOString() : null;
+    const receivedAt = new Date(receivedMs).toISOString();
     return {
       seriesId: String(input.seriesId), tradingDate: input.tradingDate, value,
       market: input.market || 'UNKNOWN', session: input.session || 'UNKNOWN', source: input.source || 'UNKNOWN',
       status: input.status || 'PARTIAL', finality: input.finality || null,
       observedAt, receivedAt,
       timestampQuality: observedAt ? 'OBSERVED' : 'RECEIVE_ONLY',
-      lagSeconds: observedAt ? Math.max(0, Math.round((Date.parse(receivedAt) - Date.parse(observedAt)) / 1000)) : null,
+      lagSeconds: observedAt ? Math.round((receivedMs - observedMs) / 1000) : null,
       revision: Number.isInteger(input.revision) ? input.revision : 0,
       quality: input.quality || null,
     };
