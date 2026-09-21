@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.116
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.117
+//
+//  v9.117 변경사항 (2026.09.21):
+//   한화 NAV 조회 시작일 경계 보정 및 스냅샷 값 백업 호환성 개선
 //
 //  v9.116 변경사항 (2026.09.21):
 //   MARKET_MASTER timestamp 신뢰경계 보강 및 MARKET_SNAPSHOTS 불변 저장·조회 추가
@@ -3860,6 +3863,9 @@ function _fetchMissingFundNavBatches(provider, missingDates, activeTo, diagnosti
   var pending = missingDates.slice().sort(), rows = [], batches = [], errors = [];
   while (pending.length) {
     var from = pending[0];
+    // 한화 API는 startDate 당일이 아니라 다음 공시일부터 반환하므로
+    // 실제 누락일의 전날부터 조회하고 아래에서 원래 누락 범위만 채택합니다.
+    var queryFrom = _fundDateOffset(from, -1);
     var to = _fundDateOffset(from, FUND_NAV_FETCH_BATCH_DAYS - 1);
     if (to > activeTo) to = activeTo;
     var previous = from, count = 1;
@@ -3872,11 +3878,11 @@ function _fetchMissingFundNavBatches(provider, missingDates, activeTo, diagnosti
     for (var attempt = 0; attempt <= FUND_NAV_FETCH_RETRIES; attempt++) {
       try {
         _fundRecoveryDiagnosticStart(diagnostic, fundCode, 'externalNavFetch', '_fetchFundNav');
-        fetched = _fetchFundNav(provider, from, to);
-        _fundRecoveryDiagnosticFinish(diagnostic, 'end', null, { from: from, to: to, attempt: attempt + 1 });
+        fetched = _fetchFundNav(provider, queryFrom, to);
+        _fundRecoveryDiagnosticFinish(diagnostic, 'end', null, { from: from, to: to, queryFrom: queryFrom, attempt: attempt + 1 });
         lastError = null; break;
       }
-      catch (err) { _fundRecoveryDiagnosticFinish(diagnostic, 'error', err, { from: from, to: to, attempt: attempt + 1 }); lastError = err; }
+      catch (err) { _fundRecoveryDiagnosticFinish(diagnostic, 'error', err, { from: from, to: to, queryFrom: queryFrom, attempt: attempt + 1 }); lastError = err; }
     }
     if (lastError) errors.push({ from: from, to: to, message: lastError.message });
     else {
@@ -6796,7 +6802,14 @@ var _snapshotBackupMade = false;
 function _backupSnapshotBeforeWrite(ss, sheet) {
   if (_snapshotBackupMade) return;
   var name = '스냅샷_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6);
-  sheet.copyTo(ss).setName(name);
+  var rowCount = sheet.getLastRow();
+  var colCount = sheet.getLastColumn();
+  var values = rowCount > 0 && colCount > 0 ? sheet.getRange(1, 1, rowCount, colCount).getValues() : [];
+  var backup = ss.insertSheet(name);
+  if (values.length) {
+    if (backup.getMaxRows() < values.length) backup.insertRowsAfter(backup.getMaxRows(), values.length - backup.getMaxRows());
+    backup.getRange(1, 1, values.length, colCount).setValues(values);
+  }
   _snapshotBackupMade = true;
 }
 
@@ -7267,7 +7280,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.116' });
+    return jsonOk({ settings: settings, gasVersion: '9.117' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7289,7 +7302,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.116'
+      gasVersion: '9.117'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
