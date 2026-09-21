@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.115
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.116
+//
+//  v9.116 변경사항 (2026.09.21):
+//   MARKET_MASTER timestamp 신뢰경계 보강 및 MARKET_SNAPSHOTS 불변 저장·조회 추가
 //
 //  v9.115 변경사항 (2026.09.18):
 //   MARKET_MASTER 관측 원장을 GAS 시트에 append-only 저장/조회하는 인증 API 추가
@@ -746,6 +749,7 @@ function doGet(e) {
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
   if (params.action === 'getExchangeRateHistory')         return handleGetExchangeRateHistory(params.from || '', params.to || '', params.currencies || 'USD');
   if (params.action === 'getMarketBriefingMaster')        return handleGetMarketBriefingMaster(params.from || '', params.to || '', params.seriesIds || '');
+  if (params.action === 'getMarketBriefingSnapshots')     return handleGetMarketBriefingSnapshots(params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes, params.persist === '1');
   if (params.action === 'diagnoseTossMarketData') return handleDiagnoseTossMarketData();
@@ -802,11 +806,12 @@ function doPost(e) {
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
-  var readActions = ['diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  var readActions = ['diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
+  if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
   if (params.action === 'syncHoldings' && params.data)  return handleSyncHoldings(params.data);
   if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data);
   if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
@@ -832,6 +837,18 @@ function doPost(e) {
 
 var MARKET_BRIEFING_MASTER_SHEET = 'MARKET_MASTER';
 var MARKET_BRIEFING_MASTER_HEADERS = ['series_id','trading_date','value','market','session','source','status','finality','observed_at','received_at','timestamp_quality','lag_seconds','revision','quality'];
+var MARKET_BRIEFING_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function _marketBriefingIsoTimestamp_(value) {
+  if (value instanceof Date) {
+    var dateMs = value.getTime();
+    return isFinite(dateMs) ? new Date(dateMs).toISOString() : '';
+  }
+  var text = String(value || '').trim();
+  if (!MARKET_BRIEFING_TIMESTAMP_RE.test(text)) return '';
+  var ms = Date.parse(text);
+  return isFinite(ms) ? new Date(ms).toISOString() : '';
+}
 
 function _marketBriefingMasterSheet_(ss) {
   var sh = ss.getSheetByName(MARKET_BRIEFING_MASTER_SHEET);
@@ -846,43 +863,107 @@ function handleAppendMarketBriefingObservations(dataJson) {
   try {
     var rows = JSON.parse(dataJson || '[]');
     if (!Array.isArray(rows)) return jsonError('MARKET_MASTER 배열 형식 필요');
-    if (!rows.length) return jsonOk({ saved: 0, duplicates: 0 });
+    if (!rows.length) return jsonOk({ saved: 0, duplicates: 0, rejected: 0, rejectionReasons: {} });
     var lock = LockService.getScriptLock();
     lock.waitLock(30000);
     var ss = getss(), sh = _marketBriefingMasterSheet_(ss);
     var existing = {};
     if (sh.getLastRow() > 1) sh.getRange(2,1,sh.getLastRow()-1,14).getValues().forEach(function(r) {
-      existing[[String(r[0]),_normalizeDate(r[1])||'',String(r[4]||'UNKNOWN'),r[8] ? String(r[8]) : '',r[9] ? String(r[9]) : ''].join('|')] = true;
+      var existingObservedAt = r[8] ? (_marketBriefingIsoTimestamp_(r[8]) || String(r[8])) : '';
+      var existingReceivedAt = r[9] ? (_marketBriefingIsoTimestamp_(r[9]) || String(r[9])) : '';
+      existing[[String(r[0]),_normalizeDate(r[1])||'',String(r[4]||'UNKNOWN'),existingObservedAt,existingReceivedAt].join('|')] = true;
     });
-    var values=[], duplicates=0;
+    var values=[], duplicates=0, rejected=0, rejectionReasons={};
+    function reject(reason) { rejected++; rejectionReasons[reason]=(rejectionReasons[reason]||0)+1; }
     rows.forEach(function(r) {
       var seriesId=String(r.seriesId||'').trim(), tradingDate=_normalizeDate(r.tradingDate||''), value=Number(r.value);
-      var receivedAt=String(r.receivedAt||'').trim(), observedAt=String(r.observedAt||'').trim();
-      if (!seriesId || !tradingDate || !isFinite(value) || !receivedAt) return;
+      var rawReceivedAt=String(r.receivedAt||'').trim(), rawObservedAt=String(r.observedAt||'').trim();
+      var receivedAt=_marketBriefingIsoTimestamp_(rawReceivedAt), observedAt=rawObservedAt ? _marketBriefingIsoTimestamp_(rawObservedAt) : '';
+      if (!seriesId || !tradingDate || !isFinite(value)) { reject('INVALID_REQUIRED_VALUE'); return; }
+      if (!receivedAt) { reject('INVALID_RECEIVED_AT'); return; }
+      if (rawObservedAt && !observedAt) { reject('INVALID_OBSERVED_AT'); return; }
+      var receivedMs=Date.parse(receivedAt), observedMs=observedAt ? Date.parse(observedAt) : NaN;
+      if (observedAt && observedMs > receivedMs) { reject('OBSERVED_AFTER_RECEIVED'); return; }
+      var timestampQuality=observedAt ? 'OBSERVED' : 'RECEIVE_ONLY';
+      var lagSeconds=observedAt ? Math.round((receivedMs-observedMs)/1000) : null;
       var key=[seriesId,tradingDate,String(r.session||'UNKNOWN'),observedAt,receivedAt].join('|');
       if (existing[key]) { duplicates++; return; }
       existing[key]=true;
-      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,String(r.timestampQuality||(observedAt?'OBSERVED':'RECEIVE_ONLY')),r.lagSeconds==null?'':Number(r.lagSeconds),Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
+      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,timestampQuality,lagSeconds==null?'':lagSeconds,Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
     });
     if (values.length) sh.getRange(sh.getLastRow()+1,1,values.length,14).setValues(values);
     lock.releaseLock();
-    return jsonOk({ saved: values.length, duplicates: duplicates });
+    return jsonOk({ saved: values.length, duplicates: duplicates, rejected: rejected, rejectionReasons: rejectionReasons });
   } catch(err) { try { if (lock) lock.releaseLock(); } catch(e) {} return jsonError('MARKET_MASTER 저장 실패: '+err.message); }
 }
 
 function handleGetMarketBriefingMaster(fromStr, toStr, seriesIdsInput) {
   try {
     var ss=getss(), sh=ss.getSheetByName(MARKET_BRIEFING_MASTER_SHEET);
-    if (!sh || sh.getLastRow()<2) return jsonOk({ observations: [], source: MARKET_BRIEFING_MASTER_SHEET });
+    if (!sh || sh.getLastRow()<2) return jsonOk({ observations: [], invalid: 0, source: MARKET_BRIEFING_MASTER_SHEET });
     var fromDate=_normalizeDate(fromStr||'')||'0000-01-01', toDate=_normalizeDate(toStr||'')||'9999-12-31';
     var ids=String(seriesIdsInput||'').split(',').map(function(v){return v.trim();}).filter(Boolean);
-    var observations=[];
+    var observations=[], invalid=0;
     sh.getRange(2,1,sh.getLastRow()-1,14).getValues().forEach(function(r){
       var d=_normalizeDate(r[1]); if(!d||d<fromDate||d>toDate||(ids.length&&ids.indexOf(String(r[0]))===-1))return;
-      observations.push({seriesId:String(r[0]),tradingDate:d,value:Number(r[2]),market:String(r[3]),session:String(r[4]),source:String(r[5]),status:String(r[6]),finality:r[7]||null,observedAt:r[8]||null,receivedAt:String(r[9]),timestampQuality:String(r[10]),lagSeconds:r[11]===''?null:Number(r[11]),revision:Number(r[12])||0,quality:r[13]||null});
+      var rawObservedAt=r[8] ? String(r[8]).trim() : '', observedAt=rawObservedAt ? _marketBriefingIsoTimestamp_(r[8]) : '';
+      var receivedAt=_marketBriefingIsoTimestamp_(r[9]);
+      if (!receivedAt || (rawObservedAt && !observedAt) || (observedAt && Date.parse(observedAt)>Date.parse(receivedAt))) { invalid++; return; }
+      observations.push({seriesId:String(r[0]),tradingDate:d,value:Number(r[2]),market:String(r[3]),session:String(r[4]),source:String(r[5]),status:String(r[6]),finality:r[7]||null,observedAt:observedAt||null,receivedAt:receivedAt,timestampQuality:observedAt?'OBSERVED':'RECEIVE_ONLY',lagSeconds:observedAt?Math.round((Date.parse(receivedAt)-Date.parse(observedAt))/1000):null,revision:Number(r[12])||0,quality:r[13]||null});
     });
-    return jsonOk({ observations: observations, source: MARKET_BRIEFING_MASTER_SHEET });
+    return jsonOk({ observations: observations, invalid: invalid, source: MARKET_BRIEFING_MASTER_SHEET });
   } catch(err) { return jsonError('MARKET_MASTER 조회 실패: '+err.message); }
+}
+
+var MARKET_BRIEFING_SNAPSHOT_SHEET = 'MARKET_SNAPSHOTS';
+var MARKET_BRIEFING_CHECKPOINT_TIMES = { NIGHT_FINAL:'06:00:00', MORNING:'07:30:00', KRX_FINAL:'15:30:00', AFTER_FINAL:'20:00:00', EVENING:'20:15:00' };
+
+function _marketBriefingSnapshotSheet_(ss) {
+  var sh=ss.getSheetByName(MARKET_BRIEFING_SNAPSHOT_SHEET);
+  if(!sh){sh=ss.insertSheet(MARKET_BRIEFING_SNAPSHOT_SHEET);sh.getRange(1,1,1,5).setValues([['trading_date','checkpoint','as_of','values_json','scenario_json']]);}
+  return sh;
+}
+
+function _marketBriefingSnapshotAsOf_(tradingDate, checkpoint) {
+  var time=MARKET_BRIEFING_CHECKPOINT_TIMES[checkpoint];
+  return time ? _marketBriefingIsoTimestamp_(tradingDate+'T'+time+'+09:00') : '';
+}
+
+function _marketBriefingPlainObject_(value) {
+  return value!==null && typeof value==='object' && !Array.isArray(value);
+}
+
+function handleAppendMarketBriefingSnapshot(dataJson) {
+  var lock;
+  try {
+    var item=JSON.parse(dataJson||'{}'), d=_normalizeDate(item.tradingDate||''), cp=String(item.checkpoint||'');
+    var asOf=_marketBriefingIsoTimestamp_(item.asOf), expectedAsOf=d ? _marketBriefingSnapshotAsOf_(d,cp) : '';
+    if(!d||!MARKET_BRIEFING_CHECKPOINT_TIMES[cp]||!asOf||asOf!==expectedAsOf||!_marketBriefingPlainObject_(item.values)||!(item.scenario==null||_marketBriefingPlainObject_(item.scenario))) return jsonError('MARKET_SNAPSHOTS 필수값 오류');
+    lock=LockService.getScriptLock();lock.waitLock(30000);
+    var sh=_marketBriefingSnapshotSheet_(getss()), found=false;
+    if(sh.getLastRow()>1) sh.getRange(2,1,sh.getLastRow()-1,2).getValues().some(function(r){if((_normalizeDate(r[0])||'')===d&&String(r[1])===cp){found=true;return true;}return false;});
+    if(found){lock.releaseLock();return jsonOk({saved:0,immutable:true});}
+    sh.appendRow([d,cp,asOf,JSON.stringify(item.values),item.scenario==null?'':JSON.stringify(item.scenario)]);
+    lock.releaseLock();return jsonOk({saved:1,immutable:true});
+  } catch(err){try{if(lock)lock.releaseLock();}catch(e){}return jsonError('MARKET_SNAPSHOTS 저장 실패: '+err.message);}
+}
+
+function handleGetMarketBriefingSnapshots(fromStr,toStr) {
+  try {
+    var sh=getss().getSheetByName(MARKET_BRIEFING_SNAPSHOT_SHEET);
+    if(!sh||sh.getLastRow()<2)return jsonOk({snapshots:[],invalid:0,source:MARKET_BRIEFING_SNAPSHOT_SHEET});
+    var from=_normalizeDate(fromStr||'')||'0000-01-01',to=_normalizeDate(toStr||'')||'9999-12-31',out=[],invalid=0;
+    sh.getRange(2,1,sh.getLastRow()-1,5).getValues().forEach(function(r){
+      var d=_normalizeDate(r[0]),cp=String(r[1]),asOf=_marketBriefingIsoTimestamp_(r[2]);
+      if(!d||d<from||d>to)return;
+      if(!MARKET_BRIEFING_CHECKPOINT_TIMES[cp]||!asOf||asOf!==_marketBriefingSnapshotAsOf_(d,cp)){invalid++;return;}
+      var values,scenario=null;
+      try{values=JSON.parse(String(r[3]||''));if(!_marketBriefingPlainObject_(values))throw new Error('invalid values');}catch(e){invalid++;return;}
+      try{if(r[4]!==''&&r[4]!=null){scenario=JSON.parse(String(r[4]));if(!_marketBriefingPlainObject_(scenario))throw new Error('invalid scenario');}}catch(e2){invalid++;return;}
+      out.push({tradingDate:d,checkpoint:cp,asOf:asOf,values:values,scenario:scenario});
+    });
+    return jsonOk({snapshots:out,invalid:invalid,source:MARKET_BRIEFING_SNAPSHOT_SHEET});
+  } catch(err){return jsonError('MARKET_SNAPSHOTS 조회 실패: '+err.message);}
 }
 
 function handleSaveSyncIssues(source, dataJson) {
@@ -7186,7 +7267,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.115' });
+    return jsonOk({ settings: settings, gasVersion: '9.116' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7208,7 +7289,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.115'
+      gasVersion: '9.116'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

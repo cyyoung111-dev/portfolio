@@ -577,7 +577,7 @@ GAS 메뉴 및 시트 구성:
 - `recentHistoryFallbackItems`는 최종적으로 저장된 최근 확정 가격이력으로 보완된 종목만 `code`, `name`, `priceDate`로 반환합니다. Toss/KRX 정상 결과를 중복 표시하지 않으며, 0건도 안전한 빈 배열로 처리합니다.
 - 웹의 기존 상태 chip을 유지하면서 `최근이력 N건`은 fallback 종목 목록을, `GAS Nms`는 단계별 timing을 탭/클릭으로 표시합니다. 모바일에서는 상태 영역을 눌러 상세를 확인할 수 있습니다.
 - `persist=false`의 가격이력·Snapshot 무쓰기와 `persist=true` 기존 저장 정책은 변경하지 않았습니다.
-- GAS 재배포 버전은 9.115, 정적 자산 및 Service Worker cache는 20260917-3입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.
+- GAS 재배포 버전은 9.116, 브리핑 runtime/bootstrap 자산 버전은 20260921-1, 나머지 정적 자산 및 Service Worker cache는 20260917-3입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.
 
 
 ## v9.111 브리핑 지수 provider
@@ -604,3 +604,12 @@ GAS 메뉴 및 시트 구성:
 - GET `getMarketBriefingMaster`로 기간/series별 원장을 조회할 수 있습니다.
 - provider가 observed timestamp를 주지 않으면 `observed_at`을 비워 두고 `RECEIVE_ONLY`로 저장합니다.
 - 브라우저 localStorage만으로는 예약 브리핑 간 연속성이 보장되지 않으므로, 이 API가 서버측 연속 원장의 기반입니다.
+
+## v9.116 MARKET_MASTER 검증 및 MARKET_SNAPSHOTS 연속성
+
+- `received_at`과 선택적 `observed_at`은 timezone이 포함된 ISO timestamp만 허용하며 서버에서 UTC ISO로 정규화합니다. `observed_at > received_at` 행은 저장하지 않고 `rejected` 및 사유별 건수로 반환합니다.
+- `timestamp_quality`와 `lag_seconds`는 클라이언트 값을 신뢰하지 않습니다. 저장 시와 기존 시트 조회 시 모두 정규화 timestamp로 재계산하고, 유효하지 않은 기존 행은 `invalid` 건수로 구분해 제외합니다.
+- `MARKET_SNAPSHOTS`는 `(trading_date, checkpoint)` 최초 1건만 저장하는 불변 시트입니다. checkpoint별 `as_of` KST 기준시각, values/scenario JSON을 서버에서 검증하며 손상된 행을 빈 snapshot으로 바꾸지 않습니다.
+- `getMarketBriefingSnapshots`로 서버 snapshot/scenario를 local runtime에 hydrate합니다. snapshot 조회만 실패한 경우 기존 MARKET_MASTER/provider 동기화는 계속하고 `snapshotSync.status=error`로 구분합니다.
+- access token 사용 시 동일 조회가 인증 POST로 전환되므로 `getExchangeRateHistory`, `getMarketBriefingMaster`, `getMarketBriefingSnapshots`를 POST read-action 목록에도 연결했습니다.
+- checkpoint 생성 후에는 `releaseAndPersist`를 사용해 로컬 불변 snapshot과 서버 저장을 연결합니다. 병합 후 GAS 9.116과 정적 웹을 함께 재배포해야 합니다.

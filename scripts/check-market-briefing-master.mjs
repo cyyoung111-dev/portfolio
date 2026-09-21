@@ -10,6 +10,8 @@ rows = master.upsertObservation(rows, { seriesId:'NQ', tradingDate:date, value:2
 rows = master.upsertObservation(rows, { seriesId:'RECEIVE_ONLY', tradingDate:date, value:1, receivedAt:`${date}T07:20:00+09:00` });
 
 assert.equal(master.normalizeObservation({ seriesId:'X', tradingDate:date, value:1, receivedAt:`${date}T07:00:00+09:00` }).timestampQuality, 'RECEIVE_ONLY');
+assert.throws(() => master.normalizeObservation({ seriesId:'X', tradingDate:date, value:1, observedAt:`${date}T07:00:01+09:00`, receivedAt:`${date}T07:00:00+09:00` }), /observedAt must not be after receivedAt/);
+assert.equal(master.normalizeObservation({ seriesId:'X', tradingDate:date, value:1, observedAt:`${date}T07:00:00+09:00`, receivedAt:`${date}T07:00:01+09:00`, timestampQuality:'RECEIVE_ONLY', lagSeconds:999 }).lagSeconds, 1);
 assert.equal(master.selectAt(rows, 'USDKRW', `${date}T07:30:00+09:00`).value, 1390, '07:30 must not look ahead to evening');
 assert.equal(master.selectAt(rows, 'USDKRW', `${date}T20:15:00+09:00`).value, 1395);
 assert.equal(master.selectAt(rows, 'NQ', `${date}T20:15:00+09:00`).status, 'DELAYED');
