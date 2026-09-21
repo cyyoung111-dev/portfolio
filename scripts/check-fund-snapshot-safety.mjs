@@ -129,6 +129,18 @@ assert.deepEqual(clone(context._fundDailyValues(configs,'F00001',[
   {date:'2026-01-03',nav:999}
 ],'2026-01-01','2026-01-02')),[],'미래 NAV를 과거 평가일에 사용하지 않음');
 
+const completeValue={date:'2026-01-02',code:'F00002',name:'KB',nav:1000,sourceDate:'2026-01-02',units:1000,evalAmt:1000,provider:'KB_VALUE_ST',carried:false,inputRequired:false};
+const completeNav=['2026-01-02','F00002','KB',1000,'2026-01-02',1000,1000,'','KB_VALUE_ST'];
+const completePrice=['2026-01-02','F00002','KB',1000,'','FUND_NAV'];
+const completeSnapshot=snap('2026-01-02','F00002',1000,'FUND_NAV');
+assert.equal(context._fundValueNeedsProcessing(completeValue,completeNav,completePrice,completeSnapshot),false,'NAV·평가·가격이력·Snapshot 전체 정상은 생략');
+const navWithoutEvaluation=completeNav.slice(); navWithoutEvaluation[6]='';
+assert.equal(context._fundValueNeedsProcessing(completeValue,navWithoutEvaluation,completePrice,completeSnapshot),true,'NAV 존재·평가금액 누락은 보완');
+assert.equal(context._fundValueNeedsProcessing(completeValue,completeNav,null,completeSnapshot),true,'평가금액 존재·가격이력 누락은 보완');
+assert.equal(context._fundValueNeedsProcessing(completeValue,completeNav,completePrice,null),true,'가격이력 존재·Snapshot 누락은 보완');
+const carryPrice=['2026-01-02','F00002','KB',900,'','FUND_NAV_CARRY_INPUT_REQUIRED'];
+assert.equal(context._fundValueNeedsProcessing(completeValue,completeNav,carryPrice,snap('2026-01-02','F00002',900,'FUND_NAV_CARRY_INPUT_REQUIRED')),true,'신규 확정 NAV는 임시 평가를 교체');
+
 // F00003은 2026-08-25 0좌 적용일부터 평가하지 않습니다.
 const fidelity2026=[
   {code:'F00003',name:'피델리티 월드Big4 S',provider:'FIDELITY_BIG4_S',startDate:'2026-01-01',units:15933.037},
@@ -140,6 +152,11 @@ const fidelityBoundary=clone(context._fundDailyValues(fidelity2026,'F00003',[
 assert.deepEqual(fidelityBoundary.map(row=>row.date),['2026-08-24']);
 assert.equal(fidelityBoundary[0].evalAmt,Math.round(15933.037*1234.56/1000));
 assert.equal(context._fundDailyValues(fidelity2026,'F00003',[{date:'2026-08-25',nav:1235.67}],'2026-08-25','2026-08-31').length,0,'F00003 8/25~8/31 0좌 평가 제외');
+const fidelityStatus=clone(context._getFundNavStatus(ssFor({
+  '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-08-24','F00003','피델리티 월드Big4 S',1234.56,'2026-08-24',15933.037,19669,'','FIDELITY_BIG4_S']])
+}),fidelity2026)).find(item=>item.code==='F00003');
+assert.equal(fidelityStatus.inputRequiredDates.some(date=>date>='2026-08-25'),false,'F00003 0좌 이후는 NAV 누락 목록에서 제외');
+assert(fidelityStatus.zeroUnitsExcluded>0,'F00003 0좌 제외 상태를 현황에 반환');
 
 // 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
 const retiredConfigs=[
@@ -175,7 +192,13 @@ assert.equal(prices.rows.find(r=>r[0]==='2026-01-02')[3],999);
 assert.equal(snapshots.rows.filter(r=>r[0]==='2026-01-01').length,2,'펀드만으로 신규 전체자산 스냅샷을 만들면 안 됩니다.');
 const count=prices.rows.length;
 context._fetchFundNav=()=>{ throw new Error('이미 저장된 정확한 클래스 NAV가 충분하면 조회하면 안 됩니다.'); };
-assert.equal(context._refreshFundValuations(ssFor(sheets),'2026-01-01','2026-01-02').saved,0);
+let repeatBuildCalls=0;
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>{ repeatBuildCalls++; return [snap('2026-01-01','000001',300)]; };
+const repeatedComplete=context._refreshFundValuations(ssFor(sheets),'2026-01-01','2026-01-02');
+assert.equal(repeatedComplete.saved,0);
+assert.equal(repeatedComplete.fundResults.F00001.valuations,0,'정상 완료 날짜는 평가 처리 대상에서 제외');
+assert.equal(repeatedComplete.fundResults.F00001.completedSkipped,2,'정상 완료 날짜 생략 건수 반환');
+assert.equal(repeatBuildCalls,0,'정상 완료 날짜는 Snapshot 재구성 함수 호출 전에 제외');
 assert.equal(prices.rows.length,count);
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 delete sheets['스냅샷'];
