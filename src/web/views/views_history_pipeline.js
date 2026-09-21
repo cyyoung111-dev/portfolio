@@ -80,6 +80,7 @@ async function loadHistoryChart() {
     const coverage = _analyzeHistoryCoverage(snapshots, mode);
     __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
     _renderHistoryCoverage(coverageEl, coverage, mode);
+    _renderHistoryNavWarnings(coverageEl, snapshots);
 
     const latestSnapshotDate = snapshots[snapshots.length-1].date || '';
     const latestDate = _fmtHistDateCompact(latestSnapshotDate);
@@ -169,15 +170,34 @@ function _renderHistoryDateDetail(snapshots) {
   const pnl = evalAmt - costAmt;
   const pct = costAmt > 0 ? pnl / costAmt * 100 : 0;
   const color = pnl >= 0 ? 'var(--green)' : 'var(--red-lt)';
+  const navWarning = exact.navInputRequired
+    ? `<div style="font-size:.65rem;color:var(--amber);margin-top:7px">⚠️ ${_escapeHtml((exact.navInputRequiredCodes || []).join(', '))} NAV 미입력 · 직전 확정 NAV를 사용한 임시 손익입니다.</div>` : '';
   const item = (label, value, valueColor = 'var(--text)') => `<div style="padding:8px 10px;border-radius:8px;background:var(--s1);border:1px solid var(--border)"><div style="font-size:.61rem;color:var(--muted)">${label}</div><div style="font-size:.82rem;font-weight:700;color:${valueColor};font-variant-numeric:tabular-nums">${value}</div></div>`;
   wrap.innerHTML = `<div style="margin:-2px 0 12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--s2)">
     <div style="font-size:.70rem;font-weight:700;color:var(--text);margin-bottom:7px">${_escapeHtml(_fmtHistDateCompact(selected))} 저장 스냅샷</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px">
       ${item('평가금액', _fmtKrw(evalAmt))}${item('매입원가', _fmtKrw(costAmt), 'var(--muted)')}${item('손익', `${pSign(pnl)}${_fmtKrw(pnl)}`, color)}${item('수익률', `${pSign(pnl)}${pct.toFixed(1)}%`, color)}
     </div>
-    <div style="font-size:.61rem;color:var(--muted);margin-top:7px">GAS 손익 스냅샷 합계 기준이며, 상단 기준일 업데이트로 현재 화면 가격을 바꾸지 않습니다.</div>
+    <div style="font-size:.61rem;color:var(--muted);margin-top:7px">GAS 손익 스냅샷 합계 기준이며, 상단 기준일 업데이트로 현재 화면 가격을 바꾸지 않습니다.</div>${navWarning}
     <div id="histDateItems" style="margin-top:10px"></div>
   </div>`;
+}
+
+function _renderHistoryNavWarnings(el, snapshots) {
+  if (!el) return;
+  const pending = [];
+  (snapshots || []).forEach(snapshot => {
+    (snapshot.navInputRequiredCodes || []).forEach(code => pending.push({ code, date: snapshot.date }));
+  });
+  if (!pending.length) return;
+  const unique = Array.from(new Map(pending.map(item => [`${item.code}|${item.date}`, item])).values());
+  const first = unique[0];
+  const labels = unique.slice(0, 12).map(item => `${item.code} ${item.date}`).join(', ');
+  const more = unique.length > 12 ? ` 외 ${unique.length - 12}건` : '';
+  el.insertAdjacentHTML('afterbegin', `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
+    <div style="font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ NAV 미확정 ${unique.length}건</b><br><span>${_escapeHtml(labels + more)}</span><br><span style="color:var(--muted)">표시된 날짜의 손익은 직전 확정 NAV를 사용한 임시 평가입니다.</span></div>
+    <button type="button" class="btn-ghost-sm" data-history-action="open-fund-nav" data-fund-code="${_escapeHtml(first.code)}" data-fund-date="${_escapeHtml(first.date)}">${_escapeHtml(first.code)} ${_escapeHtml(first.date)} 입력</button>
+  </div>`);
 }
 
 async function _loadHistoryDateItems(date) {
