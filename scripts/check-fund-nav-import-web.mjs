@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync('src/web/features/management/mgmt_editor.js', 'utf8');
+const historySource = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
+const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 const context = vm.createContext({ console, XLSX: { SSF: { parse_date_code: value => value === 46000 ? { y:2025,m:12,d:9 } : null } } });
 vm.runInContext(source, context);
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -34,6 +36,10 @@ const pasted = clone(context._parseFundNavPaste(`불필요한 안내 텍스트
 assert.deepEqual(pasted.rows.map(row=>[row.date,row.nav]),[
   ['2026-09-10',2710.01],['2026-09-09',2667.4],['2026-09-08',2682.9]
 ],'수정기준가·과표기준가가 아닌 정확한 기준가 열 사용');
+const kofia = clone(context._parseFundNavPaste(`기준일자\t기준가격\t전일대비 등락\t과표기준가격\t설정원본\t기타 지표
+2026-09-21\t2657.70\t70.18\t998.51\t100억원\t-
+2026-09-18\t2587.52\t0.59\t998.57\t100억원\t-`, 'F00002'));
+assert.deepEqual(kofia.rows.map(row=>[row.date,row.nav]),[['2026-09-21',2657.7],['2026-09-18',2587.52]],'금투협 표는 기준일자와 기준가격만 사용');
 assert.equal(context._fundNavDate('26-01-01'),'2026-01-01');
 assert.deepEqual(['2026-9-1','2026.9.1','2026/9/1','20260901','2026-09-01 12:30:00'].map(context._fundNavDate),Array(5).fill('2026-09-01'));
 assert.deepEqual(['26.01.02','2026.01.03','26-01-04','2026-01-05'].map(context._fundNavDate),['2026-01-02','2026-01-03','2026-01-04','2026-01-05']);
@@ -57,13 +63,18 @@ assert.match(source,/\['F00002','F00003','F00001'\]/,'저장 NAV 펀드를 한�
 assert.match(source,/\['F00001','F00002','F00003'\]\.map\(code => `<button[\s\S]*?data-fund-code="\$\{code\}"[\s\S]*?\$\{code\} 업데이트/,'펀드별 개별 업데이트 제공');
 assert.match(source,/NAV 입력 필요/,'누락 NAV 날짜 안내');
 assert.match(source,/code: fundCode/,'복구 요청을 F코드별로 분리');
-assert.match(source,/const chunkDays = 7;/,'세 펀드 복구를 모두 7일 chunk로 요청');
+assert.match(source,/const chunkDays = 32;/,'GAS 허용 범위와 맞춘 32일 chunk로 순차 요청 수를 축소');
+assert.match(source,/data-fund-action="nav-date"/,'누락 날짜에서 수기 NAV 입력으로 바로 연결');
+assert.match(source,/NAV 누락 현황/,'좌수 설정을 열 때 저장 자료 기반 NAV 현황 표시');
 assert.match(source,/requestId !== _fundNavPasteRequestId/,'이전 붙여넣기 응답 폐기');
 assert.match(source,/const requestId = \+\+_fundNavPasteRequestId/,'붙여넣기 요청별 순서 토큰 발급');
 assert.match(source,/handleFundNavImportFile[\s\S]*?requestId !== _fundNavPasteRequestId/,'펀드 변경 중 이전 파일 미리보기 응답 폐기');
 assert.match(source,/preserveError: true/,'펀드 API 오류 원인 보존 요청');
 assert.match(source,/refreshFundValuations[\s\S]*?diagnostic: 'true'/,'누락 평가금액 복구에서만 선택적 진단 활성화');
 assert.match(source,/console\.info\('\[FUND_NAV_DIAGNOSTIC\]'/,'응답 진단을 브라우저 콘솔에 구조화 표시');
+assert.match(historySource,/NAV 미확정 \$\{unique\.length\}건/,'손익그래프 상단에 NAV 미확정 건수 표시');
+assert.match(historySource,/직전 확정 NAV를 사용한 임시 평가/,'손익그래프 임시 평가 안내');
+assert.match(eventSource,/action === 'open-fund-nav'/,'손익그래프 경고에서 좌수 설정 수기입력 연결');
 
 for (const [code,classCode,standardCode,className] of [
   ['F00001','C-RPe','확인되지 않음','C-RPe'],

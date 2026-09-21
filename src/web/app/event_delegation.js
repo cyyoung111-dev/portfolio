@@ -82,7 +82,7 @@ function registerGlobalEventDelegation() {
   document.addEventListener('click', function(e) {
     const fundAction = e.target.closest('[data-fund-action]');
     if (fundAction) {
-      if (typeof handleFundUnitAction === 'function') handleFundUnitAction(fundAction.dataset.fundAction, fundAction.dataset.fundCode || '');
+      if (typeof handleFundUnitAction === 'function') handleFundUnitAction(fundAction.dataset.fundAction, fundAction.dataset.fundCode || '', fundAction.dataset.fundDate || '');
       return;
     }
     const btn = e.target.closest('button');
@@ -217,6 +217,12 @@ function registerGlobalEventDelegation() {
         else if (type && typeof _toggleHistBenchmark === 'function') _toggleHistBenchmark(type);
         if (typeof _renderHistBenchmarkButtons === 'function') _renderHistBenchmarkButtons();
         if (typeof _invalidateHistoryLoad === 'function') _invalidateHistoryLoad();
+      } else if (action === 'open-fund-nav') {
+        if (typeof openFundUnitsEditor === 'function') openFundUnitsEditor();
+        if (typeof handleFundNavImportTarget === 'function') handleFundNavImportTarget(historyAction.dataset.fundCode || 'F00002').then(() => {
+          if (typeof handleFundNavManualInput === 'function') handleFundNavManualInput('date', historyAction.dataset.fundDate || '');
+          if (typeof buildEditorUI === 'function') buildEditorUI();
+        });
       }
       return;
     }

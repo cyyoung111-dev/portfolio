@@ -9,6 +9,7 @@ let _editorLoadSeq = 0; // ★ 날짜 변경 시 이전 로딩 결과 무시용
 let _editorHistoryTargets = [];
 let _fundUnitConfigs = [];
 let _fundUnitItems = [];
+let _fundNavStatuses = [];
 let _fundUnitDrafts = {};
 let _fundUnitBusy = false;
 let _fundUnitsStatus = '';
@@ -178,6 +179,24 @@ function _renderFundNavImporter() {
     ${_renderFundNavImportResult(_fundNavImportState.preview)}</section>`;
 }
 
+function _renderFundNavStatus() {
+  if (!_fundNavStatuses.length) return '<p>저장된 좌수·NAV 현황이 없습니다.</p>';
+  return `<section class="fund-nav-status"><h4>NAV 누락 현황</h4>
+    <p>저장된 GAS 자료만 확인하며 외부 조회나 평가금액·Snapshot 재계산은 하지 않습니다.</p>
+    ${_fundNavStatuses.map(item => {
+      const missing = item.inputRequiredDates || [];
+      const temporary = item.temporaryDates || [];
+      const completed = item.completedDates || [];
+      return `<article><b>${_escapeHtml(item.code)}</b> · 최신 확정 NAV ${item.latestNav == null ? '없음' : Number(item.latestNav).toLocaleString()} · 기준일 ${_escapeHtml(item.latestNavDate || '없음')}
+        <div>대상 ${_escapeHtml(item.from || '없음')} ~ ${_escapeHtml(item.to || '없음')} · 입력 필요 ${missing.length}건 · 임시 평가 ${temporary.length}건 · 정상 입력 ${completed.length}건</div>
+        <div>비공시일·휴장일 제외 ${Number(item.nonPublicationExcluded || 0)}건 · 0좌 제외 ${Number(item.zeroUnitsExcluded || 0)}건 · 좌수 없음 ${Number(item.noUnits || 0)}건</div>
+        ${missing.length ? `<details open><summary>NAV 입력 필요 날짜 전체</summary><div class="fund-nav-missing-dates">${missing.map(date => `<button type="button" class="btn-ghost-sm" data-fund-action="nav-date" data-fund-code="${_escapeHtml(item.code)}" data-fund-date="${_escapeHtml(date)}">${_escapeHtml(date)}</button>`).join('')}</div></details>` : '<p>✅ 입력이 필요한 공시일이 없습니다.</p>'}
+        ${temporary.length ? `<details><summary>직전 NAV 임시 평가 날짜 ${temporary.length}건</summary><div>${temporary.map(_escapeHtml).join(', ')}</div></details>` : ''}
+        ${completed.length ? `<details><summary>정상 입력 완료 날짜 ${completed.length}건</summary><div>${completed.map(_escapeHtml).join(', ')}</div></details>` : ''}
+      </article>`;
+    }).join('')}</section>`;
+}
+
 function _captureFundUnitDrafts(force) {
   document.querySelectorAll('[data-fund-field]').forEach(input => {
     if (!force && input.dataset.fundDirty !== 'true') return;
@@ -222,6 +241,7 @@ function _renderFundUnitsEditor(items) {
     <p>종목코드별 전체 좌수 × 일별 기준가격 ÷ 1,000. 좌수 변경은 변경일부터 새 이력을 추가하세요. 0좌부터 자동 평가는 중단하며 기존 기록은 보존합니다.</p>
     ${currentItems.length ? `<div class="fund-units-group"><h5>현재 보유 펀드</h5>${currentItems.map(renderFund).join('')}</div>` : ''}
     ${pastItems.length ? `<div class="fund-units-group"><h5>과거 보유 / 전량 매도 펀드</h5>${pastItems.map(renderFund).join('')}</div>` : ''}
+    ${_renderFundNavStatus()}
     ${_renderFundNavImporter()}
     <p><b>누락 평가금액 복구</b> · 확정된 좌수·기준가를 기준으로 과거 누락 평가금액을 복구합니다.</p>
     <label>시작일 <input type="date" data-fund-code="range" data-fund-field="from" value="${_escapeHtml(_fundUnitDrafts.range?.from || _kstTodayStr().slice(0,4) + '-01-01')}"></label>
@@ -257,12 +277,20 @@ async function _loadFundUnitsEditor() {
     if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || 'GAS v9.89 재배포가 필요합니다.');
     _fundUnitConfigs = result.configs || [];
     _fundUnitItems = result.funds;
+    _fundNavStatuses = result.navStatus || [];
     buildEditorUI();
   } catch (error) { _fundUnitsStatus = error.message; buildEditorUI(); }
 }
 
-async function handleFundUnitAction(action, code) {
+async function handleFundUnitAction(action, code, date = '') {
   if (_fundUnitBusy) return;
+  if (action === 'nav-date') {
+    await handleFundNavImportTarget(code);
+    _fundNavImportState.manualDate = date;
+    buildEditorUI();
+    document.querySelector('[data-fund-nav-manual="nav"]')?.focus();
+    return;
+  }
   if (action === 'copy-nav-code') {
     const value = code;
     const button = document.querySelector(`[data-fund-action="copy-nav-code"][data-fund-code="${value}"]`);
@@ -288,6 +316,7 @@ async function handleFundUnitAction(action, code) {
       _fundUnitsStatus = `NAV 반영 완료 · ${_fundNavImportState.code} · 신규 ${Number(imported.saved || 0)}건 · 기존 동일 ${imported.identical?.length || 0}건 · 갱신 ${Number(imported.updated || 0)}건 · WARNING ${imported.warnings?.length || 0}건 · ERROR ${imported.errors?.length || 0}건 · 0좌 제외 ${imported.zeroUnits?.length || 0}건 · 재계산 ${evaluation.from || '없음'} ~ ${evaluation.to || '없음'} · 평가금액 ${Number(evaluation.valuations || 0)}건 · 가격이력 ${Number(evaluation.prices || 0)}건 · 스냅샷 ${Number(evaluation.snapshots || 0)}건`;
       _fundNavImportState = { ..._fundNavImportState, preview: { ...imported, candidates: [], canSave: false } };
       _editorHistoryCache.clear();
+      await _loadFundUnitsEditor();
     } else if (action === 'preview-manual-nav') {
       const parsed = _parseFundNavMatrix([['일자','기준가격'], [_fundNavImportState.manualDate, _fundNavImportState.manualNav]], _fundNavImportState.code);
       await _previewFundNavParsed(parsed);
@@ -315,7 +344,7 @@ async function handleFundUnitAction(action, code) {
       const total = days * recoveryCodes.length;
       const fundStats = {};
       for (const fundCode of recoveryCodes) {
-        const chunkDays = 7;
+        const chunkDays = 32;
         for (let start = from; start <= to;) {
           const end = _kstDateOffset(start, chunkDays - 1) < to ? _kstDateOffset(start, chunkDays - 1) : to;
           const rangeDays = Math.floor((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1;
@@ -362,6 +391,7 @@ function openFundUnitsEditor() {
   _fundUnitBusy = false;
   _editorMode = 'fund-units';
   _fundUnitDrafts = {};
+  _fundNavStatuses = [];
   _fundNavImportState = { code: 'F00001', filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
   _openEditorModal();
   _loadFundUnitsEditor();
