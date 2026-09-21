@@ -577,7 +577,7 @@ GAS 메뉴 및 시트 구성:
 - `recentHistoryFallbackItems`는 최종적으로 저장된 최근 확정 가격이력으로 보완된 종목만 `code`, `name`, `priceDate`로 반환합니다. Toss/KRX 정상 결과를 중복 표시하지 않으며, 0건도 안전한 빈 배열로 처리합니다.
 - 웹의 기존 상태 chip을 유지하면서 `최근이력 N건`은 fallback 종목 목록을, `GAS Nms`는 단계별 timing을 탭/클릭으로 표시합니다. 모바일에서는 상태 영역을 눌러 상세를 확인할 수 있습니다.
 - `persist=false`의 가격이력·Snapshot 무쓰기와 `persist=true` 기존 저장 정책은 변경하지 않았습니다.
-- GAS 재배포 버전은 9.116, 브리핑 runtime/bootstrap 자산 버전은 20260921-1, 나머지 정적 자산 및 Service Worker cache는 20260917-3입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.
+- GAS 재배포 버전은 9.117, 브리핑 runtime/bootstrap 자산 버전은 20260921-1, 나머지 정적 자산 및 Service Worker cache는 20260921-2입니다. 실제 병목 판단은 배포 후 timing 값을 확인한 뒤 수행하며 이번 변경 자체는 성능 최적화가 아닙니다.
 
 
 ## v9.111 브리핑 지수 provider
@@ -613,3 +613,9 @@ GAS 메뉴 및 시트 구성:
 - `getMarketBriefingSnapshots`로 서버 snapshot/scenario를 local runtime에 hydrate합니다. snapshot 조회만 실패한 경우 기존 MARKET_MASTER/provider 동기화는 계속하고 `snapshotSync.status=error`로 구분합니다.
 - access token 사용 시 동일 조회가 인증 POST로 전환되므로 `getExchangeRateHistory`, `getMarketBriefingMaster`, `getMarketBriefingSnapshots`를 POST read-action 목록에도 연결했습니다.
 - checkpoint 생성 후에는 `releaseAndPersist`를 사용해 로컬 불변 snapshot과 서버 저장을 연결합니다. 병합 후 GAS 9.116과 정적 웹을 함께 재배포해야 합니다.
+
+## v9.117 F00001 NAV 및 스냅샷 백업 수정
+
+- 한화 기준가격 API의 `startDate` 제외 경계를 반영해 실제 누락일 전날부터 조회하며, 원래 누락 범위의 날짜만 저장합니다. 조회 실패·범위 밖 응답은 기존 데이터에 쓰지 않습니다.
+- 스냅샷 쓰기 전 백업은 `sheet.copyTo()` 대신 새 백업 시트에 기존 값을 복사합니다. 백업이 완료되지 않으면 원본 스냅샷 쓰기도 중단합니다.
+- 병합 후 GAS 9.117과 정적 웹을 함께 재배포하고, F00001 2026-09-16·2026-09-18 복구 및 기존 수동 스냅샷 보존을 확인해야 합니다.
