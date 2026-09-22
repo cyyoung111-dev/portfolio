@@ -43,12 +43,14 @@ context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON
 assert.throws(()=>context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02'),/조회 결과 없음/,'빈 응답은 정상 조회로 처리하지 않음');
 
 class Sheet {
-  constructor(rows = []) { this.rows = clone(rows); this.writes = 0; this.copies = 0; this.failWrite = false; this.failCopy = false; }
+  constructor(rows = []) { this.rows = clone(rows); this.writes = 0; this.copies = 0; this.failWrite = false; this.failCopy = false; this.maxRows = 10000; this.maxColumns = 26; this.name = ''; }
+  getName() { return this.name; }
   getLastRow() { return this.rows.length; }
   getLastColumn() { return Math.max(0, ...this.rows.map(r => r.length)); }
-  getMaxRows() { return 10000; }
+  getMaxRows() { return this.maxRows; }
+  getMaxColumns() { return this.maxColumns; }
   copyTo() { this.copies++; if (this.failCopy) throw new Error('지원되지 않는 작업입니다.'); this.backup = clone(this.rows); return { setName() {} }; }
-  insertRowsAfter() {}
+  insertRowsAfter(_after, count) { this.maxRows += count; }
   appendRow(row) { this.rows.push(clone(row)); }
   getRange(row, col, nr, nc) {
     return { getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => this.rows[row-1+i]?.[col-1+j] ?? '')),
@@ -62,7 +64,15 @@ class Sheet {
 }
 const snap = (date, code, value, src='PRICE_HISTORY') => [date, code, code, 1, 50, 50, value, value, value-50, 0, src, src === 'MANUAL' ? '2026-01-02 12:00:00' : ''];
 const header = Array(12).fill('header');
-const ssFor = sheets => ({ getSheetByName: name => sheets[name] || null, insertSheet: name => (sheets[name] = new Sheet()) });
+const ssFor = sheets => {
+  const bindNames=()=>Object.entries(sheets).map(([name,sheet])=>{ sheet.name=name; return sheet; });
+  bindNames();
+  return {
+    getSheetByName: name => sheets[name] || null,
+    getSheets: () => bindNames(),
+    insertSheet: name => { const sheet=new Sheet(); sheet.name=name; sheets[name]=sheet; return sheet; }
+  };
+};
 
 const storedFallback=clone(context._storedFundNavRows([
   ['2026-01-01','F00002','KB',1111,'2026-01-01',1000,1111,'','KB_VALUE_ST'],
@@ -421,7 +431,7 @@ assert.deepEqual(importWriteNav.rows.slice(1,4).map(row=>[row[0],row[3],row[4],r
 assert.equal(importWriteNav.rows.some(row=>row[0]==='2025-01-04'),false,'직전 NAV를 미공시 날짜의 확정 NAV로 복제하지 않음');
 assert.equal(importWritePrices.rows.find(row=>row[0]==='2025-01-03'&&row[1]==='F00002')[3],900,'기존 MANUAL 가격 보존');
 assert.equal(importWritePrices.rows.find(row=>row[1]==='000001')[3],777,'관련 없는 일반주식 가격이력 보존');
-assert.equal(importWriteSnapshots.rows.find(row=>row[1]==='F00002')[7],1000);
+assert.equal(importWriteSnapshots.rows.find(row=>row[1]==='F00002')[7],900,'기존 MANUAL Snapshot 보존');
 assert.deepEqual(importWriteSnapshots.rows.find(row=>row[1]==='US0001'),fxSnapshot,'해외자산 과거 FX 스냅샷 보존');
 const repeated=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-03',nav:1000}]));
 assert.equal(repeated.importResult.saved,0,'동일 NAV 재입력은 NAV를 다시 저장하지 않음');
@@ -495,7 +505,7 @@ context.getss=()=>partialCommitSs;
 const partialFailure=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:975}]));
 assert.equal(partialFailure.status,'error');
 assert.equal(partialCommitNav.copies,0,'NAV import 백업은 지원되지 않는 copyTo를 호출하지 않음');
-assert(Object.keys(partialCommitSheets).some(name=>name.startsWith('펀드기준가격_백업_')),'copyTo 없이 NAV 값 백업 생성');
+assert.equal(Object.keys(partialCommitSheets).some(name=>name.includes('_백업_')),false,'NAV import는 반복 백업 시트를 만들지 않음');
 assert.equal(partialFailure.diagnostic.events.find(event=>event.status==='error').stage,'priceHistoryWrite','부분 저장 실패 단계를 응답에 식별');
 assert.equal(Object.prototype.hasOwnProperty.call(partialFailure.diagnostic.events.find(event=>event.status==='error'),'stack'),false,'import 실패 진단에 stack 미노출');
 assert.equal(partialCommitNav.rows.filter(row=>row[1]==='F00002').length,1,'파생 쓰기 실패 전 저장된 유효 NAV 유지');
@@ -507,6 +517,27 @@ assert.equal(partialCommitNav.rows.filter(row=>row[1]==='F00002').length,1,'동�
 assert.equal(partialCommitPrices.rows.filter(row=>row[1]==='F00002').length,1,'동일 NAV 재실행에서 누락 가격이력 복구');
 const partialRetryAgain=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:975}]));
 assert.equal(partialCommitPrices.rows.filter(row=>row[1]==='F00002').length,1,'반복 재실행 idempotent');
+context.getss=()=>importWriteSs;
+
+// 통합문서가 셀 한도에 근접해도 기존 시트의 여유 행 안에서 증분 저장하며 새 백업 시트를 만들지 않습니다.
+const capacityUnits=new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-01-01',1000,'']]);
+const capacityNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+const capacityPrices=new Sheet([['date','code','name','price','at','source']]);
+const capacityTrades=new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','KB','F00002',1,800,'펀드']]);
+const capacitySnapshots=new Sheet([header]);
+[capacityUnits,capacityNav,capacityPrices,capacityTrades,capacitySnapshots].forEach(sheet=>{ sheet.maxRows=100; });
+const capacityFiller=new Sheet([['keep']]); capacityFiller.maxRows=760000; capacityFiller.maxColumns=26;
+const capacitySheets={'펀드좌수':capacityUnits,'펀드기준가격':capacityNav,'가격이력':capacityPrices,'거래이력':capacityTrades,'스냅샷':capacitySnapshots,'기존대형시트':capacityFiller};
+const capacitySs=ssFor(capacitySheets);
+context.getss=()=>capacitySs;
+context.today=()=> '2026-09-22';
+const capacityResult=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2026-09-21',nav:1200}]));
+assert.equal(capacityResult.status,'ok');
+assert.equal(capacityNav.rows.filter(row=>row[0]==='2026-09-21').length,1,'한도 근접 통합문서에도 NAV 증분 저장');
+assert.equal(Object.keys(capacitySheets).some(name=>name.includes('_백업_')),false,'한도 근접 저장도 백업 시트 미생성');
+assert(capacityResult.evaluation.capacity.before.totalCells>19000000,'실행 전 전체 할당 셀 진단');
+assert.equal(capacityResult.evaluation.capacity.before.totalCells,capacityResult.evaluation.capacity.after.totalCells,'기존 여유 행 안의 import는 할당 셀을 늘리지 않음');
+context.today=()=> '2026-09-09';
 context.getss=()=>importWriteSs;
 
 // 운영값이 아닌 fixture NAV 2587.52도 NAV→가격이력→스냅샷에 같은 평가금액으로 연결됩니다.
