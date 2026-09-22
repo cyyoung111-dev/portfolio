@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync('src/web/features/management/mgmt_editor.js', 'utf8');
+assert.match(source, /function _fundNavImportOutcome\(result\)/, 'NAV 실제 저장 결과 formatter 연결');
+assert.match(source, /result\?\.saveState === 'partial'/, '일부 저장 상태 표시');
+assert.match(source, /error\.navImportResult = result/, 'GAS 오류 응답의 저장 결과를 catch까지 보존');
+assert.match(source, /실제 저장 NAV/, 'NAV·가격이력·Snapshot 실제 저장 건수 표시');
 const historySource = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 const context = vm.createContext({ console, XLSX: { SSF: { parse_date_code: value => value === 46000 ? { y:2025,m:12,d:9 } : null } } });

@@ -49,6 +49,7 @@ class Sheet {
   getLastColumn() { return Math.max(0, ...this.rows.map(r => r.length)); }
   getMaxRows() { return this.maxRows; }
   getMaxColumns() { return this.maxColumns; }
+  deleteColumns(start, count) { this.rows.forEach(row => row.splice(start - 1, count)); this.maxColumns -= count; }
   copyTo() { this.copies++; if (this.failCopy) throw new Error('지원되지 않는 작업입니다.'); this.backup = clone(this.rows); return { setName() {} }; }
   insertRowsAfter(_after, count) { this.maxRows += count; }
   appendRow(row) { this.rows.push(clone(row)); }
@@ -448,7 +449,9 @@ assert.deepEqual(importWriteNav.rows.filter(row=>row[1]==='F00002'&&row[4]==='20
 ],'정정 공시일을 참조하는 현재 carry-forward 행은 이후 정정으로 sourceDate가 바뀐 행과 구분');
 
 const beforeImportFailure=clone(importWriteNav.rows); importWriteNav.failWrite=true;
-assert.equal(context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-04',nav:1002}],'',true)).status,'error');
+const fullFailure=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-04',nav:1002}],'',true));
+assert.equal(fullFailure.status,'error');
+assert.equal(fullFailure.saveState,'failed','첫 저장 단계 실패는 전체 저장 실패로 구분');
 assert.deepEqual(importWriteNav.rows,beforeImportFailure,'부분 쓰기 실패 시 기존 NAV 보존');
 importWriteNav.failWrite=false;
 
@@ -504,6 +507,11 @@ const partialCommitSs=ssFor(partialCommitSheets);
 context.getss=()=>partialCommitSs;
 const partialFailure=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:975}]));
 assert.equal(partialFailure.status,'error');
+assert.equal(partialFailure.saveState,'partial','NAV 저장 후 가격이력 실패는 일부 저장으로 구분');
+assert.equal(partialFailure.persisted.navWrite.appendedRows,1,'이번 요청에서 실제 저장된 NAV 신규 행 수 반환');
+assert.equal(partialFailure.persisted.priceHistoryWrite.appendedRows,0,'실패한 가격이력은 저장 건수 0');
+assert.match(partialFailure.message,/일부 저장 후 실패/);
+assert.doesNotMatch(partialFailure.message,/기존 데이터는 변경하지 않았습니다/);
 assert.equal(partialCommitNav.copies,0,'NAV import 백업은 지원되지 않는 copyTo를 호출하지 않음');
 assert.equal(Object.keys(partialCommitSheets).some(name=>name.includes('_백업_')),false,'NAV import는 반복 백업 시트를 만들지 않음');
 assert.equal(partialFailure.diagnostic.events.find(event=>event.status==='error').stage,'priceHistoryWrite','부분 저장 실패 단계를 응답에 식별');
@@ -537,6 +545,19 @@ assert.equal(capacityNav.rows.filter(row=>row[0]==='2026-09-21').length,1,'한�
 assert.equal(Object.keys(capacitySheets).some(name=>name.includes('_백업_')),false,'한도 근접 저장도 백업 시트 미생성');
 assert(capacityResult.evaluation.capacity.before.totalCells>19000000,'실행 전 전체 할당 셀 진단');
 assert.equal(capacityResult.evaluation.capacity.before.totalCells,capacityResult.evaluation.capacity.after.totalCells,'기존 여유 행 안의 import는 할당 셀을 늘리지 않음');
+
+// 운영 오류(1,044개 필요/774개 잔여)를 재현하고 대상 시트의 빈 초과 열만 회수해 확장합니다.
+const compactNav=new Sheet([Array(9).fill('header')]); compactNav.maxRows=1; compactNav.maxColumns=29;
+const compactPrices=new Sheet([Array(6).fill('header')]); compactPrices.maxRows=1; compactPrices.maxColumns=6;
+const compactSnapshots=new Sheet([header]); compactSnapshots.maxRows=1; compactSnapshots.maxColumns=12;
+const compactFillerA=new Sheet([['keep']]); compactFillerA.maxRows=689626; compactFillerA.maxColumns=29;
+const compactFillerB=new Sheet([['keep']]); compactFillerB.maxRows=1; compactFillerB.maxColumns=25;
+const compactSs=ssFor({'펀드기준가격':compactNav,'가격이력':compactPrices,'스냅샷':compactSnapshots,'기존대형시트A':compactFillerA,'기존대형시트B':compactFillerB});
+assert.equal(context._fundSheetCapacity(compactSs).remainingCells,774,'운영 잔여 셀 774개 재현');
+context._ensureFundImportRowCapacity(compactSs,compactNav,36);
+assert.equal(compactNav.getMaxColumns(),9,'값이 없는 초과 20개 열만 회수');
+assert.equal(compactNav.getMaxRows(),37,'29열 기준 1,044셀 대신 9열 기준 324셀로 행 확장');
+assert.equal(compactFillerA.getMaxColumns(),29,'무관한 시트는 변경하지 않음');
 context.today=()=> '2026-09-09';
 context.getss=()=>importWriteSs;
 

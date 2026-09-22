@@ -42,6 +42,30 @@ const FUND_NAV_IMPORT_GUIDE = {
 };
 let _fundNavImportState = { code: 'F00001', filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
 
+function _fundNavImportOutcome(result) {
+  const imported = result?.importResult || {};
+  const evaluation = result?.evaluation || {};
+  const persisted = result?.persisted || evaluation.persisted || {};
+  const nav = persisted.navWrite || {};
+  const prices = persisted.priceHistoryWrite || {};
+  const snapshots = persisted.snapshotWrite || {};
+  const code = imported.code || _fundNavImportState.code;
+  const guide = FUND_NAV_IMPORT_GUIDE[code] || {};
+  const state = result?.saveState === 'partial' ? '일부 저장' : result?.saveState === 'failed' ? '저장 실패' : '저장 완료';
+  const firstDate = imported.firstDate || evaluation.from || '';
+  const lastDate = imported.lastDate || evaluation.to || '';
+  const range = firstDate ? `${firstDate}${lastDate && lastDate !== firstDate ? ` ~ ${lastDate}` : ''}` : '없음';
+  const newCount = Number(imported.saved ?? imported.requestedNew ?? 0);
+  const updateCount = Number(imported.updated ?? imported.requestedUpdates ?? 0);
+  const identicalCount = Number(imported.identicalCount ?? imported.identical?.length ?? 0);
+  const duplicateCount = Number(imported.duplicateCount ?? imported.duplicates?.length ?? 0);
+  const priceCount = Number(prices.appendedRows || 0) + Number(prices.updatedRows || 0);
+  const snapshotCount = Number(snapshots.appendedRows || 0) + Number(snapshots.updatedRows || 0);
+  const failure = result?.status === 'ok' ? '' : ` · 실패 원인 ${result?.message || '응답 오류'}`;
+  const navStored = Number(nav.appendedRows || 0) + Number(nav.updatedRows || 0);
+  return `NAV ${state} · ${imported.fundName || guide.name || code} (${code}) · 기준일 ${range} · 신규 ${newCount}건 · 수정 ${updateCount}건 · 기존 동일 ${identicalCount}건 · 입력 중복 ${duplicateCount}건 · 실제 저장 NAV ${navStored}건/가격이력 ${priceCount}건/Snapshot ${snapshotCount}건${failure}`;
+}
+
 function _fundNavHeader(value) { return String(value ?? '').trim().replace(/\s+/g, '').toLowerCase(); }
 
 function _fundNavDate(value) {
@@ -311,9 +335,13 @@ async function handleFundUnitAction(action, code, date = '') {
       const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
       const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: _fundNavImportState.payload.rows, sourceText: _fundNavImportState.payload.sourceText, ackWarnings: _fundNavImportState.warningsAcknowledged };
       const result = await requestGsheetFormJson('importFundNav', { data: JSON.stringify(data) }, { timeoutMs: 300000, retry: 0, preserveError: true });
-      if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 실패');
+      if (result?.status !== 'ok') {
+        const error = new Error(result?.message || 'NAV import 실패');
+        error.navImportResult = result;
+        throw error;
+      }
       const imported = result.importResult || {}, evaluation = result.evaluation || {};
-      _fundUnitsStatus = `NAV 반영 완료 · ${_fundNavImportState.code} · 신규 ${Number(imported.saved || 0)}건 · 기존 동일 ${imported.identical?.length || 0}건 · 갱신 ${Number(imported.updated || 0)}건 · WARNING ${imported.warnings?.length || 0}건 · ERROR ${imported.errors?.length || 0}건 · 0좌 제외 ${imported.zeroUnits?.length || 0}건 · 재계산 ${evaluation.from || '없음'} ~ ${evaluation.to || '없음'} · 평가금액 ${Number(evaluation.valuations || 0)}건 · 가격이력 ${Number(evaluation.prices || 0)}건 · 스냅샷 ${Number(evaluation.snapshots || 0)}건`;
+      _fundUnitsStatus = `${_fundNavImportOutcome(result)} · 평가금액 ${Number(evaluation.valuations || 0)}건 · WARNING ${imported.warnings?.length || 0}건 · ERROR ${imported.errors?.length || 0}건 · 0좌 제외 ${imported.zeroUnits?.length || 0}건`;
       _fundNavImportState = { ..._fundNavImportState, preview: { ...imported, candidates: [], canSave: false } };
       _editorHistoryCache.clear();
       await _loadFundUnitsEditor();
@@ -382,7 +410,15 @@ async function handleFundUnitAction(action, code, date = '') {
       await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
       recomputeRows(); saveHoldings(); renderSummary();
     }
-  } catch (error) { _fundUnitsStatus = action === 'save' ? `저장 실패: ${error.message}` : error.message; showToast(_fundUnitsStatus, 'warn', 7000); }
+  } catch (error) {
+    if (action === 'import-nav' && error.navImportResult) {
+      _fundUnitsStatus = _fundNavImportOutcome(error.navImportResult);
+      _editorHistoryCache.clear();
+      await _loadFundUnitsEditor();
+      _fundUnitsStatus = _fundNavImportOutcome(error.navImportResult);
+    } else _fundUnitsStatus = action === 'save' ? `저장 실패: ${error.message}` : error.message;
+    showToast(_fundUnitsStatus, 'warn', 7000);
+  }
   finally { _fundUnitBusy = false; buildEditorUI(); }
 }
 
