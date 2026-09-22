@@ -7,8 +7,14 @@ assert.doesNotMatch(source.match(/function handleRefreshFundValuations[\s\S]*?\n
 const clone = value => JSON.parse(JSON.stringify(value));
 let held = false;
 const lock = { hasLock: () => held, waitLock: () => { held = true; }, releaseLock: () => { held = false; } };
+const scriptProperties = {};
+const propertyStore = {
+  setProperty(key, value) { scriptProperties[key] = String(value); },
+  getProperty(key) { return Object.prototype.hasOwnProperty.call(scriptProperties, key) ? scriptProperties[key] : null; },
+  deleteProperty(key) { delete scriptProperties[key]; }
+};
 const context = vm.createContext({ console, Logger: { log() {} }, LockService: { getScriptLock: () => lock },
-  SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => ({ setProperty() {}, deleteProperty() {} }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-id' } });
+  SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => propertyStore }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-id' } });
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
 
@@ -49,18 +55,22 @@ class Sheet {
   getLastColumn() { return Math.max(0, ...this.rows.map(r => r.length)); }
   getMaxRows() { return this.maxRows; }
   getMaxColumns() { return this.maxColumns; }
+  deleteRows(start, count) { this.rows.splice(start - 1, count); this.maxRows -= count; }
   deleteColumns(start, count) { this.rows.forEach(row => row.splice(start - 1, count)); this.maxColumns -= count; }
+  insertColumnsAfter(_after, count) { this.maxColumns += count; }
   copyTo() { this.copies++; if (this.failCopy) throw new Error('지원되지 않는 작업입니다.'); this.backup = clone(this.rows); return { setName() {} }; }
   insertRowsAfter(_after, count) { this.maxRows += count; }
   appendRow(row) { this.rows.push(clone(row)); }
   getRange(row, col, nr, nc) {
-    return { getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => this.rows[row-1+i]?.[col-1+j] ?? '')),
+    const range = { getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => this.rows[row-1+i]?.[col-1+j] ?? '')),
+      getFormulas: () => Array.from({ length: nr }, () => Array(nc).fill('')),
       setValues: values => {
         if (this.failWrite) throw new Error('write failed');
         assert.equal(values.length, nr);
         this.writes++;
         values.forEach((v,i) => { assert.equal(v.length,nc); this.rows[row-1+i] ||= []; v.forEach((cell,j) => { this.rows[row-1+i][col-1+j] = cell; }); });
-      }, setBackground() { return this; }, setFontColor() { return this; }, setFontWeight() { return this; } };
+      }, copyTo: target => target.setValues(range.getValues()), setBackground() { return this; }, setFontColor() { return this; }, setFontWeight() { return this; } };
+    return range;
   }
 }
 const snap = (date, code, value, src='PRICE_HISTORY') => [date, code, code, 1, 50, 50, value, value, value-50, 0, src, src === 'MANUAL' ? '2026-01-02 12:00:00' : ''];
@@ -115,6 +125,54 @@ assert.throws(()=>context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','
 assert.deepEqual(sheet.rows,beforeFailure,'쓰기 실패 전 전체 시트를 비우면 안 됩니다.');
 sheet.failWrite=false;
 assert.equal(held,false);
+
+// 쓰기 실패 후 별도 실행에서 재시도해도 같은 원본 상태의 백업은 다시 만들지 않습니다.
+delete scriptProperties.snapshot_backup_state_v1;
+context._snapshotBackupMade=false;
+const retrySheet=new Sheet([header,a,b,other]);
+const backupRetrySheets={'스냅샷':retrySheet};
+const backupRetrySs=ssFor(backupRetrySheets);
+retrySheet.failWrite=true;
+assert.throws(()=>context.writeSnapshotRows(backupRetrySs,'2026-01-02',[snap('2026-01-02','000002',250)],true),/write failed/);
+assert.equal(Object.keys(backupRetrySheets).filter(name=>name.startsWith('스냅샷_백업_')).length,1,'실패 실행도 복사 검증된 백업 하나만 생성');
+context._snapshotBackupMade=false;
+retrySheet.failWrite=false;
+context.writeSnapshotRows(backupRetrySs,'2026-01-02',[snap('2026-01-02','000002',250)],true);
+assert.equal(Object.keys(backupRetrySheets).filter(name=>name.startsWith('스냅샷_백업_')).length,1,'동일 원본 재시도는 기존 백업 재사용');
+
+// 여러 GAS 배치로 이어지는 동일 전체 복구 작업도 최초 백업 하나만 유지합니다.
+delete scriptProperties.snapshot_backup_state_v1;
+context._snapshotBackupMade=false;
+context._snapshotBackupOperationId='REPAIR_OP_1';
+const operationSheet=new Sheet([header,a,b,other]);
+const operationSheets={'스냅샷':operationSheet};
+const operationSs=ssFor(operationSheets);
+context.writeSnapshotRows(operationSs,'2026-01-02',[snap('2026-01-02','000002',260)],true);
+context._snapshotBackupMade=false;
+context.writeSnapshotRows(operationSs,'2026-01-01',[snap('2026-01-01','000003',310)],true);
+assert.equal(Object.keys(operationSheets).filter(name=>name.startsWith('스냅샷_백업_')).length,1,'동일 복구 operation의 후속 배치는 백업 추가 생성 금지');
+context._snapshotBackupOperationId='';
+
+// 시트 생성 자체에 필요한 기본 26,000셀도 없으면 원본 쓰기 전에 중단합니다.
+delete scriptProperties.snapshot_backup_state_v1;
+context._snapshotBackupMade=false;
+const nearLimitSnapshot=new Sheet([header,b]);
+const nearLimitFiller=new Sheet([['keep']]);
+nearLimitFiller.maxColumns=1;
+nearLimitFiller.maxRows=context.GOOGLE_SHEETS_CELL_LIMIT-(nearLimitSnapshot.maxRows*nearLimitSnapshot.maxColumns)-100;
+const nearLimitSheets={'스냅샷':nearLimitSnapshot,'대형시트':nearLimitFiller};
+const nearLimitSs=ssFor(nearLimitSheets);
+const nearLimitBefore=clone(nearLimitSnapshot.rows);
+assert.throws(()=>context.writeSnapshotRows(nearLimitSs,'2026-01-02',[snap('2026-01-02','000002',250)],true),/최소 26000셀이 필요.*원본은 변경하지 않았습니다/);
+assert.deepEqual(nearLimitSnapshot.rows,nearLimitBefore,'백업 공간 부족은 원본 쓰기 전에 차단');
+assert.equal(Object.keys(nearLimitSheets).some(name=>name.startsWith('스냅샷_백업_')),false,'공간 부족 시 빈 백업 시트도 만들지 않음');
+
+const inventory=context._workbookCellInventory(backupRetrySs);
+assert.equal(inventory.backups.count,1,'통합문서 진단에 백업 수 포함');
+assert(inventory.backups.allocatedCells>0,'백업의 전체 할당 셀을 실제 maxRows×maxColumns로 합산');
+assert.equal(inventory.sheets.find(item=>item.name==='스냅샷').codeReferenced,true,'운영 원본 시트의 GAS 참조 여부 표시');
+assert.equal(inventory.sheets.find(item=>item.isBackup).deleteEligibleAfterApproval,false,'별도 보관 검증 전에는 삭제 승인 대상이 아님');
+
 assert.throws(()=>context._readSnapshotRowsByDate({getSheetByName(){throw new Error('read failed');}},'2026-01-02'),/read failed/);
 assert.equal((source.match(/function getEarliestPriceHistory\(/g)||[]).length,1);
 assert.throws(()=>context.getEarliestPriceHistory({getSheetByName(){throw new Error('read failed');}},['000001'],'2026-01-02',true),/read failed/);

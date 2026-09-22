@@ -51,7 +51,9 @@ function _fundNavImportOutcome(result) {
   const snapshots = persisted.snapshotWrite || {};
   const code = imported.code || _fundNavImportState.code;
   const guide = FUND_NAV_IMPORT_GUIDE[code] || {};
-  const state = result?.saveState === 'partial' ? '일부 저장' : result?.saveState === 'failed' ? '저장 실패' : '저장 완료';
+  const state = result?.saveState === 'partial' ? '일부 저장'
+    : result?.saveState === 'failed' ? '저장 실패'
+      : result?.status === 'ok' ? '저장 완료' : '저장 결과 확인 불가';
   const firstDate = imported.firstDate || evaluation.from || '';
   const lastDate = imported.lastDate || evaluation.to || '';
   const range = firstDate ? `${firstDate}${lastDate && lastDate !== firstDate ? ` ~ ${lastDate}` : ''}` : '없음';

@@ -5,6 +5,7 @@ import vm from 'node:vm';
 const source = fs.readFileSync('src/web/features/management/mgmt_editor.js', 'utf8');
 assert.match(source, /function _fundNavImportOutcome\(result\)/, 'NAV 실제 저장 결과 formatter 연결');
 assert.match(source, /result\?\.saveState === 'partial'/, '일부 저장 상태 표시');
+assert.match(source, /result\?\.status === 'ok' \? '저장 완료' : '저장 결과 확인 불가'/, '상태 없는 네트워크 오류를 저장 완료로 표시하지 않음');
 assert.match(source, /error\.navImportResult = result/, 'GAS 오류 응답의 저장 결과를 catch까지 보존');
 assert.match(source, /실제 저장 NAV/, 'NAV·가격이력·Snapshot 실제 저장 건수 표시');
 const historySource = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');

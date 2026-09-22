@@ -153,6 +153,8 @@ function _setHistMode(mode) {
 
 function _invalidateHistoryLoad() {
   __histState.loadRequestId++;
+  // 조회 조건이 바뀌면 이전 조건의 DOM 캐시는 재진입 시 복원하지 않습니다.
+  __histState.lastSuccessfulView = null;
   const queryBtn = $el('btn-history-query');
   if (queryBtn) {
     queryBtn.disabled = false;
@@ -176,12 +178,16 @@ function _captureSuccessfulHistoryView() {
     tableHtml: tableWrap?.innerHTML || '',
     startMonth: String($el('histStartMonth')?.value || ''),
     range: String($el('histRangeSelect')?.value || '365'),
+    mode: _getHistMode(),
+    benchmarks: _getHistBenchmarks(),
   };
 }
 
 function _restoreSuccessfulHistoryView() {
   const saved = __histState.lastSuccessfulView;
   if (!saved?.chartHtml) return false;
+  if (saved.mode !== _getHistMode()
+      || JSON.stringify(saved.benchmarks || []) !== JSON.stringify(_getHistBenchmarks())) return false;
   const statusEl = $el('histStatusMsg');
   const coverageEl = $el('histCoveragePanel');
   const chartWrap = $el('histChartWrap');
@@ -196,6 +202,17 @@ function _restoreSuccessfulHistoryView() {
   chartWrap.innerHTML = saved.chartHtml;
   if (tableWrap) tableWrap.innerHTML = saved.tableHtml || '';
   return true;
+}
+
+function _clearSuccessfulHistoryView(chartWrap, tableWrap, coverageEl) {
+  __histState.lastSuccessfulView = null;
+  __histState.snapshots = [];
+  __histState.missingSnapshotDates = [];
+  if (chartWrap) chartWrap.innerHTML = '';
+  if (tableWrap) tableWrap.innerHTML = '';
+  if (coverageEl) coverageEl.innerHTML = '';
+  const detail = $el('histDateDetail');
+  if (detail) detail.innerHTML = '';
 }
 
 function _applyHistModeUI(mode) {

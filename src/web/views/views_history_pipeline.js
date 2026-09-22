@@ -46,6 +46,7 @@ async function loadHistoryChart() {
 
     let snapshots = Array.isArray(data.snapshots) ? data.snapshots : (Array.isArray(data) ? data : []);
     if (!snapshots.length) {
+      _clearSuccessfulHistoryView(chartWrap, tableWrap, coverageEl);
       _setHistoryStatus(statusEl, 'empty_data');
       return;
     }
@@ -56,6 +57,7 @@ async function loadHistoryChart() {
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
     if (!snapshots.length) {
+      _clearSuccessfulHistoryView(chartWrap, tableWrap, coverageEl);
       _setHistoryStatus(statusEl, 'empty_range');
       return;
     }
