@@ -104,6 +104,11 @@ assert.match(pipelineSource, /queryBtn\.disabled = true[\s\S]*finally[\s\S]*quer
 assert.match(stateSource, /\$\{step\}\/\$\{total\}/, '조회 단계 번호를 화면에 표시해야 합니다.');
 assert.match(stateSource, /function _captureSuccessfulHistoryView\(\)/, '마지막 정상 손익 화면을 보존해야 합니다.');
 assert.match(stateSource, /function _restoreSuccessfulHistoryView\(\)/, '손익 탭 재렌더 시 마지막 정상 화면을 복원해야 합니다.');
+assert.match(stateSource, /__histState\.lastSuccessfulView = null/, '조회 조건 변경 시 이전 조건의 화면 캐시를 무효화해야 합니다.');
+assert.match(stateSource, /saved\.mode !== _getHistMode\(\)/, '캐시된 조회 모드가 현재 조건과 다르면 복원하면 안 됩니다.');
+assert.match(stateSource, /JSON\.stringify\(saved\.benchmarks \|\| \[\]\)/, '캐시된 비교지수가 현재 조건과 다르면 복원하면 안 됩니다.');
+assert.match(stateSource, /function _clearSuccessfulHistoryView\(/, '정상 빈 결과는 이전 그래프와 경고를 비우는 경로가 있어야 합니다.');
+assert.match(pipelineSource, /if \(!snapshots\.length\) \{[\s\S]{0,120}_clearSuccessfulHistoryView\(chartWrap, tableWrap, coverageEl\)/, '정상 빈 응답은 이전 정상 화면을 제거해야 합니다.');
 assert.match(renderSource, /if \(!_restoreSuccessfulHistoryView\(\)\) _setHistoryStatus/, '보존 화면이 없을 때만 초기 조회 안내를 표시해야 합니다.');
 assert.match(systemSource, /currentView === 'history' && area\.dataset\.renderedView === 'history'/, '백그라운드 공통 갱신이 현재 손익 화면을 재렌더하면 안 됩니다.');
 assert.doesNotMatch(pipelineSource, /_setHistoryStatus\(statusEl, 'loading',[\s\S]{0,300}chartWrap\.innerHTML = ''/, '재조회 시작 시 마지막 정상 그래프를 먼저 지우면 안 됩니다.');

@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.121
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.122
+//
+//  v9.122 변경사항 (2026.09.22):
+//   스냅샷 백업 중복 생성 방지 및 통합문서 셀·백업 정리 진단 추가
 //
 //  v9.121 변경사항 (2026.09.22):
 //   펀드 NAV 행 확장 전 빈 초과 열 회수 및 실제 저장 단계별 결과 반환
@@ -757,6 +760,7 @@ function doGet(e) {
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
   if (params.action === 'getSnapshotRepairStatus')        return handleGetSnapshotRepairStatus();
+  if (params.action === 'diagnoseWorkbookCells')          return handleDiagnoseWorkbookCells();
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getBootstrap')                   return handleGetBootstrap();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
@@ -821,7 +825,7 @@ function doPost(e) {
   if (params.action === 'importFundNav') return handleImportFundNav(params.data || '{}');
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
-  var readActions = ['diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  var readActions = ['diagnoseEtfDividends', 'diagnoseTossMarketData', 'diagnoseWorkbookCells', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -4389,6 +4393,157 @@ function handlePreviewFundNavImport(dataJson) {
 }
 
 var GOOGLE_SHEETS_CELL_LIMIT = 20000000;
+var SNAPSHOT_BACKUP_STATE_KEY = 'snapshot_backup_state_v1';
+var BACKUP_ARCHIVE_MANIFEST_KEY = 'backup_archive_manifest_v1';
+var _snapshotBackupOperationId = '';
+
+function _isBackupSheetName(name) {
+  return /_백업_/.test(String(name || ''));
+}
+
+function _backupSourceSheetName(name) {
+  var match = String(name || '').match(/^(.*?)_백업_/);
+  return match ? match[1] : '';
+}
+
+function _sheetRole(name) {
+  name = String(name || '');
+  var roles = {};
+  roles[CONFIG.SHEET_SNAPSHOT] = '일별 포트폴리오 스냅샷';
+  roles[CONFIG.SHEET_PH] = '가격이력';
+  roles[FUND_NAV_SHEET] = '펀드 확정 NAV·평가금액';
+  roles[FUND_UNITS_SHEET] = '펀드 좌수 이력';
+  roles[CONFIG.SHEET_TRADES] = '거래이력';
+  roles[CONFIG.SHEET_HOLD] = '보유현황';
+  roles[CONFIG.SHEET_SETTINGS] = '설정';
+  roles[CONFIG.SHEET_CODES] = '종목코드';
+  if (_isBackupSheetName(name)) return (_backupSourceSheetName(name) || '원본') + ' 백업';
+  if (/^(?:LEGACY|OLD|구버전)[_\s-]/i.test(name)) return 'LEGACY 후보';
+  return roles[name] || '기타/사용자 시트';
+}
+
+function _sheetIsCodeReferenced(name) {
+  var referenced = [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_PH, FUND_NAV_SHEET, FUND_UNITS_SHEET,
+    CONFIG.SHEET_TRADES, CONFIG.SHEET_HOLD, CONFIG.SHEET_SETTINGS, CONFIG.SHEET_CODES,
+    CONFIG.SHEET_SYNC_LOG, MARKET_BRIEFING_MASTER_SHEET, MARKET_BRIEFING_SNAPSHOT_SHEET,
+    '환율이력', '종가데이터'];
+  return referenced.indexOf(String(name || '')) !== -1;
+}
+
+function _simpleHashUpdate(hash, text) {
+  var value = String(text || '');
+  for (var i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+function _sheetContentSignature(sheet) {
+  if (!sheet) return '';
+  var lastRow = Number(sheet.getLastRow()) || 0;
+  var lastColumn = Number(sheet.getLastColumn()) || 0;
+  var hash = _simpleHashUpdate(2166136261, lastRow + '|' + lastColumn);
+  if (!lastRow || !lastColumn) return ('00000000' + hash.toString(16)).slice(-8);
+  for (var start = 1; start <= lastRow; start += 500) {
+    var count = Math.min(500, lastRow - start + 1);
+    var range = sheet.getRange(start, 1, count, lastColumn);
+    hash = _simpleHashUpdate(hash, JSON.stringify(range.getValues()));
+    if (typeof range.getFormulas === 'function') hash = _simpleHashUpdate(hash, JSON.stringify(range.getFormulas()));
+  }
+  return ('00000000' + hash.toString(16)).slice(-8);
+}
+
+function _formulaReferencedBackupNames(ss, backupNames) {
+  var refs = {};
+  (backupNames || []).forEach(function(name) { refs[name] = []; });
+  if (!backupNames || !backupNames.length) return refs;
+  ss.getSheets().forEach(function(sheet) {
+    var sourceName = String(sheet.getName());
+    if (_isBackupSheetName(sourceName)) return;
+    var lastRow = Number(sheet.getLastRow()) || 0;
+    var lastColumn = Number(sheet.getLastColumn()) || 0;
+    if (!lastRow || !lastColumn) return;
+    for (var start = 1; start <= lastRow; start += 500) {
+      var count = Math.min(500, lastRow - start + 1);
+      var range = sheet.getRange(start, 1, count, lastColumn);
+      if (typeof range.getFormulas !== 'function') continue;
+      var formulaText = JSON.stringify(range.getFormulas());
+      backupNames.forEach(function(name) {
+        if (formulaText.indexOf(name) !== -1 && refs[name].indexOf(sourceName) === -1) refs[name].push(sourceName);
+      });
+    }
+  });
+  return refs;
+}
+
+function _readBackupArchiveManifest() {
+  var raw = PropertiesService.getScriptProperties().getProperty(BACKUP_ARCHIVE_MANIFEST_KEY);
+  try { return raw ? JSON.parse(raw) : {}; } catch (e) { return {}; }
+}
+
+function _workbookCellInventory(ss) {
+  var sheets = ss.getSheets();
+  var backupNames = sheets.map(function(sheet) { return String(sheet.getName()); }).filter(_isBackupSheetName);
+  var formulaRefs = _formulaReferencedBackupNames(ss, backupNames);
+  var archiveManifest = _readBackupArchiveManifest();
+  var repairRaw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+  var repairState = null;
+  try { repairState = repairRaw ? JSON.parse(repairRaw) : null; } catch (e) {}
+  var totalCells = sheets.reduce(function(total, sheet) {
+    return total + (Number(sheet.getMaxRows()) || 0) * (Number(sheet.getMaxColumns()) || 0);
+  }, 0);
+  var inventory = sheets.map(function(sheet) {
+    var name = String(sheet.getName());
+    var maxRows = Number(sheet.getMaxRows()) || 0;
+    var maxColumns = Number(sheet.getMaxColumns()) || 0;
+    var lastRow = Number(sheet.getLastRow()) || 0;
+    var lastColumn = Number(sheet.getLastColumn()) || 0;
+    var allocatedCells = maxRows * maxColumns;
+    var usedCells = lastRow * lastColumn;
+    var isBackup = _isBackupSheetName(name);
+    var sourceName = isBackup ? _backupSourceSheetName(name) : '';
+    var source = sourceName ? ss.getSheetByName(sourceName) : null;
+    var contentMatchesSource = isBackup && source ? _sheetContentSignature(sheet) === _sheetContentSignature(source) : false;
+    var archived = archiveManifest[name] || null;
+    var formulaReferenceSheets = formulaRefs[name] || [];
+    var rollbackRequired = !!(isBackup && repairState && !repairState.done && sourceName === CONFIG.SHEET_SNAPSHOT);
+    var cleanupCandidate = isBackup && !_sheetIsCodeReferenced(name) && !formulaReferenceSheets.length && !rollbackRequired;
+    return {
+      name: name, role: _sheetRole(name), maxRows: maxRows, maxColumns: maxColumns,
+      lastRow: lastRow, lastColumn: lastColumn, allocatedCells: allocatedCells,
+      usedCells: usedCells, unusedCells: Math.max(0, allocatedCells - usedCells),
+      workbookSharePct: totalCells ? Math.round(allocatedCells / totalCells * 10000) / 100 : 0,
+      codeReferenced: _sheetIsCodeReferenced(name), isBackup: isBackup,
+      isLegacy: /^(?:LEGACY|OLD|구버전)[_\s-]/i.test(name), sourceSheet: sourceName,
+      formulaReferenceSheets: formulaReferenceSheets, rollbackRequired: rollbackRequired,
+      contentMatchesSource: contentMatchesSource,
+      archivedVerified: !!(archived && archived.verified), archiveSpreadsheetId: archived ? archived.spreadsheetId : '',
+      cleanupCandidate: cleanupCandidate,
+      deleteEligibleAfterApproval: cleanupCandidate && !!(archived && archived.verified)
+    };
+  });
+  var backups = inventory.filter(function(item) { return item.isBackup; });
+  var backupCells = backups.reduce(function(total, item) { return total + item.allocatedCells; }, 0);
+  var cleanupCandidateCells = backups.filter(function(item) { return item.cleanupCandidate; })
+    .reduce(function(total, item) { return total + item.allocatedCells; }, 0);
+  var deleteEligibleCells = backups.filter(function(item) { return item.deleteEligibleAfterApproval; })
+    .reduce(function(total, item) { return total + item.allocatedCells; }, 0);
+  return {
+    generatedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+    limit: GOOGLE_SHEETS_CELL_LIMIT, totalCells: totalCells,
+    remainingCells: Math.max(0, GOOGLE_SHEETS_CELL_LIMIT - totalCells),
+    utilizationPct: Math.round(totalCells / GOOGLE_SHEETS_CELL_LIMIT * 10000) / 100,
+    sheets: inventory,
+    backups: { count: backups.length, allocatedCells: backupCells, cleanupCandidateCells: cleanupCandidateCells,
+      deleteEligibleAfterApprovalCells: deleteEligibleCells }
+  };
+}
+
+function handleDiagnoseWorkbookCells() {
+  try { return jsonOk({ diagnosis: _workbookCellInventory(getss()), readOnly: true, deletedSheets: 0 }); }
+  catch (err) { return jsonError('통합문서 셀 사용량 진단 실패: ' + err.message); }
+}
 
 function _fundSheetCapacity(ss) {
   if (!ss || typeof ss.getSheets !== 'function') return null;
@@ -5897,6 +6052,7 @@ function _startSnapshotConsistencyRepair(forceRewrite) {
     var current = currentRaw ? JSON.parse(currentRaw) : null;
     if (current && !current.done) throw new Error('이미 전체 스냅샷 재작성이 진행 중입니다. 진행상황을 확인해주세요.');
     var state = {
+      operationId: 'SNAPSHOT_REPAIR_' + Utilities.getUuid(),
       startedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
       maxDate: maxDate, total: dates.length, nextIndex: 0,
       checked: 0, repaired: 0, unchanged: 0, skipped: 0, failed: 0,
@@ -5977,6 +6133,7 @@ function continueSnapshotConsistencyRepair() {
     var rawState = props.getProperty(SNAPSHOT_REPAIR_STATE_KEY);
     if (!rawState) throw new Error('진행 중인 전체 정합성 복구가 없습니다.');
     var state = JSON.parse(rawState);
+    _snapshotBackupOperationId = state.operationId || ('SNAPSHOT_REPAIR_' + state.startedAt);
     state.failedDateErrors = state.failedDateErrors || {};
     state.batchError = '';
     var ss = getss();
@@ -6035,6 +6192,7 @@ function continueSnapshotConsistencyRepair() {
     }
     throw batchError;
   } finally {
+    _snapshotBackupOperationId = '';
     if (locked) lock.releaseLock();
   }
 }
@@ -7095,12 +7253,18 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
       if (_snapshotRowsSignature(mergedDate) === _snapshotRowsSignature(sameDate)) return;
       var combined = kept.concat(mergedDate);
       if (JSON.stringify(combined) === JSON.stringify(existing)) return;
-      _backupSnapshotBeforeWrite(ss, sh);
+      var backupResult = _backupSnapshotBeforeWrite(ss, sh);
       // 먼저 비우면 쓰기 실패 때 모든 날짜가 사라집니다. 한 번의 쓰기로 교체합니다.
       var output = header.concat(combined);
       while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
       if (sh.getMaxRows() < output.length) sh.insertRowsAfter(sh.getMaxRows(), output.length - sh.getMaxRows());
-      sh.getRange(1, 1, output.length, colSize).setValues(output);
+      try {
+        sh.getRange(1, 1, output.length, colSize).setValues(output);
+        _markSnapshotBackupOutcome(backupResult, 'COMPLETED', '');
+      } catch (writeError) {
+        _markSnapshotBackupOutcome(backupResult, 'WRITE_FAILED', writeError.message || String(writeError));
+        throw writeError;
+      }
     } else {
       if (newRows.length > 0) sh.getRange(sh.getLastRow() + 1, 1, newRows.length, colSize).setValues(newRows);
     }
@@ -7141,18 +7305,69 @@ function _mergeSnapshotRowsSafely(existing, incoming, overwrite, manualKeys) {
 }
 
 var _snapshotBackupMade = false;
+function _snapshotBackupState() {
+  var raw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_BACKUP_STATE_KEY);
+  try { return raw ? JSON.parse(raw) : null; } catch (e) { return null; }
+}
+
+function _markSnapshotBackupOutcome(result, status, message) {
+  if (!result || result.skipped || !result.state) return;
+  result.state.status = status;
+  result.state.message = message || '';
+  result.state.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+  PropertiesService.getScriptProperties().setProperty(SNAPSHOT_BACKUP_STATE_KEY, JSON.stringify(result.state));
+}
+
 function _backupSnapshotBeforeWrite(ss, sheet) {
-  if (_snapshotBackupMade) return;
+  if (_snapshotBackupMade) return { skipped: true, reason: 'SAME_EXECUTION' };
+  var signature = _sheetContentSignature(sheet);
+  var operationId = _snapshotBackupOperationId || ('SOURCE_' + signature);
+  var previous = _snapshotBackupState();
+  if (previous && (previous.operationId === operationId || previous.sourceSignature === signature)
+      && previous.backupName && ss.getSheetByName(previous.backupName)
+      && previous.status !== 'BACKUP_FAILED') {
+    _snapshotBackupMade = true;
+    return { skipped: true, reason: previous.operationId === operationId ? 'SAME_OPERATION' : 'SAME_SOURCE', state: previous };
+  }
   var name = '스냅샷_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6);
   var rowCount = sheet.getLastRow();
   var colCount = sheet.getLastColumn();
-  var values = rowCount > 0 && colCount > 0 ? sheet.getRange(1, 1, rowCount, colCount).getValues() : [];
-  var backup = ss.insertSheet(name);
-  if (values.length) {
-    if (backup.getMaxRows() < values.length) backup.insertRowsAfter(backup.getMaxRows(), values.length - backup.getMaxRows());
-    backup.getRange(1, 1, values.length, colCount).setValues(values);
+  var capacity = _fundSheetCapacity(ss);
+  var minimumInsertCells = 1000 * 26;
+  var requiredBackupCells = Math.max(minimumInsertCells, Math.max(1, rowCount) * Math.max(1, colCount));
+  if (capacity && capacity.remainingCells < requiredBackupCells) {
+    throw new Error('스냅샷 백업 시트 생성에 최소 ' + requiredBackupCells + '셀이 필요하지만 남은 셀은 ' + capacity.remainingCells + '개입니다. 원본은 변경하지 않았습니다. 통합문서 셀·백업 진단 후 기존 백업을 별도 보관하고 삭제 승인을 진행하세요.');
   }
-  _snapshotBackupMade = true;
+  var state = {
+    operationId: operationId, sourceSignature: signature, backupName: name, status: 'CREATING',
+    sourceRows: rowCount, sourceColumns: colCount,
+    createdAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
+  };
+  PropertiesService.getScriptProperties().setProperty(SNAPSHOT_BACKUP_STATE_KEY, JSON.stringify(state));
+  try {
+    var backup = ss.insertSheet(name);
+    // 새 시트의 기본 26열을 먼저 실제 열 수로 줄여 행 확장 중 불필요한 셀 증가를 막습니다.
+    if (backup.getMaxColumns() > Math.max(1, colCount)) backup.deleteColumns(Math.max(1, colCount) + 1, backup.getMaxColumns() - Math.max(1, colCount));
+    if (backup.getMaxColumns() < colCount) backup.insertColumnsAfter(backup.getMaxColumns(), colCount - backup.getMaxColumns());
+    if (rowCount > 0 && colCount > 0) {
+      if (backup.getMaxRows() < rowCount) backup.insertRowsAfter(backup.getMaxRows(), rowCount - backup.getMaxRows());
+      sheet.getRange(1, 1, rowCount, colCount).copyTo(backup.getRange(1, 1, rowCount, colCount), { contentsOnly: false });
+    }
+    if (backup.getMaxRows() > Math.max(1, rowCount)) backup.deleteRows(Math.max(1, rowCount) + 1, backup.getMaxRows() - Math.max(1, rowCount));
+    if (backup.getMaxColumns() > Math.max(1, colCount)) backup.deleteColumns(Math.max(1, colCount) + 1, backup.getMaxColumns() - Math.max(1, colCount));
+    if (_sheetContentSignature(backup) !== signature) throw new Error('스냅샷 백업 복사 검증 불일치');
+    state.status = 'BACKUP_READY';
+    state.allocatedCells = backup.getMaxRows() * backup.getMaxColumns();
+    state.updatedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+    PropertiesService.getScriptProperties().setProperty(SNAPSHOT_BACKUP_STATE_KEY, JSON.stringify(state));
+    _snapshotBackupMade = true;
+    return { skipped: false, state: state };
+  } catch (backupError) {
+    state.status = 'BACKUP_FAILED';
+    state.message = backupError.message || String(backupError);
+    PropertiesService.getScriptProperties().setProperty(SNAPSHOT_BACKUP_STATE_KEY, JSON.stringify(state));
+    throw backupError;
+  }
 }
 
 function _dedupeSnapshotRows(rows) {
@@ -7622,7 +7837,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.121' });
+    return jsonOk({ settings: settings, gasVersion: '9.122' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7644,7 +7859,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.121'
+      gasVersion: '9.122'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -8129,6 +8344,92 @@ function clearTossOpenApiConfigPrompt() {
   ui.alert('✅ Toss 설정과 token cache만 삭제했습니다.');
 }
 
+function showWorkbookCellUsageDiagnosis() {
+  var diagnosis = _workbookCellInventory(getss());
+  Logger.log('[WORKBOOK_CELL_DIAGNOSIS] ' + JSON.stringify(diagnosis));
+  var largest = diagnosis.sheets.slice().sort(function(a, b) { return b.allocatedCells - a.allocatedCells; }).slice(0, 12);
+  var lines = largest.map(function(item) {
+    return item.name + ': ' + item.allocatedCells + '셀 (' + item.maxRows + '×' + item.maxColumns + ')' +
+      (item.isBackup ? ' · 백업' : '') + (item.cleanupCandidate ? ' · 보관 후 정리 후보' : '');
+  });
+  SpreadsheetApp.getUi().alert('통합문서 셀 사용량 진단',
+    '전체 ' + diagnosis.totalCells + ' / ' + diagnosis.limit + '셀 (' + diagnosis.utilizationPct + '%)\n' +
+    '잔여 ' + diagnosis.remainingCells + '셀\n' +
+    '백업 ' + diagnosis.backups.count + '개 · ' + diagnosis.backups.allocatedCells + '셀\n' +
+    '보관 후 정리 후보 ' + diagnosis.backups.cleanupCandidateCells + '셀\n\n' +
+    lines.join('\n') + '\n\n전체 상세는 Apps Script 실행 로그의 [WORKBOOK_CELL_DIAGNOSIS]에서 확인하세요.\n이 진단은 시트를 삭제하지 않습니다.',
+    SpreadsheetApp.getUi().ButtonSet.OK);
+  return diagnosis;
+}
+
+function _uniqueArchiveSheetName(destination, sourceName) {
+  var base = ('보관_' + sourceName).slice(0, 90);
+  var name = base, suffix = 1;
+  while (destination.getSheetByName(name)) name = (base.slice(0, 85) + '_' + suffix++).slice(0, 99);
+  return name;
+}
+
+function _archiveBackupSheetsToSpreadsheet(source, destination) {
+  if (!source || !destination) throw new Error('원본 또는 백업용 통합문서를 열 수 없습니다.');
+  if (source.getId && destination.getId && source.getId() === destination.getId()) throw new Error('운영 통합문서와 다른 백업용 통합문서를 지정하세요.');
+  var diagnosis = _workbookCellInventory(source);
+  var candidates = diagnosis.sheets.filter(function(item) { return item.cleanupCandidate && !item.archivedVerified; });
+  var requiredCells = candidates.reduce(function(total, item) { return total + item.allocatedCells; }, 0);
+  var destinationCells = destination.getSheets().reduce(function(total, sheet) {
+    return total + (Number(sheet.getMaxRows()) || 0) * (Number(sheet.getMaxColumns()) || 0);
+  }, 0);
+  if (destinationCells + requiredCells > GOOGLE_SHEETS_CELL_LIMIT) {
+    throw new Error('백업용 통합문서에도 ' + requiredCells + '셀이 필요하지만 잔여 셀은 ' + Math.max(0, GOOGLE_SHEETS_CELL_LIMIT - destinationCells) + '개입니다. 다른 백업 파일로 나누세요.');
+  }
+  var manifest = _readBackupArchiveManifest();
+  var archived = [], failed = [];
+  candidates.forEach(function(item) {
+    var sourceSheet = source.getSheetByName(item.name);
+    var copied = null;
+    try {
+      copied = sourceSheet.copyTo(destination);
+      copied.setName(_uniqueArchiveSheetName(destination, item.name));
+      SpreadsheetApp.flush();
+      var verified = copied.getMaxRows() === sourceSheet.getMaxRows()
+        && copied.getMaxColumns() === sourceSheet.getMaxColumns()
+        && copied.getLastRow() === sourceSheet.getLastRow()
+        && copied.getLastColumn() === sourceSheet.getLastColumn()
+        && _sheetContentSignature(copied) === _sheetContentSignature(sourceSheet);
+      if (!verified) throw new Error('복사 후 행·열·값·수식 검증 불일치');
+      manifest[item.name] = {
+        verified: true, spreadsheetId: destination.getId(), archivedSheetName: copied.getName(),
+        allocatedCells: item.allocatedCells,
+        verifiedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
+      };
+      archived.push({ sourceSheet: item.name, archivedSheet: copied.getName(), allocatedCells: item.allocatedCells });
+    } catch (err) {
+      if (copied) { try { destination.deleteSheet(copied); } catch (cleanupError) {} }
+      failed.push({ sheet: item.name, message: err.message || String(err) });
+    }
+  });
+  PropertiesService.getScriptProperties().setProperty(BACKUP_ARCHIVE_MANIFEST_KEY, JSON.stringify(manifest));
+  return { archived: archived, failed: failed, deletedSourceSheets: 0, diagnosisAfterArchive: _workbookCellInventory(source) };
+}
+
+function archiveBackupSheetsPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('백업 시트 별도 보관', '백업용 Google Sheets 통합문서 ID를 입력하세요. 운영 원본에서는 어떤 시트도 삭제하지 않습니다.', ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var destinationId = String(response.getResponseText() || '').trim();
+  if (!destinationId) { ui.alert('백업용 통합문서 ID가 필요합니다.'); return; }
+  try {
+    var result = _archiveBackupSheetsToSpreadsheet(getss(), SpreadsheetApp.openById(destinationId));
+    ui.alert('백업 시트 보관 결과',
+      '검증 완료 ' + result.archived.length + '개\n실패 ' + result.failed.length + '개\n운영 시트 삭제 0개\n\n' +
+      '복사 검증이 끝난 시트만 삭제 승인 대상으로 표시됩니다. 실제 삭제는 수행하지 않았습니다.' +
+      (result.failed.length ? '\n\n실패: ' + result.failed.map(function(item) { return item.sheet + ' - ' + item.message; }).join('\n') : ''),
+      ui.ButtonSet.OK);
+    Logger.log('[BACKUP_ARCHIVE_RESULT] ' + JSON.stringify(result));
+  } catch (err) {
+    ui.alert('❌ 백업 시트 보관 실패\n' + err.message + '\n운영 시트는 삭제하지 않았습니다.');
+  }
+}
+
 function onInstall(e) {
   onOpen(e);
 }
@@ -8206,6 +8507,9 @@ function onOpen(e) {
 
     // ── 서브메뉴: 유지보수 ──
     var menuMaint = ui.createMenu('🛠️ 유지보수')
+      .addItem('📐 통합문서 셀·백업 진단', 'showWorkbookCellUsageDiagnosis')
+      .addItem('📦 백업 시트 별도 통합문서 보관', 'archiveBackupSheetsPrompt')
+      .addSeparator()
       .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
       .addItem('▶️ 확정 평가단가·스냅샷 지금 갱신', 'runDailyPriceSnapshotNow')
       .addItem('📸 전체 가격이력·스냅샷 정합성 복구', 'runSnapshotConsistencyRepair')
