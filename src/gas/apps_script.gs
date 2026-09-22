@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.118
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.119
+//
+//  v9.119 변경사항 (2026.09.22):
+//   펀드 NAV import 값 백업 및 부분 저장 재실행 진단 보강
 //
 //  v9.118 변경사항 (2026.09.21):
 //   펀드 NAV 증분 처리·누락 현황 조회·완료 날짜 재계산 생략
@@ -4379,11 +4382,32 @@ function handlePreviewFundNavImport(dataJson) {
 }
 
 function _backupFundImportSheet(ss, sheet, label) {
-  if (!sheet || typeof sheet.copyTo !== 'function') return;
-  sheet.copyTo(ss).setName(label + '_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6));
+  if (!sheet) return;
+  var rowCount = sheet.getLastRow();
+  var colCount = sheet.getLastColumn();
+  var values = rowCount > 0 && colCount > 0 ? sheet.getRange(1, 1, rowCount, colCount).getValues() : [];
+  var name = label + '_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6);
+  var backup = ss.insertSheet(name);
+  if (values.length) {
+    if (backup.getMaxRows() < values.length) backup.insertRowsAfter(backup.getMaxRows(), values.length - backup.getMaxRows());
+    backup.getRange(1, 1, values.length, colCount).setValues(values);
+  }
 }
 
-function _applyFundNavImport(ss, inspected) {
+function _runFundImportStage(diagnostic, code, stage, functionName, callback) {
+  _fundRecoveryDiagnosticStart(diagnostic, code, stage, functionName);
+  try {
+    var result = callback();
+    _fundRecoveryDiagnosticFinish(diagnostic, 'end');
+    return result;
+  } catch (err) {
+    // Import 응답/로그에는 실패 단계와 메시지만 남기고 stack 등 환경 정보는 노출하지 않습니다.
+    _fundRecoveryDiagnosticFinish(diagnostic, 'error', { message: String(err.message || err) });
+    throw err;
+  }
+}
+
+function _applyFundNavImport(ss, inspected, diagnostic) {
   var configs = _readFundUnits(ss);
   var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
   var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
@@ -4468,8 +4492,12 @@ function _applyFundNavImport(ss, inspected) {
   });
   if (Object.keys(changedNav).length) {
     if (!navSheet) { navSheet = ss.insertSheet(FUND_NAV_SHEET); navSheet.appendRow(['일자','종목코드','종목명','기준가격(1000좌)','가격공시일','좌수','평가금액','조회일시','클래스']); }
-    _backupFundImportSheet(ss, navSheet, FUND_NAV_SHEET);
-    if (stored.length) navSheet.getRange(2, 1, stored.length, 9).setValues(stored);
+    _runFundImportStage(diagnostic, inspected.code, 'navBackup', '_backupFundImportSheet', function() {
+      _backupFundImportSheet(ss, navSheet, FUND_NAV_SHEET);
+    });
+    if (stored.length) _runFundImportStage(diagnostic, inspected.code, 'navWrite', 'Range.setValues', function() {
+      navSheet.getRange(2, 1, stored.length, 9).setValues(stored);
+    });
   }
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -4495,8 +4523,12 @@ function _applyFundNavImport(ss, inspected) {
   });
   if (priceChanges) {
     if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
-    _backupFundImportSheet(ss, ph, CONFIG.SHEET_PH);
-    ph.getRange(2, 1, prices.length, 6).setValues(prices);
+    _runFundImportStage(diagnostic, inspected.code, 'priceHistoryBackup', '_backupFundImportSheet', function() {
+      _backupFundImportSheet(ss, ph, CONFIG.SHEET_PH);
+    });
+    _runFundImportStage(diagnostic, inspected.code, 'priceHistoryWrite', 'Range.setValues', function() {
+      ph.getRange(2, 1, prices.length, 6).setValues(prices);
+    });
   }
 
   var tradeSheet = ss.getSheetByName(CONFIG.SHEET_TRADES);
@@ -4511,7 +4543,9 @@ function _applyFundNavImport(ss, inspected) {
     var fundRow = [value.date, value.code, value.name, 1, holding.costAmt, holding.costAmt, value.evalAmt, value.evalAmt, pnl, holding.costAmt > 0 ? Math.round(pnl / holding.costAmt * 10000) / 100 : 0, 'FUND_NAV', now];
     var existing = _readSnapshotRowsByDate(ss, value.date);
     if (existing.length) {
-      writeSnapshotRows(ss, value.date, [fundRow], true, [value.code]);
+      _runFundImportStage(diagnostic, inspected.code, 'snapshotWrite', 'writeSnapshotRows', function() {
+        writeSnapshotRows(ss, value.date, [fundRow], true, [value.code]);
+      });
       snapshotChanges++;
       return;
     }
@@ -4519,7 +4553,12 @@ function _applyFundNavImport(ss, inspected) {
     var complete = Object.keys(holdings).every(function(key) {
       var item = holdings[key]; return rebuilt.some(function(row) { return (item.code && row[1] === item.code) || row[2] === item.name; });
     });
-    if (complete && rebuilt.length) { writeSnapshotRows(ss, value.date, rebuilt, true, [value.code]); snapshotChanges++; }
+    if (complete && rebuilt.length) {
+      _runFundImportStage(diagnostic, inspected.code, 'snapshotWrite', 'writeSnapshotRows', function() {
+        writeSnapshotRows(ss, value.date, rebuilt, true, [value.code]);
+      });
+      snapshotChanges++;
+    }
     else missingHoldings.push(value.date + ':다른 보유종목의 평가자료 부족');
   });
   return {
@@ -4538,18 +4577,20 @@ function _applyFundNavImport(ss, inspected) {
 
 function handleImportFundNav(dataJson) {
   var lock = LockService.getScriptLock();
+  var diagnostic = null;
   try {
     lock.waitLock(30000);
     var ss = getss();
     var inspected = _inspectFundNavImport(ss, dataJson);
+    diagnostic = _createFundRecoveryDiagnostic(true, inspected.firstDate || '', inspected.lastDate || '', inspected.code);
     if (inspected.errors.length) throw new Error('오류 행 ' + inspected.errors.length + '건을 먼저 수정하세요.');
     if (inspected.warnings.length && !JSON.parse(dataJson).ackWarnings) throw new Error('WARNING ' + inspected.warnings.length + '건을 확인한 후 반영하세요.');
     if (!inspected.candidates.length && !inspected.updates.length && !inspected.identical.length) return jsonOk({ importResult: inspected, evaluation: { from: '', to: '', prices: 0, snapshots: 0, missingHoldings: [], ranges: [] } });
-    var evaluation = _applyFundNavImport(ss, inspected);
+    var evaluation = _applyFundNavImport(ss, inspected, diagnostic);
     inspected.saved = inspected.candidates.length;
     inspected.updated = inspected.updates.length;
-    return jsonOk({ importResult: inspected, evaluation: evaluation });
-  } catch (err) { return jsonError('NAV import 저장 실패: ' + err.message); }
+    return jsonOk({ importResult: inspected, evaluation: evaluation, diagnostic: diagnostic });
+  } catch (err) { return jsonError('NAV import 저장 실패: ' + err.message, diagnostic ? { diagnostic: diagnostic } : null); }
   finally { lock.releaseLock(); }
 }
 
@@ -7414,7 +7455,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.118' });
+    return jsonOk({ settings: settings, gasVersion: '9.119' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7436,7 +7477,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.118'
+      gasVersion: '9.119'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

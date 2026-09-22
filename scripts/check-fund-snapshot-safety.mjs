@@ -487,10 +487,17 @@ assert.equal(mergedLegacy[0][7],777);
 
 // NAV 저장 뒤 가격이력 쓰기가 실패해도 동일 NAV 재입력으로 파생 데이터만 복구합니다.
 const partialCommitNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+partialCommitNav.failCopy=true;
 const partialCommitPrices=new Sheet([['date','code','name','price','at','source']]); partialCommitPrices.failWrite=true;
-const partialCommitSs=ssFor({'펀드좌수':importUnits,'펀드기준가격':partialCommitNav,'가격이력':partialCommitPrices,'거래이력':importWriteTrades});
+const partialCommitSheets={'펀드좌수':importUnits,'펀드기준가격':partialCommitNav,'가격이력':partialCommitPrices,'거래이력':importWriteTrades};
+const partialCommitSs=ssFor(partialCommitSheets);
 context.getss=()=>partialCommitSs;
-assert.equal(context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:975}])).status,'error');
+const partialFailure=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:975}]));
+assert.equal(partialFailure.status,'error');
+assert.equal(partialCommitNav.copies,0,'NAV import 백업은 지원되지 않는 copyTo를 호출하지 않음');
+assert(Object.keys(partialCommitSheets).some(name=>name.startsWith('펀드기준가격_백업_')),'copyTo 없이 NAV 값 백업 생성');
+assert.equal(partialFailure.diagnostic.events.find(event=>event.status==='error').stage,'priceHistoryWrite','부분 저장 실패 단계를 응답에 식별');
+assert.equal(Object.prototype.hasOwnProperty.call(partialFailure.diagnostic.events.find(event=>event.status==='error'),'stack'),false,'import 실패 진단에 stack 미노출');
 assert.equal(partialCommitNav.rows.filter(row=>row[1]==='F00002').length,1,'파생 쓰기 실패 전 저장된 유효 NAV 유지');
 partialCommitPrices.failWrite=false;
 const partialRetry=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:975}]));
@@ -500,6 +507,21 @@ assert.equal(partialCommitNav.rows.filter(row=>row[1]==='F00002').length,1,'동�
 assert.equal(partialCommitPrices.rows.filter(row=>row[1]==='F00002').length,1,'동일 NAV 재실행에서 누락 가격이력 복구');
 const partialRetryAgain=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-02',nav:975}]));
 assert.equal(partialCommitPrices.rows.filter(row=>row[1]==='F00002').length,1,'반복 재실행 idempotent');
+context.getss=()=>importWriteSs;
+
+// 운영값이 아닌 fixture NAV 2587.52도 NAV→가격이력→스냅샷에 같은 평가금액으로 연결됩니다.
+const kbExampleNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+const kbExamplePrices=new Sheet([['date','code','name','price','at','source']]);
+const kbExampleSnapshots=new Sheet([header]);
+const kbExampleSs=ssFor({'펀드좌수':importUnits,'펀드기준가격':kbExampleNav,'가격이력':kbExamplePrices,'거래이력':importWriteTrades,'스냅샷':kbExampleSnapshots});
+context.getss=()=>kbExampleSs;
+context.today=()=> '2026-09-22';
+const kbExample=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2026-09-18',nav:2587.52}]));
+assert.equal(kbExample.status,'ok');
+assert.equal(kbExampleNav.rows.find(row=>row[0]==='2026-09-18')[6],2588,'fixture NAV × 1000좌 ÷ 1000 평가금액');
+assert.equal(kbExamplePrices.rows.find(row=>row[0]==='2026-09-18')[3],2588,'가격이력 평가금액 일치');
+assert.equal(kbExampleSnapshots.rows.find(row=>row[0]==='2026-09-18'&&row[1]==='F00002')[7],2588,'Snapshot 평가금액 일치');
+context.today=()=> '2026-09-09';
 context.getss=()=>importWriteSs;
 
 // 오늘 미공시는 과거 확정 NAV 누락과 별도 상태로 집계합니다.
