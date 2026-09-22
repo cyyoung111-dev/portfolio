@@ -6,6 +6,8 @@ const source = fs.readFileSync('src/web/views/views_history_utils.js', 'utf8');
 const viewSource = fs.readFileSync('src/web/views/views_history.js', 'utf8');
 const pipelineSource = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const stateSource = fs.readFileSync('src/web/views/views_history_state.js', 'utf8');
+const renderSource = fs.readFileSync('src/web/views/views_history_render.js', 'utf8');
+const systemSource = fs.readFileSync('src/web/views/views_system.js', 'utf8');
 const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 const gasSource = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 const layoutSource = fs.readFileSync('src/web/styles/layout.css', 'utf8');
@@ -100,6 +102,12 @@ assert.match(pipelineSource, /step: 1, total: 2, message: '스냅샷 조회 중\
 assert.match(pipelineSource, /step: 2,[\s\S]*total: 2,[\s\S]*비교지수/);
 assert.match(pipelineSource, /queryBtn\.disabled = true[\s\S]*finally[\s\S]*queryBtn\.disabled = false[\s\S]*label\.textContent = '조회'/, '조회 성공·오류 후 버튼을 복원해야 합니다.');
 assert.match(stateSource, /\$\{step\}\/\$\{total\}/, '조회 단계 번호를 화면에 표시해야 합니다.');
+assert.match(stateSource, /function _captureSuccessfulHistoryView\(\)/, '마지막 정상 손익 화면을 보존해야 합니다.');
+assert.match(stateSource, /function _restoreSuccessfulHistoryView\(\)/, '손익 탭 재렌더 시 마지막 정상 화면을 복원해야 합니다.');
+assert.match(renderSource, /if \(!_restoreSuccessfulHistoryView\(\)\) _setHistoryStatus/, '보존 화면이 없을 때만 초기 조회 안내를 표시해야 합니다.');
+assert.match(systemSource, /currentView === 'history' && area\.dataset\.renderedView === 'history'/, '백그라운드 공통 갱신이 현재 손익 화면을 재렌더하면 안 됩니다.');
+assert.doesNotMatch(pipelineSource, /_setHistoryStatus\(statusEl, 'loading',[\s\S]{0,300}chartWrap\.innerHTML = ''/, '재조회 시작 시 마지막 정상 그래프를 먼저 지우면 안 됩니다.');
+assert.match(pipelineSource, /if \(requestId !== __histState\.loadRequestId\) return;[\s\S]*_captureSuccessfulHistoryView\(\)/, '최신 스냅샷·비교지수 응답만 정상 화면으로 확정해야 합니다.');
 assert.match(layoutSource, /\.action-bar\{[^}]*overflow-y:hidden/, '업데이트 결과 영역에는 세로 스크롤바가 생기면 안 됩니다.');
 assert.match(layoutSource, /\.action-update-card\{[^}]*min-height:60px;[^}]*height:auto/, '업데이트 결과가 여러 줄이면 카드 높이가 내용에 맞게 늘어나야 합니다.');
 

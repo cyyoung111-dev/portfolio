@@ -246,6 +246,10 @@ function renderView(forceRender) {
   if (!area) return;
   area.dataset.activeView = currentView;
 
+  // 현재가 polling 등 공통 데이터 갱신은 손익 조회 DOM을 다시 만들 이유가 없습니다.
+  // 손익 화면은 명시적 조회 결과를 자체 상태로 관리하므로 현재 탭에서는 그대로 유지합니다.
+  if (!forceRender && currentView === 'history' && area.dataset.renderedView === 'history') return;
+
   const hash = _getDataHash();
   const cacheKey = currentView + '|' + hash;
 

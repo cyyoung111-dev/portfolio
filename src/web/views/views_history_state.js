@@ -15,6 +15,7 @@ const __histState = window.__histState || {
   loadRequestId: 0,
   snapshots: [],
   detailDate: '',
+  lastSuccessfulView: null,
 };
 window.__histState = __histState;
 
@@ -160,6 +161,41 @@ function _invalidateHistoryLoad() {
     if (label) label.textContent = '조회';
   }
   _setHistoryStatus($el('histStatusMsg'), 'query_ready');
+}
+
+function _captureSuccessfulHistoryView() {
+  const statusEl = $el('histStatusMsg');
+  const coverageEl = $el('histCoveragePanel');
+  const chartWrap = $el('histChartWrap');
+  const tableWrap = $el('histTableWrap');
+  if (!statusEl || !chartWrap || !chartWrap.innerHTML) return;
+  __histState.lastSuccessfulView = {
+    statusHtml: statusEl.innerHTML,
+    coverageHtml: coverageEl?.innerHTML || '',
+    chartHtml: chartWrap.innerHTML,
+    tableHtml: tableWrap?.innerHTML || '',
+    startMonth: String($el('histStartMonth')?.value || ''),
+    range: String($el('histRangeSelect')?.value || '365'),
+  };
+}
+
+function _restoreSuccessfulHistoryView() {
+  const saved = __histState.lastSuccessfulView;
+  if (!saved?.chartHtml) return false;
+  const statusEl = $el('histStatusMsg');
+  const coverageEl = $el('histCoveragePanel');
+  const chartWrap = $el('histChartWrap');
+  const tableWrap = $el('histTableWrap');
+  if (!statusEl || !chartWrap) return false;
+  const startMonth = $el('histStartMonth');
+  const range = $el('histRangeSelect');
+  if (startMonth) startMonth.value = saved.startMonth || startMonth.value;
+  if (range) range.value = saved.range || range.value;
+  statusEl.innerHTML = saved.statusHtml || '';
+  if (coverageEl) coverageEl.innerHTML = saved.coverageHtml || '';
+  chartWrap.innerHTML = saved.chartHtml;
+  if (tableWrap) tableWrap.innerHTML = saved.tableHtml || '';
+  return true;
 }
 
 function _applyHistModeUI(mode) {
