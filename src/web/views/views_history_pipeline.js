@@ -27,9 +27,6 @@ async function loadHistoryChart() {
     if (label) label.textContent = '조회 중';
   }
   _setHistoryStatus(statusEl, 'loading', { step: 1, total: 2, message: '스냅샷 조회 중...' });
-  chartWrap.innerHTML = '';
-  if (tableWrap) tableWrap.innerHTML = '';
-  if (coverageEl) coverageEl.innerHTML = '';
 
   try {
     const startMonth = String($el('histStartMonth')?.value || '').trim();
@@ -65,8 +62,6 @@ async function loadHistoryChart() {
 
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
-    __histState.snapshots = snapshots;
-    _renderHistoryDateDetail(snapshots);
     const mode = _getHistMode();
     const tableSnapshots = _selectHistorySnapshots(snapshots, mode);
     const graphSnapshots = tableSnapshots;
@@ -78,21 +73,9 @@ async function loadHistoryChart() {
       && (!graphEndDate || snapshot.date <= graphEndDate)
     );
     const coverage = _analyzeHistoryCoverage(snapshots, mode);
-    __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
-    _renderHistoryCoverage(coverageEl, coverage, mode);
-    _renderHistoryNavWarnings(coverageEl, snapshots);
-
     const latestSnapshotDate = snapshots[snapshots.length-1].date || '';
     const latestDate = _fmtHistDateCompact(latestSnapshotDate);
     const snapshotGap = _getHistorySnapshotGap(latestSnapshotDate);
-    _setHistoryStatus(statusEl, 'summary', {
-      graphCount: graphSnapshots.length,
-      tableCount: tableSnapshots.length,
-      mode,
-      latestDate,
-      snapshotGap
-    });
-
     const benchmarkTypes = Array.from(new Set(
       _getHistBenchmarks()
         .map(v => String(v || '').toUpperCase().trim())
@@ -120,6 +103,14 @@ async function loadHistoryChart() {
     const missingMsg = missing.length
       ? ` (실패: ${missing.join(', ')} · ${Array.from(new Set(missing.map(type => benchBundle.errorMap?.[type]).filter(Boolean))).join(' / ')})`
       : '';
+
+    // 두 비동기 조회가 모두 최신 요청으로 확인된 뒤 한 번에 화면 상태를 교체합니다.
+    // 백그라운드 현재가 갱신이나 실패한 재조회가 마지막 정상 그래프·경고를 지우지 않습니다.
+    __histState.snapshots = snapshots;
+    __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
+    _renderHistoryDateDetail(snapshots);
+    _renderHistoryCoverage(coverageEl, coverage, mode);
+    _renderHistoryNavWarnings(coverageEl, snapshots);
     _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
     _drawHistoryChart(chartWrap, graphSnapshots, mode, {
@@ -129,6 +120,7 @@ async function loadHistoryChart() {
       portfolioSnapshots: portfolioRangeSnapshots
     });
     _drawHistoryTable(tableWrap, snapshots);
+    _captureSuccessfulHistoryView();
     // 특정일 상세는 그래프 조회와 분리합니다. 날짜 input 변경 시에만 별도 요청합니다.
 
   } catch(e) {
