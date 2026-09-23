@@ -13,8 +13,8 @@ const scrubbed = source
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/\/\/[^\n]*/g, '');
 const declared = new Set([
-  ...scrubbed.matchAll(/\bfunction\s+(_[A-Za-z$][\w$]*)\s*\(/g),
-  ...scrubbed.matchAll(/\bvar\s+(_[A-Za-z$][\w$]*)\s*=\s*function\s*\(/g),
+  ...source.matchAll(/\bfunction\s+(_[A-Za-z$][\w$]*)\s*\(/g),
+  ...source.matchAll(/\bvar\s+(_[A-Za-z$][\w$]*)\s*=\s*function\s*\(/g),
 ].map(match => match[1]));
 const called = new Set([...scrubbed.matchAll(/\b(_[A-Za-z$][\w$]*)\s*\(/g)].map(match => match[1]));
 const missing = [...called].filter(name => !declared.has(name)).sort();
@@ -199,7 +199,7 @@ if (!source.includes('function _hasUsdPriceItems(items)')
 if (!source.includes('function getLatestPriceHistoryEntries(ss, codes, maxDate, throwOnError)')
     || !source.includes('latestEntry.date > priceDates[code]')
     || !source.includes('priceDates: priceDates')
-    || !source.includes('_rebuildSnapshotForDateFromHistory(ss, latestDisplayDate)')
+    || !source.includes('_rebuildSnapshotForDateFromHistory(ss, confirmedPersistDates.sort().slice(-1)[0])')
     || !source.includes('var actualPriceDate = p.usedDate || requestedPrevDay')) {
   console.error('❌ 이전 거래일 KRX 응답은 최신 가격이력을 덮지 않고 실제 최신 날짜 스냅샷을 복구해야 합니다.');
   process.exit(1);
@@ -297,7 +297,7 @@ if (!snapshotRepairMatch
     || !source.includes('function _preserveExistingForeignSnapshotRows')
     || !source.includes('if (state.forceRewrite) expected = _preserveExistingForeignSnapshotRows')
     || !source.includes('getPriceHistoryRow(ss, dateStr, throwOnError)')
-    || !source.includes('getLatestPriceHistory(ss, missingCodes, dateStr, throwOnError)')
+    || !source.includes('getLatestPriceHistoryEntries(ss, missingCodes, dateStr, throwOnError)')
     || !source.includes("'showSnapshotConsistencyRepairStatus'")) {
   console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');
   process.exit(1);

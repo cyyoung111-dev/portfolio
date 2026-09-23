@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.125
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.126
+//
+//  v9.126 변경사항 (2026.09.23):
+//   해외 확정 종가·INDICATIVE 저장 차단·백업 재사용·NAV 중복 판정 보강
 //
 //  v9.125 변경사항 (2026.09.23):
 //   운영 원본별 백업 보호·종목코드 텍스트 보존·확정 NAV 경고 정합성 보강
@@ -1307,12 +1310,10 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
   try {
     var items = getCodeItems(ss);
     if (items.length === 0) return jsonError('종목코드 없음. initSheet() 먼저 실행하세요.');
-    var tossPrices = fetchHistoricalPricesToss(items, dateStr);
-    var fallbackItems = items.filter(function(item) { return !tossPrices[item.code]; });
-    var fallbackPrices = fallbackItems.length ? fetchPricesGoogleFinance(fallbackItems, dateStr, ss) : {};
-    var prices = Object.assign({}, fallbackPrices, tossPrices);
+    // Toss 일봉은 정규장 종가 검증 상태가 아니므로 확정 과거가격 응답에서 제외합니다.
+    var prices = fetchPricesGoogleFinance(items, dateStr, ss);
     return jsonOk({ date: dateStr, count: Object.keys(prices).length, prices: prices,
-      source: Object.keys(tossPrices).length ? 'toss' : 'fallback', tossCount: Object.keys(tossPrices).length,
+      source: 'confirmed-close', tossCount: 0,
       missingCodes: calcMissing(allCodesParam, Object.keys(prices)) });
   } catch(err) {
     return jsonError('특정일 조회 실패: ' + err.message);
@@ -1322,6 +1323,40 @@ function handleHistoricalPriceFetch(dateStr, allCodesParam, ss) {
 // ════════════════════════════════════════════════════════════════════
 //  GOOGLEFINANCE 가격 조회 핵심
 // ════════════════════════════════════════════════════════════════════
+function _yahooEquitySymbol_(item) {
+  var code = _cleanCode(item && item.code);
+  if (!code) return '';
+  var market = String(item.market || '').toUpperCase();
+  // 내부 식별자는 그대로 보존하고 공급자별 접미사는 조회 시점에만 적용합니다.
+  if (market === 'US' || String(item.currency || '').toUpperCase() === 'USD') return String(item.yahooSymbol || code);
+  if (market === 'JP' || market === 'TSE') return String(item.yahooSymbol || (code + '.T'));
+  if (market === 'HK' || market === 'HKEX') return String(item.yahooSymbol || (code + '.HK'));
+  return String(item.yahooSymbol || '');
+}
+
+function fetchPricesYahooRegularClose(items, dateStr) {
+  var output = {};
+  (items || []).forEach(function(item) {
+    var symbol = _yahooEquitySymbol_(item);
+    if (!symbol) return;
+    var start = Math.floor(new Date(dateStr + 'T00:00:00Z').getTime() / 1000);
+    var response = _yahooRequest_(symbol, { period1: start, period2: start + 172800, interval: '1d', events: 'history', includeAdjustedClose: 'false' });
+    if (!response.payload) { Logger.log('⚠️ Yahoo 확정 종가 조회 실패(' + item.code + '): ' + (response.error || response.status)); return; }
+    var parsed = _parseYahooChart_(response.payload, item.market === 'US' ? 'America/New_York' : CONFIG.TIMEZONE);
+    var point = parsed && parsed.points.filter(function(row) { return row.date === dateStr; })[0];
+    if (!point || !(point.value > 0)) return; // 다른 거래일·현재가로 대체하지 않습니다.
+    output[item.code] = { price: point.value, usedDate: dateStr, marketDate: dateStr,
+      market: item.market || '', currency: item.currency || '', providerSymbol: symbol,
+      source: 'YAHOO_REGULAR_CLOSE', priceType: 'REGULAR_CLOSE', status: 'CONFIRMED', fetchedAt: new Date().toISOString() };
+  });
+  return output;
+}
+
+function _isConfirmedHistoryPrice_(value, dateStr) {
+  return !!value && Number(value.price) > 0 && value.status === 'CONFIRMED' && value.priceType === 'REGULAR_CLOSE'
+    && _normalizeDate(value.marketDate || value.usedDate) === _normalizeDate(dateStr);
+}
+
 function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다. 함수명은 하위 호출 호환용입니다.
   var prices = {};
@@ -1341,6 +1376,16 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
       gfItems = items.slice();
     }
   }
+
+  // 국내 공식 종가가 없는 해외 자산은 기존 Yahoo 일봉 공급 경로에서 요청일의
+  // regular-session close가 정확히 존재하는 경우에만 확정값으로 채웁니다.
+  var overseasItems = gfItems.filter(function(item) {
+    return String(item.currency || 'KRW').toUpperCase() !== 'KRW' && String(item.market || '').toUpperCase() !== 'KR';
+  });
+  var overseasPrices = fetchPricesYahooRegularClose(overseasItems, dateStr);
+  Object.keys(overseasPrices).forEach(function(code) {
+    if (_isConfirmedHistoryPrice_(overseasPrices[code], dateStr)) prices[code] = overseasPrices[code];
+  });
 
   // 실패·누락은 저장 확정값 보존을 위해 빈 결과로 반환합니다.
   return prices;
@@ -2029,7 +2074,11 @@ function handleGetHistory(fromStr, toStr) {
       navSheet.getRange(2, 1, navSheet.getLastRow() - 1, Math.min(9, navSheet.getLastColumn())).getValues().forEach(function(navRow) {
         var navDate = _normalizeDate(navRow[0]), sourceDate = _normalizeDate(navRow[4]);
         var navCode = _cleanCode(navRow[1]), evalAmt = Number(navRow[6]);
-        if (navDate && navDate === sourceDate && navCode && evalAmt > 0) confirmedFundValues[navDate + '|' + navCode] = evalAmt;
+        if (navDate && navDate === sourceDate && navCode && evalAmt > 0) {
+          var confirmedKey = navDate + '|' + navCode;
+          if (!confirmedFundValues[confirmedKey]) confirmedFundValues[confirmedKey] = [];
+          confirmedFundValues[confirmedKey].push(Math.round(evalAmt));
+        }
       });
     }
     var dateItemMap = {};
@@ -2046,8 +2095,8 @@ function handleGetHistory(fromStr, toStr) {
       var cost = parseFloat(isNewFormat ? row[5] : row[4]) || 0;
       var evalAmt = parseFloat(isNewFormat ? row[7] : row[5]) || 0;
       var source = String(row[10] || '');
-      var confirmedFundMatch = confirmedFundValues[date + '|' + code];
-      if (source === 'FUND_NAV_CARRY_INPUT_REQUIRED' && confirmedFundMatch === evalAmt) source = 'FUND_NAV';
+      var confirmedFundMatches = confirmedFundValues[date + '|' + code] || [];
+      if (source === 'FUND_NAV_CARRY_INPUT_REQUIRED' && confirmedFundMatches.indexOf(Math.round(evalAmt)) !== -1) source = 'FUND_NAV';
       if (!date) return;
       if (fromStr && date < fromStr) return;
       if (toStr   && date > toStr)   return;
@@ -3073,7 +3122,7 @@ function handleGetPricesCompat(codesParam, persist) {
         cachedPayload.priceLookup.timings = timings;
         cachedPayload.priceLookup.recentHistoryFallbackItems = Array.isArray(cachedPayload.priceLookup.recentHistoryFallbackItems)
           ? cachedPayload.priceLookup.recentHistoryFallbackItems : [];
-        var cachedLatestDate = _latestDateFromPriceDates(cachedPayload.priceDates || {});
+        var cachedLatestDate = _normalizeDate(cachedPayload.priceLookup.confirmedSnapshotDate || '');
         cachedPayload.priceLookup.snapshotDate = cachedLatestDate;
         var cachedSnapshotStartedMs = Date.now();
         cachedPayload.priceLookup.snapshotCreated = persist && cachedLatestDate
@@ -3165,10 +3214,12 @@ function handleGetPricesCompat(codesParam, persist) {
           var saveDate = (val.usedDate && val.usedDate !== todayStr) ? val.usedDate : todayStr;
           priceDates[code] = saveDate;
           var existingForDate = (saveDate === todayStr) ? phPrices : getPriceHistoryRow(ss, saveDate);
-          if (!existingForDate[code] || Number(existingForDate[code]) !== Number(nextPrice)) {
+          var canPersistConfirmed = _isConfirmedHistoryPrice_(val, saveDate) || String(val.source || '').toUpperCase() === 'KRX';
+          if (canPersistConfirmed && (!existingForDate[code] || Number(existingForDate[code]) !== Number(nextPrice))) {
             if (!newItemsByDate[saveDate]) newItemsByDate[saveDate] = [];
             newItemsByDate[saveDate].push({ code: code, name: codeNameMap[code] || code, price: nextPrice, source: (val.source || 'UNKNOWN') });
           }
+          if (!canPersistConfirmed) delete sourceByCode[code];
         } else {
           if (!prices[code]) stillMissing.push(code);
         }
@@ -3207,7 +3258,9 @@ function handleGetPricesCompat(codesParam, persist) {
       // 웹에서 평가가격을 갱신할 때도 최신 가격이력 날짜의 스냅샷을 즉시 맞춥니다.
       // 16:20 트리거가 누락됐더라도 다음 웹 갱신에서 자동 복구됩니다.
       var latestDisplayDate = _latestDateFromPriceDates(priceDates);
-      if (persist && latestDisplayDate) _rebuildSnapshotForDateFromHistory(ss, latestDisplayDate);
+      var confirmedPersistDates = Object.keys(newItemsByDate);
+      if (persist && confirmedPersistDates.length) _rebuildSnapshotForDateFromHistory(ss, confirmedPersistDates.sort().slice(-1)[0]);
+      lookupMeta.confirmedSnapshotDate = confirmedPersistDates.length ? confirmedPersistDates.sort().slice(-1)[0] : '';
       _priceTimingAdd_(timings, 'snapshot', snapshotUpdateStartedMs);
       lookupMeta.snapshotDate = latestDisplayDate;
       lookupMeta.snapshotCreated = false;
@@ -3779,7 +3832,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.125' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.126' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7461,19 +7514,28 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   try { repairState = JSON.parse(props.getProperty(SNAPSHOT_REPAIR_STATE_KEY) || 'null'); } catch (ignore) {}
   var activeRepairId = repairState && !repairState.done ? String(repairState.startedAt || repairState.from || 'active') : '';
   var operationId = _snapshotBackupOperationId || activeRepairId;
-  if (props.getProperty(signatureKey) === signature) return { reused: true, signature: signature };
-  if (operationId && props.getProperty(stateKey) === operationId) return { reused: true, operationId: operationId };
-  // 이전 실행이 백업 뒤 쓰기에 실패했거나 속성이 유실돼도 같은 원본의 복제를 만들지 않습니다.
-  var existingBackup = ss.getSheets().some(function(candidate) {
-    return candidate.getName().indexOf(sourceName + '_백업_') === 0 &&
-      candidate.getLastRow() === sheet.getLastRow() && candidate.getLastColumn() === sheet.getLastColumn() &&
-      _sheetContentSignature(candidate) === signature;
-  });
-  if (existingBackup) {
+  var registry = _readSystemBackupRegistry();
+  // Properties는 힌트일 뿐입니다. 레지스트리의 원본 관계와 실제 시트 내용이 모두
+  // 일치해야만 재사용하며 삭제된/stale 백업은 새 복구본을 만들게 합니다.
+  var reusableRecord = registry.filter(function(record) {
+    if (!record || record.systemGenerated !== true || record.source !== sourceName) return false;
+    if (record.signature !== signature && (!operationId || record.operationId !== operationId)) return false;
+    if (record.status !== 'CREATED' && record.status !== 'COMPLETED' && record.status !== 'WRITE_FAILED') return false;
+    var candidate = ss.getSheetByName(record.name);
+    var expectedBackupSignature = String(record.signature || '');
+    return !!candidate && candidate.getName().indexOf(sourceName + '_백업_') === 0 && expectedBackupSignature &&
+      _sheetContentSignature(candidate) === expectedBackupSignature &&
+      (expectedBackupSignature === signature || (!!operationId && record.operationId === operationId));
+  })[0];
+  if (reusableRecord) {
     props.setProperty(signatureKey, signature);
     if (operationId) props.setProperty(stateKey, operationId);
-    return { reused: true, signature: signature };
+    return { reused: true, name: reusableRecord.name, source: sourceName, signature: signature,
+      operationId: operationId, status: reusableRecord.status };
   }
+  // stale Properties는 실제 복구본을 증명하지 못하므로 제거합니다.
+  if (props.getProperty(signatureKey) === signature) props.deleteProperty(signatureKey);
+  if (operationId && props.getProperty(stateKey) === operationId) props.deleteProperty(stateKey);
   var name = sourceName + '_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6);
   var rowCount = sheet.getLastRow();
   var colCount = sheet.getLastColumn();
@@ -7702,18 +7764,15 @@ function _cleanCode(raw) {
   var s = (raw || '').toString().trim().toUpperCase();
   if (!s) return '';
 
-  // 허용 문자만 남김 (숫자/영문)
-  var alnum = s.replace(/[^A-Z0-9]/g, '');
-  if (!alnum) return '';
-
-  // 숫자 코드: 기존 동작 유지(6자리 0패딩)
-  if (/^\d+$/.test(alnum)) {
-    while (alnum.length < 6) alnum = '0' + alnum;
-    return alnum;
+  // 숫자 국내 코드는 6자리 0패딩을 유지합니다.
+  if (/^\d+$/.test(s)) {
+    while (s.length < 6) s = '0' + s;
+    return s;
   }
 
-  // 영숫자 혼합 및 해외 ticker는 길이를 바꾸지 않습니다.
-  if (/^[A-Z0-9]{1,20}$/.test(alnum) && /[A-Z]/.test(alnum)) return alnum;
+  // 영숫자 혼합 코드와 유효한 해외 ticker 구분자(. / -)를 보존합니다.
+  // 구분자를 제거해 BRK.B와 BRK-B를 같은 내부 키로 합치지 않습니다.
+  if (/^[A-Z0-9]+(?:[.-][A-Z0-9]+)*$/.test(s) && s.length <= 30 && /[A-Z]/.test(s)) return s;
   return '';
 }
 
@@ -8046,7 +8105,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.125' });
+    return jsonOk({ settings: settings, gasVersion: '9.126' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8068,7 +8127,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.125'
+      gasVersion: '9.126'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
