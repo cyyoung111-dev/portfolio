@@ -96,6 +96,10 @@ assert.match(gas, /catch \(error\) \{\s*\/\/ 원자료 부족/);
 assert.match(gas, /function _getHistoricalExchangeRates[\s\S]*?header\[0\] !== '날짜' \|\| header\[1\] !== '통화' \|\| header\[2\] !== '환율'/);
 assert.match(gas, /SHEET_ETF_DIVIDENDS/);
 assert.match(gas, /FUND_NAV_SHEET, \[0, 4\]/);
+assert.match(gas, /addSheetDates\(CONFIG\.SHEET_SNAPSHOT, \[0\]\)/,'기존 Snapshot도 과거 거래 변경 비교 대상에 포함');
+assert.match(gas, /var affectedFrom = _earliestChangedTradeDate\(previousRows, currentRows\)/,'거래 추가·수정·삭제 최초 영향일 계산');
+assert.match(gas, /rebuildDailySnapshots\(affectedFrom, affectedTo\)/,'최초 영향일부터 마지막 확정 Snapshot까지 공통 계산기로 갱신');
+assert.match(gas, /_snapshotBackupOperationId = 'rebuildDailySnapshots\|'/,'다일자 재생성은 작업 단위 백업 재사용');
 
 // KOSDAQ 선택·라벨·시각화·확정 기준 표시
 assert.match(web, /\['KOSPI', 'KOSDAQ', 'SP500'/);

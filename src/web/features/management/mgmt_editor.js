@@ -13,6 +13,7 @@ let _fundNavStatuses = [];
 let _fundUnitDrafts = {};
 let _fundUnitBusy = false;
 let _fundUnitsStatus = '';
+let _fundRecoveryRetryTargets = [];
 let _editorMode = 'price';
 let _fundNavPasteTimer = 0;
 let _fundNavPasteRequestId = 0;
@@ -273,7 +274,8 @@ function _renderFundUnitsEditor(items) {
     <div class="fund-actions">
       ${['F00001','F00002','F00003'].map(code => `<button type="button" class="fund-action fund-action-secondary" data-fund-action="fill" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>${code} 업데이트</button>`).join('')}
     </div>
-    <p role="status">${_escapeHtml(_fundUnitsStatus)}</p></section>`;
+    <p role="status" style="white-space:pre-line">${_escapeHtml(_fundUnitsStatus)}</p>
+    ${_fundRecoveryRetryTargets.length ? `<div class="fund-actions"><b>실패·미확정 날짜만 재처리</b>${_fundRecoveryRetryTargets.slice(0, 20).map(item => `<button type="button" class="fund-action fund-action-secondary" data-fund-action="fill-date" data-fund-code="${_escapeHtml(item.code)}" data-fund-date="${_escapeHtml(item.date)}" ${_fundUnitBusy ? 'disabled' : ''}>${_escapeHtml(item.code)} ${_escapeHtml(item.date)}</button>`).join('')}</div>` : ''}</section>`;
 }
 
 function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, currentRange, recoveryCodes) {
@@ -294,11 +296,42 @@ function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snap
   return `누락 평가금액 복구 처리 시도 ${processed}/${total} 펀드·일 (${percent}%) · 정상 평가 ${totals.reflected} · 최신 미공시 ${totals.unpublished} · NAV 미복구 ${totals.missing} · 실패 ${totals.failed}구간 · 전체 ${from} ~ ${to}${currentRange ? ` · 현재 ${currentRange}` : ''} · ${funds} · 가격이력 신규 ${saved}건 · 스냅샷 ${snapshots}건`;
 }
 
+function _fundRecoveryOutcome(from, to, fundStats) {
+  const days = Object.values(fundStats).flatMap(item => item.dates || []);
+  const labels = rows => rows.slice(0, 20).map(item => `${item.code} ${item.date}`).join(', ') + (rows.length > 20 ? ` 외 ${rows.length - 20}건` : '');
+  const normal = days.filter(item => ['EXISTING_CONFIRMED','FETCHED_CONFIRMED','NON_PUBLICATION_CARRY'].includes(item.navState) && !item.failureReason);
+  const pending = days.filter(item => ['UNPUBLISHED','NAV_MISSING'].includes(item.navState));
+  const failed = days.filter(item => item.failureReason || ['API_FAILED','FAILED'].includes(item.navState));
+  const snapshotSaved = days.filter(item => item.snapshotState === 'SAVED_OR_UPDATED');
+  const snapshotKept = days.filter(item => item.snapshotState === 'EXISTING_VALID');
+  return `[처리 요약] ${from} ~ ${to} · 날짜 ${days.length}건\n` +
+    `[정상 처리] ${normal.length}건${normal.length ? ` · ${labels(normal)}` : ''}\n` +
+    `[미확정] ${pending.length}건${pending.length ? ` · ${labels(pending)}` : ''}\n` +
+    `[실패] ${failed.length}건${failed.length ? ` · ${failed.slice(0, 12).map(item => `${item.code} ${item.date} ${item.failureStage || ''}: ${item.failureReason}`).join('; ')}` : ''}\n` +
+    `[스냅샷] 생성·갱신 ${snapshotSaved.length}건 · 기존 유지 ${snapshotKept.length}건\n` +
+    `[재처리] ${labels([...pending, ...failed]) || '대상 없음'}`;
+}
+
+function _mergeFundRecoveryRetryTargets(existingTargets, fundStats) {
+  const retryByKey = new Map((existingTargets || []).map(item => [`${item.code}|${item.date}`, item]));
+  Object.values(fundStats || {}).flatMap(item => item.dates || []).forEach(item => {
+    const key = `${item.code}|${item.date}`;
+    const needsRetry = item.failureReason || ['UNPUBLISHED','NAV_MISSING','API_FAILED','FAILED'].includes(item.navState)
+      || ['NOT_CREATED','NOT_PROCESSED','UNKNOWN_AFTER_CLIENT_ERROR','WRITE_REQUIRED'].includes(item.evaluationState)
+      || ['NOT_CREATED','NOT_PROCESSED','UNKNOWN_AFTER_CLIENT_ERROR','WRITE_REQUIRED'].includes(item.snapshotState);
+    if (needsRetry) retryByKey.set(key, { code: item.code, date: item.date });
+    else if (['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.evaluationState)
+      && ['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.snapshotState)) retryByKey.delete(key);
+  });
+  return [...retryByKey.values()].sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code));
+}
+
 async function _loadFundUnitsEditor() {
   if (!GSHEET_API_URL) return;
   try {
     const result = await requestGsheetActionJson('getFundUnits', {}, { timeoutMs: 20000, retry: 0 });
-    if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || 'GAS v9.89 재배포가 필요합니다.');
+    if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || '펀드 좌수 조회 기능을 지원하는 GAS 재배포가 필요합니다.');
+    if (!result?.capabilities?.fundDailyResults) throw new Error(`연결된 GAS(${result?.capabilities?.gasVersion || result?.gasVersion || '버전 미확인'})에 날짜별 펀드 처리 기능이 없습니다. GAS v9.125 이상을 재배포하세요.`);
     _fundUnitConfigs = result.configs || [];
     _fundUnitItems = result.funds;
     _fundNavStatuses = result.navStatus || [];
@@ -308,6 +341,16 @@ async function _loadFundUnitsEditor() {
 
 async function handleFundUnitAction(action, code, date = '') {
   if (_fundUnitBusy) return;
+  if (action === 'fill-date') {
+    _fundUnitDrafts.range = { ...(_fundUnitDrafts.range || {}), from: date, to: date };
+    document.querySelector('[data-fund-code="range"][data-fund-field="from"]')?.setAttribute('value', date);
+    document.querySelector('[data-fund-code="range"][data-fund-field="to"]')?.setAttribute('value', date);
+    const fromInput = document.querySelector('[data-fund-code="range"][data-fund-field="from"]');
+    const toInput = document.querySelector('[data-fund-code="range"][data-fund-field="to"]');
+    if (fromInput) fromInput.value = date;
+    if (toInput) toInput.value = date;
+    action = 'fill';
+  }
   if (action === 'nav-date') {
     await handleFundNavImportTarget(code);
     _fundNavImportState.manualDate = date;
@@ -372,14 +415,14 @@ async function handleFundUnitAction(action, code, date = '') {
       const total = days * recoveryCodes.length;
       const fundStats = {};
       for (const fundCode of recoveryCodes) {
-        const chunkDays = 32;
+        const chunkDays = 7;
         for (let start = from; start <= to;) {
           const end = _kstDateOffset(start, chunkDays - 1) < to ? _kstDateOffset(start, chunkDays - 1) : to;
           const rangeDays = Math.floor((new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000) + 1;
           _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 요청 중`, recoveryCodes);
           buildEditorUI();
           try {
-            const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end, code: fundCode, diagnostic: 'true' }, { timeoutMs: 120000, retry: 0, preserveError: true });
+            const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end, code: fundCode, diagnostic: 'true' }, { timeoutMs: 90000, retry: 0, preserveError: true });
             if (result?.diagnostic) console.info('[FUND_NAV_DIAGNOSTIC]', result.diagnostic);
             if (result?.status !== 'ok') throw new Error(result?.message || '응답 오류');
             saved += Number(result.saved || 0);
@@ -393,11 +436,14 @@ async function handleFundUnitAction(action, code, date = '') {
               prices: Number(previous.prices || 0) + Number(item.prices || 0), pricesExisting: Number(previous.pricesExisting || 0) + Number(item.pricesExisting || 0),
               snapshots: Number(previous.snapshots || 0) + Number(item.snapshots || 0), carried: Number(previous.carried || 0) + Number(item.carried || 0), navMissing: Number(previous.navMissing || 0) + Number(item.navMissing || 0), inputRequiredDates: [...new Set([...(previous.inputRequiredDates || []), ...(item.inputRequiredDates || [])])], latestUnpublished: Number(previous.latestUnpublished || 0) + Number(item.latestUnpublished || 0), noUnits: Number(previous.noUnits || 0) + Number(item.noUnits || 0), zeroUnitsExcluded: Number(previous.zeroUnitsExcluded || 0) + Number(item.zeroUnitsExcluded || 0),
               apiErrors: [...(previous.apiErrors || []), ...(item.apiErrors || [])],
+              dates: [...(previous.dates || []), ...(item.dates || []).map(day => ({ ...day, code: fundCode }))],
             };
             if (result.lastDate > lastDate) lastDate = result.lastDate;
           } catch (error) {
             const previous = fundStats[fundCode] || { apiErrors: [] };
-            fundStats[fundCode] = { ...previous, apiErrors: [...(previous.apiErrors || []), { from: start, to: end, message: error.message }] };
+            const failedDates = [];
+            for (let date = start; date <= end; date = _kstDateOffset(date, 1)) failedDates.push({ code: fundCode, date, navState: 'FAILED', evaluationState: 'UNKNOWN_AFTER_CLIENT_ERROR', snapshotState: 'UNKNOWN_AFTER_CLIENT_ERROR', failureStage: 'clientRequest', failureReason: `${error.message} · GAS가 계속 실행됐을 수 있으므로 재처리 시 기존 저장값을 먼저 검증합니다.` });
+            fundStats[fundCode] = { ...previous, dates: [...(previous.dates || []), ...failedDates], apiErrors: [...(previous.apiErrors || []), { from: start, to: end, message: error.message }] };
           }
           processed += rangeDays;
           _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 완료`, recoveryCodes);
@@ -406,7 +452,8 @@ async function handleFundUnitAction(action, code, date = '') {
         }
       }
       _editorHistoryCache.clear();
-      _fundUnitsStatus = `${_fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, '완료', recoveryCodes)} · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. NAV 입력 필요일은 직전 NAV로 임시 스냅샷을 생성했고 기존 기록은 보존했습니다.`;
+      _fundRecoveryRetryTargets = _mergeFundRecoveryRetryTargets(_fundRecoveryRetryTargets, fundStats);
+      _fundUnitsStatus = `${_fundRecoveryOutcome(from, to, fundStats)}\n${_fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, '요청 종료', recoveryCodes)} · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. 처리율은 성공률이 아니며, NAV 입력 필요일은 직전 확정 NAV를 사용한 임시 평가로 구분했습니다.`;
       await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
       recomputeRows(); saveHoldings(); renderSummary();
     }
@@ -427,6 +474,7 @@ function openFundUnitsEditor() {
   _fundUnitBusy = false;
   _editorMode = 'fund-units';
   _fundUnitDrafts = {};
+  _fundRecoveryRetryTargets = [];
   _fundNavStatuses = [];
   _fundNavImportState = { code: 'F00001', filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
   _openEditorModal();

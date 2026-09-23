@@ -3,12 +3,20 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+assert.match(source,/SYSTEM_BACKUP_KEEP_BY_SOURCE = \{ '스냅샷': 1, '거래이력': 1, '가격이력': 1, '펀드기준가격': 1, '펀드좌수': 1, '종목코드': 1 \}/,'운영 원본별 백업 보존 정책');
+assert.match(source,/candidates\.slice\(keep\)\.forEach/,'COMPLETED 보존 초과 백업만 자동 정리');
+assert.match(source,/item\.status !== 'COMPLETED'/,'진행·실패 백업 미해결 목록 보호');
 assert.doesNotMatch(source.match(/function handleRefreshFundValuations[\s\S]*?\n}/)?.[0] || '', /waitLock/, '복구 handler 전체 잠금 제거');
 const clone = value => JSON.parse(JSON.stringify(value));
 let held = false;
 const lock = { hasLock: () => held, waitLock: () => { held = true; }, releaseLock: () => { held = false; } };
+const scriptProperties = new Map();
+let uuidSequence = 0;
 const context = vm.createContext({ console, Logger: { log() {} }, LockService: { getScriptLock: () => lock },
-  SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => ({ setProperty() {}, deleteProperty() {} }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-id' } });
+  SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => ({
+    getProperty(key) { return scriptProperties.has(key) ? scriptProperties.get(key) : null; },
+    setProperty(key, value) { scriptProperties.set(key, String(value)); }, deleteProperty(key) { scriptProperties.delete(key); }
+  }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-' + (++uuidSequence) } });
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
 
@@ -43,7 +51,7 @@ context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON
 assert.throws(()=>context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02'),/조회 결과 없음/,'빈 응답은 정상 조회로 처리하지 않음');
 
 class Sheet {
-  constructor(rows = []) { this.rows = clone(rows); this.writes = 0; this.copies = 0; this.failWrite = false; this.failCopy = false; this.maxRows = 10000; this.maxColumns = 26; this.name = ''; }
+  constructor(rows = []) { this.rows = clone(rows); this.writes = 0; this.copies = 0; this.failWrite = false; this.failCopy = false; this.maxRows = 10000; this.maxColumns = 26; this.name = ''; this.formats = {}; }
   getName() { return this.name; }
   getLastRow() { return this.rows.length; }
   getLastColumn() { return Math.max(0, ...this.rows.map(r => r.length)); }
@@ -60,7 +68,7 @@ class Sheet {
         assert.equal(values.length, nr);
         this.writes++;
         values.forEach((v,i) => { assert.equal(v.length,nc); this.rows[row-1+i] ||= []; v.forEach((cell,j) => { this.rows[row-1+i][col-1+j] = cell; }); });
-      }, setBackground() { return this; }, setFontColor() { return this; }, setFontWeight() { return this; } };
+      }, setNumberFormat: format => { this.formats[col]=format; return this; }, setBackground() { return this; }, setFontColor() { return this; }, setFontWeight() { return this; } };
   }
 }
 const snap = (date, code, value, src='PRICE_HISTORY') => [date, code, code, 1, 50, 50, value, value, value-50, 0, src, src === 'MANUAL' ? '2026-01-02 12:00:00' : ''];
@@ -69,9 +77,11 @@ const ssFor = sheets => {
   const bindNames=()=>Object.entries(sheets).map(([name,sheet])=>{ sheet.name=name; return sheet; });
   bindNames();
   return {
+    getId: () => 'test-spreadsheet',
     getSheetByName: name => sheets[name] || null,
     getSheets: () => bindNames(),
-    insertSheet: name => { const sheet=new Sheet(); sheet.name=name; sheets[name]=sheet; return sheet; }
+    insertSheet: name => { const sheet=new Sheet(); sheet.name=name; sheets[name]=sheet; return sheet; },
+    deleteSheet: sheet => { delete sheets[sheet.name]; }
   };
 };
 
@@ -111,9 +121,24 @@ context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000001',120,'MANUA
 assert.equal(sheet.rows.find(r=>r[1]==='000001')[7],120);
 const beforeFailure=clone(sheet.rows);
 sheet.failWrite=true;
+const backupCountBeforeFailure=Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length;
 assert.throws(()=>context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true),/write failed/);
 assert.deepEqual(sheet.rows,beforeFailure,'쓰기 실패 전 전체 시트를 비우면 안 됩니다.');
+const backupCountAfterFailure=Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length;
+assert.equal(backupCountAfterFailure,backupCountBeforeFailure+1,'원본 상태가 달라진 쓰기 직전 백업은 생성');
+assert.throws(()=>context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true),/write failed/);
+assert.equal(Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length,backupCountAfterFailure,'같은 원본 상태의 실패 재시도는 백업 중복 생성 방지');
 sheet.failWrite=false;
+const operationSheet=new Sheet([header,snap('2026-01-01','000001',100),snap('2026-01-02','000001',110)]);
+const operationSheets={'스냅샷':operationSheet};
+const operationSs=ssFor(operationSheets);
+const operationUuidBefore=uuidSequence;
+context._snapshotBackupOperationId='multi-date-recovery';
+context.writeSnapshotRows(operationSs,'2026-01-01',[snap('2026-01-01','000001',101)],true);
+context.writeSnapshotRows(operationSs,'2026-01-02',[snap('2026-01-02','000001',111)],true);
+context._snapshotBackupOperationId='';
+assert.equal(uuidSequence-operationUuidBefore,1,'하나의 다일자 논리 작업은 전체 Snapshot 백업을 한 번만 생성');
+assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스트 형식으로 고정');
 assert.equal(held,false);
 assert.throws(()=>context._readSnapshotRowsByDate({getSheetByName(){throw new Error('read failed');}},'2026-01-02'),/read failed/);
 assert.equal((source.match(/function getEarliestPriceHistory\(/g)||[]).length,1);
@@ -558,6 +583,54 @@ context._ensureFundImportRowCapacity(compactSs,compactNav,36);
 assert.equal(compactNav.getMaxColumns(),9,'값이 없는 초과 20개 열만 회수');
 assert.equal(compactNav.getMaxRows(),37,'29열 기준 1,044셀 대신 9열 기준 324셀로 행 확장');
 assert.equal(compactFillerA.getMaxColumns(),29,'무관한 시트는 변경하지 않음');
+
+const diagnostic=clone(context._diagnoseWorkbookCells(ssFor({
+  '스냅샷':new Sheet([header]), '스냅샷_백업_20260921_120000_test':new Sheet([header,snap('2026-01-01','000001',100)]),
+  'LEGACY_과거':new Sheet([['old']])
+}),false));
+assert.equal(diagnostic.sheets.find(item=>item.name==='스냅샷').role,'SNAPSHOT');
+assert.equal(diagnostic.sheets.find(item=>item.name==='LEGACY_과거').legacy,true);
+assert.equal(diagnostic.backupSummary.sheetCount,1,'백업 시트 수 합산');
+assert.equal(diagnostic.backupSummary.allocatedCells,260000,'실제 사용 범위가 아닌 최대 행×열을 백업 점유량으로 계산');
+assert.equal(diagnostic.backupSummary.reclaimableAfterVerifiedDeletion,260000,'검증·승인 후 예상 확보 셀 반환');
+const cleanupSheets={
+  '스냅샷':new Sheet([header]),
+  '스냅샷_백업_시스템_구버전':new Sheet([header]),
+  '스냅샷_백업_시스템_최신':new Sheet([header]),
+  '스냅샷_백업_사용자보관':new Sheet([header])
+};
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'스냅샷_백업_시스템_구버전',source:'스냅샷',status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-20T00:00:00Z'},
+  {name:'스냅샷_백업_시스템_최신',source:'스냅샷',status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-21T00:00:00Z'},
+  {name:'스냅샷_백업_실패',source:'스냅샷',status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-09-19T00:00:00Z'}
+]));
+cleanupSheets['스냅샷_백업_실패']=new Sheet([header]);
+const cleanupResult=clone(context._cleanupSystemBackups(ssFor(cleanupSheets),'스냅샷'));
+assert.deepEqual(cleanupResult.deleted,['스냅샷_백업_시스템_구버전'],'등록·검증된 구버전 시스템 백업만 삭제');
+assert(cleanupSheets['스냅샷_백업_시스템_최신'],'최신 유효 백업 보존');
+assert(cleanupSheets['스냅샷_백업_사용자보관'],'이름만 백업인 미등록 사용자 시트 보호');
+assert(cleanupSheets['스냅샷_백업_실패'],'WRITE_FAILED 백업 자동 삭제 금지');
+assert.equal(cleanupResult.releasedCells,260000,'자동 정리 확보 셀 보고');
+assert.deepEqual(clone(context._normalizeCodeRows([[5930],[34230],[23280],['0046Y0'],['F00001'],['AAPL']],0)),
+  [['005930'],['034230'],['023280'],['0046Y0'],['F00001'],['AAPL']],'숫자형 국내 코드 앞자리 0 복원 및 영숫자·해외 코드 보존');
+const identicalRow=snap('2026-02-01','000001',100);
+const conflictManual=snap('2026-02-02','000002',200,'MANUAL');
+const conflictHistory=snap('2026-02-02','000002',210,'PRICE_HISTORY');
+const duplicateSnapshot=new Sheet([header,identicalRow,clone(identicalRow),conflictManual,conflictHistory]);
+const duplicateSs=ssFor({'스냅샷':duplicateSnapshot});
+context.getss=()=>duplicateSs;
+context._buildSnapshotRowsFromTradeAndPriceHistory=(_ss,date)=>date==='2026-02-02'?[conflictHistory]:[identicalRow];
+const duplicateCleanup=clone(context.cleanupSnapshotDuplicates());
+assert.equal(duplicateCleanup.removedRows,1,'완전히 동일한 중복만 자동 제거');
+assert.equal(duplicateCleanup.conflicts.length,1,'값 충돌 중복을 별도 보고');
+assert.equal(duplicateSnapshot.rows.filter(row=>row[0]==='2026-02-02').length,2,'MANUAL과 충돌하는 행은 첫 행 임의 선택 없이 보존');
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+assert.equal(context._earliestChangedTradeDate([
+  ['2026-01-02','buy','A','주식','000001',1,100]
+],[
+  ['2026-01-02','buy','A','주식','000001',1,100],
+  ['2026-01-05','sell','A','주식','000001',1,120]
+]),'2026-01-05','과거 거래 추가의 최초 영향일 계산');
 context.today=()=> '2026-09-09';
 context.getss=()=>importWriteSs;
 
@@ -583,7 +656,32 @@ context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const pendingToday=context._refreshFundValuations(pendingTodaySs,'2026-09-09','2026-09-09','F00002');
 assert.equal(pendingToday.fundResults.F00002.latestUnpublished,1);
 assert.equal(pendingToday.fundResults.F00002.navMissing,0);
+context.today=()=> '2026-09-21'; // F00001 월요일은 정상 비공시일
+const nonPublicationSs=ssFor({
+  '펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00001','한화','HANWHA_2045_CRPE','2026-09-01',1000,'']]),
+  '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-09-18','F00001','한화',1200,'2026-09-18',1000,1200,'','HANWHA_2045_CRPE']]),
+  '거래이력':new Sheet([Array(8).fill('header'),['2026-09-01','buy','계좌','한화','F00001',1,1000,'펀드']]),
+  '가격이력':new Sheet([['date','code','name','price','at','source']])
+});
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+const nonPublication=context._refreshFundValuations(nonPublicationSs,'2026-09-21','2026-09-21','F00001');
+assert.equal(nonPublication.fundResults.F00001.dates[0].navState,'NON_PUBLICATION_CARRY','당일이어도 정상 비공시일은 미공시가 아닌 이월로 분류');
+assert.equal(nonPublication.fundResults.F00001.latestUnpublished,0);
+context.today=()=> '2026-09-09';
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+
+// 확정 NAV와 평가금액이 일치하면 남아 있는 임시 source만으로 그래프 경고를 유지하지 않습니다.
+context.jsonOk=extra=>({status:'ok',...extra});
+const historyConsistencySs=ssFor({
+  '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+    ['2026-09-16','F00001','한화',2054.75,'2026-09-16',15567554,31987432,'','HANWHA_2045_CRPE']]),
+  '스냅샷':new Sheet([header,
+    ['2026-09-16','F00001','한화',1,30000000,30000000,31987432,31987432,1987432,6.62,'FUND_NAV_CARRY_INPUT_REQUIRED',''],
+    ['2026-09-16','F00002','KB',1,1000,1000,1100,1100,100,10,'FUND_NAV_CARRY_INPUT_REQUIRED','']])
+});
+context.getss=()=>historyConsistencySs;
+const historyConsistency=clone(context.handleGetHistory('2026-09-16','2026-09-16'));
+assert.deepEqual(historyConsistency.snapshots[0].navInputRequiredCodes,['F00002'],'확정 NAV 평가금액 일치 F00001 경고만 제거하고 실제 미확정 F00002 유지');
 
 // 일일 실행은 활성 보유기간의 과거 확정 NAV 누락을 성공으로 기록하지 않습니다.
 const savedRefresh=context._refreshFundValuations;

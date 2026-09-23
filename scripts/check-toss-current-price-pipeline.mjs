@@ -5,6 +5,9 @@ const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 const web = fs.readFileSync('src/web/features/settings/settings_fetch.js', 'utf8');
 
 assert.match(gas, /function _normalizeTossSymbol_\(value\)/);
+assert.match(gas, /priceType: 'REALTIME', status: 'INDICATIVE'/,'Toss lastPrice를 확정 종가로 분류하지 않음');
+assert.match(gas, /priceType: 'DAILY_CANDLE', status: 'UNVERIFIED_CLOSE'/,'검증 전 Toss 일봉을 확정 종가로 분류하지 않음');
+assert.match(gas, /var krxItems = gfItems\.filter/,'국내 확정 Snapshot은 KRX 종가를 우선');
 assert.match(gas, /var symbol = _normalizeTossSymbol_\(row\.symbol\)/);
 assert.match(gas, /Number\.isFinite\(price\) && price > 0/);
 assert.match(gas, /var val = \(tossPrices\[code\] && tossPrices\[code\]\.price > 0\)/);
