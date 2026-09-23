@@ -312,12 +312,26 @@ function _fundRecoveryOutcome(from, to, fundStats) {
     `[재처리] ${labels([...pending, ...failed]) || '대상 없음'}`;
 }
 
+function _mergeFundRecoveryRetryTargets(existingTargets, fundStats) {
+  const retryByKey = new Map((existingTargets || []).map(item => [`${item.code}|${item.date}`, item]));
+  Object.values(fundStats || {}).flatMap(item => item.dates || []).forEach(item => {
+    const key = `${item.code}|${item.date}`;
+    const needsRetry = item.failureReason || ['UNPUBLISHED','NAV_MISSING','API_FAILED','FAILED'].includes(item.navState)
+      || ['NOT_CREATED','NOT_PROCESSED','UNKNOWN_AFTER_CLIENT_ERROR','WRITE_REQUIRED'].includes(item.evaluationState)
+      || ['NOT_CREATED','NOT_PROCESSED','UNKNOWN_AFTER_CLIENT_ERROR','WRITE_REQUIRED'].includes(item.snapshotState);
+    if (needsRetry) retryByKey.set(key, { code: item.code, date: item.date });
+    else if (['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.evaluationState)
+      && ['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.snapshotState)) retryByKey.delete(key);
+  });
+  return [...retryByKey.values()].sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code));
+}
+
 async function _loadFundUnitsEditor() {
   if (!GSHEET_API_URL) return;
   try {
     const result = await requestGsheetActionJson('getFundUnits', {}, { timeoutMs: 20000, retry: 0 });
     if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || '펀드 좌수 조회 기능을 지원하는 GAS 재배포가 필요합니다.');
-    if (!result?.capabilities?.fundDailyResults) throw new Error(`연결된 GAS(${result?.capabilities?.gasVersion || result?.gasVersion || '버전 미확인'})에 날짜별 펀드 처리 기능이 없습니다. GAS v9.123 이상을 재배포하세요.`);
+    if (!result?.capabilities?.fundDailyResults) throw new Error(`연결된 GAS(${result?.capabilities?.gasVersion || result?.gasVersion || '버전 미확인'})에 날짜별 펀드 처리 기능이 없습니다. GAS v9.124 이상을 재배포하세요.`);
     _fundUnitConfigs = result.configs || [];
     _fundUnitItems = result.funds;
     _fundNavStatuses = result.navStatus || [];
@@ -438,9 +452,7 @@ async function handleFundUnitAction(action, code, date = '') {
         }
       }
       _editorHistoryCache.clear();
-      _fundRecoveryRetryTargets = Object.values(fundStats).flatMap(item => item.dates || [])
-        .filter(item => item.failureReason || ['UNPUBLISHED','NAV_MISSING','API_FAILED','FAILED'].includes(item.navState))
-        .map(item => ({ code: item.code, date: item.date }));
+      _fundRecoveryRetryTargets = _mergeFundRecoveryRetryTargets(_fundRecoveryRetryTargets, fundStats);
       _fundUnitsStatus = `${_fundRecoveryOutcome(from, to, fundStats)}\n${_fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, '요청 종료', recoveryCodes)} · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. 처리율은 성공률이 아니며, NAV 입력 필요일은 직전 확정 NAV를 사용한 임시 평가로 구분했습니다.`;
       await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
       recomputeRows(); saveHoldings(); renderSummary();

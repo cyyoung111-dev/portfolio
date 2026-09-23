@@ -69,6 +69,10 @@ assert.match(source,/NAV 입력 필요/,'누락 NAV 날짜 안내');
 assert.match(source,/code: fundCode/,'복구 요청을 F코드별로 분리');
 assert.match(source,/const chunkDays = 7;/,'클라이언트 timeout 전에 날짜별 결과를 보존하도록 7일 chunk 사용');
 assert.match(source,/\[처리 요약\][\s\S]*\[정상 처리\][\s\S]*\[미확정\][\s\S]*\[실패\][\s\S]*\[스냅샷\][\s\S]*\[재처리\]/,'날짜별 결과를 상태별로 구분');
+const preservedRetries = clone(context._mergeFundRecoveryRetryTargets([
+  {code:'F00001',date:'2026-09-16'},{code:'F00002',date:'2026-09-22'}
+], {F00001:{dates:[{code:'F00001',date:'2026-09-16',navState:'EXISTING_CONFIRMED',evaluationState:'SAVED_OR_UPDATED',snapshotState:'SAVED_OR_UPDATED'}]}}));
+assert.deepEqual(preservedRetries,[{code:'F00002',date:'2026-09-22'}],'한 날짜 성공 재처리 후 다른 실패 날짜 유지');
 assert.doesNotMatch(source,/GAS v9\.89 재배포/,'오래된 고정 버전 안내 제거');
 assert.match(source,/data-fund-action="nav-date"/,'누락 날짜에서 수기 NAV 입력으로 바로 연결');
 assert.match(source,/NAV 누락 현황/,'좌수 설정을 열 때 저장 자료 기반 NAV 현황 표시');
