@@ -7,8 +7,13 @@ assert.doesNotMatch(source.match(/function handleRefreshFundValuations[\s\S]*?\n
 const clone = value => JSON.parse(JSON.stringify(value));
 let held = false;
 const lock = { hasLock: () => held, waitLock: () => { held = true; }, releaseLock: () => { held = false; } };
+const scriptProperties = new Map();
+let uuidSequence = 0;
 const context = vm.createContext({ console, Logger: { log() {} }, LockService: { getScriptLock: () => lock },
-  SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => ({ setProperty() {}, deleteProperty() {} }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-id' } });
+  SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => ({
+    getProperty(key) { return scriptProperties.has(key) ? scriptProperties.get(key) : null; },
+    setProperty(key, value) { scriptProperties.set(key, String(value)); }, deleteProperty(key) { scriptProperties.delete(key); }
+  }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-' + (++uuidSequence) } });
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
 
@@ -111,8 +116,13 @@ context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000001',120,'MANUA
 assert.equal(sheet.rows.find(r=>r[1]==='000001')[7],120);
 const beforeFailure=clone(sheet.rows);
 sheet.failWrite=true;
+const backupCountBeforeFailure=Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length;
 assert.throws(()=>context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true),/write failed/);
 assert.deepEqual(sheet.rows,beforeFailure,'쓰기 실패 전 전체 시트를 비우면 안 됩니다.');
+const backupCountAfterFailure=Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length;
+assert.equal(backupCountAfterFailure,backupCountBeforeFailure+1,'원본 상태가 달라진 쓰기 직전 백업은 생성');
+assert.throws(()=>context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true),/write failed/);
+assert.equal(Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length,backupCountAfterFailure,'같은 원본 상태의 실패 재시도는 백업 중복 생성 방지');
 sheet.failWrite=false;
 assert.equal(held,false);
 assert.throws(()=>context._readSnapshotRowsByDate({getSheetByName(){throw new Error('read failed');}},'2026-01-02'),/read failed/);
@@ -558,6 +568,16 @@ context._ensureFundImportRowCapacity(compactSs,compactNav,36);
 assert.equal(compactNav.getMaxColumns(),9,'값이 없는 초과 20개 열만 회수');
 assert.equal(compactNav.getMaxRows(),37,'29열 기준 1,044셀 대신 9열 기준 324셀로 행 확장');
 assert.equal(compactFillerA.getMaxColumns(),29,'무관한 시트는 변경하지 않음');
+
+const diagnostic=clone(context._diagnoseWorkbookCells(ssFor({
+  '스냅샷':new Sheet([header]), '스냅샷_백업_20260921_120000_test':new Sheet([header,snap('2026-01-01','000001',100)]),
+  'LEGACY_과거':new Sheet([['old']])
+}),false));
+assert.equal(diagnostic.sheets.find(item=>item.name==='스냅샷').role,'SNAPSHOT');
+assert.equal(diagnostic.sheets.find(item=>item.name==='LEGACY_과거').legacy,true);
+assert.equal(diagnostic.backupSummary.sheetCount,1,'백업 시트 수 합산');
+assert.equal(diagnostic.backupSummary.allocatedCells,260000,'실제 사용 범위가 아닌 최대 행×열을 백업 점유량으로 계산');
+assert.equal(diagnostic.backupSummary.reclaimableAfterVerifiedDeletion,260000,'검증·승인 후 예상 확보 셀 반환');
 context.today=()=> '2026-09-09';
 context.getss=()=>importWriteSs;
 
