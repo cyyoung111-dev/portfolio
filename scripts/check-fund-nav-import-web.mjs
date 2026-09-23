@@ -67,7 +67,13 @@ assert.match(source,/\['F00002','F00003','F00001'\]/,'저장 NAV 펀드를 한�
 assert.match(source,/\['F00001','F00002','F00003'\]\.map\(code => `<button[\s\S]*?data-fund-code="\$\{code\}"[\s\S]*?\$\{code\} 업데이트/,'펀드별 개별 업데이트 제공');
 assert.match(source,/NAV 입력 필요/,'누락 NAV 날짜 안내');
 assert.match(source,/code: fundCode/,'복구 요청을 F코드별로 분리');
-assert.match(source,/const chunkDays = 32;/,'GAS 허용 범위와 맞춘 32일 chunk로 순차 요청 수를 축소');
+assert.match(source,/const chunkDays = 7;/,'클라이언트 timeout 전에 날짜별 결과를 보존하도록 7일 chunk 사용');
+assert.match(source,/\[처리 요약\][\s\S]*\[정상 처리\][\s\S]*\[미확정\][\s\S]*\[실패\][\s\S]*\[스냅샷\][\s\S]*\[재처리\]/,'날짜별 결과를 상태별로 구분');
+const preservedRetries = clone(context._mergeFundRecoveryRetryTargets([
+  {code:'F00001',date:'2026-09-16'},{code:'F00002',date:'2026-09-22'}
+], {F00001:{dates:[{code:'F00001',date:'2026-09-16',navState:'EXISTING_CONFIRMED',evaluationState:'SAVED_OR_UPDATED',snapshotState:'SAVED_OR_UPDATED'}]}}));
+assert.deepEqual(preservedRetries,[{code:'F00002',date:'2026-09-22'}],'한 날짜 성공 재처리 후 다른 실패 날짜 유지');
+assert.doesNotMatch(source,/GAS v9\.89 재배포/,'오래된 고정 버전 안내 제거');
 assert.match(source,/data-fund-action="nav-date"/,'누락 날짜에서 수기 NAV 입력으로 바로 연결');
 assert.match(source,/NAV 누락 현황/,'좌수 설정을 열 때 저장 자료 기반 NAV 현황 표시');
 assert.match(source,/requestId !== _fundNavPasteRequestId/,'이전 붙여넣기 응답 폐기');
@@ -79,6 +85,8 @@ assert.match(source,/console\.info\('\[FUND_NAV_DIAGNOSTIC\]'/,'응답 진단을
 assert.match(historySource,/NAV 미확정 \$\{unique\.length\}건/,'손익그래프 상단에 NAV 미확정 건수 표시');
 assert.match(historySource,/직전 확정 NAV를 사용한 임시 평가/,'손익그래프 임시 평가 안내');
 assert.match(eventSource,/action === 'open-fund-nav'/,'손익그래프 경고에서 좌수 설정 수기입력 연결');
+assert.match(eventSource,/action === 'marker-date'/,'차트 마커에서 날짜 상세 연결');
+assert.match(fs.readFileSync('src/web/views/views_history.js','utf8'),/data-history-action="marker-date"/,'오렌지·최신 마커에 날짜 상세 동작 제공');
 
 for (const [code,classCode,standardCode,className] of [
   ['F00001','C-RPe','확인되지 않음','C-RPe'],
