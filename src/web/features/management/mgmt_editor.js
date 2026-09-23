@@ -331,7 +331,7 @@ async function _loadFundUnitsEditor() {
   try {
     const result = await requestGsheetActionJson('getFundUnits', {}, { timeoutMs: 20000, retry: 0 });
     if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || '펀드 좌수 조회 기능을 지원하는 GAS 재배포가 필요합니다.');
-    if (!result?.capabilities?.fundDailyResults) throw new Error(`연결된 GAS(${result?.capabilities?.gasVersion || result?.gasVersion || '버전 미확인'})에 날짜별 펀드 처리 기능이 없습니다. GAS v9.124 이상을 재배포하세요.`);
+    if (!result?.capabilities?.fundDailyResults) throw new Error(`연결된 GAS(${result?.capabilities?.gasVersion || result?.gasVersion || '버전 미확인'})에 날짜별 펀드 처리 기능이 없습니다. GAS v9.125 이상을 재배포하세요.`);
     _fundUnitConfigs = result.configs || [];
     _fundUnitItems = result.funds;
     _fundNavStatuses = result.navStatus || [];
