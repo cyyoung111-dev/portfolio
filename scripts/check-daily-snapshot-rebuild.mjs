@@ -82,7 +82,7 @@ assert.match(gas, /sourceMap\[fundCode\] = \{ src: fundValue\.carried \? 'FUND_N
 assert.match(gas, /cachedPayload\.priceLookup\.snapshotCreated = persist && cachedLatestDate/);
 const priceBody = gas.slice(gas.indexOf('function handleGetPricesCompat'), gas.indexOf('function _latestDateFromPriceDates'));
 assert.doesNotMatch(priceBody, /persists*=s*false/);
-assert.match(priceBody, /if \(persist && latestDisplayDate\) _rebuildSnapshotForDateFromHistory/);
+assert.match(priceBody, /if \(persist && confirmedPersistDates\.length\) _rebuildSnapshotForDateFromHistory/);
 assert.match(gas, /var smoke = _tossPriceSmoke_\(\)/);
 assert.match(gas, /fetchMarketIndicatorCandlesToss\(key, fromDate, toDate\)/);
 assert.match(gas, /fetchYahooIndexSeries\(key, fromDate, toDate\)/);

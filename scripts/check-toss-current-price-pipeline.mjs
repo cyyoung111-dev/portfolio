@@ -33,7 +33,7 @@ assert.deepEqual(fallbackItems(null), []);
 assert.deepEqual(fallbackItems([{ code: '005930', name: '삼성전자', priceDate: '2026-09-16' }]), [{ code: '005930', name: '삼성전자', priceDate: '2026-09-16' }]);
 assert.match(gas, /if \(persist\) Object\.keys\(newItemsByDate\)/);
 assert.match(gas, /if \(persist\) _updateTodaySnapshotSource/);
-assert.match(gas, /if \(persist && latestDisplayDate\) _rebuildSnapshotForDateFromHistory/);
+assert.match(gas, /if \(persist && confirmedPersistDates\.length\) _rebuildSnapshotForDateFromHistory/);
 const currentPriceBody = gas.slice(gas.indexOf('function handleGetPricesCompat'), gas.indexOf('function _latestDateFromPriceDates'));
 assert.doesNotMatch(currentPriceBody, /fetchPricesGoogleFinance\(/, '현재가 경로에서 GOOGLEFINANCE fallback을 사용하면 안 됩니다');
 assert.match(gas, /function _tossPriceSmoke_\(\)/);

@@ -9,7 +9,7 @@ if (!priceFn || /GOOGLEFINANCE\s*\(/.test(priceFn[1])) {
   console.error('❌ 주식·ETF 가격 provider 함수에 GOOGLEFINANCE 호출이 남아 있습니다.');
   process.exit(1);
 }
-if (!/fetchHistoricalPricesToss/.test(priceFn[1]) || !/fetchPricesKrx/.test(priceFn[1]) || !/return prices/.test(priceFn[1])) {
+if (!/fetchPricesYahooRegularClose/.test(priceFn[1]) || !/fetchPricesKrx/.test(priceFn[1]) || !/return prices/.test(priceFn[1])) {
   console.error('❌ 가격 fallback이 Toss → KRX → 저장값 보존 구조가 아닙니다.');
   process.exit(1);
 }
