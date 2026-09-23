@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.122
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.123
+//
+//  v9.123 변경사항 (2026.09.23):
+//   검증된 시스템 백업 자동 보존·정리 및 펀드 날짜별 처리 결과 추가
 //
 //  v9.122 변경사항 (2026.09.23):
 //   스냅샷 백업 중복 방지·셀 점유 진단·승인 전 백업 보관 준비 기능 추가
@@ -3765,7 +3768,8 @@ function handleGetFundUnits() {
   try {
     var ss = getss();
     var configs = _readFundUnits(ss);
-    return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS, navStatus: _getFundNavStatus(ss, configs) });
+    return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.123' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4073,7 +4077,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   var values = [], fundResults = {};
   codes.forEach(function(code) {
-    var fundResult = fundResults[code] = { code: code, status: 'ok', storedNav: 0, apiRequested: 0, apiSuccess: 0, apiFailed: 0, apiErrors: [], valuations: 0, completedSkipped: 0, carried: 0, inputRequiredDates: [], prices: 0, pricesExisting: 0, snapshots: 0, navMissing: 0, noUnits: 0, zeroUnitsExcluded: 0 };
+    var fundResult = fundResults[code] = { code: code, status: 'ok', storedNav: 0, apiRequested: 0, apiSuccess: 0, apiFailed: 0, apiErrors: [], valuations: 0, completedSkipped: 0, carried: 0, inputRequiredDates: [], prices: 0, pricesExisting: 0, snapshots: 0, navMissing: 0, noUnits: 0, zeroUnitsExcluded: 0, dates: [] };
     try {
       var config = configs.find(function(c) { return c.code === code; });
       _fundRecoveryDiagnosticStart(diagnostic, code, 'fundUnitsResolve', '_fundUnitsAtDate');
@@ -4149,11 +4153,31 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       fundResult.valuations = targetValues.length;
       fundResult.completedSkipped = codeValues.length - targetValues.length;
       fundResult.carried = targetValues.filter(function(value) { return value.carried; }).length;
+      fundResult.dates = activeDates.map(function(activeDate) {
+        var value = codeValues.find(function(item) { return item.date === activeDate; });
+        var target = targetValues.some(function(item) { return item.date === activeDate; });
+        var expected = _fundNavExpectedPublicationDate(activeDate, code);
+        var navState = storedPublicationDates[activeDate] ? 'EXISTING_CONFIRMED' :
+          (confirmedNavDates[activeDate] ? 'FETCHED_CONFIRMED' :
+          (activeDate === today() ? 'UNPUBLISHED' : (expected ? 'NAV_MISSING' : 'NON_PUBLICATION_CARRY')));
+        var error = fundResult.apiErrors.find(function(item) { return activeDate >= item.from && activeDate <= item.to; });
+        if (error) navState = 'API_FAILED';
+        return { date: activeDate, publicationExpected: expected, navState: navState,
+          unitsApplied: !!value, evaluationState: value ? (target ? 'WRITE_REQUIRED' : 'EXISTING_VALID') : 'NOT_CREATED',
+          snapshotState: snapshotKeys[activeDate + '|' + code] ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED'),
+          failureStage: error ? 'externalNavFetch' : '', failureReason: error ? error.message : '' };
+      });
       values = values.concat(targetValues);
     } catch (err) {
       _fundRecoveryDiagnosticFinish(diagnostic, 'error', err);
       fundResult.status = 'error';
       fundResult.apiErrors.push({ from: from, to: to, message: err.message });
+      if (!fundResult.dates.length) {
+        for (var failedDate = from; failedDate <= to; failedDate = _fundDateOffset(failedDate, 1)) {
+          fundResult.dates.push({ date: failedDate, navState: 'FAILED', unitsApplied: false,
+            evaluationState: 'NOT_PROCESSED', snapshotState: 'NOT_PROCESSED', failureStage: diagnostic && diagnostic.current ? diagnostic.current.stage : 'fundProcessing', failureReason: err.message });
+        }
+      }
     }
   });
   // 검증과 외부 조회를 모두 마친 뒤 누락만 추가합니다. 재시도는 기존 저장값을 사용합니다.
@@ -4277,7 +4301,12 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
     if (incomplete) { missingHoldings.push(date + ':다른 보유종목의 평가자료 부족'); return; }
     writeSnapshotRows(ss, date, combined, true);
     snapshotCount++;
-    byDate[date].forEach(function(value) { if (fundResults[value[1]]) fundResults[value[1]].snapshots++; });
+    byDate[date].forEach(function(value) {
+      if (!fundResults[value[1]]) return;
+      fundResults[value[1]].snapshots++;
+      var day = (fundResults[value[1]].dates || []).find(function(item) { return item.date === date; });
+      if (day) { day.evaluationState = 'SAVED_OR_UPDATED'; day.snapshotState = 'SAVED_OR_UPDATED'; }
+    });
   });
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'resultAggregate', '_refreshFundValuations');
@@ -4436,6 +4465,50 @@ function _sheetRole(name) {
   return 'OPERATIONAL_OR_AUXILIARY';
 }
 
+var SYSTEM_BACKUP_REGISTRY_KEY = 'system_backup_registry_v1';
+var SYSTEM_BACKUP_KEEP_BY_SOURCE = { '스냅샷': 1 };
+
+function _readSystemBackupRegistry() {
+  try {
+    var parsed = JSON.parse(PropertiesService.getScriptProperties().getProperty(SYSTEM_BACKUP_REGISTRY_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (ignore) { return []; }
+}
+
+function _writeSystemBackupRegistry(items) {
+  PropertiesService.getScriptProperties().setProperty(SYSTEM_BACKUP_REGISTRY_KEY, JSON.stringify(items || []));
+}
+
+function _registerSystemBackup(record) {
+  var items = _readSystemBackupRegistry().filter(function(item) { return item.name !== record.name; });
+  items.push(record);
+  _writeSystemBackupRegistry(items);
+}
+
+// 레지스트리에 생성 기록이 있고 최신 검증본이 따로 남는 시스템 백업만 삭제합니다.
+function _cleanupSystemBackups(ss, sourceName) {
+  var items = _readSystemBackupRegistry(), keep = Number(SYSTEM_BACKUP_KEEP_BY_SOURCE[sourceName] || 1);
+  var sourceItems = items.filter(function(item) { return item.source === sourceName && item.systemGenerated === true; });
+  var candidates = sourceItems.filter(function(item) { return item.status === 'COMPLETED'; })
+    .sort(function(a, b) { return String(b.completedAt || b.createdAt).localeCompare(String(a.completedAt || a.createdAt)); });
+  var protectedNames = {};
+  candidates.slice(0, keep).forEach(function(item) { protectedNames[item.name] = true; });
+  var deleted = [], failures = [], releasedCells = 0;
+  if (!candidates.length) return { deleted: [], kept: sourceItems.length, releasedCells: 0, failures: [] };
+  sourceItems.forEach(function(item) {
+    var sheet = ss.getSheetByName(item.name);
+    if (!sheet || protectedNames[item.name] || item.source !== sourceName || item.systemGenerated !== true) return;
+    try {
+      var cells = sheet.getMaxRows() * sheet.getMaxColumns();
+      ss.deleteSheet(sheet);
+      deleted.push(item.name); releasedCells += cells;
+    } catch (err) { failures.push({ name: item.name, message: err.message }); }
+  });
+  var deletedMap = {}; deleted.forEach(function(name) { deletedMap[name] = true; });
+  _writeSystemBackupRegistry(items.filter(function(item) { return !deletedMap[item.name]; }));
+  return { deleted: deleted, kept: sourceItems.length - deleted.length, releasedCells: releasedCells, failures: failures };
+}
+
 function _isGasReferencedSheet(name) {
   var known = [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_PH, FUND_NAV_SHEET,
     CONFIG.SHEET_TRADES, CONFIG.SHEET_HOLD, CONFIG.SHEET_CODES];
@@ -4456,9 +4529,30 @@ function _sheetFormulaReferenceCount(ss, targetName) {
   return count;
 }
 
-function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
-  var sheets = [], totalCells = 0, backupCells = 0, backupUsedCells = 0;
+function _sheetFormulaReferenceCounts(ss, targetNames) {
+  var counts = {}, patterns = (targetNames || []).map(function(name) {
+    counts[name] = 0;
+    return { name: name, quoted: "'" + String(name).replace(/'/g, "''") + "'!", plain: String(name) + '!' };
+  });
   ss.getSheets().forEach(function(sheet) {
+    if (!sheet.getLastRow() || !sheet.getLastColumn()) return;
+    sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getFormulas().forEach(function(row) {
+      row.forEach(function(formula) {
+        if (!formula) return;
+        patterns.forEach(function(pattern) { if (formula.indexOf(pattern.quoted) !== -1 || formula.indexOf(pattern.plain) !== -1) counts[pattern.name]++; });
+      });
+    });
+  });
+  return counts;
+}
+
+function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
+  var allSheets = ss.getSheets();
+  var registered = {};
+  _readSystemBackupRegistry().forEach(function(item) { registered[item.name] = item; });
+  var formulaCounts = includeFormulaReferences ? _sheetFormulaReferenceCounts(ss, allSheets.map(function(sheet) { return String(sheet.getName()); })) : {};
+  var sheets = [], totalCells = 0, backupCells = 0, backupUsedCells = 0;
+  allSheets.forEach(function(sheet) {
     var name = String(sheet.getName()), maxRows = Number(sheet.getMaxRows()) || 0;
     var maxColumns = Number(sheet.getMaxColumns()) || 0, lastRow = Number(sheet.getLastRow()) || 0;
     var lastColumn = Number(sheet.getLastColumn()) || 0, allocatedCells = maxRows * maxColumns;
@@ -4468,8 +4562,9 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
     sheets.push({ name: name, role: role, maxRows: maxRows, maxColumns: maxColumns,
       lastRow: lastRow, lastColumn: lastColumn, allocatedCells: allocatedCells,
       usedRangeCells: usedRangeCells, unusedCells: allocatedCells - usedRangeCells,
-      gasReferenced: _isGasReferencedSheet(name), formulaReferenceCount: includeFormulaReferences ? _sheetFormulaReferenceCount(ss, name) : null,
-      backup: role === 'BACKUP', legacy: role === 'LEGACY' });
+      gasReferenced: _isGasReferencedSheet(name), formulaReferenceCount: includeFormulaReferences ? formulaCounts[name] : null,
+      backup: role === 'BACKUP', legacy: role === 'LEGACY', systemGeneratedBackup: !!registered[name],
+      backupSource: registered[name] ? registered[name].source : '', backupStatus: registered[name] ? registered[name].status : '' });
   });
   sheets.forEach(function(item) { item.workbookOccupancyPercent = totalCells ? Number((item.allocatedCells * 100 / totalCells).toFixed(4)) : 0; });
   return { generatedAt: new Date().toISOString(), limit: GOOGLE_SHEETS_CELL_LIMIT, totalCells: totalCells,
@@ -7212,6 +7307,10 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
       if (sh.getMaxRows() < output.length) sh.insertRowsAfter(sh.getMaxRows(), output.length - sh.getMaxRows());
       sh.getRange(1, 1, output.length, colSize).setValues(output);
       _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
+      if (snapshotBackupRecord && !snapshotBackupRecord.reused) {
+        snapshotBackupRecord.cleanup = _cleanupSystemBackups(ss, CONFIG.SHEET_SNAPSHOT);
+        PropertiesService.getScriptProperties().setProperty('snapshot_backup_last_status', JSON.stringify(snapshotBackupRecord));
+      }
     } else {
       if (newRows.length > 0) sh.getRange(sh.getLastRow() + 1, 1, newRows.length, colSize).setValues(newRows);
     }
@@ -7293,7 +7392,9 @@ function _backupSnapshotBeforeWrite(ss, sheet) {
   if (typeof backup.deleteColumns === 'function' && backup.getMaxColumns() > Math.max(1, colCount)) backup.deleteColumns(Math.max(1, colCount) + 1, backup.getMaxColumns() - Math.max(1, colCount));
   props.setProperty(signatureKey, signature);
   if (activeRepairId) props.setProperty(stateKey, activeRepairId);
-  var record = { name: name, signature: signature, operationId: activeRepairId, status: 'CREATED', createdAt: new Date().toISOString() };
+  var record = { name: name, source: CONFIG.SHEET_SNAPSHOT, signature: signature, operationId: activeRepairId,
+    status: 'CREATED', systemGenerated: true, createdAt: new Date().toISOString() };
+  _registerSystemBackup(record);
   props.setProperty('snapshot_backup_last_status', JSON.stringify(record));
   return record;
 }
@@ -7302,8 +7403,10 @@ function _markSnapshotBackupStatus(record, status, message) {
   if (!record || record.reused) return;
   record.status = status;
   record.updatedAt = new Date().toISOString();
+  if (status === 'COMPLETED') record.completedAt = record.updatedAt;
   if (message) record.message = String(message).slice(0, 500);
   PropertiesService.getScriptProperties().setProperty('snapshot_backup_last_status', JSON.stringify(record));
+  _registerSystemBackup(record);
 }
 
 function _dedupeSnapshotRows(rows) {
@@ -7773,7 +7876,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.122' });
+    return jsonOk({ settings: settings, gasVersion: '9.123' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -7795,7 +7898,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.122'
+      gasVersion: '9.123'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

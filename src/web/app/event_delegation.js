@@ -223,6 +223,13 @@ function registerGlobalEventDelegation() {
           if (typeof handleFundNavManualInput === 'function') handleFundNavManualInput('date', historyAction.dataset.fundDate || '');
           if (typeof buildEditorUI === 'function') buildEditorUI();
         });
+      } else if (action === 'marker-date') {
+        const input = document.getElementById('histDetailDate');
+        if (input) {
+          input.value = historyAction.dataset.date || '';
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       }
       return;
     }

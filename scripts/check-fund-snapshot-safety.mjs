@@ -74,9 +74,11 @@ const ssFor = sheets => {
   const bindNames=()=>Object.entries(sheets).map(([name,sheet])=>{ sheet.name=name; return sheet; });
   bindNames();
   return {
+    getId: () => 'test-spreadsheet',
     getSheetByName: name => sheets[name] || null,
     getSheets: () => bindNames(),
-    insertSheet: name => { const sheet=new Sheet(); sheet.name=name; sheets[name]=sheet; return sheet; }
+    insertSheet: name => { const sheet=new Sheet(); sheet.name=name; sheets[name]=sheet; return sheet; },
+    deleteSheet: sheet => { delete sheets[sheet.name]; }
   };
 };
 
@@ -578,6 +580,21 @@ assert.equal(diagnostic.sheets.find(item=>item.name==='LEGACY_과거').legacy,tr
 assert.equal(diagnostic.backupSummary.sheetCount,1,'백업 시트 수 합산');
 assert.equal(diagnostic.backupSummary.allocatedCells,260000,'실제 사용 범위가 아닌 최대 행×열을 백업 점유량으로 계산');
 assert.equal(diagnostic.backupSummary.reclaimableAfterVerifiedDeletion,260000,'검증·승인 후 예상 확보 셀 반환');
+const cleanupSheets={
+  '스냅샷':new Sheet([header]),
+  '스냅샷_백업_시스템_구버전':new Sheet([header]),
+  '스냅샷_백업_시스템_최신':new Sheet([header]),
+  '스냅샷_백업_사용자보관':new Sheet([header])
+};
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'스냅샷_백업_시스템_구버전',source:'스냅샷',status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-20T00:00:00Z'},
+  {name:'스냅샷_백업_시스템_최신',source:'스냅샷',status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-21T00:00:00Z'}
+]));
+const cleanupResult=clone(context._cleanupSystemBackups(ssFor(cleanupSheets),'스냅샷'));
+assert.deepEqual(cleanupResult.deleted,['스냅샷_백업_시스템_구버전'],'등록·검증된 구버전 시스템 백업만 삭제');
+assert(cleanupSheets['스냅샷_백업_시스템_최신'],'최신 유효 백업 보존');
+assert(cleanupSheets['스냅샷_백업_사용자보관'],'이름만 백업인 미등록 사용자 시트 보호');
+assert.equal(cleanupResult.releasedCells,260000,'자동 정리 확보 셀 보고');
 context.today=()=> '2026-09-09';
 context.getss=()=>importWriteSs;
 

@@ -184,7 +184,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const pnlColor = lastPt.pnl >= 0 ? 'var(--green)' : 'var(--red)';
   const portfolioDeltaColor = portfolioDelta >= 0 ? 'var(--green)' : 'var(--red-lt)';
   const navInputMarkers = pts.map((point, index) => point.navInputRequired
-    ? `<circle cx="${xScale(index).toFixed(1)}" cy="${yMoney(point.pnl).toFixed(1)}" r="5" fill="#f59e0b"><title>${_escapeHtml(point.rawDate)} ${_escapeHtml(point.navInputRequiredCodes.join(', '))} NAV 입력 필요</title></circle>`
+    ? `<circle data-history-action="marker-date" data-date="${_escapeHtml(point.rawDate)}" cx="${xScale(index).toFixed(1)}" cy="${yMoney(point.pnl).toFixed(1)}" r="7" fill="#f59e0b" stroke="var(--s1)" stroke-width="2" style="cursor:pointer"><title>${_escapeHtml(point.rawDate)} · 손익 ${_escapeHtml(_fmtKrw(point.pnl))} · ${_escapeHtml(point.navInputRequiredCodes.join(', '))} NAV 미확정 (선택하여 상세 보기)</title></circle>`
     : '').join('');
 
   wrap.innerHTML = `
@@ -208,7 +208,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       ${navInputMarkers}
       ${benchLineSvg}
       <!-- 마지막 포인트 dot -->
-      <circle cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="3.5" fill="${pnlColor}"/>
+      <circle data-history-action="marker-date" data-date="${_escapeHtml(lastPt.rawDate)}" cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="6" fill="${pnlColor}" stroke="var(--s1)" stroke-width="2" style="cursor:pointer"><title>${_escapeHtml(lastPt.rawDate)} · 손익 ${_escapeHtml(_fmtKrw(lastPt.pnl))} · 최신 저장 스냅샷 (선택하여 상세 보기)</title></circle>
       <!-- 범례 -->
       <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
       <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
