@@ -15,6 +15,7 @@ const __histState = window.__histState || {
   loadRequestId: 0,
   snapshots: [],
   integrityDiagnostics: [],
+  rangeDiagnosisFailed: false,
   detailDate: '',
   lastSuccessfulView: null,
 };
