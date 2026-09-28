@@ -299,31 +299,52 @@ function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snap
 function _fundRecoveryOutcome(from, to, fundStats) {
   const days = Object.values(fundStats).flatMap(item => item.dates || []);
   const labels = rows => rows.slice(0, 20).map(item => `${item.code} ${item.date}`).join(', ') + (rows.length > 20 ? ` 외 ${rows.length - 20}건` : '');
-  const normal = days.filter(item => ['EXISTING_CONFIRMED','FETCHED_CONFIRMED','NON_PUBLICATION_CARRY'].includes(item.navState) && !item.failureReason);
+  const published = days.filter(item => ['EXISTING_CONFIRMED','FETCHED_CONFIRMED'].includes(item.navState) && !_fundRecoveryNeedsRetry(item));
+  const carried = days.filter(item => item.navState === 'NON_PUBLICATION_CARRY' && !_fundRecoveryNeedsRetry(item));
   const pending = days.filter(item => ['UNPUBLISHED','NAV_MISSING'].includes(item.navState));
+  const derivedPending = days.filter(item => !pending.includes(item) && ['WRITE_REQUIRED','NOT_CREATED','NOT_PROCESSED'].includes(item.evaluationState)
+    || !pending.includes(item) && ['WRITE_REQUIRED','NOT_CREATED','NOT_PROCESSED'].includes(item.snapshotState));
+  const unknown = days.filter(item => item.navState === 'UNKNOWN_AFTER_CLIENT_ERROR');
   const failed = days.filter(item => item.failureReason || ['API_FAILED','FAILED'].includes(item.navState));
+  const retry = days.filter(_fundRecoveryNeedsRetry);
   const snapshotSaved = days.filter(item => item.snapshotState === 'SAVED_OR_UPDATED');
   const snapshotKept = days.filter(item => item.snapshotState === 'EXISTING_VALID');
   return `[처리 요약] ${from} ~ ${to} · 날짜 ${days.length}건\n` +
-    `[정상 처리] ${normal.length}건${normal.length ? ` · ${labels(normal)}` : ''}\n` +
-    `[미확정] ${pending.length}건${pending.length ? ` · ${labels(pending)}` : ''}\n` +
+    `[정상 공시 완료] ${published.length}건${published.length ? ` · ${labels(published)}` : ''}\n` +
+    `[정상 비공시/직전 NAV 이월] ${carried.length}건${carried.length ? ` · ${labels(carried)}` : ''}\n` +
+    `[실제 NAV 미확정] ${pending.length}건${pending.length ? ` · ${labels(pending)}` : ''}\n` +
+    `[평가/Snapshot 미완료] ${derivedPending.length}건${derivedPending.length ? ` · ${labels(derivedPending)}` : ''}\n` +
+    `[결과 확인 필요] ${unknown.length}건${unknown.length ? ` · ${labels(unknown)}` : ''}\n` +
     `[실패] ${failed.length}건${failed.length ? ` · ${failed.slice(0, 12).map(item => `${item.code} ${item.date} ${item.failureStage || ''}: ${item.failureReason}`).join('; ')}` : ''}\n` +
     `[스냅샷] 생성·갱신 ${snapshotSaved.length}건 · 기존 유지 ${snapshotKept.length}건\n` +
-    `[재처리] ${labels([...pending, ...failed]) || '대상 없음'}`;
+    `[재처리 ${retry.length}건] ${labels(retry) || '대상 없음'}`;
+}
+
+function _fundRecoveryNeedsRetry(item) {
+  if (!item || item.navState === 'UNKNOWN_AFTER_CLIENT_ERROR') return false;
+  if (item.failureReason || ['UNPUBLISHED','NAV_MISSING','API_FAILED','FAILED'].includes(item.navState)) return true;
+  return ['NOT_CREATED','NOT_PROCESSED','WRITE_REQUIRED'].includes(item.evaluationState)
+    || ['NOT_CREATED','NOT_PROCESSED','WRITE_REQUIRED'].includes(item.snapshotState);
 }
 
 function _mergeFundRecoveryRetryTargets(existingTargets, fundStats) {
   const retryByKey = new Map((existingTargets || []).map(item => [`${item.code}|${item.date}`, item]));
   Object.values(fundStats || {}).flatMap(item => item.dates || []).forEach(item => {
     const key = `${item.code}|${item.date}`;
-    const needsRetry = item.failureReason || ['UNPUBLISHED','NAV_MISSING','API_FAILED','FAILED'].includes(item.navState)
-      || ['NOT_CREATED','NOT_PROCESSED','UNKNOWN_AFTER_CLIENT_ERROR','WRITE_REQUIRED'].includes(item.evaluationState)
-      || ['NOT_CREATED','NOT_PROCESSED','UNKNOWN_AFTER_CLIENT_ERROR','WRITE_REQUIRED'].includes(item.snapshotState);
+    const needsRetry = _fundRecoveryNeedsRetry(item);
     if (needsRetry) retryByKey.set(key, { code: item.code, date: item.date });
     else if (['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.evaluationState)
       && ['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.snapshotState)) retryByKey.delete(key);
   });
   return [...retryByKey.values()].sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code));
+}
+
+async function _reconcileFundRecoveryRange(code, from, to) {
+  const result = await requestGsheetActionJson('getFundValuationStatus', { from, to, code }, { timeoutMs: 30000, retry: 1 });
+  if (result?.status !== 'ok') throw new Error(result?.message || '재검증 응답 오류');
+  const dates = (result.fundResults?.[code]?.dates || []).map(day => ({ ...day, code }));
+  if (!dates.length) throw new Error('재검증 날짜 결과 없음');
+  return dates;
 }
 
 async function _loadFundUnitsEditor() {
@@ -441,9 +462,17 @@ async function handleFundUnitAction(action, code, date = '') {
             if (result.lastDate > lastDate) lastDate = result.lastDate;
           } catch (error) {
             const previous = fundStats[fundCode] || { apiErrors: [] };
-            const failedDates = [];
-            for (let date = start; date <= end; date = _kstDateOffset(date, 1)) failedDates.push({ code: fundCode, date, navState: 'FAILED', evaluationState: 'UNKNOWN_AFTER_CLIENT_ERROR', snapshotState: 'UNKNOWN_AFTER_CLIENT_ERROR', failureStage: 'clientRequest', failureReason: `${error.message} · GAS가 계속 실행됐을 수 있으므로 재처리 시 기존 저장값을 먼저 검증합니다.` });
-            fundStats[fundCode] = { ...previous, dates: [...(previous.dates || []), ...failedDates], apiErrors: [...(previous.apiErrors || []), { from: start, to: end, message: error.message }] };
+            const unknownDates = [];
+            for (let current = start; current <= end; current = _kstDateOffset(current, 1)) unknownDates.push({ code: fundCode, date: current, navState: 'UNKNOWN_AFTER_CLIENT_ERROR', evaluationState: 'UNKNOWN_AFTER_CLIENT_ERROR', snapshotState: 'UNKNOWN_AFTER_CLIENT_ERROR' });
+            fundStats[fundCode] = { ...previous, dates: [...(previous.dates || []), ...unknownDates], verificationErrors: [...(previous.verificationErrors || []), error.message] };
+            _fundUnitsStatus = `${fundCode} ${start} ~ ${end} 요청 결과를 확인하지 못했습니다. 현재 저장 상태 재검증 중...`;
+            buildEditorUI();
+            try {
+              const dates = await _reconcileFundRecoveryRange(fundCode, start, end);
+              fundStats[fundCode].dates.splice(-unknownDates.length, unknownDates.length, ...dates);
+            } catch (reconcileError) {
+              fundStats[fundCode].verificationErrors.push(reconcileError.message);
+            }
           }
           processed += rangeDays;
           _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 완료`, recoveryCodes);

@@ -68,11 +68,26 @@ assert.match(source,/\['F00001','F00002','F00003'\]\.map\(code => `<button[\s\S]
 assert.match(source,/NAV 입력 필요/,'누락 NAV 날짜 안내');
 assert.match(source,/code: fundCode/,'복구 요청을 F코드별로 분리');
 assert.match(source,/const chunkDays = 7;/,'클라이언트 timeout 전에 날짜별 결과를 보존하도록 7일 chunk 사용');
-assert.match(source,/\[처리 요약\][\s\S]*\[정상 처리\][\s\S]*\[미확정\][\s\S]*\[실패\][\s\S]*\[스냅샷\][\s\S]*\[재처리\]/,'날짜별 결과를 상태별로 구분');
+assert.match(source,/\[처리 요약\][\s\S]*\[정상 공시 완료\][\s\S]*\[정상 비공시\/직전 NAV 이월\][\s\S]*\[실제 NAV 미확정\][\s\S]*\[평가\/Snapshot 미완료\][\s\S]*\[결과 확인 필요\][\s\S]*\[실패\][\s\S]*\[재처리/,'날짜별 결과를 상태별로 구분');
 const preservedRetries = clone(context._mergeFundRecoveryRetryTargets([
   {code:'F00001',date:'2026-09-16'},{code:'F00002',date:'2026-09-22'}
 ], {F00001:{dates:[{code:'F00001',date:'2026-09-16',navState:'EXISTING_CONFIRMED',evaluationState:'SAVED_OR_UPDATED',snapshotState:'SAVED_OR_UPDATED'}]}}));
 assert.deepEqual(preservedRetries,[{code:'F00002',date:'2026-09-22'}],'한 날짜 성공 재처리 후 다른 실패 날짜 유지');
+const retryRegression = clone(context._mergeFundRecoveryRetryTargets([], {F00001:{dates:[
+  {code:'F00001',date:'2026-09-21',navState:'NON_PUBLICATION_CARRY',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'},
+  {code:'F00001',date:'2026-09-24',navState:'NON_PUBLICATION_CARRY',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'},
+  {code:'F00001',date:'2026-09-26',navState:'NON_PUBLICATION_CARRY',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'},
+  {code:'F00001',date:'2026-09-27',navState:'NON_PUBLICATION_CARRY',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'},
+  {code:'F00001',date:'2026-09-22',navState:'NAV_MISSING',evaluationState:'WRITE_REQUIRED',snapshotState:'WRITE_REQUIRED'},
+]}}));
+assert.deepEqual(retryRegression,[{code:'F00001',date:'2026-09-22'}],'월·목·주말 정상 비공시일은 제외하고 실제 미완료 공시일만 재처리');
+const timeoutUnknown = Array.from({length:7},(_,index)=>({code:'F00001',date:`2026-09-${String(21+index).padStart(2,'0')}`,navState:'UNKNOWN_AFTER_CLIENT_ERROR',evaluationState:'UNKNOWN_AFTER_CLIENT_ERROR',snapshotState:'UNKNOWN_AFTER_CLIENT_ERROR'}));
+assert.deepEqual(clone(context._mergeFundRecoveryRetryTargets([], {F00001:{dates:timeoutUnknown}})),[],'client timeout만으로 7일 전체를 retry target으로 만들지 않음');
+context.requestGsheetActionJson = async () => ({status:'ok',fundResults:{F00001:{dates:timeoutUnknown.map((day,index)=>index === 1
+  ? {...day,navState:'NAV_MISSING',evaluationState:'WRITE_REQUIRED',snapshotState:'WRITE_REQUIRED'}
+  : {...day,navState:index === 0 || index === 3 || index >= 5 ? 'NON_PUBLICATION_CARRY' : 'EXISTING_CONFIRMED',evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'})}}});
+const reconciledTimeout = clone(await context._reconcileFundRecoveryRange('F00001','2026-09-21','2026-09-27'));
+assert.deepEqual(clone(context._mergeFundRecoveryRetryTargets([], {F00001:{dates:reconciledTimeout}})),[{code:'F00001',date:'2026-09-22'}],'timeout 후 재검증에서 완료일을 제거하고 실제 미완료일만 유지');
 assert.doesNotMatch(source,/GAS v9\.89 재배포/,'오래된 고정 버전 안내 제거');
 assert.match(source,/data-fund-action="nav-date"/,'누락 날짜에서 수기 NAV 입력으로 바로 연결');
 assert.match(source,/NAV 누락 현황/,'좌수 설정을 열 때 저장 자료 기반 NAV 현황 표시');
