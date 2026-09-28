@@ -36,6 +36,11 @@ const HISTORY_BENCHMARK_VISUALS = Object.freeze({
   NASDAQ100: { color: '#a78bfa', dash: '' },
 });
 
+const HISTORY_VERIFIED_STATUS = 'VALID';
+function _isVerifiedHistoryPoint(point) {
+  return String(point?.integrityStatus || 'UNCHECKED') === HISTORY_VERIFIED_STATUS;
+}
+
 function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const W = Math.min(wrap.clientWidth || 700, 900);
   const H = 260;
@@ -51,13 +56,13 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     navInputRequired: !!s.navInputRequired,
     navInputRequiredCodes: Array.isArray(s.navInputRequiredCodes) ? s.navInputRequiredCodes : [],
-    integrityStatus: String(s.integrityStatus || 'VALID'),
+    integrityStatus: String(s.integrityStatus || 'UNCHECKED'),
   }));
   pts.forEach(p => { p.pnl = p.eval - p.cost; });
 
   // 거래별 순현금흐름을 제거한 기간수익률을 연결해 추가 매수·매도를 성과로 오인하지 않습니다.
   const portfolioMddPoints = _buildCashflowAdjustedReturnIndex(
-    Array.isArray(benchmarkOpt?.portfolioSnapshots) ? benchmarkOpt.portfolioSnapshots : snapshots,
+    (Array.isArray(benchmarkOpt?.portfolioSnapshots) ? benchmarkOpt.portfolioSnapshots : snapshots).filter(_isVerifiedHistoryPoint),
     typeof rawTrades !== 'undefined' ? rawTrades : []
   );
   const portfolioMdd = _calcHistoryMdd(portfolioMddPoints, 'returnIndex');
@@ -67,7 +72,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     ? (portfolioLast / portfolioFirst - 1) * 100
     : 0;
 
-  const validPts = pts.filter(p => !['PARTIAL', 'MISMATCH', 'CONFLICT'].includes(p.integrityStatus));
+  const validPts = pts.filter(_isVerifiedHistoryPoint);
   if (!validPts.length) {
     wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--amber)">⚠️ 선택 기간의 Snapshot이 모두 오류/충돌 상태라 정상 손익선을 표시할 수 없습니다.</div>';
     return;
@@ -85,14 +90,14 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const pnlSegments = [];
   let pnlSegment = [];
   pts.forEach((p, i) => {
-    if (['PARTIAL', 'MISMATCH', 'CONFLICT'].includes(p.integrityStatus)) {
+    if (!_isVerifiedHistoryPoint(p)) {
       if (pnlSegment.length) pnlSegments.push(pnlSegment);
       pnlSegment = [];
     } else pnlSegment.push(`${xScale(i).toFixed(1)},${yMoney(p.pnl).toFixed(1)}`);
   });
   if (pnlSegment.length) pnlSegments.push(pnlSegment);
   const pnlLines = pnlSegments.map(segment => `<polyline points="${segment.join(' ')}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linejoin="round"/>`).join('');
-  const integrityMarkers = pts.map((p, i) => ['PARTIAL', 'MISMATCH', 'CONFLICT'].includes(p.integrityStatus)
+  const integrityMarkers = pts.map((p, i) => !_isVerifiedHistoryPoint(p)
     ? `<g><line x1="${xScale(i)}" y1="${PAD.top}" x2="${xScale(i)}" y2="${PAD.top + CH}" stroke="var(--amber)" stroke-dasharray="3 3"/><text x="${xScale(i)}" y="${PAD.top + 10}" text-anchor="middle" fill="var(--amber)" font-size="10">⚠</text></g>` : '').join('');
   // 손익 fill path (0선 기준)
   const zero    = yMoney(0).toFixed(1);
@@ -224,7 +229,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       ${navInputMarkers}
       ${benchLineSvg}
       <!-- 마지막 포인트 dot -->
-      ${['PARTIAL', 'MISMATCH', 'CONFLICT'].includes(lastPt.integrityStatus) ? '' : `<circle data-history-action="marker-date" data-date="${_escapeHtml(lastPt.rawDate)}" cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="6" fill="${pnlColor}" stroke="var(--s1)" stroke-width="2" style="cursor:pointer"><title>${_escapeHtml(lastPt.rawDate)} · 손익 ${_escapeHtml(_fmtKrw(lastPt.pnl))} · 최신 저장 스냅샷 (선택하여 상세 보기)</title></circle>`}
+      ${!_isVerifiedHistoryPoint(lastPt) ? '' : `<circle data-history-action="marker-date" data-date="${_escapeHtml(lastPt.rawDate)}" cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="6" fill="${pnlColor}" stroke="var(--s1)" stroke-width="2" style="cursor:pointer"><title>${_escapeHtml(lastPt.rawDate)} · 손익 ${_escapeHtml(_fmtKrw(lastPt.pnl))} · 최신 저장 스냅샷 (선택하여 상세 보기)</title></circle>`}
       <!-- 범례 -->
       <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
       <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
@@ -282,10 +287,10 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
 
 function _drawHistoryTable(wrap, snapshots) {
   const fmt = _fmtKrw;
-  const recent = [...snapshots].reverse().slice(0, 10);
+  const recent = snapshots.filter(_isVerifiedHistoryPoint).reverse().slice(0, 10);
   const valid = snapshots
     .map(snapshot => ({ snapshot, evalAmt: parseFloat(snapshot.evalAmt || snapshot.total || snapshot.eval || 0) }))
-    .filter(item => Number.isFinite(item.evalAmt));
+    .filter(item => Number.isFinite(item.evalAmt) && _isVerifiedHistoryPoint(item.snapshot));
   const highest = valid.reduce((best, item) => !best || item.evalAmt > best.evalAmt ? item : best, null);
   const lowest = valid.reduce((best, item) => !best || item.evalAmt < best.evalAmt ? item : best, null);
   const extremeCard = (label, item, color) => {

@@ -16,7 +16,7 @@ const v = context.buildDiagnostics([
 assert.equal(v['2026-07-22'].kind, 'TRANSIENT_V', '5억원/60% 미만 V자도 후보여야 합니다.');
 assert.match(pipeline, /diagnoseSnapshotIntegrityRange/);
 assert.doesNotMatch(pipeline, /slice\(0, 10\)/, '후보 최대 10개 제한을 제거해야 합니다.');
-assert.match(view, /\['PARTIAL', 'MISMATCH', 'CONFLICT'\]\.includes\(p\.integrityStatus\)/);
+assert.match(view, /HISTORY_VERIFIED_STATUS = 'VALID'/);
 assert.match(view, /pnlSegments/, '오류 Snapshot에서 손익선을 끊어야 합니다.');
 assert.match(pipeline, /repairHistoryIntegritySnapshots[\s\S]*diagnoseSnapshotIntegrity[\s\S]*rewriteSnapshotDate[\s\S]*after\?\.status !== 'VALID'[\s\S]*await loadHistoryChart/);
 assert.match(event, /repair-integrity[\s\S]*repairHistoryIntegritySnapshots/);

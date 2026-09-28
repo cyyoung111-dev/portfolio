@@ -65,6 +65,7 @@ async function loadHistoryChart() {
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
     const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
     let integrityDiagnostics = [];
+    let rangeDiagnosisFailed = false;
     try {
         const integrity = await _historyRequestJson('diagnoseSnapshotIntegrityRange', {
           from: snapshots[0].date,
@@ -72,12 +73,17 @@ async function loadHistoryChart() {
           candidates: suspiciousDates.join(',')
         }, { timeoutMs: 120000, retry: 0 });
         if (requestId !== __histState.loadRequestId) return;
-        integrityDiagnostics = Array.isArray(integrity?.diagnostics) ? integrity.diagnostics : [];
-    } catch (error) { console.warn('Snapshot integrity range diagnosis failed:', error); }
+        if (!integrity || integrity.status === 'error' || !Array.isArray(integrity.diagnostics)) throw new Error(integrity?.message || '기간 진단 응답 계약 오류');
+        integrityDiagnostics = integrity.diagnostics;
+    } catch (error) {
+      rangeDiagnosisFailed = true;
+      console.warn('Snapshot integrity range diagnosis failed:', error);
+    }
     const diagnosticByDate = new Map(integrityDiagnostics.map(item => [item.date, item]));
     snapshots = snapshots.map(snapshot => ({ ...snapshot,
       integrityStatus: diagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED' }));
     __histState.integrityDiagnostics = integrityDiagnostics;
+    __histState.rangeDiagnosisFailed = rangeDiagnosisFailed;
     const mode = _getHistMode();
     const tableSnapshots = _selectHistorySnapshots(snapshots, mode);
     const graphSnapshots = tableSnapshots;
@@ -126,7 +132,7 @@ async function loadHistoryChart() {
     __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
     _renderHistoryDateDetail(snapshots);
     _renderHistoryCoverage(coverageEl, coverage, mode);
-    _renderHistoryIntegrityWarnings(coverageEl, integrityDiagnostics);
+    _renderHistoryIntegrityWarnings(coverageEl, integrityDiagnostics, rangeDiagnosisFailed, snapshots.length);
     _renderHistoryNavWarnings(coverageEl, snapshots);
     _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
@@ -209,15 +215,24 @@ function _renderHistoryNavWarnings(el, snapshots) {
   </div>`);
 }
 
-function _renderHistoryIntegrityWarnings(el, diagnostics) {
+function _renderHistoryIntegrityWarnings(el, diagnostics, rangeDiagnosisFailed, totalDates) {
   if (!el) return;
+  if (rangeDiagnosisFailed) {
+    el.insertAdjacentHTML('afterbegin', '<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--red);border-radius:9px;background:var(--c-red-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--red-lt)">❌ Snapshot/가격 진단 요청이 실패하거나 시간초과되었습니다.</b><br><span style="color:var(--muted)">전체 날짜를 UNCHECKED로 처리했습니다. 현재 손익·MDD·최고/최저는 확정값으로 표시하지 않습니다.</span></div>');
+    return;
+  }
   const invalid = (diagnostics || []).filter(item => item && item.status !== 'VALID');
-  if (!invalid.length) return;
+  if (!invalid.length) {
+    el.insertAdjacentHTML('afterbegin', `<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 데이터 정합성 검증 ${Number(totalDates || diagnostics?.length || 0)}일 정상</div>`);
+    return;
+  }
   const labels = { PARTIAL: 'Snapshot 부분 누락', MISMATCH: '저장값과 원자료 불일치',
-    SOURCE_INCOMPLETE: '원자료 부족으로 검증 불가', CONFLICT: '중복/충돌 존재', NO_SNAPSHOT: '날짜 Snapshot 누락' };
+    SOURCE_INCOMPLETE: '원자료 부족으로 검증 불가', CONFLICT: '중복/충돌 존재', NO_SNAPSHOT: '날짜 Snapshot 누락',
+    PRICE_SUSPICIOUS: '가격 원자료 이상 후보', UNCHECKED: '미검증' };
   const details = invalid.slice(0, 6).map(item => `${item.date} · 예상 ${item.expectedRowCount}종목 / 저장 ${item.storedRowCount}종목 · 평가금액 차이 ${Math.round(Number(item.totalEvalDifference || 0)).toLocaleString()}원`).join('<br>');
   const repairable = invalid.filter(item => ['PARTIAL', 'MISMATCH', 'NO_SNAPSHOT'].includes(item.status) && !item.sourceDataErrors?.length && !item.conflictKeys?.length);
-  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ Snapshot 불완전 ${invalid.length}일</b><br>${details}<br><span style="color:var(--muted)">${_escapeHtml(invalid.map(item => labels[item.status] || item.status).join(', '))} · 오류점은 정상 손익선에서 끊어 표시하며 NAV 임시 평가와는 별도 상태입니다.</span>${repairable.length ? `<br><button type="button" class="btn-ghost-sm" data-history-action="repair-integrity">검증 가능한 오류 Snapshot 복구 (${repairable.length})</button>` : ''}</div>`);
+  const validCount = (diagnostics || []).filter(item => item?.status === 'VALID').length;
+  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ 데이터 정합성 검증 미완료</b><br>검증 ${diagnostics.length}일 중 정상 ${validCount}일 · 제외 ${invalid.length}일<br>${details}<br><span style="color:var(--muted)">${_escapeHtml(invalid.map(item => labels[item.status] || item.status).join(', '))} · 오류점은 정상 손익선에서 끊고 성과·MDD·최고/최저 계산에서 제외합니다.</span>${repairable.length ? `<br><button type="button" class="btn-ghost-sm" data-history-action="repair-integrity">검증 가능한 오류 Snapshot 복구 (${repairable.length})</button>` : ''}</div>`);
 }
 
 async function repairHistoryIntegritySnapshots() {

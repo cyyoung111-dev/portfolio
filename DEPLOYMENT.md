@@ -1,3 +1,10 @@
+## GAS v9.130 / 웹 20260928-4: 가격이력·Snapshot·성과 정합성 후속 복구
+
+- Apps Script v9.130과 정적 웹 20260928-4를 함께 재배포합니다. 웹은 service worker 등록 URL과 cache name을 함께 올려 구버전 history 자산 혼용을 차단합니다.
+- 운영 데이터는 `diagnosePriceHistoryIntegrity`로 가격/인접가격/source/당시 FX를 먼저 확인하고, 확정 reference가 있는 항목만 `previewPriceHistoryRepair` 후 POST `applyPriceHistoryRepair`로 교정합니다. MANUAL과 미검증 reference는 적용되지 않습니다.
+- 이후 `diagnoseSnapshotIntegrity` → `rewriteSnapshotDate` → VALID 재진단 → `getHistory` 순서로 진행합니다. 대표 확인일은 2026-06-18, 2026-07-22, 2026-09-24, 2026-09-25입니다.
+- 백업은 복구 전 `maintainSystemBackups({apply:false})`, 복구 검증 후 `{apply:true}` 순서로 실행하며 source별 최신 유효 COMPLETED 백업을 최소 1개 보존합니다.
+
 ## GAS v9.129 / 웹 20260928-3: Snapshot 안전 복구·백업 유지보수
 
 - 손익 화면은 선택 기간을 `diagnoseSnapshotIntegrityRange` 한 요청으로 진단하고 `PARTIAL`/`MISMATCH`/`CONFLICT` 지점을 정상 손익선에서 끊습니다. 검증 가능한 오류만 `rewriteSnapshotDate`로 재진단→재작성→VALID 재확인하며 완료 후 이력을 다시 조회합니다.
