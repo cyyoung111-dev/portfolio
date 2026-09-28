@@ -1,3 +1,9 @@
+## GAS v9.128 / 웹 20260928-2: Snapshot 정합성·백업 수명주기
+
+- `diagnoseSnapshotIntegrity` GET으로 저장 Snapshot을 거래·가격·NAV·과거 환율 원자료 재계산값과 쓰기 없이 비교하고, `rewriteSnapshotDate` POST는 진단으로 안전성을 확인한 특정일만 재작성한 뒤 재진단합니다.
+- 재사용한 `CREATED`/`WRITE_FAILED` 백업도 성공 시 `COMPLETED`로 승격하고, 스키마·signature·formula·naming을 모두 검증한 orphan만 채택해 source별 최신 1개 정책을 적용합니다. 사용자/UNKNOWN 백업은 자동 삭제하지 않습니다.
+- Apps Script v9.128과 정적 웹 20260928-2를 함께 재배포해야 합니다. 배포 후 `2026-07-21,2026-07-22,2026-07-23` 진단과 `diagnoseWorkbookCells`의 백업 분류·정리 전후 셀 수를 확인하세요.
+
 ## GAS v9.127 / 웹 20260928-1: 펀드 timeout 재검증과 비공시일 상태 정합성
 
 - `refreshFundValuations`의 클라이언트 timeout/network 오류는 날짜별 실패 확정으로 간주하지 않습니다. 웹은 쓰기와 외부 NAV 조회가 없는 `getFundValuationStatus`로 펀드기준가격·가격이력·Snapshot 현재 상태를 재검증한 뒤 실제 NAV/파생행 미완료 날짜만 재처리 대상으로 남깁니다.

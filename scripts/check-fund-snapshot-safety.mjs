@@ -4,8 +4,8 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 assert.match(source,/SYSTEM_BACKUP_KEEP_BY_SOURCE = \{ '스냅샷': 1, '거래이력': 1, '가격이력': 1, '펀드기준가격': 1, '펀드좌수': 1, '종목코드': 1 \}/,'운영 원본별 백업 보존 정책');
-assert.match(source,/candidates\.slice\(keep\)\.forEach/,'COMPLETED 보존 초과 백업만 자동 정리');
-assert.match(source,/item\.status !== 'COMPLETED'/,'진행·실패 백업 미해결 목록 보호');
+assert.match(source,/var deletable = candidates\.slice\(keep\)/,'COMPLETED 보존 초과 백업을 자동 정리');
+assert.match(source,/item\.status === 'WRITE_FAILED'.*newestCompletedAt/,'최신 성공본이 있을 때만 오래된 실패 백업 해제');
 assert.doesNotMatch(source.match(/function handleRefreshFundValuations[\s\S]*?\n}/)?.[0] || '', /waitLock/, '복구 handler 전체 잠금 제거');
 const clone = value => JSON.parse(JSON.stringify(value));
 let held = false;
@@ -129,6 +129,11 @@ assert.equal(backupCountAfterFailure,backupCountBeforeFailure+1,'원본 상태�
 assert.throws(()=>context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true),/write failed/);
 assert.equal(Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length,backupCountAfterFailure,'같은 원본 상태의 실패 재시도는 백업 중복 생성 방지');
 sheet.failWrite=false;
+context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true);
+context._registerSystemBackup({name:'reuse-regression',source:'스냅샷',signature:'sig',status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-01-01T00:00:00Z'});
+context._markSnapshotBackupStatus({name:'reuse-regression',source:'스냅샷',signature:'sig',status:'WRITE_FAILED',systemGenerated:true,reused:true},'COMPLETED');
+const reusedRegistry=JSON.parse(scriptProperties.get('system_backup_registry_v1'));
+assert.equal(reusedRegistry.find(item=>item.name==='reuse-regression').status,'COMPLETED','WRITE_FAILED 복구본 재사용 성공을 COMPLETED로 승격');
 const operationSheet=new Sheet([header,snap('2026-01-01','000001',100),snap('2026-01-02','000001',110)]);
 const operationSheets={'스냅샷':operationSheet};
 const operationSs=ssFor(operationSheets);
@@ -606,11 +611,11 @@ scriptProperties.set('system_backup_registry_v1',JSON.stringify([
 ]));
 cleanupSheets['스냅샷_백업_실패']=new Sheet([header]);
 const cleanupResult=clone(context._cleanupSystemBackups(ssFor(cleanupSheets),'스냅샷'));
-assert.deepEqual(cleanupResult.deleted,['스냅샷_백업_시스템_구버전'],'등록·검증된 구버전 시스템 백업만 삭제');
+assert.deepEqual(cleanupResult.deleted,['스냅샷_백업_시스템_구버전','스냅샷_백업_실패'],'최신 검증 성공본 이전의 구버전·실패 백업 삭제');
 assert(cleanupSheets['스냅샷_백업_시스템_최신'],'최신 유효 백업 보존');
 assert(cleanupSheets['스냅샷_백업_사용자보관'],'이름만 백업인 미등록 사용자 시트 보호');
-assert(cleanupSheets['스냅샷_백업_실패'],'WRITE_FAILED 백업 자동 삭제 금지');
-assert.equal(cleanupResult.releasedCells,260000,'자동 정리 확보 셀 보고');
+assert(!cleanupSheets['스냅샷_백업_실패'],'더 최신의 검증 COMPLETED 복구본이 있으면 오래된 WRITE_FAILED 정리');
+assert.equal(cleanupResult.releasedCells,520000,'자동 정리 확보 실제 allocatedCells 합산');
 assert.deepEqual(clone(context._normalizeCodeRows([[5930],[34230],[23280],['0046Y0'],['F00001'],['AAPL']],0)),
   [['005930'],['034230'],['023280'],['0046Y0'],['F00001'],['AAPL']],'숫자형 국내 코드 앞자리 0 복원 및 영숫자·해외 코드 보존');
 const identicalRow=snap('2026-02-01','000001',100);
@@ -714,6 +719,26 @@ assert.throws(()=>context._refreshFundValuations(ssFor(retrySheets),'2026-08-03'
 assert.equal(retryNav.rows[1][3],1200,'파생 시트 실패 시 기존 NAV 보존');
 retryPrices.failWrite=false;
 assert.equal(context._refreshFundValuations(ssFor(retrySheets),'2026-08-03','2026-08-03','F00002').saved,1,'재실행에서 저장 NAV로 가격이력 복구');
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+
+// 날짜 존재가 아닌 거래원장 기준 종목·값·충돌 정합성을 판정합니다.
+const integrityExpected=[snap('2026-07-22','000001',100),snap('2026-07-22','000002',200),snap('2026-07-22','F00002',300,'FUND_NAV_CARRY')];
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>clone(integrityExpected);
+let integritySs=ssFor({'스냅샷':new Sheet([header,integrityExpected[0],integrityExpected[2]])});
+let integrity=clone(context.diagnoseSnapshotIntegrity(integritySs,'2026-07-22'));
+assert.equal(integrity.status,'PARTIAL');
+assert.deepEqual(integrity.missingCodes,['000002'],'기대 보유 3종목 중 누락 1종목 탐지');
+integritySs=ssFor({'스냅샷':new Sheet([header,integrityExpected[0],snap('2026-07-22','000002',201),integrityExpected[2]])});
+integrity=clone(context.diagnoseSnapshotIntegrity(integritySs,'2026-07-22'));
+assert.equal(integrity.status,'MISMATCH','행 수가 같아도 evalAmt 불일치 탐지');
+integritySs=ssFor({'스냅샷':new Sheet([header,...integrityExpected])});
+integrity=clone(context.diagnoseSnapshotIntegrity(integritySs,'2026-07-22'));
+assert.equal(integrity.status,'VALID','NAV carry는 정합하면 Snapshot 완전성 VALID');
+assert.equal(integrity.fundNavStates[0].temporary,true,'NAV 임시 평가 상태는 별도 유지');
+integritySs=ssFor({'스냅샷':new Sheet([header,integrityExpected[0],snap('2026-07-22','000001',101)])});
+assert.equal(context.diagnoseSnapshotIntegrity(integritySs,'2026-07-22').status,'CONFLICT','동일 date+code 이값 충돌 탐지');
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>{ throw new Error('확정 원자료 부족: FX_USD'); };
+assert.equal(context.diagnoseSnapshotIntegrity(integritySs,'2026-07-22').status,'SOURCE_INCOMPLETE','과거 환율 부재 시 재작성 불가');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
 // 전체 함수 선언이 중복돼 엄격 오류 옵션을 덮어쓰는 회귀 차단.

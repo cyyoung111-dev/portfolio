@@ -62,6 +62,16 @@ async function loadHistoryChart() {
 
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
+    // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
+    const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots)).slice(0, 10);
+    let integrityDiagnostics = [];
+    if (suspiciousDates.length) {
+      try {
+        const integrity = await _historyRequestJson('diagnoseSnapshotIntegrity', { dates: suspiciousDates.join(',') }, { timeoutMs: 30000, retry: 0 });
+        if (requestId !== __histState.loadRequestId) return;
+        integrityDiagnostics = Array.isArray(integrity?.diagnostics) ? integrity.diagnostics : [];
+      } catch (error) { console.warn('Snapshot integrity diagnosis failed:', error); }
+    }
     const mode = _getHistMode();
     const tableSnapshots = _selectHistorySnapshots(snapshots, mode);
     const graphSnapshots = tableSnapshots;
@@ -110,6 +120,7 @@ async function loadHistoryChart() {
     __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
     _renderHistoryDateDetail(snapshots);
     _renderHistoryCoverage(coverageEl, coverage, mode);
+    _renderHistoryIntegrityWarnings(coverageEl, integrityDiagnostics);
     _renderHistoryNavWarnings(coverageEl, snapshots);
     _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
@@ -190,6 +201,16 @@ function _renderHistoryNavWarnings(el, snapshots) {
     <div style="font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ NAV 미확정 ${unique.length}건</b><br><span>${_escapeHtml(labels + more)}</span><br><span style="color:var(--muted)">표시된 날짜의 손익은 직전 확정 NAV를 사용한 임시 평가입니다.</span></div>
     <button type="button" class="btn-ghost-sm" data-history-action="open-fund-nav" data-fund-code="${_escapeHtml(first.code)}" data-fund-date="${_escapeHtml(first.date)}">${_escapeHtml(first.code)} ${_escapeHtml(first.date)} 입력</button>
   </div>`);
+}
+
+function _renderHistoryIntegrityWarnings(el, diagnostics) {
+  if (!el) return;
+  const invalid = (diagnostics || []).filter(item => item && item.status !== 'VALID');
+  if (!invalid.length) return;
+  const labels = { PARTIAL: 'Snapshot 부분 누락', MISMATCH: '저장값과 원자료 불일치',
+    SOURCE_INCOMPLETE: '원자료 부족으로 검증 불가', CONFLICT: '중복/충돌 존재', NO_SNAPSHOT: '날짜 Snapshot 누락' };
+  const details = invalid.slice(0, 6).map(item => `${item.date} · 예상 ${item.expectedRowCount}종목 / 저장 ${item.storedRowCount}종목 · 평가금액 차이 ${Math.round(Number(item.totalEvalDifference || 0)).toLocaleString()}원`).join('<br>');
+  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ Snapshot 불완전 ${invalid.length}일</b><br>${details}<br><span style="color:var(--muted)">${_escapeHtml(invalid.map(item => labels[item.status] || item.status).join(', '))} · NAV 임시 평가와는 별도 상태입니다.</span></div>`);
 }
 
 async function _loadHistoryDateItems(date) {

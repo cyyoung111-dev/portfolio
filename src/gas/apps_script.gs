@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.127
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.128
+//
+//  v9.128 변경사항 (2026.09.28):
+//   Snapshot 원자료 정합성 진단·안전 재작성 및 재사용/유실 백업 수명주기 보강
 //
 //  v9.127 변경사항 (2026.09.28):
 //   펀드 복구 timeout 저장상태 재검증 및 정상 비공시일 API 오류 격리
@@ -772,6 +775,7 @@ function doGet(e) {
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
   if (params.action === 'diagnoseWorkbookCells') return handleDiagnoseWorkbookCells();
+  if (params.action === 'diagnoseSnapshotIntegrity') return handleDiagnoseSnapshotIntegrity(params.date || '', params.dates || '');
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
@@ -810,7 +814,7 @@ function doGet(e) {
       params.action === 'saveTossConfig' || params.action === 'clearTossConfig' ||
       params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' ||
       params.action === 'continueSnapshotRepair' || params.action === 'refreshEtfDividends' ||
-      params.action === 'rebuildDailySnapshots' ||
+      params.action === 'rebuildDailySnapshots' || params.action === 'rewriteSnapshotDate' ||
       params.action === 'previewFundNavImport' || params.action === 'importFundNav' ||
       params.action === 'prepareBackupCleanup') {
     return jsonError(params.action + ' 은 POST 전용입니다');
@@ -843,7 +847,7 @@ function doPost(e) {
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
   if (params.action === 'prepareBackupCleanup') return handlePrepareBackupCleanup(params.data || '{}');
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -863,6 +867,7 @@ function doPost(e) {
   if (params.action === 'continueSnapshotRepair') return handleContinueSnapshotRepair();
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
   if (params.action === 'repairSnapshots' && params.data) return handleRepairSnapshots(params.data);
+  if (params.action === 'rewriteSnapshotDate') return handleRewriteSnapshotDate(params.date || '');
   if (params.action === 'rebuildDailySnapshots') {
     try { return jsonOk(rebuildDailySnapshots(params.from || '', params.to || '')); }
     catch (error) { return jsonError('rebuildDailySnapshots 실패: ' + error.message); }
@@ -3836,7 +3841,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.127' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.128' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4629,8 +4634,43 @@ function _registerSystemBackup(record) {
   _writeSystemBackupRegistry(items);
 }
 
+function _backupSourceFromSystemName(name) {
+  var match = String(name || '').match(/^(.+)_백업_(\d{8})_(\d{6})_[A-Za-z0-9-]{6}$/);
+  return match && SYSTEM_BACKUP_KEEP_BY_SOURCE[match[1]] ? match[1] : '';
+}
+
+function _sheetHeaderSignature(sheet) {
+  if (!sheet || !sheet.getLastRow() || !sheet.getLastColumn()) return '';
+  return JSON.stringify(sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]);
+}
+
+// 이름만으로는 채택하지 않고 naming·원본 schema·formula·signature를 모두 확인합니다.
+function _reconcileSystemBackups(ss) {
+  var items = _readSystemBackupRegistry(), byName = {}, reconciled = [], unresolved = [];
+  items.forEach(function(item) { byName[item.name] = item; });
+  ss.getSheets().forEach(function(sheet) {
+    var name = String(sheet.getName()), source = _backupSourceFromSystemName(name);
+    if (byName[name] || name.indexOf('_백업_') === -1) return;
+    if (!source) { unresolved.push({ name: name, classification: 'USER_MANAGED_BACKUP', reason: '시스템 naming convention 불일치' }); return; }
+    var sourceSheet = ss.getSheetByName(source), formulaCount = -1, signature = '';
+    try { formulaCount = _sheetFormulaReferenceCount(ss, name); signature = _sheetContentSignature(sheet); }
+    catch (error) { unresolved.push({ name: name, classification: 'UNKNOWN', reason: error.message }); return; }
+    if (!sourceSheet || _isGasReferencedSheet(name) || formulaCount !== 0 || !signature ||
+        _sheetHeaderSignature(sheet) !== _sheetHeaderSignature(sourceSheet)) {
+      unresolved.push({ name: name, classification: 'UNKNOWN', reason: '원본/schema/formula/signature 안전 검증 불충족' }); return;
+    }
+    var record = { name: name, source: source, signature: signature, operationId: 'reconciled-orphan',
+      status: 'COMPLETED', systemGenerated: true, orphanAdopted: true,
+      createdAt: new Date().toISOString(), completedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    items.push(record); byName[name] = record; reconciled.push({ name: name, classification: 'ORPHAN_LIKELY_SYSTEM' });
+  });
+  if (reconciled.length) _writeSystemBackupRegistry(items);
+  return { reconciled: reconciled, unresolved: unresolved };
+}
+
 // 레지스트리에 생성 기록이 있고 최신 검증본이 따로 남는 시스템 백업만 삭제합니다.
 function _cleanupSystemBackups(ss, sourceName) {
+  var reconciliation = _reconcileSystemBackups(ss);
   var items = _readSystemBackupRegistry(), keep = Number(SYSTEM_BACKUP_KEEP_BY_SOURCE[sourceName] || 1);
   var sourceItems = items.filter(function(item) { return item.source === sourceName && item.systemGenerated === true; });
   var candidates = sourceItems.filter(function(item) { return item.status === 'COMPLETED'; })
@@ -4638,7 +4678,12 @@ function _cleanupSystemBackups(ss, sourceName) {
   var protectedNames = {};
   candidates.slice(0, keep).forEach(function(item) { protectedNames[item.name] = true; });
   var deleted = [], failures = [], releasedCells = 0;
-  candidates.slice(keep).forEach(function(item) {
+  var newestCompletedAt = candidates.length ? String(candidates[0].completedAt || candidates[0].createdAt || '') : '';
+  var deletable = candidates.slice(keep).concat(sourceItems.filter(function(item) {
+    // 더 최신의 검증 COMPLETED 복구본과 현재 원본이 모두 존재할 때만 오래된 실패본을 정리합니다.
+    return item.status === 'WRITE_FAILED' && newestCompletedAt && String(item.updatedAt || item.createdAt || '') < newestCompletedAt && !!ss.getSheetByName(sourceName);
+  }));
+  deletable.forEach(function(item) {
     var sheet = ss.getSheetByName(item.name);
     if (!sheet || protectedNames[item.name] || item.source !== sourceName || item.systemGenerated !== true) return;
     try {
@@ -4649,11 +4694,14 @@ function _cleanupSystemBackups(ss, sourceName) {
   });
   var deletedMap = {}; deleted.forEach(function(name) { deletedMap[name] = true; });
   _writeSystemBackupRegistry(items.filter(function(item) { return !deletedMap[item.name]; }));
-  var unresolved = sourceItems.filter(function(item) { return item.status !== 'COMPLETED'; }).map(function(item) {
+  var unresolved = sourceItems.filter(function(item) { return item.status !== 'COMPLETED' && deleted.indexOf(item.name) === -1; }).map(function(item) {
     return { name: item.name, status: item.status, reason: item.status === 'WRITE_FAILED' ? '쓰기 실패 복구본 보호' : '완료 검증 전 백업 보호' };
   });
-  return { source: sourceName, total: sourceItems.length, deleted: deleted, deletedCount: deleted.length,
-    kept: sourceItems.length - deleted.length, releasedCells: releasedCells, failures: failures, unresolved: unresolved };
+  return { source: sourceName, beforeCount: sourceItems.length, afterCount: sourceItems.length - deleted.length,
+    total: sourceItems.length, deleted: deleted, deletedCount: deleted.length,
+    kept: sourceItems.filter(function(item) { return deleted.indexOf(item.name) === -1; }).map(function(item) { return item.name; }),
+    reconciled: reconciliation.reconciled, releasedCells: releasedCells, failures: failures,
+    unresolved: unresolved.concat(reconciliation.unresolved) };
 }
 
 function _isGasReferencedSheet(name) {
@@ -4706,21 +4754,41 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
     var usedRangeCells = lastRow * lastColumn, role = _sheetRole(name);
     totalCells += allocatedCells;
     if (role === 'BACKUP') { backupCells += allocatedCells; backupUsedCells += usedRangeCells; }
+    var backupRecord = registered[name] || null;
+    var inferredSource = backupRecord ? backupRecord.source : _backupSourceFromSystemName(name);
+    var classification = backupRecord ? (backupRecord.status === 'COMPLETED' ? 'REGISTERED_COMPLETED' :
+      (backupRecord.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
+      (role === 'BACKUP' ? (inferredSource ? 'ORPHAN_LIKELY_SYSTEM' : 'USER_MANAGED_BACKUP') : 'UNKNOWN');
+    var formulaReferenceCount = includeFormulaReferences ? formulaCounts[name] : null;
+    var eligible = classification === 'REGISTERED_COMPLETED' && formulaReferenceCount === 0;
     sheets.push({ name: name, role: role, maxRows: maxRows, maxColumns: maxColumns,
       lastRow: lastRow, lastColumn: lastColumn, allocatedCells: allocatedCells,
       usedRangeCells: usedRangeCells, unusedCells: allocatedCells - usedRangeCells,
-      gasReferenced: _isGasReferencedSheet(name), formulaReferenceCount: includeFormulaReferences ? formulaCounts[name] : null,
+      gasReferenced: _isGasReferencedSheet(name), formulaReferenceCount: formulaReferenceCount,
       backup: role === 'BACKUP', legacy: role === 'LEGACY', systemGeneratedBackup: !!registered[name],
-      backupSource: registered[name] ? registered[name].source : '', backupStatus: registered[name] ? registered[name].status : '' });
+      backupSource: inferredSource || '', backupStatus: backupRecord ? backupRecord.status : '', backupClassification: classification,
+      createdAt: backupRecord ? backupRecord.createdAt || '' : '', completedAt: backupRecord ? backupRecord.completedAt || '' : '',
+      updatedAt: backupRecord ? backupRecord.updatedAt || '' : '', operationId: backupRecord ? backupRecord.operationId || '' : '',
+      signatureMatch: backupRecord ? _sheetContentSignature(sheet) === backupRecord.signature : null,
+      autoCleanupEligible: eligible, protectionReason: eligible ? '' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정') });
   });
   sheets.forEach(function(item) { item.workbookOccupancyPercent = totalCells ? Number((item.allocatedCells * 100 / totalCells).toFixed(4)) : 0; });
   var backupsBySource = {};
   _readSystemBackupRegistry().forEach(function(item) {
     var source = item.source || 'UNKNOWN';
-    if (!backupsBySource[source]) backupsBySource[source] = { total: 0, completed: 0, protectedUnverified: 0 };
+    if (!backupsBySource[source]) backupsBySource[source] = { total: 0, completed: 0, created: 0, writeFailed: 0, orphan: 0, userOrUnknown: 0, autoCleanupEligible: 0, protected: 0, expectedReleasedCells: 0 };
     backupsBySource[source].total++;
     if (item.status === 'COMPLETED') backupsBySource[source].completed++;
-    else backupsBySource[source].protectedUnverified++;
+    else if (item.status === 'CREATED') backupsBySource[source].created++;
+    else if (item.status === 'WRITE_FAILED') backupsBySource[source].writeFailed++;
+    else backupsBySource[source].userOrUnknown++;
+  });
+  sheets.filter(function(item) { return item.backup; }).forEach(function(item) {
+    var source = item.backupSource || 'UNKNOWN';
+    if (!backupsBySource[source]) backupsBySource[source] = { total: 0, completed: 0, created: 0, writeFailed: 0, orphan: 0, userOrUnknown: 0, autoCleanupEligible: 0, protected: 0, expectedReleasedCells: 0 };
+    if (!item.systemGeneratedBackup) { if (item.backupClassification === 'ORPHAN_LIKELY_SYSTEM') backupsBySource[source].orphan++; else backupsBySource[source].userOrUnknown++; }
+    if (item.autoCleanupEligible) backupsBySource[source].autoCleanupEligible++;
+    else backupsBySource[source].protected++;
   });
   return { generatedAt: new Date().toISOString(), limit: GOOGLE_SHEETS_CELL_LIMIT, totalCells: totalCells,
     remainingCells: Math.max(0, GOOGLE_SHEETS_CELL_LIMIT - totalCells), occupancyPercent: Number((totalCells * 100 / GOOGLE_SHEETS_CELL_LIMIT).toFixed(4)),
@@ -5515,6 +5583,127 @@ function _getFundEvaluationAtDate(ss, code, dateStr) {
     }
   });
   return best;
+}
+
+// Snapshot은 materialized view이므로 원자료 계산값을 정답으로 비교합니다.
+// 이 경로는 시트를 수정하지 않으며, 중복 충돌을 dedupe 전 원본 행에서 판정합니다.
+function _readRawSnapshotRowsByDate(ss, dateStr) {
+  var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT), out = [];
+  if (!sh || sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(12, sh.getLastColumn())).getValues().forEach(function(row) {
+    if (_normalizeDate(row[0]) !== dateStr) return;
+    var copy = row.slice(0, 12); while (copy.length < 12) copy.push('');
+    copy[0] = dateStr; copy[1] = _cleanCode(copy[1]) || String(copy[1] || '').trim();
+    [3,4,5,6,7,8,9].forEach(function(index) { copy[index] = Number(copy[index]) || 0; });
+    out.push(copy);
+  });
+  return out;
+}
+
+function _snapshotIntegrityKey(row) { return _cleanCode(row && row[1]) || String(row && row[2] || '').trim(); }
+function _snapshotStoredNumber(value, decimals) {
+  var factor = Math.pow(10, Number(decimals) || 0);
+  return Math.round((Number(value) || 0) * factor) / factor;
+}
+
+function diagnoseSnapshotIntegrity(ss, dateStr) {
+  var date = _normalizeDate(dateStr || ''), raw = _readRawSnapshotRowsByDate(ss, date);
+  if (!date) throw new Error('유효한 date가 필요합니다.');
+  var grouped = {}, duplicateKeys = [], conflictKeys = [];
+  raw.forEach(function(row) { var key = date + '|' + _snapshotIntegrityKey(row); (grouped[key] || (grouped[key] = [])).push(row); });
+  Object.keys(grouped).forEach(function(key) {
+    if (grouped[key].length < 2) return;
+    duplicateKeys.push(key);
+    var signatures = {}; grouped[key].forEach(function(row) { signatures[JSON.stringify(row.slice(1, 12))] = true; });
+    if (Object.keys(signatures).length > 1) conflictKeys.push(key);
+  });
+  var result = { date: date, status: 'VALID', expectedRowCount: 0, storedRowCount: raw.length,
+    expectedCodes: [], storedCodes: [], missingCodes: [], unexpectedCodes: [], duplicateKeys: duplicateKeys,
+    conflictKeys: conflictKeys, qtyMismatches: [], costAmtMismatches: [], evalUnitMismatches: [],
+    evalAmtMismatches: [], sourceMismatches: [], totalExpectedEvalAmt: 0, totalStoredEvalAmt: 0,
+    totalEvalDifference: 0, totalExpectedCostAmt: 0, totalStoredCostAmt: 0, sourceDataErrors: [],
+    fundNavStates: [], foreignFxStates: [], expectedRows: [], storedRows: raw };
+  var expected = [];
+  try { expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true); }
+  catch (error) { result.sourceDataErrors.push(String(error.message || error)); result.status = 'SOURCE_INCOMPLETE'; }
+  result.expectedRows = expected;
+  var expectedMap = {}, storedMap = {};
+  expected.forEach(function(row) { expectedMap[_snapshotIntegrityKey(row)] = row; });
+  raw.forEach(function(row) { var key = _snapshotIntegrityKey(row); if (!storedMap[key]) storedMap[key] = row; });
+  result.expectedCodes = Object.keys(expectedMap).sort(); result.storedCodes = Object.keys(storedMap).sort();
+  result.expectedRowCount = expected.length;
+  result.missingCodes = result.expectedCodes.filter(function(code) { return !storedMap[code]; });
+  result.unexpectedCodes = result.storedCodes.filter(function(code) { return !expectedMap[code]; });
+  function compare(field, index, decimals) {
+    result[field] = result.expectedCodes.filter(function(code) {
+      return storedMap[code] && _snapshotStoredNumber(expectedMap[code][index], decimals) !== _snapshotStoredNumber(storedMap[code][index], decimals);
+    }).map(function(code) { return { code: code, expected: expectedMap[code][index], stored: storedMap[code][index] }; });
+  }
+  compare('qtyMismatches', 3, 8); compare('costAmtMismatches', 5, 0);
+  compare('evalUnitMismatches', 6, 2); compare('evalAmtMismatches', 7, 0);
+  result.sourceMismatches = result.expectedCodes.filter(function(code) {
+    return storedMap[code] && String(expectedMap[code][10] || '') !== String(storedMap[code][10] || '');
+  }).map(function(code) { return { code: code, expected: expectedMap[code][10] || '', stored: storedMap[code][10] || '' }; });
+  expected.forEach(function(row) {
+    result.totalExpectedEvalAmt += _snapshotStoredNumber(row[7], 0); result.totalExpectedCostAmt += _snapshotStoredNumber(row[5], 0);
+    if (_isFundCode(row[1])) {
+      var fundEvaluation = _getFundEvaluationAtDate(ss, row[1], date);
+      result.fundNavStates.push({ code: row[1], source: row[10], sourceDate: fundEvaluation ? fundEvaluation.sourceDate : '',
+        valueDate: fundEvaluation ? fundEvaluation.valueDate : '', temporary: /CARRY|INPUT_REQUIRED/.test(String(row[10])) });
+    }
+  });
+  try {
+    var currencies = {}, codeCurrencies = {};
+    getCodeItems(ss, true).forEach(function(item) {
+      var code = _cleanCode(item.code) || String(item.code || '').trim(), currency = String(item.currency || 'KRW').toUpperCase();
+      if (code && currency !== 'KRW') { codeCurrencies[code] = currency; currencies[currency] = true; }
+    });
+    var fxSheet = ss.getSheetByName('환율이력'), latestFx = {};
+    if (fxSheet && fxSheet.getLastRow() > 1) fxSheet.getRange(2, 1, fxSheet.getLastRow() - 1, 3).getValues().forEach(function(fxRow) {
+      var fxDate = _normalizeDate(fxRow[0]), currency = String(fxRow[1] || '').toUpperCase(), rate = Number(fxRow[2]);
+      if (fxDate && fxDate <= date && currencies[currency] && rate > 0 && (!latestFx[currency] || fxDate > latestFx[currency].sourceDate)) latestFx[currency] = { sourceDate: fxDate, rate: rate };
+    });
+    result.expectedCodes.forEach(function(code) {
+      var currency = codeCurrencies[code], state = currency ? latestFx[currency] : null;
+      if (currency) result.foreignFxStates.push({ code: code, currency: currency, sourceDate: state ? state.sourceDate : '', rate: state ? state.rate : 0 });
+    });
+  } catch (fxStateError) { result.sourceDataErrors.push('환율 상태 조회 실패: ' + fxStateError.message); }
+  raw.forEach(function(row) { result.totalStoredEvalAmt += _snapshotStoredNumber(row[7], 0); result.totalStoredCostAmt += _snapshotStoredNumber(row[5], 0); });
+  result.totalEvalDifference = result.totalStoredEvalAmt - result.totalExpectedEvalAmt;
+  if (result.status !== 'SOURCE_INCOMPLETE') {
+    var mismatched = result.qtyMismatches.length + result.costAmtMismatches.length + result.evalUnitMismatches.length + result.evalAmtMismatches.length + result.sourceMismatches.length;
+    if (conflictKeys.length) result.status = 'CONFLICT';
+    else if (!raw.length) result.status = 'NO_SNAPSHOT';
+    else if (result.missingCodes.length || result.unexpectedCodes.length || raw.length !== expected.length) result.status = 'PARTIAL';
+    else if (mismatched) result.status = 'MISMATCH';
+  }
+  return result;
+}
+
+function handleDiagnoseSnapshotIntegrity(dateStr, datesStr) {
+  try {
+    var dates = String(datesStr || dateStr || '').split(',').map(function(value) { return _normalizeDate(value.trim()); }).filter(Boolean);
+    if (!dates.length) return jsonError('date 또는 dates가 필요합니다.');
+    var ss = getss(), diagnostics = dates.map(function(date) { return diagnoseSnapshotIntegrity(ss, date); });
+    return jsonOk({ diagnostics: diagnostics, diagnostic: diagnostics.length === 1 ? diagnostics[0] : null });
+  } catch (error) { return jsonError('Snapshot 정합성 진단 실패: ' + error.message); }
+}
+
+function handleRewriteSnapshotDate(dateStr) {
+  try {
+    var ss = getss(), before = diagnoseSnapshotIntegrity(ss, dateStr);
+    if (['PARTIAL','MISMATCH','NO_SNAPSHOT'].indexOf(before.status) === -1) return jsonError('재작성 불가 상태: ' + before.status);
+    if (before.sourceDataErrors.length || before.conflictKeys.length) return jsonError('원자료 부족 또는 충돌으로 기존 Snapshot을 보존합니다.');
+    var protectedManual = before.storedRows.filter(function(row) { return before.unexpectedCodes.indexOf(_snapshotIntegrityKey(row)) !== -1 && String(row[10] || '').toUpperCase() === 'MANUAL'; });
+    if (protectedManual.length) return jsonError('MANUAL 행 보호로 자동 재작성하지 않습니다: ' + protectedManual.map(_snapshotIntegrityKey).join(', '));
+    var previousOperationId = _snapshotBackupOperationId;
+    _snapshotBackupOperationId = 'rewriteSnapshotDate|' + before.date + '|' + Utilities.getUuid();
+    try { writeSnapshotRows(ss, before.date, before.expectedRows, true); }
+    finally { _snapshotBackupOperationId = previousOperationId; }
+    var after = diagnoseSnapshotIntegrity(ss, before.date);
+    if (after.status !== 'VALID') throw new Error('재작성 후 재진단 실패: ' + after.status);
+    return jsonOk({ before: before, after: after, rewritten: true });
+  } catch (error) { return jsonError('Snapshot 안전 재작성 실패: ' + error.message); }
 }
 
 function _readSnapshotRowsByDate(ss, dateStr) {
@@ -7507,6 +7696,14 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
         newRows = toAdd; // 없는 종목만 추가
       }
       var mergedDate = _mergeSnapshotRowsSafely(sameDate, newRows, overwrite, manualKeys);
+      if (overwrite) {
+        var expectedKeys = {};
+        newRows.forEach(function(row) { expectedKeys[_cleanCode(row[1]) || String(row[2] || '').trim()] = true; });
+        mergedDate = mergedDate.filter(function(row) {
+          var key = _cleanCode(row[1]) || String(row[2] || '').trim();
+          return expectedKeys[key] || String(row[10] || '').toUpperCase() === 'MANUAL';
+        });
+      }
       if (_snapshotRowsSignature(mergedDate) === _snapshotRowsSignature(sameDate)) return;
       var combined = kept.concat(mergedDate);
       if (JSON.stringify(combined) === JSON.stringify(existing)) return;
@@ -7519,7 +7716,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
       output = [output[0]].concat(_normalizeCodeRows(output.slice(1), 1));
       sh.getRange(1, 1, output.length, colSize).setValues(output);
       _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
-      if (snapshotBackupRecord && !snapshotBackupRecord.reused) {
+      if (snapshotBackupRecord) {
         snapshotBackupRecord.cleanup = _cleanupSystemBackups(ss, CONFIG.SHEET_SNAPSHOT);
         PropertiesService.getScriptProperties().setProperty('snapshot_backup_last_status', JSON.stringify(snapshotBackupRecord));
       }
@@ -7590,8 +7787,10 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   if (reusableRecord) {
     props.setProperty(signatureKey, signature);
     if (operationId) props.setProperty(stateKey, operationId);
-    return { reused: true, name: reusableRecord.name, source: sourceName, signature: signature,
-      operationId: operationId, status: reusableRecord.status };
+    return { reused: true, name: reusableRecord.name, source: sourceName, signature: reusableRecord.signature,
+      operationId: reusableRecord.operationId || operationId, status: reusableRecord.status,
+      createdAt: reusableRecord.createdAt, completedAt: reusableRecord.completedAt,
+      updatedAt: reusableRecord.updatedAt, history: reusableRecord.history || [] };
   }
   // stale Properties는 실제 복구본을 증명하지 못하므로 제거합니다.
   if (props.getProperty(signatureKey) === signature) props.deleteProperty(signatureKey);
@@ -7633,7 +7832,13 @@ function _backupSnapshotBeforeWrite(ss, sheet) {
 }
 
 function _markSnapshotBackupStatus(record, status, message) {
-  if (!record || record.reused) return;
+  if (!record) return;
+  var existing = _readSystemBackupRegistry().filter(function(item) { return item.name === record.name; })[0] || {};
+  var previousStatus = existing.status || record.status || '';
+  record.history = (existing.history || record.history || []).slice(-19);
+  record.history.push({ status: previousStatus, transitionedTo: status, at: new Date().toISOString(),
+    reused: !!record.reused, message: message ? String(message).slice(0, 500) : '' });
+  record.previousStatus = previousStatus;
   record.status = status;
   record.updatedAt = new Date().toISOString();
   if (status === 'COMPLETED') record.completedAt = record.updatedAt;
@@ -8165,7 +8370,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.127' });
+    return jsonOk({ settings: settings, gasVersion: '9.128' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8187,7 +8392,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.127'
+      gasVersion: '9.128'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
