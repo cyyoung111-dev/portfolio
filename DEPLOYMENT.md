@@ -1,3 +1,9 @@
+## GAS v9.129 / 웹 20260928-3: Snapshot 안전 복구·백업 유지보수
+
+- 손익 화면은 선택 기간을 `diagnoseSnapshotIntegrityRange` 한 요청으로 진단하고 `PARTIAL`/`MISMATCH`/`CONFLICT` 지점을 정상 손익선에서 끊습니다. 검증 가능한 오류만 `rewriteSnapshotDate`로 재진단→재작성→VALID 재확인하며 완료 후 이력을 다시 조회합니다.
+- `maintainSystemBackups({apply:false})`는 삭제 없는 전체 분류를, 명시적 POST `apply:true`는 최신 유효본·active operation·수식 참조·사용자/UNKNOWN 백업을 보호한 안전 후보 삭제를 제공합니다. 시트 메뉴의 `백업 진단`과 `안전한 시스템 백업 정리`에서 전후 셀 수를 확인합니다.
+- Apps Script v9.129와 정적 웹 20260928-3을 함께 재배포해야 합니다. 실제 배포 후 `2026-07-21`~`2026-07-23` range 진단에서 저장/예상 종목, code·수량·원가·평가단가·평가금액 차이, 가격/NAV/환율 source 상태를 확인하고 백업 정리는 먼저 dry-run 결과를 검토하세요.
+
 ## GAS v9.128 / 웹 20260928-2: Snapshot 정합성·백업 수명주기
 
 - `diagnoseSnapshotIntegrity` GET으로 저장 Snapshot을 거래·가격·NAV·과거 환율 원자료 재계산값과 쓰기 없이 비교하고, `rewriteSnapshotDate` POST는 진단으로 안전성을 확인한 특정일만 재작성한 뒤 재진단합니다.

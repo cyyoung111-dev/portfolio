@@ -63,15 +63,21 @@ async function loadHistoryChart() {
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
-    const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots)).slice(0, 10);
+    const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
     let integrityDiagnostics = [];
-    if (suspiciousDates.length) {
-      try {
-        const integrity = await _historyRequestJson('diagnoseSnapshotIntegrity', { dates: suspiciousDates.join(',') }, { timeoutMs: 30000, retry: 0 });
+    try {
+        const integrity = await _historyRequestJson('diagnoseSnapshotIntegrityRange', {
+          from: snapshots[0].date,
+          to: snapshots[snapshots.length - 1].date,
+          candidates: suspiciousDates.join(',')
+        }, { timeoutMs: 120000, retry: 0 });
         if (requestId !== __histState.loadRequestId) return;
         integrityDiagnostics = Array.isArray(integrity?.diagnostics) ? integrity.diagnostics : [];
-      } catch (error) { console.warn('Snapshot integrity diagnosis failed:', error); }
-    }
+    } catch (error) { console.warn('Snapshot integrity range diagnosis failed:', error); }
+    const diagnosticByDate = new Map(integrityDiagnostics.map(item => [item.date, item]));
+    snapshots = snapshots.map(snapshot => ({ ...snapshot,
+      integrityStatus: diagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED' }));
+    __histState.integrityDiagnostics = integrityDiagnostics;
     const mode = _getHistMode();
     const tableSnapshots = _selectHistorySnapshots(snapshots, mode);
     const graphSnapshots = tableSnapshots;
@@ -210,7 +216,28 @@ function _renderHistoryIntegrityWarnings(el, diagnostics) {
   const labels = { PARTIAL: 'Snapshot 부분 누락', MISMATCH: '저장값과 원자료 불일치',
     SOURCE_INCOMPLETE: '원자료 부족으로 검증 불가', CONFLICT: '중복/충돌 존재', NO_SNAPSHOT: '날짜 Snapshot 누락' };
   const details = invalid.slice(0, 6).map(item => `${item.date} · 예상 ${item.expectedRowCount}종목 / 저장 ${item.storedRowCount}종목 · 평가금액 차이 ${Math.round(Number(item.totalEvalDifference || 0)).toLocaleString()}원`).join('<br>');
-  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ Snapshot 불완전 ${invalid.length}일</b><br>${details}<br><span style="color:var(--muted)">${_escapeHtml(invalid.map(item => labels[item.status] || item.status).join(', '))} · NAV 임시 평가와는 별도 상태입니다.</span></div>`);
+  const repairable = invalid.filter(item => ['PARTIAL', 'MISMATCH', 'NO_SNAPSHOT'].includes(item.status) && !item.sourceDataErrors?.length && !item.conflictKeys?.length);
+  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ Snapshot 불완전 ${invalid.length}일</b><br>${details}<br><span style="color:var(--muted)">${_escapeHtml(invalid.map(item => labels[item.status] || item.status).join(', '))} · 오류점은 정상 손익선에서 끊어 표시하며 NAV 임시 평가와는 별도 상태입니다.</span>${repairable.length ? `<br><button type="button" class="btn-ghost-sm" data-history-action="repair-integrity">검증 가능한 오류 Snapshot 복구 (${repairable.length})</button>` : ''}</div>`);
+}
+
+async function repairHistoryIntegritySnapshots() {
+  const targets = (__histState.integrityDiagnostics || []).filter(item => ['PARTIAL', 'MISMATCH', 'NO_SNAPSHOT'].includes(item.status) && !item.sourceDataErrors?.length && !item.conflictKeys?.length);
+  if (!targets.length || !confirm(`${targets.length}일의 검증 가능한 Snapshot을 원자료로 재작성할까요?`)) return;
+  const operationId = `history-integrity-${Date.now()}`;
+  const failed = []; let repaired = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const target = targets[i];
+    try {
+      const before = await _historyRequestJson('diagnoseSnapshotIntegrity', { date: target.date }, { timeoutMs: 30000, retry: 0 });
+      const diagnostic = before?.diagnostic;
+      if (!diagnostic || !['PARTIAL', 'MISMATCH', 'NO_SNAPSHOT'].includes(diagnostic.status) || diagnostic.sourceDataErrors?.length || diagnostic.conflictKeys?.length) throw new Error(`재진단 보호 상태: ${diagnostic?.status || 'UNKNOWN'}`);
+      const result = await requestGsheetFormJson('rewriteSnapshotDate', { date: target.date, operationId, finalize: i === targets.length - 1 ? '1' : '' }, { timeoutMs: 120000, retry: 0 });
+      if (result?.status === 'error' || result?.after?.status !== 'VALID') throw new Error(result?.message || `재작성 후 상태: ${result?.after?.status || 'UNKNOWN'}`);
+      repaired++;
+    } catch (error) { failed.push({ date: target.date, message: error.message }); }
+  }
+  showToast(`Snapshot 복구 성공 ${repaired}일${failed.length ? ` · 실패 ${failed.length}일` : ''}`, failed.length ? 'warn' : 'ok');
+  await loadHistoryChart();
 }
 
 async function _loadHistoryDateItems(date) {
