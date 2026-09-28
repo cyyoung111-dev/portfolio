@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.128
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.129
+//
+//  v9.129 변경사항 (2026.09.28):
+//   기간 Snapshot 정합성 진단·웹 안전 복구 및 전체 시스템 백업 dry-run/apply 유지보수 추가
 //
 //  v9.128 변경사항 (2026.09.28):
 //   Snapshot 원자료 정합성 진단·안전 재작성 및 재사용/유실 백업 수명주기 보강
@@ -776,6 +779,7 @@ function doGet(e) {
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
   if (params.action === 'diagnoseWorkbookCells') return handleDiagnoseWorkbookCells();
   if (params.action === 'diagnoseSnapshotIntegrity') return handleDiagnoseSnapshotIntegrity(params.date || '', params.dates || '');
+  if (params.action === 'diagnoseSnapshotIntegrityRange') return handleDiagnoseSnapshotIntegrityRange(params.from || '', params.to || '', params.candidates || '');
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
@@ -816,7 +820,7 @@ function doGet(e) {
       params.action === 'continueSnapshotRepair' || params.action === 'refreshEtfDividends' ||
       params.action === 'rebuildDailySnapshots' || params.action === 'rewriteSnapshotDate' ||
       params.action === 'previewFundNavImport' || params.action === 'importFundNav' ||
-      params.action === 'prepareBackupCleanup') {
+      params.action === 'prepareBackupCleanup' || params.action === 'maintainSystemBackups') {
     return jsonError(params.action + ' 은 POST 전용입니다');
   }
   return handlePriceFetch(params.date || '', params.allCodes || '');
@@ -847,7 +851,8 @@ function doPost(e) {
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
   if (params.action === 'prepareBackupCleanup') return handlePrepareBackupCleanup(params.data || '{}');
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
+  if (params.action === 'maintainSystemBackups') return handleMaintainSystemBackups(params.data || '{}');
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -867,7 +872,7 @@ function doPost(e) {
   if (params.action === 'continueSnapshotRepair') return handleContinueSnapshotRepair();
   if (params.action === 'saveKrxAuthKey') return handleSaveKrxAuthKey(params.key || '');
   if (params.action === 'repairSnapshots' && params.data) return handleRepairSnapshots(params.data);
-  if (params.action === 'rewriteSnapshotDate') return handleRewriteSnapshotDate(params.date || '');
+  if (params.action === 'rewriteSnapshotDate') return handleRewriteSnapshotDate(params.date || '', params.operationId || '', params.finalize || '');
   if (params.action === 'rebuildDailySnapshots') {
     try { return jsonOk(rebuildDailySnapshots(params.from || '', params.to || '')); }
     catch (error) { return jsonError('rebuildDailySnapshots 실패: ' + error.message); }
@@ -3841,7 +3846,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.128' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.129' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4802,6 +4807,92 @@ function handleDiagnoseWorkbookCells() {
   catch (err) { return jsonError('통합문서 셀 진단 실패: ' + err.message); }
 }
 
+// 전체 백업을 한 번에 분류합니다. apply=false 경로는 registry 기록도 바꾸지 않습니다.
+function _planSystemBackupMaintenance(ss) {
+  var before = _diagnoseWorkbookCells(ss, true), registry = _readSystemBackupRegistry(), records = {};
+  registry.forEach(function(item) { records[item.name] = item; });
+  var activeOperations = {};
+  registry.forEach(function(item) { if (item.status === 'CREATED' && item.operationId) activeOperations[item.operationId] = true; });
+  var backups = before.sheets.filter(function(item) { return item.backup; }).map(function(item) {
+    var record = records[item.name] || null, source = record ? record.source : _backupSourceFromSystemName(item.name);
+    var sourceSheet = source ? ss.getSheetByName(source) : null;
+    var schemaMatch = !!(sourceSheet && _sheetHeaderSignature(ss.getSheetByName(item.name)) === _sheetHeaderSignature(sourceSheet));
+    var namingMatch = !!_backupSourceFromSystemName(item.name);
+    var signatureMatch = record ? !!(record.signature && record.signature === _sheetContentSignature(ss.getSheetByName(item.name))) : !!_sheetContentSignature(ss.getSheetByName(item.name));
+    var classification = record ? (record.status === 'COMPLETED' ? 'REGISTERED_COMPLETED' : (record.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
+      (namingMatch && source && schemaMatch && item.formulaReferenceCount === 0 && !_isGasReferencedSheet(item.name) ? 'ORPHAN_LIKELY_SYSTEM' : (namingMatch ? 'UNKNOWN' : 'USER_MANAGED'));
+    var active = !!(record && activeOperations[record.operationId]);
+    return { name: item.name, registryRecordExists: !!record, source: source || '', classification: classification,
+      status: record ? record.status : '', signatureMatch: signatureMatch, schemaMatch: schemaMatch,
+      formulaReferenceCount: Number(item.formulaReferenceCount || 0), allocatedCells: item.allocatedCells,
+      operationId: record ? record.operationId || '' : '', activeOperation: active,
+      createdAt: record ? record.createdAt || '' : '', completedAt: record ? record.completedAt || '' : '',
+      autoCleanupEligible: false, protectionReason: '' };
+  });
+  var bySource = {};
+  backups.forEach(function(item) { if (item.source) (bySource[item.source] || (bySource[item.source] = [])).push(item); });
+  var sourceSummary = {};
+  Object.keys(bySource).forEach(function(source) {
+    var list = bySource[source], completed = list.filter(function(item) { return item.classification === 'REGISTERED_COMPLETED' || item.classification === 'ORPHAN_LIKELY_SYSTEM'; })
+      .sort(function(a, b) { return String(b.completedAt || b.createdAt || b.name).localeCompare(String(a.completedAt || a.createdAt || a.name)); });
+    var newest = completed[0] || null;
+    list.forEach(function(item) {
+      var safeClass = ['REGISTERED_COMPLETED', 'REGISTERED_WRITE_FAILED', 'ORPHAN_LIKELY_SYSTEM'].indexOf(item.classification) !== -1;
+      var olderFailed = item.classification === 'REGISTERED_WRITE_FAILED' && newest && String(item.createdAt || item.name) < String(newest.completedAt || newest.createdAt || newest.name);
+      item.autoCleanupEligible = !!(newest && item.name !== newest.name && safeClass && item.signatureMatch && item.schemaMatch && !item.activeOperation && item.formulaReferenceCount === 0 && (item.classification !== 'REGISTERED_WRITE_FAILED' || olderFailed));
+      if (!item.autoCleanupEligible) item.protectionReason = item === newest ? '최신 유효 COMPLETED 백업 보존' :
+        (item.activeOperation ? 'active operation' : (item.formulaReferenceCount ? '수식 참조 존재' :
+        (!safeClass ? 'USER_MANAGED/UNKNOWN 보호' : (!newest ? '별도 최신 COMPLETED 백업 없음' : '안전 조건 불충족'))));
+    });
+    var deletions = list.filter(function(item) { return item.autoCleanupEligible; });
+    sourceSummary[source] = { beforeCount: list.length, keepCount: list.length - deletions.length,
+      deletionCandidates: deletions.map(function(item) { return item.name; }),
+      protected: list.filter(function(item) { return !item.autoCleanupEligible; }).map(function(item) { return { name: item.name, reason: item.protectionReason }; }),
+      orphan: list.filter(function(item) { return item.classification === 'ORPHAN_LIKELY_SYSTEM'; }).map(function(item) { return item.name; }),
+      writeFailed: list.filter(function(item) { return item.classification === 'REGISTERED_WRITE_FAILED'; }).map(function(item) { return item.name; }),
+      expectedReleasedCells: deletions.reduce(function(sum, item) { return sum + item.allocatedCells; }, 0) };
+  });
+  return { generatedAt: new Date().toISOString(), apply: false, backupSheets: backups, bySource: sourceSummary,
+    beforeCount: backups.length, totalCellsBefore: before.totalCells, remainingCellsBefore: before.remainingCells };
+}
+
+function maintainSystemBackups(options) {
+  var apply = !!(options && options.apply), ss = getss(), plan = _planSystemBackupMaintenance(ss);
+  if (!apply) return plan;
+  var deleted = [], failures = [], releasedCells = 0;
+  plan.backupSheets.filter(function(item) { return item.autoCleanupEligible; }).forEach(function(item) {
+    try { var sheet = ss.getSheetByName(item.name); if (!sheet) throw new Error('시트를 찾을 수 없습니다.'); ss.deleteSheet(sheet); deleted.push(item.name); releasedCells += item.allocatedCells; }
+    catch (error) { failures.push({ name: item.name, message: error.message }); }
+  });
+  var deletedMap = {}; deleted.forEach(function(name) { deletedMap[name] = true; });
+  _writeSystemBackupRegistry(_readSystemBackupRegistry().filter(function(item) { return !deletedMap[item.name]; }));
+  var after = _diagnoseWorkbookCells(ss, true);
+  plan.apply = true; plan.deletedSheetNames = deleted; plan.protectedSheets = plan.backupSheets.filter(function(item) { return !item.autoCleanupEligible; }).map(function(item) { return { name: item.name, reason: item.protectionReason }; });
+  plan.releasedCells = releasedCells; plan.failures = failures; plan.afterCount = after.backupSummary.sheetCount;
+  plan.totalCellsAfter = after.totalCells; plan.remainingCellsAfter = after.remainingCells;
+  return plan;
+}
+
+function handleMaintainSystemBackups(dataJson) {
+  try { return jsonOk({ maintenance: maintainSystemBackups(JSON.parse(dataJson || '{}')) }); }
+  catch (error) { return jsonError('시스템 백업 유지보수 실패: ' + error.message); }
+}
+
+function showSystemBackupDiagnosis() {
+  var result = maintainSystemBackups({ apply: false }), lines = [];
+  Object.keys(result.bySource).sort().forEach(function(source) { var item = result.bySource[source]; lines.push(source + ': 전체 ' + item.beforeCount + ' / 보존 ' + item.keepCount + ' / 정리 후보 ' + item.deletionCandidates.length + ' / 예상 확보 ' + item.expectedReleasedCells + '셀'); });
+  SpreadsheetApp.getUi().alert('백업 진단 (삭제 없음)\n\n현재 백업 ' + result.beforeCount + '개\n전체 셀 ' + result.totalCellsBefore + ' / 잔여 셀 ' + result.remainingCellsBefore + '\n\n' + lines.join('\n'));
+}
+
+function applySystemBackupMaintenancePrompt() {
+  var ui = SpreadsheetApp.getUi(), dryRun = maintainSystemBackups({ apply: false });
+  var candidates = dryRun.backupSheets.filter(function(item) { return item.autoCleanupEligible; });
+  if (!candidates.length) { ui.alert('안전하게 정리할 시스템 백업이 없습니다.'); return; }
+  if (ui.alert('안전한 시스템 백업 정리', candidates.length + '개 시트를 삭제하고 최신 유효 백업은 source별 1개 보존합니다. 계속하시겠습니까?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  var result = maintainSystemBackups({ apply: true });
+  ui.alert('백업 정리 결과\n\n삭제 전/후: ' + result.beforeCount + ' / ' + result.afterCount + '\n삭제: ' + (result.deletedSheetNames.join(', ') || '없음') + '\n보호: ' + result.protectedSheets.map(function(item) { return item.name + '(' + item.reason + ')'; }).join(', ') + '\n확보 셀: ' + result.releasedCells + '\ntotalCells: ' + result.totalCellsBefore + ' → ' + result.totalCellsAfter + '\nremainingCells: ' + result.remainingCellsBefore + ' → ' + result.remainingCellsAfter + '\n실패: ' + (result.failures.map(function(item) { return item.name + ': ' + item.message; }).join(', ') || '없음'));
+}
+
 function _sheetContentSignature(sheet) {
   var rows = Number(sheet.getLastRow()) || 0, columns = Number(sheet.getLastColumn()) || 0;
   if (!rows || !columns) return '0x0';
@@ -5381,9 +5472,10 @@ function rebuildDailySnapshots(fromStr, toStr) {
       if (errors.length < 20) errors.push({ date: date, message: String(error.message || error) });
     }
   });
+  var backupCleanup = _cleanupSystemBackups(ss, CONFIG.SHEET_SNAPSHOT);
   _snapshotBackupOperationId = previousOperationId;
   return { ok: true, from: fromDate, to: toDate, candidateDates: Object.keys(dates).sort().length,
-    rebuilt: rebuilt, unchanged: unchanged, empty: empty, skipped: skipped, changes: changes, errors: errors };
+    rebuilt: rebuilt, unchanged: unchanged, empty: empty, skipped: skipped, changes: changes, errors: errors, backupCleanup: backupCleanup };
 }
 
 function _collectDailySnapshotDates(ss, fromDate, toDate) {
@@ -5689,7 +5781,29 @@ function handleDiagnoseSnapshotIntegrity(dateStr, datesStr) {
   } catch (error) { return jsonError('Snapshot 정합성 진단 실패: ' + error.message); }
 }
 
-function handleRewriteSnapshotDate(dateStr) {
+function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr) {
+  try {
+    var from = _normalizeDate(fromStr), to = _normalizeDate(toStr);
+    if (!from || !to || from > to) throw new Error('유효한 from/to가 필요합니다.');
+    var dates = [], cursor = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z');
+    while (cursor <= end) {
+      var day = cursor.getUTCDay();
+      if (day !== 0 && day !== 6) dates.push(Utilities.formatDate(cursor, 'UTC', 'yyyy-MM-dd'));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      if (dates.length > 400) throw new Error('진단 범위는 평일 400일 이하여야 합니다.');
+    }
+    var ss = getss(), diagnostics = dates.map(function(date) { return diagnoseSnapshotIntegrity(ss, date); });
+    var groups = { VALID: [], PARTIAL: [], MISMATCH: [], CONFLICT: [], SOURCE_INCOMPLETE: [], NO_SNAPSHOT: [] };
+    diagnostics.forEach(function(item) { (groups[item.status] || (groups[item.status] = [])).push(item.date); });
+    var requestedCandidates = String(candidatesStr || '').split(',').map(function(value) { return _normalizeDate(value.trim()); }).filter(Boolean);
+    return jsonOk({ checkedDates: dates, validDates: groups.VALID, partialDates: groups.PARTIAL,
+      mismatchDates: groups.MISMATCH, conflictDates: groups.CONFLICT,
+      sourceIncompleteDates: groups.SOURCE_INCOMPLETE, noSnapshotDates: groups.NO_SNAPSHOT,
+      abnormalCandidates: requestedCandidates, diagnostics: diagnostics });
+  } catch (error) { return jsonError('Snapshot 기간 정합성 진단 실패: ' + error.message); }
+}
+
+function handleRewriteSnapshotDate(dateStr, operationId, finalize) {
   try {
     var ss = getss(), before = diagnoseSnapshotIntegrity(ss, dateStr);
     if (['PARTIAL','MISMATCH','NO_SNAPSHOT'].indexOf(before.status) === -1) return jsonError('재작성 불가 상태: ' + before.status);
@@ -5697,12 +5811,13 @@ function handleRewriteSnapshotDate(dateStr) {
     var protectedManual = before.storedRows.filter(function(row) { return before.unexpectedCodes.indexOf(_snapshotIntegrityKey(row)) !== -1 && String(row[10] || '').toUpperCase() === 'MANUAL'; });
     if (protectedManual.length) return jsonError('MANUAL 행 보호로 자동 재작성하지 않습니다: ' + protectedManual.map(_snapshotIntegrityKey).join(', '));
     var previousOperationId = _snapshotBackupOperationId;
-    _snapshotBackupOperationId = 'rewriteSnapshotDate|' + before.date + '|' + Utilities.getUuid();
+    _snapshotBackupOperationId = operationId ? 'rewriteSnapshotDate|' + String(operationId) : 'rewriteSnapshotDate|' + before.date + '|' + Utilities.getUuid();
     try { writeSnapshotRows(ss, before.date, before.expectedRows, true); }
     finally { _snapshotBackupOperationId = previousOperationId; }
     var after = diagnoseSnapshotIntegrity(ss, before.date);
     if (after.status !== 'VALID') throw new Error('재작성 후 재진단 실패: ' + after.status);
-    return jsonOk({ before: before, after: after, rewritten: true });
+    var cleanup = operationId && String(finalize) === '1' ? _cleanupSystemBackups(ss, CONFIG.SHEET_SNAPSHOT) : null;
+    return jsonOk({ before: before, after: after, rewritten: true, backupCleanup: cleanup });
   } catch (error) { return jsonError('Snapshot 안전 재작성 실패: ' + error.message); }
 }
 
@@ -7717,7 +7832,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
       sh.getRange(1, 1, output.length, colSize).setValues(output);
       _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
       if (snapshotBackupRecord) {
-        snapshotBackupRecord.cleanup = _cleanupSystemBackups(ss, CONFIG.SHEET_SNAPSHOT);
+        snapshotBackupRecord.cleanup = _snapshotBackupOperationId ? null : _cleanupSystemBackups(ss, CONFIG.SHEET_SNAPSHOT);
         PropertiesService.getScriptProperties().setProperty('snapshot_backup_last_status', JSON.stringify(snapshotBackupRecord));
       }
     } else {
@@ -7780,9 +7895,11 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
     if (record.status !== 'CREATED' && record.status !== 'COMPLETED' && record.status !== 'WRITE_FAILED') return false;
     var candidate = ss.getSheetByName(record.name);
     var expectedBackupSignature = String(record.signature || '');
+    // 같은 실행 안의 operationId는 서버 내부에서만 설정되며, 첫 쓰기 뒤 원본 signature가
+    // 달라져도 논리 작업 전체의 쓰기 전 복구본 하나를 재사용합니다.
+    if (candidate && operationId && record.operationId === operationId && candidate.getName().indexOf(sourceName + '_백업_') === 0) return true;
     return !!candidate && candidate.getName().indexOf(sourceName + '_백업_') === 0 && expectedBackupSignature &&
-      _sheetContentSignature(candidate) === expectedBackupSignature &&
-      (expectedBackupSignature === signature || (!!operationId && record.operationId === operationId));
+      _sheetContentSignature(candidate) === expectedBackupSignature && expectedBackupSignature === signature;
   })[0];
   if (reusableRecord) {
     props.setProperty(signatureKey, signature);
@@ -8370,7 +8487,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.128' });
+    return jsonOk({ settings: settings, gasVersion: '9.129' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8392,7 +8509,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.128'
+      gasVersion: '9.129'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -8989,6 +9106,9 @@ function onOpen(e) {
 
     // ── 서브메뉴: 유지보수 ──
     var menuMaint = ui.createMenu('🛠️ 유지보수')
+      .addItem('🔎 백업 진단', 'showSystemBackupDiagnosis')
+      .addItem('🧹 안전한 시스템 백업 정리', 'applySystemBackupMaintenancePrompt')
+      .addSeparator()
       .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
       .addItem('▶️ 확정 평가단가·스냅샷 지금 갱신', 'runDailyPriceSnapshotNow')
       .addItem('📸 전체 가격이력·스냅샷 정합성 복구', 'runSnapshotConsistencyRepair')

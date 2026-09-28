@@ -51,6 +51,7 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     eval: parseFloat(s.evalAmt || s.total || s.eval || 0),
     navInputRequired: !!s.navInputRequired,
     navInputRequiredCodes: Array.isArray(s.navInputRequiredCodes) ? s.navInputRequiredCodes : [],
+    integrityStatus: String(s.integrityStatus || 'VALID'),
   }));
   pts.forEach(p => { p.pnl = p.eval - p.cost; });
 
@@ -66,8 +67,13 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
     ? (portfolioLast / portfolioFirst - 1) * 100
     : 0;
 
-  const minMoney = Math.min(...pts.map(p => p.pnl));
-  const maxMoney = Math.max(...pts.map(p => p.pnl));
+  const validPts = pts.filter(p => !['PARTIAL', 'MISMATCH', 'CONFLICT'].includes(p.integrityStatus));
+  if (!validPts.length) {
+    wrap.innerHTML = '<div style="padding:36px;text-align:center;color:var(--amber)">⚠️ 선택 기간의 Snapshot이 모두 오류/충돌 상태라 정상 손익선을 표시할 수 없습니다.</div>';
+    return;
+  }
+  const minMoney = Math.min(...validPts.map(p => p.pnl));
+  const maxMoney = Math.max(...validPts.map(p => p.pnl));
   const moneyPad = (maxMoney - minMoney) * 0.1 || Math.max(Math.abs(maxMoney), Math.abs(minMoney)) * 0.08 || 1000000;
   const yMoneyMin = minMoney - moneyPad;
   const yMoneyMax = maxMoney + moneyPad;
@@ -76,12 +82,21 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   const yMoney = v => PAD.top + CH - ((v - yMoneyMin) / (yMoneyMax - yMoneyMin || 1)) * CH;
 
   // 손익 polyline
-  const pnlPts  = pts.map((p, i) => `${xScale(i).toFixed(1)},${yMoney(p.pnl).toFixed(1)}`).join(' ');
+  const pnlSegments = [];
+  let pnlSegment = [];
+  pts.forEach((p, i) => {
+    if (['PARTIAL', 'MISMATCH', 'CONFLICT'].includes(p.integrityStatus)) {
+      if (pnlSegment.length) pnlSegments.push(pnlSegment);
+      pnlSegment = [];
+    } else pnlSegment.push(`${xScale(i).toFixed(1)},${yMoney(p.pnl).toFixed(1)}`);
+  });
+  if (pnlSegment.length) pnlSegments.push(pnlSegment);
+  const pnlLines = pnlSegments.map(segment => `<polyline points="${segment.join(' ')}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linejoin="round"/>`).join('');
+  const integrityMarkers = pts.map((p, i) => ['PARTIAL', 'MISMATCH', 'CONFLICT'].includes(p.integrityStatus)
+    ? `<g><line x1="${xScale(i)}" y1="${PAD.top}" x2="${xScale(i)}" y2="${PAD.top + CH}" stroke="var(--amber)" stroke-dasharray="3 3"/><text x="${xScale(i)}" y="${PAD.top + 10}" text-anchor="middle" fill="var(--amber)" font-size="10">⚠</text></g>` : '').join('');
   // 손익 fill path (0선 기준)
   const zero    = yMoney(0).toFixed(1);
-  const pnlFill = `M${xScale(0).toFixed(1)},${zero} ` +
-    pts.map((p, i) => `L${xScale(i).toFixed(1)},${yMoney(p.pnl).toFixed(1)}`).join(' ') +
-    ` L${xScale(pts.length-1).toFixed(1)},${zero} Z`;
+  const pnlFill = '';
 
   // x축 레이블 (최대 5개 + 마지막)
   const labelStep = Math.max(1, Math.ceil(pts.length / 5));
@@ -204,11 +219,12 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
       <line x1="${PAD.left}" y1="${zero}" x2="${PAD.left + CW}" y2="${zero}"
         stroke="${lastPt.pnl >= 0 ? 'var(--green)' : 'var(--red)'}" stroke-width="0.8" stroke-dasharray="3,3"/>
       <!-- 손익 라인 -->
-      <polyline points="${pnlPts}" fill="none" stroke="${pnlColor}" stroke-width="2" stroke-linejoin="round"/>
+      ${pnlLines}
+      ${integrityMarkers}
       ${navInputMarkers}
       ${benchLineSvg}
       <!-- 마지막 포인트 dot -->
-      <circle data-history-action="marker-date" data-date="${_escapeHtml(lastPt.rawDate)}" cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="6" fill="${pnlColor}" stroke="var(--s1)" stroke-width="2" style="cursor:pointer"><title>${_escapeHtml(lastPt.rawDate)} · 손익 ${_escapeHtml(_fmtKrw(lastPt.pnl))} · 최신 저장 스냅샷 (선택하여 상세 보기)</title></circle>
+      ${['PARTIAL', 'MISMATCH', 'CONFLICT'].includes(lastPt.integrityStatus) ? '' : `<circle data-history-action="marker-date" data-date="${_escapeHtml(lastPt.rawDate)}" cx="${lastX.toFixed(1)}" cy="${yMoney(lastPt.pnl).toFixed(1)}" r="6" fill="${pnlColor}" stroke="var(--s1)" stroke-width="2" style="cursor:pointer"><title>${_escapeHtml(lastPt.rawDate)} · 손익 ${_escapeHtml(_fmtKrw(lastPt.pnl))} · 최신 저장 스냅샷 (선택하여 상세 보기)</title></circle>`}
       <!-- 범례 -->
       <line x1="${PAD.left + 4}" y1="${PAD.top + 10}" x2="${PAD.left + 20}" y2="${PAD.top + 10}" stroke="${pnlColor}" stroke-width="2"/>
       <text x="${PAD.left + 24}" y="${PAD.top + 14}" font-size="10" fill="var(--muted)">손익</text>
@@ -331,6 +347,33 @@ function _drawHistoryTable(wrap, snapshots) {
 function _buildHistoryDiagnostics(snapshots) {
   const out = {};
   if (!Array.isArray(snapshots) || snapshots.length < 2) return out;
+  // 앞·현재·뒤가 빠르게 원래 수준으로 돌아오는 경우를 고정 금액 임계치와 별도로 찾습니다.
+  // 이는 GAS 원자료 진단을 요청할 후보일 뿐 오류 확정 판정에는 사용하지 않습니다.
+  for (let i = 1; i < snapshots.length - 1; i++) {
+    const prev = snapshots[i - 1], cur = snapshots[i], next = snapshots[i + 1];
+    const value = item => Number(item.evalAmt || item.total || item.eval || 0);
+    const cost = item => Number(item.costAmt || item.cost || 0);
+    const baseline = Math.max(1, Math.abs(value(prev)));
+    const departure = Math.abs(value(cur) - value(prev));
+    const recovery = Math.abs(value(next) - value(prev));
+    const costMovement = Math.max(Math.abs(cost(cur) - cost(prev)), Math.abs(cost(next) - cost(cur)));
+    const trades = (typeof rawTrades === 'undefined' ? [] : rawTrades).filter(trade => {
+      const date = _normalizeHistDate(trade.date || trade.tradeDate || '');
+      return date >= prev.date && date <= next.date && /^(BUY|SELL|매수|매도)$/i.test(String(trade.type || trade.side || ''));
+    });
+    const tradeAmount = trades.reduce((sum, trade) => sum + Math.abs(Number(trade.amount || trade.total || (Number(trade.qty) * Number(trade.price)) || 0)), 0);
+    const countPrev = Number(prev.itemCount || prev.holdingCount || prev.count || 0);
+    const countCur = Number(cur.itemCount || cur.holdingCount || cur.count || 0);
+    const countNext = Number(next.itemCount || next.holdingCount || next.count || 0);
+    const countAnomaly = countPrev && countNext && countCur && countCur !== countPrev && countPrev === countNext;
+    const sharpDeparture = departure / baseline >= 0.12;
+    const immediateRecovery = recovery <= Math.max(baseline * 0.06, departure * 0.3);
+    const unexplained = tradeAmount < departure * 0.35 && costMovement < departure * 0.35;
+    if (sharpDeparture && immediateRecovery && unexplained) {
+      out[cur.date] = { level: 'warn', kind: 'TRANSIENT_V', note: `일시적 V자 이탈 후보 (평가 ${_fmtKrw(value(cur) - value(prev))})`,
+        prevDate: prev.date, nextDate: next.date, departure, recovery, costMovement, tradeAmount, countAnomaly };
+    }
+  }
   for (let i = 1; i < snapshots.length; i++) {
     const cur = snapshots[i], prev = snapshots[i - 1];
     const curEval = parseFloat(cur.evalAmt || cur.total || cur.eval || 0);
@@ -346,13 +389,13 @@ function _buildHistoryDiagnostics(snapshots) {
     const prevEvalAbs = Math.max(1, Math.abs(prevEval));
     const evalJumpPct = absEval / prevEvalAbs;
     if (evalJumpPct >= 0.6 && absCost <= Math.max(100000000, prevCost * 0.1)) {
-      out[cur.date] = {
+      out[cur.date] = out[cur.date] || {
         level: 'warn',
         note: `중복집계 의심 (평가 ${dEval>=0?'+':''}${_fmtKrw(dEval)}, 원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
         curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
       };
     } else if (absEval >= 500000000 && absCost <= Math.max(100000000, absEval * 0.12)) {
-      out[cur.date] = {
+      out[cur.date] = out[cur.date] || {
         level: 'warn',
         note: `가격 영향 큼 (평가 ${dEval>=0?'+':''}${_fmtKrw(dEval)}, 원가 ${dCost>=0?'+':''}${_fmtKrw(dCost)})`,
         curEval, prevEval, curCost, prevCost, curQty, prevQty, dEval, dCost, evalJumpPct,
