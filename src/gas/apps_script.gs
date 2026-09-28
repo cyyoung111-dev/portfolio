@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.126
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.127
+//
+//  v9.127 변경사항 (2026.09.28):
+//   펀드 복구 timeout 저장상태 재검증 및 정상 비공시일 API 오류 격리
 //
 //  v9.126 변경사항 (2026.09.23):
 //   해외 확정 종가·INDICATIVE 저장 차단·백업 재사용·NAV 중복 판정 보강
@@ -767,6 +770,7 @@ function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
+  if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
   if (params.action === 'diagnoseWorkbookCells') return handleDiagnoseWorkbookCells();
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
@@ -839,7 +843,7 @@ function doPost(e) {
   if (params.action === 'saveFundUnits') return handleSaveFundUnits(params.data || '{}');
   if (params.action === 'refreshFundValuations') return handleRefreshFundValuations(params.from, params.to, params.code || '', params.diagnostic || '');
   if (params.action === 'prepareBackupCleanup') return handlePrepareBackupCleanup(params.data || '{}');
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -3832,7 +3836,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.126' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.127' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4058,6 +4062,60 @@ function _fundValueNeedsProcessing(value, storedRow, priceRow, snapshotRow) {
   return !(navComplete && priceComplete && snapshotComplete);
 }
 
+// 외부 NAV 조회나 쓰기 없이 현재 저장 자료만으로 날짜별 완료 상태를 판정합니다.
+function _getFundValuationStatus(ss, from, to, code) {
+  _fundDate(from); _fundDate(to);
+  code = String(code || '').trim().toUpperCase();
+  if (from > to || to > today() || to > _fundDateOffset(from, 31)) throw new Error('한 번에 과거 32일 이내를 조회하세요.');
+  if (['F00001','F00002','F00003'].indexOf(code) === -1) throw new Error('지원하지 않는 펀드 코드');
+  var configs = _readFundUnits(ss);
+  var config = configs.find(function(item) { return item.code === code; });
+  if (!config) throw new Error('저장된 펀드 좌수 설정 없음: ' + code);
+  var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
+  var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
+  var storedKeys = {};
+  stored.forEach(function(row) {
+    if (String(row[1]) === code && String(row[8]) === config.provider) storedKeys[_normalizeDate(row[0]) + '|' + code] = row;
+  });
+  var navRows = _storedFundNavRows(stored, code, config.provider, from, to);
+  var confirmed = {};
+  navRows.forEach(function(row) { confirmed[row.date] = true; });
+  var valueByDate = {};
+  _fundDailyValues(configs, code, navRows, from, to).forEach(function(value) {
+    value.carried = value.date !== value.sourceDate;
+    value.inputRequired = value.carried && _fundNavExpectedPublicationDate(value.date, code) && !confirmed[value.date];
+    valueByDate[value.date] = value;
+  });
+  var derived = _fundDerivedState(ss, configs);
+  var dates = [];
+  for (var date = from; date <= to; date = _fundDateOffset(date, 1)) {
+    var datedConfig = _fundUnitsAtDate(configs, code, date);
+    if (!datedConfig || datedConfig.units <= 0) continue;
+    var expected = _fundNavExpectedPublicationDate(date, code);
+    var value = valueByDate[date];
+    var price = derived.priceKeys[date + '|' + code];
+    var snapshot = derived.snapshotKeys[date + '|' + code];
+    var navState = confirmed[date] ? 'EXISTING_CONFIRMED' : (!expected ? 'NON_PUBLICATION_CARRY' : (date === today() ? 'UNPUBLISHED' : 'NAV_MISSING'));
+    var expectedSource = value && (value.inputRequired ? 'FUND_NAV_CARRY_INPUT_REQUIRED' : (value.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV'));
+    var priceSource = String(price && price[5] || '').toUpperCase();
+    var evaluationValid = !!value && !!price && (priceSource === 'MANUAL' || (Number(price[3]) === value.evalAmt && priceSource === expectedSource));
+    var snapshotSource = String(snapshot && snapshot[10] || '').toUpperCase();
+    var snapshotValid = !!value && evaluationValid && !!snapshot && (snapshotSource === 'MANUAL' || (Number(snapshot[7]) === Number(price[3]) && snapshotSource === priceSource));
+    dates.push({ code: code, date: date, publicationExpected: expected, navState: navState, unitsApplied: !!value,
+      evaluationState: evaluationValid ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED'),
+      snapshotState: snapshotValid ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED'), reconciled: true });
+  }
+  return { code: code, dates: dates };
+}
+
+function handleGetFundValuationStatus(from, to, code) {
+  try {
+    var status = _getFundValuationStatus(getss(), from, to, code);
+    var fundResults = {}; fundResults[status.code] = status;
+    return jsonOk({ fundResults: fundResults });
+  } catch (err) { return jsonError('펀드 평가 저장상태 확인 실패: ' + err.message); }
+}
+
 function _getFundNavStatus(ss, configs) {
   var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
   var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
@@ -4225,7 +4283,9 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
           (confirmedNavDates[activeDate] ? 'FETCHED_CONFIRMED' :
           (!expected ? 'NON_PUBLICATION_CARRY' : (activeDate === today() ? 'UNPUBLISHED' : 'NAV_MISSING')));
         var error = fundResult.apiErrors.find(function(item) { return activeDate >= item.from && activeDate <= item.to; });
-        if (error) navState = 'API_FAILED';
+        // 광범위한 오류 구간이어도 공시 대상이 아니거나 이미 확정된 날짜는 실패로 오염시키지 않습니다.
+        if (error && expected && !confirmedNavDates[activeDate]) navState = 'API_FAILED';
+        else if (!expected || confirmedNavDates[activeDate]) error = null;
         return { date: activeDate, publicationExpected: expected, navState: navState,
           unitsApplied: !!value, evaluationState: value ? (target ? 'WRITE_REQUIRED' : 'EXISTING_VALID') : 'NOT_CREATED',
           snapshotState: snapshotKeys[activeDate + '|' + code] ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED'),
@@ -8105,7 +8165,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.126' });
+    return jsonOk({ settings: settings, gasVersion: '9.127' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8127,7 +8187,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.126'
+      gasVersion: '9.127'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

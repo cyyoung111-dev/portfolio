@@ -667,6 +667,21 @@ context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const nonPublication=context._refreshFundValuations(nonPublicationSs,'2026-09-21','2026-09-21','F00001');
 assert.equal(nonPublication.fundResults.F00001.dates[0].navState,'NON_PUBLICATION_CARRY','당일이어도 정상 비공시일은 미공시가 아닌 이월로 분류');
 assert.equal(nonPublication.fundResults.F00001.latestUnpublished,0);
+const readOnlyMonday=clone(context._getFundValuationStatus(nonPublicationSs,'2026-09-21','2026-09-21','F00001'));
+assert.equal(readOnlyMonday.dates[0].navState,'NON_PUBLICATION_CARRY','read-only 재검증도 월요일을 정상 이월로 판정');
+
+// 외부 API 오류 범위가 정상 비공시일을 포함해도 월·목·주말 상태를 API_FAILED로 덮어쓰지 않습니다.
+context.today=()=> '2026-09-28';
+const savedBatchFetch=context._fetchMissingFundNavBatches;
+context._fetchMissingFundNavBatches=()=>({rows:[],batches:[],errors:[{from:'2026-09-21',to:'2026-09-27',message:'provider timeout'}]});
+const broadError=context._refreshFundValuations(nonPublicationSs,'2026-09-21','2026-09-27','F00001');
+const broadStates=Object.fromEntries(broadError.fundResults.F00001.dates.map(day=>[day.date,day.navState]));
+assert.equal(broadStates['2026-09-21'],'NON_PUBLICATION_CARRY','월요일 API 실패 오염 방지');
+assert.equal(broadStates['2026-09-24'],'NON_PUBLICATION_CARRY','목요일 API 실패 오염 방지');
+assert.equal(broadStates['2026-09-26'],'NON_PUBLICATION_CARRY','토요일 API 실패 오염 방지');
+assert.equal(broadStates['2026-09-27'],'NON_PUBLICATION_CARRY','일요일 API 실패 오염 방지');
+assert.equal(broadStates['2026-09-22'],'API_FAILED','실제 공시 예상·미확보일은 API_FAILED 유지');
+context._fetchMissingFundNavBatches=savedBatchFetch;
 context.today=()=> '2026-09-09';
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
