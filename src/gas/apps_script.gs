@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.130
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.131
+//
+//  v9.131 변경사항 (2026.09.28):
+//   기간 Snapshot 진단의 원장 index·증분 holdings와 단계별 오류 관측성 추가
 //
 //  v9.130 변경사항 (2026.09.28):
 //   가격이력 독립 정합성 진단·preview/apply 복구와 단일 read 기간 Snapshot 진단 추가
@@ -782,7 +785,7 @@ function doGet(e) {
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
   if (params.action === 'diagnoseWorkbookCells') return handleDiagnoseWorkbookCells();
   if (params.action === 'diagnoseSnapshotIntegrity') return handleDiagnoseSnapshotIntegrity(params.date || '', params.dates || '');
-  if (params.action === 'diagnoseSnapshotIntegrityRange') return handleDiagnoseSnapshotIntegrityRange(params.from || '', params.to || '', params.candidates || '');
+  if (params.action === 'diagnoseSnapshotIntegrityRange') return handleDiagnoseSnapshotIntegrityRange(params.from || '', params.to || '', params.candidates || '', params.dates || '');
   if (params.action === 'diagnosePriceHistoryIntegrity') return handleDiagnosePriceHistoryIntegrity(params.date || '', params.dates || '', params.codes || '');
   if (params.action === 'previewPriceHistoryRepair') return handlePreviewPriceHistoryRepair(params.data || '{}');
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
@@ -3852,7 +3855,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.130' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.131' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5704,13 +5707,18 @@ function _readPriceIntegrityContext(ss) {
 }
 
 function _priceIntegrityRows(context, dates, codes) {
-  var wantedDates = {}, wantedCodes = {}, series = {}, trades = {};
+  var wantedDates = {}, wantedCodes = {}, series = {}, trades = {}, fxSeries = {};
   (dates || []).forEach(function(value) { wantedDates[value] = true; });
   (codes || []).forEach(function(value) { wantedCodes[_cleanCode(value) || String(value)] = true; });
   context.tradeRows.forEach(function(row) {
     var date = _normalizeDate(row[0]), code = _cleanCode(row[4]) || String(row[4] || '').trim();
     if (date && code) trades[date + '|' + code] = true;
   });
+  context.fxRows.forEach(function(row) {
+    var date = _normalizeDate(row[0]), currency = String(row[1] || '').toUpperCase(), rate = Number(row[2]);
+    if (date && currency && rate > 0) (fxSeries[currency] || (fxSeries[currency] = [])).push({ date: date, rate: rate });
+  });
+  Object.keys(fxSeries).forEach(function(currency) { fxSeries[currency].sort(function(a,b) { return a.date.localeCompare(b.date); }); });
   context.priceRows.forEach(function(row, index) {
     var date = _normalizeDate(row[0]), code = _cleanCode(row[1]) || String(row[1] || '').trim(), price = Number(row[3]);
     if (!date || !code) return;
@@ -5731,10 +5739,10 @@ function _priceIntegrityRows(context, dates, codes) {
       var oneDaySpike = rebound && cur.price / previous.price >= 5;
       var codeItem = context.byCode[code] || {}, currency = String(codeItem.currency || 'KRW').toUpperCase();
       var fx = null;
-      if (currency !== 'KRW') context.fxRows.forEach(function(row) {
-        var fxDate = _normalizeDate(row[0]), fxCurrency = String(row[1] || '').toUpperCase(), rate = Number(row[2]);
-        if (fxCurrency === currency && fxDate && fxDate <= cur.date && (!fx || fxDate > fx.date)) fx = { date: fxDate, rate: rate };
-      });
+      if (currency !== 'KRW') {
+        var rows = fxSeries[currency] || [], low = 0, high = rows.length - 1;
+        while (low <= high) { var mid = (low + high) >> 1; if (rows[mid].date <= cur.date) { fx = rows[mid]; low = mid + 1; } else high = mid - 1; }
+      }
       var corporateActionPossible = !!trades[cur.date + '|' + code] || (previous && next && !rebound && (Math.abs(prevChange || 0) >= 40 || Math.abs(nextChange || 0) >= 40));
       var status = 'VALID', reason = '인접 가격과 저장 provenance가 정상 범위입니다.';
       if (String(cur.source).toUpperCase() === 'MANUAL') { status = 'MANUAL_PROTECTED'; reason = 'MANUAL 가격은 자동 오류 확정·수정하지 않습니다.'; }
@@ -5836,8 +5844,8 @@ function _snapshotStoredNumber(value, decimals) {
   return Math.round((Number(value) || 0) * factor) / factor;
 }
 
-function diagnoseSnapshotIntegrity(ss, dateStr, priceContext) {
-  var date = _normalizeDate(dateStr || ''), raw = _readRawSnapshotRowsByDate(ss, date);
+function diagnoseSnapshotIntegrity(ss, dateStr, priceContext, rangeContext) {
+  var date = _normalizeDate(dateStr || ''), raw = rangeContext ? (rangeContext.snapshotRowsByDate[date] || []) : _readRawSnapshotRowsByDate(ss, date);
   if (!date) throw new Error('유효한 date가 필요합니다.');
   var grouped = {}, duplicateKeys = [], conflictKeys = [];
   raw.forEach(function(row) { var key = date + '|' + _snapshotIntegrityKey(row); (grouped[key] || (grouped[key] = [])).push(row); });
@@ -5854,7 +5862,7 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext) {
     totalEvalDifference: 0, totalExpectedCostAmt: 0, totalStoredCostAmt: 0, sourceDataErrors: [],
     fundNavStates: [], foreignFxStates: [], priceIntegrity: [], itemComparisons: [], expectedRows: [], storedRows: raw };
   var expected = [];
-  try { expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true); }
+  try { expected = rangeContext ? _buildIndexedSnapshotRows(rangeContext, date) : _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true); }
   catch (error) { result.sourceDataErrors.push(String(error.message || error)); result.status = 'SOURCE_INCOMPLETE'; }
   result.expectedRows = expected;
   var expectedMap = {}, storedMap = {};
@@ -5877,19 +5885,20 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext) {
   expected.forEach(function(row) {
     result.totalExpectedEvalAmt += _snapshotStoredNumber(row[7], 0); result.totalExpectedCostAmt += _snapshotStoredNumber(row[5], 0);
     if (_isFundCode(row[1])) {
-      var fundEvaluation = _getFundEvaluationAtDate(ss, row[1], date);
+      var fundEvaluation = rangeContext ? _indexedFundEvaluation(rangeContext, row[1], date) : _getFundEvaluationAtDate(ss, row[1], date);
       result.fundNavStates.push({ code: row[1], source: row[10], sourceDate: fundEvaluation ? fundEvaluation.sourceDate : '',
         valueDate: fundEvaluation ? fundEvaluation.valueDate : '', temporary: /CARRY|INPUT_REQUIRED/.test(String(row[10])) });
     }
   });
   try {
     var currencies = {}, codeCurrencies = {};
-    getCodeItems(ss, true).forEach(function(item) {
+    (rangeContext ? rangeContext.codeItems : getCodeItems(ss, true)).forEach(function(item) {
       var code = _cleanCode(item.code) || String(item.code || '').trim(), currency = String(item.currency || 'KRW').toUpperCase();
       if (code && currency !== 'KRW') { codeCurrencies[code] = currency; currencies[currency] = true; }
     });
-    var fxSheet = ss.getSheetByName('환율이력'), latestFx = {};
-    if (fxSheet && fxSheet.getLastRow() > 1) fxSheet.getRange(2, 1, fxSheet.getLastRow() - 1, 3).getValues().forEach(function(fxRow) {
+    var fxSheet = rangeContext ? null : ss.getSheetByName('환율이력'), latestFx = {};
+    if (rangeContext) Object.keys(currencies).forEach(function(currency) { var found = _indexedLatest(rangeContext.fxSeriesByCurrency[currency] || [], date); if (found) latestFx[currency] = { sourceDate: found.date, rate: found.rate }; });
+    else if (fxSheet && fxSheet.getLastRow() > 1) fxSheet.getRange(2, 1, fxSheet.getLastRow() - 1, 3).getValues().forEach(function(fxRow) {
       var fxDate = _normalizeDate(fxRow[0]), currency = String(fxRow[1] || '').toUpperCase(), rate = Number(fxRow[2]);
       if (fxDate && fxDate <= date && currencies[currency] && rate > 0 && (!latestFx[currency] || fxDate > latestFx[currency].sourceDate)) latestFx[currency] = { sourceDate: fxDate, rate: rate };
     });
@@ -5908,7 +5917,7 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext) {
     else if (mismatched) result.status = 'MISMATCH';
   }
   try {
-    result.priceIntegrity = diagnosePriceHistoryIntegrity(ss, [date], [], priceContext).rows.filter(function(row) {
+    result.priceIntegrity = (rangeContext ? (rangeContext.priceIntegrityByDate[date] || []) : diagnosePriceHistoryIntegrity(ss, [date], [], priceContext).rows).filter(function(row) {
       return result.expectedCodes.indexOf(row.code) !== -1 || result.storedCodes.indexOf(row.code) !== -1;
     });
     var priceByCode = {}; result.priceIntegrity.forEach(function(row) { priceByCode[row.code] = row; });
@@ -5964,28 +5973,148 @@ function _buildSnapshotRangeReadContext(ss) {
       fundNavRows: counts[FUND_NAV_SHEET], fxRows: counts['환율이력'], sheetReads: names.length } };
 }
 
-function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr) {
-  try {
-    var totalStarted = Date.now();
-    var from = _normalizeDate(fromStr), to = _normalizeDate(toStr);
-    if (!from || !to || from > to) throw new Error('유효한 from/to가 필요합니다.');
-    var dates = [], cursor = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z');
-    while (cursor <= end) {
-      var day = cursor.getUTCDay();
-      if (day !== 0 && day !== 6) dates.push(Utilities.formatDate(cursor, 'UTC', 'yyyy-MM-dd'));
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-      if (dates.length > 400) throw new Error('진단 범위는 평일 400일 이하여야 합니다.');
+function _indexedLatest(series, date) {
+  var low = 0, high = series.length - 1, found = null;
+  while (low <= high) {
+    var mid = (low + high) >> 1;
+    if (series[mid].date <= date) { found = series[mid]; low = mid + 1; } else high = mid - 1;
+  }
+  return found;
+}
+
+function _indexedFundEvaluation(context, code, date) {
+  context.metrics.fundNavLookupCount++;
+  var series = context.fundNavSeriesByCode[code] || [], best = null, low = 0, high = series.length - 1, index = -1;
+  // valueDate와 sourceDate가 모두 기준일 이하여야 한다는 기존 계약을 보존합니다.
+  while (low <= high) { var mid = (low + high) >> 1; if (series[mid].valueDate <= date) { index = mid; low = mid + 1; } else high = mid - 1; }
+  while (index >= 0 && series[index].valueDate <= date) { if (series[index].sourceDate <= date) { best = series[index]; break; } index--; }
+  return best;
+}
+
+function _buildSnapshotRangeIndexes(readContext, dates) {
+  var started = Date.now(), values = readContext.valuesByName, metrics = readContext.metrics;
+  var context = { snapshotRowsByDate: {}, priceSeriesByCode: {}, positivePriceSeriesByCode: {}, priceExactByDateCode: {}, manualPriceSeriesByCode: {}, fundNavSeriesByCode: {}, fxSeriesByCurrency: {},
+    priceIntegrityByDate: {}, codeItems: getCodeItems(readContext.ss, true), metrics: metrics };
+  context.codeByCode = {}; context.nameToCode = {}; context.currencyByCode = {};
+  context.codeItems.forEach(function(item) {
+    var code = _cleanCode(item.code) || String(item.code || '').trim();
+    if (!code) return;
+    context.codeByCode[code] = item;
+    if (item.name) context.nameToCode[item.name] = code;
+    context.currencyByCode[code] = String(item.currency || 'KRW').toUpperCase();
+  });
+  (values[CONFIG.SHEET_TRADES] || []).slice(1).forEach(function(row) {
+    var name = String(row[3] || '').trim(), code = _cleanCode(row[4]) || String(row[4] || '').trim();
+    if (name && code && !context.nameToCode[name]) context.nameToCode[name] = code;
+  });
+  (values[CONFIG.SHEET_SNAPSHOT] || []).slice(1).forEach(function(row) {
+    var date = _normalizeDate(row[0]); if (!date) return;
+    var copy = row.slice(0, 12); while (copy.length < 12) copy.push('');
+    copy[0] = date; copy[1] = _cleanCode(copy[1]) || String(copy[1] || '').trim();
+    [3,4,5,6,7,8,9].forEach(function(index) { copy[index] = Number(copy[index]) || 0; });
+    (context.snapshotRowsByDate[date] || (context.snapshotRowsByDate[date] = [])).push(copy);
+  });
+  (values[CONFIG.SHEET_PH] || []).slice(1).forEach(function(row, index) {
+    var date = _normalizeDate(row[0]), code = _cleanCode(row[1]) || String(row[1] || '').trim(), price = Number(row[3]);
+    if (!date || !code) return;
+    (context.priceSeriesByCode[code] || (context.priceSeriesByCode[code] = [])).push({ date: date, code: code,
+      name: String(row[2] || ''), price: price, savedAt: _normalizeDatetime(row[4]), source: String(row[5] || ''), rowNumber: index + 2 });
+  });
+  Object.keys(context.priceSeriesByCode).forEach(function(code) { context.priceSeriesByCode[code].sort(function(a,b) {
+    return a.date === b.date ? a.rowNumber - b.rowNumber : a.date.localeCompare(b.date);
+  }); context.priceSeriesByCode[code].forEach(function(entry) {
+    if (!(entry.price > 0)) return;
+    var key = entry.date + '|' + code, existing = context.priceExactByDateCode[key];
+    if (!existing || (!existing.savedAt && entry.savedAt)) context.priceExactByDateCode[key] = entry;
+    if (String(entry.source).toUpperCase() === 'MANUAL' && entry.savedAt) (context.manualPriceSeriesByCode[code] || (context.manualPriceSeriesByCode[code] = [])).push(entry);
+  }); });
+  Object.keys(context.priceSeriesByCode).forEach(function(code) {
+    var seenDates = {};
+    context.priceSeriesByCode[code].forEach(function(entry) { seenDates[entry.date] = true; });
+    context.positivePriceSeriesByCode[code] = Object.keys(seenDates).sort().map(function(date) { return context.priceExactByDateCode[date + '|' + code]; }).filter(Boolean);
+  });
+  (values[FUND_NAV_SHEET] || []).slice(1).forEach(function(row) {
+    var code = String(row[1] || '').trim(), valueDate = _normalizeDate(row[0]), sourceDate = _normalizeDate(row[4]), evalAmt = Number(row[6]);
+    if (!_isFundCode(code) || !valueDate || !sourceDate || !(evalAmt > 0)) return;
+    (context.fundNavSeriesByCode[code] || (context.fundNavSeriesByCode[code] = [])).push({ evalAmt: evalAmt, valueDate: valueDate,
+      sourceDate: sourceDate, date: valueDate, carried: valueDate !== sourceDate });
+  });
+  Object.keys(context.fundNavSeriesByCode).forEach(function(code) { context.fundNavSeriesByCode[code].sort(function(a,b) {
+    return a.valueDate === b.valueDate ? a.sourceDate.localeCompare(b.sourceDate) : a.valueDate.localeCompare(b.valueDate);
+  }); });
+  (values['환율이력'] || []).slice(1).forEach(function(row) {
+    var date = _normalizeDate(row[0]), currency = String(row[1] || '').toUpperCase(), rate = Number(row[2]);
+    if (date && currency && rate > 0) (context.fxSeriesByCurrency[currency] || (context.fxSeriesByCurrency[currency] = [])).push({ date: date, rate: rate });
+  });
+  Object.keys(context.fxSeriesByCurrency).forEach(function(currency) { context.fxSeriesByCurrency[currency].sort(function(a,b) { return a.date.localeCompare(b.date); }); });
+  context.holdingsByRequestedDate = _buildHoldingsByRequestedDate((values[CONFIG.SHEET_TRADES] || []).slice(1), dates, context.nameToCode);
+  var priceContext = { priceRows: (values[CONFIG.SHEET_PH] || []).slice(1), tradeRows: (values[CONFIG.SHEET_TRADES] || []).slice(1),
+    fxRows: (values['환율이력'] || []).slice(1), navRows: (values[FUND_NAV_SHEET] || []).slice(1), codeItems: context.codeItems, byCode: context.codeByCode };
+  _priceIntegrityRows(priceContext, dates, []).forEach(function(row) { (context.priceIntegrityByDate[row.date] || (context.priceIntegrityByDate[row.date] = [])).push(row); });
+  metrics.holdingsBuildCount = 1; metrics.priceSeriesBuildCount = 1; metrics.priceIntegrityBuildCount = 1;
+  metrics.snapshotDateLookupCount = 0; metrics.fundNavLookupCount = 0; metrics.fxLookupCount = 0;
+  context.indexBuildMs = Date.now() - started;
+  return context;
+}
+
+function _buildIndexedSnapshotRows(context, date) {
+  var holdings = context.holdingsByRequestedDate[date] || {}, out = [];
+  Object.keys(holdings).forEach(function(name) {
+    var h = holdings[name], code = _cleanCode(h.code) || String(h.code || '').trim(), series = context.positivePriceSeriesByCode[code] || [];
+    var exact = context.priceExactByDateCode[date + '|' + code] || null, latest = _indexedLatest(series, date);
+    var entry = exact || latest, price = entry && entry.price > 0 ? entry.price : 0, source = entry ? entry.source : '';
+    if (!exact) { var latestManual = _indexedLatest(context.manualPriceSeriesByCode[code] || [], date); if (latestManual) source = 'MANUAL'; }
+    if (_isFundCode(code)) {
+      h.qty = 1;
+      if (!(price > 0)) { var fund = _indexedFundEvaluation(context, code, date); if (fund) { price = fund.evalAmt; source = fund.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV'; entry = { date: fund.sourceDate, savedAt: '' }; } }
     }
-    var context = _buildSnapshotRangeReadContext(getss()), calculationStarted = Date.now();
-    var priceContext = _readPriceIntegrityContext(context.ss);
-    var priceIntegrity = diagnosePriceHistoryIntegrity(context.ss, dates, [], priceContext);
+    var currency = context.currencyByCode[code] || 'KRW', fxRate = 1;
+    if (currency !== 'KRW') { context.metrics.fxLookupCount++; var fx = _indexedLatest(context.fxSeriesByCurrency[currency] || [], date); fxRate = fx ? fx.rate : 0; }
+    if (!(price > 0) || !(fxRate > 0)) throw new Error('확정 원자료 부족으로 기존 Snapshot 보존: ' + (code || name) + (!(fxRate > 0) ? ':FX_' + currency : ''));
+    var priceKrw = Math.round(price * fxRate), evalAmt = Math.round(priceKrw * h.qty), pnl = evalAmt - h.costAmt;
+    var src = source || 'PRICE_HISTORY';
+    if (!exact && entry && entry.date < date && src !== 'MANUAL' && src.indexOf('FUND_NAV') !== 0) src += '_CARRY@' + entry.date;
+    out.push([date, code, h.name, h.qty, h.qty > 0 ? parseFloat((h.costAmt / h.qty).toFixed(2)) : 0, h.costAmt,
+      h.qty > 0 ? parseFloat((evalAmt / h.qty).toFixed(2)) : 0, evalAmt, pnl,
+      h.costAmt > 0 ? parseFloat(((pnl / h.costAmt) * 100).toFixed(2)) : 0, src, src === 'MANUAL' && entry ? entry.savedAt : '']);
+  });
+  return _dedupeSnapshotRows(out);
+}
+
+function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, datesStr) {
+  var totalStarted = Date.now(), dates = [], processedDates = 0, lastCompletedDate = '', failedDate = '', phase = 'request_validation';
+  try {
+    var from = _normalizeDate(fromStr), to = _normalizeDate(toStr);
+    dates = String(datesStr || '').split(',').map(function(value) { return _normalizeDate(value.trim()); }).filter(Boolean);
+    dates = dates.filter(function(date, index, all) { return all.indexOf(date) === index; }).sort();
+    if (!dates.length) {
+      if (!from || !to || from > to) throw new Error('유효한 dates 또는 from/to가 필요합니다.');
+      var cursor = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z');
+      while (cursor <= end) {
+        var day = cursor.getUTCDay();
+        if (day !== 0 && day !== 6) dates.push(Utilities.formatDate(cursor, 'UTC', 'yyyy-MM-dd'));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+        if (dates.length > 400) { var rangeError = new Error('진단 범위는 400일 이하여야 합니다.'); rangeError.errorCode = 'RANGE_TOO_LARGE'; throw rangeError; }
+      }
+    }
+    if (dates.length > 400) { var datesError = new Error('진단 날짜는 400일 이하여야 합니다.'); datesError.errorCode = 'RANGE_TOO_LARGE'; throw datesError; }
+    phase = 'sheet_read';
+    var context = _buildSnapshotRangeReadContext(getss());
+    phase = 'index_build';
+    var indexed = _buildSnapshotRangeIndexes(context, dates), calculationStarted = Date.now();
+    var priceRowsAll = []; Object.keys(indexed.priceIntegrityByDate).forEach(function(date) { priceRowsAll = priceRowsAll.concat(indexed.priceIntegrityByDate[date]); });
+    var priceIntegrity = { rows: priceRowsAll, counts: {}, checkedRows: priceRowsAll.length };
+    priceRowsAll.forEach(function(row) { priceIntegrity.counts[row.status] = (priceIntegrity.counts[row.status] || 0) + 1; });
     var suspiciousByDate = {};
     priceIntegrity.rows.forEach(function(row) {
       if (['VALID', 'MANUAL_PROTECTED'].indexOf(row.status) === -1) (suspiciousByDate[row.date] || (suspiciousByDate[row.date] = [])).push(row);
     });
+    phase = 'snapshot_integrity';
     var diagnostics = dates.map(function(date) {
-      var diagnostic = diagnoseSnapshotIntegrity(context.ss, date, priceContext), priceRows = suspiciousByDate[date] || [];
+      failedDate = date; indexed.metrics.snapshotDateLookupCount++;
+      var diagnostic = diagnoseSnapshotIntegrity(context.ss, date, null, indexed), priceRows = suspiciousByDate[date] || [];
       if (diagnostic.status === 'PRICE_SUSPICIOUS' && priceRows.some(function(row) { return row.status === 'FX_MISSING' || row.status === 'SOURCE_INCOMPLETE'; })) diagnostic.status = 'SOURCE_INCOMPLETE';
+      processedDates++; lastCompletedDate = date; failedDate = '';
       return diagnostic;
     });
     var groups = { VALID: [], PARTIAL: [], MISMATCH: [], CONFLICT: [], SOURCE_INCOMPLETE: [], NO_SNAPSHOT: [] };
@@ -5997,11 +6126,19 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr) {
       sourceIncompleteDates: groups.SOURCE_INCOMPLETE, noSnapshotDates: groups.NO_SNAPSHOT,
       priceSuspiciousDates: groups.PRICE_SUSPICIOUS || [], abnormalCandidates: requestedCandidates, diagnostics: diagnostics,
       priceIntegrity: { counts: priceIntegrity.counts, checkedRows: priceIntegrity.checkedRows },
-      performance: { totalMs: Date.now() - totalStarted, readMs: context.readMs, calculationMs: calculationMs,
+      performance: { totalMs: Date.now() - totalStarted, readMs: context.readMs, indexBuildMs: indexed.indexBuildMs, calculationMs: calculationMs,
         checkedDates: dates.length, priceHistoryRows: context.metrics.priceHistoryRows, snapshotRows: context.metrics.snapshotRows,
         tradeRows: context.metrics.tradeRows, fundNavRows: context.metrics.fundNavRows, fxRows: context.metrics.fxRows,
-        sheetReads: context.metrics.sheetReads } });
-  } catch (error) { return jsonError('Snapshot 기간 정합성 진단 실패: ' + error.message); }
+        sheetReads: context.metrics.sheetReads, holdingsBuildCount: indexed.metrics.holdingsBuildCount,
+        priceSeriesBuildCount: indexed.metrics.priceSeriesBuildCount, priceIntegrityBuildCount: indexed.metrics.priceIntegrityBuildCount,
+        snapshotDateLookupCount: indexed.metrics.snapshotDateLookupCount, fundNavLookupCount: indexed.metrics.fundNavLookupCount,
+        fxLookupCount: indexed.metrics.fxLookupCount } });
+  } catch (error) {
+    var safeMessage = String(error && error.message || error || '원인 미확인').replace(/(token|secret|apikey|api_key)\s*[=:]\s*[^\s,;]+/ig, '$1=[REDACTED]');
+    return jsonOk({ status: 'error', errorCode: error.errorCode || (phase === 'sheet_read' || phase === 'index_build' ? 'SOURCE_DATA_ERROR' : 'RUNTIME_ERROR'),
+      phase: phase, message: safeMessage, failedDate: failedDate, processedDates: processedDates, totalDates: dates.length,
+      lastCompletedDate: lastCompletedDate, performanceSoFar: { totalMs: Date.now() - totalStarted } });
+  }
 }
 
 function handleRewriteSnapshotDate(dateStr, operationId, finalize) {
@@ -7878,9 +8015,7 @@ function _getHistoricalExchangeRates(ss, currencies, dateStr) {
 // ════════════════════════════════════════════════════════════════════
 //  거래이력 누적 계산 — dateStr 시점의 보유현황 반환
 // ════════════════════════════════════════════════════════════════════
-function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
-  var map = {};
-  tradeData.forEach(function(row) {
+function _applyHoldingTrade(map, row, nameToCode, maxDate) {
     var rawDate   = row[0];
     var date      = (rawDate instanceof Date)
       ? Utilities.formatDate(rawDate, CONFIG.TIMEZONE, 'yyyy-MM-dd')
@@ -7891,7 +8026,7 @@ function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
     var qty       = parseFloat(row[5]) || 0;
     var price     = parseFloat(row[6]) || 0;
     var assetType = (row[7]||'주식').toString().trim();
-    if (!date || !name || !tradeType || date > dateStr) return;
+    if (!date || !name || !tradeType || (maxDate && date > maxDate)) return;
 
     if (!map[name]) map[name] = { name: name, code: code, qty: 0, totalCost: 0, assetType: assetType };
     if (!map[name].code && code) map[name].code = code;
@@ -7909,8 +8044,9 @@ function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
       var ratio = parseFloat(row[9]) || 0;
       if (ratio > 0 && map[name].qty > 0) map[name].qty = tradeType === 'split' ? map[name].qty * ratio : map[name].qty / ratio;
     }
-  });
+}
 
+function _snapshotHoldingState(map) {
   var result = {};
   Object.keys(map).forEach(function(name) {
     var h = map[name];
@@ -7921,6 +8057,30 @@ function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
     }
   });
   return result;
+}
+
+function calcHoldingsAtDate(tradeData, dateStr, nameToCode) {
+  var map = {};
+  tradeData.forEach(function(row) { _applyHoldingTrade(map, row, nameToCode || {}, dateStr); });
+  return _snapshotHoldingState(map);
+}
+
+// 기간 진단은 같은 거래를 날짜마다 처음부터 재생하지 않고 날짜순으로 한 번만 적용합니다.
+function _buildHoldingsByRequestedDate(tradeData, dates, nameToCode) {
+  var sortedTrades = (tradeData || []).map(function(row, index) {
+    return { row: row, index: index, date: _normalizeDate(row[0]) };
+  }).filter(function(item) { return !!item.date; }).sort(function(a, b) {
+    return a.date === b.date ? a.index - b.index : a.date.localeCompare(b.date);
+  });
+  var state = {}, output = {}, tradeIndex = 0;
+  (dates || []).slice().sort().forEach(function(date) {
+    while (tradeIndex < sortedTrades.length && sortedTrades[tradeIndex].date <= date) {
+      _applyHoldingTrade(state, sortedTrades[tradeIndex].row, nameToCode || {}, null);
+      tradeIndex++;
+    }
+    output[date] = _snapshotHoldingState(state);
+  });
+  return output;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -8688,7 +8848,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.130' });
+    return jsonOk({ settings: settings, gasVersion: '9.131' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8710,7 +8870,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.130'
+      gasVersion: '9.131'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

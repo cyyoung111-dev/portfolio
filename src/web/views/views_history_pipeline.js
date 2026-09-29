@@ -65,18 +65,23 @@ async function loadHistoryChart() {
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
     const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
     let integrityDiagnostics = [];
-    let rangeDiagnosisFailed = false;
+    let rangeDiagnosisFailed = null;
     try {
-        const integrity = await _historyRequestJson('diagnoseSnapshotIntegrityRange', {
+        const integrity = await requestGsheetFormJson('diagnoseSnapshotIntegrityRange', {
           from: snapshots[0].date,
           to: snapshots[snapshots.length - 1].date,
+          dates: snapshots.map(snapshot => snapshot.date).join(','),
           candidates: suspiciousDates.join(',')
-        }, { timeoutMs: 120000, retry: 0 });
+        }, { timeoutMs: 120000, retry: 0, preserveError: true });
         if (requestId !== __histState.loadRequestId) return;
-        if (!integrity || integrity.status === 'error' || !Array.isArray(integrity.diagnostics)) throw new Error(integrity?.message || '기간 진단 응답 계약 오류');
+        if (!integrity) throw Object.assign(new Error('기간 진단 응답이 없습니다.'), { errorCode: 'INVALID_RESPONSE' });
+        if (integrity.status === 'error') throw Object.assign(new Error(integrity.message || '기간 진단 오류'), integrity);
+        if (!Array.isArray(integrity.diagnostics)) throw Object.assign(new Error('기간 진단 응답 계약 오류'), { errorCode: 'INVALID_RESPONSE' });
         integrityDiagnostics = integrity.diagnostics;
     } catch (error) {
-      rangeDiagnosisFailed = true;
+      rangeDiagnosisFailed = { errorCode: error?.errorCode || 'SERVER_ERROR', phase: error?.phase || '', failedDate: error?.failedDate || '',
+        processedDates: Number(error?.processedDates || 0), totalDates: Number(error?.totalDates || snapshots.length),
+        lastCompletedDate: error?.lastCompletedDate || '', elapsedMs: Number(error?.elapsedMs || error?.performanceSoFar?.totalMs || 0) };
       console.warn('Snapshot integrity range diagnosis failed:', error);
     }
     const diagnosticByDate = new Map(integrityDiagnostics.map(item => [item.date, item]));
@@ -218,7 +223,13 @@ function _renderHistoryNavWarnings(el, snapshots) {
 function _renderHistoryIntegrityWarnings(el, diagnostics, rangeDiagnosisFailed, totalDates) {
   if (!el) return;
   if (rangeDiagnosisFailed) {
-    el.insertAdjacentHTML('afterbegin', '<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--red);border-radius:9px;background:var(--c-red-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--red-lt)">❌ Snapshot/가격 진단 요청이 실패하거나 시간초과되었습니다.</b><br><span style="color:var(--muted)">전체 날짜를 UNCHECKED로 처리했습니다. 현재 손익·MDD·최고/최저는 확정값으로 표시하지 않습니다.</span></div>');
+    const failure = rangeDiagnosisFailed === true ? { errorCode: 'SERVER_ERROR' } : rangeDiagnosisFailed;
+    const labels = { CLIENT_TIMEOUT: '기간 정합성 진단 시간초과', SERVER_ERROR: '정합성 진단 서버 오류', RUNTIME_ERROR: '정합성 진단 실행 오류',
+      INVALID_RESPONSE: '정합성 진단 응답 오류', SOURCE_DATA_ERROR: '정합성 원자료 조회 오류', RANGE_TOO_LARGE: '정합성 진단 범위 초과' };
+    const progress = failure.totalDates ? `${failure.totalDates}일 중 ${failure.processedDates || 0}일 처리` : '';
+    const detail = [progress, failure.lastCompletedDate && `마지막 완료: ${failure.lastCompletedDate}`, failure.failedDate && `실패 날짜: ${failure.failedDate}`,
+      failure.phase && `단계: ${failure.phase}`, `오류코드: ${failure.errorCode || 'SERVER_ERROR'}`, failure.elapsedMs && `경과: ${failure.elapsedMs}ms`].filter(Boolean).join(' · ');
+    el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--red);border-radius:9px;background:var(--c-red-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--red-lt)">❌ ${_escapeHtml(labels[failure.errorCode] || labels.SERVER_ERROR)}</b><br>${detail ? `<span>${_escapeHtml(detail)}</span><br>` : ''}<span style="color:var(--muted)">전체 날짜를 UNCHECKED로 처리했습니다. 현재 손익·MDD·최고/최저는 확정값으로 표시하지 않습니다.</span></div>`);
     return;
   }
   const invalid = (diagnostics || []).filter(item => item && item.status !== 'VALID');

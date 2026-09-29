@@ -30,18 +30,26 @@ async function requestJsonWithPolicy(url, opts) {
   const delayMs = Number.isFinite(o.delayMs) ? Math.max(0, o.delayMs) : 180;
   const fetchOptions = o.fetchOptions || {};
   let lastError = null;
+  const startedAt = Date.now();
   for (let i = 0; i <= retry; i++) {
     try {
       const res = await fetchWithTimeout(url, timeoutMs, fetchOptions);
-      return await res.json();
+      if (!res.ok) {
+        const error = new Error(`HTTP ${res.status}`);
+        error.errorCode = 'SERVER_ERROR';
+        throw error;
+      }
+      try { return await res.json(); }
+      catch (error) { error.errorCode = 'INVALID_RESPONSE'; throw error; }
     } catch (error) {
       lastError = error;
       if (i < retry) await new Promise(r => setTimeout(r, delayMs));
     }
   }
   if (o.preserveError) {
-    const reason = lastError?.name === 'AbortError' ? `요청 timeout (${timeoutMs}ms)` : `네트워크/응답 파싱 오류: ${lastError?.message || '원인 미확인'}`;
-    return { status: 'error', message: reason };
+    const errorCode = lastError?.name === 'AbortError' ? 'CLIENT_TIMEOUT' : (lastError?.errorCode || 'SERVER_ERROR');
+    const reason = errorCode === 'CLIENT_TIMEOUT' ? `요청 timeout (${timeoutMs}ms)` : `${errorCode === 'INVALID_RESPONSE' ? '응답 파싱' : '네트워크/서버'} 오류`;
+    return { status: 'error', errorCode, message: reason, elapsedMs: Date.now() - startedAt, action: o.action || '' };
   }
   return null;
 }
@@ -50,7 +58,7 @@ async function requestGsheetActionJson(action, params, opts) {
   const accessToken = String(lsGet('gsheet_access_token', '') || '').trim();
   if (accessToken) return requestGsheetFormJson(action, params, opts);
   const url = buildGsheetActionUrl(action, params);
-  return requestJsonWithPolicy(url, opts);
+  return requestJsonWithPolicy(url, { ...(opts || {}), action });
 }
 
 async function requestGsheetFormJson(action, params, opts) {
@@ -70,7 +78,7 @@ async function requestGsheetFormJson(action, params, opts) {
     body: form.toString(),
     ...(o.fetchOptions || {}),
   };
-  return requestJsonWithPolicy(GSHEET_API_URL, { ...o, fetchOptions });
+  return requestJsonWithPolicy(GSHEET_API_URL, { ...o, action, fetchOptions });
 }
 
 function saveGsheetUrl(url) {

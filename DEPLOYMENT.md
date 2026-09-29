@@ -1,3 +1,9 @@
+## GAS v9.131 / 웹 20260928-5: 기간 정합성 진단 index 최적화
+
+- Apps Script v9.131과 정적 웹 20260928-5를 함께 재배포합니다. 실제 Snapshot 날짜만 전달하며 Snapshot/거래/가격/NAV/FX 원장을 요청당 한 번 읽고 index lookup을 사용합니다.
+- 응답의 `performance`에서 `priceSeriesBuildCount=1`, `priceIntegrityBuildCount=1`, `holdingsBuildCount=1`과 read/index/calculation 시간을 확인합니다. 실패 시 `errorCode`, `phase`, `failedDate`, 처리 진행률을 확인합니다.
+- 배포 후 1개월/3개월/1년 조회와 2026-06-18, 2026-07-22, 2026-09-24, 2026-09-25 상세 진단을 확인합니다.
+
 ## GAS v9.130 / 웹 20260928-4: 가격이력·Snapshot·성과 정합성 후속 복구
 
 - Apps Script v9.130과 정적 웹 20260928-4를 함께 재배포합니다. 웹은 service worker 등록 URL과 cache name을 함께 올려 구버전 history 자산 혼용을 차단합니다.
