@@ -10,6 +10,10 @@ rows = master.upsertObservation(rows, { seriesId:'NQ', tradingDate:date, value:2
 rows = master.upsertObservation(rows, { seriesId:'RECEIVE_ONLY', tradingDate:date, value:1, receivedAt:`${date}T07:20:00+09:00` });
 
 assert.equal(master.normalizeObservation({ seriesId:'X', tradingDate:date, value:1, receivedAt:`${date}T07:00:00+09:00` }).timestampQuality, 'RECEIVE_ONLY');
+const metadata=master.normalizeObservation({seriesId:'X',tradingDate:date,value:1,currency:'KRW',sourceDate:'2026-09-17',fallback:true,receivedAt:`${date}T07:00:00+09:00`});
+assert.equal(metadata.currency,'KRW'); assert.equal(metadata.sourceDate,'2026-09-17'); assert.equal(metadata.fallback,true);
+assert.equal(master.checkpointForTime('07:29:59'),'NIGHT_FINAL'); assert.equal(master.checkpointForTime('07:30:00'),'MORNING');
+assert.equal(master.checkpointForTime('15:30:00'),'KRX_FINAL'); assert.equal(master.checkpointForTime('20:00:00'),'AFTER_FINAL'); assert.equal(master.checkpointForTime('20:15:00'),'EVENING');
 assert.throws(() => master.normalizeObservation({ seriesId:'X', tradingDate:date, value:1, observedAt:`${date}T07:00:01+09:00`, receivedAt:`${date}T07:00:00+09:00` }), /observedAt must not be after receivedAt/);
 assert.equal(master.normalizeObservation({ seriesId:'X', tradingDate:date, value:1, observedAt:`${date}T07:00:00+09:00`, receivedAt:`${date}T07:00:01+09:00`, timestampQuality:'RECEIVE_ONLY', lagSeconds:999 }).lagSeconds, 1);
 assert.equal(master.selectAt(rows, 'USDKRW', `${date}T07:30:00+09:00`).value, 1390, '07:30 must not look ahead to evening');

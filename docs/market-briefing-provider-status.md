@@ -4,15 +4,15 @@
 
 | series | 현재 경로 | 상태 | 비고 |
 |---|---|---|---|
-| KOSPI | Toss market-indicators | 연결됨 | 기존 GAS 지원 |
-| KOSDAQ | Toss market-indicators | 연결됨 | 기존 GAS 지원 |
+| KOSPI | Toss market-indicators + KRX 공식 지수 일별매매정보 | 연결됨 | Toss는 PARTIAL 보조, 16:00 이후 KRX exact-date 공식 종가만 FINAL |
+| KOSDAQ | Toss market-indicators + KRX 공식 지수 일별매매정보 | 연결됨 | Toss는 PARTIAL 보조, 16:00 이후 KRX exact-date 공식 종가만 FINAL |
 | SPX | Yahoo `^GSPC` | 연결됨 | EOD/비공식 endpoint |
 | NDX | Yahoo `^NDX` | 연결됨 | EOD/비공식 endpoint |
 | KOSPI200 | Yahoo `^KS200` | 보조 연결됨 | Toss 공식 identifier는 미확정; Yahoo EOD/지연 경로 사용 |
 | SOX | Yahoo `^SOX` | 연결됨 | Yahoo 비공식 EOD/지연 지수 경로 |
 | VIX | Yahoo `^VIX` | 보조 연결됨 | CBOE 1차 원천은 후속 연결; Yahoo는 보조 EOD/지연 경로 |
 | USDKRW | GAS `getExchangeRateHistory` → `환율이력` 시트 | 연결됨(저장 원자료) | `날짜|통화|환율` 확정 행만 조회; 시트 부재/스키마 오류는 missing |
-| K200_NIGHT | KIS H0MFCNT0/H0MFASP0 계약 | 런타임 검증 대기 | raw frame 보존 후 field-count/schema 일치 시에만 semantic parse |
+| K200_NIGHT | KIS H0MFCNT0/H0MFASP0 계약 | 검증 frame 저장 진입점 연결 | raw frame 보존 후 field-count/schema 일치 시에만 semantic parse; WebSocket 수집기·credential·schema registry는 운영 의존 |
 
 ## KIS 원칙
 

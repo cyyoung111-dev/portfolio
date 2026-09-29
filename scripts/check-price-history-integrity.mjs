@@ -45,6 +45,6 @@ assert.match(view, /HISTORY_VERIFIED_STATUS = 'VALID'/);
 assert.match(view, /portfolioSnapshots[\s\S]*filter\(_isVerifiedHistoryPoint\)/);
 assert.match(html, /views\/views_history\.js\?v=20260928-4/);
 assert.match(sw, /views\/views_history\.js\?v=20260928-4/);
-assert.match(sw, /portfolio-cache-20260928-5/);
+assert.match(sw, /portfolio-cache-20260929-7/);
 assert.doesNotMatch(sw, /views\/views_history\.js\?v=20260917-2/);
 console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 성과 제외·복구/cache 회귀 검사 통과');
