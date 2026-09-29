@@ -5,7 +5,7 @@ import snapshots from '../src/web/domain/market/market_briefing_snapshot_store.j
 import gate from '../src/web/domain/market/market_briefing_operational_gate.js';
 import runtime from '../src/web/domain/market/market_briefing_runtime_store.js';
 const mem=new Map();const storage={getItem:k=>mem.get(k)||null,setItem:(k,v)=>mem.set(k,v)};const d='2026-09-18';
-const payload={KOSPI:{value:1},KOSDAQ:{value:1},KOSPI200:{value:1},SP500:{value:1},NASDAQ100:{value:1,delayed:true},SOX:{value:1},VIX:{value:1},USDKRW:{value:1}};
+const payload={KOSPI:{value:1,tradingDate:'2026-09-17',sourceDate:'2026-09-17',status:'FINAL',finality:'REGULAR_CLOSE'},KOSDAQ:{value:1,tradingDate:'2026-09-17',sourceDate:'2026-09-17',status:'FINAL',finality:'REGULAR_CLOSE'},KOSPI200:{value:1,tradingDate:'2026-09-17',sourceDate:'2026-09-17',status:'FINAL',finality:'REGULAR_CLOSE'},SP500:{value:1},NASDAQ100:{value:1,delayed:true},SOX:{value:1},VIX:{value:1},USDKRW:{value:1}};
 runtime.ingestProviderPayload(storage,master,normalizer,payload,{tradingDate:d,receivedAt:`${d}T06:30:00+09:00`,status:'FINAL'});
 runtime.mergeSnapshots(storage,snapshots,[{tradingDate:d,checkpoint:'NIGHT_FINAL',asOf:`${d}T06:00:00+09:00`,values:{K200_NIGHT:{value:549}},scenario:null}]);
 runtime.mergeSnapshots(storage,snapshots,[{tradingDate:d,checkpoint:'NIGHT_FINAL',asOf:`${d}T06:00:00+09:00`,values:{K200_NIGHT:{value:550}},scenario:null}]);

@@ -6,6 +6,8 @@ const date='2026-09-18';
 let rows=[];
 const add=(seriesId,value,status='FINAL',session='REGULAR',time='06:30:00')=>{ rows=master.upsertObservation(rows,{seriesId,tradingDate:date,value,market:'TEST',session,source:'TEST',status,observedAt:`${date}T${time}+09:00`,receivedAt:`${date}T${time}+09:00`}); };
 for(const id of readiness.REQUIRED.filter((id)=>id!=='K200_NIGHT')) add(id,1,id==='NDX'?'DELAYED':'FINAL');
+rows=rows.filter(row=>!['KOSPI','KOSDAQ','KOSPI200'].includes(row.seriesId));
+for(const id of ['KOSPI','KOSDAQ','KOSPI200'])rows=master.upsertObservation(rows,{seriesId:id,tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1,market:'KRX',session:'REGULAR',source:'HISTORY',status:'FINAL',finality:'REGULAR_CLOSE',receivedAt:`${date}T07:20:00+09:00`});
 add('K200_NIGHT',550,'FINAL','NIGHT','06:00:00');
 let result=readiness.assess(master,rows,date);
 assert.equal(result.ready,true);

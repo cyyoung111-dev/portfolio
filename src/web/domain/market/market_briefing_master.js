@@ -83,14 +83,24 @@
       row.status === 'FINAL' && (row.finality === 'REGULAR_CLOSE' || row.finality === 'HISTORICAL_CLOSE');
   }
 
-  function selectAt(master, seriesId, cutoffAt, targetTradingDate) {
+  const MORNING_PRIOR_FINAL = Object.freeze(['KOSPI', 'KOSDAQ', 'KOSPI200']);
+
+  function isSameDayCandidate(row, seriesId, targetTradingDate, checkpoint, cutoff) {
+    if (!row || row.tradingDate !== targetTradingDate) return false;
+    if (checkpoint === 'MORNING' && MORNING_PRIOR_FINAL.includes(seriesId)) return false;
+    return Date.parse(row.observedAt || row.receivedAt) <= cutoff;
+  }
+
+  function selectAt(master, seriesId, cutoffAt, targetTradingDate, checkpoint) {
     const cutoff = Date.parse(cutoffAt || '');
     if (!Number.isFinite(cutoff)) return null;
     const rows = (master || []).filter((row) => row.seriesId === seriesId);
-    const normal = rows
+    if (!validDate(targetTradingDate)) return rows
       .filter((row) => Date.parse(row.observedAt || row.receivedAt) <= cutoff)
-      .sort((a, b) => Number(b.tradingDate === targetTradingDate) - Number(a.tradingDate === targetTradingDate) || Date.parse(b.observedAt || b.receivedAt) - Date.parse(a.observedAt || a.receivedAt))[0] || null;
-    if (normal || !validDate(targetTradingDate)) return normal;
+      .sort((a, b) => Date.parse(b.observedAt || b.receivedAt) - Date.parse(a.observedAt || a.receivedAt))[0] || null;
+    const sameDay = rows.filter((row) => isSameDayCandidate(row, seriesId, targetTradingDate, checkpoint, cutoff))
+      .sort((a, b) => Date.parse(b.observedAt || b.receivedAt) - Date.parse(a.observedAt || a.receivedAt))[0] || null;
+    if (sameDay) return sameDay;
     return rows.filter((row) => isHistoricalFinalFallback(row, targetTradingDate))
       .sort((a, b) => b.sourceDate.localeCompare(a.sourceDate) || Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] || null;
   }
@@ -98,7 +108,7 @@
   function buildBriefingSnapshot(master, tradingDate, checkpoint, seriesIds) {
     const asOf = checkpointAt(tradingDate, checkpoint);
     const values = {};
-    (seriesIds || []).forEach((seriesId) => { values[seriesId] = selectAt(master, seriesId, asOf, tradingDate); });
+    (seriesIds || []).forEach((seriesId) => { values[seriesId] = selectAt(master, seriesId, asOf, tradingDate, checkpoint); });
     return { tradingDate, checkpoint, asOf, values };
   }
 
@@ -122,7 +132,7 @@
     return { ok: issues.length === 0, issues };
   }
 
-  const api = { CHECKPOINT_TIME, SERIES_POLICY, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, isHistoricalFinalFallback, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
+  const api = { CHECKPOINT_TIME, SERIES_POLICY, MORNING_PRIOR_FINAL, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, isHistoricalFinalFallback, isSameDayCandidate, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.MarketBriefingMaster = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

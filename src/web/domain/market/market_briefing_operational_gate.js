@@ -3,16 +3,17 @@
 
   const REQUIRED_BY_CHECKPOINT = Object.freeze({
     MORNING: ['KOSPI','KOSDAQ','KOSPI200','K200_NIGHT','SPX','NDX','SOX','VIX','USDKRW'],
-    KRX_FINAL: ['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'],
+    KRX_FINAL: ['KOSPI','KOSDAQ','SAMSUNG','SKHYNIX'],
     AFTER_FINAL: ['SAMSUNG','SKHYNIX'],
-    EVENING: ['KOSPI','KOSDAQ','KOSPI200','K200_NIGHT','USDKRW','SAMSUNG','SKHYNIX'],
+    EVENING: ['KOSPI','KOSDAQ','USDKRW','SAMSUNG','SKHYNIX'],
   });
   const OPTIONAL_BY_CHECKPOINT = Object.freeze({
-    KRX_FINAL: ['FOREIGN_NET','INSTITUTION_NET','BREADTH_COVERAGE','BREADTH_PARTICIPATION'],
+    KRX_FINAL: ['KOSPI200','FOREIGN_NET','INSTITUTION_NET','BREADTH_COVERAGE','BREADTH_PARTICIPATION'],
     AFTER_FINAL: ['KRX_AFTER_TURNOVER','NXT_AFTER_TURNOVER'],
+    EVENING: ['KOSPI200','K200_NIGHT'],
   });
   const KRX_FINAL_SERIES = Object.freeze(['KOSPI','KOSDAQ','SAMSUNG','SKHYNIX']);
-  const KRX_SAME_DAY_SERIES = Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX']);
+  const KRX_SAME_DAY_SERIES = Object.freeze(['KOSPI','KOSDAQ','SAMSUNG','SKHYNIX']);
 
   function isRegularFinal(row, tradingDate) {
     return !!row && row.market === 'KRX' && row.session === 'REGULAR' &&
@@ -36,7 +37,7 @@
     });
     const k200 = snapshot.values.K200_NIGHT;
     if (checkpoint === 'MORNING' && k200 && !(k200.tradingDate === tradingDate && k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
-    if (checkpoint === 'EVENING' && k200 && k200.status === 'FINAL') bad.push('K200_NIGHT:FALSE_FINAL');
+    if (checkpoint === 'EVENING' && k200 && k200.status === 'FINAL' && k200.tradingDate === tradingDate) warnings.push('K200_NIGHT:COMPLETED_NIGHT_FINAL');
     if (checkpoint === 'KRX_FINAL' || checkpoint === 'EVENING') {
       KRX_SAME_DAY_SERIES.forEach((id) => {
         const row = snapshot.values[id];

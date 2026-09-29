@@ -1,7 +1,8 @@
-## 웹 20260929-9: 브리핑 확정 과거값 후조회 보정
+## GAS v9.137 / 웹 20260929-10: 브리핑 headless 종결
 
-- checkpoint 이후 처음 조회된 값은 수신시각을 소급하지 않습니다. cutoff 이내 정상 관측이 없을 때만 `sourceDate < tradingDate`, `FINAL`, `REGULAR_CLOSE`/`HISTORICAL_CLOSE`를 모두 만족하는 기존 확정 과거값을 snapshot 후보로 사용합니다.
-- KOSPI200은 KRX `kospi_dd_trd`의 정확한 `IDX_NM` 운영 응답을 확인하지 못했으므로 공식 종가로 추정 승격하지 않고 기존 Yahoo `DELAYED_AUXILIARY` 정책을 유지합니다. 정적 웹만 재배포하며 GAS는 v9.136을 유지합니다.
+- GAS v9.137은 KRX `drv/fut_bydd_trd`에서 exact BAS_DD·공식 야간시장·KOSPI200 선물·단일 최근 미만기 월물·양수 `TDD_CLSPRC`를 모두 확인한 값만 `K200_NIGHT/NIGHT_FINAL`로 제공합니다. 06:00 이전, 이전 날짜, 정규시장, 0 종가, 같은 최근월물 중복 후보는 확정값을 만들지 않습니다.
+- GitHub 저장소 Variables에 `GAS_WEB_APP_URL`, Secrets에 `GAS_ACCESS_TOKEN`을 한 번 설정합니다. `.github/workflows/market-briefing-headless.yml`이 KST 06:15/07:30/16:05/20:15의 target checkpoint를 명시해 hydrate → collect → master 저장 → readiness → immutable snapshot 저장을 수행합니다.
+- 스케줄 실행은 GitHub Actions 및 배포된 GAS/KRX·Toss·Yahoo·환율 provider 가용성에 의존합니다. 휴장·미공시 또는 필수값 누락 시 snapshot을 만들지 않으며 workflow 지연 시에도 현재 시각으로 checkpoint를 바꾸지 않습니다.
 
 ## GAS v9.131 / 웹 20260928-5: 기간 정합성 진단 index 최적화
 

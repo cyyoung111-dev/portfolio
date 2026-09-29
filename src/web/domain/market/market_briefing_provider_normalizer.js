@@ -1,6 +1,6 @@
 (function(global){
 'use strict';
-const MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SPX',NASDAQ100:'NDX',SOX:'SOX',VIX:'VIX',USDKRW:'USDKRW',SAMSUNG:'SAMSUNG',SKHYNIX:'SKHYNIX'});
+const MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',K200_NIGHT:'K200_NIGHT',SP500:'SPX',NASDAQ100:'NDX',SOX:'SOX',VIX:'VIX',USDKRW:'USDKRW',SAMSUNG:'SAMSUNG',SKHYNIX:'SKHYNIX'});
 const shared=global.MarketDataProvider||(typeof module!=='undefined'&&module.exports?require('./market_data_provider.js'):null);
 function normalizeOne(key,item,meta={}){
  const seriesId=MAP[key]; if(!seriesId||!item)return null;
@@ -9,7 +9,7 @@ function normalizeOne(key,item,meta={}){
  const delayed=Boolean(item.delayed||meta.delayed||source==='YAHOO_DELAYED');
  const explicitStatus=item.status||meta.status||null;
  const status=explicitStatus||(delayed?'DELAYED':'PARTIAL');
- const market=item.market||meta.market||((key==='KOSPI'||key==='KOSDAQ'||key==='KOSPI200')?'KRX':key==='USDKRW'?'FX':'US');
+ const market=item.market||meta.market||((key==='KOSPI'||key==='KOSDAQ'||key==='KOSPI200'||key==='K200_NIGHT')?'KRX':key==='USDKRW'?'FX':'US');
  return {seriesId,tradingDate:contract.tradingDate,value:contract.value,market,session:contract.session,source,status,
   finality:contract.finality,observedAt:contract.observedAt,receivedAt:contract.receivedAt,
   timestampQuality:contract.timestampQuality,currency:contract.currency,sourceDate:contract.sourceDate,

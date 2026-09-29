@@ -30,6 +30,12 @@ assert.equal(master.buildBriefingSnapshot(backfill,date,'MORNING',['SPX']).value
 backfill=master.upsertObservation(backfill,{seriesId:'LATE_ONLY',tradingDate:date,sourceDate:date,value:3,status:'PARTIAL',receivedAt:`${date}T07:35:00+09:00`});
 assert.equal(master.buildBriefingSnapshot(backfill,date,'MORNING',['LATE_ONLY']).values.LATE_ONLY,null,'late same-day PARTIAL must not bypass cutoff');
 assert.equal(master.validateSnapshot(morningBackfill).ok,true);
+backfill=master.upsertObservation(backfill,{seriesId:'VIX',tradingDate:'2026-09-16',sourceDate:'2026-09-16',value:0.5,status:'FINAL',finality:'REGULAR_CLOSE',receivedAt:`${date}T07:00:00+09:00`});
+assert.equal(master.buildBriefingSnapshot(backfill,date,'MORNING',['VIX']).values.VIX.value,1,'latest sourceDate historical row must beat older cutoff row');
+for(const id of ['KOSPI','KOSDAQ','KOSPI200'])backfill=master.upsertObservation(backfill,{seriesId:id,tradingDate:date,sourceDate:date,value:9,status:id==='KOSPI200'?'DELAYED':'PARTIAL',receivedAt:`${date}T07:20:00+09:00`});
+const priorKrx=master.buildBriefingSnapshot(backfill,date,'MORNING',['KOSPI','KOSDAQ','KOSPI200']);
+for(const id of Object.keys(priorKrx.values))assert.equal(priorKrx.values[id].sourceDate,'2026-09-17',`${id} MORNING must use PRIOR_FINAL`);
+assert.equal(master.buildBriefingSnapshot(backfill,date,'KRX_FINAL',['KOSPI']).values.KOSPI.value,9,'same-day row is eligible outside MORNING');
 
 const bridge = master.bridgeBriefings(rows, date, ['K200_NIGHT','USDKRW','NQ']);
 assert.equal(bridge.morning.values.USDKRW.value, 1390);

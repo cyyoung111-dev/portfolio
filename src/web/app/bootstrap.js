@@ -13,15 +13,15 @@ Object.assign(window.PortfolioApp, {
 });
 
 const MARKET_BRIEFING_RUNTIME_SCRIPTS = Object.freeze([
-  'domain/market/market_briefing_master.js?v=20260929-9',
-  'domain/market/market_briefing_provider_normalizer.js?v=20260929-2',
+  'domain/market/market_briefing_master.js?v=20260929-10',
+  'domain/market/market_briefing_provider_normalizer.js?v=20260929-10',
   'domain/market/market_briefing_adapters.js?v=20260929-2',
   'domain/market/market_briefing_kis_wire.js?v=20260929-2',
   'domain/market/market_briefing_kis_ingest.js?v=20260929-2',
   'domain/market/market_briefing_snapshot_store.js?v=20260921-1',
-  'domain/market/market_briefing_operational_gate.js?v=20260929-9',
+  'domain/market/market_briefing_operational_gate.js?v=20260929-10',
   'domain/market/market_briefing_runtime_store.js?v=20260921-1',
-  'domain/market/market_briefing_provider_collector.js?v=20260929-7',
+  'domain/market/market_briefing_provider_collector.js?v=20260929-10',
   'domain/market/market_briefing_runtime.js?v=20260929-4',
 ]);
 

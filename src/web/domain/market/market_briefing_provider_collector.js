@@ -39,6 +39,13 @@ async function collect(request,tradingDate,options={}){
   for(const type of REQUEST_TYPES){const point=latest(data&&data.series&&data.series[type]);if(!point){missing.push(type);continue;}payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate,options.checkpoint);}
   Object.assign(errors,(data&&data.errors)||{});
  }catch(error){for(const type of REQUEST_TYPES)missing.push(type);errors.getBenchmarks=String(error&&error.message||error);}
+ if(options.checkpoint==='NIGHT_FINAL'||options.checkpoint==='MORNING'){
+  try{
+   const night=await request('getKrxK200NightClose',{date:tradingDate},{timeoutMs:options.timeoutMs||45000,retry:0});
+   if(night&&night.observation)payload.K200_NIGHT=night.observation;
+   else{missing.push('K200_NIGHT');if(night&&night.error)errors.K200_NIGHT=String(night.error);}
+  }catch(error){missing.push('K200_NIGHT');errors.K200_NIGHT=String(error&&error.message||error);}
+ }
  try{
   const fx=await request('getExchangeRateHistory',{from,to},{timeoutMs:options.timeoutMs||45000,retry:0});
   const point=normalizeFxPoint(fx,tradingDate);if(point)payload.USDKRW=point;else missing.push('USDKRW');
