@@ -618,6 +618,7 @@ GAS 메뉴 및 시트 구성:
 - GAS v9.132는 기존 14개 `MARKET_MASTER` core 컬럼 뒤에 `currency`, `source_date`, `fallback`을 추가합니다. 기존 시트는 누락 header만 뒤에 채우고 기존 행과 dedup key를 재작성하지 않으며, 빈 legacy metadata는 `null`/`false`로 조회합니다.
 - GAS v9.133부터 마감 계열 checkpoint의 KOSPI/KOSDAQ 요청은 6시간 장중 cache를 우회해 Toss 일봉을 새로 조회하고 `fresh + confirmedClose` metadata를 반환합니다. collector는 이 명시적 metadata가 있는 당일 값만 `FINAL/REGULAR_CLOSE`로 승격합니다.
 - KIS 야간 관측은 `appendMarketBriefingObservations` 성공을 commit point로 사용하며, 서버 저장 실패·POST 함수 부재·quarantine 시에는 localStorage에 병합하지 않습니다.
+- GAS v9.134는 Toss indicator daily candle의 provider timestamp를 `observedAt` 후보로 보존하지만, 현재 확인된 응답 계약에는 정규장 종가 확정 status/finality가 없어 fresh 조회도 `confirmedClose=false`로 반환합니다. 따라서 당일 KOSPI/KOSDAQ은 확정 근거가 추가되기 전까지 `PARTIAL`로 유지되고 KRX final gate를 통과하지 않습니다.
 - Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
 - `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
 - 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.

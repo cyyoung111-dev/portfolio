@@ -11,11 +11,12 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  const source=sourceFor(type),sourceDate=String(point.date),isCurrent=sourceDate===tradingDate;
  const delayed=Boolean(point.delayed||point.status==='DELAYED'||source==='YAHOO');
  const providerMeta=data&&data.seriesMeta&&data.seriesMeta[type];
- const krxCloseVerified=isCurrent&&source==='TOSS'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed&&providerMeta&&providerMeta.confirmedClose===true&&providerMeta.fresh===true;
+ const observedAt=point.observedAt&&Number.isFinite(Date.parse(point.observedAt))?point.observedAt:null;
+ const krxCloseVerified=isCurrent&&source==='TOSS'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed&&providerMeta&&providerMeta.confirmedClose===true&&observedAt;
  const final=!isCurrent||krxCloseVerified;
  return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:delayed&&isCurrent?'DELAYED':final?'FINAL':'PARTIAL',
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market:type.startsWith('KOS')?'KRX':'US',currency:null,
-  quality:delayed?'EOD_DELAYED':'EOD',fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
+  observedAt,quality:delayed?'EOD_DELAYED':'EOD',fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
 }
 function normalizeFxPoint(data,tradingDate){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close)})));if(!point)return null;const isCurrent=point.date===tradingDate;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',quality:'EOD',fallback:!isCurrent};}
 function trustedStockClose(source){return /^(KRX|KRX_OTP|KRX_CONFIRMED_CLOSE|STORED_CONFIRMED_CLOSE)$/.test(String(source||'').toUpperCase());}

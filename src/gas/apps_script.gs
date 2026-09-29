@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.133
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.134
+//
+//  v9.134 변경사항 (2026.09.29):
+//   Toss 지수 fresh와 미검증 종가를 분리하고 provider timestamp 보존
 //
 //  v9.133 변경사항 (2026.09.29):
 //   마감 브리핑 국내지수 fresh close 조회와 cache 분리
@@ -3518,7 +3521,8 @@ function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate, forceRefresh)
     rows.forEach(function(row) {
       var date = _normalizeDate(row && (row.timestamp || row.marketDate || row.date));
       var value = Number(row && (row.closePrice != null ? row.closePrice : row.lastPrice));
-      if (date >= fromDate && date <= toDate && isFinite(value) && value > 0) pointsByDate[date] = value;
+      var observedAt = _marketBriefingIsoTimestamp_(row && row.timestamp);
+      if (date >= fromDate && date <= toDate && isFinite(value) && value > 0) pointsByDate[date] = { value: value, observedAt: observedAt || null };
     });
     var nextBefore = payload && payload.nextBefore || (payload && payload.result && payload.result.nextBefore) || '';
     if (!rows.length || !nextBefore || nextBefore === before) break;
@@ -3526,7 +3530,7 @@ function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate, forceRefresh)
     if (oldest && oldest < fromDate) break;
     before = nextBefore;
   }
-  var points = Object.keys(pointsByDate).sort().map(function(date) { return { date: date, value: pointsByDate[date] }; });
+  var points = Object.keys(pointsByDate).sort().map(function(date) { return { date: date, value: pointsByDate[date].value, observedAt: pointsByDate[date].observedAt }; });
   if (points.length) { try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(ignoreCache) {} }
   return points;
 }
@@ -3669,7 +3673,7 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
       if (type === 'KOSPI' || type === 'KOSDAQ') {
         try { series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh); } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
         if (series[type].length) {
-          seriesMeta[type] = { fresh: !!forceRefresh, confirmedClose: !!forceRefresh, source: 'TOSS' };
+          seriesMeta[type] = { fresh: !!forceRefresh, confirmedClose: false, confirmation: 'UNVERIFIED_DAILY_CANDLE', source: 'TOSS' };
           try { symbols[type] = type; current[type] = fetchMarketIndicatorPricesToss([type])[type] || null; } catch(error) { providerErrors[type] = error.message || 'TOSS_INDICATOR_PRICE_ERROR'; }
         }
       } else {
@@ -3870,7 +3874,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.133' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.134' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8863,7 +8867,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.133' });
+    return jsonOk({ settings: settings, gasVersion: '9.134' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8885,7 +8889,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.133'
+      gasVersion: '9.134'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

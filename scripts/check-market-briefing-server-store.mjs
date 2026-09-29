@@ -37,10 +37,10 @@ const sheet={getLastRow:()=>sheetRows.length,getLastColumn:()=>Math.max(...sheet
 const ss={getSheetByName:(name)=>name==='MARKET_MASTER'?sheet:null};
 const context=vm.createContext({console,LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},ContentService:{MimeType:{JSON:'JSON'},createTextOutput:(value)=>({value,setMimeType(){return this;},getContent(){return this.value;}})}});
 new vm.Script(gas).runInContext(context);context.getss=()=>ss;
-const sample={seriesId:'KOSPI',tradingDate:'2026-09-18',value:3400,market:'KRX',session:'REGULAR',source:'TOSS',status:'FINAL',finality:'REGULAR_CLOSE',receivedAt:'2026-09-18T06:31:00.000Z',currency:'KRW',sourceDate:'2026-09-18',fallback:true};
+const sample={seriesId:'KOSPI',tradingDate:'2026-09-18',value:3400,market:'KRX',session:'REGULAR',source:'TOSS',status:'FINAL',finality:'REGULAR_CLOSE',observedAt:'2026-09-18T06:30:00.000Z',receivedAt:'2026-09-18T06:31:00.000Z',currency:'KRW',sourceDate:'2026-09-18',fallback:true};
 assert.equal(JSON.parse(context.handleAppendMarketBriefingObservations(JSON.stringify([sample])).getContent()).saved,1);
 const roundTrip=JSON.parse(context.handleGetMarketBriefingMaster('2026-09-18','2026-09-18','').getContent()).observations[0];
-assert.equal(roundTrip.currency,'KRW');assert.equal(roundTrip.sourceDate,'2026-09-18');assert.equal(roundTrip.fallback,true);assert.equal(roundTrip.timestampQuality,'RECEIVE_ONLY');
+assert.equal(roundTrip.currency,'KRW');assert.equal(roundTrip.sourceDate,'2026-09-18');assert.equal(roundTrip.fallback,true);assert.equal(roundTrip.observedAt,'2026-09-18T06:30:00.000Z');assert.equal(roundTrip.receivedAt,'2026-09-18T06:31:00.000Z');assert.equal(roundTrip.timestampQuality,'OBSERVED');
 console.log('MARKET_MASTER append-only 서버 영속화/중복방지/timestamp 품질 계약 통과');
 
 assert.match(store,/function mergeObservations/);

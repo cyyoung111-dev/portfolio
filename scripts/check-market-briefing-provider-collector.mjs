@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import collector from '../src/web/domain/market/market_briefing_provider_collector.js';
 import normalizer from '../src/web/domain/market/market_briefing_provider_normalizer.js';
+import master from '../src/web/domain/market/market_briefing_master.js';
 const calls=[];
 const request=async(action,params)=>{calls.push({action,params});if(action==='getBenchmarks'){assert.equal(params.fresh,'0');assert.match(params.benchmarks,/KOSPI200/);assert.match(params.benchmarks,/SOX/);assert.match(params.benchmarks,/VIX/);return {series:{KOSPI:[{date:'2026-09-17',value:3400}],KOSDAQ:[{date:'2026-09-17',value:900}],KOSPI200:[{date:'2026-09-17',value:455}],SP500:[{date:'2026-09-17',value:6600}],NASDAQ100:[{date:'2026-09-17',value:24000}],SOX:[{date:'2026-09-17',value:6100}],VIX:[{date:'2026-09-17',value:15}]},symbols:{KOSPI200:'KOSPI200',SP500:'^GSPC',NASDAQ100:'^NDX',SOX:'^SOX',VIX:'^VIX'}};}if(action==='getExchangeRateHistory')return {history:[{date:'2026-09-17',value:1380}],source:'FX_HISTORY'};if(action==='getPrices')return {prices:{'005930':81000,'000660':190000},priceDates:{'005930':'2026-09-18','000660':'2026-09-18'}};if(action==='getPriceHistory')return {prices:{'005930':[{date:'2026-09-18',price:80500,source:'KRX'}],'000660':[{date:'2026-09-18',price:188000,source:'KRX_OTP'}]}};throw new Error('unexpected action');};
 const result=await collector.collect(request,'2026-09-18',{from:'2026-09-17'});
@@ -31,9 +32,17 @@ const currentIndex=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',
 assert.equal(currentIndex.status,'PARTIAL'); assert.equal(currentIndex.finality,null);
 const cachedAtClose=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3410},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:false,confirmedClose:false}}},'2026-09-18','KRX_FINAL');
 assert.equal(cachedAtClose.status,'PARTIAL'); assert.equal(cachedAtClose.finality,null);
-const krxFinal=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3420},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:true}}},'2026-09-18','KRX_FINAL');
+const freshUnverified=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3415,observedAt:'2026-09-18T06:30:00.000Z'},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:false}}},'2026-09-18','KRX_FINAL');
+assert.equal(freshUnverified.status,'PARTIAL'); assert.equal(freshUnverified.finality,null);
+const noObservedEvidence=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3418},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:true}}},'2026-09-18','KRX_FINAL');
+assert.equal(noObservedEvidence.status,'PARTIAL');
+const krxFinal=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3420,observedAt:'2026-09-18T06:30:00.000Z'},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:true}}},'2026-09-18','KRX_FINAL');
 assert.equal(krxFinal.status,'FINAL'); assert.equal(krxFinal.finality,'REGULAR_CLOSE');
 assert.equal(krxFinal.fallback,false);
+assert.equal(krxFinal.observedAt,'2026-09-18T06:30:00.000Z');
+const finalRows=normalizer.ingest(master,[],{KOSPI:krxFinal},{tradingDate:'2026-09-18',receivedAt:'2026-09-18T15:31:00+09:00'});
+assert.equal(master.buildBriefingSnapshot(finalRows,'2026-09-18','KRX_FINAL',['KOSPI']).values.KOSPI.value,3420);
+assert.equal(finalRows[0].receivedAt,'2026-09-18T06:31:00.000Z'); assert.equal(finalRows[0].observedAt,'2026-09-18T06:30:00.000Z');
 const yahooSameDay=collector.normalizeBenchmarkPoint('KOSPI200',{date:'2026-09-18',value:456},{symbols:{KOSPI200:'^KS200'}},'2026-09-18','EVENING');
 assert.equal(yahooSameDay.status,'DELAYED'); assert.equal(yahooSameDay.finality,null);
 const indicative=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[],'2026-09-18');
