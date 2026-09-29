@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.135
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.136
+//
+//  v9.136 변경사항 (2026.09.29):
+//   KRX 공식 대표지수 조회 실패를 보조 provider 결과와 격리
 //
 //  v9.135 변경사항 (2026.09.29):
 //   16시 이후 KRX 공식 exact-date KOSPI/KOSDAQ 종가 연결
@@ -3508,6 +3511,11 @@ function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
   return output;
 }
 
+function _fetchKrxOfficialIndexClosesSafe_(symbols, tradingDate) {
+  try { return { data: fetchKrxOfficialIndexCloses(symbols, tradingDate), error: '' }; }
+  catch(error) { return { data: {}, error: error.message || 'KRX_OFFICIAL_ERROR' }; }
+}
+
 function _indicatorRows_(payload) {
   var result = payload && payload.result;
   if (Array.isArray(result)) return result;
@@ -3722,7 +3730,9 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     });
 
     if (forceRefresh && _isKrxOfficialCloseAvailableTime_()) {
-      var official = fetchKrxOfficialIndexCloses(requested, toDate);
+      var officialResult = _fetchKrxOfficialIndexClosesSafe_(requested, toDate);
+      var official = officialResult.data;
+      if (officialResult.error) providerErrors.KRX_OFFICIAL = officialResult.error;
       ['KOSPI','KOSDAQ'].forEach(function(type) {
         if (!official[type]) return;
         series[type] = (series[type] || []).filter(function(point) { return point.date !== toDate; }).concat([official[type]]).sort(function(a,b) { return a.date.localeCompare(b.date); });
@@ -3735,6 +3745,7 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     requested.forEach(function(type) {
       if (!series[type].length) errors[type] = providerErrors[type] || '선택 기간의 데이터를 찾지 못했습니다.';
     });
+    if (providerErrors.KRX_OFFICIAL) errors.KRX_OFFICIAL = providerErrors.KRX_OFFICIAL;
     var result = { benchmarks: requested, series: series, symbols: symbols, current: current, seriesMeta: seriesMeta, errors: errors };
     try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch(cacheError) { /* 캐시 용량 초과는 무시 */ }
     return jsonOk(result);
@@ -3918,7 +3929,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.135' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.136' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8911,7 +8922,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.135' });
+    return jsonOk({ settings: settings, gasVersion: '9.136' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8933,7 +8944,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.135'
+      gasVersion: '9.136'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

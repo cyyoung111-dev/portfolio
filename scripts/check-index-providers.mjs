@@ -41,6 +41,9 @@ context._getKrxAuthKey=()=> 'test-key';
 context.UrlFetchApp={fetchAll:requests=>requests.map(request=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[request.url.includes('kosdaq_dd_trd')?{BAS_DD:'20260918',IDX_NM:'코스닥',CLSPRC_IDX:'900.25'}:{BAS_DD:'20260918',IDX_NM:'코스피',CLSPRC_IDX:'3,420.50'}]})}))};
 const official=context.fetchKrxOfficialIndexCloses(['KOSPI','KOSDAQ'],'2026-09-18');
 if(official.KOSPI.value!==3420.5||official.KOSDAQ.value!==900.25||official.KOSPI.source!=='KRX_OFFICIAL'||official.KOSPI.observedAt!=='2026-09-18T15:30:00+09:00')throw new Error('KRX 공식 exact-date 대표지수 종가 파싱 실패');
+context.UrlFetchApp={fetchAll:()=>{throw new Error('simulated KRX timeout');}};
+const isolated=context._fetchKrxOfficialIndexClosesSafe_(['KOSPI','KOSDAQ'],'2026-09-18');
+if(Object.keys(isolated.data).length||isolated.error!=='simulated KRX timeout')throw new Error('KRX 공식 조회 예외 격리 실패');
 
 const yahoo = { chart: { result: [{ meta: { symbol: '^GSPC', regularMarketPrice: 105, previousClose: 100, regularMarketTime: 1790000000 }, timestamp: [1790000000, 1790086400], indicators: { quote: [{ close: [100, 105] }] } }] } };
 const parsed = context._parseYahooChart_(yahoo, 'UTC');

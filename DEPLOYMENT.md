@@ -621,6 +621,8 @@ GAS 메뉴 및 시트 구성:
 - GAS v9.134는 Toss indicator daily candle의 provider timestamp를 `observedAt` 후보로 보존하지만, 현재 확인된 응답 계약에는 정규장 종가 확정 status/finality가 없어 fresh 조회도 `confirmedClose=false`로 반환합니다. 따라서 당일 KOSPI/KOSDAQ은 확정 근거가 추가되기 전까지 `PARTIAL`로 유지되고 KRX final gate를 통과하지 않습니다.
 - 삼성전자·SK하이닉스의 exact-date trusted 가격이력은 기존 `KRX_FINAL` session close 정의로 `observedAt`을 기록합니다. 실제 API 수신시각은 별도 `receivedAt`으로 유지하며 current/INDICATIVE, untrusted 또는 이전 거래일 이력에는 close 시각을 부여하지 않습니다.
 - GAS v9.135는 16:00 KST 이후에만 기존 KRX AUTH_KEY로 공식 `idx/kospi_dd_trd`·`idx/kosdaq_dd_trd`를 조회합니다. `BAS_DD`가 요청일과 정확히 같고 `IDX_NM`이 `코스피`/`코스닥`, `CLSPRC_IDX > 0`인 행만 `KRX_OFFICIAL` 확정 종가로 사용하며 `observedAt`은 정규장 close인 15:30, `receivedAt`은 실제 조회시각으로 분리합니다. 공식 행이 없으면 Toss 보조값은 `PARTIAL`로 남아 마감 gate가 `NOT_READY`를 유지합니다.
+- GAS v9.136은 KRX 공식 지수 fetchAll/network 오류를 격리해 Toss PARTIAL과 Yahoo 결과를 그대로 반환하고 `errors.KRX_OFFICIAL`에 원인을 남깁니다. 실제 producer가 없는 flow/breadth/after-turnover는 checkpoint warning으로만 보고하며, 브라우저 provider sync가 성공하고 readiness가 publishable일 때만 immutable snapshot 저장을 시도합니다.
+- 별도 16:00 scheduler/trigger는 없으므로 브라우저가 열리지 않은 상태의 정시 수집·release는 운영 자동화 의존사항으로 남습니다.
 - Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
 - `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
 - 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.

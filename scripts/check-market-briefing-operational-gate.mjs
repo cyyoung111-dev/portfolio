@@ -16,6 +16,7 @@ for(const id of gate.REQUIRED_BY_CHECKPOINT.KRX_FINAL) add(id,'FINAL','REGULAR',
 rows=rows.filter(row=>row.seriesId!=='KOSPI200'); add('KOSPI200','DELAYED','REGULAR','15:30:00',null,'KRX');
 decision=gate.releaseDecision(master,storeApi,rows,[],d,'KRX_FINAL'); assert.equal(decision.publishable,true);
 assert.ok(decision.data.warnings.includes('KOSPI200:DELAYED_AUXILIARY'));
+for(const id of gate.OPTIONAL_BY_CHECKPOINT.KRX_FINAL) assert.ok(decision.data.warnings.includes(`${id}:MISSING_OPTIONAL`));
 rows=rows.filter(row=>row.seriesId!=='SAMSUNG'); add('SAMSUNG','PARTIAL','REGULAR','15:30:00',null,'KRX');
 decision=gate.releaseDecision(master,storeApi,rows,[],d,'KRX_FINAL'); assert.equal(decision.publishable,false); assert.ok(decision.data.issues.includes('SAMSUNG:NOT_REGULAR_FINAL'));
 rows=rows.filter(row=>row.seriesId!=='SAMSUNG');
@@ -25,4 +26,6 @@ rows=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.EVENING.filter(id=>id!=='K200_NIGHT')) add(id,'FINAL',id==='USDKRW'?'FX':'REGULAR','20:00:00',gate.KRX_FINAL_SERIES.includes(id)?'REGULAR_CLOSE':null,id==='USDKRW'?'FX':'KRX');
 add('K200_NIGHT','LIVE','NIGHT','20:00:00',null,'KRX');
 decision=gate.releaseDecision(master,storeApi,rows,[],d,'EVENING'); assert.equal(decision.publishable,true);
+rows=[];for(const id of gate.REQUIRED_BY_CHECKPOINT.AFTER_FINAL)add(id,'FINAL','REGULAR','15:30:00','REGULAR_CLOSE','KRX');
+decision=gate.releaseDecision(master,storeApi,rows,[],d,'AFTER_FINAL');assert.equal(decision.publishable,true);for(const id of gate.OPTIONAL_BY_CHECKPOINT.AFTER_FINAL)assert.ok(decision.data.warnings.includes(`${id}:MISSING_OPTIONAL`));
 console.log('장전·마감 브리핑 운영 게이트 회귀검사 통과');

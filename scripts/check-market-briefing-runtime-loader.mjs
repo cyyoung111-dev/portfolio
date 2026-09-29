@@ -9,6 +9,11 @@ assert.match(source,/runtime\.syncServerMaster\(requestGsheetActionJson, request
 assert.match(source,/const checkpoint = window\.MarketBriefingMaster\.currentCheckpoint\(\)/);
 assert.match(source,/syncServerMaster\(requestGsheetActionJson, requestGsheetFormJson, tradingDate, collectOptions\)/);
 assert.match(source,/: runtime\.collectExistingProvider\(requestGsheetActionJson, tradingDate, collectOptions\)/);
+assert.match(source,/sync\.then\(\(\) => \{/);
+assert.match(source,/runtime\.readiness\(tradingDate, checkpoint\)/);
+assert.match(source,/if \(!decision\.publishable\) return null/);
+assert.match(source,/runtime\.releaseAndPersist\(requestGsheetFormJson, tradingDate, checkpoint, seriesIds\)/);
+assert.match(source,/snapshot release unavailable/);
 assert.match(source,/provider\/server sync unavailable/);
 assert.match(source,/\[market-briefing\] runtime unavailable/);
 assert.match(source,/window\.PortfolioApp\.marketBriefing = window\.MarketBriefingRuntime/);

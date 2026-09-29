@@ -3,9 +3,13 @@
 
   const REQUIRED_BY_CHECKPOINT = Object.freeze({
     MORNING: ['KOSPI','KOSDAQ','KOSPI200','K200_NIGHT','SPX','NDX','SOX','VIX','USDKRW'],
-    KRX_FINAL: ['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX','FOREIGN_NET','INSTITUTION_NET','BREADTH_COVERAGE','BREADTH_PARTICIPATION'],
-    AFTER_FINAL: ['SAMSUNG','SKHYNIX','KRX_AFTER_TURNOVER','NXT_AFTER_TURNOVER'],
+    KRX_FINAL: ['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX'],
+    AFTER_FINAL: ['SAMSUNG','SKHYNIX'],
     EVENING: ['KOSPI','KOSDAQ','KOSPI200','K200_NIGHT','USDKRW','SAMSUNG','SKHYNIX'],
+  });
+  const OPTIONAL_BY_CHECKPOINT = Object.freeze({
+    KRX_FINAL: ['FOREIGN_NET','INSTITUTION_NET','BREADTH_COVERAGE','BREADTH_PARTICIPATION'],
+    AFTER_FINAL: ['KRX_AFTER_TURNOVER','NXT_AFTER_TURNOVER'],
   });
   const KRX_FINAL_SERIES = Object.freeze(['KOSPI','KOSDAQ','SAMSUNG','SKHYNIX']);
   const KRX_SAME_DAY_SERIES = Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX']);
@@ -18,14 +22,17 @@
   function evaluate(masterApi, rows, tradingDate, checkpoint) {
     const required = REQUIRED_BY_CHECKPOINT[checkpoint];
     if (!required) throw new Error('unsupported checkpoint');
-    const snapshot = masterApi.buildBriefingSnapshot(rows || [], tradingDate, checkpoint, required);
+    const optional = OPTIONAL_BY_CHECKPOINT[checkpoint] || [];
+    const snapshot = masterApi.buildBriefingSnapshot(rows || [], tradingDate, checkpoint, required.concat(optional));
     const missing = required.filter((id) => !snapshot.values[id]);
     const bad = [];
     const warnings = [];
+    optional.forEach((id) => { if (!snapshot.values[id]) warnings.push(`${id}:MISSING_OPTIONAL`); });
     Object.entries(snapshot.values).forEach(([id,row]) => {
       if (!row) return;
-      if (['FAILED','QUARANTINED','STALE'].includes(row.status)) bad.push(`${id}:${row.status}`);
-      if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf)) bad.push(`${id}:LOOKAHEAD`);
+      const target = optional.includes(id) ? warnings : bad;
+      if (['FAILED','QUARANTINED','STALE'].includes(row.status)) target.push(`${id}:${row.status}`);
+      if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf)) target.push(`${id}:LOOKAHEAD`);
     });
     const k200 = snapshot.values.K200_NIGHT;
     if (checkpoint === 'MORNING' && k200 && !(k200.tradingDate === tradingDate && k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
@@ -49,6 +56,10 @@
       });
     }
     return { checkpoint, tradingDate, asOf:snapshot.asOf, ready:missing.length===0 && bad.length===0, missing, issues:bad, warnings, snapshot };
+  }
+
+  function seriesForCheckpoint(checkpoint) {
+    return (REQUIRED_BY_CHECKPOINT[checkpoint] || []).concat(OPTIONAL_BY_CHECKPOINT[checkpoint] || []);
   }
 
   function continuity(snapshotStoreApi, store, tradingDate, checkpoint) {
@@ -75,7 +86,7 @@
     };
   }
 
-  const api={REQUIRED_BY_CHECKPOINT,KRX_FINAL_SERIES,KRX_SAME_DAY_SERIES,isRegularFinal,evaluate,continuity,releaseDecision};
+  const api={REQUIRED_BY_CHECKPOINT,OPTIONAL_BY_CHECKPOINT,KRX_FINAL_SERIES,KRX_SAME_DAY_SERIES,seriesForCheckpoint,isRegularFinal,evaluate,continuity,releaseDecision};
   if(typeof module!=='undefined'&&module.exports) module.exports=api;
   global.MarketBriefingOperationalGate=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

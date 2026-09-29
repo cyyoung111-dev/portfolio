@@ -19,7 +19,7 @@ const MARKET_BRIEFING_RUNTIME_SCRIPTS = Object.freeze([
   'domain/market/market_briefing_kis_wire.js?v=20260929-2',
   'domain/market/market_briefing_kis_ingest.js?v=20260929-2',
   'domain/market/market_briefing_snapshot_store.js?v=20260921-1',
-  'domain/market/market_briefing_operational_gate.js?v=20260929-4',
+  'domain/market/market_briefing_operational_gate.js?v=20260929-8',
   'domain/market/market_briefing_runtime_store.js?v=20260921-1',
   'domain/market/market_briefing_provider_collector.js?v=20260929-7',
   'domain/market/market_briefing_runtime.js?v=20260929-4',
@@ -57,7 +57,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const sync = typeof requestGsheetFormJson === 'function' && typeof runtime.syncServerMaster === 'function'
       ? runtime.syncServerMaster(requestGsheetActionJson, requestGsheetFormJson, tradingDate, collectOptions)
       : runtime.collectExistingProvider(requestGsheetActionJson, tradingDate, collectOptions);
-    sync.catch((error) => console.warn('[market-briefing] provider/server sync unavailable', error));
+    sync.then(() => {
+      if (typeof requestGsheetFormJson !== 'function' || typeof runtime.releaseAndPersist !== 'function') return null;
+      if (!window.MarketBriefingOperationalGate.REQUIRED_BY_CHECKPOINT[checkpoint]) return null;
+      const decision = runtime.readiness(tradingDate, checkpoint);
+      if (!decision.publishable) return null;
+      const seriesIds = window.MarketBriefingOperationalGate.seriesForCheckpoint(checkpoint);
+      return runtime.releaseAndPersist(requestGsheetFormJson, tradingDate, checkpoint, seriesIds)
+        .catch((error) => console.warn('[market-briefing] snapshot release unavailable', error));
+    }).catch((error) => console.warn('[market-briefing] provider/server sync unavailable', error));
   }).catch((error) => console.warn('[market-briefing] runtime unavailable', error));
 
   if (typeof syncLoanFromSchedule === 'function') syncLoanFromSchedule();
