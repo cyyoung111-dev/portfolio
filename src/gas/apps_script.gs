@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.134
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.135
+//
+//  v9.135 변경사항 (2026.09.29):
+//   16시 이후 KRX 공식 exact-date KOSPI/KOSDAQ 종가 연결
 //
 //  v9.134 변경사항 (2026.09.29):
 //   Toss 지수 fresh와 미검증 종가를 분리하고 provider timestamp 보존
@@ -3473,6 +3476,37 @@ function _benchmarkSymbolMap() {
 
 var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
 var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX' };
+var KRX_OFFICIAL_INDEX_CONFIG = {
+  KOSPI: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd', idxName: '코스피' },
+  KOSDAQ: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd', idxName: '코스닥' }
+};
+
+function _isKrxOfficialCloseAvailableTime_(now) {
+  return Utilities.formatDate(now || new Date(), CONFIG.TIMEZONE, 'HHmm') >= '1600';
+}
+
+function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
+  var authKey = _getKrxAuthKey(), date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, '');
+  if (!authKey || !/^\d{8}$/.test(ymd)) return {};
+  var requested = (symbols || []).filter(function(symbol) { return !!KRX_OFFICIAL_INDEX_CONFIG[symbol]; });
+  var requests = requested.map(function(symbol) {
+    var cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol];
+    return { url: cfg.endpoint + '?basDd=' + encodeURIComponent(ymd), method: 'get', headers: { AUTH_KEY: authKey }, muteHttpExceptions: true };
+  });
+  var output = {};
+  if (!requests.length) return output;
+  UrlFetchApp.fetchAll(requests).forEach(function(response, index) {
+    if (response.getResponseCode() >= 400) return;
+    var json; try { json = JSON.parse(response.getContentText() || '{}'); } catch(ignore) { return; }
+    var symbol = requested[index], cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol];
+    var row = (Array.isArray(json.OutBlock_1) ? json.OutBlock_1 : []).filter(function(item) {
+      return _normalizeYmd(item.BAS_DD || item.basDd || '') === ymd && String(item.IDX_NM || item.idxNm || '').trim() === cfg.idxName;
+    })[0];
+    var value = row ? parseFloat(String(row.CLSPRC_IDX || row.clsprcIdx || '').replace(/,/g, '')) : 0;
+    if (value > 0) output[symbol] = { date: date, value: value, observedAt: date + 'T15:30:00+09:00', source: 'KRX_OFFICIAL', confirmedClose: true };
+  });
+  return output;
+}
 
 function _indicatorRows_(payload) {
   var result = payload && payload.result;
@@ -3687,6 +3721,16 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
       }
     });
 
+    if (forceRefresh && _isKrxOfficialCloseAvailableTime_()) {
+      var official = fetchKrxOfficialIndexCloses(requested, toDate);
+      ['KOSPI','KOSDAQ'].forEach(function(type) {
+        if (!official[type]) return;
+        series[type] = (series[type] || []).filter(function(point) { return point.date !== toDate; }).concat([official[type]]).sort(function(a,b) { return a.date.localeCompare(b.date); });
+        symbols[type] = type;
+        seriesMeta[type] = { fresh: true, confirmedClose: true, confirmation: 'KRX_EXACT_DATE_CLOSE', source: 'KRX_OFFICIAL' };
+      });
+    }
+
     var errors = {};
     requested.forEach(function(type) {
       if (!series[type].length) errors[type] = providerErrors[type] || '선택 기간의 데이터를 찾지 못했습니다.';
@@ -3874,7 +3918,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.134' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.135' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8867,7 +8911,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.134' });
+    return jsonOk({ settings: settings, gasVersion: '9.135' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8889,7 +8933,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.134'
+      gasVersion: '9.135'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

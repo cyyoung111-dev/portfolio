@@ -9,11 +9,11 @@ function latest(points){if(!Array.isArray(points)||!points.length)return null;re
 function sourceFor(type){return type==='KOSPI'||type==='KOSDAQ'?'TOSS':'YAHOO';}
 function lookback(date,days=7){const d=new Date(`${date}T00:00:00Z`);d.setUTCDate(d.getUTCDate()-days);return d.toISOString().slice(0,10);}
 function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
- const source=sourceFor(type),sourceDate=String(point.date),isCurrent=sourceDate===tradingDate;
- const delayed=Boolean(point.delayed||point.status==='DELAYED'||source==='YAHOO');
  const providerMeta=data&&data.seriesMeta&&data.seriesMeta[type];
+ const source=String(point.source||providerMeta&&providerMeta.source||sourceFor(type)),sourceDate=String(point.date),isCurrent=sourceDate===tradingDate;
+ const delayed=Boolean(point.delayed||point.status==='DELAYED'||source==='YAHOO');
  const observedAt=point.observedAt&&Number.isFinite(Date.parse(point.observedAt))?point.observedAt:null;
- const krxCloseVerified=isCurrent&&source==='TOSS'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed&&providerMeta&&providerMeta.confirmedClose===true&&observedAt;
+ const krxCloseVerified=isCurrent&&source==='KRX_OFFICIAL'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed&&providerMeta&&providerMeta.confirmedClose===true&&observedAt;
  const final=!isCurrent||krxCloseVerified;
  return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:delayed&&isCurrent?'DELAYED':final?'FINAL':'PARTIAL',
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market:type.startsWith('KOS')?'KRX':'US',currency:null,

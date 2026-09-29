@@ -4,8 +4,8 @@
 
 | series | 현재 경로 | 상태 | 비고 |
 |---|---|---|---|
-| KOSPI | Toss market-indicators | 연결됨 | 기존 GAS 지원 |
-| KOSDAQ | Toss market-indicators | 연결됨 | 기존 GAS 지원 |
+| KOSPI | Toss market-indicators + KRX 공식 지수 일별매매정보 | 연결됨 | Toss는 PARTIAL 보조, 16:00 이후 KRX exact-date 공식 종가만 FINAL |
+| KOSDAQ | Toss market-indicators + KRX 공식 지수 일별매매정보 | 연결됨 | Toss는 PARTIAL 보조, 16:00 이후 KRX exact-date 공식 종가만 FINAL |
 | SPX | Yahoo `^GSPC` | 연결됨 | EOD/비공식 endpoint |
 | NDX | Yahoo `^NDX` | 연결됨 | EOD/비공식 endpoint |
 | KOSPI200 | Yahoo `^KS200` | 보조 연결됨 | Toss 공식 identifier는 미확정; Yahoo EOD/지연 경로 사용 |
