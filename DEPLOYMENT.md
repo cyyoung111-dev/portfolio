@@ -1,3 +1,8 @@
+## 웹 20260929-9: 브리핑 확정 과거값 후조회 보정
+
+- checkpoint 이후 처음 조회된 값은 수신시각을 소급하지 않습니다. cutoff 이내 정상 관측이 없을 때만 `sourceDate < tradingDate`, `FINAL`, `REGULAR_CLOSE`/`HISTORICAL_CLOSE`를 모두 만족하는 기존 확정 과거값을 snapshot 후보로 사용합니다.
+- KOSPI200은 KRX `kospi_dd_trd`의 정확한 `IDX_NM` 운영 응답을 확인하지 못했으므로 공식 종가로 추정 승격하지 않고 기존 Yahoo `DELAYED_AUXILIARY` 정책을 유지합니다. 정적 웹만 재배포하며 GAS는 v9.136을 유지합니다.
+
 ## GAS v9.131 / 웹 20260928-5: 기간 정합성 진단 index 최적화
 
 - Apps Script v9.131과 정적 웹 20260928-5를 함께 재배포합니다. 실제 Snapshot 날짜만 전달하며 Snapshot/거래/가격/NAV/FX 원장을 요청당 한 번 읽고 index lookup을 사용합니다.

@@ -21,6 +21,16 @@ assert.equal(master.selectAt(rows, 'USDKRW', `${date}T20:15:00+09:00`).value, 13
 assert.equal(master.selectAt(rows, 'NQ', `${date}T20:15:00+09:00`).status, 'DELAYED');
 assert.equal(master.selectAt(rows, 'NQ', `${date}T20:15:00+09:00`).lagSeconds, 600);
 
+let backfill=[];
+for(const id of ['SPX','NDX','SOX','VIX','KOSPI','KOSDAQ','KOSPI200','USDKRW'])backfill=master.upsertObservation(backfill,{seriesId:id,tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1,market:id==='USDKRW'?'FX':'TEST',session:id==='USDKRW'?'FX':'REGULAR',source:'HISTORY',status:'FINAL',finality:id==='USDKRW'?'HISTORICAL_CLOSE':'REGULAR_CLOSE',receivedAt:`${date}T07:35:00+09:00`});
+const morningBackfill=master.buildBriefingSnapshot(backfill,date,'MORNING',['SPX','NDX','SOX','VIX','KOSPI','KOSDAQ','KOSPI200','USDKRW']);
+for(const id of Object.keys(morningBackfill.values)){assert.equal(morningBackfill.values[id].value,1);assert.equal(morningBackfill.values[id].observedAt,null);assert.equal(morningBackfill.values[id].receivedAt,'2026-09-17T22:35:00.000Z');}
+backfill=master.upsertObservation(backfill,{seriesId:'SPX',tradingDate:date,sourceDate:date,value:2,status:'FINAL',finality:'REGULAR_CLOSE',observedAt:`${date}T07:29:00+09:00`,receivedAt:`${date}T07:35:00+09:00`});
+assert.equal(master.buildBriefingSnapshot(backfill,date,'MORNING',['SPX']).values.SPX.value,2,'same-day cutoff row must beat historical fallback');
+backfill=master.upsertObservation(backfill,{seriesId:'LATE_ONLY',tradingDate:date,sourceDate:date,value:3,status:'PARTIAL',receivedAt:`${date}T07:35:00+09:00`});
+assert.equal(master.buildBriefingSnapshot(backfill,date,'MORNING',['LATE_ONLY']).values.LATE_ONLY,null,'late same-day PARTIAL must not bypass cutoff');
+assert.equal(master.validateSnapshot(morningBackfill).ok,true);
+
 const bridge = master.bridgeBriefings(rows, date, ['K200_NIGHT','USDKRW','NQ']);
 assert.equal(bridge.morning.values.USDKRW.value, 1390);
 assert.equal(bridge.evening.values.USDKRW.value, 1395);

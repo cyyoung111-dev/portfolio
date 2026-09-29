@@ -78,18 +78,27 @@
     return rows.sort((a, b) => Date.parse(a.receivedAt) - Date.parse(b.receivedAt));
   }
 
-  function selectAt(master, seriesId, cutoffAt) {
+  function isHistoricalFinalFallback(row, targetTradingDate) {
+    return !!row && validDate(targetTradingDate) && validDate(row.sourceDate) && row.sourceDate < targetTradingDate &&
+      row.status === 'FINAL' && (row.finality === 'REGULAR_CLOSE' || row.finality === 'HISTORICAL_CLOSE');
+  }
+
+  function selectAt(master, seriesId, cutoffAt, targetTradingDate) {
     const cutoff = Date.parse(cutoffAt || '');
     if (!Number.isFinite(cutoff)) return null;
-    return (master || []).filter((row) => row.seriesId === seriesId)
+    const rows = (master || []).filter((row) => row.seriesId === seriesId);
+    const normal = rows
       .filter((row) => Date.parse(row.observedAt || row.receivedAt) <= cutoff)
-      .sort((a, b) => Date.parse(b.observedAt || b.receivedAt) - Date.parse(a.observedAt || a.receivedAt))[0] || null;
+      .sort((a, b) => Number(b.tradingDate === targetTradingDate) - Number(a.tradingDate === targetTradingDate) || Date.parse(b.observedAt || b.receivedAt) - Date.parse(a.observedAt || a.receivedAt))[0] || null;
+    if (normal || !validDate(targetTradingDate)) return normal;
+    return rows.filter((row) => isHistoricalFinalFallback(row, targetTradingDate))
+      .sort((a, b) => b.sourceDate.localeCompare(a.sourceDate) || Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] || null;
   }
 
   function buildBriefingSnapshot(master, tradingDate, checkpoint, seriesIds) {
     const asOf = checkpointAt(tradingDate, checkpoint);
     const values = {};
-    (seriesIds || []).forEach((seriesId) => { values[seriesId] = selectAt(master, seriesId, asOf); });
+    (seriesIds || []).forEach((seriesId) => { values[seriesId] = selectAt(master, seriesId, asOf, tradingDate); });
     return { tradingDate, checkpoint, asOf, values };
   }
 
@@ -107,13 +116,13 @@
     const issues = [];
     Object.entries(snapshot?.values || {}).forEach(([seriesId, row]) => {
       if (!row) issues.push(`${seriesId}:MISSING`);
-      else if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf)) issues.push(`${seriesId}:LOOKAHEAD`);
+      else if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf) && !isHistoricalFinalFallback(row, snapshot.tradingDate)) issues.push(`${seriesId}:LOOKAHEAD`);
       else if (row.timestampQuality === 'RECEIVE_ONLY' && row.observedAt) issues.push(`${seriesId}:TIMESTAMP_QUALITY`);
     });
     return { ok: issues.length === 0, issues };
   }
 
-  const api = { CHECKPOINT_TIME, SERIES_POLICY, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
+  const api = { CHECKPOINT_TIME, SERIES_POLICY, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, isHistoricalFinalFallback, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.MarketBriefingMaster = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
