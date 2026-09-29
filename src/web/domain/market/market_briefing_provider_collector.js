@@ -39,18 +39,22 @@ async function collect(request,tradingDate,options={}){
   const fx=await request('getExchangeRateHistory',{from,to},{timeoutMs:options.timeoutMs||45000,retry:0});
   const point=normalizeFxPoint(fx,tradingDate);if(point)payload.USDKRW=point;else missing.push('USDKRW');
  }catch(error){missing.push('USDKRW');errors.USDKRW=String(error&&error.message||error);}
- try{
+ {
   const codes=Object.values(STOCKS).join(',');
-  const [prices,history]=await Promise.all([
+  const [pricesResult,historyResult]=await Promise.allSettled([
    request('getPrices',{codes,persist:'0'},{timeoutMs:options.timeoutMs||45000,retry:0}),
    request('getPriceHistory',{from:tradingDate,to:tradingDate,codes},{timeoutMs:options.timeoutMs||45000,retry:0})
   ]);
+  const prices=pricesResult.status==='fulfilled'?pricesResult.value:null;
+  const history=historyResult.status==='fulfilled'?historyResult.value:null;
+  if(pricesResult.status==='rejected')errors.stockCurrent=String(pricesResult.reason&&pricesResult.reason.message||pricesResult.reason);
+  if(historyResult.status==='rejected')errors.stockHistory=String(historyResult.reason&&historyResult.reason.message||historyResult.reason);
   for(const [seriesId,code] of Object.entries(STOCKS)){
    const current={price:prices&&prices.prices&&prices.prices[code],sourceDate:prices&&prices.priceDates&&prices.priceDates[code],source:'GET_PRICES'};
    const row=normalizeStockPoint(seriesId,code,current,history&&history.prices&&history.prices[code],tradingDate);
    if(row)payload[seriesId]=row;else missing.push(seriesId);
   }
- }catch(error){for(const id of Object.keys(STOCKS))missing.push(id);errors.stocks=String(error&&error.message||error);}
+ }
  return {payload,missing:[...new Set(missing)],errors,receivedAt:new Date().toISOString(),range:{from,to}};
 }
 async function collectAndIngest(runtime,request,tradingDate,options={}){if(!runtime||typeof runtime.ingestBenchmarks!=='function')throw new Error('MarketBriefingRuntime unavailable');const result=await collect(request,tradingDate,options);const rows=runtime.ingestBenchmarks(result.payload,{tradingDate,receivedAt:result.receivedAt});return {...result,rows};}

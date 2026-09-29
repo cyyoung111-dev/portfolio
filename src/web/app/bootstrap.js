@@ -13,15 +13,15 @@ Object.assign(window.PortfolioApp, {
 });
 
 const MARKET_BRIEFING_RUNTIME_SCRIPTS = Object.freeze([
-  'domain/market/market_briefing_master.js?v=20260921-1',
+  'domain/market/market_briefing_master.js?v=20260929-3',
   'domain/market/market_briefing_provider_normalizer.js?v=20260929-2',
   'domain/market/market_briefing_adapters.js?v=20260929-2',
   'domain/market/market_briefing_kis_wire.js?v=20260929-2',
   'domain/market/market_briefing_kis_ingest.js?v=20260929-2',
   'domain/market/market_briefing_snapshot_store.js?v=20260921-1',
-  'domain/market/market_briefing_operational_gate.js?v=20260929-2',
+  'domain/market/market_briefing_operational_gate.js?v=20260929-3',
   'domain/market/market_briefing_runtime_store.js?v=20260921-1',
-  'domain/market/market_briefing_provider_collector.js?v=20260929-2',
+  'domain/market/market_briefing_provider_collector.js?v=20260929-3',
   'domain/market/market_briefing_runtime.js?v=20260929-2',
 ]);
 
@@ -52,9 +52,11 @@ document.addEventListener('DOMContentLoaded', function() {
   loadMarketBriefingRuntime().then((runtime) => {
     if (typeof requestGsheetActionJson !== 'function') return;
     const tradingDate = typeof getDateStr === 'function' ? getDateStr(0) : new Date().toISOString().slice(0, 10);
+    const checkpoint = window.MarketBriefingMaster.currentCheckpoint();
+    const collectOptions = { from: typeof getDateStr === 'function' ? getDateStr(7) : tradingDate, checkpoint };
     const sync = typeof requestGsheetFormJson === 'function' && typeof runtime.syncServerMaster === 'function'
-      ? runtime.syncServerMaster(requestGsheetActionJson, requestGsheetFormJson, tradingDate, { from: typeof getDateStr === 'function' ? getDateStr(7) : tradingDate })
-      : runtime.collectExistingProvider(requestGsheetActionJson, tradingDate);
+      ? runtime.syncServerMaster(requestGsheetActionJson, requestGsheetFormJson, tradingDate, collectOptions)
+      : runtime.collectExistingProvider(requestGsheetActionJson, tradingDate, collectOptions);
     sync.catch((error) => console.warn('[market-briefing] provider/server sync unavailable', error));
   }).catch((error) => console.warn('[market-briefing] runtime unavailable', error));
 

@@ -34,6 +34,17 @@ const yahooSameDay=collector.normalizeBenchmarkPoint('KOSPI200',{date:'2026-09-1
 assert.equal(yahooSameDay.status,'DELAYED'); assert.equal(yahooSameDay.finality,null);
 const indicative=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[],'2026-09-18');
 assert.equal(indicative.status,'PARTIAL'); assert.equal(indicative.finality,null);
+const auxiliary=async(action)=>{if(action==='getBenchmarks')return {series:{}};if(action==='getExchangeRateHistory')return {history:[]};throw new Error('unused provider');};
+const currentOnly=await collector.collect(async(action,params)=>{
+ if(action==='getPrices')return {prices:{'005930':81000,'000660':190000},priceDates:{'005930':'2026-09-18','000660':'2026-09-18'}};
+ if(action==='getPriceHistory')throw new Error('history down'); return auxiliary(action,params);
+},'2026-09-18',{checkpoint:'KRX_FINAL'});
+assert.equal(currentOnly.payload.SAMSUNG.status,'PARTIAL'); assert.match(currentOnly.errors.stockHistory,/history down/);
+const historyOnly=await collector.collect(async(action,params)=>{
+ if(action==='getPrices')throw new Error('current down');
+ if(action==='getPriceHistory')return {prices:{'005930':[{date:'2026-09-18',price:80500,source:'KRX'}],'000660':[{date:'2026-09-18',price:188000,source:'KRX_OTP'}]}}; return auxiliary(action,params);
+},'2026-09-18',{checkpoint:'KRX_FINAL'});
+assert.equal(historyOnly.payload.SAMSUNG.status,'FINAL'); assert.equal(historyOnly.payload.SKHYNIX.finality,'REGULAR_CLOSE'); assert.match(historyOnly.errors.stockCurrent,/current down/);
 const partial=normalizer.normalizeOne('VIX',{value:15,tradingDate:'2026-09-17',source:'CBOE'},{receivedAt:'2026-09-18T05:00:00+09:00'});
 assert.equal(partial.status,'PARTIAL');
 console.log('기존 GAS provider → 브리핑 핵심 8개 series collector/normalizer 회귀검사 통과');

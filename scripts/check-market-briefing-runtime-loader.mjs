@@ -6,7 +6,9 @@ let previous=-1;
 for(const file of expected){const pos=source.indexOf(file);assert.ok(pos>previous,`${file} 로드 순서`);previous=pos;}
 assert.match(source,/loadMarketBriefingRuntime\(\)\.then\(/);
 assert.match(source,/runtime\.syncServerMaster\(requestGsheetActionJson, requestGsheetFormJson, tradingDate/);
-assert.match(source,/: runtime\.collectExistingProvider\(requestGsheetActionJson, tradingDate\)/);
+assert.match(source,/const checkpoint = window\.MarketBriefingMaster\.currentCheckpoint\(\)/);
+assert.match(source,/syncServerMaster\(requestGsheetActionJson, requestGsheetFormJson, tradingDate, collectOptions\)/);
+assert.match(source,/: runtime\.collectExistingProvider\(requestGsheetActionJson, tradingDate, collectOptions\)/);
 assert.match(source,/provider\/server sync unavailable/);
 assert.match(source,/\[market-briefing\] runtime unavailable/);
 assert.match(source,/window\.PortfolioApp\.marketBriefing = window\.MarketBriefingRuntime/);

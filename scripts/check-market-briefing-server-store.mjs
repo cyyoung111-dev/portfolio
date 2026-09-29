@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
 const runtime=fs.readFileSync('src/web/domain/market/market_briefing_runtime.js','utf8');
 const store=fs.readFileSync('src/web/domain/market/market_briefing_runtime_store.js','utf8');
@@ -22,8 +23,24 @@ assert.match(gas,/timestampQuality=observedAt \? 'OBSERVED' : 'RECEIVE_ONLY'/);
 assert.match(gas,/lagSeconds=observedAt \? Math\.round\(\(receivedMs-observedMs\)\/1000\) : null/);
 assert.match(gas,/timestampQuality:observedAt\?'OBSERVED':'RECEIVE_ONLY'/);
 assert.match(gas,/rejected: rejected, rejectionReasons: rejectionReasons/);
+assert.match(gas,/'currency','source_date','fallback'/);
+assert.match(gas,/currency:r\[14\]\|\|null,sourceDate:_normalizeDate\(r\[15\]\|\|''\)\|\|null,fallback:/);
 assert.doesNotMatch(gas,/observedAt\s*=\s*receivedAt/);
 assert.match(master,/observedAt must not be after receivedAt/);
+
+const sheetRows=[['series_id','trading_date','value','market','session','source','status','finality','observed_at','received_at','timestamp_quality','lag_seconds','revision','quality']];
+const sheet={getLastRow:()=>sheetRows.length,getLastColumn:()=>Math.max(...sheetRows.map(row=>row.length)),getRange:(r,c,n=1,m=1)=>({
+  getValues:()=>Array.from({length:n},(_,ri)=>Array.from({length:m},(_,ci)=>sheetRows[r-1+ri]?.[c-1+ci]??'')),
+  setValues:(values)=>values.forEach((row,ri)=>row.forEach((value,ci)=>{sheetRows[r-1+ri]??=[];sheetRows[r-1+ri][c-1+ci]=value;})),
+  setValue:(value)=>{sheetRows[r-1]??=[];sheetRows[r-1][c-1]=value;}
+})};
+const ss={getSheetByName:(name)=>name==='MARKET_MASTER'?sheet:null};
+const context=vm.createContext({console,LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},ContentService:{MimeType:{JSON:'JSON'},createTextOutput:(value)=>({value,setMimeType(){return this;},getContent(){return this.value;}})}});
+new vm.Script(gas).runInContext(context);context.getss=()=>ss;
+const sample={seriesId:'KOSPI',tradingDate:'2026-09-18',value:3400,market:'KRX',session:'REGULAR',source:'TOSS',status:'FINAL',finality:'REGULAR_CLOSE',receivedAt:'2026-09-18T06:31:00.000Z',currency:'KRW',sourceDate:'2026-09-18',fallback:true};
+assert.equal(JSON.parse(context.handleAppendMarketBriefingObservations(JSON.stringify([sample])).getContent()).saved,1);
+const roundTrip=JSON.parse(context.handleGetMarketBriefingMaster('2026-09-18','2026-09-18','').getContent()).observations[0];
+assert.equal(roundTrip.currency,'KRW');assert.equal(roundTrip.sourceDate,'2026-09-18');assert.equal(roundTrip.fallback,true);assert.equal(roundTrip.timestampQuality,'RECEIVE_ONLY');
 console.log('MARKET_MASTER append-only 서버 영속화/중복방지/timestamp 품질 계약 통과');
 
 assert.match(store,/function mergeObservations/);

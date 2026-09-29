@@ -13,9 +13,14 @@ decision=gate.releaseDecision(master,storeApi,rows,snapshots,d,'MORNING'); asser
 rows=rows.filter(r=>r.seriesId!=='K200_NIGHT'); decision=gate.releaseDecision(master,storeApi,rows,snapshots,d,'MORNING'); assert.equal(decision.publishable,false); assert.ok(decision.data.missing.includes('K200_NIGHT'));
 rows=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.KRX_FINAL) add(id,'FINAL','REGULAR','15:30:00',gate.KRX_FINAL_SERIES.includes(id)?'REGULAR_CLOSE':null,'KRX');
+rows=rows.filter(row=>row.seriesId!=='KOSPI200'); add('KOSPI200','DELAYED','REGULAR','15:30:00',null,'KRX');
 decision=gate.releaseDecision(master,storeApi,rows,[],d,'KRX_FINAL'); assert.equal(decision.publishable,true);
+assert.ok(decision.data.warnings.includes('KOSPI200:DELAYED_AUXILIARY'));
 rows=rows.filter(row=>row.seriesId!=='SAMSUNG'); add('SAMSUNG','PARTIAL','REGULAR','15:30:00',null,'KRX');
 decision=gate.releaseDecision(master,storeApi,rows,[],d,'KRX_FINAL'); assert.equal(decision.publishable,false); assert.ok(decision.data.issues.includes('SAMSUNG:NOT_REGULAR_FINAL'));
+rows=rows.filter(row=>row.seriesId!=='SAMSUNG');
+rows=master.upsertObservation(rows,{seriesId:'SAMSUNG',tradingDate:'2026-09-17',value:1,market:'KRX',session:'REGULAR',source:'KRX',status:'FINAL',finality:'REGULAR_CLOSE',observedAt:`${d}T15:29:00+09:00`,receivedAt:`${d}T15:29:00+09:00`});
+decision=gate.releaseDecision(master,storeApi,rows,[],d,'KRX_FINAL'); assert.equal(decision.publishable,false); assert.ok(decision.data.issues.includes('SAMSUNG:TRADING_DATE_MISMATCH'));
 rows=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.EVENING.filter(id=>id!=='K200_NIGHT')) add(id,'FINAL',id==='USDKRW'?'FX':'REGULAR','20:00:00',gate.KRX_FINAL_SERIES.includes(id)?'REGULAR_CLOSE':null,id==='USDKRW'?'FX':'KRX');
 add('K200_NIGHT','LIVE','NIGHT','20:00:00',null,'KRX');
