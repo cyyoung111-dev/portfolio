@@ -7,6 +7,12 @@
     AFTER_FINAL: ['SAMSUNG','SKHYNIX','KRX_AFTER_TURNOVER','NXT_AFTER_TURNOVER'],
     EVENING: ['KOSPI','KOSDAQ','KOSPI200','K200_NIGHT','USDKRW','SAMSUNG','SKHYNIX'],
   });
+  const KRX_FINAL_SERIES = Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SAMSUNG','SKHYNIX']);
+
+  function isRegularFinal(row) {
+    return !!row && row.market === 'KRX' && row.session === 'REGULAR' &&
+      row.status === 'FINAL' && row.finality === 'REGULAR_CLOSE';
+  }
 
   function evaluate(masterApi, rows, tradingDate, checkpoint) {
     const required = REQUIRED_BY_CHECKPOINT[checkpoint];
@@ -20,8 +26,20 @@
       if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf)) bad.push(`${id}:LOOKAHEAD`);
     });
     const k200 = snapshot.values.K200_NIGHT;
-    if (checkpoint === 'MORNING' && k200 && !(k200.session === 'NIGHT' && k200.status === 'FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
+    if (checkpoint === 'MORNING' && k200 && !(k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
     if (checkpoint === 'EVENING' && k200 && k200.status === 'FINAL') bad.push('K200_NIGHT:FALSE_FINAL');
+    if (checkpoint === 'KRX_FINAL' || checkpoint === 'EVENING') {
+      KRX_FINAL_SERIES.forEach((id) => {
+        const row = snapshot.values[id];
+        if (row && !isRegularFinal(row)) bad.push(`${id}:NOT_REGULAR_FINAL`);
+      });
+    }
+    if (checkpoint === 'AFTER_FINAL') {
+      ['SAMSUNG','SKHYNIX'].forEach((id) => {
+        const row = snapshot.values[id];
+        if (row && !isRegularFinal(row)) bad.push(`${id}:NOT_REGULAR_FINAL`);
+      });
+    }
     return { checkpoint, tradingDate, asOf:snapshot.asOf, ready:missing.length===0 && bad.length===0, missing, issues:bad, snapshot };
   }
 
@@ -49,7 +67,7 @@
     };
   }
 
-  const api={REQUIRED_BY_CHECKPOINT,evaluate,continuity,releaseDecision};
+  const api={REQUIRED_BY_CHECKPOINT,KRX_FINAL_SERIES,isRegularFinal,evaluate,continuity,releaseDecision};
   if(typeof module!=='undefined'&&module.exports) module.exports=api;
   global.MarketBriefingOperationalGate=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

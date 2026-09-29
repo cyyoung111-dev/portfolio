@@ -1,6 +1,6 @@
 (function(global){
 'use strict';
-const MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SPX',NASDAQ100:'NDX',SOX:'SOX',VIX:'VIX',USDKRW:'USDKRW'});
+const MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SPX',NASDAQ100:'NDX',SOX:'SOX',VIX:'VIX',USDKRW:'USDKRW',SAMSUNG:'SAMSUNG',SKHYNIX:'SKHYNIX'});
 const shared=global.MarketDataProvider||(typeof module!=='undefined'&&module.exports?require('./market_data_provider.js'):null);
 function normalizeOne(key,item,meta={}){
  const seriesId=MAP[key]; if(!seriesId||!item)return null;
