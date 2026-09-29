@@ -10,11 +10,12 @@ function lookback(date,days=7){const d=new Date(`${date}T00:00:00Z`);d.setUTCDat
 function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  const source=sourceFor(type),sourceDate=String(point.date),isCurrent=sourceDate===tradingDate;
  const delayed=Boolean(point.delayed||point.status==='DELAYED'||source==='YAHOO');
- const krxCloseVerified=isCurrent&&source==='TOSS'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed;
+ const providerMeta=data&&data.seriesMeta&&data.seriesMeta[type];
+ const krxCloseVerified=isCurrent&&source==='TOSS'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed&&providerMeta&&providerMeta.confirmedClose===true&&providerMeta.fresh===true;
  const final=!isCurrent||krxCloseVerified;
  return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:delayed&&isCurrent?'DELAYED':final?'FINAL':'PARTIAL',
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market:type.startsWith('KOS')?'KRX':'US',currency:null,
-  quality:delayed?'EOD_DELAYED':'EOD',fallback:false,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
+  quality:delayed?'EOD_DELAYED':'EOD',fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
 }
 function normalizeFxPoint(data,tradingDate){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close)})));if(!point)return null;const isCurrent=point.date===tradingDate;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',quality:'EOD',fallback:!isCurrent};}
 function trustedStockClose(source){return /^(KRX|KRX_OTP|KRX_CONFIRMED_CLOSE|STORED_CONFIRMED_CLOSE)$/.test(String(source||'').toUpperCase());}
@@ -31,7 +32,7 @@ async function collect(request,tradingDate,options={}){
  const from=options.from||lookback(tradingDate),to=options.to||tradingDate;
  const payload={},missing=[],errors={};
  try{
-  const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from,to},{timeoutMs:options.timeoutMs||45000,retry:0});
+  const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from,to,fresh:KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
   for(const type of REQUEST_TYPES){const point=latest(data&&data.series&&data.series[type]);if(!point){missing.push(type);continue;}payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate,options.checkpoint);}
   Object.assign(errors,(data&&data.errors)||{});
  }catch(error){for(const type of REQUEST_TYPES)missing.push(type);errors.getBenchmarks=String(error&&error.message||error);}

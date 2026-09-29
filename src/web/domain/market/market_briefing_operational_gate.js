@@ -28,7 +28,7 @@
       if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf)) bad.push(`${id}:LOOKAHEAD`);
     });
     const k200 = snapshot.values.K200_NIGHT;
-    if (checkpoint === 'MORNING' && k200 && !(k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
+    if (checkpoint === 'MORNING' && k200 && !(k200.tradingDate === tradingDate && k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
     if (checkpoint === 'EVENING' && k200 && k200.status === 'FINAL') bad.push('K200_NIGHT:FALSE_FINAL');
     if (checkpoint === 'KRX_FINAL' || checkpoint === 'EVENING') {
       KRX_SAME_DAY_SERIES.forEach((id) => {

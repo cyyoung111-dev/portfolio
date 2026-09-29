@@ -12,10 +12,10 @@ async function ingestKisNightFrame(postRequest,rawFrame,registry,meta={}){
  if(!wire||!ingest||!adapters)throw new Error('KIS night ingestion dependency missing');
  const result=ingest.k200NightObservation(wire,adapters,rawFrame,registry,meta);
  if(result.status!=='VALID')return {...result,persistence:null};
- const d=deps();d.store.mergeObservations(storage(),d.master,[result.observation]);
  if(typeof postRequest!=='function')throw new Error('market briefing GAS POST function missing');
  const persistence=await postRequest('appendMarketBriefingObservations',{data:JSON.stringify([result.observation])},{timeoutMs:meta.timeoutMs||45000,retry:0});
  if(!persistence||persistence.status!=='ok')throw new Error(String(persistence&&persistence.message||'MARKET_MASTER 저장 실패'));
+ const d=deps();d.store.mergeObservations(storage(),d.master,[result.observation]);
  return {...result,persistence};
 }
 async function releaseAndPersist(postRequest,tradingDate,checkpoint,seriesIds,options={}){const out=release(tradingDate,checkpoint,seriesIds,options);if(!out.snapshot)return {...out,persistence:null};if(typeof postRequest!=='function')throw new Error('market briefing snapshot POST function missing');const persistence=await postRequest('appendMarketBriefingSnapshot',{data:JSON.stringify(out.snapshot)},{timeoutMs:options.timeoutMs||45000,retry:0});if(!persistence||persistence.status!=='ok')throw new Error(String(persistence&&persistence.message||'MARKET_SNAPSHOTS 저장 실패'));return {...out,persistence};}
