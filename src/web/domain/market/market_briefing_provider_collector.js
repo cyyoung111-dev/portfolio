@@ -5,8 +5,8 @@ const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',S
 function latest(points){if(!Array.isArray(points)||!points.length)return null;return points.filter(p=>p&&/^\d{4}-\d{2}-\d{2}$/.test(String(p.date||''))&&Number(p.value)>0).sort((a,b)=>String(a.date).localeCompare(String(b.date))).at(-1)||null;}
 function sourceFor(type){return type==='KOSPI'||type==='KOSDAQ'?'TOSS':'YAHOO';}
 function lookback(date,days=7){const d=new Date(`${date}T00:00:00Z`);d.setUTCDate(d.getUTCDate()-days);return d.toISOString().slice(0,10);}
-function normalizeBenchmarkPoint(type,point,data){const source=sourceFor(type);return {value:Number(point.value),tradingDate:String(point.date),source,status:'FINAL',session:'REGULAR',quality:'EOD',providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};}
-function normalizeFxPoint(data,tradingDate){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close)})));if(!point)return null;return {value:Number(point.value),tradingDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:point.date===tradingDate?'PARTIAL':'FINAL',session:'FX',quality:'EOD'};}
+function normalizeBenchmarkPoint(type,point,data,tradingDate){const source=sourceFor(type),sourceDate=String(point.date),isCurrent=sourceDate===tradingDate;return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'REGULAR_CLOSE',session:'REGULAR',market:type.startsWith('KOS')?'KRX':'US',currency:null,quality:'EOD',fallback:false,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};}
+function normalizeFxPoint(data,tradingDate){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close)})));if(!point)return null;const isCurrent=point.date===tradingDate;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',quality:'EOD',fallback:!isCurrent};}
 async function collect(request,tradingDate,options={}){
  if(typeof request!=='function')throw new Error('market briefing request function missing');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(tradingDate||'')))throw new Error('invalid tradingDate');
@@ -14,7 +14,7 @@ async function collect(request,tradingDate,options={}){
  const payload={},missing=[],errors={};
  try{
   const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from,to},{timeoutMs:options.timeoutMs||45000,retry:0});
-  for(const type of REQUEST_TYPES){const point=latest(data&&data.series&&data.series[type]);if(!point){missing.push(type);continue;}payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data);}
+  for(const type of REQUEST_TYPES){const point=latest(data&&data.series&&data.series[type]);if(!point){missing.push(type);continue;}payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate);}
   Object.assign(errors,(data&&data.errors)||{});
  }catch(error){for(const type of REQUEST_TYPES)missing.push(type);errors.getBenchmarks=String(error&&error.message||error);}
  try{
