@@ -2,7 +2,7 @@
 //  📊 포트폴리오 대시보드 — Google Apps Script  v9.137
 //
 //  v9.137 변경사항 (2026.09.29):
-//   KRX 공식 KOSPI200 야간선물 일별 종가 조회 및 headless 브리핑 연결
+//   KRX 실제 ISU_NM 형식의 KOSPI200 야간선물 일별 종가 조회 및 headless 브리핑 연결
 //
 //  v9.136 변경사항 (2026.09.29):
 //   KRX 공식 대표지수 조회 실패를 보조 provider 결과와 격리
@@ -3521,9 +3521,8 @@ function _fetchKrxOfficialIndexClosesSafe_(symbols, tradingDate) {
 }
 
 function _parseKrxK200NightExpiry_(isuName) {
-  var name = String(isuName || '').trim();
-  if (name.replace(/\s/g, '').indexOf('코스피200선물') !== 0) return '';
-  var match = name.match(/(?:^|\D)(20\d{2})(0[1-9]|1[0-2])(?:\D|$)/);
+  var name = String(isuName || '').replace(/\s/g, '');
+  var match = name.match(/^코스피200F(20\d{2})(0[1-9]|1[0-2])\(야간\)$/);
   return match ? match[1] + match[2] : '';
 }
 
@@ -3537,7 +3536,7 @@ function _selectKrxK200NightClose_(rows, tradingDate) {
     var expiry = _parseKrxK200NightExpiry_(issue);
     var close = parseFloat(String(row && (row.TDD_CLSPRC || row.tddClsprc) || '').replace(/,/g, ''));
     var exactDate = _normalizeYmd(row && (row.BAS_DD || row.basDd) || '') === ymd;
-    if (!exactDate || !/야간/.test(market) || product.replace(/\s/g, '') !== '코스피200선물' || !expiry || expiry < month || !(close > 0)) return null;
+    if (!exactDate || market.replace(/\s/g, '') !== '야간' || product.replace(/\s/g, '') !== '코스피200선물' || !expiry || expiry < month || !(close > 0)) return null;
     return { expiry: expiry, close: close, issue: issue };
   }).filter(function(row) { return !!row; }).sort(function(a, b) { return a.expiry.localeCompare(b.expiry); });
   if (!candidates.length) return null;

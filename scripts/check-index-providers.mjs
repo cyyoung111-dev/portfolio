@@ -45,23 +45,24 @@ context.UrlFetchApp={fetchAll:()=>{throw new Error('simulated KRX timeout');}};
 const isolated=context._fetchKrxOfficialIndexClosesSafe_(['KOSPI','KOSDAQ'],'2026-09-18');
 if(Object.keys(isolated.data).length||isolated.error!=='simulated KRX timeout')throw new Error('KRX 공식 조회 예외 격리 실패');
 const nightRows=[
- {BAS_DD:'20260918',MKT_NM:'야간시장',PROD_NM:'코스피 200 선물',ISU_NM:'코스피 200 선물 202612',TDD_CLSPRC:'351.25'},
- {BAS_DD:'20260918',MKT_NM:'야간시장',PROD_NM:'코스피 200 선물',ISU_NM:'코스피 200 선물 202703',TDD_CLSPRC:'350.10'},
+ {BAS_DD:'20260904',MKT_NM:'야간',PROD_NM:'코스피200 선물',ISU_NM:'코스피200 F 202609 (야간)',TDD_CLSPRC:'351.25'},
+ {BAS_DD:'20260904',MKT_NM:'야간',PROD_NM:'코스피200 선물',ISU_NM:'코스피200 F 202612 (야간)',TDD_CLSPRC:'350.10'},
 ];
-const selectedNight=context._selectKrxK200NightClose_(nightRows,'2026-09-18');
-if(!selectedNight||selectedNight.close!==351.25||selectedNight.expiry!=='202612')throw new Error('KRX 야간 KOSPI200 최근 미만기 월물 선택 실패');
+if(context._parseKrxK200NightExpiry_(' 코스피200  F  202609  (야간) ')!=='202609')throw new Error('KRX 실제 ISU_NM 만기 파싱 실패');
+const selectedNight=context._selectKrxK200NightClose_(nightRows,'2026-09-04');
+if(!selectedNight||selectedNight.close!==351.25||selectedNight.expiry!=='202609')throw new Error('KRX 야간 KOSPI200 최근 미만기 월물 선택 실패');
 for(const invalid of [
- [{...nightRows[0],MKT_NM:'정규시장'}],
- [{...nightRows[0],BAS_DD:'20260917'}],
+ [{...nightRows[0],MKT_NM:'정규'}],
+ [{...nightRows[0],BAS_DD:'20260903'}],
  [{...nightRows[0],TDD_CLSPRC:'0'}],
- [{...nightRows[0],PROD_NM:'미니코스피 200 선물',ISU_NM:'미니코스피 200 선물 202612'}],
+ [{...nightRows[0],PROD_NM:'미니코스피200 선물',ISU_NM:'미니코스피200 F 202609 (야간)'}],
  [nightRows[0],{...nightRows[0],TDD_CLSPRC:'352.00'}],
-])if(context._selectKrxK200NightClose_(invalid,'2026-09-18')!==null)throw new Error('KRX 야간 종가 invalid/ambiguous 차단 실패');
+])if(context._selectKrxK200NightClose_(invalid,'2026-09-04')!==null)throw new Error('KRX 야간 종가 invalid/ambiguous 차단 실패');
 context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:nightRows})})};
 context.CONFIG={TIMEZONE:'UTC'};
-const night=context.fetchKrxK200NightClose('2026-09-18',new Date('2026-09-18T06:15:00Z'));
-if(!night||night.status!=='FINAL'||night.finality!=='NIGHT_FINAL'||night.observedAt!=='2026-09-18T06:00:00+09:00'||night.source!=='KRX_OFFICIAL')throw new Error('KRX 공식 야간 종가 observation 실패');
-if(context.fetchKrxK200NightClose('2026-09-18',new Date('2026-09-18T05:59:59Z'))!==null)throw new Error('06:00 이전 NIGHT_FINAL 차단 실패');
+const night=context.fetchKrxK200NightClose('2026-09-04',new Date('2026-09-04T06:15:00Z'));
+if(!night||night.status!=='FINAL'||night.finality!=='NIGHT_FINAL'||night.observedAt!=='2026-09-04T06:00:00+09:00'||night.source!=='KRX_OFFICIAL'||night.value!==351.25)throw new Error('KRX 공식 야간 종가 observation 실패');
+if(context.fetchKrxK200NightClose('2026-09-04',new Date('2026-09-04T05:59:59Z'))!==null)throw new Error('06:00 이전 NIGHT_FINAL 차단 실패');
 
 const yahoo = { chart: { result: [{ meta: { symbol: '^GSPC', regularMarketPrice: 105, previousClose: 100, regularMarketTime: 1790000000 }, timestamp: [1790000000, 1790086400], indicators: { quote: [{ close: [100, 105] }] } }] } };
 const parsed = context._parseYahooChart_(yahoo, 'UTC');
