@@ -133,12 +133,18 @@ async function _fetchFromGsheetInner(dateStr, options) {
             .slice(-1)[0] || '';
           epItems.forEach(i => {
             const price = data.prices[i.code];
-            if (price > 0) {
-              codeResults[i.code] = Math.round(price);  // ★ 코드 키로 저장
-              if (responsePriceDates[i.code]) {
+            const sourceDate = String(responsePriceDates[i.code] || '');
+            const normalized = window.MarketDataProvider.normalizeMarketPrice({
+              symbol: i.code, marketDate: sourceDate, closePrice: price,
+              source: sourceDate === dateStr ? 'GET_PRICES' : 'STORED_CONFIRMED_CLOSE',
+              fallback: sourceDate !== dateStr
+            });
+            if (normalized.status !== 'NEEDS_REVIEW') {
+              codeResults[i.code] = Math.round(normalized.closePrice);  // ★ 코드 키로 저장
+              if (normalized.sourceDate) {
                 priceMeta[i.code] = {
-                  sourceDate: String(responsePriceDates[i.code]),
-                  isFallback: String(responsePriceDates[i.code]) !== dateStr
+                  sourceDate: normalized.sourceDate,
+                  isFallback: normalized.fallback
                 };
               }
             }
@@ -473,7 +479,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.131';
+const EXPECTED_GAS_VERSION = '9.136';
 
 
 async function autoLoadPrices() {

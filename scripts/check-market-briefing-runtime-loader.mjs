@@ -1,15 +1,21 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 const source=fs.readFileSync('src/web/app/bootstrap.js','utf8');
-const expected=['market_briefing_master.js','market_briefing_provider_normalizer.js','market_briefing_snapshot_store.js','market_briefing_operational_gate.js','market_briefing_runtime_store.js','market_briefing_provider_collector.js','market_briefing_runtime.js'];
+const expected=['market_briefing_master.js','market_briefing_provider_normalizer.js','market_briefing_adapters.js','market_briefing_kis_wire.js','market_briefing_kis_ingest.js','market_briefing_snapshot_store.js','market_briefing_operational_gate.js','market_briefing_runtime_store.js','market_briefing_provider_collector.js','market_briefing_runtime.js'];
 let previous=-1;
 for(const file of expected){const pos=source.indexOf(file);assert.ok(pos>previous,`${file} 로드 순서`);previous=pos;}
 assert.match(source,/loadMarketBriefingRuntime\(\)\.then\(/);
 assert.match(source,/runtime\.syncServerMaster\(requestGsheetActionJson, requestGsheetFormJson, tradingDate/);
-assert.match(source,/: runtime\.collectExistingProvider\(requestGsheetActionJson, tradingDate\)/);
+assert.match(source,/const checkpoint = window\.MarketBriefingMaster\.currentCheckpoint\(\)/);
+assert.match(source,/syncServerMaster\(requestGsheetActionJson, requestGsheetFormJson, tradingDate, collectOptions\)/);
+assert.match(source,/: runtime\.collectExistingProvider\(requestGsheetActionJson, tradingDate, collectOptions\)/);
+assert.match(source,/sync\.then\(\(\) => \{/);
+assert.match(source,/runtime\.readiness\(tradingDate, checkpoint\)/);
+assert.match(source,/if \(!decision\.publishable\) return null/);
+assert.match(source,/runtime\.releaseAndPersist\(requestGsheetFormJson, tradingDate, checkpoint, seriesIds\)/);
+assert.match(source,/snapshot release unavailable/);
 assert.match(source,/provider\/server sync unavailable/);
 assert.match(source,/\[market-briefing\] runtime unavailable/);
 assert.match(source,/window\.PortfolioApp\.marketBriefing = window\.MarketBriefingRuntime/);
 assert.doesNotMatch(source,/market_briefing_qc\.js/);
-assert.doesNotMatch(source,/market_briefing_adapters\.js/);
 console.log('브리핑 브라우저 런타임 로더 회귀검사 통과');
