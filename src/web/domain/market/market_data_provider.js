@@ -3,17 +3,41 @@
 const MARKET_PRICE_TYPE = 'REGULAR_CLOSE';
 const MARKET_PRICE_STATUS = Object.freeze({ CONFIRMED:'CONFIRMED', FALLBACK:'FALLBACK', NEEDS_REVIEW:'NEEDS_REVIEW' });
 
+// Portfolio 가격과 Briefing 관측이 공유하는 최소 시장데이터 contract입니다.
+// 저장소(MARKET_MASTER/가격이력)는 합치지 않고 provider가 전달한 의미만 정규화합니다.
+function normalizeMarketDatum(input, meta = {}) {
+  const symbol = String(input?.symbol || input?.seriesId || input?.code || meta.symbol || meta.seriesId || '');
+  const marketDate = String(input?.marketDate || input?.tradingDate || input?.sourceDate || input?.date || meta.marketDate || meta.tradingDate || '').slice(0, 10);
+  const value = Number(input?.value ?? input?.closePrice ?? input?.price ?? input?.close ?? input?.current);
+  const receivedAtValue = input?.receivedAt || meta.receivedAt || new Date().toISOString();
+  const observedAtValue = input?.observedAt || input?.timestamp || input?.dateTime || meta.observedAt || null;
+  const receivedAt = Number.isFinite(Date.parse(receivedAtValue)) ? new Date(Date.parse(receivedAtValue)).toISOString() : null;
+  const observedAt = observedAtValue && Number.isFinite(Date.parse(observedAtValue)) ? new Date(Date.parse(observedAtValue)).toISOString() : null;
+  const valid = Boolean(symbol) && /^\d{4}-\d{2}-\d{2}$/.test(marketDate) && Number.isFinite(value) && value > 0 && receivedAt;
+  return {
+    symbol, seriesId: String(input?.seriesId || meta.seriesId || symbol),
+    marketDate, tradingDate: marketDate, sourceDate: String(input?.sourceDate || marketDate),
+    value: valid ? value : null, closePrice: valid ? value : null,
+    market: input?.market || meta.market || 'UNKNOWN', session: input?.session || meta.session || 'UNKNOWN',
+    currency: input?.currency || meta.currency || null, source: input?.source || meta.source || 'UNKNOWN',
+    status: input?.status || meta.status || (valid ? 'PARTIAL' : 'NEEDS_REVIEW'),
+    finality: input?.finality || meta.finality || null,
+    observedAt, receivedAt, timestampQuality: observedAt ? 'OBSERVED' : 'RECEIVE_ONLY',
+    fallback: Boolean(input?.fallback ?? meta.fallback), valid,
+  };
+}
+
 function normalizeMarketPrice(input, meta = {}) {
-  const price = Number(input?.closePrice ?? input?.price);
-  const marketDate = String(input?.marketDate || input?.date || '').slice(0, 10);
-  const symbol = String(input?.symbol || input?.code || '');
-  if (!symbol || !/^\d{4}-\d{2}-\d{2}$/.test(marketDate) || !Number.isFinite(price) || price <= 0) {
-    return { symbol, marketDate, status: MARKET_PRICE_STATUS.NEEDS_REVIEW, source: meta.source || input?.source || 'UNKNOWN' };
+  const datum = normalizeMarketDatum(input, meta);
+  if (!datum.valid) {
+    return { symbol: datum.symbol, marketDate: datum.marketDate, status: MARKET_PRICE_STATUS.NEEDS_REVIEW, source: datum.source };
   }
-  return { marketDate, symbol, market: input?.market || meta.market || 'UNKNOWN', closePrice: price,
-    currency: input?.currency || meta.currency || 'KRW', source: meta.source || input?.source || 'UNKNOWN',
+  return { marketDate: datum.marketDate, symbol: datum.symbol, market: datum.market, closePrice: datum.closePrice,
+    currency: datum.currency || 'KRW', source: datum.source,
     priceType: MARKET_PRICE_TYPE, status: meta.status || input?.status || MARKET_PRICE_STATUS.CONFIRMED,
-    fetchedAt: input?.fetchedAt || meta.fetchedAt || new Date().toISOString() };
+    sourceDate: datum.sourceDate, fallback: datum.fallback,
+    observedAt: datum.observedAt, receivedAt: datum.receivedAt, timestampQuality: datum.timestampQuality,
+    fetchedAt: input?.fetchedAt || meta.fetchedAt || datum.receivedAt };
 }
 
 function resolveMarketPrice(primary, fallback, stored) {
@@ -49,3 +73,6 @@ function applyReverseSplit(position, action) {
   return { ...position, qty: qty / ratio, cost: cost * ratio, costAmt: Number(position.costAmt) || qty * cost };
 }
 
+const MarketDataProvider = { MARKET_PRICE_TYPE, MARKET_PRICE_STATUS, normalizeMarketDatum, normalizeMarketPrice, resolveMarketPrice, carryForwardRegularClose, applyStockSplit, applyReverseSplit };
+if (typeof module !== 'undefined' && module.exports) module.exports = MarketDataProvider;
+if (typeof globalThis !== 'undefined') globalThis.MarketDataProvider = MarketDataProvider;

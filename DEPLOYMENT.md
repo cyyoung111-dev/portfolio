@@ -611,6 +611,9 @@ GAS 메뉴 및 시트 구성:
 - Toss 키가 없거나 호출 실패하면 기존 KRX·저장된 확정 가격이력 경로를 유지합니다. Toss 응답으로 기존 확정 NAV·배당·스냅샷을 삭제하지 않습니다.
 
 - `src/web/domain/market/market_data_provider.js`는 Toss 및 기존 공급원 응답을 `marketDate`, `symbol`, `market`, `closePrice`, `currency`, `source`, `priceType=REGULAR_CLOSE`, `status`, `fetchedAt`로 정규화합니다.
+- Portfolio와 Briefing provider는 이 파일의 공통 contract 정규화를 사용합니다. Briefing의 당일 한국 지수 일봉은 `MORNING`에는 `PARTIAL`로 유지하고 명시적인 `KRX_FINAL`/`AFTER_FINAL`/`EVENING` checkpoint에서만 `FINAL`/`REGULAR_CLOSE`로 승격합니다. Yahoo 당일 값은 같은 checkpoint에서도 `DELAYED`로 유지합니다. `sourceDate`, `fallback`, `observedAt`, `receivedAt`, `timestampQuality`는 원장 병합 없이 각 저장 경로에 전달합니다.
+- 삼성전자·SK하이닉스는 기존 `getPrices`의 화면 현재값과 같은 날짜 `getPriceHistory`의 KRX 확정값을 함께 확인합니다. Toss/현재값만 있으면 `PARTIAL`이며, KRX 확정 가격이력만 정규장 `FINAL` 관측으로 `MARKET_MASTER`에 저장합니다.
+- 브라우저 runtime은 검증된 KIS `H0MFCNT0` raw frame을 `K200_NIGHT` 관측으로 저장하는 진입점을 제공합니다. `NIGHT_FINAL` checkpoint가 명시된 검증 frame만 `FINAL`이며 그 외 야간 frame은 `LIVE`입니다. 실제 WebSocket 수집기와 KIS credential/schema registry는 배포 환경에서 별도로 제공해야 합니다.
 - Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
 - `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
 - 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.
