@@ -19,7 +19,8 @@ assert.equal(result.payload.USDKRW.status,'FINAL');
 assert.equal(result.payload.USDKRW.fallback,true);
 assert.equal(result.payload.SAMSUNG.status,'FINAL'); assert.equal(result.payload.SAMSUNG.value,80500);
 assert.equal(result.payload.SKHYNIX.finality,'REGULAR_CLOSE');
-const rows=normalizer.normalizeMap(result.payload,{tradingDate:'2026-09-18',receivedAt:'2026-09-18T05:00:00+09:00'});
+assert.equal(result.payload.SAMSUNG.observedAt,'2026-09-18T15:30:00+09:00'); assert.equal(result.payload.SKHYNIX.observedAt,'2026-09-18T15:30:00+09:00');
+const rows=normalizer.normalizeMap(result.payload,{tradingDate:'2026-09-18',receivedAt:'2026-09-18T15:31:00+09:00'});
 assert.equal(rows.length,10);
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').tradingDate,'2026-09-17');
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').observedAt,null);
@@ -46,7 +47,15 @@ assert.equal(finalRows[0].receivedAt,'2026-09-18T06:31:00.000Z'); assert.equal(f
 const yahooSameDay=collector.normalizeBenchmarkPoint('KOSPI200',{date:'2026-09-18',value:456},{symbols:{KOSPI200:'^KS200'}},'2026-09-18','EVENING');
 assert.equal(yahooSameDay.status,'DELAYED'); assert.equal(yahooSameDay.finality,null);
 const indicative=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[],'2026-09-18');
-assert.equal(indicative.status,'PARTIAL'); assert.equal(indicative.finality,null);
+assert.equal(indicative.status,'PARTIAL'); assert.equal(indicative.finality,null); assert.equal(indicative.observedAt,undefined);
+const untrusted=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[{date:'2026-09-18',price:80500,source:'TOSS'}],'2026-09-18');
+assert.equal(untrusted.status,'PARTIAL'); assert.equal(untrusted.observedAt,undefined);
+const priorTrusted=collector.normalizeStockPoint('SAMSUNG','005930',{price:80000,sourceDate:'2026-09-17',source:'GET_PRICES'},[{date:'2026-09-17',price:79500,source:'KRX'}],'2026-09-18');
+assert.equal(priorTrusted.status,'PARTIAL'); assert.equal(priorTrusted.fallback,true); assert.equal(priorTrusted.observedAt,undefined);
+const stockRows=normalizer.ingest(master,[],{SAMSUNG:result.payload.SAMSUNG,SKHYNIX:result.payload.SKHYNIX},{tradingDate:'2026-09-18',receivedAt:'2026-09-18T15:31:00+09:00'});
+const stockSnapshot=master.buildBriefingSnapshot(stockRows,'2026-09-18','KRX_FINAL',['SAMSUNG','SKHYNIX']);
+assert.equal(stockSnapshot.values.SAMSUNG.value,80500); assert.equal(stockSnapshot.values.SKHYNIX.value,188000);
+assert.equal(stockSnapshot.values.SAMSUNG.observedAt,'2026-09-18T06:30:00.000Z'); assert.equal(stockSnapshot.values.SAMSUNG.receivedAt,'2026-09-18T06:31:00.000Z');
 const auxiliary=async(action)=>{if(action==='getBenchmarks')return {series:{}};if(action==='getExchangeRateHistory')return {history:[]};throw new Error('unused provider');};
 const currentOnly=await collector.collect(async(action,params)=>{
  if(action==='getBenchmarks')assert.equal(params.fresh,'1');

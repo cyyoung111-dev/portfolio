@@ -4,6 +4,7 @@ const REQUEST_TYPES=Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SP500','NASDAQ10
 const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SP500',NASDAQ100:'NASDAQ100',SOX:'SOX',VIX:'VIX'});
 const STOCKS=Object.freeze({SAMSUNG:'005930',SKHYNIX:'000660'});
 const KRX_FINAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','AFTER_FINAL','EVENING']);
+const masterApi=global.MarketBriefingMaster||(typeof module!=='undefined'&&module.exports?require('./market_briefing_master.js'):null);
 function latest(points){if(!Array.isArray(points)||!points.length)return null;return points.filter(p=>p&&/^\d{4}-\d{2}-\d{2}$/.test(String(p.date||''))&&Number(p.value)>0).sort((a,b)=>String(a.date).localeCompare(String(b.date))).at(-1)||null;}
 function sourceFor(type){return type==='KOSPI'||type==='KOSDAQ'?'TOSS':'YAHOO';}
 function lookback(date,days=7){const d=new Date(`${date}T00:00:00Z`);d.setUTCDate(d.getUTCDate()-days);return d.toISOString().slice(0,10);}
@@ -20,9 +21,10 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
 }
 function normalizeFxPoint(data,tradingDate){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close)})));if(!point)return null;const isCurrent=point.date===tradingDate;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',quality:'EOD',fallback:!isCurrent};}
 function trustedStockClose(source){return /^(KRX|KRX_OTP|KRX_CONFIRMED_CLOSE|STORED_CONFIRMED_CLOSE)$/.test(String(source||'').toUpperCase());}
+function regularCloseObservedAt(tradingDate){return masterApi.checkpointAt(tradingDate,'KRX_FINAL');}
 function normalizeStockPoint(seriesId,code,current,history,tradingDate){
  const exact=(Array.isArray(history)?history:[]).filter(row=>String(row&&row.date||'').slice(0,10)===tradingDate&&Number(row&&row.price)>0&&trustedStockClose(row&&row.source)).at(-1);
- if(exact)return {value:Number(exact.price),tradingDate,sourceDate:tradingDate,source:String(exact.source),status:'FINAL',finality:'REGULAR_CLOSE',session:'REGULAR',market:'KRX',currency:'KRW',quality:'EOD',fallback:false,symbol:code,seriesId};
+ if(exact)return {value:Number(exact.price),tradingDate,sourceDate:tradingDate,source:String(exact.source),status:'FINAL',finality:'REGULAR_CLOSE',session:'REGULAR',market:'KRX',currency:'KRW',observedAt:regularCloseObservedAt(tradingDate),quality:'EOD',fallback:false,symbol:code,seriesId};
  const price=Number(current&&current.price);const sourceDate=String(current&&current.sourceDate||'').slice(0,10);
  if(!(price>0)||!/^\d{4}-\d{2}-\d{2}$/.test(sourceDate))return null;
  return {value:price,tradingDate:sourceDate,sourceDate,source:String(current.source||'GET_PRICES'),status:'PARTIAL',finality:null,session:'REGULAR',market:'KRX',currency:'KRW',quality:'INDICATIVE',fallback:sourceDate!==tradingDate,symbol:code,seriesId};
@@ -60,5 +62,5 @@ async function collect(request,tradingDate,options={}){
  return {payload,missing:[...new Set(missing)],errors,receivedAt:new Date().toISOString(),range:{from,to}};
 }
 async function collectAndIngest(runtime,request,tradingDate,options={}){if(!runtime||typeof runtime.ingestBenchmarks!=='function')throw new Error('MarketBriefingRuntime unavailable');const result=await collect(request,tradingDate,options);const rows=runtime.ingestBenchmarks(result.payload,{tradingDate,receivedAt:result.receivedAt});return {...result,rows};}
-const api={REQUEST_TYPES,KEY_MAP,STOCKS,KRX_FINAL_CHECKPOINTS,latest,sourceFor,lookback,normalizeBenchmarkPoint,normalizeFxPoint,trustedStockClose,normalizeStockPoint,collect,collectAndIngest};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.MarketBriefingProviderCollector=api;
+const api={REQUEST_TYPES,KEY_MAP,STOCKS,KRX_FINAL_CHECKPOINTS,latest,sourceFor,lookback,normalizeBenchmarkPoint,normalizeFxPoint,trustedStockClose,regularCloseObservedAt,normalizeStockPoint,collect,collectAndIngest};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.MarketBriefingProviderCollector=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
