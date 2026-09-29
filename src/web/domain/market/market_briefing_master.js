@@ -98,6 +98,11 @@
     return Date.parse(row.observedAt || row.receivedAt) <= cutoff || isScheduledDelayCandidate(row, seriesId, targetTradingDate, checkpoint, cutoff);
   }
 
+  function isRegularFinalCandidate(row, checkpoint) {
+    return (checkpoint === 'KRX_FINAL' || checkpoint === 'AFTER_FINAL' || checkpoint === 'EVENING') &&
+      row?.market === 'KRX' && row?.session === 'REGULAR' && row?.status === 'FINAL' && row?.finality === 'REGULAR_CLOSE';
+  }
+
   function selectAt(master, seriesId, cutoffAt, targetTradingDate, checkpoint) {
     const cutoff = Date.parse(cutoffAt || '');
     if (!Number.isFinite(cutoff)) return null;
@@ -106,7 +111,8 @@
       .filter((row) => Date.parse(row.observedAt || row.receivedAt) <= cutoff)
       .sort((a, b) => Date.parse(b.observedAt || b.receivedAt) - Date.parse(a.observedAt || a.receivedAt))[0] || null;
     const sameDay = rows.filter((row) => isSameDayCandidate(row, seriesId, targetTradingDate, checkpoint, cutoff))
-      .sort((a, b) => Date.parse(b.observedAt || b.receivedAt) - Date.parse(a.observedAt || a.receivedAt))[0] || null;
+      .sort((a, b) => Number(isRegularFinalCandidate(b, checkpoint)) - Number(isRegularFinalCandidate(a, checkpoint)) ||
+        Date.parse(b.observedAt || b.receivedAt) - Date.parse(a.observedAt || a.receivedAt))[0] || null;
     if (sameDay) return sameDay;
     return rows.filter((row) => isHistoricalFinalFallback(row, targetTradingDate))
       .sort((a, b) => b.sourceDate.localeCompare(a.sourceDate) || Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] || null;
@@ -139,7 +145,7 @@
     return { ok: issues.length === 0, issues };
   }
 
-  const api = { CHECKPOINT_TIME, SERIES_POLICY, MORNING_PRIOR_FINAL, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, isHistoricalFinalFallback, isScheduledDelayCandidate, isSameDayCandidate, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
+  const api = { CHECKPOINT_TIME, SERIES_POLICY, MORNING_PRIOR_FINAL, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, isHistoricalFinalFallback, isScheduledDelayCandidate, isSameDayCandidate, isRegularFinalCandidate, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.MarketBriefingMaster = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

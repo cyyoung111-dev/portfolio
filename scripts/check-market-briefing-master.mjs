@@ -50,6 +50,13 @@ fxTiming=master.upsertObservation([], {seriesId:'USDKRW',tradingDate:date,source
 assert.equal(master.buildBriefingSnapshot(fxTiming,date,'MORNING',['USDKRW']).values.USDKRW,null,'ordinary receive-only FX remains strict');
 fxTiming=master.upsertObservation([], {seriesId:'USDKRW',tradingDate:date,sourceDate:date,value:1393,status:'PARTIAL',quality:'SCHEDULED_DELAY_TOLERANCE_300S',receivedAt:`${date}T20:16:00+09:00`});
 assert.equal(master.buildBriefingSnapshot(fxTiming,date,'EVENING',['USDKRW']).values.USDKRW.value,1393,'EVENING scheduled FX gets same narrow tolerance');
+let closePriority=[];
+const addClose=(seriesId,value,status,observedAt,checkpoint='KRX_FINAL')=>{closePriority=master.upsertObservation(closePriority,{seriesId,tradingDate:date,sourceDate:date,value,market:'KRX',session:'REGULAR',source:status==='FINAL'?'KRX_OFFICIAL':'TOSS',status,finality:status==='FINAL'?'REGULAR_CLOSE':null,observedAt,receivedAt:observedAt});return master.buildBriefingSnapshot(closePriority,date,checkpoint,[seriesId]).values[seriesId];};
+addClose('SAMSUNG',80000,'FINAL',`${date}T15:29:00+09:00`);assert.equal(addClose('SAMSUNG',81000,'PARTIAL',`${date}T15:30:00+09:00`).value,80000,'SAMSUNG FINAL must beat later PARTIAL');
+closePriority=[];addClose('SKHYNIX',180000,'FINAL',`${date}T15:30:00+09:00`,'EVENING');assert.equal(addClose('SKHYNIX',181000,'PARTIAL',`${date}T20:00:00+09:00`,'EVENING').value,180000,'SKHYNIX FINAL must beat later PARTIAL');
+closePriority=[];addClose('KOSPI',3400,'FINAL',`${date}T15:29:00+09:00`);assert.equal(addClose('KOSPI',3410,'PARTIAL',`${date}T15:30:00+09:00`).value,3400,'KOSPI official FINAL must beat later PARTIAL');
+closePriority=[];assert.equal(addClose('SAMSUNG',81000,'PARTIAL',`${date}T15:30:00+09:00`).status,'PARTIAL','PARTIAL-only candidate must not be promoted');
+closePriority=[];addClose('SAMSUNG',80000,'FINAL',`${date}T15:29:00+09:00`);assert.equal(addClose('SAMSUNG',80500,'FINAL',`${date}T15:30:00+09:00`).value,80500,'latest FINAL wins within FINAL tier');
 
 const bridge = master.bridgeBriefings(rows, date, ['K200_NIGHT','USDKRW','NQ']);
 assert.equal(bridge.morning.values.USDKRW.value, 1390);
