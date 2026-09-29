@@ -15,7 +15,8 @@ function k200NightObservation(wire,adapters,raw,registry,meta){
  const schema=registry[frame.trId],decoded=decodeNamed(frame,schema);if(decoded.status!=='VALID')return {...decoded,frame};
  const price=numberField(decoded.values,['FUTS_PRPR','STCK_PRPR','PRICE','currentPrice']);
  if(!(price>0))return {status:'QUARANTINED',error:'PRICE_FIELD_MISSING',frame,decoded};
- const observation=adapters.nightFutureObservation(price,{tradingDate:meta.tradingDate,source:'KIS',status:meta.status||'LIVE',finality:meta.finality||null,observedAt:meta.observedAt||null,receivedAt:meta.receivedAt,quality:meta.quality||'WIRE_VALIDATED'});
+ const nightFinal=meta.checkpoint==='NIGHT_FINAL'&&meta.status==='FINAL'&&meta.finality==='NIGHT_FINAL';
+ const observation=adapters.nightFutureObservation(price,{tradingDate:meta.tradingDate,source:'KIS',status:nightFinal?'FINAL':'LIVE',finality:nightFinal?'NIGHT_FINAL':null,observedAt:meta.observedAt||null,receivedAt:meta.receivedAt,quality:meta.quality||'WIRE_VALIDATED'});
  return {status:'VALID',frame,decoded,observation};
 }
 const api={semanticIndex,decodeNamed,numberField,k200NightObservation};

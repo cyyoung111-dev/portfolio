@@ -14,19 +14,59 @@ if (!source.includes('unofficial endpoint') || !source.includes('TIMEOUT_OR_NETW
 const context = vm.createContext({ console, isFinite, Number, String, Array, Date, Math, encodeURIComponent });
 new vm.Script(source, { filename: 'src/gas/apps_script.gs' }).runInContext(context);
 context.CONFIG = { TIMEZONE: 'UTC' };
-context.Utilities = { formatDate: date => new Date(date).toISOString().slice(0, 10), sleep: () => {} };
-context.CacheService = { getScriptCache: () => ({ get: () => null, put: () => {} }) };
+context.Utilities = { formatDate: (date,tz,format) => format==='HHmm'?new Date(date).toISOString().slice(11,16).replace(':',''):new Date(date).toISOString().slice(0, 10), sleep: () => {} };
+const cache=new Map();
+context.CacheService = { getScriptCache: () => ({ get:key=>cache.get(key)||null, put:(key,value)=>cache.set(key,value) }) };
 
 const tossCalls = [];
+let candleClose=801;
 context._tossRequest_ = (path, query, group) => {
   tossCalls.push({ path, query, group });
   if (path.endsWith('/prices')) return { result: [{ symbol: 'KOSPI', lastPrice: 2600, timestamp: '2026-09-16T06:00:00Z' }, { symbol: 'KOSDAQ', lastPrice: 800, timestamp: '2026-09-16T06:00:00Z' }] };
-  return { result: { candles: [{ timestamp: '2026-09-15T06:00:00Z', closePrice: 799 }, { timestamp: '2026-09-16T06:00:00Z', closePrice: 801 }] } };
+  return { result: { candles: [{ timestamp: '2026-09-15T06:00:00Z', closePrice: 799 }, { timestamp: '2026-09-16T06:00:00Z', closePrice: candleClose }] } };
 };
 const prices = context.fetchMarketIndicatorPricesToss(['KOSPI', 'KOSDAQ']);
 if (prices.KOSPI.value !== 2600 || prices.KOSDAQ.value !== 800 || tossCalls[0].group !== 'MARKET_INDICATOR') throw new Error('KOSPI/KOSDAQ Toss prices mapping 실패');
 const candles = context.fetchMarketIndicatorCandlesToss('KOSDAQ', '2026-09-15', '2026-09-16');
 if (candles.length !== 2 || candles[0].value !== 799 || tossCalls[1].query.interval !== '1d') throw new Error('KOSDAQ Toss candles parsing 실패');
+candleClose=805;
+const staleCandles=context.fetchMarketIndicatorCandlesToss('KOSDAQ','2026-09-15','2026-09-16');
+if(staleCandles[1].value!==801)throw new Error('오전 indicator cache 재사용 시나리오 실패');
+const freshCandles=context.fetchMarketIndicatorCandlesToss('KOSDAQ','2026-09-15','2026-09-16',true);
+if(freshCandles[1].value!==805||tossCalls.filter(call=>call.group==='MARKET_INDICATOR_CHART').length!==2)throw new Error('마감 indicator cache bypass/refresh 실패');
+if(freshCandles[1].observedAt!=='2026-09-16T06:00:00.000Z')throw new Error('Toss candle provider timestamp 보존 실패');
+if(!/confirmedClose: false/.test(source)||/confirmedClose: !!forceRefresh/.test(source))throw new Error('fresh 요청을 confirmedClose 증거로 사용하면 안 됩니다.');
+if(context._isKrxOfficialCloseAvailableTime_(new Date('2026-09-18T15:59:59Z'))!==false||context._isKrxOfficialCloseAvailableTime_(new Date('2026-09-18T16:00:00Z'))!==true)throw new Error('KRX 공식 종가 16:00 publication 경계 실패');
+context._getKrxAuthKey=()=> 'test-key';
+context.UrlFetchApp={fetchAll:requests=>requests.map(request=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[request.url.includes('kosdaq_dd_trd')?{BAS_DD:'20260918',IDX_NM:'코스닥',CLSPRC_IDX:'900.25'}:{BAS_DD:'20260918',IDX_NM:'코스피',CLSPRC_IDX:'3,420.50'}]})}))};
+const official=context.fetchKrxOfficialIndexCloses(['KOSPI','KOSDAQ'],'2026-09-18');
+if(official.KOSPI.value!==3420.5||official.KOSDAQ.value!==900.25||official.KOSPI.source!=='KRX_OFFICIAL'||official.KOSPI.observedAt!=='2026-09-18T15:30:00+09:00')throw new Error('KRX 공식 exact-date 대표지수 종가 파싱 실패');
+context.UrlFetchApp={fetchAll:()=>{throw new Error('simulated KRX timeout');}};
+const isolated=context._fetchKrxOfficialIndexClosesSafe_(['KOSPI','KOSDAQ'],'2026-09-18');
+if(Object.keys(isolated.data).length||isolated.error!=='simulated KRX timeout')throw new Error('KRX 공식 조회 예외 격리 실패');
+context.jsonOk=value=>({status:'ok',...value});context.jsonError=message=>({status:'error',message});
+context.fetchPricesKrx=()=>({'005930':{price:80500,usedDate:'2026-09-18',source:'KRX'},'000660':{price:187000,usedDate:'2026-09-17',source:'KRX'}});
+const officialStocks=context.handleGetKrxOfficialStockCloses('2026-09-18','005930,000660,123456');
+if(officialStocks.closes['005930'].source!=='KRX_OFFICIAL'||officialStocks.closes['005930'].price!==80500||officialStocks.closes['000660'])throw new Error('브리핑 KRX 주식 exact-date 종가/fallback 차단 실패');
+const nightRows=[
+ {BAS_DD:'20260904',MKT_NM:'야간',PROD_NM:'코스피200 선물',ISU_NM:'코스피200 F 202609 (야간)',TDD_CLSPRC:'351.25'},
+ {BAS_DD:'20260904',MKT_NM:'야간',PROD_NM:'코스피200 선물',ISU_NM:'코스피200 F 202612 (야간)',TDD_CLSPRC:'350.10'},
+];
+if(context._parseKrxK200NightExpiry_(' 코스피200  F  202609  (야간) ')!=='202609')throw new Error('KRX 실제 ISU_NM 만기 파싱 실패');
+const selectedNight=context._selectKrxK200NightClose_(nightRows,'2026-09-04');
+if(!selectedNight||selectedNight.close!==351.25||selectedNight.expiry!=='202609')throw new Error('KRX 야간 KOSPI200 최근 미만기 월물 선택 실패');
+for(const invalid of [
+ [{...nightRows[0],MKT_NM:'정규'}],
+ [{...nightRows[0],BAS_DD:'20260903'}],
+ [{...nightRows[0],TDD_CLSPRC:'0'}],
+ [{...nightRows[0],PROD_NM:'미니코스피200 선물',ISU_NM:'미니코스피200 F 202609 (야간)'}],
+ [nightRows[0],{...nightRows[0],TDD_CLSPRC:'352.00'}],
+])if(context._selectKrxK200NightClose_(invalid,'2026-09-04')!==null)throw new Error('KRX 야간 종가 invalid/ambiguous 차단 실패');
+context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:nightRows})})};
+context.CONFIG={TIMEZONE:'UTC'};
+const night=context.fetchKrxK200NightClose('2026-09-04',new Date('2026-09-04T06:15:00Z'));
+if(!night||night.status!=='FINAL'||night.finality!=='NIGHT_FINAL'||night.observedAt!=='2026-09-04T06:00:00+09:00'||night.source!=='KRX_OFFICIAL'||night.value!==351.25)throw new Error('KRX 공식 야간 종가 observation 실패');
+if(context.fetchKrxK200NightClose('2026-09-04',new Date('2026-09-04T05:59:59Z'))!==null)throw new Error('06:00 이전 NIGHT_FINAL 차단 실패');
 
 const yahoo = { chart: { result: [{ meta: { symbol: '^GSPC', regularMarketPrice: 105, previousClose: 100, regularMarketTime: 1790000000 }, timestamp: [1790000000, 1790086400], indicators: { quote: [{ close: [100, 105] }] } }] } };
 const parsed = context._parseYahooChart_(yahoo, 'UTC');
