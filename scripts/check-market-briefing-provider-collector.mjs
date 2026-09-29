@@ -59,6 +59,10 @@ const untrusted=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,so
 assert.equal(untrusted.status,'PARTIAL'); assert.equal(untrusted.observedAt,undefined);
 const priorTrusted=collector.normalizeStockPoint('SAMSUNG','005930',{price:80000,sourceDate:'2026-09-17',source:'GET_PRICES'},[{date:'2026-09-17',price:79500,source:'KRX'}],'2026-09-18');
 assert.equal(priorTrusted.status,'PARTIAL'); assert.equal(priorTrusted.fallback,true); assert.equal(priorTrusted.observedAt,undefined);
+const officialClose=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[],'2026-09-18',{code:'005930',price:80500,usedDate:'2026-09-18',source:'KRX_OFFICIAL',receivedAt:'2026-09-18T16:05:00+09:00'});
+assert.equal(officialClose.status,'FINAL');assert.equal(officialClose.finality,'REGULAR_CLOSE');assert.equal(officialClose.observedAt,'2026-09-18T15:30:00+09:00');
+const priorOfficial=collector.normalizeStockPoint('SAMSUNG','005930',{price:81000,sourceDate:'2026-09-18',source:'GET_PRICES'},[],'2026-09-18',{code:'005930',price:79500,usedDate:'2026-09-17',source:'KRX_OFFICIAL'});
+assert.equal(priorOfficial.status,'PARTIAL');assert.equal(priorOfficial.finality,null);
 const stockRows=normalizer.ingest(master,[],{SAMSUNG:result.payload.SAMSUNG,SKHYNIX:result.payload.SKHYNIX},{tradingDate:'2026-09-18',receivedAt:'2026-09-18T15:31:00+09:00'});
 const stockSnapshot=master.buildBriefingSnapshot(stockRows,'2026-09-18','KRX_FINAL',['SAMSUNG','SKHYNIX']);
 assert.equal(stockSnapshot.values.SAMSUNG.value,80500); assert.equal(stockSnapshot.values.SKHYNIX.value,188000);
@@ -75,6 +79,21 @@ const historyOnly=await collector.collect(async(action,params)=>{
  if(action==='getPriceHistory')return {prices:{'005930':[{date:'2026-09-18',price:80500,source:'KRX'}],'000660':[{date:'2026-09-18',price:188000,source:'KRX_OTP'}]}}; return auxiliary(action,params);
 },'2026-09-18',{checkpoint:'KRX_FINAL'});
 assert.equal(historyOnly.payload.SAMSUNG.status,'FINAL'); assert.equal(historyOnly.payload.SKHYNIX.finality,'REGULAR_CLOSE'); assert.match(historyOnly.errors.stockCurrent,/current down/);
+const officialOnlyRequest=async(action,params)=>{
+ if(action==='getBenchmarks')return {series:{}};
+ if(action==='getExchangeRateHistory')return {history:[]};
+ if(action==='getPrices')return {prices:{'005930':81000,'000660':190000},priceDates:{'005930':'2026-09-18','000660':'2026-09-18'}};
+ if(action==='getPriceHistory')return {prices:{}};
+ if(action==='getKrxOfficialStockCloses')return {closes:{'005930':{code:'005930',price:80500,usedDate:'2026-09-18',source:'KRX_OFFICIAL'},'000660':{code:'000660',price:188000,usedDate:'2026-09-18',source:'KRX_OFFICIAL'}}};
+ throw new Error('unexpected action');
+};
+const officialOnly=await collector.collect(officialOnlyRequest,'2026-09-18',{checkpoint:'KRX_FINAL'});
+assert.equal(officialOnly.payload.SAMSUNG.status,'FINAL');assert.equal(officialOnly.payload.SKHYNIX.finality,'REGULAR_CLOSE');
+const oneOfficialMissing=await collector.collect(async(action,params)=>{
+ if(action==='getKrxOfficialStockCloses')return {closes:{'005930':{code:'005930',price:80500,usedDate:'2026-09-18',source:'KRX_OFFICIAL'}}};
+ return officialOnlyRequest(action,params);
+},'2026-09-18',{checkpoint:'EVENING'});
+assert.equal(oneOfficialMissing.payload.SAMSUNG.status,'FINAL');assert.equal(oneOfficialMissing.payload.SKHYNIX.status,'PARTIAL');
 const partial=normalizer.normalizeOne('VIX',{value:15,tradingDate:'2026-09-17',source:'CBOE'},{receivedAt:'2026-09-18T05:00:00+09:00'});
 assert.equal(partial.status,'PARTIAL');
 console.log('기존 GAS provider → 브리핑 핵심 8개 series collector/normalizer 회귀검사 통과');

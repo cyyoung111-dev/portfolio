@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.137
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.138
+//
+//  v9.138 변경사항 (2026.09.29):
+//   브리핑용 삼성전자·SK하이닉스 exact-date KRX 공식 종가 read-only 조회
 //
 //  v9.137 변경사항 (2026.09.29):
 //   KRX 실제 ISU_NM 형식의 KOSPI200 야간선물 일별 종가 조회 및 headless 브리핑 연결
@@ -814,6 +817,7 @@ function doGet(e) {
   if (params.action === 'getCodeList')                    return handleGetCodeList();
   if (params.action === 'getBootstrap')                   return handleGetBootstrap();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
+  if (params.action === 'getKrxOfficialStockCloses')      return handleGetKrxOfficialStockCloses(params.date || '', params.codes || '');
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '', params.fresh === '1');
   if (params.action === 'getKrxK200NightClose')           return handleGetKrxK200NightClose(params.date || '');
@@ -880,7 +884,7 @@ function doPost(e) {
   if (params.action === 'prepareBackupCleanup') return handlePrepareBackupCleanup(params.data || '{}');
   if (params.action === 'maintainSystemBackups') return handleMaintainSystemBackups(params.data || '{}');
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -1486,6 +1490,28 @@ function fetchPricesKrx(items, dateStr) {
     return fetchPricesKrxViaOtp(items, dateStr);
   }
   return out;
+}
+
+function handleGetKrxOfficialStockCloses(dateStr, codesInput) {
+  try {
+    var requestedDate = _normalizeDate(dateStr || '');
+    if (!requestedDate) return jsonError('유효한 거래일이 필요합니다.');
+    var allowed = { '005930':'삼성전자', '000660':'SK하이닉스' };
+    var codes = String(codesInput || '005930,000660').split(',').map(function(code) { return _cleanCode(code); })
+      .filter(function(code, index, all) { return !!allowed[code] && all.indexOf(code) === index; });
+    var items = codes.map(function(code) { return { code:code, name:allowed[code], market:'KR', currency:'KRW' }; });
+    var fetched = fetchPricesKrx(items, requestedDate), closes = {};
+    codes.forEach(function(code) {
+      var row = fetched[code], usedDate = _normalizeDate(row && row.usedDate || '');
+      var source = String(row && row.source || '').toUpperCase();
+      if (!row || usedDate !== requestedDate || !(Number(row.price) > 0) || (source !== 'KRX' && source !== 'KRX_OTP')) return;
+      closes[code] = { code:code, price:Number(row.price), requestedDate:requestedDate, usedDate:usedDate,
+        source:'KRX_OFFICIAL', providerSource:source, receivedAt:new Date().toISOString() };
+    });
+    return jsonOk({ requestedDate:requestedDate, closes:closes });
+  } catch(error) {
+    return jsonOk({ requestedDate:_normalizeDate(dateStr || ''), closes:{}, error:error.message || 'KRX_OFFICIAL_STOCK_CLOSE_ERROR' });
+  }
 }
 
 function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback) {
@@ -3981,7 +4007,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.137' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.138' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8974,7 +9000,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.137' });
+    return jsonOk({ settings: settings, gasVersion: '9.138' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8996,7 +9022,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.137'
+      gasVersion: '9.138'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

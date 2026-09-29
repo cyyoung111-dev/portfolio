@@ -44,6 +44,10 @@ if(official.KOSPI.value!==3420.5||official.KOSDAQ.value!==900.25||official.KOSPI
 context.UrlFetchApp={fetchAll:()=>{throw new Error('simulated KRX timeout');}};
 const isolated=context._fetchKrxOfficialIndexClosesSafe_(['KOSPI','KOSDAQ'],'2026-09-18');
 if(Object.keys(isolated.data).length||isolated.error!=='simulated KRX timeout')throw new Error('KRX 공식 조회 예외 격리 실패');
+context.jsonOk=value=>({status:'ok',...value});context.jsonError=message=>({status:'error',message});
+context.fetchPricesKrx=()=>({'005930':{price:80500,usedDate:'2026-09-18',source:'KRX'},'000660':{price:187000,usedDate:'2026-09-17',source:'KRX'}});
+const officialStocks=context.handleGetKrxOfficialStockCloses('2026-09-18','005930,000660,123456');
+if(officialStocks.closes['005930'].source!=='KRX_OFFICIAL'||officialStocks.closes['005930'].price!==80500||officialStocks.closes['000660'])throw new Error('브리핑 KRX 주식 exact-date 종가/fallback 차단 실패');
 const nightRows=[
  {BAS_DD:'20260904',MKT_NM:'야간',PROD_NM:'코스피200 선물',ISU_NM:'코스피200 F 202609 (야간)',TDD_CLSPRC:'351.25'},
  {BAS_DD:'20260904',MKT_NM:'야간',PROD_NM:'코스피200 선물',ISU_NM:'코스피200 F 202612 (야간)',TDD_CLSPRC:'350.10'},
