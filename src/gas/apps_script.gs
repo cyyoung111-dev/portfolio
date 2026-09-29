@@ -1,5 +1,23 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.131
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.137
+//
+//  v9.137 변경사항 (2026.09.29):
+//   KRX 실제 ISU_NM 형식의 KOSPI200 야간선물 일별 종가 조회 및 headless 브리핑 연결
+//
+//  v9.136 변경사항 (2026.09.29):
+//   KRX 공식 대표지수 조회 실패를 보조 provider 결과와 격리
+//
+//  v9.135 변경사항 (2026.09.29):
+//   16시 이후 KRX 공식 exact-date KOSPI/KOSDAQ 종가 연결
+//
+//  v9.134 변경사항 (2026.09.29):
+//   Toss 지수 fresh와 미검증 종가를 분리하고 provider timestamp 보존
+//
+//  v9.133 변경사항 (2026.09.29):
+//   마감 브리핑 국내지수 fresh close 조회와 cache 분리
+//
+//  v9.132 변경사항 (2026.09.29):
+//   MARKET_MASTER에 currency/source_date/fallback metadata를 호환 확장
 //
 //  v9.131 변경사항 (2026.09.28):
 //   기간 Snapshot 진단의 원장 index·증분 holdings와 단계별 오류 관측성 추가
@@ -797,7 +815,8 @@ function doGet(e) {
   if (params.action === 'getBootstrap')                   return handleGetBootstrap();
   if (params.action === 'getPriceHistory')                return handleGetPriceHistory(params.from || '', params.to || '', params.codes || '');
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
-  if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '');
+  if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '', params.fresh === '1');
+  if (params.action === 'getKrxK200NightClose')           return handleGetKrxK200NightClose(params.date || '');
   if (params.action === 'getExchangeRateHistory')         return handleGetExchangeRateHistory(params.from || '', params.to || '', params.currencies || 'USD');
   if (params.action === 'getMarketBriefingMaster')        return handleGetMarketBriefingMaster(params.from || '', params.to || '', params.seriesIds || '');
   if (params.action === 'getMarketBriefingSnapshots')     return handleGetMarketBriefingSnapshots(params.from || '', params.to || '');
@@ -861,7 +880,7 @@ function doPost(e) {
   if (params.action === 'prepareBackupCleanup') return handlePrepareBackupCleanup(params.data || '{}');
   if (params.action === 'maintainSystemBackups') return handleMaintainSystemBackups(params.data || '{}');
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -892,7 +911,7 @@ function doPost(e) {
 }
 
 var MARKET_BRIEFING_MASTER_SHEET = 'MARKET_MASTER';
-var MARKET_BRIEFING_MASTER_HEADERS = ['series_id','trading_date','value','market','session','source','status','finality','observed_at','received_at','timestamp_quality','lag_seconds','revision','quality'];
+var MARKET_BRIEFING_MASTER_HEADERS = ['series_id','trading_date','value','market','session','source','status','finality','observed_at','received_at','timestamp_quality','lag_seconds','revision','quality','currency','source_date','fallback'];
 var MARKET_BRIEFING_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function _marketBriefingIsoTimestamp_(value) {
@@ -911,6 +930,11 @@ function _marketBriefingMasterSheet_(ss) {
   if (!sh) {
     sh = ss.insertSheet(MARKET_BRIEFING_MASTER_SHEET);
     sh.getRange(1,1,1,MARKET_BRIEFING_MASTER_HEADERS.length).setValues([MARKET_BRIEFING_MASTER_HEADERS]);
+  } else {
+    var headers = sh.getRange(1,1,1,MARKET_BRIEFING_MASTER_HEADERS.length).getValues()[0];
+    MARKET_BRIEFING_MASTER_HEADERS.forEach(function(header,index) {
+      if (!String(headers[index] || '').trim()) sh.getRange(1,index+1).setValue(header);
+    });
   }
   return sh;
 }
@@ -945,9 +969,10 @@ function handleAppendMarketBriefingObservations(dataJson) {
       var key=[seriesId,tradingDate,String(r.session||'UNKNOWN'),observedAt,receivedAt].join('|');
       if (existing[key]) { duplicates++; return; }
       existing[key]=true;
-      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,timestampQuality,lagSeconds==null?'':lagSeconds,Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
+      var sourceDate=_normalizeDate(r.sourceDate||'');
+      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,timestampQuality,lagSeconds==null?'':lagSeconds,Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality),r.currency==null?'':String(r.currency),sourceDate,r.fallback===true]);
     });
-    if (values.length) sh.getRange(sh.getLastRow()+1,1,values.length,14).setValues(values);
+    if (values.length) sh.getRange(sh.getLastRow()+1,1,values.length,MARKET_BRIEFING_MASTER_HEADERS.length).setValues(values);
     lock.releaseLock();
     return jsonOk({ saved: values.length, duplicates: duplicates, rejected: rejected, rejectionReasons: rejectionReasons });
   } catch(err) { try { if (lock) lock.releaseLock(); } catch(e) {} return jsonError('MARKET_MASTER 저장 실패: '+err.message); }
@@ -957,15 +982,16 @@ function handleGetMarketBriefingMaster(fromStr, toStr, seriesIdsInput) {
   try {
     var ss=getss(), sh=ss.getSheetByName(MARKET_BRIEFING_MASTER_SHEET);
     if (!sh || sh.getLastRow()<2) return jsonOk({ observations: [], invalid: 0, source: MARKET_BRIEFING_MASTER_SHEET });
+    sh=_marketBriefingMasterSheet_(ss);
     var fromDate=_normalizeDate(fromStr||'')||'0000-01-01', toDate=_normalizeDate(toStr||'')||'9999-12-31';
     var ids=String(seriesIdsInput||'').split(',').map(function(v){return v.trim();}).filter(Boolean);
     var observations=[], invalid=0;
-    sh.getRange(2,1,sh.getLastRow()-1,14).getValues().forEach(function(r){
+    sh.getRange(2,1,sh.getLastRow()-1,MARKET_BRIEFING_MASTER_HEADERS.length).getValues().forEach(function(r){
       var d=_normalizeDate(r[1]); if(!d||d<fromDate||d>toDate||(ids.length&&ids.indexOf(String(r[0]))===-1))return;
       var rawObservedAt=r[8] ? String(r[8]).trim() : '', observedAt=rawObservedAt ? _marketBriefingIsoTimestamp_(r[8]) : '';
       var receivedAt=_marketBriefingIsoTimestamp_(r[9]);
       if (!receivedAt || (rawObservedAt && !observedAt) || (observedAt && Date.parse(observedAt)>Date.parse(receivedAt))) { invalid++; return; }
-      observations.push({seriesId:String(r[0]),tradingDate:d,value:Number(r[2]),market:String(r[3]),session:String(r[4]),source:String(r[5]),status:String(r[6]),finality:r[7]||null,observedAt:observedAt||null,receivedAt:receivedAt,timestampQuality:observedAt?'OBSERVED':'RECEIVE_ONLY',lagSeconds:observedAt?Math.round((Date.parse(receivedAt)-Date.parse(observedAt))/1000):null,revision:Number(r[12])||0,quality:r[13]||null});
+      observations.push({seriesId:String(r[0]),tradingDate:d,value:Number(r[2]),market:String(r[3]),session:String(r[4]),source:String(r[5]),status:String(r[6]),finality:r[7]||null,observedAt:observedAt||null,receivedAt:receivedAt,timestampQuality:observedAt?'OBSERVED':'RECEIVE_ONLY',lagSeconds:observedAt?Math.round((Date.parse(receivedAt)-Date.parse(observedAt))/1000):null,revision:Number(r[12])||0,quality:r[13]||null,currency:r[14]||null,sourceDate:_normalizeDate(r[15]||'')||null,fallback:r[16]===true||String(r[16]).toUpperCase()==='TRUE'});
     });
     return jsonOk({ observations: observations, invalid: invalid, source: MARKET_BRIEFING_MASTER_SHEET });
   } catch(err) { return jsonError('MARKET_MASTER 조회 실패: '+err.message); }
@@ -3457,6 +3483,90 @@ function _benchmarkSymbolMap() {
 
 var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
 var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX' };
+var KRX_OFFICIAL_INDEX_CONFIG = {
+  KOSPI: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd', idxName: '코스피' },
+  KOSDAQ: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd', idxName: '코스닥' }
+};
+
+function _isKrxOfficialCloseAvailableTime_(now) {
+  return Utilities.formatDate(now || new Date(), CONFIG.TIMEZONE, 'HHmm') >= '1600';
+}
+
+function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
+  var authKey = _getKrxAuthKey(), date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, '');
+  if (!authKey || !/^\d{8}$/.test(ymd)) return {};
+  var requested = (symbols || []).filter(function(symbol) { return !!KRX_OFFICIAL_INDEX_CONFIG[symbol]; });
+  var requests = requested.map(function(symbol) {
+    var cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol];
+    return { url: cfg.endpoint + '?basDd=' + encodeURIComponent(ymd), method: 'get', headers: { AUTH_KEY: authKey }, muteHttpExceptions: true };
+  });
+  var output = {};
+  if (!requests.length) return output;
+  UrlFetchApp.fetchAll(requests).forEach(function(response, index) {
+    if (response.getResponseCode() >= 400) return;
+    var json; try { json = JSON.parse(response.getContentText() || '{}'); } catch(ignore) { return; }
+    var symbol = requested[index], cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol];
+    var row = (Array.isArray(json.OutBlock_1) ? json.OutBlock_1 : []).filter(function(item) {
+      return _normalizeYmd(item.BAS_DD || item.basDd || '') === ymd && String(item.IDX_NM || item.idxNm || '').trim() === cfg.idxName;
+    })[0];
+    var value = row ? parseFloat(String(row.CLSPRC_IDX || row.clsprcIdx || '').replace(/,/g, '')) : 0;
+    if (value > 0) output[symbol] = { date: date, value: value, observedAt: date + 'T15:30:00+09:00', source: 'KRX_OFFICIAL', confirmedClose: true };
+  });
+  return output;
+}
+
+function _fetchKrxOfficialIndexClosesSafe_(symbols, tradingDate) {
+  try { return { data: fetchKrxOfficialIndexCloses(symbols, tradingDate), error: '' }; }
+  catch(error) { return { data: {}, error: error.message || 'KRX_OFFICIAL_ERROR' }; }
+}
+
+function _parseKrxK200NightExpiry_(isuName) {
+  var name = String(isuName || '').replace(/\s/g, '');
+  var match = name.match(/^코스피200F(20\d{2})(0[1-9]|1[0-2])\(야간\)$/);
+  return match ? match[1] + match[2] : '';
+}
+
+function _selectKrxK200NightClose_(rows, tradingDate) {
+  var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, ''), month = ymd.slice(0, 6);
+  if (!/^\d{8}$/.test(ymd)) return null;
+  var candidates = (Array.isArray(rows) ? rows : []).map(function(row) {
+    var market = String(row && (row.MKT_NM || row.mktNm) || '').trim();
+    var product = String(row && (row.PROD_NM || row.prodNm) || '').trim();
+    var issue = String(row && (row.ISU_NM || row.isuNm) || '').trim();
+    var expiry = _parseKrxK200NightExpiry_(issue);
+    var close = parseFloat(String(row && (row.TDD_CLSPRC || row.tddClsprc) || '').replace(/,/g, ''));
+    var exactDate = _normalizeYmd(row && (row.BAS_DD || row.basDd) || '') === ymd;
+    if (!exactDate || market.replace(/\s/g, '') !== '야간' || product.replace(/\s/g, '') !== '코스피200선물' || !expiry || expiry < month || !(close > 0)) return null;
+    return { expiry: expiry, close: close, issue: issue };
+  }).filter(function(row) { return !!row; }).sort(function(a, b) { return a.expiry.localeCompare(b.expiry); });
+  if (!candidates.length) return null;
+  var nearest = candidates.filter(function(row) { return row.expiry === candidates[0].expiry; });
+  if (nearest.length !== 1) return null;
+  return nearest[0];
+}
+
+function fetchKrxK200NightClose(tradingDate, now) {
+  var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, ''), authKey = _getKrxAuthKey();
+  if (!authKey || !/^\d{8}$/.test(ymd)) return null;
+  if (Utilities.formatDate(now || new Date(), CONFIG.TIMEZONE, 'HHmm') < '0600') return null;
+  var response = UrlFetchApp.fetch('https://data-dbg.krx.co.kr/svc/apis/drv/fut_bydd_trd?basDd=' + encodeURIComponent(ymd), {
+    method: 'get', headers: { AUTH_KEY: authKey }, muteHttpExceptions: true
+  });
+  if (response.getResponseCode() >= 400) throw new Error('KRX_K200_NIGHT_HTTP_' + response.getResponseCode());
+  var json = JSON.parse(response.getContentText() || '{}');
+  var selected = _selectKrxK200NightClose_(json.OutBlock_1, date);
+  if (!selected) return null;
+  return { seriesId:'K200_NIGHT', value:selected.close, tradingDate:date, sourceDate:date, market:'KRX', session:'NIGHT', source:'KRX_OFFICIAL', status:'FINAL', finality:'NIGHT_FINAL', observedAt:date + 'T06:00:00+09:00', receivedAt:new Date().toISOString(), currency:'KRW', fallback:false, quality:'OFFICIAL_DAILY_CLOSE', contract:selected.issue };
+}
+
+function handleGetKrxK200NightClose(tradingDate) {
+  try {
+    var observation = fetchKrxK200NightClose(tradingDate, new Date());
+    return jsonOk({ observation: observation, error: observation ? '' : 'KRX_K200_NIGHT_NOT_READY' });
+  } catch(error) {
+    return jsonOk({ observation:null, error:error.message || 'KRX_K200_NIGHT_ERROR' });
+  }
+}
 
 function _indicatorRows_(payload) {
   var result = payload && payload.result;
@@ -3488,12 +3598,12 @@ function _indicatorCandleRows_(payload) {
   return [];
 }
 
-function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate) {
+function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate, forceRefresh) {
   var normalized = String(symbol || '').trim().toUpperCase();
   if (!TOSS_MARKET_INDICATOR_SYMBOLS[normalized]) return [];
   var cache = CacheService.getScriptCache();
   var cacheKey = 'toss_indicator_' + normalized + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
-  var cached = cache.get(cacheKey);
+  var cached = forceRefresh ? null : cache.get(cacheKey);
   if (cached) { try { return JSON.parse(cached); } catch(ignore) {} }
   var pointsByDate = {};
   var before = '';
@@ -3505,7 +3615,8 @@ function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate) {
     rows.forEach(function(row) {
       var date = _normalizeDate(row && (row.timestamp || row.marketDate || row.date));
       var value = Number(row && (row.closePrice != null ? row.closePrice : row.lastPrice));
-      if (date >= fromDate && date <= toDate && isFinite(value) && value > 0) pointsByDate[date] = value;
+      var observedAt = _marketBriefingIsoTimestamp_(row && row.timestamp);
+      if (date >= fromDate && date <= toDate && isFinite(value) && value > 0) pointsByDate[date] = { value: value, observedAt: observedAt || null };
     });
     var nextBefore = payload && payload.nextBefore || (payload && payload.result && payload.result.nextBefore) || '';
     if (!rows.length || !nextBefore || nextBefore === before) break;
@@ -3513,7 +3624,7 @@ function fetchMarketIndicatorCandlesToss(symbol, fromDate, toDate) {
     if (oldest && oldest < fromDate) break;
     before = nextBefore;
   }
-  var points = Object.keys(pointsByDate).sort().map(function(date) { return { date: date, value: pointsByDate[date] }; });
+  var points = Object.keys(pointsByDate).sort().map(function(date) { return { date: date, value: pointsByDate[date].value, observedAt: pointsByDate[date].observedAt }; });
   if (points.length) { try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(ignoreCache) {} }
   return points;
 }
@@ -3627,7 +3738,7 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
   }
 }
 
-function handleGetBenchmarks(benchmarksInput, fromStr, toStr) {
+function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
   try {
     var map = _benchmarkSymbolMap();
     var requested = String(benchmarksInput || '').split(',').map(function(value) {
@@ -3643,18 +3754,20 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr) {
 
     var cache = CacheService.getScriptCache();
     var cacheKey = 'benchmarks_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
-    var cached = cache.get(cacheKey);
+    var cached = forceRefresh ? null : cache.get(cacheKey);
     if (cached) return jsonOk(JSON.parse(cached));
 
     var series = {};
     var symbols = {};
     var current = {};
+    var seriesMeta = {};
     var providerErrors = {};
     requested.forEach(function(type) { series[type] = []; symbols[type] = ''; });
     requested.forEach(function(type) {
       if (type === 'KOSPI' || type === 'KOSDAQ') {
-        try { series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate); } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
+        try { series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh); } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
         if (series[type].length) {
+          seriesMeta[type] = { fresh: !!forceRefresh, confirmedClose: false, confirmation: 'UNVERIFIED_DAILY_CANDLE', source: 'TOSS' };
           try { symbols[type] = type; current[type] = fetchMarketIndicatorPricesToss([type])[type] || null; } catch(error) { providerErrors[type] = error.message || 'TOSS_INDICATOR_PRICE_ERROR'; }
         }
       } else {
@@ -3668,11 +3781,24 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr) {
       }
     });
 
+    if (forceRefresh && _isKrxOfficialCloseAvailableTime_()) {
+      var officialResult = _fetchKrxOfficialIndexClosesSafe_(requested, toDate);
+      var official = officialResult.data;
+      if (officialResult.error) providerErrors.KRX_OFFICIAL = officialResult.error;
+      ['KOSPI','KOSDAQ'].forEach(function(type) {
+        if (!official[type]) return;
+        series[type] = (series[type] || []).filter(function(point) { return point.date !== toDate; }).concat([official[type]]).sort(function(a,b) { return a.date.localeCompare(b.date); });
+        symbols[type] = type;
+        seriesMeta[type] = { fresh: true, confirmedClose: true, confirmation: 'KRX_EXACT_DATE_CLOSE', source: 'KRX_OFFICIAL' };
+      });
+    }
+
     var errors = {};
     requested.forEach(function(type) {
       if (!series[type].length) errors[type] = providerErrors[type] || '선택 기간의 데이터를 찾지 못했습니다.';
     });
-    var result = { benchmarks: requested, series: series, symbols: symbols, current: current, errors: errors };
+    if (providerErrors.KRX_OFFICIAL) errors.KRX_OFFICIAL = providerErrors.KRX_OFFICIAL;
+    var result = { benchmarks: requested, series: series, symbols: symbols, current: current, seriesMeta: seriesMeta, errors: errors };
     try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch(cacheError) { /* 캐시 용량 초과는 무시 */ }
     return jsonOk(result);
   } catch(err) {
@@ -3855,7 +3981,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.131' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.137' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8848,7 +8974,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.131' });
+    return jsonOk({ settings: settings, gasVersion: '9.137' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8870,7 +8996,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.131'
+      gasVersion: '9.137'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
