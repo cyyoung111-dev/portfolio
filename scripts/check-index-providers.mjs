@@ -15,18 +15,27 @@ const context = vm.createContext({ console, isFinite, Number, String, Array, Dat
 new vm.Script(source, { filename: 'src/gas/apps_script.gs' }).runInContext(context);
 context.CONFIG = { TIMEZONE: 'UTC' };
 context.Utilities = { formatDate: date => new Date(date).toISOString().slice(0, 10), sleep: () => {} };
-context.CacheService = { getScriptCache: () => ({ get: () => null, put: () => {} }) };
+const cache=new Map();
+context.CacheService = { getScriptCache: () => ({ get:key=>cache.get(key)||null, put:(key,value)=>cache.set(key,value) }) };
 
 const tossCalls = [];
+let candleClose=801;
 context._tossRequest_ = (path, query, group) => {
   tossCalls.push({ path, query, group });
   if (path.endsWith('/prices')) return { result: [{ symbol: 'KOSPI', lastPrice: 2600, timestamp: '2026-09-16T06:00:00Z' }, { symbol: 'KOSDAQ', lastPrice: 800, timestamp: '2026-09-16T06:00:00Z' }] };
-  return { result: { candles: [{ timestamp: '2026-09-15T06:00:00Z', closePrice: 799 }, { timestamp: '2026-09-16T06:00:00Z', closePrice: 801 }] } };
+  return { result: { candles: [{ timestamp: '2026-09-15T06:00:00Z', closePrice: 799 }, { timestamp: '2026-09-16T06:00:00Z', closePrice: candleClose }] } };
 };
 const prices = context.fetchMarketIndicatorPricesToss(['KOSPI', 'KOSDAQ']);
 if (prices.KOSPI.value !== 2600 || prices.KOSDAQ.value !== 800 || tossCalls[0].group !== 'MARKET_INDICATOR') throw new Error('KOSPI/KOSDAQ Toss prices mapping 실패');
 const candles = context.fetchMarketIndicatorCandlesToss('KOSDAQ', '2026-09-15', '2026-09-16');
 if (candles.length !== 2 || candles[0].value !== 799 || tossCalls[1].query.interval !== '1d') throw new Error('KOSDAQ Toss candles parsing 실패');
+candleClose=805;
+const staleCandles=context.fetchMarketIndicatorCandlesToss('KOSDAQ','2026-09-15','2026-09-16');
+if(staleCandles[1].value!==801)throw new Error('오전 indicator cache 재사용 시나리오 실패');
+const freshCandles=context.fetchMarketIndicatorCandlesToss('KOSDAQ','2026-09-15','2026-09-16',true);
+if(freshCandles[1].value!==805||tossCalls.filter(call=>call.group==='MARKET_INDICATOR_CHART').length!==2)throw new Error('마감 indicator cache bypass/refresh 실패');
+if(freshCandles[1].observedAt!=='2026-09-16T06:00:00.000Z')throw new Error('Toss candle provider timestamp 보존 실패');
+if(!/confirmedClose: false/.test(source)||/confirmedClose: !!forceRefresh/.test(source))throw new Error('fresh 요청을 confirmedClose 증거로 사용하면 안 됩니다.');
 
 const yahoo = { chart: { result: [{ meta: { symbol: '^GSPC', regularMarketPrice: 105, previousClose: 100, regularMarketTime: 1790000000 }, timestamp: [1790000000, 1790086400], indicators: { quote: [{ close: [100, 105] }] } }] } };
 const parsed = context._parseYahooChart_(yahoo, 'UTC');
