@@ -11,7 +11,7 @@ runtime.mergeSnapshots(storage,snapshots,[{tradingDate:d,checkpoint:'NIGHT_FINAL
 runtime.mergeSnapshots(storage,snapshots,[{tradingDate:d,checkpoint:'NIGHT_FINAL',asOf:`${d}T06:00:00+09:00`,values:{K200_NIGHT:{value:550}},scenario:null}]);
 assert.equal(runtime.load(storage).snapshots[0].values.K200_NIGHT.value,550,'server hydrate must replace a same-key local cache row');
 assert.equal(runtime.bridge(storage,snapshots,d).morning,null);
-let state=runtime.load(storage);state.observations=master.upsertObservation(state.observations,{seriesId:'K200_NIGHT',tradingDate:d,value:550,market:'KRX',session:'NIGHT',source:'KIS',status:'FINAL',observedAt:`${d}T06:00:00+09:00`,receivedAt:`${d}T06:00:01+09:00`});runtime.save(storage,state);
+let state=runtime.load(storage);state.observations=master.upsertObservation(state.observations,{seriesId:'K200_NIGHT',tradingDate:d,value:550,market:'KRX',session:'NIGHT',source:'KIS',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${d}T06:00:00+09:00`,receivedAt:`${d}T06:00:01+09:00`});runtime.save(storage,state);
 let out=runtime.checkpoint(storage,master,snapshots,gate,d,'MORNING',gate.REQUIRED_BY_CHECKPOINT.MORNING,{scenario:{base:'hold'}});assert.equal(out.decision.publishable,true);assert.equal(out.snapshot.scenario.base,'hold');
 out=runtime.checkpoint(storage,master,snapshots,gate,d,'MORNING',gate.REQUIRED_BY_CHECKPOINT.MORNING,{scenario:{base:'changed'}});assert.equal(out.snapshot.scenario.base,'hold');
 const reloaded=runtime.load(storage);assert.equal(reloaded.snapshots.length,2);assert.equal(runtime.bridge(storage,snapshots,d).morning.scenario.base,'hold');
