@@ -43,10 +43,10 @@ function createRequest(url, token, fetchImpl = fetch) {
     return result;
   };
 }
-export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest }) {
+export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt }) {
   const request = suppliedRequest || createRequest(url, token);
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
-  const sync = await runtime.syncServerMaster(request, request, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10) });
+  const sync = await runtime.syncServerMaster(request, request, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10), scheduledToleranceSeconds:300, receivedAt });
   if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null };
   const decision = runtime.readiness(tradingDate, checkpoint);
   if (!decision.publishable) return { checkpoint, tradingDate, sync, decision, persistence:null };

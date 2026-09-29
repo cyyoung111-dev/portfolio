@@ -36,6 +36,20 @@ for(const id of ['KOSPI','KOSDAQ','KOSPI200'])backfill=master.upsertObservation(
 const priorKrx=master.buildBriefingSnapshot(backfill,date,'MORNING',['KOSPI','KOSDAQ','KOSPI200']);
 for(const id of Object.keys(priorKrx.values))assert.equal(priorKrx.values[id].sourceDate,'2026-09-17',`${id} MORNING must use PRIOR_FINAL`);
 assert.equal(master.buildBriefingSnapshot(backfill,date,'KRX_FINAL',['KOSPI']).values.KOSPI.value,9,'same-day row is eligible outside MORNING');
+let fxTiming=[];
+fxTiming=master.upsertObservation(fxTiming,{seriesId:'USDKRW',tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1380,status:'FINAL',finality:'HISTORICAL_CLOSE',receivedAt:`${date}T07:00:00+09:00`});
+fxTiming=master.upsertObservation(fxTiming,{seriesId:'USDKRW',tradingDate:date,sourceDate:date,value:1390,status:'PARTIAL',observedAt:`${date}T07:29:30+09:00`,receivedAt:`${date}T07:31:00+09:00`});
+assert.equal(master.buildBriefingSnapshot(fxTiming,date,'MORNING',['USDKRW']).values.USDKRW.value,1390,'provider observedAt before cutoff must select same-day FX');
+fxTiming=master.upsertObservation([], {seriesId:'USDKRW',tradingDate:date,sourceDate:date,value:1391,status:'PARTIAL',observedAt:`${date}T07:31:00+09:00`,receivedAt:`${date}T07:31:01+09:00`});
+assert.equal(master.buildBriefingSnapshot(fxTiming,date,'MORNING',['USDKRW']).values.USDKRW,null,'observedAt after cutoff must remain strict');
+fxTiming=master.upsertObservation([], {seriesId:'USDKRW',tradingDate:date,sourceDate:date,value:1392,status:'PARTIAL',quality:'SCHEDULED_DELAY_TOLERANCE_300S',receivedAt:`${date}T07:31:00+09:00`});
+assert.equal(master.buildBriefingSnapshot(fxTiming,date,'MORNING',['USDKRW']).values.USDKRW.value,1392,'scheduled receive-only FX gets narrow tolerance');
+fxTiming=master.upsertObservation([], {seriesId:'USDKRW',tradingDate:date,sourceDate:date,value:1392,status:'PARTIAL',quality:'SCHEDULED_DELAY_TOLERANCE_300S',receivedAt:`${date}T07:36:00+09:00`});
+assert.equal(master.buildBriefingSnapshot(fxTiming,date,'MORNING',['USDKRW']).values.USDKRW,null,'scheduled tolerance must not exceed 300 seconds');
+fxTiming=master.upsertObservation([], {seriesId:'USDKRW',tradingDate:date,sourceDate:date,value:1392,status:'PARTIAL',receivedAt:`${date}T07:31:00+09:00`});
+assert.equal(master.buildBriefingSnapshot(fxTiming,date,'MORNING',['USDKRW']).values.USDKRW,null,'ordinary receive-only FX remains strict');
+fxTiming=master.upsertObservation([], {seriesId:'USDKRW',tradingDate:date,sourceDate:date,value:1393,status:'PARTIAL',quality:'SCHEDULED_DELAY_TOLERANCE_300S',receivedAt:`${date}T20:16:00+09:00`});
+assert.equal(master.buildBriefingSnapshot(fxTiming,date,'EVENING',['USDKRW']).values.USDKRW.value,1393,'EVENING scheduled FX gets same narrow tolerance');
 
 const bridge = master.bridgeBriefings(rows, date, ['K200_NIGHT','USDKRW','NQ']);
 assert.equal(bridge.morning.values.USDKRW.value, 1390);

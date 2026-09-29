@@ -33,7 +33,9 @@
       if (!row) return;
       const target = optional.includes(id) ? warnings : bad;
       if (['FAILED','QUARANTINED','STALE'].includes(row.status)) target.push(`${id}:${row.status}`);
-      if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf) && !masterApi.isHistoricalFinalFallback(row, tradingDate)) target.push(`${id}:LOOKAHEAD`);
+      const scheduledDelay = masterApi.isScheduledDelayCandidate(row, id, tradingDate, checkpoint, Date.parse(snapshot.asOf));
+      if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf) && !masterApi.isHistoricalFinalFallback(row, tradingDate) && !scheduledDelay) target.push(`${id}:LOOKAHEAD`);
+      if (scheduledDelay) warnings.push(`${id}:SCHEDULED_DELAY_TOLERANCE`);
     });
     const k200 = snapshot.values.K200_NIGHT;
     if (checkpoint === 'MORNING' && k200 && !(k200.tradingDate === tradingDate && k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');

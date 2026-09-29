@@ -1,7 +1,8 @@
-## GAS v9.137 / 웹 20260929-10: 브리핑 headless 종결
+## GAS v9.137 / 웹 20260929-11: 브리핑 headless 예약 지연 보정
 
 - GAS v9.137은 KRX `drv/fut_bydd_trd`에서 exact BAS_DD·`MKT_NM=야간`·`PROD_NM=코스피200 선물`·실제 `ISU_NM=코스피200 F YYYYMM (야간)` 형식·단일 최근 미만기 월물·양수 `TDD_CLSPRC`를 모두 확인한 값만 `K200_NIGHT/NIGHT_FINAL`로 제공합니다. 06:00 이전, 이전 날짜, 정규시장, 0 종가, 다른 상품, 같은 최근월물 중복 후보는 확정값을 만들지 않습니다.
 - GitHub 저장소 Variables에 `GAS_WEB_APP_URL`, Secrets에 `GAS_ACCESS_TOKEN`을 한 번 설정합니다. `.github/workflows/market-briefing-headless.yml`이 KST 06:15/07:30/16:05/20:15의 target checkpoint를 명시해 hydrate → collect → master 저장 → readiness → immutable snapshot 저장을 수행합니다.
+- headless 실행에서만 당일 USDKRW가 provider 관측시각 없이 정각 후 300초 안에 수신되면 실제 `receivedAt`을 유지한 채 `SCHEDULED_DELAY_TOLERANCE_300S`로 선택하고 warning을 남깁니다. provider `observedAt`이 있으면 이를 우선하며, 다른 series·브라우저 실행·300초 초과에는 tolerance를 적용하지 않습니다.
 - 스케줄 실행은 GitHub Actions 및 배포된 GAS/KRX·Toss·Yahoo·환율 provider 가용성에 의존합니다. 휴장·미공시 또는 필수값 누락 시 snapshot을 만들지 않으며 workflow 지연 시에도 현재 시각으로 checkpoint를 바꾸지 않습니다.
 
 ## GAS v9.131 / 웹 20260928-5: 기간 정합성 진단 index 최적화

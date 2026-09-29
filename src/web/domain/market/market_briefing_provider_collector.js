@@ -19,7 +19,7 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market:type.startsWith('KOS')?'KRX':'US',currency:null,
   observedAt,quality:delayed?'EOD_DELAYED':'EOD',fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
 }
-function normalizeFxPoint(data,tradingDate){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close)})));if(!point)return null;const isCurrent=point.date===tradingDate;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',quality:'EOD',fallback:!isCurrent};}
+function normalizeFxPoint(data,tradingDate,options={}){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close),observedAt:row.observedAt&&Number.isFinite(Date.parse(row.observedAt))?row.observedAt:null})));if(!point)return null;const isCurrent=point.date===tradingDate,scheduledTolerance=Number(options.scheduledToleranceSeconds)===300&&isCurrent&&!point.observedAt;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',observedAt:point.observedAt,quality:scheduledTolerance?'SCHEDULED_DELAY_TOLERANCE_300S':'EOD',fallback:!isCurrent};}
 function trustedStockClose(source){return /^(KRX|KRX_OTP|KRX_CONFIRMED_CLOSE|STORED_CONFIRMED_CLOSE)$/.test(String(source||'').toUpperCase());}
 function regularCloseObservedAt(tradingDate){return masterApi.checkpointAt(tradingDate,'KRX_FINAL');}
 function normalizeStockPoint(seriesId,code,current,history,tradingDate){
@@ -48,7 +48,7 @@ async function collect(request,tradingDate,options={}){
  }
  try{
   const fx=await request('getExchangeRateHistory',{from,to},{timeoutMs:options.timeoutMs||45000,retry:0});
-  const point=normalizeFxPoint(fx,tradingDate);if(point)payload.USDKRW=point;else missing.push('USDKRW');
+  const point=normalizeFxPoint(fx,tradingDate,options);if(point)payload.USDKRW=point;else missing.push('USDKRW');
  }catch(error){missing.push('USDKRW');errors.USDKRW=String(error&&error.message||error);}
  {
   const codes=Object.values(STOCKS).join(',');
@@ -66,7 +66,7 @@ async function collect(request,tradingDate,options={}){
    if(row)payload[seriesId]=row;else missing.push(seriesId);
   }
  }
- return {payload,missing:[...new Set(missing)],errors,receivedAt:new Date().toISOString(),range:{from,to}};
+ return {payload,missing:[...new Set(missing)],errors,receivedAt:options.receivedAt||new Date().toISOString(),range:{from,to}};
 }
 async function collectAndIngest(runtime,request,tradingDate,options={}){if(!runtime||typeof runtime.ingestBenchmarks!=='function')throw new Error('MarketBriefingRuntime unavailable');const result=await collect(request,tradingDate,options);const rows=runtime.ingestBenchmarks(result.payload,{tradingDate,receivedAt:result.receivedAt});return {...result,rows};}
 const api={REQUEST_TYPES,KEY_MAP,STOCKS,KRX_FINAL_CHECKPOINTS,latest,sourceFor,lookback,normalizeBenchmarkPoint,normalizeFxPoint,trustedStockClose,regularCloseObservedAt,normalizeStockPoint,collect,collectAndIngest};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.MarketBriefingProviderCollector=api;

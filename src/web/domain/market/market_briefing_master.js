@@ -85,10 +85,17 @@
 
   const MORNING_PRIOR_FINAL = Object.freeze(['KOSPI', 'KOSDAQ', 'KOSPI200']);
 
+  function isScheduledDelayCandidate(row, seriesId, targetTradingDate, checkpoint, cutoff) {
+    const received = Date.parse(row?.receivedAt || '');
+    return seriesId === 'USDKRW' && row?.tradingDate === targetTradingDate && !row.observedAt &&
+      row.timestampQuality === 'RECEIVE_ONLY' && row.quality === 'SCHEDULED_DELAY_TOLERANCE_300S' &&
+      (checkpoint === 'MORNING' || checkpoint === 'EVENING') && received > cutoff && received <= cutoff + 300000;
+  }
+
   function isSameDayCandidate(row, seriesId, targetTradingDate, checkpoint, cutoff) {
     if (!row || row.tradingDate !== targetTradingDate) return false;
     if (checkpoint === 'MORNING' && MORNING_PRIOR_FINAL.includes(seriesId)) return false;
-    return Date.parse(row.observedAt || row.receivedAt) <= cutoff;
+    return Date.parse(row.observedAt || row.receivedAt) <= cutoff || isScheduledDelayCandidate(row, seriesId, targetTradingDate, checkpoint, cutoff);
   }
 
   function selectAt(master, seriesId, cutoffAt, targetTradingDate, checkpoint) {
@@ -126,13 +133,13 @@
     const issues = [];
     Object.entries(snapshot?.values || {}).forEach(([seriesId, row]) => {
       if (!row) issues.push(`${seriesId}:MISSING`);
-      else if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf) && !isHistoricalFinalFallback(row, snapshot.tradingDate)) issues.push(`${seriesId}:LOOKAHEAD`);
+      else if (Date.parse(row.observedAt || row.receivedAt) > Date.parse(snapshot.asOf) && !isHistoricalFinalFallback(row, snapshot.tradingDate) && !isScheduledDelayCandidate(row, seriesId, snapshot.tradingDate, snapshot.checkpoint, Date.parse(snapshot.asOf))) issues.push(`${seriesId}:LOOKAHEAD`);
       else if (row.timestampQuality === 'RECEIVE_ONLY' && row.observedAt) issues.push(`${seriesId}:TIMESTAMP_QUALITY`);
     });
     return { ok: issues.length === 0, issues };
   }
 
-  const api = { CHECKPOINT_TIME, SERIES_POLICY, MORNING_PRIOR_FINAL, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, isHistoricalFinalFallback, isSameDayCandidate, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
+  const api = { CHECKPOINT_TIME, SERIES_POLICY, MORNING_PRIOR_FINAL, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, isHistoricalFinalFallback, isScheduledDelayCandidate, isSameDayCandidate, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.MarketBriefingMaster = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
