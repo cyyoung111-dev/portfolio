@@ -26,6 +26,22 @@
     return `${tradingDate}T${CHECKPOINT_TIME[checkpoint]}${offset}`;
   }
 
+  function checkpointForTime(time) {
+    const value = String(time || '').slice(0, 8);
+    if (!/^\d{2}:\d{2}:\d{2}$/.test(value)) throw new Error('invalid checkpoint time');
+    if (value >= CHECKPOINT_TIME.EVENING) return 'EVENING';
+    if (value >= CHECKPOINT_TIME.AFTER_FINAL) return 'AFTER_FINAL';
+    if (value >= CHECKPOINT_TIME.KRX_FINAL) return 'KRX_FINAL';
+    if (value >= CHECKPOINT_TIME.MORNING) return 'MORNING';
+    return 'NIGHT_FINAL';
+  }
+
+  function currentCheckpoint(now = new Date()) {
+    const parts = new Intl.DateTimeFormat('en-GB', { timeZone:'Asia/Seoul', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23' }).formatToParts(now);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return checkpointForTime(`${values.hour}:${values.minute}:${values.second}`);
+  }
+
   function normalizeObservation(input) {
     if (!input || !input.seriesId || !validDate(input.tradingDate)) throw new Error('seriesId/tradingDate are required');
     const value = Number(input.value);
@@ -41,6 +57,9 @@
       seriesId: String(input.seriesId), tradingDate: input.tradingDate, value,
       market: input.market || 'UNKNOWN', session: input.session || 'UNKNOWN', source: input.source || 'UNKNOWN',
       status: input.status || 'PARTIAL', finality: input.finality || null,
+      currency: input.currency || null,
+      sourceDate: validDate(input.sourceDate) ? input.sourceDate : null,
+      fallback: input.fallback === true,
       observedAt, receivedAt,
       timestampQuality: observedAt ? 'OBSERVED' : 'RECEIVE_ONLY',
       lagSeconds: observedAt ? Math.round((receivedMs - observedMs) / 1000) : null,
@@ -94,7 +113,7 @@
     return { ok: issues.length === 0, issues };
   }
 
-  const api = { CHECKPOINT_TIME, SERIES_POLICY, checkpointAt, normalizeObservation, upsertObservation, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
+  const api = { CHECKPOINT_TIME, SERIES_POLICY, checkpointAt, checkpointForTime, currentCheckpoint, normalizeObservation, upsertObservation, selectAt, buildBriefingSnapshot, bridgeBriefings, validateSnapshot };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.MarketBriefingMaster = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
