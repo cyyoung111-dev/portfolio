@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.131
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.132
+//
+//  v9.132 변경사항 (2026.09.29):
+//   MARKET_MASTER에 currency/source_date/fallback metadata를 호환 확장
 //
 //  v9.131 변경사항 (2026.09.28):
 //   기간 Snapshot 진단의 원장 index·증분 holdings와 단계별 오류 관측성 추가
@@ -892,7 +895,7 @@ function doPost(e) {
 }
 
 var MARKET_BRIEFING_MASTER_SHEET = 'MARKET_MASTER';
-var MARKET_BRIEFING_MASTER_HEADERS = ['series_id','trading_date','value','market','session','source','status','finality','observed_at','received_at','timestamp_quality','lag_seconds','revision','quality'];
+var MARKET_BRIEFING_MASTER_HEADERS = ['series_id','trading_date','value','market','session','source','status','finality','observed_at','received_at','timestamp_quality','lag_seconds','revision','quality','currency','source_date','fallback'];
 var MARKET_BRIEFING_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 function _marketBriefingIsoTimestamp_(value) {
@@ -911,6 +914,11 @@ function _marketBriefingMasterSheet_(ss) {
   if (!sh) {
     sh = ss.insertSheet(MARKET_BRIEFING_MASTER_SHEET);
     sh.getRange(1,1,1,MARKET_BRIEFING_MASTER_HEADERS.length).setValues([MARKET_BRIEFING_MASTER_HEADERS]);
+  } else {
+    var headers = sh.getRange(1,1,1,MARKET_BRIEFING_MASTER_HEADERS.length).getValues()[0];
+    MARKET_BRIEFING_MASTER_HEADERS.forEach(function(header,index) {
+      if (!String(headers[index] || '').trim()) sh.getRange(1,index+1).setValue(header);
+    });
   }
   return sh;
 }
@@ -945,9 +953,10 @@ function handleAppendMarketBriefingObservations(dataJson) {
       var key=[seriesId,tradingDate,String(r.session||'UNKNOWN'),observedAt,receivedAt].join('|');
       if (existing[key]) { duplicates++; return; }
       existing[key]=true;
-      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,timestampQuality,lagSeconds==null?'':lagSeconds,Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality)]);
+      var sourceDate=_normalizeDate(r.sourceDate||'');
+      values.push([seriesId,tradingDate,value,String(r.market||'UNKNOWN'),String(r.session||'UNKNOWN'),String(r.source||'UNKNOWN'),String(r.status||'PARTIAL'),r.finality==null?'':String(r.finality),observedAt,receivedAt,timestampQuality,lagSeconds==null?'':lagSeconds,Number.isInteger(r.revision)?r.revision:0,r.quality==null?'':String(r.quality),r.currency==null?'':String(r.currency),sourceDate,r.fallback===true]);
     });
-    if (values.length) sh.getRange(sh.getLastRow()+1,1,values.length,14).setValues(values);
+    if (values.length) sh.getRange(sh.getLastRow()+1,1,values.length,MARKET_BRIEFING_MASTER_HEADERS.length).setValues(values);
     lock.releaseLock();
     return jsonOk({ saved: values.length, duplicates: duplicates, rejected: rejected, rejectionReasons: rejectionReasons });
   } catch(err) { try { if (lock) lock.releaseLock(); } catch(e) {} return jsonError('MARKET_MASTER 저장 실패: '+err.message); }
@@ -957,15 +966,16 @@ function handleGetMarketBriefingMaster(fromStr, toStr, seriesIdsInput) {
   try {
     var ss=getss(), sh=ss.getSheetByName(MARKET_BRIEFING_MASTER_SHEET);
     if (!sh || sh.getLastRow()<2) return jsonOk({ observations: [], invalid: 0, source: MARKET_BRIEFING_MASTER_SHEET });
+    sh=_marketBriefingMasterSheet_(ss);
     var fromDate=_normalizeDate(fromStr||'')||'0000-01-01', toDate=_normalizeDate(toStr||'')||'9999-12-31';
     var ids=String(seriesIdsInput||'').split(',').map(function(v){return v.trim();}).filter(Boolean);
     var observations=[], invalid=0;
-    sh.getRange(2,1,sh.getLastRow()-1,14).getValues().forEach(function(r){
+    sh.getRange(2,1,sh.getLastRow()-1,MARKET_BRIEFING_MASTER_HEADERS.length).getValues().forEach(function(r){
       var d=_normalizeDate(r[1]); if(!d||d<fromDate||d>toDate||(ids.length&&ids.indexOf(String(r[0]))===-1))return;
       var rawObservedAt=r[8] ? String(r[8]).trim() : '', observedAt=rawObservedAt ? _marketBriefingIsoTimestamp_(r[8]) : '';
       var receivedAt=_marketBriefingIsoTimestamp_(r[9]);
       if (!receivedAt || (rawObservedAt && !observedAt) || (observedAt && Date.parse(observedAt)>Date.parse(receivedAt))) { invalid++; return; }
-      observations.push({seriesId:String(r[0]),tradingDate:d,value:Number(r[2]),market:String(r[3]),session:String(r[4]),source:String(r[5]),status:String(r[6]),finality:r[7]||null,observedAt:observedAt||null,receivedAt:receivedAt,timestampQuality:observedAt?'OBSERVED':'RECEIVE_ONLY',lagSeconds:observedAt?Math.round((Date.parse(receivedAt)-Date.parse(observedAt))/1000):null,revision:Number(r[12])||0,quality:r[13]||null});
+      observations.push({seriesId:String(r[0]),tradingDate:d,value:Number(r[2]),market:String(r[3]),session:String(r[4]),source:String(r[5]),status:String(r[6]),finality:r[7]||null,observedAt:observedAt||null,receivedAt:receivedAt,timestampQuality:observedAt?'OBSERVED':'RECEIVE_ONLY',lagSeconds:observedAt?Math.round((Date.parse(receivedAt)-Date.parse(observedAt))/1000):null,revision:Number(r[12])||0,quality:r[13]||null,currency:r[14]||null,sourceDate:_normalizeDate(r[15]||'')||null,fallback:r[16]===true||String(r[16]).toUpperCase()==='TRUE'});
     });
     return jsonOk({ observations: observations, invalid: invalid, source: MARKET_BRIEFING_MASTER_SHEET });
   } catch(err) { return jsonError('MARKET_MASTER 조회 실패: '+err.message); }
@@ -3855,7 +3865,7 @@ function handleGetFundUnits() {
     var ss = getss();
     var configs = _readFundUnits(ss);
     return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.131' } });
+      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.132' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8848,7 +8858,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.131' });
+    return jsonOk({ settings: settings, gasVersion: '9.132' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -8870,7 +8880,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.131'
+      gasVersion: '9.132'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
