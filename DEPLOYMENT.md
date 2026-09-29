@@ -1,3 +1,9 @@
+## GAS v9.137 / 웹 20260929-10: 브리핑 headless 종결
+
+- GAS v9.137은 KRX `drv/fut_bydd_trd`에서 exact BAS_DD·공식 야간시장·KOSPI200 선물·단일 최근 미만기 월물·양수 `TDD_CLSPRC`를 모두 확인한 값만 `K200_NIGHT/NIGHT_FINAL`로 제공합니다. 06:00 이전, 이전 날짜, 정규시장, 0 종가, 같은 최근월물 중복 후보는 확정값을 만들지 않습니다.
+- GitHub 저장소 Variables에 `GAS_WEB_APP_URL`, Secrets에 `GAS_ACCESS_TOKEN`을 한 번 설정합니다. `.github/workflows/market-briefing-headless.yml`이 KST 06:15/07:30/16:05/20:15의 target checkpoint를 명시해 hydrate → collect → master 저장 → readiness → immutable snapshot 저장을 수행합니다.
+- 스케줄 실행은 GitHub Actions 및 배포된 GAS/KRX·Toss·Yahoo·환율 provider 가용성에 의존합니다. 휴장·미공시 또는 필수값 누락 시 snapshot을 만들지 않으며 workflow 지연 시에도 현재 시각으로 checkpoint를 바꾸지 않습니다.
+
 ## GAS v9.131 / 웹 20260928-5: 기간 정합성 진단 index 최적화
 
 - Apps Script v9.131과 정적 웹 20260928-5를 함께 재배포합니다. 실제 Snapshot 날짜만 전달하며 Snapshot/거래/가격/NAV/FX 원장을 요청당 한 번 읽고 index lookup을 사용합니다.
@@ -611,6 +617,18 @@ GAS 메뉴 및 시트 구성:
 - Toss 키가 없거나 호출 실패하면 기존 KRX·저장된 확정 가격이력 경로를 유지합니다. Toss 응답으로 기존 확정 NAV·배당·스냅샷을 삭제하지 않습니다.
 
 - `src/web/domain/market/market_data_provider.js`는 Toss 및 기존 공급원 응답을 `marketDate`, `symbol`, `market`, `closePrice`, `currency`, `source`, `priceType=REGULAR_CLOSE`, `status`, `fetchedAt`로 정규화합니다.
+- Portfolio와 Briefing provider는 이 파일의 공통 contract 정규화를 사용합니다. Briefing의 당일 한국 지수 일봉은 `MORNING`에는 `PARTIAL`로 유지하고 명시적인 `KRX_FINAL`/`AFTER_FINAL`/`EVENING` checkpoint에서만 `FINAL`/`REGULAR_CLOSE`로 승격합니다. Yahoo 당일 값은 같은 checkpoint에서도 `DELAYED`로 유지합니다. `sourceDate`, `fallback`, `observedAt`, `receivedAt`, `timestampQuality`는 원장 병합 없이 각 저장 경로에 전달합니다.
+- 삼성전자·SK하이닉스는 기존 `getPrices`의 화면 현재값과 같은 날짜 `getPriceHistory`의 KRX 확정값을 함께 확인합니다. Toss/현재값만 있으면 `PARTIAL`이며, KRX 확정 가격이력만 정규장 `FINAL` 관측으로 `MARKET_MASTER`에 저장합니다.
+- 브라우저 runtime은 검증된 KIS `H0MFCNT0` raw frame을 `K200_NIGHT` 관측으로 저장하는 진입점을 제공합니다. `NIGHT_FINAL` checkpoint가 명시된 검증 frame만 `FINAL`이며 그 외 야간 frame은 `LIVE`입니다. 실제 WebSocket 수집기와 KIS credential/schema registry는 배포 환경에서 별도로 제공해야 합니다.
+- 자동 초기 동기화는 `MarketBriefingMaster.CHECKPOINT_TIME` 기반 단일 resolver로 현재 KST checkpoint를 결정해 collector에 전달합니다. KRX 마감 gate는 당일 `tradingDate`의 확정값만 허용하며, Yahoo KOSPI200은 당일 `DELAYED` 보조값으로 허용하되 readiness warning에 남깁니다.
+- GAS v9.132는 기존 14개 `MARKET_MASTER` core 컬럼 뒤에 `currency`, `source_date`, `fallback`을 추가합니다. 기존 시트는 누락 header만 뒤에 채우고 기존 행과 dedup key를 재작성하지 않으며, 빈 legacy metadata는 `null`/`false`로 조회합니다.
+- GAS v9.133부터 마감 계열 checkpoint의 KOSPI/KOSDAQ 요청은 6시간 장중 cache를 우회해 Toss 일봉을 새로 조회하고 `fresh + confirmedClose` metadata를 반환합니다. collector는 이 명시적 metadata가 있는 당일 값만 `FINAL/REGULAR_CLOSE`로 승격합니다.
+- KIS 야간 관측은 `appendMarketBriefingObservations` 성공을 commit point로 사용하며, 서버 저장 실패·POST 함수 부재·quarantine 시에는 localStorage에 병합하지 않습니다.
+- GAS v9.134는 Toss indicator daily candle의 provider timestamp를 `observedAt` 후보로 보존하지만, 현재 확인된 응답 계약에는 정규장 종가 확정 status/finality가 없어 fresh 조회도 `confirmedClose=false`로 반환합니다. 따라서 당일 KOSPI/KOSDAQ은 확정 근거가 추가되기 전까지 `PARTIAL`로 유지되고 KRX final gate를 통과하지 않습니다.
+- 삼성전자·SK하이닉스의 exact-date trusted 가격이력은 기존 `KRX_FINAL` session close 정의로 `observedAt`을 기록합니다. 실제 API 수신시각은 별도 `receivedAt`으로 유지하며 current/INDICATIVE, untrusted 또는 이전 거래일 이력에는 close 시각을 부여하지 않습니다.
+- GAS v9.135는 16:00 KST 이후에만 기존 KRX AUTH_KEY로 공식 `idx/kospi_dd_trd`·`idx/kosdaq_dd_trd`를 조회합니다. `BAS_DD`가 요청일과 정확히 같고 `IDX_NM`이 `코스피`/`코스닥`, `CLSPRC_IDX > 0`인 행만 `KRX_OFFICIAL` 확정 종가로 사용하며 `observedAt`은 정규장 close인 15:30, `receivedAt`은 실제 조회시각으로 분리합니다. 공식 행이 없으면 Toss 보조값은 `PARTIAL`로 남아 마감 gate가 `NOT_READY`를 유지합니다.
+- GAS v9.136은 KRX 공식 지수 fetchAll/network 오류를 격리해 Toss PARTIAL과 Yahoo 결과를 그대로 반환하고 `errors.KRX_OFFICIAL`에 원인을 남깁니다. 실제 producer가 없는 flow/breadth/after-turnover는 checkpoint warning으로만 보고하며, 브라우저 provider sync가 성공하고 readiness가 publishable일 때만 immutable snapshot 저장을 시도합니다.
+- 별도 16:00 scheduler/trigger는 없으므로 브라우저가 열리지 않은 상태의 정시 수집·release는 운영 자동화 의존사항으로 남습니다.
 - Toss 공식 endpoint·인증·응답 필드는 공식 사양을 확인한 뒤 GAS 서버 설정으로 주입해야 합니다. 코드에는 Client Secret 또는 추측한 endpoint를 저장하지 않습니다.
 - `resolveMarketPrice`는 Toss 정상값을 우선하고, 누락 시 기존 공급원·저장 확정값을 fallback으로 선택합니다. 모든 후보가 이상하면 `null`을 반환하여 기존 가격을 지우지 않습니다.
 - 휴장일은 `carryForwardRegularClose`로 직전 `CONFIRMED` 정규장 종가를 구분해 carry-forward할 수 있습니다. 분할·병합 계산은 총 취득원가를 유지하며 병합 단주는 자동 반올림하지 않습니다.
