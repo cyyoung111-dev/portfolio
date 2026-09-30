@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.139
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.140
+//
+//  v9.140 변경사항 (2026.09.30):
+//   Snapshot 정합성 원자료 revision으로 브라우저 진단 캐시 무효화 보강
 //
 //  v9.139 변경사항 (2026.09.30):
 //   손익 정합성 상태 분리·증분 검증 캐시 및 펀드 좌수 초기 조회 경량화
@@ -2207,7 +2210,7 @@ function handleGetHistory(fromStr, toStr) {
       return { date: date, evalAmt: ev, costAmt: co, qty: qt, evalUnit: evalUnit, costUnit: costUnit, pnl: pnl, pct: pct,
         navInputRequired: inputRequiredCodes.length > 0, navInputRequiredCodes: inputRequiredCodes };
     });
-    return jsonOk({ snapshots: history });
+    return jsonOk({ snapshots: history, integritySourceRevision: _getSnapshotIntegritySourceRevision() });
   } catch(err) {
     return jsonError('히스토리 조회 실패: ' + err.message);
   }
@@ -3908,6 +3911,27 @@ var FUND_PROVIDERS = {
 };
 var FUND_UNITS_SHEET = '펀드좌수';
 var FUND_NAV_SHEET = '펀드기준가격';
+var SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY = 'snapshot_integrity_source_revision_v1';
+
+function _getSnapshotIntegritySourceRevision() {
+  return PropertiesService.getScriptProperties().getProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY) || '0';
+}
+
+function _touchSnapshotIntegritySourceRevision() {
+  var revision = Date.now() + '-' + Utilities.getUuid();
+  PropertiesService.getScriptProperties().setProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY, revision);
+  return revision;
+}
+
+function _isSnapshotIntegritySourceSheet(name) {
+  return [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'].indexOf(String(name || '')) !== -1;
+}
+
+// 사용자가 정합성 원자료 시트를 직접 수정한 경우도 내부 저장 경로와 동일하게 cache를 무효화합니다.
+function onEdit(e) {
+  var sheet = e && e.range && e.range.getSheet ? e.range.getSheet() : null;
+  if (sheet && _isSnapshotIntegritySourceSheet(sheet.getName())) _touchSnapshotIntegritySourceRevision();
+}
 var FUND_NAV_IMPORT_SPECS = {
   F00001: { provider: 'HANWHA_2045_CRPE', classCode: 'C-RPe', standardCode: '', className: 'C-RPe', forbidden: ['AQ018','KR5223AQ0185','AP399','KR5235AP3996','2K04','2K09'] },
   F00002: { provider: 'KB_VALUE_ST', classCode: 'AQ018', standardCode: 'KR5223AQ0185', className: 'S-T', forbidden: ['AP399','KR5235AP3996','2K04','2K09','피델리티 월드BIG4'] },
@@ -4015,7 +4039,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.139' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.140' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4058,6 +4082,7 @@ function handleSaveFundUnits(dataJson) {
       if (!sh) { sh = ss.insertSheet(FUND_UNITS_SHEET); sh.appendRow(['종목코드','종목명','클래스','적용시작일','좌수','등록일시']); }
       _setCodeColumnText(sh, 1);
       sh.appendRow([code, String(item.name), provider, startDate, units, new Date().toISOString()]);
+      _touchSnapshotIntegritySourceRevision();
     }
     _ensureFundDailyTrigger();
     var savedConfigs = _readFundUnits(ss);
@@ -4589,6 +4614,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
     _setCodeColumnText(ph, 2);
     ph.getRange(ph.getLastRow() + 1, 1, append.length, 6).setValues(_normalizeCodeRows(append, 1));
   }
+  if (navChanged || pricesChanged || append.length) _touchSnapshotIntegritySourceRevision();
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   } finally {
     if (writeLocked) writeLock.releaseLock();
@@ -5194,6 +5220,7 @@ function _writeFundImportRows(ss, sheet, updates, appends, colCount) {
     err.fundWriteResult = written;
     throw err;
   }
+  if ((written.updatedRows || written.appendedRows) && _isSnapshotIntegritySourceSheet(sheet.getName())) _touchSnapshotIntegritySourceRevision();
   return written;
 }
 
@@ -5982,6 +6009,7 @@ function handleApplyPriceHistoryRepair(dataJson) {
     _snapshotBackupOperationId = 'priceHistoryRepair|' + (JSON.parse(dataJson || '{}').operationId || Utilities.getUuid());
     backup = _backupSheetBeforeWrite(ss, sheet, CONFIG.SHEET_PH);
     sheet.getRange(preview.diagnostic.rowNumber, 4, 1, 3).setValues([[preview.referencePrice, new Date().toISOString(), preview.referenceSource]]);
+    _touchSnapshotIntegritySourceRevision();
     var after = diagnosePriceHistoryIntegrity(ss, [preview.date], [preview.code]).rows[0];
     _markSnapshotBackupStatus(backup, 'COMPLETED');
     return jsonOk({ applied: true, preview: preview, after: after, nextStep: 'diagnoseSnapshotIntegrity → rewriteSnapshotDate → VALID 재진단' });
@@ -6291,7 +6319,7 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
       mismatchDates: groups.MISMATCH, conflictDates: groups.CONFLICT,
       sourceIncompleteDates: groups.SOURCE_INCOMPLETE, noSnapshotDates: groups.NO_SNAPSHOT,
       priceSuspiciousDates: groups.PRICE_SUSPICIOUS || [], abnormalCandidates: requestedCandidates, diagnostics: diagnostics,
-      priceIntegrity: { counts: priceIntegrity.counts, checkedRows: priceIntegrity.checkedRows },
+      priceIntegrity: { counts: priceIntegrity.counts, checkedRows: priceIntegrity.checkedRows }, integritySourceRevision: _getSnapshotIntegritySourceRevision(),
       performance: { totalMs: Date.now() - totalStarted, readMs: context.readMs, indexBuildMs: indexed.indexBuildMs, calculationMs: calculationMs,
         checkedDates: dates.length, priceHistoryRows: context.metrics.priceHistoryRows, snapshotRows: context.metrics.snapshotRows,
         tradeRows: context.metrics.tradeRows, fundNavRows: context.metrics.fundNavRows, fxRows: context.metrics.fxRows,
@@ -6533,6 +6561,7 @@ function _pruneManualPriceHistoryKeepLatest(ss, code, name) {
     .sort(function(a,b){ return b-a; }); // 아래서부터 삭제
 
   toDelete.forEach(function(rowNo){ ph.deleteRow(rowNo); });
+  if (toDelete.length) _touchSnapshotIntegritySourceRevision();
   SpreadsheetApp.flush();
   return toDelete.length;
 }
@@ -6760,6 +6789,7 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
     if (toAppend.length > 0) {
       ph.getRange(ph.getLastRow() + 1, 1, toAppend.length, 6).setValues(_normalizeCodeRows(toAppend, 1));
     }
+    if (toUpdate.length || toAppend.length) _touchSnapshotIntegritySourceRevision();
     SpreadsheetApp.flush();
   } catch(err) {
     Logger.log('❌ batchUpsertPriceHistory 실패: ' + err.message);
@@ -6798,12 +6828,14 @@ function upsertPriceHistory(ss, dateStr, code, name, price, savedAt, source) {
           // ★ 기존 행이 자동조회(savedAt 없음)였어도 수동저장으로 업그레이드
           // ★ 3번 setValue → 1번 setValues로 최적화
           ph.getRange(i + 2, 4, 1, 3).setValues([[price, (savedAt || ''), (source || '')]]);
+          _touchSnapshotIntegritySourceRevision();
           SpreadsheetApp.flush();
           return;
         }
       }
     }
     ph.getRange(ph.getLastRow() + 1, 1, 1, 6).setValues([[dateStr, String(cleanedCode), cleanedName, price, (savedAt || ''), (source || '')]]);
+    _touchSnapshotIntegritySourceRevision();
     SpreadsheetApp.flush();
   } catch(err) {
     Logger.log('❌ upsertPriceHistory 실패: ' + err.message);
@@ -6883,6 +6915,7 @@ function handleSyncTrades(dataJson) {
       });
       sh.getRange(2, 1, rows.length, 11).setValues(_normalizeCodeRows(rows, 4));
     }
+    _touchSnapshotIntegritySourceRevision();
     SpreadsheetApp.flush();
     var currentRows = trades.map(function(t) { return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'', t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'', t.ratio || '', t.fractionalCash || '']; });
     var affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
@@ -8405,6 +8438,7 @@ function _mergeSnapshotRowsSafely(existing, incoming, overwrite, manualKeys) {
 var _snapshotBackupOperationId = '';
 function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   sourceName = String(sourceName || sheet.getName());
+  if (_isSnapshotIntegritySourceSheet(sourceName)) _touchSnapshotIntegritySourceRevision();
   var props = PropertiesService.getScriptProperties();
   var signature = _sheetContentSignature(sheet);
   var signatureKey = 'sheet_backup_signature|' + sourceName;
@@ -9014,7 +9048,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.139' });
+    return jsonOk({ settings: settings, gasVersion: '9.140' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9036,7 +9070,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.139'
+      gasVersion: '9.140'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -9273,7 +9307,10 @@ function handleSyncCodes(codesParam) {
       cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 6).setValues(toAppend);
     }
 
-    if (synced > 0 || updated > 0) SpreadsheetApp.flush();
+    if (synced > 0 || updated > 0) {
+      _touchSnapshotIntegritySourceRevision();
+      SpreadsheetApp.flush();
+    }
     var codeRepair = _repairKnownCodeColumns(ss);
     return jsonOk({ synced: synced, updated: updated, total: Object.keys(existingByCode).length, codeRepair: codeRepair });
   } catch(err) {

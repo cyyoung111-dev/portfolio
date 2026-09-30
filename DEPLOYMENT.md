@@ -750,3 +750,8 @@ GAS 메뉴 및 시트 구성:
 - 손익 그래프는 `SOURCE_INCOMPLETE`·`UNCHECKED`를 저장 Snapshot 오류로 간주하지 않으며, Snapshot 서명이 같은 날짜의 진단 결과는 브라우저 세션에서 재사용합니다.
 - 펀드 좌수 초기 조회는 Snapshot 전체를 읽지 않고 완료 날짜 목록 대신 건수만 반환합니다. `performance`에서 조회 단계와 PRICE_HISTORY/SNAPSHOT 읽기 행 수를 확인할 수 있습니다.
 - 운영 반영에는 GAS v9.139와 정적 웹을 함께 재배포해야 합니다.
+
+## GAS v9.140 Snapshot 정합성 cache 원자료 revision (2026-09-30)
+
+- 거래이력·가격이력·펀드 NAV·펀드 좌수·환율·종목코드가 변경되면 정합성 원자료 revision을 갱신하며, 웹은 revision이 일치하는 진단 결과만 재사용합니다.
+- 운영 반영에는 GAS v9.140과 정적 웹을 함께 재배포해야 합니다.

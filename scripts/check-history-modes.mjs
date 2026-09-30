@@ -15,6 +15,12 @@ const context = {
   fmtDateDot: value => String(value || ''),
   _kstTodayStr: () => '2026-09-04',
 };
+const signatureSource = pipelineSource.match(/function _historySnapshotSignature[\s\S]*?\n}/)?.[0] || '';
+const signatureContext = {};
+vm.runInNewContext(`${signatureSource}\nglobalThis.signature = _historySnapshotSignature;`, signatureContext);
+const signatureSnapshot = { date: '2026-09-30', costAmt: 100, evalAmt: 120, pnl: 20 };
+assert.equal(signatureContext.signature(signatureSnapshot, 'rev-1'), signatureContext.signature(signatureSnapshot, 'rev-1'), '원자료 revision이 같으면 cache signature를 재사용해야 합니다.');
+assert.notEqual(signatureContext.signature(signatureSnapshot, 'rev-1'), signatureContext.signature(signatureSnapshot, 'rev-2'), '원자료 revision이 바뀌면 Snapshot 합계가 같아도 cache를 무효화해야 합니다.');
 vm.runInNewContext(`${source}\n` +
   'globalThis.selectSnapshots = _selectHistorySnapshots; globalThis.analyzeCoverage = _analyzeHistoryCoverage;', context);
 
@@ -85,6 +91,7 @@ assert.doesNotMatch(viewSource, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*SOURCE
 assert.match(pipelineSource, /const summary = Object\.entries\(counts\)/, '정합성 경고는 상태별 건수로 요약해야 합니다.');
 assert.doesNotMatch(pipelineSource, /invalid\.map\(item => labels\[item\.status\]/, '동일 경고 문자열을 날짜 수만큼 생성하면 안 됩니다.');
 assert.match(pipelineSource, /_historySnapshotSignature[\s\S]*datesToDiagnose/, 'Snapshot 서명이 같은 날짜는 증분 진단 캐시를 재사용해야 합니다.');
+assert.match(pipelineSource, /integritySourceRevision === String\(integrity\.integritySourceRevision/, '진단 중 원자료 revision이 바뀐 응답은 cache에 저장하면 안 됩니다.');
 
 assert.match(pipelineSource, /선택 기간의 스냅샷 누락이 없습니다/, '누락 없음 안내를 표시해야 합니다.');
 assert.match(pipelineSource, /mode === 'day' \? '일별'/, '일별 누락 안내를 표시해야 합니다.');
