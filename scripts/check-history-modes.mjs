@@ -80,6 +80,11 @@ assert.match(viewSource, /stroke-dasharray/, 'S&P500 점선은 그래프와 범�
 assert.ok(!/SP500:\s*\{[^}]*#22c55e/.test(viewSource), 'S&P500은 나의 손익 녹색을 재사용하면 안 됩니다.');
 assert.match(viewSource, /NASDAQ:\s*\{ color: '#22d3ee'/, 'NASDAQ은 나의 손익 녹색과 구별되는 cyan을 사용해야 합니다.');
 assert.ok(!/NASDAQ:\s*\{[^}]*#(?:22c55e|2dd4bf)/i.test(viewSource), 'NASDAQ은 손익선과 비슷한 green/teal 색상을 재사용하면 안 됩니다.');
+assert.match(viewSource, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/, '확인된 Snapshot 오류 상태만 손익 계산을 차단해야 합니다.');
+assert.doesNotMatch(viewSource, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*SOURCE_INCOMPLETE/, 'SOURCE_INCOMPLETE는 저장 Snapshot 손익을 차단하면 안 됩니다.');
+assert.match(pipelineSource, /const summary = Object\.entries\(counts\)/, '정합성 경고는 상태별 건수로 요약해야 합니다.');
+assert.doesNotMatch(pipelineSource, /invalid\.map\(item => labels\[item\.status\]/, '동일 경고 문자열을 날짜 수만큼 생성하면 안 됩니다.');
+assert.match(pipelineSource, /_historySnapshotSignature[\s\S]*datesToDiagnose/, 'Snapshot 서명이 같은 날짜는 증분 진단 캐시를 재사용해야 합니다.');
 
 assert.match(pipelineSource, /선택 기간의 스냅샷 누락이 없습니다/, '누락 없음 안내를 표시해야 합니다.');
 assert.match(pipelineSource, /mode === 'day' \? '일별'/, '일별 누락 안내를 표시해야 합니다.');

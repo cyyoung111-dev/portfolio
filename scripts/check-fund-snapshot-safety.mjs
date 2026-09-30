@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const source = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
+const editorSource = fs.readFileSync('src/web/features/management/mgmt_editor.js', 'utf8');
+assert.doesNotMatch(source.match(/function _getFundNavStatus[\s\S]*?\n}/)?.[0] || '', /_fundDerivedState/, '좌수 화면 초기 현황에서 Snapshot 전체 파생 상태를 계산하면 안 됩니다.');
+assert.doesNotMatch(editorSource.match(/function _renderFundNavStatus[\s\S]*?\n}/)?.[0] || '', /completedDates/, '좌수 화면 초기 DOM에 전체 완료 날짜를 생성하면 안 됩니다.');
+assert.match(source.match(/function handleGetFundUnits[\s\S]*?\n}/)?.[0] || '', /performance:[\s\S]*navStatusMs:[\s\S]*priceHistoryRows:[\s\S]*snapshotRows:/, '좌수 초기 조회 성능과 읽은 행 수를 응답해야 합니다.');
 assert.match(source,/SYSTEM_BACKUP_KEEP_BY_SOURCE = \{ '스냅샷': 1, '거래이력': 1, '가격이력': 1, '펀드기준가격': 1, '펀드좌수': 1, '종목코드': 1 \}/,'운영 원본별 백업 보존 정책');
 assert.match(source,/var deletable = candidates\.slice\(keep\)/,'COMPLETED 보존 초과 백업을 자동 정리');
 assert.match(source,/item\.status === 'WRITE_FAILED'.*newestCompletedAt/,'최신 성공본이 있을 때만 오래된 실패 백업 해제');

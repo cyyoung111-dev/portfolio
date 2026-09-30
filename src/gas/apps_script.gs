@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.138
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.139
+//
+//  v9.139 변경사항 (2026.09.30):
+//   손익 정합성 상태 분리·증분 검증 캐시 및 펀드 좌수 초기 조회 경량화
 //
 //  v9.138 변경사항 (2026.09.29):
 //   브리핑용 삼성전자·SK하이닉스 exact-date KRX 공식 종가 read-only 조회
@@ -4004,10 +4007,15 @@ function _getFundCodeCatalog(ss, configs) {
 
 function handleGetFundUnits() {
   try {
+    var totalStarted = Date.now(), readStarted = Date.now();
     var ss = getss();
     var configs = _readFundUnits(ss);
-    return jsonOk({ configs: configs, funds: _getFundCodeCatalog(ss, configs), providers: FUND_PROVIDERS,
-      navStatus: _getFundNavStatus(ss, configs), capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.138' } });
+    var funds = _getFundCodeCatalog(ss, configs), readMs = Date.now() - readStarted, navStarted = Date.now();
+    var navResult = _getFundNavStatus(ss, configs), navStatusMs = Date.now() - navStarted;
+    return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
+      navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
+        priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.139' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4290,32 +4298,38 @@ function handleGetFundValuationStatus(from, to, code) {
 function _getFundNavStatus(ss, configs) {
   var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
   var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
-  var derived = _fundDerivedState(ss, configs);
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
+  var temporaryKeys = {};
+  prices.forEach(function(row) {
+    if (String(row[5] || '').toUpperCase() === 'FUND_NAV_CARRY_INPUT_REQUIRED') temporaryKeys[_normalizeDate(row[0]) + '|' + _cleanCode(row[1])] = true;
+  });
   var codes = configs.map(function(config) { return config.code; }).filter(function(code, index, all) { return all.indexOf(code) === index; });
-  return codes.map(function(code) {
+  var statuses = codes.map(function(code) {
     var config = configs.find(function(item) { return item.code === code; });
     var starts = configs.filter(function(item) { return item.code === code; }).map(function(item) { return item.startDate; }).sort();
     var from = starts[0] || '', to = today();
     var navRows = _storedFundNavRows(stored, code, config.provider, from, to);
     var confirmed = {}; navRows.forEach(function(row) { confirmed[row.date] = row.nav; });
-    var missing = [], temporary = [], completed = [], nonPublicationExcluded = 0, zeroUnitsExcluded = 0, noUnits = 0;
+    var missing = [], temporary = [], completedCount = 0, nonPublicationExcluded = 0, zeroUnitsExcluded = 0, noUnits = 0;
     for (var date = from; date && date <= to; date = _fundDateOffset(date, 1)) {
       var datedConfig = _fundUnitsAtDate(configs, code, date);
       if (!datedConfig) { noUnits++; continue; }
       if (datedConfig.units === 0) { zeroUnitsExcluded++; continue; }
-      if (confirmed[date]) { completed.push(date); continue; }
+      if (confirmed[date]) { completedCount++; continue; }
       if (!_fundNavExpectedPublicationDate(date, code)) { nonPublicationExcluded++; continue; }
       if (date < today()) missing.push(date);
-      var price = derived.priceKeys[date + '|' + code];
-      if (price && String(price[5] || '').toUpperCase() === 'FUND_NAV_CARRY_INPUT_REQUIRED') temporary.push(date);
+      if (temporaryKeys[date + '|' + code]) temporary.push(date);
     }
     var latest = navRows.length ? navRows[navRows.length - 1] : null;
     return { code: code, provider: config.provider, from: from, to: to,
       latestNav: latest ? latest.nav : null, latestNavDate: latest ? latest.date : '',
       inputRequiredCount: missing.length, inputRequiredDates: missing,
-      temporaryDates: temporary, completedDates: completed,
+      temporaryDates: temporary, completedCount: completedCount,
       nonPublicationExcluded: nonPublicationExcluded, zeroUnitsExcluded: zeroUnitsExcluded, noUnits: noUnits };
   });
+  statuses.priceHistoryRows = prices.length;
+  return statuses;
 }
 
 function _createFundRecoveryDiagnostic(enabled, from, to, code) {
@@ -9000,7 +9014,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.138' });
+    return jsonOk({ settings: settings, gasVersion: '9.139' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9022,7 +9036,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.138'
+      gasVersion: '9.139'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

@@ -211,13 +211,12 @@ function _renderFundNavStatus() {
     ${_fundNavStatuses.map(item => {
       const missing = item.inputRequiredDates || [];
       const temporary = item.temporaryDates || [];
-      const completed = item.completedDates || [];
+      const completedCount = Number(item.completedCount || 0);
       return `<article><b>${_escapeHtml(item.code)}</b> · 최신 확정 NAV ${item.latestNav == null ? '없음' : Number(item.latestNav).toLocaleString()} · 기준일 ${_escapeHtml(item.latestNavDate || '없음')}
-        <div>대상 ${_escapeHtml(item.from || '없음')} ~ ${_escapeHtml(item.to || '없음')} · 입력 필요 ${missing.length}건 · 임시 평가 ${temporary.length}건 · 정상 입력 ${completed.length}건</div>
+        <div>대상 ${_escapeHtml(item.from || '없음')} ~ ${_escapeHtml(item.to || '없음')} · 입력 필요 ${Number(item.inputRequiredCount ?? missing.length)}건 · 임시 평가 ${temporary.length}건 · 정상 입력 ${completedCount}건</div>
         <div>비공시일·휴장일 제외 ${Number(item.nonPublicationExcluded || 0)}건 · 0좌 제외 ${Number(item.zeroUnitsExcluded || 0)}건 · 좌수 없음 ${Number(item.noUnits || 0)}건</div>
         ${missing.length ? `<details open><summary>NAV 입력 필요 날짜 전체</summary><div class="fund-nav-missing-dates">${missing.map(date => `<button type="button" class="btn-ghost-sm" data-fund-action="nav-date" data-fund-code="${_escapeHtml(item.code)}" data-fund-date="${_escapeHtml(date)}">${_escapeHtml(date)}</button>`).join('')}</div></details>` : '<p>✅ 입력이 필요한 공시일이 없습니다.</p>'}
         ${temporary.length ? `<details><summary>직전 NAV 임시 평가 날짜 ${temporary.length}건</summary><div>${temporary.map(_escapeHtml).join(', ')}</div></details>` : ''}
-        ${completed.length ? `<details><summary>정상 입력 완료 날짜 ${completed.length}건</summary><div>${completed.map(_escapeHtml).join(', ')}</div></details>` : ''}
       </article>`;
     }).join('')}</section>`;
 }
@@ -356,6 +355,7 @@ async function _loadFundUnitsEditor() {
     _fundUnitConfigs = result.configs || [];
     _fundUnitItems = result.funds;
     _fundNavStatuses = result.navStatus || [];
+    if (result.performance) console.info('Fund units performance', result.performance);
     buildEditorUI();
   } catch (error) { _fundUnitsStatus = error.message; buildEditorUI(); }
 }
