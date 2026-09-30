@@ -47,7 +47,7 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
   const request = suppliedRequest || createRequest(url, token);
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
   const sync = await runtime.syncServerMaster(request, request, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10), scheduledToleranceSeconds:300, receivedAt });
-  if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null };
+  if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null, successful:runtime.hasNightFinal(tradingDate) };
   const decision = runtime.readiness(tradingDate, checkpoint);
   if (!decision.publishable) return { checkpoint, tradingDate, sync, decision, persistence:null };
   const released = await runtime.releaseAndPersist(request, tradingDate, checkpoint, gate.seriesForCheckpoint(checkpoint));
@@ -57,7 +57,10 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   const args = parseArgs(process.argv.slice(2));
   const result = await runHeadless({ ...args, url:process.env.GAS_WEB_APP_URL || '', token:process.env.GAS_ACCESS_TOKEN || '' });
-  console.log(JSON.stringify({ checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.decision?.status || 'COLLECTED', published:!!result.persistence, providerErrors:Object.keys(result.sync?.errors || {}) }));
+  const successful = result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true;
+  const diagnostic = { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence, missing:result.decision?.data?.missing || result.sync?.missing || [], issues:result.decision?.data?.issues || [], providerErrors:Object.keys(result.sync?.errors || {}) };
+  console.log(JSON.stringify(diagnostic));
+  if (!successful) process.exitCode = 1;
 }
 
 export { createRequest, parseArgs };

@@ -5,7 +5,29 @@ function storage(){if(!global.localStorage)throw new Error('localStorage unavail
 function ingestBenchmarks(payload,meta={}){const d=deps();return d.store.ingestProviderPayload(storage(),d.master,d.normalizer,payload,meta);}
 function mergeServerSnapshots(rows){const d=deps();return d.store.mergeSnapshots(storage(),d.snapshots,rows);}
 function mergeServerObservations(rows){const d=deps();return d.store.mergeObservations(storage(),d.master,rows);}
-async function syncServerMaster(getRequest,postRequest,tradingDate,options={}){if(typeof getRequest!=='function'||typeof postRequest!=='function')throw new Error('market briefing GAS request functions missing');const from=options.from||tradingDate;const server=await getRequest('getMarketBriefingMaster',{from,to:tradingDate},{timeoutMs:options.timeoutMs||45000,retry:0});mergeServerObservations(server&&server.observations);let snapshotSync={status:'ok',loaded:0,invalid:0};try{const snap=await getRequest('getMarketBriefingSnapshots',{from,to:tradingDate},{timeoutMs:options.timeoutMs||45000,retry:0});if(!snap||snap.status!=='ok')throw new Error(String(snap&&snap.message||'MARKET_SNAPSHOTS 조회 실패'));const rows=Array.isArray(snap.snapshots)?snap.snapshots:[];mergeServerSnapshots(rows);snapshotSync={status:'ok',loaded:rows.length,invalid:Number(snap.invalid)||0};}catch(error){snapshotSync={status:'error',loaded:0,invalid:0,message:String(error&&error.message||error)};}const result=await collectExistingProvider(getRequest,tradingDate,options);if(result.rows&&result.rows.length)await postRequest('appendMarketBriefingObservations',{data:JSON.stringify(result.rows)},{timeoutMs:options.timeoutMs||45000,retry:0});return {...result,snapshotSync};}
+function observationKey(row){return [row&&row.seriesId,row&&row.tradingDate,row&&row.session,row&&row.observedAt,row&&row.receivedAt].map(value=>String(value??'')).join('|');}
+function assertObservationPersistence(response,count){
+ if(!response||response.status!=='ok')throw new Error(String(response&&response.message||'MARKET_MASTER 저장 실패'));
+ const saved=Number(response.saved),duplicates=Number(response.duplicates),rejected=Number(response.rejected);
+ if(!Number.isFinite(saved)||!Number.isFinite(duplicates)||!Number.isFinite(rejected)||rejected!==0||saved+duplicates!==count)throw new Error(`MARKET_MASTER 부분 저장 실패: expected=${count} saved=${saved} duplicates=${duplicates} rejected=${rejected}`);
+ return response;
+}
+async function syncServerMaster(getRequest,postRequest,tradingDate,options={}){
+ if(typeof getRequest!=='function'||typeof postRequest!=='function')throw new Error('market briefing GAS request functions missing');
+ const d=deps(),from=options.from||tradingDate;
+ const server=await getRequest('getMarketBriefingMaster',{from,to:tradingDate},{timeoutMs:options.timeoutMs||45000,retry:0});
+ mergeServerObservations(server&&server.observations);
+ let snapshotSync={status:'ok',loaded:0,invalid:0};
+ try{const snap=await getRequest('getMarketBriefingSnapshots',{from,to:tradingDate},{timeoutMs:options.timeoutMs||45000,retry:0});if(!snap||snap.status!=='ok')throw new Error(String(snap&&snap.message||'MARKET_SNAPSHOTS 조회 실패'));const rows=Array.isArray(snap.snapshots)?snap.snapshots:[];mergeServerSnapshots(rows);snapshotSync={status:'ok',loaded:rows.length,invalid:Number(snap.invalid)||0};}catch(error){snapshotSync={status:'error',loaded:0,invalid:0,message:String(error&&error.message||error)};}
+ const hydrated=d.store.load(storage()),known=new Set(hydrated.observations.map(observationKey));
+ try{
+  const result=await collectExistingProvider(getRequest,tradingDate,options);
+  const state=d.store.load(storage()),rows=state.observations.filter(row=>!known.has(observationKey(row)));
+  let persistence=null;
+  if(rows.length){persistence=await postRequest('appendMarketBriefingObservations',{data:JSON.stringify(rows)},{timeoutMs:options.timeoutMs||45000,retry:0});assertObservationPersistence(persistence,rows.length);}
+  return {...result,rows,persistence,snapshotSync};
+ }catch(error){d.store.save(storage(),hydrated);throw error;}
+}
 async function collectExistingProvider(request,tradingDate,options={}){const collector=global.MarketBriefingProviderCollector;if(!collector)throw new Error('MarketBriefingProviderCollector unavailable');return collector.collectAndIngest(api,request,tradingDate,options);}
 async function ingestKisNightFrame(postRequest,rawFrame,registry,meta={}){
  const wire=global.MarketBriefingKisWire,ingest=global.MarketBriefingKisIngest,adapters=global.MarketBriefingAdapters;
@@ -14,7 +36,7 @@ async function ingestKisNightFrame(postRequest,rawFrame,registry,meta={}){
  if(result.status!=='VALID')return {...result,persistence:null};
  if(typeof postRequest!=='function')throw new Error('market briefing GAS POST function missing');
  const persistence=await postRequest('appendMarketBriefingObservations',{data:JSON.stringify([result.observation])},{timeoutMs:meta.timeoutMs||45000,retry:0});
- if(!persistence||persistence.status!=='ok')throw new Error(String(persistence&&persistence.message||'MARKET_MASTER 저장 실패'));
+ assertObservationPersistence(persistence,1);
  const d=deps();d.store.mergeObservations(storage(),d.master,[result.observation]);
  return {...result,persistence};
 }
@@ -22,5 +44,6 @@ async function releaseAndPersist(postRequest,tradingDate,checkpoint,seriesIds,op
 function release(tradingDate,checkpoint,seriesIds,options={}){const d=deps();return d.store.checkpoint(storage(),d.master,d.snapshots,d.gate,tradingDate,checkpoint,seriesIds,options);}
 function continuity(tradingDate){const d=deps();return d.store.bridge(storage(),d.snapshots,tradingDate);}
 function readiness(tradingDate,checkpoint){const d=deps(),state=d.store.load(storage());return d.gate.releaseDecision(d.master,d.snapshots,state.observations,state.snapshots,tradingDate,checkpoint);}
-const api={ingestBenchmarks,mergeServerObservations,mergeServerSnapshots,syncServerMaster,collectExistingProvider,ingestKisNightFrame,release,releaseAndPersist,continuity,readiness};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.MarketBriefingRuntime=api;
+function hasNightFinal(tradingDate){const d=deps(),state=d.store.load(storage()),row=d.master.selectAt(state.observations,'K200_NIGHT',d.master.checkpointAt(tradingDate,'NIGHT_FINAL'),tradingDate,'NIGHT_FINAL');return !!row&&row.tradingDate===tradingDate&&row.session==='NIGHT'&&row.status==='FINAL'&&row.finality==='NIGHT_FINAL';}
+const api={ingestBenchmarks,mergeServerObservations,mergeServerSnapshots,syncServerMaster,collectExistingProvider,ingestKisNightFrame,release,releaseAndPersist,continuity,readiness,hasNightFinal};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.MarketBriefingRuntime=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
