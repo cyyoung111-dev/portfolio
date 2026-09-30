@@ -49,6 +49,6 @@ async function releaseAndPersist(postRequest,tradingDate,checkpoint,seriesIds,op
 function release(tradingDate,checkpoint,seriesIds,options={}){const d=deps();return d.store.checkpoint(storage(),d.master,d.snapshots,d.gate,tradingDate,checkpoint,seriesIds,options);}
 function continuity(tradingDate){const d=deps();return d.store.bridge(storage(),d.snapshots,tradingDate);}
 function readiness(tradingDate,checkpoint){const d=deps(),state=d.store.load(storage());return d.gate.releaseDecision(d.master,d.snapshots,state.observations,state.snapshots,tradingDate,checkpoint);}
-function hasNightFinal(tradingDate){const d=deps(),state=d.store.load(storage()),row=d.master.selectAt(state.observations,'K200_NIGHT',d.master.checkpointAt(tradingDate,'NIGHT_FINAL'),tradingDate,'NIGHT_FINAL');return !!row&&row.tradingDate===tradingDate&&row.session==='NIGHT'&&row.status==='FINAL'&&row.finality==='NIGHT_FINAL';}
+function hasNightFinal(tradingDate){const d=deps(),state=d.store.load(storage());return state.observations.some(row=>row.seriesId==='K200_NIGHT'&&row.tradingDate===tradingDate&&row.session==='NIGHT'&&row.status==='FINAL'&&row.finality==='NIGHT_FINAL');}
 const api={ingestBenchmarks,mergeServerObservations,mergeServerSnapshots,syncServerMaster,collectExistingProvider,ingestKisNightFrame,release,releaseAndPersist,continuity,readiness,hasNightFinal};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.MarketBriefingRuntime=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
