@@ -2,7 +2,7 @@
 'use strict';
 function deps(){const d={master:global.MarketBriefingMaster,normalizer:global.MarketBriefingProviderNormalizer,snapshots:global.MarketBriefingSnapshotStore,gate:global.MarketBriefingOperationalGate,store:global.MarketBriefingRuntimeStore};for(const [k,v] of Object.entries(d))if(!v)throw new Error(`market briefing dependency missing: ${k}`);return d;}
 function storage(){if(!global.localStorage)throw new Error('localStorage unavailable');return global.localStorage;}
-function ingestBenchmarks(payload,meta={}){const d=deps();return d.store.ingestProviderPayload(storage(),d.master,d.normalizer,payload,meta);}
+function ingestBenchmarks(payload,meta={},options={}){const d=deps();const result=d.store.ingestProviderPayloadResult(storage(),d.master,d.normalizer,payload,meta);return options.returnResult?result:result.state;}
 function mergeServerSnapshots(rows){const d=deps();return d.store.mergeSnapshots(storage(),d.snapshots,rows);}
 function mergeServerObservations(rows){const d=deps();return d.store.mergeObservations(storage(),d.master,rows);}
 function observationKey(row){return [row&&row.seriesId,row&&row.tradingDate,row&&row.session,row&&row.observedAt,row&&row.receivedAt].map(value=>String(value??'')).join('|');}
@@ -14,15 +14,20 @@ function assertObservationPersistence(response,count){
 }
 async function syncServerMaster(getRequest,postRequest,tradingDate,options={}){
  if(typeof getRequest!=='function'||typeof postRequest!=='function')throw new Error('market briefing GAS request functions missing');
- const d=deps(),from=options.from||tradingDate;
+ const d=deps(),from=options.from||tradingDate,preSync=d.store.load(storage());
  const server=await getRequest('getMarketBriefingMaster',{from,to:tradingDate},{timeoutMs:options.timeoutMs||45000,retry:0});
- mergeServerObservations(server&&server.observations);
+ const serverObservations=Array.isArray(server&&server.observations)?server.observations:[],serverKeys=new Set(serverObservations.map(row=>observationKey(d.master.normalizeObservation(row))));
+ const inSyncRange=row=>String(row&&row.tradingDate||'')>=from&&String(row&&row.tradingDate||'')<=tradingDate;
+ const pendingKeys=new Set(preSync.observations.filter(row=>inSyncRange(row)&&!serverKeys.has(observationKey(row))).map(observationKey));
+ mergeServerObservations(serverObservations);
  let snapshotSync={status:'ok',loaded:0,invalid:0};
  try{const snap=await getRequest('getMarketBriefingSnapshots',{from,to:tradingDate},{timeoutMs:options.timeoutMs||45000,retry:0});if(!snap||snap.status!=='ok')throw new Error(String(snap&&snap.message||'MARKET_SNAPSHOTS 조회 실패'));const rows=Array.isArray(snap.snapshots)?snap.snapshots:[];mergeServerSnapshots(rows);snapshotSync={status:'ok',loaded:rows.length,invalid:Number(snap.invalid)||0};}catch(error){snapshotSync={status:'error',loaded:0,invalid:0,message:String(error&&error.message||error)};}
- const hydrated=d.store.load(storage()),known=new Set(hydrated.observations.map(observationKey));
+ const hydrated=d.store.load(storage());
  try{
   const result=await collectExistingProvider(getRequest,tradingDate,options);
-  const state=d.store.load(storage()),rows=state.observations.filter(row=>!known.has(observationKey(row)));
+  const collectedKeys=new Set((result.observations||[]).filter(inSyncRange).map(observationKey)),postKeys=new Set([...pendingKeys,...collectedKeys]);
+  for(const key of serverKeys)postKeys.delete(key);
+  const state=d.store.load(storage()),rows=state.observations.filter(row=>inSyncRange(row)&&postKeys.has(observationKey(row)));
   let persistence=null;
   if(rows.length){persistence=await postRequest('appendMarketBriefingObservations',{data:JSON.stringify(rows)},{timeoutMs:options.timeoutMs||45000,retry:0});assertObservationPersistence(persistence,rows.length);}
   return {...result,rows,persistence,snapshotSync};

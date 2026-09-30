@@ -73,6 +73,6 @@ async function collect(request,tradingDate,options={}){
  }
  return {payload,missing:[...new Set(missing)],errors,receivedAt:options.receivedAt||new Date().toISOString(),range:{from,to}};
 }
-async function collectAndIngest(runtime,request,tradingDate,options={}){if(!runtime||typeof runtime.ingestBenchmarks!=='function')throw new Error('MarketBriefingRuntime unavailable');const result=await collect(request,tradingDate,options);const rows=runtime.ingestBenchmarks(result.payload,{tradingDate,receivedAt:result.receivedAt});return {...result,rows};}
+async function collectAndIngest(runtime,request,tradingDate,options={}){if(!runtime||typeof runtime.ingestBenchmarks!=='function')throw new Error('MarketBriefingRuntime unavailable');const result=await collect(request,tradingDate,options);const ingested=runtime.ingestBenchmarks(result.payload,{tradingDate,receivedAt:result.receivedAt},{returnResult:true});return {...result,observations:ingested.observations,state:ingested.state};}
 const api={REQUEST_TYPES,KEY_MAP,STOCKS,KRX_FINAL_CHECKPOINTS,STOCK_OFFICIAL_CHECKPOINTS,latest,sourceFor,lookback,normalizeBenchmarkPoint,normalizeFxPoint,trustedStockClose,regularCloseObservedAt,normalizeStockPoint,collect,collectAndIngest};if(typeof module!=='undefined'&&module.exports)module.exports=api;global.MarketBriefingProviderCollector=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

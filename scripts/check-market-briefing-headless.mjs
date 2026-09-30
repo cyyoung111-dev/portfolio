@@ -76,21 +76,37 @@ const persistenceRequest=async(action,params={})=>{
  if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
  if(action==='getPrices')return {status:'ok',prices:{}};
  if(action==='getPriceHistory')return {status:'ok',prices:{}};
- if(action==='appendMarketBriefingObservations'){postedRows=JSON.parse(params.data);return {status:'ok',saved:3,duplicates:2,rejected:0};}
+ if(action==='appendMarketBriefingObservations'){postedRows=JSON.parse(params.data);return {status:'ok',saved:postedRows.length-2,duplicates:2,rejected:0};}
  throw new Error(`unexpected ${action}`);
 };
 globalThis.localStorage.clear();
-await globalThis.MarketBriefingRuntime.syncServerMaster(persistenceRequest,persistenceRequest,date,{checkpoint:'EVENING'});
+const collected=await globalThis.MarketBriefingRuntime.collectExistingProvider(persistenceRequest,date,{checkpoint:'EVENING',from:prior});
+assert.ok(Array.isArray(collected.observations),'collectAndIngest observations는 배열');
+assert.equal(collected.state.version,1,'collectAndIngest state는 전체 runtime state');
+assert.equal('rows' in collected,false,'state 객체를 rows로 노출하지 않음');
+globalThis.localStorage.clear();
+await globalThis.MarketBriefingRuntime.syncServerMaster(persistenceRequest,persistenceRequest,date,{checkpoint:'EVENING',from:prior});
 assert.equal(postedRows.length,5,'hydrate 100건은 제외하고 신규 5건만 POST');
 assert.equal(JSON.parse(globalThis.localStorage.getItem('portfolio.marketBriefing.v1')).observations.length,105,'duplicates 포함 정상 POST는 성공');
-const partialReject=async(action,params)=>action==='appendMarketBriefingObservations'?{status:'ok',saved:4,duplicates:0,rejected:1}:persistenceRequest(action,params);
-globalThis.localStorage.clear();
-await assert.rejects(()=>globalThis.MarketBriefingRuntime.syncServerMaster(partialReject,partialReject,date,{checkpoint:'EVENING'}),/부분 저장 실패/);
-assert.equal(JSON.parse(globalThis.localStorage.getItem('portfolio.marketBriefing.v1')).observations.length,100,'부분 reject 시 hydrated local state로 rollback');
+const pending=globalThis.MarketBriefingMaster.normalizeObservation({seriesId:'PENDING',tradingDate:date,value:7,market:'TEST',session:'REGULAR',source:'LOCAL',status:'PARTIAL',observedAt:`${date}T10:00:00+09:00`,receivedAt:`${date}T10:00:01+09:00`});
+const outside=globalThis.MarketBriefingMaster.normalizeObservation({seriesId:'OUTSIDE',tradingDate:'2026-09-01',value:8,market:'TEST',session:'REGULAR',source:'LOCAL',status:'FINAL',finality:'REGULAR_CLOSE',observedAt:'2026-09-01T10:00:00+09:00',receivedAt:'2026-09-01T10:00:01+09:00'});
+const seedPending=()=>globalThis.MarketBriefingRuntimeStore.save(globalThis.localStorage,{version:1,observations:[pending,outside],snapshots:[]});
+const partialReject=async(action,params)=>action==='appendMarketBriefingObservations'?{status:'ok',saved:5,duplicates:0,rejected:1}:persistenceRequest(action,params);
+globalThis.localStorage.clear();seedPending();
+await assert.rejects(()=>globalThis.MarketBriefingRuntime.syncServerMaster(partialReject,partialReject,date,{checkpoint:'EVENING',from:prior}),/부분 저장 실패/);
+let rolledBack=JSON.parse(globalThis.localStorage.getItem('portfolio.marketBriefing.v1')).observations;
+assert.equal(rolledBack.length,102,'부분 reject 시 신규 5건만 rollback');
+assert.ok(rolledBack.some(row=>row.seriesId==='PENDING'),'기존 pending observation 보존');
+await globalThis.MarketBriefingRuntime.syncServerMaster(persistenceRequest,persistenceRequest,date,{checkpoint:'EVENING',from:prior});
+assert.equal(postedRows.length,6,'서버 100건 + pending 1건 + 신규 5건은 6건 POST');
+assert.ok(postedRows.some(row=>row.seriesId==='PENDING'),'다음 정상 sync에서 pending 재시도');
+assert.ok(!postedRows.some(row=>row.seriesId==='OUTSIDE'),'sync 범위 밖 local observation은 POST 제외');
 const postFailure=async(action,params)=>action==='appendMarketBriefingObservations'?Promise.reject(new Error('POST_DOWN')):persistenceRequest(action,params);
-globalThis.localStorage.clear();
-await assert.rejects(()=>globalThis.MarketBriefingRuntime.syncServerMaster(postFailure,postFailure,date,{checkpoint:'EVENING'}),/POST_DOWN/);
-assert.equal(JSON.parse(globalThis.localStorage.getItem('portfolio.marketBriefing.v1')).observations.length,100,'POST 실패 시 hydrate 100건 상태 유지');
+globalThis.localStorage.clear();seedPending();
+await assert.rejects(()=>globalThis.MarketBriefingRuntime.syncServerMaster(postFailure,postFailure,date,{checkpoint:'EVENING',from:prior}),/POST_DOWN/);
+rolledBack=JSON.parse(globalThis.localStorage.getItem('portfolio.marketBriefing.v1')).observations;
+assert.equal(rolledBack.length,102,'POST 실패 시 신규 5건 rollback 및 hydrate 상태 유지');
+assert.ok(rolledBack.some(row=>row.seriesId==='PENDING'),'POST 실패 후 pending 보존');
 
 // cold-start에서도 서버의 NIGHT_FINAL을 우선 보존하여 공급자 재조회 실패를 견딘다.
 const storedNight={seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:351,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${date}T06:00:00+09:00`,receivedAt:`${date}T06:01:00+09:00`};
