@@ -15,6 +15,69 @@ const context = {
   fmtDateDot: value => String(value || ''),
   _kstTodayStr: () => '2026-09-04',
 };
+const signatureSource = pipelineSource.match(/function _historySnapshotSignature[\s\S]*?\n}/)?.[0] || '';
+const signatureContext = {};
+const cachedSource = pipelineSource.match(/function _cachedHistoryDiagnostics[\s\S]*?\n}/)?.[0] || '';
+const revisionDecisionSource = pipelineSource.match(/function _historyIntegrityRevisionDecision[\s\S]*?\n}/)?.[0] || '';
+vm.runInNewContext(`${signatureSource}\n${cachedSource}\n${revisionDecisionSource}\nglobalThis.signature = _historySnapshotSignature;globalThis.cached = _cachedHistoryDiagnostics;globalThis.revisionDecision = _historyIntegrityRevisionDecision;`, signatureContext);
+assert.equal(signatureContext.revisionDecision('A','A',0),'apply','동일 revision 진단은 적용');
+assert.equal(signatureContext.revisionDecision('A','B',0),'retry','첫 revision mismatch는 최신 history 재조회');
+assert.equal(signatureContext.revisionDecision('A','B',1),'discard','재시도 mismatch는 폐기해 무한 retry 방지');
+const signatureSnapshot = { date: '2026-09-30', costAmt: 100, evalAmt: 120, pnl: 20 };
+assert.equal(signatureContext.signature(signatureSnapshot, 'date-rev-1'), signatureContext.signature(signatureSnapshot, 'date-rev-1'), '날짜 revision이 같으면 cache signature를 재사용해야 합니다.');
+assert.notEqual(signatureContext.signature(signatureSnapshot, 'date-rev-1'), signatureContext.signature(signatureSnapshot, 'date-rev-2'), '영향받은 날짜 revision이 바뀌면 Snapshot 합계가 같아도 cache를 무효화해야 합니다.');
+assert.match(pipelineSource, /integrityDateRevisions\[snapshot\.date\]/, '전역 revision 대신 날짜별 revision으로 cache key를 구성해야 합니다.');
+const cacheSnapshots=[{date:'2026-09-27',costAmt:100,evalAmt:120,pnl:20},{date:'2026-09-28',costAmt:100,evalAmt:90,pnl:-10}];
+const cacheRevisions={'2026-09-27':'7','2026-09-28':'8'};
+const cacheFixture={};
+const migratedRevision=String(1760000000000);
+const migratedCache={};
+migratedCache[signatureContext.signature(cacheSnapshots[0],migratedRevision)]={date:'2026-09-27',status:'VALID'};
+assert.equal(signatureContext.cached([cacheSnapshots[0]],{'2026-09-27':migratedRevision},migratedCache)[0].status,'VALID','정수 migration revision은 웹 cache lookup에 사용 가능');
+cacheFixture[signatureContext.signature(cacheSnapshots[0],'7')]={date:'2026-09-27',status:'MISMATCH'};
+cacheFixture[signatureContext.signature(cacheSnapshots[1],'8')]={date:'2026-09-28',status:'PRICE_SUSPICIOUS'};
+assert.deepEqual(Array.from(signatureContext.cached(cacheSnapshots,cacheRevisions,cacheFixture),item=>item.status),['MISMATCH','PRICE_SUSPICIOUS'],'cached blocking 상태를 최초 렌더 전에 복원');
+assert.equal(signatureContext.cached(cacheSnapshots,{...cacheRevisions,'2026-09-27':'changed'},cacheFixture).some(item=>item.date==='2026-09-27'),false,'revision mismatch cache는 무시');
+assert.equal(signatureContext.cached(cacheSnapshots,{},cacheFixture).length,0,'누락된 revision state는 legacy cache보다 재진단을 우선');
+cacheFixture[signatureContext.signature(cacheSnapshots[1],'8')]={date:'2026-09-28',status:'VALID'};
+assert.equal(signatureContext.cached(cacheSnapshots,cacheRevisions,cacheFixture).find(item=>item.date==='2026-09-28').status,'VALID','cached VALID은 정상 사용');
+assert(pipelineSource.indexOf('_cachedHistoryDiagnostics(snapshots') < pipelineSource.indexOf('_drawHistoryChart(chartWrap, initialSnapshots'),'cache merge가 최초 그래프 렌더보다 먼저 실행되어야 함');
+assert(pipelineSource.indexOf("revisionDecision === 'discard'") < pipelineSource.indexOf('integrityDiagnostics = integrityDiagnostics.concat'),'revision mismatch 진단은 화면 상태 병합 전에 폐기');
+assert.match(pipelineSource,/revisionDecision === 'retry'\) return await loadHistoryChart\(retryAttempt \+ 1\)/,'revision mismatch 재조회는 1회 bounded retry');
+assert.match(pipelineSource,/error\?\.errorCode === 'REVISION_CHANGED'\) throw error/,'재시도 mismatch를 일반 진단 실패로 흡수하면 안 됨');
+assert.match(pipelineSource,/if \(retryAttempt \|\| e\?\.errorCode === 'REVISION_CHANGED'\) _restoreOrClearDiscardedHistoryView/,'재조회 실패는 공통 정상 화면 복원·폐기 처리를 사용');
+assert.match(pipelineSource,/if \(retryAttempt && _restoreOrClearDiscardedHistoryView[\s\S]*empty_data[\s\S]*if \(retryAttempt && _restoreOrClearDiscardedHistoryView[\s\S]*empty_range/,'재시도 empty_data와 empty_range는 stale 화면 정리 후 종료');
+const discardSource = pipelineSource.match(/function _restoreOrClearDiscardedHistoryView[\s\S]*?\n}/)?.[0] || '';
+const discardContext = vm.createContext({});
+vm.runInContext(`let restored=false;const __histState={loadRequestId:2,snapshots:[1],integrityDiagnostics:[1],rangeDiagnosisFailed:{},missingSnapshotDates:[1]};const _restoreSuccessfulHistoryView=()=>restored;${discardSource};globalThis.runDiscard=(id,restore)=>{restored=restore;const chart={innerHTML:'chart'},table={innerHTML:'table'},coverage={innerHTML:'coverage'};const result=_restoreOrClearDiscardedHistoryView(id,chart,table,coverage);return {result,chart:chart.innerHTML,table:table.innerHTML,coverage:coverage.innerHTML,state:JSON.parse(JSON.stringify(__histState))};};`,discardContext);
+const discarded=discardContext.runDiscard(2,false);
+assert.deepEqual(JSON.parse(JSON.stringify(discarded)),{result:false,chart:'',table:'',coverage:'',state:{loadRequestId:2,snapshots:[],integrityDiagnostics:[],rangeDiagnosisFailed:null,missingSnapshotDates:[]}},'재시도 빈 결과에 정상 화면이 없으면 stale DOM·상태 제거');
+const restoredView=discardContext.runDiscard(2,true);
+assert.deepEqual([restoredView.result,restoredView.chart,restoredView.table,restoredView.coverage],[true,'chart','table','coverage'],'이전 정상 화면 복원 성공 시 현재 DOM을 제거하지 않음');
+const staleRequest=discardContext.runDiscard(1,false);
+assert.deepEqual([staleRequest.result,staleRequest.chart,staleRequest.table,staleRequest.coverage],[null,'chart','table','coverage'],'오래된 requestId는 최신 화면·상태를 변경하지 않음');
+const cacheContext = vm.createContext({ sessionStorage: (() => {
+  const values = new Map([['portfolio.historyIntegrity.v1', JSON.stringify({legacy:{date:'2026-01-01',status:'VALID',expectedRows:Array(100).fill('large')}})]]);
+  return { getItem:key=>values.get(key)||null, setItem:(key,value)=>values.set(key,value), removeItem:key=>values.delete(key), values };
+})() });
+const cacheHelpers = ['_isRepairableHistoryDiagnostic','_historyDiagnosticSummary','_readHistoryIntegrityCache','_writeHistoryIntegrityCache']
+  .map(name => pipelineSource.match(new RegExp(`function ${name}[\\s\\S]*?\\n}`))?.[0] || '').join('\n');
+vm.runInContext(`const HISTORY_INTEGRITY_CACHE_KEY='portfolio.historyIntegrity.v2';const HISTORY_INTEGRITY_LEGACY_CACHE_KEY='portfolio.historyIntegrity.v1';const HISTORY_INTEGRITY_CACHE_MAX_CHARS=120000;${cacheHelpers};globalThis.readCache=_readHistoryIntegrityCache;globalThis.writeCache=_writeHistoryIntegrityCache;globalThis.summary=_historyDiagnosticSummary;globalThis.repairable=_isRepairableHistoryDiagnostic;`,cacheContext);
+const fullDiagnostic={date:'2026-09-30',status:'MISMATCH',expectedRows:[1],storedRows:[2],itemComparisons:[3],priceIntegrity:[4],sourceDataErrors:[],conflictKeys:[]};
+assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.summary(fullDiagnostic))),{date:'2026-09-30',status:'MISMATCH',repairable:true},'full diagnostic은 최소 cache summary로 축약');
+assert.equal(cacheContext.repairable(cacheContext.summary(fullDiagnostic)),true,'cached summary와 full diagnostic의 repairability가 동일');
+assert.equal(cacheContext.writeCache({key:fullDiagnostic}),true,'summary cache 정상 저장');
+const storedCache=cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2');
+assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(storedCache),'대용량 진단 상세는 sessionStorage에 저장 금지');
+assert.equal(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v1'),null,'legacy v1 cache는 read/write 전에 제거');
+cacheContext.sessionStorage.setItem('portfolio.historyIntegrity.v2',JSON.stringify({legacyFull:fullDiagnostic}));
+assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.readCache().legacyFull)),{date:'2026-09-30',status:'MISMATCH',repairable:true},'기존 상세 cache read는 summary로 sanitize');
+assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2')),'sanitize한 기존 cache를 작은 schema로 즉시 재저장');
+const oversized={};for(let i=0;i<900;i++)oversized[`${i}`.padStart(4,'0')+'x'.repeat(180)]={date:`2026-01-${String(i%28+1).padStart(2,'0')}`,status:'VALID'};
+assert.equal(cacheContext.writeCache(oversized),true,'크기 상한 초과 cache도 오래된 entry 제거 후 저장');
+assert(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2').length<=120000,'직렬화 cache는 보수적 내부 상한 유지');
+cacheContext.sessionStorage.setItem=()=>{throw new Error('quota')};
+assert.equal(cacheContext.writeCache({key:fullDiagnostic}),false,'sessionStorage write 실패는 화면 조회를 실패시키지 않음');
 vm.runInNewContext(`${source}\n` +
   'globalThis.selectSnapshots = _selectHistorySnapshots; globalThis.analyzeCoverage = _analyzeHistoryCoverage;', context);
 
@@ -80,6 +143,13 @@ assert.match(viewSource, /stroke-dasharray/, 'S&P500 점선은 그래프와 범�
 assert.ok(!/SP500:\s*\{[^}]*#22c55e/.test(viewSource), 'S&P500은 나의 손익 녹색을 재사용하면 안 됩니다.');
 assert.match(viewSource, /NASDAQ:\s*\{ color: '#22d3ee'/, 'NASDAQ은 나의 손익 녹색과 구별되는 cyan을 사용해야 합니다.');
 assert.ok(!/NASDAQ:\s*\{[^}]*#(?:22c55e|2dd4bf)/i.test(viewSource), 'NASDAQ은 손익선과 비슷한 green/teal 색상을 재사용하면 안 됩니다.');
+assert.match(viewSource, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/, '확인된 Snapshot 오류 상태만 손익 계산을 차단해야 합니다.');
+assert.match(viewSource, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PRICE_SUSPICIOUS/, '가격 원자료 이상 후보는 정상 성과 계산을 차단해야 합니다.');
+assert.doesNotMatch(viewSource, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*SOURCE_INCOMPLETE/, 'SOURCE_INCOMPLETE는 저장 Snapshot 손익을 차단하면 안 됩니다.');
+assert.match(pipelineSource, /const summary = Object\.entries\(counts\)/, '정합성 경고는 상태별 건수로 요약해야 합니다.');
+assert.doesNotMatch(pipelineSource, /invalid\.map\(item => labels\[item\.status\]/, '동일 경고 문자열을 날짜 수만큼 생성하면 안 됩니다.');
+assert.match(pipelineSource, /_historySnapshotSignature[\s\S]*datesToDiagnose/, 'Snapshot 서명이 같은 날짜는 증분 진단 캐시를 재사용해야 합니다.');
+assert.match(pipelineSource, /integritySourceRevision === String\(integrity\.integritySourceRevision/, '진단 중 원자료 revision이 바뀐 응답은 cache에 저장하면 안 됩니다.');
 
 assert.match(pipelineSource, /선택 기간의 스냅샷 누락이 없습니다/, '누락 없음 안내를 표시해야 합니다.');
 assert.match(pipelineSource, /mode === 'day' \? '일별'/, '일별 누락 안내를 표시해야 합니다.');

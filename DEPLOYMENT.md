@@ -744,3 +744,61 @@ GAS 메뉴 및 시트 구성:
 - Toss `INDICATIVE` 현재가는 화면 표시에는 유지하되 가격이력 및 확정 스냅샷 쓰기 대상에서 제외합니다.
 - 백업 Properties 재사용은 레지스트리 원본 관계, 실제 백업 시트 존재 및 내용 서명이 모두 일치할 때만 허용합니다.
 - GAS 코드와 웹 기대 버전이 모두 `9.126`이므로 GAS 웹 앱과 정적 웹을 함께 재배포해야 합니다.
+
+## GAS v9.139 손익 정합성·펀드 좌수 초기 조회 개선 (2026-09-30)
+
+- 손익 그래프는 `SOURCE_INCOMPLETE`·`UNCHECKED`를 저장 Snapshot 오류로 간주하지 않으며, Snapshot 서명이 같은 날짜의 진단 결과는 브라우저 세션에서 재사용합니다.
+- 펀드 좌수 초기 조회는 Snapshot 전체를 읽지 않고 완료 날짜 목록 대신 건수만 반환합니다. `performance`에서 조회 단계와 PRICE_HISTORY/SNAPSHOT 읽기 행 수를 확인할 수 있습니다.
+- 운영 반영에는 GAS v9.139와 정적 웹을 함께 재배포해야 합니다.
+
+## GAS v9.140 Snapshot 정합성 cache 원자료 revision (2026-09-30)
+
+- 거래이력·가격이력·펀드 NAV·펀드 좌수·환율·종목코드가 변경되면 정합성 원자료 revision을 갱신하며, 웹은 revision이 일치하는 진단 결과만 재사용합니다.
+- 운영 반영에는 GAS v9.140과 정적 웹을 함께 재배포해야 합니다.
+
+## GAS v9.141 Snapshot·펀드 복구 후속 보강 (2026-09-30)
+
+- Snapshot 상세행 쓰기와 직접 편집도 정합성 revision을 갱신하고, `PRICE_SUSPICIOUS`를 성과 계산에서 제외합니다.
+- 펀드 좌수 현황은 MANUAL 대표 가격을 우선하며 복구 결과는 건수 우선·상세 lazy 표시로 변경됩니다.
+- 운영 반영에는 GAS v9.141과 정적 웹 cache `portfolio-cache-20260930-3`을 함께 재배포해야 합니다.
+
+## GAS v9.142 날짜·영향범위 정합성 cache invalidation (2026-10-01)
+
+- Snapshot은 해당 날짜, 가격·환율·거래·펀드 NAV·좌수는 carry/보유 상태를 고려해 최초 영향일부터 이후 날짜, 종목 매핑은 전체 범위를 invalidate합니다.
+- 백업 생성과 revision 갱신을 분리하고 실제 원자료 쓰기 성공 후에만 revision을 확정합니다.
+- 운영 반영에는 GAS v9.142와 정적 웹 cache `portfolio-cache-20261001-1`을 함께 재배포해야 합니다.
+
+## GAS v9.143 정합성 revision 장기 운영 안전성 (2026-10-01)
+
+- revision state는 직렬화 7,000자 이내로 compact하고 제거되는 date/range revision을 `all`로 승격해 stale cache를 방지합니다.
+- legacy/malformed property는 전체 재진단 state로 이관하며, 날짜 편집은 old/new 및 다중 범위를 보수적으로 invalidate합니다.
+- legacy 펀드 가격행은 유일한 종목명 매핑일 때만 F코드를 복원합니다.
+- 운영 반영에는 GAS v9.143과 정적 웹 cache `portfolio-cache-20261001-2`를 함께 재배포해야 합니다.
+
+## GAS v9.144 구조 변경·초기 진단 cache 보호 (2026-10-01)
+- tracked source 시트의 행·열 삽입/삭제를 설치형 `onChange` trigger로 감지해 보수적으로 integrity cache를 무효화합니다.
+- 이미 cache된 blocking 진단은 최초 손익 그래프 렌더 전에 반영하고, 좌수 편집기를 새로 열 때 이전 복구 상세·재처리 상태를 초기화합니다.
+- 운영 반영에는 GAS v9.144와 정적 웹 cache `portfolio-cache-20261001-3`을 함께 재배포해야 합니다.
+
+## GAS v9.145 integrity migration revision 정수화 (2026-10-01)
+- 신규·legacy·malformed revision state의 migration revision을 정수로 생성하고, 기존 소수 revision state도 전체 재진단 state로 안전하게 이관합니다.
+- 운영 반영에는 GAS v9.145와 정적 웹 cache `portfolio-cache-20261001-4`를 함께 재배포해야 합니다.
+
+## GAS v9.146 tracked source 구조 변경 보호 (2026-10-01)
+- `REMOVE_GRID`·`OTHER`는 source identity를 사후 판별할 수 없어 전체 invalidate하고, tracked source의 행·열 및 시트 생성은 증분 cache correctness를 직접 보호합니다.
+- integrity change trigger는 현재 spreadsheet 기준으로 중복을 제거하며 자동화 상태 점검에서도 누락을 복구합니다.
+- 운영 반영에는 GAS v9.146과 정적 웹 cache `portfolio-cache-20261001-5`를 함께 재배포해야 합니다.
+
+## GAS v9.147 history 진단 일관성·펀드 대표행 순위 (2026-10-01)
+- 기간 진단 도중 source revision이 바뀌면 stale 진단을 화면과 cache에 합치지 않고 history부터 최대 한 번 재조회합니다.
+- 펀드 가격·Snapshot 대표행은 `MANUAL > FUND_NAV > 일반/carry > FUND_NAV_CARRY_INPUT_REQUIRED` 순위를 공통 적용합니다.
+- 운영 반영에는 GAS v9.147과 정적 웹 cache `portfolio-cache-20261001-6`를 함께 재배포해야 합니다.
+
+## GAS v9.148 history summary cache·retry 실패 정리 (2026-10-01)
+- integrity cache는 날짜·상태·복구 가능 여부만 저장하고 120,000자 상한에서 오래된 entry부터 제거하며, 기존 v1 상세 cache는 삭제합니다.
+- revision 재시도 실패 시 정상 화면을 복원할 수 없으면 stale chart·table·warning·상태를 제거합니다.
+- 운영 반영에는 GAS v9.148과 정적 웹 cache `portfolio-cache-20261001-7`을 함께 재배포해야 합니다.
+
+## 정적 웹 retry 빈 결과 정리 (2026-10-01)
+- revision 재조회가 빈 원본 또는 빈 정규화 범위로 끝나면 이전 정상 화면을 복원하고, 복원본이 없을 때만 stale chart·table·warning·상태를 제거합니다.
+- GAS 변경은 없으며 정적 웹 cache `portfolio-cache-20261001-8`만 재배포합니다.

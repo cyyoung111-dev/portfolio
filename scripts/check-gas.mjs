@@ -96,6 +96,12 @@ if (!source.includes('SHEET_ETF_DIVIDENDS')
   process.exit(1);
 }
 
+if (!/function checkDailyAutomationStatus\(\)[\s\S]*!trig\.hasIntegrityChange[\s\S]*Snapshot integrity 구조 변경 트리거/.test(source)
+    || !/function initSheet\(\)[\s\S]*integritySourceCreated[\s\S]*_touchSnapshotIntegritySourceRevision\(\{ all: true \}\)/.test(source)) {
+  console.error('❌ 자동화 상태 점검 또는 tracked source 시트 생성의 integrity 보호가 누락됐습니다.');
+  process.exit(1);
+}
+
 const gasContext = vm.createContext({ console });
 new vm.Script(source, { filename: path }).runInContext(gasContext);
 const sampleComparisons = [{
@@ -207,7 +213,7 @@ if (!source.includes('function getLatestPriceHistoryEntries(ss, codes, maxDate, 
 
 if (!source.includes('function _ensureDailyTriggersOncePerDay(dateStr)')
     || !source.includes('var triggerState = _ensureDailyTriggersOncePerDay(todayStr)')
-    || !source.includes("props.setProperty('daily_triggers_checked_date', dateStr)")
+    || !source.includes("props.setProperty('daily_triggers_checked_date', checkToken)")
     || !source.includes('function _ensureSnapshotExistsForDate(ss, dateStr)')
     || !source.includes('_ensureSnapshotExistsForDate(ss, cachedLatestDate)')) {
   console.error('❌ 웹 조회는 트리거를 일 1회 자동 점검하고 캐시 응답에서도 누락 스냅샷을 복구해야 합니다.');
