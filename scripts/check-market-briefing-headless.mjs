@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { runHeadless } from './run-market-briefing-headless.mjs';
+import { runHeadless, createRequest, parseArgs, diagnosticFor } from './run-market-briefing-headless.mjs';
+
+const transport = body => createRequest('https://example.test/exec','test-secret',async () => ({ok:true,json:async()=>body}));
+assert.equal((await transport({status:'CONFIRMED',history:[{date:'2026-09-30',rate:1380}]} )('getExchangeRateHistory')).dataStatus,'CONFIRMED');
+assert.deepEqual((await transport({status:'NO_DATA',history:[]})('getExchangeRateHistory')).history,[]);
+for (const status of ['MISSING_SOURCE','INVALID_SCHEMA']) await assert.rejects(transport({status,history:[]})('getExchangeRateHistory'),new RegExp(status));
+await assert.rejects(transport({status:'CONFIRMED',history:null})('getExchangeRateHistory'),/GAS_RESPONSE_ERROR/);
+await assert.rejects(transport({status:'error',message:'인증 실패'})('getExchangeRateHistory'),/인증 실패/);
+await assert.rejects(transport({status:'CONFIRMED',history:[]})('getBenchmarks'),/GAS_RESPONSE_ERROR/);
+assert.equal(parseArgs(['--checkpoint','EVENING','--schedule','15 11 * * 1-5'],new Date('2026-09-30T16:48:00Z')).tradingDate,'2026-09-30','자정을 지난 지연 실행도 전일 예약 거래일 유지');
+assert.equal(parseArgs(['--checkpoint','MORNING','--schedule','30 22 * * 0-4'],new Date('2026-09-30T23:30:00Z')).tradingDate,'2026-10-01');
+assert.equal(parseArgs(['--checkpoint','EVENING','--schedule','15 11 * * 1-5'],new Date('2026-10-04T01:00:00Z')).tradingDate,'2026-10-02','주말 지연 실행의 직전 금요일');
+assert.equal(parseArgs(['--checkpoint','EVENING','--date','2026-09-30'],new Date('2026-10-01T00:00:00Z')).tradingDate,'2026-09-30');
+assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','15 11 * * 1-5']),/불일치/);
+assert.throws(()=>parseArgs(['--checkpoint','MORNING','--date','2026-02-30']),/tradingDate/);
+const diagnostic = diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-09-30',sync:{errors:{USDKRW:'auth_key=provider-secret test-secret'},persistence:{saved:2,duplicates:1,rejected:0}}},'test-secret');
+assert.equal(diagnostic.published,false);
+assert.equal(diagnostic.masterPersistence.saved,2);
+assert.ok(!JSON.stringify(diagnostic).includes('provider-secret'));
+assert.ok(!JSON.stringify(diagnostic).includes('test-secret'));
 
 globalThis.localStorage.clear();
 const date='2026-09-18', prior='2026-09-17';
