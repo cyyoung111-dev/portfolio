@@ -4,8 +4,8 @@
 // ════════════════════════════════════════════════════════════════
 
 const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v1';
-function _historySnapshotSignature(snapshot, sourceRevision) {
-  return [sourceRevision, snapshot.date, snapshot.costAmt ?? snapshot.cost ?? '', snapshot.evalAmt ?? snapshot.total ?? snapshot.eval ?? '', snapshot.pnl ?? ''].join('|');
+function _historySnapshotSignature(snapshot, dateRevision) {
+  return [dateRevision, snapshot.date, snapshot.costAmt ?? snapshot.cost ?? '', snapshot.evalAmt ?? snapshot.total ?? snapshot.eval ?? '', snapshot.pnl ?? ''].join('|');
 }
 function _readHistoryIntegrityCache() {
   try { return JSON.parse(sessionStorage.getItem(HISTORY_INTEGRITY_CACHE_KEY) || '{}') || {}; }
@@ -89,8 +89,9 @@ async function loadHistoryChart() {
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
     const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
     const integritySourceRevision = String(data.integritySourceRevision || '');
+    const integrityDateRevisions = data.integrityDateRevisions || {};
     const integrityCache = integritySourceRevision ? _readHistoryIntegrityCache() : {};
-    let integrityDiagnostics = snapshots.map(snapshot => integrityCache[_historySnapshotSignature(snapshot, integritySourceRevision)]).filter(Boolean);
+    let integrityDiagnostics = snapshots.map(snapshot => integrityCache[_historySnapshotSignature(snapshot, String(integrityDateRevisions[snapshot.date] || '0'))]).filter(Boolean);
     const cachedDates = new Set(integrityDiagnostics.map(item => item.date));
     const datesToDiagnose = snapshots.filter(snapshot => !cachedDates.has(snapshot.date));
     let rangeDiagnosisFailed = null;
@@ -111,7 +112,7 @@ async function loadHistoryChart() {
         integrity.diagnostics.forEach(item => {
           const snapshot = snapshots.find(candidate => candidate.date === item.date);
           if (snapshot && integritySourceRevision === String(integrity.integritySourceRevision || '')) {
-            integrityCache[_historySnapshotSignature(snapshot, integritySourceRevision)] = item;
+            integrityCache[_historySnapshotSignature(snapshot, String(integrityDateRevisions[snapshot.date] || '0'))] = item;
           }
         });
         if (integritySourceRevision && integritySourceRevision === String(integrity.integritySourceRevision || '')) _writeHistoryIntegrityCache(integrityCache);

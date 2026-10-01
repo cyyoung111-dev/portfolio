@@ -761,3 +761,9 @@ GAS 메뉴 및 시트 구성:
 - Snapshot 상세행 쓰기와 직접 편집도 정합성 revision을 갱신하고, `PRICE_SUSPICIOUS`를 성과 계산에서 제외합니다.
 - 펀드 좌수 현황은 MANUAL 대표 가격을 우선하며 복구 결과는 건수 우선·상세 lazy 표시로 변경됩니다.
 - 운영 반영에는 GAS v9.141과 정적 웹 cache `portfolio-cache-20260930-3`을 함께 재배포해야 합니다.
+
+## GAS v9.142 날짜·영향범위 정합성 cache invalidation (2026-10-01)
+
+- Snapshot은 해당 날짜, 가격·환율·거래·펀드 NAV·좌수는 carry/보유 상태를 고려해 최초 영향일부터 이후 날짜, 종목 매핑은 전체 범위를 invalidate합니다.
+- 백업 생성과 revision 갱신을 분리하고 실제 원자료 쓰기 성공 후에만 revision을 확정합니다.
+- 운영 반영에는 GAS v9.142와 정적 웹 cache `portfolio-cache-20261001-1`을 함께 재배포해야 합니다.

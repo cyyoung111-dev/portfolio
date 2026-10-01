@@ -19,8 +19,9 @@ const signatureSource = pipelineSource.match(/function _historySnapshotSignature
 const signatureContext = {};
 vm.runInNewContext(`${signatureSource}\nglobalThis.signature = _historySnapshotSignature;`, signatureContext);
 const signatureSnapshot = { date: '2026-09-30', costAmt: 100, evalAmt: 120, pnl: 20 };
-assert.equal(signatureContext.signature(signatureSnapshot, 'rev-1'), signatureContext.signature(signatureSnapshot, 'rev-1'), '원자료 revision이 같으면 cache signature를 재사용해야 합니다.');
-assert.notEqual(signatureContext.signature(signatureSnapshot, 'rev-1'), signatureContext.signature(signatureSnapshot, 'rev-2'), '원자료 revision이 바뀌면 Snapshot 합계가 같아도 cache를 무효화해야 합니다.');
+assert.equal(signatureContext.signature(signatureSnapshot, 'date-rev-1'), signatureContext.signature(signatureSnapshot, 'date-rev-1'), '날짜 revision이 같으면 cache signature를 재사용해야 합니다.');
+assert.notEqual(signatureContext.signature(signatureSnapshot, 'date-rev-1'), signatureContext.signature(signatureSnapshot, 'date-rev-2'), '영향받은 날짜 revision이 바뀌면 Snapshot 합계가 같아도 cache를 무효화해야 합니다.');
+assert.match(pipelineSource, /integrityDateRevisions\[snapshot\.date\]/, '전역 revision 대신 날짜별 revision으로 cache key를 구성해야 합니다.');
 vm.runInNewContext(`${source}\n` +
   'globalThis.selectSnapshots = _selectHistorySnapshots; globalThis.analyzeCoverage = _analyzeHistoryCoverage;', context);
 

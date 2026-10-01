@@ -44,11 +44,15 @@ assert.match(gas, /handleApplyPriceHistoryRepair[\s\S]*_touchSnapshotIntegritySo
 assert.match(gas, /_isSnapshotIntegritySourceSheet[\s\S]*SHEET_TRADES[\s\S]*SHEET_PH[\s\S]*FUND_NAV_SHEET[\s\S]*환율이력/, '거래·가격·펀드 NAV·환율 원자료를 revision 대상에 포함해야 합니다.');
 assert.match(gas, /_isSnapshotIntegritySourceSheet[\s\S]*SHEET_SNAPSHOT/, 'Snapshot 상세행 변경도 cache revision 대상이어야 합니다.');
 assert.match(gas, /function writeSnapshotRows[\s\S]*_touchSnapshotIntegritySourceRevision\(\)/, 'rewrite를 포함한 Snapshot 저장은 cache revision을 갱신해야 합니다.');
+assert.doesNotMatch(gas.match(/function _backupSheetBeforeWrite[\s\S]*?\n}/)?.[0] || '', /_touchSnapshotIntegritySourceRevision/, '백업 생성 단계에서 실제 쓰기보다 먼저 revision을 갱신하면 안 됩니다.');
+assert.match(gas, /function cleanupPriceHistoryDuplicates[\s\S]*setValues\(_normalizeCodeRows\(deduped[\s\S]*_touchSnapshotIntegritySourceRevision/, '가격 중복 정리는 실제 쓰기 성공 후 invalidate');
+assert.match(gas, /function cleanupSnapshotDuplicates[\s\S]*setValues\(output\)[\s\S]*_touchSnapshotIntegritySourceRevision/, 'Snapshot 중복 정리는 실제 쓰기 성공 후 invalidate');
+assert.match(gas, /function _repairKnownCodeColumns[\s\S]*range\.setValues\(values\)[\s\S]*_touchSnapshotIntegritySourceRevision/, '코드 복구는 실제 쓰기 성공 후 invalidate');
 assert.match(pipeline, /미검증 날짜는 저장 Snapshot으로 표시/);
 assert.match(view, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/);
 assert.match(view, /portfolioSnapshots[\s\S]*filter\(_isVerifiedHistoryPoint\)/);
 assert.match(html, /views\/views_history\.js\?v=20260930-3/);
 assert.match(sw, /views\/views_history\.js\?v=20260930-3/);
-assert.match(sw, /portfolio-cache-20260930-3/);
+assert.match(sw, /portfolio-cache-20261001-1/);
 assert.doesNotMatch(sw, /views\/views_history\.js\?v=20260917-2/);
 console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 Snapshot 성과 유지·복구/cache 회귀 검사 통과');

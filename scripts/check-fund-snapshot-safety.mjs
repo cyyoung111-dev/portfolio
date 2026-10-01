@@ -125,6 +125,7 @@ context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000001',120,'MANUA
 assert.equal(sheet.rows.find(r=>r[1]==='000001')[7],120);
 const beforeFailure=clone(sheet.rows);
 sheet.failWrite=true;
+const revisionBeforeFailedWrite=scriptProperties.get('snapshot_integrity_source_revision_v1');
 const backupCountBeforeFailure=Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length;
 assert.throws(()=>context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true),/write failed/);
 assert.deepEqual(sheet.rows,beforeFailure,'쓰기 실패 전 전체 시트를 비우면 안 됩니다.');
@@ -132,6 +133,7 @@ const backupCountAfterFailure=Object.keys(snapshotSheets).filter(name=>name.star
 assert.equal(backupCountAfterFailure,backupCountBeforeFailure+1,'원본 상태가 달라진 쓰기 직전 백업은 생성');
 assert.throws(()=>context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true),/write failed/);
 assert.equal(Object.keys(snapshotSheets).filter(name=>name.startsWith('스냅샷_백업_')).length,backupCountAfterFailure,'같은 원본 상태의 실패 재시도는 백업 중복 생성 방지');
+assert.equal(scriptProperties.get('snapshot_integrity_source_revision_v1'),revisionBeforeFailedWrite,'Snapshot 쓰기 실패는 integrity revision을 확정하지 않음');
 sheet.failWrite=false;
 context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000002',250)],true);
 context._registerSystemBackup({name:'reuse-regression',source:'스냅샷',signature:'sig',status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-01-01T00:00:00Z'});
@@ -148,6 +150,19 @@ context.writeSnapshotRows(operationSs,'2026-01-01',[snap('2026-01-01','000001',1
 context.writeSnapshotRows(operationSs,'2026-01-02',[snap('2026-01-02','000001',111)],true);
 context._snapshotBackupOperationId='';
 assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),integrityRevisionBefore,'Snapshot 상세행 저장은 합계와 무관하게 integrity cache revision 갱신');
+const isolatedBefore=clone(context._snapshotIntegrityDateRevisions(['2026-01-01','2026-01-02']));
+context._touchSnapshotIntegritySourceRevision({date:'2026-01-02'});
+const isolatedAfter=clone(context._snapshotIntegrityDateRevisions(['2026-01-01','2026-01-02']));
+assert.equal(isolatedAfter['2026-01-01'],isolatedBefore['2026-01-01'],'Snapshot 하루 변경은 영향 없는 과거 날짜 revision 유지');
+assert.notEqual(isolatedAfter['2026-01-02'],isolatedBefore['2026-01-02'],'Snapshot 변경 날짜 revision 갱신');
+context._touchSnapshotIntegritySourceRevision({from:'2026-01-02'});
+const rangeAfter=clone(context._snapshotIntegrityDateRevisions(['2026-01-01','2026-01-02','2026-01-03']));
+assert.equal(rangeAfter['2026-01-01'],isolatedBefore['2026-01-01'],'거래/NAV 영향 시작일 이전 cache 유지');
+assert.equal(rangeAfter['2026-01-02'],rangeAfter['2026-01-03'],'거래/NAV 영향 시작일 이후 범위 invalidation');
+assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('가격이력', [['2026-02-03'],['2026-02-03']])),{from:'2026-02-03'},'가격 변경은 carry 영향을 고려해 해당 평가일부터 이후를 invalidate');
+assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('스냅샷', [['2026-02-03'],['2026-02-03']])),{dates:['2026-02-03']},'Snapshot 상세행 변경은 해당 날짜만 invalidate');
+assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('펀드기준가격', [['2026-02-05'],['2026-02-03']])),{from:'2026-02-03'},'펀드 NAV 변경은 가장 이른 공시일부터 carry 이후 범위 invalidate');
+assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('거래이력', [['2026-03-05'],['2026-03-01']])),{from:'2026-03-01'},'거래 변경은 최초 변경 거래일부터 이후 범위 invalidate');
 assert.equal(uuidSequence-operationUuidBefore,1,'하나의 다일자 논리 작업은 전체 Snapshot 백업을 한 번만 생성');
 assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스트 형식으로 고정');
 assert.equal(held,false);

@@ -14,7 +14,7 @@ assert.match(rangeSource, /priceIntegrityBuildCount = 1/);
 assert.doesNotMatch(rangeSource, /insertSheet|setValues|deleteSheet|PropertiesService/);
 assert.match(pipeline, /dates: datesToDiagnose\.map\(snapshot => snapshot\.date\)\.join/);
 assert.match(pipeline, /HISTORY_INTEGRITY_CACHE_KEY[\s\S]*_historySnapshotSignature/);
-assert.match(gas, /snapshots: history, integritySourceRevision: _getSnapshotIntegritySourceRevision\(\)/);
+assert.match(gas, /snapshots: history, integritySourceRevision: _getSnapshotIntegritySourceRevision\(\)[\s\S]*integrityDateRevisions: _snapshotIntegrityDateRevisions/);
 assert.match(gas, /diagnostics: diagnostics[\s\S]*integritySourceRevision: _getSnapshotIntegritySourceRevision\(\)/);
 assert.match(gas, /function onEdit\(e\)[\s\S]*_isSnapshotIntegritySourceSheet[\s\S]*_touchSnapshotIntegritySourceRevision/);
 for (const code of ['CLIENT_TIMEOUT','SERVER_ERROR','RUNTIME_ERROR','INVALID_RESPONSE','SOURCE_DATA_ERROR','RANGE_TOO_LARGE']) assert.ok((gas + pipeline + net).includes(code), code);
