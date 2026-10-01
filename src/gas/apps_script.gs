@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.147
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.148
+//
+//  v9.148 변경사항 (2026.10.01):
+//   history summary cache·retry 실패 화면 폐기·대표행 tie-break 보강
 //
 //  v9.147 변경사항 (2026.10.01):
 //   history 진단 revision 일치 보장·펀드 대표 source 순위 통일
@@ -2211,9 +2214,7 @@ function handleGetHistory(fromStr, toStr) {
       if (!prev) {
         dateItemMap[date][itemKey] = { code: code, qty: qty, costAmt: cost, evalAmt: evalAmt, source: source };
       } else {
-        var sourceRank = _fundPriceSourceRank(source);
-        var prevRank = _fundPriceSourceRank(prev.source);
-        var pickNew = sourceRank > prevRank || (sourceRank === prevRank && ((qty > prev.qty) || (qty === prev.qty && evalAmt >= prev.evalAmt)));
+        var pickNew = _preferFundRepresentativeValues(prev.source, source, prev.qty, qty, prev.evalAmt, evalAmt);
         if (pickNew) dateItemMap[date][itemKey] = { code: code, qty: qty, costAmt: cost, evalAmt: evalAmt, source: source };
       }
     });
@@ -4225,7 +4226,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.147' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.148' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4418,11 +4419,17 @@ function _fundPriceSourceRank(source) {
   return source === 'MANUAL' ? 3 : (source === 'FUND_NAV' ? 2 : (source === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? 0 : 1));
 }
 
-function _preferFundRepresentativeRow(current, candidate, sourceIndex) {
+function _preferFundRepresentativeValues(currentSource, candidateSource, currentQty, candidateQty, currentValue, candidateValue) {
+  var currentRank = _fundPriceSourceRank(currentSource), candidateRank = _fundPriceSourceRank(candidateSource);
+  if (candidateRank !== currentRank) return candidateRank > currentRank;
+  currentQty = Number(currentQty || 0); candidateQty = Number(candidateQty || 0);
+  return candidateQty > currentQty || (candidateQty === currentQty && Number(candidateValue || 0) >= Number(currentValue || 0));
+}
+
+function _preferFundRepresentativeRow(current, candidate, sourceIndex, valueIndex, qtyIndex) {
   if (!current) return true;
-  var currentRank = _fundPriceSourceRank(current[sourceIndex]);
-  var candidateRank = _fundPriceSourceRank(candidate[sourceIndex]);
-  return candidateRank > currentRank || (candidateRank === currentRank && candidateRank === 3);
+  return _preferFundRepresentativeValues(current[sourceIndex], candidate[sourceIndex],
+    qtyIndex == null ? 0 : current[qtyIndex], qtyIndex == null ? 0 : candidate[qtyIndex], current[valueIndex], candidate[valueIndex]);
 }
 
 function _fundConfiguredCodeForPriceRow(row, configs) {
@@ -4446,7 +4453,7 @@ function _fundDerivedState(ss, configs) {
     var code = _fundConfiguredCodeForPriceRow(row, configs);
     if (!code) return;
     var key = _normalizeDate(row[0]) + '|' + code;
-    if (_preferFundRepresentativeRow(priceKeys[key], row, 5)) priceKeys[key] = row;
+    if (_preferFundRepresentativeRow(priceKeys[key], row, 5, 3, null)) priceKeys[key] = row;
   });
   var snapshotSheet = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var snapshots = snapshotSheet && snapshotSheet.getLastRow() > 1
@@ -4454,7 +4461,7 @@ function _fundDerivedState(ss, configs) {
   var snapshotKeys = {};
   snapshots.forEach(function(row) {
     var key = _normalizeDate(row[0]) + '|' + (_cleanCode(row[1]) || String(row[2] || '').trim());
-    if (_preferFundRepresentativeRow(snapshotKeys[key], row, 10)) snapshotKeys[key] = row;
+    if (_preferFundRepresentativeRow(snapshotKeys[key], row, 10, 7, 3)) snapshotKeys[key] = row;
   });
   return { sheet: ph, prices: prices, priceKeys: priceKeys, snapshots: snapshots, snapshotKeys: snapshotKeys };
 }
@@ -4542,7 +4549,7 @@ function _getFundNavStatus(ss, configs) {
     var code = _fundConfiguredCodeForPriceRow(row, configs);
     if (!code) return;
     var key = _normalizeDate(row[0]) + '|' + code;
-    if (_preferFundRepresentativeRow(representativePrices[key], row, 5)) representativePrices[key] = row;
+    if (_preferFundRepresentativeRow(representativePrices[key], row, 5, 3, null)) representativePrices[key] = row;
   });
   var codes = configs.map(function(config) { return config.code; }).filter(function(code, index, all) { return all.indexOf(code) === index; });
   var statuses = codes.map(function(code) {
@@ -9285,7 +9292,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.147' });
+    return jsonOk({ settings: settings, gasVersion: '9.148' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9307,7 +9314,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.147'
+      gasVersion: '9.148'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

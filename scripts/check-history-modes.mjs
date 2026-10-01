@@ -45,7 +45,30 @@ assert(pipelineSource.indexOf('_cachedHistoryDiagnostics(snapshots') < pipelineS
 assert(pipelineSource.indexOf("revisionDecision === 'discard'") < pipelineSource.indexOf('integrityDiagnostics = integrityDiagnostics.concat'),'revision mismatch 진단은 화면 상태 병합 전에 폐기');
 assert.match(pipelineSource,/revisionDecision === 'retry'\) return await loadHistoryChart\(retryAttempt \+ 1\)/,'revision mismatch 재조회는 1회 bounded retry');
 assert.match(pipelineSource,/error\?\.errorCode === 'REVISION_CHANGED'\) throw error/,'재시도 mismatch를 일반 진단 실패로 흡수하면 안 됨');
-assert.match(pipelineSource,/if \(retryAttempt \|\| e\?\.errorCode === 'REVISION_CHANGED'\) _restoreSuccessfulHistoryView\(\)/,'재조회 실패는 마지막 정상 화면을 보존');
+assert.match(pipelineSource,/retryAttempt \|\| e\?\.errorCode === 'REVISION_CHANGED'\)[\s\S]*_restoreSuccessfulHistoryView\(\)/,'재조회 실패는 마지막 정상 화면 복원을 우선');
+assert.match(pipelineSource,/!_restoreSuccessfulHistoryView\(\)[\s\S]*chartWrap\.innerHTML = ''[\s\S]*tableWrap\.innerHTML = ''[\s\S]*coverageEl\.innerHTML = ''[\s\S]*integrityDiagnostics = \[\]/,'복원할 정상 화면이 없으면 폐기된 최초 화면과 상태를 제거');
+const cacheContext = vm.createContext({ sessionStorage: (() => {
+  const values = new Map([['portfolio.historyIntegrity.v1', JSON.stringify({legacy:{date:'2026-01-01',status:'VALID',expectedRows:Array(100).fill('large')}})]]);
+  return { getItem:key=>values.get(key)||null, setItem:(key,value)=>values.set(key,value), removeItem:key=>values.delete(key), values };
+})() });
+const cacheHelpers = ['_isRepairableHistoryDiagnostic','_historyDiagnosticSummary','_readHistoryIntegrityCache','_writeHistoryIntegrityCache']
+  .map(name => pipelineSource.match(new RegExp(`function ${name}[\\s\\S]*?\\n}`))?.[0] || '').join('\n');
+vm.runInContext(`const HISTORY_INTEGRITY_CACHE_KEY='portfolio.historyIntegrity.v2';const HISTORY_INTEGRITY_LEGACY_CACHE_KEY='portfolio.historyIntegrity.v1';const HISTORY_INTEGRITY_CACHE_MAX_CHARS=120000;${cacheHelpers};globalThis.readCache=_readHistoryIntegrityCache;globalThis.writeCache=_writeHistoryIntegrityCache;globalThis.summary=_historyDiagnosticSummary;globalThis.repairable=_isRepairableHistoryDiagnostic;`,cacheContext);
+const fullDiagnostic={date:'2026-09-30',status:'MISMATCH',expectedRows:[1],storedRows:[2],itemComparisons:[3],priceIntegrity:[4],sourceDataErrors:[],conflictKeys:[]};
+assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.summary(fullDiagnostic))),{date:'2026-09-30',status:'MISMATCH',repairable:true},'full diagnostic은 최소 cache summary로 축약');
+assert.equal(cacheContext.repairable(cacheContext.summary(fullDiagnostic)),true,'cached summary와 full diagnostic의 repairability가 동일');
+assert.equal(cacheContext.writeCache({key:fullDiagnostic}),true,'summary cache 정상 저장');
+const storedCache=cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2');
+assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(storedCache),'대용량 진단 상세는 sessionStorage에 저장 금지');
+assert.equal(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v1'),null,'legacy v1 cache는 read/write 전에 제거');
+cacheContext.sessionStorage.setItem('portfolio.historyIntegrity.v2',JSON.stringify({legacyFull:fullDiagnostic}));
+assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.readCache().legacyFull)),{date:'2026-09-30',status:'MISMATCH',repairable:true},'기존 상세 cache read는 summary로 sanitize');
+assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2')),'sanitize한 기존 cache를 작은 schema로 즉시 재저장');
+const oversized={};for(let i=0;i<900;i++)oversized[`${i}`.padStart(4,'0')+'x'.repeat(180)]={date:`2026-01-${String(i%28+1).padStart(2,'0')}`,status:'VALID'};
+assert.equal(cacheContext.writeCache(oversized),true,'크기 상한 초과 cache도 오래된 entry 제거 후 저장');
+assert(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2').length<=120000,'직렬화 cache는 보수적 내부 상한 유지');
+cacheContext.sessionStorage.setItem=()=>{throw new Error('quota')};
+assert.equal(cacheContext.writeCache({key:fullDiagnostic}),false,'sessionStorage write 실패는 화면 조회를 실패시키지 않음');
 vm.runInNewContext(`${source}\n` +
   'globalThis.selectSnapshots = _selectHistorySnapshots; globalThis.analyzeCoverage = _analyzeHistoryCoverage;', context);
 

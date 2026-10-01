@@ -3,17 +3,45 @@
 //  의존: views_history_state.js, views_history_render.js, views_history_benchmark.js
 // ════════════════════════════════════════════════════════════════
 
-const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v1';
+const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v2';
+const HISTORY_INTEGRITY_LEGACY_CACHE_KEY = 'portfolio.historyIntegrity.v1';
+const HISTORY_INTEGRITY_CACHE_MAX_CHARS = 120000;
 function _historySnapshotSignature(snapshot, dateRevision) {
   return [dateRevision, snapshot.date, snapshot.costAmt ?? snapshot.cost ?? '', snapshot.evalAmt ?? snapshot.total ?? snapshot.eval ?? '', snapshot.pnl ?? ''].join('|');
 }
 function _readHistoryIntegrityCache() {
-  try { return JSON.parse(sessionStorage.getItem(HISTORY_INTEGRITY_CACHE_KEY) || '{}') || {}; }
-  catch (_) { return {}; }
+  try {
+    sessionStorage.removeItem(HISTORY_INTEGRITY_LEGACY_CACHE_KEY);
+    const parsed = JSON.parse(sessionStorage.getItem(HISTORY_INTEGRITY_CACHE_KEY) || '{}') || {};
+    const sanitized = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, _historyDiagnosticSummary(value)]).filter(([, value]) => !!value));
+    if (JSON.stringify(parsed) !== JSON.stringify(sanitized)) _writeHistoryIntegrityCache(sanitized);
+    return sanitized;
+  } catch (_) {
+    try { sessionStorage.removeItem(HISTORY_INTEGRITY_CACHE_KEY); } catch (_) {}
+    return {};
+  }
 }
 function _writeHistoryIntegrityCache(cache) {
-  try { sessionStorage.setItem(HISTORY_INTEGRITY_CACHE_KEY, JSON.stringify(Object.fromEntries(Object.entries(cache).slice(-800)))); }
-  catch (_) { /* 캐시를 사용할 수 없으면 다음 조회에서 안전하게 재검증합니다. */ }
+  try {
+    sessionStorage.removeItem(HISTORY_INTEGRITY_LEGACY_CACHE_KEY);
+    const entries = Object.entries(cache || {}).map(([key, value]) => [key, _historyDiagnosticSummary(value)]).filter(([, value]) => !!value).slice(-800);
+    let serialized = JSON.stringify(Object.fromEntries(entries));
+    while (entries.length && serialized.length > HISTORY_INTEGRITY_CACHE_MAX_CHARS) {
+      entries.shift();
+      serialized = JSON.stringify(Object.fromEntries(entries));
+    }
+    sessionStorage.setItem(HISTORY_INTEGRITY_CACHE_KEY, serialized);
+    return true;
+  } catch (_) { return false; /* 캐시를 사용할 수 없어도 현재 조회는 계속합니다. */ }
+}
+function _isRepairableHistoryDiagnostic(item) {
+  if (!item || !['PARTIAL', 'MISMATCH', 'NO_SNAPSHOT'].includes(item.status)) return false;
+  if (typeof item.repairable === 'boolean') return item.repairable;
+  return !item.sourceDataErrors?.length && !item.conflictKeys?.length;
+}
+function _historyDiagnosticSummary(item) {
+  if (!item || !item.date || !['VALID', 'SOURCE_INCOMPLETE', 'UNCHECKED', 'PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT', 'PRICE_SUSPICIOUS'].includes(String(item.status || ''))) return null;
+  return { date: item.date, status: item.status, repairable: _isRepairableHistoryDiagnostic(item) };
 }
 function _cachedHistoryDiagnostics(snapshots, dateRevisions, cache) {
   const knownStatuses = new Set(['VALID', 'SOURCE_INCOMPLETE', 'UNCHECKED', 'PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT', 'PRICE_SUSPICIOUS']);
@@ -134,7 +162,7 @@ async function loadHistoryChart(retryAttempt = 0) {
         integrity.diagnostics.forEach(item => {
           const snapshot = snapshots.find(candidate => candidate.date === item.date);
           if (snapshot && integritySourceRevision === String(integrity.integritySourceRevision || '')) {
-            integrityCache[_historySnapshotSignature(snapshot, String(integrityDateRevisions[snapshot.date] || '0'))] = item;
+            integrityCache[_historySnapshotSignature(snapshot, String(integrityDateRevisions[snapshot.date] || '0'))] = _historyDiagnosticSummary(item);
           }
         });
         if (integritySourceRevision && integritySourceRevision === String(integrity.integritySourceRevision || '')) _writeHistoryIntegrityCache(integrityCache);
@@ -218,7 +246,15 @@ async function loadHistoryChart(retryAttempt = 0) {
 
   } catch(e) {
     if (requestId === __histState.loadRequestId) {
-      if (retryAttempt || e?.errorCode === 'REVISION_CHANGED') _restoreSuccessfulHistoryView();
+      if ((retryAttempt || e?.errorCode === 'REVISION_CHANGED') && !_restoreSuccessfulHistoryView()) {
+        chartWrap.innerHTML = '';
+        if (tableWrap) tableWrap.innerHTML = '';
+        if (coverageEl) coverageEl.innerHTML = '';
+        __histState.snapshots = [];
+        __histState.integrityDiagnostics = [];
+        __histState.rangeDiagnosisFailed = null;
+        __histState.missingSnapshotDates = [];
+      }
       _setHistoryStatus(statusEl, 'error', { message: e.message });
     }
   } finally {
@@ -311,14 +347,14 @@ function _renderHistoryIntegrityWarnings(el, diagnostics, rangeDiagnosisFailed, 
     return result;
   }, {});
   const summary = Object.entries(counts).map(([status, count]) => `${labels[status] || status} ${count}일`).join(' · ');
-  const repairable = invalid.filter(item => ['PARTIAL', 'MISMATCH', 'NO_SNAPSHOT'].includes(item.status) && !item.sourceDataErrors?.length && !item.conflictKeys?.length);
+  const repairable = invalid.filter(_isRepairableHistoryDiagnostic);
   const validCount = (diagnostics || []).filter(item => item?.status === 'VALID').length;
   const blockingCount = invalid.filter(item => HISTORY_BLOCKING_INTEGRITY_STATUSES.includes(item.status)).length;
   el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ 데이터 정합성 검증 요약</b><br>검증 ${diagnostics.length}일 중 정상 ${validCount}일 · ${_escapeHtml(summary)}<br><span style="color:var(--muted)">${blockingCount ? `확인된 Snapshot 오류 ${blockingCount}일만 손익선과 계산에서 제외합니다.` : '원자료 부족·미검증 날짜의 저장 Snapshot은 손익 계산에 사용합니다.'}</span>${repairable.length ? `<br><button type="button" class="btn-ghost-sm" data-history-action="repair-integrity">검증 가능한 오류 Snapshot 복구 (${repairable.length})</button>` : ''}</div>`);
 }
 
 async function repairHistoryIntegritySnapshots() {
-  const targets = (__histState.integrityDiagnostics || []).filter(item => ['PARTIAL', 'MISMATCH', 'NO_SNAPSHOT'].includes(item.status) && !item.sourceDataErrors?.length && !item.conflictKeys?.length);
+  const targets = (__histState.integrityDiagnostics || []).filter(_isRepairableHistoryDiagnostic);
   if (!targets.length || !confirm(`${targets.length}일의 검증 가능한 Snapshot을 원자료로 재작성할까요?`)) return;
   const operationId = `history-integrity-${Date.now()}`;
   const failed = []; let repaired = 0;

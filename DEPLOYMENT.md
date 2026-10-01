@@ -793,3 +793,8 @@ GAS 메뉴 및 시트 구성:
 - 기간 진단 도중 source revision이 바뀌면 stale 진단을 화면과 cache에 합치지 않고 history부터 최대 한 번 재조회합니다.
 - 펀드 가격·Snapshot 대표행은 `MANUAL > FUND_NAV > 일반/carry > FUND_NAV_CARRY_INPUT_REQUIRED` 순위를 공통 적용합니다.
 - 운영 반영에는 GAS v9.147과 정적 웹 cache `portfolio-cache-20261001-6`를 함께 재배포해야 합니다.
+
+## GAS v9.148 history summary cache·retry 실패 정리 (2026-10-01)
+- integrity cache는 날짜·상태·복구 가능 여부만 저장하고 120,000자 상한에서 오래된 entry부터 제거하며, 기존 v1 상세 cache는 삭제합니다.
+- revision 재시도 실패 시 정상 화면을 복원할 수 없으면 stale chart·table·warning·상태를 제거합니다.
+- 운영 반영에는 GAS v9.148과 정적 웹 cache `portfolio-cache-20261001-7`을 함께 재배포해야 합니다.

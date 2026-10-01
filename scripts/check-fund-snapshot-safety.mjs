@@ -319,8 +319,9 @@ const confirmedRepresentative=clone(context._getFundNavStatus(ssFor({...duplicat
   '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED'],['2026-09-09','F00002','KB',1250,'','FUND_NAV']])
 }),duplicatePriceConfigs))[0];
 assert.equal(confirmedRepresentative.temporaryDates.includes('2026-09-09'),false,'확정 FUND_NAV는 오래된 carry input required보다 우선');
-assert.equal(context._preferFundRepresentativeRow(['','','','', '', 'FUND_NAV_CARRY'],['','','','', '', 'FUND_NAV'],5),true,'FUND_NAV는 일반 carry보다 우선');
-assert.equal(context._preferFundRepresentativeRow(['','','','', '', 'FUND_NAV'],['','','','', '', 'MANUAL'],5),true,'MANUAL은 FUND_NAV보다 우선');
+assert.equal(context._preferFundRepresentativeRow(['','','',1200, '', 'FUND_NAV_CARRY'],['','','',1100, '', 'FUND_NAV'],5,3,null),true,'FUND_NAV는 일반 carry보다 우선');
+assert.equal(context._preferFundRepresentativeRow(['','','',1300, '', 'FUND_NAV'],['','','',1200, '', 'MANUAL'],5,3,null),true,'MANUAL은 FUND_NAV보다 우선');
+assert.equal(context._preferFundRepresentativeRow(['','','',1200, '', 'FUND_NAV'],['','','',1250, '', 'FUND_NAV'],5,3,null),true,'동일 source rank는 history와 같이 큰 평가값을 deterministic 대표로 선택');
 const carryRepresentative=clone(context._getFundNavStatus(ssFor({...duplicatePriceBase,
   '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED']])
 }),duplicatePriceConfigs))[0];
