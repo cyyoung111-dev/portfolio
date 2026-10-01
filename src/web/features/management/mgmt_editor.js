@@ -518,7 +518,10 @@ function openFundUnitsEditor() {
   _fundUnitBusy = false;
   _editorMode = 'fund-units';
   _fundUnitDrafts = {};
+  _fundUnitsStatus = '';
   _fundRecoveryRetryTargets = [];
+  _fundRecoveryDetailsText = '';
+  _fundRecoveryDetailsOpen = false;
   _fundNavStatuses = [];
   _fundNavImportState = { code: 'F00001', filename: '', pasteText: '', manualDate: '', manualNav: '', payload: null, preview: null, parseError: '', warningsAcknowledged: false };
   _openEditorModal();

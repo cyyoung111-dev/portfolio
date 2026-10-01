@@ -774,3 +774,8 @@ GAS 메뉴 및 시트 구성:
 - legacy/malformed property는 전체 재진단 state로 이관하며, 날짜 편집은 old/new 및 다중 범위를 보수적으로 invalidate합니다.
 - legacy 펀드 가격행은 유일한 종목명 매핑일 때만 F코드를 복원합니다.
 - 운영 반영에는 GAS v9.143과 정적 웹 cache `portfolio-cache-20261001-2`를 함께 재배포해야 합니다.
+
+## GAS v9.144 구조 변경·초기 진단 cache 보호 (2026-10-01)
+- tracked source 시트의 행·열 삽입/삭제를 설치형 `onChange` trigger로 감지해 보수적으로 integrity cache를 무효화합니다.
+- 이미 cache된 blocking 진단은 최초 손익 그래프 렌더 전에 반영하고, 좌수 편집기를 새로 열 때 이전 복구 상세·재처리 상태를 초기화합니다.
+- 운영 반영에는 GAS v9.144와 정적 웹 cache `portfolio-cache-20261001-3`을 함께 재배포해야 합니다.

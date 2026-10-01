@@ -15,6 +15,16 @@ function _writeHistoryIntegrityCache(cache) {
   try { sessionStorage.setItem(HISTORY_INTEGRITY_CACHE_KEY, JSON.stringify(Object.fromEntries(Object.entries(cache).slice(-800)))); }
   catch (_) { /* 캐시를 사용할 수 없으면 다음 조회에서 안전하게 재검증합니다. */ }
 }
+function _cachedHistoryDiagnostics(snapshots, dateRevisions, cache) {
+  const knownStatuses = new Set(['VALID', 'SOURCE_INCOMPLETE', 'UNCHECKED', 'PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT', 'PRICE_SUSPICIOUS']);
+  return (snapshots || []).map(snapshot => {
+    if (!dateRevisions || !Object.prototype.hasOwnProperty.call(dateRevisions, snapshot.date)) return null;
+    const dateRevision = String(dateRevisions[snapshot.date] ?? '');
+    if (!/^\d+$/.test(dateRevision)) return null;
+    const cached = cache?.[_historySnapshotSignature(snapshot, dateRevision)];
+    return cached && cached.date === snapshot.date && knownStatuses.has(String(cached.status || '')) ? cached : null;
+  }).filter(Boolean);
+}
 
 async function loadHistoryChart() {
   const loadStartedAt = performance.now();
@@ -78,6 +88,13 @@ async function loadHistoryChart() {
 
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
+    const integritySourceRevision = String(data.integritySourceRevision || '');
+    const integrityDateRevisions = data.integrityDateRevisions || {};
+    const integrityCache = integritySourceRevision ? _readHistoryIntegrityCache() : {};
+    let integrityDiagnostics = _cachedHistoryDiagnostics(snapshots, integrityDateRevisions, integrityCache);
+    const cachedDiagnosticByDate = new Map(integrityDiagnostics.map(item => [item.date, item]));
+    snapshots = snapshots.map(snapshot => ({ ...snapshot,
+      integrityStatus: cachedDiagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED' }));
     // 정합성 진단은 보호 정보를 보강하는 후속 단계입니다. 저장 Snapshot 자체는 먼저 표시해
     // 첫 조회에서도 전체 기간 진단이 그래프의 초기 표시를 막지 않게 합니다.
     const initialMode = _getHistMode();
@@ -88,10 +105,6 @@ async function loadHistoryChart() {
     const initialRenderMs = performance.now() - initialRenderStartedAt;
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
     const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
-    const integritySourceRevision = String(data.integritySourceRevision || '');
-    const integrityDateRevisions = data.integrityDateRevisions || {};
-    const integrityCache = integritySourceRevision ? _readHistoryIntegrityCache() : {};
-    let integrityDiagnostics = snapshots.map(snapshot => integrityCache[_historySnapshotSignature(snapshot, String(integrityDateRevisions[snapshot.date] || '0'))]).filter(Boolean);
     const cachedDates = new Set(integrityDiagnostics.map(item => item.date));
     const datesToDiagnose = snapshots.filter(snapshot => !cachedDates.has(snapshot.date));
     let rangeDiagnosisFailed = null;

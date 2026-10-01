@@ -17,11 +17,23 @@ const context = {
 };
 const signatureSource = pipelineSource.match(/function _historySnapshotSignature[\s\S]*?\n}/)?.[0] || '';
 const signatureContext = {};
-vm.runInNewContext(`${signatureSource}\nglobalThis.signature = _historySnapshotSignature;`, signatureContext);
+const cachedSource = pipelineSource.match(/function _cachedHistoryDiagnostics[\s\S]*?\n}/)?.[0] || '';
+vm.runInNewContext(`${signatureSource}\n${cachedSource}\nglobalThis.signature = _historySnapshotSignature;globalThis.cached = _cachedHistoryDiagnostics;`, signatureContext);
 const signatureSnapshot = { date: '2026-09-30', costAmt: 100, evalAmt: 120, pnl: 20 };
 assert.equal(signatureContext.signature(signatureSnapshot, 'date-rev-1'), signatureContext.signature(signatureSnapshot, 'date-rev-1'), '날짜 revision이 같으면 cache signature를 재사용해야 합니다.');
 assert.notEqual(signatureContext.signature(signatureSnapshot, 'date-rev-1'), signatureContext.signature(signatureSnapshot, 'date-rev-2'), '영향받은 날짜 revision이 바뀌면 Snapshot 합계가 같아도 cache를 무효화해야 합니다.');
 assert.match(pipelineSource, /integrityDateRevisions\[snapshot\.date\]/, '전역 revision 대신 날짜별 revision으로 cache key를 구성해야 합니다.');
+const cacheSnapshots=[{date:'2026-09-27',costAmt:100,evalAmt:120,pnl:20},{date:'2026-09-28',costAmt:100,evalAmt:90,pnl:-10}];
+const cacheRevisions={'2026-09-27':'7','2026-09-28':'8'};
+const cacheFixture={};
+cacheFixture[signatureContext.signature(cacheSnapshots[0],'7')]={date:'2026-09-27',status:'MISMATCH'};
+cacheFixture[signatureContext.signature(cacheSnapshots[1],'8')]={date:'2026-09-28',status:'PRICE_SUSPICIOUS'};
+assert.deepEqual(Array.from(signatureContext.cached(cacheSnapshots,cacheRevisions,cacheFixture),item=>item.status),['MISMATCH','PRICE_SUSPICIOUS'],'cached blocking 상태를 최초 렌더 전에 복원');
+assert.equal(signatureContext.cached(cacheSnapshots,{...cacheRevisions,'2026-09-27':'changed'},cacheFixture).some(item=>item.date==='2026-09-27'),false,'revision mismatch cache는 무시');
+assert.equal(signatureContext.cached(cacheSnapshots,{},cacheFixture).length,0,'누락된 revision state는 legacy cache보다 재진단을 우선');
+cacheFixture[signatureContext.signature(cacheSnapshots[1],'8')]={date:'2026-09-28',status:'VALID'};
+assert.equal(signatureContext.cached(cacheSnapshots,cacheRevisions,cacheFixture).find(item=>item.date==='2026-09-28').status,'VALID','cached VALID은 정상 사용');
+assert(pipelineSource.indexOf('_cachedHistoryDiagnostics(snapshots') < pipelineSource.indexOf('_drawHistoryChart(chartWrap, initialSnapshots'),'cache merge가 최초 그래프 렌더보다 먼저 실행되어야 함');
 vm.runInNewContext(`${source}\n` +
   'globalThis.selectSnapshots = _selectHistorySnapshots; globalThis.analyzeCoverage = _analyzeHistoryCoverage;', context);
 

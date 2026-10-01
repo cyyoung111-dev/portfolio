@@ -194,6 +194,27 @@ assert.deepEqual(clone(context._snapshotIntegrityImpactForEdit({range:editRange(
 assert.deepEqual(clone(context._snapshotIntegrityImpactForEdit({range:editRange(priceDateSheet,{rows:2,value:'2026-02-01'}),oldValue:'2026-01-01'})),{all:true},'날짜열 다중 paste는 복원 불가능한 old 날짜 때문에 전체 fallback');
 const multiTradeSheet=editSheet('거래이력',['2026-03-03','2026-03-01']);
 assert.deepEqual(clone(context._snapshotIntegrityImpactForEdit({range:editRange(multiTradeSheet,{rows:2,column:3})})),{from:'2026-03-01'},'날짜 외 다중행 편집은 범위 전체 날짜 중 최소일부터 invalidate');
+const structureRevisionBefore=scriptProperties.get('snapshot_integrity_source_revision_v1');
+context.handleSnapshotIntegritySheetChange({changeType:'REMOVE_ROW',source:{getActiveSheet:()=>({getName:()=>'가격이력'})}});
+assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),structureRevisionBefore,'tracked source 행 삭제는 전체 integrity cache를 invalidate');
+const insertedRevisionBefore=scriptProperties.get('snapshot_integrity_source_revision_v1');
+context.handleSnapshotIntegritySheetChange({changeType:'INSERT_ROW',source:{getActiveSheet:()=>({getName:()=>'거래이력'})}});
+assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),insertedRevisionBefore,'tracked source 행 삽입은 전체 integrity cache를 invalidate');
+const nonStructuralRevision=scriptProperties.get('snapshot_integrity_source_revision_v1');
+context.handleSnapshotIntegritySheetChange({changeType:'EDIT',source:{getActiveSheet:()=>({getName:()=>'가격이력'})}});
+assert.equal(scriptProperties.get('snapshot_integrity_source_revision_v1'),nonStructuralRevision,'일반 셀 edit는 onChange에서 중복 invalidate하지 않음');
+const originalScriptApp=context.ScriptApp;
+const changeTriggers=[];
+let changeTriggerCreates=0;
+context.getss=()=>({id:'spreadsheet'});
+context.ScriptApp={
+  getProjectTriggers:()=>changeTriggers,
+  newTrigger:handler=>({forSpreadsheet:()=>({onChange:()=>({create:()=>{changeTriggerCreates++;changeTriggers.push({getHandlerFunction:()=>handler});}})})}),
+};
+assert.equal(context._ensureSnapshotIntegrityChangeTrigger(true),true);
+assert.equal(context._ensureSnapshotIntegrityChangeTrigger(true),true);
+assert.equal(changeTriggerCreates,1,'설치형 onChange trigger는 중복 생성하지 않음');
+context.ScriptApp=originalScriptApp;
 assert.equal(uuidSequence-operationUuidBefore,1,'하나의 다일자 논리 작업은 전체 Snapshot 백업을 한 번만 생성');
 assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스트 형식으로 고정');
 assert.equal(held,false);

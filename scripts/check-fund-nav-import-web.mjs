@@ -12,6 +12,12 @@ const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 const context = vm.createContext({ console, XLSX: { SSF: { parse_date_code: value => value === 46000 ? { y:2025,m:12,d:9 } : null } } });
 vm.runInContext(source, context);
 const clone = value => JSON.parse(JSON.stringify(value));
+context._openEditorModal=()=>{};
+context._loadFundUnitsEditor=()=>Promise.resolve();
+vm.runInContext(`globalThis.seedRecoverySession=()=>{_fundUnitsStatus='old';_fundRecoveryRetryTargets=[{code:'F00001',date:'2026-09-01'}];_fundRecoveryDetailsText='old detail';_fundRecoveryDetailsOpen=true;};globalThis.readRecoverySession=()=>({status:_fundUnitsStatus,retries:_fundRecoveryRetryTargets.length,details:_fundRecoveryDetailsText,open:_fundRecoveryDetailsOpen});`,context);
+context.seedRecoverySession();
+context.openFundUnitsEditor();
+assert.deepEqual(clone(context.readRecoverySession()),{status:'',retries:0,details:'',open:false},'좌수 편집기 재오픈은 이전 recovery session 상태 제거');
 
 const parsed = clone(context._parseFundNavMatrix([
   ['상품코드','AQ018'],

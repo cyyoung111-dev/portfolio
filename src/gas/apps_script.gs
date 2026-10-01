@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.143
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.144
+//
+//  v9.144 변경사항 (2026.10.01):
+//   시트 구조 변경 invalidation·초기 cache 보호·좌수 editor session 초기화
 //
 //  v9.143 변경사항 (2026.10.01):
 //   revision property 크기·legacy migration·onEdit old/new·펀드 legacy 코드 보강
@@ -4060,6 +4063,25 @@ function onEdit(e) {
   var impact = _snapshotIntegrityImpactForEdit(e);
   if (impact) _touchSnapshotIntegritySourceRevision(impact);
 }
+
+function handleSnapshotIntegritySheetChange(e) {
+  var changeType = String(e && e.changeType || '').toUpperCase();
+  if (['INSERT_ROW', 'REMOVE_ROW', 'INSERT_COLUMN', 'REMOVE_COLUMN'].indexOf(changeType) === -1) return;
+  var ss = e && e.source;
+  var sheet = ss && typeof ss.getActiveSheet === 'function' ? ss.getActiveSheet() : null;
+  if (!sheet || _isSnapshotIntegritySourceSheet(sheet.getName())) _touchSnapshotIntegritySourceRevision({ all: true });
+}
+
+function _ensureSnapshotIntegrityChangeTrigger(autoFix) {
+  var exists = ScriptApp.getProjectTriggers().some(function(trigger) {
+    return trigger.getHandlerFunction() === 'handleSnapshotIntegritySheetChange';
+  });
+  if (!exists && autoFix) {
+    ScriptApp.newTrigger('handleSnapshotIntegritySheetChange').forSpreadsheet(getss()).onChange().create();
+    exists = true;
+  }
+  return exists;
+}
 var FUND_NAV_IMPORT_SPECS = {
   F00001: { provider: 'HANWHA_2045_CRPE', classCode: 'C-RPe', standardCode: '', className: 'C-RPe', forbidden: ['AQ018','KR5223AQ0185','AP399','KR5235AP3996','2K04','2K09'] },
   F00002: { provider: 'KB_VALUE_ST', classCode: 'AQ018', standardCode: 'KR5223AQ0185', className: 'S-T', forbidden: ['AP399','KR5235AP3996','2K04','2K09','피델리티 월드BIG4'] },
@@ -4167,7 +4189,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.143' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.144' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7839,6 +7861,7 @@ function setupTrigger() {
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
   ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
   ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
+  _ensureSnapshotIntegrityChangeTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
   Logger.log('트리거 등록 완료: 01:10 주담대 갱신 → 15:50 종목코드 보정 → 16:20 평가단가 업데이트');
   try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
@@ -7848,11 +7871,13 @@ function _ensureDailyTriggers(autoFix) {
   var hasClean = false;
   var hasSave = false;
   var hasMortgage = false;
+  var hasIntegrityChange = false;
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (fn === 'runCodeNormalize1550') hasClean = true;
     if (fn === 'runEvalPriceUpdate1620') hasSave = true;
     if (fn === 'syncMortgageFromSchedule') hasMortgage = true;
+    if (fn === 'handleSnapshotIntegritySheetChange') hasIntegrityChange = true;
   });
 
   if (autoFix) {
@@ -7868,20 +7893,22 @@ function _ensureDailyTriggers(autoFix) {
       ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
       hasMortgage = true;
     }
+    if (!hasIntegrityChange) hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(true);
   }
-  return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage };
+  return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage, hasIntegrityChange: hasIntegrityChange };
 }
 
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  if (checkedDate === dateStr) return { checked: false, autoFixed: false };
+  var checkToken = dateStr + '|integrity-change-v1';
+  if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
-    var missing = !before.hasClean || !before.hasSave || !before.hasMortgage;
+    var missing = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasIntegrityChange;
     var after = missing ? _ensureDailyTriggers(true) : before;
-    if (after.hasClean && after.hasSave && after.hasMortgage) {
-      props.setProperty('daily_triggers_checked_date', dateStr);
+    if (after.hasClean && after.hasSave && after.hasMortgage && after.hasIntegrityChange) {
+      props.setProperty('daily_triggers_checked_date', checkToken);
     }
     if (missing) Logger.log('✅ 웹 평가가격 조회에서 누락 자동 트리거 복구 완료');
     return { checked: true, autoFixed: missing };
@@ -9203,7 +9230,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.143' });
+    return jsonOk({ settings: settings, gasVersion: '9.144' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9225,7 +9252,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.143'
+      gasVersion: '9.144'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

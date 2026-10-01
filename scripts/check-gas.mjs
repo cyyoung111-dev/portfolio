@@ -207,7 +207,7 @@ if (!source.includes('function getLatestPriceHistoryEntries(ss, codes, maxDate, 
 
 if (!source.includes('function _ensureDailyTriggersOncePerDay(dateStr)')
     || !source.includes('var triggerState = _ensureDailyTriggersOncePerDay(todayStr)')
-    || !source.includes("props.setProperty('daily_triggers_checked_date', dateStr)")
+    || !source.includes("props.setProperty('daily_triggers_checked_date', checkToken)")
     || !source.includes('function _ensureSnapshotExistsForDate(ss, dateStr)')
     || !source.includes('_ensureSnapshotExistsForDate(ss, cachedLatestDate)')) {
   console.error('❌ 웹 조회는 트리거를 일 1회 자동 점검하고 캐시 응답에서도 누락 스냅샷을 복구해야 합니다.');
