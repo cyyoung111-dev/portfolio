@@ -27,7 +27,7 @@ let observations=[],snapshots=[],snapshotPosts=0;
 const request=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots};
- if(action==='getBenchmarks')return {status:'ok',series:{KOSPI:[{date:prior,value:1}],KOSDAQ:[{date:prior,value:1}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]}};
+ if(action==='getBenchmarks'){assert.ok(params.to===prior||params.to===date);return {status:'ok',series:{KOSPI:[{date:prior,value:1}],KOSDAQ:[{date:prior,value:1}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]}};}
  if(action==='getKrxK200NightClose')return {status:'ok',observation:{seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:350,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${date}T06:00:00+09:00`,receivedAt:`${date}T06:15:00+09:00`}};
  if(action==='getExchangeRateHistory')return {status:'ok',history:[{date:prior,value:1380}]};
  if(action==='getPrices')return {status:'ok',prices:{}};
@@ -39,6 +39,14 @@ const request=async(action,params={})=>{
 let result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
 assert.equal(result.decision.publishable,true,'KIS 없이 KRX 공식 NIGHT_FINAL로 MORNING publish 가능');
 assert.equal(snapshots.length,1);
+globalThis.localStorage.clear();observations=[];snapshots=[];
+let benchmarkTo='';
+const lateMorning=async(action,params)=>{if(action==='getBenchmarks'){benchmarkTo=params.to;const response=await request(action,params);for(const points of Object.values(response.series)){if(params.to===date)points.push({date,value:999});}return response;}return request(action,params);};
+result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:lateMorning,receivedAt:'2026-09-19T10:00:00+09:00'});
+assert.equal(benchmarkTo,prior,'장전 수집은 당일 종가를 요청하지 않음');
+assert.equal(result.decision.publishable,true);
+assert.equal(snapshots[0].values.KOSPI200.value,1,'장전 이후 생성된 종가는 소급 장전에 반영하지 않음');
+snapshotPosts=1;
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
 assert.equal(snapshots.length,1,'동일 checkpoint snapshot은 중복 저장되지 않음');
 assert.equal(snapshotPosts,2,'서버 immutable endpoint가 재실행을 idempotent 처리');

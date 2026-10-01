@@ -1,3 +1,11 @@
+## Headless 운영 진단 보완 (2026-10-01)
+
+- 이 변경은 headless 실행기와 workflow에 적용되며 GAS 재배포는 필요하지 않습니다. 환율 API의 기존 `CONFIRMED/NO_DATA` 응답을 수용하고 `MISSING_SOURCE/INVALID_SCHEMA`는 별도 오류로 구분합니다.
+- 예약 실행은 실행 시각 이전의 가장 최근 cron 슬롯의 KST 날짜를 사용합니다. 자정을 지난 EVENING 지연 실행도 원래 거래일을 유지하며, 수동 `trading_date`가 우선합니다. 하루 이상 지연되면 원래 이벤트 날짜를 cron 문자열만으로 복원할 수 없으므로 정확한 날짜를 지정해 수동 검증해야 합니다.
+- MORNING 비교지수는 거래일 전날까지의 실제 일봉을 조회해 소급 재실행 시 당일 장중·종가가 직전 종가를 가리지 않게 합니다. 값이나 관측시각을 임의 생성하지 않습니다.
+- 최종 JSON의 `providerErrorDetails`, `masterPersistence`, `snapshotPersistence`, `readinessSeries`를 함께 확인합니다. 민감 인증값은 오류 상세에서 마스킹합니다.
+- 운영 검증에서 Toss OAuth 403 access_denied, KRX 야간 API 401, 환율이력 MISSING_SOURCE가 확인됐습니다. GAS 요청 토큰과 공급자 인증은 별개입니다. Toss 승인·허용 IP 및 KRX endpoint 사용 권한을 확인하고, 확인된 날짜별 환율 원천을 준비한 뒤 재검증합니다. 승인되지 않은 값을 확정으로 승격하거나 현재 환율로 과거 이력을 채우지 않습니다.
+
 ## GAS v9.138 / 웹 20260929-12: 브리핑 국내 핵심주 공식 종가 보강
 
 - GAS v9.138은 브리핑의 삼성전자(005930)·SK하이닉스(000660)를 기존 KRX 종가 helper로 read-only 조회하며, 요청일과 `usedDate`가 같은 양수 공식 종가만 `FINAL/REGULAR_CLOSE`로 사용합니다. 가격이력이나 Portfolio Snapshot에는 쓰지 않습니다.

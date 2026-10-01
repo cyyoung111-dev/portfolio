@@ -82,7 +82,9 @@ function diagnosticFor(result, token = '') {
     readinessSeries:result.decision?.data?.snapshot?.values || {}, warnings:result.decision?.data?.warnings || [] };
 }
 export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt }) {
-  const request = suppliedRequest || createRequest(url, token);
+  const baseRequest = suppliedRequest || createRequest(url, token);
+  // 장전 재실행에서는 장전 이후의 당일 일봉 대신 실제 직전 거래일 자료를 조회한다.
+  const request = (action, params = {}) => baseRequest(action, action === 'getBenchmarks' && checkpoint === 'MORNING' ? { ...params, to:dateOffset(tradingDate, -1) } : params);
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
   const sync = await runtime.syncServerMaster(request, request, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10), scheduledToleranceSeconds:300, receivedAt });
   if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null, successful:runtime.hasNightFinal(tradingDate) };
