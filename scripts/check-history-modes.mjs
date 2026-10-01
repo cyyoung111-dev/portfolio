@@ -26,6 +26,10 @@ assert.match(pipelineSource, /integrityDateRevisions\[snapshot\.date\]/, '전역
 const cacheSnapshots=[{date:'2026-09-27',costAmt:100,evalAmt:120,pnl:20},{date:'2026-09-28',costAmt:100,evalAmt:90,pnl:-10}];
 const cacheRevisions={'2026-09-27':'7','2026-09-28':'8'};
 const cacheFixture={};
+const migratedRevision=String(1760000000000);
+const migratedCache={};
+migratedCache[signatureContext.signature(cacheSnapshots[0],migratedRevision)]={date:'2026-09-27',status:'VALID'};
+assert.equal(signatureContext.cached([cacheSnapshots[0]],{'2026-09-27':migratedRevision},migratedCache)[0].status,'VALID','정수 migration revision은 웹 cache lookup에 사용 가능');
 cacheFixture[signatureContext.signature(cacheSnapshots[0],'7')]={date:'2026-09-27',status:'MISMATCH'};
 cacheFixture[signatureContext.signature(cacheSnapshots[1],'8')]={date:'2026-09-28',status:'PRICE_SUSPICIOUS'};
 assert.deepEqual(Array.from(signatureContext.cached(cacheSnapshots,cacheRevisions,cacheFixture),item=>item.status),['MISMATCH','PRICE_SUSPICIOUS'],'cached blocking 상태를 최초 렌더 전에 복원');

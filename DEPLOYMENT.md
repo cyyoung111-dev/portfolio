@@ -779,3 +779,7 @@ GAS 메뉴 및 시트 구성:
 - tracked source 시트의 행·열 삽입/삭제를 설치형 `onChange` trigger로 감지해 보수적으로 integrity cache를 무효화합니다.
 - 이미 cache된 blocking 진단은 최초 손익 그래프 렌더 전에 반영하고, 좌수 편집기를 새로 열 때 이전 복구 상세·재처리 상태를 초기화합니다.
 - 운영 반영에는 GAS v9.144와 정적 웹 cache `portfolio-cache-20261001-3`을 함께 재배포해야 합니다.
+
+## GAS v9.145 integrity migration revision 정수화 (2026-10-01)
+- 신규·legacy·malformed revision state의 migration revision을 정수로 생성하고, 기존 소수 revision state도 전체 재진단 state로 안전하게 이관합니다.
+- 운영 반영에는 GAS v9.145와 정적 웹 cache `portfolio-cache-20261001-4`를 함께 재배포해야 합니다.

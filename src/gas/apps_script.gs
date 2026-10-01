@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.144
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.145
+//
+//  v9.145 변경사항 (2026.10.01):
+//   Snapshot integrity migration revision 정수 보장
 //
 //  v9.144 변경사항 (2026.10.01):
 //   시트 구조 변경 invalidation·초기 cache 보호·좌수 editor session 초기화
@@ -3932,14 +3935,19 @@ function _getSnapshotIntegritySourceRevision() {
   return String(state.revision || 0);
 }
 
+function _isSnapshotIntegrityRevision(value) {
+  var revision = Number(value);
+  return isFinite(revision) && revision >= 0 && Math.floor(revision) === revision && revision <= Number.MAX_SAFE_INTEGER;
+}
+
 function _getSnapshotIntegrityRevisionState() {
   var props = PropertiesService.getScriptProperties(), raw = props.getProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY);
   try {
     var parsed = JSON.parse(raw || '{}');
-    if (parsed && typeof parsed === 'object' && isFinite(Number(parsed.revision)) && isFinite(Number(parsed.all))
+    if (parsed && typeof parsed === 'object' && _isSnapshotIntegrityRevision(parsed.revision) && _isSnapshotIntegrityRevision(parsed.all)
         && parsed.dates && typeof parsed.dates === 'object' && !Array.isArray(parsed.dates) && Array.isArray(parsed.ranges)
-        && Object.keys(parsed.dates).every(function(date) { return !!_normalizeDate(date) && isFinite(Number(parsed.dates[date])); })
-        && parsed.ranges.every(function(item) { return item && !!_normalizeDate(item.from) && isFinite(Number(item.revision)); })) {
+        && Object.keys(parsed.dates).every(function(date) { return !!_normalizeDate(date) && _isSnapshotIntegrityRevision(parsed.dates[date]); })
+        && parsed.ranges.every(function(item) { return item && !!_normalizeDate(item.from) && _isSnapshotIntegrityRevision(item.revision); })) {
       var valid = { revision: Number(parsed.revision), all: Number(parsed.all), dates: parsed.dates, ranges: parsed.ranges };
       if (String(raw || '').length > SNAPSHOT_INTEGRITY_STATE_MAX_CHARS) {
         try { return _saveSnapshotIntegrityRevisionState(valid); }
@@ -3948,7 +3956,7 @@ function _getSnapshotIntegrityRevisionState() {
     }
   } catch (ignore) {}
   // scalar(v9.140/9.141), partial/malformed, missing 값은 기존 cache와 절대 매칭되지 않는 전체 revision으로 이관합니다.
-  var migrationRevision = Date.now() + Math.random();
+  var migrationRevision = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   var migrated = { revision: migrationRevision, all: migrationRevision, dates: {}, ranges: [] };
   try { props.setProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY, JSON.stringify(migrated)); }
   catch (migrationError) {
@@ -3981,6 +3989,11 @@ function _compactSnapshotIntegrityRevisionState(state) {
 
 function _saveSnapshotIntegrityRevisionState(state) {
   state = _compactSnapshotIntegrityRevisionState(state);
+  if (!_isSnapshotIntegrityRevision(state.revision) || !_isSnapshotIntegrityRevision(state.all)
+      || !Object.keys(state.dates || {}).every(function(date) { return _isSnapshotIntegrityRevision(state.dates[date]); })
+      || !(state.ranges || []).every(function(item) { return _isSnapshotIntegrityRevision(item.revision); })) {
+    throw new Error('Snapshot integrity revision은 안전한 정수여야 합니다.');
+  }
   var serialized = JSON.stringify(state), props = PropertiesService.getScriptProperties();
   if (serialized.length > SNAPSHOT_INTEGRITY_STATE_MAX_CHARS) throw new Error('Snapshot integrity revision state 크기 제한 초과');
   try { props.setProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY, serialized); }
@@ -3997,7 +4010,7 @@ function _touchSnapshotIntegritySourceRevision(impact) {
   try {
     if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; }
     var state = _getSnapshotIntegrityRevisionState();
-    var revision = Math.max(Number(state.revision || 0) + 1, Date.now());
+    var revision = Math.max(Math.floor(Number(state.revision || 0)) + 1, Date.now());
     state.revision = revision;
     impact = impact || { all: true };
     var dates = (impact.dates || (impact.date ? [impact.date] : [])).map(_normalizeDate).filter(Boolean);
@@ -4189,7 +4202,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.144' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.145' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9230,7 +9243,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.144' });
+    return jsonOk({ settings: settings, gasVersion: '9.145' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9252,7 +9265,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.144'
+      gasVersion: '9.145'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

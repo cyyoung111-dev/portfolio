@@ -158,8 +158,13 @@ assert.equal(isolatedAfter['2026-01-01'],isolatedBefore['2026-01-01'],'Snapshot 
 assert.notEqual(isolatedAfter['2026-01-02'],isolatedBefore['2026-01-02'],'Snapshot 변경 날짜 revision 갱신');
 context._touchSnapshotIntegritySourceRevision({from:'2026-01-02'});
 const rangeAfter=clone(context._snapshotIntegrityDateRevisions(['2026-01-01','2026-01-02','2026-01-03']));
+assert(Object.values(rangeAfter).every(value=>/^\d+$/.test(value)),'normal touch revision은 정수 문자열');
 assert.equal(rangeAfter['2026-01-01'],isolatedBefore['2026-01-01'],'거래/NAV 영향 시작일 이전 cache 유지');
 assert.equal(rangeAfter['2026-01-02'],rangeAfter['2026-01-03'],'거래/NAV 영향 시작일 이후 범위 invalidation');
+scriptProperties.delete('snapshot_integrity_source_revision_v1');
+const missingMigrated=clone(context._getSnapshotIntegrityRevisionState());
+assert(Number.isSafeInteger(missingMigrated.revision)&&/^\d+$/.test(String(missingMigrated.revision)),'property 없음 migration revision은 cache key에 사용할 수 있는 정수');
+assert(Object.values(clone(context._snapshotIntegrityDateRevisions(['2026-01-01']))).every(value=>/^\d+$/.test(value)),'날짜별 revision 응답은 정수 문자열');
 assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('가격이력', [['2026-02-03'],['2026-02-03']])),{from:'2026-02-03'},'가격 변경은 carry 영향을 고려해 해당 평가일부터 이후를 invalidate');
 assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('스냅샷', [['2026-02-03'],['2026-02-03']])),{dates:['2026-02-03']},'Snapshot 상세행 변경은 해당 날짜만 invalidate');
 assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('펀드기준가격', [['2026-02-05'],['2026-02-03']])),{from:'2026-02-03'},'펀드 NAV 변경은 가장 이른 공시일부터 carry 이후 범위 invalidate');
@@ -172,12 +177,17 @@ const compactedRaw=scriptProperties.get('snapshot_integrity_source_revision_v1')
 const compacted=JSON.parse(compactedRaw);
 assert(compactedRaw.length<=7000,'365일 이상 dates와 다수 ranges도 단일 property 안전 상한 이내');
 assert(compacted.all>0,'compact로 제거한 revision은 all로 승격해 invalidation 의미 유지');
+assert(Number.isSafeInteger(compacted.revision)&&Number.isSafeInteger(compacted.all)
+  && Object.values(compacted.dates).every(Number.isSafeInteger)
+  && compacted.ranges.every(item=>Number.isSafeInteger(item.revision)),'compact 후 date/all/range revision은 모두 안전한 정수');
 scriptProperties.set('snapshot_integrity_source_revision_v1','legacy-v9.141-revision');
 const legacyMigrated=clone(context._getSnapshotIntegrityRevisionState());
 assert(legacyMigrated.all>0&&legacyMigrated.revision===legacyMigrated.all,'legacy scalar revision은 전체 재진단 state로 migration');
+assert(Number.isSafeInteger(legacyMigrated.revision)&&/^\d+$/.test(String(legacyMigrated.revision)),'legacy migration revision은 정수');
 scriptProperties.set('snapshot_integrity_source_revision_v1','{"revision":12,"dates":');
 const malformedMigrated=clone(context._getSnapshotIntegrityRevisionState());
 assert(malformedMigrated.all>0&&malformedMigrated.revision===malformedMigrated.all,'malformed revision state는 전체 재진단 fallback');
+assert(Number.isSafeInteger(malformedMigrated.revision)&&/^\d+$/.test(String(malformedMigrated.revision)),'malformed migration revision은 정수');
 const beforePropertyFailure=scriptProperties.get('snapshot_integrity_source_revision_v1');
 failRevisionPropertyWrite=true;
 assert.throws(()=>context._touchSnapshotIntegritySourceRevision({date:'2026-04-01'}),/property quota/,'revision 저장 실패를 정상 확정하면 안 됨');
