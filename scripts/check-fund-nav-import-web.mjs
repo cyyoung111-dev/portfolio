@@ -81,6 +81,11 @@ const retryRegression = clone(context._mergeFundRecoveryRetryTargets([], {F00001
   {code:'F00001',date:'2026-09-22',navState:'NAV_MISSING',evaluationState:'WRITE_REQUIRED',snapshotState:'WRITE_REQUIRED'},
 ]}}));
 assert.deepEqual(retryRegression,[{code:'F00001',date:'2026-09-22'}],'월·목·주말 정상 비공시일은 제외하고 실제 미완료 공시일만 재처리');
+assert.equal(context._fundRecoveryNeedsRetry({navState:'NON_PUBLICATION_CARRY',valuationRequired:false,evaluationState:'NOT_CREATED',snapshotState:'NOT_CREATED'}),false,'현재 정책상 평가 생성 대상이 아닌 비공시일은 재처리하지 않음');
+assert.equal(context._fundRecoveryNeedsRetry({navState:'NON_PUBLICATION_CARRY',valuationRequired:true,evaluationState:'EXISTING_VALID',snapshotState:'NOT_CREATED'}),true,'실제 생성 대상 Snapshot 누락은 비공시 carry여도 재처리 유지');
+assert.equal(context._fundRecoveryNeedsRetry({navState:'NAV_MISSING',valuationRequired:true,evaluationState:'EXISTING_VALID',snapshotState:'EXISTING_VALID'}),true,'NAV 미확정은 파생 데이터 완료와 별도 재처리 상태 유지');
+assert.match(source, /_fundRecoveryDetailsOpen \? `<details open>/, '복구 상세 날짜는 사용자가 열 때만 DOM에 생성');
+assert.doesNotMatch(source, /실패·미확정 날짜만 재처리/, '정상 제외 날짜와 혼동되는 기존 대량 버튼 제목 제거');
 const timeoutUnknown = Array.from({length:7},(_,index)=>({code:'F00001',date:`2026-09-${String(21+index).padStart(2,'0')}`,navState:'UNKNOWN_AFTER_CLIENT_ERROR',evaluationState:'UNKNOWN_AFTER_CLIENT_ERROR',snapshotState:'UNKNOWN_AFTER_CLIENT_ERROR'}));
 assert.deepEqual(clone(context._mergeFundRecoveryRetryTargets([], {F00001:{dates:timeoutUnknown}})),[],'client timeout만으로 7일 전체를 retry target으로 만들지 않음');
 context.requestGsheetActionJson = async () => ({status:'ok',fundResults:{F00001:{dates:timeoutUnknown.map((day,index)=>index === 1

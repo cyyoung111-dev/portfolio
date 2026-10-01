@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.140
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.141
+//
+//  v9.141 변경사항 (2026.09.30):
+//   Snapshot cache 무효화·가격 이상 보호·펀드 복구 상태/UI 보강
 //
 //  v9.140 변경사항 (2026.09.30):
 //   Snapshot 정합성 원자료 revision으로 브라우저 진단 캐시 무효화 보강
@@ -3918,13 +3921,13 @@ function _getSnapshotIntegritySourceRevision() {
 }
 
 function _touchSnapshotIntegritySourceRevision() {
-  var revision = Date.now() + '-' + Utilities.getUuid();
+  var revision = Date.now() + '-' + Math.random().toString(36).slice(2);
   PropertiesService.getScriptProperties().setProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY, revision);
   return revision;
 }
 
 function _isSnapshotIntegritySourceSheet(name) {
-  return [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'].indexOf(String(name || '')) !== -1;
+  return [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'].indexOf(String(name || '')) !== -1;
 }
 
 // 사용자가 정합성 원자료 시트를 직접 수정한 경우도 내부 저장 경로와 동일하게 cache를 무효화합니다.
@@ -4039,7 +4042,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.140' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.141' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4299,15 +4302,16 @@ function _getFundValuationStatus(ss, from, to, code) {
     var value = valueByDate[date];
     var price = derived.priceKeys[date + '|' + code];
     var snapshot = derived.snapshotKeys[date + '|' + code];
+    var valuationRequired = !!value;
     var navState = confirmed[date] ? 'EXISTING_CONFIRMED' : (!expected ? 'NON_PUBLICATION_CARRY' : (date === today() ? 'UNPUBLISHED' : 'NAV_MISSING'));
     var expectedSource = value && (value.inputRequired ? 'FUND_NAV_CARRY_INPUT_REQUIRED' : (value.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV'));
     var priceSource = String(price && price[5] || '').toUpperCase();
     var evaluationValid = !!value && !!price && (priceSource === 'MANUAL' || (Number(price[3]) === value.evalAmt && priceSource === expectedSource));
     var snapshotSource = String(snapshot && snapshot[10] || '').toUpperCase();
     var snapshotValid = !!value && evaluationValid && !!snapshot && (snapshotSource === 'MANUAL' || (Number(snapshot[7]) === Number(price[3]) && snapshotSource === priceSource));
-    dates.push({ code: code, date: date, publicationExpected: expected, navState: navState, unitsApplied: !!value,
-      evaluationState: evaluationValid ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED'),
-      snapshotState: snapshotValid ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED'), reconciled: true });
+    dates.push({ code: code, date: date, publicationExpected: expected, navState: navState, unitsApplied: !!value, valuationRequired: valuationRequired,
+      evaluationState: !valuationRequired ? 'NOT_REQUIRED' : (evaluationValid ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED')),
+      snapshotState: !valuationRequired ? 'NOT_REQUIRED' : (snapshotValid ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED')), reconciled: true });
   }
   return { code: code, dates: dates };
 }
@@ -4325,9 +4329,10 @@ function _getFundNavStatus(ss, configs) {
   var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
-  var temporaryKeys = {};
+  var representativePrices = {};
   prices.forEach(function(row) {
-    if (String(row[5] || '').toUpperCase() === 'FUND_NAV_CARRY_INPUT_REQUIRED') temporaryKeys[_normalizeDate(row[0]) + '|' + _cleanCode(row[1])] = true;
+    var key = _normalizeDate(row[0]) + '|' + _cleanCode(row[1]);
+    if (!representativePrices[key] || String(row[5] || '').toUpperCase() === 'MANUAL') representativePrices[key] = row;
   });
   var codes = configs.map(function(config) { return config.code; }).filter(function(code, index, all) { return all.indexOf(code) === index; });
   var statuses = codes.map(function(code) {
@@ -4344,7 +4349,8 @@ function _getFundNavStatus(ss, configs) {
       if (confirmed[date]) { completedCount++; continue; }
       if (!_fundNavExpectedPublicationDate(date, code)) { nonPublicationExcluded++; continue; }
       if (date < today()) missing.push(date);
-      if (temporaryKeys[date + '|' + code]) temporary.push(date);
+      var representative = representativePrices[date + '|' + code];
+      if (representative && String(representative[5] || '').toUpperCase() === 'FUND_NAV_CARRY_INPUT_REQUIRED') temporary.push(date);
     }
     var latest = navRows.length ? navRows[navRows.length - 1] : null;
     return { code: code, provider: config.provider, from: from, to: to,
@@ -4488,6 +4494,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       fundResult.dates = activeDates.map(function(activeDate) {
         var value = codeValues.find(function(item) { return item.date === activeDate; });
         var target = targetValues.some(function(item) { return item.date === activeDate; });
+        var valuationRequired = !!value;
         var expected = _fundNavExpectedPublicationDate(activeDate, code);
         var navState = storedPublicationDates[activeDate] ? 'EXISTING_CONFIRMED' :
           (confirmedNavDates[activeDate] ? 'FETCHED_CONFIRMED' :
@@ -4497,8 +4504,9 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
         if (error && expected && !confirmedNavDates[activeDate]) navState = 'API_FAILED';
         else if (!expected || confirmedNavDates[activeDate]) error = null;
         return { date: activeDate, publicationExpected: expected, navState: navState,
-          unitsApplied: !!value, evaluationState: value ? (target ? 'WRITE_REQUIRED' : 'EXISTING_VALID') : 'NOT_CREATED',
-          snapshotState: snapshotKeys[activeDate + '|' + code] ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED'),
+          unitsApplied: !!value, valuationRequired: valuationRequired,
+          evaluationState: !valuationRequired ? 'NOT_REQUIRED' : (value ? (target ? 'WRITE_REQUIRED' : 'EXISTING_VALID') : 'NOT_CREATED'),
+          snapshotState: !valuationRequired ? 'NOT_REQUIRED' : (snapshotKeys[activeDate + '|' + code] ? 'EXISTING_VALID' : (value ? 'WRITE_REQUIRED' : 'NOT_CREATED')),
           failureStage: error ? 'externalNavFetch' : '', failureReason: error ? error.message : '' };
       });
       values = values.concat(targetValues);
@@ -5229,6 +5237,7 @@ function _appendFundImportSnapshotRows(ss, sheet, rows) {
   if (!rows.length) return 0;
   _ensureFundImportRowCapacity(ss, sheet, rows.length);
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 12).setValues(rows);
+  _touchSnapshotIntegritySourceRevision();
   return rows.length;
 }
 
@@ -5247,6 +5256,7 @@ function _upsertFundImportSnapshotRow(ss, sheet, value, fundRow) {
   while (existing.length < 12) existing.push('');
   if (JSON.stringify(existing) === JSON.stringify(fundRow)) return 0;
   sheet.getRange(matchIndex + 2, 1, 1, 12).setValues([fundRow]);
+  _touchSnapshotIntegritySourceRevision();
   return 1;
 }
 
@@ -6488,7 +6498,10 @@ function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
     sourceCells[index] = [nextSource, ''];
     changed++;
   });
-  if (changed > 0) sh.getRange(2, 11, rowCount, 2).setValues(sourceCells);
+  if (changed > 0) {
+    sh.getRange(2, 11, rowCount, 2).setValues(sourceCells);
+    _touchSnapshotIntegritySourceRevision();
+  }
   return changed;
 }
 
@@ -8342,6 +8355,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
       sh.getRange(1,1,1,colSize).setValues(header);
       sh.getRange(1,1,1,colSize).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
       if (newRows.length > 0) sh.getRange(2, 1, newRows.length, colSize).setValues(_normalizeCodeRows(newRows, 1));
+      if (newRows.length > 0) _touchSnapshotIntegritySourceRevision();
       return;
     }
 
@@ -8390,13 +8404,14 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
       _setCodeColumnText(sh, 2);
       output = [output[0]].concat(_normalizeCodeRows(output.slice(1), 1));
       sh.getRange(1, 1, output.length, colSize).setValues(output);
+      _touchSnapshotIntegritySourceRevision();
       _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
       if (snapshotBackupRecord) {
         snapshotBackupRecord.cleanup = _snapshotBackupOperationId ? null : _cleanupSystemBackups(ss, CONFIG.SHEET_SNAPSHOT);
         PropertiesService.getScriptProperties().setProperty('snapshot_backup_last_status', JSON.stringify(snapshotBackupRecord));
       }
     } else {
-      if (newRows.length > 0) { _setCodeColumnText(sh, 2); sh.getRange(sh.getLastRow() + 1, 1, newRows.length, colSize).setValues(_normalizeCodeRows(newRows, 1)); }
+      if (newRows.length > 0) { _setCodeColumnText(sh, 2); sh.getRange(sh.getLastRow() + 1, 1, newRows.length, colSize).setValues(_normalizeCodeRows(newRows, 1)); _touchSnapshotIntegritySourceRevision(); }
     }
   } catch(err) {
     _markSnapshotBackupStatus(snapshotBackupRecord, 'WRITE_FAILED', err.message);
@@ -9048,7 +9063,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.140' });
+    return jsonOk({ settings: settings, gasVersion: '9.141' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9070,7 +9085,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.140'
+      gasVersion: '9.141'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

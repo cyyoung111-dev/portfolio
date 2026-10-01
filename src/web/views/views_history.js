@@ -36,7 +36,7 @@ const HISTORY_BENCHMARK_VISUALS = Object.freeze({
   NASDAQ100: { color: '#a78bfa', dash: '' },
 });
 
-const HISTORY_BLOCKING_INTEGRITY_STATUSES = Object.freeze(['PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT']);
+const HISTORY_BLOCKING_INTEGRITY_STATUSES = Object.freeze(['PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT', 'PRICE_SUSPICIOUS']);
 function _isVerifiedHistoryPoint(point) {
   return !HISTORY_BLOCKING_INTEGRITY_STATUSES.includes(String(point?.integrityStatus || 'UNCHECKED'));
 }

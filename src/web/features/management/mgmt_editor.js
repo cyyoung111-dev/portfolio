@@ -14,6 +14,8 @@ let _fundUnitDrafts = {};
 let _fundUnitBusy = false;
 let _fundUnitsStatus = '';
 let _fundRecoveryRetryTargets = [];
+let _fundRecoveryDetailsText = '';
+let _fundRecoveryDetailsOpen = false;
 let _editorMode = 'price';
 let _fundNavPasteTimer = 0;
 let _fundNavPasteRequestId = 0;
@@ -274,7 +276,8 @@ function _renderFundUnitsEditor(items) {
       ${['F00001','F00002','F00003'].map(code => `<button type="button" class="fund-action fund-action-secondary" data-fund-action="fill" data-fund-code="${code}" ${_fundUnitBusy ? 'disabled' : ''}>${code} 업데이트</button>`).join('')}
     </div>
     <p role="status" style="white-space:pre-line">${_escapeHtml(_fundUnitsStatus)}</p>
-    ${_fundRecoveryRetryTargets.length ? `<div class="fund-actions"><b>실패·미확정 날짜만 재처리</b>${_fundRecoveryRetryTargets.slice(0, 20).map(item => `<button type="button" class="fund-action fund-action-secondary" data-fund-action="fill-date" data-fund-code="${_escapeHtml(item.code)}" data-fund-date="${_escapeHtml(item.date)}" ${_fundUnitBusy ? 'disabled' : ''}>${_escapeHtml(item.code)} ${_escapeHtml(item.date)}</button>`).join('')}</div>` : ''}</section>`;
+    ${_fundRecoveryDetailsText || _fundRecoveryRetryTargets.length ? `<button type="button" class="btn-ghost-sm" data-fund-action="toggle-recovery-details">${_fundRecoveryDetailsOpen ? '상세 날짜 닫기' : '상세 날짜 보기'}</button>` : ''}
+    ${_fundRecoveryDetailsOpen ? `<details open><summary>복구 처리 상세</summary><p style="white-space:pre-line">${_escapeHtml(_fundRecoveryDetailsText)}</p>${_fundRecoveryRetryTargets.length ? `<div class="fund-actions"><b>실제 조치 필요 ${_fundRecoveryRetryTargets.length}건</b>${_fundRecoveryRetryTargets.slice(0, 20).map(item => `<button type="button" class="fund-action fund-action-secondary" data-fund-action="fill-date" data-fund-code="${_escapeHtml(item.code)}" data-fund-date="${_escapeHtml(item.date)}" ${_fundUnitBusy ? 'disabled' : ''}>${_escapeHtml(item.code)} ${_escapeHtml(item.date)}</button>`).join('')}</div>` : ''}</details>` : ''}</section>`;
 }
 
 function _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, currentRange, recoveryCodes) {
@@ -301,27 +304,33 @@ function _fundRecoveryOutcome(from, to, fundStats) {
   const published = days.filter(item => ['EXISTING_CONFIRMED','FETCHED_CONFIRMED'].includes(item.navState) && !_fundRecoveryNeedsRetry(item));
   const carried = days.filter(item => item.navState === 'NON_PUBLICATION_CARRY' && !_fundRecoveryNeedsRetry(item));
   const pending = days.filter(item => ['UNPUBLISHED','NAV_MISSING'].includes(item.navState));
-  const derivedPending = days.filter(item => !pending.includes(item) && ['WRITE_REQUIRED','NOT_CREATED','NOT_PROCESSED'].includes(item.evaluationState)
-    || !pending.includes(item) && ['WRITE_REQUIRED','NOT_CREATED','NOT_PROCESSED'].includes(item.snapshotState));
+  const derivedPending = days.filter(item => item.valuationRequired !== false && !pending.includes(item) && (
+    ['WRITE_REQUIRED','NOT_CREATED','NOT_PROCESSED'].includes(item.evaluationState)
+    || ['WRITE_REQUIRED','NOT_CREATED','NOT_PROCESSED'].includes(item.snapshotState)));
   const unknown = days.filter(item => item.navState === 'UNKNOWN_AFTER_CLIENT_ERROR');
   const failed = days.filter(item => item.failureReason || ['API_FAILED','FAILED'].includes(item.navState));
   const retry = days.filter(_fundRecoveryNeedsRetry);
   const snapshotSaved = days.filter(item => item.snapshotState === 'SAVED_OR_UPDATED');
   const snapshotKept = days.filter(item => item.snapshotState === 'EXISTING_VALID');
+  _fundRecoveryDetailsText = `[정상 공시 완료] ${labels(published) || '없음'}\n[정상 비공시/직전 NAV 이월] ${labels(carried) || '없음'}\n` +
+    `[실제 NAV 미확정] ${labels(pending) || '없음'}\n[평가/Snapshot 미완료] ${labels(derivedPending) || '없음'}\n` +
+    `[결과 확인 필요] ${labels(unknown) || '없음'}\n[실패] ${failed.length ? failed.slice(0, 12).map(item => `${item.code} ${item.date} ${item.failureStage || ''}: ${item.failureReason}`).join('; ') : '없음'}\n` +
+    `[스냅샷] 생성·갱신 ${snapshotSaved.length}건 · 기존 유지 ${snapshotKept.length}건\n[재처리] ${labels(retry) || '대상 없음'}`;
   return `[처리 요약] ${from} ~ ${to} · 날짜 ${days.length}건\n` +
-    `[정상 공시 완료] ${published.length}건${published.length ? ` · ${labels(published)}` : ''}\n` +
-    `[정상 비공시/직전 NAV 이월] ${carried.length}건${carried.length ? ` · ${labels(carried)}` : ''}\n` +
-    `[실제 NAV 미확정] ${pending.length}건${pending.length ? ` · ${labels(pending)}` : ''}\n` +
-    `[평가/Snapshot 미완료] ${derivedPending.length}건${derivedPending.length ? ` · ${labels(derivedPending)}` : ''}\n` +
-    `[결과 확인 필요] ${unknown.length}건${unknown.length ? ` · ${labels(unknown)}` : ''}\n` +
-    `[실패] ${failed.length}건${failed.length ? ` · ${failed.slice(0, 12).map(item => `${item.code} ${item.date} ${item.failureStage || ''}: ${item.failureReason}`).join('; ')}` : ''}\n` +
+    `[정상 공시 완료] ${published.length}건\n` +
+    `[정상 비공시/직전 NAV 이월] ${carried.length}건\n` +
+    `[실제 NAV 미확정] ${pending.length}건\n` +
+    `[평가/Snapshot 미완료] ${derivedPending.length}건\n` +
+    `[결과 확인 필요] ${unknown.length}건\n` +
+    `[실패] ${failed.length}건\n` +
     `[스냅샷] 생성·갱신 ${snapshotSaved.length}건 · 기존 유지 ${snapshotKept.length}건\n` +
-    `[재처리 ${retry.length}건] ${labels(retry) || '대상 없음'}`;
+    `[재처리] ${retry.length}건`;
 }
 
 function _fundRecoveryNeedsRetry(item) {
   if (!item || item.navState === 'UNKNOWN_AFTER_CLIENT_ERROR') return false;
   if (item.failureReason || ['UNPUBLISHED','NAV_MISSING','API_FAILED','FAILED'].includes(item.navState)) return true;
+  if (item.valuationRequired === false) return false;
   return ['NOT_CREATED','NOT_PROCESSED','WRITE_REQUIRED'].includes(item.evaluationState)
     || ['NOT_CREATED','NOT_PROCESSED','WRITE_REQUIRED'].includes(item.snapshotState);
 }
@@ -332,7 +341,7 @@ function _mergeFundRecoveryRetryTargets(existingTargets, fundStats) {
     const key = `${item.code}|${item.date}`;
     const needsRetry = _fundRecoveryNeedsRetry(item);
     if (needsRetry) retryByKey.set(key, { code: item.code, date: item.date });
-    else if (['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.evaluationState)
+    else if (item.valuationRequired === false || ['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.evaluationState)
       && ['EXISTING_VALID','SAVED_OR_UPDATED'].includes(item.snapshotState)) retryByKey.delete(key);
   });
   return [...retryByKey.values()].sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code));
@@ -362,6 +371,11 @@ async function _loadFundUnitsEditor() {
 
 async function handleFundUnitAction(action, code, date = '') {
   if (_fundUnitBusy) return;
+  if (action === 'toggle-recovery-details') {
+    _fundRecoveryDetailsOpen = !_fundRecoveryDetailsOpen;
+    buildEditorUI();
+    return;
+  }
   if (action === 'fill-date') {
     _fundUnitDrafts.range = { ...(_fundUnitDrafts.range || {}), from: date, to: date };
     document.querySelector('[data-fund-code="range"][data-fund-field="from"]')?.setAttribute('value', date);
@@ -482,7 +496,8 @@ async function handleFundUnitAction(action, code, date = '') {
       }
       _editorHistoryCache.clear();
       _fundRecoveryRetryTargets = _mergeFundRecoveryRetryTargets(_fundRecoveryRetryTargets, fundStats);
-      _fundUnitsStatus = `${_fundRecoveryOutcome(from, to, fundStats)}\n${_fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, '요청 종료', recoveryCodes)} · 최신 공시 적용일 ${lastDate || '없음'}${missing ? ` · 거래이력 없어 스냅샷 보류 ${missing}건` : ''}. 처리율은 성공률이 아니며, NAV 입력 필요일은 직전 확정 NAV를 사용한 임시 평가로 구분했습니다.`;
+      _fundUnitsStatus = `${_fundRecoveryOutcome(from, to, fundStats)}\n[최신 공시 적용일] ${lastDate || '없음'}${missing ? `\n[거래이력 없어 Snapshot 보류] ${missing}건` : ''}`;
+      _fundRecoveryDetailsText += `\n${_fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, '요청 종료', recoveryCodes)}`;
       await loadEditorPricesByDate($el('editorDate')?.value || _kstTodayStr());
       recomputeRows(); saveHoldings(); renderSummary();
     }

@@ -142,10 +142,12 @@ const operationSheet=new Sheet([header,snap('2026-01-01','000001',100),snap('202
 const operationSheets={'스냅샷':operationSheet};
 const operationSs=ssFor(operationSheets);
 const operationUuidBefore=uuidSequence;
+const integrityRevisionBefore=scriptProperties.get('snapshot_integrity_source_revision_v1');
 context._snapshotBackupOperationId='multi-date-recovery';
 context.writeSnapshotRows(operationSs,'2026-01-01',[snap('2026-01-01','000001',101)],true);
 context.writeSnapshotRows(operationSs,'2026-01-02',[snap('2026-01-02','000001',111)],true);
 context._snapshotBackupOperationId='';
+assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),integrityRevisionBefore,'Snapshot 상세행 저장은 합계와 무관하게 integrity cache revision 갱신');
 assert.equal(uuidSequence-operationUuidBefore,1,'하나의 다일자 논리 작업은 전체 Snapshot 백업을 한 번만 생성');
 assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스트 형식으로 고정');
 assert.equal(held,false);
@@ -202,6 +204,19 @@ const fidelityStatus=clone(context._getFundNavStatus(ssFor({
 }),fidelity2026)).find(item=>item.code==='F00003');
 assert.equal(fidelityStatus.inputRequiredDates.some(date=>date>='2026-08-25'),false,'F00003 0좌 이후는 NAV 누락 목록에서 제외');
 assert(fidelityStatus.zeroUnitsExcluded>0,'F00003 0좌 제외 상태를 현황에 반환');
+
+const duplicatePriceConfigs=[{code:'F00002',name:'KB',provider:'KB_VALUE_ST',startDate:'2026-09-08',units:1000}];
+const duplicatePriceBase={
+  '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-09-08','F00002','KB',1200,'2026-09-08',1000,1200,'','KB_VALUE_ST']])
+};
+const manualRepresentative=clone(context._getFundNavStatus(ssFor({...duplicatePriceBase,
+  '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED'],['2026-09-09','F00002','KB',1250,'','MANUAL']])
+}),duplicatePriceConfigs))[0];
+assert.equal(manualRepresentative.temporaryDates.includes('2026-09-09'),false,'중복 가격행은 MANUAL 대표행을 우선해 오래된 carry 경고를 제거');
+const carryRepresentative=clone(context._getFundNavStatus(ssFor({...duplicatePriceBase,
+  '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED']])
+}),duplicatePriceConfigs))[0];
+assert.equal(carryRepresentative.temporaryDates.includes('2026-09-09'),true,'실제 대표행이 carry input required이면 임시 평가 유지');
 
 // 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
 const retiredConfigs=[
@@ -675,9 +690,11 @@ const nonPublicationSs=ssFor({
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const nonPublication=context._refreshFundValuations(nonPublicationSs,'2026-09-21','2026-09-21','F00001');
 assert.equal(nonPublication.fundResults.F00001.dates[0].navState,'NON_PUBLICATION_CARRY','당일이어도 정상 비공시일은 미공시가 아닌 이월로 분류');
+assert.equal(nonPublication.fundResults.F00001.dates[0].valuationRequired,true,'직전 확정 NAV가 있는 비공시일은 carry 평가 생성 대상 유지');
 assert.equal(nonPublication.fundResults.F00001.latestUnpublished,0);
 const readOnlyMonday=clone(context._getFundValuationStatus(nonPublicationSs,'2026-09-21','2026-09-21','F00001'));
 assert.equal(readOnlyMonday.dates[0].navState,'NON_PUBLICATION_CARRY','read-only 재검증도 월요일을 정상 이월로 판정');
+assert.equal(readOnlyMonday.dates[0].valuationRequired,true,'조회와 저장 경로가 비공시 carry 생성 대상 정책을 공유');
 
 // 외부 API 오류 범위가 정상 비공시일을 포함해도 월·목·주말 상태를 API_FAILED로 덮어쓰지 않습니다.
 context.today=()=> '2026-09-28';
