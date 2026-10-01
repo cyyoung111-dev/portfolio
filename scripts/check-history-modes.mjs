@@ -45,8 +45,17 @@ assert(pipelineSource.indexOf('_cachedHistoryDiagnostics(snapshots') < pipelineS
 assert(pipelineSource.indexOf("revisionDecision === 'discard'") < pipelineSource.indexOf('integrityDiagnostics = integrityDiagnostics.concat'),'revision mismatch 진단은 화면 상태 병합 전에 폐기');
 assert.match(pipelineSource,/revisionDecision === 'retry'\) return await loadHistoryChart\(retryAttempt \+ 1\)/,'revision mismatch 재조회는 1회 bounded retry');
 assert.match(pipelineSource,/error\?\.errorCode === 'REVISION_CHANGED'\) throw error/,'재시도 mismatch를 일반 진단 실패로 흡수하면 안 됨');
-assert.match(pipelineSource,/retryAttempt \|\| e\?\.errorCode === 'REVISION_CHANGED'\)[\s\S]*_restoreSuccessfulHistoryView\(\)/,'재조회 실패는 마지막 정상 화면 복원을 우선');
-assert.match(pipelineSource,/!_restoreSuccessfulHistoryView\(\)[\s\S]*chartWrap\.innerHTML = ''[\s\S]*tableWrap\.innerHTML = ''[\s\S]*coverageEl\.innerHTML = ''[\s\S]*integrityDiagnostics = \[\]/,'복원할 정상 화면이 없으면 폐기된 최초 화면과 상태를 제거');
+assert.match(pipelineSource,/if \(retryAttempt \|\| e\?\.errorCode === 'REVISION_CHANGED'\) _restoreOrClearDiscardedHistoryView/,'재조회 실패는 공통 정상 화면 복원·폐기 처리를 사용');
+assert.match(pipelineSource,/if \(retryAttempt && _restoreOrClearDiscardedHistoryView[\s\S]*empty_data[\s\S]*if \(retryAttempt && _restoreOrClearDiscardedHistoryView[\s\S]*empty_range/,'재시도 empty_data와 empty_range는 stale 화면 정리 후 종료');
+const discardSource = pipelineSource.match(/function _restoreOrClearDiscardedHistoryView[\s\S]*?\n}/)?.[0] || '';
+const discardContext = vm.createContext({});
+vm.runInContext(`let restored=false;const __histState={loadRequestId:2,snapshots:[1],integrityDiagnostics:[1],rangeDiagnosisFailed:{},missingSnapshotDates:[1]};const _restoreSuccessfulHistoryView=()=>restored;${discardSource};globalThis.runDiscard=(id,restore)=>{restored=restore;const chart={innerHTML:'chart'},table={innerHTML:'table'},coverage={innerHTML:'coverage'};const result=_restoreOrClearDiscardedHistoryView(id,chart,table,coverage);return {result,chart:chart.innerHTML,table:table.innerHTML,coverage:coverage.innerHTML,state:JSON.parse(JSON.stringify(__histState))};};`,discardContext);
+const discarded=discardContext.runDiscard(2,false);
+assert.deepEqual(JSON.parse(JSON.stringify(discarded)),{result:false,chart:'',table:'',coverage:'',state:{loadRequestId:2,snapshots:[],integrityDiagnostics:[],rangeDiagnosisFailed:null,missingSnapshotDates:[]}},'재시도 빈 결과에 정상 화면이 없으면 stale DOM·상태 제거');
+const restoredView=discardContext.runDiscard(2,true);
+assert.deepEqual([restoredView.result,restoredView.chart,restoredView.table,restoredView.coverage],[true,'chart','table','coverage'],'이전 정상 화면 복원 성공 시 현재 DOM을 제거하지 않음');
+const staleRequest=discardContext.runDiscard(1,false);
+assert.deepEqual([staleRequest.result,staleRequest.chart,staleRequest.table,staleRequest.coverage],[null,'chart','table','coverage'],'오래된 requestId는 최신 화면·상태를 변경하지 않음');
 const cacheContext = vm.createContext({ sessionStorage: (() => {
   const values = new Map([['portfolio.historyIntegrity.v1', JSON.stringify({legacy:{date:'2026-01-01',status:'VALID',expectedRows:Array(100).fill('large')}})]]);
   return { getItem:key=>values.get(key)||null, setItem:(key,value)=>values.set(key,value), removeItem:key=>values.delete(key), values };

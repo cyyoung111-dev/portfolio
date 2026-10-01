@@ -798,3 +798,7 @@ GAS 메뉴 및 시트 구성:
 - integrity cache는 날짜·상태·복구 가능 여부만 저장하고 120,000자 상한에서 오래된 entry부터 제거하며, 기존 v1 상세 cache는 삭제합니다.
 - revision 재시도 실패 시 정상 화면을 복원할 수 없으면 stale chart·table·warning·상태를 제거합니다.
 - 운영 반영에는 GAS v9.148과 정적 웹 cache `portfolio-cache-20261001-7`을 함께 재배포해야 합니다.
+
+## 정적 웹 retry 빈 결과 정리 (2026-10-01)
+- revision 재조회가 빈 원본 또는 빈 정규화 범위로 끝나면 이전 정상 화면을 복원하고, 복원본이 없을 때만 stale chart·table·warning·상태를 제거합니다.
+- GAS 변경은 없으며 정적 웹 cache `portfolio-cache-20261001-8`만 재배포합니다.

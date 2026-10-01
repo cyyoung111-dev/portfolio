@@ -57,6 +57,18 @@ function _historyIntegrityRevisionDecision(expectedRevision, diagnosisRevision, 
   if (String(expectedRevision || '') === String(diagnosisRevision || '')) return 'apply';
   return Number(retryAttempt || 0) < 1 ? 'retry' : 'discard';
 }
+function _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl) {
+  if (requestId !== __histState.loadRequestId) return null;
+  if (_restoreSuccessfulHistoryView()) return true;
+  chartWrap.innerHTML = '';
+  if (tableWrap) tableWrap.innerHTML = '';
+  if (coverageEl) coverageEl.innerHTML = '';
+  __histState.snapshots = [];
+  __histState.integrityDiagnostics = [];
+  __histState.rangeDiagnosisFailed = null;
+  __histState.missingSnapshotDates = [];
+  return false;
+}
 
 async function loadHistoryChart(retryAttempt = 0) {
   const loadStartedAt = performance.now();
@@ -104,6 +116,7 @@ async function loadHistoryChart(retryAttempt = 0) {
 
     let snapshots = Array.isArray(data.snapshots) ? data.snapshots : (Array.isArray(data) ? data : []);
     if (!snapshots.length) {
+      if (retryAttempt && _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl) !== false) return;
       _setHistoryStatus(statusEl, 'empty_data');
       return;
     }
@@ -114,6 +127,7 @@ async function loadHistoryChart(retryAttempt = 0) {
       .sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
     if (!snapshots.length) {
+      if (retryAttempt && _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl) !== false) return;
       _setHistoryStatus(statusEl, 'empty_range');
       return;
     }
@@ -246,15 +260,7 @@ async function loadHistoryChart(retryAttempt = 0) {
 
   } catch(e) {
     if (requestId === __histState.loadRequestId) {
-      if ((retryAttempt || e?.errorCode === 'REVISION_CHANGED') && !_restoreSuccessfulHistoryView()) {
-        chartWrap.innerHTML = '';
-        if (tableWrap) tableWrap.innerHTML = '';
-        if (coverageEl) coverageEl.innerHTML = '';
-        __histState.snapshots = [];
-        __histState.integrityDiagnostics = [];
-        __histState.rangeDiagnosisFailed = null;
-        __histState.missingSnapshotDates = [];
-      }
+      if (retryAttempt || e?.errorCode === 'REVISION_CHANGED') _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl);
       _setHistoryStatus(statusEl, 'error', { message: e.message });
     }
   } finally {
