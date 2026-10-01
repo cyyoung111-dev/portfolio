@@ -783,3 +783,8 @@ GAS 메뉴 및 시트 구성:
 ## GAS v9.145 integrity migration revision 정수화 (2026-10-01)
 - 신규·legacy·malformed revision state의 migration revision을 정수로 생성하고, 기존 소수 revision state도 전체 재진단 state로 안전하게 이관합니다.
 - 운영 반영에는 GAS v9.145와 정적 웹 cache `portfolio-cache-20261001-4`를 함께 재배포해야 합니다.
+
+## GAS v9.146 tracked source 구조 변경 보호 (2026-10-01)
+- `REMOVE_GRID`·`OTHER`는 source identity를 사후 판별할 수 없어 전체 invalidate하고, tracked source의 행·열 및 시트 생성은 증분 cache correctness를 직접 보호합니다.
+- integrity change trigger는 현재 spreadsheet 기준으로 중복을 제거하며 자동화 상태 점검에서도 누락을 복구합니다.
+- 운영 반영에는 GAS v9.146과 정적 웹 cache `portfolio-cache-20261001-5`를 함께 재배포해야 합니다.

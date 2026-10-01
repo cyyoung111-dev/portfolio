@@ -210,20 +210,45 @@ assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),st
 const insertedRevisionBefore=scriptProperties.get('snapshot_integrity_source_revision_v1');
 context.handleSnapshotIntegritySheetChange({changeType:'INSERT_ROW',source:{getActiveSheet:()=>({getName:()=>'거래이력'})}});
 assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),insertedRevisionBefore,'tracked source 행 삽입은 전체 integrity cache를 invalidate');
+['INSERT_COLUMN','REMOVE_COLUMN'].forEach(changeType=>{
+  const before=scriptProperties.get('snapshot_integrity_source_revision_v1');
+  context.handleSnapshotIntegritySheetChange({changeType,source:{getActiveSheet:()=>({getName:()=>'스냅샷'})}});
+  assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),before,`${changeType} tracked source 구조 변경은 전체 invalidate`);
+});
+const removedGridRevision=scriptProperties.get('snapshot_integrity_source_revision_v1');
+context.handleSnapshotIntegritySheetChange({changeType:'REMOVE_GRID',source:{getActiveSheet:()=>({getName:()=>'설정'})}});
+assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),removedGridRevision,'REMOVE_GRID는 unrelated active sheet여도 삭제 source를 알 수 없으므로 전체 invalidate');
+const insertedGridRevision=scriptProperties.get('snapshot_integrity_source_revision_v1');
+context.handleSnapshotIntegritySheetChange({changeType:'INSERT_GRID',source:{getActiveSheet:()=>({getName:()=>'가격이력'})}});
+assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),insertedGridRevision,'tracked source INSERT_GRID는 전체 invalidate');
+const otherRevision=scriptProperties.get('snapshot_integrity_source_revision_v1');
+context.handleSnapshotIntegritySheetChange({changeType:'OTHER',source:{getActiveSheet:()=>({getName:()=>'설정'})}});
+assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),otherRevision,'OTHER는 rename/source identity 변경을 판별할 수 없어 전체 invalidate');
 const nonStructuralRevision=scriptProperties.get('snapshot_integrity_source_revision_v1');
 context.handleSnapshotIntegritySheetChange({changeType:'EDIT',source:{getActiveSheet:()=>({getName:()=>'가격이력'})}});
 assert.equal(scriptProperties.get('snapshot_integrity_source_revision_v1'),nonStructuralRevision,'일반 셀 edit는 onChange에서 중복 invalidate하지 않음');
+context.handleSnapshotIntegritySheetChange({changeType:'FORMAT',source:{getActiveSheet:()=>({getName:()=>'가격이력'})}});
+assert.equal(scriptProperties.get('snapshot_integrity_source_revision_v1'),nonStructuralRevision,'FORMAT은 integrity 데이터가 아니므로 invalidate하지 않음');
 const originalScriptApp=context.ScriptApp;
-const changeTriggers=[];
+const currentSpreadsheet={getId:()=> 'spreadsheet'};
+const trigger=(handler,sourceId)=>({getHandlerFunction:()=>handler,getTriggerSourceId:()=>sourceId});
+const otherTargetTrigger=trigger('handleSnapshotIntegritySheetChange','other-spreadsheet');
+const otherHandlerTrigger=trigger('otherHandler','spreadsheet');
+const changeTriggers=[otherTargetTrigger,otherHandlerTrigger];
 let changeTriggerCreates=0;
-context.getss=()=>({id:'spreadsheet'});
+context.getss=()=>currentSpreadsheet;
 context.ScriptApp={
   getProjectTriggers:()=>changeTriggers,
-  newTrigger:handler=>({forSpreadsheet:()=>({onChange:()=>({create:()=>{changeTriggerCreates++;changeTriggers.push({getHandlerFunction:()=>handler});}})})}),
+  deleteTrigger:item=>{const index=changeTriggers.indexOf(item);if(index>=0)changeTriggers.splice(index,1);},
+  newTrigger:handler=>({forSpreadsheet:ss=>({onChange:()=>({create:()=>{changeTriggerCreates++;changeTriggers.push(trigger(handler,ss.getId()));}})})}),
 };
 assert.equal(context._ensureSnapshotIntegrityChangeTrigger(true),true);
 assert.equal(context._ensureSnapshotIntegrityChangeTrigger(true),true);
 assert.equal(changeTriggerCreates,1,'설치형 onChange trigger는 중복 생성하지 않음');
+changeTriggers.push(trigger('handleSnapshotIntegritySheetChange','spreadsheet'));
+assert.equal(context._ensureSnapshotIntegrityChangeTrigger(true),true);
+assert.equal(changeTriggers.filter(item=>item.getHandlerFunction()==='handleSnapshotIntegritySheetChange'&&item.getTriggerSourceId()==='spreadsheet').length,1,'현재 spreadsheet의 중복 integrity trigger는 하나만 유지');
+assert(changeTriggers.includes(otherTargetTrigger)&&changeTriggers.includes(otherHandlerTrigger),'다른 대상 또는 handler trigger는 삭제하지 않음');
 context.ScriptApp=originalScriptApp;
 assert.equal(uuidSequence-operationUuidBefore,1,'하나의 다일자 논리 작업은 전체 Snapshot 백업을 한 번만 생성');
 assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스트 형식으로 고정');

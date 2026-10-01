@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.145
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.146
+//
+//  v9.146 변경사항 (2026.10.01):
+//   tracked source 구조 변경·trigger lifecycle 보호 보강
 //
 //  v9.145 변경사항 (2026.10.01):
 //   Snapshot integrity migration revision 정수 보장
@@ -4079,21 +4082,38 @@ function onEdit(e) {
 
 function handleSnapshotIntegritySheetChange(e) {
   var changeType = String(e && e.changeType || '').toUpperCase();
-  if (['INSERT_ROW', 'REMOVE_ROW', 'INSERT_COLUMN', 'REMOVE_COLUMN'].indexOf(changeType) === -1) return;
+  if (changeType === 'EDIT' || changeType === 'FORMAT') return;
+  if (changeType === 'REMOVE_GRID' || changeType === 'OTHER') {
+    _touchSnapshotIntegritySourceRevision({ all: true });
+    return;
+  }
+  if (['INSERT_GRID', 'INSERT_ROW', 'REMOVE_ROW', 'INSERT_COLUMN', 'REMOVE_COLUMN'].indexOf(changeType) === -1) return;
   var ss = e && e.source;
   var sheet = ss && typeof ss.getActiveSheet === 'function' ? ss.getActiveSheet() : null;
   if (!sheet || _isSnapshotIntegritySourceSheet(sheet.getName())) _touchSnapshotIntegritySourceRevision({ all: true });
 }
 
 function _ensureSnapshotIntegrityChangeTrigger(autoFix) {
-  var exists = ScriptApp.getProjectTriggers().some(function(trigger) {
-    return trigger.getHandlerFunction() === 'handleSnapshotIntegritySheetChange';
-  });
-  if (!exists && autoFix) {
-    ScriptApp.newTrigger('handleSnapshotIntegritySheetChange').forSpreadsheet(getss()).onChange().create();
-    exists = true;
+  var ss = getss(), sourceId = typeof ss.getId === 'function' ? ss.getId() : '';
+  function matchingTriggers() {
+    return ScriptApp.getProjectTriggers().filter(function(trigger) {
+      if (trigger.getHandlerFunction() !== 'handleSnapshotIntegritySheetChange') return false;
+      return !sourceId || (typeof trigger.getTriggerSourceId === 'function' && trigger.getTriggerSourceId() === sourceId);
+    });
   }
-  return exists;
+  var matches = matchingTriggers();
+  if (!autoFix) return matches.length > 0;
+  var lock = LockService.getScriptLock(), ownsLock = false;
+  try {
+    if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; }
+    matches = matchingTriggers();
+    if (!matches.length) {
+      ScriptApp.newTrigger('handleSnapshotIntegritySheetChange').forSpreadsheet(ss).onChange().create();
+      matches = matchingTriggers();
+    }
+    matches.slice(1).forEach(function(trigger) { ScriptApp.deleteTrigger(trigger); });
+    return matches.length > 0;
+  } finally { if (ownsLock) lock.releaseLock(); }
 }
 var FUND_NAV_IMPORT_SPECS = {
   F00001: { provider: 'HANWHA_2045_CRPE', classCode: 'C-RPe', standardCode: '', className: 'C-RPe', forbidden: ['AQ018','KR5223AQ0185','AP399','KR5235AP3996','2K04','2K09'] },
@@ -4202,7 +4222,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.145' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.146' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7080,6 +7100,7 @@ function handleSyncTrades(dataJson) {
 
     var ss = getss();
     var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+    var createdTradeSheet = !sh;
     var previousRows = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(11, sh.getLastColumn())).getValues() : [];
     if (!sh) {
       sh = ss.insertSheet(CONFIG.SHEET_TRADES);
@@ -7105,6 +7126,7 @@ function handleSyncTrades(dataJson) {
     var currentRows = trades.map(function(t) { return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'', t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'', t.ratio || '', t.fractionalCash || '']; });
     var affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
     if (affectedFrom) _touchSnapshotIntegritySourceRevision({ from: affectedFrom });
+    else if (createdTradeSheet) _touchSnapshotIntegritySourceRevision({ all: true });
     var snapshotRebuild = null;
     var affectedTo = _latestConfirmedSnapshotDate(ss);
     if (affectedFrom && affectedTo && affectedFrom <= affectedTo) snapshotRebuild = rebuildDailySnapshots(affectedFrom, affectedTo);
@@ -7890,8 +7912,8 @@ function _ensureDailyTriggers(autoFix) {
     if (fn === 'runCodeNormalize1550') hasClean = true;
     if (fn === 'runEvalPriceUpdate1620') hasSave = true;
     if (fn === 'syncMortgageFromSchedule') hasMortgage = true;
-    if (fn === 'handleSnapshotIntegritySheetChange') hasIntegrityChange = true;
   });
+  hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(false);
 
   if (autoFix) {
     if (!hasClean) {
@@ -7946,7 +7968,7 @@ function checkDailyAutomationStatus() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
   var autoFixed = false;
-  if (!trig.hasClean || !trig.hasSave || !trig.hasMortgage) {
+  if (!trig.hasClean || !trig.hasSave || !trig.hasMortgage || !trig.hasIntegrityChange) {
     try {
       trig = _ensureDailyTriggers(true);
       autoFixed = true;
@@ -7974,6 +7996,7 @@ function checkDailyAutomationStatus() {
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
     + 'runEvalPriceUpdate1620(16:20) 트리거: ' + (trig.hasSave ? '정상' : '없음') + '\n\n'
     + 'syncMortgageFromSchedule(01:10) 트리거: ' + (trig.hasMortgage ? '정상' : '없음') + '\n\n'
+    + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
     + '가격이력 마지막 날짜: ' + phLast + '\n'
     + '자동 생성 최근 성공: ' + lastSuccessAt + ' (기준일 ' + lastSuccessDate + ')\n'
@@ -7981,7 +8004,7 @@ function checkDailyAutomationStatus() {
     + (lastError !== '-' ? '최근 오류: ' + lastError + '\n' : '')
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + '\n'
-    + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage
+    + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage || !trig.hasIntegrityChange
       ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
       : (autoFixed
           ? '✅ 트리거 누락을 자동 복구했습니다.'
@@ -9243,7 +9266,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.145' });
+    return jsonOk({ settings: settings, gasVersion: '9.146' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9265,7 +9288,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.145'
+      gasVersion: '9.146'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -9361,6 +9384,7 @@ function handleSyncCodes(codesParam) {
     }
     var ss = getss();
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
+    var createdCodeSheet = !cs;
     if (!cs) {
       cs = ss.insertSheet(CONFIG.SHEET_CODES);
       cs.getRange(1,1,1,6).setValues([['종목코드','종목명','유형','섹터','통화','시장']]);
@@ -9502,7 +9526,7 @@ function handleSyncCodes(codesParam) {
       cs.getRange(cs.getLastRow() + 1, 1, toAppend.length, 6).setValues(toAppend);
     }
 
-    if (synced > 0 || updated > 0) {
+    if (synced > 0 || updated > 0 || createdCodeSheet) {
       _touchSnapshotIntegritySourceRevision();
       SpreadsheetApp.flush();
     }
@@ -9688,15 +9712,20 @@ function initSheet() {
     [CONFIG.SHEET_SETTINGS, ['키','값'], [180,600]]
   ];
   var created = 0;
+  var integritySourceCreated = false;
   specs.forEach(function(spec) {
     var sh = ss.getSheetByName(spec[0]);
-    if (!sh) { sh = ss.insertSheet(spec[0]); created++; }
+    if (!sh) {
+      sh = ss.insertSheet(spec[0]); created++;
+      if (_isSnapshotIntegritySourceSheet(spec[0])) integritySourceCreated = true;
+    }
     sh.getRange(1, 1, 1, spec[1].length).setValues([spec[1]])
       .setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
     sh.setFrozenRows(1);
     spec[2].forEach(function(width, idx) { sh.setColumnWidth(idx + 1, width); });
   });
   SpreadsheetApp.flush();
+  if (integritySourceCreated) _touchSnapshotIntegritySourceRevision({ all: true });
 
   try {
     SpreadsheetApp.getUi().alert(
@@ -9722,20 +9751,23 @@ function clearPriceAndSnapshotRows() {
   if (ans !== ui.Button.YES) return;
 
   var deleted = 0;
-  var ph = ss.getSheetByName(CONFIG.SHEET_PH) || ss.insertSheet(CONFIG.SHEET_PH);
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  var integritySourceCreated = !ph;
+  if (!ph) ph = ss.insertSheet(CONFIG.SHEET_PH);
   if (ph.getLastRow() === 0) ph.getRange(1,1,1,6).setValues([['날짜','종목코드','종목명','가격','입력일시','가격소스']]);
   if (ph.getLastRow() > 1) {
     deleted += ph.getLastRow() - 1;
     ph.getRange(2, 1, ph.getLastRow() - 1, Math.max(1, ph.getLastColumn())).clearContent();
   }
 
-  var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) || ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
+  var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  if (!snap) { snap = ss.insertSheet(CONFIG.SHEET_SNAPSHOT); integritySourceCreated = true; }
   if (snap.getLastRow() === 0) snap.getRange(1,1,1,12).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']]);
   if (snap.getLastRow() > 1) {
     deleted += snap.getLastRow() - 1;
     snap.getRange(2, 1, snap.getLastRow() - 1, Math.max(1, snap.getLastColumn())).clearContent();
   }
-  if (deleted > 0) _touchSnapshotIntegritySourceRevision({ all: true });
+  if (deleted > 0 || integritySourceCreated) _touchSnapshotIntegritySourceRevision({ all: true });
   var msg = '✅ 삭제 완료 (총 ' + deleted + '행)';
   Logger.log(msg);
   ui.alert(msg);
