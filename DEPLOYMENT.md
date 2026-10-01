@@ -788,3 +788,8 @@ GAS 메뉴 및 시트 구성:
 - `REMOVE_GRID`·`OTHER`는 source identity를 사후 판별할 수 없어 전체 invalidate하고, tracked source의 행·열 및 시트 생성은 증분 cache correctness를 직접 보호합니다.
 - integrity change trigger는 현재 spreadsheet 기준으로 중복을 제거하며 자동화 상태 점검에서도 누락을 복구합니다.
 - 운영 반영에는 GAS v9.146과 정적 웹 cache `portfolio-cache-20261001-5`를 함께 재배포해야 합니다.
+
+## GAS v9.147 history 진단 일관성·펀드 대표행 순위 (2026-10-01)
+- 기간 진단 도중 source revision이 바뀌면 stale 진단을 화면과 cache에 합치지 않고 history부터 최대 한 번 재조회합니다.
+- 펀드 가격·Snapshot 대표행은 `MANUAL > FUND_NAV > 일반/carry > FUND_NAV_CARRY_INPUT_REQUIRED` 순위를 공통 적용합니다.
+- 운영 반영에는 GAS v9.147과 정적 웹 cache `portfolio-cache-20261001-6`를 함께 재배포해야 합니다.

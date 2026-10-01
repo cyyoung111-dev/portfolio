@@ -18,7 +18,11 @@ const context = {
 const signatureSource = pipelineSource.match(/function _historySnapshotSignature[\s\S]*?\n}/)?.[0] || '';
 const signatureContext = {};
 const cachedSource = pipelineSource.match(/function _cachedHistoryDiagnostics[\s\S]*?\n}/)?.[0] || '';
-vm.runInNewContext(`${signatureSource}\n${cachedSource}\nglobalThis.signature = _historySnapshotSignature;globalThis.cached = _cachedHistoryDiagnostics;`, signatureContext);
+const revisionDecisionSource = pipelineSource.match(/function _historyIntegrityRevisionDecision[\s\S]*?\n}/)?.[0] || '';
+vm.runInNewContext(`${signatureSource}\n${cachedSource}\n${revisionDecisionSource}\nglobalThis.signature = _historySnapshotSignature;globalThis.cached = _cachedHistoryDiagnostics;globalThis.revisionDecision = _historyIntegrityRevisionDecision;`, signatureContext);
+assert.equal(signatureContext.revisionDecision('A','A',0),'apply','동일 revision 진단은 적용');
+assert.equal(signatureContext.revisionDecision('A','B',0),'retry','첫 revision mismatch는 최신 history 재조회');
+assert.equal(signatureContext.revisionDecision('A','B',1),'discard','재시도 mismatch는 폐기해 무한 retry 방지');
 const signatureSnapshot = { date: '2026-09-30', costAmt: 100, evalAmt: 120, pnl: 20 };
 assert.equal(signatureContext.signature(signatureSnapshot, 'date-rev-1'), signatureContext.signature(signatureSnapshot, 'date-rev-1'), '날짜 revision이 같으면 cache signature를 재사용해야 합니다.');
 assert.notEqual(signatureContext.signature(signatureSnapshot, 'date-rev-1'), signatureContext.signature(signatureSnapshot, 'date-rev-2'), '영향받은 날짜 revision이 바뀌면 Snapshot 합계가 같아도 cache를 무효화해야 합니다.');
@@ -38,6 +42,10 @@ assert.equal(signatureContext.cached(cacheSnapshots,{},cacheFixture).length,0,'�
 cacheFixture[signatureContext.signature(cacheSnapshots[1],'8')]={date:'2026-09-28',status:'VALID'};
 assert.equal(signatureContext.cached(cacheSnapshots,cacheRevisions,cacheFixture).find(item=>item.date==='2026-09-28').status,'VALID','cached VALID은 정상 사용');
 assert(pipelineSource.indexOf('_cachedHistoryDiagnostics(snapshots') < pipelineSource.indexOf('_drawHistoryChart(chartWrap, initialSnapshots'),'cache merge가 최초 그래프 렌더보다 먼저 실행되어야 함');
+assert(pipelineSource.indexOf("revisionDecision === 'discard'") < pipelineSource.indexOf('integrityDiagnostics = integrityDiagnostics.concat'),'revision mismatch 진단은 화면 상태 병합 전에 폐기');
+assert.match(pipelineSource,/revisionDecision === 'retry'\) return await loadHistoryChart\(retryAttempt \+ 1\)/,'revision mismatch 재조회는 1회 bounded retry');
+assert.match(pipelineSource,/error\?\.errorCode === 'REVISION_CHANGED'\) throw error/,'재시도 mismatch를 일반 진단 실패로 흡수하면 안 됨');
+assert.match(pipelineSource,/if \(retryAttempt \|\| e\?\.errorCode === 'REVISION_CHANGED'\) _restoreSuccessfulHistoryView\(\)/,'재조회 실패는 마지막 정상 화면을 보존');
 vm.runInNewContext(`${source}\n` +
   'globalThis.selectSnapshots = _selectHistorySnapshots; globalThis.analyzeCoverage = _analyzeHistoryCoverage;', context);
 

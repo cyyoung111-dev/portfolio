@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.146
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.147
+//
+//  v9.147 변경사항 (2026.10.01):
+//   history 진단 revision 일치 보장·펀드 대표 source 순위 통일
 //
 //  v9.146 변경사항 (2026.10.01):
 //   tracked source 구조 변경·trigger lifecycle 보호 보강
@@ -2208,8 +2211,8 @@ function handleGetHistory(fromStr, toStr) {
       if (!prev) {
         dateItemMap[date][itemKey] = { code: code, qty: qty, costAmt: cost, evalAmt: evalAmt, source: source };
       } else {
-        var sourceRank = source === 'MANUAL' ? 3 : (source === 'FUND_NAV' ? 2 : (source === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? 0 : 1));
-        var prevRank = prev.source === 'MANUAL' ? 3 : (prev.source === 'FUND_NAV' ? 2 : (prev.source === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? 0 : 1));
+        var sourceRank = _fundPriceSourceRank(source);
+        var prevRank = _fundPriceSourceRank(prev.source);
         var pickNew = sourceRank > prevRank || (sourceRank === prevRank && ((qty > prev.qty) || (qty === prev.qty && evalAmt >= prev.evalAmt)));
         if (pickNew) dateItemMap[date][itemKey] = { code: code, qty: qty, costAmt: cost, evalAmt: evalAmt, source: source };
       }
@@ -4222,7 +4225,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.146' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.147' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4410,15 +4413,40 @@ function _storedFundNavRows(storedNav, code, provider, from, to) {
   return Object.keys(seen).sort().map(function(date) { return { date: date, nav: seen[date] }; });
 }
 
+function _fundPriceSourceRank(source) {
+  source = String(source || '').toUpperCase();
+  return source === 'MANUAL' ? 3 : (source === 'FUND_NAV' ? 2 : (source === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? 0 : 1));
+}
+
+function _preferFundRepresentativeRow(current, candidate, sourceIndex) {
+  if (!current) return true;
+  var currentRank = _fundPriceSourceRank(current[sourceIndex]);
+  var candidateRank = _fundPriceSourceRank(candidate[sourceIndex]);
+  return candidateRank > currentRank || (candidateRank === currentRank && candidateRank === 3);
+}
+
+function _fundConfiguredCodeForPriceRow(row, configs) {
+  var configuredCodes = {}, nameCandidates = {};
+  (configs || []).forEach(function(config) {
+    configuredCodes[config.code] = true;
+    var name = String(config.name || '').trim();
+    if (name) (nameCandidates[name] || (nameCandidates[name] = {}))[config.code] = true;
+  });
+  var code = _cleanCode(row && row[1]);
+  if (/^F\d{5}$/.test(code) && configuredCodes[code]) return code;
+  var candidates = Object.keys(nameCandidates[String(row && row[2] || '').trim()] || {});
+  return candidates.length === 1 ? candidates[0] : '';
+}
+
 function _fundDerivedState(ss, configs) {
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
   var priceKeys = {};
   prices.forEach(function(row) {
-    var config = configs.find(function(c) { return c.name === String(row[2]); });
-    var code = _cleanCode(row[1]) || (config ? config.code : String(row[2]));
+    var code = _fundConfiguredCodeForPriceRow(row, configs);
+    if (!code) return;
     var key = _normalizeDate(row[0]) + '|' + code;
-    if (!priceKeys[key] || String(row[5]).toUpperCase() === 'MANUAL') priceKeys[key] = row;
+    if (_preferFundRepresentativeRow(priceKeys[key], row, 5)) priceKeys[key] = row;
   });
   var snapshotSheet = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var snapshots = snapshotSheet && snapshotSheet.getLastRow() > 1
@@ -4426,7 +4454,7 @@ function _fundDerivedState(ss, configs) {
   var snapshotKeys = {};
   snapshots.forEach(function(row) {
     var key = _normalizeDate(row[0]) + '|' + (_cleanCode(row[1]) || String(row[2] || '').trim());
-    if (!snapshotKeys[key] || String(row[10]).toUpperCase() === 'MANUAL') snapshotKeys[key] = row;
+    if (_preferFundRepresentativeRow(snapshotKeys[key], row, 10)) snapshotKeys[key] = row;
   });
   return { sheet: ph, prices: prices, priceKeys: priceKeys, snapshots: snapshots, snapshotKeys: snapshotKeys };
 }
@@ -4509,21 +4537,12 @@ function _getFundNavStatus(ss, configs) {
   var stored = navSheet && navSheet.getLastRow() > 1 ? navSheet.getRange(2, 1, navSheet.getLastRow() - 1, 9).getValues() : [];
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
-  var representativePrices = {}, configuredCodes = {}, nameCandidates = {};
-  configs.forEach(function(config) {
-    configuredCodes[config.code] = true;
-    var name = String(config.name || '').trim();
-    if (name) (nameCandidates[name] || (nameCandidates[name] = {}))[config.code] = true;
-  });
+  var representativePrices = {};
   prices.forEach(function(row) {
-    var code = _cleanCode(row[1]);
-    if (!/^F\d{5}$/.test(code) || !configuredCodes[code]) {
-      var candidates = Object.keys(nameCandidates[String(row[2] || '').trim()] || {});
-      code = candidates.length === 1 ? candidates[0] : '';
-    }
+    var code = _fundConfiguredCodeForPriceRow(row, configs);
     if (!code) return;
     var key = _normalizeDate(row[0]) + '|' + code;
-    if (!representativePrices[key] || String(row[5] || '').toUpperCase() === 'MANUAL') representativePrices[key] = row;
+    if (_preferFundRepresentativeRow(representativePrices[key], row, 5)) representativePrices[key] = row;
   });
   var codes = configs.map(function(config) { return config.code; }).filter(function(code, index, all) { return all.indexOf(code) === index; });
   var statuses = codes.map(function(code) {
@@ -9266,7 +9285,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.146' });
+    return jsonOk({ settings: settings, gasVersion: '9.147' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9288,7 +9307,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.146'
+      gasVersion: '9.147'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

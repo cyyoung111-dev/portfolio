@@ -315,6 +315,12 @@ const manualRepresentative=clone(context._getFundNavStatus(ssFor({...duplicatePr
   '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED'],['2026-09-09','F00002','KB',1250,'','MANUAL']])
 }),duplicatePriceConfigs))[0];
 assert.equal(manualRepresentative.temporaryDates.includes('2026-09-09'),false,'중복 가격행은 MANUAL 대표행을 우선해 오래된 carry 경고를 제거');
+const confirmedRepresentative=clone(context._getFundNavStatus(ssFor({...duplicatePriceBase,
+  '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED'],['2026-09-09','F00002','KB',1250,'','FUND_NAV']])
+}),duplicatePriceConfigs))[0];
+assert.equal(confirmedRepresentative.temporaryDates.includes('2026-09-09'),false,'확정 FUND_NAV는 오래된 carry input required보다 우선');
+assert.equal(context._preferFundRepresentativeRow(['','','','', '', 'FUND_NAV_CARRY'],['','','','', '', 'FUND_NAV'],5),true,'FUND_NAV는 일반 carry보다 우선');
+assert.equal(context._preferFundRepresentativeRow(['','','','', '', 'FUND_NAV'],['','','','', '', 'MANUAL'],5),true,'MANUAL은 FUND_NAV보다 우선');
 const carryRepresentative=clone(context._getFundNavStatus(ssFor({...duplicatePriceBase,
   '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED']])
 }),duplicatePriceConfigs))[0];
@@ -330,6 +336,12 @@ const ambiguousStatus=clone(context._getFundNavStatus(ssFor({...duplicatePriceBa
   '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED']])
 }),ambiguousConfigs));
 assert(ambiguousStatus.every(item=>!item.temporaryDates.includes('2026-09-09')),'모호한 펀드명은 임의 F코드로 fallback하지 않음');
+const derivedRank=clone(context._fundDerivedState(ssFor({
+  '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED'],['2026-09-09','','KB',1250,'','FUND_NAV']]),
+  '스냅샷':new Sheet([['date','code','name','qty','costUnit','cost','evalUnit','eval','pnl','pct','source','at'],['2026-09-09','F00002','KB',1,1,1,1200,1200,1199,0,'FUND_NAV_CARRY_INPUT_REQUIRED',''],['2026-09-09','F00002','KB',1,1,1,1250,1250,1249,0,'FUND_NAV','']])
+}),duplicatePriceConfigs));
+assert.equal(derivedRank.priceKeys['2026-09-09|F00002'][5],'FUND_NAV','_fundDerivedState 가격 대표행도 공통 source rank 적용');
+assert.equal(derivedRank.snapshotKeys['2026-09-09|F00002'][10],'FUND_NAV','Snapshot 중복도 확정 FUND_NAV를 임시 carry보다 우선');
 
 // 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
 const retiredConfigs=[

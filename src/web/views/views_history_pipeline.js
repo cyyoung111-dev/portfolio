@@ -25,8 +25,12 @@ function _cachedHistoryDiagnostics(snapshots, dateRevisions, cache) {
     return cached && cached.date === snapshot.date && knownStatuses.has(String(cached.status || '')) ? cached : null;
   }).filter(Boolean);
 }
+function _historyIntegrityRevisionDecision(expectedRevision, diagnosisRevision, retryAttempt) {
+  if (String(expectedRevision || '') === String(diagnosisRevision || '')) return 'apply';
+  return Number(retryAttempt || 0) < 1 ? 'retry' : 'discard';
+}
 
-async function loadHistoryChart() {
+async function loadHistoryChart(retryAttempt = 0) {
   const loadStartedAt = performance.now();
   const requestId = ++__histState.loadRequestId;
   const queryBtn = $el('btn-history-query');
@@ -100,8 +104,10 @@ async function loadHistoryChart() {
     const initialMode = _getHistMode();
     const initialSnapshots = _selectHistorySnapshots(snapshots, initialMode);
     const initialRenderStartedAt = performance.now();
-    _drawHistoryChart(chartWrap, initialSnapshots, initialMode, { portfolioSnapshots: snapshots });
-    _drawHistoryTable(tableWrap, snapshots);
+    if (!retryAttempt) {
+      _drawHistoryChart(chartWrap, initialSnapshots, initialMode, { portfolioSnapshots: snapshots });
+      _drawHistoryTable(tableWrap, snapshots);
+    }
     const initialRenderMs = performance.now() - initialRenderStartedAt;
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
     const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
@@ -121,6 +127,9 @@ async function loadHistoryChart() {
         if (!integrity) throw Object.assign(new Error('기간 진단 응답이 없습니다.'), { errorCode: 'INVALID_RESPONSE' });
         if (integrity.status === 'error') throw Object.assign(new Error(integrity.message || '기간 진단 오류'), integrity);
         if (!Array.isArray(integrity.diagnostics)) throw Object.assign(new Error('기간 진단 응답 계약 오류'), { errorCode: 'INVALID_RESPONSE' });
+        const revisionDecision = _historyIntegrityRevisionDecision(integritySourceRevision, integrity.integritySourceRevision, retryAttempt);
+        if (revisionDecision === 'retry') return await loadHistoryChart(retryAttempt + 1);
+        if (revisionDecision === 'discard') throw Object.assign(new Error('조회 중 원자료가 변경되었습니다. 다시 조회해 주세요.'), { errorCode: 'REVISION_CHANGED' });
         integrityDiagnostics = integrityDiagnostics.concat(integrity.diagnostics);
         integrity.diagnostics.forEach(item => {
           const snapshot = snapshots.find(candidate => candidate.date === item.date);
@@ -131,6 +140,7 @@ async function loadHistoryChart() {
         if (integritySourceRevision && integritySourceRevision === String(integrity.integritySourceRevision || '')) _writeHistoryIntegrityCache(integrityCache);
       }
     } catch (error) {
+      if (error?.errorCode === 'REVISION_CHANGED') throw error;
       rangeDiagnosisFailed = { errorCode: error?.errorCode || 'SERVER_ERROR', phase: error?.phase || '', failedDate: error?.failedDate || '',
         processedDates: Number(error?.processedDates || 0), totalDates: Number(error?.totalDates || snapshots.length),
         lastCompletedDate: error?.lastCompletedDate || '', elapsedMs: Number(error?.elapsedMs || error?.performanceSoFar?.totalMs || 0) };
@@ -208,6 +218,7 @@ async function loadHistoryChart() {
 
   } catch(e) {
     if (requestId === __histState.loadRequestId) {
+      if (retryAttempt || e?.errorCode === 'REVISION_CHANGED') _restoreSuccessfulHistoryView();
       _setHistoryStatus(statusEl, 'error', { message: e.message });
     }
   } finally {
