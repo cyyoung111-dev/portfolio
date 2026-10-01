@@ -15,11 +15,12 @@ const clone = value => JSON.parse(JSON.stringify(value));
 let held = false;
 const lock = { hasLock: () => held, waitLock: () => { held = true; }, releaseLock: () => { held = false; } };
 const scriptProperties = new Map();
+let failRevisionPropertyWrite = false;
 let uuidSequence = 0;
 const context = vm.createContext({ console, Logger: { log() {} }, LockService: { getScriptLock: () => lock },
   SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => ({
     getProperty(key) { return scriptProperties.has(key) ? scriptProperties.get(key) : null; },
-    setProperty(key, value) { scriptProperties.set(key, String(value)); }, deleteProperty(key) { scriptProperties.delete(key); }
+    setProperty(key, value) { if (failRevisionPropertyWrite && key === 'snapshot_integrity_source_revision_v1') throw new Error('property quota'); scriptProperties.set(key, String(value)); }, deleteProperty(key) { scriptProperties.delete(key); }
   }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-' + (++uuidSequence) } });
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
@@ -163,6 +164,36 @@ assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('가격이력', [
 assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('스냅샷', [['2026-02-03'],['2026-02-03']])),{dates:['2026-02-03']},'Snapshot 상세행 변경은 해당 날짜만 invalidate');
 assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('펀드기준가격', [['2026-02-05'],['2026-02-03']])),{from:'2026-02-03'},'펀드 NAV 변경은 가장 이른 공시일부터 carry 이후 범위 invalidate');
 assert.deepEqual(clone(context._snapshotIntegrityImpactForRows('거래이력', [['2026-03-05'],['2026-03-01']])),{from:'2026-03-01'},'거래 변경은 최초 변경 거래일부터 이후 범위 invalidate');
+const longState={revision:10000,all:0,dates:{},ranges:[]};
+for(let i=0;i<400;i++){const date=new Date(Date.UTC(2025,0,1+i)).toISOString().slice(0,10);longState.dates[date]=100+i;}
+for(let i=0;i<150;i++)longState.ranges.push({from:new Date(Date.UTC(2024,0,1+i)).toISOString().slice(0,10),revision:1000+i});
+context._saveSnapshotIntegrityRevisionState(longState);
+const compactedRaw=scriptProperties.get('snapshot_integrity_source_revision_v1');
+const compacted=JSON.parse(compactedRaw);
+assert(compactedRaw.length<=7000,'365일 이상 dates와 다수 ranges도 단일 property 안전 상한 이내');
+assert(compacted.all>0,'compact로 제거한 revision은 all로 승격해 invalidation 의미 유지');
+scriptProperties.set('snapshot_integrity_source_revision_v1','legacy-v9.141-revision');
+const legacyMigrated=clone(context._getSnapshotIntegrityRevisionState());
+assert(legacyMigrated.all>0&&legacyMigrated.revision===legacyMigrated.all,'legacy scalar revision은 전체 재진단 state로 migration');
+scriptProperties.set('snapshot_integrity_source_revision_v1','{"revision":12,"dates":');
+const malformedMigrated=clone(context._getSnapshotIntegrityRevisionState());
+assert(malformedMigrated.all>0&&malformedMigrated.revision===malformedMigrated.all,'malformed revision state는 전체 재진단 fallback');
+const beforePropertyFailure=scriptProperties.get('snapshot_integrity_source_revision_v1');
+failRevisionPropertyWrite=true;
+assert.throws(()=>context._touchSnapshotIntegritySourceRevision({date:'2026-04-01'}),/property quota/,'revision 저장 실패를 정상 확정하면 안 됨');
+failRevisionPropertyWrite=false;
+assert.equal(scriptProperties.has('snapshot_integrity_source_revision_v1'),false,'저장 실패 시 stale revision property 제거');
+const afterPropertyFailure=clone(context._getSnapshotIntegrityRevisionState());
+assert.notEqual(JSON.stringify(afterPropertyFailure),beforePropertyFailure,'다음 read는 stale state 대신 전체 migration');
+const editSheet=(name,dates)=>({getName:()=>name,getRange:()=>({getValue:()=>dates[0],getValues:()=>dates.map(date=>[date])})});
+const editRange=(sheet,{row=2,rows=1,column=1,columns=1,value='' }={})=>({getSheet:()=>sheet,getRow:()=>row,getNumRows:()=>rows,getColumn:()=>column,getNumColumns:()=>columns,getValue:()=>value});
+const priceDateSheet=editSheet('가격이력',['2026-02-01']);
+assert.deepEqual(clone(context._snapshotIntegrityImpactForEdit({range:editRange(priceDateSheet,{value:'2026-02-01'}),oldValue:'2026-01-01'})),{from:'2026-01-01'},'날짜 old→new 수정은 더 이른 old 날짜부터 invalidate');
+const snapshotDateSheet=editSheet('스냅샷',['2026-02-01']);
+assert.deepEqual(clone(context._snapshotIntegrityImpactForEdit({range:editRange(snapshotDateSheet,{value:'2026-02-01'}),oldValue:'2026-01-01'})),{dates:['2026-01-01','2026-02-01']},'Snapshot 날짜 수정은 old/new 날짜 모두 invalidate');
+assert.deepEqual(clone(context._snapshotIntegrityImpactForEdit({range:editRange(priceDateSheet,{rows:2,value:'2026-02-01'}),oldValue:'2026-01-01'})),{all:true},'날짜열 다중 paste는 복원 불가능한 old 날짜 때문에 전체 fallback');
+const multiTradeSheet=editSheet('거래이력',['2026-03-03','2026-03-01']);
+assert.deepEqual(clone(context._snapshotIntegrityImpactForEdit({range:editRange(multiTradeSheet,{rows:2,column:3})})),{from:'2026-03-01'},'날짜 외 다중행 편집은 범위 전체 날짜 중 최소일부터 invalidate');
 assert.equal(uuidSequence-operationUuidBefore,1,'하나의 다일자 논리 작업은 전체 Snapshot 백업을 한 번만 생성');
 assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스트 형식으로 고정');
 assert.equal(held,false);
@@ -232,6 +263,17 @@ const carryRepresentative=clone(context._getFundNavStatus(ssFor({...duplicatePri
   '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','F00002','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED']])
 }),duplicatePriceConfigs))[0];
 assert.equal(carryRepresentative.temporaryDates.includes('2026-09-09'),true,'실제 대표행이 carry input required이면 임시 평가 유지');
+for (const legacyCode of ['', 'BROKEN']) {
+  const legacyRepresentative=clone(context._getFundNavStatus(ssFor({...duplicatePriceBase,
+    '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09',legacyCode,'KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED']])
+  }),duplicatePriceConfigs))[0];
+  assert.equal(legacyRepresentative.temporaryDates.includes('2026-09-09'),true,`legacy code '${legacyCode}'는 유일한 펀드명으로 F코드 fallback`);
+}
+const ambiguousConfigs=[...duplicatePriceConfigs,{code:'F00003',name:'KB',provider:'FIDELITY_BIG4_S',startDate:'2026-09-08',units:1000}];
+const ambiguousStatus=clone(context._getFundNavStatus(ssFor({...duplicatePriceBase,
+  '가격이력':new Sheet([['date','code','name','price','at','source'],['2026-09-09','','KB',1200,'','FUND_NAV_CARRY_INPUT_REQUIRED']])
+}),ambiguousConfigs));
+assert(ambiguousStatus.every(item=>!item.temporaryDates.includes('2026-09-09')),'모호한 펀드명은 임의 F코드로 fallback하지 않음');
 
 // 과거 보유 후 전량 매도한 F코드도 이력 계산은 가능하지만 0좌 이후에는 다시 생성하지 않습니다.
 const retiredConfigs=[

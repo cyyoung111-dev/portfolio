@@ -767,3 +767,10 @@ GAS 메뉴 및 시트 구성:
 - Snapshot은 해당 날짜, 가격·환율·거래·펀드 NAV·좌수는 carry/보유 상태를 고려해 최초 영향일부터 이후 날짜, 종목 매핑은 전체 범위를 invalidate합니다.
 - 백업 생성과 revision 갱신을 분리하고 실제 원자료 쓰기 성공 후에만 revision을 확정합니다.
 - 운영 반영에는 GAS v9.142와 정적 웹 cache `portfolio-cache-20261001-1`을 함께 재배포해야 합니다.
+
+## GAS v9.143 정합성 revision 장기 운영 안전성 (2026-10-01)
+
+- revision state는 직렬화 7,000자 이내로 compact하고 제거되는 date/range revision을 `all`로 승격해 stale cache를 방지합니다.
+- legacy/malformed property는 전체 재진단 state로 이관하며, 날짜 편집은 old/new 및 다중 범위를 보수적으로 invalidate합니다.
+- legacy 펀드 가격행은 유일한 종목명 매핑일 때만 F코드를 복원합니다.
+- 운영 반영에는 GAS v9.143과 정적 웹 cache `portfolio-cache-20261001-2`를 함께 재배포해야 합니다.
