@@ -47,7 +47,9 @@ assert.match(gas, /remainingCells < minimumCreationCells[\s\S]*_cleanupSystemBac
 assert.match(gas, /가격이력 쓰기 후 검증 실패[\s\S]*_cleanupCurrentSystemBackup\(ss, backup\)/, '가격이력 repair 성공 후 현재 operation backup을 정리해야 합니다.');
 assert.match(gas, /safeClass && item\.signatureMatch/, '등록된 COMPLETED도 실제 backup signature가 달라지면 보호해야 합니다.');
 assert.match(gas, /Snapshot 중복 정리 후 raw 검증 실패[\s\S]*_markSnapshotBackupStatus\(backup, 'COMPLETED'\)/, 'raw 검증이 COMPLETED 및 backup 삭제보다 먼저여야 합니다.');
-assert.doesNotMatch(gas.match(/function _cleanupCurrentSystemBackup[\s\S]*?\n}/)?.[0] || '', /_reconcileSystemBackups|_sheetFormulaReferenceCount|getSheets\(/, '현재 operation FAST PATH는 workbook scan을 하면 안 됩니다.');
+const currentCleanupBody=gas.match(/function _cleanupCurrentSystemBackup[\s\S]*?\n}/)?.[0] || '';
+assert.doesNotMatch(currentCleanupBody, /_reconcileSystemBackups|getSheets\(/, '현재 operation FAST PATH는 orphan/workbook sheet scan을 하면 안 됩니다.');
+assert.match(currentCleanupBody, /staleCandidates\.length[\s\S]*_sheetFormulaReferenceCounts/, 'formula scan은 같은 source stale registry candidate가 있을 때만 1회 실행');
 assert.doesNotMatch(gas.match(/function cleanupSnapshotDuplicates[\s\S]*?\n}/)?.[0] || '', /Object\.keys\(dates\)[\s\S]*_readRawSnapshotRowsByDate/, 'cleanup 초기 분류에서 날짜별 전체 Snapshot 재읽기 금지');
 assert.doesNotMatch(gas, /최신 유효 백업은 source별 1개 보존/, '유지보수 안내문은 system backup 0개 정책과 일치해야 합니다.');
 assert.match(gas, /GOOGLE_SHEETS_CELL_LIMIT = 10000000/, 'Google Sheets 파일당 10M cell 한도');

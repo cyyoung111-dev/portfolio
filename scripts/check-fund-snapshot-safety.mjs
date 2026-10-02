@@ -70,7 +70,7 @@ context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON
 assert.throws(()=>context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02'),/조회 결과 없음/,'빈 응답은 정상 조회로 처리하지 않음');
 
 class Sheet {
-  constructor(rows = []) { this.rows = clone(rows); this.writes = 0; this.copies = 0; this.failWrite = false; this.failCopy = false; this.maxRows = 10000; this.maxColumns = 26; this.name = ''; this.formats = {}; }
+  constructor(rows = []) { this.rows = clone(rows); this.writes = 0; this.copies = 0; this.failWrite = false; this.failCopy = false; this.maxRows = 10000; this.maxColumns = 26; this.name = ''; this.formats = {}; this.formulaText = ''; }
   getName() { return this.name; }
   getLastRow() { return this.rows.length; }
   getLastColumn() { return Math.max(0, ...this.rows.map(r => r.length)); }
@@ -82,7 +82,7 @@ class Sheet {
   appendRow(row) { this.rows.push(clone(row)); }
   getRange(row, col, nr, nc) {
     return { getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => this.rows[row-1+i]?.[col-1+j] ?? '')),
-      getFormulas: () => Array.from({ length: nr }, () => Array(nc).fill('')),
+      getFormulas: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => i === 0 && j === 0 ? this.formulaText : '')),
       setValues: values => {
         if (this.failWrite) throw new Error('write failed');
         assert.equal(values.length, nr);
@@ -811,6 +811,54 @@ assert(!cleanupSheets['스냅샷_백업_실패'],'더 최신의 검증 COMPLETED
 assert(cleanupSheets['스냅샷_백업_수정됨'],'registry signature와 실제 내용이 다른 COMPLETED backup 보호');
 assert(cleanupResult.unresolved.some(item=>item.name==='스냅샷_백업_수정됨'&&/signature/.test(item.reason)),'변경된 COMPLETED backup을 unresolved로 보고');
 assert.equal(cleanupResult.releasedCells,780000,'자동 정리 확보 실제 allocatedCells 합산');
+
+// 이전 실패 backup을 새 성공 증거가 삭제되기 전에 stale로 정리하고 최종 0개를 보장합니다.
+const lifecycleSheets={ '스냅샷':new Sheet([header]), 'failed-A':new Sheet([header]), 'created-A':new Sheet([header]), 'success-B':new Sheet([header]) };
+const lifecycleSs=ssFor(lifecycleSheets), lifecycleSignature=context._sheetContentSignature(lifecycleSheets['failed-A']);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'failed-A',source:'스냅샷',signature:lifecycleSignature,status:'WRITE_FAILED',systemGenerated:true,operationId:'old-failed',updatedAt:'2026-09-19T00:00:00Z'},
+  {name:'created-A',source:'스냅샷',signature:lifecycleSignature,status:'CREATED',systemGenerated:true,operationId:'old-created',createdAt:'2026-09-20T00:00:00Z'},
+  {name:'success-B',source:'스냅샷',signature:lifecycleSignature,status:'COMPLETED',systemGenerated:true,operationId:'new-success',completedAt:'2026-09-21T00:00:00Z'}
+]));
+let lifecycleCleanup=clone(context._cleanupCurrentSystemBackup(lifecycleSs,{name:'success-B',source:'스냅샷',operationId:'new-success'}));
+assert.deepEqual(lifecycleCleanup.staleDeleted.sort(),['created-A','failed-A'],'최신 성공 증거로 오래된 WRITE_FAILED/CREATED stale 정리');
+assert.equal(Object.keys(lifecycleSheets).filter(name=>name!=='스냅샷').length,0,'성공 후 same-source system backup 0개');
+assert.deepEqual(JSON.parse(scriptProperties.get('system_backup_registry_v1')),[],'성공 후 same-source registry 0개');
+
+const protectedSheets={ '스냅샷':new Sheet([header]), 'active-A':new Sheet([header]), 'mismatch-A':new Sheet([header,snap('2026-01-01','000001',999)]), 'formula-A':new Sheet([header]), 'success-C':new Sheet([header]), '참조':new Sheet([['ref']]) };
+protectedSheets['참조'].formulaText="='formula-A'!A1";
+const protectedSs=ssFor(protectedSheets), protectedSignature=context._sheetContentSignature(protectedSheets['active-A']);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'active-A',source:'스냅샷',signature:protectedSignature,status:'CREATED',systemGenerated:true,operationId:'active-op',createdAt:'2026-09-18T00:00:00Z'},
+  {name:'mismatch-A',source:'스냅샷',signature:protectedSignature,status:'WRITE_FAILED',systemGenerated:true,operationId:'mismatch-op',updatedAt:'2026-09-18T00:00:00Z'},
+  {name:'formula-A',source:'스냅샷',signature:protectedSignature,status:'WRITE_FAILED',systemGenerated:true,operationId:'formula-op',updatedAt:'2026-09-18T00:00:00Z'},
+  {name:'success-C',source:'스냅샷',signature:protectedSignature,status:'COMPLETED',systemGenerated:true,operationId:'success-op',completedAt:'2026-09-21T00:00:00Z'}
+]));
+context._snapshotBackupOperationId='active-op';
+lifecycleCleanup=clone(context._cleanupCurrentSystemBackup(protectedSs,{name:'success-C',source:'스냅샷',operationId:'success-op'}));
+context._snapshotBackupOperationId='';
+assert(protectedSheets['active-A']&&protectedSheets['mismatch-A']&&protectedSheets['formula-A'],'active/signature mismatch/formula 백업 보호');
+assert(lifecycleCleanup.staleProtected.some(item=>item.name==='active-A'&&/active/.test(item.reason)));
+assert(lifecycleCleanup.staleProtected.some(item=>item.name==='mismatch-A'&&/signature/.test(item.reason)));
+assert(lifecycleCleanup.staleProtected.some(item=>item.name==='formula-A'&&/수식/.test(item.reason)));
+
+const missingRegistrySs=ssFor({'스냅샷':new Sheet([header])}); context.getss=()=>missingRegistrySs;
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([{name:'missing-only',source:'스냅샷',signature:'sig',status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-09-01T00:00:00Z'}]));
+const missingMaintenance=clone(context.maintainSystemBackups({apply:true}));
+assert.deepEqual(missingMaintenance.removedMissingRegistryRecords,['missing-only'],'sheet 없는 system registry record 정리');
+assert.deepEqual(JSON.parse(scriptProperties.get('system_backup_registry_v1')),[]);
+const unresolvedSheets={'스냅샷':new Sheet([header]),'failed-only':new Sheet([header]),'delete-fails':new Sheet([header])};
+const unresolvedSs=ssFor(unresolvedSheets), unresolvedSignature=context._sheetContentSignature(unresolvedSheets['failed-only']);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([{name:'failed-only',source:'스냅샷',signature:unresolvedSignature,status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-09-01T00:00:00Z'}]));
+const unresolvedCleanup=clone(context._cleanupSystemBackups(unresolvedSs,'스냅샷',false));
+assert(unresolvedSheets['failed-only'],'후속 성공 증거 없는 WRITE_FAILED 보호');
+assert(unresolvedCleanup.unresolved.some(item=>item.name==='failed-only'&&/쓰기 실패/.test(item.reason)));
+const deleteFailRecord={name:'delete-fails',source:'스냅샷',signature:context._sheetContentSignature(unresolvedSheets['delete-fails']),status:'COMPLETED',systemGenerated:true,operationId:'delete-fail-op',completedAt:'2026-09-22T00:00:00Z'};
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([deleteFailRecord]));
+unresolvedSs.deleteSheet=()=>{throw new Error('delete denied');};
+const deleteFailure=clone(context._cleanupCurrentSystemBackup(unresolvedSs,deleteFailRecord));
+assert.match(deleteFailure.reason,/삭제 실패: delete denied/);
+assert(JSON.parse(scriptProperties.get('system_backup_registry_v1')).some(item=>item.name==='delete-fails'),'삭제 실패 record를 거짓 삭제하지 않음');
 assert.deepEqual(clone(context._normalizeCodeRows([[5930],[34230],[23280],['0046Y0'],['F00001'],['AAPL']],0)),
   [['005930'],['034230'],['023280'],['0046Y0'],['F00001'],['AAPL']],'숫자형 국내 코드 앞자리 0 복원 및 영숫자·해외 코드 보존');
 const identicalRow=snap('2026-02-01','000001',100);

@@ -38,8 +38,9 @@ const currentPriceBody = gas.slice(gas.indexOf('function handleGetPricesCompat')
 assert.doesNotMatch(currentPriceBody, /fetchPricesGoogleFinance\(/, '현재가 경로에서 GOOGLEFINANCE fallback을 사용하면 안 됩니다');
 assert.match(gas, /function _tossPriceSmoke_\(token\)/);
 assert.match(gas, /symbols=005930/);
-assert.match(gas, /validLastPrice: Number\.isFinite\(price\) && price > 0/);
-assert.match(gas, /timestampPresent: !!\(row && row\.timestamp\)/);
+assert.match(gas, /var validLastPrice = Number\.isFinite\(price\) && price > 0/);
+assert.match(gas, /PRICE_SMOKE_(?:EMPTY|SYMBOL_MISSING|INVALID_PRICE|TIMESTAMP_MISSING)/);
+assert.match(gas, /var timestampPresent = !!\(row && row\.timestamp\)/);
 assert.doesNotMatch(gas.match(/function _tossPriceSmoke_\(token\)\s*\{([\s\S]*?)\n\}/)?.[1] || '', /Logger\.log|PropertiesService|setValue|setValues|appendRow/i);
 assert.match(web, /현재가 갱신 · \$\{Object\.keys\(results\)\.length\}개 · 화면만 반영/);
 assert.match(web, /저장 이력\/Snapshot 미변경/);
