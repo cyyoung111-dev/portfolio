@@ -843,6 +843,22 @@ const validatedMaintenance=clone(context.maintainSystemBackups({apply:true,valid
 assert(!maintenanceSheets['스냅샷_백업_failed_op'],'최종 VALID operationId 증거가 있는 Snapshot WRITE_FAILED cleanup 허용');
 assert(validatedMaintenance.deletedSheetNames.includes('스냅샷_백업_failed_op'));
 
+const sourceMissingMaintenanceSheets={ '스냅샷_백업_source_missing_completed':new Sheet([header]), '스냅샷_백업_source_missing_failed':new Sheet([header]) };
+const sourceMissingMaintenanceSs=ssFor(sourceMissingMaintenanceSheets);
+const sourceMissingMaintenanceSignature=context._sheetContentSignature(sourceMissingMaintenanceSheets['스냅샷_백업_source_missing_completed']);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'스냅샷_백업_source_missing_completed',source:'스냅샷',signature:sourceMissingMaintenanceSignature,status:'COMPLETED',systemGenerated:true,operationId:'source-missing-completed',completedAt:'2026-09-21T00:00:00Z'},
+  {name:'스냅샷_백업_source_missing_failed',source:'스냅샷',signature:sourceMissingMaintenanceSignature,status:'WRITE_FAILED',systemGenerated:true,operationId:'source-missing-validated',createdAt:'2026-09-20T00:00:00Z'}
+]));
+context.getss=()=>sourceMissingMaintenanceSs;
+const sourceMissingDiagnosis=clone(context._diagnoseWorkbookCells(sourceMissingMaintenanceSs,true));
+assert(sourceMissingDiagnosis.sheets.filter(item=>item.backup).every(item=>!item.autoCleanupEligible&&/source sheet 없음/.test(item.protectionReason)),'진단도 source 없는 registered backup을 자동 정리 불가로 표시');
+const sourceMissingMaintenance=clone(context.maintainSystemBackups({apply:true,validatedOperationIds:['source-missing-validated']}));
+assert.deepEqual(sourceMissingMaintenance.deletedSheetNames,[],'source 없으면 COMPLETED/validated WRITE_FAILED 모두 삭제 금지');
+assert(sourceMissingMaintenance.protectedSheets.every(item=>/source sheet 없음/.test(item.reason)));
+assert(sourceMissingMaintenanceSheets['스냅샷_백업_source_missing_completed']&&sourceMissingMaintenanceSheets['스냅샷_백업_source_missing_failed'],'source-missing backup sheet 보호');
+assert.equal(JSON.parse(scriptProperties.get('system_backup_registry_v1')).length,2,'source-missing registry 보호');
+
 const createdSheets={ '스냅샷':new Sheet([header]), 'created-cross-execution':new Sheet([header]), 'success-created-test':new Sheet([header]) };
 const createdSs=ssFor(createdSheets), createdSignature=context._sheetContentSignature(createdSheets['created-cross-execution']);
 scriptProperties.set('system_backup_registry_v1',JSON.stringify([

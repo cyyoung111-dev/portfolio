@@ -5372,7 +5372,8 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
       (backupRecord.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
       (role === 'BACKUP' ? (inferredSource ? 'ORPHAN_LIKELY_SYSTEM' : 'USER_MANAGED_BACKUP') : 'UNKNOWN');
     var formulaReferenceCount = includeFormulaReferences ? formulaCounts[name] : null;
-    var eligible = classification === 'REGISTERED_COMPLETED' && formulaReferenceCount === 0;
+    var registeredSourceExists = !backupRecord || (!!inferredSource && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, inferredSource) && !!ss.getSheetByName(inferredSource));
+    var eligible = classification === 'REGISTERED_COMPLETED' && registeredSourceExists && formulaReferenceCount === 0;
     sheets.push({ name: name, role: role, maxRows: maxRows, maxColumns: maxColumns,
       lastRow: lastRow, lastColumn: lastColumn, allocatedCells: allocatedCells,
       usedRangeCells: usedRangeCells, unusedCells: allocatedCells - usedRangeCells,
@@ -5382,7 +5383,8 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
       createdAt: backupRecord ? backupRecord.createdAt || '' : '', completedAt: backupRecord ? backupRecord.completedAt || '' : '',
       updatedAt: backupRecord ? backupRecord.updatedAt || '' : '', operationId: backupRecord ? backupRecord.operationId || '' : '',
       signatureMatch: backupRecord ? _sheetContentSignature(sheet) === backupRecord.signature : null,
-      autoCleanupEligible: eligible, protectionReason: eligible ? '' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정') });
+      sourceSheetExists: registeredSourceExists, autoCleanupEligible: eligible, protectionReason: eligible ? '' :
+        (!registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정')) });
   });
   sheets.forEach(function(item) { item.workbookOccupancyPercent = totalCells ? Number((item.allocatedCells * 100 / totalCells).toFixed(4)) : 0; });
   var backupsBySource = {};
@@ -5434,6 +5436,7 @@ function _planSystemBackupMaintenance(ss, options) {
     var active = !!(record && activeOperations[record.operationId]);
     return { name: item.name, sheetName: item.name, registryRecordExists: !!record, source: source || '', classification: classification,
       status: record ? record.status : '', signatureMatch: signatureMatch, schemaMatch: schemaMatch,
+      sourceSheetExists: !!sourceSheet,
       formulaReferenceCount: Number(item.formulaReferenceCount || 0), allocatedCells: item.allocatedCells,
       operationId: record ? record.operationId || '' : '', activeOperation: active,
       createdAt: record ? record.createdAt || '' : '', completedAt: record ? record.completedAt || '' : '',
@@ -5448,16 +5451,17 @@ function _planSystemBackupMaintenance(ss, options) {
       var safeClass = ['REGISTERED_COMPLETED', 'REGISTERED_WRITE_FAILED', 'REGISTERED_INCOMPLETE', 'ORPHAN_LIKELY_SYSTEM'].indexOf(item.classification) !== -1;
       var registeredCompleted = item.classification === 'REGISTERED_COMPLETED';
       var registeredFailed = item.classification === 'REGISTERED_WRITE_FAILED';
+      var registeredSourceExists = item.classification.indexOf('REGISTERED_') !== 0 || item.sourceSheetExists;
       // validated recovery는 전체 Snapshot 복구가 증명한 Snapshot rollback에만 적용합니다.
       // 다른 source의 실패/진행 중 backup까지 광범위하게 정리하지 않습니다.
       var validatedStale = !!validatedOperationIds[item.operationId] && item.source === CONFIG.SHEET_SNAPSHOT &&
         (registeredFailed || (item.classification === 'REGISTERED_INCOMPLETE' && item.status === 'CREATED'));
-      item.autoCleanupEligible = !!(safeClass && item.signatureMatch && (registeredCompleted || validatedStale ||
+      item.autoCleanupEligible = !!(safeClass && registeredSourceExists && item.signatureMatch && (registeredCompleted || validatedStale ||
         (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch)) &&
         (!item.activeOperation || validatedStale) && item.formulaReferenceCount === 0);
-      if (!item.autoCleanupEligible) item.protectionReason = item.activeOperation ? 'active operation' :
+      if (!item.autoCleanupEligible) item.protectionReason = !registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (item.activeOperation ? 'active operation' :
         (item.formulaReferenceCount ? '수식 참조 존재' : (!safeClass ? 'USER_MANAGED/UNKNOWN 보호' :
-        (registeredFailed ? 'WRITE_FAILED · 복구 검증 없음' : '안전 조건 불충족')));
+        (registeredFailed ? 'WRITE_FAILED · 복구 검증 없음' : '안전 조건 불충족'))));
     });
     var deletions = list.filter(function(item) { return item.autoCleanupEligible; });
     sourceSummary[source] = { total: list.length, beforeCount: list.length, keepCount: list.length - deletions.length,
