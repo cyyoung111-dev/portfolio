@@ -53,7 +53,8 @@ assert.doesNotMatch(gas, /최신 유효 백업은 source별 1개 보존/, '유�
 assert.match(gas, /GOOGLE_SHEETS_CELL_LIMIT = 10000000/, 'Google Sheets 파일당 10M cell 한도');
 assert.match(gas, /deleteColumns[\s\S]*insertRowsAfter/, 'tall\/narrow backup은 열 축소 후 행 확장');
 assert.match(gas, /if \(operationId\)[\s\S]*operationRecord[\s\S]*var signature = _sheetContentSignature/, '동일 operation backup은 source 전체 signature 전에 재사용');
-assert.match(gas, /else if \(state\.failed === 0\) state\.backupCleanup = maintainSystemBackups\(\{ apply: true, validatedRecovery: true \}\)/, '성공한 full repair만 validated recovery cleanup');
+assert.match(gas, /afterIntegrity\.status !== 'VALID'[\s\S]*state\.validatedOperationIds\.push\(repairOperationId\)/, 'VALID 재진단 operation만 cleanup 증명에 포함');
+assert.match(gas, /else if \(state\.failed === 0\) state\.backupCleanup = maintainSystemBackups\(\{ apply: true, validatedOperationIds: state\.validatedOperationIds \}\)/, '성공한 full repair만 검증 operation 한정 cleanup');
 assert.match(gas, /writeFailedCount:[\s\S]*writeFailed:/, 'backup summary count와 name 목록 key 분리');
 assert.match(gas, /function maintainSystemBackups[\s\S]*hasLock\(\)[\s\S]*_planSystemBackupMaintenance/, 'maintenance apply는 lock 뒤 plan 재계산');
 assert.match(gas, /function _settleSnapshotBackupOperation[\s\S]*succeeded \? 'COMPLETED' : 'WRITE_FAILED'/, 'operation backup은 공통 finalize/fail 경로를 사용');
@@ -65,7 +66,8 @@ assert.match(gas, /dailyRewritePlan\.unsafe\.length[\s\S]*diagnoseSnapshotIntegr
 assert.match(gas, /Object\.assign\(\{\}, operationRecord, \{ reused: true \}\)/, 'operation backup reuse는 provenance 전체 보존');
 assert.match(gas, /var complete = Object\.assign\(\{\}, existing, record\)/, '상태 전환은 기존 registry metadata와 병합');
 assert.match(gas, /sourceName === CONFIG\.SHEET_SNAPSHOT && repairState/, 'Snapshot repair operationId는 Snapshot source에만 자동 적용');
-assert.match(gas, /validatedRecovery && item\.source === CONFIG\.SHEET_SNAPSHOT[\s\S]*registeredFailed \|\| \(item\.classification === 'REGISTERED_INCOMPLETE' && item\.status === 'CREATED'\)/, 'validated recovery는 Snapshot의 실패·중단 backup에만 적용');
+assert.match(gas, /validatedOperationIds\[item\.operationId\][\s\S]*item\.source === CONFIG\.SHEET_SNAPSHOT/, 'validated cleanup은 실제 VALID operationId와 Snapshot source로 제한');
+assert.match(gas, /item\.status === 'COMPLETED' && signatureMatches\(item\)/, '용량 cleanup COMPLETED 후보는 registry signature 일치 필수');
 assert.match(gas, /fundRewritePlan\.unsafe\.length[\s\S]*snapshotOperationUnsafe = true/, '펀드 평가 protected conflict 성공 집계 금지');
 assert.match(gas, /repairPlan\.unsafe\.length[\s\S]*snapshotCount: 0/, '가격·Snapshot repair protected conflict 성공 집계 금지');
 assert.match(gas, /backfillPlan\.unsafe\.length[\s\S]*throw new Error\('Snapshot 보호 충돌:/, 'backfill protected conflict 성공 집계 금지');

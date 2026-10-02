@@ -758,19 +758,26 @@ const cleanupSheets={
   '스냅샷':new Sheet([header]),
   '스냅샷_백업_시스템_구버전':new Sheet([header]),
   '스냅샷_백업_시스템_최신':new Sheet([header]),
+  '스냅샷_백업_수정됨':new Sheet([header,snap('2026-01-01','000001',999)]),
   '스냅샷_백업_사용자보관':new Sheet([header])
 };
+const cleanupSs=ssFor(cleanupSheets);
+const cleanBackupSignature=context._sheetContentSignature(cleanupSheets['스냅샷_백업_시스템_구버전']);
 scriptProperties.set('system_backup_registry_v1',JSON.stringify([
-  {name:'스냅샷_백업_시스템_구버전',source:'스냅샷',status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-20T00:00:00Z'},
-  {name:'스냅샷_백업_시스템_최신',source:'스냅샷',status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-21T00:00:00Z'},
-  {name:'스냅샷_백업_실패',source:'스냅샷',status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-09-19T00:00:00Z'}
+  {name:'스냅샷_백업_시스템_구버전',source:'스냅샷',signature:cleanBackupSignature,status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-20T00:00:00Z'},
+  {name:'스냅샷_백업_시스템_최신',source:'스냅샷',signature:cleanBackupSignature,status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-21T00:00:00Z'},
+  {name:'스냅샷_백업_수정됨',source:'스냅샷',signature:cleanBackupSignature,status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-18T00:00:00Z'},
+  {name:'스냅샷_백업_실패',source:'스냅샷',signature:cleanBackupSignature,status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-09-19T00:00:00Z'}
 ]));
 cleanupSheets['스냅샷_백업_실패']=new Sheet([header]);
-const cleanupResult=clone(context._cleanupSystemBackups(ssFor(cleanupSheets),'스냅샷'));
+cleanupSs.getSheets();
+const cleanupResult=clone(context._cleanupSystemBackups(cleanupSs,'스냅샷'));
 assert.deepEqual(cleanupResult.deleted,['스냅샷_백업_시스템_최신','스냅샷_백업_시스템_구버전','스냅샷_백업_실패'],'성공본 전체와 복구된 과거 실패 백업 삭제');
 assert(!cleanupSheets['스냅샷_백업_시스템_최신'],'정상 완료 system backup 0개');
 assert(cleanupSheets['스냅샷_백업_사용자보관'],'이름만 백업인 미등록 사용자 시트 보호');
 assert(!cleanupSheets['스냅샷_백업_실패'],'더 최신의 검증 COMPLETED 복구본이 있으면 오래된 WRITE_FAILED 정리');
+assert(cleanupSheets['스냅샷_백업_수정됨'],'registry signature와 실제 내용이 다른 COMPLETED backup 보호');
+assert(cleanupResult.unresolved.some(item=>item.name==='스냅샷_백업_수정됨'&&/signature/.test(item.reason)),'변경된 COMPLETED backup을 unresolved로 보고');
 assert.equal(cleanupResult.releasedCells,780000,'자동 정리 확보 실제 allocatedCells 합산');
 assert.deepEqual(clone(context._normalizeCodeRows([[5930],[34230],[23280],['0046Y0'],['F00001'],['AAPL']],0)),
   [['005930'],['034230'],['023280'],['0046Y0'],['F00001'],['AAPL']],'숫자형 국내 코드 앞자리 0 복원 및 영숫자·해외 코드 보존');

@@ -833,3 +833,9 @@ GAS 메뉴 및 시트 구성:
 
 - 중복 정리 전부터 존재한 빈 행·식별자 없는 행은 보존하면서, intended/actual 비교에는 동일한 유효 Snapshot 행 기준을 적용해 정상 정리를 실패로 오인하지 않습니다.
 - 정적 웹은 cache `portfolio-cache-20261002-4`와 함께 배포합니다.
+
+## GAS v9.154 validated operation 및 capacity cleanup 보호 (2026-10-02)
+
+- 전체 Snapshot consistency repair의 stale rollback 정리는 실제 `VALID` 재진단을 통과한 operation ID에만 한정합니다. skip·범위 밖·다른 operation backup은 보존합니다.
+- 셀 부족 자동 cleanup도 registry signature와 실제 backup content signature가 일치하는 시스템 backup만 삭제합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-5`와 함께 배포합니다.
