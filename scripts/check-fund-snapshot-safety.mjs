@@ -25,6 +25,20 @@ const context = vm.createContext({ console, Logger: { log() {} }, LockService: {
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
 
+const realDiagnoseSnapshotIntegrity=context.diagnoseSnapshotIntegrity;
+const realSettleSnapshotBackupOperation=context._settleSnapshotBackupOperation;
+let backfillSettles=[];
+context.diagnoseSnapshotIntegrity=()=>({status:'VALID'});
+context._settleSnapshotBackupOperation=(_ss,operationId,succeeded,message)=>{backfillSettles.push({operationId,succeeded,message});return [];};
+context._finalizeBackfillSnapshotOperation({},'2026-01-02','backfill-test-valid');
+assert.deepEqual(backfillSettles,[{operationId:'backfill-test-valid',succeeded:true,message:undefined}],'backfill VALID만 success settle 실행');
+backfillSettles=[];
+context.diagnoseSnapshotIntegrity=()=>({status:'PRICE_SUSPICIOUS'});
+assert.throws(()=>context._finalizeBackfillSnapshotOperation({},'2026-01-02','backfill-test-invalid'),/PRICE_SUSPICIOUS/,'backfill non-VALID은 success settle 전 실패');
+assert.deepEqual(backfillSettles,[],'backfill non-VALID success settle 금지');
+context.diagnoseSnapshotIntegrity=realDiagnoseSnapshotIntegrity;
+context._settleSnapshotBackupOperation=realSettleSnapshotBackupOperation;
+
 // 한화 공식 API는 요청 범위의 C-RPe만 반환하고 미확정 클래스는 외부 조회하지 않습니다.
 const fundFetchCalls=[];
 context.UrlFetchApp={fetch(url, options){

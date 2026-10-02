@@ -857,3 +857,9 @@ GAS 메뉴 및 시트 구성:
 - 일일 가격 저장·날짜 복구·backfill Snapshot write는 연관 write와 최종 integrity 검증 성공 뒤에만 operation backup을 완료·정리합니다.
 - 내용이 완전히 동일한 MANUAL 물리 중복은 `EXACT_DUPLICATE`로 축약하되 서로 다른 MANUAL 충돌은 계속 보호합니다.
 - 정적 웹은 cache `portfolio-cache-20261002-8`과 함께 배포합니다.
+
+## GAS v9.158 backfill 최종 Snapshot 검증 (2026-10-02)
+
+- backfill은 Snapshot 및 연관 가격이력 write 후 `SpreadsheetApp.flush()`와 `diagnoseSnapshotIntegrity()`를 실행하고 `VALID`일 때만 operation backup을 완료·정리합니다.
+- non-VALID 또는 가격이력 write 실패 시 성공 집계를 하지 않고 rollback backup을 `WRITE_FAILED`로 보존합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-9`와 함께 배포합니다.

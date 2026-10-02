@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.157
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.158
+//
+//  v9.158 변경사항 (2026.10.02):
+//   backfill 연관 write 후 최종 Snapshot VALID 검증
 //
 //  v9.157 변경사항 (2026.10.02):
 //   Snapshot 최종 검증 lifecycle·거래 rebuild 부분 실패·MANUAL exact duplicate 보강
@@ -4255,7 +4258,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.157' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.158' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8592,7 +8595,7 @@ function _backfillExecute() {
               return { code: h.code, name: h.name, price: prices[key], source: (priceSources[key] || 'UNKNOWN') };
             });
           if (phItems.length > 0) batchUpsertPriceHistory(ss, dateStr, phItems);
-          _settleSnapshotBackupOperation(ss, backfillOperationId, true);
+          _finalizeBackfillSnapshotOperation(ss, dateStr, backfillOperationId);
           totalSuccess++;
         }
       } catch(e) {
@@ -8629,6 +8632,13 @@ function _backfillExecute() {
     Logger.log(doneMsg);
     try { SpreadsheetApp.getUi().alert(doneMsg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
   }
+}
+
+function _finalizeBackfillSnapshotOperation(ss, dateStr, operationId) {
+  SpreadsheetApp.flush();
+  var integrity = diagnoseSnapshotIntegrity(ss, dateStr);
+  if (!integrity || integrity.status !== 'VALID') throw new Error('backfill Snapshot 재진단 실패: ' + (integrity ? integrity.status : 'NO_RESULT'));
+  return _settleSnapshotBackupOperation(ss, operationId, true);
 }
 
 
@@ -9646,7 +9656,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.157' });
+    return jsonOk({ settings: settings, gasVersion: '9.158' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9668,7 +9678,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.157'
+      gasVersion: '9.158'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
