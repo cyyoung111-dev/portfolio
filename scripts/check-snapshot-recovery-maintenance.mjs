@@ -65,7 +65,7 @@ assert.match(gas, /dailyRewritePlan\.unsafe\.length[\s\S]*diagnoseSnapshotIntegr
 assert.match(gas, /Object\.assign\(\{\}, operationRecord, \{ reused: true \}\)/, 'operation backup reuse는 provenance 전체 보존');
 assert.match(gas, /var complete = Object\.assign\(\{\}, existing, record\)/, '상태 전환은 기존 registry metadata와 병합');
 assert.match(gas, /sourceName === CONFIG\.SHEET_SNAPSHOT && repairState/, 'Snapshot repair operationId는 Snapshot source에만 자동 적용');
-assert.match(gas, /validatedRecovery && \(registeredFailed \|\| item\.classification === 'REGISTERED_INCOMPLETE'\)/, 'validated recovery만 실패·중단 backup 정리');
+assert.match(gas, /validatedRecovery && item\.source === CONFIG\.SHEET_SNAPSHOT[\s\S]*registeredFailed \|\| \(item\.classification === 'REGISTERED_INCOMPLETE' && item\.status === 'CREATED'\)/, 'validated recovery는 Snapshot의 실패·중단 backup에만 적용');
 assert.match(gas, /fundRewritePlan\.unsafe\.length[\s\S]*snapshotOperationUnsafe = true/, '펀드 평가 protected conflict 성공 집계 금지');
 assert.match(gas, /repairPlan\.unsafe\.length[\s\S]*snapshotCount: 0/, '가격·Snapshot repair protected conflict 성공 집계 금지');
 assert.match(gas, /backfillPlan\.unsafe\.length[\s\S]*throw new Error\('Snapshot 보호 충돌:/, 'backfill protected conflict 성공 집계 금지');

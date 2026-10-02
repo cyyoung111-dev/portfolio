@@ -823,3 +823,8 @@ GAS 메뉴 및 시트 구성:
 - 재사용 backup의 system provenance를 registry 상태 전환에서도 보존하고, 전체 Snapshot consistency repair가 완전 성공한 경우에만 과거 `WRITE_FAILED`/중단 `CREATED` system backup을 정리합니다.
 - 일반 유지보수는 복구 증명 없이 실패·중단 backup을 보존하며, signature가 달라진 등록 완료본도 자동 삭제하지 않습니다.
 - 정적 웹은 cache `portfolio-cache-20261002-2`와 함께 배포합니다.
+
+## GAS v9.152 validated recovery source 격리 (2026-10-02)
+
+- 전체 Snapshot consistency repair의 `validatedRecovery` 정리는 Snapshot source의 등록된 실패·중단 rollback backup에만 적용합니다. 다른 source의 실패 또는 진행 중 backup은 해당 증명으로 삭제하지 않습니다.
+- 정적 웹은 cache `portfolio-cache-20261002-3`과 함께 배포합니다.

@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.151
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.152
+//
+//  v9.152 변경사항 (2026.10.02):
+//   validated recovery cleanup을 Snapshot source로 격리
 //
 //  v9.151 변경사항 (2026.10.02):
 //   Snapshot backup provenance·validated recovery·caller 보호 상태 보강
@@ -4237,7 +4240,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.151' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.152' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5348,7 +5351,10 @@ function _planSystemBackupMaintenance(ss, options) {
       var olderFailed = item.classification === 'REGISTERED_WRITE_FAILED' && newest && _backupTimeMillis(item.createdAt) < _backupTimeMillis(newest.completedAt || newest.createdAt);
       var registeredCompleted = item.classification === 'REGISTERED_COMPLETED';
       var registeredFailed = item.classification === 'REGISTERED_WRITE_FAILED';
-      var validatedStale = validatedRecovery && (registeredFailed || item.classification === 'REGISTERED_INCOMPLETE');
+      // validated recovery는 전체 Snapshot 복구가 증명한 Snapshot rollback에만 적용합니다.
+      // 다른 source의 실패/진행 중 backup까지 광범위하게 정리하지 않습니다.
+      var validatedStale = validatedRecovery && item.source === CONFIG.SHEET_SNAPSHOT &&
+        (registeredFailed || (item.classification === 'REGISTERED_INCOMPLETE' && item.status === 'CREATED'));
       item.autoCleanupEligible = !!(safeClass && item.signatureMatch && (registeredCompleted || validatedStale ||
         (registeredFailed ? olderFailed : (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch))) &&
         (!item.activeOperation || validatedStale) && item.formulaReferenceCount === 0);
@@ -9569,7 +9575,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.151' });
+    return jsonOk({ settings: settings, gasVersion: '9.152' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9591,7 +9597,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.151'
+      gasVersion: '9.152'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
