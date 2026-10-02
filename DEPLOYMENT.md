@@ -802,3 +802,9 @@ GAS 메뉴 및 시트 구성:
 ## 정적 웹 retry 빈 결과 정리 (2026-10-01)
 - revision 재조회가 빈 원본 또는 빈 정규화 범위로 끝나면 이전 정상 화면을 복원하고, 복원본이 없을 때만 stale chart·table·warning·상태를 제거합니다.
 - GAS 변경은 없으며 정적 웹 cache `portfolio-cache-20261001-8`만 재배포합니다.
+
+## GAS v9.149 Snapshot raw 충돌·임시 rollback backup 정책 (2026-10-01)
+- Snapshot 복구는 dedupe view의 signature가 아니라 raw `date + canonical code/name` 그룹을 공통 판정합니다. 동일 행 중복과 MANUAL 없는 유일 expected 일치만 자동 정리하고, MANUAL·미확정 충돌·원자료 부족은 원인을 남겨 보존합니다.
+- 쓰기 뒤 `SpreadsheetApp.flush()` 및 raw integrity 재진단이 `VALID`인 경우에만 성공으로 확정합니다.
+- 시스템 `*_백업_*`은 위험한 쓰기 직전의 임시 rollback artifact입니다. 정상 완료본은 즉시 삭제하고 registry에서도 제거하며, 전체 복구 완료/명시 유지보수에서는 검증된 과거 완료본과 복구 완료된 실패본도 정리합니다. active·미복구 실패·수식 참조·사용자/UNKNOWN 백업은 보존합니다.
+- 운영 반영 후 GAS v9.149와 정적 웹 cache `portfolio-cache-20261001-9`를 재배포하고, 먼저 백업 유지보수 dry-run에서 보호/삭제 후보를 확인한 다음 apply를 실행합니다. 이어 전체 Snapshot consistency repair를 실행하고 완료 후 integrity 상태와 system backup 0개를 확인합니다.
