@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.158
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.159
+//
+//  v9.159 변경사항 (2026.10.02):
+//   Snapshot 중복 진단 기준 통일·Toss OAuth/API 단계 및 005930 smoke 진단 분리
 //
 //  v9.158 변경사항 (2026.10.02):
 //   backfill 연관 write 후 최종 Snapshot VALID 검증
@@ -1303,10 +1306,9 @@ function fetchHistoricalPricesToss(items, targetDate) {
 }
 
 // 운영 점검용 read-only 호출. 자격증명·토큰·원문 응답은 반환하거나 로그에 남기지 않습니다.
-function _tossDiagnosticRequest_(path, query) {
+function _tossDiagnosticRequest_(path, query, token) {
   var startedAt = Date.now();
   try {
-    var token = _tossAccessToken_();
     if (!token) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', elapsedMs: Date.now() - startedAt };
     var params = [];
     Object.keys(query || {}).forEach(function(key) {
@@ -1335,10 +1337,9 @@ function _tossDiagnosticRequest_(path, query) {
   }
 }
 
-function _tossPriceSmoke_() {
+function _tossPriceSmoke_(token) {
   var startedAt = Date.now();
   try {
-    var token = _tossAccessToken_();
     if (!token) return { ok: false, status: null, resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
     var response = UrlFetchApp.fetch(TOSS_API_BASE + '/api/v1/prices?symbols=005930', {
       method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true
@@ -1352,6 +1353,7 @@ function _tossPriceSmoke_() {
     return {
       ok: status >= 200 && status < 300,
       status: status,
+      code: status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (status >= 200 && status < 300 ? 'OK' : 'HTTP_ERROR'),
       resultCount: rows.length,
       symbol: row ? _normalizeTossSymbol_(row.symbol) : '',
       validLastPrice: Number.isFinite(price) && price > 0,
@@ -1364,9 +1366,25 @@ function _tossPriceSmoke_() {
 }
 
 function handleDiagnoseTossMarketData() {
+  var oauthStartedAt = Date.now(), token = '', oauth;
+  try {
+    token = _tossAccessToken_();
+    oauth = token
+      ? { stage: 'oauth', ok: true, status: 200, code: 'OK', providerCode: '', elapsedMs: Date.now() - oauthStartedAt }
+      : { stage: 'oauth', ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', elapsedMs: Date.now() - oauthStartedAt };
+  } catch (oauthError) {
+    var oauthMessage = String(oauthError && oauthError.message || '');
+    var oauthMatch = oauthMessage.match(/Toss OAuth 실패\((\d+)\):\s*([^\s]+)/);
+    oauth = { stage: 'oauth', ok: false, status: oauthMatch ? Number(oauthMatch[1]) : null,
+      code: 'OAUTH_FAILED', providerCode: oauthMatch ? String(oauthMatch[2] || '').slice(0, 100) : 'unknown', elapsedMs: Date.now() - oauthStartedAt };
+  }
   var checks = [];
   var run = function(name, path, query) {
-    var item = _tossDiagnosticRequest_(path, query);
+    if (!oauth.ok) {
+      checks.push({ name: name, endpoint: path, ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', requestId: '', count: 0, elapsedMs: 0 });
+      return;
+    }
+    var item = _tossDiagnosticRequest_(path, query, token);
     checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code, requestId: item.requestId || '', count: item.count || 0, elapsedMs: item.elapsedMs });
   };
   run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
@@ -1374,15 +1392,15 @@ function handleDiagnoseTossMarketData() {
   run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
   run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
   run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
-  var smoke = _tossPriceSmoke_();
-  var overallOk = checks.every(function(item) { return item.ok; }) && smoke.ok && smoke.validLastPrice;
+  var smoke = oauth.ok ? _tossPriceSmoke_(token) : { ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: 0 };
+  var overallOk = oauth.ok && checks.every(function(item) { return item.ok; }) && smoke.ok && smoke.validLastPrice && smoke.timestampPresent;
   try {
     var props = PropertiesService.getScriptProperties();
     props.setProperty('TOSS_LAST_DIAGNOSTIC_AT', new Date().toISOString());
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (checks.find(function(item) { return !item.ok; }) || {}).code || 'ERROR');
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (!oauth.ok ? oauth.code : ((checks.find(function(item) { return !item.ok; }) || {}).code || smoke.code || 'ERROR')));
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, endpoints: checks, priceSmoke: smoke });
+  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -4258,7 +4276,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.158' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.159' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6427,8 +6445,6 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext, rangeContext) {
   Object.keys(grouped).forEach(function(key) {
     if (grouped[key].length < 2) return;
     duplicateKeys.push(key);
-    var signatures = {}; grouped[key].forEach(function(row) { signatures[JSON.stringify(row.slice(1, 12))] = true; });
-    if (Object.keys(signatures).length > 1) conflictKeys.push(key);
   });
   var result = { date: date, status: 'VALID', expectedRowCount: 0, storedRowCount: raw.length,
     expectedCodes: [], storedCodes: [], missingCodes: [], unexpectedCodes: [], duplicateKeys: duplicateKeys,
@@ -6440,6 +6456,12 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext, rangeContext) {
   try { expected = rangeContext ? _buildIndexedSnapshotRows(rangeContext, date) : _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true); }
   catch (error) { result.sourceDataErrors.push(String(error.message || error)); result.status = 'SOURCE_INCOMPLETE'; }
   result.expectedRows = expected;
+  var duplicateDecisions = _classifyRawSnapshotDuplicateGroups(date, raw, expected,
+    result.status === 'SOURCE_INCOMPLETE' ? result.sourceDataErrors.join('; ') : '');
+  conflictKeys = duplicateDecisions.filter(function(item) {
+    return item.classification === 'MANUAL_PROTECTED' || item.classification === 'UNRESOLVED_CONFLICT';
+  }).map(function(item) { return date + '|' + item.key; });
+  result.conflictKeys = conflictKeys;
   var expectedMap = {}, storedMap = {};
   expected.forEach(function(row) { expectedMap[_snapshotIntegrityKey(row)] = row; });
   raw.forEach(function(row) { var key = _snapshotIntegrityKey(row); if (!storedMap[key]) storedMap[key] = row; });
@@ -9656,7 +9678,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.158' });
+    return jsonOk({ settings: settings, gasVersion: '9.159' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9678,7 +9700,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.158'
+      gasVersion: '9.159'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

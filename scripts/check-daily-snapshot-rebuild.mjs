@@ -83,7 +83,7 @@ assert.match(gas, /cachedPayload\.priceLookup\.snapshotCreated = persist && cach
 const priceBody = gas.slice(gas.indexOf('function handleGetPricesCompat'), gas.indexOf('function _latestDateFromPriceDates'));
 assert.doesNotMatch(priceBody, /persists*=s*false/);
 assert.match(priceBody, /if \(persist && confirmedPersistDates\.length\) _rebuildSnapshotForDateFromHistory/);
-assert.match(gas, /var smoke = _tossPriceSmoke_\(\)/);
+assert.match(gas, /var smoke = oauth.ok \? _tossPriceSmoke_\(token\)/);
 assert.match(gas, /fetchMarketIndicatorCandlesToss\(key, fromDate, toDate\)/);
 assert.match(gas, /fetchYahooIndexSeries\(key, fromDate, toDate\)/);
 assert.doesNotMatch(gas.slice(gas.indexOf('function rebuildDailySnapshots'), gas.indexOf('function _readSnapshotRowsByDate')), /GOOGLEFINANCE\s*\(/);

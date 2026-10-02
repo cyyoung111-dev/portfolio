@@ -36,11 +36,11 @@ assert.match(gas, /if \(persist\) _updateTodaySnapshotSource/);
 assert.match(gas, /if \(persist && confirmedPersistDates\.length\) _rebuildSnapshotForDateFromHistory/);
 const currentPriceBody = gas.slice(gas.indexOf('function handleGetPricesCompat'), gas.indexOf('function _latestDateFromPriceDates'));
 assert.doesNotMatch(currentPriceBody, /fetchPricesGoogleFinance\(/, '현재가 경로에서 GOOGLEFINANCE fallback을 사용하면 안 됩니다');
-assert.match(gas, /function _tossPriceSmoke_\(\)/);
+assert.match(gas, /function _tossPriceSmoke_\(token\)/);
 assert.match(gas, /symbols=005930/);
 assert.match(gas, /validLastPrice: Number\.isFinite\(price\) && price > 0/);
 assert.match(gas, /timestampPresent: !!\(row && row\.timestamp\)/);
-assert.doesNotMatch(gas.match(/function _tossPriceSmoke_\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '', /Logger\.log|PropertiesService|setValue|setValues|appendRow/i);
+assert.doesNotMatch(gas.match(/function _tossPriceSmoke_\(token\)\s*\{([\s\S]*?)\n\}/)?.[1] || '', /Logger\.log|PropertiesService|setValue|setValues|appendRow/i);
 assert.match(web, /현재가 갱신 · \$\{Object\.keys\(results\)\.length\}개 · 화면만 반영/);
 assert.match(web, /저장 이력\/Snapshot 미변경/);
 assert.match(web, /Toss \$\{toss\}건/);
@@ -53,10 +53,10 @@ const delegation = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 assert.match(delegation, /closest\('\[data-price-detail\]'\)/);
 const index = fs.readFileSync('src/web/index.html', 'utf8');
 assert.match(index, /components\.css\?v=20260921-2/);
-assert.match(index, /settings_fetch\.js\?v=20261001-16/);
+assert.match(index, /settings_fetch\.js\?v=20261002-17/);
 assert.match(index, /event_delegation\.js\?v=20260922-2/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
-assert.match(sw, /portfolio-cache-20261002-9/);
+assert.match(sw, /portfolio-cache-20261002-10/);
 assert.match(sw, /components\.css\?v=20260921-2/);
 
 // 새 관측성은 추가 호출을 만들지 않고 기존 단일 batch/read 경계를 계측한다.

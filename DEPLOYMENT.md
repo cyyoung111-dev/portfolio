@@ -863,3 +863,9 @@ GAS 메뉴 및 시트 구성:
 - backfill은 Snapshot 및 연관 가격이력 write 후 `SpreadsheetApp.flush()`와 `diagnoseSnapshotIntegrity()`를 실행하고 `VALID`일 때만 operation backup을 완료·정리합니다.
 - non-VALID 또는 가격이력 write 실패 시 성공 집계를 하지 않고 rollback backup을 `WRITE_FAILED`로 보존합니다.
 - 정적 웹은 cache `portfolio-cache-20261002-9`와 함께 배포합니다.
+
+## GAS v9.159 Snapshot/Toss 진단 정합성 (2026-10-02)
+
+- Snapshot integrity 진단은 cleanup과 동일한 canonical duplicate 분류를 사용해 savedAt·표현 차이 중복과 expected 단일 일치 행을 자동 복구 가능 상태로 판정합니다. 브라우저 integrity cache는 `portfolio.historyIntegrity.v3`로 갱신합니다.
+- Toss 연결 진단은 OAuth와 실제 market endpoint 단계를 분리하고, OAuth 성공 뒤 실제 endpoint가 403인 경우에만 IP allowlist 안내를 표시하며 005930 현재가 smoke 결과를 화면에 표시합니다.
+- 신뢰 가능한 독립 KR 거래일 helper가 없어 일별 누락은 기존 평일 후보 계산을 유지하고 휴장일 포함 가능성을 명시합니다. 정적 웹은 cache `portfolio-cache-20261002-10`과 함께 배포합니다.
