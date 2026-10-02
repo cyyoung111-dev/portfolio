@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.154
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.155
+//
+//  v9.155 변경사항 (2026.10.02):
+//   expected 없는 exact duplicate 축약·operation backup signature 검증
 //
 //  v9.154 변경사항 (2026.10.02):
 //   validated cleanup operation 범위·capacity cleanup signature 보호
@@ -4246,7 +4249,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.154' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.155' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7640,9 +7643,21 @@ function continueSnapshotConsistencyRepair() {
         if (unsafeGroups.length) throw new Error(unsafeGroups.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
         var existing = _dedupeSnapshotRows(rawRows);
         if (state.forceRewrite) expected = _preserveExistingForeignSnapshotRows(ss, existing, expected);
-        if (sourceError || expected.length === 0) {
+        if (sourceError) {
           state.skipped++;
-          if (sourceError) state.failedDateErrors[snapshotDate] = 'SOURCE_INCOMPLETE: ' + sourceError;
+          state.failedDateErrors[snapshotDate] = 'SOURCE_INCOMPLETE: ' + sourceError;
+        } else if (expected.length === 0) {
+          var exactOnlyGroups = duplicateDecisions.filter(function(item) { return item.classification === 'EXACT_DUPLICATE'; });
+          if (!exactOnlyGroups.length) state.skipped++;
+          else {
+            _snapshotBackupOperationId = repairOperationId;
+            writeSnapshotRows(ss, snapshotDate, existing, true);
+            SpreadsheetApp.flush();
+            var afterDuplicateCleanup = diagnoseSnapshotIntegrity(ss, snapshotDate);
+            if (afterDuplicateCleanup.duplicateKeys.length || afterDuplicateCleanup.conflictKeys.length) throw new Error('expected 없는 raw 중복 정리 후 재진단 실패: ' + afterDuplicateCleanup.status);
+            _settleSnapshotBackupOperation(ss, repairOperationId, true);
+            state.repaired++;
+          }
         } else {
           if (!duplicateDecisions.length && !state.forceRewrite && _snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
             state.unchanged++;
@@ -8892,9 +8907,14 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   var activeRepairId = sourceName === CONFIG.SHEET_SNAPSHOT && repairState && !repairState.done ? String(repairState.startedAt || repairState.from || 'active') : '';
   var operationId = _snapshotBackupOperationId || activeRepairId;
   var registry = _readSystemBackupRegistry();
+  var verifiedOperationBackup = function(record) {
+    if (!record || record.systemGenerated !== true || record.source !== sourceName || record.operationId !== operationId || !record.signature) return null;
+    var candidate = ss.getSheetByName(record.name);
+    return candidate && _sheetContentSignature(candidate) === record.signature ? candidate : null;
+  };
   if (operationId) {
     var operationRecord = registry.filter(function(record) {
-      return record && record.systemGenerated === true && record.source === sourceName && record.operationId === operationId && !!ss.getSheetByName(record.name);
+      return !!verifiedOperationBackup(record);
     })[0];
     if (operationRecord) return Object.assign({}, operationRecord, { reused: true });
   }
@@ -8909,7 +8929,8 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
     var expectedBackupSignature = String(record.signature || '');
     // 같은 실행 안의 operationId는 서버 내부에서만 설정되며, 첫 쓰기 뒤 원본 signature가
     // 달라져도 논리 작업 전체의 쓰기 전 복구본 하나를 재사용합니다.
-    if (candidate && operationId && record.operationId === operationId && candidate.getName().indexOf(sourceName + '_백업_') === 0) return true;
+    if (candidate && operationId && record.operationId === operationId && candidate.getName().indexOf(sourceName + '_백업_') === 0 &&
+        expectedBackupSignature && _sheetContentSignature(candidate) === expectedBackupSignature) return true;
     return !!candidate && candidate.getName().indexOf(sourceName + '_백업_') === 0 && expectedBackupSignature &&
       _sheetContentSignature(candidate) === expectedBackupSignature && expectedBackupSignature === signature;
   })[0];
@@ -9591,7 +9612,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.154' });
+    return jsonOk({ settings: settings, gasVersion: '9.155' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9613,7 +9634,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.154'
+      gasVersion: '9.155'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

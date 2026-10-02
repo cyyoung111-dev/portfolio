@@ -839,3 +839,9 @@ GAS 메뉴 및 시트 구성:
 - 전체 Snapshot consistency repair의 stale rollback 정리는 실제 `VALID` 재진단을 통과한 operation ID에만 한정합니다. skip·범위 밖·다른 operation backup은 보존합니다.
 - 셀 부족 자동 cleanup도 registry signature와 실제 backup content signature가 일치하는 시스템 backup만 삭제합니다.
 - 정적 웹은 cache `portfolio-cache-20261002-5`와 함께 배포합니다.
+
+## GAS v9.155 빈 expected 중복 복구 및 operation backup 검증 (2026-10-02)
+
+- 원자료 계산 결과가 비어도 source 오류 없이 raw `EXACT_DUPLICATE`만 존재하면 공통 Snapshot write 경로로 한 행만 보존하고 raw 중복 재진단을 수행합니다.
+- 동일 operation backup은 실제 content signature가 registry signature와 일치할 때만 재사용하며, 불일치하면 기존 손상본을 보존하고 새 안전 backup을 생성합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-6`과 함께 배포합니다.

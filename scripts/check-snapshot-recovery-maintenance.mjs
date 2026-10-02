@@ -68,6 +68,8 @@ assert.match(gas, /var complete = Object\.assign\(\{\}, existing, record\)/, '�
 assert.match(gas, /sourceName === CONFIG\.SHEET_SNAPSHOT && repairState/, 'Snapshot repair operationId는 Snapshot source에만 자동 적용');
 assert.match(gas, /validatedOperationIds\[item\.operationId\][\s\S]*item\.source === CONFIG\.SHEET_SNAPSHOT/, 'validated cleanup은 실제 VALID operationId와 Snapshot source로 제한');
 assert.match(gas, /item\.status === 'COMPLETED' && signatureMatches\(item\)/, '용량 cleanup COMPLETED 후보는 registry signature 일치 필수');
+assert.match(gas, /expected\.length === 0[\s\S]*classification === 'EXACT_DUPLICATE'[\s\S]*writeSnapshotRows\(ss, snapshotDate, existing, true\)[\s\S]*afterDuplicateCleanup\.duplicateKeys\.length/, 'expected 없는 EXACT_DUPLICATE도 실제 축약 후 raw 재진단');
+assert.match(gas, /function\(record\)[\s\S]*record\.operationId !== operationId[\s\S]*_sheetContentSignature\(candidate\) === record\.signature/, '동일 operation backup은 backup 자체 signature 검증 후 재사용');
 assert.match(gas, /fundRewritePlan\.unsafe\.length[\s\S]*snapshotOperationUnsafe = true/, '펀드 평가 protected conflict 성공 집계 금지');
 assert.match(gas, /repairPlan\.unsafe\.length[\s\S]*snapshotCount: 0/, '가격·Snapshot repair protected conflict 성공 집계 금지');
 assert.match(gas, /backfillPlan\.unsafe\.length[\s\S]*throw new Error\('Snapshot 보호 충돌:/, 'backfill protected conflict 성공 집계 금지');
