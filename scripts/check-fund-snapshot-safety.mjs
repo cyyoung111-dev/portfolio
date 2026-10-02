@@ -770,10 +770,26 @@ const duplicateSnapshot=new Sheet([header,identicalRow,clone(identicalRow),confl
 const duplicateSs=ssFor({'스냅샷':duplicateSnapshot});
 context.getss=()=>duplicateSs;
 context._buildSnapshotRowsFromTradeAndPriceHistory=(_ss,date)=>date==='2026-02-02'?[conflictHistory]:[identicalRow];
+const realRawSnapshotReader=context._readRawSnapshotRowsByDate;
+let rawSnapshotReadCount=0;
+context._readRawSnapshotRowsByDate=(...args)=>{rawSnapshotReadCount++;return realRawSnapshotReader(...args);};
 const duplicateCleanup=clone(context.cleanupSnapshotDuplicates());
 assert.equal(duplicateCleanup.removedRows,1,'완전히 동일한 중복만 자동 제거');
 assert.equal(duplicateCleanup.manualProtectedGroups,1,'MANUAL 충돌을 별도 보고');
 assert.equal(duplicateSnapshot.rows.filter(row=>row[0]==='2026-02-02').length,2,'MANUAL과 충돌하는 행은 첫 행 임의 선택 없이 보존');
+assert.equal(rawSnapshotReadCount,3,'중복 없는 날짜를 날짜별 전체 Snapshot 재읽기하지 않음');
+context._readRawSnapshotRowsByDate=realRawSnapshotReader;
+
+const verifyWriteDedup=(stored,expected)=>{const target=new Sheet([header,...stored]);const targetSs=ssFor({'스냅샷':target});context.writeSnapshotRows(targetSs,expected[0],expected[1],true);return target.rows.filter(row=>row[0]===expected[0]);};
+let writeRows=verifyWriteDedup([identicalRow,clone(identicalRow)],['2026-02-01',[identicalRow]]);
+assert.equal(writeRows.length,1,'writeSnapshotRows exact duplicate를 실제 raw 1개로 축약');
+const staleConflict=snap('2026-02-03','000003',300), expectedConflict=snap('2026-02-03','000003',330);
+writeRows=verifyWriteDedup([staleConflict,expectedConflict],['2026-02-03',[expectedConflict]]);
+assert.equal(writeRows.length,1,'writeSnapshotRows SINGLE_EXPECTED_MATCH를 expected raw 1개로 축약');
+writeRows=verifyWriteDedup([snap('2026-02-04','000004',400,'MANUAL'),snap('2026-02-04','000004',410)],['2026-02-04',[snap('2026-02-04','000004',410)]]);
+assert.equal(writeRows.length,2,'writeSnapshotRows MANUAL conflict 보존');
+writeRows=verifyWriteDedup([snap('2026-02-05','000005',500),snap('2026-02-05','000005',510)],['2026-02-05',[snap('2026-02-05','000005',520)]]);
+assert.equal(writeRows.length,2,'writeSnapshotRows unresolved conflict 보존');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 assert.equal(context._earliestChangedTradeDate([
   ['2026-01-02','buy','A','주식','000001',1,100]

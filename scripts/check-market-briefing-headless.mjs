@@ -7,6 +7,8 @@ const date='2026-09-18', prior='2026-09-17';
 assert.equal(scheduledTradingDate('30 22 * * 0-4',new Date('2026-09-22T03:00:00Z')),'2026-09-22','지연 실행도 월요일 22:30 UTC slot의 화요일 거래일 유지');
 assert.equal(scheduledTradingDate('5 7 * * 1-5',new Date('2026-09-21T20:00:00Z')),'2026-09-21','장마감 slot은 실행시각이 아니라 cron slot 거래일 사용');
 assert.equal(parseArgs(['--checkpoint','MORNING','--date','2026-09-18','--schedule','30 22 * * 0-4']).tradingDate,'2026-09-18','수동 --date가 schedule보다 우선');
+assert.throws(()=>parseArgs(['--checkpoint','MORNING','--date','2026-02-30']),/잘못된 tradingDate/,'실재하지 않는 달력 날짜 거부');
+assert.throws(()=>parseArgs(['--checkpoint','EVENING','--schedule','30 22 * * 0-4']),/schedule과 checkpoint/,'cron slot과 checkpoint 불일치 거부');
 assert.equal(maskSecrets('accessToken=secret&next=1 secret',['secret']),'accessToken=***&next=1 ***','diagnostic secret masking');
 const fxFetch=payload=>async()=>({ok:true,json:async()=>payload});
 assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'CONFIRMED',history:[]}))('getExchangeRateHistory')).status,'CONFIRMED');
@@ -131,4 +133,5 @@ assert.equal(result.decision.publishable,true,'서버 저장 K200_NIGHT는 재�
 const workflow=fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8');
 assert.match(workflow,/secrets\.GAS_ACCESS_TOKEN/);assert.doesNotMatch(workflow,/echo .*GAS_ACCESS_TOKEN/);
 const runner=fs.readFileSync('scripts/run-market-briefing-headless.mjs','utf8');assert.doesNotMatch(runner,/console\.log\([^\n]*(?:token|url)/i);
+for(const field of ['masterPersistence','snapshotPersistence','readinessSeries']) assert.match(runner,new RegExp(field),'최종 diagnostic 필드 복원: '+field);
 console.log('브리핑 headless hydrate·collect·readiness·immutable snapshot 회귀검사 통과');

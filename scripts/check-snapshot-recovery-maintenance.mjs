@@ -42,6 +42,9 @@ assert.match(gas, /SpreadsheetApp\.flush\(\);[\s\S]*diagnoseSnapshotIntegrity\(s
 assert.match(gas, /SYSTEM_BACKUP_KEEP_BY_SOURCE = \{[^\n]*'스냅샷': 0/);
 assert.match(gas, /_systemBackupTimestampFromName\(name\)/, 'orphan 생성 시각은 이름에서 보존해야 합니다.');
 assert.match(gas, /remainingCells < minimumCreationCells[\s\S]*_cleanupSystemBackups\(ss, sourceName\)[\s\S]*_fundSheetCapacity\(ss\)/, '셀 부족 시 정리 후 재계산해야 합니다.');
-assert.match(gas, /가격이력 쓰기 후 검증 실패[\s\S]*_cleanupSystemBackups\(ss, CONFIG\.SHEET_PH\)/, '가격이력 repair 성공 후 backup을 정리해야 합니다.');
+assert.match(gas, /가격이력 쓰기 후 검증 실패[\s\S]*_cleanupCurrentSystemBackup\(ss, backup\)/, '가격이력 repair 성공 후 현재 operation backup을 정리해야 합니다.');
 assert.match(gas, /registeredCompleted \|\| \(item\.signatureMatch && item\.schemaMatch\)/, '등록된 COMPLETED 백업은 현재 schema 변경만으로 영구 보호하면 안 됩니다.');
 assert.match(gas, /Snapshot 중복 정리 후 raw 검증 실패[\s\S]*_markSnapshotBackupStatus\(backup, 'COMPLETED'\)/, 'raw 검증이 COMPLETED 및 backup 삭제보다 먼저여야 합니다.');
+assert.doesNotMatch(gas.match(/function _cleanupCurrentSystemBackup[\s\S]*?\n}/)?.[0] || '', /_reconcileSystemBackups|_sheetFormulaReferenceCount|getSheets\(/, '현재 operation FAST PATH는 workbook scan을 하면 안 됩니다.');
+assert.doesNotMatch(gas.match(/function cleanupSnapshotDuplicates[\s\S]*?\n}/)?.[0] || '', /Object\.keys\(dates\)[\s\S]*_readRawSnapshotRowsByDate/, 'cleanup 초기 분류에서 날짜별 전체 Snapshot 재읽기 금지');
+assert.doesNotMatch(gas, /최신 유효 백업은 source별 1개 보존/, '유지보수 안내문은 system backup 0개 정책과 일치해야 합니다.');

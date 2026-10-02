@@ -24,10 +24,10 @@ function dateOffset(date, days) {
   const value = new Date(`${date}T00:00:00Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10);
 }
 const SCHEDULE_SLOTS = Object.freeze({
-  '15 21 * * 0-4': { hour:21, minute:15, weekdays:[0,1,2,3,4] },
-  '30 22 * * 0-4': { hour:22, minute:30, weekdays:[0,1,2,3,4] },
-  '5 7 * * 1-5': { hour:7, minute:5, weekdays:[1,2,3,4,5] },
-  '15 11 * * 1-5': { hour:11, minute:15, weekdays:[1,2,3,4,5] },
+  '15 21 * * 0-4': { hour:21, minute:15, weekdays:[0,1,2,3,4], checkpoint:'NIGHT_FINAL' },
+  '30 22 * * 0-4': { hour:22, minute:30, weekdays:[0,1,2,3,4], checkpoint:'MORNING' },
+  '5 7 * * 1-5': { hour:7, minute:5, weekdays:[1,2,3,4,5], checkpoint:'KRX_FINAL' },
+  '15 11 * * 1-5': { hour:11, minute:15, weekdays:[1,2,3,4,5], checkpoint:'EVENING' },
 });
 function scheduledTradingDate(schedule, now = new Date()) {
   const slot = SCHEDULE_SLOTS[String(schedule || '').trim()];
@@ -45,8 +45,10 @@ function parseArgs(argv) {
   const suppliedDate = argv.includes('--date') ? argv[argv.indexOf('--date') + 1] : '';
   const schedule = argv.includes('--schedule') ? argv[argv.indexOf('--schedule') + 1] : '';
   if (!ALLOWED.has(checkpoint)) throw new Error('지원하지 않는 checkpoint');
+  if (schedule && (!SCHEDULE_SLOTS[schedule] || SCHEDULE_SLOTS[schedule].checkpoint !== checkpoint)) throw new Error('schedule과 checkpoint가 일치하지 않습니다.');
   const tradingDate = suppliedDate || (schedule ? scheduledTradingDate(schedule) : kstDate());
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(tradingDate)) throw new Error('잘못된 tradingDate');
+  const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(tradingDate) ? new Date(`${tradingDate}T00:00:00Z`) : null;
+  if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0,10) !== tradingDate) throw new Error('잘못된 tradingDate');
   return { checkpoint, tradingDate, schedule };
 }
 function maskSecrets(value, secrets = []) {
@@ -86,7 +88,10 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   const args = parseArgs(process.argv.slice(2));
   const result = await runHeadless({ ...args, url:process.env.GAS_WEB_APP_URL || '', token:process.env.GAS_ACCESS_TOKEN || '' });
   const successful = result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true;
-  const diagnostic = { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence, missing:result.decision?.data?.missing || result.sync?.missing || [], issues:result.decision?.data?.issues || [], providerErrors:Object.fromEntries(Object.entries(result.sync?.errors || {}).map(([key,value])=>[key,maskSecrets(value,[process.env.GAS_ACCESS_TOKEN,process.env.GAS_WEB_APP_URL])])) };
+  const diagnostic = { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
+    masterPersistence:result.sync?.persistence || null, snapshotPersistence:result.persistence || null,
+    readinessSeries:globalThis.MarketBriefingOperationalGate.seriesForCheckpoint(result.checkpoint), missing:result.decision?.data?.missing || result.sync?.missing || [], issues:result.decision?.data?.issues || [],
+    providerErrors:Object.fromEntries(Object.entries(result.sync?.errors || {}).map(([key,value])=>[key,maskSecrets(value,[process.env.GAS_ACCESS_TOKEN,process.env.GAS_WEB_APP_URL])])) };
   console.log(JSON.stringify(diagnostic));
   if (!successful) process.exitCode = 1;
 }

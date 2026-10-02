@@ -809,3 +809,4 @@ GAS 메뉴 및 시트 구성:
 - 시스템 `*_백업_*`은 위험한 쓰기 직전의 임시 rollback artifact입니다. 정상 완료본은 즉시 삭제하고 registry에서도 제거하며, 전체 복구 완료/명시 유지보수에서는 검증된 과거 완료본과 복구 완료된 실패본도 정리합니다. active·미복구 실패·수식 참조·사용자/UNKNOWN 백업은 보존합니다.
 - 운영 반영 후 GAS v9.149와 정적 웹 cache `portfolio-cache-20261001-9`를 재배포하고, 먼저 백업 유지보수 dry-run에서 보호/삭제 후보를 확인한 다음 apply를 실행합니다. 이어 전체 Snapshot consistency repair를 실행하고 완료 후 integrity 상태와 system backup 0개를 확인합니다.
 - Headless workflow는 `github.event.schedule`을 runner에 전달해 지연 실행에서도 cron slot의 거래일을 사용하며 수동 `--date`를 우선합니다. `MORNING` 비교지수 조회는 거래일 전일까지로 제한하고, 환율 `CONFIRMED`/`NO_DATA`는 정상 응답으로, `MISSING_SOURCE`/`INVALID_SCHEMA`는 운영 오류로 구분합니다.
+- 정상 write는 대상 범위 read-back 검증 뒤 방금 만든 rollback backup만 FAST PATH로 제거합니다. orphan·수식 참조·과거 backup을 포함하는 전체 workbook 점검은 명시 유지보수와 전체 Snapshot repair 완료 시에만 수행합니다.
