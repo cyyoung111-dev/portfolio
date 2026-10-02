@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { createRequest, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
+import { createRequest, diagnosticFor, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
 
 globalThis.localStorage.clear();
 const date='2026-09-18', prior='2026-09-17';
@@ -10,6 +10,9 @@ assert.equal(parseArgs(['--checkpoint','MORNING','--date','2026-09-18','--schedu
 assert.throws(()=>parseArgs(['--checkpoint','MORNING','--date','2026-02-30']),/잘못된 tradingDate/,'실재하지 않는 달력 날짜 거부');
 assert.throws(()=>parseArgs(['--checkpoint','EVENING','--schedule','30 22 * * 0-4']),/schedule과 checkpoint/,'cron slot과 checkpoint 불일치 거부');
 assert.equal(maskSecrets('accessToken=secret&next=1 secret',['secret']),'accessToken=***&next=1 ***','diagnostic secret masking');
+assert.equal(maskSecrets('auth_key=abc apiKey:def secret=ghi token:jkl'), 'auth_key=*** apiKey:*** secret=*** token:***');
+const diagnostic=diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-09-18',sync:{persistence:{saved:2,duplicates:1,rejected:0},errors:{FX:'apiKey=abc'}},persistence:{saved:1,duplicates:0,rejected:0},decision:{publishable:true,status:'READY',data:{snapshot:{values:{USDKRW:{value:1}}},warnings:['W']}}},['abc']);
+assert.deepEqual(diagnostic.providerErrors,['FX']);assert.equal(diagnostic.providerErrorDetails.FX,'apiKey=***');assert.equal(diagnostic.readinessSeries.USDKRW.value,1);assert.deepEqual(diagnostic.masterPersistence,{saved:2,duplicates:1,rejected:0});assert.deepEqual(diagnostic.snapshotPersistence,{saved:1,duplicates:0,rejected:0});assert.deepEqual(diagnostic.warnings,['W']);
 const fxFetch=payload=>async()=>({ok:true,json:async()=>payload});
 assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'CONFIRMED',history:[]}))('getExchangeRateHistory')).status,'CONFIRMED');
 assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'NO_DATA',history:[]}))('getExchangeRateHistory')).status,'NO_DATA');

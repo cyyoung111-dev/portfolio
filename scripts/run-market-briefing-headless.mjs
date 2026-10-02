@@ -54,7 +54,17 @@ function parseArgs(argv) {
 function maskSecrets(value, secrets = []) {
   let text = String(value ?? '');
   for (const secret of secrets.filter(Boolean)) text = text.split(String(secret)).join('***');
-  return text.replace(/(accessToken=)[^&\s]+/gi, '$1***');
+  return text.replace(/((?:accessToken|auth_key|apiKey|secret|token)\s*[=:]\s*)[^&\s,;]+/gi, '$1***');
+}
+function persistenceCounts(value) { return value ? { saved:Number(value.saved)||0, duplicates:Number(value.duplicates)||0, rejected:Number(value.rejected)||0 } : null; }
+function diagnosticFor(result, secrets = []) {
+  const successful = result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true;
+  return { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
+    masterPersistence:persistenceCounts(result.sync?.persistence), snapshotPersistence:persistenceCounts(result.persistence),
+    readinessSeries:result.decision?.data?.snapshot?.values || {}, warnings:result.decision?.data?.warnings || [],
+    missing:result.decision?.data?.missing || result.sync?.missing || [], issues:result.decision?.data?.issues || [],
+    providerErrors:Object.keys(result.sync?.errors || {}),
+    providerErrorDetails:Object.fromEntries(Object.entries(result.sync?.errors || {}).map(([key,value])=>[key,maskSecrets(value,secrets)])) };
 }
 function createRequest(url, token, fetchImpl = fetch) {
   if (!/^https:\/\//.test(url)) throw new Error('GAS_WEB_APP_URL은 HTTPS여야 합니다.');
@@ -88,12 +98,9 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   const args = parseArgs(process.argv.slice(2));
   const result = await runHeadless({ ...args, url:process.env.GAS_WEB_APP_URL || '', token:process.env.GAS_ACCESS_TOKEN || '' });
   const successful = result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true;
-  const diagnostic = { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
-    masterPersistence:result.sync?.persistence || null, snapshotPersistence:result.persistence || null,
-    readinessSeries:globalThis.MarketBriefingOperationalGate.seriesForCheckpoint(result.checkpoint), missing:result.decision?.data?.missing || result.sync?.missing || [], issues:result.decision?.data?.issues || [],
-    providerErrors:Object.fromEntries(Object.entries(result.sync?.errors || {}).map(([key,value])=>[key,maskSecrets(value,[process.env.GAS_ACCESS_TOKEN,process.env.GAS_WEB_APP_URL])])) };
+  const diagnostic = diagnosticFor(result,[process.env.GAS_ACCESS_TOKEN,process.env.GAS_WEB_APP_URL]);
   console.log(JSON.stringify(diagnostic));
   if (!successful) process.exitCode = 1;
 }
 
-export { createRequest, parseArgs, scheduledTradingDate, maskSecrets };
+export { createRequest, diagnosticFor, parseArgs, scheduledTradingDate, maskSecrets };

@@ -709,7 +709,7 @@ const capacityPrices=new Sheet([['date','code','name','price','at','source']]);
 const capacityTrades=new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','KB','F00002',1,800,'펀드']]);
 const capacitySnapshots=new Sheet([header]);
 [capacityUnits,capacityNav,capacityPrices,capacityTrades,capacitySnapshots].forEach(sheet=>{ sheet.maxRows=100; });
-const capacityFiller=new Sheet([['keep']]); capacityFiller.maxRows=760000; capacityFiller.maxColumns=26;
+const capacityFiller=new Sheet([['keep']]); capacityFiller.maxRows=380000; capacityFiller.maxColumns=26;
 const capacitySheets={'펀드좌수':capacityUnits,'펀드기준가격':capacityNav,'가격이력':capacityPrices,'거래이력':capacityTrades,'스냅샷':capacitySnapshots,'기존대형시트':capacityFiller};
 const capacitySs=ssFor(capacitySheets);
 context.getss=()=>capacitySs;
@@ -718,17 +718,17 @@ const capacityResult=context.handleImportFundNav(importPayload('F00002','KB_VALU
 assert.equal(capacityResult.status,'ok');
 assert.equal(capacityNav.rows.filter(row=>row[0]==='2026-09-21').length,1,'한도 근접 통합문서에도 NAV 증분 저장');
 assert.equal(Object.keys(capacitySheets).some(name=>name.includes('_백업_')),false,'한도 근접 저장도 백업 시트 미생성');
-assert(capacityResult.evaluation.capacity.before.totalCells>19000000,'실행 전 전체 할당 셀 진단');
+assert(capacityResult.evaluation.capacity.before.totalCells>9800000,'10M 한도 근접 실행 전 전체 할당 셀 진단');
 assert.equal(capacityResult.evaluation.capacity.before.totalCells,capacityResult.evaluation.capacity.after.totalCells,'기존 여유 행 안의 import는 할당 셀을 늘리지 않음');
 
-// 운영 오류(1,044개 필요/774개 잔여)를 재현하고 대상 시트의 빈 초과 열만 회수해 확장합니다.
+// 10M 한도 근처에서 필요한 셀을 확보하고 대상 시트의 빈 초과 열만 회수해 확장합니다.
 const compactNav=new Sheet([Array(9).fill('header')]); compactNav.maxRows=1; compactNav.maxColumns=29;
 const compactPrices=new Sheet([Array(6).fill('header')]); compactPrices.maxRows=1; compactPrices.maxColumns=6;
 const compactSnapshots=new Sheet([header]); compactSnapshots.maxRows=1; compactSnapshots.maxColumns=12;
-const compactFillerA=new Sheet([['keep']]); compactFillerA.maxRows=689626; compactFillerA.maxColumns=29;
+const compactFillerA=new Sheet([['keep']]); compactFillerA.maxRows=344798; compactFillerA.maxColumns=29;
 const compactFillerB=new Sheet([['keep']]); compactFillerB.maxRows=1; compactFillerB.maxColumns=25;
 const compactSs=ssFor({'펀드기준가격':compactNav,'가격이력':compactPrices,'스냅샷':compactSnapshots,'기존대형시트A':compactFillerA,'기존대형시트B':compactFillerB});
-assert.equal(context._fundSheetCapacity(compactSs).remainingCells,774,'운영 잔여 셀 774개 재현');
+assert.equal(context._fundSheetCapacity(compactSs).remainingCells,786,'10M 한도 잔여 셀 786개 재현');
 context._ensureFundImportRowCapacity(compactSs,compactNav,36);
 assert.equal(compactNav.getMaxColumns(),9,'값이 없는 초과 20개 열만 회수');
 assert.equal(compactNav.getMaxRows(),37,'29열 기준 1,044셀 대신 9열 기준 324셀로 행 확장');
@@ -764,6 +764,9 @@ assert.equal(cleanupResult.releasedCells,780000,'자동 정리 확보 실제 all
 assert.deepEqual(clone(context._normalizeCodeRows([[5930],[34230],[23280],['0046Y0'],['F00001'],['AAPL']],0)),
   [['005930'],['034230'],['023280'],['0046Y0'],['F00001'],['AAPL']],'숫자형 국내 코드 앞자리 0 복원 및 영숫자·해외 코드 보존');
 const identicalRow=snap('2026-02-01','000001',100);
+const canonicalDateRow=[new Date('2026-02-01T00:00:00Z'),5930,'삼성전자',1,'50',50,100,100,50,'100',' price_history ','old'];
+const canonicalStringRow=['2026-02-01','005930','삼성전자',1,50,50,100,100,50,100,'PRICE_HISTORY','new'];
+assert.equal(context._snapshotComparableSignature(canonicalDateRow),context._snapshotComparableSignature(canonicalStringRow),'Date/code/numeric/source/savedAt canonical comparison');
 const conflictManual=snap('2026-02-02','000002',200,'MANUAL');
 const conflictHistory=snap('2026-02-02','000002',210,'PRICE_HISTORY');
 const duplicateSnapshot=new Sheet([header,identicalRow,clone(identicalRow),conflictManual,conflictHistory]);
@@ -777,7 +780,7 @@ const duplicateCleanup=clone(context.cleanupSnapshotDuplicates());
 assert.equal(duplicateCleanup.removedRows,1,'완전히 동일한 중복만 자동 제거');
 assert.equal(duplicateCleanup.manualProtectedGroups,1,'MANUAL 충돌을 별도 보고');
 assert.equal(duplicateSnapshot.rows.filter(row=>row[0]==='2026-02-02').length,2,'MANUAL과 충돌하는 행은 첫 행 임의 선택 없이 보존');
-assert.equal(rawSnapshotReadCount,3,'중복 없는 날짜를 날짜별 전체 Snapshot 재읽기하지 않음');
+assert.equal(rawSnapshotReadCount,0,'중복 없는 날짜를 날짜별 전체 Snapshot 재읽기하지 않음');
 context._readRawSnapshotRowsByDate=realRawSnapshotReader;
 
 const verifyWriteDedup=(stored,expected)=>{const target=new Sheet([header,...stored]);const targetSs=ssFor({'스냅샷':target});context.writeSnapshotRows(targetSs,expected[0],expected[1],true);return target.rows.filter(row=>row[0]===expected[0]);};
@@ -788,8 +791,10 @@ writeRows=verifyWriteDedup([staleConflict,expectedConflict],['2026-02-03',[expec
 assert.equal(writeRows.length,1,'writeSnapshotRows SINGLE_EXPECTED_MATCH를 expected raw 1개로 축약');
 writeRows=verifyWriteDedup([snap('2026-02-04','000004',400,'MANUAL'),snap('2026-02-04','000004',410)],['2026-02-04',[snap('2026-02-04','000004',410)]]);
 assert.equal(writeRows.length,2,'writeSnapshotRows MANUAL conflict 보존');
+assert.deepEqual(writeRows,[snap('2026-02-04','000004',400,'MANUAL'),snap('2026-02-04','000004',410)],'MANUAL protected raw content 불변');
 writeRows=verifyWriteDedup([snap('2026-02-05','000005',500),snap('2026-02-05','000005',510)],['2026-02-05',[snap('2026-02-05','000005',520)]]);
 assert.equal(writeRows.length,2,'writeSnapshotRows unresolved conflict 보존');
+assert.deepEqual(writeRows,[snap('2026-02-05','000005',500),snap('2026-02-05','000005',510)],'unresolved key의 기존 첫 raw와 행 개수 보존');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 assert.equal(context._earliestChangedTradeDate([
   ['2026-01-02','buy','A','주식','000001',1,100]

@@ -91,7 +91,7 @@ assert.doesNotMatch(gas.slice(gas.indexOf('function rebuildDailySnapshots'), gas
 
 // 기존 원자료/스냅샷/펀드·배당 시트 보호와 대상 날짜 비교 후 upsert
 assert.match(gas, /var existing = _readSnapshotRowsByDate\(ss, date\)/);
-assert.match(gas, /if \(before === after\) unchanged\+\+/);
+assert.match(gas, /if \(!_snapshotDateNeedsRewrite\(ss, date, rows\)\) unchanged\+\+/);
 assert.match(gas, /catch \(error\) \{\s*\/\/ 원자료 부족/);
 assert.match(gas, /function _getHistoricalExchangeRates[\s\S]*?header\[0\] !== '날짜' \|\| header\[1\] !== '통화' \|\| header\[2\] !== '환율'/);
 assert.match(gas, /SHEET_ETF_DIVIDENDS/);
