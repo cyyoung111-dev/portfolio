@@ -5165,14 +5165,14 @@ function _cleanupCurrentSystemBackup(ss, record) {
   var currentCompletedAt = _backupTimeMillis(registered.completedAt || registered.updatedAt || registered.createdAt);
   var staleCandidates = items.filter(function(item) {
     if (item.name === registered.name || item.source !== registered.source || item.systemGenerated !== true) return false;
-    if (['COMPLETED', 'WRITE_FAILED'].indexOf(item.status) === -1) return false;
+    if (item.status !== 'COMPLETED') return false;
     return currentCompletedAt && _backupTimeMillis(item.completedAt || item.updatedAt || item.createdAt) < currentCompletedAt;
   });
   var staleDeleted = [], missingRecords = [];
   var staleProtected = items.filter(function(item) {
-    return item.name !== registered.name && item.source === registered.source && item.systemGenerated === true && item.status === 'CREATED' &&
+    return item.name !== registered.name && item.source === registered.source && item.systemGenerated === true && ['CREATED', 'WRITE_FAILED'].indexOf(item.status) !== -1 &&
       currentCompletedAt && _backupTimeMillis(item.updatedAt || item.createdAt) < currentCompletedAt;
-  }).map(function(item) { return { name: item.name, reason: 'CREATED 상태 · active 여부 확인 불가' }; });
+  }).map(function(item) { return { name: item.name, reason: item.status === 'CREATED' ? 'CREATED 상태 · active 여부 확인 불가' : 'WRITE_FAILED · 복구 검증 없음' }; });
   var staleFormulaCounts = staleCandidates.length
     ? _sheetFormulaReferenceCounts(ss, staleCandidates.map(function(item) { return item.name; })) : {};
   if (staleCandidates.length) staleCandidates.forEach(function(item) {
@@ -5292,11 +5292,7 @@ function _cleanupSystemBackups(ss, sourceName, reconcileOrphans) {
   var protectedNames = {};
   candidates.slice(0, keep).forEach(function(item) { protectedNames[item.name] = true; });
   var deleted = [], failures = [], releasedCells = 0;
-  var newestCompletedAt = candidates.length ? String(candidates[0].completedAt || candidates[0].createdAt || '') : '';
-  var deletable = candidates.slice(keep).concat(sourceItems.filter(function(item) {
-    // 더 최신의 검증 COMPLETED 복구본과 현재 원본이 모두 존재할 때만 오래된 실패본을 정리합니다.
-    return item.status === 'WRITE_FAILED' && newestCompletedAt && String(item.updatedAt || item.createdAt || '') < newestCompletedAt && !!ss.getSheetByName(sourceName);
-  }));
+  var deletable = candidates.slice(keep);
   deletable.forEach(function(item) {
     var sheet = ss.getSheetByName(item.name);
     if (!sheet || protectedNames[item.name] || item.source !== sourceName || item.systemGenerated !== true) return;
@@ -5447,12 +5443,9 @@ function _planSystemBackupMaintenance(ss, options) {
   backups.forEach(function(item) { if (item.source) (bySource[item.source] || (bySource[item.source] = [])).push(item); });
   var sourceSummary = {};
   Object.keys(bySource).forEach(function(source) {
-    var list = bySource[source], completed = list.filter(function(item) { return item.classification === 'REGISTERED_COMPLETED' || item.classification === 'ORPHAN_LIKELY_SYSTEM'; })
-      .sort(function(a, b) { return String(b.completedAt || b.createdAt || b.name).localeCompare(String(a.completedAt || a.createdAt || a.name)); });
-    var newest = completed[0] || null;
+    var list = bySource[source];
     list.forEach(function(item) {
       var safeClass = ['REGISTERED_COMPLETED', 'REGISTERED_WRITE_FAILED', 'REGISTERED_INCOMPLETE', 'ORPHAN_LIKELY_SYSTEM'].indexOf(item.classification) !== -1;
-      var olderFailed = item.classification === 'REGISTERED_WRITE_FAILED' && newest && _backupTimeMillis(item.createdAt) < _backupTimeMillis(newest.completedAt || newest.createdAt);
       var registeredCompleted = item.classification === 'REGISTERED_COMPLETED';
       var registeredFailed = item.classification === 'REGISTERED_WRITE_FAILED';
       // validated recovery는 전체 Snapshot 복구가 증명한 Snapshot rollback에만 적용합니다.
@@ -5460,11 +5453,11 @@ function _planSystemBackupMaintenance(ss, options) {
       var validatedStale = !!validatedOperationIds[item.operationId] && item.source === CONFIG.SHEET_SNAPSHOT &&
         (registeredFailed || (item.classification === 'REGISTERED_INCOMPLETE' && item.status === 'CREATED'));
       item.autoCleanupEligible = !!(safeClass && item.signatureMatch && (registeredCompleted || validatedStale ||
-        (registeredFailed ? olderFailed : (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch))) &&
+        (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch)) &&
         (!item.activeOperation || validatedStale) && item.formulaReferenceCount === 0);
       if (!item.autoCleanupEligible) item.protectionReason = item.activeOperation ? 'active operation' :
         (item.formulaReferenceCount ? '수식 참조 존재' : (!safeClass ? 'USER_MANAGED/UNKNOWN 보호' :
-        (!newest && item.classification === 'REGISTERED_WRITE_FAILED' ? '복구되지 않은 WRITE_FAILED 보호' : '안전 조건 불충족')));
+        (registeredFailed ? 'WRITE_FAILED · 복구 검증 없음' : '안전 조건 불충족')));
     });
     var deletions = list.filter(function(item) { return item.autoCleanupEligible; });
     sourceSummary[source] = { total: list.length, beforeCount: list.length, keepCount: list.length - deletions.length,
