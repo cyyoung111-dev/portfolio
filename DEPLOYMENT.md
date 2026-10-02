@@ -817,3 +817,9 @@ GAS 메뉴 및 시트 구성:
 - 다일자 Snapshot 작업의 rollback backup은 작업 중 `CREATED`로 유지하고, 전체 작업의 검증 성공 시에만 `COMPLETED` 처리 후 즉시 삭제합니다.
 - 작업 중 하나라도 실패하면 backup을 `WRITE_FAILED`로 보존하며, 같은 실패 operation ID는 재사용하지 않습니다.
 - 정적 웹은 history repair의 첫 실패 중단 동작을 반영한 cache `portfolio-cache-20261002-1`과 함께 배포합니다.
+
+## GAS v9.151 Snapshot backup provenance 및 validated recovery (2026-10-02)
+
+- 재사용 backup의 system provenance를 registry 상태 전환에서도 보존하고, 전체 Snapshot consistency repair가 완전 성공한 경우에만 과거 `WRITE_FAILED`/중단 `CREATED` system backup을 정리합니다.
+- 일반 유지보수는 복구 증명 없이 실패·중단 backup을 보존하며, signature가 달라진 등록 완료본도 자동 삭제하지 않습니다.
+- 정적 웹은 cache `portfolio-cache-20261002-2`와 함께 배포합니다.
