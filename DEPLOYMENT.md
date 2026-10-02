@@ -828,3 +828,8 @@ GAS 메뉴 및 시트 구성:
 
 - 전체 Snapshot consistency repair의 `validatedRecovery` 정리는 Snapshot source의 등록된 실패·중단 rollback backup에만 적용합니다. 다른 source의 실패 또는 진행 중 backup은 해당 증명으로 삭제하지 않습니다.
 - 정적 웹은 cache `portfolio-cache-20261002-3`과 함께 배포합니다.
+
+## GAS v9.153 Snapshot duplicate cleanup read-back 검증 (2026-10-02)
+
+- 중복 정리 전부터 존재한 빈 행·식별자 없는 행은 보존하면서, intended/actual 비교에는 동일한 유효 Snapshot 행 기준을 적용해 정상 정리를 실패로 오인하지 않습니다.
+- 정적 웹은 cache `portfolio-cache-20261002-4`와 함께 배포합니다.

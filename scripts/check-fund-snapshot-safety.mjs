@@ -780,7 +780,9 @@ const canonicalStringRow=['2026-02-01','005930','삼성전자',1,50,50,100,100,5
 assert.equal(context._snapshotComparableSignature(canonicalDateRow),context._snapshotComparableSignature(canonicalStringRow),'Date/code/numeric/source/savedAt canonical comparison');
 const conflictManual=snap('2026-02-02','000002',200,'MANUAL');
 const conflictHistory=snap('2026-02-02','000002',210,'PRICE_HISTORY');
-const duplicateSnapshot=new Sheet([header,identicalRow,clone(identicalRow),conflictManual,conflictHistory]);
+const blankSnapshotRow=Array(12).fill('');
+const unidentifiedSnapshotRow=['2026-02-01','','',1,50,50,100,100,50,100,'PRICE_HISTORY',''];
+const duplicateSnapshot=new Sheet([header,identicalRow,blankSnapshotRow,clone(identicalRow),unidentifiedSnapshotRow,conflictManual,conflictHistory]);
 const duplicateSs=ssFor({'스냅샷':duplicateSnapshot});
 context.getss=()=>duplicateSs;
 context._buildSnapshotRowsFromTradeAndPriceHistory=(_ss,date)=>date==='2026-02-02'?[conflictHistory]:[identicalRow];
@@ -791,6 +793,10 @@ const duplicateCleanup=clone(context.cleanupSnapshotDuplicates());
 assert.equal(duplicateCleanup.removedRows,1,'완전히 동일한 중복만 자동 제거');
 assert.equal(duplicateCleanup.manualProtectedGroups,1,'MANUAL 충돌을 별도 보고');
 assert.equal(duplicateSnapshot.rows.filter(row=>row[0]==='2026-02-02').length,2,'MANUAL과 충돌하는 행은 첫 행 임의 선택 없이 보존');
+assert(duplicateSnapshot.rows.some(row=>row.every(cell=>cell==='')),'중간 빈 행을 삭제하지 않고 read-back 검증 기준에서만 제외');
+assert(duplicateSnapshot.rows.some(row=>row[0]==='2026-02-01'&&!row[1]&&!row[2]),'식별자 없는 기존 행 보존');
+const cleanupRegistry=JSON.parse(scriptProperties.get('system_backup_registry_v1')||'[]');
+assert(!cleanupRegistry.some(item=>item.source==='스냅샷'&&item.status==='WRITE_FAILED'),'유효행 대칭 검증 성공 후 backup이 WRITE_FAILED로 남지 않음');
 assert.equal(rawSnapshotReadCount,0,'중복 없는 날짜를 날짜별 전체 Snapshot 재읽기하지 않음');
 context._readRawSnapshotRowsByDate=realRawSnapshotReader;
 

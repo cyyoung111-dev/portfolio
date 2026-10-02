@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.152
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.153
+//
+//  v9.153 변경사항 (2026.10.02):
+//   Snapshot duplicate cleanup read-back 유효행 기준 대칭화
 //
 //  v9.152 변경사항 (2026.10.02):
 //   validated recovery cleanup을 Snapshot source로 격리
@@ -4240,7 +4243,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.152' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.153' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9173,10 +9176,12 @@ function _cleanupSnapshotDuplicatesLocked() {
       var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']];
       var output = header.concat(outputRows); while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
       sh.getRange(1, 1, output.length, colSize).setValues(output); SpreadsheetApp.flush();
-      var actualRows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues().filter(function(row) { return !!_normalizeDate(row[0]) && !!_snapshotIntegrityKey(row); }) : [];
-      var intendedSignature = outputRows.map(_snapshotComparableSignature).sort().join('\n');
+      var isValidSnapshotRow = function(row) { return !!_normalizeDate(row[0]) && !!_snapshotIntegrityKey(row); };
+      var intendedRows = outputRows.filter(isValidSnapshotRow);
+      var actualRows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues().filter(isValidSnapshotRow) : [];
+      var intendedSignature = intendedRows.map(_snapshotComparableSignature).sort().join('\n');
       var actualSignature = actualRows.map(_snapshotComparableSignature).sort().join('\n');
-      if (actualRows.length !== outputRows.length || actualSignature !== intendedSignature) throw new Error('Snapshot 전체 중복 정리 후 read-back 검증 실패');
+      if (actualRows.length !== intendedRows.length || actualSignature !== intendedSignature) throw new Error('Snapshot 전체 중복 정리 후 read-back 검증 실패');
       var actualByDate = {};
       actualRows.forEach(function(row) { var date = _normalizeDate(row[0]); if (date) (actualByDate[date] || (actualByDate[date] = [])).push(row); });
       Object.keys(affectedDates).forEach(function(date) {
@@ -9575,7 +9580,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.152' });
+    return jsonOk({ settings: settings, gasVersion: '9.153' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9597,7 +9602,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.152'
+      gasVersion: '9.153'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
