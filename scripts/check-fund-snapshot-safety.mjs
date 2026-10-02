@@ -805,6 +805,13 @@ const canonicalStringRow=['2026-02-01','005930','삼성전자',1,50,50,100,100,5
 assert.equal(context._snapshotComparableSignature(canonicalDateRow),context._snapshotComparableSignature(canonicalStringRow),'Date/code/numeric/source/savedAt canonical comparison');
 const conflictManual=snap('2026-02-02','000002',200,'MANUAL');
 const conflictHistory=snap('2026-02-02','000002',210,'PRICE_HISTORY');
+const identicalManual=snap('2026-02-06','000006',600,'MANUAL');
+let manualDecision=clone(context._classifyRawSnapshotDuplicateGroups('2026-02-06',[identicalManual,clone(identicalManual)],[],''))[0];
+assert.equal(manualDecision.classification,'EXACT_DUPLICATE','동일 MANUAL 물리 중복은 exact duplicate');
+assert.equal(manualDecision.autoResolvable,true,'동일 MANUAL 중복은 한 행으로 안전 축약 가능');
+manualDecision=clone(context._classifyRawSnapshotDuplicateGroups('2026-02-06',[identicalManual,snap('2026-02-06','000006',610,'MANUAL')],[],''))[0];
+assert.equal(manualDecision.classification,'MANUAL_PROTECTED','값이 다른 MANUAL 충돌은 계속 보호');
+assert.equal(manualDecision.autoResolvable,false,'서로 다른 MANUAL 충돌 자동 축약 금지');
 const blankSnapshotRow=Array(12).fill('');
 const unidentifiedSnapshotRow=['2026-02-01','','',1,50,50,100,100,50,100,'PRICE_HISTORY',''];
 const duplicateSnapshot=new Sheet([header,identicalRow,blankSnapshotRow,clone(identicalRow),unidentifiedSnapshotRow,conflictManual,conflictHistory]);

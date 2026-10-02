@@ -850,3 +850,10 @@ GAS 메뉴 및 시트 구성:
 
 - 성공 operation backup을 삭제하기 직전 registry signature와 실제 backup content signature를 다시 비교합니다. 불일치하거나 signature가 없는 backup은 sheet와 registry record를 모두 보존합니다.
 - 정적 웹은 cache `portfolio-cache-20261002-7`과 함께 배포합니다.
+
+## GAS v9.157 Snapshot 최종 검증 lifecycle (2026-10-02)
+
+- 거래 저장 후 Snapshot rebuild가 부분 실패하면 거래 backup을 `WRITE_FAILED`로 보존하고 성공 응답·자동 cleanup을 차단합니다.
+- 일일 가격 저장·날짜 복구·backfill Snapshot write는 연관 write와 최종 integrity 검증 성공 뒤에만 operation backup을 완료·정리합니다.
+- 내용이 완전히 동일한 MANUAL 물리 중복은 `EXACT_DUPLICATE`로 축약하되 서로 다른 MANUAL 충돌은 계속 보호합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-8`과 함께 배포합니다.

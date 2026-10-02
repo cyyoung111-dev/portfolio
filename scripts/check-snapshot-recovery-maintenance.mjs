@@ -75,3 +75,7 @@ assert.match(gas, /repairPlan\.unsafe\.length[\s\S]*snapshotCount: 0/, '가격·
 assert.match(gas, /backfillPlan\.unsafe\.length[\s\S]*throw new Error\('Snapshot 보호 충돌:/, 'backfill protected conflict 성공 집계 금지');
 assert.match(gas, /savePlan\.unsafe\.length[\s\S]*return jsonError\('Snapshot 보호 충돌:/, '직접 Snapshot 저장 protected conflict 성공 응답 금지');
 assert.match(gas, /matchIndexes\.length > 1[\s\S]*_snapshotRewritePlan[\s\S]*writeSnapshotRows/, '펀드 import duplicate는 첫 행만 갱신하지 않음');
+assert.match(gas, /snapshotRebuild\.errors[\s\S]*Snapshot rebuild 부분 실패[\s\S]*_markSnapshotBackupStatus\(tradeBackup, 'COMPLETED'\)/, '거래 Snapshot 부분 실패는 backup 완료·삭제 전에 오류 처리');
+assert.match(gas, /saveDailyPriceHistory\|[\s\S]*writeSnapshotRows\(ss, snapshotDate[\s\S]*diagnoseSnapshotIntegrity\(ss, snapshotDate\)[\s\S]*_settleSnapshotBackupOperation\(ss, snapshotOperationId, true\)/, '일일 Snapshot은 최종 VALID 뒤 operation settle');
+assert.match(gas, /repairPriceAndSnapshotForDate\|[\s\S]*writeSnapshotRows\(ss, normDate[\s\S]*repairIntegrity\.status !== 'VALID'[\s\S]*_settleSnapshotBackupOperation\(ss, snapshotOperationId, true\)/, '날짜 복구 Snapshot은 최종 VALID 뒤 operation settle');
+assert.match(gas, /backfillOperationId[\s\S]*writeSnapshotRows\(ss, dateStr[\s\S]*batchUpsertPriceHistory[\s\S]*_settleSnapshotBackupOperation\(ss, backfillOperationId, true\)/, 'backfill 연관 write 완료 전 Snapshot backup 삭제 금지');
