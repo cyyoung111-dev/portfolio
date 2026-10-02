@@ -5159,19 +5159,25 @@ function _cleanupCurrentSystemBackup(ss, record) {
       item.systemGenerated === true && item.status === 'COMPLETED';
   })[0];
   if (!registered) return { deleted: false, reason: '검증된 현재 operation backup record 없음' };
+  if (!registered.source || !Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, registered.source) || !ss.getSheetByName(registered.source)) {
+    return { deleted: false, name: registered.name, reason: '원본 source sheet 없음 · backup 보호' };
+  }
   var currentCompletedAt = _backupTimeMillis(registered.completedAt || registered.updatedAt || registered.createdAt);
   var staleCandidates = items.filter(function(item) {
     if (item.name === registered.name || item.source !== registered.source || item.systemGenerated !== true) return false;
-    if (['COMPLETED', 'WRITE_FAILED', 'CREATED'].indexOf(item.status) === -1) return false;
+    if (['COMPLETED', 'WRITE_FAILED'].indexOf(item.status) === -1) return false;
     return currentCompletedAt && _backupTimeMillis(item.completedAt || item.updatedAt || item.createdAt) < currentCompletedAt;
   });
-  var staleDeleted = [], staleProtected = [], missingRecords = [];
-  var staleFormulaCounts = staleCandidates.length && ss.getSheetByName(registered.source)
+  var staleDeleted = [], missingRecords = [];
+  var staleProtected = items.filter(function(item) {
+    return item.name !== registered.name && item.source === registered.source && item.systemGenerated === true && item.status === 'CREATED' &&
+      currentCompletedAt && _backupTimeMillis(item.updatedAt || item.createdAt) < currentCompletedAt;
+  }).map(function(item) { return { name: item.name, reason: 'CREATED 상태 · active 여부 확인 불가' }; });
+  var staleFormulaCounts = staleCandidates.length
     ? _sheetFormulaReferenceCounts(ss, staleCandidates.map(function(item) { return item.name; })) : {};
-  if (staleCandidates.length && ss.getSheetByName(registered.source)) staleCandidates.forEach(function(item) {
+  if (staleCandidates.length) staleCandidates.forEach(function(item) {
     var staleSheet = ss.getSheetByName(item.name);
     if (!staleSheet) { missingRecords.push(item.name); return; }
-    if (item.operationId && item.operationId === _snapshotBackupOperationId) { staleProtected.push({ name: item.name, reason: 'active operation' }); return; }
     if (!item.signature) { staleProtected.push({ name: item.name, reason: 'registry backup signature 없음' }); return; }
     if (_sheetContentSignature(staleSheet) !== item.signature) { staleProtected.push({ name: item.name, reason: 'registry/실제 backup signature 불일치 보호' }); return; }
     if (Number(staleFormulaCounts[item.name] || 0) !== 0) { staleProtected.push({ name: item.name, reason: '수식 참조 존재' }); return; }

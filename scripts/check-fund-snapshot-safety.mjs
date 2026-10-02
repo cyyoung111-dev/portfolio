@@ -813,17 +813,40 @@ assert(cleanupResult.unresolved.some(item=>item.name==='스냅샷_백업_수정�
 assert.equal(cleanupResult.releasedCells,780000,'자동 정리 확보 실제 allocatedCells 합산');
 
 // 이전 실패 backup을 새 성공 증거가 삭제되기 전에 stale로 정리하고 최종 0개를 보장합니다.
-const lifecycleSheets={ '스냅샷':new Sheet([header]), 'failed-A':new Sheet([header]), 'created-A':new Sheet([header]), 'success-B':new Sheet([header]) };
+const lifecycleSheets={ '스냅샷':new Sheet([header]), 'failed-A':new Sheet([header]), 'completed-A':new Sheet([header]), 'success-B':new Sheet([header]) };
 const lifecycleSs=ssFor(lifecycleSheets), lifecycleSignature=context._sheetContentSignature(lifecycleSheets['failed-A']);
 scriptProperties.set('system_backup_registry_v1',JSON.stringify([
   {name:'failed-A',source:'스냅샷',signature:lifecycleSignature,status:'WRITE_FAILED',systemGenerated:true,operationId:'old-failed',updatedAt:'2026-09-19T00:00:00Z'},
-  {name:'created-A',source:'스냅샷',signature:lifecycleSignature,status:'CREATED',systemGenerated:true,operationId:'old-created',createdAt:'2026-09-20T00:00:00Z'},
+  {name:'completed-A',source:'스냅샷',signature:lifecycleSignature,status:'COMPLETED',systemGenerated:true,operationId:'old-completed',completedAt:'2026-09-20T00:00:00Z'},
   {name:'success-B',source:'스냅샷',signature:lifecycleSignature,status:'COMPLETED',systemGenerated:true,operationId:'new-success',completedAt:'2026-09-21T00:00:00Z'}
 ]));
 let lifecycleCleanup=clone(context._cleanupCurrentSystemBackup(lifecycleSs,{name:'success-B',source:'스냅샷',operationId:'new-success'}));
-assert.deepEqual(lifecycleCleanup.staleDeleted.sort(),['created-A','failed-A'],'최신 성공 증거로 오래된 WRITE_FAILED/CREATED stale 정리');
+assert.deepEqual(lifecycleCleanup.staleDeleted.sort(),['completed-A','failed-A'],'최신 성공 증거로 오래된 WRITE_FAILED/COMPLETED stale 정리');
 assert.equal(Object.keys(lifecycleSheets).filter(name=>name!=='스냅샷').length,0,'성공 후 same-source system backup 0개');
 assert.deepEqual(JSON.parse(scriptProperties.get('system_backup_registry_v1')),[],'성공 후 same-source registry 0개');
+
+const createdSheets={ '스냅샷':new Sheet([header]), 'created-cross-execution':new Sheet([header]), 'success-created-test':new Sheet([header]) };
+const createdSs=ssFor(createdSheets), createdSignature=context._sheetContentSignature(createdSheets['created-cross-execution']);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'created-cross-execution',source:'스냅샷',signature:createdSignature,status:'CREATED',systemGenerated:true,operationId:'other-execution',createdAt:'2026-09-20T00:00:00Z'},
+  {name:'success-created-test',source:'스냅샷',signature:createdSignature,status:'COMPLETED',systemGenerated:true,operationId:'current-execution',completedAt:'2026-09-21T00:00:00Z'}
+]));
+context._snapshotBackupOperationId='current-execution';
+const createdCleanup=clone(context._cleanupCurrentSystemBackup(createdSs,{name:'success-created-test',source:'스냅샷',operationId:'current-execution'}));
+context._snapshotBackupOperationId='';
+assert(createdSheets['created-cross-execution'],'다른 실행의 오래된 CREATED도 fast path에서 보호');
+assert(!createdSheets['success-created-test'],'현재 COMPLETED backup은 정상 정리');
+assert(createdCleanup.staleProtected.some(item=>item.name==='created-cross-execution'&&/CREATED.*확인 불가/.test(item.reason)));
+assert(JSON.parse(scriptProperties.get('system_backup_registry_v1')).some(item=>item.name==='created-cross-execution'),'CREATED registry 보호');
+
+const sourceMissingSheets={ 'current-without-source':new Sheet([header]) }, sourceMissingSs=ssFor(sourceMissingSheets);
+const sourceMissingRecord={name:'current-without-source',source:'스냅샷',signature:context._sheetContentSignature(sourceMissingSheets['current-without-source']),status:'COMPLETED',systemGenerated:true,operationId:'missing-source-op',completedAt:'2026-09-21T00:00:00Z'};
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([sourceMissingRecord]));
+const sourceMissingCleanup=clone(context._cleanupCurrentSystemBackup(sourceMissingSs,sourceMissingRecord));
+assert.equal(sourceMissingCleanup.deleted,false);
+assert.match(sourceMissingCleanup.reason,/원본 source sheet 없음/);
+assert(sourceMissingSheets['current-without-source'],'source 없는 current backup sheet 보호');
+assert(JSON.parse(scriptProperties.get('system_backup_registry_v1')).some(item=>item.name==='current-without-source'),'source 없는 current registry 보호');
 
 const protectedSheets={ '스냅샷':new Sheet([header]), 'active-A':new Sheet([header]), 'mismatch-A':new Sheet([header,snap('2026-01-01','000001',999)]), 'formula-A':new Sheet([header]), 'success-C':new Sheet([header]), '참조':new Sheet([['ref']]) };
 protectedSheets['참조'].formulaText="='formula-A'!A1";
@@ -838,7 +861,7 @@ context._snapshotBackupOperationId='active-op';
 lifecycleCleanup=clone(context._cleanupCurrentSystemBackup(protectedSs,{name:'success-C',source:'스냅샷',operationId:'success-op'}));
 context._snapshotBackupOperationId='';
 assert(protectedSheets['active-A']&&protectedSheets['mismatch-A']&&protectedSheets['formula-A'],'active/signature mismatch/formula 백업 보호');
-assert(lifecycleCleanup.staleProtected.some(item=>item.name==='active-A'&&/active/.test(item.reason)));
+assert(lifecycleCleanup.staleProtected.some(item=>item.name==='active-A'&&/CREATED.*확인 불가/.test(item.reason)));
 assert(lifecycleCleanup.staleProtected.some(item=>item.name==='mismatch-A'&&/signature/.test(item.reason)));
 assert(lifecycleCleanup.staleProtected.some(item=>item.name==='formula-A'&&/수식/.test(item.reason)));
 
