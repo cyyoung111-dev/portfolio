@@ -5257,7 +5257,8 @@ function _planSystemBackupMaintenance(ss) {
     var schemaMatch = !!(sourceSheet && _sheetHeaderSignature(ss.getSheetByName(item.name)) === _sheetHeaderSignature(sourceSheet));
     var namingMatch = !!_backupSourceFromSystemName(item.name);
     var signatureMatch = record ? !!(record.signature && record.signature === _sheetContentSignature(ss.getSheetByName(item.name))) : !!_sheetContentSignature(ss.getSheetByName(item.name));
-    var classification = record ? (record.status === 'COMPLETED' ? 'REGISTERED_COMPLETED' : (record.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
+    var registeredSystem = !!(record && record.systemGenerated === true && source && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, source));
+    var classification = registeredSystem ? (record.status === 'COMPLETED' ? 'REGISTERED_COMPLETED' : (record.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
       (namingMatch && source && schemaMatch && item.formulaReferenceCount === 0 && !_isGasReferencedSheet(item.name) ? 'ORPHAN_LIKELY_SYSTEM' : (namingMatch ? 'UNKNOWN' : 'USER_MANAGED'));
     var active = !!(record && activeOperations[record.operationId]);
     return { name: item.name, sheetName: item.name, registryRecordExists: !!record, source: source || '', classification: classification,
@@ -5277,7 +5278,8 @@ function _planSystemBackupMaintenance(ss) {
     list.forEach(function(item) {
       var safeClass = ['REGISTERED_COMPLETED', 'REGISTERED_WRITE_FAILED', 'ORPHAN_LIKELY_SYSTEM'].indexOf(item.classification) !== -1;
       var olderFailed = item.classification === 'REGISTERED_WRITE_FAILED' && newest && String(item.createdAt || item.name) < String(newest.completedAt || newest.createdAt || newest.name);
-      item.autoCleanupEligible = !!(safeClass && item.signatureMatch && item.schemaMatch && !item.activeOperation &&
+      var registeredCompleted = item.classification === 'REGISTERED_COMPLETED';
+      item.autoCleanupEligible = !!(safeClass && (registeredCompleted || (item.signatureMatch && item.schemaMatch)) && !item.activeOperation &&
         item.formulaReferenceCount === 0 && (item.classification !== 'REGISTERED_WRITE_FAILED' || olderFailed));
       if (!item.autoCleanupEligible) item.protectionReason = item.activeOperation ? 'active operation' :
         (item.formulaReferenceCount ? '수식 참조 존재' : (!safeClass ? 'USER_MANAGED/UNKNOWN 보호' :
@@ -8919,6 +8921,14 @@ function cleanupPriceHistoryDuplicates() {
     ph.getRange(1, 1, 1, 6).setValues(header);
     ph.getRange(1, 1, 1, 6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
     if (deduped.length > 0) ph.getRange(2, 1, deduped.length, 6).setValues(_normalizeCodeRows(deduped, 1));
+    SpreadsheetApp.flush();
+    var verifiedRows = ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
+    var verifiedKeys = {};
+    verifiedRows.forEach(function(row) {
+      var date = _normalizeDate(row[0]), code = _cleanCode(row[1]) || String(row[2] || '').trim(), key = date + '|' + code;
+      if (date && code && verifiedKeys[key]) throw new Error('가격이력 중복 정리 후 검증 실패: ' + key);
+      if (date && code) verifiedKeys[key] = true;
+    });
     _touchSnapshotIntegritySourceRevision({ all: true });
     _markSnapshotBackupStatus(backup, 'COMPLETED');
     _cleanupSystemBackups(ss, CONFIG.SHEET_PH);
@@ -8959,6 +8969,16 @@ function cleanupSnapshotDuplicates() {
       var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']];
       var output = header.concat(outputRows); while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
       sh.getRange(1, 1, output.length, colSize).setValues(output); SpreadsheetApp.flush();
+      Object.keys(affectedDates).forEach(function(date) {
+        var expected = [], sourceError = '';
+        try { expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true); }
+        catch (error) { sourceError = error.message || String(error); }
+        var remaining = _classifyRawSnapshotDuplicateGroups(date, _readRawSnapshotRowsByDate(ss, date), expected, sourceError);
+        var targetKeys = {};
+        decisions.filter(function(item) { return item.date === date && item.autoResolvable; }).forEach(function(item) { targetKeys[item.key] = true; });
+        var failed = remaining.filter(function(item) { return targetKeys[item.key]; });
+        if (failed.length) throw new Error('Snapshot 중복 정리 후 raw 검증 실패: ' + failed.map(function(item) { return item.key; }).join(', '));
+      });
       _touchSnapshotIntegritySourceRevision({ dates: Object.keys(affectedDates) });
       _markSnapshotBackupStatus(backup, 'COMPLETED'); _cleanupSystemBackups(ss, CONFIG.SHEET_SNAPSHOT);
     } catch (error) { _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message); throw error; }

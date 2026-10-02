@@ -36,6 +36,7 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           MANUAL_CHECKPOINT: ${{ inputs.checkpoint }}
           MANUAL_DATE: ${{ inputs.trading_date }}
+          RUN_SCHEDULE: ${{ github.event.schedule }}
         run: |
           if [ -n "$MANUAL_CHECKPOINT" ]; then
             checkpoint="$MANUAL_CHECKPOINT"
@@ -50,4 +51,5 @@ jobs:
           fi
           args=(--checkpoint "$checkpoint")
           if [ -n "$MANUAL_DATE" ]; then args+=(--date "$MANUAL_DATE"); fi
+          if [ -n "$RUN_SCHEDULE" ]; then args+=(--schedule "$RUN_SCHEDULE"); fi
           node scripts/run-market-briefing-headless.mjs "${args[@]}"

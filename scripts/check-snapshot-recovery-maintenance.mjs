@@ -43,3 +43,5 @@ assert.match(gas, /SYSTEM_BACKUP_KEEP_BY_SOURCE = \{[^\n]*'스냅샷': 0/);
 assert.match(gas, /_systemBackupTimestampFromName\(name\)/, 'orphan 생성 시각은 이름에서 보존해야 합니다.');
 assert.match(gas, /remainingCells < minimumCreationCells[\s\S]*_cleanupSystemBackups\(ss, sourceName\)[\s\S]*_fundSheetCapacity\(ss\)/, '셀 부족 시 정리 후 재계산해야 합니다.');
 assert.match(gas, /가격이력 쓰기 후 검증 실패[\s\S]*_cleanupSystemBackups\(ss, CONFIG\.SHEET_PH\)/, '가격이력 repair 성공 후 backup을 정리해야 합니다.');
+assert.match(gas, /registeredCompleted \|\| \(item\.signatureMatch && item\.schemaMatch\)/, '등록된 COMPLETED 백업은 현재 schema 변경만으로 영구 보호하면 안 됩니다.');
+assert.match(gas, /Snapshot 중복 정리 후 raw 검증 실패[\s\S]*_markSnapshotBackupStatus\(backup, 'COMPLETED'\)/, 'raw 검증이 COMPLETED 및 backup 삭제보다 먼저여야 합니다.');
