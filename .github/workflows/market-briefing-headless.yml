@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   briefing:
@@ -36,6 +37,11 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           MANUAL_CHECKPOINT: ${{ inputs.checkpoint }}
           MANUAL_DATE: ${{ inputs.trading_date }}
+          RUN_SCHEDULE: ${{ github.event.schedule }}
+          GH_TOKEN: ${{ github.token }}
+          GH_API_URL: ${{ github.api_url }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_RUN_ID: ${{ github.run_id }}
         run: |
           if [ -n "$MANUAL_CHECKPOINT" ]; then
             checkpoint="$MANUAL_CHECKPOINT"
@@ -50,4 +56,12 @@ jobs:
           fi
           args=(--checkpoint "$checkpoint")
           if [ -n "$MANUAL_DATE" ]; then args+=(--date "$MANUAL_DATE"); fi
+          if [ -n "$RUN_SCHEDULE" ]; then args+=(--schedule "$RUN_SCHEDULE"); fi
+          if [ -n "$RUN_SCHEDULE" ]; then
+            scheduled_at="$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer $GH_TOKEN" -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "$GH_API_URL/repos/$GH_REPOSITORY/actions/runs/$GH_RUN_ID" \
+              | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const v=JSON.parse(s).created_at;if(!v)process.exit(1);process.stdout.write(v)})")"
+            args+=(--scheduled-at "$scheduled_at")
+          fi
           node scripts/run-market-briefing-headless.mjs "${args[@]}"

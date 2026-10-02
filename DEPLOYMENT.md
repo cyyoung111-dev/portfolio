@@ -802,3 +802,64 @@ GAS 메뉴 및 시트 구성:
 ## 정적 웹 retry 빈 결과 정리 (2026-10-01)
 - revision 재조회가 빈 원본 또는 빈 정규화 범위로 끝나면 이전 정상 화면을 복원하고, 복원본이 없을 때만 stale chart·table·warning·상태를 제거합니다.
 - GAS 변경은 없으며 정적 웹 cache `portfolio-cache-20261001-8`만 재배포합니다.
+
+## GAS v9.149 Snapshot raw 충돌·임시 rollback backup 정책 (2026-10-01)
+- Snapshot 복구는 dedupe view의 signature가 아니라 raw `date + canonical code/name` 그룹을 공통 판정합니다. 동일 행 중복과 MANUAL 없는 유일 expected 일치만 자동 정리하고, MANUAL·미확정 충돌·원자료 부족은 원인을 남겨 보존합니다.
+- 쓰기 뒤 `SpreadsheetApp.flush()` 및 raw integrity 재진단이 `VALID`인 경우에만 성공으로 확정합니다.
+- 시스템 `*_백업_*`은 위험한 쓰기 직전의 임시 rollback artifact입니다. 정상 완료본은 즉시 삭제하고 registry에서도 제거하며, 전체 복구 완료/명시 유지보수에서는 검증된 과거 완료본과 복구 완료된 실패본도 정리합니다. active·미복구 실패·수식 참조·사용자/UNKNOWN 백업은 보존합니다.
+- 운영 반영 후 GAS v9.149와 정적 웹 cache `portfolio-cache-20261001-9`를 재배포하고, 먼저 백업 유지보수 dry-run에서 보호/삭제 후보를 확인한 다음 apply를 실행합니다. 이어 전체 Snapshot consistency repair를 실행하고 완료 후 integrity 상태와 system backup 0개를 확인합니다.
+- Headless workflow는 `github.event.schedule`을 runner에 전달해 지연 실행에서도 cron slot의 거래일을 사용하며 수동 `--date`를 우선합니다. `MORNING` 비교지수 조회는 거래일 전일까지로 제한하고, 환율 `CONFIRMED`/`NO_DATA`는 정상 응답으로, `MISSING_SOURCE`/`INVALID_SCHEMA`는 운영 오류로 구분합니다.
+- 정상 write는 대상 범위 read-back 검증 뒤 방금 만든 rollback backup만 FAST PATH로 제거합니다. orphan·수식 참조·과거 backup을 포함하는 전체 workbook 점검은 명시 유지보수와 전체 Snapshot repair 완료 시에만 수행합니다.
+- Google Sheets 파일당 10,000,000 cell 한도를 기준으로 backup 생성 전 용량을 검사하며, tall/narrow backup은 열을 먼저 축소한 뒤 행을 확장해 transient peak도 제한합니다. Snapshot 비교는 날짜·코드·숫자·source를 canonicalize하고 savedAt 차이는 제외합니다.
+
+## GAS v9.150 Snapshot operation backup 수명주기 (2026-10-02)
+
+- 다일자 Snapshot 작업의 rollback backup은 작업 중 `CREATED`로 유지하고, 전체 작업의 검증 성공 시에만 `COMPLETED` 처리 후 즉시 삭제합니다.
+- 작업 중 하나라도 실패하면 backup을 `WRITE_FAILED`로 보존하며, 같은 실패 operation ID는 재사용하지 않습니다.
+- 정적 웹은 history repair의 첫 실패 중단 동작을 반영한 cache `portfolio-cache-20261002-1`과 함께 배포합니다.
+
+## GAS v9.151 Snapshot backup provenance 및 validated recovery (2026-10-02)
+
+- 재사용 backup의 system provenance를 registry 상태 전환에서도 보존하고, 전체 Snapshot consistency repair가 완전 성공한 경우에만 과거 `WRITE_FAILED`/중단 `CREATED` system backup을 정리합니다.
+- 일반 유지보수는 복구 증명 없이 실패·중단 backup을 보존하며, signature가 달라진 등록 완료본도 자동 삭제하지 않습니다.
+- 정적 웹은 cache `portfolio-cache-20261002-2`와 함께 배포합니다.
+
+## GAS v9.152 validated recovery source 격리 (2026-10-02)
+
+- 전체 Snapshot consistency repair의 `validatedRecovery` 정리는 Snapshot source의 등록된 실패·중단 rollback backup에만 적용합니다. 다른 source의 실패 또는 진행 중 backup은 해당 증명으로 삭제하지 않습니다.
+- 정적 웹은 cache `portfolio-cache-20261002-3`과 함께 배포합니다.
+
+## GAS v9.153 Snapshot duplicate cleanup read-back 검증 (2026-10-02)
+
+- 중복 정리 전부터 존재한 빈 행·식별자 없는 행은 보존하면서, intended/actual 비교에는 동일한 유효 Snapshot 행 기준을 적용해 정상 정리를 실패로 오인하지 않습니다.
+- 정적 웹은 cache `portfolio-cache-20261002-4`와 함께 배포합니다.
+
+## GAS v9.154 validated operation 및 capacity cleanup 보호 (2026-10-02)
+
+- 전체 Snapshot consistency repair의 stale rollback 정리는 실제 `VALID` 재진단을 통과한 operation ID에만 한정합니다. skip·범위 밖·다른 operation backup은 보존합니다.
+- 셀 부족 자동 cleanup도 registry signature와 실제 backup content signature가 일치하는 시스템 backup만 삭제합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-5`와 함께 배포합니다.
+
+## GAS v9.155 빈 expected 중복 복구 및 operation backup 검증 (2026-10-02)
+
+- 원자료 계산 결과가 비어도 source 오류 없이 raw `EXACT_DUPLICATE`만 존재하면 공통 Snapshot write 경로로 한 행만 보존하고 raw 중복 재진단을 수행합니다.
+- 동일 operation backup은 실제 content signature가 registry signature와 일치할 때만 재사용하며, 불일치하면 기존 손상본을 보존하고 새 안전 backup을 생성합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-6`과 함께 배포합니다.
+
+## GAS v9.156 operation backup cleanup signature 재검증 (2026-10-02)
+
+- 성공 operation backup을 삭제하기 직전 registry signature와 실제 backup content signature를 다시 비교합니다. 불일치하거나 signature가 없는 backup은 sheet와 registry record를 모두 보존합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-7`과 함께 배포합니다.
+
+## GAS v9.157 Snapshot 최종 검증 lifecycle (2026-10-02)
+
+- 거래 저장 후 Snapshot rebuild가 부분 실패하면 거래 backup을 `WRITE_FAILED`로 보존하고 성공 응답·자동 cleanup을 차단합니다.
+- 일일 가격 저장·날짜 복구·backfill Snapshot write는 연관 write와 최종 integrity 검증 성공 뒤에만 operation backup을 완료·정리합니다.
+- 내용이 완전히 동일한 MANUAL 물리 중복은 `EXACT_DUPLICATE`로 축약하되 서로 다른 MANUAL 충돌은 계속 보호합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-8`과 함께 배포합니다.
+
+## GAS v9.158 backfill 최종 Snapshot 검증 (2026-10-02)
+
+- backfill은 Snapshot 및 연관 가격이력 write 후 `SpreadsheetApp.flush()`와 `diagnoseSnapshotIntegrity()`를 실행하고 `VALID`일 때만 operation backup을 완료·정리합니다.
+- non-VALID 또는 가격이력 write 실패 시 성공 집계를 하지 않고 rollback backup을 `WRITE_FAILED`로 보존합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-9`와 함께 배포합니다.

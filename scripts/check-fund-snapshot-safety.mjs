@@ -7,7 +7,7 @@ const editorSource = fs.readFileSync('src/web/features/management/mgmt_editor.js
 assert.doesNotMatch(source.match(/function _getFundNavStatus[\s\S]*?\n}/)?.[0] || '', /_fundDerivedState/, '좌수 화면 초기 현황에서 Snapshot 전체 파생 상태를 계산하면 안 됩니다.');
 assert.doesNotMatch(editorSource.match(/function _renderFundNavStatus[\s\S]*?\n}/)?.[0] || '', /completedDates/, '좌수 화면 초기 DOM에 전체 완료 날짜를 생성하면 안 됩니다.');
 assert.match(source.match(/function handleGetFundUnits[\s\S]*?\n}/)?.[0] || '', /performance:[\s\S]*navStatusMs:[\s\S]*priceHistoryRows:[\s\S]*snapshotRows:/, '좌수 초기 조회 성능과 읽은 행 수를 응답해야 합니다.');
-assert.match(source,/SYSTEM_BACKUP_KEEP_BY_SOURCE = \{ '스냅샷': 1, '거래이력': 1, '가격이력': 1, '펀드기준가격': 1, '펀드좌수': 1, '종목코드': 1 \}/,'운영 원본별 백업 보존 정책');
+assert.match(source,/SYSTEM_BACKUP_KEEP_BY_SOURCE = \{ '스냅샷': 0, '거래이력': 0, '가격이력': 0, '펀드기준가격': 0, '펀드좌수': 0, '종목코드': 0 \}/,'정상 완료 system backup 0개 정책');
 assert.match(source,/var deletable = candidates\.slice\(keep\)/,'COMPLETED 보존 초과 백업을 자동 정리');
 assert.match(source,/item\.status === 'WRITE_FAILED'.*newestCompletedAt/,'최신 성공본이 있을 때만 오래된 실패 백업 해제');
 assert.doesNotMatch(source.match(/function handleRefreshFundValuations[\s\S]*?\n}/)?.[0] || '', /waitLock/, '복구 handler 전체 잠금 제거');
@@ -24,6 +24,20 @@ const context = vm.createContext({ console, Logger: { log() {} }, LockService: {
   }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-' + (++uuidSequence) } });
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
+
+const realDiagnoseSnapshotIntegrity=context.diagnoseSnapshotIntegrity;
+const realSettleSnapshotBackupOperation=context._settleSnapshotBackupOperation;
+let backfillSettles=[];
+context.diagnoseSnapshotIntegrity=()=>({status:'VALID'});
+context._settleSnapshotBackupOperation=(_ss,operationId,succeeded,message)=>{backfillSettles.push({operationId,succeeded,message});return [];};
+context._finalizeBackfillSnapshotOperation({},'2026-01-02','backfill-test-valid');
+assert.deepEqual(backfillSettles,[{operationId:'backfill-test-valid',succeeded:true,message:undefined}],'backfill VALID만 success settle 실행');
+backfillSettles=[];
+context.diagnoseSnapshotIntegrity=()=>({status:'PRICE_SUSPICIOUS'});
+assert.throws(()=>context._finalizeBackfillSnapshotOperation({},'2026-01-02','backfill-test-invalid'),/PRICE_SUSPICIOUS/,'backfill non-VALID은 success settle 전 실패');
+assert.deepEqual(backfillSettles,[],'backfill non-VALID success settle 금지');
+context.diagnoseSnapshotIntegrity=realDiagnoseSnapshotIntegrity;
+context._settleSnapshotBackupOperation=realSettleSnapshotBackupOperation;
 
 // 한화 공식 API는 요청 범위의 C-RPe만 반환하고 미확정 클래스는 외부 조회하지 않습니다.
 const fundFetchCalls=[];
@@ -68,6 +82,7 @@ class Sheet {
   appendRow(row) { this.rows.push(clone(row)); }
   getRange(row, col, nr, nc) {
     return { getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => this.rows[row-1+i]?.[col-1+j] ?? '')),
+      getFormulas: () => Array.from({ length: nr }, () => Array(nc).fill('')),
       setValues: values => {
         if (this.failWrite) throw new Error('write failed');
         assert.equal(values.length, nr);
@@ -115,8 +130,7 @@ assert(sheet.rows.some(r => r[1]==='000001' && r[7]===100));
 assert(sheet.rows.some(r => r[0]==='2026-01-01' && r[7]===300));
 assert.equal(sheet.copies,0,'지원되지 않는 시트 copyTo를 호출하지 않음');
 const backupName = Object.keys(snapshotSheets).find(name => name.startsWith('스냅샷_백업_'));
-assert(backupName,'값 복사 방식의 스냅샷 백업 생성');
-assert.deepEqual(snapshotSheets[backupName].rows,[header,a,b,other]);
+assert.equal(backupName,undefined,'검증 성공 후 임시 스냅샷 백업 즉시 삭제');
 context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000001',1)],true);
 assert.equal(sheet.rows.find(r=>r[1]==='000001')[7],100);
 const beforeEmpty=clone(sheet.rows);
@@ -148,7 +162,37 @@ const operationUuidBefore=uuidSequence;
 const integrityRevisionBefore=scriptProperties.get('snapshot_integrity_source_revision_v1');
 context._snapshotBackupOperationId='multi-date-recovery';
 context.writeSnapshotRows(operationSs,'2026-01-01',[snap('2026-01-01','000001',101)],true);
+operationSheet.failWrite=true;
+assert.throws(()=>context.writeSnapshotRows(operationSs,'2026-01-02',[snap('2026-01-02','000001',111)],true),/write failed/);
+let failedOperationRecord=JSON.parse(scriptProperties.get('system_backup_registry_v1')).find(item=>item.operationId==='multi-date-recovery');
+assert.equal(failedOperationRecord.status,'WRITE_FAILED','재사용 backup 쓰기 실패 상태 보존');
+assert.equal(failedOperationRecord.systemGenerated,true,'재사용 상태 전환 뒤 system provenance 보존');
+operationSheet.failWrite=false;
 context.writeSnapshotRows(operationSs,'2026-01-02',[snap('2026-01-02','000001',111)],true);
+const activeOperationRecord=JSON.parse(scriptProperties.get('system_backup_registry_v1')).find(item=>item.operationId==='multi-date-recovery');
+assert.equal(activeOperationRecord.status,'WRITE_FAILED','후속 개별 성공은 operation 실패 상태를 완료로 덮어쓰지 않음');
+assert(Object.keys(operationSheets).some(name=>name.startsWith('스냅샷_백업_')),'operation 종료 전 rollback backup 유지');
+context._settleSnapshotBackupOperation(operationSs,'multi-date-recovery',true);
+assert(!Object.keys(operationSheets).some(name=>name.startsWith('스냅샷_백업_')),'다일자 operation 전체 성공 후 backup 0개');
+assert.equal(uuidSequence-operationUuidBefore,1,'하나의 다일자 논리 작업은 전체 Snapshot 백업을 한 번만 생성');
+context._snapshotBackupOperationId='';
+const corruptOperationSheet=new Sheet([header,snap('2026-01-01','000001',100),snap('2026-01-02','000001',110)]);
+const corruptOperationSheets={'스냅샷':corruptOperationSheet};
+const corruptOperationSs=ssFor(corruptOperationSheets);
+context._snapshotBackupOperationId='corrupt-backup-recovery';
+context.writeSnapshotRows(corruptOperationSs,'2026-01-01',[snap('2026-01-01','000001',101)],true);
+const firstCorruptBackupName=Object.keys(corruptOperationSheets).find(name=>name.startsWith('스냅샷_백업_'));
+corruptOperationSheets[firstCorruptBackupName].rows.push(snap('2025-12-31','999999',999));
+const corruptUuidBefore=uuidSequence;
+context.writeSnapshotRows(corruptOperationSs,'2026-01-02',[snap('2026-01-02','000001',111)],true);
+assert.equal(uuidSequence-corruptUuidBefore,1,'내용이 변경된 동일 operation backup을 재사용하지 않고 새 backup 생성');
+assert.equal(Object.keys(corruptOperationSheets).filter(name=>name.startsWith('스냅샷_백업_')).length,2,'손상 backup 보존 후 새 안전 backup 생성');
+const corruptCleanupResults=clone(context._settleSnapshotBackupOperation(corruptOperationSs,'corrupt-backup-recovery',true));
+assert.equal(corruptCleanupResults.filter(item=>item.deleted).length,1,'정상 signature의 새 operation backup은 성공 settle 후 정리');
+assert(corruptOperationSheets[firstCorruptBackupName],'signature가 변경된 기존 operation backup은 성공 settle 후에도 보호');
+const protectedCorruptRecord=JSON.parse(scriptProperties.get('system_backup_registry_v1')).find(item=>item.name===firstCorruptBackupName);
+assert(protectedCorruptRecord&&protectedCorruptRecord.status==='COMPLETED','손상 backup registry record도 삭제하지 않고 보존');
+assert(corruptCleanupResults.some(item=>item.name===firstCorruptBackupName&&!item.deleted&&/signature 불일치/.test(item.reason)),'손상 backup 보호 사유 반환');
 context._snapshotBackupOperationId='';
 assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),integrityRevisionBefore,'Snapshot 상세행 저장은 합계와 무관하게 integrity cache revision 갱신');
 const isolatedBefore=clone(context._snapshotIntegrityDateRevisions(['2026-01-01','2026-01-02']));
@@ -250,7 +294,6 @@ assert.equal(context._ensureSnapshotIntegrityChangeTrigger(true),true);
 assert.equal(changeTriggers.filter(item=>item.getHandlerFunction()==='handleSnapshotIntegritySheetChange'&&item.getTriggerSourceId()==='spreadsheet').length,1,'현재 spreadsheet의 중복 integrity trigger는 하나만 유지');
 assert(changeTriggers.includes(otherTargetTrigger)&&changeTriggers.includes(otherHandlerTrigger),'다른 대상 또는 handler trigger는 삭제하지 않음');
 context.ScriptApp=originalScriptApp;
-assert.equal(uuidSequence-operationUuidBefore,1,'하나의 다일자 논리 작업은 전체 Snapshot 백업을 한 번만 생성');
 assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스트 형식으로 고정');
 assert.equal(held,false);
 assert.throws(()=>context._readSnapshotRowsByDate({getSheetByName(){throw new Error('read failed');}},'2026-01-02'),/read failed/);
@@ -709,7 +752,7 @@ const capacityPrices=new Sheet([['date','code','name','price','at','source']]);
 const capacityTrades=new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','KB','F00002',1,800,'펀드']]);
 const capacitySnapshots=new Sheet([header]);
 [capacityUnits,capacityNav,capacityPrices,capacityTrades,capacitySnapshots].forEach(sheet=>{ sheet.maxRows=100; });
-const capacityFiller=new Sheet([['keep']]); capacityFiller.maxRows=760000; capacityFiller.maxColumns=26;
+const capacityFiller=new Sheet([['keep']]); capacityFiller.maxRows=380000; capacityFiller.maxColumns=26;
 const capacitySheets={'펀드좌수':capacityUnits,'펀드기준가격':capacityNav,'가격이력':capacityPrices,'거래이력':capacityTrades,'스냅샷':capacitySnapshots,'기존대형시트':capacityFiller};
 const capacitySs=ssFor(capacitySheets);
 context.getss=()=>capacitySs;
@@ -718,17 +761,17 @@ const capacityResult=context.handleImportFundNav(importPayload('F00002','KB_VALU
 assert.equal(capacityResult.status,'ok');
 assert.equal(capacityNav.rows.filter(row=>row[0]==='2026-09-21').length,1,'한도 근접 통합문서에도 NAV 증분 저장');
 assert.equal(Object.keys(capacitySheets).some(name=>name.includes('_백업_')),false,'한도 근접 저장도 백업 시트 미생성');
-assert(capacityResult.evaluation.capacity.before.totalCells>19000000,'실행 전 전체 할당 셀 진단');
+assert(capacityResult.evaluation.capacity.before.totalCells>9800000,'10M 한도 근접 실행 전 전체 할당 셀 진단');
 assert.equal(capacityResult.evaluation.capacity.before.totalCells,capacityResult.evaluation.capacity.after.totalCells,'기존 여유 행 안의 import는 할당 셀을 늘리지 않음');
 
-// 운영 오류(1,044개 필요/774개 잔여)를 재현하고 대상 시트의 빈 초과 열만 회수해 확장합니다.
+// 10M 한도 근처에서 필요한 셀을 확보하고 대상 시트의 빈 초과 열만 회수해 확장합니다.
 const compactNav=new Sheet([Array(9).fill('header')]); compactNav.maxRows=1; compactNav.maxColumns=29;
 const compactPrices=new Sheet([Array(6).fill('header')]); compactPrices.maxRows=1; compactPrices.maxColumns=6;
 const compactSnapshots=new Sheet([header]); compactSnapshots.maxRows=1; compactSnapshots.maxColumns=12;
-const compactFillerA=new Sheet([['keep']]); compactFillerA.maxRows=689626; compactFillerA.maxColumns=29;
+const compactFillerA=new Sheet([['keep']]); compactFillerA.maxRows=344798; compactFillerA.maxColumns=29;
 const compactFillerB=new Sheet([['keep']]); compactFillerB.maxRows=1; compactFillerB.maxColumns=25;
 const compactSs=ssFor({'펀드기준가격':compactNav,'가격이력':compactPrices,'스냅샷':compactSnapshots,'기존대형시트A':compactFillerA,'기존대형시트B':compactFillerB});
-assert.equal(context._fundSheetCapacity(compactSs).remainingCells,774,'운영 잔여 셀 774개 재현');
+assert.equal(context._fundSheetCapacity(compactSs).remainingCells,786,'10M 한도 잔여 셀 786개 재현');
 context._ensureFundImportRowCapacity(compactSs,compactNav,36);
 assert.equal(compactNav.getMaxColumns(),9,'값이 없는 초과 20개 열만 회수');
 assert.equal(compactNav.getMaxRows(),37,'29열 기준 1,044셀 대신 9열 기준 324셀로 행 확장');
@@ -747,33 +790,74 @@ const cleanupSheets={
   '스냅샷':new Sheet([header]),
   '스냅샷_백업_시스템_구버전':new Sheet([header]),
   '스냅샷_백업_시스템_최신':new Sheet([header]),
+  '스냅샷_백업_수정됨':new Sheet([header,snap('2026-01-01','000001',999)]),
   '스냅샷_백업_사용자보관':new Sheet([header])
 };
+const cleanupSs=ssFor(cleanupSheets);
+const cleanBackupSignature=context._sheetContentSignature(cleanupSheets['스냅샷_백업_시스템_구버전']);
 scriptProperties.set('system_backup_registry_v1',JSON.stringify([
-  {name:'스냅샷_백업_시스템_구버전',source:'스냅샷',status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-20T00:00:00Z'},
-  {name:'스냅샷_백업_시스템_최신',source:'스냅샷',status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-21T00:00:00Z'},
-  {name:'스냅샷_백업_실패',source:'스냅샷',status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-09-19T00:00:00Z'}
+  {name:'스냅샷_백업_시스템_구버전',source:'스냅샷',signature:cleanBackupSignature,status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-20T00:00:00Z'},
+  {name:'스냅샷_백업_시스템_최신',source:'스냅샷',signature:cleanBackupSignature,status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-21T00:00:00Z'},
+  {name:'스냅샷_백업_수정됨',source:'스냅샷',signature:cleanBackupSignature,status:'COMPLETED',systemGenerated:true,completedAt:'2026-09-18T00:00:00Z'},
+  {name:'스냅샷_백업_실패',source:'스냅샷',signature:cleanBackupSignature,status:'WRITE_FAILED',systemGenerated:true,createdAt:'2026-09-19T00:00:00Z'}
 ]));
 cleanupSheets['스냅샷_백업_실패']=new Sheet([header]);
-const cleanupResult=clone(context._cleanupSystemBackups(ssFor(cleanupSheets),'스냅샷'));
-assert.deepEqual(cleanupResult.deleted,['스냅샷_백업_시스템_구버전','스냅샷_백업_실패'],'최신 검증 성공본 이전의 구버전·실패 백업 삭제');
-assert(cleanupSheets['스냅샷_백업_시스템_최신'],'최신 유효 백업 보존');
+cleanupSs.getSheets();
+const cleanupResult=clone(context._cleanupSystemBackups(cleanupSs,'스냅샷'));
+assert.deepEqual(cleanupResult.deleted,['스냅샷_백업_시스템_최신','스냅샷_백업_시스템_구버전','스냅샷_백업_실패'],'성공본 전체와 복구된 과거 실패 백업 삭제');
+assert(!cleanupSheets['스냅샷_백업_시스템_최신'],'정상 완료 system backup 0개');
 assert(cleanupSheets['스냅샷_백업_사용자보관'],'이름만 백업인 미등록 사용자 시트 보호');
 assert(!cleanupSheets['스냅샷_백업_실패'],'더 최신의 검증 COMPLETED 복구본이 있으면 오래된 WRITE_FAILED 정리');
-assert.equal(cleanupResult.releasedCells,520000,'자동 정리 확보 실제 allocatedCells 합산');
+assert(cleanupSheets['스냅샷_백업_수정됨'],'registry signature와 실제 내용이 다른 COMPLETED backup 보호');
+assert(cleanupResult.unresolved.some(item=>item.name==='스냅샷_백업_수정됨'&&/signature/.test(item.reason)),'변경된 COMPLETED backup을 unresolved로 보고');
+assert.equal(cleanupResult.releasedCells,780000,'자동 정리 확보 실제 allocatedCells 합산');
 assert.deepEqual(clone(context._normalizeCodeRows([[5930],[34230],[23280],['0046Y0'],['F00001'],['AAPL']],0)),
   [['005930'],['034230'],['023280'],['0046Y0'],['F00001'],['AAPL']],'숫자형 국내 코드 앞자리 0 복원 및 영숫자·해외 코드 보존');
 const identicalRow=snap('2026-02-01','000001',100);
+const canonicalDateRow=[new Date('2026-02-01T00:00:00Z'),5930,'삼성전자',1,'50',50,100,100,50,'100',' price_history ','old'];
+const canonicalStringRow=['2026-02-01','005930','삼성전자',1,50,50,100,100,50,100,'PRICE_HISTORY','new'];
+assert.equal(context._snapshotComparableSignature(canonicalDateRow),context._snapshotComparableSignature(canonicalStringRow),'Date/code/numeric/source/savedAt canonical comparison');
 const conflictManual=snap('2026-02-02','000002',200,'MANUAL');
 const conflictHistory=snap('2026-02-02','000002',210,'PRICE_HISTORY');
-const duplicateSnapshot=new Sheet([header,identicalRow,clone(identicalRow),conflictManual,conflictHistory]);
+const identicalManual=snap('2026-02-06','000006',600,'MANUAL');
+let manualDecision=clone(context._classifyRawSnapshotDuplicateGroups('2026-02-06',[identicalManual,clone(identicalManual)],[],''))[0];
+assert.equal(manualDecision.classification,'EXACT_DUPLICATE','동일 MANUAL 물리 중복은 exact duplicate');
+assert.equal(manualDecision.autoResolvable,true,'동일 MANUAL 중복은 한 행으로 안전 축약 가능');
+manualDecision=clone(context._classifyRawSnapshotDuplicateGroups('2026-02-06',[identicalManual,snap('2026-02-06','000006',610,'MANUAL')],[],''))[0];
+assert.equal(manualDecision.classification,'MANUAL_PROTECTED','값이 다른 MANUAL 충돌은 계속 보호');
+assert.equal(manualDecision.autoResolvable,false,'서로 다른 MANUAL 충돌 자동 축약 금지');
+const blankSnapshotRow=Array(12).fill('');
+const unidentifiedSnapshotRow=['2026-02-01','','',1,50,50,100,100,50,100,'PRICE_HISTORY',''];
+const duplicateSnapshot=new Sheet([header,identicalRow,blankSnapshotRow,clone(identicalRow),unidentifiedSnapshotRow,conflictManual,conflictHistory]);
 const duplicateSs=ssFor({'스냅샷':duplicateSnapshot});
 context.getss=()=>duplicateSs;
 context._buildSnapshotRowsFromTradeAndPriceHistory=(_ss,date)=>date==='2026-02-02'?[conflictHistory]:[identicalRow];
+const realRawSnapshotReader=context._readRawSnapshotRowsByDate;
+let rawSnapshotReadCount=0;
+context._readRawSnapshotRowsByDate=(...args)=>{rawSnapshotReadCount++;return realRawSnapshotReader(...args);};
 const duplicateCleanup=clone(context.cleanupSnapshotDuplicates());
 assert.equal(duplicateCleanup.removedRows,1,'완전히 동일한 중복만 자동 제거');
-assert.equal(duplicateCleanup.conflicts.length,1,'값 충돌 중복을 별도 보고');
+assert.equal(duplicateCleanup.manualProtectedGroups,1,'MANUAL 충돌을 별도 보고');
 assert.equal(duplicateSnapshot.rows.filter(row=>row[0]==='2026-02-02').length,2,'MANUAL과 충돌하는 행은 첫 행 임의 선택 없이 보존');
+assert(duplicateSnapshot.rows.some(row=>row.every(cell=>cell==='')),'중간 빈 행을 삭제하지 않고 read-back 검증 기준에서만 제외');
+assert(duplicateSnapshot.rows.some(row=>row[0]==='2026-02-01'&&!row[1]&&!row[2]),'식별자 없는 기존 행 보존');
+const cleanupRegistry=JSON.parse(scriptProperties.get('system_backup_registry_v1')||'[]');
+assert(!cleanupRegistry.some(item=>item.source==='스냅샷'&&item.status==='WRITE_FAILED'),'유효행 대칭 검증 성공 후 backup이 WRITE_FAILED로 남지 않음');
+assert.equal(rawSnapshotReadCount,0,'중복 없는 날짜를 날짜별 전체 Snapshot 재읽기하지 않음');
+context._readRawSnapshotRowsByDate=realRawSnapshotReader;
+
+const verifyWriteDedup=(stored,expected)=>{const target=new Sheet([header,...stored]);const targetSs=ssFor({'스냅샷':target});context.writeSnapshotRows(targetSs,expected[0],expected[1],true);return target.rows.filter(row=>row[0]===expected[0]);};
+let writeRows=verifyWriteDedup([identicalRow,clone(identicalRow)],['2026-02-01',[identicalRow]]);
+assert.equal(writeRows.length,1,'writeSnapshotRows exact duplicate를 실제 raw 1개로 축약');
+const staleConflict=snap('2026-02-03','000003',300), expectedConflict=snap('2026-02-03','000003',330);
+writeRows=verifyWriteDedup([staleConflict,expectedConflict],['2026-02-03',[expectedConflict]]);
+assert.equal(writeRows.length,1,'writeSnapshotRows SINGLE_EXPECTED_MATCH를 expected raw 1개로 축약');
+writeRows=verifyWriteDedup([snap('2026-02-04','000004',400,'MANUAL'),snap('2026-02-04','000004',410)],['2026-02-04',[snap('2026-02-04','000004',410)]]);
+assert.equal(writeRows.length,2,'writeSnapshotRows MANUAL conflict 보존');
+assert.deepEqual(writeRows,[snap('2026-02-04','000004',400,'MANUAL'),snap('2026-02-04','000004',410)],'MANUAL protected raw content 불변');
+writeRows=verifyWriteDedup([snap('2026-02-05','000005',500),snap('2026-02-05','000005',510)],['2026-02-05',[snap('2026-02-05','000005',520)]]);
+assert.equal(writeRows.length,2,'writeSnapshotRows unresolved conflict 보존');
+assert.deepEqual(writeRows,[snap('2026-02-05','000005',500),snap('2026-02-05','000005',510)],'unresolved key의 기존 첫 raw와 행 개수 보존');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 assert.equal(context._earliestChangedTradeDate([
   ['2026-01-02','buy','A','주식','000001',1,100]

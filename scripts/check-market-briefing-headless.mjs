@@ -1,16 +1,34 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { runHeadless } from './run-market-briefing-headless.mjs';
+import { createRequest, diagnosticFor, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
 
 globalThis.localStorage.clear();
 const date='2026-09-18', prior='2026-09-17';
-let observations=[],snapshots=[],snapshotPosts=0;
+assert.equal(scheduledTradingDate('30 22 * * 0-4',new Date('2026-09-22T03:00:00Z')),'2026-09-22','지연 실행도 월요일 22:30 UTC slot의 화요일 거래일 유지');
+assert.equal(scheduledTradingDate('5 7 * * 1-5',new Date('2026-09-21T20:00:00Z')),'2026-09-21','장마감 slot은 실행시각이 아니라 cron slot 거래일 사용');
+assert.equal(parseArgs(['--checkpoint','MORNING','--date','2026-09-18','--schedule','30 22 * * 0-4']).tradingDate,'2026-09-18','수동 --date가 schedule보다 우선');
+const anchoredArgs=['--checkpoint','MORNING','--schedule','30 22 * * 0-4','--scheduled-at','2026-09-21T22:31:00Z'];
+assert.equal(parseArgs(anchoredArgs).tradingDate,'2026-09-22','workflow 최초 created_at으로 화요일 거래일 고정');
+assert.equal(parseArgs([...anchoredArgs,'--date','2026-09-18']).tradingDate,'2026-09-18','명시적 --date가 scheduled-at보다 우선');
+assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','30 22 * * 0-4','--scheduled-at','invalid']),/잘못된 scheduled-at/);
+assert.throws(()=>parseArgs(['--checkpoint','MORNING','--date','2026-02-30']),/잘못된 tradingDate/,'실재하지 않는 달력 날짜 거부');
+assert.throws(()=>parseArgs(['--checkpoint','EVENING','--schedule','30 22 * * 0-4']),/schedule과 checkpoint/,'cron slot과 checkpoint 불일치 거부');
+assert.equal(maskSecrets('accessToken=secret&next=1 secret',['secret']),'accessToken=***&next=1 ***','diagnostic secret masking');
+assert.equal(maskSecrets('auth_key=abc apiKey:def secret=ghi token:jkl'), 'auth_key=*** apiKey:*** secret=*** token:***');
+const diagnostic=diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-09-18',sync:{persistence:{saved:2,duplicates:1,rejected:0},errors:{FX:'apiKey=abc'}},persistence:{saved:1,duplicates:0,rejected:0},decision:{publishable:true,status:'READY',data:{snapshot:{values:{USDKRW:{value:1}}},warnings:['W']}}},['abc']);
+assert.deepEqual(diagnostic.providerErrors,['FX']);assert.equal(diagnostic.providerErrorDetails.FX,'apiKey=***');assert.equal(diagnostic.readinessSeries.USDKRW.value,1);assert.deepEqual(diagnostic.masterPersistence,{saved:2,duplicates:1,rejected:0});assert.deepEqual(diagnostic.snapshotPersistence,{saved:1,duplicates:0,rejected:0});assert.deepEqual(diagnostic.warnings,['W']);
+const fxFetch=payload=>async()=>({ok:true,json:async()=>payload});
+assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'CONFIRMED',history:[]}))('getExchangeRateHistory')).status,'CONFIRMED');
+assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'NO_DATA',history:[]}))('getExchangeRateHistory')).status,'NO_DATA');
+await assert.rejects(()=>createRequest('https://example.test','secret',fxFetch({status:'MISSING_SOURCE'}))('getExchangeRateHistory'),/FX_MISSING_SOURCE/);
+await assert.rejects(()=>createRequest('https://example.test','secret',fxFetch({status:'INVALID_SCHEMA'}))('getExchangeRateHistory'),/FX_INVALID_SCHEMA/);
+let observations=[],snapshots=[],snapshotPosts=0,requestParams={};
 const request=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots};
- if(action==='getBenchmarks')return {status:'ok',series:{KOSPI:[{date:prior,value:1}],KOSDAQ:[{date:prior,value:1}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]}};
+ if(action==='getBenchmarks'){requestParams.getBenchmarks=params;return {status:'ok',series:{KOSPI:[{date:prior,value:1}],KOSDAQ:[{date:prior,value:1}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]}};}
  if(action==='getKrxK200NightClose')return {status:'ok',observation:{seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:350,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${date}T06:00:00+09:00`,receivedAt:`${date}T06:15:00+09:00`}};
- if(action==='getExchangeRateHistory')return {status:'ok',history:[{date:prior,value:1380}]};
+ if(action==='getExchangeRateHistory'){requestParams.getExchangeRateHistory=params;return {status:'ok',history:[{date:prior,value:1380}]};}
  if(action==='getPrices')return {status:'ok',prices:{}};
  if(action==='getPriceHistory')return {status:'ok',prices:{}};
  if(action==='appendMarketBriefingObservations'){{const rows=JSON.parse(params.data);observations.push(...rows);return {status:'ok',saved:rows.length,duplicates:0,rejected:0};}}
@@ -19,6 +37,8 @@ const request=async(action,params={})=>{
 };
 let result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
 assert.equal(result.decision.publishable,true,'KIS 없이 KRX 공식 NIGHT_FINAL로 MORNING publish 가능');
+assert.equal(requestParams.getBenchmarks.to,prior,'MORNING benchmark는 전일까지 조회');
+assert.equal(requestParams.getExchangeRateHistory.to,date,'MORNING FX는 당일까지 조회');
 assert.equal(snapshots.length,1);
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
 assert.equal(snapshots.length,1,'동일 checkpoint snapshot은 중복 저장되지 않음');
@@ -36,7 +56,8 @@ globalThis.localStorage.clear(); observations=[];snapshots=[];
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request:missingNight});
 assert.equal(result.successful,false,'NIGHT_FINAL 누락은 scheduled CLI 실패 조건');assert.equal(snapshots.length,0);
 globalThis.localStorage.clear(); observations=[];snapshots=[];
-const scheduledFxRequest=async(action,params)=>action==='getExchangeRateHistory'?{status:'ok',history:[{date,value:1390}]}:request(action,params);
+const scheduledFxRequest=async(action,params)=>action==='getExchangeRateHistory'
+ ? {status:'ok',history:params.to===date?[{date,value:1390}]:[]}:request(action,params);
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:scheduledFxRequest,receivedAt:`${date}T07:31:00+09:00`});
 assert.equal(result.decision.publishable,true);assert.equal(snapshots[0].values.USDKRW.value,1390);assert.equal(snapshots[0].values.USDKRW.receivedAt,'2026-09-17T22:31:00.000Z');
 assert.ok(result.decision.data.warnings.includes('USDKRW:SCHEDULED_DELAY_TOLERANCE'));
@@ -122,4 +143,5 @@ assert.equal(result.decision.publishable,true,'서버 저장 K200_NIGHT는 재�
 const workflow=fs.readFileSync('.github/workflows/market-briefing-headless.yml','utf8');
 assert.match(workflow,/secrets\.GAS_ACCESS_TOKEN/);assert.doesNotMatch(workflow,/echo .*GAS_ACCESS_TOKEN/);
 const runner=fs.readFileSync('scripts/run-market-briefing-headless.mjs','utf8');assert.doesNotMatch(runner,/console\.log\([^\n]*(?:token|url)/i);
+for(const field of ['masterPersistence','snapshotPersistence','readinessSeries']) assert.match(runner,new RegExp(field),'최종 diagnostic 필드 복원: '+field);
 console.log('브리핑 headless hydrate·collect·readiness·immutable snapshot 회귀검사 통과');
