@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.155
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.156
+//
+//  v9.156 변경사항 (2026.10.02):
+//   operation backup cleanup 직전 content signature 재검증
 //
 //  v9.155 변경사항 (2026.10.02):
 //   expected 없는 exact duplicate 축약·operation backup signature 검증
@@ -4249,7 +4252,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.155' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.156' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5110,6 +5113,10 @@ function _cleanupCurrentSystemBackup(ss, record) {
   if (!registered) return { deleted: false, reason: '검증된 현재 operation backup record 없음' };
   var sheet = ss.getSheetByName(registered.name);
   if (!sheet) return { deleted: false, reason: 'backup sheet 없음' };
+  if (!registered.signature) return { deleted: false, name: registered.name, reason: 'registry backup signature 없음' };
+  if (_sheetContentSignature(sheet) !== registered.signature) {
+    return { deleted: false, name: registered.name, reason: 'registry/실제 backup signature 불일치 보호' };
+  }
   try {
     ss.deleteSheet(sheet);
     _writeSystemBackupRegistry(items.filter(function(item) { return item.name !== registered.name; }));
@@ -9612,7 +9619,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.155' });
+    return jsonOk({ settings: settings, gasVersion: '9.156' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9634,7 +9641,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.155'
+      gasVersion: '9.156'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

@@ -845,3 +845,8 @@ GAS 메뉴 및 시트 구성:
 - 원자료 계산 결과가 비어도 source 오류 없이 raw `EXACT_DUPLICATE`만 존재하면 공통 Snapshot write 경로로 한 행만 보존하고 raw 중복 재진단을 수행합니다.
 - 동일 operation backup은 실제 content signature가 registry signature와 일치할 때만 재사용하며, 불일치하면 기존 손상본을 보존하고 새 안전 backup을 생성합니다.
 - 정적 웹은 cache `portfolio-cache-20261002-6`과 함께 배포합니다.
+
+## GAS v9.156 operation backup cleanup signature 재검증 (2026-10-02)
+
+- 성공 operation backup을 삭제하기 직전 registry signature와 실제 backup content signature를 다시 비교합니다. 불일치하거나 signature가 없는 backup은 sheet와 registry record를 모두 보존합니다.
+- 정적 웹은 cache `portfolio-cache-20261002-7`과 함께 배포합니다.
