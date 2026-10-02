@@ -44,12 +44,15 @@ function parseArgs(argv) {
   const checkpoint = String(argv[argv.indexOf('--checkpoint') + 1] || '').toUpperCase();
   const suppliedDate = argv.includes('--date') ? argv[argv.indexOf('--date') + 1] : '';
   const schedule = argv.includes('--schedule') ? argv[argv.indexOf('--schedule') + 1] : '';
+  const scheduledAt = argv.includes('--scheduled-at') ? argv[argv.indexOf('--scheduled-at') + 1] : '';
   if (!ALLOWED.has(checkpoint)) throw new Error('지원하지 않는 checkpoint');
   if (schedule && (!SCHEDULE_SLOTS[schedule] || SCHEDULE_SLOTS[schedule].checkpoint !== checkpoint)) throw new Error('schedule과 checkpoint가 일치하지 않습니다.');
-  const tradingDate = suppliedDate || (schedule ? scheduledTradingDate(schedule) : kstDate());
+  const scheduledAnchor = scheduledAt ? new Date(scheduledAt) : null;
+  if (scheduledAt && (!scheduledAnchor || Number.isNaN(scheduledAnchor.getTime()))) throw new Error('잘못된 scheduled-at');
+  const tradingDate = suppliedDate || (schedule ? scheduledTradingDate(schedule, scheduledAnchor || new Date()) : kstDate());
   const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(tradingDate) ? new Date(`${tradingDate}T00:00:00Z`) : null;
   if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0,10) !== tradingDate) throw new Error('잘못된 tradingDate');
-  return { checkpoint, tradingDate, schedule };
+  return { checkpoint, tradingDate, schedule, scheduledAt };
 }
 function maskSecrets(value, secrets = []) {
   let text = String(value ?? '');
@@ -85,8 +88,15 @@ function createRequest(url, token, fetchImpl = fetch) {
 export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt }) {
   const request = suppliedRequest || createRequest(url, token);
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
-  const sync = await runtime.syncServerMaster(request, request, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10),
-    to:checkpoint === 'MORNING' ? dateOffset(tradingDate, -1) : tradingDate, scheduledToleranceSeconds:300, receivedAt });
+  const benchmarkTo = checkpoint === 'MORNING' ? dateOffset(tradingDate, -1) : tradingDate;
+  const fxTo = tradingDate;
+  const scopedRequest = (action, params = {}, options) => request(action, {
+    ...params,
+    ...(action === 'getBenchmarks' ? { to:benchmarkTo } : {}),
+    ...(action === 'getExchangeRateHistory' ? { to:fxTo } : {}),
+  }, options);
+  const sync = await runtime.syncServerMaster(scopedRequest, scopedRequest, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10),
+    to:benchmarkTo, benchmarkTo, fxTo, scheduledToleranceSeconds:300, receivedAt });
   if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null, successful:runtime.hasNightFinal(tradingDate) };
   const decision = runtime.readiness(tradingDate, checkpoint);
   if (!decision.publishable) return { checkpoint, tradingDate, sync, decision, persistence:null };
