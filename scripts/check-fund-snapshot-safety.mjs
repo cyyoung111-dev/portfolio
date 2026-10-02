@@ -149,6 +149,11 @@ const integrityRevisionBefore=scriptProperties.get('snapshot_integrity_source_re
 context._snapshotBackupOperationId='multi-date-recovery';
 context.writeSnapshotRows(operationSs,'2026-01-01',[snap('2026-01-01','000001',101)],true);
 context.writeSnapshotRows(operationSs,'2026-01-02',[snap('2026-01-02','000001',111)],true);
+const activeOperationRecord=JSON.parse(scriptProperties.get('system_backup_registry_v1')).find(item=>item.operationId==='multi-date-recovery');
+assert.equal(activeOperationRecord.status,'CREATED','다일자 operation 중 개별 write 성공으로 backup을 COMPLETED 처리하지 않음');
+assert(Object.keys(operationSheets).some(name=>name.startsWith('스냅샷_백업_')),'operation 종료 전 rollback backup 유지');
+context._settleSnapshotBackupOperation(operationSs,'multi-date-recovery',true);
+assert(!Object.keys(operationSheets).some(name=>name.startsWith('스냅샷_백업_')),'다일자 operation 전체 성공 후 backup 0개');
 context._snapshotBackupOperationId='';
 assert.notEqual(scriptProperties.get('snapshot_integrity_source_revision_v1'),integrityRevisionBefore,'Snapshot 상세행 저장은 합계와 무관하게 integrity cache revision 갱신');
 const isolatedBefore=clone(context._snapshotIntegrityDateRevisions(['2026-01-01','2026-01-02']));

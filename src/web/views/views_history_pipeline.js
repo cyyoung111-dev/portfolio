@@ -373,7 +373,10 @@ async function repairHistoryIntegritySnapshots() {
       const result = await requestGsheetFormJson('rewriteSnapshotDate', { date: target.date, operationId, finalize: i === targets.length - 1 ? '1' : '' }, { timeoutMs: 120000, retry: 0 });
       if (result?.status === 'error' || result?.after?.status !== 'VALID') throw new Error(result?.message || `재작성 후 상태: ${result?.after?.status || 'UNKNOWN'}`);
       repaired++;
-    } catch (error) { failed.push({ date: target.date, message: error.message }); }
+    } catch (error) {
+      failed.push({ date: target.date, message: error.message });
+      break;
+    }
   }
   showToast(`Snapshot 복구 성공 ${repaired}일${failed.length ? ` · 실패 ${failed.length}일` : ''}`, failed.length ? 'warn' : 'ok');
   await loadHistoryChart();

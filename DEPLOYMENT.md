@@ -811,3 +811,9 @@ GAS 메뉴 및 시트 구성:
 - Headless workflow는 `github.event.schedule`을 runner에 전달해 지연 실행에서도 cron slot의 거래일을 사용하며 수동 `--date`를 우선합니다. `MORNING` 비교지수 조회는 거래일 전일까지로 제한하고, 환율 `CONFIRMED`/`NO_DATA`는 정상 응답으로, `MISSING_SOURCE`/`INVALID_SCHEMA`는 운영 오류로 구분합니다.
 - 정상 write는 대상 범위 read-back 검증 뒤 방금 만든 rollback backup만 FAST PATH로 제거합니다. orphan·수식 참조·과거 backup을 포함하는 전체 workbook 점검은 명시 유지보수와 전체 Snapshot repair 완료 시에만 수행합니다.
 - Google Sheets 파일당 10,000,000 cell 한도를 기준으로 backup 생성 전 용량을 검사하며, tall/narrow backup은 열을 먼저 축소한 뒤 행을 확장해 transient peak도 제한합니다. Snapshot 비교는 날짜·코드·숫자·source를 canonicalize하고 savedAt 차이는 제외합니다.
+
+## GAS v9.150 Snapshot operation backup 수명주기 (2026-10-02)
+
+- 다일자 Snapshot 작업의 rollback backup은 작업 중 `CREATED`로 유지하고, 전체 작업의 검증 성공 시에만 `COMPLETED` 처리 후 즉시 삭제합니다.
+- 작업 중 하나라도 실패하면 backup을 `WRITE_FAILED`로 보존하며, 같은 실패 operation ID는 재사용하지 않습니다.
+- 정적 웹은 history repair의 첫 실패 중단 동작을 반영한 cache `portfolio-cache-20261002-1`과 함께 배포합니다.

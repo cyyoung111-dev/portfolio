@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.149
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.150
+//
+//  v9.150 변경사항 (2026.10.02):
+//   multi-date Snapshot operation backup을 최종 성공 시에만 완료·정리
 //
 //  v9.149 변경사항 (2026.10.01):
 //   raw Snapshot 충돌 공통 판정·재검증 및 성공한 system backup 즉시 정리
@@ -4229,7 +4232,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.149' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.150' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4870,8 +4873,9 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'snapshotWrite', 'writeSnapshotRows');
   var snapshotCount = 0;
   var previousSnapshotOperationId = _snapshotBackupOperationId;
-  _snapshotBackupOperationId = 'refreshFundValuations|' + (onlyCode || 'ALL') + '|' + from + '|' + to + '|' + Utilities.getUuid();
-  Object.keys(byDate).sort().forEach(function(date) {
+  var fundSnapshotOperationId = 'refreshFundValuations|' + (onlyCode || 'ALL') + '|' + from + '|' + to + '|' + Utilities.getUuid();
+  _snapshotBackupOperationId = fundSnapshotOperationId;
+  try { Object.keys(byDate).sort().forEach(function(date) {
     var existing = _readSnapshotRowsByDate(ss, date);
     var rebuilt = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true);
     var combined = _mergeSnapshotRowsSafely(rebuilt, byDate[date], true);
@@ -4892,10 +4896,12 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       if (day) { day.evaluationState = 'SAVED_OR_UPDATED'; day.snapshotState = 'SAVED_OR_UPDATED'; }
     });
   });
-  var completedSnapshotOperationId = _snapshotBackupOperationId;
-  _snapshotBackupOperationId = previousSnapshotOperationId;
   SpreadsheetApp.flush();
-  _cleanupCompletedOperationBackups(ss, CONFIG.SHEET_SNAPSHOT, completedSnapshotOperationId);
+  _settleSnapshotBackupOperation(ss, fundSnapshotOperationId, true);
+  } catch (snapshotOperationError) {
+    _settleSnapshotBackupOperation(ss, fundSnapshotOperationId, false, snapshotOperationError.message);
+    throw snapshotOperationError;
+  } finally { _snapshotBackupOperationId = previousSnapshotOperationId; }
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'resultAggregate', '_refreshFundValuations');
   var result = {
@@ -5092,6 +5098,15 @@ function _cleanupCompletedOperationBackups(ss, sourceName, operationId) {
   }).map(function(item) { return _cleanupCurrentSystemBackup(ss, item); });
 }
 
+function _settleSnapshotBackupOperation(ss, operationId, succeeded, message) {
+  if (!operationId) return [];
+  var records = _readSystemBackupRegistry().filter(function(item) {
+    return item.source === CONFIG.SHEET_SNAPSHOT && item.operationId === operationId && item.systemGenerated === true;
+  });
+  records.forEach(function(item) { _markSnapshotBackupStatus(item, succeeded ? 'COMPLETED' : 'WRITE_FAILED', message); });
+  return succeeded ? _cleanupCompletedOperationBackups(ss, CONFIG.SHEET_SNAPSHOT, operationId) : [];
+}
+
 function _verifyWrittenRange(sheet, row, column, values, message) {
   SpreadsheetApp.flush();
   if (!values || !values.length) return;
@@ -5150,8 +5165,8 @@ function _reconcileSystemBackups(ss) {
 }
 
 // 레지스트리에 생성 기록이 있고 최신 검증본이 따로 남는 시스템 백업만 삭제합니다.
-function _cleanupSystemBackups(ss, sourceName) {
-  var reconciliation = _reconcileSystemBackups(ss);
+function _cleanupSystemBackups(ss, sourceName, reconcileOrphans) {
+  var reconciliation = reconcileOrphans === false ? { reconciled: [], unresolved: [] } : _reconcileSystemBackups(ss);
   var items = _readSystemBackupRegistry(), keep = Number(SYSTEM_BACKUP_KEEP_BY_SOURCE[sourceName] || 0);
   var sourceItems = items.filter(function(item) { return item.source === sourceName && item.systemGenerated === true; });
   var candidates = sourceItems.filter(function(item) { return item.status === 'COMPLETED'; })
@@ -5908,7 +5923,10 @@ function handleBatchSaveManualPrices(dateStr, dataJson) {
       var normDate   = _normalizeDate(dateStr);
       if (normDate) {
         var expectedRows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, normDate, true);
-        if (_snapshotDateNeedsRewrite(ss, normDate, expectedRows)) {
+        var rewritePlan = _snapshotRewritePlan(ss, normDate, expectedRows);
+        if (rewritePlan.unsafe.length) {
+          snapshotWarning = rewritePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; ');
+        } else if (rewritePlan.needsRewrite) {
           writeSnapshotRows(ss, normDate, expectedRows, true, batchItems.map(function(item) { return item.code || item.name; }));
         }
       }
@@ -5954,13 +5972,18 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr) {
   var dates = _collectDailySnapshotDates(ss, fromDate, toDate);
   var rebuilt = 0, unchanged = 0, empty = 0, skipped = 0, changes = [], errors = [];
   var previousOperationId = _snapshotBackupOperationId;
-  _snapshotBackupOperationId = 'rebuildDailySnapshots|' + fromDate + '|' + toDate + '|' + Utilities.getUuid();
-  Object.keys(dates).sort().forEach(function(date) {
+  var rebuildOperationId = 'rebuildDailySnapshots|' + fromDate + '|' + toDate + '|' + Utilities.getUuid();
+  _snapshotBackupOperationId = rebuildOperationId;
+  try { Object.keys(dates).sort().forEach(function(date) {
     try {
       var rows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true);
       if (!rows.length) { empty++; return; }
       var existing = _readSnapshotRowsByDate(ss, date);
-      if (!_snapshotDateNeedsRewrite(ss, date, rows)) unchanged++;
+      var rewritePlan = _snapshotRewritePlan(ss, date, rows);
+      if (rewritePlan.unsafe.length) {
+        skipped++;
+        if (errors.length < 20) errors.push({ date: date, message: rewritePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; ') });
+      } else if (!rewritePlan.needsRewrite) unchanged++;
       else {
         writeSnapshotRows(ss, date, rows, true);
         rebuilt++;
@@ -5972,10 +5995,13 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr) {
       if (errors.length < 20) errors.push({ date: date, message: String(error.message || error) });
     }
   });
-  var backupCleanup = _cleanupCompletedOperationBackups(ss, CONFIG.SHEET_SNAPSHOT, _snapshotBackupOperationId);
-  _snapshotBackupOperationId = previousOperationId;
+  var backupCleanup = errors.length ? _settleSnapshotBackupOperation(ss, rebuildOperationId, false, errors[0].message) : _settleSnapshotBackupOperation(ss, rebuildOperationId, true);
   return { ok: true, from: fromDate, to: toDate, candidateDates: Object.keys(dates).sort().length,
     rebuilt: rebuilt, unchanged: unchanged, empty: empty, skipped: skipped, changes: changes, errors: errors, backupCleanup: backupCleanup };
+  } catch (operationError) {
+    _settleSnapshotBackupOperation(ss, rebuildOperationId, false, operationError.message);
+    throw operationError;
+  } finally { _snapshotBackupOperationId = previousOperationId; }
 }
 
 function _collectDailySnapshotDates(ss, fromDate, toDate) {
@@ -6631,21 +6657,32 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
 }
 
 function handleRewriteSnapshotDate(dateStr, operationId, finalize) {
+  var lock = LockService.getScriptLock(), ownsLock = false;
+  var rewriteOperationId = '';
   try {
+    if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; }
     var ss = getss(), before = diagnoseSnapshotIntegrity(ss, dateStr);
     if (['PARTIAL','MISMATCH','NO_SNAPSHOT'].indexOf(before.status) === -1) return jsonError('재작성 불가 상태: ' + before.status);
     if (before.sourceDataErrors.length || before.conflictKeys.length) return jsonError('원자료 부족 또는 충돌으로 기존 Snapshot을 보존합니다.');
     var protectedManual = before.storedRows.filter(function(row) { return before.unexpectedCodes.indexOf(_snapshotIntegrityKey(row)) !== -1 && String(row[10] || '').toUpperCase() === 'MANUAL'; });
     if (protectedManual.length) return jsonError('MANUAL 행 보호로 자동 재작성하지 않습니다: ' + protectedManual.map(_snapshotIntegrityKey).join(', '));
     var previousOperationId = _snapshotBackupOperationId;
-    _snapshotBackupOperationId = operationId ? 'rewriteSnapshotDate|' + String(operationId) : 'rewriteSnapshotDate|' + before.date + '|' + Utilities.getUuid();
+    rewriteOperationId = operationId ? 'rewriteSnapshotDate|' + String(operationId) : 'rewriteSnapshotDate|' + before.date + '|' + Utilities.getUuid();
+    var failedExisting = _readSystemBackupRegistry().some(function(item) { return item.operationId === rewriteOperationId && item.status === 'WRITE_FAILED'; });
+    if (failedExisting) throw new Error('실패한 Snapshot operationId는 재사용할 수 없습니다.');
+    _snapshotBackupOperationId = rewriteOperationId;
     try { writeSnapshotRows(ss, before.date, before.expectedRows, true); }
     finally { _snapshotBackupOperationId = previousOperationId; }
+    SpreadsheetApp.flush();
     var after = diagnoseSnapshotIntegrity(ss, before.date);
     if (after.status !== 'VALID') throw new Error('재작성 후 재진단 실패: ' + after.status);
-    var cleanup = operationId && String(finalize) === '1' ? _cleanupCompletedOperationBackups(ss, CONFIG.SHEET_SNAPSHOT, 'rewriteSnapshotDate|' + String(operationId)) : null;
+    var shouldFinalize = !operationId || String(finalize) === '1';
+    var cleanup = shouldFinalize ? _settleSnapshotBackupOperation(ss, rewriteOperationId, true) : null;
     return jsonOk({ before: before, after: after, rewritten: true, backupCleanup: cleanup });
-  } catch (error) { return jsonError('Snapshot 안전 재작성 실패: ' + error.message); }
+  } catch (error) {
+    if (rewriteOperationId) _settleSnapshotBackupOperation(getss(), rewriteOperationId, false, error.message);
+    return jsonError('Snapshot 안전 재작성 실패: ' + error.message);
+  } finally { if (ownsLock) lock.releaseLock(); }
 }
 
 function _readSnapshotRowsByDate(ss, dateStr) {
@@ -7360,12 +7397,16 @@ function saveDailyPriceHistory() {
       Logger.log('[saveDailyPriceHistory] 확정 거래일(' + snapshotDate + ') 스냅샷 정합성 검증');
       var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
       var existingRows = _readSnapshotRowsByDate(ss, snapshotDate);
-      if (_snapshotDateNeedsRewrite(ss, snapshotDate, expected)) {
+      var dailyRewritePlan = _snapshotRewritePlan(ss, snapshotDate, expected);
+      if (dailyRewritePlan.unsafe.length) throw new Error('Snapshot 보호 충돌: ' + dailyRewritePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
+      if (dailyRewritePlan.needsRewrite) {
         writeSnapshotRows(ss, snapshotDate, expected, true);
         Logger.log('✅ 확정 거래일(' + snapshotDate + ') 스냅샷 불일치·누락 → 재작성 완료');
       } else {
         Logger.log('ℹ️ 확정 거래일(' + snapshotDate + ') 스냅샷 이미 일치');
       }
+      var savedIntegrity = diagnoseSnapshotIntegrity(ss, snapshotDate);
+      if (savedIntegrity.status !== 'VALID') throw new Error('확정 거래일 Snapshot 재진단 실패: ' + savedIntegrity.status);
       confirmedSnapshotRows = expected;
     }
 
@@ -7565,14 +7606,13 @@ function continueSnapshotConsistencyRepair() {
             SpreadsheetApp.flush();
             var afterIntegrity = diagnoseSnapshotIntegrity(ss, snapshotDate);
             if (afterIntegrity.status !== 'VALID') throw new Error('raw 재진단 실패: ' + afterIntegrity.status);
-            _cleanupCompletedOperationBackups(ss, CONFIG.SHEET_SNAPSHOT, repairOperationId);
+            _settleSnapshotBackupOperation(ss, repairOperationId, true);
             state.repaired++;
           }
         }
         if (!sourceError) delete state.failedDateErrors[snapshotDate];
       } catch (dateError) {
-        _readSystemBackupRegistry().filter(function(item) { return item.source === CONFIG.SHEET_SNAPSHOT && item.operationId === repairOperationId; })
-          .forEach(function(item) { _markSnapshotBackupStatus(item, 'WRITE_FAILED', dateError.message || String(dateError)); });
+        _settleSnapshotBackupOperation(ss, repairOperationId, false, dateError.message || String(dateError));
         state.failedDateErrors[snapshotDate] = dateError.message || String(dateError);
       } finally {
         _snapshotBackupOperationId = previousOperationId;
@@ -8741,7 +8781,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
       var writtenSignature = writtenDateRows.map(_snapshotComparableSignature).sort().join('\n');
       if (writtenDateRows.length !== mergedDate.length || writtenSignature !== intendedSignature) throw new Error('Snapshot 쓰기 후 raw 검증 실패: ' + normDate);
       _touchSnapshotIntegritySourceRevision({ date: normDate });
-      _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
+      if (!_snapshotBackupOperationId) _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
       if (snapshotBackupRecord) {
         snapshotBackupRecord.cleanup = _snapshotBackupOperationId ? null : _cleanupCurrentSystemBackup(ss, snapshotBackupRecord);
         PropertiesService.getScriptProperties().setProperty('snapshot_backup_last_status', JSON.stringify(snapshotBackupRecord));
@@ -8840,7 +8880,7 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   var minimumCreationCells = Math.max(26000, Math.max(1, rowCount) * Math.max(1, colCount));
   if (capacity && capacity.remainingCells < minimumCreationCells) {
     // 원본 write 전에만, 안전하게 완료된 동일 source backup을 정리하고 용량을 다시 계산합니다.
-    _cleanupSystemBackups(ss, sourceName);
+    _cleanupSystemBackups(ss, sourceName, false);
     capacity = _fundSheetCapacity(ss);
   }
   if (capacity && capacity.remainingCells < minimumCreationCells) {
@@ -8898,9 +8938,16 @@ function _snapshotComparableSignature(row) {
 }
 
 function _snapshotDateNeedsRewrite(ss, date, expectedRows) {
+  return _snapshotRewritePlan(ss, date, expectedRows).needsRewrite;
+}
+
+function _snapshotRewritePlan(ss, date, expectedRows) {
   var raw = _readRawSnapshotRowsByDate(ss, date);
-  return _classifyRawSnapshotDuplicateGroups(date, raw, expectedRows, '').length > 0 ||
-    _snapshotRowsSignature(_dedupeSnapshotRows(raw)) !== _snapshotRowsSignature(expectedRows);
+  var duplicateGroups = _classifyRawSnapshotDuplicateGroups(date, raw, expectedRows, '');
+  var unsafe = duplicateGroups.filter(function(item) { return !item.autoResolvable; });
+  return { raw: raw, duplicateGroups: duplicateGroups, unsafe: unsafe,
+    needsRewrite: unsafe.length === 0 && (duplicateGroups.some(function(item) { return item.autoResolvable; }) ||
+      _snapshotRowsSignature(_dedupeSnapshotRows(raw)) !== _snapshotRowsSignature(expectedRows)) };
 }
 
 // raw 원장의 동일 date+canonical code/name 그룹을 cleanup과 full repair가 함께 판정합니다.
@@ -9491,7 +9538,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.149' });
+    return jsonOk({ settings: settings, gasVersion: '9.150' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9513,7 +9560,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.149'
+      gasVersion: '9.150'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

@@ -19,6 +19,7 @@ assert.doesNotMatch(pipeline, /slice\(0, 10\)/, '후보 최대 10개 제한을 �
 assert.match(view, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/);
 assert.match(view, /pnlSegments/, '오류 Snapshot에서 손익선을 끊어야 합니다.');
 assert.match(pipeline, /repairHistoryIntegritySnapshots[\s\S]*diagnoseSnapshotIntegrity[\s\S]*rewriteSnapshotDate[\s\S]*after\?\.status !== 'VALID'[\s\S]*await loadHistoryChart/);
+assert.match(pipeline, /catch \(error\) \{[\s\S]*failed\.push[\s\S]*break;/, 'history 다일자 repair는 첫 실패에서 중단해야 합니다.');
 assert.match(event, /repair-integrity[\s\S]*repairHistoryIntegritySnapshots/);
 assert.match(gas, /function handleDiagnoseSnapshotIntegrityRange/);
 for (const field of ['checkedDates','validDates','partialDates','mismatchDates','conflictDates','sourceIncompleteDates','noSnapshotDates','abnormalCandidates','diagnostics']) assert.match(gas, new RegExp(field));
@@ -41,7 +42,7 @@ assert.match(gas, /rawDuplicateDecisions[\s\S]*!rawDuplicateDecisions\.length/, 
 assert.match(gas, /SpreadsheetApp\.flush\(\);[\s\S]*diagnoseSnapshotIntegrity\(ss, snapshotDate\)/, 'full repair는 flush 뒤 raw 재진단해야 합니다.');
 assert.match(gas, /SYSTEM_BACKUP_KEEP_BY_SOURCE = \{[^\n]*'스냅샷': 0/);
 assert.match(gas, /_systemBackupTimestampFromName\(name\)/, 'orphan 생성 시각은 이름에서 보존해야 합니다.');
-assert.match(gas, /remainingCells < minimumCreationCells[\s\S]*_cleanupSystemBackups\(ss, sourceName\)[\s\S]*_fundSheetCapacity\(ss\)/, '셀 부족 시 정리 후 재계산해야 합니다.');
+assert.match(gas, /remainingCells < minimumCreationCells[\s\S]*_cleanupSystemBackups\(ss, sourceName, false\)[\s\S]*_fundSheetCapacity\(ss\)/, '셀 부족 cleanup은 orphan reconciliation 없이 재계산해야 합니다.');
 assert.match(gas, /가격이력 쓰기 후 검증 실패[\s\S]*_cleanupCurrentSystemBackup\(ss, backup\)/, '가격이력 repair 성공 후 현재 operation backup을 정리해야 합니다.');
 assert.match(gas, /registeredCompleted \|\| \(registeredFailed \? item\.signatureMatch : \(item\.signatureMatch && item\.schemaMatch\)\)/, '등록된 COMPLETED 백업은 현재 schema 변경만으로 영구 보호하면 안 됩니다.');
 assert.match(gas, /Snapshot 중복 정리 후 raw 검증 실패[\s\S]*_markSnapshotBackupStatus\(backup, 'COMPLETED'\)/, 'raw 검증이 COMPLETED 및 backup 삭제보다 먼저여야 합니다.');
@@ -54,3 +55,9 @@ assert.match(gas, /if \(operationId\)[\s\S]*operationRecord[\s\S]*var signature 
 assert.match(gas, /else if \(state\.failed === 0\) state\.backupCleanup/, '실패한 full repair는 전체 backup maintenance 금지');
 assert.match(gas, /writeFailedCount:[\s\S]*writeFailed:/, 'backup summary count와 name 목록 key 분리');
 assert.match(gas, /function maintainSystemBackups[\s\S]*hasLock\(\)[\s\S]*_planSystemBackupMaintenance/, 'maintenance apply는 lock 뒤 plan 재계산');
+assert.match(gas, /function _settleSnapshotBackupOperation[\s\S]*succeeded \? 'COMPLETED' : 'WRITE_FAILED'/, 'operation backup은 공통 finalize/fail 경로를 사용');
+assert.match(gas, /if \(!_snapshotBackupOperationId\) _markSnapshotBackupStatus\(snapshotBackupRecord, 'COMPLETED'\)/, '다일자 write는 개별 날짜에서 COMPLETED 승격 금지');
+assert.match(gas, /failedExisting[\s\S]*실패한 Snapshot operationId는 재사용할 수 없습니다/, '실패 operationId 재사용 차단');
+assert.match(gas, /after\.status !== 'VALID'[\s\S]*_settleSnapshotBackupOperation\(ss, rewriteOperationId, true\)/, 'rewrite VALID 뒤에만 finalize');
+assert.match(gas, /errors\.length \? _settleSnapshotBackupOperation\(ss, rebuildOperationId, false[\s\S]*: _settleSnapshotBackupOperation\(ss, rebuildOperationId, true/, 'rebuild partial failure는 rollback backup 보존');
+assert.match(gas, /dailyRewritePlan\.unsafe\.length[\s\S]*diagnoseSnapshotIntegrity\(ss, snapshotDate\)[\s\S]*status !== 'VALID'/, '일일 저장은 protected conflict 및 최종 비VALID를 성공 처리하면 안 됨');
