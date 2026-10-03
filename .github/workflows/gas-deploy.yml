@@ -38,7 +38,7 @@ jobs:
         run: npm run check:gas
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' || vars.GAS_AUTO_DEPLOY_ENABLED == 'true'
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.GAS_AUTO_DEPLOY_ENABLED == 'true')
     needs: validate
     runs-on: ubuntu-latest
     concurrency:
