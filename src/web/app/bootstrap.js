@@ -22,7 +22,7 @@ const MARKET_BRIEFING_RUNTIME_SCRIPTS = Object.freeze([
   'domain/market/market_briefing_operational_gate.js?v=20260929-11',
   'domain/market/market_briefing_runtime_store.js?v=20260921-1',
   'domain/market/market_briefing_provider_collector.js?v=20260929-12',
-  'domain/market/market_briefing_runtime.js?v=20260929-4',
+  'domain/market/market_briefing_runtime.js?v=20261003-1',
 ]);
 
 function loadMarketBriefingRuntime() {

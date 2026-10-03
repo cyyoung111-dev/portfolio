@@ -46,7 +46,11 @@ async function ingestKisNightFrame(postRequest,rawFrame,registry,meta={}){
  return {...result,persistence};
 }
 async function releaseAndPersist(postRequest,tradingDate,checkpoint,seriesIds,options={}){const out=release(tradingDate,checkpoint,seriesIds,options);if(!out.snapshot)return {...out,persistence:null};if(typeof postRequest!=='function')throw new Error('market briefing snapshot POST function missing');const persistence=await postRequest('appendMarketBriefingSnapshot',{data:JSON.stringify(out.snapshot)},{timeoutMs:options.timeoutMs||45000,retry:0});if(!persistence||persistence.status!=='ok')throw new Error(String(persistence&&persistence.message||'MARKET_SNAPSHOTS 저장 실패'));return {...out,persistence};}
-function release(tradingDate,checkpoint,seriesIds,options={}){const d=deps();return d.store.checkpoint(storage(),d.master,d.snapshots,d.gate,tradingDate,checkpoint,seriesIds,options);}
+function release(tradingDate,checkpoint,seriesIds,options={}){
+ const d=deps(),authoritative=d.gate.seriesForCheckpoint(checkpoint),requested=Array.isArray(seriesIds)?seriesIds:[];
+ const releaseSeries=Array.from(new Set(authoritative.concat(requested).filter(Boolean)));
+ return d.store.checkpoint(storage(),d.master,d.snapshots,d.gate,tradingDate,checkpoint,releaseSeries,options);
+}
 function continuity(tradingDate){const d=deps();return d.store.bridge(storage(),d.snapshots,tradingDate);}
 function readiness(tradingDate,checkpoint){const d=deps(),state=d.store.load(storage());return d.gate.releaseDecision(d.master,d.snapshots,state.observations,state.snapshots,tradingDate,checkpoint);}
 function hasNightFinal(tradingDate){const d=deps(),state=d.store.load(storage());return state.observations.some(row=>row.seriesId==='K200_NIGHT'&&row.tradingDate===tradingDate&&row.session==='NIGHT'&&row.status==='FINAL'&&row.finality==='NIGHT_FINAL');}
