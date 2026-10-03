@@ -23,9 +23,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: gas-production-deploy
-  cancel-in-progress: false
 
 jobs:
   validate:
@@ -41,9 +38,12 @@ jobs:
         run: npm run check:gas
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || vars.GAS_AUTO_DEPLOY_ENABLED == 'true'
     needs: validate
     runs-on: ubuntu-latest
+    concurrency:
+      group: gas-production-deploy
+      cancel-in-progress: false
     env:
       GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
       GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
