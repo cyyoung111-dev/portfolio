@@ -1,0 +1,66 @@
+name: gas-deploy
+
+on:
+  pull_request:
+    paths:
+      - 'src/gas/apps_script.gs'
+      - 'scripts/deploy-gas.mjs'
+      - 'scripts/check-gas-deploy.mjs'
+      - 'package.json'
+      - '.github/workflows/gas-deploy.yml'
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/gas/apps_script.gs'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Google API 인증·대상 확인만 하고 실제 배포하지 않음'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: GAS checks
+        run: npm run check:gas
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.GAS_AUTO_DEPLOY_ENABLED == 'true')
+    needs: validate
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'gas-deploy-dry-run' || 'gas-production-deploy' }}
+      cancel-in-progress: false
+    env:
+      GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+      GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+      GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
+      GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
+      GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+      GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+      GAS_DEPLOY_DRY_RUN: ${{ inputs.dry_run || false }}
+      GITHUB_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Deploy GAS
+        run: node scripts/deploy-gas.mjs

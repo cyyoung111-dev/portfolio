@@ -878,3 +878,23 @@ GAS 메뉴 및 시트 구성:
 - `_cleanupCurrentSystemBackup()`은 현재 `COMPLETED` backup의 source sheet 존재, 실제 backup sheet 존재, registry signature 일치를 먼저 검증한 뒤에만 같은 source의 과거 `COMPLETED` rollback을 정리합니다.
 - 현재 backup이 누락됐거나 signature가 다르면 과거 검증 가능한 rollback은 삭제하지 않습니다. 일반 성공만으로 `CREATED`/`WRITE_FAILED`를 삭제하지 않으며, `WRITE_FAILED` 정리는 최종 `VALID`가 명시된 Snapshot operation ID에 한정합니다.
 - GAS와 웹 기대 버전은 `9.160`으로 동기화합니다. 정적 웹은 `settings_fetch.js?v=20261003-1`, Service Worker cache `portfolio-cache-20261003-2`를 함께 배포합니다.
+
+## GAS GitHub Actions 자동배포 (2026-10-03)
+
+- `.github/workflows/gas-deploy.yml`은 PR에서는 검증만 수행하며 운영 배포 job은 절대 실행하지 않습니다. `main`에 `src/gas/apps_script.gs` 변경이 반영되고 `GAS_AUTO_DEPLOY_ENABLED=true`인 경우에만 자동으로 운영 GAS 배포를 실행합니다. 수동 실행(`workflow_dispatch`)은 기본 `dry_run=true`이며, 최초 연결 확인 후 실제 배포 시에만 `false`로 실행합니다. PR 검증은 운영 concurrency에 들어가지 않으며, 수동 dry-run도 실제 운영 배포와 별도 concurrency 그룹을 사용합니다.
+- 배포 스크립트는 Apps Script API로 현재 프로젝트 전체 파일을 먼저 읽고, 대상 `SERVER_JS` 한 파일만 저장소의 `src/gas/apps_script.gs`로 교체한 뒤 manifest와 다른 GAS/HTML 파일은 원문 그대로 다시 전송합니다. 현재 deployment가 이미 같은 소스면 새 version을 만들지 않고 종료합니다.
+- 기존 웹앱 URL을 유지하기 위해 새 deployment를 만들지 않습니다. 현재 deployment의 `manifestFileName`을 보존한 채 새 Apps Script version을 만든 뒤 같은 deployment ID가 새 version을 가리키도록 갱신합니다. 배포 후 deployment version과 웹앱 `getSettings().gasVersion`을 다시 확인합니다.
+- Apps Script API는 service account를 지원하지 않으므로 사용자 OAuth refresh token을 GitHub Secrets에 저장해야 합니다. OAuth 범위는 `https://www.googleapis.com/auth/script.projects`와 `https://www.googleapis.com/auth/script.deployments`만 사용합니다.
+- Google Cloud에서 Apps Script API를 활성화하고 Apps Script 사용자 설정에서 API 접근을 허용합니다. OAuth 클라이언트를 만든 뒤 offline access로 위 두 scope를 승인하여 refresh token을 발급합니다. OAuth 동의 화면이 Testing이면 refresh token이 7일 만료될 수 있으므로 장기 자동화는 Internal 또는 In production 상태를 사용합니다.
+- GitHub Repository Variables:
+  - `GAS_AUTO_DEPLOY_ENABLED` — 초기에는 `false` 또는 미설정. dry-run과 최초 실제 배포 성공 후 `true`로 바꾸면 이후 GAS 소스가 main에 merge될 때 자동배포가 실행됩니다.
+  - `GAS_SCRIPT_ID` — Apps Script 편집기 → 프로젝트 설정 → Script ID.
+  - `GAS_WEB_APP_URL` — 기존 운영 웹앱 `/exec` URL. 기존 브리핑 workflow에서 사용 중인 값을 그대로 재사용합니다.
+  - `GAS_SERVER_FILE_NAME` — 선택. Apps Script 프로젝트에 SERVER_JS 파일이 여러 개이고 `apps_script`가 아닌 경우 실제 대상 파일명을 지정합니다.
+  - `GAS_DEPLOYMENT_ID` — 선택. 비우면 `GAS_WEB_APP_URL`의 `/macros/s/{deploymentId}/exec`에서 자동 추출합니다.
+- GitHub Secrets:
+  - `GOOGLE_OAUTH_CLIENT_ID`
+  - `GOOGLE_OAUTH_CLIENT_SECRET`
+  - `GOOGLE_OAUTH_REFRESH_TOKEN`
+  - `GAS_ACCESS_TOKEN` — 기존 GAS 요청 인증을 사용 중이면 현재 Secret을 그대로 재사용합니다.
+- 최초 설정 후 `GAS_AUTO_DEPLOY_ENABLED`는 `false` 또는 미설정 상태로 둡니다. Actions → `gas-deploy` → Run workflow에서 먼저 `dry_run=true`로 인증·Script ID·deployment·대상 SERVER_JS를 확인합니다. 성공하면 `dry_run=false`로 한 번 실행하여 현재 main의 GAS v9.160을 운영 배포에 반영하고, 마지막으로 `GAS_AUTO_DEPLOY_ENABLED=true`를 설정합니다. 이후에는 GAS 소스가 포함된 main merge만 자동 배포를 수행합니다.
