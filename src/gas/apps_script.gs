@@ -4,7 +4,7 @@
 //  v9.160 변경사항 (2026.10.03):
 //   current COMPLETED backup 검증 선행·stale rollback 보호 강화
 //
-//  v9.159 변경사항 (2026.10.02):
+//  v9.159 변경사항 (2026.10.03):
 //   Snapshot 중복 기준·Toss OAuth/smoke 의미 진단·성공 후 stale system backup 정리
 //
 //  v9.158 변경사항 (2026.10.02):

@@ -864,7 +864,7 @@ GAS 메뉴 및 시트 구성:
 - non-VALID 또는 가격이력 write 실패 시 성공 집계를 하지 않고 rollback backup을 `WRITE_FAILED`로 보존합니다.
 - 정적 웹은 cache `portfolio-cache-20261002-9`와 함께 배포합니다.
 
-## GAS v9.159 Snapshot/Toss 진단 정합성 (2026-10-02)
+## GAS v9.159 Snapshot/Toss 진단 정합성 (2026-10-03)
 
 - Snapshot integrity 진단은 cleanup과 동일한 canonical duplicate 분류를 사용해 savedAt·표현 차이 중복과 expected 단일 일치 행을 자동 복구 가능 상태로 판정합니다. 브라우저 integrity cache는 `portfolio.historyIntegrity.v3`로 갱신합니다.
 - Toss 연결 진단은 OAuth와 실제 market endpoint 단계를 분리하고, OAuth 성공 뒤 실제 endpoint가 403인 경우에만 IP allowlist 안내를 표시하며 005930 현재가 smoke 결과를 화면에 표시합니다.
