@@ -881,7 +881,7 @@ GAS 메뉴 및 시트 구성:
 
 ## GAS GitHub Actions 자동배포 (2026-10-03)
 
-- `.github/workflows/gas-deploy.yml`은 PR에서는 검증만 수행하고, `main`에 `src/gas/apps_script.gs` 변경이 반영될 때만 자동으로 운영 GAS 배포를 실행합니다. 수동 실행(`workflow_dispatch`)은 기본 `dry_run=true`이며, 최초 연결 확인 후 실제 배포 시에만 `false`로 실행합니다.
+- `.github/workflows/gas-deploy.yml`은 PR에서는 검증만 수행하며 운영 배포 job은 절대 실행하지 않습니다. `main`에 `src/gas/apps_script.gs` 변경이 반영되고 `GAS_AUTO_DEPLOY_ENABLED=true`인 경우에만 자동으로 운영 GAS 배포를 실행합니다. 수동 실행(`workflow_dispatch`)은 기본 `dry_run=true`이며, 최초 연결 확인 후 실제 배포 시에만 `false`로 실행합니다.
 - 배포 스크립트는 Apps Script API로 현재 프로젝트 전체 파일을 먼저 읽고, 대상 `SERVER_JS` 한 파일만 저장소의 `src/gas/apps_script.gs`로 교체한 뒤 manifest와 다른 GAS/HTML 파일은 원문 그대로 다시 전송합니다. 현재 deployment가 이미 같은 소스면 새 version을 만들지 않고 종료합니다.
 - 기존 웹앱 URL을 유지하기 위해 새 deployment를 만들지 않습니다. 현재 deployment의 `manifestFileName`을 보존한 채 새 Apps Script version을 만든 뒤 같은 deployment ID가 새 version을 가리키도록 갱신합니다. 배포 후 deployment version과 웹앱 `getSettings().gasVersion`을 다시 확인합니다.
 - Apps Script API는 service account를 지원하지 않으므로 사용자 OAuth refresh token을 GitHub Secrets에 저장해야 합니다. OAuth 범위는 `https://www.googleapis.com/auth/script.projects`와 `https://www.googleapis.com/auth/script.deployments`만 사용합니다.
