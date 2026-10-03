@@ -870,4 +870,4 @@ GAS 메뉴 및 시트 구성:
 - Toss 연결 진단은 OAuth와 실제 market endpoint 단계를 분리하고, OAuth 성공 뒤 실제 endpoint가 403인 경우에만 IP allowlist 안내를 표시하며 005930 현재가 smoke 결과를 화면에 표시합니다.
 - Toss 진단은 token cache를 HTTP 200으로 간주하지 않고 OAuth를 1회 실제 호출하며, 005930 smoke의 빈 결과·종목 누락·가격/timestamp 오류를 별도 code로 기록합니다.
 - 검증 성공 backup을 정리하기 전 같은 source의 오래된 WRITE_FAILED/CREATED backup을 signature·수식·active operation 보호 후 정리하고, 시트가 없는 system registry record도 명시적 maintenance에서 제거합니다.
-- 신뢰 가능한 독립 KR 거래일 helper가 없어 일별 누락은 기존 평일 후보 계산을 유지하고 휴장일 포함 가능성을 명시합니다. 정적 웹은 cache `portfolio-cache-20261002-10`과 함께 배포합니다.
+- 신뢰 가능한 독립 KR 거래일 helper가 없어 일별 누락은 기존 평일 후보 계산을 유지하고 휴장일 포함 가능성을 명시합니다. 정적 웹은 cache `portfolio-cache-20261003-1`과 함께 배포합니다.
