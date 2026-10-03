@@ -61,5 +61,5 @@ assert.match(runtime,/snapshotSync=\{status:'error'/);
 assert.match(runtime,/releaseAndPersist/);
 assert.match(runtime,/persistence\.status!=='ok'/);
 assert.match(store,/function mergeSnapshots/);
-assert.match(bootstrap,/market_briefing_runtime\.js\?v=20260929-4/);
+assert.match(bootstrap,/market_briefing_runtime\.js\?v=20261003-1/);
 console.log('MARKET_SNAPSHOTS 불변 저장/검증/hydrate 계약 통과');
