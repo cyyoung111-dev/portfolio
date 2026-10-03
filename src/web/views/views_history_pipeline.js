@@ -3,15 +3,15 @@
 //  의존: views_history_state.js, views_history_render.js, views_history_benchmark.js
 // ════════════════════════════════════════════════════════════════
 
-const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v2';
-const HISTORY_INTEGRITY_LEGACY_CACHE_KEY = 'portfolio.historyIntegrity.v1';
+const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v3';
+const HISTORY_INTEGRITY_LEGACY_CACHE_KEYS = ['portfolio.historyIntegrity.v1', 'portfolio.historyIntegrity.v2'];
 const HISTORY_INTEGRITY_CACHE_MAX_CHARS = 120000;
 function _historySnapshotSignature(snapshot, dateRevision) {
   return [dateRevision, snapshot.date, snapshot.costAmt ?? snapshot.cost ?? '', snapshot.evalAmt ?? snapshot.total ?? snapshot.eval ?? '', snapshot.pnl ?? ''].join('|');
 }
 function _readHistoryIntegrityCache() {
   try {
-    sessionStorage.removeItem(HISTORY_INTEGRITY_LEGACY_CACHE_KEY);
+    HISTORY_INTEGRITY_LEGACY_CACHE_KEYS.forEach(key => sessionStorage.removeItem(key));
     const parsed = JSON.parse(sessionStorage.getItem(HISTORY_INTEGRITY_CACHE_KEY) || '{}') || {};
     const sanitized = Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, _historyDiagnosticSummary(value)]).filter(([, value]) => !!value));
     if (JSON.stringify(parsed) !== JSON.stringify(sanitized)) _writeHistoryIntegrityCache(sanitized);
@@ -23,7 +23,7 @@ function _readHistoryIntegrityCache() {
 }
 function _writeHistoryIntegrityCache(cache) {
   try {
-    sessionStorage.removeItem(HISTORY_INTEGRITY_LEGACY_CACHE_KEY);
+    HISTORY_INTEGRITY_LEGACY_CACHE_KEYS.forEach(key => sessionStorage.removeItem(key));
     const entries = Object.entries(cache || {}).map(([key, value]) => [key, _historyDiagnosticSummary(value)]).filter(([, value]) => !!value).slice(-800);
     let serialized = JSON.stringify(Object.fromEntries(entries));
     while (entries.length && serialized.length > HISTORY_INTEGRITY_CACHE_MAX_CHARS) {
@@ -430,7 +430,7 @@ function _renderHistoryCoverage(el, coverage, mode) {
   el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 11px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
     <div style="min-width:0;font-size:.67rem;color:var(--text);line-height:1.55">
       <b style="color:var(--amber)">⚠️ ${mode === 'day' ? '일별' : (mode === 'week' ? '주간' : '월간')} 스냅샷 ${missing.length}개 누락</b><br>
-      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · ${mode === 'day' ? '오늘과 주말을 제외한 확정 평일' : '오늘까지 금요일/월말 영업일'} 기준으로 복구합니다.<br>날짜마다 별도 요청하므로 누락일이 많거나 Google Finance 응답이 늦으면 오래 걸릴 수 있습니다. 장기간 누락은 16:20 평가단가 자동 트리거 중단 또는 실행 오류일 수 있으며, 보완 실행 시 트리거도 점검합니다.</span>
+      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · ${mode === 'day' ? '오늘과 주말을 제외한 평일 후보(휴장일이 포함될 수 있음)' : '오늘까지 금요일/월말 영업일'} 기준으로 복구합니다.<br>날짜마다 별도 요청하므로 누락일이 많거나 Google Finance 응답이 늦으면 오래 걸릴 수 있습니다. 장기간 누락은 16:20 평가단가 자동 트리거 중단 또는 실행 오류일 수 있으며, 보완 실행 시 트리거도 점검합니다.</span>
     </div>
     <button type="button" class="btn-ghost-sm" data-history-action="repair-gaps" ${__histState.repairInProgress ? 'disabled' : ''}>${__histState.repairInProgress ? '⏳ 복구 중...' : '🛠️ 누락 보완'}</button>
     ${resultHtml}

@@ -55,6 +55,11 @@ saved = JSON.parse(context.handleSaveTossConfig(JSON.stringify({ clientId: '', s
 assert.equal(saved.status, 'ok');
 assert.equal(properties.get('TOSS_CLIENT_ID'), 'client-123456');
 assert.equal(properties.get('TOSS_CLIENT_SECRET'), 'value%2Fkeep');
+cache.set('toss_oauth_token_v1', 'keep-on-empty');
+context.handleSaveTossConfig(JSON.stringify({ clientId: '', secret: '' }));
+assert.equal(cache.get('toss_oauth_token_v1'), 'keep-on-empty', '빈 입력으로 기존 설정 유지 시 token cache를 불필요하게 삭제하지 않음');
+context.handleSaveTossConfig(JSON.stringify({ clientId: 'client-changed' }));
+assert.equal(cache.has('toss_oauth_token_v1'), false, 'Client ID만 실제 변경해도 token cache 삭제');
 
 JSON.parse(context.handleClearTossConfig().getContent());
 assert.equal(properties.has('TOSS_CLIENT_ID'), false);
@@ -68,3 +73,73 @@ assert.match(gasSource, /status === 403 \? 'IP_NOT_ALLOWED_OR_FORBIDDEN'/);
 assert.doesNotMatch(webSync, /localStorage\.(?:setItem|getItem)\([^)]*Toss|lsSave\([^)]*Toss/i);
 assert.doesNotMatch(gasSource, /Logger\.log\([^\n]*(?:TOSS_CLIENT_SECRET|Authorization|access_token)/i);
 console.log('✅ Toss 설정 UI/PropertiesService/빈 입력 보존/제한 삭제/진단 비민감 응답 회귀 검사 통과');
+
+// OAuth와 실제 market endpoint 단계를 실행 수준에서 분리하고 비민감 응답만 확인합니다.
+properties.set('TOSS_CLIENT_ID', 'client-123456');
+properties.set('TOSS_CLIENT_SECRET', 'super-secret-value');
+context.Utilities = { formatDate: () => '2026-10-02' };
+const response = (status, value) => ({ getResponseCode: () => status, getContentText: () => JSON.stringify(value), getAllHeaders: () => ({}) });
+let fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => { fetchedUrls.push(url); return response(403, { error: 'access_denied', raw: 'must-not-leak' }); } };
+cache.clear();
+let diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.deepEqual([diagnostic.oauth.stage, diagnostic.oauth.ok, diagnostic.oauth.status, diagnostic.oauth.code, diagnostic.oauth.providerCode], ['oauth', false, 403, 'OAUTH_FAILED', 'access_denied']);
+assert.equal(fetchedUrls.length, 1, 'OAuth 실패 시 market endpoint를 호출하지 않음');
+assert(diagnostic.endpoints.every(item => item.code === 'SKIPPED_OAUTH_FAILED'), 'OAuth 실패 endpoint는 skipped 표시');
+assert.equal(JSON.stringify(diagnostic).includes('IP_NOT_ALLOWED_OR_FORBIDDEN'), false, 'OAuth 403은 IP 오류로 오분류하지 않음');
+assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-leak|access_token|Bearer token-value/);
+
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
+  if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'token-value', expires_in: 3600 });
+  return response(403, { error: { code: 'forbidden', requestId: 'safe-request-id' }, raw: 'must-not-leak' });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(diagnostic.oauth.ok, true);
+assert(diagnostic.endpoints.every(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN'), '실제 endpoint 403만 IP 제한으로 분류');
+assert.equal(diagnostic.priceSmoke.code, 'IP_NOT_ALLOWED_OR_FORBIDDEN');
+assert.equal(diagnostic.ok, false);
+assert.equal(fetchedUrls.filter(url => url.endsWith('/oauth2/token')).length, 1, '진단 1회당 token 1회 확보');
+
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
+  if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'token-value', expires_in: 3600 });
+  if (url.includes('/api/v1/prices?symbols=005930')) return response(200, { result: [{ symbol: '005930', lastPrice: 70000, timestamp: '2026-10-02T06:00:00Z' }] });
+  return response(200, { result: [{ value: 1 }] });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(diagnostic.ok, true);
+assert.equal(diagnostic.oauth.source, 'NETWORK', '진단 OAuth 200은 실제 network 요청임을 표시');
+assert.deepEqual([diagnostic.priceSmoke.resultCount, diagnostic.priceSmoke.symbol, diagnostic.priceSmoke.validLastPrice, diagnostic.priceSmoke.timestampPresent], [1, '005930', true, true]);
+assert.match(webSync, /priceSmoke 005930/);
+assert.match(webSync, /const ipBlocked = oauth\.ok/);
+assert.match(webSync, /OAuth 토큰 발급 단계 실패/);
+
+const diagnosePriceSmoke = result => {
+  fetchedUrls = [];
+  cache.set('toss_oauth_token_v1', JSON.stringify({ accessToken: 'cached-token', expiresAt: Date.now() + 3600000 }));
+  context.UrlFetchApp = { fetch: url => {
+    fetchedUrls.push(url);
+    if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'fresh-token', expires_in: 3600 });
+    if (url.includes('/api/v1/prices?symbols=005930')) return response(200, { result });
+    return response(200, { result: [{ value: 1 }] });
+  } };
+  return JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+};
+diagnostic = diagnosePriceSmoke([]);
+assert.equal(diagnostic.priceSmoke.code, 'PRICE_SMOKE_EMPTY');
+assert.equal(diagnostic.ok, false);
+assert.equal(properties.get('TOSS_LAST_DIAGNOSTIC_CODE'), 'PRICE_SMOKE_EMPTY');
+assert.equal(fetchedUrls.filter(url => url.endsWith('/oauth2/token')).length, 1, 'cached token이 있어도 진단은 OAuth를 1회 실제 요청');
+assert.equal(diagnostic.oauth.source, 'NETWORK');
+diagnostic = diagnosePriceSmoke([{ symbol: '005930', lastPrice: 0, timestamp: '2026-10-02T06:00:00Z' }]);
+assert.equal(diagnostic.priceSmoke.code, 'PRICE_SMOKE_INVALID_PRICE');
+assert.equal(diagnostic.ok, false);
+diagnostic = diagnosePriceSmoke([{ symbol: '005930', lastPrice: 70000, timestamp: '' }]);
+assert.equal(diagnostic.priceSmoke.code, 'PRICE_SMOKE_TIMESTAMP_MISSING');
+assert.equal(diagnostic.ok, false);
+assert.notEqual(properties.get('TOSS_LAST_DIAGNOSTIC_CODE'), 'OK', 'semantic smoke 실패는 persisted code OK 금지');

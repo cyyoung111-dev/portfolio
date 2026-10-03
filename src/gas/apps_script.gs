@@ -1,5 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.158
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.160
+//
+//  v9.160 변경사항 (2026.10.03):
+//   current COMPLETED backup 검증 선행·stale rollback 보호 강화
+//
+//  v9.159 변경사항 (2026.10.03):
+//   Snapshot 중복 기준·Toss OAuth/smoke 의미 진단·성공 후 stale system backup 정리
 //
 //  v9.158 변경사항 (2026.10.02):
 //   backfill 연관 write 후 최종 Snapshot VALID 검증
@@ -802,14 +808,16 @@ function handleSaveTossConfig(dataJson) {
     var changed = [];
     var clientId = String(data.clientId == null ? '' : data.clientId).trim();
     var secret = String(data.secret == null ? '' : data.secret).trim();
+    var previousClientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
+    var previousSecret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
     // 빈 입력은 기존 값을 유지합니다. 삭제는 별도 명시적 action에서만 허용합니다.
     if (Object.prototype.hasOwnProperty.call(data, 'clientId') && clientId) {
       props.setProperty('TOSS_CLIENT_ID', clientId); changed.push('clientId');
     }
     if (Object.prototype.hasOwnProperty.call(data, 'secret') && secret) {
       props.setProperty('TOSS_CLIENT_SECRET', secret); changed.push('secret');
-      CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
     }
+    if ((clientId && clientId !== previousClientId) || (secret && secret !== previousSecret)) CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
     return jsonOk({ saved: true, changed: changed, toss: _getTossConfigStatus_() });
   } catch(err) {
     return jsonError('Toss 설정 저장 실패: ' + err.message);
@@ -1187,6 +1195,24 @@ function _tossSafeError_(body) {
   try { var parsed = JSON.parse(body); return String(parsed.error?.code || parsed.error || parsed.error_description || 'unknown'); } catch (e) { return 'invalid-response'; }
 }
 
+// 연결 진단은 cache hit을 HTTP 200으로 오표시하지 않도록 OAuth endpoint를 매번 한 번 검증합니다.
+function _tossDiagnosticAccessToken_() {
+  var startedAt = Date.now(), credentials = _tossProperties_();
+  if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', elapsedMs: Date.now() - startedAt };
+  var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
+    method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
+    payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
+  });
+  var status = response.getResponseCode(), body = response.getContentText() || '{}';
+  if (status < 200 || status >= 300) return { ok: false, status: status, code: 'OAUTH_FAILED', providerCode: _tossSafeError_(body), source: 'NETWORK', token: '', elapsedMs: Date.now() - startedAt };
+  var data = {};
+  try { data = JSON.parse(body); } catch (ignore) {}
+  if (data.token_type !== 'Bearer' || !data.access_token || !Number(data.expires_in)) return { ok: false, status: status, code: 'OAUTH_RESPONSE_INVALID', providerCode: '', source: 'NETWORK', token: '', elapsedMs: Date.now() - startedAt };
+  var expiresAt = Date.now() + Number(data.expires_in) * 1000;
+  CacheService.getScriptCache().put(TOSS_TOKEN_CACHE_KEY, JSON.stringify({ accessToken: data.access_token, expiresAt: expiresAt }), Math.max(1, Math.min(21600, Number(data.expires_in) - TOSS_TOKEN_SKEW_SECONDS)));
+  return { ok: true, status: status, code: 'OK', providerCode: '', source: 'NETWORK', token: data.access_token, elapsedMs: Date.now() - startedAt };
+}
+
 function _priceTimingAdd_(timings, key, startedMs) {
   if (!timings || !key || !Number.isFinite(Number(startedMs))) return;
   timings[key] = Math.max(0, Number(timings[key] || 0) + Math.max(0, Date.now() - startedMs));
@@ -1303,10 +1329,9 @@ function fetchHistoricalPricesToss(items, targetDate) {
 }
 
 // 운영 점검용 read-only 호출. 자격증명·토큰·원문 응답은 반환하거나 로그에 남기지 않습니다.
-function _tossDiagnosticRequest_(path, query) {
+function _tossDiagnosticRequest_(path, query, token) {
   var startedAt = Date.now();
   try {
-    var token = _tossAccessToken_();
     if (!token) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', elapsedMs: Date.now() - startedAt };
     var params = [];
     Object.keys(query || {}).forEach(function(key) {
@@ -1335,10 +1360,9 @@ function _tossDiagnosticRequest_(path, query) {
   }
 }
 
-function _tossPriceSmoke_() {
+function _tossPriceSmoke_(token) {
   var startedAt = Date.now();
   try {
-    var token = _tossAccessToken_();
     if (!token) return { ok: false, status: null, resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
     var response = UrlFetchApp.fetch(TOSS_API_BASE + '/api/v1/prices?symbols=005930', {
       method: 'get', headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, muteHttpExceptions: true
@@ -1349,24 +1373,44 @@ function _tossPriceSmoke_() {
     var rows = parsed && Array.isArray(parsed.result) ? parsed.result : [];
     var row = rows.filter(function(item) { return _normalizeTossSymbol_(item && item.symbol) === '005930'; })[0] || null;
     var price = row ? Number(row.lastPrice) : 0;
+    var transportOk = status >= 200 && status < 300;
+    var validLastPrice = Number.isFinite(price) && price > 0;
+    var timestampPresent = !!(row && row.timestamp);
+    var code = status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (!transportOk ? 'HTTP_ERROR' :
+      (!rows.length ? 'PRICE_SMOKE_EMPTY' : (!row ? 'PRICE_SMOKE_SYMBOL_MISSING' :
+      (!validLastPrice ? 'PRICE_SMOKE_INVALID_PRICE' : (!timestampPresent ? 'PRICE_SMOKE_TIMESTAMP_MISSING' : 'OK')))));
     return {
-      ok: status >= 200 && status < 300,
+      ok: transportOk && code === 'OK',
       status: status,
+      code: code,
       resultCount: rows.length,
       symbol: row ? _normalizeTossSymbol_(row.symbol) : '',
-      validLastPrice: Number.isFinite(price) && price > 0,
-      timestampPresent: !!(row && row.timestamp),
+      validLastPrice: validLastPrice,
+      timestampPresent: timestampPresent,
       elapsedMs: Date.now() - startedAt
     };
   } catch (err) {
-    return { ok: false, status: null, resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
+    return { ok: false, status: null, code: 'REQUEST_ERROR', resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: Date.now() - startedAt };
   }
 }
 
 function handleDiagnoseTossMarketData() {
+  var token = '', oauth;
+  try {
+    var oauthResult = _tossDiagnosticAccessToken_();
+    token = oauthResult.token || '';
+    oauth = { stage: 'oauth', ok: oauthResult.ok, status: oauthResult.status, code: oauthResult.code,
+      providerCode: oauthResult.providerCode, source: oauthResult.source, elapsedMs: oauthResult.elapsedMs };
+  } catch (oauthError) {
+    oauth = { stage: 'oauth', ok: false, status: null, code: 'OAUTH_REQUEST_ERROR', providerCode: '', source: 'NETWORK', elapsedMs: 0 };
+  }
   var checks = [];
   var run = function(name, path, query) {
-    var item = _tossDiagnosticRequest_(path, query);
+    if (!oauth.ok) {
+      checks.push({ name: name, endpoint: path, ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', requestId: '', count: 0, elapsedMs: 0 });
+      return;
+    }
+    var item = _tossDiagnosticRequest_(path, query, token);
     checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code, requestId: item.requestId || '', count: item.count || 0, elapsedMs: item.elapsedMs });
   };
   run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
@@ -1374,15 +1418,15 @@ function handleDiagnoseTossMarketData() {
   run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
   run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
   run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
-  var smoke = _tossPriceSmoke_();
-  var overallOk = checks.every(function(item) { return item.ok; }) && smoke.ok && smoke.validLastPrice;
+  var smoke = oauth.ok ? _tossPriceSmoke_(token) : { ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: 0 };
+  var overallOk = oauth.ok && checks.every(function(item) { return item.ok; }) && smoke.ok && smoke.validLastPrice && smoke.timestampPresent;
   try {
     var props = PropertiesService.getScriptProperties();
     props.setProperty('TOSS_LAST_DIAGNOSTIC_AT', new Date().toISOString());
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (checks.find(function(item) { return !item.ok; }) || {}).code || 'ERROR');
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (!oauth.ok ? oauth.code : ((checks.find(function(item) { return !item.ok; }) || {}).code || smoke.code || 'ERROR')));
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, endpoints: checks, priceSmoke: smoke });
+  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -4258,7 +4302,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.158' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.160' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5108,7 +5152,8 @@ function _writeSystemBackupRegistry(items) {
   PropertiesService.getScriptProperties().setProperty(SYSTEM_BACKUP_REGISTRY_KEY, JSON.stringify(items || []));
 }
 
-// 방금 생성해 성공 검증까지 끝낸 operation backup만 직접 지웁니다. workbook/orphan/formula scan은 하지 않습니다.
+// 최신 성공 증거가 사라지기 전에 같은 source의 안전한 stale rollback을 먼저 지웁니다.
+// registry에 stale candidate가 없으면 기존 fast path대로 workbook/formula scan을 하지 않습니다.
 function _cleanupCurrentSystemBackup(ss, record) {
   if (!record) return null;
   var items = _readSystemBackupRegistry();
@@ -5117,19 +5162,55 @@ function _cleanupCurrentSystemBackup(ss, record) {
       item.systemGenerated === true && item.status === 'COMPLETED';
   })[0];
   if (!registered) return { deleted: false, reason: '검증된 현재 operation backup record 없음' };
+  if (!registered.source || !Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, registered.source) || !ss.getSheetByName(registered.source)) {
+    return { deleted: false, name: registered.name, reason: '원본 source sheet 없음 · backup 보호' };
+  }
+
+  // 현재 COMPLETED backup 자체가 실제로 유효한지 먼저 확인해야 과거 rollback을 안전하게 정리할 수 있습니다.
   var sheet = ss.getSheetByName(registered.name);
-  if (!sheet) return { deleted: false, reason: 'backup sheet 없음' };
+  if (!sheet) {
+    _writeSystemBackupRegistry(items.filter(function(item) { return item.name !== registered.name; }));
+    return { deleted: false, name: registered.name, reason: 'backup sheet 없음·registry record 정리', staleDeleted: [], staleProtected: [], missingRecords: [registered.name] };
+  }
   if (!registered.signature) return { deleted: false, name: registered.name, reason: 'registry backup signature 없음' };
   if (_sheetContentSignature(sheet) !== registered.signature) {
     return { deleted: false, name: registered.name, reason: 'registry/실제 backup signature 불일치 보호' };
   }
+
+  var currentCompletedAt = _backupTimeMillis(registered.completedAt || registered.updatedAt || registered.createdAt);
+  var staleCandidates = items.filter(function(item) {
+    if (item.name === registered.name || item.source !== registered.source || item.systemGenerated !== true) return false;
+    if (item.status !== 'COMPLETED') return false;
+    return currentCompletedAt && _backupTimeMillis(item.completedAt || item.updatedAt || item.createdAt) < currentCompletedAt;
+  });
+  var staleDeleted = [], missingRecords = [];
+  var staleProtected = items.filter(function(item) {
+    return item.name !== registered.name && item.source === registered.source && item.systemGenerated === true && ['CREATED', 'WRITE_FAILED'].indexOf(item.status) !== -1 &&
+      currentCompletedAt && _backupTimeMillis(item.updatedAt || item.createdAt) < currentCompletedAt;
+  }).map(function(item) { return { name: item.name, reason: item.status === 'CREATED' ? 'CREATED 상태 · active 여부 확인 불가' : 'WRITE_FAILED · 복구 검증 없음' }; });
+  var staleFormulaCounts = staleCandidates.length
+    ? _sheetFormulaReferenceCounts(ss, staleCandidates.map(function(item) { return item.name; })) : {};
+  if (staleCandidates.length) staleCandidates.forEach(function(item) {
+    var staleSheet = ss.getSheetByName(item.name);
+    if (!staleSheet) { missingRecords.push(item.name); return; }
+    if (!item.signature) { staleProtected.push({ name: item.name, reason: 'registry backup signature 없음' }); return; }
+    if (_sheetContentSignature(staleSheet) !== item.signature) { staleProtected.push({ name: item.name, reason: 'registry/실제 backup signature 불일치 보호' }); return; }
+    if (Number(staleFormulaCounts[item.name] || 0) !== 0) { staleProtected.push({ name: item.name, reason: '수식 참조 존재' }); return; }
+    try { ss.deleteSheet(staleSheet); staleDeleted.push(item.name); }
+    catch (staleError) { staleProtected.push({ name: item.name, reason: '삭제 실패: ' + staleError.message }); }
+  });
+  var removedRecords = {};
+  staleDeleted.concat(missingRecords).forEach(function(name) { removedRecords[name] = true; });
+  if (Object.keys(removedRecords).length) {
+    items = items.filter(function(item) { return !removedRecords[item.name]; });
+    _writeSystemBackupRegistry(items);
+  }
   try {
     ss.deleteSheet(sheet);
     _writeSystemBackupRegistry(items.filter(function(item) { return item.name !== registered.name; }));
-    return { deleted: true, name: registered.name };
-  } catch (error) { return { deleted: false, name: registered.name, reason: error.message }; }
+    return { deleted: true, name: registered.name, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords };
+  } catch (error) { return { deleted: false, name: registered.name, reason: '삭제 실패: ' + error.message, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords }; }
 }
-
 function _cleanupCompletedOperationBackups(ss, sourceName, operationId) {
   return _readSystemBackupRegistry().filter(function(item) {
     return item.source === sourceName && item.operationId === operationId && item.systemGenerated === true && item.status === 'COMPLETED';
@@ -5216,11 +5297,7 @@ function _cleanupSystemBackups(ss, sourceName, reconcileOrphans) {
   var protectedNames = {};
   candidates.slice(0, keep).forEach(function(item) { protectedNames[item.name] = true; });
   var deleted = [], failures = [], releasedCells = 0;
-  var newestCompletedAt = candidates.length ? String(candidates[0].completedAt || candidates[0].createdAt || '') : '';
-  var deletable = candidates.slice(keep).concat(sourceItems.filter(function(item) {
-    // 더 최신의 검증 COMPLETED 복구본과 현재 원본이 모두 존재할 때만 오래된 실패본을 정리합니다.
-    return item.status === 'WRITE_FAILED' && newestCompletedAt && String(item.updatedAt || item.createdAt || '') < newestCompletedAt && !!ss.getSheetByName(sourceName);
-  }));
+  var deletable = candidates.slice(keep);
   deletable.forEach(function(item) {
     var sheet = ss.getSheetByName(item.name);
     if (!sheet || protectedNames[item.name] || item.source !== sourceName || item.systemGenerated !== true) return;
@@ -5300,7 +5377,8 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
       (backupRecord.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
       (role === 'BACKUP' ? (inferredSource ? 'ORPHAN_LIKELY_SYSTEM' : 'USER_MANAGED_BACKUP') : 'UNKNOWN');
     var formulaReferenceCount = includeFormulaReferences ? formulaCounts[name] : null;
-    var eligible = classification === 'REGISTERED_COMPLETED' && formulaReferenceCount === 0;
+    var registeredSourceExists = !backupRecord || (!!inferredSource && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, inferredSource) && !!ss.getSheetByName(inferredSource));
+    var eligible = classification === 'REGISTERED_COMPLETED' && registeredSourceExists && formulaReferenceCount === 0;
     sheets.push({ name: name, role: role, maxRows: maxRows, maxColumns: maxColumns,
       lastRow: lastRow, lastColumn: lastColumn, allocatedCells: allocatedCells,
       usedRangeCells: usedRangeCells, unusedCells: allocatedCells - usedRangeCells,
@@ -5310,7 +5388,8 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
       createdAt: backupRecord ? backupRecord.createdAt || '' : '', completedAt: backupRecord ? backupRecord.completedAt || '' : '',
       updatedAt: backupRecord ? backupRecord.updatedAt || '' : '', operationId: backupRecord ? backupRecord.operationId || '' : '',
       signatureMatch: backupRecord ? _sheetContentSignature(sheet) === backupRecord.signature : null,
-      autoCleanupEligible: eligible, protectionReason: eligible ? '' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정') });
+      sourceSheetExists: registeredSourceExists, autoCleanupEligible: eligible, protectionReason: eligible ? '' :
+        (!registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (classification === 'USER_MANAGED_BACKUP' ? '사용자 보관 백업' : '자동 정리 안전성 미확정')) });
   });
   sheets.forEach(function(item) { item.workbookOccupancyPercent = totalCells ? Number((item.allocatedCells * 100 / totalCells).toFixed(4)) : 0; });
   var backupsBySource = {};
@@ -5362,6 +5441,7 @@ function _planSystemBackupMaintenance(ss, options) {
     var active = !!(record && activeOperations[record.operationId]);
     return { name: item.name, sheetName: item.name, registryRecordExists: !!record, source: source || '', classification: classification,
       status: record ? record.status : '', signatureMatch: signatureMatch, schemaMatch: schemaMatch,
+      sourceSheetExists: !!sourceSheet,
       formulaReferenceCount: Number(item.formulaReferenceCount || 0), allocatedCells: item.allocatedCells,
       operationId: record ? record.operationId || '' : '', activeOperation: active,
       createdAt: record ? record.createdAt || '' : '', completedAt: record ? record.completedAt || '' : '',
@@ -5371,24 +5451,22 @@ function _planSystemBackupMaintenance(ss, options) {
   backups.forEach(function(item) { if (item.source) (bySource[item.source] || (bySource[item.source] = [])).push(item); });
   var sourceSummary = {};
   Object.keys(bySource).forEach(function(source) {
-    var list = bySource[source], completed = list.filter(function(item) { return item.classification === 'REGISTERED_COMPLETED' || item.classification === 'ORPHAN_LIKELY_SYSTEM'; })
-      .sort(function(a, b) { return String(b.completedAt || b.createdAt || b.name).localeCompare(String(a.completedAt || a.createdAt || a.name)); });
-    var newest = completed[0] || null;
+    var list = bySource[source];
     list.forEach(function(item) {
       var safeClass = ['REGISTERED_COMPLETED', 'REGISTERED_WRITE_FAILED', 'REGISTERED_INCOMPLETE', 'ORPHAN_LIKELY_SYSTEM'].indexOf(item.classification) !== -1;
-      var olderFailed = item.classification === 'REGISTERED_WRITE_FAILED' && newest && _backupTimeMillis(item.createdAt) < _backupTimeMillis(newest.completedAt || newest.createdAt);
       var registeredCompleted = item.classification === 'REGISTERED_COMPLETED';
       var registeredFailed = item.classification === 'REGISTERED_WRITE_FAILED';
+      var registeredSourceExists = item.classification.indexOf('REGISTERED_') !== 0 || item.sourceSheetExists;
       // validated recovery는 전체 Snapshot 복구가 증명한 Snapshot rollback에만 적용합니다.
       // 다른 source의 실패/진행 중 backup까지 광범위하게 정리하지 않습니다.
       var validatedStale = !!validatedOperationIds[item.operationId] && item.source === CONFIG.SHEET_SNAPSHOT &&
         (registeredFailed || (item.classification === 'REGISTERED_INCOMPLETE' && item.status === 'CREATED'));
-      item.autoCleanupEligible = !!(safeClass && item.signatureMatch && (registeredCompleted || validatedStale ||
-        (registeredFailed ? olderFailed : (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch))) &&
+      item.autoCleanupEligible = !!(safeClass && registeredSourceExists && item.signatureMatch && (registeredCompleted || validatedStale ||
+        (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch)) &&
         (!item.activeOperation || validatedStale) && item.formulaReferenceCount === 0);
-      if (!item.autoCleanupEligible) item.protectionReason = item.activeOperation ? 'active operation' :
+      if (!item.autoCleanupEligible) item.protectionReason = !registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (item.activeOperation ? 'active operation' :
         (item.formulaReferenceCount ? '수식 참조 존재' : (!safeClass ? 'USER_MANAGED/UNKNOWN 보호' :
-        (!newest && item.classification === 'REGISTERED_WRITE_FAILED' ? '복구되지 않은 WRITE_FAILED 보호' : '안전 조건 불충족')));
+        (registeredFailed ? 'WRITE_FAILED · 복구 검증 없음' : '안전 조건 불충족'))));
     });
     var deletions = list.filter(function(item) { return item.autoCleanupEligible; });
     sourceSummary[source] = { total: list.length, beforeCount: list.length, keepCount: list.length - deletions.length,
@@ -5422,10 +5500,18 @@ function maintainSystemBackups(options) {
     catch (error) { failures.push({ name: item.name, message: error.message }); }
   });
   var deletedMap = {}; deleted.forEach(function(name) { deletedMap[name] = true; });
-  _writeSystemBackupRegistry(_readSystemBackupRegistry().filter(function(item) { return !deletedMap[item.name]; }));
+  var missingRegistryRecords = [];
+  _writeSystemBackupRegistry(_readSystemBackupRegistry().filter(function(item) {
+    if (deletedMap[item.name]) return false;
+    if (item.systemGenerated === true && item.source && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, item.source) && !ss.getSheetByName(item.name)) {
+      missingRegistryRecords.push(item.name); return false;
+    }
+    return true;
+  }));
   var after = _diagnoseWorkbookCells(ss, true);
   plan.apply = true; plan.deletedSheetNames = deleted; plan.protectedSheets = plan.backupSheets.filter(function(item) { return !item.autoCleanupEligible; }).map(function(item) { return { name: item.name, reason: item.protectionReason }; });
   plan.releasedCells = releasedCells; plan.failures = failures; plan.afterCount = after.backupSummary.sheetCount;
+  plan.removedMissingRegistryRecords = missingRegistryRecords;
   plan.totalCellsAfter = after.totalCells; plan.remainingCellsAfter = after.remainingCells;
   return plan;
   } finally { if (ownsLock) lock.releaseLock(); }
@@ -6427,8 +6513,6 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext, rangeContext) {
   Object.keys(grouped).forEach(function(key) {
     if (grouped[key].length < 2) return;
     duplicateKeys.push(key);
-    var signatures = {}; grouped[key].forEach(function(row) { signatures[JSON.stringify(row.slice(1, 12))] = true; });
-    if (Object.keys(signatures).length > 1) conflictKeys.push(key);
   });
   var result = { date: date, status: 'VALID', expectedRowCount: 0, storedRowCount: raw.length,
     expectedCodes: [], storedCodes: [], missingCodes: [], unexpectedCodes: [], duplicateKeys: duplicateKeys,
@@ -6440,6 +6524,12 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext, rangeContext) {
   try { expected = rangeContext ? _buildIndexedSnapshotRows(rangeContext, date) : _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true); }
   catch (error) { result.sourceDataErrors.push(String(error.message || error)); result.status = 'SOURCE_INCOMPLETE'; }
   result.expectedRows = expected;
+  var duplicateDecisions = _classifyRawSnapshotDuplicateGroups(date, raw, expected,
+    result.status === 'SOURCE_INCOMPLETE' ? result.sourceDataErrors.join('; ') : '');
+  conflictKeys = duplicateDecisions.filter(function(item) {
+    return item.classification === 'MANUAL_PROTECTED' || item.classification === 'UNRESOLVED_CONFLICT';
+  }).map(function(item) { return date + '|' + item.key; });
+  result.conflictKeys = conflictKeys;
   var expectedMap = {}, storedMap = {};
   expected.forEach(function(row) { expectedMap[_snapshotIntegrityKey(row)] = row; });
   raw.forEach(function(row) { var key = _snapshotIntegrityKey(row); if (!storedMap[key]) storedMap[key] = row; });
@@ -9656,7 +9746,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.158' });
+    return jsonOk({ settings: settings, gasVersion: '9.160' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9678,7 +9768,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.158'
+      gasVersion: '9.160'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

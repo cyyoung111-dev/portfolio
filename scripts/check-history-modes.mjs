@@ -62,20 +62,21 @@ const cacheContext = vm.createContext({ sessionStorage: (() => {
 })() });
 const cacheHelpers = ['_isRepairableHistoryDiagnostic','_historyDiagnosticSummary','_readHistoryIntegrityCache','_writeHistoryIntegrityCache']
   .map(name => pipelineSource.match(new RegExp(`function ${name}[\\s\\S]*?\\n}`))?.[0] || '').join('\n');
-vm.runInContext(`const HISTORY_INTEGRITY_CACHE_KEY='portfolio.historyIntegrity.v2';const HISTORY_INTEGRITY_LEGACY_CACHE_KEY='portfolio.historyIntegrity.v1';const HISTORY_INTEGRITY_CACHE_MAX_CHARS=120000;${cacheHelpers};globalThis.readCache=_readHistoryIntegrityCache;globalThis.writeCache=_writeHistoryIntegrityCache;globalThis.summary=_historyDiagnosticSummary;globalThis.repairable=_isRepairableHistoryDiagnostic;`,cacheContext);
+vm.runInContext(`const HISTORY_INTEGRITY_CACHE_KEY='portfolio.historyIntegrity.v3';const HISTORY_INTEGRITY_LEGACY_CACHE_KEYS=['portfolio.historyIntegrity.v1','portfolio.historyIntegrity.v2'];const HISTORY_INTEGRITY_CACHE_MAX_CHARS=120000;${cacheHelpers};globalThis.readCache=_readHistoryIntegrityCache;globalThis.writeCache=_writeHistoryIntegrityCache;globalThis.summary=_historyDiagnosticSummary;globalThis.repairable=_isRepairableHistoryDiagnostic;`,cacheContext);
 const fullDiagnostic={date:'2026-09-30',status:'MISMATCH',expectedRows:[1],storedRows:[2],itemComparisons:[3],priceIntegrity:[4],sourceDataErrors:[],conflictKeys:[]};
 assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.summary(fullDiagnostic))),{date:'2026-09-30',status:'MISMATCH',repairable:true},'full diagnostic은 최소 cache summary로 축약');
 assert.equal(cacheContext.repairable(cacheContext.summary(fullDiagnostic)),true,'cached summary와 full diagnostic의 repairability가 동일');
 assert.equal(cacheContext.writeCache({key:fullDiagnostic}),true,'summary cache 정상 저장');
-const storedCache=cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2');
+const storedCache=cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v3');
 assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(storedCache),'대용량 진단 상세는 sessionStorage에 저장 금지');
 assert.equal(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v1'),null,'legacy v1 cache는 read/write 전에 제거');
-cacheContext.sessionStorage.setItem('portfolio.historyIntegrity.v2',JSON.stringify({legacyFull:fullDiagnostic}));
+assert.equal(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2'),null,'legacy v2 cache는 알고리즘 변경 후 제거');
+cacheContext.sessionStorage.setItem('portfolio.historyIntegrity.v3',JSON.stringify({legacyFull:fullDiagnostic}));
 assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.readCache().legacyFull)),{date:'2026-09-30',status:'MISMATCH',repairable:true},'기존 상세 cache read는 summary로 sanitize');
-assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2')),'sanitize한 기존 cache를 작은 schema로 즉시 재저장');
+assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v3')),'sanitize한 기존 cache를 작은 schema로 즉시 재저장');
 const oversized={};for(let i=0;i<900;i++)oversized[`${i}`.padStart(4,'0')+'x'.repeat(180)]={date:`2026-01-${String(i%28+1).padStart(2,'0')}`,status:'VALID'};
 assert.equal(cacheContext.writeCache(oversized),true,'크기 상한 초과 cache도 오래된 entry 제거 후 저장');
-assert(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2').length<=120000,'직렬화 cache는 보수적 내부 상한 유지');
+assert(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v3').length<=120000,'직렬화 cache는 보수적 내부 상한 유지');
 cacheContext.sessionStorage.setItem=()=>{throw new Error('quota')};
 assert.equal(cacheContext.writeCache({key:fullDiagnostic}),false,'sessionStorage write 실패는 화면 조회를 실패시키지 않음');
 vm.runInNewContext(`${source}\n` +
@@ -153,7 +154,7 @@ assert.match(pipelineSource, /integritySourceRevision === String\(integrity\.int
 
 assert.match(pipelineSource, /선택 기간의 스냅샷 누락이 없습니다/, '누락 없음 안내를 표시해야 합니다.');
 assert.match(pipelineSource, /mode === 'day' \? '일별'/, '일별 누락 안내를 표시해야 합니다.');
-assert.match(pipelineSource, /오늘과 주말을 제외한 확정 평일/, '일별 복구 대상 기준을 안내해야 합니다.');
+assert.match(pipelineSource, /평일 후보\(휴장일이 포함될 수 있음\)/, '일별 후보에 휴장일 포함 가능성을 안내해야 합니다.');
 assert.match(pipelineSource, /data-history-action="repair-gaps"/, '누락 보완 버튼이 있어야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('repairSnapshots'/, '프런트엔드가 GAS 복구 action을 호출해야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('startSnapshotRepair'/, '손익 그래프에서 전체 스냅샷 재작성을 시작할 수 있어야 합니다.');

@@ -305,10 +305,17 @@ async function diagnoseTossFromUI() {
   try {
     const data = await requestGsheetActionJson('diagnoseTossMarketData', {}, { timeoutMs: 30000, retry: 0 });
     if (!data || data.status !== 'ok') throw new Error(data?.message || '응답 오류');
-    const lines = (data.endpoints || []).map(item => `${item.ok ? '✅' : '❌'} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'} / ${Number(item.count || 0)}건 / ${Number(item.elapsedMs || 0)}ms`);
-    const ipBlocked = (data.endpoints || []).some(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN');
-    if (target) target.innerHTML = _escapeHtml(lines.join('\n') + (ipBlocked ? '\n\n403: Toss WTS Open API에 Google IP range pool 허용 IP 등록이 필요합니다.' : ''));
-    _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: data.ok ? 'OK' : ((data.endpoints || []).find(item => !item.ok)?.code || 'ERROR') });
+    const oauth = data.oauth || { ok: false, status: null, code: 'OAUTH_RESULT_MISSING', providerCode: '' };
+    const lines = [`${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''} / ${Number(oauth.elapsedMs || 0)}ms`];
+    lines.push(...(data.endpoints || []).map(item => `${item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'} / ${Number(item.count || 0)}건 / ${Number(item.elapsedMs || 0)}ms`));
+    const smoke = data.priceSmoke || {};
+    lines.push(`${smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} priceSmoke 005930: ${smoke.status ?? '-'} / ${smoke.code || 'ERROR'} / ${Number(smoke.resultCount || 0)}건 / ${smoke.symbol || '005930'} / 유효가격 ${smoke.validLastPrice ? '있음' : '없음'} / timestamp ${smoke.timestampPresent ? '있음' : '없음'} / ${Number(smoke.elapsedMs || 0)}ms`);
+    const ipBlocked = oauth.ok && [...(data.endpoints || []), smoke].some(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN');
+    const oauthFailed = !oauth.ok && oauth.code !== 'CREDENTIALS_NOT_CONFIGURED';
+    const guide = ipBlocked ? '\n\n실제 Toss market endpoint 403: Google IP range pool 허용 IP 등록을 확인하세요.'
+      : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : '');
+    if (target) target.innerHTML = _escapeHtml(lines.join('\n') + guide);
+    _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: data.ok ? 'OK' : (!oauth.ok ? oauth.code : ((data.endpoints || []).find(item => !item.ok)?.code || smoke.code || 'ERROR')) });
   } catch (error) {
     if (target) target.textContent = '❌ Toss 진단 실패: ' + (error.message || '응답 오류');
   }

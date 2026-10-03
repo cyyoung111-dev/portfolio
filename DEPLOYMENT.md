@@ -863,3 +863,18 @@ GAS 메뉴 및 시트 구성:
 - backfill은 Snapshot 및 연관 가격이력 write 후 `SpreadsheetApp.flush()`와 `diagnoseSnapshotIntegrity()`를 실행하고 `VALID`일 때만 operation backup을 완료·정리합니다.
 - non-VALID 또는 가격이력 write 실패 시 성공 집계를 하지 않고 rollback backup을 `WRITE_FAILED`로 보존합니다.
 - 정적 웹은 cache `portfolio-cache-20261002-9`와 함께 배포합니다.
+
+## GAS v9.159 Snapshot/Toss 진단 정합성 (2026-10-03)
+
+- Snapshot integrity 진단은 cleanup과 동일한 canonical duplicate 분류를 사용해 savedAt·표현 차이 중복과 expected 단일 일치 행을 자동 복구 가능 상태로 판정합니다. 브라우저 integrity cache는 `portfolio.historyIntegrity.v3`로 갱신합니다.
+- Toss 연결 진단은 OAuth와 실제 market endpoint 단계를 분리하고, OAuth 성공 뒤 실제 endpoint가 403인 경우에만 IP allowlist 안내를 표시하며 005930 현재가 smoke 결과를 화면에 표시합니다.
+- Toss 진단은 token cache를 HTTP 200으로 간주하지 않고 OAuth를 1회 실제 호출하며, 005930 smoke의 빈 결과·종목 누락·가격/timestamp 오류를 별도 code로 기록합니다.
+- 일반 성공 cleanup은 같은 source의 과거 검증된 `COMPLETED` backup만 정리하고 `CREATED`/`WRITE_FAILED`는 보호합니다. `WRITE_FAILED`는 최종 `VALID`가 명시된 Snapshot operation ID에 한해 maintenance에서 정리하며, 시트가 없는 system registry record는 명시적 maintenance에서 제거합니다.
+- 신뢰 가능한 독립 KR 거래일 helper가 없어 일별 누락은 기존 평일 후보 계산을 유지하고 휴장일 포함 가능성을 명시합니다. 정적 웹은 cache `portfolio-cache-20261003-1`과 함께 배포합니다.
+
+
+## GAS v9.160 backup cleanup 검증 선행 (2026-10-03)
+
+- `_cleanupCurrentSystemBackup()`은 현재 `COMPLETED` backup의 source sheet 존재, 실제 backup sheet 존재, registry signature 일치를 먼저 검증한 뒤에만 같은 source의 과거 `COMPLETED` rollback을 정리합니다.
+- 현재 backup이 누락됐거나 signature가 다르면 과거 검증 가능한 rollback은 삭제하지 않습니다. 일반 성공만으로 `CREATED`/`WRITE_FAILED`를 삭제하지 않으며, `WRITE_FAILED` 정리는 최종 `VALID`가 명시된 Snapshot operation ID에 한정합니다.
+- GAS와 웹 기대 버전은 `9.160`으로 동기화합니다. 정적 웹은 `settings_fetch.js?v=20261003-1`, Service Worker cache `portfolio-cache-20261003-2`를 함께 배포합니다.
