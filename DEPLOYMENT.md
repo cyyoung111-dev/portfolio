@@ -887,6 +887,7 @@ GAS 메뉴 및 시트 구성:
 - Apps Script API는 service account를 지원하지 않으므로 사용자 OAuth refresh token을 GitHub Secrets에 저장해야 합니다. OAuth 범위는 `https://www.googleapis.com/auth/script.projects`와 `https://www.googleapis.com/auth/script.deployments`만 사용합니다.
 - Google Cloud에서 Apps Script API를 활성화하고 Apps Script 사용자 설정에서 API 접근을 허용합니다. OAuth 클라이언트를 만든 뒤 offline access로 위 두 scope를 승인하여 refresh token을 발급합니다. OAuth 동의 화면이 Testing이면 refresh token이 7일 만료될 수 있으므로 장기 자동화는 Internal 또는 In production 상태를 사용합니다.
 - GitHub Repository Variables:
+  - `GAS_AUTO_DEPLOY_ENABLED` — 초기에는 `false` 또는 미설정. dry-run과 최초 실제 배포 성공 후 `true`로 바꾸면 이후 GAS 소스가 main에 merge될 때 자동배포가 실행됩니다.
   - `GAS_SCRIPT_ID` — Apps Script 편집기 → 프로젝트 설정 → Script ID.
   - `GAS_WEB_APP_URL` — 기존 운영 웹앱 `/exec` URL. 기존 브리핑 workflow에서 사용 중인 값을 그대로 재사용합니다.
   - `GAS_SERVER_FILE_NAME` — 선택. Apps Script 프로젝트에 SERVER_JS 파일이 여러 개이고 `apps_script`가 아닌 경우 실제 대상 파일명을 지정합니다.
@@ -896,4 +897,4 @@ GAS 메뉴 및 시트 구성:
   - `GOOGLE_OAUTH_CLIENT_SECRET`
   - `GOOGLE_OAUTH_REFRESH_TOKEN`
   - `GAS_ACCESS_TOKEN` — 기존 GAS 요청 인증을 사용 중이면 현재 Secret을 그대로 재사용합니다.
-- 최초 설정 후 Actions → `gas-deploy` → Run workflow에서 먼저 `dry_run=true`로 인증·Script ID·deployment·대상 SERVER_JS를 확인합니다. 성공하면 `dry_run=false`로 한 번 실행하여 현재 main의 GAS v9.160을 운영 배포에 반영합니다. 이후에는 GAS 소스가 포함된 main merge가 자동 배포를 수행합니다.
+- 최초 설정 후 `GAS_AUTO_DEPLOY_ENABLED`는 `false` 또는 미설정 상태로 둡니다. Actions → `gas-deploy` → Run workflow에서 먼저 `dry_run=true`로 인증·Script ID·deployment·대상 SERVER_JS를 확인합니다. 성공하면 `dry_run=false`로 한 번 실행하여 현재 main의 GAS v9.160을 운영 배포에 반영하고, 마지막으로 `GAS_AUTO_DEPLOY_ENABLED=true`를 설정합니다. 이후에는 GAS 소스가 포함된 main merge만 자동 배포를 수행합니다.
