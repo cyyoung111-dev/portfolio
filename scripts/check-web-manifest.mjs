@@ -18,6 +18,16 @@ if (!fs.existsSync(manifestPath)) {
 
 const html = fs.readFileSync(indexPath, 'utf8');
 const serviceWorker = fs.readFileSync(serviceWorkerPath, 'utf8');
+const swRegistrationMatch = html.match(/navigator\.serviceWorker\.register\(['"]sw\.js\?v=([^'"]+)['"]/);
+const cacheNameMatch = serviceWorker.match(/const\s+CACHE_NAME\s*=\s*['"]portfolio-cache-([^'"]+)['"]/);
+if (!swRegistrationMatch || !cacheNameMatch) {
+  console.error('❌ Service worker registration/cache version not found');
+  process.exit(1);
+}
+if (swRegistrationMatch[1] !== cacheNameMatch[1]) {
+  console.error(`❌ Service worker registration/cache version mismatch: register="${swRegistrationMatch[1]}" cache="${cacheNameMatch[1]}"`);
+  process.exit(1);
+}
 const includeRe = /<script\s+defer\s+src="([^"]+)"\s*><\/script>/g;
 const indexLocal = [];
 let m;
