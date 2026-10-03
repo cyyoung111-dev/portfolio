@@ -42,7 +42,7 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     concurrency:
-      group: gas-production-deploy
+      group: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'gas-deploy-dry-run' || 'gas-production-deploy' }}
       cancel-in-progress: false
     env:
       GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
