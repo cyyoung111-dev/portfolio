@@ -50,6 +50,7 @@ assert.match(workflow, /GOOGLE_OAUTH_REFRESH_TOKEN/);
 assert.match(workflow, /GAS_SCRIPT_ID/);
 assert.match(workflow, /GAS_WEB_APP_URL/);
 assert.match(workflow, /GAS_AUTO_DEPLOY_ENABLED/);
+assert.match(workflow, /github\.event_name == 'workflow_dispatch' \|\| \(github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED == 'true'\)/);
 assert.match(workflow, /deploy:\s*[\s\S]*concurrency:\s*[\s\S]*group:\s*gas-production-deploy/);
 assert.doesNotMatch(workflow.split('jobs:')[0], /concurrency:/);
 const deploySource = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
