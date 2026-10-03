@@ -176,8 +176,9 @@ export async function deploy() {
 
   console.log(`GAS 자동배포 사전확인 · version=${expectedVersion} · file=${target.name} · currentDeploymentVersion=${currentVersionNumber} · dryRun=${dryRun}`);
   if (alreadyDeployed) {
-    console.log(`배포 생략 · 현재 웹앱 deployment가 이미 GAS v${expectedVersion} 소스와 일치합니다.`);
-    return { deployed: false, alreadyDeployed: true, version: expectedVersion, deploymentVersion: currentVersionNumber };
+    const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
+    console.log(`배포 생략 · 현재 웹앱 deployment가 이미 GAS v${expectedVersion} 소스와 일치하며 운영 endpoint 검증도 통과했습니다.`);
+    return { deployed: false, alreadyDeployed: true, version: expectedVersion, deploymentVersion: currentVersionNumber, webAppCheck };
   }
   if (dryRun) {
     console.log('dry-run 완료 · 실제 프로젝트/버전/deployment는 변경하지 않았습니다.');
