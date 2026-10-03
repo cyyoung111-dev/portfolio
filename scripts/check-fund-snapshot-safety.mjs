@@ -814,7 +814,7 @@ assert(cleanupSheets['스냅샷_백업_수정됨'],'registry signature와 실제
 assert(cleanupResult.unresolved.some(item=>item.name==='스냅샷_백업_수정됨'&&/signature/.test(item.reason)),'변경된 COMPLETED backup을 unresolved로 보고');
 assert.equal(cleanupResult.releasedCells,520000,'COMPLETED cleanup 확보 실제 allocatedCells 합산');
 
-// 이전 실패 backup을 새 성공 증거가 삭제되기 전에 stale로 정리하고 최종 0개를 보장합니다.
+// 새 성공 시 과거 검증된 COMPLETED만 정리하고 WRITE_FAILED는 복구 검증 전까지 보호합니다.
 const lifecycleSheets={ '스냅샷':new Sheet([header]), 'failed-A':new Sheet([header]), 'completed-A':new Sheet([header]), 'success-B':new Sheet([header]) };
 const lifecycleSs=ssFor(lifecycleSheets), lifecycleSignature=context._sheetContentSignature(lifecycleSheets['failed-A']);
 scriptProperties.set('system_backup_registry_v1',JSON.stringify([
@@ -881,6 +881,33 @@ assert.equal(sourceMissingCleanup.deleted,false);
 assert.match(sourceMissingCleanup.reason,/원본 source sheet 없음/);
 assert(sourceMissingSheets['current-without-source'],'source 없는 current backup sheet 보호');
 assert(JSON.parse(scriptProperties.get('system_backup_registry_v1')).some(item=>item.name==='current-without-source'),'source 없는 current registry 보호');
+
+// 현재 COMPLETED backup이 유효하지 않으면 과거 검증 가능한 COMPLETED rollback을 먼저 삭제하면 안 됩니다.
+const invalidCurrentSheets={ '스냅샷':new Sheet([header]), 'older-valid':new Sheet([header]), 'current-invalid':new Sheet([header,snap('2026-01-01','000001',999)]) };
+const invalidCurrentSs=ssFor(invalidCurrentSheets), olderValidSignature=context._sheetContentSignature(invalidCurrentSheets['older-valid']);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'older-valid',source:'스냅샷',signature:olderValidSignature,status:'COMPLETED',systemGenerated:true,operationId:'older-valid-op',completedAt:'2026-09-20T00:00:00Z'},
+  {name:'current-invalid',source:'스냅샷',signature:olderValidSignature,status:'COMPLETED',systemGenerated:true,operationId:'current-invalid-op',completedAt:'2026-09-21T00:00:00Z'}
+]));
+const invalidCurrentCleanup=clone(context._cleanupCurrentSystemBackup(invalidCurrentSs,{name:'current-invalid',source:'스냅샷',operationId:'current-invalid-op'}));
+assert.equal(invalidCurrentCleanup.deleted,false);
+assert.match(invalidCurrentCleanup.reason,/signature 불일치/);
+assert(invalidCurrentSheets['older-valid'],'현재 backup signature 불일치 시 과거 COMPLETED rollback 보호');
+assert(invalidCurrentSheets['current-invalid'],'signature 불일치 current backup도 보호');
+assert.deepEqual(JSON.parse(scriptProperties.get('system_backup_registry_v1')).map(item=>item.name),['older-valid','current-invalid'],'현재 검증 실패 시 registry도 보존');
+
+const missingCurrentSheets={ '스냅샷':new Sheet([header]), 'older-survivor':new Sheet([header]) };
+const missingCurrentSs=ssFor(missingCurrentSheets), missingCurrentSignature=context._sheetContentSignature(missingCurrentSheets['older-survivor']);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'older-survivor',source:'스냅샷',signature:missingCurrentSignature,status:'COMPLETED',systemGenerated:true,operationId:'older-survivor-op',completedAt:'2026-09-20T00:00:00Z'},
+  {name:'current-missing',source:'스냅샷',signature:missingCurrentSignature,status:'COMPLETED',systemGenerated:true,operationId:'current-missing-op',completedAt:'2026-09-21T00:00:00Z'}
+]));
+const missingCurrentCleanup=clone(context._cleanupCurrentSystemBackup(missingCurrentSs,{name:'current-missing',source:'스냅샷',operationId:'current-missing-op'}));
+assert.equal(missingCurrentCleanup.deleted,false);
+assert.match(missingCurrentCleanup.reason,/backup sheet 없음/);
+assert.deepEqual(missingCurrentCleanup.staleDeleted,[],'현재 backup 누락 시 과거 cleanup 금지');
+assert(missingCurrentSheets['older-survivor'],'현재 backup 누락 시 과거 COMPLETED rollback 보호');
+assert.deepEqual(JSON.parse(scriptProperties.get('system_backup_registry_v1')).map(item=>item.name),['older-survivor'],'누락된 current registry만 정리하고 과거 rollback registry 보존');
 
 const protectedSheets={ '스냅샷':new Sheet([header]), 'active-A':new Sheet([header]), 'mismatch-A':new Sheet([header,snap('2026-01-01','000001',999)]), 'formula-A':new Sheet([header]), 'success-C':new Sheet([header]), '참조':new Sheet([['ref']]) };
 protectedSheets['참조'].formulaText="='formula-A'!A1";
