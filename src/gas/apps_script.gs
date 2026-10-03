@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.159
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.160
+//
+//  v9.160 변경사항 (2026.10.03):
+//   current COMPLETED backup 검증 선행·stale rollback 보호 강화
 //
 //  v9.159 변경사항 (2026.10.02):
 //   Snapshot 중복 기준·Toss OAuth/smoke 의미 진단·성공 후 stale system backup 정리
@@ -4299,7 +4302,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.159' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.160' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5162,6 +5165,18 @@ function _cleanupCurrentSystemBackup(ss, record) {
   if (!registered.source || !Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, registered.source) || !ss.getSheetByName(registered.source)) {
     return { deleted: false, name: registered.name, reason: '원본 source sheet 없음 · backup 보호' };
   }
+
+  // 현재 COMPLETED backup 자체가 실제로 유효한지 먼저 확인해야 과거 rollback을 안전하게 정리할 수 있습니다.
+  var sheet = ss.getSheetByName(registered.name);
+  if (!sheet) {
+    _writeSystemBackupRegistry(items.filter(function(item) { return item.name !== registered.name; }));
+    return { deleted: false, name: registered.name, reason: 'backup sheet 없음·registry record 정리', staleDeleted: [], staleProtected: [], missingRecords: [registered.name] };
+  }
+  if (!registered.signature) return { deleted: false, name: registered.name, reason: 'registry backup signature 없음' };
+  if (_sheetContentSignature(sheet) !== registered.signature) {
+    return { deleted: false, name: registered.name, reason: 'registry/실제 backup signature 불일치 보호' };
+  }
+
   var currentCompletedAt = _backupTimeMillis(registered.completedAt || registered.updatedAt || registered.createdAt);
   var staleCandidates = items.filter(function(item) {
     if (item.name === registered.name || item.source !== registered.source || item.systemGenerated !== true) return false;
@@ -5190,22 +5205,12 @@ function _cleanupCurrentSystemBackup(ss, record) {
     items = items.filter(function(item) { return !removedRecords[item.name]; });
     _writeSystemBackupRegistry(items);
   }
-  var sheet = ss.getSheetByName(registered.name);
-  if (!sheet) {
-    _writeSystemBackupRegistry(items.filter(function(item) { return item.name !== registered.name; }));
-    return { deleted: false, reason: 'backup sheet 없음·registry record 정리', staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords.concat([registered.name]) };
-  }
-  if (!registered.signature) return { deleted: false, name: registered.name, reason: 'registry backup signature 없음' };
-  if (_sheetContentSignature(sheet) !== registered.signature) {
-    return { deleted: false, name: registered.name, reason: 'registry/실제 backup signature 불일치 보호' };
-  }
   try {
     ss.deleteSheet(sheet);
     _writeSystemBackupRegistry(items.filter(function(item) { return item.name !== registered.name; }));
     return { deleted: true, name: registered.name, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords };
   } catch (error) { return { deleted: false, name: registered.name, reason: '삭제 실패: ' + error.message, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords }; }
 }
-
 function _cleanupCompletedOperationBackups(ss, sourceName, operationId) {
   return _readSystemBackupRegistry().filter(function(item) {
     return item.source === sourceName && item.operationId === operationId && item.systemGenerated === true && item.status === 'COMPLETED';
@@ -9741,7 +9746,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.159' });
+    return jsonOk({ settings: settings, gasVersion: '9.160' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9763,7 +9768,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.159'
+      gasVersion: '9.160'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
