@@ -35,6 +35,10 @@ assert.match(gas, /showSystemBackupDiagnosis/);
 assert.match(gas, /function _systemBackupProtectionSummaryLines/);
 assert.match(gas, /function _systemBackupProtectionReason_/);
 assert.match(gas, /content signature 불일치/);
+assert.match(gas, /legacy signature 불일치 · 자동 재서명 금지/);
+assert.match(gas, /SYSTEM_BACKUP_SIGNATURE_VERSION = 'backup-content-v2'/);
+assert.match(gas, /sourceSignature/);
+assert.match(gas, /copySignatureDrift/);
 assert.match(gas, /미완료 registry 상태/);
 assert.match(gas, /기타 안전 조건 불충족/);
 assert.match(gas, /보존 사유/);
@@ -63,7 +67,11 @@ const reasonFn = gas.match(/function _systemBackupProtectionReason_\([\s\S]*?\n\
 const reasonContext = {};
 vm.runInNewContext(`${reasonFn}\nglobalThis.protectionReason=_systemBackupProtectionReason_;`, reasonContext);
 assert.equal(reasonContext.protectionReason(
-  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, signatureVersion:'', classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:false }
+), 'legacy signature 불일치 · 자동 재서명 금지');
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, signatureVersion:'backup-content-v2', classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
   { registeredSourceExists:true, safeClass:true, registeredFailed:false }
 ), 'content signature 불일치');
 assert.equal(reasonContext.protectionReason(
