@@ -8842,6 +8842,9 @@ function _getLatestDateInColumn(sheet, column) {
 function _getAutomationStatusData() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
+  var triggerHandlers = ScriptApp.getProjectTriggers().map(function(t) { return t.getHandlerFunction(); });
+  var hasLegacyPriceTrigger = triggerHandlers.indexOf('runEvalPriceUpdate1620') !== -1;
+  var hasLegacyFundTrigger = triggerHandlers.indexOf('runDailyFundValuations') !== -1;
   var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
   var snapshotLastDate = _getLatestDateInColumn(snapSh, 1);
@@ -8862,10 +8865,11 @@ function _getAutomationStatusData() {
   var expectedSnapshotDate = _getPrevTradingDay(today(), 7) || today();
   var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasIntegrityChange;
+  var hasLegacySplitTriggers = hasLegacyPriceTrigger || hasLegacyFundTrigger;
   var closeErrors = portfolioClose && Array.isArray(portfolioClose.errors) ? portfolioClose.errors : [];
   var overallStatus = 'NORMAL';
 
-  if (missingTrigger || portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
+  if (missingTrigger || hasLegacySplitTriggers || portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
   else if (!portfolioClose) overallStatus = 'NEVER_RUN';
   else if (snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
@@ -8877,7 +8881,10 @@ function _getAutomationStatusData() {
       hasClose: !!trig.hasClose,
       hasClean: !!trig.hasClean,
       hasMortgage: !!trig.hasMortgage,
-      hasIntegrityChange: !!trig.hasIntegrityChange
+      hasIntegrityChange: !!trig.hasIntegrityChange,
+      hasLegacyPriceTrigger: hasLegacyPriceTrigger,
+      hasLegacyFundTrigger: hasLegacyFundTrigger,
+      hasLegacySplitTriggers: hasLegacySplitTriggers
     },
     portfolioClose: portfolioClose,
     portfolioCloseLastError: portfolioCloseLastError,
