@@ -1,3 +1,12 @@
+## GAS v9.170: trusted v2 이후 legacy backup 최종 정리 (2026-10-06)
+
+- 성공한 system backup은 rollback 확인이 끝나면 삭제하는 기존 **steady state 0개** 정책을 유지합니다. 운영 통합문서에 정상 백업 탭을 상시 여러 개 보존하지 않습니다.
+- 실제 backup content signature가 일치하는 최신 `backup-content-v2` COMPLETED 백업이 생성되면, 그보다 오래된 동일 source의 system-generated legacy COMPLETED 백업은 **재서명하지 않고** source schema 일치·수식 참조 0건을 확인한 뒤 stale rollback으로 정리합니다.
+- 최신 v2 자체가 유효하지 않거나 source/schema가 다르거나 수식 참조가 있으면 기존처럼 삭제하지 않습니다. `CREATED`, `WRITE_FAILED`, USER_MANAGED/UNKNOWN 보호 정책도 유지합니다.
+- 수동 `백업 진단`/유지보수 계획에서도 같은 source의 더 최신 trusted v2가 확인된 경우에만 과거 legacy signature mismatch를 정리 후보로 분류합니다.
+- 현재 운영 파일은 과거 백업을 별도 전체 사본으로 보존한 뒤 불필요한 백업 탭을 수동 정리했으며, 이 변경은 향후 legacy 누적 재발을 막기 위한 lifecycle 마무리입니다.
+- GAS/웹 기대 버전은 `9.170`, 정적 웹 cache는 `portfolio-cache-20261006-10`으로 함께 배포합니다.
+
 ## GAS v9.169: backup signature v2 + Toss token concurrency recovery (2026-10-06)
 
 - 운영 진단에서 Snapshot backup이 새로 생성될 때마다 `content signature 불일치`가 1개씩 늘어난 현상을 수정합니다. 기존에는 copy 직전 source sheet signature를 registry `signature`에 저장했지만, `copyTo()` 뒤 수식 재계산 등으로 backup의 `getValues()`가 달라질 수 있었습니다.
