@@ -96,7 +96,7 @@ if (!source.includes('SHEET_ETF_DIVIDENDS')
   process.exit(1);
 }
 
-if (!/function checkDailyAutomationStatus\(\)[\s\S]*!trig\.hasIntegrityChange[\s\S]*Snapshot integrity 구조 변경 트리거/.test(source)
+if (!/function checkDailyAutomationStatus\(\)[\s\S]*Snapshot integrity 구조 변경 트리거[\s\S]*!trig\.hasIntegrityChange/.test(source)
     || !/function initSheet\(\)[\s\S]*integritySourceCreated[\s\S]*_touchSnapshotIntegritySourceRevision\(\{ all: true \}\)/.test(source)) {
   console.error('❌ 자동화 상태 점검 또는 tracked source 시트 생성의 integrity 보호가 누락됐습니다.');
   process.exit(1);
@@ -259,7 +259,7 @@ if (!source.includes('googleFinanceSkipReason')
   process.exit(1);
 }
 
-if (!source.includes(".addItem('▶️ 확정 평가단가·스냅샷 지금 갱신', 'runDailyPriceSnapshotNow')")
+if (!source.includes(".addItem('▶️ 확정 평가단가·스냅샷 수동 갱신', 'runDailyPriceSnapshotNow')")
     || !source.includes('function runDailyPriceSnapshotNow()')) {
   console.error('❌ 16:20 자동 경로를 즉시 확인할 수 있는 수동 점검 메뉴가 필요합니다.');
   process.exit(1);
@@ -304,7 +304,7 @@ if (!snapshotRepairMatch
     || !source.includes('if (state.forceRewrite) expected = _preserveExistingForeignSnapshotRows')
     || !source.includes('getPriceHistoryRow(ss, dateStr, throwOnError)')
     || !source.includes('getLatestPriceHistoryEntries(ss, missingCodes, dateStr, throwOnError)')
-    || !source.includes("'showSnapshotConsistencyRepairStatus'")) {
+    || !source.includes("'showSnapshotRepairProgress'")) {
   console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');
   process.exit(1);
 }
