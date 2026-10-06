@@ -104,7 +104,7 @@ assert.match(gasSource, /status === 403 \? 'IP_NOT_ALLOWED_OR_FORBIDDEN'/);
 assert.doesNotMatch(webSync, /localStorage\.(?:setItem|getItem)\([^)]*Toss|lsSave\([^)]*Toss/i);
 assert.doesNotMatch(gasSource, /Logger\.log\([^\n]*(?:TOSS_CLIENT_SECRET|Authorization|access_token)/i);
 assert.match(gasSource, /function _tossCachedAccessToken_\(/);
-assert.match(gasSource, /function _invalidateTossCachedTokenIfMatches_\(/);
+assert.match(gasSource, /function _refreshTossAccessTokenAfter401_\(/);
 assert.match(gasSource, /LockService\.getScriptLock/);
 assert.match(gasSource, /status === 401 && !oauthRecoveryUsed/);
 console.log('✅ Toss 설정 UI/PropertiesService/빈 입력 보존/제한 삭제/진단 비민감 응답 회귀 검사 통과');
@@ -315,6 +315,22 @@ assert.equal(lockToken, 'token-from-other-execution', 'lock 획득 후 다른 �
 assert.equal(oauthFetches, 0, 'single-flight cache 재확인으로 중복 OAuth 발급 방지');
 assert.equal(tossLockWaits, 1);
 assert.equal(tossLockHeld, false, '직접 획득한 lock은 반환');
+
+// 401 처리 중 lock 대기 사이 다른 실행이 새 token을 저장하면 그 token을 삭제하지 않고 재사용합니다.
+cache.set('toss_oauth_token_v1', JSON.stringify({ accessToken: 'rejected-token', expiresAt: Date.now() + 3600000 }));
+tossLockHeld = false;
+tossLockWaits = 0;
+injectTokenOnNextLock = 'new-token-from-other-execution';
+oauthFetches = 0;
+context.UrlFetchApp = { fetch: url => {
+  if (url.endsWith('/oauth2/token')) oauthFetches++;
+  return response(200, { token_type: 'Bearer', access_token: 'should-not-be-issued-after-race', expires_in: 3600 });
+} };
+const racedRefreshToken = context._refreshTossAccessTokenAfter401_('rejected-token');
+assert.equal(racedRefreshToken, 'new-token-from-other-execution', 'lock 획득 후 최신 token 재비교');
+assert.equal(oauthFetches, 0, '다른 실행이 갱신한 token이 있으면 추가 OAuth 발급 금지');
+assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken, 'new-token-from-other-execution', '새 token을 잘못 삭제하지 않음');
+assert.equal(tossLockWaits, 1);
 
 // resource 401은 rejected cached token만 폐기하고 새 token으로 딱 1회 복구합니다.
 cache.clear();
