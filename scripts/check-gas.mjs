@@ -96,6 +96,16 @@ if (!source.includes('SHEET_ETF_DIVIDENDS')
   process.exit(1);
 }
 
+if (!source.includes("params.action === 'getAutomationStatus'")
+    || !source.includes('function handleGetAutomationStatus()')
+    || !source.includes('function _getAutomationStatusData()')
+    || !source.includes("overallStatus = 'NEVER_RUN'")
+    || !source.includes("portfolio_close_last_result")
+    || !source.includes("gasVersion: '9.173'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 v9.173 계약이 누락됐습니다.');
+  process.exit(1);
+}
+
 if (!/function checkDailyAutomationStatus\(\)[\s\S]*Snapshot integrity 구조 변경 트리거[\s\S]*!trig\.hasIntegrityChange/.test(source)
     || !/function initSheet\(\)[\s\S]*integritySourceCreated[\s\S]*_touchSnapshotIntegritySourceRevision\(\{ all: true \}\)/.test(source)) {
   console.error('❌ 자동화 상태 점검 또는 tracked source 시트 생성의 integrity 보호가 누락됐습니다.');
