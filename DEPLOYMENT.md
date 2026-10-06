@@ -1,3 +1,11 @@
+## GAS v9.166: 백업 진단 성능 + Toss egress fallback 통합 보강 (2026-10-06)
+
+- v9.165의 백업 진단 최적화를 유지하면서 Toss egress 관측을 단일 provider 의존에서 분리합니다.
+- Toss 진단은 `checkip.amazonaws.com`을 1차, `api.ipify.org`를 2차 fallback으로 사용합니다. 첫 provider가 HTTP 200이어도 유효 IPv4가 아니면 두 번째 provider를 시도합니다.
+- egress 관측이 모두 실패하면 원문 응답은 노출하지 않고 provider별 HTTP status, 판정 code, body length, Content-Type, elapsedMs만 반환해 `200 / INVALID_IP_RESPONSE` 원인을 추적합니다.
+- 외부 관측 IP가 실제 Toss OAuth 요청의 egress IP와 동일하다고 보장되지 않는 기존 주의문은 유지합니다.
+- GAS/웹 기대 버전은 `9.166`, 정적 웹 cache는 `portfolio-cache-20261006-6`, Toss 설정 UI는 `settings_sync.js?v=20261006-4`로 함께 배포합니다.
+
 ## GAS v9.165: 백업 진단 중복 읽기 축소 (2026-10-06)
 
 - 백업 유지보수 계획은 같은 실행에서 계산한 등록 백업의 서명 검증 결과와 source별 헤더를 재사용합니다. 수식 비교 대상은 백업 이름으로 제한하고 백업이 없으면 전체 수식 읽기를 생략합니다. 수식 참조를 검사하는 시트 범위와 기존 보호 조건은 유지합니다.
