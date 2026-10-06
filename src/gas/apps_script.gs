@@ -5464,6 +5464,7 @@ function _cleanupCurrentSystemBackup(ss, record) {
     var staleSignatureMatch = !!(item.signature && _sheetContentSignature(staleSheet) === item.signature);
     var legacySupersededByTrustedV2 = !!(currentTrustedV2 &&
       item.signatureVersion !== SYSTEM_BACKUP_SIGNATURE_VERSION &&
+      !!item.signature &&
       !operationsWithCreatedBackup[item.operationId] &&
       sourceHeaderSignature && _sheetHeaderSignature(staleSheet) === sourceHeaderSignature);
     if (!staleSignatureMatch && !legacySupersededByTrustedV2) {
@@ -5766,8 +5767,9 @@ function _planSystemBackupMaintenance(ss, options) {
       var registeredSourceExists = item.classification.indexOf('REGISTERED_') !== 0 || item.sourceSheetExists;
       var itemCompletedAt = _backupTimeMillis(item.completedAt || item.createdAt);
       var legacySupersededByTrustedV2 = !!(registeredCompleted && item.signatureVersion !== SYSTEM_BACKUP_SIGNATURE_VERSION &&
-        !item.signatureMatch && item.schemaMatch && registeredSourceExists && trustedV2CompletedAt && itemCompletedAt &&
-        itemCompletedAt < trustedV2CompletedAt && !item.operationHasCreatedBackup && item.formulaReferenceCount === 0);
+        !!records[item.name] && !!records[item.name].signature && !item.signatureMatch && item.schemaMatch && registeredSourceExists &&
+        trustedV2CompletedAt && itemCompletedAt && itemCompletedAt < trustedV2CompletedAt &&
+        !item.operationHasCreatedBackup && item.formulaReferenceCount === 0);
       item.legacySupersededByTrustedV2 = legacySupersededByTrustedV2;
       // validated recovery는 전체 Snapshot 복구가 증명한 Snapshot rollback에만 적용합니다.
       // 다른 source의 실패/미완료 CREATED backup까지 광범위하게 정리하지 않습니다.
