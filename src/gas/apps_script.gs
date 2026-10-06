@@ -5696,9 +5696,37 @@ function handleMaintainSystemBackups(dataJson) {
   catch (error) { return jsonError('시스템 백업 유지보수 실패: ' + error.message); }
 }
 
+function _systemBackupProtectionSummaryLines(source, item) {
+  var protectedItems = Array.isArray(item && item.protected) ? item.protected : [];
+  if (!protectedItems.length) return [];
+  var grouped = {};
+  protectedItems.forEach(function(entry) {
+    var reason = String(entry && entry.reason || '보존 사유 미상');
+    if (!grouped[reason]) grouped[reason] = { count: 0, names: [] };
+    grouped[reason].count++;
+    if (grouped[reason].names.length < 3 && entry && entry.name) grouped[reason].names.push(String(entry.name));
+  });
+  return Object.keys(grouped).sort(function(a, b) {
+    return grouped[b].count - grouped[a].count || a.localeCompare(b);
+  }).map(function(reason) {
+    var group = grouped[reason];
+    var extra = group.count > group.names.length ? ' 외 ' + (group.count - group.names.length) + '개' : '';
+    var examples = group.names.length ? ' · 예: ' + group.names.join(', ') + extra : '';
+    return '  - ' + reason + ': ' + group.count + '개' + examples;
+  });
+}
+
 function showSystemBackupDiagnosis() {
   var result = maintainSystemBackups({ apply: false }), lines = [];
-  Object.keys(result.bySource).sort().forEach(function(source) { var item = result.bySource[source]; lines.push(source + ': 전체 ' + item.beforeCount + ' / 보존 ' + item.keepCount + ' / 정리 후보 ' + item.deletionCandidates.length + ' / 예상 확보 ' + item.expectedReleasedCells + '셀'); });
+  Object.keys(result.bySource).sort().forEach(function(source) {
+    var item = result.bySource[source];
+    lines.push(source + ': 전체 ' + item.beforeCount + ' / 보존 ' + item.keepCount + ' / 정리 후보 ' + item.deletionCandidates.length + ' / 예상 확보 ' + item.expectedReleasedCells + '셀');
+    var protectionLines = _systemBackupProtectionSummaryLines(source, item);
+    if (protectionLines.length) {
+      lines.push('  보존 사유');
+      lines = lines.concat(protectionLines);
+    }
+  });
   SpreadsheetApp.getUi().alert('백업 진단 (삭제 없음)\n\n현재 백업 ' + result.beforeCount + '개\n전체 셀 ' + result.totalCellsBefore + ' / 잔여 셀 ' + result.remainingCellsBefore + '\n\n' + lines.join('\n'));
 }
 
