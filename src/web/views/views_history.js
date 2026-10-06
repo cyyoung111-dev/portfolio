@@ -447,6 +447,59 @@ function _renderHistDebugPanel(date) {
     </div>`;
 }
 
+async function loadAutomationStatusFromGsheet() {
+  const body = document.getElementById('automationStatusBody');
+  const badge = document.getElementById('automationStatusBadge');
+  if (!body || !badge) return;
+  if (!GSHEET_API_URL) {
+    badge.textContent = '연동 필요';
+    badge.style.color = 'var(--amber)';
+    body.innerHTML = '<div style="color:var(--muted)">Apps Script 웹앱을 먼저 연결하세요.</div>';
+    return;
+  }
+  badge.textContent = '조회 중';
+  badge.style.color = 'var(--amber)';
+  body.innerHTML = '<div style="color:var(--muted)">자동화 상태를 조회하고 있습니다...</div>';
+  try {
+    const data = await requestGsheetActionJson('getAutomationStatus', {}, { timeoutMs: 15000, retry: 1 });
+    if (!data || data.status !== 'ok' || !data.automation) throw new Error(data?.message || '자동화 상태 응답 오류');
+    const a = data.automation;
+    const close = a.portfolioClose || {};
+    const statusMap = {
+      NORMAL: ['정상', 'var(--green-lt)'],
+      WARNING: ['경고', 'var(--amber)'],
+      ERROR: ['오류', 'var(--red-lt)'],
+      NEVER_RUN: ['미실행', 'var(--muted)']
+    };
+    const mapped = statusMap[a.overallStatus] || [a.overallStatus || '미확인', 'var(--muted)'];
+    badge.textContent = mapped[0];
+    badge.style.color = mapped[1];
+    const closeTrigger = a.trigger?.hasClose ? '정상' : '없음';
+    const priceState = close.priceOk === true ? '성공' : (close.priceOk === false ? '실패' : '미실행');
+    const fundState = close.fundOk === true ? '성공' : (close.fundOk === false ? '실패' : '미실행');
+    const errorText = a.portfolioCloseLastError || a.fundLastError || (Array.isArray(close.errors) && close.errors.length ? close.errors.join(' | ') : '');
+    body.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;font-size:.68rem;line-height:1.55">
+        <div><span style="color:var(--muted)">GAS 버전</span><br><b>${_escapeHtml(a.gasVersion || data.gasVersion || '-')}</b></div>
+        <div><span style="color:var(--muted)">19시 통합 트리거</span><br><b style="color:${a.trigger?.hasClose ? 'var(--green-lt)' : 'var(--red-lt)'}">${closeTrigger}</b></div>
+        <div><span style="color:var(--muted)">기존 분리 트리거</span><br><b style="color:${a.trigger?.hasLegacySplitTriggers ? 'var(--red-lt)' : 'var(--green-lt)'}">${a.trigger?.hasLegacySplitTriggers ? '남아 있음' : '없음'}</b></div>
+        <div><span style="color:var(--muted)">마지막 통합 실행</span><br><b>${_escapeHtml(close.finishedAt || close.startedAt || '아직 없음')}</b></div>
+        <div><span style="color:var(--muted)">일반 종목</span><br><b>${priceState}${close.priceDate ? ' · ' + _escapeHtml(close.priceDate) : ''}${Number.isFinite(Number(close.priceRows)) && close.priceRows ? ' · ' + Number(close.priceRows) + '행' : ''}</b></div>
+        <div><span style="color:var(--muted)">펀드</span><br><b>${fundState}${close.fundLastDate ? ' · ' + _escapeHtml(close.fundLastDate) : (a.fundLastDate ? ' · ' + _escapeHtml(a.fundLastDate) : '')}</b></div>
+        <div><span style="color:var(--muted)">Snapshot 최근일</span><br><b>${_escapeHtml(a.snapshotLastDate || '-')}</b></div>
+        <div><span style="color:var(--muted)">가격이력 최근일</span><br><b>${_escapeHtml(a.priceHistoryLastDate || '-')}</b></div>
+        <div><span style="color:var(--muted)">조회 시각</span><br><b>${_escapeHtml(a.checkedAt || '-')}</b></div>
+      </div>
+      <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:.66rem;color:${errorText ? 'var(--red-lt)' : 'var(--muted)'};white-space:pre-wrap">
+        ${errorText ? '최근 오류: ' + _escapeHtml(errorText) : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음')}
+      </div>`;
+  } catch (error) {
+    badge.textContent = '조회 실패';
+    badge.style.color = 'var(--red-lt)';
+    body.innerHTML = '<div style="color:var(--red-lt)">자동화 상태 조회 실패: ' + _escapeHtml(error?.message || String(error)) + '</div>';
+  }
+}
+
 // ════════════════════════════════════════════════════════════════
 //  renderGsheetView — 구글시트 연동 설정 탭
 // ════════════════════════════════════════════════════════════════
@@ -473,6 +526,21 @@ function renderGsheetView(area) {
           <div style="font-size:.65rem;color:var(--muted);margin-top:2px;word-break:break-all">${isLinked ? currentUrl.slice(0, 60) + (currentUrl.length > 60 ? '…' : '') : '구글 Apps Script 웹앱 URL을 입력하세요'}</div>
         </div>
         ${isLinked ? `<button id="btn-clear-gsheet-url" class="btn-del-sm" style="margin-left:auto;flex-shrink:0">해제</button>` : ''}
+      </div>
+
+      <!-- 자동화 상태 -->
+      <div style="background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <div>
+            <div style="font-size:.72rem;font-weight:700;color:var(--text)">⏱️ 자동화 상태</div>
+            <div style="font-size:.62rem;color:var(--muted);margin-top:2px">19시 통합 마감과 최근 운영 결과를 읽기 전용으로 확인합니다.</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="automationStatusBadge" style="font-size:.62rem;border:1px solid var(--border);border-radius:999px;padding:3px 8px;background:var(--s1);color:var(--muted)">미확인</span>
+            <button data-status-action="automation-refresh" class="btn-purple-sm">새로고침</button>
+          </div>
+        </div>
+        <div id="automationStatusBody" style="font-size:.68rem;color:var(--muted);min-height:2.4em">상태 조회 전입니다.</div>
       </div>
 
       <!-- URL 입력 -->
@@ -579,6 +647,7 @@ function renderGsheetView(area) {
       </div>
 
     </div>`;
+  if (isLinked) Promise.resolve().then(() => loadAutomationStatusFromGsheet());
 }
 
 // ════════════════════════════════════════════════════════════════

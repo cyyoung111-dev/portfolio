@@ -194,6 +194,7 @@ function registerGlobalEventDelegation() {
     if (statusAction) {
       const action = statusAction.dataset.statusAction;
       if (action === 'gsheet' && typeof switchView === 'function') switchView('gsheet');
+      else if (action === 'automation-refresh' && typeof loadAutomationStatusFromGsheet === 'function') loadAutomationStatusFromGsheet();
       return;
     }
 

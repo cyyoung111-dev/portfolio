@@ -1,3 +1,10 @@
+## GAS v9.173: 웹 자동화 상태 조회 (2026-10-06)
+
+- `getAutomationStatus` read-only API로 19시 통합 마감 트리거, 기존 분리 트리거 잔존 여부, 최근 통합 실행, 일반 종목·펀드 결과, Snapshot/가격이력 최근일, 최근 오류·경고를 조회합니다.
+- 구글시트 연동 화면에 자동화 상태 카드를 추가하고 화면 진입 시 자동 조회, `새로고침` 수동 재조회만 제공합니다. 복구·트리거 변경은 웹에서 수행하지 않습니다.
+- 상태는 `NORMAL / WARNING / ERROR / NEVER_RUN`으로 판정하며 기존 16:20/펀드 분리 트리거가 남아 있으면 ERROR로 표시합니다.
+- GAS/웹 기대 버전은 `9.173`, 정적 웹 cache는 `portfolio-cache-20261006-12`입니다.
+
 ## GAS v9.172: 일반 종목·펀드 일일 마감 통합 (2026-10-06)
 
 - 기존 16:20 `runEvalPriceUpdate1620` 일반 종목 마감과 19시 `runDailyFundValuations` 펀드 마감을 19시 `runDailyPortfolioClose1900` 통합 트리거 1개로 전환합니다.
