@@ -659,6 +659,19 @@ assert.equal(historyDetailLifecycle.status,'ok');
 assert.equal(historyDetailLifecycle.items.some(item=>item.code==='F00003'),false,'상세 조회에서도 0좌 F00003 제외');
 assert(historyDetailLifecycle.items.some(item=>item.code==='000001'),'상세 조회 정상 종목 유지');
 
+const zeroOnlyEnsureSnapshot=new Sheet([header,snap('2026-01-05','F00003',3000,'MANUAL')]);
+const zeroOnlyEnsureSs=ssFor({'펀드좌수':historyLifecycleUnits,'스냅샷':zeroOnlyEnsureSnapshot});
+const savedEnsureRebuild=context._rebuildSnapshotForDateFromHistory;
+let ensureRebuildCalls=0;
+context._rebuildSnapshotForDateFromHistory=(_ss,date)=>{
+  ensureRebuildCalls++;
+  zeroOnlyEnsureSnapshot.rows=[header,snap(date,'000001',100,'PRICE_HISTORY')];
+  return '';
+};
+assert.equal(context._ensureSnapshotExistsForDate(zeroOnlyEnsureSs,'2026-01-05'),true,'0좌-only Snapshot은 존재로 오인하지 않고 재생성');
+assert.equal(ensureRebuildCalls,1,'0좌-only 날짜 재생성 1회');
+context._rebuildSnapshotForDateFromHistory=savedEnsureRebuild;
+
 // 세 펀드 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증합니다.
 const importUnits = new Sheet([['code','name','provider','start','units','at'],
   ['F00001','한화 LIFEPLUS 적격 TDF 2045 C-RPe','HANWHA_2045_CRPE','2025-01-01',2000,''],
