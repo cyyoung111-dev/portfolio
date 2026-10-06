@@ -306,6 +306,7 @@ async function diagnoseTossFromUI() {
     const data = await requestGsheetActionJson('diagnoseTossMarketData', {}, { timeoutMs: 30000, retry: 0 });
     if (!data || data.status !== 'ok') throw new Error(data?.message || '응답 오류');
     const oauth = data.oauth || { ok: false, status: null, code: 'OAUTH_RESULT_MISSING', providerCode: '' };
+    const egress = data.egressProbe || { ok: false, status: null, code: 'NOT_AVAILABLE', ip: '', provider: '' };
     const idSuffix = item => {
       const ids = [
         item?.requestId ? `requestId ${item.requestId}` : '',
@@ -314,17 +315,22 @@ async function diagnoseTossFromUI() {
       ].filter(Boolean);
       return ids.length ? ` / ${ids.join(' / ')}` : '';
     };
-    const lines = [`${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''}${idSuffix(oauth)} / ${Number(oauth.elapsedMs || 0)}ms`];
+    const lines = [`${egress.ok ? '🔎' : '⚠️'} GAS egress 관측: ${egress.status ?? '-'} / ${egress.code || 'ERROR'} / ${egress.ip || 'IP 없음'}${egress.provider ? ` / ${egress.provider}` : ''} / ${Number(egress.elapsedMs || 0)}ms`,
+      `${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''}${idSuffix(oauth)} / ${Number(oauth.elapsedMs || 0)}ms`];
     lines.push(...(data.endpoints || []).map(item => `${item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'} / ${Number(item.count || 0)}건${idSuffix(item)} / ${Number(item.elapsedMs || 0)}ms`));
     const smoke = data.priceSmoke || {};
     lines.push(`${smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} priceSmoke 005930: ${smoke.status ?? '-'} / ${smoke.code || 'ERROR'} / ${Number(smoke.resultCount || 0)}건 / ${smoke.symbol || '005930'} / 유효가격 ${smoke.validLastPrice ? '있음' : '없음'} / timestamp ${smoke.timestampPresent ? '있음' : '없음'}${idSuffix(smoke)} / ${Number(smoke.elapsedMs || 0)}ms`);
     const ipBlocked = oauth.ok && [...(data.endpoints || []), smoke].some(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN');
     const oauthFailed = !oauth.ok && oauth.code !== 'CREDENTIALS_NOT_CONFIGURED';
     const oauthUnidentified = oauthFailed && oauth.status === 401 && String(oauth.providerCode || '').toLowerCase() === 'unidentified-client';
-    const guide = ipBlocked ? '\n\n실제 Toss market endpoint 403: Google IP range pool 허용 IP 등록을 확인하세요.'
+    const oauthAccessDenied = oauthFailed && oauth.status === 403 && String(oauth.providerCode || '').toLowerCase() === 'access_denied';
+    const observedIpGuide = egress.ok && egress.ip ? ` 관측 IP ${egress.ip}를 Toss 허용 IP에 임시 등록해 재진단할 수 있습니다. 단, 이 IP가 Toss OAuth 요청에도 동일하게 사용됐다고 보장되지는 않습니다.` : '';
+    const guide = ipBlocked ? `\n\n실제 Toss market endpoint 403: Google IP range pool 허용 IP 등록을 확인하세요.${observedIpGuide}`
+      : (oauthAccessDenied ? `\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.${observedIpGuide}`
       : (oauthUnidentified ? '\n\nOAuth 401 unidentified-client · 위 request/reference/edge ID를 함께 기록해 Toss 측 인증 거부 원인을 확인하세요. Wi-Fi에서 동일 자격증명이 정상이라면 IP 허용 403과는 별도 문제입니다.'
-      : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : ''));
-    if (target) target.innerHTML = _escapeHtml(lines.join('\n') + guide);
+      : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : '')));
+    const caveat = '\n\n※ GAS egress 관측값은 외부 IP 확인 서비스가 본 참고값입니다. Toss 요청의 실제 출구 IP와 동일하다고 보장되지 않습니다.';
+    if (target) target.innerHTML = _escapeHtml(lines.join('\n') + guide + caveat);
     _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: data.ok ? 'OK' : (!oauth.ok ? oauth.code : ((data.endpoints || []).find(item => !item.ok)?.code || smoke.code || 'ERROR')) });
   } catch (error) {
     if (target) target.textContent = '❌ Toss 진단 실패: ' + (error.message || '응답 오류');

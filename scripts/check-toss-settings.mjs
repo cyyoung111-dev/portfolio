@@ -13,6 +13,13 @@ assert.match(gasSource, /TOSS_LAST_DIAGNOSTIC_(?:AT|OK|CODE)/);
 assert.match(gasSource, /function configureTossClientIdPrompt\(/);
 assert.match(gasSource, /function configureTossClientSecretPrompt\(/);
 assert.match(gasSource, /function runTossMarketDataDiagnosis\(/);
+const menuDiagnosisBody = gasSource.match(/function runTossMarketDataDiagnosis\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+assert.match(menuDiagnosisBody, /egressProbe/);
+assert.match(menuDiagnosisBody, /GAS egress 관측/);
+assert.match(menuDiagnosisBody, /OAuth 403 access_denied/);
+assert.match(menuDiagnosisBody, /실제 출구 IP와 동일하다고 보장되지 않습니다/);
+assert.match(menuDiagnosisBody, /requestId/);
+assert.match(menuDiagnosisBody, /priceSmoke 005930/);
 assert.match(gasSource, /function clearTossOpenApiConfigPrompt\(/);
 assert.match(gasSource, /Toss WTS Open API/);
 assert.match(webView, /tossClientIdInput/);
@@ -79,12 +86,14 @@ properties.set('TOSS_CLIENT_ID', 'client-123456');
 properties.set('TOSS_CLIENT_SECRET', 'super-secret-value');
 context.Utilities = { formatDate: () => '2026-10-02' };
 const response = (status, value, headers = {}) => ({ getResponseCode: () => status, getContentText: () => JSON.stringify(value), getAllHeaders: () => headers });
+const egressResponse = () => response(200, { ip: '34.64.12.34' });
 let fetchedUrls = [];
-context.UrlFetchApp = { fetch: (url) => { fetchedUrls.push(url); return response(403, { error: 'access_denied', raw: 'must-not-leak' }); } };
+context.UrlFetchApp = { fetch: (url) => { fetchedUrls.push(url); if (url.includes('api.ipify.org')) return egressResponse(); return response(403, { error: 'access_denied', raw: 'must-not-leak' }); } };
 cache.clear();
 let diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
 assert.deepEqual([diagnostic.oauth.stage, diagnostic.oauth.ok, diagnostic.oauth.status, diagnostic.oauth.code, diagnostic.oauth.providerCode], ['oauth', false, 403, 'OAUTH_FAILED', 'access_denied']);
-assert.equal(fetchedUrls.length, 1, 'OAuth 실패 시 market endpoint를 호출하지 않음');
+assert.equal(fetchedUrls.length, 2, 'egress probe 후 OAuth 실패 시 market endpoint를 호출하지 않음');
+assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider, diagnostic.egressProbe.observedOnly], [true, '34.64.12.34', 'api.ipify.org', true]);
 assert(diagnostic.endpoints.every(item => item.code === 'SKIPPED_OAUTH_FAILED'), 'OAuth 실패 endpoint는 skipped 표시');
 assert.equal(JSON.stringify(diagnostic).includes('IP_NOT_ALLOWED_OR_FORBIDDEN'), false, 'OAuth 403은 IP 오류로 오분류하지 않음');
 assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-leak|access_token|Bearer token-value/);
@@ -92,6 +101,7 @@ assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-lea
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
+  if (url.includes('api.ipify.org')) return egressResponse();
   return response(401, {
     error: { code: 'unidentified-client', requestId: 'oauth-request-id', referenceId: 'oauth-reference-id' },
     raw: 'must-not-leak'
@@ -107,12 +117,13 @@ assert.deepEqual(
   [diagnostic.oauth.requestId, diagnostic.oauth.referenceId, diagnostic.oauth.edgeRequestId],
   ['oauth-request-id', 'oauth-reference-id', 'oauth-edge-id']
 );
-assert.equal(fetchedUrls.length, 1, 'OAuth 401 실패 시 market endpoint를 호출하지 않음');
+assert.equal(fetchedUrls.length, 2, 'egress probe 후 OAuth 401 실패 시 market endpoint를 호출하지 않음');
 assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-leak|access_token|Bearer token-value/);
 
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
+  if (url.includes('api.ipify.org')) return egressResponse();
   if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'token-value', expires_in: 3600 });
   return response(403, { error: { code: 'forbidden', requestId: 'safe-request-id', referenceId: 'safe-reference-id' }, raw: 'must-not-leak' }, { 'x-amz-cf-id': 'safe-edge-id' });
 } };
@@ -129,6 +140,7 @@ assert.equal(fetchedUrls.filter(url => url.endsWith('/oauth2/token')).length, 1,
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
+  if (url.includes('api.ipify.org')) return egressResponse();
   if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'token-value', expires_in: 3600 });
   if (url.includes('/api/v1/prices?symbols=005930')) return response(200, { result: [{ symbol: '005930', lastPrice: 70000, timestamp: '2026-10-02T06:00:00Z' }] });
   return response(200, { result: [{ value: 1 }] });
@@ -145,12 +157,17 @@ assert.match(webSync, /requestId/);
 assert.match(webSync, /referenceId/);
 assert.match(webSync, /x-amz-cf-id/);
 assert.match(webSync, /unidentified-client/);
+assert.match(webSync, /GAS egress 관측/);
+assert.match(webSync, /oauthAccessDenied/);
+assert.match(webSync, /동일하다고 보장되지 않습니다/);
+assert.match(gasSource, /api\.ipify\.org\?format=json/);
 
 const diagnosePriceSmoke = result => {
   fetchedUrls = [];
   cache.set('toss_oauth_token_v1', JSON.stringify({ accessToken: 'cached-token', expiresAt: Date.now() + 3600000 }));
   context.UrlFetchApp = { fetch: url => {
     fetchedUrls.push(url);
+    if (url.includes('api.ipify.org')) return egressResponse();
     if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'fresh-token', expires_in: 3600 });
     if (url.includes('/api/v1/prices?symbols=005930')) return response(200, { result });
     return response(200, { result: [{ value: 1 }] });
