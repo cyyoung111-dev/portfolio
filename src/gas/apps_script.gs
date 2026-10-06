@@ -6,6 +6,7 @@
 //   펀드 자동실행 partial 결과를 경고로 보존하고 hard error만 실패 처리
 //   펀드좌수 0 전환일 이후 F코드를 정상/기간 Snapshot 계산에서 제외
 //   Snapshot 날짜 유실 행·0좌 펀드 잔존 행을 안전정리 경로에서 제거
+//   자동화 상태 점검에 펀드 최근 처리일·warning·error 표시
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -8725,6 +8726,12 @@ function checkDailyAutomationStatus() {
   var lastSuccessDate = props.getProperty('snapshot_last_success_date') || '-';
   var lastFailureAt = props.getProperty('snapshot_last_failure_at') || '-';
   var lastError = props.getProperty('snapshot_last_error') || '-';
+  var fundLastWarning = props.getProperty('fund_last_warning') || '-';
+  var fundLastError = props.getProperty('fund_last_error') || '-';
+  var fundLastResultRaw = props.getProperty('fund_last_result') || '';
+  var fundLastResult = null;
+  try { fundLastResult = fundLastResultRaw ? JSON.parse(fundLastResultRaw) : null; } catch(ignoreFundResult) {}
+  var fundLastDate = fundLastResult && fundLastResult.lastDate ? fundLastResult.lastDate : '-';
   var expectedSnapshotDate = _getPrevTradingDay(today(), 7) || today();
   var isSnapshotStale = snapLast === '-' || snapLast < expectedSnapshotDate;
 
@@ -8739,6 +8746,9 @@ function checkDailyAutomationStatus() {
     + '자동 생성 최근 성공: ' + lastSuccessAt + ' (기준일 ' + lastSuccessDate + ')\n'
     + '자동 생성 최근 실패: ' + lastFailureAt + '\n'
     + (lastError !== '-' ? '최근 오류: ' + lastError + '\n' : '')
+    + '펀드 최근 처리 기준일: ' + fundLastDate + '\n'
+    + (fundLastWarning !== '-' ? '펀드 경고: ' + fundLastWarning + '\n' : '')
+    + (fundLastError !== '-' ? '펀드 오류: ' + fundLastError + '\n' : '')
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + '\n'
     + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage || !trig.hasFund || !trig.hasIntegrityChange
@@ -11028,7 +11038,7 @@ function showMenuBuildError() {
 //  데이터 정리 통합 실행 — 죽은 코드 + 종목명 보정 + 스냅샷 중복 한 번에
 // ════════════════════════════════════════════════════════════════════
 function runDataCleanup() {
-  if (!_confirmPortfolioMenuAction('데이터 정리 실행', '죽은 종목코드 삭제·가격이력 종목명 보정·가격이력/스냅샷 중복 정리·만료 임시 시트 삭제를 실행합니다. 정리된 행은 자동 복원되지 않습니다. 별도 백업을 확보하고 실제 문제가 있을 때만 실행하세요.')) return;
+  if (!_confirmPortfolioMenuAction('데이터 정리 실행', '죽은 종목코드 삭제·가격이력 종목명 보정·가격이력 중복 정리와 함께 Snapshot의 날짜 유실 행·0좌 펀드 잔존 행·안전 판정된 중복을 정리하고 만료 임시 시트를 삭제합니다. Snapshot 변경 전 시스템 백업과 read-back 검증을 수행하지만, 정리된 행은 자동 복원되지 않습니다. 실제 문제가 있을 때만 실행하세요.')) return;
   try {
     var ui;
     try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
@@ -11046,15 +11056,15 @@ function runDataCleanup() {
     cleanupPriceHistoryDuplicates();
     Logger.log('[runDataCleanup] 가격이력 중복 정리 완료');
 
-    // 4) 스냅샷 중복 정리
-    cleanupSnapshotDuplicates();
-    Logger.log('[runDataCleanup] 스냅샷 중복 정리 완료');
+    // 4) 스냅샷 날짜 유실·0좌 펀드 잔존·안전 중복 정리
+    var snapshotCleanup = cleanupSnapshotDuplicates();
+    Logger.log('[runDataCleanup] 스냅샷 정리 완료: ' + JSON.stringify(snapshotCleanup || {}));
 
     // 5) 구버전 또는 만료된 조회용 임시 시트 정리
     _cleanupBenchmarkTempSheets();
     Logger.log('[runDataCleanup] 임시 시트 정리 완료');
 
-    var msg = '✅ 데이터 정리 완료\n- 죽은 코드 정리\n- 가격이력 종목명 보정\n- 가격이력 중복 제거\n- 스냅샷 중복 제거\n- 임시 시트 정리';
+    var msg = '✅ 데이터 정리 완료\n- 죽은 코드 정리\n- 가격이력 종목명 보정\n- 가격이력 중복 제거\n- Snapshot 날짜 유실·0좌 펀드 잔존·안전 중복 정리\n- 임시 시트 정리';
     Logger.log(msg);
     if (ui) ui.alert(msg);
   } catch(err) {
