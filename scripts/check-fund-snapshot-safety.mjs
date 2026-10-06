@@ -860,6 +860,34 @@ assert(lifecycleCleanup.staleProtected.some(item=>item.name==='failed-A'&&/WRITE
 assert.deepEqual(Object.keys(lifecycleSheets).filter(name=>name!=='스냅샷'),['failed-A'],'current/과거 COMPLETED는 정리하고 WRITE_FAILED만 보호');
 assert.deepEqual(JSON.parse(scriptProperties.get('system_backup_registry_v1')).map(item=>item.name),['failed-A'],'WRITE_FAILED registry 유지');
 
+// 검증된 최신 v2 COMPLETED가 생기면 더 오래된 legacy COMPLETED는 재서명 없이 schema/formula 검증으로 정리합니다.
+const legacyMigrationSheets={
+  '스냅샷':new Sheet([header]),
+  'legacy-mismatch':new Sheet([header]),
+  'legacy-formula':new Sheet([header]),
+  'legacy-schema':new Sheet([['다른헤더']]),
+  'trusted-v2':new Sheet([header]),
+  'legacy-ref':new Sheet([['ref']])
+};
+legacyMigrationSheets['legacy-ref'].formulaText="='legacy-formula'!A1";
+const legacyMigrationSs=ssFor(legacyMigrationSheets);
+const trustedV2Signature=context._sheetContentSignature(legacyMigrationSheets['trusted-v2']);
+scriptProperties.set('system_backup_registry_v1',JSON.stringify([
+  {name:'legacy-mismatch',source:'스냅샷',signature:'legacy-source-signature',status:'COMPLETED',systemGenerated:true,operationId:'legacy-old',completedAt:'2026-09-18T00:00:00Z'},
+  {name:'legacy-formula',source:'스냅샷',signature:'legacy-source-signature',status:'COMPLETED',systemGenerated:true,operationId:'legacy-formula-old',completedAt:'2026-09-18T01:00:00Z'},
+  {name:'legacy-schema',source:'스냅샷',signature:'legacy-source-signature',status:'COMPLETED',systemGenerated:true,operationId:'legacy-schema-old',completedAt:'2026-09-18T02:00:00Z'},
+  {name:'trusted-v2',source:'스냅샷',signature:trustedV2Signature,signatureVersion:'backup-content-v2',status:'COMPLETED',systemGenerated:true,operationId:'trusted-v2-op',completedAt:'2026-09-21T00:00:00Z'}
+]));
+const legacyMigrationCleanup=clone(context._cleanupCurrentSystemBackup(legacyMigrationSs,{name:'trusted-v2',source:'스냅샷',operationId:'trusted-v2-op'}));
+assert(!legacyMigrationSheets['legacy-mismatch'],'trusted v2가 있으면 stale legacy signature mismatch를 정리');
+assert(legacyMigrationCleanup.legacyMigratedDeleted.includes('legacy-mismatch'),'legacy migration 삭제를 결과에 기록');
+assert(legacyMigrationSheets['legacy-formula'],'수식 참조 legacy는 계속 보호');
+assert(legacyMigrationSheets['legacy-schema'],'source schema 불일치 legacy는 계속 보호');
+assert(legacyMigrationCleanup.staleProtected.some(item=>item.name==='legacy-formula'&&/수식 참조/.test(item.reason)),'legacy formula 보호 사유 유지');
+assert(legacyMigrationCleanup.staleProtected.some(item=>item.name==='legacy-schema'&&/signature/.test(item.reason)),'legacy schema mismatch는 signature 보호 유지');
+assert(!legacyMigrationSheets['trusted-v2'],'성공한 current v2 backup은 steady state 0 정책대로 정리');
+
+
 const maintenanceSheets={ '스냅샷':new Sheet([header]), '스냅샷_백업_failed_op':new Sheet([header]), '스냅샷_백업_completed_op':new Sheet([header]) };
 const maintenanceSs=ssFor(maintenanceSheets), maintenanceSignature=context._sheetContentSignature(maintenanceSheets['스냅샷_백업_failed_op']);
 scriptProperties.set('system_backup_registry_v1',JSON.stringify([
