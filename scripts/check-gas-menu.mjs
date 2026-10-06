@@ -66,6 +66,8 @@ function fixture() {
   f.ctx._ensureDailyTriggers = fix => { assert.equal(fix, false); return {}; };
   f.ctx._getLatestDateInColumn = () => '-';
   f.ctx._getLatestLifecycleValidSnapshotDate = () => '-';
+  f.ctx._expectedPortfolioCloseRunDate = () => '2026-10-05';
+  f.ctx._isPortfolioCloseRunStale = () => false;
   f.ctx._getPrevTradingDay = () => '2026-10-05'; f.ctx.today = () => '2026-10-06';
   f.ctx.checkDailyAutomationStatus();
   assert.equal(f.writes.length, 0);
