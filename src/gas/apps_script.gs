@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.166
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.167
+//
+//  v9.167 변경사항 (2026.10.06):
+//   Toss egress 진단 IPv4/IPv6 식별 및 address family 표시
 //
 //  v9.166 변경사항 (2026.10.06):
 //   Toss egress IPv4 관측 provider fallback·비민감 실패 메타데이터 보강
@@ -1252,7 +1255,41 @@ function _isValidIpv4_(value) {
   });
 }
 
-// 진단 전용: 외부 서비스가 관측한 UrlFetchApp 출구 IPv4를 참고값으로 반환합니다.
+function _isValidIpv6_(value) {
+  var text = String(value || '').trim().toLowerCase();
+  if (!text || text.indexOf(':') === -1 || text.indexOf('%') !== -1) return false;
+
+  // IPv4-mapped IPv6처럼 마지막 32bit가 dotted-decimal인 형태도 허용합니다.
+  var lastColon = text.lastIndexOf(':');
+  var tail = lastColon >= 0 ? text.slice(lastColon + 1) : '';
+  if (tail.indexOf('.') !== -1) {
+    if (!_isValidIpv4_(tail)) return false;
+    text = text.slice(0, lastColon + 1) + '0:0';
+  }
+
+  var compressedAt = text.indexOf('::');
+  if (compressedAt !== -1 && text.indexOf('::', compressedAt + 2) !== -1) return false;
+
+  var parts;
+  if (compressedAt !== -1) {
+    var sides = text.split('::');
+    if (sides.length !== 2) return false;
+    var left = sides[0] ? sides[0].split(':') : [];
+    var right = sides[1] ? sides[1].split(':') : [];
+    parts = left.concat(right);
+    if (parts.length >= 8) return false; // :: 는 최소 1개 hextet을 압축해야 합니다.
+  } else {
+    parts = text.split(':');
+    if (parts.length !== 8) return false;
+  }
+  return parts.every(function(part) { return /^[0-9a-f]{1,4}$/.test(part); });
+}
+
+function _diagnosticIpFamily_(value) {
+  return _isValidIpv4_(value) ? 'IPv4' : (_isValidIpv6_(value) ? 'IPv6' : '');
+}
+
+// 진단 전용: 외부 서비스가 관측한 UrlFetchApp 출구 IP를 참고값으로 반환합니다.
 // Toss 요청도 반드시 같은 NAT/egress IP를 사용한다고 보장되지는 않습니다.
 function _probeTossDiagnosticEgressIp_() {
   var startedAt = Date.now(), attempts = [];
@@ -1270,22 +1307,25 @@ function _probeTossDiagnosticEgressIp_() {
       try { headers = response.getAllHeaders ? (response.getAllHeaders() || {}) : {}; } catch (ignoreHeaders) {}
       var contentType = _tossDiagnosticIdValue_(_tossDiagnosticHeader_(headers, 'content-type'));
       var candidate = body;
-      if (!_isValidIpv4_(candidate)) {
+      var ipFamily = _diagnosticIpFamily_(candidate);
+      if (!ipFamily) {
         try {
           var parsed = JSON.parse(body || '{}');
           candidate = parsed && parsed.ip ? String(parsed.ip).trim() : '';
+          ipFamily = _diagnosticIpFamily_(candidate);
         } catch (ignoreJson) {
           candidate = '';
+          ipFamily = '';
         }
       }
-      var ip = _isValidIpv4_(candidate) ? candidate : '';
+      var ip = ipFamily ? candidate : '';
       var attemptCode = status >= 200 && status < 300 ? (ip ? 'OK' : 'INVALID_IP_RESPONSE') : 'HTTP_ERROR';
       attempts.push({
-        provider: provider.name, status: status, code: attemptCode,
+        provider: provider.name, status: status, code: attemptCode, ipFamily: ipFamily || '',
         bodyLength: body.length, contentType: contentType, elapsedMs: Date.now() - providerStartedAt
       });
       if (status >= 200 && status < 300 && ip) return {
-        ok: true, status: status, ip: ip, provider: provider.name, code: 'OK',
+        ok: true, status: status, ip: ip, ipFamily: ipFamily, provider: provider.name, code: 'OK',
         observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
       };
     } catch (err) {
@@ -1297,7 +1337,7 @@ function _probeTossDiagnosticEgressIp_() {
   }
   var last = attempts.length ? attempts[attempts.length - 1] : {};
   return {
-    ok: false, status: last.status == null ? null : last.status, ip: '',
+    ok: false, status: last.status == null ? null : last.status, ip: '', ipFamily: '',
     provider: last.provider || '', code: last.code || 'REQUEST_ERROR',
     observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
   };
@@ -4430,7 +4470,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.166' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.167' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9877,7 +9917,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.166' });
+    return jsonOk({ settings: settings, gasVersion: '9.167' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9899,7 +9939,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.166'
+      gasVersion: '9.167'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -10437,7 +10477,8 @@ function runTossMarketDataDiagnosis() {
   var oauth = result.oauth || {};
   var lines = [
     (egress.ok ? '🔎' : '⚠️') + ' GAS egress 관측: ' + (egress.status == null ? '-' : egress.status) + ' / ' + (egress.code || 'ERROR') +
-      ' / ' + (egress.ip || 'IP 없음') + (egress.provider ? ' / ' + egress.provider : '') + ' / ' + (egress.elapsedMs || 0) + 'ms',
+      (egress.ipFamily ? ' / ' + egress.ipFamily : '') + ' / ' + (egress.ip || 'IP 없음') +
+      (egress.provider ? ' / ' + egress.provider : '') + ' / ' + (egress.elapsedMs || 0) + 'ms',
     (oauth.ok ? '✅' : '❌') + ' OAuth: ' + (oauth.status == null ? '-' : oauth.status) + ' / ' + (oauth.code || 'ERROR') +
       (oauth.providerCode ? ' / ' + oauth.providerCode : '') + idSuffix(oauth) + ' / ' + (oauth.elapsedMs || 0) + 'ms'
   ];
@@ -10462,7 +10503,7 @@ function runTossMarketDataDiagnosis() {
   });
   var oauthAccessDenied = !oauth.ok && oauth.status === 403 && String(oauth.providerCode || '').toLowerCase() === 'access_denied';
   var observedIpHint = egress.ok && egress.ip
-    ? ' 관측 IP ' + egress.ip + '를 Toss 허용 IP에 임시 등록해 재진단할 수 있습니다. 단, 이 IP가 Toss OAuth 요청에도 동일하게 사용됐다고 보장되지는 않습니다.'
+    ? ' 관측 ' + (egress.ipFamily || 'IP') + ' ' + egress.ip + '를 Toss 허용 IP에 임시 등록해 재진단할 수 있습니다. 단, Toss 콘솔이 해당 address family를 지원하는지 확인해야 하며 이 IP가 Toss OAuth 요청에도 동일하게 사용됐다고 보장되지는 않습니다.'
     : '';
   var guide = endpointIpBlocked
     ? '\n\n실제 Toss market endpoint 403: Toss WTS Open API에서 GAS UrlFetchApp의 Google IP range pool 허용 IP 등록을 확인하세요.' + observedIpHint
