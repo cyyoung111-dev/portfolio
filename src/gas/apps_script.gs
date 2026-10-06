@@ -14,6 +14,7 @@
 //   lifecycle로 제거된 원장 행은 signature 동일 여부와 무관하게 rewrite 사유로 처리
 //   수동 NAV import 완전성 검사도 0좌 fund lifecycle을 동일하게 적용
 //   손익 히스토리/상세 조회도 0좌 Snapshot을 즉시 제외해 정리 전 과대평가 방지
+//   0좌 행만 남은 날짜는 Snapshot 존재로 보지 않고 정상 재생성 시도
 //   기존 Snapshot이 있는 수동 import도 날짜 전체를 lifecycle 기준으로 재작성
 //   전체 트리거 재등록 시 기존 19시 펀드 트리거를 삭제 후 1개로 재생성
 //   보호된 Snapshot 충돌은 hard failure가 아니라 fund_last_warning으로 기록
@@ -3757,10 +3758,11 @@ function _latestDateFromPriceDates(priceDates) {
 // 이미 해당 날짜 행이 있으면 재계산하지 않아 캐시 응답의 장점을 유지합니다.
 function _ensureSnapshotExistsForDate(ss, dateStr) {
   if (!dateStr) return false;
-  var existing = _readSnapshotRowsByDate(ss, dateStr);
+  var configs = _readFundUnits(ss);
+  var existing = _filterSnapshotRowsByFundLifecycle(_readSnapshotRowsByDate(ss, dateStr), configs, dateStr);
   if (existing.length > 0) return false;
   _rebuildSnapshotForDateFromHistory(ss, dateStr);
-  return _readSnapshotRowsByDate(ss, dateStr).length > 0;
+  return _filterSnapshotRowsByFundLifecycle(_readSnapshotRowsByDate(ss, dateStr), configs, dateStr).length > 0;
 }
 
 // ── 환율 조회 (GOOGLEFINANCE 기반)
