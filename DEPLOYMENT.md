@@ -1,3 +1,14 @@
+## GAS v9.169: backup signature v2 + Toss token concurrency recovery (2026-10-06)
+
+- 운영 진단에서 Snapshot backup이 새로 생성될 때마다 `content signature 불일치`가 1개씩 늘어난 현상을 수정합니다. 기존에는 copy 직전 source sheet signature를 registry `signature`에 저장했지만, `copyTo()` 뒤 수식 재계산 등으로 backup의 `getValues()`가 달라질 수 있었습니다.
+- v2부터 `sourceSignature`은 같은 원본 상태 재사용 판정에만 쓰고, registry `signature`은 실제 생성 완료된 backup sheet를 다시 읽어 계산한 값으로 저장합니다. `signatureVersion=backup-content-v2`, `copySignatureDrift`도 진단 metadata로 남깁니다.
+- 기존 signatureVersion 없는 과거 mismatch backup은 자동 재서명하지 않고 `legacy signature 불일치 · 자동 재서명 금지`로 계속 보호합니다. 과거 45개를 이번 배포만으로 자동 삭제하지 않습니다.
+- Toss OAuth token cache miss는 ScriptLock single-flight로 직렬화하고, lock 획득 후 cache를 재확인하여 동시 client_credentials 발급으로 기존 token이 무효화되는 경쟁을 줄입니다.
+- Toss resource GET이 401을 반환하면 현재 cached token이 실제 rejected token과 같을 때만 cache를 제거하고 새 token을 발급해 해당 resource 요청을 딱 1회 재시도합니다. 두 번째 401은 기존 오류 경로로 종료합니다.
+- 이 401 recovery는 이미 발급된 token이 동시성으로 무효화된 경우를 자동복구하기 위한 것입니다. 현재 모바일 진단에서 OAuth endpoint 자체가 `401 / unidentified-client`를 반환하는 문제를 해결하거나 우회하지 않습니다.
+- 기존 429/5xx retry, Retry-After/X-RateLimit-Reset, secret/token 비노출, Snapshot 보호 정책은 유지합니다.
+- GAS/웹 기대 버전은 `9.169`, 정적 웹 cache는 `portfolio-cache-20261006-9`로 함께 배포합니다.
+
 ## GAS v9.168: 백업 보호 사유 세분화 (2026-10-06)
 
 - 실제 운영 백업 진단에서 Snapshot 53개 중 44개가 포괄적인 `안전 조건 불충족`으로만 표시된 문제를 개선합니다.
