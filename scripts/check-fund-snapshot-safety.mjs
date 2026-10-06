@@ -1174,7 +1174,7 @@ context.getss=()=>importWriteSs;
 const pendingTodaySs=ssFor({'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),
   '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-09-08','F00002','KB',1200,'2026-09-08',1000,1200,'','KB_VALUE_ST']])});
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
-const pendingToday=context._refreshFundValuations(pendingTodaySs,'2026-09-09','2026-09-09','F00002');
+const pendingToday=context._refreshFundValuations(pendingTodaySs,'2026-09-09','2026-09-09','F00002',true);
 assert.equal(pendingToday.fundResults.F00002.latestUnpublished,1);
 assert.equal(pendingToday.fundResults.F00002.navMissing,0);
 context.today=()=> '2026-09-21'; // F00001 월요일은 정상 비공시일
