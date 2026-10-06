@@ -86,7 +86,8 @@ properties.set('TOSS_CLIENT_ID', 'client-123456');
 properties.set('TOSS_CLIENT_SECRET', 'super-secret-value');
 context.Utilities = { formatDate: () => '2026-10-02' };
 const response = (status, value, headers = {}) => ({ getResponseCode: () => status, getContentText: () => JSON.stringify(value), getAllHeaders: () => headers });
-const egressResponse = () => response(200, { ip: '34.64.12.34' });
+const textResponse = (status, value, headers = {}) => ({ getResponseCode: () => status, getContentText: () => String(value), getAllHeaders: () => headers });
+const egressResponse = () => textResponse(200, '34.64.12.34\n');
 let fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => { fetchedUrls.push(url); if (url.includes('api.ipify.org')) return egressResponse(); return response(403, { error: 'access_denied', raw: 'must-not-leak' }); } };
 cache.clear();
@@ -160,7 +161,8 @@ assert.match(webSync, /unidentified-client/);
 assert.match(webSync, /GAS egress 관측/);
 assert.match(webSync, /oauthAccessDenied/);
 assert.match(webSync, /동일하다고 보장되지 않습니다/);
-assert.match(gasSource, /api\.ipify\.org\?format=json/);
+assert.match(gasSource, /UrlFetchApp\.fetch\('https:\/\/api\.ipify\.org'/);
+assert.match(gasSource, /JSON\.parse\(body/);
 
 const diagnosePriceSmoke = result => {
   fetchedUrls = [];
