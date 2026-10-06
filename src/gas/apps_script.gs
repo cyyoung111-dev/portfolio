@@ -4,6 +4,7 @@
 //  v9.171 변경사항 (2026.10.06):
 //   F00002 exact standard-code NAV 자동조회 및 19시 펀드 트리거 공통 자동복구
 //   펀드 자동실행 partial 결과를 경고로 보존하고 hard error만 실패 처리
+//   펀드좌수 0 전환일 이후 F코드를 정상/기간 Snapshot 계산에서 제외
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -4496,6 +4497,20 @@ function _fundHasActiveUnitsInRange(configs, code, from, to) {
   return false;
 }
 
+// F코드의 가격이력은 NAV 단가가 아니라 전체 평가금액이므로 Snapshot 수량은 1로 표현합니다.
+// 단, 펀드좌수 이력에서 해당 날짜가 0좌로 확정되면 거래원장에 과거 보유가 남아 있어도 제외합니다.
+function _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, date) {
+  Object.keys(holdings || {}).forEach(function(key) {
+    var holding = holdings[key];
+    var code = _cleanCode(holding && holding.code) || String(holding && holding.code || '').trim().toUpperCase();
+    if (!_isFundCode(code)) return;
+    var config = _fundUnitsAtDate(configs || [], code, date);
+    if (config && config.units === 0) { delete holdings[key]; return; }
+    if (holding) holding.qty = 1;
+  });
+  return holdings;
+}
+
 function _isFundCode(code) {
   return /^F\d{5}$/.test(String(code || '').trim().toUpperCase());
 }
@@ -6601,14 +6616,10 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
     });
 
     var holdAtDate = calcHoldingsAtDate(tradeData, dateStr, nameToCode);
+    _applyFundUnitLifecycleToSnapshotHoldings(holdAtDate, _readFundUnits(ss), dateStr);
     var prices = getPriceHistoryRow(ss, dateStr, throwOnError);
     // ★ sourceMap 이제 { src, savedAt } 객체 반환
     var sourceMap = _getPriceSourceByDate(ss, dateStr, throwOnError);
-
-    Object.keys(holdAtDate).forEach(function(k) {
-      var holding = holdAtDate[k];
-      if (holding && _isFundCode(holding.code)) holding.qty = 1;
-    });
     Object.keys(holdAtDate).forEach(function(k) {
       var holding = holdAtDate[k];
       var fundCode = _cleanCode(holding && holding.code) || (holding && holding.code || '');
@@ -6999,7 +7010,7 @@ function handleDiagnoseSnapshotIntegrity(dateStr, datesStr) {
 // 단일일 계산기에 Sheet 호환 read-only view를 전달하여 계산 계약을 공유합니다.
 function _buildSnapshotRangeReadContext(ss) {
   var started = Date.now(), names = [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH,
-    CONFIG.SHEET_CODES, FUND_NAV_SHEET, '환율이력'], valuesByName = {}, counts = {};
+    CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'], valuesByName = {}, counts = {};
   names.forEach(function(name) {
     var sheet = ss.getSheetByName(name), values = [];
     if (sheet && sheet.getLastRow() && sheet.getLastColumn()) values = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
@@ -7017,7 +7028,7 @@ function _buildSnapshotRangeReadContext(ss) {
   }
   return { ss: { getSheetByName: sheetView }, valuesByName: valuesByName, readMs: Date.now() - started,
     metrics: { snapshotRows: counts[CONFIG.SHEET_SNAPSHOT], tradeRows: counts[CONFIG.SHEET_TRADES], priceHistoryRows: counts[CONFIG.SHEET_PH],
-      fundNavRows: counts[FUND_NAV_SHEET], fxRows: counts['환율이력'], sheetReads: names.length } };
+      fundNavRows: counts[FUND_NAV_SHEET], fundUnitRows: counts[FUND_UNITS_SHEET], fxRows: counts['환율이력'], sheetReads: names.length } };
 }
 
 function _indexedLatest(series, date) {
@@ -7041,7 +7052,7 @@ function _indexedFundEvaluation(context, code, date) {
 function _buildSnapshotRangeIndexes(readContext, dates) {
   var started = Date.now(), values = readContext.valuesByName, metrics = readContext.metrics;
   var context = { snapshotRowsByDate: {}, priceSeriesByCode: {}, positivePriceSeriesByCode: {}, priceExactByDateCode: {}, manualPriceSeriesByCode: {}, fundNavSeriesByCode: {}, fxSeriesByCurrency: {},
-    priceIntegrityByDate: {}, codeItems: getCodeItems(readContext.ss, true), metrics: metrics };
+    priceIntegrityByDate: {}, codeItems: getCodeItems(readContext.ss, true), fundConfigs: _readFundUnits(readContext.ss), metrics: metrics };
   context.codeByCode = {}; context.nameToCode = {}; context.currencyByCode = {};
   context.codeItems.forEach(function(item) {
     var code = _cleanCode(item.code) || String(item.code || '').trim();
@@ -7105,15 +7116,17 @@ function _buildSnapshotRangeIndexes(readContext, dates) {
 }
 
 function _buildIndexedSnapshotRows(context, date) {
-  var holdings = context.holdingsByRequestedDate[date] || {}, out = [];
+  var sourceHoldings = context.holdingsByRequestedDate[date] || {}, holdings = {}, out = [];
+  Object.keys(sourceHoldings).forEach(function(name) { holdings[name] = Object.assign({}, sourceHoldings[name]); });
+  _applyFundUnitLifecycleToSnapshotHoldings(holdings, context.fundConfigs || [], date);
   Object.keys(holdings).forEach(function(name) {
     var h = holdings[name], code = _cleanCode(h.code) || String(h.code || '').trim(), series = context.positivePriceSeriesByCode[code] || [];
     var exact = context.priceExactByDateCode[date + '|' + code] || null, latest = _indexedLatest(series, date);
     var entry = exact || latest, price = entry && entry.price > 0 ? entry.price : 0, source = entry ? entry.source : '';
     if (!exact) { var latestManual = _indexedLatest(context.manualPriceSeriesByCode[code] || [], date); if (latestManual) source = 'MANUAL'; }
-    if (_isFundCode(code)) {
-      h.qty = 1;
-      if (!(price > 0)) { var fund = _indexedFundEvaluation(context, code, date); if (fund) { price = fund.evalAmt; source = fund.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV'; entry = { date: fund.sourceDate, savedAt: '' }; } }
+    if (_isFundCode(code) && !(price > 0)) {
+      var fund = _indexedFundEvaluation(context, code, date);
+      if (fund) { price = fund.evalAmt; source = fund.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV'; entry = { date: fund.sourceDate, savedAt: '' }; }
     }
     var currency = context.currencyByCode[code] || 'KRW', fxRate = 1;
     if (currency !== 'KRW') { context.metrics.fxLookupCount++; var fx = _indexedLatest(context.fxSeriesByCurrency[currency] || [], date); fxRate = fx ? fx.rate : 0; }
