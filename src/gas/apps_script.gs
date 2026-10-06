@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.170
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.171
+//
+//  v9.171 변경사항 (2026.10.06):
+//   F00002 exact standard-code NAV 자동조회 및 19시 펀드 트리거 공통 자동복구
+//   펀드 자동실행 partial 결과를 경고로 보존하고 hard error만 실패 처리
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -4255,8 +4259,8 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
 // 보관하고 총액으로 변환한 값만 가격이력에 넣어 기존 거래·화면과 호환합니다.
 var FUND_PROVIDERS = {
   HANWHA_2045_CRPE: { id: '008942', classCode: 'C-RPe', name: '한화 LIFEPLUS 적격 TDF 2045 C-RPe', source: 'HANWHA' },
-  KB_VALUE_ST: { id: 'AQ018', classCode: 'AQ018', name: 'KB 밸류포커스 소득공제 S-T', source: null },
-  FIDELITY_BIG4_S: { id: 'AP399', classCode: 'AP399', fundCode: '69083', name: '피델리티 월드Big4 S', source: null }
+  KB_VALUE_ST: { id: 'AQ018', standardCode: 'KR5223AQ0185', classCode: 'AQ018', name: 'KB 밸류포커스 소득공제 S-T', source: 'FUNETF' },
+  FIDELITY_BIG4_S: { id: 'AP399', standardCode: 'KR5235AP3996', classCode: 'AP399', fundCode: '69083', name: '피델리티 월드Big4 S', source: null }
 };
 var FUND_UNITS_SHEET = '펀드좌수';
 var FUND_NAV_SHEET = '펀드기준가격';
@@ -4552,7 +4556,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.170' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.171' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4605,21 +4609,22 @@ function handleSaveFundUnits(dataJson) {
 }
 
 function _fundNavFetchOptions(provider, spec) {
-  return {
-    method: 'get',
-    muteHttpExceptions: true,
-    followRedirects: true,
-    headers: {
-      'Accept': 'application/json, text/plain, */*',
-      'Accept-Language': 'ko-KR,ko;q=0.9'
-    }
+  var headers = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'ko-KR,ko;q=0.9'
   };
+  if (spec && spec.source === 'FUNETF') {
+    headers['Referer'] = 'https://www.funetf.co.kr/product/fund/view/' + encodeURIComponent(spec.standardCode || '');
+    headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36';
+  }
+  return { method: 'get', muteHttpExceptions: true, followRedirects: true, headers: headers };
 }
 
 function _fundNavHttpError(provider, status) {
-  var providerName = provider === 'HANWHA_2045_CRPE' ? '한화자산운용' : '확인된 공식 제공처';
+  var spec = FUND_PROVIDERS[provider] || {};
+  var providerName = spec.source === 'HANWHA' ? '한화자산운용' : (spec.source === 'FUNETF' ? 'FunETF' : '확인된 공식 제공처');
   if (status === 401 || status === 403) {
-    return new Error('펀드 기간 기준가격 조회가 ' + providerName + ' 서버에서 거부되었습니다 (HTTP ' + status + ').');
+    return new Error('펀드 기간 기준가격 조회가 ' + providerName + ' 서버에서 거부되었습니다 (HTTP ' + status + '). 기존 확정 NAV는 보존하며 수동 import로 대체할 수 있습니다.');
   }
   return new Error('펀드 기간 기준가격 조회 실패: ' + providerName + ' HTTP ' + status + '. 기존 데이터는 변경하지 않았습니다.');
 }
@@ -4634,28 +4639,47 @@ function _parseHanwhaNavDate(value) {
 function _fetchFundNav(provider, from, to) {
   var spec = FUND_PROVIDERS[provider];
   if (!Object.prototype.hasOwnProperty.call(FUND_PROVIDERS, provider)) throw new Error('지원하지 않는 펀드 클래스');
-  if (spec.source !== 'HANWHA') throw new Error(spec.name + ' (' + spec.classCode + '): 정확한 클래스의 공식 일별 기준가격 제공처 미확인');
   var start = _fundDate(from);
   var end = _fundDate(to);
-  var url = 'https://www.hanwhafund.co.kr/api/fund/dailyPrice?fundCd=' + encodeURIComponent(spec.id)
-    + '&period=&startDate=' + encodeURIComponent(start) + '&endDate=' + encodeURIComponent(end);
+  var url = '';
+  if (spec.source === 'HANWHA') {
+    url = 'https://www.hanwhafund.co.kr/api/fund/dailyPrice?fundCd=' + encodeURIComponent(spec.id)
+      + '&period=&startDate=' + encodeURIComponent(start) + '&endDate=' + encodeURIComponent(end);
+  } else if (spec.source === 'FUNETF') {
+    if (!/^KR[0-9A-Z]{10}$/.test(String(spec.standardCode || ''))) throw new Error(spec.name + ': 표준코드 설정 오류');
+    url = 'https://www.funetf.co.kr/api/public/product/view/fundnav?fundCd=' + encodeURIComponent(spec.standardCode)
+      + '&gijunYmd=' + end.replace(/-/g, '') + '&schNavMode=&schNavStDt=' + start.replace(/-/g, '')
+      + '&schNavEdDt=' + end.replace(/-/g, '');
+  } else {
+    throw new Error(spec.name + ' (' + spec.classCode + '): 정확한 클래스의 자동 일별 기준가격 제공처 미확인');
+  }
   var response = UrlFetchApp.fetch(url, _fundNavFetchOptions(provider, spec));
   if (response.getResponseCode() !== 200) throw _fundNavHttpError(provider, response.getResponseCode());
   var payload;
   try { payload = JSON.parse(response.getContentText()); }
-  catch (err) { throw new Error('펀드 기간 기준가격 응답 형식이 JSON이 아닙니다: 한화자산운용'); }
-  var data = payload.list;
+  catch (err) { throw new Error('펀드 기간 기준가격 응답 형식이 JSON이 아닙니다: ' + (spec.source === 'HANWHA' ? '한화자산운용' : 'FunETF')); }
+  var data = spec.source === 'HANWHA' ? payload.list : payload;
   if (!Array.isArray(data) || !data.length) throw new Error('기준가격 조회 결과 없음');
-  if (!Object.prototype.hasOwnProperty.call(data[0], 'wkdate') || !Object.prototype.hasOwnProperty.call(data[0], 'price')) {
+  if (spec.source === 'HANWHA' && (!Object.prototype.hasOwnProperty.call(data[0], 'wkdate') || !Object.prototype.hasOwnProperty.call(data[0], 'price'))) {
     throw new Error('한화 NAV 응답 필드 불일치: ' + Object.keys(data[0]).sort().join(','));
+  }
+  if (spec.source === 'FUNETF' && (!Object.prototype.hasOwnProperty.call(data[0], 'gijunYmd') || !Object.prototype.hasOwnProperty.call(data[0], 'gijunGa'))) {
+    throw new Error('FunETF NAV 응답 필드 불일치: ' + Object.keys(data[0]).sort().join(','));
   }
   var seen = {};
   data.forEach(function(row) {
-    var date = _parseHanwhaNavDate(row.wkdate);
-    var nav = Number(String(row.price).replace(/,/g, ''));
+    var date, nav;
+    if (spec.source === 'HANWHA') {
+      date = _parseHanwhaNavDate(row.wkdate);
+      nav = Number(String(row.price).replace(/,/g, ''));
+    } else {
+      var rawDate = String(row.gijunYmd == null ? '' : row.gijunYmd).replace(/[^0-9]/g, '');
+      if (!/^\d{8}$/.test(rawDate)) throw new Error('FunETF NAV 공시일 형식 오류: "' + String(row.gijunYmd) + '"');
+      date = _fundDate(rawDate.slice(0,4) + '-' + rawDate.slice(4,6) + '-' + rawDate.slice(6,8));
+      nav = Number(String(row.gijunGa).replace(/,/g, ''));
+    }
     if (!isFinite(nav) || nav <= 0) throw new Error('유효하지 않은 기준가격');
     if (seen[date] && seen[date] !== nav) throw new Error('같은 날짜의 기준가격 충돌');
-    // API가 실제 HTTP 요청 범위 밖의 값을 반환해도 사용하지 않습니다.
     if (date >= start && date <= end) seen[date] = nav;
   });
   var dates = Object.keys(seen).sort();
@@ -4670,9 +4694,10 @@ function _fetchMissingFundNavBatches(provider, missingDates, activeTo, diagnosti
   var pending = missingDates.slice().sort(), rows = [], batches = [], errors = [];
   while (pending.length) {
     var from = pending[0];
-    // 한화 API는 startDate 당일이 아니라 다음 공시일부터 반환하므로
-    // 실제 누락일의 전날부터 조회하고 아래에서 원래 누락 범위만 채택합니다.
-    var queryFrom = _fundDateOffset(from, -1);
+    // 한화 API는 startDate 당일이 아니라 다음 공시일부터 반환하므로 하루 앞을 포함합니다.
+    // FunETF exact standard-code 조회는 누락일 자체부터 요청합니다.
+    var queryFrom = FUND_PROVIDERS[provider] && FUND_PROVIDERS[provider].source === 'HANWHA'
+      ? _fundDateOffset(from, -1) : from;
     var to = _fundDateOffset(from, FUND_NAV_FETCH_BATCH_DAYS - 1);
     if (to > activeTo) to = activeTo;
     var previous = from, count = 1;
@@ -4984,8 +5009,10 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       var missingDates = activeDates.filter(function(date) {
         return _fundNavExpectedPublicationDate(date, code) && !storedPublicationDates[date];
       });
-      // F00002/F00003은 저장된 검증 NAV만 사용합니다. 공식 자동조회는 F00001에만 허용합니다.
-      if (missingDates.length && !skipExternal && FUND_PROVIDERS[config.provider].source === 'HANWHA') {
+      // F00001은 한화 공식 API, F00002는 exact standard-code FunETF 공개 NAV를 사용합니다.
+      // F00003은 source 미설정이며 0좌 전환 후 외부조회하지 않습니다.
+      var providerSource = FUND_PROVIDERS[config.provider].source;
+      if (missingDates.length && !skipExternal && (providerSource === 'HANWHA' || providerSource === 'FUNETF')) {
         var fetchedResult = _fetchMissingFundNavBatches(config.provider, missingDates, activeTo, diagnostic, code);
         _fundRecoveryDiagnosticStart(diagnostic, code, 'externalNavFetch', '_fetchMissingFundNavBatches');
         _fundRecoveryDiagnosticFinish(diagnostic, fetchedResult.errors.length ? 'partial' : 'end', null, { batches: fetchedResult.batches, errors: fetchedResult.errors });
@@ -5008,7 +5035,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       }
       if (!navRows.length) {
         fundResult.status = 'partial';
-        fundResult.apiErrors.push({ from: from, to: activeTo, message: FUND_PROVIDERS[config.provider].source === 'HANWHA' ? '확정 NAV를 확보하지 못함' : '저장된 확정 NAV 없음 (외부조회 금지)' });
+        fundResult.apiErrors.push({ from: from, to: activeTo, message: (providerSource === 'HANWHA' || providerSource === 'FUNETF') ? '확정 NAV를 확보하지 못함' : '저장된 확정 NAV 없음 (외부조회 금지)' });
       }
       _fundRecoveryDiagnosticStart(diagnostic, code, 'navConfirm', '_refreshFundValuations');
       var confirmedNavDates = {};
@@ -6289,9 +6316,20 @@ function runDailyFundValuations() {
   try {
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
     var result = _refreshFundValuations(getss(), _fundDateOffset(today(), -31), today());
-    if (result.completionStatus !== 'ok') throw new Error('펀드 평가 partial: 확정 NAV 미확보 또는 외부 조회 실패');
-    if (result.missingHoldings.length) throw new Error('펀드 가격 저장됨, 거래이력 없는 스냅샷 ' + result.missingHoldings.length + '건');
     props.setProperty('fund_last_result', JSON.stringify(result));
+    if (result.missingHoldings.length) throw new Error('펀드 가격 저장됨, 거래이력 없는 스냅샷 ' + result.missingHoldings.length + '건');
+    var hardErrors = Object.keys(result.fundResults || {}).filter(function(code) {
+      return result.fundResults[code] && result.fundResults[code].status === 'error';
+    });
+    if (hardErrors.length) throw new Error('펀드 평가 오류: ' + hardErrors.join(','));
+    var warnings = [];
+    Object.keys(result.fundResults || {}).forEach(function(code) {
+      var fund = result.fundResults[code];
+      if (!fund || fund.status === 'ok') return;
+      warnings.push(code + ' ' + ((fund.inputRequiredDates || []).length ? 'NAV 미확보 ' + fund.inputRequiredDates.length + '일' : '부분 완료'));
+    });
+    if (warnings.length) props.setProperty('fund_last_warning', warnings.join(' | '));
+    else props.deleteProperty('fund_last_warning');
     props.deleteProperty('fund_last_error');
     return result;
   } catch (err) { props.setProperty('fund_last_error', String(err.message)); throw err; }
@@ -8585,22 +8623,25 @@ function setupTrigger() {
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
   ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
   ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
+  _ensureFundDailyTrigger();
   _ensureSnapshotIntegrityChangeTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
-  Logger.log('트리거 등록 완료: 01:10 주담대 갱신 → 15:50 종목코드 보정 → 16:20 평가단가 업데이트');
-  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n16:20 평가단가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 16:20 평가단가 → 19시 펀드 NAV/평가');
+  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n16:20 평가단가 업데이트\n19시 펀드 NAV/평가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
   var hasClean = false;
   var hasSave = false;
   var hasMortgage = false;
+  var hasFund = false;
   var hasIntegrityChange = false;
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (fn === 'runCodeNormalize1550') hasClean = true;
     if (fn === 'runEvalPriceUpdate1620') hasSave = true;
     if (fn === 'syncMortgageFromSchedule') hasMortgage = true;
+    if (fn === 'runDailyFundValuations') hasFund = true;
   });
   hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(false);
 
@@ -8617,21 +8658,22 @@ function _ensureDailyTriggers(autoFix) {
       ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
       hasMortgage = true;
     }
+    if (!hasFund) { _ensureFundDailyTrigger(); hasFund = true; }
     if (!hasIntegrityChange) hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(true);
   }
-  return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage, hasIntegrityChange: hasIntegrityChange };
+  return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage, hasFund: hasFund, hasIntegrityChange: hasIntegrityChange };
 }
 
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v1';
+  var checkToken = dateStr + '|integrity-change-v2-fund';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
-    var missing = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasIntegrityChange;
+    var missing = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund || !before.hasIntegrityChange;
     var after = missing ? _ensureDailyTriggers(true) : before;
-    if (after.hasClean && after.hasSave && after.hasMortgage && after.hasIntegrityChange) {
+    if (after.hasClean && after.hasSave && after.hasMortgage && after.hasFund && after.hasIntegrityChange) {
       props.setProperty('daily_triggers_checked_date', checkToken);
     }
     if (missing) Logger.log('✅ 웹 평가가격 조회에서 누락 자동 트리거 복구 완료');
@@ -8675,7 +8717,8 @@ function checkDailyAutomationStatus() {
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
     + 'runEvalPriceUpdate1620(16:20) 트리거: ' + (trig.hasSave ? '정상' : '없음') + '\n\n'
-    + 'syncMortgageFromSchedule(01:10) 트리거: ' + (trig.hasMortgage ? '정상' : '없음') + '\n\n'
+    + 'syncMortgageFromSchedule(01:10) 트리거: ' + (trig.hasMortgage ? '정상' : '없음') + '\n'
+    + 'runDailyFundValuations(19시) 트리거: ' + (trig.hasFund ? '정상' : '없음') + '\n\n'
     + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
     + '가격이력 마지막 날짜: ' + phLast + '\n'
@@ -8684,7 +8727,7 @@ function checkDailyAutomationStatus() {
     + (lastError !== '-' ? '최근 오류: ' + lastError + '\n' : '')
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + '\n'
-    + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage || !trig.hasIntegrityChange
+    + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage || !trig.hasFund || !trig.hasIntegrityChange
       ? '⚠️ 트리거 누락: [복구·정리 실행] → [누락 자동 트리거 복구]를 실행하세요.'
       : '✅ 트리거는 등록되어 있습니다. 데이터 누락은 정합성 진단으로 확인하세요.')
     + '\n이 점검은 트리거와 데이터를 변경하지 않습니다. 버전업마다 실행할 필요는 없습니다.';
@@ -10094,7 +10137,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.170' });
+    return jsonOk({ settings: settings, gasVersion: '9.171' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10116,7 +10159,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.170'
+      gasVersion: '9.171'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
