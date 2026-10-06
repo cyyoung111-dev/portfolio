@@ -5432,7 +5432,13 @@ function _cleanupCurrentSystemBackup(ss, record) {
   // legacy signature mismatch는 자체 서명을 다시 쓰지 않습니다.
   // 다만 실제 backup content로 검증된 최신 v2 COMPLETED backup이 생긴 뒤에는,
   // 그보다 오래된 동일 source의 system-generated COMPLETED backup을 schema/formula 검증 후 stale rollback으로 정리할 수 있습니다.
-  var currentTrustedV2 = registered.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION;
+  // 같은 operationId에 CREATED sibling이 남아 있으면 부분 완료 상태일 수 있으므로 current/stale 모두 cleanup 근거로 쓰지 않습니다.
+  var operationsWithCreatedBackup = {};
+  items.forEach(function(item) {
+    if (item && item.status === 'CREATED' && item.operationId) operationsWithCreatedBackup[item.operationId] = true;
+  });
+  var currentTrustedV2 = registered.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION &&
+    !operationsWithCreatedBackup[registered.operationId];
   var sourceHeaderSignature = sourceSheet ? _sheetHeaderSignature(sourceSheet) : '';
   var currentCompletedAt = _backupTimeMillis(registered.completedAt || registered.updatedAt || registered.createdAt);
   var staleCandidates = items.filter(function(item) {
@@ -5454,6 +5460,7 @@ function _cleanupCurrentSystemBackup(ss, record) {
     var staleSignatureMatch = !!(item.signature && _sheetContentSignature(staleSheet) === item.signature);
     var legacySupersededByTrustedV2 = !!(currentTrustedV2 &&
       item.signatureVersion !== SYSTEM_BACKUP_SIGNATURE_VERSION &&
+      !operationsWithCreatedBackup[item.operationId] &&
       sourceHeaderSignature && _sheetHeaderSignature(staleSheet) === sourceHeaderSignature);
     if (!staleSignatureMatch && !legacySupersededByTrustedV2) {
       staleProtected.push({ name: item.name, reason: item.signature ? 'registry/실제 backup signature 불일치 보호' : 'registry backup signature 없음' });
