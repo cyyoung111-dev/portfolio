@@ -13,6 +13,8 @@
 //   신규/헤더-only Snapshot에도 write 전 0좌 lifecycle 적용, no-op 일일 실행도 처리 기준일 보존
 //   lifecycle로 제거된 원장 행은 signature 동일 여부와 무관하게 rewrite 사유로 처리
 //   수동 NAV import 완전성 검사도 0좌 fund lifecycle을 동일하게 적용
+//   기존 Snapshot이 있는 수동 import도 날짜 전체를 lifecycle 기준으로 재작성
+//   전체 트리거 재등록 시 기존 19시 펀드 트리거를 삭제 후 1개로 재생성
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -6268,32 +6270,36 @@ function _applyFundNavImport(ss, inspected, diagnostic) {
     if (!holding) { missingHoldings.push(value.date + ':' + inspected.code); return; }
     var pnl = value.evalAmt - holding.costAmt;
     var fundRow = [value.date, value.code, value.name, 1, holding.costAmt, holding.costAmt, value.evalAmt, value.evalAmt, pnl, holding.costAmt > 0 ? Math.round(pnl / holding.costAmt * 10000) / 100 : 0, 'FUND_NAV', now];
-    var snapshotSheet = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
-    var existing = _readSnapshotRowsByDate(ss, value.date);
-    if (existing.length) {
-      var updatedSnapshot = _runFundImportStage(diagnostic, inspected.code, 'snapshotWrite', '_upsertFundImportSnapshotRow', function() {
-        return _upsertFundImportSnapshotRow(ss, snapshotSheet, value, fundRow);
-      });
-      snapshotChanges += updatedSnapshot;
-      diagnostic.persisted.snapshotWrite.updatedRows += updatedSnapshot;
+
+    var rawExisting = _readSnapshotRowsByDate(ss, value.date);
+    var existing = _filterSnapshotRowsByFundLifecycle(rawExisting, configs, value.date);
+    var rebuilt = _buildSnapshotRowsFromTradeAndPriceHistory(ss, value.date, true);
+    var combined = _mergeSnapshotRowsSafely(rebuilt, [fundRow], true);
+    combined = _mergeSnapshotRowsSafely(existing, combined, true);
+
+    var complete = Object.keys(holdings).every(function(key) {
+      var item = holdings[key];
+      return combined.some(function(row) { return (item.code && row[1] === item.code) || row[2] === item.name; });
+    });
+    if (!complete || !combined.length) {
+      missingHoldings.push(value.date + ':다른 보유종목의 평가자료 부족');
       return;
     }
-    var rebuilt = _buildSnapshotRowsFromTradeAndPriceHistory(ss, value.date, true);
-    var complete = Object.keys(holdings).every(function(key) {
-      var item = holdings[key]; return rebuilt.some(function(row) { return (item.code && row[1] === item.code) || row[2] === item.name; });
-    });
-    if (complete && rebuilt.length) {
-      var appendedSnapshots = _runFundImportStage(diagnostic, inspected.code, 'snapshotWrite', '_appendFundImportSnapshotRows', function() {
-        if (!snapshotSheet) {
-          snapshotSheet = ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
-          snapshotSheet.getRange(1,1,1,12).setValues([['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']]);
-        }
-        return _appendFundImportSnapshotRows(ss, snapshotSheet, rebuilt);
-      });
-      snapshotChanges += appendedSnapshots;
-      diagnostic.persisted.snapshotWrite.appendedRows += appendedSnapshots;
+
+    var rewritePlan = _snapshotRewritePlan(ss, value.date, combined, configs);
+    if (rewritePlan.unsafe.length) {
+      missingHoldings.push(value.date + ':Snapshot 보호 충돌: ' + rewritePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
+      return;
     }
-    else missingHoldings.push(value.date + ':다른 보유종목의 평가자료 부족');
+    if (!rewritePlan.needsRewrite) return;
+
+    _runFundImportStage(diagnostic, inspected.code, 'snapshotWrite', 'writeSnapshotRows', function() {
+      writeSnapshotRows(ss, value.date, combined, true, null, configs);
+      return 1;
+    });
+    snapshotChanges++;
+    if (rawExisting.length) diagnostic.persisted.snapshotWrite.updatedRows++;
+    else diagnostic.persisted.snapshotWrite.appendedRows++;
   });
   return {
     from: daily.length ? daily[0].date : '', to: daily.length ? daily[daily.length - 1].date : '',
@@ -8693,7 +8699,7 @@ function setupTrigger() {
     if (
       fn === 'saveDailyPriceHistory' || fn === 'cleanDeadCodes' ||
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
-      fn === 'syncMortgageFromSchedule' || fn === 'onOpen'
+      fn === 'syncMortgageFromSchedule' || fn === 'runDailyFundValuations' || fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
