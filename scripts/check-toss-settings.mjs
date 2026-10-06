@@ -118,6 +118,20 @@ assert.deepEqual(
 assert.equal(fetchedUrls.length, 3, 'egress 2회 + OAuth 1회');
 assert.doesNotMatch(JSON.stringify(diagnostic), /<html>blocked<\/html>/, 'egress 원문 응답 비노출');
 
+// HTTP 오류 본문에 유효한 IPv4가 있어도 성공으로 오분류하지 않고 다음 provider로 진행합니다.
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
+  if (url.includes('checkip.amazonaws.com')) return textResponse(403, '34.64.12.36\n', { 'content-type': 'text/plain' });
+  if (url.includes('api.ipify.org')) return textResponse(200, '34.64.12.37\n', { 'content-type': 'text/plain' });
+  return response(401, { error: { code: 'unidentified-client' } });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider], [true, '34.64.12.37', 'api.ipify.org']);
+assert.deepEqual([diagnostic.egressProbe.attempts[0].status, diagnostic.egressProbe.attempts[0].code], [403, 'HTTP_ERROR']);
+assert.equal(fetchedUrls.length, 3, 'HTTP 오류 provider는 fallback 후 OAuth까지 진행');
+
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
