@@ -64,7 +64,7 @@ assert.doesNotMatch(protectionLines[0], /스냅샷_백업_D/, '대표 시트명 
 assert.match(protectionLines[1], /수식 참조 존재: 1개/);
 
 const reasonFn = gas.match(/function _systemBackupProtectionReason_\([\s\S]*?\n\}/)?.[0] || '';
-const reasonContext = {};
+const reasonContext = { SYSTEM_BACKUP_SIGNATURE_VERSION: 'backup-content-v2' };
 vm.runInNewContext(`${reasonFn}\nglobalThis.protectionReason=_systemBackupProtectionReason_;`, reasonContext);
 assert.equal(reasonContext.protectionReason(
   { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, signatureVersion:'', classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
