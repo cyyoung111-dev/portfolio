@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.165
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.166
+//
+//  v9.166 변경사항 (2026.10.06):
+//   Toss egress IPv4 관측 provider fallback·비민감 실패 메타데이터 보강
 //
 //  v9.165 변경사항 (2026.10.06):
 //   백업 진단 서명 중복 읽기 제거·백업 대상 수식 스캔 및 source 헤더 재사용
@@ -1252,39 +1255,55 @@ function _isValidIpv4_(value) {
 // 진단 전용: 외부 서비스가 관측한 UrlFetchApp 출구 IPv4를 참고값으로 반환합니다.
 // Toss 요청도 반드시 같은 NAT/egress IP를 사용한다고 보장되지는 않습니다.
 function _probeTossDiagnosticEgressIp_() {
-  var startedAt = Date.now();
-  try {
-    // ipify의 IPv4 전용 plain-text endpoint를 사용하고, 혹시 JSON 형태가 와도 fallback 처리합니다.
-    var response = UrlFetchApp.fetch('https://api.ipify.org', {
-      method: 'get', muteHttpExceptions: true
-    });
-    var status = response.getResponseCode();
-    var body = String(response.getContentText() || '').trim();
-    var candidate = body;
-    if (!_isValidIpv4_(candidate)) {
-      try {
-        var parsed = JSON.parse(body || '{}');
-        candidate = parsed && parsed.ip ? String(parsed.ip).trim() : '';
-      } catch (ignore) {
-        candidate = '';
+  var startedAt = Date.now(), attempts = [];
+  var providers = [
+    { name: 'checkip.amazonaws.com', url: 'https://checkip.amazonaws.com/' },
+    { name: 'api.ipify.org', url: 'https://api.ipify.org' }
+  ];
+  for (var i = 0; i < providers.length; i++) {
+    var providerStartedAt = Date.now(), provider = providers[i];
+    try {
+      var response = UrlFetchApp.fetch(provider.url, { method: 'get', muteHttpExceptions: true });
+      var status = response.getResponseCode();
+      var body = String(response.getContentText() || '').trim();
+      var headers = {};
+      try { headers = response.getAllHeaders ? (response.getAllHeaders() || {}) : {}; } catch (ignoreHeaders) {}
+      var contentType = _tossDiagnosticIdValue_(_tossDiagnosticHeader_(headers, 'content-type'));
+      var candidate = body;
+      if (!_isValidIpv4_(candidate)) {
+        try {
+          var parsed = JSON.parse(body || '{}');
+          candidate = parsed && parsed.ip ? String(parsed.ip).trim() : '';
+        } catch (ignoreJson) {
+          candidate = '';
+        }
       }
+      var ip = _isValidIpv4_(candidate) ? candidate : '';
+      var attemptCode = status >= 200 && status < 300 ? (ip ? 'OK' : 'INVALID_IP_RESPONSE') : 'HTTP_ERROR';
+      attempts.push({
+        provider: provider.name, status: status, code: attemptCode,
+        bodyLength: body.length, contentType: contentType, elapsedMs: Date.now() - providerStartedAt
+      });
+      if (ip) return {
+        ok: true, status: status, ip: ip, provider: provider.name, code: 'OK',
+        observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
+      };
+    } catch (err) {
+      attempts.push({
+        provider: provider.name, status: null, code: 'REQUEST_ERROR',
+        bodyLength: 0, contentType: '', elapsedMs: Date.now() - providerStartedAt
+      });
     }
-    var ip = _isValidIpv4_(candidate) ? candidate : '';
-    return {
-      ok: status >= 200 && status < 300 && !!ip,
-      status: status,
-      ip: ip,
-      provider: 'api.ipify.org',
-      code: status >= 200 && status < 300 ? (ip ? 'OK' : 'INVALID_IP_RESPONSE') : 'HTTP_ERROR',
-      observedOnly: true,
-      elapsedMs: Date.now() - startedAt
-    };
-  } catch (err) {
-    return {
-      ok: false, status: null, ip: '', provider: 'api.ipify.org',
-      code: 'REQUEST_ERROR', observedOnly: true, elapsedMs: Date.now() - startedAt
-    };
   }
+  var last = attempts.length ? attempts[attempts.length - 1] : {};
+  var any2xxInvalid = attempts.some(function(item) {
+    return item.status >= 200 && item.status < 300 && item.code === 'INVALID_IP_RESPONSE';
+  });
+  return {
+    ok: false, status: last.status == null ? null : last.status, ip: '',
+    provider: last.provider || '', code: any2xxInvalid ? 'INVALID_IP_RESPONSE' : (last.code || 'REQUEST_ERROR'),
+    observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
+  };
 }
 
 // 연결 진단은 cache hit을 HTTP 200으로 오표시하지 않도록 OAuth endpoint를 매번 한 번 검증합니다.
@@ -4414,7 +4433,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.165' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.166' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9861,7 +9880,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.165' });
+    return jsonOk({ settings: settings, gasVersion: '9.166' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9883,7 +9902,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.165'
+      gasVersion: '9.166'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
