@@ -36,7 +36,7 @@ const PRECACHE_URLS = [
   './views/views_system.js?v=20260922-3',
   './features/settings/settings_net.js?v=20260928-5',
   './features/settings/settings.js?v=20260903-1',
-  './features/settings/settings_fetch.js?v=20261006-11',
+  './features/settings/settings_fetch.js?v=20261006-12',
   './features/management/mgmt_editor.js?v=20261001-3',
   './features/dividend/mgmt_div.js?v=20260903-1',
   './views/views_history_benchmark.js?v=20260903-1',
@@ -44,8 +44,8 @@ const PRECACHE_URLS = [
   './views/views_history_state.js?v=20260928-4',
   './views/views_history_pipeline.js?v=20261002-11',
   './views/views_history_render.js?v=20260922-3',
-  './views/views_history.js?v=20260930-3',
-  './app/event_delegation.js?v=20260922-2',
+  './views/views_history.js?v=20261006-1',
+  './app/event_delegation.js?v=20261006-1',
 ];
 
 // 설치 시: 기본 파일 미리 캐싱
