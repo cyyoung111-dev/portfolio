@@ -317,6 +317,9 @@ async function diagnoseTossFromUI() {
     };
     const lines = [`${egress.ok ? '🔎' : '⚠️'} GAS egress 관측: ${egress.status ?? '-'} / ${egress.code || 'ERROR'} / ${egress.ip || 'IP 없음'}${egress.provider ? ` / ${egress.provider}` : ''} / ${Number(egress.elapsedMs || 0)}ms`,
       `${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''}${idSuffix(oauth)} / ${Number(oauth.elapsedMs || 0)}ms`];
+    if (!egress.ok && Array.isArray(egress.attempts) && egress.attempts.length) {
+      lines.push(...egress.attempts.map(item => '  ↳ ' + (item.provider || 'provider') + ': ' + (item.status ?? '-') + ' / ' + (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) + (item.contentType ? ' / ' + item.contentType : '') + ' / ' + Number(item.elapsedMs || 0) + 'ms'));
+    }
     lines.push(...(data.endpoints || []).map(item => `${item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'} / ${Number(item.count || 0)}건${idSuffix(item)} / ${Number(item.elapsedMs || 0)}ms`));
     const smoke = data.priceSmoke || {};
     lines.push(`${smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} priceSmoke 005930: ${smoke.status ?? '-'} / ${smoke.code || 'ERROR'} / ${Number(smoke.resultCount || 0)}건 / ${smoke.symbol || '005930'} / 유효가격 ${smoke.validLastPrice ? '있음' : '없음'} / timestamp ${smoke.timestampPresent ? '있음' : '없음'}${idSuffix(smoke)} / ${Number(smoke.elapsedMs || 0)}ms`);
