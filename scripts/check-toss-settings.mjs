@@ -132,6 +132,25 @@ assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnost
 assert.deepEqual([diagnostic.egressProbe.attempts[0].status, diagnostic.egressProbe.attempts[0].code], [403, 'HTTP_ERROR']);
 assert.equal(fetchedUrls.length, 3, 'HTTP 오류 provider는 fallback 후 OAuth까지 진행');
 
+// 모든 provider 실패 시 summary의 provider/status/code는 같은 마지막 시도에서 가져옵니다.
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
+  if (url.includes('checkip.amazonaws.com')) return textResponse(200, '<html>blocked</html>', { 'content-type': 'text/html' });
+  if (url.includes('api.ipify.org')) return textResponse(503, 'service unavailable', { 'content-type': 'text/plain' });
+  return response(401, { error: { code: 'unidentified-client' } });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.deepEqual(
+  [diagnostic.egressProbe.ok, diagnostic.egressProbe.provider, diagnostic.egressProbe.status, diagnostic.egressProbe.code],
+  [false, 'api.ipify.org', 503, 'HTTP_ERROR']
+);
+assert.deepEqual(
+  diagnostic.egressProbe.attempts.map(item => [item.provider, item.status, item.code]),
+  [['checkip.amazonaws.com', 200, 'INVALID_IP_RESPONSE'], ['api.ipify.org', 503, 'HTTP_ERROR']]
+);
+
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
@@ -200,6 +219,10 @@ assert.match(gasSource, /attempts:/);
 assert.match(gasSource, /JSON\.parse\(body/);
 assert.match(webSync, /bodyLength/);
 assert.match(webSync, /contentType/);
+const menuDiagnosisBody = gasSource.match(/function runTossMarketDataDiagnosis\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+assert.match(menuDiagnosisBody, /egress\.attempts/);
+assert.match(menuDiagnosisBody, /bodyLength/);
+assert.match(menuDiagnosisBody, /contentType/);
 
 const diagnosePriceSmoke = result => {
   fetchedUrls = [];
