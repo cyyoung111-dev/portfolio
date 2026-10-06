@@ -1404,6 +1404,7 @@ function _probeTossDiagnosticEgressIp_() {
 function _tossDiagnosticAccessToken_() {
   var startedAt = Date.now(), credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
+  return _tossWithTokenLock_(function() {
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
     method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
     payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
@@ -1425,8 +1426,8 @@ function _tossDiagnosticAccessToken_() {
     ok: true, status: status, code: 'OK', providerCode: '', source: 'NETWORK', token: data.access_token,
     requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
   };
+  });
 }
-
 function _priceTimingAdd_(timings, key, startedMs) {
   if (!timings || !key || !Number.isFinite(Number(startedMs))) return;
   timings[key] = Math.max(0, Number(timings[key] || 0) + Math.max(0, Date.now() - startedMs));
