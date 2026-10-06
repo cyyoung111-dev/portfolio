@@ -13,6 +13,7 @@
 //   신규/헤더-only Snapshot에도 write 전 0좌 lifecycle 적용, no-op 일일 실행도 처리 기준일 보존
 //   lifecycle로 제거된 원장 행은 signature 동일 여부와 무관하게 rewrite 사유로 처리
 //   수동 NAV import 완전성 검사도 0좌 fund lifecycle을 동일하게 적용
+//   빈 기대 결과의 일일 재작성·전체 정합성 복구에서도 0좌 Snapshot 제거를 수행
 //   손익 히스토리/상세 조회도 0좌 Snapshot을 즉시 제외해 정리 전 과대평가 방지
 //   0좌 행만 남은 날짜는 Snapshot 존재로 보지 않고 정상 재생성 시도
 //   기존 Snapshot이 있는 수동 import도 날짜 전체를 lifecycle 기준으로 재작성
@@ -6607,18 +6608,28 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr) {
   var previousOperationId = _snapshotBackupOperationId;
   var rebuildOperationId = 'rebuildDailySnapshots|' + fromDate + '|' + toDate + '|' + Utilities.getUuid();
   _snapshotBackupOperationId = rebuildOperationId;
+  var rebuildFundConfigs = _readFundUnits(ss);
   try { Object.keys(dates).sort().forEach(function(date) {
     try {
       var rows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true);
-      if (!rows.length) { empty++; return; }
       var existing = _readSnapshotRowsByDate(ss, date);
-      var rewritePlan = _snapshotRewritePlan(ss, date, rows);
+      var rewritePlan = _snapshotRewritePlan(ss, date, rows, rebuildFundConfigs);
+      if (!rows.length) {
+        // 기대 결과가 비어도 기존 원장에 0좌 펀드가 남아 있으면 lifecycle 제거 자체는 수행합니다.
+        // 이때 다른 기존 행은 rewritePlan.raw로 보존하여 source 부족으로 전체 날짜를 지우지 않습니다.
+        if (rewritePlan.lifecycleRemovedRows > 0 && !rewritePlan.unsafe.length) {
+          writeSnapshotRows(ss, date, rewritePlan.raw, true, null, rebuildFundConfigs);
+          rebuilt++;
+          if (changes.length < 20) changes.push({ date: date, beforeRows: existing.length, afterRows: rewritePlan.raw.length, lifecycleRemovedRows: rewritePlan.lifecycleRemovedRows });
+        } else empty++;
+        return;
+      }
       if (rewritePlan.unsafe.length) {
         skipped++;
         if (errors.length < 20) errors.push({ date: date, message: rewritePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; ') });
       } else if (!rewritePlan.needsRewrite) unchanged++;
       else {
-        writeSnapshotRows(ss, date, rows, true);
+        writeSnapshotRows(ss, date, rows, true, null, rebuildFundConfigs);
         rebuilt++;
         if (changes.length < 20) changes.push({ date: date, beforeRows: existing.length, afterRows: rows.length });
       }
@@ -8225,6 +8236,7 @@ function continueSnapshotConsistencyRepair() {
     state.validatedOperationIds = state.validatedOperationIds || [];
     state.batchError = '';
     var ss = getss();
+    var repairFundConfigs = _readFundUnits(ss);
     var allDates = _getAllPriceHistoryDates(ss, state.maxDate);
     state.total = allDates.length;
     var dates = allDates.slice(state.nextIndex, state.nextIndex + SNAPSHOT_REPAIR_BATCH_SIZE);
@@ -8234,35 +8246,37 @@ function continueSnapshotConsistencyRepair() {
       var repairOperationId = 'snapshotConsistencyRepair|' + String(state.startedAt || 'repair') + '|' + snapshotDate;
       try {
         var rawRows = _readRawSnapshotRowsByDate(ss, snapshotDate);
+        var lifecycleRows = _filterSnapshotRowsByFundLifecycle(rawRows, repairFundConfigs, snapshotDate);
+        var lifecycleRemovedRows = rawRows.length - lifecycleRows.length;
         var expected = [], sourceError = '';
         try { expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate, !!state.forceRewrite); }
         catch (expectedError) { sourceError = expectedError.message || String(expectedError); }
-        var duplicateDecisions = _classifyRawSnapshotDuplicateGroups(snapshotDate, rawRows, expected, sourceError);
+        var duplicateDecisions = _classifyRawSnapshotDuplicateGroups(snapshotDate, lifecycleRows, expected, sourceError);
         var unsafeGroups = duplicateDecisions.filter(function(item) { return !item.autoResolvable; });
         if (unsafeGroups.length) throw new Error(unsafeGroups.map(function(item) { return item.classification + ': ' + item.reason; }).join('; '));
-        var existing = _dedupeSnapshotRows(rawRows);
+        var existing = _dedupeSnapshotRows(lifecycleRows);
         if (state.forceRewrite) expected = _preserveExistingForeignSnapshotRows(ss, existing, expected);
         if (sourceError) {
           state.skipped++;
           state.failedDateErrors[snapshotDate] = 'SOURCE_INCOMPLETE: ' + sourceError;
         } else if (expected.length === 0) {
           var exactOnlyGroups = duplicateDecisions.filter(function(item) { return item.classification === 'EXACT_DUPLICATE'; });
-          if (!exactOnlyGroups.length) state.skipped++;
+          if (!exactOnlyGroups.length && lifecycleRemovedRows === 0) state.skipped++;
           else {
             _snapshotBackupOperationId = repairOperationId;
-            writeSnapshotRows(ss, snapshotDate, existing, true);
+            writeSnapshotRows(ss, snapshotDate, existing, true, null, repairFundConfigs);
             SpreadsheetApp.flush();
             var afterDuplicateCleanup = diagnoseSnapshotIntegrity(ss, snapshotDate);
-            if (afterDuplicateCleanup.duplicateKeys.length || afterDuplicateCleanup.conflictKeys.length) throw new Error('expected 없는 raw 중복 정리 후 재진단 실패: ' + afterDuplicateCleanup.status);
+            if (afterDuplicateCleanup.duplicateKeys.length || afterDuplicateCleanup.conflictKeys.length) throw new Error('expected 없는 raw/lifecycle 정리 후 재진단 실패: ' + afterDuplicateCleanup.status);
             _settleSnapshotBackupOperation(ss, repairOperationId, true);
             state.repaired++;
           }
         } else {
-          if (!duplicateDecisions.length && !state.forceRewrite && _snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
+          if (!duplicateDecisions.length && lifecycleRemovedRows === 0 && !state.forceRewrite && _snapshotRowsSignature(existing) === _snapshotRowsSignature(expected)) {
             state.unchanged++;
           } else {
             _snapshotBackupOperationId = repairOperationId;
-            writeSnapshotRows(ss, snapshotDate, expected, true);
+            writeSnapshotRows(ss, snapshotDate, expected, true, null, repairFundConfigs);
             SpreadsheetApp.flush();
             var afterIntegrity = diagnoseSnapshotIntegrity(ss, snapshotDate);
             if (afterIntegrity.status !== 'VALID') throw new Error('raw 재진단 실패: ' + afterIntegrity.status);
