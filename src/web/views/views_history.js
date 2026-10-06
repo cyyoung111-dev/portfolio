@@ -482,6 +482,7 @@ async function loadAutomationStatusFromGsheet() {
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;font-size:.68rem;line-height:1.55">
         <div><span style="color:var(--muted)">GAS 버전</span><br><b>${_escapeHtml(a.gasVersion || data.gasVersion || '-')}</b></div>
         <div><span style="color:var(--muted)">19시 통합 트리거</span><br><b style="color:${a.trigger?.hasClose ? 'var(--green-lt)' : 'var(--red-lt)'}">${closeTrigger}</b></div>
+        <div><span style="color:var(--muted)">기존 분리 트리거</span><br><b style="color:${a.trigger?.hasLegacySplitTriggers ? 'var(--red-lt)' : 'var(--green-lt)'}">${a.trigger?.hasLegacySplitTriggers ? '남아 있음' : '없음'}</b></div>
         <div><span style="color:var(--muted)">마지막 통합 실행</span><br><b>${_escapeHtml(close.finishedAt || close.startedAt || '아직 없음')}</b></div>
         <div><span style="color:var(--muted)">일반 종목</span><br><b>${priceState}${close.priceDate ? ' · ' + _escapeHtml(close.priceDate) : ''}${Number.isFinite(Number(close.priceRows)) && close.priceRows ? ' · ' + Number(close.priceRows) + '행' : ''}</b></div>
         <div><span style="color:var(--muted)">펀드</span><br><b>${fundState}${close.fundLastDate ? ' · ' + _escapeHtml(close.fundLastDate) : (a.fundLastDate ? ' · ' + _escapeHtml(a.fundLastDate) : '')}</b></div>
