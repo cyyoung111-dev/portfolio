@@ -495,7 +495,11 @@ async function loadAutomationStatusFromGsheet() {
         <div><span style="color:var(--muted)">조회 시각</span><br><b>${_escapeHtml(a.checkedAt || '-')}</b></div>
       </div>
       <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:.66rem;color:${errorText ? (referenceErrorOnly ? 'var(--amber)' : 'var(--red-lt)') : 'var(--muted)'};white-space:pre-wrap">
-        ${errorText ? ((referenceErrorOnly ? '이전 펀드 오류(참고): ' : '최근 오류: ') + _escapeHtml(errorText)) : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음')}
+        ${errorText
+          ? ((referenceErrorOnly ? '이전 펀드 오류(참고): ' : '최근 오류: ') + _escapeHtml(errorText))
+          : (a.portfolioCloseRunStale
+              ? '최근 경고: 통합 마감 실행 지연 · 기대 실행일 ' + _escapeHtml(a.expectedPortfolioCloseRunDate || '-')
+              : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음'))}
       </div>`;
   } catch (error) {
     badge.textContent = '조회 실패';
