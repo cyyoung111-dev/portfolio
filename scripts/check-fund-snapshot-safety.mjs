@@ -343,8 +343,31 @@ assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스�
 assert.equal(held,false);
 assert.throws(()=>context._readSnapshotRowsByDate({getSheetByName(){throw new Error('read failed');}},'2026-01-02'),/read failed/);
 assert.equal((source.match(/function getEarliestPriceHistory\(/g)||[]).length,1);
-assert.match(source,/fn === 'syncMortgageFromSchedule' \|\| fn === 'runDailyFundValuations' \|\| fn === 'onOpen'/,'전체 트리거 재등록은 기존 19시 펀드 트리거도 삭제');
+assert.match(source,/fn === 'syncMortgageFromSchedule' \|\| fn === 'runDailyFundValuations' \|\|[\s\S]*fn === 'runDailyPortfolioClose1900'/,'전체 트리거 재등록은 분리형 레거시와 통합 마감 트리거를 함께 정리');
+assert.match(source,/ScriptApp\.newTrigger\('runDailyPortfolioClose1900'\)[\s\S]*atHour\(19\)/,'19시 통합 마감 트리거를 등록');
+assert.doesNotMatch(source.match(/function setupTrigger\([\s\S]*?\n\}/)?.[0] || '',/newTrigger\('runEvalPriceUpdate1620'\)/,'전체 재등록은 16:20 분리 트리거를 다시 만들지 않음');
+assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/saveDailyPriceHistory\(\)[\s\S]*runDailyFundValuations\(\)/,'통합 마감은 일반 종목 후 펀드를 순차 실행');
+assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/통합 마감 일반 종목 단계 실패 — 펀드 단계 계속/,'일반 종목 실패 시에도 펀드 단계를 계속 시도');
 assert.throws(()=>context.getEarliestPriceHistory({getSheetByName(){throw new Error('read failed');}},['000001'],'2026-01-02',true),/read failed/);
+
+const realSaveDailyPriceHistory=context.saveDailyPriceHistory;
+const realRunDailyFundValuations=context.runDailyFundValuations;
+let closeSteps=[];
+context.saveDailyPriceHistory=()=>{closeSteps.push('prices');return {date:'2026-10-05',rows:12};};
+context.runDailyFundValuations=()=>{closeSteps.push('funds');return {lastDate:'2026-10-06',fundResults:{}};};
+const closeOk=clone(context.runDailyPortfolioClose1900());
+assert.deepEqual(closeSteps,['prices','funds'],'통합 마감은 일반 종목→펀드 순서');
+assert.equal(closeOk.priceOk,true);
+assert.equal(closeOk.fundOk,true);
+assert.equal(JSON.parse(scriptProperties.get('portfolio_close_last_result')).priceDate,'2026-10-05');
+closeSteps=[];
+context.saveDailyPriceHistory=()=>{closeSteps.push('prices');throw new Error('price failed');};
+context.runDailyFundValuations=()=>{closeSteps.push('funds');return {lastDate:'2026-10-06',fundResults:{}};};
+assert.throws(()=>context.runDailyPortfolioClose1900(),/일반 종목: price failed/,'일반 종목 실패를 통합 실패로 보고');
+assert.deepEqual(closeSteps,['prices','funds'],'일반 종목 실패 후에도 펀드 단계 실행');
+assert.match(scriptProperties.get('portfolio_close_last_error')||'',/일반 종목: price failed/);
+context.saveDailyPriceHistory=realSaveDailyPriceHistory;
+context.runDailyFundValuations=realRunDailyFundValuations;
 
 const configs = [
   {code:'F00001',name:'테스트 펀드',provider:'HANWHA_2045_CRPE',startDate:'2026-01-01',units:1000},
