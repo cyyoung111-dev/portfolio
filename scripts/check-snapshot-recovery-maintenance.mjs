@@ -37,6 +37,8 @@ assert.match(gas, /function _systemBackupProtectionReason_/);
 assert.match(gas, /content signature 불일치/);
 assert.match(gas, /legacy signature 불일치 · 자동 재서명 금지/);
 assert.match(gas, /SYSTEM_BACKUP_SIGNATURE_VERSION = 'backup-content-v2'/);
+assert.match(gas, /currentTrustedV2[\s\S]*legacySupersededByTrustedV2/, 'trusted v2 성공 시 stale legacy cleanup 경로');
+assert.match(gas, /trustedV2CompletedAt[\s\S]*legacySupersededByTrustedV2/, 'maintenance dry-run도 newer trusted v2로 legacy stale 판정');
 assert.match(gas, /sourceSignature/);
 assert.match(gas, /copySignatureDrift/);
 assert.match(gas, /_setCodeColumnText\(backup, codeColumn\)[\s\S]*SpreadsheetApp\.flush\(\)[\s\S]*var backupSignature = _sheetContentSignature\(backup\)/, 'backup signature 전에 copyTo·서식 변경 flush');
