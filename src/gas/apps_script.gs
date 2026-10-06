@@ -4616,13 +4616,16 @@ function handleGetFundUnits() {
 
 function _ensurePortfolioCloseDailyTrigger(autoFix) {
   var triggers = ScriptApp.getProjectTriggers();
-  var hasClose = triggers.some(function(t) { return t.getHandlerFunction() === 'runDailyPortfolioClose1900'; });
+  var closeTriggers = triggers.filter(function(t) { return t.getHandlerFunction() === 'runDailyPortfolioClose1900'; });
+  var hasClose = closeTriggers.length > 0;
   if (!autoFix) return hasClose;
   if (!hasClose) {
     ScriptApp.newTrigger('runDailyPortfolioClose1900').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(19).create();
-    hasClose = true;
+    closeTriggers = ScriptApp.getProjectTriggers().filter(function(t) { return t.getHandlerFunction() === 'runDailyPortfolioClose1900'; });
+    hasClose = closeTriggers.length > 0;
   }
-  // v9.172 이전의 분리 트리거만 제거합니다. 수동 실행 함수 자체는 호환성을 위해 유지합니다.
+  // 통합 트리거는 정확히 1개만 유지하고 v9.172 이전 분리 트리거만 제거합니다.
+  closeTriggers.slice(1).forEach(function(t) { ScriptApp.deleteTrigger(t); });
   triggers.forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (fn === 'runEvalPriceUpdate1620' || fn === 'runDailyFundValuations') ScriptApp.deleteTrigger(t);
@@ -8931,14 +8934,14 @@ function runDailyPortfolioClose1900() {
 }
 
 function runDailyPriceSnapshotNow() {
-  if (!_confirmPortfolioMenuAction('확정 평가단가·스냅샷 수동 갱신', '16:20 자동 실행과 같은 경로로 확정 거래일 가격이력과 스냅샷을 저장합니다. 자동 실행 실패 또는 즉시 갱신이 필요할 때만 실행하세요.')) return;
+  if (!_confirmPortfolioMenuAction('확정 평가단가·스냅샷 수동 갱신', '19시 통합 마감의 일반 종목 단계와 같은 경로로 확정 거래일 가격이력과 스냅샷을 저장합니다. 자동 실행 실패 또는 즉시 갱신이 필요할 때만 실행하세요.')) return;
   var ui = SpreadsheetApp.getUi();
   try {
     var result = saveDailyPriceHistory();
     ui.alert('✅ 확정 평가단가·스냅샷 갱신 완료\n\n'
       + '기준일: ' + result.date + '\n'
       + '스냅샷: ' + result.rows + '행\n\n'
-      + '이 메뉴는 16:20 자동 트리거와 동일한 경로를 실행합니다.');
+      + '이 메뉴는 19시 통합 마감의 일반 종목 단계와 동일한 경로를 실행합니다.');
   } catch(err) {
     ui.alert('❌ 확정 평가단가·스냅샷 갱신 실패\n\n' + (err.message || String(err)));
     throw err;
