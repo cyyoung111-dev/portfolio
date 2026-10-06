@@ -343,6 +343,7 @@ assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스�
 assert.equal(held,false);
 assert.throws(()=>context._readSnapshotRowsByDate({getSheetByName(){throw new Error('read failed');}},'2026-01-02'),/read failed/);
 assert.equal((source.match(/function getEarliestPriceHistory\(/g)||[]).length,1);
+assert.match(source,/fn === 'syncMortgageFromSchedule' \|\| fn === 'runDailyFundValuations' \|\| fn === 'onOpen'/,'전체 트리거 재등록은 기존 19시 펀드 트리거도 삭제');
 assert.throws(()=>context.getEarliestPriceHistory({getSheetByName(){throw new Error('read failed');}},['000001'],'2026-01-02',true),/read failed/);
 
 const configs = [
@@ -769,14 +770,14 @@ const importLifecyclePrices=new Sheet([['date','code','name','price','at','sourc
 const importLifecycleTrades=new Sheet([Array(8).fill('header'),
   ['2026-01-01','buy','계좌','KB','F00002',1,800,'펀드'],
   ['2026-01-01','buy','계좌','피델리티','F00003',1,700,'펀드']]);
-const importLifecycleSnapshots=new Sheet([header]);
+const importLifecycleSnapshots=new Sheet([header,snap('2026-01-05','F00003',3000,'MANUAL')]);
 const importLifecycleSs=ssFor({'펀드좌수':importLifecycleUnits,'펀드기준가격':importLifecycleNav,'가격이력':importLifecyclePrices,'거래이력':importLifecycleTrades,'스냅샷':importLifecycleSnapshots});
 context.getss=()=>importLifecycleSs;
 const importLifecycle=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2026-01-05',nav:1000}]));
 assert.equal(importLifecycle.status,'ok','0좌 다른 펀드가 있어도 수동 NAV import 성공');
 assert(importLifecycle.evaluation.snapshots>0,'정상 F00002 Snapshot 저장');
 assert(importLifecycleSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00002'),'수동 import F00002 Snapshot 존재');
-assert.equal(importLifecycleSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'수동 import 완전성 검사에서 0좌 F00003 제외');
+assert.equal(importLifecycleSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'기존 Snapshot이 있어도 수동 import에서 0좌 F00003 MANUAL 행 제거');
 context.getss=()=>importWriteSs;
 
 const imported=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-03',nav:1000}]));
