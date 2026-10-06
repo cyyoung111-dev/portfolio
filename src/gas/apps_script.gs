@@ -833,21 +833,23 @@ function handleSaveTossConfig(dataJson) {
     var data;
     try { data = JSON.parse(String(dataJson || '{}')); }
     catch(parseError) { data = _parseJsonParam(dataJson || '{}', 'Toss 설정'); }
-    var props = PropertiesService.getScriptProperties();
-    var changed = [];
-    var clientId = String(data.clientId == null ? '' : data.clientId).trim();
-    var secret = String(data.secret == null ? '' : data.secret).trim();
-    var previousClientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
-    var previousSecret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
-    // 빈 입력은 기존 값을 유지합니다. 삭제는 별도 명시적 action에서만 허용합니다.
-    if (Object.prototype.hasOwnProperty.call(data, 'clientId') && clientId) {
-      props.setProperty('TOSS_CLIENT_ID', clientId); changed.push('clientId');
-    }
-    if (Object.prototype.hasOwnProperty.call(data, 'secret') && secret) {
-      props.setProperty('TOSS_CLIENT_SECRET', secret); changed.push('secret');
-    }
-    if ((clientId && clientId !== previousClientId) || (secret && secret !== previousSecret)) CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
-    return jsonOk({ saved: true, changed: changed, toss: _getTossConfigStatus_() });
+    return _tossWithTokenLock_(function() {
+      var props = PropertiesService.getScriptProperties();
+      var changed = [];
+      var clientId = String(data.clientId == null ? '' : data.clientId).trim();
+      var secret = String(data.secret == null ? '' : data.secret).trim();
+      var previousClientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
+      var previousSecret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
+      // 설정 변경과 token cache 무효화를 같은 lock 안에서 처리해 발급 경쟁을 막습니다.
+      if (Object.prototype.hasOwnProperty.call(data, 'clientId') && clientId) {
+        props.setProperty('TOSS_CLIENT_ID', clientId); changed.push('clientId');
+      }
+      if (Object.prototype.hasOwnProperty.call(data, 'secret') && secret) {
+        props.setProperty('TOSS_CLIENT_SECRET', secret); changed.push('secret');
+      }
+      if ((clientId && clientId !== previousClientId) || (secret && secret !== previousSecret)) CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
+      return jsonOk({ saved: true, changed: changed, toss: _getTossConfigStatus_() });
+    });
   } catch(err) {
     return jsonError('Toss 설정 저장 실패: ' + err.message);
   }
@@ -855,14 +857,16 @@ function handleSaveTossConfig(dataJson) {
 
 function handleClearTossConfig() {
   try {
-    var props = PropertiesService.getScriptProperties();
-    props.deleteProperty('TOSS_CLIENT_ID');
-    props.deleteProperty('TOSS_CLIENT_SECRET');
-    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_AT');
-    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_OK');
-    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_CODE');
-    CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
-    return jsonOk({ cleared: true, toss: _getTossConfigStatus_() });
+    return _tossWithTokenLock_(function() {
+      var props = PropertiesService.getScriptProperties();
+      props.deleteProperty('TOSS_CLIENT_ID');
+      props.deleteProperty('TOSS_CLIENT_SECRET');
+      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_AT');
+      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_OK');
+      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_CODE');
+      CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
+      return jsonOk({ cleared: true, toss: _getTossConfigStatus_() });
+    });
   } catch(err) {
     return jsonError('Toss 설정 삭제 실패: ' + err.message);
   }
@@ -1402,9 +1406,11 @@ function _probeTossDiagnosticEgressIp_() {
 
 // 연결 진단은 cache hit을 HTTP 200으로 오표시하지 않도록 OAuth endpoint를 매번 한 번 검증합니다.
 function _tossDiagnosticAccessToken_() {
-  var startedAt = Date.now(), credentials = _tossProperties_();
-  if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
+  var startedAt = Date.now();
   return _tossWithTokenLock_(function() {
+  // lock 대기 중 설정이 바뀔 수 있으므로 자격증명은 반드시 lock 획득 후 다시 읽습니다.
+  var credentials = _tossProperties_();
+  if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
     method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
     payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
