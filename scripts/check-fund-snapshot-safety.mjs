@@ -874,7 +874,7 @@ fundNav.rows = fundNav.rows.filter((row,index)=>index===0 || row[0]!=='2025-12-3
 context.jsonOk=extra=>({status:'ok',...extra});
 context.jsonError=(message,extra)=>({status:'error',message,...(extra||{})});
 context.getss=()=>ssFor(sheets);
-context._ensureFundDailyTrigger=()=>{};
+context._ensurePortfolioCloseDailyTrigger=()=>true;
 context._readSettingsMap=()=>({EDITABLE_PRICES:[{code:'F00001',name:'테스트 펀드',fund:true}]});
 const saveConfig=(startDate,units,provider='HANWHA_2045_CRPE')=>context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider,startDate,units}));
 assert.equal(saveConfig('2026-01-01',1000).status,'ok');
