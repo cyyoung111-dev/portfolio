@@ -10,6 +10,7 @@
 //   펀드 갱신 Snapshot 병합·완전성 검사에도 0좌 lifecycle 적용
 //   일일 펀드 결과는 Script Properties 한도에 맞게 날짜 상세를 제외한 compact summary 저장
 //   0좌 펀드는 MANUAL Snapshot 보호보다 lifecycle 제거를 우선 적용
+//   신규/헤더-only Snapshot에도 write 전 0좌 lifecycle 적용, no-op 일일 실행도 처리 기준일 보존
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -6342,7 +6343,7 @@ function handleImportFundNav(dataJson) {
   finally { lock.releaseLock(); }
 }
 
-function _compactFundDailyResultForProperty(result) {
+function _compactFundDailyResultForProperty(result, fallbackDate) {
   result = result || {};
   var compactFunds = {};
   Object.keys(result.fundResults || {}).sort().forEach(function(code) {
@@ -6366,7 +6367,7 @@ function _compactFundDailyResultForProperty(result) {
     saved: Number(result.saved || 0),
     navSaved: Number(result.navSaved || 0),
     snapshots: Number(result.snapshots || 0),
-    lastDate: result.lastDate || '',
+    lastDate: result.lastDate || _normalizeDate(fallbackDate || '') || '',
     missingHoldingsCount: Array.isArray(result.missingHoldings) ? result.missingHoldings.length : 0,
     funds: compactFunds
   };
@@ -6382,9 +6383,11 @@ function runDailyFundValuations() {
   var props = PropertiesService.getScriptProperties();
   try {
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
-    var result = _refreshFundValuations(getss(), _fundDateOffset(today(), -31), today());
+    var runDate = today();
+    var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate);
     // Script Properties는 값당 크기 제한이 있으므로 날짜별 상세 배열을 제외한 운영 상태만 저장합니다.
-    props.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result)));
+    // 변경할 행이 없는 정상 재실행도 runDate를 최근 처리 기준일로 남깁니다.
+    props.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result, runDate)));
     if (result.missingHoldings.length) throw new Error('펀드 가격 저장됨, 거래이력 없는 스냅샷 ' + result.missingHoldings.length + '건');
     var hardErrors = Object.keys(result.fundResults || {}).filter(function(code) {
       return result.fundResults[code] && result.fundResults[code].status === 'error';
@@ -9366,8 +9369,17 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       return r;
     });
     newRows = _dedupeSnapshotRows(newRows);
+    var configsForWrite = Array.isArray(lifecycleConfigs) ? lifecycleConfigs : null;
+    var incomingHasFundRows = newRows.some(function(row) {
+      return _isFundCode(_cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase());
+    });
+    if (incomingHasFundRows) {
+      if (!configsForWrite) configsForWrite = _readFundUnits(ss);
+      newRows = _filterSnapshotRowsByFundLifecycle(newRows, configsForWrite, normDate);
+    }
 
     if (!sh) {
+      if (!newRows.length) return;
       sh = ss.insertSheet(CONFIG.SHEET_SNAPSHOT);
       _setCodeColumnText(sh, 2);
       sh.getRange(1,1,1,colSize).setValues(header);
@@ -9382,11 +9394,11 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       var kept     = existing.filter(function(r){ return _normalizeDate(r[0]) !== normDate; });
       var sameDate = existing.filter(function(r){ return _normalizeDate(r[0]) === normDate; });
       var originalSameDateCount = sameDate.length;
-      var hasFundRows = sameDate.concat(newRows).some(function(row) {
+      var existingHasFundRows = sameDate.some(function(row) {
         return _isFundCode(_cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase());
       });
-      if (hasFundRows) {
-        var configsForWrite = Array.isArray(lifecycleConfigs) ? lifecycleConfigs : _readFundUnits(ss);
+      if (existingHasFundRows) {
+        if (!configsForWrite) configsForWrite = _readFundUnits(ss);
         sameDate = _filterSnapshotRowsByFundLifecycle(sameDate, configsForWrite, normDate);
         newRows = _filterSnapshotRowsByFundLifecycle(newRows, configsForWrite, normDate);
       }
