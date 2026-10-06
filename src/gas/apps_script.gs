@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.171
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.172
+//
+//  v9.172 변경사항 (2026.10.06):
+//   19시 통합 마감에서 일반 종목 확정가·Snapshot → 펀드 NAV/평가를 순차 자동 실행
+//   기존 16:20 일반 종목/19시 펀드 분리 트리거를 통합 마감 트리거 1개로 마이그레이션
+//   일반 종목 단계 실패 시에도 펀드 단계를 계속 시도하고 통합 결과·오류를 Script Properties에 기록
 //
 //  v9.171 변경사항 (2026.10.06):
 //   F00002 exact standard-code NAV 자동조회 및 19시 펀드 트리거 공통 자동복구
@@ -4604,15 +4609,25 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.171' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.172' } });
   }
   catch (err) { return jsonError(err.message); }
 }
 
-function _ensureFundDailyTrigger() {
-  if (!ScriptApp.getProjectTriggers().some(function(t) { return t.getHandlerFunction() === 'runDailyFundValuations'; })) {
-    ScriptApp.newTrigger('runDailyFundValuations').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(19).create();
+function _ensurePortfolioCloseDailyTrigger(autoFix) {
+  var triggers = ScriptApp.getProjectTriggers();
+  var hasClose = triggers.some(function(t) { return t.getHandlerFunction() === 'runDailyPortfolioClose1900'; });
+  if (!autoFix) return hasClose;
+  if (!hasClose) {
+    ScriptApp.newTrigger('runDailyPortfolioClose1900').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(19).create();
+    hasClose = true;
   }
+  // v9.172 이전의 분리 트리거만 제거합니다. 수동 실행 함수 자체는 호환성을 위해 유지합니다.
+  triggers.forEach(function(t) {
+    var fn = t.getHandlerFunction();
+    if (fn === 'runEvalPriceUpdate1620' || fn === 'runDailyFundValuations') ScriptApp.deleteTrigger(t);
+  });
+  return hasClose;
 }
 
 function handleSaveFundUnits(dataJson) {
@@ -4649,7 +4664,7 @@ function handleSaveFundUnits(dataJson) {
       sh.appendRow([code, String(item.name), provider, startDate, units, new Date().toISOString()]);
       _touchSnapshotIntegritySourceRevision({ from: startDate });
     }
-    _ensureFundDailyTrigger();
+    _ensurePortfolioCloseDailyTrigger(true);
     var savedConfigs = _readFundUnits(ss);
     return jsonOk({ configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19 });
   } catch (err) { return jsonError('좌수 저장 실패: ' + err.message); }
@@ -8742,31 +8757,29 @@ function setupTrigger() {
     if (
       fn === 'saveDailyPriceHistory' || fn === 'cleanDeadCodes' ||
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
-      fn === 'syncMortgageFromSchedule' || fn === 'runDailyFundValuations' || fn === 'onOpen'
+      fn === 'syncMortgageFromSchedule' || fn === 'runDailyFundValuations' ||
+      fn === 'runDailyPortfolioClose1900' || fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
-  ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
   ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
-  _ensureFundDailyTrigger();
+  _ensurePortfolioCloseDailyTrigger(true);
   _ensureSnapshotIntegrityChangeTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
-  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 16:20 평가단가 → 19시 펀드 NAV/평가');
-  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n16:20 평가단가 업데이트\n19시 펀드 NAV/평가 업데이트'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 19시 일반 종목+펀드 통합 마감');
+  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 일반 종목 확정가·Snapshot + 펀드 NAV/평가 통합 마감'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
   var hasClean = false;
-  var hasSave = false;
   var hasMortgage = false;
-  var hasFund = false;
+  var hasClose = false;
   var hasIntegrityChange = false;
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (fn === 'runCodeNormalize1550') hasClean = true;
-    if (fn === 'runEvalPriceUpdate1620') hasSave = true;
     if (fn === 'syncMortgageFromSchedule') hasMortgage = true;
-    if (fn === 'runDailyFundValuations') hasFund = true;
+    if (fn === 'runDailyPortfolioClose1900') hasClose = true;
   });
   hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(false);
 
@@ -8775,24 +8788,21 @@ function _ensureDailyTriggers(autoFix) {
       ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
       hasClean = true;
     }
-    if (!hasSave) {
-      ScriptApp.newTrigger('runEvalPriceUpdate1620').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(16).nearMinute(20).create();
-      hasSave = true;
-    }
     if (!hasMortgage) {
       ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
       hasMortgage = true;
     }
-    if (!hasFund) { _ensureFundDailyTrigger(); hasFund = true; }
+    hasClose = _ensurePortfolioCloseDailyTrigger(true);
     if (!hasIntegrityChange) hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(true);
   }
-  return { hasClean: hasClean, hasSave: hasSave, hasMortgage: hasMortgage, hasFund: hasFund, hasIntegrityChange: hasIntegrityChange };
+  // hasSave/hasFund는 기존 호출부 호환용 alias입니다. 둘 다 통합 마감 트리거 상태를 뜻합니다.
+  return { hasClean: hasClean, hasSave: hasClose, hasMortgage: hasMortgage, hasFund: hasClose, hasClose: hasClose, hasIntegrityChange: hasIntegrityChange };
 }
 
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v2-fund';
+  var checkToken = dateStr + '|integrity-change-v3-portfolio-close';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
@@ -8847,9 +8857,8 @@ function checkDailyAutomationStatus() {
 
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
-    + 'runEvalPriceUpdate1620(16:20) 트리거: ' + (trig.hasSave ? '정상' : '없음') + '\n\n'
     + 'syncMortgageFromSchedule(01:10) 트리거: ' + (trig.hasMortgage ? '정상' : '없음') + '\n'
-    + 'runDailyFundValuations(19시) 트리거: ' + (trig.hasFund ? '정상' : '없음') + '\n\n'
+    + 'runDailyPortfolioClose1900(19시) 통합 마감 트리거: ' + (trig.hasClose ? '정상' : '없음') + '\n\n'
     + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
     + '가격이력 마지막 날짜: ' + phLast + '\n'
@@ -8861,7 +8870,7 @@ function checkDailyAutomationStatus() {
     + (fundLastError !== '-' ? '펀드 오류: ' + fundLastError + '\n' : '')
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + '\n'
-    + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage || !trig.hasFund || !trig.hasIntegrityChange
+    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasIntegrityChange
       ? '⚠️ 트리거 누락: [복구·정리 실행] → [누락 자동 트리거 복구]를 실행하세요.'
       : '✅ 트리거는 등록되어 있습니다. 데이터 누락은 정합성 진단으로 확인하세요.')
     + '\n이 점검은 트리거와 데이터를 변경하지 않습니다. 버전업마다 실행할 필요는 없습니다.';
@@ -8875,6 +8884,50 @@ function runCodeNormalize1550() {
 
 function runEvalPriceUpdate1620() {
   saveDailyPriceHistory();
+}
+
+function runDailyPortfolioClose1900() {
+  var props = PropertiesService.getScriptProperties();
+  var runDate = today();
+  var startedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+  var priceResult = null;
+  var fundResult = null;
+  var errors = [];
+
+  try {
+    priceResult = saveDailyPriceHistory();
+  } catch (priceErr) {
+    errors.push('일반 종목: ' + (priceErr && priceErr.message ? priceErr.message : String(priceErr)));
+    Logger.log('⚠️ 통합 마감 일반 종목 단계 실패 — 펀드 단계 계속: ' + errors[errors.length - 1]);
+  }
+
+  try {
+    fundResult = runDailyFundValuations();
+  } catch (fundErr) {
+    errors.push('펀드: ' + (fundErr && fundErr.message ? fundErr.message : String(fundErr)));
+    Logger.log('⚠️ 통합 마감 펀드 단계 실패: ' + errors[errors.length - 1]);
+  }
+
+  var summary = {
+    runDate: runDate,
+    startedAt: startedAt,
+    finishedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+    priceOk: !!priceResult,
+    priceDate: priceResult && priceResult.date ? priceResult.date : '',
+    priceRows: priceResult && isFinite(Number(priceResult.rows)) ? Number(priceResult.rows) : 0,
+    fundOk: !!fundResult,
+    fundLastDate: fundResult && fundResult.lastDate ? fundResult.lastDate : runDate,
+    errors: errors.slice(0, 4)
+  };
+  props.setProperty('portfolio_close_last_result', JSON.stringify(summary));
+
+  if (errors.length) {
+    props.setProperty('portfolio_close_last_error', _fundPropertyText(errors.join(' | '), 2000));
+    throw new Error('통합 마감 부분 실패: ' + errors.join(' | '));
+  }
+  props.deleteProperty('portfolio_close_last_error');
+  Logger.log('✅ 19시 통합 마감 완료: 일반 종목 확정가·Snapshot + 펀드 NAV/평가');
+  return summary;
 }
 
 function runDailyPriceSnapshotNow() {
@@ -10417,7 +10470,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.171' });
+    return jsonOk({ settings: settings, gasVersion: '9.172' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10439,7 +10492,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.171'
+      gasVersion: '9.172'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
