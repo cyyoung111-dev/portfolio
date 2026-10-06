@@ -28,6 +28,7 @@ context.today = () => '2026-09-09';
 
 const realDiagnoseSnapshotIntegrity=context.diagnoseSnapshotIntegrity;
 const realSettleSnapshotBackupOperation=context._settleSnapshotBackupOperation;
+const realFetchFundNav=context._fetchFundNav;
 let backfillSettles=[];
 context.diagnoseSnapshotIntegrity=()=>({status:'VALID'});
 context._settleSnapshotBackupOperation=(_ss,operationId,succeeded,message)=>{backfillSettles.push({operationId,succeeded,message});return [];};
@@ -62,9 +63,20 @@ assert.equal(context._parseHanwhaNavDate('20260108'),'2026-01-08');
 assert.throws(()=>context._parseHanwhaNavDate('2026-01-08~2026-01-09'),/2026-01-08~2026-01-09/,'범위 문자열은 단일 공시일로 허용하지 않고 원문 표시');
 assert.equal(fundFetchCalls[0].options.method,'get');
 assert.match(fundFetchCalls[0].url,/hanwhafund\.co\.kr\/api\/fund\/dailyPrice\?fundCd=008942&period=&startDate=2026-01-01&endDate=2026-01-02/);
-assert.throws(()=>context._fetchFundNav('KB_VALUE_ST','2026-01-01','2026-01-02'),/AQ018.*미확인/);
+context.UrlFetchApp={fetch(url,options){
+  fundFetchCalls.push({url,options});
+  return {getResponseCode:()=>200,getContentText:()=>JSON.stringify([
+    {gijunYmd:'20260101',gijunGa:'2,000.25'},
+    {gijunYmd:'20260102',gijunGa:'2,001.50'}
+  ])};
+}};
+assert.deepEqual(clone(context._fetchFundNav('KB_VALUE_ST','2026-01-01','2026-01-02')),[
+  {date:'2026-01-01',nav:2000.25},{date:'2026-01-02',nav:2001.5}
+],'F00002는 exact standard code FunETF NAV를 자동조회');
+assert.match(fundFetchCalls[1].url,/funetf\.co\.kr\/api\/public\/product\/view\/fundnav\?fundCd=KR5223AQ0185/);
+assert.match(fundFetchCalls[1].options.headers.Referer,/KR5223AQ0185/);
 assert.throws(()=>context._fetchFundNav('FIDELITY_BIG4_S','2026-01-01','2026-01-02'),/AP399.*미확인/);
-assert.equal(fundFetchCalls.length,1,'미확정 클래스는 FunETF를 포함한 외부 요청을 하지 않음');
+assert.equal(fundFetchCalls.length,2,'F00001과 F00002만 자동 외부조회');
 context.UrlFetchApp={fetch:()=>({getResponseCode:()=>403,getContentText:()=>'<html>forbidden</html>'})};
 assert.throws(()=>context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02'),/HTTP 403/);
 context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({list:[]})})};
@@ -331,6 +343,7 @@ assert.equal(operationSheet.formats[2],'@','Snapshot 종목코드 열을 텍스�
 assert.equal(held,false);
 assert.throws(()=>context._readSnapshotRowsByDate({getSheetByName(){throw new Error('read failed');}},'2026-01-02'),/read failed/);
 assert.equal((source.match(/function getEarliestPriceHistory\(/g)||[]).length,1);
+assert.match(source,/fn === 'syncMortgageFromSchedule' \|\| fn === 'runDailyFundValuations' \|\| fn === 'onOpen'/,'전체 트리거 재등록은 기존 19시 펀드 트리거도 삭제');
 assert.throws(()=>context.getEarliestPriceHistory({getSheetByName(){throw new Error('read failed');}},['000001'],'2026-01-02',true),/read failed/);
 
 const configs = [
@@ -518,6 +531,33 @@ context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 const zeroOnlySheets={'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-01',0,'']])};
 context._fetchFundNav=()=>{ throw new Error('0좌만 남은 F코드는 조회하면 안 됩니다.'); };
 assert.equal(context._refreshFundValuations(ssFor(zeroOnlySheets),'2026-01-01','2026-01-02').saved,0);
+const lifecycleHoldings={
+  '과거 펀드':{code:'F00003',name:'과거 펀드',qty:10,costAmt:1000},
+  '일반주식':{code:'000001',name:'일반주식',qty:2,costAmt:200}
+};
+context._applyFundUnitLifecycleToSnapshotHoldings(lifecycleHoldings,[
+  {code:'F00003',startDate:'2024-01-01',units:10000},
+  {code:'F00003',startDate:'2024-01-03',units:0}
+],'2024-01-04');
+assert.equal(lifecycleHoldings['과거 펀드'],undefined,'0좌 전환일 이후 F코드는 Snapshot holdings에서 제거');
+assert.equal(lifecycleHoldings['일반주식'].qty,2,'일반 종목은 영향 없음');
+
+const headerOnlyLifecycleUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-01',0,'']]);
+const headerOnlyLifecycleSnapshot=new Sheet([header]);
+const headerOnlyLifecycleSheets={'펀드좌수':headerOnlyLifecycleUnits,'스냅샷':headerOnlyLifecycleSnapshot};
+const headerOnlyLifecycleSs=ssFor(headerOnlyLifecycleSheets);
+context.writeSnapshotRows(headerOnlyLifecycleSs,'2024-01-04',[
+  snap('2024-01-04','F00003',3000,'MANUAL'),
+  snap('2024-01-04','000001',300,'PRICE_HISTORY')
+],true);
+assert.equal(headerOnlyLifecycleSnapshot.rows.some(row=>row[1]==='F00003'),false,'헤더-only Snapshot append 전 0좌 F코드 제거');
+assert(headerOnlyLifecycleSnapshot.rows.some(row=>row[1]==='000001'),'헤더-only Snapshot의 정상 종목은 저장');
+
+const missingLifecycleSheets={'펀드좌수':headerOnlyLifecycleUnits};
+const missingLifecycleSs=ssFor(missingLifecycleSheets);
+context.writeSnapshotRows(missingLifecycleSs,'2024-01-04',[snap('2024-01-04','F00003',3000,'MANUAL')],true);
+assert.equal(!!missingLifecycleSheets['스냅샷'],false,'0좌 F코드만 들어온 신규 Snapshot은 빈 시트를 만들지 않음');
 
 // F00001 batch 일부 timeout이어도 저장 NAV 기반 F00002/F00003 복구는 계속합니다.
 const mixedUnits = new Sheet([['code','name','provider','start','units','at'],
@@ -533,7 +573,15 @@ const mixedSs = ssFor({'펀드좌수':mixedUnits,'펀드기준가격':mixedNav,'
 const mixedCalls=[];
 context._fetchFundNav=(provider,from,to)=>{
   mixedCalls.push([provider,from,to]);
-  if (from === '2026-01-12' && to === '2026-01-14') throw new Error('한화 NAV API timeout');
+  if (provider==='HANWHA_2045_CRPE' && from === '2026-01-12' && to === '2026-01-14') throw new Error('한화 NAV API timeout');
+  if (provider==='KB_VALUE_ST') {
+    const rows=[];
+    for (let cursor=new Date(from+'T00:00:00Z'), end=new Date(to+'T00:00:00Z'); cursor<=end; cursor.setUTCDate(cursor.getUTCDate()+1)) {
+      const day=cursor.getUTCDay();
+      if (day!==0 && day!==6) rows.push({date:cursor.toISOString().slice(0,10),nav:2000});
+    }
+    return rows;
+  }
   return [{date:to,nav:1000}];
 };
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
@@ -542,16 +590,87 @@ assert.equal(mixed.completionStatus,'partial');
 assert.equal(mixed.fundResults.F00001.apiFailed,1);
 assert.equal(mixed.fundResults.F00001.apiSuccess,8,'성공한 API batch NAV는 유지');
 assert.equal(mixed.fundResults.F00002.storedNav,1);
-assert.equal(mixed.fundResults.F00002.apiRequested,0,'F00002는 외부 API를 호출하지 않음');
-assert(mixed.fundResults.F00002.carried>0,'F00002 누락일은 직전 확정 NAV로 임시 평가');
-assert(mixed.fundResults.F00002.inputRequiredDates.includes('2026-01-05'),'F00002 평일 NAV 누락일은 입력 필요로 반환');
+assert(mixed.fundResults.F00002.apiRequested>0,'F00002 누락일은 exact standard-code 외부 NAV 자동조회');
+assert.equal(mixed.fundResults.F00002.apiFailed,0,'F00002 정상 응답은 실패 없이 반영');
+assert.equal(mixed.fundResults.F00002.inputRequiredDates.length,0,'F00002 자동조회 성공분은 입력 필요 경고 제거');
 assert.equal(mixed.fundResults.F00003.storedNav,1);
 assert.equal(mixed.fundResults.F00003.zeroUnitsExcluded,12,'0좌 이후 평가 제외');
-assert.equal(mixedCalls.filter(call=>call[0]!=='HANWHA_2045_CRPE').length,0,'F00002/F00003 외부조회 금지');
+assert(mixedCalls.some(call=>call[0]==='KB_VALUE_ST'),'F00002 자동조회 실행');
+assert.equal(mixedCalls.filter(call=>call[0]==='FIDELITY_BIG4_S').length,0,'F00003 외부조회 금지 유지');
 assert.equal(mixedCalls.filter(call=>call[1]==='2026-01-12' && call[2]==='2026-01-14').length,2,'보정된 실패 batch는 최초 호출 후 1회만 재시도');
 const kbOnly=context._refreshFundValuations(mixedSs,'2026-01-01','2026-01-07','F00002');
 assert.deepEqual(Object.keys(kbOnly.fundResults),['F00002'],'웹 요청이 F코드별로 독립 실행 가능');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+context._fetchFundNav=realFetchFundNav;
+
+// 다른 펀드 갱신 중에도 0좌 F00003 기존 Snapshot이 다시 병합되거나 완전성 검사에 포함되지 않습니다.
+const staleZeroUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00002','KB','KB_VALUE_ST','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-05',0,'']]);
+const staleZeroNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-01-05','F00002','KB',2000,'2026-01-05',1000,2000,'','KB_VALUE_ST']]);
+const staleZeroPrices=new Sheet([['date','code','name','price','at','source']]);
+const staleZeroTrades=new Sheet([Array(8).fill('header'),
+  ['2026-01-01','buy','계좌','KB','F00002',1,1500,'펀드'],
+  ['2026-01-01','buy','계좌','피델리티','F00003',1,1000,'펀드']]);
+const staleZeroSnapshots=new Sheet([header,snap('2026-01-05','F00003',3000,'MANUAL')]);
+const staleZeroSs=ssFor({'펀드좌수':staleZeroUnits,'펀드기준가격':staleZeroNav,'가격이력':staleZeroPrices,'거래이력':staleZeroTrades,'스냅샷':staleZeroSnapshots});
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+const staleZeroResult=context._refreshFundValuations(staleZeroSs,'2026-01-05','2026-01-05','F00002',true);
+assert.equal(staleZeroResult.missingHoldings.length,0,'0좌 F00003을 다른 펀드 갱신의 누락 보유로 오인하지 않음');
+assert(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00002'),'F00002 갱신 Snapshot 저장');
+assert.equal(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'기존 0좌 F00003 MANUAL Snapshot도 lifecycle이 우선하여 제거');
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+
+// 정상행이 expected와 이미 같아도 0좌 행이 원장에 남아 있으면 lifecycle 제거 자체가 rewrite 사유입니다.
+const lifecycleRewriteUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-05',0,'']]);
+const lifecycleNormal=snap('2026-01-05','000001',100,'PRICE_HISTORY');
+const lifecycleZeroManual=snap('2026-01-05','F00003',3000,'MANUAL');
+const lifecycleRewriteSnapshot=new Sheet([header,lifecycleNormal,lifecycleZeroManual]);
+const lifecycleRewriteSs=ssFor({'펀드좌수':lifecycleRewriteUnits,'스냅샷':lifecycleRewriteSnapshot});
+const lifecyclePlan=clone(context._snapshotRewritePlan(lifecycleRewriteSs,'2026-01-05',[lifecycleNormal]));
+assert.equal(lifecyclePlan.lifecycleRemovedRows,1,'0좌 원장 행 제거 건수 기록');
+assert.equal(lifecyclePlan.needsRewrite,true,'필터 후 signature가 같아도 0좌 제거는 rewrite 사유');
+context.writeSnapshotRows(lifecycleRewriteSs,'2026-01-05',[lifecycleNormal],true);
+assert.equal(lifecycleRewriteSnapshot.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'signature no-op보다 lifecycle 제거를 우선');
+assert.equal(lifecycleRewriteSnapshot.rows.filter(row=>row[0]==='2026-01-05'&&row[1]==='000001').length,1,'정상행은 그대로 1개 유지');
+
+// 손익 그래프/상세 조회는 원장 정리 전에도 0좌 펀드 행을 즉시 제외합니다.
+const historyLifecycleUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-05',0,'']]);
+const historyLifecycleSnapshot=new Sheet([header,
+  snap('2026-01-05','000001',100,'PRICE_HISTORY'),
+  snap('2026-01-05','F00003',3000,'MANUAL')
+]);
+const historyLifecycleSs=ssFor({'펀드좌수':historyLifecycleUnits,'스냅샷':historyLifecycleSnapshot});
+context.getss=()=>historyLifecycleSs;
+context.jsonOk=extra=>({status:'ok',...extra});
+context.jsonError=(message,extra)=>({status:'error',message,...(extra||{})});
+const historyLifecycle=context.handleGetHistory('2026-01-05','2026-01-05');
+assert.equal(historyLifecycle.status,'ok');
+assert.equal(historyLifecycle.snapshots.length,1);
+assert.equal(historyLifecycle.snapshots[0].evalAmt,100,'합계 조회에서 0좌 F00003 평가금액 제외');
+const historyDetailLifecycle=context.handleGetHistoryDetail('2026-01-05');
+assert.equal(historyDetailLifecycle.status,'ok');
+assert.equal(historyDetailLifecycle.items.some(item=>item.code==='F00003'),false,'상세 조회에서도 0좌 F00003 제외');
+assert(historyDetailLifecycle.items.some(item=>item.code==='000001'),'상세 조회 정상 종목 유지');
+
+const zeroOnlyEnsureSnapshot=new Sheet([header,snap('2026-01-05','F00003',3000,'MANUAL')]);
+const zeroOnlyEnsureSs=ssFor({'펀드좌수':historyLifecycleUnits,'스냅샷':zeroOnlyEnsureSnapshot});
+const savedEnsureRebuild=context._rebuildSnapshotForDateFromHistory;
+let ensureRebuildCalls=0;
+context._rebuildSnapshotForDateFromHistory=(_ss,date)=>{
+  ensureRebuildCalls++;
+  zeroOnlyEnsureSnapshot.rows=[header,snap(date,'000001',100,'PRICE_HISTORY')];
+  return '';
+};
+assert.equal(context._ensureSnapshotExistsForDate(zeroOnlyEnsureSs,'2026-01-05'),true,'0좌-only Snapshot은 존재로 오인하지 않고 재생성');
+assert.equal(ensureRebuildCalls,1,'0좌-only 날짜 재생성 1회');
+context._rebuildSnapshotForDateFromHistory=savedEnsureRebuild;
 
 // 세 펀드 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증합니다.
 const importUnits = new Sheet([['code','name','provider','start','units','at'],
@@ -675,6 +794,26 @@ assert.deepEqual(insertionNav.rows.slice(1).map(row=>[row[0],row[3],row[4]]),[
 assert.deepEqual(insertionPrices.rows.slice(1).map(row=>[row[0],row[3]]),[['2025-01-03',1000],['2025-01-04',1000]]);
 context.getss=()=>importWriteSs;
 
+// 수동 NAV import도 0좌 F코드를 완전성 검사 대상에서 제외해 정상 펀드 Snapshot 저장을 막지 않습니다.
+const importLifecycleUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00002','KB','KB_VALUE_ST','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-05',0,'']]);
+const importLifecycleNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+const importLifecyclePrices=new Sheet([['date','code','name','price','at','source']]);
+const importLifecycleTrades=new Sheet([Array(8).fill('header'),
+  ['2026-01-01','buy','계좌','KB','F00002',1,800,'펀드'],
+  ['2026-01-01','buy','계좌','피델리티','F00003',1,700,'펀드']]);
+const importLifecycleSnapshots=new Sheet([header,snap('2026-01-05','F00003',3000,'MANUAL')]);
+const importLifecycleSs=ssFor({'펀드좌수':importLifecycleUnits,'펀드기준가격':importLifecycleNav,'가격이력':importLifecyclePrices,'거래이력':importLifecycleTrades,'스냅샷':importLifecycleSnapshots});
+context.getss=()=>importLifecycleSs;
+const importLifecycle=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2026-01-05',nav:1000}]));
+assert.equal(importLifecycle.status,'ok','0좌 다른 펀드가 있어도 수동 NAV import 성공');
+assert(importLifecycle.evaluation.snapshots>0,'정상 F00002 Snapshot 저장');
+assert(importLifecycleSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00002'),'수동 import F00002 Snapshot 존재');
+assert.equal(importLifecycleSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'기존 Snapshot이 있어도 수동 import에서 0좌 F00003 MANUAL 행 제거');
+context.getss=()=>importWriteSs;
+
 const imported=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-03',nav:1000}]));
 assert.equal(imported.status,'ok'); assert.equal(imported.importResult.saved,1); assert.deepEqual(clone(imported.evaluation.ranges),[{from:'2025-01-03',to:'2025-01-03'}]);
 assert.deepEqual(importWriteNav.rows.slice(1,4).map(row=>[row[0],row[3],row[4],row[6]]),[
@@ -719,12 +858,14 @@ assert.equal(saveConfig('2026-01-01',2000).status,'error');
 assert.equal(saveConfig('2025-12-31',2000).status,'ok','다음 설정 이전의 미작성 날짜는 별도 좌수를 등록할 수 있습니다.');
 assert.equal(saveConfig('2026-01-02',2000).status,'error','이미 작성한 날짜에 다른 좌수를 소급 적용할 수 없습니다.');
 assert.equal(saveConfig('2026-01-03',2000).status,'ok');
+const activeCatalog=context._getFundCodeCatalog(ssFor(sheets),context._readFundUnits(ssFor(sheets)));
+assert.equal(activeCatalog.find(item=>item.code==='F00001').currentHolding,true,'양수 좌수 상태의 현재 보유 F코드는 현재 보유로 분류');
 assert.equal(saveConfig('2026-01-04',0).status,'ok');
 assert.equal(saveConfig('2026-01-05','').status,'error');
 assert.equal(saveConfig('2026-01-05',1000,'__proto__').status,'error');
 assert.equal(saveConfig('2026-01-05',1e30).status,'error');
 const catalog=context._getFundCodeCatalog(ssFor(sheets),context._readFundUnits(ssFor(sheets)));
-assert.equal(catalog.find(item=>item.code==='F00001').currentHolding,true,'현재 보유 F코드는 현재 보유로 분류');
+assert.equal(catalog.find(item=>item.code==='F00001').currentHolding,false,'0좌 전환된 F코드는 과거 보유로 분류');
 assert.equal(catalog.find(item=>item.code==='F00003').currentHolding,false,'전량 매도 F코드는 과거 보유로 분류');
 assert.equal(catalog.find(item=>item.code==='F00003').name,'과거 펀드');
 const fundUnitsResponse=context.handleGetFundUnits();
@@ -1082,6 +1223,27 @@ assert(!cleanupRegistry.some(item=>item.source==='스냅샷'&&item.status==='WRI
 assert.equal(rawSnapshotReadCount,0,'중복 없는 날짜를 날짜별 전체 Snapshot 재읽기하지 않음');
 context._readRawSnapshotRowsByDate=realRawSnapshotReader;
 
+// 날짜 유실 payload와 0좌 펀드 잔존 행은 안전정리 경로에서 제거하고 정상행은 유지합니다.
+const damagedSnapshot=new Sheet([header,
+  ['', '000001','날짜유실',1,50,50,100,100,50,100,'KRX',''],
+  snap('2026-02-01','F00003',300,'FUND_NAV'),
+  snap('2026-02-01','000001',100)
+]);
+const damagedUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','과거 펀드','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','과거 펀드','FIDELITY_BIG4_S','2026-02-01',0,'']
+]);
+const damagedSs=ssFor({'스냅샷':damagedSnapshot,'펀드좌수':damagedUnits});
+context.getss=()=>damagedSs;
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[snap('2026-02-01','000001',100)];
+const damagedCleanup=clone(context.cleanupSnapshotDuplicates());
+assert.equal(damagedCleanup.invalidDateRowsRemoved,1,'날짜 유실 payload 제거');
+assert.equal(damagedCleanup.zeroUnitFundRowsRemoved,1,'0좌 펀드 Snapshot 잔존 제거');
+assert.equal(damagedCleanup.removedRows,2);
+assert(damagedSnapshot.rows.some(row=>row[0]==='2026-02-01'&&row[1]==='000001'),'정상 Snapshot 유지');
+assert.equal(damagedSnapshot.rows.some(row=>row[0]==='2026-02-01'&&row[1]==='F00003'),false,'0좌 F00003 제거');
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+
 const verifyWriteDedup=(stored,expected)=>{const target=new Sheet([header,...stored]);const targetSs=ssFor({'스냅샷':target});context.writeSnapshotRows(targetSs,expected[0],expected[1],true);return target.rows.filter(row=>row[0]===expected[0]);};
 let writeRows=verifyWriteDedup([identicalRow,clone(identicalRow)],['2026-02-01',[identicalRow]]);
 assert.equal(writeRows.length,1,'writeSnapshotRows exact duplicate를 실제 raw 1개로 축약');
@@ -1123,7 +1285,7 @@ context.getss=()=>importWriteSs;
 const pendingTodaySs=ssFor({'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00002','KB','KB_VALUE_ST','2026-09-01',1000,'']]),
   '펀드기준가격':new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],['2026-09-08','F00002','KB',1200,'2026-09-08',1000,1200,'','KB_VALUE_ST']])});
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
-const pendingToday=context._refreshFundValuations(pendingTodaySs,'2026-09-09','2026-09-09','F00002');
+const pendingToday=context._refreshFundValuations(pendingTodaySs,'2026-09-09','2026-09-09','F00002',true);
 assert.equal(pendingToday.fundResults.F00002.latestUnpublished,1);
 assert.equal(pendingToday.fundResults.F00002.navMissing,0);
 context.today=()=> '2026-09-21'; // F00001 월요일은 정상 비공시일
@@ -1170,10 +1332,51 @@ context.getss=()=>historyConsistencySs;
 const historyConsistency=clone(context.handleGetHistory('2026-09-16','2026-09-16'));
 assert.deepEqual(historyConsistency.snapshots[0].navInputRequiredCodes,['F00002'],'확정 NAV 평가금액 일치 F00001 경고만 제거하고 실제 미확정 F00002 유지');
 
-// 일일 실행은 활성 보유기간의 과거 확정 NAV 누락을 성공으로 기록하지 않습니다.
+// Script Properties에는 날짜 상세 배열을 저장하지 않고 충분히 작은 운영 요약만 기록합니다.
+const oversizedDailyResult={
+  completionStatus:'partial',saved:96,navSaved:24,snapshots:20,lastDate:'2026-09-30',missingHoldings:[],
+  fundResults:{}
+};
+['F00001','F00002','F00003'].forEach((code,index)=>{
+  oversizedDailyResult.fundResults[code]={
+    status:index===1?'partial':'ok',storedNav:10,apiRequested:8,apiSuccess:7,apiFailed:1,navMissing:index===1?2:0,
+    latestUnpublished:1,carried:6,zeroUnitsExcluded:index===2?12:0,inputRequiredDates:index===1?['2026-09-29','2026-09-30']:[],
+    snapshots:20,dates:Array.from({length:32},(_,day)=>({date:'2026-09-'+String(day+1).padStart(2,'0'),navState:'CONFIRMED',evaluationState:'SAVED_OR_UPDATED',snapshotState:'SAVED_OR_UPDATED',extra:'x'.repeat(120)}))
+  };
+});
+const compactDailyResult=clone(context._compactFundDailyResultForProperty(oversizedDailyResult));
+const compactDailyJson=JSON.stringify(compactDailyResult);
+assert(compactDailyJson.length<4000,'일일 펀드 Properties 요약은 날짜 상세를 제외해 충분히 작아야 함');
+assert.equal(Object.prototype.hasOwnProperty.call(compactDailyResult.funds.F00001,'dates'),false,'날짜별 상세 배열 Properties 저장 금지');
+assert.equal(compactDailyResult.funds.F00002.inputRequiredCount,2,'입력 필요 건수는 요약에 유지');
+assert.equal(compactDailyResult.snapshotWarningCount,0,'Snapshot 보호 경고 건수도 compact summary에 기록');
+assert.equal(context._compactFundDailyResultForProperty({completionStatus:'ok',lastDate:'',missingHoldings:[],fundResults:{}},'2026-09-09').lastDate,'2026-09-09','무변경 실행은 요청 종료일을 최근 처리 기준일로 보존');
+
+// 일일 실행의 partial은 자동화 자체를 실패시키지 않고 경고로 기록하며, hard error만 실패 처리합니다.
 const savedRefresh=context._refreshFundValuations;
-context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],fundResults:{F00001:{navMissing:1}}});
-assert.throws(()=>context.runDailyFundValuations(),/partial/,'일일 partial 결과를 성공 처리하지 않음');
+context._refreshFundValuations=()=>({completionStatus:'ok',saved:0,navSaved:0,snapshots:0,lastDate:'',missingHoldings:[],fundResults:{F00001:{status:'ok',inputRequiredDates:[]}}});
+assert.doesNotThrow(()=>context.runDailyFundValuations(),'변경 없는 정상 일일 실행도 성공');
+assert.equal(JSON.parse(scriptProperties.get('fund_last_result')||'{}').lastDate,'2026-09-09','무변경 일일 실행 Properties 기준일 보존');
+context._refreshFundValuations=()=>oversizedDailyResult;
+assert.doesNotThrow(()=>context.runDailyFundValuations(),'일일 partial은 저장된 성공분을 유지하고 warning으로 기록');
+assert.match(scriptProperties.get('fund_last_warning')||'',/F00002.*NAV 미확보 2일/);
+const storedDailyProperty=scriptProperties.get('fund_last_result')||'';
+assert(storedDailyProperty.length<4000,'실제 fund_last_result도 Properties 제한보다 충분히 작게 저장');
+assert.equal(JSON.parse(storedDailyProperty).lastDate,'2026-09-30');
+assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(storedDailyProperty).funds.F00001,'dates'),false);
+const protectedSnapshotReason='2026-09-08:MANUAL_PROTECTED: MANUAL 행 보호';
+context._refreshFundValuations=()=>({
+  completionStatus:'partial',saved:0,navSaved:0,snapshots:0,lastDate:'2026-09-08',
+  missingHoldings:[protectedSnapshotReason],snapshotWarnings:[protectedSnapshotReason],
+  fundResults:{F00002:{status:'partial',navMissing:0,inputRequiredDates:[]}}
+});
+assert.doesNotThrow(()=>context.runDailyFundValuations(),'보호된 Snapshot 충돌은 일일 hard failure가 아님');
+assert.match(scriptProperties.get('fund_last_warning')||'',/Snapshot 보호 충돌 1건/,'보호 충돌은 warning에 기록');
+assert.equal(JSON.parse(scriptProperties.get('fund_last_result')||'{}').snapshotWarningCount,1);
+context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:['2026-09-08:F00001'],snapshotWarnings:[],fundResults:{F00001:{status:'partial',navMissing:0,inputRequiredDates:[]}}});
+assert.throws(()=>context.runDailyFundValuations(),/거래이력 없는 스냅샷 1건/,'실제 보유자료 누락은 hard failure 유지');
+context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],snapshotWarnings:[],fundResults:{F00001:{status:'error',navMissing:1,inputRequiredDates:[]}}});
+assert.throws(()=>context.runDailyFundValuations(),/F00001/,'hard error는 일일 자동화 실패로 기록');
 context._refreshFundValuations=savedRefresh;
 
 // 파생 시트 쓰기 실패 뒤에도 저장 확정 NAV를 이용해 재실행할 수 있습니다.

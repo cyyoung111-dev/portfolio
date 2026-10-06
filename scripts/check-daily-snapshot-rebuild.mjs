@@ -91,7 +91,9 @@ assert.doesNotMatch(gas.slice(gas.indexOf('function rebuildDailySnapshots'), gas
 
 // 기존 원자료/스냅샷/펀드·배당 시트 보호와 대상 날짜 비교 후 upsert
 assert.match(gas, /var existing = _readSnapshotRowsByDate\(ss, date\)/);
-assert.match(gas, /var rewritePlan = _snapshotRewritePlan\(ss, date, rows\)[\s\S]*rewritePlan\.unsafe\.length[\s\S]*!rewritePlan\.needsRewrite\) unchanged\+\+/);
+assert.match(gas, /var rewritePlan = _snapshotRewritePlan\(ss, date, rows, rebuildFundConfigs\)[\s\S]*rewritePlan\.unsafe\.length[\s\S]*!rewritePlan\.needsRewrite\) unchanged\+\+/);
+assert.match(gas, /if \(!rows\.length\)[\s\S]*rewritePlan\.lifecycleRemovedRows > 0[\s\S]*writeSnapshotRows\(ss, date, rewritePlan\.raw, true, null, rebuildFundConfigs\)/, '빈 기대 결과에서도 0좌 lifecycle 제거를 위해 재작성');
+assert.match(gas, /var lifecycleRows = _filterSnapshotRowsByFundLifecycle\(rawRows, repairFundConfigs, snapshotDate\)[\s\S]*lifecycleRemovedRows[\s\S]*expected\.length === 0[\s\S]*lifecycleRemovedRows === 0[\s\S]*writeSnapshotRows\(ss, snapshotDate, existing, true, null, repairFundConfigs\)/, '전체 정합성 복구도 expected 0일 때 lifecycle 제거 수행');
 assert.match(gas, /catch \(error\) \{\s*\/\/ 원자료 부족/);
 assert.match(gas, /function _getHistoricalExchangeRates[\s\S]*?header\[0\] !== '날짜' \|\| header\[1\] !== '통화' \|\| header\[2\] !== '환율'/);
 assert.match(gas, /SHEET_ETF_DIVIDENDS/);
