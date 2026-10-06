@@ -42,6 +42,8 @@ assert.match(gas, /operationsWithCreatedBackup[\s\S]*currentTrustedV2[\s\S]*!ope
 assert.match(gas, /currentSchemaMatch[\s\S]*currentTrustedV2[\s\S]*currentSchemaMatch/, 'fast cleanup trusted v2는 source schema 일치 필수');
 assert.match(gas, /formulaReferenceTargets[\s\S]*registered\.name[\s\S]*staleFormulaCounts[\s\S]*currentTrustedV2[\s\S]*staleFormulaCounts\[registered\.name\]/, 'fast cleanup trusted v2는 current backup 수식 참조 0건 필수');
 assert.match(gas, /legacySupersededByTrustedV2[\s\S]*!operationsWithCreatedBackup\[item\.operationId\]/, 'stale legacy도 같은 operation의 CREATED sibling이 있으면 보호');
+assert.match(gas, /legacySupersededByTrustedV2[\s\S]*!!item\.signature/, 'fast cleanup legacy 예외는 기존 registry signature가 있어야 함');
+assert.match(gas, /legacySupersededByTrustedV2[\s\S]*!!records\[item\.name\][\s\S]*!!records\[item\.name\]\.signature/, 'maintenance legacy 예외도 기존 registry signature가 있어야 함');
 assert.match(gas, /trustedV2CompletedAt[\s\S]*legacySupersededByTrustedV2/, 'maintenance dry-run도 newer trusted v2로 legacy stale 판정');
 assert.match(gas, /sourceSignature/);
 assert.match(gas, /copySignatureDrift/);
