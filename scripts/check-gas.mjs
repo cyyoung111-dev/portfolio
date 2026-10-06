@@ -261,7 +261,7 @@ if (!source.includes('googleFinanceSkipReason')
 
 if (!source.includes(".addItem('▶️ 확정 평가단가·스냅샷 수동 갱신', 'runDailyPriceSnapshotNow')")
     || !source.includes('function runDailyPriceSnapshotNow()')) {
-  console.error('❌ 16:20 자동 경로를 즉시 확인할 수 있는 수동 점검 메뉴가 필요합니다.');
+  console.error('❌ 19시 통합 마감의 일반 종목 경로를 즉시 확인할 수 있는 수동 점검 메뉴가 필요합니다.');
   process.exit(1);
 }
 
