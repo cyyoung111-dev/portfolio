@@ -9,6 +9,7 @@
 //   자동화 상태 점검에 펀드 최근 처리일·warning·error 표시
 //   펀드 갱신 Snapshot 병합·완전성 검사에도 0좌 lifecycle 적용
 //   일일 펀드 결과는 Script Properties 한도에 맞게 날짜 상세를 제외한 compact summary 저장
+//   0좌 펀드는 MANUAL Snapshot 보호보다 lifecycle 제거를 우선 적용
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -5264,7 +5265,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
     });
     // 펀드만 존재하는 불완전한 신규 스냅샷으로 전체 자산이 급락해 보이지 않게 합니다.
     if (incomplete) { missingHoldings.push(date + ':다른 보유종목의 평가자료 부족'); return; }
-    var fundRewritePlan = _snapshotRewritePlan(ss, date, combined);
+    var fundRewritePlan = _snapshotRewritePlan(ss, date, combined, configs);
     if (fundRewritePlan.unsafe.length) {
       snapshotOperationUnsafe = true;
       var protectedReason = date + ':' + fundRewritePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; ');
@@ -5272,7 +5273,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       byDate[date].forEach(function(value) { if (fundResults[value[1]]) fundResults[value[1]].status = 'partial'; });
       return;
     }
-    writeSnapshotRows(ss, date, combined, true);
+    writeSnapshotRows(ss, date, combined, true, null, configs);
     snapshotCount++;
     byDate[date].forEach(function(value) {
       if (!fundResults[value[1]]) return;
@@ -9333,7 +9334,7 @@ function getTradingDays(year, month) {
 // ════════════════════════════════════════════════════════════════════
 //  스냅샷 시트 upsert
 // ════════════════════════════════════════════════════════════════════
-function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
+function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs) {
   var writeLock = LockService.getScriptLock();
   var ownsWriteLock = false;
   var snapshotBackupRecord = null;
@@ -9380,7 +9381,17 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
       var existing = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(12, sh.getLastColumn())).getValues().map(toNewSnapshotRow);
       var kept     = existing.filter(function(r){ return _normalizeDate(r[0]) !== normDate; });
       var sameDate = existing.filter(function(r){ return _normalizeDate(r[0]) === normDate; });
-      if (!newRows.length) return;
+      var originalSameDateCount = sameDate.length;
+      var hasFundRows = sameDate.concat(newRows).some(function(row) {
+        return _isFundCode(_cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase());
+      });
+      if (hasFundRows) {
+        var configsForWrite = Array.isArray(lifecycleConfigs) ? lifecycleConfigs : _readFundUnits(ss);
+        sameDate = _filterSnapshotRowsByFundLifecycle(sameDate, configsForWrite, normDate);
+        newRows = _filterSnapshotRowsByFundLifecycle(newRows, configsForWrite, normDate);
+      }
+      var lifecycleRemovedRows = originalSameDateCount - sameDate.length;
+      if (!newRows.length && !lifecycleRemovedRows) return;
       var rawDuplicateDecisions = _classifyRawSnapshotDuplicateGroups(normDate, sameDate, newRows, '');
       var autoResolutionByKey = {};
       rawDuplicateDecisions.filter(function(item) { return item.autoResolvable; }).forEach(function(item) {
@@ -9402,7 +9413,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
         // 이미 해당 날짜 데이터가 일부라도 있는 경우:
         // newRows 중 아직 없는 종목(코드)만 걸러서 추가
         var existingKeys = {};
-        existing.forEach(function(r) {
+        sameDate.forEach(function(r) {
           var d = _normalizeDate(r[0]);
           if (d !== normDate) return;
           var k = _cleanCode(r[1]) || (r[2] || '').toString().trim();
@@ -9412,7 +9423,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys) {
           var k = _cleanCode(r[1]) || (r[2] || '').toString().trim();
           return k && !existingKeys[normDate + '|' + k];
         });
-        if (toAdd.length === 0 && !Object.keys(autoResolutionByKey).length) return; // 추가/정리할 행 없음 → skip
+        if (toAdd.length === 0 && !Object.keys(autoResolutionByKey).length && !lifecycleRemovedRows) return; // 추가/정리할 행 없음 → skip
         newRows = toAdd; // 없는 종목만 추가
       }
       var protectedDuplicateKeys = {};
@@ -9614,8 +9625,17 @@ function _snapshotDateNeedsRewrite(ss, date, expectedRows) {
   return _snapshotRewritePlan(ss, date, expectedRows).needsRewrite;
 }
 
-function _snapshotRewritePlan(ss, date, expectedRows) {
+function _snapshotRewritePlan(ss, date, expectedRows, lifecycleConfigs) {
   var raw = _readRawSnapshotRowsByDate(ss, date);
+  expectedRows = (expectedRows || []).slice();
+  var hasFundRows = raw.concat(expectedRows).some(function(row) {
+    return _isFundCode(_cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase());
+  });
+  if (hasFundRows) {
+    var configs = Array.isArray(lifecycleConfigs) ? lifecycleConfigs : _readFundUnits(ss);
+    raw = _filterSnapshotRowsByFundLifecycle(raw, configs, date);
+    expectedRows = _filterSnapshotRowsByFundLifecycle(expectedRows, configs, date);
+  }
   var duplicateGroups = _classifyRawSnapshotDuplicateGroups(date, raw, expectedRows, '');
   var unsafe = duplicateGroups.filter(function(item) { return !item.autoResolvable; });
   return { raw: raw, duplicateGroups: duplicateGroups, unsafe: unsafe,
