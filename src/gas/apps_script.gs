@@ -15,6 +15,7 @@
 //   수동 NAV import 완전성 검사도 0좌 fund lifecycle을 동일하게 적용
 //   기존 Snapshot이 있는 수동 import도 날짜 전체를 lifecycle 기준으로 재작성
 //   전체 트리거 재등록 시 기존 19시 펀드 트리거를 삭제 후 1개로 재생성
+//   보호된 Snapshot 충돌은 hard failure가 아니라 fund_last_warning으로 기록
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -5240,6 +5241,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   configs.forEach(function(c) { nameCodes[c.name] = c.code; });
   var byDate = {};
   var missingHoldings = [];
+  var snapshotWarnings = [];
   values.forEach(function(value) {
     var holdings = calcHoldingsAtDate(trades, value.date, nameCodes);
     _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, value.date);
@@ -5275,6 +5277,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       snapshotOperationUnsafe = true;
       var protectedReason = date + ':' + fundRewritePlan.unsafe.map(function(item) { return item.classification + ': ' + item.reason; }).join('; ');
       missingHoldings.push(protectedReason);
+      snapshotWarnings.push(protectedReason);
       byDate[date].forEach(function(value) { if (fundResults[value[1]]) fundResults[value[1]].status = 'partial'; });
       return;
     }
@@ -5303,7 +5306,8 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       priceHistory: { processed: values.length, pending: 0 },
       snapshots: { processed: snapshotCount, pending: Math.max(0, Object.keys(byDate).length - snapshotCount), reasons: missingHoldings.slice() }
     },
-    missingHoldings: missingHoldings, lastDate: values.map(function(v) { return v.date; }).sort().pop() || '', fundResults: fundResults
+    missingHoldings: missingHoldings, snapshotWarnings: snapshotWarnings,
+    lastDate: values.map(function(v) { return v.date; }).sort().pop() || '', fundResults: fundResults
   };
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   return result;
@@ -6379,6 +6383,7 @@ function _compactFundDailyResultForProperty(result, fallbackDate) {
     snapshots: Number(result.snapshots || 0),
     lastDate: result.lastDate || _normalizeDate(fallbackDate || '') || '',
     missingHoldingsCount: Array.isArray(result.missingHoldings) ? result.missingHoldings.length : 0,
+    snapshotWarningCount: Array.isArray(result.snapshotWarnings) ? result.snapshotWarnings.length : 0,
     funds: compactFunds
   };
 }
@@ -6398,12 +6403,17 @@ function runDailyFundValuations() {
     // Script Properties는 값당 크기 제한이 있으므로 날짜별 상세 배열을 제외한 운영 상태만 저장합니다.
     // 변경할 행이 없는 정상 재실행도 runDate를 최근 처리 기준일로 남깁니다.
     props.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result, runDate)));
-    if (result.missingHoldings.length) throw new Error('펀드 가격 저장됨, 거래이력 없는 스냅샷 ' + result.missingHoldings.length + '건');
+    var snapshotWarnings = Array.isArray(result.snapshotWarnings) ? result.snapshotWarnings : [];
+    var hardMissingHoldings = (result.missingHoldings || []).filter(function(reason) {
+      return snapshotWarnings.indexOf(reason) === -1;
+    });
+    if (hardMissingHoldings.length) throw new Error('펀드 가격 저장됨, 거래이력 없는 스냅샷 ' + hardMissingHoldings.length + '건');
     var hardErrors = Object.keys(result.fundResults || {}).filter(function(code) {
       return result.fundResults[code] && result.fundResults[code].status === 'error';
     });
     if (hardErrors.length) throw new Error('펀드 평가 오류: ' + hardErrors.join(','));
     var warnings = [];
+    if (snapshotWarnings.length) warnings.push('Snapshot 보호 충돌 ' + snapshotWarnings.length + '건');
     Object.keys(result.fundResults || {}).forEach(function(code) {
       var fund = result.fundResults[code];
       if (!fund || fund.status === 'ok') return;
