@@ -89,20 +89,72 @@ const response = (status, value, headers = {}) => ({ getResponseCode: () => stat
 const textResponse = (status, value, headers = {}) => ({ getResponseCode: () => status, getContentText: () => String(value), getAllHeaders: () => headers });
 const egressResponse = () => textResponse(200, '34.64.12.34\n');
 let fetchedUrls = [];
-context.UrlFetchApp = { fetch: (url) => { fetchedUrls.push(url); if (url.includes('api.ipify.org')) return egressResponse(); return response(403, { error: 'access_denied', raw: 'must-not-leak' }); } };
+context.UrlFetchApp = { fetch: (url) => { fetchedUrls.push(url); if (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) return egressResponse(); return response(403, { error: 'access_denied', raw: 'must-not-leak' }); } };
 cache.clear();
 let diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
 assert.deepEqual([diagnostic.oauth.stage, diagnostic.oauth.ok, diagnostic.oauth.status, diagnostic.oauth.code, diagnostic.oauth.providerCode], ['oauth', false, 403, 'OAUTH_FAILED', 'access_denied']);
 assert.equal(fetchedUrls.length, 2, 'egress probe 후 OAuth 실패 시 market endpoint를 호출하지 않음');
-assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider, diagnostic.egressProbe.observedOnly], [true, '34.64.12.34', 'api.ipify.org', true]);
+assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider, diagnostic.egressProbe.observedOnly], [true, '34.64.12.34', 'checkip.amazonaws.com', true]);
 assert(diagnostic.endpoints.every(item => item.code === 'SKIPPED_OAUTH_FAILED'), 'OAuth 실패 endpoint는 skipped 표시');
 assert.equal(JSON.stringify(diagnostic).includes('IP_NOT_ALLOWED_OR_FORBIDDEN'), false, 'OAuth 403은 IP 오류로 오분류하지 않음');
 assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-leak|access_token|Bearer token-value/);
 
+// 1차 provider가 HTTP 200이지만 IP가 아니면 2차 provider로 fallback합니다.
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
-  if (url.includes('api.ipify.org')) return egressResponse();
+  if (url.includes('checkip.amazonaws.com')) return textResponse(200, '<html>blocked</html>', { 'content-type': 'text/html' });
+  if (url.includes('api.ipify.org')) return textResponse(200, '34.64.12.35\n', { 'content-type': 'text/plain' });
+  return response(403, { error: 'access_denied' });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider], [true, '34.64.12.35', 'api.ipify.org']);
+assert.equal(diagnostic.egressProbe.attempts.length, 2, 'egress provider fallback 시도 기록');
+assert.deepEqual(
+  [diagnostic.egressProbe.attempts[0].status, diagnostic.egressProbe.attempts[0].code, diagnostic.egressProbe.attempts[0].bodyLength, diagnostic.egressProbe.attempts[0].contentType],
+  [200, 'INVALID_IP_RESPONSE', 20, 'text/html']
+);
+assert.equal(fetchedUrls.length, 3, 'egress 2회 + OAuth 1회');
+assert.doesNotMatch(JSON.stringify(diagnostic), /<html>blocked<\/html>/, 'egress 원문 응답 비노출');
+
+// HTTP 오류 본문에 유효한 IPv4가 있어도 성공으로 오분류하지 않고 다음 provider로 진행합니다.
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
+  if (url.includes('checkip.amazonaws.com')) return textResponse(403, '34.64.12.36\n', { 'content-type': 'text/plain' });
+  if (url.includes('api.ipify.org')) return textResponse(200, '34.64.12.37\n', { 'content-type': 'text/plain' });
+  return response(401, { error: { code: 'unidentified-client' } });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider], [true, '34.64.12.37', 'api.ipify.org']);
+assert.deepEqual([diagnostic.egressProbe.attempts[0].status, diagnostic.egressProbe.attempts[0].code], [403, 'HTTP_ERROR']);
+assert.equal(fetchedUrls.length, 3, 'HTTP 오류 provider는 fallback 후 OAuth까지 진행');
+
+// 모든 provider 실패 시 summary의 provider/status/code는 같은 마지막 시도에서 가져옵니다.
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
+  if (url.includes('checkip.amazonaws.com')) return textResponse(200, '<html>blocked</html>', { 'content-type': 'text/html' });
+  if (url.includes('api.ipify.org')) return textResponse(503, 'service unavailable', { 'content-type': 'text/plain' });
+  return response(401, { error: { code: 'unidentified-client' } });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.deepEqual(
+  [diagnostic.egressProbe.ok, diagnostic.egressProbe.provider, diagnostic.egressProbe.status, diagnostic.egressProbe.code],
+  [false, 'api.ipify.org', 503, 'HTTP_ERROR']
+);
+assert.deepEqual(
+  diagnostic.egressProbe.attempts.map(item => [item.provider, item.status, item.code]),
+  [['checkip.amazonaws.com', 200, 'INVALID_IP_RESPONSE'], ['api.ipify.org', 503, 'HTTP_ERROR']]
+);
+
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
+  if (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) return egressResponse();
   return response(401, {
     error: { code: 'unidentified-client', requestId: 'oauth-request-id', referenceId: 'oauth-reference-id' },
     raw: 'must-not-leak'
@@ -124,7 +176,7 @@ assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-lea
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
-  if (url.includes('api.ipify.org')) return egressResponse();
+  if (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) return egressResponse();
   if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'token-value', expires_in: 3600 });
   return response(403, { error: { code: 'forbidden', requestId: 'safe-request-id', referenceId: 'safe-reference-id' }, raw: 'must-not-leak' }, { 'x-amz-cf-id': 'safe-edge-id' });
 } };
@@ -141,7 +193,7 @@ assert.equal(fetchedUrls.filter(url => url.endsWith('/oauth2/token')).length, 1,
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
-  if (url.includes('api.ipify.org')) return egressResponse();
+  if (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) return egressResponse();
   if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'token-value', expires_in: 3600 });
   if (url.includes('/api/v1/prices?symbols=005930')) return response(200, { result: [{ symbol: '005930', lastPrice: 70000, timestamp: '2026-10-02T06:00:00Z' }] });
   return response(200, { result: [{ value: 1 }] });
@@ -161,15 +213,23 @@ assert.match(webSync, /unidentified-client/);
 assert.match(webSync, /GAS egress 관측/);
 assert.match(webSync, /oauthAccessDenied/);
 assert.match(webSync, /동일하다고 보장되지 않습니다/);
-assert.match(gasSource, /UrlFetchApp\.fetch\('https:\/\/api\.ipify\.org'/);
+assert.match(gasSource, /checkip\.amazonaws\.com/);
+assert.match(gasSource, /api\.ipify\.org/);
+assert.match(gasSource, /attempts:/);
 assert.match(gasSource, /JSON\.parse\(body/);
+assert.match(webSync, /bodyLength/);
+assert.match(webSync, /contentType/);
+const menuDiagnosisEgressBody = gasSource.match(/function runTossMarketDataDiagnosis\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+assert.match(menuDiagnosisEgressBody, /egress\.attempts/);
+assert.match(menuDiagnosisEgressBody, /bodyLength/);
+assert.match(menuDiagnosisEgressBody, /contentType/);
 
 const diagnosePriceSmoke = result => {
   fetchedUrls = [];
   cache.set('toss_oauth_token_v1', JSON.stringify({ accessToken: 'cached-token', expiresAt: Date.now() + 3600000 }));
   context.UrlFetchApp = { fetch: url => {
     fetchedUrls.push(url);
-    if (url.includes('api.ipify.org')) return egressResponse();
+    if (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) return egressResponse();
     if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'fresh-token', expires_in: 3600 });
     if (url.includes('/api/v1/prices?symbols=005930')) return response(200, { result });
     return response(200, { result: [{ value: 1 }] });

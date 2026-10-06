@@ -1,5 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.164
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.166
+//
+//  v9.166 변경사항 (2026.10.06):
+//   Toss egress IPv4 관측 provider fallback·비민감 실패 메타데이터 보강
+//
+//  v9.165 변경사항 (2026.10.06):
+//   백업 진단 서명 중복 읽기 제거·백업 대상 수식 스캔 및 source 헤더 재사용
 //
 //  v9.164 변경사항 (2026.10.06):
 //   Toss egress IPv4 probe 응답을 plain-text/JSON 모두 허용하도록 보강
@@ -1249,39 +1255,52 @@ function _isValidIpv4_(value) {
 // 진단 전용: 외부 서비스가 관측한 UrlFetchApp 출구 IPv4를 참고값으로 반환합니다.
 // Toss 요청도 반드시 같은 NAT/egress IP를 사용한다고 보장되지는 않습니다.
 function _probeTossDiagnosticEgressIp_() {
-  var startedAt = Date.now();
-  try {
-    // ipify의 IPv4 전용 plain-text endpoint를 사용하고, 혹시 JSON 형태가 와도 fallback 처리합니다.
-    var response = UrlFetchApp.fetch('https://api.ipify.org', {
-      method: 'get', muteHttpExceptions: true
-    });
-    var status = response.getResponseCode();
-    var body = String(response.getContentText() || '').trim();
-    var candidate = body;
-    if (!_isValidIpv4_(candidate)) {
-      try {
-        var parsed = JSON.parse(body || '{}');
-        candidate = parsed && parsed.ip ? String(parsed.ip).trim() : '';
-      } catch (ignore) {
-        candidate = '';
+  var startedAt = Date.now(), attempts = [];
+  var providers = [
+    { name: 'checkip.amazonaws.com', url: 'https://checkip.amazonaws.com/' },
+    { name: 'api.ipify.org', url: 'https://api.ipify.org' }
+  ];
+  for (var i = 0; i < providers.length; i++) {
+    var providerStartedAt = Date.now(), provider = providers[i];
+    try {
+      var response = UrlFetchApp.fetch(provider.url, { method: 'get', muteHttpExceptions: true });
+      var status = response.getResponseCode();
+      var body = String(response.getContentText() || '').trim();
+      var headers = {};
+      try { headers = response.getAllHeaders ? (response.getAllHeaders() || {}) : {}; } catch (ignoreHeaders) {}
+      var contentType = _tossDiagnosticIdValue_(_tossDiagnosticHeader_(headers, 'content-type'));
+      var candidate = body;
+      if (!_isValidIpv4_(candidate)) {
+        try {
+          var parsed = JSON.parse(body || '{}');
+          candidate = parsed && parsed.ip ? String(parsed.ip).trim() : '';
+        } catch (ignoreJson) {
+          candidate = '';
+        }
       }
+      var ip = _isValidIpv4_(candidate) ? candidate : '';
+      var attemptCode = status >= 200 && status < 300 ? (ip ? 'OK' : 'INVALID_IP_RESPONSE') : 'HTTP_ERROR';
+      attempts.push({
+        provider: provider.name, status: status, code: attemptCode,
+        bodyLength: body.length, contentType: contentType, elapsedMs: Date.now() - providerStartedAt
+      });
+      if (status >= 200 && status < 300 && ip) return {
+        ok: true, status: status, ip: ip, provider: provider.name, code: 'OK',
+        observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
+      };
+    } catch (err) {
+      attempts.push({
+        provider: provider.name, status: null, code: 'REQUEST_ERROR',
+        bodyLength: 0, contentType: '', elapsedMs: Date.now() - providerStartedAt
+      });
     }
-    var ip = _isValidIpv4_(candidate) ? candidate : '';
-    return {
-      ok: status >= 200 && status < 300 && !!ip,
-      status: status,
-      ip: ip,
-      provider: 'api.ipify.org',
-      code: status >= 200 && status < 300 ? (ip ? 'OK' : 'INVALID_IP_RESPONSE') : 'HTTP_ERROR',
-      observedOnly: true,
-      elapsedMs: Date.now() - startedAt
-    };
-  } catch (err) {
-    return {
-      ok: false, status: null, ip: '', provider: 'api.ipify.org',
-      code: 'REQUEST_ERROR', observedOnly: true, elapsedMs: Date.now() - startedAt
-    };
   }
+  var last = attempts.length ? attempts[attempts.length - 1] : {};
+  return {
+    ok: false, status: last.status == null ? null : last.status, ip: '',
+    provider: last.provider || '', code: last.code || 'REQUEST_ERROR',
+    observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
+  };
 }
 
 // 연결 진단은 cache hit을 HTTP 200으로 오표시하지 않도록 OAuth endpoint를 매번 한 번 검증합니다.
@@ -4411,7 +4430,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.164' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.166' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5455,6 +5474,7 @@ function _sheetFormulaReferenceCounts(ss, targetNames) {
     counts[name] = 0;
     return { name: name, quoted: "'" + String(name).replace(/'/g, "''") + "'!", plain: String(name) + '!' };
   });
+  if (!patterns.length) return counts;
   ss.getSheets().forEach(function(sheet) {
     if (!sheet.getLastRow() || !sheet.getLastColumn()) return;
     sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getFormulas().forEach(function(row) {
@@ -5467,11 +5487,14 @@ function _sheetFormulaReferenceCounts(ss, targetNames) {
   return counts;
 }
 
-function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
+function _diagnoseWorkbookCells(ss, includeFormulaReferences, backupReferencesOnly) {
   var allSheets = ss.getSheets();
   var registered = {};
   _readSystemBackupRegistry().forEach(function(item) { registered[item.name] = item; });
-  var formulaCounts = includeFormulaReferences ? _sheetFormulaReferenceCounts(ss, allSheets.map(function(sheet) { return String(sheet.getName()); })) : {};
+  var formulaTargets = allSheets.map(function(sheet) { return String(sheet.getName()); }).filter(function(name) {
+    return !backupReferencesOnly || _sheetRole(name) === 'BACKUP';
+  });
+  var formulaCounts = includeFormulaReferences ? _sheetFormulaReferenceCounts(ss, formulaTargets) : {};
   var sheets = [], totalCells = 0, backupCells = 0, backupUsedCells = 0;
   allSheets.forEach(function(sheet) {
     var name = String(sheet.getName()), maxRows = Number(sheet.getMaxRows()) || 0;
@@ -5485,7 +5508,7 @@ function _diagnoseWorkbookCells(ss, includeFormulaReferences) {
     var classification = backupRecord ? (backupRecord.status === 'COMPLETED' ? 'REGISTERED_COMPLETED' :
       (backupRecord.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
       (role === 'BACKUP' ? (inferredSource ? 'ORPHAN_LIKELY_SYSTEM' : 'USER_MANAGED_BACKUP') : 'UNKNOWN');
-    var formulaReferenceCount = includeFormulaReferences ? formulaCounts[name] : null;
+    var formulaReferenceCount = includeFormulaReferences && Object.prototype.hasOwnProperty.call(formulaCounts, name) ? formulaCounts[name] : null;
     var registeredSourceExists = !backupRecord || (!!inferredSource && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, inferredSource) && !!ss.getSheetByName(inferredSource));
     var eligible = classification === 'REGISTERED_COMPLETED' && registeredSourceExists && formulaReferenceCount === 0;
     sheets.push({ name: name, role: role, maxRows: maxRows, maxColumns: maxColumns,
@@ -5534,16 +5557,18 @@ function handleDiagnoseWorkbookCells() {
 function _planSystemBackupMaintenance(ss, options) {
   var validatedOperationIds = {}, requestedValidatedIds = options && options.validatedOperationIds;
   (Array.isArray(requestedValidatedIds) ? requestedValidatedIds : []).forEach(function(operationId) { if (operationId) validatedOperationIds[String(operationId)] = true; });
-  var before = _diagnoseWorkbookCells(ss, true), registry = _readSystemBackupRegistry(), records = {};
+  var before = _diagnoseWorkbookCells(ss, true, true), registry = _readSystemBackupRegistry(), records = {}, sourceHeaders = {};
   registry.forEach(function(item) { records[item.name] = item; });
   var activeOperations = {};
   registry.forEach(function(item) { if (item.status === 'CREATED' && item.operationId) activeOperations[item.operationId] = true; });
   var backups = before.sheets.filter(function(item) { return item.backup; }).map(function(item) {
     var record = records[item.name] || null, source = record ? record.source : _backupSourceFromSystemName(item.name);
     var sourceSheet = source ? ss.getSheetByName(source) : null;
-    var schemaMatch = !!(sourceSheet && _sheetHeaderSignature(ss.getSheetByName(item.name)) === _sheetHeaderSignature(sourceSheet));
+    if (sourceSheet && !Object.prototype.hasOwnProperty.call(sourceHeaders, source)) sourceHeaders[source] = _sheetHeaderSignature(sourceSheet);
+    var schemaMatch = !!(sourceSheet && _sheetHeaderSignature(ss.getSheetByName(item.name)) === sourceHeaders[source]);
     var namingMatch = !!_backupSourceFromSystemName(item.name);
-    var signatureMatch = record ? !!(record.signature && record.signature === _sheetContentSignature(ss.getSheetByName(item.name))) : !!_sheetContentSignature(ss.getSheetByName(item.name));
+    // 같은 실행의 진단에서 검증한 결과만 재사용합니다. apply는 lock 획득 후 새로 진단합니다.
+    var signatureMatch = record ? !!(record.signature && item.signatureMatch) : !!_sheetContentSignature(ss.getSheetByName(item.name));
     var registeredSystem = !!(record && record.systemGenerated === true && source && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, source));
     var classification = registeredSystem ? (record.status === 'COMPLETED' ? 'REGISTERED_COMPLETED' : (record.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
       (namingMatch && source && schemaMatch && item.formulaReferenceCount === 0 && !_isGasReferencedSheet(item.name) ? 'ORPHAN_LIKELY_SYSTEM' : (namingMatch ? 'UNKNOWN' : 'USER_MANAGED'));
@@ -9852,7 +9877,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.164' });
+    return jsonOk({ settings: settings, gasVersion: '9.166' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9874,7 +9899,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.164'
+      gasVersion: '9.166'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -10416,6 +10441,11 @@ function runTossMarketDataDiagnosis() {
     (oauth.ok ? '✅' : '❌') + ' OAuth: ' + (oauth.status == null ? '-' : oauth.status) + ' / ' + (oauth.code || 'ERROR') +
       (oauth.providerCode ? ' / ' + oauth.providerCode : '') + idSuffix(oauth) + ' / ' + (oauth.elapsedMs || 0) + 'ms'
   ];
+  if (!egress.ok && Array.isArray(egress.attempts)) egress.attempts.forEach(function(item) {
+    lines.push('  ↳ ' + (item.provider || 'provider') + ': ' + (item.status == null ? '-' : item.status) + ' / ' +
+      (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) +
+      (item.contentType ? ' / ' + item.contentType : '') + ' / ' + Number(item.elapsedMs || 0) + 'ms');
+  });
   (result.endpoints || []).forEach(function(item) {
     lines.push((item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) + ' ' + item.name + ': ' +
       (item.status == null ? '-' : item.status) + ' / ' + (item.code || 'ERROR') + ' / ' + (item.count || 0) + '건' +

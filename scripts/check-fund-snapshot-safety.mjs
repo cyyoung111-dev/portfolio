@@ -1123,6 +1123,57 @@ context._buildSnapshotRowsFromTradeAndPriceHistory=()=>{ throw new Error('확정
 assert.equal(context.diagnoseSnapshotIntegrity(integritySs,'2026-07-22').status,'SOURCE_INCOMPLETE','과거 환율 부재 시 재작성 불가');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
+// 백업 진단은 같은 실행의 서명만 재사용하고 모든 시트의 참조는 계속 검사합니다.
+{
+  const backupName = '스냅샷_백업_20261006_120000_abcdef';
+  const sheets = { '스냅샷': new Sheet([header]), [backupName]: new Sheet([header, snap('2026-01-01','000001',100)]), '참조시트': new Sheet([['수식']]) };
+  const ss = ssFor(sheets), backup = sheets[backupName];
+  const record = { name: backupName, source: '스냅샷', signature: context._sheetContentSignature(backup), status: 'COMPLETED', systemGenerated: true, operationId: 'diagnosis-test' };
+  scriptProperties.set('system_backup_registry_v1', JSON.stringify([record]));
+  context.getss = () => ss;
+  let valuesReads = 0, formulaReads = 0;
+  const getRange = backup.getRange.bind(backup);
+  backup.getRange = (...args) => {
+    const range = getRange(...args);
+    if (args[2] === backup.getLastRow()) {
+      const getValues = range.getValues, getFormulas = range.getFormulas;
+      range.getValues = () => { valuesReads++; return getValues(); };
+      range.getFormulas = () => { formulaReads++; return getFormulas(); };
+    }
+    return range;
+  };
+  const propertiesBefore = scriptProperties.get('system_backup_registry_v1');
+  let plan = clone(context.maintainSystemBackups({ apply: false }));
+  assert.equal(valuesReads, 1, '등록 백업 전체 값 읽기는 진단당 한 번');
+  assert.equal(formulaReads, 2, '등록 백업 수식 읽기는 참조 스캔·서명 각 한 번');
+  assert.equal(plan.backupSheets[0].autoCleanupEligible, true);
+  assert.equal(scriptProperties.get('system_backup_registry_v1'), propertiesBefore, 'dry-run registry 변경 금지');
+  assert(ss.getSheetByName(backupName), 'dry-run 시트 삭제 금지');
+  sheets['참조시트'].formulaText = "='" + backupName + "'!A1";
+  plan = clone(context.maintainSystemBackups({ apply: false }));
+  assert.equal(plan.backupSheets[0].formulaReferenceCount, 1, '비백업 시트의 quoted 참조 보호');
+  assert.equal(plan.backupSheets[0].autoCleanupEligible, false);
+  sheets['참조시트'].formulaText = '=' + backupName + '!A1';
+  assert.equal(context.maintainSystemBackups({ apply: false }).backupSheets[0].formulaReferenceCount, 1, 'plain 참조 보호');
+  sheets['참조시트'].formulaText = '';
+  backup.rows[1][6] = 999;
+  plan = clone(context.maintainSystemBackups({ apply: false }));
+  assert.equal(plan.backupSheets[0].signatureMatch, false, '다음 진단은 서명 새로 검증');
+  assert.equal(plan.backupSheets[0].autoCleanupEligible, false, '손상 백업 보호');
+  const applyResult = clone(context.maintainSystemBackups({ apply: true }));
+  assert.deepEqual(applyResult.deletedSheetNames, [], '이전 dry-run 후보를 삭제에 재사용 금지');
+  assert(ss.getSheetByName(backupName));
+  const emptySs = ssFor({ '가격이력': new Sheet([['값']]) });
+  emptySs.getSheetByName('가격이력').getRange = () => { throw new Error('백업 없는 진단의 수식 읽기'); };
+  scriptProperties.set('system_backup_registry_v1', '[]');
+  context.getss = () => emptySs;
+  assert.equal(context.maintainSystemBackups({ apply: false }).beforeCount, 0, '백업 없으면 수식 읽기 생략');
+  assert.deepEqual(clone(context._sheetFormulaReferenceCounts({ getSheets() { throw new Error('빈 대상 스캔'); } }, [])), {});
+  const apiSs = ssFor({ '스냅샷': new Sheet([['값']]), '참조시트': new Sheet([['수식']]) });
+  apiSs.getSheetByName('참조시트').formulaText = "='스냅샷'!A1";
+  assert.equal(context._diagnoseWorkbookCells(apiSs, true).sheets.find(item => item.name === '스냅샷').formulaReferenceCount, 1, '일반 셀 진단의 비백업 참조 API 유지');
+}
+
 // 전체 함수 선언이 중복돼 엄격 오류 옵션을 덮어쓰는 회귀 차단.
 const declarations=[...source.matchAll(/^function\s+(\w+)\s*\(/gm)].map(m=>m[1]);
 assert.equal(new Set(declarations).size,declarations.length,'GAS 함수 중복 선언');
