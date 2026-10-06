@@ -13,6 +13,7 @@
 //   신규/헤더-only Snapshot에도 write 전 0좌 lifecycle 적용, no-op 일일 실행도 처리 기준일 보존
 //   lifecycle로 제거된 원장 행은 signature 동일 여부와 무관하게 rewrite 사유로 처리
 //   수동 NAV import 완전성 검사도 0좌 fund lifecycle을 동일하게 적용
+//   손익 히스토리/상세 조회도 0좌 Snapshot을 즉시 제외해 정리 전 과대평가 방지
 //   기존 Snapshot이 있는 수동 import도 날짜 전체를 lifecycle 기준으로 재작성
 //   전체 트리거 재등록 시 기존 19시 펀드 트리거를 삭제 후 1개로 재생성
 //   보호된 Snapshot 충돌은 hard failure가 아니라 fund_last_warning으로 기록
@@ -2516,6 +2517,7 @@ function handleGetHistory(fromStr, toStr) {
     // ★ [버그수정] 스냅샷 12컬럼으로 확장됐으므로 Math.max(8→12)
     var snapLastCol = Math.max(12, sh.getLastColumn());
     var data = sh.getRange(2, 1, sh.getLastRow() - 1, snapLastCol).getValues();
+    var historyFundConfigs = _readFundUnits(ss);
     var confirmedFundValues = {};
     var navSheet = ss.getSheetByName(FUND_NAV_SHEET);
     if (navSheet && navSheet.getLastRow() > 1) {
@@ -2543,6 +2545,10 @@ function handleGetHistory(fromStr, toStr) {
       var cost = parseFloat(isNewFormat ? row[5] : row[4]) || 0;
       var evalAmt = parseFloat(isNewFormat ? row[7] : row[5]) || 0;
       var source = String(row[10] || '');
+      if (date && _isFundCode(code)) {
+        var historyFundConfig = _fundUnitsAtDate(historyFundConfigs, code, date);
+        if (historyFundConfig && historyFundConfig.units === 0) return;
+      }
       var confirmedFundMatches = confirmedFundValues[date + '|' + code] || [];
       if (source === 'FUND_NAV_CARRY_INPUT_REQUIRED' && confirmedFundMatches.indexOf(Math.round(evalAmt)) !== -1) source = 'FUND_NAV';
       if (!date) return;
@@ -2593,6 +2599,7 @@ function handleGetHistoryDetail(dateStr) {
     if (!sh || sh.getLastRow() < 2) return jsonOk({ date: date, items: [] });
     var lastCol = Math.max(12, sh.getLastColumn());
     var rows = sh.getRange(2, 1, sh.getLastRow() - 1, lastCol).getValues();
+    rows = _filterSnapshotRowsByFundLifecycle(rows, _readFundUnits(ss), date);
     var itemMap = {};
     rows.forEach(function(row) {
       if (_normalizeDate(row[0]) !== date) return;
