@@ -1465,6 +1465,8 @@ function _tossRequest_(path, query, group, timings) {
         _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
         throw new Error('Toss OAuth 재발급 결과 없음');
       }
+      // 401 recovery는 429/5xx retry budget을 소비하지 않습니다.
+      attempt--;
       continue;
     }
     var headers = response.getAllHeaders ? response.getAllHeaders() : {};
