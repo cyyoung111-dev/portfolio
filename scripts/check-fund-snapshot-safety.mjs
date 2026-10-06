@@ -106,6 +106,38 @@ const ssFor = sheets => {
   };
 };
 
+// backup 생성 후 실제 시트 내용이 source signature와 달라져도 실제 backup signature를 registry에 저장합니다.
+scriptProperties.delete('system_backup_registry_v1');
+scriptProperties.delete('sheet_backup_signature|스냅샷');
+scriptProperties.delete('sheet_backup_operation|스냅샷');
+context._snapshotBackupOperationId='';
+const signatureSource=new Sheet([header,snap('2026-01-01','000001',100)]);
+const signatureSheets={'스냅샷':signatureSource};
+const signatureSs=ssFor(signatureSheets);
+const sourceSignatureBefore=context._sheetContentSignature(signatureSource);
+const originalSetCodeColumnText=context._setCodeColumnText;
+context._setCodeColumnText=(backup,column)=>{
+  originalSetCodeColumnText(backup,column);
+  backup.rows[0][0]='backup-copy-recalculated';
+};
+const signatureRecord=clone(context._backupSheetBeforeWrite(signatureSs,signatureSource,'스냅샷'));
+context._setCodeColumnText=originalSetCodeColumnText;
+const signatureBackup=signatureSheets[signatureRecord.name];
+assert(signatureBackup,'signature test backup 생성');
+assert.equal(signatureRecord.sourceSignature,sourceSignatureBefore,'복사 직전 source signature 별도 저장');
+assert.equal(signatureRecord.signature,context._sheetContentSignature(signatureBackup),'registry signature은 실제 backup 내용 기준');
+assert.equal(signatureRecord.signatureVersion,'backup-content-v2');
+assert.equal(signatureRecord.copySignatureDrift,true,'source/backup signature 차이를 진단 metadata로 기록');
+assert.notEqual(signatureRecord.signature,signatureRecord.sourceSignature,'copy 후 값 변화에도 source와 backup signature 혼용 금지');
+const signatureRegistry=JSON.parse(scriptProperties.get('system_backup_registry_v1'));
+assert.equal(signatureRegistry[0].signature,signatureRecord.signature);
+assert.equal(signatureRegistry[0].sourceSignature,sourceSignatureBefore);
+
+// 이후 테스트와 registry 상태를 분리합니다.
+scriptProperties.delete('system_backup_registry_v1');
+scriptProperties.delete('sheet_backup_signature|스냅샷');
+scriptProperties.delete('sheet_backup_operation|스냅샷');
+
 const storedFallback=clone(context._storedFundNavRows([
   ['2026-01-01','F00002','KB',1111,'2026-01-01',1000,1111,'','KB_VALUE_ST'],
   ['2026-01-02','F00002','KB',1112,'2026-01-02',1000,1112,'','WRONG_CLASS'],
