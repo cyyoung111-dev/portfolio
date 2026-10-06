@@ -1197,35 +1197,38 @@ function _tossProperties_() {
   return { id: String(props.getProperty('TOSS_CLIENT_ID') || '').trim(), secret: String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim() };
 }
 
-function _tossCachedAccessToken_() {
+function _tossCachedTokenRecord_() {
   var cached = CacheService.getScriptCache().get(TOSS_TOKEN_CACHE_KEY);
-  if (!cached) return '';
+  if (!cached) return null;
   try {
     var token = JSON.parse(cached);
-    return token.accessToken && Number(token.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000 ? token.accessToken : '';
-  } catch (e) { return ''; }
+    return token && token.accessToken ? token : null;
+  } catch (e) { return null; }
 }
 
-function _invalidateTossCachedTokenIfMatches_(rejectedToken) {
-  var cache = CacheService.getScriptCache(), cached = cache.get(TOSS_TOKEN_CACHE_KEY);
-  if (!cached) return false;
-  try {
-    var parsed = JSON.parse(cached);
-    if (rejectedToken && parsed.accessToken && parsed.accessToken !== rejectedToken) return false;
-  } catch (ignore) {}
-  cache.remove(TOSS_TOKEN_CACHE_KEY);
-  return true;
+function _tossCachedAccessToken_() {
+  var token = _tossCachedTokenRecord_();
+  return token && Number(token.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000 ? token.accessToken : '';
 }
 
-function _tossAccessToken_() {
-  var cachedToken = _tossCachedAccessToken_();
-  if (cachedToken) return cachedToken;
-
+function _tossIssueAccessTokenUnlocked_() {
   var credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return '';
+  var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
+    method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
+    payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
+  });
+  var status = response.getResponseCode();
+  var body = response.getContentText() || '{}';
+  if (status < 200 || status >= 300) throw new Error('Toss OAuth 실패(' + status + '): ' + _tossSafeError_(body));
+  var data = JSON.parse(body);
+  if (data.token_type !== 'Bearer' || !data.access_token || !Number(data.expires_in)) throw new Error('Toss OAuth 응답 필드 불일치');
+  var expiresAt = Date.now() + Number(data.expires_in) * 1000;
+  CacheService.getScriptCache().put(TOSS_TOKEN_CACHE_KEY, JSON.stringify({ accessToken: data.access_token, expiresAt: expiresAt }), Math.max(1, Math.min(21600, Number(data.expires_in) - TOSS_TOKEN_SKEW_SECONDS)));
+  return data.access_token;
+}
 
-  // Toss는 새 client_credentials token 발급 시 기존 token이 무효화될 수 있으므로,
-  // cache miss 동시 실행을 single-flight로 직렬화합니다.
+function _tossWithTokenLock_(callback) {
   var lock = typeof LockService !== 'undefined' && LockService.getScriptLock ? LockService.getScriptLock() : null;
   var acquiredHere = false;
   try {
@@ -1233,25 +1236,38 @@ function _tossAccessToken_() {
       lock.waitLock(10000);
       acquiredHere = true;
     }
-    // 다른 실행이 lock 대기 중 token을 발급했을 수 있으므로 반드시 재확인합니다.
-    cachedToken = _tossCachedAccessToken_();
-    if (cachedToken) return cachedToken;
-
-    var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
-      method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
-      payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
-    });
-    var status = response.getResponseCode();
-    var body = response.getContentText() || '{}';
-    if (status < 200 || status >= 300) throw new Error('Toss OAuth 실패(' + status + '): ' + _tossSafeError_(body));
-    var data = JSON.parse(body);
-    if (data.token_type !== 'Bearer' || !data.access_token || !Number(data.expires_in)) throw new Error('Toss OAuth 응답 필드 불일치');
-    var expiresAt = Date.now() + Number(data.expires_in) * 1000;
-    CacheService.getScriptCache().put(TOSS_TOKEN_CACHE_KEY, JSON.stringify({ accessToken: data.access_token, expiresAt: expiresAt }), Math.max(1, Math.min(21600, Number(data.expires_in) - TOSS_TOKEN_SKEW_SECONDS)));
-    return data.access_token;
+    return callback();
   } finally {
     if (acquiredHere && lock && lock.releaseLock) lock.releaseLock();
   }
+}
+
+function _tossAccessToken_() {
+  var cachedToken = _tossCachedAccessToken_();
+  if (cachedToken) return cachedToken;
+
+  // Toss는 새 client_credentials token 발급 시 기존 token이 무효화될 수 있으므로,
+  // cache miss 동시 실행을 single-flight로 직렬화합니다.
+  return _tossWithTokenLock_(function() {
+    // 다른 실행이 lock 대기 중 token을 발급했을 수 있으므로 반드시 재확인합니다.
+    var tokenAfterLock = _tossCachedAccessToken_();
+    return tokenAfterLock || _tossIssueAccessTokenUnlocked_();
+  });
+}
+
+function _refreshTossAccessTokenAfter401_(rejectedToken) {
+  return _tossWithTokenLock_(function() {
+    var cache = CacheService.getScriptCache();
+    var current = _tossCachedTokenRecord_();
+    var currentValid = current && Number(current.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000;
+
+    // lock 대기 중 다른 실행이 이미 새 token으로 교체했다면 그 token을 그대로 사용합니다.
+    if (currentValid && current.accessToken !== rejectedToken) return current.accessToken;
+
+    // 현재 cache가 실제 rejected token이거나 만료/손상 상태일 때만 제거합니다.
+    if (!current || !currentValid || current.accessToken === rejectedToken) cache.remove(TOSS_TOKEN_CACHE_KEY);
+    return _tossIssueAccessTokenUnlocked_();
+  });
 }
 
 function _tossSafeError_(body) {
@@ -1456,10 +1472,8 @@ function _tossRequest_(path, query, group, timings) {
     }
     if (status === 401 && !oauthRecoveryUsed) {
       oauthRecoveryUsed = true;
-      // 다른 실행이 이미 새 token으로 교체했다면 그 token을 지우지 않습니다.
-      _invalidateTossCachedTokenIfMatches_(token);
       var refreshStartedMs = Date.now();
-      token = _tossAccessToken_();
+      token = _refreshTossAccessTokenAfter401_(token);
       _priceTimingAdd_(timings, 'tossToken', refreshStartedMs);
       if (!token) {
         _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
