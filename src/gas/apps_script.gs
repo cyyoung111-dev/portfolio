@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.162
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.163
+//
+//  v9.163 변경사항 (2026.10.06):
+//   Toss read-only 진단에 외부 관측 GAS egress IPv4 probe 추가
 //
 //  v9.162 변경사항 (2026.10.06):
 //   Toss OAuth/market 진단에 비민감 요청 식별자(request/reference/edge ID) 표시 보강
@@ -1232,6 +1235,43 @@ function _tossDiagnosticIdentifiers_(response, parsed) {
   };
 }
 
+function _isValidIpv4_(value) {
+  var text = String(value || '').trim();
+  var parts = text.split('.');
+  return parts.length === 4 && parts.every(function(part) {
+    return /^\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255;
+  });
+}
+
+// 진단 전용: 외부 서비스가 관측한 UrlFetchApp 출구 IPv4를 참고값으로 반환합니다.
+// Toss 요청도 반드시 같은 NAT/egress IP를 사용한다고 보장되지는 않습니다.
+function _probeTossDiagnosticEgressIp_() {
+  var startedAt = Date.now();
+  try {
+    var response = UrlFetchApp.fetch('https://api.ipify.org?format=json', {
+      method: 'get', muteHttpExceptions: true
+    });
+    var status = response.getResponseCode();
+    var parsed = {};
+    try { parsed = JSON.parse(response.getContentText() || '{}'); } catch (ignore) {}
+    var ip = _isValidIpv4_(parsed && parsed.ip) ? String(parsed.ip).trim() : '';
+    return {
+      ok: status >= 200 && status < 300 && !!ip,
+      status: status,
+      ip: ip,
+      provider: 'api.ipify.org',
+      code: status >= 200 && status < 300 ? (ip ? 'OK' : 'INVALID_IP_RESPONSE') : 'HTTP_ERROR',
+      observedOnly: true,
+      elapsedMs: Date.now() - startedAt
+    };
+  } catch (err) {
+    return {
+      ok: false, status: null, ip: '', provider: 'api.ipify.org',
+      code: 'REQUEST_ERROR', observedOnly: true, elapsedMs: Date.now() - startedAt
+    };
+  }
+}
+
 // 연결 진단은 cache hit을 HTTP 200으로 오표시하지 않도록 OAuth endpoint를 매번 한 번 검증합니다.
 function _tossDiagnosticAccessToken_() {
   var startedAt = Date.now(), credentials = _tossProperties_();
@@ -1447,6 +1487,7 @@ function _tossPriceSmoke_(token) {
 
 function handleDiagnoseTossMarketData() {
   var token = '', oauth;
+  var egressProbe = _probeTossDiagnosticEgressIp_();
   try {
     var oauthResult = _tossDiagnosticAccessToken_();
     token = oauthResult.token || '';
@@ -1480,7 +1521,7 @@ function handleDiagnoseTossMarketData() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (!oauth.ok ? oauth.code : ((checks.find(function(item) { return !item.ok; }) || {}).code || smoke.code || 'ERROR')));
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, oauth: oauth, endpoints: checks, priceSmoke: smoke });
+  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -4358,7 +4399,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.162' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.163' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9799,7 +9840,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.162' });
+    return jsonOk({ settings: settings, gasVersion: '9.163' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9821,7 +9862,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.162'
+      gasVersion: '9.163'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
