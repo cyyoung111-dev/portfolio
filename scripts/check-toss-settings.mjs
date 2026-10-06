@@ -38,6 +38,8 @@ const cache = new Map();
 let tossLockHeld = false;
 let tossLockWaits = 0;
 let injectTokenOnNextLock = '';
+let injectCredentialsOnNextLock = null;
+let requireTossConfigMutationLock = false;
 const tossLock = {
   hasLock: () => tossLockHeld,
   waitLock: () => {
@@ -47,6 +49,11 @@ const tossLock = {
       cache.set('toss_oauth_token_v1', JSON.stringify({ accessToken: injectTokenOnNextLock, expiresAt: Date.now() + 3600000 }));
       injectTokenOnNextLock = '';
     }
+    if (injectCredentialsOnNextLock) {
+      properties.set('TOSS_CLIENT_ID', injectCredentialsOnNextLock.id);
+      properties.set('TOSS_CLIENT_SECRET', injectCredentialsOnNextLock.secret);
+      injectCredentialsOnNextLock = null;
+    }
   },
   releaseLock: () => { tossLockHeld = false; }
 };
@@ -54,8 +61,14 @@ const context = vm.createContext({
   console, Date, JSON, String, Number, Object, Array, Math, isFinite,
   PropertiesService: { getScriptProperties: () => ({
     getProperty: key => properties.get(key) || '',
-    setProperty: (key, value) => properties.set(key, String(value)),
-    deleteProperty: key => properties.delete(key)
+    setProperty: (key, value) => {
+      if (requireTossConfigMutationLock && /^TOSS_/.test(String(key)) && !tossLockHeld) throw new Error('Toss config mutation without lock');
+      properties.set(key, String(value));
+    },
+    deleteProperty: key => {
+      if (requireTossConfigMutationLock && /^TOSS_/.test(String(key)) && !tossLockHeld) throw new Error('Toss config mutation without lock');
+      properties.delete(key);
+    }
   }) },
   CacheService: { getScriptCache: () => ({
     get: key => cache.get(key) || null,
@@ -74,6 +87,7 @@ assert.equal(context._diagnosticIpFamily_('::ffff:192.0.2.128'), 'IPv6');
 assert.equal(context._diagnosticIpFamily_('2001:db8:::1'), '', '잘못된 IPv6 거부');
 assert.equal(context._diagnosticIpFamily_('<html>blocked</html>'), '', 'IP가 아닌 응답 거부');
 
+requireTossConfigMutationLock = true;
 let saved = JSON.parse(context.handleSaveTossConfig(JSON.stringify({ clientId: 'client-123456', secret: 'value%2Fkeep' })).getContent());
 assert.equal(saved.status, 'ok');
 assert.equal(properties.get('TOSS_CLIENT_ID'), 'client-123456');
@@ -97,6 +111,14 @@ assert.equal(properties.has('TOSS_CLIENT_ID'), false);
 assert.equal(properties.has('TOSS_CLIENT_SECRET'), false);
 assert.equal(properties.get('OTHER_API_KEY'), 'preserve-me');
 assert.equal(cache.has('toss_oauth_token_v1'), false);
+requireTossConfigMutationLock = false;
+
+const saveTossBody = gasSource.match(/function handleSaveTossConfig\([\s\S]*?\n\}/)?.[0] || '';
+const clearTossBody = gasSource.match(/function handleClearTossConfig\([\s\S]*?\n\}/)?.[0] || '';
+const diagnosticTokenBody = gasSource.match(/function _tossDiagnosticAccessToken_\([\s\S]*?\n\}/)?.[0] || '';
+assert.match(saveTossBody, /_tossWithTokenLock_/);
+assert.match(clearTossBody, /_tossWithTokenLock_/);
+assert.match(diagnosticTokenBody, /_tossWithTokenLock_[\s\S]*var credentials = _tossProperties_\(\)/, '진단 OAuth는 lock 획득 후 자격증명 재조회');
 
 const diagnoseBody = gasSource.match(/function handleDiagnoseTossMarketData\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 assert.doesNotMatch(diagnoseBody, /setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet/);
@@ -330,6 +352,25 @@ const racedRefreshToken = context._refreshTossAccessTokenAfter401_('rejected-tok
 assert.equal(racedRefreshToken, 'new-token-from-other-execution', 'lock 획득 후 최신 token 재비교');
 assert.equal(oauthFetches, 0, '다른 실행이 갱신한 token이 있으면 추가 OAuth 발급 금지');
 assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken, 'new-token-from-other-execution', '새 token을 잘못 삭제하지 않음');
+assert.equal(tossLockWaits, 1);
+
+// 진단 OAuth도 lock 대기 중 설정이 변경되면 최신 자격증명을 사용합니다.
+properties.set('TOSS_CLIENT_ID', 'client-before-wait');
+properties.set('TOSS_CLIENT_SECRET', 'secret-before-wait');
+cache.clear();
+tossLockHeld = false;
+tossLockWaits = 0;
+injectCredentialsOnNextLock = { id: 'client-after-wait', secret: 'secret-after-wait' };
+let diagnosticOauthPayload = null;
+context.UrlFetchApp = { fetch: (url, options = {}) => {
+  if (!url.endsWith('/oauth2/token')) throw new Error('unexpected diagnostic URL ' + url);
+  diagnosticOauthPayload = options.payload;
+  return response(200, { token_type: 'Bearer', access_token: 'diagnostic-new-token', expires_in: 3600 });
+} };
+const diagnosticTokenResult = context._tossDiagnosticAccessToken_();
+assert.equal(diagnosticTokenResult.ok, true);
+assert.equal(diagnosticOauthPayload.client_id, 'client-after-wait', 'lock 획득 뒤 최신 Client ID 사용');
+assert.equal(diagnosticOauthPayload.client_secret, 'secret-after-wait', 'lock 획득 뒤 최신 Client Secret 사용');
 assert.equal(tossLockWaits, 1);
 
 // resource 401은 rejected cached token만 폐기하고 새 token으로 딱 1회 복구합니다.
