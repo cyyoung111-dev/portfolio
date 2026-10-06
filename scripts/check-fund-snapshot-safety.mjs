@@ -596,13 +596,13 @@ const staleZeroPrices=new Sheet([['date','code','name','price','at','source']]);
 const staleZeroTrades=new Sheet([Array(8).fill('header'),
   ['2026-01-01','buy','계좌','KB','F00002',1,1500,'펀드'],
   ['2026-01-01','buy','계좌','피델리티','F00003',1,1000,'펀드']]);
-const staleZeroSnapshots=new Sheet([header,snap('2026-01-05','F00003',3000,'FUND_NAV')]);
+const staleZeroSnapshots=new Sheet([header,snap('2026-01-05','F00003',3000,'MANUAL')]);
 const staleZeroSs=ssFor({'펀드좌수':staleZeroUnits,'펀드기준가격':staleZeroNav,'가격이력':staleZeroPrices,'거래이력':staleZeroTrades,'스냅샷':staleZeroSnapshots});
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
 const staleZeroResult=context._refreshFundValuations(staleZeroSs,'2026-01-05','2026-01-05','F00002',true);
 assert.equal(staleZeroResult.missingHoldings.length,0,'0좌 F00003을 다른 펀드 갱신의 누락 보유로 오인하지 않음');
 assert(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00002'),'F00002 갱신 Snapshot 저장');
-assert.equal(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'기존 0좌 F00003 Snapshot 병합 제거');
+assert.equal(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'기존 0좌 F00003 MANUAL Snapshot도 lifecycle이 우선하여 제거');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
 // 세 펀드 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증합니다.
