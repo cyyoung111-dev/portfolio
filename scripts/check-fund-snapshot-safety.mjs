@@ -1243,11 +1243,33 @@ context.getss=()=>historyConsistencySs;
 const historyConsistency=clone(context.handleGetHistory('2026-09-16','2026-09-16'));
 assert.deepEqual(historyConsistency.snapshots[0].navInputRequiredCodes,['F00002'],'확정 NAV 평가금액 일치 F00001 경고만 제거하고 실제 미확정 F00002 유지');
 
+// Script Properties에는 날짜 상세 배열을 저장하지 않고 충분히 작은 운영 요약만 기록합니다.
+const oversizedDailyResult={
+  completionStatus:'partial',saved:96,navSaved:24,snapshots:20,lastDate:'2026-09-30',missingHoldings:[],
+  fundResults:{}
+};
+['F00001','F00002','F00003'].forEach((code,index)=>{
+  oversizedDailyResult.fundResults[code]={
+    status:index===1?'partial':'ok',storedNav:10,apiRequested:8,apiSuccess:7,apiFailed:1,navMissing:index===1?2:0,
+    latestUnpublished:1,carried:6,zeroUnitsExcluded:index===2?12:0,inputRequiredDates:index===1?['2026-09-29','2026-09-30']:[],
+    snapshots:20,dates:Array.from({length:32},(_,day)=>({date:'2026-09-'+String(day+1).padStart(2,'0'),navState:'CONFIRMED',evaluationState:'SAVED_OR_UPDATED',snapshotState:'SAVED_OR_UPDATED',extra:'x'.repeat(120)}))
+  };
+});
+const compactDailyResult=clone(context._compactFundDailyResultForProperty(oversizedDailyResult));
+const compactDailyJson=JSON.stringify(compactDailyResult);
+assert(compactDailyJson.length<4000,'일일 펀드 Properties 요약은 날짜 상세를 제외해 충분히 작아야 함');
+assert.equal(Object.prototype.hasOwnProperty.call(compactDailyResult.funds.F00001,'dates'),false,'날짜별 상세 배열 Properties 저장 금지');
+assert.equal(compactDailyResult.funds.F00002.inputRequiredCount,2,'입력 필요 건수는 요약에 유지');
+
 // 일일 실행의 partial은 자동화 자체를 실패시키지 않고 경고로 기록하며, hard error만 실패 처리합니다.
 const savedRefresh=context._refreshFundValuations;
-context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],fundResults:{F00001:{status:'partial',navMissing:1,inputRequiredDates:['2026-09-08']}}});
+context._refreshFundValuations=()=>oversizedDailyResult;
 assert.doesNotThrow(()=>context.runDailyFundValuations(),'일일 partial은 저장된 성공분을 유지하고 warning으로 기록');
-assert.match(scriptProperties.get('fund_last_warning')||'',/F00001.*NAV 미확보 1일/);
+assert.match(scriptProperties.get('fund_last_warning')||'',/F00002.*NAV 미확보 2일/);
+const storedDailyProperty=scriptProperties.get('fund_last_result')||'';
+assert(storedDailyProperty.length<4000,'실제 fund_last_result도 Properties 제한보다 충분히 작게 저장');
+assert.equal(JSON.parse(storedDailyProperty).lastDate,'2026-09-30');
+assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(storedDailyProperty).funds.F00001,'dates'),false);
 context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],fundResults:{F00001:{status:'error',navMissing:1,inputRequiredDates:[]}}});
 assert.throws(()=>context.runDailyFundValuations(),/F00001/,'hard error는 일일 자동화 실패로 기록');
 context._refreshFundValuations=savedRefresh;
