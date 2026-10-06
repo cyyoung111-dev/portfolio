@@ -28,6 +28,7 @@ context.today = () => '2026-09-09';
 
 const realDiagnoseSnapshotIntegrity=context.diagnoseSnapshotIntegrity;
 const realSettleSnapshotBackupOperation=context._settleSnapshotBackupOperation;
+const realFetchFundNav=context._fetchFundNav;
 let backfillSettles=[];
 context.diagnoseSnapshotIntegrity=()=>({status:'VALID'});
 context._settleSnapshotBackupOperation=(_ss,operationId,succeeded,message)=>{backfillSettles.push({operationId,succeeded,message});return [];};
@@ -581,6 +582,27 @@ assert.equal(mixedCalls.filter(call=>call[0]==='FIDELITY_BIG4_S').length,0,'F000
 assert.equal(mixedCalls.filter(call=>call[1]==='2026-01-12' && call[2]==='2026-01-14').length,2,'보정된 실패 batch는 최초 호출 후 1회만 재시도');
 const kbOnly=context._refreshFundValuations(mixedSs,'2026-01-01','2026-01-07','F00002');
 assert.deepEqual(Object.keys(kbOnly.fundResults),['F00002'],'웹 요청이 F코드별로 독립 실행 가능');
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+context._fetchFundNav=realFetchFundNav;
+
+// 다른 펀드 갱신 중에도 0좌 F00003 기존 Snapshot이 다시 병합되거나 완전성 검사에 포함되지 않습니다.
+const staleZeroUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00002','KB','KB_VALUE_ST','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-05',0,'']]);
+const staleZeroNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-01-05','F00002','KB',2000,'2026-01-05',1000,2000,'','KB_VALUE_ST']]);
+const staleZeroPrices=new Sheet([['date','code','name','price','at','source']]);
+const staleZeroTrades=new Sheet([Array(8).fill('header'),
+  ['2026-01-01','buy','계좌','KB','F00002',1,1500,'펀드'],
+  ['2026-01-01','buy','계좌','피델리티','F00003',1,1000,'펀드']]);
+const staleZeroSnapshots=new Sheet([header,snap('2026-01-05','F00003',3000,'FUND_NAV')]);
+const staleZeroSs=ssFor({'펀드좌수':staleZeroUnits,'펀드기준가격':staleZeroNav,'가격이력':staleZeroPrices,'거래이력':staleZeroTrades,'스냅샷':staleZeroSnapshots});
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
+const staleZeroResult=context._refreshFundValuations(staleZeroSs,'2026-01-05','2026-01-05','F00002',true);
+assert.equal(staleZeroResult.missingHoldings.length,0,'0좌 F00003을 다른 펀드 갱신의 누락 보유로 오인하지 않음');
+assert(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00002'),'F00002 갱신 Snapshot 저장');
+assert.equal(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'기존 0좌 F00003 Snapshot 병합 제거');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
 // 세 펀드 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증합니다.
