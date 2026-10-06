@@ -9017,7 +9017,8 @@ function checkDailyAutomationStatus() {
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
     + 'syncMortgageFromSchedule(01:10) 트리거: ' + (trig.hasMortgage ? '정상' : '없음') + '\n'
-    + 'runDailyPortfolioClose1900(19시) 통합 마감 트리거: ' + (trig.hasClose ? '정상' : '없음') + '\n\n'
+    + 'runDailyPortfolioClose1900(19시) 통합 마감 트리거: ' + (trig.hasDuplicateCloseTriggers ? ('중복 ' + trig.closeCount + '개') : (trig.hasClose ? '정상' : '없음')) + '\n'
+    + '기존 분리 트리거(runEvalPriceUpdate1620/runDailyFundValuations): ' + (trig.hasLegacySplitTriggers ? ('남아 있음 · 가격 ' + trig.legacyPriceCount + '개 / 펀드 ' + trig.legacyFundCount + '개') : '없음') + '\n\n'
     + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
     + '가격이력 마지막 날짜: ' + phLast + '\n'
@@ -9030,9 +9031,9 @@ function checkDailyAutomationStatus() {
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + (isPortfolioCloseRunStale ? '⚠️ 통합 마감 최근 실행일이 기대 실행일(' + expectedPortfolioCloseRunDate + ')보다 오래되었습니다.\n' : '')
     + '\n'
-    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasIntegrityChange
-      ? '⚠️ 트리거 누락: [복구·정리 실행] → [누락 자동 트리거 복구]를 실행하세요.'
-      : '✅ 트리거는 등록되어 있습니다. 데이터 누락은 정합성 진단으로 확인하세요.')
+    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasIntegrityChange || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers
+      ? '⚠️ 트리거 상태 이상: [복구·정리 실행] → [자동 트리거 복구·정리]를 실행하세요.'
+      : '✅ 트리거는 정상 집합입니다. 데이터 누락은 정합성 진단으로 확인하세요.')
     + '\n이 점검은 트리거와 데이터를 변경하지 않습니다. 버전업마다 실행할 필요는 없습니다.';
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
@@ -11249,13 +11250,13 @@ function showManualPriceHistoryPolicy() {
 }
 
 function repairMissingDailyTriggersPrompt() {
-  if (!_confirmPortfolioMenuAction('누락 자동 트리거 복구', '누락된 일일 자동화·구조 변경 트리거만 추가합니다. 기존 트리거는 삭제하지 않습니다.')) return;
+  if (!_confirmPortfolioMenuAction('자동 트리거 복구·정리', '누락된 일일 자동화·구조 변경 트리거를 추가하고, 레거시 분리 트리거와 중복 통합 마감 트리거가 있으면 정상 집합으로 정리합니다. 현재 정상인 필수 트리거는 유지합니다.')) return;
   _ensureDailyTriggers(true);
   checkDailyAutomationStatus();
 }
 
 function resetDailyTriggersPrompt() {
-  if (!_confirmPortfolioMenuAction('자동 트리거 전체 재등록', '기존 일일/레거시 자동화 트리거를 삭제하고 기본 일정으로 다시 등록하며 만료 임시 시트를 정리합니다. 사용자 지정 실행 시간이 바뀔 수 있습니다. 일반 누락은 누락 자동 트리거 복구를 사용하세요.')) return;
+  if (!_confirmPortfolioMenuAction('자동 트리거 전체 재등록', '기존 일일/레거시 자동화 트리거를 삭제하고 기본 일정으로 다시 등록하며 만료 임시 시트를 정리합니다. 사용자 지정 실행 시간이 바뀔 수 있습니다. 일반 누락·레거시·중복 정리는 자동 트리거 복구·정리를 사용하세요.')) return;
   setupTrigger();
 }
 
@@ -11370,7 +11371,7 @@ function onOpen(e) {
       .addItem('Toss API 연결 진단 (운영자료 변경 없음)', 'runTossMarketDataDiagnosis')
       .addItem('메뉴 생성 오류 확인', 'showMenuBuildError');
     var menuRepair = ui.createMenu('🛠️ 복구·정리 실행 (필요 시만)')
-      .addItem('누락 자동 트리거 복구', 'repairMissingDailyTriggersPrompt')
+      .addItem('자동 트리거 복구·정리', 'repairMissingDailyTriggersPrompt')
       .addItem('시트 구성 생성·헤더 복구', 'repairSheetStructurePrompt')
       .addItem('전체 스냅샷 정합성 복구 시작', 'runSnapshotConsistencyRepair')
       .addItem('스냅샷 복구 후속 트리거 재예약', 'resumeSnapshotRepairPrompt')
