@@ -474,7 +474,9 @@ async function loadAutomationStatusFromGsheet() {
     const mapped = statusMap[a.overallStatus] || [a.overallStatus || '미확인', 'var(--muted)'];
     badge.textContent = mapped[0];
     badge.style.color = mapped[1];
-    const closeTrigger = a.trigger?.hasClose ? '정상' : '없음';
+    const closeTrigger = a.trigger?.hasDuplicateCloseTriggers
+      ? `중복 ${Number(a.trigger?.closeCount || 0)}개`
+      : (a.trigger?.hasClose ? '정상' : '없음');
     const priceState = close.priceOk === true ? '성공' : (close.priceOk === false ? '실패' : '미실행');
     const fundState = close.fundOk === true ? '성공' : (close.fundOk === false ? '실패' : '미실행');
     const errorText = a.portfolioCloseLastError || a.fundLastError || (Array.isArray(close.errors) && close.errors.length ? close.errors.join(' | ') : '');
@@ -483,7 +485,7 @@ async function loadAutomationStatusFromGsheet() {
     body.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;font-size:.68rem;line-height:1.55">
         <div><span style="color:var(--muted)">GAS 버전</span><br><b>${_escapeHtml(a.gasVersion || data.gasVersion || '-')}</b></div>
-        <div><span style="color:var(--muted)">19시 통합 트리거</span><br><b style="color:${a.trigger?.hasClose ? 'var(--green-lt)' : 'var(--red-lt)'}">${closeTrigger}</b></div>
+        <div><span style="color:var(--muted)">19시 통합 트리거</span><br><b style="color:${a.trigger?.hasClose && !a.trigger?.hasDuplicateCloseTriggers ? 'var(--green-lt)' : 'var(--red-lt)'}">${closeTrigger}</b></div>
         <div><span style="color:var(--muted)">기존 분리 트리거</span><br><b style="color:${a.trigger?.hasLegacySplitTriggers ? 'var(--red-lt)' : 'var(--green-lt)'}">${a.trigger?.hasLegacySplitTriggers ? '남아 있음' : '없음'}</b></div>
         <div><span style="color:var(--muted)">마지막 통합 실행</span><br><b>${_escapeHtml(close.finishedAt || close.startedAt || '아직 없음')}</b></div>
         <div><span style="color:var(--muted)">일반 종목</span><br><b>${priceState}${close.priceDate ? ' · ' + _escapeHtml(close.priceDate) : ''}${Number.isFinite(Number(close.priceRows)) && close.priceRows ? ' · ' + Number(close.priceRows) + '행' : ''}</b></div>
@@ -493,7 +495,11 @@ async function loadAutomationStatusFromGsheet() {
         <div><span style="color:var(--muted)">조회 시각</span><br><b>${_escapeHtml(a.checkedAt || '-')}</b></div>
       </div>
       <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:.66rem;color:${errorText ? (referenceErrorOnly ? 'var(--amber)' : 'var(--red-lt)') : 'var(--muted)'};white-space:pre-wrap">
-        ${errorText ? ((referenceErrorOnly ? '이전 펀드 오류(참고): ' : '최근 오류: ') + _escapeHtml(errorText)) : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음')}
+        ${errorText
+          ? ((referenceErrorOnly ? '이전 펀드 오류(참고): ' : '최근 오류: ') + _escapeHtml(errorText))
+          : (a.portfolioCloseRunStale
+              ? '최근 경고: 통합 마감 실행 지연 · 기대 실행일 ' + _escapeHtml(a.expectedPortfolioCloseRunDate || '-')
+              : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음'))}
       </div>`;
   } catch (error) {
     badge.textContent = '조회 실패';

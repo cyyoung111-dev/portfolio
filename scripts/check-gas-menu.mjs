@@ -65,10 +65,13 @@ function fixture() {
   const f = fixture();
   f.ctx._ensureDailyTriggers = fix => { assert.equal(fix, false); return {}; };
   f.ctx._getLatestDateInColumn = () => '-';
+  f.ctx._getLatestLifecycleValidSnapshotDate = () => '-';
+  f.ctx._expectedPortfolioCloseRunDate = () => '2026-10-05';
+  f.ctx._isPortfolioCloseRunStale = () => false;
   f.ctx._getPrevTradingDay = () => '2026-10-05'; f.ctx.today = () => '2026-10-06';
   f.ctx.checkDailyAutomationStatus();
   assert.equal(f.writes.length, 0);
-  assert(f.messages.at(-1)[0].includes('누락 자동 트리거 복구'));
+  assert(f.messages.at(-1)[0].includes('자동 트리거 복구·정리'));
   f.props.set(f.ctx.SNAPSHOT_REPAIR_STATE_KEY, JSON.stringify({ done: false }));
   f.ctx._hasSnapshotRepairContinuationTrigger = () => false;
   f.ctx._snapshotRepairStatusMessage = () => '진행 중';
@@ -81,6 +84,38 @@ function fixture() {
     return { bySource: {}, beforeCount: 0, totalCellsBefore: 100, remainingCellsBefore: 1000 };
   };
   f.ctx.showSystemBackupDiagnosis(); assert.equal(f.writes.length, 0);
+}
+
+// Legacy/duplicate trigger diagnosis must be visible and repair prompt must disclose cleanup.
+{
+  const f = fixture();
+  f.ctx._ensureDailyTriggers = fix => {
+    assert.equal(fix, false);
+    return {
+      hasClean: true, hasMortgage: true, hasClose: true, hasIntegrityChange: true,
+      hasLegacySplitTriggers: true, hasDuplicateCloseTriggers: true,
+      closeCount: 2, legacyPriceCount: 1, legacyFundCount: 1,
+    };
+  };
+  f.ctx._getLatestDateInColumn = () => '2026-10-05';
+  f.ctx._getLatestLifecycleValidSnapshotDate = () => '2026-10-05';
+  f.ctx._expectedConfirmedSnapshotDate = () => '2026-10-05';
+  f.ctx._expectedPortfolioCloseRunDate = () => '2026-10-06';
+  f.ctx._isPortfolioCloseRunStale = () => false;
+  f.ctx.checkDailyAutomationStatus();
+  const diagnosis = f.messages.at(-1)[0];
+  assert(diagnosis.includes('중복 2개'));
+  assert(diagnosis.includes('남아 있음 · 가격 1개 / 펀드 1개'));
+  assert(diagnosis.includes('자동 트리거 복구·정리'));
+}
+{
+  const f = fixture();
+  f.responses.push('NO');
+  f.ctx.repairMissingDailyTriggersPrompt();
+  const prompt = f.messages.at(-1)[1];
+  assert(prompt.includes('레거시 분리 트리거'));
+  assert(prompt.includes('중복 통합 마감 트리거'));
+  assert(!prompt.includes('기존 트리거는 삭제하지 않습니다'));
 }
 
 // Cancel every new execution gate: downstream code must not run.

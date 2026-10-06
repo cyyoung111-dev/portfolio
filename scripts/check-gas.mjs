@@ -105,7 +105,7 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus'];")
-    || !source.includes("gasVersion: '9.174'")) {
+    || !source.includes("gasVersion: '9.175'")) {
   console.error('❌ 웹 자동화 상태 조회 API 또는 v9.173 계약이 누락됐습니다.');
   process.exit(1);
 }
@@ -229,6 +229,39 @@ if (!source.includes('function getLatestPriceHistoryEntries(ss, codes, maxDate, 
     || !source.includes('_rebuildSnapshotForDateFromHistory(ss, confirmedPersistDates.sort().slice(-1)[0])')
     || !source.includes('var actualPriceDate = p.usedDate || requestedPrevDay')) {
   console.error('❌ 이전 거래일 KRX 응답은 최신 가격이력을 덮지 않고 실제 최신 날짜 스냅샷을 복구해야 합니다.');
+  process.exit(1);
+}
+
+const ensureDailyTriggersMatch = source.match(/function\s+_ensureDailyTriggers\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+const oncePerDayMatch = source.match(/function\s+_ensureDailyTriggersOncePerDay\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
+if (!ensureDailyTriggersMatch
+    || !oncePerDayMatch
+    || !/legacyPriceCount/.test(ensureDailyTriggersMatch[1])
+    || !/legacyFundCount/.test(ensureDailyTriggersMatch[1])
+    || !/hasDuplicateCloseTriggers/.test(ensureDailyTriggersMatch[1])
+    || !/_ensurePortfolioCloseDailyTrigger\(true\)/.test(ensureDailyTriggersMatch[1])
+    || !/before\.hasLegacySplitTriggers/.test(oncePerDayMatch[1])
+    || !/before\.hasDuplicateCloseTriggers/.test(oncePerDayMatch[1])) {
+  console.error('❌ 일일 트리거 점검은 누락뿐 아니라 레거시 분리·통합 중복 트리거도 자동 정리해야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes("integrity-change-v4-portfolio-close-dedup")
+    || !source.includes('function _expectedPortfolioCloseRunDate()')
+    || !source.includes('function _isPortfolioCloseRunStale(portfolioClose)')
+    || !source.includes('portfolioCloseRunStale')
+    || !source.includes('expectedPortfolioCloseRunDate')
+    || !source.includes("return closeDate > historyDate ? closeDate : historyDate")) {
+  console.error('❌ 일일 점검 토큰 갱신 또는 통합 마감 실행 최신성/확정 가격일 비교 계약이 누락됐습니다.');
+  process.exit(1);
+}
+
+if (!source.includes('function _getLatestLifecycleValidSnapshotDate(ss)')
+    || !source.includes('_filterSnapshotRowsByFundLifecycle([row], configs, date)')
+    || !source.includes('function _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose)')
+    || !source.includes('portfolioClose.priceDate')
+    || !source.includes('_expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose)')) {
+  console.error('❌ 자동화 상태 Snapshot 최근일은 0좌 lifecycle을 제외하고 실제 확정 가격일 기준으로 stale을 판정해야 합니다.');
   process.exit(1);
 }
 
