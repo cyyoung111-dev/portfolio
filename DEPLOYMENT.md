@@ -1,3 +1,11 @@
+## GAS v9.172: 일반 종목·펀드 일일 마감 통합 (2026-10-06)
+
+- 기존 16:20 `runEvalPriceUpdate1620` 일반 종목 마감과 19시 `runDailyFundValuations` 펀드 마감을 19시 `runDailyPortfolioClose1900` 통합 트리거 1개로 전환합니다.
+- 통합 마감은 일반 종목 확정가·가격이력·Snapshot 저장을 먼저 수행한 뒤 펀드 NAV·평가를 이어서 실행합니다.
+- 일반 종목 단계가 실패해도 펀드 단계는 계속 시도하고, 반대로 펀드 단계가 실패해도 일반 종목 결과는 보존합니다. 부분 실패는 `portfolio_close_last_error`, 전체 실행 요약은 `portfolio_close_last_result`에 기록합니다.
+- 자동 트리거 복구 시 v9.171 이전의 `runEvalPriceUpdate1620` / `runDailyFundValuations` 분리 트리거를 제거하고 통합 트리거만 유지합니다. 수동 실행 함수 자체는 호환성을 위해 남깁니다.
+- GAS/웹 기대 버전은 `9.172`입니다.
+
 ## GAS v9.171: 펀드 자동화·손익 Snapshot 정합성 보강 (2026-10-06)
 
 - F00002 `KB_VALUE_ST`는 정확한 표준코드 `KR5223AQ0185`를 사용해 FunETF 공개 NAV를 자동 조회합니다. HTTP/응답 오류 시 기존 확정 NAV와 수동 import 경로를 보존합니다.
