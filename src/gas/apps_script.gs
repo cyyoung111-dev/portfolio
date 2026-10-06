@@ -11,6 +11,7 @@
 //   일일 펀드 결과는 Script Properties 한도에 맞게 날짜 상세를 제외한 compact summary 저장
 //   0좌 펀드는 MANUAL Snapshot 보호보다 lifecycle 제거를 우선 적용
 //   신규/헤더-only Snapshot에도 write 전 0좌 lifecycle 적용, no-op 일일 실행도 처리 기준일 보존
+//   lifecycle로 제거된 원장 행은 signature 동일 여부와 무관하게 rewrite 사유로 처리
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -9451,7 +9452,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
         });
       }
       // dedupe된 signature가 같아도 raw 원장에 중복이 있으면 반드시 rewrite합니다.
-      if (_snapshotRowsSignature(mergedDate) === _snapshotRowsSignature(sameDate) && !rawDuplicateDecisions.length) return;
+      if (_snapshotRowsSignature(mergedDate) === _snapshotRowsSignature(sameDate) && !rawDuplicateDecisions.length && !lifecycleRemovedRows) return;
       var combined = kept.concat(mergedDate);
       if (JSON.stringify(combined) === JSON.stringify(existing)) return;
       snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);
@@ -9639,6 +9640,7 @@ function _snapshotDateNeedsRewrite(ss, date, expectedRows) {
 
 function _snapshotRewritePlan(ss, date, expectedRows, lifecycleConfigs) {
   var raw = _readRawSnapshotRowsByDate(ss, date);
+  var originalRawCount = raw.length;
   expectedRows = (expectedRows || []).slice();
   var hasFundRows = raw.concat(expectedRows).some(function(row) {
     return _isFundCode(_cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase());
@@ -9648,10 +9650,12 @@ function _snapshotRewritePlan(ss, date, expectedRows, lifecycleConfigs) {
     raw = _filterSnapshotRowsByFundLifecycle(raw, configs, date);
     expectedRows = _filterSnapshotRowsByFundLifecycle(expectedRows, configs, date);
   }
+  var lifecycleRemovedRows = originalRawCount - raw.length;
   var duplicateGroups = _classifyRawSnapshotDuplicateGroups(date, raw, expectedRows, '');
   var unsafe = duplicateGroups.filter(function(item) { return !item.autoResolvable; });
-  return { raw: raw, duplicateGroups: duplicateGroups, unsafe: unsafe,
-    needsRewrite: unsafe.length === 0 && (duplicateGroups.some(function(item) { return item.autoResolvable; }) ||
+  return { raw: raw, duplicateGroups: duplicateGroups, unsafe: unsafe, lifecycleRemovedRows: lifecycleRemovedRows,
+    needsRewrite: unsafe.length === 0 && (lifecycleRemovedRows > 0 ||
+      duplicateGroups.some(function(item) { return item.autoResolvable; }) ||
       _snapshotRowsSignature(_dedupeSnapshotRows(raw)) !== _snapshotRowsSignature(expectedRows)) };
 }
 
