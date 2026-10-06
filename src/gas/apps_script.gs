@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.160
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.161
+//
+//  v9.161 변경사항 (2026.10.06):
+//   메뉴 진단/실행 분리·버전업 안내·초기화 이중 확인 및 위험 구역 분리
 //
 //  v9.160 변경사항 (2026.10.03):
 //   current COMPLETED backup 검증 선행·stale rollback 보호 강화
@@ -853,6 +856,7 @@ function configureAccessTokenPrompt() {
   var token = String(response.getResponseText() || '').trim();
   var props = PropertiesService.getScriptProperties();
   if (token === '-') {
+    if (!_confirmPortfolioMenuAction('요청 인증 해제', '접근 토큰을 삭제하면 GAS URL만으로 접근 가능한 호환 모드가 됩니다. 인증 해제가 필요할 때만 실행하세요.')) return;
     props.deleteProperty('access_token');
     ui.alert('✅ 요청 인증을 해제했습니다. GAS URL만으로 접근 가능한 호환 모드입니다.');
     return;
@@ -1917,6 +1921,7 @@ function configureSpreadsheetIdPrompt() {
     ui.alert('⚠️ 스프레드시트 URL 또는 문서 ID 형식을 확인해주세요.');
     return;
   }
+  if (!_confirmPortfolioMenuAction('연결 스프레드시트 변경', '웹앱과 자동 트리거가 사용할 문서 연결을 변경합니다. 기존 운영 문서가 맞는지 확인하세요.')) return;
   try {
     var target = SpreadsheetApp.openById(id);
     PropertiesService.getScriptProperties().setProperty('SS_ID', id);
@@ -1949,12 +1954,13 @@ function importKrxClosesPrompt() {
     if (!m) throw new Error('형식 오류: YYYYMMDD~YYYYMMDD');
     startYmd = m[1]; endYmd = m[2];
   }
-  var overwrite = ui.alert(
-    '가격이력 덮어쓰기',
-    '조회한 KRX 종가를 가격이력(해당 기간/종목)에 덮어쓸까요?\nYES=덮어쓰기, NO=종가데이터 시트만 갱신',
-    ui.ButtonSet.YES_NO
-  ) === ui.Button.YES;
-  return _runKrxImport(startYmd, endYmd, wantedByMarket, overwrite);
+  var answer = ui.alert(
+    'KRX 기간 종가 조회·저장',
+    startYmd + '~' + endYmd + '\n종가데이터 시트의 기존 조회 결과를 교체합니다.\n예: 가격이력의 해당 기간/종목도 갱신\n아니요: 종가데이터 시트만 갱신\n취소/창 닫기: 실행 안 함\n스냅샷은 이 메뉴에서 재작성하지 않습니다.',
+    ui.ButtonSet.YES_NO_CANCEL
+  );
+  if (answer !== ui.Button.YES && answer !== ui.Button.NO) return;
+  return _runKrxImport(startYmd, endYmd, wantedByMarket, answer === ui.Button.YES);
 }
 
 function _runKrxImport(startYmd, endYmd, wantedByMarket, overwriteHistory) {
@@ -4302,7 +4308,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.160' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.161' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7669,6 +7675,7 @@ function _startSnapshotConsistencyRepair(forceRewrite) {
 }
 
 function runSnapshotConsistencyRepair() {
+  if (!_confirmPortfolioMenuAction('전체 스냅샷 정합성 복구', '저장된 전체 가격이력 날짜의 스냅샷을 검사하고 불일치·누락 자료를 재작성합니다. 후속 트리거로 계속 실행됩니다. 가격이력을 새로 조회하지 않습니다. 과거 평가 결과가 바뀔 수 있습니다. 버전업의 필수 절차가 아닙니다.')) return;
   try {
     var result = _startSnapshotConsistencyRepair(false);
     SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(result) +
@@ -8109,7 +8116,7 @@ function detectPriceAnomalyForDate(dateStr, thresholdPct) {
   return { date: targetDate, threshold: threshold, anomalies: anomalies, summary: summary };
 }
 
-function detectPriceAnomalyPromptAndMaybeRepair() {
+function detectPriceAnomalyPromptAndMaybeRepair(readOnly) {
   var ui;
   try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
   if (!ui) throw new Error('스프레드시트 UI 환경에서 실행하세요.');
@@ -8167,9 +8174,11 @@ function detectPriceAnomalyPromptAndMaybeRepair() {
     return;
   }
 
+  if (readOnly === true) { ui.alert(summary + '\n가격이력·스냅샷 변경 없음. 복구가 필요하면 [복구·정리 실행]의 가격 이상치 복구를 선택하세요.' + logGuide); return; }
+
   var ask = ui.alert(
     '이상치 발견',
-    summary + '\n이상 항목을 해당일 GOOGLEFINANCE 값으로 가격이력에 반영할까요?' + logGuide,
+    summary + '\n비교 조회된 종가로 해당 날짜·종목의 가격이력을 변경합니다. 기존 값과 출처를 먼저 확인하세요. 스냅샷 재생성은 다음 단계에서 별도 확인합니다.\n가격이력을 변경할까요?' + logGuide,
     ui.ButtonSet.YES_NO
   );
   if (ask !== ui.Button.YES) {
@@ -8309,15 +8318,6 @@ function _getLatestDateInColumn(sheet, column) {
 function checkDailyAutomationStatus() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
-  var autoFixed = false;
-  if (!trig.hasClean || !trig.hasSave || !trig.hasMortgage || !trig.hasIntegrityChange) {
-    try {
-      trig = _ensureDailyTriggers(true);
-      autoFixed = true;
-    } catch(e) {
-      Logger.log('⚠️ checkDailyAutomationStatus 자동복구 실패: ' + e.message);
-    }
-  }
   var snapLast = '-';
   var phLast = '-';
 
@@ -8347,10 +8347,9 @@ function checkDailyAutomationStatus() {
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + '\n'
     + (!trig.hasClean || !trig.hasSave || !trig.hasMortgage || !trig.hasIntegrityChange
-      ? '⚠️ 트리거가 누락되어 있습니다. [자동 트리거 등록]을 다시 실행하세요.'
-      : (autoFixed
-          ? '✅ 트리거 누락을 자동 복구했습니다.'
-          : '✅ 트리거는 등록되어 있습니다. 누락 일자는 [소급채우기]로 복구할 수 있습니다.'));
+      ? '⚠️ 트리거 누락: [복구·정리 실행] → [누락 자동 트리거 복구]를 실행하세요.'
+      : '✅ 트리거는 등록되어 있습니다. 데이터 누락은 정합성 진단으로 확인하세요.')
+    + '\n이 점검은 트리거와 데이터를 변경하지 않습니다. 버전업마다 실행할 필요는 없습니다.';
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert(msg); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -8364,6 +8363,7 @@ function runEvalPriceUpdate1620() {
 }
 
 function runDailyPriceSnapshotNow() {
+  if (!_confirmPortfolioMenuAction('확정 평가단가·스냅샷 수동 갱신', '16:20 자동 실행과 같은 경로로 확정 거래일 가격이력과 스냅샷을 저장합니다. 자동 실행 실패 또는 즉시 갱신이 필요할 때만 실행하세요.')) return;
   var ui = SpreadsheetApp.getUi();
   try {
     var result = saveDailyPriceHistory();
@@ -8406,6 +8406,8 @@ function backfillRangePrompt() {
   BACKFILL_CONFIG.toYear    = parseInt(toMatch[1]);
   BACKFILL_CONFIG.toMonth   = parseInt(toMatch[2]);
 
+  if (BACKFILL_CONFIG.fromMonth < 1 || BACKFILL_CONFIG.fromMonth > 12 || BACKFILL_CONFIG.toMonth < 1 || BACKFILL_CONFIG.toMonth > 12 || BACKFILL_CONFIG.fromYear * 12 + BACKFILL_CONFIG.fromMonth > BACKFILL_CONFIG.toYear * 12 + BACKFILL_CONFIG.toMonth) { ui.alert('❌ 시작·종료 연월을 확인하세요. 월은 1~12여야 합니다.'); return; }
+  if (!_confirmPortfolioMenuAction('기간 소급채우기 시작', fromStr + ' ~ ' + toStr + '\n가격이력·스냅샷을 저장합니다. 기존 자료 ' + (BACKFILL_CONFIG.overwrite ? '덮어쓰기: 켜짐' : '덮어쓰기: 꺼짐') + '. 새 작업은 기존 소급채우기 진행 위치를 대체합니다. 실제 누락 기간이 있을 때만 실행하세요.')) return;
   backfillRange();
 }
 
@@ -9655,6 +9657,7 @@ function migrateLegacyApiKeysToScriptProperties() {
 
 function migrateLegacyApiKeysPrompt() {
   var ui = SpreadsheetApp.getUi();
+  if (!_confirmPortfolioMenuAction('레거시 API 키 안전 이전', '설정 시트의 기존 API 키를 Script Properties로 이전하고 설정 시트의 키 원문을 제거합니다. 레거시 키가 남아 있는 경우에만 실행하세요.')) return;
   var result = migrateLegacyApiKeysToScriptProperties();
   ui.alert(
     '레거시 API 키 마이그레이션 완료\n\n' +
@@ -9746,7 +9749,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.160' });
+    return jsonOk({ settings: settings, gasVersion: '9.161' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9768,7 +9771,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.160'
+      gasVersion: '9.161'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -10213,7 +10216,7 @@ function initSheet() {
       '✅ 시트 구성 확인 완료\n\n' +
       '- 새로 생성한 시트: ' + created + '개\n' +
       '- 기존 데이터는 삭제하지 않았습니다.\n\n' +
-      '다음 단계: [📊 포트폴리오] → [⚙️ 설정] → [자동 트리거 등록]'
+      '버전업마다 실행할 필요는 없습니다. [진단·조회]의 자동화 상태를 확인하고, 트리거가 누락된 경우에만 [복구·정리 실행]에서 복구하세요.'
     );
   } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
@@ -10226,10 +10229,12 @@ function clearPriceAndSnapshotRows() {
 
   var ans = ui.alert(
     '가격이력/스냅샷 데이터 삭제',
-    '제목행(1행)은 유지하고 2행 이하 데이터만 모두 삭제합니다.\n계속할까요?',
+    '가격이력·스냅샷의 전체 기간 데이터를 삭제합니다. 과거 손익 조회와 복구 근거를 잃을 수 있습니다. 버전업이나 일반 오류 복구용이 아닙니다.\n별도 백업을 확보했습니까?',
     ui.ButtonSet.YES_NO
   );
   if (ans !== ui.Button.YES) return;
+  var confirmation = ui.prompt('전체 삭제 최종 확인', '가격이력과 스냅샷의 모든 데이터 행이 삭제됩니다. 자동 복원되지 않습니다. 별도 백업을 확보한 뒤 정확히 가격이력·스냅샷 삭제 를 입력하세요.', ui.ButtonSet.OK_CANCEL);
+  if (confirmation.getSelectedButton() !== ui.Button.OK || confirmation.getResponseText() !== '가격이력·스냅샷 삭제') return;
 
   var deleted = 0;
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -10308,12 +10313,79 @@ function clearTossOpenApiConfigPrompt() {
   ui.alert('✅ Toss 설정과 token cache만 삭제했습니다.');
 }
 
+function _confirmPortfolioMenuAction(title, message) {
+  var ui = SpreadsheetApp.getUi();
+  return ui.alert(title, message + '\n\n실행하시겠습니까?', ui.ButtonSet.YES_NO) === ui.Button.YES;
+}
+
+function showPortfolioMenuGuide() {
+  SpreadsheetApp.getUi().alert('포트폴리오 메뉴 사용 안내\n\n버전업마다 메뉴를 실행할 필요는 없습니다. 해당 릴리스에 별도 안내가 있을 때만 필요한 작업을 실행하세요.\n설정: 최초 연결·인증 변경 시\n진단·조회: 문제 확인용. 운영자료 저장·삭제 없음 (외부 진단의 임시 계산/인증 캐시는 사용할 수 있음)\n종가 갱신: 자동 실행 실패·즉시 갱신 시\n소급채우기: 실제 누락 기간만\n복구·정리: 진단 후 필요할 때만\n위험 작업: 별도 백업 확보 후 실행');
+}
+
+function showManualPriceHistoryPolicy() {
+  SpreadsheetApp.getUi().alert('수동가격은 날짜별 이력을 보존합니다. 고정 정책이며 변경 옵션이 아닙니다.');
+}
+
+function repairMissingDailyTriggersPrompt() {
+  if (!_confirmPortfolioMenuAction('누락 자동 트리거 복구', '누락된 일일 자동화·구조 변경 트리거만 추가합니다. 기존 트리거는 삭제하지 않습니다.')) return;
+  _ensureDailyTriggers(true);
+  checkDailyAutomationStatus();
+}
+
+function resetDailyTriggersPrompt() {
+  if (!_confirmPortfolioMenuAction('자동 트리거 전체 재등록', '기존 일일/레거시 자동화 트리거를 삭제하고 기본 일정으로 다시 등록하며 만료 임시 시트를 정리합니다. 사용자 지정 실행 시간이 바뀔 수 있습니다. 일반 누락은 누락 자동 트리거 복구를 사용하세요.')) return;
+  setupTrigger();
+}
+
+function repairSheetStructurePrompt() {
+  if (!_confirmPortfolioMenuAction('시트 구성 생성·헤더 복구', '누락 시트를 만들고 기존 시트의 제목행·표시 형식을 다시 설정합니다. 사용자 지정 제목행이 바뀔 수 있습니다. 데이터 행은 삭제하지 않습니다. 버전업 필수 작업이 아닙니다.')) return;
+  initSheet();
+}
+
+function showSnapshotRepairProgress() {
+  var raw = PropertiesService.getScriptProperties().getProperty(SNAPSHOT_REPAIR_STATE_KEY);
+  var state = raw ? JSON.parse(raw) : null;
+  var missing = state && !state.done && !_hasSnapshotRepairContinuationTrigger();
+  SpreadsheetApp.getUi().alert(_snapshotRepairStatusMessage(state) + (missing ? '\n후속 트리거 누락: 복구·정리 실행에서 재예약하세요.' : ''));
+  return state;
+}
+
+function resumeSnapshotRepairPrompt() {
+  if (!_confirmPortfolioMenuAction('스냅샷 복구 후속 트리거 재예약', '진행 중인 전체 스냅샷 복구의 후속 트리거가 누락되었으면 다시 예약합니다. 남은 날짜의 스냅샷 저장이 재개됩니다.')) return;
+  return showSnapshotConsistencyRepairStatus();
+}
+
+function resumeBackfillPrompt() {
+  if (!_confirmPortfolioMenuAction('소급채우기 재개', '저장된 진행 위치와 덮어쓰기 설정으로 가격이력·스냅샷 저장을 이어갑니다. 진행상황을 먼저 확인하세요.')) return;
+  backfillResume();
+}
+
+function runPriceAnomalyDiagnosis() {
+  return detectPriceAnomalyPromptAndMaybeRepair(true);
+}
+
+function showPortfolioIntegrityDiagnosisPrompt() {
+  var ui = SpreadsheetApp.getUi();
+  var response = ui.prompt('기간 정합성 진단 (저장 없음)', '기간을 YYYY-MM-DD~YYYY-MM-DD 형식으로 입력하세요. 최대 400 평일. 가격이력과 스냅샷을 함께 점검합니다.', ui.ButtonSet.OK_CANCEL);
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+  var parts = String(response.getResponseText() || '').trim().split('~');
+  if (parts.length !== 2 || !parts.every(function(value) { return /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) && !isNaN(new Date(value.trim() + 'T00:00:00Z').getTime()) && new Date(value.trim() + 'T00:00:00Z').toISOString().slice(0, 10) === value.trim(); }) || parts[0].trim() > parts[1].trim()) { ui.alert('유효한 시작·종료 날짜를 입력하세요.'); return; }
+  var result = JSON.parse(handleDiagnoseSnapshotIntegrityRange(parts[0].trim(), parts[1].trim(), '', '').getContent());
+  if (result.status !== 'ok') { ui.alert('정합성 진단 실패: ' + result.message); return; }
+  var counts = {};
+  result.diagnostics.forEach(function(item) { counts[item.status] = (counts[item.status] || 0) + 1; });
+  var labels = { VALID: '정상', PARTIAL: '일부 자료 누락', MISMATCH: '계산 결과 불일치', CONFLICT: '중복·충돌', SOURCE_INCOMPLETE: '원자료 부족', NO_SNAPSHOT: '스냅샷 없음', PRICE_SUSPICIOUS: '가격 확인 필요', FX_MISSING: '환율 누락', MANUAL_PROTECTED: '수동가격 보호' };
+  function summary(values) { return Object.keys(values).map(function(key) { return (labels[key] || key) + ': ' + values[key]; }).join(', ') || '점검 자료 없음'; }
+  ui.alert('정합성 진단 (저장 없음)\n점검 날짜: ' + result.checkedDates.length + '\n스냅샷 상태: ' + summary(counts) + '\n가격이력 상태: ' + summary(result.priceIntegrity.counts) + '\n정상이 아닌 결과는 원자료를 먼저 확인하세요. 전체 복구는 별도 실행 메뉴입니다.');
+}
+
 function onInstall(e) {
   onOpen(e);
 }
 
 function _addFallbackMenu(ui) {
   ui.createMenu('📊 포트폴리오')
+    .addItem('사용 안내 (버전업 필수 작업 아님)', 'showPortfolioMenuGuide')
     .addItem('연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
     .addItem('공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
     .addItem('KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
@@ -10321,7 +10393,7 @@ function _addFallbackMenu(ui) {
     .addItem('Toss Client Secret 설정', 'configureTossClientSecretPrompt')
     .addItem('Toss 설정 상태', 'showTossOpenApiStatus')
     .addItem('Toss API read-only 진단', 'runTossMarketDataDiagnosis')
-    .addItem('Toss 설정 삭제', 'clearTossOpenApiConfigPrompt')
+    .addSubMenu(ui.createMenu('⚠️ 위험 작업').addItem('Toss 인증 설정 삭제', 'clearTossOpenApiConfigPrompt'))
     .addItem('요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')
     .addItem('메뉴 생성 오류 확인', 'showMenuBuildError')
     .addToUi();
@@ -10345,71 +10417,54 @@ function onOpen(e) {
   }
 
   try {
-    var manualKeepLabel = '🧷 수동가격 날짜별 이력 보존: ON';
-
-    var priceSourceLabel = '⚙️ 가격소스: 현재 설정 확인';
-    try { priceSourceLabel = _priceSourceModeLabel(); }
-    catch(e2) { Logger.log('가격소스 메뉴 라벨 생성 실패: ' + e2.message); }
-
-    // ── 서브메뉴: 초기 설정 ──
-    var menuInit = ui.createMenu('⚙️ 설정')
-      .addItem('🔗 연결 스프레드시트 설정', 'configureSpreadsheetIdPrompt')
-      .addItem('시트 구성 확인·복구', 'initSheet')
-      .addItem('자동 트리거 등록·복구', 'setupTrigger')
-      .addSeparator()
+    var menuInit = ui.createMenu('⚙️ 설정 (최초·변경 시)')
+      .addItem('🔗 연결 스프레드시트 변경', 'configureSpreadsheetIdPrompt')
       .addItem('🔑 공공데이터 API 인증키 설정', 'configurePublicDataApiKeyPrompt')
       .addItem('🔑 KRX 인증키 설정', 'configureKrxAuthKeyPrompt')
       .addItem('🔑 Toss Client ID 설정', 'configureTossClientIdPrompt')
       .addItem('🔐 Toss Client Secret 설정', 'configureTossClientSecretPrompt')
-      .addItem('ℹ️ Toss 설정 상태', 'showTossOpenApiStatus')
-      .addItem('🔎 Toss API read-only 진단', 'runTossMarketDataDiagnosis')
-      .addItem('🗑️ Toss 설정 삭제', 'clearTossOpenApiConfigPrompt')
-      .addItem('ℹ️ API 인증키 저장 상태', 'showApiKeyStatus')
-      .addSeparator()
       .addItem('🛡️ 요청 접근 토큰 설정·해제', 'configureAccessTokenPrompt')
-      .addItem('🔐 레거시 API 키 안전 이전', 'migrateLegacyApiKeysPrompt');
-
-    // ── 서브메뉴: 종가 관리 ──
-    var menuPrice = ui.createMenu('📈 종가 관리')
-      .addItem('🔄 오늘 종가 갱신', 'updatePrices')
-      .addItem('🗓️ KRX 기간 불러오기', 'importKrxClosesPrompt')
+      .addItem('🔐 레거시 API 키 안전 이전 (필요 시 1회)', 'migrateLegacyApiKeysPrompt');
+    var menuPrice = ui.createMenu('📈 확정 종가·평가 갱신')
+      .addItem('▶️ 확정 평가단가·스냅샷 수동 갱신', 'runDailyPriceSnapshotNow')
+      .addItem('🗓️ KRX 기간 종가 조회·저장', 'importKrxClosesPrompt')
       .addSeparator()
-      .addItem(priceSourceLabel, 'togglePriceSourceMode')
-      .addItem(manualKeepLabel, 'toggleManualKeepLatestOption');
-
-    // ── 서브메뉴: 소급채우기 ──
-    var menuBackfill = ui.createMenu('📆 소급채우기')
-      .addItem('▶️ 소급채우기 시작', 'backfillRangePrompt')
-      .addItem('⏩ 이어서 실행', 'backfillResume')
-      .addItem('📊 진행상황 확인', 'backfillStatus');
-
-    // ── 서브메뉴: 유지보수 ──
-    var menuMaint = ui.createMenu('🛠️ 유지보수')
-      .addItem('🔎 백업 진단', 'showSystemBackupDiagnosis')
-      .addItem('🧹 안전한 시스템 백업 정리', 'applySystemBackupMaintenancePrompt')
-      .addSeparator()
-      .addItem('🔎 자동화 상태 점검', 'checkDailyAutomationStatus')
-      .addItem('▶️ 확정 평가단가·스냅샷 지금 갱신', 'runDailyPriceSnapshotNow')
-      .addItem('📸 전체 가격이력·스냅샷 정합성 복구', 'runSnapshotConsistencyRepair')
-      .addItem('📊 전체 스냅샷 복구 진행상황', 'showSnapshotConsistencyRepairStatus')
-      .addItem('🧾 SEIBro ETF 읽기 전용 진단', 'runEtfDividendDiagnosis')
-      .addItem('🧮 SEIBro ETF 2단계 드라이런', 'runEtfDividendDryRun')
-      .addItem('💾 SEIBro ETF 3단계 운영 반영', 'runEtfDividendApply')
-      .addItem('🩺 가격 이상치 점검 및 복구', 'detectPriceAnomalyPromptAndMaybeRepair')
-      .addItem('🧹 데이터 정리 (코드·종목명·중복)', 'runDataCleanup')
-      .addItem('🩺 메뉴 생성 오류 확인', 'showMenuBuildError')
-      .addItem('🗑️ 가격이력·스냅샷 초기화', 'clearPriceAndSnapshotRows');
-
-    // ── 메인 메뉴 조합 ──
+      .addItem('ℹ️ 고정 가격소스 정책 확인', 'togglePriceSourceMode')
+      .addItem('ℹ️ 수동가격 이력 보존 정책 확인', 'showManualPriceHistoryPolicy');
+    var menuBackfill = ui.createMenu('📆 소급채우기 (누락 기간만)')
+      .addItem('📊 진행상황 조회 (변경 없음)', 'backfillStatus')
+      .addItem('▶️ 기간 지정·저장 시작', 'backfillRangePrompt')
+      .addItem('⏩ 중단된 소급채우기 재개', 'resumeBackfillPrompt');
+    var menuDiagnosis = ui.createMenu('🔎 진단·조회 (운영자료 변경 없음)')
+      .addItem('자동화 상태 점검 (트리거 변경 없음)', 'checkDailyAutomationStatus')
+      .addItem('기간 가격이력·스냅샷 정합성 진단', 'showPortfolioIntegrityDiagnosisPrompt')
+      .addItem('전체 스냅샷 복구 진행상황 조회', 'showSnapshotRepairProgress')
+      .addItem('백업 진단·정리 후보 조회 (삭제 없음)', 'showSystemBackupDiagnosis')
+      .addItem('가격 이상치 진단 (가격 저장 없음)', 'runPriceAnomalyDiagnosis')
+      .addItem('SEIBro ETF 분배금 진단', 'runEtfDividendDiagnosis')
+      .addItem('SEIBro ETF 분배금 반영 미리보기', 'runEtfDividendDryRun')
+      .addItem('API 인증키 저장 상태', 'showApiKeyStatus')
+      .addItem('Toss 설정 상태', 'showTossOpenApiStatus')
+      .addItem('Toss API 연결 진단 (운영자료 변경 없음)', 'runTossMarketDataDiagnosis')
+      .addItem('메뉴 생성 오류 확인', 'showMenuBuildError');
+    var menuRepair = ui.createMenu('🛠️ 복구·정리 실행 (필요 시만)')
+      .addItem('누락 자동 트리거 복구', 'repairMissingDailyTriggersPrompt')
+      .addItem('시트 구성 생성·헤더 복구', 'repairSheetStructurePrompt')
+      .addItem('전체 스냅샷 정합성 복구 시작', 'runSnapshotConsistencyRepair')
+      .addItem('스냅샷 복구 후속 트리거 재예약', 'resumeSnapshotRepairPrompt')
+      .addItem('검증된 시스템 백업 정리 (삭제)', 'applySystemBackupMaintenancePrompt')
+      .addItem('가격 이상치 진단 후 복구 (확인 필요)', 'detectPriceAnomalyPromptAndMaybeRepair')
+      .addItem('코드·종목명·중복 데이터 정리', 'runDataCleanup')
+      .addItem('SEIBro ETF 분배금 운영 반영', 'runEtfDividendApply');
+    var menuDanger = ui.createMenu('⚠️ 위험 작업 (삭제·재등록)')
+      .addItem('🗑️ 가격이력·스냅샷 전체 삭제', 'clearPriceAndSnapshotRows')
+      .addItem('🗑️ Toss 인증 설정 삭제', 'clearTossOpenApiConfigPrompt')
+      .addItem('자동 트리거 전체 재등록', 'resetDailyTriggersPrompt');
     ui.createMenu('📊 포트폴리오')
-      .addSubMenu(menuInit)
-      .addSeparator()
-      .addSubMenu(menuPrice)
-      .addSeparator()
-      .addSubMenu(menuBackfill)
-      .addSeparator()
-      .addSubMenu(menuMaint)
-      .addToUi();
+      .addItem('ℹ️ 사용 안내 (버전업 필수 작업 아님)', 'showPortfolioMenuGuide')
+      .addSubMenu(menuInit).addSubMenu(menuPrice).addSubMenu(menuBackfill)
+      .addSeparator().addSubMenu(menuDiagnosis).addSubMenu(menuRepair)
+      .addSeparator().addSubMenu(menuDanger).addToUi();
 
     try { PropertiesService.getScriptProperties().deleteProperty('last_menu_build_error'); } catch(e3) {}
   } catch(err) {
@@ -10436,6 +10491,7 @@ function showMenuBuildError() {
 //  데이터 정리 통합 실행 — 죽은 코드 + 종목명 보정 + 스냅샷 중복 한 번에
 // ════════════════════════════════════════════════════════════════════
 function runDataCleanup() {
+  if (!_confirmPortfolioMenuAction('데이터 정리 실행', '죽은 종목코드 삭제·가격이력 종목명 보정·가격이력/스냅샷 중복 정리·만료 임시 시트 삭제를 실행합니다. 정리된 행은 자동 복원되지 않습니다. 별도 백업을 확보하고 실제 문제가 있을 때만 실행하세요.')) return;
   try {
     var ui;
     try { ui = SpreadsheetApp.getUi(); } catch(e) { ui = null; }
