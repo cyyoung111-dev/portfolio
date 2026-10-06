@@ -39,6 +39,8 @@ assert.match(gas, /legacy signature 불일치 · 자동 재서명 금지/);
 assert.match(gas, /SYSTEM_BACKUP_SIGNATURE_VERSION = 'backup-content-v2'/);
 assert.match(gas, /currentTrustedV2[\s\S]*legacySupersededByTrustedV2/, 'trusted v2 성공 시 stale legacy cleanup 경로');
 assert.match(gas, /operationsWithCreatedBackup[\s\S]*currentTrustedV2[\s\S]*!operationsWithCreatedBackup\[registered\.operationId\]/, 'fast cleanup current v2도 CREATED sibling이 있으면 신뢰 근거로 쓰지 않음');
+assert.match(gas, /currentSchemaMatch[\s\S]*currentTrustedV2[\s\S]*currentSchemaMatch/, 'fast cleanup trusted v2는 source schema 일치 필수');
+assert.match(gas, /formulaReferenceTargets[\s\S]*registered\.name[\s\S]*staleFormulaCounts[\s\S]*currentTrustedV2[\s\S]*staleFormulaCounts\[registered\.name\]/, 'fast cleanup trusted v2는 current backup 수식 참조 0건 필수');
 assert.match(gas, /legacySupersededByTrustedV2[\s\S]*!operationsWithCreatedBackup\[item\.operationId\]/, 'stale legacy도 같은 operation의 CREATED sibling이 있으면 보호');
 assert.match(gas, /trustedV2CompletedAt[\s\S]*legacySupersededByTrustedV2/, 'maintenance dry-run도 newer trusted v2로 legacy stale 판정');
 assert.match(gas, /sourceSignature/);
