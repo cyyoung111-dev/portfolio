@@ -26,11 +26,17 @@ assert.match(gas, /function handleDiagnoseSnapshotIntegrityRange/);
 for (const field of ['checkedDates','validDates','partialDates','mismatchDates','conflictDates','sourceIncompleteDates','noSnapshotDates','abnormalCandidates','diagnostics']) assert.match(gas, new RegExp(field));
 assert.match(gas, /function maintainSystemBackups\(options\)/);
 assert.match(gas, /if \(!apply\) return _planSystemBackupMaintenance\(ss, options\);/, 'dry-run은 lock·삭제 전에 계획만 반환해야 합니다.');
-assert.match(gas, /activeOperation[\s\S]*formulaReferenceCount[\s\S]*USER_MANAGED\/UNKNOWN 보호/);
+assert.match(gas, /operationHasCreatedBackup/);
+assert.match(gas, /formulaReferenceCount/);
+assert.match(gas, /USER_MANAGED\/UNKNOWN 보호/);
 assert.match(gas, /ORPHAN_LIKELY_SYSTEM/);
 assert.match(gas, /deletedSheetNames[\s\S]*protectedSheets[\s\S]*totalCellsAfter[\s\S]*remainingCellsAfter/);
 assert.match(gas, /showSystemBackupDiagnosis/);
 assert.match(gas, /function _systemBackupProtectionSummaryLines/);
+assert.match(gas, /function _systemBackupProtectionReason_/);
+assert.match(gas, /content signature 불일치/);
+assert.match(gas, /미완료 registry 상태/);
+assert.match(gas, /기타 안전 조건 불충족/);
 assert.match(gas, /보존 사유/);
 assert.match(gas, /grouped\[reason\]\.count\+\+/);
 assert.match(gas, /names\.length < 3/, '백업 진단 대표 시트명은 사유별 최대 3개만 표시');
@@ -52,6 +58,36 @@ assert.match(protectionLines[0], /WRITE_FAILED · 복구 검증 없음: 4개/);
 assert.match(protectionLines[0], /외 1개/, '대표 3개 초과분은 개수로 축약');
 assert.doesNotMatch(protectionLines[0], /스냅샷_백업_D/, '대표 시트명 4번째부터 숨김');
 assert.match(protectionLines[1], /수식 참조 존재: 1개/);
+
+const reasonFn = gas.match(/function _systemBackupProtectionReason_\([\s\S]*?\n\}/)?.[0] || '';
+const reasonContext = {};
+vm.runInNewContext(`${reasonFn}\nglobalThis.protectionReason=_systemBackupProtectionReason_;`, reasonContext);
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:false }
+), 'content signature 불일치');
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_INCOMPLETE', status:'CREATED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:false }
+), '미완료 registry 상태 · CREATED');
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:true, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_INCOMPLETE', status:'CREATED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:false }
+), '미완료 registry 상태 · CREATED', 'CREATED 자체는 실제 active로 오표시하지 않음');
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:true, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:false }
+), '동일 operation에 미완료 CREATED 백업 존재', '같은 operation의 완료 backup은 미완료 sibling 존재를 명시');
+
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_WRITE_FAILED', status:'WRITE_FAILED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:true }
+), 'WRITE_FAILED · 복구 검증 없음');
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:true, classification:'UNKNOWN', status:'' },
+  { registeredSourceExists:true, safeClass:false, registeredFailed:false }
+), 'USER_MANAGED/UNKNOWN 보호');
+
 assert.match(gas, /applySystemBackupMaintenancePrompt/);
 assert.match(gas, /operationId \? 'rewriteSnapshotDate\|' \+ String\(operationId\)/, '다일자 복구 operationId를 재사용해야 합니다.');
 assert.match(gas, /status !== 'VALID'/, '재작성은 VALID 재진단을 요구해야 합니다.');

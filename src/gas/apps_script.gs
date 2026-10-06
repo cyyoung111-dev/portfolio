@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.167
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.168
+//
+//  v9.168 변경사항 (2026.10.06):
+//   백업 진단의 포괄적 '안전 조건 불충족'을 signature/registry 상태 등으로 세분화
 //
 //  v9.167 변경사항 (2026.10.06):
 //   Toss egress 진단 IPv4/IPv6 식별 및 address family 표시
@@ -4471,7 +4474,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.167' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.168' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5595,13 +5598,28 @@ function handleDiagnoseWorkbookCells() {
 }
 
 // 전체 백업을 한 번에 분류합니다. apply=false 경로는 registry 기록도 바꾸지 않습니다.
+function _systemBackupProtectionReason_(item, context) {
+  context = context || {};
+  if (!context.registeredSourceExists) return '원본 source sheet 없음 · backup 보호';
+  if (item.formulaReferenceCount) return '수식 참조 존재';
+  if (!context.safeClass) return 'USER_MANAGED/UNKNOWN 보호';
+  if (context.registeredFailed) return 'WRITE_FAILED · 복구 검증 없음';
+  if (!item.signatureMatch) return 'content signature 불일치';
+  if (item.classification === 'REGISTERED_INCOMPLETE') {
+    return '미완료 registry 상태 · ' + String(item.status || 'UNKNOWN');
+  }
+  if (item.operationHasCreatedBackup) return '동일 operation에 미완료 CREATED 백업 존재';
+  if (item.classification === 'ORPHAN_LIKELY_SYSTEM' && !item.schemaMatch) return 'schema 불일치';
+  return '기타 안전 조건 불충족';
+}
+
 function _planSystemBackupMaintenance(ss, options) {
   var validatedOperationIds = {}, requestedValidatedIds = options && options.validatedOperationIds;
   (Array.isArray(requestedValidatedIds) ? requestedValidatedIds : []).forEach(function(operationId) { if (operationId) validatedOperationIds[String(operationId)] = true; });
   var before = _diagnoseWorkbookCells(ss, true, true), registry = _readSystemBackupRegistry(), records = {}, sourceHeaders = {};
   registry.forEach(function(item) { records[item.name] = item; });
-  var activeOperations = {};
-  registry.forEach(function(item) { if (item.status === 'CREATED' && item.operationId) activeOperations[item.operationId] = true; });
+  var operationsWithCreatedBackup = {};
+  registry.forEach(function(item) { if (item.status === 'CREATED' && item.operationId) operationsWithCreatedBackup[item.operationId] = true; });
   var backups = before.sheets.filter(function(item) { return item.backup; }).map(function(item) {
     var record = records[item.name] || null, source = record ? record.source : _backupSourceFromSystemName(item.name);
     var sourceSheet = source ? ss.getSheetByName(source) : null;
@@ -5613,12 +5631,12 @@ function _planSystemBackupMaintenance(ss, options) {
     var registeredSystem = !!(record && record.systemGenerated === true && source && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, source));
     var classification = registeredSystem ? (record.status === 'COMPLETED' ? 'REGISTERED_COMPLETED' : (record.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
       (namingMatch && source && schemaMatch && item.formulaReferenceCount === 0 && !_isGasReferencedSheet(item.name) ? 'ORPHAN_LIKELY_SYSTEM' : (namingMatch ? 'UNKNOWN' : 'USER_MANAGED'));
-    var active = !!(record && activeOperations[record.operationId]);
+    var operationHasCreatedBackup = !!(record && operationsWithCreatedBackup[record.operationId]);
     return { name: item.name, sheetName: item.name, registryRecordExists: !!record, source: source || '', classification: classification,
       status: record ? record.status : '', signatureMatch: signatureMatch, schemaMatch: schemaMatch,
       sourceSheetExists: !!sourceSheet,
       formulaReferenceCount: Number(item.formulaReferenceCount || 0), allocatedCells: item.allocatedCells,
-      operationId: record ? record.operationId || '' : '', activeOperation: active,
+      operationId: record ? record.operationId || '' : '', operationHasCreatedBackup: operationHasCreatedBackup,
       createdAt: record ? record.createdAt || '' : '', completedAt: record ? record.completedAt || '' : '',
       autoCleanupEligible: false, protectionReason: '' };
   });
@@ -5633,15 +5651,17 @@ function _planSystemBackupMaintenance(ss, options) {
       var registeredFailed = item.classification === 'REGISTERED_WRITE_FAILED';
       var registeredSourceExists = item.classification.indexOf('REGISTERED_') !== 0 || item.sourceSheetExists;
       // validated recovery는 전체 Snapshot 복구가 증명한 Snapshot rollback에만 적용합니다.
-      // 다른 source의 실패/진행 중 backup까지 광범위하게 정리하지 않습니다.
+      // 다른 source의 실패/미완료 CREATED backup까지 광범위하게 정리하지 않습니다.
       var validatedStale = !!validatedOperationIds[item.operationId] && item.source === CONFIG.SHEET_SNAPSHOT &&
         (registeredFailed || (item.classification === 'REGISTERED_INCOMPLETE' && item.status === 'CREATED'));
       item.autoCleanupEligible = !!(safeClass && registeredSourceExists && item.signatureMatch && (registeredCompleted || validatedStale ||
         (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch)) &&
-        (!item.activeOperation || validatedStale) && item.formulaReferenceCount === 0);
-      if (!item.autoCleanupEligible) item.protectionReason = !registeredSourceExists ? '원본 source sheet 없음 · backup 보호' : (item.activeOperation ? 'active operation' :
-        (item.formulaReferenceCount ? '수식 참조 존재' : (!safeClass ? 'USER_MANAGED/UNKNOWN 보호' :
-        (registeredFailed ? 'WRITE_FAILED · 복구 검증 없음' : '안전 조건 불충족'))));
+        (!item.operationHasCreatedBackup || validatedStale) && item.formulaReferenceCount === 0);
+      if (!item.autoCleanupEligible) item.protectionReason = _systemBackupProtectionReason_(item, {
+        safeClass: safeClass,
+        registeredFailed: registeredFailed,
+        registeredSourceExists: registeredSourceExists
+      });
     });
     var deletions = list.filter(function(item) { return item.autoCleanupEligible; });
     sourceSummary[source] = { total: list.length, beforeCount: list.length, keepCount: list.length - deletions.length,
@@ -9946,7 +9966,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.167' });
+    return jsonOk({ settings: settings, gasVersion: '9.168' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9968,7 +9988,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.167'
+      gasVersion: '9.168'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
