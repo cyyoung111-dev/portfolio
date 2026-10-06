@@ -9382,6 +9382,8 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   if (operationId) props.setProperty(stateKey, operationId);
   var codeColumn = _codeColumnForSheet(sourceName);
   if (codeColumn) _setCodeColumnText(backup, codeColumn);
+  // copyTo/서식 변경을 서버에 반영한 뒤 실제 backup을 읽어야 생성 직후 비동기 반영 차이를 signature로 오인하지 않습니다.
+  if (typeof SpreadsheetApp !== 'undefined' && SpreadsheetApp.flush) SpreadsheetApp.flush();
   // copyTo 이후 수식 재계산 등으로 source getValues()와 backup getValues()가 달라질 수 있으므로
   // 실제 backup 내용을 다시 서명합니다. sourceSignature은 같은 원본 상태 재사용 판정에만 사용합니다.
   var backupSignature = _sheetContentSignature(backup);
