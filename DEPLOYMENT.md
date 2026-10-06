@@ -1,3 +1,10 @@
+## GAS v9.164: Toss egress IPv4 응답 파싱 보강 (2026-10-06)
+
+- 운영 진단에서 `api.ipify.org`가 HTTP 200을 반환했지만 `INVALID_IP_RESPONSE`가 발생한 사례를 반영합니다.
+- egress probe는 ipify의 IPv4 전용 plain-text endpoint `https://api.ipify.org`를 사용하고, 응답이 plain-text IPv4이면 그대로 처리합니다. 예외적으로 JSON 형태가 와도 `ip` 필드를 fallback으로 허용합니다.
+- probe는 계속 Toss 연결 진단에서만 실행되며 실제 Toss 요청의 출구 IP와 동일하다고 보장하지 않습니다.
+- GAS/웹 기대 버전은 `9.164`, 정적 웹 cache는 `portfolio-cache-20261006-4`로 함께 배포합니다.
+
 ## GAS v9.163: Toss GAS egress IPv4 관측 진단 (2026-10-06)
 
 - 모바일 데이터에서 Toss OAuth가 `403 / access_denied`로 반복 실패하는 원인을 좁히기 위해, `diagnoseTossMarketData` 실행 직전에 `https://api.ipify.org?format=json`을 read-only 호출하여 외부 서비스가 관측한 GAS `UrlFetchApp` 출구 IPv4를 함께 표시합니다.
