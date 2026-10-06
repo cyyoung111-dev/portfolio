@@ -39,6 +39,7 @@ assert.match(gas, /legacy signature 불일치 · 자동 재서명 금지/);
 assert.match(gas, /SYSTEM_BACKUP_SIGNATURE_VERSION = 'backup-content-v2'/);
 assert.match(gas, /sourceSignature/);
 assert.match(gas, /copySignatureDrift/);
+assert.match(gas, /_setCodeColumnText\(backup, codeColumn\)[\s\S]*SpreadsheetApp\.flush\(\)[\s\S]*var backupSignature = _sheetContentSignature\(backup\)/, 'backup signature 전에 copyTo·서식 변경 flush');
 assert.match(gas, /미완료 registry 상태/);
 assert.match(gas, /기타 안전 조건 불충족/);
 assert.match(gas, /보존 사유/);
