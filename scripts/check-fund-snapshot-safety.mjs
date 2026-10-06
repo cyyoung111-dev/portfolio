@@ -759,6 +759,26 @@ assert.deepEqual(insertionNav.rows.slice(1).map(row=>[row[0],row[3],row[4]]),[
 assert.deepEqual(insertionPrices.rows.slice(1).map(row=>[row[0],row[3]]),[['2025-01-03',1000],['2025-01-04',1000]]);
 context.getss=()=>importWriteSs;
 
+// 수동 NAV import도 0좌 F코드를 완전성 검사 대상에서 제외해 정상 펀드 Snapshot 저장을 막지 않습니다.
+const importLifecycleUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00002','KB','KB_VALUE_ST','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-05',0,'']]);
+const importLifecycleNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider']]);
+const importLifecyclePrices=new Sheet([['date','code','name','price','at','source']]);
+const importLifecycleTrades=new Sheet([Array(8).fill('header'),
+  ['2026-01-01','buy','계좌','KB','F00002',1,800,'펀드'],
+  ['2026-01-01','buy','계좌','피델리티','F00003',1,700,'펀드']]);
+const importLifecycleSnapshots=new Sheet([header]);
+const importLifecycleSs=ssFor({'펀드좌수':importLifecycleUnits,'펀드기준가격':importLifecycleNav,'가격이력':importLifecyclePrices,'거래이력':importLifecycleTrades,'스냅샷':importLifecycleSnapshots});
+context.getss=()=>importLifecycleSs;
+const importLifecycle=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2026-01-05',nav:1000}]));
+assert.equal(importLifecycle.status,'ok','0좌 다른 펀드가 있어도 수동 NAV import 성공');
+assert(importLifecycle.evaluation.snapshots>0,'정상 F00002 Snapshot 저장');
+assert(importLifecycleSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00002'),'수동 import F00002 Snapshot 존재');
+assert.equal(importLifecycleSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'수동 import 완전성 검사에서 0좌 F00003 제외');
+context.getss=()=>importWriteSs;
+
 const imported=context.handleImportFundNav(importPayload('F00002','KB_VALUE_ST','AQ018',[{date:'2025-01-03',nav:1000}]));
 assert.equal(imported.status,'ok'); assert.equal(imported.importResult.saved,1); assert.deepEqual(clone(imported.evaluation.ranges),[{from:'2025-01-03',to:'2025-01-03'}]);
 assert.deepEqual(importWriteNav.rows.slice(1,4).map(row=>[row[0],row[3],row[4],row[6]]),[
