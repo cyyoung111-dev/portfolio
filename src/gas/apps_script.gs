@@ -5601,7 +5601,6 @@ function handleDiagnoseWorkbookCells() {
 function _systemBackupProtectionReason_(item, context) {
   context = context || {};
   if (!context.registeredSourceExists) return '원본 source sheet 없음 · backup 보호';
-  if (item.activeOperation) return 'active operation';
   if (item.formulaReferenceCount) return '수식 참조 존재';
   if (!context.safeClass) return 'USER_MANAGED/UNKNOWN 보호';
   if (context.registeredFailed) return 'WRITE_FAILED · 복구 검증 없음';
@@ -5609,6 +5608,7 @@ function _systemBackupProtectionReason_(item, context) {
   if (item.classification === 'REGISTERED_INCOMPLETE') {
     return '미완료 registry 상태 · ' + String(item.status || 'UNKNOWN');
   }
+  if (item.operationHasCreatedBackup) return '동일 operation에 미완료 CREATED 백업 존재';
   if (item.classification === 'ORPHAN_LIKELY_SYSTEM' && !item.schemaMatch) return 'schema 불일치';
   return '기타 안전 조건 불충족';
 }
@@ -5618,8 +5618,8 @@ function _planSystemBackupMaintenance(ss, options) {
   (Array.isArray(requestedValidatedIds) ? requestedValidatedIds : []).forEach(function(operationId) { if (operationId) validatedOperationIds[String(operationId)] = true; });
   var before = _diagnoseWorkbookCells(ss, true, true), registry = _readSystemBackupRegistry(), records = {}, sourceHeaders = {};
   registry.forEach(function(item) { records[item.name] = item; });
-  var activeOperations = {};
-  registry.forEach(function(item) { if (item.status === 'CREATED' && item.operationId) activeOperations[item.operationId] = true; });
+  var operationsWithCreatedBackup = {};
+  registry.forEach(function(item) { if (item.status === 'CREATED' && item.operationId) operationsWithCreatedBackup[item.operationId] = true; });
   var backups = before.sheets.filter(function(item) { return item.backup; }).map(function(item) {
     var record = records[item.name] || null, source = record ? record.source : _backupSourceFromSystemName(item.name);
     var sourceSheet = source ? ss.getSheetByName(source) : null;
@@ -5631,12 +5631,12 @@ function _planSystemBackupMaintenance(ss, options) {
     var registeredSystem = !!(record && record.systemGenerated === true && source && Object.prototype.hasOwnProperty.call(SYSTEM_BACKUP_KEEP_BY_SOURCE, source));
     var classification = registeredSystem ? (record.status === 'COMPLETED' ? 'REGISTERED_COMPLETED' : (record.status === 'WRITE_FAILED' ? 'REGISTERED_WRITE_FAILED' : 'REGISTERED_INCOMPLETE')) :
       (namingMatch && source && schemaMatch && item.formulaReferenceCount === 0 && !_isGasReferencedSheet(item.name) ? 'ORPHAN_LIKELY_SYSTEM' : (namingMatch ? 'UNKNOWN' : 'USER_MANAGED'));
-    var active = !!(record && activeOperations[record.operationId]);
+    var operationHasCreatedBackup = !!(record && operationsWithCreatedBackup[record.operationId]);
     return { name: item.name, sheetName: item.name, registryRecordExists: !!record, source: source || '', classification: classification,
       status: record ? record.status : '', signatureMatch: signatureMatch, schemaMatch: schemaMatch,
       sourceSheetExists: !!sourceSheet,
       formulaReferenceCount: Number(item.formulaReferenceCount || 0), allocatedCells: item.allocatedCells,
-      operationId: record ? record.operationId || '' : '', activeOperation: active,
+      operationId: record ? record.operationId || '' : '', operationHasCreatedBackup: operationHasCreatedBackup,
       createdAt: record ? record.createdAt || '' : '', completedAt: record ? record.completedAt || '' : '',
       autoCleanupEligible: false, protectionReason: '' };
   });
@@ -5651,12 +5651,12 @@ function _planSystemBackupMaintenance(ss, options) {
       var registeredFailed = item.classification === 'REGISTERED_WRITE_FAILED';
       var registeredSourceExists = item.classification.indexOf('REGISTERED_') !== 0 || item.sourceSheetExists;
       // validated recovery는 전체 Snapshot 복구가 증명한 Snapshot rollback에만 적용합니다.
-      // 다른 source의 실패/진행 중 backup까지 광범위하게 정리하지 않습니다.
+      // 다른 source의 실패/미완료 CREATED backup까지 광범위하게 정리하지 않습니다.
       var validatedStale = !!validatedOperationIds[item.operationId] && item.source === CONFIG.SHEET_SNAPSHOT &&
         (registeredFailed || (item.classification === 'REGISTERED_INCOMPLETE' && item.status === 'CREATED'));
       item.autoCleanupEligible = !!(safeClass && registeredSourceExists && item.signatureMatch && (registeredCompleted || validatedStale ||
         (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch)) &&
-        (!item.activeOperation || validatedStale) && item.formulaReferenceCount === 0);
+        (!item.operationHasCreatedBackup || validatedStale) && item.formulaReferenceCount === 0);
       if (!item.autoCleanupEligible) item.protectionReason = _systemBackupProtectionReason_(item, {
         safeClass: safeClass,
         registeredFailed: registeredFailed,
