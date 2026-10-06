@@ -4,6 +4,7 @@ import {
   buildUpdatedFiles,
   deploymentIdFromWebAppUrl,
   extractExpectedGasVersion,
+  parseClaspCredentials,
   sanitizeFiles,
   selectServerFile,
 } from './deploy-gas.mjs';
@@ -16,6 +17,38 @@ function handle(){ return { gasVersion: '9.160' }; }
 const x = { gasVersion: '9.160' };`;
 assert.equal(extractExpectedGasVersion(source), '9.160');
 assert.throws(() => extractExpectedGasVersion(`// Google Apps Script  v9.160\nconst x={gasVersion:'9.159'};`), /버전 불일치/);
+
+
+const claspV3 = {
+  tokens: {
+    default: {
+      type: 'authorized_user',
+      client_id: 'clasp-client-id',
+      client_secret: 'clasp-client-secret',
+      refresh_token: 'clasp-refresh-token',
+      access_token: 'expired-access-token',
+    },
+  },
+};
+assert.deepEqual(parseClaspCredentials(JSON.stringify(claspV3)), {
+  clientId: 'clasp-client-id',
+  clientSecret: 'clasp-client-secret',
+  refreshToken: 'clasp-refresh-token',
+});
+assert.deepEqual(parseClaspCredentials(JSON.stringify({
+  token: { refresh_token: 'legacy-refresh-token' },
+  oauth2ClientSettings: { clientId: 'legacy-id', clientSecret: 'legacy-secret' },
+})), {
+  clientId: 'legacy-id',
+  clientSecret: 'legacy-secret',
+  refreshToken: 'legacy-refresh-token',
+});
+assert.throws(() => parseClaspCredentials(''), /CLASPRC_JSON/);
+assert.throws(() => parseClaspCredentials('{bad-json'), /올바른 JSON/);
+assert.throws(() => parseClaspCredentials(JSON.stringify({ tokens: {
+  one: { client_id: '1', client_secret: 's1', refresh_token: 'r1' },
+  two: { client_id: '2', client_secret: 's2', refresh_token: 'r2' },
+} })), /여러 clasp 사용자 토큰/);
 
 const files = [
   { name: 'appsscript', type: 'JSON', source: '{"timeZone":"Asia/Seoul"}', updateTime: 'ignored' },
@@ -46,7 +79,8 @@ assert.match(workflow, /push:\s*[\s\S]*branches:\s*\[\s*main\s*\][\s\S]*src\/gas
 assert.match(workflow, /pull_request:/);
 assert.match(workflow, /workflow_dispatch:/);
 assert.match(workflow, /npm run check:gas/);
-assert.match(workflow, /GOOGLE_OAUTH_REFRESH_TOKEN/);
+assert.match(workflow, /CLASPRC_JSON/);
+assert.doesNotMatch(workflow, /GOOGLE_OAUTH_CLIENT_ID|GOOGLE_OAUTH_CLIENT_SECRET|GOOGLE_OAUTH_REFRESH_TOKEN/);
 assert.match(workflow, /GAS_SCRIPT_ID/);
 assert.match(workflow, /GAS_WEB_APP_URL/);
 assert.match(workflow, /GAS_AUTO_DEPLOY_ENABLED/);
@@ -57,6 +91,23 @@ assert.match(workflow, /gas-production-deploy/);
 assert.doesNotMatch(workflow.split('jobs:')[0], /concurrency:/);
 const deploySource = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
 assert.match(deploySource, /if \(alreadyDeployed\) \{[\s\S]*verifyWebApp\(/);
+assert.match(deploySource, /parseClaspCredentials/);
 assert.doesNotMatch(workflow, /service[_ -]?account/i);
 
-console.log('✅ GAS 자동배포 구성 회귀 검사 통과');
+const workflowPaths = [
+  '.github/workflows/gas-deploy.yml',
+  '.github/workflows/web-check.yml',
+  '.github/workflows/cache_busting.yml',
+  '.github/workflows/market-briefing-headless.yml',
+];
+for (const path of workflowPaths) {
+  const source = fs.readFileSync(path, 'utf8');
+  assert.doesNotMatch(source, /actions\/checkout@v4/, `${path}: checkout@v4 잔존`);
+  assert.doesNotMatch(source, /actions\/setup-node@v4/, `${path}: setup-node@v4 잔존`);
+  assert.doesNotMatch(source, /node-version:\s*['"]20['"]/, `${path}: Node 20 잔존`);
+}
+assert.match(fs.readFileSync('.github/workflows/gas-deploy.yml', 'utf8'), /actions\/checkout@v7[\s\S]*actions\/setup-node@v7[\s\S]*node-version:\s*['"]24['"]/);
+assert.match(fs.readFileSync('.github/workflows/web-check.yml', 'utf8'), /actions\/checkout@v7[\s\S]*actions\/setup-node@v7[\s\S]*node-version:\s*['"]24['"]/);
+assert.match(fs.readFileSync('.github/workflows/market-briefing-headless.yml', 'utf8'), /actions\/checkout@v7[\s\S]*actions\/setup-node@v7[\s\S]*node-version:\s*['"]24['"]/);
+
+console.log('✅ GAS clasp 인증·Node 24 자동배포 구성 회귀 검사 통과');
