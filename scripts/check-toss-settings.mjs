@@ -35,6 +35,21 @@ assert.match(events, /btn-clear-toss-config/);
 
 const properties = new Map([['OTHER_API_KEY', 'preserve-me']]);
 const cache = new Map();
+let tossLockHeld = false;
+let tossLockWaits = 0;
+let injectTokenOnNextLock = '';
+const tossLock = {
+  hasLock: () => tossLockHeld,
+  waitLock: () => {
+    tossLockWaits++;
+    tossLockHeld = true;
+    if (injectTokenOnNextLock) {
+      cache.set('toss_oauth_token_v1', JSON.stringify({ accessToken: injectTokenOnNextLock, expiresAt: Date.now() + 3600000 }));
+      injectTokenOnNextLock = '';
+    }
+  },
+  releaseLock: () => { tossLockHeld = false; }
+};
 const context = vm.createContext({
   console, Date, JSON, String, Number, Object, Array, Math, isFinite,
   PropertiesService: { getScriptProperties: () => ({
@@ -47,6 +62,7 @@ const context = vm.createContext({
     put: (key, value) => cache.set(key, value),
     remove: key => cache.delete(key)
   }) },
+  LockService: { getScriptLock: () => tossLock },
   ContentService: { MimeType: { JSON: 'application/json' }, createTextOutput: content => ({ getContent: () => content, setMimeType: () => ({ getContent: () => content }) }) },
 });
 new vm.Script(gasSource, { filename: 'src/gas/apps_script.gs' }).runInContext(context);
@@ -87,6 +103,10 @@ assert.doesNotMatch(diagnoseBody, /setValue|setValues|appendRow|clearContent|del
 assert.match(gasSource, /status === 403 \? 'IP_NOT_ALLOWED_OR_FORBIDDEN'/);
 assert.doesNotMatch(webSync, /localStorage\.(?:setItem|getItem)\([^)]*Toss|lsSave\([^)]*Toss/i);
 assert.doesNotMatch(gasSource, /Logger\.log\([^\n]*(?:TOSS_CLIENT_SECRET|Authorization|access_token)/i);
+assert.match(gasSource, /function _tossCachedAccessToken_\(/);
+assert.match(gasSource, /function _invalidateTossCachedTokenIfMatches_\(/);
+assert.match(gasSource, /LockService\.getScriptLock/);
+assert.match(gasSource, /status === 401 && !oauthRecoveryUsed/);
 console.log('✅ Toss 설정 UI/PropertiesService/빈 입력 보존/제한 삭제/진단 비민감 응답 회귀 검사 통과');
 
 // OAuth와 실제 market endpoint 단계를 실행 수준에서 분리하고 비민감 응답만 확인합니다.
@@ -277,3 +297,69 @@ diagnostic = diagnosePriceSmoke([{ symbol: '005930', lastPrice: 70000, timestamp
 assert.equal(diagnostic.priceSmoke.code, 'PRICE_SMOKE_TIMESTAMP_MISSING');
 assert.equal(diagnostic.ok, false);
 assert.notEqual(properties.get('TOSS_LAST_DIAGNOSTIC_CODE'), 'OK', 'semantic smoke 실패는 persisted code OK 금지');
+
+// cache miss 동시 실행은 lock 대기 후 cache를 재확인하여 중복 OAuth 발급을 피합니다.
+properties.set('TOSS_CLIENT_ID', 'client-lock-test');
+properties.set('TOSS_CLIENT_SECRET', 'secret-lock-test');
+cache.clear();
+tossLockHeld = false;
+tossLockWaits = 0;
+injectTokenOnNextLock = 'token-from-other-execution';
+let oauthFetches = 0;
+context.UrlFetchApp = { fetch: url => {
+  if (url.endsWith('/oauth2/token')) oauthFetches++;
+  return response(200, { token_type: 'Bearer', access_token: 'should-not-be-issued', expires_in: 3600 });
+} };
+const lockToken = context._tossAccessToken_();
+assert.equal(lockToken, 'token-from-other-execution', 'lock 획득 후 다른 실행이 만든 token 재사용');
+assert.equal(oauthFetches, 0, 'single-flight cache 재확인으로 중복 OAuth 발급 방지');
+assert.equal(tossLockWaits, 1);
+assert.equal(tossLockHeld, false, '직접 획득한 lock은 반환');
+
+// resource 401은 rejected cached token만 폐기하고 새 token으로 딱 1회 복구합니다.
+cache.clear();
+tossLockHeld = false;
+tossLockWaits = 0;
+oauthFetches = 0;
+let resourceFetches = 0;
+let issuedTokens = ['token-old', 'token-new'];
+context.UrlFetchApp = { fetch: (url, options = {}) => {
+  if (url.endsWith('/oauth2/token')) {
+    const token = issuedTokens.shift();
+    oauthFetches++;
+    return response(200, { token_type: 'Bearer', access_token: token, expires_in: 3600 });
+  }
+  if (url.includes('/api/v1/prices')) {
+    resourceFetches++;
+    const auth = String(options.headers?.Authorization || '');
+    if (resourceFetches === 1) {
+      assert.equal(auth, 'Bearer token-old');
+      return response(401, { error: { code: 'invalid_token' } });
+    }
+    assert.equal(auth, 'Bearer token-new');
+    return response(200, { result: [{ symbol: '005930', lastPrice: 70000, currency: 'KRW' }] });
+  }
+  throw new Error('unexpected URL ' + url);
+} };
+const recovered = context._tossRequest_('/api/v1/prices', { symbols: '005930' }, 'MARKET_DATA', {});
+assert.equal(recovered.result[0].lastPrice, 70000);
+assert.equal(oauthFetches, 2, '초기 token + 401 후 재발급 각 1회');
+assert.equal(resourceFetches, 2, 'resource 401 후 딱 1회 재시도');
+
+// 두 번째 401은 추가 token 재발급 없이 오류로 종료합니다.
+cache.clear();
+tossLockHeld = false;
+oauthFetches = 0;
+resourceFetches = 0;
+issuedTokens = ['token-a', 'token-b'];
+context.UrlFetchApp = { fetch: url => {
+  if (url.endsWith('/oauth2/token')) {
+    oauthFetches++;
+    return response(200, { token_type: 'Bearer', access_token: issuedTokens.shift(), expires_in: 3600 });
+  }
+  resourceFetches++;
+  return response(401, { error: { code: 'invalid_token' } });
+} };
+assert.throws(() => context._tossRequest_('/api/v1/prices', { symbols: '005930' }, 'MARKET_DATA', {}), /Toss API 실패\(401\)/);
+assert.equal(oauthFetches, 2, '두 번째 401에서 추가 OAuth 발급 금지');
+assert.equal(resourceFetches, 2, '401 resource retry는 1회로 제한');
