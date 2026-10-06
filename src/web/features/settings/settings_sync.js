@@ -306,14 +306,24 @@ async function diagnoseTossFromUI() {
     const data = await requestGsheetActionJson('diagnoseTossMarketData', {}, { timeoutMs: 30000, retry: 0 });
     if (!data || data.status !== 'ok') throw new Error(data?.message || '응답 오류');
     const oauth = data.oauth || { ok: false, status: null, code: 'OAUTH_RESULT_MISSING', providerCode: '' };
-    const lines = [`${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''} / ${Number(oauth.elapsedMs || 0)}ms`];
-    lines.push(...(data.endpoints || []).map(item => `${item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'} / ${Number(item.count || 0)}건 / ${Number(item.elapsedMs || 0)}ms`));
+    const idSuffix = item => {
+      const ids = [
+        item?.requestId ? `requestId ${item.requestId}` : '',
+        item?.referenceId ? `referenceId ${item.referenceId}` : '',
+        item?.edgeRequestId ? `x-amz-cf-id ${item.edgeRequestId}` : '',
+      ].filter(Boolean);
+      return ids.length ? ` / ${ids.join(' / ')}` : '';
+    };
+    const lines = [`${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''}${idSuffix(oauth)} / ${Number(oauth.elapsedMs || 0)}ms`];
+    lines.push(...(data.endpoints || []).map(item => `${item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'} / ${Number(item.count || 0)}건${idSuffix(item)} / ${Number(item.elapsedMs || 0)}ms`));
     const smoke = data.priceSmoke || {};
-    lines.push(`${smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} priceSmoke 005930: ${smoke.status ?? '-'} / ${smoke.code || 'ERROR'} / ${Number(smoke.resultCount || 0)}건 / ${smoke.symbol || '005930'} / 유효가격 ${smoke.validLastPrice ? '있음' : '없음'} / timestamp ${smoke.timestampPresent ? '있음' : '없음'} / ${Number(smoke.elapsedMs || 0)}ms`);
+    lines.push(`${smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} priceSmoke 005930: ${smoke.status ?? '-'} / ${smoke.code || 'ERROR'} / ${Number(smoke.resultCount || 0)}건 / ${smoke.symbol || '005930'} / 유효가격 ${smoke.validLastPrice ? '있음' : '없음'} / timestamp ${smoke.timestampPresent ? '있음' : '없음'}${idSuffix(smoke)} / ${Number(smoke.elapsedMs || 0)}ms`);
     const ipBlocked = oauth.ok && [...(data.endpoints || []), smoke].some(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN');
     const oauthFailed = !oauth.ok && oauth.code !== 'CREDENTIALS_NOT_CONFIGURED';
+    const oauthUnidentified = oauthFailed && oauth.status === 401 && String(oauth.providerCode || '').toLowerCase() === 'unidentified-client';
     const guide = ipBlocked ? '\n\n실제 Toss market endpoint 403: Google IP range pool 허용 IP 등록을 확인하세요.'
-      : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : '');
+      : (oauthUnidentified ? '\n\nOAuth 401 unidentified-client · 위 request/reference/edge ID를 함께 기록해 Toss 측 인증 거부 원인을 확인하세요. Wi-Fi에서 동일 자격증명이 정상이라면 IP 허용 403과는 별도 문제입니다.'
+      : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : ''));
     if (target) target.innerHTML = _escapeHtml(lines.join('\n') + guide);
     _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: data.ok ? 'OK' : (!oauth.ok ? oauth.code : ((data.endpoints || []).find(item => !item.ok)?.code || smoke.code || 'ERROR')) });
   } catch (error) {

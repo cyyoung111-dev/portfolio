@@ -1,3 +1,11 @@
+## GAS v9.162: Toss OAuth 진단 식별자 보강 (2026-10-06)
+
+- 모바일 데이터에서 Toss OAuth가 `401 / unidentified-client`로 반복 실패하고 같은 단말 Wi-Fi에서는 200으로 성공하는 실운영 사례를 추적하기 위해, `diagnoseTossMarketData`가 OAuth·market endpoint·005930 smoke 응답의 비민감 요청 식별자만 추가 반환합니다.
+- 반환 대상은 `requestId`, `referenceId`, `x-amz-cf-id`에 해당하는 식별자이며 Client ID/Secret, access token, Authorization header, 원문 응답은 계속 반환·로그하지 않습니다.
+- OAuth 401 `unidentified-client`는 market endpoint의 403 IP allowlist 오류와 별도로 안내하며, 식별자를 보존해 Toss 측 문의 시 호출을 특정할 수 있게 합니다.
+- 외부 IP echo 서비스로 표시한 IP가 실제 Toss 요청에 사용된 UrlFetchApp egress IP와 동일하다고 보장할 수 없으므로, 오진 방지를 위해 임의의 outbound IP 표시 기능은 추가하지 않습니다.
+- GAS/웹 기대 버전은 `9.162`, 정적 웹 cache는 `portfolio-cache-20261006-2`로 함께 배포합니다. 운영 데이터·Snapshot·트리거를 변경하지 않는 진단 보강입니다.
+
 ## GAS v9.161: 포트폴리오 메뉴 진단·실행 구분 (2026-10-06)
 
 - GAS와 웹의 예상 버전은 함께 9.161로 반영합니다. 이 변경 자체는 배포 후 시트 초기화·트리거 재등록·소급채우기·전체 복구를 실행할 필요가 없습니다. 스프레드시트를 다시 열거나 새로고침하면 메뉴가 갱신됩니다.
@@ -621,7 +629,7 @@ GAS 메뉴 및 시트 구성:
 - 현재가 polling은 60초 간격 화면 갱신 전용이며 `persist=false`로 가격이력·Snapshot을 쓰지 않습니다. `document.hidden`일 때 중단하고 다시 보이면 즉시 한 번 확인합니다.
 - 거래 입력·GAS 원장에 `split`·`reverse_split`, `ratio`, `fractionalCash`를 연결했습니다. 분할·병합은 매수/매도가 아니며 기본 현금흐름은 0, 총 취득원가는 유지하고 병합 단주는 실제 처리수량·현금정산을 수기 입력합니다.
 
-- `diagnoseTossMarketData` read-only 점검 route가 환율(USD/KRW), KR/US 시장 캘린더, KOSPI/KOSDAQ 지수 현재가·일봉을 호출해 endpoint별 성공 여부·HTTP status·requestId·건수·소요시간만 반환합니다. 원문 응답·토큰·Authorization header·인증정보는 반환하거나 로그에 남기지 않으며 시트/Snapshot을 쓰지 않습니다.
+- `diagnoseTossMarketData` read-only 점검 route가 환율(USD/KRW), KR/US 시장 캘린더, KOSPI/KOSDAQ 지수 현재가·일봉을 호출해 endpoint별 성공 여부·HTTP status·비민감 request/reference/edge 식별자·건수·소요시간만 반환합니다. 원문 응답·토큰·Authorization header·인증정보는 반환하거나 로그에 남기지 않으며 시트/Snapshot을 쓰지 않습니다.
 - OpenAPI의 Market Indicators 지원 심볼은 `KOSPI`, `KOSDAQ`, `KR_BOND_2Y/3Y/5Y/10Y/20Y/30Y`입니다. `S&P500`, `DOW`, `NASDAQ`, `NASDAQ100`은 지원 목록에 없어 기존 정상 지수 공급원을 유지합니다. ETF proxy는 사용하지 않습니다.
 
 - v9.107부터 GAS의 `getPrices`는 `TOSS_CLIENT_ID`·`TOSS_CLIENT_SECRET`이 Script Properties에 모두 있을 때 Toss `GET /api/v1/prices`를 최대 200종목 batch로 우선 호출합니다. 과거 종가는 `/api/v1/candles?interval=1d&adjusted=false`와 `nextBefore`를 사용합니다.
