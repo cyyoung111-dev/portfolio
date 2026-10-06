@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.172
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.173
+//
+//  v9.173 변경사항 (2026.10.06):
+//   웹에서 자동화 상태를 read-only 조회하는 getAutomationStatus API 추가
+//   통합 마감 트리거·최근 실행·Snapshot/가격이력·펀드 결과를 단일 상태 객체로 제공
 //
 //  v9.172 변경사항 (2026.10.06):
 //   19시 통합 마감에서 일반 종목 확정가·Snapshot → 펀드 NAV/평가를 순차 자동 실행
@@ -935,6 +939,7 @@ function configureAccessTokenPrompt() {
 function doGet(e) {
   var params = (e && e.parameter) ? e.parameter : {};
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
+  if (params.action === 'getAutomationStatus') return handleGetAutomationStatus();
   if (params.action === 'getFundUnits') return handleGetFundUnits();
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
   if (params.action === 'diagnoseWorkbookCells') return handleDiagnoseWorkbookCells();
@@ -4610,7 +4615,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.172' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.173' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8834,6 +8839,63 @@ function _getLatestDateInColumn(sheet, column) {
   return latest || '-';
 }
 
+function _getAutomationStatusData() {
+  var ss = getss();
+  var trig = _ensureDailyTriggers(false);
+  var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
+  var snapshotLastDate = _getLatestDateInColumn(snapSh, 1);
+  var priceHistoryLastDate = _getLatestDateInColumn(phSh, 1);
+  var props = PropertiesService.getScriptProperties();
+
+  function parseProperty(name) {
+    var raw = props.getProperty(name) || '';
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch(ignore) { return null; }
+  }
+
+  var portfolioClose = parseProperty('portfolio_close_last_result');
+  var portfolioCloseLastError = props.getProperty('portfolio_close_last_error') || '';
+  var fundLastResult = parseProperty('fund_last_result');
+  var fundLastWarning = props.getProperty('fund_last_warning') || '';
+  var fundLastError = props.getProperty('fund_last_error') || '';
+  var expectedSnapshotDate = _getPrevTradingDay(today(), 7) || today();
+  var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
+  var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasIntegrityChange;
+  var closeErrors = portfolioClose && Array.isArray(portfolioClose.errors) ? portfolioClose.errors : [];
+  var overallStatus = 'NORMAL';
+
+  if (missingTrigger || portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
+  else if (!portfolioClose) overallStatus = 'NEVER_RUN';
+  else if (snapshotStale || fundLastWarning) overallStatus = 'WARNING';
+
+  return {
+    gasVersion: '9.173',
+    checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+    overallStatus: overallStatus,
+    trigger: {
+      hasClose: !!trig.hasClose,
+      hasClean: !!trig.hasClean,
+      hasMortgage: !!trig.hasMortgage,
+      hasIntegrityChange: !!trig.hasIntegrityChange
+    },
+    portfolioClose: portfolioClose,
+    portfolioCloseLastError: portfolioCloseLastError,
+    snapshotLastDate: snapshotLastDate,
+    priceHistoryLastDate: priceHistoryLastDate,
+    expectedSnapshotDate: expectedSnapshotDate,
+    snapshotStale: snapshotStale,
+    fundLastDate: fundLastResult && fundLastResult.lastDate ? fundLastResult.lastDate : '',
+    fundLastWarning: fundLastWarning,
+    fundLastError: fundLastError
+  };
+}
+
+function handleGetAutomationStatus() {
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.173' }); }
+  catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
+}
+
 function checkDailyAutomationStatus() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
@@ -10474,7 +10536,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.172' });
+    return jsonOk({ settings: settings, gasVersion: '9.173' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10496,7 +10558,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.172'
+      gasVersion: '9.173'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
