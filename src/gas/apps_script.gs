@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.168
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.169
+//
+//  v9.169 변경사항 (2026.10.06):
+//   백업 원본/실제 backup signature 분리 저장으로 copyTo 재계산 mismatch 재발 방지
+//   Toss OAuth token single-flight 및 resource 401 1회 자동복구
 //
 //  v9.168 변경사항 (2026.10.06):
 //   백업 진단의 포괄적 '안전 조건 불충족'을 signature/registry 상태 등으로 세분화
@@ -4474,7 +4478,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.168' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.169' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5310,6 +5314,7 @@ function _sheetRole(name) {
 }
 
 var SYSTEM_BACKUP_REGISTRY_KEY = 'system_backup_registry_v1';
+var SYSTEM_BACKUP_SIGNATURE_VERSION = 'backup-content-v2';
 // 성공한 system backup은 rollback 용도가 종료되므로 steady state에서 보존하지 않습니다.
 var SYSTEM_BACKUP_KEEP_BY_SOURCE = { '스냅샷': 0, '거래이력': 0, '가격이력': 0, '펀드기준가격': 0, '펀드좌수': 0, '종목코드': 0 };
 
@@ -5446,8 +5451,8 @@ function _reconcileSystemBackups(ss) {
         _sheetHeaderSignature(sheet) !== _sheetHeaderSignature(sourceSheet)) {
       unresolved.push({ name: name, classification: 'UNKNOWN', reason: '원본/schema/formula/signature 안전 검증 불충족' }); return;
     }
-    var record = { name: name, source: source, signature: signature, operationId: 'reconciled-orphan',
-      status: 'COMPLETED', systemGenerated: true, orphanAdopted: true,
+    var record = { name: name, source: source, signature: signature, sourceSignature: '', signatureVersion: SYSTEM_BACKUP_SIGNATURE_VERSION,
+      operationId: 'reconciled-orphan', status: 'COMPLETED', systemGenerated: true, orphanAdopted: true,
       createdAt: _systemBackupTimestampFromName(name), completedAt: _systemBackupTimestampFromName(name), updatedAt: new Date().toISOString() };
     items.push(record); byName[name] = record; reconciled.push({ name: name, classification: 'ORPHAN_LIKELY_SYSTEM' });
   });
@@ -5604,7 +5609,9 @@ function _systemBackupProtectionReason_(item, context) {
   if (item.formulaReferenceCount) return '수식 참조 존재';
   if (!context.safeClass) return 'USER_MANAGED/UNKNOWN 보호';
   if (context.registeredFailed) return 'WRITE_FAILED · 복구 검증 없음';
-  if (!item.signatureMatch) return 'content signature 불일치';
+  if (!item.signatureMatch) return item.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION
+    ? 'content signature 불일치'
+    : 'legacy signature 불일치 · 자동 재서명 금지';
   if (item.classification === 'REGISTERED_INCOMPLETE') {
     return '미완료 registry 상태 · ' + String(item.status || 'UNKNOWN');
   }
@@ -5637,6 +5644,7 @@ function _planSystemBackupMaintenance(ss, options) {
       sourceSheetExists: !!sourceSheet,
       formulaReferenceCount: Number(item.formulaReferenceCount || 0), allocatedCells: item.allocatedCells,
       operationId: record ? record.operationId || '' : '', operationHasCreatedBackup: operationHasCreatedBackup,
+      signatureVersion: record ? record.signatureVersion || '' : '', copySignatureDrift: !!(record && record.copySignatureDrift),
       createdAt: record ? record.createdAt || '' : '', completedAt: record ? record.completedAt || '' : '',
       autoCleanupEligible: false, protectionReason: '' };
   });
@@ -9271,12 +9279,13 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
     })[0];
     if (operationRecord) return Object.assign({}, operationRecord, { reused: true });
   }
-  var signature = _sheetContentSignature(sheet);
-  // Properties는 힌트일 뿐입니다. 레지스트리의 원본 관계와 실제 시트 내용이 모두
-  // 일치해야만 재사용하며 삭제된/stale 백업은 새 복구본을 만들게 합니다.
+  var sourceSignature = _sheetContentSignature(sheet);
+  // v2부터 registry.signature은 실제 backup sheet 내용, sourceSignature은 복사 직전 원본 내용을 뜻합니다.
+  // legacy record는 sourceSignature이 없으므로 과거 signature을 원본 힌트로만 사용합니다.
   var reusableRecord = registry.filter(function(record) {
     if (!record || record.systemGenerated !== true || record.source !== sourceName) return false;
-    if (record.signature !== signature && (!operationId || record.operationId !== operationId)) return false;
+    var expectedSourceSignature = String(record.sourceSignature || record.signature || '');
+    if (expectedSourceSignature !== sourceSignature && (!operationId || record.operationId !== operationId)) return false;
     if (record.status !== 'CREATED' && record.status !== 'COMPLETED' && record.status !== 'WRITE_FAILED') return false;
     var candidate = ss.getSheetByName(record.name);
     var expectedBackupSignature = String(record.signature || '');
@@ -9285,15 +9294,15 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
     if (candidate && operationId && record.operationId === operationId && candidate.getName().indexOf(sourceName + '_백업_') === 0 &&
         expectedBackupSignature && _sheetContentSignature(candidate) === expectedBackupSignature) return true;
     return !!candidate && candidate.getName().indexOf(sourceName + '_백업_') === 0 && expectedBackupSignature &&
-      _sheetContentSignature(candidate) === expectedBackupSignature && expectedBackupSignature === signature;
+      _sheetContentSignature(candidate) === expectedBackupSignature && expectedSourceSignature === sourceSignature;
   })[0];
   if (reusableRecord) {
-    props.setProperty(signatureKey, signature);
+    props.setProperty(signatureKey, sourceSignature);
     if (operationId) props.setProperty(stateKey, operationId);
     return Object.assign({}, reusableRecord, { reused: true, operationId: reusableRecord.operationId || operationId });
   }
   // stale Properties는 실제 복구본을 증명하지 못하므로 제거합니다.
-  if (props.getProperty(signatureKey) === signature) props.deleteProperty(signatureKey);
+  if (props.getProperty(signatureKey) === sourceSignature) props.deleteProperty(signatureKey);
   if (operationId && props.getProperty(stateKey) === operationId) props.deleteProperty(stateKey);
   var name = sourceName + '_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6);
   var rowCount = sheet.getLastRow();
@@ -9322,11 +9331,15 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   }
   // 백업 내용은 유지하되 기본 생성된 미사용 격자는 즉시 회수합니다.
   if (typeof backup.deleteRows === 'function' && backup.getMaxRows() > Math.max(1, rowCount)) backup.deleteRows(Math.max(1, rowCount) + 1, backup.getMaxRows() - Math.max(1, rowCount));
-  props.setProperty(signatureKey, signature);
+  props.setProperty(signatureKey, sourceSignature);
   if (operationId) props.setProperty(stateKey, operationId);
   var codeColumn = _codeColumnForSheet(sourceName);
   if (codeColumn) _setCodeColumnText(backup, codeColumn);
-  var record = { name: name, source: sourceName, signature: signature, operationId: operationId,
+  // copyTo 이후 수식 재계산 등으로 source getValues()와 backup getValues()가 달라질 수 있으므로
+  // 실제 backup 내용을 다시 서명합니다. sourceSignature은 같은 원본 상태 재사용 판정에만 사용합니다.
+  var backupSignature = _sheetContentSignature(backup);
+  var record = { name: name, source: sourceName, signature: backupSignature, sourceSignature: sourceSignature,
+    signatureVersion: SYSTEM_BACKUP_SIGNATURE_VERSION, copySignatureDrift: backupSignature !== sourceSignature, operationId: operationId,
     status: 'CREATED', systemGenerated: true, createdAt: new Date().toISOString() };
   _registerSystemBackup(record);
   props.setProperty('snapshot_backup_last_status', JSON.stringify(record));
@@ -9966,7 +9979,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.168' });
+    return jsonOk({ settings: settings, gasVersion: '9.169' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9988,7 +10001,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.168'
+      gasVersion: '9.169'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
