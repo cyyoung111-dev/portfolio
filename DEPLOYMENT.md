@@ -1,3 +1,11 @@
+## GAS v9.171: 펀드 자동화·손익 Snapshot 정합성 보강 (2026-10-06)
+
+- F00002 `KB_VALUE_ST`는 정확한 표준코드 `KR5223AQ0185`를 사용해 FunETF 공개 NAV를 자동 조회합니다. HTTP/응답 오류 시 기존 확정 NAV와 수동 import 경로를 보존합니다.
+- F00003은 0좌 전환일 이후 정상/기간 Snapshot 계산에서 제외하며 자동 외부 NAV 조회 대상이 아닙니다.
+- 매일 19시 `runDailyFundValuations` 트리거를 공통 자동화 점검/복구에 포함합니다. partial은 경고로 기록하고 hard error만 자동화 실패로 처리합니다.
+- Snapshot 안전정리는 날짜 유실 payload, 0좌 펀드 잔존, 안전 판정 가능한 중복을 백업·read-back 검증 후 제거하고 애매한 충돌은 보호합니다.
+- GAS/웹 기대 버전은 `9.171`, 정적 웹 cache는 `portfolio-cache-20261006-11`입니다.
+
 ## GAS v9.170: trusted v2 이후 legacy backup 최종 정리 (2026-10-06)
 
 - 성공한 system backup은 rollback 확인이 끝나면 삭제하는 기존 **steady state 0개** 정책을 유지합니다. 운영 통합문서에 정상 백업 탭을 상시 여러 개 보존하지 않습니다.
