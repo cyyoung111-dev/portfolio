@@ -10388,12 +10388,47 @@ function runTossMarketDataDiagnosis() {
   var ui = SpreadsheetApp.getUi();
   var result = JSON.parse(handleDiagnoseTossMarketData().getContent());
   if (result.status !== 'ok') { ui.alert('❌ Toss 진단 실패\n' + String(result.message || '응답 오류')); return; }
-  var lines = (result.endpoints || []).map(function(item) {
-    return (item.ok ? '✅' : '❌') + ' ' + item.name + ': ' + (item.status == null ? '-' : item.status) + ' / ' + item.code + ' / ' + (item.count || 0) + '건 / ' + item.elapsedMs + 'ms';
+
+  var idSuffix = function(item) {
+    var ids = [];
+    if (item && item.requestId) ids.push('requestId ' + item.requestId);
+    if (item && item.referenceId) ids.push('referenceId ' + item.referenceId);
+    if (item && item.edgeRequestId) ids.push('x-amz-cf-id ' + item.edgeRequestId);
+    return ids.length ? ' / ' + ids.join(' / ') : '';
+  };
+  var egress = result.egressProbe || {};
+  var oauth = result.oauth || {};
+  var lines = [
+    (egress.ok ? '🔎' : '⚠️') + ' GAS egress 관측: ' + (egress.status == null ? '-' : egress.status) + ' / ' + (egress.code || 'ERROR') +
+      ' / ' + (egress.ip || 'IP 없음') + (egress.provider ? ' / ' + egress.provider : '') + ' / ' + (egress.elapsedMs || 0) + 'ms',
+    (oauth.ok ? '✅' : '❌') + ' OAuth: ' + (oauth.status == null ? '-' : oauth.status) + ' / ' + (oauth.code || 'ERROR') +
+      (oauth.providerCode ? ' / ' + oauth.providerCode : '') + idSuffix(oauth) + ' / ' + (oauth.elapsedMs || 0) + 'ms'
+  ];
+  (result.endpoints || []).forEach(function(item) {
+    lines.push((item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) + ' ' + item.name + ': ' +
+      (item.status == null ? '-' : item.status) + ' / ' + (item.code || 'ERROR') + ' / ' + (item.count || 0) + '건' +
+      idSuffix(item) + ' / ' + (item.elapsedMs || 0) + 'ms');
   });
-  var ipHint = (result.endpoints || []).some(function(item) { return item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN'; })
-    ? '\n\n403: Toss WTS Open API에서 GAS UrlFetchApp의 Google IP range pool을 허용 목록에 등록해야 합니다.' : '';
-  ui.alert('Toss Open API read-only 진단\n\n' + lines.join('\n') + ipHint);
+  var smoke = result.priceSmoke || {};
+  lines.push((smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) +
+    ' priceSmoke 005930: ' + (smoke.status == null ? '-' : smoke.status) + ' / ' + (smoke.code || 'ERROR') + ' / ' +
+    (smoke.resultCount || 0) + '건 / ' + (smoke.symbol || '005930') + ' / 유효가격 ' + (smoke.validLastPrice ? '있음' : '없음') +
+    ' / timestamp ' + (smoke.timestampPresent ? '있음' : '없음') + idSuffix(smoke) + ' / ' + (smoke.elapsedMs || 0) + 'ms');
+
+  var endpointIpBlocked = oauth.ok && (result.endpoints || []).concat([smoke]).some(function(item) {
+    return item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN';
+  });
+  var oauthAccessDenied = !oauth.ok && oauth.status === 403 && String(oauth.providerCode || '').toLowerCase() === 'access_denied';
+  var observedIpHint = egress.ok && egress.ip
+    ? ' 관측 IP ' + egress.ip + '를 Toss 허용 IP에 임시 등록해 재진단할 수 있습니다. 단, 이 IP가 Toss OAuth 요청에도 동일하게 사용됐다고 보장되지는 않습니다.'
+    : '';
+  var guide = endpointIpBlocked
+    ? '\n\n실제 Toss market endpoint 403: Google IP range pool 허용 IP 등록을 확인하세요.' + observedIpHint
+    : (oauthAccessDenied
+      ? '\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.' + observedIpHint
+      : '');
+  var caveat = '\n\n※ GAS egress 관측값은 외부 IP 확인 서비스가 본 참고값입니다. Toss 요청의 실제 출구 IP와 동일하다고 보장되지 않습니다.';
+  ui.alert('Toss Open API read-only 진단\n\n' + lines.join('\n') + guide + caveat);
 }
 
 function clearTossOpenApiConfigPrompt() {
