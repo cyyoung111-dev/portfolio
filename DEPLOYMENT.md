@@ -1,7 +1,7 @@
 ## GAS v9.168: 백업 보호 사유 세분화 (2026-10-06)
 
 - 실제 운영 백업 진단에서 Snapshot 53개 중 44개가 포괄적인 `안전 조건 불충족`으로만 표시된 문제를 개선합니다.
-- 자동 정리 가능 여부 계산은 변경하지 않고, 보호 사유 표시만 `content signature 불일치`, `미완료 registry 상태 · CREATED/기타`, 기존 `WRITE_FAILED · 복구 검증 없음`, `active operation`, `수식 참조 존재`, `USER_MANAGED/UNKNOWN 보호`, `원본 source sheet 없음` 등으로 세분화합니다.
+- 자동 정리 가능 여부 계산은 변경하지 않고, 보호 사유 표시만 `content signature 불일치`, `미완료 registry 상태 · CREATED/기타`, `WRITE_FAILED · 복구 검증 없음`, `동일 operation에 미완료 CREATED 백업 존재`, `수식 참조 존재`, `USER_MANAGED/UNKNOWN 보호`, `원본 source sheet 없음` 등으로 세분화합니다.
 - 백업 진단 팝업의 사유별 집계와 대표 시트명 최대 3개 표시 방식은 그대로 유지합니다.
 - 삭제·signature 검증·formula reference·registry 보호 정책은 변경하지 않습니다.
 - GAS/웹 기대 버전은 `9.168`, 정적 웹 cache는 `portfolio-cache-20261006-8`로 함께 배포합니다.
