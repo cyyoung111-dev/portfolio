@@ -3,6 +3,7 @@
 //
 //  v9.167 변경사항 (2026.10.06):
 //   Toss egress 진단 IPv4/IPv6 식별 및 address family 표시
+//   백업 진단 팝업에 보존 사유 집계·대표 시트명 표시
 //
 //  v9.166 변경사항 (2026.10.06):
 //   Toss egress IPv4 관측 provider fallback·비민감 실패 메타데이터 보강
