@@ -541,6 +541,23 @@ context._applyFundUnitLifecycleToSnapshotHoldings(lifecycleHoldings,[
 assert.equal(lifecycleHoldings['과거 펀드'],undefined,'0좌 전환일 이후 F코드는 Snapshot holdings에서 제거');
 assert.equal(lifecycleHoldings['일반주식'].qty,2,'일반 종목은 영향 없음');
 
+const headerOnlyLifecycleUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-01',0,'']]);
+const headerOnlyLifecycleSnapshot=new Sheet([header]);
+const headerOnlyLifecycleSheets={'펀드좌수':headerOnlyLifecycleUnits,'스냅샷':headerOnlyLifecycleSnapshot};
+const headerOnlyLifecycleSs=ssFor(headerOnlyLifecycleSheets);
+context.writeSnapshotRows(headerOnlyLifecycleSs,'2024-01-04',[
+  snap('2024-01-04','F00003',3000,'MANUAL'),
+  snap('2024-01-04','000001',300,'PRICE_HISTORY')
+],true);
+assert.equal(headerOnlyLifecycleSnapshot.rows.some(row=>row[1]==='F00003'),false,'헤더-only Snapshot append 전 0좌 F코드 제거');
+assert(headerOnlyLifecycleSnapshot.rows.some(row=>row[1]==='000001'),'헤더-only Snapshot의 정상 종목은 저장');
+
+const missingLifecycleSheets={'펀드좌수':headerOnlyLifecycleUnits};
+const missingLifecycleSs=ssFor(missingLifecycleSheets);
+context.writeSnapshotRows(missingLifecycleSs,'2024-01-04',[snap('2024-01-04','F00003',3000,'MANUAL')],true);
+assert.equal(!!missingLifecycleSheets['스냅샷'],false,'0좌 F코드만 들어온 신규 Snapshot은 빈 시트를 만들지 않음');
+
 // F00001 batch 일부 timeout이어도 저장 NAV 기반 F00002/F00003 복구는 계속합니다.
 const mixedUnits = new Sheet([['code','name','provider','start','units','at'],
   ['F00001','한화','HANWHA_2045_CRPE','2026-01-01',1000,''],
@@ -1260,9 +1277,13 @@ const compactDailyJson=JSON.stringify(compactDailyResult);
 assert(compactDailyJson.length<4000,'일일 펀드 Properties 요약은 날짜 상세를 제외해 충분히 작아야 함');
 assert.equal(Object.prototype.hasOwnProperty.call(compactDailyResult.funds.F00001,'dates'),false,'날짜별 상세 배열 Properties 저장 금지');
 assert.equal(compactDailyResult.funds.F00002.inputRequiredCount,2,'입력 필요 건수는 요약에 유지');
+assert.equal(context._compactFundDailyResultForProperty({completionStatus:'ok',lastDate:'',missingHoldings:[],fundResults:{}},'2026-09-09').lastDate,'2026-09-09','무변경 실행은 요청 종료일을 최근 처리 기준일로 보존');
 
 // 일일 실행의 partial은 자동화 자체를 실패시키지 않고 경고로 기록하며, hard error만 실패 처리합니다.
 const savedRefresh=context._refreshFundValuations;
+context._refreshFundValuations=()=>({completionStatus:'ok',saved:0,navSaved:0,snapshots:0,lastDate:'',missingHoldings:[],fundResults:{F00001:{status:'ok',inputRequiredDates:[]}}});
+assert.doesNotThrow(()=>context.runDailyFundValuations(),'변경 없는 정상 일일 실행도 성공');
+assert.equal(JSON.parse(scriptProperties.get('fund_last_result')||'{}').lastDate,'2026-09-09','무변경 일일 실행 Properties 기준일 보존');
 context._refreshFundValuations=()=>oversizedDailyResult;
 assert.doesNotThrow(()=>context.runDailyFundValuations(),'일일 partial은 저장된 성공분을 유지하고 warning으로 기록');
 assert.match(scriptProperties.get('fund_last_warning')||'',/F00002.*NAV 미확보 2일/);
