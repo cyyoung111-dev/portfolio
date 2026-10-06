@@ -638,6 +638,25 @@ context.writeSnapshotRows(lifecycleRewriteSs,'2026-01-05',[lifecycleNormal],true
 assert.equal(lifecycleRewriteSnapshot.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'signature no-op보다 lifecycle 제거를 우선');
 assert.equal(lifecycleRewriteSnapshot.rows.filter(row=>row[0]==='2026-01-05'&&row[1]==='000001').length,1,'정상행은 그대로 1개 유지');
 
+// 손익 그래프/상세 조회는 원장 정리 전에도 0좌 펀드 행을 즉시 제외합니다.
+const historyLifecycleUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-05',0,'']]);
+const historyLifecycleSnapshot=new Sheet([header,
+  snap('2026-01-05','000001',100,'PRICE_HISTORY'),
+  snap('2026-01-05','F00003',3000,'MANUAL')
+]);
+const historyLifecycleSs=ssFor({'펀드좌수':historyLifecycleUnits,'스냅샷':historyLifecycleSnapshot});
+context.getss=()=>historyLifecycleSs;
+const historyLifecycle=context.handleGetHistory('2026-01-05','2026-01-05');
+assert.equal(historyLifecycle.status,'ok');
+assert.equal(historyLifecycle.snapshots.length,1);
+assert.equal(historyLifecycle.snapshots[0].evalAmt,100,'합계 조회에서 0좌 F00003 평가금액 제외');
+const historyDetailLifecycle=context.handleGetHistoryDetail('2026-01-05');
+assert.equal(historyDetailLifecycle.status,'ok');
+assert.equal(historyDetailLifecycle.items.some(item=>item.code==='F00003'),false,'상세 조회에서도 0좌 F00003 제외');
+assert(historyDetailLifecycle.items.some(item=>item.code==='000001'),'상세 조회 정상 종목 유지');
+
 // 세 펀드 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증합니다.
 const importUnits = new Sheet([['code','name','provider','start','units','at'],
   ['F00001','한화 LIFEPLUS 적격 TDF 2045 C-RPe','HANWHA_2045_CRPE','2025-01-01',2000,''],
@@ -824,12 +843,14 @@ assert.equal(saveConfig('2026-01-01',2000).status,'error');
 assert.equal(saveConfig('2025-12-31',2000).status,'ok','다음 설정 이전의 미작성 날짜는 별도 좌수를 등록할 수 있습니다.');
 assert.equal(saveConfig('2026-01-02',2000).status,'error','이미 작성한 날짜에 다른 좌수를 소급 적용할 수 없습니다.');
 assert.equal(saveConfig('2026-01-03',2000).status,'ok');
+const activeCatalog=context._getFundCodeCatalog(ssFor(sheets),context._readFundUnits(ssFor(sheets)));
+assert.equal(activeCatalog.find(item=>item.code==='F00001').currentHolding,true,'양수 좌수 상태의 현재 보유 F코드는 현재 보유로 분류');
 assert.equal(saveConfig('2026-01-04',0).status,'ok');
 assert.equal(saveConfig('2026-01-05','').status,'error');
 assert.equal(saveConfig('2026-01-05',1000,'__proto__').status,'error');
 assert.equal(saveConfig('2026-01-05',1e30).status,'error');
 const catalog=context._getFundCodeCatalog(ssFor(sheets),context._readFundUnits(ssFor(sheets)));
-assert.equal(catalog.find(item=>item.code==='F00001').currentHolding,true,'현재 보유 F코드는 현재 보유로 분류');
+assert.equal(catalog.find(item=>item.code==='F00001').currentHolding,false,'0좌 전환된 F코드는 과거 보유로 분류');
 assert.equal(catalog.find(item=>item.code==='F00003').currentHolding,false,'전량 매도 F코드는 과거 보유로 분류');
 assert.equal(catalog.find(item=>item.code==='F00003').name,'과거 펀드');
 const fundUnitsResponse=context.handleGetFundUnits();
