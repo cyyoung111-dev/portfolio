@@ -16,6 +16,7 @@
 //   기존 Snapshot이 있는 수동 import도 날짜 전체를 lifecycle 기준으로 재작성
 //   전체 트리거 재등록 시 기존 19시 펀드 트리거를 삭제 후 1개로 재생성
 //   보호된 Snapshot 충돌은 hard failure가 아니라 fund_last_warning으로 기록
+//   수동 복구·소급채우기·펀드 보유현황에도 동일한 0좌 lifecycle 적용
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -4561,6 +4562,7 @@ function _getFundCodeCatalog(ss, configs) {
   var nameToCode = {};
   Object.keys(byCode).forEach(function(code) { nameToCode[byCode[code].name] = code; });
   var holdings = calcHoldingsAtDate(trades, today(), nameToCode);
+  _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs || [], today());
   var holdingCodes = {};
   Object.keys(holdings).forEach(function(name) {
     var code = String(holdings[name].code || '').trim().toUpperCase();
@@ -8347,6 +8349,7 @@ function repairPriceAndSnapshotForDate(dateStr) {
     });
 
     var holdAtDate = calcHoldingsAtDate(tradeData, normDate, nameToCode);
+    _applyFundUnitLifecycleToSnapshotHoldings(holdAtDate, _readFundUnits(ss), normDate);
     if (Object.keys(holdAtDate).length === 0) {
       Logger.log('[repair] 보유 종목 없음: ' + normDate);
       return { date: normDate, priceCount: 0, snapshotCount: 0 };
@@ -8986,6 +8989,7 @@ function _backfillExecute() {
     var code = (row[4]||'').toString().trim();
     if (name && code && !nameToCode[name]) nameToCode[name] = code;
   });
+  var fundConfigsBf = _readFundUnits(ss);
 
   // ★ [환율 연동] 종목코드→통화 맵 (소급 스냅샷 환율 환산용)
   var codeToCurrencyBf = {};
@@ -9051,6 +9055,7 @@ function _backfillExecute() {
       var backfillOperationId = '', previousBackfillOperationId = _snapshotBackupOperationId;
       try {
         var holdAtDate = calcHoldingsAtDate(tradeData, dateStr, nameToCode);
+        _applyFundUnitLifecycleToSnapshotHoldings(holdAtDate, fundConfigsBf, dateStr);
         if (Object.keys(holdAtDate).length === 0) continue;
 
         var codeItems = Object.keys(holdAtDate)
