@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.161
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.162
+//
+//  v9.162 변경사항 (2026.10.06):
+//   Toss OAuth/market 진단에 비민감 요청 식별자(request/reference/edge ID) 표시 보강
 //
 //  v9.161 변경사항 (2026.10.06):
 //   메뉴 진단/실행 분리·버전업 안내·초기화 이중 확인 및 위험 구역 분리
@@ -1199,22 +1202,61 @@ function _tossSafeError_(body) {
   try { var parsed = JSON.parse(body); return String(parsed.error?.code || parsed.error || parsed.error_description || 'unknown'); } catch (e) { return 'invalid-response'; }
 }
 
+function _tossDiagnosticIdValue_(value) {
+  var text = String(value == null ? '' : value).replace(/[\r\n\t]/g, '').trim();
+  return text.length > 256 ? text.slice(0, 256) : text;
+}
+
+function _tossDiagnosticHeader_(headers, name) {
+  var target = String(name || '').toLowerCase(), keys = Object.keys(headers || {});
+  for (var i = 0; i < keys.length; i++) {
+    if (String(keys[i]).toLowerCase() !== target) continue;
+    var value = headers[keys[i]];
+    if (Array.isArray(value)) value = value[0];
+    return _tossDiagnosticIdValue_(value);
+  }
+  return '';
+}
+
+function _tossDiagnosticIdentifiers_(response, parsed) {
+  var headers = {};
+  try { headers = response && response.getAllHeaders ? (response.getAllHeaders() || {}) : {}; } catch (ignore) {}
+  var body = parsed && typeof parsed === 'object' ? parsed : {};
+  var error = body.error && typeof body.error === 'object' ? body.error : {};
+  return {
+    requestId: _tossDiagnosticIdValue_(error.requestId || error.request_id || body.requestId || body.request_id ||
+      _tossDiagnosticHeader_(headers, 'x-request-id') || _tossDiagnosticHeader_(headers, 'x-amzn-requestid')),
+    referenceId: _tossDiagnosticIdValue_(error.referenceId || error.reference_id || body.referenceId || body.reference_id ||
+      _tossDiagnosticHeader_(headers, 'x-reference-id')),
+    edgeRequestId: _tossDiagnosticIdValue_(_tossDiagnosticHeader_(headers, 'x-amz-cf-id'))
+  };
+}
+
 // 연결 진단은 cache hit을 HTTP 200으로 오표시하지 않도록 OAuth endpoint를 매번 한 번 검증합니다.
 function _tossDiagnosticAccessToken_() {
   var startedAt = Date.now(), credentials = _tossProperties_();
-  if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', elapsedMs: Date.now() - startedAt };
+  if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
     method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
     payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
   });
-  var status = response.getResponseCode(), body = response.getContentText() || '{}';
-  if (status < 200 || status >= 300) return { ok: false, status: status, code: 'OAUTH_FAILED', providerCode: _tossSafeError_(body), source: 'NETWORK', token: '', elapsedMs: Date.now() - startedAt };
-  var data = {};
+  var status = response.getResponseCode(), body = response.getContentText() || '{}', data = {};
   try { data = JSON.parse(body); } catch (ignore) {}
-  if (data.token_type !== 'Bearer' || !data.access_token || !Number(data.expires_in)) return { ok: false, status: status, code: 'OAUTH_RESPONSE_INVALID', providerCode: '', source: 'NETWORK', token: '', elapsedMs: Date.now() - startedAt };
+  var ids = _tossDiagnosticIdentifiers_(response, data);
+  if (status < 200 || status >= 300) return {
+    ok: false, status: status, code: 'OAUTH_FAILED', providerCode: _tossSafeError_(body), source: 'NETWORK', token: '',
+    requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
+  };
+  if (data.token_type !== 'Bearer' || !data.access_token || !Number(data.expires_in)) return {
+    ok: false, status: status, code: 'OAUTH_RESPONSE_INVALID', providerCode: '', source: 'NETWORK', token: '',
+    requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
+  };
   var expiresAt = Date.now() + Number(data.expires_in) * 1000;
   CacheService.getScriptCache().put(TOSS_TOKEN_CACHE_KEY, JSON.stringify({ accessToken: data.access_token, expiresAt: expiresAt }), Math.max(1, Math.min(21600, Number(data.expires_in) - TOSS_TOKEN_SKEW_SECONDS)));
-  return { ok: true, status: status, code: 'OK', providerCode: '', source: 'NETWORK', token: data.access_token, elapsedMs: Date.now() - startedAt };
+  return {
+    ok: true, status: status, code: 'OK', providerCode: '', source: 'NETWORK', token: data.access_token,
+    requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
+  };
 }
 
 function _priceTimingAdd_(timings, key, startedMs) {
@@ -1349,13 +1391,14 @@ function _tossDiagnosticRequest_(path, query, token) {
     var parsed = {};
     try { parsed = JSON.parse(body); } catch (e) {}
     var error = parsed && parsed.error ? parsed.error : {};
+    var ids = _tossDiagnosticIdentifiers_(response, parsed);
     var result = parsed && parsed.result;
     var count = Array.isArray(result) ? result.length : (result && typeof result === 'object' ? Object.keys(result).length : 0);
     return {
       ok: status >= 200 && status < 300,
       status: status,
       code: status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (status >= 200 && status < 300 ? 'OK' : String(error.code || 'HTTP_ERROR')),
-      requestId: String(error.requestId || parsed.requestId || ''), count: count,
+      requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, count: count,
       elapsedMs: Date.now() - startedAt
     };
   } catch (err) {
@@ -1374,6 +1417,7 @@ function _tossPriceSmoke_(token) {
     var status = response.getResponseCode();
     var parsed = {};
     try { parsed = JSON.parse(response.getContentText() || '{}'); } catch (ignore) {}
+    var ids = _tossDiagnosticIdentifiers_(response, parsed);
     var rows = parsed && Array.isArray(parsed.result) ? parsed.result : [];
     var row = rows.filter(function(item) { return _normalizeTossSymbol_(item && item.symbol) === '005930'; })[0] || null;
     var price = row ? Number(row.lastPrice) : 0;
@@ -1391,6 +1435,9 @@ function _tossPriceSmoke_(token) {
       symbol: row ? _normalizeTossSymbol_(row.symbol) : '',
       validLastPrice: validLastPrice,
       timestampPresent: timestampPresent,
+      requestId: ids.requestId,
+      referenceId: ids.referenceId,
+      edgeRequestId: ids.edgeRequestId,
       elapsedMs: Date.now() - startedAt
     };
   } catch (err) {
@@ -1404,18 +1451,21 @@ function handleDiagnoseTossMarketData() {
     var oauthResult = _tossDiagnosticAccessToken_();
     token = oauthResult.token || '';
     oauth = { stage: 'oauth', ok: oauthResult.ok, status: oauthResult.status, code: oauthResult.code,
-      providerCode: oauthResult.providerCode, source: oauthResult.source, elapsedMs: oauthResult.elapsedMs };
+      providerCode: oauthResult.providerCode, source: oauthResult.source, requestId: oauthResult.requestId || '',
+      referenceId: oauthResult.referenceId || '', edgeRequestId: oauthResult.edgeRequestId || '', elapsedMs: oauthResult.elapsedMs };
   } catch (oauthError) {
     oauth = { stage: 'oauth', ok: false, status: null, code: 'OAUTH_REQUEST_ERROR', providerCode: '', source: 'NETWORK', elapsedMs: 0 };
   }
   var checks = [];
   var run = function(name, path, query) {
     if (!oauth.ok) {
-      checks.push({ name: name, endpoint: path, ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', requestId: '', count: 0, elapsedMs: 0 });
+      checks.push({ name: name, endpoint: path, ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', requestId: '', referenceId: '', edgeRequestId: '', count: 0, elapsedMs: 0 });
       return;
     }
     var item = _tossDiagnosticRequest_(path, query, token);
-    checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code, requestId: item.requestId || '', count: item.count || 0, elapsedMs: item.elapsedMs });
+    checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code,
+      requestId: item.requestId || '', referenceId: item.referenceId || '', edgeRequestId: item.edgeRequestId || '',
+      count: item.count || 0, elapsedMs: item.elapsedMs });
   };
   run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
   run('marketCalendarKR', '/api/v1/market-calendar/KR', { date: today() });
@@ -4308,7 +4358,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.161' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.162' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9749,7 +9799,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.161' });
+    return jsonOk({ settings: settings, gasVersion: '9.162' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9771,7 +9821,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.161'
+      gasVersion: '9.162'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
