@@ -8,6 +8,7 @@
 //   Snapshot 날짜 유실 행·0좌 펀드 잔존 행을 안전정리 경로에서 제거
 //   자동화 상태 점검에 펀드 최근 처리일·warning·error 표시
 //   펀드 갱신 Snapshot 병합·완전성 검사에도 0좌 lifecycle 적용
+//   일일 펀드 결과는 Script Properties 한도에 맞게 날짜 상세를 제외한 compact summary 저장
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -6340,12 +6341,49 @@ function handleImportFundNav(dataJson) {
   finally { lock.releaseLock(); }
 }
 
+function _compactFundDailyResultForProperty(result) {
+  result = result || {};
+  var compactFunds = {};
+  Object.keys(result.fundResults || {}).sort().forEach(function(code) {
+    var fund = result.fundResults[code] || {};
+    compactFunds[code] = {
+      status: fund.status || '',
+      storedNav: Number(fund.storedNav || 0),
+      apiRequested: Number(fund.apiRequested || 0),
+      apiSuccess: Number(fund.apiSuccess || 0),
+      apiFailed: Number(fund.apiFailed || 0),
+      navMissing: Number(fund.navMissing || 0),
+      latestUnpublished: Number(fund.latestUnpublished || 0),
+      carried: Number(fund.carried || 0),
+      zeroUnitsExcluded: Number(fund.zeroUnitsExcluded || 0),
+      inputRequiredCount: Array.isArray(fund.inputRequiredDates) ? fund.inputRequiredDates.length : 0,
+      snapshots: Number(fund.snapshots || 0)
+    };
+  });
+  return {
+    completionStatus: result.completionStatus || '',
+    saved: Number(result.saved || 0),
+    navSaved: Number(result.navSaved || 0),
+    snapshots: Number(result.snapshots || 0),
+    lastDate: result.lastDate || '',
+    missingHoldingsCount: Array.isArray(result.missingHoldings) ? result.missingHoldings.length : 0,
+    funds: compactFunds
+  };
+}
+
+function _fundPropertyText(value, maxChars) {
+  var text = String(value == null ? '' : value);
+  maxChars = Math.max(100, Number(maxChars || 1000));
+  return text.length > maxChars ? text.slice(0, maxChars - 1) + '…' : text;
+}
+
 function runDailyFundValuations() {
   var props = PropertiesService.getScriptProperties();
   try {
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
     var result = _refreshFundValuations(getss(), _fundDateOffset(today(), -31), today());
-    props.setProperty('fund_last_result', JSON.stringify(result));
+    // Script Properties는 값당 크기 제한이 있으므로 날짜별 상세 배열을 제외한 운영 상태만 저장합니다.
+    props.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result)));
     if (result.missingHoldings.length) throw new Error('펀드 가격 저장됨, 거래이력 없는 스냅샷 ' + result.missingHoldings.length + '건');
     var hardErrors = Object.keys(result.fundResults || {}).filter(function(code) {
       return result.fundResults[code] && result.fundResults[code].status === 'error';
@@ -6357,11 +6395,14 @@ function runDailyFundValuations() {
       if (!fund || fund.status === 'ok') return;
       warnings.push(code + ' ' + ((fund.inputRequiredDates || []).length ? 'NAV 미확보 ' + fund.inputRequiredDates.length + '일' : '부분 완료'));
     });
-    if (warnings.length) props.setProperty('fund_last_warning', warnings.join(' | '));
+    if (warnings.length) props.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
     else props.deleteProperty('fund_last_warning');
     props.deleteProperty('fund_last_error');
     return result;
-  } catch (err) { props.setProperty('fund_last_error', String(err.message)); throw err; }
+  } catch (err) {
+    props.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
+    throw err;
+  }
 }
 
 function handleSaveManualPrice(dateStr, name, priceStr, keepLatestParam) {
