@@ -898,3 +898,18 @@ GAS 메뉴 및 시트 구성:
   - `GOOGLE_OAUTH_REFRESH_TOKEN`
   - `GAS_ACCESS_TOKEN` — 기존 GAS 요청 인증을 사용 중이면 현재 Secret을 그대로 재사용합니다.
 - 최초 설정 후 `GAS_AUTO_DEPLOY_ENABLED`는 `false` 또는 미설정 상태로 둡니다. Actions → `gas-deploy` → Run workflow에서 먼저 `dry_run=true`로 인증·Script ID·deployment·대상 SERVER_JS를 확인합니다. 성공하면 `dry_run=false`로 한 번 실행하여 현재 main의 GAS v9.160을 운영 배포에 반영하고, 마지막으로 `GAS_AUTO_DEPLOY_ENABLED=true`를 설정합니다. 이후에는 GAS 소스가 포함된 main merge만 자동 배포를 수행합니다.
+
+
+## GAS 자동배포 clasp 인증 전환 및 Node 24 (2026-10-06)
+
+- 운영 배포 로직은 기존 Apps Script REST API 방식을 유지합니다. `clasp push`로 프로젝트 전체를 직접 덮어쓰지 않습니다. 기존 manifest/비대상 GAS·HTML 파일 보존, 기존 deployment ID 유지, 새 version 생성, `webApp=verified` 사후 검증 규칙도 그대로 유지합니다.
+- Google Cloud에서 직접 만든 Testing OAuth 앱의 7일 refresh token 제한을 피하기 위해 인증만 Google 공식 `@google/clasp`의 기본 OAuth 자격증명으로 전환합니다. 최신 `clasp login`으로 생성한 `.clasprc.json` 전체 내용을 GitHub Repository Secret `CLASPRC_JSON`에 저장합니다.
+- `CLASPRC_JSON`은 최신 clasp v3의 `tokens.default` 형식과 기존 local clasp 형식을 지원합니다. 여러 사용자 토큰이 있는 경우 `default` 사용자를 명시적으로 사용합니다. Secret 내용이나 refresh token은 로그에 출력하지 않습니다.
+- 전환 절차:
+  1. 자동배포 전환 중에는 `GAS_AUTO_DEPLOY_ENABLED=false`로 둡니다.
+  2. Windows PowerShell에서 최신 Node.js 환경으로 `npx @google/clasp@latest login`을 실행해 본인 Google 계정으로 로그인합니다. Apps Script API 사용자 설정은 계속 ON이어야 합니다.
+  3. `%USERPROFILE%\.clasprc.json` 전체 내용을 GitHub Repository Secret `CLASPRC_JSON`으로 등록합니다. 채팅·이슈·PR에는 내용을 붙이지 않습니다.
+  4. #445 병합 후 Actions → `gas-deploy`를 `dry_run=true`로 수동 실행해 OAuth/Script/deployment 조회를 확인합니다.
+  5. 성공 후 `dry_run=false`로 한 번 실행합니다. 현재 운영 소스가 이미 동일하면 새 version 생성 없이 웹앱 endpoint 검증만 수행하는 것이 정상입니다.
+  6. clasp 경로가 정상임을 확인한 뒤 기존 `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GOOGLE_OAUTH_REFRESH_TOKEN` Secrets를 삭제하고 `GAS_AUTO_DEPLOY_ENABLED=true`로 다시 활성화합니다.
+- GitHub Actions의 Node.js 20 deprecation 경고를 제거하기 위해 저장소 workflow의 `actions/checkout`과 `actions/setup-node`를 v7로 올리고 Node 실행 버전을 24로 맞춥니다. GAS/web 회귀검사도 Node 24에서 실행해 호환성을 검증합니다.

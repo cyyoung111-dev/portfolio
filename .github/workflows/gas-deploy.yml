@@ -29,11 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
       - name: GAS checks
         run: npm run check:gas
 
@@ -50,17 +50,15 @@ jobs:
       GAS_SERVER_FILE_NAME: ${{ vars.GAS_SERVER_FILE_NAME }}
       GAS_DEPLOYMENT_ID: ${{ vars.GAS_DEPLOYMENT_ID }}
       GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-      GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
-      GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
-      GOOGLE_OAUTH_REFRESH_TOKEN: ${{ secrets.GOOGLE_OAUTH_REFRESH_TOKEN }}
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
       GAS_DEPLOY_DRY_RUN: ${{ inputs.dry_run || false }}
       GITHUB_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
       - name: Deploy GAS
         run: node scripts/deploy-gas.mjs
