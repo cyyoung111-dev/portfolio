@@ -35,6 +35,11 @@ assert.match(gas, /showSystemBackupDiagnosis/);
 assert.match(gas, /function _systemBackupProtectionSummaryLines/);
 assert.match(gas, /function _systemBackupProtectionReason_/);
 assert.match(gas, /content signature 불일치/);
+assert.match(gas, /legacy signature 불일치 · 자동 재서명 금지/);
+assert.match(gas, /SYSTEM_BACKUP_SIGNATURE_VERSION = 'backup-content-v2'/);
+assert.match(gas, /sourceSignature/);
+assert.match(gas, /copySignatureDrift/);
+assert.match(gas, /_setCodeColumnText\(backup, codeColumn\)[\s\S]*SpreadsheetApp\.flush\(\)[\s\S]*var backupSignature = _sheetContentSignature\(backup\)/, 'backup signature 전에 copyTo·서식 변경 flush');
 assert.match(gas, /미완료 registry 상태/);
 assert.match(gas, /기타 안전 조건 불충족/);
 assert.match(gas, /보존 사유/);
@@ -60,10 +65,14 @@ assert.doesNotMatch(protectionLines[0], /스냅샷_백업_D/, '대표 시트명 
 assert.match(protectionLines[1], /수식 참조 존재: 1개/);
 
 const reasonFn = gas.match(/function _systemBackupProtectionReason_\([\s\S]*?\n\}/)?.[0] || '';
-const reasonContext = {};
+const reasonContext = { SYSTEM_BACKUP_SIGNATURE_VERSION: 'backup-content-v2' };
 vm.runInNewContext(`${reasonFn}\nglobalThis.protectionReason=_systemBackupProtectionReason_;`, reasonContext);
 assert.equal(reasonContext.protectionReason(
-  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, signatureVersion:'', classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:false }
+), 'legacy signature 불일치 · 자동 재서명 금지');
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, signatureVersion:'backup-content-v2', classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
   { registeredSourceExists:true, safeClass:true, registeredFailed:false }
 ), 'content signature 불일치');
 assert.equal(reasonContext.protectionReason(
@@ -112,7 +121,7 @@ assert.doesNotMatch(gas.match(/function cleanupSnapshotDuplicates[\s\S]*?\n}/)?.
 assert.doesNotMatch(gas, /최신 유효 백업은 source별 1개 보존/, '유지보수 안내문은 system backup 0개 정책과 일치해야 합니다.');
 assert.match(gas, /GOOGLE_SHEETS_CELL_LIMIT = 10000000/, 'Google Sheets 파일당 10M cell 한도');
 assert.match(gas, /deleteColumns[\s\S]*insertRowsAfter/, 'tall\/narrow backup은 열 축소 후 행 확장');
-assert.match(gas, /if \(operationId\)[\s\S]*operationRecord[\s\S]*var signature = _sheetContentSignature/, '동일 operation backup은 source 전체 signature 전에 재사용');
+assert.match(gas, /if \(operationId\)[\s\S]*operationRecord[\s\S]*var sourceSignature = _sheetContentSignature/, '동일 operation backup은 source 전체 signature 전에 재사용');
 assert.match(gas, /afterIntegrity\.status !== 'VALID'[\s\S]*state\.validatedOperationIds\.push\(repairOperationId\)/, 'VALID 재진단 operation만 cleanup 증명에 포함');
 assert.match(gas, /else if \(state\.failed === 0\) state\.backupCleanup = maintainSystemBackups\(\{ apply: true, validatedOperationIds: state\.validatedOperationIds \}\)/, '성공한 full repair만 검증 operation 한정 cleanup');
 assert.match(gas, /writeFailedCount:[\s\S]*writeFailed:/, 'backup summary count와 name 목록 key 분리');

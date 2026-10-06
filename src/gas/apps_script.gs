@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.168
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.169
+//
+//  v9.169 변경사항 (2026.10.06):
+//   백업 원본/실제 backup signature 분리 저장으로 copyTo 재계산 mismatch 재발 방지
+//   Toss OAuth token single-flight 및 resource 401 1회 자동복구
 //
 //  v9.168 변경사항 (2026.10.06):
 //   백업 진단의 포괄적 '안전 조건 불충족'을 signature/registry 상태 등으로 세분화
@@ -829,21 +833,23 @@ function handleSaveTossConfig(dataJson) {
     var data;
     try { data = JSON.parse(String(dataJson || '{}')); }
     catch(parseError) { data = _parseJsonParam(dataJson || '{}', 'Toss 설정'); }
-    var props = PropertiesService.getScriptProperties();
-    var changed = [];
-    var clientId = String(data.clientId == null ? '' : data.clientId).trim();
-    var secret = String(data.secret == null ? '' : data.secret).trim();
-    var previousClientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
-    var previousSecret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
-    // 빈 입력은 기존 값을 유지합니다. 삭제는 별도 명시적 action에서만 허용합니다.
-    if (Object.prototype.hasOwnProperty.call(data, 'clientId') && clientId) {
-      props.setProperty('TOSS_CLIENT_ID', clientId); changed.push('clientId');
-    }
-    if (Object.prototype.hasOwnProperty.call(data, 'secret') && secret) {
-      props.setProperty('TOSS_CLIENT_SECRET', secret); changed.push('secret');
-    }
-    if ((clientId && clientId !== previousClientId) || (secret && secret !== previousSecret)) CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
-    return jsonOk({ saved: true, changed: changed, toss: _getTossConfigStatus_() });
+    return _tossWithTokenLock_(function() {
+      var props = PropertiesService.getScriptProperties();
+      var changed = [];
+      var clientId = String(data.clientId == null ? '' : data.clientId).trim();
+      var secret = String(data.secret == null ? '' : data.secret).trim();
+      var previousClientId = String(props.getProperty('TOSS_CLIENT_ID') || '').trim();
+      var previousSecret = String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim();
+      // 설정 변경과 token cache 무효화를 같은 lock 안에서 처리해 발급 경쟁을 막습니다.
+      if (Object.prototype.hasOwnProperty.call(data, 'clientId') && clientId) {
+        props.setProperty('TOSS_CLIENT_ID', clientId); changed.push('clientId');
+      }
+      if (Object.prototype.hasOwnProperty.call(data, 'secret') && secret) {
+        props.setProperty('TOSS_CLIENT_SECRET', secret); changed.push('secret');
+      }
+      if ((clientId && clientId !== previousClientId) || (secret && secret !== previousSecret)) CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
+      return jsonOk({ saved: true, changed: changed, toss: _getTossConfigStatus_() });
+    });
   } catch(err) {
     return jsonError('Toss 설정 저장 실패: ' + err.message);
   }
@@ -851,14 +857,16 @@ function handleSaveTossConfig(dataJson) {
 
 function handleClearTossConfig() {
   try {
-    var props = PropertiesService.getScriptProperties();
-    props.deleteProperty('TOSS_CLIENT_ID');
-    props.deleteProperty('TOSS_CLIENT_SECRET');
-    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_AT');
-    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_OK');
-    props.deleteProperty('TOSS_LAST_DIAGNOSTIC_CODE');
-    CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
-    return jsonOk({ cleared: true, toss: _getTossConfigStatus_() });
+    return _tossWithTokenLock_(function() {
+      var props = PropertiesService.getScriptProperties();
+      props.deleteProperty('TOSS_CLIENT_ID');
+      props.deleteProperty('TOSS_CLIENT_SECRET');
+      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_AT');
+      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_OK');
+      props.deleteProperty('TOSS_LAST_DIAGNOSTIC_CODE');
+      CacheService.getScriptCache().remove(TOSS_TOKEN_CACHE_KEY);
+      return jsonOk({ cleared: true, toss: _getTossConfigStatus_() });
+    });
   } catch(err) {
     return jsonError('Toss 설정 삭제 실패: ' + err.message);
   }
@@ -1193,14 +1201,21 @@ function _tossProperties_() {
   return { id: String(props.getProperty('TOSS_CLIENT_ID') || '').trim(), secret: String(props.getProperty('TOSS_CLIENT_SECRET') || '').trim() };
 }
 
-function _tossAccessToken_() {
+function _tossCachedTokenRecord_() {
   var cached = CacheService.getScriptCache().get(TOSS_TOKEN_CACHE_KEY);
-  if (cached) {
-    try {
-      var token = JSON.parse(cached);
-      if (token.accessToken && Number(token.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000) return token.accessToken;
-    } catch (e) {}
-  }
+  if (!cached) return null;
+  try {
+    var token = JSON.parse(cached);
+    return token && token.accessToken ? token : null;
+  } catch (e) { return null; }
+}
+
+function _tossCachedAccessToken_() {
+  var token = _tossCachedTokenRecord_();
+  return token && Number(token.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000 ? token.accessToken : '';
+}
+
+function _tossIssueAccessTokenUnlocked_() {
   var credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return '';
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
@@ -1215,6 +1230,48 @@ function _tossAccessToken_() {
   var expiresAt = Date.now() + Number(data.expires_in) * 1000;
   CacheService.getScriptCache().put(TOSS_TOKEN_CACHE_KEY, JSON.stringify({ accessToken: data.access_token, expiresAt: expiresAt }), Math.max(1, Math.min(21600, Number(data.expires_in) - TOSS_TOKEN_SKEW_SECONDS)));
   return data.access_token;
+}
+
+function _tossWithTokenLock_(callback) {
+  var lock = typeof LockService !== 'undefined' && LockService.getScriptLock ? LockService.getScriptLock() : null;
+  var acquiredHere = false;
+  try {
+    if (lock && (!lock.hasLock || !lock.hasLock())) {
+      lock.waitLock(10000);
+      acquiredHere = true;
+    }
+    return callback();
+  } finally {
+    if (acquiredHere && lock && lock.releaseLock) lock.releaseLock();
+  }
+}
+
+function _tossAccessToken_() {
+  var cachedToken = _tossCachedAccessToken_();
+  if (cachedToken) return cachedToken;
+
+  // Toss는 새 client_credentials token 발급 시 기존 token이 무효화될 수 있으므로,
+  // cache miss 동시 실행을 single-flight로 직렬화합니다.
+  return _tossWithTokenLock_(function() {
+    // 다른 실행이 lock 대기 중 token을 발급했을 수 있으므로 반드시 재확인합니다.
+    var tokenAfterLock = _tossCachedAccessToken_();
+    return tokenAfterLock || _tossIssueAccessTokenUnlocked_();
+  });
+}
+
+function _refreshTossAccessTokenAfter401_(rejectedToken) {
+  return _tossWithTokenLock_(function() {
+    var cache = CacheService.getScriptCache();
+    var current = _tossCachedTokenRecord_();
+    var currentValid = current && Number(current.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000;
+
+    // lock 대기 중 다른 실행이 이미 새 token으로 교체했다면 그 token을 그대로 사용합니다.
+    if (currentValid && current.accessToken !== rejectedToken) return current.accessToken;
+
+    // 현재 cache가 실제 rejected token이거나 만료/손상 상태일 때만 제거합니다.
+    if (!current || !currentValid || current.accessToken === rejectedToken) cache.remove(TOSS_TOKEN_CACHE_KEY);
+    return _tossIssueAccessTokenUnlocked_();
+  });
 }
 
 function _tossSafeError_(body) {
@@ -1349,7 +1406,10 @@ function _probeTossDiagnosticEgressIp_() {
 
 // 연결 진단은 cache hit을 HTTP 200으로 오표시하지 않도록 OAuth endpoint를 매번 한 번 검증합니다.
 function _tossDiagnosticAccessToken_() {
-  var startedAt = Date.now(), credentials = _tossProperties_();
+  var startedAt = Date.now();
+  return _tossWithTokenLock_(function() {
+  // lock 대기 중 설정이 바뀔 수 있으므로 자격증명은 반드시 lock 획득 후 다시 읽습니다.
+  var credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
     method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
@@ -1372,8 +1432,8 @@ function _tossDiagnosticAccessToken_() {
     ok: true, status: status, code: 'OK', providerCode: '', source: 'NETWORK', token: data.access_token,
     requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
   };
+  });
 }
-
 function _priceTimingAdd_(timings, key, startedMs) {
   if (!timings || !key || !Number.isFinite(Number(startedMs))) return;
   timings[key] = Math.max(0, Number(timings[key] || 0) + Math.max(0, Date.now() - startedMs));
@@ -1396,6 +1456,7 @@ function _tossRequest_(path, query, group, timings) {
   Object.keys(query || {}).forEach(function(key) { if (query[key] !== '' && query[key] != null) params.push(encodeURIComponent(key) + '=' + encodeURIComponent(query[key])); });
   var url = TOSS_API_BASE + path + (params.length ? '?' + params.join('&') : '');
   var maxAttempts = 4;
+  var oauthRecoveryUsed = false;
   var httpStartedMs = Date.now();
   for (var attempt = 0; attempt < maxAttempts; attempt++) {
     var response;
@@ -1415,6 +1476,19 @@ function _tossRequest_(path, query, group, timings) {
         _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
         throw parseErr;
       }
+    }
+    if (status === 401 && !oauthRecoveryUsed) {
+      oauthRecoveryUsed = true;
+      var refreshStartedMs = Date.now();
+      token = _refreshTossAccessTokenAfter401_(token);
+      _priceTimingAdd_(timings, 'tossToken', refreshStartedMs);
+      if (!token) {
+        _priceTimingAdd_(timings, 'tossPricesHttp', httpStartedMs);
+        throw new Error('Toss OAuth 재발급 결과 없음');
+      }
+      // 401 recovery는 429/5xx retry budget을 소비하지 않습니다.
+      attempt--;
+      continue;
     }
     var headers = response.getAllHeaders ? response.getAllHeaders() : {};
     var retryAfter = Number(headers['Retry-After'] || headers['retry-after'] || 0);
@@ -4474,7 +4548,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.168' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.169' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5310,6 +5384,7 @@ function _sheetRole(name) {
 }
 
 var SYSTEM_BACKUP_REGISTRY_KEY = 'system_backup_registry_v1';
+var SYSTEM_BACKUP_SIGNATURE_VERSION = 'backup-content-v2';
 // 성공한 system backup은 rollback 용도가 종료되므로 steady state에서 보존하지 않습니다.
 var SYSTEM_BACKUP_KEEP_BY_SOURCE = { '스냅샷': 0, '거래이력': 0, '가격이력': 0, '펀드기준가격': 0, '펀드좌수': 0, '종목코드': 0 };
 
@@ -5446,8 +5521,8 @@ function _reconcileSystemBackups(ss) {
         _sheetHeaderSignature(sheet) !== _sheetHeaderSignature(sourceSheet)) {
       unresolved.push({ name: name, classification: 'UNKNOWN', reason: '원본/schema/formula/signature 안전 검증 불충족' }); return;
     }
-    var record = { name: name, source: source, signature: signature, operationId: 'reconciled-orphan',
-      status: 'COMPLETED', systemGenerated: true, orphanAdopted: true,
+    var record = { name: name, source: source, signature: signature, sourceSignature: '', signatureVersion: SYSTEM_BACKUP_SIGNATURE_VERSION,
+      operationId: 'reconciled-orphan', status: 'COMPLETED', systemGenerated: true, orphanAdopted: true,
       createdAt: _systemBackupTimestampFromName(name), completedAt: _systemBackupTimestampFromName(name), updatedAt: new Date().toISOString() };
     items.push(record); byName[name] = record; reconciled.push({ name: name, classification: 'ORPHAN_LIKELY_SYSTEM' });
   });
@@ -5604,7 +5679,9 @@ function _systemBackupProtectionReason_(item, context) {
   if (item.formulaReferenceCount) return '수식 참조 존재';
   if (!context.safeClass) return 'USER_MANAGED/UNKNOWN 보호';
   if (context.registeredFailed) return 'WRITE_FAILED · 복구 검증 없음';
-  if (!item.signatureMatch) return 'content signature 불일치';
+  if (!item.signatureMatch) return item.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION
+    ? 'content signature 불일치'
+    : 'legacy signature 불일치 · 자동 재서명 금지';
   if (item.classification === 'REGISTERED_INCOMPLETE') {
     return '미완료 registry 상태 · ' + String(item.status || 'UNKNOWN');
   }
@@ -5637,6 +5714,7 @@ function _planSystemBackupMaintenance(ss, options) {
       sourceSheetExists: !!sourceSheet,
       formulaReferenceCount: Number(item.formulaReferenceCount || 0), allocatedCells: item.allocatedCells,
       operationId: record ? record.operationId || '' : '', operationHasCreatedBackup: operationHasCreatedBackup,
+      signatureVersion: record ? record.signatureVersion || '' : '', copySignatureDrift: !!(record && record.copySignatureDrift),
       createdAt: record ? record.createdAt || '' : '', completedAt: record ? record.completedAt || '' : '',
       autoCleanupEligible: false, protectionReason: '' };
   });
@@ -9271,12 +9349,13 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
     })[0];
     if (operationRecord) return Object.assign({}, operationRecord, { reused: true });
   }
-  var signature = _sheetContentSignature(sheet);
-  // Properties는 힌트일 뿐입니다. 레지스트리의 원본 관계와 실제 시트 내용이 모두
-  // 일치해야만 재사용하며 삭제된/stale 백업은 새 복구본을 만들게 합니다.
+  var sourceSignature = _sheetContentSignature(sheet);
+  // v2부터 registry.signature은 실제 backup sheet 내용, sourceSignature은 복사 직전 원본 내용을 뜻합니다.
+  // legacy record는 sourceSignature이 없으므로 과거 signature을 원본 힌트로만 사용합니다.
   var reusableRecord = registry.filter(function(record) {
     if (!record || record.systemGenerated !== true || record.source !== sourceName) return false;
-    if (record.signature !== signature && (!operationId || record.operationId !== operationId)) return false;
+    var expectedSourceSignature = String(record.sourceSignature || record.signature || '');
+    if (expectedSourceSignature !== sourceSignature && (!operationId || record.operationId !== operationId)) return false;
     if (record.status !== 'CREATED' && record.status !== 'COMPLETED' && record.status !== 'WRITE_FAILED') return false;
     var candidate = ss.getSheetByName(record.name);
     var expectedBackupSignature = String(record.signature || '');
@@ -9285,15 +9364,15 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
     if (candidate && operationId && record.operationId === operationId && candidate.getName().indexOf(sourceName + '_백업_') === 0 &&
         expectedBackupSignature && _sheetContentSignature(candidate) === expectedBackupSignature) return true;
     return !!candidate && candidate.getName().indexOf(sourceName + '_백업_') === 0 && expectedBackupSignature &&
-      _sheetContentSignature(candidate) === expectedBackupSignature && expectedBackupSignature === signature;
+      _sheetContentSignature(candidate) === expectedBackupSignature && expectedSourceSignature === sourceSignature;
   })[0];
   if (reusableRecord) {
-    props.setProperty(signatureKey, signature);
+    props.setProperty(signatureKey, sourceSignature);
     if (operationId) props.setProperty(stateKey, operationId);
     return Object.assign({}, reusableRecord, { reused: true, operationId: reusableRecord.operationId || operationId });
   }
   // stale Properties는 실제 복구본을 증명하지 못하므로 제거합니다.
-  if (props.getProperty(signatureKey) === signature) props.deleteProperty(signatureKey);
+  if (props.getProperty(signatureKey) === sourceSignature) props.deleteProperty(signatureKey);
   if (operationId && props.getProperty(stateKey) === operationId) props.deleteProperty(stateKey);
   var name = sourceName + '_백업_' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMdd_HHmmss') + '_' + Utilities.getUuid().slice(0, 6);
   var rowCount = sheet.getLastRow();
@@ -9322,11 +9401,17 @@ function _backupSheetBeforeWrite(ss, sheet, sourceName) {
   }
   // 백업 내용은 유지하되 기본 생성된 미사용 격자는 즉시 회수합니다.
   if (typeof backup.deleteRows === 'function' && backup.getMaxRows() > Math.max(1, rowCount)) backup.deleteRows(Math.max(1, rowCount) + 1, backup.getMaxRows() - Math.max(1, rowCount));
-  props.setProperty(signatureKey, signature);
+  props.setProperty(signatureKey, sourceSignature);
   if (operationId) props.setProperty(stateKey, operationId);
   var codeColumn = _codeColumnForSheet(sourceName);
   if (codeColumn) _setCodeColumnText(backup, codeColumn);
-  var record = { name: name, source: sourceName, signature: signature, operationId: operationId,
+  // copyTo/서식 변경을 서버에 반영한 뒤 실제 backup을 읽어야 생성 직후 비동기 반영 차이를 signature로 오인하지 않습니다.
+  if (typeof SpreadsheetApp !== 'undefined' && SpreadsheetApp.flush) SpreadsheetApp.flush();
+  // copyTo 이후 수식 재계산 등으로 source getValues()와 backup getValues()가 달라질 수 있으므로
+  // 실제 backup 내용을 다시 서명합니다. sourceSignature은 같은 원본 상태 재사용 판정에만 사용합니다.
+  var backupSignature = _sheetContentSignature(backup);
+  var record = { name: name, source: sourceName, signature: backupSignature, sourceSignature: sourceSignature,
+    signatureVersion: SYSTEM_BACKUP_SIGNATURE_VERSION, copySignatureDrift: backupSignature !== sourceSignature, operationId: operationId,
     status: 'CREATED', systemGenerated: true, createdAt: new Date().toISOString() };
   _registerSystemBackup(record);
   props.setProperty('snapshot_backup_last_status', JSON.stringify(record));
@@ -9966,7 +10051,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.168' });
+    return jsonOk({ settings: settings, gasVersion: '9.169' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9988,7 +10073,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.168'
+      gasVersion: '9.169'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
