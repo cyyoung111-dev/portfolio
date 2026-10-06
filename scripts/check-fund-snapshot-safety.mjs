@@ -866,6 +866,8 @@ const legacyMigrationSheets={
   'legacy-mismatch':new Sheet([header]),
   'legacy-formula':new Sheet([header]),
   'legacy-schema':new Sheet([['다른헤더']]),
+  'legacy-sibling':new Sheet([header]),
+  'legacy-sibling-created':new Sheet([header]),
   'trusted-v2':new Sheet([header]),
   'legacy-ref':new Sheet([['ref']])
 };
@@ -876,6 +878,8 @@ scriptProperties.set('system_backup_registry_v1',JSON.stringify([
   {name:'legacy-mismatch',source:'스냅샷',signature:'legacy-source-signature',status:'COMPLETED',systemGenerated:true,operationId:'legacy-old',completedAt:'2026-09-18T00:00:00Z'},
   {name:'legacy-formula',source:'스냅샷',signature:'legacy-source-signature',status:'COMPLETED',systemGenerated:true,operationId:'legacy-formula-old',completedAt:'2026-09-18T01:00:00Z'},
   {name:'legacy-schema',source:'스냅샷',signature:'legacy-source-signature',status:'COMPLETED',systemGenerated:true,operationId:'legacy-schema-old',completedAt:'2026-09-18T02:00:00Z'},
+  {name:'legacy-sibling',source:'스냅샷',signature:'legacy-source-signature',status:'COMPLETED',systemGenerated:true,operationId:'partial-op',completedAt:'2026-09-18T03:00:00Z'},
+  {name:'legacy-sibling-created',source:'스냅샷',signature:'legacy-source-signature',status:'CREATED',systemGenerated:true,operationId:'partial-op',createdAt:'2026-09-18T03:01:00Z'},
   {name:'trusted-v2',source:'스냅샷',signature:trustedV2Signature,signatureVersion:'backup-content-v2',status:'COMPLETED',systemGenerated:true,operationId:'trusted-v2-op',completedAt:'2026-09-21T00:00:00Z'}
 ]));
 const legacyMigrationCleanup=clone(context._cleanupCurrentSystemBackup(legacyMigrationSs,{name:'trusted-v2',source:'스냅샷',operationId:'trusted-v2-op'}));
@@ -883,6 +887,9 @@ assert(!legacyMigrationSheets['legacy-mismatch'],'trusted v2가 있으면 stale 
 assert(legacyMigrationCleanup.legacyMigratedDeleted.includes('legacy-mismatch'),'legacy migration 삭제를 결과에 기록');
 assert(legacyMigrationSheets['legacy-formula'],'수식 참조 legacy는 계속 보호');
 assert(legacyMigrationSheets['legacy-schema'],'source schema 불일치 legacy는 계속 보호');
+assert(legacyMigrationSheets['legacy-sibling'],'같은 operation에 CREATED sibling이 남은 legacy COMPLETED는 보호');
+assert(legacyMigrationSheets['legacy-sibling-created'],'미완료 CREATED sibling 자체도 보호');
+assert(legacyMigrationCleanup.staleProtected.some(item=>item.name==='legacy-sibling'&&/signature/.test(item.reason)),'부분 완료 operation의 legacy COMPLETED는 cleanup 예외에서 제외');
 assert(legacyMigrationCleanup.staleProtected.some(item=>item.name==='legacy-formula'&&/수식 참조/.test(item.reason)),'legacy formula 보호 사유 유지');
 assert(legacyMigrationCleanup.staleProtected.some(item=>item.name==='legacy-schema'&&/signature/.test(item.reason)),'legacy schema mismatch는 signature 보호 유지');
 assert(!legacyMigrationSheets['trusted-v2'],'성공한 current v2 backup은 steady state 0 정책대로 정리');
