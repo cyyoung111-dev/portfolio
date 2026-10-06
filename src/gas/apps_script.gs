@@ -7,6 +7,7 @@
 //   펀드좌수 0 전환일 이후 F코드를 정상/기간 Snapshot 계산에서 제외
 //   Snapshot 날짜 유실 행·0좌 펀드 잔존 행을 안전정리 경로에서 제거
 //   자동화 상태 점검에 펀드 최근 처리일·warning·error 표시
+//   펀드 갱신 Snapshot 병합·완전성 검사에도 0좌 lifecycle 적용
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -4513,6 +4514,15 @@ function _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, date) {
   return holdings;
 }
 
+function _filterSnapshotRowsByFundLifecycle(rows, configs, date) {
+  return (rows || []).filter(function(row) {
+    var code = _cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase();
+    if (!_isFundCode(code)) return true;
+    var config = _fundUnitsAtDate(configs || [], code, date);
+    return !(config && config.units === 0);
+  });
+}
+
 function _isFundCode(code) {
   return /^F\d{5}$/.test(String(code || '').trim().toUpperCase());
 }
@@ -5225,6 +5235,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   var missingHoldings = [];
   values.forEach(function(value) {
     var holdings = calcHoldingsAtDate(trades, value.date, nameCodes);
+    _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, value.date);
     var h = Object.keys(holdings).map(function(k) { return holdings[k]; }).find(function(item) { return item.code === value.code; });
     if (!h) { missingHoldings.push(value.date + ':' + value.code); return; }
     var entry = priceKeys[value.date + '|' + value.code];
@@ -5240,11 +5251,12 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   var fundSnapshotOperationId = 'refreshFundValuations|' + (onlyCode || 'ALL') + '|' + from + '|' + to + '|' + Utilities.getUuid();
   _snapshotBackupOperationId = fundSnapshotOperationId;
   try { Object.keys(byDate).sort().forEach(function(date) {
-    var existing = _readSnapshotRowsByDate(ss, date);
+    var existing = _filterSnapshotRowsByFundLifecycle(_readSnapshotRowsByDate(ss, date), configs, date);
     var rebuilt = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true);
     var combined = _mergeSnapshotRowsSafely(rebuilt, byDate[date], true);
     combined = _mergeSnapshotRowsSafely(existing, combined, true);
     var holdings = calcHoldingsAtDate(trades, date, nameCodes);
+    _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, date);
     var incomplete = Object.keys(holdings).some(function(k) {
       var h = holdings[k];
       return !combined.some(function(row) { return (h.code && row[1] === h.code) || row[2] === h.name; });
