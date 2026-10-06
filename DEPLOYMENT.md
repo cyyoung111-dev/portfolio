@@ -1,3 +1,11 @@
+## GAS v9.175: 통합 리뷰 P2 자동화·Snapshot 정합성 보강 (2026-10-07)
+
+- 일일 트리거 점검이 누락 여부뿐 아니라 기존 `runEvalPriceUpdate1620` / `runDailyFundValuations` 레거시 분리 트리거와 `runDailyPortfolioClose1900` 중복 개수까지 검사하고 정상 집합으로 자동 정리합니다.
+- 자동화 상태의 Snapshot 최근일은 펀드 0좌 lifecycle을 통과한 유효 Snapshot 행만 대상으로 계산합니다.
+- Snapshot stale 기준일은 달력상 직전 평일 대신 최근 통합 마감의 실제 `priceDate`를 우선 사용하고, 없으면 가격이력 최근 확정일을 사용합니다.
+- 웹 자동화 상태 카드에서 통합 트리거 중복 여부와 개수를 명시합니다.
+- GAS/웹 기대 버전은 `9.175`, 정적 웹 cache는 `portfolio-cache-20261007-2`입니다.
+
 ## GAS v9.174: 자동화 미실행 상태 표시 보정 (2026-10-07)
 
 - 19시 통합 마감 실행 이력이 아직 없으면 과거 `fund_last_error`보다 `NEVER_RUN` 판정을 우선합니다.
