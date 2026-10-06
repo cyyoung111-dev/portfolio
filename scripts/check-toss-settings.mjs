@@ -16,6 +16,7 @@ assert.match(gasSource, /function runTossMarketDataDiagnosis\(/);
 const menuDiagnosisBody = gasSource.match(/function runTossMarketDataDiagnosis\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 assert.match(menuDiagnosisBody, /egressProbe/);
 assert.match(menuDiagnosisBody, /GAS egress 관측/);
+assert.match(menuDiagnosisBody, /ipFamily/);
 assert.match(menuDiagnosisBody, /OAuth 403 access_denied/);
 assert.match(menuDiagnosisBody, /실제 출구 IP와 동일하다고 보장되지 않습니다/);
 assert.match(menuDiagnosisBody, /requestId/);
@@ -49,6 +50,13 @@ const context = vm.createContext({
   ContentService: { MimeType: { JSON: 'application/json' }, createTextOutput: content => ({ getContent: () => content, setMimeType: () => ({ getContent: () => content }) }) },
 });
 new vm.Script(gasSource, { filename: 'src/gas/apps_script.gs' }).runInContext(context);
+
+assert.equal(context._diagnosticIpFamily_('34.64.12.34'), 'IPv4');
+assert.equal(context._diagnosticIpFamily_('2001:db8:85a3::8a2e:370:7334'), 'IPv6');
+assert.equal(context._diagnosticIpFamily_('2001:0db8:85a3:0000:0000:8a2e:0370:7334'), 'IPv6');
+assert.equal(context._diagnosticIpFamily_('::ffff:192.0.2.128'), 'IPv6');
+assert.equal(context._diagnosticIpFamily_('2001:db8:::1'), '', '잘못된 IPv6 거부');
+assert.equal(context._diagnosticIpFamily_('<html>blocked</html>'), '', 'IP가 아닌 응답 거부');
 
 let saved = JSON.parse(context.handleSaveTossConfig(JSON.stringify({ clientId: 'client-123456', secret: 'value%2Fkeep' })).getContent());
 assert.equal(saved.status, 'ok');
@@ -94,10 +102,29 @@ cache.clear();
 let diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
 assert.deepEqual([diagnostic.oauth.stage, diagnostic.oauth.ok, diagnostic.oauth.status, diagnostic.oauth.code, diagnostic.oauth.providerCode], ['oauth', false, 403, 'OAUTH_FAILED', 'access_denied']);
 assert.equal(fetchedUrls.length, 2, 'egress probe 후 OAuth 실패 시 market endpoint를 호출하지 않음');
-assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider, diagnostic.egressProbe.observedOnly], [true, '34.64.12.34', 'checkip.amazonaws.com', true]);
+assert.deepEqual(
+  [diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.ipFamily, diagnostic.egressProbe.provider, diagnostic.egressProbe.observedOnly],
+  [true, '34.64.12.34', 'IPv4', 'checkip.amazonaws.com', true]
+);
 assert(diagnostic.endpoints.every(item => item.code === 'SKIPPED_OAUTH_FAILED'), 'OAuth 실패 endpoint는 skipped 표시');
 assert.equal(JSON.stringify(diagnostic).includes('IP_NOT_ALLOWED_OR_FORBIDDEN'), false, 'OAuth 403은 IP 오류로 오분류하지 않음');
 assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-leak|access_token|Bearer token-value/);
+
+// IPv6 plain-text 응답은 정상 egress 주소로 식별하고 family를 함께 반환합니다.
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
+  if (url.includes('checkip.amazonaws.com')) return textResponse(200, '2001:0db8:85a3:0000:0000:8a2e:0370:7334\n', { 'content-type': 'text/plain' });
+  return response(401, { error: { code: 'unidentified-client' } });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.deepEqual(
+  [diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.ipFamily, diagnostic.egressProbe.provider],
+  [true, '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'IPv6', 'checkip.amazonaws.com']
+);
+assert.equal(diagnostic.egressProbe.attempts[0].ipFamily, 'IPv6');
+assert.equal(fetchedUrls.length, 2, 'IPv6 egress 1회 + OAuth 1회');
 
 // 1차 provider가 HTTP 200이지만 IP가 아니면 2차 provider로 fallback합니다.
 fetchedUrls = [];
@@ -211,6 +238,7 @@ assert.match(webSync, /referenceId/);
 assert.match(webSync, /x-amz-cf-id/);
 assert.match(webSync, /unidentified-client/);
 assert.match(webSync, /GAS egress 관측/);
+assert.match(webSync, /egress\.ipFamily/);
 assert.match(webSync, /oauthAccessDenied/);
 assert.match(webSync, /동일하다고 보장되지 않습니다/);
 assert.match(gasSource, /checkip\.amazonaws\.com/);

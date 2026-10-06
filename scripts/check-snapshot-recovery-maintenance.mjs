@@ -30,6 +30,28 @@ assert.match(gas, /activeOperation[\s\S]*formulaReferenceCount[\s\S]*USER_MANAGE
 assert.match(gas, /ORPHAN_LIKELY_SYSTEM/);
 assert.match(gas, /deletedSheetNames[\s\S]*protectedSheets[\s\S]*totalCellsAfter[\s\S]*remainingCellsAfter/);
 assert.match(gas, /showSystemBackupDiagnosis/);
+assert.match(gas, /function _systemBackupProtectionSummaryLines/);
+assert.match(gas, /보존 사유/);
+assert.match(gas, /grouped\[reason\]\.count\+\+/);
+assert.match(gas, /names\.length < 3/, '백업 진단 대표 시트명은 사유별 최대 3개만 표시');
+
+const protectionFn = gas.match(/function _systemBackupProtectionSummaryLines\([\s\S]*?\n\}/)?.[0] || '';
+const protectionContext = {};
+vm.runInNewContext(`${protectionFn}\nglobalThis.formatProtection=_systemBackupProtectionSummaryLines;`, protectionContext);
+const protectionLines = protectionContext.formatProtection('스냅샷', {
+  protected: [
+    { name: '스냅샷_백업_A', reason: 'WRITE_FAILED · 복구 검증 없음' },
+    { name: '스냅샷_백업_B', reason: 'WRITE_FAILED · 복구 검증 없음' },
+    { name: '스냅샷_백업_C', reason: 'WRITE_FAILED · 복구 검증 없음' },
+    { name: '스냅샷_백업_D', reason: 'WRITE_FAILED · 복구 검증 없음' },
+    { name: '스냅샷_백업_E', reason: '수식 참조 존재' },
+  ]
+});
+assert.equal(protectionLines.length, 2, '보존 사유별로 집계');
+assert.match(protectionLines[0], /WRITE_FAILED · 복구 검증 없음: 4개/);
+assert.match(protectionLines[0], /외 1개/, '대표 3개 초과분은 개수로 축약');
+assert.doesNotMatch(protectionLines[0], /스냅샷_백업_D/, '대표 시트명 4번째부터 숨김');
+assert.match(protectionLines[1], /수식 참조 존재: 1개/);
 assert.match(gas, /applySystemBackupMaintenancePrompt/);
 assert.match(gas, /operationId \? 'rewriteSnapshotDate\|' \+ String\(operationId\)/, '다일자 복구 operationId를 재사용해야 합니다.');
 assert.match(gas, /status !== 'VALID'/, '재작성은 VALID 재진단을 요구해야 합니다.');
