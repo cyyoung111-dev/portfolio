@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.174
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.175
+//
+//  v9.175 변경사항 (2026.10.07):
+//   통합 마감 트리거의 레거시/중복 잔존까지 일일 자동 점검에서 복구
+//   Snapshot 최근일을 0좌 lifecycle 제외 후 유효 행 기준으로 계산
+//   Snapshot stale 기준을 달력상 전 평일이 아닌 실제 확정 가격일 기준으로 판정
 //
 //  v9.174 변경사항 (2026.10.07):
 //   통합 마감 미실행 시 NEVER_RUN을 우선 표시하고 과거 펀드 오류는 참고 정보로만 노출
@@ -4618,7 +4623,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.174' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.175' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8787,13 +8792,21 @@ function _ensureDailyTriggers(autoFix) {
   var hasMortgage = false;
   var hasClose = false;
   var hasIntegrityChange = false;
+  var closeCount = 0;
+  var legacyPriceCount = 0;
+  var legacyFundCount = 0;
   ScriptApp.getProjectTriggers().forEach(function(t) {
     var fn = t.getHandlerFunction();
     if (fn === 'runCodeNormalize1550') hasClean = true;
     if (fn === 'syncMortgageFromSchedule') hasMortgage = true;
-    if (fn === 'runDailyPortfolioClose1900') hasClose = true;
+    if (fn === 'runDailyPortfolioClose1900') { hasClose = true; closeCount++; }
+    if (fn === 'runEvalPriceUpdate1620') legacyPriceCount++;
+    if (fn === 'runDailyFundValuations') legacyFundCount++;
   });
   hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(false);
+
+  var hasLegacySplitTriggers = legacyPriceCount > 0 || legacyFundCount > 0;
+  var hasDuplicateCloseTriggers = closeCount > 1;
 
   if (autoFix) {
     if (!hasClean) {
@@ -8804,13 +8817,32 @@ function _ensureDailyTriggers(autoFix) {
       ScriptApp.newTrigger('syncMortgageFromSchedule').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(1).nearMinute(10).create();
       hasMortgage = true;
     }
-    hasClose = _ensurePortfolioCloseDailyTrigger(true);
+    if (!hasClose || hasLegacySplitTriggers || hasDuplicateCloseTriggers) {
+      hasClose = _ensurePortfolioCloseDailyTrigger(true);
+      var refreshed = ScriptApp.getProjectTriggers().map(function(t) { return t.getHandlerFunction(); });
+      closeCount = refreshed.filter(function(fn) { return fn === 'runDailyPortfolioClose1900'; }).length;
+      legacyPriceCount = refreshed.filter(function(fn) { return fn === 'runEvalPriceUpdate1620'; }).length;
+      legacyFundCount = refreshed.filter(function(fn) { return fn === 'runDailyFundValuations'; }).length;
+      hasLegacySplitTriggers = legacyPriceCount > 0 || legacyFundCount > 0;
+      hasDuplicateCloseTriggers = closeCount > 1;
+    }
     if (!hasIntegrityChange) hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(true);
   }
   // hasSave/hasFund는 기존 호출부 호환용 alias입니다. 둘 다 통합 마감 트리거 상태를 뜻합니다.
-  return { hasClean: hasClean, hasSave: hasClose, hasMortgage: hasMortgage, hasFund: hasClose, hasClose: hasClose, hasIntegrityChange: hasIntegrityChange };
+  return {
+    hasClean: hasClean,
+    hasSave: hasClose,
+    hasMortgage: hasMortgage,
+    hasFund: hasClose,
+    hasClose: hasClose,
+    hasIntegrityChange: hasIntegrityChange,
+    closeCount: closeCount,
+    legacyPriceCount: legacyPriceCount,
+    legacyFundCount: legacyFundCount,
+    hasLegacySplitTriggers: hasLegacySplitTriggers,
+    hasDuplicateCloseTriggers: hasDuplicateCloseTriggers
+  };
 }
-
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
@@ -8818,13 +8850,14 @@ function _ensureDailyTriggersOncePerDay(dateStr) {
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
-    var missing = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund || !before.hasIntegrityChange;
-    var after = missing ? _ensureDailyTriggers(true) : before;
-    if (after.hasClean && after.hasSave && after.hasMortgage && after.hasFund && after.hasIntegrityChange) {
-      props.setProperty('daily_triggers_checked_date', checkToken);
-    }
-    if (missing) Logger.log('✅ 웹 평가가격 조회에서 누락 자동 트리거 복구 완료');
-    return { checked: true, autoFixed: missing };
+    var needsRepair = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund || !before.hasIntegrityChange
+      || before.hasLegacySplitTriggers || before.hasDuplicateCloseTriggers;
+    var after = needsRepair ? _ensureDailyTriggers(true) : before;
+    var healthy = after.hasClean && after.hasSave && after.hasMortgage && after.hasFund && after.hasIntegrityChange
+      && !after.hasLegacySplitTriggers && !after.hasDuplicateCloseTriggers;
+    if (healthy) props.setProperty('daily_triggers_checked_date', checkToken);
+    if (needsRepair) Logger.log('✅ 웹 평가가격 조회에서 누락·레거시·중복 자동 트리거 복구 완료');
+    return { checked: true, autoFixed: needsRepair };
   } catch(err) {
     Logger.log('⚠️ 웹 평가가격 조회의 자동 트리거 점검 실패: ' + err.message);
     return { checked: true, autoFixed: false, error: err.message };
@@ -8841,16 +8874,36 @@ function _getLatestDateInColumn(sheet, column) {
   });
   return latest || '-';
 }
+function _getLatestLifecycleValidSnapshotDate(ss) {
+  var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  if (!sh || sh.getLastRow() < 2) return '-';
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(12, sh.getLastColumn())).getValues();
+  var configs = _readFundUnits(ss);
+  var latest = '';
+  rows.forEach(function(row) {
+    var date = _normalizeDate(row[0]);
+    if (!date) return;
+    if (!_filterSnapshotRowsByFundLifecycle([row], configs, date).length) return;
+    if (date > latest) latest = date;
+  });
+  return latest || '-';
+}
+
+function _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose) {
+  var closeDate = portfolioClose && _normalizeDate(portfolioClose.priceDate);
+  if (closeDate) return closeDate;
+  var historyDate = _normalizeDate(priceHistoryLastDate);
+  if (historyDate) return historyDate;
+  return _getPrevTradingDay(today(), 7) || today();
+}
+
 
 function _getAutomationStatusData() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
-  var triggerHandlers = ScriptApp.getProjectTriggers().map(function(t) { return t.getHandlerFunction(); });
-  var hasLegacyPriceTrigger = triggerHandlers.indexOf('runEvalPriceUpdate1620') !== -1;
-  var hasLegacyFundTrigger = triggerHandlers.indexOf('runDailyFundValuations') !== -1;
   var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
-  var snapshotLastDate = _getLatestDateInColumn(snapSh, 1);
+  var snapshotLastDate = _getLatestLifecycleValidSnapshotDate(ss);
   var priceHistoryLastDate = _getLatestDateInColumn(phSh, 1);
   var props = PropertiesService.getScriptProperties();
 
@@ -8865,20 +8918,21 @@ function _getAutomationStatusData() {
   var fundLastResult = parseProperty('fund_last_result');
   var fundLastWarning = props.getProperty('fund_last_warning') || '';
   var fundLastError = props.getProperty('fund_last_error') || '';
-  var expectedSnapshotDate = _getPrevTradingDay(today(), 7) || today();
+  var expectedSnapshotDate = _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose);
   var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasIntegrityChange;
-  var hasLegacySplitTriggers = hasLegacyPriceTrigger || hasLegacyFundTrigger;
+  var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
+  var hasDuplicateCloseTriggers = !!trig.hasDuplicateCloseTriggers;
   var closeErrors = portfolioClose && Array.isArray(portfolioClose.errors) ? portfolioClose.errors : [];
   var overallStatus = 'NORMAL';
 
-  if (missingTrigger || hasLegacySplitTriggers) overallStatus = 'ERROR';
+  if (missingTrigger || hasLegacySplitTriggers || hasDuplicateCloseTriggers) overallStatus = 'ERROR';
   else if (!portfolioClose) overallStatus = 'NEVER_RUN';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
   else if (snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.174',
+    gasVersion: '9.175',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -8886,9 +8940,11 @@ function _getAutomationStatusData() {
       hasClean: !!trig.hasClean,
       hasMortgage: !!trig.hasMortgage,
       hasIntegrityChange: !!trig.hasIntegrityChange,
-      hasLegacyPriceTrigger: hasLegacyPriceTrigger,
-      hasLegacyFundTrigger: hasLegacyFundTrigger,
-      hasLegacySplitTriggers: hasLegacySplitTriggers
+      hasLegacyPriceTrigger: trig.legacyPriceCount > 0,
+      hasLegacyFundTrigger: trig.legacyFundCount > 0,
+      hasLegacySplitTriggers: hasLegacySplitTriggers,
+      hasDuplicateCloseTriggers: hasDuplicateCloseTriggers,
+      closeCount: trig.closeCount
     },
     portfolioClose: portfolioClose,
     portfolioCloseLastError: portfolioCloseLastError,
@@ -8903,7 +8959,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.174' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.175' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -8915,7 +8971,7 @@ function checkDailyAutomationStatus() {
 
   var snapSh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var phSh = ss.getSheetByName(CONFIG.SHEET_PH);
-  snapLast = _getLatestDateInColumn(snapSh, 1);
+  snapLast = _getLatestLifecycleValidSnapshotDate(ss);
   phLast = _getLatestDateInColumn(phSh, 1);
 
   var props = PropertiesService.getScriptProperties();
@@ -8929,7 +8985,10 @@ function checkDailyAutomationStatus() {
   var fundLastResult = null;
   try { fundLastResult = fundLastResultRaw ? JSON.parse(fundLastResultRaw) : null; } catch(ignoreFundResult) {}
   var fundLastDate = fundLastResult && fundLastResult.lastDate ? fundLastResult.lastDate : '-';
-  var expectedSnapshotDate = _getPrevTradingDay(today(), 7) || today();
+  var portfolioCloseRaw = props.getProperty('portfolio_close_last_result') || '';
+  var portfolioClose = null;
+  try { portfolioClose = portfolioCloseRaw ? JSON.parse(portfolioCloseRaw) : null; } catch(ignorePortfolioClose) {}
+  var expectedSnapshotDate = _expectedConfirmedSnapshotDate(phLast, portfolioClose);
   var isSnapshotStale = snapLast === '-' || snapLast < expectedSnapshotDate;
 
   var msg = '⏰ 자동화 상태 점검\n\n'
@@ -10547,7 +10606,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.174' });
+    return jsonOk({ settings: settings, gasVersion: '9.175' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10569,7 +10628,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.174'
+      gasVersion: '9.175'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
