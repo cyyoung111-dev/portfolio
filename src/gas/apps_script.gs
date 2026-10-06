@@ -10423,7 +10423,7 @@ function runTossMarketDataDiagnosis() {
     ? ' 관측 IP ' + egress.ip + '를 Toss 허용 IP에 임시 등록해 재진단할 수 있습니다. 단, 이 IP가 Toss OAuth 요청에도 동일하게 사용됐다고 보장되지는 않습니다.'
     : '';
   var guide = endpointIpBlocked
-    ? '\n\n실제 Toss market endpoint 403: Google IP range pool 허용 IP 등록을 확인하세요.' + observedIpHint
+    ? '\n\n실제 Toss market endpoint 403: Toss WTS Open API에서 GAS UrlFetchApp의 Google IP range pool 허용 IP 등록을 확인하세요.' + observedIpHint
     : (oauthAccessDenied
       ? '\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.' + observedIpHint
       : '');
