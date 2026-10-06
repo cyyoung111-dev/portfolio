@@ -345,6 +345,7 @@ assert.throws(()=>context._readSnapshotRowsByDate({getSheetByName(){throw new Er
 assert.equal((source.match(/function getEarliestPriceHistory\(/g)||[]).length,1);
 assert.match(source,/fn === 'syncMortgageFromSchedule' \|\| fn === 'runDailyFundValuations' \|\|[\s\S]*fn === 'runDailyPortfolioClose1900'/,'전체 트리거 재등록은 분리형 레거시와 통합 마감 트리거를 함께 정리');
 assert.match(source,/ScriptApp\.newTrigger\('runDailyPortfolioClose1900'\)[\s\S]*atHour\(19\)/,'19시 통합 마감 트리거를 등록');
+assert.match(source.match(/function _ensurePortfolioCloseDailyTrigger\([\s\S]*?\n\}/)?.[0] || '',/closeTriggers\.slice\(1\)/,'통합 마감 트리거 중복은 1개만 유지');
 assert.doesNotMatch(source.match(/function setupTrigger\([\s\S]*?\n\}/)?.[0] || '',/newTrigger\('runEvalPriceUpdate1620'\)/,'전체 재등록은 16:20 분리 트리거를 다시 만들지 않음');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/saveDailyPriceHistory\(\)[\s\S]*runDailyFundValuations\(\)/,'통합 마감은 일반 종목 후 펀드를 순차 실행');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/통합 마감 일반 종목 단계 실패 — 펀드 단계 계속/,'일반 종목 실패 시에도 펀드 단계를 계속 시도');
