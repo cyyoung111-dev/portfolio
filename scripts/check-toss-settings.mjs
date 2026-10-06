@@ -363,3 +363,29 @@ context.UrlFetchApp = { fetch: url => {
 assert.throws(() => context._tossRequest_('/api/v1/prices', { symbols: '005930' }, 'MARKET_DATA', {}), /Toss API 실패\(401\)/);
 assert.equal(oauthFetches, 2, '두 번째 401에서 추가 OAuth 발급 금지');
 assert.equal(resourceFetches, 2, '401 resource retry는 1회로 제한');
+
+// 일반 retry budget의 마지막 시도에서 401이어도 token refresh 뒤 실제 resource 재요청을 보장합니다.
+cache.clear();
+tossLockHeld = false;
+oauthFetches = 0;
+resourceFetches = 0;
+issuedTokens = ['token-before-last-401', 'token-after-last-401'];
+context.Utilities.sleep = () => {};
+context.UrlFetchApp = { fetch: (url, options = {}) => {
+  if (url.endsWith('/oauth2/token')) {
+    oauthFetches++;
+    return response(200, { token_type: 'Bearer', access_token: issuedTokens.shift(), expires_in: 3600 });
+  }
+  resourceFetches++;
+  if (resourceFetches <= 3) return response(503, { error: { code: 'temporary' } });
+  if (resourceFetches === 4) {
+    assert.equal(String(options.headers?.Authorization || ''), 'Bearer token-before-last-401');
+    return response(401, { error: { code: 'invalid_token' } });
+  }
+  assert.equal(String(options.headers?.Authorization || ''), 'Bearer token-after-last-401');
+  return response(200, { result: [{ symbol: '005930', lastPrice: 71000, currency: 'KRW' }] });
+} };
+const lastAttemptRecovered = context._tossRequest_('/api/v1/prices', { symbols: '005930' }, 'MARKET_DATA', {});
+assert.equal(lastAttemptRecovered.result[0].lastPrice, 71000);
+assert.equal(resourceFetches, 5, '3회 5xx + 마지막 401 뒤 새 token으로 실제 재요청');
+assert.equal(oauthFetches, 2, '마지막 401에서도 OAuth refresh는 1회만');
