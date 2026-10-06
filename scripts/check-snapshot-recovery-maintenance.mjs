@@ -26,7 +26,7 @@ assert.match(gas, /function handleDiagnoseSnapshotIntegrityRange/);
 for (const field of ['checkedDates','validDates','partialDates','mismatchDates','conflictDates','sourceIncompleteDates','noSnapshotDates','abnormalCandidates','diagnostics']) assert.match(gas, new RegExp(field));
 assert.match(gas, /function maintainSystemBackups\(options\)/);
 assert.match(gas, /if \(!apply\) return _planSystemBackupMaintenance\(ss, options\);/, 'dry-run은 lock·삭제 전에 계획만 반환해야 합니다.');
-assert.match(gas, /activeOperation[\s\S]*formulaReferenceCount[\s\S]*USER_MANAGED\/UNKNOWN 보호/);
+assert.match(gas, /operationHasCreatedBackup[\s\S]*formulaReferenceCount[\s\S]*USER_MANAGED\/UNKNOWN 보호/);
 assert.match(gas, /ORPHAN_LIKELY_SYSTEM/);
 assert.match(gas, /deletedSheetNames[\s\S]*protectedSheets[\s\S]*totalCellsAfter[\s\S]*remainingCellsAfter/);
 assert.match(gas, /showSystemBackupDiagnosis/);
@@ -61,19 +61,28 @@ const reasonFn = gas.match(/function _systemBackupProtectionReason_\([\s\S]*?\n\
 const reasonContext = {};
 vm.runInNewContext(`${reasonFn}\nglobalThis.protectionReason=_systemBackupProtectionReason_;`, reasonContext);
 assert.equal(reasonContext.protectionReason(
-  { activeOperation:false, formulaReferenceCount:0, signatureMatch:false, classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:false, classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
   { registeredSourceExists:true, safeClass:true, registeredFailed:false }
 ), 'content signature 불일치');
 assert.equal(reasonContext.protectionReason(
-  { activeOperation:false, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_INCOMPLETE', status:'CREATED' },
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_INCOMPLETE', status:'CREATED' },
   { registeredSourceExists:true, safeClass:true, registeredFailed:false }
 ), '미완료 registry 상태 · CREATED');
 assert.equal(reasonContext.protectionReason(
-  { activeOperation:false, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_WRITE_FAILED', status:'WRITE_FAILED' },
+  { operationHasCreatedBackup:true, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_INCOMPLETE', status:'CREATED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:false }
+), '미완료 registry 상태 · CREATED', 'CREATED 자체는 실제 active로 오표시하지 않음');
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:true, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_COMPLETED', status:'COMPLETED' },
+  { registeredSourceExists:true, safeClass:true, registeredFailed:false }
+), '동일 operation에 미완료 CREATED 백업 존재', '같은 operation의 완료 backup은 미완료 sibling 존재를 명시');
+
+assert.equal(reasonContext.protectionReason(
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:true, classification:'REGISTERED_WRITE_FAILED', status:'WRITE_FAILED' },
   { registeredSourceExists:true, safeClass:true, registeredFailed:true }
 ), 'WRITE_FAILED · 복구 검증 없음');
 assert.equal(reasonContext.protectionReason(
-  { activeOperation:false, formulaReferenceCount:0, signatureMatch:true, classification:'UNKNOWN', status:'' },
+  { operationHasCreatedBackup:false, formulaReferenceCount:0, signatureMatch:true, classification:'UNKNOWN', status:'' },
   { registeredSourceExists:true, safeClass:false, registeredFailed:false }
 ), 'USER_MANAGED/UNKNOWN 보호');
 
