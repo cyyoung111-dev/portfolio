@@ -1,3 +1,12 @@
+## GAS v9.167: Toss egress IPv4/IPv6 식별 보강 (2026-10-06)
+
+- 운영 진단에서 외부 IP 확인 provider들이 HTTP 200 / text/plain / length 38 응답을 반환했지만 IPv4 전용 검증 때문에 `INVALID_IP_RESPONSE`로 분류된 사례를 반영합니다.
+- egress probe가 IPv4와 IPv6를 모두 문법 검증하고 정상 IP이면 `ipFamily=IPv4|IPv6`와 실제 관측 주소를 함께 반환합니다. IPv4-mapped IPv6도 IPv6로 식별합니다.
+- IPv4/IPv6 어느 쪽도 아닌 응답은 기존처럼 원문을 노출하지 않고 provider별 status, code, body length, Content-Type, elapsedMs만 남깁니다.
+- 웹 설정 화면과 스프레드시트 Toss read-only 진단 메뉴에 address family를 함께 표시합니다.
+- 관측 IP가 실제 Toss OAuth 요청의 egress IP와 동일하다고 보장되지 않는 기존 주의문은 유지하며, Toss 콘솔이 해당 address family를 허용 IP로 지원하는지 별도 확인하도록 안내합니다.
+- GAS/웹 기대 버전은 `9.167`, 정적 웹 cache는 `portfolio-cache-20261006-7`, Toss 설정 UI는 `settings_sync.js?v=20261006-5`로 함께 배포합니다.
+
 ## GAS v9.166: 백업 진단 성능 + Toss egress fallback 통합 보강 (2026-10-06)
 
 - v9.165의 백업 진단 최적화를 유지하면서 Toss egress 관측을 단일 provider 의존에서 분리합니다.
