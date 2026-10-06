@@ -120,7 +120,7 @@ assert.doesNotMatch(gas.match(/function cleanupSnapshotDuplicates[\s\S]*?\n}/)?.
 assert.doesNotMatch(gas, /최신 유효 백업은 source별 1개 보존/, '유지보수 안내문은 system backup 0개 정책과 일치해야 합니다.');
 assert.match(gas, /GOOGLE_SHEETS_CELL_LIMIT = 10000000/, 'Google Sheets 파일당 10M cell 한도');
 assert.match(gas, /deleteColumns[\s\S]*insertRowsAfter/, 'tall\/narrow backup은 열 축소 후 행 확장');
-assert.match(gas, /if \(operationId\)[\s\S]*operationRecord[\s\S]*var signature = _sheetContentSignature/, '동일 operation backup은 source 전체 signature 전에 재사용');
+assert.match(gas, /if \(operationId\)[\s\S]*operationRecord[\s\S]*var sourceSignature = _sheetContentSignature/, '동일 operation backup은 source 전체 signature 전에 재사용');
 assert.match(gas, /afterIntegrity\.status !== 'VALID'[\s\S]*state\.validatedOperationIds\.push\(repairOperationId\)/, 'VALID 재진단 operation만 cleanup 증명에 포함');
 assert.match(gas, /else if \(state\.failed === 0\) state\.backupCleanup = maintainSystemBackups\(\{ apply: true, validatedOperationIds: state\.validatedOperationIds \}\)/, '성공한 full repair만 검증 operation 한정 cleanup');
 assert.match(gas, /writeFailedCount:[\s\S]*writeFailed:/, 'backup summary count와 name 목록 key 분리');
