@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.169
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.170
+//
+//  v9.170 변경사항 (2026.10.06):
+//   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
+//   성공한 system backup의 steady state 0개 정책은 유지
 //
 //  v9.169 변경사항 (2026.10.06):
 //   백업 원본/실제 backup signature 분리 저장으로 copyTo 재계산 mismatch 재발 방지
@@ -4548,7 +4552,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.169' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.170' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5414,37 +5418,64 @@ function _cleanupCurrentSystemBackup(ss, record) {
   }
 
   // 현재 COMPLETED backup 자체가 실제로 유효한지 먼저 확인해야 과거 rollback을 안전하게 정리할 수 있습니다.
+  var sourceSheet = ss.getSheetByName(registered.source);
   var sheet = ss.getSheetByName(registered.name);
   if (!sheet) {
     _writeSystemBackupRegistry(items.filter(function(item) { return item.name !== registered.name; }));
-    return { deleted: false, name: registered.name, reason: 'backup sheet 없음·registry record 정리', staleDeleted: [], staleProtected: [], missingRecords: [registered.name] };
+    return { deleted: false, name: registered.name, reason: 'backup sheet 없음·registry record 정리', staleDeleted: [], staleProtected: [], missingRecords: [registered.name], legacyMigratedDeleted: [] };
   }
   if (!registered.signature) return { deleted: false, name: registered.name, reason: 'registry backup signature 없음' };
   if (_sheetContentSignature(sheet) !== registered.signature) {
     return { deleted: false, name: registered.name, reason: 'registry/실제 backup signature 불일치 보호' };
   }
 
+  // legacy signature mismatch는 자체 서명을 다시 쓰지 않습니다.
+  // 다만 실제 backup content로 검증된 최신 v2 COMPLETED backup이 생긴 뒤에는,
+  // 그보다 오래된 동일 source의 system-generated COMPLETED backup을 schema/formula 검증 후 stale rollback으로 정리할 수 있습니다.
+  // 같은 operationId에 CREATED sibling이 남아 있으면 부분 완료 상태일 수 있으므로 current/stale 모두 cleanup 근거로 쓰지 않습니다.
+  var operationsWithCreatedBackup = {};
+  items.forEach(function(item) {
+    if (item && item.status === 'CREATED' && item.operationId) operationsWithCreatedBackup[item.operationId] = true;
+  });
+  var sourceHeaderSignature = sourceSheet ? _sheetHeaderSignature(sourceSheet) : '';
   var currentCompletedAt = _backupTimeMillis(registered.completedAt || registered.updatedAt || registered.createdAt);
   var staleCandidates = items.filter(function(item) {
     if (item.name === registered.name || item.source !== registered.source || item.systemGenerated !== true) return false;
     if (item.status !== 'COMPLETED') return false;
     return currentCompletedAt && _backupTimeMillis(item.completedAt || item.updatedAt || item.createdAt) < currentCompletedAt;
   });
-  var staleDeleted = [], missingRecords = [];
+  var staleDeleted = [], missingRecords = [], legacyMigratedDeleted = [];
   var staleProtected = items.filter(function(item) {
     return item.name !== registered.name && item.source === registered.source && item.systemGenerated === true && ['CREATED', 'WRITE_FAILED'].indexOf(item.status) !== -1 &&
       currentCompletedAt && _backupTimeMillis(item.updatedAt || item.createdAt) < currentCompletedAt;
   }).map(function(item) { return { name: item.name, reason: item.status === 'CREATED' ? 'CREATED 상태 · active 여부 확인 불가' : 'WRITE_FAILED · 복구 검증 없음' }; });
-  var staleFormulaCounts = staleCandidates.length
-    ? _sheetFormulaReferenceCounts(ss, staleCandidates.map(function(item) { return item.name; })) : {};
+  // stale 후보가 있을 때만 workbook formula scan을 1회 수행하며, migration 근거가 되는 current v2도 함께 검사합니다.
+  var formulaReferenceTargets = staleCandidates.map(function(item) { return item.name; });
+  if (staleCandidates.length) formulaReferenceTargets.unshift(registered.name);
+  var staleFormulaCounts = staleCandidates.length ? _sheetFormulaReferenceCounts(ss, formulaReferenceTargets) : {};
+  var currentSchemaMatch = !!(sourceHeaderSignature && _sheetHeaderSignature(sheet) === sourceHeaderSignature);
+  var currentTrustedV2 = registered.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION &&
+    !operationsWithCreatedBackup[registered.operationId] && currentSchemaMatch &&
+    Number(staleFormulaCounts[registered.name] || 0) === 0;
   if (staleCandidates.length) staleCandidates.forEach(function(item) {
     var staleSheet = ss.getSheetByName(item.name);
     if (!staleSheet) { missingRecords.push(item.name); return; }
-    if (!item.signature) { staleProtected.push({ name: item.name, reason: 'registry backup signature 없음' }); return; }
-    if (_sheetContentSignature(staleSheet) !== item.signature) { staleProtected.push({ name: item.name, reason: 'registry/실제 backup signature 불일치 보호' }); return; }
     if (Number(staleFormulaCounts[item.name] || 0) !== 0) { staleProtected.push({ name: item.name, reason: '수식 참조 존재' }); return; }
-    try { ss.deleteSheet(staleSheet); staleDeleted.push(item.name); }
-    catch (staleError) { staleProtected.push({ name: item.name, reason: '삭제 실패: ' + staleError.message }); }
+    var staleSignatureMatch = !!(item.signature && _sheetContentSignature(staleSheet) === item.signature);
+    var legacySupersededByTrustedV2 = !!(currentTrustedV2 &&
+      item.signatureVersion !== SYSTEM_BACKUP_SIGNATURE_VERSION &&
+      !!item.signature &&
+      !operationsWithCreatedBackup[item.operationId] &&
+      sourceHeaderSignature && _sheetHeaderSignature(staleSheet) === sourceHeaderSignature);
+    if (!staleSignatureMatch && !legacySupersededByTrustedV2) {
+      staleProtected.push({ name: item.name, reason: item.signature ? 'registry/실제 backup signature 불일치 보호' : 'registry backup signature 없음' });
+      return;
+    }
+    try {
+      ss.deleteSheet(staleSheet);
+      staleDeleted.push(item.name);
+      if (legacySupersededByTrustedV2 && !staleSignatureMatch) legacyMigratedDeleted.push(item.name);
+    } catch (staleError) { staleProtected.push({ name: item.name, reason: '삭제 실패: ' + staleError.message }); }
   });
   var removedRecords = {};
   staleDeleted.concat(missingRecords).forEach(function(name) { removedRecords[name] = true; });
@@ -5455,8 +5486,8 @@ function _cleanupCurrentSystemBackup(ss, record) {
   try {
     ss.deleteSheet(sheet);
     _writeSystemBackupRegistry(items.filter(function(item) { return item.name !== registered.name; }));
-    return { deleted: true, name: registered.name, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords };
-  } catch (error) { return { deleted: false, name: registered.name, reason: '삭제 실패: ' + error.message, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords }; }
+    return { deleted: true, name: registered.name, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords, legacyMigratedDeleted: legacyMigratedDeleted };
+  } catch (error) { return { deleted: false, name: registered.name, reason: '삭제 실패: ' + error.message, staleDeleted: staleDeleted, staleProtected: staleProtected, missingRecords: missingRecords, legacyMigratedDeleted: legacyMigratedDeleted }; }
 }
 function _cleanupCompletedOperationBackups(ss, sourceName, operationId) {
   return _readSystemBackupRegistry().filter(function(item) {
@@ -5723,17 +5754,29 @@ function _planSystemBackupMaintenance(ss, options) {
   var sourceSummary = {};
   Object.keys(bySource).forEach(function(source) {
     var list = bySource[source];
+    var trustedV2CompletedAt = list.reduce(function(latest, item) {
+      if (item.classification !== 'REGISTERED_COMPLETED' || item.signatureVersion !== SYSTEM_BACKUP_SIGNATURE_VERSION ||
+          !item.signatureMatch || !item.schemaMatch || !item.sourceSheetExists || item.formulaReferenceCount !== 0 ||
+          item.operationHasCreatedBackup) return latest;
+      return Math.max(latest, _backupTimeMillis(item.completedAt || item.createdAt));
+    }, 0);
     list.forEach(function(item) {
       var safeClass = ['REGISTERED_COMPLETED', 'REGISTERED_WRITE_FAILED', 'REGISTERED_INCOMPLETE', 'ORPHAN_LIKELY_SYSTEM'].indexOf(item.classification) !== -1;
       var registeredCompleted = item.classification === 'REGISTERED_COMPLETED';
       var registeredFailed = item.classification === 'REGISTERED_WRITE_FAILED';
       var registeredSourceExists = item.classification.indexOf('REGISTERED_') !== 0 || item.sourceSheetExists;
+      var itemCompletedAt = _backupTimeMillis(item.completedAt || item.createdAt);
+      var legacySupersededByTrustedV2 = !!(registeredCompleted && item.signatureVersion !== SYSTEM_BACKUP_SIGNATURE_VERSION &&
+        !!records[item.name] && !!records[item.name].signature && !item.signatureMatch && item.schemaMatch && registeredSourceExists &&
+        trustedV2CompletedAt && itemCompletedAt && itemCompletedAt < trustedV2CompletedAt &&
+        !item.operationHasCreatedBackup && item.formulaReferenceCount === 0);
+      item.legacySupersededByTrustedV2 = legacySupersededByTrustedV2;
       // validated recovery는 전체 Snapshot 복구가 증명한 Snapshot rollback에만 적용합니다.
       // 다른 source의 실패/미완료 CREATED backup까지 광범위하게 정리하지 않습니다.
       var validatedStale = !!validatedOperationIds[item.operationId] && item.source === CONFIG.SHEET_SNAPSHOT &&
         (registeredFailed || (item.classification === 'REGISTERED_INCOMPLETE' && item.status === 'CREATED'));
-      item.autoCleanupEligible = !!(safeClass && registeredSourceExists && item.signatureMatch && (registeredCompleted || validatedStale ||
-        (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch)) &&
+      item.autoCleanupEligible = !!(safeClass && registeredSourceExists && (item.signatureMatch || legacySupersededByTrustedV2) &&
+        (registeredCompleted || validatedStale || (item.classification === 'ORPHAN_LIKELY_SYSTEM' && item.schemaMatch)) &&
         (!item.operationHasCreatedBackup || validatedStale) && item.formulaReferenceCount === 0);
       if (!item.autoCleanupEligible) item.protectionReason = _systemBackupProtectionReason_(item, {
         safeClass: safeClass,
@@ -10051,7 +10094,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.169' });
+    return jsonOk({ settings: settings, gasVersion: '9.170' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10073,7 +10116,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.169'
+      gasVersion: '9.170'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
