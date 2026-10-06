@@ -1284,7 +1284,7 @@ function _probeTossDiagnosticEgressIp_() {
         provider: provider.name, status: status, code: attemptCode,
         bodyLength: body.length, contentType: contentType, elapsedMs: Date.now() - providerStartedAt
       });
-      if (ip) return {
+      if (status >= 200 && status < 300 && ip) return {
         ok: true, status: status, ip: ip, provider: provider.name, code: 'OK',
         observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
       };
