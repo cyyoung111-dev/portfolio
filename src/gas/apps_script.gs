@@ -5,6 +5,7 @@
 //   F00002 exact standard-code NAV 자동조회 및 19시 펀드 트리거 공통 자동복구
 //   펀드 자동실행 partial 결과를 경고로 보존하고 hard error만 실패 처리
 //   펀드좌수 0 전환일 이후 F코드를 정상/기간 Snapshot 계산에서 제외
+//   Snapshot 날짜 유실 행·0좌 펀드 잔존 행을 안전정리 경로에서 제거
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -9707,52 +9708,120 @@ function cleanupSnapshotDuplicates() {
 function _cleanupSnapshotDuplicatesLocked() {
   var ss = getss(), sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var alertResult = function(message) { try { SpreadsheetApp.getUi().alert(message); } catch (ignore) { Logger.log(message); } };
-  if (!sh || sh.getLastRow() < 2) { alertResult('스냅샷 데이터가 없습니다.'); return; }
-  var colSize = 12, rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues();
+  if (!sh || sh.getLastRow() < 2) {
+    alertResult('스냅샷 데이터가 없습니다.');
+    return { removedRows: 0, invalidDateRowsRemoved: 0, zeroUnitFundRowsRemoved: 0, duplicateRowsRemoved: 0 };
+  }
+
+  var colSize = 12;
+  var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues();
+  var fundConfigs = _readFundUnits(ss);
   var rowsByDate = {}, duplicateDates = {}, keyCounts = {}, decisions = [], expectedByDate = {}, sourceErrorByDate = {};
+  var invalidDateRows = 0, zeroUnitFundRows = 0;
+
+  var rowHasPayload = function(row) {
+    return (row || []).slice(0, colSize).some(function(value) { return value !== '' && value != null; });
+  };
+  var isZeroUnitFundRow = function(row) {
+    var date = _normalizeDate(row && row[0]);
+    var code = _cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase();
+    if (!date || !_isFundCode(code)) return false;
+    var config = _fundUnitsAtDate(fundConfigs, code, date);
+    return !!(config && config.units === 0);
+  };
+
   rows.forEach(function(row) {
     var date = _normalizeDate(row[0]), key = _snapshotIntegrityKey(row);
-    if (!date || !key) return;
+    if (!date) {
+      if (rowHasPayload(row)) invalidDateRows++;
+      return;
+    }
+    if (isZeroUnitFundRow(row)) {
+      zeroUnitFundRows++;
+      return;
+    }
+    if (!key) return;
     (rowsByDate[date] || (rowsByDate[date] = [])).push(row);
     var groupKey = date + '|' + key;
     keyCounts[groupKey] = Number(keyCounts[groupKey] || 0) + 1;
     if (keyCounts[groupKey] > 1) duplicateDates[date] = true;
   });
+
   Object.keys(duplicateDates).sort().forEach(function(date) {
     var raw = rowsByDate[date], expected = [], error = '';
     try { expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true); }
     catch (sourceError) { error = '원자료 계산 불가: ' + (sourceError.message || sourceError); }
-    expectedByDate[date] = expected; sourceErrorByDate[date] = error;
+    expectedByDate[date] = expected;
+    sourceErrorByDate[date] = error;
     decisions = decisions.concat(_classifyRawSnapshotDuplicateGroups(date, raw, expected, error));
   });
-  var replacementByKey = {}, removedRows = 0, affectedDates = {};
+
+  var replacementByKey = {}, duplicateRowsRemoved = 0, affectedDates = {};
   decisions.filter(function(item) { return item.autoResolvable; }).forEach(function(item) {
     replacementByKey[item.date + '|' + item.key] = item.keepRow;
-    removedRows += item.rawRowCount - 1; affectedDates[item.date] = true;
+    duplicateRowsRemoved += item.rawRowCount - 1;
+    affectedDates[item.date] = true;
   });
+
   var emitted = {}, outputRows = [];
   rows.forEach(function(row) {
-    var date = _normalizeDate(row[0]), key = _snapshotIntegrityKey(row), groupKey = date + '|' + key;
-    if (!replacementByKey[groupKey]) { outputRows.push(row.slice(0, colSize)); return; }
-    if (!emitted[groupKey]) { outputRows.push(replacementByKey[groupKey]); emitted[groupKey] = true; }
+    var date = _normalizeDate(row[0]);
+    if (!date) return;
+    if (isZeroUnitFundRow(row)) {
+      affectedDates[date] = true;
+      return;
+    }
+    var key = _snapshotIntegrityKey(row), groupKey = date + '|' + key;
+    if (!replacementByKey[groupKey]) {
+      outputRows.push(row.slice(0, colSize));
+      return;
+    }
+    if (!emitted[groupKey]) {
+      outputRows.push(replacementByKey[groupKey]);
+      emitted[groupKey] = true;
+    }
   });
+
+  var removedRows = invalidDateRows + zeroUnitFundRows + duplicateRowsRemoved;
   var counts = function(classification) { return decisions.filter(function(item) { return item.classification === classification; }).length; };
   var unresolvedDates = {}, beforeConflictDates = {};
-  decisions.forEach(function(item) { beforeConflictDates[item.date] = true; if (!item.autoResolvable) unresolvedDates[item.date] = true; });
+  decisions.forEach(function(item) {
+    beforeConflictDates[item.date] = true;
+    if (!item.autoResolvable) unresolvedDates[item.date] = true;
+  });
+
+  var actualByDate = {};
   if (removedRows) {
     var backup = _backupSnapshotBeforeWrite(ss, sh);
     try {
       var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']];
-      var output = header.concat(outputRows); while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
-      sh.getRange(1, 1, output.length, colSize).setValues(output); SpreadsheetApp.flush();
+      var output = header.concat(outputRows);
+      while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
+      sh.getRange(1, 1, output.length, colSize).setValues(output);
+      SpreadsheetApp.flush();
+
+      var actualAll = sh.getLastRow() > 1
+        ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues()
+        : [];
+      var remainingInvalid = actualAll.filter(function(row) { return !_normalizeDate(row[0]) && rowHasPayload(row); });
+      var remainingZeroUnit = actualAll.filter(isZeroUnitFundRow);
+      if (remainingInvalid.length || remainingZeroUnit.length) {
+        throw new Error('Snapshot 정리 후 검증 실패: 날짜유실=' + remainingInvalid.length + ', 0좌펀드=' + remainingZeroUnit.length);
+      }
+
       var isValidSnapshotRow = function(row) { return !!_normalizeDate(row[0]) && !!_snapshotIntegrityKey(row); };
       var intendedRows = outputRows.filter(isValidSnapshotRow);
-      var actualRows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues().filter(isValidSnapshotRow) : [];
+      var actualRows = actualAll.filter(isValidSnapshotRow);
       var intendedSignature = intendedRows.map(_snapshotComparableSignature).sort().join('\n');
       var actualSignature = actualRows.map(_snapshotComparableSignature).sort().join('\n');
-      if (actualRows.length !== intendedRows.length || actualSignature !== intendedSignature) throw new Error('Snapshot 전체 중복 정리 후 read-back 검증 실패');
-      var actualByDate = {};
-      actualRows.forEach(function(row) { var date = _normalizeDate(row[0]); if (date) (actualByDate[date] || (actualByDate[date] = [])).push(row); });
+      if (actualRows.length !== intendedRows.length || actualSignature !== intendedSignature) {
+        throw new Error('Snapshot 전체 정리 후 read-back 검증 실패');
+      }
+
+      actualRows.forEach(function(row) {
+        var date = _normalizeDate(row[0]);
+        if (date) (actualByDate[date] || (actualByDate[date] = [])).push(row);
+      });
       Object.keys(affectedDates).forEach(function(date) {
         var remaining = _classifyRawSnapshotDuplicateGroups(date, actualByDate[date] || [], expectedByDate[date] || [], sourceErrorByDate[date] || '');
         var targetKeys = {};
@@ -9760,23 +9829,49 @@ function _cleanupSnapshotDuplicatesLocked() {
         var failed = remaining.filter(function(item) { return targetKeys[item.key]; });
         if (failed.length) throw new Error('Snapshot 중복 정리 후 raw 검증 실패: ' + failed.map(function(item) { return item.key; }).join(', '));
       });
-      _touchSnapshotIntegritySourceRevision({ dates: Object.keys(affectedDates) });
-      _markSnapshotBackupStatus(backup, 'COMPLETED'); _cleanupCurrentSystemBackup(ss, backup);
-    } catch (error) { _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message); throw error; }
+
+      var revisionImpact = Object.keys(affectedDates).length ? { dates: Object.keys(affectedDates) } : { all: true };
+      _touchSnapshotIntegritySourceRevision(revisionImpact);
+      _markSnapshotBackupStatus(backup, 'COMPLETED');
+      _cleanupCurrentSystemBackup(ss, backup);
+    } catch (error) {
+      _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message);
+      throw error;
+    }
   }
+
   var afterConflictDates = {};
   var verifyDates = {};
   Object.keys(affectedDates).concat(Object.keys(unresolvedDates)).forEach(function(date) { verifyDates[date] = true; });
   Object.keys(verifyDates).forEach(function(date) {
     var sourceRows = removedRows ? (actualByDate[date] || []) : (rowsByDate[date] || []);
-    if (_classifyRawSnapshotDuplicateGroups(date, sourceRows, expectedByDate[date] || [], sourceErrorByDate[date] || '').some(function(item) { return item.uniqueRowCount > 1; })) afterConflictDates[date] = true;
+    if (_classifyRawSnapshotDuplicateGroups(date, sourceRows, expectedByDate[date] || [], sourceErrorByDate[date] || '').some(function(item) {
+      return item.uniqueRowCount > 1;
+    })) afterConflictDates[date] = true;
   });
-  var result = { duplicateGroups: decisions.length, exactDuplicateGroups: counts('EXACT_DUPLICATE'),
-    singleExpectedMatchGroups: counts('SINGLE_EXPECTED_MATCH'), manualProtectedGroups: counts('MANUAL_PROTECTED'),
-    unresolvedConflictGroups: counts('UNRESOLVED_CONFLICT'), sourceIncompleteGroups: counts('SOURCE_INCOMPLETE'),
-    removedRows: removedRows, affectedDates: Object.keys(affectedDates), unresolvedDates: Object.keys(unresolvedDates),
-    beforeConflictDates: Object.keys(beforeConflictDates), afterConflictDates: Object.keys(afterConflictDates), groups: decisions };
-  alertResult('중복 정리 완료: ' + removedRows + '행 삭제 · 미해결 ' + result.unresolvedDates.length + '일');
+
+  var result = {
+    duplicateGroups: decisions.length,
+    exactDuplicateGroups: counts('EXACT_DUPLICATE'),
+    singleExpectedMatchGroups: counts('SINGLE_EXPECTED_MATCH'),
+    manualProtectedGroups: counts('MANUAL_PROTECTED'),
+    unresolvedConflictGroups: counts('UNRESOLVED_CONFLICT'),
+    sourceIncompleteGroups: counts('SOURCE_INCOMPLETE'),
+    invalidDateRowsRemoved: invalidDateRows,
+    zeroUnitFundRowsRemoved: zeroUnitFundRows,
+    duplicateRowsRemoved: duplicateRowsRemoved,
+    removedRows: removedRows,
+    affectedDates: Object.keys(affectedDates).sort(),
+    unresolvedDates: Object.keys(unresolvedDates).sort(),
+    beforeConflictDates: Object.keys(beforeConflictDates).sort(),
+    afterConflictDates: Object.keys(afterConflictDates).sort(),
+    groups: decisions
+  };
+  alertResult('스냅샷 정리 완료: ' + removedRows + '행 삭제'
+    + '\n- 날짜 유실: ' + invalidDateRows
+    + '\n- 0좌 펀드 잔존: ' + zeroUnitFundRows
+    + '\n- 중복 자동해결: ' + duplicateRowsRemoved
+    + '\n- 미해결 보호: ' + result.unresolvedDates.length + '일');
   return result;
 }
 
