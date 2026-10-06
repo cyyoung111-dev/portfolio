@@ -246,6 +246,16 @@ if (!ensureDailyTriggersMatch
   process.exit(1);
 }
 
+if (!source.includes("integrity-change-v4-portfolio-close-dedup")
+    || !source.includes('function _expectedPortfolioCloseRunDate()')
+    || !source.includes('function _isPortfolioCloseRunStale(portfolioClose)')
+    || !source.includes('portfolioCloseRunStale')
+    || !source.includes('expectedPortfolioCloseRunDate')
+    || !source.includes("return closeDate > historyDate ? closeDate : historyDate")) {
+  console.error('❌ 일일 점검 토큰 갱신 또는 통합 마감 실행 최신성/확정 가격일 비교 계약이 누락됐습니다.');
+  process.exit(1);
+}
+
 if (!source.includes('function _getLatestLifecycleValidSnapshotDate(ss)')
     || !source.includes('_filterSnapshotRowsByFundLifecycle([row], configs, date)')
     || !source.includes('function _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose)')
