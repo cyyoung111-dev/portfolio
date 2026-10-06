@@ -648,6 +648,8 @@ const historyLifecycleSnapshot=new Sheet([header,
 ]);
 const historyLifecycleSs=ssFor({'펀드좌수':historyLifecycleUnits,'스냅샷':historyLifecycleSnapshot});
 context.getss=()=>historyLifecycleSs;
+context.jsonOk=extra=>({status:'ok',...extra});
+context.jsonError=(message,extra)=>({status:'error',message,...(extra||{})});
 const historyLifecycle=context.handleGetHistory('2026-01-05','2026-01-05');
 assert.equal(historyLifecycle.status,'ok');
 assert.equal(historyLifecycle.snapshots.length,1);
