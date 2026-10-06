@@ -91,10 +91,49 @@ async function requestJson(url, { method = 'GET', token, body, form } = {}) {
   return parsed;
 }
 
+export function parseClaspCredentials(value) {
+  const raw = String(value || '').trim();
+  if (!raw) throw new Error('필수 환경변수 누락: CLASPRC_JSON');
+
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch { throw new Error('CLASPRC_JSON이 올바른 JSON이 아닙니다. 최신 clasp login으로 만든 .clasprc.json 전체 내용을 저장하세요.'); }
+
+  const normalize = credential => {
+    if (!credential || typeof credential !== 'object') return null;
+    const clientId = String(credential.client_id || '').trim();
+    const clientSecret = String(credential.client_secret || '').trim();
+    const refreshToken = String(credential.refresh_token || '').trim();
+    if (!clientId || !clientSecret || !refreshToken) return null;
+    return { clientId, clientSecret, refreshToken };
+  };
+
+  const v3Default = normalize(parsed?.tokens?.default);
+  if (v3Default) return v3Default;
+
+  const v3Candidates = Object.values(parsed?.tokens || {}).map(normalize).filter(Boolean);
+  if (v3Candidates.length === 1) return v3Candidates[0];
+  if (v3Candidates.length > 1) {
+    throw new Error('CLASPRC_JSON에 여러 clasp 사용자 토큰이 있습니다. default 사용자로 clasp login하거나 default 항목만 포함해 저장하세요.');
+  }
+
+  if (parsed?.token && parsed?.oauth2ClientSettings) {
+    const legacy = normalize({
+      refresh_token: parsed.token.refresh_token,
+      client_id: parsed.oauth2ClientSettings.clientId,
+      client_secret: parsed.oauth2ClientSettings.clientSecret,
+    });
+    if (legacy) return legacy;
+  }
+
+  const direct = normalize(parsed);
+  if (direct) return direct;
+
+  throw new Error('CLASPRC_JSON에서 client_id/client_secret/refresh_token을 찾지 못했습니다. 최신 @google/clasp로 다시 로그인하세요.');
+}
+
 async function getAccessToken() {
-  const clientId = env('GOOGLE_OAUTH_CLIENT_ID');
-  const clientSecret = env('GOOGLE_OAUTH_CLIENT_SECRET');
-  const refreshToken = env('GOOGLE_OAUTH_REFRESH_TOKEN');
+  const { clientId, clientSecret, refreshToken } = parseClaspCredentials(env('CLASPRC_JSON'));
   const token = await requestJson(TOKEN_URL, {
     method: 'POST',
     form: {
@@ -104,7 +143,7 @@ async function getAccessToken() {
       grant_type: 'refresh_token',
     },
   });
-  if (!token.access_token) throw new Error('Google OAuth access token을 받지 못했습니다.');
+  if (!token.access_token) throw new Error('clasp OAuth refresh token으로 Google access token을 받지 못했습니다.');
   return token.access_token;
 }
 
