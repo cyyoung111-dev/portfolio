@@ -622,6 +622,21 @@ assert(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00002
 assert.equal(staleZeroSnapshots.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'기존 0좌 F00003 MANUAL Snapshot도 lifecycle이 우선하여 제거');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 
+// 정상행이 expected와 이미 같아도 0좌 행이 원장에 남아 있으면 lifecycle 제거 자체가 rewrite 사유입니다.
+const lifecycleRewriteUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','피델리티','FIDELITY_BIG4_S','2026-01-05',0,'']]);
+const lifecycleNormal=snap('2026-01-05','000001',100,'PRICE_HISTORY');
+const lifecycleZeroManual=snap('2026-01-05','F00003',3000,'MANUAL');
+const lifecycleRewriteSnapshot=new Sheet([header,lifecycleNormal,lifecycleZeroManual]);
+const lifecycleRewriteSs=ssFor({'펀드좌수':lifecycleRewriteUnits,'스냅샷':lifecycleRewriteSnapshot});
+const lifecyclePlan=clone(context._snapshotRewritePlan(lifecycleRewriteSs,'2026-01-05',[lifecycleNormal]));
+assert.equal(lifecyclePlan.lifecycleRemovedRows,1,'0좌 원장 행 제거 건수 기록');
+assert.equal(lifecyclePlan.needsRewrite,true,'필터 후 signature가 같아도 0좌 제거는 rewrite 사유');
+context.writeSnapshotRows(lifecycleRewriteSs,'2026-01-05',[lifecycleNormal],true);
+assert.equal(lifecycleRewriteSnapshot.rows.some(row=>row[0]==='2026-01-05'&&row[1]==='F00003'),false,'signature no-op보다 lifecycle 제거를 우선');
+assert.equal(lifecycleRewriteSnapshot.rows.filter(row=>row[0]==='2026-01-05'&&row[1]==='000001').length,1,'정상행은 그대로 1개 유지');
+
 // 세 펀드 import는 GAS에서 좌수·클래스·기존 NAV를 다시 검증합니다.
 const importUnits = new Sheet([['code','name','provider','start','units','at'],
   ['F00001','한화 LIFEPLUS 적격 TDF 2045 C-RPe','HANWHA_2045_CRPE','2025-01-01',2000,''],
