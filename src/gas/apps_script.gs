@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.163
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.164
+//
+//  v9.164 변경사항 (2026.10.06):
+//   Toss egress IPv4 probe 응답을 plain-text/JSON 모두 허용하도록 보강
 //
 //  v9.163 변경사항 (2026.10.06):
 //   Toss read-only 진단에 외부 관측 GAS egress IPv4 probe 추가
@@ -1248,13 +1251,22 @@ function _isValidIpv4_(value) {
 function _probeTossDiagnosticEgressIp_() {
   var startedAt = Date.now();
   try {
-    var response = UrlFetchApp.fetch('https://api.ipify.org?format=json', {
+    // ipify의 IPv4 전용 plain-text endpoint를 사용하고, 혹시 JSON 형태가 와도 fallback 처리합니다.
+    var response = UrlFetchApp.fetch('https://api.ipify.org', {
       method: 'get', muteHttpExceptions: true
     });
     var status = response.getResponseCode();
-    var parsed = {};
-    try { parsed = JSON.parse(response.getContentText() || '{}'); } catch (ignore) {}
-    var ip = _isValidIpv4_(parsed && parsed.ip) ? String(parsed.ip).trim() : '';
+    var body = String(response.getContentText() || '').trim();
+    var candidate = body;
+    if (!_isValidIpv4_(candidate)) {
+      try {
+        var parsed = JSON.parse(body || '{}');
+        candidate = parsed && parsed.ip ? String(parsed.ip).trim() : '';
+      } catch (ignore) {
+        candidate = '';
+      }
+    }
+    var ip = _isValidIpv4_(candidate) ? candidate : '';
     return {
       ok: status >= 200 && status < 300 && !!ip,
       status: status,
@@ -4399,7 +4411,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.163' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.164' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9840,7 +9852,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.163' });
+    return jsonOk({ settings: settings, gasVersion: '9.164' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -9862,7 +9874,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.163'
+      gasVersion: '9.164'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
