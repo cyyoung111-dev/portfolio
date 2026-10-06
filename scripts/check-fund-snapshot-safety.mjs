@@ -62,9 +62,20 @@ assert.equal(context._parseHanwhaNavDate('20260108'),'2026-01-08');
 assert.throws(()=>context._parseHanwhaNavDate('2026-01-08~2026-01-09'),/2026-01-08~2026-01-09/,'범위 문자열은 단일 공시일로 허용하지 않고 원문 표시');
 assert.equal(fundFetchCalls[0].options.method,'get');
 assert.match(fundFetchCalls[0].url,/hanwhafund\.co\.kr\/api\/fund\/dailyPrice\?fundCd=008942&period=&startDate=2026-01-01&endDate=2026-01-02/);
-assert.throws(()=>context._fetchFundNav('KB_VALUE_ST','2026-01-01','2026-01-02'),/AQ018.*미확인/);
+context.UrlFetchApp={fetch(url,options){
+  fundFetchCalls.push({url,options});
+  return {getResponseCode:()=>200,getContentText:()=>JSON.stringify([
+    {gijunYmd:'20260101',gijunGa:'2,000.25'},
+    {gijunYmd:'20260102',gijunGa:'2,001.50'}
+  ])};
+}};
+assert.deepEqual(clone(context._fetchFundNav('KB_VALUE_ST','2026-01-01','2026-01-02')),[
+  {date:'2026-01-01',nav:2000.25},{date:'2026-01-02',nav:2001.5}
+],'F00002는 exact standard code FunETF NAV를 자동조회');
+assert.match(fundFetchCalls[1].url,/funetf\.co\.kr\/api\/public\/product\/view\/fundnav\?fundCd=KR5223AQ0185/);
+assert.match(fundFetchCalls[1].options.headers.Referer,/KR5223AQ0185/);
 assert.throws(()=>context._fetchFundNav('FIDELITY_BIG4_S','2026-01-01','2026-01-02'),/AP399.*미확인/);
-assert.equal(fundFetchCalls.length,1,'미확정 클래스는 FunETF를 포함한 외부 요청을 하지 않음');
+assert.equal(fundFetchCalls.length,2,'F00001과 F00002만 자동 외부조회');
 context.UrlFetchApp={fetch:()=>({getResponseCode:()=>403,getContentText:()=>'<html>forbidden</html>'})};
 assert.throws(()=>context._fetchFundNav('HANWHA_2045_CRPE','2026-01-01','2026-01-02'),/HTTP 403/);
 context.UrlFetchApp={fetch:()=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({list:[]})})};
@@ -518,6 +529,16 @@ context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 const zeroOnlySheets={'펀드좌수':new Sheet([['code','name','provider','start','units','at'],['F00003','과거 펀드','FIDELITY_BIG4_S','2024-01-01',0,'']])};
 context._fetchFundNav=()=>{ throw new Error('0좌만 남은 F코드는 조회하면 안 됩니다.'); };
 assert.equal(context._refreshFundValuations(ssFor(zeroOnlySheets),'2026-01-01','2026-01-02').saved,0);
+const lifecycleHoldings={
+  '과거 펀드':{code:'F00003',name:'과거 펀드',qty:10,costAmt:1000},
+  '일반주식':{code:'000001',name:'일반주식',qty:2,costAmt:200}
+};
+context._applyFundUnitLifecycleToSnapshotHoldings(lifecycleHoldings,[
+  {code:'F00003',startDate:'2024-01-01',units:10000},
+  {code:'F00003',startDate:'2024-01-03',units:0}
+],'2024-01-04');
+assert.equal(lifecycleHoldings['과거 펀드'],undefined,'0좌 전환일 이후 F코드는 Snapshot holdings에서 제거');
+assert.equal(lifecycleHoldings['일반주식'].qty,2,'일반 종목은 영향 없음');
 
 // F00001 batch 일부 timeout이어도 저장 NAV 기반 F00002/F00003 복구는 계속합니다.
 const mixedUnits = new Sheet([['code','name','provider','start','units','at'],
@@ -533,7 +554,15 @@ const mixedSs = ssFor({'펀드좌수':mixedUnits,'펀드기준가격':mixedNav,'
 const mixedCalls=[];
 context._fetchFundNav=(provider,from,to)=>{
   mixedCalls.push([provider,from,to]);
-  if (from === '2026-01-12' && to === '2026-01-14') throw new Error('한화 NAV API timeout');
+  if (provider==='HANWHA_2045_CRPE' && from === '2026-01-12' && to === '2026-01-14') throw new Error('한화 NAV API timeout');
+  if (provider==='KB_VALUE_ST') {
+    const rows=[];
+    for (let cursor=new Date(from+'T00:00:00Z'), end=new Date(to+'T00:00:00Z'); cursor<=end; cursor.setUTCDate(cursor.getUTCDate()+1)) {
+      const day=cursor.getUTCDay();
+      if (day!==0 && day!==6) rows.push({date:cursor.toISOString().slice(0,10),nav:2000});
+    }
+    return rows;
+  }
   return [{date:to,nav:1000}];
 };
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[];
@@ -542,12 +571,13 @@ assert.equal(mixed.completionStatus,'partial');
 assert.equal(mixed.fundResults.F00001.apiFailed,1);
 assert.equal(mixed.fundResults.F00001.apiSuccess,8,'성공한 API batch NAV는 유지');
 assert.equal(mixed.fundResults.F00002.storedNav,1);
-assert.equal(mixed.fundResults.F00002.apiRequested,0,'F00002는 외부 API를 호출하지 않음');
-assert(mixed.fundResults.F00002.carried>0,'F00002 누락일은 직전 확정 NAV로 임시 평가');
-assert(mixed.fundResults.F00002.inputRequiredDates.includes('2026-01-05'),'F00002 평일 NAV 누락일은 입력 필요로 반환');
+assert(mixed.fundResults.F00002.apiRequested>0,'F00002 누락일은 exact standard-code 외부 NAV 자동조회');
+assert.equal(mixed.fundResults.F00002.apiFailed,0,'F00002 정상 응답은 실패 없이 반영');
+assert.equal(mixed.fundResults.F00002.inputRequiredDates.length,0,'F00002 자동조회 성공분은 입력 필요 경고 제거');
 assert.equal(mixed.fundResults.F00003.storedNav,1);
 assert.equal(mixed.fundResults.F00003.zeroUnitsExcluded,12,'0좌 이후 평가 제외');
-assert.equal(mixedCalls.filter(call=>call[0]!=='HANWHA_2045_CRPE').length,0,'F00002/F00003 외부조회 금지');
+assert(mixedCalls.some(call=>call[0]==='KB_VALUE_ST'),'F00002 자동조회 실행');
+assert.equal(mixedCalls.filter(call=>call[0]==='FIDELITY_BIG4_S').length,0,'F00003 외부조회 금지 유지');
 assert.equal(mixedCalls.filter(call=>call[1]==='2026-01-12' && call[2]==='2026-01-14').length,2,'보정된 실패 batch는 최초 호출 후 1회만 재시도');
 const kbOnly=context._refreshFundValuations(mixedSs,'2026-01-01','2026-01-07','F00002');
 assert.deepEqual(Object.keys(kbOnly.fundResults),['F00002'],'웹 요청이 F코드별로 독립 실행 가능');
@@ -1082,6 +1112,27 @@ assert(!cleanupRegistry.some(item=>item.source==='스냅샷'&&item.status==='WRI
 assert.equal(rawSnapshotReadCount,0,'중복 없는 날짜를 날짜별 전체 Snapshot 재읽기하지 않음');
 context._readRawSnapshotRowsByDate=realRawSnapshotReader;
 
+// 날짜 유실 payload와 0좌 펀드 잔존 행은 안전정리 경로에서 제거하고 정상행은 유지합니다.
+const damagedSnapshot=new Sheet([header,
+  ['', '000001','날짜유실',1,50,50,100,100,50,100,'KRX',''],
+  snap('2026-02-01','F00003',300,'FUND_NAV'),
+  snap('2026-02-01','000001',100)
+]);
+const damagedUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00003','과거 펀드','FIDELITY_BIG4_S','2026-01-01',1000,''],
+  ['F00003','과거 펀드','FIDELITY_BIG4_S','2026-02-01',0,'']
+]);
+const damagedSs=ssFor({'스냅샷':damagedSnapshot,'펀드좌수':damagedUnits});
+context.getss=()=>damagedSs;
+context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[snap('2026-02-01','000001',100)];
+const damagedCleanup=clone(context.cleanupSnapshotDuplicates());
+assert.equal(damagedCleanup.invalidDateRowsRemoved,1,'날짜 유실 payload 제거');
+assert.equal(damagedCleanup.zeroUnitFundRowsRemoved,1,'0좌 펀드 Snapshot 잔존 제거');
+assert.equal(damagedCleanup.removedRows,2);
+assert(damagedSnapshot.rows.some(row=>row[0]==='2026-02-01'&&row[1]==='000001'),'정상 Snapshot 유지');
+assert.equal(damagedSnapshot.rows.some(row=>row[0]==='2026-02-01'&&row[1]==='F00003'),false,'0좌 F00003 제거');
+context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
+
 const verifyWriteDedup=(stored,expected)=>{const target=new Sheet([header,...stored]);const targetSs=ssFor({'스냅샷':target});context.writeSnapshotRows(targetSs,expected[0],expected[1],true);return target.rows.filter(row=>row[0]===expected[0]);};
 let writeRows=verifyWriteDedup([identicalRow,clone(identicalRow)],['2026-02-01',[identicalRow]]);
 assert.equal(writeRows.length,1,'writeSnapshotRows exact duplicate를 실제 raw 1개로 축약');
@@ -1170,10 +1221,13 @@ context.getss=()=>historyConsistencySs;
 const historyConsistency=clone(context.handleGetHistory('2026-09-16','2026-09-16'));
 assert.deepEqual(historyConsistency.snapshots[0].navInputRequiredCodes,['F00002'],'확정 NAV 평가금액 일치 F00001 경고만 제거하고 실제 미확정 F00002 유지');
 
-// 일일 실행은 활성 보유기간의 과거 확정 NAV 누락을 성공으로 기록하지 않습니다.
+// 일일 실행의 partial은 자동화 자체를 실패시키지 않고 경고로 기록하며, hard error만 실패 처리합니다.
 const savedRefresh=context._refreshFundValuations;
-context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],fundResults:{F00001:{navMissing:1}}});
-assert.throws(()=>context.runDailyFundValuations(),/partial/,'일일 partial 결과를 성공 처리하지 않음');
+context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],fundResults:{F00001:{status:'partial',navMissing:1,inputRequiredDates:['2026-09-08']}}});
+assert.doesNotThrow(()=>context.runDailyFundValuations(),'일일 partial은 저장된 성공분을 유지하고 warning으로 기록');
+assert.match(scriptProperties.get('fund_last_warning')||'',/F00001.*NAV 미확보 1일/);
+context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],fundResults:{F00001:{status:'error',navMissing:1,inputRequiredDates:[]}}});
+assert.throws(()=>context.runDailyFundValuations(),/F00001/,'hard error는 일일 자동화 실패로 기록');
 context._refreshFundValuations=savedRefresh;
 
 // 파생 시트 쓰기 실패 뒤에도 저장 확정 NAV를 이용해 재실행할 수 있습니다.
