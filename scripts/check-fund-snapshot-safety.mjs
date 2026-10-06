@@ -1313,6 +1313,7 @@ const compactDailyJson=JSON.stringify(compactDailyResult);
 assert(compactDailyJson.length<4000,'일일 펀드 Properties 요약은 날짜 상세를 제외해 충분히 작아야 함');
 assert.equal(Object.prototype.hasOwnProperty.call(compactDailyResult.funds.F00001,'dates'),false,'날짜별 상세 배열 Properties 저장 금지');
 assert.equal(compactDailyResult.funds.F00002.inputRequiredCount,2,'입력 필요 건수는 요약에 유지');
+assert.equal(compactDailyResult.snapshotWarningCount,0,'Snapshot 보호 경고 건수도 compact summary에 기록');
 assert.equal(context._compactFundDailyResultForProperty({completionStatus:'ok',lastDate:'',missingHoldings:[],fundResults:{}},'2026-09-09').lastDate,'2026-09-09','무변경 실행은 요청 종료일을 최근 처리 기준일로 보존');
 
 // 일일 실행의 partial은 자동화 자체를 실패시키지 않고 경고로 기록하며, hard error만 실패 처리합니다.
@@ -1327,7 +1328,18 @@ const storedDailyProperty=scriptProperties.get('fund_last_result')||'';
 assert(storedDailyProperty.length<4000,'실제 fund_last_result도 Properties 제한보다 충분히 작게 저장');
 assert.equal(JSON.parse(storedDailyProperty).lastDate,'2026-09-30');
 assert.equal(Object.prototype.hasOwnProperty.call(JSON.parse(storedDailyProperty).funds.F00001,'dates'),false);
-context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],fundResults:{F00001:{status:'error',navMissing:1,inputRequiredDates:[]}}});
+const protectedSnapshotReason='2026-09-08:MANUAL_PROTECTED: MANUAL 행 보호';
+context._refreshFundValuations=()=>({
+  completionStatus:'partial',saved:0,navSaved:0,snapshots:0,lastDate:'2026-09-08',
+  missingHoldings:[protectedSnapshotReason],snapshotWarnings:[protectedSnapshotReason],
+  fundResults:{F00002:{status:'partial',navMissing:0,inputRequiredDates:[]}}
+});
+assert.doesNotThrow(()=>context.runDailyFundValuations(),'보호된 Snapshot 충돌은 일일 hard failure가 아님');
+assert.match(scriptProperties.get('fund_last_warning')||'',/Snapshot 보호 충돌 1건/,'보호 충돌은 warning에 기록');
+assert.equal(JSON.parse(scriptProperties.get('fund_last_result')||'{}').snapshotWarningCount,1);
+context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:['2026-09-08:F00001'],snapshotWarnings:[],fundResults:{F00001:{status:'partial',navMissing:0,inputRequiredDates:[]}}});
+assert.throws(()=>context.runDailyFundValuations(),/거래이력 없는 스냅샷 1건/,'실제 보유자료 누락은 hard failure 유지');
+context._refreshFundValuations=()=>({completionStatus:'partial',missingHoldings:[],snapshotWarnings:[],fundResults:{F00001:{status:'error',navMissing:1,inputRequiredDates:[]}}});
 assert.throws(()=>context.runDailyFundValuations(),/F00001/,'hard error는 일일 자동화 실패로 기록');
 context._refreshFundValuations=savedRefresh;
 
