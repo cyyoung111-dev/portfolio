@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.173
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.174
+//
+//  v9.174 변경사항 (2026.10.07):
+//   통합 마감 미실행 시 NEVER_RUN을 우선 표시하고 과거 펀드 오류는 참고 정보로만 노출
 //
 //  v9.173 변경사항 (2026.10.06):
 //   웹에서 자동화 상태를 read-only 조회하는 getAutomationStatus API 추가
@@ -4615,7 +4618,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.173' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.174' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8869,12 +8872,13 @@ function _getAutomationStatusData() {
   var closeErrors = portfolioClose && Array.isArray(portfolioClose.errors) ? portfolioClose.errors : [];
   var overallStatus = 'NORMAL';
 
-  if (missingTrigger || hasLegacySplitTriggers || portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
+  if (missingTrigger || hasLegacySplitTriggers) overallStatus = 'ERROR';
   else if (!portfolioClose) overallStatus = 'NEVER_RUN';
+  else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
   else if (snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.173',
+    gasVersion: '9.174',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -8899,7 +8903,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.173' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.174' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -10543,7 +10547,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.173' });
+    return jsonOk({ settings: settings, gasVersion: '9.174' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10565,7 +10569,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.173'
+      gasVersion: '9.174'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
