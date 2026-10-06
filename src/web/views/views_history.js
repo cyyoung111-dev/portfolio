@@ -478,6 +478,8 @@ async function loadAutomationStatusFromGsheet() {
     const priceState = close.priceOk === true ? '성공' : (close.priceOk === false ? '실패' : '미실행');
     const fundState = close.fundOk === true ? '성공' : (close.fundOk === false ? '실패' : '미실행');
     const errorText = a.portfolioCloseLastError || a.fundLastError || (Array.isArray(close.errors) && close.errors.length ? close.errors.join(' | ') : '');
+    const isNeverRun = a.overallStatus === 'NEVER_RUN';
+    const referenceErrorOnly = isNeverRun && !a.portfolioCloseLastError && !!a.fundLastError;
     body.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;font-size:.68rem;line-height:1.55">
         <div><span style="color:var(--muted)">GAS 버전</span><br><b>${_escapeHtml(a.gasVersion || data.gasVersion || '-')}</b></div>
@@ -490,8 +492,8 @@ async function loadAutomationStatusFromGsheet() {
         <div><span style="color:var(--muted)">가격이력 최근일</span><br><b>${_escapeHtml(a.priceHistoryLastDate || '-')}</b></div>
         <div><span style="color:var(--muted)">조회 시각</span><br><b>${_escapeHtml(a.checkedAt || '-')}</b></div>
       </div>
-      <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:.66rem;color:${errorText ? 'var(--red-lt)' : 'var(--muted)'};white-space:pre-wrap">
-        ${errorText ? '최근 오류: ' + _escapeHtml(errorText) : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음')}
+      <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:.66rem;color:${errorText ? (referenceErrorOnly ? 'var(--amber)' : 'var(--red-lt)') : 'var(--muted)'};white-space:pre-wrap">
+        ${errorText ? ((referenceErrorOnly ? '이전 펀드 오류(참고): ' : '최근 오류: ') + _escapeHtml(errorText)) : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음')}
       </div>`;
   } catch (error) {
     badge.textContent = '조회 실패';
