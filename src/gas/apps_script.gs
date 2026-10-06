@@ -1296,12 +1296,9 @@ function _probeTossDiagnosticEgressIp_() {
     }
   }
   var last = attempts.length ? attempts[attempts.length - 1] : {};
-  var any2xxInvalid = attempts.some(function(item) {
-    return item.status >= 200 && item.status < 300 && item.code === 'INVALID_IP_RESPONSE';
-  });
   return {
     ok: false, status: last.status == null ? null : last.status, ip: '',
-    provider: last.provider || '', code: any2xxInvalid ? 'INVALID_IP_RESPONSE' : (last.code || 'REQUEST_ERROR'),
+    provider: last.provider || '', code: last.code || 'REQUEST_ERROR',
     observedOnly: true, attempts: attempts, elapsedMs: Date.now() - startedAt
   };
 }
@@ -10444,6 +10441,11 @@ function runTossMarketDataDiagnosis() {
     (oauth.ok ? '✅' : '❌') + ' OAuth: ' + (oauth.status == null ? '-' : oauth.status) + ' / ' + (oauth.code || 'ERROR') +
       (oauth.providerCode ? ' / ' + oauth.providerCode : '') + idSuffix(oauth) + ' / ' + (oauth.elapsedMs || 0) + 'ms'
   ];
+  if (!egress.ok && Array.isArray(egress.attempts)) egress.attempts.forEach(function(item) {
+    lines.push('  ↳ ' + (item.provider || 'provider') + ': ' + (item.status == null ? '-' : item.status) + ' / ' +
+      (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) +
+      (item.contentType ? ' / ' + item.contentType : '') + ' / ' + Number(item.elapsedMs || 0) + 'ms');
+  });
   (result.endpoints || []).forEach(function(item) {
     lines.push((item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) + ' ' + item.name + ': ' +
       (item.status == null ? '-' : item.status) + ' / ' + (item.code || 'ERROR') + ' / ' + (item.count || 0) + '건' +
