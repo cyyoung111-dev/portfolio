@@ -8846,7 +8846,7 @@ function _ensureDailyTriggers(autoFix) {
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v3-portfolio-close';
+  var checkToken = dateStr + '|integrity-change-v4-portfolio-close-dedup';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
@@ -8891,10 +8891,27 @@ function _getLatestLifecycleValidSnapshotDate(ss) {
 
 function _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose) {
   var closeDate = portfolioClose && _normalizeDate(portfolioClose.priceDate);
-  if (closeDate) return closeDate;
   var historyDate = _normalizeDate(priceHistoryLastDate);
+  if (closeDate && historyDate) return closeDate > historyDate ? closeDate : historyDate;
+  if (closeDate) return closeDate;
   if (historyDate) return historyDate;
   return _getPrevTradingDay(today(), 7) || today();
+}
+
+function _expectedPortfolioCloseRunDate() {
+  var now = new Date();
+  var todayStr = Utilities.formatDate(now, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+  var hour = Number(Utilities.formatDate(now, CONFIG.TIMEZONE, 'HH'));
+  // atHour(19)는 19시대 어느 시점에 실행될 수 있으므로 21시 전에는 전일 실행까지만 요구합니다.
+  return hour >= 21 ? todayStr : _fundDateOffset(todayStr, -1);
+}
+
+function _isPortfolioCloseRunStale(portfolioClose) {
+  if (!portfolioClose) return false;
+  var runDate = _normalizeDate(portfolioClose.runDate)
+    || _normalizeDate(String(portfolioClose.finishedAt || portfolioClose.startedAt || '').slice(0, 10));
+  if (!runDate) return true;
+  return runDate < _expectedPortfolioCloseRunDate();
 }
 
 
@@ -8920,6 +8937,8 @@ function _getAutomationStatusData() {
   var fundLastError = props.getProperty('fund_last_error') || '';
   var expectedSnapshotDate = _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose);
   var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
+  var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
+  var portfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasIntegrityChange;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
   var hasDuplicateCloseTriggers = !!trig.hasDuplicateCloseTriggers;
@@ -8929,7 +8948,7 @@ function _getAutomationStatusData() {
   if (missingTrigger || hasLegacySplitTriggers || hasDuplicateCloseTriggers) overallStatus = 'ERROR';
   else if (!portfolioClose) overallStatus = 'NEVER_RUN';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
-  else if (snapshotStale || fundLastWarning) overallStatus = 'WARNING';
+  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
     gasVersion: '9.175',
@@ -8947,6 +8966,8 @@ function _getAutomationStatusData() {
       closeCount: trig.closeCount
     },
     portfolioClose: portfolioClose,
+    portfolioCloseRunStale: portfolioCloseRunStale,
+    expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
     priceHistoryLastDate: priceHistoryLastDate,
@@ -8990,6 +9011,8 @@ function checkDailyAutomationStatus() {
   try { portfolioClose = portfolioCloseRaw ? JSON.parse(portfolioCloseRaw) : null; } catch(ignorePortfolioClose) {}
   var expectedSnapshotDate = _expectedConfirmedSnapshotDate(phLast, portfolioClose);
   var isSnapshotStale = snapLast === '-' || snapLast < expectedSnapshotDate;
+  var isPortfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
+  var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
 
   var msg = '⏰ 자동화 상태 점검\n\n'
     + 'runCodeNormalize1550(15:50) 트리거: ' + (trig.hasClean ? '정상' : '없음') + '\n'
@@ -9005,6 +9028,7 @@ function checkDailyAutomationStatus() {
     + (fundLastWarning !== '-' ? '펀드 경고: ' + fundLastWarning + '\n' : '')
     + (fundLastError !== '-' ? '펀드 오류: ' + fundLastError + '\n' : '')
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
+    + (isPortfolioCloseRunStale ? '⚠️ 통합 마감 최근 실행일이 기대 실행일(' + expectedPortfolioCloseRunDate + ')보다 오래되었습니다.\n' : '')
     + '\n'
     + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasIntegrityChange
       ? '⚠️ 트리거 누락: [복구·정리 실행] → [누락 자동 트리거 복구]를 실행하세요.'
