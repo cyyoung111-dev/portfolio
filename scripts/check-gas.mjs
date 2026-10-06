@@ -101,6 +101,9 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes('function _getAutomationStatusData()')
     || !source.includes("overallStatus = 'NEVER_RUN'")
     || !source.includes("portfolio_close_last_result")
+    || !source.includes("hasLegacySplitTriggers")
+    || !source.includes("runEvalPriceUpdate1620")
+    || !source.includes("runDailyFundValuations")
     || !source.includes("gasVersion: '9.173'")) {
   console.error('❌ 웹 자동화 상태 조회 API 또는 v9.173 계약이 누락됐습니다.');
   process.exit(1);
