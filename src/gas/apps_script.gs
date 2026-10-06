@@ -5437,8 +5437,6 @@ function _cleanupCurrentSystemBackup(ss, record) {
   items.forEach(function(item) {
     if (item && item.status === 'CREATED' && item.operationId) operationsWithCreatedBackup[item.operationId] = true;
   });
-  var currentTrustedV2 = registered.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION &&
-    !operationsWithCreatedBackup[registered.operationId];
   var sourceHeaderSignature = sourceSheet ? _sheetHeaderSignature(sourceSheet) : '';
   var currentCompletedAt = _backupTimeMillis(registered.completedAt || registered.updatedAt || registered.createdAt);
   var staleCandidates = items.filter(function(item) {
@@ -5451,8 +5449,14 @@ function _cleanupCurrentSystemBackup(ss, record) {
     return item.name !== registered.name && item.source === registered.source && item.systemGenerated === true && ['CREATED', 'WRITE_FAILED'].indexOf(item.status) !== -1 &&
       currentCompletedAt && _backupTimeMillis(item.updatedAt || item.createdAt) < currentCompletedAt;
   }).map(function(item) { return { name: item.name, reason: item.status === 'CREATED' ? 'CREATED 상태 · active 여부 확인 불가' : 'WRITE_FAILED · 복구 검증 없음' }; });
-  var staleFormulaCounts = staleCandidates.length
-    ? _sheetFormulaReferenceCounts(ss, staleCandidates.map(function(item) { return item.name; })) : {};
+  // stale 후보가 있을 때만 workbook formula scan을 1회 수행하며, migration 근거가 되는 current v2도 함께 검사합니다.
+  var formulaReferenceTargets = staleCandidates.map(function(item) { return item.name; });
+  if (staleCandidates.length) formulaReferenceTargets.unshift(registered.name);
+  var staleFormulaCounts = staleCandidates.length ? _sheetFormulaReferenceCounts(ss, formulaReferenceTargets) : {};
+  var currentSchemaMatch = !!(sourceHeaderSignature && _sheetHeaderSignature(sheet) === sourceHeaderSignature);
+  var currentTrustedV2 = registered.signatureVersion === SYSTEM_BACKUP_SIGNATURE_VERSION &&
+    !operationsWithCreatedBackup[registered.operationId] && currentSchemaMatch &&
+    Number(staleFormulaCounts[registered.name] || 0) === 0;
   if (staleCandidates.length) staleCandidates.forEach(function(item) {
     var staleSheet = ss.getSheetByName(item.name);
     if (!staleSheet) { missingRecords.push(item.name); return; }
