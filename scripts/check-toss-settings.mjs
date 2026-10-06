@@ -78,7 +78,7 @@ console.log('✅ Toss 설정 UI/PropertiesService/빈 입력 보존/제한 삭�
 properties.set('TOSS_CLIENT_ID', 'client-123456');
 properties.set('TOSS_CLIENT_SECRET', 'super-secret-value');
 context.Utilities = { formatDate: () => '2026-10-02' };
-const response = (status, value) => ({ getResponseCode: () => status, getContentText: () => JSON.stringify(value), getAllHeaders: () => ({}) });
+const response = (status, value, headers = {}) => ({ getResponseCode: () => status, getContentText: () => JSON.stringify(value), getAllHeaders: () => headers });
 let fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => { fetchedUrls.push(url); return response(403, { error: 'access_denied', raw: 'must-not-leak' }); } };
 cache.clear();
@@ -92,14 +92,37 @@ assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-lea
 fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => {
   fetchedUrls.push(url);
+  return response(401, {
+    error: { code: 'unidentified-client', requestId: 'oauth-request-id', referenceId: 'oauth-reference-id' },
+    raw: 'must-not-leak'
+  }, { 'x-amz-cf-id': 'oauth-edge-id' });
+} };
+cache.clear();
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.deepEqual(
+  [diagnostic.oauth.status, diagnostic.oauth.code, diagnostic.oauth.providerCode],
+  [401, 'OAUTH_FAILED', 'unidentified-client']
+);
+assert.deepEqual(
+  [diagnostic.oauth.requestId, diagnostic.oauth.referenceId, diagnostic.oauth.edgeRequestId],
+  ['oauth-request-id', 'oauth-reference-id', 'oauth-edge-id']
+);
+assert.equal(fetchedUrls.length, 1, 'OAuth 401 실패 시 market endpoint를 호출하지 않음');
+assert.doesNotMatch(JSON.stringify(diagnostic), /super-secret-value|must-not-leak|access_token|Bearer token-value/);
+
+fetchedUrls = [];
+context.UrlFetchApp = { fetch: (url) => {
+  fetchedUrls.push(url);
   if (url.endsWith('/oauth2/token')) return response(200, { token_type: 'Bearer', access_token: 'token-value', expires_in: 3600 });
-  return response(403, { error: { code: 'forbidden', requestId: 'safe-request-id' }, raw: 'must-not-leak' });
+  return response(403, { error: { code: 'forbidden', requestId: 'safe-request-id', referenceId: 'safe-reference-id' }, raw: 'must-not-leak' }, { 'x-amz-cf-id': 'safe-edge-id' });
 } };
 cache.clear();
 diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
 assert.equal(diagnostic.oauth.ok, true);
 assert(diagnostic.endpoints.every(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN'), '실제 endpoint 403만 IP 제한으로 분류');
 assert.equal(diagnostic.priceSmoke.code, 'IP_NOT_ALLOWED_OR_FORBIDDEN');
+assert.deepEqual([diagnostic.endpoints[0].requestId, diagnostic.endpoints[0].referenceId, diagnostic.endpoints[0].edgeRequestId], ['safe-request-id', 'safe-reference-id', 'safe-edge-id']);
+assert.deepEqual([diagnostic.priceSmoke.requestId, diagnostic.priceSmoke.referenceId, diagnostic.priceSmoke.edgeRequestId], ['safe-request-id', 'safe-reference-id', 'safe-edge-id']);
 assert.equal(diagnostic.ok, false);
 assert.equal(fetchedUrls.filter(url => url.endsWith('/oauth2/token')).length, 1, '진단 1회당 token 1회 확보');
 
@@ -118,6 +141,10 @@ assert.deepEqual([diagnostic.priceSmoke.resultCount, diagnostic.priceSmoke.symbo
 assert.match(webSync, /priceSmoke 005930/);
 assert.match(webSync, /const ipBlocked = oauth\.ok/);
 assert.match(webSync, /OAuth 토큰 발급 단계 실패/);
+assert.match(webSync, /requestId/);
+assert.match(webSync, /referenceId/);
+assert.match(webSync, /x-amz-cf-id/);
+assert.match(webSync, /unidentified-client/);
 
 const diagnosePriceSmoke = result => {
   fetchedUrls = [];
