@@ -12,6 +12,7 @@
 //   0좌 펀드는 MANUAL Snapshot 보호보다 lifecycle 제거를 우선 적용
 //   신규/헤더-only Snapshot에도 write 전 0좌 lifecycle 적용, no-op 일일 실행도 처리 기준일 보존
 //   lifecycle로 제거된 원장 행은 signature 동일 여부와 무관하게 rewrite 사유로 처리
+//   수동 NAV import 완전성 검사도 0좌 fund lifecycle을 동일하게 적용
 //
 //  v9.170 변경사항 (2026.10.06):
 //   검증된 v2 성공백업이 생성되면 더 오래된 legacy COMPLETED 백업을 schema/formula 검증 후 정리
@@ -6261,6 +6262,8 @@ function _applyFundNavImport(ss, inspected, diagnostic) {
   var snapshotChanges = 0, missingHoldings = [];
   daily.forEach(function(value) {
     var holdings = calcHoldingsAtDate(trades, value.date, names);
+    // 수동 NAV import도 자동 갱신과 동일하게 해당 날짜의 0좌 펀드를 보유목록에서 제외합니다.
+    _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, value.date);
     var holding = Object.keys(holdings).map(function(key) { return holdings[key]; }).find(function(item) { return item.code === inspected.code; });
     if (!holding) { missingHoldings.push(value.date + ':' + inspected.code); return; }
     var pnl = value.evalAmt - holding.costAmt;
