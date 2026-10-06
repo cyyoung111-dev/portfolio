@@ -219,10 +219,10 @@ assert.match(gasSource, /attempts:/);
 assert.match(gasSource, /JSON\.parse\(body/);
 assert.match(webSync, /bodyLength/);
 assert.match(webSync, /contentType/);
-const menuDiagnosisBody = gasSource.match(/function runTossMarketDataDiagnosis\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
-assert.match(menuDiagnosisBody, /egress\.attempts/);
-assert.match(menuDiagnosisBody, /bodyLength/);
-assert.match(menuDiagnosisBody, /contentType/);
+const menuDiagnosisEgressBody = gasSource.match(/function runTossMarketDataDiagnosis\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+assert.match(menuDiagnosisEgressBody, /egress\.attempts/);
+assert.match(menuDiagnosisEgressBody, /bodyLength/);
+assert.match(menuDiagnosisEgressBody, /contentType/);
 
 const diagnosePriceSmoke = result => {
   fetchedUrls = [];
