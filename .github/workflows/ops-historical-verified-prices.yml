@@ -1,0 +1,85 @@
+name: OPS 20261007 date-exact history crosscheck
+on:
+  push:
+    branches: [ops/diagnose-close-nav-20261007]
+    paths: [.github/workflows/ops-historical-verified-prices.yml]
+permissions:
+  contents: read
+jobs:
+  assess:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+      GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+    steps:
+      - name: Crosscheck public date-specific closes against stored KRX baseline
+        run: |
+          node --input-type=module <<'NODE'
+          const endpoint=process.env.GAS_WEB_APP_URL;
+          async function gas(action,fields={}){
+            const params=new URLSearchParams({action,...fields,...(process.env.GAS_ACCESS_TOKEN?{accessToken:process.env.GAS_ACCESS_TOKEN}:{})});
+            const r=await fetch(endpoint,{method:'POST',body:params,redirect:'follow',signal:AbortSignal.timeout(65000)});
+            const text=await r.text();let j={};try{j=JSON.parse(text)}catch{}
+            const data=j.data||j;
+            if(!r.ok||!data||(j.status&&j.status!=='ok'))throw Error(action+'_FAILED_'+r.status);
+            return data;
+          }
+          const [h,p]=await Promise.all([gas('getHoldings'),gas('getPriceHistory',{from:'2026-09-29',to:'2026-09-29'})]);
+          const holds=h.holdings||[];
+          const baseline=p.prices||{};
+          const requestDates=['2026-09-30','2026-10-01','2026-10-02','2026-10-06'];
+          const asOf='2026-09-29';
+          let accepted=[],excluded=[],compared=0;
+          async function naver(code){
+            const r=await fetch('https://fchart.stock.naver.com/sise.nhn?symbol='+encodeURIComponent(code)+'&timeframe=day&count=14&requestType=0',
+              {headers:{'User-Agent':'Mozilla/5.0','Referer':'https://finance.naver.com/'},signal:AbortSignal.timeout(13000)});
+            if(!r.ok)return null;
+            const text=await r.text(),map={};
+            for(const x of text.matchAll(/data="(20\d{6})\|([^"]+)"/g)){
+              const day=x[1].slice(0,4)+'-'+x[1].slice(4,6)+'-'+x[1].slice(6,8),v=Number(x[2].split('|')[3]);if(v>0)map[day]=v;
+            }
+            return map;
+          }
+          async function yahoo(code,suffix){
+            const start=Math.floor(Date.parse('2026-09-23T00:00:00Z')/1000);
+            const end=Math.floor(Date.parse('2026-10-08T00:00:00Z')/1000);
+            const r=await fetch('https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(code+'.'+suffix)
+              +'?period1='+start+'&period2='+end+'&interval=1d',
+              {headers:{'User-Agent':'Mozilla/5.0'},signal:AbortSignal.timeout(12000)});
+            if(!r.ok)return null;const j=await r.json(),x=j.chart?.result?.[0];
+            if(!x)return null;
+            const arr=x.indicators?.quote?.[0]?.close||[],out={};
+            (x.timestamp||[]).forEach((stamp,i)=>{const day=new Date(stamp*1000).toISOString().slice(0,10),val=Number(arr[i]);if(val>0)out[day]=Math.round(val);});
+            return out;
+          }
+          const indexed=holds.map((x,idx)=>({idx,code:String(x.code||'').trim(),qty:Number(x.qty)||0}))
+            .filter(x=>x.qty>0 && /^[0-9A-Z]{6}$/.test(x.code) && !/^F\d{5}$/.test(x.code));
+          async function inspect(item){
+            const b=(baseline[item.code]||[]).find(x=>x.date===asOf&&String(x.source).toUpperCase()==='KRX')?.price;
+            if(!b||!(b>0))return {idx:item.idx,reason:'NO_KRX_BASELINE'};
+            let results=await Promise.allSettled([naver(item.code),yahoo(item.code,'KS'),yahoo(item.code,'KQ')]);
+            const n=results[0].status==='fulfilled'?results[0].value:null;
+            const ys=results.slice(1).map(x=>x.status==='fulfilled'?x.value:null);
+            const y=ys.find(x=>x&&x[asOf]===Number(b))||null;
+            const nOk=!!n&&n[asOf]===Number(b);
+            const yOk=!!y;
+            if(!nOk&&!yOk)return {idx:item.idx,reason:'NO_MATCHED_HISTORICAL_SOURCE'};
+            if(nOk&&yOk&&requestDates.some(d=>n[d]!==y[d]))
+              return {idx:item.idx,reason:'SOURCES_DISAGREE_ON_TARGET_DATE'};
+            const pick=yOk?y:n,src=yOk?'YAHOO':'NAVER';
+            if(requestDates.some(d=>!Number.isSafeInteger(pick[d])||pick[d]<=0))
+              return {idx:item.idx,reason:'TARGET_DATES_MISSING'};
+            return {idx:item.idx,source:src,prices:requestDates.map(date=>pick[date])};
+          }
+          for(let i=0;i<indexed.length;i+=5){
+            const b=await Promise.all(indexed.slice(i,i+5).map(inspect));
+            for(const x of b){compared++;if(x.prices)accepted.push(x);else excluded.push(x)}
+          }
+          console.log('PRICE_CROSSCHECK_SUMMARY',JSON.stringify({total:compared,accepted:accepted.length,excluded:excluded.length,
+            reasonCounts:excluded.reduce((a,x)=>(a[x.reason]=(a[x.reason]||0)+1,a),{}),
+            providerCounts:accepted.reduce((a,x)=>(a[x.source]=(a[x.source]||0)+1,a),{})}));
+          // Only index + public close values in holdings sheet order; no codes, names, quantities or costs in public logs.
+          console.log('PRICE_CROSSCHECK_ACCEPTED',JSON.stringify(accepted));
+          console.log('PRICE_CROSSCHECK_EXCLUDED',JSON.stringify(excluded));
+          NODE
