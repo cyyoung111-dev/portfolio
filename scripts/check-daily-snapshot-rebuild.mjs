@@ -140,20 +140,26 @@ assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*sourceTra
   '초기화되지 않은 빈 거래상태는 원격 거래원장을 삭제하지 않음');
 assert.match(sync, /trades\.length === 0 && \(sourceTrades\.length > 0 \|\| !allowEmpty\)/,
   '명시적 빈 원장 권한이 없으면 [] 전송 차단');
-assert.match(portfolioData, /PENDING_EMPTY_TRADE_SYNC_KEY = 'pf_v6_pending_empty_trade_sync'[\s\S]*lsGet\(PENDING_EMPTY_TRADE_SYNC_KEY, null\)/,
-  '빈 원장 재시도 컨텍스트를 localStorage에서 복원');
-assert.match(portfolioData, /target: _currentGsheetSyncTarget\(\)/,
-  '빈 원장 삭제 권한을 생성 당시 GSheet 연결에 귀속');
-assert.match(portfolioData, /pending\.target !== currentTarget[\s\S]*return null/,
-  '다른 GSheet에서는 pending 삭제를 실행하지 않음');
-assert.doesNotMatch(portfolioData, /pending\.target !== currentTarget[\s\S]{0,260}_setPendingExplicitEmptyTradeSync\(null\)/,
-  '연결 변경만으로 성공하지 않은 빈 원장 pending을 폐기하지 않음');
-assert.match(portfolioData, /_setPendingExplicitEmptyTradeSync[\s\S]*lsSave\(PENDING_EMPTY_TRADE_SYNC_KEY[\s\S]*lsRemove\(PENDING_EMPTY_TRADE_SYNC_KEY\)/,
-  'pending 컨텍스트는 영속 저장하고 성공 후 제거 가능');
-assert.match(portfolioData, /const currentRecoverySignature = \(\) => JSON\.stringify\([\s\S]*for \(let attempt = 0; attempt < 4; attempt\+\+\)[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*const recoveryHoldings = rawHoldings\.map\(h => \(\{ \.\.\.h \}\)\)[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*holdingsOverride: recoveryHoldings[\s\S]*syncTradesToGsheet\(\{[\s\S]*tradesOverride: recoveryTrades[\s\S]*currentRecoverySignature\(\) !== recoverySignature[\s\S]*continue/,
-  '복구 쓰기는 고정 payload를 함께 보내고 캡처 이후 거래/보유 변경 시 같은 single-flight에서 최신 상태를 재전송');
-assert.match(portfolioData, /const retryTrades = \[\][\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*tradesOverride: retryTrades/,
-  '연결 변경 중에도 두 번째 쓰기는 캡처한 빈 거래 payload만 원래 GSheet에 적용');
+assert.match(portfolioData, /PENDING_EMPTY_TRADE_SYNC_KEY = 'pf_v6_pending_empty_trade_sync'[\s\S]*_normalizePendingExplicitEmptyTradeSyncMap[\s\S]*_pendingExplicitEmptyTradeSyncByTarget/,
+  '빈 원장 삭제 의도를 target별 map으로 localStorage에서 복원');
+assert.match(portfolioData, /function _normalizePendingExplicitEmptyTradeSyncMap\(value\)[\s\S]*const legacy = _normalizePendingExplicitEmptyTradeSync\(value\)[\s\S]*map\[legacy\.target\] = legacy[\s\S]*Object\.values\(value\)/,
+  '기존 단일 pending 형식은 target별 map으로 마이그레이션');
+assert.match(portfolioData, /function _setPendingExplicitEmptyTradeSync\(value, targetOverride\)[\s\S]*_pendingExplicitEmptyTradeSyncByTarget\[target\][\s\S]*_persistPendingExplicitEmptyTradeSyncMap\(\)/,
+  '새 pending은 해당 target entry만 갱신해 다른 연결 삭제 의도를 보존');
+assert.match(portfolioData, /function _getPendingExplicitEmptyTradeSync\(targetOverride\)[\s\S]*_pendingExplicitEmptyTradeSyncByTarget\[target\]/,
+  'pending 조회는 현재 또는 명시 target에 귀속');
+assert.match(portfolioData, /const _portfolioRemoteSyncQueuesByTarget = new Map\(\)[\s\S]*function _queuePortfolioRemoteSync\(target, runner\)[\s\S]*previous\.then\(runner, runner\)/,
+  '같은 target의 dirty/pending 원격 쓰기는 단일 queue로 직렬화');
+assert.match(portfolioData, /async function _retryPendingExplicitEmptyTradeSync\(options\)[\s\S]*_pendingExplicitEmptyTradeSyncFlightsByTarget\.get\(requestedTarget\)[\s\S]*_queuePortfolioRemoteSync\(requestedTarget[\s\S]*_pendingExplicitEmptyTradeSyncFlightsByTarget\.set/,
+  'pending 재시도는 target별 single-flight와 공용 remote-write queue를 사용');
+assert.match(portfolioData, /const currentRecoverySignature = \(\) => _portfolioPayloadSignature[\s\S]*for \(let attempt = 0; attempt < 6; attempt\+\+\)[\s\S]*recoveryFundDirect[\s\S]*fundDirectOverride: recoveryFundDirect[\s\S]*saveSettings\(true, \{[\s\S]*fundDirectOverride: recoveryFundDirect[\s\S]*currentRecoverySignature\(\) !== recoverySignature[\s\S]*continue/,
+  'pending 새 거래 복구는 holdings/trades/authoritative fundDirect를 고정 payload로 저장하고 변경 시 최신 상태를 재전송');
+assert.match(portfolioData, /holdingsOverride: \[\][\s\S]*fundDirectOverride: pinnedFundDirect[\s\S]*tradesOverride: \[\][\s\S]*saveSettings\(true, \{[\s\S]*fundDirectOverride: pinnedFundDirect/,
+  '빈 원장 pending도 holdings/trades와 Settings fundDirect가 모두 성공해야 완료');
+assert.match(portfolioData, /_portfolioDirtySignature\(dirty\) === recoverySignature[\s\S]*_clearPortfolioRemoteDirty/,
+  'pending 새 거래 복구는 동일 payload dirty만 해제');
+assert.match(portfolioData, /emptySignature = _portfolioPayloadSignature\(\[\], \[\], pinnedFundDirect\)[\s\S]*_portfolioDirtySignature\(dirty\) === emptySignature/,
+  '빈 원장 pending도 동일 payload dirty만 해제');
 assert.match(settings, /let GSHEET_CONNECTION_GENERATION = 0[\s\S]*function isGsheetConnectionCurrent\(target, generation\)/,
   'GSheet 연결 세대로 A→B→A 전환을 구분');
 assert.match(settings, /const loadTarget = String\(GSHEET_API_URL[\s\S]*const loadGeneration = getGsheetConnectionGeneration\(\)[\s\S]*isLoadConnectionCurrent[\s\S]*requestGsheetActionJson\('getBootstrap'[\s\S]*targetUrl: loadTarget[\s\S]*if \(!isLoadConnectionCurrent\(\)\) return false/,
@@ -233,8 +239,8 @@ assert.match(portfolioData, /const recoverySignature = currentRecoverySignature\
   'pending 뒤 새 거래는 고정 payload를 동기화하고 캡처 이후 변경을 재전송한 뒤에만 repair token 제거');
 assert.doesNotMatch(portfolioData, /else if \(rawTrades\.length > 0 && _getPendingExplicitEmptyTradeSync\(\)\)[\s\S]{0,220}_setPendingExplicitEmptyTradeSync\(null\)/,
   '새 거래가 생겨도 원격 성공 전에 repair token을 조기 폐기하지 않음');
-assert.match(portfolioData, /const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)[\s\S]*await _retryPendingExplicitEmptyTradeSync\(\)/,
-  'repair token이 남으면 debounce도 retry 함수의 rawTrades>0 복구 분기로 처리');
+assert.match(portfolioData, /const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(remoteSyncTarget\)[\s\S]*_retryPendingExplicitEmptyTradeSync\(\{ targetUrl: remoteSyncTarget \}\)[\s\S]*_retryPortfolioRemoteDirtySync\(\{ targetUrl: remoteSyncTarget \}\)/,
+  'debounce는 현재 target의 pending 여부에 따라 같은 target queue의 pending 또는 dirty 재시도를 실행');
 assert.match(portfolioData, /PORTFOLIO_REMOTE_DIRTY_KEY = 'pf_v6_portfolio_remote_dirty'[\s\S]*_normalizePortfolioRemoteDirtyMap[\s\S]*_portfolioRemoteDirtyByTarget/,
   '미동기화 포트폴리오 dirty 상태를 target별 map으로 localStorage에 영속');
 assert.match(portfolioData, /function _normalizePortfolioRemoteDirtyEntry\(value\)[\s\S]*trades: Array\.isArray\(value\.trades\)[\s\S]*holdings: Array\.isArray\(value\.holdings\)[\s\S]*fundDirect:/,
@@ -245,8 +251,8 @@ assert.match(portfolioData, /function _markPortfolioRemoteDirty\(\)[\s\S]*_portf
   'A/B 연결 dirty payload가 서로 덮어쓰지 않도록 현재 target entry만 갱신');
 assert.match(portfolioData, /function _clearPortfolioRemoteDirty\(epoch, target\)[\s\S]*_portfolioRemoteDirtyByTarget\[normalizedTarget\][\s\S]*current\.epoch !== epoch[\s\S]*delete _portfolioRemoteDirtyByTarget\[normalizedTarget\][\s\S]*_persistPortfolioRemoteDirtyMap\(\)/,
   '최신 target+epoch 성공만 해당 연결 dirty를 해제');
-assert.match(portfolioData, /async function _retryPortfolioRemoteDirtySync\(options\)[\s\S]*holdingsOverride: dirty\.holdings[\s\S]*fundDirectOverride: dirty\.fundDirect[\s\S]*tradesOverride: dirty\.trades[\s\S]*saveSettings\(true, \{[\s\S]*fundDirectOverride: dirty\.fundDirect[\s\S]*_clearPortfolioRemoteDirty/,
-  'dirty 재전송은 holdings/trades와 authoritative Settings fundDirect까지 성공해야 완료');
+assert.match(portfolioData, /async function _retryPortfolioRemoteDirtySync\(options\)[\s\S]*_queuePortfolioRemoteSync\(targetUrl[\s\S]*for \(let attempt = 0; attempt < 6; attempt\+\+\)[\s\S]*holdingsOverride: dirty\.holdings[\s\S]*fundDirectOverride: dirty\.fundDirect[\s\S]*tradesOverride: dirty\.trades[\s\S]*saveSettings\(true, \{[\s\S]*fundDirectOverride: dirty\.fundDirect[\s\S]*latest\.epoch !== dirty\.epoch[\s\S]*continue[\s\S]*_clearPortfolioRemoteDirty/,
+  'dirty 재전송은 target별 queue에서 최신 epoch까지 반복 적용하고 Settings fundDirect 성공 뒤 완료');
 assert.match(portfolioData, /function _restorePortfolioRemoteDirtyPayload\(\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0[\s\S]*Object\.assign\(fundDirect/,
   '부트스트랩에서 원격 복원 전 dirty payload를 메모리에 복원');
 assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*hasFundDirectOverride[\s\S]*fundDirect: settingsFundDirect/,
@@ -255,10 +261,10 @@ assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteD
   'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
 assert.match(settingsFetch, /const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending[\s\S]*if \(portfolioSyncPending\)[\s\S]*현재가만 업데이트[\s\S]*else \{[\s\S]*forcePortfolioRestore: true/,
   '현재가 업데이트는 미동기화 로컬 포트폴리오가 있으면 authoritative pull을 건너뜀');
-assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
-  '빈 원장 권한은 보유현황·거래이력 동기화가 모두 성공한 뒤 영속 상태에서도 소진');
-assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*tradesResult\.affectedFrom/,
-  'partial 응답의 영향 시작일을 영속 갱신해 새로고침 후에도 재시도 가능');
+assert.match(portfolioData, /if \(holdingsOk && tradesOk\) \{[\s\S]*saveSettings\(true, \{[\s\S]*fundDirectOverride: pinnedFundDirect[\s\S]*if \(!settingsOk\) return false[\s\S]*_setPendingExplicitEmptyTradeSync\(null, retryTarget\)/,
+  '빈 원장 권한은 보유현황·거래이력·authoritative Settings 저장까지 성공한 뒤 해당 target에서만 소진');
+assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_getPendingExplicitEmptyTradeSync\(retryTarget\)[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*tradesResult\.affectedFrom[\s\S]*target: retryTarget/,
+  'partial 응답의 영향 시작일도 해당 target pending에만 영속 갱신');
 assert.match(settings, /const portfolioRestorePromise = blockRemotePortfolioRestore[\s\S]*\? null/,
   'pending이 있던 부트스트랩에서는 같은 요청의 오래된 원격 거래/보유 복원을 차단');
 assert.ok(
@@ -298,7 +304,7 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261008-1/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-3/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-4/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings\.js\?v=20261008-3/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
