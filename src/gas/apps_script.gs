@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.185
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.186
+//
+//  v9.186 변경사항 (2026.10.07):
+//   펀드 좌수 파생 NAV·가격이력·Snapshot backup을 전체 reconciliation 성공 뒤에만 정리
+//   후속 단계 partial 실패 시 앞선 성공 단계의 작업 시작 전 복구본 유지
 //
 //  v9.185 변경사항 (2026.10.07):
 //   19시 마감 실행상태에서 ERROR 단계를 INCOMPLETE보다 우선 판정해 실제 실패를 진단 화면에 노출
@@ -4940,7 +4944,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.185' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.186' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9943,7 +9947,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.185',
+    gasVersion: '9.186',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9974,7 +9978,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.185' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.186' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11758,7 +11762,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.185' });
+    return jsonOk({ settings: settings, gasVersion: '9.186' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11786,7 +11790,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.185'
+      gasVersion: '9.186'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
