@@ -201,9 +201,6 @@ async function loadRealEstateSettings(options) {
     if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
     if (!data || data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
     const s = data.settings;
-    // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 완전한 authoritative 상태로 봅니다.
-    // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
-    const hasAuthoritativeFundDirect = Object.prototype.hasOwnProperty.call(s, 'fundDirect');
     window.GAS_API_KEY_STATUS = (s.apiKeyStatus && typeof s.apiKeyStatus === 'object') ? s.apiKeyStatus : {};
     // ★ [개선] GAS 버전 저장 — bootstrapGsheetSettings에서 불일치 감지에 사용
     if (data.gasVersion) window._lastGasVersion = String(data.gasVersion);
@@ -421,6 +418,9 @@ async function loadSettings(onProgress, options) {
     }
     if (!data || data.status !== 'ok' || !data.settings) return false;
     const s = data.settings;
+    // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
+    // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
+    const hasAuthoritativeFundDirect = Object.prototype.hasOwnProperty.call(s, 'fundDirect');
     // 설정·배당·부동산 처리와 동시에 거래/보유 시트를 미리 읽습니다.
     // 기존에는 모든 설정 복원이 끝난 뒤 순차 요청해 주식 데이터 표시가 불필요하게 늦었습니다.
     const shouldRestorePortfolio = rawTrades.length === 0 || forcePortfolioRestore;
