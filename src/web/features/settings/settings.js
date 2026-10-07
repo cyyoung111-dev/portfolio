@@ -657,7 +657,7 @@ async function loadSettings(onProgress, options) {
         const isFundEntry = ['TDF','펀드'].includes(h.assetType)
           && !h.code
           && Number(h.qty) === 1;
-        if (!isFundEntry || !h.name) return;
+        if (!isFundEntry || !h.name || Object.prototype.hasOwnProperty.call(fundDirect, h.name)) return;
         fundDirect[h.name] = {
           eval: h.costAmt || 0,
           cost: h.costAmt || 0,
