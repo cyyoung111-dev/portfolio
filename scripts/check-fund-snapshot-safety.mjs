@@ -13,6 +13,11 @@ assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, navSh, FUND_NAV_S
 assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, ph, CONFIG\.SHEET_PH\)/,'좌수 정정 가격이력 직접 쓰기 전 backup');
 assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, snap, CONFIG\.SHEET_SNAPSHOT\)/,'좌수 정정 Snapshot 직접 쓰기 전 backup');
 assert.match(unitReconcileSource,/WRITE_FAILED/,'좌수 정정 파생 쓰기 실패 backup 보존');
+const unitSaveSource=source.match(/function handleSaveFundUnits[\s\S]*?\n}/)?.[0] || '';
+assert.match(unitSaveSource,/_backupSheetBeforeWrite\(ss, sh, FUND_UNITS_SHEET\)/,'좌수 원본 수정 전 backup 생성');
+assert.match(unitSaveSource,/unitBackup[\s\S]*COMPLETED[\s\S]*_cleanupCurrentSystemBackup/,'좌수 원본 검증 성공 뒤 backup 정리');
+assert.match(unitSaveSource,/unitBackup[\s\S]*WRITE_FAILED/,'좌수 원본 쓰기 실패 backup 보존');
+assert.match(unitSaveSource,/locked = true[\s\S]*finally \{ if \(locked\) lock\.releaseLock\(\); \}/,'좌수 저장 lock 획득 성공 시에만 해제');
 assert.match(source,/var deletable = candidates\.slice\(keep\)/,'COMPLETED 보존 초과 백업을 자동 정리');
 assert.doesNotMatch(source,/item\.status === 'WRITE_FAILED'.*newestCompletedAt/,'더 최신 성공본만으로 WRITE_FAILED 해제 금지');
 assert.match(source,/registeredFailed[\s\S]*validatedOperationIds\[item\.operationId\]/,'명시적 VALID operationId 증거로만 WRITE_FAILED 정리');
