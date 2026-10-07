@@ -609,7 +609,7 @@ async function loadSettings(onProgress, options) {
     // 새로고침 직후 빈 메모리 상태로 보유현황을 먼저 동기화하면 TDF/직접펀드까지 지울 수 있으므로
     // 반드시 비거래 보유 원자료를 복원한 다음, 아래 거래/보유 원격 복원보다 먼저 처리합니다.
     let pendingEmptySyncResolvedAtLoad = false;
-    if (pendingEmptySyncAtLoad && rawTrades.length === 0
+    if (pendingEmptySyncAtLoad
         && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
       prog('빈 거래원장 동기화 재시도 중...');
       let pendingRetryOk = false;
