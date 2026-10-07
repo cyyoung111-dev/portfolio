@@ -9869,11 +9869,18 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
     if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; }
     var currentRunId = String(props.getProperty('portfolio_close_run_id') || '');
     var currentStartedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+    var currentStage = String(props.getProperty('portfolio_close_stage') || '');
     var candidateStartedMs = Number(startedMs || 0);
     if (stage === 'PRICE') {
+      var otherRunActive = currentRunId && currentRunId !== String(runId || '')
+        && (currentStage === 'PRICE' || currentStage === 'FUND');
+      // Apps Script 정상 실행 제한을 충분히 넘는 15분 lease 안에서는 진행 중 실행의
+      // 소유권을 절대 탈취하지 않습니다. 시간초과로 마커만 남은 경우에만 이후 재시작을 허용합니다.
+      var activeLeaseMs = 15 * 60 * 1000;
+      var activeAgeMs = currentStartedMs && candidateStartedMs ? candidateStartedMs - currentStartedMs : 0;
+      if (otherRunActive && currentStartedMs && activeAgeMs >= 0 && activeAgeMs < activeLeaseMs) return false;
       if (currentStartedMs > candidateStartedMs) return false;
       // 정확히 같은 millisecond의 중복 실행은 최초 소유자 하나만 허용합니다.
-      // 어느 실행이 먼저인지 추가 정보로 판별할 수 없으므로 뒤늦은 교체보다 중복 작업 차단이 안전합니다.
       if (candidateStartedMs && currentStartedMs === candidateStartedMs && currentRunId && currentRunId !== String(runId || '')) return false;
     } else if (currentRunId !== String(runId || '')) {
       return false;
