@@ -49,6 +49,19 @@ let TAB_SYNC_STATUS = lsGet(TAB_SYNC_STATUS_KEY, {});
 const TAB_SYNC_BUSY = {};
 
 let _gsBootRestored = false;
+let _gsBootPromise = null;
+
+function isGsheetPortfolioWriteReady(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!targetUrl) return false;
+  if (generation !== null && !isGsheetConnectionCurrent(targetUrl, generation)) return false;
+  if (options?.allowDuringRestore === true) return true;
+  const currentTarget = String(GSHEET_API_URL || '').trim();
+  // 새 연결의 원격 상태를 성공적으로 읽기 전에는 이전 연결의 메모리 데이터를 쓰지 않습니다.
+  if (_gsPortfolioRestoreRequired && targetUrl === currentTarget) return false;
+  return true;
+}
 
 // ════════════════════════════════════════════════════════════════
 //  settings_persistence.js — 설정 저장/복원
@@ -81,6 +94,11 @@ function saveDividendSettings(_immediate, options) {
     ? options.generation
     : getGsheetConnectionGeneration();
   if (!targetUrl) return Promise.resolve(false);
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation: expectedGeneration,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return Promise.resolve(false);
   // 호출 시점의 데이터·연결을 함께 캡처하고 저장을 직렬화합니다. 큐 대기 중 A→B로
   // 연결이 바뀌어도 A payload를 B에 전송하지 않습니다.
   const payload = JSON.stringify(DIVDATA);
@@ -111,6 +129,11 @@ function saveRealEstateSettings(immediate, options) {
     ? options.generation
     : getGsheetConnectionGeneration();
   if (!targetUrl) return Promise.resolve(false);
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation: expectedGeneration,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return Promise.resolve(false);
   const pendingKey = targetUrl + '|' + expectedGeneration;
   const payload = JSON.stringify({
     LOAN,
@@ -219,7 +242,7 @@ async function loadRealEstateSettings(options) {
     const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
     if (loanChanged) {
       if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
-      await persistRealEstateSettings(true, { targetUrl, generation });
+      await persistRealEstateSettings(true, { targetUrl, generation, allowDuringRestore: true });
       if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
     }
     return true;
@@ -255,6 +278,11 @@ function saveSettings(immediate, options) {
     ? options.generation
     : getGsheetConnectionGeneration();
   if (!targetUrl) return Promise.resolve(false);
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation: expectedGeneration,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return Promise.resolve(false);
   const pendingKey = targetUrl + '|' + expectedGeneration;
   const settings = {
     ACCT_COLORS,
@@ -738,7 +766,13 @@ async function loadSettings(onProgress) {
 
     // 구버전 GAS fallback으로 LOAN_SCHEDULE을 복원한 경우에도 현재월 값을 반영합니다.
     const fallbackLoanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
-    if (fallbackLoanChanged) await persistRealEstateSettings(true);
+    if (fallbackLoanChanged) {
+      await persistRealEstateSettings(true, {
+        targetUrl: loadTarget,
+        generation: loadGeneration,
+        allowDuringRestore: true
+      });
+    }
     // 일반 Settings 저장이 과거에 실패했더라도 별도로 동기화된 종목코드 시트에서
     // 유형·섹터·통화를 복구합니다. 상단 업데이트와 수동 재동기화에도 동일하게 적용됩니다.
     try {
@@ -759,29 +793,54 @@ async function loadSettings(onProgress) {
 }
 
 async function bootstrapGsheetSettings() {
-  if (_gsBootRestored) return;
-  if (!GSHEET_API_URL) return;
-  _gsBootRestored = true;
-  try {
-    const ok = await loadSettings();
-    // ★ [개선] GAS 버전 불일치 감지 — 재배포 필요 여부를 사용자에게 알림
-    if (ok && typeof EXPECTED_GAS_VERSION !== 'undefined') {
-      const serverVer = window._lastGasVersion;
-      if (serverVer && serverVer !== EXPECTED_GAS_VERSION) {
-        showToast(`⚠️ GAS 버전 불일치 (서버: ${serverVer} / 기대: ${EXPECTED_GAS_VERSION}) — 재배포가 필요할 수 있어요`, 'warn', 6000);
-        console.warn('[GAS 버전 불일치]', { serverVer, expected: EXPECTED_GAS_VERSION });
+  if (_gsBootRestored) return true;
+  if (!GSHEET_API_URL) return false;
+  if (_gsBootPromise) return _gsBootPromise;
+
+  const bootTarget = String(GSHEET_API_URL || '').trim();
+  const bootGeneration = getGsheetConnectionGeneration();
+  const run = (async () => {
+    try {
+      const ok = await loadSettings();
+      // ★ [개선] GAS 버전 불일치 감지 — 재배포 필요 여부를 사용자에게 알림
+      if (ok && typeof EXPECTED_GAS_VERSION !== 'undefined') {
+        const serverVer = window._lastGasVersion;
+        if (serverVer && serverVer !== EXPECTED_GAS_VERSION) {
+          showToast(`⚠️ GAS 버전 불일치 (서버: ${serverVer} / 기대: ${EXPECTED_GAS_VERSION}) — 재배포가 필요할 수 있어요`, 'warn', 6000);
+          console.warn('[GAS 버전 불일치]', { serverVer, expected: EXPECTED_GAS_VERSION });
+        }
       }
+      if (!ok) {
+        // 연결 자체가 바뀌었거나 새 연결 강제 복원이 미완료면 부분 설정을 섞지 않습니다.
+        if (!isGsheetConnectionCurrent(bootTarget, bootGeneration) || _gsPortfolioRestoreRequired) return false;
+        // 기존 연결의 일시적인 Settings 실패에서만 별도 읽기 fallback을 허용합니다.
+        try { await loadDividendSettings({ targetUrl: bootTarget, generation: bootGeneration }); } catch(e) {}
+        try { await loadRealEstateSettings({ targetUrl: bootTarget, generation: bootGeneration }); } catch(e) {}
+        const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
+        if (loanChanged) {
+          await persistRealEstateSettings(true, {
+            targetUrl: bootTarget,
+            generation: bootGeneration,
+            allowDuringRestore: true
+          });
+        }
+        return false;
+      }
+      _gsBootRestored = true;
+      return true;
+    } catch(e) {
+      console.warn('bootstrapGsheetSettings 실패:', e);
+      return false;
+    } finally {
+      try { refreshAll(); } catch(e) {}
+      try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
     }
-    if (!ok) {
-      // Settings 시트 읽기 실패 시에도 배당/부동산 별도 액션은 시도
-      try { await loadDividendSettings(); } catch(e) {}
-      try { await loadRealEstateSettings(); } catch(e) {}
-      const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
-      if (loanChanged) await persistRealEstateSettings(true);
-    }
-    try { refreshAll(); } catch(e) {}
-    try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
-  } catch(e) {
-    console.warn('bootstrapGsheetSettings 실패:', e);
+  })();
+
+  _gsBootPromise = run;
+  try {
+    return await run;
+  } finally {
+    if (_gsBootPromise === run) _gsBootPromise = null;
   }
 }
