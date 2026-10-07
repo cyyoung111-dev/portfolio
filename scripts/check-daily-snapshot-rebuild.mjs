@@ -144,6 +144,14 @@ assert.match(portfolioData, /const targetAfterHoldings = _currentGsheetSyncTarge
   '같은 target의 복구 쓰기는 await 전에 A 거래 payload를 캡처해 holdings/trades를 함께 시작');
 assert.match(portfolioData, /const retryTrades = \[\][\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*tradesOverride: retryTrades/,
   '연결 변경 중에도 두 번째 쓰기는 캡처한 빈 거래 payload만 원래 GSheet에 적용');
+assert.match(settings, /let GSHEET_CONNECTION_GENERATION = 0[\s\S]*function isGsheetConnectionCurrent\(target, generation\)/,
+  'GSheet 연결 세대로 A→B→A 전환을 구분');
+assert.match(settings, /const loadTarget = String\(GSHEET_API_URL[\s\S]*const loadGeneration = getGsheetConnectionGeneration\(\)[\s\S]*isLoadConnectionCurrent[\s\S]*requestGsheetActionJson\('getBootstrap'[\s\S]*targetUrl: loadTarget[\s\S]*if \(!isLoadConnectionCurrent\(\)\) return false/,
+  'loadSettings는 시작 target/세대를 고정하고 stale 응답 적용을 중단');
+assert.match(portfolioData, /const retryGeneration = typeof getGsheetConnectionGeneration[\s\S]*getGsheetConnectionGeneration\(\) !== retryGeneration[\s\S]*return false/,
+  '빈 원장 재시도도 URL 동일성 외 연결 세대 변경을 검사');
+assert.match(settings, /const forcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*rawTrades\.length === 0 \|\| forcePortfolioRestore[\s\S]*if \(rawTrades\.length === 0 \|\| forcePortfolioRestore\)/,
+  '연결 변경 후에는 이전 연결의 메모리 거래가 있어도 현재 원격 포트폴리오를 강제 복원');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetUrl[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
 assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
@@ -175,9 +183,9 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261007-16/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-8/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-9/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-2/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
