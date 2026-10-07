@@ -12,7 +12,9 @@
 
 - 펀드 좌수 원본을 수정하기 전에 `펀드좌수` system backup을 생성하고, 저장 후 재읽기 검증이 성공한 경우에만 backup을 완료·정리합니다. 원본 쓰기 실패 시 backup은 `WRITE_FAILED`로 보존합니다.
 - `handleSaveFundUnits()`는 실제로 ScriptLock을 획득한 경우에만 release하여 lock 획득 실패가 후속 예외로 가려지지 않도록 합니다.
-- GAS version `9.184`, 웹 기대 버전 `9.184`, 서비스워커 `portfolio-cache-20261007-33`, settings `20261007-10`, settings_tabsync `20261007-1`, settings_fetch `20261007-12`.
+- 사용자가 누르는 상단 업데이트와 거래 탭 재동기화는 로컬 거래 유무와 무관하게 GAS 거래·보유 원장을 authoritative하게 다시 받습니다. 정상 빈 원장(0건)도 성공 복원으로 인정해 오래된 다기기 로컬 캐시가 원격 최신 원장을 덮는 경로를 차단합니다.
+- 빈 원장 pending이 있는 상태에서 명시적 원격 pull을 실행하면 pending 삭제 동기화를 먼저 성공 확인합니다. 성공한 로컬 삭제 의도를 서버에 확정한 뒤에는 같은 요청에서 오래된 원격 원장을 다시 가져오지 않으며, 실패하면 복원 완료로 승격하지 않습니다.
+- GAS version `9.184`, 웹 기대 버전 `9.184`, 서비스워커 `portfolio-cache-20261007-34`, settings `20261007-11`, settings_tabsync `20261007-1`, settings_fetch `20261007-12`.
 
 ## GAS v9.183 / 웹 독립 재검토 보강 (2026-10-07)
 
