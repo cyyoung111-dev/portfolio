@@ -1,10 +1,5 @@
 name: OPS 20261007 recover KB S-T NAV via GAS
-on:
-  push:
-    paths:
-      - .github/workflows/ops-refresh-kb.yml
-    branches:
-      - ops/diagnose-close-nav-20261007
+on: workflow_dispatch
 permissions:
   contents: read
 jobs:
