@@ -35,7 +35,7 @@ for (const name of ['_applyHoldingTrade','_snapshotHoldingState','calcHoldingsAt
 }
 const masterItems=[
   {code:'005930',name:'삼성전자',currency:'KRW',type:'주식',market:'KOSPI'},
-  {code:'000660',name:'매도한 종목',currency:'KRW',type:'주식',market:'KOSPI'},
+  {code:'000660',name:'개명 후 이름',currency:'KRW',type:'주식',market:'KOSPI'},
   {code:'091160',name:'보유 ETF',currency:'KRW',type:'ETF',market:'KR'},
   {code:'F00002',name:'KB 밸류포커스',currency:'KRW',type:'펀드'},
   {code:'AAPL',name:'미래 매수 미국주식',currency:'USD',type:'주식'}
@@ -43,8 +43,8 @@ const masterItems=[
 const trade=(date,kind,name,code,qty)=>[date,kind,'',name,code,qty,1000,'주식'];
 const tradeHistory=[
   trade('2026-09-25','buy','삼성전자','005930',5),
-  trade('2026-09-25','buy','매도한 종목','000660',2),
-  trade('2026-09-30','sell','매도한 종목','000660',2),
+  trade('2026-09-25','buy','개명 전 이름','000660',2),
+  trade('2026-09-30','sell','개명 후 이름','000660',2),
   trade('2026-10-02','buy','보유 ETF','091160',4),
   trade('2026-10-01','buy','KB 밸류포커스','F00002',1),
   trade('2026-10-07','sell','보유 ETF','091160',4),
@@ -55,7 +55,7 @@ const ledgerSheet={getLastRow:()=>tradeHistory.length+1,
 const portfolioSheet={getSheetByName:n=>n==='거래이력'?ledgerSheet:null};
 const heldAt=(date,catalog=masterItems)=>JSON.parse(JSON.stringify(holdingsVm._getDailyHeldCodeItems(portfolioSheet,date,catalog))).map(x=>x.code);
 assert.deepEqual(heldAt('2026-10-06'),['005930','091160'],
-  '전량매도 KRW·미래 USD·펀드 종목은 KRX 조회 대상에서 제외');
+  '종목명 변경 전 매수·변경 후 전량 매도를 동일 코드로 상계해 KRX 대상에서 제외');
 assert.deepEqual(heldAt('2026-09-29'),['005930','000660'],
   '과거 기준일에는 이후 매도한 종목도 당시 실제 보유이므로 포함');
 assert.deepEqual(heldAt('2026-10-07'),['005930'],
@@ -184,6 +184,32 @@ assert.equal(krxRaw._krxMarketEvidence.KOSDAQ.date,'2026-10-06');
 assert.equal(krxRaw._krxMarketEvidence.ETF.date,'2026-10-06');
 assert.equal(context._assessDailyKrxStockClose(segmented,krxRaw,'2026-10-06').confirmed,10,
   '실제 fetchPricesKrx 반환값이 정상 19시 마감 검증을 통과');
+// 코드 마스터의 'KR'은 시장 정보가 아니므로 공식 KOSPI/KOSDAQ pack에서
+// 보유 코드의 소속을 추출합니다. 누락/거래정지 종목도 pack에 코드가 있으면 분모에 포함.
+const krMaster = Array.from({length:10},(_,i)=>({
+  code:String(100000+i),currency:'KRW',type:'주식',market:'KR'
+}));
+const krPackRows=(items,price)=>items.map(item=>({ISU_SRT_CD:item.code,TDD_CLSPRC:String(price)}));
+const withKrxPacks=(kosdaqRows,etfRows=[])=>({
+  KOSPI:{usedYmd:'20261006',rows:krPackRows(krMaster.slice(0,8),1500)},
+  KOSDAQ:{usedYmd:'20261006',rows:kosdaqRows},
+  ETF:{usedYmd:'20261006',rows:etfRows}
+});
+realKrxContext._fetchKrxMarketsParallelWithFallback=()=>withKrxPacks(krPackRows(krMaster.slice(8),0));
+let bySourceMarket=realKrxContext.fetchPricesKrx(krMaster,'2026-10-06');
+assert.equal(bySourceMarket._krxMarketEvidence.codeMarkets['100008'],'KOSDAQ',
+  '가격 0건도 KOSDAQ pack에 코드가 있으면 시장 소속을 추적');
+assert.throws(()=>context._assessDailyKrxStockClose(krMaster,bySourceMarket,'2026-10-06'),/KOSDAQ/,
+  'KR 10종목 중 KOSPI 8종목만 종가가 있고 KOSDAQ 2종목 누락이면 실패');
+realKrxContext._fetchKrxMarketsParallelWithFallback=()=>withKrxPacks(
+  [{ISU_SRT_CD:'039490',TDD_CLSPRC:'1000'}]);
+bySourceMarket=realKrxContext.fetchPricesKrx(krMaster,'2026-10-06');
+assert.throws(()=>context._assessDailyKrxStockClose(krMaster,bySourceMarket,'2026-10-06'),/UNCLASSIFIED_KR/,
+  'KR 종목이 어떤 KRX pack에서도 확인되지 않으면 전체시장 80% 성공으로 위장 금지');
+realKrxContext._fetchKrxMarketsParallelWithFallback=()=>withKrxPacks(krPackRows(krMaster.slice(8),1500));
+bySourceMarket=realKrxContext.fetchPricesKrx(krMaster,'2026-10-06');
+assert.equal(context._assessDailyKrxStockClose(krMaster,bySourceMarket,'2026-10-06').confirmed,10,
+  'KOSPI 8 + KOSDAQ 2가 정상이고 미보유 ETF 시장 pack이 비어 있어도 정상 마감');
 
 
 const calls = [];
