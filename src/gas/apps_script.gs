@@ -8333,7 +8333,7 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 // ════════════════════════════════════════════════════════════════════
 // 정규 KRX 가격을 얻지 못했는데 FUND_NAV 행 날짜로 마감이 성공하는 오류 방지.
 function _countBusinessWeekdaysBetween(from, to) {
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(from) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(to) || from > to) return Infinity;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return Infinity;
   var count = 0;
   for (var date = _fundDateOffset(from, 1); date <= to; date = _fundDateOffset(date, 1)) {
     var day = new Date(date + 'T00:00:00Z').getUTCDay();
