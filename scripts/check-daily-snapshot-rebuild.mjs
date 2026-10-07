@@ -152,6 +152,14 @@ assert.match(portfolioData, /const retryGeneration = typeof getGsheetConnectionG
   '빈 원장 재시도도 URL 동일성 외 연결 세대 변경을 검사');
 assert.match(settings, /const forcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*rawTrades\.length === 0 \|\| forcePortfolioRestore[\s\S]*if \(rawTrades\.length === 0 \|\| forcePortfolioRestore\)/,
   '연결 변경 후에는 이전 연결의 메모리 거래가 있어도 현재 원격 포트폴리오를 강제 복원');
+assert.match(settings, /if \(forcePortfolioRestore\) \{[\s\S]*if \(!tradesLoaded \|\| !holdingsLoaded\) return false[\s\S]*rawTrades\.length = 0[\s\S]*else \{[\s\S]*rawHoldings\.length = 0[\s\S]*saveHoldings\(\{ skipGsheet: true \}\)/,
+  '연결 변경 강제 복원은 정상 빈 거래·보유 배열도 적용해 이전 연결 데이터를 제거');
+assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*_applyDivData/,
+  '배당 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
+assert.match(settings, /async function loadRealEstateSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*Object\.assign\(LOAN/,
+  '부동산 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
+assert.match(settings, /loadDividendSettings\(\{ targetUrl: loadTarget, generation: loadGeneration \}\)[\s\S]*loadRealEstateSettings\(\{ targetUrl: loadTarget, generation: loadGeneration \}\)/,
+  'loadSettings가 하위 복원 요청에도 시작 target/generation을 전달');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetUrl[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
 assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
@@ -185,7 +193,7 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261007-16/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-9/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-2/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-3/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
