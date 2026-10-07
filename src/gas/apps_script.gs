@@ -4,6 +4,7 @@
 //  v9.181 변경사항 (2026.10.07):
 //   GSheet 연결 변경 강제복원 안전성 보강: bootstrap 거래/보유 읽기 성공상태를 보존
 //   연결 전환 전 원격 포트폴리오 preflight 및 레거시 직접펀드 holdings 복원 계약 추가
+//   거래기반 Snapshot 재생성 시 현재 비거래 TDF/펀드의 기존 Snapshot 행을 삭제하지 않고 보존
 //
 //  v9.180 변경사항 (2026.10.07):
 //   19시 통합 마감 시작·단계·오류를 선행 기록하여 미완료/시간초과를 NEVER_RUN과 구분
@@ -7133,6 +7134,41 @@ function rebuildDailySnapshots(fromStr, toStr, options) {
   finally { if (ownsLock) lock.releaseLock(); }
 }
 
+function _currentNonTradeSnapshotHoldingNames(ss) {
+  var out = {};
+  var holdSh = ss.getSheetByName(CONFIG.SHEET_HOLD);
+  if (!holdSh || holdSh.getLastRow() < 2) return out;
+  var colCount = Math.max(7, holdSh.getLastColumn());
+  holdSh.getRange(2, 1, holdSh.getLastRow() - 1, colCount).getValues().forEach(function(row) {
+    var code = _cleanCode(row[0]) || String(row[0] || '').trim();
+    var name = String(row[1] || '').trim();
+    var qty = Number(row[2]) || 0;
+    var assetType = String(row[5] || '').trim();
+    if (!name || !(qty > 0) || code || (assetType !== 'TDF' && assetType !== '펀드')) return;
+    out[name] = true;
+  });
+  return out;
+}
+
+function _preserveCurrentNonTradeSnapshotRows(existingRows, expectedRows, nonTradeNames) {
+  var out = (expectedRows || []).slice();
+  if (!nonTradeNames || !Object.keys(nonTradeNames).length) return out;
+  var expectedNames = {};
+  out.forEach(function(row) {
+    var name = String(row && row[2] || '').trim();
+    if (name) expectedNames[name] = true;
+  });
+  (existingRows || []).forEach(function(row) {
+    var name = String(row && row[2] || '').trim();
+    if (!name || !nonTradeNames[name] || expectedNames[name]) return;
+    // 비거래 직접펀드는 취득일 이력이 없으므로 새 과거값을 만들지 않고, 해당 날짜에 이미
+    // 존재하던 Snapshot 행만 그대로 보존합니다.
+    out.push(row);
+    expectedNames[name] = true;
+  });
+  return out;
+}
+
 function _hasSnapshotHoldingsAtDate(ss, dateStr) {
   var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
   if (!tradeSh) return null;
@@ -7165,10 +7201,12 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr, options) {
   var rebuildOperationId = 'rebuildDailySnapshots|' + fromDate + '|' + toDate + '|' + Utilities.getUuid();
   _snapshotBackupOperationId = rebuildOperationId;
   var rebuildFundConfigs = _readFundUnits(ss);
+  var currentNonTradeHoldingNames = _currentNonTradeSnapshotHoldingNames(ss);
   try { Object.keys(dates).sort().forEach(function(date) {
     try {
       var rows = _buildSnapshotRowsFromTradeAndPriceHistory(ss, date, true);
       var existing = _readSnapshotRowsByDate(ss, date);
+      rows = _preserveCurrentNonTradeSnapshotRows(existing, rows, currentNonTradeHoldingNames);
       var rewritePlan = _snapshotRewritePlan(ss, date, rows, rebuildFundConfigs);
       if (!rows.length) {
         var hasHoldings = _hasSnapshotHoldingsAtDate(ss, date);
