@@ -1,0 +1,56 @@
+name: OPS 20261007 GAS executions and public KRX availability
+on:
+  push:
+    paths: [.github/workflows/ops-execution-source-diagnostic.yml]
+    branches: [ops/diagnose-close-nav-20261007]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GAS_SCRIPT_ID: ${{ vars.GAS_SCRIPT_ID }}
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+    steps:
+      - name: Inspect GAS process history without logs or secrets
+        run: |
+          node --input-type=module <<'NODE'
+          let token='';
+          try{
+            const raw=JSON.parse(process.env.CLASPRC_JSON||'{}');
+            const c=raw.tokens?.default||raw.token&&raw.oauth2ClientSettings&&{
+              refresh_token:raw.token.refresh_token,client_id:raw.oauth2ClientSettings.clientId,client_secret:raw.oauth2ClientSettings.clientSecret
+            }||raw;
+            if(!c.client_id||!c.client_secret||!c.refresh_token)throw Error('NO_OAUTH_REFRESH_TOKEN');
+            const body=new URLSearchParams({grant_type:'refresh_token',client_id:c.client_id,client_secret:c.client_secret,refresh_token:c.refresh_token});
+            const resp=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body,signal:AbortSignal.timeout(16000)});
+            const data=await resp.json();
+            if(!resp.ok||!data.access_token)throw Error('OAUTH_TOKEN_HTTP_'+resp.status);
+            token=data.access_token;
+            const url=new URL('https://script.googleapis.com/v1/processes');
+            url.searchParams.set('userProcessFilter.scriptId',process.env.GAS_SCRIPT_ID||'');
+            url.searchParams.set('pageSize','100');
+            const out=await fetch(url,{headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(18000)});
+            const z=await out.json();
+            console.log('EXECUTIONS',JSON.stringify({http:out.status,error:z.error?.status,
+              message:String(z.error?.message||'').slice(0,200),
+              n:z.processes?.length??0,next:!!z.nextPageToken,
+              events:(z.processes||[]).slice(0,80).map(x=>({
+                f:x.functionName,type:x.type,status:x.processStatus||x.status,
+                start:x.startTime,duration:x.duration,
+                platform:x.processType
+              }))}));
+          }catch(err){console.log('EXECUTIONS',JSON.stringify({failed:String(err.message).slice(0,100)}))}
+          try {
+            const form=new URLSearchParams({locale:'ko_KR',mktId:'ALL',trdDd:'20261006',
+              share:'1',money:'1',csvxls_isNo:'false',name:'fileDown',url:'dbms/MDC/STAT/standard/MDCSTAT01501'});
+            const r=await fetch('https://data.krx.co.kr/comm/fileDn/GenerateOTP/generate.cmd',
+              {method:'POST',body:form,headers:{'User-Agent':'Mozilla/5.0 (compatible; AppsScript)',
+              Referer:'https://data.krx.co.kr/contents/MDC/MDI/mdiLoader'},
+              signal:AbortSignal.timeout(12000)});
+            const v=await r.text();
+            console.log('OTP_PUBLIC_PROBE',JSON.stringify({http:r.status,bodySize:v.length,
+              validCode:r.ok&&v.length>=8&&!v.trim().startsWith('<'),html:v.trim().startsWith('<')}));
+          }catch(e){console.log('OTP_PUBLIC_PROBE',JSON.stringify({error:e.name}))}
+          NODE
