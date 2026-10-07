@@ -8,6 +8,11 @@ assert.doesNotMatch(source.match(/function _getFundNavStatus[\s\S]*?\n}/)?.[0] |
 assert.doesNotMatch(editorSource.match(/function _renderFundNavStatus[\s\S]*?\n}/)?.[0] || '', /completedDates/, '좌수 화면 초기 DOM에 전체 완료 날짜를 생성하면 안 됩니다.');
 assert.match(source.match(/function handleGetFundUnits[\s\S]*?\n}/)?.[0] || '', /performance:[\s\S]*navStatusMs:[\s\S]*priceHistoryRows:[\s\S]*snapshotRows:/, '좌수 초기 조회 성능과 읽은 행 수를 응답해야 합니다.');
 assert.match(source,/SYSTEM_BACKUP_KEEP_BY_SOURCE = \{ '스냅샷': 0, '거래이력': 0, '가격이력': 0, '펀드기준가격': 0, '펀드좌수': 0, '종목코드': 0 \}/,'정상 완료 system backup 0개 정책');
+const unitReconcileSource=source.slice(source.indexOf('function _reconcileFundUnitDerivedRows'),source.indexOf('function handleSaveFundUnits'));
+assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, navSh, FUND_NAV_SHEET\)/,'좌수 정정 NAV 직접 쓰기 전 backup');
+assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, ph, CONFIG\.SHEET_PH\)/,'좌수 정정 가격이력 직접 쓰기 전 backup');
+assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, snap, CONFIG\.SHEET_SNAPSHOT\)/,'좌수 정정 Snapshot 직접 쓰기 전 backup');
+assert.match(unitReconcileSource,/WRITE_FAILED/,'좌수 정정 파생 쓰기 실패 backup 보존');
 assert.match(source,/var deletable = candidates\.slice\(keep\)/,'COMPLETED 보존 초과 백업을 자동 정리');
 assert.doesNotMatch(source,/item\.status === 'WRITE_FAILED'.*newestCompletedAt/,'더 최신 성공본만으로 WRITE_FAILED 해제 금지');
 assert.match(source,/registeredFailed[\s\S]*validatedOperationIds\[item\.operationId\]/,'명시적 VALID operationId 증거로만 WRITE_FAILED 정리');
