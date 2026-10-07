@@ -525,36 +525,51 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     const restoreInProgress = typeof _gsPortfolioRestoreRequired !== 'undefined'
       && _gsPortfolioRestoreRequired === true;
 
+    const currentRecoverySignature = () => JSON.stringify({
+      trades: rawTrades,
+      holdings: rawHoldings,
+      fundDirect: typeof fundDirect === 'object' && fundDirect ? fundDirect : {}
+    });
+
     const syncCurrentTrades = async () => {
       // 강제 복원 중 rawTrades/rawHoldings는 이전 연결의 메모리일 수 있으므로 절대 복구 payload로 쓰지 않습니다.
       if (restoreInProgress) return false;
       if (rawTrades.length === 0) return false;
-      const recoveryTrades = rawTrades.map(t => ({ ...t }));
-      const recoveryHoldings = rawHoldings.map(h => ({ ...h }));
-      const [holdingsResult, tradesResult] = await Promise.all([
-        typeof syncHoldingsToGsheet === 'function'
-          ? syncHoldingsToGsheet({
-              targetUrl: retryTarget,
-              generation: retryGeneration,
-              allowDuringRestore,
-              holdingsOverride: recoveryHoldings
-            })
-          : Promise.resolve(null),
-        typeof syncTradesToGsheet === 'function'
-          ? syncTradesToGsheet({
-              targetUrl: retryTarget,
-              generation: retryGeneration,
-              allowDuringRestore,
-              tradesOverride: recoveryTrades
-            })
-          : Promise.resolve(null)
-      ]);
-      const holdingsOk = holdingsResult?.status === 'ok';
-      const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
-      if (holdingsOk && tradesOk) {
+
+      // single-flight에 합류한 저장이 캡처 이후 상태를 바꿀 수 있으므로,
+      // 성공 응답 뒤 현재 상태가 달라졌으면 같은 실행에서 최신 payload를 다시 보냅니다.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const recoverySignature = currentRecoverySignature();
+        const recoveryTrades = rawTrades.map(t => ({ ...t }));
+        const recoveryHoldings = rawHoldings.map(h => ({ ...h }));
+        const [holdingsResult, tradesResult] = await Promise.all([
+          typeof syncHoldingsToGsheet === 'function'
+            ? syncHoldingsToGsheet({
+                targetUrl: retryTarget,
+                generation: retryGeneration,
+                allowDuringRestore,
+                holdingsOverride: recoveryHoldings
+              })
+            : Promise.resolve(null),
+          typeof syncTradesToGsheet === 'function'
+            ? syncTradesToGsheet({
+                targetUrl: retryTarget,
+                generation: retryGeneration,
+                allowDuringRestore,
+                tradesOverride: recoveryTrades
+              })
+            : Promise.resolve(null)
+        ]);
+        const holdingsOk = holdingsResult?.status === 'ok';
+        const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
+        if (!holdingsOk || !tradesOk) break;
+        if (currentRecoverySignature() !== recoverySignature) continue;
+
         if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
         return true;
       }
+
+      // 안정된 최신 상태까지 확정하지 못하면 pending을 남겨 다음 저장/새로고침에서 재시도합니다.
       if (!options?.quiet && typeof showToast === 'function') {
         showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
       }
