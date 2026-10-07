@@ -497,7 +497,7 @@ function deleteSelectedTrades() {
     showToast('삭제된 항목이 없어요. 페이지를 새로고침 후 다시 시도해보세요.', 'warn');
     return;
   }
-  _commitTrades();
+  _commitTrades({ allowEmptyTradeSync: before > 0 && rawTrades.length === 0 });
 }
 
 // ★ [계좌별 taxType] 선택된 거래이력 계좌 일괄 변경
