@@ -222,8 +222,8 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetU
   '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
 assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '거래원장 동기화는 캡처 payload를 지원하되 allowEmpty 없이는 빈 override 삭제를 차단');
-assert.match(portfolioData, /rawTrades\.length > 0[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration[\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration,[\s\S]*tradesOverride: recoveryTrades[\s\S]*Promise\.all[\s\S]*if \(holdingsOk && tradesOk\)[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
-  'pending 뒤 새 거래는 현재 거래·보유를 고정 target/generation에 동기화하고 둘 다 성공한 뒤에만 repair token 제거');
+assert.match(portfolioData, /const recoverySignature = currentRecoverySignature\(\)[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*const recoveryHoldings = rawHoldings\.map\(h => \(\{ \.\.\.h \}\)\)[\s\S]*Promise\.all\(\[[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration[\s\S]*holdingsOverride: recoveryHoldings[\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration[\s\S]*tradesOverride: recoveryTrades[\s\S]*if \(!holdingsOk \|\| !tradesOk\) break[\s\S]*currentRecoverySignature\(\) !== recoverySignature[\s\S]*continue[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
+  'pending 뒤 새 거래는 고정 payload를 동기화하고 캡처 이후 변경을 재전송한 뒤에만 repair token 제거');
 assert.doesNotMatch(portfolioData, /else if \(rawTrades\.length > 0 && _getPendingExplicitEmptyTradeSync\(\)\)[\s\S]{0,220}_setPendingExplicitEmptyTradeSync\(null\)/,
   '새 거래가 생겨도 원격 성공 전에 repair token을 조기 폐기하지 않음');
 assert.match(portfolioData, /const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)[\s\S]*await _retryPendingExplicitEmptyTradeSync\(\)/,
@@ -238,6 +238,10 @@ assert.ok(
   settings.indexOf('Object.assign(fundDirect, s.fundDirect)') < settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true })'),
   '빈 원장 재시도 전에 fundDirect를 먼저 복원해 비거래 보유현황 삭제를 방지'
 );
+assert.match(settings, /const pendingHoldingsPromise = !pendingEmptySyncAtLoad[\s\S]*Array\.isArray\(data\.holdings\)[\s\S]*requestGsheetActionJson\([\s\S]*'getHoldings'/,
+  'pending 처리 전 bootstrap 또는 fallback holdings에서 레거시 직접펀드 원천을 읽음');
+assert.match(settings, /const pendingHoldingsLoaded = !!\([\s\S]*pendingHoldingsData\.status === 'ok'[\s\S]*if \(!pendingHoldingsLoaded\) return false[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*fundDirect\[h\.name\]/,
+  '레거시 holdings 읽기 성공 시 직접펀드를 먼저 복원하고 읽기 실패 시 빈 holdings 쓰기를 중단');
 assert.ok(
   settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true })') < settings.indexOf('// ── 거래이력 복원'),
   '영속 pending 재시도는 원격 거래/보유 복원 적용 전에 수행'
