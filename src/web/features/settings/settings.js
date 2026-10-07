@@ -331,12 +331,23 @@ async function loadSettings(onProgress) {
     // 설정·배당·부동산 처리와 동시에 거래/보유 시트를 미리 읽습니다.
     // 기존에는 모든 설정 복원이 끝난 뒤 순차 요청해 주식 데이터 표시가 불필요하게 늦었습니다.
     const shouldRestorePortfolio = rawTrades.length === 0 || forcePortfolioRestore;
+    const bootstrapPortfolioStatus = isBootstrap && data.portfolioReadStatus && typeof data.portfolioReadStatus === 'object'
+      ? data.portfolioReadStatus
+      : null;
+    // 구버전 GAS는 하위 읽기 성공 여부가 없으므로 일반 초기복원은 기존 동작을 유지하되,
+    // 연결 변경 강제복원에서는 "빈 배열"을 성공으로 추정하지 않습니다.
+    const bootstrapTradesOk = bootstrapPortfolioStatus
+      ? bootstrapPortfolioStatus.tradesOk === true
+      : !forcePortfolioRestore;
+    const bootstrapHoldingsOk = bootstrapPortfolioStatus
+      ? bootstrapPortfolioStatus.holdingsOk === true
+      : !forcePortfolioRestore;
     const portfolioRestorePromise = blockRemotePortfolioRestore
       ? null
       : shouldRestorePortfolio && isBootstrap
       ? Promise.resolve([
-          { status: 'ok', trades: Array.isArray(data.trades) ? data.trades : [] },
-          { status: 'ok', holdings: Array.isArray(data.holdings) ? data.holdings : [] },
+          { status: bootstrapTradesOk ? 'ok' : 'error', trades: Array.isArray(data.trades) ? data.trades : [] },
+          { status: bootstrapHoldingsOk ? 'ok' : 'error', holdings: Array.isArray(data.holdings) ? data.holdings : [] },
         ])
       : shouldRestorePortfolio
       ? Promise.all([
@@ -406,9 +417,11 @@ async function loadSettings(onProgress) {
       });
     }
     // fundDirect
-    if (s.fundDirect && typeof s.fundDirect === 'object') {
+    // 연결 변경 강제 복원에서는 키 자체가 없는 신규/레거시 원격도 "직접펀드 없음"으로 취급해
+    // 이전 연결의 TDF/직접펀드가 새 연결에 남지 않도록 먼저 비웁니다.
+    if (forcePortfolioRestore || (s.fundDirect && typeof s.fundDirect === 'object')) {
       Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
-      Object.assign(fundDirect, s.fundDirect);
+      if (s.fundDirect && typeof s.fundDirect === 'object') Object.assign(fundDirect, s.fundDirect);
     }
     // SAVED_PRICES / SAVED_PRICE_DATES (기기 간 현재가 일치)
     if (s.SAVED_PRICES && typeof s.SAVED_PRICES === 'object') {
