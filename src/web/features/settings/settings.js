@@ -41,6 +41,8 @@ let _dividendSaveQueue = Promise.resolve();
 let _saveRealEstateTimer = null;
 let _saveSettingsWaiters = [];
 let _saveRealEstateWaiters = [];
+let _saveSettingsPendingKey = '';
+let _saveRealEstatePendingKey = '';
 
 const TAB_SYNC_STATUS_KEY = 'tab_sync_status';
 let TAB_SYNC_STATUS = lsGet(TAB_SYNC_STATUS_KEY, {});
@@ -105,31 +107,40 @@ function saveDividendSettings(_immediate, options) {
 
 function saveRealEstateSettings(immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
-  const expectedGeneration = Number.isInteger(options?.generation) ? options.generation : null;
+  const expectedGeneration = Number.isInteger(options?.generation)
+    ? options.generation
+    : getGsheetConnectionGeneration();
   if (!targetUrl) return Promise.resolve(false);
-  clearTimeout(_saveRealEstateTimer);
+  const pendingKey = targetUrl + '|' + expectedGeneration;
+  const payload = JSON.stringify({
+    LOAN,
+    REAL_ESTATE,
+    LOAN_SCHEDULE,
+    RE_VALUE_HIST,
+  });
+  if (_saveRealEstateTimer) {
+    clearTimeout(_saveRealEstateTimer);
+    if (_saveRealEstatePendingKey && _saveRealEstatePendingKey !== pendingKey) {
+      const staleWaiters = _saveRealEstateWaiters;
+      _saveRealEstateWaiters = [];
+      staleWaiters.forEach(done => done(false));
+    }
+  }
+  _saveRealEstatePendingKey = pendingKey;
   const delay = immediate ? 0 : 2500;
   return new Promise(resolve => {
     _saveRealEstateWaiters.push(resolve);
     _saveRealEstateTimer = setTimeout(async () => {
       const waiters = _saveRealEstateWaiters;
       _saveRealEstateWaiters = [];
+      _saveRealEstateTimer = null;
+      _saveRealEstatePendingKey = '';
       let ok = false;
       try {
-        if (expectedGeneration !== null
-            && !isGsheetConnectionCurrent(targetUrl, expectedGeneration)) {
-          waiters.forEach(done => done(false));
-          return;
-        }
-        const payload = {
-          LOAN,
-          REAL_ESTATE,
-          LOAN_SCHEDULE,
-          RE_VALUE_HIST,
-        };
+        if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return;
         const data = await requestGsheetFormJson(
           'saveRealEstateSettings',
-          { data: JSON.stringify(payload) },
+          { data: payload },
           { timeoutMs: 15000, retry: 1, targetUrl }
         );
         if (!data) throw new Error('네트워크 오류');
@@ -240,47 +251,54 @@ async function loadDividendSettings(options) {
 
 function saveSettings(immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
-  const expectedGeneration = Number.isInteger(options?.generation) ? options.generation : null;
+  const expectedGeneration = Number.isInteger(options?.generation)
+    ? options.generation
+    : getGsheetConnectionGeneration();
   if (!targetUrl) return Promise.resolve(false);
-  clearTimeout(_saveSettingsTimer);
+  const pendingKey = targetUrl + '|' + expectedGeneration;
+  const settings = {
+    ACCT_COLORS,
+    ACCT_ORDER,
+    SECTOR_COLORS,
+    fundDirect,
+    EDITABLE_PRICES,
+    ACCT_TAX_TYPES,
+    ACCOUNTS_MASTER,
+    SAVED_PRICES: savedPrices,
+    SAVED_PRICE_DATES: savedPriceDates,
+    APP_THEME: (typeof lsGet === 'function') ? lsGet('app_theme', 'ocean') : 'ocean',
+    APP_THEME_MODE: (typeof lsGet === 'function') ? lsGet('app_theme_mode', 'dark') : 'dark',
+    APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'pretendard') : 'pretendard',
+    DIVDATA,
+    LOAN,
+    REAL_ESTATE,
+    LOAN_SCHEDULE,
+    RE_VALUE_HIST,
+  };
+  const payload = JSON.stringify(settings);
+  if (_saveSettingsTimer) {
+    clearTimeout(_saveSettingsTimer);
+    if (_saveSettingsPendingKey && _saveSettingsPendingKey !== pendingKey) {
+      const staleWaiters = _saveSettingsWaiters;
+      _saveSettingsWaiters = [];
+      staleWaiters.forEach(done => done(false));
+    }
+  }
+  _saveSettingsPendingKey = pendingKey;
   const delay = immediate ? 0 : 4000;
   return new Promise(resolve => {
     _saveSettingsWaiters.push(resolve);
     _saveSettingsTimer = setTimeout(async () => {
       const waiters = _saveSettingsWaiters;
       _saveSettingsWaiters = [];
+      _saveSettingsTimer = null;
+      _saveSettingsPendingKey = '';
       let ok = false;
       try {
-        if (expectedGeneration !== null
-            && !isGsheetConnectionCurrent(targetUrl, expectedGeneration)) {
-          waiters.forEach(done => done(false));
-          return;
-        }
-        const settings = {
-          ACCT_COLORS,
-          ACCT_ORDER,
-          SECTOR_COLORS,
-          fundDirect,
-          EDITABLE_PRICES,
-          // ★ [계좌별 taxType] 계좌→세금구분 매핑 저장
-          ACCT_TAX_TYPES,
-          ACCOUNTS_MASTER,
-          SAVED_PRICES: savedPrices,
-          SAVED_PRICE_DATES: savedPriceDates,
-          APP_THEME: (typeof lsGet === 'function') ? lsGet('app_theme', 'ocean') : 'ocean',
-          APP_THEME_MODE: (typeof lsGet === 'function') ? lsGet('app_theme_mode', 'dark') : 'dark',
-          APP_FONT: (typeof lsGet === 'function') ? lsGet('app_font', 'pretendard') : 'pretendard',
-          // 하위 호환: 별도 시트 액션(save/getDividendSettings, save/getRealEstateSettings)
-          // 이 없는 Apps Script에서도 Settings 시트에 함께 저장해 복원 가능하도록 유지
-          DIVDATA,
-          LOAN,
-          REAL_ESTATE,
-          LOAN_SCHEDULE,
-          RE_VALUE_HIST,
-        };
+        if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return;
         const data = await requestGsheetFormJson(
           'saveSettings',
-          { data: JSON.stringify(settings) },
+          { data: payload },
           { timeoutMs: 15000, retry: 1, targetUrl }
         );
         if (!data) throw new Error('네트워크 오류');
