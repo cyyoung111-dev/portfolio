@@ -51,6 +51,13 @@ const reverse = holdingsAtDate([...trades, ['2026-01-09', 'reverse_split', 'A', 
 assert.equal(reverse.qty, 5);
 assert.equal(reverse.costAmt, 750);
 
+// 과거 일반 종목 매수수량 정정은 같은 평가단가에서 평가금액까지 즉시 달라져야 합니다.
+const originalPast = holdingsAtDate(trades, '2026-01-03').삼성전자;
+const correctedPastTrades = trades.map(row => row[0] === '2026-01-02' && row[4] === '005930'
+  ? [row[0], row[1], row[2], row[3], row[4], 12, row[6], row[7], row[8], row[9]] : row);
+const correctedPast = holdingsAtDate(correctedPastTrades, '2026-01-03').삼성전자;
+assert.equal(originalPast.qty, 10);
+assert.equal(correctedPast.qty, 12,'과거 거래수량 정정 반영');
 // 가격·환율이 확정되지 않으면 기존 Snapshot을 덮지 않는 정책 모델
 function buildValue(position, close, fx = 1) {
   if (!(close > 0) || !(fx > 0)) return null;
@@ -58,6 +65,8 @@ function buildValue(position, close, fx = 1) {
   return { evalAmt, pnl: evalAmt - position.costAmt };
 }
 const position = { qty: 2, costAmt: 1000 };
+assert.deepEqual(buildValue(originalPast, 700), { evalAmt: 7000, pnl: 6000 },'정정 전 과거 평가금액');
+assert.deepEqual(buildValue(correctedPast, 700), { evalAmt: 8400, pnl: 7200 },'수량 10→12 정정 후 과거 평가금액 자동 재계산');
 assert.equal(buildValue(position, 0), null);
 assert.equal(buildValue(position, 100, 0), null);
 assert.deepEqual(buildValue(position, 700), { evalAmt: 1400, pnl: 400 });
