@@ -253,9 +253,9 @@ async function loadHistoryChart(retryAttempt = 0) {
     // 두 비동기 조회가 모두 최신 요청으로 확인된 뒤 한 번에 화면 상태를 교체합니다.
     // 백그라운드 현재가 갱신이나 실패한 재조회가 마지막 정상 그래프·경고를 지우지 않습니다.
     __histState.snapshots = snapshots;
-    __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
+    __histState.missingSnapshotDates = sourceRecomputed ? [] : coverage.missing.map(item => item.targetDate);
     _renderHistoryDateDetail(snapshots);
-    _renderHistoryCoverage(coverageEl, coverage, mode);
+    _renderHistoryCoverage(coverageEl, coverage, mode, sourceRecomputed);
     if (sourceRecomputed) _renderHistorySourceCoverage(coverageEl, data.sourceSummary, snapshots);
     else {
       _renderHistoryIntegrityWarnings(coverageEl, integrityDiagnostics, rangeDiagnosisFailed, snapshots.length);
@@ -307,7 +307,7 @@ function _renderHistoryDateDetail(snapshots) {
     const after = list.find(item => _histDateKey(item.date || '') > selected);
     const nearby = [before && `직전 ${_fmtHistDateCompact(before.date)}`, after && `직후 ${_fmtHistDateCompact(after.date)}`].filter(Boolean).join(' · ');
     wrap.innerHTML = `<div style="margin:-2px 0 12px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.68rem;color:var(--text)">
-      ⚠️ ${_escapeHtml(selected)} 손익 스냅샷이 없습니다.${nearby ? ` <span style="color:var(--muted)">${_escapeHtml(nearby)}</span>` : ''}
+      ⚠️ ${_escapeHtml(selected)} 평가 가능한 원자료 손익이 없습니다.${nearby ? ` <span style="color:var(--muted)">${_escapeHtml(nearby)}</span>` : ''}
     </div>`;
     return;
   }
@@ -456,8 +456,17 @@ async function _loadHistoryDateItems(date) {
     <div class="tbl-wrap"><table><thead><tr><th>종목명</th><th>종목코드</th><th class="num">수량</th><th class="num">매입단가</th><th class="num">평가단가</th><th class="num">매입금액</th><th class="num">평가금액</th><th class="num">손익</th><th class="num">수익률</th><th>가격소스</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-function _renderHistoryCoverage(el, coverage, mode) {
+function _renderHistoryCoverage(el, coverage, mode, sourceRecomputed) {
   if (!el) return;
+  if (sourceRecomputed) {
+    const missing = Array.isArray(coverage?.missing) ? coverage.missing : [];
+    // 원자료 부족일은 기존 Snapshot 저장 버튼으로 복구할 수 없습니다.
+    // 혼동을 막기 위해 read-only 계산에서는 Snapshot 수기 복구 UI를 노출하지 않습니다.
+    el.innerHTML = missing.length
+      ? `<div style="font-size:.66rem;color:var(--amber);margin:-2px 0 8px">⚠️ 선택 기간에 원자료로 재구성할 수 없는 날짜 후보 ${missing.length}개가 있습니다. 확인된 가격·NAV·환율을 다시 확보하면 자동 재계산됩니다.</div>`
+      : '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 원자료 기반 평가일이 연결되어 있습니다.</div>';
+    return;
+  }
   const missing = Array.isArray(coverage?.missing) ? coverage.missing : [];
   const repairResult = __histState.repairResult;
   const resultHtml = repairResult
