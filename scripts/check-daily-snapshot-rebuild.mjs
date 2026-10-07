@@ -81,8 +81,8 @@ assert.equal(carry.price, 720);
 assert.equal(confirmed.filter(x => x.date <= '2026-01-06').at(-1)?.price, undefined);
 
 // 구현 계약: Snapshot은 원자료만 읽고, persist=false는 Snapshot 저장 경로를 타지 않는다.
-assert.match(gas, /function rebuildDailySnapshots\(fromStr, toStr\)/);
-assert.match(gas, /function _collectDailySnapshotDates\(ss, fromDate, toDate\)/);
+assert.match(gas, /function rebuildDailySnapshots\(fromStr, toStr, options\)/);
+assert.match(gas, /function _collectDailySnapshotDates\(ss, fromDate, toDate, options\)/);
 assert.match(gas, /function _getHistoricalExchangeRates\(ss, currencies, dateStr\)/);
 assert.match(gas, /function _getFundEvaluationAtDate\(ss, code, dateStr\)/);
 assert.match(gas, /getRange\(2, 1, tradeSh\.getLastRow\(\) - 1, Math\.min\(11, tradeSh\.getLastColumn\(\)\)\)/);
