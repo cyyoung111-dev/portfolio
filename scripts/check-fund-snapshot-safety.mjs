@@ -901,13 +901,14 @@ const activeCatalog=context._getFundCodeCatalog(ssFor(sheets),context._readFundU
 assert.equal(activeCatalog.find(item=>item.code==='F00001').currentHolding,true,'양수 좌수 상태의 현재 보유 F코드는 현재 보유로 분류');
 fundNav.rows.push(['2026-01-04','F00001','테스트 펀드',1200,'2026-01-04',2000,2400,'','HANWHA_2045_CRPE']);
 prices.rows.push(['2026-01-04','F00001','테스트 펀드',2400,'','FUND_NAV']);
-sheets['스냅샷']=new Sheet([header,snap('2026-01-04','F00001',2400,'FUND_NAV')]);
+sheets['스냅샷']=new Sheet([header,snap('2026-01-04','F00001',2400,'MANUAL')]);
 const zeroCorrection=saveConfig('2026-01-04',0);
 assert.equal(zeroCorrection.status,'ok');
 assert.equal(fundNav.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[5],0,'0좌 전환 NAV 파생 좌수 0');
 assert.equal(fundNav.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[6],0,'0좌 전환 평가금액 0');
 assert.equal(prices.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[3],0,'0좌 이후 파생 가격 0');
-assert.equal(sheets['스냅샷'].rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[7],0,'0좌 이후 Snapshot 평가 0');
+assert.equal(sheets['스냅샷'].rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[7],0,'0좌는 기존 MANUAL Snapshot보다 우선하여 평가 0');
+assert.equal(sheets['스냅샷'].rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[10],'FUND_NAV_ZERO_UNITS','0좌 Snapshot source도 명시');
 assert.equal(saveConfig('2026-01-05','').status,'error');
 assert.equal(saveConfig('2026-01-05',1000,'__proto__').status,'error');
 assert.equal(saveConfig('2026-01-05',1e30).status,'error');
