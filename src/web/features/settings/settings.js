@@ -373,13 +373,14 @@ async function persistRealEstateSettings(immediate, options) {
 //  의존: settings_constants.js, settings_net.js, settings_persistence.js
 // ════════════════════════════════════════════════════════════════
 
-async function loadSettings(onProgress) {
+async function loadSettings(onProgress, options) {
   const prog = onProgress || function(){};
   if (!GSHEET_API_URL) return false;
   const loadTarget = String(GSHEET_API_URL || '').trim();
   const loadGeneration = getGsheetConnectionGeneration();
   const isLoadConnectionCurrent = () => isGsheetConnectionCurrent(loadTarget, loadGeneration);
-  const forcePortfolioRestore = _gsPortfolioRestoreRequired === true;
+  const forcePortfolioRestore = _gsPortfolioRestoreRequired === true
+    || options?.forcePortfolioRestore === true;
   // 마지막 거래 삭제가 원격에 완전히 반영되기 전 새로고침된 경우,
   // 원격의 과거 거래를 다시 복원하기 전에 영속 pending 삭제를 먼저 재시도합니다.
   const pendingEmptySyncAtLoad = typeof _getPendingExplicitEmptyTradeSync === 'function'
