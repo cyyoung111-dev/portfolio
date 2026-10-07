@@ -5060,8 +5060,11 @@ function handleSaveFundUnits(dataJson) {
     affectedTo = _fundUnitsImpactEnd(ss, savedConfigs, code, startDate);
     reconciliation = _reconcileFundUnitDerivedRows(ss, code, provider, startDate, affectedTo);
     _ensurePortfolioCloseDailyTrigger(true);
-    return jsonOk({ saveState: 'success', configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19,
-      mode: mode, affectedFrom: affectedFrom, affectedTo: affectedTo, reconciliation: reconciliation });
+    var followupRequired = !!(reconciliation && Number(reconciliation.missingNav || 0) > 0);
+    return jsonOk({ saveState: followupRequired ? 'partial' : 'success', configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19,
+      mode: mode, affectedFrom: affectedFrom, affectedTo: affectedTo, reconciliation: reconciliation,
+      followupRequired: followupRequired,
+      message: followupRequired ? '좌수 원본은 저장됐지만 일부 과거 파생 평가를 다시 계산할 확정 NAV가 부족합니다.' : '' });
   } catch (err) {
     if (sourcePersisted) return jsonError('좌수 원본은 저장됐지만 후속 재계산이 완료되지 않았습니다: ' + err.message, {
       saveState: 'partial', affectedFrom: affectedFrom, affectedTo: affectedTo,
@@ -10563,12 +10566,18 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       var forceEmptyDate = !!(allowEmptyOverwrite && overwrite && !newRows.length);
       var mergedDate = forceEmptyDate ? [] : _mergeSnapshotRowsSafely(sameDate, mergeIncomingRows, overwrite, manualKeys);
       if (overwrite && !forceEmptyDate) {
-        var expectedKeys = {};
-        newRows.forEach(function(row) { expectedKeys[_cleanCode(row[1]) || String(row[2] || '').trim()] = true; });
+        var expectedKeys = {}, expectedNames = {};
+        newRows.forEach(function(row) {
+          expectedKeys[_cleanCode(row[1]) || String(row[2] || '').trim()] = true;
+          var expectedName = String(row[2] || '').trim();
+          if (expectedName) expectedNames[expectedName] = true;
+        });
         mergedDate = mergedDate.filter(function(row) {
           var key = _cleanCode(row[1]) || String(row[2] || '').trim();
-          // MANUAL도 현재 기대 보유목록에 있는 종목만 보호합니다. 전량매도되어 expected에서 사라진 종목은 stale Snapshot으로 제거합니다.
-          return expectedKeys[key] || protectedDuplicateKeys[key];
+          var name = String(row[2] || '').trim();
+          // 코드 없는 레거시 MANUAL 행도 같은 종목명이 현재 기대 보유목록에 있으면 보존합니다.
+          // 실제 전량매도로 코드/이름 모두 expected에서 사라진 MANUAL만 stale Snapshot으로 제거합니다.
+          return expectedKeys[key] || expectedNames[name] || protectedDuplicateKeys[key];
         });
       }
       // dedupe된 signature가 같아도 raw 원장에 중복이 있으면 반드시 rewrite합니다.
