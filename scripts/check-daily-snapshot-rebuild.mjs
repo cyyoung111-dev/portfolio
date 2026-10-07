@@ -7,6 +7,7 @@ const ui = fs.readFileSync('src/web/core/core_ui.js', 'utf8');
 const history = fs.readFileSync('src/web/views/views_history.js', 'utf8');
 const pipeline = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const html = fs.readFileSync('src/web/index.html', 'utf8');
+const sync = fs.readFileSync('src/web/features/settings/settings_sync.js', 'utf8');
 
 function holdingsAtDate(rows, date) {
   const map = {};
@@ -110,6 +111,11 @@ assert.match(gas, /FUND_NAV_SHEET, \[0, 4\]/);
 assert.match(gas, /addSheetDates\(CONFIG\.SHEET_SNAPSHOT, \[0\]\)/,'기존 Snapshot도 과거 거래 변경 비교 대상에 포함');
 assert.match(gas, /var affectedFrom = _earliestChangedTradeDate\(previousRows, currentRows\)/,'거래 추가·수정·삭제 최초 영향일 계산');
 assert.match(gas, /rebuildDailySnapshots\(affectedFrom, affectedTo\)/,'최초 영향일부터 마지막 확정 Snapshot까지 공통 계산기로 갱신');
+assert.match(gas.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /saveState: 'partial'[\s\S]*followupRequired: true/,
+  '거래원장 저장 후 Snapshot 재생성 실패는 partial 상태로 구분');
+assert.match(sync, /data\.saveState === 'partial'[\s\S]*일부 반영:[\s\S]*영향기간/,
+  '웹 거래동기화도 partial 상태를 사용자에게 명확히 표시');
+assert.match(html, /settings_sync\.js\?v=20261007-10/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(gas, /rebuildOperationId = 'rebuildDailySnapshots\|'[\s\S]*_snapshotBackupOperationId = rebuildOperationId/,'다일자 재생성은 작업 단위 백업 재사용');
 
 // KOSDAQ 선택·라벨·시각화·확정 기준 표시
