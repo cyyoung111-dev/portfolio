@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.175
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.176
+//
+//  v9.176 변경사항 (2026.10.07):
+//   손익 Snapshot 충돌 분류 요약과 Toss/KRX 현재가 provider 실행 상태 노출
 //
 //  v9.175 변경사항 (2026.10.07):
 //   통합 마감 트리거의 레거시/중복 잔존까지 일일 자동 점검에서 복구
@@ -1560,7 +1563,7 @@ function _normalizeTossSymbol_(value) {
   return symbol.replace(/^A(?=\d{6}$)/, '');
 }
 
-function fetchPricesToss(items, timings) {
+function fetchPricesToss(items, timings, providerMeta) {
   var requestedBySymbol = {};
   var symbols = (items || []).map(function(item) {
     var requested = _tossSymbol_(item);
@@ -1568,7 +1571,20 @@ function fetchPricesToss(items, timings) {
     if (normalized) requestedBySymbol[normalized] = requested || normalized;
     return normalized;
   }).filter(Boolean);
-  if (!symbols.length || symbols.length > 200 || !_tossProperties_().id) return {};
+  var credentials = _tossProperties_();
+  if (!symbols.length || symbols.length > 200 || !credentials.id || !credentials.secret) {
+    if (providerMeta) {
+      providerMeta.attempted = false;
+      providerMeta.status = 'NOT_RUN';
+      providerMeta.reason = !symbols.length ? 'NO_SYMBOLS' : (symbols.length > 200 ? 'TOO_MANY_SYMBOLS' : 'CREDENTIALS_NOT_CONFIGURED');
+    }
+    return {};
+  }
+  if (providerMeta) {
+    providerMeta.attempted = true;
+    providerMeta.status = 'REQUESTING';
+    providerMeta.reason = '';
+  }
   var payload = _tossRequest_('/api/v1/prices', { symbols: symbols.join(',') }, 'MARKET_DATA', timings);
   var rows = payload && Array.isArray(payload.result) ? payload.result : [];
   var prices = {};
@@ -1579,6 +1595,7 @@ function fetchPricesToss(items, timings) {
     var requestedCode = requestedBySymbol[symbol] || symbol;
     prices[requestedCode] = { price: price, currency: String(row.currency), timestamp: row.timestamp || null, source: 'TOSS', priceType: 'REALTIME', status: 'INDICATIVE', fetchedAt: new Date().toISOString() };
   });
+  if (providerMeta) providerMeta.status = Object.keys(prices).length > 0 ? 'SUCCESS' : 'EMPTY';
   return prices;
 }
 
@@ -3584,7 +3601,7 @@ function handleGetPricesCompat(codesParam, persist) {
     var cacheHash = Utilities.base64EncodeWebSafe(
       Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, cacheRaw)
     ).replace(/=+$/g, '').slice(0, 40);
-    var cacheKey = 'prices_v9110_p' + (persist ? '1' : '0') + '_' + cacheHash;
+    var cacheKey = 'prices_v9176_p' + (persist ? '1' : '0') + '_' + cacheHash;
     var cached = cache.get(cacheKey);
     _priceTimingAdd_(timings, 'setup', setupStartedMs);
     if (cached) {
@@ -3624,6 +3641,9 @@ function handleGetPricesCompat(codesParam, persist) {
       requestedCount: reqCodes.length,
       usdItemPresent: false,
       tossResultCount: 0,
+      tossAttempted: false,
+      tossStatus: 'NOT_RUN',
+      tossReason: '',
       krxExecuted: false,
       krxResultCount: 0,
       krxElapsedMs: 0,
@@ -3661,7 +3681,18 @@ function handleGetPricesCompat(codesParam, persist) {
       });
       lookupMeta.usdItemPresent = _hasUsdPriceItems(targetItems);
       var tossPrices = {};
-      try { tossPrices = fetchPricesToss(targetItems, timings); } catch(e) { Logger.log('⚠️ Toss 현재가 실패: ' + e.message); }
+      var tossProviderMeta = { attempted: false, status: 'NOT_RUN', reason: '' };
+      try {
+        tossPrices = fetchPricesToss(targetItems, timings, tossProviderMeta);
+        lookupMeta.tossAttempted = !!tossProviderMeta.attempted;
+        lookupMeta.tossStatus = tossProviderMeta.status || 'NOT_RUN';
+        lookupMeta.tossReason = tossProviderMeta.reason || '';
+      } catch(e) {
+        lookupMeta.tossAttempted = !!tossProviderMeta.attempted;
+        lookupMeta.tossStatus = 'ERROR';
+        lookupMeta.tossReason = 'REQUEST_ERROR';
+        Logger.log('⚠️ Toss 현재가 실패: ' + e.message);
+      }
       var krxItems = targetItems.filter(function(it){ return !(tossPrices[it.code] && tossPrices[it.code].price > 0); });
       var krxPrices = {};
       var krxStartedMs = Date.now();
@@ -4623,7 +4654,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.175' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.176' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7053,6 +7084,14 @@ function diagnoseSnapshotIntegrity(ss, dateStr, priceContext, rangeContext) {
   result.expectedRows = expected;
   var duplicateDecisions = _classifyRawSnapshotDuplicateGroups(date, raw, expected,
     result.status === 'SOURCE_INCOMPLETE' ? result.sourceDataErrors.join('; ') : '');
+  result.duplicateSummary = {
+    groups: duplicateDecisions.length,
+    exactDuplicate: duplicateDecisions.filter(function(item) { return item.classification === 'EXACT_DUPLICATE'; }).length,
+    singleExpectedMatch: duplicateDecisions.filter(function(item) { return item.classification === 'SINGLE_EXPECTED_MATCH'; }).length,
+    manualProtected: duplicateDecisions.filter(function(item) { return item.classification === 'MANUAL_PROTECTED'; }).length,
+    unresolvedConflict: duplicateDecisions.filter(function(item) { return item.classification === 'UNRESOLVED_CONFLICT'; }).length,
+    sourceIncomplete: duplicateDecisions.filter(function(item) { return item.classification === 'SOURCE_INCOMPLETE'; }).length
+  };
   conflictKeys = duplicateDecisions.filter(function(item) {
     return item.classification === 'MANUAL_PROTECTED' || item.classification === 'UNRESOLVED_CONFLICT';
   }).map(function(item) { return date + '|' + item.key; });
@@ -8951,7 +8990,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.175',
+    gasVersion: '9.176',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -8980,7 +9019,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.175' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.176' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -10631,7 +10670,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.175' });
+    return jsonOk({ settings: settings, gasVersion: '9.176' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10653,7 +10692,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.175'
+      gasVersion: '9.176'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

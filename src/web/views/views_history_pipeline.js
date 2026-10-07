@@ -3,8 +3,8 @@
 //  의존: views_history_state.js, views_history_render.js, views_history_benchmark.js
 // ════════════════════════════════════════════════════════════════
 
-const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v3';
-const HISTORY_INTEGRITY_LEGACY_CACHE_KEYS = ['portfolio.historyIntegrity.v1', 'portfolio.historyIntegrity.v2'];
+const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v4';
+const HISTORY_INTEGRITY_LEGACY_CACHE_KEYS = ['portfolio.historyIntegrity.v1', 'portfolio.historyIntegrity.v2', 'portfolio.historyIntegrity.v3'];
 const HISTORY_INTEGRITY_CACHE_MAX_CHARS = 120000;
 function _historySnapshotSignature(snapshot, dateRevision) {
   return [dateRevision, snapshot.date, snapshot.costAmt ?? snapshot.cost ?? '', snapshot.evalAmt ?? snapshot.total ?? snapshot.eval ?? '', snapshot.pnl ?? ''].join('|');
@@ -41,7 +41,21 @@ function _isRepairableHistoryDiagnostic(item) {
 }
 function _historyDiagnosticSummary(item) {
   if (!item || !item.date || !['VALID', 'SOURCE_INCOMPLETE', 'UNCHECKED', 'PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT', 'PRICE_SUSPICIOUS'].includes(String(item.status || ''))) return null;
-  return { date: item.date, status: item.status, repairable: _isRepairableHistoryDiagnostic(item) };
+  const rawDuplicateSummary = item.duplicateSummary && typeof item.duplicateSummary === 'object' ? item.duplicateSummary : null;
+  const duplicateSummary = rawDuplicateSummary ? {
+    groups: Math.max(0, Number(rawDuplicateSummary.groups) || 0),
+    exactDuplicate: Math.max(0, Number(rawDuplicateSummary.exactDuplicate) || 0),
+    singleExpectedMatch: Math.max(0, Number(rawDuplicateSummary.singleExpectedMatch) || 0),
+    manualProtected: Math.max(0, Number(rawDuplicateSummary.manualProtected) || 0),
+    unresolvedConflict: Math.max(0, Number(rawDuplicateSummary.unresolvedConflict) || 0),
+    sourceIncomplete: Math.max(0, Number(rawDuplicateSummary.sourceIncomplete) || 0),
+  } : undefined;
+  return {
+    date: item.date,
+    status: item.status,
+    repairable: _isRepairableHistoryDiagnostic(item),
+    ...(duplicateSummary ? { duplicateSummary } : {}),
+  };
 }
 function _cachedHistoryDiagnostics(snapshots, dateRevisions, cache) {
   const knownStatuses = new Set(['VALID', 'SOURCE_INCOMPLETE', 'UNCHECKED', 'PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT', 'PRICE_SUSPICIOUS']);
@@ -356,7 +370,18 @@ function _renderHistoryIntegrityWarnings(el, diagnostics, rangeDiagnosisFailed, 
   const repairable = invalid.filter(_isRepairableHistoryDiagnostic);
   const validCount = (diagnostics || []).filter(item => item?.status === 'VALID').length;
   const blockingCount = invalid.filter(item => HISTORY_BLOCKING_INTEGRITY_STATUSES.includes(item.status)).length;
-  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ 데이터 정합성 검증 요약</b><br>검증 ${diagnostics.length}일 중 정상 ${validCount}일 · ${_escapeHtml(summary)}<br><span style="color:var(--muted)">${blockingCount ? `확인된 Snapshot 오류 ${blockingCount}일만 손익선과 계산에서 제외합니다.` : '원자료 부족·미검증 날짜의 저장 Snapshot은 손익 계산에 사용합니다.'}</span>${repairable.length ? `<br><button type="button" class="btn-ghost-sm" data-history-action="repair-integrity">검증 가능한 오류 Snapshot 복구 (${repairable.length})</button>` : ''}</div>`);
+  const conflictSummary = invalid.reduce((acc, item) => {
+    const d = item?.duplicateSummary || {};
+    acc.manualProtected += Number(d.manualProtected || 0);
+    acc.unresolved += Number(d.unresolvedConflict || 0);
+    acc.exact += Number(d.exactDuplicate || 0);
+    acc.expectedMatch += Number(d.singleExpectedMatch || 0);
+    return acc;
+  }, { manualProtected: 0, unresolved: 0, exact: 0, expectedMatch: 0 });
+  const conflictDetail = (conflictSummary.manualProtected || conflictSummary.unresolved || conflictSummary.exact || conflictSummary.expectedMatch)
+    ? `<br><span style="color:var(--muted)">충돌 분류 · MANUAL 보호 ${conflictSummary.manualProtected}그룹 · 미해결 ${conflictSummary.unresolved}그룹 · 동일중복 ${conflictSummary.exact}그룹 · 원자료 일치 자동판정 ${conflictSummary.expectedMatch}그룹</span>`
+    : '';
+  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.67rem;line-height:1.55"><b style="color:var(--amber)">⚠️ 데이터 정합성 검증 요약</b><br>검증 ${diagnostics.length}일 중 정상 ${validCount}일 · ${_escapeHtml(summary)}${conflictDetail}<br><span style="color:var(--muted)">${blockingCount ? `확인된 Snapshot 오류 ${blockingCount}일만 손익선과 계산에서 제외합니다.` : '원자료 부족·미검증 날짜의 저장 Snapshot은 손익 계산에 사용합니다.'}</span>${repairable.length ? `<br><button type="button" class="btn-ghost-sm" data-history-action="repair-integrity">검증 가능한 오류 Snapshot 복구 (${repairable.length})</button>` : ''}</div>`);
 }
 
 async function repairHistoryIntegritySnapshots() {

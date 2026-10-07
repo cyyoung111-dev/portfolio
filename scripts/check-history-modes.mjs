@@ -62,21 +62,22 @@ const cacheContext = vm.createContext({ sessionStorage: (() => {
 })() });
 const cacheHelpers = ['_isRepairableHistoryDiagnostic','_historyDiagnosticSummary','_readHistoryIntegrityCache','_writeHistoryIntegrityCache']
   .map(name => pipelineSource.match(new RegExp(`function ${name}[\\s\\S]*?\\n}`))?.[0] || '').join('\n');
-vm.runInContext(`const HISTORY_INTEGRITY_CACHE_KEY='portfolio.historyIntegrity.v3';const HISTORY_INTEGRITY_LEGACY_CACHE_KEYS=['portfolio.historyIntegrity.v1','portfolio.historyIntegrity.v2'];const HISTORY_INTEGRITY_CACHE_MAX_CHARS=120000;${cacheHelpers};globalThis.readCache=_readHistoryIntegrityCache;globalThis.writeCache=_writeHistoryIntegrityCache;globalThis.summary=_historyDiagnosticSummary;globalThis.repairable=_isRepairableHistoryDiagnostic;`,cacheContext);
-const fullDiagnostic={date:'2026-09-30',status:'MISMATCH',expectedRows:[1],storedRows:[2],itemComparisons:[3],priceIntegrity:[4],sourceDataErrors:[],conflictKeys:[]};
-assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.summary(fullDiagnostic))),{date:'2026-09-30',status:'MISMATCH',repairable:true},'full diagnostic은 최소 cache summary로 축약');
+vm.runInContext(`const HISTORY_INTEGRITY_CACHE_KEY='portfolio.historyIntegrity.v4';const HISTORY_INTEGRITY_LEGACY_CACHE_KEYS=['portfolio.historyIntegrity.v1','portfolio.historyIntegrity.v2','portfolio.historyIntegrity.v3'];const HISTORY_INTEGRITY_CACHE_MAX_CHARS=120000;${cacheHelpers};globalThis.readCache=_readHistoryIntegrityCache;globalThis.writeCache=_writeHistoryIntegrityCache;globalThis.summary=_historyDiagnosticSummary;globalThis.repairable=_isRepairableHistoryDiagnostic;`,cacheContext);
+const fullDiagnostic={date:'2026-09-30',status:'MISMATCH',expectedRows:[1],storedRows:[2],itemComparisons:[3],priceIntegrity:[4],sourceDataErrors:[],conflictKeys:[],duplicateSummary:{groups:4,exactDuplicate:1,singleExpectedMatch:1,manualProtected:1,unresolvedConflict:1,sourceIncomplete:0}};
+assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.summary(fullDiagnostic))),{date:'2026-09-30',status:'MISMATCH',repairable:true,duplicateSummary:{groups:4,exactDuplicate:1,singleExpectedMatch:1,manualProtected:1,unresolvedConflict:1,sourceIncomplete:0}},'full diagnostic은 중복 분류를 포함한 최소 cache summary로 축약');
 assert.equal(cacheContext.repairable(cacheContext.summary(fullDiagnostic)),true,'cached summary와 full diagnostic의 repairability가 동일');
 assert.equal(cacheContext.writeCache({key:fullDiagnostic}),true,'summary cache 정상 저장');
-const storedCache=cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v3');
+const storedCache=cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v4');
 assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(storedCache),'대용량 진단 상세는 sessionStorage에 저장 금지');
 assert.equal(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v1'),null,'legacy v1 cache는 read/write 전에 제거');
 assert.equal(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v2'),null,'legacy v2 cache는 알고리즘 변경 후 제거');
-cacheContext.sessionStorage.setItem('portfolio.historyIntegrity.v3',JSON.stringify({legacyFull:fullDiagnostic}));
-assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.readCache().legacyFull)),{date:'2026-09-30',status:'MISMATCH',repairable:true},'기존 상세 cache read는 summary로 sanitize');
-assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v3')),'sanitize한 기존 cache를 작은 schema로 즉시 재저장');
+assert.equal(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v3'),null,'duplicateSummary 없는 legacy v3 cache는 제거');
+cacheContext.sessionStorage.setItem('portfolio.historyIntegrity.v4',JSON.stringify({legacyFull:fullDiagnostic}));
+assert.deepEqual(JSON.parse(JSON.stringify(cacheContext.readCache().legacyFull)),{date:'2026-09-30',status:'MISMATCH',repairable:true,duplicateSummary:{groups:4,exactDuplicate:1,singleExpectedMatch:1,manualProtected:1,unresolvedConflict:1,sourceIncomplete:0}},'기존 상세 cache read는 중복 분류 포함 summary로 sanitize');
+assert(!/expectedRows|storedRows|itemComparisons|priceIntegrity/.test(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v4')),'sanitize한 기존 cache를 작은 schema로 즉시 재저장');
 const oversized={};for(let i=0;i<900;i++)oversized[`${i}`.padStart(4,'0')+'x'.repeat(180)]={date:`2026-01-${String(i%28+1).padStart(2,'0')}`,status:'VALID'};
 assert.equal(cacheContext.writeCache(oversized),true,'크기 상한 초과 cache도 오래된 entry 제거 후 저장');
-assert(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v3').length<=120000,'직렬화 cache는 보수적 내부 상한 유지');
+assert(cacheContext.sessionStorage.getItem('portfolio.historyIntegrity.v4').length<=120000,'직렬화 cache는 보수적 내부 상한 유지');
 cacheContext.sessionStorage.setItem=()=>{throw new Error('quota')};
 assert.equal(cacheContext.writeCache({key:fullDiagnostic}),false,'sessionStorage write 실패는 화면 조회를 실패시키지 않음');
 vm.runInNewContext(`${source}\n` +
@@ -183,3 +184,8 @@ assert.match(layoutSource, /\.action-bar\{[^}]*overflow-y:hidden/, '업데이트
 assert.match(layoutSource, /\.action-update-card\{[^}]*min-height:60px;[^}]*height:auto/, '업데이트 결과가 여러 줄이면 카드 높이가 내용에 맞게 늘어나야 합니다.');
 
 console.log('✅ 손익 그래프 주기·누락 복구·요약 카드·비교지수·조회 회귀 검사 통과');
+
+// Dense integrity markers must not paint full-height dashed lines for dozens of invalid dates.
+assert.match(viewSource, /const denseIntegrityMarkers = invalidPointCount > 24/);
+assert.match(viewSource, /if \(denseIntegrityMarkers\)[\s\S]*PAD\.top \+ 8/);
+assert.match(pipelineSource, /충돌 분류 · MANUAL 보호/);

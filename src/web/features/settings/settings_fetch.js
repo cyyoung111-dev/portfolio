@@ -285,8 +285,10 @@ function _priceLookupSummary() {
   const toss = Math.max(0, Number(meta.tossResultCount) || 0);
   const krx = Math.max(0, Number(meta.krxResultCount) || 0);
   const history = Math.max(0, Number(meta.recentHistoryFallbackCount) || 0);
+  const tossStatus = String(meta.tossStatus || (toss > 0 ? 'SUCCESS' : 'UNKNOWN'));
+  const tossSuffix = tossStatus === 'ERROR' ? ' · 오류' : tossStatus === 'EMPTY' ? ' · 응답 0' : tossStatus === 'NOT_RUN' ? ' · 미실행' : '';
   const chips = [
-    `Toss ${toss}건`,
+    `<button type="button" class="price-status-chip is-action" data-price-detail="providers">Toss ${toss}건${tossSuffix}</button>`,
     `KRX ${krx}건`,
     'GOOGLEFINANCE 가격 미사용',
     `<button type="button" class="price-status-chip is-action" data-price-detail="recent-history">최근이력 ${history}건</button>`,
@@ -315,7 +317,12 @@ function _priceLookupDetail(kind) {
     return;
   }
   const close = '<button type="button" class="price-lookup-detail-close" data-price-detail="close" aria-label="상세 닫기">닫기</button>';
-  if (kind === 'recent-history') {
+  if (kind === 'providers') {
+    const tossStatus = String(meta.tossStatus || 'UNKNOWN');
+    const tossLabel = tossStatus === 'SUCCESS' ? '정상 응답' : tossStatus === 'EMPTY' ? '요청했으나 유효 가격 0건' : tossStatus === 'ERROR' ? '요청 오류' : tossStatus === 'NOT_RUN' ? '미실행' : '상태 미확인';
+    const krxLabel = meta.krxExecuted ? `실행 · ${Math.max(0, Number(meta.krxResultCount) || 0)}건` : '미실행';
+    wrap.innerHTML = `<div class="price-lookup-detail-head"><b>현재가 provider 상태</b>${close}</div><ul><li><span>Toss</span> · ${_escapeHtml(tossLabel)} · ${Math.max(0, Number(meta.tossResultCount) || 0)}건</li><li><span>KRX</span> · ${_escapeHtml(krxLabel)}</li><li><span>최근 확정 이력 fallback</span> · ${Math.max(0, Number(meta.recentHistoryFallbackCount) || 0)}건</li></ul>`;
+  } else if (kind === 'recent-history') {
     const items = Array.isArray(meta.recentHistoryFallbackItems) ? meta.recentHistoryFallbackItems : [];
     const rows = items.length
       ? items.map(item => `<li><b>${_escapeHtml(item.name || item.code || '-')}</b> <span>${_escapeHtml(item.code || '-')}</span> · ${_escapeHtml(item.priceDate || '-')}</li>`).join('')
@@ -479,7 +486,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.175';
+const EXPECTED_GAS_VERSION = '9.176';
 
 
 async function autoLoadPrices() {

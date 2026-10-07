@@ -15,13 +15,13 @@ assert.match(gas, /var krxItems = targetItems\.filter/);
 assert.match(gas, /usedDate: usedDate/);
 assert.match(gas, /latestEntry\.date > priceDates\[code\]/);
 assert.match(gas, /var cacheRaw = todayStr \+ '\|p=' \+ \(persist \? '1' : '0'\)/);
-assert.match(gas, /prices_v9110_p' \+ \(persist \? '1' : '0'\)/);
+assert.match(gas, /prices_v9176_p' \+ \(persist \? '1' : '0'\)/);
 assert.match(gas, /cachedPayload\.priceLookup\.snapshotCreated = persist && cachedLatestDate/);
 assert.match(gas, /function _newPriceLookupTimings_\(\)/);
 for (const key of ['setup', 'codeItems', 'initialPriceHistory', 'tossToken', 'tossPricesHttp', 'krx', 'recentHistory', 'snapshot', 'other', 'finalize']) {
   assert.match(gas, new RegExp(`${key}:`), `timing key ${key} 누락`);
 }
-assert.match(gas, /fetchPricesToss\(targetItems, timings\)/);
+assert.match(gas, /fetchPricesToss\(targetItems, timings, tossProviderMeta\)/);
 assert.match(gas, /lookupMeta\.krxExecuted = krxItems\.length > 0/);
 assert.match(gas, /lookupMeta\.krxElapsedMs = timings\.krx/);
 assert.match(gas, /recentHistoryFallbackItems: \[\]/);
@@ -55,10 +55,10 @@ assert.match(delegation, /closest\('\[data-price-detail\]'\)/);
 const index = fs.readFileSync('src/web/index.html', 'utf8');
 assert.match(index, /components\.css\?v=20260921-2/);
 assert.match(index, /settings_sync\.js\?v=20261006-5/);
-assert.match(index, /settings_fetch\.js\?v=20261007-2/);
+assert.match(index, /settings_fetch\.js\?v=20261007-3/);
 assert.match(index, /event_delegation\.js\?v=20261006-1/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
-assert.match(sw, /portfolio-cache-20261007-2/);
+assert.match(sw, /portfolio-cache-20261007-3/);
 assert.match(sw, /components\.css\?v=20260921-2/);
 
 // 새 관측성은 추가 호출을 만들지 않고 기존 단일 batch/read 경계를 계측한다.
@@ -69,3 +69,15 @@ assert.equal((getPricesBody.match(/getPriceHistoryRow\(/g) || []).length, 2);
 assert.doesNotMatch(getPricesBody, /forEach\([\s\S]{0,120}Date\.now\(\)/);
 
 console.log('✅ Toss 현재가 전체 경로·fallback·persist=false·smoke 회귀 검사 통과');
+
+assert.match(gas, /tossAttempted: false/);
+assert.match(gas, /tossStatus: 'NOT_RUN'/);
+assert.match(gas, /lookupMeta\.tossStatus = 'ERROR'/);
+assert.match(web, /data-price-detail="providers"/);
+assert.match(web, /현재가 provider 상태/);
+
+assert.match(gas, /!credentials\.id \|\| !credentials\.secret/);
+assert.match(gas, /providerMeta\.attempted = false;[\s\S]*providerMeta\.status = 'NOT_RUN'/);
+assert.match(gas, /providerMeta\.attempted = true;[\s\S]*providerMeta\.status = 'REQUESTING'/);
+assert.match(gas, /lookupMeta\.tossAttempted = !!tossProviderMeta\.attempted/);
+assert.match(gas, /lookupMeta\.tossReason = tossProviderMeta\.reason \|\| ''/);
