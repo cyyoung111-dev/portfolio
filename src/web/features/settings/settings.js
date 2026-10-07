@@ -823,7 +823,9 @@ async function loadSettings(onProgress, options) {
                 // ★ fundDirect 항목(TDF/펀드, qty=1 & 코드 없음)은 fundDirect로 복원
                 const isFundEntry = ['TDF','펀드'].includes(h.assetType) && !h.code && h.qty === 1;
                 if (isFundEntry) {
-                  fundDirect[h.name] = { eval: h.costAmt || 0, cost: h.costAmt || 0, type: h.assetType || 'TDF' };
+                  if (!hasAuthoritativeFundDirect && !Object.prototype.hasOwnProperty.call(fundDirect, h.name)) {
+                    fundDirect[h.name] = { eval: h.costAmt || 0, cost: h.costAmt || 0, type: h.assetType || 'TDF' };
+                  }
                   return;
                 }
                 rawHoldings.push({
