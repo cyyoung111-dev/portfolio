@@ -43,7 +43,7 @@ const PRECACHE_URLS = [
   './views/views_history_utils.js?v=20260904-2',
   './views/views_history_state.js?v=20260928-4',
   './views/views_history_pipeline.js?v=20261007-4',
-  './views/views_history_render.js?v=20260922-3',
+  './views/views_history_render.js?v=20261007-4',
   './views/views_history.js?v=20261007-3',
   './app/event_delegation.js?v=20261006-1',
 ];
