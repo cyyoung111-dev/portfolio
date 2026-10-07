@@ -149,8 +149,8 @@ assert.doesNotMatch(portfolioData, /pending\.target !== currentTarget[\s\S]{0,26
   '연결 변경만으로 성공하지 않은 빈 원장 pending을 폐기하지 않음');
 assert.match(portfolioData, /_setPendingExplicitEmptyTradeSync[\s\S]*lsSave\(PENDING_EMPTY_TRADE_SYNC_KEY[\s\S]*lsRemove\(PENDING_EMPTY_TRADE_SYNC_KEY\)/,
   'pending 컨텍스트는 영속 저장하고 성공 후 제거 가능');
-assert.match(portfolioData, /const targetAfterHoldings = _currentGsheetSyncTarget\(\)[\s\S]*rawTrades\.length > 0[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration,[\s\S]*allowDuringRestore[\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration,[\s\S]*tradesOverride: recoveryTrades[\s\S]*Promise\.all/,
-  '같은 target의 복구 쓰기는 await 전에 A 거래 payload를 캡처하고 target/generation을 고정해 holdings/trades를 함께 시작');
+assert.match(portfolioData, /const currentRecoverySignature = \(\) => JSON\.stringify\([\s\S]*for \(let attempt = 0; attempt < 4; attempt\+\+\)[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*const recoveryHoldings = rawHoldings\.map\(h => \(\{ \.\.\.h \}\)\)[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*holdingsOverride: recoveryHoldings[\s\S]*syncTradesToGsheet\(\{[\s\S]*tradesOverride: recoveryTrades[\s\S]*currentRecoverySignature\(\) !== recoverySignature[\s\S]*continue/,
+  '복구 쓰기는 고정 payload를 함께 보내고 캡처 이후 거래/보유 변경 시 같은 single-flight에서 최신 상태를 재전송');
 assert.match(portfolioData, /const retryTrades = \[\][\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*tradesOverride: retryTrades/,
   '연결 변경 중에도 두 번째 쓰기는 캡처한 빈 거래 payload만 원래 GSheet에 적용');
 assert.match(settings, /let GSHEET_CONNECTION_GENERATION = 0[\s\S]*function isGsheetConnectionCurrent\(target, generation\)/,
@@ -159,8 +159,8 @@ assert.match(settings, /const loadTarget = String\(GSHEET_API_URL[\s\S]*const lo
   'loadSettings는 시작 target/세대를 고정하고 stale 응답 적용을 중단');
 assert.match(portfolioData, /const retryGeneration = typeof getGsheetConnectionGeneration[\s\S]*getGsheetConnectionGeneration\(\) !== retryGeneration[\s\S]*return false/,
   '빈 원장 재시도도 URL 동일성 외 연결 세대 변경을 검사');
-assert.match(settings, /const explicitAuthoritativePull = options\?\.forcePortfolioRestore === true[\s\S]*const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*const forcePortfolioRestore = connectionForcePortfolioRestore[\s\S]*explicitAuthoritativePull[\s\S]*const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad/,
-  '연결 변경 또는 명시적 pull은 pending 성공 여부를 반영해 원격 포트폴리오 강제 복원');
+assert.match(settings, /const explicitAuthoritativePull = options\?\.forcePortfolioRestore === true[\s\S]*const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*const forcePortfolioRestore = connectionForcePortfolioRestore[\s\S]*explicitAuthoritativePull[\s\S]*if \(forcePortfolioRestore && pendingEmptySyncResolvedAtLoad\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0[\s\S]*const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad/,
+  'pending 성공 강제 복원은 방금 확정한 빈 원장을 메모리에 적용하고 stale preflight 재적용을 막음');
 assert.match(settings, /if \(applyForcedPortfolioRestore\) \{[\s\S]*if \(!tradesLoaded \|\| !holdingsLoaded\) return false[\s\S]*rawTrades\.length = 0[\s\S]*else \{[\s\S]*rawHoldings\.length = 0[\s\S]*saveHoldings\(\{ skipGsheet: true \}\)/,
   '강제 원격 복원은 정상 빈 거래·보유 배열도 적용해 이전 로컬 데이터를 제거');
 assert.match(tabSync, /tabId === 'trades'[\s\S]*loadSettings\(undefined, \{ forcePortfolioRestore: true \}\)[\s\S]*원격 복원/,
