@@ -536,11 +536,35 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
   const holdingsResult = typeof syncHoldingsToGsheet === 'function'
     ? await syncHoldingsToGsheet({ allowEmpty: true, targetUrl: retryTarget })
     : null;
+
+  // 첫 요청을 기다리는 동안 같은 연결에서 새 거래가 생겼다면 오래된 "빈 원장" 의도를 더 이상 적용하지 않습니다.
+  // 앞선 보유현황 [] 쓰기를 현재 상태로 즉시 복구한 뒤 일반 거래 동기화로 전환합니다.
+  const targetAfterHoldings = _currentGsheetSyncTarget();
+  if (targetAfterHoldings === retryTarget && rawTrades.length > 0) {
+    if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
+    const currentHoldingsResult = typeof syncHoldingsToGsheet === 'function'
+      ? await syncHoldingsToGsheet({ targetUrl: retryTarget })
+      : null;
+    const currentTradesResult = typeof syncTradesToGsheet === 'function'
+      ? await syncTradesToGsheet({ targetUrl: retryTarget })
+      : null;
+    const currentHoldingsOk = currentHoldingsResult?.status === 'ok';
+    const currentTradesOk = currentTradesResult?.status === 'ok' && currentTradesResult?.saveState !== 'partial';
+    if ((!currentHoldingsOk || !currentTradesOk) && !options?.quiet && typeof showToast === 'function') {
+      showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
+    }
+    return currentHoldingsOk && currentTradesOk;
+  }
+
+  // 연결이 다른 시트로 바뀐 경우에도 B의 rawTrades를 A에 쓰지 않습니다.
+  // 재시도 시작 시 확정된 빈 거래 payload 자체를 캡처해 원래 target에만 적용합니다.
+  const retryTrades = [];
   const tradesResult = typeof syncTradesToGsheet === 'function'
     ? await syncTradesToGsheet({
         allowEmpty: true,
         rebuildFrom: pendingEmptySync.from || '',
-        targetUrl: retryTarget
+        targetUrl: retryTarget,
+        tradesOverride: retryTrades
       })
     : null;
 
