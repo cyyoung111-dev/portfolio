@@ -131,6 +131,10 @@ async function loadHistoryChart(retryAttempt = 0) {
     let snapshots = Array.isArray(data.snapshots) ? data.snapshots : (Array.isArray(data) ? data : []);
     if (!snapshots.length) {
       if (retryAttempt && _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl) !== false) return;
+      if (coverageEl) {
+        coverageEl.innerHTML = '';
+        if (data.sourceMode === 'SOURCE_RECOMPUTED') _renderHistorySourceCoverage(coverageEl, data.sourceSummary, []);
+      }
       _setHistoryStatus(statusEl, 'empty_data');
       return;
     }
@@ -335,12 +339,14 @@ function _renderHistorySourceCoverage(el, summary, snapshots) {
   const complete = Number(summary.completeDates || 0);
   const missing = Number(summary.unavailableDates || 0);
   const carried = Number(summary.carriedFundItems || 0);
+  const stockCarried = Number(summary.carriedPriceItems || 0);
   const samples = Array.isArray(summary.unavailableSamples) ? summary.unavailableSamples : [];
   const sampleText = samples.slice(0, 5).map(item => `${item.date}: ${item.reason}`).join(' · ');
-  const warning = missing > 0;
-  const explanation = carried > 0
-    ? `펀드 ${carried}건은 해당일 NAV가 없어 직전 확정 공시일 NAV × 해당일 좌수로 평가했습니다. 당일 NAV 확정을 뜻하지 않으며 추후 공시되면 자동 재계산됩니다.`
-    : '확인된 NAV는 해당 평가일 좌수로 재계산합니다.';
+  const warning = missing > 0 || stockCarried > 0 || carried > 0;
+  const explanation = [
+    carried > 0 ? `펀드 ${carried}건은 직전 확정 공시일 NAV × 해당일 좌수로 이월 평가했습니다(해당일 NAV 확정 아님).` : '펀드는 평가일 좌수로 재계산합니다.',
+    stockCarried > 0 ? `일반 종목 ${stockCarried}건은 해당일 확정 종가가 없어 직전 확정 종가로 이월 평가했습니다. 휴장 확인이 되지 않은 이월도 포함될 수 있으며, 추후 확정 종가가 들어오면 다시 계산합니다.` : ''
+  ].filter(Boolean).join(' ');
   el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid ${warning ? 'var(--c-amber-35,var(--border))' : 'var(--border)'};border-radius:9px;background:var(--s2);font-size:.67rem;line-height:1.55">
     <b style="color:${warning ? 'var(--amber)' : 'var(--green)'}">원자료 기준 자동 손익 · 계산 완료 ${complete}일${missing ? ` · 원자료 부족 ${missing}일 제외` : ''}</b><br>
     <span style="color:var(--muted)">기존 Snapshot 대신 거래·확정가격·펀드 NAV·환율로 재구성했습니다. ${_escapeHtml(explanation)}</span>
