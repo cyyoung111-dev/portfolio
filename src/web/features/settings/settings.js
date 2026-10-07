@@ -61,17 +61,22 @@ function _normalizeCodeForSync(raw) {
     : String(raw || '').trim().toUpperCase().replace(/^A(?=\d{6}$)/, '');
 }
 
-function saveDividendSettings(_immediate) {
-  if (!GSHEET_API_URL) return Promise.resolve(false);
-  // 호출 시점의 데이터를 캡처하고 저장을 직렬화합니다. 기존 debounce는 앞선 타이머를
-  // 취소하면서 그 Promise를 영원히 pending 상태로 남길 수 있었습니다.
+function saveDividendSettings(_immediate, options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const expectedGeneration = Number.isInteger(options?.generation)
+    ? options.generation
+    : getGsheetConnectionGeneration();
+  if (!targetUrl) return Promise.resolve(false);
+  // 호출 시점의 데이터·연결을 함께 캡처하고 저장을 직렬화합니다. 큐 대기 중 A→B로
+  // 연결이 바뀌어도 A payload를 B에 전송하지 않습니다.
   const payload = JSON.stringify(DIVDATA);
   const run = async () => {
     try {
+      if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
       const data = await requestGsheetFormJson(
         'saveDividendSettings',
         { data: payload },
-        { timeoutMs: 15000, retry: 1 }
+        { timeoutMs: 15000, retry: 1, targetUrl }
       );
       if (!data) throw new Error('네트워크 오류');
       if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
@@ -278,14 +283,19 @@ function saveSettings(immediate, options) {
   });
 }
 
-async function persistDividendSettings(immediate) {
-  if (!GSHEET_API_URL) return false;
-  const ok = await saveDividendSettings(immediate);
+async function persistDividendSettings(immediate, options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation)
+    ? options.generation
+    : getGsheetConnectionGeneration();
+  if (!targetUrl) return false;
+  const pinnedOptions = { targetUrl, generation };
+  const ok = await saveDividendSettings(immediate, pinnedOptions);
   if (ok) return true;
   // 최신 GAS에서 전용 저장이 실패했는데 일반 설정 저장으로 우회하면
   // 기존 DIVDATA를 보존하는 서버 병합 정책 때문에 성공처럼 보일 수 있습니다.
   if (Number.parseFloat(window._lastGasVersion || '0') >= 9.34) return false;
-  return saveSettings(true);
+  return saveSettings(true, pinnedOptions);
 }
 
 async function persistRealEstateSettings(immediate, options) {
