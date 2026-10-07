@@ -427,13 +427,23 @@ async function quickFetchByDate() {
     // 다시 읽어야 합니다. 초기 부트스트랩이 일시적으로 실패했더라도 사용자가 이 버튼으로
     // 전체 데이터를 재복원할 수 있도록 가격 조회보다 먼저 통합 로드를 재시도합니다.
     let restoreWarning = '';
-    setStatusLabel('⏳ GAS 전체 데이터 복원 중...', 'loading');
-    const settingsLoaded = typeof loadSettings === 'function'
-      ? await loadSettings(
-          message => setStatusLabel('⏳ ' + message, 'loading'),
-          { forcePortfolioRestore: true }
-        )
-      : false;
+    const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending === 'function'
+      && _isPortfolioRemoteSyncPending();
+    let settingsLoaded = false;
+    if (portfolioSyncPending) {
+      // 로컬 거래/보유가 아직 원격에 성공 반영되지 않았다면 가격 버튼이 원격의 이전
+      // 포트폴리오를 authoritative pull하여 최신 로컬 변경을 덮어쓰지 않도록 복원을 건너뜁니다.
+      restoreWarning = '<span style="color:var(--amber)">⚠️ 로컬 거래·보유 동기화 대기 중 · 현재가만 업데이트</span>';
+      setStatusLabel('⏳ 로컬 거래·보유 보존 · ' + targetDate + ' 종가 조회 준비 중...', 'loading');
+    } else {
+      setStatusLabel('⏳ GAS 전체 데이터 복원 중...', 'loading');
+      settingsLoaded = typeof loadSettings === 'function'
+        ? await loadSettings(
+            message => setStatusLabel('⏳ ' + message, 'loading'),
+            { forcePortfolioRestore: true }
+          )
+        : false;
+    }
     if (settingsLoaded) {
       try { refreshAll(); } catch(e) { console.warn('GAS 복원 후 화면 갱신 실패:', e); }
       if ((Array.isArray(rawTrades) ? rawTrades.length : 0) === 0
@@ -441,7 +451,7 @@ async function quickFetchByDate() {
           && (!fundDirect || Object.keys(fundDirect).length === 0)) {
         restoreWarning = '<span style="color:var(--amber)">⚠️ GAS 거래·보유 데이터 없음</span>';
       }
-    } else {
+    } else if (!portfolioSyncPending) {
       restoreWarning = '<span style="color:var(--red-lt)">⚠️ GAS 전체 데이터 복원 실패</span>';
     }
 
