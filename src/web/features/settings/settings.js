@@ -778,7 +778,7 @@ async function loadSettings(onProgress) {
     // 유형·섹터·통화를 복구합니다. 상단 업데이트와 수동 재동기화에도 동일하게 적용됩니다.
     try {
       if (isBootstrap && typeof applyGsheetCodeList === 'function') applyGsheetCodeList(data.codes);
-      else await loadGsheetCodeList();
+      else await loadGsheetCodeList({ targetUrl: loadTarget, generation: loadGeneration });
     } catch(e) {}
     if (!isLoadConnectionCurrent()) return false;
     const reconciled = typeof reconcileEditablesFromGsheetCodeList === 'function'
