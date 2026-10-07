@@ -917,6 +917,17 @@ assert.equal(catalog.find(item=>item.code==='F00003').currentHolding,false,'전�
 assert.equal(catalog.find(item=>item.code==='F00003').name,'과거 펀드');
 const fundUnitsResponse=context.handleGetFundUnits();
 assert.equal(fundUnitsResponse.funds.find(item=>item.code==='F00003').currentHolding,false,'조회 API도 과거 F코드를 반환');
+// 좌수 원본 저장 뒤 파생 재계산만 실패하면 단순 저장 실패가 아니라 partial로 구분합니다.
+const realReconcileFundUnits=context._reconcileFundUnitDerivedRows;
+context._reconcileFundUnitDerivedRows=()=>{ throw new Error('forced derived reconciliation failure'); };
+const partialUnitSave=saveConfig('2026-01-06',1300);
+context._reconcileFundUnitDerivedRows=realReconcileFundUnits;
+assert.equal(partialUnitSave.status,'error');
+assert.equal(partialUnitSave.saveState,'partial','좌수 원본 저장 후 파생 재계산 실패를 partial로 구분');
+assert.equal(partialUnitSave.followupRequired,true);
+assert.equal(partialUnitSave.affectedFrom,'2026-01-06');
+assert.equal(context._readFundUnits(ssFor(sheets)).some(c=>c.code==='F00001'&&c.startDate==='2026-01-06'&&c.units===1300),true,
+  'partial 응답이어도 검증 완료된 좌수 원본 저장 사실을 숨기지 않음');
 const saveRetired=(startDate,units)=>context.handleSaveFundUnits(JSON.stringify({code:'F00003',provider:'FIDELITY_BIG4_S',startDate,units}));
 assert.equal(saveRetired('2024-01-01',10000).status,'ok','거래이력에만 있는 과거 F코드도 좌수 이력을 등록');
 assert.equal(saveRetired('2024-01-01',12000).status,'ok','같은 적용일의 과거 좌수도 정정 가능');
