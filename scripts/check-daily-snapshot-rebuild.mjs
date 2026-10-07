@@ -83,8 +83,8 @@ assert.equal(carry.price, 720);
 assert.equal(confirmed.filter(x => x.date <= '2026-01-06').at(-1)?.price, undefined);
 
 // 구현 계약: Snapshot은 원자료만 읽고, persist=false는 Snapshot 저장 경로를 타지 않는다.
-assert.match(gas, /function _currentNonTradeSnapshotHoldingNames\(ss\)[\s\S]*assetType !== 'TDF'[\s\S]*assetType !== '펀드'/,
-  '현재 보유현황의 코드 없는 TDF/펀드를 거래원장 밖 비거래 보유로 식별');
+assert.match(gas, /function _currentNonTradeSnapshotHoldingNames\(ss\)[\s\S]*assetType !== 'TDF'[\s\S]*assetType !== '펀드'[\s\S]*_readSettingsMap\(ss\)[\s\S]*settings\.EDITABLE_PRICES[\s\S]*settings\.fundDirect/,
+  '현재 보유뿐 아니라 Settings master에 남은 과거 코드 없는 TDF/펀드도 거래원장 밖 비거래 보유로 식별');
 assert.match(gas, /function _preserveCurrentNonTradeSnapshotRows\(existingRows, expectedRows, nonTradeNames\)[\s\S]*out\.push\(row\)/,
   '거래기반 Snapshot 재생성은 기존 비거래 직접펀드 행을 삭제하지 않고 보존');
 assert.match(gas, /var currentNonTradeHoldingNames = _currentNonTradeSnapshotHoldingNames\(ss\)[\s\S]*rows = _preserveCurrentNonTradeSnapshotRows\(existing, rows, currentNonTradeHoldingNames\)/,
