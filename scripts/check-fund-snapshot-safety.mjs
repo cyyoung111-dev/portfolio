@@ -21,7 +21,9 @@ let uuidSequence = 0;
 const context = vm.createContext({ console, Logger: { log() {} }, LockService: { getScriptLock: () => lock },
   SpreadsheetApp: { flush() {} }, PropertiesService: { getScriptProperties: () => ({
     getProperty(key) { return scriptProperties.has(key) ? scriptProperties.get(key) : null; },
-    setProperty(key, value) { if (failRevisionPropertyWrite && key === 'snapshot_integrity_source_revision_v1') throw new Error('property quota'); scriptProperties.set(key, String(value)); }, deleteProperty(key) { scriptProperties.delete(key); }
+    setProperty(key, value) { if (failRevisionPropertyWrite && key === 'snapshot_integrity_source_revision_v1') throw new Error('property quota'); scriptProperties.set(key, String(value)); },
+    setProperties(values) { Object.keys(values || {}).forEach(key => scriptProperties.set(key, String(values[key]))); },
+    deleteProperty(key) { scriptProperties.delete(key); }
   }) }, Utilities: { formatDate: d => d.toISOString().slice(0,10), getUuid: () => 'test-' + (++uuidSequence) } });
 vm.runInContext(source, context);
 context.today = () => '2026-09-09';
