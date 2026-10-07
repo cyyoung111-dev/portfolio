@@ -61,6 +61,18 @@ function _normalizeCodeForSync(raw) {
     : String(raw || '').trim().toUpperCase().replace(/^A(?=\d{6}$)/, '');
 }
 
+function _isGasVersionAtLeast(current, minimum) {
+  const left = String(current || '0').split('.').map(part => Number.parseInt(part, 10) || 0);
+  const right = String(minimum || '0').split('.').map(part => Number.parseInt(part, 10) || 0);
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i++) {
+    const a = left[i] || 0;
+    const b = right[i] || 0;
+    if (a !== b) return a > b;
+  }
+  return true;
+}
+
 function saveDividendSettings(_immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
   const expectedGeneration = Number.isInteger(options?.generation)
@@ -294,7 +306,7 @@ async function persistDividendSettings(immediate, options) {
   if (ok) return true;
   // 최신 GAS에서 전용 저장이 실패했는데 일반 설정 저장으로 우회하면
   // 기존 DIVDATA를 보존하는 서버 병합 정책 때문에 성공처럼 보일 수 있습니다.
-  if (Number.parseFloat(window._lastGasVersion || '0') >= 9.34) return false;
+  if (_isGasVersionAtLeast(window._lastGasVersion, '9.34')) return false;
   return saveSettings(true, pinnedOptions);
 }
 
@@ -303,7 +315,7 @@ async function persistRealEstateSettings(immediate, options) {
   if (!targetUrl) return false;
   const ok = await saveRealEstateSettings(immediate, options);
   if (ok) return true;
-  if (Number.parseFloat(window._lastGasVersion || '0') >= 9.34) return false;
+  if (_isGasVersionAtLeast(window._lastGasVersion, '9.34')) return false;
   return saveSettings(true, options);
 }
 
