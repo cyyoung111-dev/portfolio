@@ -602,10 +602,24 @@ function _getPortfolioRemoteDirty() {
 }
 
 function _isPortfolioRemoteSyncPending() {
+  const currentTarget = _currentGsheetSyncTarget();
   return !!_getPortfolioRemoteDirty()
     || !!_saveHoldingsGasTimer
-    || !!_pendingExplicitEmptyTradeSyncFlight
-    || !!_getPendingExplicitEmptyTradeSync();
+    || !!_pendingExplicitEmptyTradeSyncFlightsByTarget.get(currentTarget)
+    || !!_getPendingExplicitEmptyTradeSync(currentTarget);
+}
+
+function _portfolioPayloadSignature(trades, holdings, directFunds) {
+  return JSON.stringify({
+    trades: Array.isArray(trades) ? trades : [],
+    holdings: Array.isArray(holdings) ? holdings : [],
+    fundDirect: directFunds && typeof directFunds === 'object' ? directFunds : {}
+  });
+}
+
+function _portfolioDirtySignature(dirty) {
+  if (!dirty) return '';
+  return _portfolioPayloadSignature(dirty.trades, dirty.holdings, dirty.fundDirect);
 }
 
 async function _retryPortfolioRemoteDirtySync(options) {
@@ -722,11 +736,11 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     const restoreInProgress = typeof _gsPortfolioRestoreRequired !== 'undefined'
       && _gsPortfolioRestoreRequired === true;
 
-    const currentRecoverySignature = () => JSON.stringify({
-      trades: rawTrades,
-      holdings: rawHoldings,
-      fundDirect: typeof fundDirect === 'object' && fundDirect ? fundDirect : {}
-    });
+    const currentRecoverySignature = () => _portfolioPayloadSignature(
+      rawTrades,
+      rawHoldings,
+      typeof fundDirect === 'object' && fundDirect ? fundDirect : {}
+    );
 
     const syncCurrentTrades = async () => {
       if (restoreInProgress) return false;
@@ -776,7 +790,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
         const currentPending = _getPendingExplicitEmptyTradeSync(retryTarget);
         if (currentPending === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null, retryTarget);
         const dirty = _portfolioRemoteDirtyByTarget[retryTarget];
-        if (dirty && dirty.epoch <= _portfolioRemoteSyncEpoch) {
+        if (dirty && _portfolioDirtySignature(dirty) === recoverySignature) {
           _clearPortfolioRemoteDirty(dirty.epoch, retryTarget);
         }
         return true;
@@ -845,7 +859,10 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
       const currentPending = _getPendingExplicitEmptyTradeSync(retryTarget);
       if (currentPending === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null, retryTarget);
       const dirty = _portfolioRemoteDirtyByTarget[retryTarget];
-      if (dirty) _clearPortfolioRemoteDirty(dirty.epoch, retryTarget);
+      const emptySignature = _portfolioPayloadSignature([], [], pinnedFundDirect);
+      if (dirty && _portfolioDirtySignature(dirty) === emptySignature) {
+        _clearPortfolioRemoteDirty(dirty.epoch, retryTarget);
+      }
       return true;
     }
 
