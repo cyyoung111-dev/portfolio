@@ -237,6 +237,14 @@ assert.match(portfolioData, /const allowEmptyTradeSync = !!_getPendingExplicitEm
   'repair token이 남으면 debounce도 retry 함수의 rawTrades>0 복구 분기로 처리');
 assert.match(portfolioData, /PORTFOLIO_REMOTE_DIRTY_KEY = 'pf_v6_portfolio_remote_dirty'[\s\S]*lsGet\(PORTFOLIO_REMOTE_DIRTY_KEY, null\)[\s\S]*function _markPortfolioRemoteDirty\(\)[\s\S]*lsSave\(PORTFOLIO_REMOTE_DIRTY_KEY/,
   '미동기화 포트폴리오 dirty 상태를 연결에 귀속해 localStorage에 영속');
+assert.match(portfolioData, /function _normalizePortfolioRemoteDirty\(value\)[\s\S]*trades: Array\.isArray\(value\.trades\)[\s\S]*holdings: Array\.isArray\(value\.holdings\)[\s\S]*fundDirect:/,
+  'dirty 메타데이터와 함께 복구 가능한 거래·보유·직접펀드 payload를 영속');
+assert.match(portfolioData, /async function _retryPortfolioRemoteDirtySync\(options\)[\s\S]*holdingsOverride: dirty\.holdings[\s\S]*fundDirectOverride: dirty\.fundDirect[\s\S]*tradesOverride: dirty\.trades/,
+  '새로고침 후 dirty payload를 고정 target에 그대로 재전송');
+assert.match(portfolioData, /function _restorePortfolioRemoteDirtyPayload\(\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0[\s\S]*Object\.assign\(fundDirect/,
+  '부트스트랩에서 원격 복원 전 dirty payload를 메모리에 복원');
+assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return false/,
+  'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
 assert.match(portfolioData, /function _clearPortfolioRemoteDirty\(epoch, target\)[\s\S]*current\.epoch !== epoch \|\| current\.target !== target[\s\S]*lsRemove\(PORTFOLIO_REMOTE_DIRTY_KEY\)/,
   '최신 sync epoch와 target이 모두 일치할 때만 dirty 상태를 해제');
 assert.match(portfolioData, /const remoteSyncEpoch = _markPortfolioRemoteDirty\(\)[\s\S]*const remoteSyncTarget = _currentGsheetSyncTarget\(\)[\s\S]*Promise\.all\(\[[\s\S]*syncHoldingsToGsheet\(\)[\s\S]*syncTradesToGsheet\(\)[\s\S]*if \(holdingsOk && tradesOk\) \{[\s\S]*_clearPortfolioRemoteDirty\(remoteSyncEpoch, remoteSyncTarget\)/,
@@ -285,10 +293,10 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
   '초기 빈 상태에서는 원격 보유현황을 보존하고 확인된 마지막 거래 삭제에서만 [] 허용');
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
-assert.match(html, /settings_sync\.js\?v=20261007-17/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-1/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /settings_sync\.js\?v=20261008-1/,'거래동기화 자산 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-2/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261008-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261008-2/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261008-1/,'현재가 연결 격리 로직 캐시 버전 갱신');
