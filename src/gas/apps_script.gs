@@ -4988,11 +4988,22 @@ function _fetchMissingFundNavBatches(provider, missingDates, activeTo, diagnosti
       ? _fundDateOffset(from, -1) : from;
     var to = _fundDateOffset(from, FUND_NAV_FETCH_BATCH_DAYS - 1);
     if (to > activeTo) to = activeTo;
-    // 공시 누락일 사이의 주말·공휴일·기존 저장일에도 날짜 범위 단위로 조회합니다.
-    // 1일 단위의 잦은 요청과 재시도로 GAS 실행 제한·원천 서버 차단 가능성을 줄입니다.
-    var consumed = 0;
-    while (consumed < pending.length && pending[consumed] <= to) consumed++;
-    pending = pending.slice(consumed);
+    var providerSource = FUND_PROVIDERS[provider] && FUND_PROVIDERS[provider].source;
+    if (providerSource === 'FUNETF') {
+      // FunETF는 기간조회이므로 누락일 사이의 주말·공휴일·기존 저장일을 하나의 범위로 묶습니다.
+      // 1일 단위 요청·재시도 폭증을 줄이되 반환된 실제 공시일만 후속 검증에서 채택합니다.
+      var consumed = 0;
+      while (consumed < pending.length && pending[consumed] <= to) consumed++;
+      pending = pending.slice(consumed);
+    } else {
+      // 한화는 startDate 경계/공시 예정일 계약이 달라 기존 연속 누락일 범위를 그대로 유지합니다.
+      var previous = from, count = 1;
+      while (count < pending.length && count < FUND_NAV_FETCH_BATCH_DAYS && pending[count] === _fundDateOffset(previous, 1)) {
+        previous = pending[count++];
+      }
+      to = previous;
+      pending = pending.slice(count);
+    }
     var fetched = null, lastError = null;
     for (var attempt = 0; attempt <= FUND_NAV_FETCH_RETRIES; attempt++) {
       try {
