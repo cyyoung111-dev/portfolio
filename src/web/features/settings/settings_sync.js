@@ -153,8 +153,9 @@ async function syncCodesToGsheet() {
 
 // ★ v8.1 — 보유현황 GSheet 동기화 (트리거 자동 스냅샷을 위해 필요)
 // rawHoldings(수량·원금)를 GSheet 보유현황 시트에 저장
-async function syncHoldingsToGsheet() {
+async function syncHoldingsToGsheet(options) {
   if (!GSHEET_API_URL) return;
+  const allowEmpty = options?.allowEmpty === true;
   try {
     // rows에서 종목별 합산 데이터 추출 (계좌 합산 기준)
     const holdMap = {};
@@ -177,7 +178,9 @@ async function syncHoldingsToGsheet() {
     // accts 배열 → acct 문자열로 변환 (쉼표 연결)
     Object.values(holdMap).forEach(h => { h.acct = (h.accts||[]).join(','); delete h.accts; });
     const holdings = Object.values(holdMap).filter(h => h.qty > 0);
-    if (holdings.length === 0) return;
+    // 확인된 마지막 거래 삭제에서 실제 보유도 0이 된 경우에만 원격 보유현황 [] 삭제를 허용합니다.
+    // 초기 복원 실패 등 일반 빈 상태에서는 기존 원격 보유현황을 보존합니다.
+    if (holdings.length === 0 && !allowEmpty) return;
 
     const data = await requestGsheetFormJson(
       'syncHoldings',
