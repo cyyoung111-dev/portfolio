@@ -53,7 +53,7 @@ const tradeHistory=[
 const ledgerSheet={getLastRow:()=>tradeHistory.length+1,
   getLastColumn:()=>11,getRange:()=>({getValues:()=>tradeHistory})};
 const portfolioSheet={getSheetByName:n=>n==='거래이력'?ledgerSheet:null};
-const heldAt=(date,catalog=masterItems)=>clone(holdingsVm._getDailyHeldCodeItems(portfolioSheet,date,catalog)).map(x=>x.code);
+const heldAt=(date,catalog=masterItems)=>JSON.parse(JSON.stringify(holdingsVm._getDailyHeldCodeItems(portfolioSheet,date,catalog))).map(x=>x.code);
 assert.deepEqual(heldAt('2026-10-06'),['005930','091160'],
   '전량매도 KRW·미래 USD·펀드 종목은 KRX 조회 대상에서 제외');
 assert.deepEqual(heldAt('2026-09-29'),['005930','000660'],
@@ -63,7 +63,7 @@ assert.deepEqual(heldAt('2026-10-07'),['005930'],
 const onlySoldMaster=masterItems.filter(x=>x.code==='000660');
 assert.deepEqual(heldAt('2026-10-06',onlySoldMaster),[],
   '보유가 0인 마스터 종목만 남은 경우 종가 수집을 요구하지 않음');
-const liveOnly=clone(holdingsVm._getDailyHeldCodeItems(portfolioSheet,'2026-10-06',masterItems));
+const liveOnly=JSON.parse(JSON.stringify(holdingsVm._getDailyHeldCodeItems(portfolioSheet,'2026-10-06',masterItems)));
 assert.equal(liveOnly.length,2);
 assert.doesNotMatch(closeSection,/var items = getCodeItems\(ss\);/,
   '일일 마감에 전체 코드 마스터를 그대로 전달하면 안 됨');
