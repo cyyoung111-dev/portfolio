@@ -10560,7 +10560,8 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
         newRows.forEach(function(row) { expectedKeys[_cleanCode(row[1]) || String(row[2] || '').trim()] = true; });
         mergedDate = mergedDate.filter(function(row) {
           var key = _cleanCode(row[1]) || String(row[2] || '').trim();
-          return expectedKeys[key] || protectedDuplicateKeys[key] || String(row[10] || '').toUpperCase() === 'MANUAL';
+          // MANUAL도 현재 기대 보유목록에 있는 종목만 보호합니다. 전량매도되어 expected에서 사라진 종목은 stale Snapshot으로 제거합니다.
+          return expectedKeys[key] || protectedDuplicateKeys[key];
         });
       }
       // dedupe된 signature가 같아도 raw 원장에 중복이 있으면 반드시 rewrite합니다.
