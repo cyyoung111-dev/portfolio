@@ -109,7 +109,7 @@ assert.match(gas, /function _getHistoricalExchangeRates[\s\S]*?header\[0\] !== '
 assert.match(gas, /SHEET_ETF_DIVIDENDS/);
 assert.match(gas, /FUND_NAV_SHEET, \[0, 4\]/);
 assert.match(gas, /addSheetDates\(CONFIG\.SHEET_SNAPSHOT, \[0\]\)/,'기존 Snapshot도 과거 거래 변경 비교 대상에 포함');
-assert.match(gas, /var affectedFrom = _earliestChangedTradeDate\(previousRows, currentRows\)/,'거래 추가·수정·삭제 최초 영향일 계산');
+assert.match(gas, /affectedFrom = _earliestChangedTradeDate\(previousRows, currentRows\)/,'거래 추가·수정·삭제 최초 영향일 계산');
 assert.match(gas, /rebuildDailySnapshots\(affectedFrom, affectedTo\)/,'최초 영향일부터 마지막 확정 Snapshot까지 공통 계산기로 갱신');
 assert.match(gas.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /saveState: 'partial'[\s\S]*followupRequired: true/,
   '거래원장 저장 후 Snapshot 재생성 실패는 partial 상태로 구분');
