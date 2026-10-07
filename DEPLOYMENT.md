@@ -14,7 +14,7 @@
 - 인증된 `getKrxSourceDiagnostics?date=YYYY-MM-DD` 읽기 전용 API에서 KOSPI/KOSDAQ/ETF 별 응답 HTTP 상태·OutBlock_1 행 수·JSON 형식 상태만 노출합니다. API 키·원문 응답은 반환하지 않습니다. 기존 공식 종가 저장값과 별도로 국내 KRX 공식 데이터 최종 일자를 표시하여 펀드 NAV 날짜가 최신 국내 종가를 오인시키지 않게 합니다.
 - 운영 10/07 복구: KB S-T NAV 9/22~10/06 8건을 정확한 클래스 `KR5223AQ0185` FunETF 원천에서 검증하여 원본 시트에 기록. 국내 종가 9/30·10/01·10/02·10/06 각 37종목은 Yahoo/기업 IR/복수 시세원으로 날짜·과거 KRX 기준가 교차검증 후 **2차 제공처 라벨을 유지**하여 저장. KRX 공식 종가로 오기하지 않으며, KRX API 복구 시 공식 데이터로 재검증·교체해야 합니다. 현재 API 인증키는 설정되어 있으나 직접 KRX 조회 0건이며 OTP도 비정상 짧은 응답이었습니다.
 - 복구자료 저장·평가금액은 계산 검증했고, 19시 자동 마감 성공과 KRX API 원인(401/403/빈 OutBlock)은 이번 변경만으로 보장하지 않습니다. 배포 후 `getKrxSourceDiagnostics`, `getAutomationStatus.closeRun`을 실측하여 후속 조치합니다.
-- GAS version `9.180`, 웹 기대 버전 `9.180`, 서비스워커 `portfolio-cache-20261007-22`, settings_fetch `20261007-7`.
+- GAS version `9.180`, 웹 기대 버전 `9.180`, 서비스워커 `portfolio-cache-20261007-23`, settings_fetch `20261007-7`.
 
 ## GAS v9.179 / 웹 settings_fetch 20261007-6: 마감 종가 실보유 종목 기준 검증 (2026-10-07)
 
