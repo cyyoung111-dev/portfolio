@@ -9632,7 +9632,7 @@ function _getOfficialKrxPriceHistoryLastDate(phSh) {
   var rows = phSh.getRange(2, 1, phSh.getLastRow() - 1, 6).getValues(), latest = '';
   rows.forEach(function(row) {
     if (!/^KRX(?:_|$)/i.test(String(row[5] || ''))) return;
-    if (/^F\\d{5}$/.test(String(row[1] || ''))) return;
+    if (/^F\d{5}$/.test(String(row[1] || ''))) return;
     var date = _normalizeDate(row[0]);
     if (date && date > latest) latest = date;
   });
@@ -9643,7 +9643,7 @@ function _getOfficialKrxPriceHistoryLastDate(phSh) {
 function handleGetKrxSourceDiagnostics(dateStr) {
   try {
     var date = _normalizeDate(dateStr || '');
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(date)) return jsonError('진단할 거래일 YYYY-MM-DD를 입력하세요.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return jsonError('진단할 거래일 YYYY-MM-DD를 입력하세요.');
     var authKey = _getKrxAuthKey();
     if (!authKey) return jsonOk({ requestedDate:date, keyConfigured:false, markets:[] });
     var markets = ['KOSPI','KOSDAQ','ETF'];
