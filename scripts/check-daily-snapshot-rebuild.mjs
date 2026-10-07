@@ -177,8 +177,10 @@ assert.match(settings, /if \(forcePortfolioRestore && portfolioRestorePromise\)[
   '연결 변경 강제 복원은 설정 전역상태 적용 전에 거래·보유 읽기를 preflight');
 assert.match(settings, /if \(!hasAuthoritativeFundDirect && holdingsLoaded\) \{[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*Object\.prototype\.hasOwnProperty\.call\(fundDirect, h\.name\)[\s\S]*fundDirect\[h\.name\]/,
   'fundDirect 키가 없는 레거시 연결만 holdings의 직접펀드를 보완 복원');
-assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*_applyDivData/,
-  '배당 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
+assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*isCurrentLoad[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*_applyDivData/,
+  '배당 하위 응답은 target/generation과 load epoch를 검증한 뒤에만 전역 상태에 적용');
+assert.match(settings, /const loanChanged = typeof syncLoanFromSchedule[\s\S]*if \(loanChanged\) \{[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*persistRealEstateSettings/,
+  '부동산 하위 로드의 후속 원격 저장도 stale load epoch에서 실행되지 않음');
 assert.match(settings, /function saveDividendSettings\(_immediate, options\)[\s\S]*expectedGeneration[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '직렬화된 배당 저장도 호출 시점 target/generation에 고정해 연결 변경 cross-write를 차단');
 assert.match(settings, /function saveRealEstateSettings\(immediate, options\)[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\([\s\S]*_saveRealEstatePendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*\{ data: payload \}/,
@@ -214,10 +216,10 @@ assert.match(portfolioData, /allowDuringRestore = options\?\.allowDuringRestore 
 assert.match(settings, /function _isGasVersionAtLeast\(current, minimum\)[\s\S]*split\('\.'\)[\s\S]*return a > b/,
   'GAS 버전은 parseFloat가 아닌 segment 비교로 9.181 > 9.34를 올바르게 판정');
 assert.doesNotMatch(settings, /parseFloat\(window\._lastGasVersion/,'GAS 버전 숫자형 소수 비교 금지');
-assert.match(settings, /async function loadRealEstateSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*Object\.assign\(LOAN/,
-  '부동산 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
-assert.match(settings, /loadDividendSettings\(\{ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true \}\)[\s\S]*loadRealEstateSettings\(\{ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true \}\)/,
-  'loadSettings가 하위 복원 요청에도 시작 target/generation을 전달하고 복원-owned 읽기만 허용');
+assert.match(settings, /async function loadRealEstateSettings\(options\)[\s\S]*isCurrentLoad[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*Object\.assign\(LOAN/,
+  '부동산 하위 응답은 target/generation과 load epoch를 검증한 뒤에만 전역 상태에 적용');
+assert.match(settings, /loadDividendSettings\(\{ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true, isCurrentLoad: isLoadConnectionCurrent \}\)[\s\S]*loadRealEstateSettings\(\{ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true, isCurrentLoad: isLoadConnectionCurrent \}\)/,
+  'loadSettings가 하위 복원 요청에도 target/generation과 load epoch 검증기를 전달');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetUrl[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
 assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
