@@ -1884,6 +1884,7 @@ function fetchPricesKrx(items, dateStr) {
   var wanted = {};
   items.forEach(function(item) { wanted[item.code] = item; });
   var out = {};
+  var codeMarkets = {};
   var markets = ['KOSPI', 'KOSDAQ', 'ETF'];
   var packs = _fetchKrxMarketsParallelWithFallback(markets, ymd, cfg.apiKey, 7);
   markets.forEach(function(market) {
@@ -1896,6 +1897,9 @@ function fetchPricesKrx(items, dateStr) {
       (rows || []).forEach(function(r) {
         var code = _cleanCode(r.ISU_CD || r.ISU_SRT_CD || '');
         if (!wanted[code]) return;
+        // 종목코드 마스터에 market='KR'만 있어도 실제 응답 시장을 알아야 합니다.
+        // 가격이 0이거나 누락돼도 pack에 코드가 존재한다면 해당 시장으로 분류합니다.
+        codeMarkets[code] = market;
         var p = _parseKrxNumber(r.TDD_CLSPRC);
         if (!(p > 0)) return;
         out[code] = {
@@ -1920,6 +1924,7 @@ function fetchPricesKrx(items, dateStr) {
     evidence[market] = { count:(pack.rows || []).length,
       date:String(pack.usedYmd || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') };
   });
+  evidence.codeMarkets = codeMarkets;
   Object.defineProperty(out, '_krxMarketEvidence', { value:evidence, enumerable:false });
   return out;
 }
@@ -8406,21 +8411,29 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
     return code && !_isFundCode(code) && String(item && item.currency || 'KRW').toUpperCase() === 'KRW';
   });
   if (!listed.length) return { required:false, date:'', confirmed:0, expected:0 };
+  var evidence = prices && prices._krxMarketEvidence;
+  var codeMarkets = evidence && evidence.codeMarkets || {};
   var byMarket = {}, records = [];
   listed.forEach(function(item) {
     var code = _cleanCode(item.code) || String(item.code || '').trim();
     var market = String(item.market || '').toUpperCase();
     var type = String(item.type || '').toUpperCase();
-    // 옛 시트의 KR 표기를 주식/ETF로 나눕니다. KOSDAQ을 명시한 시트는 별도 시장으로 검증.
-    var group = type === 'ETF' || market === 'ETF' ? 'ETF'
-      : (market === 'KOSDAQ' || market === 'KOSPI' ? market : 'STOCK');
-    var record = byMarket[group] || (byMarket[group] = { expected:0, dates:[] });
-    record.expected++;
     var row = prices && prices[code];
     var source = String(row && row.source || '').toUpperCase();
     var date = _normalizeDate(row && row.usedDate || '');
-    if (!row || !(Number(row.price) > 0) || (source !== 'KRX' && source !== 'KRX_OTP')
-        || !date || date > requestedDate) return;
+    // KRX 시장 pack에서 실제로 확인한 종목코드→시장 분류가 코드 마스터의 'KR'보다 우선합니다.
+    // OpenAPI pack에서도 코드를 못 찾은 KR 종목은 별도 미확인 그룹으로 묶어,
+    // KOSPI 8/10 + KOSDAQ 0/2 같은 시장 누락이 70% 전체 평균에 가려지지 않게 합니다.
+    var confirmedMarket = String(codeMarkets[code] || '').toUpperCase();
+    var isValidClose = !!row && Number(row.price) > 0
+      && (source === 'KRX' || source === 'KRX_OTP') && !!date && date <= requestedDate;
+    var group = confirmedMarket === 'KOSPI' || confirmedMarket === 'KOSDAQ' || confirmedMarket === 'ETF'
+      ? confirmedMarket : (type === 'ETF' || market === 'ETF' ? 'ETF'
+      : (market === 'KOSDAQ' || market === 'KOSPI' ? market
+      : (isValidClose ? 'STOCK' : 'UNCLASSIFIED_KR')));
+    var record = byMarket[group] || (byMarket[group] = { expected:0, dates:[] });
+    record.expected++;
+    if (!isValidClose) return;
     record.dates.push(date);
     records.push(date);
   });
@@ -8439,11 +8452,12 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
         + newestDate + ' (' + matched + '/' + stat.expected + '종목)');
     }
   });
-  // KRX 공식 OpenAPI는 시장별 독립 응답을 주므로 전체시장 70%만으로 시장 장애를 숨기지 않습니다.
-  // OTP 단일 CSV fallback에는 시장별 pack 정보가 없어 위 종목유형 단위 검증을 적용합니다.
-  var evidence = prices && prices._krxMarketEvidence;
+  // OpenAPI는 실제 보유한 시장별 pack만 검증합니다. 보유하지 않은 시장의
+  // 데이터 제공 장애가 정상 보유 종목의 마감까지 막아서는 안 됩니다.
   if (evidence) {
-    ['KOSPI','KOSDAQ','ETF'].forEach(function(market) {
+    ['KOSPI','KOSDAQ','ETF'].filter(function(market) {
+      return !!byMarket[market];
+    }).forEach(function(market) {
       var entry = evidence[market] || {};
       if (!(entry.count > 0) || entry.date !== newestDate) {
         throw new Error('KRX 공식 시장별 확정 종가 누락: ' + market
@@ -8471,7 +8485,19 @@ function _getDailyHeldCodeItems(ss, dateStr, catalog) {
     var code = _cleanCode(row[4]) || String(row[4] || '').trim();
     if (name && code && !nameToCode[name]) nameToCode[name] = code;
   });
-  var holdings = calcHoldingsAtDate(tradeRows, dateStr, nameToCode);
+  // 기존 원장 계산기는 종목명을 키로 사용합니다. 같은 코드의 개명 전 매수·개명 후
+  // 매도는 하나의 수량으로 상계되도록 계산 입력만 코드 기준으로 정규화합니다.
+  // 거래이력 원본과 사용자 표시 종목명은 수정하지 않습니다.
+  var codeTrades = tradeRows.map(function(row) {
+    var name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || _cleanCode(nameToCode[name]);
+    if (!code) return row;
+    var normalized = row.slice();
+    normalized[3] = code;
+    normalized[4] = code;
+    return normalized;
+  });
+  var holdings = calcHoldingsAtDate(codeTrades, dateStr, {});
   var heldCodes = {};
   Object.keys(holdings).forEach(function(name) {
     var holding = holdings[name];
