@@ -422,7 +422,10 @@ async function loadSettings(onProgress, options) {
   const pendingEmptySyncAtLoad = typeof _getPendingExplicitEmptyTradeSync === 'function'
     ? _getPendingExplicitEmptyTradeSync()
     : null;
-  const blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad;
+  const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty === 'function'
+    ? _getPortfolioRemoteDirty()
+    : null;
+  const blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad || !!dirtyPortfolioAtLoad;
   try {
     prog('설정 데이터 로드 중...');
     // 설정·거래·보유·종목코드를 단일 GAS 실행에서 받아 웹앱 왕복 지연을 줄입니다.
@@ -562,6 +565,24 @@ async function loadSettings(onProgress, options) {
     if (forcePortfolioRestore || hasAuthoritativeFundDirect) {
       Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
       if (s.fundDirect && typeof s.fundDirect === 'object') Object.assign(fundDirect, s.fundDirect);
+    }
+
+    // 원격 미동기화 payload가 남아 있으면 Settings/원격 원장보다 로컬 변경을 우선 복원합니다.
+    // 이 payload는 연결 URL에 귀속되어 다른 GSheet에서는 적용되지 않습니다.
+    let dirtyPortfolioSyncResolvedAtLoad = false;
+    if (dirtyPortfolioAtLoad
+        && typeof _restorePortfolioRemoteDirtyPayload === 'function'
+        && typeof _retryPortfolioRemoteDirtySync === 'function') {
+      _restorePortfolioRemoteDirtyPayload();
+      if (!isLoadConnectionCurrent()) return false;
+      prog('미동기화 거래·보유 복구 중...');
+      const dirtyRetryOk = await _retryPortfolioRemoteDirtySync({
+        allowDuringRestore: true
+      });
+      if (!isLoadConnectionCurrent()) return false;
+      // 재전송 실패 시 원격의 이전 원장을 authoritative하게 적용하지 않습니다.
+      if (!dirtyRetryOk) return false;
+      dirtyPortfolioSyncResolvedAtLoad = true;
     }
     // SAVED_PRICES / SAVED_PRICE_DATES (기기 간 현재가 일치)
     if (s.SAVED_PRICES && typeof s.SAVED_PRICES === 'object') {
@@ -770,9 +791,12 @@ async function loadSettings(onProgress, options) {
     }
 
     // pending 성공 직후에는 preflight 시점의 오래된 원격 거래/보유를 다시 적용하지 않습니다.
-    const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad;
+    const applyForcedPortfolioRestore = forcePortfolioRestore
+      && !pendingEmptySyncResolvedAtLoad
+      && !dirtyPortfolioSyncResolvedAtLoad;
     // ── 거래이력 복원 (연결 변경/명시적 pull 시에는 성공한 빈 배열도 현재 원격 상태로 적용)
-    if ((rawTrades.length === 0 && !pendingEmptySyncResolvedAtLoad) || applyForcedPortfolioRestore) {
+    if ((rawTrades.length === 0 && !pendingEmptySyncResolvedAtLoad && !dirtyPortfolioSyncResolvedAtLoad)
+        || applyForcedPortfolioRestore) {
       try {
         prog('거래이력 복원 중...');
         const restoredPortfolio = forcedPortfolioRestoreData
