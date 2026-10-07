@@ -185,6 +185,12 @@ assert.match(settings, /function saveRealEstateSettings\(immediate, options\)[\s
   '부동산 debounce 저장은 호출 시점 payload와 target/generation을 함께 고정');
 assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\(settings\)[\s\S]*_saveSettingsPendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*\{ data: payload \}/,
   '일반 설정 debounce 저장도 호출 시점 payload와 target/generation을 함께 고정');
+assert.match(settings, /let _saveRealEstateQueue = Promise\.resolve\(\)[\s\S]*let _saveSettingsQueue = Promise\.resolve\(\)/,
+  '부동산·일반 설정 네트워크 저장 직렬화 큐 유지');
+assert.match(settings, /_saveRealEstateQueue = _saveRealEstateQueue\.then\(run, run\)[\s\S]*const ok = await _saveRealEstateQueue/,
+  '부동산 저장은 이전 네트워크 저장 완료 후 순차 실행');
+assert.match(settings, /_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)[\s\S]*const ok = await _saveSettingsQueue/,
+  '일반 설정 저장은 이전 네트워크 저장 완료 후 순차 실행');
 assert.match(settings, /function isGsheetPortfolioWriteReady\(options\)[\s\S]*!_gsBootRestored \|\| _gsPortfolioRestoreRequired/,
   '초기·연결전환 복원 완료 전 일반 원격 쓰기를 차단');
 assert.match(settings, /let _gsSettingsLoadEpoch = 0[\s\S]*const loadEpoch = \+\+_gsSettingsLoadEpoch[\s\S]*loadEpoch === _gsSettingsLoadEpoch/,
