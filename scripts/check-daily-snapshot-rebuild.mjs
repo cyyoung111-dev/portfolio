@@ -140,8 +140,12 @@ assert.match(portfolioData, /pending\.target !== currentTarget[\s\S]*_setPending
   'GSheet 연결이 바뀐 stale pending은 원격 쓰기 전에 폐기');
 assert.match(portfolioData, /_setPendingExplicitEmptyTradeSync[\s\S]*lsSave\(PENDING_EMPTY_TRADE_SYNC_KEY[\s\S]*lsRemove\(PENDING_EMPTY_TRADE_SYNC_KEY\)/,
   'pending 컨텍스트는 영속 저장하고 성공 후 제거 가능');
-assert.match(portfolioData, /async function _retryPendingExplicitEmptyTradeSync[\s\S]*await syncHoldingsToGsheet\(\{ allowEmpty: true \}\)[\s\S]*await syncTradesToGsheet\(\{ allowEmpty: true, rebuildFrom: pendingEmptySync\.from \|\| '' \}\)/,
-  '확인된 마지막 삭제의 영향일을 유지한 채 빈 보유/거래 원장을 순차 동기화');
+assert.match(portfolioData, /const retryTarget = pendingEmptySync\.target[\s\S]*syncHoldingsToGsheet\(\{ allowEmpty: true, targetUrl: retryTarget \}\)[\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget/,
+  '빈 원장 재시도 두 쓰기를 생성 당시 GSheet URL에 고정');
+assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetUrl[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
+  '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
+assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*targetUrl[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
+  '거래원장 동기화가 호출자가 고정한 targetUrl을 사용');
 assert.match(portfolioData, /rawTrades\.length > 0[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*await syncHoldingsToGsheet\(\)[\s\S]*await syncTradesToGsheet\(\)/,
   'pending 실패 뒤 새 거래가 생기면 stale 권한 폐기 후 현재 거래·보유현황을 일반 동기화');
 assert.match(portfolioData, /else if \(rawTrades\.length > 0 && _getPendingExplicitEmptyTradeSync\(\)\)[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)/,
@@ -168,8 +172,8 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
   '초기 빈 상태에서는 원격 보유현황을 보존하고 확인된 마지막 거래 삭제에서만 [] 허용');
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
-assert.match(html, /settings_sync\.js\?v=20261007-13/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-5/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /settings_sync\.js\?v=20261007-14/,'거래동기화 자산 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-6/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings\.js\?v=20261007-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
