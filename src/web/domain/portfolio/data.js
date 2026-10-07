@@ -373,6 +373,7 @@ const HOLDINGS_KEY   = 'pf_v6_holdings';
 const STOCKCODE_KEY  = 'pf_v6_stockcodes';
 const EDITABLES_KEY  = 'pf_v6_editables';
 const TRADES_KEY     = 'pf_v6_trades';
+const PENDING_EMPTY_TRADE_SYNC_KEY = 'pf_v6_pending_empty_trade_sync';
 const PRICE_BACKUP_KEY  = 'pf_price_backup';
 const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';
 // ★ [계좌별 taxType] 계좌→세금구분 매핑 키
@@ -462,9 +463,68 @@ function getAcctTaxType(acct) {
 // saveHoldings()가 연속 호출될 때 GAS fetch(3개)가 중복 발사되면
 // 429(Too Many Requests) 오류가 발생함 → 300ms 내 마지막 호출만 실제 전송
 let _saveHoldingsGasTimer = null;
-// 마지막 거래 삭제의 원격 빈 원장 동기화는 성공 확인 전까지 재시도 컨텍스트를 유지합니다.
+
+// 마지막 거래 삭제의 원격 빈 원장 동기화는 성공 확인 전까지 브라우저 재시작을 넘어 유지합니다.
 // { from: 'YYYY-MM-DD' } 또는 null
-let _pendingExplicitEmptyTradeSync = null;
+function _normalizePendingExplicitEmptyTradeSync(value) {
+  if (!value || typeof value !== 'object') return null;
+  return { from: String(value.from || '').trim() };
+}
+
+let _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(
+  lsGet(PENDING_EMPTY_TRADE_SYNC_KEY, null)
+);
+
+function _setPendingExplicitEmptyTradeSync(value) {
+  _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(value);
+  if (_pendingExplicitEmptyTradeSync) {
+    lsSave(PENDING_EMPTY_TRADE_SYNC_KEY, _pendingExplicitEmptyTradeSync);
+  } else {
+    lsRemove(PENDING_EMPTY_TRADE_SYNC_KEY);
+  }
+  return _pendingExplicitEmptyTradeSync;
+}
+
+function _getPendingExplicitEmptyTradeSync() {
+  return _pendingExplicitEmptyTradeSync;
+}
+
+async function _retryPendingExplicitEmptyTradeSync(options) {
+  const pendingEmptySync = _pendingExplicitEmptyTradeSync;
+  if (!pendingEmptySync) return true;
+
+  // 삭제 이후 새 거래가 생겼다면 더 이상 "빈 원장" 의도가 아니므로 stale 권한을 폐기합니다.
+  if (rawTrades.length > 0) {
+    if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
+    return true;
+  }
+
+  const holdingsResult = typeof syncHoldingsToGsheet === 'function'
+    ? await syncHoldingsToGsheet({ allowEmpty: true })
+    : null;
+  const tradesResult = typeof syncTradesToGsheet === 'function'
+    ? await syncTradesToGsheet({ allowEmpty: true, rebuildFrom: pendingEmptySync.from || '' })
+    : null;
+
+  // 두 원격 원장이 모두 성공한 경우에만 영속 재시도 권한을 소진합니다.
+  // 거래원장 partial은 원본만 저장되고 Snapshot 재계산이 덜 끝난 상태이므로 반드시 남깁니다.
+  const holdingsOk = holdingsResult?.status === 'ok';
+  const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
+  if (holdingsOk && tradesOk) {
+    if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
+    return true;
+  }
+
+  if (_pendingExplicitEmptyTradeSync === pendingEmptySync && tradesResult?.affectedFrom) {
+    _setPendingExplicitEmptyTradeSync({
+      from: String(tradesResult.affectedFrom || pendingEmptySync.from || '')
+    });
+  }
+  if (!options?.quiet && typeof showToast === 'function') {
+    showToast('빈 거래/보유 원장 동기화가 완료되지 않았습니다. 새로고침 후에도 자동 재시도합니다.', 'warn', 7000);
+  }
+  return false;
+}
 
 function saveHoldings(options) {
   const allowEmptyTradeSyncRequested = options?.allowEmptyTradeSync === true;
@@ -505,14 +565,15 @@ function saveHoldings(options) {
   // ★ saveSettings는 여기서 호출하지 않음 — loadSettings 도중 빈 DIVDATA를 덮어쓰는 문제 방지
   if (options?.skipGsheet) return;
   // 로컬 저장까지 성공한 실제 마지막 거래 삭제 경로만 원격 빈 원장 권한을 획득합니다.
-  // 네트워크/GAS 부분 실패 시에는 삭제 최초 영향일과 함께 권한을 유지해 다음 저장에서 재시도합니다.
+  // 네트워크/GAS 부분 실패 시 삭제 최초 영향일을 localStorage에 남겨 새로고침 후에도 재시도합니다.
   if (allowEmptyTradeSyncRequested) {
-    _pendingExplicitEmptyTradeSync = { from: emptyTradeSyncFrom || _pendingExplicitEmptyTradeSync?.from || '' };
+    _setPendingExplicitEmptyTradeSync({
+      from: emptyTradeSyncFrom || _pendingExplicitEmptyTradeSync?.from || ''
+    });
   }
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(async function() {
-    const pendingEmptySync = _pendingExplicitEmptyTradeSync;
-    const allowEmptyTradeSync = !!pendingEmptySync;
+    const allowEmptyTradeSync = !!_pendingExplicitEmptyTradeSync;
     if (typeof syncCodesToGsheet === 'function') syncCodesToGsheet();
 
     if (!allowEmptyTradeSync) {
@@ -521,27 +582,7 @@ function saveHoldings(options) {
       return;
     }
 
-    const holdingsResult = typeof syncHoldingsToGsheet === 'function'
-      ? await syncHoldingsToGsheet({ allowEmpty: true })
-      : null;
-    const tradesResult = typeof syncTradesToGsheet === 'function'
-      ? await syncTradesToGsheet({ allowEmpty: true, rebuildFrom: pendingEmptySync.from || '' })
-      : null;
-
-    // 두 원격 원장이 모두 성공한 경우에만 빈 원장 권한을 소진합니다.
-    // 거래원장 partial은 원본만 저장되고 Snapshot 재계산이 덜 끝난 상태이므로 반드시 재시도 가능하게 남깁니다.
-    const holdingsOk = holdingsResult?.status === 'ok';
-    const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
-    if (holdingsOk && tradesOk) {
-      if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _pendingExplicitEmptyTradeSync = null;
-    } else {
-      if (_pendingExplicitEmptyTradeSync === pendingEmptySync && tradesResult?.affectedFrom) {
-        pendingEmptySync.from = String(tradesResult.affectedFrom || pendingEmptySync.from || '');
-      }
-      if (typeof showToast === 'function') {
-        showToast('빈 거래/보유 원장 동기화가 완료되지 않았습니다. 다음 저장에서 자동 재시도합니다.', 'warn', 7000);
-      }
-    }
+    await _retryPendingExplicitEmptyTradeSync();
   }, 300);
 }
 
