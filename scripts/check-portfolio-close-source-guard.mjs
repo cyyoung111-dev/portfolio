@@ -30,7 +30,7 @@ const holdingsVm = vm.createContext({
   CONFIG:{SHEET_TRADES:'거래이력'},
   Utilities:{formatDate:d=>d.toISOString().slice(0,10)}
 });
-for (const name of ['_applyHoldingTrade','_snapshotHoldingState','calcHoldingsAtDate','_getDailyHeldCodeItems']) {
+for (const name of ['_applyHoldingTrade','_snapshotHoldingState','calcHoldingsAtDate','_calcCodeHoldingsAtDate','_getDailyHeldCodeItems']) {
   vm.runInContext(extract(name),holdingsVm);
 }
 const masterItems=[
@@ -60,6 +60,38 @@ assert.deepEqual(heldAt('2026-09-29'),['005930','000660'],
   '과거 기준일에는 이후 매도한 종목도 당시 실제 보유이므로 포함');
 assert.deepEqual(heldAt('2026-10-07'),['005930'],
   '평가일 당일 전량매도한 ETF는 즉시 분모에서 제외');
+// Snapshot도 같은 코드별 잔고 계산을 사용해야 개명 전 매수 잔액이 유령 보유분으로 남지 않습니다.
+const snapshotSection = extract('_buildSnapshotRowsFromTradeAndPriceHistory');
+assert.match(snapshotSection,/_calcCodeHoldingsAtDate\(tradeData, dateStr, nameToCode, displayByCode\)/,
+  'Snapshot 재구성은 일일 KRX 실보유 검증과 동일한 코드 기준 집계 사용');
+const snapshotVm=vm.createContext({
+  CONFIG:{SHEET_TRADES:'거래이력'},
+  _cleanCode:v=>String(v||'').trim().toUpperCase(),
+  _normalizeDate:v=>v instanceof Date?v.toISOString().slice(0,10):String(v||'').slice(0,10),
+  _isFundCode:v=>/^F\d{5}$/.test(String(v||'')),
+  Utilities:{formatDate:d=>d.toISOString().slice(0,10)},
+  Logger:{log(){}},
+  getCodeItems:()=>masterItems,
+  _readFundUnits:()=>[],
+  _applyFundUnitLifecycleToSnapshotHoldings:h=>h,
+  _getFundEvaluationAtDate:(_ss,code)=>code==='F00002'?{evalAmt:100000,carried:false,sourceDate:'2026-10-06'}:null,
+  getPriceHistoryRow:()=>({'005930':2000,'091160':3000,'F00002':100000}),
+  _getPriceSourceByDate:()=>({'005930':{src:'KRX'},'091160':{src:'KRX'},'F00002':{src:'FUND_NAV'}}),
+  getLatestPriceHistoryEntries:()=>({}),
+  _getHistoricalExchangeRates:()=>({}),
+  _dedupeSnapshotRows:rows=>rows
+});
+for(const name of ['_applyHoldingTrade','_snapshotHoldingState','calcHoldingsAtDate',
+  '_calcCodeHoldingsAtDate','_buildSnapshotRowsFromTradeAndPriceHistory']) {
+  vm.runInContext(extract(name),snapshotVm);
+}
+const savedSnapshot=JSON.parse(JSON.stringify(snapshotVm._buildSnapshotRowsFromTradeAndPriceHistory(
+  portfolioSheet,'2026-10-06',true)));
+assert.deepEqual(savedSnapshot.map(row=>row[1]).sort(),['005930','091160','F00002'],
+  '개명 전 매수·후 전량매도 코드는 Snapshot 생성에도 포함 금지; 타 종목/펀드는 보존');
+assert.equal(savedSnapshot.find(row=>row[1]==='005930')[7],10000,
+  'Snapshot의 실제 보유종목 평가금액 유지');
+
 const onlySoldMaster=masterItems.filter(x=>x.code==='000660');
 assert.deepEqual(heldAt('2026-10-06',onlySoldMaster),[],
   '보유가 0인 마스터 종목만 남은 경우 종가 수집을 요구하지 않음');
@@ -234,5 +266,52 @@ recovered = clone(context._fetchMissingFundNavBatches('KB_VALUE_ST',['2026-09-22
 assert.equal(calls.length,2,'14일을 초과하는 누락은 범위별 분할');
 assert.equal(calls[1].from,'2026-10-06');
 assert.equal(calls[1].to,'2026-10-06');
+
+
+// OTP CSV market 열이 KR 구형 시장 코드를 실제 시장으로 정규화하고 휴장일에는 직전일을 요청해야 합니다.
+let queriedOtpDates=[], otpCsv='';
+const otpVm=vm.createContext({
+  _normalizeDate:v=>String(v||'').slice(0,10),
+  _fundDateOffset:(v,n)=>{const d=new Date(v+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);},
+  _cleanCode:v=>String(v||'').trim(),
+  _parseKrxNumber:v=>Number(String(v||'').replaceAll(',','')),
+  _findCsvIndex:(fields,names)=>names.reduce((idx,n)=>idx<0?fields.indexOf(n):idx,-1),
+  KRX_CONFIRMED_CLOSED_DATES_2026:{'2026-10-05':1},
+  Logger:{log(){}},
+  Utilities:{parseCsv:txt=>txt.split('\n').map(line=>line.split(','))},
+  UrlFetchApp:{fetch:(url,opts)=>{
+    if(url.includes('GenerateOTP')) {
+      queriedOtpDates.push(opts.payload.trdDd);
+      return {getResponseCode:()=>200,getContentText:()=> 'TEST_OTP_20261002'};
+    }
+    return {getResponseCode:()=>200,getContentText:()=>otpCsv};
+  }}
+});
+vm.runInContext(extract('fetchPricesKrxViaOtp'),otpVm);
+otpCsv='단축코드,종가,시장구분\n005930,200000,KOSPI\n000660,210000,KOSDAQ';
+let otp=otpVm.fetchPricesKrxViaOtp([
+  {code:'005930',name:'삼성전자'}, {code:'000660',name:'하이닉스'}], '2026-10-05');
+assert.deepEqual(queriedOtpDates,['20261002'],'월요일 휴장 10/05에 OTP로 직전 거래일 10/02를 조회');
+assert.equal(otp['005930'].usedDate,'2026-10-02','직전 실제 거래일 기록');
+assert.equal(otp._krxMarketEvidence.codeMarkets['005930'],'KOSPI');
+assert.equal(otp._krxMarketEvidence.codeMarkets['000660'],'KOSDAQ');
+assert.equal(otp._krxMarketEvidence.mode,'OTP');
+assert.equal(context._assessDailyKrxStockClose([
+  {code:'005930',type:'주식',market:'KR'}, {code:'000660',type:'주식',market:'KR'}
+],otp,'2026-10-05').confirmed,2,'휴장일 OTP 시장별 종가 확인값 통과');
+queriedOtpDates=[];
+otpCsv='단축코드,종가,시장구분\n'
+  +krMaster.slice(0,8).map(x=>x.code+',1000,KOSPI').join('\n')
+  +'\n'+krMaster.slice(8).map(x=>x.code+',0,KOSDAQ').join('\n');
+otp=otpVm.fetchPricesKrxViaOtp(krMaster,'2026-10-06');
+assert.deepEqual(queriedOtpDates,['20261006'],'정상 거래일에는 과거 거래일로 임의 대체하지 않음');
+assert.equal(otp._krxMarketEvidence.codeMarkets['100008'],'KOSDAQ',
+  '가격 없는 KOSDAQ 종목도 OTP CSV 시장 분류 추적');
+assert.throws(()=>context._assessDailyKrxStockClose(krMaster,otp,'2026-10-06'),/KOSDAQ/,
+  'OTP fallback에서도 KOSPI 8건 성공·KOSDAQ 2건 실패를 차단');
+otpCsv='단축코드,종가\n'+krMaster.slice(0,8).map(x=>x.code+',1000').join('\n');
+otp=otpVm.fetchPricesKrxViaOtp(krMaster,'2026-10-06');
+assert.throws(()=>context._assessDailyKrxStockClose(krMaster,otp,'2026-10-06'),/UNCLASSIFIED_KR/,
+  'CSV 시장열 자체가 없어도 미확인 KR 보유종목을 성공 분모에 합치지 않음');
 
 console.log('✅ KRX 원본 날짜/커버리지, 펀드 NAV 혼입 방지, KB 누락 날짜 배치 회귀검사 통과');
