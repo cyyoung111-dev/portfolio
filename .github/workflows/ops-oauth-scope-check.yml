@@ -1,0 +1,27 @@
+name: OPS 20261007 check OAuth Sheets access
+on:
+  push:
+    branches: [ops/diagnose-close-nav-20261007]
+    paths: [.github/workflows/ops-oauth-scope-check.yml]
+permissions:
+  contents: read
+jobs:
+  scope-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+    steps:
+      - name: Check permissions without outputting tokens
+        run: |
+          node --input-type=module <<'NODE'
+          try{
+            const cred=JSON.parse(process.env.CLASPRC_JSON||'{}');
+            const s=cred.tokens?.default||(cred.token&&cred.oauth2ClientSettings?{refresh_token:cred.token.refresh_token,client_id:cred.oauth2ClientSettings.clientId,client_secret:cred.oauth2ClientSettings.clientSecret}:cred);
+            const r=await fetch('https://oauth2.googleapis.com/token',{method:'POST',body:new URLSearchParams({client_id:s.client_id,client_secret:s.client_secret,refresh_token:s.refresh_token,grant_type:'refresh_token'}),signal:AbortSignal.timeout(15000)});
+            const j=await r.json();if(!j.access_token)throw Error('OAUTH_'+r.status);
+            const x=await fetch('https://oauth2.googleapis.com/tokeninfo?access_token='+encodeURIComponent(j.access_token),{signal:AbortSignal.timeout(15000)});
+            const data=await x.json(),scopes=String(data.scope||'').split(' ');
+            console.log('OAUTH_SCOPES',JSON.stringify({scopeInfoHttp:x.status,canSheets:scopes.some(x=>x.endsWith('/spreadsheets')||x.endsWith('/drive')||x.endsWith('/drive.file')),canExecute:scopes.some(x=>x.includes('script.external_request')),canReadGASProcesses:scopes.some(x=>x.includes('script.processes')),possibleDrive:scopes.some(x=>x.includes('/drive'))}));
+          }catch(e){console.log('OAUTH_SCOPES',JSON.stringify({error:String(e.message).slice(0,100)}))}
+          NODE
