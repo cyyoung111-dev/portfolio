@@ -285,8 +285,8 @@ assert.match(settings, /if \(pendingEmptySyncAtLoad[\s\S]{0,120}typeof _retryPen
   'pending 재시도는 로컬 거래가 생긴 경우에도 실행');
 assert.doesNotMatch(settings, /if \(pendingEmptySyncAtLoad && rawTrades\.length === 0/,
   'pending 재시도를 rawTrades 빈 상태에만 제한하지 않음');
-assert.match(settings, /const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad/,
-  'pending 삭제를 방금 서버에 확정한 경우 같은 load에서 오래된 원격 원장을 다시 pull하지 않음');
+assert.match(settings, /const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
+  'pending 또는 dirty payload를 방금 서버에 확정한 경우 같은 load에서 오래된 원격 원장을 다시 pull하지 않음');
 assert.match(settings, /if \(!forcePortfolioRestore\) \{[\s\S]*let tradeCodeCorrected = false[\s\S]*syncTradesToGsheet\(\)/,
   'authoritative pull 전에 오래된 로컬 거래 코드교정 결과를 GAS로 재전송하지 않음');
 assert.match(sync, /explicitEmpty: allowEmpty \? '1' : ''[\s\S]*rebuildFrom/,
