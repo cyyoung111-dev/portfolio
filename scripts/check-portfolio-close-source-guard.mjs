@@ -376,8 +376,8 @@ const officialVm=vm.createContext({
 vm.runInContext(extract('handleGetKrxSourceDiagnostics'),officialVm);
 const diagnostic=officialVm.handleGetKrxSourceDiagnostics('2026-10-06');
 assert.equal(diagnostic.keyConfigured,true);
-assert.deepEqual(diagnostic.markets.map(x=>x.httpStatus),[200,403,200]);
-assert.deepEqual(diagnostic.markets.map(x=>x.rows),[1,0,0]);
+assert.deepEqual(JSON.parse(JSON.stringify(diagnostic.markets.map(x=>x.httpStatus))),[200,403,200]);
+assert.deepEqual(JSON.parse(JSON.stringify(diagnostic.markets.map(x=>x.rows))),[1,0,0]);
 assert.doesNotMatch(JSON.stringify(diagnostic),/secret-must-not-be-revealed|must-not-be-revealed/,
   '인증키/원문 누출 금지');
 assert.deepEqual(officialVm.handleGetKrxSourceDiagnostics('invalid').error,
