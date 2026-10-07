@@ -702,8 +702,15 @@ async function loadSettings(onProgress, options) {
       });
     }
 
-    // pending 삭제 재시도가 성공했다면 그 로컬 빈 원장 의도가 방금 서버에 확정된 상태이므로
-    // 같은 load에서 다시 오래된 원격 원장을 pull하지 않습니다.
+    // pending 삭제 재시도가 성공한 강제 복원에서는 서버에 방금 확정한 빈 거래/보유 상태를
+    // 메모리에도 즉시 적용합니다. 이전 연결의 rawTrades/rawHoldings를 남긴 채 복원 완료로 표시하지 않습니다.
+    if (forcePortfolioRestore && pendingEmptySyncResolvedAtLoad) {
+      rawTrades.length = 0;
+      rawHoldings.length = 0;
+      saveHoldings({ skipGsheet: true });
+    }
+
+    // pending 성공 직후에는 preflight 시점의 오래된 원격 거래/보유를 다시 적용하지 않습니다.
     const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad;
     // ── 거래이력 복원 (연결 변경/명시적 pull 시에는 성공한 빈 배열도 현재 원격 상태로 적용)
     if ((rawTrades.length === 0 && !pendingEmptySyncResolvedAtLoad) || applyForcedPortfolioRestore) {
