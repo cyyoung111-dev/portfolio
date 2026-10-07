@@ -16,7 +16,8 @@
 - 빈 원장 pending이 있는 상태에서 명시적 원격 pull을 실행하면 pending 삭제 동기화를 먼저 성공 확인합니다. 성공한 로컬 삭제 의도를 서버에 확정한 뒤에는 같은 요청에서 오래된 원격 원장을 다시 가져오지 않으며, 실패하면 복원 완료로 승격하지 않습니다.
 - pending 상태에서 새 거래가 생긴 경우에도 repair token을 원격 동기화 성공 전에 지우지 않습니다. 현재 거래·보유가 모두 서버에 확정된 뒤에만 제거하며, 앱 재시작 시 로컬 거래가 있어도 해당 repair 경로를 재시도합니다.
 - authoritative pull 직전에는 기존 로컬 거래의 코드교정 결과를 GAS로 다시 쓰지 않습니다. 원격 최신 원장을 받기 전에 오래된 로컬 거래가 서버를 덮는 pre-pull write 경로를 차단합니다.
-- GAS version `9.184`, 웹 기대 버전 `9.184`, 서비스워커 `portfolio-cache-20261007-36`, settings `20261007-13`, settings_tabsync `20261007-1`, settings_fetch `20261007-12`.
+- 같은 GSheet에서 자동 bootstrap과 수동 원격 pull이 겹쳐도 load epoch로 최신 요청만 상태를 계속 적용합니다. 명시적 pull은 시작 즉시 restore 잠금을 걸어 완료 전 일반 원격 쓰기를 차단합니다.
+- GAS version `9.184`, 웹 기대 버전 `9.184`, 서비스워커 `portfolio-cache-20261007-37`, settings `20261007-14`, settings_tabsync `20261007-1`, settings_fetch `20261007-12`.
 
 ## GAS v9.183 / 웹 독립 재검토 보강 (2026-10-07)
 
