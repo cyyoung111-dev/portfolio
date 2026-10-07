@@ -4924,7 +4924,8 @@ function _ensurePortfolioCloseDailyTrigger(autoFix) {
 function _fundUnitsImpactEnd(ss, configs, code, startDate) {
   var next = (configs || []).filter(function(c) { return c.code === code && c.startDate > startDate; })
     .map(function(c) { return c.startDate; }).sort()[0] || '';
-  var limit = next ? _fundDateOffset(next, -1) : _fundDateOffset(today(), -1);
+  var limit = next ? _fundDateOffset(next, -1) : today();
+  if (limit > today()) limit = today();
   var latest = '';
   function scan(sheetName, dateCol, codeCol, maxCols) {
     var sh = ss.getSheetByName(sheetName);
@@ -4934,7 +4935,7 @@ function _fundUnitsImpactEnd(ss, configs, code, startDate) {
       if (rowCode !== code && (sheetName === CONFIG.SHEET_PH || sheetName === CONFIG.SHEET_SNAPSHOT)) {
         rowCode = _fundConfiguredCodeForPriceRow(row, configs || []);
       }
-      if (rowCode !== code || !date || date < startDate || date > limit || date >= today()) return;
+      if (rowCode !== code || !date || date < startDate || date > limit) return;
       if (date > latest) latest = date;
     });
   }
@@ -9858,21 +9859,27 @@ function runEvalPriceUpdate1620() {
 }
 
 // 하나의 통합 트리거가 제한시간에 중단되어도 마지막으로 진입한 단계는 남깁니다.
-function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, summary) {
-  // 동시 마감 실행은 고유 ID로 구분합니다. 먼저 실행한 작업이 늦게 종료되어도
-  // 뒤에 시작한 실행의 단계·완료·오류 정보를 덮어쓸 수 없습니다.
+function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, summary, startedMs) {
+  // 실행 시작 시각은 표시용 초 단위 문자열과 별도로 millisecond를 저장합니다.
+  // 같은 초에 겹친 실행도 더 오래된 실행이 최신 run-id를 뒤늦게 덮지 못하게 합니다.
   var lock = LockService.getScriptLock(), ownsLock = false;
   try {
     if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; }
-    var previousStarted = String(props.getProperty('portfolio_close_run_started_at') || '');
+    var currentRunId = String(props.getProperty('portfolio_close_run_id') || '');
+    var currentStartedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+    var candidateStartedMs = Number(startedMs || 0);
     if (stage === 'PRICE') {
-      if (previousStarted > startedAt) return false;
-    } else if (String(props.getProperty('portfolio_close_run_id') || '') !== String(runId || '')) {
+      if (currentStartedMs > candidateStartedMs) return false;
+      // 정확히 같은 millisecond의 중복 실행은 최초 소유자 하나만 허용합니다.
+      // 어느 실행이 먼저인지 추가 정보로 판별할 수 없으므로 뒤늦은 교체보다 중복 작업 차단이 안전합니다.
+      if (candidateStartedMs && currentStartedMs === candidateStartedMs && currentRunId && currentRunId !== String(runId || '')) return false;
+    } else if (currentRunId !== String(runId || '')) {
       return false;
     }
     props.setProperties({
       portfolio_close_run_id: String(runId || ''),
       portfolio_close_run_started_at: startedAt,
+      portfolio_close_run_started_ms: String(candidateStartedMs || currentStartedMs || 0),
       portfolio_close_run_date: runDate,
       portfolio_close_stage: stage,
       portfolio_close_stage_at: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
@@ -9946,12 +9953,16 @@ function handleGetKrxSourceDiagnostics(dateStr) {
 function runDailyPortfolioClose1900() {
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
-  var startedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+  var startedMs = Date.now();
+  var startedAt = Utilities.formatDate(new Date(startedMs), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
   var runId = Utilities.getUuid();
   var priceResult = null;
   var fundResult = null;
   var errors = [];
-  _recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId);
+  if (!_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)) {
+    Logger.log('ℹ️ 19시 통합 마감 중복 실행 차단: 더 최신 실행이 이미 상태 소유권을 보유 중입니다.');
+    return { runDate:runDate, startedAt:startedAt, skipped:true, reason:'NEWER_OR_SAME_START_OWNS_STATE' };
+  }
 
   try {
     priceResult = saveDailyPriceHistory();
@@ -9960,7 +9971,7 @@ function runDailyPortfolioClose1900() {
     Logger.log('⚠️ 통합 마감 일반 종목 단계 실패 — 펀드 단계 계속: ' + errors[errors.length - 1]);
   }
 
-  _recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId);
+  _recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs);
   try {
     fundResult = runDailyFundValuations();
   } catch (fundErr) {
@@ -9979,7 +9990,7 @@ function runDailyPortfolioClose1900() {
     fundLastDate: fundResult && fundResult.lastDate ? fundResult.lastDate : runDate,
     errors: errors.slice(0, 4)
   };
-  _recordPortfolioCloseStage(props, runDate, startedAt, errors.length ? 'ERROR' : 'COMPLETE', runId, summary);
+  _recordPortfolioCloseStage(props, runDate, startedAt, errors.length ? 'ERROR' : 'COMPLETE', runId, summary, startedMs);
 
   if (errors.length) {
     throw new Error('통합 마감 부분 실패: ' + errors.join(' | '));
