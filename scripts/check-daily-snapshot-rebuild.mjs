@@ -201,8 +201,8 @@ assert.match(settings, /function _isGasVersionAtLeast\(current, minimum\)[\s\S]*
 assert.doesNotMatch(settings, /parseFloat\(window\._lastGasVersion/,'GAS 버전 숫자형 소수 비교 금지');
 assert.match(settings, /async function loadRealEstateSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*Object\.assign\(LOAN/,
   '부동산 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
-assert.match(settings, /loadDividendSettings\(\{ targetUrl: loadTarget, generation: loadGeneration \}\)[\s\S]*loadRealEstateSettings\(\{ targetUrl: loadTarget, generation: loadGeneration \}\)/,
-  'loadSettings가 하위 복원 요청에도 시작 target/generation을 전달');
+assert.match(settings, /loadDividendSettings\(\{ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true \}\)[\s\S]*loadRealEstateSettings\(\{ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true \}\)/,
+  'loadSettings가 하위 복원 요청에도 시작 target/generation을 전달하고 복원-owned 읽기만 허용');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetUrl[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
 assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
