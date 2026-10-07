@@ -1,0 +1,31 @@
+name: PR 466 full CI validation
+
+on:
+  push:
+    branches:
+      - fix/history-source-nav-carry-automation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-package-lock --no-audit --no-fund
+          fi
+      - name: Run full CI
+        run: npm run check:ci
