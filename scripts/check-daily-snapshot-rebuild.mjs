@@ -111,6 +111,12 @@ assert.match(gas, /FUND_NAV_SHEET, \[0, 4\]/);
 assert.match(gas, /addSheetDates\(CONFIG\.SHEET_SNAPSHOT, \[0\]\)/,'기존 Snapshot도 과거 거래 변경 비교 대상에 포함');
 assert.match(gas, /affectedFrom = _earliestChangedTradeDate\(previousRows, currentRows\)/,'거래 추가·수정·삭제 최초 영향일 계산');
 assert.match(gas, /rebuildDailySnapshots\(affectedFrom, affectedTo\)/,'최초 영향일부터 마지막 확정 Snapshot까지 공통 계산기로 갱신');
+assert.match(gas, /function _hasSnapshotHoldingsAtDate\(ss, dateStr\)/,
+  '빈 재계산 결과가 실제 무보유인지 거래원장에서 별도 판정');
+assert.match(gas, /hasHoldings === false[\s\S]*writeSnapshotRows\(ss, date, \[\], true, null, rebuildFundConfigs, true\)/,
+  '전량매도 후 빈 포트폴리오는 기존 Snapshot을 명시적으로 비움');
+assert.match(gas, /function writeSnapshotRows\(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite\)/,
+  '빈 포트폴리오 덮어쓰기는 명시적 플래그에서만 허용');
 assert.match(gas.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /saveState: 'partial'[\s\S]*followupRequired: true/,
   '거래원장 저장 후 Snapshot 재생성 실패는 partial 상태로 구분');
 assert.match(sync, /data\.saveState === 'partial'[\s\S]*일부 반영:[\s\S]*영향기간/,
