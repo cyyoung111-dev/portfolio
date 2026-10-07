@@ -494,7 +494,15 @@ function _normalizePortfolioRemoteDirty(value) {
   const target = String(value.target || '').trim();
   const epoch = Number(value.epoch) || 0;
   if (!target || epoch <= 0) return null;
-  return { target, epoch };
+  return {
+    target,
+    epoch,
+    trades: Array.isArray(value.trades) ? value.trades.map(t => ({ ...t })) : [],
+    holdings: Array.isArray(value.holdings) ? value.holdings.map(h => ({ ...h })) : [],
+    fundDirect: value.fundDirect && typeof value.fundDirect === 'object'
+      ? JSON.parse(JSON.stringify(value.fundDirect))
+      : {}
+  };
 }
 
 let _portfolioRemoteDirty = _normalizePortfolioRemoteDirty(
@@ -506,7 +514,15 @@ function _markPortfolioRemoteDirty() {
   const target = _currentGsheetSyncTarget();
   if (!target) return 0;
   const epoch = ++_portfolioRemoteSyncEpoch;
-  _portfolioRemoteDirty = { target, epoch };
+  _portfolioRemoteDirty = {
+    target,
+    epoch,
+    trades: rawTrades.map(t => ({ ...t })),
+    holdings: rawHoldings.map(h => ({ ...h })),
+    fundDirect: (typeof fundDirect === 'object' && fundDirect)
+      ? JSON.parse(JSON.stringify(fundDirect))
+      : {}
+  };
   lsSave(PORTFOLIO_REMOTE_DIRTY_KEY, _portfolioRemoteDirty);
   return epoch;
 }
@@ -532,6 +548,54 @@ function _isPortfolioRemoteSyncPending() {
     || !!_saveHoldingsGasTimer
     || !!_pendingExplicitEmptyTradeSyncFlight
     || !!_getPendingExplicitEmptyTradeSync();
+}
+
+async function _retryPortfolioRemoteDirtySync(options) {
+  const dirty = _getPortfolioRemoteDirty();
+  if (!dirty) return true;
+  const targetUrl = dirty.target;
+  const generation = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration()
+    : null;
+  const allowDuringRestore = options?.allowDuringRestore === true;
+  const holdingsRequired = dirty.holdings.length > 0 || Object.keys(dirty.fundDirect || {}).length > 0;
+  const tradesRequired = dirty.trades.length > 0;
+  const [holdingsResult, tradesResult] = await Promise.all([
+    typeof syncHoldingsToGsheet === 'function'
+      ? syncHoldingsToGsheet({
+          targetUrl,
+          generation,
+          allowDuringRestore,
+          holdingsOverride: dirty.holdings,
+          fundDirectOverride: dirty.fundDirect
+        })
+      : Promise.resolve(null),
+    typeof syncTradesToGsheet === 'function'
+      ? syncTradesToGsheet({
+          targetUrl,
+          generation,
+          allowDuringRestore,
+          tradesOverride: dirty.trades
+        })
+      : Promise.resolve(null)
+  ]);
+  const holdingsOk = !holdingsRequired || holdingsResult?.status === 'ok';
+  const tradesOk = !tradesRequired
+    || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
+  if (!holdingsOk || !tradesOk) return false;
+  return _clearPortfolioRemoteDirty(dirty.epoch, dirty.target);
+}
+
+function _restorePortfolioRemoteDirtyPayload() {
+  const dirty = _getPortfolioRemoteDirty();
+  if (!dirty) return false;
+  rawTrades.length = 0;
+  dirty.trades.forEach(t => rawTrades.push({ ...t }));
+  rawHoldings.length = 0;
+  dirty.holdings.forEach(h => rawHoldings.push({ ...h }));
+  Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
+  Object.assign(fundDirect, JSON.parse(JSON.stringify(dirty.fundDirect || {})));
+  return true;
 }
 
 function _setPendingExplicitEmptyTradeSync(value) {
@@ -756,19 +820,29 @@ function saveHoldings(options) {
     if (typeof syncCodesToGsheet === 'function') syncCodesToGsheet();
 
     if (!allowEmptyTradeSync) {
-      const holdingsRequired = rawHoldings.length > 0
-        || (typeof fundDirect === 'object' && fundDirect && Object.keys(fundDirect).length > 0);
-      const tradesRequired = rawTrades.length > 0;
+      const dirty = _portfolioRemoteDirty;
+      if (!dirty || dirty.epoch !== remoteSyncEpoch || dirty.target !== remoteSyncTarget) return;
+      const holdingsRequired = dirty.holdings.length > 0 || Object.keys(dirty.fundDirect || {}).length > 0;
+      const tradesRequired = dirty.trades.length > 0;
       const [holdingsResult, tradesResult] = await Promise.all([
-        typeof syncHoldingsToGsheet === 'function' ? syncHoldingsToGsheet() : Promise.resolve(null),
-        typeof syncTradesToGsheet === 'function' ? syncTradesToGsheet() : Promise.resolve(null)
+        typeof syncHoldingsToGsheet === 'function'
+          ? syncHoldingsToGsheet({
+              targetUrl: remoteSyncTarget,
+              holdingsOverride: dirty.holdings,
+              fundDirectOverride: dirty.fundDirect
+            })
+          : Promise.resolve(null),
+        typeof syncTradesToGsheet === 'function'
+          ? syncTradesToGsheet({
+              targetUrl: remoteSyncTarget,
+              tradesOverride: dirty.trades
+            })
+          : Promise.resolve(null)
       ]);
       const holdingsOk = !holdingsRequired || holdingsResult?.status === 'ok';
       const tradesOk = !tradesRequired
         || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
-      if (holdingsOk && tradesOk) {
-        _clearPortfolioRemoteDirty(remoteSyncEpoch, remoteSyncTarget);
-      }
+      if (holdingsOk && tradesOk) _clearPortfolioRemoteDirty(remoteSyncEpoch, remoteSyncTarget);
       return;
     }
 
