@@ -4905,6 +4905,105 @@ function _ensurePortfolioCloseDailyTrigger(autoFix) {
   return hasClose;
 }
 
+function _fundUnitsImpactEnd(ss, configs, code, startDate) {
+  var next = (configs || []).filter(function(c) { return c.code === code && c.startDate > startDate; })
+    .map(function(c) { return c.startDate; }).sort()[0] || '';
+  var limit = next ? _fundDateOffset(next, -1) : _fundDateOffset(today(), -1);
+  var latest = '';
+  function scan(sheetName, dateCol, codeCol, maxCols) {
+    var sh = ss.getSheetByName(sheetName);
+    if (!sh || sh.getLastRow() < 2) return;
+    sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(maxCols, sh.getLastColumn())).getValues().forEach(function(row) {
+      var date = _normalizeDate(row[dateCol]), rowCode = _cleanCode(row[codeCol]) || String(row[codeCol] || '').trim().toUpperCase();
+      if (rowCode !== code || !date || date < startDate || date > limit || date >= today()) return;
+      if (date > latest) latest = date;
+    });
+  }
+  scan(FUND_NAV_SHEET, 0, 1, 9);
+  scan(CONFIG.SHEET_PH, 0, 1, 6);
+  scan(CONFIG.SHEET_SNAPSHOT, 0, 1, 12);
+  return latest;
+}
+
+function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
+  var result = { from:fromDate, to:toDate || '', navRows:0, priceRows:0, snapshotRows:0, manualPreserved:0, missingNav:0 };
+  if (!toDate || toDate < fromDate) return result;
+  var configs = _readFundUnits(ss);
+  var navSh = ss.getSheetByName(FUND_NAV_SHEET);
+  var navRows = navSh && navSh.getLastRow() > 1 ? navSh.getRange(2, 1, navSh.getLastRow() - 1, Math.min(9, navSh.getLastColumn())).getValues() : [];
+  var evalCache = {};
+  function inRange(date) { return date && date >= fromDate && date <= toDate; }
+  function evalAt(date) {
+    if (Object.prototype.hasOwnProperty.call(evalCache, date)) return evalCache[date];
+    var active = _fundUnitsAtDate(configs, code, date);
+    if (!active || !(Number(active.units) > 0)) return evalCache[date] = { zero:true, units:active ? Number(active.units) : 0 };
+    var value = _fundNavEvaluationFromRows(navRows, configs, code, date);
+    if (!value) { result.missingNav++; return evalCache[date] = null; }
+    return evalCache[date] = value;
+  }
+  var navChanged = false;
+  navRows.forEach(function(row) {
+    var date = _normalizeDate(row[0]);
+    if ((_cleanCode(row[1]) || String(row[1] || '').trim()) !== code || String(row[8] || '') !== provider || !inRange(date)) return;
+    var value = evalAt(date);
+    if (!value) return;
+    var units = value.zero ? 0 : Number(value.units), evalAmt = value.zero ? 0 : Number(value.evalAmt);
+    if (Number(row[5]) !== units || Number(row[6]) !== evalAmt) {
+      row[5] = units; row[6] = evalAmt; navChanged = true; result.navRows++;
+    }
+  });
+  if (navChanged) navSh.getRange(2, 1, navRows.length, 9).setValues(navRows.map(function(row) { return row.slice(0,9); }));
+
+  var ph = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (ph && ph.getLastRow() > 1) {
+    var prices = ph.getRange(2, 1, ph.getLastRow() - 1, Math.min(6, ph.getLastColumn())).getValues(), priceChanged = false;
+    prices.forEach(function(row) {
+      var date = _normalizeDate(row[0]), rowCode = _fundConfiguredCodeForPriceRow(row, configs);
+      if (rowCode !== code || !inRange(date)) return;
+      var oldSource = String(row[5] || '').toUpperCase();
+      if (oldSource === 'MANUAL') { result.manualPreserved++; return; }
+      var value = evalAt(date);
+      if (!value) return;
+      var price = value.zero ? 0 : Number(value.evalAmt);
+      var source = value.zero ? 'FUND_NAV_ZERO_UNITS'
+        : (value.carried ? (oldSource === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? oldSource : 'FUND_NAV_CARRY') : 'FUND_NAV');
+      if (Number(row[3]) !== price || oldSource !== source) {
+        row[3] = price; row[5] = source; priceChanged = true; result.priceRows++;
+      }
+    });
+    if (priceChanged) ph.getRange(2, 1, prices.length, 6).setValues(prices.map(function(row) { return row.slice(0,6); }));
+  }
+
+  var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  if (snap && snap.getLastRow() > 1) {
+    var width = Math.max(12, snap.getLastColumn());
+    var snapshots = snap.getRange(2, 1, snap.getLastRow() - 1, width).getValues(), snapChanged = false;
+    var nameByCode = {};
+    configs.forEach(function(c) { if (c.code === code && c.name) nameByCode[c.name] = true; });
+    snapshots.forEach(function(row) {
+      var date = _normalizeDate(row[0]), rowCode = _cleanCode(row[1]) || '';
+      if (!rowCode && nameByCode[String(row[2] || '').trim()]) rowCode = code;
+      if (rowCode !== code || !inRange(date)) return;
+      var oldSource = String(row[10] || '').toUpperCase();
+      if (oldSource === 'MANUAL') { result.manualPreserved++; return; }
+      var value = evalAt(date);
+      if (!value) return;
+      if (value.zero) {
+        [3,4,5,6,7,8,9].forEach(function(index) { row[index] = 0; });
+        row[10] = 'FUND_NAV_ZERO_UNITS';
+      } else {
+        var costAmt = Number(row[5]) || 0, evalAmt = Number(value.evalAmt), pnl = evalAmt - costAmt;
+        row[3] = 1; row[4] = costAmt; row[6] = evalAmt; row[7] = evalAmt; row[8] = pnl;
+        row[9] = costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0;
+        row[10] = value.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV';
+      }
+      snapChanged = true; result.snapshotRows++;
+    });
+    if (snapChanged) snap.getRange(2, 1, snapshots.length, width).setValues(snapshots);
+  }
+  return result;
+}
+
 function handleSaveFundUnits(dataJson) {
   var lock = LockService.getScriptLock();
   try {
@@ -4918,30 +5017,34 @@ function handleSaveFundUnits(dataJson) {
     var ss = getss();
     var configs = _readFundUnits(ss);
     var old = configs.find(function(c) { return c.code === code && c.startDate === startDate; });
-    if (old && (old.units !== units || old.provider !== provider)) throw new Error('같은 적용일의 좌수가 이미 저장돼 있습니다. 변경일부터 새 좌수를 등록하세요.');
     if (configs.some(function(c) { return c.code === code && c.provider !== provider; })) throw new Error('동일 코드의 펀드 클래스를 바꿀 수 없습니다.');
-    // 이미 계산된 과거 구간을 새 설정이 소급 변경하지 않도록 차단합니다.
-    var navSh = ss.getSheetByName(FUND_NAV_SHEET);
-    if (!old && navSh && navSh.getLastRow() > 1) {
-      var next = configs.filter(function(c) { return c.code === code && c.startDate > startDate; }).map(function(c) { return c.startDate; }).sort()[0];
-      var conflict = navSh.getRange(2, 1, navSh.getLastRow() - 1, 9).getValues().some(function(r) {
-        var d = _normalizeDate(r[0]);
-        return String(r[1]) === code && d >= startDate && (!next || d < next) && Number(r[5]) !== units;
-      });
-      if (conflict) throw new Error('이미 평가금액이 작성된 날짜와 좌수 설정이 충돌합니다. 미작성 적용일부터 등록하세요.');
+    var item = _getFundCodeCatalog(ss, configs).find(function(fund) { return fund.code === code; });
+    if (!item) throw new Error('기초정보·거래이력·기존 좌수 설정에 있는 F코드만 등록할 수 있습니다.');
+    var sh = ss.getSheetByName(FUND_UNITS_SHEET);
+    if (!sh) { sh = ss.insertSheet(FUND_UNITS_SHEET); sh.appendRow(['종목코드','종목명','클래스','적용시작일','좌수','등록일시']); }
+    _setCodeColumnText(sh, 1);
+    var savedAt = new Date().toISOString(), mode = old ? 'updated' : 'inserted';
+    if (old) {
+      var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues(), rowIndex = -1;
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i][0]).trim().toUpperCase() === code && _normalizeDate(rows[i][3]) === startDate) { rowIndex = i + 2; break; }
+      }
+      if (rowIndex < 2) throw new Error('기존 좌수 이력 행을 찾지 못했습니다.');
+      if (Number(old.units) === units && old.provider === provider) mode = 'unchanged';
+      else sh.getRange(rowIndex, 1, 1, 6).setValues([[code, String(item.name), provider, startDate, units, savedAt]]);
+    } else {
+      sh.appendRow([code, String(item.name), provider, startDate, units, savedAt]);
     }
-    if (!old) {
-      var item = _getFundCodeCatalog(ss, configs).find(function(fund) { return fund.code === code; });
-      if (!item) throw new Error('기초정보·거래이력·기존 좌수 설정에 있는 F코드만 등록할 수 있습니다.');
-      var sh = ss.getSheetByName(FUND_UNITS_SHEET);
-      if (!sh) { sh = ss.insertSheet(FUND_UNITS_SHEET); sh.appendRow(['종목코드','종목명','클래스','적용시작일','좌수','등록일시']); }
-      _setCodeColumnText(sh, 1);
-      sh.appendRow([code, String(item.name), provider, startDate, units, new Date().toISOString()]);
-      _touchSnapshotIntegritySourceRevision({ from: startDate });
-    }
-    _ensurePortfolioCloseDailyTrigger(true);
+    SpreadsheetApp.flush();
     var savedConfigs = _readFundUnits(ss);
-    return jsonOk({ configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19 });
+    var exact = savedConfigs.filter(function(c) { return c.code === code && c.startDate === startDate; });
+    if (exact.length !== 1 || Number(exact[0].units) !== units || exact[0].provider !== provider) throw new Error('좌수 이력 쓰기 검증 실패');
+    _touchSnapshotIntegritySourceRevision({ from: startDate });
+    var affectedTo = _fundUnitsImpactEnd(ss, savedConfigs, code, startDate);
+    var reconciliation = _reconcileFundUnitDerivedRows(ss, code, provider, startDate, affectedTo);
+    _ensurePortfolioCloseDailyTrigger(true);
+    return jsonOk({ configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19,
+      mode: mode, affectedFrom: startDate, affectedTo: affectedTo, reconciliation: reconciliation });
   } catch (err) { return jsonError('좌수 저장 실패: ' + err.message); }
   finally { lock.releaseLock(); }
 }
