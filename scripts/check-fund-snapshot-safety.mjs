@@ -1005,6 +1005,26 @@ assert.equal(reentrySnapshots.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='00
   '같은 날짜의 다른 종목 Snapshot 보존');
 context.getss=()=>ssFor(sheets);
 
+// 오늘 이미 생성된 펀드 파생행도 같은 날 좌수 정정 시 즉시 재계산합니다.
+const todayUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-09-09',1000,'']]);
+const todayNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-09-09','F00001','테스트 펀드',1000,'2026-09-09',1000,1000,'','HANWHA_2045_CRPE']]);
+const todayPrices=new Sheet([['date','code','name','price','at','source'],
+  ['2026-09-09','F00001','테스트 펀드',1000,'','FUND_NAV']]);
+const todayTrades=new Sheet([Array(8).fill('header'),
+  ['2026-09-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드']]);
+const todaySnapshots=new Sheet([header,snap('2026-09-09','F00001',1000,'FUND_NAV')]);
+const todaySheets={'펀드좌수':todayUnits,'펀드기준가격':todayNav,'가격이력':todayPrices,'거래이력':todayTrades,'스냅샷':todaySnapshots};
+context.getss=()=>ssFor(todaySheets);
+const todayCorrection=context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider:'HANWHA_2045_CRPE',startDate:'2026-09-09',units:2000}));
+assert.equal(todayCorrection.status,'ok','당일 좌수 정정 성공');
+assert.equal(todayCorrection.affectedTo,'2026-09-09','오늘 이미 생성된 파생행도 영향범위에 포함');
+assert.equal(todayNav.rows.find(row=>row[0]==='2026-09-09')[6],2000,'당일 NAV 파생 평가 재계산');
+assert.equal(todayPrices.rows.find(row=>row[0]==='2026-09-09')[3],2000,'당일 가격이력 재계산');
+assert.equal(todaySnapshots.rows.find(row=>row[0]==='2026-09-09')[7],2000,'당일 Snapshot 재계산');
+context.getss=()=>ssFor(sheets);
+
 // 코드가 비고 이름만 남은 레거시 펀드 행도 영향범위와 0좌 lifecycle에 포함합니다.
 const legacyUnits=new Sheet([['code','name','provider','start','units','at'],
   ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',0,'']]);
