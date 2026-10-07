@@ -1,3 +1,11 @@
+## GAS v9.176 / 웹 20261007-3: 손익 정합성 표시·Toss 0건 진단 보강 (2026-10-07)
+
+- 손익 그래프에서 오류/충돌 날짜가 24일을 넘으면 전체 높이 점선을 반복하지 않고 상단 짧은 tick으로 축약해 과밀 줄무늬를 방지합니다.
+- Snapshot 진단 응답에 중복 그룹 분류 요약(EXACT_DUPLICATE, SINGLE_EXPECTED_MATCH, MANUAL_PROTECTED, UNRESOLVED_CONFLICT, SOURCE_INCOMPLETE)을 포함하고 웹 정합성 요약에 MANUAL 보호/미해결 충돌 그룹 수를 표시합니다.
+- Toss 현재가 조회는 `NOT_RUN/SUCCESS/EMPTY/ERROR` 상태를 함께 반환합니다. 웹의 Toss 상태 chip을 눌러 Toss/KRX/최근 확정 이력 fallback 상태를 구분합니다.
+- 현재가 cache key를 `prices_v9176`로 갱신해 구버전 진단 metadata 캐시를 재사용하지 않습니다.
+- GAS/웹 기대 버전은 `9.176`, 정적 cache는 `portfolio-cache-20261007-3`입니다.
+
 ## GAS v9.175: 통합 리뷰 P2 자동화·Snapshot 정합성 보강 (2026-10-07)
 
 - 일일 트리거 점검이 누락 여부뿐 아니라 기존 `runEvalPriceUpdate1620` / `runDailyFundValuations` 레거시 분리 트리거와 `runDailyPortfolioClose1900` 중복 개수까지 검사하고 정상 집합으로 자동 정리합니다.
