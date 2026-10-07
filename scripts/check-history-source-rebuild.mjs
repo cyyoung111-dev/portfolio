@@ -87,7 +87,12 @@ const priceRows = [
 const values = {
   거래: [['날짜','', '', '이름','코드'],['2026-01-01','','','KB 펀드','F00002']],
   가격이력: priceRows,
-  종목코드: [['종목코드','이름']],
+  종목코드: [
+    ['종목코드','이름','종류','섹터','통화','시장'],
+    ['005930','삼성전자','주식','','KRW','KRX'],
+    ['AAPL','애플','주식','','USD','NASDAQ'],
+    ['F00002','KB 펀드','펀드','','KRW','FUND']
+  ],
   스냅샷: [['날짜']],
   펀드기준가격: [['날짜','코드','명','NAV','공시일','좌수','평가금액','시각','클래스'], ...navRows],
   펀드좌수: [['코드','좌수']],
@@ -105,6 +110,17 @@ assert.equal(map.F00002[7],150068);
 assert.equal(map.F00002[10],'FUND_NAV_CARRY@2026-10-05');
 assert.equal(map['005930'][7],150000);
 assert.equal(map.AAPL[7],130650,'미국주식은 확정 종가 × 해당일 이전 확정 환율');
+const noCurrencyIndex = { ...indexed, historyCurrencyByCode: { ...indexed.historyCurrencyByCode } };
+delete noCurrencyIndex.historyCurrencyByCode.AAPL;
+assert.throws(() => lib._historySourceRows(noCurrencyIndex,'2026-10-07'),/종목 통화 원자료 누락/,
+  '종목코드에서 통화를 확인할 수 없는 해외 종목은 KRW로 잘못 계산하지 않음');
+const wronglyWonValues = { ...values, 종목코드: values.종목코드.map(row => row[0] === 'AAPL'
+  ? ['AAPL','애플','주식','','KRW','NASDAQ'] : row) };
+const incorrectlyTagged = lib._buildSnapshotRangeIndexes({
+  valuesByName: wronglyWonValues, ss: {}, metrics: {}, readMs: 0
+}, ['2026-10-07'], { historyOnly: true });
+assert.throws(() => lib._historySourceRows(incorrectlyTagged,'2026-10-07'),/종목 통화 원자료 누락/,
+  '미국 종목에 KRW가 입력되었더라도 해외시장 메타데이터와 불일치 시 제외');
 const summary = lib._historySourceSummary(july,'2026-10-07');
 assert.equal(summary.carriedFunds[0].sourceDate,'2026-10-05');
 assert.equal(summary.navInputRequired,false,'이월 NAV는 수기입력 강제 대상이 아님');
