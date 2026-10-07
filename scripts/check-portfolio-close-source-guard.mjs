@@ -38,7 +38,12 @@ const context = vm.createContext({
   _fundRecoveryDiagnosticStart() {},
   _fundRecoveryDiagnosticFinish() {},
 });
+const holidayStart = source.indexOf('var KRX_CONFIRMED_CLOSED_DATES_2026 =');
+assert.ok(holidayStart >= 0, '공식 휴장일 판별 자료 누락');
+const holidayEnd = source.indexOf('\n};',holidayStart);
+assert.ok(holidayEnd > holidayStart, '공식 휴장일 자료 문법 오류');
 vm.runInContext([
+  source.slice(holidayStart,holidayEnd+3),
   extract('_countBusinessWeekdaysBetween'),extract('_assessDailyKrxStockClose'),
   extract('_fetchMissingFundNavBatches')
 ].join('\n'), context);
@@ -54,7 +59,11 @@ const good = clone(context._assessDailyKrxStockClose(items, full,'2026-10-06'));
 assert.deepEqual(good,{required:true,date:'2026-10-06',confirmed:4,expected:4,lag:0});
 const holiday = clone(context._assessDailyKrxStockClose(items,Object.fromEntries(items.slice(0,4).map(x=>[x.code,close('2026-10-02')])), '2026-10-05'));
 assert.equal(holiday.date,'2026-10-02','월요일 대체공휴일은 직전 확정 KRX 거래일을 허용');
-assert.equal(holiday.lag,1);
+assert.equal(holiday.lag,0,'공식 휴장일은 거래일 시차에서 제외');
+assert.equal(context._countBusinessWeekdaysBetween('2026-02-13','2026-02-19'),1,
+  '설날 연휴 3평일(2/16~18)은 정상 휴장으로 간주');
+assert.equal(context._countBusinessWeekdaysBetween('2026-09-29','2026-10-06'),4,
+  '실제 거래일 9/30,10/1,10/2,10/6을 휴일로 잘못 처리하지 않음');
 assert.throws(()=>context._assessDailyKrxStockClose(items, {},'2026-10-06'),/KRX 확정 종가 0건/,
   '기존 펀드 NAV/가격이력이 있어도 일반 KRX 조회 0건이면 실패');
 assert.throws(()=>context._assessDailyKrxStockClose(items,Object.fromEntries(items.slice(0,4).map(x=>[x.code,close('2026-09-29')])), '2026-10-06'),/확정 종가 오래됨/,
@@ -65,6 +74,22 @@ assert.equal(context._assessDailyKrxStockClose([{code:'F00001'},{code:'AAPL',cur
   '국내 상장종목이 없는 환경은 별도 처리');
 assert.equal(context._assessDailyKrxStockClose(items,Object.fromEntries(items.slice(0,4).map(x=>[x.code,close('2026-10-06','KRX_OTP')])), '2026-10-06').confirmed,4,
   'KRX OTP의 실제 날짜 종가도 확정 소스로 허용');
+const segmented = Array.from({length:10},(_,i)=>({code:String(100000+i),currency:'KRW',type:i>=8?'ETF':'주식',market:i>=8?'KR':'KOSPI'}));
+const onlyStocks = Object.fromEntries(segmented.slice(0,8).map(x=>[x.code,close('2026-10-06')]));
+assert.throws(()=>context._assessDailyKrxStockClose(segmented,onlyStocks,'2026-10-06'),/ETF/,
+  'KOSPI 8개만 성공하고 ETF 2개가 전부 누락되면 전체 80% 성공이라도 실패');
+const allSegmented = Object.fromEntries(segmented.map(x=>[x.code,close('2026-10-06')]));
+allSegmented._krxMarketEvidence = {
+  KOSPI:{count:200,date:'2026-10-06'}, KOSDAQ:{count:0,date:'2026-10-06'}, ETF:{count:300,date:'2026-10-06'}
+};
+assert.throws(()=>context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06'),/KOSDAQ/,
+  'KRX OpenAPI KOSDAQ pack 통째 누락은 전체 종목 커버리지에 가려지면 안 됨');
+allSegmented._krxMarketEvidence.KOSDAQ = {count:600,date:'2026-10-02'};
+assert.throws(()=>context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06'),/KOSDAQ/,
+  '시장별 조회 날짜가 서로 다르면 신선도 검증 실패');
+allSegmented._krxMarketEvidence.KOSDAQ = {count:600,date:'2026-10-06'};
+assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06').confirmed,10,
+  '세 시장 pack 모두 같은 확정 거래일에 정상 제공하면 통과');
 
 const calls = [];
 context._fetchFundNav = (provider,from,to) => {
