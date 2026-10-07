@@ -9,6 +9,7 @@ const pipeline = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf
 const html = fs.readFileSync('src/web/index.html', 'utf8');
 const sync = fs.readFileSync('src/web/features/settings/settings_sync.js', 'utf8');
 const portfolioData = fs.readFileSync('src/web/domain/portfolio/data.js', 'utf8');
+const settings = fs.readFileSync('src/web/features/settings/settings.js', 'utf8');
 const tradesView = fs.readFileSync('src/web/views/views_trades.js', 'utf8');
 
 function holdingsAtDate(rows, date) {
@@ -131,23 +132,32 @@ assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*rawTrades
   '초기화되지 않은 빈 거래상태는 원격 거래원장을 삭제하지 않음');
 assert.match(sync, /trades\.length === 0 && \(rawTrades\.length > 0 \|\| !allowEmpty\)/,
   '명시적 빈 원장 권한이 없으면 [] 전송 차단');
-assert.match(portfolioData, /_pendingExplicitEmptyTradeSync[\s\S]*pendingEmptySync[\s\S]*await syncHoldingsToGsheet\(\{ allowEmpty: true \}\)[\s\S]*await syncTradesToGsheet\(\{ allowEmpty: true, rebuildFrom: pendingEmptySync\.from \|\| '' \}\)/,
+assert.match(portfolioData, /PENDING_EMPTY_TRADE_SYNC_KEY = 'pf_v6_pending_empty_trade_sync'[\s\S]*lsGet\(PENDING_EMPTY_TRADE_SYNC_KEY, null\)/,
+  '빈 원장 재시도 컨텍스트를 localStorage에서 복원');
+assert.match(portfolioData, /_setPendingExplicitEmptyTradeSync[\s\S]*lsSave\(PENDING_EMPTY_TRADE_SYNC_KEY[\s\S]*lsRemove\(PENDING_EMPTY_TRADE_SYNC_KEY\)/,
+  'pending 컨텍스트는 영속 저장하고 성공 후 제거 가능');
+assert.match(portfolioData, /async function _retryPendingExplicitEmptyTradeSync[\s\S]*await syncHoldingsToGsheet\(\{ allowEmpty: true \}\)[\s\S]*await syncTradesToGsheet\(\{ allowEmpty: true, rebuildFrom: pendingEmptySync\.from \|\| '' \}\)/,
   '확인된 마지막 삭제의 영향일을 유지한 채 빈 보유/거래 원장을 순차 동기화');
-assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_pendingExplicitEmptyTradeSync = null/,
-  '빈 원장 권한은 보유현황·거래이력 동기화가 모두 성공한 뒤에만 소진');
-assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*pendingEmptySync\.from/,
-  'partial 응답의 영향 시작일을 유지해 다음 저장에서 재시도 가능');
+assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
+  '빈 원장 권한은 보유현황·거래이력 동기화가 모두 성공한 뒤 영속 상태에서도 소진');
+assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*tradesResult\.affectedFrom/,
+  'partial 응답의 영향 시작일을 영속 갱신해 새로고침 후에도 재시도 가능');
+assert.match(settings, /pendingEmptySyncAtLoad[\s\S]*_retryPendingExplicitEmptyTradeSync\(\{ quiet: true \}\)[\s\S]*blockRemotePortfolioRestore/,
+  '부트스트랩은 원격 거래 복원 전에 영속 pending 삭제를 우선 재시도');
+assert.match(settings, /const portfolioRestorePromise = blockRemotePortfolioRestore[\s\S]*\? null/,
+  'pending이 있던 부트스트랩에서는 같은 요청의 오래된 원격 거래/보유 복원을 차단');
 assert.match(sync, /explicitEmpty: allowEmpty \? '1' : ''[\s\S]*rebuildFrom/,
   '빈 거래원장 재시도임을 GAS에 명시하고 최초 영향일 전달');
-assert.match(portfolioData, /if \(options\?\.skipGsheet\) return;[\s\S]*if \(allowEmptyTradeSyncRequested\) \{[\s\S]*_pendingExplicitEmptyTradeSync = \{ from:[\s\S]*clearTimeout\(_saveHoldingsGasTimer\)/,
-  '빈 원장 재시도 컨텍스트는 로컬 저장 성공 및 GSheet 동기화 경로 확정 후에만 획득');
+assert.match(portfolioData, /if \(options\?\.skipGsheet\) return;[\s\S]*if \(allowEmptyTradeSyncRequested\) \{[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*clearTimeout\(_saveHoldingsGasTimer\)/,
+  '빈 원장 재시도 컨텍스트는 로컬 저장 성공 및 GSheet 동기화 경로 확정 후 영속 획득');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holdings\.length === 0 && !allowEmpty[\s\S]*return/,
   '초기 빈 상태에서는 원격 보유현황을 보존하고 확인된 마지막 거래 삭제에서만 [] 허용');
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261007-13/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-3/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-4/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
