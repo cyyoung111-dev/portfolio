@@ -10,6 +10,7 @@ const html = fs.readFileSync('src/web/index.html', 'utf8');
 const sync = fs.readFileSync('src/web/features/settings/settings_sync.js', 'utf8');
 const portfolioData = fs.readFileSync('src/web/domain/portfolio/data.js', 'utf8');
 const settings = fs.readFileSync('src/web/features/settings/settings.js', 'utf8');
+const tabSync = fs.readFileSync('src/web/features/settings/settings_tabsync.js', 'utf8');
 const tradesView = fs.readFileSync('src/web/views/views_trades.js', 'utf8');
 
 function holdingsAtDate(rows, date) {
@@ -158,10 +159,14 @@ assert.match(settings, /const loadTarget = String\(GSHEET_API_URL[\s\S]*const lo
   'loadSettings는 시작 target/세대를 고정하고 stale 응답 적용을 중단');
 assert.match(portfolioData, /const retryGeneration = typeof getGsheetConnectionGeneration[\s\S]*getGsheetConnectionGeneration\(\) !== retryGeneration[\s\S]*return false/,
   '빈 원장 재시도도 URL 동일성 외 연결 세대 변경을 검사');
-assert.match(settings, /const forcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*rawTrades\.length === 0 \|\| forcePortfolioRestore[\s\S]*if \(rawTrades\.length === 0 \|\| forcePortfolioRestore\)/,
+assert.match(settings, /const forcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*options\?\.forcePortfolioRestore === true[\s\S]*rawTrades\.length === 0 \|\| forcePortfolioRestore[\s\S]*if \(rawTrades\.length === 0 \|\| forcePortfolioRestore\)/,
   '연결 변경 후에는 이전 연결의 메모리 거래가 있어도 현재 원격 포트폴리오를 강제 복원');
 assert.match(settings, /if \(forcePortfolioRestore\) \{[\s\S]*if \(!tradesLoaded \|\| !holdingsLoaded\) return false[\s\S]*rawTrades\.length = 0[\s\S]*else \{[\s\S]*rawHoldings\.length = 0[\s\S]*saveHoldings\(\{ skipGsheet: true \}\)/,
   '연결 변경 강제 복원은 정상 빈 거래·보유 배열도 적용해 이전 연결 데이터를 제거');
+assert.match(tabSync, /tabId === 'trades'[\s\S]*loadSettings\(undefined, \{ forcePortfolioRestore: true \}\)[\s\S]*원격 복원/,
+  '거래 탭 재동기화는 로컬 업로드가 아니라 원격 거래·보유 authoritative pull');
+assert.doesNotMatch(tabSync, /tabId === 'trades' && rawTrades\.length === 0/,
+  '로컬 거래 존재 여부로 거래 재동기화 방향을 바꾸지 않음');
 assert.match(settings, /if \(forcePortfolioRestore \|\| \(s\.fundDirect[\s\S]*Object\.keys\(fundDirect\)\.forEach\(k => delete fundDirect\[k\]\)[\s\S]*Object\.assign\(fundDirect, s\.fundDirect\)/,
   '연결 변경 강제 복원은 원격 fundDirect 키가 없어도 이전 연결 직접펀드를 제거');
 assert.match(settings, /const bootstrapPortfolioStatus = isBootstrap[\s\S]*bootstrapTradesOk[\s\S]*bootstrapHoldingsOk[\s\S]*status: bootstrapTradesOk \? 'ok' : 'error'[\s\S]*status: bootstrapHoldingsOk \? 'ok' : 'error'/,
@@ -236,9 +241,10 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261007-17/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-11/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-9/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-10/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261007-11/,'현재가 연결 격리 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261007-12/,'현재가 연결 격리 로직 캐시 버전 갱신');
 assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261007-11/,'편집기 연결별 캐시 로직 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
