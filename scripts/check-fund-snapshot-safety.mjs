@@ -871,7 +871,7 @@ assert.equal(fullFailure.saveState,'failed','첫 저장 단계 실패는 전체 
 assert.deepEqual(importWriteNav.rows,beforeImportFailure,'부분 쓰기 실패 시 기존 NAV 보존');
 importWriteNav.failWrite=false;
 
-// 설정 저장은 같은 적용일 수정·과거 소급 변경을 거부하고 미래 변경만 추가합니다.
+// 설정 저장은 같은 적용일 정정·과거 변경점을 허용하고 기존 파생 평가를 새 좌수로 재계산합니다.
 fundNav.rows = fundNav.rows.filter((row,index)=>index===0 || row[0]!=='2025-12-31');
 context.jsonOk=extra=>({status:'ok',...extra});
 context.jsonError=(message,extra)=>({status:'error',message,...(extra||{})});
@@ -880,13 +880,29 @@ context._ensurePortfolioCloseDailyTrigger=()=>true;
 context._readSettingsMap=()=>({EDITABLE_PRICES:[{code:'F00001',name:'테스트 펀드',fund:true}]});
 const saveConfig=(startDate,units,provider='HANWHA_2045_CRPE')=>context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider,startDate,units}));
 assert.equal(saveConfig('2026-01-01',1000).status,'ok');
-assert.equal(saveConfig('2026-01-01',2000).status,'error');
-assert.equal(saveConfig('2025-12-31',2000).status,'ok','다음 설정 이전의 미작성 날짜는 별도 좌수를 등록할 수 있습니다.');
-assert.equal(saveConfig('2026-01-02',2000).status,'error','이미 작성한 날짜에 다른 좌수를 소급 적용할 수 없습니다.');
+const correctedUnits=saveConfig('2026-01-01',2000);
+assert.equal(correctedUnits.status,'ok','같은 적용일의 좌수 정정 허용');
+assert.equal(correctedUnits.mode,'updated');
+assert.equal(context._readFundUnits(ssFor(sheets)).filter(c=>c.code==='F00001'&&c.startDate==='2026-01-01').length,1,'같은 적용일 중복행 금지');
+assert.equal(context._readFundUnits(ssFor(sheets)).find(c=>c.code==='F00001'&&c.startDate==='2026-01-01').units,2000);
+assert.equal(fundNav.rows.find(row=>row[0]==='2026-01-01'&&row[1]==='F00001')[5],2000,'기존 NAV 파생 좌수 재계산');
+assert.equal(fundNav.rows.find(row=>row[0]==='2026-01-01'&&row[1]==='F00001')[6],2000,'NAV 1000 × 좌수 2000 ÷ 1000 = 평가 2000');
+assert.equal(prices.rows.find(row=>row[0]==='2026-01-01'&&row[1]==='F00001')[3],2000,'기존 가격이력 펀드 평가액도 새 좌수 반영');
+assert.equal(prices.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='F00001')[3],999,'MANUAL 가격은 자동 정정에서 보존');
+assert.equal(saveConfig('2025-12-31',2000).status,'ok','다음 설정 이전 과거 변경점 삽입 허용');
+assert.equal(saveConfig('2026-01-02',2000).status,'ok','기존 평가기간 중간에 새 좌수 변경점 삽입 허용');
 assert.equal(saveConfig('2026-01-03',2000).status,'ok');
 const activeCatalog=context._getFundCodeCatalog(ssFor(sheets),context._readFundUnits(ssFor(sheets)));
 assert.equal(activeCatalog.find(item=>item.code==='F00001').currentHolding,true,'양수 좌수 상태의 현재 보유 F코드는 현재 보유로 분류');
-assert.equal(saveConfig('2026-01-04',0).status,'ok');
+fundNav.rows.push(['2026-01-04','F00001','테스트 펀드',1200,'2026-01-04',2000,2400,'','HANWHA_2045_CRPE']);
+prices.rows.push(['2026-01-04','F00001','테스트 펀드',2400,'','FUND_NAV']);
+sheets['스냅샷']=new Sheet([header,snap('2026-01-04','F00001',2400,'FUND_NAV')]);
+const zeroCorrection=saveConfig('2026-01-04',0);
+assert.equal(zeroCorrection.status,'ok');
+assert.equal(fundNav.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[5],0,'0좌 전환 NAV 파생 좌수 0');
+assert.equal(fundNav.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[6],0,'0좌 전환 평가금액 0');
+assert.equal(prices.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[3],0,'0좌 이후 파생 가격 0');
+assert.equal(sheets['스냅샷'].rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[7],0,'0좌 이후 Snapshot 평가 0');
 assert.equal(saveConfig('2026-01-05','').status,'error');
 assert.equal(saveConfig('2026-01-05',1000,'__proto__').status,'error');
 assert.equal(saveConfig('2026-01-05',1e30).status,'error');
@@ -898,8 +914,9 @@ const fundUnitsResponse=context.handleGetFundUnits();
 assert.equal(fundUnitsResponse.funds.find(item=>item.code==='F00003').currentHolding,false,'조회 API도 과거 F코드를 반환');
 const saveRetired=(startDate,units)=>context.handleSaveFundUnits(JSON.stringify({code:'F00003',provider:'FIDELITY_BIG4_S',startDate,units}));
 assert.equal(saveRetired('2024-01-01',10000).status,'ok','거래이력에만 있는 과거 F코드도 좌수 이력을 등록');
-assert.equal(saveRetired('2024-01-01',12000).status,'error','같은 적용일의 다른 좌수는 덮어쓰지 않음');
-assert.equal(context._readFundUnits(ssFor(sheets)).some(c=>c.code==='F00003' && c.units===10000),true);
+assert.equal(saveRetired('2024-01-01',12000).status,'ok','같은 적용일의 과거 좌수도 정정 가능');
+assert.equal(context._readFundUnits(ssFor(sheets)).filter(c=>c.code==='F00003'&&c.startDate==='2024-01-01').length,1,'과거 좌수 정정도 중복행 금지');
+assert.equal(context._readFundUnits(ssFor(sheets)).some(c=>c.code==='F00003' && c.units===12000),true);
 
 // 실수량을 가진 펀드도 가격이력 총액을 다시 수량으로 곱하지 않습니다.
 const realSheets={'거래이력':new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','테스트 펀드','F00001',10,100,'펀드']]),
@@ -1511,3 +1528,8 @@ context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;
 const declarations=[...source.matchAll(/^function\s+(\w+)\s*\(/gm)].map(m=>m[1]);
 assert.equal(new Set(declarations).size,declarations.length,'GAS 함수 중복 선언');
 console.log('✅ 펀드 좌수·날짜·이월·중복실행·스냅샷/수동값 보존·쓰기 실패 회귀 검사 통과');
+
+assert.match(source.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /_earliestChangedTradeDate[\s\S]*rebuildDailySnapshots\(affectedFrom, affectedTo\)/,
+  '일반 종목 과거 거래수량 수정은 최초 변경일부터 기존 확정 Snapshot까지 자동 재생성해야 함');
+assert.match(source, /_touchSnapshotIntegritySourceRevision\(\{ from: affectedFrom \}\)/,
+  '일반 종목 거래수량 변경은 손익 원자료 cache revision도 무효화');
