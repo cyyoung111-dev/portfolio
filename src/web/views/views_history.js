@@ -476,7 +476,7 @@ async function loadAutomationStatusFromGsheet() {
     const a = data.automation;
     const close = a.portfolioClose || {};
     const closeRun = a.closeRun || {};
-    const incomplete = a.overallStatus === 'INCOMPLETE';
+    const incomplete = closeRun.state === 'INCOMPLETE' || a.overallStatus === 'INCOMPLETE';
     const statusMap = {
       NORMAL: ['정상', 'var(--green-lt)'],
       WARNING: ['경고', 'var(--amber)'],
