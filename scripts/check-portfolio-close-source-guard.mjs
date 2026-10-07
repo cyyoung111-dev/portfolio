@@ -57,6 +57,29 @@ const portfolioSheet={getSheetByName:n=>n==='거래이력'?ledgerSheet:null};
 const heldAt=(date,catalog=masterItems)=>JSON.parse(JSON.stringify(holdingsVm._getDailyHeldCodeItems(portfolioSheet,date,catalog))).map(x=>x.code);
 assert.deepEqual(heldAt('2026-10-06'),['005930','091160'],
   '종목명 변경 전 매수·변경 후 전량 매도를 동일 코드로 상계해 KRX 대상에서 제외');
+// 중앙 reducer의 코드 기준 집계는 Snapshot 범위 진단과 소급채우기에서도 공유합니다.
+vm.runInContext(extract('_buildHoldingsByRequestedDate'),holdingsVm);
+const normalizedLedger=JSON.parse(JSON.stringify(holdingsVm.calcHoldingsAtDate(
+  tradeHistory,'2026-10-06',{})));
+assert.equal(Object.hasOwn(normalizedLedger,'000660'),false,
+  '기존 calcHoldingsAtDate가 개명 전 매수·개명 후 매도 후 유령 종목을 남겨선 안 됨');
+const indexedHoldings=JSON.parse(JSON.stringify(holdingsVm._buildHoldingsByRequestedDate(
+  tradeHistory,['2026-09-29','2026-10-06'],{})));
+assert.equal(indexedHoldings['2026-09-29']['000660'].qty,2,
+  '과거 평가일에는 개명 전 실제 보유를 정확하게 유지');
+assert.equal(Object.hasOwn(indexedHoldings['2026-10-06'],'000660'),false,
+  '기간 진단/손익 원자료 인덱스에서도 전량 매도한 코드 제외');
+const splitTrade=trade('2026-10-02','split','개명 후 삼성전자','005930',0);
+splitTrade[9]=2;
+const splitLedger=[
+  trade('2026-09-25','buy','개명 전 삼성전자','005930',10),
+  splitTrade,
+  trade('2026-10-06','sell','개명 후 삼성전자','005930',5)
+];
+const splitCalc=JSON.parse(JSON.stringify(holdingsVm.calcHoldingsAtDate(splitLedger,'2026-10-06',{})));
+assert.equal(splitCalc['005930'].qty,15,'개명·액면분할·매도를 코드 기준으로 합산');
+assert.equal(splitCalc['005930'].costAmt,7500,'기존 이동평균원가/액면분할 계산 유지');
+
 assert.deepEqual(heldAt('2026-09-29'),['005930','000660'],
   '과거 기준일에는 이후 매도한 종목도 당시 실제 보유이므로 포함');
 assert.deepEqual(heldAt('2026-10-07'),['005930'],
