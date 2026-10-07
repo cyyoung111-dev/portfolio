@@ -50,6 +50,7 @@ const TAB_SYNC_BUSY = {};
 
 let _gsBootRestored = false;
 let _gsBootPromise = null;
+let _gsSettingsLoadEpoch = 0;
 
 function isGsheetPortfolioWriteReady(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
@@ -376,12 +377,20 @@ async function persistRealEstateSettings(immediate, options) {
 async function loadSettings(onProgress, options) {
   const prog = onProgress || function(){};
   if (!GSHEET_API_URL) return false;
+  const explicitAuthoritativePull = options?.forcePortfolioRestore === true;
+  if (explicitAuthoritativePull) {
+    // 명시적 pull이 끝날 때까지 다른 저장 경로가 현재 메모리를 원격에 쓰지 못하게 합니다.
+    _gsPortfolioRestoreRequired = true;
+    _gsBootRestored = false;
+  }
+  const loadEpoch = ++_gsSettingsLoadEpoch;
   const loadTarget = String(GSHEET_API_URL || '').trim();
   const loadGeneration = getGsheetConnectionGeneration();
-  const isLoadConnectionCurrent = () => isGsheetConnectionCurrent(loadTarget, loadGeneration);
+  const isLoadConnectionCurrent = () => isGsheetConnectionCurrent(loadTarget, loadGeneration)
+    && loadEpoch === _gsSettingsLoadEpoch;
   const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true;
   const forcePortfolioRestore = connectionForcePortfolioRestore
-    || options?.forcePortfolioRestore === true;
+    || explicitAuthoritativePull;
   // 마지막 거래 삭제가 원격에 완전히 반영되기 전 새로고침된 경우,
   // 원격의 과거 거래를 다시 복원하기 전에 영속 pending 삭제를 먼저 재시도합니다.
   const pendingEmptySyncAtLoad = typeof _getPendingExplicitEmptyTradeSync === 'function'
