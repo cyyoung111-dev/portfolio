@@ -931,6 +931,35 @@ assert.match(source.match(/function handleSaveFundUnits[\s\S]*?\n}/)?.[0] || '',
   '좌수 원본 저장 직후 revision을 먼저 갱신해 partial 실패에도 손익 캐시가 과거 좌수로 남지 않음');
 assert.equal(context._readFundUnits(ssFor(sheets)).some(c=>c.code==='F00001'&&c.startDate==='2026-01-06'&&c.units===1300),true,
   'partial 응답이어도 검증 완료된 좌수 원본 저장 사실을 숨기지 않음');
+
+// 좌수 변경 영향범위는 다음 설정일 직전까지만 적용됩니다.
+const boundaryUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',1000,''],
+  ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-03',3000,'']]);
+const boundaryNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-01-01','F00001','테스트 펀드',1000,'2026-01-01',1000,1000,'','HANWHA_2045_CRPE'],
+  ['2026-01-02','F00001','테스트 펀드',1100,'2026-01-02',1000,1100,'','HANWHA_2045_CRPE'],
+  ['2026-01-03','F00001','테스트 펀드',1200,'2026-01-03',3000,3600,'','HANWHA_2045_CRPE']]);
+const boundaryPrices=new Sheet([['date','code','name','price','at','source'],
+  ['2026-01-01','F00001','테스트 펀드',1000,'','FUND_NAV'],
+  ['2026-01-02','F00001','테스트 펀드',1100,'','FUND_NAV'],
+  ['2026-01-03','F00001','테스트 펀드',3600,'','FUND_NAV']]);
+const boundaryTrades=new Sheet([Array(8).fill('header'),['2026-01-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드']]);
+const boundarySnapshots=new Sheet([header,
+  snap('2026-01-01','F00001',1000,'FUND_NAV'),
+  snap('2026-01-02','F00001',1100,'FUND_NAV'),
+  snap('2026-01-03','F00001',3600,'FUND_NAV')]);
+const boundarySheets={'펀드좌수':boundaryUnits,'펀드기준가격':boundaryNav,'가격이력':boundaryPrices,'거래이력':boundaryTrades,'스냅샷':boundarySnapshots};
+context.getss=()=>ssFor(boundarySheets);
+const boundaryCorrection=context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider:'HANWHA_2045_CRPE',startDate:'2026-01-01',units:2000}));
+assert.equal(boundaryCorrection.status,'ok');
+assert.equal(boundaryCorrection.affectedTo,'2026-01-02','다음 좌수 변경일 2026-01-03 직전까지만 영향');
+assert.equal(boundaryNav.rows.find(row=>row[0]==='2026-01-01')[6],2000);
+assert.equal(boundaryNav.rows.find(row=>row[0]==='2026-01-02')[6],2200);
+assert.equal(boundaryNav.rows.find(row=>row[0]==='2026-01-03')[6],3600,'다음 설정일 이후 평가액 불변');
+assert.equal(boundaryPrices.rows.find(row=>row[0]==='2026-01-03')[3],3600,'다음 설정일 이후 가격이력 불변');
+assert.equal(boundarySnapshots.rows.find(row=>row[0]==='2026-01-03')[7],3600,'다음 설정일 이후 Snapshot 불변');
+context.getss=()=>ssFor(sheets);
 const saveRetired=(startDate,units)=>context.handleSaveFundUnits(JSON.stringify({code:'F00003',provider:'FIDELITY_BIG4_S',startDate,units}));
 assert.equal(saveRetired('2024-01-01',10000).status,'ok','거래이력에만 있는 과거 F코드도 좌수 이력을 등록');
 assert.equal(saveRetired('2024-01-01',12000).status,'ok','같은 적용일의 과거 좌수도 정정 가능');
