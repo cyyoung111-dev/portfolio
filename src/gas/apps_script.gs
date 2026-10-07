@@ -4992,6 +4992,7 @@ function _fundUnitsImpactEnd(ss, configs, code, startDate) {
 
 function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var result = { from:fromDate, to:toDate || '', navRows:0, priceRows:0, snapshotRows:0, manualPreserved:0, missingNav:0 };
+  var navBackup = null, priceBackup = null, snapshotBackup = null;
   if (!toDate || toDate < fromDate) return result;
   var configs = _readFundUnits(ss);
   var navSh = ss.getSheetByName(FUND_NAV_SHEET);
@@ -5030,14 +5031,13 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     }
   });
   if (navChanged) {
-    var navBackup = navSh && navSh.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, navSh, FUND_NAV_SHEET) : null;
+    navBackup = navSh && navSh.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, navSh, FUND_NAV_SHEET) : null;
     try {
       var normalizedNavRows = _normalizeCodeRows(navRows.map(function(row) { return row.slice(0,9); }), 1);
       navSh.getRange(2, 1, normalizedNavRows.length, 9).setValues(normalizedNavRows);
       SpreadsheetApp.flush();
       _verifyFundNavWrittenRange(navSh, 2, normalizedNavRows);
       _markSnapshotBackupStatus(navBackup, 'COMPLETED');
-      if (navBackup) _cleanupCurrentSystemBackup(ss, navBackup);
     } catch (navError) {
       _markSnapshotBackupStatus(navBackup, 'WRITE_FAILED', navError.message);
       throw navError;
@@ -5131,7 +5131,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   });
 
   if (priceChanged || priceAppend.length) {
-    var priceBackup = ph && ph.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, ph, CONFIG.SHEET_PH) : null;
+    priceBackup = ph && ph.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, ph, CONFIG.SHEET_PH) : null;
     try {
       if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
       _setCodeColumnText(ph, 2);
@@ -5144,7 +5144,6 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
       }
       SpreadsheetApp.flush();
       _markSnapshotBackupStatus(priceBackup, 'COMPLETED');
-      if (priceBackup) _cleanupCurrentSystemBackup(ss, priceBackup);
     } catch (priceError) {
       _markSnapshotBackupStatus(priceBackup, 'WRITE_FAILED', priceError.message);
       throw priceError;
@@ -5153,7 +5152,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
 
   var finalSnapshots = reconciledSnapshots.concat(snapshotAppend);
   if (snapChanged || snapshotAppend.length) {
-    var snapshotBackup = snap && snap.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, snap, CONFIG.SHEET_SNAPSHOT) : null;
+    snapshotBackup = snap && snap.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, snap, CONFIG.SHEET_SNAPSHOT) : null;
     try {
       if (!snap) { snap = ss.insertSheet(CONFIG.SHEET_SNAPSHOT); snap.appendRow(['날짜','종목코드','종목명','수량','매입단가','매입원금','평가단가','평가금액','손익','수익률','소스','저장일시']); }
       _setCodeColumnText(snap, 2);
@@ -5164,12 +5163,16 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
       }));
       SpreadsheetApp.flush();
       _markSnapshotBackupStatus(snapshotBackup, 'COMPLETED');
-      if (snapshotBackup) _cleanupCurrentSystemBackup(ss, snapshotBackup);
     } catch (snapshotError) {
       _markSnapshotBackupStatus(snapshotBackup, 'WRITE_FAILED', snapshotError.message);
       throw snapshotError;
     }
   }
+  // 파생 시트 전체가 성공한 뒤에만 이번 작업의 복구본을 정리합니다.
+  // 중간 단계가 실패하면 앞선 성공 단계의 backup도 남겨 전체 작업 시작 전 상태를 복구할 수 있게 합니다.
+  [navBackup, priceBackup, snapshotBackup].forEach(function(record) {
+    if (record) _cleanupCurrentSystemBackup(ss, record);
+  });
   return result;
 }
 
