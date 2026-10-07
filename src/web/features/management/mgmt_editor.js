@@ -527,6 +527,7 @@ async function handleFundUnitAction(action, code, date = '') {
             };
             if (result.lastDate > lastDate) lastDate = result.lastDate;
           } catch (error) {
+            if (!_isEditorGsheetConnectionCurrent(connection)) throw error;
             const previous = fundStats[fundCode] || { apiErrors: [] };
             const unknownDates = [];
             for (let current = start; current <= end; current = _kstDateOffset(current, 1)) unknownDates.push({ code: fundCode, date: current, navState: 'UNKNOWN_AFTER_CLIENT_ERROR', evaluationState: 'UNKNOWN_AFTER_CLIENT_ERROR', snapshotState: 'UNKNOWN_AFTER_CLIENT_ERROR' });
@@ -546,6 +547,7 @@ async function handleFundUnitAction(action, code, date = '') {
           start = _kstDateOffset(end, 1);
         }
       }
+      if (!_isEditorGsheetConnectionCurrent(connection)) throw new Error('구글시트 연결이 변경되어 펀드 복구 결과 적용을 중단했습니다.');
       _editorHistoryCache.clear();
       _fundRecoveryRetryTargets = _mergeFundRecoveryRetryTargets(_fundRecoveryRetryTargets, fundStats);
       _fundUnitsStatus = `${_fundRecoveryOutcome(from, to, fundStats)}\n[최신 공시 적용일] ${lastDate || '없음'}${missing ? `\n[거래이력 없어 Snapshot 보류] ${missing}건` : ''}`;
@@ -557,12 +559,12 @@ async function handleFundUnitAction(action, code, date = '') {
     if (action === 'import-nav' && error.navImportResult) {
       _fundUnitsStatus = _fundNavImportOutcome(error.navImportResult);
       _editorHistoryCache.clear();
-      await _loadFundUnitsEditor();
+      await _loadFundUnitsEditor(connection);
       _fundUnitsStatus = _fundNavImportOutcome(error.navImportResult);
     } else if (action === 'save' && error.fundUnitResult?.saveState === 'partial') {
       const partialMessage = `일부 반영: ${error.message}`;
       _editorHistoryCache.clear();
-      await _loadFundUnitsEditor();
+      await _loadFundUnitsEditor(connection);
       _fundUnitsStatus = partialMessage;
     } else _fundUnitsStatus = action === 'save' ? `저장 실패: ${error.message}` : error.message;
     showToast(_fundUnitsStatus, 'warn', 7000);
@@ -1442,13 +1444,13 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
       }
       console.info('[batchSaveManualPrices] 배치 응답 없음 → 건별 저장으로 전환');
     } catch(fetchErr) {
+      if (!_isEditorGsheetConnectionCurrent(connection)) throw fetchErr;
       console.info('[batchSaveManualPrices] 배치 요청 미완료 → 건별 저장으로 전환');
     }
 
     for (const target of gasSaveTargets) {
       if (!_isEditorGsheetConnectionCurrent(connection)) {
-        gasFailedCount += gasSaveTargets.length - gasFailedKeys.length;
-        break;
+        throw new Error('구글시트 연결이 변경되어 남은 수동가격 저장을 중단했습니다.');
       }
       const r = await _saveManualPriceWithRetry(target, 1, connection);
       if (!r.ok) {
