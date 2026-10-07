@@ -58,8 +58,9 @@ function isGsheetPortfolioWriteReady(options) {
   if (generation !== null && !isGsheetConnectionCurrent(targetUrl, generation)) return false;
   if (options?.allowDuringRestore === true) return true;
   const currentTarget = String(GSHEET_API_URL || '').trim();
-  // 새 연결의 원격 상태를 성공적으로 읽기 전에는 이전 연결의 메모리 데이터를 쓰지 않습니다.
-  if (_gsPortfolioRestoreRequired && targetUrl === currentTarget) return false;
+  // 연결된 GSheet의 초기/전환 복원이 끝나기 전에는 현재 메모리의 출처를 증명할 수 없습니다.
+  // 새 브라우저의 빈 상태나 이전 연결의 상태를 원격에 덮어쓰지 않습니다.
+  if (targetUrl === currentTarget && (!_gsBootRestored || _gsPortfolioRestoreRequired)) return false;
   return true;
 }
 
@@ -785,6 +786,7 @@ async function loadSettings(onProgress) {
       : 0;
     if (reconciled > 0) console.log(`[GAS 기초정보 복구] 종목코드 시트에서 ${reconciled}개 필드 반영`);
     _gsPortfolioRestoreRequired = false;
+    _gsBootRestored = true;
     return true;
   } catch(e) {
     console.warn('loadSettings 실패:', e);
