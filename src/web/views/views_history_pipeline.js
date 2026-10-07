@@ -242,7 +242,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     const benchMetaMap = benchBundle.metaMap;
     const missing = benchBundle.failedTypes;
     const modeUnit = mode === 'day' ? '일' : (mode === 'week' ? '주' : '개월');
-    const baseMsg = `그래프 ${tableSnapshots.length}${modeUnit} · ${sourceRecomputed ? '원자료 자동 재구성' : '원본'} ${snapshots.length}일 · 기준 ${latestDate}`;
+    const baseMsg = `그래프 ${tableSnapshots.length}${modeUnit} · ${sourceRecomputed ? '원자료 자동 재구성' : '원본'} ${snapshots.length}일 · 확정 기준 ${latestDate}`;
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
