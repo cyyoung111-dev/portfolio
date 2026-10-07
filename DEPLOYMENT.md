@@ -8,7 +8,7 @@
 - 19시 마감 단계 마커는 run-id로 격리해 겹친 실행의 종료가 더 최근 실행 상태를 덮어쓰지 않도록 했습니다.
 - KRX 휴장일 fallback 행은 화면용 결과에만 남기고 공식 당일 KRX 가격이력에는 적재하지 않습니다.
 - 웹 자산 쿼리와 서비스워커 cache 버전을 함께 갱신했습니다.
-## GAS v9.184: 펀드 좌수 원본 백업·lock 안전성 (2026-10-07)
+## GAS v9.187: 펀드·동기화·마감 안전성 후속 (2026-10-07)
 
 - 펀드 좌수 원본을 수정하기 전에 `펀드좌수` system backup을 생성하고, 저장 후 재읽기 검증이 성공한 경우에만 backup을 완료·정리합니다. 원본 쓰기 실패 시 backup은 `WRITE_FAILED`로 보존합니다.
 - `handleSaveFundUnits()`는 실제로 ScriptLock을 획득한 경우에만 release하여 lock 획득 실패가 후속 예외로 가려지지 않도록 합니다.
@@ -17,10 +17,11 @@
 - pending 상태에서 새 거래가 생긴 경우에도 repair token을 원격 동기화 성공 전에 지우지 않습니다. 현재 거래·보유가 모두 서버에 확정된 뒤에만 제거하며, 앱 재시작 시 로컬 거래가 있어도 해당 repair 경로를 재시도합니다.
 - authoritative pull 직전에는 기존 로컬 거래의 코드교정 결과를 GAS로 다시 쓰지 않습니다. 원격 최신 원장을 받기 전에 오래된 로컬 거래가 서버를 덮는 pre-pull write 경로를 차단합니다.
 - 같은 GSheet에서 자동 bootstrap과 수동 원격 pull이 겹쳐도 load epoch로 최신 요청만 상태를 계속 적용합니다. 명시적 pull은 시작 즉시 restore 잠금을 걸어 완료 전 일반 원격 쓰기를 차단합니다.
-- GAS version `9.186`, 웹 기대 버전 `9.186`, 서비스워커 `portfolio-cache-20261007-40`, settings `20261007-15`, settings_tabsync `20261007-1`, settings_fetch `20261007-14`.
+- GAS version `9.187`, 웹 기대 버전 `9.187`, 서비스워커 `portfolio-cache-20261007-41`, settings `20261007-15`, settings_tabsync `20261007-1`, settings_fetch `20261007-15`.
 - 일반 설정·부동산 debounce 저장은 payload/target/generation 고정뿐 아니라 네트워크 전송도 직렬화해, 같은 연결에서 연속 저장 응답 순서가 뒤집혀 오래된 payload가 마지막에 덮어쓰는 race를 차단합니다.
 - 19시 마감 진단은 `portfolio_close_stage=ERROR`를 INCOMPLETE보다 우선 판정해 실제 실패 실행을 명확히 노출합니다.
 - 펀드 좌수 정정의 파생 NAV·가격이력·Snapshot backup은 전체 reconciliation 성공 뒤에만 정리합니다. 후속 단계 partial 실패 시 앞선 단계의 작업 시작 전 복구본도 유지합니다.
+- 현재 보유에서 빠졌더라도 Settings master의 EDITABLE_PRICES/fundDirect에 남은 과거 코드 없는 TDF·펀드 이름은 거래원장으로 재구성 불가능한 자산으로 취급해 기존 과거 Snapshot을 보존합니다.
 
 ## GAS v9.183 / 웹 독립 재검토 보강 (2026-10-07)
 
