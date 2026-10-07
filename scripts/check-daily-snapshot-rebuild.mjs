@@ -172,6 +172,8 @@ assert.match(settings, /if \(holdingsLoaded\) \{[\s\S]*\['TDF','펀드'\]\.inclu
   '거래가 있는 레거시 연결도 holdings의 직접펀드를 fundDirect에 보완 복원');
 assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*_applyDivData/,
   '배당 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
+assert.match(settings, /function saveDividendSettings\(_immediate, options\)[\s\S]*expectedGeneration[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
+  '직렬화된 배당 저장도 호출 시점 target/generation에 고정해 연결 변경 cross-write를 차단');
 assert.match(settings, /async function loadRealEstateSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*Object\.assign\(LOAN/,
   '부동산 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
 assert.match(settings, /loadDividendSettings\(\{ targetUrl: loadTarget, generation: loadGeneration \}\)[\s\S]*loadRealEstateSettings\(\{ targetUrl: loadTarget, generation: loadGeneration \}\)/,
@@ -209,7 +211,7 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261007-16/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-9/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-5/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-6/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
