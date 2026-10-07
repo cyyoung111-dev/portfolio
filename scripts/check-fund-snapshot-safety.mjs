@@ -982,6 +982,29 @@ assert.equal(boundaryPrices.rows.find(row=>row[0]==='2026-01-03')[3],3600,'다�
 assert.equal(boundarySnapshots.rows.find(row=>row[0]==='2026-01-03')[7],3600,'다음 설정일 이후 Snapshot 불변');
 context.getss=()=>ssFor(sheets);
 
+// 0좌였던 과거 기간을 양수 좌수로 정정할 때 기존 파생행이 없었어도 가격이력·Snapshot을 새로 생성합니다.
+const reentryUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',0,'']]);
+const reentryNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-01-02','F00001','테스트 펀드',1000,'2026-01-02',0,0,'','HANWHA_2045_CRPE']]);
+const reentryPrices=new Sheet([['date','code','name','price','at','source']]);
+const reentryTrades=new Sheet([Array(8).fill('header'),
+  ['2026-01-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드'],
+  ['2026-01-01','buy','계좌','주식','000001',1,100,'주식']]);
+const reentrySnapshots=new Sheet([header,snap('2026-01-02','000001',300,'PRICE_HISTORY')]);
+const reentrySheets={'펀드좌수':reentryUnits,'펀드기준가격':reentryNav,'가격이력':reentryPrices,'거래이력':reentryTrades,'스냅샷':reentrySnapshots};
+context.getss=()=>ssFor(reentrySheets);
+const reentryCorrection=context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider:'HANWHA_2045_CRPE',startDate:'2026-01-01',units:2000}));
+assert.equal(reentryCorrection.status,'ok','0좌→양수 과거 정정 성공');
+assert.equal(reentryNav.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='F00001')[6],2000,'원본 NAV×새 좌수 평가금액 재계산');
+assert.equal(reentryPrices.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='F00001')[3],2000,
+  '기존 가격행이 없던 0좌 기간에도 펀드 파생 가격이력 신규 생성');
+assert.equal(reentrySnapshots.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='F00001')[7],2000,
+  '기존 Snapshot 펀드행이 없던 0좌 기간에도 새 좌수 기준 Snapshot 신규 생성');
+assert.equal(reentrySnapshots.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='000001')[7],300,
+  '같은 날짜의 다른 종목 Snapshot 보존');
+context.getss=()=>ssFor(sheets);
+
 // 코드가 비고 이름만 남은 레거시 펀드 행도 영향범위와 0좌 lifecycle에 포함합니다.
 const legacyUnits=new Sheet([['code','name','provider','start','units','at'],
   ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',0,'']]);
