@@ -107,6 +107,10 @@ assert.doesNotMatch(source,/GAS v9\.89 재배포/,'오래된 고정 버전 안�
 assert.match(source,/data-fund-action="nav-date"/,'누락 날짜에서 수기 NAV 입력으로 바로 연결');
 assert.match(source,/NAV 누락 현황/,'좌수 설정을 열 때 저장 자료 기반 NAV 현황 표시');
 assert.match(source,/requestId !== _fundNavPasteRequestId/,'이전 붙여넣기 응답 폐기');
+assert.match(source, /const cacheKey = `\$\{targetUrl\}\|\$\{generation\}\|\$\{dateStr\}\|/,
+  '가격 편집기 이력 캐시는 GSheet URL+generation별로 격리');
+assert.match(source, /isGsheetConnectionCurrent\(targetUrl, generation\)[\s\S]*연결 변경으로 이전 가격이력 응답 폐기/,
+  '가격 편집기 stale 연결 응답을 적용하지 않음');
 assert.match(source,/const requestId = \+\+_fundNavPasteRequestId/,'붙여넣기 요청별 순서 토큰 발급');
 assert.match(source,/handleFundNavImportFile[\s\S]*?requestId !== _fundNavPasteRequestId/,'펀드 변경 중 이전 파일 미리보기 응답 폐기');
 assert.match(source,/preserveError: true/,'펀드 API 오류 원인 보존 요청');
