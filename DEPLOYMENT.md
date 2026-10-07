@@ -16,8 +16,9 @@
 - 거래 삭제 pending은 원래 연결로 돌아왔을 때 복원 내부에서 캡처된 target/generation으로 안전하게 재시도합니다.
 - 원자료 손익은 거래원장으로 과거 보유시점을 재구성할 수 없는 코드 없는 TDF/직접펀드를 조용히 합계에서 누락하지 않고 제외 경고와 종목명을 노출합니다. 자동 시작일에는 거래/가격이력뿐 아니라 펀드 NAV·좌수 시작일도 포함합니다.
 - 펀드 좌수 정정이 직접 갱신하는 펀드기준가격·가격이력·Snapshot에도 system backup 생성·실패 보존·성공 정리 정책을 적용합니다.
-- GAS version `9.183`, 웹 기대 버전 `9.183`, 서비스워커 `portfolio-cache-20261007-30`.
-- 주요 웹 자산: data `20261007-11`, settings_net `20261007-3`, settings `20261007-9`, settings_sync `20261007-17`, settings_fetch `20261007-10`, mgmt_editor `20261007-10`, views_history_pipeline `20261007-6`.
+- 펀드 NAV/좌수 복구의 장시간 chunk 작업과 수동가격 batch→건별 fallback은 작업 시작 시 GSheet URL+generation을 고정합니다. 연결이 바뀌면 남은 작업과 응답 적용을 즉시 중단해 다음 연결로 작업이 넘어가지 않습니다.
+- GAS version `9.183`, 웹 기대 버전 `9.183`, 서비스워커 `portfolio-cache-20261007-31`.
+- 주요 웹 자산: data `20261007-11`, settings_net `20261007-3`, settings `20261007-9`, settings_sync `20261007-17`, settings_fetch `20261007-10`, mgmt_editor `20261007-11`, views_history_pipeline `20261007-6`.
 
 ## GAS v9.182: 거래 partial 재계산·손익 KRX carry 정합성 (2026-10-07)
 
