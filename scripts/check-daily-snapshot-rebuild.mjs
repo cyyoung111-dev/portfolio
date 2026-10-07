@@ -78,7 +78,7 @@ assert.match(gas, /var ratio = parseFloat\(row\[9\]\) \|\| 0/);
 assert.match(gas, /if \(throwOnError\) \{\s*var invalid = \[\]/);
 assert.match(gas, /확정 원자료 부족으로 기존 Snapshot 보존/);
 assert.match(gas, /_getFundEvaluationAtDate\(ss, fundCode, dateStr\)/);
-assert.match(gas, /sourceMap\[fundCode\] = \{ src: fundValue\.carried \? 'FUND_NAV_CARRY' : 'FUND_NAV'/);
+assert.match(gas, /sourceMap\[fundCode\] = \{ src: fundValue\.carried \? 'FUND_NAV_CARRY@' \+ fundValue\.sourceDate : 'FUND_NAV'/);
 assert.match(gas, /cachedPayload\.priceLookup\.snapshotCreated = persist && cachedLatestDate/);
 const priceBody = gas.slice(gas.indexOf('function handleGetPricesCompat'), gas.indexOf('function _latestDateFromPriceDates'));
 assert.doesNotMatch(priceBody, /persists*=s*false/);
