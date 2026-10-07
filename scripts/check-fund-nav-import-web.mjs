@@ -59,7 +59,7 @@ assert.match(source,/좌수가 저장되었습니다/,'좌수 저장 성공 피�
 assert.match(source,/error\.fundUnitResult = result/,'좌수 저장 오류의 saveState를 UI catch까지 전달');
 assert.match(source,/fundUnitResult\?\.saveState === 'partial'/,'원본 좌수 저장 후 파생 재계산 실패는 partial로 구분');
 assert.match(source,/일부 반영:/,'partial 좌수 저장을 단순 저장 실패로 표시하지 않음');
-assert.match(source,/await _loadFundUnitsEditor\(\)/,'partial 후 저장된 좌수 원본을 다시 조회');
+assert.match(source,/await _loadFundUnitsEditor\((?:connection)?\)/,'partial 후 현재 연결에 고정해 저장된 좌수 원본을 다시 조회');
 assert.match(source,/data-fund-nav-manual="date"/,'과거 기준일 수동 NAV 입력 제공');
 assert.match(source,/data-fund-nav-warning-ack/,'WARNING 확인 후 반영');
 assert.match(source,/const fundItems = \[\]/,'F코드를 일반 평가금액 수동 편집에서 제외');
