@@ -185,6 +185,7 @@ async function loadRealEstateSettings(options) {
     ? options.generation
     : getGsheetConnectionGeneration();
   if (!targetUrl) return false;
+  if (_gsPortfolioRestoreRequired && options?.allowDuringRestore !== true) return false;
   try {
     const data = await requestGsheetActionJson(
       'getRealEstateSettings',
@@ -258,6 +259,7 @@ async function loadDividendSettings(options) {
     ? options.generation
     : getGsheetConnectionGeneration();
   if (!targetUrl) return false;
+  if (_gsPortfolioRestoreRequired && options?.allowDuringRestore !== true) return false;
   try {
     const data = await requestGsheetActionJson(
       'getDividendSettings',
@@ -625,8 +627,8 @@ async function loadSettings(onProgress) {
     const [divLoaded, reLoaded] = isBootstrap
       ? [false, false]
       : await Promise.all([
-          loadDividendSettings({ targetUrl: loadTarget, generation: loadGeneration }),   // 배당 별도 시트 우선
-          loadRealEstateSettings({ targetUrl: loadTarget, generation: loadGeneration }), // 부동산/대출 별도 시트 우선
+          loadDividendSettings({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true }),   // 배당 별도 시트 우선
+          loadRealEstateSettings({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true }), // 부동산/대출 별도 시트 우선
         ]);
     if (!isLoadConnectionCurrent()) return false;
 
@@ -778,7 +780,7 @@ async function loadSettings(onProgress) {
     // 유형·섹터·통화를 복구합니다. 상단 업데이트와 수동 재동기화에도 동일하게 적용됩니다.
     try {
       if (isBootstrap && typeof applyGsheetCodeList === 'function') applyGsheetCodeList(data.codes);
-      else await loadGsheetCodeList({ targetUrl: loadTarget, generation: loadGeneration });
+      else await loadGsheetCodeList({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true });
     } catch(e) {}
     if (!isLoadConnectionCurrent()) return false;
     const reconciled = typeof reconcileEditablesFromGsheetCodeList === 'function'
