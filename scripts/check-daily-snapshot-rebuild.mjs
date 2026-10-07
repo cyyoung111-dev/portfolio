@@ -128,7 +128,7 @@ assert.match(gas.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /save
   '거래원장 저장 후 Snapshot 재생성 실패는 partial 상태로 구분');
 assert.match(sync, /data\.saveState === 'partial'[\s\S]*일부 반영:[\s\S]*영향기간/,
   '웹 거래동기화도 partial 상태를 사용자에게 명확히 표시');
-assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*rawTrades\.length === 0 && !allowEmpty[\s\S]*return/,
+assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*return/,
   '초기화되지 않은 빈 거래상태는 원격 거래원장을 삭제하지 않음');
 assert.match(sync, /trades\.length === 0 && \(rawTrades\.length > 0 \|\| !allowEmpty\)/,
   '명시적 빈 원장 권한이 없으면 [] 전송 차단');
