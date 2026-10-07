@@ -40,6 +40,7 @@ const ctx = {
   _fundUnitsAtDate: getActive, _isFundCode: code => /^F\d{5}$/.test(String(code || '')),
   _indexedLatest: latest, _dedupeSnapshotRows: rows => rows,
   _readFundUnits: () => configs,
+  _priceIntegrityRows: () => [],
   getCodeItems: () => [{ code: '005930', name: '삼성전자', currency: 'KRW' },
     { code: 'AAPL', name: '애플', currency: 'USD' }, { code: 'F00002', name: 'KB 펀드', currency: 'KRW' }],
   _buildHoldingsByRequestedDate: (trades, dates) => Object.fromEntries(dates.map(date => [date, holdings])),
@@ -102,6 +103,10 @@ const indexed = lib._buildSnapshotRangeIndexes({
   valuesByName: values, ss: {}, metrics: {}, readMs: 0,
 }, ['2026-10-07','2026-10-08','2026-10-09','2026-10-21'], { historyOnly: true });
 assert.equal(indexed.metrics.priceIntegrityBuildCount,0,'조회 전용 경로에서 무거운 Snapshot 정합성 계산 생략');
+const regularIndex = lib._buildSnapshotRangeIndexes({
+  valuesByName: values, ss: {}, metrics: {}, readMs: 0,
+}, ['2026-10-07'], {});
+assert.equal(regularIndex.metrics.priceIntegrityBuildCount,1,'일반 기간 진단 모드는 가격 정합성 계산 유지');
 assert.equal(indexed.historyPriceSeriesByCode['005930'][0].price,150000,'자동 확정 종가가 같은 날짜 MANUAL보다 우선');
 assert.equal(indexed.historyPriceSeriesByCode.AAPL.length,1,'미확정 Toss 시세가 과거 손익을 덮어쓰지 않음');
 const july = lib._historySourceRows(indexed,'2026-10-07');
@@ -121,6 +126,30 @@ const incorrectlyTagged = lib._buildSnapshotRangeIndexes({
 }, ['2026-10-07'], { historyOnly: true });
 assert.throws(() => lib._historySourceRows(incorrectlyTagged,'2026-10-07'),/종목 통화 원자료 누락/,
   '미국 종목에 KRW가 입력되었더라도 해외시장 메타데이터와 불일치 시 제외');
+const marketCurrencyRows = [
+  ['7203','토요타','주식','','KRW','TSE'],
+  ['0700','텐센트','주식','','KRW','HKEX'],
+  ['6758','소니','주식','','JPY','JP'],
+  ['0005','HSBC','주식','','HKD','HK']
+];
+const marketIndex = lib._buildSnapshotRangeIndexes({
+  valuesByName: { ...values, 종목코드: [...values.종목코드, ...marketCurrencyRows] },
+  ss: {}, metrics: {}, readMs: 0,
+}, ['2026-10-07'], { historyOnly: true });
+assert.equal(marketIndex.historyCurrencyByCode['7203'],undefined,'TSE의 KRW 통화 불일치를 허용하지 않음');
+assert.equal(marketIndex.historyCurrencyByCode['0700'],undefined,'HKEX의 KRW 통화 불일치를 허용하지 않음');
+assert.equal(marketIndex.historyCurrencyByCode['6758'],'JPY','JP의 정상 JPY 통화 허용');
+assert.equal(marketIndex.historyCurrencyByCode['0005'],'HKD','HK의 정상 HKD 통화 허용');
+
+for (const action of ['split','reverse_split']) {
+  const actionTrade = ['2026-10-08',action,'','삼성전자','005930',0,0,'주식','',2];
+  const actionIndex = lib._buildSnapshotRangeIndexes({
+    valuesByName: { ...values, 거래: [...values.거래, actionTrade] },
+    ss: {}, metrics: {}, readMs: 0,
+  }, ['2026-10-08'], { historyOnly: true });
+  assert.throws(() => lib._historySourceRows(actionIndex,'2026-10-08'), /주식분할 이후 종가 미확정/,
+    action + ' 발생 후 분할 전 종가를 그대로 이월하여 평가하지 않음');
+}
 const summary = lib._historySourceSummary(july,'2026-10-07');
 assert.equal(summary.carriedFunds[0].sourceDate,'2026-10-05');
 assert.equal(summary.navInputRequired,false,'이월 NAV는 수기입력 강제 대상이 아님');
