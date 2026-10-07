@@ -60,6 +60,9 @@ async function loadGsheetCodeList(options) {
     ? options.generation
     : (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0);
   if (!targetUrl) return false;
+  if (typeof _gsPortfolioRestoreRequired !== 'undefined'
+      && _gsPortfolioRestoreRequired
+      && options?.allowDuringRestore !== true) return false;
   try {
     const data = await requestGsheetActionJson(
       'getCodeList',
