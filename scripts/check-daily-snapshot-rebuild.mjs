@@ -109,7 +109,7 @@ assert.match(web, /HIST_BENCHMARK_STORAGE_KEY/);
 assert.match(web, /localStorage\.setItem\(HIST_BENCHMARK_STORAGE_KEY/);
 assert.match(ui, /KOSDAQ:'KOSDAQ'/);
 assert.match(history, /KOSDAQ: \{ color:/);
-assert.match(pipeline, /확정 기준 \$\{latestDate\}/);
+assert.match(pipeline, /평가 기준 \$\{latestDate\}/);
 assert.match(html, /core\/core_ui\.js\?v=20260917-2/);
 
 // TWR은 별도 도입하지 않고 기존 현금흐름 조정 지수만 유지
