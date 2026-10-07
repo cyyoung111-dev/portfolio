@@ -9973,7 +9973,16 @@ function runDailyPortfolioClose1900() {
     Logger.log('⚠️ 통합 마감 일반 종목 단계 실패 — 펀드 단계 계속: ' + errors[errors.length - 1]);
   }
 
-  _recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs);
+  if (!_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs)) {
+    Logger.log('ℹ️ 19시 통합 마감 소유권 상실: 더 최신 실행이 시작되어 오래된 실행의 펀드 단계를 중단합니다.');
+    return {
+      runDate: runDate, startedAt: startedAt, priceOk: !!priceResult,
+      priceDate: priceResult && priceResult.date ? priceResult.date : '',
+      priceRows: priceResult && isFinite(Number(priceResult.rows)) ? Number(priceResult.rows) : 0,
+      fundOk: false, skipped: true, reason: 'STATE_OWNERSHIP_LOST_BEFORE_FUND',
+      errors: errors.slice(0, 4)
+    };
+  }
   try {
     fundResult = runDailyFundValuations();
   } catch (fundErr) {
