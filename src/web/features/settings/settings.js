@@ -86,8 +86,10 @@ function saveDividendSettings(_immediate) {
   return _dividendSaveQueue;
 }
 
-function saveRealEstateSettings(immediate) {
-  if (!GSHEET_API_URL) return Promise.resolve(false);
+function saveRealEstateSettings(immediate, options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const expectedGeneration = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!targetUrl) return Promise.resolve(false);
   clearTimeout(_saveRealEstateTimer);
   const delay = immediate ? 0 : 2500;
   return new Promise(resolve => {
@@ -97,6 +99,11 @@ function saveRealEstateSettings(immediate) {
       _saveRealEstateWaiters = [];
       let ok = false;
       try {
+        if (expectedGeneration !== null
+            && !isGsheetConnectionCurrent(targetUrl, expectedGeneration)) {
+          waiters.forEach(done => done(false));
+          return;
+        }
         const payload = {
           LOAN,
           REAL_ESTATE,
@@ -106,7 +113,7 @@ function saveRealEstateSettings(immediate) {
         const data = await requestGsheetFormJson(
           'saveRealEstateSettings',
           { data: JSON.stringify(payload) },
-          { timeoutMs: 15000, retry: 1 }
+          { timeoutMs: 15000, retry: 1, targetUrl }
         );
         if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
@@ -120,10 +127,19 @@ function saveRealEstateSettings(immediate) {
   });
 }
 
-async function loadRealEstateSettings() {
-  if (!GSHEET_API_URL) return false;
+async function loadRealEstateSettings(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation)
+    ? options.generation
+    : getGsheetConnectionGeneration();
+  if (!targetUrl) return false;
   try {
-    const data = await requestGsheetActionJson('getRealEstateSettings', {}, { timeoutMs: 10000, retry: 1 });
+    const data = await requestGsheetActionJson(
+      'getRealEstateSettings',
+      {},
+      { timeoutMs: 10000, retry: 1, targetUrl }
+    );
+    if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
     if (!data || data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
     const s = data.settings;
     window.GAS_API_KEY_STATUS = (s.apiKeyStatus && typeof s.apiKeyStatus === 'object') ? s.apiKeyStatus : {};
@@ -173,17 +189,30 @@ async function loadRealEstateSettings() {
     // GAS에서 상환스케줄을 모두 복원한 뒤 현재월 잔액을 다시 계산합니다.
     // bootstrap 초기에 로컬 스케줄로 계산했던 값이 원격 LOAN에 덮이는 것을 방지합니다.
     const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
-    if (loanChanged) await persistRealEstateSettings(true);
+    if (loanChanged) {
+      if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
+      await persistRealEstateSettings(true, { targetUrl, generation });
+      if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
+    }
     return true;
   } catch(e) {
     return false;
   }
 }
 
-async function loadDividendSettings() {
-  if (!GSHEET_API_URL) return false;
+async function loadDividendSettings(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation)
+    ? options.generation
+    : getGsheetConnectionGeneration();
+  if (!targetUrl) return false;
   try {
-    const data = await requestGsheetActionJson('getDividendSettings', {}, { timeoutMs: 10000, retry: 1 });
+    const data = await requestGsheetActionJson(
+      'getDividendSettings',
+      {},
+      { timeoutMs: 10000, retry: 1, targetUrl }
+    );
+    if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
     if (!data || data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') return false;
     _applyDivData(data.divData);
     return true;
@@ -192,8 +221,10 @@ async function loadDividendSettings() {
   }
 }
 
-function saveSettings(immediate) {
-  if (!GSHEET_API_URL) return Promise.resolve(false);
+function saveSettings(immediate, options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const expectedGeneration = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!targetUrl) return Promise.resolve(false);
   clearTimeout(_saveSettingsTimer);
   const delay = immediate ? 0 : 4000;
   return new Promise(resolve => {
@@ -203,6 +234,11 @@ function saveSettings(immediate) {
       _saveSettingsWaiters = [];
       let ok = false;
       try {
+        if (expectedGeneration !== null
+            && !isGsheetConnectionCurrent(targetUrl, expectedGeneration)) {
+          waiters.forEach(done => done(false));
+          return;
+        }
         const settings = {
           ACCT_COLORS,
           ACCT_ORDER,
@@ -228,7 +264,7 @@ function saveSettings(immediate) {
         const data = await requestGsheetFormJson(
           'saveSettings',
           { data: JSON.stringify(settings) },
-          { timeoutMs: 15000, retry: 1 }
+          { timeoutMs: 15000, retry: 1, targetUrl }
         );
         if (!data) throw new Error('네트워크 오류');
         if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
@@ -252,12 +288,13 @@ async function persistDividendSettings(immediate) {
   return saveSettings(true);
 }
 
-async function persistRealEstateSettings(immediate) {
-  if (!GSHEET_API_URL) return false;
-  const ok = await saveRealEstateSettings(immediate);
+async function persistRealEstateSettings(immediate, options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  if (!targetUrl) return false;
+  const ok = await saveRealEstateSettings(immediate, options);
   if (ok) return true;
   if (Number.parseFloat(window._lastGasVersion || '0') >= 9.34) return false;
-  return saveSettings(true);
+  return saveSettings(true, options);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -493,8 +530,8 @@ async function loadSettings(onProgress) {
     const [divLoaded, reLoaded] = isBootstrap
       ? [false, false]
       : await Promise.all([
-          loadDividendSettings(),   // 배당 별도 시트 우선
-          loadRealEstateSettings(), // 부동산/대출 별도 시트 우선
+          loadDividendSettings({ targetUrl: loadTarget, generation: loadGeneration }),   // 배당 별도 시트 우선
+          loadRealEstateSettings({ targetUrl: loadTarget, generation: loadGeneration }), // 부동산/대출 별도 시트 우선
         ]);
     if (!isLoadConnectionCurrent()) return false;
 
@@ -544,14 +581,47 @@ async function loadSettings(onProgress) {
       });
     }
 
-    // ── 거래이력 복원 (연결 변경 시에는 이전 연결의 메모리 데이터를 강제로 교체)
+    // ── 거래이력 복원 (연결 변경 시에는 성공한 빈 배열도 현재 원격 상태로 적용)
     if (rawTrades.length === 0 || forcePortfolioRestore) {
       try {
         prog('거래이력 복원 중...');
         const restoredPortfolio = portfolioRestorePromise ? await portfolioRestorePromise : [null, null];
         if (!isLoadConnectionCurrent()) return false;
         const trData = restoredPortfolio[0];
-        if (trData && trData.status === 'ok' && Array.isArray(trData.trades) && trData.trades.length > 0) {
+        const hData = restoredPortfolio[1];
+        const tradesLoaded = !!(trData && trData.status === 'ok' && Array.isArray(trData.trades));
+        const holdingsLoaded = !!(hData && hData.status === 'ok' && Array.isArray(hData.holdings));
+
+        if (forcePortfolioRestore) {
+          // 연결 변경 강제 복원은 빈 배열도 유효한 원격 상태입니다.
+          // 둘 중 하나라도 읽기 실패면 이전 연결 데이터를 섞지 않고 복원 플래그를 유지합니다.
+          if (!tradesLoaded || !holdingsLoaded) return false;
+          rawTrades.length = 0;
+          trData.trades.forEach(t => {
+            rawTrades.push({ ...t, id: t.id || genTradeId() });
+          });
+          if (rawTrades.length > 0) {
+            syncHoldingsFromTrades();
+          } else {
+            rawHoldings.length = 0;
+            hData.holdings.forEach(h => {
+              const isFundEntry = ['TDF','펀드'].includes(h.assetType) && !h.code && h.qty === 1;
+              if (isFundEntry) {
+                fundDirect[h.name] = { eval: h.costAmt || 0, cost: h.costAmt || 0, type: h.assetType || 'TDF' };
+                return;
+              }
+              rawHoldings.push({
+                acct:      h.acct      || '기타',
+                name:      h.name      || '',
+                code:      h.code      || '',
+                qty:       h.qty       || 0,
+                cost:      h.qty > 0 ? (h.costAmt / h.qty) : 0,
+                assetType: h.assetType || '주식',
+              });
+            });
+          }
+          saveHoldings({ skipGsheet: true });
+        } else if (tradesLoaded && trData.trades.length > 0) {
           rawTrades.length = 0;
           trData.trades.forEach(t => {
             rawTrades.push({ ...t, id: t.id || genTradeId() });
@@ -562,8 +632,7 @@ async function loadSettings(onProgress) {
           // ── 거래이력도 없을 때 → 보유현황 시트에서 직접 복원 (최후 fallback)
           try {
             prog('보유현황 복원 중...');
-            const hData = restoredPortfolio[1];
-            if (hData && hData.status === 'ok' && Array.isArray(hData.holdings) && hData.holdings.length > 0) {
+            if (holdingsLoaded && hData.holdings.length > 0) {
               rawHoldings.length = 0;
               hData.holdings.forEach(h => {
                 // ★ fundDirect 항목(TDF/펀드, qty=1 & 코드 없음)은 fundDirect로 복원
