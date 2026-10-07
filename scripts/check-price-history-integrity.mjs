@@ -51,8 +51,8 @@ assert.match(gas, /function _repairKnownCodeColumns[\s\S]*range\.setValues\(valu
 assert.match(pipeline, /미검증 날짜는 저장 Snapshot으로 표시/);
 assert.match(view, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/);
 assert.match(view, /portfolioSnapshots[\s\S]*filter\(_isVerifiedHistoryPoint\)/);
-assert.match(html, /views\/views_history\.js\?v=20261007-2/);
-assert.match(sw, /views\/views_history\.js\?v=20261007-2/);
+assert.match(html, /views\/views_history\.js\?v=20261007-3/);
+assert.match(sw, /views\/views_history\.js\?v=20261007-3/);
 assert.match(sw, /portfolio-cache-20261007-3/);
 assert.doesNotMatch(sw, /views\/views_history\.js\?v=20260917-2/);
 console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 Snapshot 성과 유지·복구/cache 회귀 검사 통과');
