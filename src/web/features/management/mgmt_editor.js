@@ -347,18 +347,43 @@ function _mergeFundRecoveryRetryTargets(existingTargets, fundStats) {
   return [...retryByKey.values()].sort((a, b) => a.date.localeCompare(b.date) || a.code.localeCompare(b.code));
 }
 
-async function _reconcileFundRecoveryRange(code, from, to) {
-  const result = await requestGsheetActionJson('getFundValuationStatus', { from, to, code }, { timeoutMs: 30000, retry: 1 });
+function _editorGsheetConnection() {
+  return {
+    targetUrl: String(GSHEET_API_URL || '').trim(),
+    generation: typeof getGsheetConnectionGeneration === 'function'
+      ? getGsheetConnectionGeneration()
+      : 0
+  };
+}
+
+function _isEditorGsheetConnectionCurrent(connection) {
+  if (!connection?.targetUrl) return false;
+  return typeof isGsheetConnectionCurrent !== 'function'
+    || isGsheetConnectionCurrent(connection.targetUrl, connection.generation);
+}
+
+async function _reconcileFundRecoveryRange(code, from, to, connection = _editorGsheetConnection()) {
+  const result = await requestGsheetActionJson(
+    'getFundValuationStatus',
+    { from, to, code },
+    { timeoutMs: 30000, retry: 1, targetUrl: connection.targetUrl }
+  );
+  if (!_isEditorGsheetConnectionCurrent(connection)) throw new Error('구글시트 연결이 변경되어 이전 재검증 응답을 폐기했습니다.');
   if (result?.status !== 'ok') throw new Error(result?.message || '재검증 응답 오류');
   const dates = (result.fundResults?.[code]?.dates || []).map(day => ({ ...day, code }));
   if (!dates.length) throw new Error('재검증 날짜 결과 없음');
   return dates;
 }
 
-async function _loadFundUnitsEditor() {
-  if (!GSHEET_API_URL) return;
+async function _loadFundUnitsEditor(connection = _editorGsheetConnection()) {
+  if (!connection.targetUrl) return;
   try {
-    const result = await requestGsheetActionJson('getFundUnits', {}, { timeoutMs: 20000, retry: 0 });
+    const result = await requestGsheetActionJson(
+      'getFundUnits',
+      {},
+      { timeoutMs: 20000, retry: 0, targetUrl: connection.targetUrl }
+    );
+    if (!_isEditorGsheetConnectionCurrent(connection)) return;
     if (result?.status !== 'ok' || !Array.isArray(result?.funds)) throw new Error(result?.message || '펀드 좌수 조회 기능을 지원하는 GAS 재배포가 필요합니다.');
     if (!result?.capabilities?.fundDailyResults) throw new Error(`연결된 GAS(${result?.capabilities?.gasVersion || result?.gasVersion || '버전 미확인'})에 날짜별 펀드 처리 기능이 없습니다. GAS v9.125 이상을 재배포하세요.`);
     _fundUnitConfigs = result.configs || [];
@@ -405,6 +430,7 @@ async function handleFundUnitAction(action, code, date = '') {
   }
   if (action === 'download-nav-template') { downloadFundNavTemplate(code); return; }
   if (!GSHEET_API_URL) { showToast('구글시트를 먼저 연결하세요.', 'warn'); return; }
+  const connection = _editorGsheetConnection();
   _captureFundUnitDrafts(true);
   _fundUnitBusy = true;
   try {
@@ -412,7 +438,12 @@ async function handleFundUnitAction(action, code, date = '') {
       if (!_fundNavImportState.preview?.canSave || !_fundNavImportState.payload) throw new Error('먼저 파일을 검증하세요.');
       const guide = FUND_NAV_IMPORT_GUIDE[_fundNavImportState.code];
       const data = { code: _fundNavImportState.code, provider: guide.provider, classCode: guide.classCode, rows: _fundNavImportState.payload.rows, sourceText: _fundNavImportState.payload.sourceText, ackWarnings: _fundNavImportState.warningsAcknowledged };
-      const result = await requestGsheetFormJson('importFundNav', { data: JSON.stringify(data) }, { timeoutMs: 300000, retry: 0, preserveError: true });
+      const result = await requestGsheetFormJson(
+        'importFundNav',
+        { data: JSON.stringify(data) },
+        { timeoutMs: 300000, retry: 0, preserveError: true, targetUrl: connection.targetUrl }
+      );
+      if (!_isEditorGsheetConnectionCurrent(connection)) throw new Error('구글시트 연결이 변경되어 이전 NAV 저장 응답을 폐기했습니다.');
       if (result?.status !== 'ok') {
         const error = new Error(result?.message || 'NAV import 실패');
         error.navImportResult = result;
@@ -422,7 +453,7 @@ async function handleFundUnitAction(action, code, date = '') {
       _fundUnitsStatus = `${_fundNavImportOutcome(result)} · 평가금액 ${Number(evaluation.valuations || 0)}건 · WARNING ${imported.warnings?.length || 0}건 · ERROR ${imported.errors?.length || 0}건 · 0좌 제외 ${imported.zeroUnits?.length || 0}건`;
       _fundNavImportState = { ..._fundNavImportState, preview: { ...imported, candidates: [], canSave: false } };
       _editorHistoryCache.clear();
-      await _loadFundUnitsEditor();
+      await _loadFundUnitsEditor(connection);
     } else if (action === 'preview-manual-nav') {
       const parsed = _parseFundNavMatrix([['일자','기준가격'], [_fundNavImportState.manualDate, _fundNavImportState.manualNav]], _fundNavImportState.code);
       await _previewFundNavParsed(parsed);
@@ -430,7 +461,12 @@ async function handleFundUnitAction(action, code, date = '') {
       const draft = _fundUnitDrafts[code];
       if (!draft?.provider || !draft.startDate || draft.units === '' || !Number.isFinite(Number(draft.units)) || Number(draft.units) < 0) throw new Error('클래스·적용일·좌수를 입력하세요.');
       _fundUnitsStatus = '저장 중...'; buildEditorUI();
-      const result = await requestGsheetFormJson('saveFundUnits', { data: JSON.stringify({ ...draft, code }) }, { timeoutMs: 60000, retry: 0 });
+      const result = await requestGsheetFormJson(
+        'saveFundUnits',
+        { data: JSON.stringify({ ...draft, code }) },
+        { timeoutMs: 60000, retry: 0, targetUrl: connection.targetUrl }
+      );
+      if (!_isEditorGsheetConnectionCurrent(connection)) throw new Error('구글시트 연결이 변경되어 이전 좌수 저장 응답을 폐기했습니다.');
       if (result?.status !== 'ok') {
         const error = new Error(result?.message || '좌수 저장 실패');
         error.fundUnitResult = result;
@@ -467,7 +503,13 @@ async function handleFundUnitAction(action, code, date = '') {
           _fundUnitsStatus = _fundRecoverySummary(from, to, processed, total, fundStats, saved, snapshots, `${fundCode} ${start} ~ ${end} 요청 중`, recoveryCodes);
           buildEditorUI();
           try {
-            const result = await requestGsheetFormJson('refreshFundValuations', { from: start, to: end, code: fundCode, diagnostic: 'true' }, { timeoutMs: 90000, retry: 0, preserveError: true });
+            if (!_isEditorGsheetConnectionCurrent(connection)) throw new Error('구글시트 연결이 변경되어 펀드 복구 작업을 중단했습니다.');
+            const result = await requestGsheetFormJson(
+              'refreshFundValuations',
+              { from: start, to: end, code: fundCode, diagnostic: 'true' },
+              { timeoutMs: 90000, retry: 0, preserveError: true, targetUrl: connection.targetUrl }
+            );
+            if (!_isEditorGsheetConnectionCurrent(connection)) throw new Error('구글시트 연결이 변경되어 이전 펀드 복구 응답을 폐기했습니다.');
             if (result?.diagnostic) console.info('[FUND_NAV_DIAGNOSTIC]', result.diagnostic);
             if (result?.status !== 'ok') throw new Error(result?.message || '응답 오류');
             saved += Number(result.saved || 0);
@@ -492,7 +534,7 @@ async function handleFundUnitAction(action, code, date = '') {
             _fundUnitsStatus = `${fundCode} ${start} ~ ${end} 요청 결과를 확인하지 못했습니다. 현재 저장 상태 재검증 중...`;
             buildEditorUI();
             try {
-              const dates = await _reconcileFundRecoveryRange(fundCode, start, end);
+              const dates = await _reconcileFundRecoveryRange(fundCode, start, end, connection);
               fundStats[fundCode].dates.splice(-unknownDates.length, unknownDates.length, ...dates);
             } catch (reconcileError) {
               fundStats[fundCode].verificationErrors.push(reconcileError.message);
@@ -568,7 +610,13 @@ async function handleFundNavImportFile(file) {
     const parsed = _parseFundNavMatrix(matrix, code);
     const guide = FUND_NAV_IMPORT_GUIDE[code];
     const data = { code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
-    const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0, preserveError: true });
+    const connection = _editorGsheetConnection();
+    const result = await requestGsheetFormJson(
+      'previewFundNavImport',
+      { data: JSON.stringify(data) },
+      { timeoutMs: 120000, retry: 0, preserveError: true, targetUrl: connection.targetUrl }
+    );
+    if (!_isEditorGsheetConnectionCurrent(connection)) return;
     if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
     if (requestId !== _fundNavPasteRequestId || code !== _fundNavImportState.code) return;
     _fundNavImportState = { ..._fundNavImportState, payload: parsed, preview: result, warningsAcknowledged: false };
@@ -583,10 +631,16 @@ async function handleFundNavImportFile(file) {
 
 async function _previewFundNavParsed(parsed, requestId = null, expectedCode = '') {
   if (!GSHEET_API_URL) throw new Error('구글시트를 먼저 연결하세요.');
+  const connection = _editorGsheetConnection();
   const code = expectedCode || _fundNavImportState.code;
   const guide = FUND_NAV_IMPORT_GUIDE[code];
   const data = { code, provider: guide.provider, classCode: guide.classCode, rows: parsed.rows, sourceText: parsed.sourceText };
-  const result = await requestGsheetFormJson('previewFundNavImport', { data: JSON.stringify(data) }, { timeoutMs: 120000, retry: 0, preserveError: true });
+  const result = await requestGsheetFormJson(
+    'previewFundNavImport',
+    { data: JSON.stringify(data) },
+    { timeoutMs: 120000, retry: 0, preserveError: true, targetUrl: connection.targetUrl }
+  );
+  if (!_isEditorGsheetConnectionCurrent(connection)) return false;
   if (result?.status !== 'ok') throw new Error(result?.message || 'NAV import 검증 실패');
   // 이전 붙여넣기 요청이 늦게 완료되어도 현재 텍스트의 preview를 덮어쓰지 않습니다.
   if (requestId !== null && (requestId !== _fundNavPasteRequestId || code !== _fundNavImportState.code)) return false;
@@ -1339,7 +1393,7 @@ function markChanged(name, val) {
   }
 }
 
-async function _saveManualPriceWithRetry(target, maxRetry) {
+async function _saveManualPriceWithRetry(target, maxRetry, connection = _editorGsheetConnection()) {
   const retries = Number.isFinite(maxRetry) ? maxRetry : 1;
   let lastErr = null;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -1348,8 +1402,11 @@ async function _saveManualPriceWithRetry(target, maxRetry) {
       const d = await requestGsheetActionJson(
         'saveManualPrice',
         { date: target.date, name: target.key, price: target.price },
-        { timeoutMs: 30000, retry: 0 }
+        { timeoutMs: 30000, retry: 0, targetUrl: connection.targetUrl }
       );
+      if (!_isEditorGsheetConnectionCurrent(connection)) {
+        return { ok: false, err: new Error('구글시트 연결이 변경되어 수동가격 저장을 중단했습니다.') };
+      }
       if (d && d.status === 'ok') {
         if (d.snapshotWarning) showToast('가격은 저장됐지만 스냅샷 갱신 실패: ' + d.snapshotWarning, 'warn', 8000);
         return { ok: true };
@@ -1364,6 +1421,8 @@ async function _saveManualPriceWithRetry(target, maxRetry) {
 }
 
 async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
+  const connection = _editorGsheetConnection();
+  if (!connection.targetUrl) return;
   let gasFailedCount = 0;
   const gasFailedKeys = [];
   try {
@@ -1372,8 +1431,9 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
       const d = await requestGsheetFormJson(
         'batchSaveManualPrices',
         { date: gasDate, data: JSON.stringify(batchPayload) },
-        { timeoutMs: 60000, retry: 0 }
+        { timeoutMs: 60000, retry: 0, targetUrl: connection.targetUrl }
       );
+      if (!_isEditorGsheetConnectionCurrent(connection)) throw new Error('구글시트 연결이 변경되어 수동가격 저장을 중단했습니다.');
       if (d && d.status === 'ok') {
         if (d.snapshotWarning) showToast('가격은 저장됐지만 스냅샷 갱신 실패: ' + d.snapshotWarning, 'warn', 8000);
         _editorHistoryCache.clear();
@@ -1386,7 +1446,11 @@ async function _syncManualPricesToGsheet(gasSaveTargets, gasDate) {
     }
 
     for (const target of gasSaveTargets) {
-      const r = await _saveManualPriceWithRetry(target, 1);
+      if (!_isEditorGsheetConnectionCurrent(connection)) {
+        gasFailedCount += gasSaveTargets.length - gasFailedKeys.length;
+        break;
+      }
+      const r = await _saveManualPriceWithRetry(target, 1, connection);
       if (!r.ok) {
         gasFailedCount++;
         gasFailedKeys.push(target.key);
