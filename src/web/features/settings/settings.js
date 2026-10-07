@@ -256,6 +256,21 @@ async function persistRealEstateSettings(immediate) {
 async function loadSettings(onProgress) {
   const prog = onProgress || function(){};
   if (!GSHEET_API_URL) return false;
+  // 마지막 거래 삭제가 원격에 완전히 반영되기 전 새로고침된 경우,
+  // 원격의 과거 거래를 다시 복원하기 전에 영속 pending 삭제를 먼저 재시도합니다.
+  const pendingEmptySyncAtLoad = typeof _getPendingExplicitEmptyTradeSync === 'function'
+    ? _getPendingExplicitEmptyTradeSync()
+    : null;
+  const blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad;
+  if (pendingEmptySyncAtLoad && rawTrades.length === 0
+      && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
+    prog('빈 거래원장 동기화 재시도 중...');
+    try {
+      await _retryPendingExplicitEmptyTradeSync({ quiet: true });
+    } catch (e) {
+      console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
+    }
+  }
   try {
     prog('설정 데이터 로드 중...');
     // 설정·거래·보유·종목코드를 단일 GAS 실행에서 받아 웹앱 왕복 지연을 줄입니다.
@@ -269,7 +284,9 @@ async function loadSettings(onProgress) {
     const s = data.settings;
     // 설정·배당·부동산 처리와 동시에 거래/보유 시트를 미리 읽습니다.
     // 기존에는 모든 설정 복원이 끝난 뒤 순차 요청해 주식 데이터 표시가 불필요하게 늦었습니다.
-    const portfolioRestorePromise = rawTrades.length === 0 && isBootstrap
+    const portfolioRestorePromise = blockRemotePortfolioRestore
+      ? null
+      : rawTrades.length === 0 && isBootstrap
       ? Promise.resolve([
           { status: 'ok', trades: Array.isArray(data.trades) ? data.trades : [] },
           { status: 'ok', holdings: Array.isArray(data.holdings) ? data.holdings : [] },
