@@ -393,6 +393,24 @@ context.runDailyFundValuations=()=>{closeSteps.push('funds');return {lastDate:'2
 assert.throws(()=>context.runDailyPortfolioClose1900(),/일반 종목: price failed/,'일반 종목 실패를 통합 실패로 보고');
 assert.deepEqual(closeSteps,['prices','funds'],'일반 종목 실패 후에도 펀드 단계 실행');
 assert.match(scriptProperties.get('portfolio_close_last_error')||'',/일반 종목: price failed/);
+
+// 가격 단계 도중 더 최신 마감 실행이 상태 소유권을 가져가면 오래된 실행은 펀드 단계를 중복 실행하지 않습니다.
+['portfolio_close_run_id','portfolio_close_run_started_at','portfolio_close_run_started_ms','portfolio_close_run_date','portfolio_close_stage','portfolio_close_stage_at']
+  .forEach(key=>scriptProperties.delete(key));
+closeSteps=[];
+context.saveDailyPriceHistory=()=>{
+  closeSteps.push('prices');
+  scriptProperties.set('portfolio_close_run_id','newer-run');
+  scriptProperties.set('portfolio_close_run_started_ms','9007199254740991');
+  scriptProperties.set('portfolio_close_stage','PRICE');
+  return {date:'2026-10-05',rows:12};
+};
+context.runDailyFundValuations=()=>{closeSteps.push('funds');return {lastDate:'2026-10-06',fundResults:{}};};
+const lostOwner=clone(context.runDailyPortfolioClose1900());
+assert.deepEqual(closeSteps,['prices'],'소유권 상실한 오래된 실행은 펀드 단계를 실행하지 않음');
+assert.equal(lostOwner.skipped,true);
+assert.equal(lostOwner.reason,'STATE_OWNERSHIP_LOST_BEFORE_FUND');
+
 context.saveDailyPriceHistory=realSaveDailyPriceHistory;
 context.runDailyFundValuations=realRunDailyFundValuations;
 
