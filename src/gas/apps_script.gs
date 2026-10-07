@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.183
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.184
+//
+//  v9.184 변경사항 (2026.10.07):
+//   펀드 좌수 원본 시트 수정 전 system backup을 생성하고 쓰기 검증 성공 후 정리
+//   handleSaveFundUnits lock 획득 실패 시 미보유 lock 해제를 시도하지 않도록 보강
 //
 //  v9.183 변경사항 (2026.10.07):
 //   원자료 손익 조회에서 거래이력으로 재구성할 수 없는 코드 없는 TDF/직접펀드를 명시적 제외 경고로 노출
@@ -4933,7 +4937,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.183' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.184' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5168,9 +5172,11 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
 
 function handleSaveFundUnits(dataJson) {
   var lock = LockService.getScriptLock();
+  var locked = false, unitBackup = null;
   var sourcePersisted = false, affectedFrom = '', affectedTo = '', reconciliation = null;
   try {
     lock.waitLock(30000);
+    locked = true;
     var input = JSON.parse(dataJson);
     var code = String(input.code || '').trim().toUpperCase();
     var provider = String(input.provider || '');
@@ -5187,6 +5193,10 @@ function handleSaveFundUnits(dataJson) {
     if (!sh) { sh = ss.insertSheet(FUND_UNITS_SHEET); sh.appendRow(['종목코드','종목명','클래스','적용시작일','좌수','등록일시']); }
     _setCodeColumnText(sh, 1);
     var savedAt = new Date().toISOString(), mode = old ? 'updated' : 'inserted';
+    var sourceWriteNeeded = !old || Number(old.units) !== units || old.provider !== provider;
+    if (sourceWriteNeeded && sh.getLastRow() > 1) {
+      unitBackup = _backupSheetBeforeWrite(ss, sh, FUND_UNITS_SHEET);
+    }
     if (old) {
       var rows = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getValues(), rowIndex = -1;
       for (var i = 0; i < rows.length; i++) {
@@ -5203,6 +5213,11 @@ function handleSaveFundUnits(dataJson) {
     var exact = savedConfigs.filter(function(c) { return c.code === code && c.startDate === startDate; });
     if (exact.length !== 1 || Number(exact[0].units) !== units || exact[0].provider !== provider) throw new Error('좌수 이력 쓰기 검증 실패');
     sourcePersisted = true;
+    if (unitBackup) {
+      _markSnapshotBackupStatus(unitBackup, 'COMPLETED');
+      _cleanupCurrentSystemBackup(ss, unitBackup);
+      unitBackup = null;
+    }
     affectedFrom = startDate;
     // 원본 좌수가 저장된 순간부터 원자료 기반 손익 캐시는 반드시 무효화합니다.
     // 이후 영향범위 계산/파생 재계산이 실패해도 이전 좌수 기준 캐시가 남으면 안 됩니다.
@@ -5216,13 +5231,14 @@ function handleSaveFundUnits(dataJson) {
       followupRequired: followupRequired,
       message: followupRequired ? '좌수 원본은 저장됐지만 일부 과거 파생 평가를 다시 계산할 확정 NAV가 부족합니다.' : '' });
   } catch (err) {
+    if (unitBackup) _markSnapshotBackupStatus(unitBackup, 'WRITE_FAILED', err.message);
     if (sourcePersisted) return jsonError('좌수 원본은 저장됐지만 후속 재계산이 완료되지 않았습니다: ' + err.message, {
       saveState: 'partial', affectedFrom: affectedFrom, affectedTo: affectedTo,
       reconciliation: reconciliation, followupRequired: true
     });
     return jsonError('좌수 저장 실패: ' + err.message, { saveState: 'failed' });
   }
-  finally { lock.releaseLock(); }
+  finally { if (locked) lock.releaseLock(); }
 }
 
 function _fundNavFetchOptions(provider, spec) {
@@ -9921,7 +9937,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.183',
+    gasVersion: '9.184',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9952,7 +9968,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.183' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.184' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11736,7 +11752,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.183' });
+    return jsonOk({ settings: settings, gasVersion: '9.184' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11764,7 +11780,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.183'
+      gasVersion: '9.184'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
