@@ -9,7 +9,14 @@ assert.match(source, /error\.navImportResult = result/, 'GAS 오류 응답의 �
 assert.match(source, /실제 저장 NAV/, 'NAV·가격이력·Snapshot 실제 저장 건수 표시');
 const historySource = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
-const context = vm.createContext({ console, XLSX: { SSF: { parse_date_code: value => value === 46000 ? { y:2025,m:12,d:9 } : null } } });
+const TEST_GSHEET_URL = 'https://script.google.com/macros/s/test/exec';
+const context = vm.createContext({
+  console,
+  GSHEET_API_URL: TEST_GSHEET_URL,
+  getGsheetConnectionGeneration: () => 1,
+  isGsheetConnectionCurrent: (target, generation) => target === TEST_GSHEET_URL && generation === 1,
+  XLSX: { SSF: { parse_date_code: value => value === 46000 ? { y:2025,m:12,d:9 } : null } }
+});
 vm.runInContext(source, context);
 const clone = value => JSON.parse(JSON.stringify(value));
 context._openEditorModal=()=>{};
