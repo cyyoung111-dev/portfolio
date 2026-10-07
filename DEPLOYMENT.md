@@ -12,7 +12,7 @@
 
 - 펀드 좌수 원본을 수정하기 전에 `펀드좌수` system backup을 생성하고, 저장 후 재읽기 검증이 성공한 경우에만 backup을 완료·정리합니다. 원본 쓰기 실패 시 backup은 `WRITE_FAILED`로 보존합니다.
 - `handleSaveFundUnits()`는 실제로 ScriptLock을 획득한 경우에만 release하여 lock 획득 실패가 후속 예외로 가려지지 않도록 합니다.
-- GAS version `9.184`, 웹 기대 버전 `9.184`, 서비스워커 `portfolio-cache-20261007-32`, settings_fetch `20261007-11`.
+- GAS version `9.184`, 웹 기대 버전 `9.184`, 서비스워커 `portfolio-cache-20261007-33`, settings `20261007-10`, settings_tabsync `20261007-1`, settings_fetch `20261007-12`.
 
 ## GAS v9.183 / 웹 독립 재검토 보강 (2026-10-07)
 
