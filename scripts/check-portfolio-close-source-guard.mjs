@@ -338,4 +338,60 @@ otp=otpVm.fetchPricesKrxViaOtp(krMaster,'2026-10-06');
 assert.throws(()=>context._assessDailyKrxStockClose(krMaster,otp,'2026-10-06'),/UNCLASSIFIED_KR/,
   'CSV 시장열 자체가 없어도 미확인 KR 보유종목을 성공 분모에 합치지 않음');
 
-console.log('✅ KRX 원본 날짜/커버리지, 펀드 NAV 혼입 방지, KB 누락 날짜 배치 회귀검사 통과');
+
+const closeRunSource=extract('runDailyPortfolioClose1900');
+assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE')")
+  < closeRunSource.indexOf('saveDailyPriceHistory()'), '일반 종목 단계 실행 전에 시작 마커');
+assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND')")
+  < closeRunSource.indexOf('runDailyFundValuations()'), '펀드 단계 실행 전에 단계 기록');
+assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE'\)/);
+const runProps=new Map();
+const statusVm=vm.createContext({
+  Utilities:{formatDate:()=> '2026-10-07 19:15:00'},
+});
+vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
+const propertyApi={getProperty:k=>runProps.get(k)||'',setProperties:x=>Object.entries(x).forEach(([k,v])=>runProps.set(k,v))};
+assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'NEVER_RUN',
+  '한 번도 시작하지 않은 마감');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','PRICE');
+assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'INCOMPLETE',
+  '시간초과 중단 마감을 NEVER_RUN으로 오판 금지');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','FUND');
+assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).stage,'FUND');
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},propertyApi).state,
+  'COMPLETE','저장된 같은 시작 기록은 완료로 판정');
+const officialVm=vm.createContext({
+  _normalizeDate:String,
+  _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
+  _getKrxEndpointByMarket:x=> 'https://example.test/'+x,
+  UrlFetchApp:{fetchAll:()=>[
+    {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[{TDD_CLSPRC:'100'}]})},
+    {getResponseCode:()=>403,getContentText:()=>JSON.stringify({secret:'must-not-be-revealed'})},
+    {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[]})}
+  ]},
+  jsonOk:x=>x,
+  jsonError:x=>({error:x})
+});
+vm.runInContext(extract('handleGetKrxSourceDiagnostics'),officialVm);
+const diagnostic=officialVm.handleGetKrxSourceDiagnostics('2026-10-06');
+assert.equal(diagnostic.keyConfigured,true);
+assert.deepEqual(diagnostic.markets.map(x=>x.httpStatus),[200,403,200]);
+assert.deepEqual(diagnostic.markets.map(x=>x.rows),[1,0,0]);
+assert.doesNotMatch(JSON.stringify(diagnostic),/secret-must-not-be-revealed|must-not-be-revealed/,
+  '인증키/원문 누출 금지');
+assert.deepEqual(officialVm.handleGetKrxSourceDiagnostics('invalid').error,
+  '진단할 거래일 YYYY-MM-DD를 입력하세요.');
+const officialDateVm=vm.createContext({_normalizeDate:String});
+vm.runInContext(extract('_getOfficialKrxPriceHistoryLastDate'), officialDateVm);
+const sourceRows=[
+  ['2026-09-29','005930','','', '', 'KRX'],
+  ['2026-10-05','F00001','','','','FUND_NAV_CARRY'],
+  ['2026-10-06','005930','','','','YAHOO_KRX_BASELINE_VERIFIED_CLOSE']
+];
+const mockPriceSheet={getLastRow:()=>4,getRange:()=>({getValues:()=>sourceRows})};
+assert.equal(officialDateVm._getOfficialKrxPriceHistoryLastDate(mockPriceSheet),'2026-09-29',
+  '2차 Yahoo와 펀드 NAV 날짜를 KRX 공식 종가로 오인하지 말 것');
+assert.match(source, /function handleGetKrxSourceDiagnostics/);
+assert.match(source, /getKrxSourceDiagnostics'\) return handleGetKrxSourceDiagnostics/);
+
+console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
