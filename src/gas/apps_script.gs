@@ -1914,7 +1914,7 @@ function fetchPricesKrx(items, dateStr) {
   markets.forEach(function(market) {
     var pack = packs[market] || { rows:[], usedYmd:ymd };
     evidence[market] = { count:(pack.rows || []).length,
-      date:String(pack.usedYmd || '').replace(/^(\\d{4})(\\d{2})(\\d{2})$/, '$1-$2-$3') };
+      date:String(pack.usedYmd || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') };
   });
   Object.defineProperty(out, '_krxMarketEvidence', { value:evidence, enumerable:false });
   return out;
