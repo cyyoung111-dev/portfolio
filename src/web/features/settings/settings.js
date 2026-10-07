@@ -446,6 +446,22 @@ async function loadSettings(onProgress, options) {
         ])
       : null;
 
+    // pending 빈 원장을 적용하기 전에는 레거시 직접펀드(TDF/펀드, 코드 없음)를 보존할
+    // holdings 원천을 반드시 확보합니다. 이 읽기가 실패한 상태에서 []를 쓰면 비거래 직접펀드까지 삭제될 수 있습니다.
+    const pendingHoldingsPromise = !pendingEmptySyncAtLoad
+      ? null
+      : isBootstrap
+      ? Promise.resolve(
+          bootstrapHoldingsOk && Array.isArray(data.holdings)
+            ? { status: 'ok', holdings: data.holdings }
+            : { status: 'error', holdings: [] }
+        )
+      : requestGsheetActionJson(
+          'getHoldings',
+          {},
+          { timeoutMs: 15000, retry: 1, targetUrl: loadTarget }
+        ).catch(() => null);
+
     // 연결 변경 강제 복원은 설정 전역상태를 건드리기 전에 거래/보유 원격 읽기가 둘 다
     // 성공했는지 먼저 확인합니다. 실패한 B의 설정 일부와 A의 포트폴리오가 섞이지 않게 합니다.
     let forcedPortfolioRestoreData = null;
@@ -628,6 +644,26 @@ async function loadSettings(onProgress, options) {
     let pendingEmptySyncResolvedAtLoad = false;
     if (pendingEmptySyncAtLoad
         && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
+      const pendingHoldingsData = pendingHoldingsPromise ? await pendingHoldingsPromise : null;
+      if (!isLoadConnectionCurrent()) return false;
+      const pendingHoldingsLoaded = !!(
+        pendingHoldingsData
+        && pendingHoldingsData.status === 'ok'
+        && Array.isArray(pendingHoldingsData.holdings)
+      );
+      // 직접펀드 보존 여부를 확인할 원천 읽기가 실패하면 파괴적 빈 holdings 쓰기를 하지 않습니다.
+      if (!pendingHoldingsLoaded) return false;
+      pendingHoldingsData.holdings.forEach(h => {
+        const isFundEntry = ['TDF','펀드'].includes(h.assetType)
+          && !h.code
+          && Number(h.qty) === 1;
+        if (!isFundEntry || !h.name) return;
+        fundDirect[h.name] = {
+          eval: h.costAmt || 0,
+          cost: h.costAmt || 0,
+          type: h.assetType || 'TDF'
+        };
+      });
       prog('빈 거래원장 동기화 재시도 중...');
       let pendingRetryOk = false;
       try {
