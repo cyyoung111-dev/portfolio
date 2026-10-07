@@ -7050,7 +7050,9 @@ function rebuildDailySnapshots(fromStr, toStr) {
 
 function _hasSnapshotHoldingsAtDate(ss, dateStr) {
   var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
-  if (!tradeSh || tradeSh.getLastRow() < 2) return null;
+  if (!tradeSh) return null;
+  // 거래 시트가 존재하지만 헤더만 남았다면 이는 원장 부재가 아니라 '보유 0'으로 확정된 상태입니다.
+  if (tradeSh.getLastRow() < 2) return false;
   var tradeData = tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1, Math.min(11, tradeSh.getLastColumn())).getValues();
   var codeItems = getCodeItems(ss, true), nameToCode = {}, displayByCode = {};
   codeItems.forEach(function(item) {
@@ -7090,8 +7092,13 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr) {
           writeSnapshotRows(ss, date, [], true, null, rebuildFundConfigs, true);
           rebuilt++;
           if (changes.length < 20) changes.push({ date: date, beforeRows: existing.length, afterRows: 0, emptiedPortfolio: true });
+        } else if (hasHoldings === true) {
+          // 보유는 존재하지만 평가 rows가 비었다면 가격/환율 등 확정 원자료 부족입니다.
+          // 기존 Snapshot은 보존하되 성공으로 오인하지 않도록 partial을 유도합니다.
+          skipped++;
+          if (errors.length < 20) errors.push({ date: date, message: '확정 평가 원자료 부족으로 기존 Snapshot 보존' });
         } else if (rewritePlan.lifecycleRemovedRows > 0 && !rewritePlan.unsafe.length) {
-          // 가격/환율 원자료 부족으로 rows가 비어도 0좌 펀드 lifecycle 제거만은 안전하게 수행합니다.
+          // 원장 상태를 확정할 수 없는 예외에서도 0좌 펀드 lifecycle 제거만은 안전하게 수행합니다.
           writeSnapshotRows(ss, date, rewritePlan.raw, true, null, rebuildFundConfigs);
           rebuilt++;
           if (changes.length < 20) changes.push({ date: date, beforeRows: existing.length, afterRows: rewritePlan.raw.length, lifecycleRemovedRows: rewritePlan.lifecycleRemovedRows });
