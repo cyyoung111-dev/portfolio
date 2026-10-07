@@ -125,7 +125,7 @@ assert.match(gas.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /save
   '거래원장 저장 후 Snapshot 재생성 실패는 partial 상태로 구분');
 assert.match(sync, /data\.saveState === 'partial'[\s\S]*일부 반영:[\s\S]*영향기간/,
   '웹 거래동기화도 partial 상태를 사용자에게 명확히 표시');
-assert.match(html, /settings_sync\.js\?v=20261007-10/,'거래동기화 자산 캐시 버전 갱신');
+assert.match(html, /settings_sync\.js\?v=20261007-11/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(gas, /rebuildOperationId = 'rebuildDailySnapshots\|'[\s\S]*_snapshotBackupOperationId = rebuildOperationId/,'다일자 재생성은 작업 단위 백업 재사용');
 
 // KOSDAQ 선택·라벨·시각화·확정 기준 표시
