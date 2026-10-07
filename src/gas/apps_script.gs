@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.178
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.179
+//
+//  v9.179 변경사항 (2026.10.07):
+//   일일 마감 KRX 종가 조회·검증을 평가일 거래원장의 실제 보유 종목으로 제한
+//   매도 완료·폐지 종목이 마스터에 남아도 신규 종가 부족으로 잘못 실패하지 않음
 //
 //  v9.178 변경사항 (2026.10.07):
 //   신규 KRX 종가 0건·오래됨·시장 부분 누락 시 펀드 NAV 날짜를 마감 성공으로 오인하지 않음
@@ -4843,7 +4847,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.178' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.179' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -8450,6 +8454,35 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
   return { required:true, date:newestDate, confirmed:newestCount, expected:listed.length, lag:lag };
 }
 
+// 종목코드 마스터는 과거 매도·상장폐지 코드도 보존합니다.
+// 확정 종가 검증과 수집은 요청 거래일에 실보유수량이 있는 코드만 사용합니다.
+function _getDailyHeldCodeItems(ss, dateStr, catalog) {
+  if (!dateStr) return [];
+  var tradeSheet = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (!tradeSheet || tradeSheet.getLastRow() < 2) return [];
+  var tradeRows = tradeSheet.getRange(2, 1, tradeSheet.getLastRow() - 1,
+    Math.min(11, tradeSheet.getLastColumn())).getValues();
+  var nameToCode = {};
+  (catalog || []).forEach(function(item) {
+    if (item.name && item.code) nameToCode[item.name] = item.code;
+  });
+  tradeRows.forEach(function(row) {
+    var name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || String(row[4] || '').trim();
+    if (name && code && !nameToCode[name]) nameToCode[name] = code;
+  });
+  var holdings = calcHoldingsAtDate(tradeRows, dateStr, nameToCode);
+  var heldCodes = {};
+  Object.keys(holdings).forEach(function(name) {
+    var holding = holdings[name];
+    var code = _cleanCode(holding && holding.code);
+    if (code && holding.qty > 0.0001 && !_isFundCode(code)) heldCodes[code] = true;
+  });
+  return (catalog || []).filter(function(item) {
+    return !!heldCodes[_cleanCode(item && item.code)];
+  });
+}
+
 function saveDailyPriceHistory() {
   var lock = LockService.getScriptLock();
   var locked = false;
@@ -8465,10 +8498,13 @@ function saveDailyPriceHistory() {
     var snapshotDate = '';
     var confirmedSnapshotRows = [];
 
-    var items = getCodeItems(ss);
-    // 펀드·TDF는 종목코드 시트에 없을 수 있으므로 여기서 종료하면 안 됩니다.
-    // 자동가격 조회는 건너뛰더라도 아래 공통 생성기가 거래이력+수동가격으로 스냅샷을 만듭니다.
-    if (items.length === 0) Logger.log('상장 종목코드 없음 — 펀드·TDF 수동가격 기준 스냅샷 생성 계속');
+    var allItems = getCodeItems(ss);
+    var items = _getDailyHeldCodeItems(ss, requestedPrevDay, allItems);
+    // 마스터에 남은 전량매도·폐지 종목은 KRX 종가 확보율의 분모에서 제외합니다.
+    Logger.log('[saveDailyPriceHistory] 종목코드 마스터 ' + allItems.length
+      + '건, 해당 거래일 실보유 종목 ' + items.length + '건');
+    // 펀드·TDF만 보유한 경우에도 아래 공통 생성기로 스냅샷을 평가합니다.
+    if (items.length === 0) Logger.log('확정 종가 조회 대상 실보유 종목 없음 — 펀드·TDF 스냅샷 생성 계속');
 
     // ── Step 1: 전일(T-1) KRX 확정 종가 조회 및 가격이력 저장
     var prevPrices = {};
@@ -9398,7 +9434,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.178',
+    gasVersion: '9.179',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9427,7 +9463,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.178' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.179' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11078,7 +11114,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.178' });
+    return jsonOk({ settings: settings, gasVersion: '9.179' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11100,7 +11136,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.178'
+      gasVersion: '9.179'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
