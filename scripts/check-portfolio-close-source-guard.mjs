@@ -155,14 +155,14 @@ const allSegmented = Object.fromEntries(segmented.map(x=>[x.code,close('2026-10-
 allSegmented._krxMarketEvidence = {
   KOSPI:{count:200,date:'2026-10-06'}, KOSDAQ:{count:0,date:'2026-10-06'}, ETF:{count:300,date:'2026-10-06'}
 };
-assert.throws(()=>context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06'),/KOSDAQ/,
-  'KRX OpenAPI KOSDAQ pack 통째 누락은 전체 종목 커버리지에 가려지면 안 됨');
-allSegmented._krxMarketEvidence.KOSDAQ = {count:600,date:'2026-10-02'};
-assert.throws(()=>context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06'),/KOSDAQ/,
-  '시장별 조회 날짜가 서로 다르면 신선도 검증 실패');
-allSegmented._krxMarketEvidence.KOSDAQ = {count:600,date:'2026-10-06'};
 assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06').confirmed,10,
-  '세 시장 pack 모두 같은 확정 거래일에 정상 제공하면 통과');
+  '실보유 KOSDAQ 종목이 없으면 해당 시장 pack 0건 때문에 일일 마감 실패 금지');
+allSegmented._krxMarketEvidence.ETF = {count:300,date:'2026-10-02'};
+assert.throws(()=>context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06'),/ETF/,
+  '실보유 ETF 시장 pack 날짜가 다르면 마감 실패');
+allSegmented._krxMarketEvidence.ETF = {count:300,date:'2026-10-06'};
+assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06').confirmed,10,
+  '실보유 두 시장의 pack과 종가가 일치하면 통과');
 // fetchPricesKrx 실제 함수에서 YYYYMMDD 시장별 evidence가 ISO로 변환되는지 끝까지 검증.
 // 가공된 evidence만 직접 주입하는 테스트로는 \\d 이스케이프 오타를 찾을 수 없습니다.
 const realKrxContext = vm.createContext({
