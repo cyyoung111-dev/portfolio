@@ -533,9 +533,23 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
   // 재시도 시작 시점의 연결을 고정합니다. 첫 await 동안 사용자가 GSheet 연결을 바꿔도
   // A용 삭제 권한으로 B에 빈 거래원장을 보내지 않도록 두 쓰기 모두 동일 targetUrl을 사용합니다.
   const retryTarget = pendingEmptySync.target;
+  const retryGeneration = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration()
+    : null;
   const holdingsResult = typeof syncHoldingsToGsheet === 'function'
     ? await syncHoldingsToGsheet({ allowEmpty: true, targetUrl: retryTarget })
     : null;
+
+  // URL이 최종적으로 A로 돌아왔더라도 A→B→A 전환이 있었다면 같은 연결로 보지 않습니다.
+  // 세대가 바뀐 순간부터 전역 rawTrades/rawHoldings의 출처를 신뢰할 수 없으므로 추가 쓰기를 중단합니다.
+  if (retryGeneration !== null
+      && (typeof getGsheetConnectionGeneration !== 'function'
+        || getGsheetConnectionGeneration() !== retryGeneration)) {
+    if (!options?.quiet && typeof showToast === 'function') {
+      showToast('구글시트 연결이 변경되어 빈 원장 재시도를 중단했습니다. 현재 연결을 다시 불러와 주세요.', 'warn', 7000);
+    }
+    return false;
+  }
 
   // 첫 요청을 기다리는 동안 같은 연결에서 새 거래가 생겼다면 오래된 "빈 원장" 의도를 더 이상 적용하지 않습니다.
   // 앞선 보유현황 [] 쓰기를 현재 상태로 즉시 복구한 뒤 일반 거래 동기화로 전환합니다.
