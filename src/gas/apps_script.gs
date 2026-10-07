@@ -8431,7 +8431,7 @@ function handleSyncHoldings(dataJson) {
 // ════════════════════════════════════════════════════════════════════
 function handleSyncTrades(dataJson) {
   var lock = LockService.getScriptLock();
-  var locked = false;
+  var locked = false, sourcePersisted = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
   try {
     lock.waitLock(30000); locked = true;
     var trades;
@@ -8466,21 +8466,31 @@ function handleSyncTrades(dataJson) {
     var currentRows = trades.map(function(t) { return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'', t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'', t.ratio || '', t.fractionalCash || '']; });
     if (currentRows.length) _verifyWrittenRange(sh, 2, 1, _normalizeCodeRows(currentRows, 4), '거래이력 쓰기 후 검증 실패');
     else if (sh.getLastRow() !== 1) throw new Error('빈 거래이력 쓰기 후 검증 실패');
-    var affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
+    sourcePersisted = true;
+    affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
+    // 거래원장 쓰기가 끝난 즉시 원자료 손익 cache revision을 먼저 갱신합니다.
     if (affectedFrom) _touchSnapshotIntegritySourceRevision({ from: affectedFrom });
     else if (createdTradeSheet) _touchSnapshotIntegritySourceRevision({ all: true });
-    var snapshotRebuild = null;
-    var affectedTo = _latestConfirmedSnapshotDate(ss);
+    affectedTo = _latestConfirmedSnapshotDate(ss);
     if (affectedFrom && affectedTo && affectedFrom <= affectedTo) snapshotRebuild = rebuildDailySnapshots(affectedFrom, affectedTo);
     if (snapshotRebuild && snapshotRebuild.errors && snapshotRebuild.errors.length) {
-      throw new Error('Snapshot rebuild 부분 실패: ' + snapshotRebuild.errors.map(function(item) { return item.date + ': ' + item.message; }).join('; '));
+      var rebuildMessage = 'Snapshot rebuild 부분 실패: ' + snapshotRebuild.errors.map(function(item) { return item.date + ': ' + item.message; }).join('; ');
+      if (typeof tradeBackup !== 'undefined' && tradeBackup) _markSnapshotBackupStatus(tradeBackup, 'WRITE_FAILED', rebuildMessage);
+      return jsonError('거래원본은 저장됐지만 과거 평가 재계산이 일부 완료되지 않았습니다: ' + rebuildMessage, {
+        saveState: 'partial', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo,
+        snapshotRebuild: snapshotRebuild, followupRequired: true
+      });
     }
     _markSnapshotBackupStatus(tradeBackup, 'COMPLETED');
     var tradeBackupCleanup = tradeBackup ? _cleanupCurrentSystemBackup(ss, tradeBackup) : null;
-    return jsonOk({ synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo, snapshotRebuild: snapshotRebuild, backupCleanup: tradeBackupCleanup });
+    return jsonOk({ saveState: 'success', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo, snapshotRebuild: snapshotRebuild, backupCleanup: tradeBackupCleanup });
   } catch(err) {
     if (typeof tradeBackup !== 'undefined' && tradeBackup) _markSnapshotBackupStatus(tradeBackup, 'WRITE_FAILED', err.message);
-    return jsonError('syncTrades 실패: ' + err.message);
+    if (sourcePersisted) return jsonError('거래원본은 저장됐지만 후속 평가 재계산이 완료되지 않았습니다: ' + err.message, {
+      saveState: 'partial', affectedFrom: affectedFrom, affectedTo: affectedTo,
+      snapshotRebuild: snapshotRebuild, followupRequired: true
+    });
+    return jsonError('syncTrades 실패: ' + err.message, { saveState: 'failed' });
   } finally {
     if (locked) lock.releaseLock();
   }
