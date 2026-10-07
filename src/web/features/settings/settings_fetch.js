@@ -429,7 +429,10 @@ async function quickFetchByDate() {
     let restoreWarning = '';
     setStatusLabel('⏳ GAS 전체 데이터 복원 중...', 'loading');
     const settingsLoaded = typeof loadSettings === 'function'
-      ? await loadSettings(message => setStatusLabel('⏳ ' + message, 'loading'))
+      ? await loadSettings(
+          message => setStatusLabel('⏳ ' + message, 'loading'),
+          { forcePortfolioRestore: true }
+        )
       : false;
     if (settingsLoaded) {
       try { refreshAll(); } catch(e) { console.warn('GAS 복원 후 화면 갱신 실패:', e); }
