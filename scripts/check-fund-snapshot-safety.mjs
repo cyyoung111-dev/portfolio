@@ -164,6 +164,14 @@ assert.deepEqual(clone(context._storedFundNavRows([
 ],'F00002','KB_VALUE_ST','2026-01-01','2026-01-04')),[{date:'2026-01-02',nav:1111}],'휴일 평가행은 가격공시일 NAV 하나로 복원');
 
 // 실제 저장 경로에서 같은 날짜·다른 날짜·수동값 보존을 검증합니다.
+// 전량매도 후 빈 포트폴리오는 기존 MANUAL Snapshot도 남기지 않습니다.
+const soldOutSnapshots=new Sheet([header,snap('2026-02-10','000001',700,'MANUAL')]);
+const soldOutSs=ssFor({'스냅샷':soldOutSnapshots});
+context.writeSnapshotRows(soldOutSs,'2026-02-10',[],true,null,[],true);
+assert.equal(soldOutSnapshots.rows.some(row=>row[0]==='2026-02-10'&&row[1]==='000001'),false,
+  'allowEmptyOverwrite는 전량매도 날짜의 기존 Snapshot을 제거');
+
+// 실제 저장 경로에서 같은 날짜·다른 날짜·수동값 보존을 검증합니다.
 const a = snap('2026-01-02','000001',100,'MANUAL');
 const b = snap('2026-01-02','000002',200);
 const other = snap('2026-01-01','000003',300);
@@ -907,8 +915,8 @@ assert.equal(zeroCorrection.status,'ok');
 assert.equal(fundNav.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[5],0,'0좌 전환 NAV 파생 좌수 0');
 assert.equal(fundNav.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[6],0,'0좌 전환 평가금액 0');
 assert.equal(prices.rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[3],0,'0좌 이후 파생 가격 0');
-assert.equal(sheets['스냅샷'].rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[7],0,'0좌는 기존 MANUAL Snapshot보다 우선하여 평가 0');
-assert.equal(sheets['스냅샷'].rows.find(row=>row[0]==='2026-01-04'&&row[1]==='F00001')[10],'FUND_NAV_ZERO_UNITS','0좌 Snapshot source도 명시');
+assert.equal(sheets['스냅샷'].rows.some(row=>row[0]==='2026-01-04'&&row[1]==='F00001'),false,
+  '0좌는 기존 MANUAL Snapshot보다 우선하여 Snapshot 행 자체를 제거');
 assert.equal(saveConfig('2026-01-05','').status,'error');
 assert.equal(saveConfig('2026-01-05',1000,'__proto__').status,'error');
 assert.equal(saveConfig('2026-01-05',1e30).status,'error');
@@ -960,6 +968,27 @@ assert.equal(boundaryNav.rows.find(row=>row[0]==='2026-01-03')[6],3600,'다음 �
 assert.equal(boundaryPrices.rows.find(row=>row[0]==='2026-01-03')[3],3600,'다음 설정일 이후 가격이력 불변');
 assert.equal(boundarySnapshots.rows.find(row=>row[0]==='2026-01-03')[7],3600,'다음 설정일 이후 Snapshot 불변');
 context.getss=()=>ssFor(sheets);
+
+// 코드가 비고 이름만 남은 레거시 펀드 행도 영향범위와 0좌 lifecycle에 포함합니다.
+const legacyUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',0,'']]);
+const legacyPrices=new Sheet([['date','code','name','price','at','source'],
+  ['2026-01-02','','테스트 펀드',1234,'','FUND_NAV']]);
+const legacySnapshots=new Sheet([header,
+  ['2026-01-02','','테스트 펀드',1,50,50,1234,1234,1184,0,'MANUAL','2026-01-02 12:00:00']]);
+const legacyTrades=new Sheet([Array(8).fill('header'),['2025-12-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드']]);
+const legacySheets={'펀드좌수':legacyUnits,'가격이력':legacyPrices,'거래이력':legacyTrades,'스냅샷':legacySnapshots};
+const legacySs=ssFor(legacySheets);
+const legacyConfigs=context._readFundUnits(legacySs);
+assert.equal(context._fundUnitsImpactEnd(legacySs,legacyConfigs,'F00001','2026-01-01'),'2026-01-02',
+  '이름 전용 레거시 가격/Snapshot도 영향 종료일에 포함');
+const legacyRec=context._reconcileFundUnitDerivedRows(legacySs,'F00001','HANWHA_2045_CRPE','2026-01-01','2026-01-02');
+assert.equal(legacyPrices.rows.find(row=>row[0]==='2026-01-02')[3],0,'이름 전용 레거시 파생 가격도 0좌 반영');
+assert.equal(legacySnapshots.rows.some(row=>row[0]==='2026-01-02'&&row[2]==='테스트 펀드'),false,
+  '이름 전용 MANUAL Snapshot도 0좌 lifecycle에서 제거');
+assert(legacyRec.snapshotRows>=1);
+context.getss=()=>ssFor(sheets);
+
 const saveRetired=(startDate,units)=>context.handleSaveFundUnits(JSON.stringify({code:'F00003',provider:'FIDELITY_BIG4_S',startDate,units}));
 assert.equal(saveRetired('2024-01-01',10000).status,'ok','거래이력에만 있는 과거 F코드도 좌수 이력을 등록');
 assert.equal(saveRetired('2024-01-01',12000).status,'ok','같은 적용일의 과거 좌수도 정정 가능');
