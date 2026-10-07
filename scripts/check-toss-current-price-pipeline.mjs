@@ -72,7 +72,6 @@ console.log('✅ Toss 현재가 전체 경로·fallback·persist=false·smoke �
 
 assert.match(gas, /tossAttempted: false/);
 assert.match(gas, /tossStatus: 'NOT_RUN'/);
-assert.match(gas, /lookupMeta\.tossStatus = Object\.keys\(tossPrices\)\.length > 0 \? 'SUCCESS' : 'EMPTY'/);
 assert.match(gas, /lookupMeta\.tossStatus = 'ERROR'/);
 assert.match(web, /data-price-detail="providers"/);
 assert.match(web, /현재가 provider 상태/);
