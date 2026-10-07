@@ -343,10 +343,12 @@ function _renderHistorySourceCoverage(el, summary, snapshots) {
   const samples = Array.isArray(summary.unavailableSamples) ? summary.unavailableSamples : [];
   const fundSamples = Array.isArray(summary.carriedFundSamples) ? summary.carriedFundSamples : [];
   const priceSamples = Array.isArray(summary.carriedPriceSamples) ? summary.carriedPriceSamples : [];
+  const excludedNonTrade = Math.max(0, Number(summary.excludedNonTradeHoldings) || 0);
+  const excludedNames = Array.isArray(summary.excludedNonTradeHoldingNames) ? summary.excludedNonTradeHoldingNames : [];
   const sampleText = samples.slice(0, 5).map(item => `${item.date}: ${item.reason}`).join(' · ');
   const fundSampleText = fundSamples.slice(0, 6).map(item => `${item.code} ${item.date} ← NAV ${item.sourceDate}`).join(' · ');
   const priceSampleText = priceSamples.slice(0, 6).map(item => `${item.code} ${item.date} ← 종가 ${item.sourceDate}`).join(' · ');
-  const warning = missing > 0 || stockCarried > 0 || carried > 0;
+  const warning = missing > 0 || stockCarried > 0 || carried > 0 || excludedNonTrade > 0;
   const explanation = [
     carried > 0 ? `펀드 ${carried}건은 직전 확정 공시일 NAV × 해당일 좌수로 이월 평가했습니다(해당일 NAV 확정 아님).` : '펀드는 평가일 좌수로 재계산합니다.',
     stockCarried > 0 ? `일반 종목 ${stockCarried}건은 해당일 확정 종가가 없어 직전 확정 종가로 이월 평가했습니다. 휴장 확인이 되지 않은 이월도 포함될 수 있으며, 추후 확정 종가가 들어오면 다시 계산합니다.` : ''
@@ -357,6 +359,7 @@ function _renderHistorySourceCoverage(el, summary, snapshots) {
     ${missing ? `<br><span style="color:var(--amber)">제외일 예시: ${_escapeHtml(sampleText)}${missing > samples.length ? ' 외 추가 날짜' : ''}</span>` : ''}
     ${fundSampleText ? `<br><span style="color:var(--muted)">펀드 NAV 이월 예시: ${_escapeHtml(fundSampleText)}${carried > fundSamples.length ? ' 외 추가 건' : ''}</span>` : ''}
     ${priceSampleText ? `<br><span style="color:var(--muted)">일반 종가 이월 예시: ${_escapeHtml(priceSampleText)}${stockCarried > priceSamples.length ? ' 외 추가 건' : ''}</span>` : ''}
+    ${excludedNonTrade ? `<br><span style="color:var(--amber)">거래원장으로 과거 보유시점을 재구성할 수 없는 코드 없는 TDF/직접펀드 ${excludedNonTrade}개는 자동 손익에서 제외됩니다${excludedNames.length ? ': ' + _escapeHtml(excludedNames.join(', ')) : ''}. F코드/좌수 또는 거래 원자료가 필요합니다.</span>` : ''}
   </div>`);
 }
 
