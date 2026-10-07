@@ -111,6 +111,16 @@ assert.match(source, /const cacheKey = `\$\{targetUrl\}\|\$\{generation\}\|\$\{d
   '가격 편집기 이력 캐시는 GSheet URL+generation별로 격리');
 assert.match(source, /isGsheetConnectionCurrent\(targetUrl, generation\)[\s\S]*연결 변경으로 이전 가격이력 응답 폐기/,
   '가격 편집기 stale 연결 응답을 적용하지 않음');
+assert.match(source, /function _editorGsheetConnection\(\)[\s\S]*targetUrl[\s\S]*generation/,
+  '관리 편집기 장시간 작업이 연결 target/generation 스냅샷을 캡처');
+assert.match(source, /refreshFundValuations[\s\S]*targetUrl: connection\.targetUrl[\s\S]*_isEditorGsheetConnectionCurrent\(connection\)/,
+  '펀드 복구 chunk는 동일 GSheet에 고정하고 연결 변경 시 응답 적용 중단');
+assert.match(source, /catch \(error\) \{[\s\S]*if \(!_isEditorGsheetConnectionCurrent\(connection\)\) throw error;[\s\S]*_reconcileFundRecoveryRange/,
+  '연결 변경은 펀드 복구의 다음 chunk/reconcile로 계속 진행하지 않고 즉시 중단');
+assert.match(source, /batchSaveManualPrices[\s\S]*targetUrl: connection\.targetUrl[\s\S]*for \(const target of gasSaveTargets\)[\s\S]*_saveManualPriceWithRetry\(target, 1, connection\)/,
+  '수동가격 batch와 건별 fallback이 하나의 연결에 고정');
+assert.match(source, /_saveManualPriceWithRetry\(target, maxRetry, connection[\s\S]*targetUrl: connection\.targetUrl[\s\S]*_isEditorGsheetConnectionCurrent\(connection\)/,
+  '수동가격 재시도 중 연결 변경 시 다음 연결로 재시도하지 않음');
 assert.match(source,/const requestId = \+\+_fundNavPasteRequestId/,'붙여넣기 요청별 순서 토큰 발급');
 assert.match(source,/handleFundNavImportFile[\s\S]*?requestId !== _fundNavPasteRequestId/,'펀드 변경 중 이전 파일 미리보기 응답 폐기');
 assert.match(source,/preserveError: true/,'펀드 API 오류 원인 보존 요청');
