@@ -115,6 +115,28 @@ assert.throws(()=>context._assessDailyKrxStockClose(segmented,allSegmented,'2026
 allSegmented._krxMarketEvidence.KOSDAQ = {count:600,date:'2026-10-06'};
 assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-06').confirmed,10,
   '세 시장 pack 모두 같은 확정 거래일에 정상 제공하면 통과');
+// fetchPricesKrx 실제 함수에서 YYYYMMDD 시장별 evidence가 ISO로 변환되는지 끝까지 검증.
+// 가공된 evidence만 직접 주입하는 테스트로는 \\d 이스케이프 오타를 찾을 수 없습니다.
+const realKrxContext = vm.createContext({
+  _getKrxApiConfig:()=>({apiKey:'test-key'}),
+  _cleanCode:v=>String(v||'').trim(),
+  _parseKrxNumber:v=>Number(v),
+  _fetchKrxMarketsParallelWithFallback:()=>({
+    KOSPI:{usedYmd:'20261006',rows:segmented.slice(0,8).map(x=>({ISU_SRT_CD:x.code,TDD_CLSPRC:'1500'}))},
+    KOSDAQ:{usedYmd:'20261006',rows:[{ISU_SRT_CD:'039490',TDD_CLSPRC:'1000'}]},
+    ETF:{usedYmd:'20261006',rows:segmented.slice(8).map(x=>({ISU_SRT_CD:x.code,TDD_CLSPRC:'1500'}))}
+  }),
+  fetchPricesKrxViaOtp:()=>{throw new Error('KRX OpenAPI 정상일 때 OTP fallback 불필요');},
+  Logger:{log(){}}
+});
+vm.runInContext(extract('fetchPricesKrx'),realKrxContext);
+const krxRaw = realKrxContext.fetchPricesKrx(segmented,'2026-10-06');
+assert.equal(krxRaw._krxMarketEvidence.KOSPI.date,'2026-10-06','KRX pack 날짜 ISO 변환');
+assert.equal(krxRaw._krxMarketEvidence.KOSDAQ.date,'2026-10-06');
+assert.equal(krxRaw._krxMarketEvidence.ETF.date,'2026-10-06');
+assert.equal(context._assessDailyKrxStockClose(segmented,krxRaw,'2026-10-06').confirmed,10,
+  '실제 fetchPricesKrx 반환값이 정상 19시 마감 검증을 통과');
+
 
 const calls = [];
 context._fetchFundNav = (provider,from,to) => {
