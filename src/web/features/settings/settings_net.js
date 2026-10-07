@@ -62,7 +62,9 @@ async function requestGsheetActionJson(action, params, opts) {
 }
 
 async function requestGsheetFormJson(action, params, opts) {
-  if (!GSHEET_API_URL || !action) return null;
+  const o = opts || {};
+  const targetUrl = String(o.targetUrl || GSHEET_API_URL || '').trim();
+  if (!targetUrl || !action) return null;
   const form = new URLSearchParams();
   form.set('action', action);
   const accessToken = String(lsGet('gsheet_access_token', '') || '').trim();
@@ -71,14 +73,13 @@ async function requestGsheetFormJson(action, params, opts) {
     if (v === null || v === undefined || v === '') return;
     form.set(k, String(v));
   });
-  const o = opts || {};
   const fetchOptions = {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
     ...(o.fetchOptions || {}),
   };
-  return requestJsonWithPolicy(GSHEET_API_URL, { ...o, action, fetchOptions });
+  return requestJsonWithPolicy(targetUrl, { ...o, action, fetchOptions });
 }
 
 function saveGsheetUrl(url) {
