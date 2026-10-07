@@ -240,6 +240,8 @@ assert.doesNotMatch(settings, /if \(pendingEmptySyncAtLoad && rawTrades\.length 
   'pending 재시도를 rawTrades 빈 상태에만 제한하지 않음');
 assert.match(settings, /const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad/,
   'pending 삭제를 방금 서버에 확정한 경우 같은 load에서 오래된 원격 원장을 다시 pull하지 않음');
+assert.match(settings, /if \(!forcePortfolioRestore\) \{[\s\S]*let tradeCodeCorrected = false[\s\S]*syncTradesToGsheet\(\)/,
+  'authoritative pull 전에 오래된 로컬 거래 코드교정 결과를 GAS로 재전송하지 않음');
 assert.match(sync, /explicitEmpty: allowEmpty \? '1' : ''[\s\S]*rebuildFrom/,
   '빈 거래원장 재시도임을 GAS에 명시하고 최초 영향일 전달');
 assert.match(portfolioData, /if \(options\?\.skipGsheet\) return;[\s\S]*if \(allowEmptyTradeSyncRequested\) \{[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*clearTimeout\(_saveHoldingsGasTimer\)/,
@@ -251,7 +253,7 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261007-17/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-12/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-12/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-13/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261007-12/,'현재가 연결 격리 로직 캐시 버전 갱신');
