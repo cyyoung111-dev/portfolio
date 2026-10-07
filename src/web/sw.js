@@ -2,7 +2,7 @@
 //  sw.js — 서비스워커 (PWA 오프라인 캐싱)
 //  정적 파일 배포 시 CACHE_NAME과 PRECACHE_URLS의 쿼리 버전을 함께 올립니다.
 // ════════════════════════════════════════════════════════════════
-const CACHE_NAME = 'portfolio-cache-20261007-15';
+const CACHE_NAME = 'portfolio-cache-20261007-16';
 
 // 오프라인에서도 최소한 앱 껍데기는 뜨도록 미리 저장해둘 파일들
 const PRECACHE_URLS = [
@@ -20,7 +20,7 @@ const PRECACHE_URLS = [
   './styles/pages/history.css?v=20260904-4',
   './styles/pages/trade.css?v=20260903-1',
   './shared/theme.js?v=20260903-1',
-  './domain/portfolio/data.js?v=20261007-2',
+  './domain/portfolio/data.js?v=20261007-3',
   './domain/plan/plan_calculations.js?v=20260903-1',
   './views/views_asset.js?v=20260903-1',
   './views/views_portfolio.js?v=20260903-1',
