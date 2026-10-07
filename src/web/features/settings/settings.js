@@ -547,10 +547,10 @@ async function loadSettings(onProgress, options) {
       EDITABLE_PRICES.forEach(ep => { if (ep.name && ep.code) STOCK_CODE[ep.name] = _normalizeCodeForSync(ep.code); });
 
     }
-    // ★ rawTrades 코드 교정: 기초정보 코드가 최우선 기준 (항상 실행 — GAS 복원 여부 무관)
-    // localStorage에 기초정보가 이미 있어도, GAS에서 새로 받아도 동일하게 교정
-    // 교정된 내용은 localStorage + GAS 거래이력 시트에도 재저장
-    {
+    // ★ rawTrades 코드 교정: 일반 복원에서만 기존 로컬 거래를 교정합니다.
+    // 연결 변경/명시적 authoritative pull에서는 현재 rawTrades가 이전/오래된 로컬 원장일 수 있으므로
+    // 원격 거래를 적용하기 전에 이를 GAS로 재전송하지 않습니다.
+    if (!forcePortfolioRestore) {
       let tradeCodeCorrected = false;
       const unmatchedTrades = [];
       rawTrades.forEach(t => {
