@@ -4,6 +4,7 @@
 //  v9.180 변경사항 (2026.10.07):
 //   19시 통합 마감 시작·단계·오류를 선행 기록하여 미완료/시간초과를 NEVER_RUN과 구분
 //   KRX 시장별 HTTP/응답행 수 진단(인증키 비노출) 및 국내 공식 종가 최신 날짜 분리
+//   리뷰 후속: 동시 마감 run-id 격리·KRX 휴장일 공식종가 오인 방지·과거 펀드좌수 정정 시 파생 평가 자동 재계산
 //
 //  v9.179 변경사항 (2026.10.07):
 //   일일 마감 KRX 종가 조회·검증을 평가일 거래원장의 실제 보유 종목으로 제한
@@ -4995,7 +4996,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
         var costAmt = Number(row[5]) || 0, evalAmt = Number(value.evalAmt), pnl = evalAmt - costAmt;
         row[3] = 1; row[4] = costAmt; row[6] = evalAmt; row[7] = evalAmt; row[8] = pnl;
         row[9] = costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0;
-        row[10] = value.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV';
+        row[10] = value.carried ? (oldSource === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? oldSource : 'FUND_NAV_CARRY') : 'FUND_NAV';
       }
       snapChanged = true; result.snapshotRows++;
     });
