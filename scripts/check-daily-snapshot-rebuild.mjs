@@ -148,8 +148,8 @@ assert.doesNotMatch(portfolioData, /pending\.target !== currentTarget[\s\S]{0,26
   '연결 변경만으로 성공하지 않은 빈 원장 pending을 폐기하지 않음');
 assert.match(portfolioData, /_setPendingExplicitEmptyTradeSync[\s\S]*lsSave\(PENDING_EMPTY_TRADE_SYNC_KEY[\s\S]*lsRemove\(PENDING_EMPTY_TRADE_SYNC_KEY\)/,
   'pending 컨텍스트는 영속 저장하고 성공 후 제거 가능');
-assert.match(portfolioData, /const targetAfterHoldings = _currentGsheetSyncTarget\(\)[\s\S]*rawTrades\.length > 0[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*syncHoldingsToGsheet\(\{ targetUrl: retryTarget \}\)[\s\S]*syncTradesToGsheet\(\{ targetUrl: retryTarget, tradesOverride: recoveryTrades \}\)[\s\S]*Promise\.all/,
-  '같은 target의 복구 쓰기는 await 전에 A 거래 payload를 캡처해 holdings/trades를 함께 시작');
+assert.match(portfolioData, /const targetAfterHoldings = _currentGsheetSyncTarget\(\)[\s\S]*rawTrades\.length > 0[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration,[\s\S]*allowDuringRestore[\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration,[\s\S]*tradesOverride: recoveryTrades[\s\S]*Promise\.all/,
+  '같은 target의 복구 쓰기는 await 전에 A 거래 payload를 캡처하고 target/generation을 고정해 holdings/trades를 함께 시작');
 assert.match(portfolioData, /const retryTrades = \[\][\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*tradesOverride: retryTrades/,
   '연결 변경 중에도 두 번째 쓰기는 캡처한 빈 거래 payload만 원래 GSheet에 적용');
 assert.match(settings, /let GSHEET_CONNECTION_GENERATION = 0[\s\S]*function isGsheetConnectionCurrent\(target, generation\)/,
