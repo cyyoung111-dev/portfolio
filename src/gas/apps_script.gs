@@ -5460,7 +5460,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       _setCodeColumnText(navSheet, 2);
       storedNav = _normalizeCodeRows(storedNav, 1);
       navSheet.getRange(2, 1, storedNav.length, 9).setValues(storedNav);
-      _verifyWrittenRange(navSheet, 2, 1, storedNav, '펀드기준가격 쓰기 후 검증 실패');
+      _verifyFundNavWrittenRange(navSheet, 2, storedNav);
       _markSnapshotBackupStatus(navBackup, 'COMPLETED');
       if (navBackup) _cleanupCurrentSystemBackup(ss, navBackup);
     } catch (navWriteError) { _markSnapshotBackupStatus(navBackup, 'WRITE_FAILED', navWriteError.message); throw navWriteError; }
@@ -5851,6 +5851,29 @@ function _verifyWrittenRange(sheet, row, column, values, message) {
   if (!values || !values.length) return;
   var actual = sheet.getRange(row, column, values.length, values[0].length).getValues();
   if (JSON.stringify(actual) !== JSON.stringify(values)) throw new Error(message || '쓰기 후 read-back 검증 실패');
+}
+
+// 펀드 NAV 시트의 A/E열은 DATE 서식입니다. 저장 입력은 'YYYY-MM-DD' 문자열이어도
+// getValues()는 Date 객체를 반환하므로 원시 JSON 비교는 정상 쓰기를 실패로 오판합니다.
+// 다른 열은 기존의 엄격한 read-back 규칙을 유지합니다.
+function _verifyFundNavWrittenRange(sheet, row, values) {
+  SpreadsheetApp.flush();
+  if (!values || !values.length) return;
+  var actual = sheet.getRange(row, 1, values.length, 9).getValues();
+  if (actual.length !== values.length) throw new Error('펀드기준가격 쓰기 후 검증 실패: 행 수 불일치');
+  for (var i = 0; i < values.length; i++) {
+    for (var j = 0; j < 9; j++) {
+      var expected = values[i][j], found = actual[i] && actual[i][j], same = false;
+      if (j === 0 || j === 4) {
+        same = !!_normalizeDate(expected) && _normalizeDate(found) === _normalizeDate(expected);
+      } else if (j === 3 || j === 5 || j === 6) {
+        same = isFinite(Number(expected)) && Number(found) === Number(expected);
+      } else {
+        same = String(found == null ? '' : found) === String(expected == null ? '' : expected);
+      }
+      if (!same) throw new Error('펀드기준가격 쓰기 후 검증 실패: 시트 행 ' + (row + i) + ' 열 ' + (j + 1));
+    }
+  }
 }
 
 function _registerSystemBackup(record) {
