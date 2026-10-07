@@ -4977,7 +4977,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     var rowCode = _cleanCode(row[1]) || String(row[1] || '').trim();
     var rowProvider = String(row[8] || '');
     if (rowCode === code && sourceDate === date && (!rowProvider || rowProvider === provider)) confirmedNavDates[date] = true;
-    if (rowCode !== code || rowProvider !== provider || !inRange(date)) return;
+    if (rowCode !== code || (rowProvider && rowProvider !== provider) || !inRange(date)) return;
     candidateDates[date] = true;
     var value = evalAt(date);
     if (!value) return;
