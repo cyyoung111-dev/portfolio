@@ -441,7 +441,8 @@ async function handleFundUnitAction(action, code, date = '') {
       const rec = result.reconciliation || {};
       const changed = Number(rec.navRows || 0) + Number(rec.priceRows || 0) + Number(rec.snapshotRows || 0);
       const range = result.affectedTo ? `${result.affectedFrom} ~ ${result.affectedTo}` : result.affectedFrom;
-      _fundUnitsStatus = `좌수가 저장되었습니다. ${result.mode === 'updated' ? '정정' : result.mode === 'unchanged' ? '확인' : '등록'} 완료 · 영향기간 ${range} · 기존 파생 평가 ${changed}건 자동 재계산`
+      const partial = result.saveState === 'partial' || result.followupRequired === true;
+      _fundUnitsStatus = `${partial ? '⚠️ 일부 반영' : '좌수가 저장되었습니다.'} ${result.mode === 'updated' ? '정정' : result.mode === 'unchanged' ? '확인' : '등록'} ${partial ? '· 후속 확인 필요' : '완료'} · 영향기간 ${range} · 기존 파생 평가 ${changed}건 자동 재계산`
         + (Number(rec.manualPreserved || 0) ? ` · MANUAL ${rec.manualPreserved}건은 원본 보존` : '')
         + (Number(rec.missingNav || 0) ? ` · NAV 원자료 부족 ${rec.missingNav}일은 자동 덮어쓰기 제외` : '');
     } else if (action === 'fill') {
