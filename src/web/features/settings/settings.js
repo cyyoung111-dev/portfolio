@@ -868,7 +868,8 @@ async function loadSettings(onProgress, options) {
       await persistRealEstateSettings(true, {
         targetUrl: loadTarget,
         generation: loadGeneration,
-        allowDuringRestore: true
+        allowDuringRestore: true,
+        isCurrentLoad: isLoadConnectionCurrent
       });
     }
     // 일반 Settings 저장이 과거에 실패했더라도 별도로 동기화된 종목코드 시트에서
