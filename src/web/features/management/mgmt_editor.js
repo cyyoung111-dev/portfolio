@@ -431,7 +431,11 @@ async function handleFundUnitAction(action, code, date = '') {
       if (!draft?.provider || !draft.startDate || draft.units === '' || !Number.isFinite(Number(draft.units)) || Number(draft.units) < 0) throw new Error('클래스·적용일·좌수를 입력하세요.');
       _fundUnitsStatus = '저장 중...'; buildEditorUI();
       const result = await requestGsheetFormJson('saveFundUnits', { data: JSON.stringify({ ...draft, code }) }, { timeoutMs: 60000, retry: 0 });
-      if (result?.status !== 'ok') throw new Error(result?.message || '좌수 저장 실패');
+      if (result?.status !== 'ok') {
+        const error = new Error(result?.message || '좌수 저장 실패');
+        error.fundUnitResult = result;
+        throw error;
+      }
       _fundUnitConfigs = result.configs || [];
       _fundUnitItems = result.funds || _fundUnitItems;
       const rec = result.reconciliation || {};
@@ -512,6 +516,11 @@ async function handleFundUnitAction(action, code, date = '') {
       _editorHistoryCache.clear();
       await _loadFundUnitsEditor();
       _fundUnitsStatus = _fundNavImportOutcome(error.navImportResult);
+    } else if (action === 'save' && error.fundUnitResult?.saveState === 'partial') {
+      const partialMessage = `일부 반영: ${error.message}`;
+      _editorHistoryCache.clear();
+      await _loadFundUnitsEditor();
+      _fundUnitsStatus = partialMessage;
     } else _fundUnitsStatus = action === 'save' ? `저장 실패: ${error.message}` : error.message;
     showToast(_fundUnitsStatus, 'warn', 7000);
   }
