@@ -47,17 +47,28 @@ function applyGsheetCodeList(codes) {
   return true;
 }
 
-async function loadGsheetCodeList() {
-  if (!GSHEET_API_URL) return;
+async function loadGsheetCodeList(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation)
+    ? options.generation
+    : (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0);
+  if (!targetUrl) return false;
   try {
-    const data = await requestGsheetActionJson('getCodeList', {}, { timeoutMs: 10000, retry: 1 });
-    if (data.status === 'ok' && applyGsheetCodeList(data.codes)) {
-
+    const data = await requestGsheetActionJson(
+      'getCodeList',
+      {},
+      { timeoutMs: 10000, retry: 1, targetUrl }
+    );
+    if (typeof isGsheetConnectionCurrent === 'function'
+        && !isGsheetConnectionCurrent(targetUrl, generation)) return false;
+    if (data?.status === 'ok' && applyGsheetCodeList(data.codes)) {
       // ⚠️ STOCK_CODE는 건드리지 않음 — HTML 직접 입력이 항상 우선
       // GSheet 코드는 _gsheetCodeList에만 보관, lookupNameByCode()에서 3순위 참고용으로만 사용
+      return true;
     }
   } catch(e) {
   }
+  return false;
 }
 
 // Settings 저장이 과거 오류로 실패했어도 종목코드 시트 동기화가 성공했다면
