@@ -192,8 +192,12 @@ async function syncHoldingsToGsheet() {
 }
 
 // ★ v8.2 — 거래이력 GSheet 동기화 (backfillMonth 소급 계산용)
-async function syncTradesToGsheet() {
+async function syncTradesToGsheet(options) {
   if (!GSHEET_API_URL) return;
+  const allowEmpty = options?.allowEmpty === true;
+  // 초기 부트스트랩 실패/미완료로 rawTrades가 비어 있는 상태에서는 원격 원장을 절대 비우지 않습니다.
+  // 확인된 마지막 거래 삭제 경로가 전달한 1회성 allowEmpty만 예외입니다.
+  if (rawTrades.length === 0 && !allowEmpty) return;
   try {
     const unmatchedTrades = [];
     const trades = rawTrades
@@ -222,9 +226,8 @@ async function syncTradesToGsheet() {
           memo:      t.memo      || '',
         };
       });
-    // 사용자가 마지막 거래까지 삭제한 경우 []를 서버에 보내 원격 거래원장과 과거 Snapshot도 비웁니다.
-    // 원본 거래가 있는데 필터 결과만 0건이면 잘못된 전체 삭제를 막기 위해 전송하지 않습니다.
-    if (trades.length === 0 && rawTrades.length > 0) return;
+    // 유효한 원본 거래가 있는데 필터 결과만 0건인 경우와 권한 없는 빈 상태는 전체 삭제를 막습니다.
+    if (trades.length === 0 && (rawTrades.length > 0 || !allowEmpty)) return;
     if (unmatchedTrades.length > 0) {
       const uniq = Array.from(new Set(unmatchedTrades.map(t => `${t.name}|${t.code}`)));
       _syncWarn('[거래이력 동기화] 기초정보 미매칭 거래 포함:', unmatchedTrades);
