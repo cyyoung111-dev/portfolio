@@ -1008,6 +1008,29 @@ assert.equal(reentrySnapshots.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='00
   '같은 날짜의 다른 종목 Snapshot 보존');
 context.getss=()=>ssFor(sheets);
 
+// 대상 펀드 파생행이 전혀 없어도 다른 종목 Snapshot 날짜를 영향범위로 인정해 0좌→양수 정정을 재생성합니다.
+const sparseUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-02',0,'']]);
+const sparseNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-01-01','F00001','테스트 펀드',1000,'2026-01-01',1000,1000,'','HANWHA_2045_CRPE']]);
+const sparsePrices=new Sheet([['date','code','name','price','at','source']]);
+const sparseTrades=new Sheet([Array(8).fill('header'),
+  ['2026-01-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드'],
+  ['2026-01-01','buy','계좌','주식','000001',1,100,'주식']]);
+const sparseSnapshots=new Sheet([header,snap('2026-01-03','000001',300,'PRICE_HISTORY')]);
+const sparseSheets={'펀드좌수':sparseUnits,'펀드기준가격':sparseNav,'가격이력':sparsePrices,'거래이력':sparseTrades,'스냅샷':sparseSnapshots};
+context.getss=()=>ssFor(sparseSheets);
+const sparseCorrection=context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider:'HANWHA_2045_CRPE',startDate:'2026-01-02',units:2000}));
+assert.equal(sparseCorrection.status,'ok','대상 펀드 파생행이 없던 0좌 기간도 정정 성공');
+assert.equal(sparseCorrection.affectedTo,'2026-01-03','다른 종목 Snapshot 날짜를 영향 종료일로 인정');
+assert.equal(sparsePrices.rows.find(row=>row[0]==='2026-01-03'&&row[1]==='F00001')[3],2000,
+  '직전 확정 NAV 이월로 누락 펀드 가격이력 생성');
+assert.equal(sparseSnapshots.rows.find(row=>row[0]==='2026-01-03'&&row[1]==='F00001')[7],2000,
+  '다른 종목만 있던 Snapshot 날짜에 누락 펀드 행 생성');
+assert.equal(sparseSnapshots.rows.find(row=>row[0]==='2026-01-03'&&row[1]==='000001')[7],300,
+  '기존 다른 종목 Snapshot 보존');
+context.getss=()=>ssFor(sheets);
+
 // 오늘 이미 생성된 펀드 파생행도 같은 날 좌수 정정 시 즉시 재계산합니다.
 const todayUnits=new Sheet([['code','name','provider','start','units','at'],
   ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-09-09',1000,'']]);
