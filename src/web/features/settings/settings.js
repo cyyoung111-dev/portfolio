@@ -187,6 +187,7 @@ function saveRealEstateSettings(immediate, options) {
 
 async function loadRealEstateSettings(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const isCurrentLoad = typeof options?.isCurrentLoad === 'function' ? options.isCurrentLoad : null;
   const generation = Number.isInteger(options?.generation)
     ? options.generation
     : getGsheetConnectionGeneration();
@@ -199,6 +200,7 @@ async function loadRealEstateSettings(options) {
       { timeoutMs: 10000, retry: 1, targetUrl }
     );
     if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
+    if (isCurrentLoad && !isCurrentLoad()) return false;
     if (!data || data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
     const s = data.settings;
     window.GAS_API_KEY_STATUS = (s.apiKeyStatus && typeof s.apiKeyStatus === 'object') ? s.apiKeyStatus : {};
@@ -250,8 +252,10 @@ async function loadRealEstateSettings(options) {
     const loanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
     if (loanChanged) {
       if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
+      if (isCurrentLoad && !isCurrentLoad()) return false;
       await persistRealEstateSettings(true, { targetUrl, generation, allowDuringRestore: true });
       if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
+      if (isCurrentLoad && !isCurrentLoad()) return false;
     }
     return true;
   } catch(e) {
@@ -261,6 +265,7 @@ async function loadRealEstateSettings(options) {
 
 async function loadDividendSettings(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const isCurrentLoad = typeof options?.isCurrentLoad === 'function' ? options.isCurrentLoad : null;
   const generation = Number.isInteger(options?.generation)
     ? options.generation
     : getGsheetConnectionGeneration();
@@ -273,6 +278,7 @@ async function loadDividendSettings(options) {
       { timeoutMs: 10000, retry: 1, targetUrl }
     );
     if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
+    if (isCurrentLoad && !isCurrentLoad()) return false;
     if (!data || data.status !== 'ok' || !data.divData || typeof data.divData !== 'object') return false;
     _applyDivData(data.divData);
     return true;
@@ -692,8 +698,8 @@ async function loadSettings(onProgress, options) {
     const [divLoaded, reLoaded] = isBootstrap
       ? [false, false]
       : await Promise.all([
-          loadDividendSettings({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true }),   // 배당 별도 시트 우선
-          loadRealEstateSettings({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true }), // 부동산/대출 별도 시트 우선
+          loadDividendSettings({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true, isCurrentLoad: isLoadConnectionCurrent }),   // 배당 별도 시트 우선
+          loadRealEstateSettings({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true, isCurrentLoad: isLoadConnectionCurrent }), // 부동산/대출 별도 시트 우선
         ]);
     if (!isLoadConnectionCurrent()) return false;
 
