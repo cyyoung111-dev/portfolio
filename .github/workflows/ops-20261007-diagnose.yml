@@ -1,7 +1,5 @@
 name: OPS 20261007 read-only GAS/KRX diagnoses
-on:
-  push:
-    branches: [ops/diagnose-close-nav-20261007]
+on: workflow_dispatch
 permissions:
   contents: read
 jobs:
