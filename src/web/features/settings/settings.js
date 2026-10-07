@@ -129,6 +129,7 @@ function saveDividendSettings(_immediate, options) {
 
 function saveRealEstateSettings(immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const isCurrentLoad = typeof options?.isCurrentLoad === 'function' ? options.isCurrentLoad : null;
   const expectedGeneration = Number.isInteger(options?.generation)
     ? options.generation
     : getGsheetConnectionGeneration();
@@ -165,6 +166,7 @@ function saveRealEstateSettings(immediate, options) {
       const run = async () => {
         try {
           if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+          if (isCurrentLoad && !isCurrentLoad()) return false;
           const data = await requestGsheetFormJson(
             'saveRealEstateSettings',
             { data: payload },
@@ -253,7 +255,12 @@ async function loadRealEstateSettings(options) {
     if (loanChanged) {
       if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
       if (isCurrentLoad && !isCurrentLoad()) return false;
-      await persistRealEstateSettings(true, { targetUrl, generation, allowDuringRestore: true });
+      await persistRealEstateSettings(true, {
+        targetUrl,
+        generation,
+        allowDuringRestore: true,
+        isCurrentLoad
+      });
       if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
       if (isCurrentLoad && !isCurrentLoad()) return false;
     }
