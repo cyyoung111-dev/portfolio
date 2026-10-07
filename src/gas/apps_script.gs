@@ -1992,8 +1992,16 @@ function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback
 }
 
 function fetchPricesKrxViaOtp(items, dateStr) {
-  var ymd = (dateStr || '').replace(/-/g, '');
-  if (!/^\d{8}$/.test(ymd)) return {};
+  var actualDate = _normalizeDate(dateStr || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(actualDate)) return {};
+  // 인증키 없는 OTP 경로도 KRX 공식 휴장일/주말에는 직전 거래일의 CSV를 요청합니다.
+  // 정상 거래일 0건은 소스 장애이므로 이전 종가로 조용히 덮어쓰지 않습니다.
+  for (var back = 0; back < 10; back++) {
+    var day = new Date(actualDate + 'T00:00:00Z').getUTCDay();
+    if (day !== 0 && day !== 6 && !KRX_CONFIRMED_CLOSED_DATES_2026[actualDate]) break;
+    actualDate = _fundDateOffset(actualDate, -1);
+  }
+  var ymd = actualDate.replace(/-/g, '');
   var wanted = {};
   items.forEach(function(item) { wanted[item.code] = item; });
   if (Object.keys(wanted).length === 0) return {};
@@ -2045,16 +2053,23 @@ function fetchPricesKrxViaOtp(items, dateStr) {
   var idxCode = _findCsvIndex(header, ['단축코드', '종목코드', 'ISU_SRT_CD']);
   var idxName = _findCsvIndex(header, ['한글 종목약명', '종목명', 'ISU_ABBRV']);
   var idxClose = _findCsvIndex(header, ['종가', 'TDD_CLSPRC', '종가(원)']);
+  var idxMarket = _findCsvIndex(header, ['시장구분', '시장구분명', '시장명', '시장', 'MKT_NM', 'MKT_ID']);
   if (idxCode < 0 || idxClose < 0) {
     Logger.log('⚠️ KRX CSV 컬럼 해석 실패: ' + header.join('|'));
     return {};
   }
 
-  var out = {};
+  var out = {}, codeMarkets = {};
   for (var i = 1; i < rows.length; i++) {
     var r = rows[i] || [];
     var code = _cleanCode(r[idxCode]);
     if (!wanted[code]) continue;
+    var rawMarket = idxMarket >= 0 ? String(r[idxMarket] || '').toUpperCase() : '';
+    var verifiedMarket = /KOSDAQ|코스닥/.test(rawMarket) ? 'KOSDAQ'
+      : (/KOSPI|유가증권|코스피/.test(rawMarket) ? 'KOSPI'
+      : (/ETF|ETP/.test(rawMarket) ? 'ETF' : ''));
+    // 시장 열이 없다면 확인되지 않은 상태로 남겨 나중에 누락 전용 그룹으로 차단합니다.
+    if (verifiedMarket) codeMarkets[code] = verifiedMarket;
     var p = _parseKrxNumber(r[idxClose]);
     if (!(p > 0)) continue;
     out[code] = {
@@ -2062,11 +2077,15 @@ function fetchPricesKrxViaOtp(items, dateStr) {
       name: wanted[code].name,
       officialName: idxName >= 0 ? (r[idxName] || wanted[code].name || code) : (wanted[code].name || code),
       source: 'KRX_OTP',
-      // ★ OTP는 단일 날짜 조회 (fallback 없음) → usedDate = 요청 날짜
-      usedDate: ymd.slice(0,4) + '-' + ymd.slice(4,6) + '-' + ymd.slice(6,8)
+      // 정상 휴장일에는 실제 조회한 직전 KRX 거래일을 유지합니다.
+      usedDate: actualDate
     };
   }
-  Logger.log('[price-source] KRX OTP/CSV 조회 결과 ' + Object.keys(out).length + '건');
+  Object.defineProperty(out, '_krxMarketEvidence', {
+    value: { mode:'OTP', codeMarkets:codeMarkets }, enumerable:false
+  });
+  Logger.log('[price-source] KRX OTP/CSV 조회 결과 ' + Object.keys(out).length
+    + '건 (실제 공시일 ' + actualDate + ')');
   return out;
 }
 
@@ -8432,8 +8451,8 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
     var confirmedMarket = String(codeMarkets[code] || '').toUpperCase();
     var isValidClose = !!row && Number(row.price) > 0
       && (source === 'KRX' || source === 'KRX_OTP') && !!date && date <= requestedDate;
-    var group = confirmedMarket === 'KOSPI' || confirmedMarket === 'KOSDAQ' || confirmedMarket === 'ETF'
-      ? confirmedMarket : (type === 'ETF' || market === 'ETF' ? 'ETF'
+    var group = type === 'ETF' || market === 'ETF' ? 'ETF'
+      : (confirmedMarket === 'KOSPI' || confirmedMarket === 'KOSDAQ' ? confirmedMarket
       : (market === 'KOSDAQ' || market === 'KOSPI' ? market
       : (isValidClose ? 'STOCK' : 'UNCLASSIFIED_KR')));
     var record = byMarket[group] || (byMarket[group] = { expected:0, dates:[] });
@@ -8459,7 +8478,7 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
   });
   // OpenAPI는 실제 보유한 시장별 pack만 검증합니다. 보유하지 않은 시장의
   // 데이터 제공 장애가 정상 보유 종목의 마감까지 막아서는 안 됩니다.
-  if (evidence) {
+  if (evidence && evidence.mode !== 'OTP') {
     ['KOSPI','KOSDAQ','ETF'].filter(function(market) {
       return !!byMarket[market];
     }).forEach(function(market) {
