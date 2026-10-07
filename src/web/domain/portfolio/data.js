@@ -462,8 +462,11 @@ function getAcctTaxType(acct) {
 // saveHoldings()가 연속 호출될 때 GAS fetch(3개)가 중복 발사되면
 // 429(Too Many Requests) 오류가 발생함 → 300ms 내 마지막 호출만 실제 전송
 let _saveHoldingsGasTimer = null;
+let _pendingExplicitEmptyTradeSync = false;
 
 function saveHoldings(options) {
+  // 빈 거래원장 원격 덮어쓰기는 사용자가 마지막 거래를 실제 삭제한 경로에서만 1회 허용합니다.
+  if (options?.allowEmptyTradeSync === true) _pendingExplicitEmptyTradeSync = true;
   // ── 1단계: localStorage는 즉시 저장 (UI 반응성 유지)
   try {
     lsSave(HOLDINGS_KEY, rawHoldings);
@@ -501,9 +504,11 @@ function saveHoldings(options) {
   if (options?.skipGsheet) return;
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(function() {
+    const allowEmptyTradeSync = _pendingExplicitEmptyTradeSync;
+    _pendingExplicitEmptyTradeSync = false;
     if (typeof syncCodesToGsheet    === 'function') syncCodesToGsheet();
     if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet();
-    if (typeof syncTradesToGsheet   === 'function') syncTradesToGsheet();
+    if (typeof syncTradesToGsheet   === 'function') syncTradesToGsheet({ allowEmpty: allowEmptyTradeSync });
   }, 300);
 }
 
@@ -633,10 +638,10 @@ function savePriceCache() {
   }
 }
 
-function _commitTrades() {
+function _commitTrades(options) {
   // 거래 편집 직후에는 거래이력이 보유현황의 단일 기준이므로 마지막 거래 삭제까지 반영합니다.
   syncHoldingsFromTrades({ clearWhenEmpty: true });
-  saveHoldings();
+  saveHoldings({ allowEmptyTradeSync: options?.allowEmptyTradeSync === true });
   refreshAll();
   // 현재가 편집창이 열린 상태에서 전량 매도하면 목록도 즉시 다시 계산합니다.
   // 상단 업데이트 버튼이나 팝업 재실행을 요구하지 않습니다.
