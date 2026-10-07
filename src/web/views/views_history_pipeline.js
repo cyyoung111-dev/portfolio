@@ -108,7 +108,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     const label = queryBtn.querySelector('span');
     if (label) label.textContent = '조회 중';
   }
-  _setHistoryStatus(statusEl, 'loading', { step: 1, total: 2, message: '스냅샷 조회 중...' });
+  _setHistoryStatus(statusEl, 'loading', { step: 1, total: 2, message: '거래·확정가격·NAV 원자료 조회 중...' });
 
   try {
     const startMonth = String($el('histStartMonth')?.value || '').trim();
@@ -146,9 +146,10 @@ async function loadHistoryChart(retryAttempt = 0) {
       return;
     }
 
-    // 거래이력 기반 원가 재계산값이 있으면 우선 적용
-    snapshots = _mergeTradeBasedCost(snapshots);
     const sourceRecomputed = data.sourceMode === 'SOURCE_RECOMPUTED';
+    // GAS 원자료에서 평가금액·원가·손익을 동일 기준으로 계산했으므로 브라우저 거래원가로 덮어쓰지 않습니다.
+    // 이전 Snapshot 화면에만 client-side 원가 보정 로직을 적용합니다.
+    if (!sourceRecomputed) snapshots = _mergeTradeBasedCost(snapshots);
     const integritySourceRevision = sourceRecomputed ? '' : String(data.integritySourceRevision || '');
     const integrityDateRevisions = data.integrityDateRevisions || {};
     const integrityCache = integritySourceRevision ? _readHistoryIntegrityCache() : {};
