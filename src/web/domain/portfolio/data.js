@@ -501,8 +501,8 @@ function _getPendingExplicitEmptyTradeSync() {
   if (!pending) return null;
   const currentTarget = _currentGsheetSyncTarget();
   if (!currentTarget || pending.target !== currentTarget) {
-    // 연결이 바뀐 pending을 새 GSheet에 적용하면 무관한 포트폴리오를 삭제할 수 있으므로 폐기합니다.
-    if (_pendingExplicitEmptyTradeSync === pending) _setPendingExplicitEmptyTradeSync(null);
+    // 다른 GSheet에서는 절대 실행하지 않되, 성공 확인 전 삭제 의도 자체는 보존합니다.
+    // 사용자가 원래 연결로 돌아오면 오래된 원격 거래를 복원하기 전에 다시 재시도합니다.
     return null;
   }
   return pending;
