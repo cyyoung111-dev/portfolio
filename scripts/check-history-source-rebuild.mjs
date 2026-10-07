@@ -108,6 +108,18 @@ const regularIndex = lib._buildSnapshotRangeIndexes({
 }, ['2026-10-07'], {});
 assert.equal(regularIndex.metrics.priceIntegrityBuildCount,1,'일반 기간 진단 모드는 가격 정합성 계산 유지');
 assert.equal(indexed.historyPriceSeriesByCode['005930'][0].price,150000,'자동 확정 종가가 같은 날짜 MANUAL보다 우선');
+const carryFiltered = lib._buildSnapshotRangeIndexes({
+  valuesByName: { ...values, 가격이력: [
+    ...priceRows,
+    ['2026-10-08','005930','삼성전자',150000,'','KRX_CARRY'],
+    ['2026-10-08','AAPL','애플',100.50,'','KRX_OTP_CARRY'],
+  ] },
+  ss: {}, metrics: {}, readMs: 0,
+}, ['2026-10-08'], { historyOnly: true });
+assert.equal(carryFiltered.historyPriceSeriesByCode['005930'].at(-1).date,'2026-10-07',
+  'KRX_CARRY를 당일 확정 종가로 직접 채택하지 않고 직전 실제 KRX 행을 사용');
+assert.equal(lib._historySourceRows(carryFiltered,'2026-10-08').find(row=>row[1]==='005930')[10],
+  'KRX_CONFIRMED_CLOSE_CARRY@2026-10-07','KRX carry 원천일을 손익 진단에 명시');
 assert.equal(indexed.historyPriceSeriesByCode.AAPL.length,1,'미확정 Toss 시세가 과거 손익을 덮어쓰지 않음');
 const july = lib._historySourceRows(indexed,'2026-10-07');
 const map = Object.fromEntries(july.map(row => [row[1],row]));
