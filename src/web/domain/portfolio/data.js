@@ -530,11 +530,18 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     return holdingsOk && tradesOk;
   }
 
+  // 재시도 시작 시점의 연결을 고정합니다. 첫 await 동안 사용자가 GSheet 연결을 바꿔도
+  // A용 삭제 권한으로 B에 빈 거래원장을 보내지 않도록 두 쓰기 모두 동일 targetUrl을 사용합니다.
+  const retryTarget = pendingEmptySync.target;
   const holdingsResult = typeof syncHoldingsToGsheet === 'function'
-    ? await syncHoldingsToGsheet({ allowEmpty: true })
+    ? await syncHoldingsToGsheet({ allowEmpty: true, targetUrl: retryTarget })
     : null;
   const tradesResult = typeof syncTradesToGsheet === 'function'
-    ? await syncTradesToGsheet({ allowEmpty: true, rebuildFrom: pendingEmptySync.from || '' })
+    ? await syncTradesToGsheet({
+        allowEmpty: true,
+        rebuildFrom: pendingEmptySync.from || '',
+        targetUrl: retryTarget
+      })
     : null;
 
   // 두 원격 원장이 모두 성공한 경우에만 영속 재시도 권한을 소진합니다.
