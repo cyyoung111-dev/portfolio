@@ -4816,6 +4816,8 @@ function _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, date) {
 function _filterSnapshotRowsByFundLifecycle(rows, configs, date) {
   return (rows || []).filter(function(row) {
     var code = _cleanCode(row && row[1]) || String(row && row[1] || '').trim().toUpperCase();
+    // 구형 Snapshot은 코드가 비고 종목명만 남은 경우가 있어 좌수 설정의 유일한 이름 매핑을 사용합니다.
+    if (!_isFundCode(code)) code = _fundConfiguredCodeForPriceRow(row, configs || []);
     if (!_isFundCode(code)) return true;
     var config = _fundUnitsAtDate(configs || [], code, date);
     return !(config && config.units === 0);
@@ -4917,6 +4919,9 @@ function _fundUnitsImpactEnd(ss, configs, code, startDate) {
     if (!sh || sh.getLastRow() < 2) return;
     sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(maxCols, sh.getLastColumn())).getValues().forEach(function(row) {
       var date = _normalizeDate(row[dateCol]), rowCode = _cleanCode(row[codeCol]) || String(row[codeCol] || '').trim().toUpperCase();
+      if (rowCode !== code && (sheetName === CONFIG.SHEET_PH || sheetName === CONFIG.SHEET_SNAPSHOT)) {
+        rowCode = _fundConfiguredCodeForPriceRow(row, configs || []);
+      }
       if (rowCode !== code || !date || date < startDate || date > limit || date >= today()) return;
       if (date > latest) latest = date;
     });
@@ -4979,31 +4984,34 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (snap && snap.getLastRow() > 1) {
     var width = Math.max(12, snap.getLastColumn());
-    var snapshots = snap.getRange(2, 1, snap.getLastRow() - 1, width).getValues(), snapChanged = false;
+    var snapshots = snap.getRange(2, 1, snap.getLastRow() - 1, width).getValues(), snapChanged = false, reconciledSnapshots = [];
     var nameByCode = {};
     configs.forEach(function(c) { if (c.code === code && c.name) nameByCode[c.name] = true; });
     snapshots.forEach(function(row) {
       var date = _normalizeDate(row[0]), rowCode = _cleanCode(row[1]) || '';
       if (!rowCode && nameByCode[String(row[2] || '').trim()]) rowCode = code;
-      if (rowCode !== code || !inRange(date)) return;
+      if (rowCode !== code || !inRange(date)) { reconciledSnapshots.push(row); return; }
       var oldSource = String(row[10] || '').toUpperCase();
       var value = evalAt(date);
-      if (!value) return;
-      // 0좌는 보유 종료 사실이므로 MANUAL Snapshot 보호보다 우선합니다.
-      // 가격이력의 MANUAL 원본은 보존하되, Snapshot 평가금액은 0으로 맞춰 합계 오염을 막습니다.
+      if (!value) { reconciledSnapshots.push(row); return; }
+      // 0좌는 Snapshot 행 자체가 존재하지 않는다는 기존 lifecycle/정합성 계약과 일치시킵니다.
+      // MANUAL 가격이력 원본은 보존하되 Snapshot에는 전량 환매된 펀드를 남기지 않습니다.
       if (value.zero) {
-        [3,4,5,6,7,8,9].forEach(function(index) { row[index] = 0; });
-        row[10] = 'FUND_NAV_ZERO_UNITS';
-      } else {
-        if (oldSource === 'MANUAL') { result.manualPreserved++; return; }
-        var costAmt = Number(row[5]) || 0, evalAmt = Number(value.evalAmt), pnl = evalAmt - costAmt;
-        row[3] = 1; row[4] = costAmt; row[6] = evalAmt; row[7] = evalAmt; row[8] = pnl;
-        row[9] = costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0;
-        row[10] = value.carried ? (oldSource === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? oldSource : 'FUND_NAV_CARRY') : 'FUND_NAV';
+        snapChanged = true; result.snapshotRows++;
+        return;
       }
+      if (oldSource === 'MANUAL') { result.manualPreserved++; reconciledSnapshots.push(row); return; }
+      var costAmt = Number(row[5]) || 0, evalAmt = Number(value.evalAmt), pnl = evalAmt - costAmt;
+      row[3] = 1; row[4] = costAmt; row[6] = evalAmt; row[7] = evalAmt; row[8] = pnl;
+      row[9] = costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0;
+      row[10] = value.carried ? (oldSource === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? oldSource : 'FUND_NAV_CARRY') : 'FUND_NAV';
+      reconciledSnapshots.push(row);
       snapChanged = true; result.snapshotRows++;
     });
-    if (snapChanged) snap.getRange(2, 1, snapshots.length, width).setValues(snapshots);
+    if (snapChanged) {
+      while (reconciledSnapshots.length < snapshots.length) reconciledSnapshots.push(Array(width).fill(''));
+      snap.getRange(2, 1, snapshots.length, width).setValues(reconciledSnapshots);
+    }
   }
   return result;
 }
@@ -7040,6 +7048,24 @@ function rebuildDailySnapshots(fromStr, toStr) {
   finally { if (ownsLock) lock.releaseLock(); }
 }
 
+function _hasSnapshotHoldingsAtDate(ss, dateStr) {
+  var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (!tradeSh || tradeSh.getLastRow() < 2) return null;
+  var tradeData = tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1, Math.min(11, tradeSh.getLastColumn())).getValues();
+  var codeItems = getCodeItems(ss, true), nameToCode = {}, displayByCode = {};
+  codeItems.forEach(function(item) {
+    if (item.name && item.code) nameToCode[item.name] = item.code;
+    if (item.code && item.name) displayByCode[_cleanCode(item.code)] = item.name;
+  });
+  tradeData.forEach(function(row) {
+    var name = String(row[3] || '').trim(), code = _cleanCode(row[4]) || String(row[4] || '').trim();
+    if (name && code && !nameToCode[name]) nameToCode[name] = code;
+  });
+  var holdings = _calcCodeHoldingsAtDate(tradeData, dateStr, nameToCode, displayByCode);
+  _applyFundUnitLifecycleToSnapshotHoldings(holdings, _readFundUnits(ss), dateStr);
+  return Object.keys(holdings).some(function(key) { return holdings[key] && Number(holdings[key].qty) > 0; });
+}
+
 function _rebuildDailySnapshotsLocked(fromStr, toStr) {
   var ss = getss();
   var fromDate = _normalizeDate(fromStr || '') || '1900-01-01';
@@ -7057,9 +7083,15 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr) {
       var existing = _readSnapshotRowsByDate(ss, date);
       var rewritePlan = _snapshotRewritePlan(ss, date, rows, rebuildFundConfigs);
       if (!rows.length) {
-        // 기대 결과가 비어도 기존 원장에 0좌 펀드가 남아 있으면 lifecycle 제거 자체는 수행합니다.
-        // 이때 다른 기존 행은 rewritePlan.raw로 보존하여 source 부족으로 전체 날짜를 지우지 않습니다.
-        if (rewritePlan.lifecycleRemovedRows > 0 && !rewritePlan.unsafe.length) {
+        var hasHoldings = _hasSnapshotHoldingsAtDate(ss, date);
+        // 거래원장상 실제 보유가 0이면 빈 포트폴리오 자체가 정상 계산 결과입니다.
+        // 전량매도 후 남은 일반 종목/MANUAL Snapshot도 모두 제거합니다.
+        if (hasHoldings === false && existing.length) {
+          writeSnapshotRows(ss, date, [], true, null, rebuildFundConfigs, true);
+          rebuilt++;
+          if (changes.length < 20) changes.push({ date: date, beforeRows: existing.length, afterRows: 0, emptiedPortfolio: true });
+        } else if (rewritePlan.lifecycleRemovedRows > 0 && !rewritePlan.unsafe.length) {
+          // 가격/환율 원자료 부족으로 rows가 비어도 0좌 펀드 lifecycle 제거만은 안전하게 수행합니다.
           writeSnapshotRows(ss, date, rewritePlan.raw, true, null, rebuildFundConfigs);
           rebuilt++;
           if (changes.length < 20) changes.push({ date: date, beforeRows: existing.length, afterRows: rewritePlan.raw.length, lifecycleRemovedRows: rewritePlan.lifecycleRemovedRows });
@@ -10417,7 +10449,7 @@ function getTradingDays(year, month) {
 // ════════════════════════════════════════════════════════════════════
 //  스냅샷 시트 upsert
 // ════════════════════════════════════════════════════════════════════
-function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs) {
+function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite) {
   var writeLock = LockService.getScriptLock();
   var ownsWriteLock = false;
   var snapshotBackupRecord = null;
@@ -10483,7 +10515,7 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
         newRows = _filterSnapshotRowsByFundLifecycle(newRows, configsForWrite, normDate);
       }
       var lifecycleRemovedRows = originalSameDateCount - sameDate.length;
-      if (!newRows.length && !lifecycleRemovedRows) return;
+      if (!newRows.length && !lifecycleRemovedRows && !allowEmptyOverwrite) return;
       var rawDuplicateDecisions = _classifyRawSnapshotDuplicateGroups(normDate, sameDate, newRows, '');
       var autoResolutionByKey = {};
       rawDuplicateDecisions.filter(function(item) { return item.autoResolvable; }).forEach(function(item) {
@@ -10521,8 +10553,9 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       var protectedDuplicateKeys = {};
       rawDuplicateDecisions.filter(function(item) { return !item.autoResolvable; }).forEach(function(item) { protectedDuplicateKeys[item.key] = true; });
       var mergeIncomingRows = newRows.filter(function(row) { return !protectedDuplicateKeys[_snapshotIntegrityKey(row)]; });
-      var mergedDate = _mergeSnapshotRowsSafely(sameDate, mergeIncomingRows, overwrite, manualKeys);
-      if (overwrite) {
+      var forceEmptyDate = !!(allowEmptyOverwrite && overwrite && !newRows.length);
+      var mergedDate = forceEmptyDate ? [] : _mergeSnapshotRowsSafely(sameDate, mergeIncomingRows, overwrite, manualKeys);
+      if (overwrite && !forceEmptyDate) {
         var expectedKeys = {};
         newRows.forEach(function(row) { expectedKeys[_cleanCode(row[1]) || String(row[2] || '').trim()] = true; });
         mergedDate = mergedDate.filter(function(row) {
