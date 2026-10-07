@@ -347,6 +347,7 @@ assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, sta
 assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE'\)/);
 const runProps=new Map();
 const statusVm=vm.createContext({
+  CONFIG:{TIMEZONE:'Asia/Seoul'},
   Utilities:{formatDate:()=> '2026-10-07 19:15:00'},
 });
 vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
