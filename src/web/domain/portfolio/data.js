@@ -511,17 +511,34 @@ function _getPendingExplicitEmptyTradeSync() {
 async function _retryPendingExplicitEmptyTradeSync(options) {
   const pendingEmptySync = _getPendingExplicitEmptyTradeSync();
   if (!pendingEmptySync) return true;
+  const retryTarget = pendingEmptySync.target;
+  const retryGeneration = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration()
+    : null;
+  const allowDuringRestore = options?.allowDuringRestore === true;
 
   // 삭제 이후 새 거래가 생겼다면 "빈 원장" 의도를 폐기하고 현재 비어 있지 않은 원장을 즉시 일반 동기화합니다.
   // GSheet 연동 중 거래는 remote-only이므로 여기서 전송하지 않으면 새로고침 시 새 거래가 유실될 수 있습니다.
   if (rawTrades.length > 0) {
     if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
-    const holdingsResult = typeof syncHoldingsToGsheet === 'function'
-      ? await syncHoldingsToGsheet()
-      : null;
-    const tradesResult = typeof syncTradesToGsheet === 'function'
-      ? await syncTradesToGsheet()
-      : null;
+    const recoveryTrades = rawTrades.map(t => ({ ...t }));
+    const [holdingsResult, tradesResult] = await Promise.all([
+      typeof syncHoldingsToGsheet === 'function'
+        ? syncHoldingsToGsheet({
+            targetUrl: retryTarget,
+            generation: retryGeneration,
+            allowDuringRestore
+          })
+        : Promise.resolve(null),
+      typeof syncTradesToGsheet === 'function'
+        ? syncTradesToGsheet({
+            targetUrl: retryTarget,
+            generation: retryGeneration,
+            allowDuringRestore,
+            tradesOverride: recoveryTrades
+          })
+        : Promise.resolve(null)
+    ]);
     const holdingsOk = holdingsResult?.status === 'ok';
     const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
     if ((!holdingsOk || !tradesOk) && !options?.quiet && typeof showToast === 'function') {
@@ -532,12 +549,13 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
 
   // 재시도 시작 시점의 연결을 고정합니다. 첫 await 동안 사용자가 GSheet 연결을 바꿔도
   // A용 삭제 권한으로 B에 빈 거래원장을 보내지 않도록 두 쓰기 모두 동일 targetUrl을 사용합니다.
-  const retryTarget = pendingEmptySync.target;
-  const retryGeneration = typeof getGsheetConnectionGeneration === 'function'
-    ? getGsheetConnectionGeneration()
-    : null;
   const holdingsResult = typeof syncHoldingsToGsheet === 'function'
-    ? await syncHoldingsToGsheet({ allowEmpty: true, targetUrl: retryTarget })
+    ? await syncHoldingsToGsheet({
+        allowEmpty: true,
+        targetUrl: retryTarget,
+        generation: retryGeneration,
+        allowDuringRestore
+      })
     : null;
 
   // URL이 최종적으로 A로 돌아왔더라도 A→B→A 전환이 있었다면 같은 연결로 보지 않습니다.
@@ -561,10 +579,19 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     // rawTrades에 복원돼도 A 복구 쓰기는 아래 스냅샷만 사용합니다.
     const recoveryTrades = rawTrades.map(t => ({ ...t }));
     const currentHoldingsPromise = typeof syncHoldingsToGsheet === 'function'
-      ? syncHoldingsToGsheet({ targetUrl: retryTarget })
+      ? syncHoldingsToGsheet({
+          targetUrl: retryTarget,
+          generation: retryGeneration,
+          allowDuringRestore
+        })
       : Promise.resolve(null);
     const currentTradesPromise = typeof syncTradesToGsheet === 'function'
-      ? syncTradesToGsheet({ targetUrl: retryTarget, tradesOverride: recoveryTrades })
+      ? syncTradesToGsheet({
+          targetUrl: retryTarget,
+          generation: retryGeneration,
+          allowDuringRestore,
+          tradesOverride: recoveryTrades
+        })
       : Promise.resolve(null);
     const [currentHoldingsResult, currentTradesResult] = await Promise.all([
       currentHoldingsPromise,
@@ -586,6 +613,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
         allowEmpty: true,
         rebuildFrom: pendingEmptySync.from || '',
         targetUrl: retryTarget,
+        generation: retryGeneration,
+        allowDuringRestore,
         tradesOverride: retryTrades
       })
     : null;
