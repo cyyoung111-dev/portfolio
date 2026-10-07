@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.176
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.177
+//
+//  v9.177 변경사항 (2026.10.07):
+//   손익 그래프 원자료(거래·확정가격·펀드 NAV·환율) read-only 계산으로 전환
+//   펀드 비공시/원천 누락일에 직전 공시 NAV와 해당일 좌수로 재계산, 미래 NAV 사용 차단
+//   Snapshot 오류와 독립적으로 손익 조회, 미확인 가격은 원가 대체 없이 건너뛰고 진단
 //
 //  v9.176 변경사항 (2026.10.07):
 //   손익 Snapshot 충돌 분류 요약과 Toss/KRX 현재가 provider 실행 상태 노출
@@ -960,6 +965,8 @@ function doGet(e) {
   if (params.action === 'previewPriceHistoryRepair') return handlePreviewPriceHistoryRepair(params.data || '{}');
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
+  if (params.action === 'getHistorySource')               return handleGetHistorySource(params.from || '', params.to || '');
+  if (params.action === 'getHistorySourceDetail')         return handleGetHistorySourceDetail(params.date || '');
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
   if (params.action === 'getSnapshotRepairStatus')        return handleGetSnapshotRepairStatus();
@@ -1033,7 +1040,7 @@ function doPost(e) {
   if (params.action === 'prepareBackupCleanup') return handlePrepareBackupCleanup(params.data || '{}');
   if (params.action === 'maintainSystemBackups') return handleMaintainSystemBackups(params.data || '{}');
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -4654,7 +4661,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.176' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.177' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6788,11 +6795,11 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
     Object.keys(holdAtDate).forEach(function(k) {
       var holding = holdAtDate[k];
       var fundCode = _cleanCode(holding && holding.code) || (holding && holding.code || '');
-      if (!_isFundCode(fundCode) || prices[fundCode] > 0) return;
+      if (!_isFundCode(fundCode)) return;
       var fundValue = _getFundEvaluationAtDate(ss, fundCode, dateStr);
       if (fundValue && fundValue.evalAmt > 0) {
         prices[fundCode] = fundValue.evalAmt;
-        sourceMap[fundCode] = { src: fundValue.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV', savedAt: '', sourceDate: fundValue.sourceDate };
+        sourceMap[fundCode] = { src: fundValue.carried ? 'FUND_NAV_CARRY@' + fundValue.sourceDate : 'FUND_NAV', savedAt: '', sourceDate: fundValue.sourceDate };
       }
     });
 
@@ -6867,7 +6874,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
       if (/^F\d{5}$/.test(code)) h.qty = 1;
       // ★ [환율 연동] 외화 종목이면 원화로 환산
       var currency = (code && codeToCurrency[code]) ? codeToCurrency[code] : 'KRW';
-      if (throwOnError && (currency !== 'KRW' || !(price > 0))) throw new Error('확정 평가자료 부족: ' + (code || name));
+      if (throwOnError && !(price > 0)) throw new Error('확정 평가자료 부족: ' + (code || name));
       var fxRate   = (currency !== 'KRW' && fxRates[currency] > 0) ? fxRates[currency] : 1;
       var priceKrw = price > 0 ? Math.round(price * fxRate) : 0;
       var evalAmt  = priceKrw > 0 ? Math.round(priceKrw * h.qty) : h.costAmt;
@@ -6890,21 +6897,37 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
   return _dedupeSnapshotRows(out);
 }
 
+function _fundNavEvaluationFromRows(rows, configs, code, dateStr) {
+  var active = _fundUnitsAtDate(configs || [], code, dateStr);
+  if (!active || !(Number(active.units) > 0)) return null;
+  var best = null, seenBySourceDate = {};
+  (rows || []).forEach(function(row) {
+    var valueDate = _normalizeDate(row[0]), sourceDate = _normalizeDate(row[4]);
+    var nav = Number(row[3]), provider = String(row[8] || '');
+    if ((_cleanCode(row[1]) || String(row[1] || '').trim()) !== code ||
+        !valueDate || valueDate > dateStr || !sourceDate || sourceDate > dateStr ||
+        sourceDate > valueDate || !(nav > 0) || (provider && provider !== active.provider)) return;
+    if (seenBySourceDate[sourceDate] && seenBySourceDate[sourceDate] !== nav) {
+      throw new Error('펀드 확정 NAV 충돌: ' + code + ' ' + sourceDate);
+    }
+    seenBySourceDate[sourceDate] = nav;
+    if (!best || sourceDate > best.sourceDate ||
+        (sourceDate === best.sourceDate && valueDate > best.valueDate)) {
+      best = { nav: nav, sourceDate: sourceDate, valueDate: valueDate };
+    }
+  });
+  if (!best) return null;
+  var evalAmt = Math.round(best.nav * Number(active.units) / 1000);
+  if (!Number.isSafeInteger(evalAmt) || evalAmt < 0) throw new Error('펀드 평가금액 계산 범위 초과: ' + code);
+  return { evalAmt: evalAmt, nav: best.nav, units: Number(active.units), sourceDate: best.sourceDate,
+    valueDate: best.valueDate, carried: best.sourceDate < dateStr };
+}
+
 function _getFundEvaluationAtDate(ss, code, dateStr) {
   var sh = ss.getSheetByName(FUND_NAV_SHEET);
   if (!sh || sh.getLastRow() < 2 || !_isFundCode(code)) return null;
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(9, sh.getLastColumn())).getValues();
-  var best = null;
-  rows.forEach(function(row) {
-    var valueDate = _normalizeDate(row[0]);
-    var sourceDate = _normalizeDate(row[4]);
-    var evalAmt = Number(row[6]);
-    if (String(row[1] || '').trim() !== code || !valueDate || valueDate > dateStr || !sourceDate || sourceDate > dateStr || !(evalAmt > 0)) return;
-    if (!best || valueDate > best.valueDate || (valueDate === best.valueDate && sourceDate > best.sourceDate)) {
-      best = { evalAmt: evalAmt, valueDate: valueDate, sourceDate: sourceDate, carried: valueDate !== sourceDate };
-    }
-  });
-  return best;
+  return _fundNavEvaluationFromRows(rows, _readFundUnits(ss), code, dateStr);
 }
 
 var PRICE_HISTORY_UNVERIFIED_SOURCES = /REALTIME|INDICATIVE|DAILY_CANDLE|UNVERIFIED_CLOSE/i;
@@ -7181,9 +7204,12 @@ function handleDiagnoseSnapshotIntegrity(dateStr, datesStr) {
 
 // 기간 진단 전용 read-through context입니다. 필요한 원장을 각각 한 번만 읽고 기존
 // 단일일 계산기에 Sheet 호환 read-only view를 전달하여 계산 계약을 공유합니다.
-function _buildSnapshotRangeReadContext(ss) {
-  var started = Date.now(), names = [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH,
-    CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'], valuesByName = {}, counts = {};
+function _buildSnapshotRangeReadContext(ss, options) {
+  var historyOnly = !!(options && options.historyOnly);
+  var started = Date.now(), names = historyOnly
+    ? [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력']
+    : [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH,
+       CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'], valuesByName = {}, counts = {};
   names.forEach(function(name) {
     var sheet = ss.getSheetByName(name), values = [];
     if (sheet && sheet.getLastRow() && sheet.getLastColumn()) values = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
@@ -7215,14 +7241,27 @@ function _indexedLatest(series, date) {
 
 function _indexedFundEvaluation(context, code, date) {
   context.metrics.fundNavLookupCount++;
-  var series = context.fundNavSeriesByCode[code] || [], best = null, low = 0, high = series.length - 1, index = -1;
-  // valueDate와 sourceDate가 모두 기준일 이하여야 한다는 기존 계약을 보존합니다.
-  while (low <= high) { var mid = (low + high) >> 1; if (series[mid].valueDate <= date) { index = mid; low = mid + 1; } else high = mid - 1; }
-  while (index >= 0 && series[index].valueDate <= date) { if (series[index].sourceDate <= date) { best = series[index]; break; } index--; }
-  return best;
+  var active = _fundUnitsAtDate(context.fundConfigs || [], code, date);
+  if (!active || !(Number(active.units) > 0)) return null;
+  var series = context.fundNavSeriesByCode[code] || [], best = null;
+  var low = 0, high = series.length - 1, index = -1;
+  while (low <= high) {
+    var mid = (low + high) >> 1;
+    if (series[mid].sourceDate <= date) { index = mid; low = mid + 1; } else high = mid - 1;
+  }
+  while (index >= 0) {
+    var candidate = series[index--];
+    if (candidate.valueDate > date || (candidate.provider && candidate.provider !== active.provider)) continue;
+    best = candidate; break;
+  }
+  if (!best) return null;
+  var evalAmt = Math.round(best.nav * Number(active.units) / 1000);
+  if (!Number.isSafeInteger(evalAmt) || evalAmt < 0) throw new Error('펀드 평가금액 계산 범위 초과: ' + code);
+  return { evalAmt: evalAmt, nav: best.nav, units: Number(active.units),
+    sourceDate: best.sourceDate, carried: best.sourceDate < date };
 }
 
-function _buildSnapshotRangeIndexes(readContext, dates) {
+function _buildSnapshotRangeIndexes(readContext, dates, options) {
   var started = Date.now(), values = readContext.valuesByName, metrics = readContext.metrics;
   var context = { snapshotRowsByDate: {}, priceSeriesByCode: {}, positivePriceSeriesByCode: {}, priceExactByDateCode: {}, manualPriceSeriesByCode: {}, fundNavSeriesByCode: {}, fxSeriesByCurrency: {},
     priceIntegrityByDate: {}, codeItems: getCodeItems(readContext.ss, true), fundConfigs: _readFundUnits(readContext.ss), metrics: metrics };
@@ -7265,13 +7304,15 @@ function _buildSnapshotRangeIndexes(readContext, dates) {
     context.positivePriceSeriesByCode[code] = Object.keys(seenDates).sort().map(function(date) { return context.priceExactByDateCode[date + '|' + code]; }).filter(Boolean);
   });
   (values[FUND_NAV_SHEET] || []).slice(1).forEach(function(row) {
-    var code = String(row[1] || '').trim(), valueDate = _normalizeDate(row[0]), sourceDate = _normalizeDate(row[4]), evalAmt = Number(row[6]);
-    if (!_isFundCode(code) || !valueDate || !sourceDate || !(evalAmt > 0)) return;
-    (context.fundNavSeriesByCode[code] || (context.fundNavSeriesByCode[code] = [])).push({ evalAmt: evalAmt, valueDate: valueDate,
-      sourceDate: sourceDate, date: valueDate, carried: valueDate !== sourceDate });
+    var code = _cleanCode(row[1]) || String(row[1] || '').trim();
+    var valueDate = _normalizeDate(row[0]), sourceDate = _normalizeDate(row[4]), nav = Number(row[3]);
+    if (!_isFundCode(code) || !valueDate || !sourceDate || sourceDate > valueDate || !(nav > 0)) return;
+    (context.fundNavSeriesByCode[code] || (context.fundNavSeriesByCode[code] = [])).push({
+      nav: nav, valueDate: valueDate, sourceDate: sourceDate, provider: String(row[8] || ''), date: sourceDate
+    });
   });
   Object.keys(context.fundNavSeriesByCode).forEach(function(code) { context.fundNavSeriesByCode[code].sort(function(a,b) {
-    return a.valueDate === b.valueDate ? a.sourceDate.localeCompare(b.sourceDate) : a.valueDate.localeCompare(b.valueDate);
+    return a.sourceDate === b.sourceDate ? a.valueDate.localeCompare(b.valueDate) : a.sourceDate.localeCompare(b.sourceDate);
   }); });
   (values['환율이력'] || []).slice(1).forEach(function(row) {
     var date = _normalizeDate(row[0]), currency = String(row[1] || '').toUpperCase(), rate = Number(row[2]);
@@ -7281,8 +7322,12 @@ function _buildSnapshotRangeIndexes(readContext, dates) {
   context.holdingsByRequestedDate = _buildHoldingsByRequestedDate((values[CONFIG.SHEET_TRADES] || []).slice(1), dates, context.nameToCode);
   var priceContext = { priceRows: (values[CONFIG.SHEET_PH] || []).slice(1), tradeRows: (values[CONFIG.SHEET_TRADES] || []).slice(1),
     fxRows: (values['환율이력'] || []).slice(1), navRows: (values[FUND_NAV_SHEET] || []).slice(1), codeItems: context.codeItems, byCode: context.codeByCode };
-  _priceIntegrityRows(priceContext, dates, []).forEach(function(row) { (context.priceIntegrityByDate[row.date] || (context.priceIntegrityByDate[row.date] = [])).push(row); });
-  metrics.holdingsBuildCount = 1; metrics.priceSeriesBuildCount = 1; metrics.priceIntegrityBuildCount = 1;
+  if (!(options && options.historyOnly)) {
+    _priceIntegrityRows(priceContext, dates, []).forEach(function(row) {
+      (context.priceIntegrityByDate[row.date] || (context.priceIntegrityByDate[row.date] = [])).push(row);
+    });
+  }
+  metrics.holdingsBuildCount = 1; metrics.priceSeriesBuildCount = 1; metrics.priceIntegrityBuildCount = options && options.historyOnly ? 0 : 1;
   metrics.snapshotDateLookupCount = 0; metrics.fundNavLookupCount = 0; metrics.fxLookupCount = 0;
   context.indexBuildMs = Date.now() - started;
   return context;
@@ -8990,7 +9035,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.176',
+    gasVersion: '9.177',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9019,7 +9064,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.176' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.177' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -10670,7 +10715,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.176' });
+    return jsonOk({ settings: settings, gasVersion: '9.177' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10692,7 +10737,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.176'
+      gasVersion: '9.177'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
