@@ -58,7 +58,7 @@ assert.match(index, /settings_sync\.js\?v=20261007-16/);
 assert.match(index, /settings_fetch\.js\?v=20261007-8/);
 assert.match(index, /event_delegation\.js\?v=20261006-1/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
-assert.match(sw, /portfolio-cache-20261007-27/);
+assert.match(sw, /portfolio-cache-20261007-28/);
 assert.match(sw, /components\.css\?v=20260921-2/);
 
 // 새 관측성은 추가 호출을 만들지 않고 기존 단일 batch/read 경계를 계측한다.
