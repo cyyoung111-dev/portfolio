@@ -7011,7 +7011,12 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
       if (name && code && !nameToCode[name]) nameToCode[name] = code;
     });
 
-    var holdAtDate = calcHoldingsAtDate(tradeData, dateStr, nameToCode);
+    var displayByCode = {};
+    codeItems.forEach(function(item) {
+      if (item.code && item.name) displayByCode[_cleanCode(item.code)] = item.name;
+    });
+    // 일일 종가 수집과 같은 코드 기준으로 매수·매도·분할을 집계합니다.
+    var holdAtDate = _calcCodeHoldingsAtDate(tradeData, dateStr, nameToCode, displayByCode);
     _applyFundUnitLifecycleToSnapshotHoldings(holdAtDate, _readFundUnits(ss), dateStr);
     var prices = getPriceHistoryRow(ss, dateStr, throwOnError);
     // ★ sourceMap 이제 { src, savedAt } 객체 반환
@@ -8470,6 +8475,35 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
 
 // 종목코드 마스터는 과거 매도·상장폐지 코드도 보존합니다.
 // 확정 종가 검증과 수집은 요청 거래일에 실보유수량이 있는 코드만 사용합니다.
+// Snapshot과 일일 KRX 보유판정에 같은 코드 기반 거래원장 계산을 사용합니다.
+// 회사명/상품명 변경은 표시명만 바꾸며 보유수량·원가를 분리하지 않습니다.
+function _calcCodeHoldingsAtDate(tradeRows, dateStr, nameToCode, displayByCode) {
+  var recentNames = {};
+  var canonicalTrades = (tradeRows || []).map(function(row) {
+    var name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || _cleanCode((nameToCode || {})[name]);
+    if (!code) return row;
+    var date = _normalizeDate(row[0]);
+    if (name && date && date <= dateStr &&
+        (!recentNames[code] || date >= recentNames[code].date)) {
+      recentNames[code] = { date:date, name:name };
+    }
+    var clone = row.slice();
+    clone[3] = code;
+    clone[4] = code;
+    return clone;
+  });
+  var holdings = calcHoldingsAtDate(canonicalTrades, dateStr, {});
+  Object.keys(holdings).forEach(function(key) {
+    var holding = holdings[key];
+    var code = _cleanCode(holding && holding.code);
+    if (!code) return;
+    holding.name = String((displayByCode || {})[code] ||
+      (recentNames[code] && recentNames[code].name) || code);
+  });
+  return holdings;
+}
+
 function _getDailyHeldCodeItems(ss, dateStr, catalog) {
   if (!dateStr) return [];
   var tradeSheet = ss.getSheetByName(CONFIG.SHEET_TRADES);
@@ -8485,19 +8519,7 @@ function _getDailyHeldCodeItems(ss, dateStr, catalog) {
     var code = _cleanCode(row[4]) || String(row[4] || '').trim();
     if (name && code && !nameToCode[name]) nameToCode[name] = code;
   });
-  // 기존 원장 계산기는 종목명을 키로 사용합니다. 같은 코드의 개명 전 매수·개명 후
-  // 매도는 하나의 수량으로 상계되도록 계산 입력만 코드 기준으로 정규화합니다.
-  // 거래이력 원본과 사용자 표시 종목명은 수정하지 않습니다.
-  var codeTrades = tradeRows.map(function(row) {
-    var name = String(row[3] || '').trim();
-    var code = _cleanCode(row[4]) || _cleanCode(nameToCode[name]);
-    if (!code) return row;
-    var normalized = row.slice();
-    normalized[3] = code;
-    normalized[4] = code;
-    return normalized;
-  });
-  var holdings = calcHoldingsAtDate(codeTrades, dateStr, {});
+  var holdings = _calcCodeHoldingsAtDate(tradeRows, dateStr, nameToCode);
   var heldCodes = {};
   Object.keys(holdings).forEach(function(name) {
     var holding = holdings[name];
