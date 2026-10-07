@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.186
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.187
+//
+//  v9.187 변경사항 (2026.10.07):
+//   현재 미보유라도 Settings master/fundDirect에 남은 코드 없는 TDF·펀드의 과거 Snapshot 보존
 //
 //  v9.186 변경사항 (2026.10.07):
 //   펀드 좌수 파생 NAV·가격이력·Snapshot backup을 전체 reconciliation 성공 뒤에만 정리
@@ -4944,7 +4947,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.186' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.187' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7230,16 +7233,34 @@ function rebuildDailySnapshots(fromStr, toStr, options) {
 function _currentNonTradeSnapshotHoldingNames(ss) {
   var out = {};
   var holdSh = ss.getSheetByName(CONFIG.SHEET_HOLD);
-  if (!holdSh || holdSh.getLastRow() < 2) return out;
-  var colCount = Math.max(7, holdSh.getLastColumn());
-  holdSh.getRange(2, 1, holdSh.getLastRow() - 1, colCount).getValues().forEach(function(row) {
-    var code = _cleanCode(row[0]) || String(row[0] || '').trim();
-    var name = String(row[1] || '').trim();
-    var qty = Number(row[2]) || 0;
-    var assetType = String(row[5] || '').trim();
-    if (!name || !(qty > 0) || code || (assetType !== 'TDF' && assetType !== '펀드')) return;
-    out[name] = true;
-  });
+  if (holdSh && holdSh.getLastRow() >= 2) {
+    var colCount = Math.max(7, holdSh.getLastColumn());
+    holdSh.getRange(2, 1, holdSh.getLastRow() - 1, colCount).getValues().forEach(function(row) {
+      var code = _cleanCode(row[0]) || String(row[0] || '').trim();
+      var name = String(row[1] || '').trim();
+      var qty = Number(row[2]) || 0;
+      var assetType = String(row[5] || '').trim();
+      if (!name || !(qty > 0) || code || (assetType !== 'TDF' && assetType !== '펀드')) return;
+      out[name] = true;
+    });
+  }
+
+  // 현재 보유에서 빠진 과거 직접펀드도 거래원장으로 취득/매도 시점을 재구성할 수 없습니다.
+  // Settings master에 남아 있는 코드 없는 TDF/펀드와 fundDirect 이름까지 보존 후보로 포함해,
+  // 무관한 주식 과거수량 정정이 기존 과거 Snapshot을 삭제하지 않게 합니다.
+  try {
+    var settings = _readSettingsMap(ss) || {};
+    (Array.isArray(settings.EDITABLE_PRICES) ? settings.EDITABLE_PRICES : []).forEach(function(item) {
+      if (!item || !item.name) return;
+      var code = _cleanCode(item.code) || String(item.code || '').trim();
+      var assetType = String(item.assetType || item.type || '').trim();
+      if (!code && (assetType === 'TDF' || assetType === '펀드')) out[String(item.name).trim()] = true;
+    });
+    var direct = settings.fundDirect && typeof settings.fundDirect === 'object' ? settings.fundDirect : {};
+    Object.keys(direct).forEach(function(name) {
+      if (String(name || '').trim()) out[String(name).trim()] = true;
+    });
+  } catch (ignore) {}
   return out;
 }
 
@@ -9947,7 +9968,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.186',
+    gasVersion: '9.187',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9978,7 +9999,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.186' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.187' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11762,7 +11783,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.186' });
+    return jsonOk({ settings: settings, gasVersion: '9.187' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11790,7 +11811,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.186'
+      gasVersion: '9.187'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
