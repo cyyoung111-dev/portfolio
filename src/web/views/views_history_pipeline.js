@@ -341,7 +341,11 @@ function _renderHistorySourceCoverage(el, summary, snapshots) {
   const carried = Number(summary.carriedFundItems || 0);
   const stockCarried = Number(summary.carriedPriceItems || 0);
   const samples = Array.isArray(summary.unavailableSamples) ? summary.unavailableSamples : [];
+  const fundSamples = Array.isArray(summary.carriedFundSamples) ? summary.carriedFundSamples : [];
+  const priceSamples = Array.isArray(summary.carriedPriceSamples) ? summary.carriedPriceSamples : [];
   const sampleText = samples.slice(0, 5).map(item => `${item.date}: ${item.reason}`).join(' · ');
+  const fundSampleText = fundSamples.slice(0, 6).map(item => `${item.code} ${item.date} ← NAV ${item.sourceDate}`).join(' · ');
+  const priceSampleText = priceSamples.slice(0, 6).map(item => `${item.code} ${item.date} ← 종가 ${item.sourceDate}`).join(' · ');
   const warning = missing > 0 || stockCarried > 0 || carried > 0;
   const explanation = [
     carried > 0 ? `펀드 ${carried}건은 직전 확정 공시일 NAV × 해당일 좌수로 이월 평가했습니다(해당일 NAV 확정 아님).` : '펀드는 평가일 좌수로 재계산합니다.',
@@ -351,6 +355,8 @@ function _renderHistorySourceCoverage(el, summary, snapshots) {
     <b style="color:${warning ? 'var(--amber)' : 'var(--green)'}">원자료 기준 자동 손익 · 계산 완료 ${complete}일${missing ? ` · 원자료 부족 ${missing}일 제외` : ''}</b><br>
     <span style="color:var(--muted)">기존 Snapshot 대신 거래·확정가격·펀드 NAV·환율로 재구성했습니다. ${_escapeHtml(explanation)}</span>
     ${missing ? `<br><span style="color:var(--amber)">제외일 예시: ${_escapeHtml(sampleText)}${missing > samples.length ? ' 외 추가 날짜' : ''}</span>` : ''}
+    ${fundSampleText ? `<br><span style="color:var(--muted)">펀드 NAV 이월 예시: ${_escapeHtml(fundSampleText)}${carried > fundSamples.length ? ' 외 추가 건' : ''}</span>` : ''}
+    ${priceSampleText ? `<br><span style="color:var(--muted)">일반 종가 이월 예시: ${_escapeHtml(priceSampleText)}${stockCarried > priceSamples.length ? ' 외 추가 건' : ''}</span>` : ''}
   </div>`);
 }
 
