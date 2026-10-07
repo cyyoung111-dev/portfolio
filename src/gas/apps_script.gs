@@ -10087,34 +10087,46 @@ function _getHistoricalExchangeRates(ss, currencies, dateStr) {
 //  거래이력 누적 계산 — dateStr 시점의 보유현황 반환
 // ════════════════════════════════════════════════════════════════════
 function _applyHoldingTrade(map, row, nameToCode, maxDate) {
-    var rawDate   = row[0];
-    var date      = (rawDate instanceof Date)
-      ? Utilities.formatDate(rawDate, CONFIG.TIMEZONE, 'yyyy-MM-dd')
-      : (rawDate||'').toString().trim().slice(0, 10);
-    var tradeType = (row[1]||'').toString().trim();
-    var name      = (row[3]||'').toString().trim();
-    var code      = (row[4]||'').toString().trim() || (nameToCode[name] || '');
-    var qty       = parseFloat(row[5]) || 0;
-    var price     = parseFloat(row[6]) || 0;
-    var assetType = (row[7]||'주식').toString().trim();
-    if (!date || !name || !tradeType || (maxDate && date > maxDate)) return;
+  var rawDate = row[0];
+  var date = (rawDate instanceof Date)
+    ? Utilities.formatDate(rawDate, CONFIG.TIMEZONE, 'yyyy-MM-dd')
+    : (rawDate || '').toString().trim().slice(0, 10);
+  var tradeType = (row[1] || '').toString().trim();
+  var name = (row[3] || '').toString().trim();
+  var rawCode = (row[4] || '').toString().trim() || ((nameToCode || {})[name] || '');
+  var code = _cleanCode(rawCode) || rawCode;
+  var qty = parseFloat(row[5]) || 0;
+  var price = parseFloat(row[6]) || 0;
+  var assetType = (row[7] || '주식').toString().trim();
+  if (!date || !name || !tradeType || (maxDate && date > maxDate)) return;
 
-    if (!map[name]) map[name] = { name: name, code: code, qty: 0, totalCost: 0, assetType: assetType };
-    if (!map[name].code && code) map[name].code = code;
+  // 전체 보유·기간 진단·소급채우기·펀드 Snapshot은 이 동일 reducer를 사용합니다.
+  // 회사명 변경 전 매수 + 변경 후 전량매도를 코드로 합산해 유령 보유분을 차단합니다.
+  // 코드가 없는 거래만 기존 종목명 기준으로 취급합니다.
+  var identity = code || name;
+  var holding = map[identity];
+  if (!holding) {
+    holding = map[identity] = { name:name, code:code, qty:0, totalCost:0, assetType:assetType };
+  }
+  if (!holding.code && code) holding.code = code;
+  // 표시명은 사용 가능한 마지막 거래 종목명을 유지하되 수량 집계 기준과 분리합니다.
+  if (name) holding.name = name;
 
-    if (tradeType === 'buy') {
-      map[name].qty       += qty;
-      map[name].totalCost += qty * price;
-    } else if (tradeType === 'sell') {
-      var avgCost = map[name].qty > 0 ? map[name].totalCost / map[name].qty : 0;
-      var sellQty = Math.min(qty, map[name].qty);
-      map[name].qty       -= sellQty;
-      map[name].totalCost -= sellQty * avgCost;
-      if (map[name].qty < 0.0001) { map[name].qty = 0; map[name].totalCost = 0; }
-    } else if (tradeType === 'split' || tradeType === 'reverse_split') {
-      var ratio = parseFloat(row[9]) || 0;
-      if (ratio > 0 && map[name].qty > 0) map[name].qty = tradeType === 'split' ? map[name].qty * ratio : map[name].qty / ratio;
+  if (tradeType === 'buy') {
+    holding.qty += qty;
+    holding.totalCost += qty * price;
+  } else if (tradeType === 'sell') {
+    var avgCost = holding.qty > 0 ? holding.totalCost / holding.qty : 0;
+    var sellQty = Math.min(qty, holding.qty);
+    holding.qty -= sellQty;
+    holding.totalCost -= sellQty * avgCost;
+    if (holding.qty < 0.0001) { holding.qty = 0; holding.totalCost = 0; }
+  } else if (tradeType === 'split' || tradeType === 'reverse_split') {
+    var ratio = parseFloat(row[9]) || 0;
+    if (ratio > 0 && holding.qty > 0) {
+      holding.qty = tradeType === 'split' ? holding.qty * ratio : holding.qty / ratio;
     }
+  }
 }
 
 function _snapshotHoldingState(map) {
