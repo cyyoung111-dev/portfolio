@@ -21,7 +21,7 @@ assert.match(gas, /function _newPriceLookupTimings_\(\)/);
 for (const key of ['setup', 'codeItems', 'initialPriceHistory', 'tossToken', 'tossPricesHttp', 'krx', 'recentHistory', 'snapshot', 'other', 'finalize']) {
   assert.match(gas, new RegExp(`${key}:`), `timing key ${key} 누락`);
 }
-assert.match(gas, /fetchPricesToss\(targetItems, timings\)/);
+assert.match(gas, /fetchPricesToss\(targetItems, timings, tossProviderMeta\)/);
 assert.match(gas, /lookupMeta\.krxExecuted = krxItems\.length > 0/);
 assert.match(gas, /lookupMeta\.krxElapsedMs = timings\.krx/);
 assert.match(gas, /recentHistoryFallbackItems: \[\]/);
@@ -76,3 +76,9 @@ assert.match(gas, /lookupMeta\.tossStatus = Object\.keys\(tossPrices\)\.length >
 assert.match(gas, /lookupMeta\.tossStatus = 'ERROR'/);
 assert.match(web, /data-price-detail="providers"/);
 assert.match(web, /현재가 provider 상태/);
+
+assert.match(gas, /!credentials\.id \|\| !credentials\.secret/);
+assert.match(gas, /providerMeta\.attempted = false;[\s\S]*providerMeta\.status = 'NOT_RUN'/);
+assert.match(gas, /providerMeta\.attempted = true;[\s\S]*providerMeta\.status = 'REQUESTING'/);
+assert.match(gas, /lookupMeta\.tossAttempted = !!tossProviderMeta\.attempted/);
+assert.match(gas, /lookupMeta\.tossReason = tossProviderMeta\.reason \|\| ''/);
