@@ -4987,13 +4987,15 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
       if (!rowCode && nameByCode[String(row[2] || '').trim()]) rowCode = code;
       if (rowCode !== code || !inRange(date)) return;
       var oldSource = String(row[10] || '').toUpperCase();
-      if (oldSource === 'MANUAL') { result.manualPreserved++; return; }
       var value = evalAt(date);
       if (!value) return;
+      // 0좌는 보유 종료 사실이므로 MANUAL Snapshot 보호보다 우선합니다.
+      // 가격이력의 MANUAL 원본은 보존하되, Snapshot 평가금액은 0으로 맞춰 합계 오염을 막습니다.
       if (value.zero) {
         [3,4,5,6,7,8,9].forEach(function(index) { row[index] = 0; });
         row[10] = 'FUND_NAV_ZERO_UNITS';
       } else {
+        if (oldSource === 'MANUAL') { result.manualPreserved++; return; }
         var costAmt = Number(row[5]) || 0, evalAmt = Number(value.evalAmt), pnl = evalAmt - costAmt;
         row[3] = 1; row[4] = costAmt; row[6] = evalAmt; row[7] = evalAmt; row[8] = pnl;
         row[9] = costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0;
