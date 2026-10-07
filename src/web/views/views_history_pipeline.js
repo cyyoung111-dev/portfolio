@@ -3,8 +3,8 @@
 //  의존: views_history_state.js, views_history_render.js, views_history_benchmark.js
 // ════════════════════════════════════════════════════════════════
 
-const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v3';
-const HISTORY_INTEGRITY_LEGACY_CACHE_KEYS = ['portfolio.historyIntegrity.v1', 'portfolio.historyIntegrity.v2'];
+const HISTORY_INTEGRITY_CACHE_KEY = 'portfolio.historyIntegrity.v4';
+const HISTORY_INTEGRITY_LEGACY_CACHE_KEYS = ['portfolio.historyIntegrity.v1', 'portfolio.historyIntegrity.v2', 'portfolio.historyIntegrity.v3'];
 const HISTORY_INTEGRITY_CACHE_MAX_CHARS = 120000;
 function _historySnapshotSignature(snapshot, dateRevision) {
   return [dateRevision, snapshot.date, snapshot.costAmt ?? snapshot.cost ?? '', snapshot.evalAmt ?? snapshot.total ?? snapshot.eval ?? '', snapshot.pnl ?? ''].join('|');
@@ -41,7 +41,21 @@ function _isRepairableHistoryDiagnostic(item) {
 }
 function _historyDiagnosticSummary(item) {
   if (!item || !item.date || !['VALID', 'SOURCE_INCOMPLETE', 'UNCHECKED', 'PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT', 'PRICE_SUSPICIOUS'].includes(String(item.status || ''))) return null;
-  return { date: item.date, status: item.status, repairable: _isRepairableHistoryDiagnostic(item) };
+  const rawDuplicateSummary = item.duplicateSummary && typeof item.duplicateSummary === 'object' ? item.duplicateSummary : null;
+  const duplicateSummary = rawDuplicateSummary ? {
+    groups: Math.max(0, Number(rawDuplicateSummary.groups) || 0),
+    exactDuplicate: Math.max(0, Number(rawDuplicateSummary.exactDuplicate) || 0),
+    singleExpectedMatch: Math.max(0, Number(rawDuplicateSummary.singleExpectedMatch) || 0),
+    manualProtected: Math.max(0, Number(rawDuplicateSummary.manualProtected) || 0),
+    unresolvedConflict: Math.max(0, Number(rawDuplicateSummary.unresolvedConflict) || 0),
+    sourceIncomplete: Math.max(0, Number(rawDuplicateSummary.sourceIncomplete) || 0),
+  } : undefined;
+  return {
+    date: item.date,
+    status: item.status,
+    repairable: _isRepairableHistoryDiagnostic(item),
+    ...(duplicateSummary ? { duplicateSummary } : {}),
+  };
 }
 function _cachedHistoryDiagnostics(snapshots, dateRevisions, cache) {
   const knownStatuses = new Set(['VALID', 'SOURCE_INCOMPLETE', 'UNCHECKED', 'PARTIAL', 'MISMATCH', 'CONFLICT', 'NO_SNAPSHOT', 'PRICE_SUSPICIOUS']);
