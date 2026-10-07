@@ -340,11 +340,13 @@ assert.throws(()=>context._assessDailyKrxStockClose(krMaster,otp,'2026-10-06'),/
 
 
 const closeRunSource=extract('runDailyPortfolioClose1900');
-assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId)")
+assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)")
   < closeRunSource.indexOf('saveDailyPriceHistory()'), '일반 종목 단계 실행 전에 시작 마커');
-assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId)")
+assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs)")
   < closeRunSource.indexOf('runDailyFundValuations()'), '펀드 단계 실행 전에 단계 기록');
-assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE', runId, summary\)/);
+assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE', runId, summary, startedMs\)/);
+assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
+  '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
 const runProps=new Map();
 const statusVm=vm.createContext({
   CONFIG:{TIMEZONE:'Asia/Seoul'},
@@ -356,20 +358,33 @@ vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseR
 const propertyApi={getProperty:k=>runProps.get(k)||'',setProperty:(k,v)=>runProps.set(k,v),deleteProperty:k=>runProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>runProps.set(k,v))};
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'NEVER_RUN',
   '한 번도 시작하지 않은 마감');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','PRICE','run-a');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','PRICE','run-a',null,1000);
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'INCOMPLETE',
   '시간초과 중단 마감을 NEVER_RUN으로 오판 금지');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','FUND','run-a');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','FUND','run-a',null,1000);
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).stage,'FUND');
 assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},propertyApi).state,
   'INCOMPLETE','같은 초의 진행 중 단계는 이전 완료값으로 오판하면 안 됨');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]});
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b',null,2000);
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]},1000);
 assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-b','A 완료가 B의 시작 마커를 덮지 않음');
 assert.equal(propertyApi.getProperty('portfolio_close_last_result'),'','A의 늦은 완료가 B의 결과를 덮지 않음');
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'INCOMPLETE');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','COMPLETE','run-b',{startedAt:'2026-10-07 19:10:01',errors:[]});
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','COMPLETE','run-b',{startedAt:'2026-10-07 19:10:01',errors:[]},2000);
 assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:01'},propertyApi).state,'COMPLETE');
+
+// 같은 초·같은 millisecond 중복 실행은 최초 상태 소유자만 허용하고, 더 오래된 ms는 최신 실행을 덮지 못합니다.
+const sameMsProps=new Map();
+const sameMsApi={getProperty:k=>sameMsProps.get(k)||'',setProperty:(k,v)=>sameMsProps.set(k,v),deleteProperty:k=>sameMsProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>sameMsProps.set(k,v))};
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:10:00','PRICE','first',null,5000),true);
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:10:00','PRICE','same-ms-late',null,5000),false,
+  '같은 millisecond 중복 실행이 최초 run-id를 교체하지 않음');
+assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'first');
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:09:59','PRICE','older',null,4999),false,
+  '더 오래된 실행의 늦은 PRICE 마커가 최신 상태를 덮지 않음');
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:10:00','PRICE','newer',null,5001),true,
+  '실제로 더 늦게 시작한 실행은 상태 소유권을 인계받음');
+assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'newer');
 const officialVm=vm.createContext({
   _normalizeDate:String,
   _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
