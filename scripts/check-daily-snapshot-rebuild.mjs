@@ -223,6 +223,14 @@ assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직
 assert.match(html, /features\/settings\/settings\.js\?v=20261007-8/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
+assert.match(gas, /TRADE_SNAPSHOT_REBUILD_PENDING_KEY[\s\S]*function _readPendingTradeSnapshotRebuild[\s\S]*function _setPendingTradeSnapshotRebuild/,
+  '거래원본 저장 후 Snapshot partial 재계산 시작일을 서버에 영속');
+assert.match(gas, /pendingSnapshotRebuild = _readPendingTradeSnapshotRebuild\(\)[\s\S]*pendingSnapshotRebuild\.from < affectedFrom[\s\S]*affectedFrom = pendingSnapshotRebuild\.from/,
+  '동일 거래 재전송에서도 이전 partial 영향 시작일부터 재계산');
+assert.match(gas, /snapshotRebuild\.errors[\s\S]*_setPendingTradeSnapshotRebuild\(affectedFrom\)[\s\S]*saveState: 'partial'/,
+  'Snapshot 재계산 오류는 성공 응답 전에 pending을 보존');
+assert.match(gas, /if \(pendingSnapshotRebuild\) _clearPendingTradeSnapshotRebuild\(\)[\s\S]*saveState: 'success'/,
+  'pending 재계산은 실제 성공 후에만 제거');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
   '마지막 거래 삭제에서는 당일 Snapshot까지 재계산 범위에 포함');
 assert.match(gas, /date < today\(\) \|\| \(includeToday && date === today\(\)\)/,
