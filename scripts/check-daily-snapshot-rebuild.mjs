@@ -180,6 +180,22 @@ assert.match(settings, /function saveRealEstateSettings\(immediate, options\)[\s
   '부동산 debounce 저장은 호출 시점 payload와 target/generation을 함께 고정');
 assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\(settings\)[\s\S]*_saveSettingsPendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*\{ data: payload \}/,
   '일반 설정 debounce 저장도 호출 시점 payload와 target/generation을 함께 고정');
+assert.match(settings, /function isGsheetPortfolioWriteReady\(options\)[\s\S]*!_gsBootRestored \|\| _gsPortfolioRestoreRequired/,
+  '초기·연결전환 복원 완료 전 일반 원격 쓰기를 차단');
+assert.match(settings, /_gsPortfolioRestoreRequired = false;[\s\S]*_gsBootRestored = true;[\s\S]*return true/,
+  'loadSettings 성공 후에만 연결을 원격쓰기 가능 상태로 승격');
+assert.match(settings, /let _gsBootPromise = null[\s\S]*if \(_gsBootPromise\) return _gsBootPromise[\s\S]*if \(_gsBootPromise === run\) _gsBootPromise = null/,
+  '초기 bootstrap은 single-flight이며 실패 후 재시도 가능');
+assert.match(sync, /async function loadGsheetCodeList\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*isGsheetConnectionCurrent\(targetUrl, generation\)[\s\S]*applyGsheetCodeList/,
+  '종목코드 fallback 읽기도 stale 연결 응답 적용 전 generation 검증');
+assert.match(sync, /async function syncCodesToGsheet\(options\)[\s\S]*isGsheetPortfolioWriteReady/,
+  '종목코드 쓰기도 복원 완료된 연결에서만 실행');
+assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*isGsheetPortfolioWriteReady/,
+  '보유현황 쓰기도 복원 완료된 연결에서만 실행');
+assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*isGsheetPortfolioWriteReady/,
+  '거래원장 쓰기도 복원 완료된 연결에서만 실행');
+assert.match(portfolioData, /allowDuringRestore = options\?\.allowDuringRestore === true[\s\S]*generation: retryGeneration[\s\S]*allowDuringRestore/,
+  '원래 연결의 pending 빈원장 재시도만 캡처 generation으로 복원 중 내부쓰기 허용');
 assert.match(settings, /function _isGasVersionAtLeast\(current, minimum\)[\s\S]*split\('\.'\)[\s\S]*return a > b/,
   'GAS 버전은 parseFloat가 아닌 segment 비교로 9.181 > 9.34를 올바르게 판정');
 assert.doesNotMatch(settings, /parseFloat\(window\._lastGasVersion/,'GAS 버전 숫자형 소수 비교 금지');
@@ -217,10 +233,10 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
   '초기 빈 상태에서는 원격 보유현황을 보존하고 확인된 마지막 거래 삭제에서만 [] 허용');
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
-assert.match(html, /settings_sync\.js\?v=20261007-16/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-10/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /settings_sync\.js\?v=20261007-17/,'거래동기화 자산 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-11/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-8/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-9/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /TRADE_SNAPSHOT_REBUILD_PENDING_KEY[\s\S]*function _readPendingTradeSnapshotRebuild[\s\S]*function _setPendingTradeSnapshotRebuild/,
