@@ -2585,6 +2585,14 @@ function _historySourceRows(index, date) {
         if (age > 10 || (age > 0 && String(entry.source || '').toUpperCase() === 'MANUAL')) {
           throw new Error('확정 종가 원자료 없음: ' + code + ' ' + date + ' (최근 ' + entry.date + ')');
         }
+        // 분할·역분할 이후에는 수량이 조정되므로 조정 전 종가 이월을 금지합니다.
+        // 해당일 또는 분할 이후 날짜의 확정 종가가 확보될 때만 다시 평가합니다.
+        if (age > 0) {
+          var actionDates = (index.historyCorporateActionDatesByCode || {})[code] || [];
+          if (actionDates.some(function(actionDate) { return actionDate > entry.date && actionDate <= date; })) {
+            throw new Error('주식분할 이후 종가 미확정: ' + code + ' ' + date + ' (최근 ' + entry.date + ')');
+          }
+        }
         price = entry.price; sourceDate = entry.date; savedAt = entry.savedAt || '';
         source = entry.date === date ? entry.source : (entry.source + '_CARRY@' + entry.date);
       }
@@ -7444,7 +7452,7 @@ function _buildSnapshotRangeIndexes(readContext, dates, options) {
     var currency = String(row[4] || '').trim().toUpperCase();
     var market = String(row[5] || '').trim().toUpperCase();
     var foreignCode = /^[A-Z]{1,5}(\.[A-Z])?$/.test(code);
-    var foreignMarket = /NASDAQ|NYSE|AMEX|(^|[^A-Z])US([^A-Z]|$)/.test(market);
+    var foreignMarket = /(^|[^A-Z])(NASDAQ|NYSE|AMEX|US|JP|TSE|HK|HKEX|TOKYO|JAPAN|HONGKONG)([^A-Z]|$)/.test(market);
     if (currency === 'KRW' && (foreignCode || foreignMarket)) return;
     if (/^[A-Z]{3}$/.test(currency)) context.historyCurrencyByCode[code] = currency;
     else if (!currency && /^[0-9][0-9A-Z]{5}$/.test(code)) context.historyCurrencyByCode[code] = 'KRW';
@@ -7452,6 +7460,20 @@ function _buildSnapshotRangeIndexes(readContext, dates, options) {
   (values[CONFIG.SHEET_TRADES] || []).slice(1).forEach(function(row) {
     var name = String(row[3] || '').trim(), code = _cleanCode(row[4]) || String(row[4] || '').trim();
     if (name && code && !context.nameToCode[name]) context.nameToCode[name] = code;
+  });
+  // 평가일 사이의 split/reverse_split 이력은 종가 carry 허용 여부를 판단하는 원자료입니다.
+  context.historyCorporateActionDatesByCode = {};
+  (values[CONFIG.SHEET_TRADES] || []).slice(1).forEach(function(row) {
+    var action = String(row[1] || '').trim().toLowerCase();
+    if (action !== 'split' && action !== 'reverse_split') return;
+    var actionDate = _normalizeDate(row[0]), name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || String(row[4] || '').trim() || context.nameToCode[name];
+    if (!actionDate || !code) return;
+    (context.historyCorporateActionDatesByCode[code] ||
+      (context.historyCorporateActionDatesByCode[code] = [])).push(actionDate);
+  });
+  Object.keys(context.historyCorporateActionDatesByCode).forEach(function(code) {
+    context.historyCorporateActionDatesByCode[code].sort();
   });
   (values[CONFIG.SHEET_SNAPSHOT] || []).slice(1).forEach(function(row) {
     var date = _normalizeDate(row[0]); if (!date) return;
