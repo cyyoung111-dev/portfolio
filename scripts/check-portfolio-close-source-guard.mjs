@@ -20,6 +20,31 @@ assert.match(closeSection, /snapshotDate = closeVerification\.required\s*\? clos
 assert.doesNotMatch(closeSection, /fetchedRowCount === 0 && !_getLatestPriceHistoryDate/,
   '기존 가격이력 존재를 신규 종가 조회 성공으로 오판하지 않아야 함');
 
+// 운영 펀드기준가격 A/E열 DATE 서식: 쓰기 입력 문자열이 read-back Date로 반환돼도 동일 날짜로 검증.
+const navVerifierContext = vm.createContext({
+  SpreadsheetApp:{flush() {}},
+  _normalizeDate:v=>v instanceof Date?v.toISOString().slice(0,10):String(v||'').slice(0,10)
+});
+vm.runInContext(extract('_verifyFundNavWrittenRange'), navVerifierContext);
+const expectedNavRow = ['2026-09-22','F00002','KB 밸류포커스 (주식)',2658.2,'2026-09-22',
+  37287386,99117394,'2026-10-07T03:35:00.000Z','KB_VALUE_ST'];
+const actualNavRow = [new Date('2026-09-22T00:00:00Z'),...expectedNavRow.slice(1,4),
+  new Date('2026-09-22T00:00:00Z'),...expectedNavRow.slice(5)];
+const navSheet = row=>({getRange:()=>({getValues:()=>[row]})});
+assert.doesNotThrow(()=>navVerifierContext._verifyFundNavWrittenRange(navSheet(actualNavRow),2,[expectedNavRow]),
+  '정상 날짜 서식 Date와 YYYY-MM-DD 문자열을 동일 날짜로 판정');
+const alteredNavRow=actualNavRow.slice();alteredNavRow[3]=2660;
+assert.throws(()=>navVerifierContext._verifyFundNavWrittenRange(navSheet(alteredNavRow),2,[expectedNavRow]),
+  /행 2 열 4/, '실제 NAV 금액 변경은 검증 통과 금지');
+const alteredDateRow=actualNavRow.slice();alteredDateRow[4]=new Date('2026-09-23T00:00:00Z');
+assert.throws(()=>navVerifierContext._verifyFundNavWrittenRange(navSheet(alteredDateRow),2,[expectedNavRow]),
+  /행 2 열 5/, '공시일 변경은 검증 통과 금지');
+const alteredProviderRow=actualNavRow.slice();alteredProviderRow[8]='OTHER';
+assert.throws(()=>navVerifierContext._verifyFundNavWrittenRange(navSheet(alteredProviderRow),2,[expectedNavRow]),
+  /행 2 열 9/, '클래스 불일치는 검증 통과 금지');
+assert.match(source, /_verifyFundNavWrittenRange\(navSheet, 2, storedNav\)/,
+  '펀드 NAV 저장 경로에 날짜 서식 정규화 검증 함수 연결');
+
 const context = vm.createContext({
   _cleanCode: v => String(v || '').trim(),
   _isFundCode: v => /^F\d{5}$/.test(v),
