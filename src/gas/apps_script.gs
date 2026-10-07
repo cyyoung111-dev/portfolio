@@ -4,6 +4,7 @@
 //  v9.183 변경사항 (2026.10.07):
 //   원자료 손익 조회에서 거래이력으로 재구성할 수 없는 코드 없는 TDF/직접펀드를 명시적 제외 경고로 노출
 //   손익 자동 시작일에 펀드 NAV·좌수 원자료도 포함하여 파생 가격이력 유무와 무관하게 펀드 기간을 재구성
+//   펀드 좌수 정정의 NAV·가격이력·Snapshot 직접 재작성도 system backup 검증/실패 보존 정책 적용
 //
 //  v9.182 변경사항 (2026.10.07):
 //   거래원본 저장 후 Snapshot partial 실패의 영향 시작일을 Script Properties에 영속해 다음 동기화에서 재시도
@@ -5021,7 +5022,20 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
       row[5] = units; row[6] = evalAmt; navChanged = true; result.navRows++;
     }
   });
-  if (navChanged) navSh.getRange(2, 1, navRows.length, 9).setValues(navRows.map(function(row) { return row.slice(0,9); }));
+  if (navChanged) {
+    var navBackup = navSh && navSh.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, navSh, FUND_NAV_SHEET) : null;
+    try {
+      var normalizedNavRows = _normalizeCodeRows(navRows.map(function(row) { return row.slice(0,9); }), 1);
+      navSh.getRange(2, 1, normalizedNavRows.length, 9).setValues(normalizedNavRows);
+      SpreadsheetApp.flush();
+      _verifyFundNavWrittenRange(navSh, 2, normalizedNavRows);
+      _markSnapshotBackupStatus(navBackup, 'COMPLETED');
+      if (navBackup) _cleanupCurrentSystemBackup(ss, navBackup);
+    } catch (navError) {
+      _markSnapshotBackupStatus(navBackup, 'WRITE_FAILED', navError.message);
+      throw navError;
+    }
+  }
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, Math.min(6, ph.getLastColumn())).getValues() : [];
@@ -5109,22 +5123,45 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     snapshotByDate[date] = true; result.snapshotRows++;
   });
 
-  if (priceChanged && ph && prices.length) ph.getRange(2, 1, prices.length, 6).setValues(prices.map(function(row) { return row.slice(0,6); }));
-  if (priceAppend.length) {
-    if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
-    _setCodeColumnText(ph, 2);
-    ph.getRange(ph.getLastRow() + 1, 1, priceAppend.length, 6).setValues(_normalizeCodeRows(priceAppend, 1));
+  if (priceChanged || priceAppend.length) {
+    var priceBackup = ph && ph.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, ph, CONFIG.SHEET_PH) : null;
+    try {
+      if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
+      _setCodeColumnText(ph, 2);
+      if (priceChanged && prices.length) {
+        var normalizedPrices = _normalizeCodeRows(prices.map(function(row) { return row.slice(0,6); }), 1);
+        ph.getRange(2, 1, normalizedPrices.length, 6).setValues(normalizedPrices);
+      }
+      if (priceAppend.length) {
+        ph.getRange(ph.getLastRow() + 1, 1, priceAppend.length, 6).setValues(_normalizeCodeRows(priceAppend, 1));
+      }
+      SpreadsheetApp.flush();
+      _markSnapshotBackupStatus(priceBackup, 'COMPLETED');
+      if (priceBackup) _cleanupCurrentSystemBackup(ss, priceBackup);
+    } catch (priceError) {
+      _markSnapshotBackupStatus(priceBackup, 'WRITE_FAILED', priceError.message);
+      throw priceError;
+    }
   }
 
   var finalSnapshots = reconciledSnapshots.concat(snapshotAppend);
   if (snapChanged || snapshotAppend.length) {
-    if (!snap) { snap = ss.insertSheet(CONFIG.SHEET_SNAPSHOT); snap.appendRow(['날짜','종목코드','종목명','수량','매입단가','매입원금','평가단가','평가금액','손익','수익률','소스','저장일시']); }
-    _setCodeColumnText(snap, 2);
-    var originalCount = snapshots.length, writeCount = Math.max(originalCount, finalSnapshots.length);
-    while (finalSnapshots.length < writeCount) finalSnapshots.push(Array(width).fill(''));
-    snap.getRange(2, 1, writeCount, width).setValues(finalSnapshots.map(function(row) {
-      var copy = row.slice(0, width); while (copy.length < width) copy.push(''); return copy;
-    }));
+    var snapshotBackup = snap && snap.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, snap, CONFIG.SHEET_SNAPSHOT) : null;
+    try {
+      if (!snap) { snap = ss.insertSheet(CONFIG.SHEET_SNAPSHOT); snap.appendRow(['날짜','종목코드','종목명','수량','매입단가','매입원금','평가단가','평가금액','손익','수익률','소스','저장일시']); }
+      _setCodeColumnText(snap, 2);
+      var originalCount = snapshots.length, writeCount = Math.max(originalCount, finalSnapshots.length);
+      while (finalSnapshots.length < writeCount) finalSnapshots.push(Array(width).fill(''));
+      snap.getRange(2, 1, writeCount, width).setValues(finalSnapshots.map(function(row) {
+        var copy = row.slice(0, width); while (copy.length < width) copy.push(''); return copy;
+      }));
+      SpreadsheetApp.flush();
+      _markSnapshotBackupStatus(snapshotBackup, 'COMPLETED');
+      if (snapshotBackup) _cleanupCurrentSystemBackup(ss, snapshotBackup);
+    } catch (snapshotError) {
+      _markSnapshotBackupStatus(snapshotBackup, 'WRITE_FAILED', snapshotError.message);
+      throw snapshotError;
+    }
   }
   return result;
 }
