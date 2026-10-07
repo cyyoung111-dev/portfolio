@@ -164,6 +164,10 @@ assert.deepEqual(clone(context._storedFundNavRows([
 ],'F00002','KB_VALUE_ST','2026-01-01','2026-01-04')),[{date:'2026-01-02',nav:1111}],'휴일 평가행은 가격공시일 NAV 하나로 복원');
 
 // 실제 저장 경로에서 같은 날짜·다른 날짜·수동값 보존을 검증합니다.
+// 빈 거래원장은 시트 부재와 달리 실제 무보유(false)로 판정합니다.
+const emptyTradeSs=ssFor({'거래이력':new Sheet([Array(11).fill('header')])});
+assert.equal(context._hasSnapshotHoldingsAtDate(emptyTradeSs,'2026-02-10'),false,'헤더만 남은 거래원장은 보유 0');
+
 // 전량매도 후 빈 포트폴리오는 기존 MANUAL Snapshot도 남기지 않습니다.
 const soldOutSnapshots=new Sheet([header,snap('2026-02-10','000001',700,'MANUAL')]);
 const soldOutSs=ssFor({'스냅샷':soldOutSnapshots});
