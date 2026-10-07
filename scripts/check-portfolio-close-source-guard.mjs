@@ -340,27 +340,36 @@ assert.throws(()=>context._assessDailyKrxStockClose(krMaster,otp,'2026-10-06'),/
 
 
 const closeRunSource=extract('runDailyPortfolioClose1900');
-assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE')")
+assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId)")
   < closeRunSource.indexOf('saveDailyPriceHistory()'), '일반 종목 단계 실행 전에 시작 마커');
-assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND')")
+assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId)")
   < closeRunSource.indexOf('runDailyFundValuations()'), '펀드 단계 실행 전에 단계 기록');
-assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE'\)/);
+assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE', runId, summary\)/);
 const runProps=new Map();
 const statusVm=vm.createContext({
   CONFIG:{TIMEZONE:'Asia/Seoul'},
   Utilities:{formatDate:()=> '2026-10-07 19:15:00'},
+  LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
+  _fundPropertyText:String,
 });
 vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
-const propertyApi={getProperty:k=>runProps.get(k)||'',setProperties:x=>Object.entries(x).forEach(([k,v])=>runProps.set(k,v))};
+const propertyApi={getProperty:k=>runProps.get(k)||'',setProperty:(k,v)=>runProps.set(k,v),deleteProperty:k=>runProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>runProps.set(k,v))};
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'NEVER_RUN',
   '한 번도 시작하지 않은 마감');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','PRICE');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','PRICE','run-a');
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'INCOMPLETE',
   '시간초과 중단 마감을 NEVER_RUN으로 오판 금지');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','FUND');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','FUND','run-a');
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).stage,'FUND');
 assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},propertyApi).state,
-  'COMPLETE','저장된 같은 시작 기록은 완료로 판정');
+  'INCOMPLETE','같은 초의 진행 중 단계는 이전 완료값으로 오판하면 안 됨');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]});
+assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-b','A 완료가 B의 시작 마커를 덮지 않음');
+assert.equal(propertyApi.getProperty('portfolio_close_last_result'),'','A의 늦은 완료가 B의 결과를 덮지 않음');
+assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'INCOMPLETE');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','COMPLETE','run-b',{startedAt:'2026-10-07 19:10:01',errors:[]});
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:01'},propertyApi).state,'COMPLETE');
 const officialVm=vm.createContext({
   _normalizeDate:String,
   _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
@@ -403,9 +412,14 @@ assert.match(automationUI, /INCOMPLETE: \['실행 중단·미완료'/,
   '웹 카드에 INCOMPLETE 상태 번역이 있어야 함');
 assert.match(automationUI, /closeRun\.startedAt/,
   '중단된 현재 마감의 실행 시간을 표시해야 함');
+assert.match(automationUI, /closeRun\.state === 'INCOMPLETE'/,
+  '트리거 오류와 독립적으로 실제 미완료 실행 상세를 표시');
 assert.match(automationUI, /closeRun\.stage/,
   '중단된 현재 마감 단계를 표시해야 함');
 assert.match(automationUI, /officialKrxPriceHistoryLastDate/,
   '공식 KRX 최근일을 전체 가격/NAV 최근일과 별도 표시해야 함');
 
 console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
+
+assert.match(source, /if \(pack\.usedYmd === ymd\) officialRows = officialRows\.concat\(rows\.slice\(firstAdded\)\)/,
+  '휴장일 KRX 대체 응답을 당일 공식 종가로 적재하면 안 됨');
