@@ -2718,13 +2718,24 @@ function _historySourceBuild(fromStr, toStr) {
     sourceSummary: { candidateDates: 0, completeDates: 0, unavailableDates: 0, carriedFundDates: 0, unavailableSamples: [] } };
   var indexed = _buildSnapshotRangeIndexes(read, dates, { historyOnly: true });
   var snapshots = [], unavailable = 0, samples = [], carriedFundDates = 0, carriedFundItems = 0, carriedPriceDates = 0, carriedPriceItems = 0;
+  var carriedFundSamples = [], carriedPriceSamples = [];
   dates.forEach(function(date) {
     try {
       var rows = _historySourceRows(indexed, date);
       if (!rows.length) return;
       var snapshot = _historySourceSummary(rows, date);
-      if (snapshot.carriedFunds.length) { carriedFundDates++; carriedFundItems += snapshot.carriedFunds.length; }
-      if (snapshot.carriedPrices.length) { carriedPriceDates++; carriedPriceItems += snapshot.carriedPrices.length; }
+      if (snapshot.carriedFunds.length) {
+        carriedFundDates++; carriedFundItems += snapshot.carriedFunds.length;
+        snapshot.carriedFunds.forEach(function(item) {
+          if (carriedFundSamples.length < 20) carriedFundSamples.push({ date:date, code:item.code, sourceDate:item.sourceDate });
+        });
+      }
+      if (snapshot.carriedPrices.length) {
+        carriedPriceDates++; carriedPriceItems += snapshot.carriedPrices.length;
+        snapshot.carriedPrices.forEach(function(item) {
+          if (carriedPriceSamples.length < 20) carriedPriceSamples.push({ date:date, code:item.code, sourceDate:item.sourceDate });
+        });
+      }
       snapshots.push(snapshot);
     } catch (err) {
       unavailable++;
@@ -2734,8 +2745,9 @@ function _historySourceBuild(fromStr, toStr) {
   return { snapshots: snapshots, sourceMode: 'SOURCE_RECOMPUTED',
     sourceSummary: { candidateDates: dates.length, completeDates: snapshots.length,
       unavailableDates: unavailable, carriedFundDates: carriedFundDates, carriedFundItems: carriedFundItems,
-      carriedPriceDates: carriedPriceDates, carriedPriceItems: carriedPriceItems, unavailableSamples: samples,
-      readMs: read.readMs, calculationMs: Date.now() - started - read.readMs } };
+      carriedPriceDates: carriedPriceDates, carriedPriceItems: carriedPriceItems,
+      carriedFundSamples: carriedFundSamples, carriedPriceSamples: carriedPriceSamples,
+      unavailableSamples: samples, readMs: read.readMs, calculationMs: Date.now() - started - read.readMs } };
 }
 
 function handleGetHistorySource(fromStr, toStr) {
