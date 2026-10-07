@@ -4927,21 +4927,23 @@ function _fundUnitsImpactEnd(ss, configs, code, startDate) {
   var limit = next ? _fundDateOffset(next, -1) : today();
   if (limit > today()) limit = today();
   var latest = '';
-  function scan(sheetName, dateCol, codeCol, maxCols) {
+  function scan(sheetName, dateCol, codeCol, maxCols, anySnapshotCode) {
     var sh = ss.getSheetByName(sheetName);
     if (!sh || sh.getLastRow() < 2) return;
     sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(maxCols, sh.getLastColumn())).getValues().forEach(function(row) {
       var date = _normalizeDate(row[dateCol]), rowCode = _cleanCode(row[codeCol]) || String(row[codeCol] || '').trim().toUpperCase();
-      if (rowCode !== code && (sheetName === CONFIG.SHEET_PH || sheetName === CONFIG.SHEET_SNAPSHOT)) {
-        rowCode = _fundConfiguredCodeForPriceRow(row, configs || []);
-      }
-      if (rowCode !== code || !date || date < startDate || date > limit) return;
+      if (!date || date < startDate || date > limit) return;
+      // 대상 펀드 행이 없었던 0좌 기간도 다른 종목 Snapshot 날짜가 있으면 재생성 후보입니다.
+      // Snapshot의 날짜 경계만큼은 종목코드와 무관하게 영향 종료일에 포함합니다.
+      if (anySnapshotCode) { if (date > latest) latest = date; return; }
+      if (rowCode !== code && sheetName === CONFIG.SHEET_PH) rowCode = _fundConfiguredCodeForPriceRow(row, configs || []);
+      if (rowCode !== code) return;
       if (date > latest) latest = date;
     });
   }
-  scan(FUND_NAV_SHEET, 0, 1, 9);
-  scan(CONFIG.SHEET_PH, 0, 1, 6);
-  scan(CONFIG.SHEET_SNAPSHOT, 0, 1, 12);
+  scan(FUND_NAV_SHEET, 0, 1, 9, false);
+  scan(CONFIG.SHEET_PH, 0, 1, 6, false);
+  scan(CONFIG.SHEET_SNAPSHOT, 0, 1, 12, true);
   return latest;
 }
 
