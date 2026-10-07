@@ -41,8 +41,9 @@ if (!source.includes("params.action === 'getBootstrap'")
     || !/handleGetBootstrap[\s\S]*?_readSettingsMap\(ss\)/.test(source)
     || !/handleGetBootstrap[\s\S]*?handleGetTrades\(ss\)/.test(source)
     || !/handleGetBootstrap[\s\S]*?handleGetHoldings\(ss\)/.test(source)
+    || !/handleGetBootstrap[\s\S]*?portfolioReadStatus[\s\S]*?tradesOk[\s\S]*?holdingsOk/.test(source)
     || !/handleGetBootstrap[\s\S]*?getCodeItems\(ss\)/.test(source)) {
-  console.error('❌ 앱 초기 복원은 단일 스프레드시트 핸들로 설정·거래·보유·종목코드를 일괄 반환해야 합니다.');
+  console.error('❌ 앱 초기 복원은 단일 스프레드시트 핸들로 설정·거래·보유·종목코드와 거래/보유 읽기 성공 여부를 일괄 반환해야 합니다.');
   process.exit(1);
 }
 
