@@ -20,6 +20,54 @@ assert.match(closeSection, /snapshotDate = closeVerification\.required\s*\? clos
 assert.doesNotMatch(closeSection, /fetchedRowCount === 0 && !_getLatestPriceHistoryDate/,
   '기존 가격이력 존재를 신규 종가 조회 성공으로 오판하지 않아야 함');
 
+// 거래원장 기준 실보유 코드만 종가 조회·검증. 마스터의 과거 매도 종목은 제외.
+// helper와 snapshot 원장의 동일 보유수량 계산 로직을 실제로 재사용해 검증합니다.
+assert.match(closeSection, /var items = _getDailyHeldCodeItems\(ss, requestedPrevDay, allItems\)/,
+  '일일 KRX fetch의 items는 마스터가 아닌 평가일 기준 실보유 목록이어야 함');
+const holdingsVm = vm.createContext({
+  _cleanCode:v=>String(v||'').trim().toUpperCase(),
+  _isFundCode:v=>/^F\d{5}$/.test(String(v||'')),
+  CONFIG:{SHEET_TRADES:'거래이력'},
+  Utilities:{formatDate:d=>d.toISOString().slice(0,10)}
+});
+for (const name of ['_applyHoldingTrade','_snapshotHoldingState','calcHoldingsAtDate','_getDailyHeldCodeItems']) {
+  vm.runInContext(extract(name),holdingsVm);
+}
+const masterItems=[
+  {code:'005930',name:'삼성전자',currency:'KRW',type:'주식',market:'KOSPI'},
+  {code:'000660',name:'매도한 종목',currency:'KRW',type:'주식',market:'KOSPI'},
+  {code:'091160',name:'보유 ETF',currency:'KRW',type:'ETF',market:'KR'},
+  {code:'F00002',name:'KB 밸류포커스',currency:'KRW',type:'펀드'},
+  {code:'AAPL',name:'미래 매수 미국주식',currency:'USD',type:'주식'}
+];
+const trade=(date,kind,name,code,qty)=>[date,kind,'',name,code,qty,1000,'주식'];
+const tradeHistory=[
+  trade('2026-09-25','buy','삼성전자','005930',5),
+  trade('2026-09-25','buy','매도한 종목','000660',2),
+  trade('2026-09-30','sell','매도한 종목','000660',2),
+  trade('2026-10-02','buy','보유 ETF','091160',4),
+  trade('2026-10-01','buy','KB 밸류포커스','F00002',1),
+  trade('2026-10-07','sell','보유 ETF','091160',4),
+  trade('2026-10-08','buy','미래 매수 미국주식','AAPL',2),
+];
+const ledgerSheet={getLastRow:()=>tradeHistory.length+1,
+  getLastColumn:()=>11,getRange:()=>({getValues:()=>tradeHistory})};
+const portfolioSheet={getSheetByName:n=>n==='거래이력'?ledgerSheet:null};
+const heldAt=(date,catalog=masterItems)=>clone(holdingsVm._getDailyHeldCodeItems(portfolioSheet,date,catalog)).map(x=>x.code);
+assert.deepEqual(heldAt('2026-10-06'),['005930','091160'],
+  '전량매도 KRW·미래 USD·펀드 종목은 KRX 조회 대상에서 제외');
+assert.deepEqual(heldAt('2026-09-29'),['005930','000660'],
+  '과거 기준일에는 이후 매도한 종목도 당시 실제 보유이므로 포함');
+assert.deepEqual(heldAt('2026-10-07'),['005930'],
+  '평가일 당일 전량매도한 ETF는 즉시 분모에서 제외');
+const onlySoldMaster=masterItems.filter(x=>x.code==='000660');
+assert.deepEqual(heldAt('2026-10-06',onlySoldMaster),[],
+  '보유가 0인 마스터 종목만 남은 경우 종가 수집을 요구하지 않음');
+const liveOnly=clone(holdingsVm._getDailyHeldCodeItems(portfolioSheet,'2026-10-06',masterItems));
+assert.equal(liveOnly.length,2);
+assert.doesNotMatch(closeSection,/var items = getCodeItems\(ss\);/,
+  '일일 마감에 전체 코드 마스터를 그대로 전달하면 안 됨');
+
 // 운영 펀드기준가격 A/E열 DATE 서식: 쓰기 입력 문자열이 read-back Date로 반환돼도 동일 날짜로 검증.
 const navVerifierContext = vm.createContext({
   SpreadsheetApp:{flush() {}},
