@@ -160,6 +160,10 @@ assert.match(settings, /const bootstrapPortfolioStatus = isBootstrap[\s\S]*boots
   'bootstrap 하위 거래·보유 읽기 성공 여부를 강제 복원 판정에 보존');
 assert.match(settings, /const bootstrapTradesOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore[\s\S]*const bootstrapHoldingsOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore/,
   '구버전 bootstrap의 성공 여부 누락은 연결 변경 강제 복원에서 안전 실패 처리');
+assert.match(settings, /if \(forcePortfolioRestore && portfolioRestorePromise\)[\s\S]*forcedPortfolioRestoreData = await portfolioRestorePromise[\s\S]*preflightTradesOk[\s\S]*preflightHoldingsOk[\s\S]*if \(!preflightTradesOk \|\| !preflightHoldingsOk\) return false/,
+  '연결 변경 강제 복원은 설정 전역상태 적용 전에 거래·보유 읽기를 preflight');
+assert.match(settings, /if \(holdingsLoaded\) \{[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*Object\.prototype\.hasOwnProperty\.call\(fundDirect, h\.name\)[\s\S]*fundDirect\[h\.name\]/,
+  '거래가 있는 레거시 연결도 holdings의 직접펀드를 fundDirect에 보완 복원');
 assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*_applyDivData/,
   '배당 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
 assert.match(settings, /async function loadRealEstateSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*Object\.assign\(LOAN/,
@@ -199,7 +203,7 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261007-16/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-9/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-4/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-5/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
