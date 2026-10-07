@@ -188,6 +188,15 @@ const backupName = Object.keys(snapshotSheets).find(name => name.startsWith('스
 assert.equal(backupName,undefined,'검증 성공 후 임시 스냅샷 백업 즉시 삭제');
 context.writeSnapshotRows(ss,'2026-01-02',[snap('2026-01-02','000001',1)],true);
 assert.equal(sheet.rows.find(r=>r[1]==='000001')[7],100);
+const partialSoldSheet=new Sheet([header,
+  snap('2026-03-02','000001',700,'MANUAL'),
+  snap('2026-03-02','000002',800,'PRICE_HISTORY')]);
+const partialSoldSs=ssFor({'스냅샷':partialSoldSheet});
+context.writeSnapshotRows(partialSoldSs,'2026-03-02',[snap('2026-03-02','000002',850,'PRICE_HISTORY')],true);
+assert.equal(partialSoldSheet.rows.some(r=>r[0]==='2026-03-02'&&r[1]==='000001'),false,
+  '다른 종목을 계속 보유해도 전량매도된 MANUAL 종목 Snapshot은 제거');
+assert.equal(partialSoldSheet.rows.find(r=>r[0]==='2026-03-02'&&r[1]==='000002')[7],850,
+  '계속 보유하는 종목은 새 평가값으로 갱신');
 const beforeEmpty=clone(sheet.rows);
 context.writeSnapshotRows(ss,'2026-01-02',[],true);
 assert.deepEqual(sheet.rows,beforeEmpty);
