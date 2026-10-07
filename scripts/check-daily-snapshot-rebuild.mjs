@@ -139,8 +139,8 @@ assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*pendingEmptySync
   'partial 응답의 영향 시작일을 유지해 다음 저장에서 재시도 가능');
 assert.match(sync, /explicitEmpty: allowEmpty \? '1' : ''[\s\S]*rebuildFrom/,
   '빈 거래원장 재시도임을 GAS에 명시하고 최초 영향일 전달');
-assert.match(portfolioData, /if \(options\?\.skipGsheet\) return;[\s\S]*if \(allowEmptyTradeSyncRequested\) _pendingExplicitEmptyTradeSync = true;[\s\S]*clearTimeout\(_saveHoldingsGasTimer\)/,
-  '빈 원장 권한은 로컬 저장 성공 및 GSheet 동기화 경로 확정 후에만 획득');
+assert.match(portfolioData, /if \(options\?\.skipGsheet\) return;[\s\S]*if \(allowEmptyTradeSyncRequested\) \{[\s\S]*_pendingExplicitEmptyTradeSync = \{ from:[\s\S]*clearTimeout\(_saveHoldingsGasTimer\)/,
+  '빈 원장 재시도 컨텍스트는 로컬 저장 성공 및 GSheet 동기화 경로 확정 후에만 획득');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holdings\.length === 0 && !allowEmpty[\s\S]*return/,
   '초기 빈 상태에서는 원격 보유현황을 보존하고 확인된 마지막 거래 삭제에서만 [] 허용');
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
