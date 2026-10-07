@@ -1910,6 +1910,13 @@ function fetchPricesKrx(items, dateStr) {
     Logger.log('ℹ️ KRX OpenAPI 결과 없음: OTP/CSV fallback 시도');
     return fetchPricesKrxViaOtp(items, dateStr);
   }
+  var evidence = {};
+  markets.forEach(function(market) {
+    var pack = packs[market] || { rows:[], usedYmd:ymd };
+    evidence[market] = { count:(pack.rows || []).length,
+      date:String(pack.usedYmd || '').replace(/^(\\d{4})(\\d{2})(\\d{2})$/, '$1-$2-$3') };
+  });
+  Object.defineProperty(out, '_krxMarketEvidence', { value:evidence, enumerable:false });
   return out;
 }
 
@@ -8348,12 +8355,20 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  - 실행일(T) 행을 만들지 않고 확정 종가 거래일(T-1) 스냅샷만 작성
 // ════════════════════════════════════════════════════════════════════
 // 정규 KRX 가격을 얻지 못했는데 FUND_NAV 행 날짜로 마감이 성공하는 오류 방지.
+// 2026 KRX 공시 휴장일(거래소 증시일정 기준). 다른 연도·임시 휴장은 임의 추정하지 않고 보수적으로 판정합니다.
+// 신규 연도 휴장일 등록은 별도 정합성 검증 대상으로 취급합니다.
+var KRX_CONFIRMED_CLOSED_DATES_2026 = {
+  '2026-01-01':1, '2026-02-16':1, '2026-02-17':1, '2026-02-18':1,
+  '2026-03-02':1, '2026-05-01':1, '2026-05-05':1, '2026-05-25':1,
+  '2026-06-03':1, '2026-07-17':1, '2026-08-17':1, '2026-09-24':1,
+  '2026-09-25':1, '2026-10-05':1, '2026-10-09':1, '2026-12-25':1, '2026-12-31':1
+};
 function _countBusinessWeekdaysBetween(from, to) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return Infinity;
   var count = 0;
   for (var date = _fundDateOffset(from, 1); date <= to; date = _fundDateOffset(date, 1)) {
     var day = new Date(date + 'T00:00:00Z').getUTCDay();
-    if (day !== 0 && day !== 6) count++;
+    if (day !== 0 && day !== 6 && !KRX_CONFIRMED_CLOSED_DATES_2026[date]) count++;
   }
   return count;
 }
@@ -8363,27 +8378,53 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
     var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
     return code && !_isFundCode(code) && String(item && item.currency || 'KRW').toUpperCase() === 'KRW';
   });
-  if (!listed.length) return { required: false, date: '', confirmed: 0, expected: 0 };
-  var confirmed = listed.map(function(item) {
+  if (!listed.length) return { required:false, date:'', confirmed:0, expected:0 };
+  var byMarket = {}, records = [];
+  listed.forEach(function(item) {
     var code = _cleanCode(item.code) || String(item.code || '').trim();
+    var market = String(item.market || '').toUpperCase();
+    var type = String(item.type || '').toUpperCase();
+    // 옛 시트의 KR 표기를 주식/ETF로 나눕니다. KOSDAQ을 명시한 시트는 별도 시장으로 검증.
+    var group = type === 'ETF' || market === 'ETF' ? 'ETF'
+      : (market === 'KOSDAQ' || market === 'KOSPI' ? market : 'STOCK');
+    var record = byMarket[group] || (byMarket[group] = { expected:0, dates:[] });
+    record.expected++;
     var row = prices && prices[code];
     var source = String(row && row.source || '').toUpperCase();
     var date = _normalizeDate(row && row.usedDate || '');
     if (!row || !(Number(row.price) > 0) || (source !== 'KRX' && source !== 'KRX_OTP')
-        || !date || date > requestedDate) return null;
-    return date;
-  }).filter(Boolean);
-  if (!confirmed.length) throw new Error('일반 종목 KRX 확정 종가 0건: ' + requestedDate
+        || !date || date > requestedDate) return;
+    record.dates.push(date);
+    records.push(date);
+  });
+  if (!records.length) throw new Error('일반 종목 KRX 확정 종가 0건: ' + requestedDate
     + ' · KRX AUTH_KEY/OTP·네트워크/응답을 확인하세요. 펀드 NAV 날짜로 대체할 수 없습니다.');
-  var newestDate = confirmed.slice().sort().pop();
-  var newestCount = confirmed.filter(function(date) { return date === newestDate; }).length;
+  var newestDate = records.slice().sort().pop();
+  var newestCount = records.filter(function(date) { return date === newestDate; }).length;
   var lag = _countBusinessWeekdaysBetween(newestDate, requestedDate);
   if (lag > 2) throw new Error('일반 종목 확정 종가 오래됨: 요청 ' + requestedDate + ', 최근 KRX ' + newestDate
-    + ' (평일 ' + lag + '일 차이) · 가격 수집 경로 점검이 필요합니다.');
-  if (newestCount < Math.ceil(listed.length * 0.7)) throw new Error('일반 종목 KRX 확정 종가 부분 누락: '
-    + requestedDate + ' · 최근 ' + newestDate + ' (' + newestCount + '/' + listed.length
-    + '종목) · KRX 시장별 응답 확인 필요');
-  return { required: true, date: newestDate, confirmed: newestCount, expected: listed.length, lag: lag };
+    + ' (KRX 거래일 ' + lag + '일 차이) · 가격 수집 경로 점검이 필요합니다.');
+  Object.keys(byMarket).forEach(function(group) {
+    var stat = byMarket[group];
+    var matched = stat.dates.filter(function(date) { return date === newestDate; }).length;
+    if (matched < Math.ceil(stat.expected * 0.7)) {
+      throw new Error('일반 종목 KRX 확정 종가 시장별 부분 누락: ' + group + ' '
+        + newestDate + ' (' + matched + '/' + stat.expected + '종목)');
+    }
+  });
+  // KRX 공식 OpenAPI는 시장별 독립 응답을 주므로 전체시장 70%만으로 시장 장애를 숨기지 않습니다.
+  // OTP 단일 CSV fallback에는 시장별 pack 정보가 없어 위 종목유형 단위 검증을 적용합니다.
+  var evidence = prices && prices._krxMarketEvidence;
+  if (evidence) {
+    ['KOSPI','KOSDAQ','ETF'].forEach(function(market) {
+      var entry = evidence[market] || {};
+      if (!(entry.count > 0) || entry.date !== newestDate) {
+        throw new Error('KRX 공식 시장별 확정 종가 누락: ' + market
+          + ' (기준 ' + newestDate + ', 수집 ' + (entry.date || '없음') + ')');
+      }
+    });
+  }
+  return { required:true, date:newestDate, confirmed:newestCount, expected:listed.length, lag:lag };
 }
 
 function saveDailyPriceHistory() {
