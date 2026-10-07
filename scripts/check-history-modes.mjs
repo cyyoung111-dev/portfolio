@@ -183,3 +183,8 @@ assert.match(layoutSource, /\.action-bar\{[^}]*overflow-y:hidden/, '업데이트
 assert.match(layoutSource, /\.action-update-card\{[^}]*min-height:60px;[^}]*height:auto/, '업데이트 결과가 여러 줄이면 카드 높이가 내용에 맞게 늘어나야 합니다.');
 
 console.log('✅ 손익 그래프 주기·누락 복구·요약 카드·비교지수·조회 회귀 검사 통과');
+
+// Dense integrity markers must not paint full-height dashed lines for dozens of invalid dates.
+assert.match(viewSource, /const denseIntegrityMarkers = invalidPointCount > 24/);
+assert.match(viewSource, /if \(denseIntegrityMarkers\)[\s\S]*PAD\.top \+ 8/);
+assert.match(pipelineSource, /충돌 분류 · MANUAL 보호/);
