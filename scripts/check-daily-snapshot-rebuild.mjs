@@ -212,10 +212,12 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetU
   '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
 assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '거래원장 동기화는 캡처 payload를 지원하되 allowEmpty 없이는 빈 override 삭제를 차단');
-assert.match(portfolioData, /rawTrades\.length > 0[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration[\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration,[\s\S]*tradesOverride: recoveryTrades[\s\S]*Promise\.all/,
-  'pending 실패 뒤 새 거래가 생기면 stale 권한 폐기 후 캡처한 현재 거래·보유현황을 동일 target/generation에 동기화');
-assert.match(portfolioData, /else if \(rawTrades\.length > 0 && _getPendingExplicitEmptyTradeSync\(\)\)[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)/,
-  'saveHoldings debounce도 새 거래가 있으면 일반 동기화 경로를 선택');
+assert.match(portfolioData, /rawTrades\.length > 0[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration[\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration,[\s\S]*tradesOverride: recoveryTrades[\s\S]*Promise\.all[\s\S]*if \(holdingsOk && tradesOk\)[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
+  'pending 뒤 새 거래는 현재 거래·보유를 고정 target/generation에 동기화하고 둘 다 성공한 뒤에만 repair token 제거');
+assert.doesNotMatch(portfolioData, /else if \(rawTrades\.length > 0 && _getPendingExplicitEmptyTradeSync\(\)\)[\s\S]{0,220}_setPendingExplicitEmptyTradeSync\(null\)/,
+  '새 거래가 생겨도 원격 성공 전에 repair token을 조기 폐기하지 않음');
+assert.match(portfolioData, /const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)[\s\S]*await _retryPendingExplicitEmptyTradeSync\(\)/,
+  'repair token이 남으면 debounce도 retry 함수의 rawTrades>0 복구 분기로 처리');
 assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
   '빈 원장 권한은 보유현황·거래이력 동기화가 모두 성공한 뒤 영속 상태에서도 소진');
 assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*tradesResult\.affectedFrom/,
@@ -232,6 +234,10 @@ assert.ok(
 );
 assert.match(settings, /pendingRetryOk = await _retryPendingExplicitEmptyTradeSync[\s\S]*if \(!pendingRetryOk\) return false[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
   '빈 원장 pending은 실제 동기화 성공 후에만 복원 완료 흐름으로 진행');
+assert.match(settings, /if \(pendingEmptySyncAtLoad[\s\S]{0,120}typeof _retryPendingExplicitEmptyTradeSync === 'function'\)/,
+  'pending 재시도는 로컬 거래가 생긴 경우에도 실행');
+assert.doesNotMatch(settings, /if \(pendingEmptySyncAtLoad && rawTrades\.length === 0/,
+  'pending 재시도를 rawTrades 빈 상태에만 제한하지 않음');
 assert.match(settings, /const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad/,
   'pending 삭제를 방금 서버에 확정한 경우 같은 load에서 오래된 원격 원장을 다시 pull하지 않음');
 assert.match(sync, /explicitEmpty: allowEmpty \? '1' : ''[\s\S]*rebuildFrom/,
@@ -243,9 +249,9 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261007-17/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-11/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-12/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-11/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-12/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261007-12/,'현재가 연결 격리 로직 캐시 버전 갱신');
