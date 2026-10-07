@@ -4988,12 +4988,11 @@ function _fetchMissingFundNavBatches(provider, missingDates, activeTo, diagnosti
       ? _fundDateOffset(from, -1) : from;
     var to = _fundDateOffset(from, FUND_NAV_FETCH_BATCH_DAYS - 1);
     if (to > activeTo) to = activeTo;
-    var previous = from, count = 1;
-    while (count < pending.length && count < FUND_NAV_FETCH_BATCH_DAYS && pending[count] === _fundDateOffset(previous, 1)) {
-      previous = pending[count++];
-    }
-    to = previous;
-    pending = pending.slice(count);
+    // 공시 누락일 사이의 주말·공휴일·기존 저장일에도 날짜 범위 단위로 조회합니다.
+    // 1일 단위의 잦은 요청과 재시도로 GAS 실행 제한·원천 서버 차단 가능성을 줄입니다.
+    var consumed = 0;
+    while (consumed < pending.length && pending[consumed] <= to) consumed++;
+    pending = pending.slice(consumed);
     var fetched = null, lastError = null;
     for (var attempt = 0; attempt <= FUND_NAV_FETCH_RETRIES; attempt++) {
       try {
@@ -8332,6 +8331,45 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  - 전일 가격이력과 전일 스냅샷을 비교 → 불일치 시 스냅샷 재작성
 //  - 실행일(T) 행을 만들지 않고 확정 종가 거래일(T-1) 스냅샷만 작성
 // ════════════════════════════════════════════════════════════════════
+// 정규 KRX 가격을 얻지 못했는데 FUND_NAV 행 날짜로 마감이 성공하는 오류 방지.
+function _countBusinessWeekdaysBetween(from, to) {
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(from) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(to) || from > to) return Infinity;
+  var count = 0;
+  for (var date = _fundDateOffset(from, 1); date <= to; date = _fundDateOffset(date, 1)) {
+    var day = new Date(date + 'T00:00:00Z').getUTCDay();
+    if (day !== 0 && day !== 6) count++;
+  }
+  return count;
+}
+
+function _assessDailyKrxStockClose(items, prices, requestedDate) {
+  var listed = (items || []).filter(function(item) {
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    return code && !_isFundCode(code) && String(item && item.currency || 'KRW').toUpperCase() === 'KRW';
+  });
+  if (!listed.length) return { required: false, date: '', confirmed: 0, expected: 0 };
+  var confirmed = listed.map(function(item) {
+    var code = _cleanCode(item.code) || String(item.code || '').trim();
+    var row = prices && prices[code];
+    var source = String(row && row.source || '').toUpperCase();
+    var date = _normalizeDate(row && row.usedDate || '');
+    if (!row || !(Number(row.price) > 0) || (source !== 'KRX' && source !== 'KRX_OTP')
+        || !date || date > requestedDate) return null;
+    return date;
+  }).filter(Boolean);
+  if (!confirmed.length) throw new Error('일반 종목 KRX 확정 종가 0건: ' + requestedDate
+    + ' · KRX AUTH_KEY/OTP·네트워크/응답을 확인하세요. 펀드 NAV 날짜로 대체할 수 없습니다.');
+  var newestDate = confirmed.slice().sort().pop();
+  var newestCount = confirmed.filter(function(date) { return date === newestDate; }).length;
+  var lag = _countBusinessWeekdaysBetween(newestDate, requestedDate);
+  if (lag > 2) throw new Error('일반 종목 확정 종가 오래됨: 요청 ' + requestedDate + ', 최근 KRX ' + newestDate
+    + ' (평일 ' + lag + '일 차이) · 가격 수집 경로 점검이 필요합니다.');
+  if (newestCount < Math.ceil(listed.length * 0.7)) throw new Error('일반 종목 KRX 확정 종가 부분 누락: '
+    + requestedDate + ' · 최근 ' + newestDate + ' (' + newestCount + '/' + listed.length
+    + '종목) · KRX 시장별 응답 확인 필요');
+  return { required: true, date: newestDate, confirmed: newestCount, expected: listed.length, lag: lag };
+}
+
 function saveDailyPriceHistory() {
   var lock = LockService.getScriptLock();
   var locked = false;
@@ -8369,6 +8407,8 @@ function saveDailyPriceHistory() {
         var gfPrev = gfPrevItems.length > 0 && _hasUsdPriceItems(items)
           ? fetchPricesGoogleFinance(gfPrevItems, requestedPrevDay, ss, { skipKrx: true })
           : {};
+        // 공식 실제 종가 날짜·시장별 커버리지를 먼저 검증해 오래된 데이터 저장을 차단합니다.
+        var closeVerification = _assessDailyKrxStockClose(items, krxPrev, requestedPrevDay);
         var prevSavedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
 
         // 확정 거래일 KRX 데이터와 필요한 GF fallback만 가격이력에 저장 (MANUAL 보호)
@@ -8389,7 +8429,7 @@ function saveDailyPriceHistory() {
           fetchedRowCount += rowsForDate.length;
           Logger.log('[saveDailyPriceHistory] 실제 거래일(' + actualDate + ') 가격이력 저장: ' + rowsForDate.length + '건');
         });
-        if (items.length > 0 && fetchedRowCount === 0 && !_getLatestPriceHistoryDate(ss, requestedPrevDay)) {
+        if (items.length > 0 && fetchedRowCount === 0) {
           throw new Error('상장 종목 확정 종가를 한 건도 가져오지 못했습니다.');
         }
       } catch(e) {
@@ -8401,8 +8441,10 @@ function saveDailyPriceHistory() {
       // 전체 과거 검증은 별도 배치 복구가 담당해 일일 자동화의 시트 접근량을 제한합니다.
       // 단순 평일 계산값이 아니라 가격이력에 실제 존재하는 최신 날짜를 기준으로 합니다.
       // 예: 24일 가격이력이 이미 있으면 KRX가 21일 fallback을 반환해도 24일 스냅샷을 생성합니다.
-      snapshotDate = _getLatestPriceHistoryDate(ss, requestedPrevDay);
-      if (!snapshotDate) throw new Error('스냅샷 기준 가격이력 날짜를 확인할 수 없습니다.');
+      // 펀드 NAV/이월 행이 더 최신이어도 일반 종목의 공식 마감 기준일로 오인하지 않습니다.
+      snapshotDate = closeVerification.required
+        ? closeVerification.date : _getLatestPriceHistoryDate(ss, requestedPrevDay);
+      if (!snapshotDate) throw new Error('스냅샷 기준 확정 종가 날짜를 확인할 수 없습니다.');
       Logger.log('[saveDailyPriceHistory] 확정 거래일(' + snapshotDate + ') 스냅샷 정합성 검증');
       var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
       var existingRows = _readSnapshotRowsByDate(ss, snapshotDate);
