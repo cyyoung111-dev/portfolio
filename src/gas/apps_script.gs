@@ -1063,7 +1063,7 @@ function doPost(e) {
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
   if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
   if (params.action === 'syncHoldings' && params.data)  return handleSyncHoldings(params.data);
-  if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data);
+  if (params.action === 'syncTrades'           && params.data) return handleSyncTrades(params.data, params.rebuildFrom || '', params.explicitEmpty === '1');
   if (params.action === 'saveSettings'         && params.data) return handleSaveSettings(params.data);
   if (params.action === 'saveDividendSettings' && params.data) return handleSaveDividendSettings(params.data);
   if (params.action === 'refreshEtfDividends') return handleRefreshEtfDividends(params.force || '');
@@ -7123,9 +7123,9 @@ function _rebuildSnapshotForDateFromHistory(ss, dateStr, targetCode, targetName)
 }
 
 // 원자료만 읽어 대상 날짜의 Snapshot을 재생성합니다. 기존 Snapshot은 비교용으로만 읽습니다.
-function rebuildDailySnapshots(fromStr, toStr) {
+function rebuildDailySnapshots(fromStr, toStr, options) {
   var lock = LockService.getScriptLock(), ownsLock = false;
-  try { if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; } return _rebuildDailySnapshotsLocked(fromStr, toStr); }
+  try { if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; } return _rebuildDailySnapshotsLocked(fromStr, toStr, options || {}); }
   finally { if (ownsLock) lock.releaseLock(); }
 }
 
@@ -7149,12 +7149,13 @@ function _hasSnapshotHoldingsAtDate(ss, dateStr) {
   return Object.keys(holdings).some(function(key) { return holdings[key] && Number(holdings[key].qty) > 0; });
 }
 
-function _rebuildDailySnapshotsLocked(fromStr, toStr) {
+function _rebuildDailySnapshotsLocked(fromStr, toStr, options) {
+  options = options || {};
   var ss = getss();
   var fromDate = _normalizeDate(fromStr || '') || '1900-01-01';
   var toDate = _normalizeDate(toStr || '') || today();
   if (fromDate > toDate) { var swap = fromDate; fromDate = toDate; toDate = swap; }
-  var dates = _collectDailySnapshotDates(ss, fromDate, toDate);
+  var dates = _collectDailySnapshotDates(ss, fromDate, toDate, options);
   var rebuilt = 0, unchanged = 0, empty = 0, skipped = 0, changes = [], errors = [];
   var previousOperationId = _snapshotBackupOperationId;
   var rebuildOperationId = 'rebuildDailySnapshots|' + fromDate + '|' + toDate + '|' + Utilities.getUuid();
@@ -7210,11 +7211,13 @@ function _rebuildDailySnapshotsLocked(fromStr, toStr) {
   } finally { _snapshotBackupOperationId = previousOperationId; }
 }
 
-function _collectDailySnapshotDates(ss, fromDate, toDate) {
+function _collectDailySnapshotDates(ss, fromDate, toDate, options) {
+  options = options || {};
+  var includeToday = options.includeToday === true;
   var dates = {};
   var add = function(value) {
     var date = _normalizeDate(value);
-    if (date && date >= fromDate && date <= toDate && date < today()) dates[date] = true;
+    if (date && date >= fromDate && date <= toDate && (date < today() || (includeToday && date === today()))) dates[date] = true;
   };
   var addSheetDates = function(sheetName, indexes) {
     var sh = ss.getSheetByName(sheetName);
@@ -7245,7 +7248,9 @@ function _collectDailySnapshotDates(ss, fromDate, toDate) {
   var sourceDates = Object.keys(dates).sort();
   if (sourceDates.length) {
     var cursor = fromDate > sourceDates[0] ? fromDate : sourceDates[0];
-    var end = toDate < today() ? toDate : _dateOffset(today(), -1);
+    var end = includeToday
+      ? (toDate <= today() ? toDate : today())
+      : (toDate < today() ? toDate : _dateOffset(today(), -1));
     while (cursor <= end) {
       var day = new Date(cursor + 'T00:00:00Z').getUTCDay();
       if (day !== 0 && day !== 6) dates[cursor] = true;
@@ -8549,7 +8554,7 @@ function handleSyncHoldings(dataJson) {
 // ════════════════════════════════════════════════════════════════════
 //  거래이력 동기화
 // ════════════════════════════════════════════════════════════════════
-function handleSyncTrades(dataJson) {
+function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
   var lock = LockService.getScriptLock();
   var locked = false, sourcePersisted = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
   try {
@@ -8587,12 +8592,18 @@ function handleSyncTrades(dataJson) {
     if (currentRows.length) _verifyWrittenRange(sh, 2, 1, _normalizeCodeRows(currentRows, 4), '거래이력 쓰기 후 검증 실패');
     else if (sh.getLastRow() !== 1) throw new Error('빈 거래이력 쓰기 후 검증 실패');
     sourcePersisted = true;
+    var explicitEmptyReset = explicitEmpty === true && currentRows.length === 0;
     affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
+    // 첫 빈 원장 요청의 응답이 유실되거나 partial로 끝난 뒤 재시도하면 서버의 previousRows는 이미 비어 있습니다.
+    // 클라이언트가 마지막 삭제의 최초 영향일을 다시 보내므로 같은 Snapshot 범위를 안전하게 재계산할 수 있습니다.
+    if (!affectedFrom && explicitEmptyReset) affectedFrom = _normalizeDate(rebuildFrom || '');
     // 거래원장 쓰기가 끝난 즉시 원자료 손익 cache revision을 먼저 갱신합니다.
     if (affectedFrom) _touchSnapshotIntegritySourceRevision({ from: affectedFrom });
     else if (createdTradeSheet) _touchSnapshotIntegritySourceRevision({ all: true });
-    affectedTo = _latestConfirmedSnapshotDate(ss);
-    if (affectedFrom && affectedTo && affectedFrom <= affectedTo) snapshotRebuild = rebuildDailySnapshots(affectedFrom, affectedTo);
+    affectedTo = _latestConfirmedSnapshotDate(ss, explicitEmptyReset);
+    if (affectedFrom && affectedTo && affectedFrom <= affectedTo) {
+      snapshotRebuild = rebuildDailySnapshots(affectedFrom, affectedTo, { includeToday: explicitEmptyReset });
+    }
     if (snapshotRebuild && snapshotRebuild.errors && snapshotRebuild.errors.length) {
       var rebuildMessage = 'Snapshot rebuild 부분 실패: ' + snapshotRebuild.errors.map(function(item) { return item.date + ': ' + item.message; }).join('; ');
       if (typeof tradeBackup !== 'undefined' && tradeBackup) _markSnapshotBackupStatus(tradeBackup, 'WRITE_FAILED', rebuildMessage);
@@ -8631,13 +8642,14 @@ function _earliestChangedTradeDate(beforeRows, afterRows) {
     .map(function(key) { return dates[key]; }).sort()[0] || '';
 }
 
-function _latestConfirmedSnapshotDate(ss) {
+function _latestConfirmedSnapshotDate(ss, includeToday) {
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (!sh || sh.getLastRow() < 2) return '';
   var latest = '';
   sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function(row) {
     var date = _normalizeDate(row[0]);
-    if (date && date < today() && date > latest) latest = date;
+    var allowed = date && (date < today() || (includeToday === true && date === today()));
+    if (allowed && date > latest) latest = date;
   });
   return latest;
 }
