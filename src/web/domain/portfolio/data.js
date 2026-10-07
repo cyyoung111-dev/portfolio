@@ -374,6 +374,7 @@ const STOCKCODE_KEY  = 'pf_v6_stockcodes';
 const EDITABLES_KEY  = 'pf_v6_editables';
 const TRADES_KEY     = 'pf_v6_trades';
 const PENDING_EMPTY_TRADE_SYNC_KEY = 'pf_v6_pending_empty_trade_sync';
+const PORTFOLIO_REMOTE_DIRTY_KEY = 'pf_v6_portfolio_remote_dirty';
 const PRICE_BACKUP_KEY  = 'pf_price_backup';
 const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';
 // ★ [계좌별 taxType] 계좌→세금구분 매핑 키
@@ -486,10 +487,48 @@ let _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(
   lsGet(PENDING_EMPTY_TRADE_SYNC_KEY, null)
 );
 let _pendingExplicitEmptyTradeSyncFlight = null;
-let _portfolioRemoteSyncPending = false;
+let _portfolioRemoteSyncEpoch = 0;
+
+function _normalizePortfolioRemoteDirty(value) {
+  if (!value || typeof value !== 'object') return null;
+  const target = String(value.target || '').trim();
+  const epoch = Number(value.epoch) || 0;
+  if (!target || epoch <= 0) return null;
+  return { target, epoch };
+}
+
+let _portfolioRemoteDirty = _normalizePortfolioRemoteDirty(
+  lsGet(PORTFOLIO_REMOTE_DIRTY_KEY, null)
+);
+if (_portfolioRemoteDirty) _portfolioRemoteSyncEpoch = _portfolioRemoteDirty.epoch;
+
+function _markPortfolioRemoteDirty() {
+  const target = _currentGsheetSyncTarget();
+  if (!target) return 0;
+  const epoch = ++_portfolioRemoteSyncEpoch;
+  _portfolioRemoteDirty = { target, epoch };
+  lsSave(PORTFOLIO_REMOTE_DIRTY_KEY, _portfolioRemoteDirty);
+  return epoch;
+}
+
+function _clearPortfolioRemoteDirty(epoch, target) {
+  const current = _portfolioRemoteDirty;
+  if (!current) return true;
+  if (current.epoch !== epoch || current.target !== target) return false;
+  _portfolioRemoteDirty = null;
+  lsRemove(PORTFOLIO_REMOTE_DIRTY_KEY);
+  return true;
+}
+
+function _getPortfolioRemoteDirty() {
+  const dirty = _portfolioRemoteDirty;
+  if (!dirty) return null;
+  const currentTarget = _currentGsheetSyncTarget();
+  return currentTarget && dirty.target === currentTarget ? dirty : null;
+}
 
 function _isPortfolioRemoteSyncPending() {
-  return _portfolioRemoteSyncPending === true
+  return !!_getPortfolioRemoteDirty()
     || !!_saveHoldingsGasTimer
     || !!_pendingExplicitEmptyTradeSyncFlight
     || !!_getPendingExplicitEmptyTradeSync();
@@ -708,7 +747,8 @@ function saveHoldings(options) {
   }
   // pending 실패 뒤 새 거래가 생겨도 성공 전에는 repair token을 지우지 않습니다.
   // debounce는 아래 _retryPendingExplicitEmptyTradeSync()의 rawTrades>0 분기로 현재 원장을 재전송합니다.
-  _portfolioRemoteSyncPending = true;
+  const remoteSyncEpoch = _markPortfolioRemoteDirty();
+  const remoteSyncTarget = _currentGsheetSyncTarget();
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(async function() {
     _saveHoldingsGasTimer = null;
@@ -726,12 +766,14 @@ function saveHoldings(options) {
       const holdingsOk = !holdingsRequired || holdingsResult?.status === 'ok';
       const tradesOk = !tradesRequired
         || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
-      _portfolioRemoteSyncPending = !(holdingsOk && tradesOk);
+      if (holdingsOk && tradesOk) {
+        _clearPortfolioRemoteDirty(remoteSyncEpoch, remoteSyncTarget);
+      }
       return;
     }
 
     const retryOk = await _retryPendingExplicitEmptyTradeSync();
-    _portfolioRemoteSyncPending = !retryOk;
+    if (retryOk) _clearPortfolioRemoteDirty(remoteSyncEpoch, remoteSyncTarget);
   }, 300);
 }
 
