@@ -465,10 +465,21 @@ function getAcctTaxType(acct) {
 let _saveHoldingsGasTimer = null;
 
 // 마지막 거래 삭제의 원격 빈 원장 동기화는 성공 확인 전까지 브라우저 재시작을 넘어 유지합니다.
-// { from: 'YYYY-MM-DD' } 또는 null
+// { from: 'YYYY-MM-DD', target: '현재 GSHEET_API_URL' } 또는 null
+function _currentGsheetSyncTarget() {
+  const liveUrl = typeof GSHEET_API_URL !== 'undefined' ? String(GSHEET_API_URL || '').trim() : '';
+  return liveUrl || String(lsGet(GSHEET_KEY, '') || '').trim();
+}
+
 function _normalizePendingExplicitEmptyTradeSync(value) {
   if (!value || typeof value !== 'object') return null;
-  return { from: String(value.from || '').trim() };
+  const target = String(value.target || '').trim();
+  // 연결 식별자가 없는 legacy/손상 pending은 다른 시트를 지울 수 있으므로 자동 재시도하지 않습니다.
+  if (!target) return null;
+  return {
+    from: String(value.from || '').trim(),
+    target
+  };
 }
 
 let _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(
@@ -486,17 +497,37 @@ function _setPendingExplicitEmptyTradeSync(value) {
 }
 
 function _getPendingExplicitEmptyTradeSync() {
-  return _pendingExplicitEmptyTradeSync;
+  const pending = _pendingExplicitEmptyTradeSync;
+  if (!pending) return null;
+  const currentTarget = _currentGsheetSyncTarget();
+  if (!currentTarget || pending.target !== currentTarget) {
+    // 연결이 바뀐 pending을 새 GSheet에 적용하면 무관한 포트폴리오를 삭제할 수 있으므로 폐기합니다.
+    if (_pendingExplicitEmptyTradeSync === pending) _setPendingExplicitEmptyTradeSync(null);
+    return null;
+  }
+  return pending;
 }
 
 async function _retryPendingExplicitEmptyTradeSync(options) {
-  const pendingEmptySync = _pendingExplicitEmptyTradeSync;
+  const pendingEmptySync = _getPendingExplicitEmptyTradeSync();
   if (!pendingEmptySync) return true;
 
-  // 삭제 이후 새 거래가 생겼다면 더 이상 "빈 원장" 의도가 아니므로 stale 권한을 폐기합니다.
+  // 삭제 이후 새 거래가 생겼다면 "빈 원장" 의도를 폐기하고 현재 비어 있지 않은 원장을 즉시 일반 동기화합니다.
+  // GSheet 연동 중 거래는 remote-only이므로 여기서 전송하지 않으면 새로고침 시 새 거래가 유실될 수 있습니다.
   if (rawTrades.length > 0) {
     if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
-    return true;
+    const holdingsResult = typeof syncHoldingsToGsheet === 'function'
+      ? await syncHoldingsToGsheet()
+      : null;
+    const tradesResult = typeof syncTradesToGsheet === 'function'
+      ? await syncTradesToGsheet()
+      : null;
+    const holdingsOk = holdingsResult?.status === 'ok';
+    const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
+    if ((!holdingsOk || !tradesOk) && !options?.quiet && typeof showToast === 'function') {
+      showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
+    }
+    return holdingsOk && tradesOk;
   }
 
   const holdingsResult = typeof syncHoldingsToGsheet === 'function'
@@ -517,7 +548,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
 
   if (_pendingExplicitEmptyTradeSync === pendingEmptySync && tradesResult?.affectedFrom) {
     _setPendingExplicitEmptyTradeSync({
-      from: String(tradesResult.affectedFrom || pendingEmptySync.from || '')
+      from: String(tradesResult.affectedFrom || pendingEmptySync.from || ''),
+      target: pendingEmptySync.target
     });
   }
   if (!options?.quiet && typeof showToast === 'function') {
@@ -568,12 +600,17 @@ function saveHoldings(options) {
   // 네트워크/GAS 부분 실패 시 삭제 최초 영향일을 localStorage에 남겨 새로고침 후에도 재시도합니다.
   if (allowEmptyTradeSyncRequested) {
     _setPendingExplicitEmptyTradeSync({
-      from: emptyTradeSyncFrom || _pendingExplicitEmptyTradeSync?.from || ''
+      from: emptyTradeSyncFrom || _pendingExplicitEmptyTradeSync?.from || '',
+      target: _currentGsheetSyncTarget()
     });
+  } else if (rawTrades.length > 0 && _getPendingExplicitEmptyTradeSync()) {
+    // pending 실패 뒤 사용자가 새 거래를 추가했다면 새 거래가 최신 의도입니다.
+    // 빈 원장 권한을 먼저 폐기해 아래 debounce가 일반 원장 동기화를 수행하게 합니다.
+    _setPendingExplicitEmptyTradeSync(null);
   }
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(async function() {
-    const allowEmptyTradeSync = !!_pendingExplicitEmptyTradeSync;
+    const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync();
     if (typeof syncCodesToGsheet === 'function') syncCodesToGsheet();
 
     if (!allowEmptyTradeSync) {
