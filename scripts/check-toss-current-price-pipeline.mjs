@@ -55,7 +55,7 @@ assert.match(delegation, /closest\('\[data-price-detail\]'\)/);
 const index = fs.readFileSync('src/web/index.html', 'utf8');
 assert.match(index, /components\.css\?v=20260921-2/);
 assert.match(index, /settings_sync\.js\?v=20261006-5/);
-assert.match(index, /settings_fetch\.js\?v=20261007-4/);
+assert.match(index, /settings_fetch\.js\?v=20261007-5/);
 assert.match(index, /event_delegation\.js\?v=20261006-1/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
 assert.match(sw, /portfolio-cache-20261007-5/);
