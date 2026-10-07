@@ -486,6 +486,14 @@ let _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(
   lsGet(PENDING_EMPTY_TRADE_SYNC_KEY, null)
 );
 let _pendingExplicitEmptyTradeSyncFlight = null;
+let _portfolioRemoteSyncPending = false;
+
+function _isPortfolioRemoteSyncPending() {
+  return _portfolioRemoteSyncPending === true
+    || !!_saveHoldingsGasTimer
+    || !!_pendingExplicitEmptyTradeSyncFlight
+    || !!_getPendingExplicitEmptyTradeSync();
+}
 
 function _setPendingExplicitEmptyTradeSync(value) {
   _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(value);
@@ -700,18 +708,30 @@ function saveHoldings(options) {
   }
   // pending 실패 뒤 새 거래가 생겨도 성공 전에는 repair token을 지우지 않습니다.
   // debounce는 아래 _retryPendingExplicitEmptyTradeSync()의 rawTrades>0 분기로 현재 원장을 재전송합니다.
+  _portfolioRemoteSyncPending = true;
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(async function() {
+    _saveHoldingsGasTimer = null;
     const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync();
     if (typeof syncCodesToGsheet === 'function') syncCodesToGsheet();
 
     if (!allowEmptyTradeSync) {
-      if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet();
-      if (typeof syncTradesToGsheet === 'function') syncTradesToGsheet();
+      const holdingsRequired = rawHoldings.length > 0
+        || (typeof fundDirect === 'object' && fundDirect && Object.keys(fundDirect).length > 0);
+      const tradesRequired = rawTrades.length > 0;
+      const [holdingsResult, tradesResult] = await Promise.all([
+        typeof syncHoldingsToGsheet === 'function' ? syncHoldingsToGsheet() : Promise.resolve(null),
+        typeof syncTradesToGsheet === 'function' ? syncTradesToGsheet() : Promise.resolve(null)
+      ]);
+      const holdingsOk = !holdingsRequired || holdingsResult?.status === 'ok';
+      const tradesOk = !tradesRequired
+        || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
+      _portfolioRemoteSyncPending = !(holdingsOk && tradesOk);
       return;
     }
 
-    await _retryPendingExplicitEmptyTradeSync();
+    const retryOk = await _retryPendingExplicitEmptyTradeSync();
+    _portfolioRemoteSyncPending = !retryOk;
   }, 300);
 }
 
