@@ -489,7 +489,7 @@ let _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(
 let _pendingExplicitEmptyTradeSyncFlight = null;
 let _portfolioRemoteSyncEpoch = 0;
 
-function _normalizePortfolioRemoteDirty(value) {
+function _normalizePortfolioRemoteDirtyEntry(value) {
   if (!value || typeof value !== 'object') return null;
   const target = String(value.target || '').trim();
   const epoch = Number(value.epoch) || 0;
@@ -505,16 +505,45 @@ function _normalizePortfolioRemoteDirty(value) {
   };
 }
 
-let _portfolioRemoteDirty = _normalizePortfolioRemoteDirty(
+function _normalizePortfolioRemoteDirtyMap(value) {
+  const map = {};
+  if (!value || typeof value !== 'object') return map;
+
+  // 이전 단일 dirty 형식도 안전하게 target별 map으로 마이그레이션합니다.
+  const legacy = _normalizePortfolioRemoteDirtyEntry(value);
+  if (legacy) {
+    map[legacy.target] = legacy;
+    return map;
+  }
+
+  Object.values(value).forEach(entryValue => {
+    const entry = _normalizePortfolioRemoteDirtyEntry(entryValue);
+    if (!entry) return;
+    map[entry.target] = entry;
+  });
+  return map;
+}
+
+let _portfolioRemoteDirtyByTarget = _normalizePortfolioRemoteDirtyMap(
   lsGet(PORTFOLIO_REMOTE_DIRTY_KEY, null)
 );
-if (_portfolioRemoteDirty) _portfolioRemoteSyncEpoch = _portfolioRemoteDirty.epoch;
+Object.values(_portfolioRemoteDirtyByTarget).forEach(entry => {
+  _portfolioRemoteSyncEpoch = Math.max(_portfolioRemoteSyncEpoch, Number(entry.epoch) || 0);
+});
+
+function _persistPortfolioRemoteDirtyMap() {
+  if (Object.keys(_portfolioRemoteDirtyByTarget).length > 0) {
+    lsSave(PORTFOLIO_REMOTE_DIRTY_KEY, _portfolioRemoteDirtyByTarget);
+  } else {
+    lsRemove(PORTFOLIO_REMOTE_DIRTY_KEY);
+  }
+}
 
 function _markPortfolioRemoteDirty() {
   const target = _currentGsheetSyncTarget();
   if (!target) return 0;
   const epoch = ++_portfolioRemoteSyncEpoch;
-  _portfolioRemoteDirty = {
+  _portfolioRemoteDirtyByTarget[target] = {
     target,
     epoch,
     trades: rawTrades.map(t => ({ ...t })),
@@ -523,24 +552,24 @@ function _markPortfolioRemoteDirty() {
       ? JSON.parse(JSON.stringify(fundDirect))
       : {}
   };
-  lsSave(PORTFOLIO_REMOTE_DIRTY_KEY, _portfolioRemoteDirty);
+  _persistPortfolioRemoteDirtyMap();
   return epoch;
 }
 
 function _clearPortfolioRemoteDirty(epoch, target) {
-  const current = _portfolioRemoteDirty;
+  const normalizedTarget = String(target || '').trim();
+  const current = _portfolioRemoteDirtyByTarget[normalizedTarget];
   if (!current) return true;
-  if (current.epoch !== epoch || current.target !== target) return false;
-  _portfolioRemoteDirty = null;
-  lsRemove(PORTFOLIO_REMOTE_DIRTY_KEY);
+  if (current.epoch !== epoch || current.target !== normalizedTarget) return false;
+  delete _portfolioRemoteDirtyByTarget[normalizedTarget];
+  _persistPortfolioRemoteDirtyMap();
   return true;
 }
 
 function _getPortfolioRemoteDirty() {
-  const dirty = _portfolioRemoteDirty;
-  if (!dirty) return null;
   const currentTarget = _currentGsheetSyncTarget();
-  return currentTarget && dirty.target === currentTarget ? dirty : null;
+  if (!currentTarget) return null;
+  return _portfolioRemoteDirtyByTarget[currentTarget] || null;
 }
 
 function _isPortfolioRemoteSyncPending() {
@@ -583,6 +612,18 @@ async function _retryPortfolioRemoteDirtySync(options) {
   const tradesOk = !tradesRequired
     || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
   if (!holdingsOk || !tradesOk) return false;
+
+  // 직접펀드는 Settings의 fundDirect가 authoritative 원천이므로 holdings 저장만으로는 부족합니다.
+  // dirty 시점의 fundDirect를 Settings에도 고정 저장한 뒤에만 복구 완료로 확정합니다.
+  const settingsOk = typeof saveSettings === 'function'
+    ? await saveSettings(true, {
+        targetUrl,
+        generation,
+        allowDuringRestore,
+        fundDirectOverride: dirty.fundDirect
+      })
+    : false;
+  if (!settingsOk) return false;
   return _clearPortfolioRemoteDirty(dirty.epoch, dirty.target);
 }
 
@@ -820,7 +861,7 @@ function saveHoldings(options) {
     if (typeof syncCodesToGsheet === 'function') syncCodesToGsheet();
 
     if (!allowEmptyTradeSync) {
-      const dirty = _portfolioRemoteDirty;
+      const dirty = _portfolioRemoteDirtyByTarget[remoteSyncTarget];
       if (!dirty || dirty.epoch !== remoteSyncEpoch || dirty.target !== remoteSyncTarget) return;
       const holdingsRequired = dirty.holdings.length > 0 || Object.keys(dirty.fundDirect || {}).length > 0;
       const tradesRequired = dirty.trades.length > 0;
@@ -842,7 +883,15 @@ function saveHoldings(options) {
       const holdingsOk = !holdingsRequired || holdingsResult?.status === 'ok';
       const tradesOk = !tradesRequired
         || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
-      if (holdingsOk && tradesOk) _clearPortfolioRemoteDirty(remoteSyncEpoch, remoteSyncTarget);
+      if (holdingsOk && tradesOk) {
+        const settingsOk = typeof saveSettings === 'function'
+          ? await saveSettings(true, {
+              targetUrl: remoteSyncTarget,
+              fundDirectOverride: dirty.fundDirect
+            })
+          : false;
+        if (settingsOk) _clearPortfolioRemoteDirty(remoteSyncEpoch, remoteSyncTarget);
+      }
       return;
     }
 
