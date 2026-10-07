@@ -123,7 +123,7 @@ async function loadHistoryChart(retryAttempt = 0) {
       fromStr = _kstDateOffset(todayStr, -rangeDays);
     }
     const historyStartedAt = performance.now();
-    const data = await _historyRequestJson('getHistory', { from: fromStr }, { timeoutMs: 15000, retry: 0 });
+    const data = await _historyRequestJson('getHistorySource', { from: fromStr }, { timeoutMs: 45000, retry: 0, preserveError: true });
     const getHistoryMs = performance.now() - historyStartedAt;
     if (requestId !== __histState.loadRequestId) return;
     if (!data || data.status === 'error') throw new Error(data?.message || '응답 오류');
@@ -148,13 +148,14 @@ async function loadHistoryChart(retryAttempt = 0) {
 
     // 거래이력 기반 원가 재계산값이 있으면 우선 적용
     snapshots = _mergeTradeBasedCost(snapshots);
-    const integritySourceRevision = String(data.integritySourceRevision || '');
+    const sourceRecomputed = data.sourceMode === 'SOURCE_RECOMPUTED';
+    const integritySourceRevision = sourceRecomputed ? '' : String(data.integritySourceRevision || '');
     const integrityDateRevisions = data.integrityDateRevisions || {};
     const integrityCache = integritySourceRevision ? _readHistoryIntegrityCache() : {};
     let integrityDiagnostics = _cachedHistoryDiagnostics(snapshots, integrityDateRevisions, integrityCache);
     const cachedDiagnosticByDate = new Map(integrityDiagnostics.map(item => [item.date, item]));
     snapshots = snapshots.map(snapshot => ({ ...snapshot,
-      integrityStatus: cachedDiagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED' }));
+      integrityStatus: sourceRecomputed ? 'VALID' : (cachedDiagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED') }));
     // 정합성 진단은 보호 정보를 보강하는 후속 단계입니다. 저장 Snapshot 자체는 먼저 표시해
     // 첫 조회에서도 전체 기간 진단이 그래프의 초기 표시를 막지 않게 합니다.
     const initialMode = _getHistMode();
@@ -168,7 +169,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
     const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
     const cachedDates = new Set(integrityDiagnostics.map(item => item.date));
-    const datesToDiagnose = snapshots.filter(snapshot => !cachedDates.has(snapshot.date));
+    const datesToDiagnose = sourceRecomputed ? [] : snapshots.filter(snapshot => !cachedDates.has(snapshot.date));
     let rangeDiagnosisFailed = null;
     const integrityStartedAt = performance.now();
     try {
@@ -204,7 +205,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     }
     const diagnosticByDate = new Map(integrityDiagnostics.map(item => [item.date, item]));
     snapshots = snapshots.map(snapshot => ({ ...snapshot,
-      integrityStatus: diagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED' }));
+      integrityStatus: sourceRecomputed ? 'VALID' : (diagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED') }));
     __histState.integrityDiagnostics = integrityDiagnostics;
     __histState.rangeDiagnosisFailed = rangeDiagnosisFailed;
     const mode = _getHistMode();
@@ -241,7 +242,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     const benchMetaMap = benchBundle.metaMap;
     const missing = benchBundle.failedTypes;
     const modeUnit = mode === 'day' ? '일' : (mode === 'week' ? '주' : '개월');
-    const baseMsg = `그래프 ${tableSnapshots.length}${modeUnit} · 원본 ${snapshots.length}일 · 확정 기준 ${latestDate}`;
+    const baseMsg = `그래프 ${tableSnapshots.length}${modeUnit} · ${sourceRecomputed ? '원자료 자동 재구성' : '원본'} ${snapshots.length}일 · 기준 ${latestDate}`;
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
@@ -255,8 +256,11 @@ async function loadHistoryChart(retryAttempt = 0) {
     __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
     _renderHistoryDateDetail(snapshots);
     _renderHistoryCoverage(coverageEl, coverage, mode);
-    _renderHistoryIntegrityWarnings(coverageEl, integrityDiagnostics, rangeDiagnosisFailed, snapshots.length);
-    _renderHistoryNavWarnings(coverageEl, snapshots);
+    if (sourceRecomputed) _renderHistorySourceCoverage(coverageEl, data.sourceSummary, snapshots);
+    else {
+      _renderHistoryIntegrityWarnings(coverageEl, integrityDiagnostics, rangeDiagnosisFailed, snapshots.length);
+      _renderHistoryNavWarnings(coverageEl, snapshots);
+    }
     _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
     _drawHistoryChart(chartWrap, graphSnapshots, mode, {
@@ -316,13 +320,31 @@ function _renderHistoryDateDetail(snapshots) {
     ? `<div style="font-size:.65rem;color:var(--amber);margin-top:7px">⚠️ ${_escapeHtml((exact.navInputRequiredCodes || []).join(', '))} NAV 미입력 · 직전 확정 NAV를 사용한 임시 손익입니다.</div>` : '';
   const item = (label, value, valueColor = 'var(--text)') => `<div style="padding:8px 10px;border-radius:8px;background:var(--s1);border:1px solid var(--border)"><div style="font-size:.61rem;color:var(--muted)">${label}</div><div style="font-size:.82rem;font-weight:700;color:${valueColor};font-variant-numeric:tabular-nums">${value}</div></div>`;
   wrap.innerHTML = `<div style="margin:-2px 0 12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--s2)">
-    <div style="font-size:.70rem;font-weight:700;color:var(--text);margin-bottom:7px">${_escapeHtml(_fmtHistDateCompact(selected))} 저장 스냅샷</div>
+    <div style="font-size:.70rem;font-weight:700;color:var(--text);margin-bottom:7px">${_escapeHtml(_fmtHistDateCompact(selected))} 원자료 기반 평가</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px">
       ${item('평가금액', _fmtKrw(evalAmt))}${item('매입원가', _fmtKrw(costAmt), 'var(--muted)')}${item('손익', `${pSign(pnl)}${_fmtKrw(pnl)}`, color)}${item('수익률', `${pSign(pnl)}${pct.toFixed(1)}%`, color)}
     </div>
-    <div style="font-size:.61rem;color:var(--muted);margin-top:7px">GAS 손익 스냅샷 합계 기준이며, 상단 기준일 업데이트로 현재 화면 가격을 바꾸지 않습니다.</div>${navWarning}
+    <div style="font-size:.61rem;color:var(--muted);margin-top:7px">확정 가격이력·펀드 NAV·좌수·환율·거래원장으로 재구성한 손익이며 기존 Snapshot 중복과 무관합니다.</div>${navWarning}
     <div id="histDateItems" style="margin-top:10px"></div>
   </div>`;
+}
+
+function _renderHistorySourceCoverage(el, summary, snapshots) {
+  if (!el || !summary) return;
+  const complete = Number(summary.completeDates || 0);
+  const missing = Number(summary.unavailableDates || 0);
+  const carried = Number(summary.carriedFundItems || 0);
+  const samples = Array.isArray(summary.unavailableSamples) ? summary.unavailableSamples : [];
+  const sampleText = samples.slice(0, 5).map(item => `${item.date}: ${item.reason}`).join(' · ');
+  const warning = missing > 0;
+  const explanation = carried > 0
+    ? `펀드 ${carried}건은 해당일 NAV가 없어 직전 확정 공시일 NAV × 해당일 좌수로 평가했습니다. 당일 NAV 확정을 뜻하지 않으며 추후 공시되면 자동 재계산됩니다.`
+    : '확인된 NAV는 해당 평가일 좌수로 재계산합니다.';
+  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid ${warning ? 'var(--c-amber-35,var(--border))' : 'var(--border)'};border-radius:9px;background:var(--s2);font-size:.67rem;line-height:1.55">
+    <b style="color:${warning ? 'var(--amber)' : 'var(--green)'}">원자료 기준 자동 손익 · 계산 완료 ${complete}일${missing ? ` · 원자료 부족 ${missing}일 제외` : ''}</b><br>
+    <span style="color:var(--muted)">기존 Snapshot 대신 거래·확정가격·펀드 NAV·환율로 재구성했습니다. ${_escapeHtml(explanation)}</span>
+    ${missing ? `<br><span style="color:var(--amber)">제외일 예시: ${_escapeHtml(sampleText)}${missing > samples.length ? ' 외 추가 날짜' : ''}</span>` : ''}
+  </div>`);
 }
 
 function _renderHistoryNavWarnings(el, snapshots) {
@@ -408,7 +430,7 @@ async function _loadHistoryDateItems(date) {
   const wrap = $el('histDateItems');
   if (!wrap || !date) return;
   wrap.innerHTML = '<div style="font-size:.65rem;color:var(--muted)">⏳ 종목별 스냅샷 불러오는 중...</div>';
-  const data = await _historyRequestJson('getHistoryDetail', { date }, { timeoutMs: 15000, retry: 1 });
+  const data = await _historyRequestJson('getHistorySourceDetail', { date }, { timeoutMs: 15000, retry: 1 });
   if (!data || data.status === 'error') {
     wrap.innerHTML = `<div style="font-size:.65rem;color:var(--red-lt)">❌ 종목별 상세 조회 실패${data?.message ? ` · ${_escapeHtml(data.message)}` : ''}</div>`;
     return;
