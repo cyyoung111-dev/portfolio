@@ -1225,6 +1225,8 @@ async function _fetchEditorPriceHistoryRaw(dateStr) {
       ? getGsheetConnectionGeneration()
       : 0;
     if (!targetUrl) return {};
+    if (typeof isGsheetPortfolioWriteReady === 'function'
+        && !isGsheetPortfolioWriteReady({ targetUrl, generation })) return {};
     const cacheKey = `${targetUrl}|${generation}|${dateStr}|${uniqTargets.join(',')}`;
     const cached = _editorHistoryCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < EDITOR_HISTORY_CACHE_MS) return cached.promise;
