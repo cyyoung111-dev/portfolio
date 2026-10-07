@@ -167,8 +167,8 @@ assert.match(tabSync, /tabId === 'trades'[\s\S]*loadSettings\(undefined, \{ forc
   '거래 탭 재동기화는 로컬 업로드가 아니라 원격 거래·보유 authoritative pull');
 assert.doesNotMatch(tabSync, /tabId === 'trades' && rawTrades\.length === 0/,
   '로컬 거래 존재 여부로 거래 재동기화 방향을 바꾸지 않음');
-assert.match(settings, /if \(forcePortfolioRestore \|\| \(s\.fundDirect[\s\S]*Object\.keys\(fundDirect\)\.forEach\(k => delete fundDirect\[k\]\)[\s\S]*Object\.assign\(fundDirect, s\.fundDirect\)/,
-  '연결 변경 강제 복원은 원격 fundDirect 키가 없어도 이전 연결 직접펀드를 제거');
+assert.match(settings, /const hasAuthoritativeFundDirect = Object\.prototype\.hasOwnProperty\.call\(s, 'fundDirect'\)[\s\S]*if \(forcePortfolioRestore \|\| hasAuthoritativeFundDirect\)[\s\S]*Object\.keys\(fundDirect\)\.forEach\(k => delete fundDirect\[k\]\)[\s\S]*Object\.assign\(fundDirect, s\.fundDirect\)/,
+  'fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 적용');
 assert.match(settings, /const bootstrapPortfolioStatus = isBootstrap[\s\S]*bootstrapTradesOk[\s\S]*bootstrapHoldingsOk[\s\S]*status: bootstrapTradesOk \? 'ok' : 'error'[\s\S]*status: bootstrapHoldingsOk \? 'ok' : 'error'/,
   'bootstrap 하위 거래·보유 읽기 성공 여부를 강제 복원 판정에 보존');
 assert.match(settings, /const bootstrapTradesOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore[\s\S]*const bootstrapHoldingsOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore/,
@@ -238,10 +238,14 @@ assert.ok(
   settings.indexOf('Object.assign(fundDirect, s.fundDirect)') < settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true })'),
   '빈 원장 재시도 전에 fundDirect를 먼저 복원해 비거래 보유현황 삭제를 방지'
 );
-assert.match(settings, /const pendingHoldingsPromise = !pendingEmptySyncAtLoad[\s\S]*Array\.isArray\(data\.holdings\)[\s\S]*requestGsheetActionJson\([\s\S]*'getHoldings'/,
-  'pending 처리 전 bootstrap 또는 fallback holdings에서 레거시 직접펀드 원천을 읽음');
-assert.match(settings, /const pendingHoldingsLoaded = !!\([\s\S]*pendingHoldingsData\.status === 'ok'[\s\S]*if \(!pendingHoldingsLoaded\) return false[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*fundDirect\[h\.name\]/,
-  '레거시 holdings 읽기 성공 시 직접펀드를 먼저 복원하고 읽기 실패 시 빈 holdings 쓰기를 중단');
+assert.match(settings, /const pendingHoldingsPromise = !pendingEmptySyncAtLoad \|\| hasAuthoritativeFundDirect[\s\S]*Array\.isArray\(data\.holdings\)[\s\S]*requestGsheetActionJson\([\s\S]*'getHoldings'/,
+  'pending 처리 전 holdings fallback은 fundDirect 키가 없는 레거시 응답에서만 준비');
+assert.match(settings, /if \(!hasAuthoritativeFundDirect\) \{[\s\S]*const pendingHoldingsLoaded = !!\([\s\S]*if \(!pendingHoldingsLoaded\) return false[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*fundDirect\[h\.name\]/,
+  '레거시 응답에서만 holdings 직접펀드를 보완하고 원천 읽기 실패 시 파괴적 쓰기를 중단');
+assert.match(settings, /if \(!hasAuthoritativeFundDirect && holdingsLoaded\)[\s\S]*fundDirect\[h\.name\]/,
+  '일반 복원도 Settings fundDirect 키가 없을 때만 holdings fallback을 허용');
+assert.match(settings, /if \(isFundEntry\) \{[\s\S]*!hasAuthoritativeFundDirect[\s\S]*fundDirect\[h\.name\][\s\S]*return;/,
+  '보유현황 fallback 경로도 authoritative fundDirect에서 삭제한 펀드를 부활시키지 않음');
 assert.ok(
   settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true })') < settings.indexOf('// ── 거래이력 복원'),
   '영속 pending 재시도는 원격 거래/보유 복원 적용 전에 수행'
