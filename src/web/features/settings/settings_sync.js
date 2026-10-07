@@ -154,7 +154,8 @@ async function syncCodesToGsheet() {
 // ★ v8.1 — 보유현황 GSheet 동기화 (트리거 자동 스냅샷을 위해 필요)
 // rawHoldings(수량·원금)를 GSheet 보유현황 시트에 저장
 async function syncHoldingsToGsheet(options) {
-  if (!GSHEET_API_URL) return null;
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  if (!targetUrl) return null;
   const allowEmpty = options?.allowEmpty === true;
   try {
     // rows에서 종목별 합산 데이터 추출 (계좌 합산 기준)
@@ -185,7 +186,7 @@ async function syncHoldingsToGsheet(options) {
     const data = await requestGsheetFormJson(
       'syncHoldings',
       { data: JSON.stringify(holdings) },
-      { timeoutMs: 20000, retry: 1 }
+      { timeoutMs: 20000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[보유현황 동기화] 네트워크 오류'); return null; }
     if (data.status === 'ok') {
@@ -202,7 +203,8 @@ async function syncHoldingsToGsheet(options) {
 
 // ★ v8.2 — 거래이력 GSheet 동기화 (backfillMonth 소급 계산용)
 async function syncTradesToGsheet(options) {
-  if (!GSHEET_API_URL) return null;
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  if (!targetUrl) return null;
   const allowEmpty = options?.allowEmpty === true;
   const rebuildFrom = allowEmpty ? String(options?.rebuildFrom || '').trim() : '';
   // 초기 부트스트랩 실패/미완료로 rawTrades가 비어 있는 상태에서는 원격 원장을 절대 비우지 않습니다.
@@ -254,7 +256,7 @@ async function syncTradesToGsheet(options) {
         explicitEmpty: allowEmpty ? '1' : '',
         rebuildFrom
       },
-      { timeoutMs: 30000, retry: 1 }
+      { timeoutMs: 30000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
     if (data.status === 'ok') {
