@@ -379,7 +379,8 @@ async function loadSettings(onProgress, options) {
   const loadTarget = String(GSHEET_API_URL || '').trim();
   const loadGeneration = getGsheetConnectionGeneration();
   const isLoadConnectionCurrent = () => isGsheetConnectionCurrent(loadTarget, loadGeneration);
-  const forcePortfolioRestore = _gsPortfolioRestoreRequired === true
+  const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true;
+  const forcePortfolioRestore = connectionForcePortfolioRestore
     || options?.forcePortfolioRestore === true;
   // 마지막 거래 삭제가 원격에 완전히 반영되기 전 새로고침된 경우,
   // 원격의 과거 거래를 다시 복원하기 전에 영속 pending 삭제를 먼저 재시도합니다.
@@ -607,15 +608,20 @@ async function loadSettings(onProgress, options) {
     // 마지막 거래 삭제 pending은 fundDirect·기초정보 복원이 끝난 뒤 재시도합니다.
     // 새로고침 직후 빈 메모리 상태로 보유현황을 먼저 동기화하면 TDF/직접펀드까지 지울 수 있으므로
     // 반드시 비거래 보유 원자료를 복원한 다음, 아래 거래/보유 원격 복원보다 먼저 처리합니다.
+    let pendingEmptySyncResolvedAtLoad = false;
     if (pendingEmptySyncAtLoad && rawTrades.length === 0
         && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
       prog('빈 거래원장 동기화 재시도 중...');
+      let pendingRetryOk = false;
       try {
-        await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true });
+        pendingRetryOk = await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true });
       } catch (e) {
         console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
       }
       if (!isLoadConnectionCurrent()) return false;
+      // 성공 확인 전에는 복원 완료/쓰기 가능 상태로 승격하지 않습니다.
+      if (!pendingRetryOk) return false;
+      pendingEmptySyncResolvedAtLoad = true;
     }
 
     // ── GSheet 설정 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
@@ -679,8 +685,11 @@ async function loadSettings(onProgress, options) {
       });
     }
 
-    // ── 거래이력 복원 (연결 변경 시에는 성공한 빈 배열도 현재 원격 상태로 적용)
-    if (rawTrades.length === 0 || forcePortfolioRestore) {
+    // pending 삭제 재시도가 성공했다면 그 로컬 빈 원장 의도가 방금 서버에 확정된 상태이므로
+    // 같은 load에서 다시 오래된 원격 원장을 pull하지 않습니다.
+    const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad;
+    // ── 거래이력 복원 (연결 변경/명시적 pull 시에는 성공한 빈 배열도 현재 원격 상태로 적용)
+    if ((rawTrades.length === 0 && !pendingEmptySyncResolvedAtLoad) || applyForcedPortfolioRestore) {
       try {
         prog('거래이력 복원 중...');
         const restoredPortfolio = forcedPortfolioRestoreData
@@ -701,8 +710,8 @@ async function loadSettings(onProgress, options) {
           });
         }
 
-        if (forcePortfolioRestore) {
-          // 연결 변경 강제 복원은 빈 배열도 유효한 원격 상태입니다.
+        if (applyForcedPortfolioRestore) {
+          // 연결 변경/명시적 pull 강제 복원은 빈 배열도 유효한 원격 상태입니다.
           // 둘 중 하나라도 읽기 실패면 이전 연결 데이터를 섞지 않고 복원 플래그를 유지합니다.
           if (!tradesLoaded || !holdingsLoaded) return false;
           rawTrades.length = 0;
