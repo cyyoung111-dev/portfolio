@@ -11606,10 +11606,16 @@ function handleGetBootstrap() {
 
     var tradesResponse = JSON.parse(handleGetTrades(ss).getContent());
     var holdingsResponse = JSON.parse(handleGetHoldings(ss).getContent());
+    var tradesOk = tradesResponse.status === 'ok' && Array.isArray(tradesResponse.trades);
+    var holdingsOk = holdingsResponse.status === 'ok' && Array.isArray(holdingsResponse.holdings);
     return jsonOk({
       settings: settings,
-      trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
-      holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
+      trades: tradesOk ? tradesResponse.trades : [],
+      holdings: holdingsOk ? holdingsResponse.holdings : [],
+      portfolioReadStatus: {
+        tradesOk: tradesOk,
+        holdingsOk: holdingsOk
+      },
       codes: getCodeItems(ss),
       gasVersion: '9.180'
     });
