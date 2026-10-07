@@ -307,11 +307,17 @@ function saveSettings(immediate, options) {
     allowDuringRestore: options?.allowDuringRestore === true
   })) return Promise.resolve(false);
   const pendingKey = targetUrl + '|' + expectedGeneration;
+  const hasFundDirectOverride = Object.prototype.hasOwnProperty.call(options || {}, 'fundDirectOverride');
+  const settingsFundDirect = hasFundDirectOverride
+    ? ((options.fundDirectOverride && typeof options.fundDirectOverride === 'object')
+        ? JSON.parse(JSON.stringify(options.fundDirectOverride))
+        : {})
+    : fundDirect;
   const settings = {
     ACCT_COLORS,
     ACCT_ORDER,
     SECTOR_COLORS,
-    fundDirect,
+    fundDirect: settingsFundDirect,
     EDITABLE_PRICES,
     ACCT_TAX_TYPES,
     ACCOUNTS_MASTER,
