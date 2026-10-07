@@ -9631,7 +9631,8 @@ function _getOfficialKrxPriceHistoryLastDate(phSh) {
   if (!phSh || phSh.getLastRow() < 2) return '-';
   var rows = phSh.getRange(2, 1, phSh.getLastRow() - 1, 6).getValues(), latest = '';
   rows.forEach(function(row) {
-    if (!/^KRX(?:_|$)/i.test(String(row[5] || ''))) return;
+    // 실제 공식 KRX 응답일만 인정하며 이전 날짜 이월(KRX_CARRY)은 공식 당일 종가가 아닙니다.
+    if (!/^(?:KRX|KRX_OTP)$/i.test(String(row[5] || '').trim())) return;
     if (/^F\d{5}$/.test(String(row[1] || ''))) return;
     var date = _normalizeDate(row[0]);
     if (date && date > latest) latest = date;
