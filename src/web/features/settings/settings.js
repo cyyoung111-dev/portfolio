@@ -356,6 +356,19 @@ async function loadSettings(onProgress) {
         ])
       : null;
 
+    // 연결 변경 강제 복원은 설정 전역상태를 건드리기 전에 거래/보유 원격 읽기가 둘 다
+    // 성공했는지 먼저 확인합니다. 실패한 B의 설정 일부와 A의 포트폴리오가 섞이지 않게 합니다.
+    let forcedPortfolioRestoreData = null;
+    if (forcePortfolioRestore && portfolioRestorePromise) {
+      forcedPortfolioRestoreData = await portfolioRestorePromise;
+      if (!isLoadConnectionCurrent()) return false;
+      const preflightTrades = forcedPortfolioRestoreData?.[0];
+      const preflightHoldings = forcedPortfolioRestoreData?.[1];
+      const preflightTradesOk = !!(preflightTrades && preflightTrades.status === 'ok' && Array.isArray(preflightTrades.trades));
+      const preflightHoldingsOk = !!(preflightHoldings && preflightHoldings.status === 'ok' && Array.isArray(preflightHoldings.holdings));
+      if (!preflightTradesOk || !preflightHoldingsOk) return false;
+    }
+
     // Theme (기기 간 동일 UI 유지)
     if (s.APP_THEME_MODE && typeof lsSave === 'function') {
       lsSave('app_theme_mode', s.APP_THEME_MODE);
@@ -598,12 +611,23 @@ async function loadSettings(onProgress) {
     if (rawTrades.length === 0 || forcePortfolioRestore) {
       try {
         prog('거래이력 복원 중...');
-        const restoredPortfolio = portfolioRestorePromise ? await portfolioRestorePromise : [null, null];
+        const restoredPortfolio = forcedPortfolioRestoreData
+          || (portfolioRestorePromise ? await portfolioRestorePromise : [null, null]);
         if (!isLoadConnectionCurrent()) return false;
         const trData = restoredPortfolio[0];
         const hData = restoredPortfolio[1];
         const tradesLoaded = !!(trData && trData.status === 'ok' && Array.isArray(trData.trades));
         const holdingsLoaded = !!(hData && hData.status === 'ok' && Array.isArray(hData.holdings));
+
+        // 레거시 Settings에 fundDirect가 없더라도 보유현황 시트의 코드 없는 TDF/펀드는
+        // 거래 유무와 무관하게 직접펀드 원자료로 보완합니다. Settings 값이 있으면 우선 보존합니다.
+        if (holdingsLoaded) {
+          hData.holdings.forEach(h => {
+            const isFundEntry = ['TDF','펀드'].includes(h.assetType) && !h.code && Number(h.qty) === 1;
+            if (!isFundEntry || !h.name || Object.prototype.hasOwnProperty.call(fundDirect, h.name)) return;
+            fundDirect[h.name] = { eval: h.costAmt || 0, cost: h.costAmt || 0, type: h.assetType || 'TDF' };
+          });
+        }
 
         if (forcePortfolioRestore) {
           // 연결 변경 강제 복원은 빈 배열도 유효한 원격 상태입니다.
@@ -620,7 +644,9 @@ async function loadSettings(onProgress) {
             hData.holdings.forEach(h => {
               const isFundEntry = ['TDF','펀드'].includes(h.assetType) && !h.code && h.qty === 1;
               if (isFundEntry) {
-                fundDirect[h.name] = { eval: h.costAmt || 0, cost: h.costAmt || 0, type: h.assetType || 'TDF' };
+                if (!Object.prototype.hasOwnProperty.call(fundDirect, h.name)) {
+                  fundDirect[h.name] = { eval: h.costAmt || 0, cost: h.costAmt || 0, type: h.assetType || 'TDF' };
+                }
                 return;
               }
               rawHoldings.push({
