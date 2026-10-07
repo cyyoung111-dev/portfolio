@@ -207,12 +207,16 @@ async function syncTradesToGsheet(options) {
   if (!targetUrl) return null;
   const allowEmpty = options?.allowEmpty === true;
   const rebuildFrom = allowEmpty ? String(options?.rebuildFrom || '').trim() : '';
-  // 초기 부트스트랩 실패/미완료로 rawTrades가 비어 있는 상태에서는 원격 원장을 절대 비우지 않습니다.
+  const hasTradesOverride = allowEmpty && Array.isArray(options?.tradesOverride);
+  // 빈 원장 재시도는 시작 시 캡처한 payload를 사용할 수 있습니다.
+  // 그 외 일반 동기화는 항상 현재 rawTrades를 사용합니다.
+  const sourceTrades = hasTradesOverride ? options.tradesOverride : rawTrades;
+  // 초기 부트스트랩 실패/미완료로 거래가 비어 있는 상태에서는 원격 원장을 절대 비우지 않습니다.
   // 확인된 마지막 거래 삭제 경로가 전달한 1회성 allowEmpty만 예외입니다.
-  if (rawTrades.length === 0 && !allowEmpty) return;
+  if (sourceTrades.length === 0 && !allowEmpty) return;
   try {
     const unmatchedTrades = [];
-    const trades = rawTrades
+    const trades = sourceTrades
       .filter(t => t.name && t.tradeType && t.date)
       .map(t => {
         const tCode = _normalizeSyncCode(t.code || '');
@@ -239,7 +243,7 @@ async function syncTradesToGsheet(options) {
         };
       });
     // 유효한 원본 거래가 있는데 필터 결과만 0건인 경우와 권한 없는 빈 상태는 전체 삭제를 막습니다.
-    if (trades.length === 0 && (rawTrades.length > 0 || !allowEmpty)) return;
+    if (trades.length === 0 && (sourceTrades.length > 0 || !allowEmpty)) return;
     if (unmatchedTrades.length > 0) {
       const uniq = Array.from(new Set(unmatchedTrades.map(t => `${t.name}|${t.code}`)));
       _syncWarn('[거래이력 동기화] 기초정보 미매칭 거래 포함:', unmatchedTrades);
