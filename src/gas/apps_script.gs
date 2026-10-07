@@ -4950,7 +4950,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var configs = _readFundUnits(ss);
   var navSh = ss.getSheetByName(FUND_NAV_SHEET);
   var navRows = navSh && navSh.getLastRow() > 1 ? navSh.getRange(2, 1, navSh.getLastRow() - 1, Math.min(9, navSh.getLastColumn())).getValues() : [];
-  var evalCache = {};
+  var evalCache = {}, candidateDates = {}, confirmedNavDates = {};
   function inRange(date) { return date && date >= fromDate && date <= toDate; }
   function evalAt(date) {
     if (Object.prototype.hasOwnProperty.call(evalCache, date)) return evalCache[date];
@@ -4960,10 +4960,22 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     if (!value) { result.missingNav++; return evalCache[date] = null; }
     return evalCache[date] = value;
   }
+  function sourceFor(date, value, oldSource) {
+    if (value.zero) return 'FUND_NAV_ZERO_UNITS';
+    if (!value.carried) return 'FUND_NAV';
+    if (String(oldSource || '').toUpperCase() === 'FUND_NAV_CARRY_INPUT_REQUIRED') return 'FUND_NAV_CARRY_INPUT_REQUIRED';
+    return _fundNavExpectedPublicationDate(date, code) && !confirmedNavDates[date]
+      ? 'FUND_NAV_CARRY_INPUT_REQUIRED' : 'FUND_NAV_CARRY';
+  }
+
   var navChanged = false;
   navRows.forEach(function(row) {
-    var date = _normalizeDate(row[0]);
-    if ((_cleanCode(row[1]) || String(row[1] || '').trim()) !== code || String(row[8] || '') !== provider || !inRange(date)) return;
+    var date = _normalizeDate(row[0]), sourceDate = _normalizeDate(row[4]);
+    var rowCode = _cleanCode(row[1]) || String(row[1] || '').trim();
+    var rowProvider = String(row[8] || '');
+    if (rowCode === code && sourceDate === date && (!rowProvider || rowProvider === provider)) confirmedNavDates[date] = true;
+    if (rowCode !== code || rowProvider !== provider || !inRange(date)) return;
+    candidateDates[date] = true;
     var value = evalAt(date);
     if (!value) return;
     var units = value.zero ? 0 : Number(value.units), evalAmt = value.zero ? 0 : Number(value.evalAmt);
@@ -4974,56 +4986,107 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   if (navChanged) navSh.getRange(2, 1, navRows.length, 9).setValues(navRows.map(function(row) { return row.slice(0,9); }));
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
-  if (ph && ph.getLastRow() > 1) {
-    var prices = ph.getRange(2, 1, ph.getLastRow() - 1, Math.min(6, ph.getLastColumn())).getValues(), priceChanged = false;
-    prices.forEach(function(row) {
-      var date = _normalizeDate(row[0]), rowCode = _fundConfiguredCodeForPriceRow(row, configs);
-      if (rowCode !== code || !inRange(date)) return;
-      var oldSource = String(row[5] || '').toUpperCase();
-      if (oldSource === 'MANUAL') { result.manualPreserved++; return; }
-      var value = evalAt(date);
-      if (!value) return;
-      var price = value.zero ? 0 : Number(value.evalAmt);
-      var source = value.zero ? 'FUND_NAV_ZERO_UNITS'
-        : (value.carried ? (oldSource === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? oldSource : 'FUND_NAV_CARRY') : 'FUND_NAV');
-      if (Number(row[3]) !== price || oldSource !== source) {
-        row[3] = price; row[5] = source; priceChanged = true; result.priceRows++;
-      }
-    });
-    if (priceChanged) ph.getRange(2, 1, prices.length, 6).setValues(prices.map(function(row) { return row.slice(0,6); }));
-  }
+  var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, Math.min(6, ph.getLastColumn())).getValues() : [];
+  var priceChanged = false, priceByDate = {};
+  prices.forEach(function(row) {
+    var date = _normalizeDate(row[0]), rowCode = _fundConfiguredCodeForPriceRow(row, configs);
+    if (rowCode !== code || !inRange(date)) return;
+    candidateDates[date] = true;
+    if (!priceByDate[date] || String(row[5] || '').toUpperCase() === 'MANUAL') priceByDate[date] = row;
+    var oldSource = String(row[5] || '').toUpperCase();
+    if (oldSource === 'MANUAL') { result.manualPreserved++; return; }
+    var value = evalAt(date);
+    if (!value) return;
+    var price = value.zero ? 0 : Number(value.evalAmt);
+    var source = sourceFor(date, value, oldSource);
+    if (Number(row[3]) !== price || oldSource !== source) {
+      row[3] = price; row[5] = source; priceChanged = true; result.priceRows++;
+    }
+  });
 
   var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
-  if (snap && snap.getLastRow() > 1) {
-    var width = Math.max(12, snap.getLastColumn());
-    var snapshots = snap.getRange(2, 1, snap.getLastRow() - 1, width).getValues(), snapChanged = false, reconciledSnapshots = [];
-    var nameByCode = {};
-    configs.forEach(function(c) { if (c.code === code && c.name) nameByCode[c.name] = true; });
-    snapshots.forEach(function(row) {
-      var date = _normalizeDate(row[0]), rowCode = _cleanCode(row[1]) || '';
-      if (!rowCode && nameByCode[String(row[2] || '').trim()]) rowCode = code;
-      if (rowCode !== code || !inRange(date)) { reconciledSnapshots.push(row); return; }
-      var oldSource = String(row[10] || '').toUpperCase();
-      var value = evalAt(date);
-      if (!value) { reconciledSnapshots.push(row); return; }
-      // 0좌는 Snapshot 행 자체가 존재하지 않는다는 기존 lifecycle/정합성 계약과 일치시킵니다.
-      // MANUAL 가격이력 원본은 보존하되 Snapshot에는 전량 환매된 펀드를 남기지 않습니다.
-      if (value.zero) {
-        snapChanged = true; result.snapshotRows++;
-        return;
-      }
-      if (oldSource === 'MANUAL') { result.manualPreserved++; reconciledSnapshots.push(row); return; }
-      var costAmt = Number(row[5]) || 0, evalAmt = Number(value.evalAmt), pnl = evalAmt - costAmt;
-      row[3] = 1; row[4] = costAmt; row[6] = evalAmt; row[7] = evalAmt; row[8] = pnl;
-      row[9] = costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0;
-      row[10] = value.carried ? (oldSource === 'FUND_NAV_CARRY_INPUT_REQUIRED' ? oldSource : 'FUND_NAV_CARRY') : 'FUND_NAV';
-      reconciledSnapshots.push(row);
+  var width = snap ? Math.max(12, snap.getLastColumn()) : 12;
+  var snapshots = snap && snap.getLastRow() > 1 ? snap.getRange(2, 1, snap.getLastRow() - 1, width).getValues() : [];
+  var snapChanged = false, reconciledSnapshots = [], snapshotByDate = {};
+  var nameByCode = {};
+  configs.forEach(function(c) { if (c.code === code && c.name) nameByCode[c.name] = true; });
+  snapshots.forEach(function(row) {
+    var date = _normalizeDate(row[0]), rowCode = _cleanCode(row[1]) || '';
+    if (inRange(date)) candidateDates[date] = true;
+    if (!rowCode && nameByCode[String(row[2] || '').trim()]) rowCode = code;
+    if (rowCode !== code || !inRange(date)) { reconciledSnapshots.push(row); return; }
+    var oldSource = String(row[10] || '').toUpperCase();
+    var value = evalAt(date);
+    if (!value) { reconciledSnapshots.push(row); snapshotByDate[date] = true; return; }
+    if (value.zero) {
       snapChanged = true; result.snapshotRows++;
-    });
-    if (snapChanged) {
-      while (reconciledSnapshots.length < snapshots.length) reconciledSnapshots.push(Array(width).fill(''));
-      snap.getRange(2, 1, snapshots.length, width).setValues(reconciledSnapshots);
+      return;
     }
+    snapshotByDate[date] = true;
+    if (oldSource === 'MANUAL') { result.manualPreserved++; reconciledSnapshots.push(row); return; }
+    var costAmt = Number(row[5]) || 0, evalAmt = Number(value.evalAmt), pnl = evalAmt - costAmt;
+    row[3] = 1; row[4] = costAmt; row[6] = evalAmt; row[7] = evalAmt; row[8] = pnl;
+    row[9] = costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0;
+    row[10] = sourceFor(date, value, oldSource);
+    reconciledSnapshots.push(row);
+    snapChanged = true; result.snapshotRows++;
+  });
+
+  // 0좌→양수 정정처럼 기존 파생 행이 없던 날짜도 현재 원자료에서 새로 생성합니다.
+  // 대상 날짜는 NAV/가격이력/기존 전체 Snapshot에 이미 존재하는 날짜로 제한하여
+  // 과거 전체 달력을 무제한 생성하지 않습니다.
+  var tradeSh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  var tradeRows = tradeSh && tradeSh.getLastRow() > 1
+    ? tradeSh.getRange(2, 1, tradeSh.getLastRow() - 1, Math.min(11, tradeSh.getLastColumn())).getValues() : [];
+  var nameToCode = {}, displayByCode = {};
+  tradeRows.forEach(function(row) {
+    var name = String(row[3] || '').trim(), rowCode = _cleanCode(row[4]) || String(row[4] || '').trim();
+    if (name && rowCode) { if (!nameToCode[name]) nameToCode[name] = rowCode; displayByCode[rowCode] = name; }
+  });
+  configs.forEach(function(c) {
+    if (c.name && c.code) { if (!nameToCode[c.name]) nameToCode[c.name] = c.code; if (!displayByCode[c.code]) displayByCode[c.code] = c.name; }
+  });
+  var priceAppend = [], snapshotAppend = [];
+  Object.keys(candidateDates).sort().forEach(function(date) {
+    var value = evalAt(date);
+    if (!value || value.zero) return;
+    var source = sourceFor(date, value, '');
+    if (!priceByDate[date]) {
+      var priceRow = [date, code, displayByCode[code] || Object.keys(nameByCode)[0] || code, Number(value.evalAmt), '', source];
+      priceAppend.push(priceRow); priceByDate[date] = priceRow; result.priceRows++;
+    }
+    if (snapshotByDate[date] || !tradeRows.length) return;
+    var holdings = _calcCodeHoldingsAtDate(tradeRows, date, nameToCode, displayByCode);
+    _applyFundUnitLifecycleToSnapshotHoldings(holdings, configs, date);
+    var holding = null;
+    Object.keys(holdings).some(function(key) {
+      var item = holdings[key], itemCode = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+      if (itemCode === code && Number(item.qty) > 0) { holding = item; return true; }
+      return false;
+    });
+    if (!holding) return;
+    var cost = Number(holding.costAmt) || 0, valueAmt = Number(value.evalAmt), profit = valueAmt - cost;
+    snapshotAppend.push([date, code, holding.name || displayByCode[code] || code, 1, cost, cost, valueAmt, valueAmt, profit,
+      cost > 0 ? Number(((profit / cost) * 100).toFixed(2)) : 0, source, '']);
+    snapshotByDate[date] = true; result.snapshotRows++;
+  });
+
+  if (priceChanged && ph && prices.length) ph.getRange(2, 1, prices.length, 6).setValues(prices.map(function(row) { return row.slice(0,6); }));
+  if (priceAppend.length) {
+    if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
+    _setCodeColumnText(ph, 2);
+    ph.getRange(ph.getLastRow() + 1, 1, priceAppend.length, 6).setValues(_normalizeCodeRows(priceAppend, 1));
+  }
+
+  var finalSnapshots = reconciledSnapshots.concat(snapshotAppend);
+  if (snapChanged || snapshotAppend.length) {
+    if (!snap) { snap = ss.insertSheet(CONFIG.SHEET_SNAPSHOT); snap.appendRow(['날짜','종목코드','종목명','수량','매입단가','매입원금','평가단가','평가금액','손익','수익률','소스','저장일시']); }
+    _setCodeColumnText(snap, 2);
+    var originalCount = snapshots.length, writeCount = Math.max(originalCount, finalSnapshots.length);
+    while (finalSnapshots.length < writeCount) finalSnapshots.push(Array(width).fill(''));
+    snap.getRange(2, 1, writeCount, width).setValues(finalSnapshots.map(function(row) {
+      var copy = row.slice(0, width); while (copy.length < width) copy.push(''); return copy;
+    }));
   }
   return result;
 }
