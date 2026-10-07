@@ -2327,6 +2327,8 @@ function _runKrxImport(startYmd, endYmd, wantedByMarket, overwriteHistory) {
   var rows = [];
   var dayList = _buildDateRangeYmd(startYmd, endYmd);
   var fallbackCount = 0;
+  // 화면용 이월 행과 공식 당일 응답 행을 분리합니다.
+  var officialRows = [];
 
   dayList.forEach(function(ymd) {
     ['KOSPI', 'KOSDAQ', 'ETF'].forEach(function(market) {
@@ -2336,7 +2338,10 @@ function _runKrxImport(startYmd, endYmd, wantedByMarket, overwriteHistory) {
         var pack = _fetchKrxDailyOutBlockWithFallback(market, ymd, authKey, 7);
         if (!pack.rows || pack.rows.length === 0) return;
         if (pack.usedYmd !== ymd) fallbackCount++;
+        var firstAdded = rows.length;
         var added = _collectFilteredKrxRows(rows, pack.rows, wanted, ymd, market);
+        // 휴일 대체 행은 표에만 표시하고 요청일의 공식 종가로 가격이력에 쓰지 않습니다.
+        if (pack.usedYmd === ymd) officialRows = officialRows.concat(rows.slice(firstAdded));
         Logger.log('[KRX-IMPORT] ' + ymd + ' ' + market + ' 매칭 ' + added + '건' + (pack.usedYmd !== ymd ? (' (기준 ' + pack.usedYmd + ')') : ''));
       } catch (e) {
         Logger.log('⚠️ [KRX-IMPORT] ' + ymd + ' ' + market + ' 실패: ' + e.message);
@@ -2347,7 +2352,7 @@ function _runKrxImport(startYmd, endYmd, wantedByMarket, overwriteHistory) {
     outSheet.getRange(2, 1, rows.length, 5).setValues(rows);
     outSheet.getRange(2, 5, rows.length, 1).setNumberFormat('#,##0');
   }
-  if (overwriteHistory) _overwritePriceHistoryFromKrxRows(ss, rows);
+  if (overwriteHistory) _overwritePriceHistoryFromKrxRows(ss, officialRows);
   var msg = '✅ KRX 불러오기 완료\n기간: ' + startYmd + ' ~ ' + endYmd + '\n저장 행수: ' + rows.length +
     '\n휴일 대체(전일 종가) 적용: ' + fallbackCount + '회' +
     (overwriteHistory ? '\n가격이력 덮어쓰기: 적용' : '\n가격이력 덮어쓰기: 미적용');
@@ -9608,13 +9613,33 @@ function runEvalPriceUpdate1620() {
 }
 
 // 하나의 통합 트리거가 제한시간에 중단되어도 마지막으로 진입한 단계는 남깁니다.
-function _recordPortfolioCloseStage(props, runDate, startedAt, stage) {
-  props.setProperties({
-    portfolio_close_run_started_at: startedAt,
-    portfolio_close_run_date: runDate,
-    portfolio_close_stage: stage,
-    portfolio_close_stage_at: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
-  });
+function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, summary) {
+  // 동시 마감 실행은 고유 ID로 구분합니다. 먼저 실행한 작업이 늦게 종료되어도
+  // 뒤에 시작한 실행의 단계·완료·오류 정보를 덮어쓸 수 없습니다.
+  var lock = LockService.getScriptLock(), ownsLock = false;
+  try {
+    if (!lock.hasLock()) { lock.waitLock(30000); ownsLock = true; }
+    var previousStarted = String(props.getProperty('portfolio_close_run_started_at') || '');
+    if (stage === 'PRICE') {
+      if (previousStarted > startedAt) return false;
+    } else if (String(props.getProperty('portfolio_close_run_id') || '') !== String(runId || '')) {
+      return false;
+    }
+    props.setProperties({
+      portfolio_close_run_id: String(runId || ''),
+      portfolio_close_run_started_at: startedAt,
+      portfolio_close_run_date: runDate,
+      portfolio_close_stage: stage,
+      portfolio_close_stage_at: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
+    });
+    if (summary && (stage === 'ERROR' || stage === 'COMPLETE')) {
+      props.setProperty('portfolio_close_last_result', JSON.stringify(summary));
+      if (summary.errors && summary.errors.length)
+        props.setProperty('portfolio_close_last_error', _fundPropertyText(summary.errors.join(' | '), 2000));
+      else props.deleteProperty('portfolio_close_last_error');
+    }
+    return true;
+  } finally { if (ownsLock) lock.releaseLock(); }
 }
 function _portfolioCloseRunState(portfolioClose, props) {
   var startedAt = props.getProperty('portfolio_close_run_started_at') || '';
@@ -9622,7 +9647,8 @@ function _portfolioCloseRunState(portfolioClose, props) {
   var stage = props.getProperty('portfolio_close_stage') || '';
   var stageAt = props.getProperty('portfolio_close_stage_at') || '';
   var completedAt = String(portfolioClose && portfolioClose.startedAt || '');
-  var pending = !!startedAt && (!portfolioClose || startedAt > completedAt);
+  // 같은 초에 시작해도 진행 중 단계는 완료 상태로 취급할 수 없습니다.
+  var pending = !!startedAt && (stage === 'PRICE' || stage === 'FUND' || !portfolioClose || startedAt > completedAt);
   var state = !startedAt ? (portfolioClose ? 'COMPLETE' : 'NEVER_RUN')
     : pending ? 'INCOMPLETE' : (stage === 'ERROR' ? 'ERROR' : 'COMPLETE');
   return { state:state, startedAt:startedAt, runDate:runDate, stage:stage, stageAt:stageAt };
@@ -9676,10 +9702,11 @@ function runDailyPortfolioClose1900() {
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
   var startedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
+  var runId = Utilities.getUuid();
   var priceResult = null;
   var fundResult = null;
   var errors = [];
-  _recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE');
+  _recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId);
 
   try {
     priceResult = saveDailyPriceHistory();
@@ -9688,7 +9715,7 @@ function runDailyPortfolioClose1900() {
     Logger.log('⚠️ 통합 마감 일반 종목 단계 실패 — 펀드 단계 계속: ' + errors[errors.length - 1]);
   }
 
-  _recordPortfolioCloseStage(props, runDate, startedAt, 'FUND');
+  _recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId);
   try {
     fundResult = runDailyFundValuations();
   } catch (fundErr) {
@@ -9707,14 +9734,11 @@ function runDailyPortfolioClose1900() {
     fundLastDate: fundResult && fundResult.lastDate ? fundResult.lastDate : runDate,
     errors: errors.slice(0, 4)
   };
-  props.setProperty('portfolio_close_last_result', JSON.stringify(summary));
-  _recordPortfolioCloseStage(props, runDate, startedAt, errors.length ? 'ERROR' : 'COMPLETE');
+  _recordPortfolioCloseStage(props, runDate, startedAt, errors.length ? 'ERROR' : 'COMPLETE', runId, summary);
 
   if (errors.length) {
-    props.setProperty('portfolio_close_last_error', _fundPropertyText(errors.join(' | '), 2000));
     throw new Error('통합 마감 부분 실패: ' + errors.join(' | '));
   }
-  props.deleteProperty('portfolio_close_last_error');
   Logger.log('✅ 19시 통합 마감 완료: 일반 종목 확정가·Snapshot + 펀드 NAV/평가');
   return summary;
 }
