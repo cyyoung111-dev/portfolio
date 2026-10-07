@@ -465,8 +465,7 @@ let _saveHoldingsGasTimer = null;
 let _pendingExplicitEmptyTradeSync = false;
 
 function saveHoldings(options) {
-  // 빈 거래원장 원격 덮어쓰기는 사용자가 마지막 거래를 실제 삭제한 경로에서만 1회 허용합니다.
-  if (options?.allowEmptyTradeSync === true) _pendingExplicitEmptyTradeSync = true;
+  const allowEmptyTradeSyncRequested = options?.allowEmptyTradeSync === true;
   // ── 1단계: localStorage는 즉시 저장 (UI 반응성 유지)
   try {
     lsSave(HOLDINGS_KEY, rawHoldings);
@@ -502,6 +501,9 @@ function saveHoldings(options) {
   // ── 2단계: GAS 동기화는 300ms debounce — 연속 호출 시 마지막 1회만 전송
   // ★ saveSettings는 여기서 호출하지 않음 — loadSettings 도중 빈 DIVDATA를 덮어쓰는 문제 방지
   if (options?.skipGsheet) return;
+  // 로컬 저장까지 성공한 실제 삭제 경로만 원격 빈 원장 권한을 획득합니다.
+  // 로컬 저장 실패/skipGsheet 호출은 이후 unrelated 저장에 권한을 남기지 않습니다.
+  if (allowEmptyTradeSyncRequested) _pendingExplicitEmptyTradeSync = true;
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(function() {
     const allowEmptyTradeSync = _pendingExplicitEmptyTradeSync;
