@@ -10,6 +10,7 @@ const html = fs.readFileSync('src/web/index.html', 'utf8');
 const sync = fs.readFileSync('src/web/features/settings/settings_sync.js', 'utf8');
 const portfolioData = fs.readFileSync('src/web/domain/portfolio/data.js', 'utf8');
 const settings = fs.readFileSync('src/web/features/settings/settings.js', 'utf8');
+const settingsFetch = fs.readFileSync('src/web/features/settings/settings_fetch.js', 'utf8');
 const tabSync = fs.readFileSync('src/web/features/settings/settings_tabsync.js', 'utf8');
 const tradesView = fs.readFileSync('src/web/views/views_trades.js', 'utf8');
 
@@ -183,8 +184,8 @@ assert.match(settings, /const loanChanged = typeof syncLoanFromSchedule[\s\S]*if
   '부동산 하위 로드의 후속 원격 저장도 stale load epoch에서 실행되지 않음');
 assert.match(settings, /function saveDividendSettings\(_immediate, options\)[\s\S]*expectedGeneration[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '직렬화된 배당 저장도 호출 시점 target/generation에 고정해 연결 변경 cross-write를 차단');
-assert.match(settings, /function saveRealEstateSettings\(immediate, options\)[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\([\s\S]*_saveRealEstatePendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*\{ data: payload \}/,
-  '부동산 debounce 저장은 호출 시점 payload와 target/generation을 함께 고정');
+assert.match(settings, /function saveRealEstateSettings\(immediate, options\)[\s\S]*const isCurrentLoad[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\([\s\S]*_saveRealEstatePendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*\{ data: payload \}/,
+  '부동산 debounce 저장은 큐 실제 실행 시 target/generation과 load epoch를 함께 검증');
 assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\(settings\)[\s\S]*_saveSettingsPendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*\{ data: payload \}/,
   '일반 설정 debounce 저장도 호출 시점 payload와 target/generation을 함께 고정');
 assert.match(settings, /let _saveRealEstateQueue = Promise\.resolve\(\)[\s\S]*let _saveSettingsQueue = Promise\.resolve\(\)/,
@@ -230,6 +231,12 @@ assert.doesNotMatch(portfolioData, /else if \(rawTrades\.length > 0 && _getPendi
   '새 거래가 생겨도 원격 성공 전에 repair token을 조기 폐기하지 않음');
 assert.match(portfolioData, /const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)[\s\S]*await _retryPendingExplicitEmptyTradeSync\(\)/,
   'repair token이 남으면 debounce도 retry 함수의 rawTrades>0 복구 분기로 처리');
+assert.match(portfolioData, /let _portfolioRemoteSyncPending = false[\s\S]*function _isPortfolioRemoteSyncPending\(\)[\s\S]*_saveHoldingsGasTimer[\s\S]*_pendingExplicitEmptyTradeSyncFlight/,
+  '현재가 복원 전에 로컬 포트폴리오 원격 동기화 대기/실패 상태를 판별');
+assert.match(portfolioData, /_portfolioRemoteSyncPending = true[\s\S]*Promise\.all\(\[[\s\S]*syncHoldingsToGsheet\(\)[\s\S]*syncTradesToGsheet\(\)[\s\S]*_portfolioRemoteSyncPending = !\(holdingsOk && tradesOk\)/,
+  '일반 거래·보유 동기화는 둘 다 성공해야 remote-sync pending을 해제');
+assert.match(settingsFetch, /const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending[\s\S]*if \(portfolioSyncPending\)[\s\S]*현재가만 업데이트[\s\S]*else \{[\s\S]*forcePortfolioRestore: true/,
+  '현재가 업데이트는 미동기화 로컬 포트폴리오가 있으면 authoritative pull을 건너뜀');
 assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
   '빈 원장 권한은 보유현황·거래이력 동기화가 모두 성공한 뒤 영속 상태에서도 소진');
 assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*tradesResult\.affectedFrom/,
@@ -273,12 +280,12 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261007-17/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-12/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-1/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-15/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261008-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261007-15/,'현재가 연결 격리 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261008-1/,'현재가 연결 격리 로직 캐시 버전 갱신');
 assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261007-11/,'편집기 연결별 캐시 로직 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
