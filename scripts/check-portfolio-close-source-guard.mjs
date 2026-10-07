@@ -387,12 +387,25 @@ vm.runInContext(extract('_getOfficialKrxPriceHistoryLastDate'), officialDateVm);
 const sourceRows=[
   ['2026-09-29','005930','','', '', 'KRX'],
   ['2026-10-05','F00001','','','','FUND_NAV_CARRY'],
-  ['2026-10-06','005930','','','','YAHOO_KRX_BASELINE_VERIFIED_CLOSE']
+  ['2026-10-06','005930','','','','YAHOO_KRX_BASELINE_VERIFIED_CLOSE'],
+  ['2026-10-06','005930','','','','KRX_CARRY@2026-09-29']
 ];
-const mockPriceSheet={getLastRow:()=>4,getRange:()=>({getValues:()=>sourceRows})};
+const mockPriceSheet={getLastRow:()=>5,getRange:()=>({getValues:()=>sourceRows})};
 assert.equal(officialDateVm._getOfficialKrxPriceHistoryLastDate(mockPriceSheet),'2026-09-29',
   '2차 Yahoo와 펀드 NAV 날짜를 KRX 공식 종가로 오인하지 말 것');
 assert.match(source, /function handleGetKrxSourceDiagnostics/);
 assert.match(source, /getKrxSourceDiagnostics'\) return handleGetKrxSourceDiagnostics/);
+
+const historyViews=fs.readFileSync('src/web/views/views_history.js','utf8');
+const automationUI=historyViews.slice(historyViews.indexOf('async function loadAutomationStatusFromGsheet()'),
+  historyViews.indexOf('// ═', historyViews.indexOf('async function loadAutomationStatusFromGsheet()')+50));
+assert.match(automationUI, /INCOMPLETE: \['실행 중단·미완료'/,
+  '웹 카드에 INCOMPLETE 상태 번역이 있어야 함');
+assert.match(automationUI, /closeRun\.startedAt/,
+  '중단된 현재 마감의 실행 시간을 표시해야 함');
+assert.match(automationUI, /closeRun\.stage/,
+  '중단된 현재 마감 단계를 표시해야 함');
+assert.match(automationUI, /officialKrxPriceHistoryLastDate/,
+  '공식 KRX 최근일을 전체 가격/NAV 최근일과 별도 표시해야 함');
 
 console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
