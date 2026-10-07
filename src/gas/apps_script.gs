@@ -2552,6 +2552,163 @@ function handleSaveSnapshot(dateStr, dataJson) {
 // ════════════════════════════════════════════════════════════════════
 //  손익 히스토리 조회
 // ════════════════════════════════════════════════════════════════════
+// 손익 그래프는 Snapshot 시트의 중복/충돌에서 독립적으로 평가일 원자료를 재구성합니다.
+// 거래원장+확정 가격이력+펀드 NAV/좌수+환율만 읽으며 어떠한 시트에도 쓰지 않습니다.
+function _historySourceRows(index, date) {
+  var stored = index.holdingsByRequestedDate[date] || {}, holdings = {}, out = [];
+  Object.keys(stored).forEach(function(name) { holdings[name] = Object.assign({}, stored[name]); });
+  _applyFundUnitLifecycleToSnapshotHoldings(holdings, index.fundConfigs || [], date);
+  Object.keys(holdings).forEach(function(name) {
+    var h = holdings[name], code = _cleanCode(h.code) || String(h.code || '').trim();
+    if (!h || !(Number(h.qty) > 0)) return;
+    if (!code) throw new Error('종목코드 누락: ' + (h.name || name));
+    var price = 0, source = '', sourceDate = date, savedAt = '';
+    if (_isFundCode(code)) {
+      var fund = _indexedFundEvaluation(index, code, date);
+      if (fund) {
+        price = fund.evalAmt;
+        sourceDate = fund.sourceDate;
+        source = fund.carried ? 'FUND_NAV_CARRY@' + sourceDate : 'FUND_NAV';
+      } else {
+        // 확인 가능한 NAV가 전혀 없는 예외에만 평가일 당일 MANUAL을 허용합니다.
+        var fundManual = (index.historyPriceSeriesByCode[code] || []).filter(function(item) {
+          return item.date === date && String(item.source || '').toUpperCase() === 'MANUAL';
+        })[0];
+        if (fundManual) { price = fundManual.price; source = 'MANUAL'; savedAt = fundManual.savedAt || ''; }
+      }
+    } else {
+      var series = index.historyPriceSeriesByCode[code] || [];
+      var entry = _indexedLatest(series, date);
+      if (entry) {
+        var age = Math.round((Date.parse(date + 'T00:00:00Z') - Date.parse(entry.date + 'T00:00:00Z')) / 86400000);
+        // 확정 종가가 장기간 비어 있으면 과거 가격을 무기한 이월해 가짜 손익을 만들지 않습니다.
+        if (age > 10 || (age > 0 && String(entry.source || '').toUpperCase() === 'MANUAL')) {
+          throw new Error('확정 종가 원자료 없음: ' + code + ' ' + date + ' (최근 ' + entry.date + ')');
+        }
+        price = entry.price; sourceDate = entry.date; savedAt = entry.savedAt || '';
+        source = entry.date === date ? entry.source : (entry.source + '_CARRY@' + entry.date);
+      }
+    }
+    if (!(price > 0)) throw new Error('확정 평가가격 없음: ' + code + ' ' + date);
+    var currency = _isFundCode(code) ? 'KRW' : (index.currencyByCode[code] || 'KRW');
+    var fxRate = 1;
+    if (currency !== 'KRW') {
+      var fx = _indexedLatest(index.fxSeriesByCurrency[currency] || [], date);
+      if (!fx || !(fx.rate > 0)) throw new Error('확정 환율 없음: ' + code + ' ' + currency + ' ' + date);
+      var fxAge = Math.round((Date.parse(date + 'T00:00:00Z') - Date.parse(fx.date + 'T00:00:00Z')) / 86400000);
+      if (fxAge > 10) throw new Error('확정 환율 오래됨: ' + code + ' ' + currency + ' ' + date);
+      fxRate = fx.rate;
+    }
+    var priceKrw = Math.round(price * fxRate);
+    var evalAmt = Math.round(priceKrw * h.qty), costAmt = Number(h.costAmt) || 0, pnl = evalAmt - costAmt;
+    if (!Number.isSafeInteger(evalAmt) || evalAmt < 0) throw new Error('평가금액 계산 범위 초과: ' + code);
+    out.push([date, code, h.name, h.qty, h.qty > 0 ? Number((costAmt / h.qty).toFixed(2)) : 0,
+      costAmt, h.qty > 0 ? Number((evalAmt / h.qty).toFixed(2)) : 0, evalAmt, pnl,
+      costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0, source, source === 'MANUAL' ? savedAt : '']);
+  });
+  return _dedupeSnapshotRows(out);
+}
+
+function _historySourceSummary(rows, date) {
+  var evalAmt = Math.round(rows.reduce(function(sum, row) { return sum + Number(row[7] || 0); }, 0));
+  var costAmt = Math.round(rows.reduce(function(sum, row) { return sum + Number(row[5] || 0); }, 0));
+  var qty = rows.reduce(function(sum, row) { return sum + Number(row[3] || 0); }, 0);
+  var carriedFunds = rows.filter(function(row) { return /^FUND_NAV_CARRY@/.test(String(row[10] || '')); })
+    .map(function(row) { return { code: row[1], sourceDate: String(row[10]).split('@')[1] }; });
+  return { date: date, evalAmt: evalAmt, costAmt: costAmt, qty: qty,
+    evalUnit: qty > 0 ? Number((evalAmt / qty).toFixed(2)) : 0,
+    costUnit: qty > 0 ? Number((costAmt / qty).toFixed(2)) : 0,
+    pnl: evalAmt - costAmt, pct: costAmt > 0 ? Number(((evalAmt - costAmt) / costAmt * 100).toFixed(2)) : 0,
+    navInputRequired: false, navInputRequiredCodes: [], carriedFunds: carriedFunds };
+}
+
+function _historySourceDates(values, fromStr, toStr) {
+  var end = _normalizeDate(toStr || '') || _dateOffset(today(), -1);
+  if (end >= today()) end = _dateOffset(today(), -1);
+  var start = _normalizeDate(fromStr || '');
+  if (!start) {
+    var first = [];
+    [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH].forEach(function(sheetName) {
+      (values[sheetName] || []).slice(1).forEach(function(row) {
+        var date = _normalizeDate(row[0]);
+        if (date && date <= end) first.push(date);
+      });
+    });
+    start = first.length ? first.sort()[0] : end;
+  }
+  if (start > end) return [];
+  var dates = [];
+  for (var date = start; date <= end; date = _dateOffset(date, 1)) {
+    var day = new Date(date + 'T00:00:00Z').getUTCDay();
+    if (day !== 0 && day !== 6) dates.push(date);
+    // 원본 없는 지나치게 긴 조회를 GAS 단일 요청에서 방치하지 않습니다.
+    if (dates.length > 3000) throw new Error('손익 원자료 조회 범위가 3000영업일을 초과합니다. 시작연도를 선택해 주세요.');
+  }
+  return dates;
+}
+
+function _historySourceBuild(fromStr, toStr) {
+  var started = Date.now(), read = _buildSnapshotRangeReadContext(getss(), { historyOnly: true });
+  var dates = _historySourceDates(read.valuesByName, fromStr, toStr);
+  if (!dates.length) return { snapshots: [], sourceMode: 'SOURCE_RECOMPUTED',
+    sourceSummary: { candidateDates: 0, completeDates: 0, unavailableDates: 0, carriedFundDates: 0, unavailableSamples: [] } };
+  var indexed = _buildSnapshotRangeIndexes(read, dates, { historyOnly: true });
+  var snapshots = [], unavailable = 0, samples = [], carriedFundDates = 0, carriedFundItems = 0;
+  dates.forEach(function(date) {
+    try {
+      var rows = _historySourceRows(indexed, date);
+      if (!rows.length) return;
+      var snapshot = _historySourceSummary(rows, date);
+      if (snapshot.carriedFunds.length) { carriedFundDates++; carriedFundItems += snapshot.carriedFunds.length; }
+      snapshots.push(snapshot);
+    } catch (err) {
+      unavailable++;
+      if (samples.length < 20) samples.push({ date: date, reason: String(err.message || err).slice(0, 150) });
+    }
+  });
+  return { snapshots: snapshots, sourceMode: 'SOURCE_RECOMPUTED',
+    sourceSummary: { candidateDates: dates.length, completeDates: snapshots.length,
+      unavailableDates: unavailable, carriedFundDates: carriedFundDates,
+      carriedFundItems: carriedFundItems, unavailableSamples: samples,
+      readMs: read.readMs, calculationMs: Date.now() - started - read.readMs } };
+}
+
+function handleGetHistorySource(fromStr, toStr) {
+  try {
+    var revision = String(_getSnapshotIntegritySourceRevision() || '');
+    var key = 'history_src_9177_' + String(fromStr || 'all') + '_' + String(toStr || 'prev') + '_' + revision;
+    var cache = typeof CacheService !== 'undefined' ? CacheService.getScriptCache() : null;
+    if (cache && key.length <= 240) {
+      var hit = cache.get(key);
+      if (hit) { try { return jsonOk(JSON.parse(hit)); } catch(ignore) {} }
+    }
+    var result = _historySourceBuild(fromStr, toStr);
+    var serialized = JSON.stringify(result);
+    if (cache && key.length <= 240 && serialized.length < 90000) {
+      try { cache.put(key, serialized, 600); } catch(ignore) {}
+    }
+    return jsonOk(result);
+  } catch (err) { return jsonError('원자료 손익 조회 실패: ' + String(err.message || err)); }
+}
+
+function handleGetHistorySourceDetail(dateStr) {
+  try {
+    var date = _normalizeDate(dateStr || '');
+    if (!date || date >= today()) throw new Error('전일 이전 날짜를 선택해 주세요.');
+    var read = _buildSnapshotRangeReadContext(getss(), { historyOnly: true });
+    var index = _buildSnapshotRangeIndexes(read, [date], { historyOnly: true });
+    var rows = _historySourceRows(index, date);
+    var items = rows.map(function(row) {
+      var evalAmt = Number(row[7] || 0), costAmt = Number(row[5] || 0);
+      return { code: row[1], name: row[2], qty: row[3], costUnit: row[4], costAmt: costAmt,
+        evalUnit: row[6], evalAmt: evalAmt, pnl: evalAmt - costAmt,
+        pct: costAmt > 0 ? (evalAmt - costAmt) / costAmt * 100 : 0,
+        source: row[10] };
+    }).sort(function(a, b) { return b.evalAmt - a.evalAmt; });
+    return jsonOk({ date: date, items: items, sourceMode: 'SOURCE_RECOMPUTED' });
+  } catch(err) { return jsonError('원자료 기준 특정일 상세 조회 실패: ' + String(err.message || err)); }
+}
+
 function handleGetHistory(fromStr, toStr) {
   try {
     var ss = getss();
@@ -7302,6 +7459,22 @@ function _buildSnapshotRangeIndexes(readContext, dates, options) {
     var seenDates = {};
     context.priceSeriesByCode[code].forEach(function(entry) { seenDates[entry.date] = true; });
     context.positivePriceSeriesByCode[code] = Object.keys(seenDates).sort().map(function(date) { return context.priceExactByDateCode[date + '|' + code]; }).filter(Boolean);
+  });
+  // 손익 원자료 전용 가격 인덱스: 같은 날에는 검증된 자동 가격이 MANUAL보다 우선합니다.
+  // 실시간/미검증 Toss 가격과 GOOGLEFINANCE 값은 과거 확정 평가에 사용하지 않습니다.
+  context.historyPriceSeriesByCode = {};
+  Object.keys(context.priceSeriesByCode).forEach(function(code) {
+    var byDate = {};
+    context.priceSeriesByCode[code].forEach(function(entry) {
+      var src = String(entry.source || '').toUpperCase();
+      if (!(entry.price > 0) || !src || PRICE_HISTORY_UNVERIFIED_SOURCES.test(src) ||
+          src.indexOf('GOOGLEFINANCE') !== -1 || src === 'TOSS') return;
+      var previous = byDate[entry.date];
+      var rank = src === 'MANUAL' ? 1 : 2;
+      var prevRank = previous && String(previous.source || '').toUpperCase() === 'MANUAL' ? 1 : 2;
+      if (!previous || rank > prevRank || (rank === prevRank && entry.rowNumber > previous.rowNumber)) byDate[entry.date] = entry;
+    });
+    context.historyPriceSeriesByCode[code] = Object.keys(byDate).sort().map(function(date) { return byDate[date]; });
   });
   (values[FUND_NAV_SHEET] || []).slice(1).forEach(function(row) {
     var code = _cleanCode(row[1]) || String(row[1] || '').trim();
