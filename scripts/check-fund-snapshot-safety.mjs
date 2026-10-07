@@ -1003,6 +1003,27 @@ assert.equal(boundaryPrices.rows.find(row=>row[0]==='2026-01-03')[3],3600,'다�
 assert.equal(boundarySnapshots.rows.find(row=>row[0]==='2026-01-03')[7],3600,'다음 설정일 이후 Snapshot 불변');
 context.getss=()=>ssFor(sheets);
 
+// 클래스 열이 비어 있는 레거시 NAV도 현재 F코드의 유일한 provider와 호환해 파생 좌수·평가금액을 정정합니다.
+const blankProviderUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',1000,'']]);
+const blankProviderNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-01-02','F00001','테스트 펀드',1000,'2026-01-02',1000,1000,'','']]);
+const blankProviderPrices=new Sheet([['date','code','name','price','at','source'],
+  ['2026-01-02','F00001','테스트 펀드',1000,'','FUND_NAV']]);
+const blankProviderTrades=new Sheet([Array(8).fill('header'),
+  ['2026-01-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드']]);
+const blankProviderSnapshots=new Sheet([header,snap('2026-01-02','F00001',1000,'FUND_NAV')]);
+const blankProviderSheets={'펀드좌수':blankProviderUnits,'펀드기준가격':blankProviderNav,'가격이력':blankProviderPrices,'거래이력':blankProviderTrades,'스냅샷':blankProviderSnapshots};
+context.getss=()=>ssFor(blankProviderSheets);
+const blankProviderCorrection=context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider:'HANWHA_2045_CRPE',startDate:'2026-01-01',units:2000}));
+assert.equal(blankProviderCorrection.status,'ok','레거시 빈 클래스 NAV 좌수 정정 성공');
+assert.equal(blankProviderNav.rows.find(row=>row[0]==='2026-01-02')[5],2000,'빈 클래스 NAV 파생 좌수 재계산');
+assert.equal(blankProviderNav.rows.find(row=>row[0]==='2026-01-02')[6],2000,'빈 클래스 NAV 파생 평가금액 재계산');
+assert.equal(blankProviderNav.rows.find(row=>row[0]==='2026-01-02')[8],'','레거시 원본 클래스 빈 값은 임의 덮어쓰지 않음');
+assert.equal(blankProviderPrices.rows.find(row=>row[0]==='2026-01-02')[3],2000,'빈 클래스 NAV 기반 가격이력 정합');
+assert.equal(blankProviderSnapshots.rows.find(row=>row[0]==='2026-01-02')[7],2000,'빈 클래스 NAV 기반 Snapshot 정합');
+context.getss=()=>ssFor(sheets);
+
 // 0좌였던 과거 기간을 양수 좌수로 정정할 때 기존 파생행이 없었어도 가격이력·Snapshot을 새로 생성합니다.
 const reentryUnits=new Sheet([['code','name','provider','start','units','at'],
   ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',0,'']]);
