@@ -175,8 +175,8 @@ assert.match(settings, /const bootstrapTradesOk = bootstrapPortfolioStatus[\s\S]
   '구버전 bootstrap의 성공 여부 누락은 연결 변경 강제 복원에서 안전 실패 처리');
 assert.match(settings, /if \(forcePortfolioRestore && portfolioRestorePromise\)[\s\S]*forcedPortfolioRestoreData = await portfolioRestorePromise[\s\S]*preflightTradesOk[\s\S]*preflightHoldingsOk[\s\S]*if \(!preflightTradesOk \|\| !preflightHoldingsOk\) return false/,
   '연결 변경 강제 복원은 설정 전역상태 적용 전에 거래·보유 읽기를 preflight');
-assert.match(settings, /if \(holdingsLoaded\) \{[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*Object\.prototype\.hasOwnProperty\.call\(fundDirect, h\.name\)[\s\S]*fundDirect\[h\.name\]/,
-  '거래가 있는 레거시 연결도 holdings의 직접펀드를 fundDirect에 보완 복원');
+assert.match(settings, /if \(!hasAuthoritativeFundDirect && holdingsLoaded\) \{[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*Object\.prototype\.hasOwnProperty\.call\(fundDirect, h\.name\)[\s\S]*fundDirect\[h\.name\]/,
+  'fundDirect 키가 없는 레거시 연결만 holdings의 직접펀드를 보완 복원');
 assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*targetUrl[\s\S]*generation[\s\S]*requestGsheetActionJson\([\s\S]*targetUrl[\s\S]*if \(!isGsheetConnectionCurrent\(targetUrl, generation\)\) return false[\s\S]*_applyDivData/,
   '배당 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
 assert.match(settings, /function saveDividendSettings\(_immediate, options\)[\s\S]*expectedGeneration[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
@@ -246,6 +246,8 @@ assert.match(settings, /if \(!hasAuthoritativeFundDirect && holdingsLoaded\)[\s\
   '일반 복원도 Settings fundDirect 키가 없을 때만 holdings fallback을 허용');
 assert.match(settings, /if \(isFundEntry\) \{[\s\S]*!hasAuthoritativeFundDirect[\s\S]*fundDirect\[h\.name\][\s\S]*return;/,
   '보유현황 fallback 경로도 authoritative fundDirect에서 삭제한 펀드를 부활시키지 않음');
+assert.match(settings, /const s = data\.settings;[\s\S]*const hasAuthoritativeFundDirect = Object\.prototype\.hasOwnProperty\.call\(s, 'fundDirect'\)/,
+  'fundDirect authoritative 플래그는 loadSettings 범위에서 선언');
 assert.ok(
   settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true })') < settings.indexOf('// ── 거래이력 복원'),
   '영속 pending 재시도는 원격 거래/보유 복원 적용 전에 수행'
