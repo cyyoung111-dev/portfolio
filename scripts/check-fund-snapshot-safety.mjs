@@ -927,6 +927,8 @@ assert.equal(partialUnitSave.status,'error');
 assert.equal(partialUnitSave.saveState,'partial','좌수 원본 저장 후 파생 재계산 실패를 partial로 구분');
 assert.equal(partialUnitSave.followupRequired,true);
 assert.equal(partialUnitSave.affectedFrom,'2026-01-06');
+assert.match(source.match(/function handleSaveFundUnits[\s\S]*?\n}/)?.[0] || '', /sourcePersisted = true;[\s\S]*_touchSnapshotIntegritySourceRevision\(\{ from: startDate \}\)[\s\S]*_fundUnitsImpactEnd/,
+  '좌수 원본 저장 직후 revision을 먼저 갱신해 partial 실패에도 손익 캐시가 과거 좌수로 남지 않음');
 assert.equal(context._readFundUnits(ssFor(sheets)).some(c=>c.code==='F00001'&&c.startDate==='2026-01-06'&&c.units===1300),true,
   'partial 응답이어도 검증 완료된 좌수 원본 저장 사실을 숨기지 않음');
 const saveRetired=(startDate,units)=>context.handleSaveFundUnits(JSON.stringify({code:'F00003',provider:'FIDELITY_BIG4_S',startDate,units}));
