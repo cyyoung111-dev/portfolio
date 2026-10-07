@@ -262,15 +262,6 @@ async function loadSettings(onProgress) {
     ? _getPendingExplicitEmptyTradeSync()
     : null;
   const blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad;
-  if (pendingEmptySyncAtLoad && rawTrades.length === 0
-      && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
-    prog('빈 거래원장 동기화 재시도 중...');
-    try {
-      await _retryPendingExplicitEmptyTradeSync({ quiet: true });
-    } catch (e) {
-      console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
-    }
-  }
   try {
     prog('설정 데이터 로드 중...');
     // 설정·거래·보유·종목코드를 단일 GAS 실행에서 받아 웹앱 왕복 지연을 줄입니다.
@@ -459,8 +450,21 @@ async function loadSettings(onProgress) {
         }
       }
     }
-    // ── GSheet 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
-    // 원격 거래/보유현황 복원이 끝나기 전의 로컬 값으로 GAS 시트를 덮어쓰지 않습니다.
+    // 마지막 거래 삭제 pending은 fundDirect·기초정보 복원이 끝난 뒤 재시도합니다.
+    // 새로고침 직후 빈 메모리 상태로 보유현황을 먼저 동기화하면 TDF/직접펀드까지 지울 수 있으므로
+    // 반드시 비거래 보유 원자료를 복원한 다음, 아래 거래/보유 원격 복원보다 먼저 처리합니다.
+    if (pendingEmptySyncAtLoad && rawTrades.length === 0
+        && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
+      prog('빈 거래원장 동기화 재시도 중...');
+      try {
+        await _retryPendingExplicitEmptyTradeSync({ quiet: true });
+      } catch (e) {
+        console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
+      }
+    }
+
+    // ── GSheet 설정 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
+    // pending이 있던 요청은 portfolioRestorePromise=null이므로 오래된 원격 거래/보유를 적용하지 않습니다.
     saveHoldings({ skipGsheet: true });
     saveAcctColors();
     saveAcctOrder();
