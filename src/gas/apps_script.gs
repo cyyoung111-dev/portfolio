@@ -5008,6 +5008,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
 
 function handleSaveFundUnits(dataJson) {
   var lock = LockService.getScriptLock();
+  var sourcePersisted = false, affectedFrom = '', affectedTo = '', reconciliation = null;
   try {
     lock.waitLock(30000);
     var input = JSON.parse(dataJson);
@@ -5041,13 +5042,21 @@ function handleSaveFundUnits(dataJson) {
     var savedConfigs = _readFundUnits(ss);
     var exact = savedConfigs.filter(function(c) { return c.code === code && c.startDate === startDate; });
     if (exact.length !== 1 || Number(exact[0].units) !== units || exact[0].provider !== provider) throw new Error('좌수 이력 쓰기 검증 실패');
+    sourcePersisted = true;
+    affectedFrom = startDate;
+    affectedTo = _fundUnitsImpactEnd(ss, savedConfigs, code, startDate);
     _touchSnapshotIntegritySourceRevision({ from: startDate });
-    var affectedTo = _fundUnitsImpactEnd(ss, savedConfigs, code, startDate);
-    var reconciliation = _reconcileFundUnitDerivedRows(ss, code, provider, startDate, affectedTo);
+    reconciliation = _reconcileFundUnitDerivedRows(ss, code, provider, startDate, affectedTo);
     _ensurePortfolioCloseDailyTrigger(true);
-    return jsonOk({ configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19,
-      mode: mode, affectedFrom: startDate, affectedTo: affectedTo, reconciliation: reconciliation });
-  } catch (err) { return jsonError('좌수 저장 실패: ' + err.message); }
+    return jsonOk({ saveState: 'success', configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19,
+      mode: mode, affectedFrom: affectedFrom, affectedTo: affectedTo, reconciliation: reconciliation });
+  } catch (err) {
+    if (sourcePersisted) return jsonError('좌수 원본은 저장됐지만 후속 재계산이 완료되지 않았습니다: ' + err.message, {
+      saveState: 'partial', affectedFrom: affectedFrom, affectedTo: affectedTo,
+      reconciliation: reconciliation, followupRequired: true
+    });
+    return jsonError('좌수 저장 실패: ' + err.message, { saveState: 'failed' });
+  }
   finally { lock.releaseLock(); }
 }
 
