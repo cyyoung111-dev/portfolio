@@ -95,7 +95,7 @@ const values = {
 };
 const indexed = lib._buildSnapshotRangeIndexes({
   valuesByName: values, ss: {}, metrics: {}, readMs: 0,
-}, ['2026-10-07','2026-10-09','2026-10-21'], { historyOnly: true });
+}, ['2026-10-07','2026-10-08','2026-10-09','2026-10-21'], { historyOnly: true });
 assert.equal(indexed.metrics.priceIntegrityBuildCount,0,'조회 전용 경로에서 무거운 Snapshot 정합성 계산 생략');
 assert.equal(indexed.historyPriceSeriesByCode['005930'][0].price,150000,'자동 확정 종가가 같은 날짜 MANUAL보다 우선');
 assert.equal(indexed.historyPriceSeriesByCode.AAPL.length,1,'미확정 Toss 시세가 과거 손익을 덮어쓰지 않음');
@@ -108,6 +108,10 @@ assert.equal(map.AAPL[7],130650,'미국주식은 확정 종가 × 해당일 이�
 const summary = lib._historySourceSummary(july,'2026-10-07');
 assert.equal(summary.carriedFunds[0].sourceDate,'2026-10-05');
 assert.equal(summary.navInputRequired,false,'이월 NAV는 수기입력 강제 대상이 아님');
+const following = lib._historySourceRows(indexed,'2026-10-08');
+const followingSummary = lib._historySourceSummary(following,'2026-10-08');
+assert.equal(followingSummary.carriedPrices.length,2,'직전 종가로 평가한 일반종목 2건 별도 표시');
+assert.equal(followingSummary.carriedPrices[0].sourceDate,'2026-10-07','종가 이월에 원천일 기록');
 const zeroUnit = lib._historySourceRows(indexed,'2026-10-09');
 assert(!zeroUnit.some(row => row[1] === 'F00002'),'0좌 전환 뒤 펀드는 제외');
 assert.throws(() => lib._historySourceRows(indexed,'2026-10-21'),/확정 종가 원자료 없음|확정 환율 오래됨/,'10일 초과 가격/환율 이월 차단');
@@ -124,6 +128,8 @@ assert.match(web, /_historyRequestJson\('getHistorySource'/);
 assert.match(web, /_historyRequestJson\('getHistorySourceDetail'/);
 assert.match(web, /sourceRecomputed \? \[\] : snapshots\.filter/,'원자료 재구성 시 Snapshot 정합성 중복 진단 생략');
 assert.match(web, /원자료 기준 자동 손익/);
+assert.match(web, /일반 종목.*해당일 확정 종가가 없어 직전 확정 종가로 이월 평가/);
+assert.match(web, /_renderHistorySourceCoverage\(coverageEl, data\.sourceSummary, \[\]\)/,'전부 결측이어도 원자료 부족 사유 렌더링');
 assert.match(indexHtml,/views_history_pipeline\.js\?v=20261007-4/);
 assert.match(sw,/portfolio-cache-20261007-4/);
 console.log('✅ 펀드 직전 확정 NAV 이월·좌수 변경·0좌·미래값 차단·원자료 손익 회귀 검사 통과');
