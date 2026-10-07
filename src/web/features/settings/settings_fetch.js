@@ -35,6 +35,8 @@ async function fetchFromGsheet(dateStr, options) {
     ? getGsheetConnectionGeneration()
     : 0;
   if (!targetUrl) return null;
+  if (typeof isGsheetPortfolioWriteReady === 'function'
+      && !isGsheetPortfolioWriteReady({ targetUrl, generation })) return null;
   const requestKey = targetUrl + '|' + generation + '|' + dateStr;
   const forceFresh = !!options?.forceFresh;
   // 다른 연결의 in-flight 요청은 재사용하거나 기다리지 않습니다.
