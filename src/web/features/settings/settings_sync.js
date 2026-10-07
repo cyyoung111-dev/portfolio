@@ -191,9 +191,12 @@ async function syncHoldingsToGsheet(options) {
     allowDuringRestore: options?.allowDuringRestore === true
   })) return null;
   try {
+    // 재시도/복구 경로는 호출 시점의 보유현황 payload를 고정할 수 있습니다.
+    // 강제 복원 중에는 이전 연결의 rawHoldings가 메모리에 남을 수 있으므로 override가 중요합니다.
+    const sourceHoldings = Array.isArray(options?.holdingsOverride) ? options.holdingsOverride : rawHoldings;
     // rows에서 종목별 합산 데이터 추출 (계좌 합산 기준)
     const holdMap = {};
-    rawHoldings.forEach(h => {
+    sourceHoldings.forEach(h => {
       if (!h.name || h.qty <= 0) return;
       const ep   = getEP(h.name);
       const code = ep?.code || STOCK_CODE[h.name] || '';
