@@ -194,6 +194,10 @@ async function syncHoldingsToGsheet(options) {
     // 재시도/복구 경로는 호출 시점의 보유현황 payload를 고정할 수 있습니다.
     // 강제 복원 중에는 이전 연결의 rawHoldings가 메모리에 남을 수 있으므로 override가 중요합니다.
     const sourceHoldings = Array.isArray(options?.holdingsOverride) ? options.holdingsOverride : rawHoldings;
+    const hasFundDirectOverride = Object.prototype.hasOwnProperty.call(options || {}, 'fundDirectOverride');
+    const sourceFundDirect = hasFundDirectOverride
+      ? ((options.fundDirectOverride && typeof options.fundDirectOverride === 'object') ? options.fundDirectOverride : {})
+      : fundDirect;
     // rows에서 종목별 합산 데이터 추출 (계좌 합산 기준)
     const holdMap = {};
     sourceHoldings.forEach(h => {
@@ -207,7 +211,7 @@ async function syncHoldingsToGsheet(options) {
       holdMap[key].costAmt += (h.qty * (h.cost || 0));
     });
     // ★ fundDirect(TDF/펀드) 항목 추가 — qty 개념 없으므로 qty=1, costAmt=cost로 저장
-    Object.entries(fundDirect).forEach(([name, fd]) => {
+    Object.entries(sourceFundDirect).forEach(([name, fd]) => {
       if (!name || !fd || fd.cost <= 0) return;
       if (holdMap[name]) return; // rawHoldings에 이미 있으면 중복 스킵
       holdMap[name] = { code: '', name, qty: 1, costAmt: fd.cost || 0, assetType: fd.type || 'TDF' };
