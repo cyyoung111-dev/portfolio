@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.181
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.182
+//
+//  v9.182 변경사항 (2026.10.07):
+//   거래원본 저장 후 Snapshot partial 실패의 영향 시작일을 Script Properties에 영속해 다음 동기화에서 재시도
+//   과거 손익 원자료에서 KRX_CARRY/ KRX_OTP_CARRY를 당일 확정 종가로 직접 채택하지 않고 실제 이전 확정 KRX 행에서 carry
 //
 //  v9.181 변경사항 (2026.10.07):
 //   GSheet 연결 변경 강제복원 안전성 보강: bootstrap 거래/보유 읽기 성공상태를 보존
@@ -4902,7 +4906,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.181' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.182' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7890,7 +7894,8 @@ function _buildSnapshotRangeIndexes(readContext, dates, options) {
     context.priceSeriesByCode[code].forEach(function(entry) {
       var src = String(entry.source || '').toUpperCase();
       if (!(entry.price > 0) || !src || PRICE_HISTORY_UNVERIFIED_SOURCES.test(src) ||
-          src.indexOf('GOOGLEFINANCE') !== -1 || src === 'TOSS') return;
+          src.indexOf('GOOGLEFINANCE') !== -1 || src === 'TOSS' ||
+          src === 'KRX_CARRY' || src === 'KRX_OTP_CARRY') return;
       var previous = byDate[entry.date];
       var rank = src === 'MANUAL' ? 1 : 2;
       var prevRank = previous && String(previous.source || '').toUpperCase() === 'MANUAL' ? 1 : 2;
@@ -8606,6 +8611,7 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     if (!Array.isArray(trades)) return jsonError('배열 형식 필요');
 
     var ss = getss();
+    var pendingSnapshotRebuild = _readPendingTradeSnapshotRebuild();
     var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
     var createdTradeSheet = !sh;
     var previousRows = sh && sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(11, sh.getLastColumn())).getValues() : [];
@@ -8636,6 +8642,10 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     sourcePersisted = true;
     var explicitEmptyReset = explicitEmpty === true && currentRows.length === 0;
     affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
+    // 이전 요청에서 거래원본은 저장됐지만 Snapshot 재계산만 실패했다면 동일 원장을 다시 보낸
+    // 재시도에서도 영향 시작일을 잃지 않습니다.
+    if (pendingSnapshotRebuild && pendingSnapshotRebuild.from
+        && (!affectedFrom || pendingSnapshotRebuild.from < affectedFrom)) affectedFrom = pendingSnapshotRebuild.from;
     // 첫 빈 원장 요청의 응답이 유실되거나 partial로 끝난 뒤 재시도하면 서버의 previousRows는 이미 비어 있습니다.
     // 클라이언트가 마지막 삭제의 최초 영향일을 다시 보내므로 같은 Snapshot 범위를 안전하게 재계산할 수 있습니다.
     if (!affectedFrom && explicitEmptyReset) affectedFrom = _normalizeDate(rebuildFrom || '');
@@ -8648,25 +8658,56 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     }
     if (snapshotRebuild && snapshotRebuild.errors && snapshotRebuild.errors.length) {
       var rebuildMessage = 'Snapshot rebuild 부분 실패: ' + snapshotRebuild.errors.map(function(item) { return item.date + ': ' + item.message; }).join('; ');
+      if (affectedFrom) _setPendingTradeSnapshotRebuild(affectedFrom);
       if (typeof tradeBackup !== 'undefined' && tradeBackup) _markSnapshotBackupStatus(tradeBackup, 'WRITE_FAILED', rebuildMessage);
       return jsonError('거래원본은 저장됐지만 과거 평가 재계산이 일부 완료되지 않았습니다: ' + rebuildMessage, {
         saveState: 'partial', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo,
         snapshotRebuild: snapshotRebuild, followupRequired: true
       });
     }
+    if (pendingSnapshotRebuild) _clearPendingTradeSnapshotRebuild();
     _markSnapshotBackupStatus(tradeBackup, 'COMPLETED');
     var tradeBackupCleanup = tradeBackup ? _cleanupCurrentSystemBackup(ss, tradeBackup) : null;
     return jsonOk({ saveState: 'success', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo, snapshotRebuild: snapshotRebuild, backupCleanup: tradeBackupCleanup });
   } catch(err) {
     if (typeof tradeBackup !== 'undefined' && tradeBackup) _markSnapshotBackupStatus(tradeBackup, 'WRITE_FAILED', err.message);
-    if (sourcePersisted) return jsonError('거래원본은 저장됐지만 후속 평가 재계산이 완료되지 않았습니다: ' + err.message, {
+    if (sourcePersisted) {
+      if (affectedFrom) _setPendingTradeSnapshotRebuild(affectedFrom);
+      return jsonError('거래원본은 저장됐지만 후속 평가 재계산이 완료되지 않았습니다: ' + err.message, {
       saveState: 'partial', affectedFrom: affectedFrom, affectedTo: affectedTo,
       snapshotRebuild: snapshotRebuild, followupRequired: true
     });
+    }
     return jsonError('syncTrades 실패: ' + err.message, { saveState: 'failed' });
   } finally {
     if (locked) lock.releaseLock();
   }
+}
+
+var TRADE_SNAPSHOT_REBUILD_PENDING_KEY = 'trade_snapshot_rebuild_pending_v1';
+
+function _readPendingTradeSnapshotRebuild() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
+    if (!raw) return null;
+    var parsed = JSON.parse(raw), from = _normalizeDate(parsed && parsed.from || '');
+    return from ? { from: from } : null;
+  } catch (ignore) { return null; }
+}
+
+function _setPendingTradeSnapshotRebuild(from) {
+  var date = _normalizeDate(from || '');
+  var props = PropertiesService.getScriptProperties();
+  if (!date) { props.deleteProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY); return null; }
+  var current = _readPendingTradeSnapshotRebuild();
+  if (current && current.from < date) date = current.from;
+  var value = { from: date, updatedAt: new Date().toISOString() };
+  props.setProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY, JSON.stringify(value));
+  return value;
+}
+
+function _clearPendingTradeSnapshotRebuild() {
+  PropertiesService.getScriptProperties().deleteProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
 }
 
 function _earliestChangedTradeDate(beforeRows, afterRows) {
@@ -9816,7 +9857,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.181',
+    gasVersion: '9.182',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9847,7 +9888,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.181' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.182' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11631,7 +11672,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.181' });
+    return jsonOk({ settings: settings, gasVersion: '9.182' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11659,7 +11700,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.181'
+      gasVersion: '9.182'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
