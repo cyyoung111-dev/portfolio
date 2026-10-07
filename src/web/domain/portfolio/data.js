@@ -520,7 +520,6 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
   // 삭제 이후 새 거래가 생겼다면 "빈 원장" 의도를 폐기하고 현재 비어 있지 않은 원장을 즉시 일반 동기화합니다.
   // GSheet 연동 중 거래는 remote-only이므로 여기서 전송하지 않으면 새로고침 시 새 거래가 유실될 수 있습니다.
   if (rawTrades.length > 0) {
-    if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
     const recoveryTrades = rawTrades.map(t => ({ ...t }));
     const [holdingsResult, tradesResult] = await Promise.all([
       typeof syncHoldingsToGsheet === 'function'
@@ -541,10 +540,16 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     ]);
     const holdingsOk = holdingsResult?.status === 'ok';
     const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
-    if ((!holdingsOk || !tradesOk) && !options?.quiet && typeof showToast === 'function') {
+    if (holdingsOk && tradesOk) {
+      if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
+      return true;
+    }
+    // 새 거래가 원격에 확정되기 전에는 repair token을 유지합니다.
+    // 다음 재시도에서도 rawTrades>0 분기가 먼저 실행되므로 빈 원장 삭제로 되돌아가지 않습니다.
+    if (!options?.quiet && typeof showToast === 'function') {
       showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
     }
-    return holdingsOk && tradesOk;
+    return false;
   }
 
   // 재시도 시작 시점의 연결을 고정합니다. 첫 await 동안 사용자가 GSheet 연결을 바꿔도
@@ -685,11 +690,9 @@ function saveHoldings(options) {
       from: emptyTradeSyncFrom || _pendingExplicitEmptyTradeSync?.from || '',
       target: _currentGsheetSyncTarget()
     });
-  } else if (rawTrades.length > 0 && _getPendingExplicitEmptyTradeSync()) {
-    // pending 실패 뒤 사용자가 새 거래를 추가했다면 새 거래가 최신 의도입니다.
-    // 빈 원장 권한을 먼저 폐기해 아래 debounce가 일반 원장 동기화를 수행하게 합니다.
-    _setPendingExplicitEmptyTradeSync(null);
   }
+  // pending 실패 뒤 새 거래가 생겨도 성공 전에는 repair token을 지우지 않습니다.
+  // debounce는 아래 _retryPendingExplicitEmptyTradeSync()의 rawTrades>0 분기로 현재 원장을 재전송합니다.
   clearTimeout(_saveHoldingsGasTimer);
   _saveHoldingsGasTimer = setTimeout(async function() {
     const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync();
