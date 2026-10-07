@@ -507,7 +507,7 @@ function saveHoldings(options) {
     const allowEmptyTradeSync = _pendingExplicitEmptyTradeSync;
     _pendingExplicitEmptyTradeSync = false;
     if (typeof syncCodesToGsheet    === 'function') syncCodesToGsheet();
-    if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet();
+    if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet({ allowEmpty: allowEmptyTradeSync });
     if (typeof syncTradesToGsheet   === 'function') syncTradesToGsheet({ allowEmpty: allowEmptyTradeSync });
   }, 300);
 }
