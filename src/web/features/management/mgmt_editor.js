@@ -1164,7 +1164,12 @@ async function _fetchEditorPriceHistoryRaw(dateStr) {
     });
     const uniqTargets = Array.from(new Set(targets.filter(Boolean)));
     if (uniqTargets.length === 0) return {};
-    const cacheKey = `${dateStr}|${uniqTargets.join(',')}`;
+    const targetUrl = String(GSHEET_API_URL || '').trim();
+    const generation = typeof getGsheetConnectionGeneration === 'function'
+      ? getGsheetConnectionGeneration()
+      : 0;
+    if (!targetUrl) return {};
+    const cacheKey = `${targetUrl}|${generation}|${dateStr}|${uniqTargets.join(',')}`;
     const cached = _editorHistoryCache.get(cacheKey);
     if (cached && Date.now() - cached.ts < EDITOR_HISTORY_CACHE_MS) return cached.promise;
 
@@ -1172,8 +1177,12 @@ async function _fetchEditorPriceHistoryRaw(dateStr) {
       const data = await requestGsheetActionJson(
         'getPriceHistory',
         { to: dateStr, codes: uniqTargets.join(',') },
-        { timeoutMs: 20000, retry: 0 }
+        { timeoutMs: 20000, retry: 0, targetUrl }
       );
+      if (typeof isGsheetConnectionCurrent === 'function'
+          && !isGsheetConnectionCurrent(targetUrl, generation)) {
+        throw new Error('연결 변경으로 이전 가격이력 응답 폐기');
+      }
       if (!data) throw new Error('가격이력 네트워크 응답 없음');
       if (data.status !== 'ok' || !data.prices) throw new Error(data.message || '가격이력 응답 오류');
       return data.prices; // { [key]: entries[] } 원본 반환
