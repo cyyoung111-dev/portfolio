@@ -33,7 +33,7 @@ const holdings = {
   '애플': { code: 'AAPL', name: '애플', qty: 1, costAmt: 180000 },
 };
 const ctx = {
-  CONFIG: { SHEET_TRADES: '거래', SHEET_PH: '가격이력', SHEET_CODES: '종목코드', SHEET_SNAPSHOT: '스냅샷' },
+  CONFIG: { SHEET_TRADES: '거래', SHEET_HOLD: '보유현황', SHEET_PH: '가격이력', SHEET_CODES: '종목코드', SHEET_SNAPSHOT: '스냅샷' },
   FUND_NAV_SHEET: '펀드기준가격', FUND_UNITS_SHEET: '펀드좌수',
   PRICE_HISTORY_UNVERIFIED_SOURCES: /REALTIME|INDICATIVE|DAILY_CANDLE|UNVERIFIED_CLOSE/i,
   _normalizeDate: norm, _normalizeDatetime: String, _cleanCode: value => String(value || '').trim(),
@@ -61,7 +61,7 @@ const ctx = {
   today: () => '2026-10-10',
 };
 const functions = ['_fundNavEvaluationFromRows','_indexedFundEvaluation',
-  '_buildSnapshotRangeIndexes','_historySourceRows','_historySourceSummary','_historySourceDates'];
+  '_buildSnapshotRangeIndexes','_historySourceRows','_historySourceSummary','_historyNonTradeHoldings','_historySourceDates'];
 vm.runInNewContext(functions.map(pick).join('\n') + '\nglobalThis.funcs={' +
   functions.map(name => name + ':' + name).join(',') + '};', ctx);
 const lib = ctx.funcs;
@@ -209,6 +209,21 @@ assert(!zeroUnit.some(row => row[1] === 'F00002'),'0좌 전환 뒤 펀드는 제
 assert.throws(() => lib._historySourceRows(indexed,'2026-10-21'),/확정 종가 원자료 없음|확정 환율 오래됨/,'10일 초과 가격/환율 이월 차단');
 const days = lib._historySourceDates(values,'2026-10-03','2026-10-07');
 assert.deepEqual(Array.from(days),['2026-10-05','2026-10-06','2026-10-07'],'주말 제외 일별 날짜 구성');
+const nonTradeValues = { ...values, 보유현황: [
+  ['코드','종목명','수량','매수단가','매수원금','자산유형','계좌'],
+  ['','레거시 TDF',1,1000,1000,'TDF','연금'],
+  ['005930','삼성전자',1,1000,1000,'주식','일반']
+] };
+assert.deepEqual(Array.from(lib._historyNonTradeHoldings(nonTradeValues)),['레거시 TDF'],
+  '거래원장으로 과거 보유를 재구성할 수 없는 코드 없는 TDF/펀드만 별도 진단');
+const fundOnlyDates = lib._historySourceDates({
+  ...values,
+  거래: [['날짜']],
+  가격이력: [['날짜']],
+  펀드기준가격: [['날짜','코드'],['2026-10-05','F00002']],
+  펀드좌수: [['코드','명','클래스','적용시작일'],['F00002','KB','KB','2026-10-01']]
+},'', '2026-10-07');
+assert.equal(fundOnlyDates[0],'2026-10-01','파생 가격이력이 없어도 펀드 좌수/NAV 원자료에서 손익 시작일 추론');
 
 assert.match(gas,/function handleGetHistorySource\(/);
 assert.match(gas,/function handleGetHistorySourceDetail\(/);
@@ -226,6 +241,6 @@ assert.match(web, /펀드 NAV 이월 예시/,'이월 NAV의 종목·평가일·�
 assert.match(web, /일반 종가 이월 예시/,'이월 종가의 종목·평가일·원천일 예시 표시');
 assert.match(gas, /carriedFundSamples/,'손익 원자료 응답에 펀드 NAV 이월 예시 포함');
 assert.match(gas, /carriedPriceSamples/,'손익 원자료 응답에 일반 종가 이월 예시 포함');
-assert.match(indexHtml,/views_history_pipeline\.js\?v=20261007-5/);
-assert.match(sw,/portfolio-cache-20261007-29/);
+assert.match(indexHtml,/views_history_pipeline\.js\?v=20261007-6/);
+assert.match(sw,/portfolio-cache-20261007-30/);
 console.log('✅ 펀드 직전 확정 NAV 이월·좌수 변경·0좌·미래값 차단·원자료 손익 회귀 검사 통과');
