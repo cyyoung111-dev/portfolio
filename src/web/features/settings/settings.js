@@ -22,6 +22,18 @@ const SECTOR_LABELS = {
 
 // ── 구글 시트 API URL (브라우저 재시작해도 유지)
 let GSHEET_API_URL = lsGet(GSHEET_KEY, '');
+// URL이 A→B→A로 돌아와도 중간 전환을 구분하기 위한 세대 번호입니다.
+let GSHEET_CONNECTION_GENERATION = 0;
+let _gsPortfolioRestoreRequired = false;
+
+function getGsheetConnectionGeneration() {
+  return GSHEET_CONNECTION_GENERATION;
+}
+
+function isGsheetConnectionCurrent(target, generation) {
+  return String(GSHEET_API_URL || '').trim() === String(target || '').trim()
+    && GSHEET_CONNECTION_GENERATION === generation;
+}
 
 // debounce 타이머
 let _saveSettingsTimer = null;
@@ -256,6 +268,10 @@ async function persistRealEstateSettings(immediate) {
 async function loadSettings(onProgress) {
   const prog = onProgress || function(){};
   if (!GSHEET_API_URL) return false;
+  const loadTarget = String(GSHEET_API_URL || '').trim();
+  const loadGeneration = getGsheetConnectionGeneration();
+  const isLoadConnectionCurrent = () => isGsheetConnectionCurrent(loadTarget, loadGeneration);
+  const forcePortfolioRestore = _gsPortfolioRestoreRequired === true;
   // 마지막 거래 삭제가 원격에 완전히 반영되기 전 새로고침된 경우,
   // 원격의 과거 거래를 다시 복원하기 전에 영속 pending 삭제를 먼저 재시도합니다.
   const pendingEmptySyncAtLoad = typeof _getPendingExplicitEmptyTradeSync === 'function'
@@ -266,26 +282,29 @@ async function loadSettings(onProgress) {
     prog('설정 데이터 로드 중...');
     // 설정·거래·보유·종목코드를 단일 GAS 실행에서 받아 웹앱 왕복 지연을 줄입니다.
     // 구버전 GAS는 getBootstrap을 모르므로 기존 getSettings 요청으로 자동 대체합니다.
-    let data = await requestGsheetActionJson('getBootstrap', {}, { timeoutMs: 15000, retry: 1 });
+    let data = await requestGsheetActionJson('getBootstrap', {}, { timeoutMs: 15000, retry: 1, targetUrl: loadTarget });
+    if (!isLoadConnectionCurrent()) return false;
     const isBootstrap = !!(data && data.status === 'ok' && data.settings && Array.isArray(data.codes));
     if (!isBootstrap) {
-      data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1 });
+      data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1, targetUrl: loadTarget });
+      if (!isLoadConnectionCurrent()) return false;
     }
     if (!data || data.status !== 'ok' || !data.settings) return false;
     const s = data.settings;
     // 설정·배당·부동산 처리와 동시에 거래/보유 시트를 미리 읽습니다.
     // 기존에는 모든 설정 복원이 끝난 뒤 순차 요청해 주식 데이터 표시가 불필요하게 늦었습니다.
+    const shouldRestorePortfolio = rawTrades.length === 0 || forcePortfolioRestore;
     const portfolioRestorePromise = blockRemotePortfolioRestore
       ? null
-      : rawTrades.length === 0 && isBootstrap
+      : shouldRestorePortfolio && isBootstrap
       ? Promise.resolve([
           { status: 'ok', trades: Array.isArray(data.trades) ? data.trades : [] },
           { status: 'ok', holdings: Array.isArray(data.holdings) ? data.holdings : [] },
         ])
-      : rawTrades.length === 0
+      : shouldRestorePortfolio
       ? Promise.all([
-          requestGsheetActionJson('getTrades', {}, { timeoutMs: 15000, retry: 1 }).catch(() => null),
-          requestGsheetActionJson('getHoldings', {}, { timeoutMs: 15000, retry: 1 }).catch(() => null),
+          requestGsheetActionJson('getTrades', {}, { timeoutMs: 15000, retry: 1, targetUrl: loadTarget }).catch(() => null),
+          requestGsheetActionJson('getHoldings', {}, { timeoutMs: 15000, retry: 1, targetUrl: loadTarget }).catch(() => null),
         ])
       : null;
 
@@ -461,6 +480,7 @@ async function loadSettings(onProgress) {
       } catch (e) {
         console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
       }
+      if (!isLoadConnectionCurrent()) return false;
     }
 
     // ── GSheet 설정 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
@@ -476,6 +496,7 @@ async function loadSettings(onProgress) {
           loadDividendSettings(),   // 배당 별도 시트 우선
           loadRealEstateSettings(), // 부동산/대출 별도 시트 우선
         ]);
+    if (!isLoadConnectionCurrent()) return false;
 
     // 하위 호환 fallback: 별도 시트 액션이 없으면 기존 Settings 시트 데이터 사용
     if (!divLoaded && s.DIVDATA && typeof s.DIVDATA === 'object') {
@@ -523,11 +544,12 @@ async function loadSettings(onProgress) {
       });
     }
 
-    // ── 거래이력 복원 (localStorage가 비어있을 때만 — 기존 데이터 우선)
-    if (rawTrades.length === 0) {
+    // ── 거래이력 복원 (연결 변경 시에는 이전 연결의 메모리 데이터를 강제로 교체)
+    if (rawTrades.length === 0 || forcePortfolioRestore) {
       try {
         prog('거래이력 복원 중...');
         const restoredPortfolio = portfolioRestorePromise ? await portfolioRestorePromise : [null, null];
+        if (!isLoadConnectionCurrent()) return false;
         const trData = restoredPortfolio[0];
         if (trData && trData.status === 'ok' && Array.isArray(trData.trades) && trData.trades.length > 0) {
           rawTrades.length = 0;
@@ -575,10 +597,12 @@ async function loadSettings(onProgress) {
       if (isBootstrap && typeof applyGsheetCodeList === 'function') applyGsheetCodeList(data.codes);
       else await loadGsheetCodeList();
     } catch(e) {}
+    if (!isLoadConnectionCurrent()) return false;
     const reconciled = typeof reconcileEditablesFromGsheetCodeList === 'function'
       ? reconcileEditablesFromGsheetCodeList()
       : 0;
     if (reconciled > 0) console.log(`[GAS 기초정보 복구] 종목코드 시트에서 ${reconciled}개 필드 반영`);
+    _gsPortfolioRestoreRequired = false;
     return true;
   } catch(e) {
     console.warn('loadSettings 실패:', e);
