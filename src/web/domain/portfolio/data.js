@@ -530,12 +530,14 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
       if (restoreInProgress) return false;
       if (rawTrades.length === 0) return false;
       const recoveryTrades = rawTrades.map(t => ({ ...t }));
+      const recoveryHoldings = rawHoldings.map(h => ({ ...h }));
       const [holdingsResult, tradesResult] = await Promise.all([
         typeof syncHoldingsToGsheet === 'function'
           ? syncHoldingsToGsheet({
               targetUrl: retryTarget,
               generation: retryGeneration,
-              allowDuringRestore
+              allowDuringRestore,
+              holdingsOverride: recoveryHoldings
             })
           : Promise.resolve(null),
         typeof syncTradesToGsheet === 'function'
@@ -569,7 +571,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
           allowEmpty: true,
           targetUrl: retryTarget,
           generation: retryGeneration,
-          allowDuringRestore
+          allowDuringRestore,
+          holdingsOverride: []
         })
       : null;
 
