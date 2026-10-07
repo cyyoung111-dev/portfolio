@@ -7413,6 +7413,14 @@ function _indexedFundEvaluation(context, code, date) {
   context.metrics.fundNavLookupCount++;
   var active = _fundUnitsAtDate(context.fundConfigs || [], code, date);
   if (!active || !(Number(active.units) > 0)) return null;
+  // 같은 공시일의 상충 NAV는 정렬상 마지막 값을 선택하지 않고 조회를 실패시킵니다.
+  // 두 행의 입력일이 모두 평가일까지 도달했고 해당 기관에 적용되는 충돌만 검사합니다.
+  (context.fundNavConflictsByCode[code] || []).forEach(function(conflict) {
+    if (conflict.sourceDate > date || conflict.detectedAt > date) return;
+    if ((conflict.providerA && conflict.providerA !== active.provider) ||
+        (conflict.providerB && conflict.providerB !== active.provider)) return;
+    throw new Error('펀드 확정 NAV 충돌: ' + code + ' ' + conflict.sourceDate);
+  });
   var series = context.fundNavSeriesByCode[code] || [], best = null;
   var low = 0, high = series.length - 1, index = -1;
   while (low <= high) {
@@ -7525,9 +7533,28 @@ function _buildSnapshotRangeIndexes(readContext, dates, options) {
       nav: nav, valueDate: valueDate, sourceDate: sourceDate, provider: String(row[8] || ''), date: sourceDate
     });
   });
-  Object.keys(context.fundNavSeriesByCode).forEach(function(code) { context.fundNavSeriesByCode[code].sort(function(a,b) {
-    return a.sourceDate === b.sourceDate ? a.valueDate.localeCompare(b.valueDate) : a.sourceDate.localeCompare(b.sourceDate);
-  }); });
+  // NAV 충돌을 인덱스 생성 시 한 번만 선계산하여 일별 조회마다 원본 행 전체를 스캔하지 않습니다.
+  // 공시기관 미기재 행은 기존 단건 평가 경로와 동일하게 어느 기관에도 적용됩니다.
+  context.fundNavConflictsByCode = {};
+  Object.keys(context.fundNavSeriesByCode).forEach(function(code) {
+    var series = context.fundNavSeriesByCode[code];
+    series.sort(function(a,b) {
+      return a.sourceDate === b.sourceDate ? a.valueDate.localeCompare(b.valueDate) : a.sourceDate.localeCompare(b.sourceDate);
+    });
+    var sameDay = [], lastSourceDate = '';
+    series.forEach(function(item) {
+      if (item.sourceDate !== lastSourceDate) { sameDay = []; lastSourceDate = item.sourceDate; }
+      sameDay.forEach(function(previous) {
+        if (previous.nav === item.nav || (previous.provider && item.provider && previous.provider !== item.provider)) return;
+        (context.fundNavConflictsByCode[code] || (context.fundNavConflictsByCode[code] = [])).push({
+          sourceDate: item.sourceDate,
+          detectedAt: previous.valueDate > item.valueDate ? previous.valueDate : item.valueDate,
+          providerA: previous.provider, providerB: item.provider
+        });
+      });
+      sameDay.push(item);
+    });
+  });
   (values['환율이력'] || []).slice(1).forEach(function(row) {
     var date = _normalizeDate(row[0]), currency = String(row[1] || '').toUpperCase(), rate = Number(row[2]);
     if (date && currency && rate > 0) (context.fxSeriesByCurrency[currency] || (context.fxSeriesByCurrency[currency] = [])).push({ date: date, rate: rate });
