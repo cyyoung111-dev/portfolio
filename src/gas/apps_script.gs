@@ -2590,7 +2590,8 @@ function _historySourceRows(index, date) {
       }
     }
     if (!(price > 0)) throw new Error('확정 평가가격 없음: ' + code + ' ' + date);
-    var currency = _isFundCode(code) ? 'KRW' : (index.currencyByCode[code] || 'KRW');
+    var currency = _isFundCode(code) ? 'KRW' : String((index.historyCurrencyByCode || {})[code] || '');
+    if (!currency) throw new Error('종목 통화 원자료 누락·확인 필요: ' + code + ' ' + date);
     var fxRate = 1;
     if (currency !== 'KRW') {
       var fx = _indexedLatest(index.fxSeriesByCurrency[currency] || [], date);
@@ -7433,6 +7434,20 @@ function _buildSnapshotRangeIndexes(readContext, dates, options) {
     context.codeByCode[code] = item;
     if (item.name) context.nameToCode[item.name] = code;
     context.currencyByCode[code] = String(item.currency || 'KRW').toUpperCase();
+  });
+  // getCodeItems()는 빈 통화 셀을 KRW로 기본 설정합니다. 손익 원자료 조회에서는
+  // 누락된 해외 종목 통화가 KRW로 오인되지 않도록 시트 원본 통화 셀을 직접 확인합니다.
+  context.historyCurrencyByCode = {};
+  (values[CONFIG.SHEET_CODES] || []).slice(1).forEach(function(row) {
+    var code = _cleanCode(row[0]) || String(row[0] || '').trim();
+    if (!code) return;
+    var currency = String(row[4] || '').trim().toUpperCase();
+    var market = String(row[5] || '').trim().toUpperCase();
+    var foreignCode = /^[A-Z]{1,5}(\.[A-Z])?$/.test(code);
+    var foreignMarket = /NASDAQ|NYSE|AMEX|(^|[^A-Z])US([^A-Z]|$)/.test(market);
+    if (currency === 'KRW' && (foreignCode || foreignMarket)) return;
+    if (/^[A-Z]{3}$/.test(currency)) context.historyCurrencyByCode[code] = currency;
+    else if (!currency && /^[0-9][0-9A-Z]{5}$/.test(code)) context.historyCurrencyByCode[code] = 'KRW';
   });
   (values[CONFIG.SHEET_TRADES] || []).slice(1).forEach(function(row) {
     var name = String(row[3] || '').trim(), code = _cleanCode(row[4]) || String(row[4] || '').trim();
