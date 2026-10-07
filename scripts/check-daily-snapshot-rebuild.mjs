@@ -112,7 +112,7 @@ assert.match(gas, /SHEET_ETF_DIVIDENDS/);
 assert.match(gas, /FUND_NAV_SHEET, \[0, 4\]/);
 assert.match(gas, /addSheetDates\(CONFIG\.SHEET_SNAPSHOT, \[0\]\)/,'기존 Snapshot도 과거 거래 변경 비교 대상에 포함');
 assert.match(gas, /affectedFrom = _earliestChangedTradeDate\(previousRows, currentRows\)/,'거래 추가·수정·삭제 최초 영향일 계산');
-assert.match(gas, /rebuildDailySnapshots\(affectedFrom, affectedTo\)/,'최초 영향일부터 마지막 확정 Snapshot까지 공통 계산기로 갱신');
+assert.match(gas, /rebuildDailySnapshots\(affectedFrom, affectedTo, \{ includeToday: explicitEmptyReset \}\)/,'최초 영향일부터 영향 종료일까지 공통 계산기로 갱신');
 assert.match(gas, /function _hasSnapshotHoldingsAtDate\(ss, dateStr\)/,
   '빈 재계산 결과가 실제 무보유인지 거래원장에서 별도 판정');
 assert.match(gas.match(/function _hasSnapshotHoldingsAtDate[\s\S]*?\n}/)?.[0] || '', /if \(!tradeSh\) return null;[\s\S]*if \(tradeSh\.getLastRow\(\) < 2\) return false;/,
