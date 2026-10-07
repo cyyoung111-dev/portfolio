@@ -2615,11 +2615,14 @@ function _historySourceSummary(rows, date) {
   var qty = rows.reduce(function(sum, row) { return sum + Number(row[3] || 0); }, 0);
   var carriedFunds = rows.filter(function(row) { return /^FUND_NAV_CARRY@/.test(String(row[10] || '')); })
     .map(function(row) { return { code: row[1], sourceDate: String(row[10]).split('@')[1] }; });
+  var carriedPrices = rows.filter(function(row) {
+    return !_isFundCode(String(row[1] || '')) && /_CARRY@\d{4}-\d{2}-\d{2}$/.test(String(row[10] || ''));
+  }).map(function(row) { return { code: row[1], sourceDate: String(row[10]).split('@')[1] }; });
   return { date: date, evalAmt: evalAmt, costAmt: costAmt, qty: qty,
     evalUnit: qty > 0 ? Number((evalAmt / qty).toFixed(2)) : 0,
     costUnit: qty > 0 ? Number((costAmt / qty).toFixed(2)) : 0,
     pnl: evalAmt - costAmt, pct: costAmt > 0 ? Number(((evalAmt - costAmt) / costAmt * 100).toFixed(2)) : 0,
-    navInputRequired: false, navInputRequiredCodes: [], carriedFunds: carriedFunds };
+    navInputRequired: false, navInputRequiredCodes: [], carriedFunds: carriedFunds, carriedPrices: carriedPrices };
 }
 
 function _historySourceDates(values, fromStr, toStr) {
@@ -2653,13 +2656,14 @@ function _historySourceBuild(fromStr, toStr) {
   if (!dates.length) return { snapshots: [], sourceMode: 'SOURCE_RECOMPUTED',
     sourceSummary: { candidateDates: 0, completeDates: 0, unavailableDates: 0, carriedFundDates: 0, unavailableSamples: [] } };
   var indexed = _buildSnapshotRangeIndexes(read, dates, { historyOnly: true });
-  var snapshots = [], unavailable = 0, samples = [], carriedFundDates = 0, carriedFundItems = 0;
+  var snapshots = [], unavailable = 0, samples = [], carriedFundDates = 0, carriedFundItems = 0, carriedPriceDates = 0, carriedPriceItems = 0;
   dates.forEach(function(date) {
     try {
       var rows = _historySourceRows(indexed, date);
       if (!rows.length) return;
       var snapshot = _historySourceSummary(rows, date);
       if (snapshot.carriedFunds.length) { carriedFundDates++; carriedFundItems += snapshot.carriedFunds.length; }
+      if (snapshot.carriedPrices.length) { carriedPriceDates++; carriedPriceItems += snapshot.carriedPrices.length; }
       snapshots.push(snapshot);
     } catch (err) {
       unavailable++;
@@ -2668,8 +2672,8 @@ function _historySourceBuild(fromStr, toStr) {
   });
   return { snapshots: snapshots, sourceMode: 'SOURCE_RECOMPUTED',
     sourceSummary: { candidateDates: dates.length, completeDates: snapshots.length,
-      unavailableDates: unavailable, carriedFundDates: carriedFundDates,
-      carriedFundItems: carriedFundItems, unavailableSamples: samples,
+      unavailableDates: unavailable, carriedFundDates: carriedFundDates, carriedFundItems: carriedFundItems,
+      carriedPriceDates: carriedPriceDates, carriedPriceItems: carriedPriceItems, unavailableSamples: samples,
       readMs: read.readMs, calculationMs: Date.now() - started - read.readMs } };
 }
 
