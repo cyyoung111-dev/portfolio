@@ -218,7 +218,7 @@ assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_setPendingExpli
 assert.match(settings, /const portfolioRestorePromise = blockRemotePortfolioRestore[\s\S]*\? null/,
   'pending이 있던 부트스트랩에서는 같은 요청의 오래된 원격 거래/보유 복원을 차단');
 assert.ok(
-  settings.indexOf('Object.assign(fundDirect, s.fundDirect)') < settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true })'),
+  settings.indexOf('Object.assign(fundDirect, s.fundDirect)') < settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true })'),
   '빈 원장 재시도 전에 fundDirect를 먼저 복원해 비거래 보유현황 삭제를 방지'
 );
 assert.ok(
