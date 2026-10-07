@@ -134,10 +134,18 @@ assert.match(sync, /trades\.length === 0 && \(rawTrades\.length > 0 \|\| !allowE
   '명시적 빈 원장 권한이 없으면 [] 전송 차단');
 assert.match(portfolioData, /PENDING_EMPTY_TRADE_SYNC_KEY = 'pf_v6_pending_empty_trade_sync'[\s\S]*lsGet\(PENDING_EMPTY_TRADE_SYNC_KEY, null\)/,
   '빈 원장 재시도 컨텍스트를 localStorage에서 복원');
+assert.match(portfolioData, /target: _currentGsheetSyncTarget\(\)/,
+  '빈 원장 삭제 권한을 생성 당시 GSheet 연결에 귀속');
+assert.match(portfolioData, /pending\.target !== currentTarget[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
+  'GSheet 연결이 바뀐 stale pending은 원격 쓰기 전에 폐기');
 assert.match(portfolioData, /_setPendingExplicitEmptyTradeSync[\s\S]*lsSave\(PENDING_EMPTY_TRADE_SYNC_KEY[\s\S]*lsRemove\(PENDING_EMPTY_TRADE_SYNC_KEY\)/,
   'pending 컨텍스트는 영속 저장하고 성공 후 제거 가능');
 assert.match(portfolioData, /async function _retryPendingExplicitEmptyTradeSync[\s\S]*await syncHoldingsToGsheet\(\{ allowEmpty: true \}\)[\s\S]*await syncTradesToGsheet\(\{ allowEmpty: true, rebuildFrom: pendingEmptySync\.from \|\| '' \}\)/,
   '확인된 마지막 삭제의 영향일을 유지한 채 빈 보유/거래 원장을 순차 동기화');
+assert.match(portfolioData, /rawTrades\.length > 0[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*await syncHoldingsToGsheet\(\)[\s\S]*await syncTradesToGsheet\(\)/,
+  'pending 실패 뒤 새 거래가 생기면 stale 권한 폐기 후 현재 거래·보유현황을 일반 동기화');
+assert.match(portfolioData, /else if \(rawTrades\.length > 0 && _getPendingExplicitEmptyTradeSync\(\)\)[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)/,
+  'saveHoldings debounce도 새 거래가 있으면 일반 동기화 경로를 선택');
 assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
   '빈 원장 권한은 보유현황·거래이력 동기화가 모두 성공한 뒤 영속 상태에서도 소진');
 assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*tradesResult\.affectedFrom/,
@@ -161,7 +169,7 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261007-13/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-4/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-5/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings\.js\?v=20261007-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
