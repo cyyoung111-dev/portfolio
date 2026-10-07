@@ -365,11 +365,16 @@ statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:0
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).stage,'FUND');
 assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},propertyApi).state,
   'INCOMPLETE','같은 초의 진행 중 단계는 이전 완료값으로 오판하면 안 됨');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b',null,2000);
+assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b',null,2000),false,
+  'A가 FUND 진행 중이면 더 최신 B도 lease 안에서는 소유권을 탈취하지 못함');
+assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-a','진행 중 FUND run-id 유지');
 statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]},1000);
-assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-b','A 완료가 B의 시작 마커를 덮지 않음');
-assert.equal(propertyApi.getProperty('portfolio_close_last_result'),'','A의 늦은 완료가 B의 결과를 덮지 않음');
-assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'INCOMPLETE');
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},propertyApi).state,'COMPLETE');
+assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b',null,2000),true,
+  '이전 실행이 COMPLETE면 다음 실행 시작 허용');
+assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]},1000),false,
+  'A의 늦은 완료가 B의 시작 마커를 덮지 않음');
+assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-b');
 statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','COMPLETE','run-b',{startedAt:'2026-10-07 19:10:01',errors:[]},2000);
 assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:01'},propertyApi).state,'COMPLETE');
 
@@ -382,9 +387,12 @@ assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10
 assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'first');
 assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:09:59','PRICE','older',null,4999),false,
   '더 오래된 실행의 늦은 PRICE 마커가 최신 상태를 덮지 않음');
-assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:10:00','PRICE','newer',null,5001),true,
-  '실제로 더 늦게 시작한 실행은 상태 소유권을 인계받음');
-assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'newer');
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:10:00','PRICE','newer',null,5001),false,
+  '활성 PRICE 실행도 lease 안에서는 더 늦은 실행이 소유권을 탈취하지 못함');
+assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'first');
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:25:01','PRICE','stale-recovery',null,905001),true,
+  '15분 lease가 지난 미완료 마커는 시간초과 복구를 위해 새 실행이 인계 가능');
+assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'stale-recovery');
 const officialVm=vm.createContext({
   _normalizeDate:String,
   _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
