@@ -879,6 +879,11 @@ context.getss=()=>ssFor(sheets);
 context._ensurePortfolioCloseDailyTrigger=()=>true;
 context._readSettingsMap=()=>({EDITABLE_PRICES:[{code:'F00001',name:'테스트 펀드',fund:true}]});
 const saveConfig=(startDate,units,provider='HANWHA_2045_CRPE')=>context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider,startDate,units}));
+// 좌수 정정 회귀는 원본 NAV 1000과 자동 파생 평가 1000이 이미 존재하는 상태를 고정해 검증합니다.
+fundNav.rows = fundNav.rows.filter((row,index)=>index===0 || !(row[0]==='2026-01-01' && row[1]==='F00001'));
+fundNav.rows.push(['2026-01-01','F00001','테스트 펀드',1000,'2026-01-01',1000,1000,'','HANWHA_2045_CRPE']);
+prices.rows = prices.rows.filter((row,index)=>index===0 || !(row[0]==='2026-01-01' && row[1]==='F00001' && String(row[5]||'').toUpperCase()!=='MANUAL'));
+prices.rows.push(['2026-01-01','F00001','테스트 펀드',1000,'','FUND_NAV']);
 assert.equal(saveConfig('2026-01-01',1000).status,'ok');
 const correctedUnits=saveConfig('2026-01-01',2000);
 assert.equal(correctedUnits.status,'ok','같은 적용일의 좌수 정정 허용');
