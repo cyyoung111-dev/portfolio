@@ -99,7 +99,7 @@ if (!source.includes('SHEET_ETF_DIVIDENDS')
 if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes('function handleGetAutomationStatus()')
     || !source.includes('function _getAutomationStatusData()')
-    || !source.includes("overallStatus = 'NEVER_RUN'")
+    || !source.includes("overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN'")
     || !source.includes("portfolio_close_last_result")
     || !source.includes("hasLegacySplitTriggers")
     || !source.includes("runEvalPriceUpdate1620")
@@ -110,7 +110,7 @@ if (!source.includes("params.action === 'getAutomationStatus'")
   process.exit(1);
 }
 
-const automationStatusOrder = source.indexOf("else if (!portfolioClose) overallStatus = 'NEVER_RUN'");
+const automationStatusOrder = source.indexOf("else if (!portfolioClose) overallStatus = closeRun.state");
 const automationFundErrorOrder = source.indexOf("else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR'");
 if (automationStatusOrder < 0 || automationFundErrorOrder < 0 || automationStatusOrder > automationFundErrorOrder) {
   console.error('❌ 자동화 미실행은 과거 펀드 오류보다 NEVER_RUN 판정을 우선해야 합니다.');
