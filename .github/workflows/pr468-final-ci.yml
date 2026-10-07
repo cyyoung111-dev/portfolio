@@ -1,0 +1,18 @@
+name: PR468 complete regression validation
+on:
+  push:
+    branches: [fix/gas-close-stage-krx-source-diagnostics]
+    paths: [.github/workflows/pr468-final-ci.yml]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run all CI checks
+        run: npm run check:ci
