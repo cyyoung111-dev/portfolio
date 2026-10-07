@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.182
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.183
+//
+//  v9.183 변경사항 (2026.10.07):
+//   원자료 손익 조회에서 거래이력으로 재구성할 수 없는 코드 없는 TDF/직접펀드를 명시적 제외 경고로 노출
+//   손익 자동 시작일에 펀드 NAV·좌수 원자료도 포함하여 파생 가격이력 유무와 무관하게 펀드 기간을 재구성
 //
 //  v9.182 변경사항 (2026.10.07):
 //   거래원본 저장 후 Snapshot partial 실패의 영향 시작일을 Script Properties에 영속해 다음 동기화에서 재시도
@@ -2695,17 +2699,34 @@ function _historySourceSummary(rows, date) {
     navInputRequired: false, navInputRequiredCodes: [], carriedFunds: carriedFunds, carriedPrices: carriedPrices };
 }
 
+function _historyNonTradeHoldings(values) {
+  var byName = {};
+  (values[CONFIG.SHEET_HOLD] || []).slice(1).forEach(function(row) {
+    var code = _cleanCode(row[0]) || String(row[0] || '').trim();
+    var name = String(row[1] || '').trim();
+    var qty = Number(row[2]) || 0;
+    var assetType = String(row[5] || '').trim();
+    if (!name || code || !(qty > 0) || (assetType !== 'TDF' && assetType !== '펀드')) return;
+    byName[name] = true;
+  });
+  return Object.keys(byName).sort();
+}
+
 function _historySourceDates(values, fromStr, toStr) {
   var end = _normalizeDate(toStr || '') || _dateOffset(today(), -1);
   if (end >= today()) end = _dateOffset(today(), -1);
   var start = _normalizeDate(fromStr || '');
   if (!start) {
     var first = [];
-    [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH].forEach(function(sheetName) {
+    [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, FUND_NAV_SHEET].forEach(function(sheetName) {
       (values[sheetName] || []).slice(1).forEach(function(row) {
         var date = _normalizeDate(row[0]);
         if (date && date <= end) first.push(date);
       });
+    });
+    (values[FUND_UNITS_SHEET] || []).slice(1).forEach(function(row) {
+      var date = _normalizeDate(row[3]);
+      if (date && date <= end) first.push(date);
     });
     start = first.length ? first.sort()[0] : end;
   }
@@ -2722,9 +2743,12 @@ function _historySourceDates(values, fromStr, toStr) {
 
 function _historySourceBuild(fromStr, toStr) {
   var started = Date.now(), read = _buildSnapshotRangeReadContext(getss(), { historyOnly: true });
+  var excludedNonTradeHoldingNames = _historyNonTradeHoldings(read.valuesByName);
   var dates = _historySourceDates(read.valuesByName, fromStr, toStr);
   if (!dates.length) return { snapshots: [], sourceMode: 'SOURCE_RECOMPUTED',
-    sourceSummary: { candidateDates: 0, completeDates: 0, unavailableDates: 0, carriedFundDates: 0, unavailableSamples: [] } };
+    sourceSummary: { candidateDates: 0, completeDates: 0, unavailableDates: 0, carriedFundDates: 0,
+      excludedNonTradeHoldings: excludedNonTradeHoldingNames.length,
+      excludedNonTradeHoldingNames: excludedNonTradeHoldingNames.slice(0, 20), unavailableSamples: [] } };
   var indexed = _buildSnapshotRangeIndexes(read, dates, { historyOnly: true });
   var snapshots = [], unavailable = 0, samples = [], carriedFundDates = 0, carriedFundItems = 0, carriedPriceDates = 0, carriedPriceItems = 0;
   var carriedFundSamples = [], carriedPriceSamples = [];
@@ -2756,6 +2780,8 @@ function _historySourceBuild(fromStr, toStr) {
       unavailableDates: unavailable, carriedFundDates: carriedFundDates, carriedFundItems: carriedFundItems,
       carriedPriceDates: carriedPriceDates, carriedPriceItems: carriedPriceItems,
       carriedFundSamples: carriedFundSamples, carriedPriceSamples: carriedPriceSamples,
+      excludedNonTradeHoldings: excludedNonTradeHoldingNames.length,
+      excludedNonTradeHoldingNames: excludedNonTradeHoldingNames.slice(0, 20),
       unavailableSamples: samples, readMs: read.readMs, calculationMs: Date.now() - started - read.readMs } };
 }
 
@@ -4906,7 +4932,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.182' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.183' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -7754,8 +7780,8 @@ function handleDiagnoseSnapshotIntegrity(dateStr, datesStr) {
 function _buildSnapshotRangeReadContext(ss, options) {
   var historyOnly = !!(options && options.historyOnly);
   var started = Date.now(), names = historyOnly
-    ? [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력']
-    : [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH,
+    ? [CONFIG.SHEET_TRADES, CONFIG.SHEET_HOLD, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력']
+    : [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_HOLD, CONFIG.SHEET_PH,
        CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'], valuesByName = {}, counts = {};
   names.forEach(function(name) {
     var sheet = ss.getSheetByName(name), values = [];
@@ -7773,7 +7799,8 @@ function _buildSnapshotRangeReadContext(ss, options) {
       } }; } };
   }
   return { ss: { getSheetByName: sheetView }, valuesByName: valuesByName, readMs: Date.now() - started,
-    metrics: { snapshotRows: counts[CONFIG.SHEET_SNAPSHOT], tradeRows: counts[CONFIG.SHEET_TRADES], priceHistoryRows: counts[CONFIG.SHEET_PH],
+    metrics: { snapshotRows: counts[CONFIG.SHEET_SNAPSHOT], tradeRows: counts[CONFIG.SHEET_TRADES],
+      holdingRows: counts[CONFIG.SHEET_HOLD], priceHistoryRows: counts[CONFIG.SHEET_PH],
       fundNavRows: counts[FUND_NAV_SHEET], fundUnitRows: counts[FUND_UNITS_SHEET], fxRows: counts['환율이력'], sheetReads: names.length } };
 }
 
@@ -9857,7 +9884,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.182',
+    gasVersion: '9.183',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9888,7 +9915,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.182' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.183' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11672,7 +11699,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.182' });
+    return jsonOk({ settings: settings, gasVersion: '9.183' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11700,7 +11727,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.182'
+      gasVersion: '9.183'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
