@@ -182,6 +182,8 @@ assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*con
   '배당 하위 응답은 target/generation과 load epoch를 검증한 뒤에만 전역 상태에 적용');
 assert.match(settings, /const loanChanged = typeof syncLoanFromSchedule[\s\S]*if \(loanChanged\) \{[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*persistRealEstateSettings/,
   '부동산 하위 로드의 후속 원격 저장도 stale load epoch에서 실행되지 않음');
+assert.match(settings, /const fallbackLoanChanged = typeof syncLoanFromSchedule[\s\S]*persistRealEstateSettings\(true, \{[\s\S]*isCurrentLoad: isLoadConnectionCurrent/,
+  'loadSettings 최종 대출 fallback 저장도 동일 load epoch 검증기를 전달');
 assert.match(settings, /async function persistRealEstateSettings\(immediate, options\)[\s\S]*const isCurrentLoad[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*saveRealEstateSettings[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*return saveSettings\(true, options\)/,
   '부동산 전용 저장 실패 후 구버전 saveSettings fallback도 stale load epoch에서 차단');
 assert.match(settings, /function saveDividendSettings\(_immediate, options\)[\s\S]*expectedGeneration[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
@@ -233,10 +235,12 @@ assert.doesNotMatch(portfolioData, /else if \(rawTrades\.length > 0 && _getPendi
   '새 거래가 생겨도 원격 성공 전에 repair token을 조기 폐기하지 않음');
 assert.match(portfolioData, /const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)[\s\S]*await _retryPendingExplicitEmptyTradeSync\(\)/,
   'repair token이 남으면 debounce도 retry 함수의 rawTrades>0 복구 분기로 처리');
-assert.match(portfolioData, /let _portfolioRemoteSyncPending = false[\s\S]*function _isPortfolioRemoteSyncPending\(\)[\s\S]*_saveHoldingsGasTimer[\s\S]*_pendingExplicitEmptyTradeSyncFlight/,
-  '현재가 복원 전에 로컬 포트폴리오 원격 동기화 대기/실패 상태를 판별');
-assert.match(portfolioData, /_portfolioRemoteSyncPending = true[\s\S]*Promise\.all\(\[[\s\S]*syncHoldingsToGsheet\(\)[\s\S]*syncTradesToGsheet\(\)[\s\S]*_portfolioRemoteSyncPending = !\(holdingsOk && tradesOk\)/,
-  '일반 거래·보유 동기화는 둘 다 성공해야 remote-sync pending을 해제');
+assert.match(portfolioData, /PORTFOLIO_REMOTE_DIRTY_KEY = 'pf_v6_portfolio_remote_dirty'[\s\S]*lsGet\(PORTFOLIO_REMOTE_DIRTY_KEY, null\)[\s\S]*function _markPortfolioRemoteDirty\(\)[\s\S]*lsSave\(PORTFOLIO_REMOTE_DIRTY_KEY/,
+  '미동기화 포트폴리오 dirty 상태를 연결에 귀속해 localStorage에 영속');
+assert.match(portfolioData, /function _clearPortfolioRemoteDirty\(epoch, target\)[\s\S]*current\.epoch !== epoch \|\| current\.target !== target[\s\S]*lsRemove\(PORTFOLIO_REMOTE_DIRTY_KEY\)/,
+  '최신 sync epoch와 target이 모두 일치할 때만 dirty 상태를 해제');
+assert.match(portfolioData, /const remoteSyncEpoch = _markPortfolioRemoteDirty\(\)[\s\S]*const remoteSyncTarget = _currentGsheetSyncTarget\(\)[\s\S]*Promise\.all\(\[[\s\S]*syncHoldingsToGsheet\(\)[\s\S]*syncTradesToGsheet\(\)[\s\S]*if \(holdingsOk && tradesOk\) \{[\s\S]*_clearPortfolioRemoteDirty\(remoteSyncEpoch, remoteSyncTarget\)/,
+  '겹친 일반 거래·보유 동기화는 자신이 캡처한 epoch만 성공 시 해제');
 assert.match(settingsFetch, /const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending[\s\S]*if \(portfolioSyncPending\)[\s\S]*현재가만 업데이트[\s\S]*else \{[\s\S]*forcePortfolioRestore: true/,
   '현재가 업데이트는 미동기화 로컬 포트폴리오가 있으면 authoritative pull을 건너뜀');
 assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
