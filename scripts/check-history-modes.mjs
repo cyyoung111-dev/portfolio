@@ -170,7 +170,7 @@ assert.match(pipelineSource, /성공 \$\{repairResult\.repaired\}개 · 실패/,
 assert.match(pipelineSource, /await loadHistoryChart\(\)/, '복구 후 손익 데이터를 다시 조회해야 합니다.');
 assert.match(gasSource, /params\.action === 'repairSnapshots'[\s\S]*handleRepairSnapshots\(params\.data\)/, 'GAS POST route가 handleRepairSnapshots에 연결되어야 합니다.');
 assert.match(eventSource, /closest\('\[data-history-action\]'\)[\s\S]*action === 'query'[\s\S]*loadHistoryChart\(\)/, '동적 재렌더링 뒤에도 위임된 조회 이벤트가 작동해야 합니다.');
-assert.match(pipelineSource, /step: 1, total: 2, message: '스냅샷 조회 중\.\.\.'/);
+assert.match(pipelineSource, /step: 1, total: 2, message: '거래·확정가격·NAV 원자료 조회 중\.\.\.'/);
 assert.match(pipelineSource, /step: 2,[\s\S]*total: 2,[\s\S]*비교지수/);
 assert.match(pipelineSource, /queryBtn\.disabled = true[\s\S]*finally[\s\S]*queryBtn\.disabled = false[\s\S]*label\.textContent = '조회'/, '조회 성공·오류 후 버튼을 복원해야 합니다.');
 assert.match(stateSource, /\$\{step\}\/\$\{total\}/, '조회 단계 번호를 화면에 표시해야 합니다.');
