@@ -13,6 +13,10 @@ assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, navSh, FUND_NAV_S
 assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, ph, CONFIG\.SHEET_PH\)/,'좌수 정정 가격이력 직접 쓰기 전 backup');
 assert.match(unitReconcileSource,/_backupSheetBeforeWrite\(ss, snap, CONFIG\.SHEET_SNAPSHOT\)/,'좌수 정정 Snapshot 직접 쓰기 전 backup');
 assert.match(unitReconcileSource,/WRITE_FAILED/,'좌수 정정 파생 쓰기 실패 backup 보존');
+assert.match(unitReconcileSource,/var navBackup = null, priceBackup = null, snapshotBackup = null/,
+  '좌수 정정 파생 backup을 reconciliation 전체 범위에서 유지');
+assert.match(unitReconcileSource,/\[navBackup, priceBackup, snapshotBackup\]\.forEach[\s\S]*_cleanupCurrentSystemBackup/,
+  '좌수 정정 파생 backup은 모든 파생 쓰기 성공 뒤에만 정리');
 const unitSaveSource=source.match(/function handleSaveFundUnits[\s\S]*?\n}/)?.[0] || '';
 assert.match(unitSaveSource,/_backupSheetBeforeWrite\(ss, sh, FUND_UNITS_SHEET\)/,'좌수 원본 수정 전 backup 생성');
 assert.match(unitSaveSource,/unitBackup[\s\S]*COMPLETED[\s\S]*_cleanupCurrentSystemBackup/,'좌수 원본 검증 성공 뒤 backup 정리');
