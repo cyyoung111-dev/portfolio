@@ -10,7 +10,7 @@ const rangeSource = gas.slice(gas.indexOf('function _buildSnapshotRangeReadConte
 for (const token of ['snapshotRowsByDate','priceSeriesByCode','fundNavSeriesByCode','fxSeriesByCurrency','holdingsByRequestedDate','priceIntegrityByDate']) assert.match(rangeSource, new RegExp(token));
 for (const metric of ['indexBuildMs','priceSeriesBuildCount','priceIntegrityBuildCount','holdingsBuildCount','snapshotDateLookupCount','fundNavLookupCount','fxLookupCount']) assert.match(rangeSource, new RegExp(metric));
 assert.match(rangeSource, /priceSeriesBuildCount = 1/);
-assert.match(rangeSource, /priceIntegrityBuildCount = 1/);
+assert.match(rangeSource, /metrics\.priceIntegrityBuildCount = options && options\.historyOnly \? 0 : 1/);
 assert.doesNotMatch(rangeSource, /insertSheet|setValues|deleteSheet|PropertiesService/);
 assert.match(pipeline, /dates: datesToDiagnose\.map\(snapshot => snapshot\.date\)\.join/);
 assert.match(pipeline, /HISTORY_INTEGRITY_CACHE_KEY[\s\S]*_historySnapshotSignature/);

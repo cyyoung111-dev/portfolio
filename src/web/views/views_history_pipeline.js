@@ -108,7 +108,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     const label = queryBtn.querySelector('span');
     if (label) label.textContent = '조회 중';
   }
-  _setHistoryStatus(statusEl, 'loading', { step: 1, total: 2, message: '스냅샷 조회 중...' });
+  _setHistoryStatus(statusEl, 'loading', { step: 1, total: 2, message: '거래·확정가격·NAV 원자료 조회 중...' });
 
   try {
     const startMonth = String($el('histStartMonth')?.value || '').trim();
@@ -123,7 +123,7 @@ async function loadHistoryChart(retryAttempt = 0) {
       fromStr = _kstDateOffset(todayStr, -rangeDays);
     }
     const historyStartedAt = performance.now();
-    const data = await _historyRequestJson('getHistory', { from: fromStr }, { timeoutMs: 15000, retry: 0 });
+    const data = await _historyRequestJson('getHistorySource', { from: fromStr }, { timeoutMs: 45000, retry: 0, preserveError: true });
     const getHistoryMs = performance.now() - historyStartedAt;
     if (requestId !== __histState.loadRequestId) return;
     if (!data || data.status === 'error') throw new Error(data?.message || '응답 오류');
@@ -131,6 +131,10 @@ async function loadHistoryChart(retryAttempt = 0) {
     let snapshots = Array.isArray(data.snapshots) ? data.snapshots : (Array.isArray(data) ? data : []);
     if (!snapshots.length) {
       if (retryAttempt && _restoreOrClearDiscardedHistoryView(requestId, chartWrap, tableWrap, coverageEl) !== false) return;
+      if (coverageEl) {
+        coverageEl.innerHTML = '';
+        if (data.sourceMode === 'SOURCE_RECOMPUTED') _renderHistorySourceCoverage(coverageEl, data.sourceSummary, []);
+      }
       _setHistoryStatus(statusEl, 'empty_data');
       return;
     }
@@ -146,15 +150,17 @@ async function loadHistoryChart(retryAttempt = 0) {
       return;
     }
 
-    // 거래이력 기반 원가 재계산값이 있으면 우선 적용
-    snapshots = _mergeTradeBasedCost(snapshots);
-    const integritySourceRevision = String(data.integritySourceRevision || '');
+    const sourceRecomputed = data.sourceMode === 'SOURCE_RECOMPUTED';
+    // GAS 원자료에서 평가금액·원가·손익을 동일 기준으로 계산했으므로 브라우저 거래원가로 덮어쓰지 않습니다.
+    // 이전 Snapshot 화면에만 client-side 원가 보정 로직을 적용합니다.
+    if (!sourceRecomputed) snapshots = _mergeTradeBasedCost(snapshots);
+    const integritySourceRevision = sourceRecomputed ? '' : String(data.integritySourceRevision || '');
     const integrityDateRevisions = data.integrityDateRevisions || {};
     const integrityCache = integritySourceRevision ? _readHistoryIntegrityCache() : {};
     let integrityDiagnostics = _cachedHistoryDiagnostics(snapshots, integrityDateRevisions, integrityCache);
     const cachedDiagnosticByDate = new Map(integrityDiagnostics.map(item => [item.date, item]));
     snapshots = snapshots.map(snapshot => ({ ...snapshot,
-      integrityStatus: cachedDiagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED' }));
+      integrityStatus: sourceRecomputed ? 'VALID' : (cachedDiagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED') }));
     // 정합성 진단은 보호 정보를 보강하는 후속 단계입니다. 저장 Snapshot 자체는 먼저 표시해
     // 첫 조회에서도 전체 기간 진단이 그래프의 초기 표시를 막지 않게 합니다.
     const initialMode = _getHistMode();
@@ -168,7 +174,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     // 날짜 존재 검사와 별개로, 급등락 후보는 GAS 원자료 계산값과 read-only 비교합니다.
     const suspiciousDates = Object.keys(_buildHistoryDiagnostics(snapshots));
     const cachedDates = new Set(integrityDiagnostics.map(item => item.date));
-    const datesToDiagnose = snapshots.filter(snapshot => !cachedDates.has(snapshot.date));
+    const datesToDiagnose = sourceRecomputed ? [] : snapshots.filter(snapshot => !cachedDates.has(snapshot.date));
     let rangeDiagnosisFailed = null;
     const integrityStartedAt = performance.now();
     try {
@@ -204,7 +210,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     }
     const diagnosticByDate = new Map(integrityDiagnostics.map(item => [item.date, item]));
     snapshots = snapshots.map(snapshot => ({ ...snapshot,
-      integrityStatus: diagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED' }));
+      integrityStatus: sourceRecomputed ? 'VALID' : (diagnosticByDate.get(snapshot.date)?.status || 'UNCHECKED') }));
     __histState.integrityDiagnostics = integrityDiagnostics;
     __histState.rangeDiagnosisFailed = rangeDiagnosisFailed;
     const mode = _getHistMode();
@@ -241,7 +247,7 @@ async function loadHistoryChart(retryAttempt = 0) {
     const benchMetaMap = benchBundle.metaMap;
     const missing = benchBundle.failedTypes;
     const modeUnit = mode === 'day' ? '일' : (mode === 'week' ? '주' : '개월');
-    const baseMsg = `그래프 ${tableSnapshots.length}${modeUnit} · 원본 ${snapshots.length}일 · 확정 기준 ${latestDate}`;
+    const baseMsg = `그래프 ${tableSnapshots.length}${modeUnit} · ${sourceRecomputed ? '원자료 자동 재구성' : '원본'} ${snapshots.length}일 · 평가 기준 ${latestDate}`;
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
@@ -252,11 +258,14 @@ async function loadHistoryChart(retryAttempt = 0) {
     // 두 비동기 조회가 모두 최신 요청으로 확인된 뒤 한 번에 화면 상태를 교체합니다.
     // 백그라운드 현재가 갱신이나 실패한 재조회가 마지막 정상 그래프·경고를 지우지 않습니다.
     __histState.snapshots = snapshots;
-    __histState.missingSnapshotDates = coverage.missing.map(item => item.targetDate);
+    __histState.missingSnapshotDates = sourceRecomputed ? [] : coverage.missing.map(item => item.targetDate);
     _renderHistoryDateDetail(snapshots);
-    _renderHistoryCoverage(coverageEl, coverage, mode);
-    _renderHistoryIntegrityWarnings(coverageEl, integrityDiagnostics, rangeDiagnosisFailed, snapshots.length);
-    _renderHistoryNavWarnings(coverageEl, snapshots);
+    _renderHistoryCoverage(coverageEl, coverage, mode, sourceRecomputed);
+    if (sourceRecomputed) _renderHistorySourceCoverage(coverageEl, data.sourceSummary, snapshots);
+    else {
+      _renderHistoryIntegrityWarnings(coverageEl, integrityDiagnostics, rangeDiagnosisFailed, snapshots.length);
+      _renderHistoryNavWarnings(coverageEl, snapshots);
+    }
     _setHistoryStatus(statusEl, 'summary_benchmark', { baseMsg, benchMsg, missingMsg, snapshotGap });
 
     _drawHistoryChart(chartWrap, graphSnapshots, mode, {
@@ -303,7 +312,7 @@ function _renderHistoryDateDetail(snapshots) {
     const after = list.find(item => _histDateKey(item.date || '') > selected);
     const nearby = [before && `직전 ${_fmtHistDateCompact(before.date)}`, after && `직후 ${_fmtHistDateCompact(after.date)}`].filter(Boolean).join(' · ');
     wrap.innerHTML = `<div style="margin:-2px 0 12px;padding:10px 12px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2));font-size:.68rem;color:var(--text)">
-      ⚠️ ${_escapeHtml(selected)} 손익 스냅샷이 없습니다.${nearby ? ` <span style="color:var(--muted)">${_escapeHtml(nearby)}</span>` : ''}
+      ⚠️ ${_escapeHtml(selected)} 평가 가능한 원자료 손익이 없습니다.${nearby ? ` <span style="color:var(--muted)">${_escapeHtml(nearby)}</span>` : ''}
     </div>`;
     return;
   }
@@ -316,13 +325,33 @@ function _renderHistoryDateDetail(snapshots) {
     ? `<div style="font-size:.65rem;color:var(--amber);margin-top:7px">⚠️ ${_escapeHtml((exact.navInputRequiredCodes || []).join(', '))} NAV 미입력 · 직전 확정 NAV를 사용한 임시 손익입니다.</div>` : '';
   const item = (label, value, valueColor = 'var(--text)') => `<div style="padding:8px 10px;border-radius:8px;background:var(--s1);border:1px solid var(--border)"><div style="font-size:.61rem;color:var(--muted)">${label}</div><div style="font-size:.82rem;font-weight:700;color:${valueColor};font-variant-numeric:tabular-nums">${value}</div></div>`;
   wrap.innerHTML = `<div style="margin:-2px 0 12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--s2)">
-    <div style="font-size:.70rem;font-weight:700;color:var(--text);margin-bottom:7px">${_escapeHtml(_fmtHistDateCompact(selected))} 저장 스냅샷</div>
+    <div style="font-size:.70rem;font-weight:700;color:var(--text);margin-bottom:7px">${_escapeHtml(_fmtHistDateCompact(selected))} 원자료 기반 평가</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px">
       ${item('평가금액', _fmtKrw(evalAmt))}${item('매입원가', _fmtKrw(costAmt), 'var(--muted)')}${item('손익', `${pSign(pnl)}${_fmtKrw(pnl)}`, color)}${item('수익률', `${pSign(pnl)}${pct.toFixed(1)}%`, color)}
     </div>
-    <div style="font-size:.61rem;color:var(--muted);margin-top:7px">GAS 손익 스냅샷 합계 기준이며, 상단 기준일 업데이트로 현재 화면 가격을 바꾸지 않습니다.</div>${navWarning}
+    <div style="font-size:.61rem;color:var(--muted);margin-top:7px">확정 가격이력·펀드 NAV·좌수·환율·거래원장으로 재구성한 손익이며 기존 Snapshot 중복과 무관합니다.</div>${navWarning}
     <div id="histDateItems" style="margin-top:10px"></div>
   </div>`;
+}
+
+function _renderHistorySourceCoverage(el, summary, snapshots) {
+  if (!el || !summary) return;
+  const complete = Number(summary.completeDates || 0);
+  const missing = Number(summary.unavailableDates || 0);
+  const carried = Number(summary.carriedFundItems || 0);
+  const stockCarried = Number(summary.carriedPriceItems || 0);
+  const samples = Array.isArray(summary.unavailableSamples) ? summary.unavailableSamples : [];
+  const sampleText = samples.slice(0, 5).map(item => `${item.date}: ${item.reason}`).join(' · ');
+  const warning = missing > 0 || stockCarried > 0 || carried > 0;
+  const explanation = [
+    carried > 0 ? `펀드 ${carried}건은 직전 확정 공시일 NAV × 해당일 좌수로 이월 평가했습니다(해당일 NAV 확정 아님).` : '펀드는 평가일 좌수로 재계산합니다.',
+    stockCarried > 0 ? `일반 종목 ${stockCarried}건은 해당일 확정 종가가 없어 직전 확정 종가로 이월 평가했습니다. 휴장 확인이 되지 않은 이월도 포함될 수 있으며, 추후 확정 종가가 들어오면 다시 계산합니다.` : ''
+  ].filter(Boolean).join(' ');
+  el.insertAdjacentHTML('afterbegin', `<div style="margin:0 0 10px;padding:10px 12px;border:1px solid ${warning ? 'var(--c-amber-35,var(--border))' : 'var(--border)'};border-radius:9px;background:var(--s2);font-size:.67rem;line-height:1.55">
+    <b style="color:${warning ? 'var(--amber)' : 'var(--green)'}">원자료 기준 자동 손익 · 계산 완료 ${complete}일${missing ? ` · 원자료 부족 ${missing}일 제외` : ''}</b><br>
+    <span style="color:var(--muted)">기존 Snapshot 대신 거래·확정가격·펀드 NAV·환율로 재구성했습니다. ${_escapeHtml(explanation)}</span>
+    ${missing ? `<br><span style="color:var(--amber)">제외일 예시: ${_escapeHtml(sampleText)}${missing > samples.length ? ' 외 추가 날짜' : ''}</span>` : ''}
+  </div>`);
 }
 
 function _renderHistoryNavWarnings(el, snapshots) {
@@ -408,7 +437,7 @@ async function _loadHistoryDateItems(date) {
   const wrap = $el('histDateItems');
   if (!wrap || !date) return;
   wrap.innerHTML = '<div style="font-size:.65rem;color:var(--muted)">⏳ 종목별 스냅샷 불러오는 중...</div>';
-  const data = await _historyRequestJson('getHistoryDetail', { date }, { timeoutMs: 15000, retry: 1 });
+  const data = await _historyRequestJson('getHistorySourceDetail', { date }, { timeoutMs: 15000, retry: 1 });
   if (!data || data.status === 'error') {
     wrap.innerHTML = `<div style="font-size:.65rem;color:var(--red-lt)">❌ 종목별 상세 조회 실패${data?.message ? ` · ${_escapeHtml(data.message)}` : ''}</div>`;
     return;
@@ -434,8 +463,17 @@ async function _loadHistoryDateItems(date) {
     <div class="tbl-wrap"><table><thead><tr><th>종목명</th><th>종목코드</th><th class="num">수량</th><th class="num">매입단가</th><th class="num">평가단가</th><th class="num">매입금액</th><th class="num">평가금액</th><th class="num">손익</th><th class="num">수익률</th><th>가격소스</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
-function _renderHistoryCoverage(el, coverage, mode) {
+function _renderHistoryCoverage(el, coverage, mode, sourceRecomputed) {
   if (!el) return;
+  if (sourceRecomputed) {
+    const missing = Array.isArray(coverage?.missing) ? coverage.missing : [];
+    // 원자료 부족일은 기존 Snapshot 저장 버튼으로 복구할 수 없습니다.
+    // 혼동을 막기 위해 read-only 계산에서는 Snapshot 수기 복구 UI를 노출하지 않습니다.
+    el.innerHTML = missing.length
+      ? `<div style="font-size:.66rem;color:var(--amber);margin:-2px 0 8px">⚠️ 선택 기간에 원자료로 재구성할 수 없는 날짜 후보 ${missing.length}개가 있습니다. 확인된 가격·NAV·환율을 다시 확보하면 자동 재계산됩니다.</div>`
+      : '<div style="font-size:.64rem;color:var(--green);margin:-2px 0 8px">✅ 선택 기간의 원자료 기반 평가일이 연결되어 있습니다.</div>';
+    return;
+  }
   const missing = Array.isArray(coverage?.missing) ? coverage.missing : [];
   const repairResult = __histState.repairResult;
   const resultHtml = repairResult

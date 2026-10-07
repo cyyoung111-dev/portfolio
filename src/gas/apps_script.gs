@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.176
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.177
+//
+//  v9.177 변경사항 (2026.10.07):
+//   손익 그래프 원자료(거래·확정가격·펀드 NAV·환율) read-only 계산으로 전환
+//   펀드 비공시/원천 누락일에 직전 공시 NAV와 해당일 좌수로 재계산, 미래 NAV 사용 차단
+//   Snapshot 오류와 독립적으로 손익 조회, 미확인 가격은 원가 대체 없이 건너뛰고 진단
 //
 //  v9.176 변경사항 (2026.10.07):
 //   손익 Snapshot 충돌 분류 요약과 Toss/KRX 현재가 provider 실행 상태 노출
@@ -960,6 +965,8 @@ function doGet(e) {
   if (params.action === 'previewPriceHistoryRepair') return handlePreviewPriceHistoryRepair(params.data || '{}');
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
   if (params.action === 'name'           && params.code)  return handleNameLookup(params.code, _getPublicDataApiKey());
+  if (params.action === 'getHistorySource')               return handleGetHistorySource(params.from || '', params.to || '');
+  if (params.action === 'getHistorySourceDetail')         return handleGetHistorySourceDetail(params.date || '');
   if (params.action === 'getHistory')                     return handleGetHistory(params.from || '', params.to || '');
   if (params.action === 'getHistoryDetail')               return handleGetHistoryDetail(params.date || '');
   if (params.action === 'getSnapshotRepairStatus')        return handleGetSnapshotRepairStatus();
@@ -1033,7 +1040,7 @@ function doPost(e) {
   if (params.action === 'prepareBackupCleanup') return handlePrepareBackupCleanup(params.data || '{}');
   if (params.action === 'maintainSystemBackups') return handleMaintainSystemBackups(params.data || '{}');
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
@@ -2545,6 +2552,176 @@ function handleSaveSnapshot(dateStr, dataJson) {
 // ════════════════════════════════════════════════════════════════════
 //  손익 히스토리 조회
 // ════════════════════════════════════════════════════════════════════
+// 손익 그래프는 Snapshot 시트의 중복/충돌에서 독립적으로 평가일 원자료를 재구성합니다.
+// 거래원장+확정 가격이력+펀드 NAV/좌수+환율만 읽으며 어떠한 시트에도 쓰지 않습니다.
+function _historySourceRows(index, date) {
+  var stored = index.holdingsByRequestedDate[date] || {}, holdings = {}, out = [];
+  Object.keys(stored).forEach(function(name) { holdings[name] = Object.assign({}, stored[name]); });
+  _applyFundUnitLifecycleToSnapshotHoldings(holdings, index.fundConfigs || [], date);
+  Object.keys(holdings).forEach(function(name) {
+    var h = holdings[name], code = _cleanCode(h.code) || String(h.code || '').trim();
+    if (!h || !(Number(h.qty) > 0)) return;
+    if (!code) throw new Error('종목코드 누락: ' + (h.name || name));
+    var price = 0, source = '', sourceDate = date, savedAt = '';
+    if (_isFundCode(code)) {
+      var fund = _indexedFundEvaluation(index, code, date);
+      if (fund) {
+        price = fund.evalAmt;
+        sourceDate = fund.sourceDate;
+        source = fund.carried ? 'FUND_NAV_CARRY@' + sourceDate : 'FUND_NAV';
+      } else {
+        // 확인 가능한 NAV가 전혀 없는 예외에만 평가일 당일 MANUAL을 허용합니다.
+        var fundManual = (index.historyPriceSeriesByCode[code] || []).filter(function(item) {
+          return item.date === date && String(item.source || '').toUpperCase() === 'MANUAL';
+        })[0];
+        if (fundManual) { price = fundManual.price; source = 'MANUAL'; savedAt = fundManual.savedAt || ''; }
+      }
+    } else {
+      var series = index.historyPriceSeriesByCode[code] || [];
+      var entry = _indexedLatest(series, date);
+      if (entry) {
+        var age = Math.round((Date.parse(date + 'T00:00:00Z') - Date.parse(entry.date + 'T00:00:00Z')) / 86400000);
+        // 확정 종가가 장기간 비어 있으면 과거 가격을 무기한 이월해 가짜 손익을 만들지 않습니다.
+        if (age > 10 || (age > 0 && String(entry.source || '').toUpperCase() === 'MANUAL')) {
+          throw new Error('확정 종가 원자료 없음: ' + code + ' ' + date + ' (최근 ' + entry.date + ')');
+        }
+        // 분할·역분할 이후에는 수량이 조정되므로 조정 전 종가 이월을 금지합니다.
+        // 해당일 또는 분할 이후 날짜의 확정 종가가 확보될 때만 다시 평가합니다.
+        if (age > 0) {
+          var actionDates = (index.historyCorporateActionDatesByCode || {})[code] || [];
+          if (actionDates.some(function(actionDate) { return actionDate > entry.date && actionDate <= date; })) {
+            throw new Error('주식분할 이후 종가 미확정: ' + code + ' ' + date + ' (최근 ' + entry.date + ')');
+          }
+        }
+        price = entry.price; sourceDate = entry.date; savedAt = entry.savedAt || '';
+        source = entry.date === date ? entry.source : (entry.source + '_CARRY@' + entry.date);
+      }
+    }
+    if (!(price > 0)) throw new Error('확정 평가가격 없음: ' + code + ' ' + date);
+    var currency = _isFundCode(code) ? 'KRW' : String((index.historyCurrencyByCode || {})[code] || '');
+    if (!currency) throw new Error('종목 통화 원자료 누락·확인 필요: ' + code + ' ' + date);
+    var fxRate = 1;
+    if (currency !== 'KRW') {
+      var fx = _indexedLatest(index.fxSeriesByCurrency[currency] || [], date);
+      if (!fx || !(fx.rate > 0)) throw new Error('확정 환율 없음: ' + code + ' ' + currency + ' ' + date);
+      var fxAge = Math.round((Date.parse(date + 'T00:00:00Z') - Date.parse(fx.date + 'T00:00:00Z')) / 86400000);
+      if (fxAge > 10) throw new Error('확정 환율 오래됨: ' + code + ' ' + currency + ' ' + date);
+      fxRate = fx.rate;
+    }
+    var priceKrw = Math.round(price * fxRate);
+    var evalAmt = Math.round(priceKrw * h.qty), costAmt = Number(h.costAmt) || 0, pnl = evalAmt - costAmt;
+    if (!Number.isSafeInteger(evalAmt) || evalAmt < 0) throw new Error('평가금액 계산 범위 초과: ' + code);
+    out.push([date, code, h.name, h.qty, h.qty > 0 ? Number((costAmt / h.qty).toFixed(2)) : 0,
+      costAmt, h.qty > 0 ? Number((evalAmt / h.qty).toFixed(2)) : 0, evalAmt, pnl,
+      costAmt > 0 ? Number(((pnl / costAmt) * 100).toFixed(2)) : 0, source, source === 'MANUAL' ? savedAt : '']);
+  });
+  return _dedupeSnapshotRows(out);
+}
+
+function _historySourceSummary(rows, date) {
+  var evalAmt = Math.round(rows.reduce(function(sum, row) { return sum + Number(row[7] || 0); }, 0));
+  var costAmt = Math.round(rows.reduce(function(sum, row) { return sum + Number(row[5] || 0); }, 0));
+  var qty = rows.reduce(function(sum, row) { return sum + Number(row[3] || 0); }, 0);
+  var carriedFunds = rows.filter(function(row) { return /^FUND_NAV_CARRY@/.test(String(row[10] || '')); })
+    .map(function(row) { return { code: row[1], sourceDate: String(row[10]).split('@')[1] }; });
+  var carriedPrices = rows.filter(function(row) {
+    return !_isFundCode(String(row[1] || '')) && /_CARRY@\d{4}-\d{2}-\d{2}$/.test(String(row[10] || ''));
+  }).map(function(row) { return { code: row[1], sourceDate: String(row[10]).split('@')[1] }; });
+  return { date: date, evalAmt: evalAmt, costAmt: costAmt, qty: qty,
+    evalUnit: qty > 0 ? Number((evalAmt / qty).toFixed(2)) : 0,
+    costUnit: qty > 0 ? Number((costAmt / qty).toFixed(2)) : 0,
+    pnl: evalAmt - costAmt, pct: costAmt > 0 ? Number(((evalAmt - costAmt) / costAmt * 100).toFixed(2)) : 0,
+    navInputRequired: false, navInputRequiredCodes: [], carriedFunds: carriedFunds, carriedPrices: carriedPrices };
+}
+
+function _historySourceDates(values, fromStr, toStr) {
+  var end = _normalizeDate(toStr || '') || _dateOffset(today(), -1);
+  if (end >= today()) end = _dateOffset(today(), -1);
+  var start = _normalizeDate(fromStr || '');
+  if (!start) {
+    var first = [];
+    [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH].forEach(function(sheetName) {
+      (values[sheetName] || []).slice(1).forEach(function(row) {
+        var date = _normalizeDate(row[0]);
+        if (date && date <= end) first.push(date);
+      });
+    });
+    start = first.length ? first.sort()[0] : end;
+  }
+  if (start > end) return [];
+  var dates = [];
+  for (var date = start; date <= end; date = _dateOffset(date, 1)) {
+    var day = new Date(date + 'T00:00:00Z').getUTCDay();
+    if (day !== 0 && day !== 6) dates.push(date);
+    // 원본 없는 지나치게 긴 조회를 GAS 단일 요청에서 방치하지 않습니다.
+    if (dates.length > 3000) throw new Error('손익 원자료 조회 범위가 3000영업일을 초과합니다. 시작연도를 선택해 주세요.');
+  }
+  return dates;
+}
+
+function _historySourceBuild(fromStr, toStr) {
+  var started = Date.now(), read = _buildSnapshotRangeReadContext(getss(), { historyOnly: true });
+  var dates = _historySourceDates(read.valuesByName, fromStr, toStr);
+  if (!dates.length) return { snapshots: [], sourceMode: 'SOURCE_RECOMPUTED',
+    sourceSummary: { candidateDates: 0, completeDates: 0, unavailableDates: 0, carriedFundDates: 0, unavailableSamples: [] } };
+  var indexed = _buildSnapshotRangeIndexes(read, dates, { historyOnly: true });
+  var snapshots = [], unavailable = 0, samples = [], carriedFundDates = 0, carriedFundItems = 0, carriedPriceDates = 0, carriedPriceItems = 0;
+  dates.forEach(function(date) {
+    try {
+      var rows = _historySourceRows(indexed, date);
+      if (!rows.length) return;
+      var snapshot = _historySourceSummary(rows, date);
+      if (snapshot.carriedFunds.length) { carriedFundDates++; carriedFundItems += snapshot.carriedFunds.length; }
+      if (snapshot.carriedPrices.length) { carriedPriceDates++; carriedPriceItems += snapshot.carriedPrices.length; }
+      snapshots.push(snapshot);
+    } catch (err) {
+      unavailable++;
+      if (samples.length < 20) samples.push({ date: date, reason: String(err.message || err).slice(0, 150) });
+    }
+  });
+  return { snapshots: snapshots, sourceMode: 'SOURCE_RECOMPUTED',
+    sourceSummary: { candidateDates: dates.length, completeDates: snapshots.length,
+      unavailableDates: unavailable, carriedFundDates: carriedFundDates, carriedFundItems: carriedFundItems,
+      carriedPriceDates: carriedPriceDates, carriedPriceItems: carriedPriceItems, unavailableSamples: samples,
+      readMs: read.readMs, calculationMs: Date.now() - started - read.readMs } };
+}
+
+function handleGetHistorySource(fromStr, toStr) {
+  try {
+    var revision = String(_getSnapshotIntegritySourceRevision() || '');
+    var key = 'history_src_9177_' + String(fromStr || 'all') + '_' + String(toStr || 'prev') + '_' + revision;
+    var cache = typeof CacheService !== 'undefined' ? CacheService.getScriptCache() : null;
+    if (cache && key.length <= 240) {
+      var hit = cache.get(key);
+      if (hit) { try { return jsonOk(JSON.parse(hit)); } catch(ignore) {} }
+    }
+    var result = _historySourceBuild(fromStr, toStr);
+    var serialized = JSON.stringify(result);
+    if (cache && key.length <= 240 && serialized.length < 90000) {
+      try { cache.put(key, serialized, 600); } catch(ignore) {}
+    }
+    return jsonOk(result);
+  } catch (err) { return jsonError('원자료 손익 조회 실패: ' + String(err.message || err)); }
+}
+
+function handleGetHistorySourceDetail(dateStr) {
+  try {
+    var date = _normalizeDate(dateStr || '');
+    if (!date || date >= today()) throw new Error('전일 이전 날짜를 선택해 주세요.');
+    var read = _buildSnapshotRangeReadContext(getss(), { historyOnly: true });
+    var index = _buildSnapshotRangeIndexes(read, [date], { historyOnly: true });
+    var rows = _historySourceRows(index, date);
+    var items = rows.map(function(row) {
+      var evalAmt = Number(row[7] || 0), costAmt = Number(row[5] || 0);
+      return { code: row[1], name: row[2], qty: row[3], costUnit: row[4], costAmt: costAmt,
+        evalUnit: row[6], evalAmt: evalAmt, pnl: evalAmt - costAmt,
+        pct: costAmt > 0 ? (evalAmt - costAmt) / costAmt * 100 : 0,
+        source: row[10] };
+    }).sort(function(a, b) { return b.evalAmt - a.evalAmt; });
+    return jsonOk({ date: date, items: items, sourceMode: 'SOURCE_RECOMPUTED' });
+  } catch(err) { return jsonError('원자료 기준 특정일 상세 조회 실패: ' + String(err.message || err)); }
+}
+
 function handleGetHistory(fromStr, toStr) {
   try {
     var ss = getss();
@@ -4654,7 +4831,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.176' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.177' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6788,11 +6965,11 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
     Object.keys(holdAtDate).forEach(function(k) {
       var holding = holdAtDate[k];
       var fundCode = _cleanCode(holding && holding.code) || (holding && holding.code || '');
-      if (!_isFundCode(fundCode) || prices[fundCode] > 0) return;
+      if (!_isFundCode(fundCode)) return;
       var fundValue = _getFundEvaluationAtDate(ss, fundCode, dateStr);
       if (fundValue && fundValue.evalAmt > 0) {
         prices[fundCode] = fundValue.evalAmt;
-        sourceMap[fundCode] = { src: fundValue.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV', savedAt: '', sourceDate: fundValue.sourceDate };
+        sourceMap[fundCode] = { src: fundValue.carried ? 'FUND_NAV_CARRY@' + fundValue.sourceDate : 'FUND_NAV', savedAt: '', sourceDate: fundValue.sourceDate };
       }
     });
 
@@ -6867,7 +7044,7 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
       if (/^F\d{5}$/.test(code)) h.qty = 1;
       // ★ [환율 연동] 외화 종목이면 원화로 환산
       var currency = (code && codeToCurrency[code]) ? codeToCurrency[code] : 'KRW';
-      if (throwOnError && (currency !== 'KRW' || !(price > 0))) throw new Error('확정 평가자료 부족: ' + (code || name));
+      if (throwOnError && !(price > 0)) throw new Error('확정 평가자료 부족: ' + (code || name));
       var fxRate   = (currency !== 'KRW' && fxRates[currency] > 0) ? fxRates[currency] : 1;
       var priceKrw = price > 0 ? Math.round(price * fxRate) : 0;
       var evalAmt  = priceKrw > 0 ? Math.round(priceKrw * h.qty) : h.costAmt;
@@ -6890,21 +7067,37 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
   return _dedupeSnapshotRows(out);
 }
 
+function _fundNavEvaluationFromRows(rows, configs, code, dateStr) {
+  var active = _fundUnitsAtDate(configs || [], code, dateStr);
+  if (!active || !(Number(active.units) > 0)) return null;
+  var best = null, seenBySourceDate = {};
+  (rows || []).forEach(function(row) {
+    var valueDate = _normalizeDate(row[0]), sourceDate = _normalizeDate(row[4]);
+    var nav = Number(row[3]), provider = String(row[8] || '');
+    if ((_cleanCode(row[1]) || String(row[1] || '').trim()) !== code ||
+        !valueDate || valueDate > dateStr || !sourceDate || sourceDate > dateStr ||
+        sourceDate > valueDate || !(nav > 0) || (provider && provider !== active.provider)) return;
+    if (seenBySourceDate[sourceDate] && seenBySourceDate[sourceDate] !== nav) {
+      throw new Error('펀드 확정 NAV 충돌: ' + code + ' ' + sourceDate);
+    }
+    seenBySourceDate[sourceDate] = nav;
+    if (!best || sourceDate > best.sourceDate ||
+        (sourceDate === best.sourceDate && valueDate > best.valueDate)) {
+      best = { nav: nav, sourceDate: sourceDate, valueDate: valueDate };
+    }
+  });
+  if (!best) return null;
+  var evalAmt = Math.round(best.nav * Number(active.units) / 1000);
+  if (!Number.isSafeInteger(evalAmt) || evalAmt < 0) throw new Error('펀드 평가금액 계산 범위 초과: ' + code);
+  return { evalAmt: evalAmt, nav: best.nav, units: Number(active.units), sourceDate: best.sourceDate,
+    valueDate: best.valueDate, carried: best.sourceDate < dateStr };
+}
+
 function _getFundEvaluationAtDate(ss, code, dateStr) {
   var sh = ss.getSheetByName(FUND_NAV_SHEET);
   if (!sh || sh.getLastRow() < 2 || !_isFundCode(code)) return null;
   var rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(9, sh.getLastColumn())).getValues();
-  var best = null;
-  rows.forEach(function(row) {
-    var valueDate = _normalizeDate(row[0]);
-    var sourceDate = _normalizeDate(row[4]);
-    var evalAmt = Number(row[6]);
-    if (String(row[1] || '').trim() !== code || !valueDate || valueDate > dateStr || !sourceDate || sourceDate > dateStr || !(evalAmt > 0)) return;
-    if (!best || valueDate > best.valueDate || (valueDate === best.valueDate && sourceDate > best.sourceDate)) {
-      best = { evalAmt: evalAmt, valueDate: valueDate, sourceDate: sourceDate, carried: valueDate !== sourceDate };
-    }
-  });
-  return best;
+  return _fundNavEvaluationFromRows(rows, _readFundUnits(ss), code, dateStr);
 }
 
 var PRICE_HISTORY_UNVERIFIED_SOURCES = /REALTIME|INDICATIVE|DAILY_CANDLE|UNVERIFIED_CLOSE/i;
@@ -7181,9 +7374,12 @@ function handleDiagnoseSnapshotIntegrity(dateStr, datesStr) {
 
 // 기간 진단 전용 read-through context입니다. 필요한 원장을 각각 한 번만 읽고 기존
 // 단일일 계산기에 Sheet 호환 read-only view를 전달하여 계산 계약을 공유합니다.
-function _buildSnapshotRangeReadContext(ss) {
-  var started = Date.now(), names = [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH,
-    CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'], valuesByName = {}, counts = {};
+function _buildSnapshotRangeReadContext(ss, options) {
+  var historyOnly = !!(options && options.historyOnly);
+  var started = Date.now(), names = historyOnly
+    ? [CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력']
+    : [CONFIG.SHEET_SNAPSHOT, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH,
+       CONFIG.SHEET_CODES, FUND_NAV_SHEET, FUND_UNITS_SHEET, '환율이력'], valuesByName = {}, counts = {};
   names.forEach(function(name) {
     var sheet = ss.getSheetByName(name), values = [];
     if (sheet && sheet.getLastRow() && sheet.getLastColumn()) values = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
@@ -7215,14 +7411,35 @@ function _indexedLatest(series, date) {
 
 function _indexedFundEvaluation(context, code, date) {
   context.metrics.fundNavLookupCount++;
-  var series = context.fundNavSeriesByCode[code] || [], best = null, low = 0, high = series.length - 1, index = -1;
-  // valueDate와 sourceDate가 모두 기준일 이하여야 한다는 기존 계약을 보존합니다.
-  while (low <= high) { var mid = (low + high) >> 1; if (series[mid].valueDate <= date) { index = mid; low = mid + 1; } else high = mid - 1; }
-  while (index >= 0 && series[index].valueDate <= date) { if (series[index].sourceDate <= date) { best = series[index]; break; } index--; }
-  return best;
+  var active = _fundUnitsAtDate(context.fundConfigs || [], code, date);
+  if (!active || !(Number(active.units) > 0)) return null;
+  // 같은 공시일의 상충 NAV는 정렬상 마지막 값을 선택하지 않고 조회를 실패시킵니다.
+  // 두 행의 입력일이 모두 평가일까지 도달했고 해당 기관에 적용되는 충돌만 검사합니다.
+  (context.fundNavConflictsByCode[code] || []).forEach(function(conflict) {
+    if (conflict.sourceDate > date || conflict.detectedAt > date) return;
+    if ((conflict.providerA && conflict.providerA !== active.provider) ||
+        (conflict.providerB && conflict.providerB !== active.provider)) return;
+    throw new Error('펀드 확정 NAV 충돌: ' + code + ' ' + conflict.sourceDate);
+  });
+  var series = context.fundNavSeriesByCode[code] || [], best = null;
+  var low = 0, high = series.length - 1, index = -1;
+  while (low <= high) {
+    var mid = (low + high) >> 1;
+    if (series[mid].sourceDate <= date) { index = mid; low = mid + 1; } else high = mid - 1;
+  }
+  while (index >= 0) {
+    var candidate = series[index--];
+    if (candidate.valueDate > date || (candidate.provider && candidate.provider !== active.provider)) continue;
+    best = candidate; break;
+  }
+  if (!best) return null;
+  var evalAmt = Math.round(best.nav * Number(active.units) / 1000);
+  if (!Number.isSafeInteger(evalAmt) || evalAmt < 0) throw new Error('펀드 평가금액 계산 범위 초과: ' + code);
+  return { evalAmt: evalAmt, nav: best.nav, units: Number(active.units),
+    sourceDate: best.sourceDate, carried: best.sourceDate < date };
 }
 
-function _buildSnapshotRangeIndexes(readContext, dates) {
+function _buildSnapshotRangeIndexes(readContext, dates, options) {
   var started = Date.now(), values = readContext.valuesByName, metrics = readContext.metrics;
   var context = { snapshotRowsByDate: {}, priceSeriesByCode: {}, positivePriceSeriesByCode: {}, priceExactByDateCode: {}, manualPriceSeriesByCode: {}, fundNavSeriesByCode: {}, fxSeriesByCurrency: {},
     priceIntegrityByDate: {}, codeItems: getCodeItems(readContext.ss, true), fundConfigs: _readFundUnits(readContext.ss), metrics: metrics };
@@ -7234,9 +7451,37 @@ function _buildSnapshotRangeIndexes(readContext, dates) {
     if (item.name) context.nameToCode[item.name] = code;
     context.currencyByCode[code] = String(item.currency || 'KRW').toUpperCase();
   });
+  // getCodeItems()는 빈 통화 셀을 KRW로 기본 설정합니다. 손익 원자료 조회에서는
+  // 누락된 해외 종목 통화가 KRW로 오인되지 않도록 시트 원본 통화 셀을 직접 확인합니다.
+  context.historyCurrencyByCode = {};
+  (values[CONFIG.SHEET_CODES] || []).slice(1).forEach(function(row) {
+    var code = _cleanCode(row[0]) || String(row[0] || '').trim();
+    if (!code) return;
+    var currency = String(row[4] || '').trim().toUpperCase();
+    var market = String(row[5] || '').trim().toUpperCase();
+    var foreignCode = /^[A-Z]{1,5}(\.[A-Z])?$/.test(code);
+    var foreignMarket = /(^|[^A-Z])(NASDAQ|NYSE|AMEX|US|JP|TSE|HK|HKEX|TOKYO|JAPAN|HONGKONG)([^A-Z]|$)/.test(market);
+    if (currency === 'KRW' && (foreignCode || foreignMarket)) return;
+    if (/^[A-Z]{3}$/.test(currency)) context.historyCurrencyByCode[code] = currency;
+    else if (!currency && /^[0-9][0-9A-Z]{5}$/.test(code)) context.historyCurrencyByCode[code] = 'KRW';
+  });
   (values[CONFIG.SHEET_TRADES] || []).slice(1).forEach(function(row) {
     var name = String(row[3] || '').trim(), code = _cleanCode(row[4]) || String(row[4] || '').trim();
     if (name && code && !context.nameToCode[name]) context.nameToCode[name] = code;
+  });
+  // 평가일 사이의 split/reverse_split 이력은 종가 carry 허용 여부를 판단하는 원자료입니다.
+  context.historyCorporateActionDatesByCode = {};
+  (values[CONFIG.SHEET_TRADES] || []).slice(1).forEach(function(row) {
+    var action = String(row[1] || '').trim().toLowerCase();
+    if (action !== 'split' && action !== 'reverse_split') return;
+    var actionDate = _normalizeDate(row[0]), name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || String(row[4] || '').trim() || context.nameToCode[name];
+    if (!actionDate || !code) return;
+    (context.historyCorporateActionDatesByCode[code] ||
+      (context.historyCorporateActionDatesByCode[code] = [])).push(actionDate);
+  });
+  Object.keys(context.historyCorporateActionDatesByCode).forEach(function(code) {
+    context.historyCorporateActionDatesByCode[code].sort();
   });
   (values[CONFIG.SHEET_SNAPSHOT] || []).slice(1).forEach(function(row) {
     var date = _normalizeDate(row[0]); if (!date) return;
@@ -7264,15 +7509,52 @@ function _buildSnapshotRangeIndexes(readContext, dates) {
     context.priceSeriesByCode[code].forEach(function(entry) { seenDates[entry.date] = true; });
     context.positivePriceSeriesByCode[code] = Object.keys(seenDates).sort().map(function(date) { return context.priceExactByDateCode[date + '|' + code]; }).filter(Boolean);
   });
-  (values[FUND_NAV_SHEET] || []).slice(1).forEach(function(row) {
-    var code = String(row[1] || '').trim(), valueDate = _normalizeDate(row[0]), sourceDate = _normalizeDate(row[4]), evalAmt = Number(row[6]);
-    if (!_isFundCode(code) || !valueDate || !sourceDate || !(evalAmt > 0)) return;
-    (context.fundNavSeriesByCode[code] || (context.fundNavSeriesByCode[code] = [])).push({ evalAmt: evalAmt, valueDate: valueDate,
-      sourceDate: sourceDate, date: valueDate, carried: valueDate !== sourceDate });
+  // 손익 원자료 전용 가격 인덱스: 같은 날에는 검증된 자동 가격이 MANUAL보다 우선합니다.
+  // 실시간/미검증 Toss 가격과 GOOGLEFINANCE 값은 과거 확정 평가에 사용하지 않습니다.
+  context.historyPriceSeriesByCode = {};
+  Object.keys(context.priceSeriesByCode).forEach(function(code) {
+    var byDate = {};
+    context.priceSeriesByCode[code].forEach(function(entry) {
+      var src = String(entry.source || '').toUpperCase();
+      if (!(entry.price > 0) || !src || PRICE_HISTORY_UNVERIFIED_SOURCES.test(src) ||
+          src.indexOf('GOOGLEFINANCE') !== -1 || src === 'TOSS') return;
+      var previous = byDate[entry.date];
+      var rank = src === 'MANUAL' ? 1 : 2;
+      var prevRank = previous && String(previous.source || '').toUpperCase() === 'MANUAL' ? 1 : 2;
+      if (!previous || rank > prevRank || (rank === prevRank && entry.rowNumber > previous.rowNumber)) byDate[entry.date] = entry;
+    });
+    context.historyPriceSeriesByCode[code] = Object.keys(byDate).sort().map(function(date) { return byDate[date]; });
   });
-  Object.keys(context.fundNavSeriesByCode).forEach(function(code) { context.fundNavSeriesByCode[code].sort(function(a,b) {
-    return a.valueDate === b.valueDate ? a.sourceDate.localeCompare(b.sourceDate) : a.valueDate.localeCompare(b.valueDate);
-  }); });
+  (values[FUND_NAV_SHEET] || []).slice(1).forEach(function(row) {
+    var code = _cleanCode(row[1]) || String(row[1] || '').trim();
+    var valueDate = _normalizeDate(row[0]), sourceDate = _normalizeDate(row[4]), nav = Number(row[3]);
+    if (!_isFundCode(code) || !valueDate || !sourceDate || sourceDate > valueDate || !(nav > 0)) return;
+    (context.fundNavSeriesByCode[code] || (context.fundNavSeriesByCode[code] = [])).push({
+      nav: nav, valueDate: valueDate, sourceDate: sourceDate, provider: String(row[8] || ''), date: sourceDate
+    });
+  });
+  // NAV 충돌을 인덱스 생성 시 한 번만 선계산하여 일별 조회마다 원본 행 전체를 스캔하지 않습니다.
+  // 공시기관 미기재 행은 기존 단건 평가 경로와 동일하게 어느 기관에도 적용됩니다.
+  context.fundNavConflictsByCode = {};
+  Object.keys(context.fundNavSeriesByCode).forEach(function(code) {
+    var series = context.fundNavSeriesByCode[code];
+    series.sort(function(a,b) {
+      return a.sourceDate === b.sourceDate ? a.valueDate.localeCompare(b.valueDate) : a.sourceDate.localeCompare(b.sourceDate);
+    });
+    var sameDay = [], lastSourceDate = '';
+    series.forEach(function(item) {
+      if (item.sourceDate !== lastSourceDate) { sameDay = []; lastSourceDate = item.sourceDate; }
+      sameDay.forEach(function(previous) {
+        if (previous.nav === item.nav || (previous.provider && item.provider && previous.provider !== item.provider)) return;
+        (context.fundNavConflictsByCode[code] || (context.fundNavConflictsByCode[code] = [])).push({
+          sourceDate: item.sourceDate,
+          detectedAt: previous.valueDate > item.valueDate ? previous.valueDate : item.valueDate,
+          providerA: previous.provider, providerB: item.provider
+        });
+      });
+      sameDay.push(item);
+    });
+  });
   (values['환율이력'] || []).slice(1).forEach(function(row) {
     var date = _normalizeDate(row[0]), currency = String(row[1] || '').toUpperCase(), rate = Number(row[2]);
     if (date && currency && rate > 0) (context.fxSeriesByCurrency[currency] || (context.fxSeriesByCurrency[currency] = [])).push({ date: date, rate: rate });
@@ -7281,8 +7563,12 @@ function _buildSnapshotRangeIndexes(readContext, dates) {
   context.holdingsByRequestedDate = _buildHoldingsByRequestedDate((values[CONFIG.SHEET_TRADES] || []).slice(1), dates, context.nameToCode);
   var priceContext = { priceRows: (values[CONFIG.SHEET_PH] || []).slice(1), tradeRows: (values[CONFIG.SHEET_TRADES] || []).slice(1),
     fxRows: (values['환율이력'] || []).slice(1), navRows: (values[FUND_NAV_SHEET] || []).slice(1), codeItems: context.codeItems, byCode: context.codeByCode };
-  _priceIntegrityRows(priceContext, dates, []).forEach(function(row) { (context.priceIntegrityByDate[row.date] || (context.priceIntegrityByDate[row.date] = [])).push(row); });
-  metrics.holdingsBuildCount = 1; metrics.priceSeriesBuildCount = 1; metrics.priceIntegrityBuildCount = 1;
+  if (!(options && options.historyOnly)) {
+    _priceIntegrityRows(priceContext, dates, []).forEach(function(row) {
+      (context.priceIntegrityByDate[row.date] || (context.priceIntegrityByDate[row.date] = [])).push(row);
+    });
+  }
+  metrics.holdingsBuildCount = 1; metrics.priceSeriesBuildCount = 1; metrics.priceIntegrityBuildCount = options && options.historyOnly ? 0 : 1;
   metrics.snapshotDateLookupCount = 0; metrics.fundNavLookupCount = 0; metrics.fxLookupCount = 0;
   context.indexBuildMs = Date.now() - started;
   return context;
@@ -8990,7 +9276,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.176',
+    gasVersion: '9.177',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9019,7 +9305,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.176' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.177' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -10670,7 +10956,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.176' });
+    return jsonOk({ settings: settings, gasVersion: '9.177' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10692,7 +10978,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.176'
+      gasVersion: '9.177'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

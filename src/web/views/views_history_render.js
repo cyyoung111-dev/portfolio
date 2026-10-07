@@ -31,7 +31,7 @@ function renderHistoryView(area) {
             <svg class="hist-query-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 10-2.34 5.66"/><path d="M20 4v7h-7"/></svg>
             <span>조회</span>
           </button>
-          <button type="button" id="btn-history-full-repair" class="btn-ghost-sm" data-history-action="full-repair" title="연결된 GAS의 가격이력으로 구글시트 스냅샷 시트를 다시 작성합니다. 로컬 데이터만 변경하는 기능이 아닙니다.">🧰 GAS 전체 재작성</button>
+          <button type="button" id="btn-history-full-repair" class="btn-ghost-sm" data-history-action="full-repair" title="연결된 GAS의 가격이력으로 구글시트 스냅샷 시트를 다시 작성합니다. 로컬 데이터만 변경하는 기능이 아닙니다.">🧰 기존 Snapshot 유지보수(고급)</button>
         </div>
       </div>
       <div style="font-size:.64rem;color:var(--muted);margin:-8px 0 10px">비교지수는 선택 기간 변화율과 MDD(고점 대비 최대 하락률)를 함께 표시합니다.</div>
@@ -40,9 +40,9 @@ function renderHistoryView(area) {
       <div id="histCoveragePanel"></div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--s2)">
         <label for="histDetailDate" style="font-size:.70rem;font-weight:700;color:var(--text)">📅 특정일 손익</label>
-        <input id="histDetailDate" type="date" title="조회할 스냅샷 날짜"
+        <input id="histDetailDate" type="date" title="조회할 원자료 평가 날짜"
           style="background:var(--s1);border:1px solid var(--border);border-radius:6px;padding:5px 8px;color:var(--text);font-size:.72rem" />
-        <span style="font-size:.63rem;color:var(--muted)">상단 기준일 업데이트와 별개로 저장된 손익 스냅샷을 조회합니다.</span>
+        <span style="font-size:.63rem;color:var(--muted)">상단 기준일과 무관하게 거래·가격·NAV·환율 원자료로 평가합니다.</span>
       </div>
       <div id="histDateDetail"></div>
       <div id="histChartWrap" style="width:100%;overflow-x:auto"></div>
