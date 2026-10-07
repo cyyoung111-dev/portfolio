@@ -296,6 +296,7 @@ async function loadDividendSettings(options) {
 
 function saveSettings(immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const isCurrentLoad = typeof options?.isCurrentLoad === 'function' ? options.isCurrentLoad : null;
   const expectedGeneration = Number.isInteger(options?.generation)
     ? options.generation
     : getGsheetConnectionGeneration();
@@ -346,6 +347,7 @@ function saveSettings(immediate, options) {
       const run = async () => {
         try {
           if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+          if (isCurrentLoad && !isCurrentLoad()) return false;
           const data = await requestGsheetFormJson(
             'saveSettings',
             { data: payload },
@@ -383,9 +385,12 @@ async function persistDividendSettings(immediate, options) {
 
 async function persistRealEstateSettings(immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const isCurrentLoad = typeof options?.isCurrentLoad === 'function' ? options.isCurrentLoad : null;
   if (!targetUrl) return false;
+  if (isCurrentLoad && !isCurrentLoad()) return false;
   const ok = await saveRealEstateSettings(immediate, options);
   if (ok) return true;
+  if (isCurrentLoad && !isCurrentLoad()) return false;
   if (_isGasVersionAtLeast(window._lastGasVersion, '9.34')) return false;
   return saveSettings(true, options);
 }
