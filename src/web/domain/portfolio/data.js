@@ -542,12 +542,20 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
   const targetAfterHoldings = _currentGsheetSyncTarget();
   if (targetAfterHoldings === retryTarget && rawTrades.length > 0) {
     if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
-    const currentHoldingsResult = typeof syncHoldingsToGsheet === 'function'
-      ? await syncHoldingsToGsheet({ targetUrl: retryTarget })
-      : null;
-    const currentTradesResult = typeof syncTradesToGsheet === 'function'
-      ? await syncTradesToGsheet({ targetUrl: retryTarget })
-      : null;
+
+    // 이 시점의 A 거래를 recovery await 전에 고정합니다. 이후 연결이 B로 바뀌거나 B 거래가
+    // rawTrades에 복원돼도 A 복구 쓰기는 아래 스냅샷만 사용합니다.
+    const recoveryTrades = rawTrades.map(t => ({ ...t }));
+    const currentHoldingsPromise = typeof syncHoldingsToGsheet === 'function'
+      ? syncHoldingsToGsheet({ targetUrl: retryTarget })
+      : Promise.resolve(null);
+    const currentTradesPromise = typeof syncTradesToGsheet === 'function'
+      ? syncTradesToGsheet({ targetUrl: retryTarget, tradesOverride: recoveryTrades })
+      : Promise.resolve(null);
+    const [currentHoldingsResult, currentTradesResult] = await Promise.all([
+      currentHoldingsPromise,
+      currentTradesPromise
+    ]);
     const currentHoldingsOk = currentHoldingsResult?.status === 'ok';
     const currentTradesOk = currentTradesResult?.status === 'ok' && currentTradesResult?.saveState !== 'partial';
     if ((!currentHoldingsOk || !currentTradesOk) && !options?.quiet && typeof showToast === 'function') {
