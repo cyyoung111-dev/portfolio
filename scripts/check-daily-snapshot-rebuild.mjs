@@ -207,8 +207,8 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*targetU
   '보유현황 동기화가 호출자가 고정한 targetUrl을 사용');
 assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*const hasTradesOverride = Array\.isArray\(options\?\.tradesOverride\)[\s\S]*const sourceTrades = hasTradesOverride \? options\.tradesOverride : rawTrades[\s\S]*sourceTrades\.length === 0 && !allowEmpty[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '거래원장 동기화는 캡처 payload를 지원하되 allowEmpty 없이는 빈 override 삭제를 차단');
-assert.match(portfolioData, /rawTrades\.length > 0[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*await syncHoldingsToGsheet\(\)[\s\S]*await syncTradesToGsheet\(\)/,
-  'pending 실패 뒤 새 거래가 생기면 stale 권한 폐기 후 현재 거래·보유현황을 일반 동기화');
+assert.match(portfolioData, /rawTrades\.length > 0[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*syncHoldingsToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration[\s\S]*syncTradesToGsheet\(\{[\s\S]*targetUrl: retryTarget,[\s\S]*generation: retryGeneration,[\s\S]*tradesOverride: recoveryTrades[\s\S]*Promise\.all/,
+  'pending 실패 뒤 새 거래가 생기면 stale 권한 폐기 후 캡처한 현재 거래·보유현황을 동일 target/generation에 동기화');
 assert.match(portfolioData, /else if \(rawTrades\.length > 0 && _getPendingExplicitEmptyTradeSync\(\)\)[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)[\s\S]*const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync\(\)/,
   'saveHoldings debounce도 새 거래가 있으면 일반 동기화 경로를 선택');
 assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
