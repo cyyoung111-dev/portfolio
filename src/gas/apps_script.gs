@@ -5046,8 +5046,10 @@ function handleSaveFundUnits(dataJson) {
     if (exact.length !== 1 || Number(exact[0].units) !== units || exact[0].provider !== provider) throw new Error('좌수 이력 쓰기 검증 실패');
     sourcePersisted = true;
     affectedFrom = startDate;
-    affectedTo = _fundUnitsImpactEnd(ss, savedConfigs, code, startDate);
+    // 원본 좌수가 저장된 순간부터 원자료 기반 손익 캐시는 반드시 무효화합니다.
+    // 이후 영향범위 계산/파생 재계산이 실패해도 이전 좌수 기준 캐시가 남으면 안 됩니다.
     _touchSnapshotIntegritySourceRevision({ from: startDate });
+    affectedTo = _fundUnitsImpactEnd(ss, savedConfigs, code, startDate);
     reconciliation = _reconcileFundUnitDerivedRows(ss, code, provider, startDate, affectedTo);
     _ensurePortfolioCloseDailyTrigger(true);
     return jsonOk({ saveState: 'success', configs: savedConfigs, funds: _getFundCodeCatalog(ss, savedConfigs), automaticHour: 19,
