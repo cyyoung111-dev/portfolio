@@ -113,6 +113,10 @@ assert.match(gas, /affectedFrom = _earliestChangedTradeDate\(previousRows, curre
 assert.match(gas, /rebuildDailySnapshots\(affectedFrom, affectedTo\)/,'최초 영향일부터 마지막 확정 Snapshot까지 공통 계산기로 갱신');
 assert.match(gas, /function _hasSnapshotHoldingsAtDate\(ss, dateStr\)/,
   '빈 재계산 결과가 실제 무보유인지 거래원장에서 별도 판정');
+assert.match(gas.match(/function _hasSnapshotHoldingsAtDate[\s\S]*?\n}/)?.[0] || '', /if \(!tradeSh\) return null;[\s\S]*if \(tradeSh\.getLastRow\(\) < 2\) return false;/,
+  '시트 부재(null)와 헤더만 있는 빈 거래원장(false)을 구분');
+assert.match(gas, /hasHoldings === true[\s\S]*확정 평가 원자료 부족으로 기존 Snapshot 보존/,
+  '보유가 있는데 평가 rows가 비면 성공이 아니라 불완전 재생성으로 기록');
 assert.match(gas, /hasHoldings === false[\s\S]*writeSnapshotRows\(ss, date, \[\], true, null, rebuildFundConfigs, true\)/,
   '전량매도 후 빈 포트폴리오는 기존 Snapshot을 명시적으로 비움');
 assert.match(gas, /function writeSnapshotRows\(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite\)/,
