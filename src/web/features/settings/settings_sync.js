@@ -12,13 +12,20 @@ function _syncWarn(...args) {
   else console.warn('[SETTINGS_SYNC]', ...args);
 }
 
-async function syncIssuesToGsheet(source, issues) {
-  if (!GSHEET_API_URL || !Array.isArray(issues) || issues.length === 0) return null;
+async function syncIssuesToGsheet(source, issues, options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!targetUrl || !Array.isArray(issues) || issues.length === 0) return null;
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return null;
   try {
     const data = await requestGsheetFormJson(
       'saveSyncIssues',
       { source: source || 'unknown', data: JSON.stringify(issues) },
-      { timeoutMs: 15000, retry: 1 }
+      { timeoutMs: 15000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[saveSyncIssues] 네트워크 오류'); return null; }
     if (data.status !== 'ok') { _syncWarn('[saveSyncIssues] GAS 오류:', data); return null; }
@@ -279,7 +286,11 @@ async function syncTradesToGsheet(options) {
       if (typeof showToast === 'function') {
         showToast(`⚠️ 기초정보 미매칭 거래 ${uniq.length}건 포함 (동기화 전 기초정보 점검 권장)`, 'warn');
       }
-      syncIssuesToGsheet('syncTradesToGsheet', unmatchedTrades).catch(()=>{});
+      syncIssuesToGsheet('syncTradesToGsheet', unmatchedTrades, {
+        targetUrl,
+        generation,
+        allowDuringRestore: options?.allowDuringRestore === true
+      }).catch(()=>{});
     }
 
     const data = await requestGsheetFormJson(
