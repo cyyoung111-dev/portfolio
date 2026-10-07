@@ -97,8 +97,18 @@ function _drawHistoryChart(wrap, snapshots, _mode, benchmarkOpt) {
   });
   if (pnlSegment.length) pnlSegments.push(pnlSegment);
   const pnlLines = pnlSegments.map(segment => `<polyline points="${segment.join(' ')}" fill="none" stroke="var(--green)" stroke-width="2.5" stroke-linejoin="round"/>`).join('');
-  const integrityMarkers = pts.map((p, i) => !_isVerifiedHistoryPoint(p)
-    ? `<g><line x1="${xScale(i)}" y1="${PAD.top}" x2="${xScale(i)}" y2="${PAD.top + CH}" stroke="var(--amber)" stroke-dasharray="3 3"/><text x="${xScale(i)}" y="${PAD.top + 10}" text-anchor="middle" fill="var(--amber)" font-size="10">⚠</text></g>` : '').join('');
+  const invalidPointCount = pts.reduce((count, p) => count + (!_isVerifiedHistoryPoint(p) ? 1 : 0), 0);
+  const denseIntegrityMarkers = invalidPointCount > 24;
+  const integrityMarkers = pts.map((p, i) => {
+    if (_isVerifiedHistoryPoint(p)) return '';
+    const x = xScale(i).toFixed(1);
+    // 오류 날짜가 많을 때 전체 높이 점선을 모두 그리면 dash 위상이 겹쳐 차트가 가로 줄무늬처럼 보입니다.
+    // 밀집 구간은 상단 짧은 tick만 표시하고 상세 상태는 상단 정합성 요약에서 확인합니다.
+    if (denseIntegrityMarkers) {
+      return `<line x1="${x}" y1="${PAD.top}" x2="${x}" y2="${PAD.top + 8}" stroke="var(--amber)" stroke-width="1.4" opacity=".8"/>`;
+    }
+    return `<g><line x1="${x}" y1="${PAD.top}" x2="${x}" y2="${PAD.top + CH}" stroke="var(--amber)" stroke-dasharray="3 3" opacity=".75"/><circle cx="${x}" cy="${PAD.top + 5}" r="2.6" fill="var(--amber)"/></g>`;
+  }).join('');
   // 손익 fill path (0선 기준)
   const zero    = yMoney(0).toFixed(1);
   const pnlFill = '';
