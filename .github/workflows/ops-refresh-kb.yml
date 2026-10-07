@@ -1,0 +1,48 @@
+name: OPS 20261007 recover KB S-T NAV via GAS
+on:
+  push:
+    paths:
+      - .github/workflows/ops-refresh-kb.yml
+    branches:
+      - ops/diagnose-close-nav-20261007
+permissions:
+  contents: read
+jobs:
+  nav:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+      GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+    steps:
+      - name: Recover KB NAV through production GAS
+        run: |
+          node --input-type=module <<'NODE'
+          const url=process.env.GAS_WEB_APP_URL;
+          if(!url){console.log('NO_GAS_WEB_APP_URL');process.exit(1)}
+          const query=new URLSearchParams({action:'refreshFundValuations',
+            from:'2026-09-22',to:'2026-10-06',code:'F00002',diagnostic:'true',
+            ...(process.env.GAS_ACCESS_TOKEN?{accessToken:process.env.GAS_ACCESS_TOKEN}:{})});
+          try {
+            const response=await fetch(url,{method:'POST',
+              headers:{'Content-Type':'application/x-www-form-urlencoded'},body:query,
+              redirect:'follow',signal:AbortSignal.timeout(210000)});
+            const raw=await response.text();let json;
+            try{json=JSON.parse(raw)}catch{}
+            const d=json?.data||json||{};
+            const result=d.fundResults?.F00002||{};
+            console.log('KB_REFRESH',JSON.stringify({http:response.status,
+              success:json?.ok===true||json?.success===true||d?.ok===true,
+              responseKeys:Object.keys(json||{}).slice(0,10),
+              error:String(json?.error||json?.message||d?.error||'').slice(0,500),
+              fund:{code:result.code,status:result.status,storedNav:result.storedNav,
+                apiRequested:result.apiRequested,apiSuccess:result.apiSuccess,
+                apiFailed:result.apiFailed,apiErrors:result.apiErrors,
+                navSaved:result.navSaved,prices:result.prices,snapshots:result.snapshots,
+                valuations:result.valuations,inputRequiredDates:result.inputRequiredDates},
+              summaryKeys:Object.keys(d).slice(0,15)}));
+            if(!response.ok||!json||json.ok===false||json.success===false){
+              process.exitCode=1;
+            }
+          } catch(e) {console.log('KB_REFRESH',JSON.stringify({status:'request_failed',name:e.name}));process.exitCode=1}
+          NODE
