@@ -133,12 +133,14 @@ assert.match(sync, /trades\.length === 0 && \(rawTrades\.length > 0 \|\| !allowE
   '명시적 빈 원장 권한이 없으면 [] 전송 차단');
 assert.match(portfolioData, /_pendingExplicitEmptyTradeSync[\s\S]*allowEmptyTradeSync[\s\S]*syncHoldingsToGsheet\(\{ allowEmpty: allowEmptyTradeSync \}\)[\s\S]*syncTradesToGsheet\(\{ allowEmpty: allowEmptyTradeSync \}\)/,
   '확인된 삭제 권한을 debounce 후 보유현황·거래이력 동기화까지 1회 전달');
+assert.match(portfolioData, /if \(options\?\.skipGsheet\) return;[\s\S]*if \(allowEmptyTradeSyncRequested\) _pendingExplicitEmptyTradeSync = true;[\s\S]*clearTimeout\(_saveHoldingsGasTimer\)/,
+  '빈 원장 권한은 로컬 저장 성공 및 GSheet 동기화 경로 확정 후에만 획득');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holdings\.length === 0 && !allowEmpty[\s\S]*return/,
   '초기 빈 상태에서는 원격 보유현황을 보존하고 확인된 마지막 거래 삭제에서만 [] 허용');
 assert.match(tradesView, /_commitTrades\(\{ allowEmptyTradeSync: before > 0 && rawTrades\.length === 0 \}\)/,
   '실제 마지막 거래 삭제 경로에서만 빈 원장 동기화 허용');
 assert.match(html, /settings_sync\.js\?v=20261007-12/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-1/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-2/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-1/,'거래 삭제 로직 캐시 버전 갱신');
 assert.match(gas, /rebuildOperationId = 'rebuildDailySnapshots\|'[\s\S]*_snapshotBackupOperationId = rebuildOperationId/,'다일자 재생성은 작업 단위 백업 재사용');
 
