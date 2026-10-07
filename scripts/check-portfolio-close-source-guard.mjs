@@ -27,6 +27,7 @@ assert.match(closeSection, /var items = _getDailyHeldCodeItems\(ss, requestedPre
 const holdingsVm = vm.createContext({
   _cleanCode:v=>String(v||'').trim().toUpperCase(),
   _isFundCode:v=>/^F\d{5}$/.test(String(v||'')),
+  _normalizeDate:v=>v instanceof Date?v.toISOString().slice(0,10):String(v||'').slice(0,10),
   CONFIG:{SHEET_TRADES:'거래이력'},
   Utilities:{formatDate:d=>d.toISOString().slice(0,10)}
 });
