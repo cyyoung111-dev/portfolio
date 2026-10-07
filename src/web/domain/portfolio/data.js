@@ -485,6 +485,7 @@ function _normalizePendingExplicitEmptyTradeSync(value) {
 let _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(
   lsGet(PENDING_EMPTY_TRADE_SYNC_KEY, null)
 );
+let _pendingExplicitEmptyTradeSyncFlight = null;
 
 function _setPendingExplicitEmptyTradeSync(value) {
   _pendingExplicitEmptyTradeSync = _normalizePendingExplicitEmptyTradeSync(value);
@@ -509,142 +510,128 @@ function _getPendingExplicitEmptyTradeSync() {
 }
 
 async function _retryPendingExplicitEmptyTradeSync(options) {
-  const pendingEmptySync = _getPendingExplicitEmptyTradeSync();
-  if (!pendingEmptySync) return true;
-  const retryTarget = pendingEmptySync.target;
-  const retryGeneration = typeof getGsheetConnectionGeneration === 'function'
-    ? getGsheetConnectionGeneration()
-    : null;
-  const allowDuringRestore = options?.allowDuringRestore === true;
+  // 동일 pending에 대한 빈 원장 삭제/새 거래 복구가 동시에 실행되면 늦게 끝난 요청이
+  // 더 최신 상태를 덮을 수 있으므로 한 번에 하나의 실행만 허용합니다.
+  if (_pendingExplicitEmptyTradeSyncFlight) return _pendingExplicitEmptyTradeSyncFlight;
 
-  // 삭제 이후 새 거래가 생겼다면 "빈 원장" 의도를 폐기하고 현재 비어 있지 않은 원장을 즉시 일반 동기화합니다.
-  // GSheet 연동 중 거래는 remote-only이므로 여기서 전송하지 않으면 새로고침 시 새 거래가 유실될 수 있습니다.
-  if (rawTrades.length > 0) {
-    const recoveryTrades = rawTrades.map(t => ({ ...t }));
-    const [holdingsResult, tradesResult] = await Promise.all([
-      typeof syncHoldingsToGsheet === 'function'
-        ? syncHoldingsToGsheet({
-            targetUrl: retryTarget,
-            generation: retryGeneration,
-            allowDuringRestore
-          })
-        : Promise.resolve(null),
-      typeof syncTradesToGsheet === 'function'
-        ? syncTradesToGsheet({
-            targetUrl: retryTarget,
-            generation: retryGeneration,
-            allowDuringRestore,
-            tradesOverride: recoveryTrades
-          })
-        : Promise.resolve(null)
-    ]);
+  const run = (async () => {
+    const pendingEmptySync = _getPendingExplicitEmptyTradeSync();
+    if (!pendingEmptySync) return true;
+    const retryTarget = pendingEmptySync.target;
+    const retryGeneration = typeof getGsheetConnectionGeneration === 'function'
+      ? getGsheetConnectionGeneration()
+      : null;
+    const allowDuringRestore = options?.allowDuringRestore === true;
+    const restoreInProgress = typeof _gsPortfolioRestoreRequired !== 'undefined'
+      && _gsPortfolioRestoreRequired === true;
+
+    const syncCurrentTrades = async () => {
+      // 강제 복원 중 rawTrades/rawHoldings는 이전 연결의 메모리일 수 있으므로 절대 복구 payload로 쓰지 않습니다.
+      if (restoreInProgress) return false;
+      if (rawTrades.length === 0) return false;
+      const recoveryTrades = rawTrades.map(t => ({ ...t }));
+      const [holdingsResult, tradesResult] = await Promise.all([
+        typeof syncHoldingsToGsheet === 'function'
+          ? syncHoldingsToGsheet({
+              targetUrl: retryTarget,
+              generation: retryGeneration,
+              allowDuringRestore
+            })
+          : Promise.resolve(null),
+        typeof syncTradesToGsheet === 'function'
+          ? syncTradesToGsheet({
+              targetUrl: retryTarget,
+              generation: retryGeneration,
+              allowDuringRestore,
+              tradesOverride: recoveryTrades
+            })
+          : Promise.resolve(null)
+      ]);
+      const holdingsOk = holdingsResult?.status === 'ok';
+      const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
+      if (holdingsOk && tradesOk) {
+        if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
+        return true;
+      }
+      if (!options?.quiet && typeof showToast === 'function') {
+        showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
+      }
+      return false;
+    };
+
+    // 정상 연결 상태에서 삭제 이후 새 거래가 이미 생겼다면 빈 원장 삭제 대신 현재 원장을 복구합니다.
+    if (!restoreInProgress && rawTrades.length > 0) return syncCurrentTrades();
+
+    // 재시도 시작 시점의 연결을 고정합니다. 첫 await 동안 사용자가 GSheet 연결을 바꿔도
+    // A용 삭제 권한으로 B에 빈 거래원장을 보내지 않도록 두 쓰기 모두 동일 targetUrl을 사용합니다.
+    const holdingsResult = typeof syncHoldingsToGsheet === 'function'
+      ? await syncHoldingsToGsheet({
+          allowEmpty: true,
+          targetUrl: retryTarget,
+          generation: retryGeneration,
+          allowDuringRestore
+        })
+      : null;
+
+    if (retryGeneration !== null
+        && (typeof getGsheetConnectionGeneration !== 'function'
+          || getGsheetConnectionGeneration() !== retryGeneration)) {
+      if (!options?.quiet && typeof showToast === 'function') {
+        showToast('구글시트 연결이 변경되어 빈 원장 재시도를 중단했습니다. 현재 연결을 다시 불러와 주세요.', 'warn', 7000);
+      }
+      return false;
+    }
+
+    // 첫 요청 중 새 거래가 생긴 경우에도 강제 복원 중이면 이전 연결 메모리를 신뢰하지 않습니다.
+    if (!restoreInProgress && rawTrades.length > 0) return syncCurrentTrades();
+
+    const retryTrades = [];
+    const tradesResult = typeof syncTradesToGsheet === 'function'
+      ? await syncTradesToGsheet({
+          allowEmpty: true,
+          rebuildFrom: pendingEmptySync.from || '',
+          targetUrl: retryTarget,
+          generation: retryGeneration,
+          allowDuringRestore,
+          tradesOverride: retryTrades
+        })
+      : null;
+
+    if (retryGeneration !== null
+        && (typeof getGsheetConnectionGeneration !== 'function'
+          || getGsheetConnectionGeneration() !== retryGeneration)) {
+      return false;
+    }
+
+    // 빈 거래 쓰기가 진행되는 동안 새 거래가 추가됐다면 성공한 빈 상태를 최종 상태로 확정하지 않습니다.
+    // 같은 single-flight 안에서 즉시 현재 거래를 복구한 뒤에만 pending을 제거합니다.
+    if (!restoreInProgress && rawTrades.length > 0) return syncCurrentTrades();
+
     const holdingsOk = holdingsResult?.status === 'ok';
     const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
     if (holdingsOk && tradesOk) {
       if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
       return true;
     }
-    // 새 거래가 원격에 확정되기 전에는 repair token을 유지합니다.
-    // 다음 재시도에서도 rawTrades>0 분기가 먼저 실행되므로 빈 원장 삭제로 되돌아가지 않습니다.
+
+    if (_pendingExplicitEmptyTradeSync === pendingEmptySync && tradesResult?.affectedFrom) {
+      _setPendingExplicitEmptyTradeSync({
+        from: String(tradesResult.affectedFrom || pendingEmptySync.from || ''),
+        target: pendingEmptySync.target
+      });
+    }
     if (!options?.quiet && typeof showToast === 'function') {
-      showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
+      showToast('빈 거래/보유 원장 동기화가 완료되지 않았습니다. 새로고침 후에도 자동 재시도합니다.', 'warn', 7000);
     }
     return false;
-  }
+  })();
 
-  // 재시도 시작 시점의 연결을 고정합니다. 첫 await 동안 사용자가 GSheet 연결을 바꿔도
-  // A용 삭제 권한으로 B에 빈 거래원장을 보내지 않도록 두 쓰기 모두 동일 targetUrl을 사용합니다.
-  const holdingsResult = typeof syncHoldingsToGsheet === 'function'
-    ? await syncHoldingsToGsheet({
-        allowEmpty: true,
-        targetUrl: retryTarget,
-        generation: retryGeneration,
-        allowDuringRestore
-      })
-    : null;
-
-  // URL이 최종적으로 A로 돌아왔더라도 A→B→A 전환이 있었다면 같은 연결로 보지 않습니다.
-  // 세대가 바뀐 순간부터 전역 rawTrades/rawHoldings의 출처를 신뢰할 수 없으므로 추가 쓰기를 중단합니다.
-  if (retryGeneration !== null
-      && (typeof getGsheetConnectionGeneration !== 'function'
-        || getGsheetConnectionGeneration() !== retryGeneration)) {
-    if (!options?.quiet && typeof showToast === 'function') {
-      showToast('구글시트 연결이 변경되어 빈 원장 재시도를 중단했습니다. 현재 연결을 다시 불러와 주세요.', 'warn', 7000);
-    }
-    return false;
+  _pendingExplicitEmptyTradeSyncFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (_pendingExplicitEmptyTradeSyncFlight === run) _pendingExplicitEmptyTradeSyncFlight = null;
   }
-
-  // 첫 요청을 기다리는 동안 같은 연결에서 새 거래가 생겼다면 오래된 "빈 원장" 의도를 더 이상 적용하지 않습니다.
-  // 앞선 보유현황 [] 쓰기를 현재 상태로 즉시 복구한 뒤 일반 거래 동기화로 전환합니다.
-  const targetAfterHoldings = _currentGsheetSyncTarget();
-  if (targetAfterHoldings === retryTarget && rawTrades.length > 0) {
-    // 이 시점의 A 거래를 recovery await 전에 고정합니다. 이후 연결이 B로 바뀌거나 B 거래가
-    // rawTrades에 복원돼도 A 복구 쓰기는 아래 스냅샷만 사용합니다.
-    const recoveryTrades = rawTrades.map(t => ({ ...t }));
-    const currentHoldingsPromise = typeof syncHoldingsToGsheet === 'function'
-      ? syncHoldingsToGsheet({
-          targetUrl: retryTarget,
-          generation: retryGeneration,
-          allowDuringRestore
-        })
-      : Promise.resolve(null);
-    const currentTradesPromise = typeof syncTradesToGsheet === 'function'
-      ? syncTradesToGsheet({
-          targetUrl: retryTarget,
-          generation: retryGeneration,
-          allowDuringRestore,
-          tradesOverride: recoveryTrades
-        })
-      : Promise.resolve(null);
-    const [currentHoldingsResult, currentTradesResult] = await Promise.all([
-      currentHoldingsPromise,
-      currentTradesPromise
-    ]);
-    const currentHoldingsOk = currentHoldingsResult?.status === 'ok';
-    const currentTradesOk = currentTradesResult?.status === 'ok' && currentTradesResult?.saveState !== 'partial';
-    if (currentHoldingsOk && currentTradesOk) {
-      if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
-      return true;
-    }
-    if ((!currentHoldingsOk || !currentTradesOk) && !options?.quiet && typeof showToast === 'function') {
-      showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
-    }
-    return false;
-  }
-
-  // 연결이 다른 시트로 바뀐 경우에도 B의 rawTrades를 A에 쓰지 않습니다.
-  // 재시도 시작 시 확정된 빈 거래 payload 자체를 캡처해 원래 target에만 적용합니다.
-  const retryTrades = [];
-  const tradesResult = typeof syncTradesToGsheet === 'function'
-    ? await syncTradesToGsheet({
-        allowEmpty: true,
-        rebuildFrom: pendingEmptySync.from || '',
-        targetUrl: retryTarget,
-        generation: retryGeneration,
-        allowDuringRestore,
-        tradesOverride: retryTrades
-      })
-    : null;
-
-  // 두 원격 원장이 모두 성공한 경우에만 영속 재시도 권한을 소진합니다.
-  // 거래원장 partial은 원본만 저장되고 Snapshot 재계산이 덜 끝난 상태이므로 반드시 남깁니다.
-  const holdingsOk = holdingsResult?.status === 'ok';
-  const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
-  if (holdingsOk && tradesOk) {
-    if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
-    return true;
-  }
-
-  if (_pendingExplicitEmptyTradeSync === pendingEmptySync && tradesResult?.affectedFrom) {
-    _setPendingExplicitEmptyTradeSync({
-      from: String(tradesResult.affectedFrom || pendingEmptySync.from || ''),
-      target: pendingEmptySync.target
-    });
-  }
-  if (!options?.quiet && typeof showToast === 'function') {
-    showToast('빈 거래/보유 원장 동기화가 완료되지 않았습니다. 새로고침 후에도 자동 재시도합니다.', 'warn', 7000);
-  }
-  return false;
 }
 
 function saveHoldings(options) {
