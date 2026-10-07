@@ -201,6 +201,9 @@ async function loadRealEstateSettings(options) {
     if (!isGsheetConnectionCurrent(targetUrl, generation)) return false;
     if (!data || data.status !== 'ok' || !data.settings || typeof data.settings !== 'object') return false;
     const s = data.settings;
+    // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 완전한 authoritative 상태로 봅니다.
+    // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
+    const hasAuthoritativeFundDirect = Object.prototype.hasOwnProperty.call(s, 'fundDirect');
     window.GAS_API_KEY_STATUS = (s.apiKeyStatus && typeof s.apiKeyStatus === 'object') ? s.apiKeyStatus : {};
     // ★ [개선] GAS 버전 저장 — bootstrapGsheetSettings에서 불일치 감지에 사용
     if (data.gasVersion) window._lastGasVersion = String(data.gasVersion);
@@ -448,7 +451,7 @@ async function loadSettings(onProgress, options) {
 
     // pending 빈 원장을 적용하기 전에는 레거시 직접펀드(TDF/펀드, 코드 없음)를 보존할
     // holdings 원천을 반드시 확보합니다. 이 읽기가 실패한 상태에서 []를 쓰면 비거래 직접펀드까지 삭제될 수 있습니다.
-    const pendingHoldingsPromise = !pendingEmptySyncAtLoad
+    const pendingHoldingsPromise = !pendingEmptySyncAtLoad || hasAuthoritativeFundDirect
       ? null
       : isBootstrap
       ? Promise.resolve(
@@ -538,7 +541,7 @@ async function loadSettings(onProgress, options) {
     // fundDirect
     // 연결 변경 강제 복원에서는 키 자체가 없는 신규/레거시 원격도 "직접펀드 없음"으로 취급해
     // 이전 연결의 TDF/직접펀드가 새 연결에 남지 않도록 먼저 비웁니다.
-    if (forcePortfolioRestore || (s.fundDirect && typeof s.fundDirect === 'object')) {
+    if (forcePortfolioRestore || hasAuthoritativeFundDirect) {
       Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
       if (s.fundDirect && typeof s.fundDirect === 'object') Object.assign(fundDirect, s.fundDirect);
     }
@@ -644,26 +647,28 @@ async function loadSettings(onProgress, options) {
     let pendingEmptySyncResolvedAtLoad = false;
     if (pendingEmptySyncAtLoad
         && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
-      const pendingHoldingsData = pendingHoldingsPromise ? await pendingHoldingsPromise : null;
-      if (!isLoadConnectionCurrent()) return false;
-      const pendingHoldingsLoaded = !!(
-        pendingHoldingsData
-        && pendingHoldingsData.status === 'ok'
-        && Array.isArray(pendingHoldingsData.holdings)
-      );
-      // 직접펀드 보존 여부를 확인할 원천 읽기가 실패하면 파괴적 빈 holdings 쓰기를 하지 않습니다.
-      if (!pendingHoldingsLoaded) return false;
-      pendingHoldingsData.holdings.forEach(h => {
-        const isFundEntry = ['TDF','펀드'].includes(h.assetType)
-          && !h.code
-          && Number(h.qty) === 1;
-        if (!isFundEntry || !h.name || Object.prototype.hasOwnProperty.call(fundDirect, h.name)) return;
-        fundDirect[h.name] = {
-          eval: h.costAmt || 0,
-          cost: h.costAmt || 0,
-          type: h.assetType || 'TDF'
-        };
-      });
+      if (!hasAuthoritativeFundDirect) {
+        const pendingHoldingsData = pendingHoldingsPromise ? await pendingHoldingsPromise : null;
+        if (!isLoadConnectionCurrent()) return false;
+        const pendingHoldingsLoaded = !!(
+          pendingHoldingsData
+          && pendingHoldingsData.status === 'ok'
+          && Array.isArray(pendingHoldingsData.holdings)
+        );
+        // 레거시 연결에서는 직접펀드 보존 원천 읽기 실패 시 파괴적 빈 holdings 쓰기를 하지 않습니다.
+        if (!pendingHoldingsLoaded) return false;
+        pendingHoldingsData.holdings.forEach(h => {
+          const isFundEntry = ['TDF','펀드'].includes(h.assetType)
+            && !h.code
+            && Number(h.qty) === 1;
+          if (!isFundEntry || !h.name || Object.prototype.hasOwnProperty.call(fundDirect, h.name)) return;
+          fundDirect[h.name] = {
+            eval: h.costAmt || 0,
+            cost: h.costAmt || 0,
+            type: h.assetType || 'TDF'
+          };
+        });
+      }
       prog('빈 거래원장 동기화 재시도 중...');
       let pendingRetryOk = false;
       try {
@@ -762,7 +767,7 @@ async function loadSettings(onProgress, options) {
 
         // 레거시 Settings에 fundDirect가 없더라도 보유현황 시트의 코드 없는 TDF/펀드는
         // 거래 유무와 무관하게 직접펀드 원자료로 보완합니다. Settings 값이 있으면 우선 보존합니다.
-        if (holdingsLoaded) {
+        if (!hasAuthoritativeFundDirect && holdingsLoaded) {
           hData.holdings.forEach(h => {
             const isFundEntry = ['TDF','펀드'].includes(h.assetType) && !h.code && Number(h.qty) === 1;
             if (!isFundEntry || !h.name || Object.prototype.hasOwnProperty.call(fundDirect, h.name)) return;
@@ -785,7 +790,7 @@ async function loadSettings(onProgress, options) {
             hData.holdings.forEach(h => {
               const isFundEntry = ['TDF','펀드'].includes(h.assetType) && !h.code && h.qty === 1;
               if (isFundEntry) {
-                if (!Object.prototype.hasOwnProperty.call(fundDirect, h.name)) {
+                if (!hasAuthoritativeFundDirect && !Object.prototype.hasOwnProperty.call(fundDirect, h.name)) {
                   fundDirect[h.name] = { eval: h.costAmt || 0, cost: h.costAmt || 0, type: h.assetType || 'TDF' };
                 }
                 return;
