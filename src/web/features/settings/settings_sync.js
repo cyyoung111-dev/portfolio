@@ -119,8 +119,14 @@ function reconcileEditablesFromGsheetCodeList() {
 }
 
 // ── 종목코드 GSheet 자동 등록
-async function syncCodesToGsheet() {
-  if (!GSHEET_API_URL) return;
+async function syncCodesToGsheet(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!targetUrl || !isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return null;
   try {
     // ★ EDITABLE_PRICES 기준으로 {name: {code, type, sector}} 구조 전송
     // type/sector를 함께 보내야 GAS에서 유형 컬럼을 덮어쓰지 않음
@@ -140,7 +146,7 @@ async function syncCodesToGsheet() {
     const data = await requestGsheetFormJson(
       'syncCodes',
       { codes: JSON.stringify(codeMap) },
-      { timeoutMs: 20000, retry: 1 }
+      { timeoutMs: 20000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[GSheet 동기화] 네트워크 오류'); return null; }
     if (data.status !== 'ok') { _syncWarn('[GSheet 동기화] 응답 오류', data); return null; }
@@ -157,6 +163,12 @@ async function syncHoldingsToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
   if (!targetUrl) return null;
   const allowEmpty = options?.allowEmpty === true;
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return null;
   try {
     // rows에서 종목별 합산 데이터 추출 (계좌 합산 기준)
     const holdMap = {};
@@ -206,6 +218,12 @@ async function syncTradesToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
   if (!targetUrl) return null;
   const allowEmpty = options?.allowEmpty === true;
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return null;
   const rebuildFrom = allowEmpty ? String(options?.rebuildFrom || '').trim() : '';
   const hasTradesOverride = Array.isArray(options?.tradesOverride);
   // 재시도/복구 경로는 호출 직전에 캡처한 payload를 사용할 수 있습니다.
