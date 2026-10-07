@@ -578,8 +578,6 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
   // 앞선 보유현황 [] 쓰기를 현재 상태로 즉시 복구한 뒤 일반 거래 동기화로 전환합니다.
   const targetAfterHoldings = _currentGsheetSyncTarget();
   if (targetAfterHoldings === retryTarget && rawTrades.length > 0) {
-    if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
-
     // 이 시점의 A 거래를 recovery await 전에 고정합니다. 이후 연결이 B로 바뀌거나 B 거래가
     // rawTrades에 복원돼도 A 복구 쓰기는 아래 스냅샷만 사용합니다.
     const recoveryTrades = rawTrades.map(t => ({ ...t }));
@@ -604,10 +602,14 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     ]);
     const currentHoldingsOk = currentHoldingsResult?.status === 'ok';
     const currentTradesOk = currentTradesResult?.status === 'ok' && currentTradesResult?.saveState !== 'partial';
+    if (currentHoldingsOk && currentTradesOk) {
+      if (_pendingExplicitEmptyTradeSync === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null);
+      return true;
+    }
     if ((!currentHoldingsOk || !currentTradesOk) && !options?.quiet && typeof showToast === 'function') {
       showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
     }
-    return currentHoldingsOk && currentTradesOk;
+    return false;
   }
 
   // 연결이 다른 시트로 바뀐 경우에도 B의 rawTrades를 A에 쓰지 않습니다.
