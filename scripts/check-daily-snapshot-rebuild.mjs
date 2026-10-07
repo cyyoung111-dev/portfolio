@@ -182,6 +182,8 @@ assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*con
   '배당 하위 응답은 target/generation과 load epoch를 검증한 뒤에만 전역 상태에 적용');
 assert.match(settings, /const loanChanged = typeof syncLoanFromSchedule[\s\S]*if \(loanChanged\) \{[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*persistRealEstateSettings/,
   '부동산 하위 로드의 후속 원격 저장도 stale load epoch에서 실행되지 않음');
+assert.match(settings, /async function persistRealEstateSettings\(immediate, options\)[\s\S]*const isCurrentLoad[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*saveRealEstateSettings[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*return saveSettings\(true, options\)/,
+  '부동산 전용 저장 실패 후 구버전 saveSettings fallback도 stale load epoch에서 차단');
 assert.match(settings, /function saveDividendSettings\(_immediate, options\)[\s\S]*expectedGeneration[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '직렬화된 배당 저장도 호출 시점 target/generation에 고정해 연결 변경 cross-write를 차단');
 assert.match(settings, /function saveRealEstateSettings\(immediate, options\)[\s\S]*const isCurrentLoad[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\([\s\S]*_saveRealEstatePendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*if \(isCurrentLoad && !isCurrentLoad\(\)\) return false[\s\S]*\{ data: payload \}/,
