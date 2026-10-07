@@ -131,17 +131,29 @@ assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*rawTrades
   '초기화되지 않은 빈 거래상태는 원격 거래원장을 삭제하지 않음');
 assert.match(sync, /trades\.length === 0 && \(rawTrades\.length > 0 \|\| !allowEmpty\)/,
   '명시적 빈 원장 권한이 없으면 [] 전송 차단');
-assert.match(portfolioData, /_pendingExplicitEmptyTradeSync[\s\S]*allowEmptyTradeSync[\s\S]*syncHoldingsToGsheet\(\{ allowEmpty: allowEmptyTradeSync \}\)[\s\S]*syncTradesToGsheet\(\{ allowEmpty: allowEmptyTradeSync \}\)/,
-  '확인된 삭제 권한을 debounce 후 보유현황·거래이력 동기화까지 1회 전달');
+assert.match(portfolioData, /_pendingExplicitEmptyTradeSync[\s\S]*pendingEmptySync[\s\S]*await syncHoldingsToGsheet\(\{ allowEmpty: true \}\)[\s\S]*await syncTradesToGsheet\(\{ allowEmpty: true, rebuildFrom: pendingEmptySync\.from \|\| '' \}\)/,
+  '확인된 마지막 삭제의 영향일을 유지한 채 빈 보유/거래 원장을 순차 동기화');
+assert.match(portfolioData, /holdingsOk && tradesOk[\s\S]*_pendingExplicitEmptyTradeSync = null/,
+  '빈 원장 권한은 보유현황·거래이력 동기화가 모두 성공한 뒤에만 소진');
+assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*pendingEmptySync\.from/,
+  'partial 응답의 영향 시작일을 유지해 다음 저장에서 재시도 가능');
+assert.match(sync, /explicitEmpty: allowEmpty \? '1' : ''[\s\S]*rebuildFrom/,
+  '빈 거래원장 재시도임을 GAS에 명시하고 최초 영향일 전달');
 assert.match(portfolioData, /if \(options\?\.skipGsheet\) return;[\s\S]*if \(allowEmptyTradeSyncRequested\) _pendingExplicitEmptyTradeSync = true;[\s\S]*clearTimeout\(_saveHoldingsGasTimer\)/,
   '빈 원장 권한은 로컬 저장 성공 및 GSheet 동기화 경로 확정 후에만 획득');
 assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holdings\.length === 0 && !allowEmpty[\s\S]*return/,
   '초기 빈 상태에서는 원격 보유현황을 보존하고 확인된 마지막 거래 삭제에서만 [] 허용');
-assert.match(tradesView, /_commitTrades\(\{ allowEmptyTradeSync: before > 0 && rawTrades\.length === 0 \}\)/,
-  '실제 마지막 거래 삭제 경로에서만 빈 원장 동기화 허용');
-assert.match(html, /settings_sync\.js\?v=20261007-12/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-2/,'거래 저장 로직 캐시 버전 갱신');
-assert.match(html, /views\/views_trades\.js\?v=20261007-1/,'거래 삭제 로직 캐시 버전 갱신');
+assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
+  '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
+assert.match(html, /settings_sync\.js\?v=20261007-13/,'거래동기화 자산 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-3/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
+assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
+  'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
+assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
+  '마지막 거래 삭제에서는 당일 Snapshot까지 재계산 범위에 포함');
+assert.match(gas, /date < today\(\) \|\| \(includeToday && date === today\(\)\)/,
+  '일반 재생성은 전일까지만 유지하고 explicit empty에서만 오늘 날짜 허용');
 assert.match(gas, /rebuildOperationId = 'rebuildDailySnapshots\|'[\s\S]*_snapshotBackupOperationId = rebuildOperationId/,'다일자 재생성은 작업 단위 백업 재사용');
 
 // KOSDAQ 선택·라벨·시각화·확정 기준 표시
