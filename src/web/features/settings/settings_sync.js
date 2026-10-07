@@ -207,9 +207,9 @@ async function syncTradesToGsheet(options) {
   if (!targetUrl) return null;
   const allowEmpty = options?.allowEmpty === true;
   const rebuildFrom = allowEmpty ? String(options?.rebuildFrom || '').trim() : '';
-  const hasTradesOverride = allowEmpty && Array.isArray(options?.tradesOverride);
-  // 빈 원장 재시도는 시작 시 캡처한 payload를 사용할 수 있습니다.
-  // 그 외 일반 동기화는 항상 현재 rawTrades를 사용합니다.
+  const hasTradesOverride = Array.isArray(options?.tradesOverride);
+  // 재시도/복구 경로는 호출 직전에 캡처한 payload를 사용할 수 있습니다.
+  // 빈 override는 아래 allowEmpty 가드 때문에 일반 동기화에서 원격 삭제 권한이 되지 않습니다.
   const sourceTrades = hasTradesOverride ? options.tradesOverride : rawTrades;
   // 초기 부트스트랩 실패/미완료로 거래가 비어 있는 상태에서는 원격 원장을 절대 비우지 않습니다.
   // 확인된 마지막 거래 삭제 경로가 전달한 1회성 allowEmpty만 예외입니다.
