@@ -384,6 +384,9 @@ assert.deepEqual(closeSteps,['prices','funds'],'통합 마감은 일반 종목�
 assert.equal(closeOk.priceOk,true);
 assert.equal(closeOk.fundOk,true);
 assert.equal(JSON.parse(scriptProperties.get('portfolio_close_last_result')).priceDate,'2026-10-05');
+// 아래 실패 시나리오는 독립 실행이므로 현재 run 소유권 마커만 초기화합니다.
+['portfolio_close_run_id','portfolio_close_run_started_at','portfolio_close_run_started_ms','portfolio_close_run_date','portfolio_close_stage','portfolio_close_stage_at']
+  .forEach(key=>scriptProperties.delete(key));
 closeSteps=[];
 context.saveDailyPriceHistory=()=>{closeSteps.push('prices');throw new Error('price failed');};
 context.runDailyFundValuations=()=>{closeSteps.push('funds');return {lastDate:'2026-10-06',fundResults:{}};};
