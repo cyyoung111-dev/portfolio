@@ -1731,7 +1731,7 @@ const declarations=[...source.matchAll(/^function\s+(\w+)\s*\(/gm)].map(m=>m[1])
 assert.equal(new Set(declarations).size,declarations.length,'GAS 함수 중복 선언');
 console.log('✅ 펀드 좌수·날짜·이월·중복실행·스냅샷/수동값 보존·쓰기 실패 회귀 검사 통과');
 
-assert.match(source.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /_earliestChangedTradeDate[\s\S]*rebuildDailySnapshots\(affectedFrom, affectedTo\)/,
-  '일반 종목 과거 거래수량 수정은 최초 변경일부터 기존 확정 Snapshot까지 자동 재생성해야 함');
+assert.match(source.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /_earliestChangedTradeDate[\s\S]*rebuildDailySnapshots\(affectedFrom, affectedTo, \{ includeToday: explicitEmptyReset \}\)/,
+  '일반 종목 과거 거래수량 수정은 최초 변경일부터 영향 종료일까지 자동 재생성해야 함');
 assert.match(source, /_touchSnapshotIntegritySourceRevision\(\{ from: affectedFrom \}\)/,
   '일반 종목 거래수량 변경은 손익 원자료 cache revision도 무효화');
