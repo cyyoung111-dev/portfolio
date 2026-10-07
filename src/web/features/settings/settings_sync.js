@@ -238,7 +238,21 @@ async function syncTradesToGsheet() {
       { timeoutMs: 30000, retry: 1 }
     );
     if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
-    if (data.status === 'ok') _syncWarn('[거래이력 동기화] ✅', data.synced + '건');
+    if (data.status === 'ok') {
+      _syncWarn('[거래이력 동기화] ✅', data.synced + '건');
+      return data;
+    }
+    if (data.saveState === 'partial') {
+      const range = data.affectedTo ? `${data.affectedFrom || '-'} ~ ${data.affectedTo}` : (data.affectedFrom || '-');
+      const message = `일부 반영: 거래원장은 저장됐지만 과거 평가 재계산이 완료되지 않았습니다 · 영향기간 ${range}`;
+      _syncWarn('[거래이력 동기화]', message, data);
+      if (typeof showToast === 'function') showToast(message, 'warn', 7000);
+      return data;
+    }
+    const message = data.message || '거래이력 저장 실패';
+    _syncWarn('[거래이력 동기화]', message, data);
+    if (typeof showToast === 'function') showToast(message, 'warn', 7000);
+    return data;
   } catch(e) {
     _syncWarn('[거래이력 동기화]', e.message);
   }
