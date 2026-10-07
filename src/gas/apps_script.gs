@@ -1,5 +1,14 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.177
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.179
+//
+//  v9.179 변경사항 (2026.10.07):
+//   일일 마감 KRX 종가 조회·검증을 평가일 거래원장의 실제 보유 종목으로 제한
+//   매도 완료·폐지 종목이 마스터에 남아도 신규 종가 부족으로 잘못 실패하지 않음
+//
+//  v9.178 변경사항 (2026.10.07):
+//   신규 KRX 종가 0건·오래됨·시장 부분 누락 시 펀드 NAV 날짜를 마감 성공으로 오인하지 않음
+//   KRX 실제 거래일 기준 스냅샷 확정 및 KB S-T FunETF 누락 공시일 기간 조회 최적화
+//   한화 펀드의 기존 startDate 조회 경계는 유지
 //
 //  v9.177 변경사항 (2026.10.07):
 //   손익 그래프 원자료(거래·확정가격·펀드 NAV·환율) read-only 계산으로 전환
@@ -1875,6 +1884,7 @@ function fetchPricesKrx(items, dateStr) {
   var wanted = {};
   items.forEach(function(item) { wanted[item.code] = item; });
   var out = {};
+  var codeMarkets = {};
   var markets = ['KOSPI', 'KOSDAQ', 'ETF'];
   var packs = _fetchKrxMarketsParallelWithFallback(markets, ymd, cfg.apiKey, 7);
   markets.forEach(function(market) {
@@ -1887,6 +1897,9 @@ function fetchPricesKrx(items, dateStr) {
       (rows || []).forEach(function(r) {
         var code = _cleanCode(r.ISU_CD || r.ISU_SRT_CD || '');
         if (!wanted[code]) return;
+        // 종목코드 마스터에 market='KR'만 있어도 실제 응답 시장을 알아야 합니다.
+        // 가격이 0이거나 누락돼도 pack에 코드가 존재한다면 해당 시장으로 분류합니다.
+        codeMarkets[code] = market;
         var p = _parseKrxNumber(r.TDD_CLSPRC);
         if (!(p > 0)) return;
         out[code] = {
@@ -1905,6 +1918,14 @@ function fetchPricesKrx(items, dateStr) {
     Logger.log('ℹ️ KRX OpenAPI 결과 없음: OTP/CSV fallback 시도');
     return fetchPricesKrxViaOtp(items, dateStr);
   }
+  var evidence = {};
+  markets.forEach(function(market) {
+    var pack = packs[market] || { rows:[], usedYmd:ymd };
+    evidence[market] = { count:(pack.rows || []).length,
+      date:String(pack.usedYmd || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') };
+  });
+  evidence.codeMarkets = codeMarkets;
+  Object.defineProperty(out, '_krxMarketEvidence', { value:evidence, enumerable:false });
   return out;
 }
 
@@ -1971,8 +1992,16 @@ function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback
 }
 
 function fetchPricesKrxViaOtp(items, dateStr) {
-  var ymd = (dateStr || '').replace(/-/g, '');
-  if (!/^\d{8}$/.test(ymd)) return {};
+  var actualDate = _normalizeDate(dateStr || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(actualDate)) return {};
+  // 인증키 없는 OTP 경로도 KRX 공식 휴장일/주말에는 직전 거래일의 CSV를 요청합니다.
+  // 정상 거래일 0건은 소스 장애이므로 이전 종가로 조용히 덮어쓰지 않습니다.
+  for (var back = 0; back < 10; back++) {
+    var day = new Date(actualDate + 'T00:00:00Z').getUTCDay();
+    if (day !== 0 && day !== 6 && !KRX_CONFIRMED_CLOSED_DATES_2026[actualDate]) break;
+    actualDate = _fundDateOffset(actualDate, -1);
+  }
+  var ymd = actualDate.replace(/-/g, '');
   var wanted = {};
   items.forEach(function(item) { wanted[item.code] = item; });
   if (Object.keys(wanted).length === 0) return {};
@@ -2024,16 +2053,23 @@ function fetchPricesKrxViaOtp(items, dateStr) {
   var idxCode = _findCsvIndex(header, ['단축코드', '종목코드', 'ISU_SRT_CD']);
   var idxName = _findCsvIndex(header, ['한글 종목약명', '종목명', 'ISU_ABBRV']);
   var idxClose = _findCsvIndex(header, ['종가', 'TDD_CLSPRC', '종가(원)']);
+  var idxMarket = _findCsvIndex(header, ['시장구분', '시장구분명', '시장명', '시장', 'MKT_NM', 'MKT_ID']);
   if (idxCode < 0 || idxClose < 0) {
     Logger.log('⚠️ KRX CSV 컬럼 해석 실패: ' + header.join('|'));
     return {};
   }
 
-  var out = {};
+  var out = {}, codeMarkets = {};
   for (var i = 1; i < rows.length; i++) {
     var r = rows[i] || [];
     var code = _cleanCode(r[idxCode]);
     if (!wanted[code]) continue;
+    var rawMarket = idxMarket >= 0 ? String(r[idxMarket] || '').toUpperCase() : '';
+    var verifiedMarket = /KOSDAQ|코스닥/.test(rawMarket) ? 'KOSDAQ'
+      : (/KOSPI|유가증권|코스피/.test(rawMarket) ? 'KOSPI'
+      : (/ETF|ETP/.test(rawMarket) ? 'ETF' : ''));
+    // 시장 열이 없다면 확인되지 않은 상태로 남겨 나중에 누락 전용 그룹으로 차단합니다.
+    if (verifiedMarket) codeMarkets[code] = verifiedMarket;
     var p = _parseKrxNumber(r[idxClose]);
     if (!(p > 0)) continue;
     out[code] = {
@@ -2041,11 +2077,15 @@ function fetchPricesKrxViaOtp(items, dateStr) {
       name: wanted[code].name,
       officialName: idxName >= 0 ? (r[idxName] || wanted[code].name || code) : (wanted[code].name || code),
       source: 'KRX_OTP',
-      // ★ OTP는 단일 날짜 조회 (fallback 없음) → usedDate = 요청 날짜
-      usedDate: ymd.slice(0,4) + '-' + ymd.slice(4,6) + '-' + ymd.slice(6,8)
+      // 정상 휴장일에는 실제 조회한 직전 KRX 거래일을 유지합니다.
+      usedDate: actualDate
     };
   }
-  Logger.log('[price-source] KRX OTP/CSV 조회 결과 ' + Object.keys(out).length + '건');
+  Object.defineProperty(out, '_krxMarketEvidence', {
+    value: { mode:'OTP', codeMarkets:codeMarkets }, enumerable:false
+  });
+  Logger.log('[price-source] KRX OTP/CSV 조회 결과 ' + Object.keys(out).length
+    + '건 (실제 공시일 ' + actualDate + ')');
   return out;
 }
 
@@ -4831,7 +4871,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.177' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.179' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -4988,12 +5028,22 @@ function _fetchMissingFundNavBatches(provider, missingDates, activeTo, diagnosti
       ? _fundDateOffset(from, -1) : from;
     var to = _fundDateOffset(from, FUND_NAV_FETCH_BATCH_DAYS - 1);
     if (to > activeTo) to = activeTo;
-    var previous = from, count = 1;
-    while (count < pending.length && count < FUND_NAV_FETCH_BATCH_DAYS && pending[count] === _fundDateOffset(previous, 1)) {
-      previous = pending[count++];
+    var providerSource = FUND_PROVIDERS[provider] && FUND_PROVIDERS[provider].source;
+    if (providerSource === 'FUNETF') {
+      // FunETF는 기간조회이므로 누락일 사이의 주말·공휴일·기존 저장일을 하나의 범위로 묶습니다.
+      // 1일 단위 요청·재시도 폭증을 줄이되 반환된 실제 공시일만 후속 검증에서 채택합니다.
+      var consumed = 0;
+      while (consumed < pending.length && pending[consumed] <= to) consumed++;
+      pending = pending.slice(consumed);
+    } else {
+      // 한화는 startDate 경계/공시 예정일 계약이 달라 기존 연속 누락일 범위를 그대로 유지합니다.
+      var previous = from, count = 1;
+      while (count < pending.length && count < FUND_NAV_FETCH_BATCH_DAYS && pending[count] === _fundDateOffset(previous, 1)) {
+        previous = pending[count++];
+      }
+      to = previous;
+      pending = pending.slice(count);
     }
-    to = previous;
-    pending = pending.slice(count);
     var fetched = null, lastError = null;
     for (var attempt = 0; attempt <= FUND_NAV_FETCH_RETRIES; attempt++) {
       try {
@@ -5438,7 +5488,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       _setCodeColumnText(navSheet, 2);
       storedNav = _normalizeCodeRows(storedNav, 1);
       navSheet.getRange(2, 1, storedNav.length, 9).setValues(storedNav);
-      _verifyWrittenRange(navSheet, 2, 1, storedNav, '펀드기준가격 쓰기 후 검증 실패');
+      _verifyFundNavWrittenRange(navSheet, 2, storedNav);
       _markSnapshotBackupStatus(navBackup, 'COMPLETED');
       if (navBackup) _cleanupCurrentSystemBackup(ss, navBackup);
     } catch (navWriteError) { _markSnapshotBackupStatus(navBackup, 'WRITE_FAILED', navWriteError.message); throw navWriteError; }
@@ -5829,6 +5879,29 @@ function _verifyWrittenRange(sheet, row, column, values, message) {
   if (!values || !values.length) return;
   var actual = sheet.getRange(row, column, values.length, values[0].length).getValues();
   if (JSON.stringify(actual) !== JSON.stringify(values)) throw new Error(message || '쓰기 후 read-back 검증 실패');
+}
+
+// 펀드 NAV 시트의 A/E열은 DATE 서식입니다. 저장 입력은 'YYYY-MM-DD' 문자열이어도
+// getValues()는 Date 객체를 반환하므로 원시 JSON 비교는 정상 쓰기를 실패로 오판합니다.
+// 다른 열은 기존의 엄격한 read-back 규칙을 유지합니다.
+function _verifyFundNavWrittenRange(sheet, row, values) {
+  SpreadsheetApp.flush();
+  if (!values || !values.length) return;
+  var actual = sheet.getRange(row, 1, values.length, 9).getValues();
+  if (actual.length !== values.length) throw new Error('펀드기준가격 쓰기 후 검증 실패: 행 수 불일치');
+  for (var i = 0; i < values.length; i++) {
+    for (var j = 0; j < 9; j++) {
+      var expected = values[i][j], found = actual[i] && actual[i][j], same = false;
+      if (j === 0 || j === 4) {
+        same = !!_normalizeDate(expected) && _normalizeDate(found) === _normalizeDate(expected);
+      } else if (j === 3 || j === 5 || j === 6) {
+        same = isFinite(Number(expected)) && Number(found) === Number(expected);
+      } else {
+        same = String(found == null ? '' : found) === String(expected == null ? '' : expected);
+      }
+      if (!same) throw new Error('펀드기준가격 쓰기 후 검증 실패: 시트 행 ' + (row + i) + ' 열 ' + (j + 1));
+    }
+  }
 }
 
 function _registerSystemBackup(record) {
@@ -6957,7 +7030,12 @@ function _buildSnapshotRowsFromTradeAndPriceHistory(ss, dateStr, throwOnError) {
       if (name && code && !nameToCode[name]) nameToCode[name] = code;
     });
 
-    var holdAtDate = calcHoldingsAtDate(tradeData, dateStr, nameToCode);
+    var displayByCode = {};
+    codeItems.forEach(function(item) {
+      if (item.code && item.name) displayByCode[_cleanCode(item.code)] = item.name;
+    });
+    // 일일 종가 수집과 같은 코드 기준으로 매수·매도·분할을 집계합니다.
+    var holdAtDate = _calcCodeHoldingsAtDate(tradeData, dateStr, nameToCode, displayByCode);
     _applyFundUnitLifecycleToSnapshotHoldings(holdAtDate, _readFundUnits(ss), dateStr);
     var prices = getPriceHistoryRow(ss, dateStr, throwOnError);
     // ★ sourceMap 이제 { src, savedAt } 객체 반환
@@ -8332,6 +8410,146 @@ function _getPrevTradingDay(fromDateStr, maxDaysBack) {
 //  - 전일 가격이력과 전일 스냅샷을 비교 → 불일치 시 스냅샷 재작성
 //  - 실행일(T) 행을 만들지 않고 확정 종가 거래일(T-1) 스냅샷만 작성
 // ════════════════════════════════════════════════════════════════════
+// 정규 KRX 가격을 얻지 못했는데 FUND_NAV 행 날짜로 마감이 성공하는 오류 방지.
+// 2026 KRX 공시 휴장일(거래소 증시일정 기준). 다른 연도·임시 휴장은 임의 추정하지 않고 보수적으로 판정합니다.
+// 신규 연도 휴장일 등록은 별도 정합성 검증 대상으로 취급합니다.
+var KRX_CONFIRMED_CLOSED_DATES_2026 = {
+  '2026-01-01':1, '2026-02-16':1, '2026-02-17':1, '2026-02-18':1,
+  '2026-03-02':1, '2026-05-01':1, '2026-05-05':1, '2026-05-25':1,
+  '2026-06-03':1, '2026-07-17':1, '2026-08-17':1, '2026-09-24':1,
+  '2026-09-25':1, '2026-10-05':1, '2026-10-09':1, '2026-12-25':1, '2026-12-31':1
+};
+function _countBusinessWeekdaysBetween(from, to) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return Infinity;
+  var count = 0;
+  for (var date = _fundDateOffset(from, 1); date <= to; date = _fundDateOffset(date, 1)) {
+    var day = new Date(date + 'T00:00:00Z').getUTCDay();
+    if (day !== 0 && day !== 6 && !KRX_CONFIRMED_CLOSED_DATES_2026[date]) count++;
+  }
+  return count;
+}
+
+function _assessDailyKrxStockClose(items, prices, requestedDate) {
+  var listed = (items || []).filter(function(item) {
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    return code && !_isFundCode(code) && String(item && item.currency || 'KRW').toUpperCase() === 'KRW';
+  });
+  if (!listed.length) return { required:false, date:'', confirmed:0, expected:0 };
+  var evidence = prices && prices._krxMarketEvidence;
+  var codeMarkets = evidence && evidence.codeMarkets || {};
+  var byMarket = {}, records = [];
+  listed.forEach(function(item) {
+    var code = _cleanCode(item.code) || String(item.code || '').trim();
+    var market = String(item.market || '').toUpperCase();
+    var type = String(item.type || '').toUpperCase();
+    var row = prices && prices[code];
+    var source = String(row && row.source || '').toUpperCase();
+    var date = _normalizeDate(row && row.usedDate || '');
+    // KRX 시장 pack에서 실제로 확인한 종목코드→시장 분류가 코드 마스터의 'KR'보다 우선합니다.
+    // OpenAPI pack에서도 코드를 못 찾은 KR 종목은 별도 미확인 그룹으로 묶어,
+    // KOSPI 8/10 + KOSDAQ 0/2 같은 시장 누락이 70% 전체 평균에 가려지지 않게 합니다.
+    var confirmedMarket = String(codeMarkets[code] || '').toUpperCase();
+    var isValidClose = !!row && Number(row.price) > 0
+      && (source === 'KRX' || source === 'KRX_OTP') && !!date && date <= requestedDate;
+    var group = type === 'ETF' || market === 'ETF' ? 'ETF'
+      : (confirmedMarket === 'KOSPI' || confirmedMarket === 'KOSDAQ' ? confirmedMarket
+      : (market === 'KOSDAQ' || market === 'KOSPI' ? market
+      : (isValidClose ? 'STOCK' : 'UNCLASSIFIED_KR')));
+    var record = byMarket[group] || (byMarket[group] = { expected:0, dates:[] });
+    record.expected++;
+    if (!isValidClose) return;
+    record.dates.push(date);
+    records.push(date);
+  });
+  if (!records.length) throw new Error('일반 종목 KRX 확정 종가 0건: ' + requestedDate
+    + ' · KRX AUTH_KEY/OTP·네트워크/응답을 확인하세요. 펀드 NAV 날짜로 대체할 수 없습니다.');
+  var newestDate = records.slice().sort().pop();
+  var newestCount = records.filter(function(date) { return date === newestDate; }).length;
+  var lag = _countBusinessWeekdaysBetween(newestDate, requestedDate);
+  if (lag > 2) throw new Error('일반 종목 확정 종가 오래됨: 요청 ' + requestedDate + ', 최근 KRX ' + newestDate
+    + ' (KRX 거래일 ' + lag + '일 차이) · 가격 수집 경로 점검이 필요합니다.');
+  Object.keys(byMarket).forEach(function(group) {
+    var stat = byMarket[group];
+    var matched = stat.dates.filter(function(date) { return date === newestDate; }).length;
+    if (matched < Math.ceil(stat.expected * 0.7)) {
+      throw new Error('일반 종목 KRX 확정 종가 시장별 부분 누락: ' + group + ' '
+        + newestDate + ' (' + matched + '/' + stat.expected + '종목)');
+    }
+  });
+  // OpenAPI는 실제 보유한 시장별 pack만 검증합니다. 보유하지 않은 시장의
+  // 데이터 제공 장애가 정상 보유 종목의 마감까지 막아서는 안 됩니다.
+  if (evidence && evidence.mode !== 'OTP') {
+    ['KOSPI','KOSDAQ','ETF'].filter(function(market) {
+      return !!byMarket[market];
+    }).forEach(function(market) {
+      var entry = evidence[market] || {};
+      if (!(entry.count > 0) || entry.date !== newestDate) {
+        throw new Error('KRX 공식 시장별 확정 종가 누락: ' + market
+          + ' (기준 ' + newestDate + ', 수집 ' + (entry.date || '없음') + ')');
+      }
+    });
+  }
+  return { required:true, date:newestDate, confirmed:newestCount, expected:listed.length, lag:lag };
+}
+
+// 종목코드 마스터는 과거 매도·상장폐지 코드도 보존합니다.
+// 확정 종가 검증과 수집은 요청 거래일에 실보유수량이 있는 코드만 사용합니다.
+// Snapshot과 일일 KRX 보유판정에 같은 코드 기반 거래원장 계산을 사용합니다.
+// 회사명/상품명 변경은 표시명만 바꾸며 보유수량·원가를 분리하지 않습니다.
+function _calcCodeHoldingsAtDate(tradeRows, dateStr, nameToCode, displayByCode) {
+  var recentNames = {};
+  var canonicalTrades = (tradeRows || []).map(function(row) {
+    var name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || _cleanCode((nameToCode || {})[name]);
+    if (!code) return row;
+    var date = _normalizeDate(row[0]);
+    if (name && date && date <= dateStr &&
+        (!recentNames[code] || date >= recentNames[code].date)) {
+      recentNames[code] = { date:date, name:name };
+    }
+    var clone = row.slice();
+    clone[3] = code;
+    clone[4] = code;
+    return clone;
+  });
+  var holdings = calcHoldingsAtDate(canonicalTrades, dateStr, {});
+  Object.keys(holdings).forEach(function(key) {
+    var holding = holdings[key];
+    var code = _cleanCode(holding && holding.code);
+    if (!code) return;
+    holding.name = String((displayByCode || {})[code] ||
+      (recentNames[code] && recentNames[code].name) || code);
+  });
+  return holdings;
+}
+
+function _getDailyHeldCodeItems(ss, dateStr, catalog) {
+  if (!dateStr) return [];
+  var tradeSheet = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (!tradeSheet || tradeSheet.getLastRow() < 2) return [];
+  var tradeRows = tradeSheet.getRange(2, 1, tradeSheet.getLastRow() - 1,
+    Math.min(11, tradeSheet.getLastColumn())).getValues();
+  var nameToCode = {};
+  (catalog || []).forEach(function(item) {
+    if (item.name && item.code) nameToCode[item.name] = item.code;
+  });
+  tradeRows.forEach(function(row) {
+    var name = String(row[3] || '').trim();
+    var code = _cleanCode(row[4]) || String(row[4] || '').trim();
+    if (name && code && !nameToCode[name]) nameToCode[name] = code;
+  });
+  var holdings = _calcCodeHoldingsAtDate(tradeRows, dateStr, nameToCode);
+  var heldCodes = {};
+  Object.keys(holdings).forEach(function(name) {
+    var holding = holdings[name];
+    var code = _cleanCode(holding && holding.code);
+    if (code && holding.qty > 0.0001 && !_isFundCode(code)) heldCodes[code] = true;
+  });
+  return (catalog || []).filter(function(item) {
+    return !!heldCodes[_cleanCode(item && item.code)];
+  });
+}
+
 function saveDailyPriceHistory() {
   var lock = LockService.getScriptLock();
   var locked = false;
@@ -8347,10 +8565,13 @@ function saveDailyPriceHistory() {
     var snapshotDate = '';
     var confirmedSnapshotRows = [];
 
-    var items = getCodeItems(ss);
-    // 펀드·TDF는 종목코드 시트에 없을 수 있으므로 여기서 종료하면 안 됩니다.
-    // 자동가격 조회는 건너뛰더라도 아래 공통 생성기가 거래이력+수동가격으로 스냅샷을 만듭니다.
-    if (items.length === 0) Logger.log('상장 종목코드 없음 — 펀드·TDF 수동가격 기준 스냅샷 생성 계속');
+    var allItems = getCodeItems(ss);
+    var items = _getDailyHeldCodeItems(ss, requestedPrevDay, allItems);
+    // 마스터에 남은 전량매도·폐지 종목은 KRX 종가 확보율의 분모에서 제외합니다.
+    Logger.log('[saveDailyPriceHistory] 종목코드 마스터 ' + allItems.length
+      + '건, 해당 거래일 실보유 종목 ' + items.length + '건');
+    // 펀드·TDF만 보유한 경우에도 아래 공통 생성기로 스냅샷을 평가합니다.
+    if (items.length === 0) Logger.log('확정 종가 조회 대상 실보유 종목 없음 — 펀드·TDF 스냅샷 생성 계속');
 
     // ── Step 1: 전일(T-1) KRX 확정 종가 조회 및 가격이력 저장
     var prevPrices = {};
@@ -8369,6 +8590,8 @@ function saveDailyPriceHistory() {
         var gfPrev = gfPrevItems.length > 0 && _hasUsdPriceItems(items)
           ? fetchPricesGoogleFinance(gfPrevItems, requestedPrevDay, ss, { skipKrx: true })
           : {};
+        // 공식 실제 종가 날짜·시장별 커버리지를 먼저 검증해 오래된 데이터 저장을 차단합니다.
+        var closeVerification = _assessDailyKrxStockClose(items, krxPrev, requestedPrevDay);
         var prevSavedAt = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss');
 
         // 확정 거래일 KRX 데이터와 필요한 GF fallback만 가격이력에 저장 (MANUAL 보호)
@@ -8389,7 +8612,7 @@ function saveDailyPriceHistory() {
           fetchedRowCount += rowsForDate.length;
           Logger.log('[saveDailyPriceHistory] 실제 거래일(' + actualDate + ') 가격이력 저장: ' + rowsForDate.length + '건');
         });
-        if (items.length > 0 && fetchedRowCount === 0 && !_getLatestPriceHistoryDate(ss, requestedPrevDay)) {
+        if (items.length > 0 && fetchedRowCount === 0) {
           throw new Error('상장 종목 확정 종가를 한 건도 가져오지 못했습니다.');
         }
       } catch(e) {
@@ -8401,8 +8624,10 @@ function saveDailyPriceHistory() {
       // 전체 과거 검증은 별도 배치 복구가 담당해 일일 자동화의 시트 접근량을 제한합니다.
       // 단순 평일 계산값이 아니라 가격이력에 실제 존재하는 최신 날짜를 기준으로 합니다.
       // 예: 24일 가격이력이 이미 있으면 KRX가 21일 fallback을 반환해도 24일 스냅샷을 생성합니다.
-      snapshotDate = _getLatestPriceHistoryDate(ss, requestedPrevDay);
-      if (!snapshotDate) throw new Error('스냅샷 기준 가격이력 날짜를 확인할 수 없습니다.');
+      // 펀드 NAV/이월 행이 더 최신이어도 일반 종목의 공식 마감 기준일로 오인하지 않습니다.
+      snapshotDate = closeVerification.required
+        ? closeVerification.date : _getLatestPriceHistoryDate(ss, requestedPrevDay);
+      if (!snapshotDate) throw new Error('스냅샷 기준 확정 종가 날짜를 확인할 수 없습니다.');
       Logger.log('[saveDailyPriceHistory] 확정 거래일(' + snapshotDate + ') 스냅샷 정합성 검증');
       var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
       var existingRows = _readSnapshotRowsByDate(ss, snapshotDate);
@@ -9276,7 +9501,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.177',
+    gasVersion: '9.179',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9305,7 +9530,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.177' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.179' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -9862,34 +10087,46 @@ function _getHistoricalExchangeRates(ss, currencies, dateStr) {
 //  거래이력 누적 계산 — dateStr 시점의 보유현황 반환
 // ════════════════════════════════════════════════════════════════════
 function _applyHoldingTrade(map, row, nameToCode, maxDate) {
-    var rawDate   = row[0];
-    var date      = (rawDate instanceof Date)
-      ? Utilities.formatDate(rawDate, CONFIG.TIMEZONE, 'yyyy-MM-dd')
-      : (rawDate||'').toString().trim().slice(0, 10);
-    var tradeType = (row[1]||'').toString().trim();
-    var name      = (row[3]||'').toString().trim();
-    var code      = (row[4]||'').toString().trim() || (nameToCode[name] || '');
-    var qty       = parseFloat(row[5]) || 0;
-    var price     = parseFloat(row[6]) || 0;
-    var assetType = (row[7]||'주식').toString().trim();
-    if (!date || !name || !tradeType || (maxDate && date > maxDate)) return;
+  var rawDate = row[0];
+  var date = (rawDate instanceof Date)
+    ? Utilities.formatDate(rawDate, CONFIG.TIMEZONE, 'yyyy-MM-dd')
+    : (rawDate || '').toString().trim().slice(0, 10);
+  var tradeType = (row[1] || '').toString().trim();
+  var name = (row[3] || '').toString().trim();
+  var rawCode = (row[4] || '').toString().trim() || ((nameToCode || {})[name] || '');
+  var code = _cleanCode(rawCode) || rawCode;
+  var qty = parseFloat(row[5]) || 0;
+  var price = parseFloat(row[6]) || 0;
+  var assetType = (row[7] || '주식').toString().trim();
+  if (!date || !name || !tradeType || (maxDate && date > maxDate)) return;
 
-    if (!map[name]) map[name] = { name: name, code: code, qty: 0, totalCost: 0, assetType: assetType };
-    if (!map[name].code && code) map[name].code = code;
+  // 전체 보유·기간 진단·소급채우기·펀드 Snapshot은 이 동일 reducer를 사용합니다.
+  // 회사명 변경 전 매수 + 변경 후 전량매도를 코드로 합산해 유령 보유분을 차단합니다.
+  // 코드가 없는 거래만 기존 종목명 기준으로 취급합니다.
+  var identity = code || name;
+  var holding = map[identity];
+  if (!holding) {
+    holding = map[identity] = { name:name, code:code, qty:0, totalCost:0, assetType:assetType };
+  }
+  if (!holding.code && code) holding.code = code;
+  // 표시명은 사용 가능한 마지막 거래 종목명을 유지하되 수량 집계 기준과 분리합니다.
+  if (name) holding.name = name;
 
-    if (tradeType === 'buy') {
-      map[name].qty       += qty;
-      map[name].totalCost += qty * price;
-    } else if (tradeType === 'sell') {
-      var avgCost = map[name].qty > 0 ? map[name].totalCost / map[name].qty : 0;
-      var sellQty = Math.min(qty, map[name].qty);
-      map[name].qty       -= sellQty;
-      map[name].totalCost -= sellQty * avgCost;
-      if (map[name].qty < 0.0001) { map[name].qty = 0; map[name].totalCost = 0; }
-    } else if (tradeType === 'split' || tradeType === 'reverse_split') {
-      var ratio = parseFloat(row[9]) || 0;
-      if (ratio > 0 && map[name].qty > 0) map[name].qty = tradeType === 'split' ? map[name].qty * ratio : map[name].qty / ratio;
+  if (tradeType === 'buy') {
+    holding.qty += qty;
+    holding.totalCost += qty * price;
+  } else if (tradeType === 'sell') {
+    var avgCost = holding.qty > 0 ? holding.totalCost / holding.qty : 0;
+    var sellQty = Math.min(qty, holding.qty);
+    holding.qty -= sellQty;
+    holding.totalCost -= sellQty * avgCost;
+    if (holding.qty < 0.0001) { holding.qty = 0; holding.totalCost = 0; }
+  } else if (tradeType === 'split' || tradeType === 'reverse_split') {
+    var ratio = parseFloat(row[9]) || 0;
+    if (ratio > 0 && holding.qty > 0) {
+      holding.qty = tradeType === 'split' ? holding.qty * ratio : holding.qty / ratio;
     }
+  }
 }
 
 function _snapshotHoldingState(map) {
@@ -10956,7 +11193,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.177' });
+    return jsonOk({ settings: settings, gasVersion: '9.179' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -10978,7 +11215,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.177'
+      gasVersion: '9.179'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

@@ -23,7 +23,7 @@ assert.match(pipeline, /rangeDiagnosisFailed = null/);
 assert.match(net, /token\|secret\|apikey|INVALID_RESPONSE/);
 
 const holdingSource = gas.slice(gas.indexOf('function _applyHoldingTrade'), gas.indexOf('// ════════════════════════════════════════════════════════════════════\n//  영업일 목록', gas.indexOf('function _applyHoldingTrade')));
-const sandbox = { CONFIG: { TIMEZONE: 'Asia/Seoul' }, Utilities: { formatDate: d => d.toISOString().slice(0,10) }, _normalizeDate: value => value instanceof Date ? value.toISOString().slice(0,10) : String(value || '').slice(0,10) };
+const sandbox = { CONFIG: { TIMEZONE: 'Asia/Seoul' }, Utilities: { formatDate: d => d.toISOString().slice(0,10) }, _normalizeDate: value => value instanceof Date ? value.toISOString().slice(0,10) : String(value || '').slice(0,10), _cleanCode: value => { const v = String(value || '').trim().toUpperCase(); return /^\d+$/.test(v) ? v.padStart(6, '0') : v; } };
 vm.runInNewContext(`${holdingSource}\nglobalThis.single=calcHoldingsAtDate;globalThis.range=_buildHoldingsByRequestedDate;`, sandbox);
 const trades = [
  ['2026-01-02','buy','','A','000001',10,100,'주식','',''],

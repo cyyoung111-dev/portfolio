@@ -211,5 +211,5 @@ assert.match(web, /원자료 기준 자동 손익/);
 assert.match(web, /일반 종목.*해당일 확정 종가가 없어 직전 확정 종가로 이월 평가/);
 assert.match(web, /_renderHistorySourceCoverage\(coverageEl, data\.sourceSummary, \[\]\)/,'전부 결측이어도 원자료 부족 사유 렌더링');
 assert.match(indexHtml,/views_history_pipeline\.js\?v=20261007-4/);
-assert.match(sw,/portfolio-cache-20261007-4/);
+assert.match(sw,/portfolio-cache-20261007-6/);
 console.log('✅ 펀드 직전 확정 NAV 이월·좌수 변경·0좌·미래값 차단·원자료 손익 회귀 검사 통과');
