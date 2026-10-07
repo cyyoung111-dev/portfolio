@@ -142,8 +142,10 @@ assert.match(portfolioData, /PENDING_EMPTY_TRADE_SYNC_KEY = 'pf_v6_pending_empty
   '빈 원장 재시도 컨텍스트를 localStorage에서 복원');
 assert.match(portfolioData, /target: _currentGsheetSyncTarget\(\)/,
   '빈 원장 삭제 권한을 생성 당시 GSheet 연결에 귀속');
-assert.match(portfolioData, /pending\.target !== currentTarget[\s\S]*_setPendingExplicitEmptyTradeSync\(null\)/,
-  'GSheet 연결이 바뀐 stale pending은 원격 쓰기 전에 폐기');
+assert.match(portfolioData, /pending\.target !== currentTarget[\s\S]*return null/,
+  '다른 GSheet에서는 pending 삭제를 실행하지 않음');
+assert.doesNotMatch(portfolioData, /pending\.target !== currentTarget[\s\S]{0,260}_setPendingExplicitEmptyTradeSync\(null\)/,
+  '연결 변경만으로 성공하지 않은 빈 원장 pending을 폐기하지 않음');
 assert.match(portfolioData, /_setPendingExplicitEmptyTradeSync[\s\S]*lsSave\(PENDING_EMPTY_TRADE_SYNC_KEY[\s\S]*lsRemove\(PENDING_EMPTY_TRADE_SYNC_KEY\)/,
   'pending 컨텍스트는 영속 저장하고 성공 후 제거 가능');
 assert.match(portfolioData, /const targetAfterHoldings = _currentGsheetSyncTarget\(\)[\s\S]*rawTrades\.length > 0[\s\S]*const recoveryTrades = rawTrades\.map\(t => \(\{ \.\.\.t \}\)\)[\s\S]*syncHoldingsToGsheet\(\{ targetUrl: retryTarget \}\)[\s\S]*syncTradesToGsheet\(\{ targetUrl: retryTarget, tradesOverride: recoveryTrades \}\)[\s\S]*Promise\.all/,
@@ -174,6 +176,10 @@ assert.match(settings, /async function loadDividendSettings\(options\)[\s\S]*tar
   '배당 하위 응답은 캡처 target/generation 검증 후에만 전역 상태에 적용');
 assert.match(settings, /function saveDividendSettings\(_immediate, options\)[\s\S]*expectedGeneration[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*requestGsheetFormJson\([\s\S]*targetUrl/,
   '직렬화된 배당 저장도 호출 시점 target/generation에 고정해 연결 변경 cross-write를 차단');
+assert.match(settings, /function saveRealEstateSettings\(immediate, options\)[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\([\s\S]*_saveRealEstatePendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*\{ data: payload \}/,
+  '부동산 debounce 저장은 호출 시점 payload와 target/generation을 함께 고정');
+assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*expectedGeneration[\s\S]*const payload = JSON\.stringify\(settings\)[\s\S]*_saveSettingsPendingKey[\s\S]*isGsheetConnectionCurrent\(targetUrl, expectedGeneration\)[\s\S]*\{ data: payload \}/,
+  '일반 설정 debounce 저장도 호출 시점 payload와 target/generation을 함께 고정');
 assert.match(settings, /function _isGasVersionAtLeast\(current, minimum\)[\s\S]*split\('\.'\)[\s\S]*return a > b/,
   'GAS 버전은 parseFloat가 아닌 segment 비교로 9.181 > 9.34를 올바르게 판정');
 assert.doesNotMatch(settings, /parseFloat\(window\._lastGasVersion/,'GAS 버전 숫자형 소수 비교 금지');
@@ -212,9 +218,9 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261007-16/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-9/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-10/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-7/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-8/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
