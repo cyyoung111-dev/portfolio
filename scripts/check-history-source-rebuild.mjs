@@ -113,6 +113,41 @@ const july = lib._historySourceRows(indexed,'2026-10-07');
 const map = Object.fromEntries(july.map(row => [row[1],row]));
 assert.equal(map.F00002[7],150068);
 assert.equal(map.F00002[10],'FUND_NAV_CARRY@2026-10-05');
+
+// 같은 공시일에 NAV가 충돌하면 자동 선택하지 않고 계산 불가로 처리해야 합니다.
+function indexedWithExtraNav(extraRow) {
+  return lib._buildSnapshotRangeIndexes({
+    valuesByName: { ...values, 펀드기준가격: [...values.펀드기준가격, extraRow] },
+    ss: {}, metrics: {}, readMs: 0,
+  }, ['2026-10-06','2026-10-07','2026-10-08','2026-10-09'], { historyOnly: true });
+}
+const conflictingNav = ['2026-10-07','F00002','KB 펀드',1080,'2026-10-05',150000,162000,'','KB'];
+const conflictIndex = indexedWithExtraNav(conflictingNav);
+assert.equal(lib._indexedFundEvaluation(conflictIndex,'F00002','2026-10-06').nav,1000.45,
+  '상충 행 입력일 전에는 과거 확정 NAV를 그대로 허용');
+assert.throws(() => lib._historySourceRows(conflictIndex,'2026-10-07'), /펀드 확정 NAV 충돌: F00002 2026-10-05/,
+  '원자료 손익 조회에서 동일 기관·공시일 NAV 충돌 차단');
+assert.throws(() => lib._indexedFundEvaluation(conflictIndex,'F00002','2026-10-08'), /펀드 확정 NAV 충돌/,
+  '이후 NAV가 정상이어도 과거 공시일 충돌을 무시하면 안 됨');
+assert.equal(lib._indexedFundEvaluation(conflictIndex,'F00002','2026-10-09'),null,
+  '잔여 좌수 0일 때 해당 펀드 평가를 수행하지 않음');
+assert.throws(() => lib._fundNavEvaluationFromRows([...navRows, conflictingNav],configs,'F00002','2026-10-07'),
+  /펀드 확정 NAV 충돌/, '기존 NAV 평가 경로와 충돌 검증 규칙 일치');
+const sameNavDuplicate = indexedWithExtraNav([...conflictingNav.slice(0,3),1000.45,...conflictingNav.slice(4)]);
+assert.equal(lib._indexedFundEvaluation(sameNavDuplicate,'F00002','2026-10-07').nav,1000.45,
+  '동일 NAV의 중복 공시 행은 충돌로 오인하지 않음');
+const anotherProvider = indexedWithExtraNav([...conflictingNav.slice(0,8),'OTHER']);
+assert.equal(lib._indexedFundEvaluation(anotherProvider,'F00002','2026-10-07').nav,1000.45,
+  '다른 제공기관의 NAV 충돌은 현재 선택 기관에 전파하지 않음');
+const blankProvider = indexedWithExtraNav([...conflictingNav.slice(0,8),'']);
+assert.throws(() => lib._indexedFundEvaluation(blankProvider,'F00002','2026-10-07'),/펀드 확정 NAV 충돌/,
+  '제공기관이 없는 행은 기존 경로처럼 현재 제공기관과 충돌 검사');
+const laterInput = indexedWithExtraNav(['2026-10-08',...conflictingNav.slice(1)]);
+assert.equal(lib._indexedFundEvaluation(laterInput,'F00002','2026-10-07').nav,1000.45,
+  '미래 입력일의 상충 NAV는 과거 평가에 사용하지 않음');
+assert.throws(() => lib._indexedFundEvaluation(laterInput,'F00002','2026-10-08'), /펀드 확정 NAV 충돌/,
+  '상충 NAV 입력일 도달 시 검증 거부');
+
 assert.equal(map['005930'][7],150000);
 assert.equal(map.AAPL[7],130650,'미국주식은 확정 종가 × 해당일 이전 확정 환율');
 const noCurrencyIndex = { ...indexed, historyCurrencyByCode: { ...indexed.historyCurrencyByCode } };
