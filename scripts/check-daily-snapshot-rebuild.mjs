@@ -159,7 +159,7 @@ assert.match(settings, /const loadTarget = String\(GSHEET_API_URL[\s\S]*const lo
   'loadSettings는 시작 target/세대를 고정하고 stale 응답 적용을 중단');
 assert.match(portfolioData, /const retryGeneration = typeof getGsheetConnectionGeneration[\s\S]*getGsheetConnectionGeneration\(\) !== retryGeneration[\s\S]*return false/,
   '빈 원장 재시도도 URL 동일성 외 연결 세대 변경을 검사');
-assert.match(settings, /const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*options\?\.forcePortfolioRestore === true[\s\S]*const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad/,
+assert.match(settings, /const explicitAuthoritativePull = options\?\.forcePortfolioRestore === true[\s\S]*const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*const forcePortfolioRestore = connectionForcePortfolioRestore[\s\S]*explicitAuthoritativePull[\s\S]*const applyForcedPortfolioRestore = forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad/,
   '연결 변경 또는 명시적 pull은 pending 성공 여부를 반영해 원격 포트폴리오 강제 복원');
 assert.match(settings, /if \(applyForcedPortfolioRestore\) \{[\s\S]*if \(!tradesLoaded \|\| !holdingsLoaded\) return false[\s\S]*rawTrades\.length = 0[\s\S]*else \{[\s\S]*rawHoldings\.length = 0[\s\S]*saveHoldings\(\{ skipGsheet: true \}\)/,
   '강제 원격 복원은 정상 빈 거래·보유 배열도 적용해 이전 로컬 데이터를 제거');
