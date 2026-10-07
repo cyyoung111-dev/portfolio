@@ -187,6 +187,10 @@ assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*expect
   '일반 설정 debounce 저장도 호출 시점 payload와 target/generation을 함께 고정');
 assert.match(settings, /function isGsheetPortfolioWriteReady\(options\)[\s\S]*!_gsBootRestored \|\| _gsPortfolioRestoreRequired/,
   '초기·연결전환 복원 완료 전 일반 원격 쓰기를 차단');
+assert.match(settings, /let _gsSettingsLoadEpoch = 0[\s\S]*const loadEpoch = \+\+_gsSettingsLoadEpoch[\s\S]*loadEpoch === _gsSettingsLoadEpoch/,
+  '같은 연결에서 겹친 loadSettings도 최신 load epoch만 상태 적용');
+assert.match(settings, /const explicitAuthoritativePull = options\?\.forcePortfolioRestore === true[\s\S]*_gsPortfolioRestoreRequired = true[\s\S]*_gsBootRestored = false/,
+  '명시적 원격 pull은 시작 즉시 복원 잠금을 걸어 중간 원격 쓰기를 차단');
 assert.match(settings, /_gsPortfolioRestoreRequired = false;[\s\S]*_gsBootRestored = true;[\s\S]*return true/,
   'loadSettings 성공 후에만 연결을 원격쓰기 가능 상태로 승격');
 assert.match(settings, /let _gsBootPromise = null[\s\S]*if \(_gsBootPromise\) return _gsBootPromise[\s\S]*if \(_gsBootPromise === run\) _gsBootPromise = null/,
@@ -253,7 +257,7 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261007-17/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-12/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261007-13/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261007-14/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261007-12/,'현재가 연결 격리 로직 캐시 버전 갱신');
