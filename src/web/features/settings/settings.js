@@ -38,6 +38,8 @@ function isGsheetConnectionCurrent(target, generation) {
 // debounce 타이머
 let _saveSettingsTimer = null;
 let _dividendSaveQueue = Promise.resolve();
+let _saveRealEstateQueue = Promise.resolve();
+let _saveSettingsQueue = Promise.resolve();
 let _saveRealEstateTimer = null;
 let _saveSettingsWaiters = [];
 let _saveRealEstateWaiters = [];
@@ -160,22 +162,25 @@ function saveRealEstateSettings(immediate, options) {
       _saveRealEstateWaiters = [];
       _saveRealEstateTimer = null;
       _saveRealEstatePendingKey = '';
-      let ok = false;
-      try {
-        if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return;
-        const data = await requestGsheetFormJson(
-          'saveRealEstateSettings',
-          { data: payload },
-          { timeoutMs: 15000, retry: 1, targetUrl }
-        );
-        if (!data) throw new Error('네트워크 오류');
-        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        ok = true;
-      } catch(e) {
-        logWarn('settings', 'saveRealEstateSettings 실패:', e);
-      } finally {
-        waiters.forEach(done => done(ok));
-      }
+      const run = async () => {
+        try {
+          if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+          const data = await requestGsheetFormJson(
+            'saveRealEstateSettings',
+            { data: payload },
+            { timeoutMs: 15000, retry: 1, targetUrl }
+          );
+          if (!data) throw new Error('네트워크 오류');
+          if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+          return true;
+        } catch(e) {
+          logWarn('settings', 'saveRealEstateSettings 실패:', e);
+          return false;
+        }
+      };
+      _saveRealEstateQueue = _saveRealEstateQueue.then(run, run);
+      const ok = await _saveRealEstateQueue;
+      waiters.forEach(done => done(ok));
     }, delay);
   });
 }
@@ -325,22 +330,25 @@ function saveSettings(immediate, options) {
       _saveSettingsWaiters = [];
       _saveSettingsTimer = null;
       _saveSettingsPendingKey = '';
-      let ok = false;
-      try {
-        if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return;
-        const data = await requestGsheetFormJson(
-          'saveSettings',
-          { data: payload },
-          { timeoutMs: 15000, retry: 1, targetUrl }
-        );
-        if (!data) throw new Error('네트워크 오류');
-        if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-        ok = true;
-      } catch(e) {
-        console.warn('saveSettings 실패:', e);
-      } finally {
-        waiters.forEach(done => done(ok));
-      }
+      const run = async () => {
+        try {
+          if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+          const data = await requestGsheetFormJson(
+            'saveSettings',
+            { data: payload },
+            { timeoutMs: 15000, retry: 1, targetUrl }
+          );
+          if (!data) throw new Error('네트워크 오류');
+          if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+          return true;
+        } catch(e) {
+          console.warn('saveSettings 실패:', e);
+          return false;
+        }
+      };
+      _saveSettingsQueue = _saveSettingsQueue.then(run, run);
+      const ok = await _saveSettingsQueue;
+      waiters.forEach(done => done(ok));
     }, delay);
   });
 }
