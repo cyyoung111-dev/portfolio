@@ -264,7 +264,7 @@ function _renderFundUnitsEditor(items) {
   const currentItems = items.filter(item => item.currentHolding);
   const pastItems = items.filter(item => !item.currentHolding);
   return `<section class="editor-price-section fund-units-panel"><h4>펀드 좌수 자동 평가</h4>
-    <p>종목코드별 전체 좌수 × 일별 기준가격 ÷ 1,000. 좌수 변경은 변경일부터 새 이력을 추가하세요. 0좌부터 자동 평가는 중단하며 기존 기록은 보존합니다.</p>
+    <p>종목코드별 전체 좌수 × 일별 기준가격 ÷ 1,000. 같은 적용일을 다시 저장하면 좌수를 정정하며, 해당일부터 다음 좌수 변경 전까지 기존 NAV 파생 평가·가격이력·Snapshot을 자동 재계산합니다. 0좌 전환일 이후는 자동 평가에서 제외합니다.</p>
     ${currentItems.length ? `<div class="fund-units-group"><h5>현재 보유 펀드</h5>${currentItems.map(renderFund).join('')}</div>` : ''}
     ${pastItems.length ? `<div class="fund-units-group"><h5>과거 보유 / 전량 매도 펀드</h5>${pastItems.map(renderFund).join('')}</div>` : ''}
     ${_renderFundNavStatus()}
@@ -434,7 +434,12 @@ async function handleFundUnitAction(action, code, date = '') {
       if (result?.status !== 'ok') throw new Error(result?.message || '좌수 저장 실패');
       _fundUnitConfigs = result.configs || [];
       _fundUnitItems = result.funds || _fundUnitItems;
-      _fundUnitsStatus = '좌수가 저장되었습니다. 과거 기간은 기간 평가금액 채우기를 실행하세요.';
+      const rec = result.reconciliation || {};
+      const changed = Number(rec.navRows || 0) + Number(rec.priceRows || 0) + Number(rec.snapshotRows || 0);
+      const range = result.affectedTo ? `${result.affectedFrom} ~ ${result.affectedTo}` : result.affectedFrom;
+      _fundUnitsStatus = `좌수 ${result.mode === 'updated' ? '정정' : result.mode === 'unchanged' ? '확인' : '등록'} 완료 · 영향기간 ${range} · 기존 파생 평가 ${changed}건 자동 재계산`
+        + (Number(rec.manualPreserved || 0) ? ` · MANUAL ${rec.manualPreserved}건은 원본 보존` : '')
+        + (Number(rec.missingNav || 0) ? ` · NAV 원자료 부족 ${rec.missingNav}일은 자동 덮어쓰기 제외` : '');
     } else if (action === 'fill') {
       const from = _fundUnitDrafts.range?.from;
       const to = _fundUnitDrafts.range?.to;
