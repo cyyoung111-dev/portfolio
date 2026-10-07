@@ -607,7 +607,7 @@ async function loadSettings(onProgress) {
         && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
       prog('빈 거래원장 동기화 재시도 중...');
       try {
-        await _retryPendingExplicitEmptyTradeSync({ quiet: true });
+        await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true });
       } catch (e) {
         console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
       }
