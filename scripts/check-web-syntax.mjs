@@ -94,7 +94,7 @@ if (!dividendSource.includes("_setDividendLinkState('syncing'")
 if (!historyRenderSource.includes('id="histDetailDate"')
     || !historyRenderSource.includes('상단 기준일과 무관하게 거래·가격·NAV·환율 원자료로 평가합니다.')
     || !historyPipelineSource.includes('function _renderHistoryDateDetail(')
-    || !historyPipelineSource.includes('원자료 손익 계산값이 없습니다.')) {
+    || !historyPipelineSource.includes('평가 가능한 원자료 손익이 없습니다.')) {
   console.error('❌ 특정일 손익 스냅샷 조회 UI 또는 데이터 없음 안내가 누락됐습니다.');
   process.exit(1);
 }
