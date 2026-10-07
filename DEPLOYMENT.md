@@ -14,7 +14,8 @@
 - bootstrap 응답의 `portfolioReadStatus.tradesOk/holdingsOk`를 강제 복원 판정에 사용하며, 해당 상태가 없는 구버전 GAS는 연결 변경 강제 복원에서 안전 실패 처리합니다.
 - 신규·레거시 Settings에 `fundDirect`가 없어도 보유현황 시트의 코드 없는 TDF/펀드를 거래 유무와 관계없이 직접펀드로 보완 복원합니다.
 - 거래이력 기반 과거 Snapshot 재생성은 현재 보유현황의 코드 없는 TDF/펀드처럼 거래원장에 역사 정보가 없는 자산을 새로 추정하지 않습니다. 대신 해당 날짜에 이미 존재하는 Snapshot 행만 보존하여 마지막 일반 거래 삭제나 과거 수량 정정이 비거래 펀드 Snapshot까지 지우지 않도록 합니다.
-- GAS version `9.181`, 웹 기대 버전 `9.181`, 서비스워커 `portfolio-cache-20261007-25`, settings `20261007-5`, settings_fetch `20261007-8`.
+- 배당 저장 큐는 호출 시점 GSheet URL과 연결 generation을 함께 고정합니다. 저장 대기 중 연결이 바뀌면 stale payload를 새 연결에 쓰지 않고 실패 처리하여 cross-write를 차단합니다.
+- GAS version `9.181`, 웹 기대 버전 `9.181`, 서비스워커 `portfolio-cache-20261007-26`, settings `20261007-6`, settings_fetch `20261007-8`.
 
 ## GAS v9.180: 19시 마감 단계·KRX 원천 응답 진단 (2026-10-07)
 
