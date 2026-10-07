@@ -30,30 +30,38 @@ function _currentPriceTargetCount() {
 }
 
 async function fetchFromGsheet(dateStr, options) {
+  const targetUrl = String(GSHEET_API_URL || '').trim();
+  const generation = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration()
+    : 0;
+  if (!targetUrl) return null;
+  const requestKey = targetUrl + '|' + generation + '|' + dateStr;
   const forceFresh = !!options?.forceFresh;
-  // 사용자가 업데이트를 누른 경우 진행 중인 자동 조회가 끝난 뒤 반드시 GAS를 다시 조회합니다.
-  // 자동 조회가 설정/종목 복원 전의 목록으로 시작됐더라도 첫 클릭에서 최종 평가단가가 반영됩니다.
-  if (forceFresh && _inFlightFetches[dateStr]) {
-    const pending = _inFlightFetches[dateStr];
+  // 다른 연결의 in-flight 요청은 재사용하거나 기다리지 않습니다.
+  if (forceFresh && _inFlightFetches[requestKey]) {
+    const pending = _inFlightFetches[requestKey];
     await pending;
-    if (_inFlightFetches[dateStr] === pending) delete _inFlightFetches[dateStr];
+    if (_inFlightFetches[requestKey] === pending) delete _inFlightFetches[requestKey];
   }
-  // 일반 자동 조회는 같은 날짜로 진행 중인 요청 결과를 재사용합니다.
-  if (_inFlightFetches[dateStr]) {
-    return _inFlightFetches[dateStr];
-  }
-  const promise = _fetchFromGsheetInner(dateStr, options);
-  _inFlightFetches[dateStr] = promise;
+  if (_inFlightFetches[requestKey]) return _inFlightFetches[requestKey];
+  const promise = _fetchFromGsheetInner(dateStr, { ...(options || {}), targetUrl, generation });
+  _inFlightFetches[requestKey] = promise;
   try {
     return await promise;
   } finally {
-    // 완료되면(성공/실패 무관) 다음 요청은 새로 조회할 수 있도록 정리
-    if (_inFlightFetches[dateStr] === promise) delete _inFlightFetches[dateStr];
+    if (_inFlightFetches[requestKey] === promise) delete _inFlightFetches[requestKey];
   }
 }
 
 async function _fetchFromGsheetInner(dateStr, options) {
-  if (!GSHEET_API_URL) return null;
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation)
+    ? options.generation
+    : (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0);
+  if (!targetUrl) return null;
+  const isCurrentConnection = () => typeof isGsheetConnectionCurrent !== 'function'
+    || isGsheetConnectionCurrent(targetUrl, generation);
+  if (!isCurrentConnection()) return null;
   try {
     const pickLatestPreferManual = (list) => {
       if (!Array.isArray(list) || list.length === 0) return null;
@@ -112,7 +120,12 @@ async function _fetchFromGsheetInner(dateStr, options) {
           window._lastPriceLookup = null;
           window._gsheetResolvedPriceDate = '';
           const roundTripStarted = Date.now();
-          const data = await requestGsheetActionJson('getPrices', { codes, persist: options?.persist ? '1' : '0' }, { timeoutMs: 30000, retry: 1 });
+          const data = await requestGsheetActionJson(
+            'getPrices',
+            { codes, persist: options?.persist ? '1' : '0' },
+            { timeoutMs: 30000, retry: 1, targetUrl }
+          );
+          if (!isCurrentConnection()) return null;
           if (!data || data.status !== 'ok' || !data.prices) {
             throw new Error(data?.message || '실시간 가격 응답 오류');
           }
@@ -161,8 +174,9 @@ async function _fetchFromGsheetInner(dateStr, options) {
             const data2 = await requestGsheetActionJson(
               'getPriceHistory',
               { from: _kstDateOffset(dateStr, -7), to: dateStr, codes: missingCodesStr },
-              { timeoutMs: 15000, retry: 1 }
+              { timeoutMs: 15000, retry: 1, targetUrl }
             );
+            if (!isCurrentConnection()) return null;
             if (data2 && data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
                 const list = data2.prices[m.code] || [];
@@ -186,8 +200,9 @@ async function _fetchFromGsheetInner(dateStr, options) {
         const data = await requestGsheetActionJson(
           'getPriceHistory',
           { from: dateStr, to: dateStr, codes },
-          { timeoutMs: 20000, retry: 1 }
+          { timeoutMs: 20000, retry: 1, targetUrl }
         );
+        if (!isCurrentConnection()) return null;
         if (data && data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
             const list = data.prices[i.code] || [];
@@ -215,8 +230,9 @@ async function _fetchFromGsheetInner(dateStr, options) {
         const data = await requestGsheetActionJson(
           'getPriceHistory',
           { from: fromDate, to: dateStr, codes: epNoCode.map(i => i.name).join(',') },
-          { timeoutMs: 15000, retry: 1 }
+          { timeoutMs: 15000, retry: 1, targetUrl }
         );
+        if (!isCurrentConnection()) return null;
         if (data && data.status === 'ok' && data.prices) {
           epNoCode.forEach(i => {
             const entries = data.prices[i.name];
@@ -239,6 +255,7 @@ async function _fetchFromGsheetInner(dateStr, options) {
       } catch(e) {} // 코드 없는 종목 조회 실패는 무시
     }
 
+    if (!isCurrentConnection()) return null;
     // 같은 종목명 중복 제거 (코드만 다른 항목은 첫 번째만 표시)
     const seenMissingNames = new Set();
     window._gsheetMissingCodes = missingCodes.filter(m => {
