@@ -8,6 +8,8 @@ const history = fs.readFileSync('src/web/views/views_history.js', 'utf8');
 const pipeline = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const html = fs.readFileSync('src/web/index.html', 'utf8');
 const sync = fs.readFileSync('src/web/features/settings/settings_sync.js', 'utf8');
+const portfolioData = fs.readFileSync('src/web/domain/portfolio/data.js', 'utf8');
+const tradesView = fs.readFileSync('src/web/views/views_trades.js', 'utf8');
 
 function holdingsAtDate(rows, date) {
   const map = {};
@@ -125,7 +127,17 @@ assert.match(gas.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /save
   '거래원장 저장 후 Snapshot 재생성 실패는 partial 상태로 구분');
 assert.match(sync, /data\.saveState === 'partial'[\s\S]*일부 반영:[\s\S]*영향기간/,
   '웹 거래동기화도 partial 상태를 사용자에게 명확히 표시');
-assert.match(html, /settings_sync\.js\?v=20261007-11/,'거래동기화 자산 캐시 버전 갱신');
+assert.match(sync, /async function syncTradesToGsheet\(options\)[\s\S]*rawTrades\.length === 0 && !allowEmpty[\s\S]*return/,
+  '초기화되지 않은 빈 거래상태는 원격 거래원장을 삭제하지 않음');
+assert.match(sync, /trades\.length === 0 && \(rawTrades\.length > 0 \|\| !allowEmpty\)/,
+  '명시적 빈 원장 권한이 없으면 [] 전송 차단');
+assert.match(portfolioData, /_pendingExplicitEmptyTradeSync[\s\S]*allowEmptyTradeSync[\s\S]*syncTradesToGsheet\(\{ allowEmpty: allowEmptyTradeSync \}\)/,
+  '확인된 삭제 권한을 debounce 후 거래 동기화까지 1회 전달');
+assert.match(tradesView, /_commitTrades\(\{ allowEmptyTradeSync: before > 0 && rawTrades\.length === 0 \}\)/,
+  '실제 마지막 거래 삭제 경로에서만 빈 원장 동기화 허용');
+assert.match(html, /settings_sync\.js\?v=20261007-12/,'거래동기화 자산 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261007-1/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /views\/views_trades\.js\?v=20261007-1/,'거래 삭제 로직 캐시 버전 갱신');
 assert.match(gas, /rebuildOperationId = 'rebuildDailySnapshots\|'[\s\S]*_snapshotBackupOperationId = rebuildOperationId/,'다일자 재생성은 작업 단위 백업 재사용');
 
 // KOSDAQ 선택·라벨·시각화·확정 기준 표시
