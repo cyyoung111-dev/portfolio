@@ -15,8 +15,8 @@ const freshnessCall = closeSection.indexOf('_assessDailyKrxStockClose(items, krx
 const firstPriceWrite = closeSection.indexOf('batchUpsertPriceHistory(ss, actualDate');
 assert.ok(freshnessCall >= 0 && firstPriceWrite > freshnessCall,
   'KRX 거래일/coverage 검증은 가격이력 쓰기보다 먼저 해야 함');
-assert.match(closeSection, /snapshotDate = closeVerification\.required\s*\? closeVerification\.date/,
-  '펀드 NAV 가격행의 최근 날짜로 일반 종가 마감 성공 처리 금지');
+assert.match(closeSection, /snapshotDate = _selectPortfolioCloseSnapshotDate_\(requestedCloseDate, closeVerification\.date/,
+  'KRX 정상거래일은 공식 확정일을 유지하고 휴장일에만 검증된 해외 정규장 날짜를 선택');
 assert.doesNotMatch(closeSection, /fetchedRowCount === 0 && !_getLatestPriceHistoryDate/,
   '기존 가격이력 존재를 신규 종가 조회 성공으로 오판하지 않아야 함');
 
@@ -598,3 +598,43 @@ const closedForeign=wdVm.runPortfolioCloseWatchdog2030();
 assert.equal(closedForeign.ok,true);
 assert.equal(watchdogReexecutions,3,'KRX 휴장에도 일본 등 해외 보유 평가 시도');
 console.log('✅ KRX 휴장일 watchdog 실패 재시도/국내 skip/해외 평가 회귀검사 통과');
+
+// 한국 휴장일 + 해외 개장 혼합 계좌: 실제 해외 확정일로 Snapshot을 생성하고
+// KRX 종가는 가격이력 이전 확정값을 CARRY로 사용해야 하며 미래값은 금지합니다.
+const mixedCloseVm=vm.createContext({
+  _normalizeDate:v=>String(v||'').slice(0,10),
+  _krxCalendarStatus_:d=>d==='2026-10-09'?'CLOSED':'OPEN',
+  _isConfirmedHistoryPrice_:(p,d)=>!!p && p.price>0 && p.status==='CONFIRMED'
+    && p.priceType==='REGULAR_CLOSE' && p.marketDate===d
+});
+vm.runInContext(extract('_latestConfirmedForeignCloseDate_'),mixedCloseVm);
+vm.runInContext(extract('_selectPortfolioCloseSnapshotDate_'),mixedCloseVm);
+const confirmedClose=(date)=>({price:100,usedDate:date,marketDate:date,status:'CONFIRMED',priceType:'REGULAR_CLOSE'});
+const mixedItems=[
+  {code:'005930',currency:'KRW',market:'KR'},
+  {code:'7203',currency:'JPY',market:'JP'},
+  {code:'0700',currency:'HKD',market:'HK'},
+  {code:'AAPL',currency:'USD',market:'US'}
+];
+const foreignVerified={
+  '7203':confirmedClose('2026-10-09'),
+  '0700':confirmedClose('2026-10-09'),
+  AAPL:confirmedClose('2026-10-08')
+};
+const foreignAsOf=mixedCloseVm._latestConfirmedForeignCloseDate_(mixedItems,foreignVerified,'2026-10-09');
+assert.equal(foreignAsOf,'2026-10-09','한국 휴장·일본/홍콩 당일 확정 종가 인정');
+assert.equal(mixedCloseVm._selectPortfolioCloseSnapshotDate_('2026-10-09','2026-10-08',true,'',foreignAsOf),
+  '2026-10-09','KRX 10/08 종가 CARRY와 JP/HK 10/09 확정가의 Snapshot 평가 기준일');
+assert.equal(mixedCloseVm._selectPortfolioCloseSnapshotDate_('2026-10-08','2026-10-08',true,'','2026-10-09'),
+  '2026-10-08','KRX 정상장에는 해외 미래종가로 날짜가 바뀌지 않음');
+assert.equal(mixedCloseVm._selectPortfolioCloseSnapshotDate_('2026-10-09','2026-10-08',true,'','2026-10-08'),
+  '2026-10-08','해외 최신 완료일이 직전 KRX와 같으면 기존 확정일 유지');
+const futureForeign={'7203':confirmedClose('2026-10-12'),'0700':{price:100,usedDate:'2026-10-09',marketDate:'2026-10-09',status:'PARTIAL',priceType:'REGULAR_CLOSE'}};
+assert.equal(mixedCloseVm._latestConfirmedForeignCloseDate_(mixedItems,futureForeign,'2026-10-09'),'',
+  '미래/미확정 해외가격으로 한국 휴장일 Snapshot을 생성하지 않음');
+assert.equal(mixedCloseVm._selectPortfolioCloseSnapshotDate_('2026-10-09','2026-10-08',true,'',''),
+  '2026-10-08','해외 확정 종가가 없으면 KRX 직전일 평가를 임의로 앞당기지 않음');
+assert.match(closeSection,/var latestForeignCloseDate = _latestConfirmedForeignCloseDate_\(items, gfPrev, requestedCloseDate\)/);
+assert.match(closeSection,/_buildSnapshotRowsFromTradeAndPriceHistory\(ss, snapshotDate\)/,
+  '휴장일 해외 기준일을 선택한 다음 기존 코드별 직전 확정종가·펀드 NAV 이월 빌더를 사용');
+console.log('✅ 한국 휴장일 혼합 계좌 해외 확정일 Snapshot·미래가격 차단 계약 통과');
