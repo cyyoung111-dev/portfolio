@@ -10570,13 +10570,18 @@ function _scheduleFundAfterFailedPortfolioPrice_() {
   var handler = 'runDeferredFundAfterPortfolioCloseFailure';
   return _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-    if (old && old.until > Date.now()) return {created:false, triggerId:String(old.triggerId || '')};
+    var scheduleDate = today();
+    if (old && old.date === scheduleDate && old.until > Date.now())
+      return {created:false, triggerId:String(old.triggerId || '')};
+    // An old-day recurring trigger belongs to the creator account and cannot
+    // be enumerated cross-account. Its next invocation deletes its own UID.
+    // A fresh reservation for the new KST date must never reuse that UID.
     // A recurring, bounded retry survives Apps Script's hard timeout (no finally on kill).
     // Trigger is deleted after completion or three failed attempts.
     var trigger = ScriptApp.newTrigger(handler).timeBased().everyMinutes(10).create();
     var triggerId = trigger.getUniqueId ? trigger.getUniqueId() : '';
     props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,
-      JSON.stringify({until:Date.now() + 45 * 60 * 1000, date:today(),
+      JSON.stringify({until:Date.now() + 45 * 60 * 1000, date:scheduleDate,
         attempts:0, triggerId:triggerId}));
     return {created:true, triggerId:triggerId};
   });
