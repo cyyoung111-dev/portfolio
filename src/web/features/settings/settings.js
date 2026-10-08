@@ -717,7 +717,12 @@ async function loadSettings(onProgress, options) {
       prog('빈 거래원장 동기화 재시도 중...');
       let pendingRetryOk = false;
       try {
-        pendingRetryOk = await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true });
+        pendingRetryOk = await _retryPendingExplicitEmptyTradeSync({
+          quiet: true,
+          allowDuringRestore: true,
+          preferCurrentPortfolio: dirtyPortfolioSyncResolvedAtLoad && rawTrades.length > 0,
+          targetUrl: loadTarget
+        });
       } catch (e) {
         console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
       }
