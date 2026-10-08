@@ -1858,18 +1858,48 @@ function _yahooEquitySymbol_(item) {
   return String(item.yahooSymbol || '');
 }
 
-function fetchPricesYahooRegularClose(items, dateStr) {
+function _foreignMarketTimeZone_(item) {
+  var market = String(item && item.market || '').toUpperCase();
+  var currency = String(item && item.currency || '').toUpperCase();
+  if (market === 'US' || currency === 'USD') return 'America/New_York';
+  if (market === 'JP' || market === 'TSE' || currency === 'JPY') return 'Asia/Tokyo';
+  if (market === 'HK' || market === 'HKEX' || currency === 'HKD') return 'Asia/Hong_Kong';
+  if (market === 'UK' || market === 'LSE' || currency === 'GBP') return 'Europe/London';
+  if (market === 'EU' || currency === 'EUR') return 'Europe/Berlin';
+  return 'UTC';
+}
+function _foreignMarketRegularCloseCutoff_(item, instant) {
+  var now = instant || new Date();
+  var tz = _foreignMarketTimeZone_(item);
+  var closeHour = tz === 'Asia/Tokyo' ? 16 : (tz === 'Europe/Berlin' ? 18 : 17);
+  var marketDate = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+  var localHour = Number(Utilities.formatDate(now, tz, 'H'));
+  var candidate = new Date(marketDate + 'T12:00:00Z');
+  if (localHour < closeHour) candidate.setUTCDate(candidate.getUTCDate() - 1);
+  for (var i=0;i<7;i++) {
+    if (candidate.getUTCDay() !== 0 && candidate.getUTCDay() !== 6)
+      return Utilities.formatDate(candidate, 'UTC', 'yyyy-MM-dd');
+    candidate.setUTCDate(candidate.getUTCDate() - 1);
+  }
+  throw new Error('해외시장 최근 완료 거래일을 계산하지 못했습니다.');
+}
+function fetchPricesYahooRegularClose(items, dateStr, latestBefore) {
   var output = {};
   (items || []).forEach(function(item) {
     var symbol = _yahooEquitySymbol_(item);
     if (!symbol) return;
-    var start = Math.floor(new Date(dateStr + 'T00:00:00Z').getTime() / 1000);
-    var response = _yahooRequest_(symbol, { period1: start, period2: start + 172800, interval: '1d', events: 'history', includeAdjustedClose: 'false' });
+    var dateStartMs = new Date(dateStr + 'T00:00:00Z').getTime();
+    var start = Math.floor((dateStartMs - (latestBefore ? 14 * 86400000 : 0)) / 1000);
+    var response = _yahooRequest_(symbol, { period1: start, period2: Math.floor(dateStartMs / 1000) + 172800,
+      interval: '1d', events: 'history', includeAdjustedClose: 'false' });
     if (!response.payload) { Logger.log('⚠️ Yahoo 확정 종가 조회 실패(' + item.code + '): ' + (response.error || response.status)); return; }
-    var parsed = _parseYahooChart_(response.payload, item.market === 'US' ? 'America/New_York' : CONFIG.TIMEZONE);
-    var point = parsed && parsed.points.filter(function(row) { return row.date === dateStr; })[0];
-    if (!point || !(point.value > 0)) return; // 다른 거래일·현재가로 대체하지 않습니다.
-    output[item.code] = { price: point.value, usedDate: dateStr, marketDate: dateStr,
+    var parsed = _parseYahooChart_(response.payload, _foreignMarketTimeZone_(item));
+    var candidates = parsed && parsed.points ? parsed.points.filter(function(row) {
+      return row && row.value > 0 && (latestBefore ? row.date <= dateStr : row.date === dateStr);
+    }).sort(function(a,b) { return String(a.date).localeCompare(String(b.date)); }) : [];
+    var point = candidates.length ? candidates[candidates.length-1] : null;
+    if (!point) return;
+    output[item.code] = { price: point.value, usedDate: point.date, marketDate: point.date,
       market: item.market || '', currency: item.currency || '', providerSymbol: symbol,
       source: 'YAHOO_REGULAR_CLOSE', priceType: 'REGULAR_CLOSE', status: 'CONFIRMED', fetchedAt: new Date().toISOString() };
   });
@@ -1902,7 +1932,7 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
 
   // 확정 Snapshot은 국내 자산의 KRX TDD_CLSPRC를 우선합니다. Toss lastPrice와
   // 검증되지 않은 일봉 closePrice는 현재가 화면에는 쓸 수 있지만 확정 종가로 저장하지 않습니다.
-  if (gfItems.length > 0) {
+  if (gfItems.length > 0 && !(options && options.skipKrx)) {
     try {
       var krxItems = gfItems.filter(function(item) { return String(item.currency || 'KRW').toUpperCase() === 'KRW' || String(item.market || '').toUpperCase() === 'KR'; });
       var krxPrices = fetchPricesKrx(krxItems, dateStr);
@@ -1920,11 +1950,19 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   var overseasItems = gfItems.filter(function(item) {
     return String(item.currency || 'KRW').toUpperCase() !== 'KRW' && String(item.market || '').toUpperCase() !== 'KR';
   });
-  var overseasDate = options && options.usCloseDate || dateStr;
-  var overseasPrices = fetchPricesYahooRegularClose(overseasItems, overseasDate);
-  Object.keys(overseasPrices).forEach(function(code) {
-    if (_isConfirmedHistoryPrice_(overseasPrices[code], overseasDate)) prices[code] = overseasPrices[code];
-  });
+  if (options && options.useMarketCloseCutoffs) {
+    overseasItems.forEach(function(item) {
+      var cutoff = _foreignMarketRegularCloseCutoff_(item, options.asOf || new Date());
+      var confirmed = fetchPricesYahooRegularClose([item], cutoff, true);
+      var point = confirmed[item.code];
+      if (point && point.usedDate <= cutoff && _isConfirmedHistoryPrice_(point, point.usedDate)) prices[item.code] = point;
+    });
+  } else {
+    var overseasPrices = fetchPricesYahooRegularClose(overseasItems, dateStr);
+    Object.keys(overseasPrices).forEach(function(code) {
+      if (_isConfirmedHistoryPrice_(overseasPrices[code], dateStr)) prices[code] = overseasPrices[code];
+    });
+  }
 
   // 실패·누락은 저장 확정값 보존을 위해 빈 결과로 반환합니다.
   return prices;
@@ -8937,18 +8975,32 @@ var KRX_CONFIRMED_CLOSED_DATES_2026 = {
   '2026-06-03':1, '2026-07-17':1, '2026-08-17':1, '2026-09-24':1,
   '2026-09-25':1, '2026-10-05':1, '2026-10-09':1, '2026-12-25':1, '2026-12-31':1
 };
-function _isExpectedKrxTradingDate(dateStr) {
+// 한국천문연구원 2027 월력요항 공휴일 및 거래소 연말휴장 관례 기준.
+// 2027년 KRX 최종 휴장일 공고가 나오면 검증 후 재확인합니다.
+var KRX_CONFIRMED_CLOSED_DATES_2027 = {
+  '2027-01-01':1, '2027-02-08':1, '2027-02-09':1, '2027-03-01':1,
+  '2027-05-03':1, '2027-05-05':1, '2027-05-13':1, '2027-07-19':1,
+  '2027-08-16':1, '2027-09-14':1, '2027-09-15':1, '2027-09-16':1,
+  '2027-10-04':1, '2027-10-11':1, '2027-12-27':1, '2027-12-31':1
+};
+function _krxCalendarStatus_(dateStr) {
   var date = _normalizeDate(dateStr || '');
-  if (!date) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 'UNKNOWN';
   var day = new Date(date + 'T00:00:00Z').getUTCDay();
-  return day !== 0 && day !== 6 && !KRX_CONFIRMED_CLOSED_DATES_2026[date];
+  if (day === 0 || day === 6) return 'CLOSED';
+  var year = date.slice(0,4);
+  var map = year === '2026' ? KRX_CONFIRMED_CLOSED_DATES_2026
+    : year === '2027' ? KRX_CONFIRMED_CLOSED_DATES_2027 : null;
+  if (!map) return 'UNKNOWN'; // 미지원 연도를 OPEN으로 단정하지 않음
+  return map[date] ? 'CLOSED' : 'OPEN';
 }
+function _isExpectedKrxTradingDate(dateStr) { return _krxCalendarStatus_(dateStr) === 'OPEN'; }
 function _countBusinessWeekdaysBetween(from, to) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return Infinity;
   var count = 0;
   for (var date = _fundDateOffset(from, 1); date <= to; date = _fundDateOffset(date, 1)) {
     var day = new Date(date + 'T00:00:00Z').getUTCDay();
-    if (day !== 0 && day !== 6 && !KRX_CONFIRMED_CLOSED_DATES_2026[date]) count++;
+    if (day !== 0 && day !== 6 && _krxCalendarStatus_(date) !== 'CLOSED') count++;
   }
   return count;
 }
@@ -9113,13 +9165,13 @@ function saveDailyPriceHistory() {
         });
         var gfPrev = gfPrevItems.length > 0 && _hasUsdPriceItems(items)
           ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true,
-              usCloseDate: _latestCompletedUsRegularSessionDate_(new Date()) })
+              useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate + 'T19:00:00+09:00') })
           : {};
         // 공식 실제 종가 날짜·시장별 커버리지를 먼저 검증해 오래된 데이터 저장을 차단합니다.
         var closeVerification = _assessDailyKrxStockClose(items, krxPrev, requestedCloseDate);
         // 정규 거래일 19시 마감은 반드시 당일 exact-date KRX 종가여야 합니다.
         // KRX provider가 전일값을 반환하면 T-1을 당일 마감으로 저장하지 않고 실패시켜 watchdog 재시도 대상으로 남깁니다.
-        if (_isExpectedKrxTradingDate(requestedCloseDate) && closeVerification.required
+        if (_krxCalendarStatus_(requestedCloseDate) !== 'CLOSED' && closeVerification.required
             && closeVerification.date !== requestedCloseDate) {
           throw new Error('당일 KRX exact-date 종가 미확정: 요청 ' + requestedCloseDate
             + ', 수신 ' + closeVerification.date + ' · 20:30 watchdog에서 재시도합니다.');
@@ -10348,7 +10400,7 @@ function runDailyPortfolioClose1900() {
 
 function runPortfolioCloseWatchdog2030() {
   var todayStr = today();
-  if (!_isExpectedKrxTradingDate(todayStr)) {
+  if (_krxCalendarStatus_(todayStr) === 'CLOSED') {
     _appendPortfolioCloseSyncLog('WATCHDOG_SKIP', todayStr, '', '주말/확정 휴장일');
     return { runDate:todayStr, skipped:true, reason:'NON_TRADING_DAY' };
   }
