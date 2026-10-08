@@ -9197,6 +9197,36 @@ function _retryOnePendingKrxClose_(props, currentDate) {
 
 // 한국 휴장일에 해외시장만 개장한 경우, 실제 확인된 해외 정규장 종가 날짜를
 // 스냅샷 기준일로 올립니다. 국내 종가는 가격이력의 직전 확정값을 CARRY로 평가합니다.
+// 한국 휴장일 KRX 공급원 실패 시 저장된 과거 *공식* 종가만 재사용합니다.
+// YAHOO/현재가/MANUAL은 공식 KRX로 승격하지 않으며, 날짜·시장별 커버리지
+// 상한은 호출부 _assessDailyKrxStockClose()가 동일하게 검증합니다.
+function _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedDate) {
+  if (_krxCalendarStatus_(requestedDate) !== 'CLOSED') return {};
+  var wanted = {};
+  (items || []).forEach(function(item) {
+    var code = _cleanCode(item && item.code);
+    var cur = String(item && item.currency || 'KRW').toUpperCase();
+    if (code && cur === 'KRW' && !_isFundCode(code)) wanted[code] = item;
+  });
+  if (!Object.keys(wanted).length) return {};
+  var sh = ss.getSheetByName(CONFIG.SHEET_PH);
+  if (!sh || sh.getLastRow() < 2) return {};
+  var rows = sh.getRange(2,1,sh.getLastRow()-1,6).getValues();
+  var confirmed = {};
+  rows.forEach(function(row) {
+    var code = _cleanCode(row[1]);
+    var d = _normalizeDate(row[0]);
+    var src = String(row[5] || '').trim().toUpperCase();
+    var p = Number(String(row[3] || '').replace(/,/g,''));
+    if (!wanted[code] || !d || d > requestedDate
+        || (src !== 'KRX' && src !== 'KRX_OTP') || !(p > 0)) return;
+    if (!confirmed[code] || d > confirmed[code].usedDate) {
+      confirmed[code] = { price:p, name:wanted[code].name, source:src, usedDate:d };
+    }
+  });
+  return confirmed;
+}
+
 function _latestConfirmedForeignCloseDate_(items, foreignPrices, requestedDate) {
   var latest = '';
   (items || []).forEach(function(item) {
@@ -9264,6 +9294,16 @@ function saveDailyPriceHistory(targetDate) {
           ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true,
               useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate + 'T19:00:00+09:00') })
           : {};
+        // 한국 휴장일이고 API/OTP 양쪽 모두 불가할 때만 과거 검증된 공식 종가 이용.
+        // 일반 거래일에는 반드시 새로운 KRX 원천 응답을 요구합니다.
+        if (_krxCalendarStatus_(requestedCloseDate) === 'CLOSED' && Object.keys(krxPrev).length === 0) {
+          var storedKrx = _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedCloseDate);
+          if (Object.keys(storedKrx).length > 0) {
+            krxPrev = storedKrx;
+            Logger.log('[saveDailyPriceHistory] KRX 휴장일 기존 공식 종가 검증 후보 '
+              + Object.keys(storedKrx).length + '건(확정일/market coverage는 추후 검증)');
+          }
+        }
         // 해외 정규장 완료일은 KRX 공시일과 별도로 검증합니다.
         var latestForeignCloseDate = _latestConfirmedForeignCloseDate_(items, gfPrev, requestedCloseDate);
         // 공식 실제 종가 날짜·시장별 커버리지를 먼저 검증해 오래된 데이터 저장을 차단합니다.
