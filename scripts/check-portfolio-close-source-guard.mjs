@@ -370,6 +370,7 @@ const statusVm=vm.createContext({
   LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
   _fundPropertyText:String,
   _portfolioFundState_:()=>null,
+  PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
 });
 vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
 const propertyApi={getProperty:k=>runProps.get(k)||'',setProperty:(k,v)=>runProps.set(k,v),deleteProperty:k=>runProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>runProps.set(k,v))};
