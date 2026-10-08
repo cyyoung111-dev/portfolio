@@ -202,11 +202,11 @@ if (!source.includes("props.setProperty('snapshot_last_success_date', snapshotDa
 
 const dailySnapshotMatch = source.match(/function\s+saveDailyPriceHistory\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
 if (!dailySnapshotMatch
-    || !/var requestedCloseDate = todayStr/.test(dailySnapshotMatch[1])
+    || !/var requestedCloseDate = _normalizeDate\(targetDate \|\| ''\) \|\| todayStr/.test(dailySnapshotMatch[1])
     || /requestedPrevDay/.test(dailySnapshotMatch[1])
     || !/fetchPricesKrx\(items,\s*requestedCloseDate\)/.test(dailySnapshotMatch[1])
-    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*requestedCloseDate,\s*ss,\s*\{\s*skipKrx:\s*true,\s*usCloseDate:\s*_latestCompletedUsRegularSessionDate_\(new Date\(\)\)\s*\}\)/.test(dailySnapshotMatch[1])
-    || !/_isExpectedKrxTradingDate\(requestedCloseDate\)/.test(dailySnapshotMatch[1])
+    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*requestedCloseDate,\s*ss,\s*\{\s*skipKrx:\s*true,\s*useMarketCloseCutoffs:\s*true,\s*asOf:\s*new Date\(requestedCloseDate \+ 'T19:00:00\+09:00'\)\s*\}\)/.test(dailySnapshotMatch[1])
+    || !/_krxCalendarStatus_\(requestedCloseDate\) !== 'CLOSED'/.test(dailySnapshotMatch[1])
     || !/closeVerification\.date !== requestedCloseDate/.test(dailySnapshotMatch[1])
     || !/_getLatestPriceHistoryDate\(ss,\s*requestedCloseDate\)/.test(dailySnapshotMatch[1])
     || !/writeSnapshotRows\(ss,\s*snapshotDate,\s*expected,\s*true\)/.test(dailySnapshotMatch[1])
@@ -380,10 +380,20 @@ if (!snapshotRepairMatch
   process.exit(1);
 }
 
-if (!source.includes('function _latestCompletedUsRegularSessionDate_')
-    || !source.includes('usCloseDate: _latestCompletedUsRegularSessionDate_(new Date())')
+if (!source.includes('function _foreignMarketRegularCloseCutoff_')
+    || !source.includes('useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate')
     || !source.includes('hasDuplicateWatchdogTriggers: hasDuplicateWatchdogTriggers')
     || !source.includes('hasDuplicateCloseTriggers || hasDuplicateWatchdogTriggers')) {
   console.error('❌ 해외 최근 완료 세션/Watchdog 중복 오류 노출 계약 누락');
+  process.exit(1);
+}
+
+if (!source.includes('PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY')
+    || !source.includes('function _retryOnePendingKrxClose_')
+    || !source.includes('if (!targetDate) _seedMissingKrxCloseDates_')
+    || !source.includes('pendingKrxCloseDates: pendingKrxCloseDates')
+    || !source.includes('function _krxCalendarStatus_')
+    || !source.includes('KRX_CONFIRMED_CLOSED_DATES_2027')) {
+  console.error('❌ KRX 누락 거래일 보존·소급 재시도 및 2027+ 거래소 달력 계약 누락');
   process.exit(1);
 }
