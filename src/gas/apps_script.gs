@@ -10533,7 +10533,8 @@ function runCodeNormalize1550() {
 }
 
 function runEvalPriceUpdate1620() {
-  saveDailyPriceHistory();
+  // Legacy manual entrypoint: no longer bypass the active writer lease.
+  return _runManualPriceSnapshotGuarded_();
 }
 
 function _appendPortfolioCloseSyncLog(stage, runDate, runId, message) {
@@ -11127,11 +11128,43 @@ function runPortfolioCloseWatchdog2030() {
   }
 }
 
+// User-invoked / legacy PRICE calls need the same lease as regular close,
+// deferred fund and historical replay. Reuse the backfill writer lease rather
+// than introducing a separate uncoordinated lock that other paths cannot see.
+function _runManualPriceSnapshotGuarded_() {
+  var token = Utilities.getUuid();
+  var acquired = _portfolioFundAtomic_(function(props) {
+    var nav = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
+    if (nav && Number(nav.until || 0) > Date.now()) return 'FUND_ACTIVE';
+    var writer = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+    if (writer && Number(writer.until || 0) > Date.now()) return 'BACKFILL_ACTIVE';
+    var stage = String(props.getProperty('portfolio_close_stage') || '');
+    var started = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+    var age = Date.now() - started;
+    if ((stage === 'PRICE' || stage === 'FUND') && started && age >= 0 && age < 15 * 60 * 1000)
+      return 'CLOSE_ACTIVE';
+    props.setProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,
+      JSON.stringify({token:token,origin:'MANUAL_PRICE',until:Date.now() + 7 * 60 * 1000}));
+    return 'ACQUIRED';
+  });
+  if (acquired !== 'ACQUIRED')
+    throw new Error('PRICE_BUSY: 다른 평가/마감 작업 실행 중 (' + acquired + '). 완료 후 다시 시도하세요.');
+  try {
+    return saveDailyPriceHistory();
+  } finally {
+    _portfolioFundAtomic_(function(props) {
+      var current = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+      if (current && current.token === token)
+        props.deleteProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+    });
+  }
+}
+
 function runDailyPriceSnapshotNow() {
   if (!_confirmPortfolioMenuAction('확정 평가단가·스냅샷 수동 갱신', '19시 통합 마감의 일반 종목 단계와 같은 경로로 확정 거래일 가격이력과 스냅샷을 저장합니다. 자동 실행 실패 또는 즉시 갱신이 필요할 때만 실행하세요.')) return;
   var ui = SpreadsheetApp.getUi();
   try {
-    var result = saveDailyPriceHistory();
+    var result = _runManualPriceSnapshotGuarded_();
     ui.alert('✅ 확정 평가단가·스냅샷 갱신 완료\n\n'
       + '기준일: ' + result.date + '\n'
       + '스냅샷: ' + result.rows + '행\n\n'
