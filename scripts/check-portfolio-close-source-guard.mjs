@@ -1703,3 +1703,84 @@ console.log('✅ Production writer + 복구 경로 통합·중복 삭제 차단�
     ['2026-09-28','2026-09-29'],'오늘 완료 후 과거 미처리 누락일 보존');
 }
 console.log('✅ 독립 백필의 오늘 누락 우선·과거 실패 공정성 회귀');
+
+// Same reconciliation contract for the manual PRICE entrypoint and the
+// following-night worker. No mock replacement for the production state helper.
+{
+  const bag=new Map([
+    ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
+    ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
+      priceOk:false,fundOk:true,priceDate:'',errors:['일반 종목: 가격 미확정']})],
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_stage','ERROR']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const calls=[];
+  const ctx=vm.createContext({
+    today:()=> '2026-10-08',Date:{now:()=>10000},
+    Utilities:{getUuid:()=> 'manual-run'},
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
+    _fundPropertyText:String,
+    saveDailyPriceHistory:(date,options)=>{
+      calls.push({date,options});
+      assert.equal(p.getProperty('portfolio_close_pending_krx_dates'),
+        JSON.stringify(['2026-10-08']),'수동 PRICE 저장이 summary 선행 큐 삭제를 하지 않음');
+      return {ok:true,date:'2026-10-08',rows:11};
+    }
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_reconcileRecoveredPortfolioPrice_','_runManualPriceSnapshotGuarded_'])
+    vm.runInContext(extract(name),ctx);
+  const completed=ctx._runManualPriceSnapshotGuarded_();
+  assert.equal(completed.ok,true);
+  assert.equal(calls[0].options.deferQueueCompletion,true);
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_last_result')).priceOk,true,
+    '수동 갱신으로 가격 실패 summary를 실제 정상 상태로 복구');
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),[]);
+  assert.equal(p.getProperty('portfolio_close_backfill_lease_v1'),null);
+  // No authoritative close summary: the manual success must not invent NAV
+  // completion or swallow the queued date needed for nightly reconciliation.
+  bag.delete('portfolio_close_last_result');
+  bag.set('portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08']));
+  bag.delete('portfolio_close_stage');
+  bag.delete('portfolio_close_run_date');
+  ctx._runManualPriceSnapshotGuarded_();
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
+    '마감 summary 자체가 없으면 수동 가격 저장 뒤에도 야간 복구 큐 보존');
+}
+{
+  const bag=new Map([
+    ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
+    ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
+      priceOk:false,fundOk:true,priceDate:'',errors:['일반 종목: API error']})],
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_stage','ERROR'],
+    ['snapshot_last_success_date','2026-10-09']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
+    _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
+    saveDailyPriceHistory:(date,opts)=>{assert.equal(date,'2026-10-08');assert.equal(opts.deferQueueCompletion,true);
+      p.setProperty('snapshot_last_success_date',date);
+      return {ok:true,date,rows:9};}
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])
+    vm.runInContext(extract(name),ctx);
+  assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-09',true).ok,true);
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_last_result')).priceOk,true,
+    '자정 후 남아 있는 직전 날짜 PRICE 실패 summary도 복구');
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+  assert.equal(p.getProperty('snapshot_last_success_date'),'2026-10-09',
+    '어제 PRICE 복구가 오늘 스냅샷 최근 성공일을 덮지 않음');
+}
+console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존·자정 후 전날 결과 복구');
