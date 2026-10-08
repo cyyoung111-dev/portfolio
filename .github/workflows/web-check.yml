@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'src/web/**'
-      - 'scripts/check-web-*.mjs'
+      - 'scripts/check-*.mjs'
       - 'package.json'
       - '.github/workflows/web-check.yml'
   push:
