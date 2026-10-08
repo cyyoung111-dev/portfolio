@@ -31,6 +31,7 @@
 
 ## KIS 원칙
 
+- KIS는 선택적 live 입력이며, 공식 장전 완료 판정은 KRX `NIGHT_FINAL` 원자료를 우선합니다.
 - 실제 수신 raw frame을 먼저 저장한다.
 - 알려지지 않은 TR 또는 field count 불일치는 `QUARANTINED` 처리한다.
 - `MARKET_CLS_CODE`나 K200 야간선물 필드 위치를 추측해 하드코딩하지 않는다.
