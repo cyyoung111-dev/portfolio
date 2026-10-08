@@ -390,10 +390,12 @@ if (!source.includes('function _foreignMarketRegularCloseCutoff_')
 
 if (!source.includes('PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY')
     || !source.includes('function _retryOnePendingKrxClose_')
-    || !source.includes('if (!targetDate) _seedMissingKrxCloseDates_')
+    || !source.includes('if (!targetDate) _seedMissingKrxCloseDates_(ss, props, requestedCloseDate, allItems)')
     || !source.includes('pendingKrxCloseDates: pendingKrxCloseDates')
     || !source.includes('function _krxCalendarStatus_')
-    || !source.includes('KRX_CONFIRMED_CLOSED_DATES_2027')) {
+    || !source.includes('KRX_CONFIRMED_CLOSED_DATES_2027')
+    || !source.includes("if (_krxCalendarStatus_(actualDate) !== 'CLOSED') break;")
+    || !source.includes('function _hasKrxHoldingsForCloseDate_')) {
   console.error('❌ KRX 누락 거래일 보존·소급 재시도 및 2027+ 거래소 달력 계약 누락');
   process.exit(1);
 }
