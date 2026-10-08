@@ -347,6 +347,16 @@ assert.throws(()=>context._assessDailyKrxStockClose(krMaster,otp,'2026-10-06'),/
 const atomicCloseSource=extract('_recordPortfolioCloseStage');
 const deferredSource=extract('runDeferredFundAfterPortfolioCloseFailure');
 const guardedFundSource=extract('_runPortfolioFundWithLease_');
+const scheduleSource=extract('_scheduleFundAfterFailedPortfolioPrice_');
+assert.match(scheduleSource, /return \{created:false, triggerId:String\(old\.triggerId \|\| ''\)\}/,
+  '기존 예약의 UID는 최초 예약 판단 lock 안에서 반환');
+assert.match(scheduleSource, /return \{created:true, triggerId:triggerId\}/,
+  '신규 예약 UID도 lock 안에서 함께 반환');
+assert.match(guardedFundSource, /return \{acquired:false, busyToken:String\(old\.token \|\| ''\)\}/,
+  'FUND_BUSY 실제 경합 token은 실패 결정 시점에 캡처');
+assert.doesNotMatch(guardedFundSource, /var active = _portfolioFundAtomic_/,
+  '첫 실패 이후 lease를 다시 읽는 TOCTOU 경합 금지');
+
 assert.match(atomicCloseSource, /_portfolioFundState_\(props, PORTFOLIO_FUND_SUCCESS_KEY\)/,
   '마감 결과 저장 시 동일 잠금으로 펀드 완료 마커 재확인');
 assert.match(atomicCloseSource, /summary\.fundBusyToken[\s\S]*fundSuccess\.token === summary\.fundBusyToken/,
