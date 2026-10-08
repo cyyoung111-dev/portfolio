@@ -1556,6 +1556,7 @@ console.log('✅ PR471 P2 및 자체검토: watchdog 예외·야간 전용 백�
     deleteProperty:k=>bag.delete(k)};
   const ctx=vm.createContext({
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
     _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
     _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
