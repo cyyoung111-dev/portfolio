@@ -458,6 +458,7 @@ function inspectCloseCompletion(reservationDate) {
     _portfolioFundAtomic_:cb=>cb(props),
     _portfolioFundState_:(p,key)=>JSON.parse(p.getProperty(key)||'null'),
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
     PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
     runDailyFundValuations:()=>({lastDate:'2026-10-08'})
