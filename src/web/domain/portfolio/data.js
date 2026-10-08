@@ -735,6 +735,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     const allowDuringRestore = options?.allowDuringRestore === true;
     const restoreInProgress = typeof _gsPortfolioRestoreRequired !== 'undefined'
       && _gsPortfolioRestoreRequired === true;
+    const preferCurrentPortfolio = options?.preferCurrentPortfolio === true
+      && rawTrades.length > 0;
 
     const currentRecoverySignature = () => _portfolioPayloadSignature(
       rawTrades,
@@ -743,7 +745,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     );
 
     const syncCurrentTrades = async () => {
-      if (restoreInProgress) return false;
+      if (restoreInProgress && !preferCurrentPortfolio) return false;
       if (rawTrades.length === 0) return false;
 
       for (let attempt = 0; attempt < 6; attempt++) {
@@ -802,7 +804,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
       return false;
     };
 
-    if (!restoreInProgress && rawTrades.length > 0) return syncCurrentTrades();
+    if ((!restoreInProgress || preferCurrentPortfolio) && rawTrades.length > 0) return syncCurrentTrades();
 
     const pinnedFundDirect = (typeof fundDirect === 'object' && fundDirect)
       ? JSON.parse(JSON.stringify(fundDirect))
@@ -823,7 +825,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
           || getGsheetConnectionGeneration() !== retryGeneration)) {
       return false;
     }
-    if (!restoreInProgress && rawTrades.length > 0) return syncCurrentTrades();
+    if ((!restoreInProgress || preferCurrentPortfolio) && rawTrades.length > 0) return syncCurrentTrades();
 
     const tradesResult = typeof syncTradesToGsheet === 'function'
       ? await syncTradesToGsheet({
@@ -841,7 +843,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
           || getGsheetConnectionGeneration() !== retryGeneration)) {
       return false;
     }
-    if (!restoreInProgress && rawTrades.length > 0) return syncCurrentTrades();
+    if ((!restoreInProgress || preferCurrentPortfolio) && rawTrades.length > 0) return syncCurrentTrades();
 
     const holdingsOk = holdingsResult?.status === 'ok';
     const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
