@@ -10770,12 +10770,13 @@ function runDailyPortfolioClose1900() {
     errors: errors.slice(0, 4)
   };
   _recordPortfolioCloseStage(props, runDate, startedAt, errors.length ? 'ERROR' : 'COMPLETE', runId, summary, startedMs);
-  _appendPortfolioCloseSyncLog(errors.length ? 'ERROR' : 'COMPLETE', runDate, runId,
+  // Atomic reconciliation can clear FUND_BUSY; reporting must use the persisted summary.
+  _appendPortfolioCloseSyncLog(summary.errors.length ? 'ERROR' : 'COMPLETE', runDate, runId,
     'priceDate=' + String(summary.priceDate || '') + ', priceRows=' + String(summary.priceRows || 0)
       + ', fundLastDate=' + String(summary.fundLastDate || ''));
 
-  if (errors.length) {
-    throw new Error('통합 마감 부분 실패: ' + errors.join(' | '));
+  if (summary.errors.length) {
+    throw new Error('통합 마감 부분 실패: ' + summary.errors.join(' | '));
   }
   Logger.log('✅ 19시 통합 마감 완료: 일반 종목 확정가·Snapshot + 펀드 NAV/평가');
   return summary;
