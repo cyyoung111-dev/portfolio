@@ -527,6 +527,34 @@ assert.match(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, runDate\)
   '19시와 야간 백필 모두 같은 lease 사용');
 assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate\)/,
   '야간 실행은 통합 마감 없이 과거 날짜만 복구');
+assert.match(closeRunSource,/reason:'FUND_INCOMPLETE'/,
+  '펀드 평가가 미완료이면 과거 Snapshot 백필을 동시 실행하지 않음');
+assert.match(nightlyBackfill,/reason:'FUND_ACTIVE'/,
+  '독립 야간 백필도 활성 펀드 lease 중에는 저장을 보류');
+function checkNightlyFundConflict(active) {
+  const bag=new Map();
+  const lease=active?{until:30000,token:'fund-running'}:null;
+  const props={
+    getProperty:key=>bag.get(key)||null,
+    setProperty:(key,val)=>bag.set(key,val)
+  };
+  let ran=0;
+  const ctx=vm.createContext({
+    PropertiesService:{getScriptProperties:()=>props},
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    _portfolioFundState_:(p,key)=>key==='portfolio_fund_run_lease_v1'?lease:null,
+    Date:{now:()=>10000}, today:()=> '2026-10-08',
+    _runPendingKrxBackfillWithLease_:()=>{ran++;return {attempted:true,ok:true};},
+    Logger:{log(){}}
+  });
+  vm.runInContext(nightlyBackfill,ctx);
+  return {ran,result:ctx.runPortfolioCloseBackfill2210()};
+}
+const activeNavNightly=checkNightlyFundConflict(true);
+assert.equal(activeNavNightly.ran,0,'활성 NAV lease 중에는 백필 실행 금지');
+assert.equal(activeNavNightly.result.reason,'FUND_ACTIVE');
+assert.equal(checkNightlyFundConflict(false).ran,1,'NAV 미실행이면 별도 백필 실행 허용');
+
 function verifyBackfillLease(existing) {
   const bag=new Map();
   if(existing)bag.set('portfolio_close_backfill_lease_v1',JSON.stringify(existing));
