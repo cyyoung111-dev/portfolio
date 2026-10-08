@@ -684,8 +684,10 @@ const oldOnly={getSheetByName:()=>({getLastRow:()=>2,getRange:()=>({getValues:()
 const oldPrices=krxStoredVm._readStoredOfficialKrxClosesForHoliday_(oldOnly,krxOnly,'2026-10-09');
 assert.throws(()=>krxStoredVm._assessDailyKrxStockClose(krxOnly,oldPrices,'2026-10-09'),
   /확정 종가 오래됨/,'오래된 KRX 가격이력은 휴장일에도 정상확정 금지');
-assert.match(closeSection,/_krxCalendarStatus_\(requestedCloseDate\) === 'CLOSED' && Object\.keys\(krxPrev\)\.length === 0/,
-  'API/OTP가 빈 결과이고 한국 휴장일일 때만 저장 공식 종가 사용');
+assert.match(closeSection,/_krxCalendarStatus_\(requestedCloseDate\) === 'CLOSED'/,
+  '한국 휴장일에만 저장 공식 종가를 사용');
+assert.match(closeSection,/if \(krxPrev\[code\] && Number\(krxPrev\[code\]\.price\) > 0\) return;/,
+  '휴장일 새 공식 가격이 있으면 보존하고 누락 코드만 보충');
 console.log('✅ 휴장일 KRX 공급원 장애·공식 가격 CARRY·원천 검증 회귀검사 통과');
 
 
