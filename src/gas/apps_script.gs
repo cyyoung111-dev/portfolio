@@ -9284,6 +9284,15 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
 function runPortfolioCloseBackfill2210() {
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
+  // Even with no queued PRICE dates, repair the 20:30 CLOSE NAV success
+  // marker before any other replay. A newer run id cannot reuse the proof.
+  try {
+    var completedFund = _portfolioFundState_(props, PORTFOLIO_FUND_CLOSE_SUCCESS_KEY);
+    if (completedFund && completedFund.date)
+      _reconcilePortfolioCloseFundSuccess_(completedFund.date);
+  } catch(reconcileFundError) {
+    Logger.log('⚠️ 마감 FUND 성공 마커 사후 정합화 보류: ' + reconcileFundError.message);
+  }
   // NAV and close-stage checks both occur inside the shared lease lock.
   var result = _runPendingKrxBackfillWithLease_(props, runDate, false);
   if (result && result.ok === false)
@@ -10751,6 +10760,7 @@ function handleGetKrxSourceDiagnostics(dateStr) {
 var PORTFOLIO_FUND_SCHEDULE_KEY = 'portfolio_fund_deferred_schedule_v1';
 var PORTFOLIO_FUND_LEASE_KEY = 'portfolio_fund_run_lease_v1';
 var PORTFOLIO_FUND_SUCCESS_KEY = 'portfolio_fund_deferred_success_v1';
+var PORTFOLIO_FUND_CLOSE_SUCCESS_KEY = 'portfolio_fund_close_success_v1';
 function _portfolioFundAtomic_(callback) {
   var lock = LockService.getScriptLock(), acquired = false;
   try {
@@ -10828,6 +10838,11 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
         props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY,
           JSON.stringify({date:date, at:Date.now(), token:token, triggerId:String(deferredTriggerId || '')}));
       } else if (origin === 'CLOSE') {
+        // A close can die after NAV successfully commits but before the final
+        // stage/result property write. Persist an exact run-id success proof.
+        props.setProperty(PORTFOLIO_FUND_CLOSE_SUCCESS_KEY, JSON.stringify({
+          date:date, at:Date.now(), token:token, runId:String(deferredTriggerId || '')
+        }));
         // A successful regular close already finished NAV. Cancel an earlier
         // deferred reservation; its user-owned trigger cleans itself by UID
         // on the next firing without touching another account's triggers.
@@ -10842,6 +10857,37 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
       if (current && current.token === token) props.deleteProperty(PORTFOLIO_FUND_LEASE_KEY);
     });
   }
+}
+// Restore a successful normal CLOSE NAV whose subsequent summary write
+// failed. Only the exact latest run id + business date + start time can
+// authorize this update; a different run's NAV success must not promote it.
+function _reconcilePortfolioCloseFundSuccess_(date) {
+  return _portfolioFundAtomic_(function(props) {
+    var last = _portfolioFundState_(props, 'portfolio_close_last_result');
+    var marker = _portfolioFundState_(props, PORTFOLIO_FUND_CLOSE_SUCCESS_KEY);
+    var runId = String(props.getProperty('portfolio_close_run_id') || '');
+    var runDate = String(props.getProperty('portfolio_close_run_date') || '');
+    var started = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+    if (!marker || !runId || marker.runId !== runId
+        || marker.date !== date || runDate !== date || !started
+        || Number(marker.at || 0) < started
+        || !last || last.runDate !== date) return false;
+    if (last.fundOk === true) return true;
+    last.fundOk = true;
+    last.fundDeferred = false;
+    last.errors = (last.errors || []).filter(function(reason) {
+      return !/^펀드:/.test(String(reason)) && !/FUND_BUSY/.test(String(reason));
+    });
+    props.setProperty('portfolio_close_last_result', JSON.stringify(last));
+    if (last.errors.length)
+      props.setProperty('portfolio_close_last_error', _fundPropertyText(last.errors.join(' | '), 2000));
+    else {
+      props.deleteProperty('portfolio_close_last_error');
+      if (last.priceOk && props.getProperty('portfolio_close_stage') !== 'COMPLETE')
+        props.setProperty('portfolio_close_stage', 'COMPLETE');
+    }
+    return true;
+  });
 }
 function _reconcilePortfolioFundBusy_(date) {
   _portfolioFundAtomic_(function(props) {
@@ -11039,7 +11085,7 @@ function runDailyPortfolioClose1900() {
     };
   }
   try {
-    fundResult = _runPortfolioFundWithLease_('CLOSE');
+    fundResult = _runPortfolioFundWithLease_('CLOSE', runId);
     _appendPortfolioCloseSyncLog('FUND_DONE', runDate, runId,
       'lastDate=' + String(fundResult && fundResult.lastDate || ''));
   } catch (fundErr) {
@@ -11174,6 +11220,12 @@ function runPortfolioCloseWatchdog2030() {
     }
     return watchdogResult;
   } catch (error) {
+    // The integrated FUND may already have finished before its last summary
+    // write failed. Restore only the matching regular run's success proof.
+    try { _reconcilePortfolioCloseFundSuccess_(todayStr); }
+    catch(fundReconcileError) {
+      Logger.log('⚠️ watchdog FUND 성공 마커 정합화 보류: ' + fundReconcileError.message);
+    }
     // A thrown PRICE/Snapshot failure needs the same persistent retry as a
     // skipped close. On a Korean holiday foreign holdings may still be open.
     try {
