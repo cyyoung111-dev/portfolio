@@ -9224,13 +9224,23 @@ function _seedMissingKrxCloseDates_(ss, props, runDate, catalog) {
 // Prevent the 19:00 close and independent nightly replay from processing
 // the same queued date at the same time, even across script owner accounts.
 var PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY = 'portfolio_close_backfill_lease_v1';
-function _runPendingKrxBackfillWithLease_(props, runDate) {
+function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
   var token = Utilities.getUuid();
   var acquired = _portfolioFundAtomic_(function(sharedProps) {
     // Check both resources under one ScriptLock. Checking fund outside the lock
     // allows NAV to start between this check and the backfill lease write.
     var fundLease = _portfolioFundState_(sharedProps, PORTFOLIO_FUND_LEASE_KEY);
     if (fundLease && Number(fundLease.until || 0) > Date.now()) return 'FUND_ACTIVE';
+    // The 22:10 worker must not replay Snapshot while a newly started
+    // 19:00 close is fetching/writing the current day's price and Snapshot.
+    if (!fromClose) {
+      var closeStage = String(sharedProps.getProperty('portfolio_close_stage') || '');
+      var closeStarted = Number(sharedProps.getProperty('portfolio_close_run_started_ms') || 0);
+      if ((closeStage === 'PRICE' || closeStage === 'FUND')
+          && String(sharedProps.getProperty('portfolio_close_run_date') || '') === runDate
+          && closeStarted && Date.now() - closeStarted < 15 * 60 * 1000)
+        return 'CLOSE_ACTIVE';
+    }
     var lease = _portfolioFundState_(sharedProps, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
     if (lease && Number(lease.until || 0) > Date.now()) return 'BACKFILL_BUSY';
     sharedProps.setProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,
@@ -9255,16 +9265,8 @@ function _runPendingKrxBackfillWithLease_(props, runDate) {
 function runPortfolioCloseBackfill2210() {
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
-  var stage = String(props.getProperty('portfolio_close_stage') || '');
-  var startedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
-  // Fund/backfill exclusion is decided atomically inside the shared lease
-  // acquisition helper, not by a stale preflight property read.
-  if ((stage === 'PRICE' || stage === 'FUND')
-      && String(props.getProperty('portfolio_close_run_date') || '') === runDate
-      && startedMs && Date.now() - startedMs < 15 * 60 * 1000) {
-    return {attempted:false, deferred:true, reason:'CLOSE_ACTIVE'};
-  }
-  var result = _runPendingKrxBackfillWithLease_(props, runDate);
+  // NAV and close-stage checks both occur inside the shared lease lock.
+  var result = _runPendingKrxBackfillWithLease_(props, runDate, false);
   if (result && result.ok === false)
     Logger.log('⚠️ 독립 KRX 누락일 복구 실패: ' + String(result.error || result.date || 'unknown'));
   return result;
@@ -10538,6 +10540,11 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
     var currentStage = String(props.getProperty('portfolio_close_stage') || '');
     var candidateStartedMs = Number(startedMs || 0);
     if (stage === 'PRICE') {
+      // The price/Snapshot writer must not enter while historical replay
+      // holds its lease. This pairs with the backfill worker's CLOSE_ACTIVE
+      // check under the same ScriptLock (no check-then-start gap).
+      var replayLease = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+      if (replayLease && Number(replayLease.until || 0) > Date.now()) return false;
       var otherRunActive = currentRunId && currentRunId !== String(runId || '')
         && (currentStage === 'PRICE' || currentStage === 'FUND');
       // Apps Script 정상 실행 제한을 충분히 넘는 15분 lease 안에서는 진행 중 실행의
@@ -10936,7 +10943,7 @@ function runDailyPortfolioClose1900() {
     : closeElapsedMs >= 3 * 60 * 1000
       ? {attempted:false, deferred:true, reason:'CLOSE_RUNTIME_BUDGET',
           remaining:_readPendingKrxCloseDates_(props).length}
-      : _runPendingKrxBackfillWithLease_(props, runDate);
+      : _runPendingKrxBackfillWithLease_(props, runDate, true);
   if (backfill.deferred) {
     _appendPortfolioCloseSyncLog('BACKFILL_DEFERRED', runDate, runId,
       '정규 마감과 독립 백필 분리: reason=' + backfill.reason
