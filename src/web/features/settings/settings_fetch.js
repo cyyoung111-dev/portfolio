@@ -30,30 +30,40 @@ function _currentPriceTargetCount() {
 }
 
 async function fetchFromGsheet(dateStr, options) {
+  const targetUrl = String(GSHEET_API_URL || '').trim();
+  const generation = typeof getGsheetConnectionGeneration === 'function'
+    ? getGsheetConnectionGeneration()
+    : 0;
+  if (!targetUrl) return null;
+  if (typeof isGsheetPortfolioWriteReady === 'function'
+      && !isGsheetPortfolioWriteReady({ targetUrl, generation })) return null;
+  const requestKey = targetUrl + '|' + generation + '|' + dateStr;
   const forceFresh = !!options?.forceFresh;
-  // 사용자가 업데이트를 누른 경우 진행 중인 자동 조회가 끝난 뒤 반드시 GAS를 다시 조회합니다.
-  // 자동 조회가 설정/종목 복원 전의 목록으로 시작됐더라도 첫 클릭에서 최종 평가단가가 반영됩니다.
-  if (forceFresh && _inFlightFetches[dateStr]) {
-    const pending = _inFlightFetches[dateStr];
+  // 다른 연결의 in-flight 요청은 재사용하거나 기다리지 않습니다.
+  if (forceFresh && _inFlightFetches[requestKey]) {
+    const pending = _inFlightFetches[requestKey];
     await pending;
-    if (_inFlightFetches[dateStr] === pending) delete _inFlightFetches[dateStr];
+    if (_inFlightFetches[requestKey] === pending) delete _inFlightFetches[requestKey];
   }
-  // 일반 자동 조회는 같은 날짜로 진행 중인 요청 결과를 재사용합니다.
-  if (_inFlightFetches[dateStr]) {
-    return _inFlightFetches[dateStr];
-  }
-  const promise = _fetchFromGsheetInner(dateStr, options);
-  _inFlightFetches[dateStr] = promise;
+  if (_inFlightFetches[requestKey]) return _inFlightFetches[requestKey];
+  const promise = _fetchFromGsheetInner(dateStr, { ...(options || {}), targetUrl, generation });
+  _inFlightFetches[requestKey] = promise;
   try {
     return await promise;
   } finally {
-    // 완료되면(성공/실패 무관) 다음 요청은 새로 조회할 수 있도록 정리
-    if (_inFlightFetches[dateStr] === promise) delete _inFlightFetches[dateStr];
+    if (_inFlightFetches[requestKey] === promise) delete _inFlightFetches[requestKey];
   }
 }
 
 async function _fetchFromGsheetInner(dateStr, options) {
-  if (!GSHEET_API_URL) return null;
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation)
+    ? options.generation
+    : (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0);
+  if (!targetUrl) return null;
+  const isCurrentConnection = () => typeof isGsheetConnectionCurrent !== 'function'
+    || isGsheetConnectionCurrent(targetUrl, generation);
+  if (!isCurrentConnection()) return null;
   try {
     const pickLatestPreferManual = (list) => {
       if (!Array.isArray(list) || list.length === 0) return null;
@@ -112,7 +122,12 @@ async function _fetchFromGsheetInner(dateStr, options) {
           window._lastPriceLookup = null;
           window._gsheetResolvedPriceDate = '';
           const roundTripStarted = Date.now();
-          const data = await requestGsheetActionJson('getPrices', { codes, persist: options?.persist ? '1' : '0' }, { timeoutMs: 30000, retry: 1 });
+          const data = await requestGsheetActionJson(
+            'getPrices',
+            { codes, persist: options?.persist ? '1' : '0' },
+            { timeoutMs: 30000, retry: 1, targetUrl }
+          );
+          if (!isCurrentConnection()) return null;
           if (!data || data.status !== 'ok' || !data.prices) {
             throw new Error(data?.message || '실시간 가격 응답 오류');
           }
@@ -161,8 +176,9 @@ async function _fetchFromGsheetInner(dateStr, options) {
             const data2 = await requestGsheetActionJson(
               'getPriceHistory',
               { from: _kstDateOffset(dateStr, -7), to: dateStr, codes: missingCodesStr },
-              { timeoutMs: 15000, retry: 1 }
+              { timeoutMs: 15000, retry: 1, targetUrl }
             );
+            if (!isCurrentConnection()) return null;
             if (data2 && data2.status === 'ok' && data2.prices) {
               missingCodes = missingCodes.filter(m => {
                 const list = data2.prices[m.code] || [];
@@ -186,8 +202,9 @@ async function _fetchFromGsheetInner(dateStr, options) {
         const data = await requestGsheetActionJson(
           'getPriceHistory',
           { from: dateStr, to: dateStr, codes },
-          { timeoutMs: 20000, retry: 1 }
+          { timeoutMs: 20000, retry: 1, targetUrl }
         );
+        if (!isCurrentConnection()) return null;
         if (data && data.status === 'ok' && data.prices) {
           epItems.forEach(i => {
             const list = data.prices[i.code] || [];
@@ -215,8 +232,9 @@ async function _fetchFromGsheetInner(dateStr, options) {
         const data = await requestGsheetActionJson(
           'getPriceHistory',
           { from: fromDate, to: dateStr, codes: epNoCode.map(i => i.name).join(',') },
-          { timeoutMs: 15000, retry: 1 }
+          { timeoutMs: 15000, retry: 1, targetUrl }
         );
+        if (!isCurrentConnection()) return null;
         if (data && data.status === 'ok' && data.prices) {
           epNoCode.forEach(i => {
             const entries = data.prices[i.name];
@@ -239,6 +257,7 @@ async function _fetchFromGsheetInner(dateStr, options) {
       } catch(e) {} // 코드 없는 종목 조회 실패는 무시
     }
 
+    if (!isCurrentConnection()) return null;
     // 같은 종목명 중복 제거 (코드만 다른 항목은 첫 번째만 표시)
     const seenMissingNames = new Set();
     window._gsheetMissingCodes = missingCodes.filter(m => {
@@ -408,10 +427,23 @@ async function quickFetchByDate() {
     // 다시 읽어야 합니다. 초기 부트스트랩이 일시적으로 실패했더라도 사용자가 이 버튼으로
     // 전체 데이터를 재복원할 수 있도록 가격 조회보다 먼저 통합 로드를 재시도합니다.
     let restoreWarning = '';
-    setStatusLabel('⏳ GAS 전체 데이터 복원 중...', 'loading');
-    const settingsLoaded = typeof loadSettings === 'function'
-      ? await loadSettings(message => setStatusLabel('⏳ ' + message, 'loading'))
-      : false;
+    const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending === 'function'
+      && _isPortfolioRemoteSyncPending();
+    let settingsLoaded = false;
+    if (portfolioSyncPending) {
+      // 로컬 거래/보유가 아직 원격에 성공 반영되지 않았다면 가격 버튼이 원격의 이전
+      // 포트폴리오를 authoritative pull하여 최신 로컬 변경을 덮어쓰지 않도록 복원을 건너뜁니다.
+      restoreWarning = '<span style="color:var(--amber)">⚠️ 로컬 거래·보유 동기화 대기 중 · 현재가만 업데이트</span>';
+      setStatusLabel('⏳ 로컬 거래·보유 보존 · ' + targetDate + ' 종가 조회 준비 중...', 'loading');
+    } else {
+      setStatusLabel('⏳ GAS 전체 데이터 복원 중...', 'loading');
+      settingsLoaded = typeof loadSettings === 'function'
+        ? await loadSettings(
+            message => setStatusLabel('⏳ ' + message, 'loading'),
+            { forcePortfolioRestore: true }
+          )
+        : false;
+    }
     if (settingsLoaded) {
       try { refreshAll(); } catch(e) { console.warn('GAS 복원 후 화면 갱신 실패:', e); }
       if ((Array.isArray(rawTrades) ? rawTrades.length : 0) === 0
@@ -419,7 +451,7 @@ async function quickFetchByDate() {
           && (!fundDirect || Object.keys(fundDirect).length === 0)) {
         restoreWarning = '<span style="color:var(--amber)">⚠️ GAS 거래·보유 데이터 없음</span>';
       }
-    } else {
+    } else if (!portfolioSyncPending) {
       restoreWarning = '<span style="color:var(--red-lt)">⚠️ GAS 전체 데이터 복원 실패</span>';
     }
 
@@ -486,7 +518,7 @@ function getDateStr(daysAgo) {
 
 // ★ [개선] GAS 버전 불일치 감지 — getSettings 응답의 gasVersion과 비교
 //   GAS 재배포 없이 프론트만 업데이트됐을 때 경고 토스트 표시
-const EXPECTED_GAS_VERSION = '9.180';
+const EXPECTED_GAS_VERSION = '9.189';
 
 
 async function autoLoadPrices() {

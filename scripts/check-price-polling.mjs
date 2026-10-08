@@ -14,9 +14,10 @@ if (!polling
   process.exit(1);
 }
 
-const fetchBlock = source.match(/async function fetchFromGsheet\s*\([^)]*\)\s*\{([\s\S]*?)\n\}/);
-if (!fetchBlock || !/_fetchFromGsheetInner\(dateStr, options\)/.test(fetchBlock[1])) {
-  console.error('❌ polling/수동조회 옵션이 실제 GAS 요청 경로로 전달되지 않습니다.');
+if (!/async function fetchFromGsheet\(dateStr, options\)/.test(source)
+    || !/const requestKey = targetUrl \+ '\\|' \+ generation \+ '\\|' \+ dateStr/.test(source)
+    || !/_fetchFromGsheetInner\(dateStr, \{ \.\.\.\(options \|\| \{\}\), targetUrl, generation \}\)/.test(source)) {
+  console.error('❌ polling/수동조회 옵션과 연결 target/generation이 실제 GAS 요청 경로로 함께 전달되지 않습니다.');
   process.exit(1);
 }
 

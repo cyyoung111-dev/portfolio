@@ -12,13 +12,20 @@ function _syncWarn(...args) {
   else console.warn('[SETTINGS_SYNC]', ...args);
 }
 
-async function syncIssuesToGsheet(source, issues) {
-  if (!GSHEET_API_URL || !Array.isArray(issues) || issues.length === 0) return null;
+async function syncIssuesToGsheet(source, issues, options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!targetUrl || !Array.isArray(issues) || issues.length === 0) return null;
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return null;
   try {
     const data = await requestGsheetFormJson(
       'saveSyncIssues',
       { source: source || 'unknown', data: JSON.stringify(issues) },
-      { timeoutMs: 15000, retry: 1 }
+      { timeoutMs: 15000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[saveSyncIssues] 네트워크 오류'); return null; }
     if (data.status !== 'ok') { _syncWarn('[saveSyncIssues] GAS 오류:', data); return null; }
@@ -47,17 +54,31 @@ function applyGsheetCodeList(codes) {
   return true;
 }
 
-async function loadGsheetCodeList() {
-  if (!GSHEET_API_URL) return;
+async function loadGsheetCodeList(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation)
+    ? options.generation
+    : (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0);
+  if (!targetUrl) return false;
+  if (typeof _gsPortfolioRestoreRequired !== 'undefined'
+      && _gsPortfolioRestoreRequired
+      && options?.allowDuringRestore !== true) return false;
   try {
-    const data = await requestGsheetActionJson('getCodeList', {}, { timeoutMs: 10000, retry: 1 });
-    if (data.status === 'ok' && applyGsheetCodeList(data.codes)) {
-
+    const data = await requestGsheetActionJson(
+      'getCodeList',
+      {},
+      { timeoutMs: 10000, retry: 1, targetUrl }
+    );
+    if (typeof isGsheetConnectionCurrent === 'function'
+        && !isGsheetConnectionCurrent(targetUrl, generation)) return false;
+    if (data?.status === 'ok' && applyGsheetCodeList(data.codes)) {
       // ⚠️ STOCK_CODE는 건드리지 않음 — HTML 직접 입력이 항상 우선
       // GSheet 코드는 _gsheetCodeList에만 보관, lookupNameByCode()에서 3순위 참고용으로만 사용
+      return true;
     }
   } catch(e) {
   }
+  return false;
 }
 
 // Settings 저장이 과거 오류로 실패했어도 종목코드 시트 동기화가 성공했다면
@@ -119,8 +140,14 @@ function reconcileEditablesFromGsheetCodeList() {
 }
 
 // ── 종목코드 GSheet 자동 등록
-async function syncCodesToGsheet() {
-  if (!GSHEET_API_URL) return;
+async function syncCodesToGsheet(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!targetUrl || !isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return null;
   try {
     // ★ EDITABLE_PRICES 기준으로 {name: {code, type, sector}} 구조 전송
     // type/sector를 함께 보내야 GAS에서 유형 컬럼을 덮어쓰지 않음
@@ -140,7 +167,7 @@ async function syncCodesToGsheet() {
     const data = await requestGsheetFormJson(
       'syncCodes',
       { codes: JSON.stringify(codeMap) },
-      { timeoutMs: 20000, retry: 1 }
+      { timeoutMs: 20000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[GSheet 동기화] 네트워크 오류'); return null; }
     if (data.status !== 'ok') { _syncWarn('[GSheet 동기화] 응답 오류', data); return null; }
@@ -153,23 +180,41 @@ async function syncCodesToGsheet() {
 
 // ★ v8.1 — 보유현황 GSheet 동기화 (트리거 자동 스냅샷을 위해 필요)
 // rawHoldings(수량·원금)를 GSheet 보유현황 시트에 저장
-async function syncHoldingsToGsheet() {
-  if (!GSHEET_API_URL) return;
+async function syncHoldingsToGsheet(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  if (!targetUrl) return null;
+  const allowEmpty = options?.allowEmpty === true;
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return null;
   try {
+    // 재시도/복구 경로는 호출 시점의 보유현황 payload를 고정할 수 있습니다.
+    // 강제 복원 중에는 이전 연결의 rawHoldings가 메모리에 남을 수 있으므로 override가 중요합니다.
+    const sourceHoldings = Array.isArray(options?.holdingsOverride) ? options.holdingsOverride : rawHoldings;
+    const hasFundDirectOverride = Object.prototype.hasOwnProperty.call(options || {}, 'fundDirectOverride');
+    const sourceFundDirect = hasFundDirectOverride
+      ? ((options.fundDirectOverride && typeof options.fundDirectOverride === 'object') ? options.fundDirectOverride : {})
+      : fundDirect;
     // rows에서 종목별 합산 데이터 추출 (계좌 합산 기준)
     const holdMap = {};
-    rawHoldings.forEach(h => {
+    sourceHoldings.forEach(h => {
       if (!h.name || h.qty <= 0) return;
       const ep   = getEP(h.name);
-      const code = ep?.code || STOCK_CODE[h.name] || '';
+      // 복구용 holdingsOverride는 EDITABLE_PRICES 복원보다 먼저 전송될 수 있으므로
+      // 캡처 payload 자체의 code/assetType을 최우선 원자료로 사용합니다.
+      const code = _normalizeSyncCode(h.code || ep?.code || STOCK_CODE[h.name] || '');
+      const assetType = h.assetType || h.type || getEPType(ep, '주식');
       const key  = h.name;
-      if (!holdMap[key]) holdMap[key] = { code, name: h.name, qty: 0, costAmt: 0, assetType: getEPType(ep, h.type), accts: [] };
+      if (!holdMap[key]) holdMap[key] = { code, name: h.name, qty: 0, costAmt: 0, assetType, accts: [] };
       if (h.acct && !holdMap[key].accts.includes(h.acct)) holdMap[key].accts.push(h.acct);
       holdMap[key].qty     += h.qty;
       holdMap[key].costAmt += (h.qty * (h.cost || 0));
     });
     // ★ fundDirect(TDF/펀드) 항목 추가 — qty 개념 없으므로 qty=1, costAmt=cost로 저장
-    Object.entries(fundDirect).forEach(([name, fd]) => {
+    Object.entries(sourceFundDirect).forEach(([name, fd]) => {
       if (!name || !fd || fd.cost <= 0) return;
       if (holdMap[name]) return; // rawHoldings에 이미 있으면 중복 스킵
       holdMap[name] = { code: '', name, qty: 1, costAmt: fd.cost || 0, assetType: fd.type || 'TDF' };
@@ -177,26 +222,50 @@ async function syncHoldingsToGsheet() {
     // accts 배열 → acct 문자열로 변환 (쉼표 연결)
     Object.values(holdMap).forEach(h => { h.acct = (h.accts||[]).join(','); delete h.accts; });
     const holdings = Object.values(holdMap).filter(h => h.qty > 0);
-    if (holdings.length === 0) return;
+    // 확인된 마지막 거래 삭제에서 실제 보유도 0이 된 경우에만 원격 보유현황 [] 삭제를 허용합니다.
+    // 초기 복원 실패 등 일반 빈 상태에서는 기존 원격 보유현황을 보존합니다.
+    if (holdings.length === 0 && !allowEmpty) return;
 
     const data = await requestGsheetFormJson(
       'syncHoldings',
       { data: JSON.stringify(holdings) },
-      { timeoutMs: 20000, retry: 1 }
+      { timeoutMs: 20000, retry: 1, targetUrl }
     );
-    if (!data) { _syncWarn('[보유현황 동기화] 네트워크 오류'); return; }
-    if (data.status === 'ok') _syncWarn('[보유현황 동기화] ✅', data.synced + '개');
+    if (!data) { _syncWarn('[보유현황 동기화] 네트워크 오류'); return null; }
+    if (data.status === 'ok') {
+      _syncWarn('[보유현황 동기화] ✅', data.synced + '개');
+      return data;
+    }
+    _syncWarn('[보유현황 동기화] 응답 오류', data);
+    return data;
   } catch(e) {
     _syncWarn('[보유현황 동기화]', e.message);
+    return null;
   }
 }
 
 // ★ v8.2 — 거래이력 GSheet 동기화 (backfillMonth 소급 계산용)
-async function syncTradesToGsheet() {
-  if (!GSHEET_API_URL || rawTrades.length === 0) return;
+async function syncTradesToGsheet(options) {
+  const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
+  if (!targetUrl) return null;
+  const allowEmpty = options?.allowEmpty === true;
+  const generation = Number.isInteger(options?.generation) ? options.generation : null;
+  if (!isGsheetPortfolioWriteReady({
+    targetUrl,
+    generation,
+    allowDuringRestore: options?.allowDuringRestore === true
+  })) return null;
+  const rebuildFrom = allowEmpty ? String(options?.rebuildFrom || '').trim() : '';
+  const hasTradesOverride = Array.isArray(options?.tradesOverride);
+  // 재시도/복구 경로는 호출 직전에 캡처한 payload를 사용할 수 있습니다.
+  // 빈 override는 아래 allowEmpty 가드 때문에 일반 동기화에서 원격 삭제 권한이 되지 않습니다.
+  const sourceTrades = hasTradesOverride ? options.tradesOverride : rawTrades;
+  // 초기 부트스트랩 실패/미완료로 거래가 비어 있는 상태에서는 원격 원장을 절대 비우지 않습니다.
+  // 확인된 마지막 거래 삭제 경로가 전달한 1회성 allowEmpty만 예외입니다.
+  if (sourceTrades.length === 0 && !allowEmpty) return;
   try {
     const unmatchedTrades = [];
-    const trades = rawTrades
+    const trades = sourceTrades
       .filter(t => t.name && t.tradeType && t.date)
       .map(t => {
         const tCode = _normalizeSyncCode(t.code || '');
@@ -222,25 +291,49 @@ async function syncTradesToGsheet() {
           memo:      t.memo      || '',
         };
       });
-    if (trades.length === 0) return;
+    // 유효한 원본 거래가 있는데 필터 결과만 0건인 경우와 권한 없는 빈 상태는 전체 삭제를 막습니다.
+    if (trades.length === 0 && (sourceTrades.length > 0 || !allowEmpty)) return;
     if (unmatchedTrades.length > 0) {
       const uniq = Array.from(new Set(unmatchedTrades.map(t => `${t.name}|${t.code}`)));
       _syncWarn('[거래이력 동기화] 기초정보 미매칭 거래 포함:', unmatchedTrades);
       if (typeof showToast === 'function') {
         showToast(`⚠️ 기초정보 미매칭 거래 ${uniq.length}건 포함 (동기화 전 기초정보 점검 권장)`, 'warn');
       }
-      syncIssuesToGsheet('syncTradesToGsheet', unmatchedTrades).catch(()=>{});
+      syncIssuesToGsheet('syncTradesToGsheet', unmatchedTrades, {
+        targetUrl,
+        generation,
+        allowDuringRestore: options?.allowDuringRestore === true
+      }).catch(()=>{});
     }
 
     const data = await requestGsheetFormJson(
       'syncTrades',
-      { data: JSON.stringify(trades) },
-      { timeoutMs: 30000, retry: 1 }
+      {
+        data: JSON.stringify(trades),
+        explicitEmpty: allowEmpty ? '1' : '',
+        rebuildFrom
+      },
+      { timeoutMs: 30000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[거래이력 동기화] 네트워크 오류'); return; }
-    if (data.status === 'ok') _syncWarn('[거래이력 동기화] ✅', data.synced + '건');
+    if (data.status === 'ok') {
+      _syncWarn('[거래이력 동기화] ✅', data.synced + '건');
+      return data;
+    }
+    if (data.saveState === 'partial') {
+      const range = data.affectedTo ? `${data.affectedFrom || '-'} ~ ${data.affectedTo}` : (data.affectedFrom || '-');
+      const message = `일부 반영: 거래원장은 저장됐지만 과거 평가 재계산이 완료되지 않았습니다 · 영향기간 ${range}`;
+      _syncWarn('[거래이력 동기화]', message, data);
+      if (typeof showToast === 'function') showToast(message, 'warn', 7000);
+      return data;
+    }
+    const message = data.message || '거래이력 저장 실패';
+    _syncWarn('[거래이력 동기화]', message, data);
+    if (typeof showToast === 'function') showToast(message, 'warn', 7000);
+    return data;
   } catch(e) {
     _syncWarn('[거래이력 동기화]', e.message);
+    return null;
   }
 }
 

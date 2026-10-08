@@ -1,11 +1,83 @@
-## GAS v9.180 / 브리핑 파이프라인 보강 (2026-10-08)
+## GAS v9.189 / PR #469 브리핑 provider 보강 (2026-10-08)
 
-- 브리핑 collector에 기존 KRX VKOSPI 단일 조회를 연결했습니다.
-- Yahoo 공통 provider에 DXY(`DX-Y.NYB`), UST10Y(`^TNX`), WTI(`CL=F`), GOLD(`GC=F`), BTC(`BTC-USD`)를 추가했습니다.
-- 07:30 readiness의 K200_NIGHT는 당일 tradingDate·NIGHT·FINAL·NIGHT_FINAL을 모두 요구합니다.
-- 실제 provider가 없는 UST2Y/NVDA/MU/수급/breadth는 PLANNED로 분리하여 구조적 PARTIAL 판정을 제거했습니다.
-- UST2Y는 2년물 선물 ZT=F를 현물 수익률로 오표기하지 않습니다.
-- GAS version `9.180`, 웹 기대 버전 `9.180`.
+- 기존 KRX VKOSPI 단일 조회와 Yahoo DXY·UST10Y·WTI·GOLD·BTC를 브리핑 collector에 연결하고 K200 야간선물 readiness 계약을 강화합니다.
+- 현물 2년물 수익률로 확인되지 않은 UST2Y 및 미연결 NVDA/MU/수급/breadth는 PLANNED로 구분합니다.
+- PR #468의 손익 재계산 및 GAS v9.188 기능을 보존하고 GAS/웹 기대 버전을 9.189로 올립니다.
+- 실제 운영 배포 및 실데이터 점검은 CI 및 리뷰 후 확인합니다.
+
+## GAS v9.188 / Settings·강제복원·펀드 Snapshot 보강 (2026-10-08)
+
+- 복구 patch와 대기 중인 전체 Settings 저장을 동시에 보존합니다. 복구 후 전체 저장은 오래된 fundDirect 필드만 제거하고 계좌·테마 등 다른 필드는 정상 저장합니다.
+- 부분 Settings patch가 기존 예약 전체 Settings payload를 무효화하고 write revision으로 이미 queue에 들어간 stale payload도 차단합니다.
+- 강제 포트폴리오 복원 직전에 같은 target의 신규 pending-empty/dirty를 재확인하여 load 도중 발생한 사용자 변경을 원격 preflight 값으로 덮지 않습니다.
+- 과거 펀드 좌수 0→양수 정정 시 기존 MANUAL 가격이력이 있으면 신규 Snapshot도 동일 평가금액/소스를 사용합니다.
+- GAS `9.188`, 서비스워커 `portfolio-cache-20261008-9`, settings `20261008-8`.
+
+
+## PR #468 리뷰 후속: 과거 수량 정정 및 자동 재평가 (2026-10-07)
+
+- 일반 종목: 거래이력 수정 시 최초 변경일을 계산해 해당일부터 마지막 확정 Snapshot까지 `rebuildDailySnapshots`를 실행하고, 원자료 revision을 갱신해 손익그래프 cache를 무효화합니다.
+- 펀드: 동일 적용일 좌수 정정과 과거 변경점 삽입을 허용하되 동일 날짜 중복행은 만들지 않습니다. 영향기간은 변경일부터 다음 좌수 설정 전일까지입니다.
+- 펀드 좌수 정정 시 기존 `펀드기준가격`의 NAV·공시일 원본은 유지하고 좌수/평가금액 파생열, F코드 가격이력, 기존 Snapshot 평가값을 새 좌수로 재계산합니다. MANUAL 행은 보존하며 NAV 원자료가 없는 날짜는 임의 덮어쓰지 않습니다.
+- 0좌 전환은 이후 펀드를 손익 원자료 계산에서 제외하고 기존 파생 평가행은 0 평가 상태로 정리합니다.
+- 19시 마감 단계 마커는 run-id로 격리해 겹친 실행의 종료가 더 최근 실행 상태를 덮어쓰지 않도록 했습니다.
+- KRX 휴장일 fallback 행은 화면용 결과에만 남기고 공식 당일 KRX 가격이력에는 적재하지 않습니다.
+- 웹 자산 쿼리와 서비스워커 cache 버전을 함께 갱신했습니다.
+## GAS v9.188: 펀드·동기화·마감 안전성 후속 (2026-10-07)
+
+- 독립 재검토 후속: 부분 Settings patch는 일반 전체 Settings debounce와 분리하고, 실제 전송 직전에 연결 generation·복원 잠금·load epoch를 다시 검증하여 같은 연결의 오래된 예약 저장이 강제 복원 결과를 덮지 않게 합니다.
+- dirty holdings 복구는 복원 전 EDITABLE_PRICES 전역상태가 아니라 캡처 payload의 종목코드·자산유형을 우선 사용합니다.
+
+- 펀드 좌수 원본을 수정하기 전에 `펀드좌수` system backup을 생성하고, 저장 후 재읽기 검증이 성공한 경우에만 backup을 완료·정리합니다. 원본 쓰기 실패 시 backup은 `WRITE_FAILED`로 보존합니다.
+- `handleSaveFundUnits()`는 실제로 ScriptLock을 획득한 경우에만 release하여 lock 획득 실패가 후속 예외로 가려지지 않도록 합니다.
+- 사용자가 누르는 상단 업데이트와 거래 탭 재동기화는 로컬 거래 유무와 무관하게 GAS 거래·보유 원장을 authoritative하게 다시 받습니다. 정상 빈 원장(0건)도 성공 복원으로 인정해 오래된 다기기 로컬 캐시가 원격 최신 원장을 덮는 경로를 차단합니다.
+- 빈 원장 pending이 있는 상태에서 명시적 원격 pull을 실행하면 pending 삭제 동기화를 먼저 성공 확인합니다. 성공한 로컬 삭제 의도를 서버에 확정한 뒤에는 같은 요청에서 오래된 원격 원장을 다시 가져오지 않으며, 실패하면 복원 완료로 승격하지 않습니다.
+- pending 상태에서 새 거래가 생긴 경우에도 repair token을 원격 동기화 성공 전에 지우지 않습니다. 현재 거래·보유가 모두 서버에 확정된 뒤에만 제거하며, 앱 재시작 시 로컬 거래가 있어도 해당 repair 경로를 재시도합니다.
+- authoritative pull 직전에는 기존 로컬 거래의 코드교정 결과를 GAS로 다시 쓰지 않습니다. 원격 최신 원장을 받기 전에 오래된 로컬 거래가 서버를 덮는 pre-pull write 경로를 차단합니다.
+- 같은 GSheet에서 자동 bootstrap과 수동 원격 pull이 겹쳐도 load epoch로 최신 요청만 상태를 계속 적용합니다. 명시적 pull은 시작 즉시 restore 잠금을 걸어 완료 전 일반 원격 쓰기를 차단합니다.
+- GAS version `9.187`, 웹 기대 버전 `9.187`, 서비스워커 `portfolio-cache-20261008-9`, data `20261008-6`, settings `20261008-8`, settings_sync `20261008-2`, settings_tabsync `20261007-1`, settings_fetch `20261008-2`.
+- 일반 설정·부동산 debounce 저장은 payload/target/generation 고정뿐 아니라 네트워크 전송도 직렬화해, 같은 연결에서 연속 저장 응답 순서가 뒤집혀 오래된 payload가 마지막에 덮어쓰는 race를 차단합니다.
+- 19시 마감 진단은 `portfolio_close_stage=ERROR`를 INCOMPLETE보다 우선 판정해 실제 실패 실행을 명확히 노출합니다.
+- 펀드 좌수 정정의 파생 NAV·가격이력·Snapshot backup은 전체 reconciliation 성공 뒤에만 정리합니다. 후속 단계 partial 실패 시 앞선 단계의 작업 시작 전 복구본도 유지합니다.
+- 현재 보유에서 빠졌더라도 Settings master의 EDITABLE_PRICES/fundDirect에 남은 과거 코드 없는 TDF·펀드 이름은 거래원장으로 재구성 불가능한 자산으로 취급해 기존 과거 Snapshot을 보존합니다.
+
+## GAS v9.183 / 웹 독립 재검토 보강 (2026-10-07)
+
+- GSheet 연결 초기복원 또는 A→B 전환 복원이 끝나기 전에는 일반 설정·종목코드·보유현황·거래원장 원격 쓰기를 차단합니다. 복원 실패 상태에서 이전 연결 메모리가 새 연결에 덮어써지는 것을 방지합니다.
+- 초기 bootstrap은 single-flight로 실행하고 성공한 경우에만 restored 상태가 됩니다. 실패한 bootstrap은 재시도 가능하며 URL 변경 시 기존 promise를 무효화합니다.
+- 현재가/가격이력 요청과 편집기 이력 캐시는 GSheet URL+generation에 귀속합니다. 연결 변경 뒤 이전 연결의 늦은 응답은 전역 가격·환율·진단 상태에 적용하지 않습니다.
+- 거래 삭제 pending은 원래 연결로 돌아왔을 때 복원 내부에서 캡처된 target/generation으로 안전하게 재시도합니다.
+- 원자료 손익은 거래원장으로 과거 보유시점을 재구성할 수 없는 코드 없는 TDF/직접펀드를 조용히 합계에서 누락하지 않고 제외 경고와 종목명을 노출합니다. 자동 시작일에는 거래/가격이력뿐 아니라 펀드 NAV·좌수 시작일도 포함합니다.
+- 펀드 좌수 정정이 직접 갱신하는 펀드기준가격·가격이력·Snapshot에도 system backup 생성·실패 보존·성공 정리 정책을 적용합니다.
+- 펀드 NAV/좌수 복구의 장시간 chunk 작업과 수동가격 batch→건별 fallback은 작업 시작 시 GSheet URL+generation을 고정합니다. 연결이 바뀌면 남은 작업과 응답 적용을 즉시 중단해 다음 연결로 작업이 넘어가지 않습니다.
+- GAS version `9.183`, 웹 기대 버전 `9.183`, 서비스워커 `portfolio-cache-20261007-31`.
+- 주요 웹 자산: data `20261007-11`, settings_net `20261007-3`, settings `20261007-9`, settings_sync `20261007-17`, settings_fetch `20261007-10`, mgmt_editor `20261007-11`, views_history_pipeline `20261007-6`.
+
+## GAS v9.182: 거래 partial 재계산·손익 KRX carry 정합성 (2026-10-07)
+
+- 거래원본 저장 후 과거 Snapshot 재계산이 partial로 끝나면 최초 영향일을 Script Properties에 영속합니다. 동일 거래를 다시 동기화해 원본 차이가 없어도 그 영향일부터 재계산을 다시 수행하고, 성공한 뒤에만 pending을 제거합니다.
+- 손익 원자료 계산은 과거 `KRX_CARRY` / `KRX_OTP_CARRY` 가격이력 행을 그 날짜의 공식 종가로 직접 채택하지 않습니다. 직전 실제 확정 KRX 행을 찾아 `_CARRY@원천일`로 평가해 이월 여부와 원천일을 명시합니다.
+- GAS version `9.182`, 웹 기대 버전 `9.182`, 서비스워커 `portfolio-cache-20261007-29`, settings_fetch `20261007-9`.
+
+## GAS v9.181: GSheet 연결 전환 복원 안전성 보강 (2026-10-07)
+
+- 연결 변경 강제 복원은 현재 연결의 거래·보유 읽기가 모두 성공했는지 설정 전역상태 적용 전에 확인합니다. 하위 읽기 실패 시 이전 연결 포트폴리오와 새 연결 설정을 섞지 않고 복원을 중단합니다.
+- bootstrap 응답의 `portfolioReadStatus.tradesOk/holdingsOk`를 강제 복원 판정에 사용하며, 해당 상태가 없는 구버전 GAS는 연결 변경 강제 복원에서 안전 실패 처리합니다.
+- 신규·레거시 Settings에 `fundDirect`가 없어도 보유현황 시트의 코드 없는 TDF/펀드를 거래 유무와 관계없이 직접펀드로 보완 복원합니다.
+- 거래이력 기반 과거 Snapshot 재생성은 현재 보유현황의 코드 없는 TDF/펀드처럼 거래원장에 역사 정보가 없는 자산을 새로 추정하지 않습니다. 대신 해당 날짜에 이미 존재하는 Snapshot 행만 보존하여 마지막 일반 거래 삭제나 과거 수량 정정이 비거래 펀드 Snapshot까지 지우지 않도록 합니다.
+- 배당 저장 큐는 호출 시점 GSheet URL과 연결 generation을 함께 고정합니다. 저장 대기 중 연결이 바뀌면 stale payload를 새 연결에 쓰지 않고 실패 처리하여 cross-write를 차단합니다.
+- GAS 버전 비교는 문자열 segment 기준으로 처리해 `9.181`을 `9.34`보다 최신으로 올바르게 판정합니다. 전용 배당/부동산 저장 실패 시 최신 GAS에서 구형 일반 Settings fallback이 다시 실행되는 문제를 차단합니다.
+- 일반 설정·부동산 debounce 저장은 호출 시점 payload와 GSheet URL/generation을 함께 고정합니다. 연결 전환 시 이전 연결의 예약 저장은 실패 처리하며 새 연결 상태가 이전 URL로 쓰이는 것을 차단합니다.
+- 마지막 거래 삭제 pending은 다른 GSheet로 전환했다고 삭제하지 않습니다. 대상이 다른 동안에는 실행하지 않고 원래 연결로 돌아왔을 때 성공할 때까지 재시도합니다.
+- GAS version `9.181`, 웹 기대 버전 `9.181`, 서비스워커 `portfolio-cache-20261007-28`, settings `20261007-8`, settings_fetch `20261007-8`.
+
+## GAS v9.180: 19시 마감 단계·KRX 원천 응답 진단 (2026-10-07)
+
+- 자동 마감 시작/PRICE/FUND/COMPLETE/ERROR 단계와 시작·전환 시각을 Script Properties에 저장합니다. 마지막 성공 기록이 없더라도 시작 후 중단한 경우 `INCOMPLETE`로 구분합니다. Apps Script 실행 기록 조회 권한이 부족하므로 정확한 실패 원인 자체는 새 단계 진단에서 추가 확인해야 합니다.
+- 인증된 `getKrxSourceDiagnostics?date=YYYY-MM-DD` 읽기 전용 API에서 KOSPI/KOSDAQ/ETF 별 응답 HTTP 상태·OutBlock_1 행 수·JSON 형식 상태만 노출합니다. API 키·원문 응답은 반환하지 않습니다. 기존 공식 종가 저장값과 별도로 국내 KRX 공식 데이터 최종 일자를 표시하여 펀드 NAV 날짜가 최신 국내 종가를 오인시키지 않게 합니다.
+- 운영 10/07 복구: KB S-T NAV 9/22~10/06 8건을 정확한 클래스 `KR5223AQ0185` FunETF 원천에서 검증하여 원본 시트에 기록. 국내 종가 9/30·10/01·10/02·10/06 각 37종목은 Yahoo/기업 IR/복수 시세원으로 날짜·과거 KRX 기준가 교차검증 후 **2차 제공처 라벨을 유지**하여 저장. KRX 공식 종가로 오기하지 않으며, KRX API 복구 시 공식 데이터로 재검증·교체해야 합니다. 현재 API 인증키는 설정되어 있으나 직접 KRX 조회 0건이며 OTP도 비정상 짧은 응답이었습니다.
+- 복구자료 저장·평가금액은 계산 검증했고, 19시 자동 마감 성공과 KRX API 원인(401/403/빈 OutBlock)은 이번 변경만으로 보장하지 않습니다. 배포 후 `getKrxSourceDiagnostics`, `getAutomationStatus.closeRun`을 실측하여 후속 조치합니다.
+- GAS version `9.180`, 웹 기대 버전 `9.180`, 서비스워커 `portfolio-cache-20261007-24`, settings_fetch `20261007-7`.
 
 ## GAS v9.179 / 웹 settings_fetch 20261007-6: 마감 종가 실보유 종목 기준 검증 (2026-10-07)
 

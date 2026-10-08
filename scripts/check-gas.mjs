@@ -41,8 +41,9 @@ if (!source.includes("params.action === 'getBootstrap'")
     || !/handleGetBootstrap[\s\S]*?_readSettingsMap\(ss\)/.test(source)
     || !/handleGetBootstrap[\s\S]*?handleGetTrades\(ss\)/.test(source)
     || !/handleGetBootstrap[\s\S]*?handleGetHoldings\(ss\)/.test(source)
+    || !/handleGetBootstrap[\s\S]*?portfolioReadStatus[\s\S]*?tradesOk[\s\S]*?holdingsOk/.test(source)
     || !/handleGetBootstrap[\s\S]*?getCodeItems\(ss\)/.test(source)) {
-  console.error('❌ 앱 초기 복원은 단일 스프레드시트 핸들로 설정·거래·보유·종목코드를 일괄 반환해야 합니다.');
+  console.error('❌ 앱 초기 복원은 단일 스프레드시트 핸들로 설정·거래·보유·종목코드와 거래/보유 읽기 성공 여부를 일괄 반환해야 합니다.');
   process.exit(1);
 }
 
@@ -99,18 +100,18 @@ if (!source.includes('SHEET_ETF_DIVIDENDS')
 if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes('function handleGetAutomationStatus()')
     || !source.includes('function _getAutomationStatusData()')
-    || !source.includes("overallStatus = 'NEVER_RUN'")
+    || !source.includes("overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN'")
     || !source.includes("portfolio_close_last_result")
     || !source.includes("hasLegacySplitTriggers")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
-    || !source.includes("'getAutomationStatus'];")
-    || !source.includes("gasVersion: '9.180'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 v9.180 계약이 누락됐습니다.');
+    || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics'];")
+    || !source.includes("gasVersion: '9.189'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 v9.188 계약이 누락됐습니다.');
   process.exit(1);
 }
 
-const automationStatusOrder = source.indexOf("else if (!portfolioClose) overallStatus = 'NEVER_RUN'");
+const automationStatusOrder = source.indexOf("else if (!portfolioClose) overallStatus = closeRun.state");
 const automationFundErrorOrder = source.indexOf("else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR'");
 if (automationStatusOrder < 0 || automationFundErrorOrder < 0 || automationStatusOrder > automationFundErrorOrder) {
   console.error('❌ 자동화 미실행은 과거 펀드 오류보다 NEVER_RUN 판정을 우선해야 합니다.');

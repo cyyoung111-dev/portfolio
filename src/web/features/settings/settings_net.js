@@ -11,15 +11,16 @@ function fetchWithTimeout(url, ms, options) {
     .finally(() => clearTimeout(tid));
 }
 
-function buildGsheetActionUrl(action, params) {
-  if (!GSHEET_API_URL || !action) return '';
+function buildGsheetActionUrl(action, params, targetUrl) {
+  const baseUrl = String(targetUrl || GSHEET_API_URL || '').trim();
+  if (!baseUrl || !action) return '';
   const q = new URLSearchParams();
   q.set('action', action);
   Object.entries(params || {}).forEach(([k, v]) => {
     if (v === null || v === undefined || v === '') return;
     q.set(k, String(v));
   });
-  return `${GSHEET_API_URL}?${q.toString()}`;
+  return `${baseUrl}?${q.toString()}`;
 }
 
 async function requestJsonWithPolicy(url, opts) {
@@ -55,14 +56,18 @@ async function requestJsonWithPolicy(url, opts) {
 }
 
 async function requestGsheetActionJson(action, params, opts) {
+  const o = opts || {};
+  const targetUrl = String(o.targetUrl || GSHEET_API_URL || '').trim();
   const accessToken = String(lsGet('gsheet_access_token', '') || '').trim();
-  if (accessToken) return requestGsheetFormJson(action, params, opts);
-  const url = buildGsheetActionUrl(action, params);
-  return requestJsonWithPolicy(url, { ...(opts || {}), action });
+  if (accessToken) return requestGsheetFormJson(action, params, { ...o, targetUrl });
+  const url = buildGsheetActionUrl(action, params, targetUrl);
+  return requestJsonWithPolicy(url, { ...o, action });
 }
 
 async function requestGsheetFormJson(action, params, opts) {
-  if (!GSHEET_API_URL || !action) return null;
+  const o = opts || {};
+  const targetUrl = String(o.targetUrl || GSHEET_API_URL || '').trim();
+  if (!targetUrl || !action) return null;
   const form = new URLSearchParams();
   form.set('action', action);
   const accessToken = String(lsGet('gsheet_access_token', '') || '').trim();
@@ -71,18 +76,24 @@ async function requestGsheetFormJson(action, params, opts) {
     if (v === null || v === undefined || v === '') return;
     form.set(k, String(v));
   });
-  const o = opts || {};
   const fetchOptions = {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
     ...(o.fetchOptions || {}),
   };
-  return requestJsonWithPolicy(GSHEET_API_URL, { ...o, action, fetchOptions });
+  return requestJsonWithPolicy(targetUrl, { ...o, action, fetchOptions });
 }
 
 function saveGsheetUrl(url) {
-  GSHEET_API_URL = url.trim();
+  const normalized = String(url || '').trim();
+  if (normalized !== String(GSHEET_API_URL || '').trim()) {
+    GSHEET_CONNECTION_GENERATION += 1;
+    _gsPortfolioRestoreRequired = true;
+    _gsBootRestored = false;
+    _gsBootPromise = null;
+  }
+  GSHEET_API_URL = normalized;
   lsSave(GSHEET_KEY, GSHEET_API_URL);
 }
 

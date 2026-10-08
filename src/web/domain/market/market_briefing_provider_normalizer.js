@@ -9,7 +9,7 @@ function normalizeOne(key,item,meta={}){
  const delayed=Boolean(item.delayed||meta.delayed||source==='YAHOO_DELAYED');
  const explicitStatus=item.status||meta.status||null;
  const status=explicitStatus||(delayed?'DELAYED':'PARTIAL');
- const market=item.market||meta.market||((key==='KOSPI'||key==='KOSDAQ'||key==='KOSPI200'||key==='K200_NIGHT')?'KRX':key==='USDKRW'?'FX':'US');
+ const market=item.market||meta.market||((key==='KOSPI'||key==='KOSDAQ'||key==='KOSPI200'||key==='K200_NIGHT'||key==='VKOSPI')?'KRX':(key==='USDKRW'||key==='DXY')?'FX':key==='UST10Y'?'US_RATES':(key==='WTI'||key==='GOLD')?'COMMODITY':key==='BTC'?'CRYPTO':'US');
  return {seriesId,tradingDate:contract.tradingDate,value:contract.value,market,session:contract.session,source,status,
   finality:contract.finality,observedAt:contract.observedAt,receivedAt:contract.receivedAt,
   timestampQuality:contract.timestampQuality,currency:contract.currency,sourceDate:contract.sourceDate,

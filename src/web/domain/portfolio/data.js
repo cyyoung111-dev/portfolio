@@ -373,6 +373,8 @@ const HOLDINGS_KEY   = 'pf_v6_holdings';
 const STOCKCODE_KEY  = 'pf_v6_stockcodes';
 const EDITABLES_KEY  = 'pf_v6_editables';
 const TRADES_KEY     = 'pf_v6_trades';
+const PENDING_EMPTY_TRADE_SYNC_KEY = 'pf_v6_pending_empty_trade_sync';
+const PORTFOLIO_REMOTE_DIRTY_KEY = 'pf_v6_portfolio_remote_dirty';
 const PRICE_BACKUP_KEY  = 'pf_price_backup';
 const DIV_HIDE_ZERO_KEY = 'pf_div_hide_zero';
 // ★ [계좌별 taxType] 계좌→세금구분 매핑 키
@@ -463,7 +465,437 @@ function getAcctTaxType(acct) {
 // 429(Too Many Requests) 오류가 발생함 → 300ms 내 마지막 호출만 실제 전송
 let _saveHoldingsGasTimer = null;
 
+// 마지막 거래 삭제의 원격 빈 원장 동기화는 성공 확인 전까지 브라우저 재시작을 넘어 유지합니다.
+// { from: 'YYYY-MM-DD', target: '현재 GSHEET_API_URL' } 또는 null
+function _currentGsheetSyncTarget() {
+  const liveUrl = typeof GSHEET_API_URL !== 'undefined' ? String(GSHEET_API_URL || '').trim() : '';
+  return liveUrl || String(lsGet(GSHEET_KEY, '') || '').trim();
+}
+
+function _normalizePendingExplicitEmptyTradeSync(value) {
+  if (!value || typeof value !== 'object') return null;
+  const target = String(value.target || '').trim();
+  // 연결 식별자가 없는 legacy/손상 pending은 다른 시트를 지울 수 있으므로 자동 재시도하지 않습니다.
+  if (!target) return null;
+  return {
+    from: String(value.from || '').trim(),
+    target
+  };
+}
+
+function _normalizePendingExplicitEmptyTradeSyncMap(value) {
+  const map = {};
+  if (!value || typeof value !== 'object') return map;
+  const legacy = _normalizePendingExplicitEmptyTradeSync(value);
+  if (legacy) {
+    map[legacy.target] = legacy;
+    return map;
+  }
+  Object.values(value).forEach(entryValue => {
+    const entry = _normalizePendingExplicitEmptyTradeSync(entryValue);
+    if (entry) map[entry.target] = entry;
+  });
+  return map;
+}
+
+let _pendingExplicitEmptyTradeSyncByTarget = _normalizePendingExplicitEmptyTradeSyncMap(
+  lsGet(PENDING_EMPTY_TRADE_SYNC_KEY, null)
+);
+const _pendingExplicitEmptyTradeSyncFlightsByTarget = new Map();
+const _portfolioRemoteSyncQueuesByTarget = new Map();
+let _portfolioRemoteSyncEpoch = 0;
+
+function _queuePortfolioRemoteSync(target, runner) {
+  const normalizedTarget = String(target || '').trim();
+  if (!normalizedTarget) return Promise.resolve(false);
+  const previous = _portfolioRemoteSyncQueuesByTarget.get(normalizedTarget) || Promise.resolve();
+  const next = previous.then(runner, runner);
+  _portfolioRemoteSyncQueuesByTarget.set(normalizedTarget, next);
+  return next.finally(() => {
+    if (_portfolioRemoteSyncQueuesByTarget.get(normalizedTarget) === next) {
+      _portfolioRemoteSyncQueuesByTarget.delete(normalizedTarget);
+    }
+  });
+}
+
+function _normalizePortfolioRemoteDirtyEntry(value) {
+  if (!value || typeof value !== 'object') return null;
+  const target = String(value.target || '').trim();
+  const epoch = Number(value.epoch) || 0;
+  if (!target || epoch <= 0) return null;
+  return {
+    target,
+    epoch,
+    trades: Array.isArray(value.trades) ? value.trades.map(t => ({ ...t })) : [],
+    holdings: Array.isArray(value.holdings) ? value.holdings.map(h => ({ ...h })) : [],
+    fundDirect: value.fundDirect && typeof value.fundDirect === 'object'
+      ? JSON.parse(JSON.stringify(value.fundDirect))
+      : {}
+  };
+}
+
+function _normalizePortfolioRemoteDirtyMap(value) {
+  const map = {};
+  if (!value || typeof value !== 'object') return map;
+
+  // 이전 단일 dirty 형식도 안전하게 target별 map으로 마이그레이션합니다.
+  const legacy = _normalizePortfolioRemoteDirtyEntry(value);
+  if (legacy) {
+    map[legacy.target] = legacy;
+    return map;
+  }
+
+  Object.values(value).forEach(entryValue => {
+    const entry = _normalizePortfolioRemoteDirtyEntry(entryValue);
+    if (!entry) return;
+    map[entry.target] = entry;
+  });
+  return map;
+}
+
+let _portfolioRemoteDirtyByTarget = _normalizePortfolioRemoteDirtyMap(
+  lsGet(PORTFOLIO_REMOTE_DIRTY_KEY, null)
+);
+Object.values(_portfolioRemoteDirtyByTarget).forEach(entry => {
+  _portfolioRemoteSyncEpoch = Math.max(_portfolioRemoteSyncEpoch, Number(entry.epoch) || 0);
+});
+
+function _persistPortfolioRemoteDirtyMap() {
+  if (Object.keys(_portfolioRemoteDirtyByTarget).length > 0) {
+    lsSave(PORTFOLIO_REMOTE_DIRTY_KEY, _portfolioRemoteDirtyByTarget);
+  } else {
+    lsRemove(PORTFOLIO_REMOTE_DIRTY_KEY);
+  }
+}
+
+function _markPortfolioRemoteDirty() {
+  const target = _currentGsheetSyncTarget();
+  if (!target) return 0;
+  const epoch = ++_portfolioRemoteSyncEpoch;
+  _portfolioRemoteDirtyByTarget[target] = {
+    target,
+    epoch,
+    trades: rawTrades.map(t => ({ ...t })),
+    holdings: rawHoldings.map(h => ({ ...h })),
+    fundDirect: (typeof fundDirect === 'object' && fundDirect)
+      ? JSON.parse(JSON.stringify(fundDirect))
+      : {}
+  };
+  _persistPortfolioRemoteDirtyMap();
+  return epoch;
+}
+
+function _clearPortfolioRemoteDirty(epoch, target) {
+  const normalizedTarget = String(target || '').trim();
+  const current = _portfolioRemoteDirtyByTarget[normalizedTarget];
+  if (!current) return true;
+  if (current.epoch !== epoch || current.target !== normalizedTarget) return false;
+  delete _portfolioRemoteDirtyByTarget[normalizedTarget];
+  _persistPortfolioRemoteDirtyMap();
+  return true;
+}
+
+function _getPortfolioRemoteDirty() {
+  const currentTarget = _currentGsheetSyncTarget();
+  if (!currentTarget) return null;
+  return _portfolioRemoteDirtyByTarget[currentTarget] || null;
+}
+
+function _isPortfolioRemoteSyncPending() {
+  const currentTarget = _currentGsheetSyncTarget();
+  return !!_getPortfolioRemoteDirty()
+    || !!_saveHoldingsGasTimer
+    || !!_pendingExplicitEmptyTradeSyncFlightsByTarget.get(currentTarget)
+    || !!_getPendingExplicitEmptyTradeSync(currentTarget);
+}
+
+function _portfolioPayloadSignature(trades, holdings, directFunds) {
+  return JSON.stringify({
+    trades: Array.isArray(trades) ? trades : [],
+    holdings: Array.isArray(holdings) ? holdings : [],
+    fundDirect: directFunds && typeof directFunds === 'object' ? directFunds : {}
+  });
+}
+
+function _portfolioDirtySignature(dirty) {
+  if (!dirty) return '';
+  return _portfolioPayloadSignature(dirty.trades, dirty.holdings, dirty.fundDirect);
+}
+
+async function _retryPortfolioRemoteDirtySync(options) {
+  const targetUrl = String(options?.targetUrl || _currentGsheetSyncTarget() || '').trim();
+  if (!targetUrl) return false;
+  const allowDuringRestore = options?.allowDuringRestore === true;
+
+  return _queuePortfolioRemoteSync(targetUrl, async () => {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const dirty = _portfolioRemoteDirtyByTarget[targetUrl];
+      if (!dirty) return true;
+      const generation = typeof getGsheetConnectionGeneration === 'function'
+        ? getGsheetConnectionGeneration()
+        : null;
+      const holdingsRequired = dirty.holdings.length > 0 || Object.keys(dirty.fundDirect || {}).length > 0;
+      const tradesRequired = dirty.trades.length > 0;
+      const [holdingsResult, tradesResult] = await Promise.all([
+        typeof syncHoldingsToGsheet === 'function'
+          ? syncHoldingsToGsheet({
+              targetUrl,
+              generation,
+              allowDuringRestore,
+              holdingsOverride: dirty.holdings,
+              fundDirectOverride: dirty.fundDirect
+            })
+          : Promise.resolve(null),
+        typeof syncTradesToGsheet === 'function'
+          ? syncTradesToGsheet({
+              targetUrl,
+              generation,
+              allowDuringRestore,
+              tradesOverride: dirty.trades
+            })
+          : Promise.resolve(null)
+      ]);
+      const holdingsOk = !holdingsRequired || holdingsResult?.status === 'ok';
+      const tradesOk = !tradesRequired
+        || (tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial');
+      if (!holdingsOk || !tradesOk) return false;
+
+      // 직접펀드는 Settings의 fundDirect가 authoritative 원천입니다.
+      const settingsOk = typeof saveSettings === 'function'
+        ? await saveSettings(true, {
+            targetUrl,
+            generation,
+            allowDuringRestore,
+            settingsPatch: { fundDirect: dirty.fundDirect }
+          })
+        : false;
+      if (!settingsOk) return false;
+
+      const latest = _portfolioRemoteDirtyByTarget[targetUrl];
+      if (!latest) return true;
+      if (latest.epoch !== dirty.epoch) continue;
+      return _clearPortfolioRemoteDirty(dirty.epoch, targetUrl);
+    }
+    return false;
+  });
+}
+
+function _restorePortfolioRemoteDirtyPayload() {
+  const dirty = _getPortfolioRemoteDirty();
+  if (!dirty) return false;
+  rawTrades.length = 0;
+  dirty.trades.forEach(t => rawTrades.push({ ...t }));
+  rawHoldings.length = 0;
+  dirty.holdings.forEach(h => rawHoldings.push({ ...h }));
+  Object.keys(fundDirect).forEach(k => delete fundDirect[k]);
+  Object.assign(fundDirect, JSON.parse(JSON.stringify(dirty.fundDirect || {})));
+  return true;
+}
+
+function _persistPendingExplicitEmptyTradeSyncMap() {
+  if (Object.keys(_pendingExplicitEmptyTradeSyncByTarget).length > 0) {
+    lsSave(PENDING_EMPTY_TRADE_SYNC_KEY, _pendingExplicitEmptyTradeSyncByTarget);
+  } else {
+    lsRemove(PENDING_EMPTY_TRADE_SYNC_KEY);
+  }
+}
+
+function _setPendingExplicitEmptyTradeSync(value, targetOverride) {
+  const normalized = _normalizePendingExplicitEmptyTradeSync(value);
+  const target = String(normalized?.target || targetOverride || _currentGsheetSyncTarget() || '').trim();
+  if (!target) return null;
+  if (normalized) {
+    _pendingExplicitEmptyTradeSyncByTarget[target] = { ...normalized, target };
+  } else {
+    delete _pendingExplicitEmptyTradeSyncByTarget[target];
+  }
+  _persistPendingExplicitEmptyTradeSyncMap();
+  return _pendingExplicitEmptyTradeSyncByTarget[target] || null;
+}
+
+function _getPendingExplicitEmptyTradeSync(targetOverride) {
+  const target = String(targetOverride || _currentGsheetSyncTarget() || '').trim();
+  if (!target) return null;
+  return _pendingExplicitEmptyTradeSyncByTarget[target] || null;
+}
+
+async function _retryPendingExplicitEmptyTradeSync(options) {
+  const requestedTarget = String(options?.targetUrl || _currentGsheetSyncTarget() || '').trim();
+  if (!requestedTarget) return false;
+  const existingFlight = _pendingExplicitEmptyTradeSyncFlightsByTarget.get(requestedTarget);
+  if (existingFlight) return existingFlight;
+
+  const flight = _queuePortfolioRemoteSync(requestedTarget, async () => {
+    const pendingEmptySync = _getPendingExplicitEmptyTradeSync(requestedTarget);
+    if (!pendingEmptySync) return 'none';
+    const retryTarget = pendingEmptySync.target;
+    const retryGeneration = typeof getGsheetConnectionGeneration === 'function'
+      ? getGsheetConnectionGeneration()
+      : null;
+    const allowDuringRestore = options?.allowDuringRestore === true;
+    const restoreInProgress = typeof _gsPortfolioRestoreRequired !== 'undefined'
+      && _gsPortfolioRestoreRequired === true;
+    const preferCurrentPortfolio = options?.preferCurrentPortfolio === true
+      && rawTrades.length > 0;
+
+    const currentRecoverySignature = () => _portfolioPayloadSignature(
+      rawTrades,
+      rawHoldings,
+      typeof fundDirect === 'object' && fundDirect ? fundDirect : {}
+    );
+
+    const syncCurrentTrades = async () => {
+      if (restoreInProgress && !preferCurrentPortfolio) return false;
+      if (rawTrades.length === 0) return false;
+
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const recoverySignature = currentRecoverySignature();
+        const recoveryTrades = rawTrades.map(t => ({ ...t }));
+        const recoveryHoldings = rawHoldings.map(h => ({ ...h }));
+        const recoveryFundDirect = (typeof fundDirect === 'object' && fundDirect)
+          ? JSON.parse(JSON.stringify(fundDirect))
+          : {};
+        const [holdingsResult, tradesResult] = await Promise.all([
+          typeof syncHoldingsToGsheet === 'function'
+            ? syncHoldingsToGsheet({
+                targetUrl: retryTarget,
+                generation: retryGeneration,
+                allowDuringRestore,
+                holdingsOverride: recoveryHoldings,
+                fundDirectOverride: recoveryFundDirect
+              })
+            : Promise.resolve(null),
+          typeof syncTradesToGsheet === 'function'
+            ? syncTradesToGsheet({
+                targetUrl: retryTarget,
+                generation: retryGeneration,
+                allowDuringRestore,
+                tradesOverride: recoveryTrades
+              })
+            : Promise.resolve(null)
+        ]);
+        const holdingsOk = holdingsResult?.status === 'ok';
+        const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
+        if (!holdingsOk || !tradesOk) break;
+
+        const settingsOk = typeof saveSettings === 'function'
+          ? await saveSettings(true, {
+              targetUrl: retryTarget,
+              generation: retryGeneration,
+              allowDuringRestore,
+              settingsPatch: { fundDirect: recoveryFundDirect }
+            })
+          : false;
+        if (!settingsOk) break;
+        if (currentRecoverySignature() !== recoverySignature) continue;
+
+        const currentPending = _getPendingExplicitEmptyTradeSync(retryTarget);
+        if (currentPending === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null, retryTarget);
+        const dirty = _portfolioRemoteDirtyByTarget[retryTarget];
+        if (dirty && _portfolioDirtySignature(dirty) === recoverySignature) {
+          _clearPortfolioRemoteDirty(dirty.epoch, retryTarget);
+        }
+        return 'current';
+      }
+
+      if (!options?.quiet && typeof showToast === 'function') {
+        showToast('새 거래 원격 동기화가 완료되지 않았습니다. 다시 저장해 주세요.', 'warn', 7000);
+      }
+      return false;
+    };
+
+    if ((!restoreInProgress || preferCurrentPortfolio) && rawTrades.length > 0) return syncCurrentTrades();
+
+    const pinnedFundDirect = (typeof fundDirect === 'object' && fundDirect)
+      ? JSON.parse(JSON.stringify(fundDirect))
+      : {};
+    const holdingsResult = typeof syncHoldingsToGsheet === 'function'
+      ? await syncHoldingsToGsheet({
+          allowEmpty: true,
+          targetUrl: retryTarget,
+          generation: retryGeneration,
+          allowDuringRestore,
+          holdingsOverride: [],
+          fundDirectOverride: pinnedFundDirect
+        })
+      : null;
+
+    if (retryGeneration !== null
+        && (typeof getGsheetConnectionGeneration !== 'function'
+          || getGsheetConnectionGeneration() !== retryGeneration)) {
+      return false;
+    }
+    if ((!restoreInProgress || preferCurrentPortfolio) && rawTrades.length > 0) return syncCurrentTrades();
+
+    const tradesResult = typeof syncTradesToGsheet === 'function'
+      ? await syncTradesToGsheet({
+          allowEmpty: true,
+          rebuildFrom: pendingEmptySync.from || '',
+          targetUrl: retryTarget,
+          generation: retryGeneration,
+          allowDuringRestore,
+          tradesOverride: []
+        })
+      : null;
+
+    if (retryGeneration !== null
+        && (typeof getGsheetConnectionGeneration !== 'function'
+          || getGsheetConnectionGeneration() !== retryGeneration)) {
+      return false;
+    }
+    if ((!restoreInProgress || preferCurrentPortfolio) && rawTrades.length > 0) return syncCurrentTrades();
+
+    const holdingsOk = holdingsResult?.status === 'ok';
+    const tradesOk = tradesResult?.status === 'ok' && tradesResult?.saveState !== 'partial';
+    if (holdingsOk && tradesOk) {
+      const settingsOk = typeof saveSettings === 'function'
+        ? await saveSettings(true, {
+            targetUrl: retryTarget,
+            generation: retryGeneration,
+            allowDuringRestore,
+            settingsPatch: { fundDirect: pinnedFundDirect }
+          })
+        : false;
+      if (!settingsOk) return false;
+
+      const currentPending = _getPendingExplicitEmptyTradeSync(retryTarget);
+      if (currentPending === pendingEmptySync) _setPendingExplicitEmptyTradeSync(null, retryTarget);
+      const dirty = _portfolioRemoteDirtyByTarget[retryTarget];
+      const emptySignature = _portfolioPayloadSignature([], [], pinnedFundDirect);
+      if (dirty && _portfolioDirtySignature(dirty) === emptySignature) {
+        _clearPortfolioRemoteDirty(dirty.epoch, retryTarget);
+      }
+      return 'empty';
+    }
+
+    if (tradesResult?.affectedFrom) {
+      const currentPending = _getPendingExplicitEmptyTradeSync(retryTarget);
+      if (currentPending === pendingEmptySync) {
+        _setPendingExplicitEmptyTradeSync({
+          from: String(tradesResult.affectedFrom || pendingEmptySync.from || ''),
+          target: retryTarget
+        });
+      }
+    }
+    if (!options?.quiet && typeof showToast === 'function') {
+      showToast('빈 거래/보유 원장 동기화가 완료되지 않았습니다. 새로고침 후에도 자동 재시도합니다.', 'warn', 7000);
+    }
+    return false;
+  });
+
+  _pendingExplicitEmptyTradeSyncFlightsByTarget.set(requestedTarget, flight);
+  try {
+    return await flight;
+  } finally {
+    if (_pendingExplicitEmptyTradeSyncFlightsByTarget.get(requestedTarget) === flight) {
+      _pendingExplicitEmptyTradeSyncFlightsByTarget.delete(requestedTarget);
+    }
+  }
+}
+
 function saveHoldings(options) {
+  const allowEmptyTradeSyncRequested = options?.allowEmptyTradeSync === true;
+  const emptyTradeSyncFrom = String(options?.emptyTradeSyncFrom || '').trim();
   // ── 1단계: localStorage는 즉시 저장 (UI 반응성 유지)
   try {
     lsSave(HOLDINGS_KEY, rawHoldings);
@@ -499,11 +931,29 @@ function saveHoldings(options) {
   // ── 2단계: GAS 동기화는 300ms debounce — 연속 호출 시 마지막 1회만 전송
   // ★ saveSettings는 여기서 호출하지 않음 — loadSettings 도중 빈 DIVDATA를 덮어쓰는 문제 방지
   if (options?.skipGsheet) return;
+  // 로컬 저장까지 성공한 실제 마지막 거래 삭제 경로만 원격 빈 원장 권한을 획득합니다.
+  // 네트워크/GAS 부분 실패 시 삭제 최초 영향일을 localStorage에 남겨 새로고침 후에도 재시도합니다.
+  if (allowEmptyTradeSyncRequested) {
+    _setPendingExplicitEmptyTradeSync({
+      from: emptyTradeSyncFrom || _getPendingExplicitEmptyTradeSync()?.from || '',
+      target: _currentGsheetSyncTarget()
+    });
+  }
+  // pending 실패 뒤 새 거래가 생겨도 성공 전에는 repair token을 지우지 않습니다.
+  // debounce는 아래 _retryPendingExplicitEmptyTradeSync()의 rawTrades>0 분기로 현재 원장을 재전송합니다.
+  _markPortfolioRemoteDirty();
+  const remoteSyncTarget = _currentGsheetSyncTarget();
   clearTimeout(_saveHoldingsGasTimer);
-  _saveHoldingsGasTimer = setTimeout(function() {
-    if (typeof syncCodesToGsheet    === 'function') syncCodesToGsheet();
-    if (typeof syncHoldingsToGsheet === 'function') syncHoldingsToGsheet();
-    if (typeof syncTradesToGsheet   === 'function') syncTradesToGsheet();
+  _saveHoldingsGasTimer = setTimeout(async function() {
+    _saveHoldingsGasTimer = null;
+    const allowEmptyTradeSync = !!_getPendingExplicitEmptyTradeSync(remoteSyncTarget);
+    if (typeof syncCodesToGsheet === 'function') syncCodesToGsheet();
+
+    if (allowEmptyTradeSync) {
+      await _retryPendingExplicitEmptyTradeSync({ targetUrl: remoteSyncTarget });
+      return;
+    }
+    await _retryPortfolioRemoteDirtySync({ targetUrl: remoteSyncTarget });
   }, 300);
 }
 
@@ -633,10 +1083,13 @@ function savePriceCache() {
   }
 }
 
-function _commitTrades() {
+function _commitTrades(options) {
   // 거래 편집 직후에는 거래이력이 보유현황의 단일 기준이므로 마지막 거래 삭제까지 반영합니다.
   syncHoldingsFromTrades({ clearWhenEmpty: true });
-  saveHoldings();
+  saveHoldings({
+    allowEmptyTradeSync: options?.allowEmptyTradeSync === true,
+    emptyTradeSyncFrom: options?.emptyTradeSyncFrom || ''
+  });
   refreshAll();
   // 현재가 편집창이 열린 상태에서 전량 매도하면 목록도 즉시 다시 계산합니다.
   // 상단 업데이트 버튼이나 팝업 재실행을 요구하지 않습니다.

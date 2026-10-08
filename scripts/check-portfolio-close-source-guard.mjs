@@ -338,4 +338,119 @@ otp=otpVm.fetchPricesKrxViaOtp(krMaster,'2026-10-06');
 assert.throws(()=>context._assessDailyKrxStockClose(krMaster,otp,'2026-10-06'),/UNCLASSIFIED_KR/,
   'CSV 시장열 자체가 없어도 미확인 KR 보유종목을 성공 분모에 합치지 않음');
 
-console.log('✅ KRX 원본 날짜/커버리지, 펀드 NAV 혼입 방지, KB 누락 날짜 배치 회귀검사 통과');
+
+const closeRunSource=extract('runDailyPortfolioClose1900');
+assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)")
+  < closeRunSource.indexOf('saveDailyPriceHistory()'), '일반 종목 단계 실행 전에 시작 마커');
+assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs)")
+  < closeRunSource.indexOf('runDailyFundValuations()'), '펀드 단계 실행 전에 단계 기록');
+assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE', runId, summary, startedMs\)/);
+assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
+  '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
+const runProps=new Map();
+const statusVm=vm.createContext({
+  CONFIG:{TIMEZONE:'Asia/Seoul'},
+  Utilities:{formatDate:()=> '2026-10-07 19:15:00'},
+  LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
+  _fundPropertyText:String,
+});
+vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
+const propertyApi={getProperty:k=>runProps.get(k)||'',setProperty:(k,v)=>runProps.set(k,v),deleteProperty:k=>runProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>runProps.set(k,v))};
+assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'NEVER_RUN',
+  '한 번도 시작하지 않은 마감');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','PRICE','run-a',null,1000);
+assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'INCOMPLETE',
+  '시간초과 중단 마감을 NEVER_RUN으로 오판 금지');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','FUND','run-a',null,1000);
+assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).stage,'FUND');
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},propertyApi).state,
+  'INCOMPLETE','같은 초의 진행 중 단계는 이전 완료값으로 오판하면 안 됨');
+assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b',null,2000),false,
+  'A가 FUND 진행 중이면 더 최신 B도 lease 안에서는 소유권을 탈취하지 못함');
+assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-a','진행 중 FUND run-id 유지');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]},1000);
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},propertyApi).state,'COMPLETE');
+assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b',null,2000),true,
+  '이전 실행이 COMPLETE면 다음 실행 시작 허용');
+assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]},1000),false,
+  'A의 늦은 완료가 B의 시작 마커를 덮지 않음');
+assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-b');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','COMPLETE','run-b',{startedAt:'2026-10-07 19:10:01',errors:[]},2000);
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:01'},propertyApi).state,'COMPLETE');
+
+// ERROR는 portfolioClose 완료기록 유무와 무관하게 INCOMPLETE보다 우선 표시해야 합니다.
+const errorProps=new Map();
+const errorApi={getProperty:k=>errorProps.get(k)||'',setProperty:(k,v)=>errorProps.set(k,v),deleteProperty:k=>errorProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>errorProps.set(k,v))};
+statusVm._recordPortfolioCloseStage(errorApi,'2026-10-07','2026-10-07 19:20:00','PRICE','run-error',null,3000);
+statusVm._recordPortfolioCloseStage(errorApi,'2026-10-07','2026-10-07 19:20:00','ERROR','run-error',{startedAt:'2026-10-07 19:20:00',errors:['forced']},3000);
+assert.equal(statusVm._portfolioCloseRunState(null,errorApi).state,'ERROR','실패한 신규 마감을 INCOMPLETE로 숨기지 않음');
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},errorApi).state,'ERROR','이전 완료 기록이 있어도 최신 ERROR 우선');
+
+// 같은 초·같은 millisecond 중복 실행은 최초 상태 소유자만 허용하고, 더 오래된 ms는 최신 실행을 덮지 못합니다.
+const sameMsProps=new Map();
+const sameMsApi={getProperty:k=>sameMsProps.get(k)||'',setProperty:(k,v)=>sameMsProps.set(k,v),deleteProperty:k=>sameMsProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>sameMsProps.set(k,v))};
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:10:00','PRICE','first',null,5000),true);
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:10:00','PRICE','same-ms-late',null,5000),false,
+  '같은 millisecond 중복 실행이 최초 run-id를 교체하지 않음');
+assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'first');
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:09:59','PRICE','older',null,4999),false,
+  '더 오래된 실행의 늦은 PRICE 마커가 최신 상태를 덮지 않음');
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:10:00','PRICE','newer',null,5001),false,
+  '활성 PRICE 실행도 lease 안에서는 더 늦은 실행이 소유권을 탈취하지 못함');
+assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'first');
+assert.equal(statusVm._recordPortfolioCloseStage(sameMsApi,'2026-10-07','2026-10-07 19:25:01','PRICE','stale-recovery',null,905001),true,
+  '15분 lease가 지난 미완료 마커는 시간초과 복구를 위해 새 실행이 인계 가능');
+assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'stale-recovery');
+const officialVm=vm.createContext({
+  _normalizeDate:String,
+  _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
+  _getKrxEndpointByMarket:x=> 'https://example.test/'+x,
+  UrlFetchApp:{fetchAll:()=>[
+    {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[{TDD_CLSPRC:'100'}]})},
+    {getResponseCode:()=>403,getContentText:()=>JSON.stringify({secret:'must-not-be-revealed'})},
+    {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[]})}
+  ]},
+  jsonOk:x=>x,
+  jsonError:x=>({error:x})
+});
+vm.runInContext(extract('handleGetKrxSourceDiagnostics'),officialVm);
+const diagnostic=officialVm.handleGetKrxSourceDiagnostics('2026-10-06');
+assert.equal(diagnostic.keyConfigured,true);
+assert.deepEqual(JSON.parse(JSON.stringify(diagnostic.markets.map(x=>x.httpStatus))),[200,403,200]);
+assert.deepEqual(JSON.parse(JSON.stringify(diagnostic.markets.map(x=>x.rows))),[1,0,0]);
+assert.doesNotMatch(JSON.stringify(diagnostic),/secret-must-not-be-revealed|must-not-be-revealed/,
+  '인증키/원문 누출 금지');
+assert.deepEqual(officialVm.handleGetKrxSourceDiagnostics('invalid').error,
+  '진단할 거래일 YYYY-MM-DD를 입력하세요.');
+const officialDateVm=vm.createContext({_normalizeDate:String});
+vm.runInContext(extract('_getOfficialKrxPriceHistoryLastDate'), officialDateVm);
+const sourceRows=[
+  ['2026-09-29','005930','','', '', 'KRX'],
+  ['2026-10-05','F00001','','','','FUND_NAV_CARRY'],
+  ['2026-10-06','005930','','','','YAHOO_KRX_BASELINE_VERIFIED_CLOSE'],
+  ['2026-10-06','005930','','','','KRX_CARRY@2026-09-29']
+];
+const mockPriceSheet={getLastRow:()=>5,getRange:()=>({getValues:()=>sourceRows})};
+assert.equal(officialDateVm._getOfficialKrxPriceHistoryLastDate(mockPriceSheet),'2026-09-29',
+  '2차 Yahoo와 펀드 NAV 날짜를 KRX 공식 종가로 오인하지 말 것');
+assert.match(source, /function handleGetKrxSourceDiagnostics/);
+assert.match(source, /getKrxSourceDiagnostics'\) return handleGetKrxSourceDiagnostics/);
+
+const historyViews=fs.readFileSync('src/web/views/views_history.js','utf8');
+const automationUI=historyViews.slice(historyViews.indexOf('async function loadAutomationStatusFromGsheet()'),
+  historyViews.indexOf('// ═', historyViews.indexOf('async function loadAutomationStatusFromGsheet()')+50));
+assert.match(automationUI, /INCOMPLETE: \['실행 중단·미완료'/,
+  '웹 카드에 INCOMPLETE 상태 번역이 있어야 함');
+assert.match(automationUI, /closeRun\.startedAt/,
+  '중단된 현재 마감의 실행 시간을 표시해야 함');
+assert.match(automationUI, /closeRun\.state === 'INCOMPLETE'/,
+  '트리거 오류와 독립적으로 실제 미완료 실행 상세를 표시');
+assert.match(automationUI, /closeRun\.stage/,
+  '중단된 현재 마감 단계를 표시해야 함');
+assert.match(automationUI, /officialKrxPriceHistoryLastDate/,
+  '공식 KRX 최근일을 전체 가격/NAV 최근일과 별도 표시해야 함');
+
+console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
+
+assert.match(source, /if \(pack\.usedYmd === ymd\) officialRows = officialRows\.concat\(rows\.slice\(firstAdded\)\)/,
+  '휴장일 KRX 대체 응답을 당일 공식 종가로 적재하면 안 됨');
