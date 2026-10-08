@@ -5,7 +5,10 @@ on:
     paths:
       - 'src/gas/apps_script.gs'
       - 'scripts/deploy-gas.mjs'
-      - 'scripts/check-gas-deploy.mjs'
+      - 'scripts/check-*.mjs'
+      - 'AGENTS.md'
+      - 'docs/QUALITY_GATES.md'
+      - '.github/pull_request_template.md'
       - 'package.json'
       - '.github/workflows/gas-deploy.yml'
   push:
