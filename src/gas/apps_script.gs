@@ -9287,13 +9287,16 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   snapshotProps.forEach(function(key) { saved[key] = props.getProperty(key); });
   try {
     var result = saveDailyPriceHistory(target);
-    _completePendingKrxCloseDate_(props, target);
-    if (target === currentDate && includeToday) {
-      // A deferred NAV may already have completed successfully. Update the
-      // same-day close summary atomically, without resetting its FUND status.
-      _portfolioFundAtomic_(function(sharedProps) {
+    // Keep the pending date until same-day close status has been persisted.
+    // The same ScriptLock protects the result/queue handshake.
+    _portfolioFundAtomic_(function(sharedProps) {
+      if (target === currentDate && includeToday) {
         var last = _portfolioFundState_(sharedProps, 'portfolio_close_last_result');
-        if (!last || last.runDate !== target || last.priceOk === true) return;
+        if (!last || last.runDate !== target) {
+          // The earlier close may have died before writing its first summary.
+          last = {runDate:target, priceOk:false, fundOk:false,
+            errors:['펀드: 마감 기록 없음·완료 상태 확인 필요']};
+        }
         last.priceOk = true;
         last.priceDate = String(result && result.date || target);
         last.priceRows = Number(result && result.rows || 0);
@@ -9306,12 +9309,18 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
         if (last.errors.length)
           sharedProps.setProperty('portfolio_close_last_error', _fundPropertyText(last.errors.join(' | '), 2000));
         else sharedProps.deleteProperty('portfolio_close_last_error');
-        if (last.fundOk && last.errors.length === 0
-            && sharedProps.getProperty('portfolio_close_run_date') === target
-            && sharedProps.getProperty('portfolio_close_stage') === 'ERROR')
-          sharedProps.setProperty('portfolio_close_stage', 'COMPLETE');
-      });
-    }
+        if (sharedProps.getProperty('portfolio_close_run_date') === target) {
+          if (last.fundOk && last.errors.length === 0
+              && sharedProps.getProperty('portfolio_close_stage') === 'ERROR')
+            sharedProps.setProperty('portfolio_close_stage', 'COMPLETE');
+          else if (sharedProps.getProperty('portfolio_close_stage') === 'PRICE'
+                   || sharedProps.getProperty('portfolio_close_stage') === 'FUND')
+            sharedProps.setProperty('portfolio_close_stage', 'ERROR');
+        }
+      }
+      // If any preceding write throws, the date remains in the retry queue.
+      _completePendingKrxCloseDate_(sharedProps, target);
+    });
     _appendPortfolioCloseSyncLog('BACKFILL_OK', target, '', 'snapshotRows=' + String(result && result.rows || 0));
     return { attempted:true, ok:true, date:target, remaining:_readPendingKrxCloseDates_(props).length };
   } catch(error) {
@@ -11008,24 +11017,16 @@ function runDailyPortfolioClose1900() {
     _appendPortfolioCloseSyncLog('FUND_ERROR', runDate, runId, errors[errors.length - 1]);
   }
 
-  // 일일 확정 마감/펀드 저장 후 이전 실패일을 1건씩 재시도합니다. 실패해도 금일 성공을 덮지 않습니다.
-  // A historical KRX replay can be slow; do not start it if daily close has
-  // already consumed half of GAS's normal six-minute execution budget.
-  // The existing pending-date queue retains skipped dates for later runs.
-  var closeElapsedMs = Date.now() - startedMs;
-  var backfill = !priceResult ? {attempted:false}
-    // A deferred fund run may still be writing valuations/Snapshot. A 19:00
-    // replay must not race those writes when FUND_BUSY or NAV failed.
-    : !fundResult ? {attempted:false, deferred:true, reason:'FUND_INCOMPLETE',
-        remaining:_readPendingKrxCloseDates_(props).length}
-    : closeElapsedMs >= 3 * 60 * 1000
-      ? {attempted:false, deferred:true, reason:'CLOSE_RUNTIME_BUDGET',
-          remaining:_readPendingKrxCloseDates_(props).length}
-      : _runPendingKrxBackfillWithLease_(props, runDate, true);
+  // Complete today's close before any potentially unbounded historical
+  // replay. Even a replay started under the former 3-minute threshold can
+  // exhaust GAS runtime and strand the current run in FUND.
+  // Historical prices/Snapshot are retried by the independent 22:10 worker.
+  var pendingBackfillCount = _readPendingKrxCloseDates_(props).length;
+  var backfill = {attempted:false, deferred:pendingBackfillCount > 0,
+    reason:'ISOLATED_NIGHTLY_BACKFILL', remaining:pendingBackfillCount};
   if (backfill.deferred) {
     _appendPortfolioCloseSyncLog('BACKFILL_DEFERRED', runDate, runId,
-      '정규 마감과 독립 백필 분리: reason=' + backfill.reason
-        + ', elapsedMs=' + closeElapsedMs + ', remaining=' + backfill.remaining);
+      '당일 마감 상태 우선 확정·독립 22:10 백필, remaining=' + pendingBackfillCount);
   }
   var summary = {
     runDate: runDate,
@@ -11111,7 +11112,7 @@ function runPortfolioCloseWatchdog2030() {
       + ', priceDate=' + String(last && last.priceDate || '') + ', krxClosed=' + calendarClosed);
   try {
     var watchdogResult = runDailyPortfolioClose1900();
-    if (watchdogResult && watchdogResult.skipped && (!last || last.priceOk !== true)) {
+    if (watchdogResult && watchdogResult.skipped) {
       // The 20:30 watchdog is a single-shot trigger. If deferred NAV owns
       // the writer, persist the skipped PRICE for the independent 22:10
       // worker (or a later nightly worker if that attempt is also busy).
@@ -11125,6 +11126,19 @@ function runPortfolioCloseWatchdog2030() {
     }
     return watchdogResult;
   } catch (error) {
+    // A thrown PRICE/Snapshot failure needs the same persistent retry as a
+    // skipped close. On a Korean holiday foreign holdings may still be open.
+    try {
+      _portfolioFundAtomic_(function(sharedProps) {
+        var latest = _portfolioFundState_(sharedProps, 'portfolio_close_last_result');
+        if (latest && latest.runDate === todayStr && latest.priceOk === true) return;
+        _enqueuePendingKrxCloseDate_(sharedProps, todayStr, true);
+      });
+      _appendPortfolioCloseSyncLog('WATCHDOG_PRICE_QUEUED', todayStr, '',
+        'watchdog 예외로 미완료 PRICE 복구 예약');
+    } catch (queueError) {
+      Logger.log('⚠️ watchdog PRICE 복구 예약 실패: ' + String(queueError && queueError.message || queueError));
+    }
     _appendPortfolioCloseSyncLog('WATCHDOG_ERROR', todayStr, '', error.message || String(error));
     throw error;
   }
