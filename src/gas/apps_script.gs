@@ -5,6 +5,7 @@
 //   KRX 가격 실패 후 펀드 평가 격리, 계정 간 중복 예약·중복 NAV 조회 방지
 //   FUND_BUSY 상태 사후 정합화 및 지연 평가 재시도·타임아웃 복구
 //   마지막 NAV 시도 경합 방지, 정상 마감의 예약 종료, 22:10 독립 KRX 누락일 복구
+//   NAV/백필 상호 lease 획득 원자화 및 백필 트리거 일일 복구
 //
 //  v9.190 변경사항 (2026.10.08):
 //   19시 당일 KRX 확정 종가·20:30 실패 watchdog, 마감 단계 영속 진단
@@ -9226,13 +9227,17 @@ var PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY = 'portfolio_close_backfill_lease_v1';
 function _runPendingKrxBackfillWithLease_(props, runDate) {
   var token = Utilities.getUuid();
   var acquired = _portfolioFundAtomic_(function(sharedProps) {
+    // Check both resources under one ScriptLock. Checking fund outside the lock
+    // allows NAV to start between this check and the backfill lease write.
+    var fundLease = _portfolioFundState_(sharedProps, PORTFOLIO_FUND_LEASE_KEY);
+    if (fundLease && Number(fundLease.until || 0) > Date.now()) return 'FUND_ACTIVE';
     var lease = _portfolioFundState_(sharedProps, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
-    if (lease && lease.until > Date.now()) return false;
+    if (lease && Number(lease.until || 0) > Date.now()) return 'BACKFILL_BUSY';
     sharedProps.setProperty(PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY,
       JSON.stringify({token:token, until:Date.now() + 7 * 60 * 1000}));
-    return true;
+    return 'ACQUIRED';
   });
-  if (!acquired) return {attempted:false, deferred:true, reason:'BACKFILL_BUSY'};
+  if (acquired !== 'ACQUIRED') return {attempted:false, deferred:true, reason:acquired};
   try {
     var result = _retryOnePendingKrxClose_(props, runDate);
     props.setProperty('portfolio_close_backfill_last_result',
@@ -9252,9 +9257,8 @@ function runPortfolioCloseBackfill2210() {
   var runDate = today();
   var stage = String(props.getProperty('portfolio_close_stage') || '');
   var startedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
-  var fundLease = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
-  if (fundLease && Number(fundLease.until || 0) > Date.now())
-    return {attempted:false, deferred:true, reason:'FUND_ACTIVE'};
+  // Fund/backfill exclusion is decided atomically inside the shared lease
+  // acquisition helper, not by a stale preflight property read.
   if ((stage === 'PRICE' || stage === 'FUND')
       && String(props.getProperty('portfolio_close_run_date') || '') === runDate
       && startedMs && Date.now() - startedMs < 15 * 60 * 1000) {
@@ -10274,15 +10278,19 @@ function _ensureDailyTriggers(autoFix) {
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v5-close-watchdog';
+  var checkToken = dateStr + '|integrity-change-v6-close-watchdog-backfill';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
-    var needsRepair = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund || !before.hasWatchdog || !before.hasIntegrityChange
-      || before.hasLegacySplitTriggers || before.hasDuplicateCloseTriggers || before.hasDuplicateWatchdogTriggers;
+    var needsRepair = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund
+      || !before.hasWatchdog || !before.hasBackfill || !before.hasIntegrityChange
+      || before.hasLegacySplitTriggers || before.hasDuplicateCloseTriggers
+      || before.hasDuplicateWatchdogTriggers || before.hasDuplicateBackfillTriggers;
     var after = needsRepair ? _ensureDailyTriggers(true) : before;
-    var healthy = after.hasClean && after.hasSave && after.hasMortgage && after.hasFund && after.hasWatchdog && after.hasIntegrityChange
-      && !after.hasLegacySplitTriggers && !after.hasDuplicateCloseTriggers && !after.hasDuplicateWatchdogTriggers;
+    var healthy = after.hasClean && after.hasSave && after.hasMortgage && after.hasFund
+      && after.hasWatchdog && after.hasBackfill && after.hasIntegrityChange
+      && !after.hasLegacySplitTriggers && !after.hasDuplicateCloseTriggers
+      && !after.hasDuplicateWatchdogTriggers && !after.hasDuplicateBackfillTriggers;
     if (healthy) props.setProperty('daily_triggers_checked_date', checkToken);
     if (needsRepair) Logger.log('✅ 웹 평가가격 조회에서 누락·레거시·중복 자동 트리거 복구 완료');
     return { checked: true, autoFixed: needsRepair };
@@ -10682,14 +10690,21 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
   var date = today();
   var acquired = _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
-    // Guard against parallel NAV network requests as well as sheet writes.
-    if (old && old.until > Date.now()) return {acquired:false, busyToken:String(old.token || '')};
+    // Bidirectional, cross-account exclusion with historical price/Snapshot replay.
+    // Both acquisitions use _portfolioFundAtomic_, so neither can slip past
+    // the other's lease check.
+    var backfill = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+    if (backfill && Number(backfill.until || 0) > Date.now())
+      return {acquired:false, busyToken:'', reason:'BACKFILL_ACTIVE'};
+    if (old && Number(old.until || 0) > Date.now())
+      return {acquired:false, busyToken:String(old.token || ''), reason:'FUND_ACTIVE'};
     props.setProperty(PORTFOLIO_FUND_LEASE_KEY,
       JSON.stringify({token:token, date:date, origin:origin, until:Date.now() + 7 * 60 * 1000}));
     return {acquired:true, busyToken:''};
   });
   if (!acquired.acquired) {
-    var busyError = new Error('FUND_BUSY: 다른 펀드 평가 실행 중 (공유 실행 lease)');
+    var busyError = new Error('FUND_BUSY: ' + (acquired.reason === 'BACKFILL_ACTIVE'
+      ? 'KRX 누락일 복구 실행 중' : '다른 펀드 평가 실행 중') + ' (공유 실행 lease)');
     busyError.fundLeaseToken = acquired.busyToken;
     throw busyError;
   }
@@ -10758,6 +10773,8 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
       return {cleanup:true, triggerId:pending.triggerId};
     var running = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
     if (running && running.until > Date.now()) return {busy:true};
+    var replay = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
+    if (replay && Number(replay.until || 0) > Date.now()) return {busy:true};
     pending.attempts += 1;
     pending.attemptToken = Utilities.getUuid();
     pending.activeUntil = Date.now() + 7 * 60 * 1000;
