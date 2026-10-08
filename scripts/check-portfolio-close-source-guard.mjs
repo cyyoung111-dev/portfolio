@@ -526,9 +526,9 @@ assert.match(backfillTrigger,/everyDays\(1\)[\s\S]*atHour\(22\)\.nearMinute\(10\
   '22:10 독립 백필 트리거');
 assert.match(closeRunSource, /_ensurePortfolioCloseBackfillTrigger\(true\)/,
   '기존 정규 19시 실행으로 백필 트리거 설치');
-assert.match(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, runDate\)/,
-  '19시와 야간 백필 모두 같은 lease 사용');
-assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate\)/,
+assert.match(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, runDate, true\)/,
+  '19시 마감은 자신의 FUND 단계 상태를 유지하면서 공유 백필 lease 사용');
+assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate, false\)/,
   '야간 실행은 통합 마감 없이 과거 날짜만 복구');
 assert.match(closeRunSource,/reason:'FUND_INCOMPLETE'/,
   '펀드 평가가 미완료이면 과거 Snapshot 백필을 동시 실행하지 않음');
@@ -632,6 +632,51 @@ assert.match(triggerSelfHeal,/before\.hasDuplicateBackfillTriggers/,
 assert.match(triggerSelfHeal,/after\.hasBackfill/,
   '백필 트리거가 있어야 복구 정상으로 캐시');
 
+// Cross-flow protection: old-backfill in progress blocks a new close PRICE
+// state before saveDailyPriceHistory may touch the same Snapshot sheets.
+const closeStageGuard=extract('_recordPortfolioCloseStage');
+assert.match(closeStageGuard,/PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY/,
+  '일일 가격 마감도 백필 lease와 원자적으로 충돌 검사');
+assert.match(backfillWorker,/if \(!fromClose\)/,
+  '야간 백필은 마감 상태를 검사하지만 정규 마감의 자체 백필은 허용');
+assert.match(backfillWorker,/return 'CLOSE_ACTIVE'/,
+  '야간 백필이 19시 가격 작업과 중복되면 새 백필 lease 미획득');
+function simulateCloseBackfillCollision(backfillExists, closeActive) {
+  const bag=new Map(), now=10000;
+  if(backfillExists)bag.set('portfolio_close_backfill_lease_v1',
+    JSON.stringify({token:'replay-live',until:20000}));
+  if(closeActive){
+    bag.set('portfolio_close_stage','PRICE');
+    bag.set('portfolio_close_run_date','2026-10-08');
+    bag.set('portfolio_close_run_started_ms','9000');
+  }
+  const p={getProperty:key=>bag.get(key)||null,
+    setProperty:(key,v)=>bag.set(key,String(v)),deleteProperty:key=>bag.delete(key),
+    setProperties:obj=>Object.entries(obj).forEach(([k,v])=>bag.set(k,String(v)))};
+  const ctx=vm.createContext({
+    Date:{now:()=>now},Utilities:{getUuid:()=> 'collision-test',
+      formatDate:()=> '2026-10-08 19:00:00'},
+    CONFIG:{TIMEZONE:'Asia/Seoul'},
+    LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
+    _portfolioFundAtomic_:callback=>callback(p),
+    _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    _fundPropertyText:String, _retryOnePendingKrxClose_:()=>({attempted:true,ok:true})
+  });
+  vm.runInContext(backfillWorker+'\n'+closeStageGuard,ctx);
+  const backfill=ctx._runPendingKrxBackfillWithLease_(p,'2026-10-08',false);
+  const close=ctx._recordPortfolioCloseStage(p,'2026-10-08','2026-10-08 19:00:00',
+    'PRICE','new-close',null,11000);
+  return {backfill,close};
+}
+const closeInProgress=simulateCloseBackfillCollision(false,true);
+assert.equal(closeInProgress.backfill.reason,'CLOSE_ACTIVE',
+  '마감 PRICE 상태가 공유 잠금 안에서 독립 백필을 차단');
+const replayInProgress=simulateCloseBackfillCollision(true,false);
+assert.equal(replayInProgress.close,false,
+  '백필 중에는 새 정규 가격 마감이 Snapshot 쓰기를 시작하지 못함');
 const runProps=new Map();
 const statusVm=vm.createContext({
   CONFIG:{TIMEZONE:'Asia/Seoul'},
@@ -639,6 +684,7 @@ const statusVm=vm.createContext({
   LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
   _fundPropertyText:String,
   _portfolioFundState_:()=>null,
+  PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
   PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
 });
 vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
