@@ -9353,6 +9353,15 @@ function _reconcileRecoveredPortfolioPrice_(props, target, result, policy) {
     last.runId = ownerRunId;
     if (!last.startedAt) last.startedAt = ownerStartedAt;
     if (!last.startedMs) last.startedMs = ownerStartedMs;
+  } else if (sameDayOwner && last.fundOk === true) {
+    // A previous same-day summary without verifiable ownership cannot be
+    // joined with the current run's new PRICE. Keep the confirmed PRICE,
+    // but require separate NAV proof instead of manufacturing COMPLETE.
+    last.fundOk = false;
+    last.errors = (last.errors || []).filter(function(reason) {
+      return !/^펀드: 실행 소유권 확인 필요/.test(String(reason));
+    });
+    last.errors.push('펀드: 실행 소유권 확인 필요 (과거 NAV 결과 미검증)');
   }
   last.priceOk = true;
   last.priceDate = String(result && result.date || target);
@@ -10749,8 +10758,13 @@ function _portfolioCloseRunState(portfolioClose, props) {
   var stageAt = props.getProperty('portfolio_close_stage_at') || '';
   var completedAt = String(portfolioClose && portfolioClose.startedAt || '');
   // 같은 초에 시작해도 진행 중 단계는 완료 상태로 취급할 수 없습니다.
+  // Matching dates and even identical formatted seconds do not make two
+  // independent CLOSE run ids the same operation.
+  var currentRunId = String(props.getProperty('portfolio_close_run_id') || '');
+  var summaryRunId = String(portfolioClose && portfolioClose.runId || '');
+  var ownerMismatch = !!currentRunId && !!summaryRunId && currentRunId !== summaryRunId;
   var pending = !!startedAt && (stage === 'PRICE' || stage === 'FUND' || !portfolioClose || startedAt > completedAt);
-  var closeSucceeded = !!portfolioClose && portfolioClose.priceOk === true
+  var closeSucceeded = !ownerMismatch && !!portfolioClose && portfolioClose.priceOk === true
     && portfolioClose.fundOk === true
     && !(portfolioClose.errors && portfolioClose.errors.length);
   // Legacy/partially reconstructed summaries may lack start metadata. Such
