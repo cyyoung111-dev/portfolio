@@ -313,7 +313,10 @@ function saveSettings(immediate, options) {
         ? JSON.parse(JSON.stringify(options.fundDirectOverride))
         : {})
     : fundDirect;
-  const settings = {
+  const settingsPatch = options?.settingsPatch && typeof options.settingsPatch === 'object'
+    ? JSON.parse(JSON.stringify(options.settingsPatch))
+    : null;
+  const settings = settingsPatch || {
     ACCT_COLORS,
     ACCT_ORDER,
     SECTOR_COLORS,
