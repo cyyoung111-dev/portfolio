@@ -1,3 +1,10 @@
+## GAS v9.189 / PR #469 브리핑 provider 보강 (2026-10-08)
+
+- 기존 KRX VKOSPI 단일 조회와 Yahoo DXY·UST10Y·WTI·GOLD·BTC를 브리핑 collector에 연결하고 K200 야간선물 readiness 계약을 강화합니다.
+- 현물 2년물 수익률로 확인되지 않은 UST2Y 및 미연결 NVDA/MU/수급/breadth는 PLANNED로 구분합니다.
+- PR #468의 손익 재계산 및 GAS v9.188 기능을 보존하고 GAS/웹 기대 버전을 9.189로 올립니다.
+- 실제 운영 배포 및 실데이터 점검은 CI 및 리뷰 후 확인합니다.
+
 ## GAS v9.188 / Settings·강제복원·펀드 Snapshot 보강 (2026-10-08)
 
 - 복구 patch와 대기 중인 전체 Settings 저장을 동시에 보존합니다. 복구 후 전체 저장은 오래된 fundDirect 필드만 제거하고 계좌·테마 등 다른 필드는 정상 저장합니다.
