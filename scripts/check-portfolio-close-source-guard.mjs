@@ -1518,9 +1518,10 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
   const bag=new Map([
     ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
     ['portfolio_close_last_result',JSON.stringify({
-      runDate:'2026-10-08',priceOk:false,fundOk:true,
+      runDate:'2026-10-08',runId:'price-proof',priceOk:false,fundOk:true,
       priceDate:'',errors:['일반 종목: price unavailable']})],
-    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_stage','ERROR']
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_run_id','price-proof'],
+    ['portfolio_close_stage','ERROR']
   ]);
   const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
     deleteProperty:k=>bag.delete(k)};
