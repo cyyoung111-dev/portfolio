@@ -456,28 +456,79 @@ assert.match(source, /if \(pack\.usedYmd === ymd\) officialRows = officialRows\.
   '휴장일 KRX 대체 응답을 당일 공식 종가로 적재하면 안 됨');
 
 
-// PR #470: 한국 19:00 마감은 뉴욕 정규장 완료일과 다름. 실제 미국 시장 날짜 보존.
-const usMarketCtx = {marketDate:'2026-10-08', hour:'6'};
-const usVm=vm.createContext({
-  Utilities:{formatDate(date,zone,format) {
-    if(zone==='America/New_York') return format==='H'?usMarketCtx.hour:usMarketCtx.marketDate;
-    if(zone==='UTC') return date.toISOString().slice(0,10);
-    throw new Error('unexpected zone:'+zone);
+// PR #470: 시장별 실제 완료 종가·KRX 누락일 큐 회귀검사.
+const ctx = {NY:{date:'2026-10-08',hour:6},JP:{date:'2026-10-08',hour:19},HK:{date:'2026-10-08',hour:18},UK:{date:'2026-10-08',hour:11}};
+const marketVm=vm.createContext({
+  Utilities:{formatDate(d,tz,fmt){
+    if(tz==='UTC')return d.toISOString().slice(0,10);
+    const k=tz==='America/New_York'?'NY':tz==='Asia/Tokyo'?'JP':tz==='Asia/Hong_Kong'?'HK':'UK';
+    return fmt==='H'?String(ctx[k].hour):ctx[k].date;
   }},
   Logger:{log(){}},
   fetchPricesKrx:()=>({}),
-  _isConfirmedHistoryPrice_:(v,date)=>v.usedDate===date
+  _isConfirmedHistoryPrice_:(p,d)=>p.usedDate===d
 });
-vm.runInContext(extract('_latestCompletedUsRegularSessionDate_'),usVm);
-const completed=(date,hour)=>{usMarketCtx.marketDate=date;usMarketCtx.hour=String(hour);return usVm._latestCompletedUsRegularSessionDate_(new Date());};
-assert.equal(completed('2026-10-08',6),'2026-10-07','KST 19시: 미국 전일 세션 완료');
-assert.equal(completed('2026-10-12',6),'2026-10-09','월요일 아침은 미국 지난 금요일 종가');
-assert.equal(completed('2026-10-10',11),'2026-10-09','미국 주말은 지난 금요일 종가');
-assert.equal(completed('2026-10-08',17),'2026-10-08','미국 당일 정규장 마감 이후 날짜');
-let actualYahooDate='';
-usVm.fetchPricesYahooRegularClose=(items,day)=>{actualYahooDate=day;return {AAPL:{price:200,usedDate:day,source:'YAHOO_REGULAR_CLOSE'}};};
-vm.runInContext(extract('fetchPricesGoogleFinance'),usVm);
-const usResult=usVm.fetchPricesGoogleFinance([{code:'AAPL',currency:'USD',market:'US'}],'2026-10-08',null,{skipKrx:true,usCloseDate:'2026-10-07'});
-assert.equal(actualYahooDate,'2026-10-07','US Yahoo 조회는 현지 완료 세션 날짜');
-assert.equal(usResult.AAPL.usedDate,'2026-10-07','US 가격 이력은 원천 완료 거래일로 저장');
-assert.match(closeSection,/usCloseDate:\s*_latestCompletedUsRegularSessionDate_\(new Date\(\)\)/);
+vm.runInContext(extract('_foreignMarketTimeZone_'),marketVm);
+vm.runInContext(extract('_foreignMarketRegularCloseCutoff_'),marketVm);
+const deadline=(item)=>marketVm._foreignMarketRegularCloseCutoff_(item,new Date());
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2026-10-07','미국 전일 완료 세션');
+assert.equal(deadline({code:'7203',currency:'JPY',market:'JP'}),'2026-10-08','일본 당일 완료 세션');
+assert.equal(deadline({code:'0700',currency:'HKD',market:'HK'}),'2026-10-08','홍콩 당일 완료 세션');
+assert.equal(deadline({code:'UK1',currency:'GBP',market:'UK'}),'2026-10-07','런던 장중에는 전일 확정값');
+ctx.NY={date:'2026-10-12',hour:6};
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2026-10-09','월요일은 직전 금요일 종가');
+let queried=[];
+marketVm.fetchPricesYahooRegularClose=(items,d,latest)=>{
+  queried.push({code:items[0].code,cutoff:d,latest});
+  const sourceDate=items[0].code==='AAPL'?'2026-10-06':d; // 미국 시장 휴장/원천 누락 이전 확정일
+  return {[items[0].code]:{price:200,usedDate:sourceDate,marketDate:sourceDate,status:'CONFIRMED',priceType:'REGULAR_CLOSE'}};
+};
+vm.runInContext(extract('fetchPricesGoogleFinance'),marketVm);
+const evalRows=marketVm.fetchPricesGoogleFinance([
+  {code:'AAPL',currency:'USD',market:'US'}, {code:'7203',currency:'JPY',market:'JP'},
+  {code:'0700',currency:'HKD',market:'HK'}],'2026-10-08',null,{skipKrx:true,useMarketCloseCutoffs:true,asOf:new Date()});
+assert.equal(queried.length,3,'해외 종목별 시장 일정에 따른 요청');
+assert.equal(queried.find(x=>x.code==='AAPL').cutoff,'2026-10-09');
+assert.equal(queried.find(x=>x.code==='7203').cutoff,'2026-10-08');
+assert.equal(evalRows.AAPL.usedDate,'2026-10-06','Yahoo 원천 실제 거래일 보존');
+assert.match(closeSection,/useMarketCloseCutoffs:\s*true, asOf: new Date\(requestedCloseDate/);
+
+const yahooVm=vm.createContext({
+  _yahooEquitySymbol_:(i)=>i.code,
+  _yahooRequest_:()=>({payload:{}}),
+  _parseYahooChart_:()=>({points:[{date:'2026-11-25',value:100},{date:'2026-11-27',value:110}]}),
+  _foreignMarketTimeZone_:()=> 'America/New_York',
+  Logger:{log(){}}
+});
+vm.runInContext(extract('fetchPricesYahooRegularClose'),yahooVm);
+assert.equal(yahooVm.fetchPricesYahooRegularClose([{code:'AAPL',market:'US'}],'2026-11-26',true).AAPL.usedDate,
+  '2026-11-25','미국 추수감사절 당일은 직전 실제 Yahoo 거래일 선택');
+
+const queueMap=new Map();
+const props={getProperty(k){return queueMap.has(k)?queueMap.get(k):null;},setProperty(k,v){queueMap.set(k,String(v));},deleteProperty(k){queueMap.delete(k);}};
+const qvm=vm.createContext({
+  Logger:{log(){}},
+  _krxCalendarStatus_:(d)=>d==='2026-10-09'?'CLOSED':'OPEN',
+  _normalizeDate:(d)=>String(d||'').slice(0,10),
+  _fundDateOffset:(d,n)=>{const z=new Date(d+'T00:00:00Z');z.setUTCDate(z.getUTCDate()+n);return z.toISOString().slice(0,10);},
+  _getLatestLifecycleValidSnapshotDate:()=> '2026-10-06',
+  _appendPortfolioCloseSyncLog:()=>{}
+});
+for(const n of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_','_completePendingKrxCloseDate_','_seedMissingKrxCloseDates_','_retryOnePendingKrxClose_']){
+  vm.runInContext(extract(n),qvm);
+}
+qvm._seedMissingKrxCloseDates_(null,props,'2026-10-10');
+assert.deepEqual(JSON.parse(JSON.stringify(qvm._readPendingKrxCloseDates_(props))),['2026-10-07','2026-10-08'],
+  '장애 기간 거래일 큐 재구성, 10/09 휴장 제외');
+props.setProperty('snapshot_last_success_date','2026-10-10');
+qvm.saveDailyPriceHistory=(date)=>{assert.equal(date,'2026-10-07');props.setProperty('snapshot_last_success_date',date);return{rows:39};};
+const backfill=qvm._retryOnePendingKrxClose_(props,'2026-10-10');
+assert.equal(backfill.ok,true);
+assert.equal(props.getProperty('snapshot_last_success_date'),'2026-10-10','과거 복구가 오늘 마지막 성공일을 덮지 않음');
+assert.deepEqual(JSON.parse(JSON.stringify(qvm._readPendingKrxCloseDates_(props))),['2026-10-08'],'1건만 처리 후 나머지 보존');
+const calendar=vm.createContext({_normalizeDate:x=>String(x||''),KRX_CONFIRMED_CLOSED_DATES_2026:{'2026-10-09':1},KRX_CONFIRMED_CLOSED_DATES_2027:{'2027-02-09':1}});
+vm.runInContext(extract('_krxCalendarStatus_'),calendar);
+assert.equal(calendar._krxCalendarStatus_('2027-02-09'),'CLOSED');
+assert.equal(calendar._krxCalendarStatus_('2027-02-10'),'OPEN');
+assert.equal(calendar._krxCalendarStatus_('2028-03-01'),'UNKNOWN','알 수 없는 연도 휴장일을 거래일 확정으로 오인하지 않음');
+console.log('✅ PR470 해외시장 세션·휴장일·KRX 누락일 큐 회귀검사 통과');
