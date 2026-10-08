@@ -9126,7 +9126,64 @@ function _getDailyHeldCodeItems(ss, dateStr, catalog) {
   });
 }
 
-function saveDailyPriceHistory() {
+// KRX 원천 장애로 저장하지 못한 실제 거래일을 날짜별로 영속 보관합니다.
+var PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY = 'portfolio_close_pending_krx_dates';
+function _readPendingKrxCloseDates_(props) {
+  var raw = props.getProperty(PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY) || '[]';
+  var parsed = [];
+  try { parsed = JSON.parse(raw); } catch(ignore) {}
+  return (Array.isArray(parsed) ? parsed : []).filter(function(date) {
+    return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
+  }).filter(function(date,index,all) { return all.indexOf(date) === index; }).sort();
+}
+function _enqueuePendingKrxCloseDate_(props, date) {
+  if (_krxCalendarStatus_(date) === 'CLOSED') return;
+  var rows = _readPendingKrxCloseDates_(props);
+  if (rows.indexOf(date) >= 0) return;
+  if (rows.length >= 300) { Logger.log('⚠️ KRX 누락일 큐 300건 초과, 전체 기간 수동 소급복구 필요'); return; }
+  rows.push(date); rows.sort();
+  props.setProperty(PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY, JSON.stringify(rows));
+}
+function _completePendingKrxCloseDate_(props, date) {
+  var before = _readPendingKrxCloseDates_(props);
+  var after = before.filter(function(d) { return d !== date; });
+  if (after.length !== before.length) props.setProperty(PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY, JSON.stringify(after));
+}
+function _seedMissingKrxCloseDates_(ss, props, runDate) {
+  var last = _normalizeDate(props.getProperty('snapshot_last_success_date') || '');
+  if (!last) last = _normalizeDate(_getLatestLifecycleValidSnapshotDate(ss));
+  if (!last || last >= runDate) return;
+  var next = _fundDateOffset(last, 1), count = 0;
+  for (; next < runDate && count < 31; next = _fundDateOffset(next, 1), count++) {
+    if (_krxCalendarStatus_(next) !== 'CLOSED') _enqueuePendingKrxCloseDate_(props, next);
+  }
+  if (next < runDate) Logger.log('⚠️ 31일 초과 장기 KRX 누락 기간은 수동/배치 복구 대상으로 남김');
+}
+function _retryOnePendingKrxClose_(props, currentDate) {
+  var queue = _readPendingKrxCloseDates_(props);
+  var target = queue.filter(function(date) { return date < currentDate; })[0];
+  if (!target) return { attempted:false, remaining:queue.length };
+  var snapshotProps = ['snapshot_last_success_date','snapshot_last_success_at','snapshot_last_error','snapshot_last_failure_at'];
+  var saved = {};
+  snapshotProps.forEach(function(key) { saved[key] = props.getProperty(key); });
+  try {
+    var result = saveDailyPriceHistory(target);
+    _completePendingKrxCloseDate_(props, target);
+    _appendPortfolioCloseSyncLog('BACKFILL_OK', target, '', 'snapshotRows=' + String(result && result.rows || 0));
+    return { attempted:true, ok:true, date:target, remaining:_readPendingKrxCloseDates_(props).length };
+  } catch(error) {
+    _appendPortfolioCloseSyncLog('BACKFILL_ERROR', target, '', String(error && error.message || error).slice(0,240));
+    return { attempted:true, ok:false, date:target, remaining:_readPendingKrxCloseDates_(props).length,
+      error:String(error && error.message || error).slice(0,240) };
+  } finally {
+    snapshotProps.forEach(function(key) {
+      if (saved[key] === null || saved[key] === undefined) props.deleteProperty(key);
+      else props.setProperty(key, saved[key]);
+    });
+  }
+}
+
+function saveDailyPriceHistory(targetDate) {
   var lock = LockService.getScriptLock();
   var locked = false;
   var props = PropertiesService.getScriptProperties();
@@ -9137,7 +9194,8 @@ function saveDailyPriceHistory() {
     locked = true;
     var ss       = getss();
     var todayStr = today();
-    var requestedCloseDate = todayStr;
+    var requestedCloseDate = _normalizeDate(targetDate || '') || todayStr;
+    if (!targetDate) _seedMissingKrxCloseDates_(ss, props, requestedCloseDate);
     var snapshotDate = '';
     var confirmedSnapshotRows = [];
 
@@ -9240,6 +9298,7 @@ function saveDailyPriceHistory() {
     SpreadsheetApp.flush();
     props.setProperty('snapshot_last_success_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
     props.setProperty('snapshot_last_success_date', snapshotDate);
+    _completePendingKrxCloseDate_(props, requestedCloseDate);
     props.deleteProperty('snapshot_last_failure_at');
     props.deleteProperty('snapshot_last_error');
     if (snapshotOperationId) _settleSnapshotBackupOperation(ss, snapshotOperationId, true);
@@ -9249,6 +9308,8 @@ function saveDailyPriceHistory() {
     if (snapshotOperationId) _settleSnapshotBackupOperation(typeof ss !== 'undefined' ? ss : getss(), snapshotOperationId, false, err.message);
     props.setProperty('snapshot_last_failure_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
     props.setProperty('snapshot_last_error', ((err && err.message) ? err.message : String(err)).slice(0, 1000));
+    try { if (typeof requestedCloseDate !== 'undefined' && requestedCloseDate)
+        _enqueuePendingKrxCloseDate_(props, requestedCloseDate); } catch(queueError) { Logger.log('⚠️ 실패 거래일 큐 기록 오류: ' + queueError.message); }
     Logger.log('❌ saveDailyPriceHistory 실패: ' + err.message);
     throw err;
   } finally {
@@ -10088,6 +10149,7 @@ function _getAutomationStatusData() {
   var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
   var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
   var portfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
+  var pendingKrxCloseDates = _readPendingKrxCloseDates_(props);
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasIntegrityChange;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
   var hasDuplicateCloseTriggers = !!trig.hasDuplicateCloseTriggers;
@@ -10099,7 +10161,7 @@ function _getAutomationStatusData() {
   else if (!portfolioClose) overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN';
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
-  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
+  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length) overallStatus = 'WARNING';
 
   return {
     gasVersion: '9.190',
@@ -10123,6 +10185,7 @@ function _getAutomationStatusData() {
     closeRun: closeRun,
     officialKrxPriceHistoryLastDate: officialKrxPriceHistoryLastDate,
     portfolioCloseRunStale: portfolioCloseRunStale,
+    pendingKrxCloseDates: pendingKrxCloseDates,
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
@@ -10375,10 +10438,13 @@ function runDailyPortfolioClose1900() {
     _appendPortfolioCloseSyncLog('FUND_ERROR', runDate, runId, errors[errors.length - 1]);
   }
 
+  // 일일 확정 마감/펀드 저장 후 이전 실패일을 1건씩 재시도합니다. 실패해도 금일 성공을 덮지 않습니다.
+  var backfill = priceResult ? _retryOnePendingKrxClose_(props, runDate) : { attempted:false };
   var summary = {
     runDate: runDate,
     startedAt: startedAt,
     finishedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+    backfill: backfill,
     priceOk: !!priceResult,
     priceDate: priceResult && priceResult.date ? priceResult.date : '',
     priceRows: priceResult && isFinite(Number(priceResult.rows)) ? Number(priceResult.rows) : 0,
