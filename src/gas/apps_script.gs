@@ -9236,9 +9236,11 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
     if (!fromClose) {
       var closeStage = String(sharedProps.getProperty('portfolio_close_stage') || '');
       var closeStarted = Number(sharedProps.getProperty('portfolio_close_run_started_ms') || 0);
+      // A close that started before KST midnight still owns the writer.
+      // Date equality is insufficient for mutual exclusion of shared sheets.
+      var closeAgeMs = Date.now() - closeStarted;
       if ((closeStage === 'PRICE' || closeStage === 'FUND')
-          && String(sharedProps.getProperty('portfolio_close_run_date') || '') === runDate
-          && closeStarted && Date.now() - closeStarted < 15 * 60 * 1000)
+          && closeStarted && closeAgeMs >= 0 && closeAgeMs < 15 * 60 * 1000)
         return 'CLOSE_ACTIVE';
     }
     var lease = _portfolioFundState_(sharedProps, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
@@ -10545,6 +10547,10 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
       // check under the same ScriptLock (no check-then-start gap).
       var replayLease = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
       if (replayLease && Number(replayLease.until || 0) > Date.now()) return false;
+      // PRICE/Snapshot must not start while deferred NAV owns its lease.
+      // This check and the PRICE marker write share the ScriptLock.
+      var navLease = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
+      if (navLease && Number(navLease.until || 0) > Date.now()) return false;
       var otherRunActive = currentRunId && currentRunId !== String(runId || '')
         && (currentStage === 'PRICE' || currentStage === 'FUND');
       // Apps Script 정상 실행 제한을 충분히 넘는 15분 lease 안에서는 진행 중 실행의
@@ -10703,6 +10709,16 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
     var backfill = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
     if (backfill && Number(backfill.until || 0) > Date.now())
       return {acquired:false, busyToken:'', reason:'BACKFILL_ACTIVE'};
+    // Block deferred NAV across the gap between the regular PRICE marker
+    // and the regular close's own FUND lease, including after midnight.
+    if (origin === 'DEFERRED') {
+      var closeStage = String(props.getProperty('portfolio_close_stage') || '');
+      var closeStarted = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+      var closeAge = Date.now() - closeStarted;
+      if ((closeStage === 'PRICE' || closeStage === 'FUND')
+          && closeStarted && closeAge >= 0 && closeAge < 15 * 60 * 1000)
+        return {acquired:false, busyToken:'', reason:'CLOSE_ACTIVE'};
+    }
     if (old && Number(old.until || 0) > Date.now())
       return {acquired:false, busyToken:String(old.token || ''), reason:'FUND_ACTIVE'};
     props.setProperty(PORTFOLIO_FUND_LEASE_KEY,
@@ -10711,7 +10727,8 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
   });
   if (!acquired.acquired) {
     var busyError = new Error('FUND_BUSY: ' + (acquired.reason === 'BACKFILL_ACTIVE'
-      ? 'KRX 누락일 복구 실행 중' : '다른 펀드 평가 실행 중') + ' (공유 실행 lease)');
+      ? 'KRX 누락일 복구 실행 중' : acquired.reason === 'CLOSE_ACTIVE'
+        ? '통합 마감 PRICE/FUND 실행 중' : '다른 펀드 평가 실행 중') + ' (공유 실행 lease)');
     busyError.fundLeaseToken = acquired.busyToken;
     throw busyError;
   }
