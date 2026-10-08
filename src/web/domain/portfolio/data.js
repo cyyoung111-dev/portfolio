@@ -666,7 +666,7 @@ async function _retryPortfolioRemoteDirtySync(options) {
             targetUrl,
             generation,
             allowDuringRestore,
-            fundDirectOverride: dirty.fundDirect
+            settingsPatch: { fundDirect: dirty.fundDirect }
           })
         : false;
       if (!settingsOk) return false;
@@ -727,7 +727,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
 
   const flight = _queuePortfolioRemoteSync(requestedTarget, async () => {
     const pendingEmptySync = _getPendingExplicitEmptyTradeSync(requestedTarget);
-    if (!pendingEmptySync) return true;
+    if (!pendingEmptySync) return 'none';
     const retryTarget = pendingEmptySync.target;
     const retryGeneration = typeof getGsheetConnectionGeneration === 'function'
       ? getGsheetConnectionGeneration()
@@ -783,7 +783,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
               targetUrl: retryTarget,
               generation: retryGeneration,
               allowDuringRestore,
-              fundDirectOverride: recoveryFundDirect
+              settingsPatch: { fundDirect: recoveryFundDirect }
             })
           : false;
         if (!settingsOk) break;
@@ -795,7 +795,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
         if (dirty && _portfolioDirtySignature(dirty) === recoverySignature) {
           _clearPortfolioRemoteDirty(dirty.epoch, retryTarget);
         }
-        return true;
+        return 'current';
       }
 
       if (!options?.quiet && typeof showToast === 'function') {
@@ -853,7 +853,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
             targetUrl: retryTarget,
             generation: retryGeneration,
             allowDuringRestore,
-            fundDirectOverride: pinnedFundDirect
+            settingsPatch: { fundDirect: pinnedFundDirect }
           })
         : false;
       if (!settingsOk) return false;
@@ -865,7 +865,7 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
       if (dirty && _portfolioDirtySignature(dirty) === emptySignature) {
         _clearPortfolioRemoteDirty(dirty.epoch, retryTarget);
       }
-      return true;
+      return 'empty';
     }
 
     if (tradesResult?.affectedFrom) {
