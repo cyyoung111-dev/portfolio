@@ -1,3 +1,11 @@
+## GAS v9.189 / 당일 마감·watchdog 보강 (2026-10-08)
+
+- 19시 통합 마감은 정규 거래일 당일 KRX exact-date 종가를 우선 저장합니다.
+- 정규 거래일에 KRX가 전일값만 반환하면 당일 마감으로 저장하지 않고 실패 처리합니다.
+- 20:30 `runPortfolioCloseWatchdog2030`가 당일 마감 미완료/오류만 한 번 재시도합니다.
+- 통합 마감 START/PRICE/FUND/COMPLETE/ERROR 단계는 `동기화로그`에 `PORTFOLIO_CLOSE`로 영속 기록합니다.
+- GAS `9.189`, 서비스워커 `portfolio-cache-20261008-10`, settings_fetch `20261008-3`.
+
 ## GAS v9.188 / Settings·강제복원·펀드 Snapshot 보강 (2026-10-08)
 
 - 복구 patch와 대기 중인 전체 Settings 저장을 동시에 보존합니다. 복구 후 전체 저장은 오래된 fundDirect 필드만 제거하고 계좌·테마 등 다른 필드는 정상 저장합니다.
