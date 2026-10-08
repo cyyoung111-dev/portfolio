@@ -490,6 +490,7 @@ const deferredVm=vm.createContext({
   Utilities:{getUuid:()=> 'attempt-3'},
   PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
   PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+  PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
   _portfolioFundAtomic_:cb=>cb(deferredProps),
   _portfolioFundState_:(p,key)=>JSON.parse(p.getProperty(key)||'null'),
   ScriptApp:{getProjectTriggers:()=>[deferredTrigger],deleteTrigger:t=>deletedTriggers.push(t)},
