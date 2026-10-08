@@ -9192,14 +9192,23 @@ function _readPendingKrxCloseDates_(props) {
     return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
   }).filter(function(date,index,all) { return all.indexOf(date) === index; }).sort();
 }
-function _enqueuePendingKrxCloseDate_(props, date, allowClosed) {
-  // The watchdog can preserve a missed foreign-only holiday snapshot too.
-  if (!allowClosed && _krxCalendarStatus_(date) === 'CLOSED') return;
+function _enqueuePendingKrxCloseDate_(props, date, allowClosed, urgent) {
+  // 20:30 watchdog failures must be recorded even if the older-date backlog
+  // has reached its ordinary 300-date cap. A 600-entry YYYY-MM-DD JSON array
+  // remains under Apps Script's 9 KB per-property value limit.
+  if (!allowClosed && _krxCalendarStatus_(date) === 'CLOSED') return false;
   var rows = _readPendingKrxCloseDates_(props);
-  if (rows.indexOf(date) >= 0) return;
-  if (rows.length >= 300) { Logger.log('⚠️ KRX 누락일 큐 300건 초과, 전체 기간 수동 소급복구 필요'); return; }
+  if (rows.indexOf(date) >= 0) return true;
+  if (rows.length >= (urgent ? 600 : 300)) {
+    var overflow = 'KRX 누락일 큐 저장 한도 (' + rows.length
+      + '건) 초과: ' + date + (urgent ? ' · 당일 복구 예약 실패' : ' · 이전 누락일 추가 보류');
+    Logger.log('⚠️ ' + overflow);
+    if (urgent) throw new Error(overflow);
+    return false;
+  }
   rows.push(date); rows.sort();
   props.setProperty(PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY, JSON.stringify(rows));
+  return true;
 }
 function _completePendingKrxCloseDate_(props, date) {
   var before = _readPendingKrxCloseDates_(props);
@@ -11158,7 +11167,7 @@ function runPortfolioCloseWatchdog2030() {
       _portfolioFundAtomic_(function(sharedProps) {
         var latest = _portfolioFundState_(sharedProps, 'portfolio_close_last_result');
         if (latest && latest.runDate === todayStr && latest.priceOk === true) return;
-        _enqueuePendingKrxCloseDate_(sharedProps, todayStr, true);
+        _enqueuePendingKrxCloseDate_(sharedProps, todayStr, true, true);
       });
       _appendPortfolioCloseSyncLog('WATCHDOG_PRICE_QUEUED', todayStr, '',
         '마감 충돌로 건너뛴 확정 가격을 야간 독립 백필 대기열에 보관');
@@ -11171,7 +11180,7 @@ function runPortfolioCloseWatchdog2030() {
       _portfolioFundAtomic_(function(sharedProps) {
         var latest = _portfolioFundState_(sharedProps, 'portfolio_close_last_result');
         if (latest && latest.runDate === todayStr && latest.priceOk === true) return;
-        _enqueuePendingKrxCloseDate_(sharedProps, todayStr, true);
+        _enqueuePendingKrxCloseDate_(sharedProps, todayStr, true, true);
       });
       _appendPortfolioCloseSyncLog('WATCHDOG_PRICE_QUEUED', todayStr, '',
         'watchdog 예외로 미완료 PRICE 복구 예약');
