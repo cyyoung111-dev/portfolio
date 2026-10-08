@@ -693,6 +693,7 @@ async function loadSettings(onProgress, options) {
     // 새로고침 직후 빈 메모리 상태로 보유현황을 먼저 동기화하면 TDF/직접펀드까지 지울 수 있으므로
     // 반드시 비거래 보유 원자료를 복원한 다음, 아래 거래/보유 원격 복원보다 먼저 처리합니다.
     let pendingEmptySyncResolvedAtLoad = false;
+    let pendingEmptySyncResolvedAsEmptyAtLoad = false;
     if (pendingEmptySyncAtLoad
         && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
       if (!hasAuthoritativeFundDirect) {
@@ -718,9 +719,9 @@ async function loadSettings(onProgress, options) {
         });
       }
       prog('빈 거래원장 동기화 재시도 중...');
-      let pendingRetryOk = false;
+      let pendingRetryResult = false;
       try {
-        pendingRetryOk = await _retryPendingExplicitEmptyTradeSync({
+        pendingRetryResult = await _retryPendingExplicitEmptyTradeSync({
           quiet: true,
           allowDuringRestore: true,
           preferCurrentPortfolio: dirtyPortfolioSyncResolvedAtLoad && rawTrades.length > 0,
@@ -731,8 +732,9 @@ async function loadSettings(onProgress, options) {
       }
       if (!isLoadConnectionCurrent()) return false;
       // 성공 확인 전에는 복원 완료/쓰기 가능 상태로 승격하지 않습니다.
-      if (!pendingRetryOk) return false;
+      if (!pendingRetryResult) return false;
       pendingEmptySyncResolvedAtLoad = true;
+      pendingEmptySyncResolvedAsEmptyAtLoad = pendingRetryResult === 'empty';
     }
 
     // ── GSheet 설정 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
@@ -798,7 +800,7 @@ async function loadSettings(onProgress, options) {
 
     // pending 삭제 재시도가 성공한 강제 복원에서는 서버에 방금 확정한 빈 거래/보유 상태를
     // 메모리에도 즉시 적용합니다. 이전 연결의 rawTrades/rawHoldings를 남긴 채 복원 완료로 표시하지 않습니다.
-    if (forcePortfolioRestore && pendingEmptySyncResolvedAtLoad) {
+    if (forcePortfolioRestore && pendingEmptySyncResolvedAsEmptyAtLoad) {
       rawTrades.length = 0;
       rawHoldings.length = 0;
       saveHoldings({ skipGsheet: true });
