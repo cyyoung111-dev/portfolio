@@ -655,7 +655,8 @@ function simulateCloseBackfillCollision(backfillExists, closeActive) {
     setProperty:(key,v)=>bag.set(key,String(v)),deleteProperty:key=>bag.delete(key),
     setProperties:obj=>Object.entries(obj).forEach(([k,v])=>bag.set(k,String(v)))};
   const ctx=vm.createContext({
-    Date:{now:()=>now},Utilities:{getUuid:()=> 'collision-test',
+    Date:class CloseTestDate extends Date {static now(){return now;}},
+    Utilities:{getUuid:()=> 'collision-test',
       formatDate:()=> '2026-10-08 19:00:00'},
     CONFIG:{TIMEZONE:'Asia/Seoul'},
     LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
