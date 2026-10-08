@@ -242,5 +242,5 @@ assert.match(web, /일반 종가 이월 예시/,'이월 종가의 종목·평가
 assert.match(gas, /carriedFundSamples/,'손익 원자료 응답에 펀드 NAV 이월 예시 포함');
 assert.match(gas, /carriedPriceSamples/,'손익 원자료 응답에 일반 종가 이월 예시 포함');
 assert.match(indexHtml,/views_history_pipeline\.js\?v=20261007-6/);
-assert.match(sw,/portfolio-cache-20261008-6/);
+assert.match(sw,/portfolio-cache-20261008-7/);
 console.log('✅ 펀드 직전 확정 NAV 이월·좌수 변경·0좌·미래값 차단·원자료 손익 회귀 검사 통과');
