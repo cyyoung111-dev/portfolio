@@ -1657,6 +1657,7 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),_appendPortfolioCloseSyncLog:()=>{},
+    _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
     saveDailyPriceHistory:date=>{
       visited.push(date);
       if(date==='2026-10-06')throw Error('unavailable historical KRX');
