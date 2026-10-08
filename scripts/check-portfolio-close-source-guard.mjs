@@ -1378,3 +1378,53 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
 }
 
 console.log('✅ PR472 품질 게이트: 예약 선차단·경합 롤백·watchdog 보류·당일 백필·결과 정합성');
+
+// Manual Snapshot write must join the same writer-exclusion protocol as
+// regular CLOSE, deferred NAV, and historical backfill.
+{
+  const guardedManual=extract('_runManualPriceSnapshotGuarded_');
+  const manualEntry=extract('runDailyPriceSnapshotNow');
+  const legacyEntry=extract('runEvalPriceUpdate1620');
+  assert.match(manualEntry,/_runManualPriceSnapshotGuarded_\(\)/,
+    '수동 가격 갱신 메뉴가 동일 writer lease 경로를 사용');
+  assert.match(legacyEntry,/_runManualPriceSnapshotGuarded_\(\)/,
+    '레거시 수동 호출이 공유 잠금 우회하지 않음');
+  function simulateManual(busyType) {
+    const now=1000000, bag=new Map(), events=[];
+    const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+      deleteProperty:k=>bag.delete(k)};
+    if(busyType==='FUND')bag.set('portfolio_fund_run_lease_v1',JSON.stringify({token:'nav',until:now+1000}));
+    if(busyType==='BACKFILL')bag.set('portfolio_close_backfill_lease_v1',JSON.stringify({token:'replay',until:now+1000}));
+    if(busyType==='CLOSE'){
+      bag.set('portfolio_close_stage','PRICE');
+      bag.set('portfolio_close_run_started_ms',String(now-1000));
+    }
+    const ctx=vm.createContext({
+      Date:{now:()=>now},Utilities:{getUuid:()=> 'manual-test'},
+      PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+      PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+      _portfolioFundAtomic_:cb=>cb(p),
+      _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
+      saveDailyPriceHistory:()=>{
+        events.push('price');
+        assert.equal(JSON.parse(p.getProperty('portfolio_close_backfill_lease_v1')).token,'manual-test',
+          '실제 시트 쓰기 동안 타 작성자를 차단하는 lease 유지');
+        return {rows:7,date:'2026-10-08'};
+      }
+    });
+    vm.runInContext(guardedManual,ctx);
+    let result;
+    try{result=ctx._runManualPriceSnapshotGuarded_();}
+    catch(error){result={error:String(error.message)};}
+    return {result,events,lease:p.getProperty('portfolio_close_backfill_lease_v1')};
+  }
+  for(const type of ['FUND','BACKFILL','CLOSE']){
+    const blocked=simulateManual(type);
+    assert.equal(blocked.events.length,0,type+' 활성 시 수동 PRICE 쓰기 금지');
+    assert.match(blocked.result.error,/PRICE_BUSY/,type+' 경합을 사용자에게 명확히 알림');
+  }
+  const allowed=simulateManual('');
+  assert.equal(allowed.events.length,1,'충돌이 해소된 수동 PRICE는 정상 실행');
+  assert.equal(allowed.lease,null,'수동 PRICE 정상 완료 후 lease 정확히 정리');
+}
+console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통합 마감과 상호 배제');
