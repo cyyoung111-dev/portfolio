@@ -9186,8 +9186,9 @@ function _readPendingKrxCloseDates_(props) {
     return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
   }).filter(function(date,index,all) { return all.indexOf(date) === index; }).sort();
 }
-function _enqueuePendingKrxCloseDate_(props, date) {
-  if (_krxCalendarStatus_(date) === 'CLOSED') return;
+function _enqueuePendingKrxCloseDate_(props, date, allowClosed) {
+  // The watchdog can preserve a missed foreign-only holiday snapshot too.
+  if (!allowClosed && _krxCalendarStatus_(date) === 'CLOSED') return;
   var rows = _readPendingKrxCloseDates_(props);
   if (rows.indexOf(date) >= 0) return;
   if (rows.length >= 300) { Logger.log('⚠️ KRX 누락일 큐 300건 초과, 전체 기간 수동 소급복구 필요'); return; }
@@ -9251,7 +9252,7 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
   });
   if (acquired !== 'ACQUIRED') return {attempted:false, deferred:true, reason:acquired};
   try {
-    var result = _retryOnePendingKrxClose_(props, runDate);
+    var result = _retryOnePendingKrxClose_(props, runDate, !fromClose);
     props.setProperty('portfolio_close_backfill_last_result',
       JSON.stringify({runDate:runDate, checkedAt:Date.now(), result:result}));
     return result;
@@ -9273,9 +9274,11 @@ function runPortfolioCloseBackfill2210() {
     Logger.log('⚠️ 독립 KRX 누락일 복구 실패: ' + String(result.error || result.date || 'unknown'));
   return result;
 }
-function _retryOnePendingKrxClose_(props, currentDate) {
+function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   var queue = _readPendingKrxCloseDates_(props);
-  var target = queue.filter(function(date) { return date < currentDate; })[0];
+  // Only the isolated nightly worker may replay a current-day watchdog skip.
+  // A normal close's inline historical replay must not overwrite its own PRICE.
+  var target = queue.filter(function(date) { return date < currentDate || (includeToday && date === currentDate); })[0];
   if (!target) return { attempted:false, remaining:queue.length };
   var snapshotProps = ['snapshot_last_success_date','snapshot_last_success_at','snapshot_last_error','snapshot_last_failure_at'];
   var saved = {};
@@ -9283,6 +9286,30 @@ function _retryOnePendingKrxClose_(props, currentDate) {
   try {
     var result = saveDailyPriceHistory(target);
     _completePendingKrxCloseDate_(props, target);
+    if (target === currentDate && includeToday) {
+      // A deferred NAV may already have completed successfully. Update the
+      // same-day close summary atomically, without resetting its FUND status.
+      _portfolioFundAtomic_(function(sharedProps) {
+        var last = _portfolioFundState_(sharedProps, 'portfolio_close_last_result');
+        if (!last || last.runDate !== target || last.priceOk === true) return;
+        last.priceOk = true;
+        last.priceDate = String(result && result.date || target);
+        last.priceRows = Number(result && result.rows || 0);
+        if (result && typeof result.krxCloseRequired === 'boolean')
+          last.krxCloseRequired = result.krxCloseRequired;
+        last.errors = (last.errors || []).filter(function(reason) {
+          return !/^일반 종목:/.test(String(reason));
+        });
+        sharedProps.setProperty('portfolio_close_last_result', JSON.stringify(last));
+        if (last.errors.length)
+          sharedProps.setProperty('portfolio_close_last_error', _fundPropertyText(last.errors.join(' | '), 2000));
+        else sharedProps.deleteProperty('portfolio_close_last_error');
+        if (last.fundOk && last.errors.length === 0
+            && sharedProps.getProperty('portfolio_close_run_date') === target
+            && sharedProps.getProperty('portfolio_close_stage') === 'ERROR')
+          sharedProps.setProperty('portfolio_close_stage', 'COMPLETE');
+      });
+    }
     _appendPortfolioCloseSyncLog('BACKFILL_OK', target, '', 'snapshotRows=' + String(result && result.rows || 0));
     return { attempted:true, ok:true, date:target, remaining:_readPendingKrxCloseDates_(props).length };
   } catch(error) {
@@ -9290,7 +9317,9 @@ function _retryOnePendingKrxClose_(props, currentDate) {
     return { attempted:true, ok:false, date:target, remaining:_readPendingKrxCloseDates_(props).length,
       error:String(error && error.message || error).slice(0,240) };
   } finally {
-    snapshotProps.forEach(function(key) {
+    // Historical replay preserves today's last-success marker; same-day
+    // recovery must keep its freshly written snapshot status instead.
+    if (target !== currentDate) snapshotProps.forEach(function(key) {
       if (saved[key] === null || saved[key] === undefined) props.deleteProperty(key);
       else props.setProperty(key, saved[key]);
     });
@@ -10730,6 +10759,7 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
       ? 'KRX 누락일 복구 실행 중' : acquired.reason === 'CLOSE_ACTIVE'
         ? '통합 마감 PRICE/FUND 실행 중' : '다른 펀드 평가 실행 중') + ' (공유 실행 lease)');
     busyError.fundLeaseToken = acquired.busyToken;
+    busyError.fundBusyReason = acquired.reason; // no NAV work has started
     throw busyError;
   }
   try {
@@ -10785,7 +10815,7 @@ function _reconcilePortfolioFundBusy_(date) {
 function runDeferredFundAfterPortfolioCloseFailure(e) {
   var runDate = today();
   var triggerId = e && e.triggerUid ? String(e.triggerUid) : '';
-  var shouldCleanup = false, shouldRun = false;
+  var shouldCleanup = false, shouldRun = false, blockedBeforeRun = false;
   var reservation = _portfolioFundAtomic_(function(props) {
     var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
     if (!pending || (triggerId && pending.triggerId !== triggerId)) return null;
@@ -10799,6 +10829,14 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     if (running && running.until > Date.now()) return {busy:true};
     var replay = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
     if (replay && Number(replay.until || 0) > Date.now()) return {busy:true};
+    // Lease exclusion must be checked before consuming the final retry.
+    // A second check when NAV acquires its lease handles a later PRICE race.
+    var closeStage = String(props.getProperty('portfolio_close_stage') || '');
+    var closeStarted = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+    var closeAge = Date.now() - closeStarted;
+    if ((closeStage === 'PRICE' || closeStage === 'FUND')
+        && closeStarted && closeAge >= 0 && closeAge < 15 * 60 * 1000)
+      return {busy:true};
     pending.attempts += 1;
     pending.attemptToken = Utilities.getUuid();
     pending.activeUntil = Date.now() + 7 * 60 * 1000;
@@ -10830,7 +10868,13 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
   } catch(err) {
     _appendPortfolioCloseSyncLog('FUND_DEFERRED_ERROR', runDate, '',
       String(err && err.message || err).slice(0,240));
-    // Do not delete the recurring trigger: remaining bounded attempts will retry.
+    // If NAV lease acquisition failed, no NAV work began: return the attempt
+    // under the same reservation token and keep its recurring retry trigger.
+    if (err && err.fundBusyReason) {
+      blockedBeforeRun = true;
+      return {skipped:true, reason:'FUND_BUSY_RETRY_LATER', conflict:err.fundBusyReason};
+    }
+    // Real NAV errors consume an attempt; remaining bounded attempts retry.
     throw err;
   } finally {
     // Clear only this attempt's marker. If the GAS process is hard-killed,
@@ -10841,6 +10885,11 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
       if (shouldCleanup) {
         props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
       } else if (shouldRun && pending.attemptToken === reservation.attemptToken) {
+        if (blockedBeforeRun) {
+          pending.attempts = Math.max(0, Number(pending.attempts || 0) - 1);
+          // Allow one more trigger firing after a blocked near-expiry attempt.
+          pending.until = Math.max(Number(pending.until || 0), Date.now() + 12 * 60 * 1000);
+        }
         delete pending.attemptToken;
         delete pending.activeUntil;
         props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
@@ -10882,6 +10931,7 @@ function runDailyPortfolioClose1900() {
 
   try {
     priceResult = saveDailyPriceHistory();
+    _portfolioFundAtomic_(function(sharedProps) { _completePendingKrxCloseDate_(sharedProps, runDate); });
     _appendPortfolioCloseSyncLog('PRICE_DONE', runDate, runId,
       'date=' + String(priceResult && priceResult.date || '') + ', rows=' + String(priceResult && priceResult.rows || 0));
   } catch (priceErr) {
@@ -11043,7 +11093,20 @@ function runPortfolioCloseWatchdog2030() {
     'state=' + state.state + ', lastRun=' + String(last && last.runDate || '')
       + ', priceDate=' + String(last && last.priceDate || '') + ', krxClosed=' + calendarClosed);
   try {
-    return runDailyPortfolioClose1900();
+    var watchdogResult = runDailyPortfolioClose1900();
+    if (watchdogResult && watchdogResult.skipped && (!last || last.priceOk !== true)) {
+      // The 20:30 watchdog is a single-shot trigger. If deferred NAV owns
+      // the writer, persist the skipped PRICE for the independent 22:10
+      // worker (or a later nightly worker if that attempt is also busy).
+      _portfolioFundAtomic_(function(sharedProps) {
+        var latest = _portfolioFundState_(sharedProps, 'portfolio_close_last_result');
+        if (latest && latest.runDate === todayStr && latest.priceOk === true) return;
+        _enqueuePendingKrxCloseDate_(sharedProps, todayStr, true);
+      });
+      _appendPortfolioCloseSyncLog('WATCHDOG_PRICE_QUEUED', todayStr, '',
+        '마감 충돌로 건너뛴 확정 가격을 야간 독립 백필 대기열에 보관');
+    }
+    return watchdogResult;
   } catch (error) {
     _appendPortfolioCloseSyncLog('WATCHDOG_ERROR', todayStr, '', error.message || String(error));
     throw error;
