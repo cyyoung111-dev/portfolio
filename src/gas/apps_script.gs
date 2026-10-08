@@ -9252,6 +9252,9 @@ function runPortfolioCloseBackfill2210() {
   var runDate = today();
   var stage = String(props.getProperty('portfolio_close_stage') || '');
   var startedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+  var fundLease = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
+  if (fundLease && Number(fundLease.until || 0) > Date.now())
+    return {attempted:false, deferred:true, reason:'FUND_ACTIVE'};
   if ((stage === 'PRICE' || stage === 'FUND')
       && String(props.getProperty('portfolio_close_run_date') || '') === runDate
       && startedMs && Date.now() - startedMs < 15 * 60 * 1000) {
@@ -10909,13 +10912,18 @@ function runDailyPortfolioClose1900() {
   // The existing pending-date queue retains skipped dates for later runs.
   var closeElapsedMs = Date.now() - startedMs;
   var backfill = !priceResult ? {attempted:false}
+    // A deferred fund run may still be writing valuations/Snapshot. A 19:00
+    // replay must not race those writes when FUND_BUSY or NAV failed.
+    : !fundResult ? {attempted:false, deferred:true, reason:'FUND_INCOMPLETE',
+        remaining:_readPendingKrxCloseDates_(props).length}
     : closeElapsedMs >= 3 * 60 * 1000
       ? {attempted:false, deferred:true, reason:'CLOSE_RUNTIME_BUDGET',
           remaining:_readPendingKrxCloseDates_(props).length}
       : _runPendingKrxBackfillWithLease_(props, runDate);
   if (backfill.deferred) {
     _appendPortfolioCloseSyncLog('BACKFILL_DEFERRED', runDate, runId,
-      '정규 마감 시간 예산 보호: elapsedMs=' + closeElapsedMs + ', remaining=' + backfill.remaining);
+      '정규 마감과 독립 백필 분리: reason=' + backfill.reason
+        + ', elapsedMs=' + closeElapsedMs + ', remaining=' + backfill.remaining);
   }
   var summary = {
     runDate: runDate,
