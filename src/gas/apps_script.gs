@@ -2,6 +2,8 @@
 //  📊 포트폴리오 대시보드 — Google Apps Script  v9.191
 //
 //  v9.191 변경사항 (2026.10.08~10.09):
+//   CLOSE summary의 runId 보존·식별자 없는 이전 실행/NAV 결합 차단
+//   PRICE 복구·운영 UI도 다른 runId의 성공을 합산하지 않도록 검증
 //   복구 summary에 원 실행 시작 시각 복원·부분 완료 UI 상태 정상화
 //   동일 날짜 다른 run-id의 PRICE/NAV 성공 증거 혼용 차단
 //   정상 CLOSE NAV 성공 후 summary 실패 대비 run-id 성공 마커와 야간 재정합
