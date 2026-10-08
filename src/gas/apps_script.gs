@@ -10482,26 +10482,53 @@ function runDailyPortfolioClose1900() {
   return summary;
 }
 
+function _hasForeignHeldItemsForCloseWatchdog_(dateStr) {
+  var ss = getss();
+  return _getDailyHeldCodeItems(ss, dateStr, getCodeItems(ss)).some(function(item) {
+    var market = String(item && item.market || '').toUpperCase();
+    var currency = String(item && item.currency || 'KRW').toUpperCase();
+    return currency !== 'KRW' || market === 'US' || market === 'JP' || market === 'TSE'
+      || market === 'HK' || market === 'HKEX' || market === 'UK' || market === 'LSE' || market === 'EU';
+  });
+}
 function runPortfolioCloseWatchdog2030() {
   var todayStr = today();
-  if (_krxCalendarStatus_(todayStr) === 'CLOSED') {
-    _appendPortfolioCloseSyncLog('WATCHDOG_SKIP', todayStr, '', '주말/확정 휴장일');
-    return { runDate:todayStr, skipped:true, reason:'NON_TRADING_DAY' };
-  }
+  var calendarClosed = _krxCalendarStatus_(todayStr) === 'CLOSED';
   var props = PropertiesService.getScriptProperties();
   var last = null;
   try { last = JSON.parse(props.getProperty('portfolio_close_last_result') || 'null'); } catch(ignore) {}
   var state = _portfolioCloseRunState(last, props);
   var errors = last && Array.isArray(last.errors) ? last.errors : [];
-  var healthy = !!last && _normalizeDate(last.runDate) === todayStr
-    && state.state === 'COMPLETE' && !props.getProperty('portfolio_close_last_error') && errors.length === 0
-    && (last.krxCloseRequired === false ? !!_normalizeDate(last.priceDate) : _normalizeDate(last.priceDate) === todayStr);
+  var lastDate = _normalizeDate(last && last.runDate || '');
+  var priceDate = _normalizeDate(last && last.priceDate || '');
+  var lastSuccessDateValid = !!priceDate && priceDate <= todayStr
+    && (calendarClosed || (last && last.krxCloseRequired === false) || priceDate === todayStr);
+  var healthy = !!last && lastDate === todayStr && state.state === 'COMPLETE'
+    && last.priceOk === true && last.fundOk === true
+    && !props.getProperty('portfolio_close_last_error') && errors.length === 0
+    && lastSuccessDateValid;
   if (healthy) {
-    _appendPortfolioCloseSyncLog('WATCHDOG_OK', todayStr, '', '당일 exact-date 마감 정상');
+    _appendPortfolioCloseSyncLog('WATCHDOG_OK', todayStr, '', '통합 마감 완료 확인');
     return { runDate:todayStr, skipped:true, reason:'ALREADY_COMPLETE', priceDate:last.priceDate };
   }
+  // 한국 휴장일에도 오늘 마감 실패/중단을 재시도합니다. 해외장이 열린 날의
+  // 해외 보유분 역시 KRX 휴장 여부와 독립적으로 복구합니다.
+  var attemptedToday = lastDate === todayStr || _normalizeDate(state && state.runDate || '') === todayStr;
+  if (calendarClosed && !attemptedToday) {
+    var hasForeignHoldings = false;
+    try { hasForeignHoldings = _hasForeignHeldItemsForCloseWatchdog_(todayStr); }
+    catch (lookupError) {
+      _appendPortfolioCloseSyncLog('WATCHDOG_ERROR', todayStr, '', '휴장일 해외보유 확인 실패: ' + lookupError.message);
+      throw lookupError;
+    }
+    if (!hasForeignHoldings) {
+      _appendPortfolioCloseSyncLog('WATCHDOG_SKIP', todayStr, '', '한국 휴장·당일 실패 없음·해외 보유 없음');
+      return { runDate:todayStr, skipped:true, reason:'NON_TRADING_DAY' };
+    }
+  }
   _appendPortfolioCloseSyncLog('WATCHDOG_RETRY', todayStr, '',
-    'state=' + state.state + ', lastRun=' + String(last && last.runDate || '') + ', priceDate=' + String(last && last.priceDate || ''));
+    'state=' + state.state + ', lastRun=' + String(last && last.runDate || '')
+      + ', priceDate=' + String(last && last.priceDate || '') + ', krxClosed=' + calendarClosed);
   try {
     return runDailyPortfolioClose1900();
   } catch (error) {
