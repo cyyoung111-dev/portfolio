@@ -45,6 +45,7 @@ let _saveSettingsWaiters = [];
 let _saveRealEstateWaiters = [];
 let _saveSettingsPendingKey = '';
 let _saveSettingsWriteRevision = 0;
+let _saveSettingsFundDirectRevision = 0;
 let _saveRealEstatePendingKey = '';
 
 const TAB_SYNC_STATUS_KEY = 'tab_sync_status';
@@ -317,7 +318,6 @@ function saveSettings(immediate, options) {
     : getGsheetConnectionGeneration();
   const expectedLoadEpoch = _gsSettingsLoadEpoch;
   const allowDuringRestore = options?.allowDuringRestore === true;
-  const expectedWriteRevision = ++_saveSettingsWriteRevision;
   if (!targetUrl) return Promise.resolve(false);
   if (!isGsheetPortfolioWriteReady({
     targetUrl,
@@ -334,6 +334,14 @@ function saveSettings(immediate, options) {
   const settingsPatch = options?.settingsPatch && typeof options.settingsPatch === 'object'
     ? JSON.parse(JSON.stringify(options.settingsPatch))
     : null;
+  // 전체 Settings 변경과 복구용 fundDirect 부분 patch는 각각 독립된 revision을 가집니다.
+  // 부분 patch는 예약된 테마/계좌 변경을 취소하지 않고 그 payload의 fundDirect만 무효화합니다.
+  const expectedWriteRevision = settingsPatch
+    ? _saveSettingsWriteRevision
+    : ++_saveSettingsWriteRevision;
+  const expectedFundDirectRevision = settingsPatch
+    ? ++_saveSettingsFundDirectRevision
+    : _saveSettingsFundDirectRevision;
   const settings = settingsPatch || {
     ACCT_COLORS,
     ACCT_ORDER,
@@ -358,8 +366,10 @@ function saveSettings(immediate, options) {
   const run = async () => {
     try {
       if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
-      // 더 최신 Settings 저장 요청이 생겼다면 이 payload는 이미 stale 입니다.
-      if (_saveSettingsWriteRevision !== expectedWriteRevision) return false;
+      // 최신 전체 저장끼리, 직접펀드 patch끼리 각각 stale payload를 차단합니다.
+      if (settingsPatch
+          ? _saveSettingsFundDirectRevision !== expectedFundDirectRevision
+          : _saveSettingsWriteRevision !== expectedWriteRevision) return false;
       // 호출 후 같은 연결에서 새 loadSettings가 시작됐다면 이 payload는 이전 메모리 세대입니다.
       if (!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch) return false;
       if (!isGsheetPortfolioWriteReady({
@@ -368,9 +378,17 @@ function saveSettings(immediate, options) {
         allowDuringRestore
       })) return false;
       if (isCurrentLoad && !isCurrentLoad()) return false;
+      // 나중에 접수된 복구 patch가 fundDirect를 확정한 경우, 먼저 예약한
+      // 전체 Settings 저장은 다른 변경 필드만 전송해 사용자 테마/계좌 변경도 보존합니다.
+      let outgoingPayload = payload;
+      if (!settingsPatch && _saveSettingsFundDirectRevision !== expectedFundDirectRevision) {
+        const remainingSettings = { ...settings };
+        delete remainingSettings.fundDirect;
+        outgoingPayload = JSON.stringify(remainingSettings);
+      }
       const data = await requestGsheetFormJson(
         'saveSettings',
-        { data: payload },
+        { data: outgoingPayload },
         { timeoutMs: 15000, retry: 1, targetUrl }
       );
       if (!data) throw new Error('네트워크 오류');
@@ -382,21 +400,10 @@ function saveSettings(immediate, options) {
     }
   };
 
-  // 복구용 부분 patch는 일반 전체 Settings debounce와 절대 합치지 않습니다.
-  // 둘이 같은 timer/waiter를 공유하면 한 payload만 전송되고 양쪽 호출자가 같은 성공값을 받아
-  // fundDirect 복구 또는 일반 설정 변경이 유실될 수 있습니다.
+  // 복구용 fundDirect patch는 전체 Settings debounce의 timer/waiter를 건드리지 않습니다.
+  // 동일 queue에서 patch가 먼저 전송되고, 예약된 전체 저장은 최신 fundDirect revision을
+  // 확인해 오래된 직접펀드 키를 제외한 나머지 설정만 병합 저장합니다.
   if (settingsPatch) {
-    // recovery patch는 예약된 이전 전체 Settings payload보다 authoritative합니다.
-    // timer만 분리하면 이미 캡처된 전체 payload가 나중에 실행되어 fundDirect를 되돌릴 수 있으므로
-    // 예약 timer/waiter를 명시적으로 취소하고 write revision으로 이미 queue에 들어간 stale run도 차단합니다.
-    if (_saveSettingsTimer) {
-      clearTimeout(_saveSettingsTimer);
-      _saveSettingsTimer = null;
-      _saveSettingsPendingKey = '';
-      const staleWaiters = _saveSettingsWaiters;
-      _saveSettingsWaiters = [];
-      staleWaiters.forEach(done => done(false));
-    }
     _saveSettingsQueue = _saveSettingsQueue.then(run, run);
     return _saveSettingsQueue;
   }
