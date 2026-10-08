@@ -13,6 +13,13 @@
 - 과거 누락일 맨 앞 날짜에 지속적인 KRX/API 오류가 발생하더라도 뒤 날짜들이 영원히 밀리지 않도록 `portfolio_close_backfill_retry_cursor_v1` 키로 **이전/다음 날짜 순환 재시도**합니다. 22:10 복구에서는 오늘 watchdog 미완료일이 있으면 과거 대기 날짜보다 우선 처리하고, 오래된 날짜는 삭제하지 않고 보존합니다.
 - GAS 가격 저장, Script Properties 큐, 마감 상태는 Google Sheets/Script Properties의 진정한 분산 트랜잭션은 아닙니다. 커밋 간 부분 실패 시 날짜를 보존하고 멱등적인 재실행으로 정합성을 회복하도록 설계하며 운영 상태 확인은 배포 이후 별도 수행합니다.
 
+## PR #471 교차 운영 검증: 실행 소유권이 다른 PRICE/NAV 상태 혼합 방지 (2026-10-09)
+
+- 정상 19시/20:30 마감의 최종 `portfolio_close_last_result`에 정확한 `runId`를 함께 영속합니다. PRICE 재생이 처음부터 summary를 복원할 때에는 실행 소유권을 확인한 경우에만 같은 runId를 기록합니다.
+- 정상 CLOSE NAV 성공 마커와 기존 summary를 합칠 때 **명시적 runId가 같거나 기존 레거시 시작 시각·millisecond 모두 정확히 일치**해야 합니다. 두 값이 모두 없는 summary에 나중 실행의 NAV 성공을 억지로 합치지 않습니다.
+- 식별 불가 과거 PRICE 실패 summary에 새 가격 복구를 합치는 과정에서도 기존 `fundOk:true`를 임의 유지한 채 `COMPLETE`로 만들지 않습니다. 펀드 결과 확인 필요 오류를 남겨 운영자가 차이를 확인할 수 있게 합니다.
+- GAS 운영 상태 UI의 `_portfolioCloseRunState`도 저장된 runId와 현재 소유권이 다르면 완료로 표시하지 않습니다. 직접 production helper 테스트와 기존 NAV·PRICE·자정 회귀검사에서 확인했습니다.
+
 ## PR #471 추가 리뷰: 정상 NAV 성공 증거 및 당일 긴급 복구 용량 (2026-10-09)
 
 - 19시·20:30 통합 FUND 단계가 NAV 데이터 저장 후 최종 summary 기록에서 오류가 나더라도 `portfolio_fund_close_success_v1`에 **실행 runId·거래일·시작 이후 성공 시각·lease 토큰**을 남깁니다. Watchdog catch와 22:10 독립 작업은 해당 runId와 날짜가 현재 운영 마커와 일치하는 경우에만 이전 같은 날의 FUND 실패 표시를 정상화합니다. 다른 날짜·실행의 성공 기록으로 새 오류를 덮어쓰지 않습니다.
