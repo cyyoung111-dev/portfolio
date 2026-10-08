@@ -343,6 +343,18 @@ assert.throws(()=>context._assessDailyKrxStockClose(krMaster,otp,'2026-10-06'),/
   'CSV 시장열 자체가 없어도 미확인 KR 보유종목을 성공 분모에 합치지 않음');
 
 
+// Regression guards for delayed fund completion / stale recurring trigger lifecycle.
+const atomicCloseSource=extract('_recordPortfolioCloseStage');
+const deferredSource=extract('runDeferredFundAfterPortfolioCloseFailure');
+const guardedFundSource=extract('_runPortfolioFundWithLease_');
+assert.match(atomicCloseSource, /_portfolioFundState_\(props, PORTFOLIO_FUND_SUCCESS_KEY\)/,
+  '마감 결과 저장 시 동일 잠금으로 펀드 완료 마커 재확인');
+assert.match(atomicCloseSource, /summary\.errors\.every\(function\(reason\)/,
+  'FUND_BUSY 외 다른 실패를 성공으로 승격 금지');
+assert.match(guardedFundSource, /origin === 'DEFERRED'[\s\S]*PORTFOLIO_FUND_SUCCESS_KEY/,
+  '펀드 완료 후 상태 마커를 독립 저장');
+assert.match(deferredSource, /if \(!reservation\)[\s\S]*trigger\.getUniqueId\(\) === triggerId[\s\S]*NO_RESERVATION/,
+  '교체된 트리거는 자기 UID만 삭제');
 const closeRunSource=extract('runDailyPortfolioClose1900');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)")
   < closeRunSource.indexOf('saveDailyPriceHistory()'), '일반 종목 단계 실행 전에 시작 마커');
