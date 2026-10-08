@@ -392,7 +392,7 @@ assert.match(source.match(/function _ensurePortfolioCloseDailyTrigger\([\s\S]*?\
 assert.doesNotMatch(source.match(/function setupTrigger\([\s\S]*?\n\}/)?.[0] || '',/newTrigger\('runEvalPriceUpdate1620'\)/,'전체 재등록은 16:20 분리 트리거를 다시 만들지 않음');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/saveDailyPriceHistory\(\)[\s\S]*runDailyFundValuations\(\)/,'통합 마감은 일반 종목 후 펀드를 순차 실행');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/_ensurePortfolioCloseWatchdogTrigger\(true\)/,'기존 19시 트리거 실행만으로 20:30 watchdog을 자가 설치');
-assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/통합 마감 일반 종목 단계 실패 — 펀드 단계 계속/,'일반 종목 실패 시에도 펀드 단계를 계속 시도');
+assert.match(source,/function runDeferredFundAfterPortfolioCloseFailure\(/,'가격 실패 시 펀드 단계 독립 실행');
 assert.match(source.match(/function runPortfolioCloseWatchdog2030\([\s\S]*?\n\}/)?.[0] || '',/ALREADY_COMPLETE[\s\S]*runDailyPortfolioClose1900\(\)/,'watchdog은 정상 마감은 건너뛰고 미완료만 재시도');
 assert.throws(()=>context.getEarliestPriceHistory({getSheetByName(){throw new Error('read failed');}},['000001'],'2026-01-02',true),/read failed/);
 
@@ -413,7 +413,8 @@ closeSteps=[];
 context.saveDailyPriceHistory=()=>{closeSteps.push('prices');throw new Error('price failed');};
 context.runDailyFundValuations=()=>{closeSteps.push('funds');return {lastDate:'2026-10-06',fundResults:{}};};
 assert.throws(()=>context.runDailyPortfolioClose1900(),/일반 종목: price failed/,'일반 종목 실패를 통합 실패로 보고');
-assert.deepEqual(closeSteps,['prices','funds'],'일반 종목 실패 후에도 펀드 단계 실행');
+assert.deepEqual(closeSteps,['prices'],'가격 실패 실행에서는 펀드를 동시에 실행하지 않음');
+assert.match(scriptProperties.get('portfolio_close_last_error')||'',/펀드 독립 실행 예약 실패/,'독립 실행 예약에 실패하면 오류를 남김');
 assert.match(scriptProperties.get('portfolio_close_last_error')||'',/일반 종목: price failed/);
 
 // 가격 단계 도중 더 최신 마감 실행이 상태 소유권을 가져가면 오래된 실행은 펀드 단계를 중복 실행하지 않습니다.
