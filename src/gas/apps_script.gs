@@ -10473,9 +10473,10 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
         && summary.fundDeferredTriggerId && fundSuccess
         && fundSuccess.triggerId === summary.fundDeferredTriggerId
         && fundSuccess.date === runDate && fundSuccess.at >= Number(startedMs || 0);
-      var matchingBusySuccess = summary.fundBusyToken && fundSuccess
-        && fundSuccess.token === summary.fundBusyToken && fundSuccess.date === runDate
-        && fundSuccess.at >= Number(startedMs || 0);
+      var matchingBusySuccess = fundSuccess && fundSuccess.date === runDate
+        && fundSuccess.at >= Number(startedMs || 0)
+        && ((summary.fundBusyToken && fundSuccess.token === summary.fundBusyToken)
+            || (summary.fundBusyTriggerId && fundSuccess.triggerId === summary.fundBusyTriggerId));
       if (!summary.fundOk && (priceFailureSuccess || matchingBusySuccess)) {
         summary.fundOk = true;
         summary.errors = summary.errors.filter(function(reason) { return !/FUND_BUSY/.test(reason); });
@@ -10620,8 +10621,9 @@ function _reconcilePortfolioFundBusy_(date) {
     var priceFailureDeferred = last.priceOk === false && last.fundDeferred === true
       && success && last.fundDeferredTriggerId && success.triggerId === last.fundDeferredTriggerId
       && success.at >= Number(last.startedMs || 0);
-    var busyMatch = last.fundBusyToken && success && success.token === last.fundBusyToken
-      && success.at >= Number(last.startedMs || 0);
+    var busyMatch = success && success.at >= Number(last.startedMs || 0)
+      && ((last.fundBusyToken && success.token === last.fundBusyToken)
+          || (last.fundBusyTriggerId && success.triggerId === last.fundBusyTriggerId));
     if (!success || success.date !== date || (!priceFailureDeferred && !busyMatch)) return;
     last.fundOk = true;
     last.fundDeferred = false;
@@ -10708,6 +10710,7 @@ function runDailyPortfolioClose1900() {
   var priceResult = null;
   var fundResult = null;
   var fundBusyToken = '';
+  var fundBusyTriggerId = '';
   var errors = [];
   if (!_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)) {
     Logger.log('ℹ️ 19시 통합 마감 중복 실행 차단: 더 최신 실행이 이미 상태 소유권을 보유 중입니다.');
@@ -10771,7 +10774,10 @@ function runDailyPortfolioClose1900() {
       fundBusyToken = String(fundErr.fundLeaseToken || '');
       // Mark pending rather than a permanent hard failure. Active deferred run
       // reconciles the result after success; recurring retry covers transient failures.
-      try { _scheduleFundAfterFailedPortfolioPrice_(); } catch(scheduleError) {
+      try {
+        var busyReservation = _scheduleFundAfterFailedPortfolioPrice_();
+        fundBusyTriggerId = String(busyReservation && busyReservation.triggerId || '');
+      } catch(scheduleError) {
         Logger.log('⚠️ FUND_BUSY 재시도 예약 실패: ' + scheduleError.message);
       }
     }
@@ -10793,6 +10799,7 @@ function runDailyPortfolioClose1900() {
     krxCloseRequired: priceResult && typeof priceResult.krxCloseRequired === 'boolean' ? priceResult.krxCloseRequired : null,
     fundOk: !!fundResult,
     fundBusyToken: fundBusyToken,
+    fundBusyTriggerId: fundBusyTriggerId,
     startedMs: startedMs,
     fundLastDate: fundResult && fundResult.lastDate ? fundResult.lastDate : runDate,
     errors: errors.slice(0, 4)
