@@ -97,6 +97,7 @@ function saveDividendSettings(_immediate, options) {
   const expectedGeneration = Number.isInteger(options?.generation)
     ? options.generation
     : getGsheetConnectionGeneration();
+  const expectedLoadEpoch = _gsSettingsLoadEpoch;
   if (!targetUrl) return Promise.resolve(false);
   if (!isGsheetPortfolioWriteReady({
     targetUrl,
@@ -109,6 +110,12 @@ function saveDividendSettings(_immediate, options) {
   const run = async () => {
     try {
       if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+      if (options?.allowDuringRestore !== true && _gsSettingsLoadEpoch !== expectedLoadEpoch) return false;
+      if (!isGsheetPortfolioWriteReady({
+        targetUrl,
+        generation: expectedGeneration,
+        allowDuringRestore: options?.allowDuringRestore === true
+      })) return false;
       const data = await requestGsheetFormJson(
         'saveDividendSettings',
         { data: payload },
@@ -133,6 +140,7 @@ function saveRealEstateSettings(immediate, options) {
   const expectedGeneration = Number.isInteger(options?.generation)
     ? options.generation
     : getGsheetConnectionGeneration();
+  const expectedLoadEpoch = _gsSettingsLoadEpoch;
   if (!targetUrl) return Promise.resolve(false);
   if (!isGsheetPortfolioWriteReady({
     targetUrl,
@@ -166,6 +174,12 @@ function saveRealEstateSettings(immediate, options) {
       const run = async () => {
         try {
           if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+          if (options?.allowDuringRestore !== true && _gsSettingsLoadEpoch !== expectedLoadEpoch) return false;
+          if (!isGsheetPortfolioWriteReady({
+            targetUrl,
+            generation: expectedGeneration,
+            allowDuringRestore: options?.allowDuringRestore === true
+          })) return false;
           if (isCurrentLoad && !isCurrentLoad()) return false;
           const data = await requestGsheetFormJson(
             'saveRealEstateSettings',
@@ -300,13 +314,15 @@ function saveSettings(immediate, options) {
   const expectedGeneration = Number.isInteger(options?.generation)
     ? options.generation
     : getGsheetConnectionGeneration();
+  const expectedLoadEpoch = _gsSettingsLoadEpoch;
+  const allowDuringRestore = options?.allowDuringRestore === true;
   if (!targetUrl) return Promise.resolve(false);
   if (!isGsheetPortfolioWriteReady({
     targetUrl,
     generation: expectedGeneration,
-    allowDuringRestore: options?.allowDuringRestore === true
+    allowDuringRestore
   })) return Promise.resolve(false);
-  const pendingKey = targetUrl + '|' + expectedGeneration;
+
   const hasFundDirectOverride = Object.prototype.hasOwnProperty.call(options || {}, 'fundDirectOverride');
   const settingsFundDirect = hasFundDirectOverride
     ? ((options.fundDirectOverride && typeof options.fundDirectOverride === 'object')
@@ -336,6 +352,41 @@ function saveSettings(immediate, options) {
     RE_VALUE_HIST,
   };
   const payload = JSON.stringify(settings);
+
+  const run = async () => {
+    try {
+      if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+      // 호출 후 같은 연결에서 새 loadSettings가 시작됐다면 이 payload는 이전 메모리 세대입니다.
+      if (!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch) return false;
+      if (!isGsheetPortfolioWriteReady({
+        targetUrl,
+        generation: expectedGeneration,
+        allowDuringRestore
+      })) return false;
+      if (isCurrentLoad && !isCurrentLoad()) return false;
+      const data = await requestGsheetFormJson(
+        'saveSettings',
+        { data: payload },
+        { timeoutMs: 15000, retry: 1, targetUrl }
+      );
+      if (!data) throw new Error('네트워크 오류');
+      if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+      return true;
+    } catch(e) {
+      console.warn('saveSettings 실패:', e);
+      return false;
+    }
+  };
+
+  // 복구용 부분 patch는 일반 전체 Settings debounce와 절대 합치지 않습니다.
+  // 둘이 같은 timer/waiter를 공유하면 한 payload만 전송되고 양쪽 호출자가 같은 성공값을 받아
+  // fundDirect 복구 또는 일반 설정 변경이 유실될 수 있습니다.
+  if (settingsPatch) {
+    _saveSettingsQueue = _saveSettingsQueue.then(run, run);
+    return _saveSettingsQueue;
+  }
+
+  const pendingKey = targetUrl + '|' + expectedGeneration + '|' + expectedLoadEpoch;
   if (_saveSettingsTimer) {
     clearTimeout(_saveSettingsTimer);
     if (_saveSettingsPendingKey && _saveSettingsPendingKey !== pendingKey) {
@@ -353,23 +404,6 @@ function saveSettings(immediate, options) {
       _saveSettingsWaiters = [];
       _saveSettingsTimer = null;
       _saveSettingsPendingKey = '';
-      const run = async () => {
-        try {
-          if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
-          if (isCurrentLoad && !isCurrentLoad()) return false;
-          const data = await requestGsheetFormJson(
-            'saveSettings',
-            { data: payload },
-            { timeoutMs: 15000, retry: 1, targetUrl }
-          );
-          if (!data) throw new Error('네트워크 오류');
-          if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
-          return true;
-        } catch(e) {
-          console.warn('saveSettings 실패:', e);
-          return false;
-        }
-      };
       _saveSettingsQueue = _saveSettingsQueue.then(run, run);
       const ok = await _saveSettingsQueue;
       waiters.forEach(done => done(ok));
