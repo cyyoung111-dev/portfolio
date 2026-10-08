@@ -261,8 +261,8 @@ assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteD
   'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
 assert.match(settingsFetch, /const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending[\s\S]*if \(portfolioSyncPending\)[\s\S]*현재가만 업데이트[\s\S]*else \{[\s\S]*forcePortfolioRestore: true/,
   '현재가 업데이트는 미동기화 로컬 포트폴리오가 있으면 authoritative pull을 건너뜀');
-assert.match(portfolioData, /if \(holdingsOk && tradesOk\) \{[\s\S]*saveSettings\(true, \{[\s\S]*fundDirectOverride: pinnedFundDirect[\s\S]*if \(!settingsOk\) return false[\s\S]*_setPendingExplicitEmptyTradeSync\(null, retryTarget\)/,
-  '빈 원장 권한은 보유현황·거래이력·authoritative Settings 저장까지 성공한 뒤 해당 target에서만 소진');
+assert.match(portfolioData, /if \(holdingsOk && tradesOk\) \{[\s\S]*saveSettings\(true, \{[\s\S]*settingsPatch: \{ fundDirect: pinnedFundDirect \}[\s\S]*if \(!settingsOk\) return false[\s\S]*_setPendingExplicitEmptyTradeSync\(null, retryTarget\)/,
+  '빈 원장 권한은 보유현황·거래이력·fundDirect 부분 Settings 저장까지 성공한 뒤 해당 target에서만 소진');
 assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_getPendingExplicitEmptyTradeSync\(retryTarget\)[\s\S]*_setPendingExplicitEmptyTradeSync\(\{[\s\S]*tradesResult\.affectedFrom[\s\S]*target: retryTarget/,
   'partial 응답의 영향 시작일도 해당 target pending에만 영속 갱신');
 assert.match(settings, /const portfolioRestorePromise = blockRemotePortfolioRestore[\s\S]*\? null/,
