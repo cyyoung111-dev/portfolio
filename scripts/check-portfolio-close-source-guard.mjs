@@ -966,6 +966,7 @@ const queueMap=new Map();
 const props={getProperty(k){return queueMap.has(k)?queueMap.get(k):null;},setProperty(k,v){queueMap.set(k,String(v));},deleteProperty(k){queueMap.delete(k);}};
 const qvm=vm.createContext({
   _portfolioFundAtomic_:callback=>callback(props),
+  _portfolioFundState_:(p,key)=>JSON.parse(p.getProperty(key)||'null'),
   PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
   PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
   Logger:{log(){}},
