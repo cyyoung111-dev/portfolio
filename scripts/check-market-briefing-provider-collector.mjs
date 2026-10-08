@@ -3,10 +3,10 @@ import collector from '../src/web/domain/market/market_briefing_provider_collect
 import normalizer from '../src/web/domain/market/market_briefing_provider_normalizer.js';
 import master from '../src/web/domain/market/market_briefing_master.js';
 const calls=[];
-const request=async(action,params)=>{calls.push({action,params});if(action==='getBenchmarks'){assert.equal(params.fresh,'0');assert.match(params.benchmarks,/KOSPI200/);assert.match(params.benchmarks,/SOX/);assert.match(params.benchmarks,/VIX/);return {series:{KOSPI:[{date:'2026-09-17',value:3400}],KOSDAQ:[{date:'2026-09-17',value:900}],KOSPI200:[{date:'2026-09-17',value:455}],SP500:[{date:'2026-09-17',value:6600}],NASDAQ100:[{date:'2026-09-17',value:24000}],SOX:[{date:'2026-09-17',value:6100}],VIX:[{date:'2026-09-17',value:15}]},symbols:{KOSPI200:'KOSPI200',SP500:'^GSPC',NASDAQ100:'^NDX',SOX:'^SOX',VIX:'^VIX'}};}if(action==='getExchangeRateHistory')return {history:[{date:'2026-09-17',value:1380}],source:'FX_HISTORY'};if(action==='getPrices')return {prices:{'005930':81000,'000660':190000},priceDates:{'005930':'2026-09-18','000660':'2026-09-18'}};if(action==='getPriceHistory')return {prices:{'005930':[{date:'2026-09-18',price:80500,source:'KRX'}],'000660':[{date:'2026-09-18',price:188000,source:'KRX_OTP'}]}};throw new Error('unexpected action');};
+const request=async(action,params)=>{calls.push({action,params});if(action==='getBenchmarks'){assert.equal(params.fresh,'0');assert.match(params.benchmarks,/KOSPI200/);assert.match(params.benchmarks,/SOX/);assert.match(params.benchmarks,/VIX/);assert.match(params.benchmarks,/DXY/);assert.match(params.benchmarks,/UST10Y/);assert.match(params.benchmarks,/WTI/);assert.match(params.benchmarks,/GOLD/);assert.match(params.benchmarks,/BTC/);return {series:{KOSPI:[{date:'2026-09-17',value:3400}],KOSDAQ:[{date:'2026-09-17',value:900}],KOSPI200:[{date:'2026-09-17',value:455}],SP500:[{date:'2026-09-17',value:6600}],NASDAQ100:[{date:'2026-09-17',value:24000}],SOX:[{date:'2026-09-17',value:6100}],VIX:[{date:'2026-09-17',value:15}],DXY:[{date:'2026-09-17',value:101}],UST10Y:[{date:'2026-09-17',value:4.1}],WTI:[{date:'2026-09-17',value:70}],GOLD:[{date:'2026-09-17',value:2600}],BTC:[{date:'2026-09-17',value:62000}]},symbols:{KOSPI200:'KOSPI200',SP500:'^GSPC',NASDAQ100:'^NDX',SOX:'^SOX',VIX:'^VIX',DXY:'DX-Y.NYB',UST10Y:'^TNX',WTI:'CL=F',GOLD:'GC=F',BTC:'BTC-USD'}};}if(action==='getBenchmark'){assert.equal(params.benchmark,'VKOSPI');return {benchmark:'VKOSPI',symbol:'KRX_OPEN_API:VKOSPI',points:[{date:'2026-09-17',value:18}]};}if(action==='getExchangeRateHistory')return {history:[{date:'2026-09-17',value:1380}],source:'FX_HISTORY'};if(action==='getPrices')return {prices:{'005930':81000,'000660':190000},priceDates:{'005930':'2026-09-18','000660':'2026-09-18'}};if(action==='getPriceHistory')return {prices:{'005930':[{date:'2026-09-18',price:80500,source:'KRX'}],'000660':[{date:'2026-09-18',price:188000,source:'KRX_OTP'}]}};throw new Error('unexpected action');};
 const result=await collector.collect(request,'2026-09-18',{from:'2026-09-17'});
 assert.deepEqual(result.missing,[]);
-assert.equal(calls.length,4);
+assert.equal(calls.length,5);
 assert.equal(result.payload.KOSPI.tradingDate,'2026-09-17');
 assert.equal(result.payload.KOSPI.sourceDate,'2026-09-17');
 assert.equal(result.payload.KOSPI.finality,'REGULAR_CLOSE');
@@ -14,6 +14,13 @@ assert.equal(result.payload.KOSPI.fallback,true);
 assert.equal(result.payload.KOSPI200.source,'YAHOO');
 assert.equal(result.payload.SOX.source,'YAHOO');
 assert.equal(result.payload.VIX.source,'YAHOO');
+assert.equal(result.payload.VKOSPI.source,'KRX_OFFICIAL');
+assert.equal(result.payload.VKOSPI.status,'FINAL');
+assert.equal(result.payload.DXY.value,101);
+assert.equal(result.payload.UST10Y.market,'US_RATES');
+assert.equal(result.payload.WTI.market,'COMMODITY');
+assert.equal(result.payload.GOLD.value,2600);
+assert.equal(result.payload.BTC.market,'CRYPTO');
 assert.equal(result.payload.USDKRW.value,1380);
 assert.equal(result.payload.USDKRW.status,'FINAL');
 assert.equal(result.payload.USDKRW.fallback,true);
@@ -21,7 +28,7 @@ assert.equal(result.payload.SAMSUNG.status,'FINAL'); assert.equal(result.payload
 assert.equal(result.payload.SKHYNIX.finality,'REGULAR_CLOSE');
 assert.equal(result.payload.SAMSUNG.observedAt,'2026-09-18T15:30:00+09:00'); assert.equal(result.payload.SKHYNIX.observedAt,'2026-09-18T15:30:00+09:00');
 const rows=normalizer.normalizeMap(result.payload,{tradingDate:'2026-09-18',receivedAt:'2026-09-18T15:31:00+09:00'});
-assert.equal(rows.length,10);
+assert.equal(rows.length,16);
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').tradingDate,'2026-09-17');
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').observedAt,null);
 assert.equal(rows.find(x=>x.seriesId==='SPX').status,'FINAL');
@@ -67,7 +74,7 @@ const stockRows=normalizer.ingest(master,[],{SAMSUNG:result.payload.SAMSUNG,SKHY
 const stockSnapshot=master.buildBriefingSnapshot(stockRows,'2026-09-18','KRX_FINAL',['SAMSUNG','SKHYNIX']);
 assert.equal(stockSnapshot.values.SAMSUNG.value,80500); assert.equal(stockSnapshot.values.SKHYNIX.value,188000);
 assert.equal(stockSnapshot.values.SAMSUNG.observedAt,'2026-09-18T06:30:00.000Z'); assert.equal(stockSnapshot.values.SAMSUNG.receivedAt,'2026-09-18T06:31:00.000Z');
-const auxiliary=async(action)=>{if(action==='getBenchmarks')return {series:{}};if(action==='getExchangeRateHistory')return {history:[]};throw new Error('unused provider');};
+const auxiliary=async(action)=>{if(action==='getBenchmarks')return {series:{}};if(action==='getBenchmark')return {points:[]};if(action==='getExchangeRateHistory')return {history:[]};throw new Error('unused provider');};
 const currentOnly=await collector.collect(async(action,params)=>{
  if(action==='getBenchmarks')assert.equal(params.fresh,'1');
  if(action==='getPrices')return {prices:{'005930':81000,'000660':190000},priceDates:{'005930':'2026-09-18','000660':'2026-09-18'}};
@@ -81,6 +88,7 @@ const historyOnly=await collector.collect(async(action,params)=>{
 assert.equal(historyOnly.payload.SAMSUNG.status,'FINAL'); assert.equal(historyOnly.payload.SKHYNIX.finality,'REGULAR_CLOSE'); assert.match(historyOnly.errors.stockCurrent,/current down/);
 const officialOnlyRequest=async(action,params)=>{
  if(action==='getBenchmarks')return {series:{}};
+ if(action==='getBenchmark')return {points:[]};
  if(action==='getExchangeRateHistory')return {history:[]};
  if(action==='getPrices')return {prices:{'005930':81000,'000660':190000},priceDates:{'005930':'2026-09-18','000660':'2026-09-18'}};
  if(action==='getPriceHistory')return {prices:{}};
@@ -96,4 +104,4 @@ const oneOfficialMissing=await collector.collect(async(action,params)=>{
 assert.equal(oneOfficialMissing.payload.SAMSUNG.status,'FINAL');assert.equal(oneOfficialMissing.payload.SKHYNIX.status,'PARTIAL');
 const partial=normalizer.normalizeOne('VIX',{value:15,tradingDate:'2026-09-17',source:'CBOE'},{receivedAt:'2026-09-18T05:00:00+09:00'});
 assert.equal(partial.status,'PARTIAL');
-console.log('기존 GAS provider → 브리핑 핵심 8개 series collector/normalizer 회귀검사 통과');
+console.log('기존 GAS provider → 브리핑 핵심·거시 series collector/normalizer 회귀검사 통과');
