@@ -55,7 +55,7 @@ assert.match(delegation, /closest\('\[data-price-detail\]'\)/);
 const index = fs.readFileSync('src/web/index.html', 'utf8');
 assert.match(index, /components\.css\?v=20260921-2/);
 assert.match(index, /settings_sync\.js\?v=20261008-2/);
-assert.match(index, /settings_fetch\.js\?v=20261008-3/);
+assert.match(index, /settings_fetch\.js\?v=20261008-11/);
 assert.match(web, /const requestKey = targetUrl \+ '\\|' \+ generation \+ '\\|' \+ dateStr/,
   '현재가 in-flight 요청은 GSheet URL+generation+날짜별로 격리');
 assert.match(web, /const isCurrentConnection = \(\) =>[\s\S]*isGsheetConnectionCurrent\(targetUrl, generation\)/,
@@ -64,7 +64,7 @@ assert.match(web, /requestGsheetActionJson\([\s\S]*'getPrices'[\s\S]*targetUrl[\
   '이전 연결 getPrices 응답을 새 연결 전역 상태에 적용하지 않음');
 assert.match(index, /event_delegation\.js\?v=20261006-1/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
-assert.match(sw, /portfolio-cache-20261008-10/);
+assert.match(sw, /portfolio-cache-20261008-11/);
 assert.match(sw, /components\.css\?v=20260921-2/);
 
 // 새 관측성은 추가 호출을 만들지 않고 기존 단일 batch/read 경계를 계측한다.

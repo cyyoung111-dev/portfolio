@@ -6,8 +6,13 @@
     'SPX', 'NDX', 'SOX', 'VIX', 'USDKRW',
   ]);
   const IMPORTANT = Object.freeze([
-    'SAMSUNG', 'SKHYNIX', 'NVDA', 'MU', 'DXY',
-    'UST2Y', 'UST10Y', 'WTI', 'GOLD', 'BTC',
+    'SAMSUNG', 'SKHYNIX', 'VKOSPI', 'DXY',
+    'UST10Y', 'WTI', 'GOLD', 'BTC',
+  ]);
+  // 현재 저장소에서 실제 provider가 검증되지 않은 항목은 readiness 결손으로 계산하지 않습니다.
+  // 특히 2년물 선물(ZT=F)을 현물 UST2Y 수익률로 오표기하지 않습니다.
+  const PLANNED = Object.freeze([
+    'UST2Y', 'NVDA', 'MU',
     'FOREIGN_NET', 'INSTITUTION_NET', 'PROGRAM_NET',
     'BREADTH_COVERAGE', 'BREADTH_PARTICIPATION',
   ]);
@@ -22,7 +27,8 @@
     const stale = ids.filter((id) => snapshot.values[id]?.status === 'STALE');
     const receiveOnly = ids.filter((id) => snapshot.values[id]?.timestampQuality === 'RECEIVE_ONLY');
     const k200 = snapshot.values.K200_NIGHT;
-    const k200Final = !!k200 && k200.status === 'FINAL' && k200.session === 'NIGHT';
+    const k200Final = !!k200 && k200.tradingDate === tradingDate &&
+      k200.status === 'FINAL' && k200.session === 'NIGHT' && k200.finality === 'NIGHT_FINAL';
     return {
       tradingDate,
       asOf: snapshot.asOf,
@@ -33,6 +39,7 @@
       stale,
       receiveOnly,
       k200Final,
+      planned: PLANNED.slice(),
       snapshot,
     };
   }
@@ -44,7 +51,7 @@
     return 'NOT_READY';
   }
 
-  const api = { REQUIRED, IMPORTANT, assess, qcLabel };
+  const api = { REQUIRED, IMPORTANT, PLANNED, assess, qcLabel };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   global.MorningBriefingReadiness = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

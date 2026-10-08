@@ -106,8 +106,8 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics'];")
-    || !source.includes("gasVersion: '9.189'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 v9.189 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.190'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 v9.188 계약이 누락됐습니다.');
   process.exit(1);
 }
 
@@ -185,7 +185,7 @@ if (!source.includes("params.action === 'getBenchmarks'")
     || !source.includes('function fetchMarketIndicatorPricesToss(')
     || !source.includes('function fetchMarketIndicatorCandlesToss(')
     || !source.includes('function fetchYahooIndexSeries(')
-    || !source.includes("YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX' }")
+    || !source.includes("YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' }")
     || source.includes("GOOGLEFINANCE(\"' + symbol + '\",\"close\"")
     || !source.includes("cache.put(cacheKey, JSON.stringify(result), 21600)")) {
   console.error('❌ 비교지수 Toss/Yahoo provider(KOSPI200 포함) 또는 6시간 캐시가 누락됐습니다.');
@@ -205,7 +205,7 @@ if (!dailySnapshotMatch
     || !/var requestedCloseDate = todayStr/.test(dailySnapshotMatch[1])
     || /requestedPrevDay/.test(dailySnapshotMatch[1])
     || !/fetchPricesKrx\(items,\s*requestedCloseDate\)/.test(dailySnapshotMatch[1])
-    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*requestedCloseDate,\s*ss,\s*\{\s*skipKrx:\s*true\s*\}\)/.test(dailySnapshotMatch[1])
+    || !/fetchPricesGoogleFinance\(gfPrevItems,\s*requestedCloseDate,\s*ss,\s*\{\s*skipKrx:\s*true,\s*usCloseDate:\s*_latestCompletedUsRegularSessionDate_\(new Date\(\)\)\s*\}\)/.test(dailySnapshotMatch[1])
     || !/_isExpectedKrxTradingDate\(requestedCloseDate\)/.test(dailySnapshotMatch[1])
     || !/closeVerification\.date !== requestedCloseDate/.test(dailySnapshotMatch[1])
     || !/_getLatestPriceHistoryDate\(ss,\s*requestedCloseDate\)/.test(dailySnapshotMatch[1])
@@ -377,5 +377,13 @@ if (!snapshotRepairMatch
     || !source.includes('getLatestPriceHistoryEntries(ss, missingCodes, dateStr, throwOnError)')
     || !source.includes("'showSnapshotRepairProgress'")) {
   console.error('❌ 전체 스냅샷 복구는 외부 조회 없이 전체 가격이력 날짜를 소량 배치·후속 트리거로 처리해야 합니다.');
+  process.exit(1);
+}
+
+if (!source.includes('function _latestCompletedUsRegularSessionDate_')
+    || !source.includes('usCloseDate: _latestCompletedUsRegularSessionDate_(new Date())')
+    || !source.includes('hasDuplicateWatchdogTriggers: hasDuplicateWatchdogTriggers')
+    || !source.includes('hasDuplicateCloseTriggers || hasDuplicateWatchdogTriggers')) {
+  console.error('❌ 해외 최근 완료 세션/Watchdog 중복 오류 노출 계약 누락');
   process.exit(1);
 }

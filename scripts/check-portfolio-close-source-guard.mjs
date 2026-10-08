@@ -454,3 +454,30 @@ console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진�
 
 assert.match(source, /if \(pack\.usedYmd === ymd\) officialRows = officialRows\.concat\(rows\.slice\(firstAdded\)\)/,
   '휴장일 KRX 대체 응답을 당일 공식 종가로 적재하면 안 됨');
+
+
+// PR #470: 한국 19:00 마감은 뉴욕 정규장 완료일과 다름. 실제 미국 시장 날짜 보존.
+const usMarketCtx = {marketDate:'2026-10-08', hour:'6'};
+const usVm=vm.createContext({
+  Utilities:{formatDate(date,zone,format) {
+    if(zone==='America/New_York') return format==='H'?usMarketCtx.hour:usMarketCtx.marketDate;
+    if(zone==='UTC') return date.toISOString().slice(0,10);
+    throw new Error('unexpected zone:'+zone);
+  }},
+  Logger:{log(){}},
+  fetchPricesKrx:()=>({}),
+  _isConfirmedHistoryPrice_:(v,date)=>v.usedDate===date
+});
+vm.runInContext(extract('_latestCompletedUsRegularSessionDate_'),usVm);
+const completed=(date,hour)=>{usMarketCtx.marketDate=date;usMarketCtx.hour=String(hour);return usVm._latestCompletedUsRegularSessionDate_(new Date());};
+assert.equal(completed('2026-10-08',6),'2026-10-07','KST 19시: 미국 전일 세션 완료');
+assert.equal(completed('2026-10-12',6),'2026-10-09','월요일 아침은 미국 지난 금요일 종가');
+assert.equal(completed('2026-10-10',11),'2026-10-09','미국 주말은 지난 금요일 종가');
+assert.equal(completed('2026-10-08',17),'2026-10-08','미국 당일 정규장 마감 이후 날짜');
+let actualYahooDate='';
+usVm.fetchPricesYahooRegularClose=(items,day)=>{actualYahooDate=day;return {AAPL:{price:200,usedDate:day,source:'YAHOO_REGULAR_CLOSE'}};};
+vm.runInContext(extract('fetchPricesGoogleFinance'),usVm);
+const usResult=usVm.fetchPricesGoogleFinance([{code:'AAPL',currency:'USD',market:'US'}],'2026-10-08',null,{skipKrx:true,usCloseDate:'2026-10-07'});
+assert.equal(actualYahooDate,'2026-10-07','US Yahoo 조회는 현지 완료 세션 날짜');
+assert.equal(usResult.AAPL.usedDate,'2026-10-07','US 가격 이력은 원천 완료 거래일로 저장');
+assert.match(closeSection,/usCloseDate:\s*_latestCompletedUsRegularSessionDate_\(new Date\(\)\)/);

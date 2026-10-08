@@ -85,5 +85,5 @@ const timedOut = context._yahooRequest_('^GSPC', { range: '5d' });
 if (timedOut.status !== 0 || timedOut.error !== 'TIMEOUT_OR_NETWORK_ERROR') throw new Error('Yahoo timeout 실패 보존 계약 실패');
 
 const symbols = context.YAHOO_INDEX_SYMBOLS;
-if (Object.keys(symbols).length !== 7 || symbols.SP500 !== '^GSPC' || symbols.NASDAQ !== '^IXIC' || symbols.NASDAQ100 !== '^NDX' || symbols.DOW !== '^DJI' || symbols.KOSPI200 !== '^KS200' || symbols.SOX !== '^SOX' || symbols.VIX !== '^VIX') throw new Error('Yahoo 7개 지수 mapping 실패');
-console.log('✅ Toss KOSPI/KOSDAQ 및 Yahoo 7개 지수 provider 계약/파싱 테스트 통과');
+if (Object.keys(symbols).length !== 12 || symbols.SP500 !== '^GSPC' || symbols.NASDAQ !== '^IXIC' || symbols.NASDAQ100 !== '^NDX' || symbols.DOW !== '^DJI' || symbols.KOSPI200 !== '^KS200' || symbols.SOX !== '^SOX' || symbols.VIX !== '^VIX' || symbols.DXY !== 'DX-Y.NYB' || symbols.UST10Y !== '^TNX' || symbols.WTI !== 'CL=F' || symbols.GOLD !== 'GC=F' || symbols.BTC !== 'BTC-USD') throw new Error('Yahoo 12개 지수·거시 mapping 실패');
+console.log('✅ Toss KOSPI/KOSDAQ 및 Yahoo 12개 지수·거시 provider 계약/파싱 테스트 통과');

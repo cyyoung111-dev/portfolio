@@ -1,9 +1,13 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.189
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.190
+//
+//  v9.190 변경사항 (2026.10.08):
+//   19시 당일 KRX 확정 종가·20:30 실패 watchdog, 마감 단계 영속 진단
+//   미국 종가는 뉴욕 시장 최근 완료 세션 기준으로 수집하고 watchdog 중복 경고를 노출
 //
 //  v9.189 변경사항 (2026.10.08):
-//   19시 통합 마감은 당일 KRX exact-date 종가를 우선 저장하고 거래일 당일값이 없으면 실패 처리
-//   20:30 watchdog으로 당일 마감 미완료/오류를 1회 재시도하고 단계 로그를 동기화로그에 영속화
+//   브리핑 provider에 KRX VKOSPI와 Yahoo DXY·UST10Y·WTI·GOLD·BTC 연결
+//   야간 KOSPI200 선물 readiness 및 지표 정규화 보강
 //
 //  v9.188 변경사항 (2026.10.08):
 //   과거 펀드 좌수 0→양수 정정 시 기존 MANUAL 가격이력이 있으면 신규 Snapshot 평가값·소스도 동일 MANUAL 원자료로 생성
@@ -1877,6 +1881,20 @@ function _isConfirmedHistoryPrice_(value, dateStr) {
     && _normalizeDate(value.marketDate || value.usedDate) === _normalizeDate(dateStr);
 }
 
+function _latestCompletedUsRegularSessionDate_(instant) {
+  var now = instant || new Date();
+  var marketDate = Utilities.formatDate(now, 'America/New_York', 'yyyy-MM-dd');
+  var marketHour = Number(Utilities.formatDate(now, 'America/New_York', 'H'));
+  var candidate = new Date(marketDate + 'T12:00:00Z');
+  if (marketHour < 16) candidate.setUTCDate(candidate.getUTCDate() - 1);
+  for (var i = 0; i < 7; i++) {
+    var weekday = candidate.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) return Utilities.formatDate(candidate, 'UTC', 'yyyy-MM-dd');
+    candidate.setUTCDate(candidate.getUTCDate() - 1);
+  }
+  throw new Error('미국 최근 완료 거래일을 계산하지 못했습니다.');
+}
+
 function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   // 주식·ETF 가격에는 GOOGLEFINANCE를 사용하지 않습니다. 함수명은 하위 호출 호환용입니다.
   var prices = {};
@@ -1902,9 +1920,10 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   var overseasItems = gfItems.filter(function(item) {
     return String(item.currency || 'KRW').toUpperCase() !== 'KRW' && String(item.market || '').toUpperCase() !== 'KR';
   });
-  var overseasPrices = fetchPricesYahooRegularClose(overseasItems, dateStr);
+  var overseasDate = options && options.usCloseDate || dateStr;
+  var overseasPrices = fetchPricesYahooRegularClose(overseasItems, overseasDate);
   Object.keys(overseasPrices).forEach(function(code) {
-    if (_isConfirmedHistoryPrice_(overseasPrices[code], dateStr)) prices[code] = overseasPrices[code];
+    if (_isConfirmedHistoryPrice_(overseasPrices[code], overseasDate)) prices[code] = overseasPrices[code];
   });
 
   // 실패·누락은 저장 확정값 보존을 위해 빈 결과로 반환합니다.
@@ -4234,12 +4253,17 @@ function _benchmarkSymbolMap() {
     KOSPI200: ['^KS200'],
     SOX: ['^SOX'],
     VIX: ['^VIX'],
+    DXY: ['DX-Y.NYB'],
+    UST10Y: ['^TNX'],
+    WTI: ['CL=F'],
+    GOLD: ['GC=F'],
+    BTC: ['BTC-USD'],
     VKOSPI: []
   };
 }
 
 var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
-var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX' };
+var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' };
 var KRX_OFFICIAL_INDEX_CONFIG = {
   KOSPI: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd', idxName: '코스피' },
   KOSDAQ: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd', idxName: '코스닥' }
@@ -4954,7 +4978,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.189' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.190' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9088,7 +9112,8 @@ function saveDailyPriceHistory() {
           return !(krxPrev[item.code] && krxPrev[item.code].price > 0);
         });
         var gfPrev = gfPrevItems.length > 0 && _hasUsdPriceItems(items)
-          ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true })
+          ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true,
+              usCloseDate: _latestCompletedUsRegularSessionDate_(new Date()) })
           : {};
         // 공식 실제 종가 날짜·시장별 커버리지를 먼저 검증해 오래된 데이터 저장을 차단합니다.
         var closeVerification = _assessDailyKrxStockClose(items, krxPrev, requestedCloseDate);
@@ -10014,17 +10039,18 @@ function _getAutomationStatusData() {
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasIntegrityChange;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
   var hasDuplicateCloseTriggers = !!trig.hasDuplicateCloseTriggers;
+  var hasDuplicateWatchdogTriggers = !!trig.hasDuplicateWatchdogTriggers;
   var closeErrors = portfolioClose && Array.isArray(portfolioClose.errors) ? portfolioClose.errors : [];
   var overallStatus = 'NORMAL';
 
-  if (missingTrigger || hasLegacySplitTriggers || hasDuplicateCloseTriggers) overallStatus = 'ERROR';
+  if (missingTrigger || hasLegacySplitTriggers || hasDuplicateCloseTriggers || hasDuplicateWatchdogTriggers) overallStatus = 'ERROR';
   else if (!portfolioClose) overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN';
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.189',
+    gasVersion: '9.190',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -10037,6 +10063,7 @@ function _getAutomationStatusData() {
       hasLegacyFundTrigger: trig.legacyFundCount > 0,
       hasLegacySplitTriggers: hasLegacySplitTriggers,
       hasDuplicateCloseTriggers: hasDuplicateCloseTriggers,
+      hasDuplicateWatchdogTriggers: hasDuplicateWatchdogTriggers,
       closeCount: trig.closeCount,
       watchdogCount: trig.watchdogCount
     },
@@ -10057,7 +10084,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.189' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.190' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11907,7 +11934,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.189' });
+    return jsonOk({ settings: settings, gasVersion: '9.190' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11935,7 +11962,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.189'
+      gasVersion: '9.190'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
