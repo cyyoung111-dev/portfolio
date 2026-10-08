@@ -516,9 +516,11 @@ const qvm=vm.createContext({
   _normalizeDate:(d)=>String(d||'').slice(0,10),
   _fundDateOffset:(d,n)=>{const z=new Date(d+'T00:00:00Z');z.setUTCDate(z.getUTCDate()+n);return z.toISOString().slice(0,10);},
   _getLatestLifecycleValidSnapshotDate:()=> '2026-10-06',
+  _getDailyHeldCodeItems:(ss,date,catalog)=>catalog,
+  getCodeItems:()=>[{code:'005930',currency:'KRW',market:'KOSPI'}],
   _appendPortfolioCloseSyncLog:()=>{}
 });
-for(const n of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_','_completePendingKrxCloseDate_','_seedMissingKrxCloseDates_','_retryOnePendingKrxClose_']){
+for(const n of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_','_completePendingKrxCloseDate_','_hasKrxHoldingsForCloseDate_','_seedMissingKrxCloseDates_','_retryOnePendingKrxClose_']){
   vm.runInContext(extract(n),qvm);
 }
 qvm._seedMissingKrxCloseDates_(null,props,'2026-10-10');
@@ -530,6 +532,15 @@ const backfill=qvm._retryOnePendingKrxClose_(props,'2026-10-10');
 assert.equal(backfill.ok,true);
 assert.equal(props.getProperty('snapshot_last_success_date'),'2026-10-10','과거 복구가 오늘 마지막 성공일을 덮지 않음');
 assert.deepEqual(JSON.parse(JSON.stringify(qvm._readPendingKrxCloseDates_(props))),['2026-10-08'],'1건만 처리 후 나머지 보존');
+props.setProperty('portfolio_close_pending_krx_dates','[]');
+props.setProperty('snapshot_last_success_date','2026-10-06');
+qvm._seedMissingKrxCloseDates_(null,props,'2026-10-10',[{code:'AAPL',currency:'USD',market:'US'}]);
+assert.equal(qvm._readPendingKrxCloseDates_(props).length,0,'미국 전용 계좌의 세션일 차이는 KRX 누락일이 아님');
+qvm._seedMissingKrxCloseDates_(null,props,'2026-10-10',[{code:'005930',currency:'KRW',market:'KOSPI'}]);
+assert.deepEqual(JSON.parse(JSON.stringify(qvm._readPendingKrxCloseDates_(props))),['2026-10-07','2026-10-08'],
+  'KRX 국내 보유 종목이 있으면 누락 거래일을 복구');
+assert.match(extract('fetchPricesKrxViaOtp'), /_krxCalendarStatus_\(actualDate\) !== 'CLOSED'/,
+  'OTP fallback도 2027 포함 단일 KRX 달력을 사용해야 함');
 const calendar=vm.createContext({_normalizeDate:x=>String(x||''),KRX_CONFIRMED_CLOSED_DATES_2026:{'2026-10-09':1},KRX_CONFIRMED_CLOSED_DATES_2027:{'2027-02-09':1}});
 vm.runInContext(extract('_krxCalendarStatus_'),calendar);
 assert.equal(calendar._krxCalendarStatus_('2027-02-09'),'CLOSED');
