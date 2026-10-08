@@ -10527,6 +10527,40 @@ function handleGetKrxSourceDiagnostics(dateStr) {
   } catch(err) { return jsonError('KRX 진단 실패: ' + String(err.message || 'unknown').slice(0,140)); }
 }
 
+// KRX 가격 단계가 실패한 경우 6분 제한 내에서 펀드까지 연쇄 실행하지 않습니다.
+// 펀드 NAV 수집은 별도 시간 기반 실행으로 분리하며 중복 트리거는 만들지 않습니다.
+function _scheduleFundAfterFailedPortfolioPrice_() {
+  var handler = 'runDeferredFundAfterPortfolioCloseFailure';
+  var existing = ScriptApp.getProjectTriggers().some(function(trigger) {
+    return trigger.getHandlerFunction() === handler;
+  });
+  if (existing) return false;
+  ScriptApp.newTrigger(handler).timeBased().after(60 * 1000).create();
+  return true;
+}
+function runDeferredFundAfterPortfolioCloseFailure() {
+  var props = PropertiesService.getScriptProperties();
+  var runDate = today();
+  try {
+    _appendPortfolioCloseSyncLog('FUND_DEFERRED_START', runDate, '', '가격 단계 실패 후 펀드 독립 실행');
+    var result = runDailyFundValuations();
+    _appendPortfolioCloseSyncLog('FUND_DEFERRED_DONE', runDate, '',
+      'lastDate=' + String(result && result.lastDate || ''));
+    return result;
+  } catch (err) {
+    _appendPortfolioCloseSyncLog('FUND_DEFERRED_ERROR', runDate, '',
+      String(err && err.message || err).slice(0, 240));
+    throw err;
+  } finally {
+    // 실행 성공/실패 여부에 관계없이 1회성 트리거를 정리합니다.
+    ScriptApp.getProjectTriggers().forEach(function(trigger) {
+      if (trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure') {
+        ScriptApp.deleteTrigger(trigger);
+      }
+    });
+  }
+}
+
 function runDailyPortfolioClose1900() {
   // 배포 후 setupTrigger를 수동 실행하지 않아도 기존 19시 트리거가 watchdog을 자가 설치합니다.
   try { _ensurePortfolioCloseWatchdogTrigger(true); }
@@ -10554,6 +10588,30 @@ function runDailyPortfolioClose1900() {
     errors.push('일반 종목: ' + (priceErr && priceErr.message ? priceErr.message : String(priceErr)));
     Logger.log('⚠️ 통합 마감 일반 종목 단계 실패 — 펀드 단계 계속: ' + errors[errors.length - 1]);
     _appendPortfolioCloseSyncLog('PRICE_ERROR', runDate, runId, errors[errors.length - 1]);
+  }
+
+
+  // 가격 단계 실패가 확인된 경우 펀드를 같은 실행에서 호출하면
+  // 장시간 NAV 재조회로 전체 상태가 6분 타임아웃에 묻힙니다.
+  // 가격 ERROR를 영속 확정하고 펀드는 별도 실행에서 복구합니다.
+  if (!priceResult) {
+    var deferredScheduled = false;
+    try {
+      deferredScheduled = _scheduleFundAfterFailedPortfolioPrice_();
+      _appendPortfolioCloseSyncLog('FUND_DEFERRED', runDate, runId,
+        deferredScheduled ? '독립 펀드 실행 예약' : '기존 펀드 실행 예약 유지');
+    } catch (deferErr) {
+      errors.push('펀드 독립 실행 예약 실패: ' + (deferErr.message || String(deferErr)));
+    }
+    var failedSummary = {
+      runDate:runDate, startedAt:startedAt,
+      finishedAt:Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
+      priceOk:false, priceDate:'', priceRows:0, fundOk:false,
+      fundDeferred:deferredScheduled, errors:errors.slice(0, 4)
+    };
+    _recordPortfolioCloseStage(props, runDate, startedAt, 'ERROR', runId, failedSummary, startedMs);
+    _appendPortfolioCloseSyncLog('ERROR', runDate, runId, errors.join(' | '));
+    throw new Error('통합 마감 가격 단계 실패(펀드 독립 실행): ' + errors.join(' | '));
   }
 
   if (!_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs)) {
