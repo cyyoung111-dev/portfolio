@@ -55,7 +55,7 @@ assert.match(delegation, /closest\('\[data-price-detail\]'\)/);
 const index = fs.readFileSync('src/web/index.html', 'utf8');
 assert.match(index, /components\.css\?v=20260921-2/);
 assert.match(index, /settings_sync\.js\?v=20261008-2/);
-assert.match(index, /settings_fetch\.js\?v=20261008-11/);
+assert.match(index, /settings_fetch\.js\?v=20261008-12/);
 assert.match(web, /const requestKey = targetUrl \+ '\\|' \+ generation \+ '\\|' \+ dateStr/,
   '현재가 in-flight 요청은 GSheet URL+generation+날짜별로 격리');
 assert.match(web, /const isCurrentConnection = \(\) =>[\s\S]*isGsheetConnectionCurrent\(targetUrl, generation\)/,
