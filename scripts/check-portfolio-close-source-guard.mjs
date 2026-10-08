@@ -359,8 +359,10 @@ assert.match(scheduleSource, /return \{created:false, triggerId:String\(old\.tri
   '기존 예약의 UID는 최초 예약 판단 lock 안에서 반환');
 assert.match(scheduleSource, /return \{created:true, triggerId:triggerId\}/,
   '신규 예약 UID도 lock 안에서 함께 반환');
-assert.match(guardedFundSource, /return \{acquired:false, busyToken:String\(old\.token \|\| ''\)\}/,
+assert.match(guardedFundSource, /busyToken:String\(old\.token \|\| ''\), reason:'FUND_ACTIVE'/,
   'FUND_BUSY 실제 경합 token은 실패 결정 시점에 캡처');
+assert.match(guardedFundSource, /PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY/,
+  '펀드 lease 획득 전에 공유 백필 lease를 동일 lock 안에서 검사');
 assert.doesNotMatch(guardedFundSource, /var active = _portfolioFundAtomic_/,
   '첫 실패 이후 lease를 다시 읽는 TOCTOU 경합 금지');
 
@@ -531,34 +533,18 @@ assert.match(closeRunSource,/reason:'FUND_INCOMPLETE'/,
   '펀드 평가가 미완료이면 과거 Snapshot 백필을 동시 실행하지 않음');
 assert.match(nightlyBackfill,/reason:'FUND_ACTIVE'/,
   '독립 야간 백필도 활성 펀드 lease 중에는 저장을 보류');
-function checkNightlyFundConflict(active) {
-  const bag=new Map();
-  const lease=active?{until:30000,token:'fund-running'}:null;
-  const props={
-    getProperty:key=>bag.get(key)||null,
-    setProperty:(key,val)=>bag.set(key,val)
-  };
-  let ran=0;
-  const ctx=vm.createContext({
-    PropertiesService:{getScriptProperties:()=>props},
-    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
-    _portfolioFundState_:(p,key)=>key==='portfolio_fund_run_lease_v1'?lease:null,
-    Date:{now:()=>10000}, today:()=> '2026-10-08',
-    _runPendingKrxBackfillWithLease_:()=>{ran++;return {attempted:true,ok:true};},
-    Logger:{log(){}}
-  });
-  vm.runInContext(nightlyBackfill,ctx);
-  const result=ctx.runPortfolioCloseBackfill2210();
-  return {ran,result};
-}
-const activeNavNightly=checkNightlyFundConflict(true);
-assert.equal(activeNavNightly.ran,0,'활성 NAV lease 중에는 백필 실행 금지');
-assert.equal(activeNavNightly.result.reason,'FUND_ACTIVE');
-assert.equal(checkNightlyFundConflict(false).ran,1,'NAV 미실행이면 별도 백필 실행 허용');
+// Backfill and NAV both enter the same ScriptLock acquisition helper.
+assert.doesNotMatch(nightlyBackfill,/var fundLease =/,
+  '야간 백필에서 lease 획득 전 외부 검사로 인한 TOCTOU 금지');
+assert.match(backfillWorker, /PORTFOLIO_FUND_LEASE_KEY/,
+  '백필 lease 획득 내부에서 NAV lease를 동시에 확인');
+assert.match(backfillWorker,/if \(acquired !== 'ACQUIRED'\)/,
+  '백필 동시 실행 차단 사유를 반환');
 
-function verifyBackfillLease(existing) {
+function verifyBackfillLease(existing, fundLease) {
   const bag=new Map();
   if(existing)bag.set('portfolio_close_backfill_lease_v1',JSON.stringify(existing));
+  if(fundLease)bag.set('portfolio_fund_run_lease_v1',JSON.stringify(fundLease));
   const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,v),
     deleteProperty:k=>bag.delete(k)};
   let runs=0;
@@ -568,6 +554,7 @@ function verifyBackfillLease(existing) {
     _portfolioFundAtomic_:cb=>cb(p),
     _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
     _retryOnePendingKrxClose_:()=>{runs++;return {attempted:true,ok:true,date:'2026-10-07'};}
   });
   vm.runInContext(backfillWorker,ctx);
@@ -578,9 +565,71 @@ const blockedBackfill=verifyBackfillLease({token:'other',until:20000});
 assert.equal(blockedBackfill.runs,0,'동시 백필 lease 보유 시 KRX 요청 차단');
 assert.equal(blockedBackfill.result.reason,'BACKFILL_BUSY');
 assert.notEqual(blockedBackfill.lease,null,'다른 실행의 백필 lease를 삭제하지 않음');
+const activeFundBlocked=verifyBackfillLease(null,{token:'nav-running',until:20000});
+assert.equal(activeFundBlocked.runs,0,'동일 lock에서 NAV lease 확인 후 백필 쓰기 차단');
+assert.equal(activeFundBlocked.result.reason,'FUND_ACTIVE');
+assert.equal(activeFundBlocked.lease,null,'펀드 활성 상태에는 백필 lease 미획득');
 const finishedBackfill=verifyBackfillLease(null);
 assert.equal(finishedBackfill.runs,1,'야간 백필은 한 날짜만 처리');
 assert.equal(finishedBackfill.lease,null,'자신의 백필 lease 정리');
+
+// Bidirectional executable race guards: while one worker owns its lease,
+// the opposite worker cannot start; after release it can safely proceed.
+function runCrossLeaseScenario(backfillFirst) {
+  const bag=new Map(), events=[];
+  let nextId=0;
+  const props={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,v),
+    deleteProperty:k=>bag.delete(k)};
+  const shared={
+    Date:{now:()=>10000}, today:()=> '2026-10-08',
+    Utilities:{getUuid:()=> 'lease-'+(++nextId)},
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    _portfolioFundAtomic_:cb=>cb(props),
+    _portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
+    _retryOnePendingKrxClose_:()=>{events.push('backfill');return {attempted:true,ok:true};},
+    runDailyFundValuations:()=>{events.push('fund');return {lastDate:'2026-10-08'};}
+  };
+  const ctx=vm.createContext(shared);
+  vm.runInContext(backfillWorker+'\n'+guardedFundSource,ctx);
+  if(backfillFirst){
+    ctx._retryOnePendingKrxClose_=()=>{
+      let code='';
+      try {ctx._runPortfolioFundWithLease_('DEFERRED','T');}catch(err){code=err.message;}
+      assert.match(code,/FUND_BUSY/,'백필 진행 중 NAV 경합 차단');
+      assert.equal(props.getProperty('portfolio_fund_run_lease_v1'),null);
+      events.push('backfill');return {attempted:true,ok:true};
+    };
+    ctx._runPendingKrxBackfillWithLease_(props,'2026-10-08');
+    ctx._runPortfolioFundWithLease_('CLOSE');
+    assert.deepEqual(events,['backfill','fund']);
+  }else{
+    ctx.runDailyFundValuations=()=>{
+      const result=ctx._runPendingKrxBackfillWithLease_(props,'2026-10-08');
+      assert.equal(result.reason,'FUND_ACTIVE','활성 NAV 평가 중 과거 Snapshot 복구 차단');
+      assert.equal(props.getProperty('portfolio_close_backfill_lease_v1'),null);
+      events.push('fund');return {lastDate:'2026-10-08'};
+    };
+    ctx._runPortfolioFundWithLease_('CLOSE');
+    ctx._runPendingKrxBackfillWithLease_(props,'2026-10-08');
+    assert.deepEqual(events,['fund','backfill']);
+  }
+  assert.equal(props.getProperty('portfolio_close_backfill_lease_v1'),null);
+  assert.equal(props.getProperty('portfolio_fund_run_lease_v1'),null);
+}
+runCrossLeaseScenario(true);
+runCrossLeaseScenario(false);
+const triggerSelfHeal=extract('_ensureDailyTriggersOncePerDay');
+assert.match(triggerSelfHeal,/integrity-change-v6-close-watchdog-backfill/,
+  '신규 백필 트리거 점검은 캐시 키 변경으로 반드시 재실행');
+assert.match(triggerSelfHeal,/!before\.hasBackfill/,
+  '일일 검사에서 누락된 백필 트리거 자동 복구');
+assert.match(triggerSelfHeal,/before\.hasDuplicateBackfillTriggers/,
+  '일일 검사에서 중복 백필 트리거 정리');
+assert.match(triggerSelfHeal,/after\.hasBackfill/,
+  '백필 트리거가 있어야 복구 정상으로 캐시');
 
 const runProps=new Map();
 const statusVm=vm.createContext({
