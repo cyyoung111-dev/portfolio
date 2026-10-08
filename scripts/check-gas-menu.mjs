@@ -123,7 +123,7 @@ for (const [entry, downstream] of [
   ['repairMissingDailyTriggersPrompt', '_ensureDailyTriggers'],
   ['resetDailyTriggersPrompt', 'setupTrigger'], ['repairSheetStructurePrompt', 'initSheet'],
   ['resumeSnapshotRepairPrompt', 'showSnapshotConsistencyRepairStatus'],
-  ['resumeBackfillPrompt', 'backfillResume'], ['runDailyPriceSnapshotNow', 'saveDailyPriceHistory'],
+  ['resumeBackfillPrompt', 'backfillResume'], ['runDailyPriceSnapshotNow', '_runManualPriceSnapshotGuarded_'],
   ['runSnapshotConsistencyRepair', '_startSnapshotConsistencyRepair'], ['runDataCleanup', 'cleanDeadCodes'],
   ['migrateLegacyApiKeysPrompt', 'migrateLegacyApiKeysToScriptProperties'],
 ]) {
@@ -148,11 +148,11 @@ for (const answer of ['CANCEL', 'CLOSE', 'NO', 'YES']) {
   assert.equal(f.props.get('access_token'), 'existing-token'); assert.equal(f.writes.length, 0);
 }
 
-// Confirmed wrappers continue the existing operational route exactly once.
+// Confirmed wrappers invoke the safe operational entrypoint exactly once.
 for (const [entry, downstream] of [
   ['resetDailyTriggersPrompt', 'setupTrigger'], ['repairSheetStructurePrompt', 'initSheet'],
   ['resumeSnapshotRepairPrompt', 'showSnapshotConsistencyRepairStatus'], ['resumeBackfillPrompt', 'backfillResume'],
-  ['runDailyPriceSnapshotNow', 'saveDailyPriceHistory'], ['runSnapshotConsistencyRepair', '_startSnapshotConsistencyRepair'],
+  ['runDailyPriceSnapshotNow', '_runManualPriceSnapshotGuarded_'], ['runSnapshotConsistencyRepair', '_startSnapshotConsistencyRepair'],
 ]) {
   const f = fixture(); f.responses.push('YES');
   f.ctx[downstream] = () => { f.calls.push(downstream); return { done: true, date: '2026-10-05', rows: 1 }; };
