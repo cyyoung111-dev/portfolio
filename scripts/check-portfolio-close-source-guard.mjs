@@ -638,3 +638,52 @@ assert.match(closeSection,/var latestForeignCloseDate = _latestConfirmedForeignC
 assert.match(closeSection,/_buildSnapshotRowsFromTradeAndPriceHistory\(ss, snapshotDate\)/,
   '휴장일 해외 기준일을 선택한 다음 기존 코드별 직전 확정종가·펀드 NAV 이월 빌더를 사용');
 console.log('✅ 한국 휴장일 혼합 계좌 해외 확정일 Snapshot·미래가격 차단 계약 통과');
+
+// 휴장일에 KRX API/OTP 장애가 나더라도 공식 저장 종가만 사용해 해외 개장
+// 시장의 Snapshot을 구성할 수 있어야 합니다. 비공식/수동/미래 값은 제외.
+const krxStoredRows=[
+  ['2026-10-08','005930','삼성전자',80000,'','KRX'],
+  ['2026-10-08','000660','SK하이닉스',205000,'','KRX_OTP'],
+  ['2026-10-09','005930','삼성전자',90000,'','MANUAL'],
+  ['2026-10-09','000660','SK하이닉스',220000,'','YAHOO_KRX_BASELINE_VERIFIED_CLOSE'],
+  ['2026-10-10','005930','삼성전자',300000,'','KRX'],
+  ['2026-09-29','005930','삼성전자',75000,'','KRX']
+];
+const krxStoredVm=vm.createContext({
+  _krxCalendarStatus_:d=>d==='2026-10-09'?'CLOSED':'OPEN',
+  _cleanCode:v=>String(v||'').trim(),
+  _isFundCode:v=>/^F\d{5}$/.test(String(v||'')),
+  _normalizeDate:v=>String(v||'').slice(0,10),
+  _countBusinessWeekdaysBetween:(a,b)=>a==='2026-09-29'?5:0,
+  CONFIG:{SHEET_PH:'가격이력'}
+});
+vm.runInContext(extract('_readStoredOfficialKrxClosesForHoliday_'),krxStoredVm);
+vm.runInContext(extract('_assessDailyKrxStockClose'),krxStoredVm);
+const krxOnly=[
+  {code:'005930',name:'삼성전자',currency:'KRW',market:'KOSPI'},
+  {code:'000660',name:'SK하이닉스',currency:'KRW',market:'KOSDAQ'}
+];
+const storedSh={getLastRow:()=>krxStoredRows.length+1,
+  getRange:()=>({getValues:()=>krxStoredRows})};
+const storedBook={getSheetByName:()=>storedSh};
+const verifiedCarry=krxStoredVm._readStoredOfficialKrxClosesForHoliday_(storedBook,krxOnly,'2026-10-09');
+assert.equal(verifiedCarry['005930'].price,80000,'휴장일 수동/미래 입력값은 공식 종가를 덮지 못함');
+assert.equal(verifiedCarry['000660'].price,205000,'KRX OTP 직전 종가도 공식 확정 후보');
+assert.equal(verifiedCarry['005930'].usedDate,'2026-10-08');
+assert.deepEqual(JSON.parse(JSON.stringify(krxStoredVm._assessDailyKrxStockClose(krxOnly,verifiedCarry,'2026-10-09'))),
+  {required:true,date:'2026-10-08',confirmed:2,expected:2,lag:0},
+  '휴장일 저장 공식 종가도 시장별 coverage 검사 통과');
+assert.deepEqual(JSON.parse(JSON.stringify(
+  krxStoredVm._readStoredOfficialKrxClosesForHoliday_(storedBook,krxOnly,'2026-10-08'))),{},
+  '정상 거래일에는 저장 가격으로 KRX 당일 조회 실패를 숨길 수 없음');
+const onlyUnofficial={getSheetByName:()=>({getLastRow:()=>3,getRange:()=>({getValues:()=>krxStoredRows.slice(2,4)})})};
+assert.deepEqual(JSON.parse(JSON.stringify(
+  krxStoredVm._readStoredOfficialKrxClosesForHoliday_(onlyUnofficial,krxOnly,'2026-10-09'))),{},
+  'YAHOO·MANUAL 값은 KRX로 승격되지 않음');
+const oldOnly={getSheetByName:()=>({getLastRow:()=>2,getRange:()=>({getValues:()=>[krxStoredRows[5]]})})};
+const oldPrices=krxStoredVm._readStoredOfficialKrxClosesForHoliday_(oldOnly,krxOnly,'2026-10-09');
+assert.throws(()=>krxStoredVm._assessDailyKrxStockClose(krxOnly,oldPrices,'2026-10-09'),
+  /확정 종가 오래됨/,'오래된 KRX 가격이력은 휴장일에도 정상확정 금지');
+assert.match(closeSection,/_krxCalendarStatus_\(requestedCloseDate\) === 'CLOSED' && Object\.keys\(krxPrev\)\.length === 0/,
+  'API/OTP가 빈 결과이고 한국 휴장일일 때만 저장 공식 종가 사용');
+console.log('✅ 휴장일 KRX 공급원 장애·공식 가격 CARRY·원천 검증 회귀검사 통과');
