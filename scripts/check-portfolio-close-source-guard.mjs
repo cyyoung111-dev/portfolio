@@ -507,6 +507,7 @@ assert.equal(yahooVm.fetchPricesYahooRegularClose([{code:'AAPL',market:'US'}],'2
 const queueMap=new Map();
 const props={getProperty(k){return queueMap.has(k)?queueMap.get(k):null;},setProperty(k,v){queueMap.set(k,String(v));},deleteProperty(k){queueMap.delete(k);}};
 const qvm=vm.createContext({
+  PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
   Logger:{log(){}},
   _krxCalendarStatus_:(d)=>d==='2026-10-09'?'CLOSED':'OPEN',
   _normalizeDate:(d)=>String(d||'').slice(0,10),
