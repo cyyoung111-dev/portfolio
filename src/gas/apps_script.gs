@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.179
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.180
+//
+//  v9.180 변경사항 (2026.10.08):
+//   브리핑 Yahoo 공통 provider에 DXY·미 10년물·WTI·금·BTC를 연결
+//   기존 KRX VKOSPI 단일 조회 경로와 함께 장전/마감 브리핑 원자료 범위를 확장
 //
 //  v9.179 변경사항 (2026.10.07):
 //   일일 마감 KRX 종가 조회·검증을 평가일 거래원장의 실제 보유 종목으로 제한
@@ -4153,12 +4157,17 @@ function _benchmarkSymbolMap() {
     KOSPI200: ['^KS200'],
     SOX: ['^SOX'],
     VIX: ['^VIX'],
+    DXY: ['DX-Y.NYB'],
+    UST10Y: ['^TNX'],
+    WTI: ['CL=F'],
+    GOLD: ['GC=F'],
+    BTC: ['BTC-USD'],
     VKOSPI: []
   };
 }
 
 var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
-var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX' };
+var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' };
 var KRX_OFFICIAL_INDEX_CONFIG = {
   KOSPI: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd', idxName: '코스피' },
   KOSDAQ: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd', idxName: '코스닥' }
@@ -4871,7 +4880,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.179' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.180' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9501,7 +9510,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.179',
+    gasVersion: '9.180',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9530,7 +9539,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.179' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.180' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11193,7 +11202,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.179' });
+    return jsonOk({ settings: settings, gasVersion: '9.180' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11215,7 +11224,7 @@ function handleGetBootstrap() {
       trades: tradesResponse.status === 'ok' ? tradesResponse.trades : [],
       holdings: holdingsResponse.status === 'ok' ? holdingsResponse.holdings : [],
       codes: getCodeItems(ss),
-      gasVersion: '9.179'
+      gasVersion: '9.180'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
