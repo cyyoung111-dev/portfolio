@@ -1852,9 +1852,20 @@ function _yahooEquitySymbol_(item) {
   if (!code) return '';
   var market = String(item.market || '').toUpperCase();
   // 내부 식별자는 그대로 보존하고 공급자별 접미사는 조회 시점에만 적용합니다.
-  if (market === 'US' || String(item.currency || '').toUpperCase() === 'USD') return String(item.yahooSymbol || code);
-  if (market === 'JP' || market === 'TSE') return String(item.yahooSymbol || (code + '.T'));
-  if (market === 'HK' || market === 'HKEX') return String(item.yahooSymbol || (code + '.HK'));
+  if (item && item.yahooSymbol) return String(item.yahooSymbol).trim();
+  if (market === 'US' || String(item.currency || '').toUpperCase() === 'USD') return code;
+  // 내부 원장 코드는 6자리 식별자를 유지하지만 Yahoo JP/HK 심볼은 거래소 표기 길이를 사용합니다.
+  // JP 007203 → 7203.T / HK 000700 → 0700.HK. 5자리 홍콩 코드는 자르지 않습니다.
+  var originalCode = String(item && item.code || '').trim().toUpperCase();
+  if (market === 'JP' || market === 'TSE') {
+    var jpCode = /^\d{1,6}$/.test(originalCode) ? String(Number(originalCode)) : code;
+    return jpCode + '.T';
+  }
+  if (market === 'HK' || market === 'HKEX') {
+    var hkCode = /^\d{1,6}$/.test(originalCode) ? String(Number(originalCode)) : code;
+    while (/^\d+$/.test(hkCode) && hkCode.length < 4) hkCode = '0' + hkCode;
+    return hkCode + '.HK';
+  }
   return String(item.yahooSymbol || '');
 }
 
@@ -9060,8 +9071,25 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
     }).forEach(function(market) {
       var entry = evidence[market] || {};
       if (!(entry.count > 0) || entry.date !== newestDate) {
-        throw new Error('KRX 공식 시장별 확정 종가 누락: ' + market
-          + ' (기준 ' + newestDate + ', 수집 ' + (entry.date || '없음') + ')');
+        // 휴장일에 한정하여 기존 저장된 공식(KRX/KRX_OTP) 종가가
+        // 같은 최신 KRX 거래일의 시장별 기대수량을 충분히 충족했는지 재검사합니다.
+        var fromStored = evidence.holidayStoredCodes || {};
+        var verifiedStored = listed.filter(function(item) {
+          var code = _cleanCode(item.code);
+          var itemMarket = String(item.market || '').toUpperCase();
+          var grouping = String(codeMarkets[code] || '').toUpperCase();
+          var type = String(item.type || '').toUpperCase();
+          var row = prices && prices[code];
+          var rowDate = _normalizeDate(row && row.usedDate || '');
+          var group = type === 'ETF' || itemMarket === 'ETF' ? 'ETF'
+            : (grouping === 'KOSPI' || grouping === 'KOSDAQ' ? grouping : itemMarket);
+          return group === market && fromStored[code] && rowDate === newestDate
+            && (row.source === 'KRX' || row.source === 'KRX_OTP') && Number(row.price) > 0;
+        }).length;
+        if (_krxCalendarStatus_(requestedDate) !== 'CLOSED' || verifiedStored < Math.ceil(byMarket[market].expected * 0.7)) {
+          throw new Error('KRX 공식 시장별 확정 종가 누락: ' + market
+            + ' (기준 ' + newestDate + ', 수집 ' + (entry.date || '없음') + ')');
+        }
       }
     });
   }
@@ -9294,14 +9322,26 @@ function saveDailyPriceHistory(targetDate) {
           ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true,
               useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate + 'T19:00:00+09:00') })
           : {};
-        // 한국 휴장일이고 API/OTP 양쪽 모두 불가할 때만 과거 검증된 공식 종가 이용.
-        // 일반 거래일에는 반드시 새로운 KRX 원천 응답을 요구합니다.
-        if (_krxCalendarStatus_(requestedCloseDate) === 'CLOSED' && Object.keys(krxPrev).length === 0) {
+        // KRX 휴장일에는 실시간 pack 일부가 실패해도 저장된 공식 KRX 종가를
+        // 누락 코드에만 병합합니다. 정상 거래일에는 저장값을 당일 확정값으로 승격하지 않습니다.
+        if (_krxCalendarStatus_(requestedCloseDate) === 'CLOSED') {
           var storedKrx = _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedCloseDate);
-          if (Object.keys(storedKrx).length > 0) {
-            krxPrev = storedKrx;
-            Logger.log('[saveDailyPriceHistory] KRX 휴장일 기존 공식 종가 검증 후보 '
-              + Object.keys(storedKrx).length + '건(확정일/market coverage는 추후 검증)');
+          var holidayStoredCodes = {};
+          Object.keys(storedKrx).forEach(function(code) {
+            if (krxPrev[code] && Number(krxPrev[code].price) > 0) return;
+            krxPrev[code] = storedKrx[code];
+            holidayStoredCodes[code] = true;
+          });
+          if (Object.keys(holidayStoredCodes).length) {
+            // 출처를 명시해 일부 OpenAPI 시장 pack이 실패했을 때만
+            // 기존 공식 종가의 시장 coverage 대체를 허용합니다.
+            var baseEvidence = krxPrev._krxMarketEvidence || {};
+            baseEvidence.holidayStoredCodes = holidayStoredCodes;
+            Object.defineProperty(krxPrev, '_krxMarketEvidence', {
+              value:baseEvidence, enumerable:false, configurable:true
+            });
+            Logger.log('[saveDailyPriceHistory] KRX 휴장일 저장 공식 종가로 누락 코드 보충: '
+              + Object.keys(holidayStoredCodes).length + '건(원천 날짜/coverage 검증 유지)');
           }
         }
         // 해외 정규장 완료일은 KRX 공시일과 별도로 검증합니다.
