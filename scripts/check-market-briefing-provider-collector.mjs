@@ -16,6 +16,7 @@ assert.equal(result.payload.SOX.source,'YAHOO');
 assert.equal(result.payload.VIX.source,'YAHOO');
 assert.equal(result.payload.VKOSPI.source,'KRX_OFFICIAL');
 assert.equal(result.payload.VKOSPI.status,'FINAL');
+assert.equal(result.payload.VKOSPI.market,'KRX');
 assert.equal(result.payload.DXY.value,101);
 assert.equal(result.payload.UST10Y.market,'US_RATES');
 assert.equal(result.payload.WTI.market,'COMMODITY');
