@@ -105,8 +105,8 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus'];")
-    || !source.includes("gasVersion: '9.179'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 v9.179 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.180'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 v9.180 계약이 누락됐습니다.');
   process.exit(1);
 }
 
@@ -184,7 +184,7 @@ if (!source.includes("params.action === 'getBenchmarks'")
     || !source.includes('function fetchMarketIndicatorPricesToss(')
     || !source.includes('function fetchMarketIndicatorCandlesToss(')
     || !source.includes('function fetchYahooIndexSeries(')
-    || !source.includes("YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX' }")
+    || !source.includes("YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' }")
     || source.includes("GOOGLEFINANCE(\"' + symbol + '\",\"close\"")
     || !source.includes("cache.put(cacheKey, JSON.stringify(result), 21600)")) {
   console.error('❌ 비교지수 Toss/Yahoo provider(KOSPI200 포함) 또는 6시간 캐시가 누락됐습니다.');
