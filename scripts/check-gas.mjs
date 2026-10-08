@@ -244,16 +244,21 @@ if (!ensureDailyTriggersMatch
     || !/hasDuplicateCloseTriggers/.test(ensureDailyTriggersMatch[1])
     || !/hasWatchdog/.test(ensureDailyTriggersMatch[1])
     || !/hasDuplicateWatchdogTriggers/.test(ensureDailyTriggersMatch[1])
+    || !/hasBackfill/.test(ensureDailyTriggersMatch[1])
+    || !/hasDuplicateBackfillTriggers/.test(ensureDailyTriggersMatch[1])
+    || !/_ensurePortfolioCloseBackfillTrigger\(true\)/.test(ensureDailyTriggersMatch[1])
     || !/_ensurePortfolioCloseDailyTrigger\(true\)/.test(ensureDailyTriggersMatch[1])
     || !/_ensurePortfolioCloseWatchdogTrigger\(true\)/.test(ensureDailyTriggersMatch[1])
     || !/before\.hasLegacySplitTriggers/.test(oncePerDayMatch[1])
     || !/before\.hasDuplicateCloseTriggers/.test(oncePerDayMatch[1])
-    || !/before\.hasDuplicateWatchdogTriggers/.test(oncePerDayMatch[1])) {
+    || !/before\.hasDuplicateWatchdogTriggers/.test(oncePerDayMatch[1])
+    || !/before\.hasBackfill/.test(oncePerDayMatch[1])
+    || !/before\.hasDuplicateBackfillTriggers/.test(oncePerDayMatch[1])) {
   console.error('❌ 일일 트리거 점검은 레거시·통합 마감·20:30 watchdog의 누락/중복을 자동 정리해야 합니다.');
   process.exit(1);
 }
 
-if (!source.includes("integrity-change-v5-close-watchdog")
+if (!source.includes("integrity-change-v6-close-watchdog-backfill")
     || !source.includes('function _expectedPortfolioCloseRunDate()')
     || !source.includes('function _isPortfolioCloseRunStale(portfolioClose)')
     || !source.includes('portfolioCloseRunStale')
