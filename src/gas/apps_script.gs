@@ -10615,8 +10615,11 @@ function _reconcilePortfolioFundBusy_(date) {
     var last = _portfolioFundState_(props, 'portfolio_close_last_result');
     if (!last || last.runDate !== date || last.fundOk === true) return;
     var success = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
-    if (!success || !last.fundBusyToken || success.token !== last.fundBusyToken
-        || !(success.at >= Number(last.startedMs || 0))) return;
+    // Price failure still means overall ERROR, but deferred NAV can succeed independently.
+    var priceFailureDeferred = last.priceOk === false && last.fundDeferred === true;
+    var busyMatch = last.fundBusyToken && success && success.token === last.fundBusyToken
+      && success.at >= Number(last.startedMs || 0);
+    if (!success || success.date !== date || (!priceFailureDeferred && !busyMatch)) return;
     last.fundOk = true;
     last.fundDeferred = false;
     last.errors = (last.errors || []).filter(function(reason) { return !/FUND_BUSY/.test(reason); });
