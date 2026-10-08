@@ -384,6 +384,54 @@ assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, sta
 assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE', runId, summary, startedMs\)/);
 assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
   '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
+// Behavior regression for retry scheduling, not just source-pattern checks.
+function inspectFundReservation(old, clockDate) {
+  const propsBag=new Map();
+  if (old) propsBag.set('portfolio_fund_deferred_schedule_v1', JSON.stringify(old));
+  const props={
+    getProperty:key=>propsBag.get(key)||null,
+    setProperty:(key,value)=>propsBag.set(key,value)
+  };
+  let created=0;
+  const mockTrigger={getUniqueId:()=> 'new-uid'};
+  const schedulerVm=vm.createContext({
+    PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    _portfolioFundAtomic_:cb=>cb(props),
+    _portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
+    ScriptApp:{newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({
+      create:()=>{created++;return mockTrigger;}
+    })})})},
+    today:()=>clockDate,
+    Date:{now:()=>10000}
+  });
+  vm.runInContext(scheduleSource, schedulerVm);
+  const outcome=schedulerVm._scheduleFundAfterFailedPortfolioPrice_();
+  return {outcome:JSON.parse(JSON.stringify(outcome)),created,
+    pending:JSON.parse(propsBag.get('portfolio_fund_deferred_schedule_v1'))};
+}
+const validSameDay=inspectFundReservation(
+  {date:'2026-10-08',until:20000,attempts:2,triggerId:'existing-uid'},'2026-10-08');
+assert.equal(validSameDay.created,0,'유효한 당일 예약을 중복 생성하지 않음');
+assert.equal(validSameDay.outcome.triggerId,'existing-uid');
+const maxedOut=inspectFundReservation(
+  {date:'2026-10-08',until:20000,attempts:3,triggerId:'exhausted-uid'},'2026-10-08');
+assert.equal(maxedOut.created,1,'시도 횟수 소진 예약은 만료 전이라도 새로 생성');
+assert.equal(maxedOut.pending.attempts,0,'새 예약은 재시도 횟수를 초기화');
+const afterMidnight=inspectFundReservation(
+  {date:'2026-10-08',until:20000,attempts:0,triggerId:'old-day-uid'},'2026-10-09');
+assert.equal(afterMidnight.created,1,'전날 예약은 만료 전이어도 새 날짜에 재사용하지 않음');
+assert.equal(afterMidnight.pending.date,'2026-10-09');
+assert.match(deferredSource,/cleanupTriggerId = triggerId \|\| String\(reservation\.triggerId \|\| ''\)/,
+  '수동 호출에서 이벤트 UID가 없더라도 특정 예약 UID만 정리');
+assert.match(deferredSource,/pending && cleanupTriggerId && pending\.triggerId === cleanupTriggerId/,
+  '공유 예약 삭제는 정확한 UID 일치 시에만 수행');
+assert.match(deferredSource,/if \(cleanupTriggerId && trigger\.getHandlerFunction\(\) === 'runDeferredFundAfterPortfolioCloseFailure'/,
+  '모든 반복 트리거를 무차별 삭제하지 않음');
+assert.match(closeRunSource,/closeElapsedMs >= 3 \* 60 \* 1000/,
+  '6분 마감 한도를 보호하기 위해 3분 경과 시 과거 복구 신규 실행 방지');
+assert.match(closeRunSource,/reason:'CLOSE_RUNTIME_BUDGET'/,
+  '시간 예산 때문에 건너뛴 복구는 진단에 명시');
+
 const runProps=new Map();
 const statusVm=vm.createContext({
   CONFIG:{TIMEZONE:'Asia/Seoul'},
