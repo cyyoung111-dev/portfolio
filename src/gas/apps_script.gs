@@ -9331,18 +9331,28 @@ function _reconcileRecoveredPortfolioPrice_(props, target, result, policy) {
     // an unrelated date's newer run metadata to this recovered close.
     var sameRun = String(props.getProperty('portfolio_close_run_date') || '') === target;
     last = {runDate:target,
+      runId:sameRun ? String(props.getProperty('portfolio_close_run_id') || '') : '',
       startedAt:sameRun ? String(props.getProperty('portfolio_close_run_started_at') || '') : '',
       startedMs:sameRun ? Number(props.getProperty('portfolio_close_run_started_ms') || 0) : 0,
       priceOk:false, fundOk:false,
       errors:['펀드: 마감 기록 없음·완료 상태 확인 필요']};
   }
-  // Partial same-day summaries created by an earlier failed replay can miss
-  // the original run's time. Hydrate only from exact-day ownership metadata.
-  if (String(props.getProperty('portfolio_close_run_date') || '') === target) {
-    if (!last.startedAt)
-      last.startedAt = String(props.getProperty('portfolio_close_run_started_at') || '');
-    if (!last.startedMs)
-      last.startedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+  // Metadata-free legacy summaries cannot be attributed to a later run
+  // merely because the business date agrees. Avoid inventing ownership or
+  // upgrading a previous NAV to COMPLETE with another run's PRICE.
+  var ownerRunId = String(props.getProperty('portfolio_close_run_id') || '');
+  var ownerStartedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+  var ownerStartedAt = String(props.getProperty('portfolio_close_run_started_at') || '');
+  var sameDayOwner = String(props.getProperty('portfolio_close_run_date') || '') === target;
+  var matchingOwner = sameDayOwner && !!ownerRunId
+    && (last.runId ? last.runId === ownerRunId
+      : !!last.startedAt && !!last.startedMs
+        && Number(last.startedMs) === ownerStartedMs
+        && String(last.startedAt) === ownerStartedAt);
+  if (matchingOwner) {
+    last.runId = ownerRunId;
+    if (!last.startedAt) last.startedAt = ownerStartedAt;
+    if (!last.startedMs) last.startedMs = ownerStartedMs;
   }
   last.priceOk = true;
   last.priceDate = String(result && result.date || target);
@@ -10702,6 +10712,9 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
       portfolio_close_stage_at: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
     });
     if (summary && (stage === 'ERROR' || stage === 'COMPLETE')) {
+      // The persisted summary must retain its unique CLOSE owner. A timestamp
+      // or same-day date alone cannot prove NAV belongs to this PRICE run.
+      summary.runId = String(runId || '');
       // Read success marker under the same lock as the final result write.
       // This closes the window between deferred completion and close summary storage.
       var fundSuccess = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
@@ -10915,6 +10928,15 @@ function _reconcilePortfolioCloseFundSuccess_(date) {
     // summary on the same date. Never promote an earlier run's PRICE
     // using a later run's NAV marker merely because both dates match.
     var ownerStartedAt = String(props.getProperty('portfolio_close_run_started_at') || '');
+    var lastRunId = String(last.runId || '');
+    // No orphaned summary may inherit later execution metadata. New summaries
+    // have an explicit runId; historical records must supply both exact
+    // starting timestamps to establish legacy ownership.
+    if (lastRunId) {
+      if (lastRunId !== runId) return false;
+    } else if (!last.startedAt || !last.startedMs) {
+      return false;
+    }
     if ((last.startedMs && Number(last.startedMs) !== started)
         || (last.startedAt && ownerStartedAt && String(last.startedAt) !== ownerStartedAt))
       return false;
