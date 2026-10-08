@@ -10790,7 +10790,9 @@ function _reconcilePortfolioFundBusy_(date) {
     if (!last || last.runDate !== date || last.fundOk === true) return;
     var success = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
     // Price failure still means overall ERROR, but deferred NAV can succeed independently.
-    var priceFailureDeferred = last.priceOk === false && last.fundDeferred === true
+    var priceFailureDeferred = last.fundDeferred === true
+      // Same-day PRICE backfill may finish before the NAV lease completes.
+      // Fund reconciliation must work in either successful completion order.
       && success && last.fundDeferredTriggerId && success.triggerId === last.fundDeferredTriggerId
       && success.at >= Number(last.startedMs || 0);
     var busyMatch = success && success.at >= Number(last.startedMs || 0)
@@ -10931,7 +10933,13 @@ function runDailyPortfolioClose1900() {
 
   try {
     priceResult = saveDailyPriceHistory();
-    _portfolioFundAtomic_(function(sharedProps) { _completePendingKrxCloseDate_(sharedProps, runDate); });
+    try {
+      _portfolioFundAtomic_(function(sharedProps) { _completePendingKrxCloseDate_(sharedProps, runDate); });
+    } catch(queueCleanupErr) {
+      // Housekeeping failure must never turn a confirmed PRICE success into
+      // PRICE_ERROR or trigger a second NAV reservation.
+      Logger.log('⚠️ PRICE 성공 후 대기열 정리 보류: ' + queueCleanupErr.message);
+    }
     _appendPortfolioCloseSyncLog('PRICE_DONE', runDate, runId,
       'date=' + String(priceResult && priceResult.date || '') + ', rows=' + String(priceResult && priceResult.rows || 0));
   } catch (priceErr) {
@@ -11033,6 +11041,12 @@ function runDailyPortfolioClose1900() {
     errors: errors.slice(0, 4)
   };
   _recordPortfolioCloseStage(props, runDate, startedAt, errors.length ? 'ERROR' : 'COMPLETE', runId, summary, startedMs);
+  if (priceResult) {
+    // A skipped watchdog can enqueue today's date after PRICE_DONE but before
+    // the final close summary is stored. Reconcile the queue at both borders.
+    try { _portfolioFundAtomic_(function(sharedProps) { _completePendingKrxCloseDate_(sharedProps, runDate); }); }
+    catch(queueFinalErr) { Logger.log('⚠️ PRICE 완료 대기열 최종 정리 보류: ' + queueFinalErr.message); }
+  }
   // Atomic reconciliation can clear FUND_BUSY; reporting must use the persisted summary.
   _appendPortfolioCloseSyncLog(summary.errors.length ? 'ERROR' : 'COMPLETE', runDate, runId,
     'priceDate=' + String(summary.priceDate || '') + ', priceRows=' + String(summary.priceRows || 0)
