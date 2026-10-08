@@ -1,7 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.187
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.188
 //
-//  v9.187 변경사항 (2026.10.07):
+//  v9.188 변경사항 (2026.10.08):
+//   과거 펀드 좌수 0→양수 정정 시 기존 MANUAL 가격이력이 있으면 신규 Snapshot 평가값·소스도 동일 MANUAL 원자료로 생성
+//
+//  v9.188 변경사항 (2026.10.07):
 //   현재 미보유라도 Settings master/fundDirect에 남은 코드 없는 TDF·펀드의 과거 Snapshot 보존
 //
 //  v9.186 변경사항 (2026.10.07):
@@ -4947,7 +4950,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.187' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.188' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5131,9 +5134,14 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
       return false;
     });
     if (!holding) return;
-    var cost = Number(holding.costAmt) || 0, valueAmt = Number(value.evalAmt), profit = valueAmt - cost;
+    var preservedPrice = priceByDate[date];
+    var preservedManual = preservedPrice && String(preservedPrice[5] || '').toUpperCase() === 'MANUAL'
+      && isFinite(Number(preservedPrice[3]));
+    var snapshotSource = preservedManual ? 'MANUAL' : source;
+    var valueAmt = preservedManual ? Number(preservedPrice[3]) : Number(value.evalAmt);
+    var cost = Number(holding.costAmt) || 0, profit = valueAmt - cost;
     snapshotAppend.push([date, code, holding.name || displayByCode[code] || code, 1, cost, cost, valueAmt, valueAmt, profit,
-      cost > 0 ? Number(((profit / cost) * 100).toFixed(2)) : 0, source, '']);
+      cost > 0 ? Number(((profit / cost) * 100).toFixed(2)) : 0, snapshotSource, '']);
     snapshotByDate[date] = true; result.snapshotRows++;
   });
 
@@ -9968,7 +9976,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.187',
+    gasVersion: '9.188',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -9999,7 +10007,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.187' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.188' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11783,7 +11791,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.187' });
+    return jsonOk({ settings: settings, gasVersion: '9.188' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -11811,7 +11819,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.187'
+      gasVersion: '9.188'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
