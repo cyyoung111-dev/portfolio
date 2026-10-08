@@ -10470,7 +10470,9 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
       // This closes the window between deferred completion and close summary storage.
       var fundSuccess = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
       var priceFailureSuccess = !summary.priceOk && summary.fundDeferred
-        && fundSuccess && fundSuccess.date === runDate && fundSuccess.at >= Number(startedMs || 0);
+        && summary.fundDeferredTriggerId && fundSuccess
+        && fundSuccess.triggerId === summary.fundDeferredTriggerId
+        && fundSuccess.date === runDate && fundSuccess.at >= Number(startedMs || 0);
       var matchingBusySuccess = summary.fundBusyToken && fundSuccess
         && fundSuccess.token === summary.fundBusyToken && fundSuccess.date === runDate
         && fundSuccess.at >= Number(startedMs || 0);
@@ -10577,7 +10579,7 @@ function _scheduleFundAfterFailedPortfolioPrice_() {
     return true;
   });
 }
-function _runPortfolioFundWithLease_(origin) {
+function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
   var token = Utilities.getUuid();
   var date = today();
   var acquired = _portfolioFundAtomic_(function(props) {
@@ -10600,7 +10602,7 @@ function _runPortfolioFundWithLease_(origin) {
     var result = runDailyFundValuations();
     if (origin === 'DEFERRED') {
       _portfolioFundAtomic_(function(props) {
-        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY, JSON.stringify({date:date, at:Date.now(), token:token}));
+        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY, JSON.stringify({date:date, at:Date.now(), token:token, triggerId:String(deferredTriggerId || '')}));
       });
     }
     return result;
@@ -10618,7 +10620,8 @@ function _reconcilePortfolioFundBusy_(date) {
     var success = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
     // Price failure still means overall ERROR, but deferred NAV can succeed independently.
     var priceFailureDeferred = last.priceOk === false && last.fundDeferred === true
-      && success && success.at >= Number(last.startedMs || 0);
+      && success && last.fundDeferredTriggerId && success.triggerId === last.fundDeferredTriggerId
+      && success.at >= Number(last.startedMs || 0);
     var busyMatch = last.fundBusyToken && success && success.token === last.fundBusyToken
       && success.at >= Number(last.startedMs || 0);
     if (!success || success.date !== date || (!priceFailureDeferred && !busyMatch)) return;
@@ -10651,7 +10654,7 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     if (running && running.until > Date.now()) return {busy:true};
     pending.attempts += 1;
     props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
-    return {run:true};
+    return {run:true, triggerId:pending.triggerId};
   });
   if (!reservation) {
     // A displaced recurring trigger must clean up its own UID, not the replacement.
@@ -10667,7 +10670,7 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
   try {
     if (!shouldRun) return {skipped:true, reason:'RETRY_EXHAUSTED'};
     _appendPortfolioCloseSyncLog('FUND_DEFERRED_START', runDate, '', '가격 실패 이후 독립 펀드 평가');
-    var result = _runPortfolioFundWithLease_('DEFERRED');
+    var result = _runPortfolioFundWithLease_('DEFERRED', reservation.triggerId);
     _reconcilePortfolioFundBusy_(runDate);
     _appendPortfolioCloseSyncLog('FUND_DEFERRED_DONE', runDate, '', '독립 펀드 완료');
     shouldCleanup = true;
@@ -10742,7 +10745,10 @@ function runDailyPortfolioClose1900() {
       runDate:runDate, startedAt:startedAt,
       finishedAt:Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
       priceOk:false, priceDate:'', priceRows:0, fundOk:false,
-      fundDeferred:true, startedMs:startedMs, errors:errors.slice(0, 4)
+      fundDeferred:true, fundDeferredTriggerId:(function() {
+        var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+        return pending && pending.date === runDate ? String(pending.triggerId || '') : '';
+      })(), startedMs:startedMs, errors:errors.slice(0, 4)
     };
     _recordPortfolioCloseStage(props, runDate, startedAt, 'ERROR', runId, failedSummary, startedMs);
     _appendPortfolioCloseSyncLog('ERROR', runDate, runId, errors.join(' | '));
