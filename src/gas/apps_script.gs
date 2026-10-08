@@ -9305,7 +9305,8 @@ function saveDailyPriceHistory(targetDate) {
     props.deleteProperty('snapshot_last_error');
     if (snapshotOperationId) _settleSnapshotBackupOperation(ss, snapshotOperationId, true);
     Logger.log('✅ saveDailyPriceHistory 완료: 확정 거래일(' + snapshotDate + '), 실행일(' + todayStr + ')');
-    return { ok: true, date: snapshotDate, runDate: todayStr, rows: confirmedSnapshotRows.length, startedAt: startedAt };
+    return { ok: true, date: snapshotDate, runDate: todayStr, rows: confirmedSnapshotRows.length,
+      krxCloseRequired: !!closeVerification.required, startedAt: startedAt };
   } catch(err) {
     if (snapshotOperationId) _settleSnapshotBackupOperation(typeof ss !== 'undefined' ? ss : getss(), snapshotOperationId, false, err.message);
     props.setProperty('snapshot_last_failure_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
@@ -10450,6 +10451,7 @@ function runDailyPortfolioClose1900() {
     priceOk: !!priceResult,
     priceDate: priceResult && priceResult.date ? priceResult.date : '',
     priceRows: priceResult && isFinite(Number(priceResult.rows)) ? Number(priceResult.rows) : 0,
+    krxCloseRequired: priceResult && typeof priceResult.krxCloseRequired === 'boolean' ? priceResult.krxCloseRequired : null,
     fundOk: !!fundResult,
     fundLastDate: fundResult && fundResult.lastDate ? fundResult.lastDate : runDate,
     errors: errors.slice(0, 4)
@@ -10479,7 +10481,7 @@ function runPortfolioCloseWatchdog2030() {
   var errors = last && Array.isArray(last.errors) ? last.errors : [];
   var healthy = !!last && _normalizeDate(last.runDate) === todayStr
     && state.state === 'COMPLETE' && !props.getProperty('portfolio_close_last_error') && errors.length === 0
-    && _normalizeDate(last.priceDate) === todayStr;
+    && (last.krxCloseRequired === false ? !!_normalizeDate(last.priceDate) : _normalizeDate(last.priceDate) === todayStr);
   if (healthy) {
     _appendPortfolioCloseSyncLog('WATCHDOG_OK', todayStr, '', '당일 exact-date 마감 정상');
     return { runDate:todayStr, skipped:true, reason:'ALREADY_COMPLETE', priceDate:last.priceDate };
