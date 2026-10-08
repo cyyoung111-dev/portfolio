@@ -551,14 +551,18 @@ console.log('✅ PR470 해외시장 세션·휴장일·KRX 누락일 큐 회귀�
 
 
 // 해외 전용 계좌는 실제 미국 이전 완료 세션의 마감을 성공으로 인정하고 watchdog 중복 평가를 막습니다.
-const previousSession={runDate:'2026-10-08',priceDate:'2026-10-07',priceOk:true,krxCloseRequired:false,errors:[]};
+const previousSession={runDate:'2026-10-08',priceDate:'2026-10-07',priceOk:true,fundOk:true,krxCloseRequired:false,errors:[]};
+let calendarClosedInTest=false;
+let heldMarketItems=[];
 let watchdogReexecutions=0;
 const wdVm=vm.createContext({
-  today:()=> '2026-10-08', _krxCalendarStatus_:()=> 'OPEN',
+  today:()=> '2026-10-08', _krxCalendarStatus_:()=> calendarClosedInTest?'CLOSED':'OPEN',
+  getss:()=>({}),getCodeItems:()=>heldMarketItems,
+  _getDailyHeldCodeItems:()=>heldMarketItems,
   _normalizeDate:x=>String(x||''),
   _appendPortfolioCloseSyncLog:()=>{},
   PropertiesService:{getScriptProperties:()=>({getProperty:k=>k==='portfolio_close_last_result'?JSON.stringify(previousSession):null})},
-  _portfolioCloseRunState:()=>({state:'COMPLETE'}),
+  _portfolioCloseRunState:()=>({state:'COMPLETE',runDate:previousSession.runDate}),
   runDailyPortfolioClose1900:()=>{watchdogReexecutions++;return{ok:true};}
 });
 vm.runInContext(extract('runPortfolioCloseWatchdog2030'),wdVm);
@@ -569,3 +573,27 @@ previousSession.krxCloseRequired=true;
 const krxMissing=wdVm.runPortfolioCloseWatchdog2030();
 assert.equal(watchdogReexecutions,1,'국내 당일 확정 종가 누락 시 기존 watchdog 재시도 유지');
 assert.equal(krxMissing.ok,true);
+
+// 한국 휴장일: 당일 실패 마감이면 해외 원천/펀드 오류를 재시도해야 함.
+calendarClosedInTest=true;
+previousSession.errors=['fund failed'];
+const holidayError=wdVm.runPortfolioCloseWatchdog2030();
+assert.equal(holidayError.ok,true,'휴장일 당일 실패한 마감을 재실행');
+assert.equal(watchdogReexecutions,2,'한국장 휴장일 실패를 사전에 SKIP하지 않음');
+// 한국 휴장일: 정상 완료 마감은 직전 KRX 확정 종가를 인정하고 다시 실행하지 않음.
+previousSession.errors=[];
+const holidayDone=wdVm.runPortfolioCloseWatchdog2030();
+assert.equal(holidayDone.skipped,true);
+assert.equal(holidayDone.reason,'ALREADY_COMPLETE');
+assert.equal(watchdogReexecutions,2,'휴장일 완료된 마감은 중복 재실행하지 않음');
+// 당일 실행 자체가 없다면 국내 전용은 건너뛰고, 해외 보유 종목이 있으면 평가 시도.
+previousSession.runDate='2026-10-07';
+heldMarketItems=[{code:'005930',currency:'KRW',market:'KR'}];
+const closedNoForeign=wdVm.runPortfolioCloseWatchdog2030();
+assert.equal(closedNoForeign.reason,'NON_TRADING_DAY');
+assert.equal(watchdogReexecutions,2,'국내 휴장일 국내 전용 계좌 불필요 재시도 차단');
+heldMarketItems=[{code:'7203',currency:'JPY',market:'JP'}];
+const closedForeign=wdVm.runPortfolioCloseWatchdog2030();
+assert.equal(closedForeign.ok,true);
+assert.equal(watchdogReexecutions,3,'KRX 휴장에도 일본 등 해외 보유 평가 시도');
+console.log('✅ KRX 휴장일 watchdog 실패 재시도/국내 skip/해외 평가 회귀검사 통과');
