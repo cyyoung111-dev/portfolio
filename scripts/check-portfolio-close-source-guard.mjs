@@ -2100,3 +2100,50 @@ console.log('✅ 같은 날짜 다른 run-id NAV/PRICE 결합 차단·기존 부
   assert.equal(p.getProperty('portfolio_close_stage'),'ERROR');
 }
 console.log('✅ 서로 다른 실행의 성공 근거 혼합 방지: summary 식별자 없는 경우');
+
+// Proactive cross-path audit: the PRICE replay must not promote a legacy
+// fundOk without provenance, and the UI must not mark another run COMPLETE.
+{
+  const bag=new Map([
+    ['portfolio_close_run_date','2026-10-08'],
+    ['portfolio_close_run_id','watchdog-run'],
+    ['portfolio_close_run_started_at','2026-10-08 20:30:00'],
+    ['portfolio_close_run_started_ms','3000'],
+    ['portfolio_close_stage','ERROR'],
+    ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
+      priceOk:false,fundOk:true,errors:['일반 종목: KRX 0건']})]
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    _fundPropertyText:String
+  });
+  for(const n of ['_reconcileRecoveredPortfolioPrice_','_portfolioCloseRunState'])
+    vm.runInContext(extract(n),ctx);
+  ctx._reconcileRecoveredPortfolioPrice_(p,'2026-10-08',
+    {ok:true,date:'2026-10-08',rows:3},'CREATE');
+  const last=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(last.priceOk,true,'실제 복구된 PRICE 성공은 기록');
+  assert.equal(last.fundOk,false,
+    '실행 소유권 불명의 기존 NAV 성공을 후속 PRICE가 무단 결합해서는 안 됨');
+  assert.notEqual(ctx._portfolioCloseRunState(last,p).state,'COMPLETE');
+}
+{
+  const bag=new Map([
+    ['portfolio_close_run_date','2026-10-08'],
+    ['portfolio_close_run_id','new-2030'],
+    ['portfolio_close_run_started_at','2026-10-08 20:30:00'],
+    ['portfolio_close_run_started_ms','3000'],
+    ['portfolio_close_stage','COMPLETE']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null};
+  const ctx=vm.createContext({});
+  vm.runInContext(extract('_portfolioCloseRunState'),ctx);
+  const mismatched={runDate:'2026-10-08',runId:'old-1900',
+    startedAt:'2026-10-08 20:30:00',startedMs:3000,
+    priceOk:true,fundOk:true,errors:[]};
+  assert.notEqual(ctx._portfolioCloseRunState(mismatched,p).state,'COMPLETE',
+    '마감 UI는 동일 시간이라도 다른 runId의 완료 summary를 현재 완료로 표시하지 않음');
+}
+console.log('✅ 선제 교차경로: 가격 복구와 마감 UI의 동일 실행 소유권 불변조건');
