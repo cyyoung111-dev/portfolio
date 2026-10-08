@@ -9281,6 +9281,41 @@ function runPortfolioCloseBackfill2210() {
     Logger.log('⚠️ 독립 KRX 누락일 복구 실패: ' + String(result.error || result.date || 'unknown'));
   return result;
 }
+// Apply recovered PRICE to a matching operational close without inventing
+// NAV success or overwriting a more recent day's summary. The caller must
+// hold _portfolioFundAtomic_ and delete the queued date only after success.
+// policy: CREATE (watchdog day), CLEAN (historical replay), HOLD (manual).
+function _reconcileRecoveredPortfolioPrice_(props, target, result, policy) {
+  var last = _portfolioFundState_(props, 'portfolio_close_last_result');
+  if (last && last.runDate && last.runDate > target) return true;
+  if (!last || last.runDate !== target) {
+    if (policy === 'HOLD') return false;
+    if (policy !== 'CREATE') return true;
+    last = {runDate:target, priceOk:false, fundOk:false,
+      errors:['펀드: 마감 기록 없음·완료 상태 확인 필요']};
+  }
+  last.priceOk = true;
+  last.priceDate = String(result && result.date || target);
+  last.priceRows = Number(result && result.rows || 0);
+  if (result && typeof result.krxCloseRequired === 'boolean')
+    last.krxCloseRequired = result.krxCloseRequired;
+  last.errors = (last.errors || []).filter(function(reason) {
+    return !/^일반 종목:/.test(String(reason));
+  });
+  props.setProperty('portfolio_close_last_result', JSON.stringify(last));
+  if (last.errors.length)
+    props.setProperty('portfolio_close_last_error', _fundPropertyText(last.errors.join(' | '), 2000));
+  else props.deleteProperty('portfolio_close_last_error');
+  if (props.getProperty('portfolio_close_run_date') === target) {
+    if (last.fundOk && last.errors.length === 0
+        && props.getProperty('portfolio_close_stage') === 'ERROR')
+      props.setProperty('portfolio_close_stage', 'COMPLETE');
+    else if (props.getProperty('portfolio_close_stage') === 'PRICE'
+             || props.getProperty('portfolio_close_stage') === 'FUND')
+      props.setProperty('portfolio_close_stage', 'ERROR');
+  }
+  return true;
+}
 function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   var queue = _readPendingKrxCloseDates_(props);
   // Only the isolated nightly worker may replay a current-day watchdog skip.
@@ -9309,42 +9344,9 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
     // Keep the pending date until same-day close status has been persisted.
     // The same ScriptLock protects the result/queue handshake.
     _portfolioFundAtomic_(function(sharedProps) {
-      if (target === currentDate && includeToday) {
-        var last = _portfolioFundState_(sharedProps, 'portfolio_close_last_result');
-        // If a new business day started while this replay was running,
-        // never overwrite that newer day's operational close summary.
-        if (last && last.runDate && last.runDate > target) {
-          _completePendingKrxCloseDate_(sharedProps, target);
-          return;
-        }
-        if (!last || last.runDate !== target) {
-          // The earlier close may have died before writing its first summary.
-          last = {runDate:target, priceOk:false, fundOk:false,
-            errors:['펀드: 마감 기록 없음·완료 상태 확인 필요']};
-        }
-        last.priceOk = true;
-        last.priceDate = String(result && result.date || target);
-        last.priceRows = Number(result && result.rows || 0);
-        if (result && typeof result.krxCloseRequired === 'boolean')
-          last.krxCloseRequired = result.krxCloseRequired;
-        last.errors = (last.errors || []).filter(function(reason) {
-          return !/^일반 종목:/.test(String(reason));
-        });
-        sharedProps.setProperty('portfolio_close_last_result', JSON.stringify(last));
-        if (last.errors.length)
-          sharedProps.setProperty('portfolio_close_last_error', _fundPropertyText(last.errors.join(' | '), 2000));
-        else sharedProps.deleteProperty('portfolio_close_last_error');
-        if (sharedProps.getProperty('portfolio_close_run_date') === target) {
-          if (last.fundOk && last.errors.length === 0
-              && sharedProps.getProperty('portfolio_close_stage') === 'ERROR')
-            sharedProps.setProperty('portfolio_close_stage', 'COMPLETE');
-          else if (sharedProps.getProperty('portfolio_close_stage') === 'PRICE'
-                   || sharedProps.getProperty('portfolio_close_stage') === 'FUND')
-            sharedProps.setProperty('portfolio_close_stage', 'ERROR');
-        }
-      }
-      // If any preceding write throws, the date remains in the retry queue.
-      _completePendingKrxCloseDate_(sharedProps, target);
+      var policy = target === currentDate && includeToday ? 'CREATE' : 'CLEAN';
+      if (_reconcileRecoveredPortfolioPrice_(sharedProps, target, result, policy))
+        _completePendingKrxCloseDate_(sharedProps, target);
     });
     _appendPortfolioCloseSyncLog('BACKFILL_OK', target, '', 'snapshotRows=' + String(result && result.rows || 0));
     return { attempted:true, ok:true, date:target, remaining:_readPendingKrxCloseDates_(props).length };
@@ -11203,7 +11205,15 @@ function _runManualPriceSnapshotGuarded_() {
   if (acquired !== 'ACQUIRED')
     throw new Error('PRICE_BUSY: 다른 평가/마감 작업 실행 중 (' + acquired + '). 완료 후 다시 시도하세요.');
   try {
-    return saveDailyPriceHistory();
+    var manualDate = today();
+    var result = saveDailyPriceHistory(undefined, {deferQueueCompletion:true});
+    // Manual PRICE success must reconcile the old PRICE_ERROR just like the
+    // nightly replay, but never fabricate a missing CLOSE/NAV summary.
+    _portfolioFundAtomic_(function(props) {
+      if (_reconcileRecoveredPortfolioPrice_(props, manualDate, result, 'HOLD'))
+        _completePendingKrxCloseDate_(props, manualDate);
+    });
+    return result;
   } finally {
     _portfolioFundAtomic_(function(props) {
       var current = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
