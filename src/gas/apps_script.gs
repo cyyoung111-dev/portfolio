@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
 //  📊 포트폴리오 대시보드 — Google Apps Script  v9.191
 //
+//  v9.191 변경사항 (2026.10.08):
+//   KRX 가격 실패 후 펀드 평가 격리, 계정 간 중복 예약·중복 NAV 조회 방지
+//   FUND_BUSY 상태 사후 정합화 및 지연 평가 재시도·타임아웃 복구
+//
 //  v9.190 변경사항 (2026.10.08):
 //   19시 당일 KRX 확정 종가·20:30 실패 watchdog, 마감 단계 영속 진단
 //   미국 종가는 뉴욕 시장 최근 완료 세션 기준으로 수집하고 watchdog 중복 경고를 노출
@@ -10302,7 +10306,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.190',
+    gasVersion: '9.191',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -10337,7 +10341,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.190' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.191' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -10547,11 +10551,12 @@ function _scheduleFundAfterFailedPortfolioPrice_() {
   return _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
     if (old && old.until > Date.now()) return false;
-    // Trigger creation is inside the cross-user lock, so only one account schedules.
-    var trigger = ScriptApp.newTrigger(handler).timeBased().after(60 * 1000).create();
+    // A recurring, bounded retry survives Apps Script's hard timeout (no finally on kill).
+    // Trigger is deleted after completion or three failed attempts.
+    var trigger = ScriptApp.newTrigger(handler).timeBased().everyMinutes(10).create();
     props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,
-      JSON.stringify({until:Date.now() + 20 * 60 * 1000, date:today(),
-        triggerId:trigger.getUniqueId ? trigger.getUniqueId() : ''}));
+      JSON.stringify({until:Date.now() + 45 * 60 * 1000, date:today(),
+        attempts:0, triggerId:trigger.getUniqueId ? trigger.getUniqueId() : ''}));
     return true;
   });
 }
@@ -10576,34 +10581,71 @@ function _runPortfolioFundWithLease_(origin) {
     });
   }
 }
+function _reconcilePortfolioFundBusy_(date) {
+  _portfolioFundAtomic_(function(props) {
+    var last = _portfolioFundState_(props, 'portfolio_close_last_result');
+    if (!last || last.runDate !== date || last.priceOk !== true || last.fundOk === true) return;
+    var errors = last.errors || [];
+    if (!errors.length || !errors.every(function(x) { return /FUND_BUSY/.test(x); })) return;
+    last.fundOk = true;
+    last.fundDeferred = false;
+    last.errors = [];
+    props.setProperty('portfolio_close_last_result', JSON.stringify(last));
+    props.deleteProperty('portfolio_close_last_error');
+    if (props.getProperty('portfolio_close_run_date') === date
+        && props.getProperty('portfolio_close_stage') === 'ERROR') {
+      props.setProperty('portfolio_close_stage', 'COMPLETE');
+    }
+  });
+}
 function runDeferredFundAfterPortfolioCloseFailure(e) {
   var runDate = today();
   var triggerId = e && e.triggerUid ? String(e.triggerUid) : '';
+  var shouldCleanup = false, shouldRun = false;
+  var reservation = _portfolioFundAtomic_(function(props) {
+    var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+    if (!pending || (triggerId && pending.triggerId !== triggerId)) return null;
+    if (pending.until <= Date.now() || pending.attempts >= 3 || pending.date !== runDate) {
+      return {cleanup:true};
+    }
+    var running = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
+    if (running && running.until > Date.now()) return {busy:true};
+    pending.attempts += 1;
+    props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
+    return {run:true};
+  });
+  if (!reservation) return {skipped:true, reason:'NO_RESERVATION'};
+  shouldCleanup = !!reservation.cleanup;
+  shouldRun = !!reservation.run;
+  if (!shouldRun && !shouldCleanup) return {skipped:true, reason:'FUND_BUSY_RETRY_LATER'};
   try {
-    _appendPortfolioCloseSyncLog('FUND_DEFERRED_START', runDate, '', '가격 단계 실패 후 펀드 독립 실행');
+    if (!shouldRun) return {skipped:true, reason:'RETRY_EXHAUSTED'};
+    _appendPortfolioCloseSyncLog('FUND_DEFERRED_START', runDate, '', '가격 실패 이후 독립 펀드 평가');
     var result = _runPortfolioFundWithLease_('DEFERRED');
-    _appendPortfolioCloseSyncLog('FUND_DEFERRED_DONE', runDate, '',
-      'lastDate=' + String(result && result.lastDate || ''));
+    _reconcilePortfolioFundBusy_(runDate);
+    _appendPortfolioCloseSyncLog('FUND_DEFERRED_DONE', runDate, '', '독립 펀드 완료');
+    shouldCleanup = true;
     return result;
-  } catch (err) {
+  } catch(err) {
     _appendPortfolioCloseSyncLog('FUND_DEFERRED_ERROR', runDate, '',
-      String(err && err.message || err).slice(0, 240));
+      String(err && err.message || err).slice(0,240));
+    // Do not delete the recurring trigger: remaining bounded attempts will retry.
     throw err;
   } finally {
-    _portfolioFundAtomic_(function(props) {
-      var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-      // An old trigger must never erase a newer account's reservation.
-      if (pending && (!triggerId || pending.triggerId === triggerId)) {
-        props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
-      }
-    });
-    // Only remove this executing user's matching one-shot trigger.
-    ScriptApp.getProjectTriggers().forEach(function(trigger) {
-      if (trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure'
-          && (!triggerId || (trigger.getUniqueId && trigger.getUniqueId() === triggerId))) {
-        ScriptApp.deleteTrigger(trigger);
-      }
-    });
+    if (shouldCleanup) {
+      _portfolioFundAtomic_(function(props) {
+        var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+        if (pending && (!triggerId || pending.triggerId === triggerId)) {
+          props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+        }
+      });
+      ScriptApp.getProjectTriggers().forEach(function(trigger) {
+        if (trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure'
+            && (!triggerId || (trigger.getUniqueId && trigger.getUniqueId() === triggerId))) {
+          ScriptApp.deleteTrigger(trigger);
+        }
+      });
+    }
   }
 }
 
@@ -10675,6 +10717,13 @@ function runDailyPortfolioClose1900() {
     _appendPortfolioCloseSyncLog('FUND_DONE', runDate, runId,
       'lastDate=' + String(fundResult && fundResult.lastDate || ''));
   } catch (fundErr) {
+    if (/FUND_BUSY/.test(String(fundErr && fundErr.message || fundErr))) {
+      // Mark pending rather than a permanent hard failure. Active deferred run
+      // reconciles the result after success; recurring retry covers transient failures.
+      try { _scheduleFundAfterFailedPortfolioPrice_(); } catch(scheduleError) {
+        Logger.log('⚠️ FUND_BUSY 재시도 예약 실패: ' + scheduleError.message);
+      }
+    }
     errors.push('펀드: ' + (fundErr && fundErr.message ? fundErr.message : String(fundErr)));
     Logger.log('⚠️ 통합 마감 펀드 단계 실패: ' + errors[errors.length - 1]);
     _appendPortfolioCloseSyncLog('FUND_ERROR', runDate, runId, errors[errors.length - 1]);
@@ -12322,7 +12371,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.190' });
+    return jsonOk({ settings: settings, gasVersion: '9.191' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -12350,7 +12399,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.190'
+      gasVersion: '9.191'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
