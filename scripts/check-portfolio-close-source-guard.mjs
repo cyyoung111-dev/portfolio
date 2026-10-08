@@ -1519,6 +1519,7 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
     _portfolioFundAtomic_:cb=>{if(failWrite)throw Error('property lock failure');return cb(p);},
     _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _fundPropertyText:String, _appendPortfolioCloseSyncLog:()=>{},
     saveDailyPriceHistory:()=>{saves++;p.setProperty('snapshot_last_success_date','2026-10-08');
       return {date:'2026-10-08',rows:4};}
