@@ -1930,3 +1930,81 @@ console.log('✅ 최신 Codex P2: CLOSE NAV 성공 원인 증거·300건 초과 
   assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
 }
 console.log('✅ 22시10분 사후 PRICE 생성 → 동일 실행의 NAV 성공 마커 재정합');
+// PR473 pre-review: real PRICE replay + regular NAV marker + persisted
+// _portfolioCloseRunState_ must agree on COMPLETE after lost close summary.
+{
+  const startedAt='2026-10-08 20:30:00';
+  const bag=new Map([
+    ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
+    ['portfolio_close_run_id','interrupted-run'],
+    ['portfolio_close_run_date','2026-10-08'],
+    ['portfolio_close_run_started_at',startedAt],
+    ['portfolio_close_run_started_ms','1000'],
+    ['portfolio_close_stage','ERROR'],
+    ['portfolio_fund_close_success_v1',
+      JSON.stringify({date:'2026-10-08',runId:'interrupted-run',at:2000,token:'nav-proof'})]
+  ]);
+  const p={getProperty:k=>bag.has(k)?bag.get(k):null,
+    setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  let saveCalls=0;
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
+    saveDailyPriceHistory:(d,opts)=>{
+      saveCalls++;assert.equal(d,'2026-10-08');
+      assert.equal(opts.deferQueueCompletion,true);
+      return {ok:true,date:d,rows:6,krxCloseRequired:true};
+    }
+  });
+  for (const n of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_',
+    '_reconcilePortfolioCloseFundSuccess_','_portfolioCloseRunState'])
+    vm.runInContext(extract(n),ctx);
+  const price=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
+  assert.equal(price.ok,true);
+  const partiallyRecovered=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(partiallyRecovered.startedAt,startedAt,
+    'PRICE 최초 summary 작성 시 영속된 실행 시작 시각 복구');
+  assert.equal(partiallyRecovered.startedMs,1000,
+    'PRICE 최초 summary 작성 시 정확한 실행 시작 ms 복구');
+  assert.equal(ctx._portfolioCloseRunState(partiallyRecovered,p).state,'ERROR',
+    'FUND 아직 미확인 시 UI가 COMPLETE로 오판하면 안 됨');
+  assert.equal(ctx._reconcilePortfolioCloseFundSuccess_('2026-10-08'),true);
+  const complete=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(complete.fundOk,true);
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+  assert.equal(ctx._portfolioCloseRunState(complete,p).state,'COMPLETE',
+    'PRICE 재생→NAV 증거 후 운영 상태 UI 및 watchdog 모두 COMPLETE');
+  assert.equal(saveCalls,1,'가격은 추가 중복 조회 없이 복구');
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),[]);
+}
+
+// Alternate order and missing metadata: do not manufacture COMPLETE when
+// there is no matching run identity / start time, even after PRICE recovery.
+{
+  const bag=new Map([['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])]]);
+  const p={getProperty:k=>bag.has(k)?bag.get(k):null,
+    setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
+    saveDailyPriceHistory:d=>({ok:true,date:d,rows:3})
+  });
+  for(const n of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_','_portfolioCloseRunState'])
+    vm.runInContext(extract(n),ctx);
+  ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
+  const orphan=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(orphan.fundOk,false,'누락된 NAV 증거를 임의 성공으로 처리하지 않음');
+  assert.notEqual(ctx._portfolioCloseRunState(orphan,p).state,'COMPLETE',
+    '시작 기록 없는 PRICE 부분 복구를 완전 완료라고 표시하지 않음');
+}
+console.log('✅ 실제 PRICE 복구 후 summary 시작시각·UI 상태·NAV 증거 합류');
