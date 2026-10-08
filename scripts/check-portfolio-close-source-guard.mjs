@@ -377,6 +377,47 @@ const statusVm=vm.createContext({
   PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
 });
 vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
+// Behavioral regression: a prior same-day success must not satisfy a newer busy lease.
+statusVm._portfolioFundState_ = (props,key) => {
+  try { return JSON.parse(props.getProperty(key) || 'null'); } catch { return null; }
+};
+function verifyDeferredReconcile(summary, marker) {
+  const bag = new Map();
+  const props = {
+    getProperty:k=>bag.get(k)||'',
+    setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k),
+    setProperties:v=>Object.entries(v).forEach(([k,val])=>bag.set(k,String(val)))
+  };
+  props.setProperty('portfolio_fund_deferred_success_v1', JSON.stringify(marker));
+  const when='2026-10-08', startedAt='2026-10-08 19:33:00', startedMs=1000, id='run-verify';
+  statusVm._recordPortfolioCloseStage(props,when,startedAt,'PRICE',id,null,startedMs);
+  statusVm._recordPortfolioCloseStage(props,when,startedAt,'ERROR',id,summary,startedMs);
+  return {summary:JSON.parse(props.getProperty('portfolio_close_last_result')), stage:props.getProperty('portfolio_close_stage')};
+}
+const staleBusy=verifyDeferredReconcile({
+  priceOk:true, fundOk:false, fundBusyToken:'NEW', errors:['펀드: FUND_BUSY'], startedMs:1000
+},{date:'2026-10-08', token:'OLD', at:2000});
+assert.equal(staleBusy.summary.fundOk,false,'예전 성공 토큰으로 새 FUND_BUSY를 완료 처리 금지');
+assert.equal(staleBusy.stage,'ERROR');
+const currentBusy=verifyDeferredReconcile({
+  priceOk:true, fundOk:false, fundBusyToken:'NEW', errors:['펀드: FUND_BUSY'], startedMs:1000
+},{date:'2026-10-08', token:'NEW', at:2000});
+assert.equal(currentBusy.summary.fundOk,true,'실제 경합한 실행의 성공만 적용');
+assert.equal(currentBusy.stage,'COMPLETE');
+const separateFunds=verifyDeferredReconcile({
+  priceOk:false, fundOk:false, fundDeferred:true, fundDeferredTriggerId:'T2',
+  errors:['일반 종목: KRX 응답 없음'], startedMs:1000
+},{date:'2026-10-08', triggerId:'T2', token:'runT2', at:2000});
+assert.equal(separateFunds.summary.fundOk,true,'가격 실패 후 독립 펀드 완료 표시');
+assert.equal(separateFunds.stage,'ERROR','펀드 성공으로 가격 실패를 덮지 않음');
+assert.match(separateFunds.summary.errors[0],/KRX/);
+const staleFunds=verifyDeferredReconcile({
+  priceOk:false, fundOk:false, fundDeferred:true, fundDeferredTriggerId:'T3',
+  errors:['일반 종목: KRX 응답 없음'], startedMs:1000
+},{date:'2026-10-08', triggerId:'T2', token:'runT2', at:2000});
+assert.equal(staleFunds.summary.fundOk,false,'이전 예약 트리거 완료를 새 펀드 성공으로 처리 금지');
+
 const propertyApi={getProperty:k=>runProps.get(k)||'',setProperty:(k,v)=>runProps.set(k,v),deleteProperty:k=>runProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>runProps.set(k,v))};
 assert.equal(statusVm._portfolioCloseRunState(null,propertyApi).state,'NEVER_RUN',
   '한 번도 시작하지 않은 마감');
