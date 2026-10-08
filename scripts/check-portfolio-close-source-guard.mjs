@@ -1232,3 +1232,88 @@ assert.equal(entirelyMissingOpenApi._krxMarketEvidence.holidayStoredCodes['00066
   'KRX 전체 실패 때는 신규 evidence 생성');
 assert.equal(Object.keys(entirelyMissingOpenApi).includes('_krxMarketEvidence'),false,'evidence 내부 메타는 저장할 종목 행이 아님');
 console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사 통과');
+
+// PR472 quality gate: reproduce both latest Codex P2 findings BEFORE fixing source.
+{
+  const bag=new Map([['portfolio_fund_deferred_schedule_v1',
+    JSON.stringify({date:'2026-10-08',triggerId:'P2-lease',until:2000000,attempts:2})],
+    ['portfolio_close_stage','PRICE'],['portfolio_close_run_started_ms','9900']]);
+  let fundCalls=0;
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    today:()=> '2026-10-08',Date:{now:()=>10000},
+    Utilities:{getUuid:()=> 'attempt-last'},
+    PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    _portfolioFundAtomic_:callback=>callback(p),
+    _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
+    ScriptApp:{getProjectTriggers:()=>[],deleteTrigger:()=>{}},
+    _appendPortfolioCloseSyncLog:()=>{},_reconcilePortfolioFundBusy_:()=>{},
+    _runPortfolioFundWithLease_:()=>{fundCalls++;return {lastDate:'2026-10-08'};}
+  });
+  vm.runInContext(extract('runDeferredFundAfterPortfolioCloseFailure'),ctx);
+  const blocked=ctx.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'P2-lease'});
+  assert.equal(blocked.reason,'FUND_BUSY_RETRY_LATER',
+    '활성 PRICE와 충돌한 지연 NAV는 실제 작업을 시작하면 안 됨');
+  assert.equal(fundCalls,0,'활성 PRICE 중 NAV 실행 진입 금지');
+  assert.equal(JSON.parse(p.getProperty('portfolio_fund_deferred_schedule_v1')).attempts,2,
+    'PRICE 충돌로 마지막 NAV 기회 소비 금지');
+  bag.delete('portfolio_close_stage');
+  // Race after reservation but before NAV lease: failed lease acquisition must roll back attempt.
+  ctx._runPortfolioFundWithLease_=()=>{
+    const e=new Error('FUND_BUSY: 통합 마감 PRICE/FUND 실행 중');
+    e.fundBusyReason='CLOSE_ACTIVE';throw e;
+  };
+  const raced=ctx.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'P2-lease'});
+  assert.equal(raced.reason,'FUND_BUSY_RETRY_LATER',
+    '예약 직후 경합에도 완료 시도 소모 없이 다음 트리거로 복구');
+  assert.equal(JSON.parse(p.getProperty('portfolio_fund_deferred_schedule_v1')).attempts,2,
+    'lease 취득 실패를 실제 시도 횟수에 포함하지 않음');
+}
+{
+  const bag=new Map([['portfolio_close_last_result',
+    JSON.stringify({runDate:'2026-10-08',priceOk:false,fundOk:true,
+      priceDate:'',errors:['일반 종목: KRX 0건']})]]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    today:()=> '2026-10-08',_krxCalendarStatus_:()=> 'OPEN',
+    PropertiesService:{getScriptProperties:()=>p},_normalizeDate:x=>String(x||''),
+    _portfolioCloseRunState:()=>({state:'ERROR',runDate:'2026-10-08'}),
+    _appendPortfolioCloseSyncLog:()=>{},_portfolioFundAtomic_:cb=>cb(p),
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    Logger:{log(){}},
+    runDailyPortfolioClose1900:()=>({skipped:true,reason:'NEWER_OR_SAME_START_OWNS_STATE'})
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_',
+    'runPortfolioCloseWatchdog2030'])vm.runInContext(extract(name),ctx);
+  const skipped=ctx.runPortfolioCloseWatchdog2030();
+  assert.equal(skipped.skipped,true);
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
+    'watchdog 잠금 충돌로 누락된 PRICE는 독립 재시도 대기열에 영속 보관');
+  // 22:10 worker must recover today's queued date; regular 19:00 may only retry older days.
+  let writes=0;
+  ctx._completePendingKrxCloseDate_=()=>p.deleteProperty('portfolio_close_pending_krx_dates');
+  ctx._appendPortfolioCloseSyncLog=()=>{};
+  ctx._portfolioFundState_=(props,key)=>JSON.parse(props.getProperty(key)||'null');
+  ctx._fundPropertyText=String;
+  ctx._portfolioFundAtomic_=cb=>cb(p);
+  ctx.saveDailyPriceHistory=(date)=>{writes++;assert.equal(date,'2026-10-08');
+    p.setProperty('snapshot_last_success_date',date);
+    return {date,rows:9,krxCloseRequired:true};};
+  vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+  assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-08',false).attempted,false,
+    '정규 마감 내부의 과거 백필은 당일 PRICE 중복 수행 금지');
+  const recovery=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
+  assert.equal(recovery.ok,true,'독립 22:10 복구는 당일 누락 PRICE를 실제 재시도');
+  assert.equal(writes,1,'동일 날짜 가격 재시도는 한 번만 실행');
+  assert.equal(p.getProperty('snapshot_last_success_date'),'2026-10-08',
+    '당일 복구의 스냅샷 성공 상태를 과거 백필 로직이 되돌리면 안 됨');
+  const summary=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(summary.priceOk,true,'복구 성공 뒤 마감 summary의 PRICE 오류 제거');
+  assert.equal(summary.fundOk,true,'독립 NAV 성공 상태 보존');
+  assert.deepEqual(summary.errors,[],'PRICE 오류가 해결되면 error summary 제거');
+}
+console.log('✅ PR472 품질 게이트: 예약 선차단·경합 롤백·watchdog 보류·당일 백필·결과 정합성');
