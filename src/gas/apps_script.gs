@@ -9290,7 +9290,11 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   // next-day continuation opportunity. Each eligible date is retained until
   // its own successful replay and reconciliation.
   var previous = String(props.getProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY) || '');
-  var target = candidates.filter(function(date) { return date > previous; })[0] || candidates[0];
+  // The 22:10 watchdog follow-up should recover today's failed PRICE before
+  // historical gaps. Otherwise a large backlog can delay the current daily
+  // closing price/Snapshot for many nights.
+  var target = includeToday && candidates.indexOf(currentDate) >= 0 ? currentDate
+    : (candidates.filter(function(date) { return date > previous; })[0] || candidates[0]);
   if (!target) return { attempted:false, remaining:queue.length };
   props.setProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY, target);
   var snapshotProps = ['snapshot_last_success_date','snapshot_last_success_at','snapshot_last_error','snapshot_last_failure_at'];
