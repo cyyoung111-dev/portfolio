@@ -384,7 +384,7 @@ const closeRunSource=extract('runDailyPortfolioClose1900');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)")
   < closeRunSource.indexOf('saveDailyPriceHistory(undefined, {deferQueueCompletion:true})'), '일반 종목 단계 실행 전에 시작 마커');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs)")
-  < closeRunSource.indexOf("_runPortfolioFundWithLease_('CLOSE')"), '펀드 단계 실행 전에 단계 기록');
+  < closeRunSource.indexOf("_runPortfolioFundWithLease_('CLOSE', runId)"), '펀드 단계 실행 전에 단계 기록');
 assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt,\s*errors\.length \? 'ERROR' : 'COMPLETE', runId, summary, startedMs\)/);
 assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
   '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
