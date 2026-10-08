@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.190
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.191
 //
 //  v9.190 변경사항 (2026.10.08):
 //   19시 당일 KRX 확정 종가·20:30 실패 watchdog, 마감 단계 영속 진단
@@ -5027,7 +5027,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.190' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.191' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10529,21 +10529,59 @@ function handleGetKrxSourceDiagnostics(dateStr) {
 
 // KRX 가격 단계가 실패한 경우 6분 제한 내에서 펀드까지 연쇄 실행하지 않습니다.
 // 펀드 NAV 수집은 별도 시간 기반 실행으로 분리하며 중복 트리거는 만들지 않습니다.
+// Script Properties + ScriptLock coordinate all executing accounts; user-owned trigger lists do not.
+var PORTFOLIO_FUND_SCHEDULE_KEY = 'portfolio_fund_deferred_schedule_v1';
+var PORTFOLIO_FUND_LEASE_KEY = 'portfolio_fund_run_lease_v1';
+function _portfolioFundAtomic_(callback) {
+  var lock = LockService.getScriptLock(), acquired = false;
+  try {
+    lock.waitLock(30000); acquired = true;
+    return callback(PropertiesService.getScriptProperties());
+  } finally { if (acquired) lock.releaseLock(); }
+}
+function _portfolioFundState_(props, key) {
+  try { return JSON.parse(props.getProperty(key) || 'null'); } catch(ignore) { return null; }
+}
 function _scheduleFundAfterFailedPortfolioPrice_() {
   var handler = 'runDeferredFundAfterPortfolioCloseFailure';
-  var existing = ScriptApp.getProjectTriggers().some(function(trigger) {
-    return trigger.getHandlerFunction() === handler;
+  return _portfolioFundAtomic_(function(props) {
+    var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+    if (old && old.until > Date.now()) return false;
+    // Trigger creation is inside the cross-user lock, so only one account schedules.
+    var trigger = ScriptApp.newTrigger(handler).timeBased().after(60 * 1000).create();
+    props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,
+      JSON.stringify({until:Date.now() + 20 * 60 * 1000, date:today(),
+        triggerId:trigger.getUniqueId ? trigger.getUniqueId() : ''}));
+    return true;
   });
-  if (existing) return false;
-  ScriptApp.newTrigger(handler).timeBased().after(60 * 1000).create();
-  return true;
 }
-function runDeferredFundAfterPortfolioCloseFailure() {
-  var props = PropertiesService.getScriptProperties();
+function _runPortfolioFundWithLease_(origin) {
+  var token = Utilities.getUuid();
+  var date = today();
+  var acquired = _portfolioFundAtomic_(function(props) {
+    var old = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
+    // Guard against parallel NAV network requests as well as sheet writes.
+    if (old && old.until > Date.now()) return false;
+    props.setProperty(PORTFOLIO_FUND_LEASE_KEY,
+      JSON.stringify({token:token, date:date, origin:origin, until:Date.now() + 7 * 60 * 1000}));
+    return true;
+  });
+  if (!acquired) throw new Error('FUND_BUSY: 다른 펀드 평가 실행 중 (공유 실행 lease)');
+  try {
+    return runDailyFundValuations();
+  } finally {
+    _portfolioFundAtomic_(function(props) {
+      var current = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
+      if (current && current.token === token) props.deleteProperty(PORTFOLIO_FUND_LEASE_KEY);
+    });
+  }
+}
+function runDeferredFundAfterPortfolioCloseFailure(e) {
   var runDate = today();
+  var triggerId = e && e.triggerUid ? String(e.triggerUid) : '';
   try {
     _appendPortfolioCloseSyncLog('FUND_DEFERRED_START', runDate, '', '가격 단계 실패 후 펀드 독립 실행');
-    var result = runDailyFundValuations();
+    var result = _runPortfolioFundWithLease_('DEFERRED');
     _appendPortfolioCloseSyncLog('FUND_DEFERRED_DONE', runDate, '',
       'lastDate=' + String(result && result.lastDate || ''));
     return result;
@@ -10552,9 +10590,17 @@ function runDeferredFundAfterPortfolioCloseFailure() {
       String(err && err.message || err).slice(0, 240));
     throw err;
   } finally {
-    // 실행 성공/실패 여부에 관계없이 1회성 트리거를 정리합니다.
+    _portfolioFundAtomic_(function(props) {
+      var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+      // An old trigger must never erase a newer account's reservation.
+      if (pending && (!triggerId || pending.triggerId === triggerId)) {
+        props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+      }
+    });
+    // Only remove this executing user's matching one-shot trigger.
     ScriptApp.getProjectTriggers().forEach(function(trigger) {
-      if (trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure') {
+      if (trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure'
+          && (!triggerId || (trigger.getUniqueId && trigger.getUniqueId() === triggerId))) {
         ScriptApp.deleteTrigger(trigger);
       }
     });
@@ -10586,7 +10632,7 @@ function runDailyPortfolioClose1900() {
       'date=' + String(priceResult && priceResult.date || '') + ', rows=' + String(priceResult && priceResult.rows || 0));
   } catch (priceErr) {
     errors.push('일반 종목: ' + (priceErr && priceErr.message ? priceErr.message : String(priceErr)));
-    Logger.log('⚠️ 통합 마감 일반 종목 단계 실패 — 펀드 단계 계속: ' + errors[errors.length - 1]);
+    Logger.log('⚠️ 통합 마감 일반 종목 단계 실패 — 펀드 독립 실행 예약: ' + errors[errors.length - 1]);
     _appendPortfolioCloseSyncLog('PRICE_ERROR', runDate, runId, errors[errors.length - 1]);
   }
 
@@ -10625,7 +10671,7 @@ function runDailyPortfolioClose1900() {
     };
   }
   try {
-    fundResult = runDailyFundValuations();
+    fundResult = _runPortfolioFundWithLease_('CLOSE');
     _appendPortfolioCloseSyncLog('FUND_DONE', runDate, runId,
       'lastDate=' + String(fundResult && fundResult.lastDate || ''));
   } catch (fundErr) {
