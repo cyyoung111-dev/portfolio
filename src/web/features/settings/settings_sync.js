@@ -203,9 +203,12 @@ async function syncHoldingsToGsheet(options) {
     sourceHoldings.forEach(h => {
       if (!h.name || h.qty <= 0) return;
       const ep   = getEP(h.name);
-      const code = ep?.code || STOCK_CODE[h.name] || '';
+      // 복구용 holdingsOverride는 EDITABLE_PRICES 복원보다 먼저 전송될 수 있으므로
+      // 캡처 payload 자체의 code/assetType을 최우선 원자료로 사용합니다.
+      const code = _normalizeSyncCode(h.code || ep?.code || STOCK_CODE[h.name] || '');
+      const assetType = h.assetType || h.type || getEPType(ep, '주식');
       const key  = h.name;
-      if (!holdMap[key]) holdMap[key] = { code, name: h.name, qty: 0, costAmt: 0, assetType: getEPType(ep, h.type), accts: [] };
+      if (!holdMap[key]) holdMap[key] = { code, name: h.name, qty: 0, costAmt: 0, assetType, accts: [] };
       if (h.acct && !holdMap[key].accts.includes(h.acct)) holdMap[key].accts.push(h.acct);
       holdMap[key].qty     += h.qty;
       holdMap[key].costAmt += (h.qty * (h.cost || 0));
