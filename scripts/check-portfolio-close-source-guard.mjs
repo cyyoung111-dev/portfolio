@@ -1720,8 +1720,9 @@ console.log('✅ 독립 백필의 오늘 누락 우선·과거 실패 공정성 
   const bag=new Map([
     ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
     ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
-      priceOk:false,fundOk:true,priceDate:'',errors:['일반 종목: 가격 미확정']})],
-    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_stage','ERROR']
+      runId:'manual-proof',priceOk:false,fundOk:true,priceDate:'',errors:['일반 종목: 가격 미확정']})],
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_run_id','manual-proof'],
+    ['portfolio_close_stage','ERROR']
   ]);
   const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
     deleteProperty:k=>bag.delete(k)};
