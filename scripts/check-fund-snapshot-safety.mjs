@@ -391,6 +391,7 @@ assert.match(source.match(/function saveDailyPriceHistory\([\s\S]*?\n\}/)?.[0] |
 assert.match(source.match(/function _ensurePortfolioCloseDailyTrigger\([\s\S]*?\n\}/)?.[0] || '',/closeTriggers\.slice\(1\)/,'통합 마감 트리거 중복은 1개만 유지');
 assert.doesNotMatch(source.match(/function setupTrigger\([\s\S]*?\n\}/)?.[0] || '',/newTrigger\('runEvalPriceUpdate1620'\)/,'전체 재등록은 16:20 분리 트리거를 다시 만들지 않음');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/saveDailyPriceHistory\(\)[\s\S]*runDailyFundValuations\(\)/,'통합 마감은 일반 종목 후 펀드를 순차 실행');
+assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/_ensurePortfolioCloseWatchdogTrigger\(true\)/,'기존 19시 트리거 실행만으로 20:30 watchdog을 자가 설치');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/통합 마감 일반 종목 단계 실패 — 펀드 단계 계속/,'일반 종목 실패 시에도 펀드 단계를 계속 시도');
 assert.match(source.match(/function runPortfolioCloseWatchdog2030\([\s\S]*?\n\}/)?.[0] || '',/ALREADY_COMPLETE[\s\S]*runDailyPortfolioClose1900\(\)/,'watchdog은 정상 마감은 건너뛰고 미완료만 재시도');
 assert.throws(()=>context.getEarliestPriceHistory({getSheetByName(){throw new Error('read failed');}},['000001'],'2026-01-02',true),/read failed/);
