@@ -857,45 +857,56 @@ async function loadSettings(onProgress, options) {
 
     // 강제복원 요청을 기다리는 동안 사용자가 포트폴리오를 수정할 수 있습니다.
     // load 시작 시 snapshot만 믿으면 방금 생긴 dirty/pending을 preflight 원격값으로 덮게 되므로,
-    // 실제 authoritative 원격 적용 직전에 현재 target 상태를 다시 확인하고 먼저 원격에 복구합니다.
-    if (forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad
-        && typeof _getPendingExplicitEmptyTradeSync === 'function'
-        && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
-      const latePending = _getPendingExplicitEmptyTradeSync(loadTarget);
-      if (latePending) {
-        const latePendingResult = await _retryPendingExplicitEmptyTradeSync({
-          quiet: true,
-          allowDuringRestore: true,
-          preferCurrentPortfolio: rawTrades.length > 0,
-          targetUrl: loadTarget
-        });
-        if (!isLoadConnectionCurrent()) return false;
-        if (!latePendingResult) return false;
-        pendingEmptySyncResolvedAtLoad = true;
-        pendingEmptySyncResolvedAsEmptyAtLoad = latePendingResult === 'empty';
-        if (pendingEmptySyncResolvedAsEmptyAtLoad) {
-          rawTrades.length = 0;
-          rawHoldings.length = 0;
-          saveHoldings({ skipGsheet: true });
+    // 실제 authoritative 원격 적용 직전에 현재 target 상태가 안정될 때까지 다시 확인합니다.
+    if (forcePortfolioRestore) {
+      for (let lateAttempt = 0; lateAttempt < 6; lateAttempt++) {
+        if (typeof _getPendingExplicitEmptyTradeSync === 'function'
+            && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
+          const latePending = _getPendingExplicitEmptyTradeSync(loadTarget);
+          if (latePending) {
+            const latePendingResult = await _retryPendingExplicitEmptyTradeSync({
+              quiet: true,
+              allowDuringRestore: true,
+              preferCurrentPortfolio: rawTrades.length > 0,
+              targetUrl: loadTarget
+            });
+            if (!isLoadConnectionCurrent()) return false;
+            if (!latePendingResult) return false;
+            pendingEmptySyncResolvedAtLoad = true;
+            pendingEmptySyncResolvedAsEmptyAtLoad = latePendingResult === 'empty';
+            if (pendingEmptySyncResolvedAsEmptyAtLoad) {
+              rawTrades.length = 0;
+              rawHoldings.length = 0;
+              saveHoldings({ skipGsheet: true });
+            }
+          }
         }
-      }
-    }
-    if (forcePortfolioRestore && !dirtyPortfolioSyncResolvedAtLoad
-        && typeof _getPortfolioRemoteDirty === 'function'
-        && typeof _restorePortfolioRemoteDirtyPayload === 'function'
-        && typeof _retryPortfolioRemoteDirtySync === 'function') {
-      const lateDirty = _getPortfolioRemoteDirty();
-      if (lateDirty) {
-        _restorePortfolioRemoteDirtyPayload();
-        if (!isLoadConnectionCurrent()) return false;
-        prog('복원 중 새로 생긴 거래·보유 동기화 중...');
-        const lateDirtyOk = await _retryPortfolioRemoteDirtySync({
-          targetUrl: loadTarget,
-          allowDuringRestore: true
-        });
-        if (!isLoadConnectionCurrent()) return false;
-        if (!lateDirtyOk) return false;
-        dirtyPortfolioSyncResolvedAtLoad = true;
+
+        if (typeof _getPortfolioRemoteDirty === 'function'
+            && typeof _restorePortfolioRemoteDirtyPayload === 'function'
+            && typeof _retryPortfolioRemoteDirtySync === 'function') {
+          const lateDirty = _getPortfolioRemoteDirty();
+          if (lateDirty) {
+            _restorePortfolioRemoteDirtyPayload();
+            if (!isLoadConnectionCurrent()) return false;
+            prog('복원 중 새로 생긴 거래·보유 동기화 중...');
+            const lateDirtyOk = await _retryPortfolioRemoteDirtySync({
+              targetUrl: loadTarget,
+              allowDuringRestore: true
+            });
+            if (!isLoadConnectionCurrent()) return false;
+            if (!lateDirtyOk) return false;
+            dirtyPortfolioSyncResolvedAtLoad = true;
+          }
+        }
+
+        const pendingStillExists = typeof _getPendingExplicitEmptyTradeSync === 'function'
+          && !!_getPendingExplicitEmptyTradeSync(loadTarget);
+        const dirtyStillExists = typeof _getPortfolioRemoteDirty === 'function'
+          && !!_getPortfolioRemoteDirty();
+        if (!pendingStillExists && !dirtyStillExists) break;
+        // 사용자가 네트워크 대기 중 계속 수정해 안정화되지 않으면 원격 preflight 적용을 포기합니다.
+        if (lateAttempt === 5) return false;
       }
     }
 
