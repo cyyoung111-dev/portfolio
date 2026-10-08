@@ -9221,7 +9221,9 @@ function saveDailyPriceHistory(targetDate) {
         var gfPrevItems = items.filter(function(item) {
           return !(krxPrev[item.code] && krxPrev[item.code].price > 0);
         });
-        var gfPrev = gfPrevItems.length > 0 && _hasUsdPriceItems(items)
+        var gfPrev = gfPrevItems.length > 0 && gfPrevItems.some(function(item) {
+          return String(item.currency || 'KRW').toUpperCase() !== 'KRW' && String(item.market || '').toUpperCase() !== 'KR';
+        })
           ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true,
               useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate + 'T19:00:00+09:00') })
           : {};
