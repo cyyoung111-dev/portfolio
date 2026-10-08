@@ -304,7 +304,7 @@ const otpVm=vm.createContext({
   _parseKrxNumber:v=>Number(String(v||'').replaceAll(',','')),
   _findCsvIndex:(fields,names)=>names.reduce((idx,n)=>idx<0?fields.indexOf(n):idx,-1),
   KRX_CONFIRMED_CLOSED_DATES_2026:{'2026-10-05':1},
-  _krxCalendarStatus_:(date)=>date==='2026-10-05'||date==='2027-02-09'?'CLOSED':'OPEN',
+  _krxCalendarStatus_:(date)=>{const dow=new Date(date+'T00:00:00Z').getUTCDay();return dow===0||dow===6||date==='2026-10-05'||date==='2027-02-09'?'CLOSED':'OPEN';},
   Logger:{log(){}},
   Utilities:{parseCsv:txt=>txt.split('\n').map(line=>line.split(','))},
   UrlFetchApp:{fetch:(url,opts)=>{
