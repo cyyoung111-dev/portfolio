@@ -548,7 +548,8 @@ function checkNightlyFundConflict(active) {
     Logger:{log(){}}
   });
   vm.runInContext(nightlyBackfill,ctx);
-  return {ran,result:ctx.runPortfolioCloseBackfill2210()};
+  const result=ctx.runPortfolioCloseBackfill2210();
+  return {ran,result};
 }
 const activeNavNightly=checkNightlyFundConflict(true);
 assert.equal(activeNavNightly.ran,0,'활성 NAV lease 중에는 백필 실행 금지');
