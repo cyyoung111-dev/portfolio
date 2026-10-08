@@ -1,3 +1,10 @@
+## GAS v9.188 / Settings·강제복원·펀드 Snapshot 보강 (2026-10-08)
+
+- 부분 Settings patch가 기존 예약 전체 Settings payload를 무효화하고 write revision으로 이미 queue에 들어간 stale payload도 차단합니다.
+- 강제 포트폴리오 복원 직전에 같은 target의 신규 pending-empty/dirty를 재확인하여 load 도중 발생한 사용자 변경을 원격 preflight 값으로 덮지 않습니다.
+- 과거 펀드 좌수 0→양수 정정 시 기존 MANUAL 가격이력이 있으면 신규 Snapshot도 동일 평가금액/소스를 사용합니다.
+- GAS `9.188`, 서비스워커 `portfolio-cache-20261008-8`, settings `20261008-7`.
+
 
 ## PR #468 리뷰 후속: 과거 수량 정정 및 자동 재평가 (2026-10-07)
 
@@ -8,7 +15,7 @@
 - 19시 마감 단계 마커는 run-id로 격리해 겹친 실행의 종료가 더 최근 실행 상태를 덮어쓰지 않도록 했습니다.
 - KRX 휴장일 fallback 행은 화면용 결과에만 남기고 공식 당일 KRX 가격이력에는 적재하지 않습니다.
 - 웹 자산 쿼리와 서비스워커 cache 버전을 함께 갱신했습니다.
-## GAS v9.187: 펀드·동기화·마감 안전성 후속 (2026-10-07)
+## GAS v9.188: 펀드·동기화·마감 안전성 후속 (2026-10-07)
 
 - 독립 재검토 후속: 부분 Settings patch는 일반 전체 Settings debounce와 분리하고, 실제 전송 직전에 연결 generation·복원 잠금·load epoch를 다시 검증하여 같은 연결의 오래된 예약 저장이 강제 복원 결과를 덮지 않게 합니다.
 - dirty holdings 복구는 복원 전 EDITABLE_PRICES 전역상태가 아니라 캡처 payload의 종목코드·자산유형을 우선 사용합니다.
@@ -20,7 +27,7 @@
 - pending 상태에서 새 거래가 생긴 경우에도 repair token을 원격 동기화 성공 전에 지우지 않습니다. 현재 거래·보유가 모두 서버에 확정된 뒤에만 제거하며, 앱 재시작 시 로컬 거래가 있어도 해당 repair 경로를 재시도합니다.
 - authoritative pull 직전에는 기존 로컬 거래의 코드교정 결과를 GAS로 다시 쓰지 않습니다. 원격 최신 원장을 받기 전에 오래된 로컬 거래가 서버를 덮는 pre-pull write 경로를 차단합니다.
 - 같은 GSheet에서 자동 bootstrap과 수동 원격 pull이 겹쳐도 load epoch로 최신 요청만 상태를 계속 적용합니다. 명시적 pull은 시작 즉시 restore 잠금을 걸어 완료 전 일반 원격 쓰기를 차단합니다.
-- GAS version `9.187`, 웹 기대 버전 `9.187`, 서비스워커 `portfolio-cache-20261008-7`, data `20261008-6`, settings `20261008-6`, settings_sync `20261008-2`, settings_tabsync `20261007-1`, settings_fetch `20261008-1`.
+- GAS version `9.187`, 웹 기대 버전 `9.187`, 서비스워커 `portfolio-cache-20261008-8`, data `20261008-6`, settings `20261008-7`, settings_sync `20261008-2`, settings_tabsync `20261007-1`, settings_fetch `20261008-1`.
 - 일반 설정·부동산 debounce 저장은 payload/target/generation 고정뿐 아니라 네트워크 전송도 직렬화해, 같은 연결에서 연속 저장 응답 순서가 뒤집혀 오래된 payload가 마지막에 덮어쓰는 race를 차단합니다.
 - 19시 마감 진단은 `portfolio_close_stage=ERROR`를 INCOMPLETE보다 우선 판정해 실제 실패 실행을 명확히 노출합니다.
 - 펀드 좌수 정정의 파생 NAV·가격이력·Snapshot backup은 전체 reconciliation 성공 뒤에만 정리합니다. 후속 단계 partial 실패 시 앞선 단계의 작업 시작 전 복구본도 유지합니다.
