@@ -1,3 +1,10 @@
+## PR #471 추가 자체 검증: 실제 가격 저장과 복구 큐 원자성 (2026-10-09)
+
+- `saveDailyPriceHistory(targetDate, {deferQueueCompletion:true})`로 호출한 정규 마감·야간 백필은 원천가격과 Snapshot이 저장됐다는 이유만으로 큐를 조기 제거하지 않습니다. 정규 19시/20:30 마감은 `portfolio_close_last_result` 최종 저장 이후에만 해당 날짜의 큐를 해제합니다.
+- 22:10 별도 worker는 실제 `saveDailyPriceHistory`의 deferred 경로를 사용하여 마감 상태를 같은 ScriptLock 안에서 먼저 기록한 뒤 큐를 정리합니다. 상태 저장 오류·잠금 획득 실패 시 날짜는 큐에 남아 반복 시도 가능하며 테스트에서 실제 생산 함수를 실행해 조기 큐 삭제 여부를 검증합니다.
+- 과거 누락일 맨 앞 날짜에 지속적인 KRX/API 오류가 발생하더라도 뒤 날짜들이 영원히 밀리지 않도록 `portfolio_close_backfill_retry_cursor_v1` 키로 **이전/다음 날짜 순환 재시도**합니다. 22:10 복구에서는 오늘 watchdog 미완료일이 있으면 과거 대기 날짜보다 우선 처리하고, 오래된 날짜는 삭제하지 않고 보존합니다.
+- GAS 가격 저장, Script Properties 큐, 마감 상태는 Google Sheets/Script Properties의 진정한 분산 트랜잭션은 아닙니다. 커밋 간 부분 실패 시 날짜를 보존하고 멱등적인 재실행으로 정합성을 회복하도록 설계하며 운영 상태 확인은 배포 이후 별도 수행합니다.
+
 ## PR #471 최신 리뷰 후속: watchdog 예외·독립 백필·복구 대기열 정합성 (2026-10-09)
 
 - 20:30 watchdog이 마감 PRICE 저장 중 예외로 실패해도 최신 당일 PRICE 미완료를 공유 Script Properties 큐에 영속 저장합니다. 한국 휴장일에 해외 보유 종목을 처리하는 경우도 포함하며, 이미 당일 PRICE가 성공했다면 NAV만의 오류 때문에 가격을 다시 예약하지 않습니다.
