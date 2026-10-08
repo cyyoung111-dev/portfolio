@@ -9297,6 +9297,18 @@ function runPortfolioCloseBackfill2210() {
   }
   // NAV and close-stage checks both occur inside the shared lease lock.
   var result = _runPendingKrxBackfillWithLease_(props, runDate, false);
+  // A previous hard timeout can leave no durable close summary. The PRICE
+  // replay may create the first partial summary, so retry exact-run NAV
+  // reconciliation afterwards as well as before this backfill.
+  if (result && result.attempted) {
+    try {
+      var postMarker = _portfolioFundState_(props, PORTFOLIO_FUND_CLOSE_SUCCESS_KEY);
+      if (postMarker && postMarker.date)
+        _reconcilePortfolioCloseFundSuccess_(postMarker.date);
+    } catch(postFundError) {
+      Logger.log('⚠️ PRICE 복구 후 FUND 성공 마커 정합화 보류: ' + postFundError.message);
+    }
+  }
   if (result && result.ok === false)
     Logger.log('⚠️ 독립 KRX 누락일 복구 실패: ' + String(result.error || result.date || 'unknown'));
   return result;
