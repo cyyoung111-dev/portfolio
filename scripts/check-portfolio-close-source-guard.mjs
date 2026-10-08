@@ -536,3 +536,24 @@ assert.equal(calendar._krxCalendarStatus_('2027-02-09'),'CLOSED');
 assert.equal(calendar._krxCalendarStatus_('2027-02-10'),'OPEN');
 assert.equal(calendar._krxCalendarStatus_('2028-03-01'),'UNKNOWN','알 수 없는 연도 휴장일을 거래일 확정으로 오인하지 않음');
 console.log('✅ PR470 해외시장 세션·휴장일·KRX 누락일 큐 회귀검사 통과');
+
+
+// 해외 전용 계좌는 실제 미국 이전 완료 세션의 마감을 성공으로 인정하고 watchdog 중복 평가를 막습니다.
+const previousSession={runDate:'2026-10-08',priceDate:'2026-10-07',priceOk:true,krxCloseRequired:false,errors:[]};
+let watchdogReexecutions=0;
+const wdVm=vm.createContext({
+  today:()=> '2026-10-08', _krxCalendarStatus_:()=> 'OPEN',
+  _normalizeDate:x=>String(x||''),
+  _appendPortfolioCloseSyncLog:()=>{},
+  PropertiesService:{getScriptProperties:()=>({getProperty:k=>k==='portfolio_close_last_result'?JSON.stringify(previousSession):null})},
+  _portfolioCloseRunState:()=>({state:'COMPLETE'}),
+  runDailyPortfolioClose1900:()=>{watchdogReexecutions++;return{ok:true};}
+});
+vm.runInContext(extract('runPortfolioCloseWatchdog2030'),wdVm);
+const foreignOnly=wdVm.runPortfolioCloseWatchdog2030();
+assert.equal(foreignOnly.skipped,true,'해외 전용 계좌의 이전 완료 세션 평가 정상');
+assert.equal(watchdogReexecutions,0,'정상 해외 계좌 watchdog 중복 마감 방지');
+previousSession.krxCloseRequired=true;
+const krxMissing=wdVm.runPortfolioCloseWatchdog2030();
+assert.equal(watchdogReexecutions,1,'국내 당일 확정 종가 누락 시 기존 watchdog 재시도 유지');
+assert.equal(krxMissing.ok,true);
