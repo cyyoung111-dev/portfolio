@@ -397,3 +397,9 @@ if (!source.includes('PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY')
   console.error('❌ KRX 누락 거래일 보존·소급 재시도 및 2027+ 거래소 달력 계약 누락');
   process.exit(1);
 }
+
+if (!source.includes('krxCloseRequired: !!closeVerification.required')
+    || !source.includes('last.krxCloseRequired === false')) {
+  console.error('❌ 해외 전용 포트폴리오의 정상 마감 watchdog 중복 재실행 방지 계약 누락');
+  process.exit(1);
+}
