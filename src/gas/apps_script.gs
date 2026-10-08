@@ -10248,6 +10248,9 @@ function handleGetKrxSourceDiagnostics(dateStr) {
 }
 
 function runDailyPortfolioClose1900() {
+  // 배포 후 setupTrigger를 수동 실행하지 않아도 기존 19시 트리거가 watchdog을 자가 설치합니다.
+  try { _ensurePortfolioCloseWatchdogTrigger(true); }
+  catch (watchdogTriggerError) { Logger.log('⚠️ 20:30 watchdog 트리거 자가복구 실패: ' + watchdogTriggerError.message); }
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
   var startedMs = Date.now();
