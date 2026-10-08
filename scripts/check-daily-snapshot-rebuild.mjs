@@ -166,8 +166,8 @@ assert.match(settings, /const loadTarget = String\(GSHEET_API_URL[\s\S]*const lo
   'loadSettings는 시작 target/세대를 고정하고 stale 응답 적용을 중단');
 assert.match(portfolioData, /const retryGeneration = typeof getGsheetConnectionGeneration[\s\S]*getGsheetConnectionGeneration\(\) !== retryGeneration[\s\S]*return false/,
   '빈 원장 재시도도 URL 동일성 외 연결 세대 변경을 검사');
-assert.match(settings, /const explicitAuthoritativePull = options\?\.forcePortfolioRestore === true[\s\S]*const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*const forcePortfolioRestore = connectionForcePortfolioRestore[\s\S]*explicitAuthoritativePull[\s\S]*if \(forcePortfolioRestore && pendingEmptySyncResolvedAtLoad\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0[\s\S]*const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
-  'pending 성공 강제 복원은 방금 확정한 빈 원장을 메모리에 적용하고 stale preflight 재적용을 막음');
+assert.match(settings, /const explicitAuthoritativePull = options\?\.forcePortfolioRestore === true[\s\S]*const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true[\s\S]*const forcePortfolioRestore = connectionForcePortfolioRestore[\s\S]*explicitAuthoritativePull[\s\S]*if \(forcePortfolioRestore && pendingEmptySyncResolvedAsEmptyAtLoad\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0[\s\S]*const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
+  '실제 empty pending 성공에서만 메모리 빈 원장을 적용하고 stale preflight 재적용을 막음');
 assert.match(settings, /if \(applyForcedPortfolioRestore\) \{[\s\S]*if \(!tradesLoaded \|\| !holdingsLoaded\) return false[\s\S]*rawTrades\.length = 0[\s\S]*else \{[\s\S]*rawHoldings\.length = 0[\s\S]*saveHoldings\(\{ skipGsheet: true \}\)/,
   '강제 원격 복원은 정상 빈 거래·보유 배열도 적용해 이전 로컬 데이터를 제거');
 assert.match(tabSync, /tabId === 'trades'[\s\S]*loadSettings\(undefined, \{ forcePortfolioRestore: true \}\)[\s\S]*원격 복원/,
