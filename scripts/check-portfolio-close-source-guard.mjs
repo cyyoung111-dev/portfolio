@@ -1588,8 +1588,9 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
   const bag=new Map([
     ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
     ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
-      priceOk:false,fundOk:true,errors:['일반 종목: API 실패']})],
-    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_stage','ERROR']
+      runId:'price-real-run',priceOk:false,fundOk:true,errors:['일반 종목: API 실패']})],
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_run_id','price-real-run'],
+    ['portfolio_close_stage','ERROR']
   ]);
   const p={getProperty:k=>bag.has(k)?bag.get(k):null,
     setProperty:(k,v)=>bag.set(k,String(v)),
