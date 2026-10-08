@@ -348,8 +348,10 @@ const atomicCloseSource=extract('_recordPortfolioCloseStage');
 const deferredSource=extract('runDeferredFundAfterPortfolioCloseFailure');
 const guardedFundSource=extract('_runPortfolioFundWithLease_');
 const scheduleSource=extract('_scheduleFundAfterFailedPortfolioPrice_');
-assert.match(scheduleSource, /old\.date === scheduleDate && old\.until > Date\.now\(\)/,
+assert.match(scheduleSource, /old\.date === scheduleDate/,
   'KST 날짜가 바뀐 예약은 만료 전이라도 재사용하지 않음');
+assert.match(scheduleSource, /activeAttempt/,
+  '마지막 예약 시도의 실행 중 여부를 확인해 중복 예약을 방지');
 assert.match(scheduleSource, /date:scheduleDate/,
   '신규 지연 펀드 예약에 결정 시점의 KST 날짜를 기록');
 
@@ -417,6 +419,11 @@ const maxedOut=inspectFundReservation(
   {date:'2026-10-08',until:20000,attempts:3,triggerId:'exhausted-uid'},'2026-10-08');
 assert.equal(maxedOut.created,1,'시도 횟수 소진 예약은 만료 전이라도 새로 생성');
 assert.equal(maxedOut.pending.attempts,0,'새 예약은 재시도 횟수를 초기화');
+const lastAttemptRunning=inspectFundReservation(
+  {date:'2026-10-08',until:20000,attempts:3,activeUntil:16000,
+    attemptToken:'last-attempt',triggerId:'still-running-uid'},'2026-10-08');
+assert.equal(lastAttemptRunning.created,0,'세 번째 펀드 평가가 진행 중이라면 새 반복 트리거 금지');
+assert.equal(lastAttemptRunning.outcome.triggerId,'still-running-uid');
 const afterMidnight=inspectFundReservation(
   {date:'2026-10-08',until:20000,attempts:0,triggerId:'old-day-uid'},'2026-10-09');
 assert.equal(afterMidnight.created,1,'전날 예약은 만료 전이어도 새 날짜에 재사용하지 않음');
@@ -431,6 +438,120 @@ assert.match(closeRunSource,/closeElapsedMs >= 3 \* 60 \* 1000/,
   '6분 마감 한도를 보호하기 위해 3분 경과 시 과거 복구 신규 실행 방지');
 assert.match(closeRunSource,/reason:'CLOSE_RUNTIME_BUDGET'/,
   '시간 예산 때문에 건너뛴 복구는 진단에 명시');
+
+// Full executable lifecycle: a successful CLOSE cancels only same-day deferred
+// reservation while leaving a different business day's reservation untouched.
+function inspectCloseCompletion(reservationDate) {
+  const bag=new Map([['portfolio_fund_deferred_schedule_v1',
+    JSON.stringify({date:reservationDate,triggerId:'nav-T1',attempts:0,until:20000})]]);
+  let id=0;
+  const props={
+    getProperty:key=>bag.get(key)||null,
+    setProperty:(key,value)=>bag.set(key,value),
+    deleteProperty:key=>bag.delete(key)
+  };
+  const sandbox=vm.createContext({
+    Utilities:{getUuid:()=> 'lease-'+(++id)},
+    today:()=> '2026-10-08', Date:{now:()=>10000},
+    _portfolioFundAtomic_:cb=>cb(props),
+    _portfolioFundState_:(p,key)=>JSON.parse(p.getProperty(key)||'null'),
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    runDailyFundValuations:()=>({lastDate:'2026-10-08'})
+  });
+  vm.runInContext(guardedFundSource,sandbox);
+  sandbox._runPortfolioFundWithLease_('CLOSE');
+  return {pending:props.getProperty('portfolio_fund_deferred_schedule_v1'),
+    lease:props.getProperty('portfolio_fund_run_lease_v1')};
+}
+assert.equal(inspectCloseCompletion('2026-10-08').pending,null,
+  '당일 정상 마감 NAV 성공은 기존 지연 NAV 예약을 취소');
+assert.notEqual(inspectCloseCompletion('2026-10-07').pending,null,
+  '이전 날짜 예약은 당일 마감 성공에 따라 무분별하게 삭제하지 않음');
+assert.equal(inspectCloseCompletion('2026-10-08').lease,null,
+  '정상 NAV 완료 후 정확한 lease 해제');
+const deferredBag=new Map([['portfolio_fund_deferred_schedule_v1',
+  JSON.stringify({date:'2026-10-08',triggerId:'T-final',until:20000,attempts:2})]]);
+const deferredProps={
+  getProperty:key=>deferredBag.get(key)||null,
+  setProperty:(key,value)=>deferredBag.set(key,value),
+  deleteProperty:key=>deferredBag.delete(key)
+};
+const deletedTriggers=[];
+const deferredTrigger={getHandlerFunction:()=> 'runDeferredFundAfterPortfolioCloseFailure',
+  getUniqueId:()=> 'T-final'};
+const deferredVm=vm.createContext({
+  today:()=> '2026-10-08',
+  Date:{now:()=>10000},
+  Utilities:{getUuid:()=> 'attempt-3'},
+  PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+  PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+  _portfolioFundAtomic_:cb=>cb(deferredProps),
+  _portfolioFundState_:(p,key)=>JSON.parse(p.getProperty(key)||'null'),
+  ScriptApp:{getProjectTriggers:()=>[deferredTrigger],deleteTrigger:t=>deletedTriggers.push(t)},
+  _appendPortfolioCloseSyncLog:()=>{},
+  _reconcilePortfolioFundBusy_:()=>{},
+  _runPortfolioFundWithLease_:()=>{
+    const marked=JSON.parse(deferredProps.getProperty('portfolio_fund_deferred_schedule_v1'));
+    assert.equal(marked.attempts,3,'마지막 예약 시도 횟수 기록');
+    assert.equal(marked.attemptToken,'attempt-3','예약 즉시 실행 marker 저장');
+    assert.equal(marked.activeUntil,430000,'실행 진입 전에 7분 시작 marker 설정');
+    return {lastDate:'2026-10-08'};
+  }
+});
+vm.runInContext(deferredSource,deferredVm);
+deferredVm.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'T-final'});
+assert.equal(deferredProps.getProperty('portfolio_fund_deferred_schedule_v1'),null,
+  '펀드 완료 후 정확한 UID의 예약 제거');
+assert.equal(deletedTriggers.length,1,'완료된 반복 트리거 하나만 정리');
+// A competing invocation must not delete the currently running final attempt.
+deferredProps.setProperty('portfolio_fund_deferred_schedule_v1',
+  JSON.stringify({date:'2026-10-08',triggerId:'T-final',until:20000,
+    attempts:3,attemptToken:'running',activeUntil:30000}));
+const busyResult=deferredVm.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'T-final'});
+assert.equal(busyResult.reason,'FUND_BUSY_RETRY_LATER',
+  '실행 중인 세 번째 평가를 RETRY_EXHAUSTED로 잘못 정리하지 않음');
+assert.notEqual(deferredProps.getProperty('portfolio_fund_deferred_schedule_v1'),null,
+  '동시 호출이 실행 중인 예약을 삭제하지 않음');
+
+// Backfill must have its own execution and shared cross-account lease.
+const backfillWorker=extract('_runPendingKrxBackfillWithLease_');
+const nightlyBackfill=extract('runPortfolioCloseBackfill2210');
+const backfillTrigger=extract('_ensurePortfolioCloseBackfillTrigger');
+assert.match(backfillTrigger,/everyDays\(1\)[\s\S]*atHour\(22\)\.nearMinute\(10\)/,
+  '22:10 독립 백필 트리거');
+assert.match(closeRunSource, /_ensurePortfolioCloseBackfillTrigger\(true\)/,
+  '기존 정규 19시 실행으로 백필 트리거 설치');
+assert.match(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, runDate\)/,
+  '19시와 야간 백필 모두 같은 lease 사용');
+assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate\)/,
+  '야간 실행은 통합 마감 없이 과거 날짜만 복구');
+function verifyBackfillLease(existing) {
+  const bag=new Map();
+  if(existing)bag.set('portfolio_close_backfill_lease_v1',JSON.stringify(existing));
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,v),
+    deleteProperty:k=>bag.delete(k)};
+  let runs=0;
+  const ctx=vm.createContext({
+    Utilities:{getUuid:()=> 'worker-1'},
+    Date:{now:()=>10000},
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    _retryOnePendingKrxClose_:()=>{runs++;return {attempted:true,ok:true,date:'2026-10-07'};}
+  });
+  vm.runInContext(backfillWorker,ctx);
+  return {result:JSON.parse(JSON.stringify(ctx._runPendingKrxBackfillWithLease_(p,'2026-10-08'))),
+    lease:p.getProperty('portfolio_close_backfill_lease_v1'),runs};
+}
+const blockedBackfill=verifyBackfillLease({token:'other',until:20000});
+assert.equal(blockedBackfill.runs,0,'동시 백필 lease 보유 시 KRX 요청 차단');
+assert.equal(blockedBackfill.result.reason,'BACKFILL_BUSY');
+assert.notEqual(blockedBackfill.lease,null,'다른 실행의 백필 lease를 삭제하지 않음');
+const finishedBackfill=verifyBackfillLease(null);
+assert.equal(finishedBackfill.runs,1,'야간 백필은 한 날짜만 처리');
+assert.equal(finishedBackfill.lease,null,'자신의 백필 lease 정리');
 
 const runProps=new Map();
 const statusVm=vm.createContext({
