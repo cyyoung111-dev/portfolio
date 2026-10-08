@@ -1566,3 +1566,103 @@ console.log('✅ PR471 P2 및 자체검토: watchdog 예외·야간 전용 백�
   assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
 }
 console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summary 보존');
+
+// Quality gate: exercise the REAL production saveDailyPriceHistory, not a stub,
+// to detect premature queue deletion inside the price writer itself.
+{
+  const bag=new Map([
+    ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
+    ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
+      priceOk:false,fundOk:true,errors:['일반 종목: API 실패']})],
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_stage','ERROR']
+  ]);
+  const p={getProperty:k=>bag.has(k)?bag.get(k):null,
+    setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const events=[];
+  let reconciliationBlocked=true;
+  const ctx=vm.createContext({
+    _snapshotBackupOperationId:'',
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    CONFIG:{TIMEZONE:'Asia/Seoul'},
+    today:()=> '2026-10-08',
+    Date,Logger:{log:()=>{}},
+    Utilities:{formatDate:()=> '2026-10-08 22:10:00',getUuid:()=> 'saving-real-code'},
+    LockService:{getScriptLock:()=>({waitLock:()=>{},releaseLock:()=>{}})},
+    PropertiesService:{getScriptProperties:()=>p},
+    SpreadsheetApp:{flush:()=>events.push('flush')},
+    getss:()=>({}),getCodeItems:()=>[],_getDailyHeldCodeItems:()=>[],
+    _normalizeDate:x=>String(x||''),
+    fetchPricesKrx:()=>({}),
+    _krxCalendarStatus_:()=> 'OPEN',
+    _assessDailyKrxStockClose:()=>({required:false,date:'2026-10-08'}),
+    _getLatestPriceHistoryDate:()=> '2026-10-08',
+    _selectPortfolioCloseSnapshotDate_:()=> '2026-10-08',
+    _buildSnapshotRowsFromTradeAndPriceHistory:()=>[['snapshot-row']],
+    _readSnapshotRowsByDate:()=>[],
+    _snapshotRewritePlan:()=>({unsafe:[],needsRewrite:false}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID'}),
+    _settleSnapshotBackupOperation:()=>{},
+    _appendPortfolioCloseSyncLog:()=>{},
+    _portfolioFundAtomic_:cb=>{
+      if(reconciliationBlocked)throw Error('post-save state lock unavailable');
+      return cb(p);
+    },
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    _fundPropertyText:String
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_enqueuePendingKrxCloseDate_','saveDailyPriceHistory','_retryOnePendingKrxClose_'])
+    vm.runInContext(extract(name),ctx);
+  // First check actual price-writer behavior with explicit deferred completion.
+  const priceResult=ctx.saveDailyPriceHistory('2026-10-08',{deferQueueCompletion:true});
+  assert.equal(priceResult.ok,true,'실제 가격 저장 함수 정상 완료');
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
+    '실제 가격 저장 함수를 실행해도 후속 상태 확인 전 큐는 반드시 유지');
+  // Backfill must carry the same option all the way through production code.
+  const failed=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
+  assert.equal(failed.ok,false);
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
+    '실제 saveDailyPriceHistory 내부에서도 최종 상태 저장 실패 시 큐를 보존');
+  reconciliationBlocked=false;
+  const recovered=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
+  assert.equal(recovered.ok,true);
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),[],
+    '마감 summary 성공 뒤에만 큐 삭제');
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_last_result')).priceOk,true);
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+  assert.ok(events.length>=3,'실제 생산 가격 함수가 반복 호출됨');
+}
+
+// Liveness: one permanently broken older trading day must not starve newer
+// missing days. Preserve the failing date while rotating the retry cursor.
+{
+  const bag=new Map([['portfolio_close_pending_krx_dates',
+    JSON.stringify(['2026-10-06','2026-10-07','2026-10-08'])]]);
+  const p={getProperty:k=>bag.get(k)||null,
+    setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const visited=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    _portfolioFundAtomic_:cb=>cb(p),_appendPortfolioCloseSyncLog:()=>{},
+    saveDailyPriceHistory:date=>{
+      visited.push(date);
+      if(date==='2026-10-06')throw Error('unavailable historical KRX');
+      return {ok:true,date,rows:2};
+    }
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+  const first=ctx._retryOnePendingKrxClose_(p,'2026-10-09',true);
+  const second=ctx._retryOnePendingKrxClose_(p,'2026-10-09',true);
+  const third=ctx._retryOnePendingKrxClose_(p,'2026-10-09',true);
+  assert.equal(first.ok,false);
+  assert.equal(second.ok,true);
+  assert.equal(third.ok,true);
+  assert.deepEqual(visited,['2026-10-06','2026-10-07','2026-10-08'],
+    '실패한 선행 누락일이 후행 날짜 자동 복구를 영원히 막지 않음');
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-06'],
+    '실패 날짜만 큐에 남아 다음 순환에서 재시도');
+}
+console.log('✅ Production writer + 복구 경로 통합·중복 삭제 차단·큐 공정성 회귀');
