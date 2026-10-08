@@ -9323,7 +9323,15 @@ function _reconcileRecoveredPortfolioPrice_(props, target, result, policy) {
   if (!last || last.runDate !== target) {
     if (policy === 'HOLD') return false;
     if (policy !== 'CREATE') return true;
-    last = {runDate:target, priceOk:false, fundOk:false,
+    // A hard-killed run may have left only the run ownership fields.
+    // Restore their exact timestamp so the UI's _portfolioCloseRunState
+    // can verify the eventual PRICE+FUND completion. Never attribute
+    // an unrelated date's newer run metadata to this recovered close.
+    var sameRun = String(props.getProperty('portfolio_close_run_date') || '') === target;
+    last = {runDate:target,
+      startedAt:sameRun ? String(props.getProperty('portfolio_close_run_started_at') || '') : '',
+      startedMs:sameRun ? Number(props.getProperty('portfolio_close_run_started_ms') || 0) : 0,
+      priceOk:false, fundOk:false,
       errors:['펀드: 마감 기록 없음·완료 상태 확인 필요']};
   }
   last.priceOk = true;
@@ -10719,8 +10727,15 @@ function _portfolioCloseRunState(portfolioClose, props) {
   var completedAt = String(portfolioClose && portfolioClose.startedAt || '');
   // 같은 초에 시작해도 진행 중 단계는 완료 상태로 취급할 수 없습니다.
   var pending = !!startedAt && (stage === 'PRICE' || stage === 'FUND' || !portfolioClose || startedAt > completedAt);
-  var state = !startedAt ? (portfolioClose ? 'COMPLETE' : 'NEVER_RUN')
-    : stage === 'ERROR' ? 'ERROR' : (pending ? 'INCOMPLETE' : 'COMPLETE');
+  var closeSucceeded = !!portfolioClose && portfolioClose.priceOk === true
+    && portfolioClose.fundOk === true
+    && !(portfolioClose.errors && portfolioClose.errors.length);
+  // Legacy/partially reconstructed summaries may lack start metadata. Such
+  // a PRICE-only or NAV-only record is never evidence of a complete close.
+  var state = !startedAt
+    ? (!portfolioClose ? 'NEVER_RUN' : closeSucceeded && stage !== 'ERROR' ? 'COMPLETE' : 'ERROR')
+    : stage === 'ERROR' ? 'ERROR'
+      : (pending || !closeSucceeded ? 'INCOMPLETE' : 'COMPLETE');
   return { state:state, startedAt:startedAt, runDate:runDate, stage:stage, stageAt:stageAt };
 }
 function _getOfficialKrxPriceHistoryLastDate(phSh) {
@@ -10887,6 +10902,12 @@ function _reconcilePortfolioCloseFundSuccess_(date) {
         || Number(marker.at || 0) < started
         || !last || last.runDate !== date) return false;
     if (last.fundOk === true) return true;
+    // Repair a partial summary written before the recovery path started
+    // preserving startedAt. Only the matching run-id proof is allowed here.
+    if (!last.startedAt)
+      last.startedAt = String(props.getProperty('portfolio_close_run_started_at') || '');
+    if (!last.startedMs)
+      last.startedMs = started;
     last.fundOk = true;
     last.fundDeferred = false;
     last.errors = (last.errors || []).filter(function(reason) {
