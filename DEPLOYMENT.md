@@ -1,3 +1,12 @@
+## GAS v9.180 / 브리핑 파이프라인 보강 (2026-10-08)
+
+- 브리핑 collector에 기존 KRX VKOSPI 단일 조회를 연결했습니다.
+- Yahoo 공통 provider에 DXY(`DX-Y.NYB`), UST10Y(`^TNX`), WTI(`CL=F`), GOLD(`GC=F`), BTC(`BTC-USD`)를 추가했습니다.
+- 07:30 readiness의 K200_NIGHT는 당일 tradingDate·NIGHT·FINAL·NIGHT_FINAL을 모두 요구합니다.
+- 실제 provider가 없는 UST2Y/NVDA/MU/수급/breadth는 PLANNED로 분리하여 구조적 PARTIAL 판정을 제거했습니다.
+- UST2Y는 2년물 선물 ZT=F를 현물 수익률로 오표기하지 않습니다.
+- GAS version `9.180`, 웹 기대 버전 `9.180`.
+
 ## GAS v9.179 / 웹 settings_fetch 20261007-6: 마감 종가 실보유 종목 기준 검증 (2026-10-07)
 
 - 일일 KRX 종가 검증의 대상은 종목코드 마스터 전체가 아닌 **요청 거래일 거래원장 기준 실제 보유수량 >0** 종목입니다. 과거 전량매도·상장폐지 종목이 코드 마스터에 남아 있어도 마감 커버리지와 수집 결과를 오염시키지 않습니다.
