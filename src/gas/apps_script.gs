@@ -10569,14 +10569,15 @@ function _scheduleFundAfterFailedPortfolioPrice_() {
   var handler = 'runDeferredFundAfterPortfolioCloseFailure';
   return _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-    if (old && old.until > Date.now()) return false;
+    if (old && old.until > Date.now()) return {created:false, triggerId:String(old.triggerId || '')};
     // A recurring, bounded retry survives Apps Script's hard timeout (no finally on kill).
     // Trigger is deleted after completion or three failed attempts.
     var trigger = ScriptApp.newTrigger(handler).timeBased().everyMinutes(10).create();
+    var triggerId = trigger.getUniqueId ? trigger.getUniqueId() : '';
     props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,
       JSON.stringify({until:Date.now() + 45 * 60 * 1000, date:today(),
-        attempts:0, triggerId:trigger.getUniqueId ? trigger.getUniqueId() : ''}));
-    return true;
+        attempts:0, triggerId:triggerId}));
+    return {created:true, triggerId:triggerId};
   });
 }
 function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
@@ -10585,17 +10586,14 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
   var acquired = _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
     // Guard against parallel NAV network requests as well as sheet writes.
-    if (old && old.until > Date.now()) return false;
+    if (old && old.until > Date.now()) return {acquired:false, busyToken:String(old.token || '')};
     props.setProperty(PORTFOLIO_FUND_LEASE_KEY,
       JSON.stringify({token:token, date:date, origin:origin, until:Date.now() + 7 * 60 * 1000}));
-    return true;
+    return {acquired:true, busyToken:''};
   });
-  if (!acquired) {
-    var active = _portfolioFundAtomic_(function(props) {
-      return _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
-    });
+  if (!acquired.acquired) {
     var busyError = new Error('FUND_BUSY: 다른 펀드 평가 실행 중 (공유 실행 lease)');
-    busyError.fundLeaseToken = active && active.until > Date.now() ? active.token : '';
+    busyError.fundLeaseToken = acquired.busyToken;
     throw busyError;
   }
   try {
@@ -10733,11 +10731,11 @@ function runDailyPortfolioClose1900() {
   // 장시간 NAV 재조회로 전체 상태가 6분 타임아웃에 묻힙니다.
   // 가격 ERROR를 영속 확정하고 펀드는 별도 실행에서 복구합니다.
   if (!priceResult) {
-    var deferredScheduled = false;
+    var deferredReservation = null;
     try {
-      deferredScheduled = _scheduleFundAfterFailedPortfolioPrice_();
+      deferredReservation = _scheduleFundAfterFailedPortfolioPrice_();
       _appendPortfolioCloseSyncLog('FUND_DEFERRED', runDate, runId,
-        deferredScheduled ? '독립 펀드 실행 예약' : '기존 펀드 실행 예약 유지');
+        deferredReservation.created ? '독립 펀드 실행 예약' : '기존 펀드 실행 예약 유지');
     } catch (deferErr) {
       errors.push('펀드 독립 실행 예약 실패: ' + (deferErr.message || String(deferErr)));
     }
@@ -10745,10 +10743,9 @@ function runDailyPortfolioClose1900() {
       runDate:runDate, startedAt:startedAt,
       finishedAt:Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
       priceOk:false, priceDate:'', priceRows:0, fundOk:false,
-      fundDeferred:true, fundDeferredTriggerId:(function() {
-        var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-        return pending && pending.date === runDate ? String(pending.triggerId || '') : '';
-      })(), startedMs:startedMs, errors:errors.slice(0, 4)
+      fundDeferred:!!deferredReservation,
+      fundDeferredTriggerId:deferredReservation ? deferredReservation.triggerId : '',
+      startedMs:startedMs, errors:errors.slice(0, 4)
     };
     _recordPortfolioCloseStage(props, runDate, startedAt, 'ERROR', runId, failedSummary, startedMs);
     _appendPortfolioCloseSyncLog('ERROR', runDate, runId, errors.join(' | '));
