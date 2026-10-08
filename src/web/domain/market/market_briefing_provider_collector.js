@@ -16,7 +16,7 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  const observedAt=point.observedAt&&Number.isFinite(Date.parse(point.observedAt))?point.observedAt:null;
  const krxCloseVerified=isCurrent&&source==='KRX_OFFICIAL'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed&&providerMeta&&providerMeta.confirmedClose===true&&observedAt;
  const final=!isCurrent||krxCloseVerified;
- const market=type.startsWith('KOS')?'KRX':type==='DXY'?'FX':type==='UST10Y'?'US_RATES':(type==='WTI'||type==='GOLD')?'COMMODITY':type==='BTC'?'CRYPTO':'US';
+ const market=(type.startsWith('KOS')||type==='VKOSPI')?'KRX':type==='DXY'?'FX':type==='UST10Y'?'US_RATES':(type==='WTI'||type==='GOLD')?'COMMODITY':type==='BTC'?'CRYPTO':'US';
  return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:delayed&&isCurrent?'DELAYED':final?'FINAL':'PARTIAL',
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market,currency:null,
   observedAt,quality:delayed?'EOD_DELAYED':'EOD',fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
