@@ -2097,7 +2097,7 @@ function fetchPricesKrxViaOtp(items, dateStr) {
   // 정상 거래일 0건은 소스 장애이므로 이전 종가로 조용히 덮어쓰지 않습니다.
   for (var back = 0; back < 10; back++) {
     var day = new Date(actualDate + 'T00:00:00Z').getUTCDay();
-    if (day !== 0 && day !== 6 && !KRX_CONFIRMED_CLOSED_DATES_2026[actualDate]) break;
+    if (_krxCalendarStatus_(actualDate) !== 'CLOSED') break;
     actualDate = _fundDateOffset(actualDate, -1);
   }
   var ymd = actualDate.replace(/-/g, '');
@@ -9149,13 +9149,25 @@ function _completePendingKrxCloseDate_(props, date) {
   var after = before.filter(function(d) { return d !== date; });
   if (after.length !== before.length) props.setProperty(PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY, JSON.stringify(after));
 }
-function _seedMissingKrxCloseDates_(ss, props, runDate) {
+function _hasKrxHoldingsForCloseDate_(ss, date, catalog) {
+  var holdings = _getDailyHeldCodeItems(ss, date, catalog || getCodeItems(ss));
+  return holdings.some(function(item) {
+    var market = String(item && item.market || '').toUpperCase();
+    return String(item && item.currency || 'KRW').toUpperCase() === 'KRW'
+      || market === 'KR' || market === 'KOSPI' || market === 'KOSDAQ' || market === 'ETF';
+  });
+}
+function _seedMissingKrxCloseDates_(ss, props, runDate, catalog) {
+  var allItems = catalog || getCodeItems(ss);
+  // 미국/일본/홍콩 종가가 전 세션 날짜에 저장됐다는 이유로 KRX 누락 큐를 만들지 않습니다.
+  if (!_hasKrxHoldingsForCloseDate_(ss, runDate, allItems)) return;
   var last = _normalizeDate(props.getProperty('snapshot_last_success_date') || '');
   if (!last) last = _normalizeDate(_getLatestLifecycleValidSnapshotDate(ss));
   if (!last || last >= runDate) return;
   var next = _fundDateOffset(last, 1), count = 0;
   for (; next < runDate && count < 31; next = _fundDateOffset(next, 1), count++) {
-    if (_krxCalendarStatus_(next) !== 'CLOSED') _enqueuePendingKrxCloseDate_(props, next);
+    if (_krxCalendarStatus_(next) !== 'CLOSED' && _hasKrxHoldingsForCloseDate_(ss, next, allItems))
+      _enqueuePendingKrxCloseDate_(props, next);
   }
   if (next < runDate) Logger.log('⚠️ 31일 초과 장기 KRX 누락 기간은 수동/배치 복구 대상으로 남김');
 }
@@ -9195,11 +9207,11 @@ function saveDailyPriceHistory(targetDate) {
     var ss       = getss();
     var todayStr = today();
     var requestedCloseDate = _normalizeDate(targetDate || '') || todayStr;
-    if (!targetDate) _seedMissingKrxCloseDates_(ss, props, requestedCloseDate);
     var snapshotDate = '';
     var confirmedSnapshotRows = [];
 
     var allItems = getCodeItems(ss);
+    if (!targetDate) _seedMissingKrxCloseDates_(ss, props, requestedCloseDate, allItems);
     var items = _getDailyHeldCodeItems(ss, requestedCloseDate, allItems);
     // 마스터에 남은 전량매도·폐지 종목은 KRX 종가 확보율의 분모에서 제외합니다.
     Logger.log('[saveDailyPriceHistory] 종목코드 마스터 ' + allItems.length
@@ -9312,7 +9324,9 @@ function saveDailyPriceHistory(targetDate) {
     props.setProperty('snapshot_last_failure_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
     props.setProperty('snapshot_last_error', ((err && err.message) ? err.message : String(err)).slice(0, 1000));
     try { if (typeof requestedCloseDate !== 'undefined' && requestedCloseDate)
-        _enqueuePendingKrxCloseDate_(props, requestedCloseDate); } catch(queueError) { Logger.log('⚠️ 실패 거래일 큐 기록 오류: ' + queueError.message); }
+        if (typeof ss !== 'undefined' && typeof items !== 'undefined'
+          && _hasKrxHoldingsForCloseDate_(ss, requestedCloseDate, allItems))
+          _enqueuePendingKrxCloseDate_(props, requestedCloseDate); } catch(queueError) { Logger.log('⚠️ 실패 거래일 큐 기록 오류: ' + queueError.message); }
     Logger.log('❌ saveDailyPriceHistory 실패: ' + err.message);
     throw err;
   } finally {
