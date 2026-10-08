@@ -1063,6 +1063,28 @@ assert.equal(reentrySnapshots.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='F0
   '기존 Snapshot 펀드행이 없던 0좌 기간에도 새 좌수 기준 Snapshot 신규 생성');
 assert.equal(reentrySnapshots.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='000001')[7],300,
   '같은 날짜의 다른 종목 Snapshot 보존');
+
+// 0좌→양수 정정에서 기존 MANUAL 가격이력은 신규 Snapshot에도 동일하게 사용해야 합니다.
+const manualReentryUnits=new Sheet([['code','name','provider','start','units','at'],
+  ['F00001','테스트 펀드','HANWHA_2045_CRPE','2026-01-01',0,'']]);
+const manualReentryNav=new Sheet([['date','code','name','nav','sourceDate','units','eval','at','provider'],
+  ['2026-01-02','F00001','테스트 펀드',1000,'2026-01-02',0,0,'','HANWHA_2045_CRPE']]);
+const manualReentryPrices=new Sheet([['date','code','name','price','at','source'],
+  ['2026-01-02','F00001','테스트 펀드',1750,'2026-01-02 12:00:00','MANUAL']]);
+const manualReentryTrades=new Sheet([Array(8).fill('header'),
+  ['2026-01-01','buy','계좌','테스트 펀드','F00001',1,800,'펀드'],
+  ['2026-01-01','buy','계좌','주식','000001',1,100,'주식']]);
+const manualReentrySnapshots=new Sheet([header,snap('2026-01-02','000001',300,'PRICE_HISTORY')]);
+const manualReentrySheets={'펀드좌수':manualReentryUnits,'펀드기준가격':manualReentryNav,'가격이력':manualReentryPrices,'거래이력':manualReentryTrades,'스냅샷':manualReentrySnapshots};
+context.getss=()=>ssFor(manualReentrySheets);
+const manualReentryCorrection=context.handleSaveFundUnits(JSON.stringify({code:'F00001',provider:'HANWHA_2045_CRPE',startDate:'2026-01-01',units:2000}));
+assert.equal(manualReentryCorrection.status,'ok','MANUAL 가격이 있는 0좌→양수 과거 정정 성공');
+assert.equal(manualReentryPrices.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='F00001')[3],1750,
+  '기존 MANUAL 가격이력 평가값 보존');
+assert.equal(manualReentrySnapshots.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='F00001')[7],1750,
+  '신규 Snapshot 평가금액도 보존된 MANUAL 가격과 일치');
+assert.equal(manualReentrySnapshots.rows.find(row=>row[0]==='2026-01-02'&&row[1]==='F00001')[10],'MANUAL',
+  '신규 Snapshot 소스도 MANUAL로 보존');
 context.getss=()=>ssFor(sheets);
 
 // 대상 펀드 파생행이 전혀 없어도 다른 종목 Snapshot 날짜를 영향범위로 인정해 0좌→양수 정정을 재생성합니다.
