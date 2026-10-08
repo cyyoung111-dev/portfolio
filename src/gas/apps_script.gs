@@ -10469,11 +10469,12 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
       // Read success marker under the same lock as the final result write.
       // This closes the window between deferred completion and close summary storage.
       var fundSuccess = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
-      if (!summary.fundOk && fundSuccess && fundSuccess.date === runDate
-          && summary.fundBusyToken && fundSuccess.token === summary.fundBusyToken
-          && fundSuccess.at >= Number(startedMs || 0)
-          && Array.isArray(summary.errors) && summary.errors.length
-          && summary.errors.some(function(reason) { return /FUND_BUSY/.test(reason); })) {
+      var priceFailureSuccess = !summary.priceOk && summary.fundDeferred
+        && fundSuccess && fundSuccess.date === runDate && fundSuccess.at >= Number(startedMs || 0);
+      var matchingBusySuccess = summary.fundBusyToken && fundSuccess
+        && fundSuccess.token === summary.fundBusyToken && fundSuccess.date === runDate
+        && fundSuccess.at >= Number(startedMs || 0);
+      if (!summary.fundOk && (priceFailureSuccess || matchingBusySuccess)) {
         summary.fundOk = true;
         summary.errors = summary.errors.filter(function(reason) { return !/FUND_BUSY/.test(reason); });
         if (summary.priceOk && summary.errors.length === 0) {
@@ -10616,7 +10617,8 @@ function _reconcilePortfolioFundBusy_(date) {
     if (!last || last.runDate !== date || last.fundOk === true) return;
     var success = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
     // Price failure still means overall ERROR, but deferred NAV can succeed independently.
-    var priceFailureDeferred = last.priceOk === false && last.fundDeferred === true;
+    var priceFailureDeferred = last.priceOk === false && last.fundDeferred === true
+      && success && success.at >= Number(last.startedMs || 0);
     var busyMatch = last.fundBusyToken && success && success.token === last.fundBusyToken
       && success.at >= Number(last.startedMs || 0);
     if (!success || success.date !== date || (!priceFailureDeferred && !busyMatch)) return;
@@ -10740,7 +10742,7 @@ function runDailyPortfolioClose1900() {
       runDate:runDate, startedAt:startedAt,
       finishedAt:Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
       priceOk:false, priceDate:'', priceRows:0, fundOk:false,
-      fundDeferred:deferredScheduled, errors:errors.slice(0, 4)
+      fundDeferred:true, startedMs:startedMs, errors:errors.slice(0, 4)
     };
     _recordPortfolioCloseStage(props, runDate, startedAt, 'ERROR', runId, failedSummary, startedMs);
     _appendPortfolioCloseSyncLog('ERROR', runDate, runId, errors.join(' | '));
