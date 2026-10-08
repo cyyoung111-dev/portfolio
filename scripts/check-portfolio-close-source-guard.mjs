@@ -430,7 +430,7 @@ assert.equal(afterMidnight.created,1,'전날 예약은 만료 전이어도 새 �
 assert.equal(afterMidnight.pending.date,'2026-10-09');
 assert.match(deferredSource,/cleanupTriggerId = triggerId \|\| String\(reservation\.triggerId \|\| ''\)/,
   '수동 호출에서 이벤트 UID가 없더라도 특정 예약 UID만 정리');
-assert.match(deferredSource,/pending && cleanupTriggerId && pending\.triggerId === cleanupTriggerId/,
+assert.match(deferredSource,/if \(!pending \|\| !cleanupTriggerId \|\| pending\.triggerId !== cleanupTriggerId\) return/,
   '공유 예약 삭제는 정확한 UID 일치 시에만 수행');
 assert.match(deferredSource,/if \(cleanupTriggerId && trigger\.getHandlerFunction\(\) === 'runDeferredFundAfterPortfolioCloseFailure'/,
   '모든 반복 트리거를 무차별 삭제하지 않음');
