@@ -1673,3 +1673,30 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     '실패 날짜만 큐에 남아 다음 순환에서 재시도');
 }
 console.log('✅ Production writer + 복구 경로 통합·중복 삭제 차단·큐 공정성 회귀');
+
+// Priority: a 20:30 failed current session must not wait behind the full
+// historical queue, while the rotating cursor keeps old errors retryable.
+{
+  const bag=new Map([['portfolio_close_pending_krx_dates',
+    JSON.stringify(['2026-09-28','2026-09-29','2026-10-08'])]]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const observed=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
+    _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
+    saveDailyPriceHistory:date=>{observed.push(date);return{ok:true,date,rows:1};}
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+  const first=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
+  assert.equal(first.date,'2026-10-08',
+    '20:30 watchdog가 누락한 오늘 종가는 과거 미처리일보다 먼저 복구');
+  assert.deepEqual(observed,['2026-10-08']);
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),
+    ['2026-09-28','2026-09-29'],'오늘 완료 후 과거 미처리 누락일 보존');
+}
+console.log('✅ 독립 백필의 오늘 누락 우선·과거 실패 공정성 회귀');
