@@ -268,7 +268,7 @@ assert.match(portfolioData, /tradesResult\?\.affectedFrom[\s\S]*_getPendingExpli
 assert.match(settings, /const portfolioRestorePromise = blockRemotePortfolioRestore[\s\S]*\? null/,
   'pending이 있던 부트스트랩에서는 같은 요청의 오래된 원격 거래/보유 복원을 차단');
 assert.ok(
-  settings.indexOf('Object.assign(fundDirect, s.fundDirect)') < settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true })'),
+  settings.indexOf('Object.assign(fundDirect, s.fundDirect)') < settings.indexOf('pendingRetryOk = await _retryPendingExplicitEmptyTradeSync({'),
   '빈 원장 재시도 전에 fundDirect를 먼저 복원해 비거래 보유현황 삭제를 방지'
 );
 assert.match(settings, /const pendingHoldingsPromise = !pendingEmptySyncAtLoad \|\| hasAuthoritativeFundDirect[\s\S]*Array\.isArray\(data\.holdings\)[\s\S]*requestGsheetActionJson\([\s\S]*'getHoldings'/,
@@ -282,7 +282,7 @@ assert.match(settings, /if \(isFundEntry\) \{[\s\S]*!hasAuthoritativeFundDirect[
 assert.match(settings, /const s = data\.settings;[\s\S]*const hasAuthoritativeFundDirect = Object\.prototype\.hasOwnProperty\.call\(s, 'fundDirect'\)/,
   'fundDirect authoritative 플래그는 loadSettings 범위에서 선언');
 assert.ok(
-  settings.indexOf('await _retryPendingExplicitEmptyTradeSync({ quiet: true, allowDuringRestore: true })') < settings.indexOf('// ── 거래이력 복원'),
+  settings.indexOf('pendingRetryOk = await _retryPendingExplicitEmptyTradeSync({') < settings.indexOf('// ── 거래이력 복원'),
   '영속 pending 재시도는 원격 거래/보유 복원 적용 전에 수행'
 );
 assert.match(settings, /pendingRetryOk = await _retryPendingExplicitEmptyTradeSync[\s\S]*if \(!pendingRetryOk\) return false[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
