@@ -533,8 +533,8 @@ assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate, 
   '야간 실행은 통합 마감 없이 과거 날짜만 복구');
 assert.match(closeRunSource,/reason:'FUND_INCOMPLETE'/,
   '펀드 평가가 미완료이면 과거 Snapshot 백필을 동시 실행하지 않음');
-assert.match(nightlyBackfill,/reason:'FUND_ACTIVE'/,
-  '독립 야간 백필도 활성 펀드 lease 중에는 저장을 보류');
+assert.match(backfillWorker,/return 'FUND_ACTIVE'/,
+  '야간·정규 백필 모두 원자적 lease 검사에서 활성 NAV 실행을 차단');
 // Backfill and NAV both enter the same ScriptLock acquisition helper.
 assert.doesNotMatch(nightlyBackfill,/var fundLease =/,
   '야간 백필에서 lease 획득 전 외부 검사로 인한 TOCTOU 금지');
