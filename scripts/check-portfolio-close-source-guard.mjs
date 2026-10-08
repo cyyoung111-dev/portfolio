@@ -369,6 +369,8 @@ assert.match(guardedFundSource, /origin === 'DEFERRED'[\s\S]*PORTFOLIO_FUND_SUCC
   '펀드 완료 후 상태 마커를 독립 저장');
 assert.match(deferredSource, /if \(!reservation\)[\s\S]*trigger\.getUniqueId\(\) === triggerId[\s\S]*NO_RESERVATION/,
   '교체된 트리거는 자기 UID만 삭제');
+assert.match(extract('runDailyPortfolioClose1900'), /fundBusyTriggerId = String\(busyReservation/,
+  'FUND_BUSY 경로가 원자 반환된 예약 UID를 반드시 summary에 연결');
 const closeRunSource=extract('runDailyPortfolioClose1900');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)")
   < closeRunSource.indexOf('saveDailyPriceHistory()'), '일반 종목 단계 실행 전에 시작 마커');
@@ -422,6 +424,17 @@ const separateFunds=verifyDeferredReconcile({
 assert.equal(separateFunds.summary.fundOk,true,'가격 실패 후 독립 펀드 완료 표시');
 assert.equal(separateFunds.stage,'ERROR','펀드 성공으로 가격 실패를 덮지 않음');
 assert.match(separateFunds.summary.errors[0],/KRX/);
+const retriedBusy=verifyDeferredReconcile({
+  priceOk:true, fundOk:false, fundBusyToken:'failed-first-lease',fundBusyTriggerId:'retry-T1',
+  errors:['펀드: FUND_BUSY'],startedMs:1000
+},{date:'2026-10-08',token:'new-retry-lease',triggerId:'retry-T1',at:2200});
+assert.equal(retriedBusy.summary.fundOk,true,'동일 예약 트리거의 새로운 lease 성공을 마감 결과에 반영');
+assert.equal(retriedBusy.stage,'COMPLETE','펀드 재시도 성공 후 완료 상태 복구');
+const unrelatedRetry=verifyDeferredReconcile({
+  priceOk:true,fundOk:false,fundBusyToken:'old-lease',fundBusyTriggerId:'retry-T2',
+  errors:['펀드: FUND_BUSY'],startedMs:1000
+},{date:'2026-10-08',token:'different-lease',triggerId:'different-trigger',at:2200});
+assert.equal(unrelatedRetry.summary.fundOk,false,'다른 예약의 재시도를 오인해 완료 처리하지 않음');
 const staleFunds=verifyDeferredReconcile({
   priceOk:false, fundOk:false, fundDeferred:true, fundDeferredTriggerId:'T3',
   errors:['일반 종목: KRX 응답 없음'], startedMs:1000
