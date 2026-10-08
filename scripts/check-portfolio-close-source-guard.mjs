@@ -1792,3 +1792,95 @@ console.log('✅ 독립 백필의 오늘 누락 우선·과거 실패 공정성 
     '어제 PRICE 복구가 오늘 스냅샷 최근 성공일을 덮지 않음');
 }
 console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존·자정 후 전날 결과 복구');
+
+// Codex P2: a successful regular CLOSE NAV must remain provable even when
+// its later close-summary write fails. Exercise the real lease/reconcile code.
+{
+  const bag=new Map([
+    ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
+      priceOk:true,priceDate:'2026-10-08',fundOk:false,errors:['펀드: FUND_BUSY']})],
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_run_id','close-R1'],
+    ['portfolio_close_run_started_ms','1000'],['portfolio_close_stage','FUND']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  let navWrites=0;
+  const ctx=vm.createContext({
+    today:()=> '2026-10-08',Date:{now:()=>2000},
+    Utilities:{getUuid:()=> 'lease-R1'},
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    _fundPropertyText:String,
+    runDailyFundValuations:()=>{navWrites++;return {lastDate:'2026-10-08'};}
+  });
+  for(const name of ['_runPortfolioFundWithLease_','_reconcilePortfolioCloseFundSuccess_'])
+    vm.runInContext(extract(name),ctx);
+  ctx._runPortfolioFundWithLease_('CLOSE','close-R1');
+  const proof=JSON.parse(p.getProperty('portfolio_fund_close_success_v1'));
+  assert.equal(proof.runId,'close-R1');
+  assert.equal(navWrites,1,'정규 NAV는 실제 한 번만 수행');
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_last_result')).fundOk,false,
+    '후속 상태 저장 전까지 기존 summary는 아직 실패로 남아 있음');
+  assert.equal(ctx._reconcilePortfolioCloseFundSuccess_('2026-10-08'),true);
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_last_result')).fundOk,true,
+    '후속 복구가 정확한 run-id의 NAV 성공 근거로 상태를 수정');
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+  bag.set('portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
+    priceOk:true,fundOk:false,errors:['펀드: FUND_BUSY']}));
+  bag.set('portfolio_close_stage','ERROR');
+  bag.set('portfolio_close_run_id','different-later-run');
+  assert.equal(ctx._reconcilePortfolioCloseFundSuccess_('2026-10-08'),false,
+    '이전 CLOSE NAV 마커로 다른 실행의 실패를 성공으로 승격시키면 안 됨');
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_last_result')).fundOk,false);
+  let checked=0;
+  ctx._reconcilePortfolioCloseFundSuccess_=()=>{checked++;return false;};
+  ctx._runPendingKrxBackfillWithLease_=()=>({attempted:false,remaining:0});
+  ctx.PropertiesService={getScriptProperties:()=>p};
+  ctx.Logger={log:()=>{}};
+  vm.runInContext(extract('runPortfolioCloseBackfill2210'),ctx);
+  ctx.runPortfolioCloseBackfill2210();
+  assert.equal(checked,1,'가격 큐가 0건이어도 22:10은 CLOSE NAV 마커 복구를 확인');
+}
+
+// Codex P2: 300 historical queued dates must not silently drop the latest
+// watchdog failure. Capacity extension is reserved for urgent dates.
+{
+  const dates=Array.from({length:300},(_,i)=>
+    new Date(Date.UTC(2024,0,1+i)).toISOString().slice(0,10));
+  const bag=new Map([['portfolio_close_pending_krx_dates',JSON.stringify(dates)]]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const processed=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+    _krxCalendarStatus_:()=> 'OPEN',Logger:{log:()=>{}},
+    _portfolioFundAtomic_:cb=>cb(p),_portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
+    _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
+    saveDailyPriceHistory:(date,opts)=>{
+      processed.push(date);assert.equal(opts.deferQueueCompletion,true);
+      return {ok:true,date,rows:8};
+    }
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_',
+    '_completePendingKrxCloseDate_','_reconcileRecoveredPortfolioPrice_',
+    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+  assert.equal(ctx._enqueuePendingKrxCloseDate_(p,'2026-10-08',true,true),true,
+    '300건 일반 큐에도 당일 watchdog 예약은 성공');
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).length,301);
+  assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-08',true).ok,true);
+  assert.deepEqual(processed,['2026-10-08'],'300건 과거 대기열보다 오늘 PRICE 우선 복구');
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).length,300,
+    '과거 300건은 버리지 않고 그대로 보존');
+  const full=Array.from({length:600},(_,i)=>
+    new Date(Date.UTC(2023,0,1+i)).toISOString().slice(0,10));
+  bag.set('portfolio_close_pending_krx_dates',JSON.stringify(full));
+  assert.throws(()=>ctx._enqueuePendingKrxCloseDate_(p,'2026-10-09',true,true),
+    /당일 복구 예약 실패/,'한계 초과 시 기록된 척하지 않고 명시적 오류');
+}
+console.log('✅ 최신 Codex P2: CLOSE NAV 성공 원인 증거·300건 초과 watchdog 우선 보존');
