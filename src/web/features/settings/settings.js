@@ -44,6 +44,7 @@ let _saveRealEstateTimer = null;
 let _saveSettingsWaiters = [];
 let _saveRealEstateWaiters = [];
 let _saveSettingsPendingKey = '';
+let _saveSettingsWriteRevision = 0;
 let _saveRealEstatePendingKey = '';
 
 const TAB_SYNC_STATUS_KEY = 'tab_sync_status';
@@ -316,6 +317,7 @@ function saveSettings(immediate, options) {
     : getGsheetConnectionGeneration();
   const expectedLoadEpoch = _gsSettingsLoadEpoch;
   const allowDuringRestore = options?.allowDuringRestore === true;
+  const expectedWriteRevision = ++_saveSettingsWriteRevision;
   if (!targetUrl) return Promise.resolve(false);
   if (!isGsheetPortfolioWriteReady({
     targetUrl,
@@ -356,6 +358,8 @@ function saveSettings(immediate, options) {
   const run = async () => {
     try {
       if (!isGsheetConnectionCurrent(targetUrl, expectedGeneration)) return false;
+      // 더 최신 Settings 저장 요청이 생겼다면 이 payload는 이미 stale 입니다.
+      if (_saveSettingsWriteRevision !== expectedWriteRevision) return false;
       // 호출 후 같은 연결에서 새 loadSettings가 시작됐다면 이 payload는 이전 메모리 세대입니다.
       if (!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch) return false;
       if (!isGsheetPortfolioWriteReady({
@@ -382,6 +386,17 @@ function saveSettings(immediate, options) {
   // 둘이 같은 timer/waiter를 공유하면 한 payload만 전송되고 양쪽 호출자가 같은 성공값을 받아
   // fundDirect 복구 또는 일반 설정 변경이 유실될 수 있습니다.
   if (settingsPatch) {
+    // recovery patch는 예약된 이전 전체 Settings payload보다 authoritative합니다.
+    // timer만 분리하면 이미 캡처된 전체 payload가 나중에 실행되어 fundDirect를 되돌릴 수 있으므로
+    // 예약 timer/waiter를 명시적으로 취소하고 write revision으로 이미 queue에 들어간 stale run도 차단합니다.
+    if (_saveSettingsTimer) {
+      clearTimeout(_saveSettingsTimer);
+      _saveSettingsTimer = null;
+      _saveSettingsPendingKey = '';
+      const staleWaiters = _saveSettingsWaiters;
+      _saveSettingsWaiters = [];
+      staleWaiters.forEach(done => done(false));
+    }
     _saveSettingsQueue = _saveSettingsQueue.then(run, run);
     return _saveSettingsQueue;
   }
@@ -840,7 +855,51 @@ async function loadSettings(onProgress, options) {
       saveHoldings({ skipGsheet: true });
     }
 
-    // pending 성공 직후에는 preflight 시점의 오래된 원격 거래/보유를 다시 적용하지 않습니다.
+    // 강제복원 요청을 기다리는 동안 사용자가 포트폴리오를 수정할 수 있습니다.
+    // load 시작 시 snapshot만 믿으면 방금 생긴 dirty/pending을 preflight 원격값으로 덮게 되므로,
+    // 실제 authoritative 원격 적용 직전에 현재 target 상태를 다시 확인하고 먼저 원격에 복구합니다.
+    if (forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad
+        && typeof _getPendingExplicitEmptyTradeSync === 'function'
+        && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
+      const latePending = _getPendingExplicitEmptyTradeSync(loadTarget);
+      if (latePending) {
+        const latePendingResult = await _retryPendingExplicitEmptyTradeSync({
+          quiet: true,
+          allowDuringRestore: true,
+          preferCurrentPortfolio: rawTrades.length > 0,
+          targetUrl: loadTarget
+        });
+        if (!isLoadConnectionCurrent()) return false;
+        if (!latePendingResult) return false;
+        pendingEmptySyncResolvedAtLoad = true;
+        pendingEmptySyncResolvedAsEmptyAtLoad = latePendingResult === 'empty';
+        if (pendingEmptySyncResolvedAsEmptyAtLoad) {
+          rawTrades.length = 0;
+          rawHoldings.length = 0;
+          saveHoldings({ skipGsheet: true });
+        }
+      }
+    }
+    if (forcePortfolioRestore && !dirtyPortfolioSyncResolvedAtLoad
+        && typeof _getPortfolioRemoteDirty === 'function'
+        && typeof _restorePortfolioRemoteDirtyPayload === 'function'
+        && typeof _retryPortfolioRemoteDirtySync === 'function') {
+      const lateDirty = _getPortfolioRemoteDirty();
+      if (lateDirty) {
+        _restorePortfolioRemoteDirtyPayload();
+        if (!isLoadConnectionCurrent()) return false;
+        prog('복원 중 새로 생긴 거래·보유 동기화 중...');
+        const lateDirtyOk = await _retryPortfolioRemoteDirtySync({
+          targetUrl: loadTarget,
+          allowDuringRestore: true
+        });
+        if (!isLoadConnectionCurrent()) return false;
+        if (!lateDirtyOk) return false;
+        dirtyPortfolioSyncResolvedAtLoad = true;
+      }
+    }
+
+    // pending/dirty가 load 도중 새로 생긴 경우까지 처리한 뒤에만 preflight 원격 원장을 적용합니다.
     const applyForcedPortfolioRestore = forcePortfolioRestore
       && !pendingEmptySyncResolvedAtLoad
       && !dirtyPortfolioSyncResolvedAtLoad;
