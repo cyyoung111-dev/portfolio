@@ -10571,7 +10571,7 @@ function _scheduleFundAfterFailedPortfolioPrice_() {
   return _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
     var scheduleDate = today();
-    if (old && old.date === scheduleDate && old.until > Date.now())
+    if (old && old.date === scheduleDate && old.until > Date.now() && Number(old.attempts || 0) < 3)
       return {created:false, triggerId:String(old.triggerId || '')};
     // An old-day recurring trigger belongs to the creator account and cannot
     // be enumerated cross-account. Its next invocation deletes its own UID.
@@ -10653,7 +10653,7 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
     if (!pending || (triggerId && pending.triggerId !== triggerId)) return null;
     if (pending.until <= Date.now() || pending.attempts >= 3 || pending.date !== runDate) {
-      return {cleanup:true};
+      return {cleanup:true, triggerId:pending.triggerId};
     }
     var running = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
     if (running && running.until > Date.now()) return {busy:true};
@@ -10671,6 +10671,9 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
   }
   shouldCleanup = !!reservation.cleanup;
   shouldRun = !!reservation.run;
+  // For an editor/manual invocation without triggerUid, retain the reservation's
+  // exact UID instead of deleting every trigger for this handler.
+  var cleanupTriggerId = triggerId || String(reservation.triggerId || '');
   if (!shouldRun && !shouldCleanup) return {skipped:true, reason:'FUND_BUSY_RETRY_LATER'};
   try {
     if (!shouldRun) return {skipped:true, reason:'RETRY_EXHAUSTED'};
@@ -10689,13 +10692,13 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     if (shouldCleanup) {
       _portfolioFundAtomic_(function(props) {
         var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-        if (pending && (!triggerId || pending.triggerId === triggerId)) {
+        if (pending && cleanupTriggerId && pending.triggerId === cleanupTriggerId) {
           props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
         }
       });
       ScriptApp.getProjectTriggers().forEach(function(trigger) {
-        if (trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure'
-            && (!triggerId || (trigger.getUniqueId && trigger.getUniqueId() === triggerId))) {
+        if (cleanupTriggerId && trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure'
+            && trigger.getUniqueId && trigger.getUniqueId() === cleanupTriggerId) {
           ScriptApp.deleteTrigger(trigger);
         }
       });
@@ -10792,7 +10795,19 @@ function runDailyPortfolioClose1900() {
   }
 
   // 일일 확정 마감/펀드 저장 후 이전 실패일을 1건씩 재시도합니다. 실패해도 금일 성공을 덮지 않습니다.
-  var backfill = priceResult ? _retryOnePendingKrxClose_(props, runDate) : { attempted:false };
+  // A historical KRX replay can be slow; do not start it if daily close has
+  // already consumed half of GAS's normal six-minute execution budget.
+  // The existing pending-date queue retains skipped dates for later runs.
+  var closeElapsedMs = Date.now() - startedMs;
+  var backfill = !priceResult ? {attempted:false}
+    : closeElapsedMs >= 3 * 60 * 1000
+      ? {attempted:false, deferred:true, reason:'CLOSE_RUNTIME_BUDGET',
+          remaining:_readPendingKrxCloseDates_(props).length}
+      : _retryOnePendingKrxClose_(props, runDate);
+  if (backfill.deferred) {
+    _appendPortfolioCloseSyncLog('BACKFILL_DEFERRED', runDate, runId,
+      '정규 마감 시간 예산 보호: elapsedMs=' + closeElapsedMs + ', remaining=' + backfill.remaining);
+  }
   var summary = {
     runDate: runDate,
     startedAt: startedAt,
