@@ -1539,3 +1539,30 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
   assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
 }
 console.log('✅ PR471 P2 및 자체검토: watchdog 예외·야간 전용 백필·큐 삭제 트랜잭션 회귀');
+
+// Self-review: a nightly replay that finishes after date rollover must not
+// replace the newer day's summary, even if the replay successfully upserts.
+{
+  const nextDay={runDate:'2026-10-09',priceOk:true,fundOk:true,priceDate:'2026-10-09',errors:[]};
+  const bag=new Map([
+    ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
+    ['portfolio_close_last_result',JSON.stringify(nextDay)],
+    ['portfolio_close_run_date','2026-10-09'],['portfolio_close_stage','COMPLETE']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
+    _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
+    saveDailyPriceHistory:()=>({date:'2026-10-08',rows:12})
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+  assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-08',true).ok,true);
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_last_result')),nextDay,
+    '자정 경계를 건넌 완료 백필이 더 최신 날짜의 종가·NAV 마감 결과를 덮어쓰지 않음');
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+}
+console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summary 보존');
