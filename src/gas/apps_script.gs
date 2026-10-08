@@ -9229,6 +9229,7 @@ function _seedMissingKrxCloseDates_(ss, props, runDate, catalog) {
 // Prevent the 19:00 close and independent nightly replay from processing
 // the same queued date at the same time, even across script owner accounts.
 var PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY = 'portfolio_close_backfill_lease_v1';
+var PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY = 'portfolio_close_backfill_retry_cursor_v1';
 function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
   var token = Utilities.getUuid();
   var acquired = _portfolioFundAtomic_(function(sharedProps) {
@@ -9281,14 +9282,24 @@ function runPortfolioCloseBackfill2210() {
 function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   var queue = _readPendingKrxCloseDates_(props);
   // Only the isolated nightly worker may replay a current-day watchdog skip.
-  // A normal close's inline historical replay must not overwrite its own PRICE.
-  var target = queue.filter(function(date) { return date < currentDate || (includeToday && date === currentDate); })[0];
+  var candidates = queue.filter(function(date) {
+    return date < currentDate || (includeToday && date === currentDate);
+  });
+  // A permanently failing first day must not starve every newer pending day.
+  // The cursor advances before work so even a GAS hard timeout has a bounded
+  // next-day continuation opportunity. Each eligible date is retained until
+  // its own successful replay and reconciliation.
+  var previous = String(props.getProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY) || '');
+  var target = candidates.filter(function(date) { return date > previous; })[0] || candidates[0];
   if (!target) return { attempted:false, remaining:queue.length };
+  props.setProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY, target);
   var snapshotProps = ['snapshot_last_success_date','snapshot_last_success_at','snapshot_last_error','snapshot_last_failure_at'];
   var saved = {};
   snapshotProps.forEach(function(key) { saved[key] = props.getProperty(key); });
   try {
-    var result = saveDailyPriceHistory(target);
+    var result = saveDailyPriceHistory(target, {deferQueueCompletion:true});
+    if (!result || result.ok === false)
+      throw new Error('백필 PRICE 저장 성공을 확인하지 못해 대상 날짜를 보존합니다.');
     // Keep the pending date until same-day close status has been persisted.
     // The same ScriptLock protects the result/queue handshake.
     _portfolioFundAtomic_(function(sharedProps) {
@@ -9416,7 +9427,11 @@ function _selectPortfolioCloseSnapshotDate_(requestedDate, krxDate, krxRequired,
   return date;
 }
 
-function saveDailyPriceHistory(targetDate) {
+function saveDailyPriceHistory(targetDate, options) {
+  // Nightly replay and the 19:00 close must not clear recovery work until
+  // their own durable summary has been committed. Direct/manual callers
+  // retain the traditional completion behavior by default.
+  var deferQueueCompletion = !!(options && options.deferQueueCompletion === true);
   var lock = LockService.getScriptLock();
   var locked = false;
   var props = PropertiesService.getScriptProperties();
@@ -9555,10 +9570,17 @@ function saveDailyPriceHistory(targetDate) {
     SpreadsheetApp.flush();
     props.setProperty('snapshot_last_success_at', Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'));
     props.setProperty('snapshot_last_success_date', snapshotDate);
-    _completePendingKrxCloseDate_(props, requestedCloseDate);
     props.deleteProperty('snapshot_last_failure_at');
     props.deleteProperty('snapshot_last_error');
     if (snapshotOperationId) _settleSnapshotBackupOperation(ss, snapshotOperationId, true);
+    if (!deferQueueCompletion) {
+      // Only direct/manual callers may finalize here. The nightly worker and
+      // regular close own a later status→queue handshake under ScriptLock.
+      try { _completePendingKrxCloseDate_(props, requestedCloseDate); }
+      catch(queueFinishError) {
+        Logger.log('⚠️ PRICE 저장은 성공했으나 누락일 큐 정리 보류: ' + queueFinishError.message);
+      }
+    }
     Logger.log('✅ saveDailyPriceHistory 완료: 확정 거래일(' + snapshotDate + '), 실행일(' + todayStr + ')');
     return { ok: true, date: snapshotDate, runDate: todayStr, rows: confirmedSnapshotRows.length,
       krxCloseRequired: !!closeVerification.required, startedAt: startedAt };
@@ -10952,14 +10974,9 @@ function runDailyPortfolioClose1900() {
   _appendPortfolioCloseSyncLog('START', runDate, runId, '19시 통합 마감 시작');
 
   try {
-    priceResult = saveDailyPriceHistory();
-    try {
-      _portfolioFundAtomic_(function(sharedProps) { _completePendingKrxCloseDate_(sharedProps, runDate); });
-    } catch(queueCleanupErr) {
-      // Housekeeping failure must never turn a confirmed PRICE success into
-      // PRICE_ERROR or trigger a second NAV reservation.
-      Logger.log('⚠️ PRICE 성공 후 대기열 정리 보류: ' + queueCleanupErr.message);
-    }
+    priceResult = saveDailyPriceHistory(undefined, {deferQueueCompletion:true});
+    // Today's PRICE is not a completed close until the run's durable summary
+    // has been committed. Queue deletion happens after that step.
     _appendPortfolioCloseSyncLog('PRICE_DONE', runDate, runId,
       'date=' + String(priceResult && priceResult.date || '') + ', rows=' + String(priceResult && priceResult.rows || 0));
   } catch (priceErr) {
@@ -11052,7 +11069,13 @@ function runDailyPortfolioClose1900() {
     fundLastDate: fundResult && fundResult.lastDate ? fundResult.lastDate : runDate,
     errors: errors.slice(0, 4)
   };
-  _recordPortfolioCloseStage(props, runDate, startedAt, errors.length ? 'ERROR' : 'COMPLETE', runId, summary, startedMs);
+  var closeStateCommitted = _recordPortfolioCloseStage(props, runDate, startedAt,
+    errors.length ? 'ERROR' : 'COMPLETE', runId, summary, startedMs);
+  if (!closeStateCommitted) {
+    Logger.log('⚠️ 마감 최종 상태 소유권 상실: 원래 실행의 큐를 완료 처리하지 않음');
+    return {runDate:runDate, skipped:true, reason:'STATE_OWNERSHIP_LOST_AT_FINISH',
+      priceOk:!!priceResult, fundOk:!!fundResult};
+  }
   if (priceResult) {
     // A skipped watchdog can enqueue today's date after PRICE_DONE but before
     // the final close summary is stored. Reconcile the queue at both borders.
