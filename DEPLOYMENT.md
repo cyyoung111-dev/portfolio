@@ -1,3 +1,11 @@
+## PR #471 최종 자체검토: 실행 소유권·부분 완료 표시 (2026-10-09)
+
+- 22:10 PRICE 재생이 원래 마감 summary를 처음 만드는 경우, 동일 거래일의 `portfolio_close_run_started_at`·`portfolio_close_run_started_ms`를 함께 복원하여 NAV 성공 마커가 합쳐진 후 `_portfolioCloseRunState`와 자동화 상태 UI 모두 COMPLETE로 판정되도록 합니다.
+- 기존 partial summary에 실행 시각이 없으면 동일 날짜 소유권을 확인한 뒤 복원합니다. 단지 summary 객체가 존재한다는 이유만으로 완료로 표시하지 않으며, PRICE/NAV 모두 성공하고 오류가 없을 때만 COMPLETE로 판단합니다.
+- 정상 CLOSE NAV 성공 마커는 run-id·거래일·시작시각 조건에 더해, 동일 날짜에 남아 있는 **이전 마감** summary와 startedAt/startedMs가 다른 경우에도 결합하지 않습니다.
+- 회귀검사는 실제 PRICE replay→summary 생성→NAV success reconciliation→운영 상태 판정 순서와 역순, 메타데이터 없는 부분 성공, 같은 날짜 다른 실행 소유권을 함께 실행합니다.
+- 버전 `9.191`은 현재 PR 기능 버전이며, 이 문서는 해당 변경의 로컬/CI 동작 계약만 기술합니다. 실제 운영 GAS 배포와 운영 데이터 정상 여부는 확인되지 않았습니다.
+
 ## PR #471 추가 자체 검증: 실제 가격 저장과 복구 큐 원자성 (2026-10-09)
 
 - `saveDailyPriceHistory(targetDate, {deferQueueCompletion:true})`로 호출한 정규 마감·야간 백필은 원천가격과 Snapshot이 저장됐다는 이유만으로 큐를 조기 제거하지 않습니다. 정규 19시/20:30 마감은 `portfolio_close_last_result` 최종 저장 이후에만 해당 날짜의 큐를 해제합니다.
@@ -27,12 +35,12 @@
 - 독립 펀드·20:30 watchdog의 펀드 평가 구간은 공통 7분 실행 lease로 중복 외부 NAV 조회를 차단합니다.
 - 지연 실행은 자기 trigger UID만 정리하며 최신 다른 계정 예약을 삭제하지 않습니다.
 - 가격이력·Snapshot 원본의 직접 수정은 없고, KRX 인증 실패 자체 및 누락일 복구는 별도 운영 검증이 필요합니다.
-- 마감 시작 후 3분이 넘거나 펀드 NAV가 완료되지 않으면 과거 KRX 누락일 백필을 보류합니다. 22:10 `runPortfolioCloseBackfill2210` 독립 트리거가 대기열에서 하루 1건을 별도 재시도합니다. NAV·백필의 lease 획득, 정규 가격 마감·야간 백필 시작은 동일 ScriptLock 내부에서 상호 배제합니다. KRX 원천 오류 자체는 해결하지 못하며 누락이 많으면 별도 복구가 필요합니다.
+- (현재 기준) 19:00/20:30 통합 마감 내부에서는 과거 KRX 누락일 백필을 실행하지 않습니다. 최종 마감 상태를 먼저 저장하고, 22:10 `runPortfolioCloseBackfill2210` 독립 트리거가 하루 최대 한 날짜를 처리합니다. NAV·백필 lease 및 정규 PRICE 진입은 공유 ScriptLock으로 상호 배제됩니다. KRX 원천 오류 자체는 해결하지 못합니다.
 - 재시도 3회 소진 예약은 해당 시도가 실행 중일 때는 교체하지 않습니다. 실행 시작 전에 기록하는 `attemptToken/activeUntil`으로 예약 결정과 NAV lease 사이의 경합을 보호합니다.
 - 정상 통합 마감에서 펀드 평가가 성공하면 같은 날짜의 이전 지연 펀드 예약을 공유 저장소에서 해제합니다. 기존 예약의 반복 트리거는 자기 UID로만 정리하고 다른 사용자 계정 트리거는 조작하지 않습니다.
 - `setupTrigger()`, 기존 19시 마감 트리거 또는 일일 자동 점검(`integrity-change-v6-close-watchdog-backfill`)이 22:10 백필 트리거를 설치·정리합니다. 계정별 트리거 목록은 본인 계정만 볼 수 있으므로 다른 계정의 중복 설치 여부는 실제 실행 로그로 추가 검증해야 합니다.
 - GAS 버전 9.191, 웹 기대 버전 9.191, settings_fetch / 서비스워커 캐시 20261008-12.
-- 10/09 추가: 20:30 watchdog이 지연 NAV나 다른 PRICE 실행에 밀려 SKIPPED되고 당일 확정 PRICE가 아직 없으면, 해당 날짜를 영속 복구 대기열에 저장합니다. 22:10 독립 worker는 과거 누락일 외에 **오늘 보류된 날짜**도 한 건씩 재시도합니다. 기존 대기일이 더 이르면 오래된 날짜를 먼저 처리하며, 당일 미처리분은 이후 야간 실행에서 재시도합니다.
+- 10/09 추가: 20:30 watchdog이 지연 NAV나 다른 PRICE 실행에 밀려 SKIPPED되고 당일 확정 PRICE가 아직 없으면, 해당 날짜를 영속 복구 대기열에 저장합니다. 22:10 독립 worker는 **오늘 보류된 날짜를 우선** 재시도하고, 나머지 과거 누락일은 순환 커서 기준으로 후속 실행에서 처리합니다.
 - 당일 독립 복구가 먼저 성공하고 지연 NAV가 나중에 성공하는 순서도 처리하며, `portfolio_close_last_result`의 PRICE/FUND 상태를 각각 합산하여 두 단계가 모두 정상일 때에만 COMPLETE로 기록합니다. 과거 날짜 백필은 기존 최신 성공 Snapshot 메타데이터를 유지하고, 당일 복구는 새 성공 상태를 유지합니다.
 - deferred NAV가 활성 PRICE/FUND lease 때문에 **실행조차 못 한 경우**, 예약 시도 횟수에 반영하지 않고 같은 UID의 예약을 보존합니다. 실제 NAV 실행 실패만 횟수에 반영합니다.
 - 수동 메뉴 `runDailyPriceSnapshotNow()`와 레거시 `runEvalPriceUpdate1620()` 역시 NAV·정규 마감·백필과 공유 writer lease를 사용합니다. 다른 작업이 실행 중이면 `PRICE_BUSY`로 안전 차단되며 작업 종료 후 다시 시도해야 합니다.
