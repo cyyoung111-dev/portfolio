@@ -2070,3 +2070,33 @@ console.log('✅ 실제 PRICE 복구 후 summary 시작시각·UI 상태·NAV �
   assert.equal(ctx._portfolioCloseRunState(reconciled,p).state,'COMPLETE');
 }
 console.log('✅ 같은 날짜 다른 run-id NAV/PRICE 결합 차단·기존 부분 summary 시작시각 복구');
+
+// Latest Codex P2: a metadata-free legacy PRICE summary is not proof of
+// ownership by a later CLOSE NAV run, even when the business date matches.
+{
+  const bag=new Map([
+    ['portfolio_close_run_id','later-2030'],
+    ['portfolio_close_run_date','2026-10-08'],
+    ['portfolio_close_run_started_at','2026-10-08 20:30:00'],
+    ['portfolio_close_run_started_ms','3000'],
+    ['portfolio_close_stage','ERROR'],
+    ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
+      priceOk:true,fundOk:false,errors:['펀드: FUND_BUSY']})],
+    ['portfolio_fund_close_success_v1',JSON.stringify({
+      date:'2026-10-08',runId:'later-2030',at:3100,token:'nav-later'})]
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,
+    setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    _fundPropertyText:String
+  });
+  vm.runInContext(extract('_reconcilePortfolioCloseFundSuccess_'),ctx);
+  assert.equal(ctx._reconcilePortfolioCloseFundSuccess_('2026-10-08'),false,
+    '기존 summary에 runId/시작시각 모두 없으면 나중 성공 NAV로 승격하면 안 됨');
+  assert.equal(JSON.parse(p.getProperty('portfolio_close_last_result')).fundOk,false);
+  assert.equal(p.getProperty('portfolio_close_stage'),'ERROR');
+}
+console.log('✅ 서로 다른 실행의 성공 근거 혼합 방지: summary 식별자 없는 경우');
