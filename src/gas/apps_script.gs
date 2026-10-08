@@ -9195,6 +9195,31 @@ function _retryOnePendingKrxClose_(props, currentDate) {
   }
 }
 
+// 한국 휴장일에 해외시장만 개장한 경우, 실제 확인된 해외 정규장 종가 날짜를
+// 스냅샷 기준일로 올립니다. 국내 종가는 가격이력의 직전 확정값을 CARRY로 평가합니다.
+function _latestConfirmedForeignCloseDate_(items, foreignPrices, requestedDate) {
+  var latest = '';
+  (items || []).forEach(function(item) {
+    var market = String(item && item.market || '').toUpperCase();
+    var currency = String(item && item.currency || 'KRW').toUpperCase();
+    if (currency === 'KRW' || market === 'KR' || market === 'KOSPI' || market === 'KOSDAQ') return;
+    var p = foreignPrices && foreignPrices[item.code];
+    var usedDate = _normalizeDate(p && p.usedDate || '');
+    if (!usedDate || usedDate > requestedDate || !_isConfirmedHistoryPrice_(p, usedDate)) return;
+    if (!latest || usedDate > latest) latest = usedDate;
+  });
+  return latest;
+}
+function _selectPortfolioCloseSnapshotDate_(requestedDate, krxDate, krxRequired, lastHistoryDate, latestForeignClose) {
+  var date = krxRequired ? krxDate : lastHistoryDate;
+  // KRX 정상 거래일은 당일 exact-date 검증을 이미 거쳤으므로 날짜를 바꾸지 않습니다.
+  if (_krxCalendarStatus_(requestedDate) === 'CLOSED' && latestForeignClose
+      && latestForeignClose <= requestedDate && (!date || latestForeignClose > date)) {
+    date = latestForeignClose;
+  }
+  return date;
+}
+
 function saveDailyPriceHistory(targetDate) {
   var lock = LockService.getScriptLock();
   var locked = false;
@@ -9239,6 +9264,8 @@ function saveDailyPriceHistory(targetDate) {
           ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true,
               useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate + 'T19:00:00+09:00') })
           : {};
+        // 해외 정규장 완료일은 KRX 공시일과 별도로 검증합니다.
+        var latestForeignCloseDate = _latestConfirmedForeignCloseDate_(items, gfPrev, requestedCloseDate);
         // 공식 실제 종가 날짜·시장별 커버리지를 먼저 검증해 오래된 데이터 저장을 차단합니다.
         var closeVerification = _assessDailyKrxStockClose(items, krxPrev, requestedCloseDate);
         // 정규 거래일 19시 마감은 반드시 당일 exact-date KRX 종가여야 합니다.
@@ -9281,10 +9308,12 @@ function saveDailyPriceHistory(targetDate) {
       // 단순 평일 계산값이 아니라 가격이력에 실제 존재하는 최신 날짜를 기준으로 합니다.
       // 예: 24일 가격이력이 이미 있으면 KRX가 21일 fallback을 반환해도 24일 스냅샷을 생성합니다.
       // 펀드 NAV/이월 행이 더 최신이어도 일반 종목의 공식 마감 기준일로 오인하지 않습니다.
-      snapshotDate = closeVerification.required
-        ? closeVerification.date : _getLatestPriceHistoryDate(ss, requestedCloseDate);
+      snapshotDate = _selectPortfolioCloseSnapshotDate_(requestedCloseDate, closeVerification.date,
+        closeVerification.required, closeVerification.required ? '' : _getLatestPriceHistoryDate(ss, requestedCloseDate),
+        latestForeignCloseDate);
       if (!snapshotDate) throw new Error('스냅샷 기준 확정 종가 날짜를 확인할 수 없습니다.');
-      Logger.log('[saveDailyPriceHistory] 확정 거래일(' + snapshotDate + ') 스냅샷 정합성 검증');
+      Logger.log('[saveDailyPriceHistory] 확정 평가일(' + snapshotDate + '), KRX 종가 기준일('
+        + String(closeVerification.date || '-') + '), 해외 최근 확정일(' + String(latestForeignCloseDate || '-') + ')');
       var expected = _buildSnapshotRowsFromTradeAndPriceHistory(ss, snapshotDate);
       var existingRows = _readSnapshotRowsByDate(ss, snapshotDate);
       var dailyRewritePlan = _snapshotRewritePlan(ss, snapshotDate, expected);
