@@ -348,6 +348,11 @@ const atomicCloseSource=extract('_recordPortfolioCloseStage');
 const deferredSource=extract('runDeferredFundAfterPortfolioCloseFailure');
 const guardedFundSource=extract('_runPortfolioFundWithLease_');
 const scheduleSource=extract('_scheduleFundAfterFailedPortfolioPrice_');
+assert.match(scheduleSource, /old\.date === scheduleDate && old\.until > Date\.now\(\)/,
+  'KST 날짜가 바뀐 예약은 만료 전이라도 재사용하지 않음');
+assert.match(scheduleSource, /date:scheduleDate/,
+  '신규 지연 펀드 예약에 결정 시점의 KST 날짜를 기록');
+
 assert.match(scheduleSource, /return \{created:false, triggerId:String\(old\.triggerId \|\| ''\)\}/,
   '기존 예약의 UID는 최초 예약 판단 lock 안에서 반환');
 assert.match(scheduleSource, /return \{created:true, triggerId:triggerId\}/,
