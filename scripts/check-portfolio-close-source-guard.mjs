@@ -2008,3 +2008,65 @@ console.log('✅ 22시10분 사후 PRICE 생성 → 동일 실행의 NAV 성공 
     '시작 기록 없는 PRICE 부분 복구를 완전 완료라고 표시하지 않음');
 }
 console.log('✅ 실제 PRICE 복구 후 summary 시작시각·UI 상태·NAV 증거 합류');
+// PR473 cross-run safety audit: do not combine a previous same-day PRICE
+// summary with an unrelated later run's normal FUND success proof.
+{
+  const bag=new Map([
+    ['portfolio_close_run_id','later-2030'],
+    ['portfolio_close_run_date','2026-10-08'],
+    ['portfolio_close_run_started_at','2026-10-08 20:30:00'],
+    ['portfolio_close_run_started_ms','3000'],
+    ['portfolio_close_stage','ERROR'],
+    ['portfolio_close_last_result',JSON.stringify({
+      runDate:'2026-10-08',startedAt:'2026-10-08 19:00:00',
+      startedMs:1000,priceOk:true,fundOk:false,
+      errors:['펀드: FUND_BUSY']})],
+    ['portfolio_fund_close_success_v1',JSON.stringify({
+      date:'2026-10-08',runId:'later-2030',at:3100,token:'nav-later'})]
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,
+    setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    _fundPropertyText:String
+  });
+  vm.runInContext(extract('_reconcilePortfolioCloseFundSuccess_'),ctx);
+  assert.equal(ctx._reconcilePortfolioCloseFundSuccess_('2026-10-08'),false,
+    '오늘 날짜가 같더라도 이전 실행의 PRICE와 나중 실행의 NAV를 섞으면 안 됨');
+  const last=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(last.fundOk,false);
+  assert.equal(p.getProperty('portfolio_close_stage'),'ERROR');
+}
+// A previously persisted partial summary with missing startedAt can also be
+// repaired by the matched original PRICE replay, not only by NAV reconciliation.
+{
+  const bag=new Map([
+    ['portfolio_close_run_date','2026-10-08'],
+    ['portfolio_close_run_id','today-run'],
+    ['portfolio_close_run_started_at','2026-10-08 19:00:00'],
+    ['portfolio_close_run_started_ms','1000'],
+    ['portfolio_close_stage','ERROR'],
+    ['portfolio_close_last_result',JSON.stringify({
+      runDate:'2026-10-08',priceOk:false,fundOk:true,
+      errors:['일반 종목: 이전 가격 실패']})]
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,
+    setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
+    _fundPropertyText:String
+  });
+  vm.runInContext(extract('_reconcileRecoveredPortfolioPrice_'),ctx);
+  vm.runInContext(extract('_portfolioCloseRunState'),ctx);
+  const confirmed=ctx._reconcileRecoveredPortfolioPrice_(p,'2026-10-08',
+    {ok:true,date:'2026-10-08',rows:7},'CREATE');
+  assert.equal(confirmed,true);
+  const reconciled=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(reconciled.startedAt,'2026-10-08 19:00:00',
+    '기존 summary라도 시각 누락 시 동일 마감 소유권에서 복원');
+  assert.equal(reconciled.startedMs,1000);
+  assert.equal(ctx._portfolioCloseRunState(reconciled,p).state,'COMPLETE');
+}
+console.log('✅ 같은 날짜 다른 run-id NAV/PRICE 결합 차단·기존 부분 summary 시작시각 복구');
