@@ -171,9 +171,12 @@ const holidayStart = source.indexOf('var KRX_CONFIRMED_CLOSED_DATES_2026 =');
 assert.ok(holidayStart >= 0, '공식 휴장일 판별 자료 누락');
 const holidayEnd = source.indexOf('\n};',holidayStart);
 assert.ok(holidayEnd > holidayStart, '공식 휴장일 자료 문법 오류');
+const holiday2027Start = source.indexOf('var KRX_CONFIRMED_CLOSED_DATES_2027 =');
+const holiday2027End = source.indexOf('\n};',holiday2027Start);
+assert.ok(holiday2027Start >= 0 && holiday2027End > holiday2027Start,'2027 휴장일 목록 누락');
 vm.runInContext([
-  source.slice(holidayStart,holidayEnd+3),
-  extract('_countBusinessWeekdaysBetween'),extract('_assessDailyKrxStockClose'),
+  source.slice(holidayStart,holidayEnd+3), source.slice(holiday2027Start,holiday2027End+3),
+  extract('_krxCalendarStatus_'),extract('_countBusinessWeekdaysBetween'),extract('_assessDailyKrxStockClose'),
   extract('_fetchMissingFundNavBatches')
 ].join('\n'), context);
 const clone = obj => JSON.parse(JSON.stringify(obj));
