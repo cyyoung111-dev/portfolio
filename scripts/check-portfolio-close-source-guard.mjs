@@ -757,3 +757,24 @@ assert.match(holidayFetchSection,/Object\.keys\(storedKrx\)\.forEach\(function\(
 assert.match(holidayFetchSection,/holidayStoredCodes\[code\] = true/,
   '저장 공식 종가로 보충한 코드의 근거 기록');
 console.log('✅ PR470 JP/HK 실제 마스터 심볼 및 KRX 휴장일 부분 원천 장애 회귀검사 통과');
+
+
+// OpenAPI 실제 계약: _krxMarketEvidence는 configurable:false이므로 휴장일 partial merge가 재정의하면 예외.
+vm.runInContext(extract('_markHolidayKrxStoredCodes_'),context);
+const retainedMarketEvidence={KOSPI:{count:950,date:'2026-10-08'},KOSDAQ:{count:0,date:'2026-10-09'},
+  codeMarkets:{'005930':'KOSPI','000660':'KOSDAQ'}};
+const partialOpenApi={'005930':{price:120000,usedDate:'2026-10-08',source:'KRX'}};
+Object.defineProperty(partialOpenApi,'_krxMarketEvidence',{value:retainedMarketEvidence,enumerable:false});
+assert.equal(Object.getOwnPropertyDescriptor(partialOpenApi,'_krxMarketEvidence').configurable,false,
+  '실제 OpenAPI evidence 속성은 재정의 불가');
+assert.doesNotThrow(()=>context._markHolidayKrxStoredCodes_(partialOpenApi,{'000660':true}),
+  '휴장일 partial OpenAPI + 저장 공식 종가 병합은 non-configurable evidence를 재정의하지 않아야 함');
+assert.equal(partialOpenApi._krxMarketEvidence,retainedMarketEvidence,'원본 OpenAPI 시장 증거 그대로 유지');
+assert.equal(partialOpenApi._krxMarketEvidence.KOSPI.count,950,'기존 market metadata 훼손 방지');
+assert.equal(partialOpenApi._krxMarketEvidence.holidayStoredCodes['000660'],true,'저장 공식 종가 코드별 출처 남김');
+const entirelyMissingOpenApi={};
+context._markHolidayKrxStoredCodes_(entirelyMissingOpenApi,{'000660':true});
+assert.equal(entirelyMissingOpenApi._krxMarketEvidence.holidayStoredCodes['000660'],true,
+  'KRX 전체 실패 때는 신규 evidence 생성');
+assert.equal(Object.keys(entirelyMissingOpenApi).includes('_krxMarketEvidence'),false,'evidence 내부 메타는 저장할 종목 행이 아님');
+console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사 통과');
