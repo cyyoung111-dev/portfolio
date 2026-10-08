@@ -10469,13 +10469,17 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
       // Read success marker under the same lock as the final result write.
       // This closes the window between deferred completion and close summary storage.
       var fundSuccess = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
-      if (summary.priceOk && !summary.fundOk && fundSuccess && fundSuccess.date === runDate
+      if (!summary.fundOk && fundSuccess && fundSuccess.date === runDate
+          && summary.fundBusyToken && fundSuccess.token === summary.fundBusyToken
+          && fundSuccess.at >= Number(startedMs || 0)
           && Array.isArray(summary.errors) && summary.errors.length
-          && summary.errors.every(function(reason) { return /FUND_BUSY/.test(reason); })) {
+          && summary.errors.some(function(reason) { return /FUND_BUSY/.test(reason); })) {
         summary.fundOk = true;
-        summary.errors = [];
-        stage = 'COMPLETE';
-        props.setProperty('portfolio_close_stage', stage);
+        summary.errors = summary.errors.filter(function(reason) { return !/FUND_BUSY/.test(reason); });
+        if (summary.priceOk && summary.errors.length === 0) {
+          stage = 'COMPLETE';
+          props.setProperty('portfolio_close_stage', stage);
+        }
       }
       props.setProperty('portfolio_close_last_result', JSON.stringify(summary));
       if (summary.errors && summary.errors.length)
@@ -10583,7 +10587,14 @@ function _runPortfolioFundWithLease_(origin) {
       JSON.stringify({token:token, date:date, origin:origin, until:Date.now() + 7 * 60 * 1000}));
     return true;
   });
-  if (!acquired) throw new Error('FUND_BUSY: 다른 펀드 평가 실행 중 (공유 실행 lease)');
+  if (!acquired) {
+    var active = _portfolioFundAtomic_(function(props) {
+      return _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
+    });
+    var busyError = new Error('FUND_BUSY: 다른 펀드 평가 실행 중 (공유 실행 lease)');
+    busyError.fundLeaseToken = active && active.until > Date.now() ? active.token : '';
+    throw busyError;
+  }
   try {
     var result = runDailyFundValuations();
     if (origin === 'DEFERRED') {
@@ -10602,17 +10613,22 @@ function _runPortfolioFundWithLease_(origin) {
 function _reconcilePortfolioFundBusy_(date) {
   _portfolioFundAtomic_(function(props) {
     var last = _portfolioFundState_(props, 'portfolio_close_last_result');
-    if (!last || last.runDate !== date || last.priceOk !== true || last.fundOk === true) return;
-    var errors = last.errors || [];
-    if (!errors.length || !errors.every(function(x) { return /FUND_BUSY/.test(x); })) return;
+    if (!last || last.runDate !== date || last.fundOk === true) return;
+    var success = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
+    if (!success || !last.fundBusyToken || success.token !== last.fundBusyToken
+        || !(success.at >= Number(last.startedMs || 0))) return;
     last.fundOk = true;
     last.fundDeferred = false;
-    last.errors = [];
+    last.errors = (last.errors || []).filter(function(reason) { return !/FUND_BUSY/.test(reason); });
     props.setProperty('portfolio_close_last_result', JSON.stringify(last));
-    props.deleteProperty('portfolio_close_last_error');
-    if (props.getProperty('portfolio_close_run_date') === date
-        && props.getProperty('portfolio_close_stage') === 'ERROR') {
-      props.setProperty('portfolio_close_stage', 'COMPLETE');
+    if (last.errors.length) {
+      props.setProperty('portfolio_close_last_error', _fundPropertyText(last.errors.join(' | '), 2000));
+    } else {
+      props.deleteProperty('portfolio_close_last_error');
+      if (last.priceOk && props.getProperty('portfolio_close_run_date') === date
+          && props.getProperty('portfolio_close_stage') === 'ERROR') {
+        props.setProperty('portfolio_close_stage', 'COMPLETE');
+      }
     }
   });
 }
@@ -10685,6 +10701,7 @@ function runDailyPortfolioClose1900() {
   var runId = Utilities.getUuid();
   var priceResult = null;
   var fundResult = null;
+  var fundBusyToken = '';
   var errors = [];
   if (!_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)) {
     Logger.log('ℹ️ 19시 통합 마감 중복 실행 차단: 더 최신 실행이 이미 상태 소유권을 보유 중입니다.');
@@ -10743,6 +10760,7 @@ function runDailyPortfolioClose1900() {
       'lastDate=' + String(fundResult && fundResult.lastDate || ''));
   } catch (fundErr) {
     if (/FUND_BUSY/.test(String(fundErr && fundErr.message || fundErr))) {
+      fundBusyToken = String(fundErr.fundLeaseToken || '');
       // Mark pending rather than a permanent hard failure. Active deferred run
       // reconciles the result after success; recurring retry covers transient failures.
       try { _scheduleFundAfterFailedPortfolioPrice_(); } catch(scheduleError) {
@@ -10766,6 +10784,8 @@ function runDailyPortfolioClose1900() {
     priceRows: priceResult && isFinite(Number(priceResult.rows)) ? Number(priceResult.rows) : 0,
     krxCloseRequired: priceResult && typeof priceResult.krxCloseRequired === 'boolean' ? priceResult.krxCloseRequired : null,
     fundOk: !!fundResult,
+    fundBusyToken: fundBusyToken,
+    startedMs: startedMs,
     fundLastDate: fundResult && fundResult.lastDate ? fundResult.lastDate : runDate,
     errors: errors.slice(0, 4)
   };
