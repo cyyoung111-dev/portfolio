@@ -288,7 +288,7 @@ const ctx = {
   getGsheetConnectionGeneration: () => 1,
   isGsheetConnectionCurrent: (target, generation) => target === 'https://example.test/gas' && generation === 1,
   isGsheetPortfolioWriteReady: () => true,
-  setTimeout: fn => { const id = ++nextTimerId; queuedTimers.set(id, fn); return id; },
+  setTimeout: fn => { const id = ++nextTimerId; queuedTimers.set(id, async () => { queuedTimers.delete(id); await fn(); }); return id; },
   clearTimeout: id => queuedTimers.delete(id),
   requestGsheetFormJson: async (_action, request) => {
     sentSettings.push(JSON.parse(request.data));
