@@ -9,7 +9,14 @@ assert.match(source, /error\.navImportResult = result/, 'GAS 오류 응답의 �
 assert.match(source, /실제 저장 NAV/, 'NAV·가격이력·Snapshot 실제 저장 건수 표시');
 const historySource = fs.readFileSync('src/web/views/views_history_pipeline.js', 'utf8');
 const eventSource = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
-const context = vm.createContext({ console, XLSX: { SSF: { parse_date_code: value => value === 46000 ? { y:2025,m:12,d:9 } : null } } });
+const TEST_GSHEET_URL = 'https://script.google.com/macros/s/test/exec';
+const context = vm.createContext({
+  console,
+  GSHEET_API_URL: TEST_GSHEET_URL,
+  getGsheetConnectionGeneration: () => 1,
+  isGsheetConnectionCurrent: (target, generation) => target === TEST_GSHEET_URL && generation === 1,
+  XLSX: { SSF: { parse_date_code: value => value === 46000 ? { y:2025,m:12,d:9 } : null } }
+});
 vm.runInContext(source, context);
 const clone = value => JSON.parse(JSON.stringify(value));
 context._openEditorModal=()=>{};
@@ -56,6 +63,10 @@ assert.deepEqual(['26.01.02','2026.01.03','26-01-04','2026-01-05'].map(context._
 assert.match(source,/button\.textContent = '복사됨'/,'복사 버튼 즉시 피드백');
 assert.match(source,/_fundUnitsStatus = '저장 중\.\.\.'/,'좌수 저장 진행 피드백');
 assert.match(source,/좌수가 저장되었습니다/,'좌수 저장 성공 피드백');
+assert.match(source,/error\.fundUnitResult = result/,'좌수 저장 오류의 saveState를 UI catch까지 전달');
+assert.match(source,/fundUnitResult\?\.saveState === 'partial'/,'원본 좌수 저장 후 파생 재계산 실패는 partial로 구분');
+assert.match(source,/일부 반영:/,'partial 좌수 저장을 단순 저장 실패로 표시하지 않음');
+assert.match(source,/await _loadFundUnitsEditor\((?:connection)?\)/,'partial 후 현재 연결에 고정해 저장된 좌수 원본을 다시 조회');
 assert.match(source,/data-fund-nav-manual="date"/,'과거 기준일 수동 NAV 입력 제공');
 assert.match(source,/data-fund-nav-warning-ack/,'WARNING 확인 후 반영');
 assert.match(source,/const fundItems = \[\]/,'F코드를 일반 평가금액 수동 편집에서 제외');
@@ -103,6 +114,20 @@ assert.doesNotMatch(source,/GAS v9\.89 재배포/,'오래된 고정 버전 안�
 assert.match(source,/data-fund-action="nav-date"/,'누락 날짜에서 수기 NAV 입력으로 바로 연결');
 assert.match(source,/NAV 누락 현황/,'좌수 설정을 열 때 저장 자료 기반 NAV 현황 표시');
 assert.match(source,/requestId !== _fundNavPasteRequestId/,'이전 붙여넣기 응답 폐기');
+assert.match(source, /const cacheKey = `\$\{targetUrl\}\|\$\{generation\}\|\$\{dateStr\}\|/,
+  '가격 편집기 이력 캐시는 GSheet URL+generation별로 격리');
+assert.match(source, /isGsheetConnectionCurrent\(targetUrl, generation\)[\s\S]*연결 변경으로 이전 가격이력 응답 폐기/,
+  '가격 편집기 stale 연결 응답을 적용하지 않음');
+assert.match(source, /function _editorGsheetConnection\(\)[\s\S]*targetUrl[\s\S]*generation/,
+  '관리 편집기 장시간 작업이 연결 target/generation 스냅샷을 캡처');
+assert.match(source, /refreshFundValuations[\s\S]*targetUrl: connection\.targetUrl[\s\S]*_isEditorGsheetConnectionCurrent\(connection\)/,
+  '펀드 복구 chunk는 동일 GSheet에 고정하고 연결 변경 시 응답 적용 중단');
+assert.match(source, /catch \(error\) \{[\s\S]*if \(!_isEditorGsheetConnectionCurrent\(connection\)\) throw error;[\s\S]*_reconcileFundRecoveryRange/,
+  '연결 변경은 펀드 복구의 다음 chunk/reconcile로 계속 진행하지 않고 즉시 중단');
+assert.match(source, /batchSaveManualPrices[\s\S]*targetUrl: connection\.targetUrl[\s\S]*for \(const target of gasSaveTargets\)[\s\S]*_saveManualPriceWithRetry\(target, 1, connection\)/,
+  '수동가격 batch와 건별 fallback이 하나의 연결에 고정');
+assert.match(source, /_saveManualPriceWithRetry\(target, maxRetry, connection[\s\S]*targetUrl: connection\.targetUrl[\s\S]*_isEditorGsheetConnectionCurrent\(connection\)/,
+  '수동가격 재시도 중 연결 변경 시 다음 연결로 재시도하지 않음');
 assert.match(source,/const requestId = \+\+_fundNavPasteRequestId/,'붙여넣기 요청별 순서 토큰 발급');
 assert.match(source,/handleFundNavImportFile[\s\S]*?requestId !== _fundNavPasteRequestId/,'펀드 변경 중 이전 파일 미리보기 응답 폐기');
 assert.match(source,/preserveError: true/,'펀드 API 오류 원인 보존 요청');

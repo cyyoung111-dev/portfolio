@@ -488,6 +488,10 @@ function deleteSelectedTrades() {
   if (!confirm(`선택한 ${ids.length}건을 삭제할까요?`)) return;
   const idSet  = new Set(ids);
   const before = rawTrades.length;
+  const deletedFrom = rawTrades
+    .filter(t => t?.id != null && idSet.has(String(t.id)) && /^\d{4}-\d{2}-\d{2}$/.test(String(t.date || '')))
+    .map(t => String(t.date))
+    .sort()[0] || '';
   for (let i = rawTrades.length - 1; i >= 0; i--) {
     const rid = rawTrades[i].id != null ? String(rawTrades[i].id) : null;
     if (rid && idSet.has(rid)) rawTrades.splice(i, 1);
@@ -497,7 +501,10 @@ function deleteSelectedTrades() {
     showToast('삭제된 항목이 없어요. 페이지를 새로고침 후 다시 시도해보세요.', 'warn');
     return;
   }
-  _commitTrades();
+  _commitTrades({
+    allowEmptyTradeSync: before > 0 && rawTrades.length === 0,
+    emptyTradeSyncFrom: before > 0 && rawTrades.length === 0 ? deletedFrom : ''
+  });
 }
 
 // ★ [계좌별 taxType] 선택된 거래이력 계좌 일괄 변경
