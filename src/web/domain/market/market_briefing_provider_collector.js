@@ -1,7 +1,7 @@
 (function(global){
 'use strict';
-const REQUEST_TYPES=Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SP500','NASDAQ100','SOX','VIX']);
-const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SP500',NASDAQ100:'NASDAQ100',SOX:'SOX',VIX:'VIX'});
+const REQUEST_TYPES=Object.freeze(['KOSPI','KOSDAQ','KOSPI200','SP500','NASDAQ100','SOX','VIX','DXY','UST10Y','WTI','GOLD','BTC']);
+const KEY_MAP=Object.freeze({KOSPI:'KOSPI',KOSDAQ:'KOSDAQ',KOSPI200:'KOSPI200',SP500:'SP500',NASDAQ100:'NASDAQ100',SOX:'SOX',VIX:'VIX',DXY:'DXY',UST10Y:'UST10Y',WTI:'WTI',GOLD:'GOLD',BTC:'BTC'});
 const STOCKS=Object.freeze({SAMSUNG:'005930',SKHYNIX:'000660'});
 const KRX_FINAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','AFTER_FINAL','EVENING']);
 const STOCK_OFFICIAL_CHECKPOINTS=Object.freeze(['KRX_FINAL','EVENING']);
@@ -16,8 +16,9 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  const observedAt=point.observedAt&&Number.isFinite(Date.parse(point.observedAt))?point.observedAt:null;
  const krxCloseVerified=isCurrent&&source==='KRX_OFFICIAL'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed&&providerMeta&&providerMeta.confirmedClose===true&&observedAt;
  const final=!isCurrent||krxCloseVerified;
+ const market=type.startsWith('KOS')?'KRX':type==='DXY'?'FX':type==='UST10Y'?'US_RATES':(type==='WTI'||type==='GOLD')?'COMMODITY':type==='BTC'?'CRYPTO':'US';
  return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:delayed&&isCurrent?'DELAYED':final?'FINAL':'PARTIAL',
-  finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market:type.startsWith('KOS')?'KRX':'US',currency:null,
+  finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market,currency:null,
   observedAt,quality:delayed?'EOD_DELAYED':'EOD',fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
 }
 function normalizeFxPoint(data,tradingDate,options={}){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close),observedAt:row.observedAt&&Number.isFinite(Date.parse(row.observedAt))?row.observedAt:null})));if(!point)return null;const isCurrent=point.date===tradingDate,scheduledTolerance=Number(options.scheduledToleranceSeconds)===300&&isCurrent&&!point.observedAt;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',observedAt:point.observedAt,quality:scheduledTolerance?'SCHEDULED_DELAY_TOLERANCE_300S':'EOD',fallback:!isCurrent};}
@@ -48,6 +49,16 @@ async function collect(request,tradingDate,options={}){
    else{missing.push('K200_NIGHT');if(night&&night.error)errors.K200_NIGHT=String(night.error);}
   }catch(error){missing.push('K200_NIGHT');errors.K200_NIGHT=String(error&&error.message||error);}
  }
+ try{
+  const vk=await request('getBenchmark',{benchmark:'VKOSPI',from,to},{timeoutMs:options.timeoutMs||45000,retry:0});
+  const point=latest(vk&&vk.points);
+  if(point){
+   const isCurrent=String(point.date)===tradingDate;
+   const finalCheckpoint=KRX_FINAL_CHECKPOINTS.includes(options.checkpoint);
+   const normalizedPoint={...point,source:'KRX_OFFICIAL',observedAt:isCurrent&&finalCheckpoint?regularCloseObservedAt(tradingDate):(point.observedAt||null)};
+   payload.VKOSPI=normalizeBenchmarkPoint('VKOSPI',normalizedPoint,{symbols:{VKOSPI:vk.symbol||'KRX_OPEN_API:VKOSPI'},seriesMeta:{VKOSPI:{source:'KRX_OFFICIAL',confirmedClose:isCurrent&&finalCheckpoint}}},tradingDate,options.checkpoint);
+  }else missing.push('VKOSPI');
+ }catch(error){missing.push('VKOSPI');errors.VKOSPI=String(error&&error.message||error);}
  try{
   const fx=await request('getExchangeRateHistory',{from,to},{timeoutMs:options.timeoutMs||45000,retry:0});
   const point=normalizeFxPoint(fx,tradingDate,options);if(point)payload.USDKRW=point;else missing.push('USDKRW');
