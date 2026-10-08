@@ -387,7 +387,7 @@ assert.equal((source.match(/function getEarliestPriceHistory\(/g)||[]).length,1)
 assert.match(source,/fn === 'syncMortgageFromSchedule' \|\| fn === 'runDailyFundValuations' \|\|[\s\S]*fn === 'runDailyPortfolioClose1900'/,'전체 트리거 재등록은 분리형 레거시와 통합 마감 트리거를 함께 정리');
 assert.match(source,/ScriptApp\.newTrigger\('runDailyPortfolioClose1900'\)[\s\S]*atHour\(19\)/,'19시 통합 마감 트리거를 등록');
 assert.match(source,/ScriptApp\.newTrigger\('runPortfolioCloseWatchdog2030'\)[\s\S]*atHour\(20\)\.nearMinute\(30\)/,'20:30 마감 watchdog 트리거를 등록');
-assert.match(source.match(/function saveDailyPriceHistory\([\s\S]*?\n\}/)?.[0] || '',/var requestedCloseDate = todayStr[\s\S]*fetchPricesKrx\(items, requestedCloseDate\)[\s\S]*closeVerification\.date !== requestedCloseDate/,'19시 가격 저장은 정규 거래일 당일 KRX exact-date 종가를 요구');
+assert.match(source.match(/function saveDailyPriceHistory\([\s\S]*?\n\}/)?.[0] || '',/var requestedCloseDate = _normalizeDate\(targetDate \|\| ''\) \|\| todayStr[\s\S]*fetchPricesKrx\(items, requestedCloseDate\)[\s\S]*closeVerification\.date !== requestedCloseDate/,'19시 가격 저장은 정규 거래일 당일 KRX exact-date 종가를 요구');
 assert.match(source.match(/function _ensurePortfolioCloseDailyTrigger\([\s\S]*?\n\}/)?.[0] || '',/closeTriggers\.slice\(1\)/,'통합 마감 트리거 중복은 1개만 유지');
 assert.doesNotMatch(source.match(/function setupTrigger\([\s\S]*?\n\}/)?.[0] || '',/newTrigger\('runEvalPriceUpdate1620'\)/,'전체 재등록은 16:20 분리 트리거를 다시 만들지 않음');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/saveDailyPriceHistory\(\)[\s\S]*runDailyFundValuations\(\)/,'통합 마감은 일반 종목 후 펀드를 순차 실행');
