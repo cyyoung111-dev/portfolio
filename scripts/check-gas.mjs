@@ -383,7 +383,8 @@ if (!snapshotRepairMatch
 if (!source.includes('function _foreignMarketRegularCloseCutoff_')
     || !source.includes('useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate')
     || !source.includes('hasDuplicateWatchdogTriggers: hasDuplicateWatchdogTriggers')
-    || !source.includes('hasDuplicateCloseTriggers || hasDuplicateWatchdogTriggers')) {
+    || !source.includes('hasDuplicateWatchdogTriggers || hasDuplicateBackfillTriggers')
+    || !source.includes('hasDuplicateBackfillTriggers: hasDuplicateBackfillTriggers')) {
   console.error('❌ 해외 최근 완료 세션/Watchdog 중복 오류 노출 계약 누락');
   process.exit(1);
 }
