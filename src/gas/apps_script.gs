@@ -9228,6 +9228,22 @@ function _retryOnePendingKrxClose_(props, currentDate) {
 // 한국 휴장일 KRX 공급원 실패 시 저장된 과거 *공식* 종가만 재사용합니다.
 // YAHOO/현재가/MANUAL은 공식 KRX로 승격하지 않으며, 날짜·시장별 커버리지
 // 상한은 호출부 _assessDailyKrxStockClose()가 동일하게 검증합니다.
+// KRX OpenAPI는 _krxMarketEvidence 속성을 non-configurable로 생성합니다.
+// 재정의 시 TypeError가 발생하므로 기존 참조 객체 내부에 출처만 추가합니다.
+function _markHolidayKrxStoredCodes_(prices, storedCodes) {
+  var evidence = prices._krxMarketEvidence;
+  if (!evidence) {
+    evidence = { codeMarkets:{} };
+    Object.defineProperty(prices, '_krxMarketEvidence', {value:evidence, enumerable:false});
+  }
+  var markers = evidence.holidayStoredCodes || {};
+  Object.keys(storedCodes || {}).forEach(function(code) {
+    if (storedCodes[code]) markers[code] = true;
+  });
+  evidence.holidayStoredCodes = markers;
+  return evidence;
+}
+
 function _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedDate) {
   if (_krxCalendarStatus_(requestedDate) !== 'CLOSED') return {};
   var wanted = {};
@@ -9335,11 +9351,7 @@ function saveDailyPriceHistory(targetDate) {
           if (Object.keys(holidayStoredCodes).length) {
             // 출처를 명시해 일부 OpenAPI 시장 pack이 실패했을 때만
             // 기존 공식 종가의 시장 coverage 대체를 허용합니다.
-            var baseEvidence = krxPrev._krxMarketEvidence || {};
-            baseEvidence.holidayStoredCodes = holidayStoredCodes;
-            Object.defineProperty(krxPrev, '_krxMarketEvidence', {
-              value:baseEvidence, enumerable:false, configurable:true
-            });
+            _markHolidayKrxStoredCodes_(krxPrev, holidayStoredCodes);
             Logger.log('[saveDailyPriceHistory] KRX 휴장일 저장 공식 종가로 누락 코드 보충: '
               + Object.keys(holidayStoredCodes).length + '건(원천 날짜/coverage 검증 유지)');
           }
