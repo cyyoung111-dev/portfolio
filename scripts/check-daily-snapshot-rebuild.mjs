@@ -257,6 +257,17 @@ assert.match(portfolioData, /function _restorePortfolioRemoteDirtyPayload\(\)[\s
   '부트스트랩에서 원격 복원 전 dirty payload를 메모리에 복원');
 assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*const settingsPatch = options\?\.settingsPatch[\s\S]*const settings = settingsPatch \|\| \{/,
   'Settings 저장은 recovery 시 필요한 key만 부분 payload로 저장 가능');
+assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)[\s\S]*return _saveSettingsQueue/,
+  '복구용 부분 Settings patch는 일반 debounce timer/waiter와 분리해 payload 상호취소를 방지');
+assert.match(settings, /const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*if \(!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch\) return false[\s\S]*isGsheetPortfolioWriteReady/,
+  'Settings 예약 저장은 실제 전송 직전에 load epoch와 restore write-ready를 재검증');
+assert.match(settings, /function saveRealEstateSettings[\s\S]*const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*_gsSettingsLoadEpoch !== expectedLoadEpoch[\s\S]*isGsheetPortfolioWriteReady/,
+  '부동산 예약 저장도 같은 연결의 새 load가 시작되면 stale payload 전송을 차단');
+assert.match(settings, /function saveDividendSettings[\s\S]*const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*_gsSettingsLoadEpoch !== expectedLoadEpoch[\s\S]*isGsheetPortfolioWriteReady/,
+  '배당 저장 queue도 실행 직전 load epoch와 restore 상태를 재검증');
+assert.match(sync, /const code = _normalizeSyncCode\(h\.code \|\| ep\?\.code \|\| STOCK_CODE\[h\.name\] \|\| ''\)[\s\S]*const assetType = h\.assetType \|\| h\.type \|\| getEPType\(ep, '주식'\)/,
+  'dirty holdingsOverride는 복원 전 전역 master보다 캡처 payload의 code/assetType을 우선');
+
 assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return false/,
   'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
 assert.match(settingsFetch, /const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending[\s\S]*if \(portfolioSyncPending\)[\s\S]*현재가만 업데이트[\s\S]*else \{[\s\S]*forcePortfolioRestore: true/,
@@ -319,7 +330,7 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261008-1/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-6/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261008-5/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261008-6/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261008-1/,'현재가 연결 격리 로직 캐시 버전 갱신');
