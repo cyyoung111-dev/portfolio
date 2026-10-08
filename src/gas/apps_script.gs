@@ -9334,6 +9334,14 @@ function _reconcileRecoveredPortfolioPrice_(props, target, result, policy) {
       priceOk:false, fundOk:false,
       errors:['펀드: 마감 기록 없음·완료 상태 확인 필요']};
   }
+  // Partial same-day summaries created by an earlier failed replay can miss
+  // the original run's time. Hydrate only from exact-day ownership metadata.
+  if (String(props.getProperty('portfolio_close_run_date') || '') === target) {
+    if (!last.startedAt)
+      last.startedAt = String(props.getProperty('portfolio_close_run_started_at') || '');
+    if (!last.startedMs)
+      last.startedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+  }
   last.priceOk = true;
   last.priceDate = String(result && result.date || target);
   last.priceRows = Number(result && result.rows || 0);
@@ -10901,6 +10909,13 @@ function _reconcilePortfolioCloseFundSuccess_(date) {
         || marker.date !== date || runDate !== date || !started
         || Number(marker.at || 0) < started
         || !last || last.runDate !== date) return false;
+    // The most recent 20:30 owner may differ from the persisted 19:00
+    // summary on the same date. Never promote an earlier run's PRICE
+    // using a later run's NAV marker merely because both dates match.
+    var ownerStartedAt = String(props.getProperty('portfolio_close_run_started_at') || '');
+    if ((last.startedMs && Number(last.startedMs) !== started)
+        || (last.startedAt && ownerStartedAt && String(last.startedAt) !== ownerStartedAt))
+      return false;
     if (last.fundOk === true) return true;
     // Repair a partial summary written before the recovery path started
     // preserving startedAt. Only the matching run-id proof is allowed here.
