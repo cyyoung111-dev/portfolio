@@ -1798,7 +1798,7 @@ console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존
 {
   const bag=new Map([
     ['portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
-      priceOk:true,priceDate:'2026-10-08',fundOk:false,errors:['펀드: FUND_BUSY']})],
+      runId:'close-R1',priceOk:true,priceDate:'2026-10-08',fundOk:false,errors:['펀드: FUND_BUSY']})],
     ['portfolio_close_run_date','2026-10-08'],['portfolio_close_run_id','close-R1'],
     ['portfolio_close_run_started_ms','1000'],['portfolio_close_stage','FUND']
   ]);
@@ -1912,7 +1912,7 @@ console.log('✅ 최신 Codex P2: CLOSE NAV 성공 원인 증거·300건 초과 
       assert.equal(p.getProperty('portfolio_close_last_result'),null,
         '야간 최초 진입 시에는 정상 마감 summary가 없을 수 있음');
       p.setProperty('portfolio_close_last_result',JSON.stringify({
-        runDate:'2026-10-08',priceOk:true,fundOk:false,
+        runDate:'2026-10-08',runId:'interrupted-close',priceOk:true,fundOk:false,
         priceDate:'2026-10-08',errors:['펀드: 마감 기록 없음']
       }));
       return {attempted:true,ok:true,date:'2026-10-08'};
@@ -2049,7 +2049,7 @@ console.log('✅ 실제 PRICE 복구 후 summary 시작시각·UI 상태·NAV �
     ['portfolio_close_run_started_ms','1000'],
     ['portfolio_close_stage','ERROR'],
     ['portfolio_close_last_result',JSON.stringify({
-      runDate:'2026-10-08',priceOk:false,fundOk:true,
+      runDate:'2026-10-08',runId:'today-run',priceOk:false,fundOk:true,
       errors:['일반 종목: 이전 가격 실패']})]
   ]);
   const p={getProperty:k=>bag.get(k)||null,
