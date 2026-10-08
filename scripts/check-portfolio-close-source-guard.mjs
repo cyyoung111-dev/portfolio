@@ -382,10 +382,10 @@ assert.match(extract('runDailyPortfolioClose1900'), /fundBusyTriggerId = String\
   'FUND_BUSY 경로가 원자 반환된 예약 UID를 반드시 summary에 연결');
 const closeRunSource=extract('runDailyPortfolioClose1900');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)")
-  < closeRunSource.indexOf('saveDailyPriceHistory()'), '일반 종목 단계 실행 전에 시작 마커');
+  < closeRunSource.indexOf('saveDailyPriceHistory(undefined, {deferQueueCompletion:true})'), '일반 종목 단계 실행 전에 시작 마커');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs)")
   < closeRunSource.indexOf("_runPortfolioFundWithLease_('CLOSE')"), '펀드 단계 실행 전에 단계 기록');
-assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt, errors\.length \? 'ERROR' : 'COMPLETE', runId, summary, startedMs\)/);
+assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt,\s*errors\.length \? 'ERROR' : 'COMPLETE', runId, summary, startedMs\)/);
 assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
   '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
 // Behavior regression for retry scheduling, not just source-pattern checks.
@@ -967,6 +967,7 @@ const props={getProperty(k){return queueMap.has(k)?queueMap.get(k):null;},setPro
 const qvm=vm.createContext({
   _portfolioFundAtomic_:callback=>callback(props),
   PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+  PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
   Logger:{log(){}},
   _krxCalendarStatus_:(d)=>d==='2026-10-09'?'CLOSED':'OPEN',
   _normalizeDate:(d)=>String(d||'').slice(0,10),
@@ -1286,6 +1287,7 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
     _appendPortfolioCloseSyncLog:()=>{},_portfolioFundAtomic_:cb=>cb(p),
     _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     Logger:{log(){}},
     runDailyPortfolioClose1900:()=>({skipped:true,reason:'NEWER_OR_SAME_START_OWNS_STATE'})
   });
@@ -1584,6 +1586,7 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
   const ctx=vm.createContext({
     _snapshotBackupOperationId:'',
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     CONFIG:{TIMEZONE:'Asia/Seoul'},
     today:()=> '2026-10-08',
     Date,Logger:{log:()=>{}},
@@ -1597,6 +1600,7 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     _krxCalendarStatus_:()=> 'OPEN',
     _assessDailyKrxStockClose:()=>({required:false,date:'2026-10-08'}),
     _getLatestPriceHistoryDate:()=> '2026-10-08',
+    _latestConfirmedForeignCloseDate_:()=> '',
     _selectPortfolioCloseSnapshotDate_:()=> '2026-10-08',
     _buildSnapshotRowsFromTradeAndPriceHistory:()=>[['snapshot-row']],
     _readSnapshotRowsByDate:()=>[],
@@ -1645,6 +1649,7 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
   const visited=[];
   const ctx=vm.createContext({
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),_appendPortfolioCloseSyncLog:()=>{},
     saveDailyPriceHistory:date=>{
       visited.push(date);
