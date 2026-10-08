@@ -2,6 +2,8 @@
 //  📊 포트폴리오 대시보드 — Google Apps Script  v9.191
 //
 //  v9.191 변경사항 (2026.10.08~10.09):
+//   watchdog 예외·휴장일 해외 PRICE 누락도 22:10 복구 대기열에 보존
+//   당일 완료 상태 확정 전에 과거 백필 금지, 백필 결과 저장 뒤 큐 삭제
 //   watchdog 잠금 충돌 시 PRICE 누락일을 22:10 독립 복구 대기열에 보관
 //   NAV 차단 시 시도 횟수 보존, PRICE/NAV 성공 역순 상태 화해, 수동 PRICE 공유 writer lease
 //   KRX 가격 실패 후 펀드 평가 격리, 계정 간 중복 예약·중복 NAV 조회 방지
@@ -9292,6 +9294,12 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
     _portfolioFundAtomic_(function(sharedProps) {
       if (target === currentDate && includeToday) {
         var last = _portfolioFundState_(sharedProps, 'portfolio_close_last_result');
+        // If a new business day started while this replay was running,
+        // never overwrite that newer day's operational close summary.
+        if (last && last.runDate && last.runDate > target) {
+          _completePendingKrxCloseDate_(sharedProps, target);
+          return;
+        }
         if (!last || last.runDate !== target) {
           // The earlier close may have died before writing its first summary.
           last = {runDate:target, priceOk:false, fundOk:false,
