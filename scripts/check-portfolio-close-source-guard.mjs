@@ -461,6 +461,7 @@ function inspectCloseCompletion(reservationDate) {
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
     PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
     runDailyFundValuations:()=>({lastDate:'2026-10-08'})
   });
   vm.runInContext(guardedFundSource,sandbox);
@@ -588,6 +589,7 @@ function runCrossLeaseScenario(backfillFirst) {
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
     PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
     _portfolioFundAtomic_:cb=>cb(props),
     _portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
@@ -671,6 +673,7 @@ function simulateCloseBackfillCollision(backfillExists, closeActive) {
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
     PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
     _fundPropertyText:String, _retryOnePendingKrxClose_:()=>({attempted:true,ok:true})
   });
   vm.runInContext(backfillWorker+'\n'+closeStageGuard,ctx);
@@ -714,6 +717,7 @@ function simulatePortfolioWriters(options={}) {
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
     PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
     _retryOnePendingKrxClose_:()=>{backfillRuns++;return {attempted:true,ok:true};},
     runDailyFundValuations:()=>{navRuns++;return {lastDate:'2026-10-09'};}
   });
@@ -759,6 +763,7 @@ const statusVm=vm.createContext({
   PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
   PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
   PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
 });
 vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
 // Behavioral regression: a prior same-day success must not satisfy a newer busy lease.
@@ -1342,6 +1347,7 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
     _portfolioFundAtomic_:cb=>cb(p),
     _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
     PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
     _fundPropertyText:String
   });
   vm.runInContext(extract('_reconcilePortfolioFundBusy_'),ctx);
