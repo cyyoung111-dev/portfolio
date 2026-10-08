@@ -287,6 +287,12 @@ assert.ok(
 );
 assert.match(settings, /pendingRetryOk = await _retryPendingExplicitEmptyTradeSync[\s\S]*if \(!pendingRetryOk\) return false[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
   '빈 원장 pending은 실제 동기화 성공 후에만 복원 완료 흐름으로 진행');
+assert.match(settings, /_retryPendingExplicitEmptyTradeSync\(\{[\s\S]*preferCurrentPortfolio: dirtyPortfolioSyncResolvedAtLoad && rawTrades\.length > 0[\s\S]*targetUrl: loadTarget/,
+  '같은 load에서 dirty 거래를 성공 복구한 경우에만 pending 재시도가 현재 원장을 신뢰');
+assert.match(portfolioData, /const preferCurrentPortfolio = options\?\.preferCurrentPortfolio === true[\s\S]*rawTrades\.length > 0[\s\S]*if \(restoreInProgress && !preferCurrentPortfolio\) return false/,
+  '강제 복원 중 일반 로컬 원장은 차단하고 명시적으로 신뢰된 dirty 거래만 허용');
+assert.match(portfolioData, /\(!restoreInProgress \|\| preferCurrentPortfolio\) && rawTrades\.length > 0[\s\S]*return syncCurrentTrades\(\)/,
+  '신뢰된 dirty 거래가 있으면 빈 원장 삭제보다 최신 거래 재동기화를 우선');
 assert.match(settings, /if \(pendingEmptySyncAtLoad[\s\S]{0,120}typeof _retryPendingExplicitEmptyTradeSync === 'function'\)/,
   'pending 재시도는 로컬 거래가 생긴 경우에도 실행');
 assert.doesNotMatch(settings, /if \(pendingEmptySyncAtLoad && rawTrades\.length === 0/,
@@ -304,9 +310,9 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
 assert.match(html, /settings_sync\.js\?v=20261008-1/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-4/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-5/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261008-3/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261008-4/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261008-1/,'현재가 연결 격리 로직 캐시 버전 갱신');
