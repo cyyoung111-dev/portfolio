@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 
 const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 const web = fs.readFileSync('src/web/views/views_history_state.js', 'utf8');
@@ -259,10 +260,70 @@ assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*const 
   'Settings 저장은 recovery 시 필요한 key만 부분 payload로 저장 가능');
 assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)[\s\S]*return _saveSettingsQueue/,
   '복구용 부분 Settings patch는 일반 debounce timer/waiter와 분리해 payload 상호취소를 방지');
-assert.match(settings, /let _saveSettingsWriteRevision = 0[\s\S]*const expectedWriteRevision = \+\+_saveSettingsWriteRevision[\s\S]*_saveSettingsWriteRevision !== expectedWriteRevision[\s\S]*return false/,
-  'Settings write revision으로 이미 queue에 들어간 stale 전체 payload 실행을 차단');
-assert.match(settings, /if \(settingsPatch\) \{[\s\S]*clearTimeout\(_saveSettingsTimer\)[\s\S]*_saveSettingsTimer = null[\s\S]*staleWaiters\.forEach\(done => done\(false\)\)[\s\S]*_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)/,
-  '복구용 부분 patch는 예약된 이전 전체 Settings timer/waiter도 무효화');
+assert.match(settings, /let _saveSettingsWriteRevision = 0[\s\S]*let _saveSettingsFundDirectRevision = 0[\s\S]*const expectedWriteRevision = settingsPatch[\s\S]*const expectedFundDirectRevision = settingsPatch[\s\S]*_saveSettingsWriteRevision !== expectedWriteRevision/,
+  '전체 Settings 및 fundDirect patch를 별도 revision으로 관리');
+assert.match(settings, /if \(!settingsPatch && _saveSettingsFundDirectRevision !== expectedFundDirectRevision\) \{[\s\S]*delete remainingSettings\.fundDirect[\s\S]*outgoingPayload = JSON\.stringify\(remainingSettings\)/,
+  'patch 이후 예약된 전체 저장은 기존 fundDirect만 제거하고 나머지 변경사항을 유지');
+assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)[\s\S]*return _saveSettingsQueue/,
+  '복구 patch와 일반 debounce를 공유하지 않고 공통 전송 queue로만 직렬화');
+
+
+// 실제 저장 타이머 및 Settings patch 경합: 취소된 테마/계좌 저장은 사라지면 안 됩니다.
+const saveSettingsStart = settings.indexOf('function saveSettings(immediate, options) {');
+const saveSettingsEnd = settings.indexOf('\nasync function persistDividendSettings', saveSettingsStart);
+assert.ok(saveSettingsStart >= 0 && saveSettingsEnd > saveSettingsStart, 'Settings 저장 함수 추출');
+const queuedTimers = new Map();
+const sentSettings = [];
+let nextTimerId = 0;
+let selectedTheme = 'forest';
+let currentDirectFunds = { OLD: { eval: 10 } };
+const ctx = {
+  Promise, JSON, Object, Number, String, console,
+  GSHEET_API_URL: 'https://example.test/gas',
+  ACCT_COLORS: { A: 'blue' }, ACCT_ORDER: ['A'], SECTOR_COLORS: {},
+  EDITABLE_PRICES: [], ACCT_TAX_TYPES: {}, ACCOUNTS_MASTER: [],
+  savedPrices: {}, savedPriceDates: {},
+  DIVDATA: {}, LOAN: {}, REAL_ESTATE: {}, LOAN_SCHEDULE: [], RE_VALUE_HIST: [],
+  lsGet: key => key === 'app_theme' ? selectedTheme : 'system',
+  getGsheetConnectionGeneration: () => 1,
+  isGsheetConnectionCurrent: (target, generation) => target === 'https://example.test/gas' && generation === 1,
+  isGsheetPortfolioWriteReady: () => true,
+  setTimeout: fn => { const id = ++nextTimerId; queuedTimers.set(id, fn); return id; },
+  clearTimeout: id => queuedTimers.delete(id),
+  requestGsheetFormJson: async (_action, request) => {
+    sentSettings.push(JSON.parse(request.data));
+    return { status: 'ok' };
+  }
+};
+Object.defineProperty(ctx, 'fundDirect', {get: () => currentDirectFunds});
+vm.runInNewContext(`
+let _saveSettingsTimer = null;
+let _saveSettingsQueue = Promise.resolve();
+let _saveSettingsWaiters = [];
+let _saveSettingsPendingKey = '';
+let _saveSettingsWriteRevision = 0;
+let _saveSettingsFundDirectRevision = 0;
+let _gsSettingsLoadEpoch = 1;
+${settings.slice(saveSettingsStart,saveSettingsEnd)}
+globalThis.testSaveSettings = saveSettings;
+`, ctx);
+const pendingFullSave = ctx.testSaveSettings(false);
+assert.equal(queuedTimers.size, 1, '테마/계좌 저장 debounce 등록');
+currentDirectFunds = { NEW: { eval: 300 } };
+const recovered = await ctx.testSaveSettings(true, {settingsPatch: {fundDirect: currentDirectFunds}});
+assert.equal(recovered, true, 'fundDirect 복구 patch 성공');
+assert.equal(queuedTimers.size, 1, '복구 patch가 대기 중인 다른 Settings 저장을 취소하면 안 됨');
+await Promise.all([...queuedTimers.values()].map(fn => fn()));
+assert.equal(await pendingFullSave, true, '복구 patch 이후 일반 Settings 저장도 성공해야 함');
+assert.equal(sentSettings.length, 2, 'fundDirect patch와 나머지 Settings 각각 한 번 전송');
+assert.equal(sentSettings[0].fundDirect.NEW.eval, 300, '복구 patch가 최신 직접펀드 전송');
+assert.equal(sentSettings[1].APP_THEME, 'forest', '대기 중인 테마 변경 보존');
+assert.equal(sentSettings[1].ACCT_ORDER[0], 'A', '대기 중인 계좌 설정 보존');
+assert.equal(Object.hasOwn(sentSettings[1], 'fundDirect'), false, '오래된 전체 Settings에서 fundDirect 키만 제거');
+const laterFullSave = ctx.testSaveSettings(true);
+await Promise.all([...queuedTimers.values()].map(fn => fn()));
+assert.equal(await laterFullSave, true, '복구 후 새 전체 저장 성공');
+assert.equal(sentSettings[2].fundDirect.NEW.eval, 300, '복구 이후 새 전체 저장은 최신 직접펀드를 포함');
 
 assert.match(settings, /const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*if \(!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch\) return false[\s\S]*isGsheetPortfolioWriteReady/,
   'Settings 예약 저장은 실제 전송 직전에 load epoch와 restore write-ready를 재검증');
