@@ -369,6 +369,7 @@ const statusVm=vm.createContext({
   Utilities:{formatDate:()=> '2026-10-07 19:15:00'},
   LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
   _fundPropertyText:String,
+  _portfolioFundState_:()=>null,
 });
 vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
 const propertyApi={getProperty:k=>runProps.get(k)||'',setProperty:(k,v)=>runProps.set(k,v),deleteProperty:k=>runProps.delete(k),setProperties:x=>Object.entries(x).forEach(([k,v])=>runProps.set(k,v))};
