@@ -10466,6 +10466,17 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
       portfolio_close_stage_at: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss')
     });
     if (summary && (stage === 'ERROR' || stage === 'COMPLETE')) {
+      // Read success marker under the same lock as the final result write.
+      // This closes the window between deferred completion and close summary storage.
+      var fundSuccess = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
+      if (summary.priceOk && !summary.fundOk && fundSuccess && fundSuccess.date === runDate
+          && Array.isArray(summary.errors) && summary.errors.length
+          && summary.errors.every(function(reason) { return /FUND_BUSY/.test(reason); })) {
+        summary.fundOk = true;
+        summary.errors = [];
+        stage = 'COMPLETE';
+        props.setProperty('portfolio_close_stage', stage);
+      }
       props.setProperty('portfolio_close_last_result', JSON.stringify(summary));
       if (summary.errors && summary.errors.length)
         props.setProperty('portfolio_close_last_error', _fundPropertyText(summary.errors.join(' | '), 2000));
@@ -10536,6 +10547,7 @@ function handleGetKrxSourceDiagnostics(dateStr) {
 // Script Properties + ScriptLock coordinate all executing accounts; user-owned trigger lists do not.
 var PORTFOLIO_FUND_SCHEDULE_KEY = 'portfolio_fund_deferred_schedule_v1';
 var PORTFOLIO_FUND_LEASE_KEY = 'portfolio_fund_run_lease_v1';
+var PORTFOLIO_FUND_SUCCESS_KEY = 'portfolio_fund_deferred_success_v1';
 function _portfolioFundAtomic_(callback) {
   var lock = LockService.getScriptLock(), acquired = false;
   try {
@@ -10573,7 +10585,13 @@ function _runPortfolioFundWithLease_(origin) {
   });
   if (!acquired) throw new Error('FUND_BUSY: 다른 펀드 평가 실행 중 (공유 실행 lease)');
   try {
-    return runDailyFundValuations();
+    var result = runDailyFundValuations();
+    if (origin === 'DEFERRED') {
+      _portfolioFundAtomic_(function(props) {
+        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY, JSON.stringify({date:date, at:Date.now(), token:token}));
+      });
+    }
+    return result;
   } finally {
     _portfolioFundAtomic_(function(props) {
       var current = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
@@ -10614,7 +10632,14 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
     return {run:true};
   });
-  if (!reservation) return {skipped:true, reason:'NO_RESERVATION'};
+  if (!reservation) {
+    // A displaced recurring trigger must clean up its own UID, not the replacement.
+    if (triggerId) ScriptApp.getProjectTriggers().forEach(function(trigger) {
+      if (trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure'
+          && trigger.getUniqueId && trigger.getUniqueId() === triggerId) ScriptApp.deleteTrigger(trigger);
+    });
+    return {skipped:true, reason:'NO_RESERVATION'};
+  }
   shouldCleanup = !!reservation.cleanup;
   shouldRun = !!reservation.run;
   if (!shouldRun && !shouldCleanup) return {skipped:true, reason:'FUND_BUSY_RETRY_LATER'};
