@@ -831,15 +831,15 @@ assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},
 assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b',null,2000),false,
   'A가 FUND 진행 중이면 더 최신 B도 lease 안에서는 소유권을 탈취하지 못함');
 assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-a','진행 중 FUND run-id 유지');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]},1000);
-assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00'},propertyApi).state,'COMPLETE');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',priceOk:true,fundOk:true,errors:[]},1000);
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:00',priceOk:true,fundOk:true,errors:[]},propertyApi).state,'COMPLETE');
 assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','PRICE','run-b',null,2000),true,
   '이전 실행이 COMPLETE면 다음 실행 시작 허용');
-assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',errors:[]},1000),false,
+assert.equal(statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:00','COMPLETE','run-a',{startedAt:'2026-10-07 19:10:00',priceOk:true,fundOk:true,errors:[]},1000),false,
   'A의 늦은 완료가 B의 시작 마커를 덮지 않음');
 assert.equal(propertyApi.getProperty('portfolio_close_run_id'),'run-b');
-statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','COMPLETE','run-b',{startedAt:'2026-10-07 19:10:01',errors:[]},2000);
-assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:01'},propertyApi).state,'COMPLETE');
+statusVm._recordPortfolioCloseStage(propertyApi,'2026-10-07','2026-10-07 19:10:01','COMPLETE','run-b',{startedAt:'2026-10-07 19:10:01',priceOk:true,fundOk:true,errors:[]},2000);
+assert.equal(statusVm._portfolioCloseRunState({startedAt:'2026-10-07 19:10:01',priceOk:true,fundOk:true,errors:[]},propertyApi).state,'COMPLETE');
 
 // ERROR는 portfolioClose 완료기록 유무와 무관하게 INCOMPLETE보다 우선 표시해야 합니다.
 const errorProps=new Map();
