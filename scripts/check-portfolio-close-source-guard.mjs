@@ -1283,6 +1283,7 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
     PropertiesService:{getScriptProperties:()=>p},_normalizeDate:x=>String(x||''),
     _portfolioCloseRunState:()=>({state:'ERROR',runDate:'2026-10-08'}),
     _appendPortfolioCloseSyncLog:()=>{},_portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     Logger:{log(){}},
     runDailyPortfolioClose1900:()=>({skipped:true,reason:'NEWER_OR_SAME_START_OWNS_STATE'})
