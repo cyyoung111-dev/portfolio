@@ -10571,7 +10571,12 @@ function _scheduleFundAfterFailedPortfolioPrice_() {
   return _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
     var scheduleDate = today();
-    if (old && old.date === scheduleDate && old.until > Date.now() && Number(old.attempts || 0) < 3)
+    // An attempt is reserved under this same lock before its NAV lease begins.
+    // Do not replace its trigger merely because this is attempt number three.
+    var activeAttempt = old && Number(old.activeUntil || 0) > Date.now();
+    if (old && old.date === scheduleDate
+        && (old.until > Date.now() || activeAttempt)
+        && (Number(old.attempts || 0) < 3 || activeAttempt))
       return {created:false, triggerId:String(old.triggerId || '')};
     // An old-day recurring trigger belongs to the creator account and cannot
     // be enumerated cross-account. Its next invocation deletes its own UID.
@@ -10604,11 +10609,18 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
   }
   try {
     var result = runDailyFundValuations();
-    if (origin === 'DEFERRED') {
-      _portfolioFundAtomic_(function(props) {
-        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY, JSON.stringify({date:date, at:Date.now(), token:token, triggerId:String(deferredTriggerId || '')}));
-      });
-    }
+    _portfolioFundAtomic_(function(props) {
+      if (origin === 'DEFERRED') {
+        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY,
+          JSON.stringify({date:date, at:Date.now(), token:token, triggerId:String(deferredTriggerId || '')}));
+      } else if (origin === 'CLOSE') {
+        // A successful regular close already finished NAV. Cancel an earlier
+        // deferred reservation; its user-owned trigger cleans itself by UID
+        // on the next firing without touching another account's triggers.
+        var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+        if (pending && pending.date === date) props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+      }
+    });
     return result;
   } finally {
     _portfolioFundAtomic_(function(props) {
@@ -10652,14 +10664,19 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
   var reservation = _portfolioFundAtomic_(function(props) {
     var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
     if (!pending || (triggerId && pending.triggerId !== triggerId)) return null;
-    if (pending.until <= Date.now() || pending.attempts >= 3 || pending.date !== runDate) {
+    if (pending.date !== runDate) return {cleanup:true, triggerId:pending.triggerId};
+    // Another firing of the same recurring trigger cannot consume attempt 3
+    // or delete the reservation while the current attempt is still starting/running.
+    if (Number(pending.activeUntil || 0) > Date.now()) return {busy:true};
+    if (pending.until <= Date.now() || pending.attempts >= 3)
       return {cleanup:true, triggerId:pending.triggerId};
-    }
     var running = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
     if (running && running.until > Date.now()) return {busy:true};
     pending.attempts += 1;
+    pending.attemptToken = Utilities.getUuid();
+    pending.activeUntil = Date.now() + 7 * 60 * 1000;
     props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
-    return {run:true, triggerId:pending.triggerId};
+    return {run:true, triggerId:pending.triggerId, attemptToken:pending.attemptToken};
   });
   if (!reservation) {
     // A displaced recurring trigger must clean up its own UID, not the replacement.
@@ -10689,13 +10706,20 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     // Do not delete the recurring trigger: remaining bounded attempts will retry.
     throw err;
   } finally {
+    // Clear only this attempt's marker. If the GAS process is hard-killed,
+    // activeUntil bounds the reservation until a later retry can recover.
+    _portfolioFundAtomic_(function(props) {
+      var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+      if (!pending || !cleanupTriggerId || pending.triggerId !== cleanupTriggerId) return;
+      if (shouldCleanup) {
+        props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+      } else if (shouldRun && pending.attemptToken === reservation.attemptToken) {
+        delete pending.attemptToken;
+        delete pending.activeUntil;
+        props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
+      }
+    });
     if (shouldCleanup) {
-      _portfolioFundAtomic_(function(props) {
-        var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-        if (pending && cleanupTriggerId && pending.triggerId === cleanupTriggerId) {
-          props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
-        }
-      });
       ScriptApp.getProjectTriggers().forEach(function(trigger) {
         if (cleanupTriggerId && trigger.getHandlerFunction() === 'runDeferredFundAfterPortfolioCloseFailure'
             && trigger.getUniqueId && trigger.getUniqueId() === cleanupTriggerId) {
