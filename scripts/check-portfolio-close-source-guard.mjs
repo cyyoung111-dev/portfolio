@@ -1317,4 +1317,64 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
   assert.equal(summary.fundOk,true,'독립 NAV 성공 상태 보존');
   assert.deepEqual(summary.errors,[],'PRICE 오류가 해결되면 error summary 제거');
 }
+
+// Historical order inversion: same-day PRICE recovered before deferred NAV completes.
+// Reconciliation must still mark both successful and not strand an ERROR state.
+{
+  const bag=new Map([
+    ['portfolio_close_last_result',JSON.stringify({
+      runDate:'2026-10-08',startedMs:1000,priceOk:true,priceDate:'2026-10-08',
+      fundOk:false,fundDeferred:true,fundDeferredTriggerId:'same-nav-trigger',errors:[]
+    })],
+    ['portfolio_fund_deferred_success_v1',JSON.stringify({
+      date:'2026-10-08',at:2000,token:'token-nav',triggerId:'same-nav-trigger'
+    })],
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_stage','ERROR']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
+    PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    _fundPropertyText:String
+  });
+  vm.runInContext(extract('_reconcilePortfolioFundBusy_'),ctx);
+  ctx._reconcilePortfolioFundBusy_('2026-10-08');
+  const outcome=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(outcome.priceOk,true,'이미 복구된 PRICE 성공 유지');
+  assert.equal(outcome.fundOk,true,'PRICE 먼저 성공해도 deferred NAV의 늦은 성공 반영');
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE',
+    '가격 재시도와 NAV 완료의 역순 경합도 최종 COMPLETE 기록');
+}
+// Mutation smoke: removing the new preflight PRICE check must change the
+// deferred outcome. This confirms the new regression detects a real fault.
+{
+  const original=extract('runDeferredFundAfterPortfolioCloseFailure');
+  const mutant=original.replace("(closeStage === 'PRICE' || closeStage === 'FUND')","false");
+  assert.notEqual(mutant,original,'preflight 충돌 검사를 실제로 제거한 변이 생성');
+  const bag=new Map([
+    ['portfolio_fund_deferred_schedule_v1',
+      JSON.stringify({date:'2026-10-08',triggerId:'mutation-nav',until:50000,attempts:2})],
+    ['portfolio_close_stage','PRICE'],['portfolio_close_run_started_ms','9000']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const ctx=vm.createContext({
+    today:()=> '2026-10-08',Date:{now:()=>10000},
+    Utilities:{getUuid:()=> 'mutation-attempt'},
+    PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    _portfolioFundAtomic_:cb=>cb(p),_portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
+    ScriptApp:{getProjectTriggers:()=>[],deleteTrigger:()=>{}},
+    _appendPortfolioCloseSyncLog:()=>{},_reconcilePortfolioFundBusy_:()=>{},
+    _runPortfolioFundWithLease_:()=>({lastDate:'2026-10-08'})
+  });
+  vm.runInContext(mutant,ctx);
+  const changed=ctx.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'mutation-nav'});
+  assert.notEqual(changed.reason,'FUND_BUSY_RETRY_LATER',
+    '차단 검사 제거 변이에서는 정상 코드와 달리 NAV 실행으로 빠져 테스트가 이를 탐지');
+}
+
 console.log('✅ PR472 품질 게이트: 예약 선차단·경합 롤백·watchdog 보류·당일 백필·결과 정합성');
