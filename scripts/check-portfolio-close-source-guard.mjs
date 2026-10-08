@@ -565,6 +565,7 @@ const wdVm=vm.createContext({
   _portfolioCloseRunState:()=>({state:'COMPLETE',runDate:previousSession.runDate}),
   runDailyPortfolioClose1900:()=>{watchdogReexecutions++;return{ok:true};}
 });
+vm.runInContext(extract('_hasForeignHeldItemsForCloseWatchdog_'),wdVm);
 vm.runInContext(extract('runPortfolioCloseWatchdog2030'),wdVm);
 const foreignOnly=wdVm.runPortfolioCloseWatchdog2030();
 assert.equal(foreignOnly.skipped,true,'해외 전용 계좌의 이전 완료 세션 평가 정상');
