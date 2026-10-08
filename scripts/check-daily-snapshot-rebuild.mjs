@@ -313,10 +313,10 @@ assert.match(settings, /if \(pendingEmptySyncAtLoad[\s\S]{0,120}typeof _retryPen
   'pending 재시도는 로컬 거래가 생긴 경우에도 실행');
 assert.doesNotMatch(settings, /if \(pendingEmptySyncAtLoad && rawTrades\.length === 0/,
   'pending 재시도를 rawTrades 빈 상태에만 제한하지 않음');
-assert.match(settings, /forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad[\s\S]*const latePending = _getPendingExplicitEmptyTradeSync\(loadTarget\)[\s\S]*_retryPendingExplicitEmptyTradeSync\([\s\S]*allowDuringRestore: true[\s\S]*preferCurrentPortfolio: rawTrades\.length > 0[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
-  '강제복원 도중 새로 생긴 pending-empty를 authoritative 원격 적용 직전에 재확인');
-assert.match(settings, /forcePortfolioRestore && !dirtyPortfolioSyncResolvedAtLoad[\s\S]*const lateDirty = _getPortfolioRemoteDirty\(\)[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*targetUrl: loadTarget[\s\S]*allowDuringRestore: true[\s\S]*dirtyPortfolioSyncResolvedAtLoad = true/,
-  '강제복원 도중 새로 생긴 dirty payload를 preflight 원격값보다 우선 복구');
+assert.match(settings, /if \(forcePortfolioRestore\) \{[\s\S]*for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const latePending = _getPendingExplicitEmptyTradeSync\(loadTarget\)[\s\S]*_retryPendingExplicitEmptyTradeSync\([\s\S]*allowDuringRestore: true[\s\S]*preferCurrentPortfolio: rawTrades\.length > 0[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
+  '강제복원 도중 새로 생긴 pending-empty를 authoritative 원격 적용 직전에 반복 재확인');
+assert.match(settings, /for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const lateDirty = _getPortfolioRemoteDirty\(\)[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*targetUrl: loadTarget[\s\S]*allowDuringRestore: true[\s\S]*dirtyPortfolioSyncResolvedAtLoad = true[\s\S]*pendingStillExists[\s\S]*dirtyStillExists[\s\S]*lateAttempt === 5/,
+  '강제복원 직전 pending/dirty를 안정화될 때까지 반복 검증하고 계속 변하면 원격 preflight 적용을 중단');
 assert.match(settings, /const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
   'pending 또는 dirty payload를 방금 서버에 확정한 경우 같은 load에서 오래된 원격 원장을 다시 pull하지 않음');
 assert.match(settings, /if \(forcePortfolioRestore && pendingEmptySyncResolvedAsEmptyAtLoad\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0/,
