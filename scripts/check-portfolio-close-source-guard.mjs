@@ -349,8 +349,12 @@ const deferredSource=extract('runDeferredFundAfterPortfolioCloseFailure');
 const guardedFundSource=extract('_runPortfolioFundWithLease_');
 assert.match(atomicCloseSource, /_portfolioFundState_\(props, PORTFOLIO_FUND_SUCCESS_KEY\)/,
   '마감 결과 저장 시 동일 잠금으로 펀드 완료 마커 재확인');
-assert.match(atomicCloseSource, /summary\.errors\.every\(function\(reason\)/,
-  'FUND_BUSY 외 다른 실패를 성공으로 승격 금지');
+assert.match(atomicCloseSource, /summary\.fundBusyToken[\s\S]*fundSuccess\.token === summary\.fundBusyToken/,
+  '이전 동일 날짜의 성공 토큰으로 새로운 FUND_BUSY를 성공 처리하지 않음');
+assert.match(atomicCloseSource, /summary\.errors = summary\.errors\.filter[\s\S]*FUND_BUSY/,
+  'FUND_BUSY 외 실제 KRX 오류는 최종 summary에 보존');
+assert.match(atomicCloseSource, /summary\.priceOk && summary\.errors\.length === 0/,
+  'KRX 가격 실패가 있으면 펀드 평가 성공에도 전체 COMPLETE 금지');
 assert.match(guardedFundSource, /origin === 'DEFERRED'[\s\S]*PORTFOLIO_FUND_SUCCESS_KEY/,
   '펀드 완료 후 상태 마커를 독립 저장');
 assert.match(deferredSource, /if \(!reservation\)[\s\S]*trigger\.getUniqueId\(\) === triggerId[\s\S]*NO_RESERVATION/,
