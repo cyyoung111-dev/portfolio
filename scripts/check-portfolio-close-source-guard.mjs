@@ -977,7 +977,7 @@ const qvm=vm.createContext({
   getCodeItems:()=>[{code:'005930',currency:'KRW',market:'KOSPI'}],
   _appendPortfolioCloseSyncLog:()=>{}
 });
-for(const n of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_','_completePendingKrxCloseDate_','_hasKrxHoldingsForCloseDate_','_seedMissingKrxCloseDates_','_retryOnePendingKrxClose_']){
+for(const n of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_','_completePendingKrxCloseDate_','_hasKrxHoldingsForCloseDate_','_seedMissingKrxCloseDates_','_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_']){
   vm.runInContext(extract(n),qvm);
 }
 qvm._seedMissingKrxCloseDates_(null,props,'2026-10-10');
@@ -1307,6 +1307,7 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
   ctx.saveDailyPriceHistory=(date)=>{writes++;assert.equal(date,'2026-10-08');
     p.setProperty('snapshot_last_success_date',date);
     return {date,rows:9,krxCloseRequired:true};};
+  vm.runInContext(extract('_reconcileRecoveredPortfolioPrice_'),ctx);
   vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
   assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-08',false).attempted,false,
     '정규 마감 내부의 과거 백필은 당일 PRICE 중복 수행 금지');
@@ -1403,7 +1404,9 @@ console.log('✅ PR472 품질 게이트: 예약 선차단·경합 롤백·watchd
       bag.set('portfolio_close_run_started_ms',String(now-1000));
     }
     const ctx=vm.createContext({
-      Date:{now:()=>now},Utilities:{getUuid:()=> 'manual-test'},
+      Date:{now:()=>now},today:()=> '2026-10-08',Utilities:{getUuid:()=> 'manual-test'},
+      _reconcileRecoveredPortfolioPrice_:()=>true,
+      _completePendingKrxCloseDate_:()=>{},
       PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
       PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
       _portfolioFundAtomic_:cb=>cb(p),
@@ -1525,7 +1528,7 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
       return {date:'2026-10-08',rows:4};}
   });
   for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
-    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+    '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
   const failed=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
   assert.equal(failed.ok,false,'상태 갱신 실패는 성공 백필로 오판하지 않음');
   assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
@@ -1563,7 +1566,7 @@ console.log('✅ PR471 P2 및 자체검토: watchdog 예외·야간 전용 백�
     saveDailyPriceHistory:()=>({date:'2026-10-08',rows:12})
   });
   for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
-    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+    '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
   assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-08',true).ok,true);
   assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_last_result')),nextDay,
     '자정 경계를 건넌 완료 백필이 더 최신 날짜의 종가·NAV 마감 결과를 덮어쓰지 않음');
@@ -1618,7 +1621,7 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     _fundPropertyText:String
   });
   for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
-    '_enqueuePendingKrxCloseDate_','saveDailyPriceHistory','_retryOnePendingKrxClose_'])
+    '_enqueuePendingKrxCloseDate_','saveDailyPriceHistory','_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])
     vm.runInContext(extract(name),ctx);
   // First check actual price-writer behavior with explicit deferred completion.
   const priceResult=ctx.saveDailyPriceHistory('2026-10-08',{deferQueueCompletion:true});
@@ -1660,7 +1663,7 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     }
   });
   for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
-    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+    '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
   const first=ctx._retryOnePendingKrxClose_(p,'2026-10-09',true);
   const second=ctx._retryOnePendingKrxClose_(p,'2026-10-09',true);
   const third=ctx._retryOnePendingKrxClose_(p,'2026-10-09',true);
@@ -1691,7 +1694,7 @@ console.log('✅ Production writer + 복구 경로 통합·중복 삭제 차단�
     saveDailyPriceHistory:date=>{observed.push(date);return{ok:true,date,rows:1};}
   });
   for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
-    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+    '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
   const first=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
   assert.equal(first.date,'2026-10-08',
     '20:30 watchdog가 누락한 오늘 종가는 과거 미처리일보다 먼저 복구');
