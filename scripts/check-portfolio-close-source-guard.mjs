@@ -642,6 +642,12 @@ assert.match(backfillWorker,/if \(!fromClose\)/,
   '야간 백필은 마감 상태를 검사하지만 정규 마감의 자체 백필은 허용');
 assert.match(backfillWorker,/return 'CLOSE_ACTIVE'/,
   '야간 백필이 19시 가격 작업과 중복되면 새 백필 lease 미획득');
+assert.doesNotMatch(backfillWorker,/portfolio_close_run_date[^\n]*runDate/,
+  'KST 자정이 바뀌어도 활성 PRICE/FUND 실행을 놓치지 않음');
+assert.match(closeStageGuard,/PORTFOLIO_FUND_LEASE_KEY/,
+  '통합 PRICE 진입은 deferred NAV lease를 동일 lock에서 검사');
+assert.match(guardedFundSource,/origin === 'DEFERRED'[\s\S]*reason:'CLOSE_ACTIVE'/,
+  'deferred NAV는 활성 PRICE/FUND 단계를 동일 lock에서 검사');
 function simulateCloseBackfillCollision(backfillExists, closeActive) {
   const bag=new Map(), now=10000;
   if(backfillExists)bag.set('portfolio_close_backfill_lease_v1',
@@ -679,6 +685,70 @@ assert.equal(closeInProgress.backfill.reason,'CLOSE_ACTIVE',
 const replayInProgress=simulateCloseBackfillCollision(true,false);
 assert.equal(replayInProgress.close,false,
   '백필 중에는 새 정규 가격 마감이 Snapshot 쓰기를 시작하지 못함');
+
+// Executable bidirectional PRICE/NAV exclusion and KST-midnight replay.
+function simulatePortfolioWriters(options={}) {
+  const bag=new Map(), now=1000000;
+  const closeStart=options.closeStarted ?? (now-60000);
+  if(options.closeStage){
+    bag.set('portfolio_close_stage',options.closeStage);
+    bag.set('portfolio_close_run_date',options.closeDate||'2026-10-08');
+    bag.set('portfolio_close_run_started_ms',String(closeStart));
+    bag.set('portfolio_close_run_id','older-run');
+  }
+  if(options.navActive)
+    bag.set('portfolio_fund_run_lease_v1',JSON.stringify({token:'nav-live',until:now+60000}));
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k),
+    setProperties:obj=>Object.entries(obj).forEach(([k,v])=>bag.set(k,String(v)))};
+  let navRuns=0, backfillRuns=0;
+  const ctx=vm.createContext({
+    Date:class MockNow extends Date {static now(){return now;}},
+    today:()=> '2026-10-09',
+    CONFIG:{TIMEZONE:'Asia/Seoul'},
+    Utilities:{getUuid:()=> 'test-token',formatDate:()=> '2026-10-09 00:01:00'},
+    LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock(){},releaseLock(){}})},
+    _portfolioFundAtomic_:callback=>callback(p),
+    _portfolioFundState_:(pr,key)=>JSON.parse(pr.getProperty(key)||'null'),
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+    PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+    PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    _retryOnePendingKrxClose_:()=>{backfillRuns++;return {attempted:true,ok:true};},
+    runDailyFundValuations:()=>{navRuns++;return {lastDate:'2026-10-09'};}
+  });
+  vm.runInContext([closeStageGuard,guardedFundSource,backfillWorker].join('\n'),ctx);
+  return {ctx,p,bag,get navRuns(){return navRuns;},get backfillRuns(){return backfillRuns;}};
+}
+const activeNav=simulatePortfolioWriters({navActive:true});
+assert.equal(activeNav.ctx._recordPortfolioCloseStage(activeNav.p,'2026-10-09',
+  '2026-10-09 00:01:00','PRICE','new-run',null,1000000),false,
+  '활성 deferred NAV lease가 PRICE/Snapshot 진입을 차단');
+assert.equal(activeNav.p.getProperty('portfolio_close_stage'),null,
+  'PRICE 취득에 실패하면 통합 마감 상태를 변경하지 않음');
+const activePrice=simulatePortfolioWriters({closeStage:'PRICE'});
+assert.throws(()=>activePrice.ctx._runPortfolioFundWithLease_('DEFERRED','nav-trigger'),
+  /FUND_BUSY: 통합 마감 PRICE\/FUND 실행 중/,
+  'KST 자정 전에 시작한 활성 PRICE와 deferred NAV의 동시 실행 차단');
+assert.equal(activePrice.navRuns,0,'PRICE 실행 중 NAV 외부 조회를 호출하지 않음');
+const midnightReplay=activePrice.ctx._runPendingKrxBackfillWithLease_(
+  activePrice.p,'2026-10-09',false);
+assert.equal(midnightReplay.reason,'CLOSE_ACTIVE',
+  '전날부터 진행 중인 PRICE가 자정 후 KRX 백필을 차단');
+assert.equal(activePrice.backfillRuns,0,
+  '자정 경계에서 백필 Snapshot 쓰기를 시작하지 않음');
+const activeCloseFund=simulatePortfolioWriters({closeStage:'FUND'});
+assert.throws(()=>activeCloseFund.ctx._runPortfolioFundWithLease_('DEFERRED','nav-trigger'),
+  /FUND_BUSY: 통합 마감 PRICE\/FUND 실행 중/,
+  '정규 FUND 상태 마커부터 실제 NAV lease 획득까지의 간격도 보호');
+const stalePrice=simulatePortfolioWriters({closeStage:'PRICE',
+  closeStarted:1000000-16*60*1000});
+assert.doesNotThrow(()=>stalePrice.ctx._runPortfolioFundWithLease_('DEFERRED','nav-trigger'),
+  '15분 넘은 중단 실행의 PRICE 마커 때문에 NAV 복구가 영구 차단되지 않음');
+assert.equal(stalePrice.navRuns,1,'만료된 PRICE 이후 NAV가 실제 재실행됨');
+const staleReplay=stalePrice.ctx._runPendingKrxBackfillWithLease_(
+  stalePrice.p,'2026-10-09',false);
+assert.equal(staleReplay.attempted,true,'만료된 PRICE 마커는 백필 복구를 막지 않음');
 const runProps=new Map();
 const statusVm=vm.createContext({
   CONFIG:{TIMEZONE:'Asia/Seoul'},
@@ -687,6 +757,7 @@ const statusVm=vm.createContext({
   _fundPropertyText:String,
   _portfolioFundState_:()=>null,
   PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+  PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
   PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
 });
 vm.runInContext([extract('_recordPortfolioCloseStage'),extract('_portfolioCloseRunState')].join('\n'),statusVm);
