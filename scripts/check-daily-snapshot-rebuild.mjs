@@ -259,6 +259,11 @@ assert.match(settings, /function saveSettings\(immediate, options\)[\s\S]*const 
   'Settings 저장은 recovery 시 필요한 key만 부분 payload로 저장 가능');
 assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)[\s\S]*return _saveSettingsQueue/,
   '복구용 부분 Settings patch는 일반 debounce timer/waiter와 분리해 payload 상호취소를 방지');
+assert.match(settings, /let _saveSettingsWriteRevision = 0[\s\S]*const expectedWriteRevision = \+\+_saveSettingsWriteRevision[\s\S]*_saveSettingsWriteRevision !== expectedWriteRevision[\s\S]*return false/,
+  'Settings write revision으로 이미 queue에 들어간 stale 전체 payload 실행을 차단');
+assert.match(settings, /if \(settingsPatch\) \{[\s\S]*clearTimeout\(_saveSettingsTimer\)[\s\S]*_saveSettingsTimer = null[\s\S]*staleWaiters\.forEach\(done => done\(false\)\)[\s\S]*_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)/,
+  '복구용 부분 patch는 예약된 이전 전체 Settings timer/waiter도 무효화');
+
 assert.match(settings, /const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*if \(!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch\) return false[\s\S]*isGsheetPortfolioWriteReady/,
   'Settings 예약 저장은 실제 전송 직전에 load epoch와 restore write-ready를 재검증');
 assert.match(settings, /function saveRealEstateSettings[\s\S]*const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*_gsSettingsLoadEpoch !== expectedLoadEpoch[\s\S]*isGsheetPortfolioWriteReady/,
@@ -308,6 +313,10 @@ assert.match(settings, /if \(pendingEmptySyncAtLoad[\s\S]{0,120}typeof _retryPen
   'pending 재시도는 로컬 거래가 생긴 경우에도 실행');
 assert.doesNotMatch(settings, /if \(pendingEmptySyncAtLoad && rawTrades\.length === 0/,
   'pending 재시도를 rawTrades 빈 상태에만 제한하지 않음');
+assert.match(settings, /forcePortfolioRestore && !pendingEmptySyncResolvedAtLoad[\s\S]*const latePending = _getPendingExplicitEmptyTradeSync\(loadTarget\)[\s\S]*_retryPendingExplicitEmptyTradeSync\([\s\S]*allowDuringRestore: true[\s\S]*preferCurrentPortfolio: rawTrades\.length > 0[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
+  '강제복원 도중 새로 생긴 pending-empty를 authoritative 원격 적용 직전에 재확인');
+assert.match(settings, /forcePortfolioRestore && !dirtyPortfolioSyncResolvedAtLoad[\s\S]*const lateDirty = _getPortfolioRemoteDirty\(\)[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*targetUrl: loadTarget[\s\S]*allowDuringRestore: true[\s\S]*dirtyPortfolioSyncResolvedAtLoad = true/,
+  '강제복원 도중 새로 생긴 dirty payload를 preflight 원격값보다 우선 복구');
 assert.match(settings, /const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
   'pending 또는 dirty payload를 방금 서버에 확정한 경우 같은 load에서 오래된 원격 원장을 다시 pull하지 않음');
 assert.match(settings, /if \(forcePortfolioRestore && pendingEmptySyncResolvedAsEmptyAtLoad\)[\s\S]*rawTrades\.length = 0[\s\S]*rawHoldings\.length = 0/,
@@ -330,10 +339,10 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261008-2/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-6/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261008-6/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261008-7/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261008-1/,'현재가 연결 격리 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261008-2/,'현재가 연결 격리 로직 캐시 버전 갱신');
 assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261007-11/,'편집기 연결별 캐시 로직 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
