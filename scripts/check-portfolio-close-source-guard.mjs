@@ -1884,3 +1884,49 @@ console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존
     /당일 복구 예약 실패/,'한계 초과 시 기록된 척하지 않고 명시적 오류');
 }
 console.log('✅ 최신 Codex P2: CLOSE NAV 성공 원인 증거·300건 초과 watchdog 우선 보존');
+
+// Self-review of an alternate completion order: the close summary may be
+// entirely absent before night replay while the exact regular NAV proof exists.
+{
+  const bag=new Map([
+    ['portfolio_fund_close_success_v1',JSON.stringify({
+      date:'2026-10-08',runId:'interrupted-close',at:2000,token:'nav-ok'
+    })],
+    ['portfolio_close_run_id','interrupted-close'],
+    ['portfolio_close_run_date','2026-10-08'],
+    ['portfolio_close_run_started_ms','1000'],
+    ['portfolio_close_stage','ERROR']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  let replayed=0;
+  const ctx=vm.createContext({
+    today:()=> '2026-10-08',
+    PropertiesService:{getScriptProperties:()=>p},
+    PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    _fundPropertyText:String,Logger:{log:()=>{}},
+    _runPendingKrxBackfillWithLease_:()=>{
+      replayed++;
+      assert.equal(p.getProperty('portfolio_close_last_result'),null,
+        '야간 최초 진입 시에는 정상 마감 summary가 없을 수 있음');
+      p.setProperty('portfolio_close_last_result',JSON.stringify({
+        runDate:'2026-10-08',priceOk:true,fundOk:false,
+        priceDate:'2026-10-08',errors:['펀드: 마감 기록 없음']
+      }));
+      return {attempted:true,ok:true,date:'2026-10-08'};
+    }
+  });
+  vm.runInContext(extract('_reconcilePortfolioCloseFundSuccess_'),ctx);
+  vm.runInContext(extract('runPortfolioCloseBackfill2210'),ctx);
+  ctx.runPortfolioCloseBackfill2210();
+  assert.equal(replayed,1);
+  const latest=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(latest.priceOk,true);
+  assert.equal(latest.fundOk,true,
+    '동일 22:10 작업에서 PRICE summary 생성 후 기존 NAV 성공 증거를 재정합');
+  assert.deepEqual(latest.errors,[]);
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+}
+console.log('✅ 22시10분 사후 PRICE 생성 → 동일 실행의 NAV 성공 마커 재정합');
