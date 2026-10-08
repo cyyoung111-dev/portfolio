@@ -11,7 +11,7 @@ const extract = name => {
   return source.slice(start, end + 2);
 };
 const closeSection = extract('saveDailyPriceHistory');
-const freshnessCall = closeSection.indexOf('_assessDailyKrxStockClose(items, krxPrev, requestedPrevDay)');
+const freshnessCall = closeSection.indexOf('_assessDailyKrxStockClose(items, krxPrev, requestedCloseDate)');
 const firstPriceWrite = closeSection.indexOf('batchUpsertPriceHistory(ss, actualDate');
 assert.ok(freshnessCall >= 0 && firstPriceWrite > freshnessCall,
   'KRX 거래일/coverage 검증은 가격이력 쓰기보다 먼저 해야 함');
@@ -22,7 +22,7 @@ assert.doesNotMatch(closeSection, /fetchedRowCount === 0 && !_getLatestPriceHist
 
 // 거래원장 기준 실보유 코드만 종가 조회·검증. 마스터의 과거 매도 종목은 제외.
 // helper와 snapshot 원장의 동일 보유수량 계산 로직을 실제로 재사용해 검증합니다.
-assert.match(closeSection, /var items = _getDailyHeldCodeItems\(ss, requestedPrevDay, allItems\)/,
+assert.match(closeSection, /var items = _getDailyHeldCodeItems\(ss, requestedCloseDate, allItems\)/,
   '일일 KRX fetch의 items는 마스터가 아닌 평가일 기준 실보유 목록이어야 함');
 const holdingsVm = vm.createContext({
   _cleanCode:v=>String(v||'').trim().toUpperCase(),
