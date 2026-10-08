@@ -2,6 +2,8 @@
 //  📊 포트폴리오 대시보드 — Google Apps Script  v9.191
 //
 //  v9.191 변경사항 (2026.10.08~10.09):
+//   정상 CLOSE NAV 성공 후 summary 실패 대비 run-id 성공 마커와 야간 재정합
+//   300건 이전 누락 큐가 가득 차도 당일 watchdog PRICE는 우선 보존
 //   22:10 당일 PRICE 누락 우선 복구·이전 실패일 순환 재시도, 원천 저장과 큐 완료 분리
 //   실제 saveDailyPriceHistory에서도 summary 확정 전 큐 조기 삭제 금지
 //   watchdog 예외·휴장일 해외 PRICE 누락도 22:10 복구 대기열에 보존
