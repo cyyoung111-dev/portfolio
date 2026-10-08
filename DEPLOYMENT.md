@@ -1,9 +1,24 @@
+## GAS v9.190 / PR #470 통합 마감·브리핑 검증 (2026-10-08)
+
+- #468·#469 기능/버전 보호하며 19시 당일 KRX 정규 마감 + 20:30 실패 자동 재시도·중복 트리거 진단을 일원화.
+- 미국 종가는 한국 거래일 대신 뉴욕 최근 완료 정규장 기준일을 조회하며 실제 미국 원천일로 저장.
+- Toss OAuth 403, KRX night 401, USDKRW 공급원 실패는 별도 운영 권한/원천 문제이며 실제 발행 검증 전 정상 판정하지 않음.
+- 운영 GAS 배포·브리핑 발행·시트 데이터 검산은 코드 CI와 별도로 확인.
+
 ## GAS v9.189 / PR #469 브리핑 provider 보강 (2026-10-08)
 
 - 기존 KRX VKOSPI 단일 조회와 Yahoo DXY·UST10Y·WTI·GOLD·BTC를 브리핑 collector에 연결하고 K200 야간선물 readiness 계약을 강화합니다.
 - 현물 2년물 수익률로 확인되지 않은 UST2Y 및 미연결 NVDA/MU/수급/breadth는 PLANNED로 구분합니다.
 - PR #468의 손익 재계산 및 GAS v9.188 기능을 보존하고 GAS/웹 기대 버전을 9.189로 올립니다.
 - 실제 운영 배포 및 실데이터 점검은 CI 및 리뷰 후 확인합니다.
+
+## GAS v9.189 / 당일 마감·watchdog 보강 (2026-10-08)
+
+- 19시 통합 마감은 정규 거래일 당일 KRX exact-date 종가를 우선 저장합니다.
+- 정규 거래일에 KRX가 전일값만 반환하면 당일 마감으로 저장하지 않고 실패 처리합니다.
+- 20:30 `runPortfolioCloseWatchdog2030`가 당일 마감 미완료/오류만 한 번 재시도합니다.
+- 통합 마감 START/PRICE/FUND/COMPLETE/ERROR 단계는 `동기화로그`에 `PORTFOLIO_CLOSE`로 영속 기록합니다.
+- GAS `9.189`, 서비스워커 `portfolio-cache-20261008-10`, settings_fetch `20261008-3`.
 
 ## GAS v9.188 / Settings·강제복원·펀드 Snapshot 보강 (2026-10-08)
 
