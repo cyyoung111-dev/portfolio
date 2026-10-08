@@ -687,3 +687,71 @@ assert.throws(()=>krxStoredVm._assessDailyKrxStockClose(krxOnly,oldPrices,'2026-
 assert.match(closeSection,/_krxCalendarStatus_\(requestedCloseDate\) === 'CLOSED' && Object\.keys\(krxPrev\)\.length === 0/,
   'API/OTP가 빈 결과이고 한국 휴장일일 때만 저장 공식 종가 사용');
 console.log('✅ 휴장일 KRX 공급원 장애·공식 가격 CARRY·원천 검증 회귀검사 통과');
+
+
+// PR470 Codex P1: 실제 종목코드 마스터의 6자리 정규화가 JP/HK Yahoo 심볼을 망가뜨리지 않음.
+const symbolVm=vm.createContext({
+  CONFIG:{SHEET_CODES:'종목코드'},
+  Logger:{log(){}}
+});
+vm.runInContext(extract('_cleanCode'),symbolVm);
+vm.runInContext(extract('getCodeItems'),symbolVm);
+vm.runInContext(extract('_yahooEquitySymbol_'),symbolVm);
+const catalogSheet={
+  getLastRow:()=>5,getLastColumn:()=>6,
+  getRange:()=>({getValues:()=>[
+    [7203,'Toyota','주식','','JPY','JP'],
+    ['0700','Tencent','주식','','HKD','HK'],
+    ['80011','HK Five Digit','주식','','HKD','HK'],
+    ['AAPL','Apple','주식','','USD','US']
+  ]})
+};
+const catalog=symbolVm.getCodeItems({getSheetByName:()=>catalogSheet});
+assert.equal(catalog.length,4);
+assert.equal(catalog[0].code,'007203','국내 원장 호환용 6자리 코드 유지');
+assert.equal(symbolVm._yahooEquitySymbol_(catalog[0]),'7203.T','JP Yahoo 종목코드는 4자리로');
+assert.equal(catalog[1].code,'000700');
+assert.equal(symbolVm._yahooEquitySymbol_(catalog[1]),'0700.HK','HK Yahoo는 최소 4자리');
+assert.equal(symbolVm._yahooEquitySymbol_(catalog[2]),'80011.HK','HK 5자리 코드는 원래 길이');
+assert.equal(symbolVm._yahooEquitySymbol_(catalog[3]),'AAPL','미국 티커 보존');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'000700',market:'HK',yahooSymbol:'0700.HK'}),'0700.HK',
+  '지정된 공급원 심볼 우선');
+
+// PR470 Codex P2: KRX 휴장일 2개 시장 중 1개만 성공해도 저장 공식 종가로 누락 시장만 병합.
+const holidayRows={
+  '005930':{price:120000,source:'KRX',usedDate:'2026-10-08'},
+  '000660':{price:300000,source:'KRX_OTP',usedDate:'2026-10-08'}
+};
+Object.defineProperty(holidayRows,'_krxMarketEvidence',{
+  value:{
+    KOSPI:{count:900,date:'2026-10-08'},
+    KOSDAQ:{count:0,date:'2026-10-09'},
+    ETF:{count:0,date:'2026-10-09'},
+    codeMarkets:{'005930':'KOSPI','000660':'KOSDAQ'},
+    holidayStoredCodes:{'000660':true}
+  },enumerable:false
+});
+const holidayItems=[
+  {code:'005930',name:'삼성전자',currency:'KRW',market:'KOSPI'},
+  {code:'000660',name:'SK하이닉스',currency:'KRW',market:'KOSDAQ'}
+];
+const holidayPartial=clone(context._assessDailyKrxStockClose(holidayItems,holidayRows,'2026-10-09'));
+assert.equal(holidayPartial.confirmed,2,'KRX 휴장일 일부 시장은 저장된 같은 공식 거래일로 보충');
+const holidayNoProvenance={
+  '005930':holidayRows['005930'],'000660':holidayRows['000660']
+};
+Object.defineProperty(holidayNoProvenance,'_krxMarketEvidence',{
+  value:{...holidayRows._krxMarketEvidence,holidayStoredCodes:{}},enumerable:false
+});
+assert.throws(()=>context._assessDailyKrxStockClose(holidayItems,holidayNoProvenance,'2026-10-09'),
+  /KRX 공식 시장별 확정 종가 누락/,
+  '저장 공식 종가 보충의 출처 확인이 없다면 부분 API 장애를 정상 판정하지 않음');
+assert.throws(()=>context._assessDailyKrxStockClose(holidayItems,holidayRows,'2026-10-08'),
+  /KRX 공식 시장별 확정 종가 누락/,
+  '정규 거래일에는 저장 종가로 실패한 공식 시장 API를 대체하지 않음');
+const holidayFetchSection=extract('saveDailyPriceHistory');
+assert.match(holidayFetchSection,/Object\.keys\(storedKrx\)\.forEach\(function\(code\)/,
+  'KRX 응답 전체 0건에 한정하지 말고 누락 코드별 보충');
+assert.match(holidayFetchSection,/holidayStoredCodes\[code\] = true/,
+  '저장 공식 종가로 보충한 코드의 근거 기록');
+console.log('✅ PR470 JP/HK 실제 마스터 심볼 및 KRX 휴장일 부분 원천 장애 회귀검사 통과');
