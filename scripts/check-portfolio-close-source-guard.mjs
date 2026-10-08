@@ -1428,3 +1428,113 @@ console.log('✅ PR472 품질 게이트: 예약 선차단·경합 롤백·watchd
   assert.equal(allowed.lease,null,'수동 PRICE 정상 완료 후 lease 정확히 정리');
 }
 console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통합 마감과 상호 배제');
+
+// Latest Codex P2 + pre-review self-audit: a failed watchdog, a slow inline
+// replay, or a state write failure must not silently lose the PRICE recovery.
+{
+  const bag=new Map([['portfolio_close_last_result',JSON.stringify({
+    runDate:'2026-10-08',priceOk:false,fundOk:false,priceDate:'',
+    errors:['일반 종목: failure']})]]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  let holiday=true;
+  const ctx=vm.createContext({
+    today:()=> '2026-10-08',_krxCalendarStatus_:()=> holiday?'CLOSED':'OPEN',
+    PropertiesService:{getScriptProperties:()=>p},_normalizeDate:x=>String(x||''),
+    _portfolioCloseRunState:()=>({state:'ERROR',runDate:'2026-10-08'}),
+    _appendPortfolioCloseSyncLog:()=>{}, _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    Logger:{log(){}},
+    runDailyPortfolioClose1900:()=>{throw Error('holiday foreign market unavailable');}
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_',
+    'runPortfolioCloseWatchdog2030'])vm.runInContext(extract(name),ctx);
+  assert.throws(()=>ctx.runPortfolioCloseWatchdog2030(),/holiday foreign market unavailable/,
+    '휴장·해외 개장일 재시도 실패를 정상으로 숨기지 않음');
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
+    'watchdog 예외도 휴장일 당일 PRICE 보류 큐에 영속 저장');
+  holiday=false;
+  assert.throws(()=>ctx.runPortfolioCloseWatchdog2030(),/holiday foreign market unavailable/);
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
+    '동일 날짜의 반복 예외는 중복 큐 항목을 만들지 않음');
+  bag.set('portfolio_close_last_result',JSON.stringify({
+    runDate:'2026-10-08',priceOk:true,fundOk:false,priceDate:'2026-10-08',errors:['펀드: busy']}));
+  bag.delete('portfolio_close_pending_krx_dates');
+  assert.throws(()=>ctx.runPortfolioCloseWatchdog2030(),/holiday foreign market unavailable/);
+  assert.equal(p.getProperty('portfolio_close_pending_krx_dates'),null,
+    'PRICE 성공 상태에 대해 NAV 예외만으로 불필요한 가격 복구 예약 금지');
+}
+{
+  const bag=new Map([['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-07'])]]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const seen=[];
+  const ctx=vm.createContext({
+    PropertiesService:{getScriptProperties:()=>p},
+    Date, Logger:{log(){}},today:()=> '2026-10-08',
+    Utilities:{getUuid:()=> 'close-uid',formatDate:()=> '2026-10-08 19:01:00'},
+    CONFIG:{TIMEZONE:'Asia/Seoul'},
+    _ensurePortfolioCloseWatchdogTrigger:()=>{},_ensurePortfolioCloseBackfillTrigger:()=>{},
+    _recordPortfolioCloseStage:(props,date,start,stage,token,summary)=>{
+      seen.push('stage:'+stage);
+      if(summary)props.setProperty('portfolio_close_last_result',JSON.stringify(summary));
+      return true;
+    },
+    _appendPortfolioCloseSyncLog:()=>{},
+    saveDailyPriceHistory:()=>{seen.push('price');return{date:'2026-10-08',rows:9};},
+    _runPortfolioFundWithLease_:()=>{seen.push('fund');return{lastDate:'2026-10-08'};},
+    _portfolioFundAtomic_:cb=>cb(p),
+    _completePendingKrxCloseDate_:()=>{},
+    _readPendingKrxCloseDates_:()=>['2026-10-07'],
+    _runPendingKrxBackfillWithLease_:()=>{seen.push('inline-backfill');throw Error('slow replay');}
+  });
+  vm.runInContext(extract('runDailyPortfolioClose1900'),ctx);
+  const summary=ctx.runDailyPortfolioClose1900();
+  assert.equal(summary.priceOk,true);
+  assert.equal(summary.fundOk,true);
+  assert.equal(summary.backfill.reason,'ISOLATED_NIGHTLY_BACKFILL',
+    '정규 마감은 과거 조회를 야간 전용 worker로 넘김');
+  assert.equal(seen.includes('inline-backfill'),false,
+    '시간 예산이 충분해 보여도 당일 최종 상태 전에 과거 백필 실행 금지');
+  assert.equal(seen.at(-1),'stage:COMPLETE','과거 백필 이전에 당일 최종 상태 확정');
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-07'],
+    '기존 누락일 큐를 야간 worker용으로 보존');
+}
+{
+  const bag=new Map([
+    ['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08'])],
+    ['portfolio_close_last_result',JSON.stringify({
+      runDate:'2026-10-08',priceOk:false,fundOk:true,
+      priceDate:'',errors:['일반 종목: price unavailable']})],
+    ['portfolio_close_run_date','2026-10-08'],['portfolio_close_stage','ERROR']
+  ]);
+  const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  let failWrite=true, saves=0;
+  const ctx=vm.createContext({
+    _portfolioFundAtomic_:cb=>{if(failWrite)throw Error('property lock failure');return cb(p);},
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
+    _fundPropertyText:String, _appendPortfolioCloseSyncLog:()=>{},
+    saveDailyPriceHistory:()=>{saves++;p.setProperty('snapshot_last_success_date','2026-10-08');
+      return {date:'2026-10-08',rows:4};}
+  });
+  for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
+    '_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
+  const failed=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
+  assert.equal(failed.ok,false,'상태 갱신 실패는 성공 백필로 오판하지 않음');
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),['2026-10-08'],
+    'PRICE 결과를 확정하지 못했다면 큐 항목을 삭제하지 않아 재복구 허용');
+  failWrite=false;
+  const retried=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
+  assert.equal(retried.ok,true);
+  assert.equal(saves,2,'재실행 가능하고 멱등성은 기존 가격 upsert 계약으로 보장');
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),[],
+    'PRICE 결과가 성공적으로 확정된 후에만 대기열 완료');
+  const last=JSON.parse(p.getProperty('portfolio_close_last_result'));
+  assert.equal(last.priceOk,true);
+  assert.equal(last.fundOk,true);
+  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+}
+console.log('✅ PR471 P2 및 자체검토: watchdog 예외·야간 전용 백필·큐 삭제 트랜잭션 회귀');
