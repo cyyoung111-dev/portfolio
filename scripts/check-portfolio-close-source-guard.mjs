@@ -436,10 +436,10 @@ assert.match(deferredSource,/if \(!pending \|\| !cleanupTriggerId \|\| pending\.
   '공유 예약 삭제는 정확한 UID 일치 시에만 수행');
 assert.match(deferredSource,/if \(cleanupTriggerId && trigger\.getHandlerFunction\(\) === 'runDeferredFundAfterPortfolioCloseFailure'/,
   '모든 반복 트리거를 무차별 삭제하지 않음');
-assert.match(closeRunSource,/closeElapsedMs >= 3 \* 60 \* 1000/,
-  '6분 마감 한도를 보호하기 위해 3분 경과 시 과거 복구 신규 실행 방지');
-assert.match(closeRunSource,/reason:'CLOSE_RUNTIME_BUDGET'/,
-  '시간 예산 때문에 건너뛴 복구는 진단에 명시');
+assert.doesNotMatch(closeRunSource,/_runPendingKrxBackfillWithLease_\(/,
+  '정규 19시/20:30 통합 마감이 과거 백필을 직접 시작하면 GAS 6분 한도를 초과할 수 있음');
+assert.match(closeRunSource,/reason:'ISOLATED_NIGHTLY_BACKFILL'/,
+  '이전 날짜 보류 건수와 독립 백필 사유를 마감 결과에 남김');
 
 // Full executable lifecycle: a successful CLOSE cancels only same-day deferred
 // reservation while leaving a different business day's reservation untouched.
@@ -527,8 +527,8 @@ assert.match(backfillTrigger,/everyDays\(1\)[\s\S]*atHour\(22\)\.nearMinute\(10\
   '22:10 독립 백필 트리거');
 assert.match(closeRunSource, /_ensurePortfolioCloseBackfillTrigger\(true\)/,
   '기존 정규 19시 실행으로 백필 트리거 설치');
-assert.match(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, runDate, true\)/,
-  '19시 마감은 자신의 FUND 단계 상태를 유지하면서 공유 백필 lease 사용');
+assert.doesNotMatch(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, runDate, true\)/,
+  '19시 마감은 최종 결과 저장 전에 과거 백필을 실행하지 않음');
 assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate, false\)/,
   '야간 실행은 통합 마감 없이 과거 날짜만 복구');
 assert.match(closeRunSource,/reason:'FUND_INCOMPLETE'/,
@@ -965,6 +965,7 @@ assert.equal(yahooVm.fetchPricesYahooRegularClose([{code:'AAPL',market:'US'}],'2
 const queueMap=new Map();
 const props={getProperty(k){return queueMap.has(k)?queueMap.get(k):null;},setProperty(k,v){queueMap.set(k,String(v));},deleteProperty(k){queueMap.delete(k);}};
 const qvm=vm.createContext({
+  _portfolioFundAtomic_:callback=>callback(props),
   PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
   Logger:{log(){}},
   _krxCalendarStatus_:(d)=>d==='2026-10-09'?'CLOSED':'OPEN',
