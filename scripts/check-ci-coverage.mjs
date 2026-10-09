@@ -76,7 +76,7 @@ function validateQualityWorkflow(source) {
   const forbidden = qualityJob.filter(line => {
     const trimmed = line.trim();
     return trimmed && !trimmed.startsWith('#')
-      && /^(?:-\\s*)?(?:if|continue-on-error)\\s*:/.test(trimmed);
+      && /^(?:-\s*)?(?:if|continue-on-error)\s*:/.test(trimmed);
   });
   assert.equal(forbidden.length, 0,
     '필수 전체 검사 job 또는 단계에 조건부 실행·오류 무시가 설정됐습니다: ' + forbidden.join(', '));
@@ -127,16 +127,16 @@ assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
   '        run: npm run check:ci', '        continue-on-error: true\n        run: npm run check:ci')),
   /오류 무시/);
 assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
-  '      - name: Full CI', '      - if: false\\n        name: Full CI')),
+  '      - name: Full CI', '      - if: false\n        name: Full CI')),
   /조건부/);
 assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
-  '      - name: Full CI', '      - continue-on-error: true\\n        name: Full CI')),
+  '      - name: Full CI', '      - continue-on-error: true\n        name: Full CI')),
   /오류 무시/);
 assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
-  '      - name: Full CI', '      - name: Full CI\\n        if: \${{ false }}')),
+  '      - name: Full CI', '      - name: Full CI\n        if: \${{ false }}')),
   /조건부/);
 assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
-  '    steps:\\n', '    steps:\\n      - name: Setup\\n        if: false\\n        run: echo skip\\n')),
+  '    steps:\n', '    steps:\n      - name: Setup\n        if: false\n        run: echo skip\n')),
   /조건부/);
 validateQualityWorkflow(fs.readFileSync('.github/workflows/quality-check.yml', 'utf8'));
 
