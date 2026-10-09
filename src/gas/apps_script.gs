@@ -4383,11 +4383,13 @@ function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
     var json; try { json = JSON.parse(response.getContentText() || '{}'); }
     catch(ignore) { errors[symbol] = 'NON_JSON'; return; }
     if (!Array.isArray(json.OutBlock_1)) { errors[symbol] = 'UNEXPECTED_SCHEMA'; return; }
+    if (!json.OutBlock_1.length) { errors[symbol] = 'EMPTY_DATE'; return; }
     var row = json.OutBlock_1.filter(function(item) {
       return _normalizeYmd(item.BAS_DD || item.basDd || '') === ymd && String(item.IDX_NM || item.idxNm || '').trim() === cfg.idxName;
     })[0];
     var value = row ? parseFloat(String(row.CLSPRC_IDX || row.clsprcIdx || '').replace(/,/g, '')) : 0;
     if (value > 0) output[symbol] = { date: date, value: value, observedAt: date + 'T15:30:00+09:00', source: 'KRX_OFFICIAL', confirmedClose: true };
+    else errors[symbol] = 'INDEX_NOT_FOUND';
   });
   Object.defineProperty(output, '_errors', { value:errors, enumerable:false });
   return output;
@@ -4643,7 +4645,12 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     requested.forEach(function(type) { series[type] = []; symbols[type] = ''; });
     requested.forEach(function(type) {
       if (type === 'KOSPI' || type === 'KOSDAQ') {
-        try { series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh); } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
+        try {
+          series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh).map(function(point) {
+            // 하나의 series에 KRX 종가가 섞여도 Toss candle 출처가 공식값으로 승격되지 않도록 합니다.
+            return { date:point.date, value:point.value, observedAt:point.observedAt || null, source:'TOSS' };
+          });
+        } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
         if (series[type].length) {
           seriesMeta[type] = { fresh: !!forceRefresh, confirmedClose: false, confirmation: 'UNVERIFIED_DAILY_CANDLE', source: 'TOSS' };
           try { symbols[type] = type; current[type] = fetchMarketIndicatorPricesToss([type])[type] || null; } catch(error) { providerErrors[type] = error.message || 'TOSS_INDICATOR_PRICE_ERROR'; }
@@ -4660,25 +4667,40 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     });
 
     if (forceRefresh) {
-      // 장전에는 마지막 확정 거래일을, 마감에는 당일 확정 거래일을 조회합니다.
-      // 휴장일 직전 조회에서 일요일/대체공휴일을 거래일로 오인하지 않습니다.
-      var officialDate = toDate;
-      for (var i = 0; i < 10 && _krxCalendarStatus_(officialDate) === 'CLOSED'; i++) {
-        officialDate = _fundDateOffset(officialDate, -1);
-      }
-      var officialResult = _isKrxOfficialCloseAvailableTime_(new Date(), officialDate)
-        ? _fetchKrxOfficialIndexClosesSafe_(requested, officialDate) : { data:{}, error:'' };
-      var official = officialResult.data;
-      if (officialResult.error) providerErrors.KRX_OFFICIAL = officialResult.error;
-      if (official._errors && Object.keys(official._errors).length)
-        providerErrors.KRX_OFFICIAL = Object.keys(official._errors).map(function(market) {
-          return market + ':' + official._errors[market];
-        }).join(', ');
-      ['KOSPI','KOSDAQ'].forEach(function(type) {
-        if (!official[type]) return;
-        series[type] = (series[type] || []).filter(function(point) { return point.date !== officialDate; }).concat([official[type]]).sort(function(a,b) { return a.date.localeCompare(b.date); });
+      // 오늘 정규장 가격은 오늘 확정일만 허용합니다. 과거 날짜(장전/복구)만
+      // KRX가 HTTP 200 + 빈 OutBlock_1을 반환한 경우 제한적으로 이전 날짜를 탐색합니다.
+      ['KOSPI','KOSDAQ'].filter(function(type) { return requested.indexOf(type) !== -1; }).forEach(function(type) {
+        var candidateDate = toDate, skippedDates = [], point = null;
+        var mayLookback = toDate < today();
+        for (var retry = 0; retry < (mayLookback ? 10 : 1); retry++) {
+          if (candidateDate < fromDate) break;
+          if (_krxCalendarStatus_(candidateDate) === 'CLOSED') {
+            skippedDates.push(candidateDate);
+            candidateDate = _fundDateOffset(candidateDate, -1);
+            continue;
+          }
+          if (!_isKrxOfficialCloseAvailableTime_(new Date(), candidateDate)) break;
+          var checked = _fetchKrxOfficialIndexClosesSafe_([type], candidateDate);
+          if (checked.error) { providerErrors.KRX_OFFICIAL = (providerErrors.KRX_OFFICIAL || '') + type + ':' + checked.error + ';'; break; }
+          var response = checked.data || {};
+          if (response[type]) { point = response[type]; break; }
+          var reason = response._errors && response._errors[type] || 'MISSING';
+          if (reason !== 'EMPTY_DATE' || !mayLookback) {
+            providerErrors.KRX_OFFICIAL = (providerErrors.KRX_OFFICIAL || '') + type + ':' + reason + ';';
+            break;
+          }
+          skippedDates.push(candidateDate);
+          candidateDate = _fundDateOffset(candidateDate, -1);
+        }
+        if (!point) return;
+        // 개별 시장별로 실제 수신한 BAS_DD가 있는 공식값만 표시합니다.
+        // 명시적으로 조회했으나 데이터가 비었던 날짜는 표시 가능한 원천 증거로 보존합니다.
+        var actualDate = point.date;
+        series[type] = (series[type] || []).filter(function(row) { return row.date !== actualDate; })
+          .concat([point]).sort(function(a,b) { return a.date.localeCompare(b.date); });
         symbols[type] = type;
-        seriesMeta[type] = { fresh: true, confirmedClose: true, confirmation: 'KRX_EXACT_DATE_CLOSE', source: 'KRX_OFFICIAL' };
+        seriesMeta[type] = { fresh:true, confirmedClose:true, confirmation:'KRX_EXACT_DATE_CLOSE',
+          source:'KRX_OFFICIAL', verifiedEmptyDates:skippedDates, officialDate:actualDate };
       });
     }
 
