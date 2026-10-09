@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   parseDates, validateWebAppUrl, summarizeKrxSource,
-  buildSafeRequest, readGasAction, runDiagnosis,
+  buildSafeRequest, readGasAction, runDiagnosis, summarizeOfficialCloses,
 } from './diagnose-krx-operational.mjs';
 assert.deepEqual(parseDates('2026-10-07,2026-10-08'),['2026-10-07','2026-10-08']);
 assert.throws(()=>parseDates('2026-02-30'),/INVALID_DATE/);
@@ -20,6 +20,19 @@ const params=buildSafeRequest('getKrxSourceDiagnostics','2026-10-08',key);
 assert.equal(params.get('action'),'getKrxSourceDiagnostics');
 assert.equal(params.get('date'),'2026-10-08');
 assert.equal(params.get('accessToken'),key);
+const closeParams=buildSafeRequest('getKrxOfficialStockCloses','2026-10-08',key);
+assert.equal(closeParams.get('codes'),'005930,000660');
+assert.throws(()=>buildSafeRequest('getKrxOfficialStockCloses','',key),/INVALID_DATE/);
+const closePayload=date=>({status:'ok',requestedDate:date,closes:Object.fromEntries(
+ ['005930','000660'].map((code,index)=>[code,{code,price:100000+index*100000,
+ requestedDate:date,usedDate:date,source:'KRX_OFFICIAL',providerSource:'KRX'}]))});
+assert.equal(summarizeOfficialCloses(closePayload('2026-10-08'),'2026-10-08').healthy,true);
+assert.equal(summarizeOfficialCloses({...closePayload('2026-10-08'),
+ closes:{'005930':closePayload('2026-10-08').closes['005930']}},'2026-10-08').healthy,false);
+assert.equal(summarizeOfficialCloses({...closePayload('2026-10-08'),
+ closes:{'005930':{...closePayload('2026-10-08').closes['005930'],usedDate:'2026-10-07'},
+ '000660':closePayload('2026-10-08').closes['000660']}},'2026-10-08').healthy,false);
+assert.throws(()=>summarizeOfficialCloses({status:'ok',requestedDate:'2026-10-08',closes:[]},'2026-10-08'),/INVALID_STOCK_RESPONSE/);
 
 // Missing repo secret or rejected GAS bearer token are different from a KRX
 // provider outage: fail before hitting the KRX market endpoints.
@@ -74,7 +87,8 @@ const networkDiag=await runDiagnosis({
  url:'https://script.google.com/macros/s/Abcd/exec',
  token:key,dates:'2026-10-08',
  fetchImpl:async(url,opts)=>({ok:true,json:async()=>opts.body.get('action')==='getSettings'
-  ?{status:'ok',gasVersion:'9.192'}:failedSource}),
+  ?{status:'ok',gasVersion:'9.192'}:opts.body.get('action')==='getKrxOfficialStockCloses'
+    ?closePayload('2026-10-08'):failedSource}),
 });
 assert.equal(networkDiag.healthy,false);
 assert.equal(networkDiag.reports[0].networkStatus,'FETCH_FAILED');
@@ -86,7 +100,8 @@ const fakeFetch=async(url,opts)=>{
   assert.equal(opts.headers['content-type'],'application/x-www-form-urlencoded;charset=UTF-8');
   assert.equal(opts.body.get('accessToken'),key);
   return {ok:true,json:async()=>opts.body.get('action')==='getSettings'
-    ?{status:'ok',gasVersion:'9.192'}:payload(opts.body.get('date'))};
+    ?{status:'ok',gasVersion:'9.192'}:opts.body.get('action')==='getKrxOfficialStockCloses'
+      ?closePayload(opts.body.get('date')):payload(opts.body.get('date'))};
 };
 const report=await runDiagnosis({
   url:'https://script.google.com/macros/s/Abcd/exec',
@@ -95,10 +110,25 @@ const report=await runDiagnosis({
 assert.equal(report.mode,'READ_ONLY');
 assert.equal(report.gasVersion,'9.192');
 assert.equal(report.healthy,true);
+assert.ok(report.reports.every(item=>item.stockCloses?.healthy),
+ 'Source rows and exact-date stock code match must both pass');
+const sourceOnly=await runDiagnosis({
+  url:'https://script.google.com/macros/s/Abcd/exec',token:key,dates:'2026-10-08',
+  fetchImpl:async(url,opts)=>({ok:true,json:async()=>opts.body.get('action')==='getSettings'
+    ?{status:'ok',gasVersion:'9.192'}:opts.body.get('action')==='getKrxOfficialStockCloses'
+      ?{status:'ok',requestedDate:'2026-10-08',closes:{}}
+      :payload('2026-10-08')}),
+});
+assert.equal(sourceOnly.reports[0].networkStatus,'RECEIVED');
+assert.equal(sourceOnly.reports[0].stockCloses.healthy,false);
+assert.equal(sourceOnly.healthy,false,
+ 'Official market HTTP 200 with no matched closes is not operationally healthy');
 assert.deepEqual(called.map(x=>[x.action,x.date]),[
  ['getSettings',null],
  ['getKrxSourceDiagnostics','2026-10-07'],
+ ['getKrxOfficialStockCloses','2026-10-07'],
  ['getKrxSourceDiagnostics','2026-10-08'],
+ ['getKrxOfficialStockCloses','2026-10-08'],
 ]);
 assert.ok(!JSON.stringify(report).includes(key));
 // Multi-day report must preserve 10/07 results even if 10/08 GAS request fails.
@@ -110,13 +140,15 @@ const continued=await runDiagnosis({
    return {ok:true,json:async()=>({status:'ok',gasVersion:'9.192'})};
   if(opts.body.get('date')==='2026-10-07')
    return {ok:false,status:403};
-  return {ok:true,json:async()=>payload('2026-10-08')};
+  return {ok:true,json:async()=>opts.body.get('action')==='getKrxOfficialStockCloses'
+   ?closePayload('2026-10-08'):payload('2026-10-08')};
  },
 });
 assert.equal(continued.reports.length,2,'GAS per-day failures must not abort other dates');
 assert.equal(continued.reports[0].errorCode,'KRX_DIAG_GAS_HTTP_403');
 assert.equal(continued.reports[0].healthy,false);
 assert.equal(continued.reports[1].healthy,true);
+assert.equal(continued.reports[1].stockCloses.healthy,true);
 assert.equal(continued.healthy,false);
 assert.equal(continued.reports[0].networkStatus,'GAS_REQUEST_FAILED');
 assert.ok(!JSON.stringify(continued).includes(key));
