@@ -2257,6 +2257,7 @@ console.log('✅ 선제 교차경로: 가격 복구와 마감 UI의 동일 실�
  const ctx=vm.createContext({
   today:()=> '2026-10-08',Date:{now:()=>2000},
   PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+  PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
   _portfolioFundAtomic_:cb=>cb(p),
   _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
   ScriptApp:{newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({
@@ -2407,6 +2408,7 @@ console.log('✅ 소유권·자정 P2: 실제 deferred 정합화 및 지정 날�
  const ctx=vm.createContext({
   today:()=> '2026-10-08',Date:{now:()=>1200},
   PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+  PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
   _portfolioFundAtomic_:cb=>cb(p),
   _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
   ScriptApp:{newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({
