@@ -136,7 +136,7 @@ const cacheContext = {
   EDITABLE_PRICES:[{name:'ETF A',code:'123456',assetType:'ETF'}],
   rawTrades:[{qty:5}],rawHoldings:[{qty:5}],lastUpdated:'same-update',
   taxSettings:{ ISA:'ISA' },
-  getAcctTaxType(acct) { return this.taxSettings[acct] || '일반'; },
+  getAcctTaxType: acct => cacheContext.taxSettings[acct] || '일반',
 };
 vm.runInNewContext(keyFunction,cacheContext,{filename:'views_portfolio_cache_key.js'});
 const beforeKey=cacheContext._portfolioDataKey();
