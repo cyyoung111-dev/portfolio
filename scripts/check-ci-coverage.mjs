@@ -70,8 +70,16 @@ function validateQualityWorkflow(source) {
 
   const jobs = yamlBlock(lines, 'jobs', 0);
   const qualityJob = yamlBlock(jobs, 'all-check-scripts', 2);
-  assert.ok(!qualityJob.some(line => /^ {4}(if|continue-on-error):/.test(line)),
-    '필수 전체 검사 job은 조건부 또는 오류 무시 실행이면 안 됩니다.');
+  // Fail closed for *all* job/step guards, including valid YAML inline step
+  // properties such as `- if: false` or `- continue-on-error: true`.
+  // Guarded prerequisite steps can silently suppress the real full-suite run.
+  const forbidden = qualityJob.filter(line => {
+    const trimmed = line.trim();
+    return trimmed && !trimmed.startsWith('#')
+      && /^(?:-\\s*)?(?:if|continue-on-error)\\s*:/.test(trimmed);
+  });
+  assert.equal(forbidden.length, 0,
+    '필수 전체 검사 job 또는 단계에 조건부 실행·오류 무시가 설정됐습니다: ' + forbidden.join(', '));
   const steps = yamlBlock(qualityJob, 'steps', 4);
   const stepStarts = steps.flatMap((line, i) => /^ {6}- /.test(line) ? [i] : []);
   assert.ok(stepStarts.length > 0, '전체 검사 단계가 없습니다.');
@@ -118,6 +126,18 @@ assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
 assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
   '        run: npm run check:ci', '        continue-on-error: true\n        run: npm run check:ci')),
   /오류 무시/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  '      - name: Full CI', '      - if: false\\n        name: Full CI')),
+  /조건부/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  '      - name: Full CI', '      - continue-on-error: true\\n        name: Full CI')),
+  /오류 무시/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  '      - name: Full CI', '      - name: Full CI\\n        if: \${{ false }}')),
+  /조건부/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  '    steps:\\n', '    steps:\\n      - name: Setup\\n        if: false\\n        run: echo skip\\n')),
+  /조건부/);
 validateQualityWorkflow(fs.readFileSync('.github/workflows/quality-check.yml', 'utf8'));
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
