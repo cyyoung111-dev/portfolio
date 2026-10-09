@@ -7161,6 +7161,7 @@ function _compactFundDailyResultForProperty(result, fallbackDate) {
     };
   });
   return {
+    runDate: _normalizeDate(fallbackDate || '') || '',
     completionStatus: result.completionStatus || '',
     saved: Number(result.saved || 0),
     navSaved: Number(result.navSaved || 0),
@@ -7180,13 +7181,23 @@ function _fundPropertyText(value, maxChars) {
 
 function runDailyFundValuations(targetDate) {
   var props = PropertiesService.getScriptProperties();
+  // A late previous-day NAV may still repair historical price/Snapshot rows.
+  // It must not downgrade the "latest fund run" displayed by automation status.
+  function mayPublishLatestStatus(runDate) {
+    var previous = null;
+    try { previous = JSON.parse(props.getProperty('fund_last_result') || 'null'); } catch(ignore) {}
+    var previousDate = _normalizeDate(previous && (previous.runDate || previous.lastDate) || '');
+    return !previousDate || runDate >= previousDate;
+  }
   try {
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
     var runDate = _normalizeDate(targetDate || '') || today();
     var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate);
-    // Script Properties는 값당 크기 제한이 있으므로 날짜별 상세 배열을 제외한 운영 상태만 저장합니다.
-    // 변경할 행이 없는 정상 재실행도 runDate를 최근 처리 기준일로 남깁니다.
-    props.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result, runDate)));
+    // Historical data was refreshed regardless of whether this run is latest.
+    var publishLatest = mayPublishLatestStatus(runDate);
+    if (publishLatest) {
+      props.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result, runDate)));
+    }
     var snapshotWarnings = Array.isArray(result.snapshotWarnings) ? result.snapshotWarnings : [];
     var hardMissingHoldings = (result.missingHoldings || []).filter(function(reason) {
       return snapshotWarnings.indexOf(reason) === -1;
@@ -7203,12 +7214,15 @@ function runDailyFundValuations(targetDate) {
       if (!fund || fund.status === 'ok') return;
       warnings.push(code + ' ' + ((fund.inputRequiredDates || []).length ? 'NAV 미확보 ' + fund.inputRequiredDates.length + '일' : '부분 완료'));
     });
-    if (warnings.length) props.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
-    else props.deleteProperty('fund_last_warning');
-    props.deleteProperty('fund_last_error');
+    if (publishLatest) {
+      if (warnings.length) props.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
+      else props.deleteProperty('fund_last_warning');
+      props.deleteProperty('fund_last_error');
+    }
     return result;
   } catch (err) {
-    props.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
+    if (!runDate || mayPublishLatestStatus(runDate))
+      props.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
     throw err;
   }
 }
