@@ -10923,7 +10923,7 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
   var token = Utilities.getUuid();
   // Recurring Apps Script triggers can fire after KST midnight. Use the
   // reservation's immutable business date, not this execution's wall date.
-  var date = origin === 'DEFERRED' && reservedDate ? reservedDate : today();
+  var date = reservedDate || today();
   var acquired = _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
     // Bidirectional, cross-account exclusion with historical price/Snapshot replay.
@@ -10957,7 +10957,7 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
     throw busyError;
   }
   try {
-    var result = runDailyFundValuations(origin === 'DEFERRED' ? date : undefined);
+    var result = runDailyFundValuations(date);
     _portfolioFundAtomic_(function(props) {
       if (origin === 'DEFERRED') {
         props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY,
@@ -11310,7 +11310,7 @@ function runDailyPortfolioClose1900() {
     };
   }
   try {
-    fundResult = _runPortfolioFundWithLease_('CLOSE', runId);
+    fundResult = _runPortfolioFundWithLease_('CLOSE', runId, runDate);
     _appendPortfolioCloseSyncLog('FUND_DONE', runDate, runId,
       'lastDate=' + String(fundResult && fundResult.lastDate || ''));
   } catch (fundErr) {
