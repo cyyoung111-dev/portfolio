@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { krxSessionStatus } from './krx-session-calendar.mjs';
+import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
 import '../src/web/domain/market/market_data_provider.js';
 import '../src/web/domain/market/market_briefing_master.js';
 import '../src/web/domain/market/market_briefing_provider_normalizer.js';
@@ -93,7 +94,7 @@ function createRequest(url, token, fetchImpl = fetch) {
     return result;
   };
 }
-export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt }) {
+export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt, fxFallback = fetchUsdKrwYahooDaily }) {
   const request = suppliedRequest || createRequest(url, token);
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
   // KRX_FINAL has no same-day domestic close on exchange holidays/weekends.
@@ -104,11 +105,23 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
     return { checkpoint, tradingDate, skippedDomestic:true, sync:null, decision:null, persistence:null };
   const benchmarkTo = checkpoint === 'MORNING' ? dateOffset(tradingDate, -1) : tradingDate;
   const fxTo = tradingDate;
-  const scopedRequest = (action, params = {}, options) => request(action, {
-    ...params,
-    ...(action === 'getBenchmarks' ? { to:benchmarkTo } : {}),
-    ...(action === 'getExchangeRateHistory' ? { to:fxTo } : {}),
-  }, options);
+  const scopedRequest = async (action, params = {}, options) => {
+    const scopedParams = {
+      ...params,
+      ...(action === 'getBenchmarks' ? { to:benchmarkTo } : {}),
+      ...(action === 'getExchangeRateHistory' ? { to:fxTo } : {}),
+    };
+    try { return await request(action, scopedParams, options); }
+    catch (error) {
+      // The production workbook has no '환율이력' tab. Do not synthesize FX
+      // or write to the financial ledger: use dated Yahoo daily FX only for
+      // the market briefing, and only for the explicit MISSING_SOURCE case.
+      // GAS authentication, schema errors and other failures stay visible.
+      if (action === 'getExchangeRateHistory' && error?.message === 'FX_MISSING_SOURCE')
+        return fxFallback({ from:scopedParams.from, to:scopedParams.to });
+      throw error;
+    }
+  };
   const sync = await runtime.syncServerMaster(scopedRequest, scopedRequest, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10),
     to:benchmarkTo, benchmarkTo, fxTo, scheduledToleranceSeconds:300, receivedAt });
   if (domesticClosed && checkpoint === 'EVENING')
