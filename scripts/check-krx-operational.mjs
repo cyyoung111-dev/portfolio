@@ -6,9 +6,12 @@ import {
 assert.deepEqual(parseDates('2026-10-07,2026-10-08'),['2026-10-07','2026-10-08']);
 assert.throws(()=>parseDates('2026-02-30'),/INVALID_DATE/);
 assert.throws(()=>parseDates('2026-10-08,2026-10-08'),/INVALID_DATES/);
+assert.throws(()=>parseDates('2026-10-07,'),/INVALID_DATES/);
+assert.throws(()=>parseDates(',2026-10-08'),/INVALID_DATES/);
 assert.throws(()=>parseDates('2026-10-08,2026-10-07,2026-10-06,2026-10-05,2026-10-04,2026-10-03,2026-10-02,2026-10-01'),/INVALID_DATES/);
 assert.equal(validateWebAppUrl('https://script.google.com/macros/s/Abcd/exec'),'https://script.google.com/macros/s/Abcd/exec');
 for(const u of ['http://script.google.com/macros/s/x/exec','https://evil.example/path',
+  'https://u:p@script.google.com/macros/s/x/exec',
   'https://script.google.com/macros/s/x/dev','https://script.google.com/macros/s/x/exec?token=abc'])
   assert.throws(()=>validateWebAppUrl(u),/INVALID_WEB_APP_URL/);
 assert.throws(()=>buildSafeRequest('saveSnapshot','','dont-log-this'),/FORBIDDEN_ACTION/);
@@ -102,7 +105,16 @@ assert.equal(continued.reports[0].errorCode,'KRX_DIAG_GAS_HTTP_403');
 assert.equal(continued.reports[0].healthy,false);
 assert.equal(continued.reports[1].healthy,true);
 assert.equal(continued.healthy,false);
+assert.equal(continued.reports[0].networkStatus,'GAS_REQUEST_FAILED');
 assert.ok(!JSON.stringify(continued).includes(key));
+const brokenStructure=await runDiagnosis({
+ url:'https://script.google.com/macros/s/Abcd/exec',token:key,dates:'2026-10-08',
+ fetchImpl:async(url,opts)=>({ok:true,json:async()=>opts.body.get('action')==='getSettings'
+  ?{status:'ok',gasVersion:'9.192'}
+  :{status:'ok',requestedDate:'2026-10-08',keyConfigured:true,networkStatus:'RECEIVED',markets:[]}}),
+});
+assert.equal(brokenStructure.reports[0].networkStatus,'INVALID_RESPONSE');
+assert.equal(brokenStructure.reports[0].errorCode,'KRX_DIAG_INVALID_MARKET_LIST');
 await assert.rejects(()=>readGasAction('https://script.google.com/macros/s/Abcd/exec',
  'getSettings','',key,async()=>({ok:false,status:403})),/GAS_HTTP_403/);
 await assert.rejects(()=>readGasAction('https://script.google.com/macros/s/Abcd/exec',
