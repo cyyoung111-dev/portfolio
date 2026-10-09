@@ -3,13 +3,10 @@ name: quality-check
 # A scripts/check-*.mjs edit must execute that checker, not merely trigger
 # unrelated GAS or web subsets. The coverage gate rejects unconnected checks.
 on:
+  # Required status checks must be created on every pull request. Do not
+  # filter the pull_request event by paths or branches: skipped workflows
+  # otherwise leave required checks pending and block unrelated PRs.
   pull_request:
-    paths:
-      - 'scripts/check-*.mjs'
-      - 'package.json'
-      - '.github/workflows/quality-check.yml'
-      - '.github/workflows/gas-deploy.yml'
-      - '.github/workflows/web-check.yml'
   push:
     branches: [ main ]
     paths:
