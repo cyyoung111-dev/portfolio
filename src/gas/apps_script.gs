@@ -4667,11 +4667,17 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     });
 
     if (forceRefresh) {
-      // 오늘 정규장 가격은 오늘 확정일만 허용합니다. 과거 날짜(장전/복구)만
-      // KRX가 HTTP 200 + 빈 OutBlock_1을 반환한 경우 제한적으로 이전 날짜를 탐색합니다.
+      // 장전에는 직전 거래일, 장마감에는 당일 공식 종가를 요구합니다.
+      // 호출자가 오늘을 toDate로 전달해도 16:00 전 또는 KRX 공식 휴장일이라면
+      // 반드시 전일부터 탐색합니다. 마감한 OPEN 거래일은 당일만 조회합니다.
+      var currentDate = today();
+      var todayUnavailable = toDate === currentDate
+        && (!_isKrxOfficialCloseAvailableTime_(new Date(), toDate)
+          || _krxCalendarStatus_(toDate) === 'CLOSED');
+      var officialSearchToDate = todayUnavailable ? _fundDateOffset(toDate, -1) : toDate;
       ['KOSPI','KOSDAQ'].filter(function(type) { return requested.indexOf(type) !== -1; }).forEach(function(type) {
-        var candidateDate = toDate, skippedDates = [], point = null;
-        var mayLookback = toDate < today();
+        var candidateDate = officialSearchToDate, skippedDates = [], point = null;
+        var mayLookback = officialSearchToDate < currentDate;
         for (var retry = 0; retry < (mayLookback ? 10 : 1); retry++) {
           if (candidateDate < fromDate) break;
           if (_krxCalendarStatus_(candidateDate) === 'CLOSED') {
@@ -4704,7 +4710,7 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
         symbols[type] = type;
         seriesMeta[type] = { fresh:true, confirmedClose:true, confirmation:'KRX_EXACT_DATE_CLOSE',
           source:'KRX_OFFICIAL', verifiedClosedDates:confirmedClosedDates,
-          verificationToDate:toDate, officialDate:actualDate };
+          verificationToDate:officialSearchToDate, officialDate:actualDate };
       });
     }
 
