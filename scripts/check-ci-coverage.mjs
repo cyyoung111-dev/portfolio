@@ -169,7 +169,7 @@ function validateQualityWorkflow(source) {
       'fi',
       '',
     ].join('\n')},
-    {name:'Verify every check script and run full CI', env:{npm_config_script_shell:'/bin/bash',npm_config_node_options:'',NODE_OPTIONS:''}, run:'test ! -f .npmrc && npm run check:ci'},
+    {name:'Verify every check script and run full CI', env:{npm_config_script_shell:'/bin/bash',npm_config_node_options:'--trace-warnings',NODE_OPTIONS:''}, run:'test ! -f .npmrc && npm run check:ci'},
   ];
   assert.deepEqual(steps, allowedSteps,
     '전체 CI 전 단계의 구성·순서·실행 명령과 입력은 승인된 값만 허용합니다.');
@@ -205,7 +205,7 @@ const validWorkflow = [
   '      - name: Verify every check script and run full CI',
   '        env:',
   '          npm_config_script_shell: /bin/bash',
-  "          npm_config_node_options: ''",
+  '          npm_config_node_options: --trace-warnings',
   "          NODE_OPTIONS: ''",
   '        run: test ! -f .npmrc && npm run check:ci',
 ].join('\n');
@@ -273,16 +273,19 @@ invalidMutation(validWorkflow, 'test ! -f .npmrc && npm run check:ci',
   'npm run check:ci', /전체 CI 명령/);
 invalidMutation(validWorkflow, 'test ! -f .npmrc && npm run check:ci',
   'test -f .npmrc && npm run check:ci', /전체 CI 명령/);
-invalidMutation(validWorkflow, "          npm_config_node_options: ''",
+invalidMutation(validWorkflow, '          npm_config_node_options: --trace-warnings',
   '          npm_config_node_options: --require=./scripts/exit-zero.cjs',
   /전체 CI 전 단계의 구성/);
 invalidMutation(validWorkflow, "          NODE_OPTIONS: ''",
   '          NODE_OPTIONS: --require=./scripts/exit-zero.cjs',
   /전체 CI 전 단계의 구성/);
 invalidMutation(validWorkflow,
-  "          npm_config_node_options: ''\n          NODE_OPTIONS: ''\n",
+  "          npm_config_node_options: --trace-warnings\n          NODE_OPTIONS: ''\n",
   '', /전체 CI 전 단계의 구성/);
 
+invalidMutation(validWorkflow, '          npm_config_node_options: --trace-warnings',
+  "          npm_config_node_options: ''",
+  /전체 CI 전 단계의 구성/);
 // Regressions for pre-check step injection, modification, reordered execution,
 // action/input replacement and alternate test entrypoint (PR #474 latest P2).
 invalidMutation(validWorkflow, '    steps:\n',
@@ -366,7 +369,7 @@ try {
   const pinned = spawnSync('npm', ['run','probe'], {
     cwd:nodeProbeDir, env:{
       ...cleanEnv,
-      npm_config_script_shell:'/bin/bash',npm_config_node_options:'',NODE_OPTIONS:'',
+      npm_config_script_shell:'/bin/bash',npm_config_node_options:'--trace-warnings',NODE_OPTIONS:'',
     },encoding:'utf8',
   });
   assert.equal(pinned.status,0,'고정된 node-options 상태에서 npm 실행 실패: '+pinned.stderr);
