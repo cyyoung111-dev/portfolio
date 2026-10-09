@@ -84,6 +84,36 @@ if(directMorning.status!=='ok'||!morningKrxCalls.length||
   directMorning.series.KOSPI.at(-1).date!=='2026-09-17'||
   directMorning.seriesMeta.KOSPI.officialDate!=='2026-09-17')
   throw new Error('Codex 4차 P1: GAS 오늘 날짜 장전 직접 호출이 전일 KRX 종가를 반환해야 함');
+// 오늘이 휴장일이고 16시가 지났어도 장전/휴장 지수는 직전 공식 거래일로 이동해야 합니다.
+context.today=()=> '2026-10-09';
+context._isKrxOfficialCloseAvailableTime_=()=>true;
+const holidayTodayCalls=[];
+context.UrlFetchApp={fetchAll:requests=>requests.map(request=>{
+  const date=new URL(request.url).searchParams.get('basDd');
+  holidayTodayCalls.push(date);
+  if(date!=='20261008')throw new Error('휴장일 당일 공식 종가 요청 금지: '+date);
+  return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[request.url.includes('kosdaq_dd_trd')
+    ?{BAS_DD:'20261008',IDX_NM:'코스닥',CLSPRC_IDX:'900.00'}
+    :{BAS_DD:'20261008',IDX_NM:'코스피',CLSPRC_IDX:'3,520.00'}]})};
+})};
+const directHolidayToday=context.handleGetBenchmarks('KOSPI,KOSDAQ','2026-10-02','2026-10-09',true);
+if(!holidayTodayCalls.length||directHolidayToday.seriesMeta.KOSPI.officialDate!=='2026-10-08'
+  ||directHolidayToday.seriesMeta.KOSPI.verificationToDate!=='2026-10-08'
+  ||directHolidayToday.series.KOSPI.at(-1).value!==3520)
+  throw new Error('KRX 당일 휴장(10/09) 요청을 10/08 공식 정규장 종가로 전환 실패');
+// 정상 거래일 16시 이후에는 오늘 확정 종가만 요구하고 어제 값으로 대체하지 않습니다.
+context.today=()=> '2026-09-18';
+context._isKrxOfficialCloseAvailableTime_=()=>true;
+const afterCloseCalls=[];
+context.UrlFetchApp={fetchAll:requests=>requests.map(request=>{
+  const date=new URL(request.url).searchParams.get('basDd');
+  afterCloseCalls.push(date);
+  if(date!=='20260918')throw new Error('정상 장마감 당일 exact-date 외 조회 금지: '+date);
+  return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[]})};
+})};
+const stillUnconfirmed=context.handleGetBenchmarks('KOSPI','2026-09-11','2026-09-18',true);
+if(afterCloseCalls.join(',')!=='20260918'||stillUnconfirmed.seriesMeta.KOSPI?.confirmedClose===true)
+  throw new Error('장마감 당일 공식 종가 부재 시 이전 날짜를 정규장 확정으로 오인');
 context.today=priorTodayForMorning;
 context._isKrxOfficialCloseAvailableTime_=priorAvailabilityForMorning;
 
