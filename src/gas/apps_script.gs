@@ -7181,23 +7181,32 @@ function _fundPropertyText(value, maxChars) {
 
 function runDailyFundValuations(targetDate) {
   var props = PropertiesService.getScriptProperties();
-  // A late previous-day NAV may still repair historical price/Snapshot rows.
-  // It must not downgrade the "latest fund run" displayed by automation status.
-  function mayPublishLatestStatus(runDate) {
-    var previous = null;
-    try { previous = JSON.parse(props.getProperty('fund_last_result') || 'null'); } catch(ignore) {}
-    var previousDate = _normalizeDate(previous && (previous.runDate || previous.lastDate) || '');
-    return !previousDate || runDate >= previousDate;
+  // Attempt ownership is monotonic across successes, partials and failures.
+  // The prior successful result alone cannot protect today's failed attempt.
+  // Both the decision and its property writes are ScriptLock-atomic.
+  function publishIfLatest(runDate, commit) {
+    return _portfolioFundAtomic_(function(sharedProps) {
+      var latestAttempt = _normalizeDate(sharedProps.getProperty('fund_last_attempt_date') || '');
+      var previous = null;
+      try { previous = JSON.parse(sharedProps.getProperty('fund_last_result') || 'null'); } catch(ignore) {}
+      var resultDate = _normalizeDate(previous && (previous.runDate || previous.lastDate) || '');
+      var latestDate = latestAttempt > resultDate ? latestAttempt : resultDate;
+      if (latestDate && runDate < latestDate) return false;
+      commit(sharedProps);
+      return true;
+    });
   }
   try {
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
     var runDate = _normalizeDate(targetDate || '') || today();
+    // Must precede any network lookup: GAS may die at the 6-minute boundary
+    // and leave no result/error from which to infer the newer attempt's date.
+    publishIfLatest(runDate, function(p) { p.setProperty('fund_last_attempt_date', runDate); });
     var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate);
-    // Historical data was refreshed regardless of whether this run is latest.
-    var publishLatest = mayPublishLatestStatus(runDate);
-    if (publishLatest) {
-      props.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result, runDate)));
-    }
+    // Historical data repairs always run, even when their status is stale.
+    publishIfLatest(runDate, function(p) {
+      p.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result, runDate)));
+    });
     var snapshotWarnings = Array.isArray(result.snapshotWarnings) ? result.snapshotWarnings : [];
     var hardMissingHoldings = (result.missingHoldings || []).filter(function(reason) {
       return snapshotWarnings.indexOf(reason) === -1;
@@ -7214,15 +7223,18 @@ function runDailyFundValuations(targetDate) {
       if (!fund || fund.status === 'ok') return;
       warnings.push(code + ' ' + ((fund.inputRequiredDates || []).length ? 'NAV 미확보 ' + fund.inputRequiredDates.length + '일' : '부분 완료'));
     });
-    if (publishLatest) {
-      if (warnings.length) props.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
-      else props.deleteProperty('fund_last_warning');
-      props.deleteProperty('fund_last_error');
-    }
+    publishIfLatest(runDate, function(p) {
+      if (warnings.length) p.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
+      else p.deleteProperty('fund_last_warning');
+      p.deleteProperty('fund_last_error');
+    });
     return result;
   } catch (err) {
-    if (!runDate || mayPublishLatestStatus(runDate))
-      props.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
+    if (runDate) {
+      publishIfLatest(runDate, function(p) {
+        p.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
+      });
+    } else props.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
     throw err;
   }
 }
