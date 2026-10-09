@@ -65,7 +65,7 @@
           return;
         }
         const latestKnown = (rows || []).filter((item) => item && item.seriesId === id
-          && item.tradingDate < tradingDate && /^\\d{4}-\\d{2}-\\d{2}$/.test(item.tradingDate))
+          && item.tradingDate < tradingDate && /^\d{4}-\d{2}-\d{2}$/.test(item.tradingDate))
           .reduce((latest,item) => item.tradingDate > latest ? item.tradingDate : latest, '');
         if (latestKnown > row.tradingDate) {
           bad.push(`${id}:STALE_OFFICIAL_CLOSE`);
