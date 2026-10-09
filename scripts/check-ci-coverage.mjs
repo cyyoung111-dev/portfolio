@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 
 // Every scripts/check-*.mjs file must be executed by the CI suite that runs
@@ -140,7 +142,7 @@ function validateQualityWorkflow(source) {
     const keys = Object.keys(step);
     assert.ok(keys.includes('name') && typeof step.name === 'string',
       '단계에 name이 필요합니다: ' + index);
-    assert.ok(keys.every(key => ['name','uses','with','run'].includes(key)),
+    assert.ok(keys.every(key => ['name','uses','with','run','env'].includes(key)),
       '조건부 실행, 오류 무시, 사용자 지정 shell/defaults 또는 알 수 없는 단계 속성 금지: ' + index);
     assert.ok((typeof step.uses === 'string') !== (typeof step.run === 'string'),
       '단계는 uses 또는 run 중 하나여야 합니다: ' + index);
@@ -152,7 +154,7 @@ function validateQualityWorkflow(source) {
   assert.equal(fullSuite.length, 1, '전체 CI 명령이 정확히 한 단계에서 실행돼야 합니다.');
   assert.equal(steps[steps.length - 1], fullSuite[0],
     '전체 검사 단계 뒤에 실행되는 작업은 허용하지 않습니다.');
-  keysExactly(fullSuite[0], ['name','run'], 'full CI step');
+  keysExactly(fullSuite[0], ['name','env','run'], 'full CI step');
 
   // Pin all pre-check steps as well. Otherwise a PR can add an earlier run
   // step that rewrites package.json check:ci to a no-op and still pass.
@@ -167,7 +169,7 @@ function validateQualityWorkflow(source) {
       'fi',
       '',
     ].join('\n')},
-    {name:'Verify every check script and run full CI', run:'npm run check:ci'},
+    {name:'Verify every check script and run full CI', env:{npm_config_script_shell:'/bin/bash'}, run:'npm run check:ci'},
   ];
   assert.deepEqual(steps, allowedSteps,
     '전체 CI 전 단계의 구성·순서·실행 명령과 입력은 승인된 값만 허용합니다.');
@@ -201,6 +203,8 @@ const validWorkflow = [
   '            npm install --no-package-lock --no-audit --no-fund --ignore-scripts',
   '          fi',
   '      - name: Verify every check script and run full CI',
+  '        env:',
+  '          npm_config_script_shell: /bin/bash',
   '        run: npm run check:ci',
 ].join('\n');
 function invalidMutation(source, textToReplace, replacement, message) {
@@ -249,6 +253,17 @@ invalidMutation(validWorkflow, '        run: npm run check:ci',
   '        run: npm run check:ci\n        "run": npm run check:ci', /YAML 구문/);
 invalidMutation(validWorkflow, '        run: npm run check:ci',
   '        run: npm run check:ci\n      - name: Hide failure\n        run: echo after-check', /뒤에 실행되는 작업/);
+// Changing or removing the pinned npm script shell makes the entire suite
+// susceptible to repository .npmrc choosing a no-op executable.
+invalidMutation(validWorkflow, '          npm_config_script_shell: /bin/bash',
+  '          npm_config_script_shell: ./scripts/noop-shell.sh',
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '          npm_config_script_shell: /bin/bash',
+  '          npm_config_script_shell: /bin/true',
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '        env:\n          npm_config_script_shell: /bin/bash\n',
+  '', /full CI step|전체 CI 전 단계의 구성/);
+
 // Regressions for pre-check step injection, modification, reordered execution,
 // action/input replacement and alternate test entrypoint (PR #474 latest P2).
 invalidMutation(validWorkflow, '    steps:\n',
@@ -281,6 +296,32 @@ invalidMutation(validWorkflow, '            npm ci --ignore-scripts',
 invalidMutation(validWorkflow, '            npm install --no-package-lock --no-audit --no-fund --ignore-scripts',
   '            npm install --no-package-lock --no-audit --no-fund', /전체 CI 전 단계의 구성/);
 validateQualityWorkflow(fs.readFileSync('.github/workflows/quality-check.yml', 'utf8'));
+
+// Execute the actual npm process to guard against project .npmrc override.
+// A no-op script-shell returns success without running the test command;
+// the workflow's explicit environment override must restore execution.
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'portfolio-ci-shell-'));
+try {
+  fs.writeFileSync(path.join(temp, '.npmrc'), 'script-shell=/bin/true\n');
+  fs.writeFileSync(path.join(temp, 'package.json'), JSON.stringify({
+    name:'portfolio-ci-shell-probe', private:true,
+    scripts:{probe:"node -e \"console.log('CI_SHELL_PROBE_EXECUTED')\""},
+  }));
+  const env = Object.fromEntries(Object.entries(process.env).filter(
+    ([key]) => key.toLowerCase() !== 'npm_config_script_shell'));
+  const bypass = spawnSync('npm', ['run','probe'], {cwd:temp,env,encoding:'utf8'});
+  assert.equal(bypass.status, 0, 'npm no-op 우회 재현에 실패했습니다: ' + bypass.stderr);
+  assert.ok(!bypass.stdout.includes('CI_SHELL_PROBE_EXECUTED'),
+    'no-op npm script-shell 변이가 검사를 실행했습니다.');
+  const pinned = spawnSync('npm', ['run','probe'], {
+    cwd:temp, env:{...env,npm_config_script_shell:'/bin/bash'},encoding:'utf8',
+  });
+  assert.equal(pinned.status, 0, 'npm shell 고정 검증 실패: ' + pinned.stderr);
+  assert.ok(pinned.stdout.includes('CI_SHELL_PROBE_EXECUTED'),
+    '고정한 npm shell이 실제 검사 명령을 실행하지 않았습니다.');
+} finally {
+  fs.rmSync(temp, { recursive:true, force:true });
+}
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const actual = fs.readdirSync('scripts', { withFileTypes: true })
