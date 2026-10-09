@@ -7175,11 +7175,11 @@ function _fundPropertyText(value, maxChars) {
   return text.length > maxChars ? text.slice(0, maxChars - 1) + '…' : text;
 }
 
-function runDailyFundValuations() {
+function runDailyFundValuations(targetDate) {
   var props = PropertiesService.getScriptProperties();
   try {
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
-    var runDate = today();
+    var runDate = _normalizeDate(targetDate || '') || today();
     var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate);
     // Script Properties는 값당 크기 제한이 있으므로 날짜별 상세 배열을 제외한 운영 상태만 저장합니다.
     // 변경할 행이 없는 정상 재실행도 runDate를 최근 처리 기준일로 남깁니다.
@@ -10839,7 +10839,7 @@ function _portfolioFundAtomic_(callback) {
 function _portfolioFundState_(props, key) {
   try { return JSON.parse(props.getProperty(key) || 'null'); } catch(ignore) { return null; }
 }
-function _scheduleFundAfterFailedPortfolioPrice_() {
+function _scheduleFundAfterFailedPortfolioPrice_(owner) {
   var handler = 'runDeferredFundAfterPortfolioCloseFailure';
   return _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
@@ -10849,8 +10849,17 @@ function _scheduleFundAfterFailedPortfolioPrice_() {
     var activeAttempt = old && Number(old.activeUntil || 0) > Date.now();
     if (old && old.date === scheduleDate
         && (old.until > Date.now() || activeAttempt)
-        && (Number(old.attempts || 0) < 3 || activeAttempt))
+        && (Number(old.attempts || 0) < 3 || activeAttempt)) {
+      // The reservation's UID belongs to the original owner; only revise
+      // the embedded proof when it is still pending, never during a NAV run.
+      if (owner && !activeAttempt && owner.date === scheduleDate && owner.runId) {
+        old.owner = {date:scheduleDate,runId:String(owner.runId),
+          startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
+          errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []};
+        props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,JSON.stringify(old));
+      }
       return {created:false, triggerId:String(old.triggerId || '')};
+    }
     // An old-day recurring trigger belongs to the creator account and cannot
     // be enumerated cross-account. Its next invocation deletes its own UID.
     // A fresh reservation for the new KST date must never reuse that UID.
@@ -10860,13 +10869,19 @@ function _scheduleFundAfterFailedPortfolioPrice_() {
     var triggerId = trigger.getUniqueId ? trigger.getUniqueId() : '';
     props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,
       JSON.stringify({until:Date.now() + 45 * 60 * 1000, date:scheduleDate,
-        attempts:0, triggerId:triggerId}));
+        attempts:0, triggerId:triggerId,
+        owner: owner && owner.date === scheduleDate && owner.runId
+          ? {date:scheduleDate,runId:String(owner.runId),
+            startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
+            errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []} : null}));
     return {created:true, triggerId:triggerId};
   });
 }
-function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
+function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, reservedOwner) {
   var token = Utilities.getUuid();
-  var date = today();
+  // Recurring Apps Script triggers can fire after KST midnight. Use the
+  // reservation's immutable business date, not this execution's wall date.
+  var date = origin === 'DEFERRED' && reservedDate ? reservedDate : today();
   var acquired = _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
     // Bidirectional, cross-account exclusion with historical price/Snapshot replay.
@@ -10900,11 +10915,13 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId) {
     throw busyError;
   }
   try {
-    var result = runDailyFundValuations();
+    var result = runDailyFundValuations(origin === 'DEFERRED' ? date : undefined);
     _portfolioFundAtomic_(function(props) {
       if (origin === 'DEFERRED') {
         props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY,
-          JSON.stringify({date:date, at:Date.now(), token:token, triggerId:String(deferredTriggerId || '')}));
+          JSON.stringify({date:date, at:Date.now(), token:token,
+            triggerId:String(deferredTriggerId || ''),
+            owner:reservedOwner && reservedOwner.runId ? reservedOwner : null}));
       } else if (origin === 'CLOSE') {
         // A close can die after NAV successfully commits but before the final
         // stage/result property write. Persist an exact run-id success proof.
@@ -11016,7 +11033,10 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
   var reservation = _portfolioFundAtomic_(function(props) {
     var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
     if (!pending || (triggerId && pending.triggerId !== triggerId)) return null;
-    if (pending.date !== runDate) return {cleanup:true, triggerId:pending.triggerId};
+    // A just-before-midnight reservation remains actionable on the next
+    // calendar date while it is unexpired. Never silently delete NAV work.
+    if (pending.date > runDate || !/^\d{4}-\d{2}-\d{2}$/.test(String(pending.date || '')))
+      return {cleanup:true,triggerId:pending.triggerId};
     // Another firing of the same recurring trigger cannot consume attempt 3
     // or delete the reservation while the current attempt is still starting/running.
     if (Number(pending.activeUntil || 0) > Date.now()) return {busy:true};
@@ -11038,7 +11058,8 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     pending.attemptToken = Utilities.getUuid();
     pending.activeUntil = Date.now() + 7 * 60 * 1000;
     props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
-    return {run:true, triggerId:pending.triggerId, attemptToken:pending.attemptToken};
+    return {run:true, triggerId:pending.triggerId, attemptToken:pending.attemptToken,
+      runDate:pending.date, owner:pending.owner || null};
   });
   if (!reservation) {
     // A displaced recurring trigger must clean up its own UID, not the replacement.
@@ -11056,10 +11077,11 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
   if (!shouldRun && !shouldCleanup) return {skipped:true, reason:'FUND_BUSY_RETRY_LATER'};
   try {
     if (!shouldRun) return {skipped:true, reason:'RETRY_EXHAUSTED'};
-    _appendPortfolioCloseSyncLog('FUND_DEFERRED_START', runDate, '', '가격 실패 이후 독립 펀드 평가');
-    var result = _runPortfolioFundWithLease_('DEFERRED', reservation.triggerId);
-    _reconcilePortfolioFundBusy_(runDate);
-    _appendPortfolioCloseSyncLog('FUND_DEFERRED_DONE', runDate, '', '독립 펀드 완료');
+    var targetDate = reservation.runDate || runDate;
+    _appendPortfolioCloseSyncLog('FUND_DEFERRED_START', targetDate, '', '가격 실패 이후 독립 펀드 평가');
+    var result = _runPortfolioFundWithLease_('DEFERRED', reservation.triggerId, targetDate, reservation.owner);
+    _reconcilePortfolioFundBusy_(targetDate);
+    _appendPortfolioCloseSyncLog('FUND_DEFERRED_DONE', targetDate, '', '독립 펀드 완료');
     shouldCleanup = true;
     return result;
   } catch(err) {
@@ -11145,7 +11167,10 @@ function runDailyPortfolioClose1900() {
   if (!priceResult) {
     var deferredReservation = null;
     try {
-      deferredReservation = _scheduleFundAfterFailedPortfolioPrice_();
+      deferredReservation = _scheduleFundAfterFailedPortfolioPrice_({
+        date:runDate,runId:runId,startedAt:startedAt,startedMs:startedMs,
+        errors:errors.slice(0,4)
+      });
       _appendPortfolioCloseSyncLog('FUND_DEFERRED', runDate, runId,
         deferredReservation.created ? '독립 펀드 실행 예약' : '기존 펀드 실행 예약 유지');
     } catch (deferErr) {
