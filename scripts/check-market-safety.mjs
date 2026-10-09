@@ -50,6 +50,7 @@ const legacyContext={
   _countBusinessWeekdaysBetween:(from,to)=>{
     if(from===to)return 0;
     if(from==='2026-10-08'&&to==='2026-10-09')return 0;
+    if(from==='2026-10-07'&&to==='2026-10-09')return 1;
     if(from==='2026-10-07'&&to==='2026-10-08')return 1;
     return 90;
   },
@@ -76,9 +77,12 @@ if(legacyContext.handlePriceFetch().source!=='cache')
 currentDate='2026-10-09';
 if(legacyContext.handlePriceFetch().source!=='cache')
  throw Error('KRX holiday may use the last official-session cache');
+cacheRows=cacheLine('2026-10-07 16:22');
+if(legacyContext.handlePriceFetch().source!=='historical')
+ throw Error('KRX holiday must reject cache predating its latest official session');
 cacheRows=cacheLine('');
 if(legacyContext.handlePriceFetch().source!=='historical')
  throw Error('cache with missing lastUpdated must not be treated as current');
-if(fallbackCount!==3)throw Error('fallback count mismatch');
+if(fallbackCount!==4)throw Error('fallback count mismatch');
 
 console.log('✅ 가격 provider·polling·Corporate Action·Secret 노출 안전성 검사 통과');
