@@ -2151,3 +2151,65 @@ console.log('✅ 서로 다른 실행의 성공 근거 혼합 방지: summary �
     '마감 UI는 동일 시간이라도 다른 runId의 완료 summary를 현재 완료로 표시하지 않음');
 }
 console.log('✅ 선제 교차경로: 가격 복구와 마감 UI의 동일 실행 소유권 불변조건');
+
+// Latest Codex P2: a deferred NAV scheduled just before midnight must execute
+// using the reservation date, not cancel merely because today() changed.
+{
+ const m=new Map([['portfolio_fund_deferred_schedule_v1',JSON.stringify({
+  date:'2026-10-08',triggerId:'overnight-uid',until:90000,attempts:0,
+  owner:{date:'2026-10-08',runId:'close-before-midnight',
+    startedAt:'2026-10-08 23:58:00',startedMs:1200,
+    errors:['일반 종목: KRX 조회 오류']}
+ })]]);
+ const p={getProperty:k=>m.get(k)||null,setProperty:(k,v)=>m.set(k,String(v)),
+  deleteProperty:k=>m.delete(k)};
+ let executed=0,executedDate='';
+ const triggers=[{getHandlerFunction:()=> 'runDeferredFundAfterPortfolioCloseFailure',
+  getUniqueId:()=> 'overnight-uid'}];
+ const ctx=vm.createContext({
+  today:()=> '2026-10-09',Date:{now:()=>10000},Utilities:{getUuid:()=> 'after-midnight-attempt'},
+  PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+  PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+  PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+  PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+  _portfolioFundAtomic_:cb=>cb(p),
+  _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+  ScriptApp:{getProjectTriggers:()=>triggers,deleteTrigger:()=>{}},
+  _appendPortfolioCloseSyncLog:()=>{},
+  _reconcilePortfolioFundBusy_:date=>{executedDate=date;},
+  _runPortfolioFundWithLease_:(origin,id,date)=>{
+    executed++;assert.equal(origin,'DEFERRED');assert.equal(id,'overnight-uid');
+    assert.equal(date,'2026-10-08');return {lastDate:date};}
+ });
+ vm.runInContext(extract('runDeferredFundAfterPortfolioCloseFailure'),ctx);
+ const result=ctx.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'overnight-uid'});
+ assert.equal(executed,1,'자정 뒤에도 만료 전 이전 날짜 NAV 한 번 실행');
+ assert.equal(executedDate,'2026-10-08','NAV 결과는 생성한 10월 8일 마감에 정합화');
+ assert.equal(p.getProperty('portfolio_fund_deferred_schedule_v1'),null,
+  'NAV 성공 뒤 정확한 UID 예약만 완료');
+}
+
+// Latest Codex P2: before a 6-minute hard kill the PRICE failure owner must
+// already exist in the SAME durable reservation written under ScriptLock.
+{
+ const map=new Map(),p={getProperty:k=>map.get(k)||null,setProperty:(k,v)=>map.set(k,String(v))};
+ const owner={date:'2026-10-08',runId:'close-before-hardkill',
+  startedAt:'2026-10-08 19:00:00',startedMs:1000,
+  errors:['일반 종목: KRX 응답 0건']};
+ const ctx=vm.createContext({
+  today:()=> '2026-10-08',Date:{now:()=>2000},
+  PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+  _portfolioFundAtomic_:cb=>cb(p),
+  _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+  ScriptApp:{newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({
+   create:()=>({getUniqueId:()=> 'reserve-uid'})})})})}
+ });
+ vm.runInContext(extract('_scheduleFundAfterFailedPortfolioPrice_'),ctx);
+ ctx._scheduleFundAfterFailedPortfolioPrice_(owner);
+ const recorded=JSON.parse(p.getProperty('portfolio_fund_deferred_schedule_v1'));
+ assert.equal(recorded.owner.runId,'close-before-hardkill',
+  'summary 저장 전 GAS 강제 종료에도 예약 속 실행 소유권 증거 보존');
+ assert.equal(recorded.owner.startedAt,owner.startedAt);
+ assert.equal(recorded.owner.date,owner.date);
+}
+console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패 실행 소유권 보존');
