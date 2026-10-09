@@ -2649,4 +2649,129 @@ console.log('✅ 선제 운영 충돌: NAV 예약과 PRICE 실패 summary 같은
    /injected-reconcile-failure/);
  assert.ok(p.getProperty(key),'정합화 실패 때는 강제 종료 이후 재시도 증거 유지');
 }
+
+// Cross-workflow review: a successful PRICE followed by FUND_BUSY must
+// persist its exact run owner BEFORE the final close summary can hardkill.
+{
+ const bag=new Map([
+  ['portfolio_close_run_date','2026-10-08'],
+  ['portfolio_close_run_id','watchdog-B'],
+  ['portfolio_close_run_started_ms','2500'],
+  ['portfolio_close_run_started_at','2026-10-08 20:30:00'],
+  ['portfolio_close_stage','FUND'],
+  ['portfolio_close_last_result',JSON.stringify({
+    runDate:'2026-10-08',runId:'failed-A',startedMs:1000,
+    startedAt:'2026-10-08 19:00:00',priceOk:false,fundOk:false,
+    errors:['일반 종목: KRX 0건']})]
+ ]);
+ const p={getProperty:k=>bag.get(k)||null,
+  setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+ const owner={date:'2026-10-08',runId:'watchdog-B',
+   startedAt:'2026-10-08 20:30:00',startedMs:2500,
+   priceOk:true,priceDate:'2026-10-08',priceRows:11,krxCloseRequired:true,
+   fundBusyToken:'prior-lease',errors:['펀드: FUND_BUSY']};
+ let uid='uid-watchdog-B';
+ const ctx=vm.createContext({
+   Date:{now:()=>3000},today:()=> '2026-10-08',
+   PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+   PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+   _portfolioFundAtomic_:cb=>cb(p),
+   _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+   _fundPropertyText:String,
+   ScriptApp:{newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({
+     create:()=>({getUniqueId:()=>uid})
+   })})})}
+ });
+ vm.runInContext(scheduleSource,ctx);
+ ctx._scheduleFundAfterFailedPortfolioPrice_(owner);
+ const reservation=JSON.parse(p.getProperty('portfolio_fund_deferred_schedule_v1'));
+ assert.equal(reservation.owner.runId,'watchdog-B');
+ assert.equal(reservation.owner.priceOk,true,
+   '완료된 KRX PRICE/Snapshot 근거를 예약에도 기록');
+ assert.equal(reservation.owner.priceRows,11);
+ assert.equal(reservation.owner.fundBusyToken,'prior-lease');
+ const partial=JSON.parse(p.getProperty('portfolio_close_last_result'));
+ assert.equal(partial.runId,'watchdog-B');
+ assert.equal(partial.priceOk,true,'FUND_BUSY가 PRICE 성공을 실패로 되돌리면 안 됨');
+ assert.equal(partial.fundOk,false);
+ assert.equal(partial.fundBusyTriggerId,uid);
+ assert.equal(partial.fundBusyToken,'prior-lease');
+ assert.equal(p.getProperty('portfolio_close_stage'),'ERROR');
+ // Simulate a crash between durable booking and summary write, restoring
+ // A's previous summary and the unfinished FUND stage of B.
+ bag.set('portfolio_close_stage','FUND');
+ bag.set('portfolio_close_last_result',JSON.stringify({
+   runDate:'2026-10-08',runId:'failed-A',startedMs:1000,
+   priceOk:false,fundOk:false,errors:['일반 종목: KRX 0건']}));
+ const savedOwner=reservation.owner;
+ bag.set('portfolio_fund_deferred_success_v1',JSON.stringify({
+   date:'2026-10-08',at:1000000,token:'nav-success',
+   triggerId:uid,owner:savedOwner
+ }));
+ const ctx2=vm.createContext({
+   PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+   _portfolioFundAtomic_:cb=>cb(p),
+   _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+   _fundPropertyText:String
+ });
+ vm.runInContext(extract('_reconcilePortfolioFundBusy_'),ctx2);
+ ctx2._reconcilePortfolioFundBusy_('2026-10-08');
+ const rebuilt=JSON.parse(p.getProperty('portfolio_close_last_result'));
+ assert.equal(rebuilt.runId,'watchdog-B','이전 A summary를 B의 PRICE로 합치지 않음');
+ assert.equal(rebuilt.priceOk,true,'B의 원래 PRICE 성공 보존');
+ assert.equal(rebuilt.priceRows,11);
+ assert.equal(rebuilt.fundOk,true,'지연 NAV 성공 근거를 B만 복원');
+ assert.equal(rebuilt.errors.length,0);
+ assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE',
+   '시간초과로 남은 FUND 단계도 7분 후 소유권 증거가 있으면 완료');
+ assert.match(extract('runDailyPortfolioClose1900'),
+   /var busyReservation = _scheduleFundAfterFailedPortfolioPrice_\(\{[\s\S]*?runId:runId,startedAt:startedAt,startedMs:startedMs,[\s\S]*?priceOk:true/,
+   '실제 19:00/20:30 공통 경로가 반드시 현재 소유권과 PRICE 성공을 전달');
+}
+console.log('✅ FUND_BUSY+PRICE 성공·같은 날짜 A/B 소유권·7분 경과 FUND 강제종료 복구');
+
+// 22:10 confirmed PRICE must construct B's latest owned summary rather than
+// updating stale A, allowing exact B regular CLOSE NAV marker reconciliation.
+{
+ const bag=new Map([
+  ['portfolio_close_run_date','2026-10-08'],
+  ['portfolio_close_run_id','watchdog-B'],
+  ['portfolio_close_run_started_ms','2500'],
+  ['portfolio_close_run_started_at','2026-10-08 20:30:00'],
+  ['portfolio_close_stage','ERROR'],
+  ['portfolio_close_last_result',JSON.stringify({
+    runDate:'2026-10-08',runId:'failed-A',
+    startedAt:'2026-10-08 19:00:00',startedMs:1000,
+    priceOk:false,fundOk:false,errors:['일반 종목: KRX 실패']})],
+  ['portfolio_fund_close_success_v1',JSON.stringify({
+    date:'2026-10-08',runId:'watchdog-B',at:4000,token:'B-NAV'})]
+ ]);
+ const p={getProperty:k=>bag.get(k)||null,
+  setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+ const ctx=vm.createContext({
+  PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
+  _portfolioFundAtomic_:cb=>cb(p),
+  _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+  _fundPropertyText:String
+ });
+ for(const name of ['_reconcileRecoveredPortfolioPrice_',
+   '_reconcilePortfolioCloseFundSuccess_'])
+   vm.runInContext(extract(name),ctx);
+ assert.equal(ctx._reconcileRecoveredPortfolioPrice_(p,'2026-10-08',
+   {ok:true,date:'2026-10-08',rows:12,krxCloseRequired:true},'CREATE'),true);
+ let recreated=JSON.parse(p.getProperty('portfolio_close_last_result'));
+ assert.equal(recreated.runId,'watchdog-B');
+ assert.equal(recreated.priceOk,true);
+ assert.equal(recreated.fundOk,false,'B NAV는 marker 정합화 전까지 성공 처리 불가');
+ assert.equal(recreated.priceRows,12);
+ assert.equal(ctx._reconcilePortfolioCloseFundSuccess_('2026-10-08'),true);
+ recreated=JSON.parse(p.getProperty('portfolio_close_last_result'));
+ assert.equal(recreated.runId,'watchdog-B');
+ assert.equal(recreated.priceOk,true);
+ assert.equal(recreated.fundOk,true);
+ assert.equal(recreated.errors.length,0);
+ assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
+}
+console.log('✅ 22:10 B PRICE 재생·정규 CLOSE NAV 성공 마커 합류·이전 A 기록 분리');
+
 console.log('✅ 다중 거래일 성공 마커·3회차 하드킬 정합화 회귀');
