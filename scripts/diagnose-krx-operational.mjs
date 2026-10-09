@@ -62,11 +62,34 @@ export function summarizeKrxSource(data, date) {
       && row.rows > 0 && row.parseStatus === 'ROWS');
   return { date, keyConfigured:configured, networkStatus, markets, healthy };
 }
+// Read-only close verification complements market HTTP/schema checks: an
+// HTTP-200 OutBlock_1 can still fail code matching or close-date validation.
+export function summarizeOfficialCloses(data, date) {
+  if (!data || data.status !== 'ok' || data.requestedDate !== date
+      || !data.closes || typeof data.closes !== 'object' || Array.isArray(data.closes))
+    throw new Error('KRX_DIAG_INVALID_STOCK_RESPONSE');
+  const requestedCodes = ['005930','000660'];
+  const closes = requestedCodes.map(code => {
+    const item = data.closes[code];
+    if (!item) return { code, confirmed:false };
+    const price = Number(item.price);
+    const valid = item.code === code && item.requestedDate === date
+      && item.usedDate === date && Number.isFinite(price) && price > 0
+      && item.source === 'KRX_OFFICIAL'
+      && ['KRX','KRX_OTP'].includes(item.providerSource);
+    return { code, confirmed:valid, ...(valid ? { price, providerSource:item.providerSource } : {}) };
+  });
+  return { requestedDate:date, closes, healthy:closes.every(item => item.confirmed) };
+}
 export function buildSafeRequest(action, date, token) {
-  if (!['getSettings', 'getKrxSourceDiagnostics'].includes(action))
+  if (!['getSettings', 'getKrxSourceDiagnostics', 'getKrxOfficialStockCloses'].includes(action))
     throw new Error('KRX_DIAG_FORBIDDEN_ACTION');
   const payload = new URLSearchParams({ action });
   if (date) payload.set('date', parseDates(date)[0]);
+  if (action === 'getKrxOfficialStockCloses') {
+    if (!date) throw new Error('KRX_DIAG_INVALID_DATE');
+    payload.set('codes','005930,000660'); // read-only, fixed sampling scope
+  }
   if (token) payload.set('accessToken', token);
   return payload;
 }
@@ -101,7 +124,16 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
   for (const date of checkedDates) {
     try {
       const data = await readGasAction(url,'getKrxSourceDiagnostics',date,token,fetchImpl);
-      reports.push(summarizeKrxSource(data,date));
+      const source = summarizeKrxSource(data,date);
+      let stockCloses;
+      try {
+        const closeData = await readGasAction(url,'getKrxOfficialStockCloses',date,token,fetchImpl);
+        stockCloses = summarizeOfficialCloses(closeData,date);
+      } catch {
+        // Do not leak the raw response when GAS provider fallback fails.
+        stockCloses = { requestedDate:date, closes:[], healthy:false, errorCode:'KRX_DIAG_STOCK_CHECK_FAILED' };
+      }
+      reports.push({ ...source, stockCloses, healthy:source.healthy && stockCloses.healthy });
     } catch (error) {
       // The live KRX dates are independent. Report a sanitized per-day GAS
       // transport/schema failure and continue inspecting the other dates.
