@@ -86,7 +86,14 @@ export async function readGasAction(url, action, date, token, fetchImpl = fetch)
 }
 export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
   const checkedDates = parseDates(dates);
+  // Operational diagnostics are intentionally authenticated even if a GAS
+  // deployment accidentally becomes public. Never run with a missing secret.
+  if (typeof token !== 'string' || !token.trim())
+    throw new Error('KRX_DIAG_GAS_ACCESS_TOKEN_NOT_CONFIGURED');
   const settings = await readGasAction(url,'getSettings','',token,fetchImpl);
+  if (settings && settings.status === 'error'
+      && String(settings.message || '') === '인증 실패')
+    throw new Error('KRX_DIAG_GAS_ACCESS_DENIED');
   if (!settings || settings.status !== 'ok'
       || !/^\d+\.\d+$/.test(String(settings.gasVersion || '')))
     throw new Error('KRX_DIAG_GAS_VERSION_UNAVAILABLE');
