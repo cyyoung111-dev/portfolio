@@ -133,6 +133,24 @@ function validateQualityWorkflow(source) {
   assert.equal(steps[steps.length - 1], fullSuite[0],
     '전체 검사 단계 뒤에 실행되는 작업은 허용하지 않습니다.');
   keysExactly(fullSuite[0], ['name','run'], 'full CI step');
+
+  // Pin all pre-check steps as well. Otherwise a PR can add an earlier run
+  // step that rewrites package.json check:ci to a no-op and still pass.
+  const allowedSteps = [
+    {name:'Checkout', uses:'actions/checkout@v7'},
+    {name:'Setup Node', uses:'actions/setup-node@v7', with:{'node-version':'24'}},
+    {name:'Install dependencies', run:[
+      'if [ -f package-lock.json ]; then',
+      '  npm ci',
+      'else',
+      '  npm install --no-package-lock --no-audit --no-fund',
+      'fi',
+      '',
+    ].join('\n')},
+    {name:'Verify every check script and run full CI', run:'npm run check:ci'},
+  ];
+  assert.deepEqual(steps, allowedSteps,
+    '전체 CI 전 단계의 구성·순서·실행 명령과 입력은 승인된 값만 허용합니다.');
 }
 
 const validWorkflow = [
@@ -149,7 +167,20 @@ const validWorkflow = [
   '  all-check-scripts:',
   '    runs-on: ubuntu-latest',
   '    steps:',
-  '      - name: Full CI',
+  '      - name: Checkout',
+  '        uses: actions/checkout@v7',
+  '      - name: Setup Node',
+  '        uses: actions/setup-node@v7',
+  '        with:',
+  "          node-version: '24'",
+  '      - name: Install dependencies',
+  '        run: |',
+  '          if [ -f package-lock.json ]; then',
+  '            npm ci',
+  '          else',
+  '            npm install --no-package-lock --no-audit --no-fund',
+  '          fi',
+  '      - name: Verify every check script and run full CI',
   '        run: npm run check:ci',
 ].join('\n');
 function invalidMutation(source, textToReplace, replacement, message) {
@@ -198,6 +229,36 @@ invalidMutation(validWorkflow, '        run: npm run check:ci',
   '        run: npm run check:ci\n        "run": npm run check:ci', /YAML 구문/);
 invalidMutation(validWorkflow, '        run: npm run check:ci',
   '        run: npm run check:ci\n      - name: Hide failure\n        run: echo after-check', /뒤에 실행되는 작업/);
+// Regressions for pre-check step injection, modification, reordered execution,
+// action/input replacement and alternate test entrypoint (PR #474 latest P2).
+invalidMutation(validWorkflow, '    steps:\n',
+  '    steps:\n      - name: Disable tests\n        run: npm pkg set scripts.check:ci="echo no-op"\n',
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '        uses: actions/checkout@v7',
+  '        uses: actions/checkout@v6',
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, "          node-version: '24'",
+  "          node-version: '22'",
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '            npm ci',
+  '            npm ci --ignore-scripts',
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '      - name: Setup Node\n',
+  '      - name: Setup Node\n        env:\n          NODE_OPTIONS: "--require ./malicious.js"\n',
+  /조건부 실행|알 수 없는 단계 속성|전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '      - name: Checkout\n        uses: actions/checkout@v7',
+  '      - name: Checkout\n        uses: actions/checkout@v7\n        with:\n          repository: attacker/repo',
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '      - name: Checkout\n        uses: actions/checkout@v7',
+  '      - name: Checkout\n        uses: actions/checkout@v7\n        with:\n          persist-credentials: false',
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '      - name: Checkout\n        uses: actions/checkout@v7\n',
+  '',
+  /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow,
+  '      - name: Checkout\n        uses: actions/checkout@v7\n      - name: Setup Node',
+  '      - name: Setup Node\n        uses: actions/setup-node@v7\n      - name: Checkout\n        uses: actions/checkout@v7\n      - name: Setup Node',
+  /전체 CI 전 단계의 구성/);
 validateQualityWorkflow(fs.readFileSync('.github/workflows/quality-check.yml', 'utf8'));
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
