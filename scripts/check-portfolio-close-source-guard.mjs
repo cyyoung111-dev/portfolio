@@ -2589,9 +2589,9 @@ console.log('✅ 선제 운영 충돌: NAV 예약과 PRICE 실패 summary 같은
  assert.equal(last.fundOk,true,'뒤늦은 A 정합화는 B 마커가 있어도 성공');
  assert.equal(last.priceOk,false,'실패한 PRICE를 성공으로 바꾸지 않음');
  assert.deepEqual(last.errors,['일반 종목: 가격 실패']);
- // Six live success proofs including inherited long failures must remain
- // below the per-value Script Properties quota without losing distinct UIDs.
- for(let i=0;i<6;i++) {
+ // All eight live reservation UIDs can have durable success proofs.
+ // Never evict an older proof before hard-kill retry reconciliation.
+ for(let i=0;i<8;i++) {
    vmCtx._runPortfolioFundWithLease_('DEFERRED','uid-long-'+i,
      '2026-10-09',{date:'2026-10-09',runId:'long-'+i,
        startedAt:'2026-10-09 19:00:00',startedMs:1200,
@@ -2599,9 +2599,9 @@ console.log('✅ 선제 운영 충돌: NAV 예약과 PRICE 실패 summary 같은
  }
  const proofsRaw=props.getProperty('portfolio_fund_deferred_success_v1');
  assert.ok(Buffer.byteLength(proofsRaw,'utf8')<8000,
-   '6개 성공 증거의 한글 오류를 정리해 9KB GAS 속성 한도를 지킴');
+   '8개 성공 증거의 한글 오류를 정리해 9KB GAS 속성 한도를 지킴');
  const journal=JSON.parse(proofsRaw);
- assert.equal(journal.additional.length,5,'서로 다른 성공 UID는 최대 6건 보존');
+ assert.equal(journal.additional.length,7,'서로 다른 성공 UID는 최대 8건 보존');
  assert.ok(journal.additional.every(x=>x.owner.errors.every(reason=>reason.length<=100)));
 }
 
