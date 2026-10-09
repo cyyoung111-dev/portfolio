@@ -41,5 +41,6 @@ jobs:
         env:
           npm_config_script_shell: /bin/bash
           npm_config_node_options: --trace-warnings
+          npm_config_ignore_scripts: 'true'
           NODE_OPTIONS: ''
         run: test ! -f .npmrc && npm run check:ci
