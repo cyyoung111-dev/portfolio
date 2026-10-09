@@ -9,7 +9,8 @@ assert.deepEqual(result.missing,[]);
 assert.equal(calls.length,5);
 assert.equal(result.payload.KOSPI.tradingDate,'2026-09-17');
 assert.equal(result.payload.KOSPI.sourceDate,'2026-09-17');
-assert.equal(result.payload.KOSPI.finality,'REGULAR_CLOSE');
+assert.equal(result.payload.KOSPI.status,'PARTIAL');
+assert.equal(result.payload.KOSPI.finality,null,'Toss 역사적 일봉만으로 국내 지수 확정 금지');
 assert.equal(result.payload.KOSPI.fallback,true);
 assert.equal(result.payload.KOSPI200.source,'YAHOO');
 assert.equal(result.payload.SOX.source,'YAHOO');
@@ -32,6 +33,7 @@ const rows=normalizer.normalizeMap(result.payload,{tradingDate:'2026-09-18',rece
 assert.equal(rows.length,16);
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').tradingDate,'2026-09-17');
 assert.equal(rows.find(x=>x.seriesId==='KOSPI').observedAt,null);
+assert.equal(rows.find(x=>x.seriesId==='KOSPI').status,'PARTIAL');
 assert.equal(rows.find(x=>x.seriesId==='SPX').status,'FINAL');
 assert.equal(rows.find(x=>x.seriesId==='USDKRW').market,'FX');
 const currentFx=collector.normalizeFxPoint({history:[{date:'2026-09-18',rate:1385}]},'2026-09-18');
@@ -43,6 +45,13 @@ const scheduledFx=collector.normalizeFxPoint({history:[{date:'2026-09-18',rate:1
 assert.equal(scheduledFx.observedAt,null);assert.equal(scheduledFx.quality,'SCHEDULED_DELAY_TOLERANCE_300S');
 const currentIndex=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3410},{symbols:{KOSPI:'KOSPI'}},'2026-09-18','MORNING');
 assert.equal(currentIndex.status,'PARTIAL'); assert.equal(currentIndex.finality,null);
+const priorToss=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-17',value:3400,source:'TOSS'},
+ {seriesMeta:{KOSPI:{confirmedClose:false,source:'TOSS'}}},'2026-09-18','MORNING');
+assert.equal(priorToss.status,'PARTIAL');assert.equal(priorToss.finality,null);
+const previousOfficial=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-17',value:3400,
+ source:'KRX_OFFICIAL',observedAt:'2026-09-17T15:30:00+09:00'},
+ {seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'}}},'2026-09-18','MORNING');
+assert.equal(previousOfficial.status,'FINAL');assert.equal(previousOfficial.finality,'REGULAR_CLOSE');
 const cachedAtClose=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3410},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:false,confirmedClose:false}}},'2026-09-18','KRX_FINAL');
 assert.equal(cachedAtClose.status,'PARTIAL'); assert.equal(cachedAtClose.finality,null);
 const freshUnverified=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3415,observedAt:'2026-09-18T06:30:00.000Z'},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:false}}},'2026-09-18','KRX_FINAL');
