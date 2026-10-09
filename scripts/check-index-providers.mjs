@@ -79,9 +79,36 @@ const missingCalendarDate=context.handleGetBenchmarks('KOSPI,KOSDAQ','2026-09-16
 if(missingCalendarDate.status!=='ok'
   ||missingCalendarDate.series.KOSPI.at(-1).date!=='2026-09-17'
   ||missingCalendarDate.series.KOSDAQ.at(-1).value!==890
-  ||missingCalendarDate.seriesMeta.KOSPI.verifiedEmptyDates.join(',')!=='2026-09-18'
+  ||missingCalendarDate.seriesMeta.KOSPI.verifiedClosedDates.length!==0
+  ||missingCalendarDate.seriesMeta.KOSPI.verificationToDate!=='2026-09-18'
   ||!krxAttempts.some(v=>v.date==='20260917'))
   throw new Error('Codex P2: 원천 200 + 빈 날짜 응답 후 전일 KRX 공식 종가 재조회 실패');
+context.UrlFetchApp={fetchAll:requests=>requests.map(request=>{
+  const kosdaq=request.url.includes('kosdaq_dd_trd');
+  const date=new URL(request.url).searchParams.get('basDd');
+  krxAttempts.push({market:kosdaq?'KOSDAQ':'KOSPI',date});
+  if(kosdaq)return {getResponseCode:()=>403,getContentText:()=>''};
+  return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:date==='20260918'?[]:
+    [{BAS_DD:'20260917',IDX_NM:'코스피',CLSPRC_IDX:'3,410.00'}]})};
+})};
+// 실제 휴장 10/09 + 주말 10/10-11: 전체 공식 CLOSED 날짜만 검증된 범위에 포함.
+const priorToday=context.today;
+context.today=()=> '2026-10-12';
+context.UrlFetchApp={fetchAll:requests=>requests.map(request=>{
+  const market=request.url.includes('kosdaq_dd_trd')?'KOSDAQ':'KOSPI';
+  const date=new URL(request.url).searchParams.get('basDd');
+  if(date!=='20261008')throw new Error('확정 휴장일은 불필요한 API 호출을 하지 않아야 함: '+date);
+  return {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[market==='KOSDAQ'
+    ?{BAS_DD:'20261008',IDX_NM:'코스닥',CLSPRC_IDX:'900'}
+    :{BAS_DD:'20261008',IDX_NM:'코스피',CLSPRC_IDX:'3520'}]})};
+})};
+const holiday=context.handleGetBenchmarks('KOSPI,KOSDAQ','2026-10-07','2026-10-11',true);
+if(holiday.status!=='ok'||holiday.seriesMeta.KOSPI.officialDate!=='2026-10-08'
+ ||holiday.seriesMeta.KOSPI.verificationToDate!=='2026-10-11'
+ ||holiday.seriesMeta.KOSPI.verifiedClosedDates.join(',')!=='2026-10-11,2026-10-10,2026-10-09')
+ throw new Error('확정 휴장일에는 증거 날짜 목록 및 기준일이 유지되어야 함');
+context.today=priorToday;
+// 인증 오류는 이전 거래일로 재시도하지 않습니다.
 context.UrlFetchApp={fetchAll:requests=>requests.map(request=>{
   const kosdaq=request.url.includes('kosdaq_dd_trd');
   const date=new URL(request.url).searchParams.get('basDd');
