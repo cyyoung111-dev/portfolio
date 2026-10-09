@@ -10967,13 +10967,10 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
         ? {date:scheduleDate,runId:String(owner.runId),
           startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
           errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []} : null};
-    // A prior completed UID may still need post-hard-kill reconciliation.
-    // Retain its exact reservation for its OWN trigger to finish and clean up;
-    // only genuinely obsolete same-day records may be displaced.
-    schedules = [next].concat(schedules.filter(function(item) {
-      return item.date !== scheduleDate
-        || (old && item.triggerId === old.triggerId && (alreadySucceeded || differentOwner));
-    }));
+    // Retain every still-live UID (including two or more earlier executions
+    // of this SAME date) until its own trigger reconciles and cleans it.
+    // The prefilter removed expired/exhausted records under this lock.
+    schedules = [next].concat(schedules);
     saveSchedules();
     persistOwnerSummary(props,triggerId);
     return {created:true, triggerId:triggerId};
