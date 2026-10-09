@@ -169,7 +169,7 @@ function validateQualityWorkflow(source) {
       'fi',
       '',
     ].join('\n')},
-    {name:'Verify every check script and run full CI', env:{npm_config_script_shell:'/bin/bash',npm_config_node_options:'--trace-warnings',NODE_OPTIONS:''}, run:'test ! -f .npmrc && npm run check:ci'},
+    {name:'Verify every check script and run full CI', env:{npm_config_script_shell:'/bin/bash',npm_config_node_options:'--trace-warnings',npm_config_ignore_scripts:'true',NODE_OPTIONS:''}, run:'test ! -f .npmrc && npm run check:ci'},
   ];
   assert.deepEqual(steps, allowedSteps,
     '전체 CI 전 단계의 구성·순서·실행 명령과 입력은 승인된 값만 허용합니다.');
@@ -206,6 +206,7 @@ const validWorkflow = [
   '        env:',
   '          npm_config_script_shell: /bin/bash',
   '          npm_config_node_options: --trace-warnings',
+  "          npm_config_ignore_scripts: 'true'",
   "          NODE_OPTIONS: ''",
   '        run: test ! -f .npmrc && npm run check:ci',
 ].join('\n');
@@ -263,7 +264,7 @@ invalidMutation(validWorkflow, '          npm_config_script_shell: /bin/bash',
 invalidMutation(validWorkflow, '          npm_config_script_shell: /bin/bash',
   '          npm_config_script_shell: /bin/true',
   /전체 CI 전 단계의 구성/);
-invalidMutation(validWorkflow, "        env:\n          npm_config_script_shell: /bin/bash\n          npm_config_node_options: --trace-warnings\n          NODE_OPTIONS: ''\n",
+invalidMutation(validWorkflow, "        env:\n          npm_config_script_shell: /bin/bash\n          npm_config_node_options: --trace-warnings\n          npm_config_ignore_scripts: 'true'\n          NODE_OPTIONS: ''\n",
   '', /full CI step|전체 CI 전 단계의 구성/);
 
 // The npm CLI can pass .npmrc node-options as NODE_OPTIONS to child scripts.
@@ -286,6 +287,10 @@ invalidMutation(validWorkflow,
 invalidMutation(validWorkflow, '          npm_config_node_options: --trace-warnings',
   "          npm_config_node_options: ''",
   /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, "          npm_config_ignore_scripts: 'true'",
+  "          npm_config_ignore_scripts: 'false'", /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, "          npm_config_ignore_scripts: 'true'\n",
+  "", /전체 CI 전 단계의 구성/);
 // Regressions for pre-check step injection, modification, reordered execution,
 // action/input replacement and alternate test entrypoint (PR #474 latest P2).
 invalidMutation(validWorkflow, '    steps:\n',
