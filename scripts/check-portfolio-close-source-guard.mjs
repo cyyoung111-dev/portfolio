@@ -389,17 +389,24 @@ assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, starte
 assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
   '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
 // Behavior regression for retry scheduling, not just source-pattern checks.
-function inspectFundReservation(old, clockDate, owner) {
+function inspectFundReservation(old, clockDate, owner, successMarker) {
   const propsBag=new Map();
   if (old) propsBag.set('portfolio_fund_deferred_schedule_v1', JSON.stringify(old));
+  if (successMarker) propsBag.set('portfolio_fund_deferred_success_v1',JSON.stringify(successMarker));
+  if (owner && owner.runId) {
+    propsBag.set('portfolio_close_run_id',owner.runId);
+    propsBag.set('portfolio_close_run_date',owner.date);
+  }
   const props={
     getProperty:key=>propsBag.get(key)||null,
-    setProperty:(key,value)=>propsBag.set(key,value)
+    setProperty:(key,value)=>propsBag.set(key,value),
+    deleteProperty:key=>propsBag.delete(key)
   };
   let created=0;
   const mockTrigger={getUniqueId:()=> 'new-uid'};
   const schedulerVm=vm.createContext({
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
     _portfolioFundAtomic_:cb=>cb(props),
     _portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
     ScriptApp:{newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({
@@ -440,6 +447,29 @@ assert.equal(ownerAfterMidnight.pending.date,'2026-10-08',
   '자정 이전 시작한 실패 마감의 NAV는 실제 실패처리가 자정 이후 끝나도 원 날짜에 예약');
 assert.equal(ownerAfterMidnight.pending.owner.runId,'close-2359',
   '예약한 이전 날짜의 실행 소유권을 잃지 않음');
+const completedPrevious={
+  date:'2026-10-08',until:20000,attempts:3,activeUntil:18000,
+  triggerId:'old-complete',owner:{date:'2026-10-08',runId:'close-1900',
+    startedAt:'2026-10-08 19:00:00',startedMs:1000}
+};
+const newClose={date:'2026-10-08',runId:'close-2030',
+  startedAt:'2026-10-08 20:30:00',startedMs:9000};
+const completedMarker={date:'2026-10-08',triggerId:'old-complete',
+  owner:completedPrevious.owner,at:8000};
+const overlappingClose=inspectFundReservation(completedPrevious,'2026-10-08',
+  newClose,completedMarker);
+assert.equal(overlappingClose.created,1,
+  '이전 NAV가 이미 성공했으면 activeUntil이 남아도 새 마감에 UID 재사용 금지');
+assert.equal(overlappingClose.pending.owner.runId,'close-2030',
+  '새 마감의 독립 UID는 반드시 새로운 실행 소유권 보유');
+assert.equal(overlappingClose.pending.additional[0].triggerId,'old-complete',
+  '이전 성공 UID는 자신의 후속 정합화에 사용하도록 보존');
+assert.equal(overlappingClose.pending.additional[0].owner.runId,'close-1900',
+  '이전 예약의 원 소유권을 덮어쓰면 안 됨');
+const foreignActive=inspectFundReservation(completedPrevious,'2026-10-08',newClose);
+assert.equal(foreignActive.created,1,
+  '다른 실행의 활성 예약도 새 runId로 재사용하지 않음');
+assert.equal(foreignActive.pending.additional[0].triggerId,'old-complete');
 assert.match(deferredSource,/cleanupTriggerId = triggerId \|\| String\(reservation\.triggerId \|\| ''\)/,
   '수동 호출에서 이벤트 UID가 없더라도 특정 예약 UID만 정리');
 assert.match(deferredSource,/if \(!pending \|\| !cleanupTriggerId \|\| pending\.triggerId !== cleanupTriggerId\) return/,
@@ -2292,9 +2322,11 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
  const bag=new Map(),p={getProperty:k=>bag.get(k)||null,
   setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
  const args=[];
+ let nextAttempt=0;
  const ctx=vm.createContext({
   PropertiesService:{getScriptProperties:()=>p},
   _portfolioFundAtomic_:cb=>cb(p),
+  Utilities:{getUuid:()=> 'attempt-'+(++nextAttempt)},
   today:()=> '2026-10-09', _normalizeDate:x=>String(x||''),
   getss:()=>({}),_fundDateOffset:()=> '2026-09-07',
   _refreshFundValuations:(ss,from,to)=>{
@@ -2332,6 +2364,34 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
   '전날 NAV 성공으로 더 최근 실패일의 운영 결과를 재게시하면 안 됨');
  assert.match(p.getProperty('fund_last_error'),/newer-day-failed/,
   '더 최근 시도일의 오류를 과거 NAV 성공이 제거하면 안 됨');
+ // Same business date, overlapping manual or legacy invocations:
+ // newer execution fails inside the older execution's data refresh.
+ bag.clear();
+ let overlapped=false;
+ ctx._refreshFundValuations=()=>{
+   if (!overlapped) {
+     overlapped=true;
+     const originalRefresh=ctx._refreshFundValuations;
+     ctx._refreshFundValuations=()=>{throw new Error('same-date-new-owner-error');};
+     assert.throws(()=>ctx.runDailyFundValuations('2026-10-09'),
+       /same-date-new-owner-error/);
+     ctx._refreshFundValuations=originalRefresh;
+     return {fundResults:{},missingHoldings:[],snapshotWarnings:[]};
+   }
+   return {fundResults:{},missingHoldings:[],snapshotWarnings:[]};
+ };
+ ctx.runDailyFundValuations('2026-10-09');
+ assert.match(p.getProperty('fund_last_error'),/same-date-new-owner-error/,
+   '동일 날짜 먼저 시작한 성공이 나중 실행의 실패를 삭제하면 안 됨');
+ assert.equal(p.getProperty('fund_last_result'),null,
+   '같은 날짜라도 최신 소유자가 아닌 완료는 운영 결과를 게시할 수 없음');
+ assert.equal(p.getProperty('fund_last_attempt_token'),'attempt-'+nextAttempt);
+ // A later same-date retry can own and clear the error after succeeding.
+ ctx._refreshFundValuations=()=>({fundResults:{},missingHoldings:[],snapshotWarnings:[]});
+ ctx.runDailyFundValuations('2026-10-09');
+ assert.equal(p.getProperty('fund_last_error'),null,
+   '동일 날짜 새 실행이 실제로 성공한 경우만 오래된 오류를 해제');
+ assert.equal(JSON.parse(p.getProperty('fund_last_result')).runDate,'2026-10-09');
 }
 console.log('✅ 소유권·자정 P2: 실제 deferred 정합화 및 지정 날짜 NAV 실행');
 
