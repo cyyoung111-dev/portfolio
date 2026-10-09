@@ -26,9 +26,19 @@ export function validateWebAppUrl(value) {
 export function summarizeKrxSource(data, date) {
   if (!data || data.status !== 'ok' || data.requestedDate !== date)
     throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
-  const configured = data.keyConfigured === true;
+  if (typeof data.keyConfigured !== 'boolean')
+    throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
+  const configured = data.keyConfigured;
+  // GAS returns status:ok, networkStatus:FETCH_FAILED, markets:[] (or partial
+  // results) if UrlFetchApp.fetchAll or a market response throws. This is
+  // source failure evidence, not an invalid schema. Keep the distinction.
+  const networkStatus = !configured ? 'NOT_CONFIGURED'
+    : data.networkStatus === 'RECEIVED' ? 'RECEIVED'
+    : data.networkStatus === 'FETCH_FAILED' ? 'FETCH_FAILED' : 'UNAVAILABLE';
   const incoming = data.markets;
-  if (!Array.isArray(incoming) || (configured && incoming.length !== 3))
+  if (!Array.isArray(incoming) || incoming.length > MARKETS.length
+      || (!configured && incoming.length !== 0)
+      || (networkStatus === 'RECEIVED' && incoming.length !== MARKETS.length))
     throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
   const byMarket = new Map();
   for (const market of incoming) {
@@ -44,10 +54,10 @@ export function summarizeKrxSource(data, date) {
   }
   const markets = MARKETS.map(name => byMarket.get(name) ||
     { market:name, httpStatus:0, rows:0, parseStatus:'NOT_PARSED' });
-  const healthy = configured && markets.every(row => row.httpStatus === 200
-    && row.rows > 0 && row.parseStatus === 'ROWS');
-  return { date, keyConfigured:configured, networkStatus: data.networkStatus === 'RECEIVED' ? 'RECEIVED' : 'UNAVAILABLE',
-    markets, healthy };
+  const healthy = configured && networkStatus === 'RECEIVED'
+    && markets.every(row => row.httpStatus === 200
+      && row.rows > 0 && row.parseStatus === 'ROWS');
+  return { date, keyConfigured:configured, networkStatus, markets, healthy };
 }
 export function buildSafeRequest(action, date, token) {
   if (!['getSettings', 'getKrxSourceDiagnostics'].includes(action))
