@@ -389,7 +389,7 @@ assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, starte
 assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
   '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
 // Behavior regression for retry scheduling, not just source-pattern checks.
-function inspectFundReservation(old, clockDate) {
+function inspectFundReservation(old, clockDate, owner) {
   const propsBag=new Map();
   if (old) propsBag.set('portfolio_fund_deferred_schedule_v1', JSON.stringify(old));
   const props={
@@ -409,7 +409,7 @@ function inspectFundReservation(old, clockDate) {
     Date:{now:()=>10000}
   });
   vm.runInContext(scheduleSource, schedulerVm);
-  const outcome=schedulerVm._scheduleFundAfterFailedPortfolioPrice_();
+  const outcome=schedulerVm._scheduleFundAfterFailedPortfolioPrice_(owner);
   return {outcome:JSON.parse(JSON.stringify(outcome)),created,
     pending:JSON.parse(propsBag.get('portfolio_fund_deferred_schedule_v1'))};
 }
@@ -430,6 +430,16 @@ const afterMidnight=inspectFundReservation(
   {date:'2026-10-08',until:20000,attempts:0,triggerId:'old-day-uid'},'2026-10-09');
 assert.equal(afterMidnight.created,1,'전날 예약은 만료 전이어도 새 날짜에 재사용하지 않음');
 assert.equal(afterMidnight.pending.date,'2026-10-09');
+assert.equal(afterMidnight.pending.additional[0].triggerId,'old-day-uid',
+  '자정 전 예약은 다음날 새 예약 생성 후에도 UID와 날짜가 보존');
+const ownerAfterMidnight=inspectFundReservation(null,'2026-10-09',{
+  date:'2026-10-08',runId:'close-2359',startedAt:'2026-10-08 23:59:00',
+  startedMs:9000,errors:['KRX FAILED']
+});
+assert.equal(ownerAfterMidnight.pending.date,'2026-10-08',
+  '자정 이전 시작한 실패 마감의 NAV는 실제 실패처리가 자정 이후 끝나도 원 날짜에 예약');
+assert.equal(ownerAfterMidnight.pending.owner.runId,'close-2359',
+  '예약한 이전 날짜의 실행 소유권을 잃지 않음');
 assert.match(deferredSource,/cleanupTriggerId = triggerId \|\| String\(reservation\.triggerId \|\| ''\)/,
   '수동 호출에서 이벤트 UID가 없더라도 특정 예약 UID만 정리');
 assert.match(deferredSource,/if \(!pending \|\| !cleanupTriggerId \|\| pending\.triggerId !== cleanupTriggerId\) return/,
@@ -444,8 +454,10 @@ assert.match(closeRunSource,/reason:'ISOLATED_NIGHTLY_BACKFILL'/,
 // Full executable lifecycle: a successful CLOSE cancels only same-day deferred
 // reservation while leaving a different business day's reservation untouched.
 function inspectCloseCompletion(reservationDate) {
-  const bag=new Map([['portfolio_fund_deferred_schedule_v1',
-    JSON.stringify({date:reservationDate,triggerId:'nav-T1',attempts:0,until:20000})]]);
+  const initial=typeof reservationDate==='string'
+    ? {date:reservationDate,triggerId:'nav-T1',attempts:0,until:20000}
+    : reservationDate;
+  const bag=new Map([['portfolio_fund_deferred_schedule_v1', JSON.stringify(initial)]]);
   let id=0;
   const props={
     getProperty:key=>bag.get(key)||null,
@@ -475,6 +487,12 @@ assert.notEqual(inspectCloseCompletion('2026-10-07').pending,null,
   '이전 날짜 예약은 당일 마감 성공에 따라 무분별하게 삭제하지 않음');
 assert.equal(inspectCloseCompletion('2026-10-08').lease,null,
   '정상 NAV 완료 후 정확한 lease 해제');
+const preservedOtherDay=inspectCloseCompletion({
+  date:'2026-10-08',triggerId:'nav-today',attempts:0,until:20000,
+  additional:[{date:'2026-10-07',triggerId:'nav-yesterday',attempts:0,until:20000}]
+});
+assert.equal(JSON.parse(preservedOtherDay.pending).triggerId,'nav-yesterday',
+  '오늘 CLOSE 성공은 전날의 별도 예약을 삭제하면 안 됨');
 const deferredBag=new Map([['portfolio_fund_deferred_schedule_v1',
   JSON.stringify({date:'2026-10-08',triggerId:'T-final',until:20000,attempts:2})]]);
 const deferredProps={
@@ -2156,10 +2174,11 @@ console.log('✅ 선제 교차경로: 가격 복구와 마감 UI의 동일 실�
 // using the reservation date, not cancel merely because today() changed.
 {
  const m=new Map([['portfolio_fund_deferred_schedule_v1',JSON.stringify({
-  date:'2026-10-08',triggerId:'overnight-uid',until:90000,attempts:0,
-  owner:{date:'2026-10-08',runId:'close-before-midnight',
-    startedAt:'2026-10-08 23:58:00',startedMs:1200,
-    errors:['일반 종목: KRX 조회 오류']}
+  date:'2026-10-09',triggerId:'today-uid',until:90000,attempts:0,
+  additional:[{date:'2026-10-08',triggerId:'overnight-uid',until:90000,attempts:0,
+    owner:{date:'2026-10-08',runId:'close-before-midnight',
+      startedAt:'2026-10-08 23:58:00',startedMs:1200,
+      errors:['일반 종목: KRX 조회 오류']}}]
  })]]);
  const p={getProperty:k=>m.get(k)||null,setProperty:(k,v)=>m.set(k,String(v)),
   deleteProperty:k=>m.delete(k)};
@@ -2185,8 +2204,11 @@ console.log('✅ 선제 교차경로: 가격 복구와 마감 UI의 동일 실�
  const result=ctx.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'overnight-uid'});
  assert.equal(executed,1,'자정 뒤에도 만료 전 이전 날짜 NAV 한 번 실행');
  assert.equal(executedDate,'2026-10-08','NAV 결과는 생성한 10월 8일 마감에 정합화');
- assert.equal(p.getProperty('portfolio_fund_deferred_schedule_v1'),null,
-  'NAV 성공 뒤 정확한 UID 예약만 완료');
+ const remaining=JSON.parse(p.getProperty('portfolio_fund_deferred_schedule_v1'));
+ assert.equal(remaining.triggerId,'today-uid',
+  '전날 UID 완료 뒤 당일 UID는 남아 있어야 함');
+ assert.equal(remaining.additional,undefined,
+  '완료된 전날 UID는 다른 예약과 함께 다시 저장되면 안 됨');
 }
 
 // Latest Codex P2: before a 6-minute hard kill the PRICE failure owner must
