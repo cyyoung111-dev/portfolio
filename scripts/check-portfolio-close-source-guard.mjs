@@ -2294,6 +2294,7 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
  const args=[];
  const ctx=vm.createContext({
   PropertiesService:{getScriptProperties:()=>p},
+  _portfolioFundAtomic_:cb=>cb(p),
   today:()=> '2026-10-09', _normalizeDate:x=>String(x||''),
   getss:()=>({}),_fundDateOffset:()=> '2026-09-07',
   _refreshFundValuations:(ss,from,to)=>{
@@ -2317,6 +2318,20 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
  assert.throws(()=>ctx.runDailyFundValuations('2026-10-08'),/old-date-failure/);
  assert.equal(p.getProperty('fund_last_error'),null,
   '과거 NAV 실패는 최근 날짜의 운영 오류로 오표시하면 안 됨');
+ // Latest-day failure has no latest success result. The attempt marker must
+ // still prevent a backdated success from clearing its error or taking over.
+ bag.clear();
+ ctx._refreshFundValuations=()=>{throw new Error('newer-day-failed');};
+ assert.throws(()=>ctx.runDailyFundValuations('2026-10-09'),/newer-day-failed/);
+ assert.equal(p.getProperty('fund_last_attempt_date'),'2026-10-09',
+  '성공 여부와 무관하게 최신 시도 날짜를 먼저 보존');
+ assert.match(p.getProperty('fund_last_error'),/newer-day-failed/);
+ ctx._refreshFundValuations=()=>({fundResults:{},missingHoldings:[],snapshotWarnings:[]});
+ ctx.runDailyFundValuations('2026-10-08');
+ assert.equal(p.getProperty('fund_last_result'),null,
+  '전날 NAV 성공으로 더 최근 실패일의 운영 결과를 재게시하면 안 됨');
+ assert.match(p.getProperty('fund_last_error'),/newer-day-failed/,
+  '더 최근 시도일의 오류를 과거 NAV 성공이 제거하면 안 됨');
 }
 console.log('✅ 소유권·자정 P2: 실제 deferred 정합화 및 지정 날짜 NAV 실행');
 
