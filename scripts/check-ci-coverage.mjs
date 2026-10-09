@@ -305,7 +305,7 @@ try {
   fs.writeFileSync(path.join(temp, '.npmrc'), 'script-shell=/bin/true\n');
   fs.writeFileSync(path.join(temp, 'package.json'), JSON.stringify({
     name:'portfolio-ci-shell-probe', private:true,
-    scripts:{probe:"node -e \"console.log('CI_SHELL_PROBE_EXECUTED')\""},
+    scripts:{probe:"node -e \"console.log('CI_SHELL_'+'PROBE_EXECUTED')\""},
   }));
   const env = Object.fromEntries(Object.entries(process.env).filter(
     ([key]) => key.toLowerCase() !== 'npm_config_script_shell'));
