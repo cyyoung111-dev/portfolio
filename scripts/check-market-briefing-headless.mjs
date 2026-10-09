@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
+import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
 import fs from 'node:fs';
 import { createRequest, diagnosticFor, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
 
@@ -45,6 +46,32 @@ assert.equal((await createRequest('https://example.test','secret',fxFetch({statu
 assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'NO_DATA',history:[]}))('getExchangeRateHistory')).status,'NO_DATA');
 await assert.rejects(()=>createRequest('https://example.test','secret',fxFetch({status:'MISSING_SOURCE'}))('getExchangeRateHistory'),/FX_MISSING_SOURCE/);
 await assert.rejects(()=>createRequest('https://example.test','secret',fxFetch({status:'INVALID_SCHEMA'}))('getExchangeRateHistory'),/FX_INVALID_SCHEMA/);
+
+const yahooFxPayload={chart:{result:[{
+ meta:{symbol:'KRW=X',currency:'KRW'},
+ timestamp:[Date.parse('2026-10-07T00:00:00Z')/1000,
+            Date.parse('2026-10-08T00:00:00Z')/1000,
+            Date.parse('2026-10-09T00:00:00Z')/1000],
+ indicators:{quote:[{close:[1339.16,1344.75,0]}]},
+}]}};
+const fxDaily=await fetchUsdKrwYahooDaily({
+ from:'2026-10-07',to:'2026-10-09',
+ fetchImpl:async(url,opts)=>{
+  assert.equal(new URL(url).hostname,'query1.finance.yahoo.com');
+  assert.ok(new URL(url).pathname.endsWith('/KRW%3DX'));
+  assert.ok(opts.signal instanceof AbortSignal);
+  return {ok:true,json:async()=>yahooFxPayload};
+ }});
+assert.deepEqual(fxDaily.history.map(r=>r.date),['2026-10-07','2026-10-08'],
+ 'No fabricated 10/09 FX close; only actual, positive, dated provider candles');
+assert.equal(fxDaily.history[0].rate,1339.16);
+assert.equal(fxDaily.source,'YAHOO_USDKRW_DELAYED_DAILY');
+await assert.rejects(()=>fetchUsdKrwYahooDaily({from:'2026-10-07',to:'2026-10-09',
+ fetchImpl:async()=>({ok:true,json:async()=>({chart:{result:[{...yahooFxPayload.chart.result[0],meta:{symbol:'JPY=X',currency:'JPY'}}]}})})}),/INVALID_SCHEMA/);
+await assert.rejects(()=>fetchUsdKrwYahooDaily({from:'2026-10-10',to:'2026-10-07',fetchImpl:async()=>{throw Error('SHOULD_NOT_REQUEST');}}),/INVALID_RANGE/);
+await assert.rejects(()=>fetchUsdKrwYahooDaily({from:'2026-10-07',to:'2026-10-09',
+ fetchImpl:async()=>({ok:false,status:429})}),/FX_YAHOO_HTTP_429/);
+
 let observations=[],snapshots=[],snapshotPosts=0,requestParams={};
 const request=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations};
@@ -70,6 +97,25 @@ assert.equal(closedEvening.skippedDomestic,true,'KRX 휴장 마감에는 정규�
 assert.ok(closedEvening.sync,'해외/FX 원천 관측은 휴장일에도 계속 수집');
 assert.equal(snapshots.length,0,'휴장일 동일 날짜 가짜 국내 마감 스냅샷 없음');
 assert.equal(diagnosticFor(closedEvening).published,false);
+const fxFallbackCalls=[];
+const gasNoFx=async (action,params)=>action==='getExchangeRateHistory'
+ ? Promise.reject(new Error('FX_MISSING_SOURCE')):request(action,params);
+const fallbackEvening=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:gasNoFx,fxFallback:async args=>{
+  fxFallbackCalls.push(args);
+  return {status:'ok',source:'YAHOO_USDKRW_DELAYED_DAILY',history:[{date:'2026-10-08',rate:1344.75,currency:'USD'}]};
+ }});
+assert.equal(fxFallbackCalls.length,1,'Only missing FX source triggers the fallback');
+assert.equal(fxFallbackCalls[0].to,'2026-10-09');
+assert.equal(fallbackEvening.sync.errors?.USDKRW,undefined,
+ 'Verified fallback must be ingested, not silently reported as missing FX');
+let fallbackOnAuth=0;
+await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:async (action,params)=>action==='getExchangeRateHistory'
+  ? Promise.reject(new Error('GAS_HTTP_403')):request(action,params),
+ fxFallback:async()=>{fallbackOnAuth++;throw Error('MUST_NOT_USE_FALLBACK');}});
+assert.equal(fallbackOnAuth,0,'An auth failure must never be hidden by FX Yahoo fallback');
+
 globalThis.localStorage.clear(); observations=[]; snapshots=[]; snapshotPosts=0;
 let result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
 assert.equal(result.decision.publishable,true,'KIS 없이 KRX 공식 NIGHT_FINAL로 MORNING publish 가능');
