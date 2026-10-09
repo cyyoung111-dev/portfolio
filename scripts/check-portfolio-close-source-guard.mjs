@@ -2354,3 +2354,98 @@ console.log('✅ 소유권·자정 P2: 실제 deferred 정합화 및 지정 날�
   '오래된 작업이 이후 다른 runId를 가진 상태를 덮지 못함');
 }
 console.log('✅ 선제 운영 충돌: NAV 예약과 PRICE 실패 summary 같은 실행 소유권');
+
+
+// Codex P2: a later business day's deferred marker may not destroy yesterday's
+// proof. These are production functions, not hand-written behavioral copies.
+{
+ const bag=new Map(),props={getProperty:k=>bag.get(k)||null,
+   setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+ let uid=0;
+ const vmCtx=vm.createContext({
+  Date:{now:()=>10000},today:()=> '2026-10-09',
+  Utilities:{getUuid:()=> 'lease-'+(++uid)},
+  _portfolioFundAtomic_:f=>f(props),
+  _portfolioFundState_:(p,k)=>JSON.parse(p.getProperty(k)||'null'),
+  _fundPropertyText:String,
+  PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
+  PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+  PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
+  PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+  PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'portfolio_close_backfill_lease_v1',
+  runDailyFundValuations:date=>({lastDate:date})
+ });
+ vm.runInContext(guardedFundSource,vmCtx);
+ const ownerA={date:'2026-10-08',runId:'A',startedAt:'2026-10-08 23:59:00',startedMs:1000,
+  errors:['일반 종목: 가격 실패']};
+ const ownerB={date:'2026-10-09',runId:'B',startedAt:'2026-10-09 00:01:00',startedMs:1100};
+ vmCtx._runPortfolioFundWithLease_('DEFERRED','uid-A','2026-10-08',ownerA);
+ vmCtx._runPortfolioFundWithLease_('DEFERRED','uid-B','2026-10-09',ownerB);
+ const saved=JSON.parse(props.getProperty('portfolio_fund_deferred_success_v1'));
+ assert.equal(saved.triggerId,'uid-B','최근 완료한 NAV의 UID 유지');
+ assert.equal(saved.additional[0].triggerId,'uid-A',
+   '다른 날짜 NAV의 성공 마커를 덮지 않고 유지');
+ bag.set('portfolio_close_run_id','A');
+ bag.set('portfolio_close_run_date','2026-10-08');
+ bag.set('portfolio_close_run_started_ms','1000');
+ bag.set('portfolio_close_run_started_at','2026-10-08 23:59:00');
+ bag.set('portfolio_close_stage','ERROR');
+ bag.set('portfolio_close_last_result',JSON.stringify({
+  runId:'A',runDate:'2026-10-08',startedMs:1000,
+  startedAt:'2026-10-08 23:59:00',priceOk:false,fundOk:false,
+  fundDeferred:true,fundDeferredTriggerId:'uid-A',
+  errors:['일반 종목: 가격 실패']
+ }));
+ vm.runInContext(extract('_reconcilePortfolioFundBusy_'),vmCtx);
+ vmCtx._reconcilePortfolioFundBusy_('2026-10-08');
+ const last=JSON.parse(props.getProperty('portfolio_close_last_result'));
+ assert.equal(last.fundOk,true,'뒤늦은 A 정합화는 B 마커가 있어도 성공');
+ assert.equal(last.priceOk,false,'실패한 PRICE를 성공으로 바꾸지 않음');
+ assert.deepEqual(last.errors,['일반 종목: 가격 실패']);
+}
+
+// Codex P2: a third attempt hard-killed after durable NAV success must
+// reconcile before the next firing deletes its exhausted repeating UID.
+{
+ const key='portfolio_fund_deferred_schedule_v1';
+ const bag=new Map([[key,JSON.stringify({date:'2026-10-08',triggerId:'uid-A',
+   attempts:3,until:20000})],
+ ['portfolio_fund_deferred_success_v1',JSON.stringify({
+   date:'2026-10-09',triggerId:'uid-B',at:9000,
+   additional:[{date:'2026-10-08',triggerId:'uid-A',at:9000}]
+ })]]);
+ const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+   deleteProperty:k=>bag.delete(k)};
+ let reconciles=0, navCalls=0, deletions=0, failReconcile=false;
+ const vmCtx=vm.createContext({
+  Date:{now:()=>10000}, today:()=> '2026-10-09',
+  PORTFOLIO_FUND_SCHEDULE_KEY:key,
+  PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+  _portfolioFundAtomic_:cb=>cb(p),
+  _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+  ScriptApp:{getProjectTriggers:()=>[{
+     getHandlerFunction:()=> 'runDeferredFundAfterPortfolioCloseFailure',
+     getUniqueId:()=> 'uid-A'}],deleteTrigger:()=>{deletions++;}},
+  _appendPortfolioCloseSyncLog:()=>{},
+  _reconcilePortfolioFundBusy_:date=>{
+    reconciles++;
+    assert.equal(date,'2026-10-08');
+    assert.ok(p.getProperty(key),'예약 제거 전에 성공 마커를 정합화');
+    if(failReconcile)throw new Error('injected-reconcile-failure');
+  },
+  _runPortfolioFundWithLease_:()=>{navCalls++;throw new Error('should not rerun NAV');}
+ });
+ vm.runInContext(deferredSource,vmCtx);
+ const res=vmCtx.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'uid-A'});
+ assert.equal(res.reason,'RETRY_EXHAUSTED');
+ assert.equal(reconciles,1,'소진 예약도 성공 마커 재정합화를 수행');
+ assert.equal(navCalls,0,'이미 성공한 NAV는 재조회하지 않음');
+ assert.equal(p.getProperty(key),null,'성공 증거 확인 후 예약 삭제');
+ assert.equal(deletions,1);
+ bag.set(key,JSON.stringify({date:'2026-10-08',triggerId:'uid-A',attempts:3,until:20000}));
+ failReconcile=true;
+ assert.throws(()=>vmCtx.runDeferredFundAfterPortfolioCloseFailure({triggerUid:'uid-A'}),
+   /injected-reconcile-failure/);
+ assert.ok(p.getProperty(key),'정합화 실패 때는 강제 종료 이후 재시도 증거 유지');
+}
+console.log('✅ 다중 거래일 성공 마커·3회차 하드킬 정합화 회귀');
