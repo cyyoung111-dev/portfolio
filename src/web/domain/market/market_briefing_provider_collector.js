@@ -14,8 +14,12 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  const source=String(point.source||providerMeta&&providerMeta.source||sourceFor(type)),sourceDate=String(point.date),isCurrent=sourceDate===tradingDate;
  const delayed=Boolean(point.delayed||point.status==='DELAYED'||source==='YAHOO');
  const observedAt=point.observedAt&&Number.isFinite(Date.parse(point.observedAt))?point.observedAt:null;
- const krxCloseVerified=isCurrent&&source==='KRX_OFFICIAL'&&KRX_FINAL_CHECKPOINTS.includes(checkpoint)&&!delayed&&providerMeta&&providerMeta.confirmedClose===true&&observedAt;
- const final=!isCurrent||krxCloseVerified;
+ // Toss 일봉은 이전 날짜라는 이유만으로 확정 종가가 되지 않습니다.
+ // KRX 공식 API로 확인된 정규장 종가만 국내 대표지수 FINAL로 승격합니다.
+ const isKrIndex=type==='KOSPI'||type==='KOSDAQ';
+ const krxCloseVerified=Boolean(source==='KRX_OFFICIAL'&&!delayed&&providerMeta&&providerMeta.confirmedClose===true
+  &&observedAt&&(!isCurrent||KRX_FINAL_CHECKPOINTS.includes(checkpoint)));
+ const final=isKrIndex?krxCloseVerified:(!isCurrent||krxCloseVerified);
  const market=(type.startsWith('KOS')||type==='VKOSPI')?'KRX':type==='DXY'?'FX':type==='UST10Y'?'US_RATES':(type==='WTI'||type==='GOLD')?'COMMODITY':type==='BTC'?'CRYPTO':'US';
  return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:delayed&&isCurrent?'DELAYED':final?'FINAL':'PARTIAL',
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market,currency:null,
@@ -38,7 +42,7 @@ async function collect(request,tradingDate,options={}){
  const from=options.from||lookback(tradingDate),to=options.to||tradingDate;
  const payload={},missing=[],errors={};
  try{
-  const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from,to,fresh:KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
+  const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from,to,fresh:(KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)||options.checkpoint==='MORNING')?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
   for(const type of REQUEST_TYPES){const point=latest(data&&data.series&&data.series[type]);if(!point){missing.push(type);continue;}payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate,options.checkpoint);}
   Object.assign(errors,(data&&data.errors)||{});
  }catch(error){for(const type of REQUEST_TYPES)missing.push(type);errors.getBenchmarks=String(error&&error.message||error);}
