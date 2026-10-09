@@ -470,6 +470,18 @@ const foreignActive=inspectFundReservation(completedPrevious,'2026-10-08',newClo
 assert.equal(foreignActive.created,1,
   '다른 실행의 활성 예약도 새 runId로 재사용하지 않음');
 assert.equal(foreignActive.pending.additional[0].triggerId,'old-complete');
+const threeOwners=inspectFundReservation({
+  date:'2026-10-08',triggerId:'close-2030-uid',until:20000,attempts:0,
+  owner:newClose,additional:[completedPrevious]
+},'2026-10-08',{
+  date:'2026-10-08',runId:'close-2100',
+  startedAt:'2026-10-08 21:00:00',startedMs:9500
+});
+assert.equal(threeOwners.created,1,
+  '같은 거래일 세 번째 마감도 다른 run ID 예약을 그대로 재사용하면 안 됨');
+assert.deepEqual(threeOwners.pending.additional.map(x=>x.triggerId),
+  ['close-2030-uid','old-complete'],
+  '동일 날짜의 기존 두 UID는 후속 정합화/정리 전 모두 보존');
 assert.match(deferredSource,/cleanupTriggerId = triggerId \|\| String\(reservation\.triggerId \|\| ''\)/,
   '수동 호출에서 이벤트 UID가 없더라도 특정 예약 UID만 정리');
 assert.match(deferredSource,/if \(!pending \|\| !cleanupTriggerId \|\| pending\.triggerId !== cleanupTriggerId\) return/,
