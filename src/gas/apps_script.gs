@@ -10746,6 +10746,16 @@ function _recordPortfolioCloseStage(props, runDate, startedAt, stage, runId, sum
       // Read success marker under the same lock as the final result write.
       // This closes the window between deferred completion and close summary storage.
       var fundSuccess = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
+      var successCandidates = fundSuccess
+        ? [fundSuccess].concat(Array.isArray(fundSuccess.additional) ? fundSuccess.additional : []) : [];
+      // A later date's successful NAV must not shadow this close's exact
+      // UID/token. Older single-marker properties remain readable.
+      fundSuccess = successCandidates.filter(function(marker) {
+        return marker.date === runDate && (
+          (summary.fundDeferredTriggerId && marker.triggerId === summary.fundDeferredTriggerId)
+          || (summary.fundBusyTriggerId && marker.triggerId === summary.fundBusyTriggerId)
+          || (summary.fundBusyToken && marker.token === summary.fundBusyToken));
+      })[0] || null;
       var priceFailureSuccess = !summary.priceOk && summary.fundDeferred
         && summary.fundDeferredTriggerId && fundSuccess
         && fundSuccess.triggerId === summary.fundDeferredTriggerId
@@ -10974,10 +10984,21 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
     var result = runDailyFundValuations(date);
     _portfolioFundAtomic_(function(props) {
       if (origin === 'DEFERRED') {
-        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY,
-          JSON.stringify({date:date, at:Date.now(), token:token,
-            triggerId:String(deferredTriggerId || ''),
-            owner:reservedOwner && reservedOwner.runId ? reservedOwner : null}));
+        var prior = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
+        var markers = prior ? [prior].concat(Array.isArray(prior.additional) ? prior.additional : []) : [];
+        if (prior) delete prior.additional;
+        var current = {date:date, at:Date.now(), token:token,
+          triggerId:String(deferredTriggerId || ''),
+          owner:reservedOwner && reservedOwner.runId ? reservedOwner : null};
+        // A previous date can finish after today's NAV, or vice versa.
+        // Retain a bounded list of independently owned success proofs
+        // under one ScriptLock-protected property, never a single last-writer.
+        markers = [current].concat(markers.filter(function(item) {
+          return item && (item.date !== date || item.triggerId !== current.triggerId)
+            && Number(item.at || 0) >= Date.now() - 48 * 60 * 60 * 1000;
+        })).slice(0,6);
+        if (markers.length > 1) markers[0].additional = markers.slice(1);
+        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY, JSON.stringify(markers[0]));
       } else if (origin === 'CLOSE') {
         // A close can die after NAV successfully commits but before the final
         // stage/result property write. Persist an exact run-id success proof.
@@ -11065,6 +11086,20 @@ function _reconcilePortfolioFundBusy_(date) {
   _portfolioFundAtomic_(function(props) {
     var last = _portfolioFundState_(props, 'portfolio_close_last_result');
     var success = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
+    var markers = success ? [success].concat(Array.isArray(success.additional) ? success.additional : []) : [];
+    // Prefer the exact run's UID/token/owner; never let a later NAV
+    // for a different date replace the only available matching proof.
+    var currentCloseId = String(props.getProperty('portfolio_close_run_id') || '');
+    success = markers.filter(function(marker) {
+      if (!marker || marker.date !== date) return false;
+      if (last && last.runDate === date) {
+        return !!((last.fundDeferredTriggerId && marker.triggerId === last.fundDeferredTriggerId)
+          || (last.fundBusyTriggerId && marker.triggerId === last.fundBusyTriggerId)
+          || (last.fundBusyToken && marker.token === last.fundBusyToken)
+          || (last.runId && marker.owner && marker.owner.runId === last.runId));
+      }
+      return !!(marker.owner && marker.owner.runId === currentCloseId);
+    })[0] || markers.filter(function(marker) { return marker && marker.date === date; })[0];
     if (!success || success.date !== date) return;
     // Reservation ownership is persisted before the summary write. If GAS
     // was hard-killed between them, reconstruct ONLY the exact run that still
@@ -11156,8 +11191,18 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     // Another firing of the same recurring trigger cannot consume attempt 3
     // or delete the reservation while the current attempt is still starting/running.
     if (Number(pending.activeUntil || 0) > Date.now()) return {busy:true};
-    if (pending.until <= Date.now() || pending.attempts >= 3)
-      return {cleanup:true, triggerId:pending.triggerId};
+    if (pending.until <= Date.now() || pending.attempts >= 3) {
+      // The third NAV may have committed just before a GAS hard timeout.
+      // Defer deletion until the saved UID/date proof is reconciled.
+      var successState = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
+      var successes = successState
+        ? [successState].concat(Array.isArray(successState.additional) ? successState.additional : []) : [];
+      var succeeded = successes.some(function(marker) {
+        return marker && marker.date === pending.date && marker.triggerId === pending.triggerId;
+      });
+      return {cleanup:true, triggerId:pending.triggerId,
+        reconcileDate:succeeded ? pending.date : ''};
+    }
     var running = _portfolioFundState_(props, PORTFOLIO_FUND_LEASE_KEY);
     if (running && running.until > Date.now()) return {busy:true};
     var replay = _portfolioFundState_(props, PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY);
@@ -11192,7 +11237,16 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
   var cleanupTriggerId = triggerId || String(reservation.triggerId || '');
   if (!shouldRun && !shouldCleanup) return {skipped:true, reason:'FUND_BUSY_RETRY_LATER'};
   try {
-    if (!shouldRun) return {skipped:true, reason:'RETRY_EXHAUSTED'};
+    if (!shouldRun) {
+      if (reservation.reconcileDate) {
+        // Failed reconciliation must leave the bounded reservation durable
+        // for the next firing instead of discarding the only recovery chance.
+        shouldCleanup = false;
+        _reconcilePortfolioFundBusy_(reservation.reconcileDate);
+        shouldCleanup = true;
+      }
+      return {skipped:true, reason:'RETRY_EXHAUSTED'};
+    }
     var targetDate = reservation.runDate || runDate;
     _appendPortfolioCloseSyncLog('FUND_DEFERRED_START', targetDate, '', '가격 실패 이후 독립 펀드 평가');
     var result = _runPortfolioFundWithLease_('DEFERRED', reservation.triggerId, targetDate, reservation.owner);
