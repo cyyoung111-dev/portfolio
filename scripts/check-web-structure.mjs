@@ -7,3 +7,17 @@ const allowedUnreferencedJs=new Set(['src/web/sw.js','src/web/domain/market/mark
 const fail=msg=>{console.error(`❌ ${msg}`);process.exitCode=1;},warn=msg=>console.warn(`⚠️  ${msg}`),ok=msg=>console.log(`✅ ${msg}`);
 if(!fs.existsSync(indexPath)){fail('src/web/index.html not found');process.exit(process.exitCode??1);}const html=fs.readFileSync(indexPath,'utf8'),scriptRe=/<script\s+defer\s+src="([^"]+)"\s*><\/script>/g,srcs=[];let m;while((m=scriptRe.exec(html))!==null)srcs.push(m[1]);if(srcs.length===0)fail('No deferred script tags found in src/web/index.html');const localSrcs=srcs.filter(s=>!/^https?:\/\//.test(s)),normalizedLocalSrcs=localSrcs.map(s=>s.split('?')[0]),missing=normalizedLocalSrcs.filter(s=>!fs.existsSync(path.join(webRoot,s)));if(missing.length>0)for(const p of missing)fail(`Missing include target: src/web/${p}`);if(missing.length===0)ok(`All local includes exist (${normalizedLocalSrcs.length} files)`);
 const collect=dir=>{const out=[];if(!fs.existsSync(dir))return out;const stack=[dir];while(stack.length){const cur=stack.pop();for(const ent of fs.readdirSync(cur,{withFileTypes:true})){const full=path.join(cur,ent.name);if(ent.isDirectory())stack.push(full);else if(ent.isFile()&&ent.name.endsWith('.js'))out.push(full);}}return out;};const allJs=collect(webRoot),hashMap=new Map();for(const f of allJs){const hash=crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'),rel=path.relative(repoRoot,f).replace(/\\/g,'/');if(!hashMap.has(hash))hashMap.set(hash,[]);hashMap.get(hash).push(rel);}const duplicateGroups=[...hashMap.values()].filter(g=>g.length>1);if(duplicateGroups.length>0){for(const group of duplicateGroups)warn(`Duplicate-content JS files:\n  - ${group.join('\n  - ')}`);fail(`Found ${duplicateGroups.length} duplicate-content group(s)`);}else ok('No duplicate-content JS files detected under src/web');const loadedSet=new Set(normalizedLocalSrcs.map(s=>path.join('src/web',s).replace(/\\/g,'/'))),unreferenced=allJs.map(f=>path.relative(repoRoot,f).replace(/\\/g,'/')).filter(rel=>!loadedSet.has(rel)&&!allowedUnreferencedJs.has(rel));if(unreferenced.length>0){warn(`Unreferenced JS files from index.html includes: ${unreferenced.length}`);for(const rel of unreferenced)warn(`  - ${rel}`);if(failOnUnreferenced)fail('Unreferenced JS files detected in strict mode');}if(process.exitCode&&process.exitCode!==0)process.exit(process.exitCode??1);ok('Web structure check passed');
+
+
+// check market briefing cache coherency: runtime dependency changes must reach browser entrypoint.
+const briefingRelease='20261009-3';
+const bootstrapPath=path.join(webRoot,'app/bootstrap.js'),swPath=path.join(webRoot,'sw.js');
+const bootstrap=fs.readFileSync(bootstrapPath,'utf8'),sw=fs.readFileSync(swPath,'utf8');
+for(const file of ['market_briefing_operational_gate.js','market_briefing_provider_collector.js']){
+  if(!bootstrap.includes(`domain/market/${file}?v=${briefingRelease}`))fail(`Stale market briefing runtime include: ${file}`);
+}
+if(!html.includes(`app/bootstrap.js?v=${briefingRelease}`))fail('Stale index bootstrap JS reference');
+if(!html.includes(`sw.js?v=${briefingRelease}`))fail('Stale service worker registration');
+if(!sw.includes(`portfolio-cache-${briefingRelease}`))fail('Stale service worker cache name');
+if(process.exitCode&&process.exitCode!==0)process.exit(process.exitCode);
+ok('Market briefing bootstrap, dynamic module and service worker release versions aligned');

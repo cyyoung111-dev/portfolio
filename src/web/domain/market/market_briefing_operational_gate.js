@@ -21,6 +21,40 @@
       row.status === 'FINAL' && row.finality === 'REGULAR_CLOSE' && row.tradingDate === tradingDate;
   }
 
+  function previousWeekday(date) {
+    const d = new Date(date + 'T00:00:00Z');
+    if (!Number.isFinite(d.getTime())) return '';
+    for (let i=0;i<7;i++) {
+      d.setUTCDate(d.getUTCDate()-1);
+      if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6) return d.toISOString().slice(0,10);
+    }
+    return '';
+  }
+
+  function hasScopedKrxGapProof(row, targetTradingDate) {
+    // 이전 실행에서 받은 공백 표시는 이번 장전 목표일의 증거가 아닙니다.
+    const proof = String(row && row.quality || '');
+    const match = /^KRX_CONFIRMED_CLOSED_GAP@(\d{4}-\d{2}-\d{2})\|((?:\d{4}-\d{2}-\d{2})(?:,\d{4}-\d{2}-\d{2})*)$/.exec(proof);
+    if (!match || !row || !/^\d{4}-\d{2}-\d{2}$/.test(targetTradingDate)) return false;
+    const target = new Date(targetTradingDate + 'T00:00:00Z');
+    if (!Number.isFinite(target.getTime())) return false;
+    target.setUTCDate(target.getUTCDate() - 1);
+    const lastChecked = target.toISOString().slice(0, 10);
+    if (match[1] !== lastChecked || !(row.tradingDate < lastChecked)) return false;
+    const cursor = new Date(row.tradingDate + 'T00:00:00Z');
+    if (!Number.isFinite(cursor.getTime())) return false;
+    const expected = [];
+    for (let n = 0; n < 10; n++) {
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+      const next = cursor.toISOString().slice(0, 10);
+      if (next > lastChecked) break;
+      expected.push(next);
+    }
+    if (!expected.length || expected[expected.length - 1] !== lastChecked) return false;
+    const actual = match[2].split(',').sort();
+    return actual.length === expected.length && actual.every((date, index) => date === expected[index]);
+  }
+
   function evaluate(masterApi, rows, tradingDate, checkpoint) {
     const required = REQUIRED_BY_CHECKPOINT[checkpoint];
     if (!required) throw new Error('unsupported checkpoint');
@@ -41,6 +75,32 @@
     const k200 = snapshot.values.K200_NIGHT;
     if (checkpoint === 'MORNING' && k200 && !(k200.tradingDate === tradingDate && k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
     if (checkpoint === 'EVENING' && k200 && k200.status === 'FINAL' && k200.tradingDate === tradingDate) warnings.push('K200_NIGHT:COMPLETED_NIGHT_FINAL');
+    if (checkpoint === 'MORNING') {
+      // 기존 master에서 오래된 FINAL이 PARTIAL보다 우선 선택되더라도
+      // 실제 최근 거래일 관측과 비교하여 stale 종가를 발행하지 않습니다.
+      const nearestWeekday = previousWeekday(tradingDate);
+      ['KOSPI','KOSDAQ'].forEach((id) => {
+        const row = snapshot.values[id];
+        if (!row) return;
+        if (!(row.market === 'KRX' && row.session === 'REGULAR'
+            && row.source === 'KRX_OFFICIAL' && row.status === 'FINAL'
+            && row.finality === 'REGULAR_CLOSE' && row.tradingDate < tradingDate)) {
+          bad.push(`${id}:NOT_CONFIRMED_PREVIOUS_REGULAR_CLOSE`);
+          return;
+        }
+        const latestKnown = (rows || []).filter((item) => item && item.seriesId === id
+          && item.tradingDate < tradingDate && /^\d{4}-\d{2}-\d{2}$/.test(item.tradingDate))
+          .reduce((latest,item) => item.tradingDate > latest ? item.tradingDate : latest, '');
+        if (latestKnown > row.tradingDate) {
+          bad.push(`${id}:STALE_OFFICIAL_CLOSE`);
+        } else if (nearestWeekday && row.tradingDate < nearestWeekday) {
+          // 실제로 확인한 휴장일이 이번 목표일의 모든 날짜 공백을 덮어야 합니다.
+          // 기존 단순 quality flag나 과거 목표일에 발급된 proof는 인정하지 않습니다.
+          if (!hasScopedKrxGapProof(row, tradingDate)) bad.push(`${id}:UNVERIFIED_CLOSE_DATE_GAP`);
+          else warnings.push(`${id}:KRX_CONFIRMED_DATA_GAP`);
+        }
+      });
+    }
     if (checkpoint === 'KRX_FINAL' || checkpoint === 'EVENING') {
       KRX_SAME_DAY_SERIES.forEach((id) => {
         const row = snapshot.values[id];

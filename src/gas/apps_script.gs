@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.191
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.192
+//
+//  v9.192 변경사항 (2026.10.09):
+//   장전 브리핑에서 Toss 실패 시 직전 KRX 정규장 공식 종가 조회
+//   주식/지수 시장별 KRX HTTP/응답 오류 기록 및 불필요한 인증 실패 재시도 방지
+//   정규장 확정 종가만 FINAL로 분류하도록 브리핑 공급원 보강
 //
 //  v9.191 변경사항 (2026.10.08~10.09):
 //   자정 이후 지연 NAV도 원 예약일 기준으로 실행하고 해당 날짜 결과에 정합화
@@ -2083,7 +2088,7 @@ function handleGetKrxOfficialStockCloses(dateStr, codesInput) {
 }
 
 function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback) {
-  var result = {};
+  var result = {}, blockedMarkets = {};
   var fetchPairs = function(pairs) {
     if (pairs.length === 0) return;
     var requests = pairs.map(function(info) {
@@ -2095,18 +2100,28 @@ function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback
     UrlFetchApp.fetchAll(requests).forEach(function(resp, index) {
       var info = pairs[index];
       if (result[info.market] && result[info.market].rows.length > 0) return;
-      if (resp.getResponseCode() >= 400) return;
+      var status = resp.getResponseCode();
+      if (status >= 400) {
+        if (info.ymd === ymd) Logger.log('[KRX-STOCK] ' + info.market + ' ' + ymd + ' HTTP_' + status);
+        if (status === 401 || status === 403) blockedMarkets[info.market] = status;
+        return;
+      }
       try {
         var json = JSON.parse(resp.getContentText() || '{}');
-        var rows = Array.isArray(json.OutBlock_1) ? json.OutBlock_1 : [];
-        if (rows.length > 0) result[info.market] = { rows: rows, usedYmd: info.ymd };
-      } catch(e) {}
+        if (!Array.isArray(json.OutBlock_1)) {
+          if (info.ymd === ymd) Logger.log('[KRX-STOCK] ' + info.market + ' ' + ymd + ' UNEXPECTED_SCHEMA');
+          return;
+        }
+        if (json.OutBlock_1.length > 0) result[info.market] = { rows: json.OutBlock_1, usedYmd: info.ymd };
+      } catch(e) {
+        if (info.ymd === ymd) Logger.log('[KRX-STOCK] ' + info.market + ' ' + ymd + ' NON_JSON');
+      }
     });
   };
 
   // 정상 거래일에는 시장별 오늘 요청 3개만 병렬 실행합니다.
   fetchPairs(markets.map(function(market){ return { market: market, ymd: ymd }; }));
-  var missingMarkets = markets.filter(function(market){ return !result[market]; });
+  var missingMarkets = markets.filter(function(market){ return !result[market] && !blockedMarkets[market]; });
   if (missingMarkets.length > 0) {
     var fallbackPairs = [];
     var cur = ymd;
@@ -4339,8 +4354,16 @@ var KRX_OFFICIAL_INDEX_CONFIG = {
   KOSDAQ: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd', idxName: '코스닥' }
 };
 
-function _isKrxOfficialCloseAvailableTime_(now) {
-  return Utilities.formatDate(now || new Date(), CONFIG.TIMEZONE, 'HHmm') >= '1600';
+function _isKrxOfficialCloseAvailableTime_(now, closeDate) {
+  var instant = now || new Date();
+  var requested = _normalizeDate(closeDate || '');
+  // 과거 확정 거래일은 장전에도 조회. 당일은 16시 이후에만 공식 확정으로 처리.
+  if (requested) {
+    var current = Utilities.formatDate(instant, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+    if (requested < current) return true;
+    if (requested > current) return false;
+  }
+  return Utilities.formatDate(instant, CONFIG.TIMEZONE, 'HHmm') >= '1600';
 }
 
 function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
@@ -4351,18 +4374,24 @@ function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
     var cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol];
     return { url: cfg.endpoint + '?basDd=' + encodeURIComponent(ymd), method: 'get', headers: { AUTH_KEY: authKey }, muteHttpExceptions: true };
   });
-  var output = {};
+  var output = {}, errors = {};
   if (!requests.length) return output;
   UrlFetchApp.fetchAll(requests).forEach(function(response, index) {
-    if (response.getResponseCode() >= 400) return;
-    var json; try { json = JSON.parse(response.getContentText() || '{}'); } catch(ignore) { return; }
     var symbol = requested[index], cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol];
-    var row = (Array.isArray(json.OutBlock_1) ? json.OutBlock_1 : []).filter(function(item) {
+    var status = response.getResponseCode();
+    if (status >= 400) { errors[symbol] = 'HTTP_' + status; return; }
+    var json; try { json = JSON.parse(response.getContentText() || '{}'); }
+    catch(ignore) { errors[symbol] = 'NON_JSON'; return; }
+    if (!Array.isArray(json.OutBlock_1)) { errors[symbol] = 'UNEXPECTED_SCHEMA'; return; }
+    if (!json.OutBlock_1.length) { errors[symbol] = 'EMPTY_DATE'; return; }
+    var row = json.OutBlock_1.filter(function(item) {
       return _normalizeYmd(item.BAS_DD || item.basDd || '') === ymd && String(item.IDX_NM || item.idxNm || '').trim() === cfg.idxName;
     })[0];
     var value = row ? parseFloat(String(row.CLSPRC_IDX || row.clsprcIdx || '').replace(/,/g, '')) : 0;
     if (value > 0) output[symbol] = { date: date, value: value, observedAt: date + 'T15:30:00+09:00', source: 'KRX_OFFICIAL', confirmedClose: true };
+    else errors[symbol] = 'INDEX_NOT_FOUND';
   });
+  Object.defineProperty(output, '_errors', { value:errors, enumerable:false });
   return output;
 }
 
@@ -4616,7 +4645,12 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     requested.forEach(function(type) { series[type] = []; symbols[type] = ''; });
     requested.forEach(function(type) {
       if (type === 'KOSPI' || type === 'KOSDAQ') {
-        try { series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh); } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
+        try {
+          series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh).map(function(point) {
+            // 하나의 series에 KRX 종가가 섞여도 Toss candle 출처가 공식값으로 승격되지 않도록 합니다.
+            return { date:point.date, value:point.value, observedAt:point.observedAt || null, source:'TOSS' };
+          });
+        } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
         if (series[type].length) {
           seriesMeta[type] = { fresh: !!forceRefresh, confirmedClose: false, confirmation: 'UNVERIFIED_DAILY_CANDLE', source: 'TOSS' };
           try { symbols[type] = type; current[type] = fetchMarketIndicatorPricesToss([type])[type] || null; } catch(error) { providerErrors[type] = error.message || 'TOSS_INDICATOR_PRICE_ERROR'; }
@@ -4632,15 +4666,51 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
       }
     });
 
-    if (forceRefresh && _isKrxOfficialCloseAvailableTime_()) {
-      var officialResult = _fetchKrxOfficialIndexClosesSafe_(requested, toDate);
-      var official = officialResult.data;
-      if (officialResult.error) providerErrors.KRX_OFFICIAL = officialResult.error;
-      ['KOSPI','KOSDAQ'].forEach(function(type) {
-        if (!official[type]) return;
-        series[type] = (series[type] || []).filter(function(point) { return point.date !== toDate; }).concat([official[type]]).sort(function(a,b) { return a.date.localeCompare(b.date); });
+    if (forceRefresh) {
+      // 장전에는 직전 거래일, 장마감에는 당일 공식 종가를 요구합니다.
+      // 호출자가 오늘을 toDate로 전달해도 16:00 전 또는 KRX 공식 휴장일이라면
+      // 반드시 전일부터 탐색합니다. 마감한 OPEN 거래일은 당일만 조회합니다.
+      var currentDate = today();
+      var todayUnavailable = toDate === currentDate
+        && (!_isKrxOfficialCloseAvailableTime_(new Date(), toDate)
+          || _krxCalendarStatus_(toDate) === 'CLOSED');
+      var officialSearchToDate = todayUnavailable ? _fundDateOffset(toDate, -1) : toDate;
+      ['KOSPI','KOSDAQ'].filter(function(type) { return requested.indexOf(type) !== -1; }).forEach(function(type) {
+        var candidateDate = officialSearchToDate, skippedDates = [], point = null;
+        var mayLookback = officialSearchToDate < currentDate;
+        for (var retry = 0; retry < (mayLookback ? 10 : 1); retry++) {
+          if (candidateDate < fromDate) break;
+          if (_krxCalendarStatus_(candidateDate) === 'CLOSED') {
+            skippedDates.push(candidateDate);
+            candidateDate = _fundDateOffset(candidateDate, -1);
+            continue;
+          }
+          if (!_isKrxOfficialCloseAvailableTime_(new Date(), candidateDate)) break;
+          var checked = _fetchKrxOfficialIndexClosesSafe_([type], candidateDate);
+          if (checked.error) { providerErrors.KRX_OFFICIAL = (providerErrors.KRX_OFFICIAL || '') + type + ':' + checked.error + ';'; break; }
+          var response = checked.data || {};
+          if (response[type]) { point = response[type]; break; }
+          var reason = response._errors && response._errors[type] || 'MISSING';
+          if (reason !== 'EMPTY_DATE' || !mayLookback) {
+            providerErrors.KRX_OFFICIAL = (providerErrors.KRX_OFFICIAL || '') + type + ':' + reason + ';';
+            break;
+          }
+          skippedDates.push(candidateDate);
+          candidateDate = _fundDateOffset(candidateDate, -1);
+        }
+        if (!point) return;
+        // HTTP 200 + 빈 OutBlock은 API 지연/권한 문제일 수도 있습니다.
+        // 공식 거래소 달력에서 CLOSED로 확인한 날짜만 비거래일 증거로 승격합니다.
+        var confirmedClosedDates = skippedDates.length && skippedDates.every(function(date) {
+          return _krxCalendarStatus_(date) === 'CLOSED';
+        }) ? skippedDates.slice() : [];
+        var actualDate = point.date;
+        series[type] = (series[type] || []).filter(function(row) { return row.date !== actualDate; })
+          .concat([point]).sort(function(a,b) { return a.date.localeCompare(b.date); });
         symbols[type] = type;
-        seriesMeta[type] = { fresh: true, confirmedClose: true, confirmation: 'KRX_EXACT_DATE_CLOSE', source: 'KRX_OFFICIAL' };
+        seriesMeta[type] = { fresh:true, confirmedClose:true, confirmation:'KRX_EXACT_DATE_CLOSE',
+          source:'KRX_OFFICIAL', verifiedClosedDates:confirmedClosedDates,
+          verificationToDate:officialSearchToDate, officialDate:actualDate };
       });
     }
 
@@ -5048,7 +5118,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.191' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.192' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10609,7 +10679,7 @@ function _getAutomationStatusData() {
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.191',
+    gasVersion: '9.192',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -10648,7 +10718,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.191' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.192' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13336,7 +13406,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.191' });
+    return jsonOk({ settings: settings, gasVersion: '9.192' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13364,7 +13434,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.191'
+      gasVersion: '9.192'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
