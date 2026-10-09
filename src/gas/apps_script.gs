@@ -7181,17 +7181,13 @@ function _fundPropertyText(value, maxChars) {
 
 function runDailyFundValuations(targetDate) {
   var props = PropertiesService.getScriptProperties();
-  // Attempt ownership is monotonic across successes, partials and failures.
-  // The prior successful result alone cannot protect today's failed attempt.
-  // Both the decision and its property writes are ScriptLock-atomic.
-  function publishIfLatest(runDate, commit) {
+  // The last accepted attempt owns status writes, even when two same-day
+  // executions overlap. Date alone cannot distinguish their completion order.
+  // Registration and the owner check use the SAME shared ScriptLock.
+  var attemptId = Utilities.getUuid();
+  function publishIfOwner(commit) {
     return _portfolioFundAtomic_(function(sharedProps) {
-      var latestAttempt = _normalizeDate(sharedProps.getProperty('fund_last_attempt_date') || '');
-      var previous = null;
-      try { previous = JSON.parse(sharedProps.getProperty('fund_last_result') || 'null'); } catch(ignore) {}
-      var resultDate = _normalizeDate(previous && (previous.runDate || previous.lastDate) || '');
-      var latestDate = latestAttempt > resultDate ? latestAttempt : resultDate;
-      if (latestDate && runDate < latestDate) return false;
+      if (sharedProps.getProperty('fund_last_attempt_token') !== attemptId) return false;
       commit(sharedProps);
       return true;
     });
@@ -7199,12 +7195,23 @@ function runDailyFundValuations(targetDate) {
   try {
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
     var runDate = _normalizeDate(targetDate || '') || today();
-    // Must precede any network lookup: GAS may die at the 6-minute boundary
-    // and leave no result/error from which to infer the newer attempt's date.
-    publishIfLatest(runDate, function(p) { p.setProperty('fund_last_attempt_date', runDate); });
+    // Register before any network lookup. A same-day later start becomes the
+    // latest owner regardless of whether it succeeds or fails.
+    _portfolioFundAtomic_(function(p) {
+      var latestAttempt = _normalizeDate(p.getProperty('fund_last_attempt_date') || '');
+      var previous = null;
+      try { previous = JSON.parse(p.getProperty('fund_last_result') || 'null'); } catch(ignore) {}
+      var resultDate = _normalizeDate(previous && (previous.runDate || previous.lastDate) || '');
+      var latestDate = latestAttempt > resultDate ? latestAttempt : resultDate;
+      if (latestDate && runDate < latestDate) return;
+      // Persist date first; partial writes must never allow an older date
+      // to displace this attempt after an abrupt GAS termination.
+      p.setProperty('fund_last_attempt_date', runDate);
+      p.setProperty('fund_last_attempt_token', attemptId);
+    });
     var result = _refreshFundValuations(getss(), _fundDateOffset(runDate, -31), runDate);
     // Historical data repairs always run, even when their status is stale.
-    publishIfLatest(runDate, function(p) {
+    publishIfOwner(function(p) {
       p.setProperty('fund_last_result', JSON.stringify(_compactFundDailyResultForProperty(result, runDate)));
     });
     var snapshotWarnings = Array.isArray(result.snapshotWarnings) ? result.snapshotWarnings : [];
@@ -7223,7 +7230,7 @@ function runDailyFundValuations(targetDate) {
       if (!fund || fund.status === 'ok') return;
       warnings.push(code + ' ' + ((fund.inputRequiredDates || []).length ? 'NAV 미확보 ' + fund.inputRequiredDates.length + '일' : '부분 완료'));
     });
-    publishIfLatest(runDate, function(p) {
+    publishIfOwner(function(p) {
       if (warnings.length) p.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
       else p.deleteProperty('fund_last_warning');
       p.deleteProperty('fund_last_error');
@@ -7231,7 +7238,7 @@ function runDailyFundValuations(targetDate) {
     return result;
   } catch (err) {
     if (runDate) {
-      publishIfLatest(runDate, function(p) {
+      publishIfOwner(function(p) {
         p.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
       });
     } else props.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
@@ -10924,10 +10931,21 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
       props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(schedules[0]));
     }
     var old = schedules.filter(function(item) { return item.date === scheduleDate; })[0] || null;
+    // A completed NAV can leave activeUntil behind when GAS dies before
+    // reconciliation. Never lend that trigger's owner/UID to a newer CLOSE.
+    var successState = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
+    var successes = successState
+      ? [successState].concat(Array.isArray(successState.additional) ? successState.additional : []) : [];
+    var alreadySucceeded = !!old && successes.some(function(marker) {
+      return marker && marker.date === old.date && marker.triggerId === old.triggerId;
+    });
+    var differentOwner = !!old && !!owner && !!owner.runId
+      && !!old.owner && !!old.owner.runId
+      && String(old.owner.runId) !== String(owner.runId);
     // An attempt is reserved under this same lock before its NAV lease begins.
     // Do not replace its trigger merely because this is attempt number three.
     var activeAttempt = old && Number(old.activeUntil || 0) > now;
-    if (old && old.date === scheduleDate
+    if (old && !alreadySucceeded && !differentOwner && old.date === scheduleDate
         && (old.until > now || activeAttempt)
         && (Number(old.attempts || 0) < 3 || activeAttempt)) {
       if (owner && !activeAttempt && owner.date === scheduleDate && owner.runId) {
@@ -10949,7 +10967,13 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
         ? {date:scheduleDate,runId:String(owner.runId),
           startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
           errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []} : null};
-    schedules = [next].concat(schedules.filter(function(item) { return item.date !== scheduleDate; }));
+    // A prior completed UID may still need post-hard-kill reconciliation.
+    // Retain its exact reservation for its OWN trigger to finish and clean up;
+    // only genuinely obsolete same-day records may be displaced.
+    schedules = [next].concat(schedules.filter(function(item) {
+      return item.date !== scheduleDate
+        || (old && item.triggerId === old.triggerId && (alreadySucceeded || differentOwner));
+    }));
     saveSchedules();
     persistOwnerSummary(props,triggerId);
     return {created:true, triggerId:triggerId};
