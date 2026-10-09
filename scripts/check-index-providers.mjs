@@ -41,10 +41,30 @@ context._getKrxAuthKey=()=> 'test-key';
 context.UrlFetchApp={fetchAll:requests=>requests.map(request=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[request.url.includes('kosdaq_dd_trd')?{BAS_DD:'20260918',IDX_NM:'코스닥',CLSPRC_IDX:'900.25'}:{BAS_DD:'20260918',IDX_NM:'코스피',CLSPRC_IDX:'3,420.50'}]})}))};
 const official=context.fetchKrxOfficialIndexCloses(['KOSPI','KOSDAQ'],'2026-09-18');
 if(official.KOSPI.value!==3420.5||official.KOSDAQ.value!==900.25||official.KOSPI.source!=='KRX_OFFICIAL'||official.KOSPI.observedAt!=='2026-09-18T15:30:00+09:00')throw new Error('KRX 공식 exact-date 대표지수 종가 파싱 실패');
+if(context._isKrxOfficialCloseAvailableTime_(new Date('2026-09-19T07:30:00Z'),'2026-09-18')!==true)
+  throw new Error('다음 거래일 장전 직전 KRX 정규장 종가 조회 허용 실패');
+if(context._isKrxOfficialCloseAvailableTime_(new Date('2026-09-18T15:59:59Z'),'2026-09-18')!==false)
+  throw new Error('당일 16시 이전 KRX 확정 종가 조회 차단 실패');
+context.UrlFetchApp={fetchAll:requests=>requests.map(request=>
+  request.url.includes('kosdaq_dd_trd')?{getResponseCode:()=>403,getContentText:()=>''}:
+  {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[{BAS_DD:'20260918',IDX_NM:'코스피',CLSPRC_IDX:'3,420.50'}]})})};
+const partialOfficial=context.fetchKrxOfficialIndexCloses(['KOSPI','KOSDAQ'],'2026-09-18');
+if(partialOfficial.KOSPI.value!==3420.5||partialOfficial.KOSDAQ||partialOfficial._errors.KOSDAQ!=='HTTP_403')
+  throw new Error('KRX 지수 부분 승인 오류 시 성공한 시장 보존 및 403 노출 실패');
 context.UrlFetchApp={fetchAll:()=>{throw new Error('simulated KRX timeout');}};
 const isolated=context._fetchKrxOfficialIndexClosesSafe_(['KOSPI','KOSDAQ'],'2026-09-18');
 if(Object.keys(isolated.data).length||isolated.error!=='simulated KRX timeout')throw new Error('KRX 공식 조회 예외 격리 실패');
 context.jsonOk=value=>({status:'ok',...value});context.jsonError=message=>({status:'error',message});
+context.UrlFetchApp={fetchAll:requests=>requests.map(request=>({getResponseCode:()=>200,
+  getContentText:()=>JSON.stringify({OutBlock_1:[request.url.includes('kosdaq_dd_trd')
+    ?{BAS_DD:'20260918',IDX_NM:'코스닥',CLSPRC_IDX:'900.25'}
+    :{BAS_DD:'20260918',IDX_NM:'코스피',CLSPRC_IDX:'3,420.50'}]})}))};
+context.fetchMarketIndicatorCandlesToss=()=>{throw new Error('Toss OAuth 실패(403)');};
+const historicalMorning=context.handleGetBenchmarks('KOSPI,KOSDAQ','2026-09-11','2026-09-18',true);
+if(historicalMorning.status!=='ok'||historicalMorning.series.KOSPI.at(-1).value!==3420.5
+  ||historicalMorning.series.KOSDAQ.at(-1).value!==900.25
+  ||historicalMorning.seriesMeta.KOSPI.confirmedClose!==true)
+  throw new Error('Toss 403 시 과거 KRX 정규장 공식 종가 자동 대체 실패');
 context.fetchPricesKrx=()=>({'005930':{price:80500,usedDate:'2026-09-18',source:'KRX'},'000660':{price:187000,usedDate:'2026-09-17',source:'KRX'}});
 const officialStocks=context.handleGetKrxOfficialStockCloses('2026-09-18','005930,000660,123456');
 if(officialStocks.closes['005930'].source!=='KRX_OFFICIAL'||officialStocks.closes['005930'].price!==80500||officialStocks.closes['000660'])throw new Error('브리핑 KRX 주식 exact-date 종가/fallback 차단 실패');
