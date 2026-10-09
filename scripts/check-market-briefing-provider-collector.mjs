@@ -52,6 +52,16 @@ const previousOfficial=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-
  source:'KRX_OFFICIAL',observedAt:'2026-09-17T15:30:00+09:00'},
  {seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'}}},'2026-09-18','MORNING');
 assert.equal(previousOfficial.status,'FINAL');assert.equal(previousOfficial.finality,'REGULAR_CLOSE');
+const holidayPoint={date:'2026-10-08',value:3520,source:'KRX_OFFICIAL',observedAt:'2026-10-08T15:30:00+09:00'};
+const holidayMeta={seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL',officialDate:'2026-10-08',
+ verificationToDate:'2026-10-11',verifiedClosedDates:['2026-10-11','2026-10-10','2026-10-09']}}};
+const holidayObservation=collector.normalizeBenchmarkPoint('KOSPI',holidayPoint,holidayMeta,'2026-10-12','MORNING');
+assert.equal(holidayObservation.quality,'KRX_CONFIRMED_CLOSED_GAP@2026-10-11|2026-10-11,2026-10-10,2026-10-09');
+const persistedHoliday=normalizer.ingest(master,[],{KOSPI:holidayObservation},{tradingDate:'2026-10-12',receivedAt:'2026-10-12T07:20:00+09:00'});
+assert.equal(persistedHoliday[0].quality,holidayObservation.quality,'공백 증거 MARKET_MASTER round-trip 보존');
+assert.equal(collector.normalizeBenchmarkPoint('KOSPI',holidayPoint,{seriesMeta:{KOSPI:{...holidayMeta.seriesMeta.KOSPI,verifiedClosedDates:[]}}},'2026-10-12','MORNING').quality,'EOD',
+ '실제 휴장 확정 정보 없는 이전 공식 종가는 공백 인증 표시 금지');
+
 const cachedAtClose=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3410},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:false,confirmedClose:false}}},'2026-09-18','KRX_FINAL');
 assert.equal(cachedAtClose.status,'PARTIAL'); assert.equal(cachedAtClose.finality,null);
 const freshUnverified=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-18',value:3415,observedAt:'2026-09-18T06:30:00.000Z'},{symbols:{KOSPI:'KOSPI'},seriesMeta:{KOSPI:{fresh:true,confirmedClose:false}}},'2026-09-18','KRX_FINAL');
