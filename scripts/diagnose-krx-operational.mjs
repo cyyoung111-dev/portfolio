@@ -44,7 +44,8 @@ export function summarizeKrxSource(data, date) {
     throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
   const byMarket = new Map();
   for (const market of incoming) {
-    if (!MARKETS.includes(market.market) || byMarket.has(market.market))
+    if (!market || typeof market !== 'object' || Array.isArray(market)
+        || !MARKETS.includes(market.market) || byMarket.has(market.market))
       throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
     const httpStatus = Number(market.httpStatus);
     const rows = Number(market.rows);
