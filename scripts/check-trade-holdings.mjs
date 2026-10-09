@@ -135,6 +135,8 @@ const cacheContext = {
     qty:5,price:120,cost:100,costAmt:500,evalAmt:600,pnl:100,pct:20}],
   EDITABLE_PRICES:[{name:'ETF A',code:'123456',assetType:'ETF'}],
   rawTrades:[{qty:5}],rawHoldings:[{qty:5}],lastUpdated:'same-update',
+  taxSettings:{ ISA:'ISA' },
+  getAcctTaxType(acct) { return this.taxSettings[acct] || '일반'; },
 };
 vm.runInNewContext(keyFunction,cacheContext,{filename:'views_portfolio_cache_key.js'});
 const beforeKey=cacheContext._portfolioDataKey();
@@ -143,6 +145,8 @@ assertCacheChange('evaluation', () => {cacheContext.rows[0].evalAmt=840;});
 assertCacheChange('cost', () => {cacheContext.rows[0].costAmt=700;});
 assertCacheChange('P/L', () => {cacheContext.rows[0].pnl=140;});
 assertCacheChange('type', () => {cacheContext.EDITABLE_PRICES[0].assetType='주식';});
+assertCacheChange('account tax settings', () => {cacheContext.taxSettings.ISA='일반';});
+assertCacheChange('row tax type', () => {cacheContext.rows[0].taxType='ISA';});
 function assertCacheChange(reason,mutate) {
   const oldKey=cacheContext._portfolioDataKey();
   mutate();
