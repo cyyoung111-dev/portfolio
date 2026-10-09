@@ -41,6 +41,18 @@
     const k200 = snapshot.values.K200_NIGHT;
     if (checkpoint === 'MORNING' && k200 && !(k200.tradingDate === tradingDate && k200.session === 'NIGHT' && k200.status === 'FINAL' && k200.finality === 'NIGHT_FINAL')) bad.push('K200_NIGHT:NOT_FINAL');
     if (checkpoint === 'EVENING' && k200 && k200.status === 'FINAL' && k200.tradingDate === tradingDate) warnings.push('K200_NIGHT:COMPLETED_NIGHT_FINAL');
+    if (checkpoint === 'MORNING') {
+      // 장전 지수는 직전 KRX 정규장 확정 종가만 사용합니다.
+      // Toss의 이전 날짜 미확정 candle은 FINAL로 승격하지 않습니다.
+      ['KOSPI','KOSDAQ'].forEach((id) => {
+        const row = snapshot.values[id];
+        if (row && !(row.market === 'KRX' && row.session === 'REGULAR'
+            && row.source === 'KRX_OFFICIAL' && row.status === 'FINAL'
+            && row.finality === 'REGULAR_CLOSE' && row.tradingDate < tradingDate)) {
+          bad.push(`${id}:NOT_CONFIRMED_PREVIOUS_REGULAR_CLOSE`);
+        }
+      });
+    }
     if (checkpoint === 'KRX_FINAL' || checkpoint === 'EVENING') {
       KRX_SAME_DAY_SERIES.forEach((id) => {
         const row = snapshot.values[id];
