@@ -10841,6 +10841,24 @@ function _portfolioFundState_(props, key) {
 }
 function _scheduleFundAfterFailedPortfolioPrice_(owner) {
   var handler = 'runDeferredFundAfterPortfolioCloseFailure';
+  // The PRICE failure owner and its NAV trigger must become durable together.
+  // A hard kill before the caller's final _recordPortfolioCloseStage() must
+  // not leave an ownerless reservation.
+  function persistOwnerSummary(props, triggerId) {
+    if (!owner || !owner.runId || !owner.date || !owner.startedMs) return;
+    if (String(props.getProperty('portfolio_close_run_id') || '') !== String(owner.runId)
+        || String(props.getProperty('portfolio_close_run_date') || '') !== String(owner.date))
+      return;
+    var summary = {runDate:owner.date,runId:String(owner.runId),
+      startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs),
+      priceOk:false,priceDate:'',priceRows:0,fundOk:false,
+      fundDeferred:true,fundDeferredTriggerId:triggerId,
+      errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []};
+    props.setProperty('portfolio_close_last_result',JSON.stringify(summary));
+    if (summary.errors.length)
+      props.setProperty('portfolio_close_last_error',summary.errors.join(' | ').slice(0,2000));
+    props.setProperty('portfolio_close_stage','ERROR');
+  }
   return _portfolioFundAtomic_(function(props) {
     var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
     var scheduleDate = today();
@@ -10857,6 +10875,7 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
           startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
           errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []};
         props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,JSON.stringify(old));
+        persistOwnerSummary(props,String(old.triggerId || ''));
       }
       return {created:false, triggerId:String(old.triggerId || '')};
     }
@@ -10874,6 +10893,7 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
           ? {date:scheduleDate,runId:String(owner.runId),
             startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
             errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []} : null}));
+    persistOwnerSummary(props,triggerId);
     return {created:true, triggerId:triggerId};
   });
 }
