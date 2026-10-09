@@ -9369,7 +9369,23 @@ function runPortfolioCloseBackfill2210() {
 function _reconcileRecoveredPortfolioPrice_(props, target, result, policy) {
   var last = _portfolioFundState_(props, 'portfolio_close_last_result');
   if (last && last.runDate && last.runDate > target) return true;
-  if (!last || last.runDate !== target) {
+  // A 20:30 retry B can own the current CLOSE even while the persisted
+  // same-day summary still belongs to failed 19:00 run A. Replayed PRICE
+  // is fresh evidence for B; never graft it onto A's NAV/summary.
+  var currentOwnerId = String(props.getProperty('portfolio_close_run_id') || '');
+  var currentOwnerDate = String(props.getProperty('portfolio_close_run_date') || '');
+  var currentOwnerStartedMs = Number(props.getProperty('portfolio_close_run_started_ms') || 0);
+  var currentOwnerStartedAt = String(props.getProperty('portfolio_close_run_started_at') || '');
+  var lastSameOwner = !!last && last.runDate === target
+    && (last.runId ? String(last.runId) === currentOwnerId
+      : !!last.startedMs && !!last.startedAt
+        && Number(last.startedMs) === currentOwnerStartedMs
+        && String(last.startedAt) === currentOwnerStartedAt);
+  var createForNewOwner = policy === 'CREATE'
+    && !!last && last.runDate === target
+    && currentOwnerDate === target && !!currentOwnerId
+    && currentOwnerStartedMs > 0 && !!currentOwnerStartedAt && !lastSameOwner;
+  if (!last || last.runDate !== target || createForNewOwner) {
     if (policy === 'HOLD') return false;
     if (policy !== 'CREATE') return true;
     // A hard-killed run may have left only the run ownership fields.
@@ -10915,11 +10931,23 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
     if (String(props.getProperty('portfolio_close_run_id') || '') !== String(owner.runId)
         || String(props.getProperty('portfolio_close_run_date') || '') !== String(owner.date))
       return;
+    var priceOk = owner.priceOk === true;
     var summary = {runDate:owner.date,runId:String(owner.runId),
       startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs),
-      priceOk:false,priceDate:'',priceRows:0,fundOk:false,
-      fundDeferred:true,fundDeferredTriggerId:triggerId,
-      errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []};
+      // PRICE failure and FUND_BUSY have different confirmed evidence.
+      // A busy NAV must not erase the already committed PRICE/Snapshot.
+      priceOk:priceOk,
+      priceDate:priceOk ? String(owner.priceDate || owner.date) : '',
+      priceRows:priceOk ? Number(owner.priceRows || 0) : 0,
+      krxCloseRequired:typeof owner.krxCloseRequired === 'boolean'
+        ? owner.krxCloseRequired : null,
+      fundOk:false,fundDeferred:!priceOk,
+      fundDeferredTriggerId:priceOk ? '' : triggerId,
+      fundBusyTriggerId:priceOk ? triggerId : '',
+      fundBusyToken:priceOk ? String(owner.fundBusyToken || '') : '',
+      errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4).map(function(reason) {
+        return String(reason || '').slice(0,200);
+      }) : []};
     props.setProperty('portfolio_close_last_result',JSON.stringify(summary));
     if (summary.errors.length)
       props.setProperty('portfolio_close_last_error',summary.errors.join(' | ').slice(0,2000));
@@ -11499,7 +11527,15 @@ function runDailyPortfolioClose1900() {
       // Mark pending rather than a permanent hard failure. Active deferred run
       // reconciles the result after success; recurring retry covers transient failures.
       try {
-        var busyReservation = _scheduleFundAfterFailedPortfolioPrice_({date:runDate});
+        var busyReservation = _scheduleFundAfterFailedPortfolioPrice_({
+          date:runDate,runId:runId,startedAt:startedAt,startedMs:startedMs,
+          priceOk:true,priceDate:String(priceResult && priceResult.date || runDate),
+          priceRows:Number(priceResult && priceResult.rows || 0),
+          krxCloseRequired:priceResult && typeof priceResult.krxCloseRequired === 'boolean'
+            ? priceResult.krxCloseRequired : null,
+          fundBusyToken:fundBusyToken,
+          errors:['펀드: ' + (fundErr && fundErr.message ? fundErr.message : String(fundErr))]
+        });
         fundBusyTriggerId = String(busyReservation && busyReservation.triggerId || '');
       } catch(scheduleError) {
         Logger.log('⚠️ FUND_BUSY 재시도 예약 실패: ' + scheduleError.message);
