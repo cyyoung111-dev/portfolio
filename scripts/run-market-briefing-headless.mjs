@@ -73,10 +73,16 @@ function diagnosticFor(result, secrets = []) {
 }
 function createRequest(url, token, fetchImpl = fetch) {
   if (!/^https:\/\//.test(url)) throw new Error('GAS_WEB_APP_URL은 HTTPS여야 합니다.');
-  return async (action, params = {}) => {
+  return async (action, params = {}, options = {}) => {
     const form = new URLSearchParams({ action, ...params });
     if (token) form.set('accessToken', token);
-    const response = await fetchImpl(url, { method:'POST', headers:{ 'content-type':'application/x-www-form-urlencoded;charset=UTF-8' }, body:form, redirect:'follow' });
+    // All collectors pass timeoutMs, but the original adapter ignored it.
+    // Bound redirects and GAS network stalls instead of consuming the full
+    // 10-minute GitHub Actions job without a useful provider error.
+    const requested = Number(options.timeoutMs);
+    const timeoutMs = Number.isFinite(requested) && requested > 0
+      ? Math.min(90000, Math.max(5000, requested)) : 45000;
+    const response = await fetchImpl(url, { method:'POST', headers:{ 'content-type':'application/x-www-form-urlencoded;charset=UTF-8' }, body:form, redirect:'follow', signal:AbortSignal.timeout(timeoutMs) });
     if (!response.ok) throw new Error(`GAS_HTTP_${response.status}`);
     const result = await response.json();
     if (action === 'getExchangeRateHistory') {
