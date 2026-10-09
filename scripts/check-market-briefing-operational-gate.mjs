@@ -16,6 +16,25 @@ const unverifiedMorning=rows.map(row=>(row.seriesId==='KOSPI'||row.seriesId==='K
 const unsafe=gate.releaseDecision(master,storeApi,unverifiedMorning,snapshots,d,'MORNING');
 assert.equal(unsafe.publishable,false,'미확정 Toss 전일 지수는 정규장 종가 발행 금지');
 assert.ok(unsafe.data.missing.includes('KOSPI') || unsafe.data.issues.includes('KOSPI:NOT_CONFIRMED_PREVIOUS_REGULAR_CLOSE'), '미확정 종가는 누락 또는 미확정 오류로 차단');
+const staleMaster=rows.filter(row=>row.seriesId!=='KOSPI');
+staleMaster.push(master.normalizeObservation({seriesId:'KOSPI',tradingDate:'2026-09-16',sourceDate:'2026-09-16',
+ value:3390,market:'KRX',session:'REGULAR',source:'KRX_OFFICIAL',status:'FINAL',finality:'REGULAR_CLOSE',
+ observedAt:'2026-09-16T15:30:00+09:00',receivedAt:'2026-09-18T07:00:00+09:00'}));
+staleMaster.push(master.normalizeObservation({seriesId:'KOSPI',tradingDate:'2026-09-17',sourceDate:'2026-09-17',
+ value:3400,market:'KRX',session:'REGULAR',source:'TOSS',status:'PARTIAL',finality:null,
+ observedAt:'2026-09-17T15:30:00+09:00',receivedAt:'2026-09-18T07:05:00+09:00'}));
+const staleDecision=gate.releaseDecision(master,storeApi,staleMaster,snapshots,d,'MORNING');
+assert.equal(staleDecision.publishable,false,'Codex P1: newer Toss partial vs older KRX official must not publish');
+assert.ok(staleDecision.data.issues.includes('KOSPI:STALE_OFFICIAL_CLOSE'),'기존 selectAt의 오래된 FINAL 선택 차단');
+const unprovenGap=staleMaster.filter(row=>row.seriesId!=='KOSPI'||row.source!=='TOSS');
+const gapDecision=gate.releaseDecision(master,storeApi,unprovenGap,snapshots,d,'MORNING');
+assert.equal(gapDecision.publishable,false,'더 최신 관측 없어도 평일 날짜 공백이 미확인되면 NOT_READY');
+assert.ok(gapDecision.data.issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'));
+const verifiedGap=unprovenGap.map(row=>row.seriesId==='KOSPI'?{...row,quality:'KRX_VERIFIED_EMPTY_OR_CLOSED_GAP'}:row);
+const verifiedDecision=gate.releaseDecision(master,storeApi,verifiedGap,snapshots,d,'MORNING');
+assert.equal(verifiedDecision.publishable,true,'명시적으로 확인된 KRX 빈 날짜만 공식 이전 종가 사용');
+assert.ok(verifiedDecision.data.warnings.includes('KOSPI:KRX_CONFIRMED_DATA_GAP'));
+
 let lateBackfill=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.MORNING.filter(x=>x!=='K200_NIGHT'))lateBackfill=master.upsertObservation(lateBackfill,{seriesId:id,tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1,market:id==='USDKRW'?'FX':((id==='KOSPI'||id==='KOSDAQ')?'KRX':'TEST'),session:id==='USDKRW'?'FX':'REGULAR',source:(id==='KOSPI'||id==='KOSDAQ')?'KRX_OFFICIAL':'HISTORY',status:'FINAL',finality:id==='USDKRW'?'HISTORICAL_CLOSE':'REGULAR_CLOSE',observedAt:(id==='KOSPI'||id==='KOSDAQ')?'2026-09-17T15:30:00+09:00':undefined,receivedAt:`${d}T07:35:00+09:00`});
 lateBackfill=master.upsertObservation(lateBackfill,{seriesId:'K200_NIGHT',tradingDate:d,sourceDate:d,value:1,market:'KRX',session:'NIGHT',source:'KIS',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${d}T06:00:00+09:00`,receivedAt:`${d}T06:00:00+09:00`});
