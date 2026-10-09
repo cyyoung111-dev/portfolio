@@ -1,0 +1,105 @@
+#!/usr/bin/env node
+// READ-ONLY production KRX diagnostics. Does not change GAS/Sheet properties or data.
+// Print only market name, status, row counts and schema status; never raw API responses.
+const MARKETS = Object.freeze(['KOSPI', 'KOSDAQ', 'ETF']);
+const PARSE_STATUSES = new Set(['ROWS', 'EMPTY', 'NON_JSON', 'UNEXPECTED_SCHEMA', 'NOT_PARSED']);
+export function parseDates(value) {
+  const dates = String(value || '').split(',').map(date => date.trim()).filter(Boolean);
+  if (dates.length < 1 || dates.length > 7 || new Set(dates).size !== dates.length)
+    throw new Error('KRX_DIAG_INVALID_DATES');
+  for (const date of dates) {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00Z') : null;
+    if (!day || !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== date)
+      throw new Error('KRX_DIAG_INVALID_DATE');
+  }
+  return dates;
+}
+export function validateWebAppUrl(value) {
+  let url;
+  try { url = new URL(String(value || '')); }
+  catch { throw new Error('KRX_DIAG_INVALID_WEB_APP_URL'); }
+  if (url.protocol !== 'https:' || url.hostname !== 'script.google.com'
+      || !/^\/macros\/s\/[^/]+\/exec$/.test(url.pathname) || url.search || url.hash)
+    throw new Error('KRX_DIAG_INVALID_WEB_APP_URL');
+  return url.href;
+}
+export function summarizeKrxSource(data, date) {
+  if (!data || data.status !== 'ok' || data.requestedDate !== date)
+    throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
+  const configured = data.keyConfigured === true;
+  const incoming = data.markets;
+  if (!Array.isArray(incoming) || (configured && incoming.length !== 3))
+    throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
+  const byMarket = new Map();
+  for (const market of incoming) {
+    if (!MARKETS.includes(market.market) || byMarket.has(market.market))
+      throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
+    const httpStatus = Number(market.httpStatus);
+    const rows = Number(market.rows);
+    const parseStatus = String(market.parseStatus || '');
+    if (!Number.isInteger(httpStatus) || httpStatus < 100 || httpStatus > 599
+        || !Number.isInteger(rows) || rows < 0 || !PARSE_STATUSES.has(parseStatus))
+      throw new Error('KRX_DIAG_INVALID_MARKET_RESPONSE');
+    byMarket.set(market.market, { market:market.market, httpStatus, rows, parseStatus });
+  }
+  const markets = MARKETS.map(name => byMarket.get(name) ||
+    { market:name, httpStatus:0, rows:0, parseStatus:'NOT_PARSED' });
+  const healthy = configured && markets.every(row => row.httpStatus === 200
+    && row.rows > 0 && row.parseStatus === 'ROWS');
+  return { date, keyConfigured:configured, networkStatus: data.networkStatus === 'RECEIVED' ? 'RECEIVED' : 'UNAVAILABLE',
+    markets, healthy };
+}
+export function buildSafeRequest(action, date, token) {
+  if (!['getSettings', 'getKrxSourceDiagnostics'].includes(action))
+    throw new Error('KRX_DIAG_FORBIDDEN_ACTION');
+  const payload = new URLSearchParams({ action });
+  if (date) payload.set('date', parseDates(date)[0]);
+  if (token) payload.set('accessToken', token);
+  return payload;
+}
+export async function readGasAction(url, action, date, token, fetchImpl = fetch) {
+  const body = buildSafeRequest(action, date, token);
+  let response;
+  try {
+    response = await fetchImpl(validateWebAppUrl(url), {
+      method:'POST',
+      headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+      body, redirect:'follow', signal:AbortSignal.timeout(30000),
+    });
+  } catch { throw new Error('KRX_DIAG_FETCH_FAILED'); }
+  if (!response.ok) throw new Error('KRX_DIAG_GAS_HTTP_' + response.status);
+  try { return await response.json(); }
+  catch { throw new Error('KRX_DIAG_GAS_NON_JSON'); }
+}
+export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
+  const checkedDates = parseDates(dates);
+  const settings = await readGasAction(url,'getSettings','',token,fetchImpl);
+  if (!settings || settings.status !== 'ok'
+      || !/^\d+\.\d+$/.test(String(settings.gasVersion || '')))
+    throw new Error('KRX_DIAG_GAS_VERSION_UNAVAILABLE');
+  const reports = [];
+  for (const date of checkedDates) {
+    const data = await readGasAction(url,'getKrxSourceDiagnostics',date,token,fetchImpl);
+    reports.push(summarizeKrxSource(data,date));
+  }
+  return { mode:'READ_ONLY', gasVersion:String(settings.gasVersion), reports,
+    healthy:reports.every(item => item.healthy) };
+}
+if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).href) {
+  try {
+    const argIndex = process.argv.indexOf('--dates');
+    const dates = argIndex >= 0 ? process.argv[argIndex+1] : '2026-10-07,2026-10-08';
+    const report = await runDiagnosis({
+      url:process.env.GAS_WEB_APP_URL,
+      token:process.env.GAS_ACCESS_TOKEN,
+      dates,
+    });
+    console.log(JSON.stringify(report)); // no raw body, token, URL or credentials
+    if (!report.healthy) process.exitCode = 1;
+  } catch (error) {
+    // Only known constant diagnostic error codes are displayed.
+    const code = /^KRX_DIAG_[A-Z0-9_]+$/.test(error.message) ? error.message : 'KRX_DIAG_UNKNOWN_ERROR';
+    console.error(code);
+    process.exitCode = 1;
+  }
+}
