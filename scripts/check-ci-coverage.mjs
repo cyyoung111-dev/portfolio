@@ -39,6 +39,87 @@ assert.throws(
   /순환 참조/,
 );
 
+// This validator intentionally accepts only the explicit, safe subset of
+// workflow YAML used here. Unknown/changed trigger or run syntax fails closed.
+// It uses indentation boundaries, not cross-section substring matches.
+function yamlBlock(lines, key, indent) {
+  const expected = ' '.repeat(indent) + key + ':';
+  const matches = lines.flatMap((line, index) =>
+    line.trimEnd() === expected || line.startsWith(expected + ' #') ? [index] : []);
+  assert.equal(matches.length, 1, '워크플로 항목은 정확히 하나여야 합니다: ' + expected);
+  const start = matches[0];
+  let stop = start + 1;
+  while (stop < lines.length) {
+    const line = lines[stop];
+    const stripped = line.trim();
+    if (stripped && !stripped.startsWith('#')) {
+      const leading = line.match(/^ */)[0].length;
+      if (leading <= indent) break;
+    }
+    stop += 1;
+  }
+  return lines.slice(start + 1, stop);
+}
+
+function validateQualityWorkflow(source) {
+  const lines = source.split(/\r?\n/);
+  const events = yamlBlock(lines, 'on', 0);
+  const pullRequest = yamlBlock(events, 'pull_request', 2);
+  assert.ok(pullRequest.every(line => !line.trim() || line.trim().startsWith('#')),
+    '필수 체크를 모든 PR에 생성하려면 pull_request 경로·브랜치·종류 필터를 둘 수 없습니다.');
+
+  const jobs = yamlBlock(lines, 'jobs', 0);
+  const qualityJob = yamlBlock(jobs, 'all-check-scripts', 2);
+  assert.ok(!qualityJob.some(line => /^ {4}(if|continue-on-error):/.test(line)),
+    '필수 전체 검사 job은 조건부 또는 오류 무시 실행이면 안 됩니다.');
+  const steps = yamlBlock(qualityJob, 'steps', 4);
+  const stepStarts = steps.flatMap((line, i) => /^ {6}- /.test(line) ? [i] : []);
+  assert.ok(stepStarts.length > 0, '전체 검사 단계가 없습니다.');
+
+  const fullSuiteSteps = stepStarts.map((start, index) => {
+    const end = stepStarts[index + 1] ?? steps.length;
+    return steps.slice(start, end);
+  }).filter(step => step.some(line =>
+    /^ {8}run:\s*(?:"npm run check:ci"|'npm run check:ci'|npm run check:ci)\s*(?:#.*)?$/.test(line)));
+
+  assert.equal(fullSuiteSteps.length, 1, '전체 CI 명령이 정확히 한 단계에서 실행돼야 합니다.');
+  assert.ok(!fullSuiteSteps[0].some(line => /^ {8}(if|continue-on-error):/.test(line)),
+    '전체 CI 실행 단계가 조건부 또는 오류 무시로 구성됐습니다.');
+}
+
+const validWorkflow = [
+  'on:',
+  '  pull_request:',
+  '  push:',
+  '    paths:',
+  "      - 'scripts/check-*.mjs'",
+  'jobs:',
+  '  all-check-scripts:',
+  '    runs-on: ubuntu-latest',
+  '    steps:',
+  '      - name: Full CI',
+  '        run: npm run check:ci',
+].join('\n');
+assert.doesNotThrow(() => validateQualityWorkflow(validWorkflow));
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace('  pull_request:\n', '')),
+  /pull_request/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  '  pull_request:\n', "  pull_request:\n    paths:\n      - 'scripts/check-*.mjs'\n")),
+  /모든 PR/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  'run: npm run check:ci', 'run: npm run check:ci-coverage')),
+  /전체 CI 명령/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  '  all-check-scripts:\n', '  all-check-scripts:\n    if: false\n')),
+  /조건부/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  '        run: npm run check:ci', '        if: false\n        run: npm run check:ci')),
+  /조건부/);
+assert.throws(() => validateQualityWorkflow(validWorkflow.replace(
+  '        run: npm run check:ci', '        continue-on-error: true\n        run: npm run check:ci')),
+  /오류 무시/);
+validateQualityWorkflow(fs.readFileSync('.github/workflows/quality-check.yml', 'utf8'));
+
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const actual = fs.readdirSync('scripts', { withFileTypes: true })
   .filter(item => item.isFile() && /^check-[\w.-]+\.mjs$/.test(item.name))
@@ -49,8 +130,5 @@ if (missing.length) {
   console.error('❌ check:ci가 실행하지 않는 검사 파일:\n' + missing.map(name => ' - ' + name).join('\n'));
   process.exitCode = 1;
 } else {
-  const workflow = fs.readFileSync('.github/workflows/quality-check.yml', 'utf8');
-  assert.match(workflow, /pull_request:[\s\S]*?scripts\/check-\*\.mjs/);
-  assert.match(workflow, /npm run check:ci/);
   console.log('✅ CI 검사 연결 확인: ' + actual.length + '개 check-*.mjs 모두 check:ci에서 실행됨');
 }
