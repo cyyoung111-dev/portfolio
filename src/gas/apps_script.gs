@@ -1850,7 +1850,7 @@ function handlePriceFetch(dateParam, allCodesParam) {
       var cacheCount = Object.keys(prices).length;
       var session = _krxCalendarStatus_(reqDate);
       var beforeClose = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'HHmm') < '1600';
-      var maxBusinessLag = session === 'CLOSED' || (session === 'OPEN' && beforeClose) ? 1 : 0;
+      var maxBusinessLag = session === 'OPEN' && beforeClose ? 1 : 0;
       var cacheFresh = cacheCount > 0 && cacheDates.length === cacheCount
         && cacheDates.every(function(date) {
           return !!date && date <= reqDate
