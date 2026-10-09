@@ -11280,9 +11280,12 @@ function _reconcilePortfolioFundBusy_(date) {
       && Number(success.at || 0) >= Number(owner.startedMs);
     var previousIsDifferentRun = !!last && last.runDate === date && ownerMatches
       && (last.runId ? String(last.runId) !== String(owner.runId)
-        : !last.startedAt || !last.startedMs
+        // For metadata-free legacy PRICE, reconstruct only when this newer
+        // booked owner has its OWN confirmed PRICE evidence. Otherwise an
+        // orphaned prior PRICE must remain unjoinable to this NAV marker.
+        : owner.priceOk === true && (!last.startedAt || !last.startedMs
           || String(last.startedAt) !== String(owner.startedAt)
-          || Number(last.startedMs) !== Number(owner.startedMs));
+          || Number(last.startedMs) !== Number(owner.startedMs)));
     if (!last || last.runDate !== date || previousIsDifferentRun) {
       if (!ownerMatches) return;
       // Never combine previous same-day A PRICE/NAV with run B's success.
