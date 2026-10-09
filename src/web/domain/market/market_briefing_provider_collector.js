@@ -20,10 +20,12 @@ function normalizeBenchmarkPoint(type,point,data,tradingDate,checkpoint){
  const krxCloseVerified=Boolean(source==='KRX_OFFICIAL'&&!delayed&&providerMeta&&providerMeta.confirmedClose===true
   &&observedAt&&(!isCurrent||KRX_FINAL_CHECKPOINTS.includes(checkpoint)));
  const final=isKrIndex?krxCloseVerified:(!isCurrent||krxCloseVerified);
+ const verifiedGap=isKrIndex&&krxCloseVerified&&Array.isArray(providerMeta.verifiedEmptyDates)
+  &&providerMeta.verifiedEmptyDates.length>0&&providerMeta.officialDate===sourceDate;
  const market=(type.startsWith('KOS')||type==='VKOSPI')?'KRX':type==='DXY'?'FX':type==='UST10Y'?'US_RATES':(type==='WTI'||type==='GOLD')?'COMMODITY':type==='BTC'?'CRYPTO':'US';
  return {value:Number(point.value),tradingDate:sourceDate,sourceDate,source,status:delayed&&isCurrent?'DELAYED':final?'FINAL':'PARTIAL',
   finality:final?'REGULAR_CLOSE':null,session:'REGULAR',market,currency:null,
-  observedAt,quality:delayed?'EOD_DELAYED':'EOD',fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
+  observedAt,quality:delayed?'EOD_DELAYED':(verifiedGap?'KRX_VERIFIED_EMPTY_OR_CLOSED_GAP':'EOD'),fallback:!isCurrent,providerSymbol:String(data&&data.symbols&&data.symbols[type]||'')};
 }
 function normalizeFxPoint(data,tradingDate,options={}){const rows=Array.isArray(data&&data.history)?data.history:Array.isArray(data&&data.series)?data.series:[];const point=latest(rows.map(row=>({date:String(row.date||row.tradingDate||'').slice(0,10),value:Number(row.value??row.rate??row.close),observedAt:row.observedAt&&Number.isFinite(Date.parse(row.observedAt))?row.observedAt:null})));if(!point)return null;const isCurrent=point.date===tradingDate,scheduledTolerance=Number(options.scheduledToleranceSeconds)===300&&isCurrent&&!point.observedAt;return {value:Number(point.value),tradingDate:String(point.date),sourceDate:String(point.date),source:String(data&&data.source||'FX_HISTORY'),status:isCurrent?'PARTIAL':'FINAL',finality:isCurrent?null:'HISTORICAL_CLOSE',session:'FX',market:'FX',currency:'KRW',observedAt:point.observedAt,quality:scheduledTolerance?'SCHEDULED_DELAY_TOLERANCE_300S':'EOD',fallback:!isCurrent};}
 function trustedStockClose(source){return /^(KRX|KRX_OTP|KRX_OFFICIAL|KRX_CONFIRMED_CLOSE|STORED_CONFIRMED_CLOSE)$/.test(String(source||'').toUpperCase());}
