@@ -19,9 +19,9 @@ const MARKET_BRIEFING_RUNTIME_SCRIPTS = Object.freeze([
   'domain/market/market_briefing_kis_wire.js?v=20260929-2',
   'domain/market/market_briefing_kis_ingest.js?v=20260929-2',
   'domain/market/market_briefing_snapshot_store.js?v=20260921-1',
-  'domain/market/market_briefing_operational_gate.js?v=20260929-11',
+  'domain/market/market_briefing_operational_gate.js?v=20261009-2',
   'domain/market/market_briefing_runtime_store.js?v=20260921-1',
-  'domain/market/market_briefing_provider_collector.js?v=20260929-12',
+  'domain/market/market_briefing_provider_collector.js?v=20261009-2',
   'domain/market/market_briefing_runtime.js?v=20261003-1',
 ]);
 
