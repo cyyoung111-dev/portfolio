@@ -30,10 +30,10 @@ const unprovenGap=staleMaster.filter(row=>row.seriesId!=='KOSPI'||row.source!=='
 const gapDecision=gate.releaseDecision(master,storeApi,unprovenGap,snapshots,d,'MORNING');
 assert.equal(gapDecision.publishable,false,'더 최신 관측 없어도 평일 날짜 공백이 미확인되면 NOT_READY');
 assert.ok(gapDecision.data.issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'));
-const verifiedGap=unprovenGap.map(row=>row.seriesId==='KOSPI'?{...row,quality:'KRX_VERIFIED_EMPTY_OR_CLOSED_GAP'}:row);
-const verifiedDecision=gate.releaseDecision(master,storeApi,verifiedGap,snapshots,d,'MORNING');
-assert.equal(verifiedDecision.publishable,true,'명시적으로 확인된 KRX 빈 날짜만 공식 이전 종가 사용');
-assert.ok(verifiedDecision.data.warnings.includes('KOSPI:KRX_CONFIRMED_DATA_GAP'));
+const legacyGap=unprovenGap.map(row=>row.seriesId==='KOSPI'?{...row,quality:'KRX_VERIFIED_EMPTY_OR_CLOSED_GAP'}:row);
+const legacyDecision=gate.releaseDecision(master,storeApi,legacyGap,snapshots,d,'MORNING');
+assert.equal(legacyDecision.publishable,false,'기존 범위 없는 quality 표시는 이후 거래일에 재사용 불가');
+assert.ok(legacyDecision.data.issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'));
 
 // Codex 2차 P1 재현: 금요일 공식값 + 월요일 장전 확인 후 화요일 API가 실패한 경우.
 const fridayClose=master.normalizeObservation({seriesId:'KOSPI',tradingDate:'2026-09-18',sourceDate:'2026-09-18',
@@ -46,16 +46,23 @@ assert.ok(!mondayGate.issues.some(issue=>issue.startsWith('KOSPI:')&&issue.inclu
 const tuesdayGate=gate.evaluate(master,[fridayClose],'2026-09-22','MORNING');
 assert.ok(tuesdayGate.issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'),
  'Codex 2차 P1: 월요일 검증 없는 금요일 공식 종가를 화요일에 재사용 금지');
-const closureProof={...fridayClose,quality:'KRX_CONFIRMED_CLOSED_GAP@2026-09-21|2026-09-19,2026-09-20,2026-09-21'};
-const scoped=gate.evaluate(master,[closureProof],'2026-09-22','MORNING');
+// 10/09은 KRX 공식 휴장, 10/10-11은 주말. 10/12 장전의 마지막 공식 종가는 10/08.
+const beforeHoliday=master.normalizeObservation({seriesId:'KOSPI',tradingDate:'2026-10-08',sourceDate:'2026-10-08',
+ value:3500,market:'KRX',session:'REGULAR',source:'KRX_OFFICIAL',status:'FINAL',finality:'REGULAR_CLOSE',
+ observedAt:'2026-10-08T15:30:00+09:00',receivedAt:'2026-10-12T07:20:00+09:00',
+ quality:'KRX_CONFIRMED_CLOSED_GAP@2026-10-11|2026-10-11,2026-10-10,2026-10-09'});
+const scoped=gate.evaluate(master,[beforeHoliday],'2026-10-12','MORNING');
 assert.ok(!scoped.issues.some(issue=>issue.startsWith('KOSPI:')),
- '휴장 날짜 목록과 대상일이 모두 검증된 종가만 공식 공백 허용');
-const expired=gate.evaluate(master,[closureProof],'2026-09-23','MORNING');
+ '휴장일 및 주말 전체가 대상일 범위로 증명된 이전 종가는 허용');
+const expired=gate.evaluate(master,[beforeHoliday],'2026-10-13','MORNING');
 assert.ok(expired.issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'),
- '같은 검증 증거의 다음날 재사용 차단');
-const incomplete={...closureProof,quality:'KRX_CONFIRMED_CLOSED_GAP@2026-09-21|2026-09-19,2026-09-20'};
-assert.ok(gate.evaluate(master,[incomplete],'2026-09-22','MORNING').issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'),
- '검증 날짜 목록에서 평일 하루라도 빠지면 차단');
+ '같은 휴장 검증 표시를 다음 거래일에 재사용할 수 없음');
+const incomplete={...beforeHoliday,quality:'KRX_CONFIRMED_CLOSED_GAP@2026-10-11|2026-10-09,2026-10-10'};
+assert.ok(gate.evaluate(master,[incomplete],'2026-10-12','MORNING').issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'),
+ '검증 날짜 중 하루라도 빠지면 차단');
+const unscoped={...beforeHoliday,quality:'KRX_VERIFIED_EMPTY_OR_CLOSED_GAP'};
+assert.ok(gate.evaluate(master,[unscoped],'2026-10-12','MORNING').issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'),
+ '옛 범위 없는 휴장 증거도 차단');
 let lateBackfill=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.MORNING.filter(x=>x!=='K200_NIGHT'))lateBackfill=master.upsertObservation(lateBackfill,{seriesId:id,tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1,market:id==='USDKRW'?'FX':((id==='KOSPI'||id==='KOSDAQ')?'KRX':'TEST'),session:id==='USDKRW'?'FX':'REGULAR',source:(id==='KOSPI'||id==='KOSDAQ')?'KRX_OFFICIAL':'HISTORY',status:'FINAL',finality:id==='USDKRW'?'HISTORICAL_CLOSE':'REGULAR_CLOSE',observedAt:(id==='KOSPI'||id==='KOSDAQ')?'2026-09-17T15:30:00+09:00':undefined,receivedAt:`${d}T07:35:00+09:00`});
 lateBackfill=master.upsertObservation(lateBackfill,{seriesId:'K200_NIGHT',tradingDate:d,sourceDate:d,value:1,market:'KRX',session:'NIGHT',source:'KIS',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${d}T06:00:00+09:00`,receivedAt:`${d}T06:00:00+09:00`});
