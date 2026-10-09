@@ -197,7 +197,7 @@ invalidMutation(validWorkflow, 'jobs:\n',
 invalidMutation(validWorkflow, '        run: npm run check:ci',
   '        run: npm run check:ci\n        "run": npm run check:ci', /YAML 구문/);
 invalidMutation(validWorkflow, '        run: npm run check:ci',
-  '        run: npm run check:ci\n      - name: Hide failure\n        run: true', /뒤에 실행되는 작업/);
+  '        run: npm run check:ci\n      - name: Hide failure\n        run: echo after-check', /뒤에 실행되는 작업/);
 validateQualityWorkflow(fs.readFileSync('.github/workflows/quality-check.yml', 'utf8'));
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
