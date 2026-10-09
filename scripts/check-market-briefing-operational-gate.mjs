@@ -35,6 +35,27 @@ const verifiedDecision=gate.releaseDecision(master,storeApi,verifiedGap,snapshot
 assert.equal(verifiedDecision.publishable,true,'명시적으로 확인된 KRX 빈 날짜만 공식 이전 종가 사용');
 assert.ok(verifiedDecision.data.warnings.includes('KOSPI:KRX_CONFIRMED_DATA_GAP'));
 
+// Codex 2차 P1 재현: 금요일 공식값 + 월요일 장전 확인 후 화요일 API가 실패한 경우.
+const fridayClose=master.normalizeObservation({seriesId:'KOSPI',tradingDate:'2026-09-18',sourceDate:'2026-09-18',
+ value:3420,market:'KRX',session:'REGULAR',source:'KRX_OFFICIAL',status:'FINAL',finality:'REGULAR_CLOSE',
+ observedAt:'2026-09-18T15:30:00+09:00',receivedAt:'2026-09-21T07:20:00+09:00',
+ quality:'KRX_VERIFIED_EMPTY_OR_CLOSED_GAP'});
+const mondayGate=gate.evaluate(master,[fridayClose],'2026-09-21','MORNING');
+assert.ok(!mondayGate.issues.some(issue=>issue.startsWith('KOSPI:')&&issue.includes('GAP')),
+ '월요일에는 금요일 공식 종가가 주말 때문에 차단되지 않아야 함');
+const tuesdayGate=gate.evaluate(master,[fridayClose],'2026-09-22','MORNING');
+assert.ok(tuesdayGate.issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'),
+ 'Codex 2차 P1: 월요일 검증 없는 금요일 공식 종가를 화요일에 재사용 금지');
+const closureProof={...fridayClose,quality:'KRX_CONFIRMED_CLOSED_GAP@2026-09-21|2026-09-19,2026-09-20,2026-09-21'};
+const scoped=gate.evaluate(master,[closureProof],'2026-09-22','MORNING');
+assert.ok(!scoped.issues.some(issue=>issue.startsWith('KOSPI:')),
+ '휴장 날짜 목록과 대상일이 모두 검증된 종가만 공식 공백 허용');
+const expired=gate.evaluate(master,[closureProof],'2026-09-23','MORNING');
+assert.ok(expired.issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'),
+ '같은 검증 증거의 다음날 재사용 차단');
+const incomplete={...closureProof,quality:'KRX_CONFIRMED_CLOSED_GAP@2026-09-21|2026-09-19,2026-09-20'};
+assert.ok(gate.evaluate(master,[incomplete],'2026-09-22','MORNING').issues.includes('KOSPI:UNVERIFIED_CLOSE_DATE_GAP'),
+ '검증 날짜 목록에서 평일 하루라도 빠지면 차단');
 let lateBackfill=[];
 for(const id of gate.REQUIRED_BY_CHECKPOINT.MORNING.filter(x=>x!=='K200_NIGHT'))lateBackfill=master.upsertObservation(lateBackfill,{seriesId:id,tradingDate:'2026-09-17',sourceDate:'2026-09-17',value:1,market:id==='USDKRW'?'FX':((id==='KOSPI'||id==='KOSDAQ')?'KRX':'TEST'),session:id==='USDKRW'?'FX':'REGULAR',source:(id==='KOSPI'||id==='KOSDAQ')?'KRX_OFFICIAL':'HISTORY',status:'FINAL',finality:id==='USDKRW'?'HISTORICAL_CLOSE':'REGULAR_CLOSE',observedAt:(id==='KOSPI'||id==='KOSDAQ')?'2026-09-17T15:30:00+09:00':undefined,receivedAt:`${d}T07:35:00+09:00`});
 lateBackfill=master.upsertObservation(lateBackfill,{seriesId:'K200_NIGHT',tradingDate:d,sourceDate:d,value:1,market:'KRX',session:'NIGHT',source:'KIS',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${d}T06:00:00+09:00`,receivedAt:`${d}T06:00:00+09:00`});
