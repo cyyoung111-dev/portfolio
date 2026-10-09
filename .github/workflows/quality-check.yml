@@ -43,4 +43,4 @@ jobs:
           npm_config_node_options: --trace-warnings
           npm_config_ignore_scripts: 'true'
           NODE_OPTIONS: ''
-        run: test ! -f .npmrc && npm run check:ci
+        run: test ! -f .npmrc && for tool in npm node; do test ! -e "node_modules/.bin/$tool" && test ! -L "node_modules/.bin/$tool" || exit 1; done; npm run check:ci
