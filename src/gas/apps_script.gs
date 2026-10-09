@@ -10863,39 +10863,58 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
     props.setProperty('portfolio_close_stage','ERROR');
   }
   return _portfolioFundAtomic_(function(props) {
-    var old = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-    var scheduleDate = today();
+    // Preserve the historical single-reservation JSON shape for GAS deployments
+    // already running. Additional live business dates are kept in the same
+    // property under "additional", so one ScriptLock protects the whole roster.
+    var stored = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+    var schedules = stored ? [stored].concat(Array.isArray(stored.additional) ? stored.additional : []) : [];
+    if (stored) delete stored.additional;
+    // The PRICE owner is fixed at close entry. A failure finishing after KST
+    // midnight must not shift the reserved NAV to the next business date.
+    var scheduleDate = owner && /^\d{4}-\d{2}-\d{2}$/.test(String(owner.date || ''))
+      ? String(owner.date) : today();
+    var now = Date.now();
+    schedules = schedules.filter(function(item) {
+      return item && item.triggerId && (Number(item.activeUntil || 0) > now
+        || (Number(item.until || 0) > now && Number(item.attempts || 0) < 3));
+    });
+    function saveSchedules() {
+      if (!schedules.length) {
+        props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+        return;
+      }
+      if (schedules.length > 1) schedules[0].additional = schedules.slice(1);
+      else delete schedules[0].additional;
+      props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(schedules[0]));
+    }
+    var old = schedules.filter(function(item) { return item.date === scheduleDate; })[0] || null;
     // An attempt is reserved under this same lock before its NAV lease begins.
     // Do not replace its trigger merely because this is attempt number three.
-    var activeAttempt = old && Number(old.activeUntil || 0) > Date.now();
+    var activeAttempt = old && Number(old.activeUntil || 0) > now;
     if (old && old.date === scheduleDate
-        && (old.until > Date.now() || activeAttempt)
+        && (old.until > now || activeAttempt)
         && (Number(old.attempts || 0) < 3 || activeAttempt)) {
-      // The reservation's UID belongs to the original owner; only revise
-      // the embedded proof when it is still pending, never during a NAV run.
       if (owner && !activeAttempt && owner.date === scheduleDate && owner.runId) {
         old.owner = {date:scheduleDate,runId:String(owner.runId),
           startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
           errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []};
-        props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,JSON.stringify(old));
+        saveSchedules();
         persistOwnerSummary(props,String(old.triggerId || ''));
       }
       return {created:false, triggerId:String(old.triggerId || '')};
     }
-    // An old-day recurring trigger belongs to the creator account and cannot
-    // be enumerated cross-account. Its next invocation deletes its own UID.
-    // A fresh reservation for the new KST date must never reuse that UID.
-    // A recurring, bounded retry survives Apps Script's hard timeout (no finally on kill).
-    // Trigger is deleted after completion or three failed attempts.
+    // Expired/exhausted UIDs will clean themselves up at their next firing.
+    // Never discard another business day's unexpired UID when scheduling today.
     var trigger = ScriptApp.newTrigger(handler).timeBased().everyMinutes(10).create();
     var triggerId = trigger.getUniqueId ? trigger.getUniqueId() : '';
-    props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY,
-      JSON.stringify({until:Date.now() + 45 * 60 * 1000, date:scheduleDate,
-        attempts:0, triggerId:triggerId,
-        owner: owner && owner.date === scheduleDate && owner.runId
-          ? {date:scheduleDate,runId:String(owner.runId),
-            startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
-            errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []} : null}));
+    var next = {until:now + 45 * 60 * 1000, date:scheduleDate,
+      attempts:0, triggerId:triggerId,
+      owner:owner && owner.date === scheduleDate && owner.runId
+        ? {date:scheduleDate,runId:String(owner.runId),
+          startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
+          errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []} : null};
+    schedules = [next].concat(schedules.filter(function(item) { return item.date !== scheduleDate; }));
+    saveSchedules();
     persistOwnerSummary(props,triggerId);
     return {created:true, triggerId:triggerId};
   });
@@ -10955,7 +10974,16 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
         // deferred reservation; its user-owned trigger cleans itself by UID
         // on the next firing without touching another account's triggers.
         var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-        if (pending && pending.date === date) props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+        if (pending) {
+          var reservations = [pending].concat(Array.isArray(pending.additional) ? pending.additional : []);
+          delete pending.additional;
+          reservations = reservations.filter(function(item) { return item.date !== date; });
+          if (!reservations.length) props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+          else {
+            if (reservations.length > 1) reservations[0].additional = reservations.slice(1);
+            props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(reservations[0]));
+          }
+        }
       }
     });
     return result;
@@ -11091,8 +11119,22 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
   var triggerId = e && e.triggerUid ? String(e.triggerUid) : '';
   var shouldCleanup = false, shouldRun = false, blockedBeforeRun = false;
   var reservation = _portfolioFundAtomic_(function(props) {
-    var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
-    if (!pending || (triggerId && pending.triggerId !== triggerId)) return null;
+    var stored = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+    var schedules = stored ? [stored].concat(Array.isArray(stored.additional) ? stored.additional : []) : [];
+    if (stored) delete stored.additional;
+    var pending = triggerId
+      ? schedules.filter(function(item) { return item.triggerId === triggerId; })[0]
+      : (schedules.filter(function(item) { return item.date === runDate; })[0]
+        || schedules[schedules.length - 1]);
+    if (!pending) return null;
+    function saveSchedules() {
+      if (!schedules.length) props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+      else {
+        if (schedules.length > 1) schedules[0].additional = schedules.slice(1);
+        else delete schedules[0].additional;
+        props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(schedules[0]));
+      }
+    }
     // A just-before-midnight reservation remains actionable on the next
     // calendar date while it is unexpired. Never silently delete NAV work.
     if (pending.date > runDate || !/^\d{4}-\d{2}-\d{2}$/.test(String(pending.date || '')))
@@ -11117,7 +11159,7 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     pending.attempts += 1;
     pending.attemptToken = Utilities.getUuid();
     pending.activeUntil = Date.now() + 7 * 60 * 1000;
-    props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
+    saveSchedules();
     return {run:true, triggerId:pending.triggerId, attemptToken:pending.attemptToken,
       runDate:pending.date, owner:pending.owner || null};
   });
@@ -11159,10 +11201,13 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
     // Clear only this attempt's marker. If the GAS process is hard-killed,
     // activeUntil bounds the reservation until a later retry can recover.
     _portfolioFundAtomic_(function(props) {
-      var pending = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+      var stored = _portfolioFundState_(props, PORTFOLIO_FUND_SCHEDULE_KEY);
+      var schedules = stored ? [stored].concat(Array.isArray(stored.additional) ? stored.additional : []) : [];
+      if (stored) delete stored.additional;
+      var pending = schedules.filter(function(item) { return item.triggerId === cleanupTriggerId; })[0];
       if (!pending || !cleanupTriggerId || pending.triggerId !== cleanupTriggerId) return;
       if (shouldCleanup) {
-        props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+        schedules = schedules.filter(function(item) { return item.triggerId !== cleanupTriggerId; });
       } else if (shouldRun && pending.attemptToken === reservation.attemptToken) {
         if (blockedBeforeRun) {
           pending.attempts = Math.max(0, Number(pending.attempts || 0) - 1);
@@ -11171,7 +11216,12 @@ function runDeferredFundAfterPortfolioCloseFailure(e) {
         }
         delete pending.attemptToken;
         delete pending.activeUntil;
-        props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(pending));
+      }
+      if (!schedules.length) props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
+      else {
+        if (schedules.length > 1) schedules[0].additional = schedules.slice(1);
+        else delete schedules[0].additional;
+        props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(schedules[0]));
       }
     });
     if (shouldCleanup) {
@@ -11269,7 +11319,7 @@ function runDailyPortfolioClose1900() {
       // Mark pending rather than a permanent hard failure. Active deferred run
       // reconciles the result after success; recurring retry covers transient failures.
       try {
-        var busyReservation = _scheduleFundAfterFailedPortfolioPrice_();
+        var busyReservation = _scheduleFundAfterFailedPortfolioPrice_({date:runDate});
         fundBusyTriggerId = String(busyReservation && busyReservation.triggerId || '');
       } catch(scheduleError) {
         Logger.log('⚠️ FUND_BUSY 재시도 예약 실패: ' + scheduleError.message);
