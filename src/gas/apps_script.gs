@@ -11338,8 +11338,14 @@ function _reconcilePortfolioFundBusy_(date) {
       props.setProperty('portfolio_close_last_error', _fundPropertyText(last.errors.join(' | '), 2000));
     } else {
       props.deleteProperty('portfolio_close_last_error');
+      var stage = String(props.getProperty('portfolio_close_stage') || '');
+      // A killed CLOSE may leave FUND indefinitely. Deferred NAV only starts
+      // after the active close lease has ended; completing that exact owner
+      // after 7 minutes is safe once both PRICE and NAV proof are durable.
+      var staleFundStage = stage === 'FUND' && ownerMatches
+        && Date.now() - Number(owner.startedMs || 0) > 7 * 60 * 1000;
       if (last.priceOk && props.getProperty('portfolio_close_run_date') === date
-          && props.getProperty('portfolio_close_stage') === 'ERROR') {
+          && (stage === 'ERROR' || staleFundStage)) {
         props.setProperty('portfolio_close_stage', 'COMPLETE');
       }
     }
