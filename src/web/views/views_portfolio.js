@@ -19,13 +19,17 @@ let _acctEnrichedCache = { key: '', data: [] };
 let _mergeListCache = { key: '', list: [] };
 
 function _portfolioDataKey() {
-  return [
-    rows.length,
-    rawTrades.length,
-    rawHoldings.length,
-    EDITABLE_PRICES.length,
-    lastUpdated || ''
-  ].join('|');
+  // Row counts and lastUpdated alone are not a revision: editing an old trade,
+  // changing a price, or reclassifying an asset can preserve all five values.
+  // Cache only remains valid while the actual displayed inputs are unchanged.
+  return JSON.stringify([
+    lastUpdated || '',
+    rows.map(r => [
+      r.acct, r.name, r.code, r.type, r.sector, r.fund,
+      r.qty, r.price, r.cost, r.costAmt, r.evalAmt, r.pnl, r.pct
+    ]),
+    EDITABLE_PRICES.map(ep => [ep.name, ep.code, ep.assetType, ep.type]),
+  ]);
 }
 
 function renderAcctView(area) {
