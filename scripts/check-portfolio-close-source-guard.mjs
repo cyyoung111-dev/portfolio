@@ -2304,6 +2304,19 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
  ctx.runDailyFundValuations('2026-10-08');
  assert.equal(args[0].to,'2026-10-08','자정 이후 날짜가 당일로 잘못 이동하지 않음');
  assert.equal(JSON.parse(p.getProperty('fund_last_result')).runDate,'2026-10-08');
+ // A previous-day trigger can finish after the current-day NAV. Historical
+ // repair must not roll back current automation health/warning/error fields.
+ ctx.runDailyFundValuations('2026-10-09');
+ bag.set('fund_last_warning','current-day-warning');
+ ctx.runDailyFundValuations('2026-10-08');
+ assert.equal(JSON.parse(p.getProperty('fund_last_result')).runDate,'2026-10-09',
+  '전날 NAV의 늦은 완료가 최신 펀드 운영 기준일을 과거로 되돌리면 안 됨');
+ assert.equal(p.getProperty('fund_last_warning'),'current-day-warning',
+  '과거 NAV 성공이 현재 날짜의 경고를 삭제하면 안 됨');
+ ctx._refreshFundValuations=()=>{throw new Error('old-date-failure');};
+ assert.throws(()=>ctx.runDailyFundValuations('2026-10-08'),/old-date-failure/);
+ assert.equal(p.getProperty('fund_last_error'),null,
+  '과거 NAV 실패는 최근 날짜의 운영 오류로 오표시하면 안 됨');
 }
 console.log('✅ 소유권·자정 P2: 실제 deferred 정합화 및 지정 날짜 NAV 실행');
 
