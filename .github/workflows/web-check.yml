@@ -1,17 +1,16 @@
 name: web-check
 
 on:
+  # Changes to scripts/check-*.mjs are fully tested by quality-check.yml.
   pull_request:
     paths:
       - 'src/web/**'
-      - 'scripts/check-*.mjs'
       - 'package.json'
       - '.github/workflows/web-check.yml'
   push:
     branches: [ main ]
     paths:
       - 'src/web/**'
-      - 'scripts/check-web-*.mjs'
       - 'package.json'
       - '.github/workflows/web-check.yml'
 
