@@ -384,7 +384,7 @@ const closeRunSource=extract('runDailyPortfolioClose1900');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'PRICE', runId, null, startedMs)")
   < closeRunSource.indexOf('saveDailyPriceHistory(undefined, {deferQueueCompletion:true})'), '일반 종목 단계 실행 전에 시작 마커');
 assert.ok(closeRunSource.indexOf("_recordPortfolioCloseStage(props, runDate, startedAt, 'FUND', runId, null, startedMs)")
-  < closeRunSource.indexOf("_runPortfolioFundWithLease_('CLOSE', runId)"), '펀드 단계 실행 전에 단계 기록');
+  < closeRunSource.indexOf("_runPortfolioFundWithLease_('CLOSE', runId, runDate)"), '펀드 단계 실행 전에 단계 기록');
 assert.match(closeRunSource, /_recordPortfolioCloseStage\(props, runDate, startedAt,\s*errors\.length \? 'ERROR' : 'COMPLETE', runId, summary, startedMs\)/);
 assert.match(closeRunSource, /if \(!_recordPortfolioCloseStage\(props, runDate, startedAt, 'PRICE', runId, null, startedMs\)\)/,
   '상태 소유권 확보 실패 시 중복 마감 실행 자체를 차단');
@@ -453,12 +453,12 @@ assert.match(closeRunSource,/reason:'ISOLATED_NIGHTLY_BACKFILL'/,
 
 // Full executable lifecycle: a successful CLOSE cancels only same-day deferred
 // reservation while leaving a different business day's reservation untouched.
-function inspectCloseCompletion(reservationDate) {
+function inspectCloseCompletion(reservationDate, clockDate='2026-10-08', reservedDate) {
   const initial=typeof reservationDate==='string'
     ? {date:reservationDate,triggerId:'nav-T1',attempts:0,until:20000}
     : reservationDate;
   const bag=new Map([['portfolio_fund_deferred_schedule_v1', JSON.stringify(initial)]]);
-  let id=0;
+  let id=0, calledFundDate='';
   const props={
     getProperty:key=>bag.get(key)||null,
     setProperty:(key,value)=>bag.set(key,value),
@@ -466,7 +466,7 @@ function inspectCloseCompletion(reservationDate) {
   };
   const sandbox=vm.createContext({
     Utilities:{getUuid:()=> 'lease-'+(++id)},
-    today:()=> '2026-10-08', Date:{now:()=>10000},
+    today:()=> clockDate, Date:{now:()=>10000},
     _portfolioFundAtomic_:cb=>cb(props),
     _portfolioFundState_:(p,key)=>JSON.parse(p.getProperty(key)||'null'),
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_run_lease_v1',
@@ -474,12 +474,13 @@ function inspectCloseCompletion(reservationDate) {
     PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
     PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
     PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
-    runDailyFundValuations:()=>({lastDate:'2026-10-08'})
+    runDailyFundValuations:date=>{calledFundDate=date;return {lastDate:date};}
   });
   vm.runInContext(guardedFundSource,sandbox);
-  sandbox._runPortfolioFundWithLease_('CLOSE');
+  sandbox._runPortfolioFundWithLease_('CLOSE','owner-run-id',reservedDate);
   return {pending:props.getProperty('portfolio_fund_deferred_schedule_v1'),
-    lease:props.getProperty('portfolio_fund_run_lease_v1')};
+    lease:props.getProperty('portfolio_fund_run_lease_v1'),
+    calledFundDate};
 }
 assert.equal(inspectCloseCompletion('2026-10-08').pending,null,
   '당일 정상 마감 NAV 성공은 기존 지연 NAV 예약을 취소');
@@ -493,6 +494,11 @@ const preservedOtherDay=inspectCloseCompletion({
 });
 assert.equal(JSON.parse(preservedOtherDay.pending).triggerId,'nav-yesterday',
   '오늘 CLOSE 성공은 전날의 별도 예약을 삭제하면 안 됨');
+const midnightClose=inspectCloseCompletion('2026-10-08','2026-10-09','2026-10-08');
+assert.equal(midnightClose.calledFundDate,'2026-10-08',
+  '수동 CLOSE가 자정을 넘겨도 NAV 조회 기준일은 시작 시 거래일 유지');
+assert.equal(midnightClose.pending,null,
+  '다음날 완료된 CLOSE라도 원 실행 날짜의 유예 예약을 정확히 취소');
 const deferredBag=new Map([['portfolio_fund_deferred_schedule_v1',
   JSON.stringify({date:'2026-10-08',triggerId:'T-final',until:20000,attempts:2})]]);
 const deferredProps={
