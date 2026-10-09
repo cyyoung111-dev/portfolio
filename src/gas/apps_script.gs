@@ -11079,6 +11079,21 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
           return item && (item.date !== date || item.triggerId !== current.triggerId)
             && Number(item.at || 0) >= Date.now() - 48 * 60 * 60 * 1000;
         })).slice(0,6);
+        // Old deployed markers can contain large unbounded PRICE error arrays.
+        // Keep exact ID/date/start metadata but bound diagnostic strings so
+        // this six-proof journal cannot breach the 9KB property-value limit.
+        markers.forEach(function(item) {
+          if (item.owner && item.owner.runId) {
+            item.owner = {date:String(item.owner.date || item.date),
+              runId:String(item.owner.runId).slice(0,80),
+              startedAt:String(item.owner.startedAt || '').slice(0,32),
+              startedMs:Number(item.owner.startedMs || 0),
+              errors:Array.isArray(item.owner.errors)
+                ? item.owner.errors.slice(0,2).map(function(reason) {
+                  return String(reason || '').slice(0,100);
+                }) : []};
+          }
+        });
         if (markers.length > 1) markers[0].additional = markers.slice(1);
         props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY, JSON.stringify(markers[0]));
       } else if (origin === 'CLOSE') {
