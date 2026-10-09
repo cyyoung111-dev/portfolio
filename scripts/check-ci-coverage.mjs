@@ -263,7 +263,7 @@ invalidMutation(validWorkflow, '          npm_config_script_shell: /bin/bash',
 invalidMutation(validWorkflow, '          npm_config_script_shell: /bin/bash',
   '          npm_config_script_shell: /bin/true',
   /전체 CI 전 단계의 구성/);
-invalidMutation(validWorkflow, "        env:\n          npm_config_script_shell: /bin/bash\n          npm_config_node_options: ''\n          NODE_OPTIONS: ''\n",
+invalidMutation(validWorkflow, "        env:\n          npm_config_script_shell: /bin/bash\n          npm_config_node_options: --trace-warnings\n          NODE_OPTIONS: ''\n",
   '', /full CI step|전체 CI 전 단계의 구성/);
 
 // The npm CLI can pass .npmrc node-options as NODE_OPTIONS to child scripts.
