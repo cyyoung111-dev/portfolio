@@ -518,6 +518,38 @@ assert.deepEqual(threeOwners.pending.additional.map(x=>x.triggerId),
   assert.equal(JSON.parse(p.getProperty('portfolio_fund_deferred_schedule_v1')).additional.length,7,
     '포화되어도 기존 8개 UID를 임의 삭제하면 안 됨');
 }
+// If persistence fails even after successful size preflight, never leave an
+// unowned new GAS trigger behind or alter another run's reservation.
+{
+ const bag=new Map(), p={getProperty:k=>bag.get(k)||null,
+   deleteProperty:k=>bag.delete(k),
+   setProperty:(k,v)=>{
+     if(k==='portfolio_fund_deferred_schedule_v1')
+       throw new Error('injected-property-write-failure');
+     bag.set(k,String(v));
+   }};
+ let deleted=0,created=0;
+ const vmCtx=vm.createContext({
+   today:()=> '2026-10-08',Date:{now:()=>10000},
+   PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+   PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+   _portfolioFundAtomic_:cb=>cb(p),
+   _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+   ScriptApp:{
+     newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({
+       create:()=>{created++;return {getUniqueId:()=> 'failed-new-uid'};}
+     })})}),
+     deleteTrigger:t=>{assert.equal(t.getUniqueId(),'failed-new-uid');deleted++;}
+   }
+ });
+ vm.runInContext(scheduleSource,vmCtx);
+ assert.throws(()=>vmCtx._scheduleFundAfterFailedPortfolioPrice_({
+   date:'2026-10-08',runId:'fail-write',startedMs:1000
+ }),/injected-property-write-failure/);
+ assert.equal(created,1);
+ assert.equal(deleted,1,'속성 저장 실패 시 방금 만든 신규 UID만 삭제');
+ assert.equal(p.getProperty('portfolio_fund_deferred_schedule_v1'),null);
+}
 console.log('✅ Korean UTF-8 예약 용량·8개 유효 UID 보호·미등록 트리거 생성 차단');
 assert.match(deferredSource,/cleanupTriggerId = triggerId \|\| String\(reservation\.triggerId \|\| ''\)/,
   '수동 호출에서 이벤트 UID가 없더라도 특정 예약 UID만 정리');
@@ -2557,6 +2589,20 @@ console.log('✅ 선제 운영 충돌: NAV 예약과 PRICE 실패 summary 같은
  assert.equal(last.fundOk,true,'뒤늦은 A 정합화는 B 마커가 있어도 성공');
  assert.equal(last.priceOk,false,'실패한 PRICE를 성공으로 바꾸지 않음');
  assert.deepEqual(last.errors,['일반 종목: 가격 실패']);
+ // Six live success proofs including inherited long failures must remain
+ // below the per-value Script Properties quota without losing distinct UIDs.
+ for(let i=0;i<6;i++) {
+   vmCtx._runPortfolioFundWithLease_('DEFERRED','uid-long-'+i,
+     '2026-10-09',{date:'2026-10-09',runId:'long-'+i,
+       startedAt:'2026-10-09 19:00:00',startedMs:1200,
+       errors:Array(4).fill('가'.repeat(3000))});
+ }
+ const proofsRaw=props.getProperty('portfolio_fund_deferred_success_v1');
+ assert.ok(Buffer.byteLength(proofsRaw,'utf8')<8000,
+   '6개 성공 증거의 한글 오류를 정리해 9KB GAS 속성 한도를 지킴');
+ const journal=JSON.parse(proofsRaw);
+ assert.equal(journal.additional.length,5,'서로 다른 성공 UID는 최대 6건 보존');
+ assert.ok(journal.additional.every(x=>x.owner.errors.every(reason=>reason.length<=100)));
 }
 
 // Codex P2: a third attempt hard-killed after durable NAV success must
