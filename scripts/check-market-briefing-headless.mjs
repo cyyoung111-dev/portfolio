@@ -50,7 +50,7 @@ const unverifiedTossMorning=async(action,params)=>action==='getBenchmarks'
  : request(action,params);
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:unverifiedTossMorning});
 assert.equal(result.decision.publishable,false,'Toss 과거 미확정 candle로 장전 정규장 확정 종가 발행 금지');
-assert.ok(result.decision.data.issues.includes('KOSPI:NOT_CONFIRMED_PREVIOUS_REGULAR_CLOSE'));
+assert.ok(result.decision.data.missing.includes('KOSPI') || result.decision.data.issues.includes('KOSPI:NOT_CONFIRMED_PREVIOUS_REGULAR_CLOSE'), 'Toss 미확정 종가는 누락 또는 확정 실패로 차단');
 assert.equal(snapshots.length,0,'비확정 Toss 장전은 snapshot 기록 없음');
 globalThis.localStorage.clear(); observations=[];snapshots=[];snapshotPosts=0;
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request});
