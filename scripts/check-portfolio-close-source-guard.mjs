@@ -2250,6 +2250,13 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
  ctx._reconcilePortfolioFundBusy_('2026-10-08');
  assert.equal(p.getProperty('portfolio_close_last_result'),null,
   '다른 실행 소유권이면 완료 마커가 있어도 summary 재생성 금지');
+ m.set('portfolio_close_run_id',owner.runId);
+ m.set('portfolio_close_last_result',JSON.stringify({runDate:'2026-10-08',
+  priceOk:true,fundOk:false,errors:[]}));
+ ctx._reconcilePortfolioFundBusy_('2026-10-08');
+ const noOwner=JSON.parse(p.getProperty('portfolio_close_last_result'));
+ assert.equal(noOwner.fundOk,false,
+  '실행 ID·시작시각 없는 이전 PRICE를 새 NAV 증거와 임의 결합하면 안 됨');
 }
 // DATE-bound production fund valuation must use the booked date, even when
 // called on 2026-10-09 after midnight.
