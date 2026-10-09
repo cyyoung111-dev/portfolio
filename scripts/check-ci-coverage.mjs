@@ -199,14 +199,14 @@ invalidMutation(validWorkflow, 'run: npm run check:ci',
 // Skip/ignore/mask the job or any of its steps.
 invalidMutation(validWorkflow, '  all-check-scripts:\n',
   '  all-check-scripts:\n    if: false\n', /all-check-scripts/);
-invalidMutation(validWorkflow, '      - name: Full CI',
-  '      - if: false\n        name: Full CI', /조건부 실행/);
-invalidMutation(validWorkflow, '      - name: Full CI',
-  '      - continue-on-error: true\n        name: Full CI', /오류 무시/);
-invalidMutation(validWorkflow, '      - name: Full CI',
-  '      - name: Full CI\n        if: false', /조건부 실행/);
-invalidMutation(validWorkflow, '      - name: Full CI',
-  '      - name: Full CI\n        continue-on-error: true', /오류 무시/);
+invalidMutation(validWorkflow, '      - name: Verify every check script and run full CI',
+  '      - if: false\n        name: Verify every check script and run full CI', /조건부 실행/);
+invalidMutation(validWorkflow, '      - name: Verify every check script and run full CI',
+  '      - continue-on-error: true\n        name: Verify every check script and run full CI', /오류 무시/);
+invalidMutation(validWorkflow, '      - name: Verify every check script and run full CI',
+  '      - name: Verify every check script and run full CI\n        if: false', /조건부 실행/);
+invalidMutation(validWorkflow, '      - name: Verify every check script and run full CI',
+  '      - name: Verify every check script and run full CI\n        continue-on-error: true', /오류 무시/);
 // Custom shells and defaults are risky even when the run command is correct.
 invalidMutation(validWorkflow, '        run: npm run check:ci',
   '        shell: echo {0}\n        run: npm run check:ci', /사용자 지정 shell/);
