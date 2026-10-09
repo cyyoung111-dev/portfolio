@@ -17,6 +17,10 @@ function collectExecutedChecks(scripts, entry = 'check:ci') {
     // Fail closed: the reachable suite only allows unconditional, fail-fast
     // chains of "npm run <name>" or "node scripts/check-*.mjs [--flag]".
     // Pipes, "||", ";" and shell redirection can skip or mask a check.
+    // npm automatically runs pre/post hooks around "npm run"; an otherwise
+    // covered check can be replaced or masked before it is reached.
+    assert.ok(!Object.hasOwn(scripts, 'pre' + name) && !Object.hasOwn(scripts, 'post' + name),
+      '검사 npm lifecycle 훅을 허용하지 않습니다: ' + name);
     visiting.add(name);
     for (const segment of command.split(/\s+&&\s+/)) {
       const part = segment.trim();
@@ -71,6 +75,22 @@ assert.throws(
 assert.throws(
   () => collectExecutedChecks({'check:ci': 'node scripts/check-never.mjs > /dev/null'}),
   /허용되지 않는 검사 명령/,
+);
+
+assert.throws(
+  () => collectExecutedChecks({
+    'check:ci': 'node scripts/check-original.mjs',
+    'precheck:ci': 'node scripts/check-prelude.mjs',
+  }),
+  /lifecycle/,
+);
+assert.throws(
+  () => collectExecutedChecks({
+    'check:ci': 'npm run check:gas',
+    'check:gas': 'node scripts/check-gas.mjs',
+    'postcheck:gas': 'node scripts/check-sabotage.mjs',
+  }),
+  /lifecycle/,
 );
 
 // Parse the actual GitHub Actions YAML (including quoted keys, mappings,
@@ -141,9 +161,9 @@ function validateQualityWorkflow(source) {
     {name:'Setup Node', uses:'actions/setup-node@v7', with:{'node-version':'24'}},
     {name:'Install dependencies', run:[
       'if [ -f package-lock.json ]; then',
-      '  npm ci',
+      '  npm ci --ignore-scripts',
       'else',
-      '  npm install --no-package-lock --no-audit --no-fund',
+      '  npm install --no-package-lock --no-audit --no-fund --ignore-scripts',
       'fi',
       '',
     ].join('\n')},
@@ -176,9 +196,9 @@ const validWorkflow = [
   '      - name: Install dependencies',
   '        run: |',
   '          if [ -f package-lock.json ]; then',
-  '            npm ci',
+  '            npm ci --ignore-scripts',
   '          else',
-  '            npm install --no-package-lock --no-audit --no-fund',
+  '            npm install --no-package-lock --no-audit --no-fund --ignore-scripts',
   '          fi',
   '      - name: Verify every check script and run full CI',
   '        run: npm run check:ci',
@@ -240,7 +260,7 @@ invalidMutation(validWorkflow, '        uses: actions/checkout@v7',
 invalidMutation(validWorkflow, "          node-version: '24'",
   "          node-version: '22'",
   /전체 CI 전 단계의 구성/);
-invalidMutation(validWorkflow, '            npm ci',
+invalidMutation(validWorkflow, '            npm ci --ignore-scripts',
   '            npm ci --ignore-scripts',
   /전체 CI 전 단계의 구성/);
 invalidMutation(validWorkflow, '      - name: Setup Node\n',
@@ -259,6 +279,10 @@ invalidMutation(validWorkflow,
   '      - name: Checkout\n        uses: actions/checkout@v7\n      - name: Setup Node',
   '      - name: Setup Node\n        uses: actions/setup-node@v7\n      - name: Checkout\n        uses: actions/checkout@v7\n      - name: Setup Node',
   /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '            npm ci --ignore-scripts',
+  '            npm ci', /전체 CI 전 단계의 구성/);
+invalidMutation(validWorkflow, '            npm install --no-package-lock --no-audit --no-fund --ignore-scripts',
+  '            npm install --no-package-lock --no-audit --no-fund', /전체 CI 전 단계의 구성/);
 validateQualityWorkflow(fs.readFileSync('.github/workflows/quality-check.yml', 'utf8'));
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
