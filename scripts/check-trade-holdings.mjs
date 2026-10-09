@@ -125,4 +125,33 @@ if (context.rawHoldings.length !== 1
   process.exit(1);
 }
 
+// Regression: a historical quantity/price edit can leave row/trade counts and
+// lastUpdated unchanged. Re-render must not reuse the old portfolio view cache.
+const portfolioViewCode = fs.readFileSync('src/web/views/views_portfolio.js','utf8');
+const keyFunction = portfolioViewCode.match(/function _portfolioDataKey\(\) \{[\s\S]*?\n\}/)?.[0];
+if (!keyFunction) throw new Error('portfolio view cache key function unavailable');
+const cacheContext = {
+  rows:[{acct:'ISA',name:'ETF A',code:'123456',type:'ETF',sector:'기타',
+    qty:5,price:120,cost:100,costAmt:500,evalAmt:600,pnl:100,pct:20}],
+  EDITABLE_PRICES:[{name:'ETF A',code:'123456',assetType:'ETF'}],
+  rawTrades:[{qty:5}],rawHoldings:[{qty:5}],lastUpdated:'same-update',
+};
+vm.runInNewContext(keyFunction,cacheContext,{filename:'views_portfolio_cache_key.js'});
+const beforeKey=cacheContext._portfolioDataKey();
+assertCacheChange('quantity', () => {cacheContext.rows[0].qty=7;});
+assertCacheChange('evaluation', () => {cacheContext.rows[0].evalAmt=840;});
+assertCacheChange('cost', () => {cacheContext.rows[0].costAmt=700;});
+assertCacheChange('P/L', () => {cacheContext.rows[0].pnl=140;});
+assertCacheChange('type', () => {cacheContext.EDITABLE_PRICES[0].assetType='주식';});
+function assertCacheChange(reason,mutate) {
+  const oldKey=cacheContext._portfolioDataKey();
+  mutate();
+  if (cacheContext._portfolioDataKey()===oldKey)
+    throw new Error('portfolio cache retained stale '+reason+' despite changed input');
+}
+if(beforeKey===cacheContext._portfolioDataKey())
+  throw new Error('portfolio view cache remained stale across multiple edits');
+if(cacheContext._portfolioDataKey()!==cacheContext._portfolioDataKey())
+  throw new Error('portfolio view cache key is not deterministic');
+
 console.log('✅ 거래 저장·전량 매도·마지막 거래 삭제의 보유현황 반영 검사 통과');
