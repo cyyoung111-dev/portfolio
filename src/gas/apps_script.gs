@@ -11078,7 +11078,9 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
         markers = [current].concat(markers.filter(function(item) {
           return item && (item.date !== date || item.triggerId !== current.triggerId)
             && Number(item.at || 0) >= Date.now() - 48 * 60 * 60 * 1000;
-        })).slice(0,6);
+        })).slice(0,8);
+        // The reservation roster supports 8 live UIDs; the journal must not
+        // evict a completed UID before its own post-hardkill reconciliation.
         // Old deployed markers can contain large unbounded PRICE error arrays.
         // Keep exact ID/date/start metadata but bound diagnostic strings so
         // this six-proof journal cannot breach the 9KB property-value limit.
@@ -11095,7 +11097,20 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
           }
         });
         if (markers.length > 1) markers[0].additional = markers.slice(1);
-        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY, JSON.stringify(markers[0]));
+        var proofJson = JSON.stringify(markers[0]);
+        function proofBytes(value) {
+          return encodeURIComponent(value).replace(/%[0-9A-F]{2}/gi, 'x').length;
+        }
+        if (proofBytes(proofJson) > 8000) {
+          // Discard optional diagnostics, NEVER exact token/UID/owner identity.
+          markers.forEach(function(item) {
+            if (item.owner) item.owner.errors = [];
+          });
+          proofJson = JSON.stringify(markers[0]);
+        }
+        if (proofBytes(proofJson) > 8000)
+          throw new Error('FUND_SUCCESS_CAPACITY: 기존 성공 UID 증거 보호를 위해 기록 보류');
+        props.setProperty(PORTFOLIO_FUND_SUCCESS_KEY, proofJson);
       } else if (origin === 'CLOSE') {
         // A close can die after NAV successfully commits but before the final
         // stage/result property write. Persist an exact run-id success proof.
