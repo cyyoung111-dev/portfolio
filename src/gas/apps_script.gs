@@ -10975,9 +10975,11 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
     var alreadySucceeded = !!old && successes.some(function(marker) {
       return marker && marker.date === old.date && marker.triggerId === old.triggerId;
     });
+    // Ownerless legacy/BUSY reservations are not proof that a later PRICE
+    // failure can inherit the same UID. A new run must have its own lease.
     var differentOwner = !!old && !!owner && !!owner.runId
-      && !!old.owner && !!old.owner.runId
-      && String(old.owner.runId) !== String(owner.runId);
+      && (!old.owner || !old.owner.runId
+        || String(old.owner.runId) !== String(owner.runId));
     // An attempt is reserved under this same lock before its NAV lease begins.
     // Do not replace its trigger merely because this is attempt number three.
     var activeAttempt = old && Number(old.activeUntil || 0) > now;
