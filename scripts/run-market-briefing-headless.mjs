@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { krxSessionStatus } from './krx-session-calendar.mjs';
 import '../src/web/domain/market/market_data_provider.js';
 import '../src/web/domain/market/market_briefing_master.js';
 import '../src/web/domain/market/market_briefing_provider_normalizer.js';
@@ -26,7 +27,7 @@ function dateOffset(date, days) {
 const SCHEDULE_SLOTS = Object.freeze({
   '15 21 * * 0-4': { hour:21, minute:15, weekdays:[0,1,2,3,4], checkpoint:'NIGHT_FINAL' },
   '30 22 * * 0-4': { hour:22, minute:30, weekdays:[0,1,2,3,4], checkpoint:'MORNING' },
-  '5 7 * * 1-5': { hour:7, minute:5, weekdays:[1,2,3,4,5], checkpoint:'KRX_FINAL' },
+  '30 7 * * 1-5': { hour:7, minute:30, weekdays:[1,2,3,4,5], checkpoint:'KRX_FINAL' },
   '15 11 * * 1-5': { hour:11, minute:15, weekdays:[1,2,3,4,5], checkpoint:'EVENING' },
 });
 function scheduledTradingDate(schedule, now = new Date()) {
@@ -61,8 +62,9 @@ function maskSecrets(value, secrets = []) {
 }
 function persistenceCounts(value) { return value ? { saved:Number(value.saved)||0, duplicates:Number(value.duplicates)||0, rejected:Number(value.rejected)||0 } : null; }
 function diagnosticFor(result, secrets = []) {
-  const successful = result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true;
-  return { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
+  const successful = result.skippedDomestic === true || (result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true);
+  return { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.skippedDomestic ? 'SKIPPED_DOMESTIC_CLOSED' : result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
+    ...(result.skippedDomestic ? { skipReason:'KRX_CONFIRMED_NON_TRADING_DAY' } : {}),
     masterPersistence:persistenceCounts(result.sync?.persistence), snapshotPersistence:persistenceCounts(result.persistence),
     readinessSeries:result.decision?.data?.snapshot?.values || {}, warnings:result.decision?.data?.warnings || [],
     missing:result.decision?.data?.missing || result.sync?.missing || [], issues:result.decision?.data?.issues || [],
@@ -88,6 +90,12 @@ function createRequest(url, token, fetchImpl = fetch) {
 export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt }) {
   const request = suppliedRequest || createRequest(url, token);
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
+  // KRX_FINAL has no same-day domestic close on exchange holidays/weekends.
+  // Keep EVENING foreign/FX collection running, but do not publish a false
+  // same-day KRX final. UNKNOWN dates must not be silently skipped.
+  const domesticClosed = krxSessionStatus(tradingDate) === 'CLOSED';
+  if (domesticClosed && checkpoint === 'KRX_FINAL')
+    return { checkpoint, tradingDate, skippedDomestic:true, sync:null, decision:null, persistence:null };
   const benchmarkTo = checkpoint === 'MORNING' ? dateOffset(tradingDate, -1) : tradingDate;
   const fxTo = tradingDate;
   const scopedRequest = (action, params = {}, options) => request(action, {
@@ -97,6 +105,8 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
   }, options);
   const sync = await runtime.syncServerMaster(scopedRequest, scopedRequest, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10),
     to:benchmarkTo, benchmarkTo, fxTo, scheduledToleranceSeconds:300, receivedAt });
+  if (domesticClosed && checkpoint === 'EVENING')
+    return { checkpoint, tradingDate, skippedDomestic:true, sync, decision:null, persistence:null };
   if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null, successful:runtime.hasNightFinal(tradingDate) };
   const decision = runtime.readiness(tradingDate, checkpoint);
   if (!decision.publishable) return { checkpoint, tradingDate, sync, decision, persistence:null };
@@ -107,7 +117,7 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   const args = parseArgs(process.argv.slice(2));
   const result = await runHeadless({ ...args, url:process.env.GAS_WEB_APP_URL || '', token:process.env.GAS_ACCESS_TOKEN || '' });
-  const successful = result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true;
+  const successful = result.skippedDomestic === true || (result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true);
   const diagnostic = diagnosticFor(result,[process.env.GAS_ACCESS_TOKEN,process.env.GAS_WEB_APP_URL]);
   console.log(JSON.stringify(diagnostic));
   if (!successful) process.exitCode = 1;
