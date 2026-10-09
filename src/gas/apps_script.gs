@@ -11042,8 +11042,17 @@ function _reconcilePortfolioFundBusy_(date) {
           ? owner.errors.slice(0,4) : ['일반 종목: 실패 원인 확인 필요']};
     }
     if (last.fundOk === true) return;
-    if (owner && owner.runId && ((last.runId && last.runId !== owner.runId)
-      || (last.startedMs && Number(last.startedMs) !== Number(owner.startedMs)))) return;
+    if (owner && owner.runId) {
+      // A different same-day summary without a run ID is not a licence to
+      // combine its PRICE with this reservation's NAV. Missing ownership
+      // metadata is deliberately non-reconcilable.
+      if (last.runId) {
+        if (String(last.runId) !== String(owner.runId)) return;
+      } else if (!last.startedAt || !last.startedMs
+          || String(last.startedAt) !== String(owner.startedAt || '')
+          || Number(last.startedMs) !== Number(owner.startedMs)) return;
+      if (last.startedMs && Number(last.startedMs) !== Number(owner.startedMs)) return;
+    }
     // Price failure still means overall ERROR, but deferred NAV can succeed independently.
     var priceFailureDeferred = last.fundDeferred === true
       // Same-day PRICE backfill may finish before the NAV lease completes.
