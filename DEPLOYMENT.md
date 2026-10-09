@@ -47,6 +47,10 @@
 - 브리핑 MORNING에서 Toss 지수 일봉이 403/미확정이면 직전 KRX 정규 거래일 공식 종가를 조회합니다. 당일 공식 종가는 16:00 이전에는 확정으로 처리하지 않습니다.
 - KOSPI/KOSDAQ 정규장 지수는 `KRX_OFFICIAL`, 확정 상태 및 정규장 관측시각이 확인된 경우에만 FINAL로 인정합니다. Toss의 과거 미확정 candle은 FINAL로 승격하지 않습니다.
 - KRX 지수 시장별 HTTP 401/403/비JSON/응답 형식 오류를 별도 기록하며, 주식 KRX 최초 요청의 HTTP 상태도 로깅하고 인증 오류에는 과거 날짜 반복조회를 줄입니다.
+- Codex 2차 P1 후속: 기존 `KRX_VERIFIED_EMPTY_OR_CLOSED_GAP` 단순 표시는 재사용 불가. 범위 증거는 `KRX_CONFIRMED_CLOSED_GAP@검증종료일|확인휴장일목록` 형식으로 기존 `MARKET_MASTER.quality`에 보존하며, MORNING 평가 시 현재 기준 직전 날짜까지의 모든 날짜와 목표일이 일치할 때만 유효합니다.
+- KRX HTTP 200 + 빈 `OutBlock_1`만으로는 정상 거래일을 임시 휴장으로 간주하지 않습니다. 확인된 KRX 달력의 `CLOSED` 날짜만 공백 증명에 포함하며, `OPEN/UNKNOWN` 빈 응답은 최신 공식 종가 확정 불가로 NOT_READY 유지합니다.
+- 추가 회귀: 금요일 종가→월요일 정상 장전→화요일 원천 장애에서 월요일 데이터 누락 차단, 정확한 10/09 휴장·10/10~11 주말 허용, 다른 날짜로 검증 결과 재사용 금지, 검증 목록의 부분 누락 차단, 기존 단순 quality 차단, provider→MARKET_MASTER 품질 증거 전달.
+
 - 기존 19시 KRX 실보유 종목 확정 마감·20:30 watchdog·22:10 백필, 펀드 NAV·Snapshot 안전성 계약은 그대로 유지합니다.
 - 테스트: `check-index-providers`, `check-market-briefing-headless`, 기존 `check:ci` 전체. KRX 실서비스 권한 및 실 운영 GAS 배포 여부는 GitHub CI로 보증하지 않습니다.
 - GAS v9.192 / 웹 기대 버전 9.192 / 웹 SW 캐시 `portfolio-cache-20261009-1`.
