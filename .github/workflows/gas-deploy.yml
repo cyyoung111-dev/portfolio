@@ -1,11 +1,11 @@
 name: gas-deploy
 
 on:
+  # Changes to scripts/check-*.mjs are fully tested by quality-check.yml.
   pull_request:
     paths:
       - 'src/gas/apps_script.gs'
       - 'scripts/deploy-gas.mjs'
-      - 'scripts/check-*.mjs'
       - 'AGENTS.md'
       - 'docs/QUALITY_GATES.md'
       - '.github/pull_request_template.md'
