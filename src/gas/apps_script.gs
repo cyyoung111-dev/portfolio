@@ -7185,27 +7185,36 @@ function runDailyFundValuations(targetDate) {
   // executions overlap. Date alone cannot distinguish their completion order.
   // Registration and the owner check use the SAME shared ScriptLock.
   var attemptId = Utilities.getUuid();
+  var runDate = '';
   function publishIfOwner(commit) {
     return _portfolioFundAtomic_(function(sharedProps) {
-      if (sharedProps.getProperty('fund_last_attempt_token') !== attemptId) return false;
+      // One JSON record is the commit point for both date and token.
+      // Split keys can tear if execution stops after only one write.
+      var owner = _portfolioFundState_(sharedProps, 'fund_last_attempt_owner_v1');
+      if (!owner || owner.token !== attemptId || owner.date !== runDate) return false;
       commit(sharedProps);
       return true;
     });
   }
   try {
     // 공시 지연·휴일 이월을 회복하기 위해 최근 한 달의 누락만 매일 확인합니다.
-    var runDate = _normalizeDate(targetDate || '') || today();
-    // Register before any network lookup. A same-day later start becomes the
-    // latest owner regardless of whether it succeeds or fails.
+    runDate = _normalizeDate(targetDate || '') || today();
+    // Register BEFORE NAV network work. Atomic JSON ownership is authoritative;
+    // the older diagnostic date/token fields are best-effort mirrors.
     _portfolioFundAtomic_(function(p) {
+      var currentOwner = _portfolioFundState_(p, 'fund_last_attempt_owner_v1');
       var latestAttempt = _normalizeDate(p.getProperty('fund_last_attempt_date') || '');
+      if (currentOwner && currentOwner.date > latestAttempt)
+        latestAttempt = _normalizeDate(currentOwner.date || '');
       var previous = null;
       try { previous = JSON.parse(p.getProperty('fund_last_result') || 'null'); } catch(ignore) {}
       var resultDate = _normalizeDate(previous && (previous.runDate || previous.lastDate) || '');
       var latestDate = latestAttempt > resultDate ? latestAttempt : resultDate;
       if (latestDate && runDate < latestDate) return;
-      // Persist date first; partial writes must never allow an older date
-      // to displace this attempt after an abrupt GAS termination.
+      p.setProperty('fund_last_attempt_owner_v1',
+        JSON.stringify({date:runDate,token:attemptId}));
+      // If a mirror write fails, no previous attempt can falsely claim
+      // ownership; publishIfOwner always checks the combined JSON marker.
       p.setProperty('fund_last_attempt_date', runDate);
       p.setProperty('fund_last_attempt_token', attemptId);
     });
@@ -10890,6 +10899,17 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
   // The PRICE failure owner and its NAV trigger must become durable together.
   // A hard kill before the caller's final _recordPortfolioCloseStage() must
   // not leave an ownerless reservation.
+  function compactOwner(source) {
+    if (!source || !source.runId || !source.date) return null;
+    return {date:String(source.date),runId:String(source.runId).slice(0,80),
+      startedAt:String(source.startedAt || '').slice(0,32),
+      startedMs:Number(source.startedMs || 0),
+      // Full failure details remain on the CLOSE summary. A reservation only
+      // needs a bounded cause to reconstruct a summary after hard timeout.
+      errors:Array.isArray(source.errors) ? source.errors.slice(0,2).map(function(reason) {
+        return String(reason || '').slice(0,100);
+      }) : []};
+  }
   function persistOwnerSummary(props, triggerId) {
     if (!owner || !owner.runId || !owner.date || !owner.startedMs) return;
     if (String(props.getProperty('portfolio_close_run_id') || '') !== String(owner.runId)
@@ -10921,14 +10941,30 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
       return item && item.triggerId && (Number(item.activeUntil || 0) > now
         || (Number(item.until || 0) > now && Number(item.attempts || 0) < 3));
     });
+    // Trim old reservations from versions that stored unbounded price errors.
+    schedules.forEach(function(item) {
+      if (item.owner && item.owner.runId) item.owner = compactOwner(item.owner);
+    });
+    function serializedSchedules(roster) {
+      if (!roster.length) return '';
+      // Copy root: never leave nested .additional on a live item in memory.
+      var root = Object.assign({}, roster[0]);
+      if (roster.length > 1) root.additional = roster.slice(1);
+      else delete root.additional;
+      var json = JSON.stringify(root);
+      // Script Properties allows ~9 KiB per value. Measure UTF-8 bytes,
+      // not UTF-16 JS .length (Korean failure reasons are multibyte).
+      var byteCount = encodeURIComponent(json).replace(/%[0-9A-F]{2}/gi, 'x').length;
+      if (roster.length > 8 || byteCount > 8000)
+        throw new Error('FUND_DEFERRED_CAPACITY: 기존 펀드 예약 보호를 위해 신규 예약 보류');
+      return json;
+    }
     function saveSchedules() {
       if (!schedules.length) {
         props.deleteProperty(PORTFOLIO_FUND_SCHEDULE_KEY);
         return;
       }
-      if (schedules.length > 1) schedules[0].additional = schedules.slice(1);
-      else delete schedules[0].additional;
-      props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, JSON.stringify(schedules[0]));
+      props.setProperty(PORTFOLIO_FUND_SCHEDULE_KEY, serializedSchedules(schedules));
     }
     var old = schedules.filter(function(item) { return item.date === scheduleDate; })[0] || null;
     // A completed NAV can leave activeUntil behind when GAS dies before
@@ -10949,29 +10985,31 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
         && (old.until > now || activeAttempt)
         && (Number(old.attempts || 0) < 3 || activeAttempt)) {
       if (owner && !activeAttempt && owner.date === scheduleDate && owner.runId) {
-        old.owner = {date:scheduleDate,runId:String(owner.runId),
-          startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
-          errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []};
+        old.owner = compactOwner(owner);
         saveSchedules();
         persistOwnerSummary(props,String(old.triggerId || ''));
       }
       return {created:false, triggerId:String(old.triggerId || '')};
     }
-    // Expired/exhausted UIDs will clean themselves up at their next firing.
-    // Never discard another business day's unexpired UID when scheduling today.
+    // Every live UID retains its own completion/reconciliation opportunity.
+    // Reject at capacity BEFORE creating a time-based trigger, otherwise
+    // a failed PropertiesService write would orphan the newly created UID.
+    var next = {until:now + 45 * 60 * 1000, date:scheduleDate,
+      attempts:0, triggerId:'x'.repeat(128),
+      owner:owner && owner.date === scheduleDate && owner.runId ? compactOwner(owner) : null};
+    serializedSchedules([next].concat(schedules)); // conservative 128-byte UID preflight
     var trigger = ScriptApp.newTrigger(handler).timeBased().everyMinutes(10).create();
     var triggerId = trigger.getUniqueId ? trigger.getUniqueId() : '';
-    var next = {until:now + 45 * 60 * 1000, date:scheduleDate,
-      attempts:0, triggerId:triggerId,
-      owner:owner && owner.date === scheduleDate && owner.runId
-        ? {date:scheduleDate,runId:String(owner.runId),
-          startedAt:String(owner.startedAt || ''),startedMs:Number(owner.startedMs || 0),
-          errors:Array.isArray(owner.errors) ? owner.errors.slice(0,4) : []} : null};
-    // Retain every still-live UID (including two or more earlier executions
-    // of this SAME date) until its own trigger reconciles and cleans it.
-    // The prefilter removed expired/exhausted records under this lock.
+    next.triggerId = triggerId;
     schedules = [next].concat(schedules);
-    saveSchedules();
+    try { saveSchedules(); }
+    catch(saveError) {
+      schedules.shift();
+      // Only remove the just-created trigger, never another account's UID.
+      try { ScriptApp.deleteTrigger(trigger); }
+      catch(cleanupError) { Logger.log('⚠️ 신규 트리거 정리 보류: ' + cleanupError.message); }
+      throw saveError;
+    }
     persistOwnerSummary(props,triggerId);
     return {created:true, triggerId:triggerId};
   });
@@ -11022,7 +11060,16 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
         if (prior) delete prior.additional;
         var current = {date:date, at:Date.now(), token:token,
           triggerId:String(deferredTriggerId || ''),
-          owner:reservedOwner && reservedOwner.runId ? reservedOwner : null};
+          owner:reservedOwner && reservedOwner.runId ? {
+            date:String(reservedOwner.date || date),
+            runId:String(reservedOwner.runId).slice(0,80),
+            startedAt:String(reservedOwner.startedAt || '').slice(0,32),
+            startedMs:Number(reservedOwner.startedMs || 0),
+            errors:Array.isArray(reservedOwner.errors)
+              ? reservedOwner.errors.slice(0,2).map(function(reason) {
+                return String(reason || '').slice(0,100);
+              }) : []
+          } : null};
         // A previous date can finish after today's NAV, or vice versa.
         // Retain a bounded list of independently owned success proofs
         // under one ScriptLock-protected property, never a single last-writer.
