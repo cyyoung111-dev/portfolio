@@ -85,6 +85,24 @@ assert.deepEqual(called.map(x=>[x.action,x.date]),[
  ['getKrxSourceDiagnostics','2026-10-08'],
 ]);
 assert.ok(!JSON.stringify(report).includes(key));
+// Multi-day report must preserve 10/07 results even if 10/08 GAS request fails.
+const continued=await runDiagnosis({
+ url:'https://script.google.com/macros/s/Abcd/exec', token:key,
+ dates:'2026-10-07,2026-10-08',
+ fetchImpl:async(url,opts)=>{
+  if(opts.body.get('action')==='getSettings')
+   return {ok:true,json:async()=>({status:'ok',gasVersion:'9.192'})};
+  if(opts.body.get('date')==='2026-10-07')
+   return {ok:false,status:403};
+  return {ok:true,json:async()=>payload('2026-10-08')};
+ },
+});
+assert.equal(continued.reports.length,2,'GAS per-day failures must not abort other dates');
+assert.equal(continued.reports[0].errorCode,'KRX_DIAG_GAS_HTTP_403');
+assert.equal(continued.reports[0].healthy,false);
+assert.equal(continued.reports[1].healthy,true);
+assert.equal(continued.healthy,false);
+assert.ok(!JSON.stringify(continued).includes(key));
 await assert.rejects(()=>readGasAction('https://script.google.com/macros/s/Abcd/exec',
  'getSettings','',key,async()=>({ok:false,status:403})),/GAS_HTTP_403/);
 await assert.rejects(()=>readGasAction('https://script.google.com/macros/s/Abcd/exec',
