@@ -42,6 +42,13 @@ const failedSummary=summarizeKrxSource(failedSource,'2026-10-08');
 assert.equal(failedSummary.networkStatus,'FETCH_FAILED','GAS fetchAll timeout must not become INVALID_MARKET_LIST');
 assert.equal(failedSummary.healthy,false);
 assert.deepEqual(failedSummary.markets.map(x=>x.httpStatus),[0,0,0]);
+const partialNetwork=summarizeKrxSource({...failedSource,markets:[markers[0]]},'2026-10-08');
+assert.equal(partialNetwork.networkStatus,'FETCH_FAILED');
+assert.equal(partialNetwork.healthy,false);
+assert.deepEqual(partialNetwork.markets.map(x=>x.httpStatus),[200,0,0]);
+assert.throws(()=>summarizeKrxSource({...failedSource,markets:[markers[0],markers[0]]},'2026-10-08'),/INVALID_MARKET_LIST/);
+assert.equal(summarizeKrxSource({...payload('2026-10-08'),networkStatus:'FETCH_FAILED'},'2026-10-08').healthy,false,
+ 'fetchAll failure cannot be marked healthy even with three individually valid market rows');
 assert.ok(!JSON.stringify(failedSummary).includes('네트워크 요청'));
 assert.equal(summarizeKrxSource({status:'ok',requestedDate:'2026-10-08',
  keyConfigured:false,markets:[]},'2026-10-08').networkStatus,'NOT_CONFIGURED');
