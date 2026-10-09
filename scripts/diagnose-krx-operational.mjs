@@ -89,8 +89,27 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
     throw new Error('KRX_DIAG_GAS_VERSION_UNAVAILABLE');
   const reports = [];
   for (const date of checkedDates) {
-    const data = await readGasAction(url,'getKrxSourceDiagnostics',date,token,fetchImpl);
-    reports.push(summarizeKrxSource(data,date));
+    try {
+      const data = await readGasAction(url,'getKrxSourceDiagnostics',date,token,fetchImpl);
+      reports.push(summarizeKrxSource(data,date));
+    } catch (error) {
+      // The live KRX dates are independent. Report a sanitized per-day GAS
+      // transport/schema failure and continue inspecting the other dates.
+      // Never log the exception text, token, URL, or original response body.
+      const code = String(error && error.message || '');
+      const allowCode = /^KRX_DIAG_GAS_HTTP_[1-5][0-9]{2}$/.test(code)
+        || ['KRX_DIAG_FETCH_FAILED','KRX_DIAG_GAS_NON_JSON',
+            'KRX_DIAG_INVALID_SOURCE_RESPONSE','KRX_DIAG_INVALID_MARKET_LIST',
+            'KRX_DIAG_INVALID_MARKET_RESPONSE'].includes(code);
+      reports.push({
+        date,
+        keyConfigured:null,
+        networkStatus:'GAS_REQUEST_FAILED',
+        markets:MARKETS.map(market=>({market,httpStatus:0,rows:0,parseStatus:'NOT_PARSED'})),
+        errorCode:allowCode?code:'KRX_DIAG_UNKNOWN_ERROR',
+        healthy:false,
+      });
+    }
   }
   return { mode:'READ_ONLY', gasVersion:String(settings.gasVersion), reports,
     healthy:reports.every(item => item.healthy) };
