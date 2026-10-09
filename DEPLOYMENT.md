@@ -53,7 +53,7 @@
 
 - 기존 19시 KRX 실보유 종목 확정 마감·20:30 watchdog·22:10 백필, 펀드 NAV·Snapshot 안전성 계약은 그대로 유지합니다.
 - 테스트: `check-index-providers`, `check-market-briefing-headless`, 기존 `check:ci` 전체. KRX 실서비스 권한 및 실 운영 GAS 배포 여부는 GitHub CI로 보증하지 않습니다.
-- GAS v9.192 / 웹 기대 버전 9.192 / 웹 SW 캐시 `portfolio-cache-20261009-1`.
+- GAS v9.192 / 웹 기대 버전 9.192 / 웹 SW 캐시 `portfolio-cache-20261009-2`.
 
 ## GAS v9.191 / PR #471 가격 실패 시 펀드 평가 격리 (2026-10-08~09)
 
