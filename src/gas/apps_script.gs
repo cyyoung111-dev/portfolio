@@ -10924,7 +10924,15 @@ function _scheduleFundAfterFailedPortfolioPrice_(owner) {
       // needs a bounded cause to reconstruct a summary after hard timeout.
       errors:Array.isArray(source.errors) ? source.errors.slice(0,2).map(function(reason) {
         return String(reason || '').slice(0,100);
-      }) : []};
+      }) : [],
+      // In FUND_BUSY the stock PRICE/Snapshot really succeeded. Keep that
+      // proof on the reservation in case GAS dies before summary persistence.
+      priceOk:source.priceOk === true,
+      priceDate:source.priceOk === true ? String(source.priceDate || source.date) : '',
+      priceRows:source.priceOk === true ? Number(source.priceRows || 0) : 0,
+      krxCloseRequired:typeof source.krxCloseRequired === 'boolean'
+        ? source.krxCloseRequired : null,
+      fundBusyToken:source.priceOk === true ? String(source.fundBusyToken || '') : ''};
   }
   function persistOwnerSummary(props, triggerId) {
     if (!owner || !owner.runId || !owner.date || !owner.startedMs) return;
@@ -11098,7 +11106,16 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
             errors:Array.isArray(reservedOwner.errors)
               ? reservedOwner.errors.slice(0,2).map(function(reason) {
                 return String(reason || '').slice(0,100);
-              }) : []
+              }) : [],
+            priceOk:reservedOwner.priceOk === true,
+            priceDate:reservedOwner.priceOk === true
+              ? String(reservedOwner.priceDate || date) : '',
+            priceRows:reservedOwner.priceOk === true
+              ? Number(reservedOwner.priceRows || 0) : 0,
+            krxCloseRequired:typeof reservedOwner.krxCloseRequired === 'boolean'
+              ? reservedOwner.krxCloseRequired : null,
+            fundBusyToken:reservedOwner.priceOk === true
+              ? String(reservedOwner.fundBusyToken || '') : ''
           } : null};
         // A previous date can finish after today's NAV, or vice versa.
         // Retain a bounded list of independently owned success proofs
@@ -11121,7 +11138,16 @@ function _runPortfolioFundWithLease_(origin, deferredTriggerId, reservedDate, re
               errors:Array.isArray(item.owner.errors)
                 ? item.owner.errors.slice(0,2).map(function(reason) {
                   return String(reason || '').slice(0,100);
-                }) : []};
+                }) : [],
+              priceOk:item.owner.priceOk === true,
+              priceDate:item.owner.priceOk === true
+                ? String(item.owner.priceDate || item.date) : '',
+              priceRows:item.owner.priceOk === true
+                ? Number(item.owner.priceRows || 0) : 0,
+              krxCloseRequired:typeof item.owner.krxCloseRequired === 'boolean'
+                ? item.owner.krxCloseRequired : null,
+              fundBusyToken:item.owner.priceOk === true
+                ? String(item.owner.fundBusyToken || '') : ''};
           }
         });
         if (markers.length > 1) markers[0].additional = markers.slice(1);
@@ -11252,14 +11278,30 @@ function _reconcilePortfolioFundBusy_(date) {
       && Number(props.getProperty('portfolio_close_run_started_ms') || 0) === Number(owner.startedMs)
       && String(props.getProperty('portfolio_close_run_started_at') || '') === String(owner.startedAt || '')
       && Number(success.at || 0) >= Number(owner.startedMs);
-    if (!last || last.runDate !== date) {
+    var previousIsDifferentRun = !!last && last.runDate === date && ownerMatches
+      && (last.runId ? String(last.runId) !== String(owner.runId)
+        : !last.startedAt || !last.startedMs
+          || String(last.startedAt) !== String(owner.startedAt)
+          || Number(last.startedMs) !== Number(owner.startedMs));
+    if (!last || last.runDate !== date || previousIsDifferentRun) {
       if (!ownerMatches) return;
+      // Never combine previous same-day A PRICE/NAV with run B's success.
+      // The reservation's stored PRICE evidence determines the partial state.
+      var ownerPriceOk = owner.priceOk === true;
       last = {runDate:date, runId:String(owner.runId),
         startedAt:String(owner.startedAt), startedMs:Number(owner.startedMs),
-        priceOk:false, priceDate:'', priceRows:0, fundOk:false,
-        fundDeferred:true, fundDeferredTriggerId:String(success.triggerId || ''),
+        priceOk:ownerPriceOk,
+        priceDate:ownerPriceOk ? String(owner.priceDate || date) : '',
+        priceRows:ownerPriceOk ? Number(owner.priceRows || 0) : 0,
+        krxCloseRequired:typeof owner.krxCloseRequired === 'boolean'
+          ? owner.krxCloseRequired : null,
+        fundOk:false,fundDeferred:!ownerPriceOk,
+        fundDeferredTriggerId:ownerPriceOk ? '' : String(success.triggerId || ''),
+        fundBusyTriggerId:ownerPriceOk ? String(success.triggerId || '') : '',
+        fundBusyToken:ownerPriceOk ? String(owner.fundBusyToken || '') : '',
         errors:Array.isArray(owner.errors) && owner.errors.length
-          ? owner.errors.slice(0,4) : ['일반 종목: 실패 원인 확인 필요']};
+          ? owner.errors.slice(0,4)
+          : (ownerPriceOk ? ['펀드: FUND_BUSY'] : ['일반 종목: 실패 원인 확인 필요'])};
     }
     if (last.fundOk === true) return;
     if (owner && owner.runId) {
