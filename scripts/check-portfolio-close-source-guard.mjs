@@ -2213,3 +2213,61 @@ console.log('✅ 선제 교차경로: 가격 복구와 마감 UI의 동일 실�
  assert.equal(recorded.owner.date,owner.date);
 }
 console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패 실행 소유권 보존');
+
+// Real deferred completion reconciler: hard kill after reservation, before
+// failed summary; do not join a marker with another run's price.
+{
+ const owner={date:'2026-10-08',runId:'price-failed-at-2359',
+  startedAt:'2026-10-08 23:59:00',startedMs:1000,
+  errors:['일반 종목: KRX 0건']};
+ const m=new Map([
+  ['portfolio_close_run_date',owner.date],['portfolio_close_run_id',owner.runId],
+  ['portfolio_close_run_started_at',owner.startedAt],
+  ['portfolio_close_run_started_ms','1000'],['portfolio_close_stage','ERROR'],
+  ['portfolio_fund_deferred_success_v1',JSON.stringify({
+   date:'2026-10-08',at:3500,token:'lease-after-midnight',
+   triggerId:'uid-2359',owner
+  })]
+ ]);
+ const p={getProperty:k=>m.get(k)||null,setProperty:(k,v)=>m.set(k,String(v)),
+  deleteProperty:k=>m.delete(k)};
+ const ctx=vm.createContext({
+  PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+  _portfolioFundAtomic_:cb=>cb(p),
+  _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+  _fundPropertyText:String
+ });
+ vm.runInContext(extract('_reconcilePortfolioFundBusy_'),ctx);
+ ctx._reconcilePortfolioFundBusy_('2026-10-08');
+ const restored=JSON.parse(p.getProperty('portfolio_close_last_result'));
+ assert.equal(restored.runId,owner.runId,'강제종료 누락 summary는 UID/runID 근거로만 복원');
+ assert.equal(restored.fundOk,true,'지연 NAV 성공은 복원하되');
+ assert.equal(restored.priceOk,false,'누락된 PRICE를 성공으로 조작하지 않음');
+ assert.deepEqual(restored.errors,['일반 종목: KRX 0건'],
+  '원래 PRICE 실패 원인을 보존');
+ m.delete('portfolio_close_last_result');
+ m.set('portfolio_close_run_id','other-day-or-run');
+ ctx._reconcilePortfolioFundBusy_('2026-10-08');
+ assert.equal(p.getProperty('portfolio_close_last_result'),null,
+  '다른 실행 소유권이면 완료 마커가 있어도 summary 재생성 금지');
+}
+// DATE-bound production fund valuation must use the booked date, even when
+// called on 2026-10-09 after midnight.
+{
+ const bag=new Map(),p={getProperty:k=>bag.get(k)||null,
+  setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+ const args=[];
+ const ctx=vm.createContext({
+  PropertiesService:{getScriptProperties:()=>p},
+  today:()=> '2026-10-09', _normalizeDate:x=>String(x||''),
+  getss:()=>({}),_fundDateOffset:()=> '2026-09-07',
+  _refreshFundValuations:(ss,from,to)=>{
+   args.push({from,to});return {fundResults:{},missingHoldings:[],snapshotWarnings:[]};},
+  _compactFundDailyResultForProperty:(v,d)=>({runDate:d}),_fundPropertyText:String
+ });
+ vm.runInContext(extract('runDailyFundValuations'),ctx);
+ ctx.runDailyFundValuations('2026-10-08');
+ assert.equal(args[0].to,'2026-10-08','자정 이후 날짜가 당일로 잘못 이동하지 않음');
+ assert.equal(JSON.parse(p.getProperty('fund_last_result')).runDate,'2026-10-08');
+}
+console.log('✅ 소유권·자정 P2: 실제 deferred 정합화 및 지정 날짜 NAV 실행');
