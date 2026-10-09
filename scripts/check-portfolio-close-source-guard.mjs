@@ -2271,3 +2271,38 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
  assert.equal(JSON.parse(p.getProperty('fund_last_result')).runDate,'2026-10-08');
 }
 console.log('✅ 소유권·자정 P2: 실제 deferred 정합화 및 지정 날짜 NAV 실행');
+
+// The reservation and initial failed close summary become visible under one
+// _portfolioFundAtomic_ lock, before the repeating trigger can run.
+{
+ const owner={date:'2026-10-08',runId:'close-1900',
+  startedAt:'2026-10-08 19:00:00',startedMs:1000,
+  errors:['일반 종목: KRX 원천 없음']};
+ const m=new Map([['portfolio_close_run_date','2026-10-08'],
+  ['portfolio_close_run_id','close-1900'],['portfolio_close_stage','PRICE']]);
+ const p={getProperty:k=>m.get(k)||null,setProperty:(k,v)=>m.set(k,String(v))};
+ const ctx=vm.createContext({
+  today:()=> '2026-10-08',Date:{now:()=>1200},
+  PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+  _portfolioFundAtomic_:cb=>cb(p),
+  _portfolioFundState_:(pr,k)=>JSON.parse(pr.getProperty(k)||'null'),
+  ScriptApp:{newTrigger:()=>({timeBased:()=>({everyMinutes:()=>({
+   create:()=>({getUniqueId:()=> 'reserve-for-close-1900'})
+  })})})}
+ });
+ vm.runInContext(extract('_scheduleFundAfterFailedPortfolioPrice_'),ctx);
+ ctx._scheduleFundAfterFailedPortfolioPrice_(owner);
+ const summary=JSON.parse(p.getProperty('portfolio_close_last_result'));
+ assert.equal(summary.runId,'close-1900');
+ assert.equal(summary.fundDeferredTriggerId,'reserve-for-close-1900');
+ assert.equal(summary.priceOk,false);
+ assert.equal(p.getProperty('portfolio_close_stage'),'ERROR',
+  '실패 summary가 최종 호출 전 동일 공유 임계구역에 기록');
+ m.set('portfolio_close_run_id','newer-run');
+ m.set('portfolio_close_stage','PRICE');
+ m.delete('portfolio_close_last_result');
+ ctx._scheduleFundAfterFailedPortfolioPrice_(owner);
+ assert.equal(p.getProperty('portfolio_close_last_result'),null,
+  '오래된 작업이 이후 다른 runId를 가진 상태를 덮지 못함');
+}
+console.log('✅ 선제 운영 충돌: NAV 예약과 PRICE 실패 summary 같은 실행 소유권');
