@@ -26,7 +26,7 @@ let observations=[],snapshots=[],snapshotPosts=0,requestParams={};
 const request=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations};
  if(action==='getMarketBriefingSnapshots')return {status:'ok',snapshots};
- if(action==='getBenchmarks'){requestParams.getBenchmarks=params;return {status:'ok',series:{KOSPI:[{date:prior,value:1}],KOSDAQ:[{date:prior,value:1}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]}};}
+ if(action==='getBenchmarks'){requestParams.getBenchmarks=params;return {status:'ok',series:{KOSPI:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSDAQ:[{date:prior,value:1,source:'KRX_OFFICIAL',observedAt:`${prior}T15:30:00+09:00`}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]},seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'},KOSDAQ:{confirmedClose:true,source:'KRX_OFFICIAL'}}};}
  if(action==='getKrxK200NightClose')return {status:'ok',observation:{seriesId:'K200_NIGHT',tradingDate:date,sourceDate:date,value:350,market:'KRX',session:'NIGHT',source:'KRX_OFFICIAL',status:'FINAL',finality:'NIGHT_FINAL',observedAt:`${date}T06:00:00+09:00`,receivedAt:`${date}T06:15:00+09:00`}};
  if(action==='getExchangeRateHistory'){requestParams.getExchangeRateHistory=params;return {status:'ok',history:[{date:prior,value:1380}]};}
  if(action==='getPrices')return {status:'ok',prices:{}};
@@ -38,11 +38,20 @@ const request=async(action,params={})=>{
 let result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
 assert.equal(result.decision.publishable,true,'KIS 없이 KRX 공식 NIGHT_FINAL로 MORNING publish 가능');
 assert.equal(requestParams.getBenchmarks.to,prior,'MORNING benchmark는 전일까지 조회');
+assert.equal(requestParams.getBenchmarks.fresh,'1','MORNING에서도 직전 KRX 정규장 종가를 강제 조회');
 assert.equal(requestParams.getExchangeRateHistory.to,date,'MORNING FX는 당일까지 조회');
 assert.equal(snapshots.length,1);
 result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
 assert.equal(snapshots.length,1,'동일 checkpoint snapshot은 중복 저장되지 않음');
 assert.equal(snapshotPosts,2,'서버 immutable endpoint가 재실행을 idempotent 처리');
+globalThis.localStorage.clear(); observations=[];snapshots=[];snapshotPosts=0;
+const unverifiedTossMorning=async(action,params)=>action==='getBenchmarks'
+ ? {status:'ok',series:{KOSPI:[{date:prior,value:3400,source:'TOSS'}],KOSDAQ:[{date:prior,value:900,source:'TOSS'}],KOSPI200:[{date:prior,value:1}],SP500:[{date:prior,value:1}],NASDAQ100:[{date:prior,value:1}],SOX:[{date:prior,value:1}],VIX:[{date:prior,value:1}]}}
+ : request(action,params);
+result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request:unverifiedTossMorning});
+assert.equal(result.decision.publishable,false,'Toss 과거 미확정 candle로 장전 정규장 확정 종가 발행 금지');
+assert.ok(result.decision.data.issues.includes('KOSPI:NOT_CONFIRMED_PREVIOUS_REGULAR_CLOSE'));
+assert.equal(snapshots.length,0,'비확정 Toss 장전은 snapshot 기록 없음');
 globalThis.localStorage.clear(); observations=[];snapshots=[];snapshotPosts=0;
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request});
 assert.equal(result.successful,true,'NIGHT_FINAL 관측값을 확보하고 저장해야 성공');
