@@ -10999,8 +10999,31 @@ function _reconcilePortfolioCloseFundSuccess_(date) {
 function _reconcilePortfolioFundBusy_(date) {
   _portfolioFundAtomic_(function(props) {
     var last = _portfolioFundState_(props, 'portfolio_close_last_result');
-    if (!last || last.runDate !== date || last.fundOk === true) return;
     var success = _portfolioFundState_(props, PORTFOLIO_FUND_SUCCESS_KEY);
+    if (!success || success.date !== date) return;
+    // Reservation ownership is persisted before the summary write. If GAS
+    // was hard-killed between them, reconstruct ONLY the exact run that still
+    // owns the close marker; never join two independent runs by date alone.
+    var owner = success.owner;
+    var ownerMatches = owner && owner.runId && owner.date === date
+      && Number(owner.startedMs || 0) > 0
+      && String(props.getProperty('portfolio_close_run_id') || '') === String(owner.runId)
+      && String(props.getProperty('portfolio_close_run_date') || '') === date
+      && Number(props.getProperty('portfolio_close_run_started_ms') || 0) === Number(owner.startedMs)
+      && String(props.getProperty('portfolio_close_run_started_at') || '') === String(owner.startedAt || '')
+      && Number(success.at || 0) >= Number(owner.startedMs);
+    if (!last || last.runDate !== date) {
+      if (!ownerMatches) return;
+      last = {runDate:date, runId:String(owner.runId),
+        startedAt:String(owner.startedAt), startedMs:Number(owner.startedMs),
+        priceOk:false, priceDate:'', priceRows:0, fundOk:false,
+        fundDeferred:true, fundDeferredTriggerId:String(success.triggerId || ''),
+        errors:Array.isArray(owner.errors) && owner.errors.length
+          ? owner.errors.slice(0,4) : ['일반 종목: 실패 원인 확인 필요']};
+    }
+    if (last.fundOk === true) return;
+    if (owner && owner.runId && ((last.runId && last.runId !== owner.runId)
+      || (last.startedMs && Number(last.startedMs) !== Number(owner.startedMs)))) return;
     // Price failure still means overall ERROR, but deferred NAV can succeed independently.
     var priceFailureDeferred = last.fundDeferred === true
       // Same-day PRICE backfill may finish before the NAV lease completes.
@@ -11010,10 +11033,15 @@ function _reconcilePortfolioFundBusy_(date) {
     var busyMatch = success && success.at >= Number(last.startedMs || 0)
       && ((last.fundBusyToken && success.token === last.fundBusyToken)
           || (last.fundBusyTriggerId && success.triggerId === last.fundBusyTriggerId));
-    if (!success || success.date !== date || (!priceFailureDeferred && !busyMatch)) return;
+    // The summary may be absent or have lost its deferred UID in a partial
+    // PropertiesService write. The reservation-backed run ID is stronger proof.
+    if (!priceFailureDeferred && !busyMatch && !ownerMatches) return;
     last.fundOk = true;
     last.fundDeferred = false;
-    last.errors = (last.errors || []).filter(function(reason) { return !/FUND_BUSY/.test(reason); });
+    last.errors = (last.errors || []).filter(function(reason) {
+      return !/FUND_BUSY/.test(String(reason))
+        && !/^펀드: 마감 기록 없음/.test(String(reason));
+    });
     props.setProperty('portfolio_close_last_result', JSON.stringify(last));
     if (last.errors.length) {
       props.setProperty('portfolio_close_last_error', _fundPropertyText(last.errors.join(' | '), 2000));
