@@ -281,7 +281,7 @@ invalidMutation(validWorkflow, "          NODE_OPTIONS: ''",
   '          NODE_OPTIONS: --require=./scripts/exit-zero.cjs',
   /전체 CI 전 단계의 구성/);
 invalidMutation(validWorkflow,
-  "          npm_config_node_options: --trace-warnings\n          NODE_OPTIONS: ''\n",
+  "          npm_config_node_options: --trace-warnings\n          npm_config_ignore_scripts: 'true'\n          NODE_OPTIONS: ''\n",
   '', /전체 CI 전 단계의 구성/);
 
 invalidMutation(validWorkflow, '          npm_config_node_options: --trace-warnings',
