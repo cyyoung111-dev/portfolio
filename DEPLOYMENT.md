@@ -1,3 +1,10 @@
+## PR #471 최신 Codex P2 통합 수정: 자정 NAV·예약 소유권 (2026-10-09)
+
+- 지연 NAV 반복 트리거는 KST 자정 뒤에 발화해도 예약의 `date`가 만료 전이면 해당 날짜를 실행 대상으로 유지합니다. `runDailyFundValuations(targetDate)`의 대상 종료 날짜도 원 예약일로 한정하며 해당 날짜의 성공 마커와 결과에 정합화합니다.
+- 가격 실패 예약 생성 시 별도의 후속 summary 저장 전에 트리거/예약과 `runId`·시작시각·PRICE 오류 근거를 공유 ScriptLock에서 영속 저장합니다. Apps Script 강제 종료로 summary가 누락되면 저장된 소유권 증빙이 유효한 경우에만 후속 NAV 성공 기록으로 해당 부분 상태를 복원하고 PRICE는 실패로 유지합니다.
+- 같은 날짜라도 `runId`가 다르거나 시작 메타데이터가 누락된 기존 PRICE summary에 NAV 성공 마커를 무단 합산하지 않습니다. 자정·다른 실행 ID·상태 누락·GAS 중단 경로를 행동 검증에 포함했습니다.
+- GAS/Web CI는 코드 검증이며 운영 트리거 실측·Apps Script 배포·실제 Snapshot 데이터 재검증과 구분합니다.
+
 ## PR #471 최종 자체검토: 실행 소유권·부분 완료 표시 (2026-10-09)
 
 - 22:10 PRICE 재생이 원래 마감 summary를 처음 만드는 경우, 동일 거래일의 `portfolio_close_run_started_at`·`portfolio_close_run_started_ms`를 함께 복원하여 NAV 성공 마커가 합쳐진 후 `_portfolioCloseRunState`와 자동화 상태 UI 모두 COMPLETE로 판정되도록 합니다.
