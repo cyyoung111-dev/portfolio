@@ -482,6 +482,43 @@ assert.equal(threeOwners.created,1,
 assert.deepEqual(threeOwners.pending.additional.map(x=>x.triggerId),
   ['close-2030-uid','old-complete'],
   '동일 날짜의 기존 두 UID는 후속 정합화/정리 전 모두 보존');
+// Multi-byte Korean errors must be bounded before the Script Properties
+// 9KB per-value cap. Never create an orphan recurring trigger at capacity.
+{
+  const noisyOwner={date:'2026-10-08',runId:'noisy-close',
+    startedAt:'2026-10-08 19:00:00',startedMs:1000,
+    errors:Array(4).fill('가'.repeat(3000))};
+  const bounded=inspectFundReservation(null,'2026-10-08',noisyOwner);
+  const serialized=JSON.stringify(bounded.pending);
+  assert.ok(Buffer.byteLength(serialized,'utf8')<8000,'예약 원문은 8KB 이하여야 함');
+  assert.ok(bounded.pending.owner.errors.every(x=>x.length<=100));
+  let count=0;
+  const bag=new Map([['portfolio_fund_deferred_schedule_v1',JSON.stringify({
+    date:'2026-10-08',triggerId:'uid-0',until:20000,attempts:0,
+    additional:Array.from({length:7},(_,i)=>({
+      date:'2026-10-08',triggerId:'uid-'+(i+1),until:20000,attempts:0
+    }))
+  })]]);
+  const p={getProperty:k=>bag.get(k)||null,
+    setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const vmCtx=vm.createContext({
+    today:()=> '2026-10-08',Date:{now:()=>10000},
+    PORTFOLIO_FUND_SCHEDULE_KEY:'portfolio_fund_deferred_schedule_v1',
+    PORTFOLIO_FUND_SUCCESS_KEY:'portfolio_fund_deferred_success_v1',
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
+    ScriptApp:{newTrigger:()=>{count++;throw Error('SHOULD_NOT_CREATE');}}
+  });
+  vm.runInContext(scheduleSource,vmCtx);
+  assert.throws(()=>vmCtx._scheduleFundAfterFailedPortfolioPrice_({
+    date:'2026-10-08',runId:'ninth-close',startedMs:5000
+  }),/FUND_DEFERRED_CAPACITY/);
+  assert.equal(count,0,'포화 예약일 때 반복 트리거 생성 이전에 거절');
+  assert.equal(JSON.parse(p.getProperty('portfolio_fund_deferred_schedule_v1')).additional.length,7,
+    '포화되어도 기존 8개 UID를 임의 삭제하면 안 됨');
+}
+console.log('✅ Korean UTF-8 예약 용량·8개 유효 UID 보호·미등록 트리거 생성 차단');
 assert.match(deferredSource,/cleanupTriggerId = triggerId \|\| String\(reservation\.triggerId \|\| ''\)/,
   '수동 호출에서 이벤트 UID가 없더라도 특정 예약 UID만 정리');
 assert.match(deferredSource,/if \(!pending \|\| !cleanupTriggerId \|\| pending\.triggerId !== cleanupTriggerId\) return/,
@@ -2339,6 +2376,7 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
  const ctx=vm.createContext({
   PropertiesService:{getScriptProperties:()=>p},
   _portfolioFundAtomic_:cb=>cb(p),
+  _portfolioFundState_:(props,key)=>JSON.parse(props.getProperty(key)||'null'),
   Utilities:{getUuid:()=> 'attempt-'+(++nextAttempt)},
   today:()=> '2026-10-09', _normalizeDate:x=>String(x||''),
   getss:()=>({}),_fundDateOffset:()=> '2026-09-07',
@@ -2405,6 +2443,34 @@ console.log('✅ PR471 리뷰 선실패: 자정 넘긴 NAV 예약·가격 실패
  assert.equal(p.getProperty('fund_last_error'),null,
    '동일 날짜 새 실행이 실제로 성공한 경우만 오래된 오류를 해제');
  assert.equal(JSON.parse(p.getProperty('fund_last_result')).runDate,'2026-10-09');
+ // Simulate a hard stop immediately after the canonical owner is committed
+ // but before the mirrored legacy date/token properties can be updated.
+ bag.clear();
+ ctx.runDailyFundValuations('2026-10-08');
+ const earlierToken=JSON.parse(p.getProperty('fund_last_attempt_owner_v1')).token;
+ const originalSet=p.setProperty;
+ let injected=false;
+ p.setProperty=(k,v)=>{
+   if (!injected && k==='fund_last_attempt_date' && String(v)==='2026-10-09') {
+     injected=true;throw new Error('injected-after-atomic-owner-write');
+   }
+   return originalSet(k,v);
+ };
+ ctx._refreshFundValuations=()=>({fundResults:{},missingHoldings:[],snapshotWarnings:[]});
+ assert.throws(()=>ctx.runDailyFundValuations('2026-10-09'),
+   /injected-after-atomic-owner-write/);
+ p.setProperty=originalSet;
+ const ownerAfterPartial=JSON.parse(p.getProperty('fund_last_attempt_owner_v1'));
+ assert.equal(ownerAfterPartial.date,'2026-10-09');
+ assert.notEqual(ownerAfterPartial.token,earlierToken);
+ assert.equal(p.getProperty('fund_last_attempt_date'),'2026-10-08',
+   '보조 진단 필드가 과거 날짜에 남아도 단일 소유권 기록은 신날짜');
+ bag.delete('fund_last_error');
+ bag.delete('fund_last_result');
+ ctx.runDailyFundValuations('2026-10-08');
+ assert.equal(p.getProperty('fund_last_result'),null,
+   '부분 속성 쓰기로 구 실행이 최신 날짜 상태를 덮어쓰면 안 됨');
+ assert.equal(JSON.parse(p.getProperty('fund_last_attempt_owner_v1')).date,'2026-10-09');
 }
 console.log('✅ 소유권·자정 P2: 실제 deferred 정합화 및 지정 날짜 NAV 실행');
 
