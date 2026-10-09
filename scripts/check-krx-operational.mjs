@@ -36,6 +36,9 @@ assert.equal(summarizeKrxSource({...payload('2026-10-08'),markets:markers.map(x=
  ?{...x,httpStatus:401,parseStatus:'NOT_PARSED',rows:0}:x)},'2026-10-08').healthy,false);
 assert.equal(summarizeKrxSource({status:'ok',requestedDate:'2026-10-08',keyConfigured:false,markets:[]},'2026-10-08').healthy,false);
 assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),markets:[markers[0],markers[0],markers[2]]},'2026-10-08'),/INVALID_MARKET_LIST/);
+assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),markets:[null,markers[1],markers[2]]},'2026-10-08'),/INVALID_MARKET_LIST/,
+ 'malformed market elements must be classified, not trigger unhandled exceptions');
+assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),markets:[{...markers[0],rows:-1},markers[1],markers[2]]},'2026-10-08'),/INVALID_MARKET_RESPONSE/);
 assert.throws(()=>summarizeKrxSource(payload('2026-10-07'),'2026-10-08'),/INVALID_SOURCE_RESPONSE/);
 
 // Codex P2: GAS networkStatus FETCH_FAILED returns status:ok and markets:[]. Preserve the cause.
