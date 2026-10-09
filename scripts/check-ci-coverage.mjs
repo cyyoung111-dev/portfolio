@@ -150,7 +150,7 @@ function validateQualityWorkflow(source) {
       assert.ok(step.with === undefined, 'run 단계의 with 속성은 허용하지 않습니다: ' + index);
     return step;
   });
-  const fullSuite = steps.filter(step => step.run === 'test ! -f .npmrc && npm run check:ci');
+  const fullSuite = steps.filter(step => step.run === 'test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci');
   assert.equal(fullSuite.length, 1, '전체 CI 명령이 정확히 한 단계에서 실행돼야 합니다.');
   assert.equal(steps[steps.length - 1], fullSuite[0],
     '전체 검사 단계 뒤에 실행되는 작업은 허용하지 않습니다.');
@@ -169,7 +169,7 @@ function validateQualityWorkflow(source) {
       'fi',
       '',
     ].join('\n')},
-    {name:'Verify every check script and run full CI', env:{npm_config_script_shell:'/bin/bash',npm_config_node_options:'--trace-warnings',npm_config_ignore_scripts:'true',NODE_OPTIONS:''}, run:'test ! -f .npmrc && npm run check:ci'},
+    {name:'Verify every check script and run full CI', env:{npm_config_script_shell:'/bin/bash',npm_config_node_options:'--trace-warnings',npm_config_ignore_scripts:'true',NODE_OPTIONS:''}, run:'test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci'},
   ];
   assert.deepEqual(steps, allowedSteps,
     '전체 CI 전 단계의 구성·순서·실행 명령과 입력은 승인된 값만 허용합니다.');
@@ -208,7 +208,7 @@ const validWorkflow = [
   '          npm_config_node_options: --trace-warnings',
   "          npm_config_ignore_scripts: 'true'",
   "          NODE_OPTIONS: ''",
-  '        run: test ! -f .npmrc && npm run check:ci',
+  '        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
 ].join('\n');
 function invalidMutation(source, textToReplace, replacement, message) {
   assert.ok(source.includes(textToReplace), '테스트 변이의 원본 위치 누락: ' + textToReplace);
@@ -221,8 +221,8 @@ assert.doesNotThrow(() => validateQualityWorkflow(validWorkflow));
 invalidMutation(validWorkflow, '  pull_request:\n', '', /안전하지 않거나 누락된 YAML 속성/);
 invalidMutation(validWorkflow, '  pull_request:\n',
   "  pull_request:\n    paths:\n      - 'scripts/check-*.mjs'\n", /모든 PR/);
-invalidMutation(validWorkflow, 'run: test ! -f .npmrc && npm run check:ci',
-  'run: test ! -f .npmrc && npm run check:ci-coverage', /전체 CI 명령/);
+invalidMutation(validWorkflow, 'run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
+  'run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci-coverage', /전체 CI 명령/);
 // Skip/ignore/mask the job or any of its steps.
 invalidMutation(validWorkflow, '  all-check-scripts:\n',
   '  all-check-scripts:\n    if: false\n', /all-check-scripts/);
@@ -235,12 +235,12 @@ invalidMutation(validWorkflow, '      - name: Verify every check script and run 
 invalidMutation(validWorkflow, '      - name: Verify every check script and run full CI',
   '      - name: Verify every check script and run full CI\n        continue-on-error: true', /오류 무시/);
 // Custom shells and defaults are risky even when the run command is correct.
-invalidMutation(validWorkflow, '        run: test ! -f .npmrc && npm run check:ci',
-  '        shell: echo {0}\n        run: test ! -f .npmrc && npm run check:ci', /사용자 지정 shell/);
-invalidMutation(validWorkflow, '        run: test ! -f .npmrc && npm run check:ci',
-  '        "shell": echo {0}\n        run: test ! -f .npmrc && npm run check:ci', /사용자 지정 shell/);
-invalidMutation(validWorkflow, '        run: test ! -f .npmrc && npm run check:ci',
-  "        'shell': echo {0}\n        run: test ! -f .npmrc && npm run check:ci", /사용자 지정 shell/);
+invalidMutation(validWorkflow, '        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
+  '        shell: echo {0}\n        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci', /사용자 지정 shell/);
+invalidMutation(validWorkflow, '        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
+  '        "shell": echo {0}\n        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci', /사용자 지정 shell/);
+invalidMutation(validWorkflow, '        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
+  "        'shell': echo {0}\n        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci", /사용자 지정 shell/);
 invalidMutation(validWorkflow, 'jobs:\n',
   'defaults:\n  run:\n    shell: echo {0}\njobs:\n', /workflow/);
 invalidMutation(validWorkflow, '    steps:\n',
@@ -252,10 +252,10 @@ invalidMutation(validWorkflow, 'jobs:\n',
   'jobs:\n  gate:\n    runs-on: ubuntu-latest\n    if: false\n    steps:\n      - run: echo skipped\n', /jobs/);
 // Exact execution semantics: reject disguised YAML keys, duplicate keys,
 // unsupported aliases and additional post-check steps.
-invalidMutation(validWorkflow, '        run: test ! -f .npmrc && npm run check:ci',
-  '        run: test ! -f .npmrc && npm run check:ci\n        "run": npm run check:ci', /YAML 구문/);
-invalidMutation(validWorkflow, '        run: test ! -f .npmrc && npm run check:ci',
-  '        run: test ! -f .npmrc && npm run check:ci\n      - name: Hide failure\n        run: echo after-check', /뒤에 실행되는 작업/);
+invalidMutation(validWorkflow, '        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
+  '        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci\n        "run": npm run check:ci', /YAML 구문/);
+invalidMutation(validWorkflow, '        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
+  '        run: test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci\n      - name: Hide failure\n        run: echo after-check', /뒤에 실행되는 작업/);
 // Changing or removing the pinned npm script shell makes the entire suite
 // susceptible to repository .npmrc choosing a no-op executable.
 invalidMutation(validWorkflow, '          npm_config_script_shell: /bin/bash',
@@ -270,9 +270,9 @@ invalidMutation(validWorkflow, "        env:\n          npm_config_script_shell:
 // The npm CLI can pass .npmrc node-options as NODE_OPTIONS to child scripts.
 // The approved entrypoint must fail closed when repository .npmrc exists and
 // explicitly clear both npm's child node-options and inherited NODE_OPTIONS.
-invalidMutation(validWorkflow, 'test ! -f .npmrc && npm run check:ci',
+invalidMutation(validWorkflow, 'test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
   'npm run check:ci', /전체 CI 명령/);
-invalidMutation(validWorkflow, 'test ! -f .npmrc && npm run check:ci',
+invalidMutation(validWorkflow, 'test ! -e .npmrc && test ! -L .npmrc && test ! -e node_modules/.bin/npm && test ! -L node_modules/.bin/npm && test ! -e node_modules/.bin/node && test ! -L node_modules/.bin/node && npm run check:ci',
   'test -f .npmrc && npm run check:ci', /전체 CI 명령/);
 invalidMutation(validWorkflow, '          npm_config_node_options: --trace-warnings',
   '          npm_config_node_options: --require=./scripts/exit-zero.cjs',
@@ -291,6 +291,23 @@ invalidMutation(validWorkflow, "          npm_config_ignore_scripts: 'true'",
   "          npm_config_ignore_scripts: 'false'", /전체 CI 전 단계의 구성/);
 invalidMutation(validWorkflow, "          npm_config_ignore_scripts: 'true'\n",
   "", /전체 CI 전 단계의 구성/);
+// A package dependency can shadow npm/node inside npm-run's augmented PATH.
+// Every existence and symlink check must remain fail-fast in the approved job.
+invalidMutation(validWorkflow, 'test ! -e node_modules/.bin/npm && ',
+  '', /전체 CI 명령/);
+invalidMutation(validWorkflow, 'test ! -L node_modules/.bin/npm && ',
+  '', /전체 CI 명령/);
+invalidMutation(validWorkflow, 'test ! -e node_modules/.bin/node && ',
+  '', /전체 CI 명령/);
+invalidMutation(validWorkflow, 'test ! -L node_modules/.bin/node && ',
+  '', /전체 CI 명령/);
+invalidMutation(validWorkflow, 'test ! -e .npmrc && ',
+  '', /전체 CI 명령/);
+invalidMutation(validWorkflow, 'test ! -L .npmrc && ',
+  '', /전체 CI 명령/);
+invalidMutation(validWorkflow, 'test ! -L node_modules/.bin/node && npm run check:ci',
+  'test ! -L node_modules/.bin/node; npm run check:ci', /전체 CI 명령/);
+
 // Regressions for pre-check step injection, modification, reordered execution,
 // action/input replacement and alternate test entrypoint (PR #474 latest P2).
 invalidMutation(validWorkflow, '    steps:\n',
@@ -382,6 +399,54 @@ try {
     '안전 환경변수 적용 후에도 npm의 node-options를 우회하지 못했습니다.');
 } finally {
   fs.rmSync(nodeProbeDir,{recursive:true,force:true});
+}
+
+// Reproduce npm PATH shadowing: the top-level npm is real, but a nested
+// "npm run" inside a package script picks node_modules/.bin/npm first.
+const shadowDir = fs.mkdtempSync(path.join(os.tmpdir(), 'portfolio-ci-path-shadow-'));
+try {
+  const binDir = path.join(shadowDir, 'node_modules', '.bin');
+  fs.mkdirSync(binDir, {recursive:true});
+  fs.writeFileSync(path.join(shadowDir,'package.json'), JSON.stringify({
+    name:'portfolio-path-shadow-probe',private:true,
+    scripts:{
+      probe:'npm run child',
+      child:'node -e "require(\'fs\').writeFileSync(\'child.ok\',\'executed\')"',
+    },
+  }));
+  const fakeNpm = path.join(binDir, 'npm');
+  fs.writeFileSync(fakeNpm, '#!/bin/sh\nexit 0\n', {mode:0o755});
+  fs.chmodSync(fakeNpm,0o755);
+  const clean = Object.fromEntries(Object.entries(process.env).filter(
+    ([key]) => !['npm_config_script_shell','npm_config_node_options','node_options']
+      .includes(key.toLowerCase())));
+  const result = spawnSync('npm',['run','probe'],{
+    cwd:shadowDir,env:{...clean,npm_config_script_shell:'/bin/bash',npm_config_node_options:'--trace-warnings',NODE_OPTIONS:'',npm_config_ignore_scripts:'true'},encoding:'utf8',
+  });
+  assert.equal(result.status,0,'가짜 로컬 npm 우회 재현에 실패했습니다: '+result.stderr);
+  assert.ok(!fs.existsSync(path.join(shadowDir,'child.ok')),
+    '가짜 로컬 npm이 중첩 검사를 실제로 실행했습니다.');
+  const wf = YAML.parse(fs.readFileSync('.github/workflows/quality-check.yml','utf8'));
+  const fullRun = wf.jobs['all-check-scripts'].steps.at(-1).run;
+  const end = ' && npm run check:ci';
+  assert.ok(fullRun.endsWith(end),'검사 시작 명령의 종료 부분이 바뀌었습니다.');
+  const guard = fullRun.slice(0,-end.length);
+  const gate = () => spawnSync('/bin/bash',['-c',guard],{cwd:shadowDir,encoding:'utf8'});
+  assert.notEqual(gate().status,0,'설치된 가짜 npm을 사전 검사에서 탐지하지 못했습니다.');
+  fs.unlinkSync(fakeNpm);
+  fs.symlinkSync('missing-target',fakeNpm);
+  assert.notEqual(gate().status,0,'dangling npm symlink를 사전 검사에서 탐지하지 못했습니다.');
+  fs.unlinkSync(fakeNpm);
+  const fakeNode = path.join(binDir,'node');
+  fs.writeFileSync(fakeNode,'#!/bin/sh\nexit 0\n',{mode:0o755});
+  assert.notEqual(gate().status,0,'설치된 가짜 node를 사전 검사에서 탐지하지 못했습니다.');
+  fs.unlinkSync(fakeNode);
+  fs.symlinkSync('missing-target',fakeNode);
+  assert.notEqual(gate().status,0,'dangling node symlink를 탐지하지 못했습니다.');
+  fs.unlinkSync(fakeNode);
+  assert.equal(gate().status,0,'유해한 실행 파일이 없는 경우 검증이 거부됐습니다.');
+} finally {
+  fs.rmSync(shadowDir,{recursive:true,force:true});
 }
 
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
