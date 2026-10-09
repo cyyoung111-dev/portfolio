@@ -48,6 +48,45 @@ assert.equal(currentIndex.status,'PARTIAL'); assert.equal(currentIndex.finality,
 const priorToss=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-17',value:3400,source:'TOSS'},
  {seriesMeta:{KOSPI:{confirmedClose:false,source:'TOSS'}}},'2026-09-18','MORNING');
 assert.equal(priorToss.status,'PARTIAL');assert.equal(priorToss.finality,null);
+// 4차 Codex P1: 웹 부트스트랩은 tradingDate=오늘, options.to 없음.
+const morningCalls=[];
+const browserMorning=await collector.collect(async(action,params)=>{
+  morningCalls.push({action,params});
+  if(action==='getBenchmarks') return {status:'ok',series:{
+    KOSPI:[{date:'2026-09-18',value:3500,source:'TOSS'},{date:'2026-09-17',value:3400,source:'KRX_OFFICIAL',observedAt:'2026-09-17T15:30:00+09:00'}],
+    KOSDAQ:[{date:'2026-09-18',value:950,source:'TOSS'},{date:'2026-09-17',value:900,source:'KRX_OFFICIAL',observedAt:'2026-09-17T15:30:00+09:00'}]},
+    seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'},KOSDAQ:{confirmedClose:true,source:'KRX_OFFICIAL'}}};
+  if(action==='getKrxK200NightClose')return {status:'ok',observation:null};
+  if(action==='getBenchmark')return {status:'ok',points:[]};
+  if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
+  if(action==='getPrices')return {status:'ok',prices:{}};
+  if(action==='getPriceHistory')return {status:'ok',prices:{}};
+  throw new Error('unexpected MORNING action '+action);
+},'2026-09-18',{checkpoint:'MORNING',from:'2026-09-11'});
+assert.equal(morningCalls.find(x=>x.action==='getBenchmarks').params.to,'2026-09-17',
+ '웹 MORNING은 오늘이 아닌 전일 KRX 공식 종가부터 조회해야 함');
+assert.equal(browserMorning.payload.KOSPI.status,'FINAL','당일 Toss 임시값보다 전일 KRX 확정 종가 우선');
+assert.equal(browserMorning.payload.KOSPI.tradingDate,'2026-09-17');
+assert.equal(browserMorning.payload.KOSDAQ.status,'FINAL');
+const morningPreviousOverride=await collector.collect(async(action,params)=>{
+  if(action==='getBenchmarks'){morningCalls.push({action,params});return {status:'ok',series:{}};}
+  if(action==='getKrxK200NightClose')return {status:'ok',observation:null};
+  if(action==='getBenchmark')return {status:'ok',points:[]};
+  if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
+  if(action==='getPrices'||action==='getPriceHistory')return {status:'ok',prices:{}};
+  throw new Error('unexpected action');
+},'2026-09-18',{checkpoint:'MORNING',from:'2026-09-11',to:'2026-09-16'});
+assert.equal(morningCalls.at(-1).params.to,'2026-09-16','과거 명시적 MORNING 종료일 보존');
+const eveningCalls=[];
+await collector.collect(async(action,params)=>{
+  if(action==='getBenchmarks'){eveningCalls.push(params);return {status:'ok',series:{}};}
+  if(action==='getBenchmark')return {status:'ok',points:[]};
+  if(action==='getExchangeRateHistory')return {status:'ok',history:[]};
+  if(action==='getPrices'||action==='getPriceHistory'||action==='getKrxOfficialStockCloses')return {status:'ok',prices:{},closes:{}};
+  throw new Error('unexpected action');
+},'2026-09-18',{checkpoint:'EVENING',from:'2026-09-11'});
+assert.equal(eveningCalls[0].to,'2026-09-18','마감은 오늘 정규장 종가만 요청');
+
 const previousOfficial=collector.normalizeBenchmarkPoint('KOSPI',{date:'2026-09-17',value:3400,
  source:'KRX_OFFICIAL',observedAt:'2026-09-17T15:30:00+09:00'},
  {seriesMeta:{KOSPI:{confirmedClose:true,source:'KRX_OFFICIAL'}}},'2026-09-18','MORNING');
