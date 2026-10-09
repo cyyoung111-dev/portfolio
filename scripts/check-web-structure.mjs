@@ -10,7 +10,7 @@ const collect=dir=>{const out=[];if(!fs.existsSync(dir))return out;const stack=[
 
 
 // check market briefing cache coherency: runtime dependency changes must reach browser entrypoint.
-const briefingRelease='20261009-2';
+const briefingRelease='20261009-3';
 const bootstrapPath=path.join(webRoot,'app/bootstrap.js'),swPath=path.join(webRoot,'sw.js');
 const bootstrap=fs.readFileSync(bootstrapPath,'utf8'),sw=fs.readFileSync(swPath,'utf8');
 for(const file of ['market_briefing_operational_gate.js','market_briefing_provider_collector.js']){
