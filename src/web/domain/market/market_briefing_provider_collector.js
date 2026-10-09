@@ -49,10 +49,21 @@ async function collect(request,tradingDate,options={}){
  if(typeof request!=='function')throw new Error('market briefing request function missing');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(tradingDate||'')))throw new Error('invalid tradingDate');
  const from=options.from||lookback(tradingDate),to=options.to||tradingDate;
+ // MORNING의 국내 지수는 '오늘 일봉'이 아니라 직전 거래일 공식 정규장 종가를 요구합니다.
+ // 명시적으로 과거에 고정한 종료일은 유지하며, VKOSPI/FX/종목 요청의 원래 날짜는 변경하지 않습니다.
+ const benchmarkTo=options.checkpoint==='MORNING'&&to>=tradingDate?lookback(tradingDate,1):to;
+ const benchmarkFrom=from>benchmarkTo?lookback(benchmarkTo):from;
  const payload={},missing=[],errors={};
  try{
-  const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from,to,fresh:(KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)||options.checkpoint==='MORNING')?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
-  for(const type of REQUEST_TYPES){const point=latest(data&&data.series&&data.series[type]);if(!point){missing.push(type);continue;}payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate,options.checkpoint);}
+  const data=await request('getBenchmarks',{benchmarks:REQUEST_TYPES.join(','),from:benchmarkFrom,to:benchmarkTo,fresh:(KRX_FINAL_CHECKPOINTS.includes(options.checkpoint)||options.checkpoint==='MORNING')?'1':'0'},{timeoutMs:options.timeoutMs||45000,retry:0});
+  for(const type of REQUEST_TYPES){
+   const points=data&&data.series&&data.series[type];
+   // 응답이 요청 범위를 벗어나더라도 장전 당일 Toss 일봉이 전일 KRX 공식 종가를 덮지 못하도록 차단.
+   const eligible=options.checkpoint==='MORNING'&&Array.isArray(points)?points.filter(point=>point&&point.date<=benchmarkTo):points;
+   const point=latest(eligible);
+   if(!point){missing.push(type);continue;}
+   payload[KEY_MAP[type]]=normalizeBenchmarkPoint(type,point,data,tradingDate,options.checkpoint);
+  }
   Object.assign(errors,(data&&data.errors)||{});
  }catch(error){for(const type of REQUEST_TYPES)missing.push(type);errors.getBenchmarks=String(error&&error.message||error);}
  if(options.checkpoint==='NIGHT_FINAL'||options.checkpoint==='MORNING'){
