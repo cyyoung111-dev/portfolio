@@ -1835,17 +1835,32 @@ function handlePriceFetch(dateParam, allCodesParam) {
     var priceSheet = ss.getSheetByName(CONFIG.SHEET_PRICES);
     if (priceSheet && priceSheet.getLastRow() >= 2) {
       var data   = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 4).getValues();
-      var prices = {};
+      var prices = {}, cacheDates = [];
       data.forEach(function(row) {
         var code  = (row[0] || '').toString().trim();
         var price = parseFloat(row[1]) || 0;
         var name  = (row[2] || '').toString().trim();
-        if (code && price > 0) prices[code] = { price: price, name: name, officialName: name };
+        if (code && price > 0) {
+          prices[code] = { price: price, name: name, officialName: name };
+          // The old GET-compatible path must validate actual cache timestamps.
+          // A nonempty sheet is not proof that any close is current.
+          cacheDates.push(_normalizeDate(row[3] || ''));
+        }
       });
-      if (Object.keys(prices).length > 0) {
-        return jsonOk({ date: reqDate, count: Object.keys(prices).length, prices: prices, source: 'cache',
+      var cacheCount = Object.keys(prices).length;
+      var session = _krxCalendarStatus_(reqDate);
+      var beforeClose = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'HHmm') < '1600';
+      var maxBusinessLag = session === 'OPEN' && beforeClose ? 1 : 0;
+      var cacheFresh = cacheCount > 0 && cacheDates.length === cacheCount
+        && cacheDates.every(function(date) {
+          return !!date && date <= reqDate
+            && _countBusinessWeekdaysBetween(date, reqDate) <= maxBusinessLag;
+        });
+      if (cacheFresh) {
+        return jsonOk({ date: reqDate, count: cacheCount, prices: prices, source: 'cache',
           missingCodes: calcMissing(allCodesParam, Object.keys(prices)) });
       }
+      if (cacheCount > 0) Logger.log('[price-source] 레거시 종가 캐시 오래됨/갱신일시 불명: 원천 재조회');
     }
     return handleHistoricalPriceFetch(todayStr, allCodesParam, ss);
   } catch(err) {
