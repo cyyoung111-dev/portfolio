@@ -26,6 +26,7 @@ function _portfolioDataKey() {
     lastUpdated || '',
     rows.map(r => [
       r.acct, r.name, r.code, r.type, r.sector, r.fund,
+      r.taxType, (typeof getAcctTaxType === 'function' ? getAcctTaxType(r.acct) : ''),
       r.qty, r.price, r.cost, r.costAmt, r.evalAmt, r.pnl, r.pct
     ]),
     EDITABLE_PRICES.map(ep => [ep.name, ep.code, ep.assetType, ep.type]),
