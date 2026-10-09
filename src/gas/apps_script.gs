@@ -10657,6 +10657,22 @@ function _isPortfolioCloseRunStale(portfolioClose) {
 }
 
 
+// Read-only, token-free view of the latest automatic NAV attempt.
+// A hard-killed GAS process has no catch/finally; distinguish its orphaned
+// start from a completed result without guessing that the provider failed.
+function _fundAttemptDiagnosticState_(owner, completion, nowMs) {
+  if (!owner || !owner.date || !owner.token) return null;
+  var completed = completion && completion.date === owner.date && completion.token === owner.token
+    && (completion.state === 'DONE' || completion.state === 'ERROR');
+  var started = Number(owner.startedAt || 0);
+  var finished = completed ? Number(completion.at || 0) : 0;
+  var now = Number(nowMs);
+  var state = completed ? completion.state
+    : (started > 0 && now >= started && now - started >= 7 * 60 * 1000
+      ? 'TIMEOUT_SUSPECTED' : 'IN_PROGRESS');
+  return {date:String(owner.date), startedAtMs:started, finishedAtMs:finished, state:state};
+}
+
 function _getAutomationStatusData() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
@@ -10681,19 +10697,7 @@ function _getAutomationStatusData() {
   var fundLastError = props.getProperty('fund_last_error') || '';
   var fundAttemptOwner = parseProperty('fund_last_attempt_owner_v1');
   var fundCompletion = parseProperty('fund_last_attempt_completion_v1');
-  // No raw token is returned to clients; a missing exact-owner completion after
-  // the GAS execution limit is a timeout suspect, not proof of a provider error.
-  var fundAttempt = null;
-  if (fundAttemptOwner && fundAttemptOwner.date && fundAttemptOwner.token) {
-    var fundCompleted = fundCompletion && fundCompletion.token === fundAttemptOwner.token
-      && fundCompletion.date === fundAttemptOwner.date;
-    var started = Number(fundAttemptOwner.startedAt || 0);
-    var completed = fundCompleted ? Number(fundCompletion.at || 0) : 0;
-    var phase = fundCompleted ? String(fundCompletion.state || 'UNKNOWN')
-      : (started > 0 && Date.now() - started >= 7 * 60 * 1000 ? 'TIMEOUT_SUSPECTED' : 'IN_PROGRESS');
-    fundAttempt = { date:String(fundAttemptOwner.date), startedAtMs:started,
-      finishedAtMs:completed, state:phase };
-  }
+  var fundAttempt = _fundAttemptDiagnosticState_(fundAttemptOwner, fundCompletion, Date.now());
   var expectedSnapshotDate = _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose);
   var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
   var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
