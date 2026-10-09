@@ -4,8 +4,9 @@
 const MARKETS = Object.freeze(['KOSPI', 'KOSDAQ', 'ETF']);
 const PARSE_STATUSES = new Set(['ROWS', 'EMPTY', 'NON_JSON', 'UNEXPECTED_SCHEMA', 'NOT_PARSED']);
 export function parseDates(value) {
-  const dates = String(value || '').split(',').map(date => date.trim()).filter(Boolean);
-  if (dates.length < 1 || dates.length > 7 || new Set(dates).size !== dates.length)
+  const dates = String(value || '').split(',').map(date => date.trim());
+  if (dates.some(date => !date) || dates.length < 1 || dates.length > 7
+      || new Set(dates).size !== dates.length)
     throw new Error('KRX_DIAG_INVALID_DATES');
   for (const date of dates) {
     const day = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(date + 'T00:00:00Z') : null;
@@ -19,6 +20,7 @@ export function validateWebAppUrl(value) {
   try { url = new URL(String(value || '')); }
   catch { throw new Error('KRX_DIAG_INVALID_WEB_APP_URL'); }
   if (url.protocol !== 'https:' || url.hostname !== 'script.google.com'
+      || url.username || url.password
       || !/^\/macros\/s\/[^/]+\/exec$/.test(url.pathname) || url.search || url.hash)
     throw new Error('KRX_DIAG_INVALID_WEB_APP_URL');
   return url.href;
@@ -104,7 +106,7 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
       reports.push({
         date,
         keyConfigured:null,
-        networkStatus:'GAS_REQUEST_FAILED',
+        networkStatus:code.startsWith('KRX_DIAG_INVALID_') ? 'INVALID_RESPONSE' : 'GAS_REQUEST_FAILED',
         markets:MARKETS.map(market=>({market,httpStatus:0,rows:0,parseStatus:'NOT_PARSED'})),
         errorCode:allowCode?code:'KRX_DIAG_UNKNOWN_ERROR',
         healthy:false,
