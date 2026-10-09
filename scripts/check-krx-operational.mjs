@@ -21,6 +21,16 @@ assert.equal(params.get('action'),'getKrxSourceDiagnostics');
 assert.equal(params.get('date'),'2026-10-08');
 assert.equal(params.get('accessToken'),key);
 
+// Missing repo secret or rejected GAS bearer token are different from a KRX
+// provider outage: fail before hitting the KRX market endpoints.
+await assert.rejects(()=>runDiagnosis({
+  url:'https://script.google.com/macros/s/Abcd/exec',token:'',
+  dates:'2026-10-08',fetchImpl:async()=>{throw new Error('SHOULD_NOT_FETCH');},
+}),/GAS_ACCESS_TOKEN_NOT_CONFIGURED/);
+await assert.rejects(()=>runDiagnosis({
+  url:'https://script.google.com/macros/s/Abcd/exec',token:'invalid-placeholder',
+  dates:'2026-10-08',fetchImpl:async()=>({ok:true,json:async()=>({status:'error',message:'인증 실패'})}),
+}),/GAS_ACCESS_DENIED/);
 const markers=[
  {market:'KOSPI',httpStatus:200,rows:900,parseStatus:'ROWS'},
  {market:'KOSDAQ',httpStatus:200,rows:1200,parseStatus:'ROWS'},
