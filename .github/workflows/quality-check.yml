@@ -40,4 +40,6 @@ jobs:
       - name: Verify every check script and run full CI
         env:
           npm_config_script_shell: /bin/bash
-        run: npm run check:ci
+          npm_config_node_options: ''
+          NODE_OPTIONS: ''
+        run: test ! -f .npmrc && npm run check:ci
