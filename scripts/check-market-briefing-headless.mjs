@@ -27,6 +27,19 @@ assert.equal(maskSecrets('accessToken=secret&next=1 secret',['secret']),'accessT
 assert.equal(maskSecrets('auth_key=abc apiKey:def secret=ghi token:jkl'), 'auth_key=*** apiKey:*** secret=*** token:***');
 const diagnostic=diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-09-18',sync:{persistence:{saved:2,duplicates:1,rejected:0},errors:{FX:'apiKey=abc'}},persistence:{saved:1,duplicates:0,rejected:0},decision:{publishable:true,status:'READY',data:{snapshot:{values:{USDKRW:{value:1}}},warnings:['W']}}},['abc']);
 assert.deepEqual(diagnostic.providerErrors,['FX']);assert.equal(diagnostic.providerErrorDetails.FX,'apiKey=***');assert.equal(diagnostic.readinessSeries.USDKRW.value,1);assert.deepEqual(diagnostic.masterPersistence,{saved:2,duplicates:1,rejected:0});assert.deepEqual(diagnostic.snapshotPersistence,{saved:1,duplicates:0,rejected:0});assert.deepEqual(diagnostic.warnings,['W']);
+// Collectors request a finite per-action timeout. The GAS adapter must
+// actually pass an AbortSignal instead of ignoring timeoutMs.
+const timeoutSignals=[];
+const boundedRequest=createRequest('https://example.test','fake-token',async(_url,opts)=>{
+  timeoutSignals.push(opts.signal);
+  return {ok:true,json:async()=>({status:'ok'})};
+});
+await boundedRequest('getSettings',{}, {timeoutMs:7500});
+await boundedRequest('getSettings');
+assert.equal(timeoutSignals.length,2);
+assert.ok(timeoutSignals.every(signal=>signal instanceof AbortSignal && !signal.aborted),
+  'headless GAS requests require an active bounded timeout signal');
+
 const fxFetch=payload=>async()=>({ok:true,json:async()=>payload});
 assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'CONFIRMED',history:[]}))('getExchangeRateHistory')).status,'CONFIRMED');
 assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'NO_DATA',history:[]}))('getExchangeRateHistory')).status,'NO_DATA');
