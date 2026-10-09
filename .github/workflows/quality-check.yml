@@ -38,4 +38,6 @@ jobs:
             npm install --no-package-lock --no-audit --no-fund --ignore-scripts
           fi
       - name: Verify every check script and run full CI
+        env:
+          npm_config_script_shell: /bin/bash
         run: npm run check:ci
