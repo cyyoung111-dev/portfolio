@@ -4693,14 +4693,18 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
           candidateDate = _fundDateOffset(candidateDate, -1);
         }
         if (!point) return;
-        // 개별 시장별로 실제 수신한 BAS_DD가 있는 공식값만 표시합니다.
-        // 명시적으로 조회했으나 데이터가 비었던 날짜는 표시 가능한 원천 증거로 보존합니다.
+        // HTTP 200 + 빈 OutBlock은 API 지연/권한 문제일 수도 있습니다.
+        // 공식 거래소 달력에서 CLOSED로 확인한 날짜만 비거래일 증거로 승격합니다.
+        var confirmedClosedDates = skippedDates.length && skippedDates.every(function(date) {
+          return _krxCalendarStatus_(date) === 'CLOSED';
+        }) ? skippedDates.slice() : [];
         var actualDate = point.date;
         series[type] = (series[type] || []).filter(function(row) { return row.date !== actualDate; })
           .concat([point]).sort(function(a,b) { return a.date.localeCompare(b.date); });
         symbols[type] = type;
         seriesMeta[type] = { fresh:true, confirmedClose:true, confirmation:'KRX_EXACT_DATE_CLOSE',
-          source:'KRX_OFFICIAL', verifiedEmptyDates:skippedDates, officialDate:actualDate };
+          source:'KRX_OFFICIAL', verifiedClosedDates:confirmedClosedDates,
+          verificationToDate:toDate, officialDate:actualDate };
       });
     }
 
