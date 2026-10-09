@@ -35,6 +35,27 @@ assert.equal(summarizeKrxSource({status:'ok',requestedDate:'2026-10-08',keyConfi
 assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),markets:[markers[0],markers[0],markers[2]]},'2026-10-08'),/INVALID_MARKET_LIST/);
 assert.throws(()=>summarizeKrxSource(payload('2026-10-07'),'2026-10-08'),/INVALID_SOURCE_RESPONSE/);
 
+// Codex P2: GAS networkStatus FETCH_FAILED returns status:ok and markets:[]. Preserve the cause.
+const failedSource={status:'ok',requestedDate:'2026-10-08',keyConfigured:true,
+ networkStatus:'FETCH_FAILED',markets:[],message:'KRX 네트워크 요청 실패'};
+const failedSummary=summarizeKrxSource(failedSource,'2026-10-08');
+assert.equal(failedSummary.networkStatus,'FETCH_FAILED','GAS fetchAll timeout must not become INVALID_MARKET_LIST');
+assert.equal(failedSummary.healthy,false);
+assert.deepEqual(failedSummary.markets.map(x=>x.httpStatus),[0,0,0]);
+assert.ok(!JSON.stringify(failedSummary).includes('네트워크 요청'));
+assert.equal(summarizeKrxSource({status:'ok',requestedDate:'2026-10-08',
+ keyConfigured:false,markets:[]},'2026-10-08').networkStatus,'NOT_CONFIGURED');
+assert.throws(()=>summarizeKrxSource({status:'ok',requestedDate:'2026-10-08',
+ keyConfigured:true,networkStatus:'RECEIVED',markets:[]},'2026-10-08'),/INVALID_MARKET_LIST/);
+const networkDiag=await runDiagnosis({
+ url:'https://script.google.com/macros/s/Abcd/exec',
+ token:key,dates:'2026-10-08',
+ fetchImpl:async(url,opts)=>({ok:true,json:async()=>opts.body.get('action')==='getSettings'
+  ?{status:'ok',gasVersion:'9.192'}:failedSource}),
+});
+assert.equal(networkDiag.healthy,false);
+assert.equal(networkDiag.reports[0].networkStatus,'FETCH_FAILED');
+
 const called=[];
 const fakeFetch=async(url,opts)=>{
   called.push({url,action:opts.body.get('action'),date:opts.body.get('date')});
