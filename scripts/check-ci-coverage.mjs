@@ -260,9 +260,6 @@ invalidMutation(validWorkflow, '        uses: actions/checkout@v7',
 invalidMutation(validWorkflow, "          node-version: '24'",
   "          node-version: '22'",
   /전체 CI 전 단계의 구성/);
-invalidMutation(validWorkflow, '            npm ci --ignore-scripts',
-  '            npm ci --ignore-scripts',
-  /전체 CI 전 단계의 구성/);
 invalidMutation(validWorkflow, '      - name: Setup Node\n',
   '      - name: Setup Node\n        env:\n          NODE_OPTIONS: "--require ./malicious.js"\n',
   /조건부 실행|알 수 없는 단계 속성|전체 CI 전 단계의 구성/);
