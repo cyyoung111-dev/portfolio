@@ -185,6 +185,8 @@ const viewContext={
 };
 vm.createContext(viewContext);
 vm.runInContext(portfolioViewCode+'\nglobalThis.__donutModel=()=>_donutModelCache.model; globalThis.__setTypeFilter=setTypeFilter; globalThis.__setAcctFilter=setAcctFilter; globalThis.__portfolioAssetType=_portfolioAssetType;',viewContext);
+if(viewContext.__portfolioAssetType({name:'신규 인덱스 ETF',type:'ETF',fund:false})!=='ETF')
+  throw new Error('explicit ETF row type was lost when no price master classification or known ETF prefix exists');
 if(viewContext.__portfolioAssetType(viewContext.rows[0])!=='ETF'
   || viewContext.__portfolioAssetType(viewContext.rows[1])!=='TDF')
   throw new Error('missing master ETF/TDF classification incorrectly defaults to stock');
