@@ -6127,6 +6127,19 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       byDate[date].forEach(function(value) { if (fundResults[value[1]]) fundResults[value[1]].status = 'partial'; });
       return;
     }
+    // A NAV/price provenance correction can reach this loop while the stored
+    // full Snapshot already equals the safe merged target. Rewriting an
+    // unchanged 10k-row Sheet on every such date consumes GAS's 6-minute
+    // budget and may trigger an unnecessary whole-sheet backup.
+    if (!fundRewritePlan.needsRewrite) {
+      byDate[date].forEach(function(value) {
+        var item = fundResults[value[1]] && (fundResults[value[1]].dates || []).find(function(row) {
+          return row.date === date;
+        });
+        if (item) { item.evaluationState = 'EXISTING_VALID'; item.snapshotState = 'EXISTING_VALID'; }
+      });
+      return;
+    }
     writeSnapshotRows(ss, date, combined, true, null, configs);
     snapshotCount++;
     byDate[date].forEach(function(value) {
