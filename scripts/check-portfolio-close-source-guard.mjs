@@ -226,6 +226,7 @@ assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-0
 // 가공된 evidence만 직접 주입하는 테스트로는 \\d 이스케이프 오타를 찾을 수 없습니다.
 const realKrxContext = vm.createContext({
   _getKrxApiConfig:()=>({apiKey:'test-key'}),
+  _getKrxAuthKeySlots_:()=>({alternative:''}),
   _cleanCode:v=>String(v||'').trim(),
   _parseKrxNumber:v=>Number(v),
   _fetchKrxMarketsParallelWithFallback:()=>({
