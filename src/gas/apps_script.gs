@@ -11055,13 +11055,15 @@ function handleGetKrxSourceDiagnostics(dateStr) {
       markets:output, networkStatus:'FETCH_FAILED', message:'KRX 네트워크 요청 실패',
       credentialSource:slots.source, alternativeConfigured:slots.alternativeConfigured }); }
     var alternateProbe = null;
-    if (slots.alternative && output.length === 3 && output.every(function(item) {
+    var deniedForProbe = output.filter(function(item) {
       return item.httpStatus === 401 || item.httpStatus === 403;
-    })) {
-      // Read-only, bounded KOSPI probe for root-cause attribution. Never
-      // publish the credential, request headers or raw API response.
+    });
+    if (slots.alternative && deniedForProbe.length) {
+      // Probe one rejected market only. Per-category KRX approvals can differ
+      // even if some markets already succeeded with the primary key.
+      var marketToProbe = deniedForProbe[0].market;
       try {
-        var alternateResponse = UrlFetchApp.fetch(inputs[0].url, {
+        var alternateResponse = UrlFetchApp.fetch(inputs[markets.indexOf(marketToProbe)].url, {
           method:'get', headers:{AUTH_KEY:slots.alternative}, muteHttpExceptions:true
         });
         var altStatus = alternateResponse.getResponseCode(), altRows = 0;
@@ -11069,9 +11071,9 @@ function handleGetKrxSourceDiagnostics(dateStr) {
           var altPayload = JSON.parse(alternateResponse.getContentText() || '{}');
           altRows = Array.isArray(altPayload.OutBlock_1) ? altPayload.OutBlock_1.length : 0;
         }
-        alternateProbe = { httpStatus:altStatus, hasRows:altRows > 0 };
+        alternateProbe = {market:marketToProbe, httpStatus:altStatus, hasRows:altRows > 0};
       } catch(error) {
-        alternateProbe = { httpStatus:0, hasRows:false, networkStatus:'FETCH_FAILED' };
+        alternateProbe = {market:marketToProbe, httpStatus:0, hasRows:false, networkStatus:'FETCH_FAILED'};
       }
     }
     return jsonOk({ requestedDate:date, keyConfigured:true, markets:output,
