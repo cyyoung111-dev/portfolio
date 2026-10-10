@@ -71,7 +71,8 @@ export function summarizeKrxSource(data, date) {
     && Number.isInteger(Number(probe.httpStatus))
     && Number(probe.httpStatus) >= 0 && Number(probe.httpStatus) <= 599
     && typeof probe.hasRows === 'boolean'
-    ? { httpStatus:Number(probe.httpStatus), hasRows:probe.hasRows } : null;
+    ? { market:MARKETS.includes(probe.market) ? probe.market : '',
+        httpStatus:Number(probe.httpStatus), hasRows:probe.hasRows } : null;
   return { date, keyConfigured:configured, networkStatus, markets,
     credentialSource, alternativeConfigured, alternateProbe, healthy };
 }
