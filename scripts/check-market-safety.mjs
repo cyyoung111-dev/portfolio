@@ -164,13 +164,30 @@ if(stock['005930']?.price!==100000 || stock['005930']?.source!=='KRX')
 if(krxFallbackCalls.join('|')!=='stale-primary|approved-legacy')
  throw Error('alternate credential must be tried only after all markets auth-denied');
 krxFallbackCalls=[];
-krxVm._fetchKrxMarketsParallelWithFallback=(_m,_date,key)=>{
- krxFallbackCalls.push(key);
+krxVm._fetchKrxMarketsParallelWithFallback=(_markets,_date,key)=>{
+ krxFallbackCalls.push({key,markets:_markets.slice()});
+ return key==='stale-primary'
+ ? {KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'100000'}],usedYmd:'20261008'},
+    KOSDAQ:{rows:[],usedYmd:'20261008',authHttpStatus:401},
+    ETF:{rows:[],usedYmd:'20261008',authHttpStatus:403}}
+ : {KOSDAQ:{rows:[{ISU_CD:'000660',TDD_CLSPRC:'90000'}],usedYmd:'20261008'},
+    ETF:{rows:[],usedYmd:'20261008',authHttpStatus:403}};
+};
+const mixed=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'},{code:'000660',name:'SK하이닉스'}],'2026-10-08');
+if(mixed['005930']?.price!==100000||mixed['000660']?.price!==90000)
+ throw Error('primary successful KOSPI must survive alternate KOSDAQ key repair');
+if(krxFallbackCalls.length!==2 ||
+ krxFallbackCalls[0].markets.join(',')!=='KOSPI,KOSDAQ,ETF' ||
+ krxFallbackCalls[1].markets.join(',')!=='KOSDAQ,ETF')
+ throw Error('retry only individually auth-rejected KRX markets, not healthy markets');
+krxFallbackCalls=[];
+krxVm._fetchKrxMarketsParallelWithFallback=(_markets,_date,key)=>{
+ krxFallbackCalls.push({key,markets:_markets.slice()});
  return {KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'100000'}],usedYmd:'20261008'},
- KOSDAQ:{rows:[],usedYmd:'20261008',authHttpStatus:401},ETF:{rows:[],usedYmd:'20261008',authHttpStatus:403}};
+ KOSDAQ:{rows:[],usedYmd:'20261008'},ETF:{rows:[],usedYmd:'20261008'}};
 };
 krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
 if(krxFallbackCalls.length!==1)
- throw Error('partial authorized KRX response must not switch credentials');
+ throw Error('missing rows without HTTP 401/403 must never trigger credential switch');
 if(extractKrx('configureKrxAuthKeyPrompt').indexOf("props.deleteProperty('krx_api_key')")<0)
  throw Error('manual clear of primary KRX key must remove legacy key too');
