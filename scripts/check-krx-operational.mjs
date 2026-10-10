@@ -53,6 +53,16 @@ const payload=date=>({status:'ok',requestedDate:date,keyConfigured:true,networkS
  markets:markers});
 const health=summarizeKrxSource(payload('2026-10-08'),'2026-10-08');
 assert.equal(health.healthy,true);
+assert.equal(health.credentialSource,'UNKNOWN','legacy GAS does not advertise auth-slot provenance');
+const authShadow=summarizeKrxSource({...payload('2026-10-08'),
+ credentialSource:'krx_auth_key',alternativeConfigured:true,
+ alternateProbe:{httpStatus:200,hasRows:true},
+ markets:markers.map(x=>({...x,httpStatus:401,rows:0,parseStatus:'NOT_PARSED'}))},'2026-10-08');
+assert.equal(authShadow.healthy,false,'authenticated alternate probe does not validate active data');
+assert.equal(authShadow.credentialSource,'krx_auth_key');
+assert.equal(authShadow.alternativeConfigured,true);
+assert.equal(authShadow.alternateProbe.hasRows,true);
+assert.ok(!JSON.stringify(authShadow).includes('accessToken'));
 assert.deepEqual(health.markets.map(x=>x.market),['KOSPI','KOSDAQ','ETF']);
 assert.ok(!JSON.stringify(health).includes(key));
 assert.equal(summarizeKrxSource({...payload('2026-10-08'),markets:markers.map(x=>x.market==='ETF'
