@@ -118,3 +118,59 @@ for(const state of [attempt(null),attempt({date:owner.date,token:'owner-A',state
 }
 
 console.log('✅ 가격 provider·polling·펀드 timeout 소유권·Secret 노출 안전성 검사 통과');
+
+
+const extractKrx=name=>{
+ const re=new RegExp('function '+name+'\\([^)]*\\) \\{[\\s\\S]*?\\n\\}');
+ const match=gas.match(re);
+ if(!match)throw Error('KRX production function missing: '+name);
+ return match[0];
+};
+const krxSlots=new Map([['krx_auth_key','stale-primary'],['krx_api_key','approved-legacy']]);
+const krxVm=vm.createContext({
+ PropertiesService:{getScriptProperties:()=>({getProperty:k=>krxSlots.get(k)||''})},
+ Logger:{log:()=>{}},
+ _getKrxApiConfig:()=>({apiKey:'stale-primary'}),
+ _getKrxEndpointByMarket:m=>'https://data-dbg.krx.co.kr/svc/apis/'+m,
+ _cleanCode:v=>String(v||'').trim(), _parseKrxNumber:Number,
+ fetchPricesKrxViaOtp:()=>({source:'OTP_FALLBACK'}),
+});
+for(const fn of ['_getKrxAuthKeySlots_','_getKrxAuthKey','fetchPricesKrx'])
+ vm.runInContext(extractKrx(fn),krxVm);
+if(krxVm._getKrxAuthKey()!=='stale-primary')
+ throw Error('primary KRX credential precedence must be explicit');
+if(krxVm._getKrxAuthKeySlots_().alternative!=='approved-legacy')
+ throw Error('distinct approved legacy credential not visible for safe fallback');
+krxSlots.delete('krx_auth_key');
+if(krxVm._getKrxAuthKeySlots_().source!=='krx_api_key')
+ throw Error('missing primary key must select legacy without requiring mutation');
+krxSlots.set('krx_auth_key','stale-primary');
+let krxFallbackCalls=[];
+const deniedMarkets={
+ KOSPI:{rows:[],usedYmd:'20261008',authHttpStatus:401},
+ KOSDAQ:{rows:[],usedYmd:'20261008',authHttpStatus:403},
+ ETF:{rows:[],usedYmd:'20261008',authHttpStatus:401},
+};
+krxVm._fetchKrxMarketsParallelWithFallback=(_m,_date,key)=>{
+ krxFallbackCalls.push(key);
+ return key==='stale-primary'?deniedMarkets:{
+ KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'100000'}],usedYmd:'20261008'},
+ KOSDAQ:{rows:[],usedYmd:'20261008'},
+ ETF:{rows:[],usedYmd:'20261008'}};
+};
+const stock=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
+if(stock['005930']?.price!==100000 || stock['005930']?.source!=='KRX')
+ throw Error('approved alternate KRX credential must recover exact-date official close');
+if(krxFallbackCalls.join('|')!=='stale-primary|approved-legacy')
+ throw Error('alternate credential must be tried only after all markets auth-denied');
+krxFallbackCalls=[];
+krxVm._fetchKrxMarketsParallelWithFallback=(_m,_date,key)=>{
+ krxFallbackCalls.push(key);
+ return {KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'100000'}],usedYmd:'20261008'},
+ KOSDAQ:{rows:[],usedYmd:'20261008',authHttpStatus:401},ETF:{rows:[],usedYmd:'20261008',authHttpStatus:403}};
+};
+krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
+if(krxFallbackCalls.length!==1)
+ throw Error('partial authorized KRX response must not switch credentials');
+if(extractKrx('configureKrxAuthKeyPrompt').indexOf("props.deleteProperty('krx_api_key')")<0)
+ throw Error('manual clear of primary KRX key must remove legacy key too');
