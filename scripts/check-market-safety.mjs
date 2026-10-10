@@ -109,6 +109,8 @@ if(attempt({date:owner.date,token:'owner-A',state:'ERROR',at:clockMs}).state!=='
   throw new Error('same owner ERROR marker must reconcile');
 if(context._fundAttemptDiagnosticState_(null,null,clockMs)!==null)
   throw new Error('no owner should not imply a running fund');
+if(context._fundAttemptDiagnosticState_({date:owner.date,token:owner.token},null,clockMs).state!=='UNKNOWN_LEGACY')
+  throw new Error('legacy NAV without start timestamp must not appear permanently in progress');
 if(context._fundAttemptDiagnosticState_({...owner,startedAt:clockMs-10*1000},null,clockMs).state!=='IN_PROGRESS')
   throw new Error('fresh NAV attempt must not be labelled a hard timeout');
 for(const state of [attempt(null),attempt({date:owner.date,token:'owner-A',state:'DONE',at:clockMs})]){
