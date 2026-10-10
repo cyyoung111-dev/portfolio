@@ -2039,18 +2039,27 @@ function fetchPricesKrx(items, dateStr) {
   var markets = ['KOSPI', 'KOSDAQ', 'ETF'];
   var packs = _fetchKrxMarketsParallelWithFallback(markets, ymd, cfg.apiKey, 7);
   var credentialSlots = _getKrxAuthKeySlots_();
-  // A stale newly configured key can shadow the last previously working
-  // krx_api_key. Only after all THREE KRX markets explicitly return 401/403
-  // is it safe to try the distinct legacy credential. Never persist a key
-  // change or assume an HTTP-200 body alone is a valid daily close.
-  if (credentialSlots.alternative && markets.every(function(market) {
-    return packs[market] && (packs[market].authHttpStatus === 401 || packs[market].authHttpStatus === 403);
-  })) {
-    var alternatePacks = _fetchKrxMarketsParallelWithFallback(markets, ymd, credentialSlots.alternative, 7);
-    if (markets.some(function(market) { return alternatePacks[market] && alternatePacks[market].rows.length > 0; })) {
-      packs = alternatePacks;
-      Logger.log('[KRX-STOCK] 기본 키 401/403 → 대체 키 슬롯 승인 데이터 사용 (비밀키 비노출)');
-    } else Logger.log('[KRX-STOCK] 기본·대체 키 슬롯 모두 사용 가능한 공식 일봉 없음');
+  // Each KRX API approval may differ by category. Retry only the markets
+  // explicitly denied by the selected key; preserve all successful packs.
+  // Never switch on empty/late data alone, and never mutate stored credentials.
+  var authDeniedMarkets = markets.filter(function(market) {
+    var pack = packs[market] || {};
+    return !(pack.rows && pack.rows.length) &&
+      (pack.authHttpStatus === 401 || pack.authHttpStatus === 403);
+  });
+  if (credentialSlots.alternative && authDeniedMarkets.length) {
+    var alternatePacks = _fetchKrxMarketsParallelWithFallback(
+      authDeniedMarkets, ymd, credentialSlots.alternative, 7);
+    var recovered = [];
+    authDeniedMarkets.forEach(function(market) {
+      if (alternatePacks[market] && alternatePacks[market].rows.length > 0) {
+        packs[market] = alternatePacks[market];
+        recovered.push(market);
+      }
+    });
+    Logger.log('[KRX-STOCK] 다른 승인 슬롯 확인: 인증 거부 시장 ' +
+      authDeniedMarkets.join(',') + ', 정상 복구 시장 ' + recovered.join(',') +
+      ' (비밀키 비노출)');
   }
   markets.forEach(function(market) {
     try {
