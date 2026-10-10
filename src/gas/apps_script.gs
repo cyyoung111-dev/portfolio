@@ -10717,7 +10717,8 @@ function _getAutomationStatusData() {
   else if (!portfolioClose) overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN';
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
-  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length) overallStatus = 'WARNING';
+  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length
+    || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
     gasVersion: '9.192',
