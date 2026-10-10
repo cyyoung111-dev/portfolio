@@ -38,7 +38,7 @@ function _portfolioAssetType(row) {
   const ep = getEP(row.name);
   // getEPType(null,null) defaults to '주식', hiding ETF/FUND/TDF fallback.
   if (ep && (ep.assetType || ep.type)) return getEPType(ep, null);
-  if (row.type === '펀드' || row.type === 'TDF') return row.type;
+  if (row.type === 'ETF' || row.type === '펀드' || row.type === 'TDF') return row.type;
   if (!row.fund && isEtfByName(row.name)) return 'ETF';
   return '주식';
 }
