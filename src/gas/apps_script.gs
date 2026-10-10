@@ -10668,8 +10668,9 @@ function _fundAttemptDiagnosticState_(owner, completion, nowMs) {
   var finished = completed ? Number(completion.at || 0) : 0;
   var now = Number(nowMs);
   var state = completed ? completion.state
-    : (started > 0 && now >= started && now - started >= 7 * 60 * 1000
-      ? 'TIMEOUT_SUSPECTED' : 'IN_PROGRESS');
+    : (!started ? 'UNKNOWN_LEGACY'
+      : (now >= started && now - started >= 7 * 60 * 1000
+        ? 'TIMEOUT_SUSPECTED' : 'IN_PROGRESS'));
   return {date:String(owner.date), startedAtMs:started, finishedAtMs:finished, state:state};
 }
 
