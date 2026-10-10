@@ -226,6 +226,7 @@ assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-0
 // 가공된 evidence만 직접 주입하는 테스트로는 \\d 이스케이프 오타를 찾을 수 없습니다.
 const realKrxContext = vm.createContext({
   _getKrxApiConfig:()=>({apiKey:'test-key'}),
+  _getKrxAuthKeySlots_:()=>({alternative:''}),
   _cleanCode:v=>String(v||'').trim(),
   _parseKrxNumber:v=>Number(v),
   _fetchKrxMarketsParallelWithFallback:()=>({
@@ -1002,6 +1003,7 @@ assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'stale-recovery');
 const officialVm=vm.createContext({
   _normalizeDate:String,
   _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
+  _getKrxAuthKeySlots_:()=>({key:'secret-must-not-be-revealed',source:'krx_auth_key',alternative:'',alternativeConfigured:false}),
   _getKrxEndpointByMarket:x=> 'https://example.test/'+x,
   UrlFetchApp:{fetchAll:()=>[
     {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[{TDD_CLSPRC:'100'}]})},

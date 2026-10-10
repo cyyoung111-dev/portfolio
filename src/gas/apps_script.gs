@@ -2038,6 +2038,29 @@ function fetchPricesKrx(items, dateStr) {
   var codeMarkets = {};
   var markets = ['KOSPI', 'KOSDAQ', 'ETF'];
   var packs = _fetchKrxMarketsParallelWithFallback(markets, ymd, cfg.apiKey, 7);
+  var credentialSlots = _getKrxAuthKeySlots_();
+  // Each KRX API approval may differ by category. Retry only the markets
+  // explicitly denied by the selected key; preserve all successful packs.
+  // Never switch on empty/late data alone, and never mutate stored credentials.
+  var authDeniedMarkets = markets.filter(function(market) {
+    var pack = packs[market] || {};
+    return !(pack.rows && pack.rows.length) &&
+      (pack.authHttpStatus === 401 || pack.authHttpStatus === 403);
+  });
+  if (credentialSlots.alternative && authDeniedMarkets.length) {
+    var alternatePacks = _fetchKrxMarketsParallelWithFallback(
+      authDeniedMarkets, ymd, credentialSlots.alternative, 7);
+    var recovered = [];
+    authDeniedMarkets.forEach(function(market) {
+      if (alternatePacks[market] && alternatePacks[market].rows.length > 0) {
+        packs[market] = alternatePacks[market];
+        recovered.push(market);
+      }
+    });
+    Logger.log('[KRX-STOCK] 다른 승인 슬롯 확인: 인증 거부 시장 ' +
+      authDeniedMarkets.join(',') + ', 정상 복구 시장 ' + recovered.join(',') +
+      ' (비밀키 비노출)');
+  }
   markets.forEach(function(market) {
     try {
       var pack = packs[market] || { rows: [], usedYmd: ymd };
@@ -2148,6 +2171,8 @@ function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback
   }
   markets.forEach(function(market) {
     if (!result[market]) result[market] = { rows: [], usedYmd: ymd };
+    // HTTP failure evidence is in-memory only; no credential is logged.
+    if (blockedMarkets[market]) result[market].authHttpStatus = blockedMarkets[market];
   });
   return result;
 }
@@ -2284,9 +2309,16 @@ function _getKrxApiConfig() {
   return { endpoint: endpoint, bld: bld, apiKey: apiKey };
 }
 
-function _getKrxAuthKey() {
+function _getKrxAuthKeySlots_() {
   var props = PropertiesService.getScriptProperties();
-  return (props.getProperty('krx_auth_key') || props.getProperty('krx_api_key') || '').trim();
+  var primary = String(props.getProperty('krx_auth_key') || '').trim();
+  var legacy = String(props.getProperty('krx_api_key') || '').trim();
+  return { key:primary || legacy, source:primary ? 'krx_auth_key' : (legacy ? 'krx_api_key' : 'NONE'),
+    alternative:primary && legacy && primary !== legacy ? legacy : '',
+    alternativeConfigured:!!(primary && legacy && primary !== legacy) };
+}
+function _getKrxAuthKey() {
+  return _getKrxAuthKeySlots_().key;
 }
 
 function configureKrxAuthKeyPrompt() {
@@ -2304,8 +2336,11 @@ function configureKrxAuthKeyPrompt() {
   var input = (resp.getResponseText() || '').trim();
   var props = PropertiesService.getScriptProperties();
   if (input === '-') {
+    // The fallback slot was previously left intact, silently resurrecting a
+    // stale credential after the user explicitly removed the KRX key.
     props.deleteProperty('krx_auth_key');
-    ui.alert('✅ krx_auth_key 삭제 완료');
+    props.deleteProperty('krx_api_key');
+    ui.alert('✅ KRX 인증키(기본·이전 슬롯) 삭제 완료');
     return;
   }
   if (!input) {
@@ -10993,8 +11028,10 @@ function handleGetKrxSourceDiagnostics(dateStr) {
   try {
     var date = _normalizeDate(dateStr || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return jsonError('진단할 거래일 YYYY-MM-DD를 입력하세요.');
-    var authKey = _getKrxAuthKey();
-    if (!authKey) return jsonOk({ requestedDate:date, keyConfigured:false, markets:[] });
+    var slots = _getKrxAuthKeySlots_();
+    var authKey = slots.key;
+    if (!authKey) return jsonOk({ requestedDate:date, keyConfigured:false, markets:[],
+      credentialSource:'NONE', alternativeConfigured:false });
     var markets = ['KOSPI','KOSDAQ','ETF'];
     var inputs = markets.map(function(market) {
       return { url:_getKrxEndpointByMarket(market) + '?basDd=' + date.replace(/-/g,''),
@@ -11015,8 +11052,33 @@ function handleGetKrxSourceDiagnostics(dateStr) {
         output.push({market:markets[index], httpStatus:status, rows:rows, parseStatus:parseStatus});
       });
     } catch(error) { return jsonOk({ requestedDate:date, keyConfigured:true,
-      markets:output, networkStatus:'FETCH_FAILED', message:'KRX 네트워크 요청 실패' }); }
-    return jsonOk({ requestedDate:date, keyConfigured:true, markets:output, networkStatus:'RECEIVED' });
+      markets:output, networkStatus:'FETCH_FAILED', message:'KRX 네트워크 요청 실패',
+      credentialSource:slots.source, alternativeConfigured:slots.alternativeConfigured }); }
+    var alternateProbe = null;
+    var deniedForProbe = output.filter(function(item) {
+      return item.httpStatus === 401 || item.httpStatus === 403;
+    });
+    if (slots.alternative && deniedForProbe.length) {
+      // Probe one rejected market only. Per-category KRX approvals can differ
+      // even if some markets already succeeded with the primary key.
+      var marketToProbe = deniedForProbe[0].market;
+      try {
+        var alternateResponse = UrlFetchApp.fetch(inputs[markets.indexOf(marketToProbe)].url, {
+          method:'get', headers:{AUTH_KEY:slots.alternative}, muteHttpExceptions:true
+        });
+        var altStatus = alternateResponse.getResponseCode(), altRows = 0;
+        if (altStatus === 200) {
+          var altPayload = JSON.parse(alternateResponse.getContentText() || '{}');
+          altRows = Array.isArray(altPayload.OutBlock_1) ? altPayload.OutBlock_1.length : 0;
+        }
+        alternateProbe = {market:marketToProbe, httpStatus:altStatus, hasRows:altRows > 0};
+      } catch(error) {
+        alternateProbe = {market:marketToProbe, httpStatus:0, hasRows:false, networkStatus:'FETCH_FAILED'};
+      }
+    }
+    return jsonOk({ requestedDate:date, keyConfigured:true, markets:output,
+      networkStatus:'RECEIVED', credentialSource:slots.source,
+      alternativeConfigured:slots.alternativeConfigured, alternateProbe:alternateProbe });
   } catch(err) { return jsonError('KRX 진단 실패: ' + String(err.message || 'unknown').slice(0,140)); }
 }
 
