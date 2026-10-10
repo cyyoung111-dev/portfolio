@@ -60,7 +60,20 @@ export function summarizeKrxSource(data, date) {
   const healthy = configured && networkStatus === 'RECEIVED'
     && markets.every(row => row.httpStatus === 200
       && row.rows > 0 && row.parseStatus === 'ROWS');
-  return { date, keyConfigured:configured, networkStatus, markets, healthy };
+  // These fields are exposed only by the #481 GAS version. Older deployments
+  // remain readable and are never interpreted as proof that no legacy key exists.
+  const credentialSource = ['krx_auth_key','krx_api_key','NONE'].includes(data.credentialSource)
+    ? data.credentialSource : 'UNKNOWN';
+  const alternativeConfigured = typeof data.alternativeConfigured === 'boolean'
+    ? data.alternativeConfigured : null;
+  const probe = data.alternateProbe;
+  const alternateProbe = probe && typeof probe === 'object'
+    && Number.isInteger(Number(probe.httpStatus))
+    && Number(probe.httpStatus) >= 0 && Number(probe.httpStatus) <= 599
+    && typeof probe.hasRows === 'boolean'
+    ? { httpStatus:Number(probe.httpStatus), hasRows:probe.hasRows } : null;
+  return { date, keyConfigured:configured, networkStatus, markets,
+    credentialSource, alternativeConfigured, alternateProbe, healthy };
 }
 // Read-only close verification complements market HTTP/schema checks: an
 // HTTP-200 OutBlock_1 can still fail code matching or close-date validation.
