@@ -1776,3 +1776,20 @@ assert.match(source.match(/function handleSyncTrades[\s\S]*?\n}/)?.[0] || '', /_
   '일반 종목 과거 거래수량 수정은 최초 변경일부터 영향 종료일까지 자동 재생성해야 함');
 assert.match(source, /_touchSnapshotIntegritySourceRevision\(\{ from: affectedFrom \}\)/,
   '일반 종목 거래수량 변경은 손익 원자료 cache revision도 무효화');
+
+
+// Snapshot reconciliation is O(all snapshot rows) per date. Never invoke its
+// full-sheet write when the safe rewrite planner proves no change is needed.
+const refreshSource=source.match(/function _refreshFundValuations\([^)]*\) \{[\s\S]*?\n\}/)?.[0]||'';
+assert.match(refreshSource,/var fundRewritePlan = _snapshotRewritePlan\(ss, date, combined, configs\);[\s\S]*?if \(!fundRewritePlan\.needsRewrite\) \{[\s\S]*?return;\s*\}\s*writeSnapshotRows\(ss, date, combined, true, null, configs\)/,
+ 'no-op NAV Snapshot reconciliation must not rewrite whole Sheet');
+const originalRawReader=context._readRawSnapshotRowsByDate;
+const date='2026-10-08';
+const expectedRow=[date,'005930','삼성전자',3,100,300,120,360,60,20,'KRX',''];
+context._readRawSnapshotRowsByDate=()=>[expectedRow.slice()];
+assert.equal(context._snapshotRewritePlan({},date,[expectedRow.slice()]).needsRewrite,false,
+ 'identical Snapshot has no write work');
+const updatedRow=expectedRow.slice();updatedRow[7]=390;updatedRow[8]=90;
+assert.equal(context._snapshotRewritePlan({},date,[updatedRow]).needsRewrite,true,
+ 'actual valuation change must still force a Snapshot rewrite');
+context._readRawSnapshotRowsByDate=originalRawReader;

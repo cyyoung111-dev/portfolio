@@ -6127,6 +6127,19 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       byDate[date].forEach(function(value) { if (fundResults[value[1]]) fundResults[value[1]].status = 'partial'; });
       return;
     }
+    // A NAV/price provenance correction can reach this loop while the stored
+    // full Snapshot already equals the safe merged target. Rewriting an
+    // unchanged 10k-row Sheet on every such date consumes GAS's 6-minute
+    // budget and may trigger an unnecessary whole-sheet backup.
+    if (!fundRewritePlan.needsRewrite) {
+      byDate[date].forEach(function(value) {
+        var item = fundResults[value[1]] && (fundResults[value[1]].dates || []).find(function(row) {
+          return row.date === date;
+        });
+        if (item) { item.evaluationState = 'EXISTING_VALID'; item.snapshotState = 'EXISTING_VALID'; }
+      });
+      return;
+    }
     writeSnapshotRows(ss, date, combined, true, null, configs);
     snapshotCount++;
     byDate[date].forEach(function(value) {
@@ -7297,7 +7310,7 @@ function runDailyFundValuations(targetDate) {
       var latestDate = latestAttempt > resultDate ? latestAttempt : resultDate;
       if (latestDate && runDate < latestDate) return;
       p.setProperty('fund_last_attempt_owner_v1',
-        JSON.stringify({date:runDate,token:attemptId}));
+        JSON.stringify({date:runDate,token:attemptId,startedAt:Date.now()}));
       // If a mirror write fails, no previous attempt can falsely claim
       // ownership; publishIfOwner always checks the combined JSON marker.
       p.setProperty('fund_last_attempt_date', runDate);
@@ -7328,12 +7341,19 @@ function runDailyFundValuations(targetDate) {
       if (warnings.length) p.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
       else p.deleteProperty('fund_last_warning');
       p.deleteProperty('fund_last_error');
+      // Durable completion proof: an Apps Script hard timeout skips catch/finally.
+      // The exact owner token prevents an older overlapping run from clearing
+      // or completing a newer run's in-progress diagnostic.
+      p.setProperty('fund_last_attempt_completion_v1',
+        JSON.stringify({date:runDate,token:attemptId,state:'DONE',at:Date.now()}));
     });
     return result;
   } catch (err) {
     if (runDate) {
       publishIfOwner(function(p) {
         p.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
+        p.setProperty('fund_last_attempt_completion_v1',
+          JSON.stringify({date:runDate,token:attemptId,state:'ERROR',at:Date.now()}));
       });
     } else props.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
     throw err;
@@ -10650,6 +10670,23 @@ function _isPortfolioCloseRunStale(portfolioClose) {
 }
 
 
+// Read-only, token-free view of the latest automatic NAV attempt.
+// A hard-killed GAS process has no catch/finally; distinguish its orphaned
+// start from a completed result without guessing that the provider failed.
+function _fundAttemptDiagnosticState_(owner, completion, nowMs) {
+  if (!owner || !owner.date || !owner.token) return null;
+  var completed = completion && completion.date === owner.date && completion.token === owner.token
+    && (completion.state === 'DONE' || completion.state === 'ERROR');
+  var started = Number(owner.startedAt || 0);
+  var finished = completed ? Number(completion.at || 0) : 0;
+  var now = Number(nowMs);
+  var state = completed ? completion.state
+    : (!started ? 'UNKNOWN_LEGACY'
+      : (now >= started && now - started >= 7 * 60 * 1000
+        ? 'TIMEOUT_SUSPECTED' : 'IN_PROGRESS'));
+  return {date:String(owner.date), startedAtMs:started, finishedAtMs:finished, state:state};
+}
+
 function _getAutomationStatusData() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
@@ -10672,6 +10709,9 @@ function _getAutomationStatusData() {
   var fundLastResult = parseProperty('fund_last_result');
   var fundLastWarning = props.getProperty('fund_last_warning') || '';
   var fundLastError = props.getProperty('fund_last_error') || '';
+  var fundAttemptOwner = parseProperty('fund_last_attempt_owner_v1');
+  var fundCompletion = parseProperty('fund_last_attempt_completion_v1');
+  var fundAttempt = _fundAttemptDiagnosticState_(fundAttemptOwner, fundCompletion, Date.now());
   var expectedSnapshotDate = _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose);
   var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
   var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
@@ -10691,7 +10731,8 @@ function _getAutomationStatusData() {
   else if (!portfolioClose) overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN';
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
-  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length) overallStatus = 'WARNING';
+  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length
+    || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
     gasVersion: '9.192',
@@ -10727,6 +10768,7 @@ function _getAutomationStatusData() {
     expectedSnapshotDate: expectedSnapshotDate,
     snapshotStale: snapshotStale,
     fundLastDate: fundLastResult && fundLastResult.lastDate ? fundLastResult.lastDate : '',
+    fundAttempt: fundAttempt,
     fundLastWarning: fundLastWarning,
     fundLastError: fundLastError
   };
