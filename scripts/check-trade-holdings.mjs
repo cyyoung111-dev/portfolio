@@ -125,4 +125,85 @@ if (context.rawHoldings.length !== 1
   process.exit(1);
 }
 
+// Regression: a historical quantity/price edit can leave row/trade counts and
+// lastUpdated unchanged. Re-render must not reuse the old portfolio view cache.
+const portfolioViewCode = fs.readFileSync('src/web/views/views_portfolio.js','utf8');
+const keyFunction = portfolioViewCode.match(/function _portfolioDataKey\(\) \{[\s\S]*?\n\}/)?.[0];
+if (!keyFunction) throw new Error('portfolio view cache key function unavailable');
+const cacheContext = {
+  rows:[{acct:'ISA',name:'ETF A',code:'123456',type:'ETF',sector:'기타',
+    qty:5,price:120,cost:100,costAmt:500,evalAmt:600,pnl:100,pct:20}],
+  EDITABLE_PRICES:[{name:'ETF A',code:'123456',assetType:'ETF'}],
+  rawTrades:[{qty:5}],rawHoldings:[{qty:5}],lastUpdated:'same-update',
+  taxSettings:{ ISA:'ISA' },
+  getAcctTaxType: acct => cacheContext.taxSettings[acct] || '일반',
+};
+vm.runInNewContext(keyFunction,cacheContext,{filename:'views_portfolio_cache_key.js'});
+const beforeKey=cacheContext._portfolioDataKey();
+assertCacheChange('quantity', () => {cacheContext.rows[0].qty=7;});
+assertCacheChange('evaluation', () => {cacheContext.rows[0].evalAmt=840;});
+assertCacheChange('cost', () => {cacheContext.rows[0].costAmt=700;});
+assertCacheChange('P/L', () => {cacheContext.rows[0].pnl=140;});
+assertCacheChange('type', () => {cacheContext.EDITABLE_PRICES[0].assetType='주식';});
+assertCacheChange('account tax settings', () => {cacheContext.taxSettings.ISA='일반';});
+assertCacheChange('row tax type', () => {cacheContext.rows[0].taxType='ISA';});
+function assertCacheChange(reason,mutate) {
+  const oldKey=cacheContext._portfolioDataKey();
+  mutate();
+  if (cacheContext._portfolioDataKey()===oldKey)
+    throw new Error('portfolio cache retained stale '+reason+' despite changed input');
+}
+if(beforeKey===cacheContext._portfolioDataKey())
+  throw new Error('portfolio view cache remained stale across multiple edits');
+if(cacheContext._portfolioDataKey()!==cacheContext._portfolioDataKey())
+  throw new Error('portfolio view cache key is not deterministic');
+
+// Account view and donut must show the same slice after type and account
+// filters change, even when EDITABLE_PRICES lacks an ETF/fund entry.
+const fakeCanvasContext={clearRect(){},beginPath(){},moveTo(){},arc(){},closePath(){},fill(){}};
+const fakeCanvas={getContext:()=>fakeCanvasContext};
+const donutLabels={};
+const viewContext={
+  window:{__pfPerfMode:false},
+  currentView:'acct',
+  acctFilter:'전체',
+  rows:[
+    {acct:'ISA',name:'KODEX 은행',type:'ETF',sector:'금융',qty:5,costAmt:1000,evalAmt:1500,pnl:500},
+    {acct:'IRP',name:'한화 TDF',type:'TDF',fund:true,qty:1,costAmt:450,evalAmt:500,pnl:50},
+    {acct:'ISA',name:'삼성전자',type:'주식',sector:'반도체',qty:2,costAmt:1500,evalAmt:2000,pnl:500},
+    {acct:'일반',name:'KODEX 반도체',type:'ETF',sector:'반도체',qty:4,costAmt:800,evalAmt:1000,pnl:200},
+  ],
+  rawTrades:[],rawHoldings:[],lastUpdated:'unchanged',
+  EDITABLE_PRICES:[{name:'삼성전자',assetType:'주식'},{name:'KODEX 반도체',assetType:'ETF'}],
+  getEP:name=>viewContext.EDITABLE_PRICES.find(x=>x.name===name)||null,
+  getEPType:(ep,fallback)=>(ep&&(ep.assetType||ep.type))||fallback||'주식',
+  getAcctTaxType:()=> '일반',
+  $el:id=>id==='donut-canvas'?fakeCanvas:(donutLabels[id]||(donutLabels[id]={})),
+  resolveColor:x=>x,
+  fmt:x=>String(x),
+  SECTOR_COLORS:{},renderView(){},
+};
+vm.createContext(viewContext);
+vm.runInContext(portfolioViewCode+'\nglobalThis.__donutModel=()=>_donutModelCache.model; globalThis.__setTypeFilter=setTypeFilter; globalThis.__setAcctFilter=setAcctFilter; globalThis.__portfolioAssetType=_portfolioAssetType;',viewContext);
+if(viewContext.__portfolioAssetType(viewContext.rows[0])!=='ETF'
+  || viewContext.__portfolioAssetType(viewContext.rows[1])!=='TDF')
+  throw new Error('missing master ETF/TDF classification incorrectly defaults to stock');
+viewContext.__setTypeFilter('전체');
+if(viewContext.__donutModel().total!==5000)throw new Error('full account donut total mismatch');
+viewContext.__setTypeFilter('ETF');
+if(viewContext.__donutModel().total!==2500 || !viewContext.__donutModel().title.includes('ETF'))
+  throw new Error('donut ignores selected ETF filter');
+viewContext.__setAcctFilter('ISA');
+if(viewContext.__donutModel().total!==1500)
+  throw new Error('donut ignores combined account/type filters');
+viewContext.__setTypeFilter('TDF');
+if(viewContext.__donutModel().total!==0)
+  throw new Error('donut ignores account/type zero-results');
+viewContext.__setAcctFilter('전체');
+if(viewContext.__donutModel().total!==500)
+  throw new Error('donut ignores TDF classification from unregistered master item');
+viewContext.__setTypeFilter('전체');
+if(viewContext.__donutModel().total!==5000)
+  throw new Error('donut fails to invalidate cache when type filter resets');
+
 console.log('✅ 거래 저장·전량 매도·마지막 거래 삭제의 보유현황 반영 검사 통과');

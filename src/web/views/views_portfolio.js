@@ -19,13 +19,28 @@ let _acctEnrichedCache = { key: '', data: [] };
 let _mergeListCache = { key: '', list: [] };
 
 function _portfolioDataKey() {
-  return [
-    rows.length,
-    rawTrades.length,
-    rawHoldings.length,
-    EDITABLE_PRICES.length,
-    lastUpdated || ''
-  ].join('|');
+  // Row counts and lastUpdated alone are not a revision: editing an old trade,
+  // changing a price, or reclassifying an asset can preserve all five values.
+  // Cache only remains valid while the actual displayed inputs are unchanged.
+  return JSON.stringify([
+    lastUpdated || '',
+    rows.map(r => [
+      r.acct, r.name, r.code, r.type, r.sector, r.fund,
+      r.taxType, (typeof getAcctTaxType === 'function' ? getAcctTaxType(r.acct) : ''),
+      r.qty, r.price, r.cost, r.costAmt, r.evalAmt, r.pnl, r.pct
+    ]),
+    EDITABLE_PRICES.map(ep => [ep.name, ep.code, ep.assetType, ep.type]),
+  ]);
+}
+
+// Shared category contract for the account table and its donut chart.
+function _portfolioAssetType(row) {
+  const ep = getEP(row.name);
+  // getEPType(null,null) defaults to '주식', hiding ETF/FUND/TDF fallback.
+  if (ep && (ep.assetType || ep.type)) return getEPType(ep, null);
+  if (row.type === '펀드' || row.type === 'TDF') return row.type;
+  if (!row.fund && isEtfByName(row.name)) return 'ETF';
+  return '주식';
 }
 
 function renderAcctView(area) {
@@ -35,14 +50,6 @@ function renderAcctView(area) {
 
   // ★ [계좌별 taxType] 종류 필터 = 자산 종류만 (ISA/IRP/연금은 계좌 구분으로 이동)
   const typeList = ['전체','주식','ETF','펀드','TDF'];
-  const classify = r => {
-    const ep = getEP(r.name);
-    const epType = getEPType(ep, null);
-    if (epType) return epType;
-    if (r.type==='펀드'||r.type==='TDF') return r.type;
-    if (!r.fund && isEtfByName(r.name)) return 'ETF';
-    return '주식';
-  };
   const typeOpts = typeList.map(t =>
     `<button data-portfolio-action="type-filter" data-value="${_escapeHtml(t)}" class="${_fBtnClass(typeFilter===t)}">${_escapeHtml(t)}</button>`).join('');
 
@@ -61,7 +68,7 @@ function renderAcctView(area) {
   if (_acctEnrichedCache.key !== acctDataKey) {
     _acctEnrichedCache = {
       key: acctDataKey,
-      data: rows.map(r => ({...r, classType: classify(r)}))
+      data: rows.map(r => ({...r, classType: _portfolioAssetType(r)}))
     };
   }
   const enriched = _acctEnrichedCache.data;
@@ -75,7 +82,7 @@ function renderAcctView(area) {
   area.innerHTML = html;
 }
 function setAcctFilter(f) { acctFilter = f; renderView(); renderDonut(); }
-function setTypeFilter(f) { typeFilter = f; renderView(); }
+function setTypeFilter(f) { typeFilter = f; renderView(); renderDonut(); }
 
 // ── 섹터별 뷰
 function renderSectorView(area) {
@@ -203,23 +210,23 @@ function renderDonutCore() {
     return result;
   };
 
-  const donutCacheKey = `${currentView}|${acctFilter}|${_portfolioDataKey()}`;
+  const donutCacheKey = `${currentView}|${acctFilter}|${typeFilter}|${_portfolioDataKey()}`;
   let model = _donutModelCache.key === donutCacheKey ? _donutModelCache.model : null;
   if (!model) {
     let totals = {}, getColor, title;
     if (currentView === 'acct') {
-      const filteredRows = (acctFilter && acctFilter !== '전체')
-        ? rows.filter(r => r.acct === acctFilter)
-        : rows;
-      if (acctFilter && acctFilter !== '전체') {
-        // 특정 계좌 선택 시: 종목별 비중
-        title = acctFilter + ' · 종목별 비중';
+      const filteredRows = rows.filter(r =>
+        (!acctFilter || acctFilter === '전체' || r.acct === acctFilter)
+        && (typeFilter === '전체' || _portfolioAssetType(r) === typeFilter));
+      if ((acctFilter && acctFilter !== '전체') || typeFilter !== '전체') {
+        // Both filters must affect the chart as well as the account table.
+        title = [acctFilter !== '전체' ? acctFilter : '', typeFilter !== '전체' ? typeFilter : '', '종목별 비중'].filter(Boolean).join(' · ');
         filteredRows.forEach(r => { totals[r.name] = (totals[r.name]||0) + r.evalAmt; });
         totals = collapseToTop(totals, 8);
         const acctKeys = Object.keys(totals);
         getColor = k => k === '기타' ? 'var(--muted)' : ACCT_PALETTE_FALLBACK[acctKeys.indexOf(k) % ACCT_PALETTE_FALLBACK.length];
       } else {
-        // 전체 계좌: 종류별 비중
+        // 전체 계좌 / 모든 자산유형: 종류별 비중
         title = '종류별 자산 비중';
         filteredRows.forEach(r => { const k = TYPE_CLASSIFY(r); totals[k] = (totals[k]||0) + r.evalAmt; });
         getColor = k => TYPE_COLORS[k] || 'var(--muted)';

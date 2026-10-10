@@ -1,11 +1,21 @@
 import assert from 'node:assert/strict';
+import { krxSessionStatus } from './krx-session-calendar.mjs';
+import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
 import fs from 'node:fs';
 import { createRequest, diagnosticFor, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
 
 globalThis.localStorage.clear();
+// The headless calendar consumes the GAS source of truth (including temporary
+// domestic closures) rather than approximating every weekday as a trading day.
+assert.equal(krxSessionStatus('2026-10-05'),'CLOSED','GAS 확정 휴장일');
+assert.equal(krxSessionStatus('2026-10-09'),'CLOSED','한글날 휴장');
+assert.equal(krxSessionStatus('2026-10-10'),'CLOSED','토요일 휴장');
+assert.equal(krxSessionStatus('2026-10-08'),'OPEN','KRX 정상 거래일');
+assert.equal(krxSessionStatus('2026-02-30'),'UNKNOWN','잘못된 날짜');
+assert.equal(krxSessionStatus('2028-10-09'),'UNKNOWN','미확인 연도 평일을 단정하지 않음');
 const date='2026-09-18', prior='2026-09-17';
 assert.equal(scheduledTradingDate('30 22 * * 0-4',new Date('2026-09-22T03:00:00Z')),'2026-09-22','지연 실행도 월요일 22:30 UTC slot의 화요일 거래일 유지');
-assert.equal(scheduledTradingDate('5 7 * * 1-5',new Date('2026-09-21T20:00:00Z')),'2026-09-21','장마감 slot은 실행시각이 아니라 cron slot 거래일 사용');
+assert.equal(scheduledTradingDate('30 7 * * 1-5',new Date('2026-09-21T20:00:00Z')),'2026-09-21','장마감 slot은 실행시각이 아니라 cron slot 거래일 사용');
 assert.equal(parseArgs(['--checkpoint','MORNING','--date','2026-09-18','--schedule','30 22 * * 0-4']).tradingDate,'2026-09-18','수동 --date가 schedule보다 우선');
 const anchoredArgs=['--checkpoint','MORNING','--schedule','30 22 * * 0-4','--scheduled-at','2026-09-21T22:31:00Z'];
 assert.equal(parseArgs(anchoredArgs).tradingDate,'2026-09-22','workflow 최초 created_at으로 화요일 거래일 고정');
@@ -13,15 +23,55 @@ assert.equal(parseArgs([...anchoredArgs,'--date','2026-09-18']).tradingDate,'202
 assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','30 22 * * 0-4','--scheduled-at','invalid']),/잘못된 scheduled-at/);
 assert.throws(()=>parseArgs(['--checkpoint','MORNING','--date','2026-02-30']),/잘못된 tradingDate/,'실재하지 않는 달력 날짜 거부');
 assert.throws(()=>parseArgs(['--checkpoint','EVENING','--schedule','30 22 * * 0-4']),/schedule과 checkpoint/,'cron slot과 checkpoint 불일치 거부');
+assert.equal(scheduledTradingDate('30 7 * * 1-5',new Date('2026-10-09T01:00:00Z')),'2026-10-08','16:30 KST 예약보다 앞서 실행된 경우 전일 slot');
 assert.equal(maskSecrets('accessToken=secret&next=1 secret',['secret']),'accessToken=***&next=1 ***','diagnostic secret masking');
 assert.equal(maskSecrets('auth_key=abc apiKey:def secret=ghi token:jkl'), 'auth_key=*** apiKey:*** secret=*** token:***');
 const diagnostic=diagnosticFor({checkpoint:'MORNING',tradingDate:'2026-09-18',sync:{persistence:{saved:2,duplicates:1,rejected:0},errors:{FX:'apiKey=abc'}},persistence:{saved:1,duplicates:0,rejected:0},decision:{publishable:true,status:'READY',data:{snapshot:{values:{USDKRW:{value:1}}},warnings:['W']}}},['abc']);
 assert.deepEqual(diagnostic.providerErrors,['FX']);assert.equal(diagnostic.providerErrorDetails.FX,'apiKey=***');assert.equal(diagnostic.readinessSeries.USDKRW.value,1);assert.deepEqual(diagnostic.masterPersistence,{saved:2,duplicates:1,rejected:0});assert.deepEqual(diagnostic.snapshotPersistence,{saved:1,duplicates:0,rejected:0});assert.deepEqual(diagnostic.warnings,['W']);
+// Collectors request a finite per-action timeout. The GAS adapter must
+// actually pass an AbortSignal instead of ignoring timeoutMs.
+const timeoutSignals=[];
+const boundedRequest=createRequest('https://example.test','fake-token',async(_url,opts)=>{
+  timeoutSignals.push(opts.signal);
+  return {ok:true,json:async()=>({status:'ok'})};
+});
+await boundedRequest('getSettings',{}, {timeoutMs:7500});
+await boundedRequest('getSettings');
+assert.equal(timeoutSignals.length,2);
+assert.ok(timeoutSignals.every(signal=>signal instanceof AbortSignal && !signal.aborted),
+  'headless GAS requests require an active bounded timeout signal');
+
 const fxFetch=payload=>async()=>({ok:true,json:async()=>payload});
 assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'CONFIRMED',history:[]}))('getExchangeRateHistory')).status,'CONFIRMED');
 assert.equal((await createRequest('https://example.test','secret',fxFetch({status:'NO_DATA',history:[]}))('getExchangeRateHistory')).status,'NO_DATA');
 await assert.rejects(()=>createRequest('https://example.test','secret',fxFetch({status:'MISSING_SOURCE'}))('getExchangeRateHistory'),/FX_MISSING_SOURCE/);
 await assert.rejects(()=>createRequest('https://example.test','secret',fxFetch({status:'INVALID_SCHEMA'}))('getExchangeRateHistory'),/FX_INVALID_SCHEMA/);
+
+const yahooFxPayload={chart:{result:[{
+ meta:{symbol:'KRW=X',currency:'KRW'},
+ timestamp:[Date.parse('2026-10-07T00:00:00Z')/1000,
+            Date.parse('2026-10-08T00:00:00Z')/1000,
+            Date.parse('2026-10-09T00:00:00Z')/1000],
+ indicators:{quote:[{close:[1339.16,1344.75,0]}]},
+}]}};
+const fxDaily=await fetchUsdKrwYahooDaily({
+ from:'2026-10-07',to:'2026-10-09',
+ fetchImpl:async(url,opts)=>{
+  assert.equal(new URL(url).hostname,'query1.finance.yahoo.com');
+  assert.ok(new URL(url).pathname.endsWith('/KRW%3DX'));
+  assert.ok(opts.signal instanceof AbortSignal);
+  return {ok:true,json:async()=>yahooFxPayload};
+ }});
+assert.deepEqual(fxDaily.history.map(r=>r.date),['2026-10-07','2026-10-08'],
+ 'No fabricated 10/09 FX close; only actual, positive, dated provider candles');
+assert.equal(fxDaily.history[0].rate,1339.16);
+assert.equal(fxDaily.source,'YAHOO_USDKRW_DELAYED_DAILY');
+await assert.rejects(()=>fetchUsdKrwYahooDaily({from:'2026-10-07',to:'2026-10-09',
+ fetchImpl:async()=>({ok:true,json:async()=>({chart:{result:[{...yahooFxPayload.chart.result[0],meta:{symbol:'JPY=X',currency:'JPY'}}]}})})}),/INVALID_SCHEMA/);
+await assert.rejects(()=>fetchUsdKrwYahooDaily({from:'2026-10-10',to:'2026-10-07',fetchImpl:async()=>{throw Error('SHOULD_NOT_REQUEST');}}),/INVALID_RANGE/);
+await assert.rejects(()=>fetchUsdKrwYahooDaily({from:'2026-10-07',to:'2026-10-09',
+ fetchImpl:async()=>({ok:false,status:429})}),/FX_YAHOO_HTTP_429/);
+
 let observations=[],snapshots=[],snapshotPosts=0,requestParams={};
 const request=async(action,params={})=>{
  if(action==='getMarketBriefingMaster')return {status:'ok',observations};
@@ -35,6 +85,38 @@ const request=async(action,params={})=>{
  if(action==='appendMarketBriefingSnapshot'){snapshotPosts++;const row=JSON.parse(params.data);if(!snapshots.some(x=>x.tradingDate===row.tradingDate&&x.checkpoint===row.checkpoint))snapshots.push(row);return {status:'ok',saved:1};}
  throw new Error(`unexpected ${action}`);
 };
+// Closed domestic session must not fabricate a regular close or mark a
+// scheduled workflow as failed. EVENING still collects foreign/FX context.
+const shouldNeverFetch=()=>{throw new Error('CLOSED_KRX_FINAL_MUST_NOT_FETCH');};
+const closedFinal=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:'2026-10-09',request:shouldNeverFetch});
+assert.equal(closedFinal.skippedDomestic,true);
+assert.equal(closedFinal.persistence,null);
+assert.equal(diagnosticFor(closedFinal).status,'SKIPPED_DOMESTIC_CLOSED');
+const closedEvening=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',request});
+assert.equal(closedEvening.skippedDomestic,true,'KRX 휴장 마감에는 정규장 확정 보고 보류');
+assert.ok(closedEvening.sync,'해외/FX 원천 관측은 휴장일에도 계속 수집');
+assert.equal(snapshots.length,0,'휴장일 동일 날짜 가짜 국내 마감 스냅샷 없음');
+assert.equal(diagnosticFor(closedEvening).published,false);
+const fxFallbackCalls=[];
+const gasNoFx=async (action,params)=>action==='getExchangeRateHistory'
+ ? Promise.reject(new Error('FX_MISSING_SOURCE')):request(action,params);
+const fallbackEvening=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:gasNoFx,fxFallback:async args=>{
+  fxFallbackCalls.push(args);
+  return {status:'ok',source:'YAHOO_USDKRW_DELAYED_DAILY',history:[{date:'2026-10-08',rate:1344.75,currency:'USD'}]};
+ }});
+assert.equal(fxFallbackCalls.length,1,'Only missing FX source triggers the fallback');
+assert.equal(fxFallbackCalls[0].to,'2026-10-09');
+assert.equal(fallbackEvening.sync.errors?.USDKRW,undefined,
+ 'Verified fallback must be ingested, not silently reported as missing FX');
+let fallbackOnAuth=0;
+await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:async (action,params)=>action==='getExchangeRateHistory'
+  ? Promise.reject(new Error('GAS_HTTP_403')):request(action,params),
+ fxFallback:async()=>{fallbackOnAuth++;throw Error('MUST_NOT_USE_FALLBACK');}});
+assert.equal(fallbackOnAuth,0,'An auth failure must never be hidden by FX Yahoo fallback');
+
+globalThis.localStorage.clear(); observations=[]; snapshots=[]; snapshotPosts=0;
 let result=await runHeadless({checkpoint:'MORNING',tradingDate:date,request});
 assert.equal(result.decision.publishable,true,'KIS 없이 KRX 공식 NIGHT_FINAL로 MORNING publish 가능');
 assert.equal(requestParams.getBenchmarks.to,prior,'MORNING benchmark는 전일까지 조회');
