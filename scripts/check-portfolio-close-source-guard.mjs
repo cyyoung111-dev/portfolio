@@ -1003,6 +1003,7 @@ assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'stale-recovery');
 const officialVm=vm.createContext({
   _normalizeDate:String,
   _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
+  _getKrxAuthKeySlots_:()=>({key:'secret-must-not-be-revealed',source:'krx_auth_key',alternative:'',alternativeConfigured:false}),
   _getKrxEndpointByMarket:x=> 'https://example.test/'+x,
   UrlFetchApp:{fetchAll:()=>[
     {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[{TDD_CLSPRC:'100'}]})},
