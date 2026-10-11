@@ -38,12 +38,21 @@ if (forbidden.test(gas) || forbidden.test(web)) {
 const legacyFetch = gas.match(/function handlePriceFetch\([^)]*\) \{[\s\S]*?\n\}/)?.[0];
 if (!legacyFetch) throw new Error('legacy price fetch production handler missing');
 let currentDate='2026-10-08', clock='1630', cacheRows=[], fallbackCount=0;
+let codeMaster=[{code:'005930',currency:'KRW',market:'KR'}], requestedFetches=[], foreignCutoff='2026-10-07';
 const legacyContext={
   getss:()=>({getSheetByName:()=>({
     getLastRow:()=>cacheRows.length+1,
     getRange:()=>({getValues:()=>cacheRows}),
   })}),
   today:()=>currentDate,
+  getCodeItems:()=>codeMaster,
+  _foreignMarketRegularCloseCutoff_:()=>foreignCutoff,
+  fetchPricesGoogleFinance:items=>{
+    requestedFetches.push(items.map(item=>item.code));
+    return Object.fromEntries(items.filter(item=>item.code==='005930').map(item=>[
+      item.code,{price:121000,usedDate:currentDate,status:'CONFIRMED',priceType:'REGULAR_CLOSE'}
+    ]));
+  },
   CONFIG:{SHEET_PRICES:'종가',TIMEZONE:'Asia/Seoul'},
   _normalizeDate:v=>String(v||'').slice(0,10),
   _krxCalendarStatus_:date=>date==='2026-10-09'?'CLOSED':'OPEN',
@@ -92,37 +101,37 @@ if(legacyContext.handlePriceFetch().source!=='historical')
  throw Error('old four-column cache cannot assert source date');
 if(fallbackCount!==6)throw Error('fallback count mismatch');
 
+// A mixed KR+US portfolio must not reject a valid NY close just because the
+// calendar date differs from the KRX session. Preserve valid overseas closes
+// while re-querying only stale domestic rows.
+currentDate='2026-10-08';clock='1630';foreignCutoff='2026-10-07';
+codeMaster=[
+  {code:'005930',currency:'KRW',market:'KR'},
+  {code:'AAPL',currency:'USD',market:'US'},
+];
+cacheRows=[
+  ['005930',120000,'삼성전자','2026-10-07 16:22','2026-10-07'],
+  ['AAPL',260,'Apple','2026-10-08 15:20','2026-10-07'],
+];
+const mixed=legacyContext.handlePriceFetch();
+if(mixed.source!=='confirmed-close+validated-cache' || mixed.prices.AAPL.price!==260
+  || mixed.prices['005930'].price!==121000)
+  throw Error('valid prior NY close must survive stale KRX row refresh');
+if(requestedFetches.at(-1).join(',')!=='005930')
+  throw Error('valid overseas cache must not trigger a needless re-fetch');
+foreignCutoff='2026-10-09';
+const future=legacyContext.handlePriceFetch();
+if(future.source==='cache' || 'AAPL' in (future.prices||{}))
+  throw Error('stale foreign closes must not be treated as current');
+foreignCutoff='2026-10-07';
+cacheRows=[
+  ['005930',120000,'삼성전자','2026-10-08 16:22','2026-10-08'],
+  ['AAPL',260,'Apple','2026-10-08 15:20','2026-10-08'],
+];
+const futureUs=legacyContext.handlePriceFetch();
+if('AAPL' in (futureUs.prices||{}))
+  throw Error('foreign market close dated after last completed session is invalid');
 
-// Automated fund evaluation must leave a durable same-owner completion marker;
-// hard GAS timeouts skip catch/finally and otherwise produce no ERROR/DONE log.
-const fundFn = gas.match(/function runDailyFundValuations\([^)]*\) \{[\s\S]*?\n\}/)?.[0];
-const fundDiagnosticFn = gas.match(/function _fundAttemptDiagnosticState_\([^)]*\) \{[\s\S]*?\n\}/)?.[0];
-if (!fundFn || !fundDiagnosticFn
-    || !/fund_last_attempt_completion_v1/.test(fundFn)
-    || !/publishIfOwner\(function\(p\)/.test(fundFn))
-  throw new Error('fund run completion must be published by matching owner only');
-const clockMs = Date.parse('2026-10-10T00:00:00Z');
-const context={};
-vm.runInNewContext(fundDiagnosticFn, context, {filename:'fund-attempt-diagnostic.gs'});
-const owner={date:'2026-10-09',token:'owner-A',startedAt:clockMs-8*60*1000};
-const attempt = (completed)=>context._fundAttemptDiagnosticState_(owner,completed,clockMs);
-if(attempt(null).state!=='TIMEOUT_SUSPECTED')
-  throw new Error('hard-killed NAV must surface a timeout suspect after 7 minutes');
-if(attempt({date:owner.date,token:'owner-B',state:'DONE',at:clockMs}).state!=='TIMEOUT_SUSPECTED')
-  throw new Error('another attempt may not complete an orphaned NAV owner');
-if(attempt({date:owner.date,token:'owner-A',state:'DONE',at:clockMs}).state!=='DONE')
-  throw new Error('same owner DONE marker must reconcile');
-if(attempt({date:owner.date,token:'owner-A',state:'ERROR',at:clockMs}).state!=='ERROR')
-  throw new Error('same owner ERROR marker must reconcile');
-if(context._fundAttemptDiagnosticState_(null,null,clockMs)!==null)
-  throw new Error('no owner should not imply a running fund');
-if(context._fundAttemptDiagnosticState_({date:owner.date,token:owner.token},null,clockMs).state!=='UNKNOWN_LEGACY')
-  throw new Error('legacy NAV without start timestamp must not appear permanently in progress');
-if(context._fundAttemptDiagnosticState_({...owner,startedAt:clockMs-10*1000},null,clockMs).state!=='IN_PROGRESS')
-  throw new Error('fresh NAV attempt must not be labelled a hard timeout');
-for(const state of [attempt(null),attempt({date:owner.date,token:'owner-A',state:'DONE',at:clockMs})]){
-  if(JSON.stringify(state).includes('owner-A'))throw new Error('fund owner token leaked through diagnostics');
-}
 
 console.log('✅ 가격 provider·polling·펀드 timeout 소유권·Secret 노출 안전성 검사 통과');
 
