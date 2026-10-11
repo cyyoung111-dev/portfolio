@@ -329,10 +329,11 @@
 
 - GAS v9.138은 브리핑의 삼성전자(005930)·SK하이닉스(000660)를 기존 KRX 종가 helper로 read-only 조회하며, 요청일과 `usedDate`가 같은 양수 공식 종가만 `FINAL/REGULAR_CLOSE`로 사용합니다. 가격이력이나 Portfolio Snapshot에는 쓰지 않습니다.
 - GAS v9.137은 KRX `drv/fut_bydd_trd`에서 exact BAS_DD·`MKT_NM=야간`·`PROD_NM=코스피200 선물`·실제 `ISU_NM=코스피200 F YYYYMM (야간)` 형식·단일 최근 미만기 월물·양수 `TDD_CLSPRC`를 모두 확인한 값만 `K200_NIGHT/NIGHT_FINAL`로 제공합니다. 06:00 이전, 이전 날짜, 정규시장, 0 종가, 다른 상품, 같은 최근월물 중복 후보는 확정값을 만들지 않습니다.
-- GitHub 저장소 Variables에 `GAS_WEB_APP_URL`, Secrets에 `GAS_ACCESS_TOKEN`을 한 번 설정합니다. `.github/workflows/market-briefing-headless.yml`이 KST 06:15/07:30/16:05/20:15의 target checkpoint를 명시해 hydrate → collect → master 저장을 수행하고, `MORNING`·`KRX_FINAL`·`EVENING`은 readiness 통과 후에만 immutable snapshot을 저장합니다. `NIGHT_FINAL`은 해당 `tradingDate`에 `K200_NIGHT` / `NIGHT` / `FINAL` / `NIGHT_FINAL` 조건을 모두 만족하는 observation이 존재해야 성공하며 snapshot은 저장하지 않습니다.
+- GitHub 저장소 Variables에 `GAS_WEB_APP_URL`, Secrets에 `GAS_ACCESS_TOKEN`을 한 번 설정합니다. `.github/workflows/market-briefing-headless.yml`이 KST 06:15/07:30/16:30/20:15의 target checkpoint를 명시해 hydrate → collect → master 저장을 수행하고, `MORNING`·`KRX_FINAL`·`EVENING`은 readiness 통과 후에만 immutable snapshot을 저장합니다. `NIGHT_FINAL`은 해당 `tradingDate`에 `K200_NIGHT` / `NIGHT` / `FINAL` / `NIGHT_FINAL` 조건을 모두 만족하는 observation이 존재해야 성공하며 snapshot은 저장하지 않습니다.
+- 운영 시트에 `환율이력` 원천이 없는 경우 headless 브리핑은 Yahoo `KRW=X` 지연 일봉의 공급자 거래소 시간대(DST 포함)를 기준으로 날짜를 검증해 읽기 전용 대체값을 사용합니다. 포트폴리오 가격이력·Snapshot 환산용 FX 원장에는 기록하지 않습니다. 인증 실패 및 형식 오류는 대체하지 않습니다.
 - headless 실행에서만 당일 USDKRW가 provider 관측시각 없이 정각 후 300초 안에 수신되면 실제 `receivedAt`을 유지한 채 `SCHEDULED_DELAY_TOLERANCE_300S`로 선택하고 warning을 남깁니다. provider `observedAt`이 있으면 이를 우선하며, 다른 series·브라우저 실행·300초 초과에는 tolerance를 적용하지 않습니다.
-- `NIGHT_FINAL` 확정값이 없거나 `MORNING`·`KRX_FINAL`·`EVENING`의 `decision.publishable=false`이면 snapshot을 저장하지 않고 CLI가 exit code 1로 종료되어 GitHub Actions가 실패로 표시됩니다. 실행 로그의 `missing`, `issues`, `providerErrors`로 원인을 확인합니다.
-- 스케줄 실행은 GitHub Actions 및 배포된 GAS/KRX·Toss·Yahoo·환율 provider 가용성에 의존합니다. 현재 authoritative 휴장 calendar가 없으므로 휴장·미공시일도 `NOT_READY`로 실패 표시될 수 있으며, workflow red 자체만으로 provider 장애라고 단정하지 않습니다. workflow가 지연되더라도 target checkpoint를 현재 시각 기준으로 임의 변경하지 않습니다.
+- `NIGHT_FINAL` 확정값이 없거나 거래일 `MORNING`·`KRX_FINAL`·`EVENING`의 `decision.publishable=false`이면 snapshot을 저장하지 않고 CLI가 exit code 1로 종료되어 GitHub Actions가 실패로 표시됩니다. 실행 로그의 `missing`, `issues`, `providerErrors`로 원인을 확인합니다.
+- 스케줄 실행은 GitHub Actions 및 배포된 GAS/KRX·Toss·Yahoo·환율 provider 가용성에 의존합니다. GAS와 동기화된 2026/2027 확정 KRX 휴장 달력에서 휴장일 `KRX_FINAL`은 국내 최종 보고를 생략하고 성공으로 기록하며, `EVENING`은 국내 보고를 생략하되 해외 지수 및 USD/KRW 수집이 모두 실패하면 workflow 실패로 기록합니다. 달력 미지원 연도·미공시일은 `NOT_READY`로 실패 표시될 수 있으며, workflow red 자체만으로 provider 장애라고 단정하지 않습니다. workflow가 지연되더라도 target checkpoint를 현재 시각 기준으로 임의 변경하지 않습니다.
 
 ## GAS v9.131 / 웹 20260928-5: 기간 정합성 진단 index 최적화
 
