@@ -228,7 +228,9 @@ function _getDataHash() {
     (EDITABLE_PRICES.length) + '|' +
     (rawHoldings.length) + '|' +
     (lastUpdated || '') + '|' +
-    Object.keys(DIVDATA || {}).length + '|' +
+    (typeof _portfolioDataKey === 'function' ? _portfolioDataKey() : '') + '|' +
+    // Dividend values may change without changing the payer count.
+    JSON.stringify(DIVDATA || {}) + '|' +
     (typeof acctFilter !== 'undefined' ? acctFilter : '') + '|' +
     (typeof typeFilter !== 'undefined' ? typeFilter : '') + '|' +
     (typeof _tradeFilter !== 'undefined' ? JSON.stringify(_tradeFilter) : '') + '|' +

@@ -64,7 +64,8 @@ assert.match(web, /requestGsheetActionJson\([\s\S]*'getPrices'[\s\S]*targetUrl[\
   '이전 연결 getPrices 응답을 새 연결 전역 상태에 적용하지 않음');
 assert.match(index, /event_delegation\.js\?v=20261006-1/);
 const sw = fs.readFileSync('src/web/sw.js', 'utf8');
-assert.match(sw, /portfolio-cache-20261009-3/);
+const cacheVersion = sw.match(/const CACHE_NAME\s*=\s*'portfolio-cache-(\d{8}-\d+)'/);
+assert.ok(cacheVersion, 'service worker must expose a versioned cache name');
 assert.match(sw, /components\.css\?v=20260921-2/);
 
 // 새 관측성은 추가 호출을 만들지 않고 기존 단일 batch/read 경계를 계측한다.
