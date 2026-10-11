@@ -62,10 +62,15 @@ function maskSecrets(value, secrets = []) {
   return text.replace(/((?:accessToken|auth_key|apiKey|secret|token)\s*[=:]\s*)[^&\s,;]+/gi, '$1***');
 }
 function persistenceCounts(value) { return value ? { saved:Number(value.saved)||0, duplicates:Number(value.duplicates)||0, rejected:Number(value.rejected)||0 } : null; }
+function headlessSucceeded(result) {
+  if (result.skippedDomestic === true)
+    return result.checkpoint === 'KRX_FINAL'
+      || (result.checkpoint === 'EVENING' && result.successful === true);
+  return result.checkpoint === 'NIGHT_FINAL'
+    ? result.successful === true : result.decision?.publishable === true;
+}
 function diagnosticFor(result, secrets = []) {
-  const successful = result.skippedDomestic === true
-    ? (result.checkpoint === 'KRX_FINAL' || result.successful === true)
-    : (result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true);
+  const successful = headlessSucceeded(result);
   return { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.skippedDomestic ? (successful ? 'SKIPPED_DOMESTIC_CLOSED' : 'FOREIGN_CONTEXT_MISSING') : result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
     ...(result.skippedDomestic ? { skipReason:'KRX_CONFIRMED_NON_TRADING_DAY' } : {}),
     masterPersistence:persistenceCounts(result.sync?.persistence), snapshotPersistence:persistenceCounts(result.persistence),
@@ -144,10 +149,10 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
   const args = parseArgs(process.argv.slice(2));
   const result = await runHeadless({ ...args, url:process.env.GAS_WEB_APP_URL || '', token:process.env.GAS_ACCESS_TOKEN || '' });
-  const successful = result.skippedDomestic === true || (result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true);
+  const successful = headlessSucceeded(result);
   const diagnostic = diagnosticFor(result,[process.env.GAS_ACCESS_TOKEN,process.env.GAS_WEB_APP_URL]);
   console.log(JSON.stringify(diagnostic));
   if (!successful) process.exitCode = 1;
 }
 
-export { createRequest, diagnosticFor, parseArgs, scheduledTradingDate, maskSecrets };
+export { createRequest, diagnosticFor, headlessSucceeded, parseArgs, scheduledTradingDate, maskSecrets };
