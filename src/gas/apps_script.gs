@@ -1860,20 +1860,11 @@ function handlePriceFetch(dateParam, allCodesParam) {
             && _countBusinessWeekdaysBetween(sourceDate, reqDate) <= domesticMaxLag;
         }
         // KST trading date is NOT the close date of NY or other foreign markets.
-        // Accept only a recent completed exchange-local regular session,
-        // permitting one weekday of lag for a foreign market holiday.
+        // Only an exact last-completed market-local weekday can be
+        // asserted without an exchange holiday calendar. A one-weekday lag
+        // can be provider staleness, not proof of an exchange closure.
         var cutoff = _foreignMarketRegularCloseCutoff_(item, now);
-        if (sourceDate > cutoff) return false;
-        var cursor = new Date(sourceDate + 'T12:00:00Z');
-        var target = new Date(cutoff + 'T12:00:00Z');
-        if (isNaN(cursor.getTime()) || isNaN(target.getTime())) return false;
-        var lag = 0;
-        for (; cursor < target && lag < 2;) {
-          cursor.setUTCDate(cursor.getUTCDate() + 1);
-          var day = cursor.getUTCDay();
-          if (day !== 0 && day !== 6) lag++;
-        }
-        return cursor >= target && lag <= 1;
+        return sourceDate === cutoff;
       }
 
       data.forEach(function(row) {
@@ -1945,18 +1936,9 @@ function handleCurrentConfirmedPriceFetch(dateStr, allCodesParam, ss) {
     } else {
       var cutoff = _foreignMarketRegularCloseCutoff_(item,now);
       if (used > cutoff) return;
-      // An older than expected source date remains a historical value,
-      // not a current quote. Allow one business-day lag for market holidays.
-      var cursor = new Date(used + 'T12:00:00Z');
-      var target = new Date(cutoff + 'T12:00:00Z');
-      if (isNaN(cursor.getTime()) || isNaN(target.getTime())) return;
-      var lag = 0;
-      for (;cursor < target && lag < 2;) {
-        cursor.setUTCDate(cursor.getUTCDate()+1);
-        var day=cursor.getUTCDay();
-        if(day!==0 && day!==6) lag++;
-      }
-      if (cursor < target || lag > 1) return;
+      // Unverified holidays stay missing instead of silently accepting a
+      // stale Yahoo quote as the latest completed regular-session close.
+      if (used !== cutoff) return;
     }
     confirmed[item.code] = row;
   });
