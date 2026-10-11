@@ -150,65 +150,65 @@ function _selectHistorySnapshots(snapshots, mode) {
 function _historyTargetDate(periodStart, mode, maxDate) {
   const date = _historyUtcDate(periodStart);
   if (!date) return '';
-  if (mode === 'day') {
-    // 일별 누락은 해당 평일 자체를 복구 대상으로 사용합니다.
-  } else if (mode === 'week') {
-    date.setUTCDate(date.getUTCDate() + 4); // 금요일
-  } else {
-    date.setUTCMonth(date.getUTCMonth() + 1, 0);
-    if (date.getUTCDay() === 0) date.setUTCDate(date.getUTCDate() - 2);
-    else if (date.getUTCDay() === 6) date.setUTCDate(date.getUTCDate() - 1);
+  if (mode === 'week') date.setUTCDate(date.getUTCDate() + 4);
+  else if (mode === 'month') date.setUTCMonth(date.getUTCMonth() + 1, 0);
+  let day = _historyDateStr(date);
+  if (maxDate && day > maxDate) {
+    const bounded = _historyUtcDate(maxDate);
+    if (!bounded) return '';
+    date.setTime(bounded.getTime());
+    day = _historyDateStr(date);
   }
-  const target = _historyDateStr(date);
-  return maxDate && target > maxDate ? maxDate : target;
+  const first = mode === 'week' ? _historyWeekStart(periodStart)
+    : mode === 'month' ? periodStart.slice(0,7) + '-01' : periodStart;
+  if (mode === 'day') return _historyKrxSessionStatus(day) === 'OPEN' ? day : '';
+  // A Friday/month-end can be a holiday. Only a prior verified OPEN day
+  // in the same period is eligible for a restoration date.
+  for(let tries=0;tries<15 && day>=first;tries++){
+    const status=_historyKrxSessionStatus(day);
+    if(status==='OPEN')return day;
+    if(status==='UNKNOWN')return '';
+    date.setUTCDate(date.getUTCDate()-1);
+    day=_historyDateStr(date);
+  }
+  return '';
 }
 
 function _analyzeHistoryCoverage(snapshots, mode) {
-  const normalizedMode = mode === 'day' ? 'day' : (mode === 'month' ? 'month' : 'week');
+  const normalizedMode = mode === 'day' ? 'day' : mode === 'month' ? 'month' : 'week';
   const dates = (Array.isArray(snapshots) ? snapshots : [])
-    .map(s => _normalizeHistDate(s?.date || ''))
-    .filter(Boolean)
-    .sort();
-  if (dates.length < 2) return { missing: [], first: dates[0] || '', last: dates[0] || '' };
-
-  const today = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : _normalizeHistDate(new Date());
-  let coverageEnd = today;
-  if (normalizedMode === 'day') {
-    const confirmedDate = _historyUtcDate(today);
-    if (confirmedDate) {
-      confirmedDate.setUTCDate(confirmedDate.getUTCDate() - 1);
-      while (confirmedDate.getUTCDay() === 0 || confirmedDate.getUTCDay() === 6) {
-        confirmedDate.setUTCDate(confirmedDate.getUTCDate() - 1);
-      }
-      coverageEnd = _historyDateStr(confirmedDate);
-    }
+    .map(s => _normalizeHistDate(s?.date || '')).filter(Boolean).sort();
+  if(dates.length<2)return {missing:[],first:dates[0]||'',last:dates[0]||''};
+  const today=typeof _kstTodayStr==='function' ? _kstTodayStr() : _normalizeHistDate(new Date());
+  const now=typeof _kstNow==='function' ? _kstNow() : new Date();
+  const mins=now.getUTCHours()*60+now.getUTCMinutes();
+  let lastFinished=_historyUtcDate(today);
+  if(lastFinished && (_historyKrxSessionStatus(today)!=='OPEN'||mins<19*60+15))
+    lastFinished.setUTCDate(lastFinished.getUTCDate()-1);
+  let coverageEnd=dates[dates.length-1];
+  for(let i=0;lastFinished && i<15;i++){
+    const candidate=_historyDateStr(lastFinished),status=_historyKrxSessionStatus(candidate);
+    if(status==='UNKNOWN')break;
+    if(status==='OPEN'){coverageEnd=candidate;break;}
+    lastFinished.setUTCDate(lastFinished.getUTCDate()-1);
   }
-  const expectedLast = coverageEnd && coverageEnd > dates[dates.length - 1] ? coverageEnd : dates[dates.length - 1];
-  const periodKey = date => normalizedMode === 'day'
-    ? date
-    : (normalizedMode === 'week' ? _historyWeekStart(date) : date.slice(0, 7) + '-01');
-  const present = new Set(dates.map(periodKey));
-  let cursor = _historyUtcDate(periodKey(dates[0]));
-  const endKey = periodKey(expectedLast);
-  const missing = [];
-  while (cursor && _historyDateStr(cursor) <= endKey) {
-    const key = _historyDateStr(cursor);
-    const isWeekday = cursor.getUTCDay() !== 0 && cursor.getUTCDay() !== 6;
-    if (!present.has(key) && (normalizedMode !== 'day' || isWeekday)) {
-      const targetDate = _historyTargetDate(key, normalizedMode, today);
-      missing.push({
-        key,
-        targetDate,
-        label: normalizedMode === 'day'
-          ? key.slice(5).replace('-', '.')
-          : (normalizedMode === 'week' ? `${key.slice(5).replace('-', '.')} 주` : key.slice(0, 7).replace('-', '.'))
-      });
-    }
-    if (normalizedMode === 'day') cursor.setUTCDate(cursor.getUTCDate() + 1);
-    else if (normalizedMode === 'week') cursor.setUTCDate(cursor.getUTCDate() + 7);
-    else cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  const expectedLast=coverageEnd>dates[dates.length-1]?coverageEnd:dates[dates.length-1];
+  const periodKey=date=>normalizedMode==='day'?date
+    :normalizedMode==='week'?_historyWeekStart(date):date.slice(0,7)+'-01';
+  const present=new Set(dates.map(periodKey));
+  let cursor=_historyUtcDate(periodKey(dates[0]));
+  const endKey=periodKey(expectedLast),missing=[];
+  while(cursor && _historyDateStr(cursor)<=endKey){
+    const key=_historyDateStr(cursor);
+    const targetDate=_historyTargetDate(key,normalizedMode,coverageEnd);
+    if(targetDate && !present.has(key))
+      missing.push({key,targetDate,label:normalizedMode==='day'?key.slice(5).replace('-','.')
+        :normalizedMode==='week'?`${key.slice(5).replace('-','.')} 주`:key.slice(0,7).replace('-','.')});
+    if(normalizedMode==='day')cursor.setUTCDate(cursor.getUTCDate()+1);
+    else if(normalizedMode==='week')cursor.setUTCDate(cursor.getUTCDate()+7);
+    else cursor.setUTCMonth(cursor.getUTCMonth()+1);
   }
-  return { missing, first: dates[0], last: dates[dates.length - 1], expectedLast: coverageEnd };
+  return {missing,first:dates[0],last:dates[dates.length-1],expectedLast:coverageEnd};
 }
 
 function _fmtHistDateCompact(v) {
