@@ -61,7 +61,7 @@ const legacyContext={
   Logger:{log:()=>{}},
 };
 vm.runInNewContext(legacyFetch,legacyContext,{filename:'legacy-price-fetch.gs'});
-const cacheLine=(savedAt)=>[['005930',120000,'삼성전자',savedAt]];
+const cacheLine=(savedAt,sourceDate=savedAt.slice(0,10))=>[['005930',120000,'삼성전자',savedAt,sourceDate]];
 cacheRows=cacheLine('2026-05-26 18:47');
 if(legacyContext.handlePriceFetch().source!=='historical')
  throw Error('legacy May cache must never be current in October');
@@ -83,6 +83,13 @@ if(legacyContext.handlePriceFetch().source!=='historical')
 cacheRows=cacheLine('');
 if(legacyContext.handlePriceFetch().source!=='historical')
  throw Error('cache with missing lastUpdated must not be treated as current');
-if(fallbackCount!==4)throw Error('fallback count mismatch');
+currentDate='2026-10-08';clock='1630';
+cacheRows=cacheLine('2026-10-08 16:22','2026-10-07');
+if(legacyContext.handlePriceFetch().source!=='historical')
+ throw Error('today update timestamp must not mask yesterday official source date');
+cacheRows=[['005930',120000,'삼성전자','2026-10-08 16:22']];
+if(legacyContext.handlePriceFetch().source!=='historical')
+ throw Error('old four-column cache cannot assert source date');
+if(fallbackCount!==6)throw Error('fallback count mismatch');
 
 console.log('✅ 가격 provider·polling·Corporate Action·Secret 노출 안전성 검사 통과');
