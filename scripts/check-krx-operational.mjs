@@ -44,6 +44,12 @@ await assert.rejects(()=>runDiagnosis({
   url:'https://script.google.com/macros/s/Abcd/exec',token:'invalid-placeholder',
   dates:'2026-10-08',fetchImpl:async()=>({ok:true,json:async()=>({status:'error',message:'인증 실패'})}),
 }),/GAS_ACCESS_DENIED/);
+await assert.rejects(()=>runDiagnosis({
+  url:'https://script.google.com/macros/s/Abcd/exec',token:'set-but-unprotected',
+  dates:'2026-10-08',
+  fetchImpl:async()=>({ok:true,json:async()=>({status:'ok',gasVersion:'9.192',
+    settings:{apiKeyStatus:{requestAuthenticationEnabled:false}}})}),
+}),/GAS_AUTHENTICATION_DISABLED/,'Configured repo secret must not mask public GAS deployment');
 const markers=[
  {market:'KOSPI',httpStatus:200,rows:900,parseStatus:'ROWS'},
  {market:'KOSDAQ',httpStatus:200,rows:1200,parseStatus:'ROWS'},
@@ -97,7 +103,7 @@ const networkDiag=await runDiagnosis({
  url:'https://script.google.com/macros/s/Abcd/exec',
  token:key,dates:'2026-10-08',
  fetchImpl:async(url,opts)=>({ok:true,json:async()=>opts.body.get('action')==='getSettings'
-  ?{status:'ok',gasVersion:'9.192'}:opts.body.get('action')==='getKrxOfficialStockCloses'
+  ?{status:'ok',gasVersion:'9.192',settings:{apiKeyStatus:{requestAuthenticationEnabled:true}}}:opts.body.get('action')==='getKrxOfficialStockCloses'
     ?closePayload('2026-10-08'):failedSource}),
 });
 assert.equal(networkDiag.healthy,false);
@@ -110,7 +116,7 @@ const fakeFetch=async(url,opts)=>{
   assert.equal(opts.headers['content-type'],'application/x-www-form-urlencoded;charset=UTF-8');
   assert.equal(opts.body.get('accessToken'),key);
   return {ok:true,json:async()=>opts.body.get('action')==='getSettings'
-    ?{status:'ok',gasVersion:'9.192'}:opts.body.get('action')==='getKrxOfficialStockCloses'
+    ?{status:'ok',gasVersion:'9.192',settings:{apiKeyStatus:{requestAuthenticationEnabled:true}}}:opts.body.get('action')==='getKrxOfficialStockCloses'
       ?closePayload(opts.body.get('date')):payload(opts.body.get('date'))};
 };
 const report=await runDiagnosis({
@@ -125,7 +131,7 @@ assert.ok(report.reports.every(item=>item.stockCloses?.healthy),
 const sourceOnly=await runDiagnosis({
   url:'https://script.google.com/macros/s/Abcd/exec',token:key,dates:'2026-10-08',
   fetchImpl:async(url,opts)=>({ok:true,json:async()=>opts.body.get('action')==='getSettings'
-    ?{status:'ok',gasVersion:'9.192'}:opts.body.get('action')==='getKrxOfficialStockCloses'
+    ?{status:'ok',gasVersion:'9.192',settings:{apiKeyStatus:{requestAuthenticationEnabled:true}}}:opts.body.get('action')==='getKrxOfficialStockCloses'
       ?{status:'ok',requestedDate:'2026-10-08',closes:{}}
       :payload('2026-10-08')}),
 });
@@ -147,7 +153,7 @@ const continued=await runDiagnosis({
  dates:'2026-10-07,2026-10-08',
  fetchImpl:async(url,opts)=>{
   if(opts.body.get('action')==='getSettings')
-   return {ok:true,json:async()=>({status:'ok',gasVersion:'9.192'})};
+   return {ok:true,json:async()=>({status:'ok',gasVersion:'9.192',settings:{apiKeyStatus:{requestAuthenticationEnabled:true}}})};
   if(opts.body.get('date')==='2026-10-07')
    return {ok:false,status:403};
   return {ok:true,json:async()=>opts.body.get('action')==='getKrxOfficialStockCloses'
@@ -165,7 +171,7 @@ assert.ok(!JSON.stringify(continued).includes(key));
 const brokenStructure=await runDiagnosis({
  url:'https://script.google.com/macros/s/Abcd/exec',token:key,dates:'2026-10-08',
  fetchImpl:async(url,opts)=>({ok:true,json:async()=>opts.body.get('action')==='getSettings'
-  ?{status:'ok',gasVersion:'9.192'}
+  ?{status:'ok',gasVersion:'9.192',settings:{apiKeyStatus:{requestAuthenticationEnabled:true}}}
   :{status:'ok',requestedDate:'2026-10-08',keyConfigured:true,networkStatus:'RECEIVED',markets:[]}}),
 });
 assert.equal(brokenStructure.reports[0].networkStatus,'INVALID_RESPONSE');
