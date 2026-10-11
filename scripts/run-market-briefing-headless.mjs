@@ -25,6 +25,30 @@ function kstDate(now = new Date()) {
 function dateOffset(date, days) {
   const value = new Date(`${date}T00:00:00Z`); value.setUTCDate(value.getUTCDate() + days); return value.toISOString().slice(0, 10);
 }
+
+function previousWeekday(date) {
+  let candidate=dateOffset(date,-1);
+  for(let i=0;i<7;i++){
+    const weekday=new Date(candidate+'T00:00:00Z').getUTCDay();
+    if(weekday!==0&&weekday!==6)return candidate;
+    candidate=dateOffset(candidate,-1);
+  }
+  throw new Error('FOREIGN_SESSION_DATE_INVALID');
+}
+function verifiedHolidayOverseasContext(payload,tradingDate) {
+  const expectedUs=previousWeekday(tradingDate);
+  const usValid=['SP500','NASDAQ100'].every(key=>{
+    const point=payload?.[key],sourceDate=String(point?.sourceDate||'');
+    return Number(point?.value)>0 && sourceDate===expectedUs
+      && (point.status==='FINAL'||point.finality==='REGULAR_CLOSE');
+  });
+  // FX daily feeds may publish current KST date or the previous weekday's
+  // completed daily close. Never accept an arbitrarily old or future quote.
+  const fx=payload?.USDKRW,fxDate=String(fx?.sourceDate||'');
+  const fxValid=Number(fx?.value)>0 && (fxDate===tradingDate||fxDate===expectedUs);
+  return {usValid,fxValid,expectedUs};
+}
+
 const SCHEDULE_SLOTS = Object.freeze({
   '15 21 * * 0-4': { hour:21, minute:15, weekdays:[0,1,2,3,4], checkpoint:'NIGHT_FINAL' },
   '30 22 * * 0-4': { hour:22, minute:30, weekdays:[0,1,2,3,4], checkpoint:'MORNING' },
@@ -137,8 +161,7 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
     // A VIX-only or SOX-only response is not a successful foreign-market
     // recap. Both primary US equity benchmarks are required; secondary
     // market indicators remain optional but their omissions are diagnosed.
-    const foreign = ['SP500','NASDAQ100'].every(key=>Number(sync?.payload?.[key]?.value)>0);
-    const fx = Number(sync?.payload?.USDKRW?.value)>0;
+    const {usValid:foreign,fxValid:fx}=verifiedHolidayOverseasContext(sync?.payload,tradingDate);
     return {checkpoint,tradingDate,skippedDomestic:true,successful:foreign&&fx,
       sync,decision:null,persistence:null};
   }
