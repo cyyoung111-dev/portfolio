@@ -35,9 +35,10 @@ if(staleCandles[1].value!==801)throw new Error('오전 indicator cache 재사용
 const freshCandles=context.fetchMarketIndicatorCandlesToss('KOSDAQ','2026-09-15','2026-09-16',true);
 if(freshCandles[1].value!==805||tossCalls.filter(call=>call.group==='MARKET_INDICATOR_CHART').length!==2)throw new Error('마감 indicator cache bypass/refresh 실패');
 if(freshCandles[1].observedAt!=='2026-09-16T06:00:00.000Z')throw new Error('Toss candle provider timestamp 보존 실패');
-if(!/confirmedClose: false/.test(source)||/confirmedClose: !!forceRefresh/.test(source))throw new Error('fresh 요청을 confirmedClose 증거로 사용하면 안 됩니다.');
+if(!/confirmedClose:\s*false/.test(source)||/confirmedClose: !!forceRefresh/.test(source))throw new Error('fresh 요청을 confirmedClose 증거로 사용하면 안 됩니다.');
 if(context._isKrxOfficialCloseAvailableTime_(new Date('2026-09-18T15:59:59Z'))!==false||context._isKrxOfficialCloseAvailableTime_(new Date('2026-09-18T16:00:00Z'))!==true)throw new Error('KRX 공식 종가 16:00 publication 경계 실패');
 context._getKrxAuthKey=()=> 'test-key';
+context._getKrxAuthKeySlots_=()=>({key:'test-key',alternative:''});
 context.UrlFetchApp={fetchAll:requests=>requests.map(request=>({getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[request.url.includes('kosdaq_dd_trd')?{BAS_DD:'20260918',IDX_NM:'코스닥',CLSPRC_IDX:'900.25'}:{BAS_DD:'20260918',IDX_NM:'코스피',CLSPRC_IDX:'3,420.50'}]})}))};
 const official=context.fetchKrxOfficialIndexCloses(['KOSPI','KOSDAQ'],'2026-09-18');
 if(official.KOSPI.value!==3420.5||official.KOSDAQ.value!==900.25||official.KOSPI.source!=='KRX_OFFICIAL'||official.KOSPI.observedAt!=='2026-09-18T15:30:00+09:00')throw new Error('KRX 공식 exact-date 대표지수 종가 파싱 실패');
@@ -53,7 +54,7 @@ if(partialOfficial.KOSPI.value!==3420.5||partialOfficial.KOSDAQ||partialOfficial
   throw new Error('KRX 지수 부분 승인 오류 시 성공한 시장 보존 및 403 노출 실패');
 context.UrlFetchApp={fetchAll:()=>{throw new Error('simulated KRX timeout');}};
 const isolated=context._fetchKrxOfficialIndexClosesSafe_(['KOSPI','KOSDAQ'],'2026-09-18');
-if(Object.keys(isolated.data).length||isolated.error!=='simulated KRX timeout')throw new Error('KRX 공식 조회 예외 격리 실패');
+if(Object.keys(isolated.data).length||isolated.error||isolated.data._errors.KOSPI!=='FETCH_FAILED')throw new Error('KRX 공식 조회 예외 격리 실패');
 context.jsonOk=value=>({status:'ok',...value});context.jsonError=message=>({status:'error',message});
 context.UrlFetchApp={fetchAll:requests=>requests.map(request=>({getResponseCode:()=>200,
   getContentText:()=>JSON.stringify({OutBlock_1:[request.url.includes('kosdaq_dd_trd')
@@ -129,12 +130,11 @@ context.UrlFetchApp={fetchAll:requests=>requests.map(request=>{
 })};
 const missingCalendarDate=context.handleGetBenchmarks('KOSPI,KOSDAQ','2026-09-16','2026-09-18',true);
 if(missingCalendarDate.status!=='ok'
-  ||missingCalendarDate.series.KOSPI.at(-1).date!=='2026-09-17'
-  ||missingCalendarDate.series.KOSDAQ.at(-1).value!==890
-  ||missingCalendarDate.seriesMeta.KOSPI.verifiedClosedDates.length!==0
-  ||missingCalendarDate.seriesMeta.KOSPI.verificationToDate!=='2026-09-18'
-  ||!krxAttempts.some(v=>v.date==='20260917'))
-  throw new Error('Codex P2: 원천 200 + 빈 날짜 응답 후 전일 KRX 공식 종가 재조회 실패');
+  ||missingCalendarDate.seriesMeta.KOSPI?.confirmedClose===true
+  ||!String(missingCalendarDate.errors.KRX_OFFICIAL).includes('KOSPI:2026-09-18:EMPTY_TRADING_DATE')
+  ||!String(missingCalendarDate.errors.KRX_OFFICIAL).includes('KOSDAQ:2026-09-18:EMPTY_TRADING_DATE')
+  ||krxAttempts.some(v=>v.date==='20260917'))
+  throw new Error('OPEN 정상 거래일의 KRX 200 빈 응답은 휴장으로 간주하거나 T-1 종가로 대체하면 안 됨');
 context.UrlFetchApp={fetchAll:requests=>requests.map(request=>{
   const kosdaq=request.url.includes('kosdaq_dd_trd');
   const date=new URL(request.url).searchParams.get('basDd');
@@ -171,10 +171,11 @@ context.UrlFetchApp={fetchAll:requests=>requests.map(request=>{
 })};
 const attemptStart=krxAttempts.length;
 const partialRetry=context.handleGetBenchmarks('KOSPI,KOSDAQ','2026-09-16','2026-09-18',true);
-if(partialRetry.series.KOSPI.at(-1).value!==3410||partialRetry.series.KOSDAQ.length
-  ||!String(partialRetry.errors.KRX_OFFICIAL).includes('KOSDAQ:HTTP_403')
+if(partialRetry.seriesMeta.KOSPI?.confirmedClose===true||partialRetry.seriesMeta.KOSDAQ?.confirmedClose===true
+  ||!String(partialRetry.errors.KRX_OFFICIAL).includes('KOSPI:2026-09-18:EMPTY_TRADING_DATE')
+  ||!String(partialRetry.errors.KRX_OFFICIAL).includes('KOSDAQ:2026-09-18:HTTP_403')
   ||krxAttempts.slice(attemptStart).filter(v=>v.market==='KOSDAQ').length!==1)
-  throw new Error('KRX 403은 과거 반복 조회 금지, 타 시장은 독립 재탐색');
+  throw new Error('KRX 403/빈 응답의 독립 실패 기록 및 OPEN T-1 대체 차단');
 context.fetchMarketIndicatorCandlesToss=()=>[{date:'2026-09-18',value:3450,observedAt:'2026-09-18T15:30:00+09:00'}];
 const attemptedMixed=context.handleGetBenchmarks('KOSPI','2026-09-16','2026-09-18',true);
 if(attemptedMixed.status!=='ok'||attemptedMixed.series.KOSPI.at(-1).source!=='TOSS')
@@ -219,5 +220,5 @@ const timedOut = context._yahooRequest_('^GSPC', { range: '5d' });
 if (timedOut.status !== 0 || timedOut.error !== 'TIMEOUT_OR_NETWORK_ERROR') throw new Error('Yahoo timeout 실패 보존 계약 실패');
 
 const symbols = context.YAHOO_INDEX_SYMBOLS;
-if (Object.keys(symbols).length !== 12 || symbols.SP500 !== '^GSPC' || symbols.NASDAQ !== '^IXIC' || symbols.NASDAQ100 !== '^NDX' || symbols.DOW !== '^DJI' || symbols.KOSPI200 !== '^KS200' || symbols.SOX !== '^SOX' || symbols.VIX !== '^VIX' || symbols.DXY !== 'DX-Y.NYB' || symbols.UST10Y !== '^TNX' || symbols.WTI !== 'CL=F' || symbols.GOLD !== 'GC=F' || symbols.BTC !== 'BTC-USD') throw new Error('Yahoo 12개 지수·거시 mapping 실패');
-console.log('✅ Toss KOSPI/KOSDAQ 및 Yahoo 12개 지수·거시 provider 계약/파싱 테스트 통과');
+if (Object.keys(symbols).length !== 14 || symbols.KOSPI !== '^KS11' || symbols.KOSDAQ !== '^KQ11' || symbols.SP500 !== '^GSPC' || symbols.NASDAQ !== '^IXIC' || symbols.NASDAQ100 !== '^NDX' || symbols.DOW !== '^DJI' || symbols.KOSPI200 !== '^KS200' || symbols.SOX !== '^SOX' || symbols.VIX !== '^VIX' || symbols.DXY !== 'DX-Y.NYB' || symbols.UST10Y !== '^TNX' || symbols.WTI !== 'CL=F' || symbols.GOLD !== 'GC=F' || symbols.BTC !== 'BTC-USD') throw new Error('Yahoo 14개 지수·거시 mapping 실패');
+console.log('✅ Toss KOSPI/KOSDAQ 및 Yahoo 14개 지수·거시 provider 계약/파싱 테스트 통과');

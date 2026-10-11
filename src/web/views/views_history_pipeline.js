@@ -251,9 +251,9 @@ async function loadHistoryChart(retryAttempt = 0) {
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
-    const missingMsg = missing.length
+    const missingMsg = (missing.length
       ? ` (실패: ${missing.join(', ')} · ${Array.from(new Set(missing.map(type => benchBundle.errorMap?.[type]).filter(Boolean))).join(' / ')})`
-      : '';
+      : '') + (benchBundle.warningMsg ? ` (KRX 공식 종가 미확정: ${benchBundle.warningMsg})` : '');
 
     // 두 비동기 조회가 모두 최신 요청으로 확인된 뒤 한 번에 화면 상태를 교체합니다.
     // 백그라운드 현재가 갱신이나 실패한 재조회가 마지막 정상 그래프·경고를 지우지 않습니다.
@@ -502,7 +502,7 @@ function _renderHistoryCoverage(el, coverage, mode, sourceRecomputed) {
   el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;padding:9px 11px;border:1px solid var(--c-amber-35,var(--border));border-radius:9px;background:var(--c-amber-08,var(--s2))">
     <div style="min-width:0;font-size:.67rem;color:var(--text);line-height:1.55">
       <b style="color:var(--amber)">⚠️ ${mode === 'day' ? '일별' : (mode === 'week' ? '주간' : '월간')} 스냅샷 ${missing.length}개 누락</b><br>
-      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · ${mode === 'day' ? '오늘과 주말을 제외한 평일 후보(휴장일이 포함될 수 있음)' : '오늘까지 금요일/월말 영업일'} 기준으로 복구합니다.<br>날짜마다 별도 요청하므로 누락일이 많거나 Google Finance 응답이 늦으면 오래 걸릴 수 있습니다. 장기간 누락은 16:20 평가단가 자동 트리거 중단 또는 실행 오류일 수 있으며, 보완 실행 시 트리거도 점검합니다.</span>
+      <span style="color:var(--muted)">${_escapeHtml(labels + more)} · ${mode === 'day' ? '한국장 확정 거래일(휴장일·마감 전 당일 제외)' : '금요일/월말 직전 한국장 확정 거래일'} 기준으로 복구합니다.<br>날짜마다 별도 요청하므로 누락일이 많거나 Google Finance 응답이 늦으면 오래 걸릴 수 있습니다. 장기간 누락은 16:20 평가단가 자동 트리거 중단 또는 실행 오류일 수 있으며, 보완 실행 시 트리거도 점검합니다.</span>
     </div>
     <button type="button" class="btn-ghost-sm" data-history-action="repair-gaps" ${__histState.repairInProgress ? 'disabled' : ''}>${__histState.repairInProgress ? '⏳ 복구 중...' : '🛠️ 누락 보완'}</button>
     ${resultHtml}

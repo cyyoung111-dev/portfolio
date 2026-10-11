@@ -58,27 +58,44 @@ function _historyDateToUtcMs(dateStr) {
   return Date.UTC(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
 }
 
+// Display-only exchange calendar mirrors the GAS 2026/2027 source of truth.
+const HISTORY_KRX_CLOSED_DATES = { '2026': new Set(["2026-01-01","2026-02-16","2026-02-17","2026-02-18","2026-03-02","2026-05-01","2026-05-05","2026-05-25","2026-06-03","2026-07-17","2026-08-17","2026-09-24","2026-09-25","2026-10-05","2026-10-09","2026-12-25","2026-12-31"]), '2027': new Set(["2027-01-01","2027-02-08","2027-02-09","2027-03-01","2027-05-03","2027-05-05","2027-05-13","2027-07-19","2027-08-16","2027-09-14","2027-09-15","2027-09-16","2027-10-04","2027-10-11","2027-12-27","2027-12-31"]) };
+function _historyKrxSessionStatus(dateStr) {
+  const ms = _historyDateToUtcMs(dateStr);
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0,10) !== dateStr) return 'UNKNOWN';
+  if ([0,6].includes(new Date(ms).getUTCDay())) return 'CLOSED';
+  const calendar = HISTORY_KRX_CLOSED_DATES[dateStr.slice(0,4)];
+  return !calendar ? 'UNKNOWN' : (calendar.has(dateStr) ? 'CLOSED' : 'OPEN');
+}
 function _getHistorySnapshotGap(latestDate) {
   const latest = _normalizeHistDate(latestDate || '');
-  const today = (typeof _kstTodayStr === 'function') ? _kstTodayStr() : _normalizeHistDate(new Date());
-  const latestMs = _historyDateToUtcMs(latest);
-  const todayMs = _historyDateToUtcMs(today);
-  if (!Number.isFinite(latestMs) || !Number.isFinite(todayMs)) return null;
-  const days = Math.floor((todayMs - latestMs) / 86400000);
-  const kstNow = (typeof _kstNow === 'function') ? _kstNow() : new Date();
+  const today = typeof _kstTodayStr === 'function' ? _kstTodayStr() : _normalizeHistDate(new Date());
+  const latestMs = _historyDateToUtcMs(latest), todayMs = _historyDateToUtcMs(today);
+  if (!Number.isFinite(latestMs) || !Number.isFinite(todayMs) || latestMs > todayMs) return null;
+  const kstNow = typeof _kstNow === 'function' ? _kstNow() : new Date();
   const kstMinutes = kstNow.getUTCHours() * 60 + kstNow.getUTCMinutes();
-  const triggerMinutes = 16 * 60 + 30; // GAS runEvalPriceUpdate1620 nearMinute 여유 포함
-  const isTodayPending = days === 1 && kstMinutes < triggerMinutes;
-  return { days: Math.max(0, days), latest, today, isTodayPending };
-}
-
-function _historySnapshotGapHtml(gap) {
-  if (!gap || !Number.isFinite(gap.days) || gap.days <= 0) return '';
-  if (gap.isTodayPending) {
-    return ` · <span style="color:var(--muted)">🕓 오늘 스냅샷 대기중 (16:20 이후 확인)</span>`;
+  const pendingToday = kstMinutes < 19 * 60 + 15; // 19:00 GAS integrated close (not 16:30 briefing)
+  let days=0,unknownDates=0,firstMissingDate='';
+  for(let ms=latestMs+86400000;ms<=todayMs;ms+=86400000) {
+    const date=new Date(ms).toISOString().slice(0,10);
+    const session=_historyKrxSessionStatus(date);
+    if(session==='UNKNOWN') { unknownDates++; continue; }
+    if(session==='OPEN' && !(date===today && pendingToday)) {days++;if(!firstMissingDate)firstMissingDate=date;}
   }
-  const dayLabel = gap.days === 1 ? '오늘 스냅샷 미생성' : `${gap.days}일간 스냅샷 누락`;
-  return ` · <span style="color:var(--amber)">⚠️ ${_escapeHtml(dayLabel)} (${_escapeHtml(gap.latest)} → ${_escapeHtml(gap.today)})</span>`;
+  return {days,unknownDates,latest,today,firstMissingDate,
+    isTodayPending:pendingToday&&_historyKrxSessionStatus(today)==='OPEN'};
+}
+function _historySnapshotGapHtml(gap) {
+  if(!gap)return '';
+  let message='';
+  if(gap.days>0){
+    const label=gap.days===1?'거래일 1일 스냅샷 미생성':`거래일 ${gap.days}일 스냅샷 미생성`;
+    message+=` · <span style="color:var(--amber)">⚠️ ${_escapeHtml(label)} (${_escapeHtml(gap.firstMissingDate)} → ${_escapeHtml(gap.today)})</span>`;
+  }else if(gap.isTodayPending){
+    message+=' · <span style="color:var(--muted)">오늘 19시 통합 마감 대기 중</span>';
+  }
+  if(gap.unknownDates)message+=' · <span style="color:var(--amber)">거래일 달력 확인 필요</span>';
+  return message;
 }
 
 function _setHistoryStatus(statusEl, type, payload) {

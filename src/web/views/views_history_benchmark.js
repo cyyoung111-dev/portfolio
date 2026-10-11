@@ -13,7 +13,7 @@ async function _loadBenchmarkBundle(types, fromDate, toDate) {
   const metaMap = {};
   const errorMap = {};
   const failedTypes = [];
-  if (!types.length) return { seriesMap, metaMap, errorMap, failedTypes };
+  if (!types.length) return { seriesMap, metaMap, errorMap, failedTypes, warningMsg:'' };
 
   const data = await _historyRequestJson(
     'getBenchmarks',
@@ -38,7 +38,8 @@ async function _loadBenchmarkBundle(types, fromDate, toDate) {
       errorMap[type] = requestError || String(data?.errors?.[type] || '선택 기간의 데이터를 찾지 못했습니다.');
     }
   }
-  return { seriesMap, metaMap, errorMap, failedTypes };
+  const warningMsg = types.some(type => type === 'KOSPI' || type === 'KOSDAQ') ? String(data?.errors?.KRX_OFFICIAL || '').slice(0,350) : '';
+  return { seriesMap, metaMap, errorMap, failedTypes, warningMsg };
 }
 
 async function _fetchBenchmarkSeriesWithRetry(type, fromDate, toDate, maxRetry) {

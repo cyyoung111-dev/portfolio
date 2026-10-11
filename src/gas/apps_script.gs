@@ -1,7 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.194
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.195
 //
-//  v9.194 변경사항 (2026.10.11):
+//  v9.195 변경사항 (2026.10.12):
+//   KRX 공식 KOSPI/KOSDAQ 당일 확정 종가 우선, 대체 인증키·휴장/수집실패 분리 및 Yahoo 이력 보조
 //   장중 KRX 확정 종가를 직전 완료 거래일에 별도 조회하고 UNKNOWN·휴장·stale 검증을 강화
 //   종가 캐시의 원천일자·갱신일시 분리, KRX 인증 대체 및 펀드 평가 진단 통합
 //   후속 PR #480/#481과 동일 배포로 묶어 운영에서 개별 단계 버전 혼용 방지
@@ -4540,7 +4541,7 @@ function _benchmarkSymbolMap() {
 }
 
 var TOSS_MARKET_INDICATOR_SYMBOLS = { KOSPI: true, KOSDAQ: true, KR_BOND_2Y: true, KR_BOND_3Y: true, KR_BOND_5Y: true, KR_BOND_10Y: true, KR_BOND_20Y: true, KR_BOND_30Y: true };
-var YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' };
+var YAHOO_INDEX_SYMBOLS = { KOSPI: '^KS11', KOSDAQ: '^KQ11', SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' };
 var KRX_OFFICIAL_INDEX_CONFIG = {
   KOSPI: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd', idxName: '코스피' },
   KOSDAQ: { endpoint: 'https://data-dbg.krx.co.kr/svc/apis/idx/kosdaq_dd_trd', idxName: '코스닥' }
@@ -4559,28 +4560,50 @@ function _isKrxOfficialCloseAvailableTime_(now, closeDate) {
 }
 
 function fetchKrxOfficialIndexCloses(symbols, tradingDate) {
-  var authKey = _getKrxAuthKey(), date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, '');
-  if (!authKey || !/^\d{8}$/.test(ymd)) return {};
+  var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, '');
   var requested = (symbols || []).filter(function(symbol) { return !!KRX_OFFICIAL_INDEX_CONFIG[symbol]; });
+  var output = {}, errors = {}, slots = _getKrxAuthKeySlots_();
+  if (!slots.key || !/^\d{8}$/.test(ymd)) {
+    requested.forEach(function(symbol) { errors[symbol] = !slots.key ? 'AUTH_KEY_NOT_CONFIGURED' : 'INVALID_DATE'; });
+    Object.defineProperty(output, '_errors', { value:errors, enumerable:false });
+    return output;
+  }
   var requests = requested.map(function(symbol) {
-    var cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol];
-    return { url: cfg.endpoint + '?basDd=' + encodeURIComponent(ymd), method: 'get', headers: { AUTH_KEY: authKey }, muteHttpExceptions: true };
+    return { url:KRX_OFFICIAL_INDEX_CONFIG[symbol].endpoint + '?basDd=' + encodeURIComponent(ymd),
+      method:'get', headers:{AUTH_KEY:slots.key}, muteHttpExceptions:true };
   });
-  var output = {}, errors = {};
-  if (!requests.length) return output;
-  UrlFetchApp.fetchAll(requests).forEach(function(response, index) {
-    var symbol = requested[index], cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol];
-    var status = response.getResponseCode();
-    if (status >= 400) { errors[symbol] = 'HTTP_' + status; return; }
-    var json; try { json = JSON.parse(response.getContentText() || '{}'); }
-    catch(ignore) { errors[symbol] = 'NON_JSON'; return; }
+  var responses = [];
+  try { if (requests.length) responses = UrlFetchApp.fetchAll(requests); }
+  catch(ignore) { responses = []; }
+  requested.forEach(function(symbol,index) {
+    var cfg = KRX_OFFICIAL_INDEX_CONFIG[symbol], request = requests[index];
+    var response = responses[index] || null, status = response ? response.getResponseCode() : 0;
+    // Preserve per-market partial success. Try the alternate authorized
+    // credential only where the primary key is unavailable or denied.
+    if ((status === 401 || status === 403 || status === 0) && slots.alternative) {
+      try {
+        response = UrlFetchApp.fetch(request.url, {
+          method:'get', headers:{AUTH_KEY:slots.alternative}, muteHttpExceptions:true
+        });
+        status = response.getResponseCode();
+      } catch(ignoreAlternative) { response = null; status = 0; }
+    }
+    if (!response) { errors[symbol] = 'FETCH_FAILED'; return; }
+    if (status !== 200) { errors[symbol] = 'HTTP_' + status; return; }
+    var json;
+    try { json = JSON.parse(response.getContentText() || '{}'); }
+    catch(ignoreJson) { errors[symbol] = 'NON_JSON'; return; }
     if (!Array.isArray(json.OutBlock_1)) { errors[symbol] = 'UNEXPECTED_SCHEMA'; return; }
-    if (!json.OutBlock_1.length) { errors[symbol] = 'EMPTY_DATE'; return; }
+    if (!json.OutBlock_1.length) { errors[symbol] = 'EMPTY_TRADING_DATE'; return; }
     var row = json.OutBlock_1.filter(function(item) {
-      return _normalizeYmd(item.BAS_DD || item.basDd || '') === ymd && String(item.IDX_NM || item.idxNm || '').trim() === cfg.idxName;
+      return _normalizeYmd(item.BAS_DD || item.basDd || '') === ymd
+        && String(item.IDX_NM || item.idxNm || '').trim() === cfg.idxName;
     })[0];
     var value = row ? parseFloat(String(row.CLSPRC_IDX || row.clsprcIdx || '').replace(/,/g, '')) : 0;
-    if (value > 0) output[symbol] = { date: date, value: value, observedAt: date + 'T15:30:00+09:00', source: 'KRX_OFFICIAL', confirmedClose: true };
+    if (value > 0) output[symbol] = {
+      date:date, value:value, observedAt:date + 'T15:30:00+09:00',
+      source:'KRX_OFFICIAL', confirmedClose:true
+    };
     else errors[symbol] = 'INDEX_NOT_FOUND';
   });
   Object.defineProperty(output, '_errors', { value:errors, enumerable:false });
@@ -4785,6 +4808,22 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
     var key = (benchmark || '').toString().trim().toUpperCase();
     var symbols = map[key];
     if (!symbols) return jsonError('지원하지 않는 비교지수: ' + benchmark);
+    if (key === 'KOSPI' || key === 'KOSDAQ') {
+      // Internal GAS HTTP handlers return ContentService.TextOutput rather than
+      // the JSON data they wrap. Decode before using the shared benchmark.
+      var bundledResponse = handleGetBenchmarks(key, fromDate, toDate, true);
+      var bundle;
+      try { bundle = bundledResponse && typeof bundledResponse.getContent === 'function'
+        ? JSON.parse(bundledResponse.getContent() || '{}') : bundledResponse; }
+      catch(ignoreParse) { return jsonError('비교지수 응답 해석 실패'); }
+      if (bundle && bundle.status === 'error') return jsonError(bundle.message || '비교지수 조회 실패');
+      var rows = bundle && bundle.series && bundle.series[key] || [];
+      if (!rows.length) return jsonError('선택 기간의 ' + key + ' 데이터를 조회하지 못했습니다.');
+      return jsonOk({ benchmark:key, symbol:bundle.symbols[key] || key, points:rows,
+        current:bundle.current && bundle.current[key] || null,
+        seriesMeta:bundle.seriesMeta && bundle.seriesMeta[key] || null,
+        officialWarning:bundle.errors && bundle.errors.KRX_OFFICIAL || '' });
+    }
 
     var points = [];
     var usedSymbol = '';
@@ -4825,7 +4864,10 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     if (fromDate > toDate) { var swap = fromDate; fromDate = toDate; toDate = swap; }
 
     var cache = CacheService.getScriptCache();
-    var cacheKey = 'benchmarks_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+    var sessionPhase = toDate === today()
+      ? (_isKrxOfficialCloseAvailableTime_(new Date(), toDate) ? 'after_close' : 'before_close')
+      : 'historical';
+    var cacheKey = 'benchmarks_v9195_' + sessionPhase + '_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
     var cached = forceRefresh ? null : cache.get(cacheKey);
     if (cached) return jsonOk(JSON.parse(cached));
 
@@ -4837,15 +4879,30 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     requested.forEach(function(type) { series[type] = []; symbols[type] = ''; });
     requested.forEach(function(type) {
       if (type === 'KOSPI' || type === 'KOSDAQ') {
+        // Use Yahoo daily candles for historical chart coverage, not as an
+        // official KRX close. Keep Toss only as the secondary fallback.
         try {
-          series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh).map(function(point) {
-            // 하나의 series에 KRX 종가가 섞여도 Toss candle 출처가 공식값으로 승격되지 않도록 합니다.
-            return { date:point.date, value:point.value, observedAt:point.observedAt || null, source:'TOSS' };
+          var domesticYahoo = fetchYahooIndexSeries(type, fromDate, toDate);
+          series[type] = (domesticYahoo.points || []).map(function(row) {
+            return {date:row.date, value:row.value, source:'YAHOO_UNVERIFIED_DAILY'};
           });
-        } catch(error) { series[type] = []; providerErrors[type] = error.message || 'TOSS_INDICATOR_ERROR'; }
-        if (series[type].length) {
-          seriesMeta[type] = { fresh: !!forceRefresh, confirmedClose: false, confirmation: 'UNVERIFIED_DAILY_CANDLE', source: 'TOSS' };
-          try { symbols[type] = type; current[type] = fetchMarketIndicatorPricesToss([type])[type] || null; } catch(error) { providerErrors[type] = error.message || 'TOSS_INDICATOR_PRICE_ERROR'; }
+          if (series[type].length) {
+            symbols[type] = domesticYahoo.symbol;
+            seriesMeta[type] = { fresh:!!forceRefresh, confirmedClose:false,
+              confirmation:'UNVERIFIED_DAILY_CANDLE', source:'YAHOO_FINANCE' };
+          } else if (domesticYahoo.error) providerErrors[type] = domesticYahoo.error;
+        } catch(ignoreYahoo) { providerErrors[type] = 'YAHOO_FETCH_FAILED'; }
+        if (!series[type].length) {
+          try {
+            series[type] = fetchMarketIndicatorCandlesToss(type, fromDate, toDate, !!forceRefresh).map(function(point) {
+              return { date:point.date, value:point.value, observedAt:point.observedAt || null, source:'TOSS' };
+            });
+            if (series[type].length) {
+              symbols[type] = type;
+              seriesMeta[type] = { fresh:!!forceRefresh, confirmedClose:false,
+                confirmation:'UNVERIFIED_DAILY_CANDLE', source:'TOSS' };
+            }
+          } catch(ignoreToss) { providerErrors[type] = 'TOSS_INDICATOR_UNAVAILABLE'; }
         }
       } else {
         try {
@@ -4858,52 +4915,52 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
       }
     });
 
-    if (forceRefresh) {
-      // 장전에는 직전 거래일, 장마감에는 당일 공식 종가를 요구합니다.
-      // 호출자가 오늘을 toDate로 전달해도 16:00 전 또는 KRX 공식 휴장일이라면
-      // 반드시 전일부터 탐색합니다. 마감한 OPEN 거래일은 당일만 조회합니다.
+    if (requested.some(function(type) { return type === 'KOSPI' || type === 'KOSDAQ'; })) {
+      // An empty OPEN-session response is a provider failure. Only
+      // calendar-confirmed CLOSED dates may be skipped to a prior session.
       var currentDate = today();
-      var todayUnavailable = toDate === currentDate
+      var todayNotFinal = toDate === currentDate
         && (!_isKrxOfficialCloseAvailableTime_(new Date(), toDate)
           || _krxCalendarStatus_(toDate) === 'CLOSED');
-      var officialSearchToDate = todayUnavailable ? _fundDateOffset(toDate, -1) : toDate;
-      ['KOSPI','KOSDAQ'].filter(function(type) { return requested.indexOf(type) !== -1; }).forEach(function(type) {
-        var candidateDate = officialSearchToDate, skippedDates = [], point = null;
-        var mayLookback = officialSearchToDate < currentDate;
-        for (var retry = 0; retry < (mayLookback ? 10 : 1); retry++) {
-          if (candidateDate < fromDate) break;
-          if (_krxCalendarStatus_(candidateDate) === 'CLOSED') {
-            skippedDates.push(candidateDate);
-            candidateDate = _fundDateOffset(candidateDate, -1);
-            continue;
+      var officialSearchToDate = todayNotFinal ? _fundDateOffset(toDate, -1) : toDate;
+      ['KOSPI','KOSDAQ'].filter(function(type) { return requested.indexOf(type) !== -1; })
+        .forEach(function(type) {
+          var candidateDate = officialSearchToDate, skippedClosed = [], point = null, failure = '';
+          for (var retry = 0; retry < 15; retry++) {
+            if (candidateDate < fromDate) { failure = 'NO_OPEN_SESSION_IN_RANGE'; break; }
+            var session = _krxCalendarStatus_(candidateDate);
+            if (session === 'CLOSED') {
+              skippedClosed.push(candidateDate);
+              candidateDate = _fundDateOffset(candidateDate, -1);
+              continue;
+            }
+            if (session === 'UNKNOWN') { failure = 'CALENDAR_UNKNOWN'; break; }
+            if (!_isKrxOfficialCloseAvailableTime_(new Date(), candidateDate)) {
+              failure = 'CLOSE_NOT_FINAL'; break;
+            }
+            var checked = _fetchKrxOfficialIndexClosesSafe_([type], candidateDate);
+            if (checked.error) { failure = 'FETCH_FAILED'; break; }
+            var response = checked.data || {};
+            if (response[type]) { point = response[type]; break; }
+            failure = String(response._errors && response._errors[type] || 'SOURCE_MISSING');
+            break; // Never treat an OPEN-date 200/0-row result as holiday proof.
           }
-          if (!_isKrxOfficialCloseAvailableTime_(new Date(), candidateDate)) break;
-          var checked = _fetchKrxOfficialIndexClosesSafe_([type], candidateDate);
-          if (checked.error) { providerErrors.KRX_OFFICIAL = (providerErrors.KRX_OFFICIAL || '') + type + ':' + checked.error + ';'; break; }
-          var response = checked.data || {};
-          if (response[type]) { point = response[type]; break; }
-          var reason = response._errors && response._errors[type] || 'MISSING';
-          if (reason !== 'EMPTY_DATE' || !mayLookback) {
-            providerErrors.KRX_OFFICIAL = (providerErrors.KRX_OFFICIAL || '') + type + ':' + reason + ';';
-            break;
+          if (!point) {
+            providerErrors.KRX_OFFICIAL = (providerErrors.KRX_OFFICIAL || '')
+              + type + ':' + candidateDate + ':' + (failure || 'SOURCE_MISSING') + ';';
+            if (seriesMeta[type]) seriesMeta[type].officialStatus = failure || 'SOURCE_MISSING';
+            return;
           }
-          skippedDates.push(candidateDate);
-          candidateDate = _fundDateOffset(candidateDate, -1);
-        }
-        if (!point) return;
-        // HTTP 200 + 빈 OutBlock은 API 지연/권한 문제일 수도 있습니다.
-        // 공식 거래소 달력에서 CLOSED로 확인한 날짜만 비거래일 증거로 승격합니다.
-        var confirmedClosedDates = skippedDates.length && skippedDates.every(function(date) {
-          return _krxCalendarStatus_(date) === 'CLOSED';
-        }) ? skippedDates.slice() : [];
-        var actualDate = point.date;
-        series[type] = (series[type] || []).filter(function(row) { return row.date !== actualDate; })
-          .concat([point]).sort(function(a,b) { return a.date.localeCompare(b.date); });
-        symbols[type] = type;
-        seriesMeta[type] = { fresh:true, confirmedClose:true, confirmation:'KRX_EXACT_DATE_CLOSE',
-          source:'KRX_OFFICIAL', verifiedClosedDates:confirmedClosedDates,
-          verificationToDate:officialSearchToDate, officialDate:actualDate };
-      });
+          series[type] = (series[type] || []).filter(function(row) { return row.date !== point.date; })
+            .concat([point]).sort(function(a,b) { return a.date.localeCompare(b.date); });
+          if (!symbols[type]) symbols[type] = type;
+          seriesMeta[type] = {
+            fresh:true, confirmedClose:true, confirmation:'KRX_EXACT_DATE_CLOSE',
+            source:'KRX_OFFICIAL', historicalSource:'YAHOO_FINANCE_OR_TOSS_UNVERIFIED',
+            verifiedClosedDates:skippedClosed,
+            verificationToDate:officialSearchToDate, officialDate:point.date
+          };
+        });
     }
 
     var errors = {};
@@ -4912,7 +4969,7 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     });
     if (providerErrors.KRX_OFFICIAL) errors.KRX_OFFICIAL = providerErrors.KRX_OFFICIAL;
     var result = { benchmarks: requested, series: series, symbols: symbols, current: current, seriesMeta: seriesMeta, errors: errors };
-    try { cache.put(cacheKey, JSON.stringify(result), 21600); } catch(cacheError) { /* 캐시 용량 초과는 무시 */ }
+    try { cache.put(cacheKey, JSON.stringify(result), errors.KRX_OFFICIAL ? 120 : 21600); } catch(cacheError) { /* 캐시 용량 초과는 무시 */ }
     return jsonOk(result);
   } catch(err) {
     return jsonError('getBenchmarks 실패: ' + err.message);
@@ -5310,7 +5367,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.194' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.195' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10920,7 +10977,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.194',
+    gasVersion: '9.195',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -10960,7 +11017,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.194' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.195' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13675,7 +13732,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.194' });
+    return jsonOk({ settings: settings, gasVersion: '9.195' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13703,7 +13760,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.194'
+      gasVersion: '9.195'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
