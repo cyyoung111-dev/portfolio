@@ -1781,6 +1781,11 @@ assert.match(source, /_touchSnapshotIntegritySourceRevision\(\{ from: affectedFr
 // Snapshot reconciliation is O(all snapshot rows) per date. Never invoke its
 // full-sheet write when the safe rewrite planner proves no change is needed.
 const refreshSource=source.match(/function _refreshFundValuations\([^)]*\) \{[\s\S]*?\n\}/)?.[0]||'';
+assert.match(refreshSource,/var snapshotCount = 0, snapshotValidatedNoOp = 0/,'track validated no-op snapshots separately from actual writes');
+assert.match(refreshSource,/if \(!fundRewritePlan\.needsRewrite\) \{\s*snapshotValidatedNoOp\+\+/,
+ 'identical Snapshot must count as validation complete without writing');
+assert.match(refreshSource,/processed: snapshotCount \+ snapshotValidatedNoOp, pending: Math.max\(0, Object.keys\(byDate\).length - snapshotCount - snapshotValidatedNoOp\)/,
+ 'pending must exclude safely validated no-op days');
 assert.match(refreshSource,/var fundRewritePlan = _snapshotRewritePlan\(ss, date, combined, configs\);[\s\S]*?if \(!fundRewritePlan\.needsRewrite\) \{[\s\S]*?return;\s*\}\s*writeSnapshotRows\(ss, date, combined, true, null, configs\)/,
  'no-op NAV Snapshot reconciliation must not rewrite whole Sheet');
 const originalRawReader=context._readRawSnapshotRowsByDate;
