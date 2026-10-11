@@ -94,4 +94,29 @@ for(const name of ['views_history_state.js','views_history_benchmark.js','views_
   assert.match(sw,new RegExp(name.replace('.','\\.')+'\\?v=20261012-1'));
 }
 assert.match(gas,/function handleGetBenchmark[\s\S]*handleGetBenchmarks\(key, fromDate, toDate, true\)/);
+
+// TextOutput from Apps Script cannot be treated as a JS object by the
+// getBenchmark(single) handler. Exercise the real single-index handler.
+const rawBatch=ctx.handleGetBenchmarks('KOSPI','2026-10-07','2026-10-09',true);
+ctx.handleGetBenchmarks=()=>({getContent:()=>JSON.stringify(rawBatch)});
+vm.runInNewContext(fn(gas,'handleGetBenchmark'),ctx);
+const single=ctx.handleGetBenchmark('KOSPI','2026-10-07','2026-10-09');
+assert.equal(single.status,'ok','single official index unwraps GAS TextOutput');
+assert.equal(single.points.length,rawBatch.series.KOSPI.length);
+const utils=fs.readFileSync('src/web/views/views_history_utils.js','utf8');
+vm.runInNewContext(utils,display);
+display._kstNow=()=>new Date('2026-10-12T07:12:00Z');
+const detailed=display._analyzeHistoryCoverage(
+ [{date:'2026-10-06'},{date:'2026-10-09'}],'day');
+assert.deepEqual(Array.from(detailed.missing,x=>x.targetDate),
+ ['2026-10-07','2026-10-08'],'day coverage must skip KRX holiday 10/09 and weekend');
+const weekly=display._analyzeHistoryCoverage(
+ [{date:'2026-09-28'},{date:'2026-10-12'}],'week');
+assert.ok(weekly.missing.some(x=>x.targetDate==='2026-10-08'),
+ 'Friday 10/09 holiday must target last verified OPEN date 10/08');
+assert.ok(!weekly.missing.some(x=>x.targetDate==='2026-10-09'),
+ 'holiday must not be a repair target');
+assert.match(html,/views_history_utils\.js\?v=20261012-1/);
+assert.match(sw,/views_history_utils\.js\?v=20261012-1/);
+
 console.log('KRX official session, auth fallback, source failure, calendar UI checks passed');

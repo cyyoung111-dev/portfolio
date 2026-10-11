@@ -14,6 +14,11 @@ const layoutSource = fs.readFileSync('src/web/styles/layout.css', 'utf8');
 const context = {
   fmtDateDot: value => String(value || ''),
   _kstTodayStr: () => '2026-09-04',
+  _kstNow: () => new Date('2026-09-04T07:00:00Z'),
+  _historyKrxSessionStatus: date => {
+    const day = new Date(date + 'T00:00:00Z').getUTCDay();
+    return [0,6].includes(day) || ['2026-09-24','2026-09-25','2026-03-02','2026-08-17'].includes(date) ? 'CLOSED' : 'OPEN';
+  },
 };
 const signatureSource = pipelineSource.match(/function _historySnapshotSignature[\s\S]*?\n}/)?.[0] || '';
 const signatureContext = {};
@@ -130,7 +135,7 @@ assert.ok(monthlyCoverage.missing.some(item => item.key === '2026-02-01'), '월�
 assert.deepEqual(
   Array.from(dailyCoverage.missing, item => item.targetDate),
   ['2026-08-31', '2026-09-02', '2026-09-03'],
-  '일별 누락은 오늘과 주말을 제외한 확정 평일 날짜를 찾아야 합니다.',
+  '일별 누락은 휴장일과 마감 전 당일을 제외해야 합니다.',
 );
 
 assert.match(viewSource, /metric\('매입원가'/, '가장 높은 날·가장 낮은 날 카드에는 매입원가가 있어야 합니다.');
@@ -155,7 +160,7 @@ assert.match(pipelineSource, /integritySourceRevision === String\(integrity\.int
 
 assert.match(pipelineSource, /선택 기간의 스냅샷 누락이 없습니다/, '누락 없음 안내를 표시해야 합니다.');
 assert.match(pipelineSource, /mode === 'day' \? '일별'/, '일별 누락 안내를 표시해야 합니다.');
-assert.match(pipelineSource, /평일 후보\(휴장일이 포함될 수 있음\)/, '일별 후보에 휴장일 포함 가능성을 안내해야 합니다.');
+assert.match(pipelineSource, /한국장 확정 거래일\(휴장일·마감 전 당일 제외\)/, '일별 후보에 휴장일 포함 가능성을 안내해야 합니다.');
 assert.match(pipelineSource, /data-history-action="repair-gaps"/, '누락 보완 버튼이 있어야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('repairSnapshots'/, '프런트엔드가 GAS 복구 action을 호출해야 합니다.');
 assert.match(pipelineSource, /requestGsheetFormJson\('startSnapshotRepair'/, '손익 그래프에서 전체 스냅샷 재작성을 시작할 수 있어야 합니다.');
