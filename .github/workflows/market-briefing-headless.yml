@@ -4,7 +4,7 @@ on:
   schedule:
     - cron: '15 21 * * 0-4' # 06:15 KST
     - cron: '30 22 * * 0-4' # 07:30 KST
-    - cron: '5 7 * * 1-5'   # 16:05 KST
+    - cron: '30 7 * * 1-5'   # 16:30 KST
     - cron: '15 11 * * 1-5' # 20:15 KST
   workflow_dispatch:
     inputs:
@@ -49,7 +49,7 @@ jobs:
             case "${{ github.event.schedule }}" in
               '15 21 * * 0-4') checkpoint=NIGHT_FINAL ;;
               '30 22 * * 0-4') checkpoint=MORNING ;;
-              '5 7 * * 1-5') checkpoint=KRX_FINAL ;;
+              '30 7 * * 1-5') checkpoint=KRX_FINAL ;;
               '15 11 * * 1-5') checkpoint=EVENING ;;
               *) echo '예약 checkpoint를 결정할 수 없습니다.' >&2; exit 1 ;;
             esac
