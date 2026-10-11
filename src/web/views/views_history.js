@@ -476,6 +476,8 @@ async function loadAutomationStatusFromGsheet() {
     const a = data.automation;
     const close = a.portfolioClose || {};
     const closeRun = a.closeRun || {};
+    const fundAttempt = a.fundAttempt || {};
+    const fundTimedOut = fundAttempt.state === 'TIMEOUT_SUSPECTED';
     const incomplete = closeRun.state === 'INCOMPLETE' || a.overallStatus === 'INCOMPLETE';
     const statusMap = {
       NORMAL: ['정상', 'var(--green-lt)'],
@@ -496,6 +498,10 @@ async function loadAutomationStatusFromGsheet() {
     const isNeverRun = a.overallStatus === 'NEVER_RUN';
     const closeStageInfo = incomplete ? ` · 단계 ${_escapeHtml(closeRun.stage || '미상')} · 단계 시각 ${_escapeHtml(closeRun.stageAt || '-')}` : '';
     const currentCloseStarted = incomplete ? _escapeHtml(closeRun.startedAt || '-') : _escapeHtml(close.finishedAt || close.startedAt || '아직 없음');
+    const fundAttemptWarning = fundTimedOut
+      ? '펀드 실행 완료 기록 없음 · 타임아웃 의심 · 시작 ' + _escapeHtml(fundAttempt.startedAt || '-')
+        + (fundAttempt.owner ? ' · 실행 주체 ' + _escapeHtml(fundAttempt.owner) : '')
+      : '';
     const referenceErrorOnly = isNeverRun && !a.portfolioCloseLastError && !!a.fundLastError;
     body.innerHTML = `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;font-size:.68rem;line-height:1.55">
@@ -505,6 +511,7 @@ async function loadAutomationStatusFromGsheet() {
         <div><span style="color:var(--muted)">${incomplete ? '미완료 실행 시작' : '마지막 통합 실행'}</span><br><b>${currentCloseStarted}${closeStageInfo}</b></div>
         <div><span style="color:var(--muted)">일반 종목</span><br><b>${priceState}${!incomplete && close.priceDate ? ' · ' + _escapeHtml(close.priceDate) : ''}${!incomplete && Number.isFinite(Number(close.priceRows)) && close.priceRows ? ' · ' + Number(close.priceRows) + '행' : ''}</b></div>
         <div><span style="color:var(--muted)">펀드</span><br><b>${fundState}${incomplete ? '' : (close.fundLastDate ? ' · ' + _escapeHtml(close.fundLastDate) : (a.fundLastDate ? ' · ' + _escapeHtml(a.fundLastDate) : ''))}</b></div>
+        <div><span style="color:var(--muted)">펀드 실행 진단</span><br><b style="color:${fundTimedOut ? 'var(--amber)' : 'var(--muted)'}">${fundAttemptWarning || _escapeHtml(fundAttempt.state || '최근 시도 없음')}</b></div>
         <div><span style="color:var(--muted)">Snapshot 최근일</span><br><b>${_escapeHtml(a.snapshotLastDate || '-')}</b></div>
         <div><span style="color:var(--muted)">전체 가격이력 최근일 (NAV 포함)</span><br><b>${_escapeHtml(a.priceHistoryLastDate || '-')}</b></div>
         <div><span style="color:var(--muted)">공식 KRX 종가 최근일</span><br><b>${_escapeHtml(a.officialKrxPriceHistoryLastDate || '확인되지 않음')}</b></div>
@@ -515,9 +522,10 @@ async function loadAutomationStatusFromGsheet() {
           ? ('미완료 실행: ' + _escapeHtml(closeRun.startedAt || '-') + ' / 단계 ' + _escapeHtml(closeRun.stage || '미상') + (errorText ? ' · 이전 오류(참고): ' + _escapeHtml(errorText) : ' · 완료 기록이 없어 확인 필요'))
           : errorText
           ? ((referenceErrorOnly ? '이전 펀드 오류(참고): ' : '최근 오류: ') + _escapeHtml(errorText))
+          : (fundTimedOut ? '최근 경고: ' + fundAttemptWarning
           : (a.portfolioCloseRunStale
               ? '최근 경고: 통합 마감 실행 지연 · 기대 실행일 ' + _escapeHtml(a.expectedPortfolioCloseRunDate || '-')
-              : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음'))}
+              : (a.fundLastWarning ? '최근 경고: ' + _escapeHtml(a.fundLastWarning) : '최근 오류 없음')))}
       </div>`;
   } catch (error) {
     badge.textContent = '조회 실패';
