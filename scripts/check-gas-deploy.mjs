@@ -22,7 +22,8 @@ assert.throws(() => extractExpectedGasVersion(`// Google Apps Script  v9.160\nco
 
 assert.equal(gasSourceBlobSha('hello'), 'b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0',
   'hashing must match Git blob format, not a plain-file digest');
-assert.equal(assertGasReleaseReady(source), '9.160', 'legacy version stays unchanged');
+assert.throws(() => assertGasReleaseReady(source),
+  /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed old versions and rollbacks must fail closed');
 
 const partialRelease = source.replaceAll('9.160', '9.193');
 assert.throws(() => assertGasReleaseReady(partialRelease),
@@ -59,7 +60,7 @@ if (actualSourceBlob === approvedFullSourceBlob) {
 }
 
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
-assert.match(deployScript, /dryRun\\s*\\?\\s*extractExpectedGasVersion\\(source\\)\\s*:\\s*assertGasReleaseReady\\(source\\)/,
+assert.match(deployScript, /dryRun\s*\?\s*extractExpectedGasVersion\(source\)\s*:\s*assertGasReleaseReady\(source\)/,
   'production preflight must run before GAS credentials and API writes');
 
 const claspV3 = {
