@@ -63,8 +63,10 @@ function maskSecrets(value, secrets = []) {
 }
 function persistenceCounts(value) { return value ? { saved:Number(value.saved)||0, duplicates:Number(value.duplicates)||0, rejected:Number(value.rejected)||0 } : null; }
 function diagnosticFor(result, secrets = []) {
-  const successful = result.skippedDomestic === true || (result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true);
-  return { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.skippedDomestic ? 'SKIPPED_DOMESTIC_CLOSED' : result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
+  const successful = result.skippedDomestic === true
+    ? (result.checkpoint === 'KRX_FINAL' || result.successful === true)
+    : (result.checkpoint === 'NIGHT_FINAL' ? result.successful : result.decision?.publishable === true);
+  return { checkpoint:result.checkpoint, tradingDate:result.tradingDate, status:result.skippedDomestic ? (successful ? 'SKIPPED_DOMESTIC_CLOSED' : 'FOREIGN_CONTEXT_MISSING') : result.decision?.status || (successful?'COLLECTED':'NOT_READY'), published:!!result.persistence,
     ...(result.skippedDomestic ? { skipReason:'KRX_CONFIRMED_NON_TRADING_DAY' } : {}),
     masterPersistence:persistenceCounts(result.sync?.persistence), snapshotPersistence:persistenceCounts(result.persistence),
     readinessSeries:result.decision?.data?.snapshot?.values || {}, warnings:result.decision?.data?.warnings || [],
@@ -124,8 +126,14 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
   };
   const sync = await runtime.syncServerMaster(scopedRequest, scopedRequest, tradingDate, { checkpoint, from:dateOffset(tradingDate, -10),
     to:benchmarkTo, benchmarkTo, fxTo, scheduledToleranceSeconds:300, receivedAt });
-  if (domesticClosed && checkpoint === 'EVENING')
-    return { checkpoint, tradingDate, skippedDomestic:true, sync, decision:null, persistence:null };
+  if (domesticClosed && checkpoint === 'EVENING') {
+    // Domestic Snapshot is suppressed, but the scheduled foreign-market / FX
+    // collection must fail visibly when its independent sources are unavailable.
+    const foreign = ['SP500','NASDAQ100','SOX','VIX'].some(key=>Number(sync?.payload?.[key]?.value)>0);
+    const fx = Number(sync?.payload?.USDKRW?.value)>0;
+    return {checkpoint,tradingDate,skippedDomestic:true,successful:foreign&&fx,
+      sync,decision:null,persistence:null};
+  }
   if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null, successful:runtime.hasNightFinal(tradingDate) };
   const decision = runtime.readiness(tradingDate, checkpoint);
   if (!decision.publishable) return { checkpoint, tradingDate, sync, decision, persistence:null };
