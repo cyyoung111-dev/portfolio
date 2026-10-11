@@ -216,6 +216,8 @@ const krxVm=vm.createContext({
  _getKrxApiConfig:()=>({apiKey:'stale-primary'}),
  _getKrxEndpointByMarket:m=>'https://data-dbg.krx.co.kr/svc/apis/'+m,
  _cleanCode:v=>String(v||'').trim(), _parseKrxNumber:Number,
+ _normalizeDate:v=>String(v||'').slice(0,10),
+ _krxCalendarStatus_:d=>d==='2026-10-09'?'CLOSED':'OPEN',
  fetchPricesKrxViaOtp:()=>({source:'OTP_FALLBACK'}),
 });
 for(const fn of ['_getKrxAuthKeySlots_','_getKrxAuthKey','fetchPricesKrx'])
@@ -297,6 +299,38 @@ krxVm._fetchKrxMarketsParallelWithFallback=(_markets,_date,key)=>{
 const preserved=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
 if(preserved['005930']?.price!==100000)
  throw Error('alternate network failure must preserve primary KOSPI prices');
+
+let otpRequeryCodes=[];
+krxVm._fetchKrxMarketsParallelWithFallback=()=>({
+ KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'90000'}],usedYmd:'20261007'},
+ KOSDAQ:{rows:[],usedYmd:'20261008'},ETF:{rows:[],usedYmd:'20261008'}
+});
+krxVm.fetchPricesKrxViaOtp=items=>{
+ otpRequeryCodes.push(items.map(item=>item.code));
+ return {'005930':{price:100000,source:'KRX_OTP',usedDate:'2026-10-08'}};
+};
+const repairedStale=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
+if(repairedStale['005930']?.price!==100000
+ || repairedStale['005930']?.source!=='KRX_OTP'
+ || otpRequeryCodes.at(-1).join(',')!=='005930')
+ throw Error('T-1 OpenAPI close must re-query and accept exact-day OTP close');
+krxVm.fetchPricesKrxViaOtp=items=>{
+ otpRequeryCodes.push(items.map(item=>item.code));
+ return {'005930':{price:100000,source:'KRX_OTP',usedDate:'2026-10-07'}};
+};
+const rejectedStaleOtp=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
+if(rejectedStaleOtp['005930']?.price!==90000
+ || rejectedStaleOtp['005930']?.usedDate!=='2026-10-07')
+ throw Error('OTP carry must not replace stale KRX with another stale date');
+krxVm._fetchKrxMarketsParallelWithFallback=()=>({
+ KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'100000'}],usedYmd:'20261008'},
+ KOSDAQ:{rows:[],usedYmd:'20261008'},ETF:{rows:[],usedYmd:'20261008'}
+});
+const callsBeforeExact=otpRequeryCodes.length;
+const alreadyExact=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
+if(alreadyExact['005930']?.price!==100000 || otpRequeryCodes.length!==callsBeforeExact)
+ throw Error('exact OpenAPI close must not be needlessly re-queried via OTP');
+
 
 if(extractKrx('configureKrxAuthKeyPrompt').indexOf("props.deleteProperty('krx_api_key')")<0)
  throw Error('manual clear of primary KRX key must remove legacy key too');
