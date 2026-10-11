@@ -113,9 +113,9 @@ cacheRows=[
   ['005930',120000,'삼성전자','2026-10-07 16:22','2026-10-07'],
   ['AAPL',260,'Apple','2026-10-08 15:20','2026-10-07'],
 ];
-const mixed=legacyContext.handlePriceFetch();
-if(mixed.source!=='confirmed-close+validated-cache' || mixed.prices.AAPL.price!==260
-  || mixed.prices['005930'].price!==121000)
+const mixedLegacy=legacyContext.handlePriceFetch();
+if(mixedLegacy.source!=='confirmed-close+validated-cache' || mixedLegacy.prices.AAPL.price!==260
+  || mixedLegacy.prices['005930'].price!==121000)
   throw Error('valid prior NY close must survive stale KRX row refresh');
 if(requestedFetches.at(-1).join(',')!=='005930')
   throw Error('valid overseas cache must not trigger a needless re-fetch');
