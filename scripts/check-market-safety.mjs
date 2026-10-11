@@ -159,7 +159,7 @@ if(morningResult.prices['005930']?.price!==121000 || morningResult.prices.AAPL?.
 
 // Execute the real production provider, not a copy, to prevent the current-day
 // KRX intraday TDD_CLSPRC from suppressing the previous completed close.
-const providerProduction = gas.match(/function fetchPricesGoogleFinance\\([^)]*\\) \\{[\\s\\S]*?\\n\\}/)?.[0];
+const providerProduction = gas.match(/function fetchPricesGoogleFinance\([^)]*\) \{[\s\S]*?\n\}/)?.[0];
 if(!providerProduction)throw Error('real fetchPricesGoogleFinance function not found');
 let providerClock='1030', krxDates=[], providerOverride=null;
 const providerVm=vm.createContext({
