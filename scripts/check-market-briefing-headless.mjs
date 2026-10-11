@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
 import fs from 'node:fs';
-import { createRequest, diagnosticFor, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
+import { createRequest, diagnosticFor, headlessSucceeded, maskSecrets, parseArgs, runHeadless, scheduledTradingDate } from './run-market-briefing-headless.mjs';
 
 globalThis.localStorage.clear();
 // The headless calendar consumes the GAS source of truth (including temporary
@@ -113,7 +113,10 @@ const failedForeign=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10
  request:async(action,params)=>['getBenchmarks','getExchangeRateHistory'].includes(action)
    ? Promise.reject(new Error('SIMULATED_PROVIDER_OUTAGE')):request(action,params)});
 assert.equal(failedForeign.successful,false,'all foreign/FX outages must fail the scheduled run');
+assert.equal(headlessSucceeded(closedFinal),true,'휴장 KRX_FINAL은 정상 SKIPPED 처리');
+assert.equal(headlessSucceeded(closedEvening),true,'해외/FX가 확보된 휴장 EVENING은 정상 성공');
 assert.equal(diagnosticFor(failedForeign).status,'FOREIGN_CONTEXT_MISSING');
+assert.equal(headlessSucceeded(failedForeign),false,'휴장 EVENING 외국시장 또는 환율 수집 실패는 CLI exit 1');
 
 const fxFallbackCalls=[];
 const gasNoFx=async (action,params)=>action==='getExchangeRateHistory'
