@@ -251,9 +251,9 @@ async function loadHistoryChart(retryAttempt = 0) {
     const benchMsg = benchmarkTypes.length === 0
       ? '비교지수 없음'
       : `비교지수 ${benchmarkTypes.length - missing.length}/${benchmarkTypes.length}개 로드`;
-    const missingMsg = missing.length
+    const missingMsg = (missing.length
       ? ` (실패: ${missing.join(', ')} · ${Array.from(new Set(missing.map(type => benchBundle.errorMap?.[type]).filter(Boolean))).join(' / ')})`
-      : '';
+      : '') + (benchBundle.warningMsg ? ` (KRX 공식 종가 미확정: ${benchBundle.warningMsg})` : '');
 
     // 두 비동기 조회가 모두 최신 요청으로 확인된 뒤 한 번에 화면 상태를 교체합니다.
     // 백그라운드 현재가 갱신이나 실패한 재조회가 마지막 정상 그래프·경고를 지우지 않습니다.
