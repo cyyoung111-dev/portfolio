@@ -83,6 +83,32 @@ export function sanitizeFiles(files) {
   }));
 }
 
+// Fail closed on unreviewed executable files. Apps Script compiles every
+// SERVER_JS and HTML file within a version, not just the replaced target.
+// The manifest is data, but it must match the currently deployed manifest;
+// HEAD-only changes to scopes, webApp access or runtime are not approved.
+export function assertGasProjectFileSet(files, targetName, deployedFiles) {
+  const clean = sanitizeFiles(files);
+  const deployed = sanitizeFiles(deployedFiles);
+  const expectedNames = new Set(['appsscript', targetName]);
+  const valid = list => list.length === 2
+    && list.every(f => expectedNames.has(f.name))
+    && list.filter(f => f.name === 'appsscript' && f.type === 'JSON').length === 1
+    && list.filter(f => f.name === targetName && f.type === 'SERVER_JS').length === 1;
+  if (!valid(clean) || !valid(deployed))
+    throw new Error('GAS_PROJECT_UNREVIEWED_FILES: expected one manifest JSON and one approved SERVER_JS');
+  const manifest = clean.find(f => f.name === 'appsscript').source;
+  const published = deployed.find(f => f.name === 'appsscript').source;
+  if (!sameSource(manifest, published))
+    throw new Error('GAS_PROJECT_MANIFEST_DRIFT: HEAD manifest differs from deployed manifest');
+  try {
+    if (!JSON.parse(manifest) || Array.isArray(JSON.parse(manifest))) throw new Error('not an object');
+  } catch (_) {
+    throw new Error('GAS_PROJECT_MANIFEST_INVALID: appsscript JSON is invalid');
+  }
+  return true;
+}
+
 export function buildUpdatedFiles(files, targetName, source) {
   const clean = sanitizeFiles(files);
   if (!clean.some(file => file.name === 'appsscript' && file.type === 'JSON')) {
@@ -244,6 +270,9 @@ export async function deploy() {
     { token: accessToken },
   );
   const deployedTarget = selectServerFile(deployedContent.files, target.name);
+  // Validate *all* files before checking alreadyDeployed or starting any write.
+  // A malicious extra SERVER_JS cannot ride along with a pinned apps_script.gs.
+  if (!dryRun) assertGasProjectFileSet(currentContent.files, target.name, deployedContent.files);
   const alreadyDeployed = sameSource(deployedTarget.source, source);
 
   console.log(`GAS 자동배포 사전확인 · version=${expectedVersion} · file=${target.name} · currentDeploymentVersion=${currentVersionNumber} · dryRun=${dryRun}`);
