@@ -189,6 +189,14 @@ const close = (date,source='KRX')=>({usedDate:date,source,price:1500});
 const full = Object.fromEntries(items.slice(0,4).map(x=>[x.code,close('2026-10-06')]));
 const good = clone(context._assessDailyKrxStockClose(items, full,'2026-10-06'));
 assert.deepEqual(good,{required:true,date:'2026-10-06',confirmed:4,expected:4,lag:0});
+
+const priorKrx = Object.fromEntries(items.slice(0,4).map(item=>[item.code,close('2026-10-02')]));
+assert.throws(()=>context._assessDailyKrxStockClose(items,priorKrx,'2026-10-06'),
+  /원천일 불일치/, 'T-1 confirmed KRX closes may not finalize an open 10/06 session');
+const priorOneTradingDay = Object.fromEntries(items.slice(0,4).map(item=>[item.code,close('2026-10-07')]));
+assert.throws(()=>context._assessDailyKrxStockClose(items,priorOneTradingDay,'2026-10-08'),
+  /원천일 불일치/, 'ordinary same-day close must never be silently replaced with yesterday');
+
 const holiday = clone(context._assessDailyKrxStockClose(items,Object.fromEntries(items.slice(0,4).map(x=>[x.code,close('2026-10-02')])), '2026-10-05'));
 assert.equal(holiday.date,'2026-10-02','월요일 대체공휴일은 직전 확정 KRX 거래일을 허용');
 assert.equal(holiday.lag,0,'공식 휴장일은 거래일 시차에서 제외');
