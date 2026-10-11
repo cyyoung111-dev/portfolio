@@ -185,7 +185,7 @@ if (!source.includes("params.action === 'getBenchmarks'")
     || !source.includes('function fetchMarketIndicatorPricesToss(')
     || !source.includes('function fetchMarketIndicatorCandlesToss(')
     || !source.includes('function fetchYahooIndexSeries(')
-    || !source.includes("YAHOO_INDEX_SYMBOLS = { SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' }")
+    || !source.includes("YAHOO_INDEX_SYMBOLS = { KOSPI: '^KS11', KOSDAQ: '^KQ11', SP500: '^GSPC', NASDAQ: '^IXIC', NASDAQ100: '^NDX', DOW: '^DJI', KOSPI200: '^KS200', SOX: '^SOX', VIX: '^VIX', DXY: 'DX-Y.NYB', UST10Y: '^TNX', WTI: 'CL=F', GOLD: 'GC=F', BTC: 'BTC-USD' }")
     || source.includes("GOOGLEFINANCE(\"' + symbol + '\",\"close\"")
     || !source.includes("cache.put(cacheKey, JSON.stringify(result), errors.KRX_OFFICIAL ? 120 : 21600)")) {
   console.error('❌ 비교지수 Toss/Yahoo provider(KOSPI200 포함) 또는 6시간 캐시가 누락됐습니다.');
