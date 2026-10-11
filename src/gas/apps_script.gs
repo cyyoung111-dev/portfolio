@@ -2048,18 +2048,23 @@ function fetchPricesKrx(items, dateStr) {
       (pack.authHttpStatus === 401 || pack.authHttpStatus === 403);
   });
   if (credentialSlots.alternative && authDeniedMarkets.length) {
-    var alternatePacks = _fetchKrxMarketsParallelWithFallback(
-      authDeniedMarkets, ymd, credentialSlots.alternative, 7);
-    var recovered = [];
-    authDeniedMarkets.forEach(function(market) {
-      if (alternatePacks[market] && alternatePacks[market].rows.length > 0) {
-        packs[market] = alternatePacks[market];
-        recovered.push(market);
-      }
-    });
-    Logger.log('[KRX-STOCK] 다른 승인 슬롯 확인: 인증 거부 시장 ' +
-      authDeniedMarkets.join(',') + ', 정상 복구 시장 ' + recovered.join(',') +
-      ' (비밀키 비노출)');
+    try {
+      var alternatePacks = _fetchKrxMarketsParallelWithFallback(
+        authDeniedMarkets, ymd, credentialSlots.alternative, 7);
+      var recovered = [];
+      authDeniedMarkets.forEach(function(market) {
+        if (alternatePacks[market] && alternatePacks[market].rows.length > 0) {
+          packs[market] = alternatePacks[market];
+          recovered.push(market);
+        }
+      });
+      Logger.log('[KRX-STOCK] 다른 승인 슬롯 확인: 인증 거부 시장 ' +
+        authDeniedMarkets.join(',') + ', 정상 복구 시장 ' + recovered.join(',') +
+        ' (비밀키 비노출)');
+    } catch (alternateError) {
+      // Optional credential recovery must never discard an already approved market.
+      Logger.log('[KRX-STOCK] 보조 인증키 조회 실패: 정상 시장 결과 유지');
+    }
   }
   markets.forEach(function(market) {
     try {
@@ -2088,10 +2093,28 @@ function fetchPricesKrx(items, dateStr) {
       Logger.log('⚠️ KRX OpenAPI 조회 실패(' + market + '): ' + e.message);
     }
   });
-  if (Object.keys(out).length === 0) {
-    Logger.log('ℹ️ KRX OpenAPI 결과 없음: OTP/CSV fallback 시도');
-    return fetchPricesKrxViaOtp(items, dateStr);
+  // Mixed market approvals can return a valid KOSPI pack while leaving
+  // KOSDAQ/ETF missing. Recover ONLY missing codes by the existing official
+  // OTP/CSV source; never replace a confirmed OpenAPI stock with a fallback.
+  var missingItems = items.filter(function(item) { return !out[item.code]; });
+  var otpRecovered = 0;
+  if (missingItems.length) {
+    try {
+      var otpPrices = fetchPricesKrxViaOtp(missingItems, dateStr);
+      var otpEvidence = otpPrices && otpPrices._krxMarketEvidence || {};
+      Object.keys(otpPrices || {}).forEach(function(code) {
+        if (!wanted[code] || out[code] || !(Number(otpPrices[code].price) > 0)) return;
+        out[code] = otpPrices[code];
+        if (otpEvidence.codeMarkets && otpEvidence.codeMarkets[code])
+          codeMarkets[code] = otpEvidence.codeMarkets[code];
+        otpRecovered++;
+      });
+    } catch (otpError) {
+      Logger.log('[KRX-STOCK] 미복구 시장 OTP 조회 실패: 기존 확인 종가 유지');
+    }
+    if (otpRecovered) Logger.log('[KRX-STOCK] 누락 종목 OTP/CSV 공식 종가 보강 ' + otpRecovered + '건');
   }
+  if (Object.keys(out).length === 0) return out;
   var evidence = {};
   markets.forEach(function(market) {
     var pack = packs[market] || { rows:[], usedYmd:ymd };
@@ -2099,6 +2122,7 @@ function fetchPricesKrx(items, dateStr) {
       date:String(pack.usedYmd || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') };
   });
   evidence.codeMarkets = codeMarkets;
+  if (otpRecovered) evidence.mode = 'OTP'; // mixed official provenance; per-row KRX/OTP dates remain mandatory
   Object.defineProperty(out, '_krxMarketEvidence', { value:evidence, enumerable:false });
   return out;
 }
