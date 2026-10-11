@@ -38,12 +38,21 @@ if (forbidden.test(gas) || forbidden.test(web)) {
 const legacyFetch = gas.match(/function handlePriceFetch\([^)]*\) \{[\s\S]*?\n\}/)?.[0];
 if (!legacyFetch) throw new Error('legacy price fetch production handler missing');
 let currentDate='2026-10-08', clock='1630', cacheRows=[], fallbackCount=0;
+let codeMaster=[{code:'005930',currency:'KRW',market:'KR'}], requestedFetches=[], foreignCutoff='2026-10-07';
 const legacyContext={
   getss:()=>({getSheetByName:()=>({
     getLastRow:()=>cacheRows.length+1,
     getRange:()=>({getValues:()=>cacheRows}),
   })}),
   today:()=>currentDate,
+  getCodeItems:()=>codeMaster,
+  _foreignMarketRegularCloseCutoff_:()=>foreignCutoff,
+  fetchPricesGoogleFinance:items=>{
+    requestedFetches.push(items.map(item=>item.code));
+    return Object.fromEntries(items.filter(item=>item.code==='005930').map(item=>[
+      item.code,{price:121000,usedDate:currentDate,status:'CONFIRMED',priceType:'REGULAR_CLOSE'}
+    ]));
+  },
   CONFIG:{SHEET_PRICES:'종가',TIMEZONE:'Asia/Seoul'},
   _normalizeDate:v=>String(v||'').slice(0,10),
   _krxCalendarStatus_:date=>date==='2026-10-09'?'CLOSED':'OPEN',
@@ -91,5 +100,37 @@ cacheRows=[['005930',120000,'삼성전자','2026-10-08 16:22']];
 if(legacyContext.handlePriceFetch().source!=='historical')
  throw Error('old four-column cache cannot assert source date');
 if(fallbackCount!==6)throw Error('fallback count mismatch');
+
+// A mixed KR+US portfolio must not reject a valid NY close just because the
+// calendar date differs from the KRX session. Preserve valid overseas closes
+// while re-querying only stale domestic rows.
+currentDate='2026-10-08';clock='1630';foreignCutoff='2026-10-07';
+codeMaster=[
+  {code:'005930',currency:'KRW',market:'KR'},
+  {code:'AAPL',currency:'USD',market:'US'},
+];
+cacheRows=[
+  ['005930',120000,'삼성전자','2026-10-07 16:22','2026-10-07'],
+  ['AAPL',260,'Apple','2026-10-08 15:20','2026-10-07'],
+];
+const mixed=legacyContext.handlePriceFetch();
+if(mixed.source!=='confirmed-close+validated-cache' || mixed.prices.AAPL.price!==260
+  || mixed.prices['005930'].price!==121000)
+  throw Error('valid prior NY close must survive stale KRX row refresh');
+if(requestedFetches.at(-1).join(',')!=='005930')
+  throw Error('valid overseas cache must not trigger a needless re-fetch');
+foreignCutoff='2026-10-09';
+const future=legacyContext.handlePriceFetch();
+if(future.source==='cache' || 'AAPL' in (future.prices||{}))
+  throw Error('stale foreign closes must not be treated as current');
+foreignCutoff='2026-10-07';
+cacheRows=[
+  ['005930',120000,'삼성전자','2026-10-08 16:22','2026-10-08'],
+  ['AAPL',260,'Apple','2026-10-08 15:20','2026-10-08'],
+];
+const futureUs=legacyContext.handlePriceFetch();
+if('AAPL' in (futureUs.prices||{}))
+  throw Error('foreign market close dated after last completed session is invalid');
+
 
 console.log('✅ 가격 provider·polling·Corporate Action·Secret 노출 안전성 검사 통과');
