@@ -6101,7 +6101,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   });
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'snapshotWrite', 'writeSnapshotRows');
-  var snapshotCount = 0, snapshotOperationUnsafe = false;
+  var snapshotCount = 0, snapshotValidatedNoOp = 0, snapshotOperationUnsafe = false;
   var previousSnapshotOperationId = _snapshotBackupOperationId;
   var fundSnapshotOperationId = 'refreshFundValuations|' + (onlyCode || 'ALL') + '|' + from + '|' + to + '|' + Utilities.getUuid();
   _snapshotBackupOperationId = fundSnapshotOperationId;
@@ -6132,6 +6132,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
     // unchanged 10k-row Sheet on every such date consumes GAS's 6-minute
     // budget and may trigger an unnecessary whole-sheet backup.
     if (!fundRewritePlan.needsRewrite) {
+      snapshotValidatedNoOp++;
       byDate[date].forEach(function(value) {
         var item = fundResults[value[1]] && (fundResults[value[1]].dates || []).find(function(row) {
           return row.date === date;
@@ -6163,7 +6164,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
     processing: {
       nav: { processed: values.length, pending: Object.keys(fundResults).reduce(function(sum, code) { return sum + Number(fundResults[code].navMissing || 0); }, 0) },
       priceHistory: { processed: values.length, pending: 0 },
-      snapshots: { processed: snapshotCount, pending: Math.max(0, Object.keys(byDate).length - snapshotCount), reasons: missingHoldings.slice() }
+      snapshots: { processed: snapshotCount + snapshotValidatedNoOp, pending: Math.max(0, Object.keys(byDate).length - snapshotCount - snapshotValidatedNoOp), reasons: missingHoldings.slice() }
     },
     missingHoldings: missingHoldings, snapshotWarnings: snapshotWarnings,
     lastDate: values.map(function(v) { return v.date; }).sort().pop() || '', fundResults: fundResults
