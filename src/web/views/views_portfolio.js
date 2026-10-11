@@ -194,7 +194,7 @@ function renderDonutCore() {
     // ★ [계좌별 taxType] 절세계좌 판별은 taxType(계좌 기준) 사용
     const tx = r.taxType || (typeof getAcctTaxType === 'function' ? getAcctTaxType(r.acct) : '');
     if (tx==='ISA'||tx==='IRP'||tx==='연금') return '절세계좌';
-    if (!r.fund && isEtfByName(r.name)) return 'ETF';
+    if (_portfolioAssetType(r) === 'ETF') return 'ETF';
     return '개별주식';
   };
   const TYPE_COLORS = {'개별주식':'var(--green)','ETF':'var(--blue)','펀드/TDF':'var(--purple)','절세계좌':'var(--amber)'};
