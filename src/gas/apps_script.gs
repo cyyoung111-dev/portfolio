@@ -1831,40 +1831,82 @@ function handleDiagnoseTossMarketData() {
 // ════════════════════════════════════════════════════════════════════
 function handlePriceFetch(dateParam, allCodesParam) {
   try {
-    var ss       = getss();
+    var ss = getss();
     var todayStr = today();
-    var reqDate  = dateParam || todayStr;
+    var reqDate = dateParam || todayStr;
     if (reqDate !== todayStr) return handleHistoricalPriceFetch(reqDate, allCodesParam, ss);
 
     var priceSheet = ss.getSheetByName(CONFIG.SHEET_PRICES);
     if (priceSheet && priceSheet.getLastRow() >= 2) {
-      var data   = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 5).getValues();
-      var prices = {}, cacheDates = [];
+      var data = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 5).getValues();
+      var codeItems = getCodeItems(ss);
+      var codeMap = {};
+      codeItems.forEach(function(item) { codeMap[item.code] = item; });
+      var prices = {}, freshPrices = {}, cacheCount = 0;
+      var session = _krxCalendarStatus_(reqDate);
+      var now = new Date();
+      var beforeClose = Utilities.formatDate(now, CONFIG.TIMEZONE, 'HHmm') < '1600';
+      var domesticMaxLag = session === 'OPEN' && beforeClose ? 1 : 0;
+
+      function rowFresh(code, sourceDate) {
+        var item = codeMap[code];
+        if (!item || !sourceDate || !/^\d{4}-\d{2}-\d{2}$/.test(sourceDate)) return false;
+        var foreign = String(item.currency || 'KRW').toUpperCase() !== 'KRW'
+          && String(item.market || '').toUpperCase() !== 'KR';
+        if (!foreign) {
+          return sourceDate <= reqDate
+            && _countBusinessWeekdaysBetween(sourceDate, reqDate) <= domesticMaxLag;
+        }
+        // KST trading date is NOT the close date of NY or other foreign markets.
+        // Accept only a recent completed exchange-local regular session,
+        // permitting one weekday of lag for a foreign market holiday.
+        var cutoff = _foreignMarketRegularCloseCutoff_(item, now);
+        if (sourceDate > cutoff) return false;
+        var cursor = new Date(sourceDate + 'T12:00:00Z');
+        var target = new Date(cutoff + 'T12:00:00Z');
+        if (isNaN(cursor.getTime()) || isNaN(target.getTime())) return false;
+        var lag = 0;
+        for (; cursor < target && lag < 2;) {
+          cursor.setUTCDate(cursor.getUTCDate() + 1);
+          var day = cursor.getUTCDay();
+          if (day !== 0 && day !== 6) lag++;
+        }
+        return cursor >= target && lag <= 1;
+      }
+
       data.forEach(function(row) {
-        var code  = (row[0] || '').toString().trim();
+        var code = (row[0] || '').toString().trim();
         var price = parseFloat(row[1]) || 0;
-        var name  = (row[2] || '').toString().trim();
-        if (code && price > 0) {
-          prices[code] = { price: price, name: name, officialName: name };
-          // The old GET-compatible path must validate actual cache timestamps.
-          // A nonempty sheet is not proof that any close is current.
-          cacheDates.push(_normalizeDate(row[4] || '')); // source session date, never write timestamp
+        var name = (row[2] || '').toString().trim();
+        if (!code || price <= 0) return;
+        cacheCount++;
+        var sourceDate = _normalizeDate(row[4] || '');
+        if (rowFresh(code, sourceDate)) {
+          freshPrices[code] = { price:price, name:name, officialName:name };
         }
       });
-      var cacheCount = Object.keys(prices).length;
-      var session = _krxCalendarStatus_(reqDate);
-      var beforeClose = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'HHmm') < '1600';
-      var maxBusinessLag = session === 'OPEN' && beforeClose ? 1 : 0;
-      var cacheFresh = cacheCount > 0 && cacheDates.length === cacheCount
-        && cacheDates.every(function(date) {
-          return !!date && date <= reqDate
-            && _countBusinessWeekdaysBetween(date, reqDate) <= maxBusinessLag;
-        });
-      if (cacheFresh) {
-        return jsonOk({ date: reqDate, count: cacheCount, prices: prices, source: 'cache',
-          missingCodes: calcMissing(allCodesParam, Object.keys(prices)) });
+      var freshCount = Object.keys(freshPrices).length;
+      if (cacheCount > 0 && freshCount === cacheCount) {
+        return jsonOk({ date:reqDate, count:freshCount, prices:freshPrices, source:'cache',
+          missingCodes:calcMissing(allCodesParam,Object.keys(freshPrices)) });
       }
-      if (cacheCount > 0) Logger.log('[price-source] 레거시 종가 캐시 오래됨/갱신일시 불명: 원천 재조회');
+      if (cacheCount > 0)
+        Logger.log('[price-source] 원천 종가일·시장별 세션 검사: ' + freshCount + '/' + cacheCount + ' 유효');
+
+      if (freshCount && codeItems.length) {
+        // Preserve verified foreign closes when a domestic row is stale.
+        // Never rehabilitate an unverified old KR cache or a future US close.
+        var missingItems = codeItems.filter(function(item) { return !freshPrices[item.code]; });
+        var fetched = fetchPricesGoogleFinance(missingItems,reqDate,ss,{useMarketCloseCutoffs:true});
+        Object.keys(fetched || {}).forEach(function(code) {
+          var row = fetched[code];
+          if (row && Number(row.price) > 0 && rowFresh(code, _normalizeDate(row.usedDate || row.marketDate || '')))
+            freshPrices[code] = row;
+        });
+        return jsonOk({ date:reqDate, count:Object.keys(freshPrices).length,
+          prices:freshPrices, source:'confirmed-close+validated-cache', tossCount:0,
+          missingCodes:calcMissing(allCodesParam,Object.keys(freshPrices)) });
+      }
     }
     return handleHistoricalPriceFetch(todayStr, allCodesParam, ss);
   } catch(err) {
