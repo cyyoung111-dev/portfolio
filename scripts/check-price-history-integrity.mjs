@@ -51,15 +51,20 @@ assert.match(gas, /function _repairKnownCodeColumns[\s\S]*range\.setValues\(valu
 assert.match(pipeline, /미검증 날짜는 저장 Snapshot으로 표시/);
 assert.match(view, /HISTORY_BLOCKING_INTEGRITY_STATUSES[^\n]*PARTIAL[^\n]*MISMATCH[^\n]*CONFLICT[^\n]*NO_SNAPSHOT/);
 assert.match(view, /portfolioSnapshots[\s\S]*filter\(_isVerifiedHistoryPoint\)/);
-assert.match(html, /views\/views_history\.js\?v=20261007-8/);
-assert.match(sw, /views\/views_history\.js\?v=20261007-8/);
-const cacheVersion = sw.match(/const CACHE_NAME\s*=\s*'portfolio-cache-(\d{8}-\d+)'/);
-assert.ok(cacheVersion, 'service worker must expose a versioned cache name');
-const viewerScriptVersion = html.match(/views\/views_portfolio\.js\?v=(\d{8}-\d+)/);
-assert.ok(viewerScriptVersion, 'portfolio viewer requires a versioned script URL');
-assert.ok(sw.includes('./views/views_portfolio.js?v=' + viewerScriptVersion[1]),
-  'viewer and service-worker precache must use the same bundle version');
-assert.ok(html.includes("serviceWorker.register('sw.js?v=" + cacheVersion[1] + "'"),
-  'service-worker URL version must track its CACHE_NAME');
+assert.match(html, /views\/views_history\.js\?v=20261011-3/);
+assert.match(sw, /views\/views_history\.js\?v=20261011-3/);
+const viewerScriptVersion=html.match(/views\/views_portfolio\.js\?v=(\d{8}-\d+)/);
+const systemScriptVersion=html.match(/views\/views_system\.js\?v=(\d{8}-\d+)/);
+const cacheVersion=sw.match(/const CACHE_NAME\s*=\s*'portfolio-cache-(\d{8}-\d+)'/);
+assert.ok(viewerScriptVersion && systemScriptVersion && cacheVersion,
+  'combined viewer must have versioned URLs and cache');
+assert.ok(sw.includes('./views/views_portfolio.js?v='+viewerScriptVersion[1]),
+  'portfolio cache and PWA precache viewer revisions must match');
+assert.ok(sw.includes('./views/views_system.js?v='+systemScriptVersion[1]),
+  'outer view cache and PWA precache viewer revisions must match');
+assert.ok(html.includes("serviceWorker.register('sw.js?v="+cacheVersion[1]+"'"),
+  'PWA registration and precache must be the same release');
+
+assert.match(sw, /portfolio-cache-\d{8}-\d+/);
 assert.doesNotMatch(sw, /views\/views_history\.js\?v=20260917-2/);
 console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 Snapshot 성과 유지·복구/cache 회귀 검사 통과');

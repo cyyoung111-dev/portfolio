@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.192
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.194
+//
+//  v9.194 변경사항 (2026.10.11):
+//   장중 KRX 확정 종가를 직전 완료 거래일에 별도 조회하고 UNKNOWN·휴장·stale 검증을 강화
+//   종가 캐시의 원천일자·갱신일시 분리, KRX 인증 대체 및 펀드 평가 진단 통합
+//   후속 PR #480/#481과 동일 배포로 묶어 운영에서 개별 단계 버전 혼용 방지
 //
 //  v9.192 변경사항 (2026.10.09):
 //   장전 브리핑에서 Toss 실패 시 직전 KRX 정규장 공식 종가 조회
@@ -1827,30 +1832,120 @@ function handleDiagnoseTossMarketData() {
 // ════════════════════════════════════════════════════════════════════
 function handlePriceFetch(dateParam, allCodesParam) {
   try {
-    var ss       = getss();
+    var ss = getss();
     var todayStr = today();
-    var reqDate  = dateParam || todayStr;
+    var reqDate = dateParam || todayStr;
     if (reqDate !== todayStr) return handleHistoricalPriceFetch(reqDate, allCodesParam, ss);
 
     var priceSheet = ss.getSheetByName(CONFIG.SHEET_PRICES);
     if (priceSheet && priceSheet.getLastRow() >= 2) {
-      var data   = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 4).getValues();
-      var prices = {};
+      var data = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 5).getValues();
+      var codeItems = getCodeItems(ss);
+      var codeMap = {};
+      codeItems.forEach(function(item) { codeMap[item.code] = item; });
+      var prices = {}, freshPrices = {}, cacheCount = 0;
+      var session = _krxCalendarStatus_(reqDate);
+      var now = new Date();
+      var beforeClose = Utilities.formatDate(now, CONFIG.TIMEZONE, 'HHmm') < '1600';
+      var domesticMaxLag = session !== 'CLOSED' && beforeClose ? 1 : 0;
+
+      function rowFresh(code, sourceDate) {
+        var item = codeMap[code];
+        if (!item || !sourceDate || !/^\d{4}-\d{2}-\d{2}$/.test(sourceDate)) return false;
+        var foreign = String(item.currency || 'KRW').toUpperCase() !== 'KRW'
+          && String(item.market || '').toUpperCase() !== 'KR';
+        if (!foreign) {
+          // An intraday TDD_CLSPRC/cached quote is not a completed daily close.
+          if (session !== 'CLOSED' && beforeClose && sourceDate === reqDate) return false;
+          return sourceDate <= reqDate
+            && _countBusinessWeekdaysBetween(sourceDate, reqDate) <= domesticMaxLag;
+        }
+        // KST trading date is NOT the close date of NY or other foreign markets.
+        // Only an exact last-completed market-local weekday can be
+        // asserted without an exchange holiday calendar. A one-weekday lag
+        // can be provider staleness, not proof of an exchange closure.
+        var cutoff = _foreignMarketRegularCloseCutoff_(item, now);
+        return sourceDate === cutoff;
+      }
+
       data.forEach(function(row) {
-        var code  = (row[0] || '').toString().trim();
+        var code = (row[0] || '').toString().trim();
         var price = parseFloat(row[1]) || 0;
-        var name  = (row[2] || '').toString().trim();
-        if (code && price > 0) prices[code] = { price: price, name: name, officialName: name };
+        var name = (row[2] || '').toString().trim();
+        if (!code || price <= 0) return;
+        cacheCount++;
+        var sourceDate = _normalizeDate(row[4] || '');
+        if (rowFresh(code, sourceDate)) {
+          freshPrices[code] = { price:price, name:name, officialName:name };
+        }
       });
-      if (Object.keys(prices).length > 0) {
-        return jsonOk({ date: reqDate, count: Object.keys(prices).length, prices: prices, source: 'cache',
-          missingCodes: calcMissing(allCodesParam, Object.keys(prices)) });
+      var freshCount = Object.keys(freshPrices).length;
+      if (cacheCount > 0 && freshCount === cacheCount) {
+        return jsonOk({ date:reqDate, count:freshCount, prices:freshPrices, source:'cache',
+          missingCodes:calcMissing(allCodesParam,Object.keys(freshPrices)) });
+      }
+      if (cacheCount > 0)
+        Logger.log('[price-source] 원천 종가일·시장별 세션 검사: ' + freshCount + '/' + cacheCount + ' 유효');
+
+      if (freshCount && codeItems.length) {
+        // Preserve verified foreign closes when a domestic row is stale.
+        // Never rehabilitate an unverified old KR cache or a future US close.
+        var missingItems = codeItems.filter(function(item) { return !freshPrices[item.code]; });
+        var fetched = fetchPricesGoogleFinance(missingItems,reqDate,ss,{useMarketCloseCutoffs:true});
+        Object.keys(fetched || {}).forEach(function(code) {
+          var row = fetched[code];
+          if (row && Number(row.price) > 0 && rowFresh(code, _normalizeDate(row.usedDate || row.marketDate || '')))
+            freshPrices[code] = row;
+        });
+        return jsonOk({ date:reqDate, count:Object.keys(freshPrices).length,
+          prices:freshPrices, source:'confirmed-close+validated-cache', tossCount:0,
+          missingCodes:calcMissing(allCodesParam,Object.keys(freshPrices)) });
       }
     }
-    return handleHistoricalPriceFetch(todayStr, allCodesParam, ss);
+    // A cache miss is still a current-price request: evaluate each market's
+    // last completed session instead of treating KST today as the NY close.
+    return handleCurrentConfirmedPriceFetch(todayStr, allCodesParam, ss);
   } catch(err) {
     return jsonError(err.message);
   }
+}
+
+// The legacy GET path must not turn a cache miss into an arbitrary-date
+// historical lookup. Domestic dates must match the latest completed KRX
+// session; foreign dates must be exchange-local completed regular sessions.
+// This path returns read-only prices and never writes history/Snapshot.
+function handleCurrentConfirmedPriceFetch(dateStr, allCodesParam, ss) {
+  var items = getCodeItems(ss);
+  if (!items.length) return jsonError('종목코드 없음. initSheet() 먼저 실행하세요.');
+  var now = new Date();
+  var session = _krxCalendarStatus_(dateStr);
+  var beforeClose = Utilities.formatDate(now, CONFIG.TIMEZONE, 'HHmm') < '1600';
+  var domesticLag = session !== 'CLOSED' && beforeClose ? 1 : 0;
+  var queried = fetchPricesGoogleFinance(items, dateStr, ss,
+    {useMarketCloseCutoffs:true,asOf:now});
+  var confirmed = {};
+  items.forEach(function(item) {
+    var row = queried && queried[item.code];
+    if (!row || !(Number(row.price) > 0)) return;
+    var used = _normalizeDate(row.usedDate || row.marketDate || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(used)) return;
+    var foreign = String(item.currency || 'KRW').toUpperCase() !== 'KRW'
+      && String(item.market || '').toUpperCase() !== 'KR';
+    if (!foreign) {
+      if (used > dateStr || (session !== 'CLOSED' && beforeClose && used === dateStr)) return;
+      if (_countBusinessWeekdaysBetween(used,dateStr) > domesticLag) return;
+    } else {
+      var cutoff = _foreignMarketRegularCloseCutoff_(item,now);
+      if (used > cutoff) return;
+      // Unverified holidays stay missing instead of silently accepting a
+      // stale Yahoo quote as the latest completed regular-session close.
+      if (used !== cutoff) return;
+    }
+    confirmed[item.code] = row;
+  });
+  return jsonOk({ date:dateStr, count:Object.keys(confirmed).length,
+    prices:confirmed, source:'confirmed-completed-sessions', tossCount:0,
+    missingCodes:calcMissing(allCodesParam,Object.keys(confirmed)) });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -1972,8 +2067,31 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   if (gfItems.length > 0 && !(options && options.skipKrx)) {
     try {
       var krxItems = gfItems.filter(function(item) { return String(item.currency || 'KRW').toUpperCase() === 'KRW' || String(item.market || '').toUpperCase() === 'KR'; });
-      var krxPrices = fetchPricesKrx(krxItems, dateStr);
-      Object.keys(krxPrices).forEach(function(code) { prices[code] = krxPrices[code]; });
+      // Never use an intraday KRX quote as a completed regular-session close.
+      // Explicitly request the previous confirmed calendar session during the
+      // Korean market day, even if the current-date API returns a partial row.
+      var krxQueryDate = dateStr;
+      if (options && options.useMarketCloseCutoffs
+          && _krxCalendarStatus_(dateStr) !== 'CLOSED'
+          && Utilities.formatDate(options.asOf || new Date(), CONFIG.TIMEZONE, 'HHmm') < '1600') {
+        var dayCursor = new Date(dateStr + 'T12:00:00Z');
+        krxQueryDate = '';
+        for (var lagDay = 0; lagDay < 14; lagDay++) {
+          dayCursor.setUTCDate(dayCursor.getUTCDate() - 1);
+          var candidateDate = Utilities.formatDate(dayCursor, 'UTC', 'yyyy-MM-dd');
+          if (_krxCalendarStatus_(candidateDate) !== 'CLOSED') {
+            krxQueryDate = candidateDate;
+            break;
+          }
+        }
+      }
+      var krxPrices = krxQueryDate ? fetchPricesKrx(krxItems, krxQueryDate) : {};
+      Object.keys(krxPrices).forEach(function(code) {
+        var record = krxPrices[code];
+        // Reject an API fallback older than the requested completed session.
+        if (krxQueryDate === dateStr || _normalizeDate(record.usedDate || '') === krxQueryDate)
+          prices[code] = record;
+      });
       gfItems = items.filter(function(item) { return !(prices[item.code] && prices[item.code].price > 0); });
       Logger.log('[price-source] 확정 KRX ' + Object.keys(krxPrices).length + '건, 저장된 확정 이력 fallback 대상 ' + gfItems.length + '건');
     } catch (e) {
@@ -2023,6 +2141,34 @@ function fetchPricesKrx(items, dateStr) {
   var codeMarkets = {};
   var markets = ['KOSPI', 'KOSDAQ', 'ETF'];
   var packs = _fetchKrxMarketsParallelWithFallback(markets, ymd, cfg.apiKey, 7);
+  var credentialSlots = _getKrxAuthKeySlots_();
+  // Each KRX API approval may differ by category. Retry only the markets
+  // explicitly denied by the selected key; preserve all successful packs.
+  // Never switch on empty/late data alone, and never mutate stored credentials.
+  var authDeniedMarkets = markets.filter(function(market) {
+    var pack = packs[market] || {};
+    return !(pack.rows && pack.rows.length) &&
+      (pack.authHttpStatus === 401 || pack.authHttpStatus === 403);
+  });
+  if (credentialSlots.alternative && authDeniedMarkets.length) {
+    try {
+      var alternatePacks = _fetchKrxMarketsParallelWithFallback(
+        authDeniedMarkets, ymd, credentialSlots.alternative, 7);
+      var recovered = [];
+      authDeniedMarkets.forEach(function(market) {
+        if (alternatePacks[market] && alternatePacks[market].rows.length > 0) {
+          packs[market] = alternatePacks[market];
+          recovered.push(market);
+        }
+      });
+      Logger.log('[KRX-STOCK] 다른 승인 슬롯 확인: 인증 거부 시장 ' +
+        authDeniedMarkets.join(',') + ', 정상 복구 시장 ' + recovered.join(',') +
+        ' (비밀키 비노출)');
+    } catch (alternateError) {
+      // Optional credential recovery must never discard an already approved market.
+      Logger.log('[KRX-STOCK] 보조 인증키 조회 실패: 정상 시장 결과 유지');
+    }
+  }
   markets.forEach(function(market) {
     try {
       var pack = packs[market] || { rows: [], usedYmd: ymd };
@@ -2050,10 +2196,43 @@ function fetchPricesKrx(items, dateStr) {
       Logger.log('⚠️ KRX OpenAPI 조회 실패(' + market + '): ' + e.message);
     }
   });
-  if (Object.keys(out).length === 0) {
-    Logger.log('ℹ️ KRX OpenAPI 결과 없음: OTP/CSV fallback 시도');
-    return fetchPricesKrxViaOtp(items, dateStr);
+  // Mixed market approvals can return a valid KOSPI pack while leaving
+  // KOSDAQ/ETF missing. Recover ONLY missing codes by the existing official
+  // OTP/CSV source; never replace a confirmed OpenAPI stock with a fallback.
+  // UNKNOWN calendar years are not proof of a closure. The final-close
+  // validator also requires exact-date KRX closes except for CLOSED dates.
+  var needExactSession = _krxCalendarStatus_(dateStr) !== 'CLOSED';
+  var missingItems = items.filter(function(item) {
+    var row = out[item.code];
+    return !row || (needExactSession && _normalizeDate(row.usedDate || '') !== dateStr);
+  });
+  var otpRecovered = 0;
+  if (missingItems.length) {
+    try {
+      var otpPrices = fetchPricesKrxViaOtp(missingItems, dateStr);
+      var otpEvidence = otpPrices && otpPrices._krxMarketEvidence || {};
+      Object.keys(otpPrices || {}).forEach(function(code) {
+        var original = out[code];
+        var candidate = otpPrices[code];
+        if (!wanted[code] || !(Number(candidate && candidate.price) > 0)) return;
+        // Exact same-day OTP is the only source allowed to replace an
+        // already-confirmed but stale OpenAPI fallback on a non-CLOSED session.
+        // Never let a carry/partial OTP overwrite a valid exact-date KRX row.
+        if (original && (!needExactSession
+          || _normalizeDate(original.usedDate || '') === dateStr)) return;
+        if (needExactSession && (_normalizeDate(candidate.usedDate || '') !== dateStr
+          || String(candidate.source || '').toUpperCase() !== 'KRX_OTP')) return;
+        out[code] = candidate;
+        if (otpEvidence.codeMarkets && otpEvidence.codeMarkets[code])
+          codeMarkets[code] = otpEvidence.codeMarkets[code];
+        otpRecovered++;
+      });
+    } catch (otpError) {
+      Logger.log('[KRX-STOCK] 미복구 시장 OTP 조회 실패: 기존 확인 종가 유지');
+    }
+    if (otpRecovered) Logger.log('[KRX-STOCK] 누락 종목 OTP/CSV 공식 종가 보강 ' + otpRecovered + '건');
   }
+  if (Object.keys(out).length === 0) return out;
   var evidence = {};
   markets.forEach(function(market) {
     var pack = packs[market] || { rows:[], usedYmd:ymd };
@@ -2061,6 +2240,7 @@ function fetchPricesKrx(items, dateStr) {
       date:String(pack.usedYmd || '').replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3') };
   });
   evidence.codeMarkets = codeMarkets;
+  if (otpRecovered) evidence.mode = 'OTP'; // mixed official provenance; per-row KRX/OTP dates remain mandatory
   Object.defineProperty(out, '_krxMarketEvidence', { value:evidence, enumerable:false });
   return out;
 }
@@ -2133,6 +2313,8 @@ function _fetchKrxMarketsParallelWithFallback(markets, ymd, authKey, maxLookback
   }
   markets.forEach(function(market) {
     if (!result[market]) result[market] = { rows: [], usedYmd: ymd };
+    // HTTP failure evidence is in-memory only; no credential is logged.
+    if (blockedMarkets[market]) result[market].authHttpStatus = blockedMarkets[market];
   });
   return result;
 }
@@ -2269,9 +2451,16 @@ function _getKrxApiConfig() {
   return { endpoint: endpoint, bld: bld, apiKey: apiKey };
 }
 
-function _getKrxAuthKey() {
+function _getKrxAuthKeySlots_() {
   var props = PropertiesService.getScriptProperties();
-  return (props.getProperty('krx_auth_key') || props.getProperty('krx_api_key') || '').trim();
+  var primary = String(props.getProperty('krx_auth_key') || '').trim();
+  var legacy = String(props.getProperty('krx_api_key') || '').trim();
+  return { key:primary || legacy, source:primary ? 'krx_auth_key' : (legacy ? 'krx_api_key' : 'NONE'),
+    alternative:primary && legacy && primary !== legacy ? legacy : '',
+    alternativeConfigured:!!(primary && legacy && primary !== legacy) };
+}
+function _getKrxAuthKey() {
+  return _getKrxAuthKeySlots_().key;
 }
 
 function configureKrxAuthKeyPrompt() {
@@ -2289,8 +2478,11 @@ function configureKrxAuthKeyPrompt() {
   var input = (resp.getResponseText() || '').trim();
   var props = PropertiesService.getScriptProperties();
   if (input === '-') {
+    // The fallback slot was previously left intact, silently resurrecting a
+    // stale credential after the user explicitly removed the KRX key.
     props.deleteProperty('krx_auth_key');
-    ui.alert('✅ krx_auth_key 삭제 완료');
+    props.deleteProperty('krx_api_key');
+    ui.alert('✅ KRX 인증키(기본·이전 슬롯) 삭제 완료');
     return;
   }
   if (!input) {
@@ -2640,23 +2832,23 @@ function updatePrices() {
 
   var results = items.map(function(item) {
     var p = prices[item.code];
-    return [item.code, p ? p.price : '', item.name, now];
+    return [item.code, p ? p.price : '', item.name, now, _normalizeDate(p && p.usedDate || '')];
   });
 
   var ps = ss.getSheetByName(CONFIG.SHEET_PRICES) || ss.insertSheet(CONFIG.SHEET_PRICES);
   ps.clearContents(); ps.clearFormats();
-  var allRows = [['종목코드','종가','종목명','갱신일시']].concat(results);
-  ps.getRange(1, 1, allRows.length, 4).setValues(allRows);
+  var allRows = [['종목코드','종가','종목명','갱신일시','종가원천일']].concat(results);
+  ps.getRange(1, 1, allRows.length, 5).setValues(allRows);
   ps.getRange(1, 1, 1, 4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   ps.setColumnWidth(1, 90); ps.setColumnWidth(2, 90);
-  ps.setColumnWidth(3, 200); ps.setColumnWidth(4, 160);
+  ps.setColumnWidth(3, 200); ps.setColumnWidth(4, 160); ps.setColumnWidth(5, 110);
   SpreadsheetApp.flush();
 
   var todayStr = today();
   var phItems  = [];
   items.forEach(function(item) {
     var p = prices[item.code];
-    if (p && p.price > 0) phItems.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'GOOGLEFINANCE') });
+    if (p && p.price > 0 && _normalizeDate(p.usedDate || '') === todayStr) phItems.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'GOOGLEFINANCE') });
   });
   if (phItems.length > 0) batchUpsertPriceHistory(ss, todayStr, phItems);
 
@@ -5118,7 +5310,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.192' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.194' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6086,7 +6278,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
   });
   _fundRecoveryDiagnosticFinish(diagnostic, 'end');
   _fundRecoveryDiagnosticStart(diagnostic, onlyCode, 'snapshotWrite', 'writeSnapshotRows');
-  var snapshotCount = 0, snapshotOperationUnsafe = false;
+  var snapshotCount = 0, snapshotValidatedNoOp = 0, snapshotOperationUnsafe = false;
   var previousSnapshotOperationId = _snapshotBackupOperationId;
   var fundSnapshotOperationId = 'refreshFundValuations|' + (onlyCode || 'ALL') + '|' + from + '|' + to + '|' + Utilities.getUuid();
   _snapshotBackupOperationId = fundSnapshotOperationId;
@@ -6112,6 +6304,20 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
       byDate[date].forEach(function(value) { if (fundResults[value[1]]) fundResults[value[1]].status = 'partial'; });
       return;
     }
+    // A NAV/price provenance correction can reach this loop while the stored
+    // full Snapshot already equals the safe merged target. Rewriting an
+    // unchanged 10k-row Sheet on every such date consumes GAS's 6-minute
+    // budget and may trigger an unnecessary whole-sheet backup.
+    if (!fundRewritePlan.needsRewrite) {
+      snapshotValidatedNoOp++;
+      byDate[date].forEach(function(value) {
+        var item = fundResults[value[1]] && (fundResults[value[1]].dates || []).find(function(row) {
+          return row.date === date;
+        });
+        if (item) { item.evaluationState = 'EXISTING_VALID'; item.snapshotState = 'EXISTING_VALID'; }
+      });
+      return;
+    }
     writeSnapshotRows(ss, date, combined, true, null, configs);
     snapshotCount++;
     byDate[date].forEach(function(value) {
@@ -6135,7 +6341,7 @@ function _refreshFundValuations(ss, from, to, onlyCode, skipExternal, diagnostic
     processing: {
       nav: { processed: values.length, pending: Object.keys(fundResults).reduce(function(sum, code) { return sum + Number(fundResults[code].navMissing || 0); }, 0) },
       priceHistory: { processed: values.length, pending: 0 },
-      snapshots: { processed: snapshotCount, pending: Math.max(0, Object.keys(byDate).length - snapshotCount), reasons: missingHoldings.slice() }
+      snapshots: { processed: snapshotCount + snapshotValidatedNoOp, pending: Math.max(0, Object.keys(byDate).length - snapshotCount - snapshotValidatedNoOp), reasons: missingHoldings.slice() }
     },
     missingHoldings: missingHoldings, snapshotWarnings: snapshotWarnings,
     lastDate: values.map(function(v) { return v.date; }).sort().pop() || '', fundResults: fundResults
@@ -7282,7 +7488,7 @@ function runDailyFundValuations(targetDate) {
       var latestDate = latestAttempt > resultDate ? latestAttempt : resultDate;
       if (latestDate && runDate < latestDate) return;
       p.setProperty('fund_last_attempt_owner_v1',
-        JSON.stringify({date:runDate,token:attemptId}));
+        JSON.stringify({date:runDate,token:attemptId,startedAt:Date.now()}));
       // If a mirror write fails, no previous attempt can falsely claim
       // ownership; publishIfOwner always checks the combined JSON marker.
       p.setProperty('fund_last_attempt_date', runDate);
@@ -7313,12 +7519,19 @@ function runDailyFundValuations(targetDate) {
       if (warnings.length) p.setProperty('fund_last_warning', _fundPropertyText(warnings.join(' | '), 2000));
       else p.deleteProperty('fund_last_warning');
       p.deleteProperty('fund_last_error');
+      // Durable completion proof: an Apps Script hard timeout skips catch/finally.
+      // The exact owner token prevents an older overlapping run from clearing
+      // or completing a newer run's in-progress diagnostic.
+      p.setProperty('fund_last_attempt_completion_v1',
+        JSON.stringify({date:runDate,token:attemptId,state:'DONE',at:Date.now()}));
     });
     return result;
   } catch (err) {
     if (runDate) {
       publishIfOwner(function(p) {
         p.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
+        p.setProperty('fund_last_attempt_completion_v1',
+          JSON.stringify({date:runDate,token:attemptId,state:'ERROR',at:Date.now()}));
       });
     } else props.setProperty('fund_last_error', _fundPropertyText(err && err.message ? err.message : err, 2000));
     throw err;
@@ -9204,6 +9417,13 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
   var lag = _countBusinessWeekdaysBetween(newestDate, requestedDate);
   if (lag > 2) throw new Error('일반 종목 확정 종가 오래됨: 요청 ' + requestedDate + ', 최근 KRX ' + newestDate
     + ' (KRX 거래일 ' + lag + '일 차이) · 가격 수집 경로 점검이 필요합니다.');
+  // A fallback close from T-1/T-2 may be shown as a historical/indicative
+  // price, but MUST NOT make a normal trading day's final snapshot succeed.
+  // Only a verified KRX CLOSED session may inherit an earlier official close.
+  if (_krxCalendarStatus_(requestedDate) !== 'CLOSED' && newestDate !== requestedDate) {
+    throw new Error('일반 종목 확정 종가 원천일 불일치: 요청 ' + requestedDate
+      + ', 실제 KRX ' + newestDate + ' · 정상 거래일 종가 이월 확정 금지');
+  }
   Object.keys(byMarket).forEach(function(group) {
     var stat = byMarket[group];
     var matched = stat.dates.filter(function(date) { return date === newestDate; }).length;
@@ -10635,6 +10855,23 @@ function _isPortfolioCloseRunStale(portfolioClose) {
 }
 
 
+// Read-only, token-free view of the latest automatic NAV attempt.
+// A hard-killed GAS process has no catch/finally; distinguish its orphaned
+// start from a completed result without guessing that the provider failed.
+function _fundAttemptDiagnosticState_(owner, completion, nowMs) {
+  if (!owner || !owner.date || !owner.token) return null;
+  var completed = completion && completion.date === owner.date && completion.token === owner.token
+    && (completion.state === 'DONE' || completion.state === 'ERROR');
+  var started = Number(owner.startedAt || 0);
+  var finished = completed ? Number(completion.at || 0) : 0;
+  var now = Number(nowMs);
+  var state = completed ? completion.state
+    : (!started ? 'UNKNOWN_LEGACY'
+      : (now >= started && now - started >= 7 * 60 * 1000
+        ? 'TIMEOUT_SUSPECTED' : 'IN_PROGRESS'));
+  return {date:String(owner.date), startedAtMs:started, finishedAtMs:finished, state:state};
+}
+
 function _getAutomationStatusData() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
@@ -10657,6 +10894,9 @@ function _getAutomationStatusData() {
   var fundLastResult = parseProperty('fund_last_result');
   var fundLastWarning = props.getProperty('fund_last_warning') || '';
   var fundLastError = props.getProperty('fund_last_error') || '';
+  var fundAttemptOwner = parseProperty('fund_last_attempt_owner_v1');
+  var fundCompletion = parseProperty('fund_last_attempt_completion_v1');
+  var fundAttempt = _fundAttemptDiagnosticState_(fundAttemptOwner, fundCompletion, Date.now());
   var expectedSnapshotDate = _expectedConfirmedSnapshotDate(priceHistoryLastDate, portfolioClose);
   var snapshotStale = snapshotLastDate === '-' || snapshotLastDate < expectedSnapshotDate;
   var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
@@ -10676,10 +10916,11 @@ function _getAutomationStatusData() {
   else if (!portfolioClose) overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN';
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
-  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length) overallStatus = 'WARNING';
+  else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length
+    || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.192',
+    gasVersion: '9.194',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -10712,13 +10953,14 @@ function _getAutomationStatusData() {
     expectedSnapshotDate: expectedSnapshotDate,
     snapshotStale: snapshotStale,
     fundLastDate: fundLastResult && fundLastResult.lastDate ? fundLastResult.lastDate : '',
+    fundAttempt: fundAttempt,
     fundLastWarning: fundLastWarning,
     fundLastError: fundLastError
   };
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.192' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.194' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -10936,8 +11178,10 @@ function handleGetKrxSourceDiagnostics(dateStr) {
   try {
     var date = _normalizeDate(dateStr || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return jsonError('진단할 거래일 YYYY-MM-DD를 입력하세요.');
-    var authKey = _getKrxAuthKey();
-    if (!authKey) return jsonOk({ requestedDate:date, keyConfigured:false, markets:[] });
+    var slots = _getKrxAuthKeySlots_();
+    var authKey = slots.key;
+    if (!authKey) return jsonOk({ requestedDate:date, keyConfigured:false, markets:[],
+      credentialSource:'NONE', alternativeConfigured:false });
     var markets = ['KOSPI','KOSDAQ','ETF'];
     var inputs = markets.map(function(market) {
       return { url:_getKrxEndpointByMarket(market) + '?basDd=' + date.replace(/-/g,''),
@@ -10958,8 +11202,33 @@ function handleGetKrxSourceDiagnostics(dateStr) {
         output.push({market:markets[index], httpStatus:status, rows:rows, parseStatus:parseStatus});
       });
     } catch(error) { return jsonOk({ requestedDate:date, keyConfigured:true,
-      markets:output, networkStatus:'FETCH_FAILED', message:'KRX 네트워크 요청 실패' }); }
-    return jsonOk({ requestedDate:date, keyConfigured:true, markets:output, networkStatus:'RECEIVED' });
+      markets:output, networkStatus:'FETCH_FAILED', message:'KRX 네트워크 요청 실패',
+      credentialSource:slots.source, alternativeConfigured:slots.alternativeConfigured }); }
+    var alternateProbe = null;
+    var deniedForProbe = output.filter(function(item) {
+      return item.httpStatus === 401 || item.httpStatus === 403;
+    });
+    if (slots.alternative && deniedForProbe.length) {
+      // Probe one rejected market only. Per-category KRX approvals can differ
+      // even if some markets already succeeded with the primary key.
+      var marketToProbe = deniedForProbe[0].market;
+      try {
+        var alternateResponse = UrlFetchApp.fetch(inputs[markets.indexOf(marketToProbe)].url, {
+          method:'get', headers:{AUTH_KEY:slots.alternative}, muteHttpExceptions:true
+        });
+        var altStatus = alternateResponse.getResponseCode(), altRows = 0;
+        if (altStatus === 200) {
+          var altPayload = JSON.parse(alternateResponse.getContentText() || '{}');
+          altRows = Array.isArray(altPayload.OutBlock_1) ? altPayload.OutBlock_1.length : 0;
+        }
+        alternateProbe = {market:marketToProbe, httpStatus:altStatus, hasRows:altRows > 0};
+      } catch(error) {
+        alternateProbe = {market:marketToProbe, httpStatus:0, hasRows:false, networkStatus:'FETCH_FAILED'};
+      }
+    }
+    return jsonOk({ requestedDate:date, keyConfigured:true, markets:output,
+      networkStatus:'RECEIVED', credentialSource:slots.source,
+      alternativeConfigured:slots.alternativeConfigured, alternateProbe:alternateProbe });
   } catch(err) { return jsonError('KRX 진단 실패: ' + String(err.message || 'unknown').slice(0,140)); }
 }
 
@@ -13406,7 +13675,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.192' });
+    return jsonOk({ settings: settings, gasVersion: '9.194' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13434,7 +13703,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.192'
+      gasVersion: '9.194'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

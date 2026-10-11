@@ -4,6 +4,10 @@ import {
   buildUpdatedFiles,
   deploymentIdFromWebAppUrl,
   extractExpectedGasVersion,
+  assertGasReleaseReady,
+  assertGasProjectFileSet,
+  assertGasCreatedVersionReady,
+  gasSourceBlobSha,
   parseClaspCredentials,
   sanitizeFiles,
   selectServerFile,
@@ -17,6 +21,56 @@ function handle(){ return { gasVersion: '9.160' }; }
 const x = { gasVersion: '9.160' };`;
 assert.equal(extractExpectedGasVersion(source), '9.160');
 assert.throws(() => extractExpectedGasVersion(`// Google Apps Script  v9.160\nconst x={gasVersion:'9.159'};`), /버전 불일치/);
+
+assert.equal(gasSourceBlobSha('hello'), 'b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0',
+  'hashing must match Git blob format, not a plain-file digest');
+assert.throws(() => assertGasReleaseReady(source),
+  /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed old versions and rollbacks must fail closed');
+
+const partialRelease = source.replaceAll('9.160', '9.193');
+assert.throws(() => assertGasReleaseReady(partialRelease),
+  /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'partial 9.193 must never be deployed');
+const fakeFullRelease = partialRelease + `
+function _getKrxAuthKeySlots_(){}
+const found = { fundAttempt: {} };
+let snapshotValidatedNoOp=0; snapshotValidatedNoOp++;
+var authDeniedMarkets=[];
+var missingItems = items.filter(() => true);
+// 종가원천일
+`;
+assert.throws(() => assertGasReleaseReady(fakeFullRelease),
+  /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
+
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.195');
+assert.throws(() => assertGasReleaseReady(bumpedVersion),
+  /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.195','10.0')),
+  /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
+
+const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
+const approvedFullSourceBlob='8082cf7b1f988b008799f8be1439cf4d54a3b51e';
+const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
+if (hasStackedKrxRecovery) {
+  assert.equal(actualSourceBlob, approvedFullSourceBlob,
+    'a fully stacked PR #481 implementation must match the reviewed full-source blob');
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.194',
+    'the exact reviewed integrated PR #481 GAS source must deploy successfully');
+  assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
+    /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
+} else {
+  assert.throws(() => assertGasReleaseReady(currentGasSource),
+    /GAS_RELEASE_SOURCE_NOT_APPROVED|GAS_RELEASE_UNREVIEWED_VERSION/,
+    'partial stacked source should not pass the production readiness gate');
+}
+
+const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
+assert.match(deployScript, /dryRun\s*\?\s*extractExpectedGasVersion\(source\)\s*:\s*assertGasReleaseReady\(source\)/,
+  'production preflight must run before GAS credentials and API writes');
+assert.ok(
+  deployScript.indexOf('const expectedVersion = dryRun ?') <
+  deployScript.indexOf('const accessToken = await getAccessToken()'),
+  'reviewed source must be validated before obtaining OAuth credentials');
 
 
 const claspV3 = {
@@ -73,6 +127,55 @@ assert.equal(updated.find(file => file.name === 'helpers').source, 'function hel
 assert.equal(updated.find(file => file.name === 'page').source, '<b>keep</b>');
 assert.equal(updated.find(file => file.name === 'appsscript').source, '{"timeZone":"Asia/Seoul"}');
 assert.throws(() => buildUpdatedFiles(files.filter(file => file.name !== 'appsscript'), 'apps_script', 'new source'), /manifest/);
+
+const approvedProjectFiles = files.filter(f => f.name === 'appsscript' || f.name === 'apps_script');
+assert.equal(assertGasProjectFileSet(approvedProjectFiles,'apps_script',approvedProjectFiles),true,
+  'pinned sole GAS server and stable deployed manifest must pass');
+assert.throws(() => assertGasProjectFileSet(files,'apps_script',approvedProjectFiles),
+  /GAS_PROJECT_UNREVIEWED_FILES/, 'extra SERVER_JS/HTML must be rejected even when approved server matches');
+assert.throws(() => assertGasProjectFileSet([...approvedProjectFiles, {
+  name:'evil',type:'SERVER_JS',source:'function doGet() { return false; }'
+}], 'apps_script',approvedProjectFiles), /GAS_PROJECT_UNREVIEWED_FILES/,
+  'unexpected extra top-level code must never deploy');
+assert.throws(() => assertGasProjectFileSet(approvedProjectFiles,'apps_script',
+  [...approvedProjectFiles,{name:'extra',type:'SERVER_JS',source:'function legacy(){}'}]),
+  /GAS_PROJECT_UNREVIEWED_FILES/, 'deployed versions with extra executable code also fail closed');
+assert.throws(() => assertGasProjectFileSet(approvedProjectFiles.map(f =>
+  f.name==='appsscript'?{...f,source:'{"timeZone":"America/New_York"}'}:f),
+  'apps_script',approvedProjectFiles), /GAS_PROJECT_MANIFEST_DRIFT/,
+  'manifest drift must be blocked before first write');
+assert.throws(() => assertGasProjectFileSet(approvedProjectFiles.map(f =>
+  f.name==='appsscript'?{...f,source:'not-json'}:f),
+  'apps_script',approvedProjectFiles), /GAS_PROJECT_MANIFEST_DRIFT|GAS_PROJECT_MANIFEST_INVALID/);
+const validateOrder = fs.readFileSync('scripts/deploy-gas.mjs','utf8');
+assert.ok(validateOrder.indexOf('assertGasProjectFileSet(currentContent.files') <
+          validateOrder.indexOf('if (alreadyDeployed) {'),
+  'all-file validation must precede already-deployed fast path');
+assert.ok(validateOrder.indexOf('assertGasProjectFileSet(currentContent.files') <
+          validateOrder.indexOf("method: 'PUT'"),
+  'all-file validation must precede any GAS write');
+
+const versionFiles = approvedProjectFiles.map(f => f.name==='apps_script'
+  ? {...f,source:'new approved GAS source'} : f);
+assert.equal(assertGasCreatedVersionReady(versionFiles, 'apps_script',
+  'new approved GAS source',approvedProjectFiles),true);
+assert.throws(() => assertGasCreatedVersionReady(versionFiles,'apps_script',
+  'unreviewed different code',approvedProjectFiles),
+  /GAS_CREATED_VERSION_SOURCE_DRIFT/, 'concurrent GAS HEAD modification after POST must fail');
+assert.throws(() => assertGasCreatedVersionReady([...versionFiles,
+  {name:'other',type:'SERVER_JS',source:'function doGet() {}'}],
+  'apps_script','new approved GAS source',approvedProjectFiles),
+  /GAS_PROJECT_UNREVIEWED_FILES/, 'created version must not inherit unreviewed handlers');
+assert.throws(() => assertGasCreatedVersionReady(versionFiles.map(f =>
+  f.name==='appsscript'?{...f,source:'{"timeZone":"UTC"}'}:f),
+  'apps_script','new approved GAS source',approvedProjectFiles),
+  /GAS_PROJECT_MANIFEST_DRIFT/, 'created version manifest cannot change');
+const versionValidationPos=validateOrder.indexOf('assertGasCreatedVersionReady(createdVersionContent.files');
+const publishPos=validateOrder.indexOf('versionNumber: newVersionNumber,');
+assert.ok(versionValidationPos > 0 && publishPos > versionValidationPos,
+  'created immutable version must be verified before production deployment update');
+
+
 
 const workflow = fs.readFileSync('.github/workflows/gas-deploy.yml', 'utf8');
 assert.match(workflow, /push:\s*[\s\S]*branches:\s*\[\s*main\s*\][\s\S]*src\/gas\/apps_script\.gs/);

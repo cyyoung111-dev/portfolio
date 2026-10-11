@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const SCRIPT_API = 'https://script.googleapis.com/v1';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -18,6 +19,37 @@ export function extractExpectedGasVersion(source) {
   if (!refs.length) throw new Error('GAS 응답의 gasVersion 값을 찾지 못했습니다.');
   const mismatched = refs.filter(value => value !== version);
   if (mismatched.length) throw new Error(`GAS 버전 불일치: header=${version}, response=${[...new Set(refs)].join(',')}`);
+  return version;
+}
+
+// A production GAS release must match an explicitly reviewed, complete
+// source blob. A function name, comment, or version string is not evidence
+// that the stacked KRX/NAV/Snapshot implementations are present.
+//
+// The pinned Git blob ID below is the exact GAS file content reviewed on
+// PR #481 (not a commit ID). When approving a new GAS source/version, update
+// this manifest with the reviewed full-file blob SHA in the same reviewed PR.
+// Unknown future versions fail closed rather than bypassing this contract.
+const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.193': '811ef56ede77cd040819941e73e4729826de935b',
+  '9.194': '8082cf7b1f988b008799f8be1439cf4d54a3b51e',
+});
+
+export function gasSourceBlobSha(source) {
+  const bytes = Buffer.from(String(source ?? ''), 'utf8');
+  return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+}
+
+export function assertGasReleaseReady(source) {
+  const version = extractExpectedGasVersion(source);
+  // Older and newer versions alike require an explicit reviewed source pin.
+  // Rollbacks must also be approved rather than bypassing release integrity.
+  const reviewed = REVIEWED_GAS_SOURCE_BLOBS[version];
+  if (!reviewed) throw new Error(`GAS_RELEASE_UNREVIEWED_VERSION: ${version}`);
+  const actual = gasSourceBlobSha(source);
+  if (actual !== reviewed) {
+    throw new Error(`GAS_RELEASE_SOURCE_NOT_APPROVED: version=${version} actualBlob=${actual} reviewedBlob=${reviewed}`);
+  }
   return version;
 }
 
@@ -50,6 +82,43 @@ export function sanitizeFiles(files) {
     type: file.type,
     source: String(file.source ?? ''),
   }));
+}
+
+// Fail closed on unreviewed executable files. Apps Script compiles every
+// SERVER_JS and HTML file within a version, not just the replaced target.
+// The manifest is data, but it must match the currently deployed manifest;
+// HEAD-only changes to scopes, webApp access or runtime are not approved.
+export function assertGasProjectFileSet(files, targetName, deployedFiles) {
+  const clean = sanitizeFiles(files);
+  const deployed = sanitizeFiles(deployedFiles);
+  const expectedNames = new Set(['appsscript', targetName]);
+  const valid = list => list.length === 2
+    && list.every(f => expectedNames.has(f.name))
+    && list.filter(f => f.name === 'appsscript' && f.type === 'JSON').length === 1
+    && list.filter(f => f.name === targetName && f.type === 'SERVER_JS').length === 1;
+  if (!valid(clean) || !valid(deployed))
+    throw new Error('GAS_PROJECT_UNREVIEWED_FILES: expected one manifest JSON and one approved SERVER_JS');
+  const manifest = clean.find(f => f.name === 'appsscript').source;
+  const published = deployed.find(f => f.name === 'appsscript').source;
+  if (!sameSource(manifest, published))
+    throw new Error('GAS_PROJECT_MANIFEST_DRIFT: HEAD manifest differs from deployed manifest');
+  try {
+    if (!JSON.parse(manifest) || Array.isArray(JSON.parse(manifest))) throw new Error('not an object');
+  } catch (_) {
+    throw new Error('GAS_PROJECT_MANIFEST_INVALID: appsscript JSON is invalid');
+  }
+  return true;
+}
+
+// Google Apps Script versions are minted from the mutable project HEAD.
+// Validate the *created version*, not only the project state observed before
+// the write. This closes a concurrent-edit window before moving /exec.
+export function assertGasCreatedVersionReady(createdFiles, targetName, reviewedSource, deployedFiles) {
+  assertGasProjectFileSet(createdFiles, targetName, deployedFiles);
+  const versionFile = selectServerFile(createdFiles, targetName);
+  if (!sameSource(versionFile.source, reviewedSource))
+    throw new Error('GAS_CREATED_VERSION_SOURCE_DRIFT: created version differs from approved source');
+  return true;
 }
 
 export function buildUpdatedFiles(files, targetName, source) {
@@ -193,7 +262,9 @@ export async function deploy() {
   const deploymentId = env('GAS_DEPLOYMENT_ID', { required: false }) || deploymentIdFromWebAppUrl(webAppUrl);
   const preferredFile = env('GAS_SERVER_FILE_NAME', { required: false });
   const source = fs.readFileSync(SOURCE_PATH, 'utf8');
-  const expectedVersion = extractExpectedGasVersion(source);
+  // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
+  // Dry runs remain available for investigating deployment credentials.
+  const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
   const accessToken = await getAccessToken();
 
@@ -211,6 +282,9 @@ export async function deploy() {
     { token: accessToken },
   );
   const deployedTarget = selectServerFile(deployedContent.files, target.name);
+  // Validate *all* files before checking alreadyDeployed or starting any write.
+  // A malicious extra SERVER_JS cannot ride along with a pinned apps_script.gs.
+  if (!dryRun) assertGasProjectFileSet(currentContent.files, target.name, deployedContent.files);
   const alreadyDeployed = sameSource(deployedTarget.source, source);
 
   console.log(`GAS 자동배포 사전확인 · version=${expectedVersion} · file=${target.name} · currentDeploymentVersion=${currentVersionNumber} · dryRun=${dryRun}`);
@@ -243,6 +317,14 @@ export async function deploy() {
   });
   const newVersionNumber = Number(version.versionNumber || 0);
   if (!newVersionNumber) throw new Error('새 Apps Script versionNumber를 확인하지 못했습니다.');
+
+  // Never publish a version we did not inspect. Another GAS editor may
+  // alter HEAD between our content GET/PUT and versions POST.
+  const createdVersionContent = await requestJson(
+    `${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content?versionNumber=${newVersionNumber}`,
+    { token: accessToken },
+  );
+  assertGasCreatedVersionReady(createdVersionContent.files, target.name, source, deployedContent.files);
 
   await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`, {
     method: 'PUT',

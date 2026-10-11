@@ -1,8 +1,41 @@
+## 통합 PR #483 — KRX 장중 원천일 P2 복구 (2026-10-11)
+
+- 연결된 PR #481의 GAS v9.194 전체 소스와 장중 확정 종가 생산 함수 테스트를 통합에 반영합니다. 당일 장중 KRX 잠정 종가를 사용하지 않고 직전 확인된 국내 정규 거래일을 명시해 조회하며, 더 오래된 응답은 거부합니다.
+- 2026/2027 확정 휴장일·주말, 미등록 연도 UNKNOWN, 정규장 개시·종료 시각, 해외 가격 조회 및 이전 캐시 경로를 분리합니다.
+- 정확한 GAS 전체 blob pin, 웹 EXPECTED_GAS_VERSION, 릴리스 검증 테스트는 #481과 동일합니다. 코드 CI·Codex 리뷰 완료 전에는 검증 후보이며 main 병합·GAS 배포·실계좌/시트 데이터 수정은 하지 않습니다.
+
+## 통합 브랜치 점검: PR #476 + #477 + #478 + #481 (2026-10-11)
+
+- 이 문서는 각각 별도 Draft PR의 변경을 하나의 **검증용 후보**로 조합한 결과입니다. 아직 main 병합·운영 GAS 배포·Google Sheets 데이터를 수정하지 않습니다.
+- KRX read-only 진단(#476), 한국장 브리핑(#477), 포트폴리오 화면 캐시(#478), GAS v9.194 장중 확정 종가/종가·NAV/배포(#481)를 동시에 검사합니다. 이전 #479/#480 스택 내용은 #481에 포함되며 중복 병합하지 않습니다.
+- 웹 정적 파일 `views_portfolio.js`, `views_system.js`, `views_history.js`와 SW cache name의 버전 참조를 독립적으로 추적합니다. 브리핑은 핵심 미국 지수 2개와 USD/KRW 부분 장애 시 실패를 올바르게 보고해야 합니다.
+- Codex 독립 리뷰 및 실제 GAS 운영 진단은 별도 승인 단계이며, 여기서 CI 통과는 실제 가격·Snapshot 복구의 증거가 아닙니다.
+
 ## PR #477 휴장일 해외지수 자체검토 보강 (2026-10-11)
 
 - KRX 공식 휴장일에는 `KRX_FINAL` 국내 최종 Snapshot을 생략하되, `EVENING` 해외 지수·환율 수집은 정상 실행합니다.
 - `EVENING` 수집의 성공은 S&P 500(`SP500`), 나스닥100(`NASDAQ100`) **둘 다** 유효하고 USD/KRW가 유효한 경우에만 인정합니다. VIX/SOX만 있고 미국 핵심 지수가 없으면 워크플로 종료코드 1과 `FOREIGN_CONTEXT_MISSING` 진단을 반환합니다.
 - 국내 휴장일 여부만으로 해외 공급자 실패를 성공 처리하지 않으며, 이 조건은 읽기 전용 회귀테스트와 별도 CLI 프로세스 테스트로 검증합니다. 운영 GAS 데이터나 투자원장에 가격을 쓰는 변경이 아닙니다.
+
+## GAS v9.193 통합 검증 PR #481 (2026-10-11)
+
+- PR #481은 현재 `main`을 기준으로, #479 종가 원천일 검증·#480 NAV 완료/타임아웃/Snapshot no-op·#481 KRX 인증 슬롯/OTP 복구를 모두 포함한 **단일 후보 릴리스**입니다. PR #479/#480을 차례로 개별 배포하지 않습니다.
+- 변경된 레거시 GET의 외화 종가는 해당 거래소의 최근 완료 세션으로 검사합니다. 국내 종가가 오래됐을 때도 유효한 해외 캐시는 보존하고 국내 종가만 재조회하며 미래일자 또는 오래된 원천은 반환하지 않습니다.
+- 자동화 화면은 `fundAttempt.state = TIMEOUT_SUSPECTED`를 시작 시각/대상일과 함께 표시합니다. 변경 UI와 정적 PWA 캐시 버전도 동기화해야 합니다.
+- 운영 GAS 배포는 승인된 전체 GAS 소스 Git blob 및 **실제 배포 프로젝트의 파일 구성이 manifest JSON 하나 + SERVER_JS 하나인지** 먼저 검증합니다. 현재 HEAD manifest는 이미 배포된 manifest와 일치해야 합니다. 예상 밖 파일·manifest drift·승인되지 않은 버전은 운영 쓰기 전 거부합니다.
+- **캐시 전량 만료 시에도 안전 조회:** 현재일 GET은 과거 특정일 조회로 빠지지 않고, 국내 KRX와 미국 등 해외시장의 최근 완료 정규장을 별도로 검증합니다. 장중 당일 KRX 값·해외 미래일자·종가일이 오래된 가격은 현재 확정값으로 반환하지 않습니다.
+- **정상 거래일 최종 마감:** 일반 종목은 요청 날짜와 KRX 실제 종가 원천일이 같아야 합니다. T-1/T-2 종가는 조회용 이월값일 수 있어도 당일 PRICE/Snapshot 마감 성공 증거가 아닙니다. 공식 휴장일에만 직전 확정 세션 종가를 허용합니다.
+- **버전 생성 후 재검증:** GAS Apps Script API가 신규 `versionNumber`를 만든 뒤 실제 불변 버전의 SERVER_JS와 manifest·파일 구성을 다시 읽어 승인 소스와 비교합니다. 검사 실패 시 기존 `/exec` 배포 ID를 새 버전으로 전환하지 않습니다.
+- CI와 리뷰가 끝난 뒤에도 실제 GAS 웹앱·KRX 인증·NAV/Snapshot 읽기 전용 진단이 필요합니다. 정상 운영을 CI 성공만으로 인정하지 않습니다.
+
+## GAS v9.193 통합 준비: PR #479→#480→#481 (2026-10-11)
+
+- KRX 레거시 종가 캐시 갱신일시와 실제 원천 종가일을 별도 컬럼으로 기록합니다. 구버전 4열 캐시는 확정 원천일이 없어 최신 종가로 인정하지 않습니다. 전일 종가를 당일 저장한 경우 당일 확정 가격이력에도 기록하지 않습니다.
+- NAV 완료 집계 및 KRX OpenAPI/대체 인증키/OTP 복구는 후속 스택 PR #480/#481에 포함되며, **세 PR 모두 검증·병합한 뒤 GAS·웹을 하나의 v9.193으로 배포**해야 합니다. 개별 PR 병합 직후 배포/소급 복구는 금지합니다.
+- 웹 기대 버전 9.193, CSS/JS/PWA 캐시 불일치, 기존 Snapshot·MANUAL 보존 및 원천일 검증을 함께 확인합니다.
+- **운영 GAS 릴리스 승인:** `scripts/deploy-gas.mjs`의 `REVIEWED_GAS_SOURCE_BLOBS`에 등록된 전체 `src/gas/apps_script.gs` Git blob SHA와 배포 대상의 내용이 정확히 일치해야만 `dry_run=false` 배포를 허용합니다. v9.193 승인 SHA는 #481 통합 기능(종가 원천일, 펀드 owner/Snapshot, KRX 대체 키·OTP)이 모두 반영된 소스를 가리킵니다. 함수명·주석만 있는 더미 코드와 승인되지 않은 v9.194 또는 구버전 롤백도 거부합니다.
+- **이후 릴리스:** GAS 소스가 한 글자라도 바뀌면 리뷰된 통합 소스의 Git blob SHA를 확인하고, 새 GAS 버전 및 해당 SHA를 같은 PR에서 함께 승인·갱신합니다. 재검토 없는 임의의 SHA 교체·버전 변경은 금지합니다. `dry_run=true`는 인증·대상 조사용으로 허용하되 실제 쓰기를 하지 않습니다.
+- 실제 KRX 종가와 10/07~08 누락 데이터 복구는 운영 연결 진단 뒤 별도 실행합니다. CI 통과는 운영 복구 증거가 아닙니다.
 
 ## PR #471 최신 Codex P2 통합 수정: 자정 NAV·예약 소유권 (2026-10-09)
 
@@ -335,11 +368,10 @@
 
 - GAS v9.138은 브리핑의 삼성전자(005930)·SK하이닉스(000660)를 기존 KRX 종가 helper로 read-only 조회하며, 요청일과 `usedDate`가 같은 양수 공식 종가만 `FINAL/REGULAR_CLOSE`로 사용합니다. 가격이력이나 Portfolio Snapshot에는 쓰지 않습니다.
 - GAS v9.137은 KRX `drv/fut_bydd_trd`에서 exact BAS_DD·`MKT_NM=야간`·`PROD_NM=코스피200 선물`·실제 `ISU_NM=코스피200 F YYYYMM (야간)` 형식·단일 최근 미만기 월물·양수 `TDD_CLSPRC`를 모두 확인한 값만 `K200_NIGHT/NIGHT_FINAL`로 제공합니다. 06:00 이전, 이전 날짜, 정규시장, 0 종가, 다른 상품, 같은 최근월물 중복 후보는 확정값을 만들지 않습니다.
-- GitHub 저장소 Variables에 `GAS_WEB_APP_URL`, Secrets에 `GAS_ACCESS_TOKEN`을 한 번 설정합니다. `.github/workflows/market-briefing-headless.yml`이 KST 06:15/07:30/16:30/20:15의 target checkpoint를 명시해 hydrate → collect → master 저장을 수행하고, `MORNING`·`KRX_FINAL`·`EVENING`은 readiness 통과 후에만 immutable snapshot을 저장합니다. `NIGHT_FINAL`은 해당 `tradingDate`에 `K200_NIGHT` / `NIGHT` / `FINAL` / `NIGHT_FINAL` 조건을 모두 만족하는 observation이 존재해야 성공하며 snapshot은 저장하지 않습니다.
-- 운영 시트에 `환율이력` 원천이 없는 경우 headless 브리핑은 Yahoo `KRW=X` 지연 일봉의 공급자 거래소 시간대(DST 포함)를 기준으로 날짜를 검증해 읽기 전용 대체값을 사용합니다. 포트폴리오 가격이력·Snapshot 환산용 FX 원장에는 기록하지 않습니다. 인증 실패 및 형식 오류는 대체하지 않습니다.
+- GitHub 저장소 Variables에 `GAS_WEB_APP_URL`, Secrets에 `GAS_ACCESS_TOKEN`을 한 번 설정합니다. `.github/workflows/market-briefing-headless.yml`이 KST 06:15/07:30/16:05/20:15의 target checkpoint를 명시해 hydrate → collect → master 저장을 수행하고, `MORNING`·`KRX_FINAL`·`EVENING`은 readiness 통과 후에만 immutable snapshot을 저장합니다. `NIGHT_FINAL`은 해당 `tradingDate`에 `K200_NIGHT` / `NIGHT` / `FINAL` / `NIGHT_FINAL` 조건을 모두 만족하는 observation이 존재해야 성공하며 snapshot은 저장하지 않습니다.
 - headless 실행에서만 당일 USDKRW가 provider 관측시각 없이 정각 후 300초 안에 수신되면 실제 `receivedAt`을 유지한 채 `SCHEDULED_DELAY_TOLERANCE_300S`로 선택하고 warning을 남깁니다. provider `observedAt`이 있으면 이를 우선하며, 다른 series·브라우저 실행·300초 초과에는 tolerance를 적용하지 않습니다.
-- `NIGHT_FINAL` 확정값이 없거나 거래일 `MORNING`·`KRX_FINAL`·`EVENING`의 `decision.publishable=false`이면 snapshot을 저장하지 않고 CLI가 exit code 1로 종료되어 GitHub Actions가 실패로 표시됩니다. 실행 로그의 `missing`, `issues`, `providerErrors`로 원인을 확인합니다.
-- 스케줄 실행은 GitHub Actions 및 배포된 GAS/KRX·Toss·Yahoo·환율 provider 가용성에 의존합니다. GAS와 동기화된 2026/2027 확정 KRX 휴장 달력에서 휴장일 `KRX_FINAL`은 국내 최종 보고를 생략하고 성공으로 기록하며, `EVENING`은 국내 보고를 생략하되 해외 지수 및 USD/KRW 수집이 모두 실패하면 workflow 실패로 기록합니다. 달력 미지원 연도·미공시일은 `NOT_READY`로 실패 표시될 수 있으며, workflow red 자체만으로 provider 장애라고 단정하지 않습니다. workflow가 지연되더라도 target checkpoint를 현재 시각 기준으로 임의 변경하지 않습니다.
+- `NIGHT_FINAL` 확정값이 없거나 `MORNING`·`KRX_FINAL`·`EVENING`의 `decision.publishable=false`이면 snapshot을 저장하지 않고 CLI가 exit code 1로 종료되어 GitHub Actions가 실패로 표시됩니다. 실행 로그의 `missing`, `issues`, `providerErrors`로 원인을 확인합니다.
+- 스케줄 실행은 GitHub Actions 및 배포된 GAS/KRX·Toss·Yahoo·환율 provider 가용성에 의존합니다. 현재 authoritative 휴장 calendar가 없으므로 휴장·미공시일도 `NOT_READY`로 실패 표시될 수 있으며, workflow red 자체만으로 provider 장애라고 단정하지 않습니다. workflow가 지연되더라도 target checkpoint를 현재 시각 기준으로 임의 변경하지 않습니다.
 
 ## GAS v9.131 / 웹 20260928-5: 기간 정합성 진단 index 최적화
 

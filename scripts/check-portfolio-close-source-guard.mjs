@@ -189,6 +189,14 @@ const close = (date,source='KRX')=>({usedDate:date,source,price:1500});
 const full = Object.fromEntries(items.slice(0,4).map(x=>[x.code,close('2026-10-06')]));
 const good = clone(context._assessDailyKrxStockClose(items, full,'2026-10-06'));
 assert.deepEqual(good,{required:true,date:'2026-10-06',confirmed:4,expected:4,lag:0});
+
+const priorKrx = Object.fromEntries(items.slice(0,4).map(item=>[item.code,close('2026-10-02')]));
+assert.throws(()=>context._assessDailyKrxStockClose(items,priorKrx,'2026-10-06'),
+  /원천일 불일치/, 'T-1 confirmed KRX closes may not finalize an open 10/06 session');
+const priorOneTradingDay = Object.fromEntries(items.slice(0,4).map(item=>[item.code,close('2026-10-07')]));
+assert.throws(()=>context._assessDailyKrxStockClose(items,priorOneTradingDay,'2026-10-08'),
+  /원천일 불일치/, 'ordinary same-day close must never be silently replaced with yesterday');
+
 const holiday = clone(context._assessDailyKrxStockClose(items,Object.fromEntries(items.slice(0,4).map(x=>[x.code,close('2026-10-02')])), '2026-10-05'));
 assert.equal(holiday.date,'2026-10-02','월요일 대체공휴일은 직전 확정 KRX 거래일을 허용');
 assert.equal(holiday.lag,0,'공식 휴장일은 거래일 시차에서 제외');
@@ -225,7 +233,10 @@ assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-0
 // fetchPricesKrx 실제 함수에서 YYYYMMDD 시장별 evidence가 ISO로 변환되는지 끝까지 검증.
 // 가공된 evidence만 직접 주입하는 테스트로는 \\d 이스케이프 오타를 찾을 수 없습니다.
 const realKrxContext = vm.createContext({
+  _krxCalendarStatus_:date=>date==='2026-10-09'?'CLOSED':'OPEN',
+  _normalizeDate:v=>String(v||'').slice(0,10),
   _getKrxApiConfig:()=>({apiKey:'test-key'}),
+  _getKrxAuthKeySlots_:()=>({primary:'test-key',alternative:''}),
   _cleanCode:v=>String(v||'').trim(),
   _parseKrxNumber:v=>Number(v),
   _fetchKrxMarketsParallelWithFallback:()=>({
@@ -1002,6 +1013,7 @@ assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'stale-recovery');
 const officialVm=vm.createContext({
   _normalizeDate:String,
   _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
+  _getKrxAuthKeySlots_:()=>({key:'secret-must-not-be-revealed',source:'PRIMARY',alternative:'',alternativeConfigured:false}),
   _getKrxEndpointByMarket:x=> 'https://example.test/'+x,
   UrlFetchApp:{fetchAll:()=>[
     {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[{TDD_CLSPRC:'100'}]})},
@@ -1047,6 +1059,13 @@ assert.match(automationUI, /closeRun\.stage/,
   '중단된 현재 마감 단계를 표시해야 함');
 assert.match(automationUI, /officialKrxPriceHistoryLastDate/,
   '공식 KRX 최근일을 전체 가격/NAV 최근일과 별도 표시해야 함');
+assert.match(automationUI, /fundAttempt\.state === 'TIMEOUT_SUSPECTED'/,
+  'NAV hard-timeout 경고 상태를 사용자 카드에서 소비해야 함');
+assert.match(automationUI, /fundAttempt\.startedAtMs/,
+  'NAV 완료 기록 없는 시도의 실제 시작 timestamp를 노출해야 함');
+assert.match(automationUI, /fundAttemptWarning/,
+  'NAV 타임아웃 상세를 최근 오류 없음보다 우선하여 표시해야 함');
+
 
 console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
 
