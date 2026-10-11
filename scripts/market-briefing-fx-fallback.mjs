@@ -29,15 +29,24 @@ export async function fetchUsdKrwYahooDaily({from,to,fetchImpl=fetch,timeoutMs=3
   try {payload=await response.json();}catch{throw new Error('FX_YAHOO_INVALID_JSON');}
   const chart=payload?.chart?.result?.[0];
   if(!chart||chart.meta?.symbol!==SYMBOL||chart.meta?.currency!=='KRW'
+    ||!chart.meta?.exchangeTimezoneName
     ||!Array.isArray(chart.timestamp)||!Array.isArray(chart.indicators?.quote?.[0]?.close))
     throw new Error('FX_YAHOO_INVALID_SCHEMA');
+  // Daily candle epochs may be midnight *exchange-local*, which falls on
+  // the preceding UTC date during daylight saving time.
+  let exchangeCalendar;
+  try {
+    exchangeCalendar=new Intl.DateTimeFormat('en-GB',{timeZone:chart.meta.exchangeTimezoneName,
+      year:'numeric',month:'2-digit',day:'2-digit'});
+  } catch { throw new Error('FX_YAHOO_INVALID_TIMEZONE'); }
   const closes=chart.indicators.quote[0].close;
   const byDate=new Map();
   for(let i=0;i<Math.min(chart.timestamp.length,closes.length);i++){
     const timestamp=Number(chart.timestamp[i]),price=Number(closes[i]);
     if(!Number.isFinite(timestamp)||timestamp<0||!Number.isFinite(price)||price<=100||price>=10000)continue;
-    // Yahoo daily candle timestamps carry the provider's UTC session date.
-    const date=new Date(timestamp*1000).toISOString().slice(0,10);
+    const parts=Object.fromEntries(exchangeCalendar.formatToParts(new Date(timestamp*1000))
+      .filter(part=>['year','month','day'].includes(part.type)).map(part=>[part.type,part.value]));
+    const date=parts.year+'-'+parts.month+'-'+parts.day;
     if(date>=from&&date<=to)byDate.set(date,{date,currency:'USD',rate:price});
   }
   const history=[...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
