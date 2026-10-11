@@ -141,6 +141,13 @@ if(beforeOuter===outerContext._getDataHash())throw new Error('outer renderView c
 const afterOuter=outerContext._getDataHash();
 outerContext.model.assetType='ETF';
 if(afterOuter===outerContext._getDataHash())throw new Error('outer renderView cache ignores asset-type change');
+
+outerContext.DIVDATA={ payout:{ date:'2026-10-01',amount:3000 } };
+const dividendBefore=outerContext._getDataHash();
+outerContext.DIVDATA.payout.amount=7000;
+if(dividendBefore===outerContext._getDataHash())
+  throw new Error('outer renderView cache ignores changed dividend amount with unchanged number of entries');
+
 const portfolioViewCode = fs.readFileSync('src/web/views/views_portfolio.js','utf8');
 const keyFunction = portfolioViewCode.match(/function _portfolioDataKey\(\) \{[\s\S]*?\n\}/)?.[0];
 if (!keyFunction) throw new Error('portfolio view cache key function unavailable');
