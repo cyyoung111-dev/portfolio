@@ -2175,7 +2175,9 @@ function fetchPricesKrx(items, dateStr) {
   // Mixed market approvals can return a valid KOSPI pack while leaving
   // KOSDAQ/ETF missing. Recover ONLY missing codes by the existing official
   // OTP/CSV source; never replace a confirmed OpenAPI stock with a fallback.
-  var needExactSession = _krxCalendarStatus_(dateStr) === 'OPEN';
+  // UNKNOWN calendar years are not proof of a closure. The final-close
+  // validator also requires exact-date KRX closes except for CLOSED dates.
+  var needExactSession = _krxCalendarStatus_(dateStr) !== 'CLOSED';
   var missingItems = items.filter(function(item) {
     var row = out[item.code];
     return !row || (needExactSession && _normalizeDate(row.usedDate || '') !== dateStr);
@@ -2190,7 +2192,7 @@ function fetchPricesKrx(items, dateStr) {
         var candidate = otpPrices[code];
         if (!wanted[code] || !(Number(candidate && candidate.price) > 0)) return;
         // Exact same-day OTP is the only source allowed to replace an
-        // already-confirmed but stale OpenAPI fallback on an OPEN session.
+        // already-confirmed but stale OpenAPI fallback on a non-CLOSED session.
         // Never let a carry/partial OTP overwrite a valid exact-date KRX row.
         if (original && (!needExactSession
           || _normalizeDate(original.usedDate || '') === dateStr)) return;
