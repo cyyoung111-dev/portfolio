@@ -118,6 +118,21 @@ assert.equal(headlessSucceeded(closedFinal),true,'휴장 KRX_FINAL은 정상 SKI
 assert.equal(headlessSucceeded(closedEvening),true,'해외/FX가 확보된 휴장 EVENING은 정상 성공');
 assert.equal(diagnosticFor(failedForeign).status,'FOREIGN_CONTEXT_MISSING');
 
+const vixOnly=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:async(action,params)=>{
+   if(action==='getBenchmarks'){
+     const original=await request(action,params);
+     return {...original,series:{VIX:original.series.VIX,SOX:original.series.SOX}};
+   }
+   return request(action,params);
+ }});
+assert.equal(vixOnly.skippedDomestic,true);
+assert.equal(vixOnly.successful,false,
+  'VIX/SOX+FX without S&P500/NASDAQ100 must fail the closed-day checkpoint');
+assert.equal(headlessSucceeded(vixOnly),false);
+assert.equal(diagnosticFor(vixOnly).status,'FOREIGN_CONTEXT_MISSING');
+
+
 for (const [mode, expectedStatus] of [
   ['', 0], ['FOREIGN', 1], ['FX', 1], ['BOTH', 1],
 ]) {
