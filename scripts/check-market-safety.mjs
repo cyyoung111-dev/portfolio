@@ -66,16 +66,16 @@ const legacyContext={
   Utilities:{formatDate:()=>clock},
   jsonOk:x=>x,jsonError:message=>{throw Error(message)},
   calcMissing:()=>[],
-  handleHistoricalPriceFetch:date=>{fallbackCount++;return {source:'historical',date}},
+  handleCurrentConfirmedPriceFetch:date=>{fallbackCount++;return {source:'current-confirmed-fixture',date}},
   Logger:{log:()=>{}},
 };
 vm.runInNewContext(legacyFetch,legacyContext,{filename:'legacy-price-fetch.gs'});
 const cacheLine=(savedAt,sourceDate=savedAt.slice(0,10))=>[['005930',120000,'삼성전자',savedAt,sourceDate]];
 cacheRows=cacheLine('2026-05-26 18:47');
-if(legacyContext.handlePriceFetch().source!=='historical')
+if(legacyContext.handlePriceFetch().source!=='current-confirmed-fixture')
  throw Error('legacy May cache must never be current in October');
 clock='1630';cacheRows=cacheLine('2026-10-07 18:47');
-if(legacyContext.handlePriceFetch().source!=='historical')
+if(legacyContext.handlePriceFetch().source!=='current-confirmed-fixture')
  throw Error('after 16:00 KRX OPEN requires same-day cache');
 clock='0730';
 if(legacyContext.handlePriceFetch().source!=='cache')
@@ -87,19 +87,68 @@ currentDate='2026-10-09';
 if(legacyContext.handlePriceFetch().source!=='cache')
  throw Error('KRX holiday may use the last official-session cache');
 cacheRows=cacheLine('2026-10-07 16:22');
-if(legacyContext.handlePriceFetch().source!=='historical')
+if(legacyContext.handlePriceFetch().source!=='current-confirmed-fixture')
  throw Error('KRX holiday must reject cache predating its latest official session');
 cacheRows=cacheLine('');
-if(legacyContext.handlePriceFetch().source!=='historical')
+if(legacyContext.handlePriceFetch().source!=='current-confirmed-fixture')
  throw Error('cache with missing lastUpdated must not be treated as current');
 currentDate='2026-10-08';clock='1630';
 cacheRows=cacheLine('2026-10-08 16:22','2026-10-07');
-if(legacyContext.handlePriceFetch().source!=='historical')
+if(legacyContext.handlePriceFetch().source!=='current-confirmed-fixture')
  throw Error('today update timestamp must not mask yesterday official source date');
 cacheRows=[['005930',120000,'삼성전자','2026-10-08 16:22']];
-if(legacyContext.handlePriceFetch().source!=='historical')
+if(legacyContext.handlePriceFetch().source!=='current-confirmed-fixture')
  throw Error('old four-column cache cannot assert source date');
 if(fallbackCount!==6)throw Error('fallback count mismatch');
+
+const latestCloseFn = gas.match(/function handleCurrentConfirmedPriceFetch\([^)]*\) \{[\s\S]*?\n\}/)?.[0];
+if (!latestCloseFn) throw Error('real cache-miss current close verifier missing');
+let providerRows={}, providerOptions=[], domesticClock='1630';
+const verifiedCurrentVm=vm.createContext({
+  getCodeItems:()=>[
+    {code:'005930',currency:'KRW',market:'KR'},
+    {code:'AAPL',currency:'USD',market:'US'},
+  ],
+  CONFIG:{TIMEZONE:'Asia/Seoul'},
+  Utilities:{formatDate:()=>domesticClock},
+  _krxCalendarStatus_:()=> 'OPEN',
+  _foreignMarketRegularCloseCutoff_:()=> '2026-10-07',
+  _normalizeDate:v=>String(v||'').slice(0,10),
+  _countBusinessWeekdaysBetween:(a,b)=>a===b?0:1,
+  fetchPricesGoogleFinance:(_items,_date,_ss,options)=>{
+    providerOptions.push(options);
+    return providerRows;
+  },
+  jsonOk:x=>x,
+  jsonError:message=>{throw Error(message)},
+  calcMissing:(_codes,present)=>['005930','AAPL'].filter(code=>!present.includes(code)),
+});
+vm.runInContext(latestCloseFn,verifiedCurrentVm);
+providerRows={
+  '005930':{price:121000,usedDate:'2026-10-07',source:'KRX'},
+  'AAPL':{price:260,usedDate:'2026-10-07',status:'CONFIRMED',priceType:'REGULAR_CLOSE'},
+};
+const emptyCacheResult=verifiedCurrentVm.handleCurrentConfirmedPriceFetch('2026-10-08',null,{});
+if(emptyCacheResult.prices.AAPL?.price!==260 || '005930' in emptyCacheResult.prices)
+  throw Error('empty cache path must preserve last NY close and reject stale KRX after close');
+if(!providerOptions.at(-1)?.useMarketCloseCutoffs)
+  throw Error('cache miss must request provider at completed market cutoffs');
+domesticClock='0730';
+providerRows={
+  '005930':{price:121000,usedDate:'2026-10-08',source:'KRX'},
+  'AAPL':{price:262,usedDate:'2026-10-08',status:'CONFIRMED',priceType:'REGULAR_CLOSE'},
+};
+const beforeCloseResult=verifiedCurrentVm.handleCurrentConfirmedPriceFetch('2026-10-08',null,{});
+if(Object.keys(beforeCloseResult.prices).length!==0)
+  throw Error('intraday KR quote and future US close must not be promoted to confirmed');
+providerRows={
+  '005930':{price:121000,usedDate:'2026-10-07',source:'KRX'},
+  'AAPL':{price:260,usedDate:'2026-10-07',status:'CONFIRMED',priceType:'REGULAR_CLOSE'},
+};
+const morningResult=verifiedCurrentVm.handleCurrentConfirmedPriceFetch('2026-10-08',null,{});
+if(morningResult.prices['005930']?.price!==121000 || morningResult.prices.AAPL?.price!==260)
+  throw Error('pre-open read must preserve latest completed KRX and NY closes');
+
 
 // A mixed KR+US portfolio must not reject a valid NY close just because the
 // calendar date differs from the KRX session. Preserve valid overseas closes
