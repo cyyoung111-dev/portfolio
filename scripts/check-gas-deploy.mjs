@@ -48,7 +48,10 @@ assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.194','10.0
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
 const approvedFullSourceBlob='53b9734988ca3047a5ce9a1fdbc80017ecb271c6';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
-if (actualSourceBlob === approvedFullSourceBlob) {
+const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
+if (hasStackedKrxRecovery) {
+  assert.equal(actualSourceBlob, approvedFullSourceBlob,
+    'a fully stacked PR #481 implementation must match the reviewed full-source blob');
   assert.equal(assertGasReleaseReady(currentGasSource),'9.193',
     'the exact reviewed integrated PR #481 GAS source must deploy successfully');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
@@ -62,6 +65,11 @@ if (actualSourceBlob === approvedFullSourceBlob) {
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
 assert.match(deployScript, /dryRun\s*\?\s*extractExpectedGasVersion\(source\)\s*:\s*assertGasReleaseReady\(source\)/,
   'production preflight must run before GAS credentials and API writes');
+assert.ok(
+  deployScript.indexOf('const expectedVersion = dryRun ?') <
+  deployScript.indexOf('const accessToken = await getAccessToken()'),
+  'reviewed source must be validated before obtaining OAuth credentials');
+
 
 const claspV3 = {
   tokens: {
