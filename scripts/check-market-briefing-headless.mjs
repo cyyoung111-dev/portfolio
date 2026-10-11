@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { krxSessionStatus } from './krx-session-calendar.mjs';
 import { fetchUsdKrwYahooDaily } from './market-briefing-fx-fallback.mjs';
 import fs from 'node:fs';
@@ -116,6 +117,30 @@ assert.equal(failedForeign.successful,false,'all foreign/FX outages must fail th
 assert.equal(headlessSucceeded(closedFinal),true,'휴장 KRX_FINAL은 정상 SKIPPED 처리');
 assert.equal(headlessSucceeded(closedEvening),true,'해외/FX가 확보된 휴장 EVENING은 정상 성공');
 assert.equal(diagnosticFor(failedForeign).status,'FOREIGN_CONTEXT_MISSING');
+
+for (const [mode, expectedStatus] of [
+  ['', 0], ['FOREIGN', 1], ['FX', 1], ['BOTH', 1],
+]) {
+  const cli = spawnSync(process.execPath, [
+    '--import', './scripts/mock-briefing-cli-fetch.mjs',
+    'scripts/run-market-briefing-headless.mjs',
+    '--checkpoint', 'EVENING', '--date', '2026-10-09',
+  ], { cwd:process.cwd(), encoding:'utf8', timeout:20000, env:{
+    ...process.env, BRIEFING_TEST_FAILURE:mode,
+    GAS_WEB_APP_URL:'https://example.test/mock-gas',
+    GAS_ACCESS_TOKEN:'test-only-token',
+  } });
+  assert.equal(cli.error,undefined, 'CLI process failed to launch: '+mode);
+  assert.equal(cli.status,expectedStatus,
+    'real scheduled CLI must return correct process exit status for '+(mode || 'SUCCESS')+'; stderr='+cli.stderr);
+  const lines=cli.stdout.trim().split('\\n').filter(Boolean);
+  const report=JSON.parse(lines.at(-1));
+  assert.equal(report.status,mode ? 'FOREIGN_CONTEXT_MISSING':'SKIPPED_DOMESTIC_CLOSED');
+  assert.equal(report.published,false, 'holiday must never publish false domestic snapshot');
+  if (mode === 'FX' || mode === 'BOTH') assert.ok(report.missing.includes('USDKRW'));
+  if (mode === 'FOREIGN' || mode === 'BOTH') assert.ok(report.missing.includes('SP500'));
+}
+
 assert.equal(headlessSucceeded(failedForeign),false,'휴장 EVENING 외국시장 또는 환율 수집 실패는 CLI exit 1');
 
 const fxFallbackCalls=[];
