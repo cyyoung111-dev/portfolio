@@ -228,6 +228,7 @@ function _getDataHash() {
     (EDITABLE_PRICES.length) + '|' +
     (rawHoldings.length) + '|' +
     (lastUpdated || '') + '|' +
+    (typeof _portfolioDataKey === 'function' ? _portfolioDataKey() : '') + '|' +
     Object.keys(DIVDATA || {}).length + '|' +
     (typeof acctFilter !== 'undefined' ? acctFilter : '') + '|' +
     (typeof typeFilter !== 'undefined' ? typeFilter : '') + '|' +
