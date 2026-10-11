@@ -217,7 +217,7 @@ const krxVm=vm.createContext({
  _getKrxEndpointByMarket:m=>'https://data-dbg.krx.co.kr/svc/apis/'+m,
  _cleanCode:v=>String(v||'').trim(), _parseKrxNumber:Number,
  _normalizeDate:v=>String(v||'').slice(0,10),
- _krxCalendarStatus_:d=>d==='2026-10-09'?'CLOSED':'OPEN',
+ _krxCalendarStatus_:d=>d==='2026-10-09'?'CLOSED':d.startsWith('2028-')?'UNKNOWN':'OPEN',
  fetchPricesKrxViaOtp:()=>({source:'OTP_FALLBACK'}),
 });
 for(const fn of ['_getKrxAuthKeySlots_','_getKrxAuthKey','fetchPricesKrx'])
@@ -330,6 +330,30 @@ const callsBeforeExact=otpRequeryCodes.length;
 const alreadyExact=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
 if(alreadyExact['005930']?.price!==100000 || otpRequeryCodes.length!==callsBeforeExact)
  throw Error('exact OpenAPI close must not be needlessly re-queried via OTP');
+
+krxVm._fetchKrxMarketsParallelWithFallback=()=>({
+ KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'99000'}],usedYmd:'20281009'},
+ KOSDAQ:{rows:[],usedYmd:'20281010'},ETF:{rows:[],usedYmd:'20281010'}
+});
+krxVm.fetchPricesKrxViaOtp=items=>{
+ otpRequeryCodes.push(items.map(item=>item.code));
+ return {'005930':{price:102000,source:'KRX_OTP',usedDate:'2028-10-10'}};
+};
+const unknownYearRecovered=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2028-10-10');
+if(unknownYearRecovered['005930']?.price!==102000
+ || unknownYearRecovered['005930']?.usedDate!=='2028-10-10'
+ || otpRequeryCodes.at(-1).join(',')!=='005930')
+ throw Error('UNKNOWN calendar year must re-query T-1 close and accept exact-date official OTP');
+krxVm._fetchKrxMarketsParallelWithFallback=()=>({
+ KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'90000'}],usedYmd:'20261008'},
+ KOSDAQ:{rows:[],usedYmd:'20261009'},ETF:{rows:[],usedYmd:'20261009'}
+});
+const beforeClosed=otpRequeryCodes.length;
+const holidayCarry=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-09');
+if(holidayCarry['005930']?.usedDate!=='2026-10-08'
+ || otpRequeryCodes.length!==beforeClosed)
+ throw Error('verified CLOSED session must preserve T-1 official close without exact-date OTP retry');
+
 
 
 if(extractKrx('configureKrxAuthKeyPrompt').indexOf("props.deleteProperty('krx_api_key')")<0)
