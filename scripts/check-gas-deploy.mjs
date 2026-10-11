@@ -6,6 +6,7 @@ import {
   extractExpectedGasVersion,
   assertGasReleaseReady,
   assertGasProjectFileSet,
+  assertGasCreatedVersionReady,
   gasSourceBlobSha,
   parseClaspCredentials,
   sanitizeFiles,
@@ -153,6 +154,27 @@ assert.ok(validateOrder.indexOf('assertGasProjectFileSet(currentContent.files') 
 assert.ok(validateOrder.indexOf('assertGasProjectFileSet(currentContent.files') <
           validateOrder.indexOf("method: 'PUT'"),
   'all-file validation must precede any GAS write');
+
+const versionFiles = approvedProjectFiles.map(f => f.name==='apps_script'
+  ? {...f,source:'new approved GAS source'} : f);
+assert.equal(assertGasCreatedVersionReady(versionFiles, 'apps_script',
+  'new approved GAS source',approvedProjectFiles),true);
+assert.throws(() => assertGasCreatedVersionReady(versionFiles,'apps_script',
+  'unreviewed different code',approvedProjectFiles),
+  /GAS_CREATED_VERSION_SOURCE_DRIFT/, 'concurrent GAS HEAD modification after POST must fail');
+assert.throws(() => assertGasCreatedVersionReady([...versionFiles,
+  {name:'other',type:'SERVER_JS',source:'function doGet() {}'}],
+  'apps_script','new approved GAS source',approvedProjectFiles),
+  /GAS_PROJECT_UNREVIEWED_FILES/, 'created version must not inherit unreviewed handlers');
+assert.throws(() => assertGasCreatedVersionReady(versionFiles.map(f =>
+  f.name==='appsscript'?{...f,source:'{"timeZone":"UTC"}'}:f),
+  'apps_script','new approved GAS source',approvedProjectFiles),
+  /GAS_PROJECT_MANIFEST_DRIFT/, 'created version manifest cannot change');
+const versionValidationPos=validateOrder.indexOf('assertGasCreatedVersionReady(createdVersionContent.files');
+const publishPos=validateOrder.indexOf('versionNumber: newVersionNumber,');
+assert.ok(versionValidationPos > 0 && publishPos > versionValidationPos,
+  'created immutable version must be verified before production deployment update');
+
 
 
 const workflow = fs.readFileSync('.github/workflows/gas-deploy.yml', 'utf8');
