@@ -134,6 +134,8 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
   if (!settings || settings.status !== 'ok'
       || !/^\d+\.\d+$/.test(String(settings.gasVersion || '')))
     throw new Error('KRX_DIAG_GAS_VERSION_UNAVAILABLE');
+  if (settings.settings?.apiKeyStatus?.requestAuthenticationEnabled !== true)
+    throw new Error('KRX_DIAG_GAS_AUTHENTICATION_DISABLED');
   const reports = [];
   for (const date of checkedDates) {
     try {
