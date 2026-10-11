@@ -33,6 +33,7 @@ export function extractExpectedGasVersion(source) {
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   '9.193': '811ef56ede77cd040819941e73e4729826de935b',
   '9.194': '8082cf7b1f988b008799f8be1439cf4d54a3b51e',
+  '9.195': '94ebfbc04708706cb5b42cdf764a6f98491e1a05',
 });
 
 export function gasSourceBlobSha(source) {
