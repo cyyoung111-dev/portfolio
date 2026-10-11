@@ -131,6 +131,13 @@ providerRows={
 const emptyCacheResult=verifiedCurrentVm.handleCurrentConfirmedPriceFetch('2026-10-08',null,{});
 if(emptyCacheResult.prices.AAPL?.price!==260 || '005930' in emptyCacheResult.prices)
   throw Error('empty cache path must preserve last NY close and reject stale KRX after close');
+
+verifiedCurrentVm._foreignMarketRegularCloseCutoff_=()=> '2026-10-08';
+const oneDayStale=verifiedCurrentVm.handleCurrentConfirmedPriceFetch('2026-10-08',null,{});
+if('AAPL' in oneDayStale.prices)
+  throw Error('empty cache cannot approve Yahoo T-1 when T regular close is complete');
+verifiedCurrentVm._foreignMarketRegularCloseCutoff_=()=> '2026-10-07';
+
 if(!providerOptions.at(-1)?.useMarketCloseCutoffs)
   throw Error('cache miss must request provider at completed market cutoffs');
 domesticClock='0730';
@@ -180,6 +187,17 @@ cacheRows=[
 const futureUs=legacyContext.handlePriceFetch();
 if('AAPL' in (futureUs.prices||{}))
   throw Error('foreign market close dated after last completed session is invalid');
+
+foreignCutoff='2026-10-08';
+cacheRows=[
+  ['005930',120000,'삼성전자','2026-10-08 16:22','2026-10-08'],
+  ['AAPL',260,'Apple','2026-10-08 15:20','2026-10-07'],
+];
+const staleTuesdayCache=legacyContext.handlePriceFetch();
+if('AAPL' in (staleTuesdayCache.prices||{}))
+  throw Error('one weekday behind expected US session cannot be accepted without holiday proof');
+foreignCutoff='2026-10-07';
+
 
 
 console.log('✅ 가격 provider·polling·펀드 timeout 소유권·Secret 노출 안전성 검사 통과');
