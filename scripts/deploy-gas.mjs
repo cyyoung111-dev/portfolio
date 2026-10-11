@@ -21,6 +21,27 @@ export function extractExpectedGasVersion(source) {
   return version;
 }
 
+// A single 9.193 release covers PR #479 (close source date), #480 (fund
+// completion and Snapshot no-op), and #481 (credential/OTP recovery).
+// Prevent deployment of a partially merged stacked PR even if the version
+// string is already 9.193. Validate *before* fetching credentials or writing.
+export function assertGasReleaseReady(source) {
+  const version = extractExpectedGasVersion(source);
+  if (version !== '9.193') return version;
+  const required = [
+    ['CLOSE_SOURCE_DATE', /종가원천일/],
+    ['FUND_OWNER_STATUS', /fundAttempt\s*:/],
+    ['SNAPSHOT_NOOP', /snapshotValidatedNoOp\+\+/],
+    ['KRX_AUTH_SLOTS', /function\s+_getKrxAuthKeySlots_\s*\(/],
+    ['KRX_MARKET_RECOVERY', /authDeniedMarkets/],
+    ['KRX_OTP_MISSING_RECOVERY', /var\s+missingItems\s*=\s*items\.filter/],
+  ];
+  const missing = required.filter(([, expression]) => !expression.test(source))
+    .map(([name]) => name);
+  if (missing.length) throw new Error('GAS_RELEASE_9_193_INCOMPLETE: ' + missing.join(','));
+  return version;
+}
+
 export function deploymentIdFromWebAppUrl(value) {
   if (!value) return '';
   let url;
@@ -193,7 +214,9 @@ export async function deploy() {
   const deploymentId = env('GAS_DEPLOYMENT_ID', { required: false }) || deploymentIdFromWebAppUrl(webAppUrl);
   const preferredFile = env('GAS_SERVER_FILE_NAME', { required: false });
   const source = fs.readFileSync(SOURCE_PATH, 'utf8');
-  const expectedVersion = extractExpectedGasVersion(source);
+  // Do not publish a partial v9.193, including on automatic main-push deploy.
+  // Dry runs remain available for investigating deployment credentials.
+  const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
   const accessToken = await getAccessToken();
 
