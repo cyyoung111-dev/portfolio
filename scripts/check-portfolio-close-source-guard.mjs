@@ -226,7 +226,6 @@ assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-0
 // 가공된 evidence만 직접 주입하는 테스트로는 \\d 이스케이프 오타를 찾을 수 없습니다.
 const realKrxContext = vm.createContext({
   _getKrxApiConfig:()=>({apiKey:'test-key'}),
-  _getKrxAuthKeySlots_:()=>({alternative:''}),
   _cleanCode:v=>String(v||'').trim(),
   _parseKrxNumber:v=>Number(v),
   _fetchKrxMarketsParallelWithFallback:()=>({
@@ -1003,7 +1002,6 @@ assert.equal(sameMsApi.getProperty('portfolio_close_run_id'),'stale-recovery');
 const officialVm=vm.createContext({
   _normalizeDate:String,
   _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
-  _getKrxAuthKeySlots_:()=>({key:'secret-must-not-be-revealed',source:'krx_auth_key',alternative:'',alternativeConfigured:false}),
   _getKrxEndpointByMarket:x=> 'https://example.test/'+x,
   UrlFetchApp:{fetchAll:()=>[
     {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[{TDD_CLSPRC:'100'}]})},
@@ -1049,6 +1047,13 @@ assert.match(automationUI, /closeRun\.stage/,
   '중단된 현재 마감 단계를 표시해야 함');
 assert.match(automationUI, /officialKrxPriceHistoryLastDate/,
   '공식 KRX 최근일을 전체 가격/NAV 최근일과 별도 표시해야 함');
+assert.match(automationUI, /fundAttempt\.state === 'TIMEOUT_SUSPECTED'/,
+  'NAV hard-timeout 경고 상태를 사용자 카드에서 소비해야 함');
+assert.match(automationUI, /fundAttempt\.startedAtMs/,
+  'NAV 완료 기록 없는 시도의 실제 시작 timestamp를 노출해야 함');
+assert.match(automationUI, /fundAttemptWarning/,
+  'NAV 타임아웃 상세를 최근 오류 없음보다 우선하여 표시해야 함');
+
 
 console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
 
