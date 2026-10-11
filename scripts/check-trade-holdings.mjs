@@ -127,6 +127,20 @@ if (context.rawHoldings.length !== 1
 
 // Regression: a historical quantity/price edit can leave row/trade counts and
 // lastUpdated unchanged. Re-render must not reuse the old portfolio view cache.
+const systemViewCode = fs.readFileSync('src/web/views/views_system.js','utf8');
+const outerDataKey = systemViewCode.match(/function _getDataHash\(\) \{[\s\S]*?\n\}/)?.[0];
+if(!outerDataKey)throw new Error('outer view hash unavailable');
+const outerContext = { rawTrades:[],rawHoldings:[],EDITABLE_PRICES:[],DIVDATA:{},
+  lastUpdated:'unchanged',acctFilter:'전체',typeFilter:'전체',
+  _portfolioDataKey:()=>JSON.stringify(outerContext.model) };
+outerContext.model={rowPrice:100,assetType:'주식'};
+vm.runInNewContext(outerDataKey,outerContext,{filename:'views_system_hash.js'});
+const beforeOuter=outerContext._getDataHash();
+outerContext.model.rowPrice=150;
+if(beforeOuter===outerContext._getDataHash())throw new Error('outer renderView cache ignores same-day price change');
+const afterOuter=outerContext._getDataHash();
+outerContext.model.assetType='ETF';
+if(afterOuter===outerContext._getDataHash())throw new Error('outer renderView cache ignores asset-type change');
 const portfolioViewCode = fs.readFileSync('src/web/views/views_portfolio.js','utf8');
 const keyFunction = portfolioViewCode.match(/function _portfolioDataKey\(\) \{[\s\S]*?\n\}/)?.[0];
 if (!keyFunction) throw new Error('portfolio view cache key function unavailable');
@@ -171,7 +185,7 @@ const viewContext={
     {acct:'ISA',name:'KODEX 은행',type:'ETF',sector:'금융',qty:5,costAmt:1000,evalAmt:1500,pnl:500},
     {acct:'IRP',name:'한화 TDF',type:'TDF',fund:true,qty:1,costAmt:450,evalAmt:500,pnl:50},
     {acct:'ISA',name:'삼성전자',type:'주식',sector:'반도체',qty:2,costAmt:1500,evalAmt:2000,pnl:500},
-    {acct:'일반',name:'KODEX 반도체',type:'ETF',sector:'반도체',qty:4,costAmt:800,evalAmt:1000,pnl:200},
+    {acct:'일반',name:'신규 인덱스 ETF',type:'ETF',sector:'반도체',qty:4,costAmt:800,evalAmt:1000,pnl:200},
   ],
   rawTrades:[],rawHoldings:[],lastUpdated:'unchanged',
   EDITABLE_PRICES:[{name:'삼성전자',assetType:'주식'},{name:'KODEX 반도체',assetType:'ETF'}],
@@ -192,6 +206,8 @@ if(viewContext.__portfolioAssetType(viewContext.rows[0])!=='ETF'
   throw new Error('missing master ETF/TDF classification incorrectly defaults to stock');
 viewContext.__setTypeFilter('전체');
 if(viewContext.__donutModel().total!==5000)throw new Error('full account donut total mismatch');
+if(Number(viewContext.__donutModel().entries?.find?.(entry=>entry[0]==='ETF')?.[1])!==1000)
+  throw new Error('full donut must classify non-prefix explicit ETF as ETF');
 viewContext.__setTypeFilter('ETF');
 if(viewContext.__donutModel().total!==2500 || !viewContext.__donutModel().title.includes('ETF'))
   throw new Error('donut ignores selected ETF filter');
