@@ -233,6 +233,8 @@ assert.equal(context._assessDailyKrxStockClose(segmented,allSegmented,'2026-10-0
 // fetchPricesKrx 실제 함수에서 YYYYMMDD 시장별 evidence가 ISO로 변환되는지 끝까지 검증.
 // 가공된 evidence만 직접 주입하는 테스트로는 \\d 이스케이프 오타를 찾을 수 없습니다.
 const realKrxContext = vm.createContext({
+  _krxCalendarStatus_:date=>date==='2026-10-09'?'CLOSED':'OPEN',
+  _normalizeDate:v=>String(v||'').slice(0,10),
   _getKrxApiConfig:()=>({apiKey:'test-key'}),
   _getKrxAuthKeySlots_:()=>({primary:'test-key',alternative:''}),
   _cleanCode:v=>String(v||'').trim(),
