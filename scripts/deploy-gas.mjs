@@ -32,6 +32,7 @@ export function extractExpectedGasVersion(source) {
 // Unknown future versions fail closed rather than bypassing this contract.
 const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   '9.193': '811ef56ede77cd040819941e73e4729826de935b',
+  '9.194': '8082cf7b1f988b008799f8be1439cf4d54a3b51e',
 });
 
 export function gasSourceBlobSha(source) {
@@ -261,7 +262,7 @@ export async function deploy() {
   const deploymentId = env('GAS_DEPLOYMENT_ID', { required: false }) || deploymentIdFromWebAppUrl(webAppUrl);
   const preferredFile = env('GAS_SERVER_FILE_NAME', { required: false });
   const source = fs.readFileSync(SOURCE_PATH, 'utf8');
-  // Do not publish a partial v9.193, including on automatic main-push deploy.
+  // Do not publish a partial or unpinned GAS version, including on automatic main-push deploy.
   // Dry runs remain available for investigating deployment credentials.
   const expectedVersion = dryRun ? extractExpectedGasVersion(source) : assertGasReleaseReady(source);
   const sha = String(process.env.GITHUB_SHA || 'local').slice(0, 12);
