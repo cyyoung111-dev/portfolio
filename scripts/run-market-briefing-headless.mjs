@@ -134,7 +134,10 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
   if (domesticClosed && checkpoint === 'EVENING') {
     // Domestic Snapshot is suppressed, but the scheduled foreign-market / FX
     // collection must fail visibly when its independent sources are unavailable.
-    const foreign = ['SP500','NASDAQ100','SOX','VIX'].some(key=>Number(sync?.payload?.[key]?.value)>0);
+    // A VIX-only or SOX-only response is not a successful foreign-market
+    // recap. Both primary US equity benchmarks are required; secondary
+    // market indicators remain optional but their omissions are diagnosed.
+    const foreign = ['SP500','NASDAQ100'].every(key=>Number(sync?.payload?.[key]?.value)>0);
     const fx = Number(sync?.payload?.USDKRW?.value)>0;
     return {checkpoint,tradingDate,skippedDomestic:true,successful:foreign&&fx,
       sync,decision:null,persistence:null};
