@@ -1,7 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.193
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.194
 //
-//  v9.193 변경사항 (2026.10.11):
+//  v9.194 변경사항 (2026.10.11):
+//   장중 KRX 확정 종가를 직전 완료 거래일에 별도 조회하고 UNKNOWN·휴장·stale 검증을 강화
 //   종가 캐시의 원천일자·갱신일시 분리, KRX 인증 대체 및 펀드 평가 진단 통합
 //   후속 PR #480/#481과 동일 배포로 묶어 운영에서 개별 단계 버전 혼용 방지
 //
@@ -1846,7 +1847,7 @@ function handlePriceFetch(dateParam, allCodesParam) {
       var session = _krxCalendarStatus_(reqDate);
       var now = new Date();
       var beforeClose = Utilities.formatDate(now, CONFIG.TIMEZONE, 'HHmm') < '1600';
-      var domesticMaxLag = session === 'OPEN' && beforeClose ? 1 : 0;
+      var domesticMaxLag = session !== 'CLOSED' && beforeClose ? 1 : 0;
 
       function rowFresh(code, sourceDate) {
         var item = codeMap[code];
@@ -1855,7 +1856,7 @@ function handlePriceFetch(dateParam, allCodesParam) {
           && String(item.market || '').toUpperCase() !== 'KR';
         if (!foreign) {
           // An intraday TDD_CLSPRC/cached quote is not a completed daily close.
-          if (session === 'OPEN' && beforeClose && sourceDate === reqDate) return false;
+          if (session !== 'CLOSED' && beforeClose && sourceDate === reqDate) return false;
           return sourceDate <= reqDate
             && _countBusinessWeekdaysBetween(sourceDate, reqDate) <= domesticMaxLag;
         }
@@ -1919,7 +1920,7 @@ function handleCurrentConfirmedPriceFetch(dateStr, allCodesParam, ss) {
   var now = new Date();
   var session = _krxCalendarStatus_(dateStr);
   var beforeClose = Utilities.formatDate(now, CONFIG.TIMEZONE, 'HHmm') < '1600';
-  var domesticLag = session === 'OPEN' && beforeClose ? 1 : 0;
+  var domesticLag = session !== 'CLOSED' && beforeClose ? 1 : 0;
   var queried = fetchPricesGoogleFinance(items, dateStr, ss,
     {useMarketCloseCutoffs:true,asOf:now});
   var confirmed = {};
@@ -1931,7 +1932,7 @@ function handleCurrentConfirmedPriceFetch(dateStr, allCodesParam, ss) {
     var foreign = String(item.currency || 'KRW').toUpperCase() !== 'KRW'
       && String(item.market || '').toUpperCase() !== 'KR';
     if (!foreign) {
-      if (used > dateStr || (session === 'OPEN' && beforeClose && used === dateStr)) return;
+      if (used > dateStr || (session !== 'CLOSED' && beforeClose && used === dateStr)) return;
       if (_countBusinessWeekdaysBetween(used,dateStr) > domesticLag) return;
     } else {
       var cutoff = _foreignMarketRegularCloseCutoff_(item,now);
@@ -2066,8 +2067,31 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   if (gfItems.length > 0 && !(options && options.skipKrx)) {
     try {
       var krxItems = gfItems.filter(function(item) { return String(item.currency || 'KRW').toUpperCase() === 'KRW' || String(item.market || '').toUpperCase() === 'KR'; });
-      var krxPrices = fetchPricesKrx(krxItems, dateStr);
-      Object.keys(krxPrices).forEach(function(code) { prices[code] = krxPrices[code]; });
+      // Never use an intraday KRX quote as a completed regular-session close.
+      // Explicitly request the previous confirmed calendar session during the
+      // Korean market day, even if the current-date API returns a partial row.
+      var krxQueryDate = dateStr;
+      if (options && options.useMarketCloseCutoffs
+          && _krxCalendarStatus_(dateStr) !== 'CLOSED'
+          && Utilities.formatDate(options.asOf || new Date(), CONFIG.TIMEZONE, 'HHmm') < '1600') {
+        var dayCursor = new Date(dateStr + 'T12:00:00Z');
+        krxQueryDate = '';
+        for (var lagDay = 0; lagDay < 14; lagDay++) {
+          dayCursor.setUTCDate(dayCursor.getUTCDate() - 1);
+          var candidateDate = Utilities.formatDate(dayCursor, 'UTC', 'yyyy-MM-dd');
+          if (_krxCalendarStatus_(candidateDate) !== 'CLOSED') {
+            krxQueryDate = candidateDate;
+            break;
+          }
+        }
+      }
+      var krxPrices = krxQueryDate ? fetchPricesKrx(krxItems, krxQueryDate) : {};
+      Object.keys(krxPrices).forEach(function(code) {
+        var record = krxPrices[code];
+        // Reject an API fallback older than the requested completed session.
+        if (krxQueryDate === dateStr || _normalizeDate(record.usedDate || '') === krxQueryDate)
+          prices[code] = record;
+      });
       gfItems = items.filter(function(item) { return !(prices[item.code] && prices[item.code].price > 0); });
       Logger.log('[price-source] 확정 KRX ' + Object.keys(krxPrices).length + '건, 저장된 확정 이력 fallback 대상 ' + gfItems.length + '건');
     } catch (e) {
@@ -5286,7 +5310,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.193' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.194' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10896,7 +10920,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.193',
+    gasVersion: '9.194',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -10936,7 +10960,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.193' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.194' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13651,7 +13675,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.193' });
+    return jsonOk({ settings: settings, gasVersion: '9.194' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13679,7 +13703,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.193'
+      gasVersion: '9.194'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

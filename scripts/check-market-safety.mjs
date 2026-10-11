@@ -157,6 +157,57 @@ if(morningResult.prices['005930']?.price!==121000 || morningResult.prices.AAPL?.
   throw Error('pre-open read must preserve latest completed KRX and NY closes');
 
 
+// Execute the real production provider, not a copy, to prevent the current-day
+// KRX intraday TDD_CLSPRC from suppressing the previous completed close.
+const providerProduction = gas.match(/function fetchPricesGoogleFinance\\([^)]*\\) \\{[\\s\\S]*?\\n\\}/)?.[0];
+if(!providerProduction)throw Error('real fetchPricesGoogleFinance function not found');
+let providerClock='1030', krxDates=[], providerOverride=null;
+const providerVm=vm.createContext({
+ CONFIG:{TIMEZONE:'Asia/Seoul'},
+ Utilities:{formatDate:(instant,tz,fmt)=>{
+   if(fmt==='HHmm')return providerClock;
+   if(fmt==='yyyy-MM-dd')return instant.toISOString().slice(0,10);
+   throw Error('unexpected format: '+fmt);
+ }},
+ _krxCalendarStatus_:date=>{
+   if(date==='2026-10-05'||date==='2026-10-09'||[0,6].includes(new Date(date+'T12:00:00Z').getUTCDay()))
+     return 'CLOSED';
+   return date.startsWith('2028-')?'UNKNOWN':'OPEN';
+ },
+ _normalizeDate:v=>String(v||'').slice(0,10),
+ fetchPricesKrx:(_items,date)=>{
+   krxDates.push(date);
+   const usedDate=providerOverride || date;
+   return {'005930':{price:date==='2026-10-08'?125000:100000,usedDate,source:'KRX'}};
+ },
+ fetchPricesYahooRegularClose:()=>({}),
+ Logger:{log:()=>{}}
+});
+vm.runInContext(providerProduction,providerVm);
+const domestic=[{code:'005930',name:'삼성전자',currency:'KRW',market:'KR'}];
+const queriedClose=(date,asOf)=>providerVm.fetchPricesGoogleFinance(domestic,date,null,
+ {useMarketCloseCutoffs:true,asOf:new Date(asOf)});
+let premarket=queriedClose('2026-10-08','2026-10-08T01:30:00Z');
+if(krxDates.at(-1)!=='2026-10-07'||premarket['005930']?.usedDate!=='2026-10-07')
+ throw Error('intraday cache miss must query exact previous completed official KRX session');
+const afterHoliday=queriedClose('2026-10-06','2026-10-06T01:30:00Z');
+if(krxDates.at(-1)!=='2026-10-02'||afterHoliday['005930']?.usedDate!=='2026-10-02')
+ throw Error('previous KRX completed session must skip known holiday and weekend');
+let afterClose=queriedClose('2026-10-08','2026-10-08T08:30:00Z');
+if(krxDates.at(-1)!=='2026-10-08'||afterClose['005930']?.price!==125000)
+ throw Error('after 16:00, requested-date KRX path must remain intact');
+const unknownSession=queriedClose('2028-10-10','2028-10-10T01:30:00Z');
+if(krxDates.at(-1)!=='2028-10-09'||unknownSession['005930']?.usedDate!=='2028-10-09')
+ throw Error('UNKNOWN future calendar must not treat an intraday KRX quote as confirmed');
+providerOverride='2026-10-01';
+const carriedStale=queriedClose('2026-10-08','2026-10-08T01:30:00Z');
+if('005930' in carriedStale)
+ throw Error('KRX previous-session retry must reject an even older provider fallback');
+providerOverride=null;
+const holiday=queriedClose('2026-10-09','2026-10-09T01:30:00Z');
+if(krxDates.at(-1)!=='2026-10-09'||holiday['005930']?.usedDate!=='2026-10-09')
+ throw Error('CLOSED holiday read path must not be remapped to an intraday previous-day request');
+
 // A mixed KR+US portfolio must not reject a valid NY close just because the
 // calendar date differs from the KRX session. Preserve valid overseas closes
 // while re-querying only stale domestic rows.
