@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const SCRIPT_API = 'https://script.googleapis.com/v1';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -21,24 +22,33 @@ export function extractExpectedGasVersion(source) {
   return version;
 }
 
-// A single 9.193 release covers PR #479 (close source date), #480 (fund
-// completion and Snapshot no-op), and #481 (credential/OTP recovery).
-// Prevent deployment of a partially merged stacked PR even if the version
-// string is already 9.193. Validate *before* fetching credentials or writing.
+// A production GAS release must match an explicitly reviewed, complete
+// source blob. A function name, comment, or version string is not evidence
+// that the stacked KRX/NAV/Snapshot implementations are present.
+//
+// The pinned Git blob ID below is the exact GAS file content reviewed on
+// PR #481 (not a commit ID). When approving a new GAS source/version, update
+// this manifest with the reviewed full-file blob SHA in the same reviewed PR.
+// Unknown future versions fail closed rather than bypassing this contract.
+const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
+  '9.193': '53b9734988ca3047a5ce9a1fdbc80017ecb271c6',
+});
+
+export function gasSourceBlobSha(source) {
+  const bytes = Buffer.from(String(source ?? ''), 'utf8');
+  return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+}
+
 export function assertGasReleaseReady(source) {
   const version = extractExpectedGasVersion(source);
-  if (version !== '9.193') return version;
-  const required = [
-    ['CLOSE_SOURCE_DATE', /종가원천일/],
-    ['FUND_OWNER_STATUS', /fundAttempt\s*:/],
-    ['SNAPSHOT_NOOP', /snapshotValidatedNoOp\+\+/],
-    ['KRX_AUTH_SLOTS', /function\s+_getKrxAuthKeySlots_\s*\(/],
-    ['KRX_MARKET_RECOVERY', /authDeniedMarkets/],
-    ['KRX_OTP_MISSING_RECOVERY', /var\s+missingItems\s*=\s*items\.filter/],
-  ];
-  const missing = required.filter(([, expression]) => !expression.test(source))
-    .map(([name]) => name);
-  if (missing.length) throw new Error('GAS_RELEASE_9_193_INCOMPLETE: ' + missing.join(','));
+  const [major, minor] = version.split('.').map(Number);
+  if (major < 9 || (major === 9 && minor < 193)) return version;
+  const reviewed = REVIEWED_GAS_SOURCE_BLOBS[version];
+  if (!reviewed) throw new Error(`GAS_RELEASE_UNREVIEWED_VERSION: ${version}`);
+  const actual = gasSourceBlobSha(source);
+  if (actual !== reviewed) {
+    throw new Error(`GAS_RELEASE_SOURCE_NOT_APPROVED: version=${version} actualBlob=${actual} reviewedBlob=${reviewed}`);
+  }
   return version;
 }
 
