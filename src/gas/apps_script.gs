@@ -9396,6 +9396,13 @@ function _assessDailyKrxStockClose(items, prices, requestedDate) {
   var lag = _countBusinessWeekdaysBetween(newestDate, requestedDate);
   if (lag > 2) throw new Error('일반 종목 확정 종가 오래됨: 요청 ' + requestedDate + ', 최근 KRX ' + newestDate
     + ' (KRX 거래일 ' + lag + '일 차이) · 가격 수집 경로 점검이 필요합니다.');
+  // A fallback close from T-1/T-2 may be shown as a historical/indicative
+  // price, but MUST NOT make a normal trading day's final snapshot succeed.
+  // Only a verified KRX CLOSED session may inherit an earlier official close.
+  if (_krxCalendarStatus_(requestedDate) !== 'CLOSED' && newestDate !== requestedDate) {
+    throw new Error('일반 종목 확정 종가 원천일 불일치: 요청 ' + requestedDate
+      + ', 실제 KRX ' + newestDate + ' · 정상 거래일 종가 이월 확정 금지');
+  }
   Object.keys(byMarket).forEach(function(group) {
     var stat = byMarket[group];
     var matched = stat.dates.filter(function(date) { return date === newestDate; }).length;
