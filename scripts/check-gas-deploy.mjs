@@ -5,6 +5,7 @@ import {
   deploymentIdFromWebAppUrl,
   extractExpectedGasVersion,
   assertGasReleaseReady,
+  assertGasProjectFileSet,
   gasSourceBlobSha,
   parseClaspCredentials,
   sanitizeFiles,
@@ -125,6 +126,34 @@ assert.equal(updated.find(file => file.name === 'helpers').source, 'function hel
 assert.equal(updated.find(file => file.name === 'page').source, '<b>keep</b>');
 assert.equal(updated.find(file => file.name === 'appsscript').source, '{"timeZone":"Asia/Seoul"}');
 assert.throws(() => buildUpdatedFiles(files.filter(file => file.name !== 'appsscript'), 'apps_script', 'new source'), /manifest/);
+
+const approvedProjectFiles = files.filter(f => f.name === 'appsscript' || f.name === 'apps_script');
+assert.equal(assertGasProjectFileSet(approvedProjectFiles,'apps_script',approvedProjectFiles),true,
+  'pinned sole GAS server and stable deployed manifest must pass');
+assert.throws(() => assertGasProjectFileSet(files,'apps_script',approvedProjectFiles),
+  /GAS_PROJECT_UNREVIEWED_FILES/, 'extra SERVER_JS/HTML must be rejected even when approved server matches');
+assert.throws(() => assertGasProjectFileSet([...approvedProjectFiles, {
+  name:'evil',type:'SERVER_JS',source:'function doGet() { return false; }'
+}], 'apps_script',approvedProjectFiles), /GAS_PROJECT_UNREVIEWED_FILES/,
+  'unexpected extra top-level code must never deploy');
+assert.throws(() => assertGasProjectFileSet(approvedProjectFiles,'apps_script',
+  [...approvedProjectFiles,{name:'extra',type:'SERVER_JS',source:'function legacy(){}'}]),
+  /GAS_PROJECT_UNREVIEWED_FILES/, 'deployed versions with extra executable code also fail closed');
+assert.throws(() => assertGasProjectFileSet(approvedProjectFiles.map(f =>
+  f.name==='appsscript'?{...f,source:'{"timeZone":"America/New_York"}'}:f),
+  'apps_script',approvedProjectFiles), /GAS_PROJECT_MANIFEST_DRIFT/,
+  'manifest drift must be blocked before first write');
+assert.throws(() => assertGasProjectFileSet(approvedProjectFiles.map(f =>
+  f.name==='appsscript'?{...f,source:'not-json'}:f),
+  'apps_script',approvedProjectFiles), /GAS_PROJECT_MANIFEST_DRIFT|GAS_PROJECT_MANIFEST_INVALID/);
+const validateOrder = fs.readFileSync('scripts/deploy-gas.mjs','utf8');
+assert.ok(validateOrder.indexOf('assertGasProjectFileSet(currentContent.files') <
+          validateOrder.indexOf('if (alreadyDeployed) {'),
+  'all-file validation must precede already-deployed fast path');
+assert.ok(validateOrder.indexOf('assertGasProjectFileSet(currentContent.files') <
+          validateOrder.indexOf("method: 'PUT'"),
+  'all-file validation must precede any GAS write');
+
 
 const workflow = fs.readFileSync('.github/workflows/gas-deploy.yml', 'utf8');
 assert.match(workflow, /push:\s*[\s\S]*branches:\s*\[\s*main\s*\][\s\S]*src\/gas\/apps_script\.gs/);
