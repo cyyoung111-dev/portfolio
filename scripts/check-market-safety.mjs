@@ -189,5 +189,31 @@ krxVm._fetchKrxMarketsParallelWithFallback=(_markets,_date,key)=>{
 krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
 if(krxFallbackCalls.length!==1)
  throw Error('missing rows without HTTP 401/403 must never trigger credential switch');
+
+krxVm.fetchPricesKrxViaOtp=missing=>Object.fromEntries(missing.map(item=>
+ [item.code,{price:item.code==='000660'?91000:110000,name:item.name,
+  source:'KRX_OTP',usedDate:'2026-10-08'}]));
+krxVm._fetchKrxMarketsParallelWithFallback=(_markets,_date,key)=>
+ key==='stale-primary'
+  ? {KOSPI:{rows:[],usedYmd:'20261008',authHttpStatus:401},
+     KOSDAQ:{rows:[],usedYmd:'20261008',authHttpStatus:403},
+     ETF:{rows:[],usedYmd:'20261008',authHttpStatus:401}}
+  : {KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'100000'}],usedYmd:'20261008'},
+     KOSDAQ:{rows:[],usedYmd:'20261008',authHttpStatus:403},
+     ETF:{rows:[],usedYmd:'20261008',authHttpStatus:403}};
+const mixedOtp=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'},
+  {code:'000660',name:'SK하이닉스'}],'2026-10-08');
+if(mixedOtp['005930']?.source!=='KRX'||mixedOtp['000660']?.source!=='KRX_OTP')
+ throw Error('partially authorized alternate key must fill missing market from OTP without clobbering healthy market');
+krxVm._fetchKrxMarketsParallelWithFallback=(_markets,_date,key)=>{
+ if(key==='approved-legacy')throw new Error('SIMULATED_NETWORK_FAILURE');
+ return {KOSPI:{rows:[{ISU_CD:'005930',TDD_CLSPRC:'100000'}],usedYmd:'20261008'},
+  KOSDAQ:{rows:[],usedYmd:'20261008',authHttpStatus:403},
+  ETF:{rows:[],usedYmd:'20261008',authHttpStatus:403}};
+};
+const preserved=krxVm.fetchPricesKrx([{code:'005930',name:'삼성전자'}],'2026-10-08');
+if(preserved['005930']?.price!==100000)
+ throw Error('alternate network failure must preserve primary KOSPI prices');
+
 if(extractKrx('configureKrxAuthKeyPrompt').indexOf("props.deleteProperty('krx_api_key')")<0)
  throw Error('manual clear of primary KRX key must remove legacy key too');
