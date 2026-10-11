@@ -109,6 +109,17 @@ export function assertGasProjectFileSet(files, targetName, deployedFiles) {
   return true;
 }
 
+// Google Apps Script versions are minted from the mutable project HEAD.
+// Validate the *created version*, not only the project state observed before
+// the write. This closes a concurrent-edit window before moving /exec.
+export function assertGasCreatedVersionReady(createdFiles, targetName, reviewedSource, deployedFiles) {
+  assertGasProjectFileSet(createdFiles, targetName, deployedFiles);
+  const versionFile = selectServerFile(createdFiles, targetName);
+  if (!sameSource(versionFile.source, reviewedSource))
+    throw new Error('GAS_CREATED_VERSION_SOURCE_DRIFT: created version differs from approved source');
+  return true;
+}
+
 export function buildUpdatedFiles(files, targetName, source) {
   const clean = sanitizeFiles(files);
   if (!clean.some(file => file.name === 'appsscript' && file.type === 'JSON')) {
@@ -305,6 +316,14 @@ export async function deploy() {
   });
   const newVersionNumber = Number(version.versionNumber || 0);
   if (!newVersionNumber) throw new Error('새 Apps Script versionNumber를 확인하지 못했습니다.');
+
+  // Never publish a version we did not inspect. Another GAS editor may
+  // alter HEAD between our content GET/PUT and versions POST.
+  const createdVersionContent = await requestJson(
+    `${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/content?versionNumber=${newVersionNumber}`,
+    { token: accessToken },
+  );
+  assertGasCreatedVersionReady(createdVersionContent.files, target.name, source, deployedContent.files);
 
   await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`, {
     method: 'PUT',
