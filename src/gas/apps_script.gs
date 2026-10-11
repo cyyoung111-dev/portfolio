@@ -1854,6 +1854,8 @@ function handlePriceFetch(dateParam, allCodesParam) {
         var foreign = String(item.currency || 'KRW').toUpperCase() !== 'KRW'
           && String(item.market || '').toUpperCase() !== 'KR';
         if (!foreign) {
+          // An intraday TDD_CLSPRC/cached quote is not a completed daily close.
+          if (session === 'OPEN' && beforeClose && sourceDate === reqDate) return false;
           return sourceDate <= reqDate
             && _countBusinessWeekdaysBetween(sourceDate, reqDate) <= domesticMaxLag;
         }
@@ -1908,10 +1910,59 @@ function handlePriceFetch(dateParam, allCodesParam) {
           missingCodes:calcMissing(allCodesParam,Object.keys(freshPrices)) });
       }
     }
-    return handleHistoricalPriceFetch(todayStr, allCodesParam, ss);
+    // A cache miss is still a current-price request: evaluate each market's
+    // last completed session instead of treating KST today as the NY close.
+    return handleCurrentConfirmedPriceFetch(todayStr, allCodesParam, ss);
   } catch(err) {
     return jsonError(err.message);
   }
+}
+
+// The legacy GET path must not turn a cache miss into an arbitrary-date
+// historical lookup. Domestic dates must match the latest completed KRX
+// session; foreign dates must be exchange-local completed regular sessions.
+// This path returns read-only prices and never writes history/Snapshot.
+function handleCurrentConfirmedPriceFetch(dateStr, allCodesParam, ss) {
+  var items = getCodeItems(ss);
+  if (!items.length) return jsonError('종목코드 없음. initSheet() 먼저 실행하세요.');
+  var now = new Date();
+  var session = _krxCalendarStatus_(dateStr);
+  var beforeClose = Utilities.formatDate(now, CONFIG.TIMEZONE, 'HHmm') < '1600';
+  var domesticLag = session === 'OPEN' && beforeClose ? 1 : 0;
+  var queried = fetchPricesGoogleFinance(items, dateStr, ss,
+    {useMarketCloseCutoffs:true,asOf:now});
+  var confirmed = {};
+  items.forEach(function(item) {
+    var row = queried && queried[item.code];
+    if (!row || !(Number(row.price) > 0)) return;
+    var used = _normalizeDate(row.usedDate || row.marketDate || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(used)) return;
+    var foreign = String(item.currency || 'KRW').toUpperCase() !== 'KRW'
+      && String(item.market || '').toUpperCase() !== 'KR';
+    if (!foreign) {
+      if (used > dateStr || (session === 'OPEN' && beforeClose && used === dateStr)) return;
+      if (_countBusinessWeekdaysBetween(used,dateStr) > domesticLag) return;
+    } else {
+      var cutoff = _foreignMarketRegularCloseCutoff_(item,now);
+      if (used > cutoff) return;
+      // An older than expected source date remains a historical value,
+      // not a current quote. Allow one business-day lag for market holidays.
+      var cursor = new Date(used + 'T12:00:00Z');
+      var target = new Date(cutoff + 'T12:00:00Z');
+      if (isNaN(cursor.getTime()) || isNaN(target.getTime())) return;
+      var lag = 0;
+      for (;cursor < target && lag < 2;) {
+        cursor.setUTCDate(cursor.getUTCDate()+1);
+        var day=cursor.getUTCDay();
+        if(day!==0 && day!==6) lag++;
+      }
+      if (cursor < target || lag > 1) return;
+    }
+    confirmed[item.code] = row;
+  });
+  return jsonOk({ date:dateStr, count:Object.keys(confirmed).length,
+    prices:confirmed, source:'confirmed-completed-sessions', tossCount:0,
+    missingCodes:calcMissing(allCodesParam,Object.keys(confirmed)) });
 }
 
 // ════════════════════════════════════════════════════════════════════
