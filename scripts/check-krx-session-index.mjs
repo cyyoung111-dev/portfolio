@@ -43,13 +43,13 @@ const ctx={
   _isKrxOfficialCloseAvailableTime_:()=>true,
 };
 vm.runInNewContext(calendar[0]+'\n'+idx[0]+'\n'+[
-  '_krxCalendarStatus_','fetchKrxOfficialIndexCloses','_fetchKrxOfficialIndexClosesSafe_',
+  '_krxCalendarStatus_','_benchmarkSymbolMap','fetchKrxOfficialIndexCloses','_fetchKrxOfficialIndexClosesSafe_',
   'handleGetBenchmarks'].map(n=>fn(gas,n)).join('\n'),ctx);
 assert.equal(ctx._krxCalendarStatus_('2026-10-09'),'CLOSED');
 assert.equal(ctx._krxCalendarStatus_('2026-10-08'),'OPEN');
 assert.equal(ctx._krxCalendarStatus_('2028-10-09'),'UNKNOWN');
 let r=ctx.handleGetBenchmarks('KOSPI','2026-10-07','2026-10-09',false);
-assert.equal(r.status,'ok');
+assert.equal(r.status,'ok',JSON.stringify(r));
 assert.equal(r.series.KOSPI.at(-1).date,'2026-10-08','confirmed holiday skip must resolve last OPEN session');
 assert.equal(r.seriesMeta.KOSPI.confirmedClose,true);
 assert.ok(requests.some(x=>x.slot==='alternate'&&x.url.includes('20261008')),'401 primary retried with alternate credential');
