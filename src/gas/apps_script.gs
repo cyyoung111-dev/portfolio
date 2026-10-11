@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.192
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.193
+//
+//  v9.193 변경사항 (2026.10.11):
+//   종가 캐시의 원천일자·갱신일시 분리, KRX 인증 대체 및 펀드 평가 진단 통합
+//   후속 PR #480/#481과 동일 배포로 묶어 운영에서 개별 단계 버전 혼용 방지
 //
 //  v9.192 변경사항 (2026.10.09):
 //   장전 브리핑에서 Toss 실패 시 직전 KRX 정규장 공식 종가 조회
@@ -1834,7 +1838,7 @@ function handlePriceFetch(dateParam, allCodesParam) {
 
     var priceSheet = ss.getSheetByName(CONFIG.SHEET_PRICES);
     if (priceSheet && priceSheet.getLastRow() >= 2) {
-      var data   = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 4).getValues();
+      var data   = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 5).getValues();
       var prices = {}, cacheDates = [];
       data.forEach(function(row) {
         var code  = (row[0] || '').toString().trim();
@@ -1844,7 +1848,7 @@ function handlePriceFetch(dateParam, allCodesParam) {
           prices[code] = { price: price, name: name, officialName: name };
           // The old GET-compatible path must validate actual cache timestamps.
           // A nonempty sheet is not proof that any close is current.
-          cacheDates.push(_normalizeDate(row[3] || ''));
+          cacheDates.push(_normalizeDate(row[4] || '')); // source session date, never write timestamp
         }
       });
       var cacheCount = Object.keys(prices).length;
@@ -2655,23 +2659,23 @@ function updatePrices() {
 
   var results = items.map(function(item) {
     var p = prices[item.code];
-    return [item.code, p ? p.price : '', item.name, now];
+    return [item.code, p ? p.price : '', item.name, now, _normalizeDate(p && p.usedDate || '')];
   });
 
   var ps = ss.getSheetByName(CONFIG.SHEET_PRICES) || ss.insertSheet(CONFIG.SHEET_PRICES);
   ps.clearContents(); ps.clearFormats();
-  var allRows = [['종목코드','종가','종목명','갱신일시']].concat(results);
-  ps.getRange(1, 1, allRows.length, 4).setValues(allRows);
+  var allRows = [['종목코드','종가','종목명','갱신일시','종가원천일']].concat(results);
+  ps.getRange(1, 1, allRows.length, 5).setValues(allRows);
   ps.getRange(1, 1, 1, 4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   ps.setColumnWidth(1, 90); ps.setColumnWidth(2, 90);
-  ps.setColumnWidth(3, 200); ps.setColumnWidth(4, 160);
+  ps.setColumnWidth(3, 200); ps.setColumnWidth(4, 160); ps.setColumnWidth(5, 110);
   SpreadsheetApp.flush();
 
   var todayStr = today();
   var phItems  = [];
   items.forEach(function(item) {
     var p = prices[item.code];
-    if (p && p.price > 0) phItems.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'GOOGLEFINANCE') });
+    if (p && p.price > 0 && _normalizeDate(p.usedDate || '') === todayStr) phItems.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'GOOGLEFINANCE') });
   });
   if (phItems.length > 0) batchUpsertPriceHistory(ss, todayStr, phItems);
 
@@ -5133,7 +5137,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.192' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.193' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10736,7 +10740,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.192',
+    gasVersion: '9.193',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -10776,7 +10780,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.192' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.193' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13464,7 +13468,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.192' });
+    return jsonOk({ settings: settings, gasVersion: '9.193' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13492,7 +13496,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.192'
+      gasVersion: '9.193'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
