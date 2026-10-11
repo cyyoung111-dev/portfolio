@@ -4913,7 +4913,8 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
       // calendar-confirmed CLOSED dates may be skipped to a prior session.
       var currentDate = today();
       var todayNotFinal = toDate === currentDate
-        && !_isKrxOfficialCloseAvailableTime_(new Date(), toDate);
+        && (!_isKrxOfficialCloseAvailableTime_(new Date(), toDate)
+          || _krxCalendarStatus_(toDate) === 'CLOSED');
       var officialSearchToDate = todayNotFinal ? _fundDateOffset(toDate, -1) : toDate;
       ['KOSPI','KOSDAQ'].filter(function(type) { return requested.indexOf(type) !== -1; })
         .forEach(function(type) {
