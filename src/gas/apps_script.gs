@@ -1834,7 +1834,7 @@ function handlePriceFetch(dateParam, allCodesParam) {
 
     var priceSheet = ss.getSheetByName(CONFIG.SHEET_PRICES);
     if (priceSheet && priceSheet.getLastRow() >= 2) {
-      var data   = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 4).getValues();
+      var data   = priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 5).getValues();
       var prices = {}, cacheDates = [];
       data.forEach(function(row) {
         var code  = (row[0] || '').toString().trim();
@@ -1844,7 +1844,7 @@ function handlePriceFetch(dateParam, allCodesParam) {
           prices[code] = { price: price, name: name, officialName: name };
           // The old GET-compatible path must validate actual cache timestamps.
           // A nonempty sheet is not proof that any close is current.
-          cacheDates.push(_normalizeDate(row[3] || ''));
+          cacheDates.push(_normalizeDate(row[4] || '')); // source session date, never write timestamp
         }
       });
       var cacheCount = Object.keys(prices).length;
@@ -2655,23 +2655,23 @@ function updatePrices() {
 
   var results = items.map(function(item) {
     var p = prices[item.code];
-    return [item.code, p ? p.price : '', item.name, now];
+    return [item.code, p ? p.price : '', item.name, now, _normalizeDate(p && p.usedDate || '')];
   });
 
   var ps = ss.getSheetByName(CONFIG.SHEET_PRICES) || ss.insertSheet(CONFIG.SHEET_PRICES);
   ps.clearContents(); ps.clearFormats();
-  var allRows = [['종목코드','종가','종목명','갱신일시']].concat(results);
-  ps.getRange(1, 1, allRows.length, 4).setValues(allRows);
+  var allRows = [['종목코드','종가','종목명','갱신일시','종가원천일']].concat(results);
+  ps.getRange(1, 1, allRows.length, 5).setValues(allRows);
   ps.getRange(1, 1, 1, 4).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
   ps.setColumnWidth(1, 90); ps.setColumnWidth(2, 90);
-  ps.setColumnWidth(3, 200); ps.setColumnWidth(4, 160);
+  ps.setColumnWidth(3, 200); ps.setColumnWidth(4, 160); ps.setColumnWidth(5, 110);
   SpreadsheetApp.flush();
 
   var todayStr = today();
   var phItems  = [];
   items.forEach(function(item) {
     var p = prices[item.code];
-    if (p && p.price > 0) phItems.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'GOOGLEFINANCE') });
+    if (p && p.price > 0 && _normalizeDate(p.usedDate || '') === todayStr) phItems.push({ code: item.code, name: item.name, price: p.price, source: (p.source || 'GOOGLEFINANCE') });
   });
   if (phItems.length > 0) batchUpsertPriceHistory(ss, todayStr, phItems);
 
