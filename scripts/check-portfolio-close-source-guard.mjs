@@ -1047,6 +1047,13 @@ assert.match(automationUI, /closeRun\.stage/,
   '중단된 현재 마감 단계를 표시해야 함');
 assert.match(automationUI, /officialKrxPriceHistoryLastDate/,
   '공식 KRX 최근일을 전체 가격/NAV 최근일과 별도 표시해야 함');
+assert.match(automationUI, /fundAttempt\.state === 'TIMEOUT_SUSPECTED'/,
+  'NAV hard-timeout 경고 상태를 사용자 카드에서 소비해야 함');
+assert.match(automationUI, /fundAttempt\.startedAtMs/,
+  'NAV 완료 기록 없는 시도의 실제 시작 timestamp를 노출해야 함');
+assert.match(automationUI, /fundAttemptWarning/,
+  'NAV 타임아웃 상세를 최근 오류 없음보다 우선하여 표시해야 함');
+
 
 console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
 
