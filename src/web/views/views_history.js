@@ -498,9 +498,12 @@ async function loadAutomationStatusFromGsheet() {
     const isNeverRun = a.overallStatus === 'NEVER_RUN';
     const closeStageInfo = incomplete ? ` · 단계 ${_escapeHtml(closeRun.stage || '미상')} · 단계 시각 ${_escapeHtml(closeRun.stageAt || '-')}` : '';
     const currentCloseStarted = incomplete ? _escapeHtml(closeRun.startedAt || '-') : _escapeHtml(close.finishedAt || close.startedAt || '아직 없음');
+    const fundStartMs = Number(fundAttempt.startedAtMs || 0);
+    const fundStartTime = Number.isFinite(fundStartMs) && fundStartMs > 0
+      ? new Date(fundStartMs).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-';
     const fundAttemptWarning = fundTimedOut
-      ? '펀드 실행 완료 기록 없음 · 타임아웃 의심 · 시작 ' + _escapeHtml(fundAttempt.startedAt || '-')
-        + (fundAttempt.owner ? ' · 실행 주체 ' + _escapeHtml(fundAttempt.owner) : '')
+      ? '펀드 실행 완료 기록 없음 · 타임아웃 의심 · 시작 ' + _escapeHtml(fundStartTime)
+        + ' · 대상일 ' + _escapeHtml(fundAttempt.date || '-')
       : '';
     const referenceErrorOnly = isNeverRun && !a.portfolioCloseLastError && !!a.fundLastError;
     body.innerHTML = `
