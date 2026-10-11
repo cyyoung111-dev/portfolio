@@ -17,7 +17,9 @@ for(const file of ['market_briefing_operational_gate.js','market_briefing_provid
   if(!bootstrap.includes(`domain/market/${file}?v=${briefingRelease}`))fail(`Stale market briefing runtime include: ${file}`);
 }
 if(!html.includes(`app/bootstrap.js?v=${briefingRelease}`))fail('Stale index bootstrap JS reference');
-if(!html.includes(`sw.js?v=${briefingRelease}`))fail('Stale service worker registration');
-if(!sw.includes(`portfolio-cache-${briefingRelease}`))fail('Stale service worker cache name');
+const swCacheRelease=sw.match(/const CACHE_NAME\s*=\s*'portfolio-cache-(\d{8}-\d+)'/)?.[1];
+if(!swCacheRelease)fail('Missing versioned service worker cache name');
+if(!html.includes(`sw.js?v=${swCacheRelease}`))fail('Stale service worker registration');
+if(!sw.includes(`portfolio-cache-${swCacheRelease}`))fail('Stale service worker cache name');
 if(process.exitCode&&process.exitCode!==0)process.exit(process.exitCode);
 ok('Market briefing bootstrap, dynamic module and service worker release versions aligned');
