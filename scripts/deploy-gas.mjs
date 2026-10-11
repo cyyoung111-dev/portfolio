@@ -41,8 +41,8 @@ export function gasSourceBlobSha(source) {
 
 export function assertGasReleaseReady(source) {
   const version = extractExpectedGasVersion(source);
-  const [major, minor] = version.split('.').map(Number);
-  if (major < 9 || (major === 9 && minor < 193)) return version;
+  // Older and newer versions alike require an explicit reviewed source pin.
+  // Rollbacks must also be approved rather than bypassing release integrity.
   const reviewed = REVIEWED_GAS_SOURCE_BLOBS[version];
   if (!reviewed) throw new Error(`GAS_RELEASE_UNREVIEWED_VERSION: ${version}`);
   const actual = gasSourceBlobSha(source);
