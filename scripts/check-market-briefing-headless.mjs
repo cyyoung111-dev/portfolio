@@ -99,12 +99,24 @@ const request=async(action,params={})=>{
 };
 // Closed domestic session must not fabricate a regular close or mark a
 // scheduled workflow as failed. EVENING still collects foreign/FX context.
+const holidayRequest=async(action,params)=>{
+ if(action==='getBenchmarks'){
+   const data=await request(action,params);
+   const series={...data.series};
+   for(const key of ['SP500','NASDAQ100','SOX','VIX'])
+     series[key]=[{date:'2026-10-08',value:1200,source:'YAHOO'}];
+   return {...data,series};
+ }
+ if(action==='getExchangeRateHistory')
+   return {status:'ok',history:[{date:'2026-10-08',value:1380}]};
+ return request(action,params);
+};
 const shouldNeverFetch=()=>{throw new Error('CLOSED_KRX_FINAL_MUST_NOT_FETCH');};
 const closedFinal=await runHeadless({checkpoint:'KRX_FINAL',tradingDate:'2026-10-09',request:shouldNeverFetch});
 assert.equal(closedFinal.skippedDomestic,true);
 assert.equal(closedFinal.persistence,null);
 assert.equal(diagnosticFor(closedFinal).status,'SKIPPED_DOMESTIC_CLOSED');
-const closedEvening=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',request});
+const closedEvening=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',request:holidayRequest});
 assert.equal(closedEvening.skippedDomestic,true,'KRX 휴장 마감에는 정규장 확정 보고 보류');
 assert.ok(closedEvening.sync,'해외/FX 원천 관측은 휴장일에도 계속 수집');
 assert.equal(snapshots.length,0,'휴장일 동일 날짜 가짜 국내 마감 스냅샷 없음');
@@ -121,16 +133,41 @@ assert.equal(diagnosticFor(failedForeign).status,'FOREIGN_CONTEXT_MISSING');
 const vixOnly=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
  request:async(action,params)=>{
    if(action==='getBenchmarks'){
-     const original=await request(action,params);
+     const original=await holidayRequest(action,params);
      return {...original,series:{VIX:original.series.VIX,SOX:original.series.SOX}};
    }
-   return request(action,params);
+   return holidayRequest(action,params);
  }});
 assert.equal(vixOnly.skippedDomestic,true);
 assert.equal(vixOnly.successful,false,
   'VIX/SOX+FX without S&P500/NASDAQ100 must fail the closed-day checkpoint');
 assert.equal(headlessSucceeded(vixOnly),false);
 assert.equal(diagnosticFor(vixOnly).status,'FOREIGN_CONTEXT_MISSING');
+
+const staleHolidayRequest=async(action,params)=>{
+ if(action==='getBenchmarks'){
+   const data=await holidayRequest(action,params);
+   return {...data,series:{...data.series,
+     SP500:[{date:'2026-09-30',value:1200,source:'YAHOO'}],
+     NASDAQ100:[{date:'2026-10-01',value:1200,source:'YAHOO'}]}};
+ }
+ if(action==='getExchangeRateHistory')
+   return {status:'ok',history:[{date:'2026-10-02',value:1380}]};
+ return holidayRequest(action,params);
+};
+const staleAll=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',request:staleHolidayRequest});
+assert.equal(staleAll.successful,false, 'old positive values cannot satisfy closed-day freshness');
+assert.equal(headlessSucceeded(staleAll),false, 'stale US+FX must cause CLI failure');
+const staleFx=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:(action,params)=>action==='getExchangeRateHistory'
+   ? Promise.resolve({status:'ok',history:[{date:'2026-10-02',value:1380}]})
+   : holidayRequest(action,params)});
+assert.equal(staleFx.successful,false, 'fresh US but stale FX must fail');
+const staleUs=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:(action,params)=>action==='getBenchmarks'
+   ? staleHolidayRequest(action,params) : holidayRequest(action,params)});
+assert.equal(staleUs.successful,false, 'stale US but fresh FX must fail');
+
 
 
 for (const [mode, expectedStatus] of [
@@ -160,7 +197,7 @@ assert.equal(headlessSucceeded(failedForeign),false,'휴장 EVENING 외국시장
 
 const fxFallbackCalls=[];
 const gasNoFx=async (action,params)=>action==='getExchangeRateHistory'
- ? Promise.reject(new Error('FX_MISSING_SOURCE')):request(action,params);
+ ? Promise.reject(new Error('FX_MISSING_SOURCE')):holidayRequest(action,params);
 const fallbackEvening=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
  request:gasNoFx,fxFallback:async args=>{
   fxFallbackCalls.push(args);
