@@ -206,7 +206,7 @@ if(viewContext.__portfolioAssetType(viewContext.rows[0])!=='ETF'
   throw new Error('missing master ETF/TDF classification incorrectly defaults to stock');
 viewContext.__setTypeFilter('전체');
 if(viewContext.__donutModel().total!==5000)throw new Error('full account donut total mismatch');
-if(Number(viewContext.__donutModel().entries?.find?.(entry=>entry[0]==='ETF')?.[1])!==1000)
+if(Number(viewContext.__donutModel().entries?.find?.(entry=>entry[0]==='ETF')?.[1])!==2500)
   throw new Error('full donut must classify non-prefix explicit ETF as ETF');
 viewContext.__setTypeFilter('ETF');
 if(viewContext.__donutModel().total!==2500 || !viewContext.__donutModel().title.includes('ETF'))
