@@ -193,9 +193,11 @@ if(krxDates.at(-1)!=='2026-10-07'||premarket['005930']?.usedDate!=='2026-10-07')
 const afterHoliday=queriedClose('2026-10-06','2026-10-06T01:30:00Z');
 if(krxDates.at(-1)!=='2026-10-02'||afterHoliday['005930']?.usedDate!=='2026-10-02')
  throw Error('previous KRX completed session must skip known holiday and weekend');
+providerClock='1630';
 let afterClose=queriedClose('2026-10-08','2026-10-08T08:30:00Z');
 if(krxDates.at(-1)!=='2026-10-08'||afterClose['005930']?.price!==125000)
  throw Error('after 16:00, requested-date KRX path must remain intact');
+providerClock='1030';
 const unknownSession=queriedClose('2028-10-10','2028-10-10T01:30:00Z');
 if(krxDates.at(-1)!=='2028-10-09'||unknownSession['005930']?.usedDate!=='2028-10-09')
  throw Error('UNKNOWN future calendar must not treat an intraday KRX quote as confirmed');
