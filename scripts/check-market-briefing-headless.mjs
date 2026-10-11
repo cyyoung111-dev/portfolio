@@ -48,7 +48,7 @@ await assert.rejects(()=>createRequest('https://example.test','secret',fxFetch({
 await assert.rejects(()=>createRequest('https://example.test','secret',fxFetch({status:'INVALID_SCHEMA'}))('getExchangeRateHistory'),/FX_INVALID_SCHEMA/);
 
 const yahooFxPayload={chart:{result:[{
- meta:{symbol:'KRW=X',currency:'KRW'},
+ meta:{symbol:'KRW=X',currency:'KRW',exchangeTimezoneName:'Europe/London'},
  timestamp:[Date.parse('2026-10-07T00:00:00Z')/1000,
             Date.parse('2026-10-08T00:00:00Z')/1000,
             Date.parse('2026-10-09T00:00:00Z')/1000],
@@ -65,6 +65,17 @@ const fxDaily=await fetchUsdKrwYahooDaily({
 assert.deepEqual(fxDaily.history.map(r=>r.date),['2026-10-07','2026-10-08'],
  'No fabricated 10/09 FX close; only actual, positive, dated provider candles');
 assert.equal(fxDaily.history[0].rate,1339.16);
+const fxDst=await fetchUsdKrwYahooDaily({
+ from:'2026-10-07',to:'2026-10-08',
+ fetchImpl:async()=>({ok:true,json:async()=>({chart:{result:[{
+  meta:{symbol:'KRW=X',currency:'KRW',exchangeTimezoneName:'Europe/London'},
+  timestamp:[Date.parse('2026-10-07T23:00:00Z')/1000],
+  indicators:{quote:[{close:[1412]}]},
+ }]}})}),
+});
+assert.deepEqual(fxDst.history.map(row=>row.date),['2026-10-08'],
+ 'London DST midnight candle must not be misdated to the prior UTC day');
+
 assert.equal(fxDaily.source,'YAHOO_USDKRW_DELAYED_DAILY');
 await assert.rejects(()=>fetchUsdKrwYahooDaily({from:'2026-10-07',to:'2026-10-09',
  fetchImpl:async()=>({ok:true,json:async()=>({chart:{result:[{...yahooFxPayload.chart.result[0],meta:{symbol:'JPY=X',currency:'JPY'}}]}})})}),/INVALID_SCHEMA/);
@@ -97,6 +108,13 @@ assert.equal(closedEvening.skippedDomestic,true,'KRX 휴장 마감에는 정규�
 assert.ok(closedEvening.sync,'해외/FX 원천 관측은 휴장일에도 계속 수집');
 assert.equal(snapshots.length,0,'휴장일 동일 날짜 가짜 국내 마감 스냅샷 없음');
 assert.equal(diagnosticFor(closedEvening).published,false);
+assert.equal(closedEvening.successful,true,'FX and foreign context captured on domestic holiday');
+const failedForeign=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:async(action,params)=>['getBenchmarks','getExchangeRateHistory'].includes(action)
+   ? Promise.reject(new Error('SIMULATED_PROVIDER_OUTAGE')):request(action,params)});
+assert.equal(failedForeign.successful,false,'all foreign/FX outages must fail the scheduled run');
+assert.equal(diagnosticFor(failedForeign).status,'FOREIGN_CONTEXT_MISSING');
+
 const fxFallbackCalls=[];
 const gasNoFx=async (action,params)=>action==='getExchangeRateHistory'
  ? Promise.reject(new Error('FX_MISSING_SOURCE')):request(action,params);
