@@ -5,6 +5,7 @@ import {
   deploymentIdFromWebAppUrl,
   extractExpectedGasVersion,
   assertGasReleaseReady,
+  gasSourceBlobSha,
   parseClaspCredentials,
   sanitizeFiles,
   selectServerFile,
@@ -19,11 +20,14 @@ const x = { gasVersion: '9.160' };`;
 assert.equal(extractExpectedGasVersion(source), '9.160');
 assert.throws(() => extractExpectedGasVersion(`// Google Apps Script  v9.160\nconst x={gasVersion:'9.159'};`), /버전 불일치/);
 
-assert.equal(assertGasReleaseReady(source), '9.160', 'earlier releases stay unchanged');
+assert.equal(gasSourceBlobSha('hello'), 'b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0',
+  'hashing must match Git blob format, not a plain-file digest');
+assert.equal(assertGasReleaseReady(source), '9.160', 'legacy version stays unchanged');
+
 const partialRelease = source.replaceAll('9.160', '9.193');
 assert.throws(() => assertGasReleaseReady(partialRelease),
-  /GAS_RELEASE_9_193_INCOMPLETE/, 'partial 9.193 must never auto deploy');
-const fullRelease = partialRelease + `
+  /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'partial 9.193 must never be deployed');
+const fakeFullRelease = partialRelease + `
 function _getKrxAuthKeySlots_(){}
 const found = { fundAttempt: {} };
 let snapshotValidatedNoOp=0; snapshotValidatedNoOp++;
@@ -31,16 +35,32 @@ var authDeniedMarkets=[];
 var missingItems = items.filter(() => true);
 // 종가원천일
 `;
-assert.equal(assertGasReleaseReady(fullRelease), '9.193',
-  'full stacked release passes the preflight contract');
-assert.throws(() => assertGasReleaseReady(fullRelease.replace(
-  'var missingItems = items.filter(() => true);','// missing market OTP recovery removed')),
-  /KRX_OTP_MISSING_RECOVERY/, 'OTP recovery omission must be blocked');
+assert.throws(() => assertGasReleaseReady(fakeFullRelease),
+  /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
+
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.194');
+assert.throws(() => assertGasReleaseReady(bumpedVersion),
+  /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.194','10.0')),
+  /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
+
+const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
+const approvedFullSourceBlob='53b9734988ca3047a5ce9a1fdbc80017ecb271c6';
+const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+if (actualSourceBlob === approvedFullSourceBlob) {
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.193',
+    'the exact reviewed integrated PR #481 GAS source must deploy successfully');
+  assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
+    /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
+} else {
+  assert.throws(() => assertGasReleaseReady(currentGasSource),
+    /GAS_RELEASE_SOURCE_NOT_APPROVED|GAS_RELEASE_UNREVIEWED_VERSION/,
+    'partial stacked source should not pass the production readiness gate');
+}
+
 const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
-assert.match(deployScript, /dryRun\s*\?\s*extractExpectedGasVersion\(source\)\s*:\s*assertGasReleaseReady\(source\)/,
+assert.match(deployScript, /dryRun\\s*\\?\\s*extractExpectedGasVersion\\(source\\)\\s*:\\s*assertGasReleaseReady\\(source\\)/,
   'production preflight must run before GAS credentials and API writes');
-
-
 
 const claspV3 = {
   tokens: {
