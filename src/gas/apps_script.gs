@@ -4809,7 +4809,14 @@ function handleGetBenchmark(benchmark, fromStr, toStr) {
     var symbols = map[key];
     if (!symbols) return jsonError('지원하지 않는 비교지수: ' + benchmark);
     if (key === 'KOSPI' || key === 'KOSDAQ') {
-      var bundle = handleGetBenchmarks(key, fromDate, toDate, true);
+      // Internal GAS HTTP handlers return ContentService.TextOutput rather than
+      // the JSON data they wrap. Decode before using the shared benchmark.
+      var bundledResponse = handleGetBenchmarks(key, fromDate, toDate, true);
+      var bundle;
+      try { bundle = bundledResponse && typeof bundledResponse.getContent === 'function'
+        ? JSON.parse(bundledResponse.getContent() || '{}') : bundledResponse; }
+      catch(ignoreParse) { return jsonError('비교지수 응답 해석 실패'); }
+      if (bundle && bundle.status === 'error') return jsonError(bundle.message || '비교지수 조회 실패');
       var rows = bundle && bundle.series && bundle.series[key] || [];
       if (!rows.length) return jsonError('선택 기간의 ' + key + ' 데이터를 조회하지 못했습니다.');
       return jsonOk({ benchmark:key, symbol:bundle.symbols[key] || key, points:rows,
