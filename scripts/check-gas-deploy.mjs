@@ -4,6 +4,7 @@ import {
   buildUpdatedFiles,
   deploymentIdFromWebAppUrl,
   extractExpectedGasVersion,
+  assertGasReleaseReady,
   parseClaspCredentials,
   sanitizeFiles,
   selectServerFile,
@@ -17,6 +18,28 @@ function handle(){ return { gasVersion: '9.160' }; }
 const x = { gasVersion: '9.160' };`;
 assert.equal(extractExpectedGasVersion(source), '9.160');
 assert.throws(() => extractExpectedGasVersion(`// Google Apps Script  v9.160\nconst x={gasVersion:'9.159'};`), /버전 불일치/);
+
+assert.equal(assertGasReleaseReady(source), '9.160', 'earlier releases stay unchanged');
+const partialRelease = source.replaceAll('9.160', '9.193');
+assert.throws(() => assertGasReleaseReady(partialRelease),
+  /GAS_RELEASE_9_193_INCOMPLETE/, 'partial 9.193 must never auto deploy');
+const fullRelease = partialRelease + `
+function _getKrxAuthKeySlots_(){}
+const found = { fundAttempt: {} };
+let snapshotValidatedNoOp=0; snapshotValidatedNoOp++;
+var authDeniedMarkets=[];
+var missingItems = items.filter(() => true);
+// 종가원천일
+`;
+assert.equal(assertGasReleaseReady(fullRelease), '9.193',
+  'full stacked release passes the preflight contract');
+assert.throws(() => assertGasReleaseReady(fullRelease.replace(
+  'var missingItems = items.filter(() => true);','// missing market OTP recovery removed')),
+  /KRX_OTP_MISSING_RECOVERY/, 'OTP recovery omission must be blocked');
+const deployScript = fs.readFileSync('scripts/deploy-gas.mjs', 'utf8');
+assert.match(deployScript, /dryRun\s*\?\s*extractExpectedGasVersion\(source\)\s*:\s*assertGasReleaseReady\(source\)/,
+  'production preflight must run before GAS credentials and API writes');
+
 
 
 const claspV3 = {
