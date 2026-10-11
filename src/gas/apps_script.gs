@@ -1,7 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
 //  📊 포트폴리오 대시보드 — Google Apps Script  v9.195
 //
-//  v9.195 변경사항 (2026.10.11):
+//  v9.195 변경사항 (2026.10.12):
+//   KRX 공식 KOSPI/KOSDAQ 당일 확정 종가 우선, 대체 인증키·휴장/수집실패 분리 및 Yahoo 이력 보조
 //   장중 KRX 확정 종가를 직전 완료 거래일에 별도 조회하고 UNKNOWN·휴장·stale 검증을 강화
 //   종가 캐시의 원천일자·갱신일시 분리, KRX 인증 대체 및 펀드 평가 진단 통합
 //   후속 PR #480/#481과 동일 배포로 묶어 운영에서 개별 단계 버전 혼용 방지
@@ -4856,7 +4857,10 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
     if (fromDate > toDate) { var swap = fromDate; fromDate = toDate; toDate = swap; }
 
     var cache = CacheService.getScriptCache();
-    var cacheKey = 'benchmarks_v9195_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+    var sessionPhase = toDate === today()
+      ? (_isKrxOfficialCloseAvailableTime_(new Date(), toDate) ? 'after_close' : 'before_close')
+      : 'historical';
+    var cacheKey = 'benchmarks_v9195_' + sessionPhase + '_' + requested.slice().sort().join('_') + '_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
     var cached = forceRefresh ? null : cache.get(cacheKey);
     if (cached) return jsonOk(JSON.parse(cached));
 
@@ -4872,7 +4876,9 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
         // official KRX close. Keep Toss only as the secondary fallback.
         try {
           var domesticYahoo = fetchYahooIndexSeries(type, fromDate, toDate);
-          series[type] = domesticYahoo.points || [];
+          series[type] = (domesticYahoo.points || []).map(function(row) {
+            return {date:row.date, value:row.value, source:'YAHOO_UNVERIFIED_DAILY'};
+          });
           if (series[type].length) {
             symbols[type] = domesticYahoo.symbol;
             seriesMeta[type] = { fresh:!!forceRefresh, confirmedClose:false,
@@ -4942,7 +4948,8 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
           if (!symbols[type]) symbols[type] = type;
           seriesMeta[type] = {
             fresh:true, confirmedClose:true, confirmation:'KRX_EXACT_DATE_CLOSE',
-            source:'KRX_OFFICIAL', verifiedClosedDates:skippedClosed,
+            source:'KRX_OFFICIAL', historicalSource:'YAHOO_FINANCE_OR_TOSS_UNVERIFIED',
+            verifiedClosedDates:skippedClosed,
             verificationToDate:officialSearchToDate, officialDate:point.date
           };
         });
