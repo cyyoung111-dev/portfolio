@@ -188,5 +188,22 @@ assert.equal(await h.ctx.loadSettings(),false,'same-name mismatched code cannot 
 assert.equal(mismatchedCodePosts,0);
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'unknown-code trade remains retryable');
 
+// A malformed pinned source row must not be dropped while the rest of the
+// dirty ledger is saved as if it were complete.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100},
+    {date:'',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let filteredLedgerPosts=0;
+h.ctx.requestGsheetFormJson=async(action)=>{
+  if(action==='syncTrades')filteredLedgerPosts++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),false,'malformed dirty source fails closed');
+assert.equal(filteredLedgerPosts,0,'filtered dirty source must never overwrite remote');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'incomplete retry retains exact original dirty source');
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
