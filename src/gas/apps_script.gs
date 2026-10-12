@@ -4,7 +4,8 @@
 //  v9.199 변경사항 (2026.10.12):
 //   Toss 진단은 유효한 기존 OAuth 토큰을 재사용하여 불필요한 신규 발급/토큰 무효화 방지
 //   명시적 freshOAuth=1 진단에서만 강제 재발급, 진단 응답에 CACHE/NETWORK 출처 표시
-//   PC/모바일 GAS 연결 지문 비교 지원; 시세·원장·가격이력·Snapshot 로직 불변
+//   PC/모바일 GAS 연결 지문 비교 지원; 진단 메뉴의 미검증 IP 허용 등록 안내 제거
+//   캐시 401 단일 복구와 남은 리소스 오류를 구분; 시세·원장·가격이력·Snapshot 로직 불변
 //
 //  v9.197 변경사항 (2026.10.12):
 //   거래이력 DATE 셀의 읽기 검증은 시트 시간대의 날짜로 비교, 다른 열의 엄격 검증 유지
@@ -1876,7 +1877,9 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
         runDiagnosticProbes();
         var stillUnauthorized = checks.some(function(item) { return item.status === 401; }) || smoke.status === 401;
         oauth.recovery.ok = !stillUnauthorized;
-        oauth.recovery.code = stillUnauthorized ? 'RESOURCE_401_AFTER_RETRY' : 'RESOURCE_401_RECOVERED';
+        var probeFailuresRemain = checks.some(function(item) { return !item.ok; }) || !smoke.ok || !smoke.validLastPrice || !smoke.timestampPresent;
+        oauth.recovery.code = stillUnauthorized ? 'RESOURCE_401_AFTER_RETRY' :
+          (probeFailuresRemain ? 'RESOURCE_401_RECOVERED_PROBES_FAILED' : 'RESOURCE_401_RECOVERED');
       } else {
         oauth.recovery.code = 'TOKEN_UNCHANGED';
       }
@@ -14457,12 +14460,19 @@ function runTossMarketDataDiagnosis() {
   var egress = result.egressProbe || {};
   var oauth = result.oauth || {};
   var lines = [
+    'OAuth 토큰: ' + (oauth.source === 'CACHE' ? '기존 캐시 재사용 (신규 OAuth 없음)' :
+      (oauth.source === 'NETWORK' ? '신규 OAuth 요청' : '출처 미확인')),
     (egress.ok ? '🔎' : '⚠️') + ' GAS egress 관측: ' + (egress.status == null ? '-' : egress.status) + ' / ' + (egress.code || 'ERROR') +
       (egress.ipFamily ? ' / ' + egress.ipFamily : '') + ' / ' + (egress.ip || 'IP 없음') +
       (egress.provider ? ' / ' + egress.provider : '') + ' / ' + (egress.elapsedMs || 0) + 'ms',
     (oauth.ok ? '✅' : '❌') + ' OAuth: ' + (oauth.status == null ? '-' : oauth.status) + ' / ' + (oauth.code || 'ERROR') +
       (oauth.providerCode ? ' / ' + oauth.providerCode : '') + idSuffix(oauth) + ' / ' + (oauth.elapsedMs || 0) + 'ms'
   ];
+  if (oauth.recovery && oauth.recovery.attempted) {
+    var recoveryLabel = oauth.recovery.code === 'RESOURCE_401_RECOVERED_PROBES_FAILED'
+      ? '기존 401 해소, 다른 API 진단 실패' : (oauth.recovery.ok ? '401 해소' : '401 복구 실패');
+    lines.push('OAuth 캐시 401 복구: ' + recoveryLabel + ' / ' + (oauth.recovery.code || 'UNKNOWN'));
+  }
   if (!egress.ok && Array.isArray(egress.attempts)) egress.attempts.forEach(function(item) {
     lines.push('  ↳ ' + (item.provider || 'provider') + ': ' + (item.status == null ? '-' : item.status) + ' / ' +
       (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) +
@@ -14484,10 +14494,10 @@ function runTossMarketDataDiagnosis() {
   });
   var oauthAccessDenied = !oauth.ok && oauth.status === 403 && String(oauth.providerCode || '').toLowerCase() === 'access_denied';
   var observedIpHint = egress.ok && egress.ip
-    ? ' 관측 ' + (egress.ipFamily || 'IP') + ' ' + egress.ip + '를 Toss 허용 IP에 임시 등록해 재진단할 수 있습니다. 단, Toss 콘솔이 해당 address family를 지원하는지 확인해야 하며 이 IP가 Toss OAuth 요청에도 동일하게 사용됐다고 보장되지는 않습니다.'
+    ? ' 관측 ' + (egress.ipFamily || 'IP') + ' ' + egress.ip + '는 실제 Toss 요청 송신 IP로 확인되지 않았습니다. 이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요.'
     : '';
   var guide = endpointIpBlocked
-    ? '\n\n실제 Toss market endpoint 403: Toss WTS Open API에서 GAS UrlFetchApp의 Google IP range pool 허용 IP 등록을 확인하세요.' + observedIpHint
+    ? '\n\n실제 Toss market endpoint 403: Toss API 권한 및 등록된 송신 IP 정책을 제공사 기록과 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.' + observedIpHint
     : (oauthAccessDenied
       ? '\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.' + observedIpHint
       : '');

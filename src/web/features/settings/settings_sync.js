@@ -496,7 +496,11 @@ async function diagnoseTossFromUI() {
       `OAuth 실행 방식: ${sourceLabel}`,
       `${egress.ok ? '🔎' : '⚠️'} GAS egress 관측: ${egress.status ?? '-'} / ${egress.code || 'ERROR'}${egress.ipFamily ? ` / ${egress.ipFamily}` : ''} / ${egress.ip || 'IP 없음'}${egress.provider ? ` / ${egress.provider}` : ''} / ${Number(egress.elapsedMs || 0)}ms`,
       `${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''}${idSuffix(oauth)} / ${Number(oauth.elapsedMs || 0)}ms`];
-    if (oauth.recovery?.attempted) lines.push(`OAuth 캐시 401 복구: ${oauth.recovery.ok ? '성공' : '실패'} / ${oauth.recovery.code || 'UNKNOWN'} / 신규 OAuth 응답 HTTP 상태는 별도 확인되지 않음`);
+    if (oauth.recovery?.attempted) {
+      const recoveryLabel = oauth.recovery.code === 'RESOURCE_401_RECOVERED_PROBES_FAILED'
+        ? '401 해소, 다른 API 진단 실패' : (oauth.recovery.ok ? '401 해소' : '401 복구 실패');
+      lines.push(`OAuth 캐시 401 복구: ${recoveryLabel} / ${oauth.recovery.code || 'UNKNOWN'} / 신규 OAuth 응답 HTTP 상태는 별도 확인되지 않음`);
+    }
     if (!egress.ok && Array.isArray(egress.attempts) && egress.attempts.length) {
       lines.push(...egress.attempts.map(item => '  ↳ ' + (item.provider || 'provider') + ': ' + (item.status ?? '-') + ' / ' + (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) + (item.contentType ? ' / ' + item.contentType : '') + ' / ' + Number(item.elapsedMs || 0) + 'ms'));
     }
@@ -508,7 +512,7 @@ async function diagnoseTossFromUI() {
     const oauthUnidentified = oauthFailed && oauth.status === 401 && String(oauth.providerCode || '').toLowerCase() === 'unidentified-client';
     const oauthAccessDenied = oauthFailed && oauth.status === 403 && String(oauth.providerCode || '').toLowerCase() === 'access_denied';
     const observedIpGuide = egress.ok && egress.ip ? ` 관측 ${egress.ipFamily || 'IP'} ${egress.ip}는 참고 관측값이며 Toss 요청의 실제 송신 IP로 검증되지 않았습니다. 이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요.` : '';
-    const guide = ipBlocked ? `\n\n실제 Toss market endpoint 403: Google IP range pool 허용 IP 등록을 확인하세요.${observedIpGuide}`
+    const guide = ipBlocked ? `\n\n실제 Toss market endpoint 403: Toss API 권한·등록된 송신 IP 정책을 제공사와 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.${observedIpGuide}`
       : (oauthAccessDenied ? `\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.${observedIpGuide}`
       : (oauthUnidentified ? '\n\nOAuth 401 unidentified-client · 위 request/reference/edge ID를 함께 기록해 Toss 측 인증 거부 원인을 확인하세요. Wi-Fi에서 동일 자격증명이 정상이라면 IP 허용 403과는 별도 문제입니다.'
       : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : '')));

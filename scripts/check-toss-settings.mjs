@@ -19,6 +19,9 @@ assert.match(menuDiagnosisBody, /GAS egress 관측/);
 assert.match(menuDiagnosisBody, /ipFamily/);
 assert.match(menuDiagnosisBody, /OAuth 403 access_denied/);
 assert.match(menuDiagnosisBody, /실제 출구 IP와 동일하다고 보장되지 않습니다/);
+assert.doesNotMatch(menuDiagnosisBody, /허용 IP에 임시 등록|Google IP range pool 허용 IP 등록/,
+  'GAS 메뉴에서도 검증되지 않은 IP 또는 Google 공유 IP 대역 전체를 등록하도록 권고하면 안 됨');
+assert.match(menuDiagnosisBody, /실제 Toss 요청 송신 IP로 확인되지 않았습니다/);
 assert.match(menuDiagnosisBody, /requestId/);
 assert.match(menuDiagnosisBody, /priceSmoke 005930/);
 assert.match(gasSource, /function clearTossOpenApiConfigPrompt\(/);
@@ -769,3 +772,50 @@ assert.deepEqual([failedRefresh.oauth.recovery.attempted,failedRefresh.oauth.rec
 assert.equal(diagOauthIssues,1);
 assert.doesNotMatch(JSON.stringify(failedRefresh),/sensitive-credential-string|oauth-fails-on-recovery/);
 console.log('✅ 캐시 401 단일 복구·경합 재사용·재차 401·403 비재시도·OAuth 실패 민감정보 차단 통과');
+
+
+// 추가 자체검토: 401 token은 복구되지만 새 token의 리소스 권한이 403인 경우
+// "진단 복구 성공"으로만 보고하지 않고 원인별 실패를 분리합니다.
+fillDiagnosticCache('token-revoked-before-403');
+let mixedRecoveryOauthIssues=0;
+context.UrlFetchApp={fetch:(url,opts={})=>{
+  const ip=egressOrNull(url); if(ip)return ip;
+  if(url.endsWith('/oauth2/token')) {
+    mixedRecoveryOauthIssues++;
+    return response(200,{token_type:'Bearer',access_token:'refreshed-but-403',expires_in:3600});
+  }
+  if(opts.headers?.Authorization==='Bearer token-revoked-before-403')return response(401,{error:{code:'invalid_token'}});
+  assert.equal(opts.headers?.Authorization,'Bearer refreshed-but-403');
+  return response(403,{error:{code:'access_denied'}});
+}};
+const mixedRecovery=JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(mixedRecovery.ok,false,'다른 리소스 오류가 남으면 전체 진단 성공으로 표시하면 안 됨');
+assert.equal(mixedRecovery.oauth.recovery.ok,true,'기존 캐시 401 자체는 해소됨');
+assert.equal(mixedRecovery.oauth.recovery.code,'RESOURCE_401_RECOVERED_PROBES_FAILED',
+  '401 해결 뒤 API 403/권한 오류가 남은 상태를 명시적으로 표시');
+assert.equal(mixedRecoveryOauthIssues,1,'401 뒤 신규 발급은 최대 한 번');
+assert(mixedRecovery.endpoints.every(item=>item.status===403));
+assert.equal(mixedRecovery.priceSmoke.status,403);
+assert.match(webSync,/RESOURCE_401_RECOVERED_PROBES_FAILED/);
+
+// 스프레드시트 메뉴의 실제 생산 UI 함수를 실행해 잘못된 IP 등록 지시가 사라졌는지 검사.
+let menuAlert='';
+const savedDiagnosisHandler=context.handleDiagnoseTossMarketData;
+context.SpreadsheetApp={getUi:()=>({alert:message=>{menuAlert=String(message);}})};
+context.handleDiagnoseTossMarketData=()=>({getContent:()=>JSON.stringify({
+  status:'ok', generatedAt:'2026-10-12T10:00:00Z', gasVersion:'9.199',
+  oauth:{ok:true,status:null,code:'CACHED_TOKEN_REUSED',source:'CACHE',
+    recovery:{attempted:true,ok:true,code:'RESOURCE_401_RECOVERED_PROBES_FAILED'}},
+  egressProbe:{ok:true,ip:'2001:2d8::1234',ipFamily:'IPv6',status:200,code:'OK',provider:'ip-check'},
+  endpoints:[{name:'priceApi',status:403,ok:false,code:'IP_NOT_ALLOWED_OR_FORBIDDEN'}],
+  priceSmoke:{status:403,ok:false,code:'IP_NOT_ALLOWED_OR_FORBIDDEN'}
+})});
+context.runTossMarketDataDiagnosis();
+assert.match(menuAlert,/기존 캐시 재사용/);
+assert.match(menuAlert,/기존 401 해소, 다른 API 진단 실패/);
+assert.match(menuAlert,/실제 Toss 요청 송신 IP로 확인되지 않았습니다/);
+assert.match(menuAlert,/Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요/);
+assert.doesNotMatch(menuAlert,/허용 IP에 임시 등록|Google IP range pool 허용 IP 등록/);
+assert.doesNotMatch(menuAlert,/client-secret|accessToken=|Bearer /);
+context.handleDiagnoseTossMarketData=savedDiagnosisHandler;
+console.log('✅ 캐시 401→리소스 403 분리 및 실제 GAS 메뉴 IP 오등록 경고·비민감 표시 검증 통과');
