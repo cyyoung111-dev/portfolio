@@ -310,10 +310,12 @@ function secCsvDownloadTemplate() {
 // ── 섹터 xlsx/csv 업로드 처리
 function secCsvImport(input) {
   if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = captureStockMasterEditSession();
   const file = input.files[0];
   if (!file) return;
   input.value = '';
   parseUploadFile(file, (headers, rows) => {
+    if (!isStockMasterEditSessionCurrent(editSession)) return;
     const col = {
       name:  headers.findIndex(h => h === '섹터명'),
       color: headers.findIndex(h => h === '색상(hex)'),

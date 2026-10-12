@@ -147,6 +147,17 @@ function reconcileEditablesFromGsheetCodeList() {
 function isStockMasterWriteBlocked() {
   return !!GSHEET_API_URL && (!_gsBootRestored || _gsPortfolioRestoreRequired);
 }
+function captureStockMasterEditSession() {
+  return {
+    targetUrl: String(GSHEET_API_URL || '').trim(),
+    generation: typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0
+  };
+}
+function isStockMasterEditSessionCurrent(session) {
+  return !!session && !isStockMasterWriteBlocked()
+    && session.targetUrl === String(GSHEET_API_URL || '').trim()
+    && session.generation === (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0);
+}
 function preventUnsafeStockMasterEdit() {
   if (!isStockMasterWriteBlocked()) return false;
   if (typeof showToast === 'function') showToast('전체 설정 복원 완료 전에는 종목 관리 변경을 할 수 없습니다.', 'warn');

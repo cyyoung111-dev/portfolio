@@ -389,10 +389,12 @@ async function _smValidateListedCode(code, assetType, currency) {
 
 function smCsvImport(input) {
   if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = captureStockMasterEditSession();
   const file = input.files[0];
   if (!file) return;
   input.value = '';
   parseUploadFile(file, async (headers, rows) => {
+    if (!isStockMasterEditSessionCurrent(editSession)) return;
     const col = {
       name:   headers.findIndex(h => h === '종목명'),
       code:   headers.findIndex(h => h === '종목코드'),
@@ -425,6 +427,7 @@ function smCsvImport(input) {
       if (duplicate) { skipped++; continue; }
       if (!['','KR','US','OTHER'].includes(market)) { skipped++; continue; }
       const validation = await _smValidateListedCode(code, assetType, currency);
+      if (!isStockMasterEditSessionCurrent(editSession)) return;
       if (!validation.ok) { skipped++; continue; }
       if (existing >= 0) {
         if (code)   EDITABLE_PRICES[existing].code      = code;
@@ -446,6 +449,7 @@ function smCsvImport(input) {
       if (code && name) STOCK_CODE[name] = normalizeStockCode(code);
     }
 
+    if (!isStockMasterEditSessionCurrent(editSession)) return;
     saveHoldings();
     buildStockMgmt();
     const msg = `✅ ${added}건 추가, ${updated}건 업데이트` + (skipped ? `, ${skipped}건 건너뜀` : '');
@@ -525,6 +529,7 @@ function smMgmtCancel() {
 
 async function smMgmtConfirm() {
   if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = captureStockMasterEditSession();
   let name        = ($el('smMgmtNewName')?.value || '').trim();
   const code      = normalizeStockCode(($el('smMgmtNewCode')?.value || '').trim());
   const assetType = $el('smMgmtNewType')?.value || '주식';
@@ -535,6 +540,7 @@ async function smMgmtConfirm() {
   if(!name && code && typeof lookupNameByCode === 'function') {
     showMgmtMsg('smMgmtMsg','⏳ 종목코드로 공식 종목명 조회 중...',false);
     name = await lookupNameByCode(code);
+    if (!isStockMasterEditSessionCurrent(editSession)) return false;
     const nameInput = $el('smMgmtNewName');
     if (nameInput && name) nameInput.value = name;
   }
@@ -550,6 +556,7 @@ async function smMgmtConfirm() {
   }
   showMgmtMsg('smMgmtMsg','⏳ 종목코드 확인 중...',false);
   const validation = await _smValidateListedCode(code, assetType, currency);
+  if (!isStockMasterEditSessionCurrent(editSession)) return false;
   if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   const isFund = (assetType === '펀드' || assetType === 'TDF');
   // ★ [환율 연동] currency 필드 포함 저장 (KRW면 생략)
@@ -625,6 +632,7 @@ function _smRenameStockItem(item, newName) {
 // 즉시 저장 (DOM 재생성 없이 데이터만 갱신)
 async function smSave(idx) {
   if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = captureStockMasterEditSession();
   const item = EDITABLE_PRICES[idx];
   if(!item) return;
   const newName = (document.querySelector(`.sm-name-inp[data-idx="${idx}"]`)?.value || '').trim();
@@ -649,6 +657,7 @@ async function smSave(idx) {
     const validation = await _smValidateListedCode(newCode, newType, newCurrency);
     if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   }
+  if (!isStockMasterEditSessionCurrent(editSession)) return false;
   if(newName !== item.name) {
     if (!_smRenameStockItem(item, newName)) return;
   }
