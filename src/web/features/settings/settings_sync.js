@@ -358,9 +358,12 @@ async function syncTradesToGsheet(options) {
     (restoreMaster || []).forEach(item => {
       const code = _normalizeSyncCode(item?.code || '');
       const name = String(item?.name || '').trim();
-      if (!code || !name) return;
-      serverByCode.set(code, item);
-      serverByName.set(name, item);
+      const type = String(item?.type || item?.assetType || '').trim().toUpperCase();
+      // Only code-less funds/TDFs from this same Bootstrap settings qualify.
+      // Other code-less objects must never authorize trading-ledger rewrites.
+      if (!name || (!code && !['TDF', '펀드', 'FUND'].includes(type))) return;
+      if (code) serverByCode.set(code, item);
+      if (!serverByName.has(name)) serverByName.set(name, item);
     });
     const unmatchedTrades = [];
     const trades = sourceTrades
