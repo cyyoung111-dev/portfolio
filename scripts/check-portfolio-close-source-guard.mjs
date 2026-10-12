@@ -18,6 +18,7 @@ const installKrxTarget = context => {
   if (typeof context._isFundCode !== 'function')
     context._isFundCode = v=>/^F\d{5}$/.test(String(v||''));
   vm.runInContext(extract('_isKrxDailyCloseTarget_'), context);
+  vm.runInContext(extract('_assertSupportedDailyCloseMarkets_'), context);
 };
 const closeSection = extract('saveDailyPriceHistory');
 const freshnessCall = closeSection.indexOf('_assessDailyKrxStockClose(items, krxPrev, requestedCloseDate)');
@@ -2045,7 +2046,8 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     _fundPropertyText:String
   });
   for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
-    '_enqueuePendingKrxCloseDate_','_verifyForeignDailyCloseCoverage_','saveDailyPriceHistory',
+    '_enqueuePendingKrxCloseDate_','_assertSupportedDailyCloseMarkets_',
+    '_verifyForeignDailyCloseCoverage_','saveDailyPriceHistory',
     '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])
     vm.runInContext(extract(name),ctx);
   // First check actual price-writer behavior with explicit deferred completion.
