@@ -457,12 +457,25 @@ function _tossConnectionSummary_(rawUrl, hasAccessToken) {
   return `${endpoint} / GAS 접근토큰 ${hasAccessToken ? '설정됨' : '미설정'}`;
 }
 
+// 늦게 도착한 이전 GAS 응답이 새 연결 또는 새 진단을 덮어쓰지 않도록 구분합니다.
+let _tossDiagnosisRunId = 0;
 async function diagnoseTossFromUI() {
-  if (!GSHEET_API_URL) return;
+  const targetUrl = String(GSHEET_API_URL || '').trim();
+  if (!targetUrl) return;
+  const generation = getGsheetConnectionGeneration();
+  const accessToken = getGsheetAccessToken();
+  const runId = ++_tossDiagnosisRunId;
+  const isCurrentConnection = () => isGsheetConnectionCurrent(targetUrl, generation)
+    && getGsheetAccessToken() === accessToken;
   const target = $el('tossDiagnosticResult');
   if (target) target.textContent = '진단 중...';
   try {
-    const data = await requestGsheetActionJson('diagnoseTossMarketData', {}, { timeoutMs: 30000, retry: 0 });
+    const data = await requestGsheetActionJson('diagnoseTossMarketData', {}, { timeoutMs: 30000, retry: 0, targetUrl });
+    if (runId !== _tossDiagnosisRunId) return;
+    if (!isCurrentConnection()) {
+      if (target) target.textContent = 'GAS 연결/접근토큰이 변경되어 이전 진단 결과를 폐기했습니다. 다시 진단하세요.';
+      return;
+    }
     if (!data || data.status !== 'ok') throw new Error(data?.message || '응답 오류');
     const oauth = data.oauth || { ok: false, status: null, code: 'OAUTH_RESULT_MISSING', providerCode: '' };
     const egress = data.egressProbe || { ok: false, status: null, code: 'NOT_AVAILABLE', ip: '', provider: '' };
@@ -476,7 +489,7 @@ async function diagnoseTossFromUI() {
     };
     const sourceLabel = oauth.source === 'CACHE' ? '기존 토큰 재사용(신규 발급 없음)'
       : (oauth.source === 'NETWORK' ? '새 OAuth 요청' : '토큰 출처 미확인');
-    const connectionInfo = _tossConnectionSummary_(GSHEET_API_URL, !!getGsheetAccessToken());
+    const connectionInfo = _tossConnectionSummary_(targetUrl, !!accessToken);
     const lines = [`GAS 연결: ${connectionInfo} / 서버 v${String(data.gasVersion || '미확인')}`,
       `OAuth 실행 방식: ${sourceLabel}`,
       `${egress.ok ? '🔎' : '⚠️'} GAS egress 관측: ${egress.status ?? '-'} / ${egress.code || 'ERROR'}${egress.ipFamily ? ` / ${egress.ipFamily}` : ''} / ${egress.ip || 'IP 없음'}${egress.provider ? ` / ${egress.provider}` : ''} / ${Number(egress.elapsedMs || 0)}ms`,
@@ -500,7 +513,12 @@ async function diagnoseTossFromUI() {
     if (target) target.innerHTML = _escapeHtml(lines.join('\n') + guide + caveat);
     _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: data.ok ? 'OK' : (!oauth.ok ? oauth.code : ((data.endpoints || []).find(item => !item.ok)?.code || smoke.code || 'ERROR')) });
   } catch (error) {
-    if (target) target.textContent = '❌ Toss 진단 실패: ' + (error.message || '응답 오류') + '\nGAS 연결: ' + _tossConnectionSummary_(GSHEET_API_URL, !!getGsheetAccessToken());
+    if (runId !== _tossDiagnosisRunId) return;
+    if (!isCurrentConnection()) {
+      if (target) target.textContent = 'GAS 연결/접근토큰이 변경되어 이전 진단 결과를 폐기했습니다. 다시 진단하세요.';
+      return;
+    }
+    if (target) target.textContent = '❌ Toss 진단 실패: ' + (error.message || '응답 오류') + '\nGAS 연결: ' + _tossConnectionSummary_(targetUrl, !!accessToken);
   }
 }
 

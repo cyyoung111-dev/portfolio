@@ -597,3 +597,72 @@ console.log('✅ 서로 다른 GAS ScriptLock 객체 + 진단 OAuth 단일 잠�
 assert.doesNotMatch(webSync, /허용 IP에 임시 등록/,
   '검증되지 않은 진단 IP를 Toss 허용목록에 등록하라고 안내하면 안 됨');
 assert.match(webSync, /이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요/);
+
+
+// 실제 웹 진단 함수: 연결 URL/접근토큰이 바뀌거나 늦은 과거 응답이 도착해도 오귀속 금지.
+const diagHelper = webSync.match(/function _tossConnectionSummary_\(rawUrl, hasAccessToken\) \{[\s\S]*?\n\}/)?.[0];
+const diagUi = webSync.match(/let _tossDiagnosisRunId = 0;[\s\S]*?async function diagnoseTossFromUI\(\) \{[\s\S]*?\n\}(?=\n\nasync function clearTossConfigFromUI)/)?.[0];
+assert.ok(diagHelper && diagUi, '실제 웹 연결 지문과 진단 실행 함수 추출');
+const diagView = { textContent: '', innerHTML: '' };
+const pendingDiag = [];
+const ui = {
+  GSHEET_API_URL: 'https://script.google.com/macros/s/DEPLOY-OLD12345/exec',
+  generation: 1,
+  token: 'TOKEN-A-PRIVATE',
+  renders: 0,
+  URL,
+  window: { GAS_API_KEY_STATUS: { toss: {} } },
+  getGsheetConnectionGeneration: () => ui.generation,
+  getGsheetAccessToken: () => ui.token,
+  isGsheetConnectionCurrent: (url, gen) => url === ui.GSHEET_API_URL && gen === ui.generation,
+  $el: () => diagView,
+  _escapeHtml: value => String(value),
+  _renderTossConfigStatus: () => { ui.renders++; },
+  requestGsheetActionJson: (action, params, opts) => {
+    assert.equal(action, 'diagnoseTossMarketData');
+    assert.equal(opts.targetUrl, ui.GSHEET_API_URL, '요청 시점의 GAS 배포를 지정');
+    return new Promise((resolve, reject) => pendingDiag.push({ resolve, reject }));
+  }
+};
+new vm.Script(diagHelper + '\n' + diagUi + '\nthis.runDiagnosis = diagnoseTossFromUI;')
+  .runInContext(vm.createContext(ui));
+const responseDiag = {
+  status: 'ok', generatedAt: '2026-10-12T09:00:00Z', gasVersion: '9.199', ok: true,
+  oauth: { ok: true, status: null, source: 'CACHE', code: 'CACHED_TOKEN_REUSED' },
+  egressProbe: { ok: false, code: 'NOT_AVAILABLE' }, endpoints: [], priceSmoke: {}
+};
+const oldUrl = ui.runDiagnosis();
+ui.GSHEET_API_URL = 'https://script.google.com/macros/s/DEPLOY-NEW67890/exec';
+ui.generation++;
+pendingDiag[0].resolve(responseDiag);
+await oldUrl;
+assert.match(diagView.textContent, /이전 진단 결과를 폐기/);
+assert.equal(ui.renders, 0, '이전 GAS 응답은 새 계정 표시 금지');
+
+const oldToken = ui.runDiagnosis();
+ui.token = 'TOKEN-B-PRIVATE';
+pendingDiag[1].resolve(responseDiag);
+await oldToken;
+assert.match(diagView.textContent, /이전 진단 결과를 폐기/);
+assert.equal(ui.renders, 0, '같은 GAS URL에서 접근토큰 변경도 감지');
+
+const older = ui.runDiagnosis();
+const newer = ui.runDiagnosis();
+pendingDiag[3].resolve(responseDiag);
+await newer;
+const latestHtml = diagView.innerHTML;
+assert.match(latestHtml, /NEW67890/);
+assert.doesNotMatch(latestHtml, /TOKEN-B-PRIVATE|DEPLOY-NEW67890/);
+assert.equal(ui.renders, 1);
+pendingDiag[2].resolve({ status: 'error', message: 'old response' });
+await older;
+assert.equal(diagView.innerHTML, latestHtml, '늦은 과거 실패가 최신 진단을 덮지 않음');
+assert.equal(ui.renders, 1);
+
+const staleError = ui.runDiagnosis();
+ui.generation++;
+pendingDiag[4].reject(new Error('old deployment timeout'));
+await staleError;
+assert.match(diagView.textContent, /이전 진단 결과를 폐기/);
+assert.doesNotMatch(diagView.textContent, /old deployment timeout/);
+console.log('✅ Toss 진단 UI: 연결 변경·토큰 교체·중복 응답·이전 오류 오귀속 차단 통과');
