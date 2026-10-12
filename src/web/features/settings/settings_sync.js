@@ -345,7 +345,10 @@ async function syncTradesToGsheet(options) {
         // a coincidentally matching name. Only code-less trades use name lookup.
         const remote = (tCode ? serverByCode.get(tCode) : null)
           || (!tCode ? serverByName.get(String(t.name || '').trim()) : null);
-        const ep = epByCode || epByName;
+        // During an authoritative retry the browser's local master may
+        // belong to the previous connection. Never let that local value
+        // override a code verified from this connection's Bootstrap result.
+        const ep = restoreMaster ? null : (epByCode || epByName);
         if (!ep && !remote) {
           unmatchedTrades.push({ date: t.date || '', name: t.name || '', code: tCode || '' });
         }
