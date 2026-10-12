@@ -528,7 +528,20 @@ async function loadSettings(onProgress, options) {
     const s = data.settings;
     // This code list belongs to the same successful Bootstrap response, and
     // can validate pending trade retries before EDITABLE_PRICES is applied.
-    const bootstrapMasterForRetry = isBootstrap ? data.codes : null;
+    const bootstrapMasterForRetry = isBootstrap ? [
+      ...data.codes,
+      // getCodeItems() excludes code-less funds/TDFs. Trust only fund-like
+      // entries from the SAME Bootstrap settings; never use a stale browser
+      // master to authorize pending remote writes.
+      ...(Array.isArray(s.EDITABLE_PRICES) ? s.EDITABLE_PRICES : [])
+        .filter(ep => ep && !String(ep.code || '').trim()
+          && ['TDF', '펀드', 'FUND'].includes(String(ep.assetType || ep.type || '').trim().toUpperCase()))
+        .map(ep => ({ name:String(ep.name || '').trim(), code:'', type:ep.assetType || ep.type })),
+      ...Object.entries(s.fundDirect && typeof s.fundDirect === 'object' ? s.fundDirect : {})
+        .filter(([name, value]) => name && value && typeof value === 'object'
+          && ['TDF', '펀드', 'FUND'].includes(String(value.type || '').trim().toUpperCase()))
+        .map(([name, value]) => ({ name, code:'', type:value.type }))
+    ] : null;
     // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
     // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
     const hasAuthoritativeFundDirect = Object.prototype.hasOwnProperty.call(s, 'fundDirect');
