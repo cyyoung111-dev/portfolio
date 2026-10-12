@@ -118,4 +118,42 @@ const net=fs.readFileSync('src/web/features/settings/settings_net.js','utf8');
 vm.runInContext(net,h.ctx);
 assert.equal((await h.ctx.requestGsheetActionJson('getSettings',{},{})).status,'ok');
 assert.equal(h.writes,0);
+
+
+// Production bootstrap: remote code master is available before local master
+// application, so a pinned dirty payload should not create false unmatched logs.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식',sector:'기타'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let remoteTrades=[],issueWrites=0;
+h.ctx.requestGsheetFormJson=async(action,params)=>{
+  if(action==='syncTrades')remoteTrades=JSON.parse(params.data);
+  if(action==='saveSyncIssues')issueWrites++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),true,'same Bootstrap response master validates early trade retry');
+assert.equal(remoteTrades.length,1,'complete trade list submitted');
+assert.equal(remoteTrades[0].code,'005930','canonical server code with leading zero');
+assert.equal(issueWrites,0,'known trade should not create spurious unmatched issue logs');
+assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'verified retry clears its dirty marker');
+
+// Server master disagrees with the local un-restored ledger: fail closed before
+// overwriting any source trades, while preserving the retryable dirty payload.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'미등록',code:'999999',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let unsafeTradePosts=0;
+h.ctx.requestGsheetFormJson=async(action)=>{
+  if(action==='syncTrades')unsafeTradePosts++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),false,'unmatched trade blocks authoritative retry');
+assert.equal(unsafeTradePosts,0,'unknown trade may not overwrite server ledger');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'failed master validation retains dirty source');
+assert.equal(h.ctx.getGsheetSettingsLoadFailure(),'미동기화 거래·보유 확인 · PORTFOLIO_SYNC_FAILED');
+console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
