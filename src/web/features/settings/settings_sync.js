@@ -366,6 +366,12 @@ async function syncTradesToGsheet(options) {
           memo:      t.memo      || '',
         };
       });
+    // Never persist a truncated dirty ledger during authoritative restore:
+    // filtering even one malformed row would silently erase that transaction.
+    if (restoreMaster && trades.length !== sourceTrades.length) {
+      _syncWarn('[거래이력 동기화] 복원 원장 유효성 부족 · 서버 저장 보류');
+      return { status:'error', errorCode:'RESTORE_TRADE_PAYLOAD_INCOMPLETE', saveState:'failed' };
+    }
     // 유효한 원본 거래가 있는데 필터 결과만 0건인 경우와 권한 없는 빈 상태는 전체 삭제를 막습니다.
     if (trades.length === 0 && (sourceTrades.length > 0 || !allowEmpty)) return;
     // A master supplied by this very Bootstrap is authoritative for the retry.
