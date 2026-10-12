@@ -118,7 +118,10 @@ const clearTossBody = gasSource.match(/function handleClearTossConfig\([\s\S]*?\
 const diagnosticTokenBody = gasSource.match(/function _tossDiagnosticAccessToken_\([\s\S]*?\n\}/)?.[0] || '';
 assert.match(saveTossBody, /_tossWithTokenLock_/);
 assert.match(clearTossBody, /_tossWithTokenLock_/);
-assert.match(diagnosticTokenBody, /_tossWithTokenLock_[\s\S]*var credentials = _tossProperties_\(\)/, '진단 OAuth는 lock 획득 후 자격증명 재조회');
+assert.match(diagnosticTokenBody, /_tossWithTokenLock_[\\s\\S]*_tossDiagnosticIssueAccessTokenUnlocked_\\(\\)/, '진단 OAuth 발급은 단일 lock을 소유합니다');
+const diagnosticIssueBody = gasSource.match(/function _tossDiagnosticIssueAccessTokenUnlocked_\\([\\s\\S]*?\\n\\}/)?.[0] || '';
+assert.match(diagnosticIssueBody, /var credentials = _tossProperties_\\(\\)/, '획득한 lock 안에서 자격증명 재조회');
+assert.doesNotMatch(diagnosticIssueBody, /_tossWithTokenLock_|getScriptLock\\(/, '발급 본체에서는 중복 잠금 금지');
 
 const diagnoseBody = gasSource.match(/function handleDiagnoseTossMarketData\(forceFreshOAuth\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 assert.doesNotMatch(diagnoseBody, /setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet/);
@@ -532,3 +535,60 @@ assert.doesNotMatch(configured, /TOPSECRET|AKfycb-test/);
 assert.match(summarizeConnection('https://script.google.com/macros/s/example/dev', false), /GAS 접근토큰 미설정/);
 assert.match(summarizeConnection('', false), /URL 미설정/);
 console.log('✅ Toss 모바일 연결지문 비밀정보 비노출 및 lock 경쟁 검사 통과');
+
+// Codex P2: GAS getScriptLock() 호출마다 서로 다른 Lock handle이 나오는 환경을 재현합니다.
+// 같은 ScriptLock singleton을 돌려주는 구 테스트는 중첩 waitLock을 탐지하지 못합니다.
+const priorLockService = context.LockService;
+let lockHandle = null;
+let lockAcquisitions = 0;
+let duplicateAttempts = 0;
+context.LockService = {
+  getScriptLock() {
+    const handle = {
+      hasLock: () => lockHandle === handle,
+      waitLock() {
+        if (lockHandle) { duplicateAttempts++; throw new Error('nested ScriptLock acquisition'); }
+        lockHandle = handle;
+        lockAcquisitions++;
+      },
+      releaseLock() {
+        assert.equal(lockHandle, handle, '다른 핸들의 lock은 해제할 수 없음');
+        lockHandle = null;
+      },
+    };
+    return handle;
+  },
+};
+properties.set('TOSS_CLIENT_ID', 'distinct-handle-client');
+properties.set('TOSS_CLIENT_SECRET', 'distinct-handle-secret');
+cache.delete('toss_oauth_token_v1');
+let isolatedOauthCalls = 0;
+context.UrlFetchApp = { fetch: (url, opts) => {
+  if (!url.endsWith('/oauth2/token')) throw new Error('예상 밖 요청: ' + url);
+  assert.ok(lockHandle, '발급 중 ScriptLock 반드시 소유');
+  isolatedOauthCalls++;
+  assert.equal(opts.payload.client_id, 'distinct-handle-client');
+  return response(200, { token_type: 'Bearer', access_token: 'distinct-token', expires_in: 3600 });
+} };
+const issuedWhenEmpty = context._tossDiagnosticSharedToken_(false);
+assert.equal(issuedWhenEmpty.ok, true);
+assert.equal(issuedWhenEmpty.source, 'NETWORK');
+assert.equal(issuedWhenEmpty.token, 'distinct-token');
+assert.equal(isolatedOauthCalls, 1);
+assert.equal(lockAcquisitions, 1, '캐시 미스에서 잠금 한 번만 획득');
+assert.equal(duplicateAttempts, 0, '다른 ScriptLock 핸들 재진입이 없어야 함');
+assert.equal(lockHandle, null, '성공 시 잠금 해제');
+
+const cachedWithoutExtraLock = context._tossDiagnosticSharedToken_(false);
+assert.equal(cachedWithoutExtraLock.source, 'CACHE');
+assert.equal(isolatedOauthCalls, 1);
+assert.equal(lockAcquisitions, 1, '캐시 유효 진단에서는 잠금 없음');
+
+const forcedIssue = context._tossDiagnosticSharedToken_(true);
+assert.equal(forcedIssue.source, 'NETWORK');
+assert.equal(isolatedOauthCalls, 2, '강제 진단에서도 단일 발급');
+assert.equal(lockAcquisitions, 2, '강제 진단은 잠금 1회 추가');
+assert.equal(duplicateAttempts, 0);
+assert.equal(lockHandle, null);
+context.LockService = priorLockService;
+console.log('✅ 서로 다른 GAS ScriptLock 객체 + 진단 OAuth 단일 잠금 회귀검사 통과');
