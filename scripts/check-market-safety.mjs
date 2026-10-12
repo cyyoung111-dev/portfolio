@@ -175,6 +175,8 @@ const providerVm=vm.createContext({
    return date.startsWith('2028-')?'UNKNOWN':'OPEN';
  },
  _normalizeDate:v=>String(v||'').slice(0,10),
+ _cleanCode:v=>String(v||'').trim(),
+ _isFundCode:v=>/^F\d{5}$/.test(String(v||'')),
  fetchPricesKrx:(_items,date)=>{
    krxDates.push(date);
    const usedDate=providerOverride || date;
@@ -183,6 +185,9 @@ const providerVm=vm.createContext({
  fetchPricesYahooRegularClose:()=>({}),
  Logger:{log:()=>{}}
 });
+const targetProduction=gas.match(/function _isKrxDailyCloseTarget_\([^)]*\) \{[\s\S]*?\n\}/)?.[0];
+if(!targetProduction)throw Error('production KRX target predicate not found');
+vm.runInContext(targetProduction,providerVm);
 vm.runInContext(providerProduction,providerVm);
 const domestic=[{code:'005930',name:'삼성전자',currency:'KRW',market:'KR'}];
 const queriedClose=(date,asOf)=>providerVm.fetchPricesGoogleFinance(domestic,date,null,
