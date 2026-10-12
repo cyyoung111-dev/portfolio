@@ -46,8 +46,16 @@ const context=vm.createContext({
   CONFIG:{SHEET_PH:'가격이력',SHEET_SNAPSHOT:'스냅샷'},
   _normalizeDate:x=>String(x||''),_cleanCode:x=>String(x||'').trim(),
   getss:()=>({getSheetByName:n=>sheet(n)}),
-  getCodeItems:()=>[{code:'005930',type:'주식'},{code:'458730',type:'ETF'}],
-  _getDailyHeldCodeItems:()=>[{code:'005930',type:'주식'},{code:'458730',type:'ETF'}],
+  getCodeItems:()=>[{code:'005930',type:'주식',currency:'KRW',market:'KR'},
+    {code:'458730',type:'ETF',currency:'KRW',market:'ETF'},
+    {code:'AAPL',type:'주식',currency:'USD',market:'US'},
+    {code:'7203',type:'주식',currency:'JPY',market:'JP'},
+    {code:'USKRW',type:'주식',currency:'KRW',market:'US'}],
+  _getDailyHeldCodeItems:()=>[{code:'005930',type:'주식',currency:'KRW',market:'KR'},
+    {code:'458730',type:'ETF',currency:'KRW',market:'ETF'},
+    {code:'AAPL',type:'주식',currency:'USD',market:'US'},
+    {code:'7203',type:'주식',currency:'JPY',market:'JP'},
+    {code:'USKRW',type:'주식',currency:'KRW',market:'US'}],
   _readPendingKrxCloseDates_:p=>JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')||'[]'),
   PropertiesService:{getScriptProperties:()=>props},
   _getKrxAuthKeySlots_:()=>({key:'SECRET_PRIMARY',source:'krx_auth_key',
@@ -77,6 +85,30 @@ assert.deepEqual(coverage,{
   missingOfficialCodes:1,snapshotRows:1,snapshotHeldCodes:1,
   missingSnapshotCodes:1,queuedForBackfill:true
 });
+// Codex P2: 해외 보유·비국내 market/통화는 KRX 공식 마감 보유수에서 제외.
+readRows.가격이력.push(['2026-10-08','AAPL','Apple','130','','KRX']);
+readRows.스냅샷.push(['2026-10-08','AAPL']);
+const withForeignRows=JSON.parse(JSON.stringify(context._krxReadOnlyStoredCoverage_('2026-10-08')));
+assert.equal(withForeignRows.expectedHeldCodes,2,'USD/US, JPY/JP, KRW/US false-positive 금지');
+assert.equal(withForeignRows.officialExactDateCodes,1,'해외 행의 KRX 원천 표시가 한국 공식 종가를 오염시키면 안 됨');
+assert.equal(withForeignRows.snapshotHeldCodes,1);
+assert.equal(withForeignRows.priceHistoryRows,4,'전체 날짜 기록 건수는 읽기 진단에서 보존');
+assert.equal(withForeignRows.snapshotRows,2,'전체 날짜 스냅샷 행 수는 보존');
+readRows.가격이력.pop();
+readRows.스냅샷.pop();
+
+// Codex P2: 0·공란·NaN·음수·Infinity는 유효한 공식 종가가 아닙니다.
+const cleanPrice=readRows.가격이력[2][3];
+for(const badPrice of ['',0,'0','-100','NaN','Infinity','1,wrong']) {
+  readRows.가격이력[2][3]=badPrice;
+  const bad=JSON.parse(JSON.stringify(context._krxReadOnlyStoredCoverage_('2026-10-08')));
+  assert.equal(bad.officialExactDateCodes,0,'invalid official price must not count: '+badPrice);
+  assert.equal(bad.missingOfficialCodes,2);
+}
+readRows.가격이력[2][3]='1,234';
+const commaPrice=JSON.parse(JSON.stringify(context._krxReadOnlyStoredCoverage_('2026-10-08')));
+assert.equal(commaPrice.officialExactDateCodes,1,'valid positive display price with commas counts');
+readRows.가격이력[2][3]=cleanPrice;
 const originalCatalog=context.getCodeItems;
 context.getCodeItems=()=>[];
 assert.equal(context._krxReadOnlyStoredCoverage_('2026-10-08').status,'MASTER_EMPTY',

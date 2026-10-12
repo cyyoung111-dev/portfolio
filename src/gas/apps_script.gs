@@ -11425,8 +11425,14 @@ function _krxReadOnlyStoredCoverage_(date) {
     var held = _getDailyHeldCodeItems(ss, date, catalog);
     var heldCodes = {}, expectedEtf = 0, expectedStock = 0;
     held.forEach(function(item) {
-      var code = _cleanCode(item.code || '');
-      if (!code || heldCodes[code]) return;
+      var code = _cleanCode(item && item.code || '');
+      var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
+      var market = String(item && item.market || '').trim().toUpperCase();
+      // KRX 마감 대상과 동일하게 KRW 보유만 세고 해외 거래소는 배제합니다.
+      // 종목 마스터에 currency가 누락되어도 market=US/JP/HK 등을 국내로 세면 안 됩니다.
+      if (!code || currency !== 'KRW' ||
+          ['US','USA','NYSE','NASDAQ','AMEX','OTC','JP','TSE','TYO','HK','HKG','HKEX'].indexOf(market) >= 0 ||
+          heldCodes[code]) return;
       heldCodes[code] = true;
       if (String(item.type || '').toUpperCase() === 'ETF' ||
           String(item.market || '').toUpperCase() === 'ETF') expectedEtf++;
@@ -11443,6 +11449,10 @@ function _krxReadOnlyStoredCoverage_(date) {
       allDateRows++;
       var code = _cleanCode(row[1] || ''), src = String(row[5] || '').trim().toUpperCase();
       if (!heldCodes[code]) return;
+      // 가격이력의 display 값은 천 단위 쉼표를 포함할 수 있습니다.
+      // 빈 칸·0·음수·NaN·Infinity를 정상 공식 종가로 절대 세지 않습니다.
+      var numericPrice = Number(String(row[3] == null ? '' : row[3]).replace(/,/g, '').trim());
+      if (!Number.isFinite(numericPrice) || numericPrice <= 0) return;
       if (src === 'KRX' || src === 'KRX_OTP') official[code] = true;
       else other[code] = true;
     });

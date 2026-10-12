@@ -88,14 +88,12 @@ export function summarizeKrxSource(data, date) {
         hasRows:legacy.hasRows} : null);
   const alternateProbes = MARKETS.filter(name=>altByMarket.has(name))
     .map(name=>altByMarket.get(name));
-  // The status of each market must be based on an exact requested date.
-  // Older GAS builds have no exactDateRows, so retain their legacy ROWS
-  // interpretation but never silently label a different explicit date valid.
+  // Legacy GAS cannot prove BAS_DD matches the requested day. Fail closed
+  // instead of treating generic row counts from an earlier day as exact-date data.
   const reachableMarkets = markets.map(market=>{
     const alt=altByMarket.get(market.market);
-    const sameDate=market.exactDateRows === undefined
-      ? market.rows > 0 : market.exactDateRows > 0;
-    const primary=market.httpStatus===200 && market.parseStatus==='ROWS' && sameDate;
+    const primary=market.httpStatus===200 && market.parseStatus==='ROWS'
+      && Number(market.exactDateRows || 0) > 0;
     const alternate=!!alt && alt.httpStatus===200 && alt.parseStatus==='ROWS'
       && alt.exactDateRows > 0;
     return {market:market.market,primary,alternate,reachable:primary||alternate};

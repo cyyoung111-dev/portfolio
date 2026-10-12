@@ -51,14 +51,23 @@ await assert.rejects(()=>runDiagnosis({
     settings:{apiKeyStatus:{requestAuthenticationEnabled:false}}})}),
 }),/GAS_AUTHENTICATION_DISABLED/,'Configured repo secret must not mask public GAS deployment');
 const markers=[
- {market:'KOSPI',httpStatus:200,rows:900,parseStatus:'ROWS'},
- {market:'KOSDAQ',httpStatus:200,rows:1200,parseStatus:'ROWS'},
- {market:'ETF',httpStatus:200,rows:1400,parseStatus:'ROWS'},
+ {market:'KOSPI',httpStatus:200,rows:900,exactDateRows:900,parseStatus:'ROWS'},
+ {market:'KOSDAQ',httpStatus:200,rows:1200,exactDateRows:1200,parseStatus:'ROWS'},
+ {market:'ETF',httpStatus:200,rows:1400,exactDateRows:1400,parseStatus:'ROWS'},
 ];
 const payload=date=>({status:'ok',requestedDate:date,keyConfigured:true,networkStatus:'RECEIVED',
  markets:markers});
 const health=summarizeKrxSource(payload('2026-10-08'),'2026-10-08');
 assert.equal(health.healthy,true);
+const legacyRowsOnly = markers.map(({exactDateRows, ...item})=>item);
+const legacyHealth = summarizeKrxSource({...payload('2026-10-08'), markets:legacyRowsOnly},'2026-10-08');
+assert.equal(legacyHealth.healthy,false,
+  'Legacy HTTP200 generic rows are not proof of exact requested BAS_DD');
+assert.deepEqual(legacyHealth.reachableMarkets.map(x=>x.reachable),[false,false,false]);
+const mixedLegacy = summarizeKrxSource({...payload('2026-10-08'),
+  markets:[markers[0], legacyRowsOnly[1], markers[2]]},'2026-10-08');
+assert.equal(mixedLegacy.healthy,false,'one unverified legacy market must fail overall');
+assert.equal(mixedLegacy.reachableMarkets[1].reachable,false);
 assert.equal(health.credentialSource,'UNKNOWN','legacy GAS does not advertise auth-slot provenance');
 const authShadow=summarizeKrxSource({...payload('2026-10-08'),
  credentialSource:'krx_auth_key',alternativeConfigured:true,
