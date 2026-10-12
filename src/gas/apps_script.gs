@@ -5056,8 +5056,9 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
         return /VKOSPI|코스피\s*200\s*변동성|변동성지수/i.test(name);
       });
       if (!row) return;
-      var date = _normalizeDate(row.BAS_DD || row.basDd || batch[idx]);
-      if (date !== _normalizeDate(batch[idx])) return; // Do not relabel a different source date.
+      var sourceYmd = _normalizeYmd(row.BAS_DD || row.basDd || '');
+      if (sourceYmd !== batch[idx]) return; // Exact official source date is required.
+      var date = sourceYmd.slice(0,4) + '-' + sourceYmd.slice(4,6) + '-' + sourceYmd.slice(6,8);
       var value = parseFloat((row.CLSPRC_IDX || row.clsprcIdx || '').toString().replace(/,/g, '')) || 0;
       if (date && value > 0) pointsByDate[date] = value;
     });
