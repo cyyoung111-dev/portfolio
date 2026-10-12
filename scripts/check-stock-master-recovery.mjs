@@ -96,10 +96,10 @@ for(const [source,names] of [
   assert.match(source,/container\.querySelectorAll\('input,button'\)/,
     'management controls must be disabled while bootstrap pending');
 }
-assert.match(html,/mgmt_stock\.js\?v=20261012-2/);
+assert.match(html,/mgmt_stock\.js\?v=20261012-3/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261012-4/);
-assert.match(sw,/portfolio-cache-20261012-4/);
+assert.match(html,/sw\.js\?v=20261012-5/);
+assert.match(sw,/portfolio-cache-20261012-5/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261012-3/);
@@ -108,7 +108,7 @@ assert.match(sw,/views_history\.js\?v=20261012-2/);
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,
  'successful bootstrap must re-render disabled controls');
-assert.match(html,/mgmt_stock\.js\?v=20261012-2/);
+assert.match(html,/mgmt_stock\.js\?v=20261012-3/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/settings\.js\?v=20261012-1/);
 assert.match(sw,/settings\.js\?v=20261012-1/);
@@ -117,4 +117,17 @@ const sectorSource=fs.readFileSync('src/web/features/master/sector/mgmt_sector.j
 assert.ok(stockSource.includes('captureStockMasterEditSession()'));
 assert.ok(stockSource.includes('isStockMasterEditSessionCurrent(editSession)'));
 assert.ok(sectorSource.includes('isStockMasterEditSessionCurrent(editSession)'));
+// Async cancellation must not claim the stock was saved.
+assert.match(stockSource,/const saved = await smSave\(editIdx\)/);
+assert.match(stockSource,/saved !== true/);
+assert.match(stockSource,/async function smSave\(idx\)[\s\S]*return true;/);
+const importStart=stockSource.indexOf('function smCsvImport(');
+const importEnd=stockSource.indexOf('function smMgmtAddNew(',importStart);
+const importCode=stockSource.slice(importStart,importEnd);
+assert.ok(importCode.indexOf('await _smValidateListedCode') <
+  importCode.indexOf('for (const item of validatedRows)'));
+assert.ok(importCode.indexOf('validatedRows.push(') <
+  importCode.indexOf('for (const item of validatedRows)'));
+assert.ok(importCode.indexOf('EDITABLE_PRICES[existing].code = code') >
+  importCode.indexOf('for (const item of validatedRows)'));
 console.log('Read-only empty stock master rescue and safe stale generation test passed');
