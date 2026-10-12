@@ -651,7 +651,8 @@ async function _retryPortfolioRemoteDirtySync(options) {
               targetUrl,
               generation,
               allowDuringRestore,
-              tradesOverride: dirty.trades
+              tradesOverride: dirty.trades,
+              masterCodesOverride: options?.masterCodesOverride
             })
           : Promise.resolve(null)
       ]);
@@ -770,7 +771,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
                 targetUrl: retryTarget,
                 generation: retryGeneration,
                 allowDuringRestore,
-                tradesOverride: recoveryTrades
+                tradesOverride: recoveryTrades,
+                masterCodesOverride: options?.masterCodesOverride
               })
             : Promise.resolve(null)
         ]);
