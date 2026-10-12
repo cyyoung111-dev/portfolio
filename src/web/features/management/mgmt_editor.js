@@ -839,9 +839,13 @@ function saveGsheetUrlFromUI() {
 
 async function _diagnoseGsheetGetSettings() {
   if (!GSHEET_API_URL) return 'URL 미설정';
+  const failure = typeof getGsheetSettingsLoadFailure === 'function'
+    ? getGsheetSettingsLoadFailure() : '';
+  if (failure) return failure;
   try {
-    const data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 0 });
-    if (!data) return 'JSON 파싱 실패(응답 포맷 확인)';
+    const data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 0, preserveError: true });
+    if (['CLIENT_TIMEOUT', 'INVALID_RESPONSE', 'SERVER_ERROR'].includes(data?.errorCode)) return data.errorCode;
+    if (!data) return '응답 없음(네트워크/응답 포맷 확인)';
     if (data.status !== 'ok') return data.message || 'status!=ok';
     if (!data.settings) return 'settings 필드 누락(getSettings 구현/배포 확인)';
     return '원인 미상(콘솔 로그 확인)';

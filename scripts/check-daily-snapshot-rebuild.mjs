@@ -181,7 +181,7 @@ assert.match(settings, /const bootstrapPortfolioStatus = isBootstrap[\s\S]*boots
   'bootstrap 하위 거래·보유 읽기 성공 여부를 강제 복원 판정에 보존');
 assert.match(settings, /const bootstrapTradesOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore[\s\S]*const bootstrapHoldingsOk = bootstrapPortfolioStatus[\s\S]*: !forcePortfolioRestore/,
   '구버전 bootstrap의 성공 여부 누락은 연결 변경 강제 복원에서 안전 실패 처리');
-assert.match(settings, /if \(forcePortfolioRestore && portfolioRestorePromise\)[\s\S]*forcedPortfolioRestoreData = await portfolioRestorePromise[\s\S]*preflightTradesOk[\s\S]*preflightHoldingsOk[\s\S]*if \(!preflightTradesOk \|\| !preflightHoldingsOk\) return false/,
+assert.match(settings, /if \(forcePortfolioRestore && portfolioRestorePromise\)[\s\S]*forcedPortfolioRestoreData = await portfolioRestorePromise[\s\S]*preflightTradesOk[\s\S]*preflightHoldingsOk[\s\S]*if \(!preflightTradesOk \|\| !preflightHoldingsOk\) \{\s*return failLoad\(!preflightTradesOk \? 'TRADES_READ_FAILED' : 'HOLDINGS_READ_FAILED'\)/,
   '연결 변경 강제 복원은 설정 전역상태 적용 전에 거래·보유 읽기를 preflight');
 assert.match(settings, /if \(!hasAuthoritativeFundDirect && holdingsLoaded\) \{[\s\S]*\['TDF','펀드'\]\.includes\(h\.assetType\)[\s\S]*Object\.prototype\.hasOwnProperty\.call\(fundDirect, h\.name\)[\s\S]*fundDirect\[h\.name\]/,
   'fundDirect 키가 없는 레거시 연결만 holdings의 직접펀드를 보완 복원');
@@ -334,7 +334,7 @@ assert.match(settings, /function saveDividendSettings[\s\S]*const expectedLoadEp
 assert.match(sync, /const code = _normalizeSyncCode\(h\.code \|\| ep\?\.code \|\| STOCK_CODE\[h\.name\] \|\| ''\)[\s\S]*const assetType = h\.assetType \|\| h\.type \|\| getEPType\(ep, '주식'\)/,
   'dirty holdingsOverride는 복원 전 전역 master보다 캡처 payload의 code/assetType을 우선');
 
-assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return false/,
+assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return failLoad\('PORTFOLIO_SYNC_FAILED'\)/,
   'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
 assert.match(settingsFetch, /const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending[\s\S]*if \(portfolioSyncPending\)[\s\S]*현재가만 업데이트[\s\S]*else \{[\s\S]*forcePortfolioRestore: true/,
   '현재가 업데이트는 미동기화 로컬 포트폴리오가 있으면 authoritative pull을 건너뜀');
@@ -400,11 +400,11 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261012-3/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-6/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261012-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261012-2/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261011-2/,'현재가 연결 격리 로직 캐시 버전 갱신');
-assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261007-11/,'편집기 연결별 캐시 로직 버전 갱신');
+assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261012-3/,'현재가 연결 격리 로직 캐시 버전 갱신');
+assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261012-1/,'편집기 연결별 캐시 로직 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /TRADE_SNAPSHOT_REBUILD_PENDING_KEY[\s\S]*function _readPendingTradeSnapshotRebuild[\s\S]*function _setPendingTradeSnapshotRebuild/,

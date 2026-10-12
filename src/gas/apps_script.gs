@@ -1,5 +1,16 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.195
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.197
+//
+//  v9.197 변경사항 (2026.10.12):
+//   거래이력 DATE 셀의 읽기 검증은 시트 시간대의 날짜로 비교, 다른 열의 엄격 검증 유지
+//   정상 거래 저장의 Date/문자열 오판으로 설정 복원 재시도가 중단되는 오류 수정
+//
+//  v9.196 변경사항 (2026.10.12):
+//   K200 야간선물 기본키 HTTP 401/403에만 보조 인증키로 동일 거래일 재조회
+//   VKOSPI 배치 중 인증 거부된 날짜만 보조키 재조회, 성공 결과와 요청일 검증 보존
+//   일부 날짜 인증 복구 실패 시 정상 날짜는 반환하고 부분 결과 캐시를 금지해 재시도 보존
+//   확인된 휴장일 제외, 검증된 날짜별 캐시로 미공시·오류 날짜만 재조회
+//   인증키·시트 원본 변경 없음; 보조키 endpoint 승인과 운영 복구는 배포 전 별도 확인
 //
 //  v9.195 변경사항 (2026.10.12):
 //   KRX 공식 KOSPI/KOSDAQ 당일 확정 종가 우선, 대체 인증키·휴장/수집실패 분리 및 Yahoo 이력 보조
@@ -4641,13 +4652,29 @@ function _selectKrxK200NightClose_(rows, tradingDate) {
 }
 
 function fetchKrxK200NightClose(tradingDate, now) {
-  var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, ''), authKey = _getKrxAuthKey();
+  var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, '');
+  var slots = _getKrxAuthKeySlots_(), authKey = slots.key;
   if (!authKey || !/^\d{8}$/.test(ymd)) return null;
   if (Utilities.formatDate(now || new Date(), CONFIG.TIMEZONE, 'HHmm') < '0600') return null;
   var response = UrlFetchApp.fetch('https://data-dbg.krx.co.kr/svc/apis/drv/fut_bydd_trd?basDd=' + encodeURIComponent(ymd), {
     method: 'get', headers: { AUTH_KEY: authKey }, muteHttpExceptions: true
   });
-  if (response.getResponseCode() >= 400) throw new Error('KRX_K200_NIGHT_HTTP_' + response.getResponseCode());
+  var httpStatus = response.getResponseCode();
+  // Retry only an explicitly denied key, never an HTTP 200 empty response.
+  if ((httpStatus === 401 || httpStatus === 403) && slots.alternative) {
+    var alternate;
+    try {
+      alternate = UrlFetchApp.fetch('https://data-dbg.krx.co.kr/svc/apis/drv/fut_bydd_trd?basDd=' + encodeURIComponent(ymd), {
+        method:'get', headers:{ AUTH_KEY:slots.alternative }, muteHttpExceptions:true
+      });
+    } catch(fetchError) { throw new Error('KRX_K200_NIGHT_ALTERNATE_FETCH_FAILED'); }
+    var alternateStatus = alternate.getResponseCode();
+    if (alternateStatus !== 200)
+      throw new Error('KRX_K200_NIGHT_PRIMARY_HTTP_' + httpStatus + '_ALTERNATE_HTTP_' + alternateStatus);
+    response = alternate;
+    httpStatus = alternateStatus;
+  }
+  if (httpStatus >= 400) throw new Error('KRX_K200_NIGHT_HTTP_' + httpStatus);
   var json = JSON.parse(response.getContentText() || '{}');
   var selected = _selectKrxK200NightClose_(json.OutBlock_1, date);
   if (!selected) return null;
@@ -4977,11 +5004,12 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
 }
 
 function _readVkospiPointsFromKrx(fromDate, toDate) {
-  var authKey = _getKrxAuthKey();
+  var slots = _getKrxAuthKeySlots_();
+  var authKey = slots.key;
   if (!authKey) throw new Error('VKOSPI 조회에는 KRX AUTH_KEY가 필요합니다. 설정에서 KRX 인증키를 등록하세요.');
 
   var cache = CacheService.getScriptCache();
-  var cacheKey = 'vkospi_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+  var cacheKey = 'vkospi_v2_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
   var cached = cache.get(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch(e) { /* 손상된 캐시는 다시 조회 */ }
@@ -4990,15 +5018,34 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
   var ymDates = _buildDateRangeYmd(fromDate.replace(/-/g, ''), toDate.replace(/-/g, ''))
     .filter(function(ymd) {
       var day = _ymdToDate(ymd).getDay();
-      return day !== 0 && day !== 6;
+      var date = ymd.slice(0,4) + '-' + ymd.slice(4,6) + '-' + ymd.slice(6,8);
+      return day !== 0 && day !== 6 && _krxCalendarStatus_(date) !== 'CLOSED';
     });
   var endpoint = 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd';
   var pointsByDate = {};
+  // 범위가 불완전해도 이미 검증된 날짜는 재요청하지 않습니다. 미공시 당일이나
+  // 오류 날짜만 다음 요청에서 재시도하며, CLOSED가 아닌 UNKNOWN은 제외하지 않습니다.
+  var cachedDays = {};
+  try { if (ymDates.length) cachedDays = cache.getAll(ymDates.map(function(ymd) { return 'vkospi_day_v2_' + ymd; })); }
+  catch(ignoreDayCacheRead) {}
+  var requestDates = ymDates.filter(function(ymd) {
+    try {
+      var point = JSON.parse(cachedDays['vkospi_day_v2_' + ymd] || 'null');
+      var date = ymd.slice(0,4) + '-' + ymd.slice(4,6) + '-' + ymd.slice(6,8);
+      if (point && point.date === date && typeof point.value === 'number' && isFinite(point.value) && point.value > 0) {
+        pointsByDate[date] = point.value;
+        return false;
+      }
+    } catch(ignoreDayCache) {}
+    return true;
+  });
   var batchSize = 50;
-  var authFailed = false;
+  var authFailedDates = [];
+  var transportFailed = false;
 
-  for (var start = 0; start < ymDates.length; start += batchSize) {
-    var batch = ymDates.slice(start, start + batchSize);
+  for (var start = 0; start < requestDates.length; start += batchSize) {
+    var batch = requestDates.slice(start, start + batchSize);
+    var newDayCache = {};
     var requests = batch.map(function(ymd) {
       return {
         url: endpoint + '?basDd=' + encodeURIComponent(ymd),
@@ -5007,10 +5054,35 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
         muteHttpExceptions: true
       };
     });
-    var responses = UrlFetchApp.fetchAll(requests);
+    var responses;
+    try { responses = UrlFetchApp.fetchAll(requests); }
+    catch(batchError) {
+      transportFailed = true;
+      Logger.log('[KRX-VKOSPI] 날짜 배치 통신 오류, 다른 배치의 검증 결과 보존');
+      continue;
+    }
+    // Keep approved primary results; re-request only the 401/403 dates.
+    var denied = [];
+    responses.forEach(function(resp, idx) {
+      if (resp.getResponseCode() === 401 || resp.getResponseCode() === 403) denied.push(idx);
+    });
+    if (denied.length && slots.alternative) {
+      var alternateRequests = denied.map(function(idx) {
+        return {url:requests[idx].url, method:'get',
+          headers:{AUTH_KEY:slots.alternative}, muteHttpExceptions:true};
+      });
+      try {
+        var recovered = UrlFetchApp.fetchAll(alternateRequests);
+        recovered.forEach(function(resp, idx) {
+          if (resp && resp.getResponseCode() === 200) responses[denied[idx]] = resp;
+        });
+      } catch(error) {
+        Logger.log('[KRX-VKOSPI] 보조 인증 경로 네트워크 오류, 기본 응답 유지');
+      }
+    }
     responses.forEach(function(resp, idx) {
       var status = resp.getResponseCode();
-      if (status === 401 || status === 403) authFailed = true;
+      if (status === 401 || status === 403) authFailedDates.push(batch[idx]);
       if (status >= 400) return;
       var json;
       try { json = JSON.parse(resp.getContentText() || '{}'); } catch(e) { return; }
@@ -5020,18 +5092,29 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
         return /VKOSPI|코스피\s*200\s*변동성|변동성지수/i.test(name);
       });
       if (!row) return;
-      var date = _normalizeDate(row.BAS_DD || row.basDd || batch[idx]);
+      var sourceYmd = _normalizeYmd(row.BAS_DD || row.basDd || '');
+      if (sourceYmd !== batch[idx]) return; // Exact official source date is required.
+      var date = sourceYmd.slice(0,4) + '-' + sourceYmd.slice(4,6) + '-' + sourceYmd.slice(6,8);
       var value = parseFloat((row.CLSPRC_IDX || row.clsprcIdx || '').toString().replace(/,/g, '')) || 0;
-      if (date && value > 0) pointsByDate[date] = value;
+      if (date && isFinite(value) && value > 0) {
+        pointsByDate[date] = value;
+        newDayCache['vkospi_day_v2_' + sourceYmd] = JSON.stringify({date:date, value:value});
+      }
     });
+    if (Object.keys(newDayCache).length) {
+      try { cache.putAll(newDayCache, 21600); } catch(ignoreDayCacheWrite) {}
+    }
   }
-
-  if (authFailed) throw new Error('KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.');
 
   var points = Object.keys(pointsByDate).sort().map(function(date) {
     return { date: date, value: pointsByDate[date] };
   });
-  if (points.length > 0) {
+  if (authFailedDates.length && !points.length) throw new Error('KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.');
+  if (transportFailed && !points.length) throw new Error('VKOSPI 날짜 배치 네트워크 오류');
+  if (authFailedDates.length) Logger.log('[KRX-VKOSPI] 인증 미복구 날짜 ' + authFailedDates.length + '건, 정상 날짜 보존 및 다음 조회 재시도');
+  // HTTP 성공만으로 복구를 확정하지 않습니다. 요청 거래일별 유효 점수가 모두
+  // 있어야 캐시하여 빈 응답·파싱 오류·다른 원천일의 누락도 후속 조회에서 재시도합니다.
+  if (points.length > 0 && !authFailedDates.length && points.length === ymDates.length) {
     try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(e) { /* 캐시 용량 초과는 무시 */ }
   }
   return points;
@@ -5367,7 +5450,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.195' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.197' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6670,6 +6753,27 @@ function _verifyWrittenRange(sheet, row, column, values, message) {
   if (!values || !values.length) return;
   var actual = sheet.getRange(row, column, values.length, values[0].length).getValues();
   if (JSON.stringify(actual) !== JSON.stringify(values)) throw new Error(message || '쓰기 후 read-back 검증 실패');
+}
+
+// 거래이력 A열의 DATE 서식은 정상 저장된 문자열도 Date 객체로 읽힙니다.
+// 해당 열만 시트 시간대의 달력 날짜로 비교하며, 코드·수량·메모 등은 원시 비교를 유지합니다.
+function _verifyTradeWrittenRange(sheet, row, values) {
+  SpreadsheetApp.flush();
+  if (!values || !values.length) return;
+  var actual = sheet.getRange(row, 1, values.length, values[0].length).getValues();
+  if (actual.length !== values.length) throw new Error('거래이력 쓰기 후 검증 실패: 행 수');
+  var timezone = sheet.getParent().getSpreadsheetTimeZone();
+  for (var i = 0; i < values.length; i++) {
+    for (var j = 0; j < values[i].length; j++) {
+      var found = actual[i] && actual[i][j], expected = values[i][j];
+      if (j === 0 && found instanceof Date && !isNaN(found.getTime())) {
+        found = Utilities.formatDate(found, timezone, 'yyyy-MM-dd');
+      }
+      if (JSON.stringify(found) !== JSON.stringify(expected)) {
+        throw new Error('거래이력 쓰기 후 검증 실패: 행 ' + (row + i) + ' 열 ' + (j + 1));
+      }
+    }
+  }
 }
 
 // 펀드 NAV 시트의 A/E열은 DATE 서식입니다. 저장 입력은 'YYYY-MM-DD' 문자열이어도
@@ -9270,7 +9374,7 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     }
     SpreadsheetApp.flush();
     var currentRows = trades.map(function(t) { return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'', t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'', t.ratio || '', t.fractionalCash || '']; });
-    if (currentRows.length) _verifyWrittenRange(sh, 2, 1, _normalizeCodeRows(currentRows, 4), '거래이력 쓰기 후 검증 실패');
+    if (currentRows.length) _verifyTradeWrittenRange(sh, 2, _normalizeCodeRows(currentRows, 4));
     else if (sh.getLastRow() !== 1) throw new Error('빈 거래이력 쓰기 후 검증 실패');
     sourcePersisted = true;
     var explicitEmptyReset = explicitEmpty === true && currentRows.length === 0;
@@ -10977,7 +11081,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.195',
+    gasVersion: '9.197',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11017,7 +11121,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.195' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.197' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13732,7 +13836,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.195' });
+    return jsonOk({ settings: settings, gasVersion: '9.197' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13760,7 +13864,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.195'
+      gasVersion: '9.197'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
