@@ -1593,15 +1593,22 @@ function _tossDiagnosticAccessToken_() {
 }
 // 일반 연결 진단은 시세 조회와 같은 토큰 캐시를 재사용합니다.
 // OAuth 강제 재발급은 기존 토큰을 무효화할 수 있으므로, 명시적인 freshOAuth=1 요청에만 허용합니다.
-function _tossDiagnosticSharedToken_(forceFreshOAuth) {
-  if (forceFreshOAuth === true) return _tossDiagnosticAccessToken_();
-  var cached = _tossCachedAccessToken_();
-  if (cached) return {
+function _tossDiagnosticReusedToken_(cached) {
+  return {
     ok: true, status: null, code: 'CACHED_TOKEN_REUSED', providerCode: '',
     source: 'CACHE', token: cached, requestId: '', referenceId: '',
     edgeRequestId: '', elapsedMs: 0
   };
-  return _tossDiagnosticAccessToken_();
+}
+function _tossDiagnosticSharedToken_(forceFreshOAuth) {
+  if (forceFreshOAuth === true) return _tossDiagnosticAccessToken_();
+  var cached = _tossCachedAccessToken_();
+  if (cached) return _tossDiagnosticReusedToken_(cached);
+  // 미스 확인과 lock 획득 사이 다른 실행이 발급했으면 새 OAuth 요청을 생략합니다.
+  return _tossWithTokenLock_(function() {
+    var afterLock = _tossCachedAccessToken_();
+    return afterLock ? _tossDiagnosticReusedToken_(afterLock) : _tossDiagnosticAccessToken_();
+  });
 }
 function _priceTimingAdd_(timings, key, startedMs) {
   if (!timings || !key || !Number.isFinite(Number(startedMs))) return;
