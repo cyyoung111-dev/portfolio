@@ -97,7 +97,7 @@ for(const [source,names] of [
     'management controls must be disabled while bootstrap pending');
 }
 assert.match(html,/mgmt_stock\.js\?v=20261012-3/);
-assert.match(html,/mgmt_sector\.js\?v=20261012-3/);
+assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/sw\.js\?v=20261012-16/);
 assert.match(sw,/portfolio-cache-20261012-16/);
 
@@ -109,7 +109,7 @@ const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,
  'successful bootstrap must re-render disabled controls');
 assert.match(html,/mgmt_stock\.js\?v=20261012-3/);
-assert.match(html,/mgmt_sector\.js\?v=20261012-3/);
+assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/settings\.js\?v=20261012-3/);
 assert.match(sw,/settings\.js\?v=20261012-3/);
 const stockSource=fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8');
