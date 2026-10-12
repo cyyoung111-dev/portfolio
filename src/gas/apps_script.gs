@@ -5035,12 +5035,13 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
     } catch(ignoreDayCache) {}
     return true;
   });
-  var newDayCache = {};
   var batchSize = 50;
   var authFailedDates = [];
+  var transportFailed = false;
 
   for (var start = 0; start < requestDates.length; start += batchSize) {
     var batch = requestDates.slice(start, start + batchSize);
+    var newDayCache = {};
     var requests = batch.map(function(ymd) {
       return {
         url: endpoint + '?basDd=' + encodeURIComponent(ymd),
@@ -5049,7 +5050,13 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
         muteHttpExceptions: true
       };
     });
-    var responses = UrlFetchApp.fetchAll(requests);
+    var responses;
+    try { responses = UrlFetchApp.fetchAll(requests); }
+    catch(batchError) {
+      transportFailed = true;
+      Logger.log('[KRX-VKOSPI] 날짜 배치 통신 오류, 다른 배치의 검증 결과 보존');
+      continue;
+    }
     // Keep approved primary results; re-request only the 401/403 dates.
     var denied = [];
     responses.forEach(function(resp, idx) {
@@ -5090,15 +5097,16 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
         newDayCache['vkospi_day_v2_' + sourceYmd] = JSON.stringify({date:date, value:value});
       }
     });
+    if (Object.keys(newDayCache).length) {
+      try { cache.putAll(newDayCache, 21600); } catch(ignoreDayCacheWrite) {}
+    }
   }
 
   var points = Object.keys(pointsByDate).sort().map(function(date) {
     return { date: date, value: pointsByDate[date] };
   });
   if (authFailedDates.length && !points.length) throw new Error('KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.');
-  if (Object.keys(newDayCache).length) {
-    try { cache.putAll(newDayCache, 21600); } catch(ignoreDayCacheWrite) {}
-  }
+  if (transportFailed && !points.length) throw new Error('VKOSPI 날짜 배치 네트워크 오류');
   if (authFailedDates.length) Logger.log('[KRX-VKOSPI] 인증 미복구 날짜 ' + authFailedDates.length + '건, 정상 날짜 보존 및 다음 조회 재시도');
   // HTTP 성공만으로 복구를 확정하지 않습니다. 요청 거래일별 유효 점수가 모두
   // 있어야 캐시하여 빈 응답·파싱 오류·다른 원천일의 누락도 후속 조회에서 재시도합니다.

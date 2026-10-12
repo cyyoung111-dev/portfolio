@@ -19,13 +19,14 @@ ctx.Utilities = {formatDate:(date,zone,format) => {
 }};
 ctx.Logger = {log:()=>{}};
 ctx._getKrxAuthKeySlots_ = () => ({key:'bad-primary',alternative:'approved-alternative'});
-let cacheWrites=0;
+let cacheWrites=0,dayCacheWrites=0;
 function resetCache() {
   cacheWrites=0;
+  dayCacheWrites=0;
   const cache=new Map();
   ctx.CacheService={getScriptCache:()=>({get:key=>cache.get(key)||null,
     getAll:keys=>Object.fromEntries(keys.filter(k=>cache.has(k)).map(k=>[k,cache.get(k)])),
-    putAll:items=>Object.entries(items).forEach(([k,v])=>cache.set(k,v)),
+    putAll:items=>{dayCacheWrites++;Object.entries(items).forEach(([k,v])=>cache.set(k,v));},
     put:(k,v)=>{cacheWrites++;cache.set(k,v);}})};
 }
 function http(code,rows) {
@@ -195,4 +196,33 @@ assert.deepEqual(normalizedCalls(),[['20261008','20261012'],['20261012']],
 unpublished=false;
 assert.equal(ctx._readVkospiPointsFromKrx('2026-10-08','2026-10-12').length,2);
 assert.equal(cacheWrites,1);
-console.log('✅ K200/VKOSPI 인증·일자별 복구·휴장/UNKNOWN·미공시 당일 최소 재조회 계약 통과');
+for(const failedBatch of [0,1,2]) {
+  resetCache();calls=[];
+  ctx.UrlFetchApp={fetchAll:requests=>{
+    const index=calls.length;
+    calls.push(requests.map(x=>new URL(x.url).searchParams.get('basDd')));
+    if(index===failedBatch) throw Error('batch network failure');
+    return requests.map(x=>http(200,vkospi(new URL(x.url).searchParams.get('basDd'))));
+  }};
+  const partial=ctx._readVkospiPointsFromKrx('2026-01-01','2026-06-30');
+  assert.equal(calls.length,3,'three batches exercise early/middle/last transport failure');
+  const succeeded=calls.filter((_,i)=>i!==failedBatch).flat();
+  const failed=calls[failedBatch];
+  assert.equal(partial.length,succeeded.length,'later transport exception preserves successful batches');
+  assert.equal(dayCacheWrites,2,'each successful batch caches before the next batch');
+  assert.equal(cacheWrites,0);
+  calls=[];
+  ctx.UrlFetchApp={fetchAll:requests=>{
+    calls.push(requests.map(x=>new URL(x.url).searchParams.get('basDd')));
+    return requests.map(x=>http(200,vkospi(new URL(x.url).searchParams.get('basDd'))));
+  }};
+  assert.equal(ctx._readVkospiPointsFromKrx('2026-01-01','2026-06-30').length,succeeded.length+failed.length);
+  assert.deepEqual(normalizedCalls().flat(),failed,'retry only the failed dates');
+  const count=calls.length;
+  ctx._readVkospiPointsFromKrx('2026-01-01','2026-06-30');
+  assert.equal(calls.length,count,'complete recovery avoids subsequent HTTP requests');
+}
+resetCache();
+ctx.UrlFetchApp={fetchAll:()=>{throw Error('all batches failed');}};
+assert.throws(()=>ctx._readVkospiPointsFromKrx('2026-10-08','2026-10-08'),/배치 네트워크 오류/);
+console.log('✅ K200/VKOSPI 인증·휴장·당일·배치 통신 부분 실패 및 최소 재조회 계약 통과');
