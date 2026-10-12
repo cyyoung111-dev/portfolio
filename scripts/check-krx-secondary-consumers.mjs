@@ -129,4 +129,30 @@ for(const alternateFailure of [403,500,'network']) {
   assert.equal(ctx._readVkospiPointsFromKrx('2026-10-07','2026-10-08').length,2);
   assert.equal(cacheWrites,1,'a later complete successful result may be cached');
 }
-console.log('✅ K200 night/VKOSPI authorized fallback, partial failure retry and exact-date safety passed');
+// Model: an HTTP response is a candidate; only a valid point on each requested
+// date permits a complete-range cache. Cover missing data on either auth slot.
+for(const useSecondary of [false,true]) {
+  for(const invalid of ['wrongDate','empty','wrongIndex','zero','parseError','serverError']) {
+    resetCache();calls=[];
+    ctx.UrlFetchApp={fetchAll:requests=>{
+      calls.push(requests.map(x=>x.headers.AUTH_KEY));
+      return requests.map(x=>{
+        const day=new URL(x.url).searchParams.get('basDd');
+        if(day==='20261007') return http(200,vkospi(day));
+        if(useSecondary && x.headers.AUTH_KEY==='bad-primary') return http(401);
+        if(invalid==='parseError') return {getResponseCode:()=>200,getContentText:()=>'{'};
+        if(invalid==='serverError') return http(500);
+        if(invalid==='empty') return http(200,[]);
+        if(invalid==='wrongIndex') return http(200,[{BAS_DD:day,IDX_NM:'KOSPI',CLSPRC_IDX:'2500'}]);
+        return http(200,vkospi(invalid==='wrongDate'?'20261007':day,invalid==='zero'?'0':'26.52'));
+      });
+    }};
+    const result=ctx._readVkospiPointsFromKrx('2026-10-07','2026-10-08');
+    assert.deepEqual(Array.from(result,x=>x.date),['2026-10-07']);
+    assert.equal(cacheWrites,0,`${useSecondary?'secondary':'primary'} ${invalid} must not cache an incomplete range`);
+    ctx.UrlFetchApp={fetchAll:requests=>requests.map(x=>http(200,vkospi(new URL(x.url).searchParams.get('basDd'))))};
+    assert.equal(ctx._readVkospiPointsFromKrx('2026-10-07','2026-10-08').length,2);
+    assert.equal(cacheWrites,1);
+  }
+}
+console.log('✅ K200/VKOSPI 요청일별 유효 결과·부분 실패 보존·완전 복구 캐시 계약 통과');
