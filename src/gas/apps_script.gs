@@ -10088,6 +10088,34 @@ function _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedDate) {
   return confirmed;
 }
 
+// Price writers must not silently carry stale overseas prices when one
+// provider response is missing. Exact completed-session evidence is required
+// for every held overseas code before any price history/Snapshot write.
+function _verifyForeignDailyCloseCoverage_(items, foreignPrices, asOf) {
+  var overseas = (items || []).filter(function(item) {
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    return code && !_isFundCode(code) && !_isKrxDailyCloseTarget_(item);
+  });
+  overseas.forEach(function(item) {
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
+    // Yahoo quotes are in the listing currency. Treating an overseas market
+    // as KRW would multiply by 1 in Snapshot and silently under/overstate NAV.
+    if (currency === 'KRW') throw new Error('해외 종목 코드 마스터 통화 확인 필요: ' + code +
+      ' (' + String(item.market || '') + ') · 실제 거래통화로 수정 후 마감 재시도');
+    var requiredDate = _foreignMarketRegularCloseCutoff_(item, asOf);
+    var row = foreignPrices && foreignPrices[item.code];
+    if (!row || Number(row.price) <= 0 || !Number.isFinite(Number(row.price)) ||
+        String(row.source || '').toUpperCase() !== 'YAHOO_REGULAR_CLOSE' ||
+        _normalizeDate(row.usedDate || '') !== requiredDate ||
+        !_isConfirmedHistoryPrice_(row, requiredDate)) {
+      throw new Error('해외 정규장 확정 종가 누락: ' + code + ' ' + requiredDate +
+        ' · 이전 종가 이월로 당일 마감 성공 처리 금지');
+    }
+  });
+  return overseas.length;
+}
+
 function _latestConfirmedForeignCloseDate_(items, foreignPrices, requestedDate) {
   var latest = '';
   (items || []).forEach(function(item) {
@@ -10159,6 +10187,10 @@ function saveDailyPriceHistory(targetDate, options) {
           ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true,
               useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate + 'T19:00:00+09:00') })
           : {};
+        // 국내 KRX 성공 1건만으로 외화 보유의 과거 가격 이월을 허용하지 않습니다.
+        // 모든 실제 해외 보유의 마지막 완료 세션 Yahoo 확정값을 쓰기 전에 확인합니다.
+        _verifyForeignDailyCloseCoverage_(items, gfPrev,
+          new Date(requestedCloseDate + 'T19:00:00+09:00'));
         // KRX 휴장일에는 실시간 pack 일부가 실패해도 저장된 공식 KRX 종가를
         // 누락 코드에만 병합합니다. 정상 거래일에는 저장값을 당일 확정값으로 승격하지 않습니다.
         if (_krxCalendarStatus_(requestedCloseDate) === 'CLOSED') {

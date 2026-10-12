@@ -1,3 +1,11 @@
+## PR #493 P1: 해외 확정 종가 누락 시 PRICE 성공·Snapshot 저장 차단 (2026-10-12 · Draft / 미배포)
+
+- Codex 새 P1 및 자체검토: 국내 KRX 일부 성공 시 Yahoo 해외 가격이 없거나 오래된 완료 세션인 종목을 이전 가격이력으로 이월하여 Snapshot이 정상 완료될 수 있었습니다. 새 생산 `_verifyForeignDailyCloseCoverage_`는 **모든 실제 해외 보유 종목마다 마지막 완료 세션 날짜와 일치하는 YAHOO_REGULAR_CLOSE의 유한 양수·CONFIRMED 가격**을 실제 저장 전에 요구합니다.
+- 정상 해외 세션/코드별 확인되지 않으면 PRICE 단계를 예외로 실패시키고 누락일 복구/Watchdog을 성공으로 처리하지 않습니다. 해외 공휴일도 신뢰할 수 있는 별도 휴장 증거가 없으면 임의 직전값으로 확정하지 않는 보수적 기준입니다.
+- 추가 독립 확인: 해외시장 코드의 currency가 구버전 기본값 KRW로 남아 있으면 Yahoo 외화 가격을 원화 평가로 오인할 수 있습니다. 실제 해외 공급자 가격을 확보하더라도, 종목코드 마스터의 통화가 KRW인 해외 보유는 명시 오류로 차단해 올바른 USD/JPY/HKD/GBP/EUR 통화 수정 후 재시도하도록 했습니다. 실데이터 변경 없음.
+- 실제 saveDailyPriceHistory 생산 함수를 실행하는 회귀검사에 국내 성공+해외 누락, 오래된 해외 세션, 비공식 현재가, 해외시장+KRW 통화 충돌, 국내외 동시 성공의 경계 시나리오를 추가했습니다. 가격/Snapshot 실제 쓰기는 mock에서 차단했습니다.
+- GAS 통합 source blob (최신 검증 후보): `3dd99ad6dd048e01fa2d3db5452341d894abb9ba`. 원본 #489~#492와 main, 운영 GAS 및 자격증명·원장·가격이력·Snapshot은 변경하지 않았습니다.
+
 ## PR #493 해외시장 종가 조회 및 Yahoo 심볼 검증 (2026-10-12 · Draft / 미배포)
 
 - 후속 Codex P2 2건: saveDailyPriceHistory의 해외 종가 호출 분기와 _isKrxDailyCloseTarget_의 불일치, 그리고 KRW 기본값+해외시장 종목의 Yahoo 티커 심볼 미생성을 자체 확인하고 수정했습니다.

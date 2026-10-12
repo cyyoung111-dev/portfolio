@@ -1454,6 +1454,70 @@ assert.equal(yahooQueries.length,beforeUnknownSymbol,
 }
 console.log('✅ 통합 해외시장 Yahoo 심볼/실제 fetch 및 KRW 기본값 조회 경로 검증');
 
+// Codex P1: even one healthy domestic KRX close must not let absent or stale
+// Yahoo rows silently carry last month's overseas close into Snapshot.
+{
+  const domesticItem={code:'005930',name:'삼성전자',currency:'KRW',market:'KOSPI'};
+  const foreignItem={code:'AAPL',name:'Apple',currency:'USD',market:'US'};
+  const quote=(date)=>({price:180,usedDate:date,marketDate:date,
+    source:'YAHOO_REGULAR_CLOSE',priceType:'REGULAR_CLOSE',status:'CONFIRMED'});
+  function checkRealClose(holdings, foreignResult, expectedError) {
+    let updates=0;
+    const calls=[],bag=new Map();
+    const props={getProperty:k=>bag.get(k)||null,
+      setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+    const ctx=vm.createContext({
+      Date,_snapshotBackupOperationId:'', CONFIG:{TIMEZONE:'Asia/Seoul'},
+      PropertiesService:{getScriptProperties:()=>props},
+      LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
+      Utilities:{formatDate:()=> '2026-10-08 19:00:00'},Logger:{log(){}},
+      getss:()=>({}),today:()=> '2026-10-08',
+      _normalizeDate:v=>String(v||''),
+      getCodeItems:()=>holdings,_getDailyHeldCodeItems:()=>holdings,
+      _foreignMarketRegularCloseCutoff_:item=>['US','NASDAQ','NYSE'].includes(item.market)
+        ?'2026-10-07':'2026-10-08',
+      _krxCalendarStatus_:()=> 'OPEN',
+      fetchPricesKrx:items=>{
+        calls.push('KRX:'+items.map(x=>x.code).join(','));
+        return Object.fromEntries(items.map(item=>[item.code,
+          {price:80000,source:'KRX',usedDate:'2026-10-08'}]));
+      },
+      fetchPricesGoogleFinance:items=>{
+        calls.push('YAHOO:'+items.map(x=>x.code).join(','));
+        return foreignResult;
+      },
+      _assessDailyKrxStockClose:()=>({required:true,date:'2026-10-08'}),
+      _latestConfirmedForeignCloseDate_:()=> '2026-10-07',
+      batchUpsertPriceHistory:()=>{updates++;throw Error('VALID_PRICE_WRITE_REACHED');}
+    });
+    installKrxTarget(ctx);
+    vm.runInContext(extract('_isConfirmedHistoryPrice_'),ctx);
+    vm.runInContext(extract('_verifyForeignDailyCloseCoverage_'),ctx);
+    vm.runInContext(extract('saveDailyPriceHistory'),ctx);
+    assert.throws(()=>ctx.saveDailyPriceHistory('2026-10-08'),expectedError);
+    return {updates,calls,bag};
+  }
+  const missing=checkRealClose([domesticItem,foreignItem],{},/해외 정규장 확정 종가 누락/);
+  assert.equal(missing.updates,0,'KRX 가격 1건 확보해도 해외 누락이면 가격이력 쓰기 전 실패');
+  assert.deepEqual(missing.calls,['KRX:005930','YAHOO:AAPL']);
+  assert.ok(missing.bag.get('snapshot_last_error')?.includes('해외 정규장 확정 종가 누락'));
+  const stale=checkRealClose([domesticItem,foreignItem],
+    {AAPL:quote('2026-10-06')},/해외 정규장 확정 종가 누락/);
+  assert.equal(stale.updates,0,'이전 해외 세션 확정값은 당일 PRICE 성공 근거가 아님');
+  const wrongSource=checkRealClose([domesticItem,foreignItem],
+    {AAPL:{...quote('2026-10-07'),source:'YAHOO_LAST_PRICE'}},
+    /해외 정규장 확정 종가 누락/);
+  assert.equal(wrongSource.updates,0,'현재가/비공식 원천으로 해외 당일 마감 성공 처리 금지');
+  const wrongCurrency=checkRealClose([domesticItem,{...foreignItem,currency:'KRW',market:'NASDAQ'}],
+    {AAPL:quote('2026-10-07')},/해외 종목 코드 마스터 통화 확인 필요/);
+  assert.equal(wrongCurrency.updates,0,'KRW 기본값의 해외 Yahoo 종가를 원화로 평가 금지');
+  assert.deepEqual(wrongCurrency.calls,['KRX:005930','YAHOO:AAPL']);
+  const valid=checkRealClose([domesticItem,foreignItem],
+    {AAPL:quote('2026-10-07')},/VALID_PRICE_WRITE_REACHED/);
+  assert.equal(valid.updates,1,'국내 KRX+해외 정확한 완료 세션이면 가격 쓰기 단계 진행');
+}
+console.log('✅ P1: 국내외 혼합 PRICE 누락·이월·비공식 원천·통화 오류는 저장 전 차단');
+
 // PR470 Codex P2: KRX 휴장일 2개 시장 중 1개만 성공해도 저장 공식 종가로 누락 시장만 병합.
 const holidayRows={
   '005930':{price:120000,source:'KRX',usedDate:'2026-10-08'},
