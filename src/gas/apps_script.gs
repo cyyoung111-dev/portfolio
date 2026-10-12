@@ -5075,7 +5075,9 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
   });
   if (authFailedDates.length && !points.length) throw new Error('KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.');
   if (authFailedDates.length) Logger.log('[KRX-VKOSPI] 인증 미복구 날짜 ' + authFailedDates.length + '건, 정상 날짜 보존 및 다음 조회 재시도');
-  if (points.length > 0 && !authFailedDates.length) {
+  // HTTP 성공만으로 복구를 확정하지 않습니다. 요청 거래일별 유효 점수가 모두
+  // 있어야 캐시하여 빈 응답·파싱 오류·다른 원천일의 누락도 후속 조회에서 재시도합니다.
+  if (points.length > 0 && !authFailedDates.length && points.length === ymDates.length) {
     try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(e) { /* 캐시 용량 초과는 무시 */ }
   }
   return points;
