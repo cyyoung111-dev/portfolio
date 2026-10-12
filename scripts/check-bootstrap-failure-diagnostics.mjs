@@ -211,5 +211,32 @@ assert.equal(filteredLedgerPosts,0,'filtered dirty source must never overwrite r
 assert.equal(filteredHoldingsPosts,0,'malformed trade blocks parallel holdings write');
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'incomplete retry retains exact original dirty source');
 
+// Codeless funds/TDFs are represented in same-connection Settings, not
+// getCodeItems(). They must remain retryable without authorizing other stocks.
+for (const fundSource of ['EDITABLE_PRICES','fundDirect']) {
+  h=setup();
+  h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+  if (fundSource === 'EDITABLE_PRICES') {
+    h.response.settings.EDITABLE_PRICES.push({name:'코드없는 펀드',code:'',assetType:'펀드'});
+  } else {
+    h.response.settings.fundDirect={'코드없는 펀드':{type:'TDF',cost:1000}};
+  }
+  vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+    rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'연금',name:'코드없는 펀드',code:'',assetType:'펀드',qty:1,price:1000});
+    _markPortfolioRemoteDirty();`,h.ctx);
+  let fundSaved=null, fundIssueCount=0;
+  h.ctx.requestGsheetFormJson=async(action,params)=>{
+    if(action==='syncTrades')fundSaved=JSON.parse(params.data);
+    if(action==='saveSyncIssues')fundIssueCount++;
+    return {status:'ok',saveState:'success'};
+  };
+  assert.equal(await h.ctx.loadSettings(),true,`${fundSource}: codeless fund must not deadlock restore`);
+  assert.equal(fundSaved?.length,1);
+  assert.equal(fundSaved?.[0]?.code,'','codeless fund remains codeless');
+  assert.equal(fundSaved?.[0]?.name,'코드없는 펀드');
+  assert.equal(fundIssueCount,0,'validated same-server codeless fund creates no unmatched logs');
+  assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'verified codeless fund clears dirty state');
+}
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
