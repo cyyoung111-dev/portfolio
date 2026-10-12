@@ -230,8 +230,10 @@ for (const fundSource of ['EDITABLE_PRICES','fundDirect']) {
     if(action==='saveSyncIssues')fundIssueCount++;
     return {status:'ok',saveState:'success'};
   };
+  let restoredException='';
+  h.ctx.console.warn=(...args)=>{for(const part of args)if(part?.message)restoredException=String(part.message);};
   const codelessResult = await h.ctx.loadSettings();
-  assert.equal(codelessResult,true,`${fundSource}: codeless fund must not deadlock restore · ${h.ctx.getGsheetSettingsLoadFailure()}`);
+  assert.equal(codelessResult,true,`${fundSource}: codeless fund must not deadlock restore · ${h.ctx.getGsheetSettingsLoadFailure()} · ${restoredException}`);
   assert.equal(fundSaved?.length,1);
   assert.equal(fundSaved?.[0]?.code,'','codeless fund remains codeless');
   assert.equal(fundSaved?.[0]?.name,'코드없는 펀드');
