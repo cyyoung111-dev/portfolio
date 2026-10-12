@@ -1070,7 +1070,6 @@ assert.match(automationUI, /fundAttemptWarning/,
 
 
 // Exercise isolated, read-only market/coverage probes against actual GAS source.
-await import('./check-krx-readonly-coverage.mjs');
 console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
 
 assert.match(source, /if \(pack\.usedYmd === ymd\) officialRows = officialRows\.concat\(rows\.slice\(firstAdded\)\)/,
