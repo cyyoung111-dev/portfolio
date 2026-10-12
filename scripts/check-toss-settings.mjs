@@ -25,7 +25,7 @@ assert.match(menuDiagnosisBody, /실제 Toss 요청 송신 IP로 확인되지 �
 assert.match(menuDiagnosisBody, /requestId/);
 assert.match(menuDiagnosisBody, /priceSmoke 005930/);
 assert.match(gasSource, /function clearTossOpenApiConfigPrompt\(/);
-assert.match(gasSource, /Toss WTS Open API/);
+assert.match(menuDiagnosisBody, /Toss Open API read-only 진단/);
 assert.match(webView, /tossClientIdInput/);
 assert.match(webView, /tossClientSecretInput/);
 assert.match(webView, /tossDiagnosticResult/);
