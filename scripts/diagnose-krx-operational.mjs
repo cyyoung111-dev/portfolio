@@ -26,14 +26,10 @@ export function validateWebAppUrl(value) {
   return url.href;
 }
 export function summarizeKrxSource(data, date) {
-  if (!data || data.status !== 'ok' || data.requestedDate !== date)
-    throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
-  if (typeof data.keyConfigured !== 'boolean')
+  if (!data || data.status !== 'ok' || data.requestedDate !== date
+      || typeof data.keyConfigured !== 'boolean')
     throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
   const configured = data.keyConfigured;
-  // GAS returns status:ok, networkStatus:FETCH_FAILED, markets:[] (or partial
-  // results) if UrlFetchApp.fetchAll or a market response throws. This is
-  // source failure evidence, not an invalid schema. Keep the distinction.
   const networkStatus = !configured ? 'NOT_CONFIGURED'
     : data.networkStatus === 'RECEIVED' ? 'RECEIVED'
     : data.networkStatus === 'FETCH_FAILED' ? 'FETCH_FAILED' : 'UNAVAILABLE';
@@ -42,39 +38,99 @@ export function summarizeKrxSource(data, date) {
       || (!configured && incoming.length !== 0)
       || (networkStatus === 'RECEIVED' && incoming.length !== MARKETS.length))
     throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
-  const byMarket = new Map();
-  for (const market of incoming) {
-    if (!market || typeof market !== 'object' || Array.isArray(market)
-        || !MARKETS.includes(market.market) || byMarket.has(market.market))
-      throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
-    const httpStatus = Number(market.httpStatus);
-    const rows = Number(market.rows);
-    const parseStatus = String(market.parseStatus || '');
-    if (!Number.isInteger(httpStatus) || httpStatus < 100 || httpStatus > 599
-        || !Number.isInteger(rows) || rows < 0 || !PARSE_STATUSES.has(parseStatus))
+  const validateMeta = (item, requireMarket = true) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)
+        || (requireMarket && !MARKETS.includes(item.market)))
       throw new Error('KRX_DIAG_INVALID_MARKET_RESPONSE');
-    byMarket.set(market.market, { market:market.market, httpStatus, rows, parseStatus });
+    const httpStatus = Number(item.httpStatus), rows = Number(item.rows);
+    const exact = item.exactDateRows === undefined ? null : Number(item.exactDateRows);
+    const parseStatus = String(item.parseStatus || '');
+    if (!Number.isInteger(httpStatus) || httpStatus < 0 || httpStatus > 599
+        || !Number.isInteger(rows) || rows < 0
+        || (exact !== null && (!Number.isInteger(exact) || exact < 0 || exact > rows))
+        || !PARSE_STATUSES.has(parseStatus))
+      throw new Error('KRX_DIAG_INVALID_MARKET_RESPONSE');
+    return { market:item.market, httpStatus, rows,
+      ...(exact === null ? {} : { exactDateRows:exact }), parseStatus };
+  };
+  const byMarket = new Map();
+  for (const item of incoming) {
+    if (!item || !MARKETS.includes(item.market) || byMarket.has(item.market))
+      throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
+    byMarket.set(item.market,validateMeta(item));
   }
-  const markets = MARKETS.map(name => byMarket.get(name) ||
-    { market:name, httpStatus:0, rows:0, parseStatus:'NOT_PARSED' });
-  const healthy = configured && networkStatus === 'RECEIVED'
-    && markets.every(row => row.httpStatus === 200
-      && row.rows > 0 && row.parseStatus === 'ROWS');
-  // These fields are exposed only by the #481 GAS version. Older deployments
-  // remain readable and are never interpreted as proof that no legacy key exists.
+  const markets = MARKETS.map(name=>byMarket.get(name)
+    || { market:name,httpStatus:0,rows:0,parseStatus:'NOT_PARSED' });
   const credentialSource = ['krx_auth_key','krx_api_key','NONE'].includes(data.credentialSource)
     ? data.credentialSource : 'UNKNOWN';
   const alternativeConfigured = typeof data.alternativeConfigured === 'boolean'
     ? data.alternativeConfigured : null;
-  const probe = data.alternateProbe;
-  const alternateProbe = probe && typeof probe === 'object'
-    && Number.isInteger(Number(probe.httpStatus))
-    && Number(probe.httpStatus) >= 0 && Number(probe.httpStatus) <= 599
-    && typeof probe.hasRows === 'boolean'
-    ? { market:MARKETS.includes(probe.market) ? probe.market : '',
-        httpStatus:Number(probe.httpStatus), hasRows:probe.hasRows } : null;
-  return { date, keyConfigured:configured, networkStatus, markets,
-    credentialSource, alternativeConfigured, alternateProbe, healthy };
+  const rawAlt = Array.isArray(data.alternateProbes) ? data.alternateProbes : [];
+  if (rawAlt.length > MARKETS.length) throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
+  const altByMarket = new Map();
+  for (const item of rawAlt) {
+    if (!item || !MARKETS.includes(item.market) || altByMarket.has(item.market))
+      throw new Error('KRX_DIAG_INVALID_MARKET_LIST');
+    const meta=validateMeta(item);
+    if (typeof item.hasRows !== 'boolean'
+        || item.hasRows !== (Number(meta.exactDateRows||0)>0))
+      throw new Error('KRX_DIAG_INVALID_MARKET_RESPONSE');
+    altByMarket.set(meta.market,{...meta,hasRows:item.hasRows});
+  }
+  const legacy = data.alternateProbe;
+  const alternateProbe = rawAlt.length
+    ? (altByMarket.get(rawAlt[0].market) || null)
+    : (legacy && typeof legacy === 'object'
+      && MARKETS.includes(legacy.market)
+      && Number.isInteger(Number(legacy.httpStatus))
+      && Number(legacy.httpStatus)>=0 && Number(legacy.httpStatus)<=599
+      && typeof legacy.hasRows === 'boolean'
+      ? {market:legacy.market,httpStatus:Number(legacy.httpStatus),
+        hasRows:legacy.hasRows} : null);
+  const alternateProbes = MARKETS.filter(name=>altByMarket.has(name))
+    .map(name=>altByMarket.get(name));
+  // The status of each market must be based on an exact requested date.
+  // Older GAS builds have no exactDateRows, so retain their legacy ROWS
+  // interpretation but never silently label a different explicit date valid.
+  const reachableMarkets = markets.map(market=>{
+    const alt=altByMarket.get(market.market);
+    const sameDate=market.exactDateRows === undefined
+      ? market.rows > 0 : market.exactDateRows > 0;
+    const primary=market.httpStatus===200 && market.parseStatus==='ROWS' && sameDate;
+    const alternate=!!alt && alt.httpStatus===200 && alt.parseStatus==='ROWS'
+      && alt.exactDateRows > 0;
+    return {market:market.market,primary,alternate,reachable:primary||alternate};
+  });
+  const stored=data.storedCoverage;
+  let storedCoverage=null;
+  if (stored && typeof stored==='object' && !Array.isArray(stored)) {
+    const status=String(stored.status||'');
+    if (!['OK','READ_FAILED','SHEET_MISSING'].includes(status))
+      throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
+    storedCoverage={status};
+    if (status==='OK') {
+      const fields=['expectedHeldCodes','expectedStock','expectedEtf','priceHistoryRows',
+        'officialExactDateCodes','nonOfficialHeldCodes','missingOfficialCodes',
+        'snapshotRows','snapshotHeldCodes','missingSnapshotCodes'];
+      for (const field of fields) {
+        const value=Number(stored[field]);
+        if (!Number.isSafeInteger(value)||value<0)
+          throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
+        storedCoverage[field]=value;
+      }
+      if (typeof stored.queuedForBackfill !== 'boolean'
+          || storedCoverage.expectedStock+storedCoverage.expectedEtf!==storedCoverage.expectedHeldCodes
+          || storedCoverage.officialExactDateCodes+storedCoverage.missingOfficialCodes!==storedCoverage.expectedHeldCodes
+          || storedCoverage.snapshotHeldCodes+storedCoverage.missingSnapshotCodes!==storedCoverage.expectedHeldCodes)
+        throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
+      storedCoverage.queuedForBackfill=stored.queuedForBackfill;
+    }
+  }
+  const healthy = configured && networkStatus === 'RECEIVED'
+    && reachableMarkets.every(item=>item.reachable);
+  return {date,keyConfigured:configured,networkStatus,markets,
+    credentialSource,alternativeConfigured,alternateProbe,alternateProbes,
+    reachableMarkets,storedCoverage,healthy};
 }
 // Read-only close verification complements market HTTP/schema checks: an
 // HTTP-200 OutBlock_1 can still fail code matching or close-date validation.
