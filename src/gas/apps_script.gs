@@ -11348,7 +11348,9 @@ function _krxReadOnlyStoredCoverage_(date) {
     var priceSheet = ss.getSheetByName(CONFIG.SHEET_PH);
     var snapshotSheet = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     if (!priceSheet || !snapshotSheet) return { status:'SHEET_MISSING' };
-    var catalog = getCodeItems(ss);
+    // Master read failures must not masquerade as zero held assets.
+    var catalog = getCodeItems(ss, true);
+    if (!catalog.length) return { status:'MASTER_EMPTY' };
     var held = _getDailyHeldCodeItems(ss, date, catalog);
     var heldCodes = {}, expectedEtf = 0, expectedStock = 0;
     held.forEach(function(item) {
