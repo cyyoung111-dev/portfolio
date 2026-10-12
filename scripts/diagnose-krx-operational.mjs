@@ -81,11 +81,10 @@ export function summarizeKrxSource(data, date) {
   const alternateProbe = rawAlt.length
     ? (altByMarket.get(rawAlt[0].market) || null)
     : (legacy && typeof legacy === 'object'
-      && MARKETS.includes(legacy.market)
       && Number.isInteger(Number(legacy.httpStatus))
       && Number(legacy.httpStatus)>=0 && Number(legacy.httpStatus)<=599
       && typeof legacy.hasRows === 'boolean'
-      ? {market:legacy.market,httpStatus:Number(legacy.httpStatus),
+      ? {market:MARKETS.includes(legacy.market)?legacy.market:'',httpStatus:Number(legacy.httpStatus),
         hasRows:legacy.hasRows} : null);
   const alternateProbes = MARKETS.filter(name=>altByMarket.has(name))
     .map(name=>altByMarket.get(name));
