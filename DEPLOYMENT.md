@@ -1,3 +1,11 @@
+## PR #493 미국 주식시장 공식 휴장일 기반 완료 세션 검증 (2026-10-13 · Draft / 미배포)
+
+- Codex P1: 해외 확정 종가 필수일을 평일만으로 계산하면 미국 노동절/추수감사절/Good Friday 휴장을 거래일로 간주하여 PRICE/Snapshot 저장이 불필요하게 영구 실패할 수 있었습니다.
+- NYSE 2025~2028 공개 휴장표(https://www.nyse.com/trade/hours-calendars)에서 US/NYSE/NASDAQ/AMEX 등 미국 주식시장 휴장일을 명시하고 해당 휴장을 건너뛰도록 실제 `_foreignMarketRegularCloseCutoff_`를 수정했습니다. 미국 은행 휴무인 Columbus Day는 NYSE 개장일이므로 반드시 거래일로 인정합니다.
+- Yahoo 실제 확정값 존재만으로 휴장을 추론하지 않으며, 거래소별 공식 증거가 확인된 날짜만 스킵합니다. 정규장 `YAHOO_REGULAR_CLOSE`/usedDate/marketDate 유한 양수·정확한 완료 세션 검증과 누락 시 저장 전 실패는 유지됩니다.
+- NYSE 공개 표를 적용할 수 없는 연도는 확인되지 않은 휴장일을 자동으로 정상 판정하지 않습니다. JP/HK/UK/EU 거래소 휴장을 미국 표에서 추측하지 않으며, 해당 시장의 공식 휴장 달력 확장이 별도로 필요합니다.
+- GAS 검증 후보 full-source SHA `8129475334acebdb09075f2938e0955d5f125639`; 배포 승인 사전게이트 및 테스트와 동일 고정. 운영 GAS 실제 deploy, 원장/가격이력/Snapshot 쓰기, main 병합 금지.
+
 ## PR #493 Snapshot integrity revision 충돌 방지 (2026-10-12 · Draft / 미배포)
 
 - 통합 CI 독립 재검산에서 저장 프로퍼티 쓰기 실패 후 다음 읽기의 새 migration revision이 기존 값과 우연히 일치할 수 있음을 확인했습니다. 같은 millisecond 및 동일 난수 환경에서는 stale Snapshot integrity cache key가 남을 위험이 있습니다.

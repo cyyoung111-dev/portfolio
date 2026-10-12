@@ -1111,6 +1111,11 @@ const marketVm=vm.createContext({
 });
 installKrxTarget(marketVm);
 vm.runInContext(extract('_foreignMarketTimeZone_'),marketVm);
+const usHolidayStart=source.indexOf('var FOREIGN_US_EQUITY_CLOSED_DATES_ = {');
+const usHolidayEnd=source.indexOf('\n};',usHolidayStart);
+assert.ok(usHolidayStart>=0 && usHolidayEnd>usHolidayStart,'NYSE/Nasdaq 공식 휴장일 캘린더 선언 누락');
+vm.runInContext(source.slice(usHolidayStart,usHolidayEnd+3),marketVm);
+vm.runInContext(extract('_foreignConfirmedExchangeHoliday_'),marketVm);
 vm.runInContext(extract('_foreignMarketRegularCloseCutoff_'),marketVm);
 const deadline=(item)=>marketVm._foreignMarketRegularCloseCutoff_(item,new Date());
 assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2026-10-07','미국 전일 완료 세션');
@@ -1119,6 +1124,26 @@ assert.equal(deadline({code:'0700',currency:'HKD',market:'HK'}),'2026-10-08','�
 assert.equal(deadline({code:'UK1',currency:'GBP',market:'UK'}),'2026-10-07','런던 장중에는 전일 확정값');
 ctx.NY={date:'2026-10-12',hour:6};
 assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2026-10-09','월요일은 직전 금요일 종가');
+// NYSE/Nasdaq published trading calendar vs federal bank holidays.
+ctx.NY={date:'2026-09-08',hour:6};
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'NASDAQ'}),'2026-09-04',
+  'Labor Day Monday closed: Tuesday Korean 19:00 requires the preceding Friday close');
+ctx.NY={date:'2026-11-27',hour:6};
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'NYSE'}),'2026-11-25',
+  'Thanksgiving Thursday was closed; Friday NY premarket requires Wednesday');
+ctx.NY={date:'2026-04-06',hour:6};
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2026-04-02',
+  'Good Friday closure + weekend must step back to Thursday');
+ctx.NY={date:'2026-10-13',hour:6};
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2026-10-12',
+  'US Columbus/Indigenous Peoples bank holiday is an OPEN equity market');
+ctx.NY={date:'2027-07-06',hour:6};
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2027-07-02',
+  'observed Independence Day Monday closure in 2027');
+ctx.NY={date:'2028-01-03',hour:6};
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2027-12-31',
+  'Jan 1 2028 Saturday has NO NYSE observed closure on Dec 31 2027');
+ctx.NY={date:'2026-10-12',hour:6};
 let queried=[];
 marketVm.fetchPricesYahooRegularClose=(items,d,latest)=>{
   queried.push({code:items[0].code,cutoff:d,latest});

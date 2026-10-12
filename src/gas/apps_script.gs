@@ -2099,6 +2099,27 @@ function _foreignMarketTimeZone_(item) {
   if (market === 'EU' || currency === 'EUR') return 'Europe/Berlin';
   return 'UTC';
 }
+// Confirmed NYSE/Nasdaq equity closure dates (NYSE published calendar).
+// A federal bank holiday is NOT automatically an equity-exchange holiday.
+// No guessed holiday dates for other markets or unlisted years.
+// https://www.nyse.com/trade/hours-calendars
+var FOREIGN_US_EQUITY_CLOSED_DATES_ = {
+  '2025': ['01-01','01-20','02-17','04-18','05-26','06-19','07-04','09-01','11-27','12-25'],
+  '2026': ['01-01','01-19','02-16','04-03','05-25','06-19','07-03','09-07','11-26','12-25'],
+  '2027': ['01-01','01-18','02-15','03-26','05-31','06-18','07-05','09-06','11-25','12-24'],
+  // NYSE explicitly does not observe a New Year's Day closure in 2028.
+  '2028': ['01-17','02-21','04-14','05-29','06-19','07-04','09-04','11-23','12-25']
+};
+function _foreignConfirmedExchangeHoliday_(item, dateStr) {
+  var tz = _foreignMarketTimeZone_(item);
+  if (tz !== 'America/New_York') return false;
+  var year = String(dateStr || '').slice(0,4);
+  var calendar = FOREIGN_US_EQUITY_CLOSED_DATES_[year];
+  if (!calendar) throw new Error('미국 증시 확정 휴장 달력 범위 밖: ' + dateStr +
+    ' · 조회 연도별 공식 휴장 달력 갱신 필요');
+  return calendar.indexOf(String(dateStr).slice(5)) >= 0;
+}
+
 function _foreignMarketRegularCloseCutoff_(item, instant) {
   var now = instant || new Date();
   var tz = _foreignMarketTimeZone_(item);
@@ -2108,8 +2129,9 @@ function _foreignMarketRegularCloseCutoff_(item, instant) {
   var candidate = new Date(marketDate + 'T12:00:00Z');
   if (localHour < closeHour) candidate.setUTCDate(candidate.getUTCDate() - 1);
   for (var i=0;i<7;i++) {
-    if (candidate.getUTCDay() !== 0 && candidate.getUTCDay() !== 6)
-      return Utilities.formatDate(candidate, 'UTC', 'yyyy-MM-dd');
+    var candidateStr = Utilities.formatDate(candidate, 'UTC', 'yyyy-MM-dd');
+    if (candidate.getUTCDay() !== 0 && candidate.getUTCDay() !== 6 &&
+        !_foreignConfirmedExchangeHoliday_(item, candidateStr)) return candidateStr;
     candidate.setUTCDate(candidate.getUTCDate() - 1);
   }
   throw new Error('해외시장 최근 완료 거래일을 계산하지 못했습니다.');
