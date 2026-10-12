@@ -487,10 +487,8 @@ async function diagnoseTossFromUI() {
       ].filter(Boolean);
       return ids.length ? ` / ${ids.join(' / ')}` : '';
     };
-    const sourceLabel = oauth.recovery?.attempted
-      ? (oauth.recovery.ok ? '기존 캐시 토큰 401 복구 후 재진단' : '기존 캐시 토큰 401 복구 실패')
-      : (oauth.source === 'CACHE' ? '기존 토큰 재사용(신규 발급 없음)'
-      : (oauth.source === 'NETWORK' ? '새 OAuth 요청' : '토큰 출처 미확인'));
+    const sourceLabel = oauth.source === 'CACHE' ? '최초 기존 캐시 토큰 사용'
+      : (oauth.source === 'NETWORK' ? '최초 신규 OAuth 요청' : '최초 토큰 출처 미확인');
     const connectionInfo = _tossConnectionSummary_(targetUrl, !!accessToken);
     const lines = [`GAS 연결: ${connectionInfo} / 서버 v${String(data.gasVersion || '미확인')}`,
       `OAuth 실행 방식: ${sourceLabel}`,
@@ -499,7 +497,10 @@ async function diagnoseTossFromUI() {
     if (oauth.recovery?.attempted) {
       const recoveryLabel = oauth.recovery.code === 'RESOURCE_401_RECOVERED_PROBES_FAILED'
         ? '401 해소, 다른 API 진단 실패' : (oauth.recovery.ok ? '401 해소' : '401 복구 실패');
-      lines.push(`OAuth 캐시 401 복구: ${recoveryLabel} / ${oauth.recovery.code || 'UNKNOWN'} / 신규 OAuth 응답 HTTP 상태는 별도 확인되지 않음`);
+      const recoverySourceLabel = oauth.recovery.source === 'NETWORK' ? '신규 OAuth 발급'
+        : (oauth.recovery.source === 'CACHE_UPDATED' ? '다른 실행의 갱신 토큰 재사용'
+        : (oauth.recovery.source === 'NETWORK_ERROR' ? '신규 OAuth 시도 실패' : '토큰 교체 없음'));
+      lines.push(`OAuth 캐시 401 복구: ${recoveryLabel} / ${oauth.recovery.code || 'UNKNOWN'} / ${recoverySourceLabel}`);
     }
     if (!egress.ok && Array.isArray(egress.attempts) && egress.attempts.length) {
       lines.push(...egress.attempts.map(item => '  ↳ ' + (item.provider || 'provider') + ': ' + (item.status ?? '-') + ' / ' + (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) + (item.contentType ? ' / ' + item.contentType : '') + ' / ' + Number(item.elapsedMs || 0) + 'ms'));
@@ -516,9 +517,13 @@ async function diagnoseTossFromUI() {
       : (oauthAccessDenied ? `\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.${observedIpGuide}`
       : (oauthUnidentified ? '\n\nOAuth 401 unidentified-client · 위 request/reference/edge ID를 함께 기록해 Toss 측 인증 거부 원인을 확인하세요. Wi-Fi에서 동일 자격증명이 정상이라면 IP 허용 403과는 별도 문제입니다.'
       : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : '')));
-    const caveat = '\n\n※ CACHE 출처의 OAuth 응답은 신규 인증 요청 결과가 아니라 기존 토큰을 재사용한 것입니다. PC/모바일의 GAS 배포·접근토큰 유무를 비교하세요.\n※ GAS egress 관측값은 외부 IP 확인 서비스가 본 참고값입니다. Toss 요청의 실제 출구 IP와 동일하다고 보장되지 않습니다.';
+    const caveat = '\n\n※ CACHE 출처는 최초 토큰 확보 방식이며, 최초 캐시 토큰에 대한 resource 401 복구에서는 별도의 신규 OAuth 요청이 발생할 수 있습니다. PC/모바일의 GAS 배포·접근토큰 유무를 비교하세요.\n※ GAS egress 관측값은 외부 IP 확인 서비스가 본 참고값입니다. Toss 요청의 실제 출구 IP와 동일하다고 보장되지 않습니다.';
     if (target) target.innerHTML = _escapeHtml(lines.join('\n') + guide + caveat);
-    _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: data.ok ? 'OK' : (!oauth.ok ? oauth.code : ((data.endpoints || []).find(item => !item.ok)?.code || smoke.code || 'ERROR')) });
+    const diagnosticCode = typeof data.diagnosticCode === 'string' && data.diagnosticCode
+      ? data.diagnosticCode : (data.ok ? 'OK' :
+      (oauth.recovery?.attempted && !oauth.recovery.ok ? oauth.recovery.code :
+      (!oauth.ok ? oauth.code : ((data.endpoints || []).find(item => !item.ok)?.code || smoke.code || 'ERROR'))));
+    _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: diagnosticCode });
   } catch (error) {
     if (runId !== _tossDiagnosisRunId) return;
     if (!isCurrentConnection()) {

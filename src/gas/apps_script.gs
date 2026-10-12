@@ -5,7 +5,8 @@
 //   Toss 진단은 유효한 기존 OAuth 토큰을 재사용하여 불필요한 신규 발급/토큰 무효화 방지
 //   명시적 freshOAuth=1 진단에서만 강제 재발급, 진단 응답에 CACHE/NETWORK 출처 표시
 //   PC/모바일 GAS 연결 지문 비교 지원; 진단 메뉴의 미검증 IP 허용 등록 안내 제거
-//   캐시 401 단일 복구와 남은 리소스 오류를 구분; 시세·원장·가격이력·Snapshot 로직 불변
+//   캐시 401 단일 복구·재발급 출처 및 실패 코드의 GAS/웹 요약 정합성 유지
+//   시세·원장·가격이력·Snapshot 로직 불변
 //
 //  v9.197 변경사항 (2026.10.12):
 //   거래이력 DATE 셀의 읽기 검증은 시트 시간대의 날짜로 비교, 다른 열의 엄격 검증 유지
@@ -1417,18 +1418,25 @@ function _tossAccessToken_() {
   });
 }
 
-function _refreshTossAccessTokenAfter401_(rejectedToken) {
+function _refreshTossAccessTokenAfter401_(rejectedToken, recoveryMeta) {
+  // 선택적 진단 메타만 추가합니다. 일반 getPrices 호출 계약과 동작은 그대로 둡니다.
   return _tossWithTokenLock_(function() {
     var cache = CacheService.getScriptCache();
     var current = _tossCachedTokenRecord_();
     var currentValid = current && Number(current.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000;
 
     // lock 대기 중 다른 실행이 이미 새 token으로 교체했다면 그 token을 그대로 사용합니다.
-    if (currentValid && current.accessToken !== rejectedToken) return current.accessToken;
+    if (currentValid && current.accessToken !== rejectedToken) {
+      if (recoveryMeta) recoveryMeta.source = 'CACHE_UPDATED';
+      return current.accessToken;
+    }
 
     // 현재 cache가 실제 rejected token이거나 만료/손상 상태일 때만 제거합니다.
     if (!current || !currentValid || current.accessToken === rejectedToken) cache.remove(TOSS_TOKEN_CACHE_KEY);
-    return _tossIssueAccessTokenUnlocked_();
+    if (recoveryMeta) recoveryMeta.source = 'NETWORK_ERROR';
+    var issuedToken = _tossIssueAccessTokenUnlocked_();
+    if (recoveryMeta && issuedToken) recoveryMeta.source = 'NETWORK';
+    return issuedToken;
   });
 }
 
@@ -1869,9 +1877,9 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
   // OAuth 403/권한 오류와 cache miss 신규 발급을 오인하여 반복 재발급하지 않습니다.
   if (oauth.ok && oauth.source === 'CACHE' &&
       (checks.some(function(item) { return item.status === 401; }) || smoke.status === 401)) {
-    oauth.recovery = { attempted: true, ok: false, code: 'RECOVERY_FAILED' };
+    oauth.recovery = { attempted: true, ok: false, code: 'RECOVERY_FAILED', source: 'NONE' };
     try {
-      var recoveredToken = _refreshTossAccessTokenAfter401_(token);
+      var recoveredToken = _refreshTossAccessTokenAfter401_(token, oauth.recovery);
       if (recoveredToken && recoveredToken !== token) {
         token = recoveredToken;
         runDiagnosticProbes();
@@ -1889,13 +1897,18 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     }
   }
   var overallOk = oauth.ok && checks.every(function(item) { return item.ok; }) && smoke.ok && smoke.validLastPrice && smoke.timestampPresent;
+  var diagnosticCode = overallOk ? 'OK' :
+    (oauth.recovery && oauth.recovery.attempted && !oauth.recovery.ok ? oauth.recovery.code :
+    (!oauth.ok ? oauth.code : ((checks.find(function(item) { return !item.ok; }) || {}).code || smoke.code || 'ERROR')));
   try {
     var props = PropertiesService.getScriptProperties();
     props.setProperty('TOSS_LAST_DIAGNOSTIC_AT', new Date().toISOString());
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
-    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (!oauth.ok ? oauth.code : ((checks.find(function(item) { return !item.ok; }) || {}).code || smoke.code || 'ERROR')));
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.199', generatedAt: new Date().toISOString(), ok: overallOk, freshOAuthTested: oauth.source === 'NETWORK', egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.199', generatedAt: new Date().toISOString(), ok: overallOk,
+    diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
+    egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -14460,7 +14473,7 @@ function runTossMarketDataDiagnosis() {
   var egress = result.egressProbe || {};
   var oauth = result.oauth || {};
   var lines = [
-    'OAuth 토큰: ' + (oauth.source === 'CACHE' ? '기존 캐시 재사용 (신규 OAuth 없음)' :
+    'OAuth 최초 토큰: ' + (oauth.source === 'CACHE' ? '기존 캐시 사용' :
       (oauth.source === 'NETWORK' ? '신규 OAuth 요청' : '출처 미확인')),
     (egress.ok ? '🔎' : '⚠️') + ' GAS egress 관측: ' + (egress.status == null ? '-' : egress.status) + ' / ' + (egress.code || 'ERROR') +
       (egress.ipFamily ? ' / ' + egress.ipFamily : '') + ' / ' + (egress.ip || 'IP 없음') +
@@ -14471,7 +14484,10 @@ function runTossMarketDataDiagnosis() {
   if (oauth.recovery && oauth.recovery.attempted) {
     var recoveryLabel = oauth.recovery.code === 'RESOURCE_401_RECOVERED_PROBES_FAILED'
       ? '기존 401 해소, 다른 API 진단 실패' : (oauth.recovery.ok ? '401 해소' : '401 복구 실패');
-    lines.push('OAuth 캐시 401 복구: ' + recoveryLabel + ' / ' + (oauth.recovery.code || 'UNKNOWN'));
+    var recoverySourceLabel = oauth.recovery.source === 'NETWORK' ? '신규 OAuth 발급' :
+      (oauth.recovery.source === 'CACHE_UPDATED' ? '다른 실행의 갱신 토큰 사용' :
+      (oauth.recovery.source === 'NETWORK_ERROR' ? '신규 OAuth 시도 실패' : '토큰 교체 없음'));
+    lines.push('OAuth 캐시 401 복구: ' + recoveryLabel + ' / ' + (oauth.recovery.code || 'UNKNOWN') + ' / ' + recoverySourceLabel);
   }
   if (!egress.ok && Array.isArray(egress.attempts)) egress.attempts.forEach(function(item) {
     lines.push('  ↳ ' + (item.provider || 'provider') + ': ' + (item.status == null ? '-' : item.status) + ' / ' +

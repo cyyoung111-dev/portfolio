@@ -620,7 +620,7 @@ const ui = {
   isGsheetConnectionCurrent: (url, gen) => url === ui.GSHEET_API_URL && gen === ui.generation,
   $el: () => diagView,
   _escapeHtml: value => String(value),
-  _renderTossConfigStatus: () => { ui.renders++; },
+  _renderTossConfigStatus: state => { ui.renders++; ui.lastStatus = state; },
   requestGsheetActionJson: (action, params, opts) => {
     assert.equal(action, 'diagnoseTossMarketData');
     assert.equal(opts.targetUrl, ui.GSHEET_API_URL, '요청 시점의 GAS 배포를 지정');
@@ -703,9 +703,12 @@ const resolved401 = JSON.parse(context.handleDiagnoseTossMarketData().getContent
 assert.equal(resolved401.ok, true);
 assert.deepEqual([resolved401.oauth.source,resolved401.oauth.status,resolved401.oauth.recovery.attempted,
   resolved401.oauth.recovery.ok,resolved401.oauth.recovery.code,resolved401.freshOAuthTested],
-  ['CACHE',null,true,true,'RESOURCE_401_RECOVERED',false],
+  ['CACHE',null,true,true,'RESOURCE_401_RECOVERED',true],
   '캐시 OAuth 200으로 오표시하지 않고 복구 및 resource 재조회 성공 기록');
 assert.equal(diagOauthIssues,1,'거부된 cache token에서 OAuth 발급 최대 1회');
+assert.equal(resolved401.oauth.recovery.source,'NETWORK','복구 과정의 신규 OAuth 발급 출처');
+assert.equal(resolved401.diagnosticCode,'OK');
+assert.equal(properties.get('TOSS_LAST_DIAGNOSTIC_CODE'),'OK');
 assert.equal(diagOldReads,6,'기존 진단의 6개 endpoint를 확인');
 assert.equal(diagRecoveredReads,6,'복구 시 전 endpoint 및 smoke를 신규 token으로 재진단');
 assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken,'recovery-token');
@@ -725,6 +728,8 @@ context.UrlFetchApp = { fetch: (url, opts={}) => {
 const racedRecovery = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
 assert.equal(racedRecovery.ok,true);
 assert.equal(racedRecovery.oauth.recovery.ok,true);
+assert.equal(racedRecovery.oauth.recovery.source,'CACHE_UPDATED','다른 실행 갱신 token을 새 발급과 구분');
+assert.equal(racedRecovery.freshOAuthTested,false,'동시 갱신 캐시 재사용에서는 신규 발급을 허위 보고하지 않음');
 assert.equal(diagOauthIssues,0);
 assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken,'other-execution-token');
 
@@ -743,6 +748,9 @@ assert.equal(second401.ok,false);
 assert.deepEqual([second401.oauth.recovery.attempted,second401.oauth.recovery.ok,
   second401.oauth.recovery.code],[true,false,'RESOURCE_401_AFTER_RETRY']);
 assert.equal(diagOauthIssues,1,'두 번째 401에서도 추가 OAuth 발급 금지');
+assert.equal(second401.oauth.recovery.source,'NETWORK');
+assert.equal(second401.diagnosticCode,'RESOURCE_401_AFTER_RETRY');
+assert.equal(properties.get('TOSS_LAST_DIAGNOSTIC_CODE'),'RESOURCE_401_AFTER_RETRY');
 
 // 리소스 403은 권한 차단이지 폐기된 cache token이라고 가정하지 않습니다.
 fillDiagnosticCache('no-refresh-on-403');
@@ -770,6 +778,9 @@ assert.equal(failedRefresh.ok,false);
 assert.deepEqual([failedRefresh.oauth.recovery.attempted,failedRefresh.oauth.recovery.ok,
   failedRefresh.oauth.recovery.code],[true,false,'OAUTH_REQUEST_ERROR']);
 assert.equal(diagOauthIssues,1);
+assert.equal(failedRefresh.oauth.recovery.source,'NETWORK_ERROR','OAuth 발급 실패를 성공 발급과 구분');
+assert.equal(failedRefresh.diagnosticCode,'OAUTH_REQUEST_ERROR','최종 복구 실패 원인을 response에 보존');
+assert.equal(properties.get('TOSS_LAST_DIAGNOSTIC_CODE'),'OAUTH_REQUEST_ERROR','최근 진단 상태에도 최종 실패 원인 저장');
 assert.doesNotMatch(JSON.stringify(failedRefresh),/sensitive-credential-string|oauth-fails-on-recovery/);
 console.log('✅ 캐시 401 단일 복구·경합 재사용·재차 401·403 비재시도·OAuth 실패 민감정보 차단 통과');
 
@@ -793,6 +804,9 @@ assert.equal(mixedRecovery.ok,false,'다른 리소스 오류가 남으면 전체
 assert.equal(mixedRecovery.oauth.recovery.ok,true,'기존 캐시 401 자체는 해소됨');
 assert.equal(mixedRecovery.oauth.recovery.code,'RESOURCE_401_RECOVERED_PROBES_FAILED',
   '401 해결 뒤 API 403/권한 오류가 남은 상태를 명시적으로 표시');
+assert.equal(mixedRecovery.oauth.recovery.source,'NETWORK');
+assert.equal(mixedRecovery.diagnosticCode,'IP_NOT_ALLOWED_OR_FORBIDDEN','401 회복 후 남은 API 403을 마지막 실패로 저장');
+assert.equal(properties.get('TOSS_LAST_DIAGNOSTIC_CODE'),'IP_NOT_ALLOWED_OR_FORBIDDEN');
 assert.equal(mixedRecoveryOauthIssues,1,'401 뒤 신규 발급은 최대 한 번');
 assert(mixedRecovery.endpoints.every(item=>item.status===403));
 assert.equal(mixedRecovery.priceSmoke.status,403);
@@ -805,13 +819,15 @@ context.SpreadsheetApp={getUi:()=>({alert:message=>{menuAlert=String(message);}}
 context.handleDiagnoseTossMarketData=()=>({getContent:()=>JSON.stringify({
   status:'ok', generatedAt:'2026-10-12T10:00:00Z', gasVersion:'9.199',
   oauth:{ok:true,status:null,code:'CACHED_TOKEN_REUSED',source:'CACHE',
-    recovery:{attempted:true,ok:true,code:'RESOURCE_401_RECOVERED_PROBES_FAILED'}},
+    recovery:{attempted:true,ok:true,code:'RESOURCE_401_RECOVERED_PROBES_FAILED',source:'NETWORK'}},
   egressProbe:{ok:true,ip:'2001:2d8::1234',ipFamily:'IPv6',status:200,code:'OK',provider:'ip-check'},
   endpoints:[{name:'priceApi',status:403,ok:false,code:'IP_NOT_ALLOWED_OR_FORBIDDEN'}],
   priceSmoke:{status:403,ok:false,code:'IP_NOT_ALLOWED_OR_FORBIDDEN'}
 })});
 context.runTossMarketDataDiagnosis();
-assert.match(menuAlert,/기존 캐시 재사용/);
+assert.match(menuAlert,/OAuth 최초 토큰: 기존 캐시 사용/);
+assert.match(menuAlert,/신규 OAuth 발급/);
+assert.doesNotMatch(menuAlert,/신규 OAuth 없음/,'복구 재발급이 있었는데 신발급이 없었다는 오진을 금지');
 assert.match(menuAlert,/기존 401 해소, 다른 API 진단 실패/);
 assert.match(menuAlert,/실제 Toss 요청 송신 IP로 확인되지 않았습니다/);
 assert.match(menuAlert,/Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요/);
@@ -819,3 +835,30 @@ assert.doesNotMatch(menuAlert,/허용 IP에 임시 등록|Google IP range pool �
 assert.doesNotMatch(menuAlert,/client-secret|accessToken=|Bearer /);
 context.handleDiagnoseTossMarketData=savedDiagnosisHandler;
 console.log('✅ 캐시 401→리소스 403 분리 및 실제 GAS 메뉴 IP 오등록 경고·비민감 표시 검증 통과');
+
+
+// 실제 웹 진단 함수로 최종 서버 실패 코드 우선 및 신규 발급/타 실행의 교체 표시 검증.
+const failureUi = ui.runDiagnosis();
+pendingDiag[5].resolve({ ...responseDiag, ok:false, diagnosticCode:'OAUTH_REQUEST_ERROR',
+  oauth: {ok:true,source:'CACHE',code:'CACHED_TOKEN_REUSED',
+    recovery:{attempted:true,ok:false,code:'OAUTH_REQUEST_ERROR',source:'NETWORK_ERROR'}},
+  endpoints:[{name:'exchangeRate',ok:false,status:401,code:'HTTP_ERROR'}] });
+await failureUi;
+assert.equal(ui.lastStatus.lastDiagnosticCode,'OAUTH_REQUEST_ERROR','웹 최근 진단은 원래 리소스 HTTP_ERROR가 아닌 복구 실패 코드를 사용');
+assert.match(diagView.innerHTML,/신규 OAuth 시도 실패/);
+assert.doesNotMatch(diagView.innerHTML,/Bearer .*PRIVATE|TOKEN-B-PRIVATE/);
+const renewedUi = ui.runDiagnosis();
+pendingDiag[6].resolve({ ...responseDiag,
+  oauth: {ok:true,source:'CACHE',code:'CACHED_TOKEN_REUSED',
+    recovery:{attempted:true,ok:true,code:'RESOURCE_401_RECOVERED',source:'NETWORK'}} });
+await renewedUi;
+assert.match(diagView.innerHTML,/신규 OAuth 발급/,'복구에서 별도 OAuth 신규 발급 기록');
+assert.equal(ui.lastStatus.lastDiagnosticCode,'OK');
+const concurrentUi = ui.runDiagnosis();
+pendingDiag[7].resolve({ ...responseDiag,
+  oauth: {ok:true,source:'CACHE',code:'CACHED_TOKEN_REUSED',
+    recovery:{attempted:true,ok:true,code:'RESOURCE_401_RECOVERED',source:'CACHE_UPDATED'}} });
+await concurrentUi;
+assert.match(diagView.innerHTML,/다른 실행의 갱신 토큰 재사용/);
+assert.doesNotMatch(diagView.innerHTML,/신규 OAuth 발급/,'다른 실행의 발급을 현재 진단이 새로 발급한 것처럼 표시 금지');
+console.log('✅ 웹 진단 실제 함수: 복구 실패 상태 우선·최초/복구 OAuth 출처 구분 검증 통과');
