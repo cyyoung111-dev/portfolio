@@ -14,7 +14,7 @@ function setup() {
     addEventListener:noop,querySelector:()=>null,querySelectorAll:()=>[],setAttribute:noop,getAttribute:()=>null,appendChild:noop};
   const storage=new Map();
   let writes=0,requests=0;
-  const ctx=vm.createContext({console:{log:noop,warn:noop,error:noop},setTimeout:noop,clearTimeout:noop,setInterval:noop,clearInterval:noop,
+  const ctx=vm.createContext({console:{log:noop,warn:noop,error:noop},alert:noop,setTimeout:noop,clearTimeout:noop,setInterval:noop,clearInterval:noop,
     URL,URLSearchParams,AbortController,requestAnimationFrame:noop,
     localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
     document:{getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[],createElement:()=>element,
