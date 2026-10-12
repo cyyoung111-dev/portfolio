@@ -1524,13 +1524,14 @@ assert.throws(()=>realYahooVm.fetchPricesYahooRegularClose([
 assert.equal(yahooQueries.length,beforeUnknownSymbol,
   '미확정 심볼을 임의 Yahoo 종목으로 조회 금지');
 
-// Real saveDailyPriceHistory must start the foreign provider on a US+KRW
-// legacy master row, while never submitting that code to KRX.
+// Real saveDailyPriceHistory must fetch a correct US+USD listing through
+// Yahoo, without submitting that overseas code to KRX. Invalid US+KRW is
+// separately tested as an early reject before any provider access.
 {
   const bag=new Map(), queries=[];
   const props={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
     deleteProperty:k=>bag.delete(k)};
-  const legacyUs={code:'MSFT',market:'NASDAQ',currency:'KRW',type:'주식'};
+  const legacyUs={code:'MSFT',market:'NASDAQ',currency:'USD',type:'주식'};
   const closeVm=vm.createContext({
     Date,_snapshotBackupOperationId:'',CONFIG:{TIMEZONE:'Asia/Seoul'},
     PropertiesService:{getScriptProperties:()=>props},
@@ -1546,7 +1547,7 @@ assert.equal(yahooQueries.length,beforeUnknownSymbol,
   installKrxTarget(closeVm);
   vm.runInContext(extract('saveDailyPriceHistory'),closeVm);
   assert.throws(()=>closeVm.saveDailyPriceHistory('2026-10-08'),/EXPECTED_FOREIGN_PROBE/,
-    '해외 상장·KRW 기본화 종목은 실제 가격 저장함수에서 Yahoo를 조회해야 함');
+    '정상 USD·NASDAQ 종목은 실제 가격 저장함수에서 Yahoo를 조회해야 함');
   assert.deepEqual(queries,['KRX:0','YAHOO:MSFT'],
     'KRX와 Yahoo 마감 대상은 동일 판정 함수로 정확히 분할');
 }
