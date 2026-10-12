@@ -334,7 +334,7 @@ assert.match(settings, /function saveDividendSettings[\s\S]*const expectedLoadEp
 assert.match(sync, /const code = _normalizeSyncCode\(h\.code \|\| ep\?\.code \|\| STOCK_CODE\[h\.name\] \|\| ''\)[\s\S]*const assetType = h\.assetType \|\| h\.type \|\| getEPType\(ep, '주식'\)/,
   'dirty holdingsOverride는 복원 전 전역 master보다 캡처 payload의 code/assetType을 우선');
 
-assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return false/,
+assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return failLoad\('PORTFOLIO_SYNC_FAILED'\)/,
   'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
 assert.match(settingsFetch, /const portfolioSyncPending = typeof _isPortfolioRemoteSyncPending[\s\S]*if \(portfolioSyncPending\)[\s\S]*현재가만 업데이트[\s\S]*else \{[\s\S]*forcePortfolioRestore: true/,
   '현재가 업데이트는 미동기화 로컬 포트폴리오가 있으면 authoritative pull을 건너뜀');
