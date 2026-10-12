@@ -1,3 +1,12 @@
+## GAS v9.198 — KRX 키별 승인·정규 거래일 원천/누락 읽기 전용 진단 (2026-10-12, Draft 후보)
+
+- KRX API 인증은 키 발급과 각 시장/API 서비스 이용신청 승인이 별개입니다. 기존 진단은 기본키가 여러 시장에서 401/403을 반환해도 보조키를 첫 거부 시장 한 곳에만 시험하여 KOSDAQ·ETF 승인 여부를 누락했습니다.
+- 기존 인증된 `getKrxSourceDiagnostics?date=YYYY-MM-DD` 한 번에 KOSPI·KOSDAQ·ETF **모든** 기본키 HTTP·schema 상태와 401/403 거부 시장별 보조키 HTTP·정확한 `BAS_DD` 일치 행 수를 각각 확인합니다. 기존 `alternateProbe`는 첫 시장 결과로 호환 유지, `alternateProbes`에 전 시장 결과 제공. 정상 200/빈 자료는 키 실패로 오인하지 않습니다.
+- `storedCoverage`는 해당 날짜 실보유 주식·ETF 코드 수, 공식 `KRX/KRX_OTP` 정확한 일자 커버리지, 가격이력 전체 행수, Snapshot 코드 수·누락수, pending 백필 날짜 포함 여부를 **시트 getDisplayValues 및 Script Properties 읽기만** 사용해 계산합니다. 시트/키/큐를 수정하거나 원천이 없는 종가를 채우지 않습니다.
+- `scripts/diagnose-krx-operational.mjs`에서 보조키 시장별 응답과 누락 커버리지를 보안상태만 요약. 실제 GAS 모의 응답/시트 쓰기 금지 회귀를 추가합니다.
+- 2026-10-08 현재 원본은 가격이력 펀드 2건, 실보유 국내 주식·ETF 공식 종가 0건, Snapshot 0건(전일 10/07: 각 39건). **조회 성공인 시장만**으로 37개 종목 전부 확정했다고 주장하지 않습니다. 기존 백필/복구는 실제 시장별 exact-date 공식 소스와 보유·평가 정합성이 검증될 때만 별도로 수행합니다.
+- 후보 GAS 소스 blob `368be05d66a2544d78d3674647f703f5868e81cc`을 검증 allowlist에 넣었지만 Codex 최종 리뷰 및 CI 전에는 병합·GAS 배포하지 않습니다. 운영 GAS v9.197 유지. 별도 웹 PR #489·#490도 서비스워커 cache v20261012-8 변경을 공유하므로 모든 리뷰 후 통합 시에는 기준 main과 정적 캐시 버전을 다시 맞춰야 합니다.
+
 ## GAS v9.197 — 거래 DATE 읽기 검증 및 Bootstrap 실패 단계 (2026-10-12, 미배포 후보)
 
 - PC 콘솔의 `syncTrades 실패: 거래이력 쓰기 후 검증 실패`와 운영 거래이력 A열 DATE 서식을 읽기 전용 확인했습니다. 기존 원시 JSON 비교는 저장 입력 `YYYY-MM-DD`와 읽은 Date 객체를 다르게 판정합니다.
