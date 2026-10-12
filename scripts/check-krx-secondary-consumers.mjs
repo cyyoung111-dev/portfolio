@@ -6,9 +6,12 @@ const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 const ctx = vm.createContext({ console, Date, JSON, Number, String, Math, isFinite, encodeURIComponent });
 new vm.Script(gas, {filename:'apps_script.gs'}).runInContext(ctx);
 ctx.CONFIG = {TIMEZONE:'UTC'};
-ctx.Utilities = {formatDate:(date,zone,format) => format==='HHmm'
-  ? new Date(date).toISOString().slice(11,16).replace(':','')
-  : new Date(date).toISOString().slice(0,10)};
+ctx.Utilities = {formatDate:(date,zone,format) => {
+  const iso=new Date(date).toISOString();
+  if (format==='HHmm') return iso.slice(11,16).replace(':','');
+  if (format==='yyyyMMdd') return iso.slice(0,10).replaceAll('-','');
+  return iso.slice(0,10);
+}};
 ctx.Logger = {log:()=>{}};
 ctx._getKrxAuthKeySlots_ = () => ({key:'bad-primary',alternative:'approved-alternative'});
 function resetCache() {
@@ -76,7 +79,7 @@ ctx.UrlFetchApp={fetchAll:requests=>{
 const mixed=ctx._readVkospiPointsFromKrx('2026-10-07','2026-10-08');
 assert.deepEqual(Array.from(mixed,x=>x.date),['2026-10-07','2026-10-08']);
 assert.deepEqual(Array.from(mixed,x=>x.value),[24.5,26.52]);
-assert.deepEqual(calls.map(x=>x.length),[2,1],'only denied date should be retried');
+assert.deepEqual(normalizedCalls().map(x=>x.length),[2,1],'only denied date should be retried');
 
 resetCache();calls=[];
 ctx.UrlFetchApp={fetchAll:requests=>{
