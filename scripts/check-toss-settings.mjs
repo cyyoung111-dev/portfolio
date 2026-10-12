@@ -504,3 +504,31 @@ safeDiagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getConten
 assert.equal(safeDiagnostic.oauth.source, 'NETWORK');
 assert.equal(cachedOauthIssues, 2, '강제 진단에서만 추가 발급');
 console.log('✅ Toss 캐시 재사용·명시적 강제 인증·시세 probe·비밀키 비노출 검증 통과');
+
+// 진단 캐시 miss 직후 다른 실행이 lock 내에서 token을 발급했을 때 새 발급을 생략합니다.
+cache.delete('toss_oauth_token_v1');
+tossLockHeld = false;
+tossLockWaits = 0;
+injectTokenOnNextLock = 'concurrent-token';
+let racedOauthIssues = 0;
+context.UrlFetchApp = { fetch: url => {
+  if (url.endsWith('/oauth2/token')) racedOauthIssues++;
+  throw new Error('이미 발급된 token이 있으므로 OAuth 요청이 없어야 합니다');
+} };
+const raceDiagnostic = context._tossDiagnosticSharedToken_(false);
+assert.equal(raceDiagnostic.source, 'CACHE');
+assert.equal(raceDiagnostic.token, 'concurrent-token');
+assert.equal(racedOauthIssues, 0, 'lock 대기 중 발급된 토큰 재사용');
+assert.equal(tossLockHeld, false, '미스 잠금 정상 반환');
+
+// 모바일/PC 연결지문은 GAS 배포 suffix와 accessToken 설정 유무만 표시하고 원문 URL을 숨깁니다.
+const connectionHelper = webSync.match(/function _tossConnectionSummary_\(rawUrl, hasAccessToken\) \{([\s\S]*?)\n\}/)?.[0] || '';
+assert.ok(connectionHelper, '브라우저 연결지문 생산 helper 필요');
+const summarizeConnection = vm.runInNewContext(connectionHelper + '\n_tossConnectionSummary_', {URL});
+const configured = summarizeConnection('https://script.google.com/macros/s/AKfycb-test-F9ABCDEF/exec?accessToken=TOPSECRET', true);
+assert.match(configured, /배포 …F9ABCDEF \/exec/);
+assert.match(configured, /GAS 접근토큰 설정됨/);
+assert.doesNotMatch(configured, /TOPSECRET|AKfycb-test/);
+assert.match(summarizeConnection('https://script.google.com/macros/s/example/dev', false), /GAS 접근토큰 미설정/);
+assert.match(summarizeConnection('', false), /URL 미설정/);
+console.log('✅ Toss 모바일 연결지문 비밀정보 비노출 및 lock 경쟁 검사 통과');
