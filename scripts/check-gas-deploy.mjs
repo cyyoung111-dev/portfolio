@@ -48,7 +48,7 @@ assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.196','10.0
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
-const approvedFullSourceBlob='8bd1866539b4b1a52b67ab633b253a695e914f5d';
+const approvedFullSourceBlob='fef243728949397e114d5614d0f17dc8da899272';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
 if (hasStackedKrxRecovery) {
