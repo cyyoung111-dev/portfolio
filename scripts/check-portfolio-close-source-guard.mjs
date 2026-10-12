@@ -1426,7 +1426,12 @@ assert.equal(symbolVm._yahooEquitySymbol_({code:'000700',market:'HK',yahooSymbol
   assert.doesNotThrow(()=>scopeVm._assertSupportedDailyCloseMarkets_([
     {code:'MSFT',currency:'USD',market:'NYSE'}, {code:'F00001',type:'펀드'}]),
     'NYSE and fund exceptions');
-  for(const market of ['JP','TSE','HK','HKEX','UK','LSE','EU']) {
+  assert.equal(scopeVm._isKrxDailyCloseTarget_({code:'KRX1',currency:'KRW',market:'KRX'}),true);
+  for(const market of ['AU','ASX','CA','TSX','SG','SIX']) {
+    assert.equal(scopeVm._isKrxDailyCloseTarget_({code:'ABC',currency:'KRW',market}),false,
+      'unknown overseas exchange must not be counted as a domestic KRW close');
+  }
+  for(const market of ['JP','TSE','HK','HKEX','UK','LSE','EU','AU','ASX','CA','TSX']) {
     assert.throws(()=>scopeVm._assertSupportedDailyCloseMarkets_([
       korea,{code:'FOREIGN',currency:'KRW',market}]),/자동 마감 미지원 해외시장/,
       market+' listings must fail closed rather than require an unverified holiday calendar');

@@ -9663,9 +9663,10 @@ function _isKrxDailyCloseTarget_(item) {
   if (!code || _isFundCode(code)) return false;
   var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
   var market = String(item && item.market || '').trim().toUpperCase();
-  var overseas = ['US','USA','NYSE','NASDAQ','AMEX','OTC',
-    'JP','TSE','TYO','HK','HKG','HKEX','UK','LSE','EU'].indexOf(market) >= 0;
-  return currency === 'KRW' && !overseas;
+  // Only domestic KRX markets are admissible: a new/unknown overseas
+  // exchange must not be silently promoted to Korean official-close coverage.
+  var domestic = !market || ['KR','KRX','KOSPI','KOSDAQ','ETF'].indexOf(market) >= 0;
+  return currency === 'KRW' && domestic;
 }
 
 // This portfolio's automatic close supports Korean and US-listed equities only.
