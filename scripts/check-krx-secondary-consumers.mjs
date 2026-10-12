@@ -22,6 +22,7 @@ const night=[{BAS_DD:'20261008',MKT_NM:'야간',PROD_NM:'코스피200 선물',
   ISU_NM:'코스피200 F 202610 (야간)',TDD_CLSPRC:'351.25'}];
 const now=new Date('2026-10-08T06:15:00Z');
 let calls=[];
+const normalizedCalls=()=>JSON.parse(JSON.stringify(calls));
 ctx.UrlFetchApp={fetch:(url,opt)=>{
   calls.push({url,key:opt.headers.AUTH_KEY});
   return opt.headers.AUTH_KEY==='bad-primary'?http(401):http(200,night);
@@ -36,17 +37,17 @@ assert.ok(calls.every(x=>x.url.includes('basDd=20261008')));
 calls=[];
 ctx.UrlFetchApp={fetch:(url,opt)=>{calls.push(opt.headers.AUTH_KEY);return http(200,night);}};
 assert.equal(ctx.fetchKrxK200NightClose('2026-10-08',now)?.value,351.25);
-assert.deepEqual(calls,['bad-primary'],'successful primary must not invoke a second key');
+assert.deepEqual(normalizedCalls(),['bad-primary'],'successful primary must not invoke a second key');
 
 calls=[];
 ctx.UrlFetchApp={fetch:(url,opt)=>{calls.push(opt.headers.AUTH_KEY);return http(opt.headers.AUTH_KEY==='bad-primary'?401:403);}};
 assert.throws(()=>ctx.fetchKrxK200NightClose('2026-10-08',now),/PRIMARY_HTTP_401_ALTERNATE_HTTP_403/);
-assert.deepEqual(calls,['bad-primary','approved-alternative']);
+assert.deepEqual(normalizedCalls(),['bad-primary','approved-alternative']);
 
 calls=[];
 ctx.UrlFetchApp={fetch:(url,opt)=>{calls.push(opt.headers.AUTH_KEY);return http(200,[]);}};
 assert.equal(ctx.fetchKrxK200NightClose('2026-10-08',now),null,'empty trading session not FINAL');
-assert.deepEqual(calls,['bad-primary'],'HTTP 200 empty cannot trigger credential fallback');
+assert.deepEqual(normalizedCalls(),['bad-primary'],'HTTP 200 empty cannot trigger credential fallback');
 assert.equal(ctx.fetchKrxK200NightClose('2026-10-08',new Date('2026-10-08T05:59:59Z')),null);
 
 const vkospi=(day,close='26.52')=>[{BAS_DD:day,IDX_NM:'코스피 200 변동성지수',CLSPRC_IDX:close}];
@@ -61,7 +62,7 @@ const recoveredVol=ctx._readVkospiPointsFromKrx('2026-10-08','2026-10-08');
 assert.equal(recoveredVol.length,1);
 assert.equal(recoveredVol[0].date,'2026-10-08');
 assert.equal(recoveredVol[0].value,26.52);
-assert.deepEqual(calls,[['bad-primary'],['approved-alternative']]);
+assert.deepEqual(normalizedCalls(),[['bad-primary'],['approved-alternative']]);
 
 resetCache();calls=[];
 ctx.UrlFetchApp={fetchAll:requests=>{
@@ -83,7 +84,7 @@ ctx.UrlFetchApp={fetchAll:requests=>{
   return requests.map(x=>http(x.headers.AUTH_KEY==='bad-primary'?401:403));
 }};
 assert.throws(()=>ctx._readVkospiPointsFromKrx('2026-10-08','2026-10-08'),/AUTH_KEY/);
-assert.deepEqual(calls,[['bad-primary'],['approved-alternative']]);
+assert.deepEqual(normalizedCalls(),[['bad-primary'],['approved-alternative']]);
 
 resetCache();calls=[];
 ctx.UrlFetchApp={fetchAll:requests=>{
@@ -91,7 +92,7 @@ ctx.UrlFetchApp={fetchAll:requests=>{
   return requests.map(()=>http(200,[]));
 }};
 assert.equal(ctx._readVkospiPointsFromKrx('2026-10-08','2026-10-08').length,0);
-assert.deepEqual(calls,[['bad-primary']],'HTTP 200 empty must not cause fallback');
+assert.deepEqual(normalizedCalls(),[['bad-primary']],'HTTP 200 empty must not cause fallback');
 
 resetCache();
 ctx.UrlFetchApp={fetchAll:requests=>requests.map(()=>http(200,vkospi('20261007')))};
