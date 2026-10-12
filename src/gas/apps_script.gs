@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.197
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.199
+//
+//  v9.199 변경사항 (2026.10.12):
+//   Toss 진단은 유효한 기존 OAuth 토큰을 재사용하여 불필요한 신규 발급/토큰 무효화 방지
+//   명시적 freshOAuth=1 진단에서만 강제 재발급, 진단 응답에 CACHE/NETWORK 출처 표시
+//   PC/모바일 GAS 연결 지문 비교 지원; 시세·원장·가격이력·Snapshot 로직 불변
 //
 //  v9.197 변경사항 (2026.10.12):
 //   거래이력 DATE 셀의 읽기 검증은 시트 시간대의 날짜로 비교, 다른 열의 엄격 검증 유지
@@ -1080,7 +1085,7 @@ function doGet(e) {
   if (params.action === 'getMarketBriefingSnapshots')     return handleGetMarketBriefingSnapshots(params.from || '', params.to || '');
   if (params.action === 'saveManualPrice')                return handleSaveManualPrice(params.date || '', params.name || '', params.price || '0', params.keepLatest || '');
   if (params.action === 'getPrices'      && params.codes) return handleGetPricesCompat(params.codes, params.persist === '1');
-  if (params.action === 'diagnoseTossMarketData') return handleDiagnoseTossMarketData();
+  if (params.action === 'diagnoseTossMarketData') return handleDiagnoseTossMarketData(params.freshOAuth === '1');
   if (params.action === 'dividend') {
     var codes = params.codes ? params.codes.split(',') : (params.code ? [params.code] : []);
     return handleDividendFetch(codes);
@@ -1556,7 +1561,7 @@ function _probeTossDiagnosticEgressIp_() {
   };
 }
 
-// 연결 진단은 cache hit을 HTTP 200으로 오표시하지 않도록 OAuth endpoint를 매번 한 번 검증합니다.
+// 명시적인 강제 OAuth 검증과 cache miss 진단에서만 신규 토큰을 발급합니다.
 function _tossDiagnosticAccessToken_() {
   var startedAt = Date.now();
   return _tossWithTokenLock_(function() {
@@ -1585,6 +1590,18 @@ function _tossDiagnosticAccessToken_() {
     requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
   };
   });
+}
+// 일반 연결 진단은 시세 조회와 같은 토큰 캐시를 재사용합니다.
+// OAuth 강제 재발급은 기존 토큰을 무효화할 수 있으므로, 명시적인 freshOAuth=1 요청에만 허용합니다.
+function _tossDiagnosticSharedToken_(forceFreshOAuth) {
+  if (forceFreshOAuth === true) return _tossDiagnosticAccessToken_();
+  var cached = _tossCachedAccessToken_();
+  if (cached) return {
+    ok: true, status: null, code: 'CACHED_TOKEN_REUSED', providerCode: '',
+    source: 'CACHE', token: cached, requestId: '', referenceId: '',
+    edgeRequestId: '', elapsedMs: 0
+  };
+  return _tossDiagnosticAccessToken_();
 }
 function _priceTimingAdd_(timings, key, startedMs) {
   if (!timings || !key || !Number.isFinite(Number(startedMs))) return;
@@ -1800,11 +1817,11 @@ function _tossPriceSmoke_(token) {
   }
 }
 
-function handleDiagnoseTossMarketData() {
+function handleDiagnoseTossMarketData(forceFreshOAuth) {
   var token = '', oauth;
   var egressProbe = _probeTossDiagnosticEgressIp_();
   try {
-    var oauthResult = _tossDiagnosticAccessToken_();
+    var oauthResult = _tossDiagnosticSharedToken_(forceFreshOAuth === true);
     token = oauthResult.token || '';
     oauth = { stage: 'oauth', ok: oauthResult.ok, status: oauthResult.status, code: oauthResult.code,
       providerCode: oauthResult.providerCode, source: oauthResult.source, requestId: oauthResult.requestId || '',
@@ -1836,7 +1853,7 @@ function handleDiagnoseTossMarketData() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', overallOk ? 'OK' : (!oauth.ok ? oauth.code : ((checks.find(function(item) { return !item.ok; }) || {}).code || smoke.code || 'ERROR')));
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', generatedAt: new Date().toISOString(), ok: overallOk, egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.199', generatedAt: new Date().toISOString(), ok: overallOk, freshOAuthTested: oauth.source === 'NETWORK', egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -5450,7 +5467,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.197' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.199' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11081,7 +11098,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.197',
+    gasVersion: '9.199',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11121,7 +11138,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.197' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.199' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13836,7 +13853,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.197' });
+    return jsonOk({ settings: settings, gasVersion: '9.199' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13864,7 +13881,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.197'
+      gasVersion: '9.199'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
