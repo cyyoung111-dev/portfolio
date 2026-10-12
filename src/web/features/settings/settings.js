@@ -55,6 +55,14 @@ const TAB_SYNC_BUSY = {};
 let _gsBootRestored = false;
 let _gsBootPromise = null;
 let _gsSettingsLoadEpoch = 0;
+let _gsSettingsLoadFailure = null;
+
+function getGsheetSettingsLoadFailure() {
+  const failure = _gsSettingsLoadFailure;
+  return failure && failure.epoch === _gsSettingsLoadEpoch
+    && isGsheetConnectionCurrent(failure.target, failure.generation)
+    ? `${failure.stage} · ${failure.code}` : '';
+}
 
 function isGsheetPortfolioWriteReady(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
@@ -479,6 +487,16 @@ async function loadSettings(onProgress, options) {
   const loadGeneration = getGsheetConnectionGeneration();
   const isLoadConnectionCurrent = () => isGsheetConnectionCurrent(loadTarget, loadGeneration)
     && loadEpoch === _gsSettingsLoadEpoch;
+  let loadStage = '설정 응답';
+  let loadCompleted = false;
+  _gsSettingsLoadFailure = null;
+  const failLoad = (code) => {
+    if (isLoadConnectionCurrent()) {
+      _gsSettingsLoadFailure = { epoch: loadEpoch, target: loadTarget,
+        generation: loadGeneration, stage: loadStage, code };
+    }
+    return false;
+  };
   const connectionForcePortfolioRestore = _gsPortfolioRestoreRequired === true;
   const forcePortfolioRestore = connectionForcePortfolioRestore
     || explicitAuthoritativePull;
@@ -495,14 +513,18 @@ async function loadSettings(onProgress, options) {
     prog('설정 데이터 로드 중...');
     // 설정·거래·보유·종목코드를 단일 GAS 실행에서 받아 웹앱 왕복 지연을 줄입니다.
     // 구버전 GAS는 getBootstrap을 모르므로 기존 getSettings 요청으로 자동 대체합니다.
-    let data = await requestGsheetActionJson('getBootstrap', {}, { timeoutMs: 15000, retry: 1, targetUrl: loadTarget });
+    let data = await requestGsheetActionJson('getBootstrap', {}, { timeoutMs: 15000, retry: 1, targetUrl: loadTarget, preserveError: true });
     if (!isLoadConnectionCurrent()) return false;
     const isBootstrap = !!(data && data.status === 'ok' && data.settings && Array.isArray(data.codes));
     if (!isBootstrap) {
-      data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1, targetUrl: loadTarget });
+      data = await requestGsheetActionJson('getSettings', {}, { timeoutMs: 10000, retry: 1, targetUrl: loadTarget, preserveError: true });
       if (!isLoadConnectionCurrent()) return false;
     }
-    if (!data || data.status !== 'ok' || !data.settings) return false;
+    if (!data || data.status !== 'ok' || !data.settings) {
+      const code = ['CLIENT_TIMEOUT', 'INVALID_RESPONSE', 'SERVER_ERROR'].includes(data?.errorCode)
+        ? data.errorCode : 'SETTINGS_RESPONSE_INVALID';
+      return failLoad(code);
+    }
     const s = data.settings;
     // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
     // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
@@ -554,6 +576,7 @@ async function loadSettings(onProgress, options) {
     // 연결 변경 강제 복원은 설정 전역상태를 건드리기 전에 거래/보유 원격 읽기가 둘 다
     // 성공했는지 먼저 확인합니다. 실패한 B의 설정 일부와 A의 포트폴리오가 섞이지 않게 합니다.
     let forcedPortfolioRestoreData = null;
+    loadStage = '거래·보유 읽기 확인';
     if (forcePortfolioRestore && portfolioRestorePromise) {
       forcedPortfolioRestoreData = await portfolioRestorePromise;
       if (!isLoadConnectionCurrent()) return false;
@@ -561,10 +584,13 @@ async function loadSettings(onProgress, options) {
       const preflightHoldings = forcedPortfolioRestoreData?.[1];
       const preflightTradesOk = !!(preflightTrades && preflightTrades.status === 'ok' && Array.isArray(preflightTrades.trades));
       const preflightHoldingsOk = !!(preflightHoldings && preflightHoldings.status === 'ok' && Array.isArray(preflightHoldings.holdings));
-      if (!preflightTradesOk || !preflightHoldingsOk) return false;
+      if (!preflightTradesOk || !preflightHoldingsOk) {
+        return failLoad(!preflightTradesOk ? 'TRADES_READ_FAILED' : 'HOLDINGS_READ_FAILED');
+      }
     }
 
     // Theme (기기 간 동일 UI 유지)
+    loadStage = '테마·계좌 설정 적용';
     if (s.APP_THEME_MODE && typeof lsSave === 'function') {
       lsSave('app_theme_mode', s.APP_THEME_MODE);
     }
@@ -635,6 +661,7 @@ async function loadSettings(onProgress, options) {
     // 원격 미동기화 payload가 남아 있으면 Settings/원격 원장보다 로컬 변경을 우선 복원합니다.
     // 이 payload는 연결 URL에 귀속되어 다른 GSheet에서는 적용되지 않습니다.
     let dirtyPortfolioSyncResolvedAtLoad = false;
+    loadStage = '미동기화 거래·보유 확인';
     if (dirtyPortfolioAtLoad
         && typeof _restorePortfolioRemoteDirtyPayload === 'function'
         && typeof _retryPortfolioRemoteDirtySync === 'function') {
@@ -650,6 +677,7 @@ async function loadSettings(onProgress, options) {
       dirtyPortfolioSyncResolvedAtLoad = true;
     }
     // SAVED_PRICES / SAVED_PRICE_DATES (기기 간 현재가 일치)
+    loadStage = '가격·종목 설정 적용';
     if (s.SAVED_PRICES && typeof s.SAVED_PRICES === 'object') {
       Object.keys(savedPrices).forEach(k => delete savedPrices[k]);
       Object.assign(savedPrices, s.SAVED_PRICES);
@@ -749,6 +777,7 @@ async function loadSettings(onProgress, options) {
     // 새로고침 직후 빈 메모리 상태로 보유현황을 먼저 동기화하면 TDF/직접펀드까지 지울 수 있으므로
     // 반드시 비거래 보유 원자료를 복원한 다음, 아래 거래/보유 원격 복원보다 먼저 처리합니다.
     let pendingEmptySyncResolvedAtLoad = false;
+    loadStage = '빈 거래원장 동기화 확인';
     let pendingEmptySyncResolvedAsEmptyAtLoad = false;
     if (pendingEmptySyncAtLoad
         && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
@@ -794,6 +823,7 @@ async function loadSettings(onProgress, options) {
     }
 
     // ── GSheet 설정 복원 후 localStorage 일괄 저장 (개별 중복 저장 제거)
+    loadStage = '배당·대출 설정 적용';
     // pending이 있던 요청은 portfolioRestorePromise=null이므로 오래된 원격 거래/보유를 적용하지 않습니다.
     saveHoldings({ skipGsheet: true });
     saveAcctColors();
@@ -863,6 +893,7 @@ async function loadSettings(onProgress, options) {
     }
 
     // 강제복원 요청을 기다리는 동안 사용자가 포트폴리오를 수정할 수 있습니다.
+    loadStage = '복원 중 거래·보유 변경 확인';
     // load 시작 시 snapshot만 믿으면 방금 생긴 dirty/pending을 preflight 원격값으로 덮게 되므로,
     // 실제 authoritative 원격 적용 직전에 현재 target 상태가 안정될 때까지 다시 확인합니다.
     if (forcePortfolioRestore) {
@@ -922,6 +953,7 @@ async function loadSettings(onProgress, options) {
       && !pendingEmptySyncResolvedAtLoad
       && !dirtyPortfolioSyncResolvedAtLoad;
     // ── 거래이력 복원 (연결 변경/명시적 pull 시에는 성공한 빈 배열도 현재 원격 상태로 적용)
+    loadStage = '거래·보유 적용';
     if ((rawTrades.length === 0 && !pendingEmptySyncResolvedAtLoad && !dirtyPortfolioSyncResolvedAtLoad)
         || applyForcedPortfolioRestore) {
       try {
@@ -1014,6 +1046,7 @@ async function loadSettings(onProgress, options) {
     }
 
     // 구버전 GAS fallback으로 LOAN_SCHEDULE을 복원한 경우에도 현재월 값을 반영합니다.
+    loadStage = '대출 스케줄 적용';
     const fallbackLoanChanged = typeof syncLoanFromSchedule === 'function' && syncLoanFromSchedule();
     if (fallbackLoanChanged) {
       await persistRealEstateSettings(true, {
@@ -1036,10 +1069,19 @@ async function loadSettings(onProgress, options) {
     if (reconciled > 0) console.log(`[GAS 기초정보 복구] 종목코드 시트에서 ${reconciled}개 필드 반영`);
     _gsPortfolioRestoreRequired = false;
     _gsBootRestored = true;
+    loadCompleted = true;
+    _gsSettingsLoadFailure = null;
     return true;
   } catch(e) {
     console.warn('loadSettings 실패:', e);
-    return false;
+    // 응답 본문·URL·인증키·설정값은 진단 상태에 보관하거나 표시하지 않습니다.
+    const code = ['TypeError', 'ReferenceError', 'RangeError', 'SyntaxError'].includes(e?.name)
+      ? e.name : 'RESTORE_EXCEPTION';
+    return failLoad(code);
+  } finally {
+    if (!loadCompleted && isLoadConnectionCurrent() && !_gsSettingsLoadFailure) {
+      failLoad('RESTORE_INCOMPLETE');
+    }
   }
 }
 
