@@ -120,12 +120,14 @@ assert.match(saveTossBody, /_tossWithTokenLock_/);
 assert.match(clearTossBody, /_tossWithTokenLock_/);
 assert.match(diagnosticTokenBody, /_tossWithTokenLock_[\s\S]*var credentials = _tossProperties_\(\)/, '진단 OAuth는 lock 획득 후 자격증명 재조회');
 
-const diagnoseBody = gasSource.match(/function handleDiagnoseTossMarketData\(\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+const diagnoseBody = gasSource.match(/function handleDiagnoseTossMarketData\(forceFreshOAuth\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 assert.doesNotMatch(diagnoseBody, /setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet/);
 assert.match(gasSource, /status === 403 \? 'IP_NOT_ALLOWED_OR_FORBIDDEN'/);
 assert.doesNotMatch(webSync, /localStorage\.(?:setItem|getItem)\([^)]*Toss|lsSave\([^)]*Toss/i);
 assert.doesNotMatch(gasSource, /Logger\.log\([^\n]*(?:TOSS_CLIENT_SECRET|Authorization|access_token)/i);
 assert.match(gasSource, /function _tossCachedAccessToken_\(/);
+assert.match(gasSource, /function _tossDiagnosticSharedToken_\(/);
+assert.match(gasSource, /freshOAuth:|freshOAuth === '1'/);
 assert.match(gasSource, /function _refreshTossAccessTokenAfter401_\(/);
 assert.match(gasSource, /LockService\.getScriptLock/);
 assert.match(gasSource, /status === 401 && !oauthRecoveryUsed/);
@@ -141,7 +143,7 @@ const egressResponse = () => textResponse(200, '34.64.12.34\n');
 let fetchedUrls = [];
 context.UrlFetchApp = { fetch: (url) => { fetchedUrls.push(url); if (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) return egressResponse(); return response(403, { error: 'access_denied', raw: 'must-not-leak' }); } };
 cache.clear();
-let diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+let diagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 assert.deepEqual([diagnostic.oauth.stage, diagnostic.oauth.ok, diagnostic.oauth.status, diagnostic.oauth.code, diagnostic.oauth.providerCode], ['oauth', false, 403, 'OAUTH_FAILED', 'access_denied']);
 assert.equal(fetchedUrls.length, 2, 'egress probe 후 OAuth 실패 시 market endpoint를 호출하지 않음');
 assert.deepEqual(
@@ -160,7 +162,7 @@ context.UrlFetchApp = { fetch: (url) => {
   return response(401, { error: { code: 'unidentified-client' } });
 } };
 cache.clear();
-diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 assert.deepEqual(
   [diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.ipFamily, diagnostic.egressProbe.provider],
   [true, '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'IPv6', 'checkip.amazonaws.com']
@@ -177,7 +179,7 @@ context.UrlFetchApp = { fetch: (url) => {
   return response(403, { error: 'access_denied' });
 } };
 cache.clear();
-diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider], [true, '34.64.12.35', 'api.ipify.org']);
 assert.equal(diagnostic.egressProbe.attempts.length, 2, 'egress provider fallback 시도 기록');
 assert.deepEqual(
@@ -196,7 +198,7 @@ context.UrlFetchApp = { fetch: (url) => {
   return response(401, { error: { code: 'unidentified-client' } });
 } };
 cache.clear();
-diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 assert.deepEqual([diagnostic.egressProbe.ok, diagnostic.egressProbe.ip, diagnostic.egressProbe.provider], [true, '34.64.12.37', 'api.ipify.org']);
 assert.deepEqual([diagnostic.egressProbe.attempts[0].status, diagnostic.egressProbe.attempts[0].code], [403, 'HTTP_ERROR']);
 assert.equal(fetchedUrls.length, 3, 'HTTP 오류 provider는 fallback 후 OAuth까지 진행');
@@ -210,7 +212,7 @@ context.UrlFetchApp = { fetch: (url) => {
   return response(401, { error: { code: 'unidentified-client' } });
 } };
 cache.clear();
-diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 assert.deepEqual(
   [diagnostic.egressProbe.ok, diagnostic.egressProbe.provider, diagnostic.egressProbe.status, diagnostic.egressProbe.code],
   [false, 'api.ipify.org', 503, 'HTTP_ERROR']
@@ -230,7 +232,7 @@ context.UrlFetchApp = { fetch: (url) => {
   }, { 'x-amz-cf-id': 'oauth-edge-id' });
 } };
 cache.clear();
-diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 assert.deepEqual(
   [diagnostic.oauth.status, diagnostic.oauth.code, diagnostic.oauth.providerCode],
   [401, 'OAUTH_FAILED', 'unidentified-client']
@@ -250,7 +252,7 @@ context.UrlFetchApp = { fetch: (url) => {
   return response(403, { error: { code: 'forbidden', requestId: 'safe-request-id', referenceId: 'safe-reference-id' }, raw: 'must-not-leak' }, { 'x-amz-cf-id': 'safe-edge-id' });
 } };
 cache.clear();
-diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 assert.equal(diagnostic.oauth.ok, true);
 assert(diagnostic.endpoints.every(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN'), '실제 endpoint 403만 IP 제한으로 분류');
 assert.equal(diagnostic.priceSmoke.code, 'IP_NOT_ALLOWED_OR_FORBIDDEN');
@@ -268,7 +270,7 @@ context.UrlFetchApp = { fetch: (url) => {
   return response(200, { result: [{ value: 1 }] });
 } };
 cache.clear();
-diagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+diagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 assert.equal(diagnostic.ok, true);
 assert.equal(diagnostic.oauth.source, 'NETWORK', '진단 OAuth 200은 실제 network 요청임을 표시');
 assert.deepEqual([diagnostic.priceSmoke.resultCount, diagnostic.priceSmoke.symbol, diagnostic.priceSmoke.validLastPrice, diagnostic.priceSmoke.timestampPresent], [1, '005930', true, true]);
@@ -304,7 +306,7 @@ const diagnosePriceSmoke = result => {
     if (url.includes('/api/v1/prices?symbols=005930')) return response(200, { result });
     return response(200, { result: [{ value: 1 }] });
   } };
-  return JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+  return JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
 };
 diagnostic = diagnosePriceSmoke([]);
 assert.equal(diagnostic.priceSmoke.code, 'PRICE_SMOKE_EMPTY');
@@ -446,3 +448,59 @@ const lastAttemptRecovered = context._tossRequest_('/api/v1/prices', { symbols: 
 assert.equal(lastAttemptRecovered.result[0].lastPrice, 71000);
 assert.equal(resourceFetches, 5, '3회 5xx + 마지막 401 뒤 새 token으로 실제 재요청');
 assert.equal(oauthFetches, 2, '마지막 401에서도 OAuth refresh는 1회만');
+
+// 진단 버튼 기본 경로는 기존 토큰을 재사용하고, 임의로 다른 실행의 토큰을 무효화하지 않습니다.
+properties.set('TOSS_CLIENT_ID', 'reuse-client');
+properties.set('TOSS_CLIENT_SECRET', 'reuse-secret');
+cache.set('toss_oauth_token_v1', JSON.stringify({ accessToken: 'reused-token', expiresAt: Date.now() + 3600000 }));
+let cachedOauthIssues = 0;
+let resourceReads = 0;
+context.UrlFetchApp = { fetch: (url, options = {}) => {
+  if (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) return egressResponse();
+  if (url.endsWith('/oauth2/token')) {
+    cachedOauthIssues++;
+    return response(200, { token_type: 'Bearer', access_token: 'issued-token', expires_in: 3600 });
+  }
+  resourceReads++;
+  assert.equal(options.headers.Authorization, 'Bearer reused-token', '캐시 토큰이 실제 resource probe에도 전달');
+  if (url.includes('/api/v1/prices')) return response(200, { result: [{ symbol:'005930', lastPrice: 70000, timestamp:'2026-10-12T06:00:00Z' }] });
+  return response(200, { result: [{ value: 1 }] });
+} };
+let safeDiagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(safeDiagnostic.ok, true);
+assert.deepEqual([safeDiagnostic.oauth.source, safeDiagnostic.oauth.status, safeDiagnostic.oauth.code, safeDiagnostic.freshOAuthTested],
+  ['CACHE', null, 'CACHED_TOKEN_REUSED', false], '기존 토큰 재사용은 OAuth HTTP 200으로 오표시하지 않음');
+assert.equal(safeDiagnostic.gasVersion, '9.199');
+assert.equal(cachedOauthIssues, 0, '캐시 유효 시 진단 버튼 신규 발급 0회');
+assert.equal(resourceReads, 6, '시세 smoke 포함 기존 진단 호출은 수행');
+assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken, 'reused-token');
+assert.doesNotMatch(JSON.stringify(safeDiagnostic), /reuse-secret|reused-token|issued-token/);
+
+// 캐시 만료/없음: single-flight 신규 발급 뒤 진단하고, 다음 요청에서 재사용합니다.
+cache.delete('toss_oauth_token_v1');
+cachedOauthIssues = 0;
+resourceReads = 0;
+context.UrlFetchApp = { fetch: (url, options = {}) => {
+  if (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) return egressResponse();
+  if (url.endsWith('/oauth2/token')) {
+    cachedOauthIssues++;
+    return response(200, { token_type: 'Bearer', access_token: 'issued-token', expires_in: 3600 });
+  }
+  resourceReads++;
+  assert.equal(options.headers.Authorization, 'Bearer issued-token');
+  if (url.includes('/api/v1/prices')) return response(200, { result: [{ symbol:'005930', lastPrice: 70000, timestamp:'2026-10-12T06:00:00Z' }] });
+  return response(200, { result: [{ value: 1 }] });
+} };
+safeDiagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(safeDiagnostic.oauth.source, 'NETWORK');
+assert.equal(safeDiagnostic.freshOAuthTested, true);
+assert.equal(cachedOauthIssues, 1, '캐시 miss에서 최초 발급 1회');
+safeDiagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(safeDiagnostic.oauth.source, 'CACHE', '두 번째 기본 진단은 캐시 재사용');
+assert.equal(cachedOauthIssues, 1, '기본 재진단으로 추가 발급하지 않음');
+
+// 명시적인 강제 진단은 별도 시험으로 남기되 정상 기본 경로와 구분합니다.
+safeDiagnostic = JSON.parse(context.handleDiagnoseTossMarketData(true).getContent());
+assert.equal(safeDiagnostic.oauth.source, 'NETWORK');
+assert.equal(cachedOauthIssues, 2, '강제 진단에서만 추가 발급');
+console.log('✅ Toss 캐시 재사용·명시적 강제 인증·시세 probe·비밀키 비노출 검증 통과');
