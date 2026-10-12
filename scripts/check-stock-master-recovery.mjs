@@ -71,6 +71,13 @@ assert.equal(writeCount,0);
 
 assert.match(history,/recoverMissingStockMasterReadOnly\(\)/);
 assert.match(history,/buildStockMgmt\(\);\s*buildSectorMgmt\(\);/);
+assert.match(history,/if \(typeof _mgmtRefresh === 'function'\) _mgmtRefresh\(\)/,
+ 'stock master recovery must recalculate derived portfolio rows');
+assert.match(history,/fullRestoreDone = typeof _gsBootRestored !== 'undefined'/,
+ 'master read-only success must not imply full bootstrap success');
+assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말고/,
+ 'read-only partial restore must warn that editing and saving are unsafe');
+
 assert.match(html,/settings_sync\.js\?v=20261012-2/);
 assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261012-2/);
