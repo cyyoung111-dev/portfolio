@@ -666,3 +666,106 @@ await staleError;
 assert.match(diagView.textContent, /이전 진단 결과를 폐기/);
 assert.doesNotMatch(diagView.textContent, /old deployment timeout/);
 console.log('✅ Toss 진단 UI: 연결 변경·토큰 교체·중복 응답·이전 오류 오귀속 차단 통과');
+
+
+// Codex P2: 캐시상 유효하지만 provider가 거부한 token만 401 후 단 1회 복구.
+properties.set('TOSS_CLIENT_ID', 'recovery-client');
+properties.set('TOSS_CLIENT_SECRET', 'recovery-secret');
+const fillDiagnosticCache = token => cache.set('toss_oauth_token_v1', JSON.stringify({
+  accessToken: token, expiresAt: Date.now() + 3600000
+}));
+const recoveryMarketReply = url => url.includes('/api/v1/prices?symbols=005930')
+  ? response(200, { result: [{symbol: '005930', lastPrice: 71000, timestamp: '2026-10-12T06:00:00Z'}] })
+  : response(200, { result: [{ value: 1 }] });
+const egressOrNull = url => (url.includes('checkip.amazonaws.com') || url.includes('api.ipify.org')) ? egressResponse() : null;
+
+// 캐시 토큰 폐기 => 리소스 401 확인 이후에만 새 OAuth 발급, 재진단은 동일 새 토큰 사용.
+fillDiagnosticCache('stale-cache-token');
+let diagOauthIssues = 0, diagOldReads = 0, diagRecoveredReads = 0;
+context.UrlFetchApp = { fetch: (url, opts={}) => {
+  const ip = egressOrNull(url); if (ip) return ip;
+  if (url.endsWith('/oauth2/token')) {
+    diagOauthIssues++;
+    return response(200, {token_type:'Bearer', access_token:'recovery-token', expires_in:3600});
+  }
+  const bearer = opts.headers?.Authorization;
+  if (bearer === 'Bearer stale-cache-token') {
+    diagOldReads++; return response(401, {error: {code:'invalid_token'}});
+  }
+  assert.equal(bearer, 'Bearer recovery-token');
+  diagRecoveredReads++;
+  return recoveryMarketReply(url);
+} };
+const resolved401 = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(resolved401.ok, true);
+assert.deepEqual([resolved401.oauth.source,resolved401.oauth.status,resolved401.oauth.recovery.attempted,
+  resolved401.oauth.recovery.ok,resolved401.oauth.recovery.code,resolved401.freshOAuthTested],
+  ['CACHE',null,true,true,'RESOURCE_401_RECOVERED',false],
+  '캐시 OAuth 200으로 오표시하지 않고 복구 및 resource 재조회 성공 기록');
+assert.equal(diagOauthIssues,1,'거부된 cache token에서 OAuth 발급 최대 1회');
+assert.equal(diagOldReads,6,'기존 진단의 6개 endpoint를 확인');
+assert.equal(diagRecoveredReads,6,'복구 시 전 endpoint 및 smoke를 신규 token으로 재진단');
+assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken,'recovery-token');
+assert.doesNotMatch(JSON.stringify(resolved401),/stale-cache-token|recovery-token|recovery-secret/);
+
+// ScriptLock을 기다리는 동안 다른 호출자가 이미 token을 교체했으면 신규 OAuth 발급 0회.
+fillDiagnosticCache('raced-stale-token');
+injectTokenOnNextLock = 'other-execution-token';
+diagOauthIssues = 0;
+context.UrlFetchApp = { fetch: (url, opts={}) => {
+  const ip = egressOrNull(url); if (ip) return ip;
+  if(url.endsWith('/oauth2/token')) { diagOauthIssues++; throw Error('중복 재발급 금지'); }
+  if(opts.headers?.Authorization === 'Bearer raced-stale-token') return response(401,{error:{code:'invalid_token'}});
+  assert.equal(opts.headers?.Authorization, 'Bearer other-execution-token');
+  return recoveryMarketReply(url);
+} };
+const racedRecovery = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(racedRecovery.ok,true);
+assert.equal(racedRecovery.oauth.recovery.ok,true);
+assert.equal(diagOauthIssues,0);
+assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken,'other-execution-token');
+
+// 새 토큰으로도 401: 추가 재발급 없이 실패로 종료.
+fillDiagnosticCache('always-401-old');
+diagOauthIssues = 0;
+context.UrlFetchApp = { fetch: url => {
+  const ip=egressOrNull(url); if(ip) return ip;
+  if(url.endsWith('/oauth2/token')) {
+    diagOauthIssues++;return response(200,{token_type:'Bearer',access_token:'always-401-new',expires_in:3600});
+  }
+  return response(401,{error:{code:'invalid_token'}});
+} };
+const second401 = JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(second401.ok,false);
+assert.deepEqual([second401.oauth.recovery.attempted,second401.oauth.recovery.ok,
+  second401.oauth.recovery.code],[true,false,'RESOURCE_401_AFTER_RETRY']);
+assert.equal(diagOauthIssues,1,'두 번째 401에서도 추가 OAuth 발급 금지');
+
+// 리소스 403은 권한 차단이지 폐기된 cache token이라고 가정하지 않습니다.
+fillDiagnosticCache('no-refresh-on-403');
+diagOauthIssues=0;
+context.UrlFetchApp={fetch: url=>{
+  const ip=egressOrNull(url);if(ip)return ip;
+  if(url.endsWith('/oauth2/token')) {diagOauthIssues++; throw Error('403으로 신규 OAuth 실행 금지');}
+  return response(403,{error:{code:'access_denied'}});
+}};
+const forbiddenDiagnostic=JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(forbiddenDiagnostic.ok,false);
+assert.equal(forbiddenDiagnostic.oauth.recovery,undefined);
+assert.equal(diagOauthIssues,0);
+
+// 복구 OAuth 실패는 서버 예외 원문을 응답/로그에 노출하지 않고 원래 401 증거를 보존.
+fillDiagnosticCache('oauth-fails-on-recovery');
+diagOauthIssues=0;
+context.UrlFetchApp={fetch: url=>{
+  const ip=egressOrNull(url);if(ip)return ip;
+  if(url.endsWith('/oauth2/token')) {diagOauthIssues++;throw Error('sensitive-credential-string');}
+  return response(401,{error:{code:'invalid_token'}});
+}};
+const failedRefresh=JSON.parse(context.handleDiagnoseTossMarketData().getContent());
+assert.equal(failedRefresh.ok,false);
+assert.deepEqual([failedRefresh.oauth.recovery.attempted,failedRefresh.oauth.recovery.ok,
+  failedRefresh.oauth.recovery.code],[true,false,'OAUTH_REQUEST_ERROR']);
+assert.equal(diagOauthIssues,1);
+assert.doesNotMatch(JSON.stringify(failedRefresh),/sensitive-credential-string|oauth-fails-on-recovery/);
+console.log('✅ 캐시 401 단일 복구·경합 재사용·재차 401·403 비재시도·OAuth 실패 민감정보 차단 통과');

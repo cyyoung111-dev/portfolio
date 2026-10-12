@@ -1841,8 +1841,10 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
   } catch (oauthError) {
     oauth = { stage: 'oauth', ok: false, status: null, code: 'OAUTH_REQUEST_ERROR', providerCode: '', source: 'NETWORK', elapsedMs: 0 };
   }
-  var checks = [];
-  var run = function(name, path, query) {
+  var checks = [], smoke;
+  var runDiagnosticProbes = function() {
+    checks = [];
+    var run = function(name, path, query) {
     if (!oauth.ok) {
       checks.push({ name: name, endpoint: path, ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', requestId: '', referenceId: '', edgeRequestId: '', count: 0, elapsedMs: 0 });
       return;
@@ -1852,12 +1854,37 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
       requestId: item.requestId || '', referenceId: item.referenceId || '', edgeRequestId: item.edgeRequestId || '',
       count: item.count || 0, elapsedMs: item.elapsedMs });
   };
-  run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
-  run('marketCalendarKR', '/api/v1/market-calendar/KR', { date: today() });
-  run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
-  run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
-  run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
-  var smoke = oauth.ok ? _tossPriceSmoke_(token) : { ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: 0 };
+    run('exchangeRate', '/api/v1/exchange-rate', { baseCurrency: 'USD', quoteCurrency: 'KRW' });
+    run('marketCalendarKR', '/api/v1/market-calendar/KR', { date: today() });
+    run('marketCalendarUS', '/api/v1/market-calendar/US', { date: Utilities.formatDate(new Date(), 'America/New_York', 'yyyy-MM-dd') });
+    run('marketIndicatorPrices', '/api/v1/market-indicators/prices', { symbols: 'KOSPI,KOSDAQ' });
+    run('marketIndicatorCandles', '/api/v1/market-indicators/KOSPI/candles', { interval: '1d', count: 1 });
+    smoke = oauth.ok ? _tossPriceSmoke_(token) : { ok: false, status: null, code: 'SKIPPED_OAUTH_FAILED', resultCount: 0, symbol: '005930', validLastPrice: false, timestampPresent: false, elapsedMs: 0 };
+  };
+  runDiagnosticProbes();
+
+  // 캐시 만료 전 서버에서 폐기된 token이라도, resource 401 확인 시에만 1회 복구합니다.
+  // 일반 getPrices와 동일한 lock/compare-and-swap 경로를 사용하여 다른 실행의 최신 token은 보존합니다.
+  // OAuth 403/권한 오류와 cache miss 신규 발급을 오인하여 반복 재발급하지 않습니다.
+  if (oauth.ok && oauth.source === 'CACHE' &&
+      (checks.some(function(item) { return item.status === 401; }) || smoke.status === 401)) {
+    oauth.recovery = { attempted: true, ok: false, code: 'RECOVERY_FAILED' };
+    try {
+      var recoveredToken = _refreshTossAccessTokenAfter401_(token);
+      if (recoveredToken && recoveredToken !== token) {
+        token = recoveredToken;
+        runDiagnosticProbes();
+        var stillUnauthorized = checks.some(function(item) { return item.status === 401; }) || smoke.status === 401;
+        oauth.recovery.ok = !stillUnauthorized;
+        oauth.recovery.code = stillUnauthorized ? 'RESOURCE_401_AFTER_RETRY' : 'RESOURCE_401_RECOVERED';
+      } else {
+        oauth.recovery.code = 'TOKEN_UNCHANGED';
+      }
+    } catch (recoverError) {
+      // 실패해도 원래 401 진단은 보존하며 OAuth 오류 원문/자격증명은 응답에 노출하지 않습니다.
+      oauth.recovery.code = 'OAUTH_REQUEST_ERROR';
+    }
+  }
   var overallOk = oauth.ok && checks.every(function(item) { return item.ok; }) && smoke.ok && smoke.validLastPrice && smoke.timestampPresent;
   try {
     var props = PropertiesService.getScriptProperties();
