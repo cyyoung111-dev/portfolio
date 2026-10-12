@@ -85,6 +85,26 @@ assert.equal(h.writes,0);
 
 // Exercise actual request transport: token reads use POST without invoking a write action.
 h=setup();
+vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});
+  _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let syncFailed=true;
+h.ctx.requestGsheetFormJson=async(action)=>action==='syncTrades' && syncFailed
+  ? {status:'error',saveState:'failed',message:'syncTrades 실패: 거래이력 쓰기 후 검증 실패'}
+  : {status:'ok',saveState:'success'};
+assert.equal(await h.ctx.loadSettings(),false,'dirty ledger verification failure blocks Bootstrap completion');
+assert.equal(await h.ctx._diagnoseGsheetGetSettings(),'미동기화 거래·보유 확인 · PORTFOLIO_SYNC_FAILED');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'failed pending payload must remain retryable');
+assert.equal(vm.runInContext('_gsBootRestored',h.ctx),false);
+assert.equal(vm.runInContext("rawTrades[0].code",h.ctx),'005930');
+syncFailed=false;
+assert.equal(await h.ctx.loadSettings(),true,'successful source verification permits Bootstrap retry');
+assert.equal(h.ctx._getPortfolioRemoteDirty(),null);
+assert.equal(h.ctx.getGsheetSettingsLoadFailure(),'');
+
+// Exercise actual request transport: token reads use POST without invoking a write action.
+h=setup();
 h.ctx.setTimeout=()=>0;
 h.ctx.fetch=async(url,options)=>{
   assert.equal(options.method,'POST');

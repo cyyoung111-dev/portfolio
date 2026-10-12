@@ -673,7 +673,7 @@ async function loadSettings(onProgress, options) {
       });
       if (!isLoadConnectionCurrent()) return false;
       // 재전송 실패 시 원격의 이전 원장을 authoritative하게 적용하지 않습니다.
-      if (!dirtyRetryOk) return false;
+      if (!dirtyRetryOk) return failLoad('PORTFOLIO_SYNC_FAILED');
       dirtyPortfolioSyncResolvedAtLoad = true;
     }
     // SAVED_PRICES / SAVED_PRICE_DATES (기기 간 현재가 일치)

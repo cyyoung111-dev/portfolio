@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.196
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.197
+//
+//  v9.197 변경사항 (2026.10.12):
+//   거래이력 DATE 셀의 읽기 검증은 시트 시간대의 날짜로 비교, 다른 열의 엄격 검증 유지
+//   정상 거래 저장의 Date/문자열 오판으로 설정 복원 재시도가 중단되는 오류 수정
 //
 //  v9.196 변경사항 (2026.10.12):
 //   K200 야간선물 기본키 HTTP 401/403에만 보조 인증키로 동일 거래일 재조회
@@ -5411,7 +5415,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.196' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.197' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6714,6 +6718,27 @@ function _verifyWrittenRange(sheet, row, column, values, message) {
   if (!values || !values.length) return;
   var actual = sheet.getRange(row, column, values.length, values[0].length).getValues();
   if (JSON.stringify(actual) !== JSON.stringify(values)) throw new Error(message || '쓰기 후 read-back 검증 실패');
+}
+
+// 거래이력 A열의 DATE 서식은 정상 저장된 문자열도 Date 객체로 읽힙니다.
+// 해당 열만 시트 시간대의 달력 날짜로 비교하며, 코드·수량·메모 등은 원시 비교를 유지합니다.
+function _verifyTradeWrittenRange(sheet, row, values) {
+  SpreadsheetApp.flush();
+  if (!values || !values.length) return;
+  var actual = sheet.getRange(row, 1, values.length, values[0].length).getValues();
+  if (actual.length !== values.length) throw new Error('거래이력 쓰기 후 검증 실패: 행 수');
+  var timezone = sheet.getParent().getSpreadsheetTimeZone();
+  for (var i = 0; i < values.length; i++) {
+    for (var j = 0; j < values[i].length; j++) {
+      var found = actual[i] && actual[i][j], expected = values[i][j];
+      if (j === 0 && found instanceof Date && !isNaN(found.getTime())) {
+        found = Utilities.formatDate(found, timezone, 'yyyy-MM-dd');
+      }
+      if (JSON.stringify(found) !== JSON.stringify(expected)) {
+        throw new Error('거래이력 쓰기 후 검증 실패: 행 ' + (row + i) + ' 열 ' + (j + 1));
+      }
+    }
+  }
 }
 
 // 펀드 NAV 시트의 A/E열은 DATE 서식입니다. 저장 입력은 'YYYY-MM-DD' 문자열이어도
@@ -9314,7 +9339,7 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     }
     SpreadsheetApp.flush();
     var currentRows = trades.map(function(t) { return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'', t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'', t.ratio || '', t.fractionalCash || '']; });
-    if (currentRows.length) _verifyWrittenRange(sh, 2, 1, _normalizeCodeRows(currentRows, 4), '거래이력 쓰기 후 검증 실패');
+    if (currentRows.length) _verifyTradeWrittenRange(sh, 2, _normalizeCodeRows(currentRows, 4));
     else if (sh.getLastRow() !== 1) throw new Error('빈 거래이력 쓰기 후 검증 실패');
     sourcePersisted = true;
     var explicitEmptyReset = explicitEmpty === true && currentRows.length === 0;
@@ -11021,7 +11046,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.196',
+    gasVersion: '9.197',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11061,7 +11086,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.196' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.197' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13776,7 +13801,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.196' });
+    return jsonOk({ settings: settings, gasVersion: '9.197' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13804,7 +13829,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.196'
+      gasVersion: '9.197'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
