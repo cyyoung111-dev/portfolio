@@ -1967,7 +1967,8 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     _fundPropertyText:String
   });
   for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
-    '_enqueuePendingKrxCloseDate_','saveDailyPriceHistory','_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])
+    '_enqueuePendingKrxCloseDate_','_verifyForeignDailyCloseCoverage_','saveDailyPriceHistory',
+    '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])
     vm.runInContext(extract(name),ctx);
   // First check actual price-writer behavior with explicit deferred completion.
   const priceResult=ctx.saveDailyPriceHistory('2026-10-08',{deferQueueCompletion:true});
