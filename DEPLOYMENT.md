@@ -1,3 +1,9 @@
+## PR #493 Snapshot integrity revision 충돌 방지 (2026-10-12 · Draft / 미배포)
+
+- 통합 CI 독립 재검산에서 저장 프로퍼티 쓰기 실패 후 다음 읽기의 새 migration revision이 기존 값과 우연히 일치할 수 있음을 확인했습니다. 같은 millisecond 및 동일 난수 환경에서는 stale Snapshot integrity cache key가 남을 위험이 있습니다.
+- `_getSnapshotIntegrityRevisionState`의 신규 migration revision은 실행 내 마지막 migration revision보다 반드시 1 이상 증가합니다. 범위가 안전한 정수인 동안 속성 저장 실패나 같은 밀리초 내 재생성 시 revision 충돌이 발생하지 않도록 합니다. 테스트에 Date.now·Math.random을 고정한 반복 migration 반례를 추가했습니다.
+- 최신 GAS source blob: `da9fec20f6431d133bd2b9e233ac69aba9f57010`. 이전 source blobs는 이력이며 최신 deploy 사전 게이트 소스로 사용하지 않습니다. main 병합 및 운영 배포는 수행하지 않았습니다.
+
 ## PR #493 P1: 해외 확정 종가 누락 시 PRICE 성공·Snapshot 저장 차단 (2026-10-12 · Draft / 미배포)
 
 - Codex 새 P1 및 자체검토: 국내 KRX 일부 성공 시 Yahoo 해외 가격이 없거나 오래된 완료 세션인 종목을 이전 가격이력으로 이월하여 Snapshot이 정상 완료될 수 있었습니다. 새 생산 `_verifyForeignDailyCloseCoverage_`는 **모든 실제 해외 보유 종목마다 마지막 완료 세션 날짜와 일치하는 YAHOO_REGULAR_CLOSE의 유한 양수·CONFIRMED 가격**을 실제 저장 전에 요구합니다.

@@ -5234,6 +5234,10 @@ function _isSnapshotIntegrityRevision(value) {
   return isFinite(revision) && revision >= 0 && Math.floor(revision) === revision && revision <= Number.MAX_SAFE_INTEGER;
 }
 
+// Unique, monotonically increasing migration revisions within each execution
+// prevent a stale integrity cache key after a failed Script Properties write,
+// even if two recovery reads happen in the same millisecond.
+var _snapshotIntegrityLastMigrationRevision_ = 0;
 function _getSnapshotIntegrityRevisionState() {
   var props = PropertiesService.getScriptProperties(), raw = props.getProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY);
   try {
@@ -5250,7 +5254,9 @@ function _getSnapshotIntegrityRevisionState() {
     }
   } catch (ignore) {}
   // scalar(v9.140/9.141), partial/malformed, missing 값은 기존 cache와 절대 매칭되지 않는 전체 revision으로 이관합니다.
-  var migrationRevision = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+  var migrationRevision = Math.max(Date.now() * 1000 + Math.floor(Math.random() * 1000),
+    _snapshotIntegrityLastMigrationRevision_ + 1);
+  _snapshotIntegrityLastMigrationRevision_ = migrationRevision;
   var migrated = { revision: migrationRevision, all: migrationRevision, dates: {}, ranges: [] };
   try { props.setProperty(SNAPSHOT_INTEGRITY_SOURCE_REVISION_KEY, JSON.stringify(migrated)); }
   catch (migrationError) {

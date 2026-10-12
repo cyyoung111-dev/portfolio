@@ -325,6 +325,17 @@ failRevisionPropertyWrite=false;
 assert.equal(scriptProperties.has('snapshot_integrity_source_revision_v1'),false,'저장 실패 시 stale revision property 제거');
 const afterPropertyFailure=clone(context._getSnapshotIntegrityRevisionState());
 assert.notEqual(JSON.stringify(afterPropertyFailure),beforePropertyFailure,'다음 read는 stale state 대신 전체 migration');
+// Same-millisecond and identical random seeds must never regenerate a prior
+// cache revision after a failed write or an unavailable property store.
+const restoreRevisionClock=vm.runInContext(
+  '(()=>{var n=Date.now,r=Math.random;Date.now=()=>1791811003585;Math.random=()=>0.714;return ()=>{Date.now=n;Math.random=r;};})()',context);
+scriptProperties.delete('snapshot_integrity_source_revision_v1');
+const firstFixedRevision=clone(context._getSnapshotIntegrityRevisionState()).revision;
+scriptProperties.delete('snapshot_integrity_source_revision_v1');
+const secondFixedRevision=clone(context._getSnapshotIntegrityRevisionState()).revision;
+restoreRevisionClock();
+assert(secondFixedRevision>firstFixedRevision,
+  '동일 밀리초/동일 난수의 속성 재생성도 cache key는 증가해야 함');
 const editSheet=(name,dates)=>({getName:()=>name,getRange:()=>({getValue:()=>dates[0],getValues:()=>dates.map(date=>[date])})});
 const editRange=(sheet,{row=2,rows=1,column=1,columns=1,value='' }={})=>({getSheet:()=>sheet,getRow:()=>row,getNumRows:()=>rows,getColumn:()=>column,getNumColumns:()=>columns,getValue:()=>value});
 const priceDateSheet=editSheet('가격이력',['2026-02-01']);
