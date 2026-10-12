@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.197
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.198
+//
+//  v9.198 변경사항 (2026.10.12):
+//   KRX 주식·ETF 시장별 기본/보조 AUTH_KEY 권한을 읽기 전용으로 전수 진단
+//   응답 BAS_DD exact-date 수·보유종목 공식 가격/Snapshot 누락·백필 큐 여부 표시
+//   거래·가격·Snapshot/자격증명 원본 비변경, 결과에 인증키·원문 비노출
 //
 //  v9.197 변경사항 (2026.10.12):
 //   거래이력 DATE 셀의 읽기 검증은 시트 시간대의 날짜로 비교, 다른 열의 엄격 검증 유지
@@ -5450,7 +5455,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.197' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.198' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11081,7 +11086,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.197',
+    gasVersion: '9.198',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11121,7 +11126,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.197' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.198' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11335,62 +11340,141 @@ function _getOfficialKrxPriceHistoryLastDate(phSh) {
 }
 
 // 공개 KRX 시장별 데이터 제공 상태: 자격증명·원문 API 응답을 절대로 반환하지 않습니다.
+// Explicit on-demand diagnostic only. Never create sheets, repair history,
+// update Script Properties or use live current prices as a KRX official close.
+function _krxReadOnlyStoredCoverage_(date) {
+  try {
+    var ss = getss();
+    var priceSheet = ss.getSheetByName(CONFIG.SHEET_PH);
+    var snapshotSheet = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+    if (!priceSheet || !snapshotSheet) return { status:'SHEET_MISSING' };
+    var catalog = getCodeItems(ss);
+    var held = _getDailyHeldCodeItems(ss, date, catalog);
+    var heldCodes = {}, expectedEtf = 0, expectedStock = 0;
+    held.forEach(function(item) {
+      var code = _cleanCode(item.code || '');
+      if (!code || heldCodes[code]) return;
+      heldCodes[code] = true;
+      if (String(item.type || '').toUpperCase() === 'ETF' ||
+          String(item.market || '').toUpperCase() === 'ETF') expectedEtf++;
+      else expectedStock++;
+    });
+    var codes = Object.keys(heldCodes);
+    // Display strings, not Date objects: spreadsheet and Apps Script
+    // time zones may differ. This prevents silent one-day shifts in reports.
+    var priceRows = priceSheet.getLastRow() > 1
+      ? priceSheet.getRange(2, 1, priceSheet.getLastRow() - 1, 6).getDisplayValues() : [];
+    var allDateRows = 0, official = {}, other = {};
+    priceRows.forEach(function(row) {
+      if (_normalizeDate(row[0]) !== date) return;
+      allDateRows++;
+      var code = _cleanCode(row[1] || ''), src = String(row[5] || '').trim().toUpperCase();
+      if (!heldCodes[code]) return;
+      if (src === 'KRX' || src === 'KRX_OTP') official[code] = true;
+      else other[code] = true;
+    });
+    var snapRows = snapshotSheet.getLastRow() > 1
+      ? snapshotSheet.getRange(2, 1, snapshotSheet.getLastRow() - 1, 2).getDisplayValues() : [];
+    var snapshotRows = 0, snapshotCodes = {};
+    snapRows.forEach(function(row) {
+      if (_normalizeDate(row[0]) !== date) return;
+      snapshotRows++;
+      var code = _cleanCode(row[1] || '');
+      if (heldCodes[code]) snapshotCodes[code] = true;
+    });
+    var props = PropertiesService.getScriptProperties();
+    return { status:'OK', expectedHeldCodes:codes.length, expectedStock:expectedStock,
+      expectedEtf:expectedEtf, priceHistoryRows:allDateRows,
+      officialExactDateCodes:Object.keys(official).length,
+      nonOfficialHeldCodes:Object.keys(other).length,
+      missingOfficialCodes:codes.filter(function(code) { return !official[code]; }).length,
+      snapshotRows:snapshotRows, snapshotHeldCodes:Object.keys(snapshotCodes).length,
+      missingSnapshotCodes:codes.filter(function(code) { return !snapshotCodes[code]; }).length,
+      queuedForBackfill:_readPendingKrxCloseDates_(props).indexOf(date) >= 0 };
+  } catch(ignore) {
+    // No raw exception text: sheet metadata or provider details may be private.
+    return { status:'READ_FAILED' };
+  }
+}
+function _krxReadOnlyResponseMeta_(response, ymd) {
+  var status = response.getResponseCode();
+  var meta = {httpStatus:status,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED'};
+  if (status !== 200) return meta;
+  try {
+    var payload = JSON.parse(response.getContentText() || '{}');
+    if (!Array.isArray(payload.OutBlock_1)) {
+      meta.parseStatus = 'UNEXPECTED_SCHEMA';
+      return meta;
+    }
+    meta.rows = payload.OutBlock_1.length;
+    meta.exactDateRows = payload.OutBlock_1.filter(function(row) {
+      return String(row && row.BAS_DD || '').replace(/-/g,'') === ymd;
+    }).length;
+    meta.parseStatus = meta.rows ? 'ROWS' : 'EMPTY';
+  } catch(ignore) { meta.parseStatus = 'NON_JSON'; }
+  return meta;
+}
+// KRX credentials may be approved per product API, not merely per key.
+// Inspect ALL denied markets under the alternate slot, never just the first.
+// The response contains only statuses/counts/dates and stored coverage.
 function handleGetKrxSourceDiagnostics(dateStr) {
   try {
     var date = _normalizeDate(dateStr || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return jsonError('진단할 거래일 YYYY-MM-DD를 입력하세요.');
-    var slots = _getKrxAuthKeySlots_();
-    var authKey = slots.key;
+    var storedCoverage = _krxReadOnlyStoredCoverage_(date);
+    var slots = _getKrxAuthKeySlots_(), authKey = slots.key;
     if (!authKey) return jsonOk({ requestedDate:date, keyConfigured:false, markets:[],
-      credentialSource:'NONE', alternativeConfigured:false });
-    var markets = ['KOSPI','KOSDAQ','ETF'];
+      credentialSource:'NONE', alternativeConfigured:false, storedCoverage:storedCoverage });
+    var markets = ['KOSPI','KOSDAQ','ETF'], ymd = date.replace(/-/g,'');
     var inputs = markets.map(function(market) {
-      return { url:_getKrxEndpointByMarket(market) + '?basDd=' + date.replace(/-/g,''),
-        method:'get', headers:{AUTH_KEY:authKey}, muteHttpExceptions:true };
+      return {url:_getKrxEndpointByMarket(market) + '?basDd=' + ymd,
+        method:'get', headers:{AUTH_KEY:authKey}, muteHttpExceptions:true};
     });
     var output = [];
     try {
-      var res = UrlFetchApp.fetchAll(inputs);
-      res.forEach(function(resp, index) {
-        var status = resp.getResponseCode(), rows = 0, parseStatus = 'NOT_PARSED';
-        if (status === 200) {
-          try {
-            var payload = JSON.parse(resp.getContentText() || '{}');
-            rows = Array.isArray(payload.OutBlock_1) ? payload.OutBlock_1.length : 0;
-            parseStatus = Array.isArray(payload.OutBlock_1) ? (rows ? 'ROWS' : 'EMPTY') : 'UNEXPECTED_SCHEMA';
-          } catch(ignore) { parseStatus = 'NON_JSON'; }
-        }
-        output.push({market:markets[index], httpStatus:status, rows:rows, parseStatus:parseStatus});
+      var responses = UrlFetchApp.fetchAll(inputs);
+      responses.forEach(function(resp,index) {
+        var meta = _krxReadOnlyResponseMeta_(resp, ymd);
+        meta.market = markets[index];
+        output.push(meta);
       });
-    } catch(error) { return jsonOk({ requestedDate:date, keyConfigured:true,
-      markets:output, networkStatus:'FETCH_FAILED', message:'KRX 네트워크 요청 실패',
-      credentialSource:slots.source, alternativeConfigured:slots.alternativeConfigured }); }
-    var alternateProbe = null;
-    var deniedForProbe = output.filter(function(item) {
+    } catch(ignore) {
+      return jsonOk({requestedDate:date,keyConfigured:true,markets:output,
+        networkStatus:'FETCH_FAILED',credentialSource:slots.source,
+        alternativeConfigured:slots.alternativeConfigured,
+        alternateProbe:null,alternateProbes:[],storedCoverage:storedCoverage});
+    }
+    var deniedMarkets = output.filter(function(item) {
       return item.httpStatus === 401 || item.httpStatus === 403;
     });
-    if (slots.alternative && deniedForProbe.length) {
-      // Probe one rejected market only. Per-category KRX approvals can differ
-      // even if some markets already succeeded with the primary key.
-      var marketToProbe = deniedForProbe[0].market;
+    var alternateProbes = [];
+    if (slots.alternative && deniedMarkets.length) {
+      var requests = deniedMarkets.map(function(item) {
+        return {url:inputs[markets.indexOf(item.market)].url,method:'get',
+          headers:{AUTH_KEY:slots.alternative},muteHttpExceptions:true};
+      });
       try {
-        var alternateResponse = UrlFetchApp.fetch(inputs[markets.indexOf(marketToProbe)].url, {
-          method:'get', headers:{AUTH_KEY:slots.alternative}, muteHttpExceptions:true
+        var alternateResponses = UrlFetchApp.fetchAll(requests);
+        deniedMarkets.forEach(function(item,index) {
+          var meta = _krxReadOnlyResponseMeta_(alternateResponses[index],ymd);
+          alternateProbes.push({market:item.market,httpStatus:meta.httpStatus,
+            rows:meta.rows,exactDateRows:meta.exactDateRows,
+            parseStatus:meta.parseStatus,hasRows:meta.exactDateRows > 0});
         });
-        var altStatus = alternateResponse.getResponseCode(), altRows = 0;
-        if (altStatus === 200) {
-          var altPayload = JSON.parse(alternateResponse.getContentText() || '{}');
-          altRows = Array.isArray(altPayload.OutBlock_1) ? altPayload.OutBlock_1.length : 0;
-        }
-        alternateProbe = {market:marketToProbe, httpStatus:altStatus, hasRows:altRows > 0};
-      } catch(error) {
-        alternateProbe = {market:marketToProbe, httpStatus:0, hasRows:false, networkStatus:'FETCH_FAILED'};
+      } catch(ignore) {
+        deniedMarkets.forEach(function(item) {
+          alternateProbes.push({market:item.market,httpStatus:0,rows:0,
+            exactDateRows:0,parseStatus:'NOT_PARSED',hasRows:false,networkStatus:'FETCH_FAILED'});
+        });
       }
     }
-    return jsonOk({ requestedDate:date, keyConfigured:true, markets:output,
-      networkStatus:'RECEIVED', credentialSource:slots.source,
-      alternativeConfigured:slots.alternativeConfigured, alternateProbe:alternateProbe });
-  } catch(err) { return jsonError('KRX 진단 실패: ' + String(err.message || 'unknown').slice(0,140)); }
+    return jsonOk({requestedDate:date,keyConfigured:true,markets:output,
+      networkStatus:'RECEIVED',credentialSource:slots.source,
+      alternativeConfigured:slots.alternativeConfigured,
+      // Backwards-compatible first probe for older reporting clients.
+      alternateProbe:alternateProbes[0] || null,alternateProbes:alternateProbes,
+      storedCoverage:storedCoverage});
+  } catch(ignore) { return jsonError('KRX 진단 실패: READ_ONLY_DIAGNOSTIC_ERROR'); }
 }
 
 // KRX 가격 단계가 실패한 경우 6분 제한 내에서 펀드까지 연쇄 실행하지 않습니다.
@@ -13836,7 +13920,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.197' });
+    return jsonOk({ settings: settings, gasVersion: '9.198' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13864,7 +13948,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.197'
+      gasVersion: '9.198'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
