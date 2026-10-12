@@ -341,7 +341,10 @@ async function syncTradesToGsheet(options) {
         const epByName = getEP(t.name);
         // A known server code/name is a valid restoration match even if the
         // local master is still empty. Local canonical data wins when present.
-        const remote = serverByCode.get(tCode) || serverByName.get(String(t.name || '').trim());
+        // A supplied but unknown code must never be silently reassigned by
+        // a coincidentally matching name. Only code-less trades use name lookup.
+        const remote = (tCode ? serverByCode.get(tCode) : null)
+          || (!tCode ? serverByName.get(String(t.name || '').trim()) : null);
         const ep = epByCode || epByName;
         if (!ep && !remote) {
           unmatchedTrades.push({ date: t.date || '', name: t.name || '', code: tCode || '' });
