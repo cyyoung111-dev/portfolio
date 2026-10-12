@@ -162,14 +162,17 @@ h=setup();
 h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
 vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
   rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'미등록',code:'999999',qty:1,price:100});
+  rawHoldings.push({name:'미등록',code:'999999',qty:1,cost:100,acct:'계좌'});
   _markPortfolioRemoteDirty();`,h.ctx);
-let unsafeTradePosts=0;
+let unsafeTradePosts=0,unsafeHoldingsPosts=0;
 h.ctx.requestGsheetFormJson=async(action)=>{
   if(action==='syncTrades')unsafeTradePosts++;
+  if(action==='syncHoldings')unsafeHoldingsPosts++;
   return {status:'ok',saveState:'success'};
 };
 assert.equal(await h.ctx.loadSettings(),false,'unmatched trade blocks authoritative retry');
 assert.equal(unsafeTradePosts,0,'unknown trade may not overwrite server ledger');
+assert.equal(unsafeHoldingsPosts,0,'failed master preflight must also block parallel holdings write');
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'failed master validation retains dirty source');
 assert.equal(h.ctx.getGsheetSettingsLoadFailure(),'미동기화 거래·보유 확인 · PORTFOLIO_SYNC_FAILED');
 // Same-name-but-different-code is NOT proof of identity: block a silent
@@ -195,14 +198,17 @@ h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
 vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
   rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100},
     {date:'',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  rawHoldings.push({name:'테스트',code:'005930',qty:1,cost:100,acct:'계좌'});
   _markPortfolioRemoteDirty();`,h.ctx);
-let filteredLedgerPosts=0;
+let filteredLedgerPosts=0,filteredHoldingsPosts=0;
 h.ctx.requestGsheetFormJson=async(action)=>{
   if(action==='syncTrades')filteredLedgerPosts++;
+  if(action==='syncHoldings')filteredHoldingsPosts++;
   return {status:'ok',saveState:'success'};
 };
 assert.equal(await h.ctx.loadSettings(),false,'malformed dirty source fails closed');
 assert.equal(filteredLedgerPosts,0,'filtered dirty source must never overwrite remote');
+assert.equal(filteredHoldingsPosts,0,'malformed trade blocks parallel holdings write');
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'incomplete retry retains exact original dirty source');
 
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
