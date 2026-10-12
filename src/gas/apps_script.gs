@@ -9678,7 +9678,13 @@ function _assertSupportedDailyCloseMarkets_(items) {
     var market = String(item && item.market || '').trim().toUpperCase();
     var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
     if (['US','USA','NYSE','NASDAQ','AMEX','OTC'].indexOf(market) >= 0 ||
-        (!market && currency === 'USD')) return;
+        (!market && currency === 'USD')) {
+      // US-listed regular-close quotes are denominated in USD. A stale or
+      // incorrect master currency must fail before any retry-queue or write.
+      if (currency !== 'USD') throw new Error('해외 종목 코드 마스터 통화 확인 필요: ' + code +
+        ' (market=' + market + ', currency=' + currency + ') · 미국 상장 종목은 USD만 허용');
+      return;
+    }
     throw new Error('자동 마감 미지원 해외시장: ' + code + ' (market=' + market +
       ', currency=' + currency + ') · 현재 한국/미국 주식시장만 지원');
   });
@@ -10143,10 +10149,12 @@ function _verifyForeignDailyCloseCoverage_(items, foreignPrices, asOf) {
   overseas.forEach(function(item) {
     var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
     var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
-    // Yahoo quotes are in the listing currency. Treating an overseas market
-    // as KRW would multiply by 1 in Snapshot and silently under/overstate NAV.
-    if (currency === 'KRW') throw new Error('해외 종목 코드 마스터 통화 확인 필요: ' + code +
-      ' (' + String(item.market || '') + ') · 실제 거래통화로 수정 후 마감 재시도');
+    // This portfolio only supports USD-quoted US listings. A master currency
+    // other than USD would apply the wrong FX series to a Yahoo USD close,
+    // producing silently corrupted won-denominated Snapshot valuation.
+    if (currency !== 'USD') throw new Error('해외 종목 코드 마스터 통화 확인 필요: ' + code +
+      ' (' + String(item.market || '') + ', currency=' + currency +
+      ') · 미국 상장 종목은 USD만 허용');
     var requiredDate = _foreignMarketRegularCloseCutoff_(item, asOf);
     var row = foreignPrices && foreignPrices[item.code];
     if (!row || Number(row.price) <= 0 || !Number.isFinite(Number(row.price)) ||

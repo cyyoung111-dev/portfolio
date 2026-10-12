@@ -1426,6 +1426,20 @@ assert.equal(symbolVm._yahooEquitySymbol_({code:'000700',market:'HK',yahooSymbol
   assert.doesNotThrow(()=>scopeVm._assertSupportedDailyCloseMarkets_([
     {code:'MSFT',currency:'USD',market:'NYSE'}, {code:'F00001',type:'펀드'}]),
     'NYSE and fund exceptions');
+  assert.doesNotThrow(()=>scopeVm._assertSupportedDailyCloseMarkets_([
+    {code:'AAPL',currency:'USD',market:'US'},
+    {code:'MSFT',currency:'USD',market:''},
+    {code:'IBM',currency:'USD',market:'NYSE'},
+    {code:'GOOG',currency:'USD',market:'NASDAQ'}]),
+    'supported US markets and legacy USD-only market may proceed');
+  for(const market of ['US','USA','NYSE','NASDAQ','AMEX','OTC']) {
+    for(const currency of ['KRW','JPY','EUR','HKD','GBP']) {
+      assert.throws(()=>scopeVm._assertSupportedDailyCloseMarkets_([
+        korea,{code:'AAPL',currency,market}]),
+        /해외 종목 코드 마스터 통화 확인 필요.*USD만 허용/,
+        market+' '+currency+' must fail before saving USD quotes with non-USD exchange rates');
+    }
+  }
   assert.equal(scopeVm._isKrxDailyCloseTarget_({code:'KRX1',currency:'KRW',market:'KRX'}),true);
   for(const market of ['AU','ASX','CA','TSX','SG','SIX']) {
     assert.equal(scopeVm._isKrxDailyCloseTarget_({code:'ABC',currency:'KRW',market}),false,
@@ -1595,7 +1609,14 @@ console.log('✅ 통합 해외시장 Yahoo 심볼/실제 fetch 및 KRW 기본값
   const wrongCurrency=checkRealClose([domesticItem,{...foreignItem,currency:'KRW',market:'NASDAQ'}],
     {AAPL:quote('2026-10-07')},/해외 종목 코드 마스터 통화 확인 필요/);
   assert.equal(wrongCurrency.updates,0,'KRW 기본값의 해외 Yahoo 종가를 원화로 평가 금지');
-  assert.deepEqual(wrongCurrency.calls,['KRX:005930','YAHOO:AAPL']);
+  assert.deepEqual(wrongCurrency.calls,[],
+    'currency mismatch must fail before either KRX or Yahoo query');
+  for(const currency of ['JPY','EUR','HKD','GBP']) {
+    const mismatched=checkRealClose([domesticItem,{...foreignItem,currency,market:'NASDAQ'}],
+      {AAPL:quote('2026-10-07')},/해외 종목 코드 마스터 통화 확인 필요.*USD만 허용/);
+    assert.equal(mismatched.updates,0,currency+' FX must never value a USD Yahoo close');
+    assert.deepEqual(mismatched.calls,[],currency+' should fail at the preflight before any price request');
+  }
   const valid=checkRealClose([domesticItem,foreignItem],
     {AAPL:quote('2026-10-07')},/VALID_PRICE_WRITE_REACHED/);
   assert.equal(valid.updates,1,'국내 KRX+해외 정확한 완료 세션이면 가격 쓰기 단계 진행');

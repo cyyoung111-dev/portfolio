@@ -1,3 +1,10 @@
+## PR #493 한국·미국 전용 USD 통화 무결성 P1 수정 (2026-10-13 · Draft / 미배포)
+
+- 미국 상장종목 US/USA/NYSE/NASDAQ/AMEX/OTC와 market 빈 레거시 USD 종목은 코드 마스터 통화가 정확히 USD여야 정상 일일 마감 대상입니다. KRW/JPY/EUR/HKD/GBP 등은 Yahoo USD 가격을 다른 환율로 평가하는 오류를 방지하기 위해 조회·백필 큐·Snapshot 쓰기 전에 명시적 오류로 거부합니다.
+- 방어는 `_assertSupportedDailyCloseMarkets_`의 사전 검사와 `_verifyForeignDailyCloseCoverage_`의 저장 전 이중 검증에 적용합니다. KRX/KRW 국내 종목 및 펀드·TDF 예외는 유지하고, 다른 해외 거래소 지원을 확대하지 않습니다.
+- 실제 생산 함수 실행 테스트에서 미국 거래소별 비USD, 마스터 통화 KRW, 정상 NYSE/NASDAQ/USD, 국내외 혼합 보유 검증을 추가했습니다. 원본 데이터·운영 GAS 미변경.
+- 통합 GAS v9.199 검증용 전체 소스 SHA: `d082240c3e10fbdc41e853bd220848b6e7d0449a`. 이전 문서에 기재된 SHA는 이력으로만 유지합니다.
+
 ## PR #493 한국·미국 전용 마감 적용 (2026-10-13 · Draft / 미배포)
 
 - 사용자 요구에 따라 지원 대상은 KRX 상장 및 미국 US/NYSE/NASDAQ/AMEX/OTC 주식·ETF로 제한합니다. JP/HK/UK/EU의 달력이나 거래소별 확정 종가를 추가 개발하지 않습니다. 기존 데이터/조회 함수는 삭제하지 않습니다.
