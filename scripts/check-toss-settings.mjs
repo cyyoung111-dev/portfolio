@@ -118,10 +118,10 @@ const clearTossBody = gasSource.match(/function handleClearTossConfig\([\s\S]*?\
 const diagnosticTokenBody = gasSource.match(/function _tossDiagnosticAccessToken_\([\s\S]*?\n\}/)?.[0] || '';
 assert.match(saveTossBody, /_tossWithTokenLock_/);
 assert.match(clearTossBody, /_tossWithTokenLock_/);
-assert.match(diagnosticTokenBody, /_tossWithTokenLock_[\\s\\S]*_tossDiagnosticIssueAccessTokenUnlocked_\\(\\)/, '진단 OAuth 발급은 단일 lock을 소유합니다');
-const diagnosticIssueBody = gasSource.match(/function _tossDiagnosticIssueAccessTokenUnlocked_\\([\\s\\S]*?\\n\\}/)?.[0] || '';
-assert.match(diagnosticIssueBody, /var credentials = _tossProperties_\\(\\)/, '획득한 lock 안에서 자격증명 재조회');
-assert.doesNotMatch(diagnosticIssueBody, /_tossWithTokenLock_|getScriptLock\\(/, '발급 본체에서는 중복 잠금 금지');
+assert.match(diagnosticTokenBody, /_tossWithTokenLock_[\s\S]*_tossDiagnosticIssueAccessTokenUnlocked_\(\)/, '진단 OAuth 발급은 단일 lock을 소유합니다');
+const diagnosticIssueBody = gasSource.match(/function _tossDiagnosticIssueAccessTokenUnlocked_\([\s\S]*?\n\}/)?.[0] || '';
+assert.match(diagnosticIssueBody, /var credentials = _tossProperties_\(\)/, '획득한 lock 안에서 자격증명 재조회');
+assert.doesNotMatch(diagnosticIssueBody, /_tossWithTokenLock_|getScriptLock\(/, '발급 본체에서는 중복 잠금 금지');
 
 const diagnoseBody = gasSource.match(/function handleDiagnoseTossMarketData\(forceFreshOAuth\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
 assert.doesNotMatch(diagnoseBody, /setValue|setValues|appendRow|clearContent|deleteSheet|insertSheet/);
