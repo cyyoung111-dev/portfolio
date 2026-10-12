@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.195
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.196
 //
-//  v9.195 변경사항 (2026.10.12):
+//  v9.196 변경사항 (2026.10.12):
 //   KRX 공식 KOSPI/KOSDAQ 당일 확정 종가 우선, 대체 인증키·휴장/수집실패 분리 및 Yahoo 이력 보조
 //   장중 KRX 확정 종가를 직전 완료 거래일에 별도 조회하고 UNKNOWN·휴장·stale 검증을 강화
 //   종가 캐시의 원천일자·갱신일시 분리, KRX 인증 대체 및 펀드 평가 진단 통합
@@ -4641,13 +4641,29 @@ function _selectKrxK200NightClose_(rows, tradingDate) {
 }
 
 function fetchKrxK200NightClose(tradingDate, now) {
-  var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, ''), authKey = _getKrxAuthKey();
+  var date = _normalizeDate(tradingDate || ''), ymd = date.replace(/-/g, '');
+  var slots = _getKrxAuthKeySlots_(), authKey = slots.key;
   if (!authKey || !/^\d{8}$/.test(ymd)) return null;
   if (Utilities.formatDate(now || new Date(), CONFIG.TIMEZONE, 'HHmm') < '0600') return null;
   var response = UrlFetchApp.fetch('https://data-dbg.krx.co.kr/svc/apis/drv/fut_bydd_trd?basDd=' + encodeURIComponent(ymd), {
     method: 'get', headers: { AUTH_KEY: authKey }, muteHttpExceptions: true
   });
-  if (response.getResponseCode() >= 400) throw new Error('KRX_K200_NIGHT_HTTP_' + response.getResponseCode());
+  var httpStatus = response.getResponseCode();
+  // Retry only an explicitly denied key, never an HTTP 200 empty response.
+  if ((httpStatus === 401 || httpStatus === 403) && slots.alternative) {
+    var alternate;
+    try {
+      alternate = UrlFetchApp.fetch('https://data-dbg.krx.co.kr/svc/apis/drv/fut_bydd_trd?basDd=' + encodeURIComponent(ymd), {
+        method:'get', headers:{ AUTH_KEY:slots.alternative }, muteHttpExceptions:true
+      });
+    } catch(fetchError) { throw new Error('KRX_K200_NIGHT_ALTERNATE_FETCH_FAILED'); }
+    var alternateStatus = alternate.getResponseCode();
+    if (alternateStatus !== 200)
+      throw new Error('KRX_K200_NIGHT_PRIMARY_HTTP_' + httpStatus + '_ALTERNATE_HTTP_' + alternateStatus);
+    response = alternate;
+    httpStatus = alternateStatus;
+  }
+  if (httpStatus >= 400) throw new Error('KRX_K200_NIGHT_HTTP_' + httpStatus);
   var json = JSON.parse(response.getContentText() || '{}');
   var selected = _selectKrxK200NightClose_(json.OutBlock_1, date);
   if (!selected) return null;
@@ -4977,7 +4993,8 @@ function handleGetBenchmarks(benchmarksInput, fromStr, toStr, forceRefresh) {
 }
 
 function _readVkospiPointsFromKrx(fromDate, toDate) {
-  var authKey = _getKrxAuthKey();
+  var slots = _getKrxAuthKeySlots_();
+  var authKey = slots.key;
   if (!authKey) throw new Error('VKOSPI 조회에는 KRX AUTH_KEY가 필요합니다. 설정에서 KRX 인증키를 등록하세요.');
 
   var cache = CacheService.getScriptCache();
@@ -5008,6 +5025,25 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
       };
     });
     var responses = UrlFetchApp.fetchAll(requests);
+    // Keep approved primary results; re-request only the 401/403 dates.
+    var denied = [];
+    responses.forEach(function(resp, idx) {
+      if (resp.getResponseCode() === 401 || resp.getResponseCode() === 403) denied.push(idx);
+    });
+    if (denied.length && slots.alternative) {
+      var alternateRequests = denied.map(function(idx) {
+        return {url:requests[idx].url, method:'get',
+          headers:{AUTH_KEY:slots.alternative}, muteHttpExceptions:true};
+      });
+      try {
+        var recovered = UrlFetchApp.fetchAll(alternateRequests);
+        recovered.forEach(function(resp, idx) {
+          if (resp && resp.getResponseCode() === 200) responses[denied[idx]] = resp;
+        });
+      } catch(error) {
+        Logger.log('[KRX-VKOSPI] 보조 인증 경로 네트워크 오류, 기본 응답 유지');
+      }
+    }
     responses.forEach(function(resp, idx) {
       var status = resp.getResponseCode();
       if (status === 401 || status === 403) authFailed = true;
@@ -5021,6 +5057,7 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
       });
       if (!row) return;
       var date = _normalizeDate(row.BAS_DD || row.basDd || batch[idx]);
+      if (date !== _normalizeDate(batch[idx])) return; // Do not relabel a different source date.
       var value = parseFloat((row.CLSPRC_IDX || row.clsprcIdx || '').toString().replace(/,/g, '')) || 0;
       if (date && value > 0) pointsByDate[date] = value;
     });
@@ -5367,7 +5404,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.195' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.196' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10977,7 +11014,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.195',
+    gasVersion: '9.196',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11017,7 +11054,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.195' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.196' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13732,7 +13769,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.195' });
+    return jsonOk({ settings: settings, gasVersion: '9.196' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -13760,7 +13797,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
-      gasVersion: '9.195'
+      gasVersion: '9.196'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
