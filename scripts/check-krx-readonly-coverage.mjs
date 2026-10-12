@@ -45,6 +45,7 @@ const responses = (statuses, date='20261008') => statuses.map((status,index)=>({
 const context=vm.createContext({
   CONFIG:{SHEET_PH:'가격이력',SHEET_SNAPSHOT:'스냅샷'},
   _normalizeDate:x=>String(x||''),_cleanCode:x=>String(x||'').trim(),
+  _isFundCode:x=>/^F\d{5}$/.test(String(x||'')),
   getss:()=>({getSheetByName:n=>sheet(n)}),
   getCodeItems:()=>[{code:'005930',type:'주식',currency:'KRW',market:'KR'},
     {code:'458730',type:'ETF',currency:'KRW',market:'ETF'},
@@ -76,8 +77,21 @@ const context=vm.createContext({
   }},
   jsonOk:x=>x,jsonError:x=>({status:'error',message:x})
 });
-for(const name of ['_krxReadOnlyStoredCoverage_','_krxReadOnlyResponseMeta_','handleGetKrxSourceDiagnostics'])
+for(const name of ['_isKrxDailyCloseTarget_','_krxReadOnlyStoredCoverage_','_krxReadOnlyResponseMeta_','handleGetKrxSourceDiagnostics'])
   vm.runInContext(extract(name),context,{filename:name+'.gs'});
+// Market has higher priority than legacy KRW default: UK/LSE/EU must never be a KRX target.
+for (const market of ['US','USA','NYSE','NASDAQ','AMEX','OTC','JP','TSE','TYO',
+  'HK','HKG','HKEX','UK','LSE','EU']) {
+  assert.equal(context._isKrxDailyCloseTarget_({code:'TEST',market,currency:'KRW'}),false,
+    market+' explicit foreign exchange must not be a KRX close');
+}
+for (const market of ['','KR','KOSPI','KOSDAQ','ETF']) {
+  assert.equal(context._isKrxDailyCloseTarget_({code:'005930',market,currency:'KRW'}),true,
+    market+' domestic market must count as KRX');
+}
+assert.equal(context._isKrxDailyCloseTarget_({code:'AAPL',market:'US',currency:''}),false);
+assert.equal(context._isKrxDailyCloseTarget_({code:'005930',market:'KR',currency:'USD'}),false);
+assert.equal(context._isKrxDailyCloseTarget_({code:'F00001',market:'KR',currency:'KRW'}),false);
 const coverage=JSON.parse(JSON.stringify(context._krxReadOnlyStoredCoverage_('2026-10-08')));
 assert.deepEqual(coverage,{
   status:'OK',expectedHeldCodes:2,expectedStock:1,expectedEtf:1,

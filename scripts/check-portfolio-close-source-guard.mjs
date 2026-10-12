@@ -10,6 +10,15 @@ const extract = name => {
   assert.ok(end > start, name + ' must have closing brace');
   return source.slice(start, end + 2);
 };
+// Integration guard: execute the SAME production KRX eligibility predicate
+// in each isolated GAS VM, instead of copying simplified test-only rules.
+const installKrxTarget = context => {
+  if (typeof context._cleanCode !== 'function')
+    context._cleanCode = v=>String(v||'').trim();
+  if (typeof context._isFundCode !== 'function')
+    context._isFundCode = v=>/^F\d{5}$/.test(String(v||''));
+  vm.runInContext(extract('_isKrxDailyCloseTarget_'), context);
+};
 const closeSection = extract('saveDailyPriceHistory');
 const freshnessCall = closeSection.indexOf('_assessDailyKrxStockClose(items, krxPrev, requestedCloseDate)');
 const firstPriceWrite = closeSection.indexOf('batchUpsertPriceHistory(ss, actualDate');
@@ -167,6 +176,7 @@ const context = vm.createContext({
   _fundRecoveryDiagnosticStart() {},
   _fundRecoveryDiagnosticFinish() {},
 });
+installKrxTarget(context);
 const holidayStart = source.indexOf('var KRX_CONFIRMED_CLOSED_DATES_2026 =');
 assert.ok(holidayStart >= 0, '공식 휴장일 판별 자료 누락');
 const holidayEnd = source.indexOf('\n};',holidayStart);
@@ -188,6 +198,17 @@ const items = [
 const close = (date,source='KRX')=>({usedDate:date,source,price:1500});
 const full = Object.fromEntries(items.slice(0,4).map(x=>[x.code,close('2026-10-06')]));
 const good = clone(context._assessDailyKrxStockClose(items, full,'2026-10-06'));
+// Review P2: a legacy KRW-default market UK/LSE/EU and a KRW/US row must
+// be classified identically by KRX execution, diagnostic, replay and watchdog.
+const offshoreLegacy=[
+  {code:'UK1',currency:'KRW',market:'UK'},
+  {code:'UK2',currency:'KRW',market:'LSE'},
+  {code:'EU1',currency:'KRW',market:'EU'},
+  {code:'USKRW',currency:'KRW',market:'US'},
+];
+const mixedClose=clone(context._assessDailyKrxStockClose(
+  [...items.slice(0,4), ...offshoreLegacy],full,'2026-10-06'));
+assert.deepEqual(mixedClose,good,'legacy 해외시장 KRW 오인으로 국내 확정가 누락을 발생시키지 않음');
 assert.deepEqual(good,{required:true,date:'2026-10-06',confirmed:4,expected:4,lag:0});
 
 const priorKrx = Object.fromEntries(items.slice(0,4).map(item=>[item.code,close('2026-10-02')]));
@@ -1088,6 +1109,7 @@ const marketVm=vm.createContext({
   fetchPricesKrx:()=>({}),
   _isConfirmedHistoryPrice_:(p,d)=>p.usedDate===d
 });
+installKrxTarget(marketVm);
 vm.runInContext(extract('_foreignMarketTimeZone_'),marketVm);
 vm.runInContext(extract('_foreignMarketRegularCloseCutoff_'),marketVm);
 const deadline=(item)=>marketVm._foreignMarketRegularCloseCutoff_(item,new Date());
@@ -1140,6 +1162,7 @@ const qvm=vm.createContext({
   getCodeItems:()=>[{code:'005930',currency:'KRW',market:'KOSPI'}],
   _appendPortfolioCloseSyncLog:()=>{}
 });
+installKrxTarget(qvm);
 for(const n of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_','_completePendingKrxCloseDate_','_hasKrxHoldingsForCloseDate_','_seedMissingKrxCloseDates_','_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_']){
   vm.runInContext(extract(n),qvm);
 }
@@ -1154,6 +1177,13 @@ assert.equal(props.getProperty('snapshot_last_success_date'),'2026-10-10','과�
 assert.deepEqual(JSON.parse(JSON.stringify(qvm._readPendingKrxCloseDates_(props))),['2026-10-08'],'1건만 처리 후 나머지 보존');
 props.setProperty('portfolio_close_pending_krx_dates','[]');
 props.setProperty('snapshot_last_success_date','2026-10-06');
+for(const market of ['UK','LSE','EU','US','JP','HK','NASDAQ']) {
+  assert.equal(qvm._hasKrxHoldingsForCloseDate_(null,'2026-10-10',
+    [{code:'test-foreign',currency:'KRW',market}]),false,
+    market+' KRW fallback cannot enqueue domestic close');
+}
+assert.equal(qvm._hasKrxHoldingsForCloseDate_(null,'2026-10-10',
+  [{code:'005930',currency:'KRW',market:'KOSPI'}]),true);
 qvm._seedMissingKrxCloseDates_(null,props,'2026-10-10',[{code:'AAPL',currency:'USD',market:'US'}]);
 assert.equal(qvm._readPendingKrxCloseDates_(props).length,0,'미국 전용 계좌의 세션일 차이는 KRX 누락일이 아님');
 qvm._seedMissingKrxCloseDates_(null,props,'2026-10-10',[{code:'005930',currency:'KRW',market:'KOSPI'}]);
@@ -1184,8 +1214,15 @@ const wdVm=vm.createContext({
   _portfolioCloseRunState:()=>({state:'COMPLETE',runDate:previousSession.runDate}),
   runDailyPortfolioClose1900:()=>{watchdogReexecutions++;return{ok:true};}
 });
+installKrxTarget(wdVm);
 vm.runInContext(extract('_hasForeignHeldItemsForCloseWatchdog_'),wdVm);
 vm.runInContext(extract('runPortfolioCloseWatchdog2030'),wdVm);
+for(const market of ['UK','LSE','EU','US','JP','HK','NASDAQ']) {
+  heldMarketItems=[{code:'foreign',currency:'KRW',market}];
+  assert.equal(wdVm._hasForeignHeldItemsForCloseWatchdog_('2026-10-08'),true,
+    market+' known overseas market is foreign in watchdog');
+}
+heldMarketItems=[];
 const foreignOnly=wdVm.runPortfolioCloseWatchdog2030();
 assert.equal(foreignOnly.skipped,true,'해외 전용 계좌의 이전 완료 세션 평가 정상');
 assert.equal(watchdogReexecutions,0,'정상 해외 계좌 watchdog 중복 마감 방지');
@@ -1226,6 +1263,7 @@ const mixedCloseVm=vm.createContext({
   _isConfirmedHistoryPrice_:(p,d)=>!!p && p.price>0 && p.status==='CONFIRMED'
     && p.priceType==='REGULAR_CLOSE' && p.marketDate===d
 });
+installKrxTarget(mixedCloseVm);
 vm.runInContext(extract('_latestConfirmedForeignCloseDate_'),mixedCloseVm);
 vm.runInContext(extract('_selectPortfolioCloseSnapshotDate_'),mixedCloseVm);
 const confirmedClose=(date)=>({price:100,usedDate:date,marketDate:date,status:'CONFIRMED',priceType:'REGULAR_CLOSE'});
@@ -1241,6 +1279,10 @@ const foreignVerified={
   AAPL:confirmedClose('2026-10-08')
 };
 const foreignAsOf=mixedCloseVm._latestConfirmedForeignCloseDate_(mixedItems,foreignVerified,'2026-10-09');
+assert.equal(mixedCloseVm._latestConfirmedForeignCloseDate_(
+  [{code:'UK1',currency:'KRW',market:'LSE'}],
+  {UK1:confirmedClose('2026-10-09')},'2026-10-09'),'2026-10-09',
+  'legacy KRW/LSE verified regular close is eligible as foreign, not KRX');
 assert.equal(foreignAsOf,'2026-10-09','한국 휴장·일본/홍콩 당일 확정 종가 인정');
 assert.equal(mixedCloseVm._selectPortfolioCloseSnapshotDate_('2026-10-09','2026-10-08',true,'',foreignAsOf),
   '2026-10-09','KRX 10/08 종가 CARRY와 JP/HK 10/09 확정가의 Snapshot 평가 기준일');
@@ -1276,6 +1318,7 @@ const krxStoredVm=vm.createContext({
   _countBusinessWeekdaysBetween:(a,b)=>a==='2026-09-29'?5:0,
   CONFIG:{SHEET_PH:'가격이력'}
 });
+installKrxTarget(krxStoredVm);
 vm.runInContext(extract('_readStoredOfficialKrxClosesForHoliday_'),krxStoredVm);
 vm.runInContext(extract('_assessDailyKrxStockClose'),krxStoredVm);
 const krxOnly=[

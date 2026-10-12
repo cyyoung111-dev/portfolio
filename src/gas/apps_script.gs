@@ -2154,7 +2154,7 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   // 검증되지 않은 일봉 closePrice는 현재가 화면에는 쓸 수 있지만 확정 종가로 저장하지 않습니다.
   if (gfItems.length > 0 && !(options && options.skipKrx)) {
     try {
-      var krxItems = gfItems.filter(function(item) { return String(item.currency || 'KRW').toUpperCase() === 'KRW' || String(item.market || '').toUpperCase() === 'KR'; });
+      var krxItems = gfItems.filter(_isKrxDailyCloseTarget_);
       // Never use an intraday KRX quote as a completed regular-session close.
       // Explicitly request the previous confirmed calendar session during the
       // Korean market day, even if the current-date API returns a partial row.
@@ -2191,7 +2191,8 @@ function fetchPricesGoogleFinance(items, dateStr, ss, options) {
   // 국내 공식 종가가 없는 해외 자산은 기존 Yahoo 일봉 공급 경로에서 요청일의
   // regular-session close가 정확히 존재하는 경우에만 확정값으로 채웁니다.
   var overseasItems = gfItems.filter(function(item) {
-    return String(item.currency || 'KRW').toUpperCase() !== 'KRW' && String(item.market || '').toUpperCase() !== 'KR';
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    return code && !_isFundCode(code) && !_isKrxDailyCloseTarget_(item);
   });
   if (options && options.useMarketCloseCutoffs) {
     overseasItems.forEach(function(item) {
@@ -9615,11 +9616,20 @@ function _countBusinessWeekdaysBetween(from, to) {
   return count;
 }
 
+// KRX 종가 조회·마감 검증·누락 큐·읽기 진단은 반드시 같은 대상 범위를 씁니다.
+// 마스터의 빈 통화가 KRW로 보정되더라도 명시적 해외 거래소를 KRX로 오인하지 않습니다.
+function _isKrxDailyCloseTarget_(item) {
+  var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+  if (!code || _isFundCode(code)) return false;
+  var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
+  var market = String(item && item.market || '').trim().toUpperCase();
+  var overseas = ['US','USA','NYSE','NASDAQ','AMEX','OTC',
+    'JP','TSE','TYO','HK','HKG','HKEX','UK','LSE','EU'].indexOf(market) >= 0;
+  return currency === 'KRW' && !overseas;
+}
+
 function _assessDailyKrxStockClose(items, prices, requestedDate) {
-  var listed = (items || []).filter(function(item) {
-    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
-    return code && !_isFundCode(code) && String(item && item.currency || 'KRW').toUpperCase() === 'KRW';
-  });
+  var listed = (items || []).filter(_isKrxDailyCloseTarget_);
   if (!listed.length) return { required:false, date:'', confirmed:0, expected:0 };
   var evidence = prices && prices._krxMarketEvidence;
   var codeMarkets = evidence && evidence.codeMarkets || {};
@@ -9795,11 +9805,7 @@ function _completePendingKrxCloseDate_(props, date) {
 }
 function _hasKrxHoldingsForCloseDate_(ss, date, catalog) {
   var holdings = _getDailyHeldCodeItems(ss, date, catalog || getCodeItems(ss));
-  return holdings.some(function(item) {
-    var market = String(item && item.market || '').toUpperCase();
-    return String(item && item.currency || 'KRW').toUpperCase() === 'KRW'
-      || market === 'KR' || market === 'KOSPI' || market === 'KOSDAQ' || market === 'ETF';
-  });
+  return holdings.some(_isKrxDailyCloseTarget_);
 }
 function _seedMissingKrxCloseDates_(ss, props, runDate, catalog) {
   var allItems = catalog || getCodeItems(ss);
@@ -10049,8 +10055,7 @@ function _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedDate) {
   var wanted = {};
   (items || []).forEach(function(item) {
     var code = _cleanCode(item && item.code);
-    var cur = String(item && item.currency || 'KRW').toUpperCase();
-    if (code && cur === 'KRW' && !_isFundCode(code)) wanted[code] = item;
+    if (_isKrxDailyCloseTarget_(item)) wanted[code] = item;
   });
   if (!Object.keys(wanted).length) return {};
   var sh = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -10074,9 +10079,8 @@ function _readStoredOfficialKrxClosesForHoliday_(ss, items, requestedDate) {
 function _latestConfirmedForeignCloseDate_(items, foreignPrices, requestedDate) {
   var latest = '';
   (items || []).forEach(function(item) {
-    var market = String(item && item.market || '').toUpperCase();
-    var currency = String(item && item.currency || 'KRW').toUpperCase();
-    if (currency === 'KRW' || market === 'KR' || market === 'KOSPI' || market === 'KOSDAQ') return;
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    if (!code || _isFundCode(code) || _isKrxDailyCloseTarget_(item)) return;
     var p = foreignPrices && foreignPrices[item.code];
     var usedDate = _normalizeDate(p && p.usedDate || '');
     if (!usedDate || usedDate > requestedDate || !_isConfirmedHistoryPrice_(p, usedDate)) return;
@@ -11426,13 +11430,7 @@ function _krxReadOnlyStoredCoverage_(date) {
     var heldCodes = {}, expectedEtf = 0, expectedStock = 0;
     held.forEach(function(item) {
       var code = _cleanCode(item && item.code || '');
-      var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
-      var market = String(item && item.market || '').trim().toUpperCase();
-      // KRX 마감 대상과 동일하게 KRW 보유만 세고 해외 거래소는 배제합니다.
-      // 종목 마스터에 currency가 누락되어도 market=US/JP/HK 등을 국내로 세면 안 됩니다.
-      if (!code || currency !== 'KRW' ||
-          ['US','USA','NYSE','NASDAQ','AMEX','OTC','JP','TSE','TYO','HK','HKG','HKEX'].indexOf(market) >= 0 ||
-          heldCodes[code]) return;
+      if (!_isKrxDailyCloseTarget_(item) || heldCodes[code]) return;
       heldCodes[code] = true;
       if (String(item.type || '').toUpperCase() === 'ETF' ||
           String(item.market || '').toUpperCase() === 'ETF') expectedEtf++;
@@ -12319,10 +12317,8 @@ function runDailyPortfolioClose1900() {
 function _hasForeignHeldItemsForCloseWatchdog_(dateStr) {
   var ss = getss();
   return _getDailyHeldCodeItems(ss, dateStr, getCodeItems(ss)).some(function(item) {
-    var market = String(item && item.market || '').toUpperCase();
-    var currency = String(item && item.currency || 'KRW').toUpperCase();
-    return currency !== 'KRW' || market === 'US' || market === 'JP' || market === 'TSE'
-      || market === 'HK' || market === 'HKEX' || market === 'UK' || market === 'LSE' || market === 'EU';
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    return code && !_isFundCode(code) && !_isKrxDailyCloseTarget_(item);
   });
 }
 function runPortfolioCloseWatchdog2030() {

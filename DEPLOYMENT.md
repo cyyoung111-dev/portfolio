@@ -1,3 +1,10 @@
+## PR #493 통합 KRX 시장 분류 일치 검증 (2026-10-12, Draft / 미배포)
+
+- 독립 Codex 리뷰가 확인한 후속 P2: `getCodeItems()`는 구버전 비어 있는 통화를 KRW로 보정하므로 `UK/LSE/EU` 등의 해외 시장 종목이 KRX 누락 대상이 될 수 있었고, `US+KRW`는 진단에선 제외되지만 실제 마감에선 KRX 대상으로 포함되는 상충 상태였습니다.
+- `_isKrxDailyCloseTarget_` 공통 함수는 유효한 비펀드 코드·원화 통화·해외시장 아닌 항목만 국내 확정가 대상으로 인정합니다. 실제 KRX 조회 `fetchPricesGoogleFinance`, `_assessDailyKrxStockClose`, 누락일 큐 `_hasKrxHoldingsForCloseDate_`, 저장된 휴장일 종가 복구 `_readStoredOfficialKrxClosesForHoliday_`, `_krxReadOnlyStoredCoverage_`, 해외 종가·watchdog 판단도 이를 공동 사용합니다.
+- 기존 거래원장·가격이력·Snapshot·자격증명은 변경하지 않습니다. 테스트는 `US/JP/HK/UK/LSE/EU/NASDAQ` 등 market/currency 충돌·빈 통화 및 유효 국내 종목 양방향 반례를 생산 함수에 대입합니다. 새로 판별되는 해외 종목의 실제 Yahoo/KRX 가격 공급 계약은 운영에서 별도 검산해야 합니다.
+- GAS v9.199 통합 검증 후보 전체 blob: `b3ad78e672f8921e5d83f39786f74cf9f884080c`. 승인 고정·회귀검사·독립 재리뷰 전까지 main 병합/실제 GAS 배포 금지. 이전 버전 소스 해시는 기록 이력일 뿐 최신 승인 소스가 아닙니다.
+
 ## PR #489~#492 통합 검증 후보 (2026-10-12, Draft / 미배포)
 
 ### PR #493 KRX 진단 추가 안전성 보완 (2026-10-12)
