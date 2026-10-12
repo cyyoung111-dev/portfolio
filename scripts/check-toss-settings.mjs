@@ -592,3 +592,8 @@ assert.equal(duplicateAttempts, 0);
 assert.equal(lockHandle, null);
 context.LockService = priorLockService;
 console.log('✅ 서로 다른 GAS ScriptLock 객체 + 진단 OAuth 단일 잠금 회귀검사 통과');
+
+// 운영에서 관측한 IP가 Google Apps Script/Toss의 실제 송신 IP라는 증거는 아닙니다.
+assert.doesNotMatch(webSync, /허용 IP에 임시 등록/,
+  '검증되지 않은 진단 IP를 Toss 허용목록에 등록하라고 안내하면 안 됨');
+assert.match(webSync, /이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요/);

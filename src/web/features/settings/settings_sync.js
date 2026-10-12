@@ -491,7 +491,7 @@ async function diagnoseTossFromUI() {
     const oauthFailed = !oauth.ok && oauth.code !== 'CREDENTIALS_NOT_CONFIGURED';
     const oauthUnidentified = oauthFailed && oauth.status === 401 && String(oauth.providerCode || '').toLowerCase() === 'unidentified-client';
     const oauthAccessDenied = oauthFailed && oauth.status === 403 && String(oauth.providerCode || '').toLowerCase() === 'access_denied';
-    const observedIpGuide = egress.ok && egress.ip ? ` 관측 ${egress.ipFamily || 'IP'} ${egress.ip}를 Toss 허용 IP에 임시 등록해 재진단할 수 있습니다. 단, Toss 콘솔이 해당 address family를 지원하는지 확인해야 하며 이 IP가 Toss OAuth 요청에도 동일하게 사용됐다고 보장되지는 않습니다.` : '';
+    const observedIpGuide = egress.ok && egress.ip ? ` 관측 ${egress.ipFamily || 'IP'} ${egress.ip}는 참고 관측값이며 Toss 요청의 실제 송신 IP로 검증되지 않았습니다. 이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요.` : '';
     const guide = ipBlocked ? `\n\n실제 Toss market endpoint 403: Google IP range pool 허용 IP 등록을 확인하세요.${observedIpGuide}`
       : (oauthAccessDenied ? `\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.${observedIpGuide}`
       : (oauthUnidentified ? '\n\nOAuth 401 unidentified-client · 위 request/reference/edge ID를 함께 기록해 Toss 측 인증 거부 원인을 확인하세요. Wi-Fi에서 동일 자격증명이 정상이라면 IP 허용 403과는 별도 문제입니다.'

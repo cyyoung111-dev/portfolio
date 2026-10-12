@@ -375,7 +375,7 @@
 
 - 모바일 데이터에서 Toss OAuth가 `403 / access_denied`로 반복 실패하는 원인을 좁히기 위해, `diagnoseTossMarketData` 실행 직전에 `https://api.ipify.org?format=json`을 read-only 호출하여 외부 서비스가 관측한 GAS `UrlFetchApp` 출구 IPv4를 함께 표시합니다.
 - 이 IP는 원인 추적용 참고값입니다. Google Apps Script가 Toss OAuth 요청에도 반드시 같은 NAT/egress IP를 사용한다고 보장하지 않으므로, UI에도 동일한 경고를 표시합니다.
-- OAuth가 `403 / access_denied`인 경우 관측 IP를 Toss 허용 IP에 임시 등록한 뒤 즉시 재진단하는 실험 경로를 안내합니다. 이 결과만으로 실제 Toss 요청 IP를 확정하지 않습니다.
+- OAuth가 `403 / access_denied`인 경우에도 진단에서 관측한 IP를 곧바로 Toss 허용 IP에 등록하지 않습니다. 관측 IP는 참고값이며, 실제 Toss 요청의 송신 IP와 허용 정책은 공급자 로그 및 Google Apps Script `UrlFetchApp` 출구 특성을 별도로 대조해야 합니다.
 - egress probe는 Toss 연결 진단에서만 실행되며 가격 조회·Snapshot·트리거·운영 시트에는 사용하지 않습니다. 외부 서비스로 Client ID/Secret, access token, 종목, 포트폴리오 데이터는 전송하지 않습니다.
 - GAS/웹 기대 버전은 `9.163`, 정적 웹 cache는 `portfolio-cache-20261006-3`으로 함께 배포합니다.
 
