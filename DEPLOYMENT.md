@@ -1,3 +1,12 @@
+## GAS v9.199 — Toss 진단 토큰 재발급 방지 및 모바일 연결 비교 (2026-10-12, Draft / 운영 미반영)
+
+- 유효한 Toss OAuth 캐시 토큰이 있는 경우 일반 진단 버튼은 신규 client_credentials 발급 없이 동일 토큰으로 시세 및 시장 API를 점검합니다. 캐시가 없으면 기존 진단처럼 새 토큰을 1회 확보합니다.
+- 토큰 발급 네트워크 HTTP 상태는 신규 OAuth 발급 시에만 표시합니다. 기존 토큰을 재사용한 결과는 `CACHE / CACHED_TOKEN_REUSED / httpStatus=null`로 구분하며, 강제 발급 검증은 명시적인 `freshOAuth=1`에서만 허용합니다.
+- 웹 진단에 GAS 배포 ID의 마지막 8자만, exec/dev 종류, GAS 접근토큰 등록 유무, 실제 GAS 버전을 표시합니다. Client ID/Secret, 접근토큰 원문, 배포 URL query는 반환/표시하지 않습니다.
+- 모바일과 PC가 다른 URL/토큰을 쓰는 경우 구분할 수 있지만 **이 변경 자체로 Toss OAuth 401 unidentified-client 또는 Google 송신 IP 차단이 해결되었다고 주장하지 않습니다**. 동일 연결 여부와 실제 계정 OAuth 응답은 운영 배포 후 별도 확인이 필요합니다.
+- 이 PR은 main v9.197을 기준으로 독립 작업되어 #491의 v9.198 KRX 진단과 GAS 전체 파일/웹 캐시가 충돌할 수 있습니다. 두 PR을 병합하기 전에 최신 main을 기준으로 **양쪽 코드를 통합하고 v9.199 전체 blob pin 및 캐시를 재산출**해야 합니다. 단독 운영 배포 금지.
+- 외부 서버 비용 0원, 인증키·거래원장·가격이력·Snapshot 수정 없음. 승인된 CI와 독립 리뷰 후 병합 여부 결정.
+
 ## GAS v9.197 — 거래 DATE 읽기 검증 및 Bootstrap 실패 단계 (2026-10-12, 미배포 후보)
 
 - PC 콘솔의 `syncTrades 실패: 거래이력 쓰기 후 검증 실패`와 운영 거래이력 A열 DATE 서식을 읽기 전용 확인했습니다. 기존 원시 JSON 비교는 저장 입력 `YYYY-MM-DD`와 읽은 Date 객체를 다르게 판정합니다.
