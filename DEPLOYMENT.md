@@ -1,3 +1,11 @@
+## PR #493 해외시장 종가 조회 및 Yahoo 심볼 검증 (2026-10-12 · Draft / 미배포)
+
+- 후속 Codex P2 2건: saveDailyPriceHistory의 해외 종가 호출 분기와 _isKrxDailyCloseTarget_의 불일치, 그리고 KRW 기본값+해외시장 종목의 Yahoo 티커 심볼 미생성을 자체 확인하고 수정했습니다.
+- 실제 저장 경로가 **국내 대상만** fetchPricesKrx에 전달하고, 해외 조회 분기를 같은 공통 판정 함수의 반대로 적용합니다. US/NASDAQ+KRW 종목이라도 Yahoo 정규장 조회를 거치고, 조회 실패를 기존 저장 종가가 있는 것처럼 묵인하지 않습니다.
+- Yahoo 심볼: US/USA/NYSE/NASDAQ/AMEX/OTC는 코드, JP/TSE/TYO는 .T, HK/HKG/HKEX는 .HK, UK/LSE는 .L. EU는 거래소가 특정되지 않아 **명시된 전체 공급자 심볼**(예: 코드 SAP.DE 또는 item.yahooSymbol=SAP.DE)만 허용합니다. 미확정 심볼은 조용히 생략하지 않고 실패를 반환하므로 가격이력/Snapshot이 성공 처리되지 않습니다. 기존 마스터에 Yahoo 별도 열이 없으면 유럽 코드를 시장 접미사 포함으로 등록해야 합니다.
+- _foreignMarketTimeZone_도 US/JP/HK 거래소 별칭을 적용해 통화 기본화가 실제 해외시장 정규장 날짜에 영향을 주지 않게 했습니다. 생산 _yahooEquitySymbol_→fetchPricesYahooRegularClose 실제 호출 및 saveDailyPriceHistory에서 해외 1종목만 보유하는 반례로 회귀 검증합니다.
+- GAS v9.199 최신 검증용 source blob은 ea84dabc10f9d49619afc3fa9bf98700a1c388f9이며 아래 이력 해시들은 최신 승인 소스가 아닙니다. **원본 PR #489~#492, main, 운영 GAS, 자격증명, 가격이력 및 Snapshot은 변경하지 않습니다.**
+
 ## PR #493 통합 KRX 시장 분류 일치 검증 (2026-10-12, Draft / 미배포)
 
 - 독립 Codex 리뷰가 확인한 후속 P2: `getCodeItems()`는 구버전 비어 있는 통화를 KRW로 보정하므로 `UK/LSE/EU` 등의 해외 시장 종목이 KRX 누락 대상이 될 수 있었고, `US+KRW`는 진단에선 제외되지만 실제 마감에선 KRX 대상으로 포함되는 상충 상태였습니다.

@@ -2062,28 +2062,39 @@ function _yahooEquitySymbol_(item) {
   var market = String(item.market || '').toUpperCase();
   // 내부 식별자는 그대로 보존하고 공급자별 접미사는 조회 시점에만 적용합니다.
   if (item && item.yahooSymbol) return String(item.yahooSymbol).trim();
-  if (market === 'US' || String(item.currency || '').toUpperCase() === 'USD') return code;
+  // An explicit exchange takes precedence over legacy/defaulted currency.
+  // A bare market='EU' cannot identify a Yahoo exchange; require a provider
+  // symbol or an already exchange-qualified ticker rather than guessing.
+  if (['US','USA','NYSE','NASDAQ','AMEX','OTC'].indexOf(market) >= 0) return code;
+  if (market === 'EU') return /\.[A-Z]{1,4}$/.test(code) ? code : '';
   // 내부 원장 코드는 6자리 식별자를 유지하지만 Yahoo JP/HK 심볼은 거래소 표기 길이를 사용합니다.
   // JP 007203 → 7203.T / HK 000700 → 0700.HK. 5자리 홍콩 코드는 자르지 않습니다.
   var originalCode = String(item && item.code || '').trim().toUpperCase();
-  if (market === 'JP' || market === 'TSE') {
+  if (market === 'JP' || market === 'TSE' || market === 'TYO') {
     var jpCode = /^\d{1,6}$/.test(originalCode) ? String(Number(originalCode)) : code;
     return jpCode + '.T';
   }
-  if (market === 'HK' || market === 'HKEX') {
+  if (market === 'HK' || market === 'HKG' || market === 'HKEX') {
     var hkCode = /^\d{1,6}$/.test(originalCode) ? String(Number(originalCode)) : code;
     while (/^\d+$/.test(hkCode) && hkCode.length < 4) hkCode = '0' + hkCode;
     return hkCode + '.HK';
   }
-  return String(item.yahooSymbol || '');
+  if (market === 'UK' || market === 'LSE') return code.endsWith('.L') ? code : code + '.L';
+  // Legacy overseas holdings with an absent market may still have an USD
+  // ticker; preserve that existing supported default only without an exchange.
+  if (!market && String(item.currency || '').toUpperCase() === 'USD') return code;
+  return '';
 }
 
 function _foreignMarketTimeZone_(item) {
   var market = String(item && item.market || '').toUpperCase();
   var currency = String(item && item.currency || '').toUpperCase();
-  if (market === 'US' || currency === 'USD') return 'America/New_York';
-  if (market === 'JP' || market === 'TSE' || currency === 'JPY') return 'Asia/Tokyo';
-  if (market === 'HK' || market === 'HKEX' || currency === 'HKD') return 'Asia/Hong_Kong';
+  if (['US','USA','NYSE','NASDAQ','AMEX','OTC'].indexOf(market) >= 0 ||
+      (!market && currency === 'USD')) return 'America/New_York';
+  if (['JP','TSE','TYO'].indexOf(market) >= 0 ||
+      (!market && currency === 'JPY')) return 'Asia/Tokyo';
+  if (['HK','HKG','HKEX'].indexOf(market) >= 0 ||
+      (!market && currency === 'HKD')) return 'Asia/Hong_Kong';
   if (market === 'UK' || market === 'LSE' || currency === 'GBP') return 'Europe/London';
   if (market === 'EU' || currency === 'EUR') return 'Europe/Berlin';
   return 'UTC';
@@ -2107,7 +2118,8 @@ function fetchPricesYahooRegularClose(items, dateStr, latestBefore) {
   var output = {};
   (items || []).forEach(function(item) {
     var symbol = _yahooEquitySymbol_(item);
-    if (!symbol) return;
+    if (!symbol) throw new Error('해외 종목 Yahoo 거래소 심볼 미확정: ' + String(item && item.code || '') +
+      ' (market=' + String(item && item.market || '') + ')');
     var dateStartMs = new Date(dateStr + 'T00:00:00Z').getTime();
     var start = Math.floor((dateStartMs - (latestBefore ? 14 * 86400000 : 0)) / 1000);
     var response = _yahooRequest_(symbol, { period1: start, period2: Math.floor(dateStartMs / 1000) + 172800,
@@ -10133,7 +10145,7 @@ function saveDailyPriceHistory(targetDate, options) {
       try {
         var krxPrev = {};
         try {
-          krxPrev = fetchPricesKrx(items, requestedCloseDate);
+          krxPrev = fetchPricesKrx(items.filter(_isKrxDailyCloseTarget_), requestedCloseDate);
         } catch(krxError) {
           Logger.log('⚠️ 확정 거래일 KRX 조회 실패, GOOGLEFINANCE fallback 계속: ' + krxError.message);
         }
@@ -10141,7 +10153,8 @@ function saveDailyPriceHistory(targetDate, options) {
           return !(krxPrev[item.code] && krxPrev[item.code].price > 0);
         });
         var gfPrev = gfPrevItems.length > 0 && gfPrevItems.some(function(item) {
-          return String(item.currency || 'KRW').toUpperCase() !== 'KRW' && String(item.market || '').toUpperCase() !== 'KR';
+          var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+          return code && !_isFundCode(code) && !_isKrxDailyCloseTarget_(item);
         })
           ? fetchPricesGoogleFinance(gfPrevItems, requestedCloseDate, ss, { skipKrx: true,
               useMarketCloseCutoffs: true, asOf: new Date(requestedCloseDate + 'T19:00:00+09:00') })

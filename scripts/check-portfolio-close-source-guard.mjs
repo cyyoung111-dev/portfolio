@@ -1381,6 +1381,79 @@ assert.equal(symbolVm._yahooEquitySymbol_(catalog[3]),'AAPL','미국 티커 보�
 assert.equal(symbolVm._yahooEquitySymbol_({code:'000700',market:'HK',yahooSymbol:'0700.HK'}),'0700.HK',
   '지정된 공급원 심볼 우선');
 
+// PR #493 follow-up: exercise REAL Yahoo symbol generation and regular close
+// fetch, not the pre-existing stubbed fetchPricesYahooRegularClose path.
+vm.runInContext(extract('_foreignMarketTimeZone_'),symbolVm);
+assert.equal(symbolVm._yahooEquitySymbol_({code:'MSFT',market:'NASDAQ',currency:'KRW'}),'MSFT');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'IBM',market:'NYSE',currency:'KRW'}),'IBM');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'VOD',market:'LSE',currency:'KRW'}),'VOD.L');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'BP.L',market:'UK',currency:'KRW'}),'BP.L');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'7203',market:'TYO',currency:'KRW'}),'7203.T');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'0700',market:'HKG',currency:'KRW'}),'0700.HK');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'SAP.DE',market:'EU',currency:'KRW'}),'SAP.DE');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'SAP',market:'EU',currency:'KRW'}),'',
+  'EU는 거래소가 하나가 아니므로 매핑 추정 대신 명시 심볼을 요구');
+assert.equal(symbolVm._yahooEquitySymbol_({code:'SAP',market:'EU',yahooSymbol:'SAP.DE'}),'SAP.DE');
+assert.equal(symbolVm._foreignMarketTimeZone_({code:'MSFT',market:'NASDAQ',currency:'KRW'}),'America/New_York',
+  'NASDAQ 원화 기본값이어도 뉴욕 정규장 시간');
+assert.equal(symbolVm._foreignMarketTimeZone_({code:'VOD',market:'LSE',currency:'KRW'}),'Europe/London');
+
+const yahooQueries=[];
+const realYahooVm=vm.createContext({
+  _cleanCode:v=>String(v||'').trim().toUpperCase(),
+  _yahooRequest_:(symbol)=>{yahooQueries.push(symbol);return {payload:{}};},
+  _parseYahooChart_:()=>({points:[{date:'2026-10-08',value:123.45}]}),
+  Logger:{log(){}}
+});
+for(const name of ['_yahooEquitySymbol_','_foreignMarketTimeZone_','fetchPricesYahooRegularClose'])
+  vm.runInContext(extract(name),realYahooVm);
+const verifiedSymbols=JSON.parse(JSON.stringify(realYahooVm.fetchPricesYahooRegularClose([
+  {code:'MSFT',market:'NASDAQ',currency:'KRW'},
+  {code:'VOD',market:'UK',currency:'KRW'},
+  {code:'SAP.DE',market:'EU',currency:'KRW'}
+],'2026-10-08',true)));
+assert.deepEqual(yahooQueries,['MSFT','VOD.L','SAP.DE'],
+  '실제 Yahoo 호출부까지 market별 공급자 심볼이 전달되어야 함');
+assert.deepEqual(Object.keys(verifiedSymbols),['MSFT','VOD','SAP.DE']);
+assert.equal(verifiedSymbols.VOD.source,'YAHOO_REGULAR_CLOSE');
+assert.equal(verifiedSymbols.VOD.providerSymbol,'VOD.L');
+assert.equal(verifiedSymbols['SAP.DE'].usedDate,'2026-10-08');
+const beforeUnknownSymbol=yahooQueries.length;
+assert.throws(()=>realYahooVm.fetchPricesYahooRegularClose([
+  {code:'SAP',market:'EU',currency:'KRW'}
+],'2026-10-08',true),/Yahoo 거래소 심볼 미확정/,
+  '유럽 시장 미상 코드는 유효 종가인 척 누락되면 안 됨');
+assert.equal(yahooQueries.length,beforeUnknownSymbol,
+  '미확정 심볼을 임의 Yahoo 종목으로 조회 금지');
+
+// Real saveDailyPriceHistory must start the foreign provider on a US+KRW
+// legacy master row, while never submitting that code to KRX.
+{
+  const bag=new Map(), queries=[];
+  const props={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
+    deleteProperty:k=>bag.delete(k)};
+  const legacyUs={code:'MSFT',market:'NASDAQ',currency:'KRW',type:'주식'};
+  const closeVm=vm.createContext({
+    Date,_snapshotBackupOperationId:'',CONFIG:{TIMEZONE:'Asia/Seoul'},
+    PropertiesService:{getScriptProperties:()=>props},
+    LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
+    Utilities:{formatDate:()=> '2026-10-08 19:00:00'},
+    Logger:{log(){}},getss:()=>({}),today:()=> '2026-10-08',
+    _normalizeDate:x=>String(x||''),_getDailyHeldCodeItems:()=>[legacyUs],
+    getCodeItems:()=>[legacyUs],_krxCalendarStatus_:()=> 'OPEN',
+    fetchPricesKrx:items=>{queries.push('KRX:'+items.length);return {};},
+    fetchPricesGoogleFinance:items=>{queries.push('YAHOO:'+items.map(x=>x.code).join(','));
+      throw new Error('EXPECTED_FOREIGN_PROBE');}
+  });
+  installKrxTarget(closeVm);
+  vm.runInContext(extract('saveDailyPriceHistory'),closeVm);
+  assert.throws(()=>closeVm.saveDailyPriceHistory('2026-10-08'),/EXPECTED_FOREIGN_PROBE/,
+    '해외 상장·KRW 기본화 종목은 실제 가격 저장함수에서 Yahoo를 조회해야 함');
+  assert.deepEqual(queries,['KRX:0','YAHOO:MSFT'],
+    'KRX와 Yahoo 마감 대상은 동일 판정 함수로 정확히 분할');
+}
+console.log('✅ 통합 해외시장 Yahoo 심볼/실제 fetch 및 KRW 기본값 조회 경로 검증');
+
 // PR470 Codex P2: KRX 휴장일 2개 시장 중 1개만 성공해도 저장 공식 종가로 누락 시장만 병합.
 const holidayRows={
   '005930':{price:120000,source:'KRX',usedDate:'2026-10-08'},
