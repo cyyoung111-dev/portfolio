@@ -376,9 +376,9 @@ assert.match(settings, /if \(pendingEmptySyncAtLoad[\s\S]{0,120}typeof _retryPen
   'pending 재시도는 로컬 거래가 생긴 경우에도 실행');
 assert.doesNotMatch(settings, /if \(pendingEmptySyncAtLoad && rawTrades\.length === 0/,
   'pending 재시도를 rawTrades 빈 상태에만 제한하지 않음');
-assert.match(settings, /if \(forcePortfolioRestore\) \{[\s\S]*for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const latePending = _getPendingExplicitEmptyTradeSync\(loadTarget\)[\s\S]*_retryPendingExplicitEmptyTradeSync\([\s\S]*allowDuringRestore: true[\s\S]*preferCurrentPortfolio: rawTrades\.length > 0[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
+assert.match(settings, /if \(forcePortfolioRestore\) \{[\s\S]*for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const latePending = typeof _getPendingExplicitEmptyTradeSync[\s\S]*_getPendingExplicitEmptyTradeSync\(loadTarget\)[\s\S]*if \(\(latePending \|\| lateDirty\) && !Array\.isArray\(bootstrapMasterForRetry\)\)[\s\S]*_retryPendingExplicitEmptyTradeSync\([\s\S]*allowDuringRestore: true[\s\S]*preferCurrentPortfolio: rawTrades\.length > 0[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
   '강제복원 도중 새로 생긴 pending-empty를 authoritative 원격 적용 직전에 반복 재확인');
-assert.match(settings, /for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const lateDirty = _getPortfolioRemoteDirty\(\)[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*targetUrl: loadTarget[\s\S]*allowDuringRestore: true[\s\S]*dirtyPortfolioSyncResolvedAtLoad = true[\s\S]*pendingStillExists[\s\S]*dirtyStillExists[\s\S]*lateAttempt === 5/,
+assert.match(settings, /for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const lateDirty = typeof _getPortfolioRemoteDirty[\s\S]*_getPortfolioRemoteDirty\(\)[\s\S]*const latestDirty = _getPortfolioRemoteDirty\(\)[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*targetUrl: loadTarget[\s\S]*allowDuringRestore: true[\s\S]*dirtyPortfolioSyncResolvedAtLoad = true[\s\S]*pendingStillExists[\s\S]*dirtyStillExists[\s\S]*lateAttempt === 5/,
   '강제복원 직전 pending/dirty를 안정화될 때까지 반복 검증하고 계속 변하면 원격 preflight 적용을 중단');
 assert.match(settings, /const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
   'pending 또는 dirty payload를 방금 서버에 확정한 경우 같은 load에서 오래된 원격 원장을 다시 pull하지 않음');
@@ -402,7 +402,7 @@ assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && r
 assert.match(html, /settings_sync\.js\?v=20261012-10/,'거래동기화 자산 캐시 버전 갱신');
 assert.match(html, /domain\/portfolio\/data\.js\?v=20261012-1/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261013-1/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261013-2/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261012-6/,'현재가 연결 격리 로직 캐시 버전 갱신');

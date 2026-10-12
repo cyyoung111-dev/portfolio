@@ -546,7 +546,7 @@ async function loadSettings(onProgress, options) {
     // allow a dirty source ledger to write to the current target by falling
     // back to the browser's (potentially previous-connection) master.
     // Preserve dirty data and require an upgraded getBootstrap deployment.
-    if (dirtyPortfolioAtLoad && !Array.isArray(bootstrapMasterForRetry)) {
+    if ((dirtyPortfolioAtLoad || pendingEmptySyncAtLoad) && !Array.isArray(bootstrapMasterForRetry)) {
       loadStage = '미동기화 거래·보유 서버 마스터 검증';
       return failLoad('RESTORE_MASTER_UNAVAILABLE');
     }
@@ -924,10 +924,18 @@ async function loadSettings(onProgress, options) {
     // 실제 authoritative 원격 적용 직전에 현재 target 상태가 안정될 때까지 다시 확인합니다.
     if (forcePortfolioRestore) {
       for (let lateAttempt = 0; lateAttempt < 6; lateAttempt++) {
-        if (typeof _getPendingExplicitEmptyTradeSync === 'function'
-            && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
-          const latePending = _getPendingExplicitEmptyTradeSync(loadTarget);
-          if (latePending) {
+        // The initial dirty/pending snapshot can be empty while getBootstrap
+        // awaits the network. Check BOTH live states BEFORE either retry;
+        // a late pending retry may write trades, holdings AND settings.
+        const latePending = typeof _getPendingExplicitEmptyTradeSync === 'function'
+          ? _getPendingExplicitEmptyTradeSync(loadTarget) : null;
+        const lateDirty = typeof _getPortfolioRemoteDirty === 'function'
+          ? _getPortfolioRemoteDirty() : null;
+        if ((latePending || lateDirty) && !Array.isArray(bootstrapMasterForRetry)) {
+          loadStage = '복원 중 새 거래·보유 서버 마스터 검증';
+          return failLoad('RESTORE_MASTER_UNAVAILABLE');
+        }
+        if (latePending && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
             const latePendingResult = await _retryPendingExplicitEmptyTradeSync({
               quiet: true,
               allowDuringRestore: true,
@@ -944,18 +952,15 @@ async function loadSettings(onProgress, options) {
               rawHoldings.length = 0;
               saveHoldings({ skipGsheet: true });
             }
-          }
         }
 
         if (typeof _getPortfolioRemoteDirty === 'function'
             && typeof _restorePortfolioRemoteDirtyPayload === 'function'
             && typeof _retryPortfolioRemoteDirtySync === 'function') {
-          const lateDirty = _getPortfolioRemoteDirty();
-          if (lateDirty) {
-            // Dirty state can arrive while the original restore awaits a read.
-            // A legacy getSettings fallback still cannot authorize this write.
-            if (!Array.isArray(bootstrapMasterForRetry))
-              return failLoad('RESTORE_MASTER_UNAVAILABLE');
+          const latestDirty = _getPortfolioRemoteDirty();
+          if (latestDirty) {
+            // On Bootstrap targets a newly arrived dirty payload can be
+            // reconciled only against the same-server pinned master.
             _restorePortfolioRemoteDirtyPayload();
             if (!isLoadConnectionCurrent()) return false;
             prog('복원 중 새로 생긴 거래·보유 동기화 중...');

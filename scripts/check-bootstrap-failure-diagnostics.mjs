@@ -305,8 +305,73 @@ assert.equal(legacyWrites,0,'legacy fallback must block both trade and holdings 
 assert.match(h.ctx.getGsheetSettingsLoadFailure(),/RESTORE_MASTER_UNAVAILABLE/);
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'legacy block preserves dirty payload for upgraded GAS retry');
 assert.equal(vm.runInContext('_gsBootRestored',h.ctx),false);
-assert.match(read('features/settings/settings.js'),/if \(!Array\.isArray\(bootstrapMasterForRetry\)\)[\s\S]*?return failLoad\('RESTORE_MASTER_UNAVAILABLE'\)/,
-  'late dirty after legacy getSettings must also fail closed without source master');
+const restoreSource = read('features/settings/settings.js');
+const loopStart = restoreSource.indexOf('for (let lateAttempt = 0; lateAttempt < 6; lateAttempt++)');
+const lateMasterGuard = restoreSource.indexOf('if ((latePending || lateDirty) && !Array.isArray(bootstrapMasterForRetry))',loopStart);
+const pendingWriterCall = restoreSource.indexOf('const latePendingResult = await _retryPendingExplicitEmptyTradeSync(',loopStart);
+assert.ok(loopStart > 0 && lateMasterGuard > loopStart && pendingWriterCall > lateMasterGuard,
+  'late pending + dirty master guard must precede any retry writer');
+
+// Regression: pending + dirty created AFTER getBootstrap starts but BEFORE
+// legacy getSettings resolves must not execute the pending writer first.
+// The writer would otherwise POST syncHoldings/syncTrades/saveSettings using
+// stale browser master before late-dirty guard rejects the restore.
+h=setup();
+let releaseBootstrap;
+const legacyLateActions=[];
+h.ctx.requestGsheetActionJson=async action=>{
+  if(action==='getBootstrap')return new Promise(resolve=>{releaseBootstrap=resolve;});
+  legacyLateActions.push(action);
+  if(action==='getSettings')return {...h.response,codes:undefined};
+  if(action==='getTrades')return {status:'ok',trades:[]};
+  if(action==='getHoldings')return {status:'ok',holdings:[]};
+  return {status:'error',errorCode:'UNKNOWN_ACTION'};
+};
+h.ctx.requestGsheetFormJson=async action=>{
+  legacyLateActions.push(action);
+  return {status:'ok',saveState:'success'};
+};
+const inFlightLegacyRestore=h.ctx.loadSettings(null,{forcePortfolioRestore:true});
+assert.equal(typeof releaseBootstrap,'function');
+vm.runInContext(`
+  EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});
+  _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',
+    name:'테스트',code:'005930',qty:1,price:100});
+  rawHoldings.push({name:'테스트',code:'005930',qty:1,cost:100,acct:'계좌'});
+  _setPendingExplicitEmptyTradeSync({target:GSHEET_API_URL,from:'user-delete'});
+  _markPortfolioRemoteDirty();
+`,h.ctx);
+assert.ok(h.ctx._getPendingExplicitEmptyTradeSync(),'late pending setup');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'late dirty setup');
+releaseBootstrap({status:'error',errorCode:'UNKNOWN_ACTION'});
+assert.equal(await inFlightLegacyRestore,false,
+  'legacy getSettings with late pending/dirty must fail closed');
+for(const action of ['syncHoldings','syncTrades','saveSettings'])
+  assert.ok(!legacyLateActions.includes(action),
+    'late pending must not perform '+action+' before pinned master check');
+assert.match(h.ctx.getGsheetSettingsLoadFailure(),/RESTORE_MASTER_UNAVAILABLE/);
+assert.ok(h.ctx._getPendingExplicitEmptyTradeSync(),'retryable late pending retained');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'retryable late dirty retained');
+assert.equal(vm.runInContext('rawTrades.length',h.ctx),1,
+  'local new trade survives refused legacy pull');
+assert.equal(vm.runInContext('_gsBootRestored',h.ctx),false);
+
+// A pending deletion at load start also cannot sync its holdings/trades
+// before an upgraded Bootstrap proves the active connection's master.
+h=setup();
+vm.runInContext(`_setPendingExplicitEmptyTradeSync({target:GSHEET_API_URL,from:'user-delete'});`,h.ctx);
+const noMasterWrites=[];
+h.ctx.requestGsheetActionJson=async action=>action==='getBootstrap'
+  ?{status:'error',errorCode:'UNKNOWN_ACTION'}:{...h.response,codes:undefined};
+h.ctx.requestGsheetFormJson=async action=>{
+  noMasterWrites.push(action);
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),false);
+assert.equal(noMasterWrites.length,0,'initial pending on legacy must not write');
+assert.ok(h.ctx._getPendingExplicitEmptyTradeSync(),'initial pending preserved');
+assert.match(h.ctx.getGsheetSettingsLoadFailure(),/RESTORE_MASTER_UNAVAILABLE/);
 
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');

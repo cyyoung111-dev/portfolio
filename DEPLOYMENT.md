@@ -1,3 +1,11 @@
+## PR #493 레거시 강제 복원 pending/dirty 쓰기 선차단 (2026-10-13 · Draft / 미배포)
+
+- 독립 Codex P1: getBootstrap 대기 중 생성된 `latePending`/`lateDirty`를 구버전 getSettings 폴백에서 처리할 때, pending 재시도가 마스터 검증 전에 syncHoldings/syncTrades/saveSettings를 호출할 수 있습니다.
+- 최신 통합 후보는 load 시작 시점에 있던 pending/dirty와 강제 복원 중 늦게 도착한 pending/dirty 모두에 대해 **동일 연결의 getBootstrap 코드 마스터 배열 존재**를 원격 쓰기 이전에 검사합니다. 검증 실패 시 RESTORE_MASTER_UNAVAILABLE로 중단, 로컬 거래/보유 및 pending/dirty payload를 삭제하지 않습니다.
+- 실제 브라우저 스크립트 순서로 구버전 응답+대기 중 새 거래·보유+pending/dirty를 주입하는 회귀검사 및 초기 pending 단독 회귀검사를 추가했습니다. syncHoldings/syncTrades/saveSettings 0회, 복구 플래그 보존을 검사합니다.
+- 배포 캐시: settings.js 20261013-2, service worker 및 cache 20261013-2. 통합 목적은 한국장과 미국장 원장 보호이며 제3국 시장 시세 확장은 수행하지 않습니다.
+- Draft 유지. main 또는 원본 PR #489~#492 병합, GAS 배포 및 실데이터 쓰기는 하지 않습니다.
+
 ## PR #493 통합 자체검토: 레거시 원장 쓰기 차단·KRX 저장 상태 게이트 (2026-10-13, 미배포)
 
 - P1: getBootstrap를 지원하지 않는 구버전 GAS가 getSettings로 fallback하여도 동일 연결의 코드 마스터를 신뢰할 수 없으므로, dirty 거래원장·보유 재전송을 **쓰기 전** 차단합니다. load 도중 새 dirty가 들어오는 경합도 동일 차단. 원본 dirty는 보존하고 서버 GAS 업그레이드 후 다시 검증해야 합니다.
