@@ -445,6 +445,18 @@ async function saveTossConfigFromUI() {
   }
 }
 
+// PC·모바일의 로컬 GAS 연결 설정을 비교하되 토큰·URL 쿼리·배포 ID 전체는 노출하지 않습니다.
+function _tossConnectionSummary_(rawUrl, hasAccessToken) {
+  let endpoint = 'URL 미설정';
+  try {
+    const url = new URL(String(rawUrl || '').trim());
+    const match = url.pathname.match(/\/macros\/s\/([^/]+)\/(exec|dev)\/?$/);
+    endpoint = match ? `${url.hostname} / 배포 …${match[1].slice(-8)} /${match[2]}`
+      : `${url.hostname} / GAS 경로 확인 필요`;
+  } catch (_) {}
+  return `${endpoint} / GAS 접근토큰 ${hasAccessToken ? '설정됨' : '미설정'}`;
+}
+
 async function diagnoseTossFromUI() {
   if (!GSHEET_API_URL) return;
   const target = $el('tossDiagnosticResult');
@@ -462,7 +474,12 @@ async function diagnoseTossFromUI() {
       ].filter(Boolean);
       return ids.length ? ` / ${ids.join(' / ')}` : '';
     };
-    const lines = [`${egress.ok ? '🔎' : '⚠️'} GAS egress 관측: ${egress.status ?? '-'} / ${egress.code || 'ERROR'}${egress.ipFamily ? ` / ${egress.ipFamily}` : ''} / ${egress.ip || 'IP 없음'}${egress.provider ? ` / ${egress.provider}` : ''} / ${Number(egress.elapsedMs || 0)}ms`,
+    const sourceLabel = oauth.source === 'CACHE' ? '기존 토큰 재사용(신규 발급 없음)'
+      : (oauth.source === 'NETWORK' ? '새 OAuth 요청' : '토큰 출처 미확인');
+    const connectionInfo = _tossConnectionSummary_(GSHEET_API_URL, !!getGsheetAccessToken());
+    const lines = [`GAS 연결: ${connectionInfo} / 서버 v${String(data.gasVersion || '미확인')}`,
+      `OAuth 실행 방식: ${sourceLabel}`,
+      `${egress.ok ? '🔎' : '⚠️'} GAS egress 관측: ${egress.status ?? '-'} / ${egress.code || 'ERROR'}${egress.ipFamily ? ` / ${egress.ipFamily}` : ''} / ${egress.ip || 'IP 없음'}${egress.provider ? ` / ${egress.provider}` : ''} / ${Number(egress.elapsedMs || 0)}ms`,
       `${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''}${idSuffix(oauth)} / ${Number(oauth.elapsedMs || 0)}ms`];
     if (!egress.ok && Array.isArray(egress.attempts) && egress.attempts.length) {
       lines.push(...egress.attempts.map(item => '  ↳ ' + (item.provider || 'provider') + ': ' + (item.status ?? '-') + ' / ' + (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) + (item.contentType ? ' / ' + item.contentType : '') + ' / ' + Number(item.elapsedMs || 0) + 'ms'));
@@ -479,11 +496,11 @@ async function diagnoseTossFromUI() {
       : (oauthAccessDenied ? `\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.${observedIpGuide}`
       : (oauthUnidentified ? '\n\nOAuth 401 unidentified-client · 위 request/reference/edge ID를 함께 기록해 Toss 측 인증 거부 원인을 확인하세요. Wi-Fi에서 동일 자격증명이 정상이라면 IP 허용 403과는 별도 문제입니다.'
       : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : '')));
-    const caveat = '\n\n※ GAS egress 관측값은 외부 IP 확인 서비스가 본 참고값입니다. Toss 요청의 실제 출구 IP와 동일하다고 보장되지 않습니다.';
+    const caveat = '\n\n※ CACHE 출처의 OAuth 응답은 신규 인증 요청 결과가 아니라 기존 토큰을 재사용한 것입니다. PC/모바일의 GAS 배포·접근토큰 유무를 비교하세요.\n※ GAS egress 관측값은 외부 IP 확인 서비스가 본 참고값입니다. Toss 요청의 실제 출구 IP와 동일하다고 보장되지 않습니다.';
     if (target) target.innerHTML = _escapeHtml(lines.join('\n') + guide + caveat);
     _renderTossConfigStatus({ ...(window.GAS_API_KEY_STATUS?.toss || {}), lastDiagnosticAt: data.generatedAt, lastDiagnosticOk: !!data.ok, lastDiagnosticCode: data.ok ? 'OK' : (!oauth.ok ? oauth.code : ((data.endpoints || []).find(item => !item.ok)?.code || smoke.code || 'ERROR')) });
   } catch (error) {
-    if (target) target.textContent = '❌ Toss 진단 실패: ' + (error.message || '응답 오류');
+    if (target) target.textContent = '❌ Toss 진단 실패: ' + (error.message || '응답 오류') + '\nGAS 연결: ' + _tossConnectionSummary_(GSHEET_API_URL, !!getGsheetAccessToken());
   }
 }
 
