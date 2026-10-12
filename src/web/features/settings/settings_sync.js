@@ -318,6 +318,20 @@ async function syncTradesToGsheet(options) {
   // 확인된 마지막 거래 삭제 경로가 전달한 1회성 allowEmpty만 예외입니다.
   if (sourceTrades.length === 0 && !allowEmpty) return;
   try {
+    // Bootstrap's code list belongs to the same authenticated connection and
+    // is available BEFORE EDITABLE_PRICES is restored. A pending trade retry
+    // must not treat a complete server master as missing merely because the
+    // browser's in-memory master has not yet been applied.
+    const restoreMaster = options?.allowDuringRestore === true
+      && Array.isArray(options?.masterCodesOverride) ? options.masterCodesOverride : null;
+    const serverByCode = new Map(), serverByName = new Map();
+    (restoreMaster || []).forEach(item => {
+      const code = _normalizeSyncCode(item?.code || '');
+      const name = String(item?.name || '').trim();
+      if (!code || !name) return;
+      serverByCode.set(code, item);
+      serverByName.set(name, item);
+    });
     const unmatchedTrades = [];
     const trades = sourceTrades
       .filter(t => t.name && t.tradeType && t.date)
@@ -325,28 +339,38 @@ async function syncTradesToGsheet(options) {
         const tCode = _normalizeSyncCode(t.code || '');
         const epByCode = tCode ? getEPByCode(tCode) : null;
         const epByName = getEP(t.name);
+        // A known server code/name is a valid restoration match even if the
+        // local master is still empty. Local canonical data wins when present.
+        const remote = serverByCode.get(tCode) || serverByName.get(String(t.name || '').trim());
         const ep = epByCode || epByName;
-        if (!ep) {
+        if (!ep && !remote) {
           unmatchedTrades.push({ date: t.date || '', name: t.name || '', code: tCode || '' });
         }
-        // ★ 기초정보 우선: 거래이력 코드가 달라도 EDITABLE_PRICES 기준 코드로 정규화
-        const baseCode = ep?.code || STOCK_CODE[ep?.name || t.name] || '';
+        const baseCode = ep?.code || remote?.code || STOCK_CODE[ep?.name || t.name] || '';
         const code = _normalizeSyncCode(baseCode || t.code || '');
         return {
           date:      t.date,
           tradeType: t.tradeType,
           acct:      t.acct      || '',
-          // ★ 코드가 같은데 이름이 다르면 기초정보 이름으로 통일
-          name:      ep?.name || t.name,
+          name:      ep?.name || remote?.name || t.name,
           code:      code,
           qty:       t.qty       || 0,
           price:     t.price     || 0,
-          assetType: getEPType(ep, t.assetType || '주식'),
+          assetType: getEPType(ep, remote?.type || t.assetType || '주식'),
           memo:      t.memo      || '',
         };
       });
     // 유효한 원본 거래가 있는데 필터 결과만 0건인 경우와 권한 없는 빈 상태는 전체 삭제를 막습니다.
     if (trades.length === 0 && (sourceTrades.length > 0 || !allowEmpty)) return;
+    // A master supplied by this very Bootstrap is authoritative for the retry.
+    // Unknown transactions must not be silently committed to the server. Keep
+    // the dirty payload for a later recovery; other callers preserve their
+    // previous unmatched-warning behavior.
+    if (restoreMaster && unmatchedTrades.length) {
+      _syncWarn('[거래이력 동기화] 서버 기초정보 확인 실패 · 저장 보류:',
+        unmatchedTrades.map(t => ({ name:t.name, code:t.code })));
+      return { status:'error', errorCode:'RESTORE_MASTER_UNMATCHED', saveState:'failed' };
+    }
     if (unmatchedTrades.length > 0) {
       const uniq = Array.from(new Set(unmatchedTrades.map(t => `${t.name}|${t.code}`)));
       _syncWarn('[거래이력 동기화] 기초정보 미매칭 거래 포함:', unmatchedTrades);
