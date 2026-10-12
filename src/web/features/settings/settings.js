@@ -1085,6 +1085,12 @@ async function bootstrapGsheetSettings() {
     } finally {
       try { refreshAll(); } catch(e) {}
       try { if (typeof _mgmtRefresh === 'function') _mgmtRefresh(); } catch(e) {}
+      // A stock-management view opened during bootstrap may have disabled
+      // controls. Rebuild it only after a same-connection restore succeeds.
+      if (_gsBootRestored && isGsheetConnectionCurrent(bootTarget, bootGeneration)
+          && typeof currentView !== 'undefined' && currentView === 'stocks') {
+        try { if (typeof renderView === 'function') renderView(); } catch(e) {}
+      }
     }
   })();
 

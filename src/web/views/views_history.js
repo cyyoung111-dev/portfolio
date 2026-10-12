@@ -824,4 +824,44 @@ function renderStocksView(area) {
   buildAcctMgmt();
   buildStockMgmt();
   buildSectorMgmt();
+
+  // Empty stock management is not proof that the remote master has no rows.
+  // Retry only a read-only getCodeList; never sync a zero-stock local state.
+  if (!EDITABLE_PRICES.length && GSHEET_API_URL
+      && typeof recoverMissingStockMasterReadOnly === 'function') {
+    const msg = $el('smMgmtMsg');
+    if (msg) msg.textContent = '서버 종목코드 읽기 전용 복원 확인 중...';
+    void recoverMissingStockMasterReadOnly().then(count => {
+      // The user may have left this view while the asynchronous fetch ran.
+      if (!$el('stockMgmtBody') || !$el('sectorMgmtBody')) return;
+      const currentMsg = $el('smMgmtMsg');
+      if (count > 0 && EDITABLE_PRICES.length > 0) {
+        // Sector, asset-type and currency derived rows were calculated from
+        // the empty initial master. Invalidate those calculations too.
+        try {
+          if (typeof _mgmtRefresh === 'function') _mgmtRefresh();
+          else if (typeof recomputeRows === 'function') recomputeRows();
+        } catch (error) {
+          console.warn('[stock master read-only recovery] derived rows refresh failed:', error);
+        }
+        buildStockMgmt();
+        buildSectorMgmt();
+        if (currentMsg) {
+          const fullRestoreDone = typeof _gsBootRestored !== 'undefined'
+            && _gsBootRestored && !_gsPortfolioRestoreRequired;
+          currentMsg.textContent = fullRestoreDone
+            ? '서버 종목코드 ' + count + '개 복원 완료 · 거래/보유 원장은 변경하지 않았습니다.'
+            : '서버 종목코드 ' + count + '개 읽기 전용 임시 복원 · 전체 설정 복원 미완료: 변경·저장하지 말고 연결 복원 상태를 확인하세요.';
+          currentMsg.style.color = fullRestoreDone ? 'var(--green-lt)' : 'var(--amber)';
+        }
+      } else if (currentMsg) {
+        currentMsg.textContent = _gsPortfolioRestoreRequired
+          ? '전체 거래·보유 복원이 미완료되어 기초정보 적용을 보류했습니다.'
+          : '서버 종목코드 조회가 실패했습니다. 저장·초기화하지 말고 연결 상태를 확인하세요.';
+      }
+    }).catch(() => {
+      const currentMsg = $el('smMgmtMsg');
+      if (currentMsg) currentMsg.textContent = '서버 기초정보 조회 실패 · 원본 데이터 변경 없음';
+    });
+  }
 }

@@ -162,6 +162,9 @@ function buildStockMgmt() {
 
   container.innerHTML = html;
   _bindStockMgmtEvents(container);
+  if (typeof isStockMasterWriteBlocked === 'function' && isStockMasterWriteBlocked()) {
+    container.querySelectorAll('input,button').forEach(control => { control.disabled = true; });
+  }
 }
 function _bindStockMgmtEvents(container) {
   const sortDiv = $el('stockMgmtSort');
@@ -182,7 +185,7 @@ function _bindStockMgmtEvents(container) {
   if (container._delegatedBound) return;
   container._delegatedBound = true;
 
-  container.addEventListener('click', function(e) {
+  container.addEventListener('click', async function(e) {
     const target = e.target;
 
     const typeBtn = target?.closest?.('button[data-sm-type]');
@@ -244,7 +247,10 @@ function _bindStockMgmtEvents(container) {
 
     if (target?.id === 'smSaveBtn') {
       e.preventDefault();
-      smSave(container._selectedIdx);
+      const editIdx = container._selectedIdx;
+      const saved = await smSave(editIdx);
+      // Do not report an async cancellation or a failed code lookup as saved.
+      if (saved !== true || $el('stockMgmtBody') !== container) return;
       container._editMode = false;
       container._selectedIdx = null;
       buildStockMgmt(); // ★ 상태 리셋 후 호출 → 편집 폼 없이 목록만 렌더링
@@ -273,6 +279,7 @@ function _bindStockMgmtEvents(container) {
 }
 // 즉시 삭제 + 저장
 function smDelete(idx) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   if(idx === null || idx === undefined) return;
   // confirm 전에 스냅샷 (DOM 재렌더 후에도 안전)
   const snapItem = EDITABLE_PRICES[idx] ? {...EDITABLE_PRICES[idx]} : null;
@@ -384,10 +391,13 @@ async function _smValidateListedCode(code, assetType, currency) {
 }
 
 function smCsvImport(input) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = captureStockMasterEditSession();
   const file = input.files[0];
   if (!file) return;
   input.value = '';
   parseUploadFile(file, async (headers, rows) => {
+    if (!isStockMasterEditSessionCurrent(editSession)) return;
     const col = {
       name:   headers.findIndex(h => h === '종목명'),
       code:   headers.findIndex(h => h === '종목코드'),
@@ -400,46 +410,57 @@ function smCsvImport(input) {
 
     const VALID_TYPES = ['주식','ETF','펀드','TDF'];
     let added = 0, skipped = 0, updated = 0;
+    const validatedRows = [];
 
+    // Do not mutate any item until every async official-code lookup finished.
     for (const cols of rows) {
-      const name   = col.name   >= 0 ? cols[col.name]   || '' : '';
-      const codeRaw = col.code   >= 0 ? cols[col.code]   || '' : '';
-      const code   = normalizeStockCode(codeRaw);
-      const type   = col.type   >= 0 ? cols[col.type]   || '주식' : '주식';
+      const name = col.name >= 0 ? cols[col.name] || '' : '';
+      const code = normalizeStockCode(col.code >= 0 ? cols[col.code] || '' : '');
+      const type = col.type >= 0 ? cols[col.type] || '주식' : '주식';
       const sector = col.sector >= 0 ? cols[col.sector] || '기타' : '기타';
       const currency = (col.currency >= 0 ? cols[col.currency] || 'KRW' : 'KRW').toUpperCase();
       const market = (col.market >= 0 ? cols[col.market] || '' : '').toUpperCase();
       if (!name) { skipped++; continue; }
       const assetType = VALID_TYPES.includes(type) ? type : '주식';
-      // ★ 주식·ETF는 종목코드 필수, 코드 입력 시 영문+숫자 혼합 포함 6자리 강제
       if (!_smIsCustomCodeType(assetType) && code && code.length !== 6) { skipped++; continue; }
       if (!code && (assetType === '주식' || assetType === 'ETF')) { skipped++; continue; }
-      const isFund = _smIsCustomCodeType(assetType);
-      const existing  = EDITABLE_PRICES.findIndex(ep => ep.name === name);
-      const duplicate = !isFund ? _smFindDuplicateCode(code, existing >= 0 ? EDITABLE_PRICES[existing] : null) : null;
-      if (duplicate) { skipped++; continue; }
       if (!['','KR','US','OTHER'].includes(market)) { skipped++; continue; }
       const validation = await _smValidateListedCode(code, assetType, currency);
+      if (!isStockMasterEditSessionCurrent(editSession)) return;
       if (!validation.ok) { skipped++; continue; }
+      validatedRows.push({name,code,type,sector,currency,market,assetType,
+        isFund:_smIsCustomCodeType(assetType)});
+    }
+
+    // Synchronous commit: connection changes cannot interleave between rows.
+    if (!isStockMasterEditSessionCurrent(editSession)) return;
+    for (const item of validatedRows) {
+      const {name,code,type,sector,currency,market,assetType,isFund} = item;
+      const existing = EDITABLE_PRICES.findIndex(ep => ep.name === name);
+      const duplicate = !isFund
+        ? _smFindDuplicateCode(code, existing >= 0 ? EDITABLE_PRICES[existing] : null)
+        : null;
+      if (duplicate) { skipped++; continue; }
       if (existing >= 0) {
-        if (code)   EDITABLE_PRICES[existing].code      = code;
-        if (type)   EDITABLE_PRICES[existing].assetType = assetType;
-        if (sector) EDITABLE_PRICES[existing].sector    = sector;
+        if (code) EDITABLE_PRICES[existing].code = code;
+        if (type) EDITABLE_PRICES[existing].assetType = assetType;
+        if (sector) EDITABLE_PRICES[existing].sector = sector;
         EDITABLE_PRICES[existing].currency = currency;
         EDITABLE_PRICES[existing].market = market;
-        if (isFund) EDITABLE_PRICES[existing].fund      = true;
+        if (isFund) EDITABLE_PRICES[existing].fund = true;
         updated++;
       } else {
-        epPush(name, code, assetType);
-        const newIdx = EDITABLE_PRICES.length - 1;
-        EDITABLE_PRICES[newIdx].sector = sector || '기타';
-        EDITABLE_PRICES[newIdx].fund   = isFund;
-        EDITABLE_PRICES[newIdx].currency = currency;
-        EDITABLE_PRICES[newIdx].market = market;
+        epPush(name,code,assetType);
+        const idx = EDITABLE_PRICES.length-1;
+        EDITABLE_PRICES[idx].sector = sector || '기타';
+        EDITABLE_PRICES[idx].fund = isFund;
+        EDITABLE_PRICES[idx].currency = currency;
+        EDITABLE_PRICES[idx].market = market;
         added++;
       }
       if (code && name) STOCK_CODE[name] = normalizeStockCode(code);
     }
+    if (typeof _invalidateEPIndex === 'function') _invalidateEPIndex();
 
     saveHoldings();
     buildStockMgmt();
@@ -451,6 +472,7 @@ function smCsvImport(input) {
 
 // 종목 추가 팝업 열기/닫기/확인
 function smMgmtAddNew() {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const wrap = $el('smMgmtNewWrap');
   if(wrap) { wrap.style.display = 'block'; }
   _smRenderTypeButtons('주식');
@@ -518,6 +540,8 @@ function smMgmtCancel() {
 }
 
 async function smMgmtConfirm() {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = captureStockMasterEditSession();
   let name        = ($el('smMgmtNewName')?.value || '').trim();
   const code      = normalizeStockCode(($el('smMgmtNewCode')?.value || '').trim());
   const assetType = $el('smMgmtNewType')?.value || '주식';
@@ -528,6 +552,7 @@ async function smMgmtConfirm() {
   if(!name && code && typeof lookupNameByCode === 'function') {
     showMgmtMsg('smMgmtMsg','⏳ 종목코드로 공식 종목명 조회 중...',false);
     name = await lookupNameByCode(code);
+    if (!isStockMasterEditSessionCurrent(editSession)) return false;
     const nameInput = $el('smMgmtNewName');
     if (nameInput && name) nameInput.value = name;
   }
@@ -543,6 +568,7 @@ async function smMgmtConfirm() {
   }
   showMgmtMsg('smMgmtMsg','⏳ 종목코드 확인 중...',false);
   const validation = await _smValidateListedCode(code, assetType, currency);
+  if (!isStockMasterEditSessionCurrent(editSession)) return false;
   if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   const isFund = (assetType === '펀드' || assetType === 'TDF');
   // ★ [환율 연동] currency 필드 포함 저장 (KRW면 생략)
@@ -617,6 +643,8 @@ function _smRenameStockItem(item, newName) {
 
 // 즉시 저장 (DOM 재생성 없이 데이터만 갱신)
 async function smSave(idx) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = captureStockMasterEditSession();
   const item = EDITABLE_PRICES[idx];
   if(!item) return;
   const newName = (document.querySelector(`.sm-name-inp[data-idx="${idx}"]`)?.value || '').trim();
@@ -641,6 +669,7 @@ async function smSave(idx) {
     const validation = await _smValidateListedCode(newCode, newType, newCurrency);
     if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   }
+  if (!isStockMasterEditSessionCurrent(editSession)) return false;
   if(newName !== item.name) {
     if (!_smRenameStockItem(item, newName)) return;
   }
@@ -699,5 +728,6 @@ async function smSave(idx) {
     if(typeof _refreshTeCodeList === 'function') _refreshTeCodeList($el('te-name')?.value, $el('te-code')?.value);
   }
   _mgmtRefresh();
-  // ★ buildStockMgmt()는 호출하지 않음 — 상태 리셋 후 mousedown 핸들러에서 호출
+  return true;
+  // buildStockMgmt is called by the click handler on success.
 }
