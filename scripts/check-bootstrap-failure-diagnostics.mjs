@@ -85,6 +85,7 @@ assert.equal(h.writes,0);
 
 // Exercise actual request transport: token reads use POST without invoking a write action.
 h=setup();
+h.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
 vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});
   _invalidateEPIndex();
   rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
@@ -138,6 +139,22 @@ assert.equal(remoteTrades.length,1,'complete trade list submitted');
 assert.equal(remoteTrades[0].code,'005930','canonical server code with leading zero');
 assert.equal(issueWrites,0,'known trade should not create spurious unmatched issue logs');
 assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'verified retry clears its dirty marker');
+
+// Cross-connection master conflict: the exact same server code must win
+// over the stale, differently coded local name while retrying this target.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'000660',assetType:'주식'});
+  _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let conflictPayload=null;
+h.ctx.requestGsheetFormJson=async(action,params)=>{
+  if(action==='syncTrades')conflictPayload=JSON.parse(params.data);
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),true);
+assert.equal(conflictPayload?.[0]?.code,'005930','stale local stock master cannot rewrite server-confirmed code');
 
 // Server master disagrees with the local un-restored ledger: fail closed before
 // overwriting any source trades, while preserving the retryable dirty payload.
