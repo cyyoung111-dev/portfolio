@@ -4,6 +4,7 @@
 //  v9.196 변경사항 (2026.10.12):
 //   K200 야간선물 기본키 HTTP 401/403에만 보조 인증키로 동일 거래일 재조회
 //   VKOSPI 배치 중 인증 거부된 날짜만 보조키 재조회, 성공 결과와 요청일 검증 보존
+//   일부 날짜 인증 복구 실패 시 정상 날짜는 반환하고 부분 결과 캐시를 금지해 재시도 보존
 //   인증키·시트 원본 변경 없음; 보조키 endpoint 승인과 운영 복구는 배포 전 별도 확인
 //
 //  v9.195 변경사항 (2026.10.12):
@@ -5017,7 +5018,7 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
   var endpoint = 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd';
   var pointsByDate = {};
   var batchSize = 50;
-  var authFailed = false;
+  var authFailedDates = [];
 
   for (var start = 0; start < ymDates.length; start += batchSize) {
     var batch = ymDates.slice(start, start + batchSize);
@@ -5051,7 +5052,7 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
     }
     responses.forEach(function(resp, idx) {
       var status = resp.getResponseCode();
-      if (status === 401 || status === 403) authFailed = true;
+      if (status === 401 || status === 403) authFailedDates.push(batch[idx]);
       if (status >= 400) return;
       var json;
       try { json = JSON.parse(resp.getContentText() || '{}'); } catch(e) { return; }
@@ -5069,12 +5070,12 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
     });
   }
 
-  if (authFailed) throw new Error('KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.');
-
   var points = Object.keys(pointsByDate).sort().map(function(date) {
     return { date: date, value: pointsByDate[date] };
   });
-  if (points.length > 0) {
+  if (authFailedDates.length && !points.length) throw new Error('KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.');
+  if (authFailedDates.length) Logger.log('[KRX-VKOSPI] 인증 미복구 날짜 ' + authFailedDates.length + '건, 정상 날짜 보존 및 다음 조회 재시도');
+  if (points.length > 0 && !authFailedDates.length) {
     try { cache.put(cacheKey, JSON.stringify(points), 21600); } catch(e) { /* 캐시 용량 초과는 무시 */ }
   }
   return points;
