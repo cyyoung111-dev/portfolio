@@ -72,7 +72,7 @@ assert.equal(health.credentialSource,'UNKNOWN','legacy GAS does not advertise au
 const authShadow=summarizeKrxSource({...payload('2026-10-08'),
  credentialSource:'krx_auth_key',alternativeConfigured:true,
  alternateProbe:{httpStatus:200,hasRows:true},
- markets:markers.map(x=>({...x,httpStatus:401,rows:0,parseStatus:'NOT_PARSED'}))},'2026-10-08');
+ markets:markers.map(x=>({...x,httpStatus:401,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED'}))},'2026-10-08');
 assert.equal(authShadow.healthy,false,'authenticated alternate probe does not validate active data');
 assert.equal(authShadow.credentialSource,'krx_auth_key');
 assert.equal(authShadow.alternativeConfigured,true);
@@ -119,7 +119,7 @@ assert.ok(!JSON.stringify(partialApproval).includes('SECRET_'));
 assert.deepEqual(health.markets.map(x=>x.market),['KOSPI','KOSDAQ','ETF']);
 assert.ok(!JSON.stringify(health).includes(key));
 assert.equal(summarizeKrxSource({...payload('2026-10-08'),markets:markers.map(x=>x.market==='ETF'
- ?{...x,httpStatus:401,parseStatus:'NOT_PARSED',rows:0}:x)},'2026-10-08').healthy,false);
+ ?{...x,httpStatus:401,parseStatus:'NOT_PARSED',rows:0,exactDateRows:0}:x)},'2026-10-08').healthy,false);
 assert.equal(summarizeKrxSource({status:'ok',requestedDate:'2026-10-08',keyConfigured:false,markets:[]},'2026-10-08').healthy,false);
 assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),markets:[markers[0],markers[0],markers[2]]},'2026-10-08'),/INVALID_MARKET_LIST/);
 assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),markets:[null,markers[1],markers[2]]},'2026-10-08'),/INVALID_MARKET_LIST/,
