@@ -301,6 +301,15 @@ async function syncHoldingsToGsheet(options) {
 // Pure preflight before a restore retry starts ANY remote holdings/trades
 // writes. A partial or mismatched pinned ledger cannot be posted while the
 // second concurrent request modifies holdings.
+// Code-less TDF/direct-fund transactions are legal ledger entries but GAS
+// getCodeItems returns only assets with a stock code. Never impose the coded
+// stock-master invariant on those entries, and never use this exception when
+// any code (including an unknown one) is supplied.
+function isCodeLessDirectFundTrade(t) {
+  const type = String(t?.assetType || t?.type || '').trim().toUpperCase();
+  return !_normalizeSyncCode(t?.code || '') && (type === 'TDF' || type === '펀드' || type === 'FUND');
+}
+
 function isPinnedRestoreTradeMasterComplete(trades, codes) {
   if (!Array.isArray(trades) || !Array.isArray(codes)) return false;
   const codeSet = new Set(), nameSet = new Set();
@@ -313,6 +322,7 @@ function isPinnedRestoreTradeMasterComplete(trades, codes) {
   });
   return trades.every(t => {
     if (!t?.name || !t.tradeType || !t.date) return false;
+    if (isCodeLessDirectFundTrade(t)) return true;
     const code = _normalizeSyncCode(t.code || '');
     return code ? codeSet.has(code) : nameSet.has(String(t.name).trim());
   });
@@ -359,30 +369,36 @@ async function syncTradesToGsheet(options) {
         const tCode = _normalizeSyncCode(t.code || '');
         const epByCode = tCode ? getEPByCode(tCode) : null;
         const epByName = getEP(t.name);
+        const isDirectFund = !!restoreMaster && isCodeLessDirectFundTrade(t);
         // A known server code/name is a valid restoration match even if the
         // local master is still empty. Local canonical data wins when present.
         // A supplied but unknown code must never be silently reassigned by
         // a coincidentally matching name. Only code-less trades use name lookup.
-        const remote = (tCode ? serverByCode.get(tCode) : null)
-          || (!tCode ? serverByName.get(String(t.name || '').trim()) : null);
+        const remote = isDirectFund ? null
+          : ((tCode ? serverByCode.get(tCode) : null)
+            || (!tCode ? serverByName.get(String(t.name || '').trim()) : null));
         // During an authoritative retry the browser's local master may
         // belong to the previous connection. Never let that local value
         // override a code verified from this connection's Bootstrap result.
         const ep = restoreMaster ? null : (epByCode || epByName);
-        if (!ep && !remote) {
+        if (!ep && !remote && !isDirectFund) {
           unmatchedTrades.push({ date: t.date || '', name: t.name || '', code: tCode || '' });
         }
-        const baseCode = ep?.code || remote?.code || STOCK_CODE[ep?.name || t.name] || '';
-        const code = _normalizeSyncCode(baseCode || t.code || '');
+        // Do not import a stale browser STOCK_CODE into legitimate code-less
+        // fund trades, even when a code-bearing stock shares the same name.
+        const baseCode = isDirectFund ? ''
+          : (ep?.code || remote?.code || STOCK_CODE[ep?.name || t.name] || '');
+        const code = isDirectFund ? '' : _normalizeSyncCode(baseCode || t.code || '');
         return {
           date:      t.date,
           tradeType: t.tradeType,
           acct:      t.acct      || '',
-          name:      ep?.name || remote?.name || t.name,
+          name:      isDirectFund ? t.name : (ep?.name || remote?.name || t.name),
           code:      code,
           qty:       t.qty       || 0,
           price:     t.price     || 0,
-          assetType: getEPType(ep, remote?.type || t.assetType || '주식'),
+          assetType: isDirectFund ? (t.assetType || t.type || '펀드')
+            : getEPType(ep, remote?.type || t.assetType || '주식'),
           memo:      t.memo      || '',
         };
       });
