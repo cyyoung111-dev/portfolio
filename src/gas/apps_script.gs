@@ -2104,7 +2104,7 @@ function _foreignMarketTimeZone_(item) {
 // No guessed holiday dates for other markets or unlisted years.
 // https://www.nyse.com/trade/hours-calendars
 var FOREIGN_US_EQUITY_CLOSED_DATES_ = {
-  '2025': ['01-01','01-20','02-17','04-18','05-26','06-19','07-04','09-01','11-27','12-25'],
+  '2025': ['01-01','01-09','01-20','02-17','04-18','05-26','06-19','07-04','09-01','11-27','12-25'],
   '2026': ['01-01','01-19','02-16','04-03','05-25','06-19','07-03','09-07','11-26','12-25'],
   '2027': ['01-01','01-18','02-15','03-26','05-31','06-18','07-05','09-06','11-25','12-24'],
   // NYSE explicitly does not observe a New Year's Day closure in 2028.
@@ -9668,6 +9668,21 @@ function _isKrxDailyCloseTarget_(item) {
   return currency === 'KRW' && !overseas;
 }
 
+// This portfolio's automatic close supports Korean and US-listed equities only.
+// Other exchanges must never silently carry stale Yahoo prices through Snapshot.
+function _assertSupportedDailyCloseMarkets_(items) {
+  (items || []).forEach(function(item) {
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    if (!code || _isFundCode(code) || _isKrxDailyCloseTarget_(item)) return;
+    var market = String(item && item.market || '').trim().toUpperCase();
+    var currency = String(item && item.currency || 'KRW').trim().toUpperCase();
+    if (['US','USA','NYSE','NASDAQ','AMEX','OTC'].indexOf(market) >= 0 ||
+        (!market && currency === 'USD')) return;
+    throw new Error('자동 마감 미지원 해외시장: ' + code + ' (market=' + market +
+      ', currency=' + currency + ') · 현재 한국/미국 주식시장만 지원');
+  });
+}
+
 function _assessDailyKrxStockClose(items, prices, requestedDate) {
   var listed = (items || []).filter(_isKrxDailyCloseTarget_);
   if (!listed.length) return { required:false, date:'', confirmed:0, expected:0 };
@@ -10186,8 +10201,10 @@ function saveDailyPriceHistory(targetDate, options) {
     var confirmedSnapshotRows = [];
 
     var allItems = getCodeItems(ss);
-    if (!targetDate) _seedMissingKrxCloseDates_(ss, props, requestedCloseDate, allItems);
     var items = _getDailyHeldCodeItems(ss, requestedCloseDate, allItems);
+    // Validate all held exchanges before retry queues, prices or Snapshot writes.
+    _assertSupportedDailyCloseMarkets_(items);
+    if (!targetDate) _seedMissingKrxCloseDates_(ss, props, requestedCloseDate, allItems);
     // 마스터에 남은 전량매도·폐지 종목은 KRX 종가 확보율의 분모에서 제외합니다.
     Logger.log('[saveDailyPriceHistory] 종목코드 마스터 ' + allItems.length
       + '건, 해당 거래일 실보유 종목 ' + items.length + '건');

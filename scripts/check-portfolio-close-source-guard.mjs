@@ -1119,6 +1119,10 @@ vm.runInContext(extract('_foreignConfirmedExchangeHoliday_'),marketVm);
 vm.runInContext(extract('_foreignMarketRegularCloseCutoff_'),marketVm);
 const deadline=(item)=>marketVm._foreignMarketRegularCloseCutoff_(item,new Date());
 assert.equal(deadline({code:'AAPL',currency:'USD',market:'US'}),'2026-10-07','미국 전일 완료 세션');
+ctx.NY={date:'2025-01-10',hour:6};
+assert.equal(deadline({code:'AAPL',currency:'USD',market:'NASDAQ'}),'2025-01-08',
+  '2025-01-09 카터 국가애도 임시휴장 뒤 01-08이 최종 완료 세션');
+
 assert.equal(deadline({code:'7203',currency:'JPY',market:'JP'}),'2026-10-08','일본 당일 완료 세션');
 assert.equal(deadline({code:'0700',currency:'HKD',market:'HK'}),'2026-10-08','홍콩 당일 완료 세션');
 assert.equal(deadline({code:'UK1',currency:'GBP',market:'UK'}),'2026-10-07','런던 장중에는 전일 확정값');
@@ -1405,6 +1409,55 @@ assert.equal(symbolVm._yahooEquitySymbol_(catalog[2]),'80011.HK','HK 5자리 코
 assert.equal(symbolVm._yahooEquitySymbol_(catalog[3]),'AAPL','미국 티커 보존');
 assert.equal(symbolVm._yahooEquitySymbol_({code:'000700',market:'HK',yahooSymbol:'0700.HK'}),'0700.HK',
   '지정된 공급원 심볼 우선');
+
+// Only Korean and US listings are in scope for this portfolio.
+{
+  const scopeVm=vm.createContext({
+    _cleanCode:v=>String(v||'').trim().toUpperCase(),
+    _isFundCode:v=>/^F\d{5}$/.test(String(v||''))
+  });
+  vm.runInContext(extract('_isKrxDailyCloseTarget_'),scopeVm);
+  vm.runInContext(extract('_assertSupportedDailyCloseMarkets_'),scopeVm);
+  const korea={code:'005930',currency:'KRW',market:'KOSPI'};
+  const usa={code:'AAPL',currency:'USD',market:'NASDAQ'};
+  assert.doesNotThrow(()=>scopeVm._assertSupportedDailyCloseMarkets_([korea,usa]),
+    'KRX and US listings stay supported');
+  assert.doesNotThrow(()=>scopeVm._assertSupportedDailyCloseMarkets_([
+    {code:'MSFT',currency:'USD',market:'NYSE'}, {code:'F00001',type:'펀드'}]),
+    'NYSE and fund exceptions');
+  for(const market of ['JP','TSE','HK','HKEX','UK','LSE','EU']) {
+    assert.throws(()=>scopeVm._assertSupportedDailyCloseMarkets_([
+      korea,{code:'FOREIGN',currency:'KRW',market}]),/자동 마감 미지원 해외시장/,
+      market+' listings must fail closed rather than require an unverified holiday calendar');
+  }
+  const props=new Map(), calls=[];
+  const unsupported={code:'FOREIGN',currency:'JPY',market:'JP'};
+  const closeVm=vm.createContext({
+    Date,CONFIG:{TIMEZONE:'Asia/Seoul'},_snapshotBackupOperationId:'',
+    _cleanCode:v=>String(v||'').trim().toUpperCase(),
+    _isFundCode:v=>/^F\d{5}$/.test(String(v||'')),
+    _normalizeDate:v=>String(v||''),today:()=> '2026-10-12',
+    LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
+    PropertiesService:{getScriptProperties:()=>({
+      getProperty:k=>props.get(k)||null,setProperty:(k,v)=>props.set(k,String(v)),
+      deleteProperty:k=>props.delete(k)})},
+    Utilities:{formatDate:()=> '2026-10-12 19:00:00'},
+    Logger:{log(){}},getss:()=>({}),getCodeItems:()=>[korea,unsupported],
+    _getDailyHeldCodeItems:()=>[korea,unsupported],
+    _seedMissingKrxCloseDates_:()=>calls.push('QUEUE_SEED'),
+    fetchPricesKrx:()=>{calls.push('PRICE_KRX');return {};},
+    fetchPricesGoogleFinance:()=>{calls.push('PRICE_YAHOO');return {};},
+    _hasKrxHoldingsForCloseDate_:()=>false
+  });
+  for(const name of ['_isKrxDailyCloseTarget_','_assertSupportedDailyCloseMarkets_','saveDailyPriceHistory'])
+    vm.runInContext(extract(name),closeVm);
+  assert.throws(()=>closeVm.saveDailyPriceHistory(),/자동 마감 미지원 해외시장.*FOREIGN/,
+    'held JP listing on Korean trading day must be reported before write');
+  assert.deepEqual(calls,[], 'no retry queue mutation, price provider, or Snapshot write for unsupported market');
+  assert.match(props.get('snapshot_last_error')||'',/자동 마감 미지원 해외시장/,
+    'explicit diagnostic error rather than silent stale close');
+}
+console.log('✅ 한국·미국 전용 자동 마감 범위: 미지원 해외시장 쓰기 이전 차단');
 
 // PR #493 follow-up: exercise REAL Yahoo symbol generation and regular close
 // fetch, not the pre-existing stubbed fetchPricesYahooRegularClose path.
