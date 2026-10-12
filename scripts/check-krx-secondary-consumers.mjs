@@ -3,7 +3,9 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import {execFileSync} from 'node:child_process';
 
-const gas = process.argv.includes('--baseline')
+const gas = process.argv.includes('--baseline-cache')
+  ? execFileSync('git',['show','a1148f4:src/gas/apps_script.gs'],{encoding:'utf8'})
+  : process.argv.includes('--baseline')
   ? execFileSync('git',['show','5dab55f:src/gas/apps_script.gs'],{encoding:'utf8'})
   : fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 const ctx = vm.createContext({ console, Date, JSON, Number, String, Math, isFinite, encodeURIComponent });
@@ -21,7 +23,10 @@ let cacheWrites=0;
 function resetCache() {
   cacheWrites=0;
   const cache=new Map();
-  ctx.CacheService={getScriptCache:()=>({get:key=>cache.get(key)||null,put:(k,v)=>{cacheWrites++;cache.set(k,v);}})};
+  ctx.CacheService={getScriptCache:()=>({get:key=>cache.get(key)||null,
+    getAll:keys=>Object.fromEntries(keys.filter(k=>cache.has(k)).map(k=>[k,cache.get(k)])),
+    putAll:items=>Object.entries(items).forEach(([k,v])=>cache.set(k,v)),
+    put:(k,v)=>{cacheWrites++;cache.set(k,v);}})};
 }
 function http(code,rows) {
   return {getResponseCode:()=>code,getContentText:()=>JSON.stringify({OutBlock_1:rows||[]})};
@@ -155,4 +160,39 @@ for(const useSecondary of [false,true]) {
     assert.equal(cacheWrites,1);
   }
 }
-console.log('✅ K200/VKOSPI 요청일별 유효 결과·부분 실패 보존·완전 복구 캐시 계약 통과');
+resetCache();calls=[];
+ctx.UrlFetchApp={fetchAll:requests=>{
+  calls.push(requests.map(x=>new URL(x.url).searchParams.get('basDd')));
+  return requests.map(x=>http(200,vkospi(new URL(x.url).searchParams.get('basDd'))));
+}};
+assert.equal(ctx._krxCalendarStatus_('2026-10-05'),'CLOSED');
+assert.equal(ctx._readVkospiPointsFromKrx('2026-10-02','2026-10-06').length,2);
+assert.deepEqual(normalizedCalls(),[['20261002','20261006']],'confirmed weekday closure must not be requested');
+assert.equal(cacheWrites,1,'holiday range is complete over actual trading days');
+assert.equal(ctx._readVkospiPointsFromKrx('2026-10-02','2026-10-06').length,2);
+assert.equal(calls.length,1,'complete holiday range is reused');
+resetCache();calls=[];
+assert.equal(ctx._readVkospiPointsFromKrx('2026-10-05','2026-10-05').length,0);
+assert.equal(calls.length,0,'all-closed range makes no HTTP requests');
+assert.equal(ctx._krxCalendarStatus_('2028-01-03'),'UNKNOWN');
+assert.equal(ctx._readVkospiPointsFromKrx('2028-01-03','2028-01-03').length,1,
+  'unknown year is still queried rather than assumed closed');
+
+resetCache();calls=[];
+let unpublished=true;
+ctx.UrlFetchApp={fetchAll:requests=>{
+  calls.push(requests.map(x=>new URL(x.url).searchParams.get('basDd')));
+  return requests.map(x=>{
+    const day=new URL(x.url).searchParams.get('basDd');
+    return http(200,unpublished && day==='20261012'?[]:vkospi(day));
+  });
+}};
+assert.equal(ctx._readVkospiPointsFromKrx('2026-10-08','2026-10-12').length,1);
+assert.equal(cacheWrites,0);
+assert.equal(ctx._readVkospiPointsFromKrx('2026-10-08','2026-10-12').length,1);
+assert.deepEqual(normalizedCalls(),[['20261008','20261012'],['20261012']],
+  'unpublished current date retries without refetching confirmed history');
+unpublished=false;
+assert.equal(ctx._readVkospiPointsFromKrx('2026-10-08','2026-10-12').length,2);
+assert.equal(cacheWrites,1);
+console.log('✅ K200/VKOSPI 인증·일자별 복구·휴장/UNKNOWN·미공시 당일 최소 재조회 계약 통과');

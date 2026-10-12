@@ -5,6 +5,7 @@
 //   K200 야간선물 기본키 HTTP 401/403에만 보조 인증키로 동일 거래일 재조회
 //   VKOSPI 배치 중 인증 거부된 날짜만 보조키 재조회, 성공 결과와 요청일 검증 보존
 //   일부 날짜 인증 복구 실패 시 정상 날짜는 반환하고 부분 결과 캐시를 금지해 재시도 보존
+//   확인된 휴장일 제외, 검증된 날짜별 캐시로 미공시·오류 날짜만 재조회
 //   인증키·시트 원본 변경 없음; 보조키 endpoint 승인과 운영 복구는 배포 전 별도 확인
 //
 //  v9.195 변경사항 (2026.10.12):
@@ -5004,7 +5005,7 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
   if (!authKey) throw new Error('VKOSPI 조회에는 KRX AUTH_KEY가 필요합니다. 설정에서 KRX 인증키를 등록하세요.');
 
   var cache = CacheService.getScriptCache();
-  var cacheKey = 'vkospi_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
+  var cacheKey = 'vkospi_v2_' + fromDate.replace(/-/g, '') + '_' + toDate.replace(/-/g, '');
   var cached = cache.get(cacheKey);
   if (cached) {
     try { return JSON.parse(cached); } catch(e) { /* 손상된 캐시는 다시 조회 */ }
@@ -5013,15 +5014,33 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
   var ymDates = _buildDateRangeYmd(fromDate.replace(/-/g, ''), toDate.replace(/-/g, ''))
     .filter(function(ymd) {
       var day = _ymdToDate(ymd).getDay();
-      return day !== 0 && day !== 6;
+      var date = ymd.slice(0,4) + '-' + ymd.slice(4,6) + '-' + ymd.slice(6,8);
+      return day !== 0 && day !== 6 && _krxCalendarStatus_(date) !== 'CLOSED';
     });
   var endpoint = 'https://data-dbg.krx.co.kr/svc/apis/idx/kospi_dd_trd';
   var pointsByDate = {};
+  // 범위가 불완전해도 이미 검증된 날짜는 재요청하지 않습니다. 미공시 당일이나
+  // 오류 날짜만 다음 요청에서 재시도하며, CLOSED가 아닌 UNKNOWN은 제외하지 않습니다.
+  var cachedDays = {};
+  try { if (ymDates.length) cachedDays = cache.getAll(ymDates.map(function(ymd) { return 'vkospi_day_v2_' + ymd; })); }
+  catch(ignoreDayCacheRead) {}
+  var requestDates = ymDates.filter(function(ymd) {
+    try {
+      var point = JSON.parse(cachedDays['vkospi_day_v2_' + ymd] || 'null');
+      var date = ymd.slice(0,4) + '-' + ymd.slice(4,6) + '-' + ymd.slice(6,8);
+      if (point && point.date === date && typeof point.value === 'number' && isFinite(point.value) && point.value > 0) {
+        pointsByDate[date] = point.value;
+        return false;
+      }
+    } catch(ignoreDayCache) {}
+    return true;
+  });
+  var newDayCache = {};
   var batchSize = 50;
   var authFailedDates = [];
 
-  for (var start = 0; start < ymDates.length; start += batchSize) {
-    var batch = ymDates.slice(start, start + batchSize);
+  for (var start = 0; start < requestDates.length; start += batchSize) {
+    var batch = requestDates.slice(start, start + batchSize);
     var requests = batch.map(function(ymd) {
       return {
         url: endpoint + '?basDd=' + encodeURIComponent(ymd),
@@ -5066,7 +5085,10 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
       if (sourceYmd !== batch[idx]) return; // Exact official source date is required.
       var date = sourceYmd.slice(0,4) + '-' + sourceYmd.slice(4,6) + '-' + sourceYmd.slice(6,8);
       var value = parseFloat((row.CLSPRC_IDX || row.clsprcIdx || '').toString().replace(/,/g, '')) || 0;
-      if (date && value > 0) pointsByDate[date] = value;
+      if (date && isFinite(value) && value > 0) {
+        pointsByDate[date] = value;
+        newDayCache['vkospi_day_v2_' + sourceYmd] = JSON.stringify({date:date, value:value});
+      }
     });
   }
 
@@ -5074,6 +5096,9 @@ function _readVkospiPointsFromKrx(fromDate, toDate) {
     return { date: date, value: pointsByDate[date] };
   });
   if (authFailedDates.length && !points.length) throw new Error('KRX AUTH_KEY가 유효하지 않거나 지수 API 이용 권한이 없습니다.');
+  if (Object.keys(newDayCache).length) {
+    try { cache.putAll(newDayCache, 21600); } catch(ignoreDayCacheWrite) {}
+  }
   if (authFailedDates.length) Logger.log('[KRX-VKOSPI] 인증 미복구 날짜 ' + authFailedDates.length + '건, 정상 날짜 보존 및 다음 조회 재시도');
   // HTTP 성공만으로 복구를 확정하지 않습니다. 요청 거래일별 유효 점수가 모두
   // 있어야 캐시하여 빈 응답·파싱 오류·다른 원천일의 누락도 후속 조회에서 재시도합니다.
