@@ -79,6 +79,28 @@ assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말�
  'read-only partial restore must warn that editing and saving are unsafe');
 
 assert.match(html,/settings_sync\.js\?v=20261012-2/);
+
+// A partial master preview must not allow any mutation via the management
+// entry points. Both UI disable and handler-level guards are required.
+const stock=fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8');
+const sector=fs.readFileSync('src/web/features/master/sector/mgmt_sector.js','utf8');
+for(const [source,names] of [
+  [stock,['smDelete','smCsvImport','smMgmtAddNew','smMgmtConfirm','smSave']],
+  [sector,['secSave','secDelete','secMgmtAddNew','secMgmtConfirm','secCsvImport']],
+]) {
+  for(const name of names){
+    assert.match(source,new RegExp('(?:async )?function '+name+
+      '\\([^\\n]*\\) \\{\\s*if \\(typeof preventUnsafeStockMasterEdit'),
+      name+' must gate edits prior to changing state');
+  }
+  assert.match(source,/container\.querySelectorAll\('input,button'\)/,
+    'management controls must be disabled while bootstrap pending');
+}
+assert.match(html,/mgmt_stock\.js\?v=20261012-1/);
+assert.match(html,/mgmt_sector\.js\?v=20261012-1/);
+assert.match(html,/sw\.js\?v=20261012-3/);
+assert.match(sw,/portfolio-cache-20261012-3/);
+
 assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261012-2/);
 assert.match(sw,/views_history\.js\?v=20261012-2/);

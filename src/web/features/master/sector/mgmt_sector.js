@@ -68,6 +68,9 @@ function buildSectorMgmt() {
 
   container.innerHTML = html;
   _bindSectorMgmtEvents(container);
+  if (typeof isStockMasterWriteBlocked === 'function' && isStockMasterWriteBlocked()) {
+    container.querySelectorAll('input,button').forEach(control => { control.disabled = true; });
+  }
 }
 
 // 종목에는 섹터가 있지만 색상 설정이 없는 경우 섹터 관리 목록이 비어 보이지 않도록 보정한다.
@@ -131,6 +134,7 @@ function _bindSectorMgmtEvents(container) {
 
 // 섹터 즉시 저장 (data-idx 기반, DOM 재생성 없음)
 function secSave(idx) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const sectors = Object.keys(SECTOR_COLORS);
   const oldName = sectors[idx];
   if(oldName === undefined) return;
@@ -168,6 +172,7 @@ function secSave(idx) {
 
 // 섹터 삭제 (idx 기반 — 섹터명 파라미터 특수문자 오류 방지)
 function secDelete(idx) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const sectors = Object.keys(SECTOR_COLORS);
   // confirm 전에 섹터명 스냅샷
   const snapSec = sectors[idx];
@@ -246,6 +251,7 @@ function _secNewPickColor(c) {
 
 // 섹터 추가 팝업 열기/닫기/확인
 function secMgmtAddNew() {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const wrap = $el('secMgmtNewWrap');
   if(wrap) { wrap.style.display = 'block'; }
   const autoColor = _secAutoColor();
@@ -259,6 +265,7 @@ function secMgmtCancel() {
   const c = $el('secMgmtNewColor'); if(c) c.value = '';
 }
 function secMgmtConfirm() {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const name  = ($el('secMgmtNewName')?.value || '').trim();
   const color = $el('secMgmtNewColor')?.value || _secAutoColor();
   if(!name) { showMgmtMsg('secMgmtMsg','⚠️ 섹터명을 입력해주세요',true); return; }
@@ -302,6 +309,7 @@ function secCsvDownloadTemplate() {
 
 // ── 섹터 xlsx/csv 업로드 처리
 function secCsvImport(input) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const file = input.files[0];
   if (!file) return;
   input.value = '';

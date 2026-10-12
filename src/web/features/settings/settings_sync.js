@@ -144,6 +144,14 @@ function reconcileEditablesFromGsheetCodeList() {
 // This never authorizes writes or changes the trade/holdings ledger. When a
 // connection switch requires authoritative portfolio restore, it deliberately
 // does not mix a new master with the previous account's in-memory trades.
+function isStockMasterWriteBlocked() {
+  return !!GSHEET_API_URL && (!_gsBootRestored || _gsPortfolioRestoreRequired);
+}
+function preventUnsafeStockMasterEdit() {
+  if (!isStockMasterWriteBlocked()) return false;
+  if (typeof showToast === 'function') showToast('전체 설정 복원 완료 전에는 종목 관리 변경을 할 수 없습니다.', 'warn');
+  return true;
+}
 let _stockMasterReadOnlyRecoveryPromise = null;
 async function recoverMissingStockMasterReadOnly() {
   if (EDITABLE_PRICES.length > 0) return EDITABLE_PRICES.length;

@@ -162,6 +162,9 @@ function buildStockMgmt() {
 
   container.innerHTML = html;
   _bindStockMgmtEvents(container);
+  if (typeof isStockMasterWriteBlocked === 'function' && isStockMasterWriteBlocked()) {
+    container.querySelectorAll('input,button').forEach(control => { control.disabled = true; });
+  }
 }
 function _bindStockMgmtEvents(container) {
   const sortDiv = $el('stockMgmtSort');
@@ -273,6 +276,7 @@ function _bindStockMgmtEvents(container) {
 }
 // 즉시 삭제 + 저장
 function smDelete(idx) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   if(idx === null || idx === undefined) return;
   // confirm 전에 스냅샷 (DOM 재렌더 후에도 안전)
   const snapItem = EDITABLE_PRICES[idx] ? {...EDITABLE_PRICES[idx]} : null;
@@ -384,6 +388,7 @@ async function _smValidateListedCode(code, assetType, currency) {
 }
 
 function smCsvImport(input) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const file = input.files[0];
   if (!file) return;
   input.value = '';
@@ -451,6 +456,7 @@ function smCsvImport(input) {
 
 // 종목 추가 팝업 열기/닫기/확인
 function smMgmtAddNew() {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const wrap = $el('smMgmtNewWrap');
   if(wrap) { wrap.style.display = 'block'; }
   _smRenderTypeButtons('주식');
@@ -518,6 +524,7 @@ function smMgmtCancel() {
 }
 
 async function smMgmtConfirm() {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   let name        = ($el('smMgmtNewName')?.value || '').trim();
   const code      = normalizeStockCode(($el('smMgmtNewCode')?.value || '').trim());
   const assetType = $el('smMgmtNewType')?.value || '주식';
@@ -617,6 +624,7 @@ function _smRenameStockItem(item, newName) {
 
 // 즉시 저장 (DOM 재생성 없이 데이터만 갱신)
 async function smSave(idx) {
+  if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
   const item = EDITABLE_PRICES[idx];
   if(!item) return;
   const newName = (document.querySelector(`.sm-name-inp[data-idx="${idx}"]`)?.value || '').trim();
