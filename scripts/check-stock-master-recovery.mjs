@@ -101,9 +101,9 @@ assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/sw\.js\?v=20261012-16/);
 assert.match(sw,/portfolio-cache-20261012-16/);
 
-assert.match(html,/views_history\.js\?v=20261012-3/);
+assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261012-10/);
-assert.match(sw,/views_history\.js\?v=20261012-3/);
+assert.match(sw,/views_history\.js\?v=20261012-2/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,
