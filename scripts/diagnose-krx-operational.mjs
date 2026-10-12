@@ -104,7 +104,7 @@ export function summarizeKrxSource(data, date) {
   let storedCoverage=null;
   if (stored && typeof stored==='object' && !Array.isArray(stored)) {
     const status=String(stored.status||'');
-    if (!['OK','READ_FAILED','SHEET_MISSING'].includes(status))
+    if (!['OK','READ_FAILED','SHEET_MISSING','MASTER_EMPTY'].includes(status))
       throw new Error('KRX_DIAG_INVALID_SOURCE_RESPONSE');
     storedCoverage={status};
     if (status==='OK') {
