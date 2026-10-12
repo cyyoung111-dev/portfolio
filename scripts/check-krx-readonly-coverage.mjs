@@ -77,6 +77,11 @@ assert.deepEqual(coverage,{
   missingOfficialCodes:1,snapshotRows:1,snapshotHeldCodes:1,
   missingSnapshotCodes:1,queuedForBackfill:true
 });
+const originalCatalog=context.getCodeItems;
+context.getCodeItems=()=>[];
+assert.equal(context._krxReadOnlyStoredCoverage_('2026-10-08').status,'MASTER_EMPTY',
+  'empty master must not report a false zero-holding success');
+context.getCodeItems=originalCatalog;
 const actual=JSON.parse(JSON.stringify(context.handleGetKrxSourceDiagnostics('2026-10-08')));
 assert.deepEqual(actual.markets.map(x=>x.httpStatus),[401,403,200]);
 assert.deepEqual(actual.alternateProbes.map(x=>x.market),['KOSPI','KOSDAQ']);
