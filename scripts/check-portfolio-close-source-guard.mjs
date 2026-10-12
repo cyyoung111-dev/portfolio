@@ -1014,6 +1014,7 @@ const officialVm=vm.createContext({
   _normalizeDate:String,
   _getKrxAuthKey:()=> 'secret-must-not-be-revealed',
   _getKrxAuthKeySlots_:()=>({key:'secret-must-not-be-revealed',source:'PRIMARY',alternative:'',alternativeConfigured:false}),
+  _krxReadOnlyStoredCoverage_:()=>({status:'OK',expectedHeldCodes:37,officialExactDateCodes:0}),
   _getKrxEndpointByMarket:x=> 'https://example.test/'+x,
   UrlFetchApp:{fetchAll:()=>[
     {getResponseCode:()=>200,getContentText:()=>JSON.stringify({OutBlock_1:[{TDD_CLSPRC:'100'}]})},
@@ -1023,6 +1024,7 @@ const officialVm=vm.createContext({
   jsonOk:x=>x,
   jsonError:x=>({error:x})
 });
+vm.runInContext(extract('_krxReadOnlyResponseMeta_'),officialVm);
 vm.runInContext(extract('handleGetKrxSourceDiagnostics'),officialVm);
 const diagnostic=officialVm.handleGetKrxSourceDiagnostics('2026-10-06');
 assert.equal(diagnostic.keyConfigured,true);
@@ -1067,6 +1069,8 @@ assert.match(automationUI, /fundAttemptWarning/,
   'NAV 타임아웃 상세를 최근 오류 없음보다 우선하여 표시해야 함');
 
 
+// Exercise isolated, read-only market/coverage probes against actual GAS source.
+await import('./check-krx-readonly-coverage.mjs');
 console.log('✅ KRX 종가 검증·마감 단계 추적·공식 공급원 진단·KB NAV 회귀검사 통과');
 
 assert.match(source, /if \(pack\.usedYmd === ymd\) officialRows = officialRows\.concat\(rows\.slice\(firstAdded\)\)/,
