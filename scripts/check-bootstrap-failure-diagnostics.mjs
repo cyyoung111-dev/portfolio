@@ -238,5 +238,43 @@ for (const fundSource of ['EDITABLE_PRICES','fundDirect']) {
   assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'verified codeless fund clears dirty state');
 }
 
+// getCodeItems intentionally excludes no-code TDF/direct-fund master entries.
+// They must remain restorable without a fabricated KRX stock code.
+h=setup();
+h.response.codes=[];
+h.response.settings.EDITABLE_PRICES=[{name:'직접 TDF',code:'',assetType:'TDF'},{name:'직접 펀드',code:'',assetType:'펀드'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  STOCK_CODE['직접 TDF']='005930';
+  rawTrades.push(
+    {date:'2026-10-07',tradeType:'buy',acct:'연금',name:'직접 TDF',code:'',assetType:'TDF',qty:1,price:100},
+    {date:'2026-10-07',tradeType:'buy',acct:'연금',name:'직접 펀드',code:'',assetType:'펀드',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let fundOnlyTradePosts=0,fundOnlyIssues=0,fundOnlyRows=null;
+h.ctx.requestGsheetFormJson=async(action,params)=>{
+  if(action==='syncTrades'){fundOnlyTradePosts++;fundOnlyRows=JSON.parse(params.data);}
+  if(action==='saveSyncIssues')fundOnlyIssues++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),true,'code-less fund/TDF dirty trades must remain restorable');
+assert.equal(fundOnlyTradePosts,1,'funds restored through one sync');
+assert.deepEqual(fundOnlyRows.map(r=>r.code),['',''],'stale local stock code cannot leak into direct fund');
+assert.deepEqual(fundOnlyRows.map(r=>r.assetType),['TDF','펀드']);
+assert.equal(fundOnlyIssues,0,'valid code-less fund/TDF must not create unmatched issues');
+assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'fund restore clears dirty after success');
+
+// A code-bearing trade cannot claim the direct-fund exemption, even if its
+// assetType says TDF; neither holdings nor trades should be posted.
+h=setup();
+h.response.codes=[];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'연금',name:'위장 펀드',code:'999999',assetType:'TDF',qty:1,price:100});
+  rawHoldings.push({name:'위장 펀드',code:'999999',qty:1,cost:100,acct:'연금'});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let forgedPosts=[];
+h.ctx.requestGsheetFormJson=async(action)=>{forgedPosts.push(action);return {status:'ok',saveState:'success'};};
+assert.equal(await h.ctx.loadSettings(),false,'unknown coded asset fails master preflight');
+assert.ok(!forgedPosts.includes('syncTrades')&&!forgedPosts.includes('syncHoldings'));
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'coded trade remains retryable');
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
