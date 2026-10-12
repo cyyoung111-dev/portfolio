@@ -1563,8 +1563,14 @@ function _probeTossDiagnosticEgressIp_() {
 
 // 명시적인 강제 OAuth 검증과 cache miss 진단에서만 신규 토큰을 발급합니다.
 function _tossDiagnosticAccessToken_() {
-  var startedAt = Date.now();
   return _tossWithTokenLock_(function() {
+    return _tossDiagnosticIssueAccessTokenUnlocked_();
+  });
+}
+// 호출자는 ScriptLock을 이미 소유한 상태여야 합니다.
+// 별도 Lock 객체로 재진입하면 기존 잠금의 해제를 기다리며 교착될 수 있습니다.
+function _tossDiagnosticIssueAccessTokenUnlocked_() {
+  var startedAt = Date.now();
   // lock 대기 중 설정이 바뀔 수 있으므로 자격증명은 반드시 lock 획득 후 다시 읽습니다.
   var credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
@@ -1589,7 +1595,6 @@ function _tossDiagnosticAccessToken_() {
     ok: true, status: status, code: 'OK', providerCode: '', source: 'NETWORK', token: data.access_token,
     requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, elapsedMs: Date.now() - startedAt
   };
-  });
 }
 // 일반 연결 진단은 시세 조회와 같은 토큰 캐시를 재사용합니다.
 // OAuth 강제 재발급은 기존 토큰을 무효화할 수 있으므로, 명시적인 freshOAuth=1 요청에만 허용합니다.
@@ -1607,7 +1612,7 @@ function _tossDiagnosticSharedToken_(forceFreshOAuth) {
   // 미스 확인과 lock 획득 사이 다른 실행이 발급했으면 새 OAuth 요청을 생략합니다.
   return _tossWithTokenLock_(function() {
     var afterLock = _tossCachedAccessToken_();
-    return afterLock ? _tossDiagnosticReusedToken_(afterLock) : _tossDiagnosticAccessToken_();
+    return afterLock ? _tossDiagnosticReusedToken_(afterLock) : _tossDiagnosticIssueAccessTokenUnlocked_();
   });
 }
 function _priceTimingAdd_(timings, key, startedMs) {
