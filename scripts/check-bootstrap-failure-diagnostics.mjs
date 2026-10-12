@@ -279,5 +279,34 @@ assert.equal(await h.ctx.loadSettings(),false,'unknown coded asset fails master 
 assert.ok(!forgedPosts.includes('syncTrades')&&!forgedPosts.includes('syncHoldings'));
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'coded trade remains retryable');
 
+// Codex PR #493 P1: legacy GAS getBootstrap fallback cannot authorize dirty
+// trades against this connection's master, even if stale local names match.
+h=setup();
+vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});
+  _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  rawHoldings.push({name:'테스트',code:'005930',qty:1,cost:100,acct:'계좌'});
+  _markPortfolioRemoteDirty();`,h.ctx);
+const seenLegacyActions=[];
+h.ctx.requestGsheetActionJson=async action=>{
+  seenLegacyActions.push(action);
+  return action==='getBootstrap'
+    ?{status:'error',errorCode:'UNKNOWN_ACTION'}:{...h.response,codes:undefined};
+};
+let legacyWrites=0;
+h.ctx.requestGsheetFormJson=async action=>{
+  if(action==='syncTrades'||action==='syncHoldings')legacyWrites++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),false,
+  'legacy GAS must not write source dirty ledger before authenticated master proof');
+assert.deepEqual(seenLegacyActions,['getBootstrap','getSettings']);
+assert.equal(legacyWrites,0,'legacy fallback must block both trade and holdings writes');
+assert.match(h.ctx.getGsheetSettingsLoadFailure(),/RESTORE_MASTER_UNAVAILABLE/);
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'legacy block preserves dirty payload for upgraded GAS retry');
+assert.equal(vm.runInContext('_gsBootRestored',h.ctx),false);
+assert.match(read('features/settings/settings.js'),/if \(!Array\.isArray\(bootstrapMasterForRetry\)\)[\s\S]*?return failLoad\('RESTORE_MASTER_UNAVAILABLE'\)/,
+  'late dirty after legacy getSettings must also fail closed without source master');
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');

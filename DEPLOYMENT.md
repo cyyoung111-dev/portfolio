@@ -1,3 +1,9 @@
+## PR #493 통합 자체검토: 레거시 원장 쓰기 차단·KRX 저장 상태 게이트 (2026-10-13, 미배포)
+
+- P1: getBootstrap를 지원하지 않는 구버전 GAS가 getSettings로 fallback하여도 동일 연결의 코드 마스터를 신뢰할 수 없으므로, dirty 거래원장·보유 재전송을 **쓰기 전** 차단합니다. load 도중 새 dirty가 들어오는 경합도 동일 차단. 원본 dirty는 보존하고 서버 GAS 업그레이드 후 다시 검증해야 합니다.
+- P2: read-only KRX CLI의 healthy는 3개 시장 exact-date 응답뿐 아니라 storedCoverage.status=OK, missingOfficialCodes=0, missingSnapshotCodes=0, queuedForBackfill=false가 동시에 충족되어야 합니다. 구버전 미제공·읽기 실패·시트 누락·마스터 미확정·백필 대기는 실패 처리. 운영 데이터는 수정하지 않습니다.
+- 한국장/미국장 운용 범위에 따라 불필요한 제3국 신규 개발은 제외합니다. 웹 캐시 settings.js=20261013-1, service worker=20261013-1로 갱신합니다. 이 코드는 main, 원래 네 PR, 운영 GAS에 배포되지 않았습니다.
+
 ## PR #493 한국·미국 전용 USD 통화 무결성 P1 수정 (2026-10-13 · Draft / 미배포)
 
 - 미국 상장종목 US/USA/NYSE/NASDAQ/AMEX/OTC와 market 빈 레거시 USD 종목은 코드 마스터 통화가 정확히 USD여야 정상 일일 마감 대상입니다. KRW/JPY/EUR/HKD/GBP 등은 Yahoo USD 가격을 다른 환율로 평가하는 오류를 방지하기 위해 조회·백필 큐·Snapshot 쓰기 전에 명시적 오류로 거부합니다.

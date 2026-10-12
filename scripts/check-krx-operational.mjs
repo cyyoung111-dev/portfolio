@@ -55,10 +55,32 @@ const markers=[
  {market:'KOSDAQ',httpStatus:200,rows:1200,exactDateRows:1200,parseStatus:'ROWS'},
  {market:'ETF',httpStatus:200,rows:1400,exactDateRows:1400,parseStatus:'ROWS'},
 ];
+const completedCoverage={
+  status:'OK',expectedHeldCodes:2,expectedStock:2,expectedEtf:0,
+  priceHistoryRows:2,officialExactDateCodes:2,nonOfficialHeldCodes:0,
+  missingOfficialCodes:0,snapshotRows:2,snapshotHeldCodes:2,
+  missingSnapshotCodes:0,queuedForBackfill:false
+};
 const payload=date=>({status:'ok',requestedDate:date,keyConfigured:true,networkStatus:'RECEIVED',
- markets:markers});
+ markets:markers,storedCoverage:completedCoverage});
 const health=summarizeKrxSource(payload('2026-10-08'),'2026-10-08');
 assert.equal(health.healthy,true);
+for (const stored of [
+  undefined, {status:'READ_FAILED'}, {status:'SHEET_MISSING'},
+  {status:'MASTER_EMPTY'},
+  {...completedCoverage,missingOfficialCodes:1,officialExactDateCodes:1},
+  {...completedCoverage,missingSnapshotCodes:1,snapshotHeldCodes:1},
+  {...completedCoverage,queuedForBackfill:true},
+]) {
+  assert.equal(summarizeKrxSource({...payload('2026-10-08'),storedCoverage:stored},
+    '2026-10-08').healthy,false,
+    'verified KRX market API alone cannot pass with failed/partial/queued storage coverage');
+}
+assert.equal(summarizeKrxSource({...payload('2026-10-08'),
+  storedCoverage:{...completedCoverage,expectedHeldCodes:0,expectedStock:0,
+    officialExactDateCodes:0,snapshotHeldCodes:0,priceHistoryRows:0,snapshotRows:0}},
+    '2026-10-08').healthy,true,
+  'no domestic holdings and no missing storage is a healthy completed coverage state');
 const legacyRowsOnly = markers.map(({exactDateRows, ...item})=>item);
 const legacyHealth = summarizeKrxSource({...payload('2026-10-08'), markets:legacyRowsOnly},'2026-10-08');
 assert.equal(legacyHealth.healthy,false,

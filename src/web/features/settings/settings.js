@@ -542,6 +542,14 @@ async function loadSettings(onProgress, options) {
           && ['TDF', '펀드', 'FUND'].includes(String(value.type || '').trim().toUpperCase()))
         .map(([name, value]) => ({ name, code:'', type:value.type }))
     ] : null;
+    // Legacy GAS getSettings has no same-connection code-master proof. Never
+    // allow a dirty source ledger to write to the current target by falling
+    // back to the browser's (potentially previous-connection) master.
+    // Preserve dirty data and require an upgraded getBootstrap deployment.
+    if (dirtyPortfolioAtLoad && !Array.isArray(bootstrapMasterForRetry)) {
+      loadStage = '미동기화 거래·보유 서버 마스터 검증';
+      return failLoad('RESTORE_MASTER_UNAVAILABLE');
+    }
     // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
     // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
     const hasAuthoritativeFundDirect = Object.prototype.hasOwnProperty.call(s, 'fundDirect');
@@ -944,6 +952,10 @@ async function loadSettings(onProgress, options) {
             && typeof _retryPortfolioRemoteDirtySync === 'function') {
           const lateDirty = _getPortfolioRemoteDirty();
           if (lateDirty) {
+            // Dirty state can arrive while the original restore awaits a read.
+            // A legacy getSettings fallback still cannot authorize this write.
+            if (!Array.isArray(bootstrapMasterForRetry))
+              return failLoad('RESTORE_MASTER_UNAVAILABLE');
             _restorePortfolioRemoteDirtyPayload();
             if (!isLoadConnectionCurrent()) return false;
             prog('복원 중 새로 생긴 거래·보유 동기화 중...');

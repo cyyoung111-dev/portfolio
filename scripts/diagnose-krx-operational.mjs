@@ -123,8 +123,15 @@ export function summarizeKrxSource(data, date) {
       storedCoverage.queuedForBackfill=stored.queuedForBackfill;
     }
   }
+  // A live KRX API can return exact-date rows while the actual held-stock
+  // price history and Snapshot are missing. This is a full operational gate,
+  // not a mere API reachability probe; missing/legacy coverage fails closed.
+  const coverageHealthy = !!storedCoverage && storedCoverage.status === 'OK'
+    && storedCoverage.missingOfficialCodes === 0
+    && storedCoverage.missingSnapshotCodes === 0
+    && storedCoverage.queuedForBackfill === false;
   const healthy = configured && networkStatus === 'RECEIVED'
-    && reachableMarkets.every(item=>item.reachable);
+    && reachableMarkets.every(item=>item.reachable) && coverageHealthy;
   return {date,keyConfigured:configured,networkStatus,markets,
     credentialSource,alternativeConfigured,alternateProbe,alternateProbes,
     reachableMarkets,storedCoverage,healthy};
