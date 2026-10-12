@@ -207,7 +207,7 @@ for(const failedBatch of [0,1,2]) {
   const partial=ctx._readVkospiPointsFromKrx('2026-01-01','2026-06-30');
   assert.equal(calls.length,3,'three batches exercise early/middle/last transport failure');
   const succeeded=calls.filter((_,i)=>i!==failedBatch).flat();
-  const failed=calls[failedBatch];
+  const failed=Array.from(calls[failedBatch]);
   assert.equal(partial.length,succeeded.length,'later transport exception preserves successful batches');
   assert.equal(dayCacheWrites,2,'each successful batch caches before the next batch');
   assert.equal(cacheWrites,0);
