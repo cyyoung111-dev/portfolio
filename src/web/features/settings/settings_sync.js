@@ -298,6 +298,26 @@ async function syncHoldingsToGsheet(options) {
   }
 }
 
+// Pure preflight before a restore retry starts ANY remote holdings/trades
+// writes. A partial or mismatched pinned ledger cannot be posted while the
+// second concurrent request modifies holdings.
+function isPinnedRestoreTradeMasterComplete(trades, codes) {
+  if (!Array.isArray(trades) || !Array.isArray(codes)) return false;
+  const codeSet = new Set(), nameSet = new Set();
+  codes.forEach(item => {
+    const code = _normalizeSyncCode(item?.code || '');
+    const name = String(item?.name || '').trim();
+    if (!code || !name) return;
+    codeSet.add(code);
+    nameSet.add(name);
+  });
+  return trades.every(t => {
+    if (!t?.name || !t.tradeType || !t.date) return false;
+    const code = _normalizeSyncCode(t.code || '');
+    return code ? codeSet.has(code) : nameSet.has(String(t.name).trim());
+  });
+}
+
 // ★ v8.2 — 거래이력 GSheet 동기화 (backfillMonth 소급 계산용)
 async function syncTradesToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
