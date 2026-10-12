@@ -639,7 +639,11 @@ async function pollCurrentPrices() {
       lookupMsg,
       '저장 이력/Snapshot 미변경'
     ), 'ok');
-    refreshAll();
+    // Current-price polling must not recreate the Settings/GAS panel.
+    // renderGsheetView() issues getAutomationStatus every time it mounts;
+    // a portfolio-wide refresh would erase the visible status and refetch
+    // it every 60 seconds even though prices do not change its contents.
+    if (typeof currentView === 'undefined' || currentView !== 'gsheet') refreshAll();
   } catch (e) {
     console.warn('[price-polling] 현재가 갱신 실패:', e.message);
     setStatusLabel('⚠️ 현재가 polling 실패 · 마지막 정상값 유지', 'warn');

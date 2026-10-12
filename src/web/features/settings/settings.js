@@ -526,6 +526,22 @@ async function loadSettings(onProgress, options) {
       return failLoad(code);
     }
     const s = data.settings;
+    // This code list belongs to the same successful Bootstrap response, and
+    // can validate pending trade retries before EDITABLE_PRICES is applied.
+    const bootstrapMasterForRetry = isBootstrap ? [
+      ...data.codes,
+      // getCodeItems() excludes code-less funds/TDFs. Trust only fund-like
+      // entries from the SAME Bootstrap settings; never use a stale browser
+      // master to authorize pending remote writes.
+      ...(Array.isArray(s.EDITABLE_PRICES) ? s.EDITABLE_PRICES : [])
+        .filter(ep => ep && !String(ep.code || '').trim()
+          && ['TDF', '펀드', 'FUND'].includes(String(ep.assetType || ep.type || '').trim().toUpperCase()))
+        .map(ep => ({ name:String(ep.name || '').trim(), code:'', type:ep.assetType || ep.type })),
+      ...Object.entries(s.fundDirect && typeof s.fundDirect === 'object' ? s.fundDirect : {})
+        .filter(([name, value]) => name && value && typeof value === 'object'
+          && ['TDF', '펀드', 'FUND'].includes(String(value.type || '').trim().toUpperCase()))
+        .map(([name, value]) => ({ name, code:'', type:value.type }))
+    ] : null;
     // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
     // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
     const hasAuthoritativeFundDirect = Object.prototype.hasOwnProperty.call(s, 'fundDirect');
@@ -669,7 +685,8 @@ async function loadSettings(onProgress, options) {
       if (!isLoadConnectionCurrent()) return false;
       prog('미동기화 거래·보유 복구 중...');
       const dirtyRetryOk = await _retryPortfolioRemoteDirtySync({
-        allowDuringRestore: true
+        allowDuringRestore: true,
+        masterCodesOverride: bootstrapMasterForRetry
       });
       if (!isLoadConnectionCurrent()) return false;
       // 재전송 실패 시 원격의 이전 원장을 authoritative하게 적용하지 않습니다.
@@ -810,7 +827,8 @@ async function loadSettings(onProgress, options) {
           quiet: true,
           allowDuringRestore: true,
           preferCurrentPortfolio: dirtyPortfolioSyncResolvedAtLoad && rawTrades.length > 0,
-          targetUrl: loadTarget
+          targetUrl: loadTarget,
+          masterCodesOverride: bootstrapMasterForRetry
         });
       } catch (e) {
         console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
@@ -906,7 +924,8 @@ async function loadSettings(onProgress, options) {
               quiet: true,
               allowDuringRestore: true,
               preferCurrentPortfolio: rawTrades.length > 0,
-              targetUrl: loadTarget
+              targetUrl: loadTarget,
+              masterCodesOverride: bootstrapMasterForRetry
             });
             if (!isLoadConnectionCurrent()) return false;
             if (!latePendingResult) return false;
@@ -930,7 +949,8 @@ async function loadSettings(onProgress, options) {
             prog('복원 중 새로 생긴 거래·보유 동기화 중...');
             const lateDirtyOk = await _retryPortfolioRemoteDirtySync({
               targetUrl: loadTarget,
-              allowDuringRestore: true
+              allowDuringRestore: true,
+              masterCodesOverride: bootstrapMasterForRetry
             });
             if (!isLoadConnectionCurrent()) return false;
             if (!lateDirtyOk) return false;

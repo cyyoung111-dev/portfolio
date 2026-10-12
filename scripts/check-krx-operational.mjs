@@ -69,6 +69,44 @@ assert.equal(authShadow.credentialSource,'krx_auth_key');
 assert.equal(authShadow.alternativeConfigured,true);
 assert.equal(authShadow.alternateProbe.hasRows,true);
 assert.ok(!JSON.stringify(authShadow).includes('accessToken'));
+// Per-service KRX approval is not one boolean per credential. An exact-date
+// alternate approval on KOSPI does not prove the separate ETF/KOSDAQ product.
+const storedCoverage={
+  status:'OK',expectedHeldCodes:37,expectedStock:16,expectedEtf:21,
+  priceHistoryRows:2,officialExactDateCodes:0,nonOfficialHeldCodes:0,
+  missingOfficialCodes:37,snapshotRows:0,snapshotHeldCodes:0,
+  missingSnapshotCodes:37,queuedForBackfill:true
+};
+const deniedMarkets=[
+  {market:'KOSPI',httpStatus:401,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED'},
+  {market:'KOSDAQ',httpStatus:403,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED'},
+  {market:'ETF',httpStatus:200,rows:1400,exactDateRows:1400,parseStatus:'ROWS'}
+];
+const partialApproval=summarizeKrxSource({...payload('2026-10-08'),
+  markets:deniedMarkets,credentialSource:'krx_auth_key',alternativeConfigured:true,
+  alternateProbes:[
+    {market:'KOSPI',httpStatus:200,rows:900,exactDateRows:900,parseStatus:'ROWS',hasRows:true},
+    {market:'KOSDAQ',httpStatus:403,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED',hasRows:false}
+  ],storedCoverage},'2026-10-08');
+assert.equal(partialApproval.healthy,false,'KOSDAQ rejection is not masked by other approved services');
+assert.deepEqual(partialApproval.reachableMarkets.map(x=>x.reachable),[true,false,true]);
+assert.equal(partialApproval.alternateProbes.length,2);
+assert.deepEqual(partialApproval.storedCoverage,storedCoverage);
+assert.equal(partialApproval.storedCoverage.missingOfficialCodes,37);
+const allApproved=summarizeKrxSource({...payload('2026-10-08'),
+  markets:deniedMarkets,
+  alternateProbes:partialApproval.alternateProbes.map(x=>x.market==='KOSDAQ'
+    ?{...x,httpStatus:200,rows:1200,exactDateRows:1200,parseStatus:'ROWS',hasRows:true}:x)
+},'2026-10-08');
+assert.equal(allApproved.healthy,true,'each market approved for exact date via primary OR alternate');
+assert.equal(summarizeKrxSource({...payload('2026-10-08'),
+  markets:markers.map(x=>({...x,exactDateRows:0}))},'2026-10-08').healthy,false,
+  'HTTP200 rows of another session do not prove requested close');
+assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),
+  markets:[{...markers[0],exactDateRows:901},markers[1],markers[2]]},'2026-10-08'),
+  /INVALID_MARKET_RESPONSE/,'exact-date count cannot exceed all rows');
+assert.ok(!JSON.stringify(partialApproval).includes('SECRET_'));
+
 assert.deepEqual(health.markets.map(x=>x.market),['KOSPI','KOSDAQ','ETF']);
 assert.ok(!JSON.stringify(health).includes(key));
 assert.equal(summarizeKrxSource({...payload('2026-10-08'),markets:markers.map(x=>x.market==='ETF'

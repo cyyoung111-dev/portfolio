@@ -298,6 +298,36 @@ async function syncHoldingsToGsheet(options) {
   }
 }
 
+// Pure preflight before a restore retry starts ANY remote holdings/trades
+// writes. A partial or mismatched pinned ledger cannot be posted while the
+// second concurrent request modifies holdings.
+// Code-less TDF/direct-fund transactions are legal ledger entries but GAS
+// getCodeItems returns only assets with a stock code. Never impose the coded
+// stock-master invariant on those entries, and never use this exception when
+// any code (including an unknown one) is supplied.
+function isCodeLessDirectFundTrade(t) {
+  const type = String(t?.assetType || t?.type || '').trim().toUpperCase();
+  return !_normalizeSyncCode(t?.code || '') && (type === 'TDF' || type === '펀드' || type === 'FUND');
+}
+
+function isPinnedRestoreTradeMasterComplete(trades, codes) {
+  if (!Array.isArray(trades) || !Array.isArray(codes)) return false;
+  const codeSet = new Set(), nameSet = new Set();
+  codes.forEach(item => {
+    const code = _normalizeSyncCode(item?.code || '');
+    const name = String(item?.name || '').trim();
+    if (!code || !name) return;
+    codeSet.add(code);
+    nameSet.add(name);
+  });
+  return trades.every(t => {
+    if (!t?.name || !t.tradeType || !t.date) return false;
+    if (isCodeLessDirectFundTrade(t)) return true;
+    const code = _normalizeSyncCode(t.code || '');
+    return code ? codeSet.has(code) : nameSet.has(String(t.name).trim());
+  });
+}
+
 // ★ v8.2 — 거래이력 GSheet 동기화 (backfillMonth 소급 계산용)
 async function syncTradesToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
@@ -318,6 +348,23 @@ async function syncTradesToGsheet(options) {
   // 확인된 마지막 거래 삭제 경로가 전달한 1회성 allowEmpty만 예외입니다.
   if (sourceTrades.length === 0 && !allowEmpty) return;
   try {
+    // Bootstrap's code list belongs to the same authenticated connection and
+    // is available BEFORE EDITABLE_PRICES is restored. A pending trade retry
+    // must not treat a complete server master as missing merely because the
+    // browser's in-memory master has not yet been applied.
+    const restoreMaster = options?.allowDuringRestore === true
+      && Array.isArray(options?.masterCodesOverride) ? options.masterCodesOverride : null;
+    const serverByCode = new Map(), serverByName = new Map();
+    (restoreMaster || []).forEach(item => {
+      const code = _normalizeSyncCode(item?.code || '');
+      const name = String(item?.name || '').trim();
+      const type = String(item?.type || item?.assetType || '').trim().toUpperCase();
+      // Only code-less funds/TDFs from this same Bootstrap settings qualify.
+      // Other code-less objects must never authorize trading-ledger rewrites.
+      if (!name || (!code && !['TDF', '펀드', 'FUND'].includes(type))) return;
+      if (code) serverByCode.set(code, item);
+      if (!serverByName.has(name)) serverByName.set(name, item);
+    });
     const unmatchedTrades = [];
     const trades = sourceTrades
       .filter(t => t.name && t.tradeType && t.date)
@@ -325,28 +372,56 @@ async function syncTradesToGsheet(options) {
         const tCode = _normalizeSyncCode(t.code || '');
         const epByCode = tCode ? getEPByCode(tCode) : null;
         const epByName = getEP(t.name);
-        const ep = epByCode || epByName;
-        if (!ep) {
+        const isDirectFund = !!restoreMaster && isCodeLessDirectFundTrade(t);
+        // A known server code/name is a valid restoration match even if the
+        // local master is still empty. Local canonical data wins when present.
+        // A supplied but unknown code must never be silently reassigned by
+        // a coincidentally matching name. Only code-less trades use name lookup.
+        const remote = isDirectFund ? null
+          : ((tCode ? serverByCode.get(tCode) : null)
+            || (!tCode ? serverByName.get(String(t.name || '').trim()) : null));
+        // During an authoritative retry the browser's local master may
+        // belong to the previous connection. Never let that local value
+        // override a code verified from this connection's Bootstrap result.
+        const ep = restoreMaster ? null : (epByCode || epByName);
+        if (!ep && !remote && !isDirectFund) {
           unmatchedTrades.push({ date: t.date || '', name: t.name || '', code: tCode || '' });
         }
-        // ★ 기초정보 우선: 거래이력 코드가 달라도 EDITABLE_PRICES 기준 코드로 정규화
-        const baseCode = ep?.code || STOCK_CODE[ep?.name || t.name] || '';
-        const code = _normalizeSyncCode(baseCode || t.code || '');
+        // Do not import a stale browser STOCK_CODE into legitimate code-less
+        // fund trades, even when a code-bearing stock shares the same name.
+        const baseCode = isDirectFund ? ''
+          : (ep?.code || remote?.code || STOCK_CODE[ep?.name || t.name] || '');
+        const code = isDirectFund ? '' : _normalizeSyncCode(baseCode || t.code || '');
         return {
           date:      t.date,
           tradeType: t.tradeType,
           acct:      t.acct      || '',
-          // ★ 코드가 같은데 이름이 다르면 기초정보 이름으로 통일
-          name:      ep?.name || t.name,
+          name:      isDirectFund ? t.name : (ep?.name || remote?.name || t.name),
           code:      code,
           qty:       t.qty       || 0,
           price:     t.price     || 0,
-          assetType: getEPType(ep, t.assetType || '주식'),
+          assetType: isDirectFund ? (t.assetType || t.type || '펀드')
+            : getEPType(ep, remote?.type || t.assetType || '주식'),
           memo:      t.memo      || '',
         };
       });
+    // Never persist a truncated dirty ledger during authoritative restore:
+    // filtering even one malformed row would silently erase that transaction.
+    if (restoreMaster && trades.length !== sourceTrades.length) {
+      _syncWarn('[거래이력 동기화] 복원 원장 유효성 부족 · 서버 저장 보류');
+      return { status:'error', errorCode:'RESTORE_TRADE_PAYLOAD_INCOMPLETE', saveState:'failed' };
+    }
     // 유효한 원본 거래가 있는데 필터 결과만 0건인 경우와 권한 없는 빈 상태는 전체 삭제를 막습니다.
     if (trades.length === 0 && (sourceTrades.length > 0 || !allowEmpty)) return;
+    // A master supplied by this very Bootstrap is authoritative for the retry.
+    // Unknown transactions must not be silently committed to the server. Keep
+    // the dirty payload for a later recovery; other callers preserve their
+    // previous unmatched-warning behavior.
+    if (restoreMaster && unmatchedTrades.length) {
+      _syncWarn('[거래이력 동기화] 서버 기초정보 확인 실패 · 저장 보류:',
+        unmatchedTrades.map(t => ({ name:t.name, code:t.code })));
+      return { status:'error', errorCode:'RESTORE_MASTER_UNMATCHED', saveState:'failed' };
+    }
     if (unmatchedTrades.length > 0) {
       const uniq = Array.from(new Set(unmatchedTrades.map(t => `${t.name}|${t.code}`)));
       _syncWarn('[거래이력 동기화] 기초정보 미매칭 거래 포함:', unmatchedTrades);

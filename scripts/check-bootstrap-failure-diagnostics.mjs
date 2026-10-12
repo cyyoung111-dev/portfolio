@@ -14,7 +14,7 @@ function setup() {
     addEventListener:noop,querySelector:()=>null,querySelectorAll:()=>[],setAttribute:noop,getAttribute:()=>null,appendChild:noop};
   const storage=new Map();
   let writes=0,requests=0;
-  const ctx=vm.createContext({console:{log:noop,warn:noop,error:noop},setTimeout:noop,clearTimeout:noop,setInterval:noop,clearInterval:noop,
+  const ctx=vm.createContext({console:{log:noop,warn:noop,error:noop},alert:noop,setTimeout:noop,clearTimeout:noop,setInterval:noop,clearInterval:noop,
     URL,URLSearchParams,AbortController,requestAnimationFrame:noop,
     localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},
     document:{getElementById:()=>null,querySelector:()=>null,querySelectorAll:()=>[],createElement:()=>element,
@@ -85,6 +85,7 @@ assert.equal(h.writes,0);
 
 // Exercise actual request transport: token reads use POST without invoking a write action.
 h=setup();
+h.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
 vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'005930',assetType:'주식'});
   _invalidateEPIndex();
   rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
@@ -118,4 +119,165 @@ const net=fs.readFileSync('src/web/features/settings/settings_net.js','utf8');
 vm.runInContext(net,h.ctx);
 assert.equal((await h.ctx.requestGsheetActionJson('getSettings',{},{})).status,'ok');
 assert.equal(h.writes,0);
+
+
+// Production bootstrap: remote code master is available before local master
+// application, so a pinned dirty payload should not create false unmatched logs.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식',sector:'기타'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let remoteTrades=[],issueWrites=0;
+h.ctx.requestGsheetFormJson=async(action,params)=>{
+  if(action==='syncTrades')remoteTrades=JSON.parse(params.data);
+  if(action==='saveSyncIssues')issueWrites++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),true,'same Bootstrap response master validates early trade retry');
+assert.equal(remoteTrades.length,1,'complete trade list submitted');
+assert.equal(remoteTrades[0].code,'005930','canonical server code with leading zero');
+assert.equal(issueWrites,0,'known trade should not create spurious unmatched issue logs');
+assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'verified retry clears its dirty marker');
+
+// Cross-connection master conflict: the exact same server code must win
+// over the stale, differently coded local name while retrying this target.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+vm.runInContext(`EDITABLE_PRICES.push({name:'테스트',code:'000660',assetType:'주식'});
+  _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let conflictPayload=null;
+h.ctx.requestGsheetFormJson=async(action,params)=>{
+  if(action==='syncTrades')conflictPayload=JSON.parse(params.data);
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),true);
+assert.equal(conflictPayload?.[0]?.code,'005930','stale local stock master cannot rewrite server-confirmed code');
+
+// Server master disagrees with the local un-restored ledger: fail closed before
+// overwriting any source trades, while preserving the retryable dirty payload.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'미등록',code:'999999',qty:1,price:100});
+  rawHoldings.push({name:'미등록',code:'999999',qty:1,cost:100,acct:'계좌'});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let unsafeTradePosts=0,unsafeHoldingsPosts=0;
+h.ctx.requestGsheetFormJson=async(action)=>{
+  if(action==='syncTrades')unsafeTradePosts++;
+  if(action==='syncHoldings')unsafeHoldingsPosts++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),false,'unmatched trade blocks authoritative retry');
+assert.equal(unsafeTradePosts,0,'unknown trade may not overwrite server ledger');
+assert.equal(unsafeHoldingsPosts,0,'failed master preflight must also block parallel holdings write');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'failed master validation retains dirty source');
+assert.equal(h.ctx.getGsheetSettingsLoadFailure(),'미동기화 거래·보유 확인 · PORTFOLIO_SYNC_FAILED');
+// Same-name-but-different-code is NOT proof of identity: block a silent
+// reassignment when the original trade code is unknown to the server master.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'999999',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let mismatchedCodePosts=0;
+h.ctx.requestGsheetFormJson=async(action)=>{
+  if(action==='syncTrades')mismatchedCodePosts++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),false,'same-name mismatched code cannot be silently replaced');
+assert.equal(mismatchedCodePosts,0);
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'unknown-code trade remains retryable');
+
+// A malformed pinned source row must not be dropped while the rest of the
+// dirty ledger is saved as if it were complete.
+h=setup();
+h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100},
+    {date:'',tradeType:'buy',acct:'계좌',name:'테스트',code:'005930',qty:1,price:100});
+  rawHoldings.push({name:'테스트',code:'005930',qty:1,cost:100,acct:'계좌'});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let filteredLedgerPosts=0,filteredHoldingsPosts=0;
+h.ctx.requestGsheetFormJson=async(action)=>{
+  if(action==='syncTrades')filteredLedgerPosts++;
+  if(action==='syncHoldings')filteredHoldingsPosts++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),false,'malformed dirty source fails closed');
+assert.equal(filteredLedgerPosts,0,'filtered dirty source must never overwrite remote');
+assert.equal(filteredHoldingsPosts,0,'malformed trade blocks parallel holdings write');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'incomplete retry retains exact original dirty source');
+
+// Codeless funds/TDFs are represented in same-connection Settings, not
+// getCodeItems(). They must remain retryable without authorizing other stocks.
+for (const fundSource of ['EDITABLE_PRICES','fundDirect']) {
+  h=setup();
+  h.response.codes=[{code:'005930',name:'테스트',type:'주식'}];
+  if (fundSource === 'EDITABLE_PRICES') {
+    h.response.settings.EDITABLE_PRICES.push({name:'코드없는 펀드',code:'',assetType:'펀드'});
+  } else {
+    h.response.settings.fundDirect={'코드없는 펀드':{type:'TDF',cost:1000}};
+  }
+  vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+    rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'연금',name:'코드없는 펀드',code:'',assetType:'펀드',qty:1,price:1000});
+    _markPortfolioRemoteDirty();`,h.ctx);
+  let fundSaved=null, fundIssueCount=0;
+  h.ctx.requestGsheetFormJson=async(action,params)=>{
+    if(action==='syncTrades')fundSaved=JSON.parse(params.data);
+    if(action==='saveSyncIssues')fundIssueCount++;
+    return {status:'ok',saveState:'success'};
+  };
+  let restoredException='';
+  h.ctx.console.warn=(...args)=>{for(const part of args)if(part?.message)restoredException=String(part.message);};
+  const codelessResult = await h.ctx.loadSettings();
+  assert.equal(codelessResult,true,`${fundSource}: codeless fund must not deadlock restore · ${h.ctx.getGsheetSettingsLoadFailure()} · ${restoredException}`);
+  assert.equal(fundSaved?.length,1);
+  assert.equal(fundSaved?.[0]?.code,'','codeless fund remains codeless');
+  assert.equal(fundSaved?.[0]?.name,'코드없는 펀드');
+  assert.equal(fundIssueCount,0,'validated same-server codeless fund creates no unmatched logs');
+  assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'verified codeless fund clears dirty state');
+}
+
+// getCodeItems intentionally excludes no-code TDF/direct-fund master entries.
+// They must remain restorable without a fabricated KRX stock code.
+h=setup();
+h.response.codes=[];
+h.response.settings.EDITABLE_PRICES=[{name:'직접 TDF',code:'',assetType:'TDF'},{name:'직접 펀드',code:'',assetType:'펀드'}];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  STOCK_CODE['직접 TDF']='005930';
+  rawTrades.push(
+    {date:'2026-10-07',tradeType:'buy',acct:'연금',name:'직접 TDF',code:'',assetType:'TDF',qty:1,price:100},
+    {date:'2026-10-07',tradeType:'buy',acct:'연금',name:'직접 펀드',code:'',assetType:'펀드',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let fundOnlyTradePosts=0,fundOnlyIssues=0,fundOnlyRows=null;
+h.ctx.requestGsheetFormJson=async(action,params)=>{
+  if(action==='syncTrades'){fundOnlyTradePosts++;fundOnlyRows=JSON.parse(params.data);}
+  if(action==='saveSyncIssues')fundOnlyIssues++;
+  return {status:'ok',saveState:'success'};
+};
+assert.equal(await h.ctx.loadSettings(),true,'code-less fund/TDF dirty trades must remain restorable');
+assert.equal(fundOnlyTradePosts,1,'funds restored through one sync');
+assert.deepEqual(fundOnlyRows.map(r=>r.code),['',''],'stale local stock code cannot leak into direct fund');
+assert.deepEqual(fundOnlyRows.map(r=>r.assetType),['TDF','펀드']);
+assert.equal(fundOnlyIssues,0,'valid code-less fund/TDF must not create unmatched issues');
+assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'fund restore clears dirty after success');
+
+// A code-bearing trade cannot claim the direct-fund exemption, even if its
+// assetType says TDF; neither holdings nor trades should be posted.
+h=setup();
+h.response.codes=[];
+vm.runInContext(`EDITABLE_PRICES.length=0; _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',acct:'연금',name:'위장 펀드',code:'999999',assetType:'TDF',qty:1,price:100});
+  rawHoldings.push({name:'위장 펀드',code:'999999',qty:1,cost:100,acct:'연금'});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let forgedPosts=[];
+h.ctx.requestGsheetFormJson=async(action)=>{forgedPosts.push(action);return {status:'ok',saveState:'success'};};
+assert.equal(await h.ctx.loadSettings(),false,'unknown coded asset fails master preflight');
+assert.ok(!forgedPosts.includes('syncTrades')&&!forgedPosts.includes('syncHoldings'));
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'coded trade remains retryable');
+
+console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');

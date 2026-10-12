@@ -636,6 +636,11 @@ async function _retryPortfolioRemoteDirtySync(options) {
         : null;
       const holdingsRequired = dirty.holdings.length > 0 || Object.keys(dirty.fundDirect || {}).length > 0;
       const tradesRequired = dirty.trades.length > 0;
+      // Validate the entire pinned ledger before starting concurrent writes:
+      // a blocked trade must not leave a newer remote holdings snapshot behind.
+      if (allowDuringRestore && Array.isArray(options?.masterCodesOverride)
+          && typeof isPinnedRestoreTradeMasterComplete === 'function'
+          && !isPinnedRestoreTradeMasterComplete(dirty.trades, options.masterCodesOverride)) return false;
       const [holdingsResult, tradesResult] = await Promise.all([
         typeof syncHoldingsToGsheet === 'function'
           ? syncHoldingsToGsheet({
@@ -651,7 +656,8 @@ async function _retryPortfolioRemoteDirtySync(options) {
               targetUrl,
               generation,
               allowDuringRestore,
-              tradesOverride: dirty.trades
+              tradesOverride: dirty.trades,
+              masterCodesOverride: options?.masterCodesOverride
             })
           : Promise.resolve(null)
       ]);
@@ -755,6 +761,9 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
         const recoveryFundDirect = (typeof fundDirect === 'object' && fundDirect)
           ? JSON.parse(JSON.stringify(fundDirect))
           : {};
+        if (allowDuringRestore && Array.isArray(options?.masterCodesOverride)
+            && typeof isPinnedRestoreTradeMasterComplete === 'function'
+            && !isPinnedRestoreTradeMasterComplete(recoveryTrades, options.masterCodesOverride)) return false;
         const [holdingsResult, tradesResult] = await Promise.all([
           typeof syncHoldingsToGsheet === 'function'
             ? syncHoldingsToGsheet({
@@ -770,7 +779,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
                 targetUrl: retryTarget,
                 generation: retryGeneration,
                 allowDuringRestore,
-                tradesOverride: recoveryTrades
+                tradesOverride: recoveryTrades,
+                masterCodesOverride: options?.masterCodesOverride
               })
             : Promise.resolve(null)
         ]);
