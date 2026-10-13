@@ -1397,8 +1397,9 @@ assert.equal(lockDepth,0);
 
 // Ensure actual UI edit handler captures a source-pinned replacement and
 // normal sync submits the expected explicit replacement to the server.
-assert.ok(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8').includes(
-  '_recordSameTargetLocalCodeAddition({\n      ...item, replaces: originalMasterIdentity'));
+assert.match(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8'),
+  /_recordSameTargetLocalCodeAddition\(\{[\s\S]*?name:newName,code:newCode[\s\S]*?replaces:originalMasterIdentity/,
+  'stock editor must durably journal source-pinned replacement BEFORE any local mutations');
 assert.ok(fs.readFileSync('src/web/features/settings/settings_sync.js','utf8').includes(
   'replacements:JSON.stringify(replacements)'));
 
