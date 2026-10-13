@@ -497,14 +497,16 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
     if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function')
       _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
         transferable.filter(step => step.metadataOnly!==true && step.retired!==true));
-    if (typeof _forgetSameTargetCodeSettingsRepairs==='function')
-      _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,debts);
+    if (typeof _forgetSameTargetCodeSettingsRepairs==='function'
+        && !_forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,debts))
+      return null;
     if (typeof _forgetSameTargetLocalCodeAddition==='function'
         && typeof _getSameTargetLocalCodeAdditions==='function') {
       for (const step of debts) {
         if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
             entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
-          _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId);
+          if (!_forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId))
+            return null;
       }
     }
     return {fingerprint:expectedFingerprint,codes:readback.codes};
@@ -631,8 +633,9 @@ async function syncCodesToGsheet(options) {
       if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function')
         _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
         transferable.filter(step => step.metadataOnly!==true && step.retired!==true));
-      if (typeof _forgetSameTargetCodeSettingsRepairs === 'function')
-        _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairDebt);
+      if (typeof _forgetSameTargetCodeSettingsRepairs === 'function'
+          && !_forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairDebt))
+        return null;
       // Only the identity that has already been verified on the server can
       // retire. Never discard a newer edited C while repairing prior A->B.
       if (typeof _forgetSameTargetLocalCodeAddition === 'function'
@@ -640,7 +643,8 @@ async function syncCodesToGsheet(options) {
         for (const step of repairDebt.filter(item => !item.metadataOnly)) {
           if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
               entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
-            _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId);
+            if (!_forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId))
+            return null;
         }
       }
     }
@@ -805,7 +809,8 @@ async function syncCodesToGsheet(options) {
           for (const step of replacements) {
             if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
                 entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
-              _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId);
+              if (!_forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId))
+            return null;
           }
       }
       applyGsheetCodeList(partial.codes, sourceId);
@@ -863,8 +868,9 @@ async function syncCodesToGsheet(options) {
     }
     const checkedFingerprint = _stockMasterSyncFingerprint(checked.codes);
     if (!checkedFingerprint) return null;
-    if (repairProof.length && typeof _forgetSameTargetCodeSettingsRepairs === 'function')
-      _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairProof);
+    if (repairProof.length && typeof _forgetSameTargetCodeSettingsRepairs === 'function'
+        && !_forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairProof))
+      return null;
     applyGsheetCodeList(checked.codes, sourceId);
     _rememberConfirmedCodeMasterChange(targetUrl,sourceId,freshFingerprint,checkedFingerprint);
     if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function') {
@@ -878,7 +884,8 @@ async function syncCodesToGsheet(options) {
       const source = String(typeof _gsCodeMasterSourceIdentity !== 'undefined' ? _gsCodeMasterSourceIdentity || '' : '');
       for (const item of _getSameTargetLocalCodeAdditions(targetUrl, source)) {
         if (_normalizeSyncCode(codeMap[item.name]?.code) === _normalizeSyncCode(item.code)) {
-          _forgetSameTargetLocalCodeAddition(item.name, item.code, targetUrl, source);
+          if (!_forgetSameTargetLocalCodeAddition(item.name, item.code, targetUrl, source))
+            return null;
         }
       }
     }
