@@ -581,5 +581,76 @@ assert.deepEqual(unverifiedWrites,['syncCodesAppendOnly'],'failed readback must 
 assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),1);
 assert.ok(h.ctx._getPortfolioRemoteDirty());
 
+
+// Codex P1: duplicate names/codes in one server master cannot be validated,
+// even if the transaction itself refers to one of the duplicate entries.
+h=setup();
+const sampleTrade={date:'2026-10-07',tradeType:'buy',name:'A',code:'222222',qty:1,price:100};
+assert.equal(h.ctx.isPinnedRestoreTradeMasterComplete([sampleTrade],[
+  {name:'A',code:'111111'},{name:'A',code:'222222'}]),false,
+  'same name with two server codes is ambiguous');
+assert.equal(h.ctx.isPinnedRestoreTradeMasterComplete([sampleTrade],[
+  {name:'A',code:'222222'},{name:'B',code:'222222'}]),false,
+  'same code with two server names is ambiguous');
+
+// Execute the ACTUAL GAS CAS handler under a mock script lock, not only a
+// browser stub. Another browser's conflicting update must be detected before
+// any append or existing-row mutation.
+const gasSrc=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const normStart=gasSrc.indexOf('function _portfolioNormalizeCodeMasterSnapshot_(');
+const appendStart=gasSrc.indexOf('function handleSyncCodesAppendOnly(');
+const appendEnd=gasSrc.indexOf('function handleSyncCodes(',appendStart);
+assert.ok(normStart>=0 && appendStart>normStart && appendEnd>appendStart);
+let serverCodes=[{name:'A',code:'111111',type:'주식',sector:'',currency:'KRW',market:''}];
+const gasWrites=[];
+const mockSheet={
+  getLastRow:()=>serverCodes.length+1,getLastColumn:()=>6,
+  getRange:(r,c,n,m)=>({setValues:rows=>{
+    assert.equal(c,1);assert.equal(m,6);
+    assert.equal(r,serverCodes.length+2,'CAS must append rather than update existing');
+    for(const v of rows){
+      serverCodes.push({code:v[0],name:v[1],type:v[2],
+        sector:v[3],currency:v[4]||'KRW',market:v[5]});
+      gasWrites.push(v);
+    }
+  }})
+};
+let lockDepth=0;
+const gasCtx=vm.createContext({
+  JSON,Object,Array,String,LockService:{getScriptLock:()=>({
+    waitLock:()=>{lockDepth++;},releaseLock:()=>{lockDepth--;}
+  })},getss:()=>({getSheetByName:()=>mockSheet}),
+  _portfolioCodeMasterSourceIdentity_:()=> 'TEST_SOURCE',
+  _cleanCode:code=>String(code||'').trim(),
+  _parseJsonParam:value=>JSON.parse(value),
+  getCodeItems:()=>serverCodes.map(x=>({...x})),
+  CONFIG:{SHEET_CODES:'종목코드'},_setCodeColumnText:()=>{},
+  _touchSnapshotIntegritySourceRevision:()=>{},
+  SpreadsheetApp:{flush:()=>{}},
+  jsonOk:payload=>({status:'ok',...payload}),
+  jsonError:(message,payload)=>({status:'error',message,...payload})
+});
+vm.runInContext(
+  gasSrc.slice(normStart,gasSrc.indexOf('/**',normStart))+
+  '\n'+gasSrc.slice(appendStart,appendEnd),gasCtx);
+const casRequest=JSON.stringify({'신규':{code:'005930',type:'주식'}});
+const casExpected=encodeURIComponent(JSON.stringify(serverCodes));
+let casResult=gasCtx.handleSyncCodesAppendOnly(casRequest,casExpected,'OTHER_WORKBOOK');
+assert.equal(casResult.errorCode,'CODE_MASTER_SOURCE_CHANGED');
+assert.equal(gasWrites.length,0);
+serverCodes.push({name:'신규',code:'005930',type:'주식',sector:'',currency:'KRW',market:''});
+casResult=gasCtx.handleSyncCodesAppendOnly(casRequest,casExpected,'TEST_SOURCE');
+assert.equal(casResult.errorCode,'CODE_MASTER_CHANGED','concurrent insert must invalidate CAS');
+assert.equal(gasWrites.length,0,'never rewrite another writer’s row');
+serverCodes.pop();
+casResult=gasCtx.handleSyncCodesAppendOnly(casRequest,casExpected,'TEST_SOURCE');
+assert.equal(casResult.status,'ok','unchanged source and master permit append');
+assert.equal(gasWrites.length,1);
+assert.equal(serverCodes[0].name,'A','existing mapping unchanged');
+assert.equal(serverCodes[1].name,'신규');
+assert.equal(lockDepth,0,'script lock must be released on all paths');
+assert.ok(gasSrc.includes("function handleSyncCodes(codesParam) {\n  var lock = LockService.getScriptLock()"),
+  'legacy normal code edits must serialize with append-only CAS');
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
