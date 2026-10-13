@@ -78,7 +78,7 @@ assert.match(history,/fullRestoreDone = typeof _gsBootRestored !== 'undefined'/,
 assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말고/,
  'read-only partial restore must warn that editing and saving are unsafe');
 
-assert.match(html,/settings_sync\.js\?v=20261013-21/);
+assert.match(html,/settings_sync\.js\?v=20261013-22/);
 
 assert.ok(html.includes('domain/portfolio/data.js?v=20261013-9'));
 assert.ok(sw.includes('domain/portfolio/data.js?v=20261013-9'));
@@ -101,11 +101,11 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261013-6/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261013-28/);
-assert.match(sw,/portfolio-cache-20261013-28/);
+assert.match(html,/sw\.js\?v=20261013-29/);
+assert.match(sw,/portfolio-cache-20261013-29/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
-assert.match(sw,/settings_sync\.js\?v=20261013-21/);
+assert.match(sw,/settings_sync\.js\?v=20261013-22/);
 assert.match(sw,/views_history\.js\?v=20261012-2/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
@@ -493,8 +493,9 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
         return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
       }
       assert.equal(params.forceSettingsRebase,'1');
-      assert.equal(JSON.parse(params.settingsReplacements).length,0,
-        'metadata-only debt must not impersonate a rename');
+      assert.equal(JSON.parse(params.settingsReplacements).length,1,
+        'confirmed metadata-only debt must be passed as exact scoped proof');
+      assert.equal(JSON.parse(params.settingsReplacements)[0].metadataOnly,true);
       if(postCount===2) return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
       assert.equal(postCount,3);
       assert.deepEqual(JSON.parse(params.expectedCodes).map(x=>x.name),['B'],
@@ -580,7 +581,8 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       }
       assert.equal(calls,2);
       assert.equal(params.forceSettingsRebase,'1');
-      assert.equal(JSON.parse(params.settingsReplacements).length,0);
+      assert.equal(JSON.parse(params.settingsReplacements).length,1);
+      assert.equal(JSON.parse(params.settingsReplacements)[0].metadataOnly,true);
       return {status:'ok',updated:0};
     }
   };

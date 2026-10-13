@@ -50,8 +50,10 @@ function scenario({failInitial=true}={}) {
         return {status:'ok',synced:0,updated:0};
       }
       assert.equal(payload.forceSettingsRebase,'1');
-      assert.deepEqual(JSON.parse(payload.settingsReplacements),[],
-        'appended C is NOT a code rename provenance');
+      assert.equal(JSON.parse(payload.settingsReplacements).length,1);
+      assert.equal(JSON.parse(payload.settingsReplacements)[0].metadataOnly,true,
+        'appended C is a scoped metadataOnly proof, NEVER a code rename');
+      assert.equal(JSON.parse(payload.settingsReplacements)[0].name,'C');
       if(posts===2 && failInitial)
         return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
       if(!settings.some(x=>x.name==='C'))

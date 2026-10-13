@@ -1,3 +1,12 @@
+## PR #493 Codex P2 — Settings-only 재기준화 전체 원본/증거 정합성 보호 (2026-10-13)
+
+- **원인**: 기존 `metadataOnly` 부채로 다른 브라우저의 A→B 코드 마스터 부분 커밋을 무시한 채 Settings 전종목을 rebase, B의 targetWeight·notes를 기본값으로 소실 가능.
+- **GAS v9.210**: 동일 workbook ScriptLock 및 full master CAS에서 각 *현재* master name/code가 Settings의 정확 원본 1개 또는 개별 복구 증거를 보유하고, 재기준화에서 제거되는 코드 Settings orphan에는 검증된 rename/삭제 증거가 있는지 양방향 검사. 미증명/중복/경쟁 alias면 `CODE_REBASE_SETTINGS_MASTER_MISMATCH` (또는 provenance conflict)로 쓰기 0. 일반 동기화의 별도 full-master 검사는 유지.
+- **웹**: metadataOnly는 자신이 실제 가리키는 종목만 증명하며 GAS에 범위를 넘김. 원래 A→B 성공 뒤 B가 후속 삭제되면 empty provenance 대신 `retired:true` tombstone을 전달하여 stale A만 안전 정리. CAS/최종 readback 후에만 부채·journal 제거. 다른 종목·삭제·이름 충돌은 fail closed.
+- **생산 GAS VM** `scripts/check-stock-master-force-rebase-provenance.mjs`에서 master B,C/Settings A,C/metadataOnly C의 원본 비중 37 유실 경로 재현→차단, 정상 append/rename/tombstone(실제 타겟 삭제)/무근거 orphan·중복 검증. 기존 Bootstrap/append/연속교체·종가/NAV/Snapshot 테스트 회귀 유지.
+- GAS v9.210 whole-source Git blob `86cbc5e7a140b66b3f4c5543a73c90b573479b9c`, 웹 캐시/Expected 버전/CI 소스 pin 동기화. Draft·미병합·운영 deploy skipped, 원본 PR #489~#492/main 및 운영 GAS/실제 데이터 변경 없음.
+
+---
 **v9.209 회귀 정합**: 기존 `handleSyncCodes`에서 Settings 저장 실패에 반환하던 명시적 `CODE_SYNC_SETTINGS_FAILED` 코드를 단일 키 CAS 오류에서도 유지. 실제 기존 거래 쓰기 검증 VM은 새 단일 셀 helper 호출·실패·회복을 재현하도록 업데이트. GAS full blob `2eeaa55461a8f9f69e017655be402a83d859faad`, expected version/PWA v28 동기화.
 
 ---

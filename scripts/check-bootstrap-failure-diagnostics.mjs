@@ -498,12 +498,11 @@ console.log('✅ 브라우저 강제 종료 후 교체 journal 단독 보유 시
 
 // Legacy metadataOnly debt from an earlier browser used arbitrary first A.
 // B's metadata was committed, Settings write failed, then a different tab
-// deleted unrelated A. Bootstrap must use the CURRENT full master B under CAS
+// deleted unrelated A from Codes AND Settings. Bootstrap must use the CURRENT full master B under CAS
 // and may not insist that A is still present.
 h=setup();
 h.response.codes=[{name:'B',code:'222222',type:'주식',sector:'헬스케어',currency:'KRW',market:'KR'}];
 h.response.settings.EDITABLE_PRICES=[
-  {name:'A',code:'111111',assetType:'주식',sector:'기타',targetWeight:12},
   {name:'B',code:'222222',assetType:'주식',sector:'기타',targetWeight:37}
 ];
 vm.runInContext(`_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE',[
@@ -515,8 +514,9 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
   metadataPosts.push(action);
   assert.equal(action,'syncCodes');
   assert.equal(params.forceSettingsRebase,'1');
-  assert.equal(JSON.parse(params.settingsReplacements).length,0,
-    'stale unrelated A marker is not a rename');
+  assert.equal(JSON.parse(params.settingsReplacements).length,1,
+    'stale unrelated A metadata marker is forwarded with its own identity');
+  assert.equal(JSON.parse(params.settingsReplacements)[0].metadataOnly,true);
   assert.deepEqual(Object.keys(JSON.parse(params.codes)),['B'],
     'canonical CAS excludes deleted A');
   h.response.settings.EDITABLE_PRICES=[
@@ -556,8 +556,9 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
   assert.equal(params.forceSettingsRebase,'1');
   assert.deepEqual(Object.keys(JSON.parse(params.codes)),['C'],
     'authoritative current master cannot resurrect deleted B');
-  assert.deepEqual(JSON.parse(params.settingsReplacements),[],
-    'A->B transfer is inapplicable after both coded identities vanished');
+  assert.equal(JSON.parse(params.settingsReplacements).length,1);
+  assert.equal(JSON.parse(params.settingsReplacements)[0].retired,true,
+    'A->B target deletion must carry explicit tombstone, not blank provenance');
   h.response.settings.EDITABLE_PRICES=[
     {name:'C',code:'333333',assetType:'주식',sector:'기타',targetWeight:20},
     {name:'펀드 미코드',code:'',assetType:'펀드',targetWeight:43}

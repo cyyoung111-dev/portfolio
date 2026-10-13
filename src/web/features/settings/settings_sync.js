@@ -409,31 +409,42 @@ function stageConfirmedSameTargetCodeReplacementRepairs(targetUrl, sourceId, mas
 function _classifyPinnedCodeSettingsRepairDebt(debts, master) {
   if (!Array.isArray(debts) || !Array.isArray(master)
       || !_stockMasterSyncFingerprint(master)) return null;
-  const transfers=[];
+  const proofs=[];
   for (const step of debts) {
-    if (step?.metadataOnly === true) continue;
-    if (!step?.name || !step?.code || !step?.previousName || !step?.previousCode
-        || (step.name===step.previousName && _normalizeSyncCode(step.code)===_normalizeSyncCode(step.previousCode)))
-      return null;
-    const oldCode=_normalizeSyncCode(step.previousCode),newCode=_normalizeSyncCode(step.code);
-    const oldName=String(step.previousName || '').trim(),newName=String(step.name || '').trim();
-    const target=master.some(row => String(row.name || '').trim()===newName
+    const oldName=String(step?.previousName || '').trim(),
+      oldCode=_normalizeSyncCode(step?.previousCode),
+      newName=String(step?.name || '').trim(),
+      newCode=_normalizeSyncCode(step?.code);
+    if (!oldName || !oldCode || !newName || !newCode) return null;
+    const exact=master.some(row =>
+      String(row.name || '').trim()===newName
       && _normalizeSyncCode(row.code)===newCode);
-    // Reuse of ANY name/code component without the original complete pair
-    // may indicate a competing rename, not a legitimate completed deletion.
+    if (step.metadataOnly === true) {
+      if (oldName!==newName || oldCode!==newCode
+          || (!exact && master.some(row =>
+            String(row.name || '').trim()===newName
+            || _normalizeSyncCode(row.code)===newCode))) return null;
+      // Keep this exact proof for GAS. It authorizes only its OWN identity.
+      proofs.push({...step,metadataOnly:true});
+      continue;
+    }
+    if (oldName===newName && oldCode===newCode) return null;
     const oldAlias=master.some(row =>
       (oldName!==newName && String(row.name || '').trim()===oldName)
       || (oldCode!==newCode && _normalizeSyncCode(row.code)===oldCode));
-    const targetAlias=master.some(row => String(row.name || '').trim()===newName
+    const targetAlias=master.some(row =>
+      String(row.name || '').trim()===newName
       || _normalizeSyncCode(row.code)===newCode);
-    if (target && !oldAlias) transfers.push(step);
-    else if (!target && !oldAlias && !targetAlias) {
-      // The target has vanished from the fully committed current master.
-      // No A->B metadata transfer is possible or appropriate anymore.
+    if (exact && !oldAlias) proofs.push(step);
+    else if (!exact && !oldAlias && !targetAlias) {
+      // A->B commit was followed by B deletion; only its explicit pinned
+      // tombstone can authorize pruning a stale original Settings row.
+      proofs.push({...step,retired:true});
     } else return null;
   }
-  return transfers;
+  return proofs;
 }
+
 
 // Bootstrap must settle a saved Settings migration BEFORE applying stale
 // getBootstrap Settings to EDITABLE_PRICES or declaring the restore complete.
@@ -479,7 +490,8 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
         || readback?.status!=='ok' || readback.codeMasterSourceId!==sourceId
         || _stockMasterSyncFingerprint(readback.codes)!==expectedFingerprint) return null;
     if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function')
-      _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,transferable);
+      _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
+        transferable.filter(step => step.metadataOnly!==true && step.retired!==true));
     if (typeof _forgetSameTargetCodeSettingsRepairs==='function')
       _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,debts);
     if (typeof _forgetSameTargetLocalCodeAddition==='function'
@@ -597,7 +609,8 @@ async function syncCodesToGsheet(options) {
       // Settings debt save but BEFORE the edit journal rebase was persisted.
       // Rebase any old A->C root now from independently verified B.
       if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function')
-        _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,transferable);
+        _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
+        transferable.filter(step => step.metadataOnly!==true && step.retired!==true));
       if (typeof _forgetSameTargetCodeSettingsRepairs === 'function')
         _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairDebt);
       // Only the identity that has already been verified on the server can
@@ -788,7 +801,7 @@ async function syncCodesToGsheet(options) {
       data = await requestGsheetFormJson('syncCodes', {
         codes:JSON.stringify(canonical), expectedSourceId:sourceId,
         expectedCodes:JSON.stringify(partial.codes), replacements:'[]',
-        settingsReplacements:JSON.stringify([...replacements,...settingsReplacements]),
+        settingsReplacements:JSON.stringify(repairProof),
         forceSettingsRebase:'1'
       }, {timeoutMs:20000,retry:0,targetUrl});
       if (data?.status !== 'ok') {

@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.209
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.210
+//
+//  v9.210 변경사항 (2026.10.13):
+//   Settings-only 재기준화 대상별 원본 CAS 검사·다른 탭 부분 커밋 보호
+//   metadataOnly/실제 교체/후속 삭제 증거를 분리해 무관 종목 보존
 //
 //  v9.209 변경사항 (2026.10.13):
 //   단일 키 CAS 실패 시 기존 CODE_SYNC_SETTINGS_FAILED 표준 오류 응답 유지
@@ -1959,7 +1963,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.209', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.210', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5616,7 +5620,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.209' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.210' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11354,7 +11358,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.209',
+    gasVersion: '9.210',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11394,7 +11398,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.209' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.210' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14434,7 +14438,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.209' });
+    return jsonOk({ settings: settings, gasVersion: '9.210' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14464,7 +14468,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.209'
+      gasVersion: '9.210'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14982,43 +14986,102 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
       }))
         return jsonError('Settings 복구 요청이 확정 코드 마스터와 다름', {errorCode:'CODE_REBASE_NOT_READONLY'});
       var storedSettings=_readSettingsMap(ss);
+      if (Object.prototype.hasOwnProperty.call(storedSettings,'EDITABLE_PRICES')
+          && !Array.isArray(storedSettings.EDITABLE_PRICES))
+        return jsonError('Settings 종목 원본 배열 형식 오류', {
+          errorCode:'CODE_REBASE_SETTINGS_MASTER_MISMATCH'
+        });
       var storedRows=Array.isArray(storedSettings.EDITABLE_PRICES) ? storedSettings.EDITABLE_PRICES : [];
-      var claimedOld={},claimedNew={};
+      var claimedOld={},claimedNew={},allowedMissing={},allowedOrphans={};
+      var masterPairs={},storedPairs={};
+      masterForRebase.forEach(function(row) {
+        masterPairs[JSON.stringify([
+          String(row.name||'').trim(),_cleanCode(row.code)
+        ])]=true;
+      });
+      storedRows.forEach(function(row) {
+        var name=String(row&&row.name||'').trim(),code=_cleanCode(row&&row.code||'');
+        if (!code) return; // direct code-less funds are outside the master
+        var pair=JSON.stringify([name,code]);
+        storedPairs[pair]=(storedPairs[pair]||0)+1;
+      });
       for (var mi=0;mi<settingsOnlyReplacements.length;mi++) {
         var proof=settingsOnlyReplacements[mi]||{};
         var fromName=String(proof.previousName||'').trim(),fromCode=_cleanCode(proof.previousCode||'');
         var toName=String(proof.name||'').trim(),toCode=_cleanCode(proof.code||'');
         var fromKey=JSON.stringify([fromName,fromCode]), toKey=JSON.stringify([toName,toCode]);
         if (!fromName || !fromCode || !toName || !toCode
-            || (fromName===toName && fromCode===toCode)
-            || claimedOld[fromKey] || claimedNew[toKey]
-            || !masterForRebase.some(function(row) {
-              return String(row.name||'').trim()===toName && _cleanCode(row.code)===toCode;
-            }) || masterForRebase.some(function(row) {
-              return (fromCode!==toCode && _cleanCode(row.code)===fromCode)
-                || (fromName!==toName && String(row.name||'').trim()===fromName);
-            }))
-          return jsonError('Settings 이전 대상 또는 원본 불일치', {errorCode:'CODE_REBASE_PROVENANCE_CONFLICT'});
-        var oldStored=storedRows.filter(function(row) {
-          return String(row&&row.name||'').trim()===fromName && _cleanCode(row&&row.code||'')===fromCode;
-        });
-        var newStored=storedRows.filter(function(row) {
-          return String(row&&row.name||'').trim()===toName && _cleanCode(row&&row.code||'')===toCode;
-        });
-        // Accept an idempotent already-repaired pair, but never combine two
-        // Settings rows or silently discard a former row's custom fields.
-        var conflictingAlias=storedRows.some(function(row) {
-          var name=String(row&&row.name||'').trim(),code=_cleanCode(row&&row.code||'');
-          return (name===toName || code===toCode)
-            && !(name===toName && code===toCode)
-            && !(name===fromName && code===fromCode);
-        });
-        if (oldStored.length>1 || newStored.length>1 || conflictingAlias
-            || (oldStored.length===1 && newStored.length===1)
-            || (oldStored.length===0 && newStored.length===0))
-          return jsonError('Settings 이전 원본 식별 불가', {errorCode:'CODE_REBASE_SETTINGS_AMBIGUOUS'});
+            || claimedOld[fromKey] || claimedNew[toKey])
+          return jsonError('Settings 복구 증거 중복/누락', {
+            errorCode:'CODE_REBASE_PROVENANCE_CONFLICT'
+          });
+        var oldStored=storedPairs[fromKey]||0,newStored=storedPairs[toKey]||0;
+        if (proof.metadataOnly===true) {
+          // An append or metadata edit proves ONLY its own current pair.
+          // It cannot authorize dropping another browser's orphan Settings A.
+          if (fromKey!==toKey || proof.retired===true
+              || (!masterPairs[toKey] && newStored!==0))
+            return jsonError('메타데이터 Settings 복구 근거 불일치', {
+              errorCode:'CODE_REBASE_PROVENANCE_CONFLICT'
+            });
+          if (masterPairs[toKey]) allowedMissing[toKey]=true;
+        } else if (proof.retired===true) {
+          // A->B was committed and B was subsequently deleted. Preserve
+          // liveness only with explicit pinned lineage and ZERO reused aliases.
+          if (fromKey===toKey || masterForRebase.some(function(row) {
+            var name=String(row.name||'').trim(),code=_cleanCode(row.code);
+            return name===fromName || name===toName || code===fromCode || code===toCode;
+          }) || oldStored>1 || newStored>1 || oldStored+newStored>1)
+            return jsonError('삭제 완료된 교체 증거 충돌', {
+              errorCode:'CODE_REBASE_PROVENANCE_CONFLICT'
+            });
+          allowedOrphans[fromKey]=true; allowedOrphans[toKey]=true;
+        } else {
+          if (fromKey===toKey || !masterPairs[toKey]
+              || masterForRebase.some(function(row) {
+                return (fromCode!==toCode && _cleanCode(row.code)===fromCode)
+                  || (fromName!==toName && String(row.name||'').trim()===fromName);
+              }))
+            return jsonError('Settings 이전 대상 또는 원본 불일치', {
+              errorCode:'CODE_REBASE_PROVENANCE_CONFLICT'
+            });
+          var conflictingAlias=storedRows.some(function(row) {
+            var name=String(row&&row.name||'').trim(),code=_cleanCode(row&&row.code||'');
+            return (name===toName || code===toCode)
+              && !(name===toName && code===toCode)
+              && !(name===fromName && code===fromCode);
+          });
+          if (oldStored>1 || newStored>1 || conflictingAlias
+              || (oldStored===1 && newStored===1)
+              || (oldStored===0 && newStored===0))
+            return jsonError('Settings 이전 원본 식별 불가', {
+              errorCode:'CODE_REBASE_SETTINGS_AMBIGUOUS'
+            });
+          if (oldStored===1) allowedOrphans[fromKey]=true;
+          allowedMissing[toKey]=true;
+        }
         claimedOld[fromKey]=true; claimedNew[toKey]=true;
       }
+      // Every master identity needs exactly one Settings source, unless
+      // explicitly covered by an audited repair proof. Every orphan coded
+      // Settings row must be attributable to a distinct rename/deletion.
+      // This is checked under the SAME source-pinned ScriptLock before writes.
+      var ambiguousRebase=false;
+      masterForRebase.forEach(function(row) {
+        var pair=JSON.stringify([
+          String(row.name||'').trim(),_cleanCode(row.code)
+        ]);
+        if ((storedPairs[pair]||0)>1
+            || (!storedPairs[pair] && !allowedMissing[pair])) ambiguousRebase=true;
+      });
+      Object.keys(storedPairs).forEach(function(pair) {
+        if (storedPairs[pair]!==1
+            || (!masterPairs[pair] && !allowedOrphans[pair])) ambiguousRebase=true;
+      });
+      if (ambiguousRebase)
+        return jsonError('다른 종목의 미복구 Settings 원본이 있어 재기준화 차단', {
+          errorCode:'CODE_REBASE_SETTINGS_MASTER_MISMATCH'
+        });
     }
     var synced         = 0;
     var updated        = 0;
