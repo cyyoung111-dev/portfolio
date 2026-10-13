@@ -230,6 +230,18 @@ async function syncCodesToGsheet(options) {
     );
     if (!data) { _syncWarn('[GSheet 동기화] 네트워크 오류'); return null; }
     if (data.status !== 'ok') { _syncWarn('[GSheet 동기화] 응답 오류', data); return null; }
+    // Acknowledged normal code sync retires only matching registrations;
+    // otherwise a stale registration could later resurrect a removed stock.
+    if (!Array.isArray(options?.codeItemsOverride)
+        && typeof _getSameTargetLocalCodeAdditions === 'function'
+        && typeof _forgetSameTargetLocalCodeAddition === 'function') {
+      const source = String(typeof _gsCodeMasterSourceIdentity !== 'undefined' ? _gsCodeMasterSourceIdentity || '' : '');
+      for (const item of _getSameTargetLocalCodeAdditions(targetUrl, source)) {
+        if (_normalizeSyncCode(codeMap[item.name]?.code) === _normalizeSyncCode(item.code)) {
+          _forgetSameTargetLocalCodeAddition(item.name, item.code, targetUrl);
+        }
+      }
+    }
     return data; // { synced, updated, removed, total }
   } catch(e) {
     _syncWarn('[GSheet 동기화] 예외:', e);
@@ -423,7 +435,7 @@ async function recoverPinnedMissingPortfolioCodes(options) {
   const remoteEntries = Array.isArray(options?.remoteSettings?.EDITABLE_PRICES)
     ? options.remoteSettings.EDITABLE_PRICES : [];
   const trustedLocal = typeof _getSameTargetLocalCodeAdditions === 'function'
-    ? _getSameTargetLocalCodeAdditions(targetUrl) : [];
+    ? _getSameTargetLocalCodeAdditions(targetUrl, options?.expectedSourceId) : [];
   const proven = [...remoteEntries, ...trustedLocal];
   const additions = new Map();
   for (const row of refs) {
@@ -479,17 +491,26 @@ async function recoverPinnedMissingPortfolioCodes(options) {
   if (!isPinnedRestorePortfolioMasterComplete(
       dirty.trades, dirty.holdings, dirty.fundDirect, proposed)) return masterCodes;
   if (!isGsheetConnectionCurrent(targetUrl, generation)) return null;
-  const response = await syncCodesToGsheet({
-    targetUrl, generation, allowDuringRestore:true,
-    codeItemsOverride:[...additions.values()]
-  });
+  // Atomic compare-and-append on GAS under the SAME ScriptLock used by
+  // ordinary syncCodes. Unlike syncCodes, this action cannot rename an
+  // existing code or overwrite an existing name, even if another tab writes
+  // between getBootstrap and this request.
+  const response = await requestGsheetFormJson('syncCodesAppendOnly', {
+    codes:JSON.stringify(Object.fromEntries([...additions.values()].map(item => [
+      item.name, { code:item.code, type:item.type, sector:item.sector,
+        currency:item.currency, market:item.market }
+    ]))),
+    expectedCodes:JSON.stringify(masterCodes.filter(item => _normalizeSyncCode(item?.code || ''))),
+    expectedSourceId:String(options?.expectedSourceId || '')
+  }, {timeoutMs:20000,retry:0,targetUrl});
   if (response?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl, generation)) return null;
   // An ACK is insufficient: read the exact target again and prove identity.
   const checked = await requestGsheetActionJson('getCodeList', {}, {
     targetUrl, timeoutMs:15000, retry:1, preserveError:true
   });
   if (!isGsheetConnectionCurrent(targetUrl, generation)
-      || checked?.status !== 'ok' || !Array.isArray(checked.codes)) return null;
+      || checked?.status !== 'ok' || !Array.isArray(checked.codes)
+      || !options?.expectedSourceId || checked.codeMasterSourceId !== options.expectedSourceId) return null;
   const actualByCode = new Map();
   for (const item of checked.codes) {
     const code = _normalizeSyncCode(item?.code || '');
