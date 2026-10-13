@@ -484,14 +484,15 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
   const code = typeof _normalizeSyncCode === 'function'
     ? _normalizeSyncCode(item?.code || '') : String(item?.code || '').trim();
   const name = String(item?.name || '').trim();
-  if (!target || !code || !name
+  const sourceId = String(editSession?.sourceId || '').trim();
+  if (!target || !code || !name || !sourceId
       || typeof isStockMasterEditSessionCurrent !== 'function'
       || !isStockMasterEditSessionCurrent(editSession)) return false;
   const records = Array.isArray(_pendingSameTargetCodeAdditions[target])
     ? _pendingSameTargetCodeAdditions[target] : [];
   const others = records.filter(r => r && r.name !== name && r.code !== code);
   others.push({
-    name, code, type: String(item.assetType || item.type || '주식'),
+    name, code, sourceId, type: String(item.assetType || item.type || '주식'),
     sector: String(item.sector || '기타'),
     currency: String(item.currency || 'KRW').toUpperCase(),
     market: String(item.market || '').toUpperCase()
@@ -500,9 +501,13 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
   lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
   return true;
 }
-function _getSameTargetLocalCodeAdditions(target) {
+function _getSameTargetLocalCodeAdditions(target, sourceIdentity) {
   const entries = _pendingSameTargetCodeAdditions[String(target || '').trim()];
-  return Array.isArray(entries) ? entries.map(e => ({ ...e })) : [];
+  const sourceId = String(sourceIdentity || '').trim();
+  // A GAS /exec URL alone cannot identify the underlying spreadsheet: its
+  // SS_ID can change without a URL change. Legacy unpinned entries are inert.
+  return sourceId && Array.isArray(entries)
+    ? entries.filter(e => e?.sourceId === sourceId).map(e => ({ ...e })) : [];
 }
 function _forgetSameTargetLocalCodeAddition(name, code, targetUrl) {
   const target = String(targetUrl || _currentGsheetSyncTarget() || '').trim();
