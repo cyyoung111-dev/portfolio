@@ -1123,7 +1123,8 @@ async function loadSettings(onProgress, options) {
     // 일반 Settings 저장이 과거에 실패했더라도 별도로 동기화된 종목코드 시트에서
     // 유형·섹터·통화를 복구합니다. 상단 업데이트와 수동 재동기화에도 동일하게 적용됩니다.
     try {
-      if (isBootstrap && typeof applyGsheetCodeList === 'function') applyGsheetCodeList(data.codes);
+      if (isBootstrap && typeof applyGsheetCodeList === 'function')
+        applyGsheetCodeList(data.codes, bootstrapCodeMasterSource);
       else await loadGsheetCodeList({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true });
     } catch(e) {}
     if (!isLoadConnectionCurrent()) return false;
