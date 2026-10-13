@@ -859,24 +859,41 @@ function _forgetSameTargetLocalCodeAddition(name, code, targetUrl, sourceIdentit
   const sourceId=String(sourceIdentity || (typeof _gsCodeMasterSourceIdentity!=='undefined'
     ? _gsCodeMasterSourceIdentity : '') || '').trim();
   const entries = _pendingSameTargetCodeAdditions[target];
-  if (!target || !sourceId || !Array.isArray(entries)) return;
+  if (!target || !sourceId) return false;
+  if (!Array.isArray(entries)) return true;
   const normName = String(name || '').trim();
   const normCode = typeof _normalizeSyncCode === 'function'
     ? _normalizeSyncCode(code || '') : String(code || '').trim();
   const remaining = entries.filter(entry => !(entry?.sourceId===sourceId
     && String(entry?.name || '').trim() === normName
     && (!normCode || String(entry?.code || '').trim() === normCode)));
-  if (remaining.length === entries.length) return;
-  for(const entry of entries)
-    if(!remaining.includes(entry))
-      _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true);
-  if (remaining.length) _pendingSameTargetCodeAdditions[target] = remaining;
-  else delete _pendingSameTargetCodeAdditions[target];
-  if (Object.keys(_pendingSameTargetCodeAdditions).length) {
-    lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
-  } else {
-    lsRemove(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY);
+  if (remaining.length === entries.length) return true;
+  const next={..._pendingSameTargetCodeAdditions};
+  if (remaining.length) next[target]=remaining;
+  else delete next[target];
+  if (_stockPerPairStorageAvailable()) {
+    // A failed tombstone must never be treated as confirmed deletion:
+    // otherwise the old per-pair proof resurrects after browser restart.
+    for(const entry of entries) {
+      if (!remaining.includes(entry)
+          && !_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true))
+        return false;
+    }
+    _pendingSameTargetCodeAdditions=next;
+    if (Object.keys(next).length) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,next);
+    else lsRemove(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY);
+    return true;
   }
+  // Legacy Storage without per-pair enumeration: only acknowledge delete
+  // if the aggregate mutation itself was persisted and read back.
+  if (Object.keys(next).length) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,next);
+  else lsRemove(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY);
+  const verified=lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null);
+  if (Object.keys(next).length && JSON.stringify(verified)!==JSON.stringify(next))
+    return false;
+  if (!Object.keys(next).length && verified!==null) return false;
+  _pendingSameTargetCodeAdditions=next;
+  return true;
 }
 
 
