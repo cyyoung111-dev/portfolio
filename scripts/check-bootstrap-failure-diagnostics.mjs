@@ -672,7 +672,7 @@ assert.equal(gasWrites.length,1);
 assert.equal(serverCodes[0].name,'A','existing mapping unchanged');
 assert.equal(serverCodes[1].name,'신규');
 assert.equal(lockDepth,0,'script lock must be released on all paths');
-assert.ok(gasSrc.includes("function handleSyncCodes(codesParam) {\n  var lock = LockService.getScriptLock()"),
+assert.ok(gasSrc.includes("function handleSyncCodes(codesParam, expectedSourceId) {\n  var lock = LockService.getScriptLock()"),
   'legacy normal code edits must serialize with append-only CAS');
 
 
@@ -706,6 +706,28 @@ assert.equal(await staleCodeSync,null,'queued operation from earlier generation 
 assert.equal(generationPosts.length,1,'no B master may be POSTed to old target A');
 assert.deepEqual(Object.keys(generationPosts[0].codes),['A 종목'],
   'in-flight operation uses frozen A payload');
+
+
+// Independent defense: even if a GAS URL is repointed to another spreadsheet
+// without changing URL/generation, normal syncCodes must reject the workbook
+// fingerprint before touching any cell.
+const normalStart=gasSrc.indexOf('function handleSyncCodes(codesParam, expectedSourceId)');
+const normalEnd=gasSrc.indexOf('function _repairKnownCodeColumns(',normalStart);
+assert.ok(normalStart>appendStart && normalEnd>normalStart);
+vm.runInContext(gasSrc.slice(normalStart,normalEnd),gasCtx);
+let unexpectedNormalCodeMutation=0;
+const originalGetss=gasCtx.getss;
+gasCtx.getss=()=>({getSheetByName:()=>{
+  unexpectedNormalCodeMutation++;
+  throw Error('no code sheet should be opened for mismatched workbook');
+}});
+const staleNormal=gasCtx.handleSyncCodes(JSON.stringify({
+  '이전 종목':{code:'123456',type:'주식'}
+}),'OTHER_WORKBOOK');
+assert.equal(staleNormal.errorCode,'CODE_SYNC_SOURCE_CHANGED');
+assert.equal(unexpectedNormalCodeMutation,0);
+assert.equal(lockDepth,0,'normal sync lock released after source rejection');
+gasCtx.getss=originalGetss;
 
 // Review P2: a normal syncCodes POST already in flight must settle BEFORE
 // the explicit server-side removal, even if the user deletes the local master
