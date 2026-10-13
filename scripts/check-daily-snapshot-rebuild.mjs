@@ -410,7 +410,7 @@ assert.match(html, /domain\/portfolio\/data\.js\?v=20261013-7/,'거래 저장 �
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings\.js\?v=20261013-6/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings_net\.js\?v=20261013-2/,'연결 generation 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings_net\.js\?v=20261013-1/,'연결 generation 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261013-2/,'현재가 연결 격리 로직 캐시 버전 갱신');
 assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261012-1/,'편집기 연결별 캐시 로직 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
