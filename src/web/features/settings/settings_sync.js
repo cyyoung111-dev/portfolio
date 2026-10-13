@@ -494,9 +494,10 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
     if (!isGsheetConnectionCurrent(targetUrl,generation)
         || readback?.status!=='ok' || readback.codeMasterSourceId!==sourceId
         || _stockMasterSyncFingerprint(readback.codes)!==expectedFingerprint) return null;
-    if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function')
-      _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
-        transferable.filter(step => step.metadataOnly!==true && step.retired!==true));
+    if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function'
+        && !_rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
+          transferable.filter(step=>step.metadataOnly!==true && step.retired!==true)))
+      return null;
     if (typeof _forgetSameTargetCodeSettingsRepairs==='function'
         && !_forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,debts))
       return null;
@@ -630,9 +631,10 @@ async function syncCodesToGsheet(options) {
       // A browser may have restarted AFTER the code commit and durable
       // Settings debt save but BEFORE the edit journal rebase was persisted.
       // Rebase any old A->C root now from independently verified B.
-      if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function')
-        _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
-        transferable.filter(step => step.metadataOnly!==true && step.retired!==true));
+      if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function'
+          && !_rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
+            transferable.filter(step=>step.metadataOnly!==true && step.retired!==true)))
+        return null;
       if (typeof _forgetSameTargetCodeSettingsRepairs === 'function'
           && !_forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairDebt))
         return null;
@@ -800,8 +802,9 @@ async function syncCodesToGsheet(options) {
         if (repairProof.length && typeof _rememberSameTargetCodeSettingsRepairs === 'function'
             && !_rememberSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairProof)) return null;
         _rememberConfirmedCodeMasterChange(targetUrl,sourceId,freshFingerprint,partialFingerprint);
-        if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function')
-          _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,replacements);
+        if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function'
+            && !_rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,replacements))
+          return null;
         // Never erase newer pending C. The committed B is already tracked
         // separately as an unfinished Settings migration.
         if (typeof _getSameTargetLocalCodeAdditions === 'function'
@@ -868,14 +871,14 @@ async function syncCodesToGsheet(options) {
     }
     const checkedFingerprint = _stockMasterSyncFingerprint(checked.codes);
     if (!checkedFingerprint) return null;
+    if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function'
+        && !_rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,replacements))
+      return null;
     if (repairProof.length && typeof _forgetSameTargetCodeSettingsRepairs === 'function'
         && !_forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairProof))
       return null;
     applyGsheetCodeList(checked.codes, sourceId);
     _rememberConfirmedCodeMasterChange(targetUrl,sourceId,freshFingerprint,checkedFingerprint);
-    if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function') {
-      _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceId, replacements);
-    }
     // Verified normal code sync retires only matching registrations;
     // otherwise a stale registration could later resurrect a removed stock.
     if (!Array.isArray(options?.codeItemsOverride)

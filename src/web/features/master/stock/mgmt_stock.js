@@ -733,6 +733,14 @@ async function smSave(idx) {
     showMgmtMsg('smMgmtMsg','❌ 종목 변경 복구 이력 저장 실패: 원격 반영을 중단했습니다.',true);
     return false;
   }
+  if (pairChanged && !newCode && originalMasterIdentity.code
+      && typeof _forgetSameTargetLocalCodeAddition === 'function'
+      && !_forgetSameTargetLocalCodeAddition(
+        originalMasterIdentity.name,originalMasterIdentity.code,
+        undefined,editSession?.sourceId)) {
+    showMgmtMsg('smMgmtMsg','❌ 종목코드 삭제 복구 이력 저장 실패: 변경을 중단했습니다.',true);
+    return false;
+  }
   if(newName !== item.name) {
     if (!_smRenameStockItem(item, newName)) return;
   }
@@ -771,11 +779,6 @@ async function smSave(idx) {
   // Register the new pair BEFORE retiring the predecessor: the journal must
   // compose any prior uncommitted edits back to the original SERVER row.
   // This also covers name-only or code-only intermediate edits in a chain.
-  const replacementJournaled = identityChanged && originalMasterIdentity.code && newCode;
-  if (identityChanged && !replacementJournaled
-      && typeof _forgetSameTargetLocalCodeAddition === 'function') {
-    _forgetSameTargetLocalCodeAddition(originalMasterIdentity.name, originalMasterIdentity.code, undefined, editSession?.sourceId);
-  }
   if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
   // ★ EDITABLE_PRICES 중복 항목 제거 (idx 파라미터 직접 사용 — indexOf보다 안전)

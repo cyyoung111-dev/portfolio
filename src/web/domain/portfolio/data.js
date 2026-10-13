@@ -807,57 +807,71 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
 }
 
 function _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceIdentity, confirmed) {
-  const target = String(targetUrl || '').trim();
-  const sourceId = String(sourceIdentity || '').trim();
-  if (!target || !sourceId || !Array.isArray(confirmed)) return;
+  const target=String(targetUrl||'').trim(),sourceId=String(sourceIdentity||'').trim();
+  if (!target || !sourceId || !Array.isArray(confirmed)) return false;
   _reloadCodeJournal();
-  const records = Array.isArray(_pendingSameTargetCodeAdditions[target])
+  const records=Array.isArray(_pendingSameTargetCodeAdditions[target])
     ? _pendingSameTargetCodeAdditions[target] : [];
-  _pendingSameTargetCodeAdditions[target] = records;
-  const normalized = value => typeof _normalizeSyncCode === 'function'
-    ? _normalizeSyncCode(value || '') : String(value || '').trim();
-  let changed = false;
+  // Work on copies. A failed v2 write MUST NOT announce a rebase in memory:
+  // _reloadCodeJournal would subsequently restore its stale A->C root.
+  const revised=records.map(entry=>({...entry,...(entry?.replaces
+    ? {replaces:{...entry.replaces}} : {})}));
+  const normalized=value=>typeof _normalizeSyncCode==='function'
+    ? _normalizeSyncCode(value||'') : String(value||'').trim();
+  let changed=false;
   for (const step of confirmed) {
-    const beforeName = String(step.previousName || '').trim();
-    const beforeCode = normalized(step.previousCode);
-    const afterName = String(step.name || '').trim();
-    const afterCode = normalized(step.code);
+    const beforeName=String(step.previousName||'').trim();
+    const beforeCode=normalized(step.previousCode);
+    const afterName=String(step.name||'').trim();
+    const afterCode=normalized(step.code);
     if (!beforeName || !beforeCode || !afterName || !afterCode) continue;
-    // A pending A -> C edit can be rebased to B -> C ONLY after an A -> B
-    // request completed and the same workbook readback confirmed B.
-    for (const record of records) {
-      if (record?.sourceId !== sourceId || !record.replaces) continue;
-      if (String(record.replaces.name || '').trim() !== beforeName
-          || normalized(record.replaces.code) !== beforeCode) continue;
-      record.replaces = {name:afterName, code:afterCode};
-      changed = true;
+    for (const record of revised) {
+      if (record?.sourceId!==sourceId || !record.replaces) continue;
+      if (String(record.replaces.name||'').trim()!==beforeName
+          || normalized(record.replaces.code)!==beforeCode) continue;
+      record.replaces={name:afterName,code:afterCode};
+      changed=true;
     }
-    // A -> B may finish while the user has already reverted B -> A. In that
-    // case the earlier journal was retired as a local no-op, but A now needs
-    // a new, explicitly proven B -> A replacement.
-    const reverted = typeof EDITABLE_PRICES !== 'undefined'
-      ? EDITABLE_PRICES.find(ep => String(ep?.name || '').trim() === beforeName
-        && normalized(ep?.code) === beforeCode) : null;
-    if (reverted && !records.some(entry => entry.sourceId === sourceId
-        && String(entry.name || '').trim() === beforeName
-        && normalized(entry.code) === beforeCode)) {
-      records.push({
-        name:beforeName, code:beforeCode, sourceId,
-        type:String(reverted.assetType || reverted.type || '주식'),
-        sector:String(reverted.sector || '기타'),
-        currency:String(reverted.currency || 'KRW').toUpperCase(),
-        market:String(reverted.market || '').toUpperCase(),
-        replaces:{name:afterName, code:afterCode}
+    // An in-flight A->B commit can overtake a local B->A revert. Preserve
+    // proof of the newly confirmed B->A transition in the same workbook.
+    const reverted=typeof EDITABLE_PRICES!=='undefined'
+      ? EDITABLE_PRICES.find(ep=>String(ep?.name||'').trim()===beforeName
+        && normalized(ep?.code)===beforeCode) : null;
+    if (reverted && !revised.some(entry=>entry?.sourceId===sourceId
+        && String(entry.name||'').trim()===beforeName
+        && normalized(entry.code)===beforeCode)) {
+      revised.push({
+        name:beforeName,code:beforeCode,sourceId,
+        type:String(reverted.assetType||reverted.type||'주식'),
+        sector:String(reverted.sector||'기타'),
+        currency:String(reverted.currency||'KRW').toUpperCase(),
+        market:String(reverted.market||'').toUpperCase(),
+        replaces:{name:afterName,code:afterCode}
       });
-      changed = true;
+      changed=true;
     }
   }
-  if (changed) {
-    for(const entry of records)
-      if(entry?.sourceId===sourceId)
-        _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry);
-    lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
+  if (!changed) return true;
+  const next={..._pendingSameTargetCodeAdditions,[target]:revised};
+  if (_stockPerPairStorageAvailable()) {
+    // Every changed pair must survive browser restart BEFORE the debt for
+    // this confirmed server change can be retired. Never trust lsSave alone.
+    for (let i=0;i<revised.length;i++) {
+      if (revised[i]?.sourceId!==sourceId
+          || (i<records.length
+              && JSON.stringify(revised[i])===JSON.stringify(records[i]))) continue;
+      if (!_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,revised[i]))
+        return false;
+    }
+    _pendingSameTargetCodeAdditions=next;
+    lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,next); // legacy only
+    return true;
   }
+  lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,next);
+  if (JSON.stringify(lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null))
+      !== JSON.stringify(next)) return false;
+  _pendingSameTargetCodeAdditions=next;
+  return true;
 }
 
 function _getSameTargetLocalCodeAdditions(target, sourceIdentity) {
