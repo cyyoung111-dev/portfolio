@@ -447,6 +447,32 @@ async function recoverPinnedMissingPortfolioCodes(options) {
       market:String(candidate.market || '').toUpperCase()
     });
   }
+  // A stock-management addition may not yet have any trades or holdings.
+  // Its code still must be recoverable after reload if syncCodes failed.
+  // Only explicit same-target registration evidence (not arbitrary browser
+  // editable prices or unrelated server Settings) authorizes code-only repair.
+  for (const entry of trustedLocal) {
+    const code = _normalizeSyncCode(entry?.code || '');
+    const name = String(entry?.name || '').trim();
+    if (!name || !code) continue;
+    if (existingByCode.get(code) === name) {
+      if (typeof _forgetSameTargetLocalCodeAddition === 'function') {
+        _forgetSameTargetLocalCodeAddition(name, code, targetUrl);
+      }
+      continue;
+    }
+    // Any collision belongs to a human reconciliation, not auto-recovery.
+    if (existingByCode.has(code) || existingByName.has(name)) continue;
+    if (additions.has(code) && additions.get(code).name !== name) return masterCodes;
+    if ([...additions.values()].some(e => e.name === name && e.code !== code)) return masterCodes;
+    if (!additions.has(code)) additions.set(code, {
+      name, code,
+      type:String(entry.assetType || entry.type || '주식'),
+      sector:String(entry.sector || '기타'),
+      currency:String(entry.currency || 'KRW').toUpperCase(),
+      market:String(entry.market || '').toUpperCase()
+    });
+  }
   if (!additions.size) return masterCodes;
   const proposed = [...masterCodes, ...additions.values()];
   if (!isPinnedRestorePortfolioMasterComplete(
@@ -477,6 +503,13 @@ async function recoverPinnedMissingPortfolioCodes(options) {
   }
   for (const item of additions.values()) {
     if (actualByCode.get(item.code) !== item.name) return null;
+  }
+  // Registration is now confirmed by a fresh read, so the journal should not
+  // revive this stock after a subsequent user deletion.
+  if (typeof _forgetSameTargetLocalCodeAddition === 'function') {
+    for (const item of additions.values()) {
+      _forgetSameTargetLocalCodeAddition(item.name, item.code, targetUrl);
+    }
   }
   const verified = [
     ...checked.codes,
