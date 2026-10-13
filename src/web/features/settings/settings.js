@@ -577,19 +577,20 @@ async function loadSettings(onProgress, options) {
     }
     // This code list belongs to the same successful Bootstrap response, and
     // can validate pending trade retries before EDITABLE_PRICES is applied.
+    const codeLessBootstrapFunds = settings => [
+      ...(Array.isArray(settings.EDITABLE_PRICES) ? settings.EDITABLE_PRICES : [])
+        .filter(ep => ep && !String(ep.code || '').trim()
+          && ['TDF','펀드','FUND'].includes(String(ep.assetType || ep.type || '').trim().toUpperCase()))
+        .map(ep => ({name:String(ep.name || '').trim(),code:'',type:ep.assetType || ep.type})),
+      ...Object.entries(settings.fundDirect && typeof settings.fundDirect === 'object' ? settings.fundDirect : {})
+        .filter(([name,value]) => name && value && typeof value === 'object'
+          && ['TDF','펀드','FUND'].includes(String(value.type || '').trim().toUpperCase()))
+        .map(([name,value]) => ({name,code:'',type:value.type}))
+    ];
     let bootstrapMasterForRetry = isBootstrap ? [
       ...data.codes,
-      // getCodeItems() excludes code-less funds/TDFs. Trust only fund-like
-      // entries from the SAME Bootstrap settings; never use a stale browser
-      // master to authorize pending remote writes.
-      ...(Array.isArray(s.EDITABLE_PRICES) ? s.EDITABLE_PRICES : [])
-        .filter(ep => ep && !String(ep.code || '').trim()
-          && ['TDF', '펀드', 'FUND'].includes(String(ep.assetType || ep.type || '').trim().toUpperCase()))
-        .map(ep => ({ name:String(ep.name || '').trim(), code:'', type:ep.assetType || ep.type })),
-      ...Object.entries(s.fundDirect && typeof s.fundDirect === 'object' ? s.fundDirect : {})
-        .filter(([name, value]) => name && value && typeof value === 'object'
-          && ['TDF', '펀드', 'FUND'].includes(String(value.type || '').trim().toUpperCase()))
-        .map(([name, value]) => ({ name, code:'', type:value.type }))
+      // Only same-Bootstrap authoritative code-less funds/TDFs.
+      ...codeLessBootstrapFunds(s)
     ] : null;
     // Legacy GAS getSettings has no same-connection code-master proof. Never
     // allow a dirty source ledger to write to the current target by falling
@@ -616,11 +617,36 @@ async function loadSettings(onProgress, options) {
       });
       if (!isLoadConnectionCurrent()) return false;
       if (!Array.isArray(bootstrapMasterForRetry)) return failLoad('RESTORE_CODE_RECOVERY_FAILED');
-      // getBootstrap's code list predates a successful recovery write. Later
-      // applyGsheetCodeList must see the read-back verified version instead,
-      // otherwise an untraded new stock disappears from the displayed master.
-      if (isBootstrap) data.codes = bootstrapMasterForRetry.filter(ep =>
-        !!_normalizeCodeForSync(ep?.code));
+      // Bootstrap append-only CAS writes Codes, never Settings. Complete
+      // any same-workbook durable Settings repair BEFORE applying the stale
+      // first-Bootstrap Settings or clearing its journal.
+      const postAppendDebt = typeof _getSameTargetCodeSettingsRepairs === 'function'
+        ? _getSameTargetCodeSettingsRepairs(loadTarget,bootstrapCodeMasterSource) : [];
+      if (postAppendDebt.length) {
+        loadStage = '신규 종목 Settings 후속 복구';
+        if (!isBootstrap || typeof repairPinnedSameTargetCodeSettingsBeforeRestore !== 'function')
+          return failLoad('CODE_SETTINGS_REPAIR_UNAVAILABLE');
+        const repaired = await repairPinnedSameTargetCodeSettingsBeforeRestore({
+          targetUrl:loadTarget,generation:loadGeneration,sourceId:bootstrapCodeMasterSource,
+          masterCodes:bootstrapMasterForRetry.filter(ep=>!!_normalizeCodeForSync(ep?.code))
+        });
+        if (!isLoadConnectionCurrent()) return false;
+        if (!repaired) return failLoad('CODE_SETTINGS_REPAIR_FAILED');
+        const refreshed = await requestGsheetActionJson('getBootstrap',{},{
+          targetUrl:loadTarget,timeoutMs:15000,retry:1,preserveError:true
+        });
+        if (!isLoadConnectionCurrent()) return false;
+        if (refreshed?.status!=='ok' || !refreshed.settings || !Array.isArray(refreshed.codes)
+            || String(refreshed.codeMasterSourceId || '').trim()!==bootstrapCodeMasterSource
+            || typeof _stockMasterSyncFingerprint !== 'function'
+            || _stockMasterSyncFingerprint(refreshed.codes)!==repaired.fingerprint)
+          return failLoad('CODE_SETTINGS_REPAIR_READBACK_FAILED');
+        data=refreshed;
+        s=data.settings;
+        bootstrapMasterForRetry=[...data.codes,...codeLessBootstrapFunds(s)];
+      } else if (isBootstrap) {
+        data.codes=bootstrapMasterForRetry.filter(ep=>!!_normalizeCodeForSync(ep?.code));
+      }
     }
 
     // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
