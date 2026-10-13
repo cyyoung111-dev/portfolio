@@ -490,19 +490,35 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
       || !isStockMasterEditSessionCurrent(editSession)) return false;
   const records = Array.isArray(_pendingSameTargetCodeAdditions[target])
     ? _pendingSameTargetCodeAdditions[target] : [];
-  const others = records.filter(r => r && r.name !== name && r.code !== code);
+  const normalized = value => typeof _normalizeSyncCode === 'function'
+    ? _normalizeSyncCode(value || '') : String(value || '').trim();
+  const precedingName = String(item?.replaces?.name || '').trim();
+  const precedingCode = normalized(item?.replaces?.code);
+  // Compose uncommitted edits: A/1 -> B/2 -> C/3 must still replace A/1,
+  // never pretend C/3 is a newly authorized append to an A/1 master.
+  const prior = precedingName && precedingCode ? records.find(record =>
+    record?.sourceId === sourceId && String(record.name || '').trim() === precedingName
+    && normalized(record.code) === precedingCode) : null;
+  const root = prior ? (prior.replaces || null)
+    : (precedingName && precedingCode ? {name:precedingName, code:precedingCode} : null);
+  // An edit that returns to the original canonical pair needs no replacement.
+  if (prior && root && String(root.name || '').trim() === name
+      && normalized(root.code) === code) {
+    _forgetSameTargetLocalCodeAddition(precedingName, precedingCode, target);
+    return true;
+  }
+  const others = records.filter(record =>
+    record && !(record.sourceId === sourceId
+      && ((String(record.name || '').trim() === name && normalized(record.code) === code)
+        || (prior && record === prior))));
   others.push({
     name, code, sourceId, type: String(item.assetType || item.type || '주식'),
     sector: String(item.sector || '기타'),
     currency: String(item.currency || 'KRW').toUpperCase(),
     market: String(item.market || '').toUpperCase(),
-    // A simultaneous name+code edit must replace exactly its ORIGINAL row,
-    // not append a second identity. Both identities are tied to this source.
-    ...(item.replaces && item.replaces.name && item.replaces.code
-      ? { replaces: {
-          name:String(item.replaces.name).trim(),
-          code:String(item.replaces.code).trim()
-        }} : {})
+    ...(root ? { replaces: {
+      name:String(root.name).trim(), code:normalized(root.code)
+    }} : {})
   });
   _pendingSameTargetCodeAdditions[target] = others;
   lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
