@@ -1151,6 +1151,8 @@ function doPost(e) {
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
   var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
+  if (params.action === 'syncCodesAppendOnly' && params.codes && params.expectedCodes)
+    return handleSyncCodesAppendOnly(params.codes, params.expectedCodes, params.expectedSourceId || '');
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
@@ -13835,7 +13837,8 @@ function getCodeItems(ss, throwOnError) {
 // ════════════════════════════════════════════════════════════════════
 function handleGetCodeList() {
   try {
-    return jsonOk({ codes: getCodeItems(getss()) });
+    var ss = getss();
+    return jsonOk({ codes: getCodeItems(ss), codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss) });
   } catch(err) {
     return jsonError('getCodeList 실패: ' + err.message);
   }
@@ -14126,6 +14129,7 @@ function handleGetBootstrap() {
         holdingsOk: holdingsOk
       },
       codes: getCodeItems(ss),
+      codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
       gasVersion: '9.199'
     });
   } catch(err) {
@@ -14214,8 +14218,109 @@ function handleGetRealEstateSettings() {
 // ════════════════════════════════════════════════════════════════════
 //  종목코드 동기화
 // ════════════════════════════════════════════════════════════════════
-function handleSyncCodes(codesParam) {
+
+/** Workbook identity fingerprint; never disclose its raw spreadsheet ID. */
+function _portfolioCodeMasterSourceIdentity_(ss) {
+  if (!ss || typeof ss.getId !== 'function') return '';
+  var id = ss.getId();
+  var hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, id, Utilities.Charset.UTF_8);
+  return hash.map(function(b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('').slice(0, 40);
+}
+function _portfolioNormalizeCodeMasterSnapshot_(items) {
+  if (!Array.isArray(items)) return null;
+  var codeSeen = {}, nameSeen = {}, normalized = [];
+  for (var i = 0; i < items.length; i++) {
+    var row = items[i] || {};
+    var code = _cleanCode(row.code || '');
+    var name = String(row.name || '').trim();
+    if (!code || !name || codeSeen[code] || nameSeen[name]) return null;
+    codeSeen[code] = true; nameSeen[name] = true;
+    normalized.push({
+      code: code, name: name,
+      type: String(row.type || row.assetType || '주식').trim(),
+      sector: String(row.sector || '').trim(),
+      currency: String(row.currency || 'KRW').trim().toUpperCase(),
+      market: String(row.market || '').trim().toUpperCase()
+    });
+  }
+  normalized.sort(function(a,b){ return a.code < b.code ? -1 : a.code > b.code ? 1 : 0; });
+  return JSON.stringify(normalized);
+}
+/**
+ * CAS-only code registration for portfolio restore. This NEVER renames or
+ * rewrites an existing code/name. The expected master is rechecked inside
+ * the same script lock shared with the normal syncCodes writer.
+ */
+function handleSyncCodesAppendOnly(codesParam, expectedCodesParam, expectedSourceId) {
+  var lock = LockService.getScriptLock(), locked = false;
   try {
+    lock.waitLock(30000); locked = true;
+    var codes = _parseJsonParam(codesParam, 'append-only codes');
+    var expected = JSON.parse(decodeURIComponent(expectedCodesParam));
+    var ss = getss();
+    var sourceId = _portfolioCodeMasterSourceIdentity_(ss);
+    if (!sourceId || !expectedSourceId || sourceId !== String(expectedSourceId))
+      return jsonError('종목 마스터 연결 식별자 불일치', { errorCode:'CODE_MASTER_SOURCE_CHANGED' });
+    var current = getCodeItems(ss, true);
+    var currentFingerprint = _portfolioNormalizeCodeMasterSnapshot_(current);
+    var expectedFingerprint = _portfolioNormalizeCodeMasterSnapshot_(expected);
+    if (!currentFingerprint || currentFingerprint !== expectedFingerprint)
+      return jsonError('종목 마스터가 다른 연결 또는 세션에서 변경되었습니다', { errorCode:'CODE_MASTER_CHANGED' });
+    var seenCodes = {}, seenNames = {};
+    current.forEach(function(row) {
+      seenCodes[_cleanCode(row.code)] = true;
+      seenNames[String(row.name).trim()] = true;
+    });
+    var names = Object.keys(codes);
+    if (!names.length || names.length > 64)
+      return jsonError('신규 종목 요청 수 오류', { errorCode:'CODE_APPEND_INVALID' });
+    var newRows = [], localCodes = {};
+    for (var i = 0; i < names.length; i++) {
+      var name = String(names[i]).trim();
+      var obj = codes[names[i]];
+      var code = _cleanCode(obj && obj.code || '');
+      if (!name || name.length > 150 || !code || code.length > 32
+          || !obj || typeof obj !== 'object' || Array.isArray(obj)
+          || seenCodes[code] || seenNames[name] || localCodes[code])
+        return jsonError('코드/종목명 충돌 또는 신규 요청 오류', { errorCode:'CODE_APPEND_CONFLICT' });
+      localCodes[code] = true;
+      var type = String(obj.type || '주식').trim();
+      var sector = String(obj.sector || '기타').trim();
+      var currency = String(obj.currency || 'KRW').trim().toUpperCase();
+      var market = String(obj.market || '').trim().toUpperCase();
+      newRows.push([code, name, type, sector, currency !== 'KRW' ? currency : '', market]);
+    }
+    var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
+    if (!cs) {
+      cs = ss.insertSheet(CONFIG.SHEET_CODES);
+      cs.getRange(1,1,1,6).setValues([['종목코드','종목명','유형','섹터','통화','시장']]);
+    } else {
+      if (cs.getLastColumn() < 6)
+        return jsonError('종목코드 시트 컬럼 확인 필요', { errorCode:'CODE_APPEND_SCHEMA_UNSUPPORTED' });
+    }
+    _setCodeColumnText(cs, 1);
+    cs.getRange(cs.getLastRow() + 1, 1, newRows.length, 6).setValues(newRows);
+    SpreadsheetApp.flush();
+    var after = getCodeItems(ss, true);
+    var byCode = {};
+    after.forEach(function(row) { byCode[_cleanCode(row.code)] = String(row.name || '').trim(); });
+    for (var j = 0; j < newRows.length; j++) {
+      if (byCode[newRows[j][0]] !== newRows[j][1])
+        return jsonError('신규 종목 쓰기 재검증 실패', { errorCode:'CODE_APPEND_VERIFY_FAILED' });
+    }
+    _touchSnapshotIntegritySourceRevision();
+    return jsonOk({ synced:newRows.length, appended:true, codeMasterSourceId:sourceId });
+  } catch(err) {
+    return jsonError('신규 종목 조건부 등록 실패: ' + err.message, { errorCode:'CODE_APPEND_FAILED' });
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+function handleSyncCodes(codesParam) {
+  var lock = LockService.getScriptLock(), locked = false;
+  try {
+    lock.waitLock(30000); locked = true;
     var incoming;
     try { incoming = JSON.parse(decodeURIComponent(codesParam)); } catch(e) {
       try { incoming = JSON.parse(codesParam); } catch(e2) { return jsonError('codes 파싱 실패'); }
@@ -14372,6 +14477,8 @@ function handleSyncCodes(codesParam) {
     return jsonOk({ synced: synced, updated: updated, total: Object.keys(existingByCode).length, codeRepair: codeRepair });
   } catch(err) {
     return jsonError('syncCodes 실패: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
