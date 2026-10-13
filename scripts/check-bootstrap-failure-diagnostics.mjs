@@ -596,12 +596,21 @@ assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),false,
 assert.equal(changedWorkbookWrites,0);
 assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, 'TEST_SOURCE').length",h.ctx),1,'old source record stays isolated');
 
-// Once ordinary syncCodes is acknowledged, the exact successfully uploaded
-// registration must be removed from the journal.
+// Once normal syncCodes is ACKed and read back from the SAME source, retire
+// only the exact confirmed same-workbook local registration.
 h=setup();
+h.response.codes=[{name:'테스트',code:'005930',type:'주식',sector:'기타'}];
 assert.equal(await h.ctx.loadSettings(),true);
 vm.runInContext("EDITABLE_PRICES.push({name:'정상 동기화',code:'000660',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'정상 동기화',code:'000660',assetType:'주식'},captureStockMasterEditSession())",h.ctx);
-h.ctx.requestGsheetFormJson=async action=>({status:'ok',synced:1});
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  if(action==='syncCodes'){
+    const req=JSON.parse(params.codes);
+    assert.equal(params.expectedSourceId,'TEST_SOURCE');
+    assert.deepEqual(JSON.parse(params.expectedCodes).map(x=>x.name),['테스트']);
+    h.response.codes.push({name:'정상 동기화',code:req['정상 동기화'].code,type:'주식'});
+  }
+  return {status:'ok',synced:1};
+};
 assert.equal((await h.ctx.syncCodesToGsheet())?.status,'ok');
 assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0,'ordinary sync ACK should clear same-target journal');
 
@@ -646,6 +655,7 @@ const gasCtx=vm.createContext({
   _portfolioCodeMasterSourceIdentity_:()=> 'TEST_SOURCE',
   _cleanCode:code=>String(code||'').trim(),
   _parseJsonParam:value=>JSON.parse(value),
+  _parseArrayParam:value=>{const v=JSON.parse(value);if(!Array.isArray(v))throw Error('array expected');return v;},
   getCodeItems:()=>serverCodes.map(x=>({...x})),
   CONFIG:{SHEET_CODES:'종목코드'},_setCodeColumnText:()=>{},
   _touchSnapshotIntegritySourceRevision:()=>{},
@@ -834,6 +844,38 @@ assert.equal(serverDelete.status,'ok');
 assert.equal(serverCodes.length,1,'safe delete must remove only exact code row');
 assert.equal(deletedServerSettings.EDITABLE_PRICES.length,0,'authoritative Settings also pruned');
 assert.equal(lockDepth,0);
+
+
+// Actual GAS holdings handler and deletion share ScriptLock. A stale other
+// browser must not recreate a coded holding after code-master deletion.
+const holdingsStart=gasSrc.indexOf('function handleSyncHoldings(');
+const holdingsEnd=gasSrc.indexOf('function handleSyncTrades(',holdingsStart);
+assert.ok(holdingsStart>0 && holdingsEnd>holdingsStart);
+vm.runInContext(gasSrc.slice(holdingsStart,holdingsEnd),gasCtx);
+let holdRowWrites=0;
+const holdMock={
+  clearContents:()=>{holdRowWrites++;},
+  setColumnWidth:()=>{},
+  getRange:()=>({setValues:()=>{holdRowWrites++;},
+    setBackground:()=>({setFontColor:()=>({setFontWeight:()=>{}})})})
+};
+const restoreGetss=gasCtx.getss;
+gasCtx.CONFIG.SHEET_HOLD='보유현황';
+gasCtx.getss=()=>({getSheetByName:name=>name==='보유현황'?holdMock:mockSheet});
+gasCtx._normalizeCodeRows=rows=>rows;
+const orphanHolding=gasCtx.handleSyncHoldings(JSON.stringify([{
+  name:'신규',code:'005930',qty:1,costAmt:100,assetType:'주식'
+}]));
+assert.equal(orphanHolding.errorCode,'HOLDINGS_CODE_MASTER_CONFLICT',
+  'other browser cannot re-create holdings of removed code');
+assert.equal(holdRowWrites,0,'orphan guard must precede all holdings writes');
+const cleanHoldings=gasCtx.handleSyncHoldings(JSON.stringify([{
+  name:'A',code:'111111',qty:2,costAmt:200,assetType:'주식'
+}]));
+assert.equal(cleanHoldings.status,'ok');
+assert.ok(holdRowWrites>0,'valid holding still syncs');
+assert.equal(lockDepth,0,'holdings lock released on both conflict/success');
+gasCtx.getss=restoreGetss;
 
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
