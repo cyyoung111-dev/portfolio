@@ -244,34 +244,46 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
 // ── 종목코드 GSheet 자동 등록
 async function syncCodesToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
-  const generation = Number.isInteger(options?.generation) ? options.generation : null;
-  if (!targetUrl || !isGsheetPortfolioWriteReady({
-    targetUrl,
-    generation,
-    allowDuringRestore: options?.allowDuringRestore === true
-  })) return null;
+  // Bind the queued operation to the exact originating connection. A missing
+  // caller generation must NEVER mean an unrestricted stale write.
+  const generation = Number.isInteger(options?.generation)
+    ? options.generation : getGsheetConnectionGeneration();
+  const sourceId = String(typeof _gsCodeMasterSourceIdentity !== 'undefined'
+    ? _gsCodeMasterSourceIdentity || '' : '').trim();
+  const duringRestore = options?.allowDuringRestore === true;
+  if (!targetUrl || !isGsheetConnectionCurrent(targetUrl, generation)
+      || (!duringRestore && !sourceId)
+      || !isGsheetPortfolioWriteReady({
+        targetUrl, generation, allowDuringRestore:duringRestore
+      })) return null;
+  // Snapshot the actual submitted code map before entering the per-target
+  // queue. Never dereference the mutable master of a different GAS connection
+  // after waiting behind another sync or deletion.
+  const codeMap = {};
+  const sourceItems = Array.isArray(options?.codeItemsOverride)
+    ? options.codeItemsOverride : EDITABLE_PRICES;
+  sourceItems.forEach(i => {
+    if (!i?.name) return;
+    codeMap[i.name] = {
+      code:     _normalizeSyncCode(i.code),
+      type:     i.assetType || i.type || '주식',
+      sector:   i.sector || '기타',
+      currency: (i.currency || 'KRW').toUpperCase(),
+      market:   (i.market || '').toUpperCase()
+    };
+  });
+  if (Object.keys(codeMap).length === 0) {
+    _syncWarn('[syncCodes] 전송할 코드 없음');
+    return null;
+  }
   return _queueGsheetStockMasterWrite(targetUrl, async () => {
-    if (!isGsheetPortfolioWriteReady({
-      targetUrl, generation, allowDuringRestore: options?.allowDuringRestore === true
-    })) return null;
+    if (!isGsheetConnectionCurrent(targetUrl, generation)
+        || (!duringRestore && sourceId !== String(_gsCodeMasterSourceIdentity || ''))
+        || !isGsheetPortfolioWriteReady({
+          targetUrl, generation, allowDuringRestore:duringRestore
+        })) return null;
     try {
-    // ★ EDITABLE_PRICES 기준으로 {name: {code, type, sector}} 구조 전송
-    // type/sector를 함께 보내야 GAS에서 유형 컬럼을 덮어쓰지 않음
-    const codeMap = {};
-    const sourceItems = Array.isArray(options?.codeItemsOverride)
-      ? options.codeItemsOverride : EDITABLE_PRICES;
-    sourceItems.forEach(i => {
-      if (!i.name) return;
-      codeMap[i.name] = {
-        code:     _normalizeSyncCode(i.code),
-        type:     i.assetType || i.type || '주식',
-        sector:   i.sector    || '기타',
-        currency: (i.currency || 'KRW').toUpperCase(),
-        market:   (i.market || '').toUpperCase(),
-      };
-    });
-    // 중요: 기초정보(EDITABLE_PRICES)만 동기화해 GS 데이터가 자동으로 흔들리지 않도록 유지
-    if (Object.keys(codeMap).length === 0) { _syncWarn('[syncCodes] 전송할 코드 없음'); return null; }
+    // Only the original target's immutable code snapshot may be submitted.
     const data = await requestGsheetFormJson(
       'syncCodes',
       { codes: JSON.stringify(codeMap) },
