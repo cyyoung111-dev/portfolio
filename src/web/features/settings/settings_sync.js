@@ -328,6 +328,46 @@ function isPinnedRestoreTradeMasterComplete(trades, codes) {
   });
 }
 
+/**
+ * Validate ALL payloads against a master pinned to this Bootstrap response
+ * before the first holdings, trades, or settings write on authoritative restore.
+ */
+function isPinnedRestorePortfolioMasterComplete(trades, holdings, directFunds, codes) {
+  if (!Array.isArray(trades) || !Array.isArray(holdings) || !Array.isArray(codes)
+      || !directFunds || typeof directFunds !== 'object' || Array.isArray(directFunds)) return false;
+  if (!isPinnedRestoreTradeMasterComplete(trades, codes)) return false;
+  const codedByCode = new Map(), codedNames = new Set(), codeLessFunds = new Set();
+  const fundTypes = new Set(['TDF', '펀드', 'FUND']);
+  codes.forEach(item => {
+    const name = String(item?.name || '').trim();
+    const code = _normalizeSyncCode(item?.code || '');
+    if (!name) return;
+    if (code) {
+      codedByCode.set(code, name);
+      codedNames.add(name);
+    } else if (fundTypes.has(String(item?.type || item?.assetType || '').trim().toUpperCase())) {
+      codeLessFunds.add(name);
+    }
+  });
+  const validHolding = h => {
+    if (!h || typeof h !== 'object') return false;
+    const name = String(h.name || '').trim();
+    const code = _normalizeSyncCode(h.code || '');
+    if (!name) return false;
+    if (code) return codedByCode.get(code) === name;
+    const type = String(h.assetType || h.type || '').trim().toUpperCase();
+    return fundTypes.has(type) ? codeLessFunds.has(name) : codedNames.has(name);
+  };
+  return trades.every(t => !isCodeLessDirectFundTrade(t)
+      || codeLessFunds.has(String(t.name || '').trim()))
+    && holdings.every(validHolding)
+    && Object.entries(directFunds).every(([name, fd]) => {
+      const type = String(fd?.type || '').trim().toUpperCase();
+      return !!String(name).trim() && fd && typeof fd === 'object' && !Array.isArray(fd)
+        && fundTypes.has(type) && codeLessFunds.has(String(name).trim());
+    });
+}
+
 // ★ v8.2 — 거래이력 GSheet 동기화 (backfillMonth 소급 계산용)
 async function syncTradesToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
