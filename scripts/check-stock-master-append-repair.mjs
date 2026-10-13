@@ -56,8 +56,8 @@ function scenario({failInitial=true}={}) {
         'appended C is a scoped metadataOnly proof, NEVER a code rename');
       assert.equal(JSON.parse(payload.settingsReplacements)[0].name,'C');
       const fields=JSON.parse(payload.settingsReplacements)[0].userFields;
-      assert.equal(fields?.targetWeight,25);
-      assert.equal(fields?.notes,'C user memo');
+      assert.equal(fields?.targetWeight,ctx.EDITABLE_PRICES[1].targetWeight);
+      assert.equal(fields?.notes,ctx.EDITABLE_PRICES[1].notes);
       if(posts===2 && failInitial)
         return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
       if(!settings.some(x=>x.name==='C'))
@@ -132,6 +132,24 @@ function scenario({failInitial=true}={}) {
   assert.equal(proof[0].metadataOnly,true);
   assert.equal(proof[0].name,'C');
 }
+{
+  // The code append committed, but two Settings writes failed. The user
+  // edits C before retry. The server must repair the newest user fields,
+  // not the immutable first-attempt debt (weight 25 / old memo).
+  const t=scenario();
+  assert.equal(await t.sync(),null);
+  assert.equal(t.debts()[0].userFields.targetWeight,25);
+  t.ctx.EDITABLE_PRICES[1].targetWeight=45;
+  t.ctx.EDITABLE_PRICES[1].notes='updated after first append failure';
+  assert.equal((await t.sync())?.status,'ok');
+  assert.equal(t.settings[1].targetWeight,45);
+  assert.equal(t.settings[1].notes,'updated after first append failure');
+  assert.equal(t.debts().length,0);
+  assert.equal(t.journals().length,0);
+  assert.equal(t.remote.length,2,'no second append of C');
+}
+console.log('✅ 최초 append 장애 후 비중·메모 재수정이 durable Settings 복구 증거에 반영');
+
 console.log('✅ 실제 웹 동기화/Bootstrap VM: 신규 append 부분 커밋 부채 보존·재시도·하드 크래시 복구');
 
 {

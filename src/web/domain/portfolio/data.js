@@ -509,12 +509,19 @@ function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, chang
     if (!previousName || !previousCode || !name || !code) return false;
     const metadataOnly=item.metadataOnly === true;
     const userFields=metadataOnly ? _stockPendingAppendUserFields(item.userFields||{}) : {};
-    if (!list.some(entry => entry.sourceId === sourceId
-        && entry.previousName === previousName && entry.previousCode === previousCode
-        && entry.name === name && entry.code === code
-        && (entry.metadataOnly === true) === metadataOnly)) {
+    const match=list.find(entry => entry.sourceId === sourceId
+      && entry.previousName === previousName && entry.previousCode === previousCode
+      && entry.name === name && entry.code === code
+      && (entry.metadataOnly === true) === metadataOnly);
+    if (!match) {
       list.push({sourceId, previousName, previousCode, name, code, metadataOnly,
-        ...(Object.keys(userFields).length ? {userFields} : {})});
+        ...(metadataOnly && Object.prototype.hasOwnProperty.call(item,'userFields')
+          ? {userFields} : {})});
+    } else if (metadataOnly && Object.prototype.hasOwnProperty.call(item,'userFields')) {
+      // If the user changed C's allocation after a failed first append, the
+      // latest same-source journal supersedes older, uncommitted repair debt.
+      // Only exact identity+source matches may refresh these narrow fields.
+      match.userFields=userFields;
     }
   }
   _pendingSameTargetCodeSettingsRepairs[target] = list;
@@ -543,7 +550,8 @@ function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes
 function _stockPendingAppendUserFields(item) {
   const out={};
   if (item && Object.prototype.hasOwnProperty.call(item,'targetWeight')
-      && item.targetWeight !== '' && Number.isFinite(Number(item.targetWeight)))
+      && item.targetWeight !== '' && Number.isFinite(Number(item.targetWeight))
+      && Number(item.targetWeight)>=0 && Number(item.targetWeight)<=100)
     out.targetWeight=Number(item.targetWeight);
   if (item && typeof item.notes==='string')
     out.notes=item.notes.slice(0,4000);

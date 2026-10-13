@@ -1,3 +1,11 @@
+## PR #493 자체 재검토 — 신규 append 부분 실패 후 사용자가 목표 비중/메모 재수정한 경우 (2026-10-13)
+
+- 기존 복구 부채가 최초 입력 `userFields`를 유지하는 동안 같은 브라우저에서 사용자가 신규 C의 targetWeight/notes를 수정하면, 재시도 전 동일 workbook/source 신규 종목 journal은 최신으로 갱신되지만 `_rememberSameTargetCodeSettingsRepairs`의 기존 metadataOnly 부채가 처음 값을 유지해 오래된 비중·메모를 복구하는 사례 확인.
+- `src/web/domain/portfolio/data.js`: **같은 sourceId, 이전/현재 exact (name,code), metadataOnly 상태가 일치하고 최신 durable journal이 명시적으로 userFields를 갖는 경우에만** 기존 Settings repair debt의 targetWeight·notes를 새 값으로 갱신. 없는 필드는 명시적 최신 증거에서만 삭제 가능, 기존 종목/교체 journal 변경 없음. 사용자 비중 수치(0~100) 클라이언트/GAS 허용 범위 일치.
+- `scripts/check-stock-master-append-repair.mjs`: 실제 웹 sync/Bootstrap VM에서 첫 코드 append 커밋과 Settings 실패 직후 C 비중 25→45, 메모 변경한 뒤 복구해 새 값이 유지되고 서버 추가 row가 중복되지 않으며 debt/journal 해제되는 경우 추가. 기존 재시작/기초정보/보호키 회귀 유지.
+- GAS **v9.212 변경 없음** (기존 full source blob/승인 pin 그대로), 웹 `data.js?v=20261013-11`, PWA `portfolio-cache-20261013-32` 동기화. PR Draft·미병합·미배포, 다른 PR/운영 데이터 변경 없음. **독립 Codex 리뷰는 사용량 한도 메시지로 재실행 불가; 자체 검사 및 CI와 구분**.
+
+---
 ## PR #493 Codex P2 — 신규 종목 append 사용자 비중·메모 보존 (2026-10-13)
 
 - **원인**: 관리 화면이 `saveSettings`를 종목 코드 append보다 먼저 실행하여 미등록 신규 C를 서버에서 제외. 후속 `syncCodes`는 C를 빈 Settings 항목으로 생성하므로 로컬 `targetWeight=25`와 메모 소실. 브라우저 종료/코드만 flush 상태에서도 동일 문제가 반복.
