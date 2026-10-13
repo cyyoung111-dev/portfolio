@@ -1052,6 +1052,77 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   }
   assert.equal(viewPair(create(independentStore)).length,0,
     'peer tombstone lacking matching token must not authorize stale C');
+  // Codex P2 at previous lines 843-851: between preflight read and the
+  // attempted B retirement write, another tab commits A->B and tombstones
+  // the SAME B key. V3 must never overwrite the peer's v2 tombstone.
+  const racedDisk=new Map();let retireRace=true;
+  const retirementStore={
+    getItem:k=>racedDisk.get(k)??null,
+    setItem:(k,v)=>{
+      const data=JSON.parse(v);
+      if(retireRace && data?.entry?.name==='B' && data?.removed===true
+          && data?.retiredBy && k.startsWith('pf_code_retirement_v3:')){
+        retireRace=false;
+        for(const[pairKey,pairJson]of racedDisk){
+          if(!pairKey.startsWith('pf_code_journal_pair_v2:'))continue;
+          const record=JSON.parse(pairJson);
+          if(record?.entry?.name==='B' && record.entry.sourceId==='sheet-A')
+            racedDisk.set(pairKey,JSON.stringify({...record,removed:true}));
+        }
+      }
+      racedDisk.set(k,v);
+    },
+    removeItem:k=>racedDisk.delete(k),
+    key:i=>[...racedDisk.keys()][i]??null,
+    get length(){return racedDisk.size}
+  };
+  const peer=create(retirementStore);
+  const makeTransitionB='_recordSameTargetLocalCodeAddition({name:"B",code:"2",replaces:{name:"A",code:"1"}},{sourceId:"sheet-A"})';
+  const makeTransitionC='_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})';
+  assert.equal(vm.runInContext(makeTransitionB,peer),true);
+  assert.equal(vm.runInContext(makeTransitionC,peer),false,
+    'peer B commit during retirement write must abort C transition');
+  assert.equal(retireRace,false,'race must be triggered at exact B claim save');
+  assert.equal(viewPair(create(retirementStore)).some(x=>x.name==='C'),false,
+    'reboot must never adopt stale A->C after independent A->B commit');
+  const peerB=[...racedDisk].filter(([k])=>k.startsWith('pf_code_journal_pair_v2:'))
+    .map(([k,v])=>JSON.parse(v)).find(x=>x.entry?.name==='B');
+  assert.equal(peerB?.removed,true,'other tab B tombstone must never be overwritten');
+  // A separate transition's claim also cannot change that pair's v2 bytes.
+  assert.ok([...racedDisk.keys()].some(k=>k.startsWith('pf_code_retirement_v3:')),
+    'write-ahead retirement claims are independently keyed');
+  console.log('✅ P2 B 선행 검증 후 실제 tombstone 쓰기 경합에서 peer 완료 보호·C 차단');
+
+  // Simultaneous independent C and D successor tokens cannot both retire B.
+  const competing=new Map(),store={
+    getItem:k=>competing.get(k)??null,
+    setItem:(k,v)=>competing.set(k,v),
+    removeItem:k=>competing.delete(k),
+    key:i=>[...competing.keys()][i]??null,
+    get length(){return competing.size}
+  };
+  const tab=create(store);
+  assert.equal(vm.runInContext(makeTransitionB,tab),true);
+  assert.equal(vm.runInContext(makeTransitionC,tab),true);
+  const activeC=viewPair(create(store))[0];
+  const tokenC=activeC.transitionId;
+  const retirementPrefix='pf_code_retirement_v3:';
+  const original=[...competing].map(([k,v])=>({k,v:JSON.parse(v)}))
+    .find(x=>x.k.startsWith(retirementPrefix) && x.v?.entry?.name==='B');
+  assert.ok(original && tokenC);
+  const competingToken='independent-D-claim';
+  const candidateD={...activeC,name:'D',code:'4',transitionId:competingToken,
+    requiresTombstones:[{name:'B',code:'2'}],transitionCommitted:true};
+  const addKey='pf_code_journal_pair_v2:'+encodeURIComponent(
+    JSON.stringify([original.v.target,'sheet-A','D','4']));
+  competing.set(addKey,JSON.stringify({target:original.v.target,entry:candidateD,removed:false}));
+  const claimKey=retirementPrefix+encodeURIComponent(
+    JSON.stringify([original.v.target,'sheet-A','B','2',competingToken]));
+  competing.set(claimKey,JSON.stringify({...original.v,retiredBy:competingToken}));
+  assert.deepEqual(viewPair(create(store)).map(x=>x.name),['B'],
+    'ambiguous successor claims fail closed and leave predecessor visible');
+  console.log('✅ 동시 C·D 전환 주장 시 원본 B 유지 및 두 후속 교체 모두 차단');
+
   console.log('✅ 준비 C 도중 별도 A→B 확정 경합 차단·재시도 루트 B·tombstone 출처 격리');
 
   // Legacy v1 journal must be migrated to per-pair storage before network sync.
