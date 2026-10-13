@@ -940,6 +940,52 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
 
   console.log('✅ 연속 A→B→C 선행 tombstone Quota 장애 실패·롤백·재시도 후 복구');
 
+  // Fault matrix: inject each possible setItem failure in a chained
+  // B->C transition (stage C, tombstone B, promote C, legacy mirror). A
+  // failed operation must never expose C, even if B is retired separately.
+  // Mirror failure is tolerated because the authoritative v2 pair is read back.
+  for(const failAt of [0,1,2,3,4]) {
+    for(const failRollback of [false,true]) {
+      const diskMap=new Map();
+      let writes=0,inject=false;
+      const injectedStorage={
+        getItem:k=>diskMap.has(k)?diskMap.get(k):null,
+        setItem:(k,v)=>{
+          if(inject && ++writes===failAt)throw Error('QuotaExceededError');
+          diskMap.set(k,v);
+        },
+        removeItem:k=>{
+          if(inject && failRollback && decodeURIComponent(k).includes('"C","3"'))
+            throw Error('SecurityError');
+          diskMap.delete(k);
+        },
+        key:i=>[...diskMap.keys()][i]??null,
+        get length(){return diskMap.size}
+      };
+      const tab=create(injectedStorage);
+      const makeB='_recordSameTargetLocalCodeAddition({name:"B",code:"2",replaces:{name:"A",code:"1"}},{sourceId:"sheet-A"})';
+      const makeC='_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})';
+      assert.equal(vm.runInContext(makeB,tab),true);
+      inject=true;
+      const accepted=vm.runInContext(makeC,tab);
+      assert.equal(accepted,failAt===0 || failAt===4,
+        'failAt='+failAt+', blocked rollback='+failRollback);
+      const reboot=create(injectedStorage);
+      const visible=viewPair(reboot);
+      assert.equal(visible.some(x=>x.name==='C'),accepted,
+        'never expose a failed C from durable journal');
+      if(!accepted){
+        inject=false;
+        assert.equal(vm.runInContext(
+          '_forgetSameTargetLocalCodeAddition("B","2",GSHEET_API_URL,"sheet-A")',
+          reboot),true);
+        assert.equal(viewPair(create(injectedStorage)).some(x=>x.name==='C'),false,
+          'independent B retirement cannot activate a rejected staged C');
+      }
+    }
+  }
+  console.log('✅ 연속교체 영속 쓰기 4지점·롤백 거부 10개 장애 조합 안전성 회귀');
+
   // Legacy v1 journal must be migrated to per-pair storage before network sync.
   const old=create();
   const legacy={sourceId:'old-book',name:'M',code:'7',userFields:{targetWeight:35}};
