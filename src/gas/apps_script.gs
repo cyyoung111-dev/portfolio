@@ -1155,7 +1155,8 @@ function doPost(e) {
     return handleSyncCodesAppendOnly(params.codes, params.expectedCodes, params.expectedSourceId || '');
   if (params.action === 'deleteUnreferencedCode' && params.data)
     return handleDeleteUnreferencedCode(params.data);
-  if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
+  if (params.action === 'syncCodes'    && params.codes)
+    return handleSyncCodes(params.codes, params.expectedSourceId || '');
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
   if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
@@ -14401,7 +14402,7 @@ function handleDeleteUnreferencedCode(dataJson) {
   }
 }
 
-function handleSyncCodes(codesParam) {
+function handleSyncCodes(codesParam, expectedSourceId) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
@@ -14410,6 +14411,10 @@ function handleSyncCodes(codesParam) {
       try { incoming = JSON.parse(codesParam); } catch(e2) { return jsonError('codes 파싱 실패'); }
     }
     var ss = getss();
+    // New clients pin the authenticated workbook identity. Check before any
+    // sheet mutation. Preexisting clients may omit the optional proof.
+    if (expectedSourceId && String(expectedSourceId) !== _portfolioCodeMasterSourceIdentity_(ss))
+      return jsonError('종목코드 동기화 연결 대상이 변경됨', { errorCode:'CODE_SYNC_SOURCE_CHANGED' });
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     var createdCodeSheet = !cs;
     if (!cs) {
