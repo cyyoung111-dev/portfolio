@@ -504,19 +504,20 @@ async function recoverPinnedMissingPortfolioCodes(options) {
   for (const item of additions.values()) {
     if (actualByCode.get(item.code) !== item.name) return null;
   }
-  // Registration is now confirmed by a fresh read, so the journal should not
-  // revive this stock after a subsequent user deletion.
+  const verified = [
+    ...checked.codes,
+    ...masterCodes.filter(item => !_normalizeSyncCode(item?.code || ''))
+  ];
+  if (!isPinnedRestorePortfolioMasterComplete(
+      dirty.trades, dirty.holdings, dirty.fundDirect, verified)) return null;
+  // Clear the journal ONLY after a complete read-back and portfolio preflight
+  // have succeeded; otherwise preserve the original recovery provenance.
   if (typeof _forgetSameTargetLocalCodeAddition === 'function') {
     for (const item of additions.values()) {
       _forgetSameTargetLocalCodeAddition(item.name, item.code, targetUrl);
     }
   }
-  const verified = [
-    ...checked.codes,
-    ...masterCodes.filter(item => !_normalizeSyncCode(item?.code || ''))
-  ];
-  return isPinnedRestorePortfolioMasterComplete(
-    dirty.trades, dirty.holdings, dirty.fundDirect, verified) ? verified : null;
+  return verified;
 }
 
 // ★ v8.2 — 거래이력 GSheet 동기화 (backfillMonth 소급 계산용)
