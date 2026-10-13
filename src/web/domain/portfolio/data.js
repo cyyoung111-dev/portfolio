@@ -504,9 +504,14 @@ function _stockDurablePairKey(prefix,target,entry) {
   return prefix+encodeURIComponent(JSON.stringify(base));
 }
 function _stockPerPairStorageAvailable() {
-  return typeof localStorage!=='undefined' && localStorage
-    && typeof localStorage.key==='function'
-    && Number.isInteger(localStorage.length);
+  try {
+    return typeof localStorage !== 'undefined' && localStorage
+      && typeof localStorage.key === 'function'
+      && Number.isInteger(localStorage.length);
+  } catch (error) {
+    // Browsers may reject even the Storage getter or enumeration.
+    return false;
+  }
 }
 function _readDurableStockJournal(legacyKey,prefix,fallback) {
   const stored=lsGet(legacyKey,null);
@@ -524,9 +529,16 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
   // Read each independent key. This remains correct even if a concurrent
   // tab wrote a stale aggregate after another tab committed its pair key.
   const keys=[];
-  for(let i=0;i<localStorage.length;i++){
-    const key=localStorage.key(i);
-    if(typeof key==='string'&&key.startsWith(prefix))keys.push(key);
+  try {
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(typeof key==='string'&&key.startsWith(prefix))keys.push(key);
+    }
+  } catch (error) {
+    // Fail safe to readable legacy data. A blocked Storage object must
+    // not crash Bootstrap; it is NOT proof that a new journal is durable.
+    return stored&&typeof stored==='object'&&!Array.isArray(stored)
+      ? stored : (fallback&&typeof fallback==='object'?fallback:{});
   }
   for(const key of keys){
     const item=lsGet(key,null);
@@ -542,10 +554,15 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
   return result;
 }
 function _persistDurableStockPair(prefix,target,entry,removed=false) {
-  if(!_stockPerPairStorageAvailable())return;
   const item={target:String(target||'').trim(),entry:{...entry},removed:removed===true};
-  if(item.target && entry?.sourceId)
-    lsSave(_stockDurablePairKey(prefix,item.target,item.entry),item);
+  if (!item.target || !entry?.sourceId) return false;
+  if (!_stockPerPairStorageAvailable()) return false;
+  const key=_stockDurablePairKey(prefix,item.target,item.entry);
+  // lsSave swallows SecurityError / QuotaExceededError, so verify readback.
+  // Never allow the caller to treat an unpersisted journal as safe to POST.
+  lsSave(key,item);
+  const saved=lsGet(key,null);
+  return !!saved && JSON.stringify(saved)===JSON.stringify(item);
 }
 function _reloadCodeJournal() {
   _pendingSameTargetCodeAdditions=_readDurableStockJournal(
@@ -592,18 +609,32 @@ function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, chang
       const fresh={sourceId,previousName,previousCode,name,code,metadataOnly,
         ...(metadataOnly && Object.prototype.hasOwnProperty.call(item,'userFields')
           ? {userFields} : {})};
+      if (_stockPerPairStorageAvailable()
+          && !_persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,fresh))
+        return false;
       list.push(fresh);
-      _persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,fresh);
     } else if (metadataOnly && Object.prototype.hasOwnProperty.call(item,'userFields')) {
       // If the user changed C's allocation after a failed first append, the
       // latest same-source journal supersedes older, uncommitted repair debt.
       // Only exact identity+source matches may refresh these narrow fields.
+      const updated={...match,userFields};
+      if (_stockPerPairStorageAvailable()
+          && !_persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,updated))
+        return false;
       match.userFields=userFields;
-      _persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,match);
     }
   }
   _pendingSameTargetCodeSettingsRepairs[target] = list;
   lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, _pendingSameTargetCodeSettingsRepairs);
+  if (!_stockPerPairStorageAvailable()) {
+    const persisted=lsGet(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,null);
+    return !!persisted && Array.isArray(persisted[target])
+      && changes.every(change=>persisted[target].some(entry=>entry.sourceId===sourceId
+        && entry.previousName===String(change.previousName||'').trim()
+        && entry.previousCode===String(change.previousCode||'').trim()
+        && entry.name===String(change.name||'').trim()
+        && entry.code===String(change.code||'').trim()));
+  }
   return true;
 }
 function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes) {
@@ -644,7 +675,8 @@ function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
   _reloadCodeJournal();
   const target=String(targetUrl||'').trim(),source=String(sourceId||'').trim();
   const entries=_pendingSameTargetCodeAdditions[target];
-  if (!target || !source || !Array.isArray(entries) || !Array.isArray(items)) return false;
+  if (!target || !source || !Array.isArray(items)) return false;
+  if (!Array.isArray(entries)) return true;
   const byPair=new Map(items.filter(ep=>ep?.name && ep?.code).map(ep=>[
     JSON.stringify([String(ep.name).trim(),String(ep.code).trim()]),ep
   ]));
@@ -655,12 +687,25 @@ function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
     if (!value) return;
     const fields=_stockPendingAppendUserFields(value);
     if (JSON.stringify(entry.userFields||{})!==JSON.stringify(fields)) {
-      entry.userFields=fields;changed=true;
-      _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry);
+      const next={...entry,userFields:fields};
+      if (!_stockPerPairStorageAvailable()
+          || !_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next)) {
+        // Preserve uncommitted edits; network writes must fail closed.
+        changed=null;
+        return;
+      }
+      entry.userFields=fields;
+      if (changed!==null) changed=true;
     }
   });
+  if (changed===null) return false;
   if (changed) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,_pendingSameTargetCodeAdditions);
-  return changed;
+  // No mutation is also a successful preflight, provided any pending
+  // registration has a verifiably durable exact-pair record.
+  return entries.filter(entry=>entry?.sourceId===source && !entry.replaces)
+    .every(entry=>_stockPerPairStorageAvailable()
+      && !!lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null)?.entry);
+
 }
 function _recordSameTargetLocalCodeAddition(item, editSession) {
   const target = _currentGsheetSyncTarget();
@@ -695,8 +740,6 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     && ((String(record.name||'').trim()===name && normalized(record.code)===code)
       || (prior && record===prior)));
   const others=records.filter(record=>record && !removed.includes(record));
-  for(const entry of removed)
-    _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true);
   const next={
     name, code, sourceId, type: String(item.assetType || item.type || '주식'),
     sector: String(item.sector || '기타'),
@@ -707,10 +750,25 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
       name:String(root.name).trim(), code:normalized(root.code)
     }} : {})
   };
+  // Persist the NEW pair before retiring its predecessor; a quota error
+  // must not leave a phantom registration that can flush Codes remotely.
+  const pairMode=_stockPerPairStorageAvailable();
+  if (pairMode && !_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next))
+    return false;
   others.push(next);
-  _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next);
   _pendingSameTargetCodeAdditions[target] = others;
   lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
+  if (!pairMode) {
+    const persisted=lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null);
+    if (!persisted || !Array.isArray(persisted[target])
+        || !persisted[target].some(entry=>entry.sourceId===sourceId
+          && entry.name===name && normalized(entry.code)===code))
+      return false;
+  }
+  for(const entry of removed) {
+    if (entry.name===next.name && normalized(entry.code)===code) continue;
+    _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true);
+  }
   return true;
 }
 
@@ -777,15 +835,18 @@ function _getSameTargetLocalCodeAdditions(target, sourceIdentity) {
   return sourceId && Array.isArray(entries)
     ? entries.filter(e => e?.sourceId === sourceId).map(e => ({ ...e })) : [];
 }
-function _forgetSameTargetLocalCodeAddition(name, code, targetUrl) {
+function _forgetSameTargetLocalCodeAddition(name, code, targetUrl, sourceIdentity) {
   _reloadCodeJournal();
   const target = String(targetUrl || _currentGsheetSyncTarget() || '').trim();
+  const sourceId=String(sourceIdentity || (typeof _gsCodeMasterSourceIdentity!=='undefined'
+    ? _gsCodeMasterSourceIdentity : '') || '').trim();
   const entries = _pendingSameTargetCodeAdditions[target];
-  if (!target || !Array.isArray(entries)) return;
+  if (!target || !sourceId || !Array.isArray(entries)) return;
   const normName = String(name || '').trim();
   const normCode = typeof _normalizeSyncCode === 'function'
     ? _normalizeSyncCode(code || '') : String(code || '').trim();
-  const remaining = entries.filter(entry => !(String(entry?.name || '').trim() === normName
+  const remaining = entries.filter(entry => !(entry?.sourceId===sourceId
+    && String(entry?.name || '').trim() === normName
     && (!normCode || String(entry?.code || '').trim() === normCode)));
   if (remaining.length === entries.length) return;
   for(const entry of entries)
