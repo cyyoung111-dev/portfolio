@@ -138,6 +138,13 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
     'rebase must never modify actual code master metadata');
   assert.equal(row[3],'기타');
   assert.equal(writeAttempts,1,'stale metadata must fail before Settings write');
+  currentSettings.EDITABLE_PRICES.push({name:'B',code:'999',targetWeight:99});
+  const ambiguous=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
+    JSON.stringify(current),'[]','1',JSON.stringify(sourceChanges));
+  assert.equal(ambiguous.errorCode,'CODE_REBASE_SETTINGS_AMBIGUOUS',
+    'same-name competing Settings metadata must never be silently inherited');
+  assert.equal(writeAttempts,1,'ambiguous identity must block write');
+  currentSettings.EDITABLE_PRICES.pop();
   const repaired=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
     JSON.stringify(current),'[]','1',JSON.stringify(sourceChanges));
   assert.equal(repaired.status,'ok');
