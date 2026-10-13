@@ -486,6 +486,10 @@ const PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY = 'pf_pending_same_target_code
 let _pendingSameTargetCodeSettingsRepairs = lsGet(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, {});
 if (!_pendingSameTargetCodeSettingsRepairs || typeof _pendingSameTargetCodeSettingsRepairs !== 'object'
     || Array.isArray(_pendingSameTargetCodeSettingsRepairs)) _pendingSameTargetCodeSettingsRepairs = {};
+function _hasSameTargetCodeSettingsRepairDebt(targetUrl) {
+  const entries=_pendingSameTargetCodeSettingsRepairs[String(targetUrl || '').trim()];
+  return Array.isArray(entries) && entries.length>0;
+}
 function _getSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity) {
   const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
   const list = _pendingSameTargetCodeSettingsRepairs[target];
