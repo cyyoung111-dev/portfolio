@@ -827,7 +827,7 @@ assert.equal(await h.ctx.loadSettings(),true);
 vm.runInContext("_recordSameTargetLocalCodeAddition({name:'삭제 종목',code:'005930',assetType:'주식'},captureStockMasterEditSession()); _forgetSameTargetLocalCodeAddition('삭제 종목','005930');",h.ctx);
 assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0);
 assert.match(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8'),
-  /_forgetSameTargetLocalCodeAddition\(snapItem\.name, snapItem\.code, undefined, editSession\?\.sourceId\)/,
+  /_forgetSameTargetLocalCodeAddition\(\s*snapItem\.name\s*,\s*snapItem\.code\s*,\s*undefined\s*,\s*editSession\?\.sourceId\s*\)/,
   'real stock delete handler must clear ONLY the originating workbook journal');
 
 // Confirmation is mandatory: syncCodes success followed by read error must
