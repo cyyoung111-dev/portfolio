@@ -721,6 +721,13 @@ async function smSave(idx) {
     if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   }
   if (!isStockMasterEditSessionCurrent(editSession)) return false;
+  // A failed rename cannot be repaired after a successful remote delete.
+  // Reject collisions before entering the serialized network transaction.
+  if (newName!==item.name && EDITABLE_PRICES.some(other=>
+      other!==item && other.name===newName)) {
+    showMgmtMsg('smMgmtMsg','❌ 변경하려는 종목명이 이미 존재합니다.',true);
+    return false;
+  }
   const pairChanged=originalMasterIdentity.name!==newName
     || normalizeStockCode(originalMasterIdentity.code)!==newCode;
   if (pairChanged && originalMasterIdentity.code && newCode
@@ -733,13 +740,42 @@ async function smSave(idx) {
     showMgmtMsg('smMgmtMsg','❌ 종목 변경 복구 이력 저장 실패: 원격 반영을 중단했습니다.',true);
     return false;
   }
-  if (pairChanged && !newCode && originalMasterIdentity.code
-      && typeof _forgetSameTargetLocalCodeAddition === 'function'
-      && !_forgetSameTargetLocalCodeAddition(
-        originalMasterIdentity.name,originalMasterIdentity.code,
-        undefined,editSession?.sourceId)) {
-    showMgmtMsg('smMgmtMsg','❌ 종목코드 삭제 복구 이력 저장 실패: 변경을 중단했습니다.',true);
-    return false;
+  if (pairChanged && !newCode && originalMasterIdentity.code) {
+    // An uncommitted name/code REPLACEMENT still has a different remote
+    // canonical identity. Do not treat its missing destination as evidence
+    // that the source row can be deleted or forgotten.
+    const pending=typeof _getSameTargetLocalCodeAdditions==='function'
+      ? _getSameTargetLocalCodeAdditions(editSession.targetUrl,editSession.sourceId)
+        .find(x=>x.name===originalMasterIdentity.name
+          && normalizeStockCode(x.code)===normalizeStockCode(originalMasterIdentity.code))
+      : null;
+    if (pending?.replaces) {
+      showMgmtMsg('smMgmtMsg','❌ 이전 종목코드 변경이 서버에 확정된 후 코드를 제거할 수 있습니다.',true);
+      return false;
+    }
+    if (typeof deleteStockMasterCodeAfterPendingWrites!=='function') {
+      showMgmtMsg('smMgmtMsg','❌ 원격 종목코드 삭제 기능을 사용할 수 없습니다.',true);
+      return false;
+    }
+    // The server deletion is ordered after all earlier code-master writes,
+    // guarded by the exact workbook/source/CAS/ledger references, and read
+    // back BEFORE any local trade or holding changes are made.
+    const removed=await deleteStockMasterCodeAfterPendingWrites(
+      {...item},editSession,{conversionItem:item});
+    if (!removed || !isStockMasterEditSessionCurrent(editSession)
+        || !EDITABLE_PRICES.includes(item)
+        || item.name!==originalMasterIdentity.name
+        || normalizeStockCode(item.code)!==normalizeStockCode(originalMasterIdentity.code)) {
+      showMgmtMsg('smMgmtMsg','❌ 서버 종목코드 삭제가 확인되지 않았습니다. 거래·보유 참조 및 연동 상태를 확인하세요.',true);
+      return false;
+    }
+    if (typeof _forgetSameTargetLocalCodeAddition==='function'
+        && !_forgetSameTargetLocalCodeAddition(
+          originalMasterIdentity.name,originalMasterIdentity.code,
+          editSession.targetUrl,editSession.sourceId)) {
+      showMgmtMsg('smMgmtMsg','❌ 종목 복구 이력 삭제에 실패했습니다. 변경을 중단하고 다시 시도하세요.',true);
+      return false;
+    }
   }
   if(newName !== item.name) {
     if (!_smRenameStockItem(item, newName)) return;
