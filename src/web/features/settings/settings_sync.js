@@ -327,19 +327,25 @@ function isCodeLessDirectFundTrade(t) {
 
 function isPinnedRestoreTradeMasterComplete(trades, codes) {
   if (!Array.isArray(trades) || !Array.isArray(codes)) return false;
-  const codeSet = new Set(), nameSet = new Set();
+  const serverByCode = new Map(), serverByName = new Map();
   codes.forEach(item => {
     const code = _normalizeSyncCode(item?.code || '');
     const name = String(item?.name || '').trim();
     if (!code || !name) return;
-    codeSet.add(code);
-    nameSet.add(name);
+    // Duplicate or contradictory server identities are not trustworthy.
+    if (serverByCode.has(code) && serverByCode.get(code) !== name) return;
+    serverByCode.set(code, name);
+    if (serverByName.has(name) && serverByName.get(name) !== code) return;
+    serverByName.set(name, code);
   });
+  if (serverByCode.size !== codes.filter(item =>
+      _normalizeSyncCode(item?.code || '') && String(item?.name || '').trim()).length) return false;
   return trades.every(t => {
-    if (!t?.name || !t.tradeType || !t.date) return false;
+    const name = String(t?.name || '').trim();
+    if (!name || !t.tradeType || !t.date) return false;
     if (isCodeLessDirectFundTrade(t)) return true;
     const code = _normalizeSyncCode(t.code || '');
-    return code ? codeSet.has(code) : nameSet.has(String(t.name).trim());
+    return code ? serverByCode.get(code) === name : serverByName.has(name);
   });
 }
 
