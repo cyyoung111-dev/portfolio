@@ -106,7 +106,13 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
     _setCodeColumnText:()=>{},
     _touchSnapshotIntegritySourceRevision:()=>{},
     _readSettingsMap:()=>JSON.parse(JSON.stringify(currentSettings)),
-    _writeSettingsMap:m=>{writeAttempts++;if(settingsFails)return false;currentSettings=m;return true;},
+    _writeCodeSyncEditablesOnly_:(ss,previous,desired)=>{
+      writeAttempts++;
+      assert.deepEqual(previous,currentSettings.EDITABLE_PRICES);
+      if(settingsFails)throw new Error('INJECTED_SETTINGS_CELL_WRITE_FAILED');
+      currentSettings.EDITABLE_PRICES=desired.map(item=>({...item}));
+      return true;
+    },
     _repairKnownCodeColumns:()=>[],
     jsonError:(message,props)=>({status:'error',message,...props}),
     jsonOk:props=>({status:'ok',...props}),

@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.208
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.209
+//
+//  v9.209 변경사항 (2026.10.13):
+//   단일 키 CAS 실패 시 기존 CODE_SYNC_SETTINGS_FAILED 표준 오류 응답 유지
 //
 //  v9.208 변경사항 (2026.10.13):
 //   syncCodes/Settings-only에서 전체 clearContent 제거, EDITABLE_PRICES 단일 키 CAS
@@ -1956,7 +1959,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.208', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.209', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5613,7 +5616,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.208' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.209' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11351,7 +11354,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.208',
+    gasVersion: '9.209',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11391,7 +11394,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.208' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.209' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14431,7 +14434,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.208' });
+    return jsonOk({ settings: settings, gasVersion: '9.209' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14461,7 +14464,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.208'
+      gasVersion: '9.209'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -15243,7 +15246,12 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
       // A full Settings clear+rewrite can destroy unrelated loan, estate,
       // dividend and code-less fund data if GAS stops after clearContent.
       // Only the EDITABLE_PRICES cell may change under the same ScriptLock.
-      _writeCodeSyncEditablesOnly_(ss,previous,rewritten);
+      try { _writeCodeSyncEditablesOnly_(ss,previous,rewritten); }
+      catch (settingsWriteError) {
+        return jsonError('종목 Settings 단일 키 CAS 저장 실패', {
+          errorCode:'CODE_SYNC_SETTINGS_FAILED'
+        });
+      }
     }
     var codeRepair = _repairKnownCodeColumns(ss);
     return jsonOk({ synced: synced, updated: updated, total: Object.keys(existingByCode).length, codeRepair: codeRepair });

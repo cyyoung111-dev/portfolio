@@ -1,3 +1,6 @@
+**v9.209 회귀 정합**: 기존 `handleSyncCodes`에서 Settings 저장 실패에 반환하던 명시적 `CODE_SYNC_SETTINGS_FAILED` 코드를 단일 키 CAS 오류에서도 유지. 실제 기존 거래 쓰기 검증 VM은 새 단일 셀 helper 호출·실패·회복을 재현하도록 업데이트. GAS full blob `2eeaa55461a8f9f69e017655be402a83d859faad`, expected version/PWA v28 동기화.
+
+---
 ## PR #493 Codex P1/P2 — 종목 Settings 단일키 CAS 및 신규 append 부분 커밋 복구 (2026-10-13)
 
 - **P1**: 일반 syncCodes 및 Settings-only 재기준화의 전역 `_writeSettingsMap`/`clearContent` 제거. 같은 ScriptLock 안에서 EDITABLE_PRICES 단일 셀만 기존 JSON 비교(CAS) 후 갱신, 신규 설정에는 해당 키 행만 삽입. 중단돼도 대출/부동산/배당/기타 Settings 행 보존.
