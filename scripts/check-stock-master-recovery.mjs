@@ -80,8 +80,8 @@ assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말�
 
 assert.match(html,/settings_sync\.js\?v=20261013-1/);
 
-assert.match(html,/domain\\/portfolio\\/data\\.js\\?v=20261013-1/);
-assert.match(sw,/domain\\/portfolio\\/data\\.js\\?v=20261013-1/);
+assert.ok(html.includes('domain/portfolio/data.js?v=20261013-1'));
+assert.ok(sw.includes('domain/portfolio/data.js?v=20261013-1'));
 
 // A partial master preview must not allow any mutation via the management
 // entry points. Both UI disable and handler-level guards are required.
