@@ -769,7 +769,7 @@ h=setup();
 h.response.codes=[{name:'기존 종목',code:'000660',type:'주식'}];
 h.response.settings.EDITABLE_PRICES=[{name:'기존 종목',code:'000660',assetType:'주식'}];
 assert.equal(await h.ctx.loadSettings(),true);
-vm.runInContext("EDITABLE_PRICES.push({name:'미거래 신규',code:'005930',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'미거래 신규',code:'005930',assetType:'주식'},captureStockMasterEditSession()); _markPortfolioRemoteDirty();",h.ctx);
+vm.runInContext("EDITABLE_PRICES.push({name:'미거래 신규',code:'005930',assetType:'주식',targetWeight:26,notes:'미거래 보존'}); _recordSameTargetLocalCodeAddition(EDITABLE_PRICES[EDITABLE_PRICES.length-1],captureStockMasterEditSession()); _markPortfolioRemoteDirty();",h.ctx);
 const noTradeWrites=[];
 h.ctx.requestGsheetActionJson=async action =>
   action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
@@ -778,12 +778,22 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
   if (action==='syncCodesAppendOnly') {
     assert.deepEqual(Object.keys(JSON.parse(params.codes)),['미거래 신규']);
     h.response.codes.push({name:'미거래 신규',code:'005930',type:'주식'});
+  } else if (action==='syncCodes') {
+    const proof=JSON.parse(params.settingsReplacements);
+    assert.equal(params.forceSettingsRebase,'1');
+    assert.equal(proof[0].name,'미거래 신규');
+    assert.equal(proof[0].userFields.targetWeight,26);
+    h.response.settings.EDITABLE_PRICES.push({name:'미거래 신규',code:'005930',
+      assetType:'주식',targetWeight:26,notes:'미거래 보존'});
   }
   return {status:'ok',saveState:'success',synced:1};
 };
 assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),true);
 assert.equal(noTradeWrites[0],'syncCodesAppendOnly','code-only journal must repair before other writes');
-assert.equal(vm.runInContext("EDITABLE_PRICES.some(x=>x.name==='미거래 신규'&&x.code==='005930')",h.ctx),true,'untraded stock must remain in UI master');
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(x=>x.name==='미거래 신규'&&x.code==='005930'&&x.targetWeight===26&&x.notes==='미거래 보존')",h.ctx),true,
+  'untraded stock and user fields must remain in UI master');
+assert.deepEqual(noTradeWrites.slice(0,2),['syncCodesAppendOnly','syncCodes'],
+  'append-only Codes requires separate Settings CAS');
 assert.equal(h.ctx._getPortfolioRemoteDirty(),null);
 assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0,'verified journal cleared');
 
@@ -796,13 +806,19 @@ vm.runInContext("_recordSameTargetLocalCodeAddition({name:'독립 신규',code:'
 const codeOnlyWrites=[];
 h.ctx.requestGsheetActionJson=async action =>
   action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
-h.ctx.requestGsheetFormJson=async action=>{
+h.ctx.requestGsheetFormJson=async(action,params)=>{
   codeOnlyWrites.push(action);
   if(action==='syncCodesAppendOnly')h.response.codes.push({name:'독립 신규',code:'005930',type:'ETF'});
+  if(action==='syncCodes') {
+    assert.equal(params.forceSettingsRebase,'1');
+    assert.equal(JSON.parse(params.settingsReplacements)[0].name,'독립 신규');
+    h.response.settings.EDITABLE_PRICES.push({name:'독립 신규',code:'005930',assetType:'ETF'});
+  }
   return {status:'ok',saveState:'success',synced:1};
 };
 assert.equal(await h.ctx.loadSettings(),true);
-assert.deepEqual(codeOnlyWrites,['syncCodesAppendOnly'],'journal-only recovery must not write ledger');
+assert.deepEqual(codeOnlyWrites,['syncCodesAppendOnly','syncCodes'],
+  'journal-only recovery must write Settings but not unrelated ledger');
 assert.equal(vm.runInContext("EDITABLE_PRICES.some(x=>x.name==='독립 신규'&&x.code==='005930')",h.ctx),true);
 
 // Explicit deletion never re-adds the removed stock.
