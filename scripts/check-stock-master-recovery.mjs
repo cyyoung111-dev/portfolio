@@ -1357,7 +1357,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
           assetType:payload.conversion.assetType,sector:payload.conversion.sector,
           currency:payload.conversion.currency,market:payload.conversion.market
         });
-        if(config.crashAfterRemoteCommit) throw Error('SIMULATED_RESPONSE_LOST');
+        if(config.crashAfterRemoteCommit) return {status:'error',errorCode:'SIMULATED_RESPONSE_LOST'};
         return {status:'ok',deleted:1};
       }
     };
