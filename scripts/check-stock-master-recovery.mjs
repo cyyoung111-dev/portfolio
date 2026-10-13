@@ -101,8 +101,8 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261013-6/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261013-32/);
-assert.match(sw,/portfolio-cache-20261013-32/);
+assert.match(html,/sw\.js\?v=20261013-33/);
+assert.match(sw,/portfolio-cache-20261013-33/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261013-23/);
