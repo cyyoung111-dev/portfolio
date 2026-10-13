@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.204
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.205
+//
+//  v9.205 변경사항 (2026.10.13):
+//   종목 삭제 Settings 갱신은 EDITABLE_PRICES 단일 셀만 원자적으로 교체
+//   clearContent 전체 Settings 재작성/중단 시 무관한 LOAN·부동산·펀드 유실 차단
+//   삭제복구도 동일 셀 단독 갱신·전체 코드/Settings readback 정합성 검증
 //
 //  v9.204 변경사항 (2026.10.13):
 //   삭제 시작 전 ScriptProperties 트랜잭션 마커를 기록하여 강제 종료 복구 보장
@@ -1939,7 +1944,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.204', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.205', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5596,7 +5601,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.204' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.205' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11334,7 +11339,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.204',
+    gasVersion: '9.205',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11374,7 +11379,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.204' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.205' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14067,6 +14072,49 @@ function _writeSettingsMap(settings) {
 }
 
 
+
+// A code deletion must NEVER call _writeSettingsMap, which clears ALL
+// Settings keys before rewriting. A forced GAS stop in that window destroys
+// unrelated LOAN, REAL_ESTATE, DIVDATA, and code-less fund records. Replace
+// only the pre-existing EDITABLE_PRICES VALUE cell in one Sheets operation.
+// Under the shared ScriptLock, compare old JSON exactly and read back the
+// whole array. Sheets setValue is a single-cell update, not clear+rewrite.
+function _writeCodeDeleteEditablesOnly_(ss, expected, desired) {
+  if (!Array.isArray(expected) || !Array.isArray(desired))
+    throw new Error('CODE_DELETE_SETTINGS_ARRAY_REQUIRED');
+  var sh=ss.getSheetByName(CONFIG.SHEET_SETTINGS);
+  if (!sh || sh.getLastRow()<2) {
+    if (expected.length || desired.length)
+      throw new Error('CODE_DELETE_SETTINGS_SHEET_MISSING');
+    return true; // no editable Settings existed and no new ones are needed
+  }
+  var keys=sh.getRange(2,1,sh.getLastRow()-1,1).getValues();
+  var matches=[];
+  keys.forEach(function(row,i) {
+    if (String(row[0]||'').trim()==='EDITABLE_PRICES') matches.push(i+2);
+  });
+  if (matches.length!==1) {
+    if (!matches.length && !expected.length && !desired.length) return true;
+    throw new Error('CODE_DELETE_SETTINGS_KEY_AMBIGUOUS');
+  }
+  var cell=sh.getRange(matches[0],2,1,1);
+  var raw=cell.getValue();
+  var present;
+  try {present=JSON.parse(String(raw||''));}
+  catch(e) {throw new Error('CODE_DELETE_SETTINGS_JSON_INVALID');}
+  if (!Array.isArray(present) || JSON.stringify(present)!==JSON.stringify(expected))
+    throw new Error('CODE_DELETE_SETTINGS_CONCURRENT_CHANGED');
+  if (JSON.stringify(expected)===JSON.stringify(desired)) return true;
+  cell.setValue(JSON.stringify(desired));
+  SpreadsheetApp.flush();
+  var checked;
+  try {checked=JSON.parse(String(cell.getValue()||''));}
+  catch(e) {throw new Error('CODE_DELETE_SETTINGS_READBACK_INVALID');}
+  if (!Array.isArray(checked) || JSON.stringify(checked)!==JSON.stringify(desired))
+    throw new Error('CODE_DELETE_SETTINGS_VERIFY_FAILED');
+  return true;
+}
+
 // Crash-safe transaction marker. A GAS execution can be terminated without a
 // finally/catch, so in-memory compensation is NOT sufficient to synchronize
 // the code master and Settings. Only this pinned same-workbook ScriptProperty
@@ -14127,7 +14175,7 @@ function _settlePendingCodeDeleteLocked_(ss) {
         return !(String(ep&&ep.name||'').trim()===tx.name
           && _cleanCode(ep&&ep.code||'')===tx.code);
       }).concat([tx.settingsEntry]);
-      if (!_writeSettingsMap(settings)) throw new Error('CODE_DELETE_TXN_SETTINGS_RESTORE_FAILED');
+      _writeCodeDeleteEditablesOnly_(ss,previous,settings.EDITABLE_PRICES);
       var restored=_readSettingsMap(ss).EDITABLE_PRICES||[];
       if (!restored.some(function(ep) {
         return ep && JSON.stringify(ep)===JSON.stringify(tx.settingsEntry);
@@ -14152,7 +14200,7 @@ function _settlePendingCodeDeleteLocked_(ss) {
       return String(ep&&ep.name||'').trim()!==tx.name
         || _cleanCode(ep&&ep.code||'')!==tx.code;
     });
-    if (!_writeSettingsMap(settings)) throw new Error('CODE_DELETE_TXN_SETTINGS_COMPLETE_FAILED');
+    _writeCodeDeleteEditablesOnly_(ss,previous,settings.EDITABLE_PRICES);
   }
   var verified=Array.isArray(_readSettingsMap(ss).EDITABLE_PRICES)
     ? _readSettingsMap(ss).EDITABLE_PRICES : [];
@@ -14334,7 +14382,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.204' });
+    return jsonOk({ settings: settings, gasVersion: '9.205' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14364,7 +14412,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.204'
+      gasVersion: '9.205'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14653,7 +14701,9 @@ function handleDeleteUnreferencedCode(dataJson) {
       return jsonError('종목코드 삭제 검증 실패: Settings 원본 유지', { errorCode:'CODE_DELETE_VERIFY_FAILED' });
     var settingsWriteError = null;
     try {
-      if (!_writeSettingsMap(settings)) settingsWriteError = 'Settings 저장 실패';
+      _writeCodeDeleteEditablesOnly_(ss,
+        Array.isArray(originalSettings.EDITABLE_PRICES) ? originalSettings.EDITABLE_PRICES : [],
+        Array.isArray(settings.EDITABLE_PRICES) ? settings.EDITABLE_PRICES : []);
     } catch (writeError) {
       settingsWriteError = writeError.message;
     }
@@ -14663,7 +14713,11 @@ function handleDeleteUnreferencedCode(dataJson) {
       // restore its original user-specific metadata as well.
       var rollbackErrors = [];
       try {
-        if (!_writeSettingsMap(originalSettings)) rollbackErrors.push('Settings 원본 재저장 실패');
+        _writeCodeDeleteEditablesOnly_(ss,
+          Array.isArray(_readSettingsMap(ss).EDITABLE_PRICES)
+            ? _readSettingsMap(ss).EDITABLE_PRICES : [],
+          Array.isArray(originalSettings.EDITABLE_PRICES)
+            ? originalSettings.EDITABLE_PRICES : []);
       } catch (settingsRollbackError) {
         rollbackErrors.push('Settings 재저장: ' + settingsRollbackError.message);
       }
