@@ -14198,6 +14198,13 @@ function _codeDeleteTxnPartKey_(id, index) {
 function _codeDeleteTxnBytes_(value) {
   return encodeURIComponent(String(value)).replace(/%[0-9a-f]{2}/gi, '.').length;
 }
+function _codeDeleteTxnHash_(value) {
+  // Stable UTF-16 checksum for accidental same-length fragment corruption.
+  var h=2166136261, text=String(value);
+  for (var j=0;j<text.length;j++)
+    h=Math.imul(h ^ text.charCodeAt(j),16777619)>>>0;
+  return h.toString(16);
+}
 function _codeDeleteTxnChunks_(value) {
   var chunks=[], part='';
   // Split by Unicode code point, never between emoji surrogate halves.
@@ -14232,7 +14239,8 @@ function _storeCodeDeleteTxn_(props, tx) {
     id=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
     stored.settingsEntry=null;
     stored.settingsParts={id:id,count:parts.length,
-      chars:JSON.stringify(tx.settingsEntry).length};
+      chars:JSON.stringify(tx.settingsEntry).length,
+      hash:_codeDeleteTxnHash_(JSON.stringify(tx.settingsEntry))};
   }
   var marker=JSON.stringify(stored), written=[];
   if (_codeDeleteTxnBytes_(marker)>7800)
@@ -14276,6 +14284,7 @@ function _pendingCodeDeleteTxn_() {
         || !/^[a-z0-9-]+$/.test(desc.id)
         || !Number.isInteger(desc.count) || desc.count<1 || desc.count>100
         || !Number.isInteger(desc.chars) || desc.chars<1
+        || typeof desc.hash!=='string' || !/^[0-9a-f]{1,8}$/.test(desc.hash)
         || tx.settingsEntry!==null)
       throw new Error('CODE_DELETE_TXN_PARTS_INVALID');
     var serial='';
@@ -14286,6 +14295,8 @@ function _pendingCodeDeleteTxn_() {
     }
     if (serial.length!==desc.chars)
       throw new Error('CODE_DELETE_TXN_PARTS_LENGTH_MISMATCH');
+    if (_codeDeleteTxnHash_(serial)!==desc.hash)
+      throw new Error('CODE_DELETE_TXN_PARTS_HASH_MISMATCH');
     try { tx.settingsEntry=JSON.parse(serial); }
     catch(e) { throw new Error('CODE_DELETE_TXN_PARTS_JSON_INVALID'); }
     if (!tx.settingsEntry || typeof tx.settingsEntry!=='object'
