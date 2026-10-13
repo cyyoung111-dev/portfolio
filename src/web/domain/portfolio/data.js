@@ -544,14 +544,30 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
     return stored&&typeof stored==='object'&&!Array.isArray(stored)
       ? stored : (fallback&&typeof fallback==='object'?fallback:{});
   }
-  for(const key of keys){
+  // Read a stable snapshot of all pair records before resolving a
+  // chained replacement. An interrupted tombstone/rollback must not expose
+  // its staged successor, even when SecurityError prevents removing it.
+  const pairEntries=new Map();
+  for(const key of keys) {
     const item=lsGet(key,null);
     const target=String(item?.target||'').trim(),record=item?.entry;
     if(!target || !record || typeof record!=='object'
-        || _stockDurablePairKey(prefix,target,record)!==key)continue;
+        || _stockDurablePairKey(prefix,target,record)!==key) continue;
+    pairEntries.set(key,item);
+  }
+  for(const [key,item] of pairEntries) {
+    const target=item.target,record=item.entry;
     const rows=Array.isArray(result[target])?result[target]:[];
     const without=rows.filter(row=>_stockDurablePairKey(prefix,target,row)!==key);
-    if(item.removed!==true)without.push({...record});
+    const predecessors=prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
+      && Array.isArray(record.requiresTombstones)?record.requiresTombstones:[];
+    const completed=predecessors.every(prev=>{
+      const prevKey=_stockDurablePairKey(prefix,target,{
+        sourceId:record.sourceId,name:prev?.name,code:prev?.code
+      });
+      return pairEntries.get(prevKey)?.removed===true;
+    });
+    if(item.removed!==true && completed)without.push({...record});
     if(without.length)result[target]=without;
     else delete result[target];
   }
@@ -774,6 +790,8 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     && ((String(record.name||'').trim()===name && normalized(record.code)===code)
       || (prior && record===prior)));
   const others=records.filter(record=>record && !removed.includes(record));
+  const waitingFor=removed.filter(entry=>String(entry.name||'').trim()!==name
+    || normalized(entry.code)!==code).map(entry=>({name:entry.name,code:normalized(entry.code)}));
   const next={
     name, code, sourceId, type: String(item.assetType || item.type || '주식'),
     sector: String(item.sector || '기타'),
@@ -782,7 +800,8 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     ...(!root ? {userFields:_stockPendingAppendUserFields(item)} : {}),
     ...(root ? { replaces: {
       name:String(root.name).trim(), code:normalized(root.code)
-    }} : {})
+    }} : {}),
+    ...(waitingFor.length ? {requiresTombstones:waitingFor} : {})
   };
   // A multi-step edit must not claim success until EVERY predecessor
   // tombstone was durably read back. Stage the new pair first, but never
