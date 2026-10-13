@@ -53,6 +53,8 @@ let TAB_SYNC_STATUS = lsGet(TAB_SYNC_STATUS_KEY, {});
 const TAB_SYNC_BUSY = {};
 
 let _gsBootRestored = false;
+// Pinned workbook identity for safe same-target code recovery.
+let _gsCodeMasterSourceIdentity = '';
 let _gsBootPromise = null;
 let _gsSettingsLoadEpoch = 0;
 let _gsSettingsLoadFailure = null;
@@ -526,6 +528,7 @@ async function loadSettings(onProgress, options) {
       return failLoad(code);
     }
     const s = data.settings;
+    const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
     // This code list belongs to the same successful Bootstrap response, and
     // can validate pending trade retries before EDITABLE_PRICES is applied.
     let bootstrapMasterForRetry = isBootstrap ? [
@@ -554,7 +557,7 @@ async function loadSettings(onProgress, options) {
     // syncCodes: only same-target server Settings or prior authorized local
     // additions can extend the pinned master, with exact read-back proof.
     const sameTargetCodeAdditionsAtLoad = typeof _getSameTargetLocalCodeAdditions === 'function'
-      ? _getSameTargetLocalCodeAdditions(loadTarget) : [];
+      ? _getSameTargetLocalCodeAdditions(loadTarget, bootstrapCodeMasterSource) : [];
     if ((dirtyPortfolioAtLoad || sameTargetCodeAdditionsAtLoad.length)
         && typeof recoverPinnedMissingPortfolioCodes === 'function') {
       loadStage = '동일 연결 신규 종목코드 검증';
@@ -562,7 +565,8 @@ async function loadSettings(onProgress, options) {
         targetUrl:loadTarget, generation:loadGeneration,
         dirty:dirtyPortfolioAtLoad || { trades:[], holdings:[], fundDirect:{} },
         masterCodes:bootstrapMasterForRetry,
-        remoteSettings:s
+        remoteSettings:s,
+        expectedSourceId:bootstrapCodeMasterSource
       });
       if (!isLoadConnectionCurrent()) return false;
       if (!Array.isArray(bootstrapMasterForRetry)) return failLoad('RESTORE_CODE_RECOVERY_FAILED');
@@ -1128,6 +1132,7 @@ async function loadSettings(onProgress, options) {
       : 0;
     if (reconciled > 0) console.log(`[GAS 기초정보 복구] 종목코드 시트에서 ${reconciled}개 필드 반영`);
     _gsPortfolioRestoreRequired = false;
+    _gsCodeMasterSourceIdentity = bootstrapCodeMasterSource;
     _gsBootRestored = true;
     loadCompleted = true;
     _gsSettingsLoadFailure = null;
