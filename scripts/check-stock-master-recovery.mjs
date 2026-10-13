@@ -1285,6 +1285,8 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     const remote=[{name:'펀드 전환',code:'001234',type:'주식',
       sector:'기타',currency:'KRW',market:'KR'}];
     if(config.noRemote)remote.splice(0);
+    const remoteSettings=[{name:'펀드 전환',code:'001234',assetType:'주식',
+      sector:'기타',currency:'KRW',market:'KR',targetWeight:37,notes:'original notes'}];
     let calls=[],saved=0,queued=0,notices=[];
     const item={name:'펀드 전환',code:'001234',assetType:'주식',
       sector:'기타',currency:'KRW',market:'KR'};
@@ -1299,6 +1301,8 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     const ctx={
       console,GSHEET_API_URL:config.localOnly ? '' : 'https://script.google.com/macros/s/codeless/exec',
       _gsCodeMasterSourceIdentity:config.localOnly ? '' : 'sheet-A',
+      _gsheetCodeListSourceId:'sheet-A',
+      _gsheetCodeList:config.noRemote?[]:remote.map(x=>({...x})),
       getGsheetConnectionGeneration:()=>generation,
       isGsheetConnectionCurrent:(url,gen)=>url===ctx.GSHEET_API_URL&&gen===generation,
       isStockMasterWriteBlocked:()=>false,
@@ -1328,8 +1332,11 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       $el:()=>null,_mgmtRefresh:()=>{},
       applyGsheetCodeList:()=>{},
       requestGsheetActionJson:async action=>{
+        calls.push(action);
+        if(action==='getSettings')return {status:'ok',settings:{
+          EDITABLE_PRICES:remoteSettings.map(x=>({...x}))
+        }};
         assert.equal(action,'getCodeList');
-        calls.push('getCodeList');
         return {status:'ok',codeMasterSourceId:'sheet-A',codes:remote.map(x=>({...x}))};
       },
       requestGsheetFormJson:async(action,params)=>{
@@ -1340,8 +1347,17 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
         assert.equal(payload.name,'펀드 전환');
         assert.equal(payload.code,'001234');
         assert.deepEqual(payload.expectedCodes.map(x=>x.code),['001234']);
+        assert.equal(payload.conversion?.name,'펀드 전환');
+        assert.equal(payload.conversion?.code,'');
+        assert.equal(payload.conversion?.assetType,'펀드');
         if(config.referenced)return {status:'error',errorCode:'CODE_DELETE_REFERENCED'};
         remote.splice(0,remote.length);
+        remoteSettings.splice(0,remoteSettings.length,{
+          ...remoteSettings[0],name:payload.conversion.name,code:'',
+          assetType:payload.conversion.assetType,sector:payload.conversion.sector,
+          currency:payload.conversion.currency,market:payload.conversion.market
+        });
+        if(config.crashAfterRemoteCommit) throw Error('SIMULATED_RESPONSE_LOST');
         return {status:'ok',deleted:1};
       }
     };
@@ -1352,18 +1368,28 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     vm.runInContext(syncCode.slice(currentStart,currentEnd),ctx);
     vm.runInContext(syncCode.slice(queueStart,queueEnd),ctx);
     vm.runInContext(stockCode.slice(start,end),ctx);
-    return {ctx,remote,item,fields,calls,notices,
+    return {ctx,remote,remoteSettings,item,fields,calls,notices,
       saved:()=>saved,queued:()=>queued,setGeneration:n=>generation=n,
       save:()=>vm.runInContext('smSave(0)',ctx)};
   };
   const ok=make();
   assert.equal(await ok.save(),true,'code-less conversion needs confirmed delete');
-  assert.deepEqual(ok.calls,['getCodeList','deleteUnreferencedCode','getCodeList']);
+  assert.deepEqual(ok.calls,['getCodeList','deleteUnreferencedCode','getCodeList','getSettings']);
   assert.equal(ok.remote.length,0,'GAS coded row deleted by CAS');
+  assert.equal(ok.remoteSettings[0].code,'','server retains new code-less fund');
+  assert.equal(ok.remoteSettings[0].targetWeight,37,'server retains original targetWeight');
+  assert.equal(ok.remoteSettings[0].notes,'original notes','server retains original notes');
   assert.equal(ok.item.code,'','local master switched to code-less fund after server');
   assert.equal(ok.item.assetType,'펀드');
   assert.equal(ok.queued(),1);
   assert.equal(ok.saved(),1);
+  const responseLost=make({crashAfterRemoteCommit:true});
+  assert.equal(await responseLost.save(),false,'lost remote ACK must not report local success');
+  assert.equal(responseLost.item.code,'001234','local remains unchanged until proven');
+  assert.equal(responseLost.remote.length,0,'server has committed the code deletion');
+  assert.equal(responseLost.remoteSettings[0].code,'','server already contains recovered fund');
+  assert.equal(responseLost.remoteSettings[0].notes,'original notes',
+    'browser crash cannot destroy server-persisted user fields');
   const protectedRow=make({referenced:true});
   assert.equal(await protectedRow.save(),false,'referenced remote ledger prevents removal');
   assert.equal(protectedRow.item.code,'001234','failed CAS cannot mutate browser master');
@@ -1400,7 +1426,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   release();
   await preceding;
   assert.equal(await pending,true);
-  assert.deepEqual(conflict.calls,['getCodeList','deleteUnreferencedCode','getCodeList']);
+  assert.deepEqual(conflict.calls,['getCodeList','deleteUnreferencedCode','getCodeList','getSettings']);
   // Regression: while a code-removal CAS is queued, an unrelated row can
   // disappear. A stale smSave index must never delete the converted item.
   const shifted=make();
