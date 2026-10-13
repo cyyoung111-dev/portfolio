@@ -1121,6 +1121,36 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   competing.set(claimKey,JSON.stringify({...original.v,retiredBy:competingToken}));
   assert.deepEqual(viewPair(create(store)).map(x=>x.name),['B'],
     'ambiguous successor claims fail closed and leave predecessor visible');
+  // A->B remote commit/readback rebases an already accepted local C
+  // from root A to B. Retiring the now-confirmed B journal must NOT erase C.
+  const completedDisk=new Map(),completedStorage={
+    getItem:k=>completedDisk.get(k)??null,
+    setItem:(k,v)=>completedDisk.set(k,v),
+    removeItem:k=>completedDisk.delete(k),
+    key:i=>[...completedDisk.keys()][i]??null,
+    get length(){return completedDisk.size}
+  };
+  const rebasedTab=create(completedStorage);
+  assert.equal(vm.runInContext(makeTransitionB,rebasedTab),true);
+  assert.equal(vm.runInContext(makeTransitionC,rebasedTab),true);
+  assert.equal(viewPair(create(completedStorage))[0].replaces.name,'A');
+  rebasedTab.confirmedServer=[{previousName:'A',previousCode:'1',name:'B',code:'2'}];
+  assert.equal(vm.runInContext(
+    '_rebaseConfirmedSameTargetCodeReplacements(GSHEET_API_URL,"sheet-A",confirmedServer)',
+    rebasedTab),true);
+  assert.equal(viewPair(create(completedStorage))[0].replaces.name,'B');
+  assert.equal(vm.runInContext(
+    '_forgetSameTargetLocalCodeAddition("B","2",GSHEET_API_URL,"sheet-A")',
+    rebasedTab),true);
+  const afterRetire=viewPair(create(completedStorage));
+  assert.equal(afterRetire.length,1,'server-rebased C survives B journal retirement');
+  assert.equal(afterRetire[0].name,'C');
+  assert.equal(afterRetire[0].replaces.name,'B',
+    'future sync must use B as the verified server source, not obsolete A');
+  assert.equal(afterRetire[0].transitionCommitted,undefined,
+    'server-confirmed rebase must release obsolete pending transition guard');
+  console.log('✅ 확정 A→B 원본 재기준화 후 B 저널 폐기에도 C→B 복구 근거 유지');
+
   console.log('✅ 동시 C·D 전환 주장 시 원본 B 유지 및 두 후속 교체 모두 차단');
 
   console.log('✅ 준비 C 도중 별도 A→B 확정 경합 차단·재시도 루트 B·tombstone 출처 격리');
