@@ -643,7 +643,16 @@ async function pollCurrentPrices() {
     // renderGsheetView() issues getAutomationStatus every time it mounts;
     // a portfolio-wide refresh would erase the visible status and refetch
     // it every 60 seconds even though prices do not change its contents.
-    if (typeof currentView === 'undefined' || currentView !== 'gsheet') refreshAll();
+    if (typeof currentView === 'undefined' || currentView !== 'gsheet') {
+      refreshAll();
+    } else {
+      // Keep the Settings/GAS panel mounted, but do not leave rows, totals
+      // or cached account/sector/chart views priced at the previous quote.
+      // switchView() only renders the next view; it does not recompute rows.
+      recomputeRows();
+      if (typeof invalidateViewCache === 'function') invalidateViewCache();
+      renderSummary();
+    }
   } catch (e) {
     console.warn('[price-polling] 현재가 갱신 실패:', e.message);
     setStatusLabel('⚠️ 현재가 polling 실패 · 마지막 정상값 유지', 'warn');
