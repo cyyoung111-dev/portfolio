@@ -14223,7 +14223,21 @@ function _settlePendingCodeDeleteLocked_(ss) {
     throw new Error('CODE_DELETE_TXN_MASTER_CONFLICT');
   var settings=_readSettingsMap(ss);
   var previous=Array.isArray(settings.EDITABLE_PRICES) ? settings.EDITABLE_PRICES : [];
-  var conversion=tx.conversionEntry || null;
+  // Persist only the conversion's small metadata delta. The original
+  // Settings entry already carries targetWeight/notes/custom flags; writing
+  // two full JSON copies can exceed ScriptProperties' per-value quota.
+  var conversion=null, target=tx.conversionEntry || null;
+  if (target) {
+    if (!tx.settingsEntry || typeof target!=='object' || Array.isArray(target))
+      throw new Error('CODE_CONVERT_TXN_INVALID');
+    conversion=JSON.parse(JSON.stringify(tx.settingsEntry));
+    conversion.name=String(target.name||'').trim();
+    conversion.code='';
+    conversion.assetType=String(target.assetType||'').trim();
+    conversion.sector=String(target.sector||'기타').trim();
+    conversion.currency=String(target.currency||'KRW').trim().toUpperCase();
+    conversion.market=String(target.market||'').trim().toUpperCase();
+  }
   // The destination may intentionally reuse the old NAME with an empty code.
   // Distinguish it from the original coded row rather than treating it as
   // an alias conflict after a successful conversion.
@@ -14855,7 +14869,10 @@ function handleDeleteUnreferencedCode(dataJson) {
     var pendingDelete={
       version:1,sourceId:sourceId,name:name,code:code,
       settingsEntry:originalEntry.length ? originalEntry[0] : null,
-      ...(conversion ? {conversionEntry:conversion} : {})
+      ...(conversion ? {conversionEntry:{
+        name:conversion.name,code:'',assetType:conversion.assetType,
+        sector:conversion.sector,currency:conversion.currency,market:conversion.market
+      }} : {})
     };
     var deleteProps=PropertiesService.getScriptProperties();
     if (deleteProps.getProperty(CODE_DELETE_TXN_KEY_))
