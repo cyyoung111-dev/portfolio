@@ -1101,9 +1101,9 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     key:i=>[...competing.keys()][i]??null,
     get length(){return competing.size}
   };
-  const tab=create(store);
-  assert.equal(vm.runInContext(makeTransitionB,tab),true);
-  assert.equal(vm.runInContext(makeTransitionC,tab),true);
+  const contestedTab=create(store);
+  assert.equal(vm.runInContext(makeTransitionB,contestedTab),true);
+  assert.equal(vm.runInContext(makeTransitionC,contestedTab),true);
   const activeC=viewPair(create(store))[0];
   const tokenC=activeC.transitionId;
   const retirementPrefix='pf_code_retirement_v3:';
