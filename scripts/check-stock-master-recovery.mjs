@@ -612,3 +612,80 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(calls,2);
   console.log('✅ 성공한 메타데이터 단독 부분 커밋 부채 즉시 정리·재부팅 불필요 쓰기 제거');
 }
+
+
+{
+  // Two browser tabs loaded before either made a stock edit. A writes C and
+  // B writes D; the old whole-object localStorage journal lost whichever
+  // write happened first. Separate exact-pair keys must survive even if a
+  // stale tab subsequently overwrites the legacy aggregate snapshot.
+  const ledger=fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
+  const begin=ledger.indexOf('const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY');
+  const end=ledger.indexOf('function _normalizePendingExplicitEmptyTradeSync(',begin);
+  const backing=new Map();
+  const storage={
+    getItem:key=>backing.has(key)?backing.get(key):null,
+    setItem:(key,value)=>backing.set(key,String(value)),
+    removeItem:key=>backing.delete(key),
+    key:i=>[...backing.keys()][i]||null,
+    get length(){return backing.size;}
+  };
+  const url='https://script.google.com/macros/s/multitab/exec',sourceId='sheet-multi';
+  const startTab=()=>{
+    const ctx={
+      console,localStorage:storage,GSHEET_API_URL:url,GSHEET_KEY:'url',
+      _currentGsheetSyncTarget:()=>url,
+      isStockMasterEditSessionCurrent:()=>true,
+      normalizeStockCode:value=>String(value||'').trim(),
+      lsGet:(k,d)=>{const v=storage.getItem(k);return v===null?d:JSON.parse(v)},
+      lsSave:(k,v)=>storage.setItem(k,JSON.stringify(v)),
+      lsRemove:k=>storage.removeItem(k)
+    };
+    vm.createContext(ctx);
+    vm.runInContext(ledger.slice(begin,end),ctx);
+    return ctx;
+  };
+  const tabA=startTab(),tabB=startTab();
+  const add=(ctx,name,code,weight)=>
+    vm.runInContext('_recordSameTargetLocalCodeAddition({name:'+JSON.stringify(name)+
+      ',code:'+JSON.stringify(code)+',targetWeight:'+weight+
+      ',notes:'+JSON.stringify(name+' memo')+'},{sourceId:'+JSON.stringify(sourceId)+'})',ctx);
+  const current=ctx=>vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,'+JSON.stringify(sourceId)+')',ctx);
+  assert.equal(add(tabA,'C','3',25),true);
+  assert.equal(add(tabB,'D','4',42),true);
+  assert.deepEqual(current(tabA).map(x=>x.name).sort(),['C','D'],
+    'tab A must see both independently persisted registrations');
+  assert.deepEqual(current(tabB).map(x=>x.name).sort(),['C','D'],
+    'tab B must not lose tab A provenance');
+  vm.runInContext('lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,{[GSHEET_API_URL]:[{sourceId:'+JSON.stringify(sourceId)+',name:"D",code:"4"}]})',tabB);
+  assert.deepEqual(current(startTab()).map(x=>x.name).sort(),['C','D'],
+    'outdated whole-map write cannot clobber per-pair C');
+  const addDebt=(ctx,name,code,weight)=>
+    vm.runInContext('_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,'+
+      JSON.stringify(sourceId)+',[{previousName:'+JSON.stringify(name)+
+      ',previousCode:'+JSON.stringify(code)+',name:'+JSON.stringify(name)+
+      ',code:'+JSON.stringify(code)+',metadataOnly:true,userFields:{targetWeight:'+weight+
+      ',notes:'+JSON.stringify(name+' memo')+'}}])',ctx);
+  assert.equal(addDebt(tabA,'C','3',25),true);
+  assert.equal(addDebt(tabB,'D','4',42),true);
+  const debts=ctx=>vm.runInContext('_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'+
+    JSON.stringify(sourceId)+')',ctx);
+  assert.deepEqual(debts(startTab()).map(x=>x.name).sort(),['C','D'],
+    'two tabs must retain both independent Settings repair proofs');
+  vm.runInContext('_forgetSameTargetLocalCodeAddition("D","4",GSHEET_API_URL)',tabB);
+  assert.deepEqual(current(startTab()).map(x=>x.name),['C'],
+    'D tombstone removes only D and preserves C');
+  vm.runInContext('_forgetSameTargetCodeSettingsRepairs(GSHEET_API_URL,'+
+    JSON.stringify(sourceId)+',[{previousName:"C",previousCode:"3",name:"C",code:"3",metadataOnly:true}])',tabA);
+  assert.deepEqual(debts(startTab()).map(x=>x.name),['D'],
+    'C repair completion preserves unrelated D debt');
+  // A stale V1 writer cannot resurrect D after its scoped tombstone.
+  vm.runInContext('lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,{[GSHEET_API_URL]:[{sourceId:'+
+    JSON.stringify(sourceId)+',name:"D",code:"4"}]})',tabA);
+  assert.deepEqual(current(startTab()).map(x=>x.name),['C'],
+    'tombstone masks stale legacy aggregate on fresh reload');
+  assert.equal(current(startTab()).find(x=>x.name==='C').userFields.targetWeight,25);
+  assert.equal(debts(startTab()).find(x=>x.name==='D').userFields.targetWeight,42);
+  console.log('✅ 멀티탭 C/D 신규 저널·Settings 부채 개별 영속화, stale map·tombstone 충돌 방지');
+}
