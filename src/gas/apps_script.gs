@@ -14372,9 +14372,11 @@ function handleDeleteUnreferencedCode(dataJson) {
         return !(String(ep && ep.name || '').trim() === name && _cleanCode(ep && ep.code || '') === code);
       });
     }
-    if (rowIndex) cs.deleteRow(rowIndex);
+    // Persist Settings before removing the code row. A Settings failure must
+    // not leave a deleted code with an authoritative stale Settings entry.
     if (!_writeSettingsMap(settings))
       return jsonError('종목 설정 저장 실패', { errorCode:'CODE_DELETE_SETTINGS_FAILED' });
+    if (rowIndex) cs.deleteRow(rowIndex);
     SpreadsheetApp.flush();
     if (getCodeItems(ss, true).some(function(item) { return _cleanCode(item.code) === code; }))
       return jsonError('종목코드 삭제 검증 실패', { errorCode:'CODE_DELETE_VERIFY_FAILED' });
