@@ -9423,6 +9423,37 @@ function upsertPriceHistory(ss, dateStr, code, name, price, savedAt, source) {
 // ════════════════════════════════════════════════════════════════════
 //  보유현황 동기화
 // ════════════════════════════════════════════════════════════════════
+// Shared fail-closed coded-ledger validation. Call UNDER the same ScriptLock
+// as code-master edits/deletion before ANY destructive holdings/trades rewrite.
+// A missing code on a stock row is acceptable only if the name still resolves
+// unambiguously in the current server master; only direct funds may lack both.
+function _portfolioLedgerMasterConflict_(items, currentCodes) {
+  if (!Array.isArray(items) || !Array.isArray(currentCodes)) return 'INVALID_PAYLOAD';
+  var byCode = {}, byName = {};
+  for (var i=0; i<currentCodes.length; i++) {
+    var row=currentCodes[i]||{}, code=_cleanCode(row.code||'');
+    var name=String(row.name||'').trim();
+    if (!code || !name || (byCode[code] && byCode[code]!==name)
+        || (byName[name] && byName[name]!==code)) return 'AMBIGUOUS_MASTER';
+    byCode[code]=name;
+    byName[name]=code;
+  }
+  for (var j=0; j<items.length; j++) {
+    var item=items[j]||{}, itemCode=_cleanCode(item.code||'');
+    var itemName=String(item.name||'').trim();
+    var itemType=String(item.assetType||item.type||'').trim().toUpperCase();
+    if (!itemName) return 'MISSING_NAME';
+    if (!itemCode) {
+      if (byName[itemName]) continue;
+      if (itemType==='TDF' || itemType==='펀드' || itemType==='FUND') continue;
+      return 'UNCODED_NONFUND';
+    }
+    if (byCode[itemCode]!==itemName || byName[itemName]!==itemCode)
+      return 'CODE_MASTER_MISMATCH';
+  }
+  return '';
+}
+
 function handleSyncHoldings(dataJson) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
@@ -9434,21 +9465,9 @@ function handleSyncHoldings(dataJson) {
     if (!Array.isArray(holdings)) return jsonError('배열 형식 필요');
 
     var ss = getss();
-    var knownCodes = {}, knownNames = {};
-    getCodeItems(ss, true).forEach(function(item) {
-      if (_cleanCode(item.code)) knownCodes[_cleanCode(item.code)] = String(item.name || '').trim();
-      if (String(item.name || '').trim()) knownNames[String(item.name || '').trim()] = _cleanCode(item.code);
-    });
-    for (var hIndex = 0; hIndex < holdings.length; hIndex++) {
-      var item = holdings[hIndex] || {};
-      var itemCode = _cleanCode(item.code || '');
-      if (!itemCode) continue; // code-less direct funds are not stock master codes
-      var itemName = String(item.name || '').trim();
-      if (knownCodes[itemCode] !== itemName || knownNames[itemName] !== itemCode)
-        return jsonError('보유현황 종목코드가 서버 마스터와 불일치', {
-          errorCode:'HOLDINGS_CODE_MASTER_CONFLICT'
-        });
-    }
+    var masterConflict = _portfolioLedgerMasterConflict_(holdings, getCodeItems(ss, true));
+    if (masterConflict) return jsonError('보유현황 종목 마스터 검증 실패: '+masterConflict,
+      {errorCode:'HOLDINGS_CODE_MASTER_CONFLICT'});
     var sh = ss.getSheetByName(CONFIG.SHEET_HOLD);
     if (!sh) {
       sh = ss.insertSheet(CONFIG.SHEET_HOLD);
@@ -9491,6 +9510,9 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     if (!Array.isArray(trades)) return jsonError('배열 형식 필요');
 
     var ss = getss();
+    var masterConflict = _portfolioLedgerMasterConflict_(trades, getCodeItems(ss, true));
+    if (masterConflict) return jsonError('거래이력 종목 마스터 검증 실패: '+masterConflict,
+      {errorCode:'TRADES_CODE_MASTER_CONFLICT'});
     var pendingSnapshotRebuild = _readPendingTradeSnapshotRebuild();
     var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
     var createdTradeSheet = !sh;
