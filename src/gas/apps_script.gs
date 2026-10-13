@@ -14703,6 +14703,49 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
       _touchSnapshotIntegritySourceRevision();
       SpreadsheetApp.flush();
     }
+    // A two-field rename must also update the Settings materialized master
+    // under this same lock. Otherwise the next Bootstrap carries old Settings
+    // PLUS the new code sheet identity and recreates the old ghost asset.
+    if (replacements.length) {
+      var masterAfter=getCodeItems(ss,true);
+      if (!_portfolioNormalizeCodeMasterSnapshot_(masterAfter))
+        return jsonError('교체 후 마스터 검증 실패', {errorCode:'CODE_REPLACEMENT_VERIFY_FAILED'});
+      for (var vr=0;vr<replacements.length;vr++) {
+        var old=String(replacements[vr].previousName||'').trim();
+        var oldC=_cleanCode(replacements[vr].previousCode||'');
+        var newN=String(replacements[vr].name||'').trim();
+        var newC=_cleanCode(replacements[vr].code||'');
+        if (masterAfter.some(function(it) {return _cleanCode(it.code)===oldC || String(it.name||'').trim()===old;}))
+          return jsonError('원본 종목이 교체 후에도 존재', {errorCode:'CODE_REPLACEMENT_VERIFY_FAILED'});
+        if (!masterAfter.some(function(it) {return _cleanCode(it.code)===newC && String(it.name||'').trim()===newN;}))
+          return jsonError('신규 종목 미확인', {errorCode:'CODE_REPLACEMENT_VERIFY_FAILED'});
+      }
+      var settingsAfter=_readSettingsMap(ss);
+      var edited=Array.isArray(settingsAfter.EDITABLE_PRICES)
+        ? settingsAfter.EDITABLE_PRICES.slice() : [];
+      replacements.forEach(function(ren) {
+        var oldN=String(ren.previousName||'').trim(), oldC=_cleanCode(ren.previousCode||'');
+        var newN=String(ren.name||'').trim(), newC=_cleanCode(ren.code||'');
+        var newRow=masterAfter.find(function(it) {
+          return _cleanCode(it.code)===newC && String(it.name||'').trim()===newN;
+        });
+        var slot=edited.findIndex(function(it) {
+          return String(it&&it.name||'').trim()===oldN && _cleanCode(it&&it.code||'')===oldC;
+        });
+        var oldEntry=slot>=0 ? edited[slot] : {};
+        var entry={};
+        Object.keys(oldEntry).forEach(function(k) {entry[k]=oldEntry[k];});
+        entry.name=newN;entry.code=newC;entry.assetType=String(newRow.type||'주식');
+        entry.sector=String(newRow.sector||'기타');
+        entry.currency=String(newRow.currency||'KRW');
+        entry.market=String(newRow.market||'');
+        if (slot>=0) edited[slot]=entry;
+        else edited.push(entry);
+      });
+      settingsAfter.EDITABLE_PRICES=edited;
+      if (!_writeSettingsMap(settingsAfter))
+        return jsonError('교체된 종목 Settings 저장 실패', {errorCode:'CODE_REPLACEMENT_SETTINGS_FAILED'});
+    }
     var codeRepair = _repairKnownCodeColumns(ss);
     return jsonOk({ synced: synced, updated: updated, total: Object.keys(existingByCode).length, codeRepair: codeRepair });
   } catch(err) {
