@@ -344,7 +344,11 @@ function _stockMasterMetadataOnlyRepairProof(beforeCodes, afterCodes, authorized
     const pair=JSON.stringify([name,code]), original=previous.get(pair);
     if (!original) {
       if (!authorized.has(pair)) return null;
-      repairs.push({previousName:name,previousCode:code,name,code,metadataOnly:true});
+      const journal=(authorizedAdditions||[]).find(entry =>
+        !entry?.replaces && String(entry.name||'').trim()===name
+          && _normalizeSyncCode(entry.code)===code);
+      repairs.push({previousName:name,previousCode:code,name,code,metadataOnly:true,
+        ...(journal?.userFields ? {userFields:journal.userFields} : {})});
     } else {
       matched++;
       if (metadata(original)!==metadata(row))
@@ -381,7 +385,8 @@ function stageConfirmedSameTargetCodeReplacementRepairs(targetUrl, sourceId, mas
       if (name && code && masterCodes.some(row =>
           String(row.name || '').trim()===name
           && _normalizeSyncCode(row.code)===code))
-        debt.push({previousName:name,previousCode:code,name,code,metadataOnly:true});
+        debt.push({previousName:name,previousCode:code,name,code,metadataOnly:true,
+          ...(entry?.userFields ? {userFields:entry.userFields} : {})});
       continue;
     }
     const oldName=String(entry.replaces.name || '').trim();
@@ -527,6 +532,11 @@ async function syncCodesToGsheet(options) {
   const codeMap = {};
   const sourceItems = Array.isArray(options?.codeItemsOverride)
     ? options.codeItemsOverride : EDITABLE_PRICES;
+  // Preserve fresh custom fields in durable exact-source NEW-asset journal
+  // before any network request, including crashes after code-row flush.
+  if (!Array.isArray(options?.codeItemsOverride)
+      && typeof _refreshSameTargetPendingAppendFields==='function')
+    _refreshSameTargetPendingAppendFields(targetUrl,sourceId,sourceItems);
   sourceItems.forEach(i => {
     if (!i?.name) return;
     codeMap[i.name] = {
@@ -534,7 +544,9 @@ async function syncCodesToGsheet(options) {
       type:     i.assetType || i.type || '주식',
       sector:   i.sector || '기타',
       currency: (i.currency || 'KRW').toUpperCase(),
-      market:   (i.market || '').toUpperCase()
+      market:   (i.market || '').toUpperCase(),
+      userFields:typeof _stockPendingAppendUserFields==='function'
+        ? _stockPendingAppendUserFields(i) : {}
     };
   });
   if (Object.keys(codeMap).length === 0) {
@@ -572,6 +584,11 @@ async function syncCodesToGsheet(options) {
       _syncWarn('[syncCodes] 호출 이후 타 탭 마스터 변경: 오래된 payload 쓰기 차단');
       return null;
     }
+    // A process can stop after append flush but before recording failed
+    // Settings. Promote ONLY a same-source exact committed journal pair.
+    if (typeof stageConfirmedSameTargetCodeReplacementRepairs==='function'
+        && !stageConfirmedSameTargetCodeReplacementRepairs(targetUrl,sourceId,fresh.codes))
+      return null;
     // Resolve an earlier fully committed code write whose Settings update
     // failed BEFORE allowing any later rename. Its provenance must survive
     // subsequent B->C edits and browser reloads as a separate durable debt.

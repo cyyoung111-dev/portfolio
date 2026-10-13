@@ -69,7 +69,11 @@ function createScenario(current,settings) {
   return {state,sync:rows=>{
     const wanted={};
     for(const row of rows)wanted[row.name]={code:row.code,type:row.type,
-      sector:row.sector,currency:row.currency,market:row.market};
+      sector:row.sector,currency:row.currency,market:row.market,
+      userFields:row.userFields||{
+        ...(row.targetWeight!==undefined?{targetWeight:row.targetWeight}:{}),
+        ...(row.notes!==undefined?{notes:row.notes}:{})
+      }};
     return ctx.handleSyncCodes(JSON.stringify(wanted),'same-workbook',
       JSON.stringify(state.codes),'[]','','[]');
   },replace:(name,code,oldName,oldCode)=>{
@@ -200,3 +204,41 @@ for(const settings of [
   assert.equal(test.state.settingsWrites,1);
 }
 console.log('✅ 전체 Settings 정합성 보호: 코드 메타데이터·추가 회귀 테스트');
+
+{
+  // Actual production handleSyncCodes must commit a NEW pair's user-entered
+  // allocation and memo in the SAME Settings write as the code-row append.
+  // This cannot be delegated to the earlier saveSettings, which rejects
+  // uncommitted codes from its authoritative server master.
+  const current={...asset('A','1')};
+  const test=createScenario(current,[{
+    name:'A',code:'1',targetWeight:37,notes:'keep A'
+  }]);
+  const wanted=[
+    {...current,targetWeight:99,notes:'stale browser must not replace A'},
+    {...asset('C','3'),targetWeight:25,notes:'신규 종목 개인 메모'}
+  ];
+  const response=test.sync(wanted);
+  assert.equal(response.status,'ok',JSON.stringify(response));
+  const first=test.state.settings.find(row=>row.name==='A');
+  const appended=test.state.settings.find(row=>row.name==='C');
+  assert.equal(first.targetWeight,37);
+  assert.equal(first.notes,'keep A');
+  assert.equal(appended.targetWeight,25);
+  assert.equal(appended.notes,'신규 종목 개인 메모');
+  assert.equal(appended.code,'3');
+  assert.equal(test.state.codeWrites,1);
+  assert.equal(test.state.settingsWrites,1);
+}
+{
+  // Existing pair metadata-only changes still cannot receive spoofed NEW
+  // user fields from codeMap; persisted Settings is the source of truth.
+  const test=createScenario(asset('A','1'),[{
+    name:'A',code:'1',targetWeight:37,notes:'server data'
+  }]);
+  const changed={...asset('A','1'),sector:'기술',targetWeight:99,notes:'spoofed'};
+  assert.equal(test.sync([changed]).status,'ok');
+  assert.equal(test.state.settings[0].targetWeight,37);
+  assert.equal(test.state.settings[0].notes,'server data');
+}
+console.log('✅ 생산 GAS 신규 코드 append 대상의 비중·메모 최초 저장/기존 Settings 침범 방지');

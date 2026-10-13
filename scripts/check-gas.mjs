@@ -106,8 +106,8 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics'];")
-    || !source.includes("gasVersion: '9.211'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.211 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.212'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.212 계약이 누락됐습니다.');
   process.exit(1);
 }
 

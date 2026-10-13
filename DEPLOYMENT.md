@@ -1,3 +1,12 @@
+## PR #493 Codex P2 — 신규 종목 append 사용자 비중·메모 보존 (2026-10-13)
+
+- **원인**: 관리 화면이 `saveSettings`를 종목 코드 append보다 먼저 실행하여 미등록 신규 C를 서버에서 제외. 후속 `syncCodes`는 C를 빈 Settings 항목으로 생성하므로 로컬 `targetWeight=25`와 메모 소실. 브라우저 종료/코드만 flush 상태에서도 동일 문제가 반복.
+- **GAS v9.212**: `handleSyncCodes`가 전체 코드 마스터 CAS + ScriptLock 하에서 **실제 toAppend에 포함된 신규 정확 name/code pair**의 `userFields` 중 검증된 `targetWeight`(0~100)와 `notes`(최대 4000자)만 최초 Settings 항목에 기록. 기존 종목/명시적 교체/메타데이터 단독수정의 userFields는 무시해 다른 종목 사용자 설정 변경 금지. 코드만 flush 후 실패한 경우, 명시적인 같은 workbook/source `metadataOnly` 복구 증명 안의 userFields를 읽고 **원본 Settings가 아직 없는 정확한 pair**에만 적용.
+- **웹/영속 Journal**: 데이터 도메인의 신규 종목 journal에 사용자가 입력한 targetWeight/notes를 source-pinned으로 저장하고, 네트워크 호출 직전에 최신값을 갱신. 부분 저장 확인 시와 강제 종료 후 Bootstrap에서는 동일 증명을 GAS Settings-only CAS로 전달. `queueMgmtGsheetSync()`는 서버 종목 코드 동기화 이후 일반 Settings 저장. 관련 정적 자산 캐시/예상 GAS 버전 동기화.
+- **검증**: 실제 생산 GAS 종목 sync handler VM `check-stock-master-replacement-preflight.mjs`에서 A 기존 비중 37/notes 유지 + 신규 C 비중25/메모 최초 append 저장, 기존 A 가짜 userFields 무시. 실제 웹 sync/Bootstrap VM `check-stock-master-append-repair.mjs`에서 최초 성공/코드만 부분 저장/브라우저 종료 재시작 모두 C 비중25/메모 보존, journal/debt/마스터 CAS 정상 종료. Quality/Web/GAS CI 적용.
+- GAS v9.212 전체 Git blob `b2f2f94e1f6790a31988c2931fb124aff891da05`; PR Draft 미병합/운영 미배포, main/원본 #489~#492/실제 Google Sheet/원장/종가·NAV/Snapshot/브리핑 불변.
+
+---
 ## PR #493 Codex P2 — 일반 Settings 저장의 코드 마스터 원본 정합성 차단 (2026-10-13)
 
 - **원인**: 다른 브라우저 A→B 코드 시트 변경이 완료되고 `EDITABLE_PRICES` 쓰기만 실패하면 master B/Settings A 상태. 일반 `handleSaveSettings`는 B에 대응하는 원본이 없어 사용자 `targetWeight`·`notes`를 기본값으로 다시 만들면서 기존 A 메타데이터를 삭제함.

@@ -508,11 +508,13 @@ function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, chang
     const code = String(item?.code || '').trim();
     if (!previousName || !previousCode || !name || !code) return false;
     const metadataOnly=item.metadataOnly === true;
+    const userFields=metadataOnly ? _stockPendingAppendUserFields(item.userFields||{}) : {};
     if (!list.some(entry => entry.sourceId === sourceId
         && entry.previousName === previousName && entry.previousCode === previousCode
         && entry.name === name && entry.code === code
         && (entry.metadataOnly === true) === metadataOnly)) {
-      list.push({sourceId, previousName, previousCode, name, code, metadataOnly});
+      list.push({sourceId, previousName, previousCode, name, code, metadataOnly,
+        ...(Object.keys(userFields).length ? {userFields} : {})});
     }
   }
   _pendingSameTargetCodeSettingsRepairs[target] = list;
@@ -534,6 +536,38 @@ function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes
   if (Object.keys(_pendingSameTargetCodeSettingsRepairs).length)
     lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, _pendingSameTargetCodeSettingsRepairs);
   else lsRemove(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY);
+}
+// Persist strictly scoped user-entered fields for an explicitly journaled
+// brand-new (name,code) pair. Never infer a replacement source or mutate an
+// existing stock's Settings through this recovery journal.
+function _stockPendingAppendUserFields(item) {
+  const out={};
+  if (item && Object.prototype.hasOwnProperty.call(item,'targetWeight')
+      && item.targetWeight !== '' && Number.isFinite(Number(item.targetWeight)))
+    out.targetWeight=Number(item.targetWeight);
+  if (item && typeof item.notes==='string')
+    out.notes=item.notes.slice(0,4000);
+  return out;
+}
+function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
+  const target=String(targetUrl||'').trim(),source=String(sourceId||'').trim();
+  const entries=_pendingSameTargetCodeAdditions[target];
+  if (!target || !source || !Array.isArray(entries) || !Array.isArray(items)) return false;
+  const byPair=new Map(items.filter(ep=>ep?.name && ep?.code).map(ep=>[
+    JSON.stringify([String(ep.name).trim(),String(ep.code).trim()]),ep
+  ]));
+  let changed=false;
+  entries.forEach(entry=>{
+    if (entry?.sourceId!==source || entry.replaces) return;
+    const value=byPair.get(JSON.stringify([entry.name,entry.code]));
+    if (!value) return;
+    const fields=_stockPendingAppendUserFields(value);
+    if (JSON.stringify(entry.userFields||{})!==JSON.stringify(fields)) {
+      entry.userFields=fields;changed=true;
+    }
+  });
+  if (changed) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,_pendingSameTargetCodeAdditions);
+  return changed;
 }
 function _recordSameTargetLocalCodeAddition(item, editSession) {
   const target = _currentGsheetSyncTarget();
@@ -572,6 +606,7 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     sector: String(item.sector || '기타'),
     currency: String(item.currency || 'KRW').toUpperCase(),
     market: String(item.market || '').toUpperCase(),
+    ...(!root ? {userFields:_stockPendingAppendUserFields(item)} : {}),
     ...(root ? { replaces: {
       name:String(root.name).trim(), code:normalized(root.code)
     }} : {})

@@ -19,7 +19,7 @@ function scenario({failInitial=true}={}) {
     console,GSHEET_API_URL:url,GSHEET_KEY:'url',
     _gsBootRestored:true,_gsPortfolioRestoreRequired:false,
     _gsCodeMasterSourceIdentity:source,
-    EDITABLE_PRICES:[{...A,targetWeight:37},{...C,targetWeight:25}],
+    EDITABLE_PRICES:[{...A,targetWeight:37},{...C,targetWeight:25,notes:'C user memo'}],
     normalizeStockCode:x=>String(x||'').trim(),
     getGsheetConnectionGeneration:()=>5,
     isGsheetConnectionCurrent:(value,g)=>value===url && g===5,
@@ -47,6 +47,7 @@ function scenario({failInitial=true}={}) {
         // First GAS response represents code flush success, Settings failed.
         if(posts===1 && failInitial)
           return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+        if(!settings.some(x=>x.name==='C')) settings.push({...C,...(next.C?.userFields||{})});
         return {status:'ok',synced:0,updated:0};
       }
       assert.equal(payload.forceSettingsRebase,'1');
@@ -54,10 +55,13 @@ function scenario({failInitial=true}={}) {
       assert.equal(JSON.parse(payload.settingsReplacements)[0].metadataOnly,true,
         'appended C is a scoped metadataOnly proof, NEVER a code rename');
       assert.equal(JSON.parse(payload.settingsReplacements)[0].name,'C');
+      const fields=JSON.parse(payload.settingsReplacements)[0].userFields;
+      assert.equal(fields?.targetWeight,25);
+      assert.equal(fields?.notes,'C user memo');
       if(posts===2 && failInitial)
         return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
       if(!settings.some(x=>x.name==='C'))
-        settings.push({...C,targetWeight:0});
+        settings.push({...C,...fields});
       writes++;
       return {status:'ok',synced:0,updated:0};
     }
@@ -84,9 +88,13 @@ function scenario({failInitial=true}={}) {
   assert.equal(t.debts().length,1,'confirmed partial append persists Settings debt');
   assert.equal(t.debts()[0].name,'C');
   assert.equal(t.debts()[0].metadataOnly,true);
+  assert.equal(t.debts()[0].userFields?.targetWeight,25);
+  assert.equal(t.debts()[0].userFields?.notes,'C user memo');
   assert.equal(t.journals().length,1,'journal retained until Settings repair verified');
   assert.equal((await t.sync())?.status,'ok','retry repairs C before accepting no-op');
   assert.equal(t.settings.length,2);
+  assert.equal(t.settings[1].targetWeight,25);
+  assert.equal(t.settings[1].notes,'C user memo');
   assert.equal(t.debts().length,0);
   assert.equal(t.journals().length,0);
   assert.equal(t.remote.length,2,'no duplicate append');
@@ -100,10 +108,14 @@ function scenario({failInitial=true}={}) {
     'stageConfirmedSameTargetCodeReplacementRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity,remoteCodes)',Object.assign(t.ctx,{remoteCodes:t.remote})),true);
   assert.equal(t.debts().length,1);
   assert.equal(t.debts()[0].metadataOnly,true);
+  assert.equal(t.debts()[0].userFields?.targetWeight,25);
+  assert.equal(t.debts()[0].userFields?.notes,'C user memo');
   const response=await vm.runInContext(
     'repairPinnedSameTargetCodeSettingsBeforeRestore({targetUrl:GSHEET_API_URL,sourceId:_gsCodeMasterSourceIdentity,generation:5,masterCodes:remoteCodes})',t.ctx);
   assert.ok(response,'Bootstrap fixes a committed append without replaying it');
   assert.equal(t.settings.length,2);
+  assert.equal(t.settings[1].targetWeight,25);
+  assert.equal(t.settings[1].notes,'C user memo');
   assert.equal(t.debts().length,0);
   assert.equal(t.journals().length,0,'recovered append journal retired');
   assert.equal(t.remote.length,2);
@@ -121,3 +133,14 @@ function scenario({failInitial=true}={}) {
   assert.equal(proof[0].name,'C');
 }
 console.log('✅ 실제 웹 동기화/Bootstrap VM: 신규 append 부분 커밋 부채 보존·재시도·하드 크래시 복구');
+
+{
+  const t=scenario({failInitial:false});
+  const response=await t.sync();
+  assert.equal(response?.status,'ok');
+  assert.equal(t.settings[1].targetWeight,25);
+  assert.equal(t.settings[1].notes,'C user memo');
+  assert.equal(t.debts().length,0);
+  assert.equal(t.journals().length,0);
+}
+console.log('✅ 신규 C append 최초 저장/부분 커밋/하드 크래시 복구에서 비중25·메모 유지');

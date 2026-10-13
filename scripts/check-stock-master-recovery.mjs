@@ -78,10 +78,10 @@ assert.match(history,/fullRestoreDone = typeof _gsBootRestored !== 'undefined'/,
 assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말고/,
  'read-only partial restore must warn that editing and saving are unsafe');
 
-assert.match(html,/settings_sync\.js\?v=20261013-22/);
+assert.match(html,/settings_sync\.js\?v=20261013-23/);
 
-assert.ok(html.includes('domain/portfolio/data.js?v=20261013-9'));
-assert.ok(sw.includes('domain/portfolio/data.js?v=20261013-9'));
+assert.ok(html.includes('domain/portfolio/data.js?v=20261013-10'));
+assert.ok(sw.includes('domain/portfolio/data.js?v=20261013-10'));
 
 // A partial master preview must not allow any mutation via the management
 // entry points. Both UI disable and handler-level guards are required.
@@ -101,11 +101,11 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261013-6/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261013-30/);
-assert.match(sw,/portfolio-cache-20261013-30/);
+assert.match(html,/sw\.js\?v=20261013-31/);
+assert.match(sw,/portfolio-cache-20261013-31/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
-assert.match(sw,/settings_sync\.js\?v=20261013-22/);
+assert.match(sw,/settings_sync\.js\?v=20261013-23/);
 assert.match(sw,/views_history\.js\?v=20261012-2/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');

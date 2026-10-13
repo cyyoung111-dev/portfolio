@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.211
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.212
+//
+//  v9.212 변경사항 (2026.10.13):
+//   신규 종목 최초 append와 코드 먼저 부분 커밋 복구에서 목표 비중·메모 보존
+//   정상 기존 종목 및 A→B 교체는 검증된 기존 Settings 원본만 사용
 //
 //  v9.211 변경사항 (2026.10.13):
 //   일반 saveSettings도 서버 Code/Settings 전체 원본 검증 후 사용자 필드 저장
@@ -1967,7 +1971,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.211', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.212', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5624,7 +5628,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.211' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.212' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11362,7 +11366,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.211',
+    gasVersion: '9.212',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11402,7 +11406,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.211' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.212' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14480,7 +14484,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.211' });
+    return jsonOk({ settings: settings, gasVersion: '9.212' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14510,7 +14514,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.211'
+      gasVersion: '9.212'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14867,6 +14871,20 @@ function handleDeleteUnreferencedCode(dataJson) {
 }
 
 function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam, forceSettingsRebase, settingsReplacementsParam) {
+  // Strictly scoped, JSON-safe user fields for first-time code-row append or
+  // an independently proven same-source incomplete append Settings recovery.
+  // Existing coded rows and explicit identity replacements never read these.
+  function _safeCodeAppendUserFields_(candidate) {
+    var fields={};
+    if (!candidate || typeof candidate!=='object' || Array.isArray(candidate)) return fields;
+    if (Object.prototype.hasOwnProperty.call(candidate,'targetWeight')
+        && candidate.targetWeight!=='' && candidate.targetWeight!==null) {
+      var w=Number(candidate.targetWeight);
+      if (isFinite(w) && w>=0 && w<=100) fields.targetWeight=w;
+    }
+    if (typeof candidate.notes==='string') fields.notes=candidate.notes.slice(0,4000);
+    return fields;
+  }
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
@@ -14916,6 +14934,9 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
           sector:   (val.sector   || '기타').toString().trim(),
           currency: (val.currency || 'KRW').toString().trim().toUpperCase(),
           market:   (val.market || '').toString().trim().toUpperCase(),
+          // Only genuinely new pairs can materialize these fields. The
+          // locked current master and toAppend are authoritative.
+          userFields: _safeCodeAppendUserFields_(val.userFields),
           // ★ [taxType 분리] 구분 컬럼
         };
       }
@@ -15319,6 +15340,37 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
         var entry={};
         if (old && typeof old==='object')
           Object.keys(old).forEach(function(k) { entry[k]=old[k]; });
+        if (!old) {
+          // Never silently create a new coded stock with default allocation
+          // after the caller supplied custom values for the exact freshly
+          // appended row. Existing/replaced stocks retain their own Settings.
+          var firstAppend=toAppend.some(function(inserted) {
+            return String(inserted[1]||'').trim()===name
+              && _cleanCode(inserted[0])===code;
+          });
+          var appendFields=firstAppend && incomingNorm[name]
+            ? incomingNorm[name].userFields : null;
+          // A process may have terminated after appending Codes but before
+          // EDITABLE_PRICES saved. Rehydrate ONLY the exact userFields carried
+          // by a verified metadataOnly proof for this otherwise missing row.
+          if (!appendFields && String(forceSettingsRebase||'')==='1') {
+            for (var ai=0;ai<settingsOnlyReplacements.length;ai++) {
+              var additionProof=settingsOnlyReplacements[ai];
+              if (additionProof.metadataOnly===true
+                  && String(additionProof.name||'').trim()===name
+                  && _cleanCode(additionProof.code)===code
+                  && String(additionProof.previousName||'').trim()===name
+                  && _cleanCode(additionProof.previousCode)===code) {
+                appendFields=_safeCodeAppendUserFields_(additionProof.userFields);
+                break;
+              }
+            }
+          }
+          var validatedFields=_safeCodeAppendUserFields_(appendFields);
+          Object.keys(validatedFields).forEach(function(k) {
+            entry[k]=validatedFields[k];
+          });
+        }
         entry.name=name;entry.code=code;
         entry.assetType=String(row.type||'주식');
         entry.sector=String(row.sector||'기타');
