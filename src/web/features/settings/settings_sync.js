@@ -395,8 +395,9 @@ function _classifyPinnedCodeSettingsRepairDebt(debts, master) {
       && _normalizeSyncCode(row.code)===newCode);
     // Reuse of ANY name/code component without the original complete pair
     // may indicate a competing rename, not a legitimate completed deletion.
-    const oldAlias=master.some(row => String(row.name || '').trim()===oldName
-      || _normalizeSyncCode(row.code)===oldCode);
+    const oldAlias=master.some(row =>
+      (oldName!==newName && String(row.name || '').trim()===oldName)
+      || (oldCode!==newCode && _normalizeSyncCode(row.code)===oldCode));
     const targetAlias=master.some(row => String(row.name || '').trim()===newName
       || _normalizeSyncCode(row.code)===newCode);
     if (target && !oldAlias) transfers.push(step);
