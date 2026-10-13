@@ -363,12 +363,16 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       }
       if(calls.length===8){
         assert.equal(args.forceSettingsRebase,'1');
-        assert.equal(metadata.length,0,'metadata-only repair requires no identity transfer');
+        assert.equal(metadata.length,1,'metadata-only repair must pass exact identity evidence');
+        assert.equal(metadata[0].metadataOnly,true);
+        assert.equal(metadata[0].name,'C');
         return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
       }
       if(calls.length===9){
         assert.equal(args.forceSettingsRebase,'1');
-        assert.equal(metadata.length,0,'durable marker must not become replacement');
+        assert.equal(metadata.length,1,'durable marker must remain scoped to its own pair');
+        assert.equal(metadata[0].metadataOnly,true);
+        assert.equal(metadata[0].name,'C');
         assert.equal(expected[0].sector,'헬스케어');
         return {status:'ok',updated:0};
       }
