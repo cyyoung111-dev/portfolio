@@ -210,7 +210,8 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       '_recordSameTargetLocalCodeAddition(EDITABLE_PRICES[0],session)',race),true);
   };
   const attempt=()=>vm.runInContext('syncCodesToGsheet()',race);
-  vm.runInContext('applyGsheetCodeList([{name:"A",code:"1"}], "sheet-1")',race);
+  race.initialCodes=remote.map(item=>({...item}));
+  vm.runInContext('applyGsheetCodeList(initialCodes, "sheet-1")',race);
   edit('B','2','A','1');
   const firstSync=attempt();
   await postReached;
