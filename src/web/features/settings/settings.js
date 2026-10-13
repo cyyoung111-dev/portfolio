@@ -527,8 +527,43 @@ async function loadSettings(onProgress, options) {
         ? data.errorCode : 'SETTINGS_RESPONSE_INVALID';
       return failLoad(code);
     }
-    const s = data.settings;
+    let s = data.settings;
     const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
+    // Pending code Settings migrations are independent of dirty trades,
+    // holdings, and uncommitted code additions. They must run BEFORE applying
+    // stale Bootstrap Settings and before marking the load successful.
+    const hasSavedCodeSettingsRepair = typeof _hasSameTargetCodeSettingsRepairDebt === 'function'
+      && _hasSameTargetCodeSettingsRepairDebt(loadTarget);
+    if (hasSavedCodeSettingsRepair && !isBootstrap) {
+      loadStage = '설정 복구 부채 서버 원본 식별';
+      return failLoad('CODE_SETTINGS_REPAIR_MASTER_UNAVAILABLE');
+    }
+    const codeSettingsRepairAtLoad = typeof _getSameTargetCodeSettingsRepairs === 'function'
+      ? _getSameTargetCodeSettingsRepairs(loadTarget,bootstrapCodeMasterSource) : [];
+    if (codeSettingsRepairAtLoad.length) {
+      loadStage = '종목 Settings 부분 커밋 복구';
+      if (typeof repairPinnedSameTargetCodeSettingsBeforeRestore !== 'function')
+        return failLoad('CODE_SETTINGS_REPAIR_UNAVAILABLE');
+      const repaired=await repairPinnedSameTargetCodeSettingsBeforeRestore({
+        targetUrl:loadTarget,generation:loadGeneration,
+        sourceId:bootstrapCodeMasterSource,masterCodes:data.codes
+      });
+      if (!isLoadConnectionCurrent()) return false;
+      if (!repaired) return failLoad('CODE_SETTINGS_REPAIR_FAILED');
+      // The first Bootstrap Settings payload predates the repair and must
+      // NEVER be restored into EDITABLE_PRICES as if it were authoritative.
+      const refreshed=await requestGsheetActionJson('getBootstrap',{},{
+        targetUrl:loadTarget,timeoutMs:15000,retry:1,preserveError:true
+      });
+      if (!isLoadConnectionCurrent()) return false;
+      if (refreshed?.status!=='ok' || !refreshed.settings || !Array.isArray(refreshed.codes)
+          || String(refreshed.codeMasterSourceId || '').trim()!==bootstrapCodeMasterSource
+          || typeof _stockMasterSyncFingerprint !== 'function'
+          || _stockMasterSyncFingerprint(refreshed.codes)!==repaired.fingerprint)
+        return failLoad('CODE_SETTINGS_REPAIR_READBACK_FAILED');
+      data=refreshed;
+      s=data.settings;
+    }
     // This code list belongs to the same successful Bootstrap response, and
     // can validate pending trade retries before EDITABLE_PRICES is applied.
     let bootstrapMasterForRetry = isBootstrap ? [
