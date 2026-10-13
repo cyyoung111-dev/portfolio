@@ -146,6 +146,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   const syncProgram=sync.slice(0,sync.indexOf('// ★ v8.1'));
   const remote=[{name:'A',code:'1',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
   const url='https://script.google.com/macros/s/race/exec', sourceId='sheet-1';
+  const journalDisk={};
   let requests=0, posted, release;
   let postReached=new Promise(resolve=>{posted=resolve;});
   let postBlocked=new Promise(resolve=>{release=resolve;});
@@ -158,7 +159,9 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     normalizeStockCode:c=>String(c||'').trim(),
     isGsheetConnectionCurrent:(u,g)=>u===url&&g===3,
     isGsheetPortfolioWriteReady:()=>true,
-    lsGet:(k,d)=>d, lsSave:()=>{}, lsRemove:()=>{},
+    lsGet:(k,d)=>k in journalDisk?structuredClone(journalDisk[k]):d,
+    lsSave:(k,v)=>{journalDisk[k]=structuredClone(v)},
+    lsRemove:k=>{delete journalDisk[k]},
     requestGsheetActionJson:async(action)=>{
       assert.equal(action,'getCodeList');
       return {status:'ok',codeMasterSourceId:sourceId,codes:remote.map(x=>({...x}))};
