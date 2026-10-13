@@ -811,6 +811,47 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(vm.runInContext(
     '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,"sheet-A").length',create(flaky)),0);
 
+  // P2: A->B journal is durable, B->C is staged, but the preceding B
+  // tombstone hits QuotaExceededError AFTER the new C key was saved.
+  // The transition must return false and rollback C, not resurrect both
+  // A->B and A->C in a restarted tab.
+  const pairDisk=new Map();
+  let rejectPriorTombstone=true;
+  const pairStorage={
+    getItem:k=>pairDisk.has(k)?pairDisk.get(k):null,
+    setItem:(k,v)=>{
+      const value=JSON.parse(v);
+      if(rejectPriorTombstone && value?.removed===true
+          && value?.entry?.name==='B') throw Error('QuotaExceededError');
+      pairDisk.set(k,v);
+    },
+    removeItem:k=>pairDisk.delete(k),
+    key:i=>[...pairDisk.keys()][i]??null,
+    get length(){return pairDisk.size}
+  };
+  const pairTab=create(pairStorage);
+  const viewPair=ctx=>vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"sheet-A")',ctx);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"B",code:"2",replaces:{name:"A",code:"1"}},{sourceId:"sheet-A"})',
+    pairTab),true);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    pairTab),false,'failed predecessor tombstone must reject chained edit');
+  assert.deepEqual(viewPair(create(pairStorage)).map(x=>x.name),['B'],
+    'partially staged C must be rolled back; predecessor B stays authorized');
+  assert.deepEqual(viewPair(pairTab).map(x=>x.name),['B'],
+    'failed write cannot publish an uncommitted edit in memory');
+  rejectPriorTombstone=false;
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    pairTab),true);
+  assert.deepEqual(viewPair(create(pairStorage)).map(x=>x.name),['C'],
+    'verified tombstone retires B after retry');
+  assert.equal(viewPair(create(pairStorage))[0].replaces.name,'A',
+    'replacement still proves original A, not intermediate B');
+  console.log('✅ 연속 A→B→C 선행 tombstone Quota 장애 실패·롤백·재시도 후 복구');
+
   // Legacy v1 journal must be migrated to per-pair storage before network sync.
   const old=create();
   const legacy={sourceId:'old-book',name:'M',code:'7',userFields:{targetWeight:35}};
