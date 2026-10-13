@@ -769,7 +769,10 @@ async function smSave(idx) {
     // guarded by the exact workbook/source/CAS/ledger references, and read
     // back BEFORE any local trade or holding changes are made.
     const removed=await deleteStockMasterCodeAfterPendingWrites(
-      {...item},editSession,{conversionItem:item});
+      {...item},editSession,{conversionItem:item,conversion:{
+        name:newName,code:'',assetType:newType,sector:newSec,
+        currency:newCurrency,market:newMarket
+      }});
     if (!removed || !isStockMasterEditSessionCurrent(editSession)
         || !EDITABLE_PRICES.includes(item)
         || item.name!==originalMasterIdentity.name
