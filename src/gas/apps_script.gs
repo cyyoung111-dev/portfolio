@@ -14336,11 +14336,23 @@ function handleDeleteUnreferencedCode(dataJson) {
     var sourceId = _portfolioCodeMasterSourceIdentity_(ss);
     if (!name || !code || !sourceId || sourceId !== String(request.expectedSourceId || ''))
       return jsonError('종목 삭제 연결 정보 확인 실패', { errorCode:'CODE_DELETE_SOURCE_CHANGED' });
+    // Prevent a delayed delete from discarding a newer code edit or a code
+    // replacement by another browser, even if name/code did not change.
+    // Compare every coded row and its metadata while holding the ScriptLock
+    // shared by syncCodes, append-only restore, and Settings saves.
     var rows = getCodeItems(ss, true);
-    if (rows.some(function(item) {
-      return (_cleanCode(item.code) === code && String(item.name || '').trim() !== name)
-        || (String(item.name || '').trim() === name && _cleanCode(item.code) !== code);
-    })) return jsonError('종목코드 또는 이름이 서버에서 변경됨', { errorCode:'CODE_DELETE_CONFLICT' });
+    var expectedRows = request.expectedCodes;
+    var fingerprintNow = _portfolioNormalizeCodeMasterSnapshot_(rows);
+    var fingerprintExpected = _portfolioNormalizeCodeMasterSnapshot_(expectedRows);
+    if (!fingerprintNow || !fingerprintExpected
+        || fingerprintNow !== fingerprintExpected)
+      return jsonError('삭제 전 종목 마스터가 변경됨', { errorCode:'CODE_DELETE_MASTER_CHANGED' });
+    var targetRows = rows.filter(function(item) {
+      return _cleanCode(item.code) === code || String(item.name || '').trim() === name;
+    });
+    if (targetRows.length !== 1 || _cleanCode(targetRows[0].code) !== code
+        || String(targetRows[0].name || '').trim() !== name)
+      return jsonError('종목코드 또는 이름이 서버에서 변경됨', { errorCode:'CODE_DELETE_CONFLICT' });
 
     var trades = JSON.parse(handleGetTrades(ss).getContent());
     var holdings = JSON.parse(handleGetHoldings(ss).getContent());
