@@ -154,6 +154,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     _gsPortfolioRestoreRequired:false, _gsCodeMasterSourceIdentity:sourceId,
     GSHEET_KEY:'gsheet-url', EDITABLE_PRICES:[],
     getGsheetConnectionGeneration:()=>3,
+    _currentGsheetSyncTarget:()=>url,
     normalizeStockCode:c=>String(c||'').trim(),
     isGsheetConnectionCurrent:(u,g)=>u===url&&g===3,
     isGsheetPortfolioWriteReady:()=>true,
