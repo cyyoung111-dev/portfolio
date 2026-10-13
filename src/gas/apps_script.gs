@@ -14118,13 +14118,19 @@ function _settlePendingCodeDeleteLocked_(ss) {
   if (matching.length===1) {
     // No code row was deleted (or another execution rolled it back): restore
     // an incomplete Settings removal, using the EXACT original custom fields.
-    if (!matchingSettings.length && tx.settingsEntry) {
-      previous.push(tx.settingsEntry);
-      settings.EDITABLE_PRICES=previous;
+    if (tx.settingsEntry && (!matchingSettings.length
+        || JSON.stringify(matchingSettings[0])!==JSON.stringify(tx.settingsEntry))) {
+      // A killed Settings writer may leave the same name/code but silently
+      // lose non-master attributes. Full original metadata is the rollback
+      // contract; identity-only readback would hide that corruption.
+      settings.EDITABLE_PRICES=previous.filter(function(ep) {
+        return !(String(ep&&ep.name||'').trim()===tx.name
+          && _cleanCode(ep&&ep.code||'')===tx.code);
+      }).concat([tx.settingsEntry]);
       if (!_writeSettingsMap(settings)) throw new Error('CODE_DELETE_TXN_SETTINGS_RESTORE_FAILED');
       var restored=_readSettingsMap(ss).EDITABLE_PRICES||[];
       if (!restored.some(function(ep) {
-        return ep&&ep.name===tx.name && _cleanCode(ep.code)===tx.code;
+        return ep && JSON.stringify(ep)===JSON.stringify(tx.settingsEntry);
       })) throw new Error('CODE_DELETE_TXN_SETTINGS_RESTORE_VERIFY_FAILED');
     }
     _finishCodeDeleteTxn_(tx);
@@ -14623,7 +14629,12 @@ function handleDeleteUnreferencedCode(dataJson) {
       ? originalSettings.EDITABLE_PRICES : []).filter(function(ep) {
       return String(ep&&ep.name||'').trim()===name && _cleanCode(ep&&ep.code||'')===code;
     });
-    if (originalEntry.length>1) return jsonError('Settings 종목 중복', {errorCode:'CODE_DELETE_SETTINGS_CONFLICT'});
+    var existingAliases=(Array.isArray(originalSettings.EDITABLE_PRICES)
+      ? originalSettings.EDITABLE_PRICES : []).filter(function(ep) {
+        return String(ep&&ep.name||'').trim()===name || _cleanCode(ep&&ep.code||'')===code;
+      });
+    if (existingAliases.length!==originalEntry.length || originalEntry.length>1)
+      return jsonError('Settings 종목 이름·코드 충돌', {errorCode:'CODE_DELETE_SETTINGS_CONFLICT'});
     var pendingDelete={
       version:1,sourceId:sourceId,name:name,code:code,
       settingsEntry:originalEntry.length ? originalEntry[0] : null
