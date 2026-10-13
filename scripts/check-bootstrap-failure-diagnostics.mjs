@@ -1203,6 +1203,10 @@ assert.equal(cleanHoldings.status,'ok');
 assert.ok(holdRowWrites>0,'valid holding still syncs');
 assert.equal(lockDepth,0,'holdings lock released on both conflict/success');
 gasCtx.getss=restoreGetss;
+// The prior deletion completed: mock its confirmed surviving master A with
+// an EXACT stored Settings A. The stale browser below still submits removed
+// 신규/005930, which the save must drop without resurrecting it.
+deletedServerSettings.EDITABLE_PRICES=[{name:'A',code:'111111',assetType:'주식',targetWeight:37}];
 // The normal Settings API intentionally uses the generic writer. The
 // destructive-writer guard belongs ONLY to the deletion transaction; restore
 // the general API fixture after isolated delete safety checks.
