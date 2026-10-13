@@ -29,9 +29,10 @@ if (!/async function fetchFromGsheet\(dateStr, options\)/.test(source)
 // explicit price * quantity semantics, not just a counter for recomputeRows.
 const pollSource = 'async function pollCurrentPrices() {' + polling[1] + '\n}';
 const recomputeSource = 'function recomputeRows() {' + recompute[1] + '\n}';
-const resolverSource = 'function _resolvePriceDateLabel(baseLabel, key) {' + resolver[1] + '\n}';
+const resolverSource = 'function _resolvePriceDateLabel(baseLabel, key, responseMeta) {' + resolver[1] + '\n}';
 const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930': 12345 }, fail = false,
-  meta = { '005930':{ sourceDate:'2026-10-13', isFallback:false } }, resolvedDate = '2026-10-13', disconnect = false, hideAfterFetch = false } = {}) => {
+  meta = { '005930':{ sourceDate:'2026-10-13', isFallback:false } }, resolvedDate = '2026-10-13', disconnect = false, hideAfterFetch = false,
+  embeddedMeta = null, embeddedDate = null } = {}) => {
   let networkCount = 0, repaintCount = 0, summaryCount = 0, cacheInvalidations = 0;
   let persistedCount = 0, badge = null, status = null, connected = true;
   const cache = { '005930': 1000 };
@@ -50,6 +51,8 @@ const testPoll = async ({ view = 'gsheet', hidden = false, response = { '005930'
       if (fail) throw Error('network failure');
       if (disconnect) connected = false;
       if (hideAfterFetch) context.document.hidden = true;
+      if (response && embeddedMeta) Object.defineProperty(response, '__gsheetPriceMeta', {value:embeddedMeta});
+      if (response && embeddedDate !== null) Object.defineProperty(response, '__gsheetResolvedPriceDate', {value:embeddedDate});
       return response;
     },
     getDateStr:()=> '2026-10-13', updateDateBadge:(...args)=>{badge=args;},
@@ -121,6 +124,14 @@ assert.equal(fallback.dates['005930'],'2026.10.09 기준일 이전값',
   '저장 시각이 오늘이어도 과거 종가 기준일 우선');
 assert.equal(fallback.updated,'2026.10.09','조회일을 가격일로 오인하지 않음');
 assert.equal(fallback.badge[1],false,'과거 종가를 실시간으로 표시하지 않음');
+
+
+const pinned = await testPoll({view:'gsheet',
+  meta:{'005930':{sourceDate:'2026-10-13',isFallback:false}},
+  embeddedMeta:{'005930':{sourceDate:'2026-10-09',isFallback:true}},
+  embeddedDate:'2026-10-09',resolvedDate:'2026-10-13'});
+assert.equal(pinned.updated,'2026.10.09','다른 조회가 전역 메타데이터를 덮어도 응답 자체의 기준일 사용');
+assert.equal(pinned.dates['005930'],'2026.10.09 기준일 이전값');
 
 const mixed = await testPoll({view:'gsheet',response:{'005930':12345,'000660':180000},
   meta:{'005930':{sourceDate:'2026-10-13',isFallback:false},

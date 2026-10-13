@@ -112,6 +112,7 @@ async function _fetchFromGsheetInner(dateStr, options) {
     let codeResults = {};
     let missingCodes = [];
     const priceMeta = {};
+    let responseResolvedPriceDate = '';
 
     if (epItems.length > 0) {
       const codes = epItems.map(i => i.code).join(',');
@@ -141,11 +142,12 @@ async function _fetchFromGsheetInner(dateStr, options) {
             console.info('[평가가격 조회 경로]', data.priceLookup);
           }
           const responsePriceDates = data.priceDates && typeof data.priceDates === 'object' ? data.priceDates : {};
-          window._gsheetResolvedPriceDate = Object.values(responsePriceDates)
+          responseResolvedPriceDate = Object.values(responsePriceDates)
             .map(v => String(v || ''))
-            .filter(v => /^\d{4}-\d{2}-\d{2}$/.test(v))
+            .filter(v => /^\d{4}-\d{2}-\d{2}$/.test(v) && v <= dateStr)
             .sort()
             .slice(-1)[0] || '';
+          window._gsheetResolvedPriceDate = responseResolvedPriceDate;
           epItems.forEach(i => {
             const price = data.prices[i.code];
             const sourceDate = String(responsePriceDates[i.code] || '');
@@ -267,6 +269,17 @@ async function _fetchFromGsheetInner(dateStr, options) {
       return true;
     });
     const results = Object.assign({}, codeResults, noCodeResults);
+    // These per-request, non-enumerable fields prevent a concurrent historical
+    // fetch from replacing the provenance of this polling/manual result.
+    const datedResults = Object.keys(results)
+      .map(key => String(priceMeta[key]?.sourceDate || ''))
+      .filter(date => /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= dateStr)
+      .sort();
+    const resultDate = datedResults[datedResults.length - 1] || responseResolvedPriceDate;
+    Object.defineProperties(results, {
+      __gsheetPriceMeta: { value: priceMeta },
+      __gsheetResolvedPriceDate: { value: resultDate }
+    });
     window._gsheetPriceMeta = priceMeta;
     return Object.keys(results).length > 0 ? results : null;
 
@@ -391,8 +404,9 @@ function setStatusLabel(html, type) {
   el.innerHTML = html;
 }
 
-function _resolvePriceDateLabel(baseLabel, key) {
-  const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
+function _resolvePriceDateLabel(baseLabel, key, responseMeta) {
+  const meta = responseMeta && typeof responseMeta === 'object' ? responseMeta
+    : ((window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {});
   const m = meta[key];
   if (!m) return baseLabel;
   // A later save timestamp does not make an older close today's price.
@@ -460,8 +474,9 @@ async function quickFetchByDate() {
     // 버튼 클릭은 자동 조회 중 생성된 결과를 재사용하지 않고 GAS 최종값을 새로 확인합니다.
     let results = await fetchFromGsheet(targetDate, { forceFresh: true, persist: true });
     let usedDate = targetDate;
-    if (targetDate === getDateStr(0) && window._gsheetResolvedPriceDate && window._gsheetResolvedPriceDate < targetDate) {
-      usedDate = window._gsheetResolvedPriceDate;
+    if (targetDate === getDateStr(0)) {
+      const resolvedDate = results?.__gsheetResolvedPriceDate ?? window._gsheetResolvedPriceDate;
+      if (resolvedDate && resolvedDate < targetDate) usedDate = resolvedDate;
     }
 
     // 오늘 날짜 조회 시 주말/공휴일 fallback (최대 5일 전)
@@ -479,7 +494,7 @@ async function quickFetchByDate() {
       const label = isToday ? '실시간' : usedDate.replace(/-/g, '.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
-        savedPriceDates[key] = _resolvePriceDateLabel(label, key);
+        savedPriceDates[key] = _resolvePriceDateLabel(label, key, results?.__gsheetPriceMeta);
       });
       lastUpdated = usedDate.replace(/-/g, '.');
       updateDateBadge(lastUpdated, isToday);
@@ -560,8 +575,9 @@ async function autoLoadPrices() {
 
     // 오늘 조회
     results = await fetchFromGsheet(dateStr);
-    if (window._gsheetResolvedPriceDate && window._gsheetResolvedPriceDate < dateStr) {
-      usedDateStr = window._gsheetResolvedPriceDate;
+    const resolvedDate = results?.__gsheetResolvedPriceDate ?? window._gsheetResolvedPriceDate;
+    if (resolvedDate && resolvedDate < dateStr) {
+      usedDateStr = resolvedDate;
     }
 
     // 주말/공휴일 fallback (최대 5일 전)
@@ -579,7 +595,7 @@ async function autoLoadPrices() {
       const dateLabel = isToday ? '실시간' : usedDateStr.replace(/-/g,'.') + ' 종가';
       Object.entries(results).forEach(([key, price]) => {
         savedPrices[key]     = price;
-        savedPriceDates[key] = _resolvePriceDateLabel(dateLabel, key);
+        savedPriceDates[key] = _resolvePriceDateLabel(dateLabel, key, results?.__gsheetPriceMeta);
       });
       lastUpdated = usedDateStr.replace(/-/g,'.');
       updateDateBadge(lastUpdated, isToday);
@@ -639,13 +655,15 @@ async function pollCurrentPrices() {
     if (!results || Object.keys(results).length === 0) return;
     const entries = Object.entries(results).filter(([, price]) => Number(price) > 0);
     if (!entries.length) return;
-    const meta = window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object'
-      ? window._gsheetPriceMeta : {};
+    const meta = results.__gsheetPriceMeta
+      || ((window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object')
+        ? window._gsheetPriceMeta : {});
     const validDate = date => /^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))
       && date <= requestDate;
     const dated = entries.map(([key]) => String(meta[key]?.sourceDate || ''))
       .filter(validDate).sort();
-    const responseDate = String(window._gsheetResolvedPriceDate || '');
+    const responseDate = String(results.__gsheetResolvedPriceDate
+      ?? window._gsheetResolvedPriceDate ?? '');
     const latestSourceDate = dated.length ? dated[dated.length - 1]
       : (validDate(responseDate) ? responseDate : '');
     const allDated = dated.length === entries.length;
@@ -656,7 +674,7 @@ async function pollCurrentPrices() {
     entries.forEach(([key, price]) => {
       savedPrices[key] = price;
       savedPriceDates[key] = validDate(meta[key]?.sourceDate)
-        ? _resolvePriceDateLabel(baseLabel, key)
+        ? _resolvePriceDateLabel(baseLabel, key, meta)
         : '기준일 미확인';
     });
     // A successful poll does not prove the source price was from today.
