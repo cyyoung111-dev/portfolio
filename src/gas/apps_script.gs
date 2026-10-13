@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.200
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.201
+//
+//  v9.201 변경사항 (2026.10.13):
+//   다른 탭의 종목 마스터 메타데이터 변경을 stale payload가 덮지 못하도록 CAS 계약 강화
+//   종목명·코드 복합 변경 후 Settings 부분 실패 복구 시 원본 메타데이터까지 조건부 승계
+//   Settings 전용 복구는 코드 마스터 무변경·동일 워크북·유일 원본 매칭을 검증
 //
 //  v9.200 변경사항 (2026.10.13):
 //   종목 코드 마스터 변경 후 Settings 실패 시 확정 마스터 기반 설정 재조정 재시도
@@ -1161,7 +1166,7 @@ function doPost(e) {
   if (params.action === 'deleteUnreferencedCode' && params.data)
     return handleDeleteUnreferencedCode(params.data);
   if (params.action === 'syncCodes'    && params.codes)
-    return handleSyncCodes(params.codes, params.expectedSourceId || '', params.expectedCodes || '', params.replacements || '[]', params.forceSettingsRebase || '');
+    return handleSyncCodes(params.codes, params.expectedSourceId || '', params.expectedCodes || '', params.replacements || '[]', params.forceSettingsRebase || '', params.settingsReplacements || '[]');
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
   if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
@@ -1920,7 +1925,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.200', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.201', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5577,7 +5582,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.200' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.201' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11315,7 +11320,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.200',
+    gasVersion: '9.201',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11355,7 +11360,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.200' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.201' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14200,7 +14205,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.200' });
+    return jsonOk({ settings: settings, gasVersion: '9.201' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14229,7 +14234,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.200'
+      gasVersion: '9.201'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14498,7 +14503,7 @@ function handleDeleteUnreferencedCode(dataJson) {
   }
 }
 
-function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam, forceSettingsRebase) {
+function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam, forceSettingsRebase, settingsReplacementsParam) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
@@ -14603,6 +14608,63 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
         return jsonError('종목 코드/이름 교체 충돌', {errorCode:'CODE_SYNC_REPLACEMENT_CONFLICT'});
       replacementByNewName[newName]={previousName:oldName,previousCode:oldCode};
       replacedOldNames[oldName]=true;
+    }
+    var settingsOnlyReplacements = [];
+    if (String(forceSettingsRebase || '') === '1') {
+      // The repair operation MUST NOT update a single code-master cell. It
+      // may only reconstruct Settings from this exact already-committed master.
+      if (replacements.length)
+        return jsonError('Settings 복구 중 코드 변경 금지', {errorCode:'CODE_REBASE_NOT_READONLY'});
+      try { settingsOnlyReplacements = _parseArrayParam(settingsReplacementsParam || '[]', 'Settings metadata replacements'); }
+      catch (metaParseError) {
+        return jsonError('Settings 교체 증거 형식 오류', {errorCode:'CODE_REBASE_PROVENANCE_INVALID'});
+      }
+      var masterForRebase=getCodeItems(ss,true);
+      var codedNames=Object.keys(incomingNorm).filter(function(name) {
+        return _cleanCode(incomingNorm[name].code);
+      });
+      if (codedNames.length!==masterForRebase.length || masterForRebase.some(function(row) {
+        var name=String(row.name||'').trim();
+        var val=incomingNorm[name];
+        return !val || _cleanCode(val.code)!==_cleanCode(row.code)
+          || String(val.type||'주식')!==String(row.type||'주식')
+          || String(val.sector||'기타')!==String(row.sector||'기타')
+          || String(val.currency||'KRW').toUpperCase()!==String(row.currency||'KRW').toUpperCase()
+          || String(val.market||'').toUpperCase()!==String(row.market||'').toUpperCase();
+      }))
+        return jsonError('Settings 복구 요청이 확정 코드 마스터와 다름', {errorCode:'CODE_REBASE_NOT_READONLY'});
+      var storedSettings=_readSettingsMap(ss);
+      var storedRows=Array.isArray(storedSettings.EDITABLE_PRICES) ? storedSettings.EDITABLE_PRICES : [];
+      var claimedOld={},claimedNew={};
+      for (var mi=0;mi<settingsOnlyReplacements.length;mi++) {
+        var proof=settingsOnlyReplacements[mi]||{};
+        var fromName=String(proof.previousName||'').trim(),fromCode=_cleanCode(proof.previousCode||'');
+        var toName=String(proof.name||'').trim(),toCode=_cleanCode(proof.code||'');
+        var fromKey=JSON.stringify([fromName,fromCode]), toKey=JSON.stringify([toName,toCode]);
+        if (!fromName || !fromCode || !toName || !toCode
+            || (fromName===toName && fromCode===toCode)
+            || claimedOld[fromKey] || claimedNew[toKey]
+            || !masterForRebase.some(function(row) {
+              return String(row.name||'').trim()===toName && _cleanCode(row.code)===toCode;
+            }) || masterForRebase.some(function(row) {
+              return (fromCode!==toCode && _cleanCode(row.code)===fromCode)
+                || (fromName!==toName && String(row.name||'').trim()===fromName);
+            }))
+          return jsonError('Settings 이전 대상 또는 원본 불일치', {errorCode:'CODE_REBASE_PROVENANCE_CONFLICT'});
+        var oldStored=storedRows.filter(function(row) {
+          return String(row&&row.name||'').trim()===fromName && _cleanCode(row&&row.code||'')===fromCode;
+        });
+        var newStored=storedRows.filter(function(row) {
+          return String(row&&row.name||'').trim()===toName && _cleanCode(row&&row.code||'')===toCode;
+        });
+        // Accept an idempotent already-repaired pair, but never combine two
+        // Settings rows or silently discard a former row's custom fields.
+        if (oldStored.length>1 || newStored.length>1
+            || (oldStored.length===1 && newStored.length===1)
+            || (oldStored.length===0 && newStored.length===0))
+          return jsonError('Settings 이전 원본 식별 불가', {errorCode:'CODE_REBASE_SETTINGS_AMBIGUOUS'});
+        claimedOld[fromKey]=true; claimedNew[toKey]=true;
+      }
     }
     var synced         = 0;
     var updated        = 0;
@@ -14735,8 +14797,9 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
         // On full-pair rename, preserve original metadata by explicit CAS
         // provenance; avoid losing unrelated local per-asset flags.
         if (!old) {
-          for (var i=0;i<replacements.length;i++) {
-            var ren=replacements[i];
+          var metadataProvenance=replacements.concat(settingsOnlyReplacements);
+          for (var i=0;i<metadataProvenance.length;i++) {
+            var ren=metadataProvenance[i];
             if (String(ren.name||'').trim()!==name || _cleanCode(ren.code||'')!==code) continue;
             old=previous.find(function(ep) {
               return String(ep&&ep.name||'').trim()===String(ren.previousName||'').trim()
