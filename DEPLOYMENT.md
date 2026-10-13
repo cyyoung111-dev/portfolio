@@ -1,3 +1,11 @@
+## PR #493 Codex P2 2건 — 복구 부채 성공 해제·후속 삭제 종결 (2026-10-13)
+
+- **즉시 Settings 복구 성공 뒤 남는 부채**: 일반 `syncCodes` POST가 오류를 반환했지만 코드 마스터가 이미 최신으로 바뀐 경우 Settings-only 복구가 성공해도 기존 코드가 빈 `replacements/settingsReplacements`만 삭제해 `metadataOnly` 부채가 남던 문제 수정. 이제 부분 커밋 시 생성한 `repairProof` 전체를 추적하고, 성공한 CAS Settings 수리 **뒤 최신 `getCodeList` 전체 마스터 readback 일치 검증을 통과해야만** 해당 부채를 영속 해제합니다. 실패·소스 전환·후속 CAS 충돌 시에는 부채 유지.
+- **A→B 교체 부채 발생 후 B 후속 삭제**: 전용 `_classifyPinnedCodeSettingsRepairDebt`는 현재 동일 workbook/source 전체 마스터에서 B 정확히 존재·A 별칭 부재이면 기존 Settings provenance를 B로 이전합니다. A/B 둘 다 없고 어느 이름/코드 구성요소도 충돌하지 않을 때는 더 이상 이전 대상이 없으므로 Settings-only full-master CAS 재기준화에서 stale A를 정리하고 부채를 종결합니다. 종목명만/코드만 교체 시 동일한 구성요소를 원본 별칭으로 오인하지 않도록 구분합니다. A 또는 B의 이름/코드가 경쟁적으로 재사용되면 자동 정리하지 않고 fail closed.
+- **검증**: 실제 웹 VM에서 메타데이터 코드만 저장 후 Settings 즉시 수리 성공→재부팅/추가 쓰기 없이 `metadataOnly` 부채 0건, 실패 시 durable 보존. 실제 전체 deferred-script Bootstrap VM에서 A→B 교체 뒤 다른 탭 B 삭제→현재 C만 있는 코드 마스터로 Settings 읽기 복구, stale A 제거, 다른 C 비중/대출/코드 없는 펀드 보호, 부채 0건 및 별칭 충돌·이름만/코드만 교체 안전성 확인.
+- **범위**: 최신 클라이언트 `settings_sync.js?v=20261013-20`, PWA `portfolio-cache-20261013-24`. 기존 GAS v9.205 및 전체 source blob `120593344d2b9da89f3e603bdb2349fc3ef571f9` 변경 없음. PR Draft·미병합, main/원본 #489~#492/운영 GAS·스프레드시트·종가/NAV/Snapshot/브리핑 미변경. 승인 없는 병합·실제 배포 없음.
+
+---
 ## PR #493 Codex P2 — 메타데이터 부분 커밋 복구 근거 정정 (2026-10-13)
 
 - **원인**: 웹 `syncCodesToGsheet()`는 메타데이터만 GAS 코드 시트에 확정되었으나 Settings 복구가 실패하면 임의 `partial.codes[0]`을 `metadataOnly` 영속 부채에 기록했습니다. 무관한 그 행을 다른 탭에서 삭제하면 다음 Bootstrap이 실변경 종목과 무관하게 영구 실패했습니다.
