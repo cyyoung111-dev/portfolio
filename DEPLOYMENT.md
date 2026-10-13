@@ -1,3 +1,11 @@
+## PR #493 최신 리뷰 보완 — 2026-10-13 (Draft / 운영 배포 금지)
+
+- **GAS v9.201 검증 후보**: 전체 Git blob `6abc67efb901b77f6eeb78c97e95f45ad98ca8ec`. `deploy-gas.mjs` 승인 지문 게이트와 `check-gas-deploy.mjs` 기대값을 함께 변경했습니다. 이는 소스 무결성 게이트이지 운영 배포 승인이나 실제 배포가 아닙니다.
+- **신규 Codex P2 — 교체 후 Settings 메타데이터 손실**: 코드+이름 교체가 코드 시트에 확정됐지만 Settings 저장에 실패하면, 클라이언트는 검증된 기존→신규 identity를 `settingsReplacements`로 제공합니다. GAS는 같은 ScriptLock/코드 마스터 CAS와 Settings의 유일 원본·신규 대상 검증 이후 기존 `targetWeight` 등 사용자 필드를 옮깁니다. 복구 모드는 코드 마스터 전체를 바꾸지 못하며 코드/메타데이터가 조금이라도 다르면 쓰기를 차단합니다.
+- **신규 Codex P2 — stale payload에 최신 CAS 부착**: 요청 생성 당시 마스터의 전필드 지문과 직렬 큐 내 **자체 성공·readback으로 확인된 전이**만 인정합니다. 다른 탭의 종목 분류/통화/시장 변경은 최신 GET이라도 오래된 payload의 CAS 근거로 삼지 않고 POST 이전 차단합니다. 성공 검증은 code/name뿐 아니라 전체 전필드·행 수를 포함합니다.
+- **검증**: 실제 브라우저·GAS 함수의 in-flight A→B→C, 재시도/원복, 외부 섹터 수정 시 POST 0, 코드 commit 후 Settings 실패·메타데이터 유지·불일치 차단·재복구 멱등성을 회귀검사합니다.
+- **운영 제한**: main/원본 PR #489~#492, 운영 GAS 및 OAuth 키·시트 원장·가격이력·Snapshot은 직접 변경하지 않습니다. Codex 독립 재리뷰·최종 통합 CI·운영 실환경 검증 전에는 Ready·Merge·실배포 금지입니다.
+
 ## PR #493 통합 후보 보완 — 2026-10-13 (Draft / 운영 배포 금지)
 
 - **GAS v9.200 후보**: 전체 소스 Git blob `3eb6b4ad640b85f0648f16e3571099e5c374368a`를 `deploy-gas.mjs`의 정확한 소스 승인 게이트에 등록했습니다. 이 SHA는 **통합 검증 후보**의 무결성 식별자일 뿐, 운영 배포 승인이 아닙니다.
