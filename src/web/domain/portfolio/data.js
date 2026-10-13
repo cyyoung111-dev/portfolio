@@ -561,12 +561,16 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
     const without=rows.filter(row=>_stockDurablePairKey(prefix,target,row)!==key);
     const predecessors=prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
       && Array.isArray(record.requiresTombstones)?record.requiresTombstones:[];
-    const completed=predecessors.every(prev=>{
-      const prevKey=_stockDurablePairKey(prefix,target,{
-        sourceId:record.sourceId,name:prev?.name,code:prev?.code
+    // A tombstone written by a DIFFERENT in-flight write cannot commit a
+    // rejected staged successor. The originating edit must have explicitly
+    // committed this exact pair after all its own tombstones succeeded.
+    const completed=(predecessors.length===0 || record.transitionCommitted===true)
+      && predecessors.every(prev=>{
+        const prevKey=_stockDurablePairKey(prefix,target,{
+          sourceId:record.sourceId,name:prev?.name,code:prev?.code
+        });
+        return pairEntries.get(prevKey)?.removed===true;
       });
-      return pairEntries.get(prevKey)?.removed===true;
-    });
     if(item.removed!==true && completed)without.push({...record});
     if(without.length)result[target]=without;
     else delete result[target];
@@ -801,13 +805,15 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     ...(root ? { replaces: {
       name:String(root.name).trim(), code:normalized(root.code)
     }} : {}),
-    ...(waitingFor.length ? {requiresTombstones:waitingFor} : {})
+    ...(waitingFor.length
+      ? {requiresTombstones:waitingFor,transitionCommitted:false} : {})
   };
   // A multi-step edit must not claim success until EVERY predecessor
   // tombstone was durably read back. Stage the new pair first, but never
   // publish the in-memory/legacy journal on an incomplete transition.
   const pairMode=_stockPerPairStorageAvailable();
-  const nextMap={..._pendingSameTargetCodeAdditions,[target]:[...others,next]};
+  const committedNext=waitingFor.length ? {...next,transitionCommitted:true} : next;
+  const nextMap={..._pendingSameTargetCodeAdditions,[target]:[...others,committedNext]};
   if (!pairMode) {
     lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,nextMap);
     if (JSON.stringify(lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null))
@@ -843,6 +849,17 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
       return false;
     }
     retired.push(entry);
+  }
+  // Promotion is a SECOND verifiable write to the very same exact pair.
+  // A stranded staged C is never activated by any unrelated future B
+  // tombstone; success is explicit and scoped to the originating edit.
+  if (waitingFor.length && !_persistDurableStockPair(
+      PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,committedNext)) {
+    if (previousPair) lsSave(key,previousPair);
+    else lsRemove(key);
+    for(const restored of retired)
+      _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,restored);
+    return false;
   }
   _pendingSameTargetCodeAdditions=nextMap;
   lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,nextMap); // v1 compatibility only
