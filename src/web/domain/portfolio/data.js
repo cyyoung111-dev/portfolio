@@ -528,8 +528,10 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
 function _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceIdentity, confirmed) {
   const target = String(targetUrl || '').trim();
   const sourceId = String(sourceIdentity || '').trim();
-  const records = _pendingSameTargetCodeAdditions[target];
-  if (!target || !sourceId || !Array.isArray(records) || !Array.isArray(confirmed)) return;
+  if (!target || !sourceId || !Array.isArray(confirmed)) return;
+  const records = Array.isArray(_pendingSameTargetCodeAdditions[target])
+    ? _pendingSameTargetCodeAdditions[target] : [];
+  _pendingSameTargetCodeAdditions[target] = records;
   const normalized = value => typeof _normalizeSyncCode === 'function'
     ? _normalizeSyncCode(value || '') : String(value || '').trim();
   let changed = false;
