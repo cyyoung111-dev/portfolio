@@ -735,20 +735,19 @@ async function smSave(idx) {
   // ★ [환율 연동] 통화 저장
   item.currency = newCurrency;
   item.market = newMarket;
-  if ((originalMasterIdentity.name !== newName
-      || normalizeStockCode(originalMasterIdentity.code) !== newCode)
-      && typeof _forgetSameTargetLocalCodeAddition === 'function') {
-    _forgetSameTargetLocalCodeAddition(originalMasterIdentity.name, originalMasterIdentity.code);
-  }
-  if (originalMasterIdentity.name !== newName
-      && normalizeStockCode(originalMasterIdentity.code) !== newCode
-      && originalMasterIdentity.code && newCode
-      && typeof _recordSameTargetLocalCodeAddition === 'function') {
-    // The server can CAS-replace the original code-master row under its lock,
-    // instead of leaving an orphan old entry next to the new name/code.
-    _recordSameTargetLocalCodeAddition({
+  const identityChanged = originalMasterIdentity.name !== newName
+    || normalizeStockCode(originalMasterIdentity.code) !== newCode;
+  // Register the new pair BEFORE retiring the predecessor: the journal must
+  // compose any prior uncommitted edits back to the original SERVER row.
+  // This also covers name-only or code-only intermediate edits in a chain.
+  const replacementJournaled = identityChanged && originalMasterIdentity.code && newCode
+    && typeof _recordSameTargetLocalCodeAddition === 'function'
+    && _recordSameTargetLocalCodeAddition({
       ...item, replaces: originalMasterIdentity
     }, editSession);
+  if (identityChanged && !replacementJournaled
+      && typeof _forgetSameTargetLocalCodeAddition === 'function') {
+    _forgetSameTargetLocalCodeAddition(originalMasterIdentity.name, originalMasterIdentity.code);
   }
   if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
