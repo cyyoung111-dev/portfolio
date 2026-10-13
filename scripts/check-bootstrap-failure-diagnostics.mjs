@@ -472,7 +472,12 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
     sector:'기타',currency:'KRW',market:'KR',targetWeight:37}];
   return {status:'ok',updated:0};
 };
-assert.equal(await h.ctx.loadSettings(),true,'clean Bootstrap retries saved Settings debt');
+const cleanRepairResult=await h.ctx.loadSettings();
+if (!cleanRepairResult) console.log('BOOTSTRAP_REPAIR_DIAG',h.ctx.getGsheetSettingsLoadFailure(),
+  'writeActions',settingsRepairActions,
+  'debt',vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE')",h.ctx),
+  'settings',h.response.settings.EDITABLE_PRICES);
+assert.equal(cleanRepairResult,true,'clean Bootstrap retries saved Settings debt');
 assert.deepEqual(settingsRepairActions,['syncCodes']);
 assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='B'&&ep.code==='2'&&ep.targetWeight===37)",h.ctx),true,
   'Bootstrap must apply re-fetched Settings B, not the stale A payload');
