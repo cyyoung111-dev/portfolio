@@ -887,6 +887,55 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     unsafeTab),true);
   assert.deepEqual(viewPair(create(unsafeStorage)).map(x=>x.name),['C'],
     'verified predecessor tombstone activates previously staged C');
+  // NEW Codex P2: a failed C write must NOT be activated by a later,
+  // unrelated in-flight A->B sync retiring B. The previous implementation
+  // used the B tombstone alone as implicit consent to activate staged C.
+  const delayed=new Map();let failB=true,failDeleteC=true;
+  const delayedStore={
+    getItem:k=>delayed.get(k)??null,
+    setItem:(k,v)=>{
+      const value=JSON.parse(v);
+      if(failB && value?.removed===true && value?.entry?.name==='B')
+        throw Error('QuotaExceededError');
+      delayed.set(k,v);
+    },
+    removeItem:k=>{
+      if(failDeleteC && decodeURIComponent(k).includes('"C","3"'))
+        throw Error('SecurityError');
+      delayed.delete(k);
+    },
+    key:i=>[...delayed.keys()][i]??null,
+    get length(){return delayed.size}
+  };
+  const inFlight=create(delayedStore);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"B",code:"2",replaces:{name:"A",code:"1"}},{sourceId:"sheet-A"})',
+    inFlight),true);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    inFlight),false);
+  assert.deepEqual(viewPair(create(delayedStore)).map(x=>x.name),['B']);
+  const stagedRecord=[...delayed.values()].map(x=>JSON.parse(x))
+    .find(x=>x?.entry?.name==='C');
+  assert.equal(stagedRecord?.entry?.transitionCommitted,false,
+    'failed C transition must remain uncommitted even if rollback also fails');
+  failB=false;
+  // The server confirmed A->B independently; retire B as a different
+  // operation without explicitly authorizing the rejected B->C edit.
+  assert.equal(vm.runInContext(
+    '_forgetSameTargetLocalCodeAddition("B","2",GSHEET_API_URL,"sheet-A")',
+    inFlight),true);
+  assert.deepEqual(viewPair(create(delayedStore)).map(x=>x.name),[],
+    'unrelated B tombstone MUST NOT resurrect rejected staged C');
+  failDeleteC=false;
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    inFlight),true,
+    'only a NEW explicit user-authorized retry may activate C');
+  assert.deepEqual(viewPair(create(delayedStore)).map(x=>x.name),['C']);
+  assert.equal(viewPair(create(delayedStore))[0].replaces.name,'B');
+  console.log('✅ 실패한 C는 무관한 B tombstone에 사후 활성화되지 않으며 명시적 재시도만 허용');
+
   console.log('✅ tombstone·롤백 동시 거부에도 준비 C 비활성 유지, 재시도 시 단일 C 활성');
 
   console.log('✅ 연속 A→B→C 선행 tombstone Quota 장애 실패·롤백·재시도 후 복구');
