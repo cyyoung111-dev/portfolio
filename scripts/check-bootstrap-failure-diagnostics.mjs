@@ -455,44 +455,35 @@ assert.ok(h.ctx._getPortfolioRemoteDirty(),'mismatched transaction retained');
 // Settings-only repair debt must run on a clean Bootstrap with NO trades,
 // holdings or pending code additions, before stale Settings can restore A.
 h=setup();
-h.response.codes=[{name:'B',code:'2',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
-h.response.settings.EDITABLE_PRICES=[{name:'A',code:'1',assetType:'주식',sector:'기타',targetWeight:37}];
+h.response.codes=[{name:'B',code:'222222',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+h.response.settings.EDITABLE_PRICES=[{name:'A',code:'111111',assetType:'주식',sector:'기타',targetWeight:37}];
 vm.runInContext(`_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE',[
-  {previousName:'A',previousCode:'1',name:'B',code:'2'}])`,h.ctx);
-const settingsRepairActions=[],settingsReadActions=[];
-h.ctx.requestGsheetActionJson=async action=>{
-  settingsReadActions.push(action);
-  return action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
-};
+  {previousName:'A',previousCode:'111111',name:'B',code:'222222'}])`,h.ctx);
+const settingsRepairActions=[];
+h.ctx.requestGsheetActionJson=async action=>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
 h.ctx.requestGsheetFormJson=async (action,params)=>{
   settingsRepairActions.push(action);
   assert.equal(action,'syncCodes','clean Bootstrap must perform Settings-only repair');
   assert.equal(params.forceSettingsRebase,'1');
   assert.equal(JSON.parse(params.replacements).length,0);
   assert.equal(JSON.parse(params.settingsReplacements)[0].previousName,'A');
-  h.response.settings.EDITABLE_PRICES=[{name:'B',code:'2',assetType:'주식',
+  h.response.settings.EDITABLE_PRICES=[{name:'B',code:'222222',assetType:'주식',
     sector:'기타',currency:'KRW',market:'KR',targetWeight:37}];
   return {status:'ok',updated:0};
 };
-const cleanRepairResult=await h.ctx.loadSettings();
-if (!cleanRepairResult) console.log('BOOTSTRAP_REPAIR_DIAG',h.ctx.getGsheetSettingsLoadFailure(),
-  'writeActions',settingsRepairActions,'readActions',settingsReadActions,
-  'fingerprint',h.ctx._stockMasterSyncFingerprint(h.response.codes),
-  'isCurrent',vm.runInContext("isGsheetConnectionCurrent(GSHEET_API_URL,getGsheetConnectionGeneration())",h.ctx),
-  'debt',vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE')",h.ctx),
-  'settings',h.response.settings.EDITABLE_PRICES);
-assert.equal(cleanRepairResult,true,'clean Bootstrap retries saved Settings debt');
+assert.equal(await h.ctx.loadSettings(),true,'clean Bootstrap retries saved Settings debt');
 assert.deepEqual(settingsRepairActions,['syncCodes']);
-assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='B'&&ep.code==='2'&&ep.targetWeight===37)",h.ctx),true,
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='B'&&ep.code==='222222'&&ep.targetWeight===37)",h.ctx),true,
   'Bootstrap must apply re-fetched Settings B, not the stale A payload');
 assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='A')",h.ctx),false);
 assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0);
 
 h=setup();
-h.response.codes=[{name:'B',code:'2',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
-h.response.settings.EDITABLE_PRICES=[{name:'A',code:'1',assetType:'주식',sector:'기타',targetWeight:37}];
+h.response.codes=[{name:'B',code:'222222',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+h.response.settings.EDITABLE_PRICES=[{name:'A',code:'111111',assetType:'주식',sector:'기타',targetWeight:37}];
 vm.runInContext(`_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE',[
-  {previousName:'A',previousCode:'1',name:'B',code:'2'}])`,h.ctx);
+  {previousName:'A',previousCode:'111111',name:'B',code:'222222'}])`,h.ctx);
 h.ctx.requestGsheetActionJson=async action=>
   action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
 h.ctx.requestGsheetFormJson=async()=>({status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'});
