@@ -504,7 +504,7 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
       for (const step of debts) {
         if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
             entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
-          _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl);
+          _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId);
       }
     }
     return {fingerprint:expectedFingerprint,codes:readback.codes};
@@ -535,8 +535,11 @@ async function syncCodesToGsheet(options) {
   // Preserve fresh custom fields in durable exact-source NEW-asset journal
   // before any network request, including crashes after code-row flush.
   if (!Array.isArray(options?.codeItemsOverride)
-      && typeof _refreshSameTargetPendingAppendFields==='function')
-    _refreshSameTargetPendingAppendFields(targetUrl,sourceId,sourceItems);
+      && typeof _refreshSameTargetPendingAppendFields==='function'
+      && !_refreshSameTargetPendingAppendFields(targetUrl,sourceId,sourceItems)) {
+    _syncWarn('[syncCodes] 신규 종목 저널 영속 확인 실패: 서버 쓰기 중단');
+    return null;
+  }
   sourceItems.forEach(i => {
     if (!i?.name) return;
     codeMap[i.name] = {
@@ -637,7 +640,7 @@ async function syncCodesToGsheet(options) {
         for (const step of repairDebt.filter(item => !item.metadataOnly)) {
           if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
               entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
-            _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl);
+            _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId);
         }
       }
     }
@@ -802,7 +805,7 @@ async function syncCodesToGsheet(options) {
           for (const step of replacements) {
             if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
                 entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
-              _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl);
+              _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl,sourceId);
           }
       }
       applyGsheetCodeList(partial.codes, sourceId);
@@ -875,7 +878,7 @@ async function syncCodesToGsheet(options) {
       const source = String(typeof _gsCodeMasterSourceIdentity !== 'undefined' ? _gsCodeMasterSourceIdentity || '' : '');
       for (const item of _getSameTargetLocalCodeAdditions(targetUrl, source)) {
         if (_normalizeSyncCode(codeMap[item.name]?.code) === _normalizeSyncCode(item.code)) {
-          _forgetSameTargetLocalCodeAddition(item.name, item.code, targetUrl);
+          _forgetSameTargetLocalCodeAddition(item.name, item.code, targetUrl, source);
         }
       }
     }
