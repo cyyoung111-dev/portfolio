@@ -553,15 +553,24 @@ async function loadSettings(onProgress, options) {
     // The new-code recovery path is intentionally narrower than normal
     // syncCodes: only same-target server Settings or prior authorized local
     // additions can extend the pinned master, with exact read-back proof.
-    if (dirtyPortfolioAtLoad && typeof recoverPinnedMissingPortfolioCodes === 'function') {
+    const sameTargetCodeAdditionsAtLoad = typeof _getSameTargetLocalCodeAdditions === 'function'
+      ? _getSameTargetLocalCodeAdditions(loadTarget) : [];
+    if ((dirtyPortfolioAtLoad || sameTargetCodeAdditionsAtLoad.length)
+        && typeof recoverPinnedMissingPortfolioCodes === 'function') {
       loadStage = '동일 연결 신규 종목코드 검증';
       bootstrapMasterForRetry = await recoverPinnedMissingPortfolioCodes({
         targetUrl:loadTarget, generation:loadGeneration,
-        dirty:dirtyPortfolioAtLoad, masterCodes:bootstrapMasterForRetry,
+        dirty:dirtyPortfolioAtLoad || { trades:[], holdings:[], fundDirect:{} },
+        masterCodes:bootstrapMasterForRetry,
         remoteSettings:s
       });
       if (!isLoadConnectionCurrent()) return false;
       if (!Array.isArray(bootstrapMasterForRetry)) return failLoad('RESTORE_CODE_RECOVERY_FAILED');
+      // getBootstrap's code list predates a successful recovery write. Later
+      // applyGsheetCodeList must see the read-back verified version instead,
+      // otherwise an untraded new stock disappears from the displayed master.
+      if (isBootstrap) data.codes = bootstrapMasterForRetry.filter(ep =>
+        !!_normalizeCodeForSync(ep?.code));
     }
 
     // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
