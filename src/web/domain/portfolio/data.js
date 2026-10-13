@@ -524,6 +524,53 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
   lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
   return true;
 }
+
+function _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceIdentity, confirmed) {
+  const target = String(targetUrl || '').trim();
+  const sourceId = String(sourceIdentity || '').trim();
+  const records = _pendingSameTargetCodeAdditions[target];
+  if (!target || !sourceId || !Array.isArray(records) || !Array.isArray(confirmed)) return;
+  const normalized = value => typeof _normalizeSyncCode === 'function'
+    ? _normalizeSyncCode(value || '') : String(value || '').trim();
+  let changed = false;
+  for (const step of confirmed) {
+    const beforeName = String(step.previousName || '').trim();
+    const beforeCode = normalized(step.previousCode);
+    const afterName = String(step.name || '').trim();
+    const afterCode = normalized(step.code);
+    if (!beforeName || !beforeCode || !afterName || !afterCode) continue;
+    // A pending A -> C edit can be rebased to B -> C ONLY after an A -> B
+    // request completed and the same workbook readback confirmed B.
+    for (const record of records) {
+      if (record?.sourceId !== sourceId || !record.replaces) continue;
+      if (String(record.replaces.name || '').trim() !== beforeName
+          || normalized(record.replaces.code) !== beforeCode) continue;
+      record.replaces = {name:afterName, code:afterCode};
+      changed = true;
+    }
+    // A -> B may finish while the user has already reverted B -> A. In that
+    // case the earlier journal was retired as a local no-op, but A now needs
+    // a new, explicitly proven B -> A replacement.
+    const reverted = typeof EDITABLE_PRICES !== 'undefined'
+      ? EDITABLE_PRICES.find(ep => String(ep?.name || '').trim() === beforeName
+        && normalized(ep?.code) === beforeCode) : null;
+    if (reverted && !records.some(entry => entry.sourceId === sourceId
+        && String(entry.name || '').trim() === beforeName
+        && normalized(entry.code) === beforeCode)) {
+      records.push({
+        name:beforeName, code:beforeCode, sourceId,
+        type:String(reverted.assetType || reverted.type || '주식'),
+        sector:String(reverted.sector || '기타'),
+        currency:String(reverted.currency || 'KRW').toUpperCase(),
+        market:String(reverted.market || '').toUpperCase(),
+        replaces:{name:afterName, code:afterCode}
+      });
+      changed = true;
+    }
+  }
+  if (changed) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
+}
+
 function _getSameTargetLocalCodeAdditions(target, sourceIdentity) {
   const entries = _pendingSameTargetCodeAdditions[String(target || '').trim()];
   const sourceId = String(sourceIdentity || '').trim();
