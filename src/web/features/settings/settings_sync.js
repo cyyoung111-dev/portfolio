@@ -319,6 +319,24 @@ async function syncCodesToGsheet(options) {
     _syncWarn('[syncCodes] 서버 종목 마스터 스냅샷 미확인');
     return null;
   }
+  return _queueGsheetStockMasterWrite(targetUrl, async () => {
+    if (!isGsheetConnectionCurrent(targetUrl, generation)
+        || (!duringRestore && sourceId !== String(_gsCodeMasterSourceIdentity || ''))
+        || !isGsheetPortfolioWriteReady({
+          targetUrl, generation, allowDuringRestore:duringRestore
+        })) return null;
+    try {
+    // Serialize first, THEN acquire a current same-workbook master. An
+    // earlier queued A->B confirmation may have rebased a later A->C journal
+    // to B->C; pre-queue snapshots would reject every retry permanently.
+    const fresh = await requestGsheetActionJson('getCodeList', {}, {
+      targetUrl, timeoutMs:15000, retry:1, preserveError:true
+    });
+    if (!isGsheetConnectionCurrent(targetUrl, generation)
+        || String(_gsCodeMasterSourceIdentity || '') !== sourceId
+        || fresh?.status !== 'ok' || fresh.codeMasterSourceId !== sourceId
+        || !Array.isArray(fresh.codes)) return null;
+    applyGsheetCodeList(fresh.codes, sourceId);
   const expectedCodes = _gsheetCodeList.map(item => ({...item}));
   const expectedByCode = new Set(expectedCodes.map(item => _normalizeSyncCode(item.code)));
   const expectedByName = new Set(expectedCodes.map(item => item.name));
@@ -362,14 +380,7 @@ async function syncCodesToGsheet(options) {
       return null;
     }
   }
-  return _queueGsheetStockMasterWrite(targetUrl, async () => {
-    if (!isGsheetConnectionCurrent(targetUrl, generation)
-        || (!duringRestore && sourceId !== String(_gsCodeMasterSourceIdentity || ''))
-        || !isGsheetPortfolioWriteReady({
-          targetUrl, generation, allowDuringRestore:duringRestore
-        })) return null;
-    try {
-    // Only the original target's immutable code snapshot may be submitted.
+    // Only the original target's immutable code snapshot may be submitted. may be submitted.
     const data = await requestGsheetFormJson(
       'syncCodes',
       { codes: JSON.stringify(codeMap), expectedSourceId:sourceId,
@@ -400,6 +411,9 @@ async function syncCodesToGsheet(options) {
       return null;
     }
     applyGsheetCodeList(checked.codes, sourceId);
+    if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function') {
+      _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceId, replacements);
+    }
     // Verified normal code sync retires only matching registrations;
     // otherwise a stale registration could later resurrect a removed stock.
     if (!Array.isArray(options?.codeItemsOverride)
