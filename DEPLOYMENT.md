@@ -1,3 +1,11 @@
+## PR #493 Codex P2 — 코드 변경 전 전체 Settings 원본 정합성 확인 (2026-10-13)
+
+- 기존 코드 A→B가 부분 커밋되어 마스터 B / Settings A로 불일치할 때, 다른 탭에서 B 섹터 수정·무관한 C 추가가 사용자 비중·메모를 지우는 문제를 방지.
+- GAS v9.207 일반 `handleSyncCodes`는 실제 코드 쓰기 전에 전체 코드 마스터의 각 name+code가 Settings에 정확히 한 번 존재하고 Settings에 orphan coded 항목이 없는지 검사합니다. 불일치·중복 시 `CODE_SYNC_SETTINGS_MASTER_MISMATCH`로 데이터 저장 0. 명시적 `forceSettingsRebase`는 기존 별도 provenance CAS 경로 유지.
+- 생산 GAS handler VM 테스트에 타 탭 부분 커밋·섹터 변경·신규 추가·무관 종목 변경·중복·별칭 반례 및 정상 종목 수정/append/코드 없는 TDF 설정 보호 추가. 원래 테스트가 web/quality/GAS CI에서 실행됨.
+- GAS v9.207 full Git blob `23d04044aff5e9390855bdc219eda6aa03b04291`; 기대버전·PWA 캐시·지문 게이트 동기화. CI 지문은 운영 배포 승인이 아님. Draft·미병합·미배포, 원본 #489~#492/main 및 운영 자료 무변경.
+
+---
 ## PR #493 Codex P2 — Settings 원본 없는 후속 교체 방지 (2026-10-13)
 
 - A→B 종목 코드 마스터만 반영되고 Settings에는 A가 남은 부분 커밋 직후 다른 브라우저에서 B→C로 교체하면 사용자 비중·메모가 유실될 수 있었음. GAS `handleSyncCodes`는 정상 교체에서 기존 Settings의 정확 pair 1건을 강제하며, 0건/중복/신규 별칭 충돌을 코드 시트 변경 전 `CODE_SYNC_REPLACEMENT_SETTINGS_CONFLICT`로 거부함.
