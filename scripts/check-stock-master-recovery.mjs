@@ -836,5 +836,66 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(confirmed.length,2,'stale v1 whole-map overwrite cannot erase migrated A->N proof');
   assert.equal(confirmed.find(x=>x.name==='N').replaces.name,'A');
   assert.equal(confirmed.find(x=>x.name==='N').replaces.code,'1');
+  // A->B remote commit may race with a newer A->C edit. A quota failure
+  // during rebasing A->C to B->C must leave both in-memory and on-disk
+  // provenance at A until a verified retry succeeds.
+  const rebasing=create(flaky);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"A",code:"1"}},{sourceId:"sheet-A"})',rebasing),true);
+  rebasing.confirmed=[{previousName:'A',previousCode:'1',name:'B',code:'2'}];
+  refuseWrites=true;
+  assert.equal(vm.runInContext(
+    '_rebaseConfirmedSameTargetCodeReplacements(GSHEET_API_URL,"sheet-A",confirmed)',rebasing),false,
+    'QuotaExceededError must be returned by confirmed-root rebase');
+  const pending=ctx=>vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"sheet-A").find(x=>x.name==="C")?.replaces?.name',ctx);
+  assert.equal(pending(rebasing),'A','failed rebase leaves in-memory journal unchanged');
+  assert.equal(pending(create(flaky)),'A','failed rebase does not invent durable B->C proof');
+  refuseWrites=false;
+  assert.equal(vm.runInContext(
+    '_rebaseConfirmedSameTargetCodeReplacements(GSHEET_API_URL,"sheet-A",confirmed)',rebasing),true);
+  assert.equal(pending(create(flaky)),'B','retry stores verified B->C root for next Bootstrap');
+  console.log('✅ 서버 A→B 확정 후 후속 A→C 저널 재기준화 Quota 실패·원본 보존·재시도');
+
+  // Execute the real smSave guard, not an approximation: code->no-code
+  // conversion must stop before mutating EDITABLE_PRICES or scheduling GAS.
+  const management=fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8');
+  const handlerStart=management.indexOf('async function smSave(idx) {');
+  const handlerEnd=management.indexOf('\n}\n',handlerStart)+2;
+  assert.ok(handlerStart>0 && handlerEnd>handlerStart);
+  const displayed=[];
+  const vmEditor={
+    console,
+    preventUnsafeStockMasterEdit:()=>false,
+    captureStockMasterEditSession:()=>({sourceId:'sheet-A'}),
+    normalizeStockCode:c=>String(c||'').trim(),
+    EDITABLE_PRICES:[{name:'C',code:'000003',assetType:'TDF',sector:'기타'}],
+    document:{querySelector:selector=>{
+      if(selector.includes('sm-name-inp'))return {value:'C'};
+      if(selector.includes('sm-code-inp'))return {value:''};
+      if(selector.includes('sm-type-sel'))return {value:'TDF'};
+      if(selector.includes('sm-sec-sel'))return {value:'기타'};
+      if(selector.includes('sm-cur-sel'))return {value:'KRW'};
+      if(selector.includes('sm-market-sel'))return {value:''};
+      return null;
+    }},
+    _smIsCustomCodeType:type=>type==='TDF',
+    _smFindDuplicateCode:()=>null,
+    _smValidateListedCode:async()=>({ok:true}),
+    isStockMasterEditSessionCurrent:()=>true,
+    _forgetSameTargetLocalCodeAddition:()=>false,
+    showMgmtMsg:(...args)=>displayed.push(args),
+    rawTrades:[{name:'C',code:'000003'}],
+    STOCK_CODE:{C:'000003'}
+  };
+  vm.createContext(vmEditor);
+  vm.runInContext(management.slice(handlerStart,handlerEnd),vmEditor);
+  assert.equal(await vm.runInContext('smSave(0)',vmEditor),false);
+  assert.equal(vmEditor.EDITABLE_PRICES[0].code,'000003');
+  assert.equal(vmEditor.rawTrades[0].code,'000003');
+  assert.equal(vmEditor.STOCK_CODE.C,'000003');
+  assert.ok(displayed.some(args=>String(args[1]).includes('복구 이력')));
+  console.log('✅ 생산 smSave 종목코드 제거 tombstone 실패 시 기초정보·거래원장 변경 0');
+
   console.log('✅ 원본별 tombstone 실패 차단·저장보안·Quota·v1 신규/교체 이관 검증');
 }
