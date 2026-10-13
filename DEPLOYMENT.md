@@ -1,3 +1,12 @@
+## PR #493 Codex P1 — 종목 삭제 시 Settings 전체 유실 차단 (2026-10-13)
+
+- **원인**: v9.204 삭제 경로가 원본 설정을 읽은 뒤 `_writeSettingsMap()`의 모든 Settings row `clearContent()`→재기록을 실행했습니다. 실행이 중단되는 순간 LOAN, REAL_ESTATE, DIVDATA, 코드 없는 펀드, 기타 종목별 설정까지 누락될 수 있고, 삭제 journal에는 삭제 대상 1건만 보존되어 전역 Settings 유실을 되돌릴 수 없었습니다.
+- **구조적 수정**: GAS v9.205에서 삭제·보상·Bootstrap 복구의 `_writeSettingsMap` 호출을 제거하고, `EDITABLE_PRICES` 키가 고유하게 존재하는지 확인 후 **해당 VALUE 셀 하나만** `setValue(JSON.stringify(array))`로 갱신합니다. 기존 값과 전체 JSON 동일성 비교, 단일 셀 쓰기 후 재조회 검증, 중복 키/충돌/손상 시 fail closed합니다. 다른 Settings 키는 수정할 수도, 일괄 초기화할 수도 없습니다. 기존 ScriptProperties 삭제 증거·same-source CAS·ScriptLock은 유지합니다.
+- **회귀**: 실제 GAS handler VM에서 전역 `_writeSettingsMap`이 호출되면 테스트가 즉시 실패하도록 하고, LOAN·REAL_ESTATE·DIVDATA·fundDirect·APP_THEME의 원본 값을 정상 삭제/행 삭제 실패/Settings 쓰기 실패/중단 후 Bootstrap 재시도/Settings 종목 비중 복원 전체 경로에 대조합니다. append-only/normal code CAS 및 이전 P1·P2 경로도 CI에서 검증합니다.
+- **릴리스 소스**: GAS v9.205 full Git blob `120593344d2b9da89f3e603bdb2349fc3ef571f9` (스크립트/`EXPECTED_GAS_VERSION` 승인 게이트 일치). Web `settings_fetch 20261013-5`, PWA cache `20261013-22`. **CI validate는 운영 배포가 아니며 실제 GAS 배포 단계 skipped.**
+- **제한**: 이 변경은 PR #493 Draft에만 존재하며 원본 #489~#492, main 및 운영 GAS/Sheets 가격·원장·NAV·Snapshot·브리핑에는 미적용. 기존 그 외 일반 Settings 저장 함수의 구조적 재작성은 이번 삭제 전용 수정 범위에 포함하지 않았습니다.
+
+---
 ## PR #493 재리뷰 P2 — GAS 강제 종료 삭제 트랜잭션 복구 (2026-10-13)
 
 - **GAS v9.204 검증 후보**: Git 전체 source blob `b4a81fafcd87dd101c625087c6df5323ab0df069`. `deploy-gas.mjs`, `check-gas-deploy.mjs`, 웹 `EXPECTED_GAS_VERSION` 일치. PWA `settings_fetch 20261013-4`, cache `20261013-21`. 소스 승인 지문은 CI 품질검사용이며 운영 배포 승인 아님.
