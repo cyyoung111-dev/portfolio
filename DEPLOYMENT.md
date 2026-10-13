@@ -1,3 +1,11 @@
+## PR #493 2026-10-13 Codex 최근 P1 2건·P2 2건 / 자체 재검토 (Draft·배포 금지)
+
+- **P1 오래된 거래 쓰기 vs 종목 삭제**: GAS `handleSyncTrades`가 실제 같은 ScriptLock 내부에서 현재 서버 코드 마스터와 각 거래의 code/name 일치 또는 현재 이름 확인된 레거시 무코드 거래를 검증한 후에만 거래 원장을 비웁니다. 삭제 이후 stale 종목 거래는 `TRADES_CODE_MASTER_CONFLICT`로 쓰기 이전 거부합니다.
+- **P1 무코드 일반 보유**: 동일 검증 함수를 `handleSyncHoldings`에 적용하되 주식·ETF 등 일반 보유는 무코드로 저장할 수 없도록 엄격하게 차단합니다. 예외는 명시적 `TDF`·`펀드`·`FUND` 유형인 직접펀드로 한정합니다. 두 경로 모두 `syncCodes`/조건부 삭제와 동일 GAS ScriptLock을 사용합니다.
+- **P2 오래된 Settings 삭제 종목 복원**: `handleSaveSettings`가 `EDITABLE_PRICES` 전체 배열을 그대로 덮어쓰는 대신 잠금 안의 현재 종목코드 시트를 기준으로 종목 code/name/type/sector/currency/market을 재구성합니다. 코드 시트에서 삭제된 종목은 stale Settings로 재등록되지 않으며, 다른 테마·계좌 설정과 무코드 직접펀드 설정은 보존합니다. `handleSyncCodes`도 코드/이름/메타데이터의 모든 성공한 변경(코드만·이름만·둘 다·추가)을 같은 잠금 안에서 Settings 마스터에 반영해 다음 Bootstrap의 고스트 원본을 방지합니다.
+- **P2 이름+코드 동시 편집 차단 및 고스트**: `smSave`가 원래 code/name과 변경 code/name을 동일 workbook 식별자의 UI journal에 보관합니다. 브라우저 일반 동기화는 기존 고정 전체 서버 마스터 snapshot CAS와 원본→신규 교체 사유를 함께 POST합니다. GAS는 같은 ScriptLock 안에서 기존 code/name 정확한 행을 교체하고, 변경된 code/name이 중복 원본 행 없이 반영되었는지 검사한 뒤 Settings까지 업데이트합니다. 서버 getCodeList readback에서 기존 pair가 없어지고 새 pair가 일치해야 정상확정 및 journal 정리합니다. 구형·stale CAS 요청은 계속 차단합니다.
+- **회귀검사 및 검증**: 실제 GAS 함수 VM에서 삭제한 코드의 거래/보유 stale 참조, 일반 무코드 보유 차단 및 직접펀드 허용, stale Settings 삭제 종목 재생성 차단, 이름+코드 동시 변경 시 기존 코드 행 덮어쓰기(append 0회) 및 Settings 업데이트를 검증합니다. 기존 거래 날짜/수량/코드 strict readback mock은 현재 마스터 원천을 추가해 유지합니다. 웹 PWA `data.js=20261013-5`, `settings_sync.js=20261013-10`, `mgmt_stock.js=20261013-5`, `sw/cache=20261013-12`; GAS v9.199 Git blob `da46710c8bf4fcea4a9369c4fb8932f7c651cdd1` 고정. 운영 GAS 배포·main/원래 PR #489~#492 변경·실거래 원장/종가/Snapshot 데이터 변경 없음.
+
 ## PR #493 2026-10-13 Codex 추가 P1/P2 + 자체 검토 (Draft / 운영 배포 금지)
 
 - 최신 리뷰 HEAD `b5ac992` P1: `handleSyncHoldings`는 `handleDeleteUnreferencedCode`와 달리 ScriptLock 없이 보유현황 전체를 덮어쓸 수 있었습니다. 기존 `syncTrades`/`syncCodes`/조건부 삭제와 같은 `LockService.getScriptLock()` 범위 안에서 보유현황을 파싱, 현재 코드 시트의 `code/name`과 일치하는지 확인, 보유현황을 저장합니다. 삭제 후 늦게 도착한 보유현황도 삭제된 코드를 참조하면 `HOLDINGS_CODE_MASTER_CONFLICT`로 실패하며, 코드 없는 직접펀드 보유는 계속 허용합니다.
