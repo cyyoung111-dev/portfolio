@@ -31,6 +31,9 @@ const sheet={getParent:()=>ss,getLastRow:()=>2,getLastColumn:()=>11,getMaxRows:(
     return range;
   }};
 ctx.getss=()=>ss;
+// The real trade writer now validates every coded trade against the locked
+// server master before touching the ledger. Mock that authoritative source.
+ctx.getCodeItems=()=>[{code:'005930',name:'테스트',type:'주식'}];
 ctx._backupSheetBeforeWrite=()=>({name:'fixture-backup'});
 ctx._markSnapshotBackupStatus=(record,status)=>{backupStatus=status;};
 ctx._cleanupCurrentSystemBackup=()=>{cleanup++;return {};};
