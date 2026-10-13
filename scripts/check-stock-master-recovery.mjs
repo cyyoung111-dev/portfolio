@@ -850,6 +850,45 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     'verified tombstone retires B after retry');
   assert.equal(viewPair(create(pairStorage))[0].replaces.name,'A',
     'replacement still proves original A, not intermediate B');
+  // SecurityError can prevent rollback deletion as well as predecessor
+  // tombstone. Durable C stays staged on disk, but cannot be authoritative
+  // until B has a CONFIRMED durable tombstone. Never recover both.
+  const interrupted=new Map();
+  let rejectB=true, rejectRemoveC=true;
+  const unsafeStorage={
+    getItem:k=>interrupted.get(k)??null,
+    setItem:(k,v)=>{
+      const value=JSON.parse(v);
+      if(rejectB && value?.removed===true && value?.entry?.name==='B')
+        throw Error('QuotaExceededError');
+      interrupted.set(k,v);
+    },
+    removeItem:k=>{
+      if(rejectRemoveC && decodeURIComponent(k).includes('"C","3"'))
+        throw Error('SecurityError');
+      interrupted.delete(k);
+    },
+    key:i=>[...interrupted.keys()][i]??null,
+    get length(){return interrupted.size}
+  };
+  const unsafeTab=create(unsafeStorage);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"B",code:"2",replaces:{name:"A",code:"1"}},{sourceId:"sheet-A"})',
+    unsafeTab),true);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    unsafeTab),false);
+  assert.deepEqual(viewPair(create(unsafeStorage)).map(x=>x.name),['B'],
+    'even failed rollback cannot expose an uncommitted C alongside B');
+  assert.equal(interrupted.size>=2,true,'staged C remains physically durable');
+  rejectB=false;rejectRemoveC=false;
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    unsafeTab),true);
+  assert.deepEqual(viewPair(create(unsafeStorage)).map(x=>x.name),['C'],
+    'verified predecessor tombstone activates previously staged C');
+  console.log('✅ tombstone·롤백 동시 거부에도 준비 C 비활성 유지, 재시도 시 단일 C 활성');
+
   console.log('✅ 연속 A→B→C 선행 tombstone Quota 장애 실패·롤백·재시도 후 복구');
 
   // Legacy v1 journal must be migrated to per-pair storage before network sync.
