@@ -314,7 +314,7 @@ async function syncCodesToGsheet(options) {
     _syncWarn('[syncCodes] 전송할 코드 없음');
     return null;
   }
-  // Snapshot the pre-existing master at invocation, never after queue delay.
+  // Pin the workbook identity now; the expected code master is acquired inside the queue.
   if (!sourceId || sourceId !== _gsheetCodeListSourceId) {
     _syncWarn('[syncCodes] 서버 종목 마스터 스냅샷 미확인');
     return null;
@@ -352,6 +352,7 @@ async function syncCodesToGsheet(options) {
       String(item.name || '').trim(), _normalizeSyncCode(item.code)
     ])));
   const replacements = [];
+  let needsSettingsRebase = false;
   for (const item of localAdditions) {
     if (!item.replaces || _normalizeSyncCode(codeMap[item.name]?.code) !== _normalizeSyncCode(item.code)) continue;
     const oldName = String(item.replaces.name || '').trim();
@@ -359,6 +360,17 @@ async function syncCodesToGsheet(options) {
     const originalMatches = oldName && oldCode && expectedCodes.some(prev =>
       prev.name === oldName && _normalizeSyncCode(prev.code) === oldCode);
     if (!originalMatches || (oldName === item.name && oldCode === _normalizeSyncCode(item.code))) {
+      // A previous request may have committed its code row but failed while
+      // writing Settings. A same-workbook readback proving the exact new pair
+      // and absence of its old identity may repair Settings, never append.
+      const confirmed = expectedCodes.some(prev =>
+        prev.name === item.name && _normalizeSyncCode(prev.code) === _normalizeSyncCode(item.code));
+      const oldAbsent = !expectedCodes.some(prev =>
+        prev.name === oldName || _normalizeSyncCode(prev.code) === oldCode);
+      if (confirmed && oldAbsent && !(oldName === item.name && oldCode === _normalizeSyncCode(item.code))) {
+        needsSettingsRebase = true;
+        continue;
+      }
       _syncWarn('[syncCodes] 원본과 매칭되지 않는 교체 이력은 신규 추가로 전환하지 않음');
       return null;
     }
@@ -380,15 +392,55 @@ async function syncCodesToGsheet(options) {
       return null;
     }
   }
-    // Only the original target's immutable code snapshot may be submitted. may be submitted.
-    const data = await requestGsheetFormJson(
+    // A failed Settings write can follow a fully committed code-master write.
+    // Never blindly replay the old replacement or assume the failure rolled back.
+    let data = await requestGsheetFormJson(
       'syncCodes',
       { codes: JSON.stringify(codeMap), expectedSourceId:sourceId,
-        expectedCodes:JSON.stringify(expectedCodes), replacements:JSON.stringify(replacements) },
+        expectedCodes:JSON.stringify(expectedCodes), replacements:JSON.stringify(replacements),
+        forceSettingsRebase:needsSettingsRebase ? '1' : '' },
       { timeoutMs: 20000, retry: 1, targetUrl }
     );
-    if (!data) { _syncWarn('[GSheet 동기화] 네트워크 오류'); return null; }
-    if (data.status !== 'ok') { _syncWarn('[GSheet 동기화] 응답 오류', data); return null; }
+    if (data?.status !== 'ok') {
+      // A failed or timed-out response could have completed the first sheet
+      // write. Check exact same-workbook code/name pairs before a bounded
+      // Settings-only repair, never reapply stale code payloads.
+      const partial = await requestGsheetActionJson('getCodeList', {}, {
+        targetUrl, timeoutMs:15000, retry:1, preserveError:true
+      });
+      if (!isGsheetConnectionCurrent(targetUrl, generation)
+          || String(_gsCodeMasterSourceIdentity || '') !== sourceId
+          || partial?.status !== 'ok' || partial.codeMasterSourceId !== sourceId
+          || !Array.isArray(partial.codes)) return null;
+      const currentByName = new Map(partial.codes.map(item =>
+        [String(item.name || '').trim(), _normalizeSyncCode(item.code)]));
+      const fullyApplied = Object.entries(codeMap).every(([name, item]) =>
+        !_normalizeSyncCode(item.code) || currentByName.get(name) === _normalizeSyncCode(item.code))
+        && replacements.every(step => !partial.codes.some(row =>
+          (step.previousCode !== step.code && _normalizeSyncCode(row.code) === step.previousCode)
+          || (step.previousName !== step.name && String(row.name || '').trim() === step.previousName)));
+      if (!fullyApplied) {
+        _syncWarn('[syncCodes] 원격 부분 변경 또는 충돌: 자동 재전송 차단');
+        return null;
+      }
+      // Rebase Settings from the already confirmed SERVER master, not stale
+      // local metadata. Server enforces full-master CAS and ScriptLock again.
+      const canonical = Object.fromEntries(partial.codes.map(row => [
+        String(row.name || '').trim(), {
+          code:_normalizeSyncCode(row.code), type:row.type || '주식',
+          sector:row.sector || '기타', currency:(row.currency || 'KRW').toUpperCase(),
+          market:(row.market || '').toUpperCase()
+        }
+      ]).filter(([name,row]) => name && row.code));
+      data = await requestGsheetFormJson('syncCodes', {
+        codes:JSON.stringify(canonical), expectedSourceId:sourceId,
+        expectedCodes:JSON.stringify(partial.codes), replacements:'[]', forceSettingsRebase:'1'
+      }, {timeoutMs:20000,retry:0,targetUrl});
+      if (data?.status !== 'ok') {
+        _syncWarn('[syncCodes] 코드 반영 후 Settings 복구 미완료: 변경 이력 보존', data);
+        return null;
+      }
+    }
     // ACK alone is insufficient to retire additions or refresh the revision.
     // Read back the exact same workbook and verify every submitted coded row.
     const checked = await requestGsheetActionJson('getCodeList', {}, {
