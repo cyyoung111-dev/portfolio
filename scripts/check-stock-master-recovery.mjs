@@ -765,6 +765,31 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       '[{previousName:"C",previousCode:"3",name:"C",code:"3",metadataOnly:true}])',full),
     false,'Settings repair debt cannot be acknowledged without durable storage');
 
+  // Self-review: failure to persist a per-pair tombstone cannot be
+  // treated as confirmed deletion or resurrect stale proof after reload.
+  const tDisk=new Map();let refuseWrites=false;
+  const flaky={
+    getItem:k=>tDisk.has(k)?tDisk.get(k):null,
+    setItem:(k,v)=>{if(refuseWrites)throw Error('QuotaExceededError');tDisk.set(k,v)},
+    removeItem:k=>{if(refuseWrites)throw Error('QuotaExceededError');tDisk.delete(k)},
+    key:i=>[...tDisk.keys()][i]??null,
+    get length(){return tDisk.size}
+  };
+  const tabFlaky=create(flaky);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"T",code:"8"},{sourceId:"sheet-A"})',tabFlaky),true);
+  refuseWrites=true;
+  assert.equal(vm.runInContext(
+    '_forgetSameTargetLocalCodeAddition("T","8",GSHEET_API_URL,"sheet-A")',tabFlaky),false);
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"sheet-A").length',tabFlaky),1,
+    'failed tombstone must keep T recovery proof');
+  refuseWrites=false;
+  assert.equal(vm.runInContext(
+    '_forgetSameTargetLocalCodeAddition("T","8",GSHEET_API_URL,"sheet-A")',tabFlaky),true);
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"sheet-A").length',create(flaky)),0);
+
   // Legacy v1 journal must be migrated to per-pair storage before network sync.
   const old=create();
   const legacy={sourceId:'old-book',name:'M',code:'7',userFields:{targetWeight:35}};
