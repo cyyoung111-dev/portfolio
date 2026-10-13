@@ -1153,6 +1153,8 @@ function doPost(e) {
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodesAppendOnly' && params.codes && params.expectedCodes)
     return handleSyncCodesAppendOnly(params.codes, params.expectedCodes, params.expectedSourceId || '');
+  if (params.action === 'deleteUnreferencedCode' && params.data)
+    return handleDeleteUnreferencedCode(params.data);
   if (params.action === 'syncCodes'    && params.codes) return handleSyncCodes(params.codes);
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
@@ -14312,6 +14314,74 @@ function handleSyncCodesAppendOnly(codesParam, expectedCodesParam, expectedSourc
     return jsonOk({ synced:newRows.length, appended:true, codeMasterSourceId:sourceId });
   } catch(err) {
     return jsonError('신규 종목 조건부 등록 실패: ' + err.message, { errorCode:'CODE_APPEND_FAILED' });
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
+
+/** Remove a user-deleted code safely after any older client POST completes.
+ *  The name, code, and workbook identity must all match, and no server trade
+ *  or holding may still reference the asset. Serialize with both CAS append
+ *  and ordinary syncCodes using the SAME ScriptLock.
+ */
+function handleDeleteUnreferencedCode(dataJson) {
+  var lock = LockService.getScriptLock(), locked = false;
+  try {
+    lock.waitLock(30000); locked = true;
+    var request = _parseJsonParam(dataJson, 'deleted stock code');
+    var name = String(request.name || '').trim();
+    var code = _cleanCode(request.code || '');
+    var ss = getss();
+    var sourceId = _portfolioCodeMasterSourceIdentity_(ss);
+    if (!name || !code || !sourceId || sourceId !== String(request.expectedSourceId || ''))
+      return jsonError('종목 삭제 연결 정보 확인 실패', { errorCode:'CODE_DELETE_SOURCE_CHANGED' });
+    var rows = getCodeItems(ss, true);
+    if (rows.some(function(item) {
+      return (_cleanCode(item.code) === code && String(item.name || '').trim() !== name)
+        || (String(item.name || '').trim() === name && _cleanCode(item.code) !== code);
+    })) return jsonError('종목코드 또는 이름이 서버에서 변경됨', { errorCode:'CODE_DELETE_CONFLICT' });
+
+    var trades = JSON.parse(handleGetTrades(ss).getContent());
+    var holdings = JSON.parse(handleGetHoldings(ss).getContent());
+    if (trades.status !== 'ok' || holdings.status !== 'ok'
+        || !Array.isArray(trades.trades) || !Array.isArray(holdings.holdings))
+      return jsonError('원격 거래/보유 조회 실패로 삭제 중단', { errorCode:'CODE_DELETE_LEDGER_READ_FAILED' });
+    var inUse = trades.trades.some(function(t) {
+      return _cleanCode(t.code || '') === code || String(t.name || '').trim() === name;
+    }) || holdings.holdings.some(function(h) {
+      return _cleanCode(h.code || '') === code || String(h.name || '').trim() === name;
+    });
+    if (inUse) return jsonError('원격 거래 또는 보유에서 사용 중인 코드', { errorCode:'CODE_DELETE_REFERENCED' });
+
+    var cs = ss.getSheetByName(CONFIG.SHEET_CODES), rowIndex = 0;
+    if (cs && cs.getLastRow() > 1) {
+      var values = cs.getRange(2, 1, cs.getLastRow() - 1, 2).getValues();
+      for (var i=0; i<values.length; i++) {
+        if (_cleanCode(values[i][0]) === code && String(values[i][1] || '').trim() === name) {
+          if (rowIndex) return jsonError('중복 종목코드 행 삭제 불가', { errorCode:'CODE_DELETE_DUPLICATE' });
+          rowIndex = i + 2;
+        }
+      }
+    }
+    // SaveSettings also shares this script lock. Remove the same identity
+    // from authoritative Settings so the next bootstrap cannot resurrect it.
+    var settings = _readSettingsMap(ss);
+    if (Array.isArray(settings.EDITABLE_PRICES)) {
+      settings.EDITABLE_PRICES = settings.EDITABLE_PRICES.filter(function(ep) {
+        return !(String(ep && ep.name || '').trim() === name && _cleanCode(ep && ep.code || '') === code);
+      });
+    }
+    if (rowIndex) cs.deleteRow(rowIndex);
+    if (!_writeSettingsMap(settings))
+      return jsonError('종목 설정 저장 실패', { errorCode:'CODE_DELETE_SETTINGS_FAILED' });
+    SpreadsheetApp.flush();
+    if (getCodeItems(ss, true).some(function(item) { return _cleanCode(item.code) === code; }))
+      return jsonError('종목코드 삭제 검증 실패', { errorCode:'CODE_DELETE_VERIFY_FAILED' });
+    _touchSnapshotIntegritySourceRevision();
+    return jsonOk({ deleted:rowIndex ? 1 : 0, codeMasterSourceId:sourceId });
+  } catch(err) {
+    return jsonError('종목코드 삭제 실패: '+err.message, { errorCode:'CODE_DELETE_FAILED' });
   } finally {
     if (locked) lock.releaseLock();
   }
