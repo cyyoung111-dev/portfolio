@@ -163,5 +163,32 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   // One failed write, one successful repair and one idempotent retry.
   assert.equal(writeAttempts,3,'repair and idempotent retry persist Settings without changing code rows');
   assert.equal(lockHeld,false);
-  console.log('✅ GAS 코드 부분 커밋→Settings 실패→동일 워크북 CAS 복구 통과');
+
+  // Normal (non-recovery) A/1 -> B/2 must never delete A's custom metadata
+  // when a stale/competing target B entry already exists in Settings.
+  row.splice(0,6,'1','A','주식','기타','','KR');
+  currentSettings={EDITABLE_PRICES:[
+    {name:'A',code:'1',assetType:'주식',targetWeight:37,notes:'원본 사용자 메타데이터'},
+    {name:'B',code:'2',assetType:'주식',targetWeight:99,notes:'경쟁 대상'}]};
+  const beforeFlush=flushCount,beforeWrites=writeAttempts;
+  const fullReplacement=JSON.stringify(sourceChanges);
+  const conflicting=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
+    JSON.stringify(original),fullReplacement);
+  assert.equal(conflicting.errorCode,'CODE_SYNC_REPLACEMENT_SETTINGS_CONFLICT');
+  assert.equal(row[0],'1','regular replacement conflict must abort before code row mutation');
+  assert.equal(row[1],'A');
+  assert.equal(flushCount,beforeFlush,'conflict must abort before flush');
+  assert.equal(writeAttempts,beforeWrites,'conflict must not write Settings');
+  assert.equal(currentSettings.EDITABLE_PRICES[0].targetWeight,37);
+  currentSettings.EDITABLE_PRICES.pop();
+  const safeRegular=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
+    JSON.stringify(original),fullReplacement);
+  assert.equal(safeRegular.status,'ok','non-conflicting normal replacement remains live');
+  assert.equal(row[0],'2');
+  assert.equal(row[1],'B');
+  assert.equal(currentSettings.EDITABLE_PRICES.length,1);
+  assert.equal(currentSettings.EDITABLE_PRICES[0].targetWeight,37,
+    'normal full-pair replacement preserves A/1 metadata into B/2');
+  assert.equal(lockHeld,false);
+  console.log('✅ GAS 부분 커밋 Settings 복구 및 일반 교체 원본 메타데이터·충돌 차단 통과');
 }
