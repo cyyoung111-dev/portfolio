@@ -971,7 +971,10 @@ async function recoverPinnedMissingPortfolioCodes(options) {
     ? options.remoteSettings.EDITABLE_PRICES : [];
   const trustedLocal = typeof _getSameTargetLocalCodeAdditions === 'function'
     ? _getSameTargetLocalCodeAdditions(targetUrl, options?.expectedSourceId) : [];
-  const proven = [...remoteEntries, ...trustedLocal];
+  // Only an explicit local NEW registration may authorize append. A rename
+  // journal is proof of a replacement, never authorization to resurrect a
+  // deleted old identity or append an already committed new pair.
+  const proven = [...remoteEntries, ...trustedLocal.filter(entry => !entry.replaces)];
   const additions = new Map();
   for (const row of refs) {
     if (!row.name) return masterCodes;
@@ -1000,6 +1003,7 @@ async function recoverPinnedMissingPortfolioCodes(options) {
   // Only explicit same-target registration evidence (not arbitrary browser
   // editable prices or unrelated server Settings) authorizes code-only repair.
   for (const entry of trustedLocal) {
+    if (entry?.replaces) continue; // Always repair full-pair migration first.
     const code = _normalizeSyncCode(entry?.code || '');
     const name = String(entry?.name || '').trim();
     if (!name || !code) continue;
