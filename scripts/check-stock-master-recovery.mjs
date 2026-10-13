@@ -1151,6 +1151,29 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     'server-confirmed rebase must release obsolete pending transition guard');
   console.log('✅ 확정 A→B 원본 재기준화 후 B 저널 폐기에도 C→B 복구 근거 유지');
 
+  // Codex P2: after server C is confirmed the syncer retires C's local
+  // journal. Its completed immutable B claim must still suppress obsolete B.
+  const completedAfterSync=new Map(),syncedStorage={
+    getItem:k=>completedAfterSync.get(k)??null,
+    setItem:(k,v)=>completedAfterSync.set(k,v),
+    removeItem:k=>completedAfterSync.delete(k),
+    key:i=>[...completedAfterSync.keys()][i]??null,
+    get length(){return completedAfterSync.size}
+  };
+  const syncedTab=create(syncedStorage);
+  assert.equal(vm.runInContext(makeTransitionB,syncedTab),true);
+  assert.equal(vm.runInContext(makeTransitionC,syncedTab),true);
+  assert.deepEqual(viewPair(create(syncedStorage)).map(x=>x.name),['C']);
+  assert.equal(vm.runInContext(
+    '_forgetSameTargetLocalCodeAddition("C","3",GSHEET_API_URL,"sheet-A")',
+    syncedTab),true);
+  assert.equal(viewPair(create(syncedStorage)).length,0,
+    'confirmed C retirement must not resurrect an obsolete A->B journal');
+  const retiredNames=[...completedAfterSync.values()].map(v=>JSON.parse(v))
+    .filter(v=>v.entry?.name==='C' && v.removed===true);
+  assert.equal(retiredNames.length,1,'completed C tombstone is durable');
+  console.log('✅ 서버 확정 C 저널 tombstone 후에도 과거 B 복구 근거 비활성 유지');
+
   console.log('✅ 동시 C·D 전환 주장 시 원본 B 유지 및 두 후속 교체 모두 차단');
 
   console.log('✅ 준비 C 도중 별도 A→B 확정 경합 차단·재시도 루트 B·tombstone 출처 격리');
