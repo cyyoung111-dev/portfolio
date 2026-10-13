@@ -979,9 +979,25 @@ gasCtx.handleGetHoldings=()=>({getContent:()=>JSON.stringify({status:'ok',holdin
 gasCtx._readSettingsMap=()=>deletedServerSettings;
 gasCtx._writeSettingsMap=settings=>{deletedServerSettings=settings;return true;};
 mockSheet.getRange=(row,col,length,width)=>({
-  getValues:()=>serverCodes.map(x=>[x.code,x.name]),
+  getValues:()=>width===2 && length===serverCodes.length
+    ? serverCodes.map(x=>[x.code,x.name])
+    : [serverCodes[row-2] ? [
+        serverCodes[row-2].code,serverCodes[row-2].name,
+        serverCodes[row-2].type,serverCodes[row-2].sector,
+        serverCodes[row-2].currency,serverCodes[row-2].market
+      ] : []],
   setValues:()=>{throw Error('delete must never re-upsert')}
 });
+const pendingDeleteProps={};
+gasCtx.PropertiesService={getScriptProperties:()=>({
+  getProperty:key=>pendingDeleteProps[key]||null,
+  setProperty:(key,value)=>{pendingDeleteProps[key]=String(value)},
+  deleteProperty:key=>{delete pendingDeleteProps[key]}
+})};
+const deletionHelperStart=gasSrc.indexOf('var CODE_DELETE_TXN_KEY_');
+const deletionHelperEnd=gasSrc.indexOf('// 스프레드시트 소유자가',deletionHelperStart);
+assert.ok(deletionHelperStart>0 && deletionHelperEnd>deletionHelperStart);
+vm.runInContext(gasSrc.slice(deletionHelperStart,deletionHelperEnd),gasCtx);
 mockSheet.deleteRow=row=>{assert.equal(row,3);serverCodes.splice(row-2,1);};
 vm.runInContext(gasSrc.slice(deleteStart,gasSrc.indexOf('function handleSyncCodes(',deleteStart)),gasCtx);
 let serverDelete=gasCtx.handleDeleteUnreferencedCode(JSON.stringify({
