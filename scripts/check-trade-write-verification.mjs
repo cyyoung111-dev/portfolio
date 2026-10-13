@@ -220,9 +220,27 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
     deleteRow:idx=>{assert.equal(idx,2);if(failDelete)throw new Error('quota: deleteRow');removed++;row=null;},
     insertRowBefore:idx=>{assert.equal(idx,2);inserted++;row=['','','','','',''];}
   };
-  const ss={getSheetByName:()=>sheet};
+
+  // Exact Settings sheet cell emulator: deletion must NEVER invoke the
+  // destructive all-key _writeSettingsMap/clearContent pipeline.
+  let globalSettingsWriterCalls=0;
+  const settingsSheet={
+    getLastRow:()=>Object.keys(settings).length+1,
+    getRange:(r,c,n,m)=>({
+      getValues:()=>c===1 ? Object.keys(settings).map(k=>[k]) : [],
+      getValue:()=>JSON.stringify(settings[Object.keys(settings)[r-2]]),
+      setValue:v=>{
+        settingsWrites++;
+        if(failSettings){failSettings=false;throw new Error('Settings single-cell failure');}
+        const key=Object.keys(settings)[r-2];
+        settings[key]=JSON.parse(v);
+      },
+      clearContent:()=>{throw Error('Settings bulk clear is forbidden');}
+    })
+  };
+  const ss={getSheetByName:n=>n==='codes'?sheet:n==='settings'?settingsSheet:null};
   Object.assign(gas,{
-    CONFIG:{SHEET_CODES:'codes'},getss:()=>ss,
+    CONFIG:{SHEET_CODES:'codes',SHEET_SETTINGS:'settings'},getss:()=>ss,
     LockService:{getScriptLock:()=>({
       waitLock:()=>{assert.equal(locked,false);locked=true;},
       releaseLock:()=>{assert.equal(locked,true);locked=false;}
@@ -241,7 +259,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
     handleGetTrades:()=>({getContent:()=>JSON.stringify({status:'ok',trades:[]})}),
     handleGetHoldings:()=>({getContent:()=>JSON.stringify({status:'ok',holdings:[]})}),
     _readSettingsMap:()=>JSON.parse(JSON.stringify(settings)),
-    _writeSettingsMap:val=>{settingsWrites++;if(failSettings){failSettings=false;return false;}settings=JSON.parse(JSON.stringify(val));return 1;},
+    _writeSettingsMap:()=>{globalSettingsWriterCalls++;throw Error('destructive global Settings rewrite forbidden');},
     _touchSnapshotIntegritySourceRevision:()=>{revision++;},
     jsonError:(message,props)=>({status:'error',message,...props}),
     jsonOk:props=>({status:'ok',...props}),
@@ -282,6 +300,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(revision,1);
   assert.equal(locked,false);
   assert.equal(marker(),undefined,'successful delete clears durable marker');
+  assert.equal(globalSettingsWriterCalls,0,'no delete or recovery can bulk-rewrite Settings');
 
   // The GAS runtime can be forcibly terminated after deleteRow + flush:
   // catch/finally are not guaranteed in production. Restart must complete
@@ -325,6 +344,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(uncommitted.codes[0].code,'1');
   assert.equal(uncommitted.settings.EDITABLE_PRICES[0].targetWeight,59);
   assert.equal(marker(),undefined);
+  assert.equal(globalSettingsWriterCalls,0,'recovery may never clear unrelated Settings keys');
   assert.equal(locked,false);
   console.log('✅ GAS 삭제 생산 VM: 정상/행 실패/Settings 실패/강제 종료 후 영속 부채 복구·원본 보존 통과');
 }
