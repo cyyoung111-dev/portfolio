@@ -14130,6 +14130,52 @@ function handleSaveSettings(dataJson) {
     protectedKeys.forEach(function(key) {
       if (Object.prototype.hasOwnProperty.call(settings, key)) protectedValues[key] = settings[key];
     });
+    // Coded EDITABLE_PRICES is a materialized VIEW of the locked server
+    // code-master sheet, not an independently writable authoritative ledger.
+    // An old browser Settings save MUST NOT reinsert a deleted stock, nor
+    // revert its type/sector/currency/market after a newer code sync.
+    if (Object.prototype.hasOwnProperty.call(incoming, 'EDITABLE_PRICES')) {
+      if (!Array.isArray(incoming.EDITABLE_PRICES))
+        return jsonError('종목 기초정보 배열 형식 필요', {errorCode:'SETTINGS_CODE_INVALID'});
+      var codeRows=getCodeItems(getss(), true);
+      if (!_portfolioNormalizeCodeMasterSnapshot_(codeRows))
+        return jsonError('서버 코드 마스터 중복/손상', {errorCode:'SETTINGS_CODE_MASTER_INVALID'});
+      var incomingByPair={}, retainedFunds=[], rowSeen={};
+      incoming.EDITABLE_PRICES.forEach(function(ep) {
+        if (!ep || typeof ep!=='object') return;
+        var name=String(ep.name||'').trim(), code=_cleanCode(ep.code||'');
+        if (name && code) incomingByPair[JSON.stringify([name,code])]=ep;
+        // Code-less direct funds are not in the stock master.
+        if (name && !code &&
+            ['TDF','펀드','FUND'].indexOf(String(ep.assetType||ep.type||'').trim().toUpperCase())!==-1)
+          retainedFunds.push(ep);
+      });
+      var canonical=[];
+      codeRows.forEach(function(row) {
+        var name=String(row.name||'').trim(), code=_cleanCode(row.code||'');
+        if (!name || !code || rowSeen[name]) return;
+        rowSeen[name]=true;
+        var previous=incomingByPair[JSON.stringify([name,code])];
+        if (!previous && Array.isArray(settings.EDITABLE_PRICES))
+          previous=settings.EDITABLE_PRICES.find(function(ep) {
+            return String(ep&&ep.name||'').trim()===name && _cleanCode(ep&&ep.code||'')===code;
+          });
+        var entry={};
+        if (previous && typeof previous==='object')
+          Object.keys(previous).forEach(function(key) {entry[key]=previous[key];});
+        entry.name=name;entry.code=code;
+        entry.assetType=String(row.type||'주식');
+        entry.sector=String(row.sector||'기타');
+        entry.currency=String(row.currency||'KRW').toUpperCase();
+        entry.market=String(row.market||'').toUpperCase();
+        canonical.push(entry);
+      });
+      retainedFunds.forEach(function(ep) {
+        var name=String(ep.name||'').trim();
+        if (name && !rowSeen[name]) {canonical.push(ep);rowSeen[name]=true;}
+      });
+      incoming.EDITABLE_PRICES=canonical;
+    }
     Object.keys(incoming).forEach(function(key) { settings[key] = incoming[key]; });
     // 전용 저장 API·자동 트리거가 관리하는 기존 값은 일반 설정 저장보다 우선합니다.
     Object.keys(protectedValues).forEach(function(key) { settings[key] = protectedValues[key]; });
