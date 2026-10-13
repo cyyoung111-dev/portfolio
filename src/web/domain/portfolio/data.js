@@ -638,9 +638,10 @@ async function _retryPortfolioRemoteDirtySync(options) {
       const tradesRequired = dirty.trades.length > 0;
       // Validate the entire pinned ledger before starting concurrent writes:
       // a blocked trade must not leave a newer remote holdings snapshot behind.
-      if (allowDuringRestore && Array.isArray(options?.masterCodesOverride)
-          && typeof isPinnedRestoreTradeMasterComplete === 'function'
-          && !isPinnedRestoreTradeMasterComplete(dirty.trades, options.masterCodesOverride)) return false;
+      if (allowDuringRestore && (typeof isPinnedRestorePortfolioMasterComplete !== 'function'
+          || !isPinnedRestorePortfolioMasterComplete(
+            dirty.trades, dirty.holdings, dirty.fundDirect, options?.masterCodesOverride
+          ))) return false;
       const [holdingsResult, tradesResult] = await Promise.all([
         typeof syncHoldingsToGsheet === 'function'
           ? syncHoldingsToGsheet({
@@ -761,9 +762,10 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
         const recoveryFundDirect = (typeof fundDirect === 'object' && fundDirect)
           ? JSON.parse(JSON.stringify(fundDirect))
           : {};
-        if (allowDuringRestore && Array.isArray(options?.masterCodesOverride)
-            && typeof isPinnedRestoreTradeMasterComplete === 'function'
-            && !isPinnedRestoreTradeMasterComplete(recoveryTrades, options.masterCodesOverride)) return false;
+        if (allowDuringRestore && (typeof isPinnedRestorePortfolioMasterComplete !== 'function'
+            || !isPinnedRestorePortfolioMasterComplete(
+              recoveryTrades, recoveryHoldings, recoveryFundDirect, options?.masterCodesOverride
+            ))) return false;
         const [holdingsResult, tradesResult] = await Promise.all([
           typeof syncHoldingsToGsheet === 'function'
             ? syncHoldingsToGsheet({
@@ -819,6 +821,11 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     const pinnedFundDirect = (typeof fundDirect === 'object' && fundDirect)
       ? JSON.parse(JSON.stringify(fundDirect))
       : {};
+    // Empty-ledger retries still write holdings and Settings.fundDirect.
+    if (allowDuringRestore && (typeof isPinnedRestorePortfolioMasterComplete !== 'function'
+        || !isPinnedRestorePortfolioMasterComplete(
+          [], [], pinnedFundDirect, options?.masterCodesOverride
+        ))) return false;
     const holdingsResult = typeof syncHoldingsToGsheet === 'function'
       ? await syncHoldingsToGsheet({
           allowEmpty: true,
