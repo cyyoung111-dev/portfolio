@@ -311,6 +311,32 @@ function _stockMasterHasOnlyConfirmedQueueChanges(target, sourceId, seqAtCall, b
   }
   return false;
 }
+// A metadata-only partial commit must reference an actual changed row,
+// never an unrelated first row that another tab could later delete.
+function _stockMasterMetadataOnlyRepairProof(beforeCodes, afterCodes) {
+  if (!Array.isArray(beforeCodes) || !Array.isArray(afterCodes)
+      || !beforeCodes.length || beforeCodes.length !== afterCodes.length
+      || !_stockMasterSyncFingerprint(beforeCodes)
+      || !_stockMasterSyncFingerprint(afterCodes)) return null;
+  const previous = new Map(beforeCodes.map(row => [
+    JSON.stringify([String(row.name || '').trim(), _normalizeSyncCode(row.code)]),row
+  ]));
+  const metadata = item => JSON.stringify([
+    String(item.type || item.assetType || '주식').trim(),
+    String(item.sector || '기타').trim(),
+    String(item.currency || 'KRW').trim().toUpperCase(),
+    String(item.market || '').trim().toUpperCase()
+  ]);
+  const repairs=[];
+  for (const row of afterCodes) {
+    const name=String(row.name || '').trim(), code=_normalizeSyncCode(row.code);
+    const original=previous.get(JSON.stringify([name,code]));
+    if (!original) return null; // identity changed without replacement proof
+    if (metadata(original)!==metadata(row))
+      repairs.push({previousName:name,previousCode:code,name,code,metadataOnly:true});
+  }
+  return repairs.length ? repairs : null;
+}
 function _rememberConfirmedCodeMasterChange(target, sourceId, before, after) {
   if (!before || !after || before === after) return;
   const transitions = _gsheetStockMasterConfirmedTransitions.get(target) || [];
@@ -371,12 +397,16 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
     if (!isGsheetConnectionCurrent(targetUrl,generation)
         || now?.status!=='ok' || now.codeMasterSourceId!==sourceId
         || _stockMasterSyncFingerprint(now.codes)!==expectedFingerprint) return null;
-    const valid=debts.every(step => now.codes.some(row =>
-      String(row.name || '').trim()===step.name
-      && _normalizeSyncCode(row.code)===_normalizeSyncCode(step.code))
-      && !now.codes.some(row =>
-        (step.previousName!==step.name && String(row.name || '').trim()===step.previousName)
-        || (step.previousCode!==step.code && _normalizeSyncCode(row.code)===_normalizeSyncCode(step.previousCode))));
+    const valid=debts.every(step => {
+      // Metadata-only debt requests a same-source CURRENT-master Settings
+      // rebase; its changed row may have been legitimately deleted later.
+      if (step.metadataOnly === true) return true;
+      return now.codes.some(row => String(row.name || '').trim()===step.name
+        && _normalizeSyncCode(row.code)===_normalizeSyncCode(step.code))
+        && !now.codes.some(row =>
+          (step.previousName!==step.name && String(row.name || '').trim()===step.previousName)
+          || (step.previousCode!==step.code && _normalizeSyncCode(row.code)===_normalizeSyncCode(step.previousCode)));
+    });
     if (!valid) return null;
     const canonical=Object.fromEntries(now.codes.map(row => [
       String(row.name || '').trim(),{
@@ -488,12 +518,14 @@ async function syncCodesToGsheet(options) {
       ? _getSameTargetCodeSettingsRepairs(targetUrl, sourceId) : [];
     if (repairDebt.length) {
       const current = fresh.codes;
-      const repairAllowed = repairDebt.every(step =>
-        current.some(row => String(row.name || '').trim() === step.name
+      const repairAllowed = repairDebt.every(step => {
+        if (step.metadataOnly === true) return true;
+        return current.some(row => String(row.name || '').trim() === step.name
           && _normalizeSyncCode(row.code) === _normalizeSyncCode(step.code))
-        && !current.some(row =>
-          (step.previousName !== step.name && String(row.name || '').trim() === step.previousName)
-          || (step.previousCode !== step.code && _normalizeSyncCode(row.code) === _normalizeSyncCode(step.previousCode))));
+          && !current.some(row =>
+            (step.previousName !== step.name && String(row.name || '').trim() === step.previousName)
+            || (step.previousCode !== step.code && _normalizeSyncCode(row.code) === _normalizeSyncCode(step.previousCode)));
+      });
       if (!repairAllowed) {
         _syncWarn('[syncCodes] 미완료 Settings 이전 대상 변경: 재동기화 차단');
         return null;
@@ -675,19 +707,16 @@ async function syncCodesToGsheet(options) {
       // and rebase a queued A->C journal to B->C before any early return.
       const partialFingerprint=_stockMasterSyncFingerprint(partial.codes);
       if (partialFingerprint!==freshFingerprint) {
-        // Even a sector/currency/market-only update can leave Settings stale.
-        // Mark the confirmed full-master revision for a future Settings-only
-        // rebuild when there is no identity replacement provenance.
+        // A later other-tab delete of an unrelated first row must not
+        // permanently block restoring Settings after a metadata-only commit.
         const repairProof=[...replacements,...settingsReplacements];
-        if (!repairProof.length && partial.codes.length) {
-          const stable=partial.codes[0];
-          repairProof.push({
-            previousName:String(stable.name || '').trim(),
-            previousCode:_normalizeSyncCode(stable.code),
-            name:String(stable.name || '').trim(),
-            code:_normalizeSyncCode(stable.code),
-            metadataOnly:true
-          });
+        if (!repairProof.length) {
+          const changed=_stockMasterMetadataOnlyRepairProof(fresh.codes,partial.codes);
+          if (!changed) {
+            _syncWarn('[syncCodes] 메타데이터 전용 복구 근거 없는 구조 변경: 중단');
+            return null;
+          }
+          repairProof.push(...changed);
         }
         if (repairProof.length && typeof _rememberSameTargetCodeSettingsRepairs === 'function'
             && !_rememberSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairProof)) return null;
