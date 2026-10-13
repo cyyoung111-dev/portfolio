@@ -908,8 +908,7 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     // Updating a pair in place has the same durable key; never tombstone it.
     if (_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)===key)
       continue;
-    if (!_persistDurableStockPair(
-        PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true,transitionId)) {
+    if (!_persistStockRetirement(target,entry,transitionId)) {
       // A failed quota/security write must not leave BOTH A->B and A->C
       // active after a reload. Roll back the uncommitted new pair. Removal
       // usually works even when writes fail because the quota is exhausted.
@@ -929,9 +928,22 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     }
     retired.push(entry);
   }
-  // Promotion is a SECOND verifiable write to the very same exact pair.
-  // A stranded staged C is never activated by any unrelated future B
-  // tombstone; success is explicit and scoped to the originating edit.
+  // Claims are immutable and never overwrite the predecessor's v2 key.
+  // A peer may commit A->B at ANY point: require the original B bytes to
+  // remain unchanged before promotion as well as after readback.
+  if (removed.some(entry=>{
+    if(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)===key)
+      return false;
+    const seen=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
+    return !seen || seen.removed===true
+      || JSON.stringify(seen.entry)!==JSON.stringify(entry);
+  })) {
+    if(previousPair)lsSave(key,previousPair);
+    else lsRemove(key);
+    return false;
+  }
+  // Promotion is a SECOND verifiable write to the same exact successor key.
+  // The prepared successor stays inert if its own commit cannot be persisted.
   if (waitingFor.length && !_persistDurableStockPair(
       PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,committedNext)) {
     if (previousPair) lsSave(key,previousPair);
@@ -939,6 +951,19 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     for(const restored of retired)
       _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,restored);
     return false;
+  }
+  if(waitingFor.length) {
+    const live=_readDurableStockJournal(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,
+      PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,_pendingSameTargetCodeAdditions);
+    if(!Array.isArray(live[target]) || !live[target].some(entry=>
+        entry.sourceId===sourceId && entry.name===name
+        && normalized(entry.code)===code && entry.transitionId===transitionId)) {
+      // If another tab retired B during C's last write, never claim the
+      // user edit or enqueue a server update with an obsolete A root.
+      if(previousPair)lsSave(key,previousPair);
+      else lsRemove(key);
+      return false;
+    }
   }
   _pendingSameTargetCodeAdditions=nextMap;
   lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,nextMap); // v1 compatibility only
