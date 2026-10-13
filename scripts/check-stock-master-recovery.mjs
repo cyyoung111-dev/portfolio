@@ -1267,3 +1267,135 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
 
   console.log('✅ 원본별 tombstone 실패 차단·저장보안·Quota·v1 신규/교체 이관 검증');
 }
+
+
+{
+  // Production smSave + production queued CAS delete. A fund/TDF conversion
+  // must NOT pretend the old coded row vanished via append-only syncCodes.
+  const stockCode=fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8');
+  const syncCode=fs.readFileSync('src/web/features/settings/settings_sync.js','utf8');
+  const start=stockCode.indexOf('async function smSave(idx) {');
+  const end=stockCode.indexOf('\n}\n',start)+2;
+  const queueStart=syncCode.indexOf('const _gsheetStockMasterWriteQueues = new Map()');
+  const queueEnd=syncCode.indexOf('// Track ONLY successful same-window',queueStart);
+  assert.ok(start>=0&&end>start&&queueStart>=0&&queueEnd>queueStart);
+  const make=(config={})=>{
+    const remote=[{name:'펀드 전환',code:'001234',type:'주식',
+      sector:'기타',currency:'KRW',market:'KR'}];
+    if(config.noRemote)remote.splice(0);
+    let calls=[],saved=0,queued=0,notices=[];
+    const item={name:'펀드 전환',code:'001234',assetType:'주식',
+      sector:'기타',currency:'KRW',market:'KR'};
+    const fields={name:'펀드 전환',code:'',type:'펀드',sector:'기타',
+      currency:'KRW',market:'KR'};
+    const inputMap={
+      'sm-name-inp':()=>fields.name,'sm-code-inp':()=>fields.code,
+      'sm-type-sel':()=>fields.type,'sm-sec-sel':()=>fields.sector,
+      'sm-cur-sel':()=>fields.currency,'sm-market-sel':()=>fields.market
+    };
+    let generation=5;
+    const ctx={
+      console,GSHEET_API_URL:'https://script.google.com/macros/s/codeless/exec',
+      _gsCodeMasterSourceIdentity:'sheet-A',
+      getGsheetConnectionGeneration:()=>generation,
+      isGsheetConnectionCurrent:(url,gen)=>url===ctx.GSHEET_API_URL&&gen===generation,
+      isStockMasterWriteBlocked:()=>false,
+      isStockMasterEditSessionCurrent:sess=>sess?.sourceId===ctx._gsCodeMasterSourceIdentity
+        && sess?.generation===generation && sess?.targetUrl===ctx.GSHEET_API_URL,
+      captureStockMasterEditSession:()=>({targetUrl:ctx.GSHEET_API_URL,generation,
+        sourceId:ctx._gsCodeMasterSourceIdentity}),
+      preventUnsafeStockMasterEdit:()=>false,
+      normalizeStockCode:x=>String(x||'').trim(),
+      _normalizeSyncCode:x=>String(x||'').trim(),
+      EDITABLE_PRICES:[item],rawTrades:[],rawHoldings:[],savedPrices:{},
+      savedPriceDates:{},STOCK_CODE:{'펀드 전환':'001234'},
+      document:{querySelector:sel=>{
+        for(const [k,read] of Object.entries(inputMap))
+          if(sel.includes(k))return {value:read()};
+        return null;
+      }},
+      _smIsCustomCodeType:t=>t==='펀드'||t==='TDF',
+      _smFindDuplicateCode:()=>null,
+      _smValidateListedCode:async()=>({ok:true}),
+      _getSameTargetLocalCodeAdditions:()=>config.pendingReplacement?
+        [{name:'펀드 전환',code:'001234',replaces:{name:'A',code:'1'}}]:[],
+      _forgetSameTargetLocalCodeAddition:()=>true,
+      showMgmtMsg:(...parts)=>notices.push(parts),
+      syncHoldingsFromTrades:()=>{},
+      saveHoldings:()=>{saved++},
+      queueMgmtGsheetSync:()=>{queued++},
+      $el:()=>null,_mgmtRefresh:()=>{},
+      applyGsheetCodeList:()=>{},
+      requestGsheetActionJson:async action=>{
+        assert.equal(action,'getCodeList');
+        calls.push('getCodeList');
+        return {status:'ok',codeMasterSourceId:'sheet-A',codes:remote.map(x=>({...x}))};
+      },
+      requestGsheetFormJson:async(action,params)=>{
+        calls.push(action);
+        assert.equal(action,'deleteUnreferencedCode');
+        const payload=JSON.parse(params.data);
+        assert.equal(payload.expectedSourceId,'sheet-A');
+        assert.equal(payload.name,'펀드 전환');
+        assert.equal(payload.code,'001234');
+        assert.deepEqual(payload.expectedCodes.map(x=>x.code),['001234']);
+        if(config.referenced)return {status:'error',errorCode:'CODE_DELETE_REFERENCED'};
+        remote.splice(0,remote.length);
+        return {status:'ok',deleted:1};
+      }
+    };
+    vm.createContext(ctx);
+    vm.runInContext(syncCode.slice(queueStart,queueEnd),ctx);
+    vm.runInContext(stockCode.slice(start,end),ctx);
+    return {ctx,remote,item,fields,calls,notices,
+      saved:()=>saved,queued:()=>queued,setGeneration:n=>generation=n,
+      save:()=>vm.runInContext('smSave(0)',ctx)};
+  };
+  const ok=make();
+  assert.equal(await ok.save(),true,'code-less conversion needs confirmed delete');
+  assert.deepEqual(ok.calls,['getCodeList','deleteUnreferencedCode','getCodeList']);
+  assert.equal(ok.remote.length,0,'GAS coded row deleted by CAS');
+  assert.equal(ok.item.code,'','local master switched to code-less fund after server');
+  assert.equal(ok.item.assetType,'펀드');
+  assert.equal(ok.queued(),1);
+  assert.equal(ok.saved(),1);
+  const protectedRow=make({referenced:true});
+  assert.equal(await protectedRow.save(),false,'referenced remote ledger prevents removal');
+  assert.equal(protectedRow.item.code,'001234','failed CAS cannot mutate browser master');
+  assert.equal(protectedRow.ctx.STOCK_CODE['펀드 전환'],'001234');
+  assert.equal(protectedRow.queued(),0);
+  assert.equal(protectedRow.saved(),0);
+  const absent=make({noRemote:true});
+  assert.equal(await absent.save(),true,'uncommitted local NEW pair can become a direct fund');
+  assert.deepEqual(absent.calls,['getCodeList']);
+  assert.equal(absent.item.code,'');
+  const oldReplacement=make({noRemote:true,pendingReplacement:true});
+  assert.equal(await oldReplacement.save(),false,'uncommitted replacement cannot impersonate a NEW pair');
+  assert.equal(oldReplacement.item.code,'001234');
+  const conflict=make();
+  let release;
+  const paused=new Promise(resolve=>{release=resolve});
+  const preceding=vm.runInContext('_queueGsheetStockMasterWrite(GSHEET_API_URL,async()=>await blocker)',
+    Object.assign(conflict.ctx,{blocker:paused}));
+  const pending=conflict.save();
+  for(let i=0;i<6;i++)await Promise.resolve();
+  assert.deepEqual(conflict.calls,[],'delete cannot overtake an in-flight code-master write');
+  assert.equal(conflict.item.code,'001234','queued conversion keeps local master unchanged');
+  release();
+  await preceding;
+  assert.equal(await pending,true);
+  assert.deepEqual(conflict.calls,['getCodeList','deleteUnreferencedCode','getCodeList']);
+  const switchDuringWait=make();
+  let unlock;
+  const block=new Promise(resolve=>{unlock=resolve});
+  const prior=vm.runInContext('_queueGsheetStockMasterWrite(GSHEET_API_URL,async()=>await blocker)',
+    Object.assign(switchDuringWait.ctx,{blocker:block}));
+  const waiting=switchDuringWait.save();
+  switchDuringWait.setGeneration(6);
+  unlock();
+  await prior;
+  assert.equal(await waiting,false,'connection switch invalidates queued deletion');
+  assert.deepEqual(switchDuringWait.calls,[]);
+  assert.equal(switchDuringWait.item.code,'001234');
+  console.log('✅ 실제 smSave 무코드 전환: 서버 CAS 삭제·원장 참조거부·미등록 NEW·대기열·원본 전환 검증');
+}
