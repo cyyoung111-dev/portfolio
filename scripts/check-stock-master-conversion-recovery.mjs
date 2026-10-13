@@ -30,6 +30,7 @@ function fixture(opts={}) {
     throwSettings:!!opts.settingsOnce,throwClear:!!opts.clearOnce,
     locked:false,wholeClear:0
   };
+  if(opts.longNotes)state.cells[2][1]=JSON.stringify([{...base,notes:'한'.repeat(1800)},other]);
   if(opts.duplicateName)state.cells[2][1]=JSON.stringify([base,other,{name:'새펀드',code:'',assetType:'TDF'}]);
   if(opts.noOriginal)state.cells[2][1]=JSON.stringify([other]);
   const codeRows=()=>state.codes.map(x=>[x.code,x.name,x.type,x.sector,x.currency,x.market]);
@@ -63,7 +64,10 @@ function fixture(opts={}) {
   const ss={getSheetByName:key=>key==='Codes'?sheetCodes:key==='Settings'?sheetSettings:null};
   const properties={
     getProperty:k=>state.props.get(k)||null,
-    setProperty:(k,v)=>state.props.set(k,v),
+    setProperty:(k,v)=>{
+      if(Buffer.byteLength(v,'utf8')>9000)throw Error('SCRIPT_PROPERTY_VALUE_TOO_LARGE');
+      state.props.set(k,v);
+    },
     deleteProperty:k=>{
       if(state.throwClear){state.throwClear=false;throw Error('CRASH_AFTER_SETTINGS_SAVE');}
       state.props.delete(k);
@@ -139,6 +143,15 @@ function checkConverted(t,name='원종목') {
   assert.equal(t.settle().pending,false,'recovery is idempotent');
 }
 {
+  const t=fixture({codeAfter:true,longNotes:true});
+  assert.equal(t.submit().status,'error');
+  assert.ok(t.marker(),'long Korean notes still fit compact pre-delete marker');
+  assert.ok(Buffer.byteLength(t.marker(),'utf8')<9000,'duplicated user fields would breach 9KB property limit');
+  assert.equal(t.settle().resolution,'completed');
+  assert.equal(t.settings().EDITABLE_PRICES.find(x=>x.name==='원종목').notes,'한'.repeat(1800));
+  assert.deepEqual(t.settings().LOAN,{balance:357000000});
+}
+{
   const t=fixture({codeBefore:true});
   assert.equal(t.submit().status,'error');
   assert.equal(t.state.codes.length,1);
@@ -185,4 +198,4 @@ function checkConverted(t,name='원종목') {
   assert.equal(t.state.codes.length,0);
   assert.deepEqual(t.settings().EDITABLE_PRICES,[other],'ordinary deletion must not add a fund');
 }
-console.log('✅ 실제 GAS 무코드 전환: 정상·강제종료 3위치·rollback·원본누락·이름충돌·원장참조·일반삭제 보존');
+console.log('✅ 실제 GAS 무코드 전환: 정상·강제종료 3위치·9KB 한국어 메모·rollback·원본누락·이름충돌·원장참조·일반삭제 보존');
