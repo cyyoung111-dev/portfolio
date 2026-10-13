@@ -1320,7 +1320,8 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       _smFindDuplicateCode:()=>null,
       _smValidateListedCode:async()=>({ok:true}),
       _getSameTargetLocalCodeAdditions:()=>config.pendingReplacement?
-        [{name:'펀드 전환',code:'001234',replaces:{name:'A',code:'1'}}]:[],
+        [{name:'펀드 전환',code:'001234',replaces:{name:'A',code:'1'}}]
+        : (config.pendingNew?[{name:'펀드 전환',code:'001234',userFields:{notes:'new'}}]:[]),
       _forgetSameTargetLocalCodeAddition:()=>true,
       showMgmtMsg:(...parts)=>notices.push(parts),
       syncHoldingsFromTrades:()=>{},
@@ -1374,6 +1375,11 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   const oldReplacement=make({noRemote:true,pendingReplacement:true});
   assert.equal(await oldReplacement.save(),false,'uncommitted replacement cannot impersonate a NEW pair');
   assert.equal(oldReplacement.item.code,'001234');
+  const unsyncedNew=make({noRemote:true,pendingNew:true});
+  assert.equal(await unsyncedNew.save(),false,
+    'pending NEW registration cannot be stranded by a failed post-delete journal write');
+  assert.deepEqual(unsyncedNew.calls,[],'pending journal blocked before any server operation');
+  assert.equal(unsyncedNew.item.code,'001234');
   const conflict=make();
   let release;
   const paused=new Promise(resolve=>{release=resolve});
