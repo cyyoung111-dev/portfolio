@@ -479,6 +479,55 @@ const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY = 'pf_pending_same_target_codes_v1';
 let _pendingSameTargetCodeAdditions = lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, {});
 if (!_pendingSameTargetCodeAdditions || typeof _pendingSameTargetCodeAdditions !== 'object'
     || Array.isArray(_pendingSameTargetCodeAdditions)) _pendingSameTargetCodeAdditions = {};
+// A flushed code row can outlive a failed Settings write. Keep its
+// identity migration evidence separate from pending *new* edits: replacing
+// B -> C must not overwrite the unfinished Settings migration A -> B.
+const PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY = 'pf_pending_same_target_code_settings_repairs_v1';
+let _pendingSameTargetCodeSettingsRepairs = lsGet(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, {});
+if (!_pendingSameTargetCodeSettingsRepairs || typeof _pendingSameTargetCodeSettingsRepairs !== 'object'
+    || Array.isArray(_pendingSameTargetCodeSettingsRepairs)) _pendingSameTargetCodeSettingsRepairs = {};
+function _getSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity) {
+  const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
+  const list = _pendingSameTargetCodeSettingsRepairs[target];
+  return sourceId && Array.isArray(list)
+    ? list.filter(item => item?.sourceId === sourceId).map(item => ({...item})) : [];
+}
+function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes) {
+  const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
+  if (!target || !sourceId || !Array.isArray(changes) || !changes.length) return false;
+  const list = Array.isArray(_pendingSameTargetCodeSettingsRepairs[target])
+    ? _pendingSameTargetCodeSettingsRepairs[target] : [];
+  for (const item of changes) {
+    const previousName = String(item?.previousName || '').trim();
+    const previousCode = String(item?.previousCode || '').trim();
+    const name = String(item?.name || '').trim();
+    const code = String(item?.code || '').trim();
+    if (!previousName || !previousCode || !name || !code) return false;
+    if (!list.some(entry => entry.sourceId === sourceId
+        && entry.previousName === previousName && entry.previousCode === previousCode
+        && entry.name === name && entry.code === code)) {
+      list.push({sourceId, previousName, previousCode, name, code});
+    }
+  }
+  _pendingSameTargetCodeSettingsRepairs[target] = list;
+  lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, _pendingSameTargetCodeSettingsRepairs);
+  return true;
+}
+function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes) {
+  const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
+  if (!target || !sourceId || !Array.isArray(changes) || !changes.length) return;
+  const list = _pendingSameTargetCodeSettingsRepairs[target];
+  if (!Array.isArray(list)) return;
+  const remaining = list.filter(entry => entry.sourceId !== sourceId || !changes.some(item =>
+    entry.previousName === item.previousName && entry.previousCode === item.previousCode
+    && entry.name === item.name && entry.code === item.code));
+  if (remaining.length === list.length) return;
+  if (remaining.length) _pendingSameTargetCodeSettingsRepairs[target] = remaining;
+  else delete _pendingSameTargetCodeSettingsRepairs[target];
+  if (Object.keys(_pendingSameTargetCodeSettingsRepairs).length)
+    lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, _pendingSameTargetCodeSettingsRepairs);
+  else lsRemove(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY);
+}
 function _recordSameTargetLocalCodeAddition(item, editSession) {
   const target = _currentGsheetSyncTarget();
   const code = typeof _normalizeSyncCode === 'function'
