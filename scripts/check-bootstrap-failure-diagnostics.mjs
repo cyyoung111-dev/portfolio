@@ -496,6 +496,43 @@ assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL,'T
   'original journal survives until verified Settings readback');
 console.log('✅ 브라우저 강제 종료 후 교체 journal 단독 보유 시 Settings 선복구·실패 보존 VM 통과');
 
+// Legacy metadataOnly debt from an earlier browser used arbitrary first A.
+// B's metadata was committed, Settings write failed, then a different tab
+// deleted unrelated A. Bootstrap must use the CURRENT full master B under CAS
+// and may not insist that A is still present.
+h=setup();
+h.response.codes=[{name:'B',code:'222222',type:'주식',sector:'헬스케어',currency:'KRW',market:'KR'}];
+h.response.settings.EDITABLE_PRICES=[
+  {name:'A',code:'111111',assetType:'주식',sector:'기타',targetWeight:12},
+  {name:'B',code:'222222',assetType:'주식',sector:'기타',targetWeight:37}
+];
+vm.runInContext(`_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE',[
+  {previousName:'A',previousCode:'111111',name:'A',code:'111111',metadataOnly:true}])`,h.ctx);
+const metadataPosts=[];
+h.ctx.requestGsheetActionJson=async action=>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  metadataPosts.push(action);
+  assert.equal(action,'syncCodes');
+  assert.equal(params.forceSettingsRebase,'1');
+  assert.equal(JSON.parse(params.settingsReplacements).length,0,
+    'stale unrelated A marker is not a rename');
+  assert.deepEqual(Object.keys(JSON.parse(params.codes)),['B'],
+    'canonical CAS excludes deleted A');
+  h.response.settings.EDITABLE_PRICES=[
+    {name:'B',code:'222222',assetType:'주식',sector:'헬스케어',
+      currency:'KRW',market:'KR',targetWeight:37}
+  ];
+  return {status:'ok',updated:0};
+};
+assert.equal(await h.ctx.loadSettings(),true,
+  'Bootstrap recovers previous metadataOnly debt despite unrelated A deletion');
+assert.deepEqual(metadataPosts,['syncCodes']);
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='B'&&ep.sector==='헬스케어'&&ep.targetWeight===37)",h.ctx),true);
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='A'&&ep.code==='111111')",h.ctx),false);
+assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0);
+console.log('✅ 오래된 무관 첫 행 metadataOnly 복구 부채가 삭제된 후에도 Bootstrap 수리 정상 통과');
+
 // Settings-only repair debt must run on a clean Bootstrap with NO trades,
 // holdings or pending code additions, before stale Settings can restore A.
 h=setup();
