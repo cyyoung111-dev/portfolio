@@ -503,10 +503,12 @@ function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, chang
     const name = String(item?.name || '').trim();
     const code = String(item?.code || '').trim();
     if (!previousName || !previousCode || !name || !code) return false;
+    const metadataOnly=item.metadataOnly === true;
     if (!list.some(entry => entry.sourceId === sourceId
         && entry.previousName === previousName && entry.previousCode === previousCode
-        && entry.name === name && entry.code === code)) {
-      list.push({sourceId, previousName, previousCode, name, code});
+        && entry.name === name && entry.code === code
+        && (entry.metadataOnly === true) === metadataOnly)) {
+      list.push({sourceId, previousName, previousCode, name, code, metadataOnly});
     }
   }
   _pendingSameTargetCodeSettingsRepairs[target] = list;
@@ -520,7 +522,8 @@ function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes
   if (!Array.isArray(list)) return;
   const remaining = list.filter(entry => entry.sourceId !== sourceId || !changes.some(item =>
     entry.previousName === item.previousName && entry.previousCode === item.previousCode
-    && entry.name === item.name && entry.code === item.code));
+    && entry.name === item.name && entry.code === item.code
+    && (entry.metadataOnly === true) === (item.metadataOnly === true)));
   if (remaining.length === list.length) return;
   if (remaining.length) _pendingSameTargetCodeSettingsRepairs[target] = remaining;
   else delete _pendingSameTargetCodeSettingsRepairs[target];
