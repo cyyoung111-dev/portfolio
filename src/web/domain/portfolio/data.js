@@ -472,6 +472,40 @@ function _currentGsheetSyncTarget() {
   return liveUrl || String(lsGet(GSHEET_KEY, '') || '').trim();
 }
 
+// A local-only code is recoverable after reload ONLY when an explicit stock
+// management edit was authorized while this exact connection was bootstrapped.
+// Never infer authorization from stale browser EDITABLE_PRICES alone.
+const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY = 'pf_pending_same_target_codes_v1';
+let _pendingSameTargetCodeAdditions = lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, {});
+if (!_pendingSameTargetCodeAdditions || typeof _pendingSameTargetCodeAdditions !== 'object'
+    || Array.isArray(_pendingSameTargetCodeAdditions)) _pendingSameTargetCodeAdditions = {};
+function _recordSameTargetLocalCodeAddition(item, editSession) {
+  const target = _currentGsheetSyncTarget();
+  const code = typeof _normalizeSyncCode === 'function'
+    ? _normalizeSyncCode(item?.code || '') : String(item?.code || '').trim();
+  const name = String(item?.name || '').trim();
+  if (!target || !code || !name
+      || typeof isStockMasterEditSessionCurrent !== 'function'
+      || !isStockMasterEditSessionCurrent(editSession)) return false;
+  const records = Array.isArray(_pendingSameTargetCodeAdditions[target])
+    ? _pendingSameTargetCodeAdditions[target] : [];
+  const others = records.filter(r => r && r.name !== name && r.code !== code);
+  others.push({
+    name, code, type: String(item.assetType || item.type || '주식'),
+    sector: String(item.sector || '기타'),
+    currency: String(item.currency || 'KRW').toUpperCase(),
+    market: String(item.market || '').toUpperCase()
+  });
+  _pendingSameTargetCodeAdditions[target] = others;
+  lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
+  return true;
+}
+function _getSameTargetLocalCodeAdditions(target) {
+  const entries = _pendingSameTargetCodeAdditions[String(target || '').trim()];
+  return Array.isArray(entries) ? entries.map(e => ({ ...e })) : [];
+}
+
+
 function _normalizePendingExplicitEmptyTradeSync(value) {
   if (!value || typeof value !== 'object') return null;
   const target = String(value.target || '').trim();
