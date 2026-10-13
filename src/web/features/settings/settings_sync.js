@@ -445,14 +445,37 @@ async function syncCodesToGsheet(options) {
       return null;
     }
   }
-    // A failed Settings write can follow a fully committed code-master write.
-    // Never blindly replay the old replacement or assume the failure rolled back.
-    let data = await requestGsheetFormJson(
+    // A previous request may already have changed the code sheet while
+    // leaving Settings stale. Repair Settings using the canonical SERVER
+    // rows FIRST; never combine no-op recovery with a pending code mutation.
+    let data = null;
+    const submittedCoded=Object.entries(codeMap)
+      .filter(([,item]) => _normalizeSyncCode(item.code))
+      .map(([name,item]) => ({name,...item}));
+    const hasPendingCodeChange = _stockMasterSyncFingerprint(submittedCoded)!==freshFingerprint;
+    if (needsSettingsRebase) {
+      const canonical = Object.fromEntries(expectedCodes.map(row => [
+        String(row.name || '').trim(), {
+          code:_normalizeSyncCode(row.code), type:row.type || '주식',
+          sector:row.sector || '기타', currency:(row.currency || 'KRW').toUpperCase(),
+          market:(row.market || '').toUpperCase()
+        }
+      ]));
+      const repaired = await requestGsheetFormJson('syncCodes', {
+        codes:JSON.stringify(canonical), expectedSourceId:sourceId,
+        expectedCodes:JSON.stringify(expectedCodes), replacements:'[]',
+        settingsReplacements:JSON.stringify(settingsReplacements),
+        forceSettingsRebase:'1'
+      }, {timeoutMs:20000,retry:0,targetUrl});
+      if (repaired?.status !== 'ok') return null;
+      if (!hasPendingCodeChange) data = repaired;
+    }
+    // Any new mutation is independent and still uses the same full-master CAS.
+    if (!data) data = await requestGsheetFormJson(
       'syncCodes',
       { codes: JSON.stringify(codeMap), expectedSourceId:sourceId,
         expectedCodes:JSON.stringify(expectedCodes), replacements:JSON.stringify(replacements),
-        forceSettingsRebase:needsSettingsRebase ? '1' : '',
-        settingsReplacements:JSON.stringify(settingsReplacements) },
+        forceSettingsRebase:'', settingsReplacements:'[]' },
       { timeoutMs: 20000, retry: 1, targetUrl }
     );
     if (data?.status !== 'ok') {
