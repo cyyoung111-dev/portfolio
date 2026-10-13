@@ -582,6 +582,29 @@ assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _
 assert.ok(h.ctx._getPortfolioRemoteDirty());
 
 
+
+// A GAS URL can be rebound to another spreadsheet without changing its /exec
+// URL. Old local stock registration MUST NOT authorize a write to the new SS_ID.
+h=setup();
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext("EDITABLE_PRICES.push({name:'이전 워크북 신규',code:'000660',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'이전 워크북 신규',code:'000660',assetType:'주식'},captureStockMasterEditSession()); rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'이전 워크북 신규',code:'000660',qty:1,price:100}); _markPortfolioRemoteDirty();",h.ctx);
+h.response.codeMasterSourceId='OTHER_WORKBOOK';
+let changedWorkbookWrites=0;
+h.ctx.requestGsheetFormJson=async ()=>{changedWorkbookWrites++;return {status:'ok'};};
+assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),false,
+  'SS_ID change on the same GAS URL must refuse stale journal');
+assert.equal(changedWorkbookWrites,0);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, 'TEST_SOURCE').length",h.ctx),1,'old source record stays isolated');
+
+// Once ordinary syncCodes is acknowledged, the exact successfully uploaded
+// registration must be removed from the journal.
+h=setup();
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext("EDITABLE_PRICES.push({name:'정상 동기화',code:'000660',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'정상 동기화',code:'000660',assetType:'주식'},captureStockMasterEditSession())",h.ctx);
+h.ctx.requestGsheetFormJson=async action=>({status:'ok',synced:1});
+assert.equal((await h.ctx.syncCodesToGsheet())?.status,'ok');
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0,'ordinary sync ACK should clear same-target journal');
+
 // Codex P1: duplicate names/codes in one server master cannot be validated,
 // even if the transaction itself refers to one of the duplicate entries.
 h=setup();
