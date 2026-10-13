@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.203
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.204
+//
+//  v9.204 변경사항 (2026.10.13):
+//   삭제 시작 전 ScriptProperties 트랜잭션 마커를 기록하여 강제 종료 복구 보장
+//   Bootstrap/Settings/코드 조회에서 동일 workbook·ScriptLock 기반 부분 삭제 복구
+//   Settings/코드 작성 전에도 미완료 삭제를 정리해 유령 종목 복원 방지
 //
 //  v9.203 변경사항 (2026.10.13):
 //   종목 삭제 시 코드 행이 실제 삭제·검증된 후에만 Settings를 변경
@@ -1934,7 +1939,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.203', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.204', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5591,7 +5596,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.203' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.204' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11329,7 +11334,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.203',
+    gasVersion: '9.204',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11369,7 +11374,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.203' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.204' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13905,6 +13910,7 @@ function getCodeItems(ss, throwOnError) {
 function handleGetCodeList() {
   try {
     var ss = getss();
+    _settlePendingCodeDeleteForRead_(ss);
     return jsonOk({ codes: getCodeItems(ss), codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss) });
   } catch(err) {
     return jsonError('getCodeList 실패: ' + err.message);
@@ -14060,6 +14066,111 @@ function _writeSettingsMap(settings) {
   return rows.length;
 }
 
+
+// Crash-safe transaction marker. A GAS execution can be terminated without a
+// finally/catch, so in-memory compensation is NOT sufficient to synchronize
+// the code master and Settings. Only this pinned same-workbook ScriptProperty
+// may authorize completing a half-deleted stock after a process restart.
+var CODE_DELETE_TXN_KEY_ = 'PF_PENDING_CODE_DELETE_TXN_V1';
+function _pendingCodeDeleteTxn_() {
+  var raw=PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_);
+  if (!raw) return null;
+  var tx;
+  try { tx=JSON.parse(raw); } catch(e) { throw new Error('CODE_DELETE_TXN_CORRUPTED'); }
+  if (!tx || tx.version!==1 || !tx.sourceId || !tx.name || !tx.code
+      || !Object.prototype.hasOwnProperty.call(tx,'settingsEntry'))
+    throw new Error('CODE_DELETE_TXN_INVALID');
+  return tx;
+}
+function _finishCodeDeleteTxn_(tx) {
+  var props=PropertiesService.getScriptProperties();
+  var now=_pendingCodeDeleteTxn_();
+  if (!now || JSON.stringify(now)!==JSON.stringify(tx))
+    throw new Error('CODE_DELETE_TXN_CHANGED');
+  props.deleteProperty(CODE_DELETE_TXN_KEY_);
+  if (props.getProperty(CODE_DELETE_TXN_KEY_))
+    throw new Error('CODE_DELETE_TXN_CLEAR_FAILED');
+}
+function _settlePendingCodeDeleteLocked_(ss) {
+  var tx=_pendingCodeDeleteTxn_();
+  if (!tx) return {pending:false};
+  if (tx.sourceId!==_portfolioCodeMasterSourceIdentity_(ss))
+    throw new Error('CODE_DELETE_TXN_SOURCE_CHANGED');
+  var master=getCodeItems(ss,true);
+  var matching=master.filter(function(row) {
+    return _cleanCode(row.code)===tx.code || String(row.name||'').trim()===tx.name;
+  });
+  if (matching.length>1
+      || (matching.length===1 && (_cleanCode(matching[0].code)!==tx.code
+        || String(matching[0].name||'').trim()!==tx.name)))
+    throw new Error('CODE_DELETE_TXN_MASTER_CONFLICT');
+  var settings=_readSettingsMap(ss);
+  var previous=Array.isArray(settings.EDITABLE_PRICES) ? settings.EDITABLE_PRICES : [];
+  var matchingSettings=previous.filter(function(ep) {
+    return _cleanCode(ep&&ep.code||'')===tx.code
+      || String(ep&&ep.name||'').trim()===tx.name;
+  });
+  if (matchingSettings.some(function(ep) {
+    return _cleanCode(ep.code||'')!==tx.code
+      || String(ep.name||'').trim()!==tx.name;
+  }) || matchingSettings.length>1) throw new Error('CODE_DELETE_TXN_SETTINGS_CONFLICT');
+
+  if (matching.length===1) {
+    // No code row was deleted (or another execution rolled it back): restore
+    // an incomplete Settings removal, using the EXACT original custom fields.
+    if (!matchingSettings.length && tx.settingsEntry) {
+      previous.push(tx.settingsEntry);
+      settings.EDITABLE_PRICES=previous;
+      if (!_writeSettingsMap(settings)) throw new Error('CODE_DELETE_TXN_SETTINGS_RESTORE_FAILED');
+      var restored=_readSettingsMap(ss).EDITABLE_PRICES||[];
+      if (!restored.some(function(ep) {
+        return ep&&ep.name===tx.name && _cleanCode(ep.code)===tx.code;
+      })) throw new Error('CODE_DELETE_TXN_SETTINGS_RESTORE_VERIFY_FAILED');
+    }
+    _finishCodeDeleteTxn_(tx);
+    return {pending:true,resolution:'rolled_back'};
+  }
+  // Row is absent: deletion was at least partially committed. Finish it,
+  // never resurrect the code, and never clear another workbook's marker.
+  var trades=JSON.parse(handleGetTrades(ss).getContent());
+  var holdings=JSON.parse(handleGetHoldings(ss).getContent());
+  if (trades.status!=='ok' || holdings.status!=='ok'
+      || !Array.isArray(trades.trades) || !Array.isArray(holdings.holdings)
+      || trades.trades.some(function(item) {
+        return _cleanCode(item.code||'')===tx.code || String(item.name||'').trim()===tx.name;
+      }) || holdings.holdings.some(function(item) {
+        return _cleanCode(item.code||'')===tx.code || String(item.name||'').trim()===tx.name;
+      })) throw new Error('CODE_DELETE_TXN_LEDGER_CONFLICT');
+  if (matchingSettings.length) {
+    settings.EDITABLE_PRICES=previous.filter(function(ep) {
+      return String(ep&&ep.name||'').trim()!==tx.name
+        || _cleanCode(ep&&ep.code||'')!==tx.code;
+    });
+    if (!_writeSettingsMap(settings)) throw new Error('CODE_DELETE_TXN_SETTINGS_COMPLETE_FAILED');
+  }
+  var verified=Array.isArray(_readSettingsMap(ss).EDITABLE_PRICES)
+    ? _readSettingsMap(ss).EDITABLE_PRICES : [];
+  if (verified.some(function(ep) {
+    return String(ep&&ep.name||'').trim()===tx.name
+      || _cleanCode(ep&&ep.code||'')===tx.code;
+  }) || getCodeItems(ss,true).some(function(row) {
+    return String(row.name||'').trim()===tx.name || _cleanCode(row.code)===tx.code;
+  })) throw new Error('CODE_DELETE_TXN_VERIFY_FAILED');
+  _finishCodeDeleteTxn_(tx);
+  _touchSnapshotIntegritySourceRevision();
+  return {pending:true,resolution:'completed'};
+}
+function _settlePendingCodeDeleteForRead_(ss) {
+  if (!_pendingCodeDeleteTxn_()) return;
+  var lock=LockService.getScriptLock(), locked=false;
+  try {
+    lock.waitLock(30000); locked=true;
+    _settlePendingCodeDeleteLocked_(ss);
+  } finally {
+    if (locked) lock.releaseLock();
+  }
+}
+
 // 스프레드시트 소유자가 Apps Script 편집기에서 명시적으로 한 번 실행합니다.
 // 설정 시트의 레거시 키를 Script Properties로 옮긴 뒤 설정 시트 원문을 제거합니다.
 function migrateLegacyApiKeysToScriptProperties() {
@@ -14141,6 +14252,7 @@ function handleSaveSettings(dataJson) {
   var locked = false;
   try {
     lock.waitLock(30000); locked = true;
+    _settlePendingCodeDeleteLocked_(getss());
     var incoming = _parseJsonParam(dataJson, 'settings');
     delete incoming.public_data_api_key;
     delete incoming.krx_auth_key;
@@ -14211,10 +14323,12 @@ function handleSaveSettings(dataJson) {
 
 function handleGetSettings() {
   try {
-    var settings = _readSettingsMap();
+    var ss=getss();
+    _settlePendingCodeDeleteForRead_(ss);
+    var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.203' });
+    return jsonOk({ settings: settings, gasVersion: '9.204' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14225,6 +14339,7 @@ function handleGetSettings() {
 function handleGetBootstrap() {
   try {
     var ss = getss();
+    _settlePendingCodeDeleteForRead_(ss);
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
@@ -14243,7 +14358,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.203'
+      gasVersion: '9.204'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14368,6 +14483,7 @@ function handleSyncCodesAppendOnly(codesParam, expectedCodesParam, expectedSourc
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
+    _settlePendingCodeDeleteLocked_(getss());
     var codes = _parseJsonParam(codesParam, 'append-only codes');
     var expected = JSON.parse(decodeURIComponent(expectedCodesParam));
     var ss = getss();
@@ -14440,6 +14556,7 @@ function handleDeleteUnreferencedCode(dataJson) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
+    _settlePendingCodeDeleteLocked_(getss());
     var request = _parseJsonParam(dataJson, 'deleted stock code');
     var name = String(request.name || '').trim();
     var code = _cleanCode(request.code || '');
@@ -14502,6 +14619,21 @@ function handleDeleteUnreferencedCode(dataJson) {
     // on the server even if the request terminates between those two writes.
     var deletedRowValues = rowIndex
       ? cs.getRange(rowIndex,1,1,Math.max(6,cs.getLastColumn())).getValues()[0] : null;
+    var originalEntry=(Array.isArray(originalSettings.EDITABLE_PRICES)
+      ? originalSettings.EDITABLE_PRICES : []).filter(function(ep) {
+      return String(ep&&ep.name||'').trim()===name && _cleanCode(ep&&ep.code||'')===code;
+    });
+    if (originalEntry.length>1) return jsonError('Settings 종목 중복', {errorCode:'CODE_DELETE_SETTINGS_CONFLICT'});
+    var pendingDelete={
+      version:1,sourceId:sourceId,name:name,code:code,
+      settingsEntry:originalEntry.length ? originalEntry[0] : null
+    };
+    var deleteProps=PropertiesService.getScriptProperties();
+    if (deleteProps.getProperty(CODE_DELETE_TXN_KEY_))
+      return jsonError('이전 종목 삭제 복구 필요', {errorCode:'CODE_DELETE_TXN_PENDING'});
+    deleteProps.setProperty(CODE_DELETE_TXN_KEY_,JSON.stringify(pendingDelete));
+    if (!deleteProps.getProperty(CODE_DELETE_TXN_KEY_))
+      return jsonError('종목 삭제 복구 근거 저장 실패', {errorCode:'CODE_DELETE_TXN_NOT_DURABLE'});
     if (rowIndex) cs.deleteRow(rowIndex);
     SpreadsheetApp.flush();
     if (getCodeItems(ss, true).some(function(item) {
@@ -14540,12 +14672,28 @@ function handleDeleteUnreferencedCode(dataJson) {
           rollbackErrors.push('코드 행 원복: ' + codeRollbackError.message);
         }
       }
+      if (!rollbackErrors.length) {
+        try {
+          // The normal compensation restores the exact original code row and
+          // original Settings; settle must detect a fully rolled-back state.
+          var settled=_settlePendingCodeDeleteLocked_(ss);
+          if (settled.resolution!=='rolled_back') rollbackErrors.push('복구 후 삭제 미원복');
+        } catch (settleError) { rollbackErrors.push('삭제 journal 확인: '+settleError.message); }
+      }
       return rollbackErrors.length
         ? jsonError('Settings 변경 실패, 보상 복구 불완전: ' + rollbackErrors.join('; '),
           {errorCode:'CODE_DELETE_ROLLBACK_FAILED'})
         : jsonError('Settings 변경 실패, 삭제 롤백 완료: '+settingsWriteError,
           {errorCode:'CODE_DELETE_SETTINGS_FAILED'});
     }
+    // Both stores now agree; the marker can be retired. If cleanup throws,
+    // the next Bootstrap will prove the committed delete and retire it.
+    var verifySettings=_readSettingsMap(ss);
+    if (Array.isArray(verifySettings.EDITABLE_PRICES)
+        && verifySettings.EDITABLE_PRICES.some(function(ep) {
+          return String(ep&&ep.name||'').trim()===name || _cleanCode(ep&&ep.code||'')===code;
+        })) return jsonError('삭제 설정 재검증 실패', {errorCode:'CODE_DELETE_SETTINGS_VERIFY_FAILED'});
+    _finishCodeDeleteTxn_(pendingDelete);
     _touchSnapshotIntegritySourceRevision();
     return jsonOk({ deleted:rowIndex ? 1 : 0, codeMasterSourceId:sourceId });
   } catch(err) {
@@ -14559,6 +14707,7 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
+    _settlePendingCodeDeleteLocked_(getss());
     var incoming;
     try { incoming = JSON.parse(decodeURIComponent(codesParam)); } catch(e) {
       try { incoming = JSON.parse(codesParam); } catch(e2) { return jsonError('codes 파싱 실패'); }
