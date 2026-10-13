@@ -9427,7 +9427,7 @@ function upsertPriceHistory(ss, dateStr, code, name, price, savedAt, source) {
 // as code-master edits/deletion before ANY destructive holdings/trades rewrite.
 // A missing code on a stock row is acceptable only if the name still resolves
 // unambiguously in the current server master; only direct funds may lack both.
-function _portfolioLedgerMasterConflict_(items, currentCodes) {
+function _portfolioLedgerMasterConflict_(items, currentCodes, requireStockCode) {
   if (!Array.isArray(items) || !Array.isArray(currentCodes)) return 'INVALID_PAYLOAD';
   var byCode = {}, byName = {};
   for (var i=0; i<currentCodes.length; i++) {
@@ -9444,8 +9444,10 @@ function _portfolioLedgerMasterConflict_(items, currentCodes) {
     var itemType=String(item.assetType||item.type||'').trim().toUpperCase();
     if (!itemName) return 'MISSING_NAME';
     if (!itemCode) {
-      if (byName[itemName]) continue;
       if (itemType==='TDF' || itemType==='펀드' || itemType==='FUND') continue;
+      // Legacy trades may omit the code but must resolve to an existing
+      // current master name. Holdings MUST have a real code for stocks/ETFs.
+      if (!requireStockCode && byName[itemName]) continue;
       return 'UNCODED_NONFUND';
     }
     if (byCode[itemCode]!==itemName || byName[itemName]!==itemCode)
@@ -9465,7 +9467,7 @@ function handleSyncHoldings(dataJson) {
     if (!Array.isArray(holdings)) return jsonError('배열 형식 필요');
 
     var ss = getss();
-    var masterConflict = _portfolioLedgerMasterConflict_(holdings, getCodeItems(ss, true));
+    var masterConflict = _portfolioLedgerMasterConflict_(holdings, getCodeItems(ss, true), true);
     if (masterConflict) return jsonError('보유현황 종목 마스터 검증 실패: '+masterConflict,
       {errorCode:'HOLDINGS_CODE_MASTER_CONFLICT'});
     var sh = ss.getSheetByName(CONFIG.SHEET_HOLD);
