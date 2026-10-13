@@ -232,6 +232,13 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session, options) {
   // the old code until the queued server CAS has been verified. Never allow
   // a second/re-added object to inherit this permission.
   const conversionItem=options?.conversionItem || null;
+  const conversion=options?.conversion || null;
+  // A code-less conversion must be persisted by the SERVER transaction
+  // before Codes can disappear. Ordinary smDelete omits this payload.
+  if (conversionItem && (!conversion || !String(conversion.name||'').trim()
+      || _normalizeSyncCode(conversion.code||'')
+      || !['TDF','펀드','FUND'].includes(String(conversion.assetType||'').toUpperCase())))
+    return false;
   const localIntentIsCurrent=()=>{
     const matches=EDITABLE_PRICES.filter(ep=>ep?.name===name
       && _normalizeSyncCode(ep?.code||'')===code);
@@ -261,6 +268,12 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session, options) {
       _normalizeSyncCode(ep?.code || '') === code
       || String(ep?.name || '').trim() === name);
     if (matching.length===0 && conversionItem) {
+      // A pair that was previously observed on this workbook is NOT a
+      // harmless local NEW entry: it may have been remotely converted in a
+      // prior interrupted request. Require Bootstrap instead of a false ACK.
+      if (_gsheetCodeListSourceId===sourceId && _gsheetCodeList.some(row=>
+        _normalizeSyncCode(row?.code)===code || String(row?.name||'').trim()===name))
+        return false;
       // A still-unposted NEW local pair may be converted to a code-less
       // fund without a server delete. Replacement edits cannot take this
       // shortcut while their true previous server identity still exists.
@@ -290,7 +303,8 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session, options) {
     // Changes by another tab between this GET and POST fail closed.
     const res = await requestGsheetFormJson('deleteUnreferencedCode', {
       data:JSON.stringify({
-        name, code, expectedSourceId:sourceId, expectedCodes:before.codes
+        name, code, expectedSourceId:sourceId, expectedCodes:before.codes,
+        ...(conversionItem ? {conversion} : {})
       })
     }, {timeoutMs:20000,retry:0,targetUrl});
     if (res?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl, generation)
@@ -303,10 +317,26 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session, options) {
       && Array.isArray(checked.codes)
       && !checked.codes.some(ep => _normalizeSyncCode(ep?.code || '') === code
         || String(ep?.name || '').trim() === name);
-    // Subsequent local edits must use the confirmed post-delete revision,
-    // not an obsolete cached pre-delete snapshot that would always fail CAS.
-    if (verified) applyGsheetCodeList(checked.codes, sourceId);
-    return verified && localIntentIsCurrent();
+    if (!verified || !localIntentIsCurrent()) return false;
+    if (conversionItem) {
+      // Codes readback alone cannot prove preservation of user Settings.
+      // Server's crash-safe conversion must already contain this code-less
+      // destination before the local edit is reported as successful.
+      const settings=await requestGsheetActionJson('getSettings',{},{
+        targetUrl,timeoutMs:15000,retry:1,preserveError:true
+      });
+      const rows=settings?.settings?.EDITABLE_PRICES;
+      if (!isGsheetConnectionCurrent(targetUrl,generation)
+          || !localIntentIsCurrent() || settings?.status!=='ok'
+          || !Array.isArray(rows) || rows.filter(ep=>
+            String(ep?.name||'').trim()===String(conversion.name).trim()
+            && !_normalizeSyncCode(ep?.code||'')
+            && String(ep?.assetType||ep?.type||'').trim()===String(conversion.assetType)
+          ).length!==1) return false;
+    }
+    // Subsequent local edits must use the confirmed post-delete revision.
+    applyGsheetCodeList(checked.codes, sourceId);
+    return true;
   });
 }
 
