@@ -1,3 +1,11 @@
+## PR #493 2026-10-13 최신 Codex P1/P2 및 자체 검토 (Draft / 운영 미배포)
+
+- 최신 리뷰 HEAD `6e719c9` P1: 보통 `syncCodesToGsheet()`는 연결 세대를 넘기지 않고 URL별 대기열 내부에서 전역 EDITABLE_PRICES를 늦게 읽으므로, A 연결의 대기 요청이 B 연결의 코드를 A로 전송할 수 있었습니다. 호출 즉시 **현재 target URL·connection generation·workbook 지문과 코드/이름/분류/통화/시장 값의 복사본**을 캡처하고, 큐 실행 직전 동일 target generation/source 및 쓰기 준비를 재확인합니다. 원격 일반 syncCodes에도 workbook `expectedSourceId`를 포함하여 같은 GAS URL이 새 SS_ID를 가리키더라도 서버 ScriptLock 내부에서 변경 전 거부합니다. 구버전 클라이언트를 위한 서버 인자 생략 호환은 유지합니다.
+- P2: 오래된 `deleteUnreferencedCode` 요청이 다른 탭에서 같은 code/name의 sector·currency·market을 수정한 종목을 삭제할 수 있었습니다. 기존 대상별 쓰기 대기열의 이전 POST 완료 후 `getCodeList`를 읽고 **삭제 당시 로컬 code/name/type/sector/currency/market과 정확히 대조**, 그 순간의 원격 전체 마스터 스냅샷을 POST에 넣습니다. 서버는 같은 ScriptLock에서 전체 마스터 지문을 현재와 비교한 뒤에만 거래/보유 미참조 조건 및 Settings/코드 삭제를 수행합니다. GET 전후 같은 연결 검증 및 로컬 재등록 방지도 반영했습니다.
+- classic browser 및 GAS 함수 VM에 A 동기화 POST 대기→B 연결 복원→A 대기 요청 자동 중단, in-flight A payload 고정, server-side 일반 코드 sync의 타 워크북 출처 거부, 동일 code/name·다른 sector 원격 선수정 시 삭제 CAS 실패 등의 회귀검사를 추가했습니다.
+- 이 통합 후보의 GAS v9.199 검증용 git blob SHA는 `53eeff145dc908b1b17c773655bd1e7d60822e14`이며 `check-gas-deploy` 및 배포 사전 게이트의 고정 해시를 함께 변경했습니다. 웹 자산 `settings_sync.js=20261013-7`, `sw/cache=20261013-9`. 원래 PR #489~#492/main, 운영 GAS 실배포, 키, 실제 원장/가격/Snapshot 데이터는 건드리지 않았습니다.
+- 최종 CI/독립 재리뷰 후에도 PR Draft·미병합 상태로 유지합니다.
+
 ## PR #493 Codex 추가 P2: 신규 종목 삭제·비동기 POST 경합 수정 (2026-10-13 · Draft/미배포)
 
 - 리뷰 HEAD db64a11에서 발견한 P2: 사용자가 신규 종목을 삭제할 때 이미 시작된 일반 syncCodes POST가 뒤늦게 완료되면 서버 종목 마스터와 브라우저 기초정보에 종목이 다시 나타날 수 있음.
