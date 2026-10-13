@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.210
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.211
+//
+//  v9.211 변경사항 (2026.10.13):
+//   일반 saveSettings도 서버 Code/Settings 전체 원본 검증 후 사용자 필드 저장
+//   타 브라우저 교체 부분 커밋 시 목표비중/메모 유실을 쓰기 전 차단
 //
 //  v9.210 변경사항 (2026.10.13):
 //   Settings-only 재기준화 대상별 원본 CAS 검사·다른 탭 부분 커밋 보호
@@ -1963,7 +1967,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.210', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.211', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5620,7 +5624,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.210' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.211' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11358,7 +11362,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.210',
+    gasVersion: '9.211',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11398,7 +11402,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.210' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.211' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14383,6 +14387,44 @@ function handleSaveSettings(dataJson) {
       var codeRows=getCodeItems(getss(), true);
       if (!_portfolioNormalizeCodeMasterSnapshot_(codeRows))
         return jsonError('서버 코드 마스터 중복/손상', {errorCode:'SETTINGS_CODE_MASTER_INVALID'});
+      // The stored editable rows are the ONLY authoritative source of custom
+      // stock fields when an older browser submits a settings payload.
+      // A->B may have committed to Codes but failed writing Settings A->B.
+      // Never materialize B from defaults or silently discard orphan A.
+      // Check all coded pairs under the same ScriptLock before ANY settings
+      // merge/write, regardless of which rows the client submitted.
+      if (settings.EDITABLE_PRICES !== undefined && !Array.isArray(settings.EDITABLE_PRICES))
+        return jsonError('서버 종목 Settings 원본 형식 오류', {
+          errorCode:'SETTINGS_CODE_MASTER_MISMATCH'
+        });
+      var lockedPairs={}, storedPairs={}, unsafeStored=false;
+      codeRows.forEach(function(row) {
+        var name=String(row&&row.name||'').trim(),code=_cleanCode(row&&row.code||'');
+        if (!name || !code) unsafeStored=true;
+        else lockedPairs[JSON.stringify([name,code])]=true;
+      });
+      (settings.EDITABLE_PRICES || []).forEach(function(ep) {
+        if (!ep || typeof ep!=='object' || Array.isArray(ep)) {
+          unsafeStored=true; return;
+        }
+        var name=String(ep.name||'').trim(),code=_cleanCode(ep.code||'');
+        // Code-less direct fund/TDF entries are intentionally not in Codes.
+        if (!code) return;
+        var pair=JSON.stringify([name,code]);
+        if (!name || !lockedPairs[pair] || storedPairs[pair])
+          unsafeStored=true;
+        storedPairs[pair]=true;
+      });
+      codeRows.forEach(function(row) {
+        var pair=JSON.stringify([
+          String(row.name||'').trim(),_cleanCode(row.code||'')
+        ]);
+        if (!storedPairs[pair]) unsafeStored=true;
+      });
+      if (unsafeStored)
+        return jsonError('서버 종목 마스터와 Settings 원본 불일치: 종목 복구 후 재저장 필요', {
+          errorCode:'SETTINGS_CODE_MASTER_MISMATCH'
+        });
       var incomingByPair={}, retainedFunds=[], rowSeen={};
       incoming.EDITABLE_PRICES.forEach(function(ep) {
         if (!ep || typeof ep!=='object') return;
@@ -14438,7 +14480,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.210' });
+    return jsonOk({ settings: settings, gasVersion: '9.211' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14468,7 +14510,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.210'
+      gasVersion: '9.211'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

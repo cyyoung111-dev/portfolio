@@ -1,0 +1,109 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+// Execute the production GAS saveSettings handler, not a reimplementation.
+// Only Settings may be written; a prior cross-browser code-only partial
+// commit must not drop any stored targetWeight, notes, or unconnected keys.
+const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
+const start=source.indexOf('function handleSaveSettings(');
+const end=source.indexOf('function handleGetSettings(',start);
+assert.ok(start>=0&&end>start);
+const A={name:'A',code:'1',type:'주식',sector:'기타',currency:'KRW',market:''};
+const B={...A,name:'B',code:'2'};
+const C={...A,name:'C',code:'3'};
+const oldA={name:'A',code:'1',assetType:'주식',targetWeight:37,notes:'must preserve'};
+const oldC={name:'C',code:'3',assetType:'주식',targetWeight:20,notes:'C notes'};
+const fund={name:'TDF 직접',code:'',assetType:'TDF',targetWeight:25,notes:'fund'};
+const fullPair=x=>JSON.stringify([x.name,x.code]);
+function fixture(master, storedRows, otherSettings={}) {
+  const state={master:structuredClone(master), settings:{
+    EDITABLE_PRICES:structuredClone(storedRows),
+    LOAN:{balance:357000000},REAL_ESTATE:{price:700000000},
+    DIVDATA:{paid:10},APP_THEME:'light',...structuredClone(otherSettings)},
+    writes:0,lock:false};
+  const context={
+    LockService:{getScriptLock:()=>({
+      waitLock(){assert.equal(state.lock,false);state.lock=true;},
+      releaseLock(){assert.equal(state.lock,true);state.lock=false;}
+    })},
+    getss:()=>({}),
+    _settlePendingCodeDeleteLocked_:()=>({pending:false}),
+    _parseJsonParam:s=>JSON.parse(s),
+    _cleanCode:c=>String(c||'').trim(),
+    _portfolioNormalizeCodeMasterSnapshot_:masterRows=>{
+      if (!Array.isArray(masterRows)) return '';
+      const ids=new Set(),names=new Set();
+      for (const row of masterRows) {
+        if (!row.name || !row.code || ids.has(row.code) || names.has(row.name)) return '';
+        ids.add(row.code);names.add(row.name);
+      }
+      return JSON.stringify(masterRows.map(fullPair).sort());
+    },
+    getCodeItems:()=>structuredClone(state.master),
+    _readSettingsMap:()=>structuredClone(state.settings),
+    _writeSettingsMap:data=>{
+      state.writes++;
+      state.settings=structuredClone(data);
+      return Object.keys(data).length;
+    },
+    jsonOk:v=>({status:'ok',...v}),
+    jsonError:(message,v={})=>({status:'error',message,...v})
+  };
+  vm.createContext(context);
+  vm.runInContext(source.slice(start,end),context);
+  return {state, save:incoming=>context.handleSaveSettings(JSON.stringify(incoming))};
+}
+function shouldReject(master, stored, incoming, label, extras={}) {
+  const f=fixture(master,stored,extras),before=structuredClone(f.state.settings);
+  const result=f.save(incoming);
+  assert.equal(result.errorCode,'SETTINGS_CODE_MASTER_MISMATCH',label);
+  assert.equal(f.state.writes,0,label+' no settings write');
+  assert.deepEqual(f.state.settings,before,label+' preserves settings + notes');
+  assert.equal(f.state.lock,false,label+' releases lock');
+}
+const incoming={EDITABLE_PRICES:[{...B,targetWeight:0}],APP_THEME:'dark'};
+shouldReject([B],[oldA],incoming,'other tab A->B code-only commit');
+shouldReject([B,C],[oldA,oldC,fund],
+  {EDITABLE_PRICES:[{...B},{...C}],APP_THEME:'dark'},
+  'unrelated C theme/metadata save cannot drop orphan A');
+shouldReject([A,C],[oldA,fund],
+  {EDITABLE_PRICES:[oldA,oldC],APP_THEME:'dark'},
+  'incoming client proof does not authorize a server-missing C');
+shouldReject([A,C],[oldA,oldC,{...oldC,targetWeight:55}],
+  {EDITABLE_PRICES:[oldA,oldC]},'duplicate coded Settings must block');
+shouldReject([A,C],[oldA,oldC,{name:'orphan',code:'9',targetWeight:87}],
+  {EDITABLE_PRICES:[oldA,oldC]},'unproven Settings orphan must block');
+shouldReject([A],[oldA],{EDITABLE_PRICES:[oldA],APP_THEME:'dark'},
+  'malformed persisted Settings must block',{EDITABLE_PRICES:{name:'A',code:'1'}});
+shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
+  'initial missing stored coded pair is not license to default');
+{
+  const f=fixture([A,C],[oldA,oldC,fund]);
+  const saved=f.save({EDITABLE_PRICES:[
+    {...oldA,targetWeight:42,notes:'user edited'},
+    {name:'orphan',code:'999',targetWeight:100},
+    fund
+  ],APP_THEME:'dark',LOAN:{balance:0},REAL_ESTATE:{price:0}});
+  assert.equal(saved.status,'ok','valid master and stored exact pairs may save');
+  assert.equal(f.state.writes,1);
+  assert.deepEqual(f.state.settings.EDITABLE_PRICES.map(x=>x.name),['A','C','TDF 직접']);
+  assert.equal(f.state.settings.EDITABLE_PRICES[0].targetWeight,42);
+  assert.equal(f.state.settings.EDITABLE_PRICES[0].notes,'user edited');
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].targetWeight,20,
+    'unsubmitted C retains authoritative old custom fields');
+  assert.equal(f.state.settings.EDITABLE_PRICES[2].targetWeight,25);
+  assert.equal(f.state.settings.APP_THEME,'dark');
+  assert.equal(f.state.settings.LOAN.balance,357000000);
+  assert.equal(f.state.settings.REAL_ESTATE.price,700000000);
+  assert.equal(f.state.settings.DIVDATA.paid,10);
+  assert.equal(f.state.lock,false);
+}
+{
+  const f=fixture([A],[oldA]);
+  const saved=f.save({APP_THEME:'dark'});
+  assert.equal(saved.status,'ok','unrelated key-only Settings saves do not rebase coded rows');
+  assert.equal(f.state.settings.EDITABLE_PRICES[0].targetWeight,37);
+  assert.equal(f.state.settings.APP_THEME,'dark');
+}
+console.log('✅ 생산 GAS saveSettings: 교체 부분저장/타 탭/orphan·중복·누락 차단, 비중/메모·펀드/보호키 유지');

@@ -1,3 +1,11 @@
+## PR #493 Codex P2 — 일반 Settings 저장의 코드 마스터 원본 정합성 차단 (2026-10-13)
+
+- **원인**: 다른 브라우저 A→B 코드 시트 변경이 완료되고 `EDITABLE_PRICES` 쓰기만 실패하면 master B/Settings A 상태. 일반 `handleSaveSettings`는 B에 대응하는 원본이 없어 사용자 `targetWeight`·`notes`를 기본값으로 다시 만들면서 기존 A 메타데이터를 삭제함.
+- **GAS v9.211**: 일반 saveSettings에서 `EDITABLE_PRICES`가 제출된 경우, 같은 ScriptLock 안에서 현재 코드 마스터의 모든 정확한 종목명/코드 pair에 대응하는 **저장된 서버 Settings 원본이 정확히 하나** 존재하는지 양방향 검사. 누락·고아·중복·형식 오류는 `SETTINGS_CODE_MASTER_MISMATCH`로 일반 설정/테마 포함 **어떠한 Settings 쓰기 전** 중단. 정상 저장에서는 stale incoming 개별 종목을 server master에 projection하되 원래 목적의 신규 종목 임의 부활 금지, 사용자 필드·코드 없는 TDF·보호 대상 DIVDATA/LOAN/REAL_ESTATE 불변.
+- **생산 함수 VM** `scripts/check-stock-master-save-settings-integrity.mjs`: 코드 부분저장 B/원본 A(targetWeight=37/notes) → 쓰기 0, 타종목 C·누락·중복·고아·손상된 Settings 검사, 건강한 Settings의 일반 테마/목표비중 저장과 펀드·대출/부동산/배당 보존. quality/web/GAS 게이트에 추가.
+- GAS v9.211 full Git blob `1985fbbe0a351074ac9ee9bfabbdc787ec99a672`, 웹 Expected 버전/Settings fetch 캐시/PWA 및 deploy SHA pin 정합. Draft·미병합·운영 배포 skipped, main/원본 #489~#492/운영 데이터 미변경.
+
+---
 ## PR #493 Codex P2 — Settings-only 재기준화 전체 원본/증거 정합성 보호 (2026-10-13)
 
 - **원인**: 기존 `metadataOnly` 부채로 다른 브라우저의 A→B 코드 마스터 부분 커밋을 무시한 채 Settings 전종목을 rebase, B의 targetWeight·notes를 기본값으로 소실 가능.
