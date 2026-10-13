@@ -423,5 +423,21 @@ assert.equal(await h.ctx._retryPendingExplicitEmptyTradeSync({
 assert.equal(preflightPendingPosts.length,0,'pending preflight blocks all writes');
 assert.ok(h.ctx._getPendingExplicitEmptyTradeSync(),'pending source is retained on failure');
 
+
+
+// P1 self-review: missing holding code must come from pinned server master,
+// not a previous connection's EDITABLE_PRICES/STOCK_CODE before settings apply.
+h=setup();
+h.response.codes=[{name:'테스트',code:'005930',type:'ETF'}];
+vm.runInContext("EDITABLE_PRICES.length=0; EDITABLE_PRICES.push({name:'테스트',code:'999999',assetType:'주식'}); _invalidateEPIndex(); STOCK_CODE['테스트']='999999'; rawHoldings.push({name:'테스트',code:'',qty:1,cost:100,acct:'일반'}); _markPortfolioRemoteDirty();",h.ctx);
+let pinnedHoldingPayload=null;
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  if(action==='syncHoldings') pinnedHoldingPayload=JSON.parse(params.data);
+  return {status:'ok',saveState:'success',synced:1};
+};
+assert.equal(await h.ctx.loadSettings(),true,'same-Bootstrap holding code must recover');
+assert.equal(pinnedHoldingPayload?.[0]?.code,'005930','do not import prior-connection stock code');
+assert.equal(pinnedHoldingPayload?.[0]?.assetType,'ETF','do not import prior-connection stock type');
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
