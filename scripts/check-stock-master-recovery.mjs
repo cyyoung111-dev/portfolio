@@ -111,7 +111,7 @@ assert.match(sw,/views_history\.js\?v=20261012-2/);
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,
  'successful bootstrap must re-render disabled controls');
-assert.match(html,/mgmt_stock\.js\?v=20261014-2/);
+assert.match(html,/mgmt_stock\.js\?v=20261014-3/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/settings\.js\?v=20261013-9/);
 assert.match(sw,/settings\.js\?v=20261013-9/);
