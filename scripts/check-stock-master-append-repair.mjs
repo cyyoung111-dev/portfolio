@@ -66,7 +66,7 @@ function scenario({failInitial=true}={}) {
   ctx.initialMaster=[{...A}];
   vm.runInContext('applyGsheetCodeList(initialMaster,_gsCodeMasterSourceIdentity)',ctx);
   assert.equal(vm.runInContext(
-    '_recordSameTargetLocalCodeAddition(EDITABLE_PRICES[1],{sourceId:_gsCodeMasterSourceIdentity})',ctx),true);
+    '_recordSameTargetLocalCodeAddition(EDITABLE_PRICES[1],captureStockMasterEditSession())',ctx),true);
   const debts=()=>vm.runInContext(
     '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity)',ctx);
   const journals=()=>vm.runInContext(
