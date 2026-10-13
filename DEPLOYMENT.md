@@ -1,3 +1,10 @@
+## PR #493 Codex P2 — Settings 원본 없는 후속 교체 방지 (2026-10-13)
+
+- A→B 종목 코드 마스터만 반영되고 Settings에는 A가 남은 부분 커밋 직후 다른 브라우저에서 B→C로 교체하면 사용자 비중·메모가 유실될 수 있었음. GAS `handleSyncCodes`는 정상 교체에서 기존 Settings의 정확 pair 1건을 강제하며, 0건/중복/신규 별칭 충돌을 코드 시트 변경 전 `CODE_SYNC_REPLACEMENT_SETTINGS_CONFLICT`로 거부함.
+- 생산 `handleSyncCodes` 함수 호출 기반 VM 회귀를 CI에 추가해 부채 상황에서 코드/Settings 저장 0과 정상 교체(전체·이름만·코드만) 시 사용자 필드 승계를 검증하도록 함.
+- GAS v9.206 full-source 지문 게이트 및 웹 기대버전 9.206, settings_fetch 20261013-6, PWA 20261013-25. 본 소스 지문은 CI 무결성 확인이며 운영 배포 승인이 아님. Draft·미병합·운영 GAS 미배포, 원본 #489~#492와 main 직접 변경 없음.
+
+---
 ## PR #493 Codex P2 2건 — 복구 부채 성공 해제·후속 삭제 종결 (2026-10-13)
 
 - **즉시 Settings 복구 성공 뒤 남는 부채**: 일반 `syncCodes` POST가 오류를 반환했지만 코드 마스터가 이미 최신으로 바뀐 경우 Settings-only 복구가 성공해도 기존 코드가 빈 `replacements/settingsReplacements`만 삭제해 `metadataOnly` 부채가 남던 문제 수정. 이제 부분 커밋 시 생성한 `repairProof` 전체를 추적하고, 성공한 CAS Settings 수리 **뒤 최신 `getCodeList` 전체 마스터 readback 일치 검증을 통과해야만** 해당 부채를 영속 해제합니다. 실패·소스 전환·후속 CAS 충돌 시에는 부채 유지.

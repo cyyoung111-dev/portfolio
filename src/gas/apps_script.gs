@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.205
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.206
+//
+//  v9.206 변경사항 (2026.10.13):
+//   코드 교체 시 정확히 하나의 기존 Settings 원본이 있어야 수정 허용
+//   타 탭의 코드만 부분 커밋 후 후속 교체에서 사용자 목표 비중/메모 유실 차단
 //
 //  v9.205 변경사항 (2026.10.13):
 //   종목 삭제 Settings 갱신은 EDITABLE_PRICES 단일 셀만 원자적으로 교체
@@ -1944,7 +1948,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.205', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.206', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5601,7 +5605,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.205' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.206' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11339,7 +11343,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.205',
+    gasVersion: '9.206',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11379,7 +11383,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.205' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.206' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14382,7 +14386,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.205' });
+    return jsonOk({ settings: settings, gasVersion: '9.206' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14412,7 +14416,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.205'
+      gasVersion: '9.206'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14896,7 +14900,10 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
           return (name===toName || code===toCode)
             && !(name===fromName && code===fromCode);
         });
-        if (priorRows.length>1 || competingRows.length)
+        // Exactly one source Settings entry is required; a prior partial
+        // code-master commit may leave the code B but only Settings A.
+        // Never erase A's custom fields by proceeding with B->C.
+        if (priorRows.length!==1 || competingRows.length)
           return jsonError('종목 교체 Settings 기존/신규 정보 충돌', {
             errorCode:'CODE_SYNC_REPLACEMENT_SETTINGS_CONFLICT'
           });
