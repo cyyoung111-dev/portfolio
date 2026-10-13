@@ -740,6 +740,16 @@ async function smSave(idx) {
       && typeof _forgetSameTargetLocalCodeAddition === 'function') {
     _forgetSameTargetLocalCodeAddition(originalMasterIdentity.name, originalMasterIdentity.code);
   }
+  if (originalMasterIdentity.name !== newName
+      && normalizeStockCode(originalMasterIdentity.code) !== newCode
+      && originalMasterIdentity.code && newCode
+      && typeof _recordSameTargetLocalCodeAddition === 'function') {
+    // The server can CAS-replace the original code-master row under its lock,
+    // instead of leaving an orphan old entry next to the new name/code.
+    _recordSameTargetLocalCodeAddition({
+      ...item, replaces: originalMasterIdentity
+    }, editSession);
+  }
   if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
   // ★ EDITABLE_PRICES 중복 항목 제거 (idx 파라미터 직접 사용 — indexOf보다 안전)
