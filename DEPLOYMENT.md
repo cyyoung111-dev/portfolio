@@ -1,3 +1,11 @@
+## PR #493 2026-10-13 Codex 후속 P2 — 연속 종목명/코드 교체 안전성
+
+- Codex HEAD `c230751` 지적: 사용자가 서버 동기화 전 `A/1 → B/2 → C/3`처럼 연속 편집하면 기존 UI 교체 이력이 `B/2 → C/3`만 남고 실제 서버 원본 `A/1`은 유지됩니다. 게다가 일치하지 않는 교체 journal이 신규 추가 권한으로 잘못 사용되어 원래 종목과 신규 종목이 동시에 남을 위험이 있었습니다.
+- **수정**: 동일 GAS target/workbook source의 미확정 변경 journal을 연쇄 합성하여 가장 오래된 서버 원본 `A/1 → C/3`으로 유지합니다. `smSave`는 새 journal을 기록한 **뒤** 이전 상태를 정리하고 이름만/코드만 변경하는 중간 단계도 같은 provenance로 추적합니다. 편집을 원래 서버 pair로 되돌렸을 때는 미확정 journal을 삭제합니다.
+- **Fail-closed**: `syncCodesToGsheet`가 `replaces`가 존재하는 항목을 절대로 신규 추가 권한으로 쓰지 않습니다. 교체 원본 pair가 예상 서버 전체 코드 마스터 스냅샷에 정확히 1개 존재할 때만 `replacements`를 보내고, 미일치·이력 손상 시 어떤 일반 종목 master POST도 수행하지 않습니다. GAS는 전체 마스터 CAS와 동일 ScriptLock을 유지하며, 이름만/코드만/양쪽 변경을 **원래 행을 교체하는 방식**으로 처리하되 별개 행과 충돌하면 거부합니다. 성공 응답 후 서버 readback에서 실제로 변경된 옛 코드/이름이 남지 않았는지 검사한 경우만 journal을 제거합니다.
+- **회귀**: 실제 브라우저 VM에서 연속 2단계 변경의 원본 `A/1` 보존, 원본 없는 journal 전송 0회, 원래 pair로 돌아오는 동작과 journal 제거, 성공한 교체의 readback 및 journal 정리를 확인합니다. 실제 GAS handler VM에서는 이름만·코드만 별도 교체가 모두 기존 **단일 행**을 유지하며 Settings와 같은 내용을 갖는지 확인합니다.
+- 후보 GAS v9.199 blob `852c26bbaf5312f8aa447f5f1d03a8932a85b3f8`. 정적 웹 자산 `data.js=20261013-6`, `settings_sync.js=20261013-11`, `mgmt_stock.js=20261013-6`, `sw/cache=20261013-13`. 현재 PR은 Draft, 운영 GAS/시세/거래/Snapshot 데이터 불변, main 및 원래 PR #489–#492 변경 없음.
+
 ## PR #493 2026-10-13 Codex 최근 P1 2건·P2 2건 / 자체 재검토 (Draft·배포 금지)
 
 - **P1 오래된 거래 쓰기 vs 종목 삭제**: GAS `handleSyncTrades`가 실제 같은 ScriptLock 내부에서 현재 서버 코드 마스터와 각 거래의 code/name 일치 또는 현재 이름 확인된 레거시 무코드 거래를 검증한 후에만 거래 원장을 비웁니다. 삭제 이후 stale 종목 거래는 `TRADES_CODE_MASTER_CONFLICT`로 쓰기 이전 거부합니다.
