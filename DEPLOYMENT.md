@@ -1,3 +1,10 @@
+## PR #493 Codex 추가 P2·부트스트랩 복구 설계 검증 — 2026-10-13
+
+- **부트스트랩 복구 (P2)**: 거래·보유 dirty 및 코드 추가 journal이 없어도 동일 GAS URL·워크북에 Settings 복구 부채가 있으면, 최초 Bootstrap Settings 적용 **이전**에 잠금·전체 마스터 CAS로 Settings를 수리하고 새 `getBootstrap`을 재조회합니다. 실패 시 부채를 보존하고 완료 처리를 중단합니다.
+- **메타데이터 단독 부분 커밋 (P2)**: 이름·코드 교체 없이 섹터·통화·시장만 변경된 뒤 Settings 저장이 실패해도 `metadataOnly` 영속 복구 부채를 기록합니다. 재시도는 변경 없이 확정 마스터에서 Settings를 재조정하고 이 identity를 rename 증거로 사용하지 않습니다.
+- **검증**: 실제 Bootstrap VM에서 기존 A Settings+신규 B 코드 시트, 거래·보유 dirty/추가 journal 없음→Settings 선수리→Bootstrap 재조회 및 B의 `targetWeight` 보존, 실패 시 bootstrap 거절. 웹 VM 메타데이터 단독 부분 기록·Settings 연쇄 실패·복구 후 부채 해제. `quality-check`·`web-check`·GAS `validate` 통과.
+- **배포 제한**: GAS v9.202 전체 Git blob `23dd4fa2c455c315d6925d57f3bdfe5baec40aeb` 유지. 웹 `data.js 20261013-9`, `settings_sync.js 20261013-17`, `settings.js 20261013-7`, PWA `20261013-19`. PR Draft·미병합, 배포 skipped.
+
 ## PR #493 재리뷰 재검토 — 2026-10-13 (Draft / 운영 배포 불가)
 
 - **GAS v9.202 후보**: 리뷰용 전체 Git blob `23dd4fa2c455c315d6925d57f3bdfe5baec40aeb`; `scripts/deploy-gas.mjs` 무결성 게이트 및 `scripts/check-gas-deploy.mjs` 체크 일치. 운영 배포가 아닌 CI 검증 소스입니다.
