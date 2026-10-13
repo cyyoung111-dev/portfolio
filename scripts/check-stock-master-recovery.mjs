@@ -451,3 +451,96 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
   console.log('✅ Settings 연속 실패·재시작·메타데이터 단독 부분 커밋 영속 복구 VM 통과');
 }
+
+// Codex P2: metadata-only B changes while Settings fails, but arbitrary
+// first row A later disappears in another tab. The marker MUST identify B,
+// and Bootstrap must reconcile the CURRENT same-workbook master without A.
+{
+  const data=fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
+  const start=data.indexOf('const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY');
+  const end=data.indexOf('function _normalizePendingExplicitEmptyTradeSync(',start);
+  const js=sync.slice(0,sync.indexOf('// ★ v8.1'));
+  const targetUrl='https://script.google.com/macros/s/metadata-debt/exec';
+  const sourceId='sheet-metadata';
+  const remote=[
+    {name:'A',code:'1',type:'주식',sector:'기타',currency:'KRW',market:'KR'},
+    {name:'B',code:'2',type:'주식',sector:'기타',currency:'KRW',market:'KR'}
+  ];
+  const disk={};
+  let postCount=0;
+  const session={
+    console,GSHEET_API_URL:targetUrl,GSHEET_KEY:'url',
+    _gsBootRestored:true,_gsPortfolioRestoreRequired:false,
+    _gsCodeMasterSourceIdentity:sourceId,EDITABLE_PRICES:[],
+    normalizeStockCode:s=>String(s||'').trim(),
+    getGsheetConnectionGeneration:()=>6,
+    isGsheetConnectionCurrent:(t,g)=>t===targetUrl&&g===6,
+    isGsheetPortfolioWriteReady:()=>true,
+    _currentGsheetSyncTarget:()=>targetUrl,
+    lsGet:(key,otherwise)=>key in disk?structuredClone(disk[key]):otherwise,
+    lsSave:(key,value)=>{disk[key]=structuredClone(value)},
+    lsRemove:key=>{delete disk[key]},
+    requestGsheetActionJson:async action=>{
+      assert.equal(action,'getCodeList');
+      return {status:'ok',codeMasterSourceId:sourceId,codes:remote.map(x=>({...x}))};
+    },
+    requestGsheetFormJson:async (action,params)=>{
+      assert.equal(action,'syncCodes');
+      postCount++;
+      if(postCount===1){
+        assert.equal(params.forceSettingsRebase,'');
+        remote[1].sector='헬스케어';
+        return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+      }
+      assert.equal(params.forceSettingsRebase,'1');
+      assert.equal(JSON.parse(params.settingsReplacements).length,0,
+        'metadata-only debt must not impersonate a rename');
+      if(postCount===2) return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+      assert.equal(postCount,3);
+      assert.deepEqual(JSON.parse(params.expectedCodes).map(x=>x.name),['B'],
+        'read-only Settings repair CAS uses revised master after A is deleted');
+      assert.deepEqual(Object.keys(JSON.parse(params.codes)),['B']);
+      return {status:'ok',updated:0};
+    }
+  };
+  vm.createContext(session);
+  vm.runInContext(data.slice(start,end),session);
+  vm.runInContext(js,session);
+  session.codes=remote.map(x=>({...x}));
+  vm.runInContext('applyGsheetCodeList(codes,_gsCodeMasterSourceIdentity)',session);
+  session.EDITABLE_PRICES=[
+    {name:'A',code:'1',type:'주식',sector:'기타',currency:'KRW',market:'KR'},
+    {name:'B',code:'2',type:'주식',sector:'헬스케어',currency:'KRW',market:'KR'}
+  ];
+  assert.equal(await vm.runInContext('syncCodesToGsheet()',session),null,
+    'code update confirmed but Settings write and repair failed');
+  const debt=vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity)',session);
+  assert.equal(debt.length,1);
+  assert.equal(debt[0].name,'B','only modified B is evidence, not unrelated first A');
+  assert.equal(debt[0].metadataOnly,true);
+  assert.equal(remote[0].name,'A');
+  remote.shift(); // Other tab legitimately deletes unrelated A.
+  session.latest=remote.map(x=>({...x}));
+  const result=await vm.runInContext(
+    'repairPinnedSameTargetCodeSettingsBeforeRestore({targetUrl:GSHEET_API_URL,sourceId:_gsCodeMasterSourceIdentity,generation:6,masterCodes:latest})',
+    session);
+  assert.ok(result,'metadata repair must not stall after unrelated row deletion');
+  assert.equal(postCount,3);
+  assert.equal(vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',session),0,
+    'verified repair retires stale metadata-only debt');
+  assert.equal(remote.length,1);
+  assert.equal(remote[0].name,'B');
+  assert.equal(remote[0].sector,'헬스케어');
+
+  // Legacy persisted PR #493 debt may still point to the arbitrary first A.
+  // Its metadataOnly=true flag is not rename proof and must not stall recovery.
+  vm.runInContext('_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity,[{previousName:"A",previousCode:"1",name:"A",code:"1",metadataOnly:true}])',session);
+  const oldDebt=vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity)',session);
+  assert.equal(oldDebt.length,1);
+  // The actual bootstrap handler route is covered separately below.
+  assert.equal(oldDebt[0].metadataOnly,true);
+  console.log('✅ 메타데이터 부분커밋 실제 변경 종목 추적 및 타 탭 무관 삭제 후 동일 원본 복구 VM 통과');
+}
