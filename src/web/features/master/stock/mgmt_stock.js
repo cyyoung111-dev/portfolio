@@ -456,6 +456,9 @@ function smCsvImport(input) {
         EDITABLE_PRICES[idx].fund = isFund;
         EDITABLE_PRICES[idx].currency = currency;
         EDITABLE_PRICES[idx].market = market;
+        if (code && typeof _recordSameTargetLocalCodeAddition === 'function') {
+          _recordSameTargetLocalCodeAddition(EDITABLE_PRICES[idx], editSession);
+        }
         added++;
       }
       if (code && name) STOCK_CODE[name] = normalizeStockCode(code);
@@ -579,6 +582,9 @@ async function smMgmtConfirm() {
     ...(market ? { market } : {}),
   });
   if(code) STOCK_CODE[name] = normalizeStockCode(code);
+  if (code && typeof _recordSameTargetLocalCodeAddition === 'function') {
+    _recordSameTargetLocalCodeAddition({name,code,sector,assetType,currency,market}, editSession);
+  }
   syncHoldingsFromTrades();
   saveHoldings();
   queueMgmtGsheetSync();
