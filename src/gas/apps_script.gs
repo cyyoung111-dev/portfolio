@@ -1156,7 +1156,7 @@ function doPost(e) {
   if (params.action === 'deleteUnreferencedCode' && params.data)
     return handleDeleteUnreferencedCode(params.data);
   if (params.action === 'syncCodes'    && params.codes)
-    return handleSyncCodes(params.codes, params.expectedSourceId || '');
+    return handleSyncCodes(params.codes, params.expectedSourceId || '', params.expectedCodes || '');
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
   if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
@@ -14423,7 +14423,7 @@ function handleDeleteUnreferencedCode(dataJson) {
   }
 }
 
-function handleSyncCodes(codesParam, expectedSourceId) {
+function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
@@ -14432,10 +14432,20 @@ function handleSyncCodes(codesParam, expectedSourceId) {
       try { incoming = JSON.parse(codesParam); } catch(e2) { return jsonError('codes 파싱 실패'); }
     }
     var ss = getss();
-    // New clients pin the authenticated workbook identity. Check before any
-    // sheet mutation. Preexisting clients may omit the optional proof.
-    if (expectedSourceId && String(expectedSourceId) !== _portfolioCodeMasterSourceIdentity_(ss))
-      return jsonError('종목코드 동기화 연결 대상이 변경됨', { errorCode:'CODE_SYNC_SOURCE_CHANGED' });
+    // Compare both actual workbook identity and full master revision before
+    // any sheet mutation. Legacy clients without CAS proof fail CLOSED:
+    // accepting them could resurrect assets just deleted by another browser.
+    if (!expectedSourceId || String(expectedSourceId) !== _portfolioCodeMasterSourceIdentity_(ss))
+      return jsonError('종목코드 동기화 연결 대상 확인 실패', { errorCode:'CODE_SYNC_SOURCE_CHANGED' });
+    var expectedCodes;
+    try { expectedCodes = _parseArrayParam(expectedCodesParam, 'expected code master'); }
+    catch (parseError) {
+      return jsonError('동기화 이전 종목 마스터 스냅샷 필수', { errorCode:'CODE_SYNC_REVISION_REQUIRED' });
+    }
+    var currentSnapshot = _portfolioNormalizeCodeMasterSnapshot_(getCodeItems(ss, true));
+    var expectedSnapshot = _portfolioNormalizeCodeMasterSnapshot_(expectedCodes);
+    if (!currentSnapshot || !expectedSnapshot || currentSnapshot !== expectedSnapshot)
+      return jsonError('다른 연결에서 종목 마스터가 변경됨', { errorCode:'CODE_SYNC_MASTER_CHANGED' });
     var cs = ss.getSheetByName(CONFIG.SHEET_CODES);
     var createdCodeSheet = !cs;
     if (!cs) {
