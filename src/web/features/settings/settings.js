@@ -529,6 +529,17 @@ async function loadSettings(onProgress, options) {
     }
     let s = data.settings;
     const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
+    // Recovery provenance may exist ONLY as a durable A->B journal if the
+    // browser stopped between code-sheet flush and Settings failure readback.
+    // Promote server-confirmed replacements before reading the debt list or
+    // applying the stale bootstrap Settings to EDITABLE_PRICES.
+    if (isBootstrap && bootstrapCodeMasterSource
+        && typeof stageConfirmedSameTargetCodeReplacementRepairs === 'function'
+        && !stageConfirmedSameTargetCodeReplacementRepairs(
+          loadTarget,bootstrapCodeMasterSource,data.codes)) {
+      loadStage='확정 종목교체 Settings 복구 근거 저장';
+      return failLoad('CODE_SETTINGS_REPAIR_PROVENANCE_FAILED');
+    }
     // Pending code Settings migrations are independent of dirty trades,
     // holdings, and uncommitted code additions. They must run BEFORE applying
     // stale Bootstrap Settings and before marking the load successful.
