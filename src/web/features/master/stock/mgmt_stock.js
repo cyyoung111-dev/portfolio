@@ -294,6 +294,9 @@ function smDelete(idx) {
   if(realIdx === -1) return;
   if(snapItem.code) delete STOCK_CODE[snapItem.name];
   EDITABLE_PRICES.splice(realIdx, 1);
+  if (typeof _forgetSameTargetLocalCodeAddition === 'function') {
+    _forgetSameTargetLocalCodeAddition(snapItem.name, snapItem.code);
+  }
   const sc2 = $el('stockMgmtBody');
   if(sc2) sc2._selectedIdx = null;
   // ※ _commitTrades() 대신 saveHoldings() 직접 호출
