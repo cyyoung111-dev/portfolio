@@ -376,6 +376,38 @@ function stageConfirmedSameTargetCodeReplacementRepairs(targetUrl, sourceId, mas
   return !debt.length || _rememberSameTargetCodeSettingsRepairs(targetUrl,sourceId,debt);
 }
 
+// A committed A->B replacement can later be deleted by ANOTHER tab. The
+// full, source-pinned master CAS may then contain neither A nor B. There is
+// no metadata left to transfer: a Settings-only rebase must prune stale A.
+// Ambiguous aliases (reused old/new names or codes) still fail closed.
+function _classifyPinnedCodeSettingsRepairDebt(debts, master) {
+  if (!Array.isArray(debts) || !Array.isArray(master)
+      || !_stockMasterSyncFingerprint(master)) return null;
+  const transfers=[];
+  for (const step of debts) {
+    if (step?.metadataOnly === true) continue;
+    if (!step?.name || !step?.code || !step?.previousName || !step?.previousCode
+        || (step.name===step.previousName && _normalizeSyncCode(step.code)===_normalizeSyncCode(step.previousCode)))
+      return null;
+    const oldCode=_normalizeSyncCode(step.previousCode),newCode=_normalizeSyncCode(step.code);
+    const oldName=String(step.previousName || '').trim(),newName=String(step.name || '').trim();
+    const target=master.some(row => String(row.name || '').trim()===newName
+      && _normalizeSyncCode(row.code)===newCode);
+    // Reuse of ANY name/code component without the original complete pair
+    // may indicate a competing rename, not a legitimate completed deletion.
+    const oldAlias=master.some(row => String(row.name || '').trim()===oldName
+      || _normalizeSyncCode(row.code)===oldCode);
+    const targetAlias=master.some(row => String(row.name || '').trim()===newName
+      || _normalizeSyncCode(row.code)===newCode);
+    if (target && !oldAlias) transfers.push(step);
+    else if (!target && !oldAlias && !targetAlias) {
+      // The target has vanished from the fully committed current master.
+      // No A->B metadata transfer is possible or appropriate anymore.
+    } else return null;
+  }
+  return transfers;
+}
+
 // Bootstrap must settle a saved Settings migration BEFORE applying stale
 // getBootstrap Settings to EDITABLE_PRICES or declaring the restore complete.
 // This path uses only the pinned workbook's server master, never local state.
@@ -397,17 +429,8 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
     if (!isGsheetConnectionCurrent(targetUrl,generation)
         || now?.status!=='ok' || now.codeMasterSourceId!==sourceId
         || _stockMasterSyncFingerprint(now.codes)!==expectedFingerprint) return null;
-    const valid=debts.every(step => {
-      // Metadata-only debt requests a same-source CURRENT-master Settings
-      // rebase; its changed row may have been legitimately deleted later.
-      if (step.metadataOnly === true) return true;
-      return now.codes.some(row => String(row.name || '').trim()===step.name
-        && _normalizeSyncCode(row.code)===_normalizeSyncCode(step.code))
-        && !now.codes.some(row =>
-          (step.previousName!==step.name && String(row.name || '').trim()===step.previousName)
-          || (step.previousCode!==step.code && _normalizeSyncCode(row.code)===_normalizeSyncCode(step.previousCode)));
-    });
-    if (!valid) return null;
+    const transferable=_classifyPinnedCodeSettingsRepairDebt(debts,now.codes);
+    if (!transferable) return null;
     const canonical=Object.fromEntries(now.codes.map(row => [
       String(row.name || '').trim(),{
         code:_normalizeSyncCode(row.code),type:row.type || '주식',
@@ -418,7 +441,7 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
     const repaired=await requestGsheetFormJson('syncCodes',{
       codes:JSON.stringify(canonical),expectedSourceId:sourceId,
       expectedCodes:JSON.stringify(now.codes),replacements:'[]',
-      settingsReplacements:JSON.stringify(debts.filter(step => !step.metadataOnly)),
+      settingsReplacements:JSON.stringify(transferable),
       forceSettingsRebase:'1'
     },{timeoutMs:20000,retry:0,targetUrl});
     if (repaired?.status!=='ok' || !isGsheetConnectionCurrent(targetUrl,generation)) return null;
@@ -429,8 +452,7 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
         || readback?.status!=='ok' || readback.codeMasterSourceId!==sourceId
         || _stockMasterSyncFingerprint(readback.codes)!==expectedFingerprint) return null;
     if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function')
-      _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
-        debts.filter(step => !step.metadataOnly));
+      _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,transferable);
     if (typeof _forgetSameTargetCodeSettingsRepairs==='function')
       _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,debts);
     if (typeof _forgetSameTargetLocalCodeAddition==='function'
@@ -518,15 +540,8 @@ async function syncCodesToGsheet(options) {
       ? _getSameTargetCodeSettingsRepairs(targetUrl, sourceId) : [];
     if (repairDebt.length) {
       const current = fresh.codes;
-      const repairAllowed = repairDebt.every(step => {
-        if (step.metadataOnly === true) return true;
-        return current.some(row => String(row.name || '').trim() === step.name
-          && _normalizeSyncCode(row.code) === _normalizeSyncCode(step.code))
-          && !current.some(row =>
-            (step.previousName !== step.name && String(row.name || '').trim() === step.previousName)
-            || (step.previousCode !== step.code && _normalizeSyncCode(row.code) === _normalizeSyncCode(step.previousCode)));
-      });
-      if (!repairAllowed) {
+      const transferable=_classifyPinnedCodeSettingsRepairDebt(repairDebt,current);
+      if (!transferable) {
         _syncWarn('[syncCodes] 미완료 Settings 이전 대상 변경: 재동기화 차단');
         return null;
       }
@@ -540,7 +555,7 @@ async function syncCodesToGsheet(options) {
       const repair = await requestGsheetFormJson('syncCodes', {
         codes:JSON.stringify(canonical),expectedSourceId:sourceId,
         expectedCodes:JSON.stringify(current),replacements:'[]',
-        settingsReplacements:JSON.stringify(repairDebt.filter(step => !step.metadataOnly)),
+        settingsReplacements:JSON.stringify(transferable),
         forceSettingsRebase:'1'
       }, {timeoutMs:20000,retry:0,targetUrl});
       if (repair?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl,generation)
@@ -555,8 +570,7 @@ async function syncCodesToGsheet(options) {
       // Settings debt save but BEFORE the edit journal rebase was persisted.
       // Rebase any old A->C root now from independently verified B.
       if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function')
-        _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
-          repairDebt.filter(step => !step.metadataOnly));
+        _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,transferable);
       if (typeof _forgetSameTargetCodeSettingsRepairs === 'function')
         _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairDebt);
       // Only the identity that has already been verified on the server can
@@ -706,10 +720,11 @@ async function syncCodesToGsheet(options) {
       // follow-up Settings repair fails. Publish the confirmed transition
       // and rebase a queued A->C journal to B->C before any early return.
       const partialFingerprint=_stockMasterSyncFingerprint(partial.codes);
+      let repairProof=[];
       if (partialFingerprint!==freshFingerprint) {
         // A later other-tab delete of an unrelated first row must not
         // permanently block restoring Settings after a metadata-only commit.
-        const repairProof=[...replacements,...settingsReplacements];
+        repairProof=[...replacements,...settingsReplacements];
         if (!repairProof.length) {
           const changed=_stockMasterMetadataOnlyRepairProof(fresh.codes,partial.codes);
           if (!changed) {
@@ -753,9 +768,9 @@ async function syncCodesToGsheet(options) {
         _syncWarn('[syncCodes] 코드 반영 후 Settings 복구 미완료: Settings 복구 증거 별도 보존', data);
         return null;
       }
-      if (typeof _forgetSameTargetCodeSettingsRepairs === 'function')
-        _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,
-          [...replacements,...settingsReplacements]);
+      // A successful repair is not verified until the final authoritative
+      // readback. Retire the entire durable evidence (including metadataOnly)
+      // only AFTER the code-master CAS result is confirmed below.
     }
     // ACK alone is insufficient to retire additions or refresh the revision.
     // Read back the exact same workbook and verify every submitted coded row.
@@ -788,6 +803,8 @@ async function syncCodesToGsheet(options) {
     }
     const checkedFingerprint = _stockMasterSyncFingerprint(checked.codes);
     if (!checkedFingerprint) return null;
+    if (repairProof.length && typeof _forgetSameTargetCodeSettingsRepairs === 'function')
+      _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairProof);
     applyGsheetCodeList(checked.codes, sourceId);
     _rememberConfirmedCodeMasterChange(targetUrl,sourceId,freshFingerprint,checkedFingerprint);
     if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function') {
