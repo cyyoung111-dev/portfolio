@@ -688,8 +688,8 @@ function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
     const fields=_stockPendingAppendUserFields(value);
     if (JSON.stringify(entry.userFields||{})!==JSON.stringify(fields)) {
       const next={...entry,userFields:fields};
-      if (!_stockPerPairStorageAvailable()
-          || !_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next)) {
+      if (_stockPerPairStorageAvailable()
+          && !_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next)) {
         // Preserve uncommitted edits; network writes must fail closed.
         changed=null;
         return;
@@ -702,9 +702,19 @@ function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
   if (changed) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,_pendingSameTargetCodeAdditions);
   // No mutation is also a successful preflight, provided any pending
   // registration has a verifiably durable exact-pair record.
-  return entries.filter(entry=>entry?.sourceId===source && !entry.replaces)
-    .every(entry=>_stockPerPairStorageAvailable()
-      && !!lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null)?.entry);
+  const relevant=entries.filter(entry=>entry?.sourceId===source && !entry.replaces);
+  if (!_stockPerPairStorageAvailable()) {
+    const persisted=lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null);
+    const rows=Array.isArray(persisted?.[target])?persisted[target]:[];
+    return relevant.every(entry=>rows.some(row=>row.sourceId===source
+      && row.name===entry.name && String(row.code)===String(entry.code)
+      && JSON.stringify(row.userFields||{})===JSON.stringify(entry.userFields||{})));
+  }
+  return relevant.every(entry=>{
+    const stored=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
+    return stored?.removed!==true && !!stored?.entry
+      && JSON.stringify(stored.entry.userFields||{})===JSON.stringify(entry.userFields||{});
+  });
 
 }
 function _recordSameTargetLocalCodeAddition(item, editSession) {
