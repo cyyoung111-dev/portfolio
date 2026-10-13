@@ -544,3 +544,65 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(oldDebt[0].metadataOnly,true);
   console.log('✅ 메타데이터 부분커밋 실제 변경 종목 추적 및 타 탭 무관 삭제 후 동일 원본 복구 VM 통과');
 }
+
+// Codex P2: an immediate, successful metadata-only recovery must retire
+// its entire durable proof after authoritative master readback, not leave
+// a stale debt that can later prevent a read-only Bootstrap.
+{
+  const source=fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
+  const start=source.indexOf('const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY');
+  const end=source.indexOf('function _normalizePendingExplicitEmptyTradeSync(',start);
+  const syncProgram=sync.slice(0,sync.indexOf('// ★ v8.1'));
+  const url='https://script.google.com/macros/s/metadata-immediate/exec',sourceId='master-1';
+  const remote=[{name:'A',code:'1',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+  const disk={};
+  let calls=0;
+  const session={
+    console,GSHEET_API_URL:url,GSHEET_KEY:'url',
+    _gsBootRestored:true,_gsPortfolioRestoreRequired:false,
+    _gsCodeMasterSourceIdentity:sourceId,EDITABLE_PRICES:[],
+    normalizeStockCode:c=>String(c||'').trim(),
+    getGsheetConnectionGeneration:()=>7,
+    isGsheetConnectionCurrent:(u,g)=>u===url && g===7,
+    isGsheetPortfolioWriteReady:()=>true,_currentGsheetSyncTarget:()=>url,
+    lsGet:(k,d)=>k in disk?structuredClone(disk[k]):d,
+    lsSave:(k,v)=>{disk[k]=structuredClone(v)},lsRemove:k=>{delete disk[k]},
+    requestGsheetActionJson:async action=>{
+      assert.equal(action,'getCodeList');
+      return {status:'ok',codeMasterSourceId:sourceId,codes:remote.map(x=>({...x}))};
+    },
+    requestGsheetFormJson:async (action,params)=>{
+      assert.equal(action,'syncCodes');calls++;
+      if(calls===1){
+        assert.equal(params.forceSettingsRebase,'');
+        remote[0].sector='헬스케어';
+        return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+      }
+      assert.equal(calls,2);
+      assert.equal(params.forceSettingsRebase,'1');
+      assert.equal(JSON.parse(params.settingsReplacements).length,0);
+      return {status:'ok',updated:0};
+    }
+  };
+  vm.createContext(session);
+  vm.runInContext(source.slice(start,end),session);
+  vm.runInContext(syncProgram,session);
+  session.original=remote.map(x=>({...x}));
+  vm.runInContext('applyGsheetCodeList(original,_gsCodeMasterSourceIdentity)',session);
+  session.EDITABLE_PRICES=[{name:'A',code:'1',type:'주식',
+    sector:'헬스케어',currency:'KRW',market:'KR'}];
+  assert.equal((await vm.runInContext('syncCodesToGsheet()',session))?.status,'ok');
+  assert.equal(calls,2,'one code update and one Settings-only repair');
+  assert.equal(vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',session),0,
+    'successful repair MUST retire metadataOnly proof');
+  assert.ok(!Object.values(disk).some(value =>
+    JSON.stringify(value).includes('"metadataOnly":true')),
+    'durable storage has no stale successful metadata debt');
+  session.latest=remote.map(x=>({...x}));
+  assert.equal(await vm.runInContext(
+    'repairPinnedSameTargetCodeSettingsBeforeRestore({targetUrl:GSHEET_API_URL,sourceId:_gsCodeMasterSourceIdentity,generation:7,masterCodes:latest})',session),
+    null,'subsequent bootstrap has no unnecessary Settings writer');
+  assert.equal(calls,2);
+  console.log('✅ 성공한 메타데이터 단독 부분 커밋 부채 즉시 정리·재부팅 불필요 쓰기 제거');
+}
