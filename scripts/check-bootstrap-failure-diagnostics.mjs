@@ -31,7 +31,7 @@ function setup() {
     fundDirect:{},EDITABLE_PRICES:[{name:'테스트',code:'005930',sector:'기타',assetType:'주식'}],
     DIVDATA:{},LOAN:{},REAL_ESTATE:{},LOAN_SCHEDULE:[],RE_VALUE_HIST:[],SAVED_PRICES:{'005930':100},
     SAVED_PRICE_DATES:{'005930':'2026-10-07'},ACCT_TAX_TYPES:{},APP_FONT:'system',ACCOUNTS_MASTER:[]},
-    codes:[],trades:[],holdings:[],portfolioReadStatus:{tradesOk:true,holdingsOk:true},gasVersion:'9.195'};
+    codes:[],trades:[],holdings:[],portfolioReadStatus:{tradesOk:true,holdingsOk:true},codeMasterSourceId:'TEST_SOURCE',gasVersion:'9.195'};
   ctx.requestGsheetActionJson=async()=>{requests++;return response;};
   ctx.requestGsheetFormJson=async()=>{writes++;throw Error('mutation forbidden');};
   vm.runInContext("GSHEET_API_URL='https://script.google.com/macros/s/test/exec'",ctx);
@@ -466,10 +466,10 @@ vm.runInContext(`EDITABLE_PRICES.push({name:'신규 종목',code:'005930',assetT
   _markPortfolioRemoteDirty();`,h.ctx);
 const addedActions=[];
 h.ctx.requestGsheetActionJson=async action=>
-  action==='getCodeList' ? {status:'ok',codes:h.response.codes} : h.response;
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
 h.ctx.requestGsheetFormJson=async (action,params)=>{
   addedActions.push(action);
-  if(action==='syncCodes') {
+  if(action==='syncCodesAppendOnly') {
     const posted=JSON.parse(params.codes);
     assert.deepEqual(Object.keys(posted),['신규 종목'],'recovery uploads only proven missing code');
     assert.equal(posted['신규 종목'].code,'005930');
@@ -479,7 +479,7 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
 };
 assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),true,
   'proven same-target missing code must be read back before dirty write');
-assert.equal(addedActions[0],'syncCodes','code master recovery must precede holdings/trades');
+assert.equal(addedActions[0],'syncCodesAppendOnly','code master recovery must precede holdings/trades');
 assert.ok(addedActions.includes('syncTrades'),'verified new trade must recover');
 assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'dirty source clears only on success');
 
@@ -505,14 +505,14 @@ h.response.settings.EDITABLE_PRICES=[{name:'기존 종목',code:'000660',assetTy
 vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'서버 설정 신규',code:'005930',qty:1,price:100}); _markPortfolioRemoteDirty();",h.ctx);
 const sameTargetPosts=[];
 h.ctx.requestGsheetActionJson=async action=>
-  action==='getCodeList' ? {status:'ok',codes:h.response.codes} : h.response;
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
 h.ctx.requestGsheetFormJson=async (action,params)=>{
   sameTargetPosts.push(action);
-  if(action==='syncCodes')h.response.codes.push({name:'서버 설정 신규',code:'005930',type:'주식'});
+  if(action==='syncCodesAppendOnly')h.response.codes.push({name:'서버 설정 신규',code:'005930',type:'주식'});
   return {status:'ok',saveState:'success',synced:1};
 };
 assert.equal(await h.ctx.loadSettings(),true,'same-server Settings supports code repair');
-assert.equal(sameTargetPosts[0],'syncCodes');
+assert.equal(sameTargetPosts[0],'syncCodesAppendOnly');
 assert.ok(sameTargetPosts.includes('syncTrades'));
 
 
@@ -524,20 +524,20 @@ assert.equal(await h.ctx.loadSettings(),true);
 vm.runInContext("EDITABLE_PRICES.push({name:'미거래 신규',code:'005930',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'미거래 신규',code:'005930',assetType:'주식'},captureStockMasterEditSession()); _markPortfolioRemoteDirty();",h.ctx);
 const noTradeWrites=[];
 h.ctx.requestGsheetActionJson=async action =>
-  action==='getCodeList' ? {status:'ok',codes:h.response.codes} : h.response;
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
 h.ctx.requestGsheetFormJson=async (action,params)=>{
   noTradeWrites.push(action);
-  if (action==='syncCodes') {
+  if (action==='syncCodesAppendOnly') {
     assert.deepEqual(Object.keys(JSON.parse(params.codes)),['미거래 신규']);
     h.response.codes.push({name:'미거래 신규',code:'005930',type:'주식'});
   }
   return {status:'ok',saveState:'success',synced:1};
 };
 assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),true);
-assert.equal(noTradeWrites[0],'syncCodes','code-only journal must repair before other writes');
+assert.equal(noTradeWrites[0],'syncCodesAppendOnly','code-only journal must repair before other writes');
 assert.equal(vm.runInContext("EDITABLE_PRICES.some(x=>x.name==='미거래 신규'&&x.code==='005930')",h.ctx),true,'untraded stock must remain in UI master');
 assert.equal(h.ctx._getPortfolioRemoteDirty(),null);
-assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL).length",h.ctx),0,'verified journal cleared');
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0,'verified journal cleared');
 
 // Registration without a dirty ledger still needs replay.
 h=setup();
@@ -547,21 +547,21 @@ assert.equal(await h.ctx.loadSettings(),true);
 vm.runInContext("_recordSameTargetLocalCodeAddition({name:'독립 신규',code:'005930',assetType:'ETF'},captureStockMasterEditSession())",h.ctx);
 const codeOnlyWrites=[];
 h.ctx.requestGsheetActionJson=async action =>
-  action==='getCodeList' ? {status:'ok',codes:h.response.codes} : h.response;
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
 h.ctx.requestGsheetFormJson=async action=>{
   codeOnlyWrites.push(action);
-  if(action==='syncCodes')h.response.codes.push({name:'독립 신규',code:'005930',type:'ETF'});
+  if(action==='syncCodesAppendOnly')h.response.codes.push({name:'독립 신규',code:'005930',type:'ETF'});
   return {status:'ok',saveState:'success',synced:1};
 };
 assert.equal(await h.ctx.loadSettings(),true);
-assert.deepEqual(codeOnlyWrites,['syncCodes'],'journal-only recovery must not write ledger');
+assert.deepEqual(codeOnlyWrites,['syncCodesAppendOnly'],'journal-only recovery must not write ledger');
 assert.equal(vm.runInContext("EDITABLE_PRICES.some(x=>x.name==='독립 신규'&&x.code==='005930')",h.ctx),true);
 
 // Explicit deletion never re-adds the removed stock.
 h=setup();
 assert.equal(await h.ctx.loadSettings(),true);
 vm.runInContext("_recordSameTargetLocalCodeAddition({name:'삭제 종목',code:'005930',assetType:'주식'},captureStockMasterEditSession()); _forgetSameTargetLocalCodeAddition('삭제 종목','005930');",h.ctx);
-assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL).length",h.ctx),0);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0);
 assert.ok(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8').includes("_forgetSameTargetLocalCodeAddition(snapItem.name, snapItem.code)"),'real stock delete handler must clear journal');
 
 // Confirmation is mandatory: syncCodes success followed by read error must
@@ -577,8 +577,8 @@ h.ctx.requestGsheetFormJson=async action=>{
   return {status:'ok',saveState:'success',synced:1};
 };
 assert.equal(await h.ctx.loadSettings(),false);
-assert.deepEqual(unverifiedWrites,['syncCodes'],'failed readback must stop ledger mutations');
-assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL).length",h.ctx),1);
+assert.deepEqual(unverifiedWrites,['syncCodesAppendOnly'],'failed readback must stop ledger mutations');
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),1);
 assert.ok(h.ctx._getPortfolioRemoteDirty());
 
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
