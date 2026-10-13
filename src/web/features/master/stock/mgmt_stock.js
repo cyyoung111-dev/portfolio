@@ -294,11 +294,15 @@ function smDelete(idx) {
   // name 기준으로 재탐색 (confirm 동안 idx 밀렸을 수 있음)
   const realIdx = EDITABLE_PRICES.findIndex(e => e.name === snapItem.name);
   if(realIdx === -1) return;
+  if (snapItem.code && typeof _forgetSameTargetLocalCodeAddition === 'function'
+      && !_forgetSameTargetLocalCodeAddition(
+        snapItem.name,snapItem.code,undefined,editSession?.sourceId)) {
+    if (typeof showToast === 'function')
+      showToast('❌ 종목 삭제 복구 이력 저장에 실패했습니다. 브라우저 저장공간을 확인하세요.','warn',6000);
+    return false;
+  }
   if(snapItem.code) delete STOCK_CODE[snapItem.name];
   EDITABLE_PRICES.splice(realIdx, 1);
-  if (typeof _forgetSameTargetLocalCodeAddition === 'function') {
-    _forgetSameTargetLocalCodeAddition(snapItem.name, snapItem.code, undefined, editSession?.sourceId);
-  }
   // An earlier syncCodes POST may still be in flight. A single target queue
   // serializes the deletion AFTER that POST; server deletion is conditional
   // on no remaining trades/holdings and exact source/code/name identity.
