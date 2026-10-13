@@ -682,7 +682,7 @@ assert.equal(gasWrites.length,1);
 assert.equal(serverCodes[0].name,'A','existing mapping unchanged');
 assert.equal(serverCodes[1].name,'신규');
 assert.equal(lockDepth,0,'script lock must be released on all paths');
-assert.ok(gasSrc.includes("function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam) {\n  var lock = LockService.getScriptLock()"),
+assert.ok(gasSrc.includes("function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam) {\n  var lock = LockService.getScriptLock()"),
   'legacy normal code edits must serialize with append-only CAS');
 
 
@@ -721,7 +721,7 @@ assert.deepEqual(Object.keys(generationPosts[0].codes),['A 종목'],
 // Independent defense: even if a GAS URL is repointed to another spreadsheet
 // without changing URL/generation, normal syncCodes must reject the workbook
 // fingerprint before touching any cell.
-const normalStart=gasSrc.indexOf('function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam)');
+const normalStart=gasSrc.indexOf('function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam)');
 const normalEnd=gasSrc.indexOf('function _repairKnownCodeColumns(',normalStart);
 assert.ok(normalStart>appendStart && normalEnd>normalStart);
 vm.runInContext(gasSrc.slice(normalStart,normalEnd),gasCtx);
@@ -868,7 +868,9 @@ assert.equal(lockDepth,0);
 const holdingsStart=gasSrc.indexOf('function handleSyncHoldings(');
 const holdingsEnd=gasSrc.indexOf('function handleSyncTrades(',holdingsStart);
 assert.ok(holdingsStart>0 && holdingsEnd>holdingsStart);
-vm.runInContext(gasSrc.slice(holdingsStart,holdingsEnd),gasCtx);
+const ledgerGuardStart=gasSrc.indexOf('function _portfolioLedgerMasterConflict_(');
+assert.ok(ledgerGuardStart>0 && ledgerGuardStart<holdingsStart);
+vm.runInContext(gasSrc.slice(ledgerGuardStart,holdingsEnd),gasCtx);
 let holdRowWrites=0;
 const holdMock={
   clearContents:()=>{holdRowWrites++;},
@@ -886,6 +888,24 @@ const orphanHolding=gasCtx.handleSyncHoldings(JSON.stringify([{
 assert.equal(orphanHolding.errorCode,'HOLDINGS_CODE_MASTER_CONFLICT',
   'other browser cannot re-create holdings of removed code');
 assert.equal(holdRowWrites,0,'orphan guard must precede all holdings writes');
+const uncodedStock=gasCtx.handleSyncHoldings(JSON.stringify([{
+  name:'A',code:'',qty:1,costAmt:100,assetType:'주식'
+}]));
+assert.equal(uncodedStock.errorCode,'HOLDINGS_CODE_MASTER_CONFLICT',
+  'code-less stock may NEVER use the direct-fund exemption');
+assert.equal(holdRowWrites,0,'uncoded stock must fail before clearing holdings');
+assert.equal(gasCtx._portfolioLedgerMasterConflict_([
+  {name:'신규',code:'005930',assetType:'주식'}
+],serverCodes), 'CODE_MASTER_MISMATCH',
+  'a stale trade inserted after deletion must not be persisted');
+assert.equal(gasCtx._portfolioLedgerMasterConflict_([
+  {name:'무코드',code:'',assetType:'주식'}
+],serverCodes), 'UNCODED_NONFUND');
+assert.equal(gasCtx._portfolioLedgerMasterConflict_([
+  {name:'직접 펀드',code:'',assetType:'TDF'}
+],serverCodes), '', 'code-less direct fund transactions remain permitted');
+assert.ok(gasSrc.includes("var masterConflict = _portfolioLedgerMasterConflict_(trades, getCodeItems(ss, true));"),
+  'real transaction handler must validate current master under the script lock');
 const cleanHoldings=gasCtx.handleSyncHoldings(JSON.stringify([{
   name:'A',code:'111111',qty:2,costAmt:200,assetType:'주식'
 }]));
@@ -893,6 +913,89 @@ assert.equal(cleanHoldings.status,'ok');
 assert.ok(holdRowWrites>0,'valid holding still syncs');
 assert.equal(lockDepth,0,'holdings lock released on both conflict/success');
 gasCtx.getss=restoreGetss;
+
+
+// Stale Settings may not reinsert a code removed by a different tab, even
+// though both writers use the same lock: coded entries derive from the sheet.
+const settingStart=gasSrc.indexOf('function handleSaveSettings(');
+const settingEnd=gasSrc.indexOf('function handleGetSettings(',settingStart);
+assert.ok(settingStart>0 && settingEnd>settingStart);
+vm.runInContext(gasSrc.slice(settingStart,settingEnd),gasCtx);
+const staleSettings=gasCtx.handleSaveSettings(JSON.stringify({
+  EDITABLE_PRICES:[
+    {name:'A',code:'111111',assetType:'주식'},
+    {name:'신규',code:'005930',assetType:'주식'}
+  ],
+  APP_THEME:'dark'
+}));
+assert.equal(staleSettings.status,'ok');
+assert.equal(deletedServerSettings.EDITABLE_PRICES.length,1,
+  'stale Settings must not resurrect a deleted coded item');
+assert.equal(deletedServerSettings.EDITABLE_PRICES[0].code,'111111');
+assert.equal(deletedServerSettings.APP_THEME,'dark','unrelated settings still save');
+assert.equal(lockDepth,0,'Settings code projection shares and releases master lock');
+
+// Exercise a real atomic simultaneous name+code edit against a single mocked
+// sheet. It must update the ORIGINAL row, not append another server identity,
+// and mirror the new code/name into Settings for subsequent Bootstrap loads.
+const renameRows=[['111111','옛이름','주식','기타','','']];
+let renameAppends=0, renameSettings={
+  EDITABLE_PRICES:[{name:'옛이름',code:'111111',assetType:'주식',sector:'기타'}]
+};
+const renameSheet={
+  getLastRow:()=>renameRows.length+1,
+  getLastColumn:()=>6,
+  getRange:(row,col,length,width)=>({
+    getValues:()=>renameRows.map(x=>x.slice()),
+    setValues:values=>{
+      if (row===renameRows.length+2 && col===1) {
+        renameAppends++;
+        values.forEach(v=>renameRows.push(v.slice()));
+        return;
+      }
+      values.forEach((v,i)=>{renameRows[row+i-2][col-1]=v[0];});
+    }
+  })
+};
+const renameCtx=vm.createContext({
+  JSON,Object,Array,String,
+  LockService:{getScriptLock:()=>({waitLock:()=>{lockDepth++},releaseLock:()=>{lockDepth--}})},
+  getss:()=>({getSheetByName:()=>renameSheet}),
+  _portfolioCodeMasterSourceIdentity_:()=> 'TEST_SOURCE',
+  _cleanCode:code=>String(code||'').trim(),
+  _parseArrayParam:val=>{const x=JSON.parse(val);if(!Array.isArray(x))throw Error('invalid');return x},
+  _readSettingsMap:()=>renameSettings,
+  _writeSettingsMap:map=>{renameSettings=map;return 1},
+  getCodeItems:()=>renameRows.map(x=>({code:x[0],name:x[1],type:x[2],sector:x[3],currency:x[4]||'KRW',market:x[5]})),
+  _setCodeColumnText:()=>{},_touchSnapshotIntegritySourceRevision:()=>{},
+  _repairKnownCodeColumns:()=>[],CONFIG:{SHEET_CODES:'종목코드'},
+  SpreadsheetApp:{flush:()=>{}},
+  jsonOk:payload=>({status:'ok',...payload}),
+  jsonError:(message,payload)=>({status:'error',message,...payload})
+});
+vm.runInContext(
+  gasSrc.slice(normStart,gasSrc.indexOf('/**',normStart))+
+  '\n'+gasSrc.slice(normalStart,normalEnd),renameCtx);
+const replaceOld=renameCtx.getCodeItems();
+const renameResult=renameCtx.handleSyncCodes(JSON.stringify({
+  '새이름':{code:'222222',type:'ETF',sector:'해외',currency:'USD',market:'US'}
+}),'TEST_SOURCE',JSON.stringify(replaceOld),JSON.stringify([{
+  previousName:'옛이름',previousCode:'111111',name:'새이름',code:'222222'
+}]));
+assert.equal(renameResult.status,'ok','explicit full-pair rename succeeds');
+assert.equal(renameAppends,0,'old row must be replaced, never appended');
+assert.equal(renameRows.length,1);
+assert.deepEqual(renameRows[0],['222222','새이름','ETF','해외','USD','US']);
+assert.equal(renameSettings.EDITABLE_PRICES[0].name,'새이름');
+assert.equal(renameSettings.EDITABLE_PRICES[0].code,'222222');
+assert.equal(lockDepth,0);
+
+// Ensure actual UI edit handler captures a source-pinned replacement and
+// normal sync submits the expected explicit replacement to the server.
+assert.ok(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8').includes(
+  '_recordSameTargetLocalCodeAddition({\n      ...item, replaces: originalMasterIdentity'));
+assert.ok(fs.readFileSync('src/web/features/settings/settings_sync.js','utf8').includes(
+  'replacements:JSON.stringify(replacements)'));
 
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
