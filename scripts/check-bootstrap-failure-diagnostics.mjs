@@ -721,7 +721,7 @@ assert.ok(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8').
 // Execute the real GAS deletion guard with and without a referenced ledger.
 // This handler shares the exact lock with append-only and regular syncCodes.
 const deleteStart=gasSrc.indexOf('function handleDeleteUnreferencedCode(');
-assert.ok(deleteStart>appendEnd);
+assert.ok(deleteStart>appendStart && deleteStart<appendEnd);
 let serverTradeRows=[];
 let deletedServerSettings={EDITABLE_PRICES:[{name:'신규',code:'005930'}]};
 gasCtx.handleGetTrades=()=>({getContent:()=>JSON.stringify({status:'ok',trades:serverTradeRows})});
