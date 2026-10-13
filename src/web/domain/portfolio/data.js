@@ -493,6 +493,24 @@ if (!_pendingSameTargetCodeSettingsRepairs || typeof _pendingSameTargetCodeSetti
 // registrations; a Codes-only flush then loses the ONLY Settings provenance.
 // Per-pair tombstones prevent a stale v1 map from resurrecting deleted proofs.
 const PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX = 'pf_code_journal_pair_v2:';
+// Immutable retirement claims are transaction-scoped, not modifications
+// of the shared predecessor key: Storage lacks compare-and-swap.
+const PORTFOLIO_CODE_RETIREMENT_PREFIX='pf_code_retirement_v3:';
+function _stockRetirementKey(target,entry,transaction) {
+  return PORTFOLIO_CODE_RETIREMENT_PREFIX+encodeURIComponent(JSON.stringify([
+    String(target||'').trim(),String(entry?.sourceId||'').trim(),
+    String(entry?.name||'').trim(),String(entry?.code||'').trim(),
+    String(transaction||'').trim()
+  ]));
+}
+function _persistStockRetirement(target,entry,transaction) {
+  if(!_stockPerPairStorageAvailable() || !transaction || !entry?.sourceId)return false;
+  const key=_stockRetirementKey(target,entry,transaction);
+  const item={target:String(target||'').trim(),entry:{...entry},
+    removed:true,retiredBy:transaction};
+  lsSave(key,item);
+  return JSON.stringify(lsGet(key,null))===JSON.stringify(item);
+}
 const PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX = 'pf_code_settings_debt_pair_v2:';
 function _stockDurablePairKey(prefix,target,entry) {
   const base=[String(target||'').trim(),String(entry?.sourceId||'').trim()];
@@ -536,7 +554,9 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
   try {
     for(let i=0;i<localStorage.length;i++){
       const key=localStorage.key(i);
-      if(typeof key==='string'&&key.startsWith(prefix))keys.push(key);
+      if(typeof key==='string'&&(key.startsWith(prefix)
+          || (prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
+              && key.startsWith(PORTFOLIO_CODE_RETIREMENT_PREFIX))))keys.push(key);
     }
   } catch (error) {
     // Fail safe to readable legacy data. A blocked Storage object must
@@ -544,40 +564,70 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
     return stored&&typeof stored==='object'&&!Array.isArray(stored)
       ? stored : (fallback&&typeof fallback==='object'?fallback:{});
   }
-  // Read a stable snapshot of all pair records before resolving a
-  // chained replacement. An interrupted tombstone/rollback must not expose
-  // its staged successor, even when SecurityError prevents removing it.
-  const pairEntries=new Map();
-  for(const key of keys) {
-    const item=lsGet(key,null);
-    const target=String(item?.target||'').trim(),record=item?.entry;
-    if(!target || !record || typeof record!=='object'
-        || _stockDurablePairKey(prefix,target,record)!==key) continue;
-    pairEntries.set(key,item);
+  // Pair records and transaction retirement claims occupy distinct keys.
+  // Other tabs cannot overwrite one transaction's claim with another's.
+  const pairEntries=new Map(),claims=new Map();
+  for(const key of keys){
+    const item=lsGet(key,null),target=String(item?.target||'').trim(),entry=item?.entry;
+    if(!target || !entry || typeof entry!=='object')continue;
+    if(key.startsWith(PORTFOLIO_CODE_RETIREMENT_PREFIX)){
+      if(item.removed===true && item.retiredBy
+          && _stockRetirementKey(target,entry,item.retiredBy)===key)
+        claims.set(key,item);
+    }else if(_stockDurablePairKey(prefix,target,entry)===key){
+      pairEntries.set(key,item);
+    }
   }
-  for(const [key,item] of pairEntries) {
-    const target=item.target,record=item.entry;
-    const rows=Array.isArray(result[target])?result[target]:[];
-    const without=rows.filter(row=>_stockDurablePairKey(prefix,target,row)!==key);
+  const candidates=new Map(),claimCounts=new Map();
+  for(const[key,item]of pairEntries){
+    const entry=item.entry,target=item.target;
     const predecessors=prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
-      && Array.isArray(record.requiresTombstones)?record.requiresTombstones:[];
-    // A tombstone written by a DIFFERENT in-flight write cannot commit a
-    // rejected staged successor. The originating edit must have explicitly
-    // committed this exact pair after all its own tombstones succeeded.
-    const completed=(predecessors.length===0 || record.transitionCommitted===true)
-      && predecessors.every(prev=>{
-        const prevKey=_stockDurablePairKey(prefix,target,{
-          sourceId:record.sourceId,name:prev?.name,code:prev?.code
-        });
-        const tombstone=pairEntries.get(prevKey);
-        // A separate tab's confirmed B retirement must NEVER authorize a
-        // stale A->C transition. Only this exact edit's retirement token can.
-        // Legacy committed v2 journals lacked tokens; preserve their contract.
-        return tombstone?.removed===true
-          && (!record.transitionId || tombstone.retiredBy===record.transitionId);
+      && Array.isArray(entry.requiresTombstones)?entry.requiresTombstones:[];
+    if(item.removed===true || !predecessors.length
+       || entry.transitionCommitted!==true)continue;
+    const sources=[];
+    let valid=true;
+    for(const prev of predecessors){
+      const prevKey=_stockDurablePairKey(prefix,target,{
+        sourceId:entry.sourceId,name:prev?.name,code:prev?.code
       });
-    if(item.removed!==true && completed)without.push({...record});
-    if(without.length)result[target]=without;
+      const current=pairEntries.get(prevKey);
+      const claim=entry.transitionId?claims.get(_stockRetirementKey(target,{
+        sourceId:entry.sourceId,name:prev?.name,code:prev?.code
+      },entry.transitionId)):null;
+      // A peer's independent B retirement must invalidate C; the marker
+      // must match the PREVIOUS exact B bytes still present on disk.
+      const modern=!!entry.transitionId && !!current && current.removed!==true
+        && !!claim && claim.entry?.sourceId===entry.sourceId
+        && JSON.stringify(claim.entry)===JSON.stringify(current.entry);
+      const legacy=!!current && current.removed===true
+        && (!entry.transitionId || current.retiredBy===entry.transitionId);
+      if(!modern && !legacy){valid=false;break;}
+      sources.push({key:prevKey,modern});
+    }
+    if(valid){
+      candidates.set(key,sources);
+      for(const prev of sources)if(prev.modern)
+        claimCounts.set(prev.key,(claimCounts.get(prev.key)||0)+1);
+    }
+  }
+  const completed=new Set(),suppressed=new Set();
+  for(const[key,sources]of candidates){
+    // Two simultaneously committed successors to one B are ambiguous.
+    // Keep B rather than accepting a random winner.
+    if(sources.some(prev=>prev.modern && claimCounts.get(prev.key)!==1))continue;
+    completed.add(key);
+    for(const prev of sources)if(prev.modern)suppressed.add(prev.key);
+  }
+  for(const[key,item]of pairEntries){
+    const target=item.target,entry=item.entry;
+    const rows=Array.isArray(result[target])?result[target]:[];
+    const remaining=rows.filter(row=>_stockDurablePairKey(prefix,target,row)!==key);
+    const guarded=prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
+      && Array.isArray(entry.requiresTombstones)&&entry.requiresTombstones.length>0;
+    if(item.removed!==true && !suppressed.has(key)
+        && (!guarded || completed.has(key)))remaining.push({...entry});
+    if(remaining.length)result[target]=remaining;
     else delete result[target];
   }
   return result;
