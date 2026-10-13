@@ -28,9 +28,11 @@ function fixture(opts={}) {
     props:new Map(),settingsWrites:0,codeDeletes:0,revision:0,
     throwCodeBefore:!!opts.codeBefore,throwCodeAfter:!!opts.codeAfter,
     throwSettings:!!opts.settingsOnce,throwClear:!!opts.clearOnce,
+    failChunkOnce:!!opts.failChunkOnce,
     locked:false,wholeClear:0
   };
-  if(opts.longNotes)state.cells[2][1]=JSON.stringify([{...base,notes:'한'.repeat(1800)},other]);
+  if(opts.longNotes)state.cells[2][1]=JSON.stringify([{...base,notes:'한'.repeat(
+    opts.extremeNotes ? 4000 : 1800)},other]);
   if(opts.duplicateName)state.cells[2][1]=JSON.stringify([base,other,{name:'새펀드',code:'',assetType:'TDF'}]);
   if(opts.noOriginal)state.cells[2][1]=JSON.stringify([other]);
   const codeRows=()=>state.codes.map(x=>[x.code,x.name,x.type,x.sector,x.currency,x.market]);
@@ -66,8 +68,13 @@ function fixture(opts={}) {
     getProperty:k=>state.props.get(k)||null,
     setProperty:(k,v)=>{
       if(Buffer.byteLength(v,'utf8')>9000)throw Error('SCRIPT_PROPERTY_VALUE_TOO_LARGE');
+      if(state.failChunkOnce && k.includes('_PART_')) {
+        state.failChunkOnce=false;
+        throw Error('INJECTED_CHUNK_WRITE_FAILURE');
+      }
       state.props.set(k,v);
     },
+    getProperties:()=>Object.fromEntries(state.props),
     deleteProperty:k=>{
       if(state.throwClear){state.throwClear=false;throw Error('CRASH_AFTER_SETTINGS_SAVE');}
       state.props.delete(k);
@@ -106,16 +113,17 @@ function fixture(opts={}) {
     expectedCodes:[metadata],...(conversion?{conversion}: {})
   }));
   return {state,ctx,submit,settle:()=>ctx._settlePendingCodeDeleteLocked_(ss),
-    settings:()=>ctx._readSettingsMap(),marker:()=>state.props.get('PF_PENDING_CODE_DELETE_TXN_V1')};
+    settings:()=>ctx._readSettingsMap(),marker:()=>state.props.get('PF_PENDING_CODE_DELETE_TXN_V1'),
+    parts:()=>[...state.props].filter(([k])=>k.includes('_PART_'))};
 }
-function checkConverted(t,name='원종목') {
+function checkConverted(t,name='원종목',expectedNotes='original memo') {
   const all=t.settings().EDITABLE_PRICES;
   const item=all.find(x=>x.name===name);
   assert.ok(item,'converted fund exists');
   assert.equal(item.code,'');
   assert.equal(item.assetType,'펀드');
   assert.equal(item.targetWeight,37);
-  assert.equal(item.notes,'original memo');
+  assert.equal(item.notes,expectedNotes);
   assert.deepEqual(item.customFlags,{locked:true});
   assert.deepEqual(all.find(x=>x.name==='무관한 TDF'),other);
   assert.deepEqual(t.settings().LOAN,{balance:357000000});
@@ -150,6 +158,56 @@ function checkConverted(t,name='원종목') {
   assert.equal(t.settle().resolution,'completed');
   assert.equal(t.settings().EDITABLE_PRICES.find(x=>x.name==='원종목').notes,'한'.repeat(1800));
   assert.deepEqual(t.settings().LOAN,{balance:357000000});
+}
+{
+  const t=fixture({codeAfter:true,longNotes:true,extremeNotes:true});
+  assert.equal(t.submit().status,'error','4000 Korean characters must not block staging');
+  const pointer=JSON.parse(t.marker());
+  assert.ok(pointer.settingsParts?.count>1,'oversize Settings evidence is chunked');
+  assert.equal(pointer.settingsEntry,null,'no duplicate monolithic entry');
+  assert.ok(Buffer.byteLength(t.marker(),'utf8')<9000);
+  assert.ok(t.parts().every(([,val])=>Buffer.byteLength(val,'utf8')<9000));
+  assert.equal(t.settle().resolution,'completed','restart reassembles exact original');
+  checkConverted(t,'원종목','한'.repeat(4000));
+  assert.equal(t.marker(),undefined);
+  assert.equal(t.parts().length,0,'verified retirement cleans split keys');
+}
+{
+  const t=fixture({codeAfter:true,longNotes:true,extremeNotes:true});
+  assert.equal(t.submit().status,'error');
+  const partKey=t.parts()[0][0];
+  t.state.props.delete(partKey);
+  assert.throws(()=>t.settle(),/CODE_DELETE_TXN_PART_MISSING/);
+  assert.ok(t.marker(),'missing recovery fragment must preserve pointer');
+  assert.equal(t.state.settingsWrites,0,'never commit incomplete user metadata');
+  assert.equal(t.state.codes.length,0,'partial server commit is not faked as rolled back');
+}
+{
+  const t=fixture({codeAfter:true,longNotes:true,extremeNotes:true});
+  assert.equal(t.submit().status,'error');
+  const [partKey,bytes]=t.parts()[0];
+  t.state.props.set(partKey,bytes.slice(1));
+  assert.throws(()=>t.settle(),/CODE_DELETE_TXN_PARTS_LENGTH_MISMATCH/);
+  assert.ok(t.marker());
+  assert.equal(t.state.settingsWrites,0);
+}
+{
+  const t=fixture({longNotes:true,extremeNotes:true,failChunkOnce:true});
+  assert.equal(t.submit().status,'error','failed journal fragment blocks delete');
+  assert.equal(t.state.codeDeletes,0,'no server mutation before durable marker');
+  assert.equal(t.marker(),undefined);
+  assert.equal(t.parts().length,0,'partial marker fragments cleaned');
+  assert.equal(t.submit().status,'ok','retry with full evidence succeeds');
+  checkConverted(t,'원종목','한'.repeat(4000));
+}
+{
+  const t=fixture({codeBefore:true,longNotes:true,extremeNotes:true});
+  assert.equal(t.submit().status,'error');
+  assert.ok(t.parts().length>1);
+  assert.equal(t.settle().resolution,'rolled_back','before row delete preserves original long note');
+  assert.equal(t.state.codes.length,1);
+  assert.equal(t.settings().EDITABLE_PRICES[0].notes,'한'.repeat(4000));
+  assert.equal(t.parts().length,0);
 }
 {
   const t=fixture({codeBefore:true});
@@ -198,4 +256,4 @@ function checkConverted(t,name='원종목') {
   assert.equal(t.state.codes.length,0);
   assert.deepEqual(t.settings().EDITABLE_PRICES,[other],'ordinary deletion must not add a fund');
 }
-console.log('✅ 실제 GAS 무코드 전환: 정상·강제종료 3위치·9KB 한국어 메모·rollback·원본누락·이름충돌·원장참조·일반삭제 보존');
+console.log('✅ 실제 GAS 무코드 전환: 4000자 한글 분할·장애/누락/손상 차단·강제종료·원본 필드·일반삭제 보존');
