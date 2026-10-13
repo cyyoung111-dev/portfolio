@@ -1,3 +1,11 @@
+## PR #493 P1: 보유·직접펀드 전체 마스터 사전검증 (2026-10-13, Draft / 미배포)
+
+- Codex 리뷰 HEAD b4fdd1f에서 발견한 P1: 기존 거래코드 검증만으로는 거래가 없는 구보유/직접펀드 payload가 다른 연결로 쓰이는 문제를 차단하지 못함.
+- `isPinnedRestorePortfolioMasterComplete`가 거래, 보유, 직접펀드 전체를 **동일 getBootstrap 응답의 코드/코드없는 펀드 마스터**와 검증. 이름-코드 충돌, 마스터에 없는 보유/펀드가 하나라도 있으면 syncHoldings/syncTrades/saveSettings 호출 전 실패 처리하여 로컬 pending/dirty 보존.
+- 일반 dirty, pending 현재 원장 및 명시적 빈 원장 재시도에 동일 가드 적용. 정상 코드 없는 TDF/펀드는 동일 연결의 Settings로 증명된 경우만 허용.
+- 실제 브라우저 로드 회귀검사: 거래 없는 불명 보유·직접펀드, 정상 거래+불명 보유/펀드 혼재, 코드 충돌, 정상 보유/TDF 복원 및 pending 재시도 쓰기 차단.
+- 웹 캐시: data.js 및 settings_sync.js `20261013-1`, service worker `20261013-3`. main/원래 PR #489~#492/GAS 운영 배포/실데이터 수정 없음. CI 및 재리뷰 후 Draft 검증.
+
 ## PR #493 레거시 강제 복원 pending/dirty 쓰기 선차단 (2026-10-13 · Draft / 미배포)
 
 - 독립 Codex P1: getBootstrap 대기 중 생성된 `latePending`/`lateDirty`를 구버전 getSettings 폴백에서 처리할 때, pending 재시도가 마스터 검증 전에 syncHoldings/syncTrades/saveSettings를 호출할 수 있습니다.
