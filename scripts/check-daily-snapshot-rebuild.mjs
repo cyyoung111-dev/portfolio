@@ -333,8 +333,14 @@ assert.match(settings, /function saveRealEstateSettings[\s\S]*const expectedLoad
   '부동산 예약 저장도 같은 연결의 새 load가 시작되면 stale payload 전송을 차단');
 assert.match(settings, /function saveDividendSettings[\s\S]*const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*_gsSettingsLoadEpoch !== expectedLoadEpoch[\s\S]*isGsheetPortfolioWriteReady/,
   '배당 저장 queue도 실행 직전 load epoch와 restore 상태를 재검증');
-assert.match(sync, /const code = _normalizeSyncCode\(h\.code \|\| ep\?\.code \|\| STOCK_CODE\[h\.name\] \|\| ''\)[\s\S]*const assetType = h\.assetType \|\| h\.type \|\| getEPType\(ep, '주식'\)/,
-  'dirty holdingsOverride는 복원 전 전역 master보다 캡처 payload의 code/assetType을 우선');
+assert.ok(sync.includes("const code = _normalizeSyncCode(pinnedByName")
+    && sync.includes("h.code || pinned?.code || ''")
+    && sync.includes("h.code || ep?.code || STOCK_CODE[h.name] || ''"),
+  '복원 보유 코드는 캡처 원본 코드 또는 동일 Bootstrap master를 우선하고 기존 로컬 master는 일반 저장에만 사용');
+assert.ok(sync.includes("const assetType = pinnedByName")
+    && sync.includes("pinned?.type || pinned?.assetType")
+    && sync.includes("h.assetType || h.type || getEPType(ep, '주식')"),
+  '복원 보유 유형은 동일 서버 master를 사용하고 일반 저장의 기존 동작은 유지');
 
 assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return failLoad\('PORTFOLIO_SYNC_FAILED'\)/,
   'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
