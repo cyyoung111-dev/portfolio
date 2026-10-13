@@ -1,3 +1,12 @@
+## PR #493 재리뷰 P2 — GAS 강제 종료 삭제 트랜잭션 복구 (2026-10-13)
+
+- **GAS v9.204 검증 후보**: Git 전체 source blob `b4a81fafcd87dd101c625087c6df5323ab0df069`. `deploy-gas.mjs`, `check-gas-deploy.mjs`, 웹 `EXPECTED_GAS_VERSION` 일치. PWA `settings_fetch 20261013-4`, cache `20261013-21`. 소스 승인 지문은 CI 품질검사용이며 운영 배포 승인 아님.
+- **삭제 트랜잭션 원자성 보완**: 첫 code row 변경 이전에 ScriptProperties `PF_PENDING_CODE_DELETE_TXN_V1`에 동일 워크북 source ID, 코드/name, 종목별 원본 Settings 전체 사용자 메타데이터를 영속 기록. 코드 row 삭제/flush/Settings 기록 사이 강제 종료되어도 다음 `getBootstrap`, `getSettings`, `getCodeList`의 ScriptLock 복구에서 두 저장소 일치 전에는 stale Bootstrap/최신 master 성공을 허용하지 않음.
+- **재시도 정책**: 코드 row가 남았으면 원본 종목 설정 전체를 복원하고 삭제 롤백. 코드 row가 사라졌으면 거래·보유 원장 미참조와 동일 코드/이름 충돌 검증 후 Settings의 해당 종목을 제거해 삭제 완료. 원본과 다른 워크북·손상된 journal·동명이인·추가 보유 참조·일부 쓰기 실패 시 journal 유지, 오류 반환, 잘못된 완료 차단. 확인된 정합 상태에만 journal 정리.
+- **생산 VM 검증**: deleteRow 예외/Settings 저장 실패 보상 복구/코드 row flush 직후 강제 중단 후 Bootstrap 복구 실패 유지·후속 정상 복구/원본 `targetWeight` 복원/정상 삭제와 잠금 해제, 기존 master CAS 및 전체 품질 테스트.
+- **범위 제한**: PR Draft 미병합. 기존 #489~#492/main, 실제 운영 GAS·거래/보유 원장·가격이력·NAV·Snapshot/브리핑과 API 인증정보 미변경. 실제 운영 버전·데이터 검증 및 배포는 별도 승인 필요.
+
+---
 ## PR #493 추가 재리뷰 P2 및 삭제 트랜잭션 — 2026-10-13 (Draft / 배포 금지)
 
 - **재시작 후 교체 journal 단독 복구**: 코드 시트 A→B flush 이후 Settings 수리 응답을 받기 전에 브라우저가 종료돼도, 동일 GAS workbook의 확정 B pair와 A의 부재를 서버 Bootstrap 코드 마스터에서 증명하면 편집 journal을 지우기 **전에** 별도 Settings-only 영속 복구 부채로 승격합니다. 먼저 ScriptLock/전체 코드 마스터 CAS에서 Settings 사용자 속성(`targetWeight` 등)을 복구하고 재조회한 뒤에만 journal을 퇴역시킵니다. 원본이 아직 있거나 pair가 다르면 append 권한으로 대체하지 않습니다.
