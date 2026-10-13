@@ -977,7 +977,20 @@ let deletedServerSettings={EDITABLE_PRICES:[{name:'신규',code:'005930'}]};
 gasCtx.handleGetTrades=()=>({getContent:()=>JSON.stringify({status:'ok',trades:serverTradeRows})});
 gasCtx.handleGetHoldings=()=>({getContent:()=>JSON.stringify({status:'ok',holdings:[]})});
 gasCtx._readSettingsMap=()=>deletedServerSettings;
-gasCtx._writeSettingsMap=settings=>{deletedServerSettings=settings;return true;};
+// A stock deletion must touch only EDITABLE_PRICES' single value cell:
+ // the all-key writer is forbidden here (LOAN/fund data may be enormous).
+gasCtx._writeSettingsMap=()=>{throw Error('global Settings rewrite forbidden in deletion');};
+const isolatedSettingsSheet={
+  getLastRow:()=>2,
+  getRange:(row,col,length,width)=>({
+    getValues:()=>[['EDITABLE_PRICES']],
+    getValue:()=>JSON.stringify(deletedServerSettings.EDITABLE_PRICES),
+    setValue:value=>{deletedServerSettings.EDITABLE_PRICES=JSON.parse(value)},
+    clearContent:()=>{throw Error('global clear forbidden');}
+  })
+};
+gasCtx.CONFIG.SHEET_SETTINGS='settings';
+gasCtx.getss=()=>({getSheetByName:name=>name==='settings'?isolatedSettingsSheet:mockSheet});
 mockSheet.getRange=(row,col,length,width)=>({
   getValues:()=>width===2 && length===serverCodes.length
     ? serverCodes.map(x=>[x.code,x.name])
@@ -994,6 +1007,10 @@ gasCtx.PropertiesService={getScriptProperties:()=>({
   setProperty:(key,value)=>{pendingDeleteProps[key]=String(value)},
   deleteProperty:key=>{delete pendingDeleteProps[key]}
 })};
+const editOnlyHelperStart=gasSrc.indexOf('function _writeCodeDeleteEditablesOnly_(');
+const editOnlyHelperEnd=gasSrc.indexOf('// Crash-safe transaction marker.',editOnlyHelperStart);
+assert.ok(editOnlyHelperStart>0&&editOnlyHelperEnd>editOnlyHelperStart);
+vm.runInContext(gasSrc.slice(editOnlyHelperStart,editOnlyHelperEnd),gasCtx);
 const deletionHelperStart=gasSrc.indexOf('var CODE_DELETE_TXN_KEY_');
 const deletionHelperEnd=gasSrc.indexOf('// 스프레드시트 소유자가',deletionHelperStart);
 assert.ok(deletionHelperStart>0 && deletionHelperEnd>deletionHelperStart);
