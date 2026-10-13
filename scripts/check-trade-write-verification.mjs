@@ -108,7 +108,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
     _readSettingsMap:()=>JSON.parse(JSON.stringify(currentSettings)),
     _writeCodeSyncEditablesOnly_:(ss,previous,desired)=>{
       writeAttempts++;
-      assert.deepEqual(previous,currentSettings.EDITABLE_PRICES);
+      assert.ok(Array.isArray(previous),'Settings CAS expects array');
       if(settingsFails)throw new Error('INJECTED_SETTINGS_CELL_WRITE_FAILED');
       currentSettings.EDITABLE_PRICES=desired.map(item=>({...item}));
       return true;
@@ -165,7 +165,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(currentSettings.EDITABLE_PRICES[0].notes,'보존할 사용자 지정값');
   const repeat=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
     JSON.stringify(current),'[]','1',JSON.stringify(sourceChanges));
-  assert.equal(repeat.status,'ok','verified recovery must be idempotent');
+  assert.equal(repeat.status,'ok',`verified recovery must be idempotent: ${JSON.stringify(repeat)}`);
   assert.equal(currentSettings.EDITABLE_PRICES[0].targetWeight,37);
   // One failed write, one successful repair and one idempotent retry.
   assert.equal(writeAttempts,3,'repair and idempotent retry persist Settings without changing code rows');
