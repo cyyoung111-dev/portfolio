@@ -150,13 +150,16 @@ function isStockMasterWriteBlocked() {
 function captureStockMasterEditSession() {
   return {
     targetUrl: String(GSHEET_API_URL || '').trim(),
-    generation: typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0
+    generation: typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0,
+    sourceId: String(typeof _gsCodeMasterSourceIdentity !== 'undefined' ? _gsCodeMasterSourceIdentity || '' : '')
   };
 }
 function isStockMasterEditSessionCurrent(session) {
   return !!session && !isStockMasterWriteBlocked()
     && session.targetUrl === String(GSHEET_API_URL || '').trim()
-    && session.generation === (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0);
+    && session.generation === (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0)
+    && !!session.sourceId
+    && session.sourceId === String(typeof _gsCodeMasterSourceIdentity !== 'undefined' ? _gsCodeMasterSourceIdentity || '' : '');
 }
 function preventUnsafeStockMasterEdit() {
   if (!isStockMasterWriteBlocked()) return false;
