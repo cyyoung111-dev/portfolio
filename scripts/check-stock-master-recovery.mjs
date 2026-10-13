@@ -351,6 +351,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   vm.runInContext(ledgerSource.slice(first,last),race);
   vm.runInContext(syncProgram,race);
   const session={targetUrl:url,generation:11,sourceId};
+  race.session=session;
   race.initialCodes=remote.map(x=>({...x}));
   vm.runInContext('applyGsheetCodeList(initialCodes, "sheet-1")',race);
   const edit=(name,code,previousName,previousCode)=>{
