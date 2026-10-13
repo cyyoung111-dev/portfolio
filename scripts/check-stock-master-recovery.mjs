@@ -174,6 +174,12 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       if (requests===6) {
         assert.equal(changes.length,0,'confirmed partial write must not replay old replacement');
         assert.equal(args.forceSettingsRebase,'1');
+        const metadata=JSON.parse(args.settingsReplacements);
+        assert.equal(metadata.length,1,'full pair settings metadata provenance must survive failed first write');
+        assert.equal(metadata[0].previousName,'C');
+        assert.equal(metadata[0].previousCode,'3');
+        assert.equal(metadata[0].name,'E');
+        assert.equal(metadata[0].code,'5');
         assert.equal(incoming.E.code,'5');
         assert.equal(remote[0].name,'E');
         return {status:'ok',updated:0};
@@ -247,5 +253,22 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(remote[0].code,'5');
   assert.equal(vm.runInContext(
     '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
-  console.log('✅ 진행 중 종목교체, 연속 재기준화 및 in-flight 원복 회귀 통과');
+  // Another tab's metadata-only edit cannot be adopted as the precondition
+  // for the already queued stale payload. Even code/name identity is equal.
+  remote[0].sector='다른탭수정';
+  edit('F','6','E','5');
+  assert.equal(await attempt(),null,'foreign sector change must fail before POST');
+  assert.equal(requests,6,'stale metadata must never be POSTed');
+  assert.equal(remote[0].name,'E');
+  assert.equal(remote[0].sector,'다른탭수정');
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),1,
+    'blocked edit must remain recoverable rather than silently retired');
+  remote[0].sector='기타';
+  assert.equal((await attempt())?.status,'ok','unchanged authoritative master permits safe retry');
+  assert.equal(requests,7);
+  assert.equal(remote[0].name,'F');
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
+  console.log('✅ 동시 종목 교체, Settings 메타데이터 증거 및 타 탭 메타데이터 변경 차단 회귀 통과');
 }
