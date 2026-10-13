@@ -411,7 +411,8 @@ async function syncCodesToGsheet(options) {
       const repair = await requestGsheetFormJson('syncCodes', {
         codes:JSON.stringify(canonical),expectedSourceId:sourceId,
         expectedCodes:JSON.stringify(current),replacements:'[]',
-        settingsReplacements:JSON.stringify(repairDebt),forceSettingsRebase:'1'
+        settingsReplacements:JSON.stringify(repairDebt.filter(step => !step.metadataOnly)),
+        forceSettingsRebase:'1'
       }, {timeoutMs:20000,retry:0,targetUrl});
       if (repair?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl,generation)
           || String(_gsCodeMasterSourceIdentity || '') !== sourceId) return null;
@@ -425,14 +426,15 @@ async function syncCodesToGsheet(options) {
       // Settings debt save but BEFORE the edit journal rebase was persisted.
       // Rebase any old A->C root now from independently verified B.
       if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function')
-        _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,repairDebt);
+        _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
+          repairDebt.filter(step => !step.metadataOnly));
       if (typeof _forgetSameTargetCodeSettingsRepairs === 'function')
         _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairDebt);
       // Only the identity that has already been verified on the server can
       // retire. Never discard a newer edited C while repairing prior A->B.
       if (typeof _forgetSameTargetLocalCodeAddition === 'function'
           && typeof _getSameTargetLocalCodeAdditions === 'function') {
-        for (const step of repairDebt) {
+        for (const step of repairDebt.filter(item => !item.metadataOnly)) {
           if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
               entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
             _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl);
@@ -576,7 +578,20 @@ async function syncCodesToGsheet(options) {
       // and rebase a queued A->C journal to B->C before any early return.
       const partialFingerprint=_stockMasterSyncFingerprint(partial.codes);
       if (partialFingerprint!==freshFingerprint) {
+        // Even a sector/currency/market-only update can leave Settings stale.
+        // Mark the confirmed full-master revision for a future Settings-only
+        // rebuild when there is no identity replacement provenance.
         const repairProof=[...replacements,...settingsReplacements];
+        if (!repairProof.length && partial.codes.length) {
+          const stable=partial.codes[0];
+          repairProof.push({
+            previousName:String(stable.name || '').trim(),
+            previousCode:_normalizeSyncCode(stable.code),
+            name:String(stable.name || '').trim(),
+            code:_normalizeSyncCode(stable.code),
+            metadataOnly:true
+          });
+        }
         if (repairProof.length && typeof _rememberSameTargetCodeSettingsRepairs === 'function'
             && !_rememberSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairProof)) return null;
         _rememberConfirmedCodeMasterChange(targetUrl,sourceId,freshFingerprint,partialFingerprint);
