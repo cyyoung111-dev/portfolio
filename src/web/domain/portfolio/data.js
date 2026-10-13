@@ -504,6 +504,25 @@ function _getSameTargetLocalCodeAdditions(target) {
   const entries = _pendingSameTargetCodeAdditions[String(target || '').trim()];
   return Array.isArray(entries) ? entries.map(e => ({ ...e })) : [];
 }
+function _forgetSameTargetLocalCodeAddition(name, code, targetUrl) {
+  const target = String(targetUrl || _currentGsheetSyncTarget() || '').trim();
+  const entries = _pendingSameTargetCodeAdditions[target];
+  if (!target || !Array.isArray(entries)) return;
+  const normName = String(name || '').trim();
+  const normCode = typeof _normalizeSyncCode === 'function'
+    ? _normalizeSyncCode(code || '') : String(code || '').trim();
+  const remaining = entries.filter(entry => !(String(entry?.name || '').trim() === normName
+    && (!normCode || String(entry?.code || '').trim() === normCode)));
+  if (remaining.length === entries.length) return;
+  if (remaining.length) _pendingSameTargetCodeAdditions[target] = remaining;
+  else delete _pendingSameTargetCodeAdditions[target];
+  if (Object.keys(_pendingSameTargetCodeAdditions).length) {
+    lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
+  } else {
+    lsRemove(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY);
+  }
+}
+
 
 
 function _normalizePendingExplicitEmptyTradeSync(value) {
