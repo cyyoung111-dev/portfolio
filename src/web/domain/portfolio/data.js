@@ -643,24 +643,37 @@ function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, chang
 }
 function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes) {
   const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
-  if (!target || !sourceId || !Array.isArray(changes) || !changes.length) return;
+  if (!target || !sourceId || !Array.isArray(changes) || !changes.length) return false;
   _reloadSettingsRepairDebt();
   const list = _pendingSameTargetCodeSettingsRepairs[target];
-  if (!Array.isArray(list)) return;
+  if (!Array.isArray(list)) return true;
   const remaining = list.filter(entry => entry.sourceId !== sourceId || !changes.some(item =>
     entry.previousName === item.previousName && entry.previousCode === item.previousCode
     && entry.name === item.name && entry.code === item.code
     && (entry.metadataOnly === true) === (item.metadataOnly === true)));
-  if (remaining.length === list.length) return;
-  for(const entry of list) {
-    if(!remaining.includes(entry))
-      _persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,entry,true);
+  if (remaining.length === list.length) return true;
+  const next={..._pendingSameTargetCodeSettingsRepairs};
+  if(remaining.length) next[target]=remaining;
+  else delete next[target];
+  if(_stockPerPairStorageAvailable()) {
+    for(const entry of list) {
+      if(!remaining.includes(entry)
+          && !_persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,entry,true))
+        return false; // Keep ALL unverified repair debt for later reconciliation.
+    }
+    _pendingSameTargetCodeSettingsRepairs=next;
+    if(Object.keys(next).length) lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,next);
+    else lsRemove(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY);
+    return true;
   }
-  if (remaining.length) _pendingSameTargetCodeSettingsRepairs[target] = remaining;
-  else delete _pendingSameTargetCodeSettingsRepairs[target];
-  if (Object.keys(_pendingSameTargetCodeSettingsRepairs).length)
-    lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, _pendingSameTargetCodeSettingsRepairs);
+  if(Object.keys(next).length) lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,next);
   else lsRemove(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY);
+  const verified=lsGet(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,null);
+  if(Object.keys(next).length && JSON.stringify(verified)!==JSON.stringify(next))
+    return false;
+  if(!Object.keys(next).length && verified!==null) return false;
+  _pendingSameTargetCodeSettingsRepairs=next;
+  return true;
 }
 // Persist strictly scoped user-entered fields for an explicitly journaled
 // brand-new (name,code) pair. Never infer a replacement source or mutate an
@@ -706,13 +719,17 @@ function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
   if (changed) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,_pendingSameTargetCodeAdditions);
   // No mutation is also a successful preflight, provided any pending
   // registration has a verifiably durable exact-pair record.
-  const relevant=entries.filter(entry=>entry?.sourceId===source && !entry.replaces);
+  // Legacy source-pinned replacements need durable v2 provenance just as
+  // much as append-only registrations. Otherwise A->B can flush Codes and
+  // leave Settings A with no replayable identity proof after a tab crash.
+  const relevant=entries.filter(entry=>entry?.sourceId===source);
   if (!_stockPerPairStorageAvailable()) {
     const persisted=lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null);
     const rows=Array.isArray(persisted?.[target])?persisted[target]:[];
     return relevant.every(entry=>rows.some(row=>row.sourceId===source
       && row.name===entry.name && String(row.code)===String(entry.code)
-      && JSON.stringify(row.userFields||{})===JSON.stringify(entry.userFields||{})));
+      && JSON.stringify(row.userFields||{})===JSON.stringify(entry.userFields||{})
+      && JSON.stringify(row.replaces||{})===JSON.stringify(entry.replaces||{})));
   }
   return relevant.every(entry=>{
     const stored=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
@@ -721,7 +738,7 @@ function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
         PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)) return false;
     const verified=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
     return verified?.removed!==true && !!verified?.entry
-      && JSON.stringify(verified.entry.userFields||{})===JSON.stringify(entry.userFields||{});
+      && JSON.stringify(verified.entry)===JSON.stringify(entry);
   });
 
 }
