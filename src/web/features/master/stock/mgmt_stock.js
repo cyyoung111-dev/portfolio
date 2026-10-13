@@ -749,8 +749,12 @@ async function smSave(idx) {
         .find(x=>x.name===originalMasterIdentity.name
           && normalizeStockCode(x.code)===normalizeStockCode(originalMasterIdentity.code))
       : null;
-    if (pending?.replaces) {
-      showMgmtMsg('smMgmtMsg','❌ 이전 종목코드 변경이 서버에 확정된 후 코드를 제거할 수 있습니다.',true);
+    if (pending) {
+      // A pending NEW registration is also unsafe to retire *after* remote
+      // deletion: if localStorage subsequently runs out of quota, Bootstrap
+      // could re-append the old code from the surviving journal. Settle both
+      // NEW and replacement journals before authorizing the delete CAS.
+      showMgmtMsg('smMgmtMsg','❌ 종목코드 등록·변경 동기화가 완료된 후 코드를 제거할 수 있습니다.',true);
       return false;
     }
     if (typeof deleteStockMasterCodeAfterPendingWrites!=='function') {
