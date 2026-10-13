@@ -326,29 +326,38 @@ async function syncCodesToGsheet(options) {
     ? _getSameTargetLocalCodeAdditions(targetUrl, sourceId) : [];
   // Normal sync must not resurrect a code deleted in another tab. Newly
   // introduced name/code pairs require explicit same-workbook UI provenance.
-  const authorizedAdditions = new Set(localAdditions.map(item =>
-    JSON.stringify([String(item.name || '').trim(), _normalizeSyncCode(item.code)])));
-  const replacements = localAdditions
-    .filter(item => {
-      const previous = item.replaces || {};
-      const oldName = String(previous.name || '').trim();
-      const oldCode = _normalizeSyncCode(previous.code || '');
-      // The expected original row must be present in this *same* snapshot.
-      // Unmatched journal entries may not rename unrelated server assets.
-      return oldName && oldCode && expectedCodes.some(prev =>
-        prev.name === oldName && _normalizeSyncCode(prev.code) === oldCode)
-        && codeMap[item.name] && _normalizeSyncCode(codeMap[item.name].code) === _normalizeSyncCode(item.code);
-    })
-    .map(item => ({
-      previousName:String(item.replaces.name).trim(),
-      previousCode:_normalizeSyncCode(item.replaces.code),
+  // A replacement journal is NEVER authorization to append. It must prove
+  // the original pair exists in the same immutable pre-write master.
+  const authorizedAdditions = new Set(localAdditions
+    .filter(item => !item.replaces)
+    .map(item => JSON.stringify([
+      String(item.name || '').trim(), _normalizeSyncCode(item.code)
+    ])));
+  const replacements = [];
+  for (const item of localAdditions) {
+    if (!item.replaces || _normalizeSyncCode(codeMap[item.name]?.code) !== _normalizeSyncCode(item.code)) continue;
+    const oldName = String(item.replaces.name || '').trim();
+    const oldCode = _normalizeSyncCode(item.replaces.code || '');
+    const originalMatches = oldName && oldCode && expectedCodes.some(prev =>
+      prev.name === oldName && _normalizeSyncCode(prev.code) === oldCode);
+    if (!originalMatches || (oldName === item.name && oldCode === _normalizeSyncCode(item.code))) {
+      _syncWarn('[syncCodes] 원본과 매칭되지 않는 교체 이력은 신규 추가로 전환하지 않음');
+      return null;
+    }
+    replacements.push({
+      previousName:oldName,
+      previousCode:oldCode,
       name:String(item.name).trim(),
       code:_normalizeSyncCode(item.code)
-    }));
+    });
+  }
+  const authorizedReplacements = new Set(replacements.map(item =>
+    JSON.stringify([item.name, item.code])));
   for (const [name, item] of Object.entries(codeMap)) {
     const code = _normalizeSyncCode(item.code);
     if (!code || expectedByCode.has(code) || expectedByName.has(name)) continue;
-    if (!authorizedAdditions.has(JSON.stringify([name, code]))) {
+    const pair = JSON.stringify([name, code]);
+    if (!authorizedAdditions.has(pair) && !authorizedReplacements.has(pair)) {
       _syncWarn('[syncCodes] 근거 없는 신규 코드 추가 차단:', name);
       return null;
     }
@@ -383,8 +392,10 @@ async function syncCodesToGsheet(options) {
     if (Object.entries(codeMap).some(([name, item]) =>
       _normalizeSyncCode(item.code) && remoteByName.get(name) !== _normalizeSyncCode(item.code))
         || replacements.some(replacement => checked.codes.some(remote =>
-          _normalizeSyncCode(remote.code) === replacement.previousCode
-          || String(remote.name || '').trim() === replacement.previousName))) {
+          (replacement.previousCode !== replacement.code
+            && _normalizeSyncCode(remote.code) === replacement.previousCode)
+          || (replacement.previousName !== replacement.name
+            && String(remote.name || '').trim() === replacement.previousName)))) {
       _syncWarn('[syncCodes] 서버 마스터 확인 실패');
       return null;
     }
