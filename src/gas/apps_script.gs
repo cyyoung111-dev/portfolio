@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.202
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.203
+//
+//  v9.203 변경사항 (2026.10.13):
+//   종목 삭제 시 코드 행이 실제 삭제·검증된 후에만 Settings를 변경
+//   Settings 쓰기 실패 시 원래 코드 행·Settings의 보상 복구를 시도하고 결과를 구분
+//   재시작 교체 journal을 Settings 복구 대상으로 승격하는 웹 계약과 버전 동기화
 //
 //  v9.202 변경사항 (2026.10.13):
 //   부분 코드 커밋 확인 뒤 Settings 복구 실패 시 교체 journal 독립 복구 지원
@@ -1929,7 +1934,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.202', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.203', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5586,7 +5591,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.202' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.203' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11324,7 +11329,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.202',
+    gasVersion: '9.203',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11364,7 +11369,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.202' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.203' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14209,7 +14214,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.202' });
+    return jsonOk({ settings: settings, gasVersion: '9.203' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14238,7 +14243,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.202'
+      gasVersion: '9.203'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14482,22 +14487,65 @@ function handleDeleteUnreferencedCode(dataJson) {
         }
       }
     }
-    // SaveSettings also shares this script lock. Remove the same identity
-    // from authoritative Settings so the next bootstrap cannot resurrect it.
-    var settings = _readSettingsMap(ss);
+    // Preserve the authoritative Settings, including non-master fields such
+    // as targetWeight, until the code sheet deletion has COMPLETED. A
+    // deleteRow quota/permission failure must never remove those fields first.
+    var originalSettings = _readSettingsMap(ss);
+    var settings = JSON.parse(JSON.stringify(originalSettings));
     if (Array.isArray(settings.EDITABLE_PRICES)) {
       settings.EDITABLE_PRICES = settings.EDITABLE_PRICES.filter(function(ep) {
         return !(String(ep && ep.name || '').trim() === name && _cleanCode(ep && ep.code || '') === code);
       });
     }
-    // Persist Settings before removing the code row. A Settings failure must
-    // not leave a deleted code with an authoritative stale Settings entry.
-    if (!_writeSettingsMap(settings))
-      return jsonError('종목 설정 저장 실패', { errorCode:'CODE_DELETE_SETTINGS_FAILED' });
+    // Capture the exact sheet row for compensation if the Settings write
+    // fails after a successful row deletion. Preserve the original Settings
+    // on the server even if the request terminates between those two writes.
+    var deletedRowValues = rowIndex
+      ? cs.getRange(rowIndex,1,1,Math.max(6,cs.getLastColumn())).getValues()[0] : null;
     if (rowIndex) cs.deleteRow(rowIndex);
     SpreadsheetApp.flush();
-    if (getCodeItems(ss, true).some(function(item) { return _cleanCode(item.code) === code; }))
-      return jsonError('종목코드 삭제 검증 실패', { errorCode:'CODE_DELETE_VERIFY_FAILED' });
+    if (getCodeItems(ss, true).some(function(item) {
+      return _cleanCode(item.code) === code || String(item.name || '').trim() === name;
+    }))
+      return jsonError('종목코드 삭제 검증 실패: Settings 원본 유지', { errorCode:'CODE_DELETE_VERIFY_FAILED' });
+    var settingsWriteError = null;
+    try {
+      if (!_writeSettingsMap(settings)) settingsWriteError = 'Settings 저장 실패';
+    } catch (writeError) {
+      settingsWriteError = writeError.message;
+    }
+    if (settingsWriteError !== null) {
+      // Best-effort transaction compensation under the same ScriptLock.
+      // If a Settings write partially modified the sheet before throwing,
+      // restore its original user-specific metadata as well.
+      var rollbackErrors = [];
+      try {
+        if (!_writeSettingsMap(originalSettings)) rollbackErrors.push('Settings 원본 재저장 실패');
+      } catch (settingsRollbackError) {
+        rollbackErrors.push('Settings 재저장: ' + settingsRollbackError.message);
+      }
+      if (rowIndex && deletedRowValues) {
+        try {
+          if (!getCodeItems(ss,true).some(function(item) {
+            return _cleanCode(item.code) === code && String(item.name || '').trim() === name;
+          })) {
+            cs.insertRowBefore(rowIndex);
+            cs.getRange(rowIndex,1,1,deletedRowValues.length).setValues([deletedRowValues]);
+            SpreadsheetApp.flush();
+            if (!getCodeItems(ss,true).some(function(item) {
+              return _cleanCode(item.code) === code && String(item.name || '').trim() === name;
+            })) rollbackErrors.push('코드 행 원복 재검증 실패');
+          }
+        } catch (codeRollbackError) {
+          rollbackErrors.push('코드 행 원복: ' + codeRollbackError.message);
+        }
+      }
+      return rollbackErrors.length
+        ? jsonError('Settings 변경 실패, 보상 복구 불완전: ' + rollbackErrors.join('; '),
+          {errorCode:'CODE_DELETE_ROLLBACK_FAILED'})
+        : jsonError('Settings 변경 실패, 삭제 롤백 완료: '+settingsWriteError,
+          {errorCode:'CODE_DELETE_SETTINGS_FAILED'});
+    }
     _touchSnapshotIntegritySourceRevision();
     return jsonOk({ deleted:rowIndex ? 1 : 0, codeMasterSourceId:sourceId });
   } catch(err) {
