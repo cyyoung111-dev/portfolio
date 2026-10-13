@@ -1,3 +1,11 @@
+## PR #493 재리뷰 재검토 — 2026-10-13 (Draft / 운영 배포 불가)
+
+- **GAS v9.202 후보**: 리뷰용 전체 Git blob `23dd4fa2c455c315d6925d57f3bdfe5baec40aeb`; `scripts/deploy-gas.mjs` 무결성 게이트 및 `scripts/check-gas-deploy.mjs` 체크 일치. 운영 배포가 아닌 CI 검증 소스입니다.
+- **부분 코드 커밋 이후 복구 실패**: GAS 코드 시트 A→B 기록을 동일 워크북의 전체 마스터 readback으로 확인하면, Settings 쓰기가 재차 실패해도 웹은 성공한 코드 전이 A→B를 큐에 게시하고 대기 중인 A→C journal을 B→C로 다시 작성합니다. 동시에 A→B Settings 메타데이터 복구 근거를 별도 로컬 영속 journal에 기록합니다. 다음 작업은 같은 CAS·ScriptLock에서 Settings A→B를 먼저 **코드 시트 무변경으로 수리·재확인한 뒤** B→C를 반영합니다. 다른 workbook/변경된 마스터에서는 쓰기를 차단하고 복구 근거를 보존합니다.
+- **일반 코드/이름 교체 전 Settings 중복 검사**: A/1과 신규 B/2가 Settings에 동시에 있거나 같은 이름/코드 충돌 기록이 있을 경우 코드 시트 쓰기 전 `CODE_SYNC_REPLACEMENT_SETTINGS_CONFLICT`로 실패합니다. 명확한 A 원본만 있으면 추가 메타데이터(`targetWeight` 등)를 B로 승계합니다. 기존 복구 전용 모드의 별도 provenance 검증도 유지합니다.
+- **회귀**: 실제 웹 VM 동시 A→B 부분 commit→Settings 재복구 실패→B→C 대기편집→Settings 복원 후 C 저장·journal/부채 해소, 실제 GAS handler VM 일반 교체 중 중복 Settings 차단 및 정상 교체 사용자 설정 보존. `quality-check`, `web-check`, GAS `validate` 성공(배포 작업은 skipped).
+- **운영 영향 제한**: #489~#492·main, GAS 실배포, Sheets 거래/보유/Snapshot/가격/NAV, 브리핑 트리거·인증정보를 변경하지 않았습니다. 실제 운영 버전 확인 및 실데이터 검증은 별도 단계이며 Draft 해제·병합·배포를 하지 않았습니다.
+
 ## PR #493 최신 리뷰 보완 — 2026-10-13 (Draft / 운영 배포 금지)
 
 - **GAS v9.201 검증 후보**: 전체 Git blob `d3d4ce4a9f7db4096f99b8b214dad959736ecb5f`. `deploy-gas.mjs` 승인 지문 게이트와 `check-gas-deploy.mjs` 기대값을 함께 변경했습니다. 이는 소스 무결성 게이트이지 운영 배포 승인이나 실제 배포가 아닙니다.
