@@ -192,3 +192,77 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(lockHeld,false);
   console.log('✅ GAS 부분 커밋 Settings 복구 및 일반 교체 원본 메타데이터·충돌 차단 통과');
 }
+
+
+// Production GAS delete handler must NEVER remove custom Settings before a
+// deleteRow failure, and must compensate code row + Settings on write errors.
+{
+  const gas=vm.createContext({console,Date,JSON,Number,String,Math,isFinite,isNaN});
+  vm.runInContext(source,gas);
+  let row=['1','A','주식','기타','','KR'];
+  let settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',targetWeight:37,notes:'영구 보존'}]};
+  let failDelete=false,failSettings=false,settingsWrites=0,locked=false,inserted=0,removed=0;
+  let revision=0;
+  const sheet={
+    getLastRow:()=>row?2:1,getLastColumn:()=>6,
+    getRange:(r,c,n,m)=>({
+      getValues:()=>[row?row.slice(c-1,c-1+(m||1)):[]],
+      setValues:vals=>{if(!row)row=['','','','','',''];for(let i=0;i<vals[0].length;i++)row[c-1+i]=vals[0][i];}
+    }),
+    deleteRow:idx=>{assert.equal(idx,2);if(failDelete)throw new Error('quota: deleteRow');removed++;row=null;},
+    insertRowBefore:idx=>{assert.equal(idx,2);inserted++;row=['','','','','',''];}
+  };
+  const ss={getSheetByName:()=>sheet};
+  Object.assign(gas,{
+    CONFIG:{SHEET_CODES:'codes'},getss:()=>ss,
+    LockService:{getScriptLock:()=>({
+      waitLock:()=>{assert.equal(locked,false);locked=true;},
+      releaseLock:()=>{assert.equal(locked,true);locked=false;}
+    })},
+    SpreadsheetApp:{flush:()=>{}},
+    _cleanCode:c=>String(c||'').trim(),
+    _portfolioCodeMasterSourceIdentity_:()=> 'sheet-1',
+    _portfolioNormalizeCodeMasterSnapshot_:items=>JSON.stringify(items.map(x=>[
+      x.code,x.name,x.type,x.sector,x.currency,x.market])),
+    getCodeItems:()=>row?[{code:row[0],name:row[1],type:row[2],sector:row[3],
+      currency:row[4]||'KRW',market:row[5]}]:[],
+    handleGetTrades:()=>({getContent:()=>JSON.stringify({status:'ok',trades:[]})}),
+    handleGetHoldings:()=>({getContent:()=>JSON.stringify({status:'ok',holdings:[]})}),
+    _readSettingsMap:()=>JSON.parse(JSON.stringify(settings)),
+    _writeSettingsMap:val=>{settingsWrites++;if(failSettings){failSettings=false;return false;}settings=JSON.parse(JSON.stringify(val));return 1;},
+    _touchSnapshotIntegritySourceRevision:()=>{revision++;},
+    jsonError:(message,props)=>({status:'error',message,...props}),
+    jsonOk:props=>({status:'ok',...props}),
+  });
+  const expected=[{code:'1',name:'A',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+  const del=()=>gas.handleDeleteUnreferencedCode(JSON.stringify({
+    name:'A',code:'1',expectedSourceId:'sheet-1',expectedCodes:expected
+  }));
+  failDelete=true;
+  const failedDeletion=del();
+  assert.equal(failedDeletion.errorCode,'CODE_DELETE_FAILED');
+  assert.equal(settingsWrites,0,'deleteRow error must precede ANY Settings mutation');
+  assert.equal(settings.EDITABLE_PRICES[0].targetWeight,37);
+  assert.equal(row[0],'1');
+  assert.equal(locked,false);
+  failDelete=false;
+  failSettings=true;
+  const compensated=del();
+  assert.equal(compensated.errorCode,'CODE_DELETE_SETTINGS_FAILED');
+  assert.equal(settings.EDITABLE_PRICES.length,1);
+  assert.equal(settings.EDITABLE_PRICES[0].targetWeight,37);
+  assert.equal(settings.EDITABLE_PRICES[0].notes,'영구 보존');
+  assert.equal(row[0],'1','failed Settings write restores original code row');
+  assert.equal(row[1],'A');
+  assert.equal(removed,1);
+  assert.equal(inserted,1);
+  assert.equal(revision,0,'failed deletion must not advance source revision');
+  assert.equal(locked,false);
+  const deleted=del();
+  assert.equal(deleted.status,'ok');
+  assert.equal(row,null);
+  assert.equal(settings.EDITABLE_PRICES.length,0);
+  assert.equal(revision,1);
+  assert.equal(locked,false);
+  console.log('✅ GAS 종목 삭제: 행 오류 시 Settings 원본 보존, 저장 실패 보상 복원 및 정상 삭제 VM 통과');
+}
