@@ -9424,12 +9424,31 @@ function upsertPriceHistory(ss, dateStr, code, name, price, savedAt, source) {
 //  보유현황 동기화
 // ════════════════════════════════════════════════════════════════════
 function handleSyncHoldings(dataJson) {
+  var lock = LockService.getScriptLock(), locked = false;
   try {
+    // Serialize the entire read/validation/write with stock-code deletion
+    // AND trade sync. Do not allow a holding to reference a removed code.
+    lock.waitLock(30000); locked = true;
     var holdings;
     try { holdings = _parseArrayParam(dataJson, 'holdings'); } catch(e) { return jsonError(e.message); }
     if (!Array.isArray(holdings)) return jsonError('배열 형식 필요');
 
     var ss = getss();
+    var knownCodes = {}, knownNames = {};
+    getCodeItems(ss, true).forEach(function(item) {
+      if (_cleanCode(item.code)) knownCodes[_cleanCode(item.code)] = String(item.name || '').trim();
+      if (String(item.name || '').trim()) knownNames[String(item.name || '').trim()] = _cleanCode(item.code);
+    });
+    for (var hIndex = 0; hIndex < holdings.length; hIndex++) {
+      var item = holdings[hIndex] || {};
+      var itemCode = _cleanCode(item.code || '');
+      if (!itemCode) continue; // code-less direct funds are not stock master codes
+      var itemName = String(item.name || '').trim();
+      if (knownCodes[itemCode] !== itemName || knownNames[itemName] !== itemCode)
+        return jsonError('보유현황 종목코드가 서버 마스터와 불일치', {
+          errorCode:'HOLDINGS_CODE_MASTER_CONFLICT'
+        });
+    }
     var sh = ss.getSheetByName(CONFIG.SHEET_HOLD);
     if (!sh) {
       sh = ss.insertSheet(CONFIG.SHEET_HOLD);
@@ -9454,6 +9473,8 @@ function handleSyncHoldings(dataJson) {
     return jsonOk({ synced: holdings.length });
   } catch(err) {
     return jsonError('syncHoldings 실패: ' + err.message);
+  } finally {
+    if (locked) lock.releaseLock();
   }
 }
 
