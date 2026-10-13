@@ -206,7 +206,9 @@ async function syncCodesToGsheet(options) {
     // ★ EDITABLE_PRICES 기준으로 {name: {code, type, sector}} 구조 전송
     // type/sector를 함께 보내야 GAS에서 유형 컬럼을 덮어쓰지 않음
     const codeMap = {};
-    EDITABLE_PRICES.forEach(i => {
+    const sourceItems = Array.isArray(options?.codeItemsOverride)
+      ? options.codeItemsOverride : EDITABLE_PRICES;
+    sourceItems.forEach(i => {
       if (!i.name) return;
       codeMap[i.name] = {
         code:     _normalizeSyncCode(i.code),
@@ -387,6 +389,101 @@ function isPinnedRestorePortfolioMasterComplete(trades, holdings, directFunds, c
       return !!String(name).trim() && fd && typeof fd === 'object' && !Array.isArray(fd)
         && fundTypes.has(type) && codeLessFunds.has(String(name).trim());
     });
+}
+
+
+// Recovery of a new code whose normal syncCodes POST failed. Provenance must be
+// supplied by the SAME remote Settings or by an explicit stock-management edit
+// journal recorded while that target's bootstrap was previously successful.
+// Never use unproven EDITABLE_PRICES as an authority to add codes to a sheet.
+async function recoverPinnedMissingPortfolioCodes(options) {
+  const targetUrl = String(options?.targetUrl || '').trim();
+  const generation = options?.generation;
+  const masterCodes = options?.masterCodes;
+  const dirty = options?.dirty;
+  if (!targetUrl || !Array.isArray(masterCodes) || !dirty
+      || typeof isGsheetConnectionCurrent !== 'function'
+      || !isGsheetConnectionCurrent(targetUrl, generation)) return masterCodes;
+  const refs = [
+    ...(Array.isArray(dirty.trades) ? dirty.trades : []),
+    ...(Array.isArray(dirty.holdings) ? dirty.holdings : [])
+  ].map(row => ({ name:String(row?.name || '').trim(), code:_normalizeSyncCode(row?.code || '') }))
+    .filter(row => row.code);
+  const existingByCode = new Map(), existingByName = new Map();
+  for (const item of masterCodes) {
+    const code = _normalizeSyncCode(item?.code || '');
+    const name = String(item?.name || '').trim();
+    if (!code || !name) continue;
+    if (existingByCode.has(code) && existingByCode.get(code) !== name) return masterCodes;
+    if (existingByName.has(name) && existingByName.get(name) !== code) return masterCodes;
+    existingByCode.set(code, name);
+    existingByName.set(name, code);
+  }
+  const remoteEntries = Array.isArray(options?.remoteSettings?.EDITABLE_PRICES)
+    ? options.remoteSettings.EDITABLE_PRICES : [];
+  const trustedLocal = typeof _getSameTargetLocalCodeAdditions === 'function'
+    ? _getSameTargetLocalCodeAdditions(targetUrl) : [];
+  const proven = [...remoteEntries, ...trustedLocal];
+  const additions = new Map();
+  for (const row of refs) {
+    if (!row.name) return masterCodes;
+    if (existingByCode.has(row.code) || existingByName.has(row.name)) {
+      // A known code with the wrong name (or vice versa) is not a new asset.
+      if (existingByCode.get(row.code) !== row.name
+          || existingByName.get(row.name) !== row.code) return masterCodes;
+      continue;
+    }
+    const candidate = proven.find(ep =>
+      String(ep?.name || '').trim() === row.name
+      && _normalizeSyncCode(ep?.code || '') === row.code);
+    if (!candidate) return masterCodes;
+    if ([...additions.values()].some(e => e.name === row.name && e.code !== row.code
+      || e.code === row.code && e.name !== row.name)) return masterCodes;
+    additions.set(row.code, {
+      name:row.name, code:row.code,
+      type:String(candidate.assetType || candidate.type || '주식'),
+      sector:String(candidate.sector || '기타'),
+      currency:String(candidate.currency || 'KRW').toUpperCase(),
+      market:String(candidate.market || '').toUpperCase()
+    });
+  }
+  if (!additions.size) return masterCodes;
+  const proposed = [...masterCodes, ...additions.values()];
+  if (!isPinnedRestorePortfolioMasterComplete(
+      dirty.trades, dirty.holdings, dirty.fundDirect, proposed)) return masterCodes;
+  if (!isGsheetConnectionCurrent(targetUrl, generation)) return null;
+  const response = await syncCodesToGsheet({
+    targetUrl, generation, allowDuringRestore:true,
+    codeItemsOverride:[...additions.values()]
+  });
+  if (response?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl, generation)) return null;
+  // An ACK is insufficient: read the exact target again and prove identity.
+  const checked = await requestGsheetActionJson('getCodeList', {}, {
+    targetUrl, timeoutMs:15000, retry:1, preserveError:true
+  });
+  if (!isGsheetConnectionCurrent(targetUrl, generation)
+      || checked?.status !== 'ok' || !Array.isArray(checked.codes)) return null;
+  const actualByCode = new Map();
+  for (const item of checked.codes) {
+    const code = _normalizeSyncCode(item?.code || '');
+    const name = String(item?.name || '').trim();
+    if (code && name) {
+      if (actualByCode.has(code) && actualByCode.get(code) !== name) return null;
+      actualByCode.set(code, name);
+    }
+  }
+  for (const [code,name] of existingByCode) {
+    if (actualByCode.get(code) !== name) return null;
+  }
+  for (const item of additions.values()) {
+    if (actualByCode.get(item.code) !== item.name) return null;
+  }
+  const verified = [
+    ...checked.codes,
+    ...masterCodes.filter(item => !_normalizeSyncCode(item?.code || ''))
+  ];
+  return isPinnedRestorePortfolioMasterComplete(
+    dirty.trades, dirty.holdings, dirty.fundDirect, verified) ? verified : null;
 }
 
 // ★ v8.2 — 거래이력 GSheet 동기화 (backfillMonth 소급 계산용)
