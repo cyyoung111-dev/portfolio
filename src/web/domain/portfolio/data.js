@@ -569,7 +569,12 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
         const prevKey=_stockDurablePairKey(prefix,target,{
           sourceId:record.sourceId,name:prev?.name,code:prev?.code
         });
-        return pairEntries.get(prevKey)?.removed===true;
+        const tombstone=pairEntries.get(prevKey);
+        // A separate tab's confirmed B retirement must NEVER authorize a
+        // stale A->C transition. Only this exact edit's retirement token can.
+        // Legacy committed v2 journals lacked tokens; preserve their contract.
+        return tombstone?.removed===true
+          && (!record.transitionId || tombstone.retiredBy===record.transitionId);
       });
     if(item.removed!==true && completed)without.push({...record});
     if(without.length)result[target]=without;
@@ -577,8 +582,9 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
   }
   return result;
 }
-function _persistDurableStockPair(prefix,target,entry,removed=false) {
-  const item={target:String(target||'').trim(),entry:{...entry},removed:removed===true};
+function _persistDurableStockPair(prefix,target,entry,removed=false,retiredBy='') {
+  const item={target:String(target||'').trim(),entry:{...entry},removed:removed===true,
+    ...(removed && retiredBy ? {retiredBy:String(retiredBy)} : {})};
   if (!item.target || !entry?.sourceId) return false;
   if (!_stockPerPairStorageAvailable()) return false;
   const key=_stockDurablePairKey(prefix,item.target,item.entry);
@@ -796,6 +802,11 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
   const others=records.filter(record=>record && !removed.includes(record));
   const waitingFor=removed.filter(entry=>String(entry.name||'').trim()!==name
     || normalized(entry.code)!==code).map(entry=>({name:entry.name,code:normalized(entry.code)}));
+  // A locally unique fence binds this edit's successor to the exact
+  // predecessor tombstones it wrote. No other tab can accidentally commit
+  // this prepared journal by retiring B for a separate server transition.
+  const transitionId=waitingFor.length
+    ? String(Date.now())+'-'+Math.random().toString(36).slice(2) : '';
   const next={
     name, code, sourceId, type: String(item.assetType || item.type || '주식'),
     sector: String(item.sector || '기타'),
@@ -806,7 +817,7 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
       name:String(root.name).trim(), code:normalized(root.code)
     }} : {}),
     ...(waitingFor.length
-      ? {requiresTombstones:waitingFor,transitionCommitted:false} : {})
+      ? {requiresTombstones:waitingFor,transitionId,transitionCommitted:false} : {})
   };
   // A multi-step edit must not claim success until EVERY predecessor
   // tombstone was durably read back. Stage the new pair first, but never
@@ -826,11 +837,29 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
   if (!_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next))
     return false;
   const retired=[];
+  // Another tab may finish A->B while C is merely prepared. If B was
+  // already retired by that tab, we cannot safely publish C's older root A.
+  // Reject the edit and require the user to retry against the new B master.
+  const predecessorChanged=removed.some(entry=>{
+    if(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)===key)
+      return false;
+    const predecessorKey=_stockDurablePairKey(
+      PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry);
+    const observed=lsGet(predecessorKey,null);
+    return observed?.removed===true || (observed?.entry
+      && JSON.stringify(observed.entry)!==JSON.stringify(entry));
+  });
+  if(predecessorChanged) {
+    if (previousPair) lsSave(key,previousPair);
+    else lsRemove(key);
+    return false;
+  }
   for (const entry of removed) {
     // Updating a pair in place has the same durable key; never tombstone it.
     if (_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)===key)
       continue;
-    if (!_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true)) {
+    if (!_persistDurableStockPair(
+        PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true,transitionId)) {
       // A failed quota/security write must not leave BOTH A->B and A->C
       // active after a reload. Roll back the uncommitted new pair. Removal
       // usually works even when writes fail because the quota is exhausted.
