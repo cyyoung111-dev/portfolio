@@ -215,19 +215,32 @@ function _queueGsheetStockMasterWrite(targetUrl, work) {
   });
 }
 
-async function deleteStockMasterCodeAfterPendingWrites(item, session) {
+async function deleteStockMasterCodeAfterPendingWrites(item, session, options) {
   const targetUrl = String(session?.targetUrl || '').trim();
   const generation = session?.generation;
   const sourceId = String(session?.sourceId || '').trim();
   const code = _normalizeSyncCode(item?.code || '');
   const name = String(item?.name || '').trim();
   if (!targetUrl || !sourceId || !name || !code) return false;
+  // Conversion is different from removal: the *same object* still carries
+  // the old code until the queued server CAS has been verified. Never allow
+  // a second/re-added object to inherit this permission.
+  const conversionItem=options?.conversionItem || null;
+  const localIntentIsCurrent=()=>{
+    const matches=EDITABLE_PRICES.filter(ep=>ep?.name===name
+      && _normalizeSyncCode(ep?.code||'')===code);
+    return conversionItem
+      ? matches.length===1 && matches[0]===conversionItem
+        && EDITABLE_PRICES.includes(conversionItem)
+        && typeof isStockMasterEditSessionCurrent==='function'
+        && isStockMasterEditSessionCurrent(session)
+      : matches.length===0;
+  };
   return _queueGsheetStockMasterWrite(targetUrl, async () => {
     if (!isGsheetConnectionCurrent(targetUrl, generation)
         || String(_gsCodeMasterSourceIdentity || '') !== sourceId) return false;
     // A new edit/re-add in the same session supersedes an earlier deletion.
-    if (EDITABLE_PRICES.some(ep =>
-      ep?.name === name && _normalizeSyncCode(ep?.code || '') === code)) return false;
+    if (!localIntentIsCurrent()) return false;
     // Read the post-queue server master before deletion. A separate browser
     // may have edited the same code's metadata; do not remove that newer item
     // merely because its old name/code are still identical.
@@ -241,6 +254,18 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
     const matching = before.codes.filter(ep =>
       _normalizeSyncCode(ep?.code || '') === code
       || String(ep?.name || '').trim() === name);
+    if (matching.length===0 && conversionItem) {
+      // A still-unposted NEW local pair may be converted to a code-less
+      // fund without a server delete. Replacement edits cannot take this
+      // shortcut while their true previous server identity still exists.
+      const journal=typeof _getSameTargetLocalCodeAdditions==='function'
+        ? _getSameTargetLocalCodeAdditions(targetUrl,sourceId) : [];
+      if (journal.some(ep=>ep.name===name
+          && _normalizeSyncCode(ep.code)===code && ep.replaces)) return false;
+      if (!localIntentIsCurrent()) return false;
+      applyGsheetCodeList(before.codes,sourceId);
+      return true;
+    }
     if (matching.length !== 1) return false;
     const remote = matching[0];
     const normalizeType = ep => String(ep?.assetType || ep?.type || '주식').trim();
@@ -248,8 +273,7 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
     const normalizeCurrency = ep => String(ep?.currency || 'KRW').trim().toUpperCase();
     const normalizeMarket = ep => String(ep?.market || '').trim().toUpperCase();
     // The user may have re-added the same asset while the GET was pending.
-    if (EDITABLE_PRICES.some(ep =>
-        ep?.name === name && _normalizeSyncCode(ep?.code || '') === code)) return false;
+    if (!localIntentIsCurrent()) return false;
     if (_normalizeSyncCode(remote.code) !== code
         || String(remote.name || '').trim() !== name
         || normalizeType(remote) !== normalizeType(item)
@@ -263,7 +287,8 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
         name, code, expectedSourceId:sourceId, expectedCodes:before.codes
       })
     }, {timeoutMs:20000,retry:0,targetUrl});
-    if (res?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl, generation)) return false;
+    if (res?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl, generation)
+        || (conversionItem && !localIntentIsCurrent())) return false;
     const checked = await requestGsheetActionJson('getCodeList', {}, {
       targetUrl, timeoutMs:15000, retry:1, preserveError:true
     });
@@ -275,7 +300,7 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
     // Subsequent local edits must use the confirmed post-delete revision,
     // not an obsolete cached pre-delete snapshot that would always fail CAS.
     if (verified) applyGsheetCodeList(checked.codes, sourceId);
-    return verified;
+    return verified && localIntentIsCurrent();
   });
 }
 
