@@ -38,9 +38,11 @@ async function syncIssuesToGsheet(source, issues, options) {
 
 // ── 구글시트 종목코드 목록 로드
 let _gsheetCodeList = []; // [{code, name}]
+let _gsheetCodeListSourceId = ''; // authoritative workbook scope
 
-function applyGsheetCodeList(codes) {
+function applyGsheetCodeList(codes, sourceId) {
   if (!Array.isArray(codes)) return false;
+  _gsheetCodeListSourceId = String(sourceId || '').trim();
   _gsheetCodeList = codes
     .map(item => ({
       code: _normalizeSyncCode(item?.code),
@@ -71,7 +73,7 @@ async function loadGsheetCodeList(options) {
     );
     if (typeof isGsheetConnectionCurrent === 'function'
         && !isGsheetConnectionCurrent(targetUrl, generation)) return false;
-    if (data?.status === 'ok' && applyGsheetCodeList(data.codes)) {
+    if (data?.status === 'ok' && applyGsheetCodeList(data.codes, data.codeMasterSourceId)) {
       // ⚠️ STOCK_CODE는 건드리지 않음 — HTML 직접 입력이 항상 우선
       // GSheet 코드는 _gsheetCodeList에만 보관, lookupNameByCode()에서 3순위 참고용으로만 사용
       return true;
@@ -308,6 +310,28 @@ async function syncCodesToGsheet(options) {
     _syncWarn('[syncCodes] 전송할 코드 없음');
     return null;
   }
+  // Snapshot the pre-existing master at invocation, never after queue delay.
+  if (!sourceId || sourceId !== _gsheetCodeListSourceId) {
+    _syncWarn('[syncCodes] 서버 종목 마스터 스냅샷 미확인');
+    return null;
+  }
+  const expectedCodes = _gsheetCodeList.map(item => ({...item}));
+  const expectedByCode = new Set(expectedCodes.map(item => _normalizeSyncCode(item.code)));
+  const expectedByName = new Set(expectedCodes.map(item => item.name));
+  const localAdditions = typeof _getSameTargetLocalCodeAdditions === 'function'
+    ? _getSameTargetLocalCodeAdditions(targetUrl, sourceId) : [];
+  // Normal sync must not resurrect a code deleted in another tab. Newly
+  // introduced name/code pairs require explicit same-workbook UI provenance.
+  const authorizedAdditions = new Set(localAdditions.map(item =>
+    JSON.stringify([String(item.name || '').trim(), _normalizeSyncCode(item.code)])));
+  for (const [name, item] of Object.entries(codeMap)) {
+    const code = _normalizeSyncCode(item.code);
+    if (!code || expectedByCode.has(code) || expectedByName.has(name)) continue;
+    if (!authorizedAdditions.has(JSON.stringify([name, code]))) {
+      _syncWarn('[syncCodes] 근거 없는 신규 코드 추가 차단:', name);
+      return null;
+    }
+  }
   return _queueGsheetStockMasterWrite(targetUrl, async () => {
     if (!isGsheetConnectionCurrent(targetUrl, generation)
         || (!duringRestore && sourceId !== String(_gsCodeMasterSourceIdentity || ''))
@@ -318,12 +342,30 @@ async function syncCodesToGsheet(options) {
     // Only the original target's immutable code snapshot may be submitted.
     const data = await requestGsheetFormJson(
       'syncCodes',
-      { codes: JSON.stringify(codeMap), expectedSourceId:sourceId },
+      { codes: JSON.stringify(codeMap), expectedSourceId:sourceId,
+        expectedCodes:JSON.stringify(expectedCodes) },
       { timeoutMs: 20000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[GSheet 동기화] 네트워크 오류'); return null; }
     if (data.status !== 'ok') { _syncWarn('[GSheet 동기화] 응답 오류', data); return null; }
-    // Acknowledged normal code sync retires only matching registrations;
+    // ACK alone is insufficient to retire additions or refresh the revision.
+    // Read back the exact same workbook and verify every submitted coded row.
+    const checked = await requestGsheetActionJson('getCodeList', {}, {
+      timeoutMs:15000, retry:1, preserveError:true, targetUrl
+    });
+    if (!isGsheetConnectionCurrent(targetUrl, generation)
+        || String(_gsCodeMasterSourceIdentity || '') !== sourceId
+        || checked?.status !== 'ok' || checked.codeMasterSourceId !== sourceId
+        || !Array.isArray(checked.codes)) return null;
+    const remoteByName = new Map(checked.codes.map(item =>
+      [String(item.name || '').trim(), _normalizeSyncCode(item.code)]));
+    if (Object.entries(codeMap).some(([name, item]) =>
+      _normalizeSyncCode(item.code) && remoteByName.get(name) !== _normalizeSyncCode(item.code))) {
+      _syncWarn('[syncCodes] 서버 마스터 확인 실패');
+      return null;
+    }
+    applyGsheetCodeList(checked.codes, sourceId);
+    // Verified normal code sync retires only matching registrations;
     // otherwise a stale registration could later resurrect a removed stock.
     if (!Array.isArray(options?.codeItemsOverride)
         && typeof _getSameTargetLocalCodeAdditions === 'function'
