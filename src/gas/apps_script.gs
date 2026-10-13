@@ -14587,9 +14587,12 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
       var oldName=String(ren.previousName||'').trim(), oldCode=_cleanCode(ren.previousCode||'');
       var newName=String(ren.name||'').trim(), newCode=_cleanCode(ren.code||'');
       if (!oldName || !oldCode || !newName || !newCode
-          || oldName===newName || oldCode===newCode
+          || (oldName===newName && oldCode===newCode)
           || !existingByCode[oldCode] || existingByName[oldName]!==oldCode
-          || existingByCode[newCode] || existingByName[newName]
+          // A one-field change legitimately retains the other original
+          // identity on the SAME row; only different-row collisions conflict.
+          || (existingByCode[newCode] && existingByCode[newCode]!==existingByCode[oldCode])
+          || (existingByName[newName] && existingByName[newName]!==oldCode)
           || replacementByNewName[newName] || replacedOldNames[oldName]
           || !incomingNorm[newName] || _cleanCode(incomingNorm[newName].code)!==newCode)
         return jsonError('종목 코드/이름 교체 충돌', {errorCode:'CODE_SYNC_REPLACEMENT_CONFLICT'});
@@ -14762,7 +14765,8 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
         var oldName=String(ren.previousName||'').trim(),oldCode=_cleanCode(ren.previousCode||'');
         var newName=String(ren.name||'').trim(),newCode=_cleanCode(ren.code||'');
         if (masterAfter.some(function(it) {
-              return _cleanCode(it.code)===oldCode || String(it.name||'').trim()===oldName;
+              return (oldCode!==newCode && _cleanCode(it.code)===oldCode)
+                || (oldName!==newName && String(it.name||'').trim()===oldName);
             }) || !masterAfter.some(function(it) {
               return _cleanCode(it.code)===newCode && String(it.name||'').trim()===newName;
             }))
