@@ -716,8 +716,12 @@ function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
   }
   return relevant.every(entry=>{
     const stored=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
-    return stored?.removed!==true && !!stored?.entry
-      && JSON.stringify(stored.entry.userFields||{})===JSON.stringify(entry.userFields||{});
+    if(stored?.removed===true) return false;
+    if(!stored?.entry && !_persistDurableStockPair(
+        PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)) return false;
+    const verified=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
+    return verified?.removed!==true && !!verified?.entry
+      && JSON.stringify(verified.entry.userFields||{})===JSON.stringify(entry.userFields||{});
   });
 
 }
