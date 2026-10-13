@@ -676,7 +676,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     JSON.stringify(sourceId)+')',ctx);
   assert.deepEqual(debts(startTab()).map(x=>x.name).sort(),['C','D'],
     'two tabs must retain both independent Settings repair proofs');
-  vm.runInContext('_forgetSameTargetLocalCodeAddition("D","4",GSHEET_API_URL)',tabB);
+  vm.runInContext('_forgetSameTargetLocalCodeAddition("D","4",GSHEET_API_URL,'+JSON.stringify(sourceId)+')',tabB);
   assert.deepEqual(current(startTab()).map(x=>x.name),['C'],
     'D tombstone removes only D and preserves C');
   vm.runInContext('_forgetSameTargetCodeSettingsRepairs(GSHEET_API_URL,'+
@@ -691,4 +691,88 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(current(startTab()).find(x=>x.name==='C').userFields.targetWeight,25);
   assert.equal(debts(startTab()).find(x=>x.name==='D').userFields.targetWeight,42);
   console.log('✅ 멀티탭 C/D 신규 저널·Settings 부채 개별 영속화, stale map·tombstone 충돌 방지');
+}
+
+
+{
+  // P2: URL can be repointed to a different workbook. A successful
+  // source-B deletion MUST NOT tombstone source-A's identical pair.
+  const source=fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
+  const start=source.indexOf('const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY');
+  const stop=source.indexOf('function _normalizePendingExplicitEmptyTradeSync(',start);
+  const disk=new Map(),url='https://script.google.com/macros/s/same-url/exec';
+  const local={
+    getItem:k=>disk.has(k)?disk.get(k):null,
+    setItem:(k,v)=>disk.set(k,v),
+    removeItem:k=>disk.delete(k),
+    key:i=>[...disk.keys()][i]??null,
+    get length(){return disk.size;}
+  };
+  const create=(storage=local)=> {
+    const ctx={console,localStorage:storage,GSHEET_API_URL:url,
+      _currentGsheetSyncTarget:()=>url,isStockMasterEditSessionCurrent:()=>true,
+      normalizeStockCode:x=>String(x||'').trim(),
+      lsGet:(k,d)=>{try {const val=storage.getItem(k);return val===null?d:JSON.parse(val)}catch(e){return d}},
+      lsSave:(k,v)=>{try {storage.setItem(k,JSON.stringify(v))}catch(e){}},
+      lsRemove:k=>{try{storage.removeItem(k)}catch(e){}}
+    };
+    vm.createContext(ctx);
+    vm.runInContext(source.slice(start,stop),ctx);
+    return ctx;
+  };
+  const tab=create();
+  for(const sourceId of ['sheet-A','sheet-B']) {
+    const ok=vm.runInContext('_recordSameTargetLocalCodeAddition({name:"C",code:"3",targetWeight:25},{sourceId:'+JSON.stringify(sourceId)+'})',tab);
+    assert.equal(ok,true);
+  }
+  const get=id=>vm.runInContext('_getSameTargetLocalCodeAdditions(GSHEET_API_URL,'+JSON.stringify(id)+')',tab);
+  assert.equal(get('sheet-A').length,1);
+  assert.equal(get('sheet-B').length,1);
+  vm.runInContext('_forgetSameTargetLocalCodeAddition("C","3",GSHEET_API_URL,"sheet-B")',tab);
+  assert.equal(get('sheet-B').length,0,'current workbook pair retired');
+  assert.equal(get('sheet-A').length,1,'other workbook provenance survives exact-pair deletion');
+  assert.equal(get('sheet-A')[0].userFields.targetWeight,25);
+  const restored=create();
+  assert.equal(vm.runInContext('_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"sheet-A").length',restored),1);
+  assert.equal(vm.runInContext('_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"sheet-B").length',restored),0);
+
+  // Read failures in Storage getter / length / key must NOT crash startup.
+  const security=()=>{throw new Error('SecurityError')};
+  const brokenLength={getItem:security,setItem:security,removeItem:security,key:security,
+    get length(){return security()}};
+  const blocked=create(brokenLength);
+  assert.equal(vm.runInContext('_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"sheet-A").length',blocked),0);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"E",code:"5"},{sourceId:"sheet-A"})',blocked),
+    false,'blocked storage cannot authorize remote Code append');
+  const brokenKey={getItem:()=>null,setItem:()=>{},removeItem:()=>{},key:security,
+    get length(){return 1;}};
+  const blockedKey=create(brokenKey);
+  assert.equal(vm.runInContext('_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,"sheet-A").length',blockedKey),0);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"E",code:"5"},{sourceId:"sheet-A"})',blockedKey),false);
+
+  // Storage quota: setItem silently fails (lsSave swallows) and the journal
+  // must be confirmed BEFORE any caller is permitted to POST Codes.
+  const quota={getItem:()=>null,setItem:()=>{throw Error('QuotaExceededError')},
+    removeItem:()=>{},key:()=>null,get length(){return 0;}};
+  const full=create(quota);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",targetWeight:25},{sourceId:"sheet-Q"})',full),
+    false,'no successful readback means fail closed');
+  assert.equal(vm.runInContext(
+    '_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,"sheet-Q",'+
+      '[{previousName:"C",previousCode:"3",name:"C",code:"3",metadataOnly:true}])',full),
+    false,'Settings repair debt cannot be acknowledged without durable storage');
+
+  // Legacy v1 journal must be migrated to per-pair storage before network sync.
+  const old=create();
+  const legacy={sourceId:'old-book',name:'M',code:'7',userFields:{targetWeight:35}};
+  vm.runInContext('lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,{[GSHEET_API_URL]:[legacy]})',
+    Object.assign(old,{legacy}));
+  old.items=[{name:'M',code:'7',targetWeight:35}];
+  assert.equal(vm.runInContext('_refreshSameTargetPendingAppendFields(GSHEET_API_URL,"old-book",items)',old),true);
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"old-book").length',create()),1);
+  console.log('✅ 원본별 journal 삭제 격리, Storage 보안·Quota 실패 fail-closed, v1 영속 이관');
 }
