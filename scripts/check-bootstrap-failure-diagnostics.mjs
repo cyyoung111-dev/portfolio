@@ -673,6 +673,64 @@ assert.equal(addedActions[0],'syncCodesAppendOnly','code master recovery must pr
 assert.ok(addedActions.includes('syncTrades'),'verified new trade must recover');
 assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'dirty source clears only on success');
 
+
+// Codex P2: Code-only append does not persist Settings. A committed C row
+// with failed HTTP acknowledgment must retain durable journal until CAS.
+for (const fault of ['none','lost-ack','failed-settings']) {
+  h=setup();
+  h.response.codes=[{name:'A',code:'000660',type:'주식',sector:'기타',currency:'KRW',market:''}];
+  h.response.settings.EDITABLE_PRICES=[{name:'A',code:'000660',assetType:'주식',sector:'기타',targetWeight:37,notes:'A memo'}];
+  assert.equal(await h.ctx.loadSettings(),true);
+  vm.runInContext(`const newC={name:'C',code:'005930',assetType:'주식',
+    sector:'반도체',targetWeight:25,notes:'C memo'};
+    EDITABLE_PRICES.push(newC);_invalidateEPIndex();
+    if(!_recordSameTargetLocalCodeAddition(newC,captureStockMasterEditSession())) throw Error('journal failed');`,h.ctx);
+  const actions=[];
+  let failCAS=fault==='failed-settings';
+  h.ctx.requestGsheetActionJson=async action=>action==='getCodeList'
+    ? {status:'ok',codes:h.response.codes.map(x=>({...x})),codeMasterSourceId:'TEST_SOURCE'}
+    : h.response;
+  h.ctx.requestGsheetFormJson=async(action,p)=>{
+    actions.push(action);
+    if(action==='syncCodesAppendOnly'){
+      assert.equal(JSON.parse(p.codes).C.code,'005930');
+      h.response.codes.push({name:'C',code:'005930',type:'주식',sector:'반도체',currency:'KRW',market:''});
+      return fault==='lost-ack'?null:{status:'ok',appended:true};
+    }
+    if(action==='syncCodes'){
+      assert.equal(p.forceSettingsRebase,'1','must use Settings-only CAS');
+      const proof=JSON.parse(p.settingsReplacements);
+      assert.equal(proof.length,1);
+      assert.equal(proof[0].metadataOnly,true);
+      assert.equal(proof[0].name,'C');
+      assert.equal(proof[0].userFields.targetWeight,25);
+      assert.equal(proof[0].userFields.notes,'C memo');
+      if(failCAS)return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+      h.response.settings.EDITABLE_PRICES.push({name:'C',code:'005930',assetType:'주식',
+        sector:'반도체',targetWeight:25,notes:'C memo'});
+      return {status:'ok',updated:0};
+    }
+    throw Error('unexpected Bootstrap mutation '+action);
+  };
+  const first=await h.ctx.loadSettings();
+  if(fault==='none')assert.equal(first,true,'first Bootstrap must settle Settings after append');
+  else {
+    assert.equal(first,false,'partial Codes/Settings write cannot finish Bootstrap');
+    assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),1,
+      'journal retained on failed or interrupted append');
+    failCAS=false;
+    assert.equal(await h.ctx.loadSettings(),true,'subsequent Bootstrap recovers exact committed C');
+  }
+  assert.equal(actions.filter(x=>x==='syncCodesAppendOnly').length,1,'never append C twice');
+  assert.equal(h.response.codes.filter(x=>x.name==='C').length,1);
+  assert.equal(h.response.settings.EDITABLE_PRICES.find(x=>x.name==='A').targetWeight,37);
+  assert.equal(h.response.settings.EDITABLE_PRICES.find(x=>x.name==='C')?.targetWeight,25);
+  assert.equal(vm.runInContext("EDITABLE_PRICES.some(x=>x.name==='C'&&x.targetWeight===25&&x.notes==='C memo')",h.ctx),true);
+  assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0);
+  assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0);
+}
+console.log('✅ 신규 append-only Codes 성공 후 Settings CAS와 readback, ACK 유실 및 장애 재시도');
+
 // A code registered on sheet A must not authorize any mutation on sheet B.
 h=setup();
 assert.equal(await h.ctx.loadSettings(),true);
