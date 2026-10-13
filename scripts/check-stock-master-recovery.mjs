@@ -273,3 +273,113 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
   console.log('✅ 동시 종목 교체, Settings 메타데이터 증거 및 타 탭 메타데이터 변경 차단 회귀 통과');
 }
+
+
+// A -> B code sheet flush, Settings failure, concurrent B -> C while the
+// failed request is still reading B, and a *second* Settings recovery error.
+// The queued B -> C must remain live, with A -> B Settings debt persisted
+// independently and repaired BEFORE changing the code sheet to C.
+{
+  const ledgerSource=fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
+  const first=ledgerSource.indexOf('const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY');
+  const last=ledgerSource.indexOf('function _normalizePendingExplicitEmptyTradeSync(',first);
+  const syncProgram=sync.slice(0,sync.indexOf('// ★ v8.1'));
+  const url='https://script.google.com/macros/s/partial-race/exec',sourceId='sheet-1';
+  const remote=[{name:'A',code:'1',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+  const disk={},calls=[];
+  let reads=0,settingsMigrated=false,resumePartial,signalPartial;
+  const partialReached=new Promise(resolve=>{signalPartial=resolve});
+  const partialBlocked=new Promise(resolve=>{resumePartial=resolve});
+  const race={
+    console,GSHEET_API_URL:url,GSHEET_KEY:'test-gsheet-url',
+    _gsBootRestored:true,_gsPortfolioRestoreRequired:false,
+    _gsCodeMasterSourceIdentity:sourceId, EDITABLE_PRICES:[],
+    getGsheetConnectionGeneration:()=>11,
+    normalizeStockCode:c=>String(c||'').trim(),
+    isGsheetConnectionCurrent:(u,g)=>u===url && g===11,
+    isGsheetPortfolioWriteReady:()=>true,
+    lsGet:(k,d)=>k in disk?structuredClone(disk[k]):d,
+    lsSave:(k,v)=>{disk[k]=structuredClone(v)},
+    lsRemove:k=>{delete disk[k]},
+    requestGsheetActionJson:async action=>{
+      assert.equal(action,'getCodeList');
+      if (++reads===2){signalPartial();await partialBlocked}
+      return {status:'ok',codeMasterSourceId:sourceId,codes:remote.map(x=>({...x}))};
+    },
+    requestGsheetFormJson:async (action,args)=>{
+      assert.equal(action,'syncCodes');
+      const expected=JSON.parse(args.expectedCodes);
+      const replacements=JSON.parse(args.replacements);
+      const metadata=JSON.parse(args.settingsReplacements||'[]');
+      calls.push({expected:expected.map(x=>x.name),replacements,metadata,
+        force:args.forceSettingsRebase});
+      if(calls.length===1){
+        assert.equal(expected[0].name,'A');
+        assert.equal(replacements[0].previousName,'A');
+        remote[0]={...remote[0],name:'B',code:'2'};
+        return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+      }
+      if(calls.length===2){
+        assert.equal(args.forceSettingsRebase,'1');
+        assert.equal(metadata[0].previousName,'A');
+        assert.equal(metadata[0].name,'B');
+        return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+      }
+      if(calls.length===3){
+        assert.equal(args.forceSettingsRebase,'1');
+        assert.equal(expected[0].name,'B');
+        assert.equal(metadata.length,1);
+        assert.equal(metadata[0].previousName,'A');
+        assert.equal(metadata[0].name,'B');
+        assert.equal(replacements.length,0);
+        settingsMigrated=true;
+        return {status:'ok',updated:0};
+      }
+      if(calls.length===4){
+        assert.equal(settingsMigrated,true,
+          'persisted Settings A->B must be repaired before B->C mutation');
+        assert.equal(expected[0].name,'B');
+        assert.equal(replacements[0].previousName,'B');
+        assert.equal(replacements[0].name,'C');
+        remote[0]={...remote[0],name:'C',code:'3'};
+        return {status:'ok',updated:1};
+      }
+      assert.fail('unexpected duplicate code write '+calls.length);
+    }
+  };
+  vm.createContext(race);
+  vm.runInContext(ledgerSource.slice(first,last),race);
+  vm.runInContext(syncProgram,race);
+  const session={targetUrl:url,generation:11,sourceId};
+  race.initialCodes=remote.map(x=>({...x}));
+  vm.runInContext('applyGsheetCodeList(initialCodes, "sheet-1")',race);
+  const edit=(name,code,previousName,previousCode)=>{
+    race.EDITABLE_PRICES=[{name,code,type:'주식',sector:'기타',currency:'KRW',
+      market:'KR',replaces:{name:previousName,code:previousCode}}];
+    assert.equal(vm.runInContext('_recordSameTargetLocalCodeAddition(EDITABLE_PRICES[0],session)',race),true);
+  };
+  edit('B','2','A','1');
+  const firstAttempt=vm.runInContext('syncCodesToGsheet()',race);
+  await partialReached; // remote B, but A is still the local cached baseline
+  edit('C','3','B','2');
+  const nextAttempt=vm.runInContext('syncCodesToGsheet()',race);
+  resumePartial();
+  assert.equal(await firstAttempt,null,'first attempted Settings repair fails without claiming success');
+  const outstanding=vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity)',race);
+  // Queue may already have consumed this debt before the await above. The
+  // actual order is asserted on every POST below instead of a racy count.
+  assert.equal(remote[0].name==='B'||remote[0].name==='C',true);
+  assert.equal((await nextAttempt)?.status,'ok','queued edit resumes after debt repair');
+  assert.equal(remote[0].name,'C');
+  assert.equal(settingsMigrated,true);
+  assert.equal(calls.length,4,'no duplicate A->B / B->C write');
+  assert.equal(vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
+  assert.ok(Object.keys(disk).every(k => !k.includes('settings_repairs') || !disk[k] ||
+    !Array.isArray(disk[k][url]) || disk[k][url].length===0),
+    'successful repair retires durable debt');
+  console.log('✅ 실패한 Settings 재복구 뒤 A→B journal 재기준화, B→C 직렬 보존·영속 복구 통과');
+}
