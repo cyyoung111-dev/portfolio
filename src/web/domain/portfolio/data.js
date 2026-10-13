@@ -751,8 +751,7 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
   // An edit that returns to the original canonical pair needs no replacement.
   if (prior && root && String(root.name || '').trim() === name
       && normalized(root.code) === code) {
-    _forgetSameTargetLocalCodeAddition(precedingName, precedingCode, target, sourceId);
-    return true;
+    return _forgetSameTargetLocalCodeAddition(precedingName, precedingCode, target, sourceId);
   }
   const removed=records.filter(record=>record?.sourceId===sourceId
     && ((String(record.name||'').trim()===name && normalized(record.code)===code)
