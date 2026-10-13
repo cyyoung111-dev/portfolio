@@ -614,6 +614,71 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
 assert.equal((await h.ctx.syncCodesToGsheet())?.status,'ok');
 assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0,'ordinary sync ACK should clear same-target journal');
 
+// Codex P2: two edits within the 1200 ms debounce must compose all the way
+// to the authoritative original A/1, never append C/3 beside old A/1.
+h=setup();
+h.response.codes=[{name:'원본A',code:'111111',type:'주식',sector:'기타'}];
+h.response.settings.EDITABLE_PRICES=[{name:'원본A',code:'111111',assetType:'주식',sector:'기타'}];
+assert.equal(await h.ctx.loadSettings(),true);
+assert.equal(vm.runInContext(`
+  EDITABLE_PRICES[0].name='중간B';EDITABLE_PRICES[0].code='222222';
+  _recordSameTargetLocalCodeAddition({name:'중간B',code:'222222',
+    assetType:'주식',replaces:{name:'원본A',code:'111111'}},captureStockMasterEditSession())
+`,h.ctx),true);
+assert.equal(vm.runInContext(`
+  EDITABLE_PRICES[0].name='최종C';EDITABLE_PRICES[0].code='333333';
+  _recordSameTargetLocalCodeAddition({name:'최종C',code:'333333',
+    assetType:'주식',replaces:{name:'중간B',code:'222222'}},captureStockMasterEditSession())
+`,h.ctx),true);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),1);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity)[0].replaces.name",h.ctx),'원본A');
+let chainedPosts=0;
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  assert.equal(action,'syncCodes');
+  chainedPosts++;
+  const before=JSON.parse(params.expectedCodes);
+  const repl=JSON.parse(params.replacements);
+  assert.equal(before.length,1);
+  assert.equal(before[0].name,'원본A');
+  assert.deepEqual(repl,[{previousName:'원본A',previousCode:'111111',name:'최종C',code:'333333'}]);
+  h.response.codes=[{name:'최종C',code:'333333',type:'주식',sector:'기타'}];
+  return {status:'ok',updated:1};
+};
+assert.equal((await h.ctx.syncCodesToGsheet())?.status,'ok');
+assert.equal(chainedPosts,1);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0,
+  'composed replacement cleared only after verified code master readback');
+
+// A tampered or stranded replacement cannot be reclassified as a new asset.
+h=setup();
+h.response.codes=[{name:'원본A',code:'111111',type:'주식',sector:'기타'}];
+h.response.settings.EDITABLE_PRICES=[{name:'원본A',code:'111111',assetType:'주식',sector:'기타'}];
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext(`
+  EDITABLE_PRICES[0].name='유령C';EDITABLE_PRICES[0].code='333333';
+  _recordSameTargetLocalCodeAddition({name:'유령C',code:'333333',
+    assetType:'주식',replaces:{name:'없는B',code:'222222'}},captureStockMasterEditSession())
+`,h.ctx);
+let invalidReplacementPosts=0;
+h.ctx.requestGsheetFormJson=async ()=>{invalidReplacementPosts++;return {status:'ok'};};
+assert.equal(await h.ctx.syncCodesToGsheet(),null,
+  'missing original source row is fail-closed and cannot append as a new asset');
+assert.equal(invalidReplacementPosts,0);
+
+// Reversing an uncommitted rename back to the authoritative original clears
+// its provenance journal; no obsolete intermediate pair is left authorized.
+h=setup();
+h.response.codes=[{name:'원본A',code:'111111',type:'주식',sector:'기타'}];
+h.response.settings.EDITABLE_PRICES=[{name:'원본A',code:'111111',assetType:'주식'}];
+assert.equal(await h.ctx.loadSettings(),true);
+assert.equal(vm.runInContext(`
+  _recordSameTargetLocalCodeAddition({name:'중간B',code:'222222',
+    replaces:{name:'원본A',code:'111111'}},captureStockMasterEditSession());
+  _recordSameTargetLocalCodeAddition({name:'원본A',code:'111111',
+    replaces:{name:'중간B',code:'222222'}},captureStockMasterEditSession())
+`,h.ctx),true);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL, _gsCodeMasterSourceIdentity).length",h.ctx),0);
+
 // Codex P1: duplicate names/codes in one server master cannot be validated,
 // even if the transaction itself refers to one of the duplicate entries.
 h=setup();
@@ -988,6 +1053,28 @@ assert.equal(renameRows.length,1);
 assert.deepEqual(renameRows[0],['222222','새이름','ETF','해외','USD','US']);
 assert.equal(renameSettings.EDITABLE_PRICES[0].name,'새이름');
 assert.equal(renameSettings.EDITABLE_PRICES[0].code,'222222');
+assert.equal(lockDepth,0);
+// One-field edits are also atomic replacements and can form a chain before
+// the next client debounce; the retained name/code is not a collision.
+let oneFieldOld=renameCtx.getCodeItems();
+let onlyNameResult=renameCtx.handleSyncCodes(JSON.stringify({
+  '이름만변경':{code:'222222',type:'ETF',sector:'해외',currency:'USD',market:'US'}
+}),'TEST_SOURCE',JSON.stringify(oneFieldOld),JSON.stringify([{
+  previousName:'새이름',previousCode:'222222',name:'이름만변경',code:'222222'
+}]));
+assert.equal(onlyNameResult.status,'ok');
+assert.equal(renameRows.length,1);
+assert.equal(renameSettings.EDITABLE_PRICES[0].name,'이름만변경');
+oneFieldOld=renameCtx.getCodeItems();
+let onlyCodeResult=renameCtx.handleSyncCodes(JSON.stringify({
+  '이름만변경':{code:'333333',type:'ETF',sector:'해외',currency:'USD',market:'US'}
+}),'TEST_SOURCE',JSON.stringify(oneFieldOld),JSON.stringify([{
+  previousName:'이름만변경',previousCode:'222222',name:'이름만변경',code:'333333'
+}]));
+assert.equal(onlyCodeResult.status,'ok');
+assert.equal(renameRows.length,1);
+assert.equal(renameSettings.EDITABLE_PRICES[0].code,'333333');
+assert.equal(renameAppends,0);
 assert.equal(lockDepth,0);
 
 // Ensure actual UI edit handler captures a source-pinned replacement and
