@@ -1111,9 +1111,8 @@ async function recoverPinnedMissingPortfolioCodes(options) {
     const name = String(entry?.name || '').trim();
     if (!name || !code) continue;
     if (existingByCode.get(code) === name) {
-      if (typeof _forgetSameTargetLocalCodeAddition === 'function') {
-        _forgetSameTargetLocalCodeAddition(name, code, targetUrl);
-      }
+      // Code may be committed while its Settings write is still missing.
+      // Bootstrap stages/settles the durable NEW-asset journal before retiring.
       continue;
     }
     // Any collision belongs to a human reconciliation, not auto-recovery.
@@ -1174,13 +1173,12 @@ async function recoverPinnedMissingPortfolioCodes(options) {
   ];
   if (!isPinnedRestorePortfolioMasterComplete(
       dirty.trades, dirty.holdings, dirty.fundDirect, verified)) return null;
-  // Clear the journal ONLY after a complete read-back and portfolio preflight
-  // have succeeded; otherwise preserve the original recovery provenance.
-  if (typeof _forgetSameTargetLocalCodeAddition === 'function') {
-    for (const item of additions.values()) {
-      _forgetSameTargetLocalCodeAddition(item.name, item.code, targetUrl);
-    }
-  }
+  // Append-only GAS writes only Codes, not EDITABLE_PRICES. Durably
+  // stage same-source journal as Settings repair debt. Bootstrap must settle
+  // Settings-only CAS and read back BOTH stores before clearing the journal.
+  if (typeof stageConfirmedSameTargetCodeReplacementRepairs !== 'function'
+      || !stageConfirmedSameTargetCodeReplacementRepairs(targetUrl,
+        String(options?.expectedSourceId || ''),checked.codes)) return null;
   return verified;
 }
 
