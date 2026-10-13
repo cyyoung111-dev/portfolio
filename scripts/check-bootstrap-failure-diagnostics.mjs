@@ -672,7 +672,7 @@ assert.equal(gasWrites.length,1);
 assert.equal(serverCodes[0].name,'A','existing mapping unchanged');
 assert.equal(serverCodes[1].name,'신규');
 assert.equal(lockDepth,0,'script lock must be released on all paths');
-assert.ok(gasSrc.includes("function handleSyncCodes(codesParam, expectedSourceId) {\n  var lock = LockService.getScriptLock()"),
+assert.ok(gasSrc.includes("function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam) {\n  var lock = LockService.getScriptLock()"),
   'legacy normal code edits must serialize with append-only CAS');
 
 
@@ -701,7 +701,7 @@ h.response.settings.EDITABLE_PRICES=[{name:'B 종목',code:'005930',assetType:'�
 assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),true,
   'B bootstrap must finish before queued A sync is released');
 releaseFirstSync();
-assert.equal((await firstCodeSync)?.status,'ok','in-flight original A write may finish');
+assert.equal(await firstCodeSync,null,'in-flight old A write cannot confirm B master readback');
 assert.equal(await staleCodeSync,null,'queued operation from earlier generation canceled');
 assert.equal(generationPosts.length,1,'no B master may be POSTed to old target A');
 assert.deepEqual(Object.keys(generationPosts[0].codes),['A 종목'],
@@ -711,7 +711,7 @@ assert.deepEqual(Object.keys(generationPosts[0].codes),['A 종목'],
 // Independent defense: even if a GAS URL is repointed to another spreadsheet
 // without changing URL/generation, normal syncCodes must reject the workbook
 // fingerprint before touching any cell.
-const normalStart=gasSrc.indexOf('function handleSyncCodes(codesParam, expectedSourceId)');
+const normalStart=gasSrc.indexOf('function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam)');
 const normalEnd=gasSrc.indexOf('function _repairKnownCodeColumns(',normalStart);
 assert.ok(normalStart>appendStart && normalEnd>normalStart);
 vm.runInContext(gasSrc.slice(normalStart,normalEnd),gasCtx);
@@ -729,10 +729,26 @@ assert.equal(unexpectedNormalCodeMutation,0);
 assert.equal(lockDepth,0,'normal sync lock released after source rejection');
 gasCtx.getss=originalGetss;
 
+// Revision proof must be supplied for EVERY normal sync, including legacy
+// clients and same-workbook stale tabs. None may open/mutate the code sheet.
+const legacyNormal=gasCtx.handleSyncCodes(JSON.stringify({'A':{code:'123456'}}),'TEST_SOURCE');
+assert.equal(legacyNormal.errorCode,'CODE_SYNC_REVISION_REQUIRED');
+const snapshotBeforeDelete=serverCodes.map(item=>({...item}));
+serverCodes.pop(); // Another tab has deleted '신규' after the old tab captured it.
+const staleRevisionNormal=gasCtx.handleSyncCodes(JSON.stringify({
+  '신규':{code:'005930',type:'주식'}
+}),'TEST_SOURCE',JSON.stringify(snapshotBeforeDelete));
+assert.equal(staleRevisionNormal.errorCode,'CODE_SYNC_MASTER_CHANGED',
+  'stale master cannot resurrect remotely deleted code');
+assert.equal(serverCodes.length,1);
+serverCodes.push(snapshotBeforeDelete[1]);
+assert.equal(unexpectedNormalCodeMutation,0,'CAS-rejected normal sync cannot touch code sheet');
+
 // Review P2: a normal syncCodes POST already in flight must settle BEFORE
 // the explicit server-side removal, even if the user deletes the local master
 // row while the first POST is still waiting for the network.
 h=setup();
+h.response.settings.EDITABLE_PRICES=[];
 assert.equal(await h.ctx.loadSettings(),true);
 vm.runInContext("EDITABLE_PRICES.push({name:'경합 신규',code:'000660',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'경합 신규',code:'000660',assetType:'주식'},captureStockMasterEditSession())",h.ctx);
 let completeFirstPost;
