@@ -318,6 +318,38 @@ function _rememberConfirmedCodeMasterChange(target, sourceId, before, after) {
   _gsheetStockMasterConfirmedTransitions.set(target,transitions.slice(-64));
 }
 
+// A process can die after GAS flushes A->B but before its failed Settings
+// response/readback. In that case ONLY the durable original A->B edit journal
+// survives. Promote it to a Settings repair debt BEFORE Bootstrap applies the
+// stale Settings A. Never reinterpret a committed rename as an append.
+function stageConfirmedSameTargetCodeReplacementRepairs(targetUrl, sourceId, masterCodes) {
+  if (!targetUrl || !sourceId || !_stockMasterSyncFingerprint(masterCodes)
+      || typeof _getSameTargetLocalCodeAdditions !== 'function'
+      || typeof _rememberSameTargetCodeSettingsRepairs !== 'function') return false;
+  const entries=_getSameTargetLocalCodeAdditions(targetUrl,sourceId);
+  const debt=[];
+  for (const entry of entries) {
+    if (!entry?.replaces) continue;
+    const name=String(entry.name || '').trim();
+    const code=_normalizeSyncCode(entry.code);
+    const oldName=String(entry.replaces.name || '').trim();
+    const oldCode=_normalizeSyncCode(entry.replaces.code);
+    const confirmed=masterCodes.some(row => String(row.name || '').trim()===name
+      && _normalizeSyncCode(row.code)===code);
+    const oldAbsent=!masterCodes.some(row =>
+      (oldName!==name && String(row.name || '').trim()===oldName)
+      || (oldCode!==code && _normalizeSyncCode(row.code)===oldCode));
+    // Uncommitted replacements still need their original provenance; a
+    // server conflict must not be promoted to a migration or silently erased.
+    if (name && code && oldName && oldCode
+        && (name!==oldName || code!==oldCode)
+        && confirmed && oldAbsent) {
+      debt.push({previousName:oldName,previousCode:oldCode,name,code});
+    }
+  }
+  return !debt.length || _rememberSameTargetCodeSettingsRepairs(targetUrl,sourceId,debt);
+}
+
 // Bootstrap must settle a saved Settings migration BEFORE applying stale
 // getBootstrap Settings to EDITABLE_PRICES or declaring the restore complete.
 // This path uses only the pinned workbook's server master, never local state.
