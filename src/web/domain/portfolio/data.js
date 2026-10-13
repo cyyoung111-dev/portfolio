@@ -994,6 +994,16 @@ function _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceIdentity, c
       if (String(record.replaces.name||'').trim()!==beforeName
           || normalized(record.replaces.code)!==beforeCode) continue;
       record.replaces={name:afterName,code:afterCode};
+      if (Array.isArray(record.requiresTombstones)
+          && record.requiresTombstones.length && record.transitionCommitted===true) {
+        // The server readback already proved A->B. C is now an ordinary
+        // same-source B->C edit, not a local A->C chain dependent on the
+        // soon-to-be-retired B journal. Keeping the old claim would make C
+        // disappear after the confirmed B is garbage-collected.
+        delete record.requiresTombstones;
+        delete record.transitionId;
+        delete record.transitionCommitted;
+      }
       changed=true;
     }
     // An in-flight A->B commit can overtake a local B->A revert. Preserve
