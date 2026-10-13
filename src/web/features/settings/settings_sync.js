@@ -252,15 +252,30 @@ async function syncHoldingsToGsheet(options) {
     const sourceFundDirect = hasFundDirectOverride
       ? ((options.fundDirectOverride && typeof options.fundDirectOverride === 'object') ? options.fundDirectOverride : {})
       : fundDirect;
+    // Do not use the prior connection's getEP/STOCK_CODE when a holding lacks
+    // its own code during authoritative restoration. Use the SAME Bootstrap
+    // master that passed full-payload preflight.
+    const pinnedMaster = options?.allowDuringRestore === true
+      && Array.isArray(options?.masterCodesOverride) ? options.masterCodesOverride : null;
+    const pinnedByName = pinnedMaster ? new Map() : null;
+    (pinnedMaster || []).forEach(item => {
+      const name = String(item?.name || '').trim();
+      if (name && !pinnedByName.has(name)) pinnedByName.set(name, item);
+    });
     // rows에서 종목별 합산 데이터 추출 (계좌 합산 기준)
     const holdMap = {};
     sourceHoldings.forEach(h => {
       if (!h.name || h.qty <= 0) return;
-      const ep   = getEP(h.name);
-      // 복구용 holdingsOverride는 EDITABLE_PRICES 복원보다 먼저 전송될 수 있으므로
-      // 캡처 payload 자체의 code/assetType을 최우선 원자료로 사용합니다.
-      const code = _normalizeSyncCode(h.code || ep?.code || STOCK_CODE[h.name] || '');
-      const assetType = h.assetType || h.type || getEPType(ep, '주식');
+      const ep = pinnedByName ? null : getEP(h.name);
+      const pinned = pinnedByName ? pinnedByName.get(String(h.name || '').trim()) : null;
+      // During restore, never backfill a missing code/type from stale local EP.
+      // The complete restore preflight rejects mismatched holding names/codes.
+      const code = _normalizeSyncCode(pinnedByName
+        ? (h.code || pinned?.code || '')
+        : (h.code || ep?.code || STOCK_CODE[h.name] || ''));
+      const assetType = pinnedByName
+        ? (pinned?.type || pinned?.assetType || h.assetType || h.type || '주식')
+        : (h.assetType || h.type || getEPType(ep, '주식'));
       const key  = h.name;
       if (!holdMap[key]) holdMap[key] = { code, name: h.name, qty: 0, costAmt: 0, assetType, accts: [] };
       if (h.acct && !holdMap[key].accts.includes(h.acct)) holdMap[key].accts.push(h.acct);
