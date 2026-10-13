@@ -14229,7 +14229,8 @@ function _settlePendingCodeDeleteLocked_(ss) {
   // an alias conflict after a successful conversion.
   var matchingSettings=previous.filter(function(ep) {
     return _cleanCode(ep&&ep.code||'')===tx.code
-      || (String(ep&&ep.name||'').trim()===tx.name && !!_cleanCode(ep&&ep.code||''));
+      || (String(ep&&ep.name||'').trim()===tx.name
+        && (!conversion || !!_cleanCode(ep&&ep.code||'')));
   });
   if (matchingSettings.some(function(ep) {
     return _cleanCode(ep.code||'')!==tx.code
@@ -14255,6 +14256,8 @@ function _settlePendingCodeDeleteLocked_(ss) {
   }
 
   if (matching.length===1) {
+    if (conversion && destinations.length)
+      throw new Error('CODE_CONVERT_TXN_EARLY_DEST_CONFLICT');
     // No code row was deleted (or another execution rolled it back): restore
     // an incomplete Settings removal, using the EXACT original custom fields.
     if (tx.settingsEntry && (!matchingSettings.length
