@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.199
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.200
+//
+//  v9.200 변경사항 (2026.10.13):
+//   종목 코드 마스터 변경 후 Settings 실패 시 확정 마스터 기반 설정 재조정 재시도
+//   재조정은 동일 워크북 출처와 전체 마스터 CAS·ScriptLock 확인 후에만 허용
+//   읽기 검증 실패·부분 변경에는 성공을 주장하지 않고 기존 원장·Snapshot은 수정하지 않음
 //
 //  v9.199 변경사항 (2026.10.12):
 //   Toss 진단은 유효한 기존 OAuth 토큰을 재사용하여 불필요한 신규 발급/토큰 무효화 방지
@@ -1156,7 +1161,7 @@ function doPost(e) {
   if (params.action === 'deleteUnreferencedCode' && params.data)
     return handleDeleteUnreferencedCode(params.data);
   if (params.action === 'syncCodes'    && params.codes)
-    return handleSyncCodes(params.codes, params.expectedSourceId || '', params.expectedCodes || '', params.replacements || '[]');
+    return handleSyncCodes(params.codes, params.expectedSourceId || '', params.expectedCodes || '', params.replacements || '[]', params.forceSettingsRebase || '');
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
   if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
@@ -1915,7 +1920,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.199', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.200', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5572,7 +5577,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.199' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.200' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11310,7 +11315,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.199',
+    gasVersion: '9.200',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11350,7 +11355,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.199' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.200' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14195,7 +14200,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.199' });
+    return jsonOk({ settings: settings, gasVersion: '9.200' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14224,7 +14229,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.199'
+      gasVersion: '9.200'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14493,7 +14498,7 @@ function handleDeleteUnreferencedCode(dataJson) {
   }
 }
 
-function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam) {
+function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam, forceSettingsRebase) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
@@ -14709,7 +14714,7 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
     // Rebase ALL coded Settings rows on the confirmed code sheet under this
     // same lock. This covers name-only, code-only and full-pair replacements,
     // avoiding a stale Settings identity being resurrected on next Bootstrap.
-    if (synced > 0 || updated > 0 || createdCodeSheet) {
+    if (synced > 0 || updated > 0 || createdCodeSheet || String(forceSettingsRebase || '') === '1') {
       var masterAfter=getCodeItems(ss,true);
       if (!_portfolioNormalizeCodeMasterSnapshot_(masterAfter))
         return jsonError('종목 동기화 후 마스터 검증 실패', {errorCode:'CODE_SYNC_VERIFY_FAILED'});
