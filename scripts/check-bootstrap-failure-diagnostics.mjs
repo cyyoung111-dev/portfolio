@@ -702,7 +702,10 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
 h.ctx.requestGsheetActionJson=async action=>action==='getCodeList'
   ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
 const normalInFlight=h.ctx.syncCodesToGsheet();
-await Promise.resolve();
+// Drain the two queue microtasks so the first fetch has ACTUALLY started;
+// deleting before a queued task starts is a different (easier) scenario.
+for (let step=0; step<12 && !deletionActions.length; step++) await Promise.resolve();
+assert.equal(deletionActions[0],'syncCodes','the prior code POST must be in flight');
 vm.runInContext("EDITABLE_PRICES.splice(EDITABLE_PRICES.findIndex(x=>x.name==='경합 신규'),1); _forgetSameTargetLocalCodeAddition('경합 신규','000660');",h.ctx);
 const deleteAfterPost=h.ctx.deleteStockMasterCodeAfterPendingWrites(
   {name:'경합 신규',code:'000660'},h.ctx.captureStockMasterEditSession());
