@@ -1,3 +1,10 @@
+## PR #493 추가 재리뷰 P2 및 삭제 트랜잭션 — 2026-10-13 (Draft / 배포 금지)
+
+- **재시작 후 교체 journal 단독 복구**: 코드 시트 A→B flush 이후 Settings 수리 응답을 받기 전에 브라우저가 종료돼도, 동일 GAS workbook의 확정 B pair와 A의 부재를 서버 Bootstrap 코드 마스터에서 증명하면 편집 journal을 지우기 **전에** 별도 Settings-only 영속 복구 부채로 승격합니다. 먼저 ScriptLock/전체 코드 마스터 CAS에서 Settings 사용자 속성(`targetWeight` 등)을 복구하고 재조회한 뒤에만 journal을 퇴역시킵니다. 원본이 아직 있거나 pair가 다르면 append 권한으로 대체하지 않습니다.
+- **GAS 삭제 실패 원자성 보완**: 원격 거래/보유 미참조 및 전체 마스터 CAS 확인 후 코드 행을 삭제·flush·검증한 **다음** Settings에서 해당 identity를 제거합니다. `deleteRow()` 예외는 Settings를 수정하지 않으며, Settings 저장 실패 후에는 원본 Settings와 삭제한 코드 행의 보상 복원을 ScriptLock 안에서 시도하고 실패 상태를 별도 오류 코드로 구분합니다. 저장/복원 성공과 실제 운영 검증은 별개입니다.
+- **실 생산 VM 회귀**: 브라우저 재시작 시 교체 journal만 남은 clean Bootstrap에서 A/111111→B/222222·비중 37 수리 및 실패 보존, GAS 삭제 핸들러의 행 삭제 예외·Settings 쓰기 실패 후 코드/사용자 필드 원복·정상 삭제를 검사합니다. 최신 커밋 CI 결과는 해당 HEAD의 workflow 결과를 기준으로 따로 확인합니다.
+- **버전/배포**: GAS v9.203 full-source Git blob `7e673bbb7349931935c3db6510cb9ddee1adbb6e`; 웹 `settings_sync 20261013-18`, `settings 20261013-8`, PWA `20261013-20`. 원본 PR #489~#492, main 및 운영 GAS·Sheets 거래/보유/NAV/가격/Snapshot/브리핑 경로는 미변경. 이 Git blob은 배포 승인이 아니라 검증 후보입니다.
+
 ## PR #493 Codex 추가 P2·부트스트랩 복구 설계 검증 — 2026-10-13
 
 - **부트스트랩 복구 (P2)**: 거래·보유 dirty 및 코드 추가 journal이 없어도 동일 GAS URL·워크북에 Settings 복구 부채가 있으면, 최초 Bootstrap Settings 적용 **이전**에 잠금·전체 마스터 CAS로 Settings를 수리하고 새 `getBootstrap`을 재조회합니다. 실패 시 부채를 보존하고 완료 처리를 중단합니다.
