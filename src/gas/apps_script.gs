@@ -14703,48 +14703,74 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
       _touchSnapshotIntegritySourceRevision();
       SpreadsheetApp.flush();
     }
-    // A two-field rename must also update the Settings materialized master
-    // under this same lock. Otherwise the next Bootstrap carries old Settings
-    // PLUS the new code sheet identity and recreates the old ghost asset.
-    if (replacements.length) {
+    // Rebase ALL coded Settings rows on the confirmed code sheet under this
+    // same lock. This covers name-only, code-only and full-pair replacements,
+    // avoiding a stale Settings identity being resurrected on next Bootstrap.
+    if (synced > 0 || updated > 0 || createdCodeSheet) {
       var masterAfter=getCodeItems(ss,true);
       if (!_portfolioNormalizeCodeMasterSnapshot_(masterAfter))
-        return jsonError('교체 후 마스터 검증 실패', {errorCode:'CODE_REPLACEMENT_VERIFY_FAILED'});
-      for (var vr=0;vr<replacements.length;vr++) {
-        var old=String(replacements[vr].previousName||'').trim();
-        var oldC=_cleanCode(replacements[vr].previousCode||'');
-        var newN=String(replacements[vr].name||'').trim();
-        var newC=_cleanCode(replacements[vr].code||'');
-        if (masterAfter.some(function(it) {return _cleanCode(it.code)===oldC || String(it.name||'').trim()===old;}))
-          return jsonError('원본 종목이 교체 후에도 존재', {errorCode:'CODE_REPLACEMENT_VERIFY_FAILED'});
-        if (!masterAfter.some(function(it) {return _cleanCode(it.code)===newC && String(it.name||'').trim()===newN;}))
-          return jsonError('신규 종목 미확인', {errorCode:'CODE_REPLACEMENT_VERIFY_FAILED'});
-      }
+        return jsonError('종목 동기화 후 마스터 검증 실패', {errorCode:'CODE_SYNC_VERIFY_FAILED'});
       var settingsAfter=_readSettingsMap(ss);
-      var edited=Array.isArray(settingsAfter.EDITABLE_PRICES)
-        ? settingsAfter.EDITABLE_PRICES.slice() : [];
-      replacements.forEach(function(ren) {
-        var oldN=String(ren.previousName||'').trim(), oldC=_cleanCode(ren.previousCode||'');
-        var newN=String(ren.name||'').trim(), newC=_cleanCode(ren.code||'');
-        var newRow=masterAfter.find(function(it) {
-          return _cleanCode(it.code)===newC && String(it.name||'').trim()===newN;
+      var previous=Array.isArray(settingsAfter.EDITABLE_PRICES)
+        ? settingsAfter.EDITABLE_PRICES : [];
+      var rewritten=[], masterNames={};
+      masterAfter.forEach(function(row) {
+        var name=String(row.name||'').trim(),code=_cleanCode(row.code||'');
+        masterNames[name]=true;
+        var old=previous.find(function(ep) {
+          return String(ep&&ep.name||'').trim()===name && _cleanCode(ep&&ep.code||'')===code;
+        }) || previous.find(function(ep) {
+          return _cleanCode(ep&&ep.code||'')===code && code;
+        }) || previous.find(function(ep) {
+          return String(ep&&ep.name||'').trim()===name;
         });
-        var slot=edited.findIndex(function(it) {
-          return String(it&&it.name||'').trim()===oldN && _cleanCode(it&&it.code||'')===oldC;
-        });
-        var oldEntry=slot>=0 ? edited[slot] : {};
+        // On full-pair rename, preserve original metadata by explicit CAS
+        // provenance; avoid losing unrelated local per-asset flags.
+        if (!old) {
+          for (var i=0;i<replacements.length;i++) {
+            var ren=replacements[i];
+            if (String(ren.name||'').trim()!==name || _cleanCode(ren.code||'')!==code) continue;
+            old=previous.find(function(ep) {
+              return String(ep&&ep.name||'').trim()===String(ren.previousName||'').trim()
+                && _cleanCode(ep&&ep.code||'')===_cleanCode(ren.previousCode||'');
+            });
+            if (old) break;
+          }
+        }
         var entry={};
-        Object.keys(oldEntry).forEach(function(k) {entry[k]=oldEntry[k];});
-        entry.name=newN;entry.code=newC;entry.assetType=String(newRow.type||'주식');
-        entry.sector=String(newRow.sector||'기타');
-        entry.currency=String(newRow.currency||'KRW');
-        entry.market=String(newRow.market||'');
-        if (slot>=0) edited[slot]=entry;
-        else edited.push(entry);
+        if (old && typeof old==='object')
+          Object.keys(old).forEach(function(k) { entry[k]=old[k]; });
+        entry.name=name;entry.code=code;
+        entry.assetType=String(row.type||'주식');
+        entry.sector=String(row.sector||'기타');
+        entry.currency=String(row.currency||'KRW').toUpperCase();
+        entry.market=String(row.market||'').toUpperCase();
+        rewritten.push(entry);
       });
-      settingsAfter.EDITABLE_PRICES=edited;
+      previous.forEach(function(ep) {
+        var name=String(ep&&ep.name||'').trim(),code=_cleanCode(ep&&ep.code||'');
+        var type=String(ep&&(ep.assetType||ep.type)||'').trim().toUpperCase();
+        if (name && !code && !masterNames[name]
+            && (type==='TDF' || type==='펀드' || type==='FUND')) {
+          rewritten.push(ep); masterNames[name]=true;
+        }
+      });
+      // Confirm any full-pair replacement has no old code/name left in the
+      // resulting sheet before writing Settings or acknowledging success.
+      for (var vr=0;vr<replacements.length;vr++) {
+        var ren=replacements[vr];
+        var oldName=String(ren.previousName||'').trim(),oldCode=_cleanCode(ren.previousCode||'');
+        var newName=String(ren.name||'').trim(),newCode=_cleanCode(ren.code||'');
+        if (masterAfter.some(function(it) {
+              return _cleanCode(it.code)===oldCode || String(it.name||'').trim()===oldName;
+            }) || !masterAfter.some(function(it) {
+              return _cleanCode(it.code)===newCode && String(it.name||'').trim()===newName;
+            }))
+          return jsonError('코드/이름 교체 후 검증 실패', {errorCode:'CODE_REPLACEMENT_VERIFY_FAILED'});
+      }
+      settingsAfter.EDITABLE_PRICES=rewritten;
       if (!_writeSettingsMap(settingsAfter))
-        return jsonError('교체된 종목 Settings 저장 실패', {errorCode:'CODE_REPLACEMENT_SETTINGS_FAILED'});
+        return jsonError('동기화 후 종목 Settings 저장 실패', {errorCode:'CODE_SYNC_SETTINGS_FAILED'});
     }
     var codeRepair = _repairKnownCodeColumns(ss);
     return jsonOk({ synced: synced, updated: updated, total: Object.keys(existingByCode).length, codeRepair: codeRepair });
