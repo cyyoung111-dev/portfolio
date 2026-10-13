@@ -170,10 +170,17 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       const changes=JSON.parse(args.replacements);
       assert.equal(expected.length,1);
       assert.equal(expected[0].name,remote[0].name,'live CAS reads post-queue master');
+      const incoming=JSON.parse(args.codes);
+      if (requests===6) {
+        assert.equal(changes.length,0,'confirmed partial write must not replay old replacement');
+        assert.equal(args.forceSettingsRebase,'1');
+        assert.equal(incoming.E.code,'5');
+        assert.equal(remote[0].name,'E');
+        return {status:'ok',updated:0};
+      }
       assert.equal(changes.length,1,'replacement must never silently append');
       assert.equal(changes[0].previousName,remote[0].name);
       assert.equal(changes[0].previousCode,remote[0].code);
-      const incoming=JSON.parse(args.codes);
       assert.equal(incoming[changes[0].name].code,changes[0].code);
       if(requests===1||requests===3) {
         posted();
@@ -181,6 +188,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       }
       remote[0]={name:changes[0].name,code:changes[0].code,
         type:'주식',sector:'기타',currency:'KRW',market:'KR'};
+      if (requests===5) return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
       return {status:'ok',updated:1};
     }
   };
@@ -226,6 +234,17 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal((await fourthSync)?.status,'ok');
   assert.equal(remote[0].name,'C');
   assert.equal(requests,4);
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
+  // The code row may be committed even when the Settings write fails.
+  // Confirm same-workbook actual master, perform no-op Settings repair via CAS
+  // and only then retire the original journal.
+  edit('E','5','C','3');
+  const partialRecovered=await attempt();
+  assert.equal(partialRecovered?.status,'ok');
+  assert.equal(requests,6);
+  assert.equal(remote[0].name,'E');
+  assert.equal(remote[0].code,'5');
   assert.equal(vm.runInContext(
     '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
   console.log('✅ 진행 중 종목교체, 연속 재기준화 및 in-flight 원복 회귀 통과');
