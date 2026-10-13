@@ -373,5 +373,55 @@ assert.equal(noMasterWrites.length,0,'initial pending on legacy must not write')
 assert.ok(h.ctx._getPendingExplicitEmptyTradeSync(),'initial pending preserved');
 assert.match(h.ctx.getGsheetSettingsLoadFailure(),/RESTORE_MASTER_UNAVAILABLE/);
 
+
+
+// Full-payload preflight: empty trades must not authorize unrelated holdings or funds.
+for (const scenario of [
+  {name:'holdings only, unknown code',payload:"rawHoldings.push({name:'이전 종목',code:'999999',qty:1,cost:100,acct:'일반'});"},
+  {name:'holdings code/name mismatch',payload:"rawHoldings.push({name:'이전 종목',code:'005930',qty:1,cost:100,acct:'일반'});"},
+  {name:'valid trade but unrelated holding',payload:"rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:1,price:100}); rawHoldings.push({name:'이전 종목',code:'999999',qty:1,cost:100,acct:'일반'});"},
+  {name:'fundDirect only, not on server',payload:"fundDirect['이전 TDF']={type:'TDF',cost:1000};"},
+  {name:'valid trade but unrelated direct fund',payload:"rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:1,price:100}); fundDirect['이전 TDF']={type:'TDF',cost:1000};"},
+  {name:'forged code-less TDF holding',payload:"rawHoldings.push({name:'이전 TDF',code:'',assetType:'TDF',qty:1,cost:100,acct:'연금'});"},
+]) {
+  h=setup(); h.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+  vm.runInContext(scenario.payload+" _markPortfolioRemoteDirty();",h.ctx);
+  const posted=[];
+  h.ctx.requestGsheetFormJson=async action=>{posted.push(action);return {status:'ok',saveState:'success'};};
+  assert.equal(await h.ctx.loadSettings(),false,scenario.name+' must fail closed');
+  assert.ok(!posted.some(action=>['syncHoldings','syncTrades','saveSettings'].includes(action)),
+    scenario.name+' must not write either remote payload');
+  assert.ok(h.ctx._getPortfolioRemoteDirty(),scenario.name+' must preserve dirty source');
+}
+for (const scenario of [
+  {name:'known stock holdings, no trades',payload:"rawHoldings.push({name:'테스트',code:'005930',qty:1,cost:100,acct:'일반'});"},
+  {name:'known direct fund',serverFund:{'직접 TDF':{type:'TDF',cost:1000}},
+    payload:"fundDirect['직접 TDF']={type:'TDF',cost:1200};"},
+  {name:'known code-less fund holding',serverEP:{name:'직접 펀드',code:'',assetType:'펀드'},
+    payload:"rawHoldings.push({name:'직접 펀드',code:'',assetType:'펀드',qty:1,cost:100,acct:'연금'});"},
+]) {
+  h=setup(); h.response.codes=[{name:'테스트',code:'005930',type:'주식'}];
+  if (scenario.serverFund) h.response.settings.fundDirect=scenario.serverFund;
+  if (scenario.serverEP) h.response.settings.EDITABLE_PRICES.push(scenario.serverEP);
+  vm.runInContext(scenario.payload+" _markPortfolioRemoteDirty();",h.ctx);
+  const posted=[];
+  h.ctx.requestGsheetFormJson=async action=>{posted.push(action);return {status:'ok',saveState:'success',synced:1};};
+  assert.equal(await h.ctx.loadSettings(),true,scenario.name+' should recover');
+  assert.ok(posted.includes('syncHoldings'),scenario.name+' must write verified holdings');
+  assert.ok(posted.includes('saveSettings'),scenario.name+' must write verified settings');
+  assert.equal(h.ctx._getPortfolioRemoteDirty(),null);
+}
+// Pending recovery uses a separate writer; direct-fund validation must precede it.
+h=setup();
+vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'테스트',code:'005930',qty:1,price:100}); fundDirect['이전 TDF']={type:'TDF',cost:1000}; _setPendingExplicitEmptyTradeSync({from:'2026-10-07',target:GSHEET_API_URL});",h.ctx);
+const preflightPendingPosts=[];
+h.ctx.requestGsheetFormJson=async action=>{preflightPendingPosts.push(action);return {status:'ok',saveState:'success'};};
+assert.equal(await h.ctx._retryPendingExplicitEmptyTradeSync({
+  targetUrl:'https://script.google.com/macros/s/test/exec',allowDuringRestore:true,
+  preferCurrentPortfolio:true,masterCodesOverride:[{code:'005930',name:'테스트',type:'주식'}]
+}),false,'pending current recovery must block stale fundDirect');
+assert.equal(preflightPendingPosts.length,0,'pending preflight blocks all writes');
+assert.ok(h.ctx._getPendingExplicitEmptyTradeSync(),'pending source is retained on failure');
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
