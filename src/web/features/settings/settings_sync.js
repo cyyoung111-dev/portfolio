@@ -196,6 +196,51 @@ async function recoverMissingStockMasterReadOnly() {
   finally { if (_stockMasterReadOnlyRecoveryPromise === run) _stockMasterReadOnlyRecoveryPromise = null; }
 }
 
+// Serialize browser writes of the stock master by target. The latest UI
+// state is sampled INSIDE this queue, so an already queued syncCodes request
+// cannot re-add a code removed by the user.
+const _gsheetStockMasterWriteQueues = new Map();
+function _queueGsheetStockMasterWrite(targetUrl, work) {
+  const target = String(targetUrl || '').trim();
+  if (!target) return Promise.resolve(null);
+  const previous = _gsheetStockMasterWriteQueues.get(target) || Promise.resolve();
+  const next = previous.catch(() => null).then(work);
+  _gsheetStockMasterWriteQueues.set(target, next);
+  return next.finally(() => {
+    if (_gsheetStockMasterWriteQueues.get(target) === next) {
+      _gsheetStockMasterWriteQueues.delete(target);
+    }
+  });
+}
+
+async function deleteStockMasterCodeAfterPendingWrites(item, session) {
+  const targetUrl = String(session?.targetUrl || '').trim();
+  const generation = session?.generation;
+  const sourceId = String(session?.sourceId || '').trim();
+  const code = _normalizeSyncCode(item?.code || '');
+  const name = String(item?.name || '').trim();
+  if (!targetUrl || !sourceId || !name || !code) return false;
+  return _queueGsheetStockMasterWrite(targetUrl, async () => {
+    if (!isGsheetConnectionCurrent(targetUrl, generation)
+        || String(_gsCodeMasterSourceIdentity || '') !== sourceId) return false;
+    // A new edit/re-add in the same session supersedes an earlier deletion.
+    if (EDITABLE_PRICES.some(ep =>
+      ep?.name === name && _normalizeSyncCode(ep?.code || '') === code)) return false;
+    const res = await requestGsheetFormJson('deleteUnreferencedCode', {
+      data:JSON.stringify({ name, code, expectedSourceId:sourceId })
+    }, {timeoutMs:20000,retry:0,targetUrl});
+    if (res?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl, generation)) return false;
+    const checked = await requestGsheetActionJson('getCodeList', {}, {
+      targetUrl, timeoutMs:15000, retry:1, preserveError:true
+    });
+    return isGsheetConnectionCurrent(targetUrl, generation)
+      && checked?.status === 'ok' && checked.codeMasterSourceId === sourceId
+      && Array.isArray(checked.codes)
+      && !checked.codes.some(ep => _normalizeSyncCode(ep?.code || '') === code
+        && String(ep?.name || '').trim() === name);
+  });
+}
+
 // ── 종목코드 GSheet 자동 등록
 async function syncCodesToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
@@ -205,7 +250,11 @@ async function syncCodesToGsheet(options) {
     generation,
     allowDuringRestore: options?.allowDuringRestore === true
   })) return null;
-  try {
+  return _queueGsheetStockMasterWrite(targetUrl, async () => {
+    if (!isGsheetPortfolioWriteReady({
+      targetUrl, generation, allowDuringRestore: options?.allowDuringRestore === true
+    })) return null;
+    try {
     // ★ EDITABLE_PRICES 기준으로 {name: {code, type, sector}} 구조 전송
     // type/sector를 함께 보내야 GAS에서 유형 컬럼을 덮어쓰지 않음
     const codeMap = {};
@@ -246,7 +295,8 @@ async function syncCodesToGsheet(options) {
   } catch(e) {
     _syncWarn('[GSheet 동기화] 예외:', e);
     return null;
-  }
+    }
+  });
 }
 
 // ★ v8.1 — 보유현황 GSheet 동기화 (트리거 자동 스냅샷을 위해 필요)
