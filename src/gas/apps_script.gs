@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.212
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.213
+//
+//  v9.213 변경사항 (2026.10.14):
+//   종목코드→무코드 펀드/TDF 전환: 서버 Settings 사용자 필드 원본 보존
+//   삭제 ScriptLock/CAS와 영속 트랜잭션에 전환 목적지를 저장하여 종료 후 재시작 복구
+//   기존 일반 종목 삭제·다른 Settings 키/거래·보유·Snapshot 유지
 //
 //  v9.212 변경사항 (2026.10.13):
 //   신규 종목 최초 append와 코드 먼저 부분 커밋 복구에서 목표 비중·메모 보존
@@ -1971,7 +1976,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.212', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.213', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5628,7 +5633,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.212' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.213' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11366,7 +11371,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.212',
+    gasVersion: '9.213',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11406,7 +11411,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.212' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.213' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14218,14 +14223,36 @@ function _settlePendingCodeDeleteLocked_(ss) {
     throw new Error('CODE_DELETE_TXN_MASTER_CONFLICT');
   var settings=_readSettingsMap(ss);
   var previous=Array.isArray(settings.EDITABLE_PRICES) ? settings.EDITABLE_PRICES : [];
+  var conversion=tx.conversionEntry || null;
+  // The destination may intentionally reuse the old NAME with an empty code.
+  // Distinguish it from the original coded row rather than treating it as
+  // an alias conflict after a successful conversion.
   var matchingSettings=previous.filter(function(ep) {
     return _cleanCode(ep&&ep.code||'')===tx.code
-      || String(ep&&ep.name||'').trim()===tx.name;
+      || (String(ep&&ep.name||'').trim()===tx.name && !!_cleanCode(ep&&ep.code||''));
   });
   if (matchingSettings.some(function(ep) {
     return _cleanCode(ep.code||'')!==tx.code
       || String(ep.name||'').trim()!==tx.name;
   }) || matchingSettings.length>1) throw new Error('CODE_DELETE_TXN_SETTINGS_CONFLICT');
+  if (conversion) {
+    if (!tx.settingsEntry || !conversion.name || _cleanCode(conversion.code||'')
+        || ['TDF','펀드','FUND'].indexOf(String(conversion.assetType||'').toUpperCase())<0)
+      throw new Error('CODE_CONVERT_TXN_INVALID');
+    // A code-less destination must be unique, even if another tab wrote
+    // a row of the same name while the transaction was interrupted.
+    var destinations=previous.filter(function(ep) {
+      return String(ep&&ep.name||'').trim()===conversion.name
+        && _cleanCode(ep&&ep.code||'')!==tx.code;
+    });
+    if (destinations.length>1 || destinations.some(function(ep) {
+      return JSON.stringify(ep)!==JSON.stringify(conversion);
+    })) throw new Error('CODE_CONVERT_TXN_DEST_CONFLICT');
+    if (master.some(function(row) {
+      return String(row.name||'').trim()===conversion.name
+        && !(String(row.name||'').trim()===tx.name && _cleanCode(row.code)===tx.code);
+    })) throw new Error('CODE_CONVERT_TXN_MASTER_CONFLICT');
+  }
 
   if (matching.length===1) {
     // No code row was deleted (or another execution rolled it back): restore
@@ -14259,19 +14286,28 @@ function _settlePendingCodeDeleteLocked_(ss) {
       }) || holdings.holdings.some(function(item) {
         return _cleanCode(item.code||'')===tx.code || String(item.name||'').trim()===tx.name;
       })) throw new Error('CODE_DELETE_TXN_LEDGER_CONFLICT');
-  if (matchingSettings.length) {
-    settings.EDITABLE_PRICES=previous.filter(function(ep) {
-      return String(ep&&ep.name||'').trim()!==tx.name
-        || _cleanCode(ep&&ep.code||'')!==tx.code;
-    });
-    _writeCodeDeleteEditablesOnly_(ss,previous,settings.EDITABLE_PRICES);
-  }
+  if (conversion && matchingSettings.length
+      && JSON.stringify(matchingSettings[0])!==JSON.stringify(tx.settingsEntry))
+    throw new Error('CODE_CONVERT_TXN_SOURCE_CHANGED');
+  var desired=previous.filter(function(ep) {
+    return !(String(ep&&ep.name||'').trim()===tx.name
+      && _cleanCode(ep&&ep.code||'')===tx.code);
+  });
+  if (conversion && !desired.some(function(ep) {
+    return String(ep&&ep.name||'').trim()===conversion.name
+      && JSON.stringify(ep)===JSON.stringify(conversion);
+  })) desired.push(conversion);
+  if (JSON.stringify(desired)!==JSON.stringify(previous))
+    _writeCodeDeleteEditablesOnly_(ss,previous,desired);
   var verified=Array.isArray(_readSettingsMap(ss).EDITABLE_PRICES)
     ? _readSettingsMap(ss).EDITABLE_PRICES : [];
   if (verified.some(function(ep) {
-    return String(ep&&ep.name||'').trim()===tx.name
+    return (String(ep&&ep.name||'').trim()===tx.name && !!_cleanCode(ep&&ep.code||''))
       || _cleanCode(ep&&ep.code||'')===tx.code;
-  }) || getCodeItems(ss,true).some(function(row) {
+  }) || (conversion && verified.filter(function(ep) {
+    return String(ep&&ep.name||'').trim()===conversion.name
+      && JSON.stringify(ep)===JSON.stringify(conversion);
+  }).length!==1) || getCodeItems(ss,true).some(function(row) {
     return String(row.name||'').trim()===tx.name || _cleanCode(row.code)===tx.code;
   })) throw new Error('CODE_DELETE_TXN_VERIFY_FAILED');
   _finishCodeDeleteTxn_(tx);
@@ -14484,7 +14520,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.212' });
+    return jsonOk({ settings: settings, gasVersion: '9.213' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14514,7 +14550,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.212'
+      gasVersion: '9.213'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14785,9 +14821,38 @@ function handleDeleteUnreferencedCode(dataJson) {
       });
     if (existingAliases.length!==originalEntry.length || originalEntry.length>1)
       return jsonError('Settings 종목 이름·코드 충돌', {errorCode:'CODE_DELETE_SETTINGS_CONFLICT'});
+    // Optional code->code-less fund conversion. Construct the destination
+    // from SERVER Settings so targetWeight, notes and unknown user keys are
+    // not replaced by stale or forged browser values.
+    var conversion=null;
+    if (Object.prototype.hasOwnProperty.call(request,'conversion')) {
+      var proposed=request.conversion;
+      var destName=String(proposed&&proposed.name||'').trim();
+      var destType=String(proposed&&(proposed.assetType||proposed.type)||'').trim();
+      if (!proposed || typeof proposed!=='object' || Array.isArray(proposed)
+          || !destName || _cleanCode(proposed.code||'')
+          || ['TDF','펀드','FUND'].indexOf(destType.toUpperCase())<0
+          || originalEntry.length!==1)
+        return jsonError('무코드 전환 정보 또는 Settings 원본 부재', {errorCode:'CODE_CONVERT_INVALID'});
+      if (rows.some(function(row) {
+        return String(row.name||'').trim()===destName && destName!==name;
+      }) || (originalSettings.EDITABLE_PRICES||[]).some(function(ep) {
+        return String(ep&&ep.name||'').trim()===destName
+          && !(String(ep.name||'').trim()===name && _cleanCode(ep.code||'')===code);
+      })) return jsonError('무코드 전환 대상 이름 충돌', {errorCode:'CODE_CONVERT_NAME_CONFLICT'});
+      conversion=JSON.parse(JSON.stringify(originalEntry[0]));
+      conversion.name=destName;
+      conversion.code='';
+      conversion.assetType=destType;
+      conversion.sector=String(proposed.sector||'기타').trim();
+      conversion.currency=String(proposed.currency||'KRW').trim().toUpperCase();
+      conversion.market=String(proposed.market||'').trim().toUpperCase();
+      settings.EDITABLE_PRICES.push(conversion);
+    }
     var pendingDelete={
       version:1,sourceId:sourceId,name:name,code:code,
-      settingsEntry:originalEntry.length ? originalEntry[0] : null
+      settingsEntry:originalEntry.length ? originalEntry[0] : null,
+      ...(conversion ? {conversionEntry:conversion} : {})
     };
     var deleteProps=PropertiesService.getScriptProperties();
     if (deleteProps.getProperty(CODE_DELETE_TXN_KEY_))
@@ -14856,10 +14921,15 @@ function handleDeleteUnreferencedCode(dataJson) {
     // Both stores now agree; the marker can be retired. If cleanup throws,
     // the next Bootstrap will prove the committed delete and retire it.
     var verifySettings=_readSettingsMap(ss);
-    if (Array.isArray(verifySettings.EDITABLE_PRICES)
-        && verifySettings.EDITABLE_PRICES.some(function(ep) {
-          return String(ep&&ep.name||'').trim()===name || _cleanCode(ep&&ep.code||'')===code;
-        })) return jsonError('삭제 설정 재검증 실패', {errorCode:'CODE_DELETE_SETTINGS_VERIFY_FAILED'});
+    if (!Array.isArray(verifySettings.EDITABLE_PRICES)
+        || verifySettings.EDITABLE_PRICES.some(function(ep) {
+          return (String(ep&&ep.name||'').trim()===name && !!_cleanCode(ep&&ep.code||''))
+            || _cleanCode(ep&&ep.code||'')===code;
+        }) || (conversion && verifySettings.EDITABLE_PRICES.filter(function(ep) {
+          return String(ep&&ep.name||'').trim()===conversion.name
+            && JSON.stringify(ep)===JSON.stringify(conversion);
+        }).length!==1))
+      return jsonError('삭제/전환 설정 재검증 실패', {errorCode:'CODE_DELETE_SETTINGS_VERIFY_FAILED'});
     _finishCodeDeleteTxn_(pendingDelete);
     _touchSnapshotIntegritySourceRevision();
     return jsonOk({ deleted:rowIndex ? 1 : 0, codeMasterSourceId:sourceId });
