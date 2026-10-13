@@ -330,18 +330,16 @@ function isCodeLessDirectFundTrade(t) {
 function isPinnedRestoreTradeMasterComplete(trades, codes) {
   if (!Array.isArray(trades) || !Array.isArray(codes)) return false;
   const serverByCode = new Map(), serverByName = new Map();
-  codes.forEach(item => {
+  // Every coded master row MUST have one unambiguous identity. A forEach
+  // callback return cannot signal a conflict to its enclosing validator.
+  for (const item of codes) {
     const code = _normalizeSyncCode(item?.code || '');
     const name = String(item?.name || '').trim();
-    if (!code || !name) return;
-    // Duplicate or contradictory server identities are not trustworthy.
-    if (serverByCode.has(code) && serverByCode.get(code) !== name) return;
+    if (!code || !name) continue;
+    if (serverByCode.has(code) || serverByName.has(name)) return false;
     serverByCode.set(code, name);
-    if (serverByName.has(name) && serverByName.get(name) !== code) return;
     serverByName.set(name, code);
-  });
-  if (serverByCode.size !== codes.filter(item =>
-      _normalizeSyncCode(item?.code || '') && String(item?.name || '').trim()).length) return false;
+  }
   return trades.every(t => {
     const name = String(t?.name || '').trim();
     if (!name || !t.tradeType || !t.date) return false;
