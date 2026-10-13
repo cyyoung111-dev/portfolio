@@ -1286,10 +1286,11 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       sector:'기타',currency:'KRW',market:'KR'}];
     if(config.noRemote)remote.splice(0);
     const remoteSettings=[{name:'펀드 전환',code:'001234',assetType:'주식',
-      sector:'기타',currency:'KRW',market:'KR',targetWeight:37,notes:'original notes'}];
+      sector:'기타',currency:'KRW',market:'KR',targetWeight:37,notes:'original notes',
+      customFlags:{serverOnly:true}}];
     let calls=[],saved=0,queued=0,notices=[];
     const item={name:'펀드 전환',code:'001234',assetType:'주식',
-      sector:'기타',currency:'KRW',market:'KR'};
+      sector:'기타',currency:'KRW',market:'KR',targetWeight:12,notes:'stale client note'};
     const fields={name:'펀드 전환',code:'',type:'펀드',sector:'기타',
       currency:'KRW',market:'KR'};
     const inputMap={
@@ -1381,6 +1382,9 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(ok.remoteSettings[0].notes,'original notes','server retains original notes');
   assert.equal(ok.item.code,'','local master switched to code-less fund after server');
   assert.equal(ok.item.assetType,'펀드');
+  assert.equal(ok.item.targetWeight,37,'verified server targetWeight overrides stale client');
+  assert.equal(ok.item.notes,'original notes','verified server notes overrides stale client');
+  assert.deepEqual(ok.item.customFlags,{serverOnly:true});
   assert.equal(ok.queued(),1);
   assert.equal(ok.saved(),1);
   const responseLost=make({crashAfterRemoteCommit:true});
