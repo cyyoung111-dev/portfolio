@@ -786,7 +786,7 @@ assert.deepEqual(Object.keys(generationPosts[0].codes),['A 종목'],
 // Independent defense: even if a GAS URL is repointed to another spreadsheet
 // without changing URL/generation, normal syncCodes must reject the workbook
 // fingerprint before touching any cell.
-const normalStart=gasSrc.indexOf('function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam)');
+const normalStart=gasSrc.indexOf('function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam, forceSettingsRebase)');
 const normalEnd=gasSrc.indexOf('function _repairKnownCodeColumns(',normalStart);
 assert.ok(normalStart>appendStart && normalEnd>normalStart);
 vm.runInContext(gasSrc.slice(normalStart,normalEnd),gasCtx);
