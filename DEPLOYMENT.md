@@ -1,3 +1,11 @@
+## PR #493 Codex P1/P2 — 종목 Settings 단일키 CAS 및 신규 append 부분 커밋 복구 (2026-10-13)
+
+- **P1**: 일반 syncCodes 및 Settings-only 재기준화의 전역 `_writeSettingsMap`/`clearContent` 제거. 같은 ScriptLock 안에서 EDITABLE_PRICES 단일 셀만 기존 JSON 비교(CAS) 후 갱신, 신규 설정에는 해당 키 행만 삽입. 중단돼도 대출/부동산/배당/기타 Settings 행 보존.
+- **P2**: 확인된 신규 append와 독립 메타데이터 변경을 동일 workbook/source durable 추가 journal로 입증해 Settings-only `metadataOnly` 복구 부채에 보존. 일반 실패→재시도, 응답 전 프로세스 종료→Bootstrap 양쪽에서 누락된 코드 Settings를 재구성. 미승인 추가·삭제·이름 교체는 암묵적 복구 금지; 최종 master 확인 후 부채·journal 해제.
+- **생산 함수 VM 테스트**: 신규 `scripts/check-stock-master-settings-cell-write.mjs` (CAS, 단일 셀, 키 부재 생성, 인위적 실패와 LOAN/REAL_ESTATE/DIVDATA 보존), `scripts/check-stock-master-append-repair.mjs` (실제 웹 sync/Bootstrap append 복구, 미승인 변경 차단). 기존 회귀 및 web/quality/GAS 체크에 추가.
+- **버전** GAS v9.208 Git blob `2cee1e67fd0283f4c5fd7119424f1b82b4159ec5`, 웹 기대 버전/PWA 캐시/배포 안전 지문 동기화. Draft 미병합, 운영 미배포, 원본 #489~#492·main/실데이터 불변.
+
+---
 ## PR #493 Codex P2 — 코드 변경 전 전체 Settings 원본 정합성 확인 (2026-10-13)
 
 - 기존 코드 A→B가 부분 커밋되어 마스터 B / Settings A로 불일치할 때, 다른 탭에서 B 섹터 수정·무관한 C 추가가 사용자 비중·메모를 지우는 문제를 방지.

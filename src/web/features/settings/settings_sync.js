@@ -313,14 +313,24 @@ function _stockMasterHasOnlyConfirmedQueueChanges(target, sourceId, seqAtCall, b
 }
 // A metadata-only partial commit must reference an actual changed row,
 // never an unrelated first row that another tab could later delete.
-function _stockMasterMetadataOnlyRepairProof(beforeCodes, afterCodes) {
+// Confirmed code-sheet changes that can be rebased without a rename:
+// - metadata-only edits of existing exact pairs;
+// - appended exact pairs backed by this workbook's durable NEW-asset journal.
+// Reject removals, pair renames, and unproven additions. A metadataOnly marker
+// is a request for Settings-only master CAS, NOT a replacement identity.
+function _stockMasterMetadataOnlyRepairProof(beforeCodes, afterCodes, authorizedAdditions) {
   if (!Array.isArray(beforeCodes) || !Array.isArray(afterCodes)
-      || !beforeCodes.length || beforeCodes.length !== afterCodes.length
+      || afterCodes.length < beforeCodes.length
       || !_stockMasterSyncFingerprint(beforeCodes)
       || !_stockMasterSyncFingerprint(afterCodes)) return null;
   const previous = new Map(beforeCodes.map(row => [
     JSON.stringify([String(row.name || '').trim(), _normalizeSyncCode(row.code)]),row
   ]));
+  const authorized = new Set((authorizedAdditions || [])
+    .filter(item => item && !item.replaces)
+    .map(item => JSON.stringify([
+      String(item.name || '').trim(),_normalizeSyncCode(item.code)
+    ])));
   const metadata = item => JSON.stringify([
     String(item.type || item.assetType || '주식').trim(),
     String(item.sector || '기타').trim(),
@@ -328,13 +338,20 @@ function _stockMasterMetadataOnlyRepairProof(beforeCodes, afterCodes) {
     String(item.market || '').trim().toUpperCase()
   ]);
   const repairs=[];
+  let matched=0;
   for (const row of afterCodes) {
     const name=String(row.name || '').trim(), code=_normalizeSyncCode(row.code);
-    const original=previous.get(JSON.stringify([name,code]));
-    if (!original) return null; // identity changed without replacement proof
-    if (metadata(original)!==metadata(row))
+    const pair=JSON.stringify([name,code]), original=previous.get(pair);
+    if (!original) {
+      if (!authorized.has(pair)) return null;
       repairs.push({previousName:name,previousCode:code,name,code,metadataOnly:true});
+    } else {
+      matched++;
+      if (metadata(original)!==metadata(row))
+        repairs.push({previousName:name,previousCode:code,name,code,metadataOnly:true});
+    }
   }
+  if (matched!==beforeCodes.length) return null; // never infer deletion
   return repairs.length ? repairs : null;
 }
 function _rememberConfirmedCodeMasterChange(target, sourceId, before, after) {
@@ -355,9 +372,18 @@ function stageConfirmedSameTargetCodeReplacementRepairs(targetUrl, sourceId, mas
   const entries=_getSameTargetLocalCodeAdditions(targetUrl,sourceId);
   const debt=[];
   for (const entry of entries) {
-    if (!entry?.replaces) continue;
-    const name=String(entry.name || '').trim();
-    const code=_normalizeSyncCode(entry.code);
+    const name=String(entry?.name || '').trim();
+    const code=_normalizeSyncCode(entry?.code);
+    if (!entry?.replaces) {
+      // A previous process may have died after append flush but before
+      // recording repair debt or receiving the server response. Its durable
+      // same-source NEW-asset journal can prove a committed exact pair.
+      if (name && code && masterCodes.some(row =>
+          String(row.name || '').trim()===name
+          && _normalizeSyncCode(row.code)===code))
+        debt.push({previousName:name,previousCode:code,name,code,metadataOnly:true});
+      continue;
+    }
     const oldName=String(entry.replaces.name || '').trim();
     const oldCode=_normalizeSyncCode(entry.replaces.code);
     const confirmed=masterCodes.some(row => String(row.name || '').trim()===name
@@ -458,7 +484,7 @@ async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
       _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,debts);
     if (typeof _forgetSameTargetLocalCodeAddition==='function'
         && typeof _getSameTargetLocalCodeAdditions==='function') {
-      for (const step of debts.filter(item => !item.metadataOnly)) {
+      for (const step of debts) {
         if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
             entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
           _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl);
@@ -727,7 +753,7 @@ async function syncCodesToGsheet(options) {
         // permanently block restoring Settings after a metadata-only commit.
         repairProof=[...replacements,...settingsReplacements];
         if (!repairProof.length) {
-          const changed=_stockMasterMetadataOnlyRepairProof(fresh.codes,partial.codes);
+          const changed=_stockMasterMetadataOnlyRepairProof(fresh.codes,partial.codes,localAdditions);
           if (!changed) {
             _syncWarn('[syncCodes] 메타데이터 전용 복구 근거 없는 구조 변경: 중단');
             return null;

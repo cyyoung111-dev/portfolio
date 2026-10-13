@@ -45,6 +45,12 @@ function createScenario(current,settings) {
       EDITABLE_PRICES:state.settings.map(x=>({...x})),
       LOAN:{principal:100},REAL_ESTATE:{address:'unchanged'}
     }),
+    _writeCodeSyncEditablesOnly_:(ss,prior,next)=>{
+      state.settingsWrites++;
+      assert.equal(JSON.stringify(prior),JSON.stringify(state.settings));
+      state.settings=next.map(x=>({...x}));
+      return true;
+    },
     _writeSettingsMap:map=>{
       state.settingsWrites++;
       assert.equal(map.LOAN.principal,100);
