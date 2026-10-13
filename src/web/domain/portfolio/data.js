@@ -614,23 +614,20 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
     }
   }
   const completed=new Set(),suppressed=new Set();
-  for(const[key,sources]of candidates){
-    const successor=pairEntries.get(key);
-    if(successor?.removed===true) {
-      // A later C tombstone only retires C, not the already completed
-      // transaction's immutable retirement of B. Do not resurrect B.
+  // Resolve finished, tombstoned successors FIRST; iteration/storage key
+  // order must not decide whether an unrelated active D can claim B.
+  for(const[key,sources]of candidates) {
+    if(pairEntries.get(key)?.removed===true)
       for(const prev of sources)if(prev.modern)suppressed.add(prev.key);
-      continue;
-    }
-    // Two simultaneously active successors to one B are ambiguous.
-    // Preserve a nonretired B only when NO earlier committed retirement
-    // has already consumed it. Never arbitrate by write order.
+  }
+  for(const[key,sources]of candidates) {
+    if(pairEntries.get(key)?.removed===true)continue;
     const activeConflicts=sources.some(prev=>prev.modern
       && [...candidates].filter(([otherKey,otherSources])=>
         pairEntries.get(otherKey)?.removed!==true
         && otherSources.some(other=>other.modern&&other.key===prev.key)).length!==1);
-    if(activeConflicts)continue;
-    if(sources.some(prev=>prev.modern && suppressed.has(prev.key)))continue;
+    if(activeConflicts || sources.some(prev=>prev.modern && suppressed.has(prev.key)))
+      continue;
     completed.add(key);
     for(const prev of sources)if(prev.modern)suppressed.add(prev.key);
   }
