@@ -740,7 +740,11 @@ async function smSave(idx) {
     showMgmtMsg('smMgmtMsg','❌ 종목 변경 복구 이력 저장 실패: 원격 반영을 중단했습니다.',true);
     return false;
   }
-  if (pairChanged && !newCode && originalMasterIdentity.code) {
+  // A local-only portfolio has no remote Codes/Settings ledger to delete.
+  // Keep its existing code-to-fund editing behavior; a configured remote
+  // still requires the pinned same-workbook CAS deletion below.
+  if (pairChanged && !newCode && originalMasterIdentity.code
+      && String(editSession?.targetUrl || '').trim()) {
     // An uncommitted name/code REPLACEMENT still has a different remote
     // canonical identity. Do not treat its missing destination as evidence
     // that the source row can be deleted or forgotten.
