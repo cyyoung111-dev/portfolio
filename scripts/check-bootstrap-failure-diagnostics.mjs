@@ -795,6 +795,23 @@ completeFirstPost();
 assert.equal((await normalInFlight)?.status,'ok');
 assert.equal(await deleteAfterPost,true);
 assert.deepEqual(deletionActions,['syncCodes','deleteUnreferencedCode']);
+assert.equal(vm.runInContext("_gsheetCodeList.length",h.ctx),0,
+  'verified server delete must rebase local code-master revision');
+vm.runInContext("EDITABLE_PRICES.push({name:'경합 신규',code:'000660',assetType:'주식'})",h.ctx);
+const staleResend=await h.ctx.syncCodesToGsheet();
+assert.equal(staleResend,null,'deleted code cannot reappear without newly verified UI provenance');
+assert.deepEqual(deletionActions,['syncCodes','deleteUnreferencedCode']);
+vm.runInContext("EDITABLE_PRICES.splice(EDITABLE_PRICES.findIndex(x=>x.name==='경합 신규'),1); EDITABLE_PRICES.push({name:'후속 신규',code:'005930',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'후속 신규',code:'005930',assetType:'주식'},captureStockMasterEditSession())",h.ctx);
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  assert.equal(action,'syncCodes');
+  assert.deepEqual(JSON.parse(params.expectedCodes),[],
+    'newly verified post-delete empty master is the next valid CAS base');
+  const rows=JSON.parse(params.codes);
+  h.response.codes.push({name:'후속 신규',code:rows['후속 신규'].code,type:'주식'});
+  return {status:'ok',synced:1};
+};
+assert.equal((await h.ctx.syncCodesToGsheet())?.status,'ok',
+  'intentional new code can sync against fresh post-delete revision');
 assert.ok(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8').includes(
   'deleteStockMasterCodeAfterPendingWrites(snapItem, editSession)'),
   'actual stock delete handler must queue remote deletion');
