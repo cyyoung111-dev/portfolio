@@ -317,6 +317,9 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   failDelete=true;
   assert.equal(del().status,'error');
   assert.ok(marker());
+  // Simulate an interrupted Settings rewrite that retained A identity but
+  // dropped targetWeight. Recovery must restore the ENTIRE original record.
+  settings.EDITABLE_PRICES=[{name:'A',code:'1',assetType:'주식'}];
   const uncommitted=gas.handleGetBootstrap();
   assert.equal(uncommitted.status,'ok');
   assert.equal(uncommitted.codes[0].code,'1');
