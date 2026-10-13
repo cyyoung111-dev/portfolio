@@ -583,8 +583,10 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
     const entry=item.entry,target=item.target;
     const predecessors=prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
       && Array.isArray(entry.requiresTombstones)?entry.requiresTombstones:[];
-    if(item.removed===true || !predecessors.length
-       || entry.transitionCommitted!==true)continue;
+    if(!predecessors.length || entry.transitionCommitted!==true)continue;
+    // A committed successor remains proof that its predecessor was
+    // retired even AFTER successful server sync tombstones that successor.
+    // Otherwise B resurfaces after the confirmed C journal is cleared.
     const sources=[];
     let valid=true;
     for(const prev of predecessors){
@@ -613,9 +615,22 @@ function _readDurableStockJournal(legacyKey,prefix,fallback) {
   }
   const completed=new Set(),suppressed=new Set();
   for(const[key,sources]of candidates){
-    // Two simultaneously committed successors to one B are ambiguous.
-    // Keep B rather than accepting a random winner.
-    if(sources.some(prev=>prev.modern && claimCounts.get(prev.key)!==1))continue;
+    const successor=pairEntries.get(key);
+    if(successor?.removed===true) {
+      // A later C tombstone only retires C, not the already completed
+      // transaction's immutable retirement of B. Do not resurrect B.
+      for(const prev of sources)if(prev.modern)suppressed.add(prev.key);
+      continue;
+    }
+    // Two simultaneously active successors to one B are ambiguous.
+    // Preserve a nonretired B only when NO earlier committed retirement
+    // has already consumed it. Never arbitrate by write order.
+    const activeConflicts=sources.some(prev=>prev.modern
+      && [...candidates].filter(([otherKey,otherSources])=>
+        pairEntries.get(otherKey)?.removed!==true
+        && otherSources.some(other=>other.modern&&other.key===prev.key)).length!==1);
+    if(activeConflicts)continue;
+    if(sources.some(prev=>prev.modern && suppressed.has(prev.key)))continue;
     completed.add(key);
     for(const prev of sources)if(prev.modern)suppressed.add(prev.key);
   }
