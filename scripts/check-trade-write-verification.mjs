@@ -88,6 +88,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   const workbook={getSheetByName:()=>codeSheet};
   Object.assign(gas,{
     CONFIG:{SHEET_CODES:'codes'},
+    PropertiesService:{getScriptProperties:()=>({getProperty:()=>null})},
     getss:()=>workbook,
     LockService:{getScriptLock:()=>({
       waitLock:()=>{assert.equal(lockHeld,false);lockHeld=true;},
@@ -202,7 +203,14 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   let row=['1','A','주식','기타','','KR'];
   let settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',targetWeight:37,notes:'영구 보존'}]};
   let failDelete=false,failSettings=false,settingsWrites=0,locked=false,inserted=0,removed=0;
-  let revision=0;
+  let crashAfterCodeFlush=false,revision=0;
+  const properties={};
+  const propService={
+    getProperty:key=>properties[key]||null,
+    setProperty:(key,val)=>{properties[key]=String(val)},
+    deleteProperty:key=>{delete properties[key]}
+  };
+  const marker=()=>properties.PF_PENDING_CODE_DELETE_TXN_V1;
   const sheet={
     getLastRow:()=>row?2:1,getLastColumn:()=>6,
     getRange:(r,c,n,m)=>({
@@ -219,7 +227,11 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
       waitLock:()=>{assert.equal(locked,false);locked=true;},
       releaseLock:()=>{assert.equal(locked,true);locked=false;}
     })},
-    SpreadsheetApp:{flush:()=>{}},
+    SpreadsheetApp:{flush:()=>{if(crashAfterCodeFlush && !row){
+      crashAfterCodeFlush=false;throw new Error('simulated hard stop after flushed delete');
+    }}},
+    PropertiesService:{getScriptProperties:()=>propService},
+    _getApiKeyStatus:()=>({}),_removeSecretsFromSettings:()=>{},
     _cleanCode:c=>String(c||'').trim(),
     _portfolioCodeMasterSourceIdentity_:()=> 'sheet-1',
     _portfolioNormalizeCodeMasterSnapshot_:items=>JSON.stringify(items.map(x=>[
@@ -245,6 +257,11 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(settings.EDITABLE_PRICES[0].targetWeight,37);
   assert.equal(row[0],'1');
   assert.equal(locked,false);
+  assert.ok(marker(),'failed delete retains a durable recovery marker');
+  const rollbackBootstrap=gas.handleGetBootstrap();
+  assert.equal(rollbackBootstrap.status,'ok','boot resolves interrupted pre-commit deletion');
+  assert.equal(marker(),undefined);
+  assert.equal(rollbackBootstrap.settings.EDITABLE_PRICES[0].targetWeight,37);
   failDelete=false;
   failSettings=true;
   const compensated=del();
@@ -264,5 +281,47 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(settings.EDITABLE_PRICES.length,0);
   assert.equal(revision,1);
   assert.equal(locked,false);
-  console.log('✅ GAS 종목 삭제: 행 오류 시 Settings 원본 보존, 저장 실패 보상 복원 및 정상 삭제 VM 통과');
+  assert.equal(marker(),undefined,'successful delete clears durable marker');
+
+  // The GAS runtime can be forcibly terminated after deleteRow + flush:
+  // catch/finally are not guaranteed in production. Restart must complete
+  // deletion from persisted provenance before exposing stale Settings A.
+  row=['1','A','주식','기타','','KR'];
+  settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',
+    targetWeight:37,notes:'중단 직전 사용자 설정'}]};
+  crashAfterCodeFlush=true;
+  const crashed=del();
+  assert.equal(crashed.status,'error');
+  assert.equal(row,null,'code sheet commit precedes Settings write');
+  assert.equal(settings.EDITABLE_PRICES[0].targetWeight,37,'old Settings still present');
+  assert.ok(marker(),'transaction persists across forced termination');
+  assert.equal(locked,false);
+  // If continuation also fails, do not expose stale bootstrap.
+  failSettings=true;
+  const blocked=gas.handleGetBootstrap();
+  assert.equal(blocked.status,'error');
+  assert.ok(marker(),'failed server-side continuation must remain retryable');
+  assert.equal(settings.EDITABLE_PRICES[0].targetWeight,37);
+  const recovered=gas.handleGetBootstrap();
+  assert.equal(recovered.status,'ok','next clean boot settles the deletion');
+  assert.equal(recovered.codes.length,0);
+  assert.equal(recovered.settings.EDITABLE_PRICES.length,0,
+    'deleted code cannot be resurrected from old Settings after reload');
+  assert.equal(marker(),undefined,'verified recovery retires durable marker');
+  assert.equal(locked,false);
+
+  // A hard stop immediately AFTER the marker is saved but BEFORE deletion
+  // must roll back, retaining original custom Settings.
+  row=['1','A','주식','기타','','KR'];
+  settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',targetWeight:59}]};
+  failDelete=true;
+  assert.equal(del().status,'error');
+  assert.ok(marker());
+  const uncommitted=gas.handleGetBootstrap();
+  assert.equal(uncommitted.status,'ok');
+  assert.equal(uncommitted.codes[0].code,'1');
+  assert.equal(uncommitted.settings.EDITABLE_PRICES[0].targetWeight,59);
+  assert.equal(marker(),undefined);
+  assert.equal(locked,false);
+  console.log('✅ GAS 삭제 생산 VM: 정상/행 실패/Settings 실패/강제 종료 후 영속 부채 복구·원본 보존 통과');
 }
