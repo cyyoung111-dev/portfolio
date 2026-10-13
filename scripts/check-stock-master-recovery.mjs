@@ -354,6 +354,29 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
         settingsMigrated=true;
         return {status:'ok',updated:0};
       }
+      if(calls.length===7){
+        assert.equal(expected[0].sector,'기타');
+        assert.equal(replacements.length,0);
+        assert.equal(JSON.parse(args.codes).C.sector,'헬스케어');
+        remote[0].sector='헬스케어';
+        return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+      }
+      if(calls.length===8){
+        assert.equal(args.forceSettingsRebase,'1');
+        assert.equal(metadata.length,0,'metadata-only repair requires no identity transfer');
+        return {status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'};
+      }
+      if(calls.length===9){
+        assert.equal(args.forceSettingsRebase,'1');
+        assert.equal(metadata.length,0,'durable marker must not become replacement');
+        assert.equal(expected[0].sector,'헬스케어');
+        return {status:'ok',updated:0};
+      }
+      if(calls.length===10){
+        assert.equal(replacements.length,0);
+        assert.equal(JSON.parse(args.codes).C.sector,'헬스케어');
+        return {status:'ok',updated:0};
+      }
       assert.fail('unexpected duplicate code write '+calls.length);
     }
   };
@@ -410,5 +433,21 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
   assert.equal(vm.runInContext(
     '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
-  console.log('✅ 실패한 Settings 재복구·연속 변경·브라우저 재시작 중단점 journal 복구 VM 통과');
+  // Metadata-only change has no replacement lineage. Failed Settings writes
+  // still need a durable marker tied to the confirmed post-write master.
+  race.EDITABLE_PRICES=[{name:'C',code:'3',type:'주식',
+    sector:'헬스케어',currency:'KRW',market:'KR'}];
+  assert.equal(await vm.runInContext('syncCodesToGsheet()',race),null);
+  const metadataDebt=vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity)',race);
+  assert.equal(metadataDebt.length,1);
+  assert.equal(metadataDebt[0].metadataOnly,true);
+  assert.equal(metadataDebt[0].name,'C');
+  assert.equal(remote[0].sector,'헬스케어');
+  assert.equal((await vm.runInContext('syncCodesToGsheet()',race))?.status,'ok',
+    'confirmed metadata-only partial commit repairs Settings before normal retry');
+  assert.equal(calls.length,10);
+  assert.equal(vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
+  console.log('✅ Settings 연속 실패·재시작·메타데이터 단독 부분 커밋 영속 복구 VM 통과');
 }
