@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.201
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.202
+//
+//  v9.202 변경사항 (2026.10.13):
+//   부분 코드 커밋 확인 뒤 Settings 복구 실패 시 교체 journal 독립 복구 지원
+//   일반 종목 교체 이전에 중복 Settings identity 충돌을 선검증하여 사용자 필드 보호
 //
 //  v9.201 변경사항 (2026.10.13):
 //   다른 탭의 종목 마스터 메타데이터 변경을 stale payload가 덮지 못하도록 CAS 계약 강화
@@ -1925,7 +1929,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.201', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.202', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5582,7 +5586,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.201' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.202' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11320,7 +11324,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.201',
+    gasVersion: '9.202',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11360,7 +11364,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.201' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.202' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14205,7 +14209,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap();
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.201' });
+    return jsonOk({ settings: settings, gasVersion: '9.202' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14234,7 +14238,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.201'
+      gasVersion: '9.202'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -14608,6 +14612,33 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
         return jsonError('종목 코드/이름 교체 충돌', {errorCode:'CODE_SYNC_REPLACEMENT_CONFLICT'});
       replacementByNewName[newName]={previousName:oldName,previousCode:oldCode};
       replacedOldNames[oldName]=true;
+    }
+    // A normal code replacement must not silently choose the target's
+    // Settings metadata or erase a competing alias. Verify BEFORE setValues.
+    if (replacements.length) {
+      var preflightSettings=_readSettingsMap(ss);
+      var preflightRows=Array.isArray(preflightSettings.EDITABLE_PRICES)
+        ? preflightSettings.EDITABLE_PRICES : [];
+      for (var pi=0;pi<replacements.length;pi++) {
+        var sourceStep=replacements[pi];
+        var fromName=String(sourceStep.previousName||'').trim();
+        var fromCode=_cleanCode(sourceStep.previousCode||'');
+        var toName=String(sourceStep.name||'').trim();
+        var toCode=_cleanCode(sourceStep.code||'');
+        var priorRows=preflightRows.filter(function(ep) {
+          return String(ep&&ep.name||'').trim()===fromName
+            && _cleanCode(ep&&ep.code||'')===fromCode;
+        });
+        var competingRows=preflightRows.filter(function(ep) {
+          var name=String(ep&&ep.name||'').trim(),code=_cleanCode(ep&&ep.code||'');
+          return (name===toName || code===toCode)
+            && !(name===fromName && code===fromCode);
+        });
+        if (priorRows.length>1 || competingRows.length)
+          return jsonError('종목 교체 Settings 기존/신규 정보 충돌', {
+            errorCode:'CODE_SYNC_REPLACEMENT_SETTINGS_CONFLICT'
+          });
+      }
     }
     var settingsOnlyReplacements = [];
     if (String(forceSettingsRebase || '') === '1') {
