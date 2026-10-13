@@ -747,7 +747,7 @@ assert.equal(gasWrites.length,1);
 assert.equal(serverCodes[0].name,'A','existing mapping unchanged');
 assert.equal(serverCodes[1].name,'신규');
 assert.equal(lockDepth,0,'script lock must be released on all paths');
-assert.ok(gasSrc.includes("function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam) {\n  var lock = LockService.getScriptLock()"),
+assert.ok(gasSrc.includes("function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam, forceSettingsRebase) {\n  var lock = LockService.getScriptLock()"),
   'legacy normal code edits must serialize with append-only CAS');
 
 
