@@ -1156,7 +1156,7 @@ function doPost(e) {
   if (params.action === 'deleteUnreferencedCode' && params.data)
     return handleDeleteUnreferencedCode(params.data);
   if (params.action === 'syncCodes'    && params.codes)
-    return handleSyncCodes(params.codes, params.expectedSourceId || '', params.expectedCodes || '');
+    return handleSyncCodes(params.codes, params.expectedSourceId || '', params.expectedCodes || '', params.replacements || '[]');
   if (params.action === 'saveSnapshot')                 return handleSaveSnapshot(params.date || '', params.data || '');
   if (params.action === 'appendMarketBriefingObservations') return handleAppendMarketBriefingObservations(params.data || '[]');
   if (params.action === 'appendMarketBriefingSnapshot') return handleAppendMarketBriefingSnapshot(params.data || '{}');
@@ -14491,7 +14491,7 @@ function handleDeleteUnreferencedCode(dataJson) {
   }
 }
 
-function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam) {
+function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, replacementsParam) {
   var lock = LockService.getScriptLock(), locked = false;
   try {
     lock.waitLock(30000); locked = true;
@@ -14571,6 +14571,29 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam) {
       });
     }
 
+    // Explicit replacement of both name and code must use the same locked
+    // master CAS. Without it, ordinary sync would append a duplicate old/new
+    // identity and subsequent Bootstrap would resurrect the original.
+    var replacements;
+    try { replacements = _parseArrayParam(replacementsParam || '[]', 'code replacements'); }
+    catch (replaceError) {
+      return jsonError('종목 교체 요청 형식 오류', {errorCode:'CODE_SYNC_REPLACEMENTS_INVALID'});
+    }
+    var replacementByNewName={}, replacedOldNames={};
+    for (var ri=0; ri<replacements.length; ri++) {
+      var ren=replacements[ri]||{};
+      var oldName=String(ren.previousName||'').trim(), oldCode=_cleanCode(ren.previousCode||'');
+      var newName=String(ren.name||'').trim(), newCode=_cleanCode(ren.code||'');
+      if (!oldName || !oldCode || !newName || !newCode
+          || oldName===newName || oldCode===newCode
+          || !existingByCode[oldCode] || existingByName[oldName]!==oldCode
+          || existingByCode[newCode] || existingByName[newName]
+          || replacementByNewName[newName] || replacedOldNames[oldName]
+          || !incomingNorm[newName] || _cleanCode(incomingNorm[newName].code)!==newCode)
+        return jsonError('종목 코드/이름 교체 충돌', {errorCode:'CODE_SYNC_REPLACEMENT_CONFLICT'});
+      replacementByNewName[newName]={previousName:oldName,previousCode:oldCode};
+      replacedOldNames[oldName]=true;
+    }
     var synced         = 0;
     var updated        = 0;
     var pendingUpdates = [];
@@ -14584,6 +14607,23 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam) {
       var normalName = name;
       var newType    = obj.type || '주식';
       var newSector  = obj.sector || '기타';
+
+      var replacement = replacementByNewName[normalName];
+      if (replacement) {
+        var replacedRow=existingByCode[replacement.previousCode];
+        pendingUpdates.push({row:replacedRow,col:1,val:code});
+        pendingUpdates.push({row:replacedRow,col:2,val:normalName});
+        pendingUpdates.push({row:replacedRow,col:3,val:newType});
+        pendingUpdates.push({row:replacedRow,col:4,val:newSector});
+        pendingUpdates.push({row:replacedRow,col:5,val:obj.currency!=='KRW'?obj.currency:''});
+        pendingUpdates.push({row:replacedRow,col:6,val:obj.market||''});
+        delete existingByCode[replacement.previousCode];
+        delete existingByName[replacement.previousName];
+        existingByCode[code]=replacedRow;
+        existingByName[normalName]=code;
+        updated++;
+        return;
+      }
 
       if (existingByCode[code]) {
         var rowIdx   = existingByCode[code];
