@@ -134,3 +134,98 @@ assert.ok(importCode.indexOf('validatedRows.push(') <
 assert.ok(importCode.indexOf('EDITABLE_PRICES[existing].code = code') >
   importCode.indexOf('for (const item of validatedRows)'));
 console.log('Read-only empty stock master rescue and safe stale generation test passed');
+
+
+// Concurrent A -> B -> C remote master writes must preserve the latest
+// user edit; the second request must rebase only after first server readback.
+{
+  const ledgerSource = fs.readFileSync('src/web/domain/portfolio/data.js','utf8');
+  const first = ledgerSource.indexOf("const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY");
+  const last = ledgerSource.indexOf("function _normalizePendingExplicitEmptyTradeSync(",first);
+  assert.ok(first >= 0 && last > first);
+  const syncProgram=sync.slice(0,sync.indexOf('// ★ v8.1'));
+  const remote=[{name:'A',code:'1',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+  const url='https://script.google.com/macros/s/race/exec', sourceId='sheet-1';
+  let requests=0, posted, release;
+  let postReached=new Promise(resolve=>{posted=resolve;});
+  let postBlocked=new Promise(resolve=>{release=resolve;});
+  const race={
+    console, GSHEET_API_URL:url, _gsBootRestored:true,
+    _gsPortfolioRestoreRequired:false, _gsCodeMasterSourceIdentity:sourceId,
+    GSHEET_KEY:'gsheet-url', EDITABLE_PRICES:[],
+    getGsheetConnectionGeneration:()=>3,
+    normalizeStockCode:c=>String(c||'').trim(),
+    isGsheetConnectionCurrent:(u,g)=>u===url&&g===3,
+    isGsheetPortfolioWriteReady:()=>true,
+    lsGet:(k,d)=>d, lsSave:()=>{}, lsRemove:()=>{},
+    requestGsheetActionJson:async(action)=>{
+      assert.equal(action,'getCodeList');
+      return {status:'ok',codeMasterSourceId:sourceId,codes:remote.map(x=>({...x}))};
+    },
+    requestGsheetFormJson:async(action,args)=>{
+      assert.equal(action,'syncCodes');
+      requests++;
+      const expected=JSON.parse(args.expectedCodes);
+      const changes=JSON.parse(args.replacements);
+      assert.equal(expected.length,1);
+      assert.equal(expected[0].name,remote[0].name,'live CAS reads post-queue master');
+      assert.equal(changes.length,1,'replacement must never silently append');
+      assert.equal(changes[0].previousName,remote[0].name);
+      assert.equal(changes[0].previousCode,remote[0].code);
+      const incoming=JSON.parse(args.codes);
+      assert.equal(incoming[changes[0].name].code,changes[0].code);
+      if(requests===1||requests===3) {
+        posted();
+        await postBlocked;
+      }
+      remote[0]={name:changes[0].name,code:changes[0].code,
+        type:'주식',sector:'기타',currency:'KRW',market:'KR'};
+      return {status:'ok',updated:1};
+    }
+  };
+  vm.createContext(race);
+  vm.runInContext(ledgerSource.slice(first,last),race);
+  vm.runInContext(syncProgram,race);
+  const session={targetUrl:url,generation:3,sourceId};
+  race.session=session;
+  const edit=(name,code,oldName,oldCode)=>{
+    race.EDITABLE_PRICES=[{name,code,type:'주식',sector:'기타',
+      currency:'KRW',market:'KR',replaces:{name:oldName,code:oldCode}}];
+    assert.equal(vm.runInContext(
+      '_recordSameTargetLocalCodeAddition(EDITABLE_PRICES[0],session)',race),true);
+  };
+  const attempt=()=>vm.runInContext('syncCodesToGsheet()',race);
+  vm.runInContext('applyGsheetCodeList([{name:"A",code:"1"}], "sheet-1")',race);
+  edit('B','2','A','1');
+  const firstSync=attempt();
+  await postReached;
+  edit('C','3','B','2');
+  const secondSync=attempt();
+  release();
+  assert.equal((await firstSync)?.status,'ok');
+  assert.equal((await secondSync)?.status,'ok');
+  assert.equal(remote[0].name,'C');
+  assert.equal(remote[0].code,'3');
+  assert.equal(requests,2);
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0,
+    'confirmed journal retired after second readback');
+
+  // Reverting a pending change is not a noop if its earlier POST is in
+  // flight: after D has been confirmed, C must be restored by new CAS.
+  postReached=new Promise(resolve=>{posted=resolve;});
+  postBlocked=new Promise(resolve=>{release=resolve;});
+  edit('D','4','C','3');
+  const thirdSync=attempt();
+  await postReached;
+  edit('C','3','D','4');
+  const fourthSync=attempt();
+  release();
+  assert.equal((await thirdSync)?.status,'ok');
+  assert.equal((await fourthSync)?.status,'ok');
+  assert.equal(remote[0].name,'C');
+  assert.equal(requests,4);
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
+  console.log('✅ 진행 중 종목교체, 연속 재기준화 및 in-flight 원복 회귀 통과');
+}
