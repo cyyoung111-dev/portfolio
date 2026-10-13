@@ -328,6 +328,23 @@ async function syncCodesToGsheet(options) {
   // introduced name/code pairs require explicit same-workbook UI provenance.
   const authorizedAdditions = new Set(localAdditions.map(item =>
     JSON.stringify([String(item.name || '').trim(), _normalizeSyncCode(item.code)])));
+  const replacements = localAdditions
+    .filter(item => {
+      const previous = item.replaces || {};
+      const oldName = String(previous.name || '').trim();
+      const oldCode = _normalizeSyncCode(previous.code || '');
+      // The expected original row must be present in this *same* snapshot.
+      // Unmatched journal entries may not rename unrelated server assets.
+      return oldName && oldCode && expectedCodes.some(prev =>
+        prev.name === oldName && _normalizeSyncCode(prev.code) === oldCode)
+        && codeMap[item.name] && _normalizeSyncCode(codeMap[item.name].code) === _normalizeSyncCode(item.code);
+    })
+    .map(item => ({
+      previousName:String(item.replaces.name).trim(),
+      previousCode:_normalizeSyncCode(item.replaces.code),
+      name:String(item.name).trim(),
+      code:_normalizeSyncCode(item.code)
+    }));
   for (const [name, item] of Object.entries(codeMap)) {
     const code = _normalizeSyncCode(item.code);
     if (!code || expectedByCode.has(code) || expectedByName.has(name)) continue;
@@ -347,7 +364,7 @@ async function syncCodesToGsheet(options) {
     const data = await requestGsheetFormJson(
       'syncCodes',
       { codes: JSON.stringify(codeMap), expectedSourceId:sourceId,
-        expectedCodes:JSON.stringify(expectedCodes) },
+        expectedCodes:JSON.stringify(expectedCodes), replacements:JSON.stringify(replacements) },
       { timeoutMs: 20000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[GSheet 동기화] 네트워크 오류'); return null; }
@@ -364,7 +381,10 @@ async function syncCodesToGsheet(options) {
     const remoteByName = new Map(checked.codes.map(item =>
       [String(item.name || '').trim(), _normalizeSyncCode(item.code)]));
     if (Object.entries(codeMap).some(([name, item]) =>
-      _normalizeSyncCode(item.code) && remoteByName.get(name) !== _normalizeSyncCode(item.code))) {
+      _normalizeSyncCode(item.code) && remoteByName.get(name) !== _normalizeSyncCode(item.code))
+        || replacements.some(replacement => checked.codes.some(remote =>
+          _normalizeSyncCode(remote.code) === replacement.previousCode
+          || String(remote.name || '').trim() === replacement.previousName))) {
       _syncWarn('[syncCodes] 서버 마스터 확인 실패');
       return null;
     }
