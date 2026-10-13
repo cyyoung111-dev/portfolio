@@ -685,6 +685,7 @@ async function syncCodesToGsheet(options) {
         forceSettingsRebase:'', settingsReplacements:'[]' },
       { timeoutMs: 20000, retry: 1, targetUrl }
     );
+    let repairProof=[];
     if (data?.status !== 'ok') {
       // A failed or timed-out response could have completed the first sheet
       // write. Check exact same-workbook code/name pairs before a bounded
@@ -721,7 +722,6 @@ async function syncCodesToGsheet(options) {
       // follow-up Settings repair fails. Publish the confirmed transition
       // and rebase a queued A->C journal to B->C before any early return.
       const partialFingerprint=_stockMasterSyncFingerprint(partial.codes);
-      let repairProof=[];
       if (partialFingerprint!==freshFingerprint) {
         // A later other-tab delete of an unrelated first row must not
         // permanently block restoring Settings after a metadata-only commit.
