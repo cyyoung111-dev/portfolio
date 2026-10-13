@@ -528,7 +528,7 @@ async function loadSettings(onProgress, options) {
     const s = data.settings;
     // This code list belongs to the same successful Bootstrap response, and
     // can validate pending trade retries before EDITABLE_PRICES is applied.
-    const bootstrapMasterForRetry = isBootstrap ? [
+    let bootstrapMasterForRetry = isBootstrap ? [
       ...data.codes,
       // getCodeItems() excludes code-less funds/TDFs. Trust only fund-like
       // entries from the SAME Bootstrap settings; never use a stale browser
@@ -550,6 +550,20 @@ async function loadSettings(onProgress, options) {
       loadStage = '미동기화 거래·보유 서버 마스터 검증';
       return failLoad('RESTORE_MASTER_UNAVAILABLE');
     }
+    // The new-code recovery path is intentionally narrower than normal
+    // syncCodes: only same-target server Settings or prior authorized local
+    // additions can extend the pinned master, with exact read-back proof.
+    if (dirtyPortfolioAtLoad && typeof recoverPinnedMissingPortfolioCodes === 'function') {
+      loadStage = '동일 연결 신규 종목코드 검증';
+      bootstrapMasterForRetry = await recoverPinnedMissingPortfolioCodes({
+        targetUrl:loadTarget, generation:loadGeneration,
+        dirty:dirtyPortfolioAtLoad, masterCodes:bootstrapMasterForRetry,
+        remoteSettings:s
+      });
+      if (!isLoadConnectionCurrent()) return false;
+      if (!Array.isArray(bootstrapMasterForRetry)) return failLoad('RESTORE_CODE_RECOVERY_FAILED');
+    }
+
     // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
     // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
     const hasAuthoritativeFundDirect = Object.prototype.hasOwnProperty.call(s, 'fundDirect');
