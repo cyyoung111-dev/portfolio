@@ -336,7 +336,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
         settingsMigrated=true;
         return {status:'ok',updated:0};
       }
-      if(calls.length===4){
+      if(calls.length===4 || calls.length===6){
         assert.equal(settingsMigrated,true,
           'persisted Settings A->B must be repaired before B->C mutation');
         assert.equal(expected[0].name,'B');
@@ -344,6 +344,15 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
         assert.equal(replacements[0].name,'C');
         remote[0]={...remote[0],name:'C',code:'3'};
         return {status:'ok',updated:1};
+      }
+      if(calls.length===5){
+        assert.equal(args.forceSettingsRebase,'1');
+        assert.equal(expected[0].name,'B');
+        assert.equal(metadata[0].previousName,'A');
+        assert.equal(metadata[0].name,'B');
+        assert.equal(replacements.length,0);
+        settingsMigrated=true;
+        return {status:'ok',updated:0};
       }
       assert.fail('unexpected duplicate code write '+calls.length);
     }
@@ -383,5 +392,23 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.ok(Object.keys(disk).every(k => !k.includes('settings_repairs') || !disk[k] ||
     !Array.isArray(disk[k][url]) || disk[k][url].length===0),
     'successful repair retires durable debt');
-  console.log('✅ 실패한 Settings 재복구 뒤 A→B journal 재기준화, B→C 직렬 보존·영속 복구 통과');
+  // Simulate a hard restart at the narrow gap where A->B repair evidence
+  // was durably saved but old A->C journal rebase had not yet persisted.
+  // There are no in-memory confirmed transitions after restart.
+  remote[0]={...remote[0],name:'B',code:'2'};
+  race.initialCodes=remote.map(x=>({...x}));
+  vm.runInContext('applyGsheetCodeList(initialCodes, "sheet-1")',race);
+  vm.runInContext('_gsheetStockMasterConfirmedTransitions.clear();_gsheetStockMasterConfirmedSeq=0',race);
+  edit('C','3','A','1');
+  vm.runInContext('_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity,[{previousName:"A",previousCode:"1",name:"B",code:"2"}])',race);
+  settingsMigrated=false;
+  assert.equal((await vm.runInContext('syncCodesToGsheet()',race))?.status,'ok',
+    'restart must repair Settings A->B then rebase old A->C root to B->C');
+  assert.equal(remote[0].name,'C');
+  assert.equal(calls.length,6);
+  assert.equal(vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
+  assert.equal(vm.runInContext(
+    '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,_gsCodeMasterSourceIdentity).length',race),0);
+  console.log('✅ 실패한 Settings 재복구·연속 변경·브라우저 재시작 중단점 journal 복구 VM 통과');
 }
