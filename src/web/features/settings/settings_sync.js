@@ -384,6 +384,56 @@ async function syncCodesToGsheet(options) {
       _syncWarn('[syncCodes] 호출 이후 타 탭 마스터 변경: 오래된 payload 쓰기 차단');
       return null;
     }
+    // Resolve an earlier fully committed code write whose Settings update
+    // failed BEFORE allowing any later rename. Its provenance must survive
+    // subsequent B->C edits and browser reloads as a separate durable debt.
+    const repairDebt = typeof _getSameTargetCodeSettingsRepairs === 'function'
+      ? _getSameTargetCodeSettingsRepairs(targetUrl, sourceId) : [];
+    if (repairDebt.length) {
+      const current = fresh.codes;
+      const repairAllowed = repairDebt.every(step =>
+        current.some(row => String(row.name || '').trim() === step.name
+          && _normalizeSyncCode(row.code) === _normalizeSyncCode(step.code))
+        && !current.some(row =>
+          (step.previousName !== step.name && String(row.name || '').trim() === step.previousName)
+          || (step.previousCode !== step.code && _normalizeSyncCode(row.code) === _normalizeSyncCode(step.previousCode))));
+      if (!repairAllowed) {
+        _syncWarn('[syncCodes] 미완료 Settings 이전 대상 변경: 재동기화 차단');
+        return null;
+      }
+      const canonical=Object.fromEntries(current.map(row => [
+        String(row.name || '').trim(), {
+          code:_normalizeSyncCode(row.code),type:row.type || '주식',
+          sector:row.sector || '기타',currency:(row.currency || 'KRW').toUpperCase(),
+          market:(row.market || '').toUpperCase()
+        }
+      ]));
+      const repair = await requestGsheetFormJson('syncCodes', {
+        codes:JSON.stringify(canonical),expectedSourceId:sourceId,
+        expectedCodes:JSON.stringify(current),replacements:'[]',
+        settingsReplacements:JSON.stringify(repairDebt),forceSettingsRebase:'1'
+      }, {timeoutMs:20000,retry:0,targetUrl});
+      if (repair?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl,generation)
+          || String(_gsCodeMasterSourceIdentity || '') !== sourceId) return null;
+      const verified=await requestGsheetActionJson('getCodeList', {}, {
+        targetUrl,timeoutMs:15000,retry:1,preserveError:true
+      });
+      if (verified?.status !== 'ok' || verified.codeMasterSourceId !== sourceId
+          || !Array.isArray(verified.codes)
+          || _stockMasterSyncFingerprint(verified.codes)!==freshFingerprint) return null;
+      if (typeof _forgetSameTargetCodeSettingsRepairs === 'function')
+        _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairDebt);
+      // Only the identity that has already been verified on the server can
+      // retire. Never discard a newer edited C while repairing prior A->B.
+      if (typeof _forgetSameTargetLocalCodeAddition === 'function'
+          && typeof _getSameTargetLocalCodeAdditions === 'function') {
+        for (const step of repairDebt) {
+          if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
+              entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
+            _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl);
+        }
+      }
+    }
     applyGsheetCodeList(fresh.codes, sourceId);
   const expectedCodes = _gsheetCodeList.map(item => ({...item}));
   const expectedByCode = new Set(expectedCodes.map(item => _normalizeSyncCode(item.code)));
@@ -467,7 +517,13 @@ async function syncCodesToGsheet(options) {
         settingsReplacements:JSON.stringify(settingsReplacements),
         forceSettingsRebase:'1'
       }, {timeoutMs:20000,retry:0,targetUrl});
-      if (repaired?.status !== 'ok') return null;
+      if (repaired?.status !== 'ok') {
+        // Already committed B cannot become an appendable A->B journal.
+        // Save the verified Settings-only repair evidence for the next sync.
+        if (typeof _rememberSameTargetCodeSettingsRepairs === 'function')
+          _rememberSameTargetCodeSettingsRepairs(targetUrl,sourceId,settingsReplacements);
+        return null;
+      }
       if (!hasPendingCodeChange) data = repaired;
     }
     // Any new mutation is independent and still uses the same full-master CAS.
@@ -510,8 +566,27 @@ async function syncCodesToGsheet(options) {
         _syncWarn('[syncCodes] 원격 부분 변경 또는 충돌: 자동 재전송 차단');
         return null;
       }
-      // This is an actual server-master confirmation even when its Settings
-      // repair later fails. A subsequent retry must not use a stale baseline.
+      // A successful code-row readback is authoritative EVEN IF the
+      // follow-up Settings repair fails. Publish the confirmed transition
+      // and rebase a queued A->C journal to B->C before any early return.
+      const partialFingerprint=_stockMasterSyncFingerprint(partial.codes);
+      if (partialFingerprint!==freshFingerprint) {
+        const repairProof=[...replacements,...settingsReplacements];
+        if (repairProof.length && typeof _rememberSameTargetCodeSettingsRepairs === 'function'
+            && !_rememberSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairProof)) return null;
+        _rememberConfirmedCodeMasterChange(targetUrl,sourceId,freshFingerprint,partialFingerprint);
+        if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function')
+          _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,replacements);
+        // Never erase newer pending C. The committed B is already tracked
+        // separately as an unfinished Settings migration.
+        if (typeof _getSameTargetLocalCodeAdditions === 'function'
+            && typeof _forgetSameTargetLocalCodeAddition === 'function')
+          for (const step of replacements) {
+            if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
+                entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
+              _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl);
+          }
+      }
       applyGsheetCodeList(partial.codes, sourceId);
       // Rebase Settings from the already confirmed SERVER master, not stale
       // local metadata. Server enforces full-master CAS and ScriptLock again.
@@ -529,9 +604,12 @@ async function syncCodesToGsheet(options) {
         forceSettingsRebase:'1'
       }, {timeoutMs:20000,retry:0,targetUrl});
       if (data?.status !== 'ok') {
-        _syncWarn('[syncCodes] 코드 반영 후 Settings 복구 미완료: 변경 이력 보존', data);
+        _syncWarn('[syncCodes] 코드 반영 후 Settings 복구 미완료: Settings 복구 증거 별도 보존', data);
         return null;
       }
+      if (typeof _forgetSameTargetCodeSettingsRepairs === 'function')
+        _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,
+          [...replacements,...settingsReplacements]);
     }
     // ACK alone is insufficient to retire additions or refresh the revision.
     // Read back the exact same workbook and verify every submitted coded row.
