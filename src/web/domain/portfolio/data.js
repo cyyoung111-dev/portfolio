@@ -486,11 +486,85 @@ const PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY = 'pf_pending_same_target_code
 let _pendingSameTargetCodeSettingsRepairs = lsGet(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, {});
 if (!_pendingSameTargetCodeSettingsRepairs || typeof _pendingSameTargetCodeSettingsRepairs !== 'object'
     || Array.isArray(_pendingSameTargetCodeSettingsRepairs)) _pendingSameTargetCodeSettingsRepairs = {};
+
+// Aggregate v1 records are retained for legacy compatibility, but each
+// exact workbook/source/pair now has an independent, durable storage key.
+// Otherwise tab B overwrites tab A's entire stale v1 map during simultaneous
+// registrations; a Codes-only flush then loses the ONLY Settings provenance.
+// Per-pair tombstones prevent a stale v1 map from resurrecting deleted proofs.
+const PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX = 'pf_code_journal_pair_v2:';
+const PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX = 'pf_code_settings_debt_pair_v2:';
+function _stockDurablePairKey(prefix,target,entry) {
+  const base=[String(target||'').trim(),String(entry?.sourceId||'').trim()];
+  if(prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX)
+    base.push(String(entry?.name||'').trim(),String(entry?.code||'').trim());
+  else base.push(String(entry?.previousName||'').trim(),String(entry?.previousCode||'').trim(),
+    String(entry?.name||'').trim(),String(entry?.code||'').trim(),
+    entry?.metadataOnly===true?'1':'0');
+  return prefix+encodeURIComponent(JSON.stringify(base));
+}
+function _stockPerPairStorageAvailable() {
+  return typeof localStorage!=='undefined' && localStorage
+    && typeof localStorage.key==='function'
+    && Number.isInteger(localStorage.length);
+}
+function _readDurableStockJournal(legacyKey,prefix,fallback) {
+  const stored=lsGet(legacyKey,null);
+  // On older test/legacy runtimes without Storage.key(), preserve the
+  // original aggregate contract, including in-memory injected fixtures.
+  if(!_stockPerPairStorageAvailable()) {
+    if(stored && typeof stored==='object' && !Array.isArray(stored)
+        && Object.keys(stored).length) return stored;
+    return fallback&&typeof fallback==='object'&&!Array.isArray(fallback)?fallback:{};
+  }
+  const result=stored&&typeof stored==='object'&&!Array.isArray(stored)
+    ? Object.fromEntries(Object.entries(stored).map(([k,rows])=>[
+        k,Array.isArray(rows)?rows.map(x=>({...x})):[]
+      ])):{};
+  // Read each independent key. This remains correct even if a concurrent
+  // tab wrote a stale aggregate after another tab committed its pair key.
+  const keys=[];
+  for(let i=0;i<localStorage.length;i++){
+    const key=localStorage.key(i);
+    if(typeof key==='string'&&key.startsWith(prefix))keys.push(key);
+  }
+  for(const key of keys){
+    const item=lsGet(key,null);
+    const target=String(item?.target||'').trim(),record=item?.entry;
+    if(!target || !record || typeof record!=='object'
+        || _stockDurablePairKey(prefix,target,record)!==key)continue;
+    const rows=Array.isArray(result[target])?result[target]:[];
+    const without=rows.filter(row=>_stockDurablePairKey(prefix,target,row)!==key);
+    if(item.removed!==true)without.push({...record});
+    if(without.length)result[target]=without;
+    else delete result[target];
+  }
+  return result;
+}
+function _persistDurableStockPair(prefix,target,entry,removed=false) {
+  if(!_stockPerPairStorageAvailable())return;
+  const item={target:String(target||'').trim(),entry:{...entry},removed:removed===true};
+  if(item.target && entry?.sourceId)
+    lsSave(_stockDurablePairKey(prefix,item.target,item.entry),item);
+}
+function _reloadCodeJournal() {
+  _pendingSameTargetCodeAdditions=_readDurableStockJournal(
+    PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,
+    _pendingSameTargetCodeAdditions);
+}
+function _reloadSettingsRepairDebt() {
+  _pendingSameTargetCodeSettingsRepairs=_readDurableStockJournal(
+    PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,
+    _pendingSameTargetCodeSettingsRepairs);
+}
+
 function _hasSameTargetCodeSettingsRepairDebt(targetUrl) {
+  _reloadSettingsRepairDebt();
   const entries=_pendingSameTargetCodeSettingsRepairs[String(targetUrl || '').trim()];
   return Array.isArray(entries) && entries.length>0;
 }
 function _getSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity) {
+  _reloadSettingsRepairDebt();
   const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
   const list = _pendingSameTargetCodeSettingsRepairs[target];
   return sourceId && Array.isArray(list)
@@ -499,6 +573,7 @@ function _getSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity) {
 function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes) {
   const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
   if (!target || !sourceId || !Array.isArray(changes) || !changes.length) return false;
+  _reloadSettingsRepairDebt();
   const list = Array.isArray(_pendingSameTargetCodeSettingsRepairs[target])
     ? _pendingSameTargetCodeSettingsRepairs[target] : [];
   for (const item of changes) {
@@ -514,14 +589,17 @@ function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, chang
       && entry.name === name && entry.code === code
       && (entry.metadataOnly === true) === metadataOnly);
     if (!match) {
-      list.push({sourceId, previousName, previousCode, name, code, metadataOnly,
+      const fresh={sourceId,previousName,previousCode,name,code,metadataOnly,
         ...(metadataOnly && Object.prototype.hasOwnProperty.call(item,'userFields')
-          ? {userFields} : {})});
+          ? {userFields} : {})};
+      list.push(fresh);
+      _persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,fresh);
     } else if (metadataOnly && Object.prototype.hasOwnProperty.call(item,'userFields')) {
       // If the user changed C's allocation after a failed first append, the
       // latest same-source journal supersedes older, uncommitted repair debt.
       // Only exact identity+source matches may refresh these narrow fields.
       match.userFields=userFields;
+      _persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,match);
     }
   }
   _pendingSameTargetCodeSettingsRepairs[target] = list;
@@ -531,6 +609,7 @@ function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, chang
 function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes) {
   const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
   if (!target || !sourceId || !Array.isArray(changes) || !changes.length) return;
+  _reloadSettingsRepairDebt();
   const list = _pendingSameTargetCodeSettingsRepairs[target];
   if (!Array.isArray(list)) return;
   const remaining = list.filter(entry => entry.sourceId !== sourceId || !changes.some(item =>
@@ -538,6 +617,10 @@ function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes
     && entry.name === item.name && entry.code === item.code
     && (entry.metadataOnly === true) === (item.metadataOnly === true)));
   if (remaining.length === list.length) return;
+  for(const entry of list) {
+    if(!remaining.includes(entry))
+      _persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,entry,true);
+  }
   if (remaining.length) _pendingSameTargetCodeSettingsRepairs[target] = remaining;
   else delete _pendingSameTargetCodeSettingsRepairs[target];
   if (Object.keys(_pendingSameTargetCodeSettingsRepairs).length)
@@ -558,6 +641,7 @@ function _stockPendingAppendUserFields(item) {
   return out;
 }
 function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
+  _reloadCodeJournal();
   const target=String(targetUrl||'').trim(),source=String(sourceId||'').trim();
   const entries=_pendingSameTargetCodeAdditions[target];
   if (!target || !source || !Array.isArray(entries) || !Array.isArray(items)) return false;
@@ -572,6 +656,7 @@ function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
     const fields=_stockPendingAppendUserFields(value);
     if (JSON.stringify(entry.userFields||{})!==JSON.stringify(fields)) {
       entry.userFields=fields;changed=true;
+      _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry);
     }
   });
   if (changed) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,_pendingSameTargetCodeAdditions);
@@ -586,6 +671,7 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
   if (!target || !code || !name || !sourceId
       || typeof isStockMasterEditSessionCurrent !== 'function'
       || !isStockMasterEditSessionCurrent(editSession)) return false;
+  _reloadCodeJournal();
   const records = Array.isArray(_pendingSameTargetCodeAdditions[target])
     ? _pendingSameTargetCodeAdditions[target] : [];
   const normalized = value => typeof _normalizeSyncCode === 'function'
@@ -605,11 +691,13 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     _forgetSameTargetLocalCodeAddition(precedingName, precedingCode, target);
     return true;
   }
-  const others = records.filter(record =>
-    record && !(record.sourceId === sourceId
-      && ((String(record.name || '').trim() === name && normalized(record.code) === code)
-        || (prior && record === prior))));
-  others.push({
+  const removed=records.filter(record=>record?.sourceId===sourceId
+    && ((String(record.name||'').trim()===name && normalized(record.code)===code)
+      || (prior && record===prior)));
+  const others=records.filter(record=>record && !removed.includes(record));
+  for(const entry of removed)
+    _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true);
+  const next={
     name, code, sourceId, type: String(item.assetType || item.type || '주식'),
     sector: String(item.sector || '기타'),
     currency: String(item.currency || 'KRW').toUpperCase(),
@@ -618,7 +706,9 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     ...(root ? { replaces: {
       name:String(root.name).trim(), code:normalized(root.code)
     }} : {})
-  });
+  };
+  others.push(next);
+  _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next);
   _pendingSameTargetCodeAdditions[target] = others;
   lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
   return true;
@@ -628,6 +718,7 @@ function _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceIdentity, c
   const target = String(targetUrl || '').trim();
   const sourceId = String(sourceIdentity || '').trim();
   if (!target || !sourceId || !Array.isArray(confirmed)) return;
+  _reloadCodeJournal();
   const records = Array.isArray(_pendingSameTargetCodeAdditions[target])
     ? _pendingSameTargetCodeAdditions[target] : [];
   _pendingSameTargetCodeAdditions[target] = records;
@@ -669,10 +760,16 @@ function _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceIdentity, c
       changed = true;
     }
   }
-  if (changed) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
+  if (changed) {
+    for(const entry of records)
+      if(entry?.sourceId===sourceId)
+        _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry);
+    lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
+  }
 }
 
 function _getSameTargetLocalCodeAdditions(target, sourceIdentity) {
+  _reloadCodeJournal();
   const entries = _pendingSameTargetCodeAdditions[String(target || '').trim()];
   const sourceId = String(sourceIdentity || '').trim();
   // A GAS /exec URL alone cannot identify the underlying spreadsheet: its
@@ -681,6 +778,7 @@ function _getSameTargetLocalCodeAdditions(target, sourceIdentity) {
     ? entries.filter(e => e?.sourceId === sourceId).map(e => ({ ...e })) : [];
 }
 function _forgetSameTargetLocalCodeAddition(name, code, targetUrl) {
+  _reloadCodeJournal();
   const target = String(targetUrl || _currentGsheetSyncTarget() || '').trim();
   const entries = _pendingSameTargetCodeAdditions[target];
   if (!target || !Array.isArray(entries)) return;
@@ -690,6 +788,9 @@ function _forgetSameTargetLocalCodeAddition(name, code, targetUrl) {
   const remaining = entries.filter(entry => !(String(entry?.name || '').trim() === normName
     && (!normCode || String(entry?.code || '').trim() === normCode)));
   if (remaining.length === entries.length) return;
+  for(const entry of entries)
+    if(!remaining.includes(entry))
+      _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true);
   if (remaining.length) _pendingSameTargetCodeAdditions[target] = remaining;
   else delete _pendingSameTargetCodeAdditions[target];
   if (Object.keys(_pendingSameTargetCodeAdditions).length) {
