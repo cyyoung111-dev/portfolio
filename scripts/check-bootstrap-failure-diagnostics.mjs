@@ -803,6 +803,8 @@ const gasCtx=vm.createContext({
     waitLock:()=>{lockDepth++;},releaseLock:()=>{lockDepth--;}
   })},getss:()=>({getSheetByName:()=>mockSheet}),
   _portfolioCodeMasterSourceIdentity_:()=> 'TEST_SOURCE',
+  // Narrow CAS-only VM has no pending delete; preserve that precondition.
+  _settlePendingCodeDeleteLocked_:()=>({pending:false}),
   _cleanCode:code=>String(code||'').trim(),
   _parseJsonParam:value=>JSON.parse(value),
   _parseArrayParam:value=>{const v=JSON.parse(value);if(!Array.isArray(v))throw Error('array expected');return v;},
