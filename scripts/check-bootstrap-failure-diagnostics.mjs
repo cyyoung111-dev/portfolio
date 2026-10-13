@@ -675,5 +675,78 @@ assert.equal(lockDepth,0,'script lock must be released on all paths');
 assert.ok(gasSrc.includes("function handleSyncCodes(codesParam) {\n  var lock = LockService.getScriptLock()"),
   'legacy normal code edits must serialize with append-only CAS');
 
+
+// Review P2: a normal syncCodes POST already in flight must settle BEFORE
+// the explicit server-side removal, even if the user deletes the local master
+// row while the first POST is still waiting for the network.
+h=setup();
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext("EDITABLE_PRICES.push({name:'경합 신규',code:'000660',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'경합 신규',code:'000660',assetType:'주식'},captureStockMasterEditSession())",h.ctx);
+let completeFirstPost;
+const slowFirstPost=new Promise(resolve=>{completeFirstPost=resolve;});
+const deletionActions=[];
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  deletionActions.push(action);
+  if (action==='syncCodes') {
+    await slowFirstPost;
+    h.response.codes.push({name:'경합 신규',code:'000660',type:'주식'});
+    return {status:'ok',synced:1};
+  }
+  if (action==='deleteUnreferencedCode') {
+    assert.equal(JSON.parse(params.data).expectedSourceId,'TEST_SOURCE');
+    h.response.codes=h.response.codes.filter(ep=>ep.name!=='경합 신규');
+    return {status:'ok',deleted:1};
+  }
+  throw Error('unexpected action '+action);
+};
+h.ctx.requestGsheetActionJson=async action=>action==='getCodeList'
+  ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
+const normalInFlight=h.ctx.syncCodesToGsheet();
+await Promise.resolve();
+vm.runInContext("EDITABLE_PRICES.splice(EDITABLE_PRICES.findIndex(x=>x.name==='경합 신규'),1); _forgetSameTargetLocalCodeAddition('경합 신규','000660');",h.ctx);
+const deleteAfterPost=h.ctx.deleteStockMasterCodeAfterPendingWrites(
+  {name:'경합 신규',code:'000660'},h.ctx.captureStockMasterEditSession());
+assert.deepEqual(deletionActions,['syncCodes'],'delete must not overtake in-flight code write');
+completeFirstPost();
+assert.equal((await normalInFlight)?.status,'ok');
+assert.equal(await deleteAfterPost,true);
+assert.deepEqual(deletionActions,['syncCodes','deleteUnreferencedCode']);
+assert.ok(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8').includes(
+  'deleteStockMasterCodeAfterPendingWrites(snapItem, editSession)'),
+  'actual stock delete handler must queue remote deletion');
+
+// Execute the real GAS deletion guard with and without a referenced ledger.
+// This handler shares the exact lock with append-only and regular syncCodes.
+const deleteStart=gasSrc.indexOf('function handleDeleteUnreferencedCode(');
+assert.ok(deleteStart>appendEnd);
+let serverTradeRows=[];
+let deletedServerSettings={EDITABLE_PRICES:[{name:'신규',code:'005930'}]};
+gasCtx.handleGetTrades=()=>({getContent:()=>JSON.stringify({status:'ok',trades:serverTradeRows})});
+gasCtx.handleGetHoldings=()=>({getContent:()=>JSON.stringify({status:'ok',holdings:[]})});
+gasCtx._readSettingsMap=()=>deletedServerSettings;
+gasCtx._writeSettingsMap=settings=>{deletedServerSettings=settings;return true;};
+mockSheet.getRange=(row,col,length,width)=>({
+  getValues:()=>serverCodes.map(x=>[x.code,x.name]),
+  setValues:()=>{throw Error('delete must never re-upsert')}
+});
+mockSheet.deleteRow=row=>{assert.equal(row,3);serverCodes.splice(row-2,1);};
+vm.runInContext(gasSrc.slice(deleteStart,gasSrc.indexOf('function handleSyncCodes(',deleteStart)),gasCtx);
+let serverDelete=gasCtx.handleDeleteUnreferencedCode(JSON.stringify({
+  name:'신규',code:'005930',expectedSourceId:'OTHER_WORKBOOK'}));
+assert.equal(serverDelete.errorCode,'CODE_DELETE_SOURCE_CHANGED');
+assert.equal(serverCodes.length,2);
+serverTradeRows=[{name:'신규',code:'005930',date:'2026-10-07'}];
+serverDelete=gasCtx.handleDeleteUnreferencedCode(JSON.stringify({
+  name:'신규',code:'005930',expectedSourceId:'TEST_SOURCE'}));
+assert.equal(serverDelete.errorCode,'CODE_DELETE_REFERENCED');
+assert.equal(serverCodes.length,2);
+serverTradeRows=[];
+serverDelete=gasCtx.handleDeleteUnreferencedCode(JSON.stringify({
+  name:'신규',code:'005930',expectedSourceId:'TEST_SOURCE'}));
+assert.equal(serverDelete.status,'ok');
+assert.equal(serverCodes.length,1,'safe delete must remove only exact code row');
+assert.equal(deletedServerSettings.EDITABLE_PRICES.length,0,'authoritative Settings also pruned');
+assert.equal(lockDepth,0);
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
