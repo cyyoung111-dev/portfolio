@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.213
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.214
+//
+//  v9.214 변경사항 (2026.10.14):
+//   타 브라우저의 과거 coded identity Settings 저장이 서버에서 전환 완료된
+//   무코드 펀드·목표비중·메모를 삭제하지 못하도록 복구 출처 보호
 //
 //  v9.213 변경사항 (2026.10.14):
 //   종목코드→무코드 펀드/TDF 전환: 서버 Settings 사용자 필드 원본 보존
@@ -1976,7 +1980,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.213', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.214', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5633,7 +5637,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.213' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.214' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11371,7 +11375,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.213',
+    gasVersion: '9.214',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11411,7 +11415,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.213' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.214' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14626,6 +14630,29 @@ function handleSaveSettings(dataJson) {
         entry.market=String(row.market||'').toUpperCase();
         canonical.push(entry);
       });
+      // A different browser may still hold the *old coded identity* after
+      // our crash-safe delete+fund conversion has committed on the server.
+      // Such a stale full Settings save must NOT silently erase the new fund.
+      // Keep explicit omission-based deletion of an already loaded codeless
+      // fund working: reject only when the incoming payload demonstrably
+      // contains the predecessor's coded identity at the same name.
+      var staleConvertedFund=(settings.EDITABLE_PRICES||[]).find(function(stored) {
+        var fundName=String(stored&&stored.name||'').trim();
+        return fundName && !_cleanCode(stored.code||'')
+          && ['TDF','펀드','FUND'].indexOf(
+            String(stored.assetType||stored.type||'').trim().toUpperCase())!==-1
+          && !retainedFunds.some(function(ep) {
+            return String(ep.name||'').trim()===fundName;
+          })
+          && incoming.EDITABLE_PRICES.some(function(ep) {
+            return String(ep&&ep.name||'').trim()===fundName
+              && !!_cleanCode(ep&&ep.code||'');
+          });
+      });
+      if (staleConvertedFund)
+        return jsonError('다른 브라우저에서 종목이 무코드 펀드로 전환됨: 설정 새로고침 후 저장', {
+          errorCode:'SETTINGS_CODELESS_FUND_STALE'
+        });
       retainedFunds.forEach(function(ep) {
         var name=String(ep.name||'').trim();
         if (name && !rowSeen[name]) {canonical.push(ep);rowSeen[name]=true;}
@@ -14651,7 +14678,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.213' });
+    return jsonOk({ settings: settings, gasVersion: '9.214' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14681,7 +14708,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.213'
+      gasVersion: '9.214'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
