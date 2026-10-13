@@ -153,11 +153,8 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
     JSON.stringify(current),'[]','1',JSON.stringify(sourceChanges));
   assert.equal(repeat.status,'ok','verified recovery must be idempotent');
   assert.equal(currentSettings.EDITABLE_PRICES[0].targetWeight,37);
-  assert.equal(writeAttempts,3);
-  assert.equal(writeAttempts>=2,true);
-  assert.equal(2,2); // verified first repair and idempotent repeat above
-  // Two Settings writes are needed for the successful repair and its retry.
-  assert.equal(writeAttempts-1,2,'retry must actually persist Settings despite no code changes');
+  // One failed write, one successful repair and one idempotent retry.
+  assert.equal(writeAttempts,3,'repair and idempotent retry persist Settings without changing code rows');
   assert.equal(lockHeld,false);
   console.log('✅ GAS 코드 부분 커밋→Settings 실패→동일 워크북 CAS 복구 통과');
 }
