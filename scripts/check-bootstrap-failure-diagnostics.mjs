@@ -515,5 +515,71 @@ assert.equal(await h.ctx.loadSettings(),true,'same-server Settings supports code
 assert.equal(sameTargetPosts[0],'syncCodes');
 assert.ok(sameTargetPosts.includes('syncTrades'));
 
+
+// Self-review: a newly registered, as-yet untraded code must be durable.
+h=setup();
+h.response.codes=[{name:'기존 종목',code:'000660',type:'주식'}];
+h.response.settings.EDITABLE_PRICES=[{name:'기존 종목',code:'000660',assetType:'주식'}];
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext("EDITABLE_PRICES.push({name:'미거래 신규',code:'005930',assetType:'주식'}); _recordSameTargetLocalCodeAddition({name:'미거래 신규',code:'005930',assetType:'주식'},captureStockMasterEditSession()); _markPortfolioRemoteDirty();",h.ctx);
+const noTradeWrites=[];
+h.ctx.requestGsheetActionJson=async action =>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes} : h.response;
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  noTradeWrites.push(action);
+  if (action==='syncCodes') {
+    assert.deepEqual(Object.keys(JSON.parse(params.codes)),['미거래 신규']);
+    h.response.codes.push({name:'미거래 신규',code:'005930',type:'주식'});
+  }
+  return {status:'ok',saveState:'success',synced:1};
+};
+assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),true);
+assert.equal(noTradeWrites[0],'syncCodes','code-only journal must repair before other writes');
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(x=>x.name==='미거래 신규'&&x.code==='005930')",h.ctx),true,'untraded stock must remain in UI master');
+assert.equal(h.ctx._getPortfolioRemoteDirty(),null);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL).length",h.ctx),0,'verified journal cleared');
+
+// Registration without a dirty ledger still needs replay.
+h=setup();
+h.response.codes=[{name:'기존 종목',code:'000660',type:'주식'}];
+h.response.settings.EDITABLE_PRICES=[{name:'기존 종목',code:'000660',assetType:'주식'}];
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext("_recordSameTargetLocalCodeAddition({name:'독립 신규',code:'005930',assetType:'ETF'},captureStockMasterEditSession())",h.ctx);
+const codeOnlyWrites=[];
+h.ctx.requestGsheetActionJson=async action =>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes} : h.response;
+h.ctx.requestGsheetFormJson=async action=>{
+  codeOnlyWrites.push(action);
+  if(action==='syncCodes')h.response.codes.push({name:'독립 신규',code:'005930',type:'ETF'});
+  return {status:'ok',saveState:'success',synced:1};
+};
+assert.equal(await h.ctx.loadSettings(),true);
+assert.deepEqual(codeOnlyWrites,['syncCodes'],'journal-only recovery must not write ledger');
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(x=>x.name==='독립 신규'&&x.code==='005930')",h.ctx),true);
+
+// Explicit deletion never re-adds the removed stock.
+h=setup();
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext("_recordSameTargetLocalCodeAddition({name:'삭제 종목',code:'005930',assetType:'주식'},captureStockMasterEditSession()); _forgetSameTargetLocalCodeAddition('삭제 종목','005930');",h.ctx);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL).length",h.ctx),0);
+assert.ok(fs.readFileSync('src/web/features/master/stock/mgmt_stock.js','utf8').includes("_forgetSameTargetLocalCodeAddition(snapItem.name, snapItem.code)"),'real stock delete handler must clear journal');
+
+// Confirmation is mandatory: syncCodes success followed by read error must
+// retain the registration journal and prevent any portfolio write.
+h=setup();
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext("_recordSameTargetLocalCodeAddition({name:'미확인 신규',code:'005930',assetType:'주식'},captureStockMasterEditSession()); _markPortfolioRemoteDirty();",h.ctx);
+const unverifiedWrites=[];
+h.ctx.requestGsheetActionJson=async action=>action==='getCodeList'
+  ? {status:'error',error:'read failed'} : h.response;
+h.ctx.requestGsheetFormJson=async action=>{
+  unverifiedWrites.push(action);
+  return {status:'ok',saveState:'success',synced:1};
+};
+assert.equal(await h.ctx.loadSettings(),false);
+assert.deepEqual(unverifiedWrites,['syncCodes'],'failed readback must stop ledger mutations');
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL).length",h.ctx),1);
+assert.ok(h.ctx._getPortfolioRemoteDirty());
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
