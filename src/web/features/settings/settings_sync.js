@@ -421,6 +421,11 @@ async function syncCodesToGsheet(options) {
       if (verified?.status !== 'ok' || verified.codeMasterSourceId !== sourceId
           || !Array.isArray(verified.codes)
           || _stockMasterSyncFingerprint(verified.codes)!==freshFingerprint) return null;
+      // A browser may have restarted AFTER the code commit and durable
+      // Settings debt save but BEFORE the edit journal rebase was persisted.
+      // Rebase any old A->C root now from independently verified B.
+      if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function')
+        _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,repairDebt);
       if (typeof _forgetSameTargetCodeSettingsRepairs === 'function')
         _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,repairDebt);
       // Only the identity that has already been verified on the server can
