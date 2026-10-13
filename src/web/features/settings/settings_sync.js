@@ -226,8 +226,37 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
     // A new edit/re-add in the same session supersedes an earlier deletion.
     if (EDITABLE_PRICES.some(ep =>
       ep?.name === name && _normalizeSyncCode(ep?.code || '') === code)) return false;
+    // Read the post-queue server master before deletion. A separate browser
+    // may have edited the same code's metadata; do not remove that newer item
+    // merely because its old name/code are still identical.
+    const before = await requestGsheetActionJson('getCodeList', {}, {
+      targetUrl, timeoutMs:15000, retry:1, preserveError:true
+    });
+    if (!isGsheetConnectionCurrent(targetUrl, generation)
+        || String(_gsCodeMasterSourceIdentity || '') !== sourceId
+        || before?.status !== 'ok' || before.codeMasterSourceId !== sourceId
+        || !Array.isArray(before.codes)) return false;
+    const matching = before.codes.filter(ep =>
+      _normalizeSyncCode(ep?.code || '') === code
+      || String(ep?.name || '').trim() === name);
+    if (matching.length !== 1) return false;
+    const remote = matching[0];
+    const normalizeType = ep => String(ep?.assetType || ep?.type || '주식').trim();
+    const normalizeSector = ep => String(ep?.sector || '기타').trim();
+    const normalizeCurrency = ep => String(ep?.currency || 'KRW').trim().toUpperCase();
+    const normalizeMarket = ep => String(ep?.market || '').trim().toUpperCase();
+    if (_normalizeSyncCode(remote.code) !== code
+        || String(remote.name || '').trim() !== name
+        || normalizeType(remote) !== normalizeType(item)
+        || normalizeSector(remote) !== normalizeSector(item)
+        || normalizeCurrency(remote) !== normalizeCurrency(item)
+        || normalizeMarket(remote) !== normalizeMarket(item)) return false;
+    // The server performs a full compare-and-delete under its ScriptLock.
+    // Changes by another tab between this GET and POST fail closed.
     const res = await requestGsheetFormJson('deleteUnreferencedCode', {
-      data:JSON.stringify({ name, code, expectedSourceId:sourceId })
+      data:JSON.stringify({
+        name, code, expectedSourceId:sourceId, expectedCodes:before.codes
+      })
     }, {timeoutMs:20000,retry:0,targetUrl});
     if (res?.status !== 'ok' || !isGsheetConnectionCurrent(targetUrl, generation)) return false;
     const checked = await requestGsheetActionJson('getCodeList', {}, {
