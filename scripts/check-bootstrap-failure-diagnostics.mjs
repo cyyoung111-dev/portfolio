@@ -533,6 +533,73 @@ assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='A'&&ep.code===
 assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0);
 console.log('✅ 오래된 무관 첫 행 metadataOnly 복구 부채가 삭제된 후에도 Bootstrap 수리 정상 통과');
 
+// Codex P2: A->B was committed, but another tab legitimately deleted B
+// before Settings migrated A. The pinned full master now has neither pair.
+// Recover using current authoritative master (no phantom B replacement),
+// prune stale A while retaining unrelated funds and LOAN, and clear debt.
+h=setup();
+h.response.codes=[{name:'C',code:'333333',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+h.response.settings.EDITABLE_PRICES=[
+  {name:'A',code:'111111',assetType:'주식',sector:'기타',targetWeight:37},
+  {name:'C',code:'333333',assetType:'주식',sector:'기타',targetWeight:20},
+  {name:'펀드 미코드',code:'',assetType:'펀드',targetWeight:43}
+];
+h.response.settings.LOAN={balance:357000000};
+vm.runInContext(`_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE',[
+  {previousName:'A',previousCode:'111111',name:'B',code:'222222'}])`,h.ctx);
+const deletedTargetPosts=[];
+h.ctx.requestGsheetActionJson=async action=>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  deletedTargetPosts.push(action);
+  assert.equal(action,'syncCodes');
+  assert.equal(params.forceSettingsRebase,'1');
+  assert.deepEqual(Object.keys(JSON.parse(params.codes)),['C'],
+    'authoritative current master cannot resurrect deleted B');
+  assert.deepEqual(JSON.parse(params.settingsReplacements),[],
+    'A->B transfer is inapplicable after both coded identities vanished');
+  h.response.settings.EDITABLE_PRICES=[
+    {name:'C',code:'333333',assetType:'주식',sector:'기타',targetWeight:20},
+    {name:'펀드 미코드',code:'',assetType:'펀드',targetWeight:43}
+  ];
+  return {status:'ok',updated:0};
+};
+assert.equal(await h.ctx.loadSettings(),true,
+  'legitimate later deletion of B must not deadlock bootstrap forever');
+assert.deepEqual(deletedTargetPosts,['syncCodes']);
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='A'||ep.name==='B')",h.ctx),false);
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='C'&&ep.targetWeight===20)",h.ctx),true);
+assert.equal(h.response.settings.LOAN.balance,357000000);
+assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0);
+console.log('✅ 교체 대상 B 후속 삭제 시 stale A 제거·현재 C/대출/펀드 보호 및 Bootstrap 부채 해제');
+
+// The same absence must NEVER license an arbitrary colliding successor:
+// if any old/new name or code survives with a DIFFERENT pair, refuse.
+h=setup();
+h.response.codes=[{name:'B',code:'999999',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+h.response.settings.EDITABLE_PRICES=[{name:'A',code:'111111',targetWeight:37}];
+vm.runInContext(`_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE',[
+  {previousName:'A',previousCode:'111111',name:'B',code:'222222'}])`,h.ctx);
+let aliasWrites=0;
+h.ctx.requestGsheetActionJson=async action=>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
+h.ctx.requestGsheetFormJson=async()=>{aliasWrites++;return {status:'ok'}};
+assert.equal(await h.ctx.loadSettings(),false,'ambiguous reused target alias must fail closed');
+assert.equal(aliasWrites,0,'do not overwrite Settings with ambiguous collision');
+assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),1);
+
+// Name-only and code-only successful replacement must remain recoverable.
+h=setup();
+const classify=(debts,codes)=>vm.runInContext(
+  '_classifyPinnedCodeSettingsRepairDebt('+JSON.stringify(debts)+','+JSON.stringify(codes)+')',h.ctx);
+const nameOnly={previousName:'A',previousCode:'111111',name:'B',code:'111111'};
+const codeOnly={previousName:'A',previousCode:'111111',name:'A',code:'222222'};
+assert.equal(classify([nameOnly],[{name:'B',code:'111111'}]).length,1);
+assert.equal(classify([codeOnly],[{name:'A',code:'222222'}]).length,1);
+assert.equal(classify([codeOnly],[{name:'X',code:'111111'}]),null);
+assert.equal(classify([nameOnly],[{name:'A',code:'111111'}]),null);
+console.log('✅ 이름만·코드만 변경/별칭 충돌 원본 CAS 분류 회귀 통과');
+
 // Settings-only repair debt must run on a clean Bootstrap with NO trades,
 // holdings or pending code additions, before stale Settings can restore A.
 h=setup();
