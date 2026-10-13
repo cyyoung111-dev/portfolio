@@ -445,6 +445,11 @@ function smCsvImport(input) {
         : null;
       if (duplicate) { skipped++; continue; }
       if (existing >= 0) {
+        const previous = EDITABLE_PRICES[existing];
+        if (code && code !== normalizeStockCode(previous.code)
+            && typeof _forgetSameTargetLocalCodeAddition === 'function') {
+          _forgetSameTargetLocalCodeAddition(previous.name, previous.code);
+        }
         if (code) EDITABLE_PRICES[existing].code = code;
         if (type) EDITABLE_PRICES[existing].assetType = assetType;
         if (sector) EDITABLE_PRICES[existing].sector = sector;
@@ -656,6 +661,7 @@ async function smSave(idx) {
   const editSession = captureStockMasterEditSession();
   const item = EDITABLE_PRICES[idx];
   if(!item) return;
+  const originalMasterIdentity = { name:item.name, code:item.code };
   const newName = (document.querySelector(`.sm-name-inp[data-idx="${idx}"]`)?.value || '').trim();
   const newCode = normalizeStockCode((document.querySelector(`.sm-code-inp[data-idx="${idx}"]`)?.value || '').trim());
   const newType = document.querySelector(`.sm-type-sel[data-idx="${idx}"]`)?.value || '주식';
@@ -712,6 +718,11 @@ async function smSave(idx) {
   // ★ [환율 연동] 통화 저장
   item.currency = newCurrency;
   item.market = newMarket;
+  if ((originalMasterIdentity.name !== newName
+      || normalizeStockCode(originalMasterIdentity.code) !== newCode)
+      && typeof _forgetSameTargetLocalCodeAddition === 'function') {
+    _forgetSameTargetLocalCodeAddition(originalMasterIdentity.name, originalMasterIdentity.code);
+  }
   if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
   // ★ EDITABLE_PRICES 중복 항목 제거 (idx 파라미터 직접 사용 — indexOf보다 안전)
