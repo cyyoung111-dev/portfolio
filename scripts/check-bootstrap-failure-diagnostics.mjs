@@ -439,5 +439,81 @@ assert.equal(await h.ctx.loadSettings(),true,'same-Bootstrap holding code must r
 assert.equal(pinnedHoldingPayload?.[0]?.code,'005930','do not import prior-connection stock code');
 assert.equal(pinnedHoldingPayload?.[0]?.assetType,'ETF','do not import prior-connection stock type');
 
+
+// Codex P1: one valid code and an unrelated name MUST NOT authorize a trade.
+// This was previously re-labeled by syncTradesToGsheet after preflight.
+h=setup();
+h.response.codes=[{name:'새 연결 종목',code:'005930',type:'주식'}];
+vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'이전 연결 종목',code:'005930',qty:1,price:100}); _markPortfolioRemoteDirty();",h.ctx);
+const mismatchPosts=[];
+h.ctx.requestGsheetFormJson=async action=>{mismatchPosts.push(action);return {status:'ok',saveState:'success'};};
+assert.equal(await h.ctx.loadSettings(),false,'same code with a different stock name must fail');
+assert.ok(!mismatchPosts.some(action=>['syncHoldings','syncTrades','saveSettings','syncCodes'].includes(action)),
+  'mismatched code-name pair cannot trigger any remote write');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'mismatched transaction retained');
+
+// Codex P1: a code added through an authorized stock-edit session on the
+// SAME target survives reload even if the original syncCodes POST failed.
+h=setup();
+h.response.codes=[{name:'기존 종목',code:'000660',type:'주식'}];
+h.response.settings.EDITABLE_PRICES=[{name:'기존 종목',code:'000660',assetType:'주식'}];
+assert.equal(await h.ctx.loadSettings(),true,'first Bootstrap establishes provenance');
+vm.runInContext(`EDITABLE_PRICES.push({name:'신규 종목',code:'005930',assetType:'주식',sector:'반도체'});
+  _invalidateEPIndex();
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'신규 종목',code:'005930',qty:1,price:100,acct:'일반'});
+  rawHoldings.push({name:'신규 종목',code:'005930',qty:1,cost:100,acct:'일반'});
+  if (!_recordSameTargetLocalCodeAddition({name:'신규 종목',code:'005930',assetType:'주식',sector:'반도체'},captureStockMasterEditSession())) throw Error('record rejected');
+  _markPortfolioRemoteDirty();`,h.ctx);
+const addedActions=[];
+h.ctx.requestGsheetActionJson=async action=>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes} : h.response;
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  addedActions.push(action);
+  if(action==='syncCodes') {
+    const posted=JSON.parse(params.codes);
+    assert.deepEqual(Object.keys(posted),['신규 종목'],'recovery uploads only proven missing code');
+    assert.equal(posted['신규 종목'].code,'005930');
+    h.response.codes.push({name:'신규 종목',code:'005930',type:'주식'});
+  }
+  return {status:'ok',saveState:'success',synced:1};
+};
+assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),true,
+  'proven same-target missing code must be read back before dirty write');
+assert.equal(addedActions[0],'syncCodes','code master recovery must precede holdings/trades');
+assert.ok(addedActions.includes('syncTrades'),'verified new trade must recover');
+assert.equal(h.ctx._getPortfolioRemoteDirty(),null,'dirty source clears only on success');
+
+// A code registered on sheet A must not authorize any mutation on sheet B.
+h=setup();
+assert.equal(await h.ctx.loadSettings(),true);
+vm.runInContext(`_recordSameTargetLocalCodeAddition({name:'신규 종목',code:'005930',assetType:'주식'},captureStockMasterEditSession());
+  saveGsheetUrl('https://script.google.com/macros/s/other/exec');
+  rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'신규 종목',code:'005930',qty:1,price:100});
+  _markPortfolioRemoteDirty();`,h.ctx);
+let crossWrites=0;
+h.ctx.requestGsheetFormJson=async ()=>{crossWrites++;return {status:'ok',saveState:'success'};};
+assert.equal(await h.ctx.loadSettings(),false,'sheet A journal cannot authorize sheet B');
+assert.equal(crossWrites,0,'no cross-target code or ledger mutation');
+assert.ok(h.ctx._getPortfolioRemoteDirty(),'cross-target dirty source preserved');
+
+// A remote Settings master on the SAME target can also prove a code whose
+// code-sheet update failed after the Settings update was acknowledged.
+h=setup();
+h.response.codes=[{name:'기존 종목',code:'000660',type:'주식'}];
+h.response.settings.EDITABLE_PRICES=[{name:'기존 종목',code:'000660',assetType:'주식'},
+  {name:'서버 설정 신규',code:'005930',assetType:'주식',sector:'반도체'}];
+vm.runInContext("rawTrades.push({date:'2026-10-07',tradeType:'buy',name:'서버 설정 신규',code:'005930',qty:1,price:100}); _markPortfolioRemoteDirty();",h.ctx);
+const sameTargetPosts=[];
+h.ctx.requestGsheetActionJson=async action=>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes} : h.response;
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  sameTargetPosts.push(action);
+  if(action==='syncCodes')h.response.codes.push({name:'서버 설정 신규',code:'005930',type:'주식'});
+  return {status:'ok',saveState:'success',synced:1};
+};
+assert.equal(await h.ctx.loadSettings(),true,'same-server Settings supports code repair');
+assert.equal(sameTargetPosts[0],'syncCodes');
+assert.ok(sameTargetPosts.includes('syncTrades'));
+
 console.log('✅ 복원 전 서버 기초정보 매칭·불일치 전송 차단·dirty 재시도 계약 통과');
 console.log('✅ Bootstrap 실패 단계 보존·재시도·강제 읽기 보호·세대 경합·인증 요청 회귀 통과');
