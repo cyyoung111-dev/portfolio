@@ -1,3 +1,11 @@
+## PR #493 2026-10-13 Codex 추가 P1/P2 + 자체 검토 (Draft / 운영 배포 금지)
+
+- 최신 리뷰 HEAD `b5ac992` P1: `handleSyncHoldings`는 `handleDeleteUnreferencedCode`와 달리 ScriptLock 없이 보유현황 전체를 덮어쓸 수 있었습니다. 기존 `syncTrades`/`syncCodes`/조건부 삭제와 같은 `LockService.getScriptLock()` 범위 안에서 보유현황을 파싱, 현재 코드 시트의 `code/name`과 일치하는지 확인, 보유현황을 저장합니다. 삭제 후 늦게 도착한 보유현황도 삭제된 코드를 참조하면 `HOLDINGS_CODE_MASTER_CONFLICT`로 실패하며, 코드 없는 직접펀드 보유는 계속 허용합니다.
+- P2: 일반 `syncCodes`에 서버 마스터 revision 조건이 없어 다른 탭이 코드를 삭제한 뒤 구식 정보가 같은 코드를 재생성할 수 있었습니다. Bootstrap/`getCodeList`의 workbook source에 고정한 코드 마스터 스냅샷을 요청 시점에 캡처하고, 기존 `expectedSourceId`와 함께 `expectedCodes`로 POST합니다. GAS는 같은 ScriptLock 안에서 원격 전체 마스터와 예상값을 정규화·비교하여 `CODE_SYNC_MASTER_CHANGED`이면 **시트에 쓰기 전** 실패합니다. 현재 revision 정보를 전달하지 못하는 이전 버전 `syncCodes` 클라이언트는 `CODE_SYNC_REVISION_REQUIRED`로 **쓰기를 차단**합니다(기존 클라이언트 호환성보다 원장 무결성 우선). 신규 code/name은 동일 workbook의 검증된 UI 등록 journal이 있을 때만 일반 동기화 대상에 포함합니다.
+- 성공한 일반 동기화는 단순 ACK가 아니라 같은 workbook의 `getCodeList` readback으로 code/name을 검증하고 나서 캐시/등록 journal을 갱신합니다. 원격 삭제도 readback 성공 이후에만 local master revision을 업데이트해 후속 정상 등록은 최신 스냅샷 기준 CAS로 진행하고, 삭제된 종목의 근거 없는 재등록은 거절합니다.
+- 회귀테스트: 실제 브라우저 VM에서 A→B 세대 전환과 큐 대기, 같은 workbook readback, 삭제 후 최신 master revision 재설정, 삭제 종목의 증빙 없는 재등록 거부, 신규 등록 journal 허용; 실제 GAS VM에서 다른 workbook source/이전 revision/legacy 무revision 일반 sync 거부, 삭제 후 stale holdings 쓰기 차단, 유효한 holding 쓰기 및 서버 잠금 해제. 자동화 `quality-check`, `web-check`, `GAS Validate` 통과 전제이며 최종 커밋에서 재확인합니다.
+- 후보 GAS v9.199 source blob `feb0077bbc420f478c2a7559f36cd4e43988c592`; 웹 `settings.js=20261013-6`, `settings_sync.js=20261013-9`, SW/cache `20261013-11`. main과 기존 PR #489~#492, 운영 GAS 및 실제 자산원장/보유/시세·Snapshot은 변경하지 않았습니다.
+
 ## PR #493 2026-10-13 최신 Codex P1/P2 및 자체 검토 (Draft / 운영 미배포)
 
 - 최신 리뷰 HEAD `6e719c9` P1: 보통 `syncCodesToGsheet()`는 연결 세대를 넘기지 않고 URL별 대기열 내부에서 전역 EDITABLE_PRICES를 늦게 읽으므로, A 연결의 대기 요청이 B 연결의 코드를 A로 전송할 수 있었습니다. 호출 즉시 **현재 target URL·connection generation·workbook 지문과 코드/이름/분류/통화/시장 값의 복사본**을 캡처하고, 큐 실행 직전 동일 target generation/source 및 쓰기 준비를 재확인합니다. 원격 일반 syncCodes에도 workbook `expectedSourceId`를 포함하여 같은 GAS URL이 새 SS_ID를 가리키더라도 서버 ScriptLock 내부에서 변경 전 거부합니다. 구버전 클라이언트를 위한 서버 인자 생략 호환은 유지합니다.
