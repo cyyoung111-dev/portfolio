@@ -318,6 +318,71 @@ function _rememberConfirmedCodeMasterChange(target, sourceId, before, after) {
   _gsheetStockMasterConfirmedTransitions.set(target,transitions.slice(-64));
 }
 
+// Bootstrap must settle a saved Settings migration BEFORE applying stale
+// getBootstrap Settings to EDITABLE_PRICES or declaring the restore complete.
+// This path uses only the pinned workbook's server master, never local state.
+async function repairPinnedSameTargetCodeSettingsBeforeRestore(options) {
+  const targetUrl=String(options?.targetUrl || '').trim();
+  const sourceId=String(options?.sourceId || '').trim();
+  const generation=options?.generation;
+  const expectedFingerprint=_stockMasterSyncFingerprint(options?.masterCodes);
+  if (!targetUrl || !sourceId || !expectedFingerprint
+      || !isGsheetConnectionCurrent(targetUrl,generation)) return null;
+  return _queueGsheetStockMasterWrite(targetUrl,async () => {
+    if (!isGsheetConnectionCurrent(targetUrl,generation)) return null;
+    const debts=typeof _getSameTargetCodeSettingsRepairs==='function'
+      ? _getSameTargetCodeSettingsRepairs(targetUrl,sourceId) : [];
+    if (!debts.length) return null;
+    const now=await requestGsheetActionJson('getCodeList',{},{
+      targetUrl,timeoutMs:15000,retry:1,preserveError:true
+    });
+    if (!isGsheetConnectionCurrent(targetUrl,generation)
+        || now?.status!=='ok' || now.codeMasterSourceId!==sourceId
+        || _stockMasterSyncFingerprint(now.codes)!==expectedFingerprint) return null;
+    const valid=debts.every(step => now.codes.some(row =>
+      String(row.name || '').trim()===step.name
+      && _normalizeSyncCode(row.code)===_normalizeSyncCode(step.code))
+      && !now.codes.some(row =>
+        (step.previousName!==step.name && String(row.name || '').trim()===step.previousName)
+        || (step.previousCode!==step.code && _normalizeSyncCode(row.code)===_normalizeSyncCode(step.previousCode))));
+    if (!valid) return null;
+    const canonical=Object.fromEntries(now.codes.map(row => [
+      String(row.name || '').trim(),{
+        code:_normalizeSyncCode(row.code),type:row.type || '주식',
+        sector:row.sector || '기타',currency:(row.currency || 'KRW').toUpperCase(),
+        market:(row.market || '').toUpperCase()
+      }
+    ]));
+    const repaired=await requestGsheetFormJson('syncCodes',{
+      codes:JSON.stringify(canonical),expectedSourceId:sourceId,
+      expectedCodes:JSON.stringify(now.codes),replacements:'[]',
+      settingsReplacements:JSON.stringify(debts.filter(step => !step.metadataOnly)),
+      forceSettingsRebase:'1'
+    },{timeoutMs:20000,retry:0,targetUrl});
+    if (repaired?.status!=='ok' || !isGsheetConnectionCurrent(targetUrl,generation)) return null;
+    const readback=await requestGsheetActionJson('getCodeList',{},{
+      targetUrl,timeoutMs:15000,retry:1,preserveError:true
+    });
+    if (!isGsheetConnectionCurrent(targetUrl,generation)
+        || readback?.status!=='ok' || readback.codeMasterSourceId!==sourceId
+        || _stockMasterSyncFingerprint(readback.codes)!==expectedFingerprint) return null;
+    if (typeof _rebaseConfirmedSameTargetCodeReplacements==='function')
+      _rebaseConfirmedSameTargetCodeReplacements(targetUrl,sourceId,
+        debts.filter(step => !step.metadataOnly));
+    if (typeof _forgetSameTargetCodeSettingsRepairs==='function')
+      _forgetSameTargetCodeSettingsRepairs(targetUrl,sourceId,debts);
+    if (typeof _forgetSameTargetLocalCodeAddition==='function'
+        && typeof _getSameTargetLocalCodeAdditions==='function') {
+      for (const step of debts.filter(item => !item.metadataOnly)) {
+        if (_getSameTargetLocalCodeAdditions(targetUrl,sourceId).some(entry =>
+            entry.name===step.name && _normalizeSyncCode(entry.code)===_normalizeSyncCode(step.code)))
+          _forgetSameTargetLocalCodeAddition(step.name,step.code,targetUrl);
+      }
+    }
+    return {fingerprint:expectedFingerprint,codes:readback.codes};
+  });
+}
+
 // ── 종목코드 GSheet 자동 등록
 async function syncCodesToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
