@@ -676,6 +676,37 @@ assert.ok(gasSrc.includes("function handleSyncCodes(codesParam) {\n  var lock = 
   'legacy normal code edits must serialize with append-only CAS');
 
 
+
+// Codex P1: A's delayed sync may not read B's master or POST to old target A.
+h=setup();
+h.response.codes=[{name:'A 종목',code:'000660',type:'주식'}];
+h.response.settings.EDITABLE_PRICES=[{name:'A 종목',code:'000660',assetType:'주식'}];
+assert.equal(await h.ctx.loadSettings(),true);
+let releaseFirstSync;
+const firstSyncPending=new Promise(resolve=>{releaseFirstSync=resolve;});
+const generationPosts=[];
+h.ctx.requestGsheetFormJson=async (action,params,opts)=>{
+  if(action!=='syncCodes') throw Error('unexpected queued action: '+action);
+  generationPosts.push({url:opts.targetUrl,codes:JSON.parse(params.codes)});
+  if(generationPosts.length===1) await firstSyncPending;
+  return {status:'ok',synced:1};
+};
+const firstCodeSync=h.ctx.syncCodesToGsheet();
+for(let tick=0;tick<12&&!generationPosts.length;tick++) await Promise.resolve();
+assert.equal(generationPosts.length,1,'first POST must have started on A');
+const staleCodeSync=h.ctx.syncCodesToGsheet();
+vm.runInContext("saveGsheetUrl('https://script.google.com/macros/s/another-sheet/exec')",h.ctx);
+h.response.codes=[{name:'B 종목',code:'005930',type:'주식'}];
+h.response.settings.EDITABLE_PRICES=[{name:'B 종목',code:'005930',assetType:'주식'}];
+assert.equal(await h.ctx.loadSettings(null,{forcePortfolioRestore:true}),true,
+  'B bootstrap must finish before queued A sync is released');
+releaseFirstSync();
+assert.equal((await firstCodeSync)?.status,'ok','in-flight original A write may finish');
+assert.equal(await staleCodeSync,null,'queued operation from earlier generation canceled');
+assert.equal(generationPosts.length,1,'no B master may be POSTed to old target A');
+assert.deepEqual(Object.keys(generationPosts[0].codes),['A 종목'],
+  'in-flight operation uses frozen A payload');
+
 // Review P2: a normal syncCodes POST already in flight must settle BEFORE
 // the explicit server-side removal, even if the user deletes the local master
 // row while the first POST is still waiting for the network.
@@ -693,7 +724,9 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
     return {status:'ok',synced:1};
   }
   if (action==='deleteUnreferencedCode') {
-    assert.equal(JSON.parse(params.data).expectedSourceId,'TEST_SOURCE');
+    const deleteRequest=JSON.parse(params.data);
+    assert.equal(deleteRequest.expectedSourceId,'TEST_SOURCE');
+    assert.deepEqual(deleteRequest.expectedCodes.map(item=>item.name),['경합 신규']);
     h.response.codes=h.response.codes.filter(ep=>ep.name!=='경합 신규');
     return {status:'ok',deleted:1};
   }
@@ -735,17 +768,30 @@ mockSheet.getRange=(row,col,length,width)=>({
 mockSheet.deleteRow=row=>{assert.equal(row,3);serverCodes.splice(row-2,1);};
 vm.runInContext(gasSrc.slice(deleteStart,gasSrc.indexOf('function handleSyncCodes(',deleteStart)),gasCtx);
 let serverDelete=gasCtx.handleDeleteUnreferencedCode(JSON.stringify({
-  name:'신규',code:'005930',expectedSourceId:'OTHER_WORKBOOK'}));
+  name:'신규',code:'005930',expectedSourceId:'OTHER_WORKBOOK',expectedCodes:serverCodes}));
 assert.equal(serverDelete.errorCode,'CODE_DELETE_SOURCE_CHANGED');
 assert.equal(serverCodes.length,2);
 serverTradeRows=[{name:'신규',code:'005930',date:'2026-10-07'}];
 serverDelete=gasCtx.handleDeleteUnreferencedCode(JSON.stringify({
-  name:'신규',code:'005930',expectedSourceId:'TEST_SOURCE'}));
+  name:'신규',code:'005930',expectedSourceId:'TEST_SOURCE',expectedCodes:serverCodes}));
 assert.equal(serverDelete.errorCode,'CODE_DELETE_REFERENCED');
 assert.equal(serverCodes.length,2);
 serverTradeRows=[];
+
+// Full-master deletion CAS rejects an edit of sector/currency with unchanged identity.
+const originalServerCodes=serverCodes.map(x=>({...x}));
+const staleExpected=serverCodes.map(x=>({...x}));
+serverCodes[1].sector='신규 수정 섹터';
+const beforeStaleDelete=serverCodes.length;
+let staleDelete=gasCtx.handleDeleteUnreferencedCode(JSON.stringify({
+  name:'신규',code:'005930',expectedSourceId:'TEST_SOURCE',expectedCodes:staleExpected
+}));
+assert.equal(staleDelete.errorCode,'CODE_DELETE_MASTER_CHANGED');
+assert.equal(serverCodes.length,beforeStaleDelete,'metadata change must block stale deletion');
+serverCodes[1].sector=originalServerCodes[1].sector;
+
 serverDelete=gasCtx.handleDeleteUnreferencedCode(JSON.stringify({
-  name:'신규',code:'005930',expectedSourceId:'TEST_SOURCE'}));
+  name:'신규',code:'005930',expectedSourceId:'TEST_SOURCE',expectedCodes:serverCodes}));
 assert.equal(serverDelete.status,'ok');
 assert.equal(serverCodes.length,1,'safe delete must remove only exact code row');
 assert.equal(deletedServerSettings.EDITABLE_PRICES.length,0,'authoritative Settings also pruned');
