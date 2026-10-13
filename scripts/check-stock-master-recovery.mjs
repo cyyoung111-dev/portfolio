@@ -986,6 +986,74 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   }
   console.log('✅ 연속교체 영속 쓰기 4지점·롤백 거부 10개 장애 조합 안전성 회귀');
 
+  // Codex P2: peer commits A->B just after C is written in prepared state.
+  // A different tab has retired the predecessor and C's inherited A root is
+  // stale. The local edit must fail closed instead of promoting stale A->C.
+  const externalDisk=new Map();let peerDuringPrepare=true;
+  const crossTabStorage={
+    getItem:k=>externalDisk.get(k)??null,
+    setItem:(k,v)=>{
+      externalDisk.set(k,v);
+      const payload=JSON.parse(v);
+      if(peerDuringPrepare && payload?.entry?.name==='C'
+          && payload?.entry?.transitionCommitted===false) {
+        peerDuringPrepare=false;
+        // Another tab's confirmed A->B write: its B journal was retired
+        // while this tab had only staged C. Direct disk mutation models
+        // the interleaving precisely between two localStorage API calls.
+        for(const [priorKey,priorJson] of externalDisk) {
+          const prior=JSON.parse(priorJson);
+          if(prior?.entry?.name==='B' && prior?.entry?.sourceId==='sheet-A')
+            externalDisk.set(priorKey,JSON.stringify({...prior,removed:true}));
+        }
+      }
+    },
+    removeItem:k=>externalDisk.delete(k),
+    key:i=>[...externalDisk.keys()][i]??null,
+    get length(){return externalDisk.size}
+  };
+  const raceTab=create(crossTabStorage);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"B",code:"2",replaces:{name:"A",code:"1"}},{sourceId:"sheet-A"})',
+    raceTab),true);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    raceTab),false,'peer B retirement during C preparation must reject stale-root edit');
+  assert.equal(viewPair(create(crossTabStorage)).length,0,
+    'rejected C is not promoted, and peer-retired B remains retired');
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    raceTab),true,'explicit retry can register B->C using the new root');
+  assert.equal(viewPair(create(crossTabStorage))[0].replaces.name,'B',
+    'never retain stale A root after a confirmed external B retirement');
+
+  // A competing B tombstone AFTER this edit committed cannot impersonate
+  // its transition token. The now-orphaned C must fail closed on Bootstrap.
+  const independent=new Map();
+  const independentStore={
+    getItem:k=>independent.get(k)??null,
+    setItem:(k,v)=>independent.set(k,v),
+    removeItem:k=>independent.delete(k),
+    key:i=>[...independent.keys()][i]??null,
+    get length(){return independent.size}
+  };
+  const independentTab=create(independentStore);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"B",code:"2",replaces:{name:"A",code:"1"}},{sourceId:"sheet-A"})',
+    independentTab),true);
+  assert.equal(vm.runInContext(
+    '_recordSameTargetLocalCodeAddition({name:"C",code:"3",replaces:{name:"B",code:"2"}},{sourceId:"sheet-A"})',
+    independentTab),true);
+  assert.deepEqual(viewPair(create(independentStore)).map(x=>x.name),['C']);
+  for(const [priorKey,priorJson] of independent) {
+    const prior=JSON.parse(priorJson);
+    if(prior?.entry?.name==='B') independent.set(priorKey,
+      JSON.stringify({target:prior.target,entry:prior.entry,removed:true}));
+  }
+  assert.equal(viewPair(create(independentStore)).length,0,
+    'peer tombstone lacking matching token must not authorize stale C');
+  console.log('✅ 준비 C 도중 별도 A→B 확정 경합 차단·재시도 루트 B·tombstone 출처 격리');
+
   // Legacy v1 journal must be migrated to per-pair storage before network sync.
   const old=create();
   const legacy={sourceId:'old-book',name:'M',code:'7',userFields:{targetWeight:35}};
