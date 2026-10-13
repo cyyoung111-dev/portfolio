@@ -395,8 +395,9 @@ function _resolvePriceDateLabel(baseLabel, key) {
   const meta = (window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object') ? window._gsheetPriceMeta : {};
   const m = meta[key];
   if (!m) return baseLabel;
-  if (m.savedAt) return m.savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
+  // A later save timestamp does not make an older close today's price.
   if (m.isFallback && m.sourceDate) return m.sourceDate.replace(/-/g,'.') + ' 기준일 이전값';
+  if (m.savedAt) return m.savedAt.replace(/-/g,'.').slice(0,16) + ' 입력';
   if (m.sourceDate) return m.sourceDate.replace(/-/g,'.') + ' 조회값';
   return baseLabel;
 }
@@ -626,18 +627,48 @@ let _pricePollingVisibilityBound = false;
 async function pollCurrentPrices() {
   if (document.hidden || !GSHEET_API_URL) return;
   try {
-    const results = await fetchFromGsheet(getDateStr(0), { persist: false, polling: true });
+    const requestDate = getDateStr(0);
+    const targetUrl = String(GSHEET_API_URL || '').trim();
+    const generation = typeof getGsheetConnectionGeneration === 'function'
+      ? getGsheetConnectionGeneration() : 0;
+    const results = await fetchFromGsheet(requestDate, { persist: false, polling: true });
+    // Never apply an in-flight request to a different workbook or hidden tab.
+    if (document.hidden || String(GSHEET_API_URL || '').trim() !== targetUrl
+        || (typeof isGsheetConnectionCurrent === 'function'
+          && !isGsheetConnectionCurrent(targetUrl, generation))) return;
     if (!results || Object.keys(results).length === 0) return;
-    Object.entries(results).forEach(([key, price]) => {
-      if (Number(price) > 0) savedPrices[key] = price;
+    const entries = Object.entries(results).filter(([, price]) => Number(price) > 0);
+    if (!entries.length) return;
+    const meta = window._gsheetPriceMeta && typeof window._gsheetPriceMeta === 'object'
+      ? window._gsheetPriceMeta : {};
+    const validDate = date => /^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))
+      && date <= requestDate;
+    const dated = entries.map(([key]) => String(meta[key]?.sourceDate || ''))
+      .filter(validDate).sort();
+    const responseDate = String(window._gsheetResolvedPriceDate || '');
+    const latestSourceDate = dated.length ? dated[dated.length - 1]
+      : (validDate(responseDate) ? responseDate : '');
+    const allDated = dated.length === entries.length;
+    const isToday = allDated && latestSourceDate === requestDate;
+    const baseLabel = latestSourceDate
+      ? (isToday ? '실시간' : latestSourceDate.replace(/-/g, '.') + ' 종가')
+      : '기준일 미확인';
+    entries.forEach(([key, price]) => {
+      savedPrices[key] = price;
+      savedPriceDates[key] = validDate(meta[key]?.sourceDate)
+        ? _resolvePriceDateLabel(baseLabel, key)
+        : '기준일 미확인';
     });
-    lastUpdated = getDateStr(0).replace(/-/g, '.');
-    updateDateBadge(lastUpdated, true);
+    // A successful poll does not prove the source price was from today.
+    if (latestSourceDate) lastUpdated = latestSourceDate.replace(/-/g, '.');
+    if (lastUpdated) updateDateBadge(lastUpdated, isToday);
     const lookupMsg = _priceLookupSummary();
+    const dateNotice = !allDated ? '일부 종목 기준일 미확인'
+      : (isToday ? '' : latestSourceDate.replace(/-/g, '.') + ' 확정가격');
     setStatusLabel(_priceStatusLayout(
-      `✅ 현재가 갱신 · ${Object.keys(results).length}개 · 화면만 반영`,
+      `✅ 현재가 갱신 · ${entries.length}개 · 화면만 반영`,
       lookupMsg,
-      '저장 이력/Snapshot 미변경'
+      [dateNotice, '저장 이력/Snapshot 미변경'].filter(Boolean).join(' · ')
     ), 'ok');
     // Current-price polling must not recreate the Settings/GAS panel.
     // renderGsheetView() issues getAutomationStatus every time it mounts;
