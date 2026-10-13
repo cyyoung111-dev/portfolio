@@ -781,6 +781,11 @@ async function smSave(idx) {
       return false;
     }
   }
+  // A queued server CAS may finish after another row was inserted/deleted.
+  // The captured numeric index is then stale: dedup must skip the actual
+  // original object, not delete the very row that was just converted.
+  idx = EDITABLE_PRICES.indexOf(item);
+  if (idx < 0) return false;
   if(newName !== item.name) {
     if (!_smRenameStockItem(item, newName)) return;
   }
