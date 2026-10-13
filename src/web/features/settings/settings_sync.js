@@ -245,6 +245,9 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
     const normalizeSector = ep => String(ep?.sector || '기타').trim();
     const normalizeCurrency = ep => String(ep?.currency || 'KRW').trim().toUpperCase();
     const normalizeMarket = ep => String(ep?.market || '').trim().toUpperCase();
+    // The user may have re-added the same asset while the GET was pending.
+    if (EDITABLE_PRICES.some(ep =>
+        ep?.name === name && _normalizeSyncCode(ep?.code || '') === code)) return false;
     if (_normalizeSyncCode(remote.code) !== code
         || String(remote.name || '').trim() !== name
         || normalizeType(remote) !== normalizeType(item)
@@ -315,7 +318,7 @@ async function syncCodesToGsheet(options) {
     // Only the original target's immutable code snapshot may be submitted.
     const data = await requestGsheetFormJson(
       'syncCodes',
-      { codes: JSON.stringify(codeMap) },
+      { codes: JSON.stringify(codeMap), expectedSourceId:sourceId },
       { timeoutMs: 20000, retry: 1, targetUrl }
     );
     if (!data) { _syncWarn('[GSheet 동기화] 네트워크 오류'); return null; }
