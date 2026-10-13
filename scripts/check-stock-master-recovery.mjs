@@ -925,7 +925,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(vm.runInContext(
     '_forgetSameTargetLocalCodeAddition("B","2",GSHEET_API_URL,"sheet-A")',
     inFlight),true);
-  assert.deepEqual(viewPair(create(delayedStore)).map(x=>x.name),[],
+  assert.equal(viewPair(create(delayedStore)).length,0,
     'unrelated B tombstone MUST NOT resurrect rejected staged C');
   failDeleteC=false;
   assert.equal(vm.runInContext(
