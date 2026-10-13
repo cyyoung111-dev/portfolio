@@ -519,16 +519,24 @@ async function syncCodesToGsheet(options) {
         || String(_gsCodeMasterSourceIdentity || '') !== sourceId
         || checked?.status !== 'ok' || checked.codeMasterSourceId !== sourceId
         || !Array.isArray(checked.codes)) return null;
-    const remoteByName = new Map(checked.codes.map(item =>
-      [String(item.name || '').trim(), _normalizeSyncCode(item.code)]));
-    if (Object.entries(codeMap).some(([name, item]) =>
-      _normalizeSyncCode(item.code) && remoteByName.get(name) !== _normalizeSyncCode(item.code))
-        || replacements.some(replacement => checked.codes.some(remote =>
+    // A code/name-only ACK could hide a concurrent metadata rewrite and
+    // incorrectly record it as an authorized in-window transition.
+    const submittedRows=Object.entries(codeMap).filter(([,item]) => _normalizeSyncCode(item.code));
+    const submittedByName=new Map(submittedRows);
+    const consistent=checked.codes.length===submittedRows.length && checked.codes.every(remote => {
+      const name=String(remote.name || '').trim(), item=submittedByName.get(name);
+      return !!item && _normalizeSyncCode(remote.code)===_normalizeSyncCode(item.code)
+        && String(remote.type || '주식')===String(item.type || '주식')
+        && String(remote.sector || '기타')===String(item.sector || '기타')
+        && String(remote.currency || 'KRW').toUpperCase()===String(item.currency || 'KRW').toUpperCase()
+        && String(remote.market || '').toUpperCase()===String(item.market || '').toUpperCase();
+    });
+    if (!consistent || replacements.some(replacement => checked.codes.some(remote =>
           (replacement.previousCode !== replacement.code
             && _normalizeSyncCode(remote.code) === replacement.previousCode)
           || (replacement.previousName !== replacement.name
             && String(remote.name || '').trim() === replacement.previousName)))) {
-      _syncWarn('[syncCodes] 서버 마스터 확인 실패');
+      _syncWarn('[syncCodes] 서버 마스터/메타데이터 확인 실패');
       return null;
     }
     const checkedFingerprint = _stockMasterSyncFingerprint(checked.codes);
