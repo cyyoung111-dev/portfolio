@@ -157,11 +157,17 @@ function captureStockMasterEditSession() {
   };
 }
 function isStockMasterEditSessionCurrent(session) {
+  const currentTarget=String(GSHEET_API_URL || '').trim();
+  const currentSource=String(typeof _gsCodeMasterSourceIdentity !== 'undefined'
+    ? _gsCodeMasterSourceIdentity || '' : '').trim();
   return !!session && !isStockMasterWriteBlocked()
-    && session.targetUrl === String(GSHEET_API_URL || '').trim()
+    && session.targetUrl === currentTarget
     && session.generation === (typeof getGsheetConnectionGeneration === 'function' ? getGsheetConnectionGeneration() : 0)
-    && !!session.sourceId
-    && session.sourceId === String(typeof _gsCodeMasterSourceIdentity !== 'undefined' ? _gsCodeMasterSourceIdentity || '' : '');
+    // Offline-only edits have no remote source identity. This never grants
+    // permission to edit a connected workbook without its pinned source ID.
+    && (currentTarget
+      ? !!session.sourceId && session.sourceId === currentSource
+      : !session.sourceId && !currentSource);
 }
 function preventUnsafeStockMasterEdit() {
   if (!isStockMasterWriteBlocked()) return false;
