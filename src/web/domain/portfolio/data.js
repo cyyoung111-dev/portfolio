@@ -784,25 +784,49 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
       name:String(root.name).trim(), code:normalized(root.code)
     }} : {})
   };
-  // Persist the NEW pair before retiring its predecessor; a quota error
-  // must not leave a phantom registration that can flush Codes remotely.
+  // A multi-step edit must not claim success until EVERY predecessor
+  // tombstone was durably read back. Stage the new pair first, but never
+  // publish the in-memory/legacy journal on an incomplete transition.
   const pairMode=_stockPerPairStorageAvailable();
-  if (pairMode && !_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next))
-    return false;
-  others.push(next);
-  _pendingSameTargetCodeAdditions[target] = others;
-  lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
+  const nextMap={..._pendingSameTargetCodeAdditions,[target]:[...others,next]};
   if (!pairMode) {
-    const persisted=lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null);
-    if (!persisted || !Array.isArray(persisted[target])
-        || !persisted[target].some(entry=>entry.sourceId===sourceId
-          && entry.name===name && normalized(entry.code)===code))
+    lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,nextMap);
+    if (JSON.stringify(lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null))
+        !== JSON.stringify(nextMap)) return false;
+    _pendingSameTargetCodeAdditions=nextMap;
+    return true;
+  }
+  const key=_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next);
+  const previousPair=lsGet(key,null);
+  if (!_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next))
+    return false;
+  const retired=[];
+  for (const entry of removed) {
+    // Updating a pair in place has the same durable key; never tombstone it.
+    if (_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)===key)
+      continue;
+    if (!_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true)) {
+      // A failed quota/security write must not leave BOTH A->B and A->C
+      // active after a reload. Roll back the uncommitted new pair. Removal
+      // usually works even when writes fail because the quota is exhausted.
+      if (previousPair) lsSave(key,previousPair);
+      else lsRemove(key);
+      // Restore any predecessor already retired in this transition.
+      for(const restored of retired)
+        _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,restored);
+      const rollback=lsGet(key,null);
+      if ((previousPair && JSON.stringify(rollback)!==JSON.stringify(previousPair))
+          || (!previousPair && rollback!==null)) {
+        // Unsafe storage: never authorize a remote POST, even if the
+        // browser still shows an old local edit.
+        console.warn('[종목 저널] 저장 실패 후 신규 pair 롤백 확인 실패');
+      }
       return false;
+    }
+    retired.push(entry);
   }
-  for(const entry of removed) {
-    if (entry.name===next.name && normalized(entry.code)===code) continue;
-    _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true);
-  }
+  _pendingSameTargetCodeAdditions=nextMap;
+  lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,nextMap); // v1 compatibility only
   return true;
 }
 
