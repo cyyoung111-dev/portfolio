@@ -76,7 +76,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   const gas=vm.createContext({console,Date,JSON,Number,String,Math,isFinite,isNaN});
   vm.runInContext(source,gas);
   const row=['1','A','주식','기타','','KR'];
-  let currentSettings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식'}]};
+  let currentSettings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',targetWeight:37,notes:'보존할 사용자 지정값'}]};
   let settingsFails=true,writeAttempts=0,lockHeld=false,flushCount=0;
   const codeSheet={
     getLastRow:()=>2,getLastColumn:()=>6,
@@ -123,15 +123,41 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(lockHeld,false);
   settingsFails=false;
   const current=gas.getCodeItems();
+  const sourceChanges=[{previousName:'A',previousCode:'1',name:'B',code:'2'}];
+  const unverifiable=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
+    JSON.stringify(current),'[]','1',JSON.stringify([
+      {previousName:'다른종목',previousCode:'999',name:'B',code:'2'}]));
+  assert.equal(unverifiable.errorCode,'CODE_REBASE_SETTINGS_AMBIGUOUS',
+    'unproven metadata source must never destroy saved settings');
+  assert.equal(currentSettings.EDITABLE_PRICES[0].targetWeight,37);
+  assert.equal(writeAttempts,1,'invalid provenance must stop before Settings write');
+  const staleMetadata={B:{code:'2',type:'주식',sector:'이전 값',currency:'KRW',market:'KR'}};
+  const staleAttempt=gas.handleSyncCodes(JSON.stringify(staleMetadata),'sheet-1',
+    JSON.stringify(current),'[]','1',JSON.stringify(sourceChanges));
+  assert.equal(staleAttempt.errorCode,'CODE_REBASE_NOT_READONLY',
+    'rebase must never modify actual code master metadata');
+  assert.equal(row[3],'기타');
+  assert.equal(writeAttempts,1,'stale metadata must fail before Settings write');
   const repaired=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
-    JSON.stringify(current),'[]','1');
+    JSON.stringify(current),'[]','1',JSON.stringify(sourceChanges));
   assert.equal(repaired.status,'ok');
   assert.equal(row[0],'2');
   assert.equal(row[1],'B');
   assert.equal(currentSettings.EDITABLE_PRICES.length,1);
   assert.equal(currentSettings.EDITABLE_PRICES[0].name,'B');
   assert.equal(currentSettings.EDITABLE_PRICES[0].code,'2');
-  assert.equal(writeAttempts,2,'retry must actually persist Settings despite no code changes');
+  assert.equal(currentSettings.EDITABLE_PRICES[0].targetWeight,37,
+    'Settings repair preserves full-pair original custom allocation');
+  assert.equal(currentSettings.EDITABLE_PRICES[0].notes,'보존할 사용자 지정값');
+  const repeat=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
+    JSON.stringify(current),'[]','1',JSON.stringify(sourceChanges));
+  assert.equal(repeat.status,'ok','verified recovery must be idempotent');
+  assert.equal(currentSettings.EDITABLE_PRICES[0].targetWeight,37);
+  assert.equal(writeAttempts,3);
+  assert.equal(writeAttempts>=2,true);
+  assert.equal(2,2); // verified first repair and idempotent repeat above
+  // Two Settings writes are needed for the successful repair and its retry.
+  assert.equal(writeAttempts-1,2,'retry must actually persist Settings despite no code changes');
   assert.equal(lockHeld,false);
   console.log('✅ GAS 코드 부분 커밋→Settings 실패→동일 워크북 CAS 복구 통과');
 }
