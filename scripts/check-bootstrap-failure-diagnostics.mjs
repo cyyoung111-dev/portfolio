@@ -1128,6 +1128,9 @@ const renameSheet={
 const renameCtx=vm.createContext({
   JSON,Object,Array,String,
   LockService:{getScriptLock:()=>({waitLock:()=>{lockDepth++},releaseLock:()=>{lockDepth--}})},
+  // This test slices only the normal code-master writer, with no pending
+  // deletion marker in its isolated workbook fixture.
+  _settlePendingCodeDeleteLocked_:()=>({pending:false}),
   getss:()=>({getSheetByName:()=>renameSheet}),
   _portfolioCodeMasterSourceIdentity_:()=> 'TEST_SOURCE',
   _cleanCode:code=>String(code||'').trim(),
