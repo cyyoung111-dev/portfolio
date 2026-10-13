@@ -1235,7 +1235,7 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   const vmEditor={
     console,
     preventUnsafeStockMasterEdit:()=>false,
-    captureStockMasterEditSession:()=>({sourceId:'sheet-A'}),
+    captureStockMasterEditSession:()=>({targetUrl:'https://script.google.com/macros/s/test/exec',sourceId:'sheet-A'}),
     normalizeStockCode:c=>String(c||'').trim(),
     EDITABLE_PRICES:[{name:'C',code:'000003',assetType:'TDF',sector:'기타'}],
     document:{querySelector:selector=>{
