@@ -267,11 +267,15 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
     const checked = await requestGsheetActionJson('getCodeList', {}, {
       targetUrl, timeoutMs:15000, retry:1, preserveError:true
     });
-    return isGsheetConnectionCurrent(targetUrl, generation)
+    const verified = isGsheetConnectionCurrent(targetUrl, generation)
       && checked?.status === 'ok' && checked.codeMasterSourceId === sourceId
       && Array.isArray(checked.codes)
       && !checked.codes.some(ep => _normalizeSyncCode(ep?.code || '') === code
-        && String(ep?.name || '').trim() === name);
+        || String(ep?.name || '').trim() === name);
+    // Subsequent local edits must use the confirmed post-delete revision,
+    // not an obsolete cached pre-delete snapshot that would always fail CAS.
+    if (verified) applyGsheetCodeList(checked.codes, sourceId);
+    return verified;
   });
 }
 
