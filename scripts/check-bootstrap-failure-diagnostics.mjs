@@ -452,6 +452,50 @@ assert.ok(!mismatchPosts.some(action=>['syncHoldings','syncTrades','saveSettings
   'mismatched code-name pair cannot trigger any remote write');
 assert.ok(h.ctx._getPortfolioRemoteDirty(),'mismatched transaction retained');
 
+// A hard browser termination between code sheet A->B flush and failed
+// Settings response leaves ONLY the local replacement journal, not a separate
+// repair debt. Bootstrap must promote the confirmed pair before restoring A.
+h=setup();
+h.response.codes=[{name:'B',code:'222222',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+h.response.settings.EDITABLE_PRICES=[{name:'A',code:'111111',assetType:'주식',sector:'기타',targetWeight:37}];
+vm.runInContext(`_pendingSameTargetCodeAdditions[GSHEET_API_URL]=[
+  {sourceId:'TEST_SOURCE',name:'B',code:'222222',replaces:{name:'A',code:'111111'}}];
+  lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,_pendingSameTargetCodeAdditions);`,h.ctx);
+assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0,
+  'journal-only crash scenario begins without explicit Settings debt');
+const crashActions=[];
+h.ctx.requestGsheetActionJson=async action=>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
+h.ctx.requestGsheetFormJson=async (action,params)=>{
+  crashActions.push(action);
+  assert.equal(action,'syncCodes');
+  assert.equal(params.forceSettingsRebase,'1');
+  assert.equal(JSON.parse(params.settingsReplacements)[0].previousName,'A');
+  h.response.settings.EDITABLE_PRICES=[{name:'B',code:'222222',assetType:'주식',
+    sector:'기타',currency:'KRW',market:'KR',targetWeight:37}];
+  return {status:'ok',updated:0};
+};
+assert.equal(await h.ctx.loadSettings(),true,'crash journal must repair Settings before stale Bootstrap');
+assert.deepEqual(crashActions,['syncCodes'],'no append or normal mutation after journal promotion');
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='B'&&ep.targetWeight===37)",h.ctx),true);
+assert.equal(vm.runInContext("EDITABLE_PRICES.some(ep=>ep.name==='A')",h.ctx),false);
+assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0);
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),0);
+h=setup();
+h.response.codes=[{name:'B',code:'222222',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+h.response.settings.EDITABLE_PRICES=[{name:'A',code:'111111',assetType:'주식',targetWeight:37}];
+vm.runInContext(`_pendingSameTargetCodeAdditions[GSHEET_API_URL]=[
+  {sourceId:'TEST_SOURCE',name:'B',code:'222222',replaces:{name:'A',code:'111111'}}];`,h.ctx);
+h.ctx.requestGsheetActionJson=async action=>
+  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
+h.ctx.requestGsheetFormJson=async()=>({status:'error',errorCode:'CODE_SYNC_SETTINGS_FAILED'});
+assert.equal(await h.ctx.loadSettings(),false,'failed repair must block stale Settings bootstrap');
+assert.equal(vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),1,
+  'newly promoted proof survives failed repair');
+assert.equal(vm.runInContext("_getSameTargetLocalCodeAdditions(GSHEET_API_URL,'TEST_SOURCE').length",h.ctx),1,
+  'original journal survives until verified Settings readback');
+console.log('✅ 브라우저 강제 종료 후 교체 journal 단독 보유 시 Settings 선복구·실패 보존 VM 통과');
+
 // Settings-only repair debt must run on a clean Bootstrap with NO trades,
 // holdings or pending code additions, before stale Settings can restore A.
 h=setup();
