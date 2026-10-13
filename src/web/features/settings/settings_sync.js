@@ -279,6 +279,45 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session) {
   });
 }
 
+
+// Track ONLY successful same-window code-master CAS readbacks. A fresh
+// getCodeList is not permission to overwrite another tab's newer metadata.
+let _gsheetStockMasterConfirmedSeq = 0;
+const _gsheetStockMasterConfirmedTransitions = new Map();
+function _stockMasterSyncFingerprint(items) {
+  if (!Array.isArray(items)) return '';
+  const rows = [], codes = new Set(), names = new Set();
+  for (const item of items) {
+    const code = _normalizeSyncCode(item?.code || '');
+    const name = String(item?.name || '').trim();
+    if (!code || !name || codes.has(code) || names.has(name)) return '';
+    codes.add(code); names.add(name);
+    rows.push([code,name,String(item.type || item.assetType || '주식').trim(),
+      String(item.sector || '기타').trim(),String(item.currency || 'KRW').trim().toUpperCase(),
+      String(item.market || '').trim().toUpperCase()]);
+  }
+  rows.sort((a,b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]));
+  return JSON.stringify(rows);
+}
+function _stockMasterHasOnlyConfirmedQueueChanges(target, sourceId, seqAtCall, before, after) {
+  if (!before || !after) return false;
+  if (before === after) return true;
+  let fingerprint = before;
+  for (const step of _gsheetStockMasterConfirmedTransitions.get(target) || []) {
+    if (step.seq <= seqAtCall || step.sourceId !== sourceId) continue;
+    if (step.before !== fingerprint) return false;
+    fingerprint = step.after;
+    if (fingerprint === after) return true;
+  }
+  return false;
+}
+function _rememberConfirmedCodeMasterChange(target, sourceId, before, after) {
+  if (!before || !after || before === after) return;
+  const transitions = _gsheetStockMasterConfirmedTransitions.get(target) || [];
+  transitions.push({seq:++_gsheetStockMasterConfirmedSeq,sourceId,before,after});
+  _gsheetStockMasterConfirmedTransitions.set(target,transitions.slice(-64));
+}
+
 // ── 종목코드 GSheet 자동 등록
 async function syncCodesToGsheet(options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
@@ -319,6 +358,9 @@ async function syncCodesToGsheet(options) {
     _syncWarn('[syncCodes] 서버 종목 마스터 스냅샷 미확인');
     return null;
   }
+  const fingerprintAtCall = _stockMasterSyncFingerprint(_gsheetCodeList);
+  const seqAtCall = _gsheetStockMasterConfirmedSeq;
+  if (!fingerprintAtCall) return null;
   return _queueGsheetStockMasterWrite(targetUrl, async () => {
     if (!isGsheetConnectionCurrent(targetUrl, generation)
         || (!duringRestore && sourceId !== String(_gsCodeMasterSourceIdentity || ''))
@@ -336,6 +378,12 @@ async function syncCodesToGsheet(options) {
         || String(_gsCodeMasterSourceIdentity || '') !== sourceId
         || fresh?.status !== 'ok' || fresh.codeMasterSourceId !== sourceId
         || !Array.isArray(fresh.codes)) return null;
+    const freshFingerprint = _stockMasterSyncFingerprint(fresh.codes);
+    if (!_stockMasterHasOnlyConfirmedQueueChanges(
+      targetUrl,sourceId,seqAtCall,fingerprintAtCall,freshFingerprint)) {
+      _syncWarn('[syncCodes] 호출 이후 타 탭 마스터 변경: 오래된 payload 쓰기 차단');
+      return null;
+    }
     applyGsheetCodeList(fresh.codes, sourceId);
   const expectedCodes = _gsheetCodeList.map(item => ({...item}));
   const expectedByCode = new Set(expectedCodes.map(item => _normalizeSyncCode(item.code)));
@@ -352,6 +400,7 @@ async function syncCodesToGsheet(options) {
       String(item.name || '').trim(), _normalizeSyncCode(item.code)
     ])));
   const replacements = [];
+  const settingsReplacements = [];
   let needsSettingsRebase = false;
   for (const item of localAdditions) {
     if (!item.replaces || _normalizeSyncCode(codeMap[item.name]?.code) !== _normalizeSyncCode(item.code)) continue;
@@ -369,6 +418,10 @@ async function syncCodesToGsheet(options) {
         prev.name === oldName || _normalizeSyncCode(prev.code) === oldCode);
       if (confirmed && oldAbsent && !(oldName === item.name && oldCode === _normalizeSyncCode(item.code))) {
         needsSettingsRebase = true;
+        settingsReplacements.push({
+          previousName:oldName,previousCode:oldCode,
+          name:String(item.name).trim(),code:_normalizeSyncCode(item.code)
+        });
         continue;
       }
       _syncWarn('[syncCodes] 원본과 매칭되지 않는 교체 이력은 신규 추가로 전환하지 않음');
@@ -398,7 +451,8 @@ async function syncCodesToGsheet(options) {
       'syncCodes',
       { codes: JSON.stringify(codeMap), expectedSourceId:sourceId,
         expectedCodes:JSON.stringify(expectedCodes), replacements:JSON.stringify(replacements),
-        forceSettingsRebase:needsSettingsRebase ? '1' : '' },
+        forceSettingsRebase:needsSettingsRebase ? '1' : '',
+        settingsReplacements:JSON.stringify(settingsReplacements) },
       { timeoutMs: 20000, retry: 1, targetUrl }
     );
     if (data?.status !== 'ok') {
@@ -414,15 +468,28 @@ async function syncCodesToGsheet(options) {
           || !Array.isArray(partial.codes)) return null;
       const currentByName = new Map(partial.codes.map(item =>
         [String(item.name || '').trim(), _normalizeSyncCode(item.code)]));
-      const fullyApplied = Object.entries(codeMap).every(([name, item]) =>
-        !_normalizeSyncCode(item.code) || currentByName.get(name) === _normalizeSyncCode(item.code))
-        && replacements.every(step => !partial.codes.some(row =>
+      const expectedByFullCode = Object.fromEntries(Object.entries(codeMap)
+        .filter(([,item]) => _normalizeSyncCode(item.code)));
+      const fullyApplied = _stockMasterSyncFingerprint(partial.codes)
+        && partial.codes.length === Object.keys(expectedByFullCode).length
+        && partial.codes.every(row => {
+          const item = expectedByFullCode[String(row.name || '').trim()];
+          return item && _normalizeSyncCode(item.code) === _normalizeSyncCode(row.code)
+            && String(item.type || '주식') === String(row.type || '주식')
+            && String(item.sector || '기타') === String(row.sector || '기타')
+            && String(item.currency || 'KRW').toUpperCase() === String(row.currency || 'KRW').toUpperCase()
+            && String(item.market || '').toUpperCase() === String(row.market || '').toUpperCase();
+        })
+        && [...replacements,...settingsReplacements].every(step => !partial.codes.some(row =>
           (step.previousCode !== step.code && _normalizeSyncCode(row.code) === step.previousCode)
           || (step.previousName !== step.name && String(row.name || '').trim() === step.previousName)));
       if (!fullyApplied) {
         _syncWarn('[syncCodes] 원격 부분 변경 또는 충돌: 자동 재전송 차단');
         return null;
       }
+      // This is an actual server-master confirmation even when its Settings
+      // repair later fails. A subsequent retry must not use a stale baseline.
+      applyGsheetCodeList(partial.codes, sourceId);
       // Rebase Settings from the already confirmed SERVER master, not stale
       // local metadata. Server enforces full-master CAS and ScriptLock again.
       const canonical = Object.fromEntries(partial.codes.map(row => [
@@ -434,7 +501,9 @@ async function syncCodesToGsheet(options) {
       ]).filter(([name,row]) => name && row.code));
       data = await requestGsheetFormJson('syncCodes', {
         codes:JSON.stringify(canonical), expectedSourceId:sourceId,
-        expectedCodes:JSON.stringify(partial.codes), replacements:'[]', forceSettingsRebase:'1'
+        expectedCodes:JSON.stringify(partial.codes), replacements:'[]',
+        settingsReplacements:JSON.stringify([...replacements,...settingsReplacements]),
+        forceSettingsRebase:'1'
       }, {timeoutMs:20000,retry:0,targetUrl});
       if (data?.status !== 'ok') {
         _syncWarn('[syncCodes] 코드 반영 후 Settings 복구 미완료: 변경 이력 보존', data);
@@ -462,7 +531,10 @@ async function syncCodesToGsheet(options) {
       _syncWarn('[syncCodes] 서버 마스터 확인 실패');
       return null;
     }
+    const checkedFingerprint = _stockMasterSyncFingerprint(checked.codes);
+    if (!checkedFingerprint) return null;
     applyGsheetCodeList(checked.codes, sourceId);
+    _rememberConfirmedCodeMasterChange(targetUrl,sourceId,freshFingerprint,checkedFingerprint);
     if (typeof _rebaseConfirmedSameTargetCodeReplacements === 'function') {
       _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceId, replacements);
     }
