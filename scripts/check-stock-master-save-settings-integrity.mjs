@@ -106,4 +106,44 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   assert.equal(f.state.settings.EDITABLE_PRICES[0].targetWeight,37);
   assert.equal(f.state.settings.APP_THEME,'dark');
 }
+{
+  // A has already been deleted server-side and converted to a new code-less
+  // fund. Another tab sends the stale coded A while saving its theme. The
+  // old canonicalizer silently erased this server-authoritative fund.
+  const converted={...fund,name:'A',assetType:'펀드',notes:'서버 전환 메모',targetWeight:37};
+  const f=fixture([C],[oldC,converted]);
+  const before=structuredClone(f.state.settings);
+  const rejected=f.save({EDITABLE_PRICES:[oldA,oldC],APP_THEME:'dark'});
+  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_STALE');
+  assert.equal(f.state.writes,0,'stale tab must never erase the converted fund');
+  assert.deepEqual(f.state.settings,before);
+  assert.equal(f.state.lock,false);
+}
+{
+  // Converted asset also changed its name. Source identity may no longer
+  // equal the new destination name; reject an orphan code + omitted fund.
+  const converted={...fund,name:'새 펀드',assetType:'펀드',notes:'전환 후 보존'};
+  const f=fixture([C],[oldC,converted]);
+  const rejected=f.save({EDITABLE_PRICES:[oldA,oldC],APP_THEME:'dark'});
+  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_STALE');
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].notes,'전환 후 보존');
+  assert.equal(f.state.writes,0);
+}
+{
+  // An intentional code-less fund removal from a CURRENT code master keeps
+  // working. Only an unknown coded alias combined with omission is unsafe.
+  const f=fixture([C],[oldC,fund]);
+  const removed=f.save({EDITABLE_PRICES:[oldC],APP_THEME:'dark'});
+  assert.equal(removed.status,'ok');
+  assert.deepEqual(f.state.settings.EDITABLE_PRICES.map(x=>x.name),['C']);
+  assert.equal(f.state.settings.APP_THEME,'dark');
+}
+{
+  // A stale coded entry without omission of any persisted fund is handled
+  // by the existing canonicalizer, not broadly blocked by the new guard.
+  const f=fixture([C],[oldC,fund]);
+  const saved=f.save({EDITABLE_PRICES:[oldA,oldC,fund],APP_THEME:'dark'});
+  assert.equal(saved.status,'ok');
+  assert.deepEqual(f.state.settings.EDITABLE_PRICES.map(x=>x.name),['C','TDF 직접']);
+}
 console.log('✅ 생산 GAS saveSettings: 교체 부분저장/타 탭/orphan·중복·누락 차단, 비중/메모·펀드/보호키 유지');
