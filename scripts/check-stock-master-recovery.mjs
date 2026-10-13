@@ -99,10 +99,10 @@ for(const [source,names] of [
   assert.match(source,/container\.querySelectorAll\('input,button'\)/,
     'management controls must be disabled while bootstrap pending');
 }
-assert.match(html,/mgmt_stock\.js\?v=20261014-3/);
+assert.match(html,/mgmt_stock\.js\?v=20261014-4/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/sw\.js\?v=20261014-10/);
-assert.match(sw,/portfolio-cache-20261014-10/);
+assert.match(sw,/portfolio-cache-20261014-11/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261014-1/);
@@ -111,7 +111,7 @@ assert.match(sw,/views_history\.js\?v=20261012-2/);
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
 assert.match(settings,/if \(_gsBootRestored && isGsheetConnectionCurrent\(bootTarget, bootGeneration\)/,
  'successful bootstrap must re-render disabled controls');
-assert.match(html,/mgmt_stock\.js\?v=20261014-3/);
+assert.match(html,/mgmt_stock\.js\?v=20261014-4/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
 assert.match(html,/settings\.js\?v=20261013-9/);
 assert.match(sw,/settings\.js\?v=20261013-9/);
@@ -1297,8 +1297,8 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     };
     let generation=5;
     const ctx={
-      console,GSHEET_API_URL:'https://script.google.com/macros/s/codeless/exec',
-      _gsCodeMasterSourceIdentity:'sheet-A',
+      console,GSHEET_API_URL:config.localOnly ? '' : 'https://script.google.com/macros/s/codeless/exec',
+      _gsCodeMasterSourceIdentity:config.localOnly ? '' : 'sheet-A',
       getGsheetConnectionGeneration:()=>generation,
       isGsheetConnectionCurrent:(url,gen)=>url===ctx.GSHEET_API_URL&&gen===generation,
       isStockMasterWriteBlocked:()=>false,
@@ -1372,6 +1372,12 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(await absent.save(),true,'uncommitted local NEW pair can become a direct fund');
   assert.deepEqual(absent.calls,['getCodeList']);
   assert.equal(absent.item.code,'');
+  const local=make({localOnly:true});
+  assert.equal(await local.save(),true,'offline/local portfolios retain code-less fund editing');
+  assert.equal(local.item.code,'');
+  assert.equal(local.item.assetType,'펀드');
+  assert.deepEqual(local.calls,[],'no remote GET/POST for a local-only portfolio');
+  assert.equal(local.saved(),1);
   const oldReplacement=make({noRemote:true,pendingReplacement:true});
   assert.equal(await oldReplacement.save(),false,'uncommitted replacement cannot impersonate a NEW pair');
   assert.equal(oldReplacement.item.code,'001234');
