@@ -41,20 +41,20 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.204');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.205');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.204','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.205','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
-const approvedFullSourceBlob='7e673bbb7349931935c3db6510cb9ddee1adbb6e';
+const approvedFullSourceBlob='e89cdefe611241c58754d6ff4583946b53e700b5';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.203',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.204',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
