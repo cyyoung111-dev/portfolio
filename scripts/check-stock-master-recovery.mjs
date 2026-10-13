@@ -1251,6 +1251,8 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
     _smFindDuplicateCode:()=>null,
     _smValidateListedCode:async()=>({ok:true}),
     isStockMasterEditSessionCurrent:()=>true,
+    _getSameTargetLocalCodeAdditions:()=>[],
+    deleteStockMasterCodeAfterPendingWrites:async()=>true,
     _forgetSameTargetLocalCodeAddition:()=>false,
     showMgmtMsg:(...args)=>displayed.push(args),
     rawTrades:[{name:'C',code:'000003'}],
