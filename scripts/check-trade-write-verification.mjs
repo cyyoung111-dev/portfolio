@@ -68,3 +68,70 @@ const genericSheet={getRange:()=>({getValues:()=>[[new Date('2026-10-07T00:00:00
 assert.throws(()=>ctx._verifyWrittenRange(genericSheet,2,1,values),/검증 실패/,
   'shared strict verifier for other data is unchanged');
 console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드/수량 차단·백업/잠금 보호 통과');
+
+
+// Actual GAS handler regression: a successful code row flush followed by a
+// failed Settings save must remain recoverable through same-master CAS.
+{
+  const gas=vm.createContext({console,Date,JSON,Number,String,Math,isFinite,isNaN});
+  vm.runInContext(source,gas);
+  const row=['1','A','주식','기타','','KR'];
+  let currentSettings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식'}]};
+  let settingsFails=true,writeAttempts=0,lockHeld=false,flushCount=0;
+  const codeSheet={
+    getLastRow:()=>2,getLastColumn:()=>6,
+    getRange:(r,c,n,m)=>({
+      getValues:()=>[row.slice(c-1,c-1+(m||1))],
+      setValues:values=>{for(let j=0;j<values.length;j++)row[c-1+j]=values[j][0];},
+    })
+  };
+  const workbook={getSheetByName:()=>codeSheet};
+  Object.assign(gas,{
+    CONFIG:{SHEET_CODES:'codes'},
+    getss:()=>workbook,
+    LockService:{getScriptLock:()=>({
+      waitLock:()=>{assert.equal(lockHeld,false);lockHeld=true;},
+      releaseLock:()=>{lockHeld=false;}
+    })},
+    SpreadsheetApp:{flush:()=>{flushCount++;}},
+    _portfolioCodeMasterSourceIdentity_:()=> 'sheet-1',
+    getCodeItems:()=>[{code:row[0],name:row[1],type:row[2],sector:row[3],currency:row[4]||'KRW',market:row[5]}],
+    _portfolioNormalizeCodeMasterSnapshot_:items=>JSON.stringify(items.map(x=>[
+      String(x.code),String(x.name),String(x.type||'주식'),String(x.sector||'기타'),
+      String(x.currency||'KRW'),String(x.market||'KR')
+    ])),
+    _parseArrayParam:p=>JSON.parse(p),
+    _cleanCode:c=>String(c||'').trim(),
+    _setCodeColumnText:()=>{},
+    _touchSnapshotIntegritySourceRevision:()=>{},
+    _readSettingsMap:()=>JSON.parse(JSON.stringify(currentSettings)),
+    _writeSettingsMap:m=>{writeAttempts++;if(settingsFails)return false;currentSettings=m;return true;},
+    _repairKnownCodeColumns:()=>[],
+    jsonError:(message,props)=>({status:'error',message,...props}),
+    jsonOk:props=>({status:'ok',...props}),
+  });
+  const incoming={B:{code:'2',type:'주식',sector:'기타',currency:'KRW',market:'KR'}};
+  const original=[{code:'1',name:'A',type:'주식',sector:'기타',currency:'KRW',market:'KR'}];
+  const first=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',JSON.stringify(original),
+    JSON.stringify([{previousName:'A',previousCode:'1',name:'B',code:'2'}]));
+  assert.equal(first.status,'error');
+  assert.equal(first.errorCode,'CODE_SYNC_SETTINGS_FAILED');
+  assert.equal(row[0],'2');
+  assert.equal(row[1],'B');
+  assert.equal(currentSettings.EDITABLE_PRICES[0].name,'A');
+  assert.ok(flushCount>0,'code master actually committed before Settings failure');
+  assert.equal(lockHeld,false);
+  settingsFails=false;
+  const current=gas.getCodeItems();
+  const repaired=gas.handleSyncCodes(JSON.stringify(incoming),'sheet-1',
+    JSON.stringify(current),'[]','1');
+  assert.equal(repaired.status,'ok');
+  assert.equal(row[0],'2');
+  assert.equal(row[1],'B');
+  assert.equal(currentSettings.EDITABLE_PRICES.length,1);
+  assert.equal(currentSettings.EDITABLE_PRICES[0].name,'B');
+  assert.equal(currentSettings.EDITABLE_PRICES[0].code,'2');
+  assert.equal(writeAttempts,2,'retry must actually persist Settings despite no code changes');
+  assert.equal(lockHeld,false);
+  console.log('✅ GAS 코드 부분 커밋→Settings 실패→동일 워크북 CAS 복구 통과');
+}
