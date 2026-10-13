@@ -201,7 +201,22 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   const gas=vm.createContext({console,Date,JSON,Number,String,Math,isFinite,isNaN});
   vm.runInContext(source,gas);
   let row=['1','A','주식','기타','','KR'];
-  let settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',targetWeight:37,notes:'영구 보존'}]};
+  const unrelatedSettings={
+    LOAN:{balance:357000000,rate:4.4},
+    REAL_ESTATE:[{address:'원본 부동산',value:123}],
+    DIVDATA:{'기존배당':{annual:42}},
+    fundDirect:{'코드없는펀드':{type:'펀드',targetWeight:9}},
+    APP_THEME:'dark'
+  };
+  const unrelatedSnapshot=JSON.stringify(unrelatedSettings);
+  const assertUnrelated=()=>{
+    for(const [key,value] of Object.entries(unrelatedSettings))
+      assert.deepEqual(settings[key],value,'deletion must not modify Settings key '+key);
+    assert.equal(JSON.stringify(Object.fromEntries(
+      Object.keys(unrelatedSettings).map(key=>[key,settings[key]]))),unrelatedSnapshot);
+  };
+  let settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',targetWeight:37,notes:'영구 보존'}],
+    ...structuredClone(unrelatedSettings)};
   let failDelete=false,failSettings=false,settingsWrites=0,locked=false,inserted=0,removed=0;
   let crashAfterCodeFlush=false,revision=0;
   const properties={};
@@ -300,6 +315,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(revision,1);
   assert.equal(locked,false);
   assert.equal(marker(),undefined,'successful delete clears durable marker');
+  assertUnrelated();
   assert.equal(globalSettingsWriterCalls,0,'no delete or recovery can bulk-rewrite Settings');
 
   // The GAS runtime can be forcibly terminated after deleteRow + flush:
@@ -307,7 +323,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   // deletion from persisted provenance before exposing stale Settings A.
   row=['1','A','주식','기타','','KR'];
   settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',
-    targetWeight:37,notes:'중단 직전 사용자 설정'}]};
+    targetWeight:37,notes:'중단 직전 사용자 설정'}],...structuredClone(unrelatedSettings)};
   crashAfterCodeFlush=true;
   const crashed=del();
   assert.equal(crashed.status,'error');
@@ -327,12 +343,14 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(recovered.settings.EDITABLE_PRICES.length,0,
     'deleted code cannot be resurrected from old Settings after reload');
   assert.equal(marker(),undefined,'verified recovery retires durable marker');
+  assertUnrelated();
   assert.equal(locked,false);
 
   // A hard stop immediately AFTER the marker is saved but BEFORE deletion
   // must roll back, retaining original custom Settings.
   row=['1','A','주식','기타','','KR'];
-  settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',targetWeight:59}]};
+  settings={EDITABLE_PRICES:[{name:'A',code:'1',assetType:'주식',targetWeight:59}],
+    ...structuredClone(unrelatedSettings)};
   failDelete=true;
   assert.equal(del().status,'error');
   assert.ok(marker());
@@ -343,6 +361,7 @@ console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드
   assert.equal(uncommitted.status,'ok');
   assert.equal(uncommitted.codes[0].code,'1');
   assert.equal(uncommitted.settings.EDITABLE_PRICES[0].targetWeight,59);
+  assertUnrelated();
   assert.equal(marker(),undefined);
   assert.equal(globalSettingsWriterCalls,0,'recovery may never clear unrelated Settings keys');
   assert.equal(locked,false);
