@@ -14189,6 +14189,79 @@ function _writeCodeDeleteEditablesOnly_(ss, expected, desired) {
 // the code master and Settings. Only this pinned same-workbook ScriptProperty
 // may authorize completing a half-deleted stock after a process restart.
 var CODE_DELETE_TXN_KEY_ = 'PF_PENDING_CODE_DELETE_TXN_V1';
+var CODE_DELETE_TXN_PART_PREFIX_ = CODE_DELETE_TXN_KEY_ + '_PART_';
+function _codeDeleteTxnPartKey_(id, index) {
+  return CODE_DELETE_TXN_PART_PREFIX_ + id + '_' + index;
+}
+// A ScriptProperty VALUE is limited to 9 KB. Use a conservative byte
+// threshold so long Korean notes and other custom Settings fields fit.
+function _codeDeleteTxnBytes_(value) {
+  return encodeURIComponent(String(value)).replace(/%[0-9a-f]{2}/gi, '.').length;
+}
+function _codeDeleteTxnChunks_(value) {
+  var chunks=[], part='';
+  // Split by Unicode code point, never between emoji surrogate halves.
+  for (var ch of String(value)) {
+    if (part.length + ch.length > 1600) { chunks.push(part); part=''; }
+    part += ch;
+  }
+  if (part) chunks.push(part);
+  return chunks;
+}
+// Must run under the same ScriptLock and only when NO transaction pointer
+// exists. A crash before committing the pointer may leave orphan fragments;
+// those can be reclaimed without touching any active recovery evidence.
+function _cleanOrphanCodeDeleteTxnParts_(props) {
+  if (props.getProperty(CODE_DELETE_TXN_KEY_)) return;
+  if (typeof props.getProperties !== 'function') return;
+  var all=props.getProperties();
+  Object.keys(all).forEach(function(key) {
+    if (key.indexOf(CODE_DELETE_TXN_PART_PREFIX_)===0) props.deleteProperty(key);
+  });
+}
+function _storeCodeDeleteTxn_(props, tx) {
+  var stored=JSON.parse(JSON.stringify(tx));
+  var parts=[], id='';
+  if (_codeDeleteTxnBytes_(JSON.stringify(stored)) > 7800) {
+    if (stored.settingsEntry===null || typeof stored.settingsEntry!=='object'
+        || Array.isArray(stored.settingsEntry))
+      throw new Error('CODE_DELETE_TXN_TOO_LARGE');
+    parts=_codeDeleteTxnChunks_(JSON.stringify(stored.settingsEntry));
+    if (!parts.length || parts.length>100)
+      throw new Error('CODE_DELETE_TXN_PART_COUNT');
+    id=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+    stored.settingsEntry=null;
+    stored.settingsParts={id:id,count:parts.length,
+      chars:JSON.stringify(tx.settingsEntry).length};
+  }
+  var marker=JSON.stringify(stored), written=[];
+  if (_codeDeleteTxnBytes_(marker)>7800)
+    throw new Error('CODE_DELETE_TXN_MARKER_TOO_LARGE');
+  try {
+    for (var i=0;i<parts.length;i++) {
+      var key=_codeDeleteTxnPartKey_(id,i);
+      props.setProperty(key,parts[i]);
+      if (props.getProperty(key)!==parts[i])
+        throw new Error('CODE_DELETE_TXN_PART_NOT_DURABLE');
+      written.push(key);
+    }
+    props.setProperty(CODE_DELETE_TXN_KEY_,marker);
+    if (props.getProperty(CODE_DELETE_TXN_KEY_)!==marker)
+      throw new Error('CODE_DELETE_TXN_NOT_DURABLE');
+  } catch(e) {
+    // If the canonical pointer was committed, retain ALL recovery bytes.
+    // Otherwise remove partial fragments; a killed process may leave
+    // orphans, cleaned before the next locked registration.
+    if (!props.getProperty(CODE_DELETE_TXN_KEY_)) {
+      written.forEach(function(key) {
+        try { props.deleteProperty(key); } catch(ignore) {}
+      });
+    }
+    throw e;
+  }
+  // Return the fully rehydrated form expected by existing recovery/finish.
+  return _pendingCodeDeleteTxn_();
+}
 function _pendingCodeDeleteTxn_() {
   var raw=PropertiesService.getScriptProperties().getProperty(CODE_DELETE_TXN_KEY_);
   if (!raw) return null;
@@ -14197,6 +14270,28 @@ function _pendingCodeDeleteTxn_() {
   if (!tx || tx.version!==1 || !tx.sourceId || !tx.name || !tx.code
       || !Object.prototype.hasOwnProperty.call(tx,'settingsEntry'))
     throw new Error('CODE_DELETE_TXN_INVALID');
+  if (tx.settingsParts) {
+    var desc=tx.settingsParts, props=PropertiesService.getScriptProperties();
+    if (!desc || typeof desc.id!=='string'
+        || !/^[a-z0-9-]+$/.test(desc.id)
+        || !Number.isInteger(desc.count) || desc.count<1 || desc.count>100
+        || !Number.isInteger(desc.chars) || desc.chars<1
+        || tx.settingsEntry!==null)
+      throw new Error('CODE_DELETE_TXN_PARTS_INVALID');
+    var serial='';
+    for (var j=0;j<desc.count;j++) {
+      var part=props.getProperty(_codeDeleteTxnPartKey_(desc.id,j));
+      if (!part) throw new Error('CODE_DELETE_TXN_PART_MISSING');
+      serial+=part;
+    }
+    if (serial.length!==desc.chars)
+      throw new Error('CODE_DELETE_TXN_PARTS_LENGTH_MISMATCH');
+    try { tx.settingsEntry=JSON.parse(serial); }
+    catch(e) { throw new Error('CODE_DELETE_TXN_PARTS_JSON_INVALID'); }
+    if (!tx.settingsEntry || typeof tx.settingsEntry!=='object'
+        || Array.isArray(tx.settingsEntry))
+      throw new Error('CODE_DELETE_TXN_PARTS_ENTRY_INVALID');
+  }
   return tx;
 }
 function _finishCodeDeleteTxn_(tx) {
@@ -14207,6 +14302,14 @@ function _finishCodeDeleteTxn_(tx) {
   props.deleteProperty(CODE_DELETE_TXN_KEY_);
   if (props.getProperty(CODE_DELETE_TXN_KEY_))
     throw new Error('CODE_DELETE_TXN_CLEAR_FAILED');
+  // Only now is it safe to retire the fragments. If cleanup is interrupted,
+  // the next locked transaction reclaims orphans; never erase live evidence.
+  if (tx.settingsParts) {
+    for (var j=0;j<tx.settingsParts.count;j++) {
+      try { props.deleteProperty(_codeDeleteTxnPartKey_(tx.settingsParts.id,j)); }
+      catch(ignore) {}
+    }
+  }
 }
 function _settlePendingCodeDeleteLocked_(ss) {
   var tx=_pendingCodeDeleteTxn_();
@@ -14877,9 +14980,8 @@ function handleDeleteUnreferencedCode(dataJson) {
     var deleteProps=PropertiesService.getScriptProperties();
     if (deleteProps.getProperty(CODE_DELETE_TXN_KEY_))
       return jsonError('이전 종목 삭제 복구 필요', {errorCode:'CODE_DELETE_TXN_PENDING'});
-    deleteProps.setProperty(CODE_DELETE_TXN_KEY_,JSON.stringify(pendingDelete));
-    if (!deleteProps.getProperty(CODE_DELETE_TXN_KEY_))
-      return jsonError('종목 삭제 복구 근거 저장 실패', {errorCode:'CODE_DELETE_TXN_NOT_DURABLE'});
+    _cleanOrphanCodeDeleteTxnParts_(deleteProps);
+    pendingDelete=_storeCodeDeleteTxn_(deleteProps,pendingDelete);
     if (rowIndex) cs.deleteRow(rowIndex);
     SpreadsheetApp.flush();
     if (getCodeItems(ss, true).some(function(item) {
