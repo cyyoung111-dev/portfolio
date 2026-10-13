@@ -280,6 +280,8 @@ function _bindStockMgmtEvents(container) {
 // 즉시 삭제 + 저장
 function smDelete(idx) {
   if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = typeof captureStockMasterEditSession === 'function'
+    ? captureStockMasterEditSession() : null;
   if(idx === null || idx === undefined) return;
   // confirm 전에 스냅샷 (DOM 재렌더 후에도 안전)
   const snapItem = EDITABLE_PRICES[idx] ? {...EDITABLE_PRICES[idx]} : null;
@@ -296,6 +298,21 @@ function smDelete(idx) {
   EDITABLE_PRICES.splice(realIdx, 1);
   if (typeof _forgetSameTargetLocalCodeAddition === 'function') {
     _forgetSameTargetLocalCodeAddition(snapItem.name, snapItem.code);
+  }
+  // An earlier syncCodes POST may still be in flight. A single target queue
+  // serializes the deletion AFTER that POST; server deletion is conditional
+  // on no remaining trades/holdings and exact source/code/name identity.
+  if (snapItem.code && typeof deleteStockMasterCodeAfterPendingWrites === 'function') {
+    deleteStockMasterCodeAfterPendingWrites(snapItem, editSession)
+      .then(ok => {
+        if (!ok && typeof showToast === 'function') {
+          showToast('⚠️ 서버 종목코드 삭제가 확인되지 않았습니다. 원격 거래/보유 참조 또는 연동 상태를 확인하세요.', 'warn', 6000);
+        }
+      })
+      .catch(e => {
+        console.warn('[종목코드 원격 삭제 보류]', e);
+        if (typeof showToast === 'function') showToast('⚠️ 서버 종목코드 삭제를 확인할 수 없습니다.', 'warn', 6000);
+      });
   }
   const sc2 = $el('stockMgmtBody');
   if(sc2) sc2._selectedIdx = null;
