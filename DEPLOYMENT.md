@@ -1,3 +1,12 @@
+## PR #493 Codex 추가 P2: 신규 종목 삭제·비동기 POST 경합 수정 (2026-10-13 · Draft/미배포)
+
+- 리뷰 HEAD db64a11에서 발견한 P2: 사용자가 신규 종목을 삭제할 때 이미 시작된 일반 syncCodes POST가 뒤늦게 완료되면 서버 종목 마스터와 브라우저 기초정보에 종목이 다시 나타날 수 있음.
+- 같은 GSheet URL의 웹 종목코드 쓰기를 `_queueGsheetStockMasterWrite`로 직렬화합니다. 일반 syncCodes는 큐의 실제 실행 시점에 최신 `EDITABLE_PRICES`에서 요청을 구성합니다. UI 삭제 시 이전 POST를 먼저 기다린 뒤 `deleteUnreferencedCode`를 실행해 같은 코드가 뒤늦게 재등록되지 않도록 합니다.
+- GAS `handleDeleteUnreferencedCode`: 같은 ScriptLock 아래 요청 대상 워크북 지문·코드·이름 일치 검증, 원격 거래/보유에서 참조하는 경우 삭제 금지, 서버 Settings의 동일 종목 기록과 코드 마스터 행 제거, 삭제 후 getCodeList 확인. UI에서도 원격 GET으로 삭제 결과를 확인하며 실패 시 경고를 표시합니다.
+- 실제 classic 웹 VM에서 이미 시작된 syncCodes POST를 지연한 상태로 삭제 요청을 추가하는 순서 테스트, 실제 GAS VM에서 타 워크북·거래 참조 시 삭제 거부 및 미참조 행/Settings 삭제 확인을 추가했습니다.
+- 검증 브랜치 GAS v9.199 최신 full-source blob: `0e38e4cf32ea23be3ccc11e7112eafa63e3d68b0`. 서명 고정 및 배포 사전검증 기대 SHA를 함께 갱신했습니다. 웹 assets `settings_sync=20261013-5`, `mgmt_stock=20261013-4`, `sw/cache=20261013-7`. 나머지 자산은 기존 최신 pin 유지.
+- 원본 Draft #489~#492, main, 운영 GAS와 인증키·거래원장·가격이력·Snapshot 실데이터를 변경하지 않았으며, 한국·미국장만 대상으로 CI 및 추가 재리뷰 중입니다.
+
 ## PR #493 신규 Codex 리뷰 P1 2건/P2 1건 추가 수정 (2026-10-13 · Draft/미배포)
 
 - 최신 리뷰(HEAD `9796f743`) P1: 동일 이름이 서로 다른 코드에 중복된 Bootstrap 마스터에서 `forEach` 내부 return으로 충돌이 무시됐습니다. **일반 for-of 및 즉시 false 반환**으로 코드·이름 중복을 전면 거부합니다.
