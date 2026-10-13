@@ -78,7 +78,7 @@ assert.match(history,/fullRestoreDone = typeof _gsBootRestored !== 'undefined'/,
 assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말고/,
  'read-only partial restore must warn that editing and saving are unsafe');
 
-assert.match(html,/settings_sync\.js\?v=20261013-8/);
+assert.match(html,/settings_sync\.js\?v=20261013-9/);
 
 assert.ok(html.includes('domain/portfolio/data.js?v=20261013-4'));
 assert.ok(sw.includes('domain/portfolio/data.js?v=20261013-4'));
@@ -101,11 +101,11 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261013-4/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261013-10/);
-assert.match(sw,/portfolio-cache-20261013-10/);
+assert.match(html,/sw\.js\?v=20261013-11/);
+assert.match(sw,/portfolio-cache-20261013-11/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
-assert.match(sw,/settings_sync\.js\?v=20261013-8/);
+assert.match(sw,/settings_sync\.js\?v=20261013-9/);
 assert.match(sw,/views_history\.js\?v=20261012-2/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
