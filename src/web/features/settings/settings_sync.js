@@ -326,13 +326,23 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session, options) {
         targetUrl,timeoutMs:15000,retry:1,preserveError:true
       });
       const rows=settings?.settings?.EDITABLE_PRICES;
+      const matches=Array.isArray(rows) ? rows.filter(ep=>
+        String(ep?.name||'').trim()===String(conversion.name).trim()
+        && !_normalizeSyncCode(ep?.code||'')
+        && String(ep?.assetType||ep?.type||'').trim()===String(conversion.assetType)
+      ) : [];
       if (!isGsheetConnectionCurrent(targetUrl,generation)
           || !localIntentIsCurrent() || settings?.status!=='ok'
-          || !Array.isArray(rows) || rows.filter(ep=>
-            String(ep?.name||'').trim()===String(conversion.name).trim()
-            && !_normalizeSyncCode(ep?.code||'')
-            && String(ep?.assetType||ep?.type||'').trim()===String(conversion.assetType)
-          ).length!==1) return false;
+          || matches.length!==1) return false;
+      // Server Settings (not a stale other-tab browser copy) is the
+      // authoritative source of allocation/notes and future custom fields.
+      // Refresh ONLY non-master fields: smSave still owns name/type/currency
+      // and the old code until the verified CAS promise returns.
+      const masterKeys=new Set(['name','code','type','assetType','sector','currency','market']);
+      for (const key of Object.keys(conversionItem))
+        if (!masterKeys.has(key)) delete conversionItem[key];
+      for (const [key,value] of Object.entries(matches[0]))
+        if (!masterKeys.has(key)) conversionItem[key]=value;
     }
     // Subsequent local edits must use the confirmed post-delete revision.
     applyGsheetCodeList(checked.codes, sourceId);
