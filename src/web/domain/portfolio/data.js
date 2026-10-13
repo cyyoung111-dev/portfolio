@@ -649,7 +649,8 @@ async function _retryPortfolioRemoteDirtySync(options) {
               generation,
               allowDuringRestore,
               holdingsOverride: dirty.holdings,
-              fundDirectOverride: dirty.fundDirect
+              fundDirectOverride: dirty.fundDirect,
+              masterCodesOverride: options?.masterCodesOverride
             })
           : Promise.resolve(null),
         typeof syncTradesToGsheet === 'function'
@@ -773,7 +774,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
                 generation: retryGeneration,
                 allowDuringRestore,
                 holdingsOverride: recoveryHoldings,
-                fundDirectOverride: recoveryFundDirect
+                fundDirectOverride: recoveryFundDirect,
+                masterCodesOverride: options?.masterCodesOverride
               })
             : Promise.resolve(null),
           typeof syncTradesToGsheet === 'function'
@@ -833,7 +835,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
           generation: retryGeneration,
           allowDuringRestore,
           holdingsOverride: [],
-          fundDirectOverride: pinnedFundDirect
+          fundDirectOverride: pinnedFundDirect,
+          masterCodesOverride: options?.masterCodesOverride
         })
       : null;
 
