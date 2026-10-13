@@ -42,7 +42,7 @@ const REVIEWED_GAS_SOURCE_BLOBS = Object.freeze({
   '9.201': 'd3d4ce4a9f7db4096f99b8b214dad959736ecb5f',
   '9.202': '23dd4fa2c455c315d6925d57f3bdfe5baec40aeb',
   '9.203': '7e673bbb7349931935c3db6510cb9ddee1adbb6e',
-  '9.204': 'e89cdefe611241c58754d6ff4583946b53e700b5',
+  '9.204': 'b4a81fafcd87dd101c625087c6df5323ab0df069',
 });
 
 export function gasSourceBlobSha(source) {
