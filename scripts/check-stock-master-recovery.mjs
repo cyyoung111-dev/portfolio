@@ -790,6 +790,27 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(vm.runInContext(
     '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"sheet-A").length',create(flaky)),0);
 
+  // A completed Settings-only CAS must not discard its durable debt when
+  // the local tombstone write itself fails.
+  assert.equal(vm.runInContext(
+    '_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,"sheet-A",'+
+      '[{previousName:"T",previousCode:"8",name:"T",code:"8",metadataOnly:true,userFields:{targetWeight:45}}])',
+      tabFlaky),true);
+  refuseWrites=true;
+  assert.equal(vm.runInContext(
+    '_forgetSameTargetCodeSettingsRepairs(GSHEET_API_URL,"sheet-A",'+
+      '[{previousName:"T",previousCode:"8",name:"T",code:"8",metadataOnly:true}])',
+      tabFlaky),false,'failed Settings tombstone must be reported');
+  assert.equal(vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,"sheet-A").length',create(flaky)),1);
+  refuseWrites=false;
+  assert.equal(vm.runInContext(
+    '_forgetSameTargetCodeSettingsRepairs(GSHEET_API_URL,"sheet-A",'+
+      '[{previousName:"T",previousCode:"8",name:"T",code:"8",metadataOnly:true}])',
+      tabFlaky),true);
+  assert.equal(vm.runInContext(
+    '_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,"sheet-A").length',create(flaky)),0);
+
   // Legacy v1 journal must be migrated to per-pair storage before network sync.
   const old=create();
   const legacy={sourceId:'old-book',name:'M',code:'7',userFields:{targetWeight:35}};
@@ -799,5 +820,21 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(vm.runInContext('_refreshSameTargetPendingAppendFields(GSHEET_API_URL,"old-book",items)',old),true);
   assert.equal(vm.runInContext(
     '_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"old-book").length',create()),1);
-  console.log('✅ 원본별 journal 삭제 격리, Storage 보안·Quota 실패 fail-closed, v1 영속 이관');
+  // Existing pre-upgrade A/1->N/8 replacement is equally crash-sensitive.
+  // It must be migrated even though it is NOT an authorized new append.
+  const replace={sourceId:'old-book',name:'N',code:'8',type:'주식',
+    replaces:{name:'A',code:'1'}};
+  old.legacyReplacements=[legacy,replace];
+  vm.runInContext('lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,{[GSHEET_API_URL]:legacyReplacements})',old);
+  old.items=[{name:'M',code:'7',targetWeight:35},{name:'N',code:'8'}];
+  assert.equal(vm.runInContext(
+    '_refreshSameTargetPendingAppendFields(GSHEET_API_URL,"old-book",items)',old),true,
+    'legacy replacement must be made durable before any Codes POST');
+  vm.runInContext('lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,{[GSHEET_API_URL]:[legacy]})',old);
+  const newBrowser=create();
+  const confirmed=vm.runInContext('_getSameTargetLocalCodeAdditions(GSHEET_API_URL,"old-book")',newBrowser);
+  assert.equal(confirmed.length,2,'stale v1 whole-map overwrite cannot erase migrated A->N proof');
+  assert.equal(confirmed.find(x=>x.name==='N').replaces.name,'A');
+  assert.equal(confirmed.find(x=>x.name==='N').replaces.code,'1');
+  console.log('✅ 원본별 tombstone 실패 차단·저장보안·Quota·v1 신규/교체 이관 검증');
 }
