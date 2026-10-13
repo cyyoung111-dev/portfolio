@@ -78,7 +78,7 @@ assert.match(history,/fullRestoreDone = typeof _gsBootRestored !== 'undefined'/,
 assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말고/,
  'read-only partial restore must warn that editing and saving are unsafe');
 
-assert.match(html,/settings_sync\.js\?v=20261014-1/);
+assert.match(html,/settings_sync\.js\?v=20261014-2/);
 
 assert.ok(html.includes('domain/portfolio/data.js?v=20261014-9'));
 assert.ok(sw.includes('domain/portfolio/data.js?v=20261014-9'));
@@ -101,11 +101,11 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261014-4/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261014-11/);
-assert.match(sw,/portfolio-cache-20261014-11/);
+assert.match(html,/sw\.js\?v=20261014-12/);
+assert.match(sw,/portfolio-cache-20261014-12/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
-assert.match(sw,/settings_sync\.js\?v=20261014-1/);
+assert.match(sw,/settings_sync\.js\?v=20261014-2/);
 assert.match(sw,/views_history\.js\?v=20261012-2/);
 
 const settings=fs.readFileSync('src/web/features/settings/settings.js','utf8');
@@ -1302,8 +1302,6 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       getGsheetConnectionGeneration:()=>generation,
       isGsheetConnectionCurrent:(url,gen)=>url===ctx.GSHEET_API_URL&&gen===generation,
       isStockMasterWriteBlocked:()=>false,
-      isStockMasterEditSessionCurrent:sess=>sess?.sourceId===ctx._gsCodeMasterSourceIdentity
-        && sess?.generation===generation && sess?.targetUrl===ctx.GSHEET_API_URL,
       captureStockMasterEditSession:()=>({targetUrl:ctx.GSHEET_API_URL,generation,
         sourceId:ctx._gsCodeMasterSourceIdentity}),
       preventUnsafeStockMasterEdit:()=>false,
@@ -1348,6 +1346,10 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
       }
     };
     vm.createContext(ctx);
+    const currentStart=syncCode.indexOf('function isStockMasterEditSessionCurrent(session) {');
+    const currentEnd=syncCode.indexOf('function preventUnsafeStockMasterEdit()',currentStart);
+    assert.ok(currentStart>=0 && currentEnd>currentStart);
+    vm.runInContext(syncCode.slice(currentStart,currentEnd),ctx);
     vm.runInContext(syncCode.slice(queueStart,queueEnd),ctx);
     vm.runInContext(stockCode.slice(start,end),ctx);
     return {ctx,remote,item,fields,calls,notices,
