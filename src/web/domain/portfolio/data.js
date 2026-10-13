@@ -505,9 +505,13 @@ function _stockDurablePairKey(prefix,target,entry) {
 }
 function _stockPerPairStorageAvailable() {
   try {
-    return typeof localStorage !== 'undefined' && localStorage
-      && typeof localStorage.key === 'function'
-      && Number.isInteger(localStorage.length);
+    if (typeof localStorage === 'undefined' || !localStorage
+        || typeof localStorage.key !== 'function'
+        || !Number.isInteger(localStorage.length)) return false;
+    // A sandbox may expose Storage.length but throw on key enumeration.
+    // Probe access here before a registration is accepted as durable.
+    localStorage.key(0);
+    return true;
   } catch (error) {
     // Browsers may reject even the Storage getter or enumeration.
     return false;
@@ -743,7 +747,7 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
   // An edit that returns to the original canonical pair needs no replacement.
   if (prior && root && String(root.name || '').trim() === name
       && normalized(root.code) === code) {
-    _forgetSameTargetLocalCodeAddition(precedingName, precedingCode, target);
+    _forgetSameTargetLocalCodeAddition(precedingName, precedingCode, target, sourceId);
     return true;
   }
   const removed=records.filter(record=>record?.sourceId===sourceId
