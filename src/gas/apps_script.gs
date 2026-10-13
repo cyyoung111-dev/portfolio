@@ -14659,7 +14659,13 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
         });
         // Accept an idempotent already-repaired pair, but never combine two
         // Settings rows or silently discard a former row's custom fields.
-        if (oldStored.length>1 || newStored.length>1
+        var conflictingAlias=storedRows.some(function(row) {
+          var name=String(row&&row.name||'').trim(),code=_cleanCode(row&&row.code||'');
+          return (name===toName || code===toCode)
+            && !(name===toName && code===toCode)
+            && !(name===fromName && code===fromCode);
+        });
+        if (oldStored.length>1 || newStored.length>1 || conflictingAlias
             || (oldStored.length===1 && newStored.length===1)
             || (oldStored.length===0 && newStored.length===0))
           return jsonError('Settings 이전 원본 식별 불가', {errorCode:'CODE_REBASE_SETTINGS_AMBIGUOUS'});
@@ -14789,13 +14795,9 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
         masterNames[name]=true;
         var old=previous.find(function(ep) {
           return String(ep&&ep.name||'').trim()===name && _cleanCode(ep&&ep.code||'')===code;
-        }) || previous.find(function(ep) {
-          return _cleanCode(ep&&ep.code||'')===code && code;
-        }) || previous.find(function(ep) {
-          return String(ep&&ep.name||'').trim()===name;
         });
-        // On full-pair rename, preserve original metadata by explicit CAS
-        // provenance; avoid losing unrelated local per-asset flags.
+        // Explicit verified replacement provenance wins over ambiguous
+        // name-only/code-only legacy aliases, preserving original custom flags.
         if (!old) {
           var metadataProvenance=replacements.concat(settingsOnlyReplacements);
           for (var i=0;i<metadataProvenance.length;i++) {
@@ -14808,6 +14810,11 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
             if (old) break;
           }
         }
+        if (!old) old=previous.find(function(ep) {
+          return _cleanCode(ep&&ep.code||'')===code && code;
+        }) || previous.find(function(ep) {
+          return String(ep&&ep.name||'').trim()===name;
+        });
         var entry={};
         if (old && typeof old==='object')
           Object.keys(old).forEach(function(k) { entry[k]=old[k]; });
