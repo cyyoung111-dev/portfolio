@@ -1098,6 +1098,10 @@ assert.equal(cleanHoldings.status,'ok');
 assert.ok(holdRowWrites>0,'valid holding still syncs');
 assert.equal(lockDepth,0,'holdings lock released on both conflict/success');
 gasCtx.getss=restoreGetss;
+// The normal Settings API intentionally uses the generic writer. The
+// destructive-writer guard belongs ONLY to the deletion transaction; restore
+// the general API fixture after isolated delete safety checks.
+gasCtx._writeSettingsMap=settings=>{deletedServerSettings=settings;return true;};
 
 
 // Stale Settings may not reinsert a code removed by a different tab, even
