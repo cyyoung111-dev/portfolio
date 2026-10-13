@@ -1138,7 +1138,8 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   assert.equal(vm.runInContext(
     '_rebaseConfirmedSameTargetCodeReplacements(GSHEET_API_URL,"sheet-A",confirmedServer)',
     rebasedTab),true);
-  assert.equal(viewPair(create(completedStorage))[0].replaces.name,'B');
+  assert.equal(viewPair(create(completedStorage)).find(x=>x.name==='C')?.replaces.name,'B',
+    'C uses the newly confirmed B root during the transient cleanup window');
   assert.equal(vm.runInContext(
     '_forgetSameTargetLocalCodeAddition("B","2",GSHEET_API_URL,"sheet-A")',
     rebasedTab),true);
