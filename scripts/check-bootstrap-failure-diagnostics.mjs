@@ -459,9 +459,11 @@ h.response.codes=[{name:'B',code:'2',type:'주식',sector:'기타',currency:'KRW
 h.response.settings.EDITABLE_PRICES=[{name:'A',code:'1',assetType:'주식',sector:'기타',targetWeight:37}];
 vm.runInContext(`_rememberSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE',[
   {previousName:'A',previousCode:'1',name:'B',code:'2'}])`,h.ctx);
-const settingsRepairActions=[];
-h.ctx.requestGsheetActionJson=async action=>
-  action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
+const settingsRepairActions=[],settingsReadActions=[];
+h.ctx.requestGsheetActionJson=async action=>{
+  settingsReadActions.push(action);
+  return action==='getCodeList' ? {status:'ok',codes:h.response.codes,codeMasterSourceId:'TEST_SOURCE'} : h.response;
+};
 h.ctx.requestGsheetFormJson=async (action,params)=>{
   settingsRepairActions.push(action);
   assert.equal(action,'syncCodes','clean Bootstrap must perform Settings-only repair');
@@ -474,7 +476,9 @@ h.ctx.requestGsheetFormJson=async (action,params)=>{
 };
 const cleanRepairResult=await h.ctx.loadSettings();
 if (!cleanRepairResult) console.log('BOOTSTRAP_REPAIR_DIAG',h.ctx.getGsheetSettingsLoadFailure(),
-  'writeActions',settingsRepairActions,
+  'writeActions',settingsRepairActions,'readActions',settingsReadActions,
+  'fingerprint',h.ctx._stockMasterSyncFingerprint(h.response.codes),
+  'isCurrent',vm.runInContext("isGsheetConnectionCurrent(GSHEET_API_URL,getGsheetConnectionGeneration())",h.ctx),
   'debt',vm.runInContext("_getSameTargetCodeSettingsRepairs(GSHEET_API_URL,'TEST_SOURCE')",h.ctx),
   'settings',h.response.settings.EDITABLE_PRICES);
 assert.equal(cleanRepairResult,true,'clean Bootstrap retries saved Settings debt');
