@@ -495,7 +495,14 @@ function _recordSameTargetLocalCodeAddition(item, editSession) {
     name, code, sourceId, type: String(item.assetType || item.type || '주식'),
     sector: String(item.sector || '기타'),
     currency: String(item.currency || 'KRW').toUpperCase(),
-    market: String(item.market || '').toUpperCase()
+    market: String(item.market || '').toUpperCase(),
+    // A simultaneous name+code edit must replace exactly its ORIGINAL row,
+    // not append a second identity. Both identities are tied to this source.
+    ...(item.replaces && item.replaces.name && item.replaces.code
+      ? { replaces: {
+          name:String(item.replaces.name).trim(),
+          code:String(item.replaces.code).trim()
+        }} : {})
   });
   _pendingSameTargetCodeAdditions[target] = others;
   lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, _pendingSameTargetCodeAdditions);
