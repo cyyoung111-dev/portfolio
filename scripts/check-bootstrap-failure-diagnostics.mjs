@@ -1261,7 +1261,11 @@ const renameCtx=vm.createContext({
   _cleanCode:code=>String(code||'').trim(),
   _parseArrayParam:val=>{const x=JSON.parse(val);if(!Array.isArray(x))throw Error('invalid');return x},
   _readSettingsMap:()=>renameSettings,
-  _writeSettingsMap:map=>{renameSettings=map;return 1},
+  _writeCodeSyncEditablesOnly_:(ss,previous,desired)=>{
+    assert.equal(JSON.stringify(previous),JSON.stringify(renameSettings.EDITABLE_PRICES));
+    renameSettings.EDITABLE_PRICES=desired.map(row=>({...row}));
+    return true;
+  },
   getCodeItems:()=>renameRows.map(x=>({code:x[0],name:x[1],type:x[2],sector:x[3],currency:x[4]||'KRW',market:x[5]})),
   _setCodeColumnText:()=>{},_touchSnapshotIntegritySourceRevision:()=>{},
   _repairKnownCodeColumns:()=>[],CONFIG:{SHEET_CODES:'종목코드'},
