@@ -80,8 +80,8 @@ assert.match(history,/전체 설정 복원 미완료: 변경·저장하지 말�
 
 assert.match(html,/settings_sync\.js\?v=20261014-1/);
 
-assert.ok(html.includes('domain/portfolio/data.js?v=20261014-9'));
-assert.ok(sw.includes('domain/portfolio/data.js?v=20261014-9'));
+assert.ok(html.includes('domain/portfolio/data.js?v=20261014-10'));
+assert.ok(sw.includes('domain/portfolio/data.js?v=20261014-10'));
 
 // A partial master preview must not allow any mutation via the management
 // entry points. Both UI disable and handler-level guards are required.
@@ -101,8 +101,8 @@ for(const [source,names] of [
 }
 assert.match(html,/mgmt_stock\.js\?v=20261014-2/);
 assert.match(html,/mgmt_sector\.js\?v=20261012-2/);
-assert.match(html,/sw\.js\?v=20261014-9/);
-assert.match(sw,/portfolio-cache-20261014-9/);
+assert.match(html,/sw\.js\?v=20261014-10/);
+assert.match(sw,/portfolio-cache-20261014-10/);
 
 assert.match(html,/views_history\.js\?v=20261012-2/);
 assert.match(sw,/settings_sync\.js\?v=20261014-1/);
@@ -1393,6 +1393,26 @@ console.log('Read-only empty stock master rescue and safe stale generation test 
   await preceding;
   assert.equal(await pending,true);
   assert.deepEqual(conflict.calls,['getCodeList','deleteUnreferencedCode','getCodeList']);
+  // Regression: while a code-removal CAS is queued, an unrelated row can
+  // disappear. A stale smSave index must never delete the converted item.
+  const shifted=make();
+  shifted.ctx.EDITABLE_PRICES.unshift({name:'무관한 선행 펀드',code:'',assetType:'펀드'});
+  let resumeShift;
+  const waitForShift=new Promise(resolve=>{resumeShift=resolve});
+  const beforeShift=vm.runInContext('_queueGsheetStockMasterWrite(GSHEET_API_URL,async()=>await blocker)',
+    Object.assign(shifted.ctx,{blocker:waitForShift}));
+  const savingShift=vm.runInContext('smSave(1)',shifted.ctx);
+  for(let i=0;i<6;i++)await Promise.resolve();
+  shifted.ctx.EDITABLE_PRICES.shift();
+  resumeShift();
+  await beforeShift;
+  assert.equal(await savingShift,true,'reordered master conversion should succeed');
+  assert.equal(shifted.ctx.EDITABLE_PRICES.length,1,
+    'unrelated row deletion must not remove target during dedup');
+  assert.equal(shifted.ctx.EDITABLE_PRICES[0],shifted.item,
+    'dedup must resolve actual item reference after awaited CAS');
+  assert.equal(shifted.item.code,'');
+  assert.equal(shifted.remote.length,0);
   const switchDuringWait=make();
   let unlock;
   const block=new Promise(resolve=>{unlock=resolve});
