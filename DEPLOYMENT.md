@@ -1,3 +1,11 @@
+## PR #493 Codex P2 — 메타데이터 부분 커밋 복구 근거 정정 (2026-10-13)
+
+- **원인**: 웹 `syncCodesToGsheet()`는 메타데이터만 GAS 코드 시트에 확정되었으나 Settings 복구가 실패하면 임의 `partial.codes[0]`을 `metadataOnly` 영속 부채에 기록했습니다. 무관한 그 행을 다른 탭에서 삭제하면 다음 Bootstrap이 실변경 종목과 무관하게 영구 실패했습니다.
+- **보완**: 새 `_stockMasterMetadataOnlyRepairProof(before,after)`는 전필드 코드 마스터 fingerprint와 동일 종목명+코드 identity 집합을 확인한 뒤 실제 type/sector/currency/market 필드가 변경된 행만 추출합니다. 증명되지 않은 추가·삭제·교체는 metadataOnly 기록으로 우회하지 않고 fail-closed 처리합니다. 기존 `metadataOnly:true` 복구 부채는 행 식별자 존재를 요구하지 않고, 동일 workbook source ID의 현재 전체 master fingerprint/CAS로 Settings를 재기준화합니다. 실제 종목명/코드 교체 부채는 기존 엄격한 원본·대상 존재 검사를 계속 적용합니다.
+- **실제 VM 회귀**: A+B 마스터에서 B 섹터 부분 커밋·Settings 연속 실패 시 영속 부채가 B를 가리키는지 확인, 타 탭 A 삭제 후 B 단독 마스터로 CAS Settings 복구와 부채 해제 검증. 구버전에서 잘못 A를 가리키는 metadataOnly 부채가 남은 상태에서도 Bootstrap이 최신 B 서버 Settings를 재조회하고 `targetWeight` 37을 보존하는 테스트 추가.
+- **정적 자산**: `settings_sync.js?v=20261013-19` 및 PWA `portfolio-cache-20261013-23`. GAS 기존 v9.205 전체 소스/승인 blob은 변경하지 않음. `main`, 원본 Draft #489~#492, 운영 GAS·Sheets·트리거/배포 변경 없음. 실제 운영 복구는 미실행.
+
+---
 ## PR #493 Codex P1 — 종목 삭제 시 Settings 전체 유실 차단 (2026-10-13)
 
 - **원인**: v9.204 삭제 경로가 원본 설정을 읽은 뒤 `_writeSettingsMap()`의 모든 Settings row `clearContent()`→재기록을 실행했습니다. 실행이 중단되는 순간 LOAN, REAL_ESTATE, DIVDATA, 코드 없는 펀드, 기타 종목별 설정까지 누락될 수 있고, 삭제 journal에는 삭제 대상 1건만 보존되어 전역 Settings 유실을 되돌릴 수 없었습니다.
