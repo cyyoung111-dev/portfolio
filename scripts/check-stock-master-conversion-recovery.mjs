@@ -29,6 +29,7 @@ function fixture(opts={}) {
     throwCodeBefore:!!opts.codeBefore,throwCodeAfter:!!opts.codeAfter,
     throwSettings:!!opts.settingsOnce,throwClear:!!opts.clearOnce,
     failChunkOnce:!!opts.failChunkOnce,
+    failChunkAt:Number(opts.failChunkAt||0),chunkWrites:0,
     locked:false,wholeClear:0
   };
   if(opts.longNotes)state.cells[2][1]=JSON.stringify([{...base,notes:'한'.repeat(
@@ -68,9 +69,12 @@ function fixture(opts={}) {
     getProperty:k=>state.props.get(k)||null,
     setProperty:(k,v)=>{
       if(Buffer.byteLength(v,'utf8')>9000)throw Error('SCRIPT_PROPERTY_VALUE_TOO_LARGE');
-      if(state.failChunkOnce && k.includes('_PART_')) {
-        state.failChunkOnce=false;
-        throw Error('INJECTED_CHUNK_WRITE_FAILURE');
+      if(k.includes('_PART_')) {
+        state.chunkWrites++;
+        if(state.failChunkOnce || (state.failChunkAt && state.chunkWrites===state.failChunkAt)) {
+          state.failChunkOnce=false;
+          throw Error('INJECTED_CHUNK_WRITE_FAILURE');
+        }
       }
       state.props.set(k,v);
     },
@@ -192,6 +196,31 @@ function checkConverted(t,name='원종목',expectedNotes='original memo') {
   assert.equal(t.state.settingsWrites,0);
 }
 {
+  const t=fixture({codeAfter:true,longNotes:true,extremeNotes:true});
+  assert.equal(t.submit().status,'error');
+  const [partKey,bytes]=t.parts()[0];
+  t.state.props.set(partKey,bytes.replace('한','가'));
+  assert.equal(t.state.props.get(partKey).length,bytes.length);
+  assert.throws(()=>t.settle(),/CODE_DELETE_TXN_PARTS_HASH_MISMATCH/,
+    'same-length but different metadata bytes are never accepted');
+  assert.ok(t.marker(),'corruption cannot retire the recovery pointer');
+  assert.equal(t.state.settingsWrites,0);
+}
+{
+  const t=fixture({longNotes:true,extremeNotes:true,failChunkAt:2});
+  assert.equal(t.submit().status,'error','partial multi-key write aborts before code delete');
+  assert.equal(t.state.codeDeletes,0);
+  assert.equal(t.marker(),undefined);
+  assert.equal(t.parts().length,0,'already written chunks must roll back');
+}
+{
+  const t=fixture({longNotes:true,extremeNotes:true});
+  t.state.props.set('PF_PENDING_CODE_DELETE_TXN_V1_PART_orphan_0','old-crash');
+  assert.equal(t.submit().status,'ok');
+  assert.equal(t.parts().length,0,'next locked request reclaims pre-pointer crash orphans');
+  checkConverted(t,'원종목','한'.repeat(4000));
+}
+{
   const t=fixture({longNotes:true,extremeNotes:true,failChunkOnce:true});
   assert.equal(t.submit().status,'error','failed journal fragment blocks delete');
   assert.equal(t.state.codeDeletes,0,'no server mutation before durable marker');
@@ -256,4 +285,4 @@ function checkConverted(t,name='원종목',expectedNotes='original memo') {
   assert.equal(t.state.codes.length,0);
   assert.deepEqual(t.settings().EDITABLE_PRICES,[other],'ordinary deletion must not add a fund');
 }
-console.log('✅ 실제 GAS 무코드 전환: 4000자 한글 분할·장애/누락/손상 차단·강제종료·원본 필드·일반삭제 보존');
+console.log('✅ 실제 GAS 무코드 전환: 4000자 한글 분할·부분쓰기·동일 길이 변조·고아 키 정리·강제종료·일반삭제 보존');
