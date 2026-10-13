@@ -14630,27 +14630,28 @@ function handleSaveSettings(dataJson) {
         entry.market=String(row.market||'').toUpperCase();
         canonical.push(entry);
       });
-      // A different browser may still hold the *old coded identity* after
-      // our crash-safe delete+fund conversion has committed on the server.
-      // Such a stale full Settings save must NOT silently erase the new fund.
-      // Keep explicit omission-based deletion of an already loaded codeless
-      // fund working: reject only when the incoming payload demonstrably
-      // contains the predecessor's coded identity at the same name.
-      var staleConvertedFund=(settings.EDITABLE_PRICES||[]).find(function(stored) {
-        var fundName=String(stored&&stored.name||'').trim();
-        return fundName && !_cleanCode(stored.code||'')
+      // When the server converted a coded item to a code-less fund in
+      // another tab, an older browser may submit its now-unknown coded pair
+      // alongside a Settings array that omits the new fund entirely.
+      // The fund may ALSO have been renamed during conversion; comparing
+      // old and new names is not a sufficient guard. Fail the whole stale
+      // save before it can erase any existing code-less fund. Explicit fund
+      // deletion from a current master (no orphan coded pair) still works.
+      var incomingHasOrphanCode=incoming.EDITABLE_PRICES.some(function(ep) {
+        var name=String(ep&&ep.name||'').trim(),code=_cleanCode(ep&&ep.code||'');
+        return !!code && !lockedPairs[JSON.stringify([name,code])];
+      });
+      var storedFundOmitted=(settings.EDITABLE_PRICES||[]).some(function(ep) {
+        var name=String(ep&&ep.name||'').trim();
+        return name && !_cleanCode(ep&&ep.code||'')
           && ['TDF','펀드','FUND'].indexOf(
-            String(stored.assetType||stored.type||'').trim().toUpperCase())!==-1
-          && !retainedFunds.some(function(ep) {
-            return String(ep.name||'').trim()===fundName;
-          })
-          && incoming.EDITABLE_PRICES.some(function(ep) {
-            return String(ep&&ep.name||'').trim()===fundName
-              && !!_cleanCode(ep&&ep.code||'');
+            String(ep.assetType||ep.type||'').trim().toUpperCase())!==-1
+          && !retainedFunds.some(function(incomingFund) {
+            return String(incomingFund.name||'').trim()===name;
           });
       });
-      if (staleConvertedFund)
-        return jsonError('다른 브라우저에서 종목이 무코드 펀드로 전환됨: 설정 새로고침 후 저장', {
+      if (incomingHasOrphanCode && storedFundOmitted)
+        return jsonError('서버에서 종목이 변경됨: 기초정보 재조회 후 설정을 저장하세요', {
           errorCode:'SETTINGS_CODELESS_FUND_STALE'
         });
       retainedFunds.forEach(function(ep) {
