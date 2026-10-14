@@ -2151,11 +2151,11 @@ console.log('✅ Production writer + 복구 경로 통합·중복 삭제 차단�
   for(const name of ['_readPendingKrxCloseDates_','_completePendingKrxCloseDate_',
     '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
   const first=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
-  assert.equal(first.date,'2026-09-28',
+  assert.equal(first.date,'2026-10-08',
     '독립 야간 백필은 오늘 포함 모든 대기일을 커서 순서로 처리');
-  assert.deepEqual(observed,['2026-09-28']);
+  assert.deepEqual(observed,['2026-10-08']);
   assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),
-    ['2026-09-29','2026-10-08'],'과거 날짜 완료 후 오늘 누락일 보존');
+    ['2026-09-28','2026-09-29'],'당일 복구 후 과거 누락일 보존');
 }
 console.log('✅ 독립 백필의 오늘 누락 우선·과거 실패 공정성 회귀');
 
@@ -2323,7 +2323,7 @@ console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존
     '300건 일반 큐에도 당일 watchdog 예약은 성공');
   assert.equal(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).length,301);
   assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-08',true).ok,true);
-  assert.deepEqual(processed,['2024-01-01'],'300건 과거 대기열도 순환 커서에 따라 복구');
+  assert.deepEqual(processed,['2026-10-08'],'당일 복구는 과거 300건 대기열보다 먼저 수행');
   assert.equal(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).length,300,
     '과거 300건은 버리지 않고 그대로 보존');
   const full=Array.from({length:600},(_,i)=>
