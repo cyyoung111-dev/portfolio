@@ -46,8 +46,10 @@ export async function runPreview({url,token,fetchImpl=fetch}){
         'SHEET_MISSING','PRICE_HISTORY_INVALID','SNAPSHOT_INVALID',
         'INCOMPLETE_COVERAGE'].includes(item.reason)?item.reason:'OTHER_CHECK_FAILED')};
   });
-  const ready=entries.every(x=>x.queued&&x.verified&&x.verifiedCodes===37);
-  return {mode:'READ_ONLY',status:ready?'READY':'BLOCKED',entries};
+  const valid=entries.every(x=>x.verified&&x.verifiedCodes===37);
+  const ready=valid&&entries.every(x=>x.queued);
+  const alreadyClear=valid&&entries.every(x=>!x.queued);
+  return {mode:'READ_ONLY',status:ready?'READY':alreadyClear?'ALREADY_CLEAR':'BLOCKED',entries};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
@@ -55,7 +57,7 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
       url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
     });
     console.log(JSON.stringify(result));
-    if(result.status!=='READY')process.exitCode=1;
+    if(result.status==='BLOCKED')process.exitCode=1;
   }catch(error){
     const code=String(error?.message||'');
     const allowed=/^PENDING_PREVIEW_[A-Z_]+$/;
