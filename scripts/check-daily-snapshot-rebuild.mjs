@@ -279,6 +279,7 @@ const sentSettings = [];
 let nextTimerId = 0;
 let selectedTheme = 'forest';
 let currentDirectFunds = { OLD: { eval: 10 } };
+let holdNextFullSettingsPost = null;
 const ctx = {
   Promise, JSON, Object, Number, String, console,
   GSHEET_API_URL: 'https://example.test/gas',
@@ -294,7 +295,13 @@ const ctx = {
   setTimeout: fn => { const id = ++nextTimerId; queuedTimers.set(id, async () => { queuedTimers.delete(id); await fn(); }); return id; },
   clearTimeout: id => queuedTimers.delete(id),
   requestGsheetFormJson: async (_action, request) => {
-    sentSettings.push(JSON.parse(request.data));
+    const sent=JSON.parse(request.data);
+    sentSettings.push(sent);
+    if (holdNextFullSettingsPost && Array.isArray(sent.EDITABLE_PRICES)) {
+      const gate=holdNextFullSettingsPost;
+      holdNextFullSettingsPost=null;
+      await gate;
+    }
     return { status: 'ok' };
   }
 };
@@ -356,8 +363,43 @@ assert.equal(sentSettings.at(-1).expectedCodelessFunds[0].targetWeight,42,
   'normal explicit fund deletion submits precisely prior acknowledged rows');
 assert.equal(ctx.testFundsBaseline().funds.length,0,
   'acknowledged fund deletion retires baseline without reviving old entry');
-assert.match(settings, /const originalServerFunds=_gsheetCodelessFundsFromRows\(s\.EDITABLE_PRICES\)[\s\S]*_gsheetCodelessFundBaseline=\{[\s\S]*funds:originalServerFunds/,
-  'loadSettings captures exact server fund rows and installs them only after successful restoration');
+// Codex P2: first full POST is already in flight when the user queues another
+// changed fund. The latter must freeze its intended user values but take the
+// FIRST POST's acknowledged CAS proof when it actually starts on the queue.
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[]},
+  'https://example.test/gas',1),true);
+const queuedFund={name:'큐 검증 펀드',code:'',assetType:'펀드',targetWeight:10,notes:'first'};
+ctx.EDITABLE_PRICES.push(queuedFund);
+let releaseFirstPost;
+holdNextFullSettingsPost=new Promise(resolve=>{releaseFirstPost=resolve;});
+const firstQueued=ctx.testSaveSettings(true);
+const firstTimerWork=[...queuedTimers.values()].map(fn=>fn());
+await new Promise(resolve=>setImmediate(resolve));
+assert.equal(sentSettings.at(-1).EDITABLE_PRICES[0].targetWeight,10,
+  'first POST entered server before second user edit');
+ctx.EDITABLE_PRICES[0].targetWeight=20;
+ctx.EDITABLE_PRICES[0].notes='second';
+const secondQueued=ctx.testSaveSettings(true);
+const secondTimerWork=[...queuedTimers.values()].map(fn=>fn());
+releaseFirstPost();
+await Promise.all([...firstTimerWork,...secondTimerWork]);
+assert.equal(await firstQueued,true);
+assert.equal(await secondQueued,true);
+assert.deepEqual(sentSettings.at(-2).expectedCodelessFunds,[],
+  'first save carried original empty fund CAS proof');
+assert.equal(sentSettings.at(-1).expectedCodelessFunds[0].targetWeight,10,
+  'second queued save uses prior ACK fund proof, not stale pre-queue proof');
+assert.equal(sentSettings.at(-1).EDITABLE_PRICES[0].targetWeight,20,
+  'second save kept its own scheduled user edit');
+assert.equal(sentSettings.at(-1).EDITABLE_PRICES[0].notes,'second');
+assert.equal(ctx.testFundsBaseline().funds[0].targetWeight,20,
+  'queue finishes with exact latest acknowledged server state');
+// The first bootstrap may have been replaced by two different successful
+// post-repair getBootstrap responses. The proof must refer to final s.
+assert.doesNotMatch(settings,/const originalServerFunds=_gsheetCodelessFundsFromRows\(s\.EDITABLE_PRICES\)/,
+  'first Bootstrap fund rows must not be captured as final CAS baseline');
+assert.match(settings,/s=data\.settings;[\s\S]*_gsheetCodelessFundBaseline=\{[\s\S]*funds:_gsheetCodelessFundsFromRows\(s\.EDITABLE_PRICES\)/,
+  'post-repair latest server Settings is authoritative for fund baseline');
 
 assert.match(settings, /const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*if \(!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch\) return false[\s\S]*isGsheetPortfolioWriteReady/,
   'Settings 예약 저장은 실제 전송 직전에 load epoch와 restore write-ready를 재검증');
