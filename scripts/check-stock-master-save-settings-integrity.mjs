@@ -133,7 +133,8 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   // An intentional code-less fund removal from a CURRENT code master keeps
   // working. Only an unknown coded alias combined with omission is unsafe.
   const f=fixture([C],[oldC,fund]);
-  const removed=f.save({EDITABLE_PRICES:[oldC],APP_THEME:'dark'});
+  const removed=f.save({EDITABLE_PRICES:[oldC],
+    expectedCodelessFunds:[fund],APP_THEME:'dark'});
   assert.equal(removed.status,'ok');
   assert.deepEqual(f.state.settings.EDITABLE_PRICES.map(x=>x.name),['C']);
   assert.equal(f.state.settings.APP_THEME,'dark');
@@ -145,5 +146,67 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   const saved=f.save({EDITABLE_PRICES:[oldA,oldC,fund],APP_THEME:'dark'});
   assert.equal(saved.status,'ok');
   assert.deepEqual(f.state.settings.EDITABLE_PRICES.map(x=>x.name),['C','TDF 직접']);
+}
+{
+  // Codex P2: the stale browser never saw either new coded A or the
+  // converted (renamed) fund B, so its incoming array has NO orphan code.
+  // Prior heuristic incorrectly permitted complete user-field deletion.
+  const converted={...fund,name:'새 펀드 B',assetType:'펀드',
+    targetWeight:37,notes:'서버 4,000자 저장'};
+  const f=fixture([C],[oldC,converted]);
+  const before=structuredClone(f.state.settings);
+  const rejected=f.save({EDITABLE_PRICES:[oldC],APP_THEME:'dark'});
+  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_PROOF_REQUIRED');
+  assert.equal(f.state.writes,0,'stale tab must not delete unseen B');
+  assert.deepEqual(f.state.settings,before);
+  assert.equal(f.state.lock,false);
+}
+{
+  // Old tab can supply a perfectly valid but stale empty fund baseline:
+  // the exact original fund snapshot CAS still refuses the deletion.
+  const converted={...fund,name:'새 펀드 B',targetWeight:50,notes:'unseen'};
+  const f=fixture([C],[oldC,converted]);
+  const result=f.save({EDITABLE_PRICES:[oldC],expectedCodelessFunds:[]});
+  assert.equal(result.errorCode,'SETTINGS_CODELESS_FUND_STALE');
+  assert.equal(f.state.writes,0);
+}
+{
+  // Exact bootstrapped original enables intentional deletion. Proof is a
+  // transport-only field and must never persist to the Settings worksheet.
+  const converted={...fund,name:'새 펀드 B',targetWeight:50,notes:'existing'};
+  const f=fixture([C],[oldC,converted]);
+  const result=f.save({EDITABLE_PRICES:[oldC],
+    expectedCodelessFunds:[converted],APP_THEME:'dark'});
+  assert.equal(result.status,'ok','CAS-proven intentional deletion allowed');
+  assert.deepEqual(f.state.settings.EDITABLE_PRICES.map(x=>x.name),['C']);
+  assert.equal(Object.hasOwn(f.state.settings,'expectedCodelessFunds'),false);
+}
+{
+  const f=fixture([C],[oldC,fund]);
+  const changed={...fund,targetWeight:43,notes:'user deliberately changed'};
+  const result=f.save({EDITABLE_PRICES:[oldC,changed],
+    expectedCodelessFunds:[fund]});
+  assert.equal(result.status,'ok','fund edit with exact readback proof');
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].targetWeight,43);
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].notes,'user deliberately changed');
+}
+{
+  const f=fixture([C],[oldC,fund]);
+  const wrong={...fund,targetWeight:99};
+  const rejected=f.save({EDITABLE_PRICES:[oldC,{...fund,notes:'stale edit'}],
+    expectedCodelessFunds:[wrong]});
+  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_STALE');
+  assert.equal(f.state.writes,0,'stale metadata must not overwrite server');
+}
+{
+  // Historical clients without the new proof can save theme only when
+  // persisted fund rows remain byte-for-byte equal.
+  const f=fixture([C],[oldC,fund]);
+  const result=f.save({EDITABLE_PRICES:[oldC,fund],APP_THEME:'dark'});
+  assert.equal(result.status,'ok');
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].notes,'fund');
+  const rejected=f.save({EDITABLE_PRICES:[oldC,{...fund,notes:'overwrite'}]});
+  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_PROOF_REQUIRED');
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].notes,'fund');
 }
 console.log('✅ 생산 GAS saveSettings: 교체 부분저장/타 탭/orphan·중복·누락 차단, 비중/메모·펀드/보호키 유지');
