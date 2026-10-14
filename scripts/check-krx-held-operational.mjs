@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {runCoverage,summarizeHeldCoverage} from './diagnose-krx-held-coverage.mjs';
 
 const dates=['2026-10-12','2026-10-13'],token='secret-do-not-print';
@@ -45,4 +46,15 @@ await assert.rejects(()=>runCoverage({
  url:'https://script.google.com/macros/s/fake/exec',dates:dates[0],token,
  fetchImpl:async()=>({ok:true,json:async()=>sample(dates[0])})
 }),/AUTH_DISABLED/);
+
+// A new GAS action must be queried only after the actual production deploy,
+// never by a concurrently triggered generic diagnostics workflow.
+const deployment=fs.readFileSync('.github/workflows/gas-deploy.yml','utf8');
+const generic=fs.readFileSync('.github/workflows/krx-operational-diagnostics.yml','utf8');
+const deployedAt=deployment.indexOf('run: node scripts/deploy-gas.mjs');
+const probeAt=deployment.indexOf('run: node scripts/diagnose-krx-held-coverage.mjs');
+assert.ok(deployedAt>0&&probeAt>deployedAt,
+  '37-code coverage must follow the live GAS deployment');
+assert.match(deployment,/name: Verify KRX 37-code source coverage after live GAS deployment\n\s+if: github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED == 'true'/);
+assert.doesNotMatch(generic,/node scripts\/diagnose-krx-held-coverage\.mjs/);
 console.log('KRX 37-code aggregate operational read-only and auth contract passed');
