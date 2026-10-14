@@ -11354,7 +11354,8 @@ function setupTrigger() {
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
       fn === 'syncMortgageFromSchedule' || fn === 'runDailyFundValuations' ||
       fn === 'runDailyPortfolioClose1900' || fn === 'runPortfolioCloseWatchdog2030' ||
-      fn === 'runPortfolioCloseBackfill2210' || fn === 'runPortfolioHistoricalBackfill2240' || fn === 'onOpen'
+      fn === 'runPortfolioCloseBackfill2210' || fn === 'runPortfolioHistoricalBackfill2240' ||
+      fn === 'runPortfolioHistoricalBackfill0010' || fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
@@ -11366,8 +11367,8 @@ function setupTrigger() {
   _ensurePortfolioHistoricalBackfill0010Trigger(true);
   _ensureSnapshotIntegrityChangeTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
-  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 KRX 누락일 백필');
-  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 당일 exact-date 종가·Snapshot + 펀드 NAV/평가 통합 마감\n20:30 실패 자동 재시도 watchdog\n22:10 KRX 누락일 독립 백필'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 당일 → 23:10 과거 → 00:10 과거 백필');
+  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 당일 exact-date 종가·Snapshot + 펀드 NAV/평가 통합 마감\n20:30 실패 자동 재시도 watchdog\n22:10 당일 복구\\n23:10 과거 복구\\n00:10 추가 과거 복구'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
