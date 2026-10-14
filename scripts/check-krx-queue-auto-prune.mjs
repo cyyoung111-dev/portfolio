@@ -115,11 +115,12 @@ function checkRotation(dates, cursor, includeToday, failure) {
   return {calls,queue:JSON.parse(state.get('queue'))};
 }
 const pending=['2026-10-12','2026-10-13','2026-10-14'];
-assert.deepEqual(checkRotation(pending,'',true,true).calls,['2026-10-14','2026-10-12','2026-10-14']);
+assert.deepEqual(checkRotation(pending,'',true,true).calls,['2026-10-14','2026-10-14','2026-10-14']);
 assert.deepEqual(checkRotation(pending,'2026-10-14',true,true).calls,['2026-10-14','2026-10-12','2026-10-14']);
 assert.deepEqual(checkRotation(pending,'',false,true).calls,['2026-10-12','2026-10-13','2026-10-12']);
 assert.deepEqual(checkRotation(pending,'',true,true).queue,pending);
-assert.deepEqual(checkRotation(pending,'',true,false).queue,[]);
+assert.deepEqual(checkRotation(pending,'',true,false).queue,['2026-10-12','2026-10-13'],'urgent worker must not consume historical queue');
+assert.deepEqual(checkRotation(pending,'',false,false).queue,['2026-10-14'],'historical worker must not consume current-day queue');
 function checkNextDayReset() {
   const state=new Map([['queue',JSON.stringify(['2026-10-12','2026-10-14','2026-10-15'])],['cursor',''],['portfolio_close_backfill_last_was_today','2026-10-14']]);
   const props={getProperty:k=>state.get(k)??null,setProperty:(k,v)=>state.set(k,String(v)),deleteProperty:k=>state.delete(k)};
