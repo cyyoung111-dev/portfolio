@@ -61,7 +61,8 @@ assert.deepEqual(a.proofCalls,initial.slice(0,2));
 assert.deepEqual(a.retryCalls[0].active,['2026-10-12','2026-10-13']);
 assert.equal(a.retryCalls[0].includeToday,true);
 assert.equal(a.map.has(leaseKey),false,'lease must always release');
-assert.ok(a.map.has(resultKey));
+assert.ok(a.map.has('portfolio_close_historical_backfill_last_result'));
+assert.equal(a.map.has(resultKey),false,'historical fallback must not overwrite same-day diagnostic');
 assert.equal(a.writes.filter(([key])=>key===queueKey).length,1);
 assert.equal(a.writes.some(([key])=>/snapshot_|fund|portfolio_close_run/.test(key)),false);
 
