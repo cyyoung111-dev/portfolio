@@ -5793,6 +5793,22 @@ function _ensurePortfolioCloseBackfillTrigger(autoFix) {
   triggers.slice(1).forEach(function(t) { ScriptApp.deleteTrigger(t); });
   return triggers.length > 0;
 }
+function _ensurePortfolioHistoricalBackfillTrigger(autoFix) {
+  var handler = 'runPortfolioHistoricalBackfill2240';
+  var triggers = ScriptApp.getProjectTriggers().filter(function(t) {
+    return t.getHandlerFunction() === handler;
+  });
+  if (!autoFix) return triggers.length > 0;
+  if (!triggers.length) {
+    ScriptApp.newTrigger(handler).timeBased().everyDays(1)
+      .inTimezone(CONFIG.TIMEZONE).atHour(22).nearMinute(40).create();
+    triggers = ScriptApp.getProjectTriggers().filter(function(t) {
+      return t.getHandlerFunction() === handler;
+    });
+  }
+  triggers.slice(1).forEach(function(t) { ScriptApp.deleteTrigger(t); });
+  return triggers.length > 0;
+}
 function _ensurePortfolioCloseWatchdogTrigger(autoFix) {
   var watchdogTriggers = ScriptApp.getProjectTriggers().filter(function(t) {
     return t.getHandlerFunction() === 'runPortfolioCloseWatchdog2030';
@@ -10158,7 +10174,7 @@ function _pruneVerifiedHistoricalKrxPending_(leaseToken, runDate) {
     return {cleared:cleared.length,reason:'VERIFIED_COMPLETE'};
   });
 }
-function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
+function _runPendingKrxBackfillWithLease_(props, runDate, fromClose, historicalOnly) {
   var token = Utilities.getUuid();
   var acquired = _portfolioFundAtomic_(function(sharedProps) {
     // Check both resources under one ScriptLock. Checking fund outside the lock
@@ -10196,7 +10212,7 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
         Logger.log('[KRX-BACKFILL] 완료일 정합성 점검 보류; 대기열 원본 유지');
       }
     }
-    var result = _retryOnePendingKrxClose_(props, runDate, !fromClose);
+    var result = _retryOnePendingKrxClose_(props, runDate, !fromClose && !historicalOnly);
     props.setProperty('portfolio_close_backfill_last_result',
       JSON.stringify({runDate:runDate, checkedAt:Date.now(), result:result}));
     return result;
@@ -10207,8 +10223,8 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
     });
   }
 }
-// Separate short job: backlog progresses even if every daily 19:00 run uses
-// its full runtime budget. One exact-date replay per invocation.
+// Dedicated 22:10 same-day retry; 22:40 worker advances historical backlog.
+// Each invocation replays at most one exact date.
 function runPortfolioCloseBackfill2210() {
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
@@ -10222,7 +10238,7 @@ function runPortfolioCloseBackfill2210() {
     Logger.log('⚠️ 마감 FUND 성공 마커 사후 정합화 보류: ' + reconcileFundError.message);
   }
   // NAV and close-stage checks both occur inside the shared lease lock.
-  var result = _runPendingKrxBackfillWithLease_(props, runDate, false);
+  var result = _runPendingKrxBackfillWithLease_(props, runDate, false, false);
   // A previous hard timeout can leave no durable close summary. The PRICE
   // replay may create the first partial summary, so retry exact-run NAV
   // reconciliation afterwards as well as before this backfill.
@@ -10238,6 +10254,11 @@ function runPortfolioCloseBackfill2210() {
   if (result && result.ok === false)
     Logger.log('⚠️ 독립 KRX 누락일 복구 실패: ' + String(result.error || result.date || 'unknown'));
   return result;
+}
+// Independent 22:40 historical worker. Shares the same lease and exact-date
+// queue completion checks with the 22:10 worker; never replays today's date.
+function runPortfolioHistoricalBackfill2240() {
+  return _runPendingKrxBackfillWithLease_(PropertiesService.getScriptProperties(), today(), false, true);
 }
 // Apply recovered PRICE to a matching operational close without inventing
 // NAV success or overwriting a more recent day's summary. The caller must
@@ -10336,18 +10357,12 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   // next-day continuation opportunity. Each eligible date is retained until
   // its own successful replay and reconciliation.
   var previous = String(props.getProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY) || '');
-  // Alternate urgent current-day recovery with historical replay. A failing
-  // today must not starve older dates, and a large backlog must not defer
-  // today's PRICE/Snapshot for hundreds of invocations.
+  // Dedicated 22:10 current-day worker and 22:40 historical worker.
+  // Historical selection retains its persistent round-robin cursor.
   var historical = candidates.filter(function(date) { return date !== currentDate; });
   var historyTarget = historical.filter(function(date) { return date > previous; })[0] || historical[0];
   var todayQueued = includeToday && candidates.indexOf(currentDate) >= 0;
-  // Persist the last *attempted* class across trading days: one nightly
-  // invocation per day must still give historical dates a fair opportunity.
-  // On an empty history, today always wins; otherwise alternate across runs.
-  var lastWasToday = String(props.getProperty('portfolio_close_backfill_last_was_today') || '') !== '';
-  var target = todayQueued && (!lastWasToday || !historyTarget) ? currentDate : historyTarget;
-  if (todayQueued) props.setProperty('portfolio_close_backfill_last_was_today', target === currentDate ? currentDate : '');
+  var target = todayQueued ? currentDate : historyTarget;
   if (!target) return { attempted:false, remaining:queue.length };
   if (target !== currentDate) props.setProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY, target);
   var snapshotProps = ['snapshot_last_success_date','snapshot_last_success_at','snapshot_last_error','snapshot_last_failure_at'];
@@ -11312,7 +11327,7 @@ function setupTrigger() {
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
       fn === 'syncMortgageFromSchedule' || fn === 'runDailyFundValuations' ||
       fn === 'runDailyPortfolioClose1900' || fn === 'runPortfolioCloseWatchdog2030' ||
-      fn === 'runPortfolioCloseBackfill2210' || fn === 'onOpen'
+      fn === 'runPortfolioCloseBackfill2210' || fn === 'runPortfolioHistoricalBackfill2240' || fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
@@ -11320,6 +11335,7 @@ function setupTrigger() {
   _ensurePortfolioCloseDailyTrigger(true);
   _ensurePortfolioCloseWatchdogTrigger(true);
   _ensurePortfolioCloseBackfillTrigger(true);
+  _ensurePortfolioHistoricalBackfillTrigger(true);
   _ensureSnapshotIntegrityChangeTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
   Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 KRX 누락일 백필');
@@ -11380,6 +11396,7 @@ function _ensureDailyTriggers(autoFix) {
     }
     if (!hasBackfill || hasDuplicateBackfillTriggers) {
       hasBackfill = _ensurePortfolioCloseBackfillTrigger(true);
+  _ensurePortfolioHistoricalBackfillTrigger(true);
       backfillCount = ScriptApp.getProjectTriggers().filter(function(t) {
         return t.getHandlerFunction() === 'runPortfolioCloseBackfill2210';
       }).length;
@@ -12741,7 +12758,8 @@ function runDailyPortfolioClose1900() {
   // 배포 후 setupTrigger를 수동 실행하지 않아도 기존 19시 트리거가 watchdog을 자가 설치합니다.
   try { _ensurePortfolioCloseWatchdogTrigger(true); }
   catch (watchdogTriggerError) { Logger.log('⚠️ 20:30 watchdog 트리거 자가복구 실패: ' + watchdogTriggerError.message); }
-  try { _ensurePortfolioCloseBackfillTrigger(true); }
+  try { _ensurePortfolioCloseBackfillTrigger(true);
+  _ensurePortfolioHistoricalBackfillTrigger(true); }
   catch (backfillTriggerError) { Logger.log('⚠️ 22:10 KRX 백필 트리거 자가복구 실패: ' + backfillTriggerError.message); }
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
