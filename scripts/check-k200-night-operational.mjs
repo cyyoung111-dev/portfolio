@@ -36,6 +36,8 @@ assert.equal(summarizeNightFinal({...close(dates[0]),observation:{
 const requests=[];
 const fetchImpl=async (_url,opts)=>{
   const body=opts.body;const action=body.get('action'),date=body.get('date');
+  if(body.get('accessToken')!==token)
+    return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
   requests.push({action,date,method:opts.method,keys:[...body.keys()]});
   assert.equal(body.get('accessToken'),token);
   assert.equal(opts.method,'POST');
@@ -55,6 +57,9 @@ assert.equal(requests.length,4);
 assert.deepEqual([...new Set(requests.map(x=>x.action))].sort(),
  ['getKrxK200NightClose','getKrxK200NightDiagnostics']);
 assert.doesNotMatch(JSON.stringify(data),/sensitive-token|SENSITIVE|999\.25/);
+await assert.rejects(()=>runNightDiagnosis({url,token,dates:dates[0],
+  fetchImpl:async()=>({ok:true,json:async()=>diag(dates[0])})}),
+  /NIGHT_DIAG_GAS_AUTH_NOT_ENFORCED/, 'public diagnostics must fail closed');
 await assert.rejects(()=>runNightDiagnosis({url,token:'',dates:'2026-10-13',fetchImpl}),
   /AUTH_NOT_CONFIGURED/);
 await assert.rejects(()=>runNightDiagnosis({url,token,dates:'2026-02-30',fetchImpl}),
