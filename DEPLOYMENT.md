@@ -1,3 +1,15 @@
+## GAS v9.220 / PR #498: KRX 완료일 pending 해제 (2026-10-14, 검증 중·운영 미실행)
+
+- 기존 v9.219의 PRICE/Snapshot/NAV/거래원장 생성·저장 로직은 유지하고, **운영자 명시적 요청에 한해서만** 완료된 과거 KRX pending 마커를 ScriptLock으로 해제하는 인증된 POST 경로 `reconcileCompletedKrxPending`를 추가합니다. 배포만으로 마커 정리가 자동 실행되지 않습니다.
+- 인증: 기존 `GAS_ACCESS_TOKEN`을 `accessToken`으로 전달하는 `application/x-www-form-urlencoded` POST. **실토큰·웹앱 URL·원본 데이터를 로그나 PR에 기록하지 마세요.** GET는 `POST_ONLY`로 거부합니다.
+- **사전 확인(기본 dry-run)**: `action=reconcileCompletedKrxPending&dates=2026-10-07,2026-10-08&apply=0`. 응답 `mode=DRY_RUN`, 각 날짜 `ok=true`, `queued=true`, `verifiedCodes=37`이 충족되는지 운영 기록과 대조합니다.
+- **반영(명시적 실행)**: 위 사전확인이 성공하고 CI·Codex 리뷰·main 병합·GAS 실배포·운영 `getSettings.gasVersion=9.220`를 확인한 뒤에만 동일 POST에 `apply=1`로 실행합니다. `mode=APPLIED`, `cleared=2`를 확인하고 날짜별 `getKrxSourceDiagnostics`의 `queuedForBackfill=false`를 재검증합니다.
+- 보호조건: 해당 날짜의 **원장 양수 보유 전 코드 마스터 포함**, KRX 공식 가격이력 `(date,code)` 유일·양수, Snapshot 해당 날짜·코드·공식 출처·평가금액 및 분할소수점 반올림 계약 일치, 펀드·백필·마감 실행 잠금 모두 해제. 어느 하나라도 불일치하면 **요청 날짜 일괄 보존**. 기존 PRICE/Snapshot/NAV/거래이력과 마지막 마감 소유권 메타 수정 금지.
+- 10월 12~13일은 공식 exact-date 종가/스냅샷 자체가 없어 **apply 절대 금지**. 같은 이슈 #495의 별도 복구 단계에서 원천일 검증 후 처리합니다. #496 NIGHT_FINAL 및 USDKRW 브리핑 게이트는 이번 변경 범위 밖입니다.
+- 이 문서는 **준비된 운영 절차**이며 작성 시점에는 GAS v9.220 미배포, 해당 POST 미실행. 앱 웹 캐시 서비스워커 버전은 기존과 정합성을 유지하지만 기존 방문자의 오프라인 캐시가 오래된 버전 경고를 표시할 수 있으므로 배포 후 온라인 갱신을 검증합니다.
+
+---
+
 > 2026-10-14 PR #493 최신 Codex P2 대응: GAS v9.218은 무코드 펀드 CAS stale 재요청에서 **펀드뿐 아니라 전체 쓰기 가능 Settings 키**(정규화된 coded 메모·테마·계좌 등)가 서버 저장값과 일치해야만 `alreadyApplied`를 반환합니다. 다른 탭이 우연히 같은 펀드를 기록한 뒤 미저장 테마/계좌/종목 메모를 가진 최초 요청은 `SETTINGS_CODELESS_FUND_STALE`로 거부합니다. 실제 생산 handler 회귀 추가. 웹 기대 GAS 9.218, `settings_fetch 20261014-6`, PWA cache `20261014-19`. Draft/미병합/미배포. 기존 v9.217 설명은 이력으로 유지합니다.
 
 ## PR #493 자체 재검토 — 신규 append 부분 실패 후 사용자가 목표 비중/메모 재수정한 경우 (2026-10-13)
