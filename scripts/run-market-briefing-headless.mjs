@@ -142,12 +142,19 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
       ...(action === 'getBenchmarks' ? { to:benchmarkTo } : {}),
       ...(action === 'getExchangeRateHistory' ? { to:fxTo } : {}),
     };
-    try { return await request(action, scopedParams, options); }
-    catch (error) {
-      // The production workbook has no '환율이력' tab. Do not synthesize FX
-      // or write to the financial ledger: use dated Yahoo daily FX only for
-      // the market briefing, and only for the explicit MISSING_SOURCE case.
-      // GAS authentication, schema errors and other failures stay visible.
+    try {
+      const response = await request(action, scopedParams, options);
+      // An existing but empty FX ledger is as unusable as a missing tab.
+      // Fallback is strictly briefing-only and requires a verified, dated
+      // Yahoo daily candle; it never writes the finance/valuation ledger.
+      if (action === 'getExchangeRateHistory'
+          && response?.status === 'NO_DATA'
+          && Array.isArray(response.history) && response.history.length === 0)
+        return fxFallback({ from:scopedParams.from, to:scopedParams.to });
+      return response;
+    } catch (error) {
+      // Only an explicit missing source may use the dated Yahoo fallback.
+      // Authentication, network and invalid-schema failures remain visible.
       if (action === 'getExchangeRateHistory' && error?.message === 'FX_MISSING_SOURCE')
         return fxFallback({ from:scopedParams.from, to:scopedParams.to });
       throw error;
