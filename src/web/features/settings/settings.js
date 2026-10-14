@@ -330,15 +330,31 @@ function _gsheetCodelessFundsFromRows(rows) {
     && ['TDF','펀드','FUND'].includes(String(ep.assetType||ep.type||'').toUpperCase())
   ).map(ep=>JSON.parse(JSON.stringify(ep))) : [];
 }
-function adoptVerifiedCodelessFundBaselineFromSettings(remoteSettings,targetUrl,generation) {
+function adoptVerifiedCodelessFundBaselineFromSettings(remoteSettings,targetUrl,generation,convertedName) {
   if (!remoteSettings || !Array.isArray(remoteSettings.EDITABLE_PRICES)
       || !isGsheetConnectionCurrent(targetUrl,generation)) return false;
   const currentTarget=String(GSHEET_API_URL||'').trim();
-  if (targetUrl!==currentTarget || !_gsBootRestored || _gsPortfolioRestoreRequired)
+  const name=String(convertedName||'').trim();
+  const previous=_gsheetCodelessFundBaseline;
+  if (targetUrl!==currentTarget || !_gsBootRestored || _gsPortfolioRestoreRequired
+      || !name || !previous || previous.targetUrl!==targetUrl
+      || previous.generation!==generation || previous.epoch!==_gsSettingsLoadEpoch)
     return false;
+  const next=_gsheetCodelessFundsFromRows(remoteSettings.EDITABLE_PRICES);
+  if (next.filter(ep=>String(ep.name||'').trim()===name).length!==1
+      || previous.funds.some(ep=>String(ep.name||'').trim()===name))
+    return false;
+  // This getSettings readback follows ONE confirmed code->fund conversion.
+  // Never silently "adopt" a second tab's unrelated fund addition/deletion
+  // or changed notes/weights: our current UI has NOT applied those changes.
+  // Otherwise the next full Settings CAS would authorize deleting an unseen
+  // fund even though the server baseline matched.
+  const other=rows=>rows.filter(ep=>String(ep.name||'').trim()!==name)
+    .slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  if (JSON.stringify(other(next))!==JSON.stringify(other(previous.funds)))
+    return false; // preserve prior proof; next stale write must fail closed
   _gsheetCodelessFundBaseline={
-    targetUrl,generation,epoch:_gsSettingsLoadEpoch,
-    funds:_gsheetCodelessFundsFromRows(remoteSettings.EDITABLE_PRICES)
+    targetUrl,generation,epoch:_gsSettingsLoadEpoch,funds:next
   };
   return true;
 }
