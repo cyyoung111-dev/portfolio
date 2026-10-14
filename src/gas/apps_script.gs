@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.214
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.215
+//
+//  v9.215 변경사항 (2026.10.14):
+//   무코드 펀드의 전체 Settings 수정·삭제에는 로드 당시 서버 원본의
+//   정확한 CAS 증거를 요구하여 오래된 탭에서 신규 전환 펀드 유실 방지
 //
 //  v9.214 변경사항 (2026.10.14):
 //   타 브라우저의 과거 coded identity Settings 저장이 서버에서 전환 완료된
@@ -1980,7 +1984,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.214', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.215', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5637,7 +5641,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.214' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.215' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11375,7 +11379,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.214',
+    gasVersion: '9.215',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11415,7 +11419,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.214' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.215' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14547,6 +14551,13 @@ function handleSaveSettings(dataJson) {
     lock.waitLock(30000); locked = true;
     _settlePendingCodeDeleteLocked_(getss());
     var incoming = _parseJsonParam(dataJson, 'settings');
+    // A full Settings save may delete code-less funds only when it proves
+    // which exact server fund rows the browser last loaded. Older clients
+    // without this CAS proof can still save unrelated fields or unchanged
+    // funds, but must never silently delete/update a newer server fund.
+    var expectedCodelessFunds=Object.prototype.hasOwnProperty.call(incoming,'expectedCodelessFunds')
+      ? incoming.expectedCodelessFunds : null;
+    delete incoming.expectedCodelessFunds;
     delete incoming.public_data_api_key;
     delete incoming.krx_auth_key;
     delete incoming.krx_api_key;
@@ -14634,27 +14645,70 @@ function handleSaveSettings(dataJson) {
         entry.market=String(row.market||'').toUpperCase();
         canonical.push(entry);
       });
-      // When the server converted a coded item to a code-less fund in
-      // another tab, an older browser may submit its now-unknown coded pair
-      // alongside a Settings array that omits the new fund entirely.
-      // The fund may ALSO have been renamed during conversion; comparing
-      // old and new names is not a sufficient guard. Fail the whole stale
-      // save before it can erase any existing code-less fund. Explicit fund
-      // deletion from a current master (no orphan coded pair) still works.
+      var isCodelessFund=function(ep) {
+        return ep && typeof ep==='object' && !Array.isArray(ep)
+          && String(ep.name||'').trim() && !_cleanCode(ep.code||'')
+          && ['TDF','펀드','FUND'].indexOf(
+            String(ep.assetType||ep.type||'').trim().toUpperCase())!==-1;
+      };
+      var canonicalFunds=function(rows) {
+        if (!Array.isArray(rows) || rows.some(function(ep) {
+          return !isCodelessFund(ep);
+        })) return null;
+        var names={};
+        for (var fi=0;fi<rows.length;fi++) {
+          var key=String(rows[fi].name).trim();
+          if (names[key]) return null;
+          names[key]=true;
+        }
+        return rows.slice().sort(function(a,b) {
+          return String(a.name).localeCompare(String(b.name));
+        });
+      };
+      var storedFunds=canonicalFunds((settings.EDITABLE_PRICES||[]).filter(isCodelessFund));
+      var submittedFunds=canonicalFunds(retainedFunds);
+      var serverFundFingerprint=JSON.stringify(storedFunds);
+      // Explicit proof is from getSettings/getBootstrap, captured BEFORE the
+      // local edit. Compare exact user metadata (including notes/weights),
+      // not only names. This protects updates as well as removals even if
+      // the other tab never saw the new coded predecessor.
+      if (!storedFunds || !submittedFunds)
+        return jsonError('무코드 펀드 중복 또는 원본 오류', {
+          errorCode:'SETTINGS_CODELESS_FUND_INVALID'
+        });
+      if (expectedCodelessFunds!==null) {
+        var proof=canonicalFunds(expectedCodelessFunds);
+        if (!proof || JSON.stringify(proof)!==serverFundFingerprint)
+          return jsonError('다른 브라우저에서 무코드 펀드가 변경됨: 재조회 후 저장하세요', {
+            errorCode:'SETTINGS_CODELESS_FUND_STALE'
+          });
+      } else if (storedFunds.length && serverFundFingerprint!==JSON.stringify(
+        submittedFunds.filter(function(ep) {
+          return storedFunds.some(function(prev) {
+            return String(prev.name).trim()===String(ep.name).trim();
+          });
+        })
+      ) || storedFunds.some(function(prev) {
+        return !submittedFunds.some(function(ep) {
+          return String(ep.name).trim()===String(prev.name).trim()
+            && JSON.stringify(ep)===JSON.stringify(prev);
+        });
+      })) {
+        return jsonError('무코드 펀드 수정·삭제에는 원본 재조회가 필요합니다', {
+          errorCode:'SETTINGS_CODELESS_FUND_PROOF_REQUIRED'
+        });
+      }
+      // The existing orphan pair protection remains a fail-closed guard
+      // for an older client whose stale coded predecessor was renamed.
       var incomingHasOrphanCode=incoming.EDITABLE_PRICES.some(function(ep) {
         var name=String(ep&&ep.name||'').trim(),code=_cleanCode(ep&&ep.code||'');
         return !!code && !lockedPairs[JSON.stringify([name,code])];
       });
-      var storedFundOmitted=(settings.EDITABLE_PRICES||[]).some(function(ep) {
-        var name=String(ep&&ep.name||'').trim();
-        return name && !_cleanCode(ep&&ep.code||'')
-          && ['TDF','펀드','FUND'].indexOf(
-            String(ep.assetType||ep.type||'').trim().toUpperCase())!==-1
-          && !retainedFunds.some(function(incomingFund) {
-            return String(incomingFund.name||'').trim()===name;
-          });
-      });
-      if (incomingHasOrphanCode && storedFundOmitted)
+      if (incomingHasOrphanCode && storedFunds.some(function(prev) {
+        return !submittedFunds.some(function(ep) {
+          return String(ep.name).trim()===String(prev.name).trim();
+        });
+      }))
         return jsonError('서버에서 종목이 변경됨: 기초정보 재조회 후 설정을 저장하세요', {
           errorCode:'SETTINGS_CODELESS_FUND_STALE'
         });
@@ -14683,7 +14737,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.214' });
+    return jsonOk({ settings: settings, gasVersion: '9.215' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14713,7 +14767,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.214'
+      gasVersion: '9.215'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
