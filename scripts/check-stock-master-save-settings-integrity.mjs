@@ -225,8 +225,8 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   assert.equal(f.state.writes,1,'same fund retry must not rewrite full Settings');
 }
 {
-  // Lost ACK: another tab changes non-fund fields after first commit.
-  // Retrying a stale CAS that matches durable funds must be write-free.
+  // Lost ACK: another tab changes non-fund fields after the first commit.
+  // The stale retry must fail closed, without overwriting the newer values.
   const f=fixture([C],[oldC,fund],{ACCOUNTS_MASTER:[{name:'기존 계좌'}]});
   const requested={...fund,targetWeight:46,notes:'첫 요청'};
   const payload={EDITABLE_PRICES:[oldC,requested],
@@ -237,15 +237,46 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   f.state.settings.ACCOUNTS_MASTER=[{name:'새 계좌'}];
   f.state.settings.EDITABLE_PRICES[0].notes='다른 탭 최신 메모';
   const result=f.save(payload);
-  assert.equal(result.status,'ok');
-  assert.equal(result.alreadyApplied,true);
-  assert.equal(result.saved,0);
-  assert.equal(f.state.writes,1,'retry must not rewrite Settings');
+  assert.equal(result.errorCode,'SETTINGS_CODELESS_FUND_STALE',
+    'fund-only equality cannot acknowledge a retry after non-fund conflicts');
+  assert.equal(result.alreadyApplied,undefined);
+  assert.equal(f.state.writes,1,'stale retry must not rewrite Settings');
   assert.equal(f.state.settings.APP_THEME,'blue');
   assert.deepEqual(f.state.settings.ACCOUNTS_MASTER,[{name:'새 계좌'}]);
   assert.equal(f.state.settings.EDITABLE_PRICES[0].notes,'다른 탭 최신 메모');
   assert.equal(f.state.settings.EDITABLE_PRICES[1].targetWeight,46);
   assert.equal(f.state.lock,false);
+}
+{
+  // Codex P2: a different tab independently writes the exact submitted
+  // fund roster. This tab has NEVER committed its new theme/account change.
+  // Matching funds are insufficient evidence of an applied Settings save.
+  const requested={...fund,targetWeight:46,notes:'동일한 펀드'};
+  const f=fixture([C],[oldC,requested],{
+    ACCOUNTS_MASTER:[{name:'서버 기존 계좌'}]});
+  const before=structuredClone(f.state.settings);
+  const result=f.save({EDITABLE_PRICES:[oldC,requested],
+    expectedCodelessFunds:[fund],APP_THEME:'dark',
+    ACCOUNTS_MASTER:[{name:'이번 최초 요청 계좌'}]});
+  assert.equal(result.errorCode,'SETTINGS_CODELESS_FUND_STALE',
+    'never report success for an uncommitted first request');
+  assert.equal(result.alreadyApplied,undefined);
+  assert.equal(f.state.writes,0);
+  assert.deepEqual(f.state.settings,before,'server theme and accounts remain untouched');
+  assert.equal(f.state.lock,false);
+}
+{
+  // The submitted fund list and theme are identical to the server, but
+  // the coded security notes are newly changed in this request.
+  const requested={...fund,targetWeight:46,notes:'동일한 펀드'};
+  const f=fixture([C],[oldC,requested]);
+  const before=structuredClone(f.state.settings);
+  const result=f.save({EDITABLE_PRICES:[{...oldC,notes:'신규 변경'},requested],
+    expectedCodelessFunds:[fund],APP_THEME:'light'});
+  assert.equal(result.errorCode,'SETTINGS_CODELESS_FUND_STALE',
+    'coded notes are part of the whole request');
+  assert.equal(f.state.writes,0);
+  assert.deepEqual(f.state.settings,before);
 }
 {
   // Deletion retry has the same property: stale old CAS, but the requested
