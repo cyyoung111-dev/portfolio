@@ -156,7 +156,7 @@ export function summarizeOfficialCloses(data, date) {
   return { requestedDate:date, closes, healthy:closes.every(item => item.confirmed) };
 }
 export function buildSafeRequest(action, date, token) {
-  if (!['getSettings', 'getKrxSourceDiagnostics', 'getKrxOfficialStockCloses'].includes(action))
+  if (!['getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxOfficialStockCloses'].includes(action))
     throw new Error('KRX_DIAG_FORBIDDEN_ACTION');
   const payload = new URLSearchParams({ action });
   if (date) payload.set('date', parseDates(date)[0]);
@@ -187,14 +187,22 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
   // deployment accidentally becomes public. Never run with a missing secret.
   if (typeof token !== 'string' || !token.trim())
     throw new Error('KRX_DIAG_GAS_ACCESS_TOKEN_NOT_CONFIGURED');
-  const settings = await readGasAction(url,'getSettings','',token,fetchImpl);
+  // getSettings is NOT read-only: it may settle a pending code-delete
+  // transaction. getAutomationStatus is a read-only, versioned route.
+  const settings = await readGasAction(url,'getAutomationStatus','',token,fetchImpl);
   if (settings && settings.status === 'error'
       && String(settings.message || '') === '인증 실패')
     throw new Error('KRX_DIAG_GAS_ACCESS_DENIED');
   if (!settings || settings.status !== 'ok'
       || !/^\d+\.\d+$/.test(String(settings.gasVersion || '')))
     throw new Error('KRX_DIAG_GAS_VERSION_UNAVAILABLE');
-  if (settings.settings?.apiKeyStatus?.requestAuthenticationEnabled !== true)
+  // Probe with an intentionally incorrect non-secret token. Public GAS
+  // deployments must fail instead of claiming authenticated diagnostics.
+  const invalidToken = token === 'KRX_READ_ONLY_AUTH_PROBE_20261014'
+    ? 'KRX_READ_ONLY_AUTH_PROBE_20261014_ALT' : 'KRX_READ_ONLY_AUTH_PROBE_20261014';
+  const negative = await readGasAction(url,'getAutomationStatus','',invalidToken,fetchImpl);
+  if (!negative || negative.status !== 'error'
+      || String(negative.message || '') !== '인증 실패')
     throw new Error('KRX_DIAG_GAS_AUTHENTICATION_DISABLED');
   const reports = [];
   for (const date of checkedDates) {
