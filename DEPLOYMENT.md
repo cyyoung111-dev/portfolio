@@ -1,6 +1,6 @@
 ## GAS v9.223 — 22:10 백필의 완료된 KRX 대기일 자동 정리 (2026-10-14)
 
-기존 22:10 `runPortfolioCloseBackfill2210()`가 소유한 7분 backfill lease 안에서, 과거 대기일 최대 **2일**에 대해 기존 검증기 `_verifyCompletedKrxPendingDate_`로 가격이력(KRX/KRX_OTP exact-date)·Snapshot·수량/평가·원장/마스터 정합성을 확인합니다. 모든 검사가 통과한 날짜의 **ScriptProperties 큐 항목만** ScriptLock 하에서 제거합니다. 미완료 날짜, 예외, 잠금 만료 시 원본 마커를 유지합니다.
+기존 22:10 `runPortfolioCloseBackfill2210()`가 소유한 7분 backfill lease 안에서, 과거 대기일 최대 **2일**에 대해 기존 검증기 `_verifyCompletedKrxPendingDate_`로 가격이력(KRX/KRX_OTP exact-date)·Snapshot·수량/평가·**해당일 소급 거래원장 수량과 Snapshot 수량 일치**·원장/마스터 정합성을 확인합니다. 모든 검사가 통과한 날짜의 **ScriptProperties 큐 항목만** ScriptLock 하에서 제거합니다. 미완료 날짜, 예외, 잠금 만료 시 원본 마커를 유지합니다.
 
 - 완료 마커 정리 뒤 **기존의 날짜당 최대 1회** 백필 재처리 경로로 들어가므로, 2026-10-12 / 2026-10-13 누락일은 여러 회차에 걸쳐 저장될 수 있습니다. 소유한 snapshot/NAV/마감 소유권은 변경하지 않으며, 19시 마감 경로에서는 정리를 실행하지 않습니다.
 - 실제 운영 요청에서 10/7·10/8은 앞선 PR #502 dry-run에서 각 37개로 READY, 10/12·10/13은 PR #503 공식 원천 37/37이지만 운영 가격이력/Snapshot은 비어 있었습니다. **본 PR 배포만으로 실제 복구됐다고 간주하지 마세요.** 22:10 실행 후 `가격이력` 각각 KRX 37, `스냅샷` 날짜별 39 및 `queuedForBackfill=false`를 검증해야 합니다.
