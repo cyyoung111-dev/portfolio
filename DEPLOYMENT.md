@@ -1,3 +1,13 @@
+## GAS v9.221 — KRX 야간선물 비민감 읽기 전용 진단 (#496, 2026-10-14)
+
+- `getKrxK200NightDiagnostics`는 인증된 GET/POST `date=YYYY-MM-DD` 요청으로 선물 일별 원천의 HTTP 상태·JSON 구조·각 단계별 **건수**만 반환합니다. 요청 인증 토큰 외에 신규 외부 자격증명은 불필요합니다.
+- 응답 `diagnostic`에는 `keyConfigured`, `primaryHttpStatus`, `alternativeHttpStatus`, `source`, `parseStatus`, `beforeNightFinalCutoff`, `stats`를 포함하며 원문/가격/종목 식별자/인증키는 노출하지 않습니다. 401/403이면 기존 보조 키를 안전하게 재확인합니다.
+- 통계 단계: `totalRows` → `exactDateRows` → `exactDateNightRows` → `exactNightProductRows` → `validExpiryRows` → `unexpiredExpiryRows` → `positiveCloseRows` → `nearestExpiryRows` / `wouldSelect`. `nightMarketRows`는 요청일 외 데이터 혼입 확인용이며 `exactProductLabelVariants`는 상품 표기 차이 탐지용입니다.
+- 읽기 전용 진단입니다. **NIGHT_FINAL 판단, KRX 선물 선택 조건, 브리핑 publication gate, PRICE/Snapshot/거래원장/시장 원장은 변경하지 않습니다.** 공식 원천이 확인되지 않은 상태에서는 MORNING 발행을 강행하지 않습니다.
+- 병합·검증·실 GAS 배포 이후에만 운영의 관련 날짜에 호출하고, 문제 유형별 통계로 원인을 결정합니다. 이 문서 작성 시점에 원천 응답의 날짜별 통계는 아직 확인되지 않았습니다.
+
+---
+
 ## GAS v9.220 / PR #498: KRX 완료일 pending 해제 (2026-10-14, 검증 중·운영 미실행)
 
 - 기존 v9.219의 PRICE/Snapshot/NAV/거래원장 생성·저장 로직은 유지하고, **운영자 명시적 요청에 한해서만** 완료된 과거 KRX pending 마커를 ScriptLock으로 해제하는 인증된 POST 경로 `reconcileCompletedKrxPending`를 추가합니다. 배포만으로 마커 정리가 자동 실행되지 않습니다.

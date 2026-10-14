@@ -1,7 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.220
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.221
 //
-//  v9.220 변경사항 (2026.10.14):
+//  v9.221 변경사항 (2026.10.14):
+//  - KRX KOSPI200 야간선물 원천 매칭 단계별 건수만 반환하는 인증된 읽기 전용 진단 추가.
 //  - KRX 완료된 과거일만 가격/Snapshot 검산 후 선택적으로 pending 마커 해제.
 //   가격이력 동일 날짜·종목의 중복 입력을 쓰기 전에 차단하여 KRX 재발 방지
 //
@@ -1172,6 +1173,7 @@ function doGet(e) {
   if (params.action === 'getBenchmark')                   return handleGetBenchmark(params.benchmark || '', params.from || '', params.to || '');
   if (params.action === 'getBenchmarks')                  return handleGetBenchmarks(params.benchmarks || '', params.from || '', params.to || '', params.fresh === '1');
   if (params.action === 'getKrxK200NightClose')           return handleGetKrxK200NightClose(params.date || '');
+  if (params.action === 'getKrxK200NightDiagnostics') return handleGetKrxK200NightDiagnostics(params.date || '');
   if (params.action === 'getExchangeRateHistory')         return handleGetExchangeRateHistory(params.from || '', params.to || '', params.currencies || 'USD');
   if (params.action === 'getMarketBriefingMaster')        return handleGetMarketBriefingMaster(params.from || '', params.to || '', params.seriesIds || '');
   if (params.action === 'getMarketBriefingSnapshots')     return handleGetMarketBriefingSnapshots(params.from || '', params.to || '');
@@ -1236,7 +1238,7 @@ function doPost(e) {
   if (params.action === 'maintainSystemBackups') return handleMaintainSystemBackups(params.data || '{}');
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
   if (params.action === 'reconcileCompletedKrxPending') return handleReconcileCompletedKrxPending(params.dates || '', params.apply || '');
-  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics'];
+  var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodesAppendOnly' && params.codes && params.expectedCodes)
     return handleSyncCodesAppendOnly(params.codes, params.expectedCodes, params.expectedSourceId || '');
@@ -2002,7 +2004,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.220', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.221', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -4884,6 +4886,92 @@ function fetchKrxK200NightClose(tradingDate, now) {
   return { seriesId:'K200_NIGHT', value:selected.close, tradingDate:date, sourceDate:date, market:'KRX', session:'NIGHT', source:'KRX_OFFICIAL', status:'FINAL', finality:'NIGHT_FINAL', observedAt:date + 'T06:00:00+09:00', receivedAt:new Date().toISOString(), currency:'KRW', fallback:false, quality:'OFFICIAL_DAILY_CLOSE', contract:selected.issue };
 }
 
+// Read-only and credential-free diagnostic output for the official K200 night
+// future. Never return raw rows, quotes, contract identifiers or credentials.
+function _summarizeKrxK200NightRows_(rows, tradingDate) {
+  var date=_normalizeDate(tradingDate || ''), ymd=date.replace(/-/g,''), month=ymd.slice(0,6);
+  var stat={totalRows:0,nightMarketRows:0,exactDateRows:0,
+    exactDateNightRows:0,exactNightProductRows:0,
+    exactProductLabelVariants:0,validExpiryRows:0,unexpiredExpiryRows:0,
+    positiveCloseRows:0,nearestExpiryRows:0,wouldSelect:false};
+  var matched=[];
+  (Array.isArray(rows)?rows:[]).forEach(function(row) {
+    stat.totalRows++;
+    var market=String(row&&(row.MKT_NM||row.mktNm)||'').replace(/\s/g,'');
+    var product=String(row&&(row.PROD_NM||row.prodNm)||'').replace(/\s/g,'');
+    var issue=String(row&&(row.ISU_NM||row.isuNm)||'').trim();
+    var expiry=_parseKrxK200NightExpiry_(issue);
+    var close=parseFloat(String(row&&(row.TDD_CLSPRC||row.tddClsprc)||'').replace(/,/g,''));
+    var sameDate=_normalizeYmd(row&&(row.BAS_DD||row.basDd)||'')===ymd;
+    if(market==='야간')stat.nightMarketRows++;
+    if(!sameDate)return;
+    stat.exactDateRows++;
+    if(market!=='야간')return;
+    stat.exactDateNightRows++;
+    if(product!=='코스피200선물') {
+      if(product.indexOf('코스피200')>=0)stat.exactProductLabelVariants++;
+      return;
+    }
+    stat.exactNightProductRows++;
+    if(!expiry)return;
+    stat.validExpiryRows++;
+    if(expiry<month)return;
+    stat.unexpiredExpiryRows++;
+    if(!(close>0))return;
+    stat.positiveCloseRows++;
+    matched.push(expiry);
+  });
+  matched.sort();
+  if(matched.length) {
+    stat.nearestExpiryRows=matched.filter(function(e){return e===matched[0];}).length;
+    stat.wouldSelect=stat.nearestExpiryRows===1;
+  }
+  return stat;
+}
+function handleGetKrxK200NightDiagnostics(tradingDate) {
+  var date=_normalizeDate(tradingDate||'');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)
+      || date.replace(/-/g,'').length!==8) return jsonError('INVALID_DATE');
+  var slots=_getKrxAuthKeySlots_();
+  var diagnostic={requestedDate:date,mode:'READ_ONLY',keyConfigured:!!slots.key,
+    alternativeConfigured:!!slots.alternative,
+    primaryHttpStatus:0,alternativeHttpStatus:0,source:'NONE',
+    parseStatus:'NOT_FETCHED',stats:null,
+    beforeNightFinalCutoff:Utilities.formatDate(new Date(),CONFIG.TIMEZONE,'HHmm')<'0600'};
+  if(!slots.key)return jsonOk({diagnostic:diagnostic});
+  var endpoint='https://data-dbg.krx.co.kr/svc/apis/drv/fut_bydd_trd?basDd='+
+    encodeURIComponent(date.replace(/-/g,''));
+  var request=function(key){return UrlFetchApp.fetch(endpoint,{
+    method:'get',headers:{AUTH_KEY:key},muteHttpExceptions:true
+  });};
+  var response;
+  try {response=request(slots.key);}
+  catch(ignore){diagnostic.parseStatus='FETCH_FAILED';return jsonOk({diagnostic:diagnostic});}
+  diagnostic.primaryHttpStatus=response.getResponseCode();
+  diagnostic.source='PRIMARY';
+  if((diagnostic.primaryHttpStatus===401||diagnostic.primaryHttpStatus===403)
+      && slots.alternative) {
+    try {response=request(slots.alternative);}
+    catch(ignoreAlt){diagnostic.parseStatus='ALTERNATIVE_FETCH_FAILED';return jsonOk({diagnostic:diagnostic});}
+    diagnostic.alternativeHttpStatus=response.getResponseCode();
+    diagnostic.source='ALTERNATIVE';
+  }
+  if(response.getResponseCode()!==200) {
+    diagnostic.parseStatus='HTTP_DENIED_OR_UNAVAILABLE';
+    return jsonOk({diagnostic:diagnostic});
+  }
+  var payload;
+  try {payload=JSON.parse(response.getContentText()||'');}
+  catch(ignoreJson){diagnostic.parseStatus='NON_JSON';return jsonOk({diagnostic:diagnostic});}
+  if(!Array.isArray(payload&&payload.OutBlock_1)) {
+    diagnostic.parseStatus='UNEXPECTED_SCHEMA';
+    return jsonOk({diagnostic:diagnostic});
+  }
+  diagnostic.parseStatus=payload.OutBlock_1.length?'ROWS':'EMPTY';
+  diagnostic.stats=_summarizeKrxK200NightRows_(payload.OutBlock_1,date);
+  return jsonOk({diagnostic:diagnostic});
+}
+
 function handleGetKrxK200NightClose(tradingDate) {
   try {
     var observation = fetchKrxK200NightClose(tradingDate, new Date());
@@ -5659,7 +5747,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.220' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.221' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11407,7 +11495,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.220',
+    gasVersion: '9.221',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11447,7 +11535,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.220' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.221' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14908,7 +14996,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.220' });
+    return jsonOk({ settings: settings, gasVersion: '9.221' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14938,7 +15026,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.220'
+      gasVersion: '9.221'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
