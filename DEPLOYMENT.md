@@ -1,3 +1,13 @@
+## GAS v9.222 — KRX 보유 37개 종목 공식 종가 일치 확인 (2026-10-14)
+
+- 인증된 `getKrxHeldCloseCoverage&date=YYYY-MM-DD`는 해당일 실제 보유한 KRX 종목을 거래이력/코드마스터에서 읽어, 37개 전체의 `KRX/KRX_OTP` 공식 원천일 일치 건수를 집계합니다. 개별 보유코드·가격·API 키·응답 원문을 출력하지 않습니다.
+- `expectedHeldCodes`, `officialExactDateCodes`, `missingCodes`, `staleCodes`, `duplicateMasterCodes`, `orphanLedgerCodes`, STOCK/ETF 그룹 집계 및 `ready`만 응답합니다.
+- 예상 결과는 2026-10-12 및 2026-10-13 각각 37/37이지만 **실제 원천 37개 전수 조회 전 확인된 사실이 아닙니다.** 이 단계는 읽기 전용이며 가격이력·Snapshot·pending/마감 상태를 변경하지 않습니다.
+- 워크플로는 `diagnose-krx-held-coverage.mjs`를 실행하며 원천 37/37 완전 일치인 경우에만 진단 성공입니다. 실제 누락일 복구는 기존 `saveDailyPriceHistory`의 보호된 트리거/실행 소유권 조건을 통해 별도로 수행해야 합니다.
+- 이전 배포 GAS 9.221, Apps Script 배포 버전 273과 구분해야 하며 PR 병합/실배포 전에는 이 기능이 운영에 없습니다.
+
+---
+
 ## GAS v9.221 — KRX 야간선물 비민감 읽기 전용 진단 (#496, 2026-10-14)
 
 - `getKrxK200NightDiagnostics`는 인증된 GET/POST `date=YYYY-MM-DD` 요청으로 선물 일별 원천의 HTTP 상태·JSON 구조·각 단계별 **건수**만 반환합니다. 요청 인증 토큰 외에 신규 외부 자격증명은 불필요합니다.
