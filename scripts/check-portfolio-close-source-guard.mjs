@@ -797,7 +797,7 @@ function runCrossLeaseScenario(backfillFirst) {
 runCrossLeaseScenario(true);
 runCrossLeaseScenario(false);
 const triggerSelfHeal=extract('_ensureDailyTriggersOncePerDay');
-assert.match(triggerSelfHeal,/integrity-change-v6-close-watchdog-backfill/,
+assert.match(triggerSelfHeal,/integrity-change-v7-close-watchdog-historical-backfill/,
   '신규 백필 트리거 점검은 캐시 키 변경으로 반드시 재실행');
 assert.match(triggerSelfHeal,/!before\.hasBackfill/,
   '일일 검사에서 누락된 백필 트리거 자동 복구');
@@ -805,6 +805,12 @@ assert.match(triggerSelfHeal,/before\.hasDuplicateBackfillTriggers/,
   '일일 검사에서 중복 백필 트리거 정리');
 assert.match(triggerSelfHeal,/after\.hasBackfill/,
   '백필 트리거가 있어야 복구 정상으로 캐시');
+assert.match(triggerSelfHeal,/!before\.hasHistoricalBackfill/,
+  '과거 복구 트리거 누락 시 자동 복구');
+assert.match(triggerSelfHeal,/before\.hasDuplicateHistoricalBackfillTriggers/,
+  '과거 복구 트리거 중복 검사');
+assert.match(triggerSelfHeal,/after\.hasHistoricalBackfill/,
+  '과거 복구 트리거가 있어야 점검 성공');
 
 // Cross-flow protection: old-backfill in progress blocks a new close PRICE
 // state before saveDailyPriceHistory may touch the same Snapshot sheets.
