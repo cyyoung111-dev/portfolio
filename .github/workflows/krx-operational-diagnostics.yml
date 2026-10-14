@@ -8,6 +8,7 @@ on:
       - '.github/workflows/krx-operational-diagnostics.yml'
       - 'scripts/diagnose-krx-operational.mjs'
       - 'scripts/diagnose-k200-night-operational.mjs'
+      - 'scripts/preview-krx-pending-reconcile.mjs'
   workflow_dispatch:
     inputs:
       dates:
@@ -44,3 +45,11 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: |
           node scripts/diagnose-k200-night-operational.mjs --dates "2026-10-13,2026-10-14"
+
+      - name: Preview stale KRX pending dates without mutation
+        if: always()
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: |
+          node scripts/preview-krx-pending-reconcile.mjs
