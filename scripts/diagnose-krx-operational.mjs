@@ -156,7 +156,7 @@ export function summarizeOfficialCloses(data, date) {
   return { requestedDate:date, closes, healthy:closes.every(item => item.confirmed) };
 }
 export function buildSafeRequest(action, date, token) {
-  if (!['getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxOfficialStockCloses'].includes(action))
+  if (!['getKrxSourceDiagnostics', 'getKrxOfficialStockCloses'].includes(action))
     throw new Error('KRX_DIAG_FORBIDDEN_ACTION');
   const payload = new URLSearchParams({ action });
   if (date) payload.set('date', parseDates(date)[0]);
@@ -187,20 +187,13 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
   // deployment accidentally becomes public. Never run with a missing secret.
   if (typeof token !== 'string' || !token.trim())
     throw new Error('KRX_DIAG_GAS_ACCESS_TOKEN_NOT_CONFIGURED');
-  // getSettings is NOT read-only: it may settle a pending code-delete
-  // transaction. getAutomationStatus is a read-only, versioned route.
-  const settings = await readGasAction(url,'getAutomationStatus','',token,fetchImpl);
-  if (settings && settings.status === 'error'
-      && String(settings.message || '') === '인증 실패')
-    throw new Error('KRX_DIAG_GAS_ACCESS_DENIED');
-  if (!settings || settings.status !== 'ok'
-      || !/^\d+\.\d+$/.test(String(settings.gasVersion || '')))
-    throw new Error('KRX_DIAG_GAS_VERSION_UNAVAILABLE');
-  // Probe with an intentionally incorrect non-secret token. Public GAS
-  // deployments must fail instead of claiming authenticated diagnostics.
+  // Never call getSettings (it may settle pending deletes) or the heavyweight
+  // getAutomationStatus. A wrong-token request proves authentication without
+  // fetching the source. Diagnose every requested date independently.
   const invalidToken = token === 'KRX_READ_ONLY_AUTH_PROBE_20261014'
     ? 'KRX_READ_ONLY_AUTH_PROBE_20261014_ALT' : 'KRX_READ_ONLY_AUTH_PROBE_20261014';
-  const negative = await readGasAction(url,'getAutomationStatus','',invalidToken,fetchImpl);
+  const negative = await readGasAction(url,'getKrxSourceDiagnostics',
+    checkedDates[0],invalidToken,fetchImpl);
   if (!negative || negative.status !== 'error'
       || String(negative.message || '') !== '인증 실패')
     throw new Error('KRX_DIAG_GAS_AUTHENTICATION_DISABLED');
@@ -208,6 +201,8 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
   for (const date of checkedDates) {
     try {
       const data = await readGasAction(url,'getKrxSourceDiagnostics',date,token,fetchImpl);
+      if (data?.status === 'error' && data?.message === '인증 실패')
+        throw new Error('KRX_DIAG_GAS_ACCESS_DENIED');
       const source = summarizeKrxSource(data,date);
       let stockCloses;
       try {
@@ -219,6 +214,7 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
       }
       reports.push({ ...source, stockCloses, healthy:source.healthy && stockCloses.healthy });
     } catch (error) {
+      if (error?.message === 'KRX_DIAG_GAS_ACCESS_DENIED') throw error;
       // The live KRX dates are independent. Report a sanitized per-day GAS
       // transport/schema failure and continue inspecting the other dates.
       // Never log the exception text, token, URL, or original response body.
@@ -237,7 +233,7 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
       });
     }
   }
-  return { mode:'READ_ONLY', gasVersion:String(settings.gasVersion), reports,
+  return { mode:'READ_ONLY', verifiedContract:'KRX_SOURCE_READ_ONLY', reports,
     healthy:reports.every(item => item.healthy) };
 }
 if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).href) {
