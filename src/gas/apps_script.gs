@@ -10229,9 +10229,13 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose, historicalO
       }
     }
     var result = _retryOnePendingKrxClose_(props, runDate, !fromClose && !historicalOnly);
-    // Historical no-op must not erase a failed same-day replay diagnostic.
+    // Preserve the latest same-day result independently of historical runs.
+    // Historical no-ops must not replace the last meaningful historical attempt.
+    var resultKey = historicalOnly
+      ? 'portfolio_close_historical_backfill_last_result'
+      : 'portfolio_close_backfill_last_result';
     if (!historicalOnly || result.attempted) {
-      props.setProperty('portfolio_close_backfill_last_result',
+      props.setProperty(resultKey,
         JSON.stringify({runDate:runDate, checkedAt:Date.now(), result:result}));
     }
     return result;
@@ -11649,6 +11653,7 @@ function _getAutomationStatusData() {
       midnightBackfillCount: trig.midnightBackfillCount
     },
     backfillLastResult: parseProperty('portfolio_close_backfill_last_result'),
+    historicalBackfillLastResult: parseProperty('portfolio_close_historical_backfill_last_result'),
     portfolioClose: portfolioClose,
     closeRun: closeRun,
     officialKrxPriceHistoryLastDate: officialKrxPriceHistoryLastDate,
@@ -12823,7 +12828,8 @@ function runDailyPortfolioClose1900() {
   try { _ensurePortfolioCloseWatchdogTrigger(true); }
   catch (watchdogTriggerError) { Logger.log('⚠️ 20:30 watchdog 트리거 자가복구 실패: ' + watchdogTriggerError.message); }
   try { _ensurePortfolioCloseBackfillTrigger(true);
-  _ensurePortfolioHistoricalBackfillTrigger(true); }
+  _ensurePortfolioHistoricalBackfillTrigger(true);
+  _ensurePortfolioHistoricalBackfill0010Trigger(true); }
   catch (backfillTriggerError) { Logger.log('⚠️ 22:10 KRX 백필 트리거 자가복구 실패: ' + backfillTriggerError.message); }
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
