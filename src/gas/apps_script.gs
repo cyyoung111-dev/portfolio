@@ -2,6 +2,7 @@
 //  📊 포트폴리오 대시보드 — Google Apps Script  v9.223
 //
 //  v9.223 변경사항 (2026.10.14):
+//  - pending 해제 전 해당일 Snapshot 수량과 소급 거래원장 보유 수량 일치 필수.
 //  - 22:10 백필이 완료된 과거 KRX 대기일을 2개까지 검산 후 정리하고 누락일을 우선 재처리합니다.
 //  - 누락일 37종목 KRX 공식 원천일 일치율 사전진단 (집계만 반환, 시트 쓰기 없음).
 //  - KRX KOSPI200 야간선물 원천 매칭 단계별 건수만 반환하는 인증된 읽기 전용 진단 추가.
@@ -11881,12 +11882,14 @@ function _verifyCompletedKrxPendingDate_(ss, date) {
     if (name && code && !nameToCode[name]) nameToCode[name]=code;
   });
   var ledgerHoldings=_calcCodeHoldingsAtDate(tradeRows,date,nameToCode);
-  var orphan=false;
+  var orphan=false, ledgerQty={};
   Object.keys(ledgerHoldings).forEach(function(name) {
     var position=ledgerHoldings[name];
     if (!position || !(position.qty>0.0001)) return;
     var code=_cleanCode(position.code);
     if (!code || (!_isFundCode(code) && !masterCodes[code])) orphan=true;
+    else if (!_isFundCode(code))
+      ledgerQty[code]=(ledgerQty[code]||0)+Number(position.qty);
   });
   if (orphan) return {ok:false,reason:'MASTER_INCOMPLETE'};
   var codes = Object.keys(held);
@@ -11917,6 +11920,9 @@ function _verifyCompletedKrxPendingDate_(ss, date) {
     if (snap[code] || !/^(KRX|KRX_OTP)$/.test(source)
         || !isFinite(qty) || !(qty>0) || !isFinite(unit) || !(unit>0)
         || !isFinite(val) || !(val>0) || !price[code]
+        // A self-consistent stale snapshot can still reflect old transaction
+        // quantities. Compare against the reconstructed exact-date ledger.
+        || !(ledgerQty[code]>0) || Math.abs(qty-ledgerQty[code])>0.00011
         // Production rounds total KRW first, then stores (total/qty).toFixed(2).
         || Math.abs(Math.round(qty*price[code])-val)>1
         || Math.abs(val/qty-unit)>0.011)
