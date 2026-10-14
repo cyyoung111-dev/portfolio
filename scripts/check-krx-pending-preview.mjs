@@ -37,6 +37,12 @@ const unexpected=await runPreview({url,token,fetchImpl:createFetch({
  ...good,checked:[good.checked[0],{...good.checked[1],queued:false}]
 })});
 assert.equal(unexpected.status,'BLOCKED');
+const cleared=await runPreview({url,token,fetchImpl:createFetch({
+ ...good,checked:good.checked.map(x=>({...x,queued:false}))
+})});
+assert.equal(cleared.status,'ALREADY_CLEAR','repeated workflow run after cleanup must succeed');
+assert.equal(cleared.entries.every(x=>!x.queued&&x.verified),true);
+
 await assert.rejects(()=>runPreview({url,token,fetchImpl:async()=>({
  ok:true,json:async()=>good})}),/AUTH_NOT_ENFORCED/);
 await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch({
