@@ -1992,7 +1992,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.216', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.217', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5649,7 +5649,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.216' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.217' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11387,7 +11387,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.216',
+    gasVersion: '9.217',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11427,7 +11427,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.216' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.217' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14789,7 +14789,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.216'
+      gasVersion: '9.217'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
