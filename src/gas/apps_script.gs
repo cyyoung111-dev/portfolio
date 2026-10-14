@@ -14710,7 +14710,11 @@ function handleSaveSettings(dataJson) {
           // because the save contract always retains their server values.
           var entireRequestAlreadyDurable=Object.keys(incoming).every(function(key) {
             if (protectedKeys.indexOf(key)!==-1) return true;
-            var requested=key==='EDITABLE_PRICES' ? canonical : incoming[key];
+            var requested=key==='EDITABLE_PRICES'
+              ? canonical.concat(retainedFunds.filter(function(ep) {
+                  return !rowSeen[String(ep.name||'').trim()];
+                }))
+              : incoming[key];
             return Object.prototype.hasOwnProperty.call(settings,key)
               && JSON.stringify(settings[key])===JSON.stringify(requested);
           });
