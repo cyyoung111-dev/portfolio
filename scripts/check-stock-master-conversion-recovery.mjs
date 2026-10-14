@@ -28,6 +28,7 @@ function fixture(opts={}) {
     props:new Map(),settingsWrites:0,codeDeletes:0,revision:0,
     throwCodeBefore:!!opts.codeBefore,throwCodeAfter:!!opts.codeAfter,
     throwSettings:!!opts.settingsOnce,throwClear:!!opts.clearOnce,
+    throwRevisionOnce:!!opts.revisionOnce,
     failChunkOnce:!!opts.failChunkOnce,
     failChunkAt:Number(opts.failChunkAt||0),chunkWrites:0,
     locked:false,wholeClear:0
@@ -80,6 +81,9 @@ function fixture(opts={}) {
     },
     getProperties:()=>Object.fromEntries(state.props),
     deleteProperty:k=>{
+      if(k==='PF_PENDING_CODE_DELETE_TXN_V1' && state.codes.length===0
+          && state.revision===0)
+        throw Error('PREMATURE_MARKER_RETIRE_BEFORE_HISTORY_REVISION');
       if(state.throwClear){state.throwClear=false;throw Error('CRASH_AFTER_SETTINGS_SAVE');}
       state.props.delete(k);
     }
@@ -108,7 +112,13 @@ function fixture(opts={}) {
     _parseJsonParam:x=>JSON.parse(x),
     jsonError:(message,extra={})=>({status:'error',message,...extra}),
     jsonOk:extra=>({status:'ok',...extra}),
-    _touchSnapshotIntegritySourceRevision:()=>{state.revision++;}
+    _touchSnapshotIntegritySourceRevision:()=>{
+      if(state.throwRevisionOnce){
+        state.throwRevisionOnce=false;
+        throw Error('INJECTED_HISTORY_REVISION_WRITE_FAILED');
+      }
+      state.revision++;
+    }
   };
   vm.createContext(ctx);
   vm.runInContext(prod,ctx);
@@ -141,6 +151,7 @@ function checkConverted(t,name='원종목',expectedNotes='original memo') {
   checkConverted(t);
   assert.equal(t.marker(),undefined);
   assert.equal(t.state.settingsWrites,1);
+  assert.equal(t.state.revision,1,'history revision must be committed before marker retirement');
   assert.equal(t.state.locked,false);
 }
 {
@@ -151,6 +162,7 @@ function checkConverted(t,name='원종목',expectedNotes='original memo') {
   assert.equal(t.settings().EDITABLE_PRICES[0].code,'001234','Settings still old at crash');
   assert.equal(t.settle().resolution,'completed');
   checkConverted(t);
+  assert.equal(t.state.revision,1,'restart settles snapshot/history revision before marker');
   assert.equal(t.marker(),undefined);
   assert.equal(t.settle().pending,false,'recovery is idempotent');
 }
@@ -256,6 +268,28 @@ function checkConverted(t,name='원종목',expectedNotes='original memo') {
   assert.equal(t.state.settingsWrites,1,'idempotent replay never rewrites converted entry');
 }
 {
+  const t=fixture({revisionOnce:true});
+  assert.equal(t.submit().status,'error',
+    'history revision failure must not retire committed Codes/Settings evidence');
+  assert.equal(t.state.codes.length,0);
+  assert.equal(t.state.revision,0);
+  assert.ok(t.marker(),'pending marker survives revision write failure');
+  checkConverted(t);
+  assert.equal(t.settle().resolution,'completed',
+    'retry writes history revision then clears marker');
+  assert.equal(t.state.revision,1);
+  assert.equal(t.marker(),undefined);
+}
+{
+  const t=fixture({clearOnce:true});
+  assert.equal(t.submit().status,'error');
+  assert.ok(t.marker(),'forced stop at pointer removal leaves marker');
+  assert.equal(t.state.revision,1,
+    'history revision must already be written before interrupted marker cleanup');
+  assert.equal(t.settle().resolution,'completed');
+  assert.ok(t.state.revision>=1,'post-crash history remains invalidated');
+}
+{
   const t=fixture({settingsOnce:true});
   assert.equal(t.submit().status,'error','Settings write failure must compensate');
   assert.equal(t.state.codes.length,1,'compensate code row');
@@ -285,4 +319,4 @@ function checkConverted(t,name='원종목',expectedNotes='original memo') {
   assert.equal(t.state.codes.length,0);
   assert.deepEqual(t.settings().EDITABLE_PRICES,[other],'ordinary deletion must not add a fund');
 }
-console.log('✅ 실제 GAS 무코드 전환: 4000자 한글 분할·부분쓰기·동일 길이 변조·고아 키 정리·강제종료·일반삭제 보존');
+console.log('✅ 실제 GAS 무코드 전환: history revision 선확정·강제종료/실패 재개·4000자 분할·원본 보존');
