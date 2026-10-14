@@ -1,5 +1,7 @@
 ## PR #493 자체 재검토 — 신규 append 부분 실패 후 사용자가 목표 비중/메모 재수정한 경우 (2026-10-13)
 
+> 2026-10-14 PR #493 검증 후보: GAS v9.217은 무코드 펀드 CAS 응답 유실 재시도에서 전체 Settings 재기록 없이 ACK하여 타 탭 테마·계좌·종목 메모 덮어쓰기를 차단합니다. 웹 기대 버전 9.217, settings_fetch 20261014-5, PWA cache 20261014-18. Draft/미병합/미배포이며 운영 GAS·Sheets 수정 없음. 종료 기준은 docs/QUALITY_GATES.md §5-A입니다.
+
 - 기존 복구 부채가 최초 입력 `userFields`를 유지하는 동안 같은 브라우저에서 사용자가 신규 C의 targetWeight/notes를 수정하면, 재시도 전 동일 workbook/source 신규 종목 journal은 최신으로 갱신되지만 `_rememberSameTargetCodeSettingsRepairs`의 기존 metadataOnly 부채가 처음 값을 유지해 오래된 비중·메모를 복구하는 사례 확인.
 - `src/web/domain/portfolio/data.js`: **같은 sourceId, 이전/현재 exact (name,code), metadataOnly 상태가 일치하고 최신 durable journal이 명시적으로 userFields를 갖는 경우에만** 기존 Settings repair debt의 targetWeight·notes를 새 값으로 갱신. 없는 필드는 명시적 최신 증거에서만 삭제 가능, 기존 종목/교체 journal 변경 없음. 사용자 비중 수치(0~100) 클라이언트/GAS 허용 범위 일치.
 - `scripts/check-stock-master-append-repair.mjs`: 실제 웹 sync/Bootstrap VM에서 첫 코드 append 커밋과 Settings 실패 직후 C 비중 25→45, 메모 변경한 뒤 복구해 새 값이 유지되고 서버 추가 row가 중복되지 않으며 debt/journal 해제되는 경우 추가. 기존 재시작/기초정보/보호키 회귀 유지.

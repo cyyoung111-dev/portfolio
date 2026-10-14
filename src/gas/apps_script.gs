@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.216
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.217
+//
+//  v9.217 변경사항 (2026.10.14):
+//   무코드 펀드 CAS 응답 유실 재시도는 전체 Settings 덮어쓰기 없이 확인하여
+//   다른 탭에서 갱신한 테마·계좌·종목 사용자 메모를 보존
 //
 //  v9.216 변경사항 (2026.10.14):
 //   동일한 펀드 상태 재시도는 서버 기존 CAS 원본과 달라도 멱등 허용하고
@@ -14690,11 +14694,16 @@ function handleSaveSettings(dataJson) {
         // carries the old proof, but the exact requested fund rows are
         // already durable. Accept this idempotent fund state only; never
         // allow an actual competing-tab change to be overwritten.
-        if (JSON.stringify(proof)!==serverFundFingerprint
-            && JSON.stringify(submittedFunds)!==serverFundFingerprint)
-          return jsonError('다른 브라우저에서 무코드 펀드가 변경됨: 재조회 후 저장하세요', {
-            errorCode:'SETTINGS_CODELESS_FUND_STALE'
-          });
+        if (JSON.stringify(proof)!==serverFundFingerprint) {
+          if (JSON.stringify(submittedFunds)!==serverFundFingerprint)
+            return jsonError('다른 브라우저에서 무코드 펀드가 변경됨: 재조회 후 저장하세요', {
+              errorCode:'SETTINGS_CODELESS_FUND_STALE'
+            });
+          // Lost-ACK retry: the requested fund state is already durable.
+          // Do not overwrite other tabs' APP_THEME, ACCOUNTS_MASTER or coded
+          // stock notes by rewriting the full stale Settings payload.
+          return jsonOk({ saved:0, alreadyApplied:true });
+        }
       } else if (storedFunds.length && serverFundFingerprint!==JSON.stringify(
         submittedFunds.filter(function(ep) {
           return storedFunds.some(function(prev) {
@@ -14750,7 +14759,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.216' });
+    return jsonOk({ settings: settings, gasVersion: '9.217' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }

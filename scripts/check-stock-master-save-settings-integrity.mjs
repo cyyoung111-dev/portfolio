@@ -222,6 +222,30 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   assert.equal(f.state.settings.EDITABLE_PRICES[1].targetWeight,46);
   assert.equal(f.state.settings.EDITABLE_PRICES[1].notes,'ack was lost');
   assert.equal(Object.hasOwn(f.state.settings,'expectedCodelessFunds'),false);
+  assert.equal(f.state.writes,1,'same fund retry must not rewrite full Settings');
+}
+{
+  // Lost ACK: another tab changes non-fund fields after first commit.
+  // Retrying a stale CAS that matches durable funds must be write-free.
+  const f=fixture([C],[oldC,fund],{ACCOUNTS_MASTER:[{name:'기존 계좌'}]});
+  const requested={...fund,targetWeight:46,notes:'첫 요청'};
+  const payload={EDITABLE_PRICES:[oldC,requested],
+    expectedCodelessFunds:[fund],APP_THEME:'dark',
+    ACCOUNTS_MASTER:[{name:'기존 계좌'}]};
+  assert.equal(f.save(payload).status,'ok');
+  f.state.settings.APP_THEME='blue';
+  f.state.settings.ACCOUNTS_MASTER=[{name:'새 계좌'}];
+  f.state.settings.EDITABLE_PRICES[0].notes='다른 탭 최신 메모';
+  const result=f.save(payload);
+  assert.equal(result.status,'ok');
+  assert.equal(result.alreadyApplied,true);
+  assert.equal(result.saved,0);
+  assert.equal(f.state.writes,1,'retry must not rewrite Settings');
+  assert.equal(f.state.settings.APP_THEME,'blue');
+  assert.deepEqual(f.state.settings.ACCOUNTS_MASTER,[{name:'새 계좌'}]);
+  assert.equal(f.state.settings.EDITABLE_PRICES[0].notes,'다른 탭 최신 메모');
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].targetWeight,46);
+  assert.equal(f.state.lock,false);
 }
 {
   // Deletion retry has the same property: stale old CAS, but the requested
@@ -230,6 +254,7 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   const payload={EDITABLE_PRICES:[oldC],expectedCodelessFunds:[fund]};
   assert.equal(f.save(payload).status,'ok');
   assert.equal(f.save(payload).status,'ok');
+  assert.equal(f.state.writes,1,'deletion retry must not rewrite Settings');
   assert.deepEqual(f.state.settings.EDITABLE_PRICES.map(ep=>ep.name),['C']);
   assert.equal(f.state.settings.EDITABLE_PRICES[0].notes,'C notes');
   assert.equal(f.state.settings.EDITABLE_PRICES[0].targetWeight,20);
