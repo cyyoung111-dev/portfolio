@@ -197,16 +197,10 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
   if (!negative || negative.status !== 'error'
       || String(negative.message || '') !== '인증 실패')
     throw new Error('KRX_DIAG_GAS_AUTHENTICATION_DISABLED');
-  const firstSource = await readGasAction(url,'getKrxSourceDiagnostics',
-    checkedDates[0],token,fetchImpl);
-  if (firstSource?.status === 'error'
-      && String(firstSource.message || '') === '인증 실패')
-    throw new Error('KRX_DIAG_GAS_ACCESS_DENIED');
   const reports = [];
-  for (const [index,date] of checkedDates.entries()) {
+  for (const date of checkedDates) {
     try {
-      const data = index === 0 ? firstSource
-        : await readGasAction(url,'getKrxSourceDiagnostics',date,token,fetchImpl);
+      const data = await readGasAction(url,'getKrxSourceDiagnostics',date,token,fetchImpl);
       const source = summarizeKrxSource(data,date);
       let stockCloses;
       try {
