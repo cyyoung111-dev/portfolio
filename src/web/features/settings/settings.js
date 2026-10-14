@@ -393,15 +393,9 @@ function saveSettings(immediate, options) {
     LOAN_SCHEDULE,
     RE_VALUE_HIST,
   };
-  if (!settingsPatch) {
-    // The baseline is the LAST verified server load/ACK, not current local
-    // EDITABLE_PRICES: a stale tab cannot claim it saw a newly converted fund.
-    const proof=_gsheetCodelessFundBaseline;
-    if (proof && proof.targetUrl===targetUrl
-        && proof.generation===expectedGeneration
-        && proof.epoch===expectedLoadEpoch)
-      settings.expectedCodelessFunds=JSON.parse(JSON.stringify(proof.funds));
-  }
+  // Freeze the user's edit NOW; a queued save must not silently incorporate
+  // changes made after it was scheduled. The server fund CAS proof, however,
+  // must be supplied at queue EXECUTION time after earlier saves ACK.
   const payload = JSON.stringify(settings);
 
   const run = async () => {
@@ -421,12 +415,20 @@ function saveSettings(immediate, options) {
       if (isCurrentLoad && !isCurrentLoad()) return false;
       // 나중에 접수된 복구 patch가 fundDirect를 확정한 경우, 먼저 예약한
       // 전체 Settings 저장은 다른 변경 필드만 전송해 사용자 테마/계좌 변경도 보존합니다.
-      let outgoingPayload = payload;
-      if (!settingsPatch && _saveSettingsFundDirectRevision !== expectedFundDirectRevision) {
-        const remainingSettings = { ...settings };
-        delete remainingSettings.fundDirect;
-        outgoingPayload = JSON.stringify(remainingSettings);
+      const outgoingSettings=JSON.parse(payload);
+      if (!settingsPatch) {
+        if (_saveSettingsFundDirectRevision !== expectedFundDirectRevision)
+          delete outgoingSettings.fundDirect;
+        // This read is intentionally INSIDE the serialized queue, after all
+        // prior saveSettings ACKs have rebased the exact server fund roster.
+        // The captured EDITABLE_PRICES remains the original user intent.
+        const proof=_gsheetCodelessFundBaseline;
+        if (proof && proof.targetUrl===targetUrl
+            && proof.generation===expectedGeneration
+            && proof.epoch===expectedLoadEpoch)
+          outgoingSettings.expectedCodelessFunds=JSON.parse(JSON.stringify(proof.funds));
       }
+      const outgoingPayload=JSON.stringify(outgoingSettings);
       const data = await requestGsheetFormJson(
         'saveSettings',
         { data: outgoingPayload },
@@ -571,9 +573,6 @@ async function loadSettings(onProgress, options) {
       return failLoad(code);
     }
     let s = data.settings;
-    // Capture server origin BEFORE UI edits, replacement rebase or later
-    // scheduled saveSettings can mutate local EDITABLE_PRICES.
-    const originalServerFunds=_gsheetCodelessFundsFromRows(s.EDITABLE_PRICES);
     const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
     // Recovery provenance may exist ONLY as a durable A->B journal if the
     // browser stopped between code-sheet flush and Settings failure readback.
@@ -1252,9 +1251,12 @@ async function loadSettings(onProgress, options) {
     if (reconciled > 0) console.log(`[GAS 기초정보 복구] 종목코드 시트에서 ${reconciled}개 필드 반영`);
     _gsPortfolioRestoreRequired = false;
     _gsCodeMasterSourceIdentity = bootstrapCodeMasterSource;
+    // Repaired Bootstrap may have replaced s more than once. Pin precisely
+    // the last server Settings that populated EDITABLE_PRICES, never the
+    // discarded first response from before a Settings repair/append.
     _gsheetCodelessFundBaseline={
       targetUrl:loadTarget,generation:loadGeneration,epoch:loadEpoch,
-      funds:originalServerFunds
+      funds:_gsheetCodelessFundsFromRows(s.EDITABLE_PRICES)
     };
     _gsBootRestored = true;
     loadCompleted = true;
