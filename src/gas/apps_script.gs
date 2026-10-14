@@ -5817,7 +5817,7 @@ function _ensurePortfolioHistoricalBackfill0010Trigger(autoFix) {
   if (!autoFix) return triggers.length > 0;
   if (!triggers.length) {
     ScriptApp.newTrigger(handler).timeBased().everyDays(1)
-      .inTimezone(CONFIG.TIMEZONE).atHour(0).nearMinute(10).create();
+      .inTimezone(CONFIG.TIMEZONE).atHour(0).nearMinute(30).create();
     triggers = ScriptApp.getProjectTriggers().filter(function(t) {
       return t.getHandlerFunction() === handler;
     });
@@ -10231,10 +10231,11 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose, historicalO
     var result = _retryOnePendingKrxClose_(props, runDate, !fromClose && !historicalOnly);
     // Preserve the latest same-day result independently of historical runs.
     // Historical no-ops must not replace the last meaningful historical attempt.
-    var resultKey = historicalOnly
+    var isHistoricalResult = historicalOnly || (result.attempted && result.date !== runDate);
+    var resultKey = isHistoricalResult
       ? 'portfolio_close_historical_backfill_last_result'
       : 'portfolio_close_backfill_last_result';
-    if (!historicalOnly || result.attempted) {
+    if (!isHistoricalResult || result.attempted) {
       props.setProperty(resultKey,
         JSON.stringify({runDate:runDate, checkedAt:Date.now(), result:result}));
     }
@@ -10283,7 +10284,7 @@ function runPortfolioCloseBackfill2210() {
 function runPortfolioHistoricalBackfill2240() {
   return _runPendingKrxBackfillWithLease_(PropertiesService.getScriptProperties(), today(), false, true);
 }
-// After midnight, replay only dates strictly before the new calendar date.
+// At 00:30 (nearMinute ±15m), replay only dates before the new calendar date.
 function runPortfolioHistoricalBackfill0010() {
   return _runPendingKrxBackfillWithLease_(PropertiesService.getScriptProperties(), today(), false, true);
 }
