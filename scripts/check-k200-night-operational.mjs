@@ -39,27 +39,32 @@ const fetchImpl=async (_url,opts)=>{
   requests.push({action,date,method:opts.method,keys:[...body.keys()]});
   assert.equal(body.get('accessToken'),token);
   assert.equal(opts.method,'POST');
-  const result=action==='getSettings'
-    ? {status:'ok',gasVersion:'9.221',settings:{
-      apiKeyStatus:{requestAuthenticationEnabled:true}}}
-    : action==='getKrxK200NightDiagnostics' ? diag(date)
+  const result=action==='getKrxK200NightDiagnostics' ? diag(date)
     : action==='getKrxK200NightClose'
-      ? (date===dates[0]?close(date):{status:'ok',observation:null})
+      ? (date===dates[0]?close(date):{status:'ok',observation:null,error:'KRX_K200_NIGHT_NOT_READY'})
     : {status:'error'};
   return {ok:true,json:async()=>result};
 };
 const data=await runNightDiagnosis({url,token,dates:dates.join(','),fetchImpl});
 assert.equal(data.mode,'READ_ONLY');
-assert.equal(data.gasVersion,'9.221');
+assert.equal(data.requiredDiagnosticContract,'K200_NIGHT_DIAGNOSTICS_V1');
 assert.deepEqual(data.results.map(x=>x.officialNightFinal),[true,false]);
 assert.equal(data.results[0].stats.totalRows,22);
 assert.equal(data.results[0].stats.wouldSelect,true);
-assert.equal(requests.length,5);
+assert.equal(requests.length,4);
 assert.deepEqual([...new Set(requests.map(x=>x.action))].sort(),
- ['getKrxK200NightClose','getKrxK200NightDiagnostics','getSettings']);
+ ['getKrxK200NightClose','getKrxK200NightDiagnostics']);
 assert.doesNotMatch(JSON.stringify(data),/sensitive-token|SENSITIVE|999\.25/);
 await assert.rejects(()=>runNightDiagnosis({url,token:'',dates:'2026-10-13',fetchImpl}),
   /AUTH_NOT_CONFIGURED/);
 await assert.rejects(()=>runNightDiagnosis({url,token,dates:'2026-02-30',fetchImpl}),
   /INVALID_DATE/);
 console.log('KRX K200 live read-only diagnostic validation, privacy and finality tests passed');
+
+assert.throws(()=>summarizeNightFinal({
+  status:'ok',observation:null,error:'KRX_K200_NIGHT_HTTP_503'
+},dates[0]),/NIGHT_FINAL_PROVIDER_ERROR/,
+'KRX network/provider fault must not be labeled as clean no-match');
+assert.deepEqual(summarizeNightFinal({
+  status:'ok',observation:null,error:'KRX_K200_NIGHT_NOT_READY'
+},dates[0]),{date:dates[0],officialNightFinal:false});
