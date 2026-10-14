@@ -52,9 +52,10 @@ const ledgerSheet={
 };
 const ss={getSheetByName:n=>n==='가격이력'?sheet(history)
  :n==='스냅샷'?sheet(snapshots):n==='거래이력'?ledgerSheet:null};
+let ledgerQtyOverride=2;
 const context=vm.createContext({
   CONFIG:{SHEET_PH:'가격이력',SHEET_SNAPSHOT:'스냅샷',SHEET_TRADES:'거래이력'},
-  _calcCodeHoldingsAtDate:()=>({'005930':{code:'005930',qty:2},'000660':{code:'000660',qty:2}}),
+  _calcCodeHoldingsAtDate:()=>({'005930':{code:'005930',qty:ledgerQtyOverride},'000660':{code:'000660',qty:2}}),
   _isFundCode:code=>/^F\d{5}$/.test(code),
   getss:()=>ss, getCodeItems:()=>catalog,
   _getDailyHeldCodeItems:()=>catalog,
@@ -120,8 +121,12 @@ assert.equal(invoke('2026-10-08','1').result.checked[0].reason,'MASTER_INCOMPLET
   'a partial catalog must not silently exclude a held ledger code');
 catalog.push({code:'000660',market:'KOSPI',currency:'KRW',type:'주식'});
 snapshots[2][3]='1.5'; snapshots[2][6]='101.33'; snapshots[2][7]='152';
+assert.equal(invoke('2026-10-08','').result.checked[0].reason,'SNAPSHOT_INVALID',
+  'self-consistent stale snapshot must be rejected if the ledger qty changed');
+ledgerQtyOverride=1.5;
 assert.equal(invoke('2026-10-08','').result.checked[0].ok,true,
-  'fractional quantity uses rounded total first, then two-decimal derived unit');
+  'exact ledger fractional quantity uses rounded total then derived unit');
+ledgerQtyOverride=2;
 snapshots[2]=sn('2026-10-08','005930',101);
 
 values.set('backfill_lease',JSON.stringify({until:Date.now()+60000}));
