@@ -114,7 +114,7 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   const f=fixture([C],[oldC,converted]);
   const before=structuredClone(f.state.settings);
   const rejected=f.save({EDITABLE_PRICES:[oldA,oldC],APP_THEME:'dark'});
-  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_STALE');
+  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_PROOF_REQUIRED');
   assert.equal(f.state.writes,0,'stale tab must never erase the converted fund');
   assert.deepEqual(f.state.settings,before);
   assert.equal(f.state.lock,false);
@@ -125,7 +125,7 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   const converted={...fund,name:'새 펀드',assetType:'펀드',notes:'전환 후 보존'};
   const f=fixture([C],[oldC,converted]);
   const rejected=f.save({EDITABLE_PRICES:[oldA,oldC],APP_THEME:'dark'});
-  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_STALE');
+  assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_PROOF_REQUIRED');
   assert.equal(f.state.settings.EDITABLE_PRICES[1].notes,'전환 후 보존');
   assert.equal(f.state.writes,0);
 }
