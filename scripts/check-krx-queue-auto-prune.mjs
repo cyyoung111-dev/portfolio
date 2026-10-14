@@ -134,7 +134,7 @@ function checkNextDayReset() {
   vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
   ctx._retryOnePendingKrxClose_(props,'2026-10-15',true);
   ctx._retryOnePendingKrxClose_(props,'2026-10-15',true);
-  assert.deepEqual(calls,['2026-10-15','2026-10-12'],'new trading day must prioritize today before historical rotation');
+  assert.deepEqual(calls,['2026-10-12','2026-10-15'],'daily worker must give historical backlog an opportunity after prior-day today attempt');
 }
 checkNextDayReset();
 
