@@ -264,7 +264,7 @@ assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _save
   '복구용 부분 Settings patch는 일반 debounce timer/waiter와 분리해 payload 상호취소를 방지');
 assert.match(settings, /let _saveSettingsWriteRevision = 0[\s\S]*let _saveSettingsFundDirectRevision = 0[\s\S]*const expectedWriteRevision = settingsPatch[\s\S]*const expectedFundDirectRevision = settingsPatch[\s\S]*_saveSettingsWriteRevision !== expectedWriteRevision/,
   '전체 Settings 및 fundDirect patch를 별도 revision으로 관리');
-assert.match(settings, /if \(!settingsPatch && _saveSettingsFundDirectRevision !== expectedFundDirectRevision\) \{[\s\S]*delete remainingSettings\.fundDirect[\s\S]*outgoingPayload = JSON\.stringify\(remainingSettings\)/,
+assert.match(settings, /const outgoingSettings=JSON\.parse\(payload\)[\s\S]*if \(_saveSettingsFundDirectRevision !== expectedFundDirectRevision\)[\s\S]*delete outgoingSettings\.fundDirect[\s\S]*const outgoingPayload=JSON\.stringify\(outgoingSettings\)/,
   'patch 이후 예약된 전체 저장은 기존 fundDirect만 제거하고 나머지 변경사항을 유지');
 assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)[\s\S]*return _saveSettingsQueue/,
   '복구 patch와 일반 debounce를 공유하지 않고 공통 전송 queue로만 직렬화');
