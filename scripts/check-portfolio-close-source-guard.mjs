@@ -698,8 +698,11 @@ assert.match(closeRunSource, /_ensurePortfolioCloseBackfillTrigger\(true\)/,
   '기존 정규 19시 실행으로 백필 트리거 설치');
 assert.doesNotMatch(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, runDate, true\)/,
   '19시 마감은 최종 결과 저장 전에 과거 백필을 실행하지 않음');
-assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate, false\)/,
-  '야간 실행은 통합 마감 없이 과거 날짜만 복구');
+assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate, false, false\)/,
+  '22:10 야간 실행은 통합 마감 없이 당일 누락 복구');
+const historicalBackfill=extract('runPortfolioHistoricalBackfill2240');
+assert.match(historicalBackfill,/_runPendingKrxBackfillWithLease_\(PropertiesService\.getScriptProperties\(\), today\(\), false, true\)/,
+  '22:40 과거 누락일 전용 실행');
 assert.doesNotMatch(closeRunSource,/_runPendingKrxBackfillWithLease_\(/,
   '가격·펀드 성공 여부와 관계없이 19시 마감에서 과거 Snapshot 백필 실행 금지');
 assert.match(backfillWorker,/return 'FUND_ACTIVE'/,
