@@ -258,7 +258,7 @@ if (!ensureDailyTriggersMatch
   process.exit(1);
 }
 
-if (!source.includes("integrity-change-v6-close-watchdog-backfill")
+if (!source.includes("integrity-change-v7-close-watchdog-historical-backfill")
     || !source.includes('function _expectedPortfolioCloseRunDate()')
     || !source.includes('function _isPortfolioCloseRunStale(portfolioClose)')
     || !source.includes('portfolioCloseRunStale')
