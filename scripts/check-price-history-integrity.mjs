@@ -68,3 +68,42 @@ assert.ok(html.includes("serviceWorker.register('sw.js?v="+cacheVersion[1]+"'"),
 assert.match(sw, /portfolio-cache-\d{8}-\d+/);
 assert.doesNotMatch(sw, /views\/views_history\.js\?v=20260917-2/);
 console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 Snapshot 성과 유지·복구/cache 회귀 검사 통과');
+
+
+// The batched KRX writer must fail before the first write when a single
+// payload contains duplicate (date, code) keys. Never append duplicate rows.
+{
+ const start=gas.indexOf('function batchUpsertPriceHistory(');
+ const end=gas.indexOf('function upsertPriceHistory(',start);
+ assert.ok(start>=0&&end>start,'batch writer present');
+ const source=gas.slice(start,end);
+ const stored=[['날짜','종목코드','종목명','가격','입력일시','가격소스']];
+ const mockSheet={
+  getLastRow:()=>stored.length,getLastColumn:()=>6,
+  getRange:(r,c,n=1,w=1)=>({
+   getValues:()=>stored.slice(r-1,r-1+n).map(row=>row.slice(c-1,c-1+w)),
+   setValues:arr=>{arr.forEach((row,i)=>{const pos=r-1+i;while(stored.length<=pos)stored.push([]);
+    row.forEach((v,j)=>{stored[pos][c-1+j]=v;});});}
+  })
+ };
+ let revisions=0;
+ const ctx={CONFIG:{SHEET_PH:'가격이력'},
+  _normalizeDate:x=>String(x),_cleanCode:x=>String(x||'').trim(),
+  _setCodeColumnText:()=>{},_normalizeCodeRows:x=>x,
+  _touchSnapshotIntegritySourceRevision:()=>{revisions++;},
+  SpreadsheetApp:{flush:()=>{}},Logger:{log:()=>{}}
+ };
+ vm.runInNewContext(source,ctx);
+ const ss={getSheetByName:()=>mockSheet};
+ const row={code:'005930',name:'삼성전자',price:123,source:'KRX'};
+ assert.throws(()=>ctx.batchUpsertPriceHistory(ss,'2026-10-08',[row,{...row}]),
+  /동일 날짜·종목 중복 입력/);
+ assert.equal(stored.length,1,'failed duplicate batch must not touch data');
+ assert.equal(revisions,0,'failed duplicate batch must not modify revision');
+ ctx.batchUpsertPriceHistory(ss,'2026-10-08',[row]);
+ assert.equal(stored.length,2);
+ ctx.batchUpsertPriceHistory(ss,'2026-10-08',[{...row,price:124}]);
+ assert.equal(stored.length,2,'retried official close must update rather than append');
+ assert.equal(stored[1][3],124);
+}
+console.log('✅ 동일 날짜·코드 중복 배치 입력 차단 및 재시도 업서트 멱등성 통과');
