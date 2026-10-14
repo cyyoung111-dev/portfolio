@@ -14,7 +14,7 @@ const SOURCES=new Set(['NONE','PRIMARY','ALTERNATIVE']);
 function validHttp(v){return Number.isInteger(v)&&v>=0&&v<=599;}
 
 async function readOnlyAction(url,action,date,token,fetchImpl){
-  if(!['getSettings','getKrxK200NightDiagnostics','getKrxK200NightClose'].includes(action))
+  if(!['getKrxK200NightDiagnostics','getKrxK200NightClose'].includes(action))
     throw new Error('NIGHT_DIAG_FORBIDDEN_ACTION');
   const body=new URLSearchParams({action,accessToken:token});
   if(date)body.set('date',date);
@@ -63,9 +63,12 @@ export function summarizeK200Diagnostic(resp,date){
     beforeNightFinalCutoff:d.beforeNightFinalCutoff,stats};
 }
 export function summarizeNightFinal(resp,date){
-  const v=resp?.observation;
+  const v=resp?.observation, reason=String(resp?.error||'');
   if(resp?.status!=='ok'||(v!==null && (typeof v!=='object'||Array.isArray(v))))
     throw new Error('NIGHT_FINAL_INVALID_RESPONSE');
+  if(!v && reason!=='KRX_K200_NIGHT_NOT_READY')
+    throw new Error('NIGHT_FINAL_PROVIDER_ERROR');
+  if(v && reason)throw new Error('NIGHT_FINAL_INCONSISTENT_RESPONSE');
   return {date,officialNightFinal:!!v &&
     v.seriesId==='K200_NIGHT'&&v.tradingDate===date&&v.sourceDate===date
     &&v.source==='KRX_OFFICIAL'&&v.market==='KRX'&&v.session==='NIGHT'
@@ -75,10 +78,8 @@ export function summarizeNightFinal(resp,date){
 export async function runNightDiagnosis({url,token,dates,fetchImpl=fetch}){
   const validDates=parseDates(dates),endpoint=validateWebAppUrl(url);
   if(typeof token!=='string'||!token.trim())throw new Error('NIGHT_DIAG_AUTH_NOT_CONFIGURED');
-  const settings=await readOnlyAction(endpoint,'getSettings','',token,fetchImpl);
-  if(settings?.status!=='ok'||settings.gasVersion!=='9.221'
-    ||settings.settings?.apiKeyStatus?.requestAuthenticationEnabled!==true)
-    throw new Error('NIGHT_DIAG_GAS_VERSION_OR_AUTH_UNVERIFIED');
+  // The diagnostics action itself exists only in GAS v9.221+. Never
+  // call getSettings: that "read" route may settle a pending code deletion.
   const results=[];
   for(const date of validDates){
     try{
@@ -92,7 +93,7 @@ export async function runNightDiagnosis({url,token,dates,fetchImpl=fetch}){
         officialNightFinal:false});
     }
   }
-  return {mode:'READ_ONLY',gasVersion:settings.gasVersion,results};
+  return {mode:'READ_ONLY',requiredDiagnosticContract:'K200_NIGHT_DIAGNOSTICS_V1',results};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
@@ -105,7 +106,7 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
     if(report.results.some(r=>r.diagnosticError))process.exitCode=1;
   }catch(e){
     const allowed=new Set(['NIGHT_DIAG_AUTH_NOT_CONFIGURED',
-      'NIGHT_DIAG_GAS_VERSION_OR_AUTH_UNVERIFIED']);
+]);
     console.error(allowed.has(e.message)?e.message:'NIGHT_DIAG_REQUEST_FAILED');
     process.exitCode=1;
   }
