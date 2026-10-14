@@ -2323,7 +2323,7 @@ console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존
     '300건 일반 큐에도 당일 watchdog 예약은 성공');
   assert.equal(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).length,301);
   assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-08',true).ok,true);
-  assert.deepEqual(processed,['2026-10-08'],'300건 과거 대기열보다 오늘 PRICE 우선 복구');
+  assert.deepEqual(processed,['2024-01-01'],'300건 과거 대기열도 순환 커서에 따라 복구');
   assert.equal(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).length,300,
     '과거 300건은 버리지 않고 그대로 보존');
   const full=Array.from({length:600},(_,i)=>
