@@ -338,7 +338,7 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session, options) {
       // the pre-conversion CAS baseline with this exact verified readback,
       // otherwise the next legitimate local save would reject its own fund.
       if (typeof adoptVerifiedCodelessFundBaselineFromSettings==='function')
-        adoptVerifiedCodelessFundBaselineFromSettings(settings.settings,targetUrl,generation);
+        adoptVerifiedCodelessFundBaselineFromSettings(settings.settings,targetUrl,generation,conversion.name);
       // Server Settings (not a stale other-tab browser copy) is the
       // authoritative source of allocation/notes and future custom fields.
       // Refresh ONLY non-master fields: smSave still owns name/type/currency
