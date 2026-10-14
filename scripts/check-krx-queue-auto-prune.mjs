@@ -120,5 +120,23 @@ assert.deepEqual(checkRotation(pending,'2026-10-14',true,true).calls,['2026-10-1
 assert.deepEqual(checkRotation(pending,'',false,true).calls,['2026-10-12','2026-10-13','2026-10-12']);
 assert.deepEqual(checkRotation(pending,'',true,true).queue,pending);
 assert.deepEqual(checkRotation(pending,'',true,false).queue,[]);
+function checkNextDayReset() {
+  const state=new Map([['queue',JSON.stringify(['2026-10-12','2026-10-14','2026-10-15'])],['cursor',''],['portfolio_close_backfill_last_was_today','2026-10-14']]);
+  const props={getProperty:k=>state.get(k)??null,setProperty:(k,v)=>state.set(k,String(v)),deleteProperty:k=>state.delete(k)};
+  const calls=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'cursor',
+    _readPendingKrxCloseDates_:()=>JSON.parse(state.get('queue')),
+    saveDailyPriceHistory:date=>{calls.push(date);throw Error('unavailable');},
+    _portfolioFundAtomic_:fn=>fn(props),
+    _appendPortfolioCloseSyncLog:()=>{}
+  });
+  vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+  ctx._retryOnePendingKrxClose_(props,'2026-10-15',true);
+  ctx._retryOnePendingKrxClose_(props,'2026-10-15',true);
+  assert.deepEqual(calls,['2026-10-15','2026-10-12'],'new trading day must prioritize today before historical rotation');
+}
+checkNextDayReset();
+
 
 console.log('KRX backfill complete-date pruning: live functions/leases/safety/liveness/rollover PASS');
