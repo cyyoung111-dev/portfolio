@@ -346,7 +346,8 @@ const unseen={name:'다른 탭 신규펀드',code:'',assetType:'펀드',targetWe
 assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[originalFund,unseen]},
   'https://example.test/gas',1,originalFund.name),false,
   'conversion readback cannot make unknown other-tab funds appear in trusted baseline');
-assert.equal(ctx.testFundsBaseline(),null,'rejected readback does not grant destructive CAS proof');
+assert.equal(ctx.testFundsBaseline().funds.length,0,
+  'rejected readback must preserve the previous empty fund CAS proof');
 assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[originalFund]},
   'https://example.test/gas',1,originalFund.name),true);
 assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[]},
