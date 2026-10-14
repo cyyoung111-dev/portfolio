@@ -11368,8 +11368,8 @@ function setupTrigger() {
   _ensurePortfolioHistoricalBackfill0010Trigger(true);
   _ensureSnapshotIntegrityChangeTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
-  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 당일 → 23:10 과거 → 00:10 과거 백필');
-  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 당일 exact-date 종가·Snapshot + 펀드 NAV/평가 통합 마감\n20:30 실패 자동 재시도 watchdog\n22:10 당일 복구\\n23:10 과거 복구\\n00:10 추가 과거 복구'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 당일 → 23:10 과거 → 00:30 과거 백필');
+  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 당일 exact-date 종가·Snapshot + 펀드 NAV/평가 통합 마감\n20:30 실패 자동 재시도 watchdog\n22:10 당일 복구\\n23:10 과거 복구\\n00:30 추가 과거 복구'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
@@ -11716,7 +11716,7 @@ function checkDailyAutomationStatus() {
     + 'runPortfolioCloseWatchdog2030(20:30) 재시도 트리거: ' + (trig.hasDuplicateWatchdogTriggers ? ('중복 ' + trig.watchdogCount + '개') : (trig.hasWatchdog ? '정상' : '없음')) + '\n'
     + 'runPortfolioCloseBackfill2210(22:10) 누락일 복구 트리거: ' + (trig.hasDuplicateBackfillTriggers ? ('중복 ' + trig.backfillCount + '개') : (trig.hasBackfill ? '정상' : '없음')) + '\n'
     + 'runPortfolioHistoricalBackfill2240(23:10) 과거 복구 트리거: ' + (trig.hasDuplicateHistoricalBackfillTriggers ? ('중복 ' + trig.historicalBackfillCount + '개') : (trig.hasHistoricalBackfill ? '정상' : '없음')) + '\\n'
-    + 'runPortfolioHistoricalBackfill0010(00:10) 추가 과거 복구 트리거: ' + (trig.hasDuplicateMidnightBackfillTriggers ? ('중복 ' + trig.midnightBackfillCount + '개') : (trig.hasMidnightBackfill ? '정상' : '없음')) + '\\n'
+    + 'runPortfolioHistoricalBackfill0010(00:30) 추가 과거 복구 트리거: ' + (trig.hasDuplicateMidnightBackfillTriggers ? ('중복 ' + trig.midnightBackfillCount + '개') : (trig.hasMidnightBackfill ? '정상' : '없음')) + '\\n'
     + '기존 분리 트리거(runEvalPriceUpdate1620/runDailyFundValuations): ' + (trig.hasLegacySplitTriggers ? ('남아 있음 · 가격 ' + trig.legacyPriceCount + '개 / 펀드 ' + trig.legacyFundCount + '개') : '없음') + '\n\n'
     + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
