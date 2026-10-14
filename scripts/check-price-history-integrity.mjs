@@ -86,20 +86,22 @@ console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 Sna
     row.forEach((v,j)=>{stored[pos][c-1+j]=v;});});}
   })
  };
- let revisions=0;
+ let revisions=0, formatWrites=0, sheetReads=0;
  const ctx={CONFIG:{SHEET_PH:'가격이력'},
   _normalizeDate:x=>String(x),_cleanCode:x=>String(x||'').trim(),
-  _setCodeColumnText:()=>{},_normalizeCodeRows:x=>x,
+  _setCodeColumnText:()=>{formatWrites++;},_normalizeCodeRows:x=>x,
   _touchSnapshotIntegritySourceRevision:()=>{revisions++;},
   SpreadsheetApp:{flush:()=>{}},Logger:{log:()=>{}}
  };
  vm.runInNewContext(source,ctx);
- const ss={getSheetByName:()=>mockSheet};
+ const ss={getSheetByName:()=>{sheetReads++;return mockSheet;}};
  const row={code:'005930',name:'삼성전자',price:123,source:'KRX'};
  assert.throws(()=>ctx.batchUpsertPriceHistory(ss,'2026-10-08',[row,{...row}]),
   /동일 날짜·종목 중복 입력/);
  assert.equal(stored.length,1,'failed duplicate batch must not touch data');
  assert.equal(revisions,0,'failed duplicate batch must not modify revision');
+ assert.equal(formatWrites,0,'failed duplicate batch must not touch code-column formatting');
+ assert.equal(sheetReads,0,'failed duplicate batch must not even read/create price sheet');
  ctx.batchUpsertPriceHistory(ss,'2026-10-08',[row]);
  assert.equal(stored.length,2);
  ctx.batchUpsertPriceHistory(ss,'2026-10-08',[{...row,price:124}]);
