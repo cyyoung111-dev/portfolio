@@ -9368,6 +9368,17 @@ function _getLatestPriceHistoryDate(ss, maxDate) {
 
 function batchUpsertPriceHistory(ss, dateStr, items) {
   if (!items || items.length === 0) return;
+  // Preflight ALL incoming keys before even touching sheet formatting,
+  // creation, or old price rows. A rejected batch is completely read/write free.
+  var incomingKeys = Object.create(null);
+  items.forEach(function(item) {
+    var code = _cleanCode(item.code);
+    var name = String(item.name || '').trim();
+    var cleanedName = (name && isNaN(Number(name))) ? name : '';
+    var key = (_normalizeDate(dateStr) || dateStr) + '|' + (code || cleanedName);
+    if (incomingKeys[key]) throw new Error('가격이력 동일 날짜·종목 중복 입력: ' + key);
+    incomingKeys[key] = true;
+  });
   try {
     var ph = ss.getSheetByName(CONFIG.SHEET_PH);
     if (!ph) {
@@ -9401,19 +9412,12 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
 
     var toAppend = [];
     var toUpdate = [];
-    var seenIncoming = {};
     items.forEach(function(item) {
       var cleanedCode = _cleanCode(item.code);
       var rawName     = (item.name || '').toString().trim();
       var cleanedName = (rawName && isNaN(Number(rawName))) ? rawName : '';
       var normDateStr = _normalizeDate(dateStr) || dateStr;
       var key         = normDateStr + '|' + (cleanedCode || cleanedName);
-      // Reject duplicate incoming code/date before any writes. The caller
-      // holds ScriptLock; partial/multiple writes must not create duplicate
-      // official closes or silently choose the last of conflicting prices.
-      if (seenIncoming[key]) throw new Error('가격이력 동일 날짜·종목 중복 입력: ' + key);
-      seenIncoming[key] = true;
-
       if (existingMap[key]) {
         // ★ [버그수정] 이미 MANUAL로 저장된 행은 자동조회(KRX/GF)로 덮어쓰지 않음
         var incomingSrc = (item.source || '').toString().trim().toUpperCase();
