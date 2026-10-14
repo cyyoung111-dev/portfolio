@@ -41,14 +41,14 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.220');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.221');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.220','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.221','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
-const approvedFullSourceBlob='ee9c730597db65860590ea2f3ddaafb733762a5d';
+const approvedFullSourceBlob='69865df350707abab163c109e381b9768bd73f10';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
 if (hasStackedKrxRecovery) {
