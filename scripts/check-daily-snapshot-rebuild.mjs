@@ -271,7 +271,7 @@ assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _save
 
 
 // 실제 저장 타이머 및 Settings patch 경합: 취소된 테마/계좌 저장은 사라지면 안 됩니다.
-const saveSettingsStart = settings.indexOf('function saveSettings(immediate, options) {');
+const saveSettingsStart = settings.indexOf('let _gsheetCodelessFundBaseline = null;');
 const saveSettingsEnd = settings.indexOf('\nasync function persistDividendSettings', saveSettingsStart);
 assert.ok(saveSettingsStart >= 0 && saveSettingsEnd > saveSettingsStart, 'Settings 저장 함수 추출');
 const queuedTimers = new Map();
@@ -290,6 +290,7 @@ const ctx = {
   getGsheetConnectionGeneration: () => 1,
   isGsheetConnectionCurrent: (target, generation) => target === 'https://example.test/gas' && generation === 1,
   isGsheetPortfolioWriteReady: () => true,
+  _normalizeCodeForSync: c => String(c||'').trim().toUpperCase(),
   setTimeout: fn => { const id = ++nextTimerId; queuedTimers.set(id, async () => { queuedTimers.delete(id); await fn(); }); return id; },
   clearTimeout: id => queuedTimers.delete(id),
   requestGsheetFormJson: async (_action, request) => {
@@ -306,8 +307,12 @@ let _saveSettingsPendingKey = '';
 let _saveSettingsWriteRevision = 0;
 let _saveSettingsFundDirectRevision = 0;
 let _gsSettingsLoadEpoch = 1;
+let _gsBootRestored = true;
+let _gsPortfolioRestoreRequired = false;
 ${settings.slice(saveSettingsStart,saveSettingsEnd)}
 globalThis.testSaveSettings = saveSettings;
+globalThis.testAdoptFunds = adoptVerifiedCodelessFundBaselineFromSettings;
+globalThis.testFundsBaseline = () => _gsheetCodelessFundBaseline;
 `, ctx);
 const pendingFullSave = ctx.testSaveSettings(false);
 assert.equal(queuedTimers.size, 1, '테마/계좌 저장 debounce 등록');
@@ -326,6 +331,33 @@ const laterFullSave = ctx.testSaveSettings(true);
 await Promise.all([...queuedTimers.values()].map(fn => fn()));
 assert.equal(await laterFullSave, true, '복구 후 새 전체 저장 성공');
 assert.equal(sentSettings[2].fundDirect.NEW.eval, 300, '복구 이후 새 전체 저장은 최신 직접펀드를 포함');
+// A code->fund conversion's verified server readback is the authoritative
+// baseline for the next full Settings write, not the old bootstrap snapshot.
+const originalFund={name:'전환 TDF',code:'',assetType:'TDF',targetWeight:37,
+  notes:'server-preserved'};
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[originalFund]},
+  'https://example.test/gas',1),true);
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[]},
+  'https://example.test/gas',9),false,'stale connection generation cannot reset proof');
+ctx.EDITABLE_PRICES.splice(0,ctx.EDITABLE_PRICES.length,
+  {...originalFund,targetWeight:42,notes:'user edited after conversion'});
+const changeFund=ctx.testSaveSettings(true);
+await Promise.all([...queuedTimers.values()].map(fn=>fn()));
+assert.equal(await changeFund,true);
+assert.deepEqual(sentSettings.at(-1).expectedCodelessFunds,[originalFund],
+  'full save sends verified old fund values, not current user-edited fields');
+assert.equal(ctx.testFundsBaseline().funds[0].targetWeight,42,
+  'server acknowledged new fund snapshot becomes next CAS baseline');
+ctx.EDITABLE_PRICES.splice(0,ctx.EDITABLE_PRICES.length);
+const deleteFund=ctx.testSaveSettings(true);
+await Promise.all([...queuedTimers.values()].map(fn=>fn()));
+assert.equal(await deleteFund,true);
+assert.equal(sentSettings.at(-1).expectedCodelessFunds[0].targetWeight,42,
+  'normal explicit fund deletion submits precisely prior acknowledged rows');
+assert.equal(ctx.testFundsBaseline().funds.length,0,
+  'acknowledged fund deletion retires baseline without reviving old entry');
+assert.match(settings, /const originalServerFunds=_gsheetCodelessFundsFromRows\(s\.EDITABLE_PRICES\)[\s\S]*_gsheetCodelessFundBaseline=\{[\s\S]*funds:originalServerFunds/,
+  'loadSettings captures exact server fund rows and installs them only after successful restoration');
 
 assert.match(settings, /const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*if \(!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch\) return false[\s\S]*isGsheetPortfolioWriteReady/,
   'Settings 예약 저장은 실제 전송 직전에 load epoch와 restore write-ready를 재검증');
