@@ -42,9 +42,20 @@ const props={
   setProperty:(k,v)=>{writes.push({key:k,value:v});values.set(k,v);},
   deleteProperty:k=>{writes.push({key:k,delete:true});values.delete(k);},
 };
-const ss={getSheetByName:n=>n==='가격이력'?sheet(history):n==='스냅샷'?sheet(snapshots):null};
+const trades=[
+ ['2026-10-07','buy','','삼성전자','005930',2,100,'주식'],
+ ['2026-10-07','buy','','하이닉스','000660',2,200,'주식'],
+];
+const ledgerSheet={
+ getLastRow:()=>trades.length+1,getLastColumn:()=>11,
+ getRange:()=>({getValues:()=>trades}),
+};
+const ss={getSheetByName:n=>n==='가격이력'?sheet(history)
+ :n==='스냅샷'?sheet(snapshots):n==='거래이력'?ledgerSheet:null};
 const context=vm.createContext({
-  CONFIG:{SHEET_PH:'가격이력',SHEET_SNAPSHOT:'스냅샷'},
+  CONFIG:{SHEET_PH:'가격이력',SHEET_SNAPSHOT:'스냅샷',SHEET_TRADES:'거래이력'},
+  _calcCodeHoldingsAtDate:()=>({'005930':{code:'005930',qty:2},'000660':{code:'000660',qty:2}}),
+  _isFundCode:code=>/^F\d{5}$/.test(code),
   getss:()=>ss, getCodeItems:()=>catalog,
   _getDailyHeldCodeItems:()=>catalog,
   _isKrxDailyCloseTarget_:()=>true,
@@ -104,6 +115,14 @@ history[3][5]='KRX_CARRY';
 assert.equal(invoke('2026-10-08','1').result.checked[0].reason,'PRICE_HISTORY_INVALID',
   'carry prices cannot be promoted to official closes');
 history[3][5]='KRX';
+catalog.pop();
+assert.equal(invoke('2026-10-08','1').result.checked[0].reason,'MASTER_INCOMPLETE',
+  'a partial catalog must not silently exclude a held ledger code');
+catalog.push({code:'000660',market:'KOSPI',currency:'KRW',type:'주식'});
+snapshots[2][3]='1.5'; snapshots[2][6]='101.33'; snapshots[2][7]='152';
+assert.equal(invoke('2026-10-08','').result.checked[0].ok,true,
+  'fractional quantity uses rounded total first, then two-decimal derived unit');
+snapshots[2]=sn('2026-10-08','005930',101);
 
 values.set('backfill_lease',JSON.stringify({until:Date.now()+60000}));
 assert.equal(invoke('2026-10-07','1').message,'KRX_PENDING_WRITER_ACTIVE');
