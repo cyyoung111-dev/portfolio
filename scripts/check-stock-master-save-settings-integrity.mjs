@@ -230,7 +230,10 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   const payload={EDITABLE_PRICES:[oldC],expectedCodelessFunds:[fund]};
   assert.equal(f.save(payload).status,'ok');
   assert.equal(f.save(payload).status,'ok');
-  assert.deepEqual(f.state.settings.EDITABLE_PRICES,[oldC]);
+  assert.deepEqual(f.state.settings.EDITABLE_PRICES.map(ep=>ep.name),['C']);
+  assert.equal(f.state.settings.EDITABLE_PRICES[0].notes,'C notes');
+  assert.equal(f.state.settings.EDITABLE_PRICES[0].targetWeight,20);
+  assert.equal(f.state.settings.EDITABLE_PRICES[0].code,'3');
 }
 {
   // A tab really changed the same fund to DIFFERENT contents after our
