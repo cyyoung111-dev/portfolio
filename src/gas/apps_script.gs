@@ -10213,8 +10213,11 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose, historicalO
       }
     }
     var result = _retryOnePendingKrxClose_(props, runDate, !fromClose && !historicalOnly);
-    props.setProperty('portfolio_close_backfill_last_result',
-      JSON.stringify({runDate:runDate, checkedAt:Date.now(), result:result}));
+    // Historical no-op must not erase a failed same-day replay diagnostic.
+    if (!historicalOnly || result.attempted) {
+      props.setProperty('portfolio_close_backfill_last_result',
+        JSON.stringify({runDate:runDate, checkedAt:Date.now(), result:result}));
+    }
     return result;
   } finally {
     _portfolioFundAtomic_(function(sharedProps) {
@@ -11564,16 +11567,18 @@ function _getAutomationStatusData() {
   var portfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
   var pendingKrxCloseDates = _readPendingKrxCloseDates_(props);
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
-    || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasIntegrityChange;
+    || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasIntegrityChange;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
   var hasDuplicateCloseTriggers = !!trig.hasDuplicateCloseTriggers;
   var hasDuplicateWatchdogTriggers = !!trig.hasDuplicateWatchdogTriggers;
   var hasDuplicateBackfillTriggers = !!trig.hasDuplicateBackfillTriggers;
+  var hasDuplicateHistoricalBackfillTriggers = !!trig.hasDuplicateHistoricalBackfillTriggers;
   var closeErrors = portfolioClose && Array.isArray(portfolioClose.errors) ? portfolioClose.errors : [];
   var overallStatus = 'NORMAL';
 
   if (missingTrigger || hasLegacySplitTriggers || hasDuplicateCloseTriggers
-      || hasDuplicateWatchdogTriggers || hasDuplicateBackfillTriggers) overallStatus = 'ERROR';
+      || hasDuplicateWatchdogTriggers || hasDuplicateBackfillTriggers
+      || hasDuplicateHistoricalBackfillTriggers) overallStatus = 'ERROR';
   else if (!portfolioClose) overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN';
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
@@ -11588,6 +11593,7 @@ function _getAutomationStatusData() {
       hasClose: !!trig.hasClose,
       hasWatchdog: !!trig.hasWatchdog,
       hasBackfill: !!trig.hasBackfill,
+      hasHistoricalBackfill: !!trig.hasHistoricalBackfill,
       hasClean: !!trig.hasClean,
       hasMortgage: !!trig.hasMortgage,
       hasIntegrityChange: !!trig.hasIntegrityChange,
@@ -11597,9 +11603,11 @@ function _getAutomationStatusData() {
       hasDuplicateCloseTriggers: hasDuplicateCloseTriggers,
       hasDuplicateWatchdogTriggers: hasDuplicateWatchdogTriggers,
       hasDuplicateBackfillTriggers: hasDuplicateBackfillTriggers,
+      hasDuplicateHistoricalBackfillTriggers: hasDuplicateHistoricalBackfillTriggers,
       closeCount: trig.closeCount,
       watchdogCount: trig.watchdogCount,
-      backfillCount: trig.backfillCount
+      backfillCount: trig.backfillCount,
+      historicalBackfillCount: trig.historicalBackfillCount
     },
     backfillLastResult: parseProperty('portfolio_close_backfill_last_result'),
     portfolioClose: portfolioClose,
@@ -11661,6 +11669,7 @@ function checkDailyAutomationStatus() {
     + 'runDailyPortfolioClose1900(19시) 통합 마감 트리거: ' + (trig.hasDuplicateCloseTriggers ? ('중복 ' + trig.closeCount + '개') : (trig.hasClose ? '정상' : '없음')) + '\n'
     + 'runPortfolioCloseWatchdog2030(20:30) 재시도 트리거: ' + (trig.hasDuplicateWatchdogTriggers ? ('중복 ' + trig.watchdogCount + '개') : (trig.hasWatchdog ? '정상' : '없음')) + '\n'
     + 'runPortfolioCloseBackfill2210(22:10) 누락일 복구 트리거: ' + (trig.hasDuplicateBackfillTriggers ? ('중복 ' + trig.backfillCount + '개') : (trig.hasBackfill ? '정상' : '없음')) + '\n'
+    + 'runPortfolioHistoricalBackfill2240(23:10) 과거 복구 트리거: ' + (trig.hasDuplicateHistoricalBackfillTriggers ? ('중복 ' + trig.historicalBackfillCount + '개') : (trig.hasHistoricalBackfill ? '정상' : '없음')) + '\\n'
     + '기존 분리 트리거(runEvalPriceUpdate1620/runDailyFundValuations): ' + (trig.hasLegacySplitTriggers ? ('남아 있음 · 가격 ' + trig.legacyPriceCount + '개 / 펀드 ' + trig.legacyFundCount + '개') : '없음') + '\n\n'
     + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
@@ -11674,7 +11683,7 @@ function checkDailyAutomationStatus() {
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + (isPortfolioCloseRunStale ? '⚠️ 통합 마감 최근 실행일이 기대 실행일(' + expectedPortfolioCloseRunDate + ')보다 오래되었습니다.\n' : '')
     + '\n'
-    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasIntegrityChange || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers || trig.hasDuplicateWatchdogTriggers || trig.hasDuplicateBackfillTriggers
+    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasIntegrityChange || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers || trig.hasDuplicateWatchdogTriggers || trig.hasDuplicateBackfillTriggers || trig.hasDuplicateHistoricalBackfillTriggers
       ? '⚠️ 트리거 상태 이상: [복구·정리 실행] → [자동 트리거 복구·정리]를 실행하세요.'
       : '✅ 트리거는 정상 집합입니다. 데이터 누락은 정합성 진단으로 확인하세요.')
     + '\n이 점검은 트리거와 데이터를 변경하지 않습니다. 버전업마다 실행할 필요는 없습니다.';
