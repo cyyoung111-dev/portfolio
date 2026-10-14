@@ -420,6 +420,8 @@ if (!setupTriggerBody || !setupTriggerBody[1].includes("fn === 'runPortfolioHist
     || !setupTriggerBody[1].includes('_ensurePortfolioHistoricalBackfill0010Trigger(true)')
     || !dailyCloseBody || !dailyCloseBody[1].includes('_ensurePortfolioHistoricalBackfill0010Trigger(true)')
     || !source.includes('hasDuplicateMidnightBackfillTriggers')
+    || !source.includes('.atHour(0).nearMinute(30).create()')
+    || !source.includes('result.attempted && result.date !== runDate')
     || !source.includes('historicalBackfillLastResult: parseProperty')
     || !backfillLeaseBody || !backfillLeaseBody[0].includes("'portfolio_close_historical_backfill_last_result'")) {
   console.error('❌ 00:10 트리거 재설치·19시 자가복구·독립 진단 회귀 계약 누락');
