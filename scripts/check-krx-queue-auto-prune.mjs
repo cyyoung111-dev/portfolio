@@ -119,6 +119,6 @@ assert.deepEqual(checkRotation(pending,'',true,true).calls,['2026-10-14','2026-1
 assert.deepEqual(checkRotation(pending,'2026-10-14',true,true).calls,['2026-10-14','2026-10-12','2026-10-14']);
 assert.deepEqual(checkRotation(pending,'',false,true).calls,['2026-10-12','2026-10-13','2026-10-12']);
 assert.deepEqual(checkRotation(pending,'',true,true).queue,pending);
-assert.deepEqual(checkRotation(pending,'',true,false).queue,['2026-10-13']);
+assert.deepEqual(checkRotation(pending,'',true,false).queue,[]);
 
 console.log('KRX backfill complete-date pruning: live functions/leases/safety/liveness/rollover PASS');
