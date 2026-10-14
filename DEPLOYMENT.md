@@ -1,3 +1,5 @@
+> 2026-10-14 PR #493 최신 Codex P2 대응: GAS v9.218은 무코드 펀드 CAS stale 재요청에서 **펀드뿐 아니라 전체 쓰기 가능 Settings 키**(정규화된 coded 메모·테마·계좌 등)가 서버 저장값과 일치해야만 `alreadyApplied`를 반환합니다. 다른 탭이 우연히 같은 펀드를 기록한 뒤 미저장 테마/계좌/종목 메모를 가진 최초 요청은 `SETTINGS_CODELESS_FUND_STALE`로 거부합니다. 실제 생산 handler 회귀 추가. 웹 기대 GAS 9.218, `settings_fetch 20261014-6`, PWA cache `20261014-19`. Draft/미병합/미배포. 기존 v9.217 설명은 이력으로 유지합니다.
+
 ## PR #493 자체 재검토 — 신규 append 부분 실패 후 사용자가 목표 비중/메모 재수정한 경우 (2026-10-13)
 
 > 2026-10-14 PR #493 검증 후보: GAS v9.217은 무코드 펀드 CAS 응답 유실 재시도에서 전체 Settings 재기록 없이 ACK하여 타 탭 테마·계좌·종목 메모 덮어쓰기를 차단합니다. 웹 기대 버전 9.217, settings_fetch 20261014-5, PWA cache 20261014-18. Draft/미병합/미배포이며 운영 GAS·Sheets 수정 없음. 종료 기준은 docs/QUALITY_GATES.md §5-A입니다.
