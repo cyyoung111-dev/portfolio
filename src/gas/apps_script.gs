@@ -10342,7 +10342,10 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   var historical = candidates.filter(function(date) { return date !== currentDate; });
   var historyTarget = historical.filter(function(date) { return date > previous; })[0] || historical[0];
   var todayQueued = includeToday && candidates.indexOf(currentDate) >= 0;
-  var lastWasToday = props.getProperty('portfolio_close_backfill_last_was_today') === currentDate;
+  // Persist the last *attempted* class across trading days: one nightly
+  // invocation per day must still give historical dates a fair opportunity.
+  // On an empty history, today always wins; otherwise alternate across runs.
+  var lastWasToday = String(props.getProperty('portfolio_close_backfill_last_was_today') || '') !== '';
   var target = todayQueued && (!lastWasToday || !historyTarget) ? currentDate : historyTarget;
   if (todayQueued) props.setProperty('portfolio_close_backfill_last_was_today', target === currentDate ? currentDate : '');
   if (!target) return { attempted:false, remaining:queue.length };
