@@ -209,4 +209,40 @@ shouldReject([A],[],{EDITABLE_PRICES:[oldA]},
   assert.equal(rejected.errorCode,'SETTINGS_CODELESS_FUND_PROOF_REQUIRED');
   assert.equal(f.state.settings.EDITABLE_PRICES[1].notes,'fund');
 }
-console.log('✅ 생산 GAS saveSettings: 교체 부분저장/타 탭/orphan·중복·누락 차단, 비중/메모·펀드/보호키 유지');
+{
+  // POST #1 commits, but the browser loses its response. Its automatic retry
+  // carries the same ORIGINAL fund CAS proof and same requested edit.
+  const f=fixture([C],[oldC,fund]);
+  const requested={...fund,targetWeight:46,notes:'ack was lost'};
+  const payload={EDITABLE_PRICES:[oldC,requested],
+    expectedCodelessFunds:[fund],APP_THEME:'dark'};
+  assert.equal(f.save(payload).status,'ok');
+  assert.equal(f.save(payload).status,'ok',
+    'a byte-identical fund retry after commit must be idempotent');
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].targetWeight,46);
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].notes,'ack was lost');
+  assert.equal(Object.hasOwn(f.state.settings,'expectedCodelessFunds'),false);
+}
+{
+  // Deletion retry has the same property: stale old CAS, but the requested
+  // empty fund roster is already exactly the durable server state.
+  const f=fixture([C],[oldC,fund]);
+  const payload={EDITABLE_PRICES:[oldC],expectedCodelessFunds:[fund]};
+  assert.equal(f.save(payload).status,'ok');
+  assert.equal(f.save(payload).status,'ok');
+  assert.deepEqual(f.state.settings.EDITABLE_PRICES,[oldC]);
+}
+{
+  // A tab really changed the same fund to DIFFERENT contents after our
+  // first save: stale proof must still be rejected even with same name.
+  const f=fixture([C],[oldC,fund]);
+  const first={...fund,targetWeight:42};
+  const competing={...fund,targetWeight:77};
+  assert.equal(f.save({EDITABLE_PRICES:[oldC,first],
+    expectedCodelessFunds:[fund]}).status,'ok');
+  const stale=f.save({EDITABLE_PRICES:[oldC,competing],
+    expectedCodelessFunds:[fund]});
+  assert.equal(stale.errorCode,'SETTINGS_CODELESS_FUND_STALE');
+  assert.equal(f.state.settings.EDITABLE_PRICES[1].targetWeight,42);
+}
+console.log('✅ 생산 GAS saveSettings: 교체 부분저장/타 탭/orphan·중복·누락 차단, 응답 유실 재시도·충돌 차단·비중/메모·펀드/보호키 유지');
