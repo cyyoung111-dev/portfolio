@@ -325,6 +325,17 @@ failRevisionPropertyWrite=false;
 assert.equal(scriptProperties.has('snapshot_integrity_source_revision_v1'),false,'저장 실패 시 stale revision property 제거');
 const afterPropertyFailure=clone(context._getSnapshotIntegrityRevisionState());
 assert.notEqual(JSON.stringify(afterPropertyFailure),beforePropertyFailure,'다음 read는 stale state 대신 전체 migration');
+// Same-millisecond and identical random seeds must never regenerate a prior
+// cache revision after a failed write or an unavailable property store.
+const restoreRevisionClock=vm.runInContext(
+  '(()=>{var n=Date.now,r=Math.random;Date.now=()=>1791811003585;Math.random=()=>0.714;return ()=>{Date.now=n;Math.random=r;};})()',context);
+scriptProperties.delete('snapshot_integrity_source_revision_v1');
+const firstFixedRevision=clone(context._getSnapshotIntegrityRevisionState()).revision;
+scriptProperties.delete('snapshot_integrity_source_revision_v1');
+const secondFixedRevision=clone(context._getSnapshotIntegrityRevisionState()).revision;
+restoreRevisionClock();
+assert(secondFixedRevision>firstFixedRevision,
+  '동일 밀리초/동일 난수의 속성 재생성도 cache key는 증가해야 함');
 const editSheet=(name,dates)=>({getName:()=>name,getRange:()=>({getValue:()=>dates[0],getValues:()=>dates.map(date=>[date])})});
 const editRange=(sheet,{row=2,rows=1,column=1,columns=1,value='' }={})=>({getSheet:()=>sheet,getRow:()=>row,getNumRows:()=>rows,getColumn:()=>column,getNumColumns:()=>columns,getValue:()=>value});
 const priceDateSheet=editSheet('가격이력',['2026-02-01']);
@@ -387,7 +398,7 @@ assert.equal((source.match(/function getEarliestPriceHistory\(/g)||[]).length,1)
 assert.match(source,/fn === 'syncMortgageFromSchedule' \|\| fn === 'runDailyFundValuations' \|\|[\s\S]*fn === 'runDailyPortfolioClose1900'/,'전체 트리거 재등록은 분리형 레거시와 통합 마감 트리거를 함께 정리');
 assert.match(source,/ScriptApp\.newTrigger\('runDailyPortfolioClose1900'\)[\s\S]*atHour\(19\)/,'19시 통합 마감 트리거를 등록');
 assert.match(source,/ScriptApp\.newTrigger\('runPortfolioCloseWatchdog2030'\)[\s\S]*atHour\(20\)\.nearMinute\(30\)/,'20:30 마감 watchdog 트리거를 등록');
-assert.match(source.match(/function saveDailyPriceHistory\([\s\S]*?\n\}/)?.[0] || '',/var requestedCloseDate = _normalizeDate\(targetDate \|\| ''\) \|\| todayStr[\s\S]*fetchPricesKrx\(items, requestedCloseDate\)[\s\S]*closeVerification\.date !== requestedCloseDate/,'19시 가격 저장은 정규 거래일 당일 KRX exact-date 종가를 요구');
+assert.match(source.match(/function saveDailyPriceHistory\([\s\S]*?\n\}/)?.[0] || '',/var requestedCloseDate = _normalizeDate\(targetDate \|\| ''\) \|\| todayStr[\s\S]*fetchPricesKrx\(items.filter\(_isKrxDailyCloseTarget_\), requestedCloseDate\)[\s\S]*closeVerification\.date !== requestedCloseDate/,'19시 가격 저장은 정규 거래일 당일 KRX exact-date 종가를 요구');
 assert.match(source.match(/function _ensurePortfolioCloseDailyTrigger\([\s\S]*?\n\}/)?.[0] || '',/closeTriggers\.slice\(1\)/,'통합 마감 트리거 중복은 1개만 유지');
 assert.doesNotMatch(source.match(/function setupTrigger\([\s\S]*?\n\}/)?.[0] || '',/newTrigger\('runEvalPriceUpdate1620'\)/,'전체 재등록은 16:20 분리 트리거를 다시 만들지 않음');
 assert.match(source.match(/function runDailyPortfolioClose1900\([\s\S]*?\n\}/)?.[0] || '',/saveDailyPriceHistory\(undefined, \{deferQueueCompletion:true\}\)[\s\S]*_runPortfolioFundWithLease_\('CLOSE', runId, runDate\)/,'통합 마감은 일반 종목 후 펀드를 순차 실행');

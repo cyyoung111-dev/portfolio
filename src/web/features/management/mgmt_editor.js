@@ -910,11 +910,15 @@ function queueMgmtGsheetSync(immediate) {
   clearTimeout(_mgmtGsheetSyncTimer);
   const delay = immediate ? 0 : 1200;
   _mgmtGsheetSyncTimer = setTimeout(async () => {
-    // Settings 저장이 끝나기 전에 별도 시트 동기화를 시작하면 사용자는 일부 성공 로그만 보고
-    // 기초정보도 저장된 것으로 오인할 수 있습니다. 일반 설정 저장 결과를 먼저 확인합니다.
-    const settingsSaved = await saveSettings(true);
+    // Commit the server code-master BEFORE ordinary Settings projection:
+    // saveSettings correctly excludes uncommitted C, otherwise targetWeight
+    // and notes are lost before the first GAS code-row append. The append
+    // itself writes these pinned user fields under the same GAS ScriptLock.
     let codesSaved = false;
     try { codesSaved = !!(await syncCodesToGsheet()); } catch (e) { console.warn('syncCodesToGsheet 실패:', e); }
+    // Save unrelated account/theme changes even when code sync failed; GAS
+    // rejects a partial-code master mismatch before writing any Settings.
+    const settingsSaved = await saveSettings(true);
     try { await syncHoldingsToGsheet(); } catch (e) { console.warn('syncHoldingsToGsheet 실패:', e); }
     try { await syncTradesToGsheet(); } catch (e) { console.warn('syncTradesToGsheet 실패:', e); }
     if (!settingsSaved || !codesSaved) {

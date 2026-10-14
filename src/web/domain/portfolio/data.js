@@ -472,6 +472,648 @@ function _currentGsheetSyncTarget() {
   return liveUrl || String(lsGet(GSHEET_KEY, '') || '').trim();
 }
 
+// A local-only code is recoverable after reload ONLY when an explicit stock
+// management edit was authorized while this exact connection was bootstrapped.
+// Never infer authorization from stale browser EDITABLE_PRICES alone.
+const PORTFOLIO_PENDING_CODE_ADDITIONS_KEY = 'pf_pending_same_target_codes_v1';
+let _pendingSameTargetCodeAdditions = lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY, {});
+if (!_pendingSameTargetCodeAdditions || typeof _pendingSameTargetCodeAdditions !== 'object'
+    || Array.isArray(_pendingSameTargetCodeAdditions)) _pendingSameTargetCodeAdditions = {};
+// A flushed code row can outlive a failed Settings write. Keep its
+// identity migration evidence separate from pending *new* edits: replacing
+// B -> C must not overwrite the unfinished Settings migration A -> B.
+const PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY = 'pf_pending_same_target_code_settings_repairs_v1';
+let _pendingSameTargetCodeSettingsRepairs = lsGet(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, {});
+if (!_pendingSameTargetCodeSettingsRepairs || typeof _pendingSameTargetCodeSettingsRepairs !== 'object'
+    || Array.isArray(_pendingSameTargetCodeSettingsRepairs)) _pendingSameTargetCodeSettingsRepairs = {};
+
+// Aggregate v1 records are retained for legacy compatibility, but each
+// exact workbook/source/pair now has an independent, durable storage key.
+// Otherwise tab B overwrites tab A's entire stale v1 map during simultaneous
+// registrations; a Codes-only flush then loses the ONLY Settings provenance.
+// Per-pair tombstones prevent a stale v1 map from resurrecting deleted proofs.
+const PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX = 'pf_code_journal_pair_v2:';
+// Immutable retirement claims are transaction-scoped, not modifications
+// of the shared predecessor key: Storage lacks compare-and-swap.
+const PORTFOLIO_CODE_RETIREMENT_PREFIX='pf_code_retirement_v3:';
+function _stockRetirementKey(target,entry,transaction) {
+  return PORTFOLIO_CODE_RETIREMENT_PREFIX+encodeURIComponent(JSON.stringify([
+    String(target||'').trim(),String(entry?.sourceId||'').trim(),
+    String(entry?.name||'').trim(),String(entry?.code||'').trim(),
+    String(transaction||'').trim()
+  ]));
+}
+function _persistStockRetirement(target,entry,transaction) {
+  if(!_stockPerPairStorageAvailable() || !transaction || !entry?.sourceId)return false;
+  const key=_stockRetirementKey(target,entry,transaction);
+  const item={target:String(target||'').trim(),entry:{...entry},
+    removed:true,retiredBy:transaction};
+  lsSave(key,item);
+  return JSON.stringify(lsGet(key,null))===JSON.stringify(item);
+}
+const PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX = 'pf_code_settings_debt_pair_v2:';
+function _stockDurablePairKey(prefix,target,entry) {
+  const base=[String(target||'').trim(),String(entry?.sourceId||'').trim()];
+  if(prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX)
+    base.push(String(entry?.name||'').trim(),String(entry?.code||'').trim());
+  else base.push(String(entry?.previousName||'').trim(),String(entry?.previousCode||'').trim(),
+    String(entry?.name||'').trim(),String(entry?.code||'').trim(),
+    entry?.metadataOnly===true?'1':'0');
+  return prefix+encodeURIComponent(JSON.stringify(base));
+}
+function _stockPerPairStorageAvailable() {
+  try {
+    if (typeof localStorage === 'undefined' || !localStorage
+        || typeof localStorage.key !== 'function'
+        || !Number.isInteger(localStorage.length)) return false;
+    // A sandbox may expose Storage.length but throw on key enumeration.
+    // Probe access here before a registration is accepted as durable.
+    localStorage.key(0);
+    return true;
+  } catch (error) {
+    // Browsers may reject even the Storage getter or enumeration.
+    return false;
+  }
+}
+function _readDurableStockJournal(legacyKey,prefix,fallback) {
+  const stored=lsGet(legacyKey,null);
+  // On older test/legacy runtimes without Storage.key(), preserve the
+  // original aggregate contract, including in-memory injected fixtures.
+  if(!_stockPerPairStorageAvailable()) {
+    if(stored && typeof stored==='object' && !Array.isArray(stored)
+        && Object.keys(stored).length) return stored;
+    return fallback&&typeof fallback==='object'&&!Array.isArray(fallback)?fallback:{};
+  }
+  const result=stored&&typeof stored==='object'&&!Array.isArray(stored)
+    ? Object.fromEntries(Object.entries(stored).map(([k,rows])=>[
+        k,Array.isArray(rows)?rows.map(x=>({...x})):[]
+      ])):{};
+  // Read each independent key. This remains correct even if a concurrent
+  // tab wrote a stale aggregate after another tab committed its pair key.
+  const keys=[];
+  try {
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(typeof key==='string'&&(key.startsWith(prefix)
+          || (prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
+              && key.startsWith(PORTFOLIO_CODE_RETIREMENT_PREFIX))))keys.push(key);
+    }
+  } catch (error) {
+    // Fail safe to readable legacy data. A blocked Storage object must
+    // not crash Bootstrap; it is NOT proof that a new journal is durable.
+    return stored&&typeof stored==='object'&&!Array.isArray(stored)
+      ? stored : (fallback&&typeof fallback==='object'?fallback:{});
+  }
+  // Pair records and transaction retirement claims occupy distinct keys.
+  // Other tabs cannot overwrite one transaction's claim with another's.
+  const pairEntries=new Map(),claims=new Map();
+  for(const key of keys){
+    const item=lsGet(key,null),target=String(item?.target||'').trim(),entry=item?.entry;
+    if(!target || !entry || typeof entry!=='object')continue;
+    if(key.startsWith(PORTFOLIO_CODE_RETIREMENT_PREFIX)){
+      if(item.removed===true && item.retiredBy
+          && _stockRetirementKey(target,entry,item.retiredBy)===key)
+        claims.set(key,item);
+    }else if(_stockDurablePairKey(prefix,target,entry)===key){
+      pairEntries.set(key,item);
+    }
+  }
+  const candidates=new Map(),claimCounts=new Map();
+  for(const[key,item]of pairEntries){
+    const entry=item.entry,target=item.target;
+    const predecessors=prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
+      && Array.isArray(entry.requiresTombstones)?entry.requiresTombstones:[];
+    if(!predecessors.length || entry.transitionCommitted!==true)continue;
+    // A committed successor remains proof that its predecessor was
+    // retired even AFTER successful server sync tombstones that successor.
+    // Otherwise B resurfaces after the confirmed C journal is cleared.
+    const sources=[];
+    let valid=true;
+    for(const prev of predecessors){
+      const prevKey=_stockDurablePairKey(prefix,target,{
+        sourceId:entry.sourceId,name:prev?.name,code:prev?.code
+      });
+      const current=pairEntries.get(prevKey);
+      const claim=entry.transitionId?claims.get(_stockRetirementKey(target,{
+        sourceId:entry.sourceId,name:prev?.name,code:prev?.code
+      },entry.transitionId)):null;
+      // A peer's independent B retirement must invalidate C; the marker
+      // must match the PREVIOUS exact B bytes still present on disk.
+      const modern=!!entry.transitionId && !!current && current.removed!==true
+        && !!claim && claim.entry?.sourceId===entry.sourceId
+        && JSON.stringify(claim.entry)===JSON.stringify(current.entry);
+      const legacy=!!current && current.removed===true
+        && (!entry.transitionId || current.retiredBy===entry.transitionId);
+      if(!modern && !legacy){valid=false;break;}
+      sources.push({key:prevKey,modern});
+    }
+    if(valid){
+      candidates.set(key,sources);
+      for(const prev of sources)if(prev.modern)
+        claimCounts.set(prev.key,(claimCounts.get(prev.key)||0)+1);
+    }
+  }
+  const completed=new Set(),suppressed=new Set();
+  // Resolve finished, tombstoned successors FIRST; iteration/storage key
+  // order must not decide whether an unrelated active D can claim B.
+  for(const[key,sources]of candidates) {
+    if(pairEntries.get(key)?.removed===true)
+      for(const prev of sources)if(prev.modern)suppressed.add(prev.key);
+  }
+  for(const[key,sources]of candidates) {
+    if(pairEntries.get(key)?.removed===true)continue;
+    const activeConflicts=sources.some(prev=>prev.modern
+      && [...candidates].filter(([otherKey,otherSources])=>
+        pairEntries.get(otherKey)?.removed!==true
+        && otherSources.some(other=>other.modern&&other.key===prev.key)).length!==1);
+    if(activeConflicts || sources.some(prev=>prev.modern && suppressed.has(prev.key)))
+      continue;
+    completed.add(key);
+    for(const prev of sources)if(prev.modern)suppressed.add(prev.key);
+  }
+  for(const[key,item]of pairEntries){
+    const target=item.target,entry=item.entry;
+    const rows=Array.isArray(result[target])?result[target]:[];
+    const remaining=rows.filter(row=>_stockDurablePairKey(prefix,target,row)!==key);
+    const guarded=prefix===PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX
+      && Array.isArray(entry.requiresTombstones)&&entry.requiresTombstones.length>0;
+    if(item.removed!==true && !suppressed.has(key)
+        && (!guarded || completed.has(key)))remaining.push({...entry});
+    if(remaining.length)result[target]=remaining;
+    else delete result[target];
+  }
+  return result;
+}
+function _persistDurableStockPair(prefix,target,entry,removed=false,retiredBy='') {
+  const item={target:String(target||'').trim(),entry:{...entry},removed:removed===true,
+    ...(removed && retiredBy ? {retiredBy:String(retiredBy)} : {})};
+  if (!item.target || !entry?.sourceId) return false;
+  if (!_stockPerPairStorageAvailable()) return false;
+  const key=_stockDurablePairKey(prefix,item.target,item.entry);
+  // lsSave swallows SecurityError / QuotaExceededError, so verify readback.
+  // Never allow the caller to treat an unpersisted journal as safe to POST.
+  lsSave(key,item);
+  const saved=lsGet(key,null);
+  return !!saved && JSON.stringify(saved)===JSON.stringify(item);
+}
+function _reloadCodeJournal() {
+  _pendingSameTargetCodeAdditions=_readDurableStockJournal(
+    PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,
+    _pendingSameTargetCodeAdditions);
+}
+function _reloadSettingsRepairDebt() {
+  _pendingSameTargetCodeSettingsRepairs=_readDurableStockJournal(
+    PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,
+    _pendingSameTargetCodeSettingsRepairs);
+}
+
+function _hasSameTargetCodeSettingsRepairDebt(targetUrl) {
+  _reloadSettingsRepairDebt();
+  const entries=_pendingSameTargetCodeSettingsRepairs[String(targetUrl || '').trim()];
+  return Array.isArray(entries) && entries.length>0;
+}
+function _getSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity) {
+  _reloadSettingsRepairDebt();
+  const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
+  const list = _pendingSameTargetCodeSettingsRepairs[target];
+  return sourceId && Array.isArray(list)
+    ? list.filter(item => item?.sourceId === sourceId).map(item => ({...item})) : [];
+}
+function _rememberSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes) {
+  const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
+  if (!target || !sourceId || !Array.isArray(changes) || !changes.length) return false;
+  _reloadSettingsRepairDebt();
+  const list = Array.isArray(_pendingSameTargetCodeSettingsRepairs[target])
+    ? _pendingSameTargetCodeSettingsRepairs[target] : [];
+  for (const item of changes) {
+    const previousName = String(item?.previousName || '').trim();
+    const previousCode = String(item?.previousCode || '').trim();
+    const name = String(item?.name || '').trim();
+    const code = String(item?.code || '').trim();
+    if (!previousName || !previousCode || !name || !code) return false;
+    const metadataOnly=item.metadataOnly === true;
+    const userFields=metadataOnly ? _stockPendingAppendUserFields(item.userFields||{}) : {};
+    const match=list.find(entry => entry.sourceId === sourceId
+      && entry.previousName === previousName && entry.previousCode === previousCode
+      && entry.name === name && entry.code === code
+      && (entry.metadataOnly === true) === metadataOnly);
+    if (!match) {
+      const fresh={sourceId,previousName,previousCode,name,code,metadataOnly,
+        ...(metadataOnly && Object.prototype.hasOwnProperty.call(item,'userFields')
+          ? {userFields} : {})};
+      if (_stockPerPairStorageAvailable()
+          && !_persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,fresh))
+        return false;
+      list.push(fresh);
+    } else if (metadataOnly && Object.prototype.hasOwnProperty.call(item,'userFields')) {
+      // If the user changed C's allocation after a failed first append, the
+      // latest same-source journal supersedes older, uncommitted repair debt.
+      // Only exact identity+source matches may refresh these narrow fields.
+      const updated={...match,userFields};
+      if (_stockPerPairStorageAvailable()
+          && !_persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,updated))
+        return false;
+      match.userFields=userFields;
+    }
+  }
+  _pendingSameTargetCodeSettingsRepairs[target] = list;
+  lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY, _pendingSameTargetCodeSettingsRepairs);
+  if (!_stockPerPairStorageAvailable()) {
+    const persisted=lsGet(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,null);
+    return !!persisted && Array.isArray(persisted[target])
+      && changes.every(change=>persisted[target].some(entry=>entry.sourceId===sourceId
+        && entry.previousName===String(change.previousName||'').trim()
+        && entry.previousCode===String(change.previousCode||'').trim()
+        && entry.name===String(change.name||'').trim()
+        && entry.code===String(change.code||'').trim()));
+  }
+  return true;
+}
+function _forgetSameTargetCodeSettingsRepairs(targetUrl, sourceIdentity, changes) {
+  const target = String(targetUrl || '').trim(), sourceId = String(sourceIdentity || '').trim();
+  if (!target || !sourceId || !Array.isArray(changes) || !changes.length) return false;
+  _reloadSettingsRepairDebt();
+  const list = _pendingSameTargetCodeSettingsRepairs[target];
+  if (!Array.isArray(list)) return true;
+  const remaining = list.filter(entry => entry.sourceId !== sourceId || !changes.some(item =>
+    entry.previousName === item.previousName && entry.previousCode === item.previousCode
+    && entry.name === item.name && entry.code === item.code
+    && (entry.metadataOnly === true) === (item.metadataOnly === true)));
+  if (remaining.length === list.length) return true;
+  const next={..._pendingSameTargetCodeSettingsRepairs};
+  if(remaining.length) next[target]=remaining;
+  else delete next[target];
+  if(_stockPerPairStorageAvailable()) {
+    for(const entry of list) {
+      if(!remaining.includes(entry)
+          && !_persistDurableStockPair(PORTFOLIO_SETTINGS_DEBT_PAIR_PREFIX,target,entry,true))
+        return false; // Keep ALL unverified repair debt for later reconciliation.
+    }
+    _pendingSameTargetCodeSettingsRepairs=next;
+    if(Object.keys(next).length) lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,next);
+    else lsRemove(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY);
+    return true;
+  }
+  if(Object.keys(next).length) lsSave(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,next);
+  else lsRemove(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY);
+  const verified=lsGet(PORTFOLIO_PENDING_CODE_SETTINGS_REPAIRS_KEY,null);
+  if(Object.keys(next).length && JSON.stringify(verified)!==JSON.stringify(next))
+    return false;
+  if(!Object.keys(next).length && verified!==null) return false;
+  _pendingSameTargetCodeSettingsRepairs=next;
+  return true;
+}
+// Persist strictly scoped user-entered fields for an explicitly journaled
+// brand-new (name,code) pair. Never infer a replacement source or mutate an
+// existing stock's Settings through this recovery journal.
+function _stockPendingAppendUserFields(item) {
+  const out={};
+  if (item && Object.prototype.hasOwnProperty.call(item,'targetWeight')
+      && item.targetWeight !== '' && Number.isFinite(Number(item.targetWeight))
+      && Number(item.targetWeight)>=0 && Number(item.targetWeight)<=100)
+    out.targetWeight=Number(item.targetWeight);
+  if (item && typeof item.notes==='string')
+    out.notes=item.notes.slice(0,4000);
+  return out;
+}
+function _refreshSameTargetPendingAppendFields(targetUrl,sourceId,items) {
+  _reloadCodeJournal();
+  const target=String(targetUrl||'').trim(),source=String(sourceId||'').trim();
+  const entries=_pendingSameTargetCodeAdditions[target];
+  if (!target || !source || !Array.isArray(items)) return false;
+  if (!Array.isArray(entries)) return true;
+  const byPair=new Map(items.filter(ep=>ep?.name && ep?.code).map(ep=>[
+    JSON.stringify([String(ep.name).trim(),String(ep.code).trim()]),ep
+  ]));
+  let changed=false;
+  entries.forEach(entry=>{
+    if (entry?.sourceId!==source || entry.replaces) return;
+    const value=byPair.get(JSON.stringify([entry.name,entry.code]));
+    if (!value) return;
+    const fields=_stockPendingAppendUserFields(value);
+    if (JSON.stringify(entry.userFields||{})!==JSON.stringify(fields)) {
+      const next={...entry,userFields:fields};
+      if (_stockPerPairStorageAvailable()
+          && !_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next)) {
+        // Preserve uncommitted edits; network writes must fail closed.
+        changed=null;
+        return;
+      }
+      entry.userFields=fields;
+      if (changed!==null) changed=true;
+    }
+  });
+  if (changed===null) return false;
+  if (changed) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,_pendingSameTargetCodeAdditions);
+  // No mutation is also a successful preflight, provided any pending
+  // registration has a verifiably durable exact-pair record.
+  // Legacy source-pinned replacements need durable v2 provenance just as
+  // much as append-only registrations. Otherwise A->B can flush Codes and
+  // leave Settings A with no replayable identity proof after a tab crash.
+  const relevant=entries.filter(entry=>entry?.sourceId===source);
+  if (!_stockPerPairStorageAvailable()) {
+    const persisted=lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null);
+    const rows=Array.isArray(persisted?.[target])?persisted[target]:[];
+    return relevant.every(entry=>rows.some(row=>row.sourceId===source
+      && row.name===entry.name && String(row.code)===String(entry.code)
+      && JSON.stringify(row.userFields||{})===JSON.stringify(entry.userFields||{})
+      && JSON.stringify(row.replaces||{})===JSON.stringify(entry.replaces||{})));
+  }
+  return relevant.every(entry=>{
+    const stored=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
+    if(stored?.removed===true) return false;
+    if(!stored?.entry && !_persistDurableStockPair(
+        PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)) return false;
+    const verified=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
+    return verified?.removed!==true && !!verified?.entry
+      && JSON.stringify(verified.entry)===JSON.stringify(entry);
+  });
+
+}
+function _recordSameTargetLocalCodeAddition(item, editSession) {
+  const target = _currentGsheetSyncTarget();
+  const code = typeof _normalizeSyncCode === 'function'
+    ? _normalizeSyncCode(item?.code || '') : String(item?.code || '').trim();
+  const name = String(item?.name || '').trim();
+  const sourceId = String(editSession?.sourceId || '').trim();
+  if (!target || !code || !name || !sourceId
+      || typeof isStockMasterEditSessionCurrent !== 'function'
+      || !isStockMasterEditSessionCurrent(editSession)) return false;
+  _reloadCodeJournal();
+  const records = Array.isArray(_pendingSameTargetCodeAdditions[target])
+    ? _pendingSameTargetCodeAdditions[target] : [];
+  const normalized = value => typeof _normalizeSyncCode === 'function'
+    ? _normalizeSyncCode(value || '') : String(value || '').trim();
+  const precedingName = String(item?.replaces?.name || '').trim();
+  const precedingCode = normalized(item?.replaces?.code);
+  // Compose uncommitted edits: A/1 -> B/2 -> C/3 must still replace A/1,
+  // never pretend C/3 is a newly authorized append to an A/1 master.
+  const prior = precedingName && precedingCode ? records.find(record =>
+    record?.sourceId === sourceId && String(record.name || '').trim() === precedingName
+    && normalized(record.code) === precedingCode) : null;
+  const root = prior ? (prior.replaces || null)
+    : (precedingName && precedingCode ? {name:precedingName, code:precedingCode} : null);
+  // An edit that returns to the original canonical pair needs no replacement.
+  if (prior && root && String(root.name || '').trim() === name
+      && normalized(root.code) === code) {
+    return _forgetSameTargetLocalCodeAddition(precedingName, precedingCode, target, sourceId);
+  }
+  const removed=records.filter(record=>record?.sourceId===sourceId
+    && ((String(record.name||'').trim()===name && normalized(record.code)===code)
+      || (prior && record===prior)));
+  const others=records.filter(record=>record && !removed.includes(record));
+  const waitingFor=removed.filter(entry=>String(entry.name||'').trim()!==name
+    || normalized(entry.code)!==code).map(entry=>({name:entry.name,code:normalized(entry.code)}));
+  // A locally unique fence binds this edit's successor to the exact
+  // predecessor tombstones it wrote. No other tab can accidentally commit
+  // this prepared journal by retiring B for a separate server transition.
+  const transitionId=waitingFor.length
+    ? String(Date.now())+'-'+Math.random().toString(36).slice(2) : '';
+  const next={
+    name, code, sourceId, type: String(item.assetType || item.type || '주식'),
+    sector: String(item.sector || '기타'),
+    currency: String(item.currency || 'KRW').toUpperCase(),
+    market: String(item.market || '').toUpperCase(),
+    ...(!root ? {userFields:_stockPendingAppendUserFields(item)} : {}),
+    ...(root ? { replaces: {
+      name:String(root.name).trim(), code:normalized(root.code)
+    }} : {}),
+    ...(waitingFor.length
+      ? {requiresTombstones:waitingFor,transitionId,transitionCommitted:false} : {})
+  };
+  // A multi-step edit must not claim success until EVERY predecessor
+  // tombstone was durably read back. Stage the new pair first, but never
+  // publish the in-memory/legacy journal on an incomplete transition.
+  const pairMode=_stockPerPairStorageAvailable();
+  const committedNext=waitingFor.length ? {...next,transitionCommitted:true} : next;
+  const nextMap={..._pendingSameTargetCodeAdditions,[target]:[...others,committedNext]};
+  if (!pairMode) {
+    lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,nextMap);
+    if (JSON.stringify(lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null))
+        !== JSON.stringify(nextMap)) return false;
+    _pendingSameTargetCodeAdditions=nextMap;
+    return true;
+  }
+  const key=_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next);
+  const previousPair=lsGet(key,null);
+  if (!_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,next))
+    return false;
+  const retired=[];
+  // Another tab may finish A->B while C is merely prepared. If B was
+  // already retired by that tab, we cannot safely publish C's older root A.
+  // Reject the edit and require the user to retry against the new B master.
+  const predecessorChanged=removed.some(entry=>{
+    if(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)===key)
+      return false;
+    const predecessorKey=_stockDurablePairKey(
+      PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry);
+    const observed=lsGet(predecessorKey,null);
+    return observed?.removed===true || (observed?.entry
+      && JSON.stringify(observed.entry)!==JSON.stringify(entry));
+  });
+  if(predecessorChanged) {
+    if (previousPair) lsSave(key,previousPair);
+    else lsRemove(key);
+    return false;
+  }
+  for (const entry of removed) {
+    // Updating a pair in place has the same durable key; never tombstone it.
+    if (_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)===key)
+      continue;
+    if (!_persistStockRetirement(target,entry,transitionId)) {
+      // A failed quota/security write must not leave BOTH A->B and A->C
+      // active after a reload. Roll back the uncommitted new pair. Removal
+      // usually works even when writes fail because the quota is exhausted.
+      if (previousPair) lsSave(key,previousPair);
+      else lsRemove(key);
+      // Restore any predecessor already retired in this transition.
+      for(const restored of retired)
+        _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,restored);
+      const rollback=lsGet(key,null);
+      if ((previousPair && JSON.stringify(rollback)!==JSON.stringify(previousPair))
+          || (!previousPair && rollback!==null)) {
+        // Unsafe storage: never authorize a remote POST, even if the
+        // browser still shows an old local edit.
+        console.warn('[종목 저널] 저장 실패 후 신규 pair 롤백 확인 실패');
+      }
+      return false;
+    }
+    retired.push(entry);
+  }
+  // Claims are immutable and never overwrite the predecessor's v2 key.
+  // A peer may commit A->B at ANY point: require the original B bytes to
+  // remain unchanged before promotion as well as after readback.
+  if (removed.some(entry=>{
+    if(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry)===key)
+      return false;
+    const seen=lsGet(_stockDurablePairKey(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry),null);
+    return !seen || seen.removed===true
+      || JSON.stringify(seen.entry)!==JSON.stringify(entry);
+  })) {
+    if(previousPair)lsSave(key,previousPair);
+    else lsRemove(key);
+    return false;
+  }
+  // Promotion is a SECOND verifiable write to the same exact successor key.
+  // The prepared successor stays inert if its own commit cannot be persisted.
+  if (waitingFor.length && !_persistDurableStockPair(
+      PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,committedNext)) {
+    if (previousPair) lsSave(key,previousPair);
+    else lsRemove(key);
+    for(const restored of retired)
+      _persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,restored);
+    return false;
+  }
+  if(waitingFor.length) {
+    const live=_readDurableStockJournal(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,
+      PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,_pendingSameTargetCodeAdditions);
+    if(!Array.isArray(live[target]) || !live[target].some(entry=>
+        entry.sourceId===sourceId && entry.name===name
+        && normalized(entry.code)===code && entry.transitionId===transitionId)) {
+      // If another tab retired B during C's last write, never claim the
+      // user edit or enqueue a server update with an obsolete A root.
+      if(previousPair)lsSave(key,previousPair);
+      else lsRemove(key);
+      return false;
+    }
+  }
+  _pendingSameTargetCodeAdditions=nextMap;
+  lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,nextMap); // v1 compatibility only
+  return true;
+}
+
+function _rebaseConfirmedSameTargetCodeReplacements(targetUrl, sourceIdentity, confirmed) {
+  const target=String(targetUrl||'').trim(),sourceId=String(sourceIdentity||'').trim();
+  if (!target || !sourceId || !Array.isArray(confirmed)) return false;
+  _reloadCodeJournal();
+  const records=Array.isArray(_pendingSameTargetCodeAdditions[target])
+    ? _pendingSameTargetCodeAdditions[target] : [];
+  // Work on copies. A failed v2 write MUST NOT announce a rebase in memory:
+  // _reloadCodeJournal would subsequently restore its stale A->C root.
+  const revised=records.map(entry=>({...entry,...(entry?.replaces
+    ? {replaces:{...entry.replaces}} : {})}));
+  const normalized=value=>typeof _normalizeSyncCode==='function'
+    ? _normalizeSyncCode(value||'') : String(value||'').trim();
+  let changed=false;
+  for (const step of confirmed) {
+    const beforeName=String(step.previousName||'').trim();
+    const beforeCode=normalized(step.previousCode);
+    const afterName=String(step.name||'').trim();
+    const afterCode=normalized(step.code);
+    if (!beforeName || !beforeCode || !afterName || !afterCode) continue;
+    for (const record of revised) {
+      if (record?.sourceId!==sourceId || !record.replaces) continue;
+      if (String(record.replaces.name||'').trim()!==beforeName
+          || normalized(record.replaces.code)!==beforeCode) continue;
+      record.replaces={name:afterName,code:afterCode};
+      if (Array.isArray(record.requiresTombstones)
+          && record.requiresTombstones.length && record.transitionCommitted===true) {
+        // The server readback already proved A->B. C is now an ordinary
+        // same-source B->C edit, not a local A->C chain dependent on the
+        // soon-to-be-retired B journal. Keeping the old claim would make C
+        // disappear after the confirmed B is garbage-collected.
+        delete record.requiresTombstones;
+        delete record.transitionId;
+        delete record.transitionCommitted;
+      }
+      changed=true;
+    }
+    // An in-flight A->B commit can overtake a local B->A revert. Preserve
+    // proof of the newly confirmed B->A transition in the same workbook.
+    const reverted=typeof EDITABLE_PRICES!=='undefined'
+      ? EDITABLE_PRICES.find(ep=>String(ep?.name||'').trim()===beforeName
+        && normalized(ep?.code)===beforeCode) : null;
+    if (reverted && !revised.some(entry=>entry?.sourceId===sourceId
+        && String(entry.name||'').trim()===beforeName
+        && normalized(entry.code)===beforeCode)) {
+      revised.push({
+        name:beforeName,code:beforeCode,sourceId,
+        type:String(reverted.assetType||reverted.type||'주식'),
+        sector:String(reverted.sector||'기타'),
+        currency:String(reverted.currency||'KRW').toUpperCase(),
+        market:String(reverted.market||'').toUpperCase(),
+        replaces:{name:afterName,code:afterCode}
+      });
+      changed=true;
+    }
+  }
+  if (!changed) return true;
+  const next={..._pendingSameTargetCodeAdditions,[target]:revised};
+  if (_stockPerPairStorageAvailable()) {
+    // Every changed pair must survive browser restart BEFORE the debt for
+    // this confirmed server change can be retired. Never trust lsSave alone.
+    for (let i=0;i<revised.length;i++) {
+      if (revised[i]?.sourceId!==sourceId
+          || (i<records.length
+              && JSON.stringify(revised[i])===JSON.stringify(records[i]))) continue;
+      if (!_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,revised[i]))
+        return false;
+    }
+    _pendingSameTargetCodeAdditions=next;
+    lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,next); // legacy only
+    return true;
+  }
+  lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,next);
+  if (JSON.stringify(lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null))
+      !== JSON.stringify(next)) return false;
+  _pendingSameTargetCodeAdditions=next;
+  return true;
+}
+
+function _getSameTargetLocalCodeAdditions(target, sourceIdentity) {
+  _reloadCodeJournal();
+  const entries = _pendingSameTargetCodeAdditions[String(target || '').trim()];
+  const sourceId = String(sourceIdentity || '').trim();
+  // A GAS /exec URL alone cannot identify the underlying spreadsheet: its
+  // SS_ID can change without a URL change. Legacy unpinned entries are inert.
+  return sourceId && Array.isArray(entries)
+    ? entries.filter(e => e?.sourceId === sourceId).map(e => ({ ...e })) : [];
+}
+function _forgetSameTargetLocalCodeAddition(name, code, targetUrl, sourceIdentity) {
+  _reloadCodeJournal();
+  const target = String(targetUrl || _currentGsheetSyncTarget() || '').trim();
+  const sourceId=String(sourceIdentity || (typeof _gsCodeMasterSourceIdentity!=='undefined'
+    ? _gsCodeMasterSourceIdentity : '') || '').trim();
+  const entries = _pendingSameTargetCodeAdditions[target];
+  if (!target || !sourceId) return false;
+  if (!Array.isArray(entries)) return true;
+  const normName = String(name || '').trim();
+  const normCode = typeof _normalizeSyncCode === 'function'
+    ? _normalizeSyncCode(code || '') : String(code || '').trim();
+  const remaining = entries.filter(entry => !(entry?.sourceId===sourceId
+    && String(entry?.name || '').trim() === normName
+    && (!normCode || String(entry?.code || '').trim() === normCode)));
+  if (remaining.length === entries.length) return true;
+  const next={..._pendingSameTargetCodeAdditions};
+  if (remaining.length) next[target]=remaining;
+  else delete next[target];
+  if (_stockPerPairStorageAvailable()) {
+    // A failed tombstone must never be treated as confirmed deletion:
+    // otherwise the old per-pair proof resurrects after browser restart.
+    for(const entry of entries) {
+      if (!remaining.includes(entry)
+          && !_persistDurableStockPair(PORTFOLIO_CODE_JOURNAL_PAIR_PREFIX,target,entry,true))
+        return false;
+    }
+    _pendingSameTargetCodeAdditions=next;
+    if (Object.keys(next).length) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,next);
+    else lsRemove(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY);
+    return true;
+  }
+  // Legacy Storage without per-pair enumeration: only acknowledge delete
+  // if the aggregate mutation itself was persisted and read back.
+  if (Object.keys(next).length) lsSave(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,next);
+  else lsRemove(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY);
+  const verified=lsGet(PORTFOLIO_PENDING_CODE_ADDITIONS_KEY,null);
+  if (Object.keys(next).length && JSON.stringify(verified)!==JSON.stringify(next))
+    return false;
+  if (!Object.keys(next).length && verified!==null) return false;
+  _pendingSameTargetCodeAdditions=next;
+  return true;
+}
+
+
+
 function _normalizePendingExplicitEmptyTradeSync(value) {
   if (!value || typeof value !== 'object') return null;
   const target = String(value.target || '').trim();
@@ -636,6 +1278,12 @@ async function _retryPortfolioRemoteDirtySync(options) {
         : null;
       const holdingsRequired = dirty.holdings.length > 0 || Object.keys(dirty.fundDirect || {}).length > 0;
       const tradesRequired = dirty.trades.length > 0;
+      // Validate the entire pinned ledger before starting concurrent writes:
+      // a blocked trade must not leave a newer remote holdings snapshot behind.
+      if (allowDuringRestore && (typeof isPinnedRestorePortfolioMasterComplete !== 'function'
+          || !isPinnedRestorePortfolioMasterComplete(
+            dirty.trades, dirty.holdings, dirty.fundDirect, options?.masterCodesOverride
+          ))) return false;
       const [holdingsResult, tradesResult] = await Promise.all([
         typeof syncHoldingsToGsheet === 'function'
           ? syncHoldingsToGsheet({
@@ -643,7 +1291,8 @@ async function _retryPortfolioRemoteDirtySync(options) {
               generation,
               allowDuringRestore,
               holdingsOverride: dirty.holdings,
-              fundDirectOverride: dirty.fundDirect
+              fundDirectOverride: dirty.fundDirect,
+              masterCodesOverride: options?.masterCodesOverride
             })
           : Promise.resolve(null),
         typeof syncTradesToGsheet === 'function'
@@ -651,7 +1300,8 @@ async function _retryPortfolioRemoteDirtySync(options) {
               targetUrl,
               generation,
               allowDuringRestore,
-              tradesOverride: dirty.trades
+              tradesOverride: dirty.trades,
+              masterCodesOverride: options?.masterCodesOverride
             })
           : Promise.resolve(null)
       ]);
@@ -755,6 +1405,10 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
         const recoveryFundDirect = (typeof fundDirect === 'object' && fundDirect)
           ? JSON.parse(JSON.stringify(fundDirect))
           : {};
+        if (allowDuringRestore && (typeof isPinnedRestorePortfolioMasterComplete !== 'function'
+            || !isPinnedRestorePortfolioMasterComplete(
+              recoveryTrades, recoveryHoldings, recoveryFundDirect, options?.masterCodesOverride
+            ))) return false;
         const [holdingsResult, tradesResult] = await Promise.all([
           typeof syncHoldingsToGsheet === 'function'
             ? syncHoldingsToGsheet({
@@ -762,7 +1416,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
                 generation: retryGeneration,
                 allowDuringRestore,
                 holdingsOverride: recoveryHoldings,
-                fundDirectOverride: recoveryFundDirect
+                fundDirectOverride: recoveryFundDirect,
+                masterCodesOverride: options?.masterCodesOverride
               })
             : Promise.resolve(null),
           typeof syncTradesToGsheet === 'function'
@@ -770,7 +1425,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
                 targetUrl: retryTarget,
                 generation: retryGeneration,
                 allowDuringRestore,
-                tradesOverride: recoveryTrades
+                tradesOverride: recoveryTrades,
+                masterCodesOverride: options?.masterCodesOverride
               })
             : Promise.resolve(null)
         ]);
@@ -809,6 +1465,11 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
     const pinnedFundDirect = (typeof fundDirect === 'object' && fundDirect)
       ? JSON.parse(JSON.stringify(fundDirect))
       : {};
+    // Empty-ledger retries still write holdings and Settings.fundDirect.
+    if (allowDuringRestore && (typeof isPinnedRestorePortfolioMasterComplete !== 'function'
+        || !isPinnedRestorePortfolioMasterComplete(
+          [], [], pinnedFundDirect, options?.masterCodesOverride
+        ))) return false;
     const holdingsResult = typeof syncHoldingsToGsheet === 'function'
       ? await syncHoldingsToGsheet({
           allowEmpty: true,
@@ -816,7 +1477,8 @@ async function _retryPendingExplicitEmptyTradeSync(options) {
           generation: retryGeneration,
           allowDuringRestore,
           holdingsOverride: [],
-          fundDirectOverride: pinnedFundDirect
+          fundDirectOverride: pinnedFundDirect,
+          masterCodesOverride: options?.masterCodesOverride
         })
       : null;
 

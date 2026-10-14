@@ -106,8 +106,8 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics'];")
-    || !source.includes("gasVersion: '9.197'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.197 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.218'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.218 계약이 누락됐습니다.');
   process.exit(1);
 }
 
@@ -204,7 +204,7 @@ const dailySnapshotMatch = source.match(/function\s+saveDailyPriceHistory\s*\([^
 if (!dailySnapshotMatch
     || !/var requestedCloseDate = _normalizeDate\(targetDate \|\| ''\) \|\| todayStr/.test(dailySnapshotMatch[1])
     || /requestedPrevDay/.test(dailySnapshotMatch[1])
-    || !/fetchPricesKrx\(items,\s*requestedCloseDate\)/.test(dailySnapshotMatch[1])
+    || !/fetchPricesKrx\(items\.filter\(_isKrxDailyCloseTarget_\),\s*requestedCloseDate\)/.test(dailySnapshotMatch[1])
     || !/fetchPricesGoogleFinance\(gfPrevItems,\s*requestedCloseDate,\s*ss,\s*\{\s*skipKrx:\s*true,\s*useMarketCloseCutoffs:\s*true,\s*asOf:\s*new Date\(requestedCloseDate \+ 'T19:00:00\+09:00'\)\s*\}\)/.test(dailySnapshotMatch[1])
     || !/_krxCalendarStatus_\(requestedCloseDate\) !== 'CLOSED'/.test(dailySnapshotMatch[1])
     || !/closeVerification\.date !== requestedCloseDate/.test(dailySnapshotMatch[1])

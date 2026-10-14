@@ -280,6 +280,8 @@ function _bindStockMgmtEvents(container) {
 // 즉시 삭제 + 저장
 function smDelete(idx) {
   if (typeof preventUnsafeStockMasterEdit === 'function' && preventUnsafeStockMasterEdit()) return false;
+  const editSession = typeof captureStockMasterEditSession === 'function'
+    ? captureStockMasterEditSession() : null;
   if(idx === null || idx === undefined) return;
   // confirm 전에 스냅샷 (DOM 재렌더 후에도 안전)
   const snapItem = EDITABLE_PRICES[idx] ? {...EDITABLE_PRICES[idx]} : null;
@@ -292,8 +294,30 @@ function smDelete(idx) {
   // name 기준으로 재탐색 (confirm 동안 idx 밀렸을 수 있음)
   const realIdx = EDITABLE_PRICES.findIndex(e => e.name === snapItem.name);
   if(realIdx === -1) return;
+  if (snapItem.code && typeof _forgetSameTargetLocalCodeAddition === 'function'
+      && !_forgetSameTargetLocalCodeAddition(
+        snapItem.name,snapItem.code,undefined,editSession?.sourceId)) {
+    if (typeof showToast === 'function')
+      showToast('❌ 종목 삭제 복구 이력 저장에 실패했습니다. 브라우저 저장공간을 확인하세요.','warn',6000);
+    return false;
+  }
   if(snapItem.code) delete STOCK_CODE[snapItem.name];
   EDITABLE_PRICES.splice(realIdx, 1);
+  // An earlier syncCodes POST may still be in flight. A single target queue
+  // serializes the deletion AFTER that POST; server deletion is conditional
+  // on no remaining trades/holdings and exact source/code/name identity.
+  if (snapItem.code && typeof deleteStockMasterCodeAfterPendingWrites === 'function') {
+    deleteStockMasterCodeAfterPendingWrites(snapItem, editSession)
+      .then(ok => {
+        if (!ok && typeof showToast === 'function') {
+          showToast('⚠️ 서버 종목코드 삭제가 확인되지 않았습니다. 원격 거래/보유 참조 또는 연동 상태를 확인하세요.', 'warn', 6000);
+        }
+      })
+      .catch(e => {
+        console.warn('[종목코드 원격 삭제 보류]', e);
+        if (typeof showToast === 'function') showToast('⚠️ 서버 종목코드 삭제를 확인할 수 없습니다.', 'warn', 6000);
+      });
+  }
   const sc2 = $el('stockMgmtBody');
   if(sc2) sc2._selectedIdx = null;
   // ※ _commitTrades() 대신 saveHoldings() 직접 호출
@@ -442,6 +466,16 @@ function smCsvImport(input) {
         : null;
       if (duplicate) { skipped++; continue; }
       if (existing >= 0) {
+        const previous = EDITABLE_PRICES[existing];
+        if (code && code !== normalizeStockCode(previous.code) && previous.code
+            && (typeof _recordSameTargetLocalCodeAddition !== 'function'
+              || !_recordSameTargetLocalCodeAddition({
+                ...previous,name,code,assetType,sector,currency,market,
+                replaces:{name:previous.name,code:previous.code}
+              },editSession))) {
+          skipped++;
+          continue; // Never flush a changed pair without durable provenance.
+        }
         if (code) EDITABLE_PRICES[existing].code = code;
         if (type) EDITABLE_PRICES[existing].assetType = assetType;
         if (sector) EDITABLE_PRICES[existing].sector = sector;
@@ -450,6 +484,13 @@ function smCsvImport(input) {
         if (isFund) EDITABLE_PRICES[existing].fund = true;
         updated++;
       } else {
+        if (code && (typeof _recordSameTargetLocalCodeAddition !== 'function'
+            || !_recordSameTargetLocalCodeAddition({
+              name,code,assetType,sector,currency,market
+            },editSession))) {
+          skipped++;
+          continue;
+        }
         epPush(name,code,assetType);
         const idx = EDITABLE_PRICES.length-1;
         EDITABLE_PRICES[idx].sector = sector || '기타';
@@ -571,6 +612,15 @@ async function smMgmtConfirm() {
   if (!isStockMasterEditSessionCurrent(editSession)) return false;
   if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   const isFund = (assetType === '펀드' || assetType === 'TDF');
+  // The journal must survive a Codes-only GAS commit, or new
+  // registrations cannot recover Settings after a crash.
+  if (code && (typeof _recordSameTargetLocalCodeAddition !== 'function'
+      || !_recordSameTargetLocalCodeAddition({
+        name,code,sector,assetType,currency,market
+      },editSession))) {
+    showMgmtMsg('smMgmtMsg','❌ 복구 이력 저장에 실패했습니다. 브라우저 저장공간을 확인해 주세요.',true);
+    return false;
+  }
   // ★ [환율 연동] currency 필드 포함 저장 (KRW면 생략)
   EDITABLE_PRICES.push({
     name, code, sector, assetType,
@@ -647,6 +697,7 @@ async function smSave(idx) {
   const editSession = captureStockMasterEditSession();
   const item = EDITABLE_PRICES[idx];
   if(!item) return;
+  const originalMasterIdentity = { name:item.name, code:item.code };
   const newName = (document.querySelector(`.sm-name-inp[data-idx="${idx}"]`)?.value || '').trim();
   const newCode = normalizeStockCode((document.querySelector(`.sm-code-inp[data-idx="${idx}"]`)?.value || '').trim());
   const newType = document.querySelector(`.sm-type-sel[data-idx="${idx}"]`)?.value || '주식';
@@ -670,6 +721,78 @@ async function smSave(idx) {
     if(!validation.ok) { showMgmtMsg('smMgmtMsg',`❌ ${validation.message}`,true); return; }
   }
   if (!isStockMasterEditSessionCurrent(editSession)) return false;
+  // A failed rename cannot be repaired after a successful remote delete.
+  // Reject collisions before entering the serialized network transaction.
+  if (newName!==item.name && EDITABLE_PRICES.some(other=>
+      other!==item && other.name===newName)) {
+    showMgmtMsg('smMgmtMsg','❌ 변경하려는 종목명이 이미 존재합니다.',true);
+    return false;
+  }
+  const pairChanged=originalMasterIdentity.name!==newName
+    || normalizeStockCode(originalMasterIdentity.code)!==newCode;
+  if (pairChanged && originalMasterIdentity.code && newCode
+      && (typeof _recordSameTargetLocalCodeAddition!=='function'
+        || !_recordSameTargetLocalCodeAddition({
+          ...item,name:newName,code:newCode,assetType:newType,sector:newSec,
+          currency:newCurrency,market:newMarket,
+          replaces:originalMasterIdentity
+        },editSession))) {
+    showMgmtMsg('smMgmtMsg','❌ 종목 변경 복구 이력 저장 실패: 원격 반영을 중단했습니다.',true);
+    return false;
+  }
+  // A local-only portfolio has no remote Codes/Settings ledger to delete.
+  // Keep its existing code-to-fund editing behavior; a configured remote
+  // still requires the pinned same-workbook CAS deletion below.
+  if (pairChanged && !newCode && originalMasterIdentity.code
+      && String(editSession?.targetUrl || '').trim()) {
+    // An uncommitted name/code REPLACEMENT still has a different remote
+    // canonical identity. Do not treat its missing destination as evidence
+    // that the source row can be deleted or forgotten.
+    const pending=typeof _getSameTargetLocalCodeAdditions==='function'
+      ? _getSameTargetLocalCodeAdditions(editSession.targetUrl,editSession.sourceId)
+        .find(x=>x.name===originalMasterIdentity.name
+          && normalizeStockCode(x.code)===normalizeStockCode(originalMasterIdentity.code))
+      : null;
+    if (pending) {
+      // A pending NEW registration is also unsafe to retire *after* remote
+      // deletion: if localStorage subsequently runs out of quota, Bootstrap
+      // could re-append the old code from the surviving journal. Settle both
+      // NEW and replacement journals before authorizing the delete CAS.
+      showMgmtMsg('smMgmtMsg','❌ 종목코드 등록·변경 동기화가 완료된 후 코드를 제거할 수 있습니다.',true);
+      return false;
+    }
+    if (typeof deleteStockMasterCodeAfterPendingWrites!=='function') {
+      showMgmtMsg('smMgmtMsg','❌ 원격 종목코드 삭제 기능을 사용할 수 없습니다.',true);
+      return false;
+    }
+    // The server deletion is ordered after all earlier code-master writes,
+    // guarded by the exact workbook/source/CAS/ledger references, and read
+    // back BEFORE any local trade or holding changes are made.
+    const removed=await deleteStockMasterCodeAfterPendingWrites(
+      {...item},editSession,{conversionItem:item,conversion:{
+        name:newName,code:'',assetType:newType,sector:newSec,
+        currency:newCurrency,market:newMarket
+      }});
+    if (!removed || !isStockMasterEditSessionCurrent(editSession)
+        || !EDITABLE_PRICES.includes(item)
+        || item.name!==originalMasterIdentity.name
+        || normalizeStockCode(item.code)!==normalizeStockCode(originalMasterIdentity.code)) {
+      showMgmtMsg('smMgmtMsg','❌ 서버 종목코드 삭제가 확인되지 않았습니다. 거래·보유 참조 및 연동 상태를 확인하세요.',true);
+      return false;
+    }
+    if (typeof _forgetSameTargetLocalCodeAddition==='function'
+        && !_forgetSameTargetLocalCodeAddition(
+          originalMasterIdentity.name,originalMasterIdentity.code,
+          editSession.targetUrl,editSession.sourceId)) {
+      showMgmtMsg('smMgmtMsg','❌ 종목 복구 이력 삭제에 실패했습니다. 변경을 중단하고 다시 시도하세요.',true);
+      return false;
+    }
+  }
+  // A queued server CAS may finish after another row was inserted/deleted.
+  // The captured numeric index is then stale: dedup must skip the actual
+  // original object, not delete the very row that was just converted.
+  idx = EDITABLE_PRICES.indexOf(item);
+  if (idx < 0) return false;
   if(newName !== item.name) {
     if (!_smRenameStockItem(item, newName)) return;
   }
@@ -703,6 +826,11 @@ async function smSave(idx) {
   // ★ [환율 연동] 통화 저장
   item.currency = newCurrency;
   item.market = newMarket;
+  const identityChanged = originalMasterIdentity.name !== newName
+    || normalizeStockCode(originalMasterIdentity.code) !== newCode;
+  // Register the new pair BEFORE retiring the predecessor: the journal must
+  // compose any prior uncommitted edits back to the original SERVER row.
+  // This also covers name-only or code-only intermediate edits in a chain.
   if(newCode) STOCK_CODE[item.name] = normalizeStockCode(newCode); else delete STOCK_CODE[item.name];
 
   // ★ EDITABLE_PRICES 중복 항목 제거 (idx 파라미터 직접 사용 — indexOf보다 안전)

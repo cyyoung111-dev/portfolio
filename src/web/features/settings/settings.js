@@ -53,6 +53,8 @@ let TAB_SYNC_STATUS = lsGet(TAB_SYNC_STATUS_KEY, {});
 const TAB_SYNC_BUSY = {};
 
 let _gsBootRestored = false;
+// Pinned workbook identity for safe same-target code recovery.
+let _gsCodeMasterSourceIdentity = '';
 let _gsBootPromise = null;
 let _gsSettingsLoadEpoch = 0;
 let _gsSettingsLoadFailure = null;
@@ -318,6 +320,44 @@ async function loadDividendSettings(options) {
   }
 }
 
+// Server Settings fund-CAS provenance belongs to this exact target / load
+// epoch, never to whichever fund rows happen to be in the current UI.
+let _gsheetCodelessFundBaseline = null;
+function _gsheetCodelessFundsFromRows(rows) {
+  return Array.isArray(rows) ? rows.filter(ep=>
+    ep && typeof ep==='object' && String(ep.name||'').trim()
+    && !_normalizeCodeForSync(ep.code||'')
+    && ['TDF','펀드','FUND'].includes(String(ep.assetType||ep.type||'').toUpperCase())
+  ).map(ep=>JSON.parse(JSON.stringify(ep))) : [];
+}
+function adoptVerifiedCodelessFundBaselineFromSettings(remoteSettings,targetUrl,generation,convertedName) {
+  if (!remoteSettings || !Array.isArray(remoteSettings.EDITABLE_PRICES)
+      || !isGsheetConnectionCurrent(targetUrl,generation)) return false;
+  const currentTarget=String(GSHEET_API_URL||'').trim();
+  const name=String(convertedName||'').trim();
+  const previous=_gsheetCodelessFundBaseline;
+  if (targetUrl!==currentTarget || !_gsBootRestored || _gsPortfolioRestoreRequired
+      || !name || !previous || previous.targetUrl!==targetUrl
+      || previous.generation!==generation || previous.epoch!==_gsSettingsLoadEpoch)
+    return false;
+  const next=_gsheetCodelessFundsFromRows(remoteSettings.EDITABLE_PRICES);
+  if (next.filter(ep=>String(ep.name||'').trim()===name).length!==1
+      || previous.funds.some(ep=>String(ep.name||'').trim()===name))
+    return false;
+  // This getSettings readback follows ONE confirmed code->fund conversion.
+  // Never silently "adopt" a second tab's unrelated fund addition/deletion
+  // or changed notes/weights: our current UI has NOT applied those changes.
+  // Otherwise the next full Settings CAS would authorize deleting an unseen
+  // fund even though the server baseline matched.
+  const other=rows=>rows.filter(ep=>String(ep.name||'').trim()!==name)
+    .slice().sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  if (JSON.stringify(other(next))!==JSON.stringify(other(previous.funds)))
+    return false; // preserve prior proof; next stale write must fail closed
+  _gsheetCodelessFundBaseline={
+    targetUrl,generation,epoch:_gsSettingsLoadEpoch,funds:next
+  };
+  return true;
+}
 function saveSettings(immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
   const isCurrentLoad = typeof options?.isCurrentLoad === 'function' ? options.isCurrentLoad : null;
@@ -369,6 +409,9 @@ function saveSettings(immediate, options) {
     LOAN_SCHEDULE,
     RE_VALUE_HIST,
   };
+  // Freeze the user's edit NOW; a queued save must not silently incorporate
+  // changes made after it was scheduled. The server fund CAS proof, however,
+  // must be supplied at queue EXECUTION time after earlier saves ACK.
   const payload = JSON.stringify(settings);
 
   const run = async () => {
@@ -388,12 +431,20 @@ function saveSettings(immediate, options) {
       if (isCurrentLoad && !isCurrentLoad()) return false;
       // 나중에 접수된 복구 patch가 fundDirect를 확정한 경우, 먼저 예약한
       // 전체 Settings 저장은 다른 변경 필드만 전송해 사용자 테마/계좌 변경도 보존합니다.
-      let outgoingPayload = payload;
-      if (!settingsPatch && _saveSettingsFundDirectRevision !== expectedFundDirectRevision) {
-        const remainingSettings = { ...settings };
-        delete remainingSettings.fundDirect;
-        outgoingPayload = JSON.stringify(remainingSettings);
+      const outgoingSettings=JSON.parse(payload);
+      if (!settingsPatch) {
+        if (_saveSettingsFundDirectRevision !== expectedFundDirectRevision)
+          delete outgoingSettings.fundDirect;
+        // This read is intentionally INSIDE the serialized queue, after all
+        // prior saveSettings ACKs have rebased the exact server fund roster.
+        // The captured EDITABLE_PRICES remains the original user intent.
+        const proof=_gsheetCodelessFundBaseline;
+        if (proof && proof.targetUrl===targetUrl
+            && proof.generation===expectedGeneration
+            && proof.epoch===expectedLoadEpoch)
+          outgoingSettings.expectedCodelessFunds=JSON.parse(JSON.stringify(proof.funds));
       }
+      const outgoingPayload=JSON.stringify(outgoingSettings);
       const data = await requestGsheetFormJson(
         'saveSettings',
         { data: outgoingPayload },
@@ -401,6 +452,18 @@ function saveSettings(immediate, options) {
       );
       if (!data) throw new Error('네트워크 오류');
       if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+      if (!settingsPatch && isGsheetConnectionCurrent(targetUrl, expectedGeneration)
+          && _gsSettingsLoadEpoch===expectedLoadEpoch) {
+        // The server has acknowledged this exact POST. A later edit/deletion
+        // must compare against the newly saved code-less rows, not the old
+        // bootstrapped roster. Read the serialized POST, never mutable UI.
+        const posted=JSON.parse(outgoingPayload);
+        if (Array.isArray(posted.EDITABLE_PRICES))
+          _gsheetCodelessFundBaseline={
+            targetUrl,generation:expectedGeneration,epoch:expectedLoadEpoch,
+            funds:_gsheetCodelessFundsFromRows(posted.EDITABLE_PRICES)
+          };
+      }
       return true;
     } catch(e) {
       console.warn('saveSettings 실패:', e);
@@ -525,7 +588,128 @@ async function loadSettings(onProgress, options) {
         ? data.errorCode : 'SETTINGS_RESPONSE_INVALID';
       return failLoad(code);
     }
-    const s = data.settings;
+    let s = data.settings;
+    const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
+    // Recovery provenance may exist ONLY as a durable A->B journal if the
+    // browser stopped between code-sheet flush and Settings failure readback.
+    // Promote server-confirmed replacements before reading the debt list or
+    // applying the stale bootstrap Settings to EDITABLE_PRICES.
+    if (isBootstrap && bootstrapCodeMasterSource
+        && typeof stageConfirmedSameTargetCodeReplacementRepairs === 'function'
+        && !stageConfirmedSameTargetCodeReplacementRepairs(
+          loadTarget,bootstrapCodeMasterSource,data.codes)) {
+      loadStage='확정 종목교체 Settings 복구 근거 저장';
+      return failLoad('CODE_SETTINGS_REPAIR_PROVENANCE_FAILED');
+    }
+    // Pending code Settings migrations are independent of dirty trades,
+    // holdings, and uncommitted code additions. They must run BEFORE applying
+    // stale Bootstrap Settings and before marking the load successful.
+    const hasSavedCodeSettingsRepair = typeof _hasSameTargetCodeSettingsRepairDebt === 'function'
+      && _hasSameTargetCodeSettingsRepairDebt(loadTarget);
+    if (hasSavedCodeSettingsRepair && !isBootstrap) {
+      loadStage = '설정 복구 부채 서버 원본 식별';
+      return failLoad('CODE_SETTINGS_REPAIR_MASTER_UNAVAILABLE');
+    }
+    const codeSettingsRepairAtLoad = typeof _getSameTargetCodeSettingsRepairs === 'function'
+      ? _getSameTargetCodeSettingsRepairs(loadTarget,bootstrapCodeMasterSource) : [];
+    if (codeSettingsRepairAtLoad.length) {
+      loadStage = '종목 Settings 부분 커밋 복구';
+      if (typeof repairPinnedSameTargetCodeSettingsBeforeRestore !== 'function')
+        return failLoad('CODE_SETTINGS_REPAIR_UNAVAILABLE');
+      const repaired=await repairPinnedSameTargetCodeSettingsBeforeRestore({
+        targetUrl:loadTarget,generation:loadGeneration,
+        sourceId:bootstrapCodeMasterSource,masterCodes:data.codes
+      });
+      if (!isLoadConnectionCurrent()) return false;
+      if (!repaired) return failLoad('CODE_SETTINGS_REPAIR_FAILED');
+      // The first Bootstrap Settings payload predates the repair and must
+      // NEVER be restored into EDITABLE_PRICES as if it were authoritative.
+      const refreshed=await requestGsheetActionJson('getBootstrap',{},{
+        targetUrl:loadTarget,timeoutMs:15000,retry:1,preserveError:true
+      });
+      if (!isLoadConnectionCurrent()) return false;
+      if (refreshed?.status!=='ok' || !refreshed.settings || !Array.isArray(refreshed.codes)
+          || String(refreshed.codeMasterSourceId || '').trim()!==bootstrapCodeMasterSource
+          || typeof _stockMasterSyncFingerprint !== 'function'
+          || _stockMasterSyncFingerprint(refreshed.codes)!==repaired.fingerprint)
+        return failLoad('CODE_SETTINGS_REPAIR_READBACK_FAILED');
+      data=refreshed;
+      s=data.settings;
+    }
+    // This code list belongs to the same successful Bootstrap response, and
+    // can validate pending trade retries before EDITABLE_PRICES is applied.
+    const codeLessBootstrapFunds = settings => [
+      ...(Array.isArray(settings.EDITABLE_PRICES) ? settings.EDITABLE_PRICES : [])
+        .filter(ep => ep && !String(ep.code || '').trim()
+          && ['TDF','펀드','FUND'].includes(String(ep.assetType || ep.type || '').trim().toUpperCase()))
+        .map(ep => ({name:String(ep.name || '').trim(),code:'',type:ep.assetType || ep.type})),
+      ...Object.entries(settings.fundDirect && typeof settings.fundDirect === 'object' ? settings.fundDirect : {})
+        .filter(([name,value]) => name && value && typeof value === 'object'
+          && ['TDF','펀드','FUND'].includes(String(value.type || '').trim().toUpperCase()))
+        .map(([name,value]) => ({name,code:'',type:value.type}))
+    ];
+    let bootstrapMasterForRetry = isBootstrap ? [
+      ...data.codes,
+      // Only same-Bootstrap authoritative code-less funds/TDFs.
+      ...codeLessBootstrapFunds(s)
+    ] : null;
+    // Legacy GAS getSettings has no same-connection code-master proof. Never
+    // allow a dirty source ledger to write to the current target by falling
+    // back to the browser's (potentially previous-connection) master.
+    // Preserve dirty data and require an upgraded getBootstrap deployment.
+    if ((dirtyPortfolioAtLoad || pendingEmptySyncAtLoad) && !Array.isArray(bootstrapMasterForRetry)) {
+      loadStage = '미동기화 거래·보유 서버 마스터 검증';
+      return failLoad('RESTORE_MASTER_UNAVAILABLE');
+    }
+    // The new-code recovery path is intentionally narrower than normal
+    // syncCodes: only same-target server Settings or prior authorized local
+    // additions can extend the pinned master, with exact read-back proof.
+    const sameTargetCodeAdditionsAtLoad = typeof _getSameTargetLocalCodeAdditions === 'function'
+      ? _getSameTargetLocalCodeAdditions(loadTarget, bootstrapCodeMasterSource) : [];
+    if ((dirtyPortfolioAtLoad || sameTargetCodeAdditionsAtLoad.length)
+        && typeof recoverPinnedMissingPortfolioCodes === 'function') {
+      loadStage = '동일 연결 신규 종목코드 검증';
+      bootstrapMasterForRetry = await recoverPinnedMissingPortfolioCodes({
+        targetUrl:loadTarget, generation:loadGeneration,
+        dirty:dirtyPortfolioAtLoad || { trades:[], holdings:[], fundDirect:{} },
+        masterCodes:bootstrapMasterForRetry,
+        remoteSettings:s,
+        expectedSourceId:bootstrapCodeMasterSource
+      });
+      if (!isLoadConnectionCurrent()) return false;
+      if (!Array.isArray(bootstrapMasterForRetry)) return failLoad('RESTORE_CODE_RECOVERY_FAILED');
+      // Bootstrap append-only CAS writes Codes, never Settings. Complete
+      // any same-workbook durable Settings repair BEFORE applying the stale
+      // first-Bootstrap Settings or clearing its journal.
+      const postAppendDebt = typeof _getSameTargetCodeSettingsRepairs === 'function'
+        ? _getSameTargetCodeSettingsRepairs(loadTarget,bootstrapCodeMasterSource) : [];
+      if (postAppendDebt.length) {
+        loadStage = '신규 종목 Settings 후속 복구';
+        if (!isBootstrap || typeof repairPinnedSameTargetCodeSettingsBeforeRestore !== 'function')
+          return failLoad('CODE_SETTINGS_REPAIR_UNAVAILABLE');
+        const repaired = await repairPinnedSameTargetCodeSettingsBeforeRestore({
+          targetUrl:loadTarget,generation:loadGeneration,sourceId:bootstrapCodeMasterSource,
+          masterCodes:bootstrapMasterForRetry.filter(ep=>!!_normalizeCodeForSync(ep?.code))
+        });
+        if (!isLoadConnectionCurrent()) return false;
+        if (!repaired) return failLoad('CODE_SETTINGS_REPAIR_FAILED');
+        const refreshed = await requestGsheetActionJson('getBootstrap',{},{
+          targetUrl:loadTarget,timeoutMs:15000,retry:1,preserveError:true
+        });
+        if (!isLoadConnectionCurrent()) return false;
+        if (refreshed?.status!=='ok' || !refreshed.settings || !Array.isArray(refreshed.codes)
+            || String(refreshed.codeMasterSourceId || '').trim()!==bootstrapCodeMasterSource
+            || typeof _stockMasterSyncFingerprint !== 'function'
+            || _stockMasterSyncFingerprint(refreshed.codes)!==repaired.fingerprint)
+          return failLoad('CODE_SETTINGS_REPAIR_READBACK_FAILED');
+        data=refreshed;
+        s=data.settings;
+        bootstrapMasterForRetry=[...data.codes,...codeLessBootstrapFunds(s)];
+      } else if (isBootstrap) {
+        data.codes=bootstrapMasterForRetry.filter(ep=>!!_normalizeCodeForSync(ep?.code));
+      }
+    }
+
     // fundDirect 키가 존재하면 빈 객체도 포함해 Settings를 authoritative 상태로 봅니다.
     // holdings fallback은 키 자체가 없는 레거시 응답에서만 허용합니다.
     const hasAuthoritativeFundDirect = Object.prototype.hasOwnProperty.call(s, 'fundDirect');
@@ -669,7 +853,8 @@ async function loadSettings(onProgress, options) {
       if (!isLoadConnectionCurrent()) return false;
       prog('미동기화 거래·보유 복구 중...');
       const dirtyRetryOk = await _retryPortfolioRemoteDirtySync({
-        allowDuringRestore: true
+        allowDuringRestore: true,
+        masterCodesOverride: bootstrapMasterForRetry
       });
       if (!isLoadConnectionCurrent()) return false;
       // 재전송 실패 시 원격의 이전 원장을 authoritative하게 적용하지 않습니다.
@@ -810,7 +995,8 @@ async function loadSettings(onProgress, options) {
           quiet: true,
           allowDuringRestore: true,
           preferCurrentPortfolio: dirtyPortfolioSyncResolvedAtLoad && rawTrades.length > 0,
-          targetUrl: loadTarget
+          targetUrl: loadTarget,
+          masterCodesOverride: bootstrapMasterForRetry
         });
       } catch (e) {
         console.warn('빈 거래원장 부트스트랩 재시도 실패:', e);
@@ -898,15 +1084,24 @@ async function loadSettings(onProgress, options) {
     // 실제 authoritative 원격 적용 직전에 현재 target 상태가 안정될 때까지 다시 확인합니다.
     if (forcePortfolioRestore) {
       for (let lateAttempt = 0; lateAttempt < 6; lateAttempt++) {
-        if (typeof _getPendingExplicitEmptyTradeSync === 'function'
-            && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
-          const latePending = _getPendingExplicitEmptyTradeSync(loadTarget);
-          if (latePending) {
+        // The initial dirty/pending snapshot can be empty while getBootstrap
+        // awaits the network. Check BOTH live states BEFORE either retry;
+        // a late pending retry may write trades, holdings AND settings.
+        const latePending = typeof _getPendingExplicitEmptyTradeSync === 'function'
+          ? _getPendingExplicitEmptyTradeSync(loadTarget) : null;
+        const lateDirty = typeof _getPortfolioRemoteDirty === 'function'
+          ? _getPortfolioRemoteDirty() : null;
+        if ((latePending || lateDirty) && !Array.isArray(bootstrapMasterForRetry)) {
+          loadStage = '복원 중 새 거래·보유 서버 마스터 검증';
+          return failLoad('RESTORE_MASTER_UNAVAILABLE');
+        }
+        if (latePending && typeof _retryPendingExplicitEmptyTradeSync === 'function') {
             const latePendingResult = await _retryPendingExplicitEmptyTradeSync({
               quiet: true,
               allowDuringRestore: true,
               preferCurrentPortfolio: rawTrades.length > 0,
-              targetUrl: loadTarget
+              targetUrl: loadTarget,
+              masterCodesOverride: bootstrapMasterForRetry
             });
             if (!isLoadConnectionCurrent()) return false;
             if (!latePendingResult) return false;
@@ -917,20 +1112,22 @@ async function loadSettings(onProgress, options) {
               rawHoldings.length = 0;
               saveHoldings({ skipGsheet: true });
             }
-          }
         }
 
         if (typeof _getPortfolioRemoteDirty === 'function'
             && typeof _restorePortfolioRemoteDirtyPayload === 'function'
             && typeof _retryPortfolioRemoteDirtySync === 'function') {
-          const lateDirty = _getPortfolioRemoteDirty();
-          if (lateDirty) {
+          const latestDirty = _getPortfolioRemoteDirty();
+          if (latestDirty) {
+            // On Bootstrap targets a newly arrived dirty payload can be
+            // reconciled only against the same-server pinned master.
             _restorePortfolioRemoteDirtyPayload();
             if (!isLoadConnectionCurrent()) return false;
             prog('복원 중 새로 생긴 거래·보유 동기화 중...');
             const lateDirtyOk = await _retryPortfolioRemoteDirtySync({
               targetUrl: loadTarget,
-              allowDuringRestore: true
+              allowDuringRestore: true,
+              masterCodesOverride: bootstrapMasterForRetry
             });
             if (!isLoadConnectionCurrent()) return false;
             if (!lateDirtyOk) return false;
@@ -1059,7 +1256,8 @@ async function loadSettings(onProgress, options) {
     // 일반 Settings 저장이 과거에 실패했더라도 별도로 동기화된 종목코드 시트에서
     // 유형·섹터·통화를 복구합니다. 상단 업데이트와 수동 재동기화에도 동일하게 적용됩니다.
     try {
-      if (isBootstrap && typeof applyGsheetCodeList === 'function') applyGsheetCodeList(data.codes);
+      if (isBootstrap && typeof applyGsheetCodeList === 'function')
+        applyGsheetCodeList(data.codes, bootstrapCodeMasterSource);
       else await loadGsheetCodeList({ targetUrl: loadTarget, generation: loadGeneration, allowDuringRestore: true });
     } catch(e) {}
     if (!isLoadConnectionCurrent()) return false;
@@ -1068,6 +1266,14 @@ async function loadSettings(onProgress, options) {
       : 0;
     if (reconciled > 0) console.log(`[GAS 기초정보 복구] 종목코드 시트에서 ${reconciled}개 필드 반영`);
     _gsPortfolioRestoreRequired = false;
+    _gsCodeMasterSourceIdentity = bootstrapCodeMasterSource;
+    // Repaired Bootstrap may have replaced s more than once. Pin precisely
+    // the last server Settings that populated EDITABLE_PRICES, never the
+    // discarded first response from before a Settings repair/append.
+    _gsheetCodelessFundBaseline={
+      targetUrl:loadTarget,generation:loadGeneration,epoch:loadEpoch,
+      funds:_gsheetCodelessFundsFromRows(s.EDITABLE_PRICES)
+    };
     _gsBootRestored = true;
     loadCompleted = true;
     _gsSettingsLoadFailure = null;

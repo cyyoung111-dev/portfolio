@@ -1,3 +1,318 @@
+> 2026-10-14 PR #493 최신 Codex P2 대응: GAS v9.218은 무코드 펀드 CAS stale 재요청에서 **펀드뿐 아니라 전체 쓰기 가능 Settings 키**(정규화된 coded 메모·테마·계좌 등)가 서버 저장값과 일치해야만 `alreadyApplied`를 반환합니다. 다른 탭이 우연히 같은 펀드를 기록한 뒤 미저장 테마/계좌/종목 메모를 가진 최초 요청은 `SETTINGS_CODELESS_FUND_STALE`로 거부합니다. 실제 생산 handler 회귀 추가. 웹 기대 GAS 9.218, `settings_fetch 20261014-6`, PWA cache `20261014-19`. Draft/미병합/미배포. 기존 v9.217 설명은 이력으로 유지합니다.
+
+## PR #493 자체 재검토 — 신규 append 부분 실패 후 사용자가 목표 비중/메모 재수정한 경우 (2026-10-13)
+
+> 2026-10-14 PR #493 검증 후보: GAS v9.217은 무코드 펀드 CAS 응답 유실 재시도에서 전체 Settings 재기록 없이 ACK하여 타 탭 테마·계좌·종목 메모 덮어쓰기를 차단합니다. 웹 기대 버전 9.217, settings_fetch 20261014-5, PWA cache 20261014-18. Draft/미병합/미배포이며 운영 GAS·Sheets 수정 없음. 종료 기준은 docs/QUALITY_GATES.md §5-A입니다.
+
+- 기존 복구 부채가 최초 입력 `userFields`를 유지하는 동안 같은 브라우저에서 사용자가 신규 C의 targetWeight/notes를 수정하면, 재시도 전 동일 workbook/source 신규 종목 journal은 최신으로 갱신되지만 `_rememberSameTargetCodeSettingsRepairs`의 기존 metadataOnly 부채가 처음 값을 유지해 오래된 비중·메모를 복구하는 사례 확인.
+- `src/web/domain/portfolio/data.js`: **같은 sourceId, 이전/현재 exact (name,code), metadataOnly 상태가 일치하고 최신 durable journal이 명시적으로 userFields를 갖는 경우에만** 기존 Settings repair debt의 targetWeight·notes를 새 값으로 갱신. 없는 필드는 명시적 최신 증거에서만 삭제 가능, 기존 종목/교체 journal 변경 없음. 사용자 비중 수치(0~100) 클라이언트/GAS 허용 범위 일치.
+- `scripts/check-stock-master-append-repair.mjs`: 실제 웹 sync/Bootstrap VM에서 첫 코드 append 커밋과 Settings 실패 직후 C 비중 25→45, 메모 변경한 뒤 복구해 새 값이 유지되고 서버 추가 row가 중복되지 않으며 debt/journal 해제되는 경우 추가. 기존 재시작/기초정보/보호키 회귀 유지.
+- GAS **v9.212 변경 없음** (기존 full source blob/승인 pin 그대로), 웹 `data.js?v=20261013-11`, PWA `portfolio-cache-20261013-32` 동기화. PR Draft·미병합·미배포, 다른 PR/운영 데이터 변경 없음. **독립 Codex 리뷰는 사용량 한도 메시지로 재실행 불가; 자체 검사 및 CI와 구분**.
+
+---
+## PR #493 Codex P2 — 신규 종목 append 사용자 비중·메모 보존 (2026-10-13)
+
+- **원인**: 관리 화면이 `saveSettings`를 종목 코드 append보다 먼저 실행하여 미등록 신규 C를 서버에서 제외. 후속 `syncCodes`는 C를 빈 Settings 항목으로 생성하므로 로컬 `targetWeight=25`와 메모 소실. 브라우저 종료/코드만 flush 상태에서도 동일 문제가 반복.
+- **GAS v9.212**: `handleSyncCodes`가 전체 코드 마스터 CAS + ScriptLock 하에서 **실제 toAppend에 포함된 신규 정확 name/code pair**의 `userFields` 중 검증된 `targetWeight`(0~100)와 `notes`(최대 4000자)만 최초 Settings 항목에 기록. 기존 종목/명시적 교체/메타데이터 단독수정의 userFields는 무시해 다른 종목 사용자 설정 변경 금지. 코드만 flush 후 실패한 경우, 명시적인 같은 workbook/source `metadataOnly` 복구 증명 안의 userFields를 읽고 **원본 Settings가 아직 없는 정확한 pair**에만 적용.
+- **웹/영속 Journal**: 데이터 도메인의 신규 종목 journal에 사용자가 입력한 targetWeight/notes를 source-pinned으로 저장하고, 네트워크 호출 직전에 최신값을 갱신. 부분 저장 확인 시와 강제 종료 후 Bootstrap에서는 동일 증명을 GAS Settings-only CAS로 전달. `queueMgmtGsheetSync()`는 서버 종목 코드 동기화 이후 일반 Settings 저장. 관련 정적 자산 캐시/예상 GAS 버전 동기화.
+- **검증**: 실제 생산 GAS 종목 sync handler VM `check-stock-master-replacement-preflight.mjs`에서 A 기존 비중 37/notes 유지 + 신규 C 비중25/메모 최초 append 저장, 기존 A 가짜 userFields 무시. 실제 웹 sync/Bootstrap VM `check-stock-master-append-repair.mjs`에서 최초 성공/코드만 부분 저장/브라우저 종료 재시작 모두 C 비중25/메모 보존, journal/debt/마스터 CAS 정상 종료. Quality/Web/GAS CI 적용.
+- GAS v9.212 전체 Git blob `b2f2f94e1f6790a31988c2931fb124aff891da05`; PR Draft 미병합/운영 미배포, main/원본 #489~#492/실제 Google Sheet/원장/종가·NAV/Snapshot/브리핑 불변.
+
+---
+## PR #493 Codex P2 — 일반 Settings 저장의 코드 마스터 원본 정합성 차단 (2026-10-13)
+
+- **원인**: 다른 브라우저 A→B 코드 시트 변경이 완료되고 `EDITABLE_PRICES` 쓰기만 실패하면 master B/Settings A 상태. 일반 `handleSaveSettings`는 B에 대응하는 원본이 없어 사용자 `targetWeight`·`notes`를 기본값으로 다시 만들면서 기존 A 메타데이터를 삭제함.
+- **GAS v9.211**: 일반 saveSettings에서 `EDITABLE_PRICES`가 제출된 경우, 같은 ScriptLock 안에서 현재 코드 마스터의 모든 정확한 종목명/코드 pair에 대응하는 **저장된 서버 Settings 원본이 정확히 하나** 존재하는지 양방향 검사. 누락·고아·중복·형식 오류는 `SETTINGS_CODE_MASTER_MISMATCH`로 일반 설정/테마 포함 **어떠한 Settings 쓰기 전** 중단. 정상 저장에서는 stale incoming 개별 종목을 server master에 projection하되 원래 목적의 신규 종목 임의 부활 금지, 사용자 필드·코드 없는 TDF·보호 대상 DIVDATA/LOAN/REAL_ESTATE 불변.
+- **생산 함수 VM** `scripts/check-stock-master-save-settings-integrity.mjs`: 코드 부분저장 B/원본 A(targetWeight=37/notes) → 쓰기 0, 타종목 C·누락·중복·고아·손상된 Settings 검사, 건강한 Settings의 일반 테마/목표비중 저장과 펀드·대출/부동산/배당 보존. quality/web/GAS 게이트에 추가.
+- GAS v9.211 full Git blob `1985fbbe0a351074ac9ee9bfabbdc787ec99a672`, 웹 Expected 버전/Settings fetch 캐시/PWA 및 deploy SHA pin 정합. Draft·미병합·운영 배포 skipped, main/원본 #489~#492/운영 데이터 미변경.
+
+---
+## PR #493 Codex P2 — Settings-only 재기준화 전체 원본/증거 정합성 보호 (2026-10-13)
+
+- **원인**: 기존 `metadataOnly` 부채로 다른 브라우저의 A→B 코드 마스터 부분 커밋을 무시한 채 Settings 전종목을 rebase, B의 targetWeight·notes를 기본값으로 소실 가능.
+- **GAS v9.210**: 동일 workbook ScriptLock 및 full master CAS에서 각 *현재* master name/code가 Settings의 정확 원본 1개 또는 개별 복구 증거를 보유하고, 재기준화에서 제거되는 코드 Settings orphan에는 검증된 rename/삭제 증거가 있는지 양방향 검사. 미증명/중복/경쟁 alias면 `CODE_REBASE_SETTINGS_MASTER_MISMATCH` (또는 provenance conflict)로 쓰기 0. 일반 동기화의 별도 full-master 검사는 유지.
+- **웹**: metadataOnly는 자신이 실제 가리키는 종목만 증명하며 GAS에 범위를 넘김. 원래 A→B 성공 뒤 B가 후속 삭제되면 empty provenance 대신 `retired:true` tombstone을 전달하여 stale A만 안전 정리. CAS/최종 readback 후에만 부채·journal 제거. 다른 종목·삭제·이름 충돌은 fail closed.
+- **생산 GAS VM** `scripts/check-stock-master-force-rebase-provenance.mjs`에서 master B,C/Settings A,C/metadataOnly C의 원본 비중 37 유실 경로 재현→차단, 정상 append/rename/tombstone(실제 타겟 삭제)/무근거 orphan·중복 검증. 기존 Bootstrap/append/연속교체·종가/NAV/Snapshot 테스트 회귀 유지.
+- GAS v9.210 whole-source Git blob `86cbc5e7a140b66b3f4c5543a73c90b573479b9c`, 웹 캐시/Expected 버전/CI 소스 pin 동기화. Draft·미병합·운영 deploy skipped, 원본 PR #489~#492/main 및 운영 GAS/실제 데이터 변경 없음.
+
+---
+**v9.209 회귀 정합**: 기존 `handleSyncCodes`에서 Settings 저장 실패에 반환하던 명시적 `CODE_SYNC_SETTINGS_FAILED` 코드를 단일 키 CAS 오류에서도 유지. 실제 기존 거래 쓰기 검증 VM은 새 단일 셀 helper 호출·실패·회복을 재현하도록 업데이트. GAS full blob `2eeaa55461a8f9f69e017655be402a83d859faad`, expected version/PWA v28 동기화.
+
+---
+## PR #493 Codex P1/P2 — 종목 Settings 단일키 CAS 및 신규 append 부분 커밋 복구 (2026-10-13)
+
+- **P1**: 일반 syncCodes 및 Settings-only 재기준화의 전역 `_writeSettingsMap`/`clearContent` 제거. 같은 ScriptLock 안에서 EDITABLE_PRICES 단일 셀만 기존 JSON 비교(CAS) 후 갱신, 신규 설정에는 해당 키 행만 삽입. 중단돼도 대출/부동산/배당/기타 Settings 행 보존.
+- **P2**: 확인된 신규 append와 독립 메타데이터 변경을 동일 workbook/source durable 추가 journal로 입증해 Settings-only `metadataOnly` 복구 부채에 보존. 일반 실패→재시도, 응답 전 프로세스 종료→Bootstrap 양쪽에서 누락된 코드 Settings를 재구성. 미승인 추가·삭제·이름 교체는 암묵적 복구 금지; 최종 master 확인 후 부채·journal 해제.
+- **생산 함수 VM 테스트**: 신규 `scripts/check-stock-master-settings-cell-write.mjs` (CAS, 단일 셀, 키 부재 생성, 인위적 실패와 LOAN/REAL_ESTATE/DIVDATA 보존), `scripts/check-stock-master-append-repair.mjs` (실제 웹 sync/Bootstrap append 복구, 미승인 변경 차단). 기존 회귀 및 web/quality/GAS 체크에 추가.
+- **버전** GAS v9.208 Git blob `2cee1e67fd0283f4c5fd7119424f1b82b4159ec5`, 웹 기대 버전/PWA 캐시/배포 안전 지문 동기화. Draft 미병합, 운영 미배포, 원본 #489~#492·main/실데이터 불변.
+
+---
+## PR #493 Codex P2 — 코드 변경 전 전체 Settings 원본 정합성 확인 (2026-10-13)
+
+- 기존 코드 A→B가 부분 커밋되어 마스터 B / Settings A로 불일치할 때, 다른 탭에서 B 섹터 수정·무관한 C 추가가 사용자 비중·메모를 지우는 문제를 방지.
+- GAS v9.207 일반 `handleSyncCodes`는 실제 코드 쓰기 전에 전체 코드 마스터의 각 name+code가 Settings에 정확히 한 번 존재하고 Settings에 orphan coded 항목이 없는지 검사합니다. 불일치·중복 시 `CODE_SYNC_SETTINGS_MASTER_MISMATCH`로 데이터 저장 0. 명시적 `forceSettingsRebase`는 기존 별도 provenance CAS 경로 유지.
+- 생산 GAS handler VM 테스트에 타 탭 부분 커밋·섹터 변경·신규 추가·무관 종목 변경·중복·별칭 반례 및 정상 종목 수정/append/코드 없는 TDF 설정 보호 추가. 원래 테스트가 web/quality/GAS CI에서 실행됨.
+- GAS v9.207 full Git blob `23d04044aff5e9390855bdc219eda6aa03b04291`; 기대버전·PWA 캐시·지문 게이트 동기화. CI 지문은 운영 배포 승인이 아님. Draft·미병합·미배포, 원본 #489~#492/main 및 운영 자료 무변경.
+
+---
+## PR #493 Codex P2 — Settings 원본 없는 후속 교체 방지 (2026-10-13)
+
+- A→B 종목 코드 마스터만 반영되고 Settings에는 A가 남은 부분 커밋 직후 다른 브라우저에서 B→C로 교체하면 사용자 비중·메모가 유실될 수 있었음. GAS `handleSyncCodes`는 정상 교체에서 기존 Settings의 정확 pair 1건을 강제하며, 0건/중복/신규 별칭 충돌을 코드 시트 변경 전 `CODE_SYNC_REPLACEMENT_SETTINGS_CONFLICT`로 거부함.
+- 생산 `handleSyncCodes` 함수 호출 기반 VM 회귀를 CI에 추가해 부채 상황에서 코드/Settings 저장 0과 정상 교체(전체·이름만·코드만) 시 사용자 필드 승계를 검증하도록 함.
+- GAS v9.206 full-source 지문 게이트 및 웹 기대버전 9.206, settings_fetch 20261013-6, PWA 20261013-25. 본 소스 지문은 CI 무결성 확인이며 운영 배포 승인이 아님. Draft·미병합·운영 GAS 미배포, 원본 #489~#492와 main 직접 변경 없음.
+
+---
+## PR #493 Codex P2 2건 — 복구 부채 성공 해제·후속 삭제 종결 (2026-10-13)
+
+- **즉시 Settings 복구 성공 뒤 남는 부채**: 일반 `syncCodes` POST가 오류를 반환했지만 코드 마스터가 이미 최신으로 바뀐 경우 Settings-only 복구가 성공해도 기존 코드가 빈 `replacements/settingsReplacements`만 삭제해 `metadataOnly` 부채가 남던 문제 수정. 이제 부분 커밋 시 생성한 `repairProof` 전체를 추적하고, 성공한 CAS Settings 수리 **뒤 최신 `getCodeList` 전체 마스터 readback 일치 검증을 통과해야만** 해당 부채를 영속 해제합니다. 실패·소스 전환·후속 CAS 충돌 시에는 부채 유지.
+- **A→B 교체 부채 발생 후 B 후속 삭제**: 전용 `_classifyPinnedCodeSettingsRepairDebt`는 현재 동일 workbook/source 전체 마스터에서 B 정확히 존재·A 별칭 부재이면 기존 Settings provenance를 B로 이전합니다. A/B 둘 다 없고 어느 이름/코드 구성요소도 충돌하지 않을 때는 더 이상 이전 대상이 없으므로 Settings-only full-master CAS 재기준화에서 stale A를 정리하고 부채를 종결합니다. 종목명만/코드만 교체 시 동일한 구성요소를 원본 별칭으로 오인하지 않도록 구분합니다. A 또는 B의 이름/코드가 경쟁적으로 재사용되면 자동 정리하지 않고 fail closed.
+- **검증**: 실제 웹 VM에서 메타데이터 코드만 저장 후 Settings 즉시 수리 성공→재부팅/추가 쓰기 없이 `metadataOnly` 부채 0건, 실패 시 durable 보존. 실제 전체 deferred-script Bootstrap VM에서 A→B 교체 뒤 다른 탭 B 삭제→현재 C만 있는 코드 마스터로 Settings 읽기 복구, stale A 제거, 다른 C 비중/대출/코드 없는 펀드 보호, 부채 0건 및 별칭 충돌·이름만/코드만 교체 안전성 확인.
+- **범위**: 최신 클라이언트 `settings_sync.js?v=20261013-20`, PWA `portfolio-cache-20261013-24`. 기존 GAS v9.205 및 전체 source blob `120593344d2b9da89f3e603bdb2349fc3ef571f9` 변경 없음. PR Draft·미병합, main/원본 #489~#492/운영 GAS·스프레드시트·종가/NAV/Snapshot/브리핑 미변경. 승인 없는 병합·실제 배포 없음.
+
+---
+## PR #493 Codex P2 — 메타데이터 부분 커밋 복구 근거 정정 (2026-10-13)
+
+- **원인**: 웹 `syncCodesToGsheet()`는 메타데이터만 GAS 코드 시트에 확정되었으나 Settings 복구가 실패하면 임의 `partial.codes[0]`을 `metadataOnly` 영속 부채에 기록했습니다. 무관한 그 행을 다른 탭에서 삭제하면 다음 Bootstrap이 실변경 종목과 무관하게 영구 실패했습니다.
+- **보완**: 새 `_stockMasterMetadataOnlyRepairProof(before,after)`는 전필드 코드 마스터 fingerprint와 동일 종목명+코드 identity 집합을 확인한 뒤 실제 type/sector/currency/market 필드가 변경된 행만 추출합니다. 증명되지 않은 추가·삭제·교체는 metadataOnly 기록으로 우회하지 않고 fail-closed 처리합니다. 기존 `metadataOnly:true` 복구 부채는 행 식별자 존재를 요구하지 않고, 동일 workbook source ID의 현재 전체 master fingerprint/CAS로 Settings를 재기준화합니다. 실제 종목명/코드 교체 부채는 기존 엄격한 원본·대상 존재 검사를 계속 적용합니다.
+- **실제 VM 회귀**: A+B 마스터에서 B 섹터 부분 커밋·Settings 연속 실패 시 영속 부채가 B를 가리키는지 확인, 타 탭 A 삭제 후 B 단독 마스터로 CAS Settings 복구와 부채 해제 검증. 구버전에서 잘못 A를 가리키는 metadataOnly 부채가 남은 상태에서도 Bootstrap이 최신 B 서버 Settings를 재조회하고 `targetWeight` 37을 보존하는 테스트 추가.
+- **정적 자산**: `settings_sync.js?v=20261013-19` 및 PWA `portfolio-cache-20261013-23`. GAS 기존 v9.205 전체 소스/승인 blob은 변경하지 않음. `main`, 원본 Draft #489~#492, 운영 GAS·Sheets·트리거/배포 변경 없음. 실제 운영 복구는 미실행.
+
+---
+## PR #493 Codex P1 — 종목 삭제 시 Settings 전체 유실 차단 (2026-10-13)
+
+- **원인**: v9.204 삭제 경로가 원본 설정을 읽은 뒤 `_writeSettingsMap()`의 모든 Settings row `clearContent()`→재기록을 실행했습니다. 실행이 중단되는 순간 LOAN, REAL_ESTATE, DIVDATA, 코드 없는 펀드, 기타 종목별 설정까지 누락될 수 있고, 삭제 journal에는 삭제 대상 1건만 보존되어 전역 Settings 유실을 되돌릴 수 없었습니다.
+- **구조적 수정**: GAS v9.205에서 삭제·보상·Bootstrap 복구의 `_writeSettingsMap` 호출을 제거하고, `EDITABLE_PRICES` 키가 고유하게 존재하는지 확인 후 **해당 VALUE 셀 하나만** `setValue(JSON.stringify(array))`로 갱신합니다. 기존 값과 전체 JSON 동일성 비교, 단일 셀 쓰기 후 재조회 검증, 중복 키/충돌/손상 시 fail closed합니다. 다른 Settings 키는 수정할 수도, 일괄 초기화할 수도 없습니다. 기존 ScriptProperties 삭제 증거·same-source CAS·ScriptLock은 유지합니다.
+- **회귀**: 실제 GAS handler VM에서 전역 `_writeSettingsMap`이 호출되면 테스트가 즉시 실패하도록 하고, LOAN·REAL_ESTATE·DIVDATA·fundDirect·APP_THEME의 원본 값을 정상 삭제/행 삭제 실패/Settings 쓰기 실패/중단 후 Bootstrap 재시도/Settings 종목 비중 복원 전체 경로에 대조합니다. append-only/normal code CAS 및 이전 P1·P2 경로도 CI에서 검증합니다.
+- **릴리스 소스**: GAS v9.205 full Git blob `120593344d2b9da89f3e603bdb2349fc3ef571f9` (스크립트/`EXPECTED_GAS_VERSION` 승인 게이트 일치). Web `settings_fetch 20261013-5`, PWA cache `20261013-22`. **CI validate는 운영 배포가 아니며 실제 GAS 배포 단계 skipped.**
+- **제한**: 이 변경은 PR #493 Draft에만 존재하며 원본 #489~#492, main 및 운영 GAS/Sheets 가격·원장·NAV·Snapshot·브리핑에는 미적용. 기존 그 외 일반 Settings 저장 함수의 구조적 재작성은 이번 삭제 전용 수정 범위에 포함하지 않았습니다.
+
+---
+## PR #493 재리뷰 P2 — GAS 강제 종료 삭제 트랜잭션 복구 (2026-10-13)
+
+- **GAS v9.204 검증 후보**: Git 전체 source blob `b4a81fafcd87dd101c625087c6df5323ab0df069`. `deploy-gas.mjs`, `check-gas-deploy.mjs`, 웹 `EXPECTED_GAS_VERSION` 일치. PWA `settings_fetch 20261013-4`, cache `20261013-21`. 소스 승인 지문은 CI 품질검사용이며 운영 배포 승인 아님.
+- **삭제 트랜잭션 원자성 보완**: 첫 code row 변경 이전에 ScriptProperties `PF_PENDING_CODE_DELETE_TXN_V1`에 동일 워크북 source ID, 코드/name, 종목별 원본 Settings 전체 사용자 메타데이터를 영속 기록. 코드 row 삭제/flush/Settings 기록 사이 강제 종료되어도 다음 `getBootstrap`, `getSettings`, `getCodeList`의 ScriptLock 복구에서 두 저장소 일치 전에는 stale Bootstrap/최신 master 성공을 허용하지 않음.
+- **재시도 정책**: 코드 row가 남았으면 원본 종목 설정 전체를 복원하고 삭제 롤백. 코드 row가 사라졌으면 거래·보유 원장 미참조와 동일 코드/이름 충돌 검증 후 Settings의 해당 종목을 제거해 삭제 완료. 원본과 다른 워크북·손상된 journal·동명이인·추가 보유 참조·일부 쓰기 실패 시 journal 유지, 오류 반환, 잘못된 완료 차단. 확인된 정합 상태에만 journal 정리.
+- **생산 VM 검증**: deleteRow 예외/Settings 저장 실패 보상 복구/코드 row flush 직후 강제 중단 후 Bootstrap 복구 실패 유지·후속 정상 복구/원본 `targetWeight` 복원/정상 삭제와 잠금 해제, 기존 master CAS 및 전체 품질 테스트.
+- **범위 제한**: PR Draft 미병합. 기존 #489~#492/main, 실제 운영 GAS·거래/보유 원장·가격이력·NAV·Snapshot/브리핑과 API 인증정보 미변경. 실제 운영 버전·데이터 검증 및 배포는 별도 승인 필요.
+
+---
+## PR #493 추가 재리뷰 P2 및 삭제 트랜잭션 — 2026-10-13 (Draft / 배포 금지)
+
+- **재시작 후 교체 journal 단독 복구**: 코드 시트 A→B flush 이후 Settings 수리 응답을 받기 전에 브라우저가 종료돼도, 동일 GAS workbook의 확정 B pair와 A의 부재를 서버 Bootstrap 코드 마스터에서 증명하면 편집 journal을 지우기 **전에** 별도 Settings-only 영속 복구 부채로 승격합니다. 먼저 ScriptLock/전체 코드 마스터 CAS에서 Settings 사용자 속성(`targetWeight` 등)을 복구하고 재조회한 뒤에만 journal을 퇴역시킵니다. 원본이 아직 있거나 pair가 다르면 append 권한으로 대체하지 않습니다.
+- **GAS 삭제 실패 원자성 보완**: 원격 거래/보유 미참조 및 전체 마스터 CAS 확인 후 코드 행을 삭제·flush·검증한 **다음** Settings에서 해당 identity를 제거합니다. `deleteRow()` 예외는 Settings를 수정하지 않으며, Settings 저장 실패 후에는 원본 Settings와 삭제한 코드 행의 보상 복원을 ScriptLock 안에서 시도하고 실패 상태를 별도 오류 코드로 구분합니다. 저장/복원 성공과 실제 운영 검증은 별개입니다.
+- **실 생산 VM 회귀**: 브라우저 재시작 시 교체 journal만 남은 clean Bootstrap에서 A/111111→B/222222·비중 37 수리 및 실패 보존, GAS 삭제 핸들러의 행 삭제 예외·Settings 쓰기 실패 후 코드/사용자 필드 원복·정상 삭제를 검사합니다. 최신 커밋 CI 결과는 해당 HEAD의 workflow 결과를 기준으로 따로 확인합니다.
+- **버전/배포**: GAS v9.203 full-source Git blob `7e673bbb7349931935c3db6510cb9ddee1adbb6e`; 웹 `settings_sync 20261013-18`, `settings 20261013-8`, PWA `20261013-20`. 원본 PR #489~#492, main 및 운영 GAS·Sheets 거래/보유/NAV/가격/Snapshot/브리핑 경로는 미변경. 이 Git blob은 배포 승인이 아니라 검증 후보입니다.
+
+## PR #493 Codex 추가 P2·부트스트랩 복구 설계 검증 — 2026-10-13
+
+- **부트스트랩 복구 (P2)**: 거래·보유 dirty 및 코드 추가 journal이 없어도 동일 GAS URL·워크북에 Settings 복구 부채가 있으면, 최초 Bootstrap Settings 적용 **이전**에 잠금·전체 마스터 CAS로 Settings를 수리하고 새 `getBootstrap`을 재조회합니다. 실패 시 부채를 보존하고 완료 처리를 중단합니다.
+- **메타데이터 단독 부분 커밋 (P2)**: 이름·코드 교체 없이 섹터·통화·시장만 변경된 뒤 Settings 저장이 실패해도 `metadataOnly` 영속 복구 부채를 기록합니다. 재시도는 변경 없이 확정 마스터에서 Settings를 재조정하고 이 identity를 rename 증거로 사용하지 않습니다.
+- **검증**: 실제 Bootstrap VM에서 기존 A Settings+신규 B 코드 시트, 거래·보유 dirty/추가 journal 없음→Settings 선수리→Bootstrap 재조회 및 B의 `targetWeight` 보존, 실패 시 bootstrap 거절. 웹 VM 메타데이터 단독 부분 기록·Settings 연쇄 실패·복구 후 부채 해제. `quality-check`·`web-check`·GAS `validate` 통과.
+- **배포 제한**: GAS v9.202 전체 Git blob `23dd4fa2c455c315d6925d57f3bdfe5baec40aeb` 유지. 웹 `data.js 20261013-9`, `settings_sync.js 20261013-17`, `settings.js 20261013-7`, PWA `20261013-19`. PR Draft·미병합, 배포 skipped.
+
+## PR #493 재리뷰 재검토 — 2026-10-13 (Draft / 운영 배포 불가)
+
+- **GAS v9.202 후보**: 리뷰용 전체 Git blob `23dd4fa2c455c315d6925d57f3bdfe5baec40aeb`; `scripts/deploy-gas.mjs` 무결성 게이트 및 `scripts/check-gas-deploy.mjs` 체크 일치. 운영 배포가 아닌 CI 검증 소스입니다.
+- **부분 코드 커밋 이후 복구 실패**: GAS 코드 시트 A→B 기록을 동일 워크북의 전체 마스터 readback으로 확인하면, Settings 쓰기가 재차 실패해도 웹은 성공한 코드 전이 A→B를 큐에 게시하고 대기 중인 A→C journal을 B→C로 다시 작성합니다. 동시에 A→B Settings 메타데이터 복구 근거를 별도 로컬 영속 journal에 기록합니다. 다음 작업은 같은 CAS·ScriptLock에서 Settings A→B를 먼저 **코드 시트 무변경으로 수리·재확인한 뒤** B→C를 반영합니다. 다른 workbook/변경된 마스터에서는 쓰기를 차단하고 복구 근거를 보존합니다.
+- **일반 코드/이름 교체 전 Settings 중복 검사**: A/1과 신규 B/2가 Settings에 동시에 있거나 같은 이름/코드 충돌 기록이 있을 경우 코드 시트 쓰기 전 `CODE_SYNC_REPLACEMENT_SETTINGS_CONFLICT`로 실패합니다. 명확한 A 원본만 있으면 추가 메타데이터(`targetWeight` 등)를 B로 승계합니다. 기존 복구 전용 모드의 별도 provenance 검증도 유지합니다.
+- **회귀**: 실제 웹 VM 동시 A→B 부분 commit→Settings 재복구 실패→B→C 대기편집→Settings 복원 후 C 저장·journal/부채 해소, 실제 GAS handler VM 일반 교체 중 중복 Settings 차단 및 정상 교체 사용자 설정 보존. `quality-check`, `web-check`, GAS `validate` 성공(배포 작업은 skipped).
+- **운영 영향 제한**: #489~#492·main, GAS 실배포, Sheets 거래/보유/Snapshot/가격/NAV, 브리핑 트리거·인증정보를 변경하지 않았습니다. 실제 운영 버전 확인 및 실데이터 검증은 별도 단계이며 Draft 해제·병합·배포를 하지 않았습니다.
+
+## PR #493 최신 리뷰 보완 — 2026-10-13 (Draft / 운영 배포 금지)
+
+- **GAS v9.201 검증 후보**: 전체 Git blob `d3d4ce4a9f7db4096f99b8b214dad959736ecb5f`. `deploy-gas.mjs` 승인 지문 게이트와 `check-gas-deploy.mjs` 기대값을 함께 변경했습니다. 이는 소스 무결성 게이트이지 운영 배포 승인이나 실제 배포가 아닙니다.
+- **신규 Codex P2 — 교체 후 Settings 메타데이터 손실**: 코드+이름 교체가 코드 시트에 확정됐지만 Settings 저장에 실패하면, 클라이언트는 검증된 기존→신규 identity를 `settingsReplacements`로 제공합니다. GAS는 같은 ScriptLock/코드 마스터 CAS와 Settings의 유일 원본·신규 대상 검증 이후 기존 `targetWeight` 등 사용자 필드를 옮깁니다. 복구 모드는 코드 마스터 전체를 바꾸지 못하며 코드/메타데이터가 조금이라도 다르면 쓰기를 차단합니다.
+- **신규 Codex P2 — stale payload에 최신 CAS 부착**: 요청 생성 당시 마스터의 전필드 지문과 직렬 큐 내 **자체 성공·readback으로 확인된 전이**만 인정합니다. 다른 탭의 종목 분류/통화/시장 변경은 최신 GET이라도 오래된 payload의 CAS 근거로 삼지 않고 POST 이전 차단합니다. 성공 검증은 code/name뿐 아니라 전체 전필드·행 수를 포함합니다.
+- **검증**: 실제 브라우저·GAS 함수의 in-flight A→B→C, 재시도/원복, 외부 섹터 수정 시 POST 0, 코드 commit 후 Settings 실패·메타데이터 유지·불일치 차단·재복구 멱등성을 회귀검사합니다.
+- **운영 제한**: main/원본 PR #489~#492, 운영 GAS 및 OAuth 키·시트 원장·가격이력·Snapshot은 직접 변경하지 않습니다. Codex 독립 재리뷰·최종 통합 CI·운영 실환경 검증 전에는 Ready·Merge·실배포 금지입니다.
+
+## PR #493 통합 후보 보완 — 2026-10-13 (Draft / 운영 배포 금지)
+
+- **GAS v9.200 후보**: 전체 소스 Git blob `3eb6b4ad640b85f0648f16e3571099e5c374368a`를 `deploy-gas.mjs`의 정확한 소스 승인 게이트에 등록했습니다. 이 SHA는 **통합 검증 후보**의 무결성 식별자일 뿐, 운영 배포 승인이 아닙니다.
+- **연속 종목 변경**: 동기화 요청을 대상별 직렬화하고 큐에서 실행할 때 동일 워크북의 최신 `getCodeList`를 확인해 원본→신규 교체 journal을 재기준화합니다. 다른 workbook/source, stale CAS, 출처 미확인 신규 추가는 거부합니다.
+- **Settings 부분 저장**: 종목코드 시트 변경 후 Settings 쓰기가 실패할 수 있으므로 웹은 서버 재조회로 실제 변경 완료 여부를 판단합니다. 전체 요청과 정확히 일치할 경우에만 코드 마스터에 대한 변경 없는 `forceSettingsRebase=1` 요청을 전체 마스터 CAS·ScriptLock 아래 재실행합니다. 부분 일치나 출처 불일치 시 재전송하지 않고 pending journal을 보존합니다.
+- **검증 범위**: 브라우저 VM에서 A→B 작업 중 B→C 수정, 진행 중 원복, 코드 시트 성공/Settings 실패 후 복구를 확인합니다. GAS VM에서 Settings 실패 주입과 재조정 시 종목 중복·원본 변경이 없고 ScriptLock 해제되는지 검증합니다.
+- **운영 분리**: PR #489~#492 및 main, 실제 GAS/시세/원장/Snapshot/키는 수정하지 않습니다. 통합 CI와 독립 리뷰 종료 전 Ready·Merge·실제 deploy를 수행하지 않습니다.
+
+## PR #493 2026-10-13 Codex 후속 P2 — 연속 종목명/코드 교체 안전성
+
+- Codex HEAD `c230751` 지적: 사용자가 서버 동기화 전 `A/1 → B/2 → C/3`처럼 연속 편집하면 기존 UI 교체 이력이 `B/2 → C/3`만 남고 실제 서버 원본 `A/1`은 유지됩니다. 게다가 일치하지 않는 교체 journal이 신규 추가 권한으로 잘못 사용되어 원래 종목과 신규 종목이 동시에 남을 위험이 있었습니다.
+- **수정**: 동일 GAS target/workbook source의 미확정 변경 journal을 연쇄 합성하여 가장 오래된 서버 원본 `A/1 → C/3`으로 유지합니다. `smSave`는 새 journal을 기록한 **뒤** 이전 상태를 정리하고 이름만/코드만 변경하는 중간 단계도 같은 provenance로 추적합니다. 편집을 원래 서버 pair로 되돌렸을 때는 미확정 journal을 삭제합니다.
+- **Fail-closed**: `syncCodesToGsheet`가 `replaces`가 존재하는 항목을 절대로 신규 추가 권한으로 쓰지 않습니다. 교체 원본 pair가 예상 서버 전체 코드 마스터 스냅샷에 정확히 1개 존재할 때만 `replacements`를 보내고, 미일치·이력 손상 시 어떤 일반 종목 master POST도 수행하지 않습니다. GAS는 전체 마스터 CAS와 동일 ScriptLock을 유지하며, 이름만/코드만/양쪽 변경을 **원래 행을 교체하는 방식**으로 처리하되 별개 행과 충돌하면 거부합니다. 성공 응답 후 서버 readback에서 실제로 변경된 옛 코드/이름이 남지 않았는지 검사한 경우만 journal을 제거합니다.
+- **회귀**: 실제 브라우저 VM에서 연속 2단계 변경의 원본 `A/1` 보존, 원본 없는 journal 전송 0회, 원래 pair로 돌아오는 동작과 journal 제거, 성공한 교체의 readback 및 journal 정리를 확인합니다. 실제 GAS handler VM에서는 이름만·코드만 별도 교체가 모두 기존 **단일 행**을 유지하며 Settings와 같은 내용을 갖는지 확인합니다.
+- 후보 GAS v9.199 blob `852c26bbaf5312f8aa447f5f1d03a8932a85b3f8`. 정적 웹 자산 `data.js=20261013-6`, `settings_sync.js=20261013-11`, `mgmt_stock.js=20261013-6`, `sw/cache=20261013-13`. 현재 PR은 Draft, 운영 GAS/시세/거래/Snapshot 데이터 불변, main 및 원래 PR #489–#492 변경 없음.
+
+## PR #493 2026-10-13 Codex 최근 P1 2건·P2 2건 / 자체 재검토 (Draft·배포 금지)
+
+- **P1 오래된 거래 쓰기 vs 종목 삭제**: GAS `handleSyncTrades`가 실제 같은 ScriptLock 내부에서 현재 서버 코드 마스터와 각 거래의 code/name 일치 또는 현재 이름 확인된 레거시 무코드 거래를 검증한 후에만 거래 원장을 비웁니다. 삭제 이후 stale 종목 거래는 `TRADES_CODE_MASTER_CONFLICT`로 쓰기 이전 거부합니다.
+- **P1 무코드 일반 보유**: 동일 검증 함수를 `handleSyncHoldings`에 적용하되 주식·ETF 등 일반 보유는 무코드로 저장할 수 없도록 엄격하게 차단합니다. 예외는 명시적 `TDF`·`펀드`·`FUND` 유형인 직접펀드로 한정합니다. 두 경로 모두 `syncCodes`/조건부 삭제와 동일 GAS ScriptLock을 사용합니다.
+- **P2 오래된 Settings 삭제 종목 복원**: `handleSaveSettings`가 `EDITABLE_PRICES` 전체 배열을 그대로 덮어쓰는 대신 잠금 안의 현재 종목코드 시트를 기준으로 종목 code/name/type/sector/currency/market을 재구성합니다. 코드 시트에서 삭제된 종목은 stale Settings로 재등록되지 않으며, 다른 테마·계좌 설정과 무코드 직접펀드 설정은 보존합니다. `handleSyncCodes`도 코드/이름/메타데이터의 모든 성공한 변경(코드만·이름만·둘 다·추가)을 같은 잠금 안에서 Settings 마스터에 반영해 다음 Bootstrap의 고스트 원본을 방지합니다.
+- **P2 이름+코드 동시 편집 차단 및 고스트**: `smSave`가 원래 code/name과 변경 code/name을 동일 workbook 식별자의 UI journal에 보관합니다. 브라우저 일반 동기화는 기존 고정 전체 서버 마스터 snapshot CAS와 원본→신규 교체 사유를 함께 POST합니다. GAS는 같은 ScriptLock 안에서 기존 code/name 정확한 행을 교체하고, 변경된 code/name이 중복 원본 행 없이 반영되었는지 검사한 뒤 Settings까지 업데이트합니다. 서버 getCodeList readback에서 기존 pair가 없어지고 새 pair가 일치해야 정상확정 및 journal 정리합니다. 구형·stale CAS 요청은 계속 차단합니다.
+- **회귀검사 및 검증**: 실제 GAS 함수 VM에서 삭제한 코드의 거래/보유 stale 참조, 일반 무코드 보유 차단 및 직접펀드 허용, stale Settings 삭제 종목 재생성 차단, 이름+코드 동시 변경 시 기존 코드 행 덮어쓰기(append 0회) 및 Settings 업데이트를 검증합니다. 기존 거래 날짜/수량/코드 strict readback mock은 현재 마스터 원천을 추가해 유지합니다. 웹 PWA `data.js=20261013-5`, `settings_sync.js=20261013-10`, `mgmt_stock.js=20261013-5`, `sw/cache=20261013-12`; GAS v9.199 Git blob `da46710c8bf4fcea4a9369c4fb8932f7c651cdd1` 고정. 운영 GAS 배포·main/원래 PR #489~#492 변경·실거래 원장/종가/Snapshot 데이터 변경 없음.
+
+## PR #493 2026-10-13 Codex 추가 P1/P2 + 자체 검토 (Draft / 운영 배포 금지)
+
+- 최신 리뷰 HEAD `b5ac992` P1: `handleSyncHoldings`는 `handleDeleteUnreferencedCode`와 달리 ScriptLock 없이 보유현황 전체를 덮어쓸 수 있었습니다. 기존 `syncTrades`/`syncCodes`/조건부 삭제와 같은 `LockService.getScriptLock()` 범위 안에서 보유현황을 파싱, 현재 코드 시트의 `code/name`과 일치하는지 확인, 보유현황을 저장합니다. 삭제 후 늦게 도착한 보유현황도 삭제된 코드를 참조하면 `HOLDINGS_CODE_MASTER_CONFLICT`로 실패하며, 코드 없는 직접펀드 보유는 계속 허용합니다.
+- P2: 일반 `syncCodes`에 서버 마스터 revision 조건이 없어 다른 탭이 코드를 삭제한 뒤 구식 정보가 같은 코드를 재생성할 수 있었습니다. Bootstrap/`getCodeList`의 workbook source에 고정한 코드 마스터 스냅샷을 요청 시점에 캡처하고, 기존 `expectedSourceId`와 함께 `expectedCodes`로 POST합니다. GAS는 같은 ScriptLock 안에서 원격 전체 마스터와 예상값을 정규화·비교하여 `CODE_SYNC_MASTER_CHANGED`이면 **시트에 쓰기 전** 실패합니다. 현재 revision 정보를 전달하지 못하는 이전 버전 `syncCodes` 클라이언트는 `CODE_SYNC_REVISION_REQUIRED`로 **쓰기를 차단**합니다(기존 클라이언트 호환성보다 원장 무결성 우선). 신규 code/name은 동일 workbook의 검증된 UI 등록 journal이 있을 때만 일반 동기화 대상에 포함합니다.
+- 성공한 일반 동기화는 단순 ACK가 아니라 같은 workbook의 `getCodeList` readback으로 code/name을 검증하고 나서 캐시/등록 journal을 갱신합니다. 원격 삭제도 readback 성공 이후에만 local master revision을 업데이트해 후속 정상 등록은 최신 스냅샷 기준 CAS로 진행하고, 삭제된 종목의 근거 없는 재등록은 거절합니다.
+- 회귀테스트: 실제 브라우저 VM에서 A→B 세대 전환과 큐 대기, 같은 workbook readback, 삭제 후 최신 master revision 재설정, 삭제 종목의 증빙 없는 재등록 거부, 신규 등록 journal 허용; 실제 GAS VM에서 다른 workbook source/이전 revision/legacy 무revision 일반 sync 거부, 삭제 후 stale holdings 쓰기 차단, 유효한 holding 쓰기 및 서버 잠금 해제. 자동화 `quality-check`, `web-check`, `GAS Validate` 통과 전제이며 최종 커밋에서 재확인합니다.
+- 후보 GAS v9.199 source blob `feb0077bbc420f478c2a7559f36cd4e43988c592`; 웹 `settings.js=20261013-6`, `settings_sync.js=20261013-9`, SW/cache `20261013-11`. main과 기존 PR #489~#492, 운영 GAS 및 실제 자산원장/보유/시세·Snapshot은 변경하지 않았습니다.
+
+## PR #493 2026-10-13 최신 Codex P1/P2 및 자체 검토 (Draft / 운영 미배포)
+
+- 최신 리뷰 HEAD `6e719c9` P1: 보통 `syncCodesToGsheet()`는 연결 세대를 넘기지 않고 URL별 대기열 내부에서 전역 EDITABLE_PRICES를 늦게 읽으므로, A 연결의 대기 요청이 B 연결의 코드를 A로 전송할 수 있었습니다. 호출 즉시 **현재 target URL·connection generation·workbook 지문과 코드/이름/분류/통화/시장 값의 복사본**을 캡처하고, 큐 실행 직전 동일 target generation/source 및 쓰기 준비를 재확인합니다. 원격 일반 syncCodes에도 workbook `expectedSourceId`를 포함하여 같은 GAS URL이 새 SS_ID를 가리키더라도 서버 ScriptLock 내부에서 변경 전 거부합니다. 구버전 클라이언트를 위한 서버 인자 생략 호환은 유지합니다.
+- P2: 오래된 `deleteUnreferencedCode` 요청이 다른 탭에서 같은 code/name의 sector·currency·market을 수정한 종목을 삭제할 수 있었습니다. 기존 대상별 쓰기 대기열의 이전 POST 완료 후 `getCodeList`를 읽고 **삭제 당시 로컬 code/name/type/sector/currency/market과 정확히 대조**, 그 순간의 원격 전체 마스터 스냅샷을 POST에 넣습니다. 서버는 같은 ScriptLock에서 전체 마스터 지문을 현재와 비교한 뒤에만 거래/보유 미참조 조건 및 Settings/코드 삭제를 수행합니다. GET 전후 같은 연결 검증 및 로컬 재등록 방지도 반영했습니다.
+- classic browser 및 GAS 함수 VM에 A 동기화 POST 대기→B 연결 복원→A 대기 요청 자동 중단, in-flight A payload 고정, server-side 일반 코드 sync의 타 워크북 출처 거부, 동일 code/name·다른 sector 원격 선수정 시 삭제 CAS 실패 등의 회귀검사를 추가했습니다.
+- 이 통합 후보의 GAS v9.199 검증용 git blob SHA는 `53eeff145dc908b1b17c773655bd1e7d60822e14`이며 `check-gas-deploy` 및 배포 사전 게이트의 고정 해시를 함께 변경했습니다. 웹 자산 `settings_sync.js=20261013-7`, `sw/cache=20261013-9`. 원래 PR #489~#492/main, 운영 GAS 실배포, 키, 실제 원장/가격/Snapshot 데이터는 건드리지 않았습니다.
+- 최종 CI/독립 재리뷰 후에도 PR Draft·미병합 상태로 유지합니다.
+
+## PR #493 Codex 추가 P2: 신규 종목 삭제·비동기 POST 경합 수정 (2026-10-13 · Draft/미배포)
+
+- 리뷰 HEAD db64a11에서 발견한 P2: 사용자가 신규 종목을 삭제할 때 이미 시작된 일반 syncCodes POST가 뒤늦게 완료되면 서버 종목 마스터와 브라우저 기초정보에 종목이 다시 나타날 수 있음.
+- 같은 GSheet URL의 웹 종목코드 쓰기를 `_queueGsheetStockMasterWrite`로 직렬화합니다. 일반 syncCodes는 큐의 실제 실행 시점에 최신 `EDITABLE_PRICES`에서 요청을 구성합니다. UI 삭제 시 이전 POST를 먼저 기다린 뒤 `deleteUnreferencedCode`를 실행해 같은 코드가 뒤늦게 재등록되지 않도록 합니다.
+- GAS `handleDeleteUnreferencedCode`: 같은 ScriptLock 아래 요청 대상 워크북 지문·코드·이름 일치 검증, 원격 거래/보유에서 참조하는 경우 삭제 금지, 서버 Settings의 동일 종목 기록과 코드 마스터 행 제거, 삭제 후 getCodeList 확인. UI에서도 원격 GET으로 삭제 결과를 확인하며 실패 시 경고를 표시합니다.
+- 실제 classic 웹 VM에서 이미 시작된 syncCodes POST를 지연한 상태로 삭제 요청을 추가하는 순서 테스트, 실제 GAS VM에서 타 워크북·거래 참조 시 삭제 거부 및 미참조 행/Settings 삭제 확인을 추가했습니다.
+- 검증 브랜치 GAS v9.199 최신 full-source blob: `0e38e4cf32ea23be3ccc11e7112eafa63e3d68b0`. 서명 고정 및 배포 사전검증 기대 SHA를 함께 갱신했습니다. 웹 assets `settings_sync=20261013-5`, `mgmt_stock=20261013-4`, `sw/cache=20261013-7`. 나머지 자산은 기존 최신 pin 유지.
+- 원본 Draft #489~#492, main, 운영 GAS와 인증키·거래원장·가격이력·Snapshot 실데이터를 변경하지 않았으며, 한국·미국장만 대상으로 CI 및 추가 재리뷰 중입니다.
+
+## PR #493 신규 Codex 리뷰 P1 2건/P2 1건 추가 수정 (2026-10-13 · Draft/미배포)
+
+- 최신 리뷰(HEAD `9796f743`) P1: 동일 이름이 서로 다른 코드에 중복된 Bootstrap 마스터에서 `forEach` 내부 return으로 충돌이 무시됐습니다. **일반 for-of 및 즉시 false 반환**으로 코드·이름 중복을 전면 거부합니다.
+- P1: 이전 `syncCodes`는 이미 존재하는 코드나 종목명을 바꾸는 upsert라 Bootstrap 이후 다른 탭이 등록한 종목이 덮어써질 수 있었습니다. 새 GAS `syncCodesAppendOnly`는 `getBootstrap`의 코드 마스터 전체(code/name/type/sector/currency/market)와 워크북 출처 식별자를 **ScriptLock 내부**에서 다시 비교해 일치할 때만 신규 코드를 추가합니다. 일반 `handleSyncCodes`도 동일 스크립트 잠금을 사용합니다. 충돌/다른 워크북/세대 변경 시 거부하고 기존 셀을 덮어쓰지 않습니다.
+- P2: 코드 추가 이력은 URL뿐 아니라 실제 스프레드시트 ID의 SHA256 지문에 묶습니다. 같은 GAS `/exec`가 다른 `SS_ID`로 바뀌어도 과거 등록 이력을 새 원장의 승인 근거로 쓰지 않습니다. 정상 일반 syncCodes 성공, 복구 POST+동일 워크북 getCodeList 재확인, 명시적 삭제·종목 이름/코드 변경·CSV 코드변경 때 이력을 폐기합니다.
+- 새 GET 필드 `codeMasterSourceId`는 원시 스프레드시트 ID가 아닌 앞부분 SHA256 지문으로서 코드/원장/인증값을 포함하지 않습니다. GET 응답의 출처 식별자와 CAS 서버 source ID가 다르면 쓰기 전 차단합니다.
+- 실제 웹 classic-script 및 GAS 함수 VM에서 마스터 이름/코드 중복, 타 탭 동시 등록, 동일 URL의 SS_ID 변경, 일반 동기화 이력 폐기, 기존 row 불변성 및 GAS lock 해제를 확인하는 회귀검사를 추가했습니다.
+- 검증 브랜치 GAS v9.199 전체 소스 blob: `ccb7f2c552b50d71f20d46e976d50468568c4da3`. 기존 승인 고정 SHA 및 배포 사전검증 기대값을 이 검증 후보에 맞춰 갱신했으며 운영 배포는 수행하지 않았습니다. 웹 자산은 data/settings_sync `20261013-4`, settings `20261013-5`, settings_net `20261013-1`, mgmt_stock `20261013-3`, sw/cache `20261013-6`.
+- 원본 PR #489~#492, main, 운영 GAS 키/원장/가격이력/Snapshot 무변경. 최종 독립 재리뷰와 CI를 통과하더라도 사용자 승인 없이 병합/실배포하지 않습니다.
+
+## PR #493 후속 자체검토: 미거래 신규종목 코드 복구 완결성 (2026-10-13 · 미배포)
+
+- 기존 P1 수정의 추가 경계 사례: 사용자가 신규 종목을 관리 화면에서 등록하고 아직 거래·보유가 없는 상태로 코드 저장에 실패하면, dirty 거래/보유의 코드만 기준으로 복구할 때 해당 신규 마스터 항목을 찾지 못함. 이후 서버의 오래된 EDITABLE_PRICES를 다시 적용하면서 신규 종목이 UI에서도 유실될 수 있음.
+- 동일 연결에서 승인된 종목 등록 이력 자체를 복구 후보로 포함합니다. 거래나 dirty가 없어도 원격 code/name 충돌 검사 → **신규 코드만 syncCodes** → 동일 URL의 getCodeList 재조회 → 최종 전체 payload 검증까지 성공한 경우만 확정합니다.
+- 복구 직후 Bootstrap 코드 목록도 최신 서버 재조회 결과로 교체하여 후속 reconcile에서 코드가 사라지지 않도록 합니다. 명시적 종목 삭제 시 로컬 등록 이력을 즉시 제거하고, 성공적인 서버 확인 후에도 이력을 지웁니다. GET 실패·등록불일치·연결 변경에서는 거래/보유 쓰기 중단 및 미확정 이력 보존.
+- 실제 웹 classic script 회귀검사: **미거래 등록+dirty, 미거래 등록+dirty 없음, 명시적 삭제, POST 성공 후 GET 실패**. 최종 버전 data/settings_sync `20261013-3`, settings `20261013-4`, mgmt_stock `20261013-2`, sw/cache `20261013-5`.
+- 기존 #489~#492/main을 수정하거나 GAS 실운영 배포·실거래/가격이력/Snapshot 쓰기를 수행하지 않았습니다. 한국·미국장 범위, Draft 유지.
+
+## PR #493 최신 Codex P1: 거래 식별자·신규코드 복원 (2026-10-13 · Draft / 미배포)
+
+- 리뷰 `c7f8cca` P1 두 건을 독립 검토: 거래 코드 존재 여부만 확인하면 다른 종목명의 거래가 새 연결에 전송되어 원장이 변경될 수 있음. `isPinnedRestoreTradeMasterComplete`는 이제 **동일 마스터 행의 정확한 code/name 쌍**을 요구하며 상충·중복 마스터도 거부함.
+- 정상 연결에서 검증된 신규 종목 등록/CSV 추가는 **대상 URL별 로컬 추가 이력**으로 기록. 복구 시 같은 대상 서버의 Settings 또는 이 기록으로 출처를 증명하는 신규 종목만 별도 `syncCodes`를 전송함. 현재 서버의 기존 code/name과 충돌하면 즉시 중단하고 거래·보유·fundDirect의 검증까지 모두 통과해야 함.
+- POST 성공만으로 거래를 복구하지 않음. 같은 URL의 `getCodeList`로 다시 읽어 기존 코드 불변·새 코드/이름 일치를 확인한 뒤 원장/보유 저장을 허용. 미검증 자료·타 URL 등록 이력은 자동 쓰기 없이 실패 처리하며 dirty/pending을 보존함.
+- 실제 브라우저 VM에서 코드-이름 충돌, 같은 대상 승인 신규코드의 syncCodes 실패 후 복구, 타 대상 등록 이력 거부, 같은 서버 Settings의 신규코드 복구 시나리오를 추가함.
+- 웹 자산 `data.js/settings_sync.js=20261013-2`, `settings.js=20261013-3`, `mgmt_stock.js=20261013-1`, `sw/cache=20261013-4`. CI 및 재리뷰 전 Draft/운영 미배포 유지. 기존 PR #489~#492와 main은 수정하지 않음.
+
+## PR #493 P1: 보유·직접펀드 전체 마스터 사전검증 (2026-10-13, Draft / 미배포)
+
+- Codex 리뷰 HEAD b4fdd1f에서 발견한 P1: 기존 거래코드 검증만으로는 거래가 없는 구보유/직접펀드 payload가 다른 연결로 쓰이는 문제를 차단하지 못함.
+- `isPinnedRestorePortfolioMasterComplete`가 거래, 보유, 직접펀드 전체를 **동일 getBootstrap 응답의 코드/코드없는 펀드 마스터**와 검증. 이름-코드 충돌, 마스터에 없는 보유/펀드가 하나라도 있으면 syncHoldings/syncTrades/saveSettings 호출 전 실패 처리하여 로컬 pending/dirty 보존.
+- 일반 dirty, pending 현재 원장 및 명시적 빈 원장 재시도에 동일 가드 적용. 정상 코드 없는 TDF/펀드는 동일 연결의 Settings로 증명된 경우만 허용.
+- 실제 브라우저 로드 회귀검사: 거래 없는 불명 보유·직접펀드, 정상 거래+불명 보유/펀드 혼재, 코드 충돌, 정상 보유/TDF 복원 및 pending 재시도 쓰기 차단.
+- 웹 캐시: data.js 및 settings_sync.js `20261013-1`, service worker `20261013-3`. main/원래 PR #489~#492/GAS 운영 배포/실데이터 수정 없음. CI 및 재리뷰 후 Draft 검증.
+
+## PR #493 레거시 강제 복원 pending/dirty 쓰기 선차단 (2026-10-13 · Draft / 미배포)
+
+- 독립 Codex P1: getBootstrap 대기 중 생성된 `latePending`/`lateDirty`를 구버전 getSettings 폴백에서 처리할 때, pending 재시도가 마스터 검증 전에 syncHoldings/syncTrades/saveSettings를 호출할 수 있습니다.
+- 최신 통합 후보는 load 시작 시점에 있던 pending/dirty와 강제 복원 중 늦게 도착한 pending/dirty 모두에 대해 **동일 연결의 getBootstrap 코드 마스터 배열 존재**를 원격 쓰기 이전에 검사합니다. 검증 실패 시 RESTORE_MASTER_UNAVAILABLE로 중단, 로컬 거래/보유 및 pending/dirty payload를 삭제하지 않습니다.
+- 실제 브라우저 스크립트 순서로 구버전 응답+대기 중 새 거래·보유+pending/dirty를 주입하는 회귀검사 및 초기 pending 단독 회귀검사를 추가했습니다. syncHoldings/syncTrades/saveSettings 0회, 복구 플래그 보존을 검사합니다.
+- 배포 캐시: settings.js 20261013-2, service worker 및 cache 20261013-2. 통합 목적은 한국장과 미국장 원장 보호이며 제3국 시장 시세 확장은 수행하지 않습니다.
+- Draft 유지. main 또는 원본 PR #489~#492 병합, GAS 배포 및 실데이터 쓰기는 하지 않습니다.
+
+## PR #493 통합 자체검토: 레거시 원장 쓰기 차단·KRX 저장 상태 게이트 (2026-10-13, 미배포)
+
+- P1: getBootstrap를 지원하지 않는 구버전 GAS가 getSettings로 fallback하여도 동일 연결의 코드 마스터를 신뢰할 수 없으므로, dirty 거래원장·보유 재전송을 **쓰기 전** 차단합니다. load 도중 새 dirty가 들어오는 경합도 동일 차단. 원본 dirty는 보존하고 서버 GAS 업그레이드 후 다시 검증해야 합니다.
+- P2: read-only KRX CLI의 healthy는 3개 시장 exact-date 응답뿐 아니라 storedCoverage.status=OK, missingOfficialCodes=0, missingSnapshotCodes=0, queuedForBackfill=false가 동시에 충족되어야 합니다. 구버전 미제공·읽기 실패·시트 누락·마스터 미확정·백필 대기는 실패 처리. 운영 데이터는 수정하지 않습니다.
+- 한국장/미국장 운용 범위에 따라 불필요한 제3국 신규 개발은 제외합니다. 웹 캐시 settings.js=20261013-1, service worker=20261013-1로 갱신합니다. 이 코드는 main, 원래 네 PR, 운영 GAS에 배포되지 않았습니다.
+
+## PR #493 한국·미국 전용 USD 통화 무결성 P1 수정 (2026-10-13 · Draft / 미배포)
+
+- 미국 상장종목 US/USA/NYSE/NASDAQ/AMEX/OTC와 market 빈 레거시 USD 종목은 코드 마스터 통화가 정확히 USD여야 정상 일일 마감 대상입니다. KRW/JPY/EUR/HKD/GBP 등은 Yahoo USD 가격을 다른 환율로 평가하는 오류를 방지하기 위해 조회·백필 큐·Snapshot 쓰기 전에 명시적 오류로 거부합니다.
+- 방어는 `_assertSupportedDailyCloseMarkets_`의 사전 검사와 `_verifyForeignDailyCloseCoverage_`의 저장 전 이중 검증에 적용합니다. KRX/KRW 국내 종목 및 펀드·TDF 예외는 유지하고, 다른 해외 거래소 지원을 확대하지 않습니다.
+- 실제 생산 함수 실행 테스트에서 미국 거래소별 비USD, 마스터 통화 KRW, 정상 NYSE/NASDAQ/USD, 국내외 혼합 보유 검증을 추가했습니다. 원본 데이터·운영 GAS 미변경.
+- 통합 GAS v9.199 검증용 전체 소스 SHA: `d082240c3e10fbdc41e853bd220848b6e7d0449a`. 이전 문서에 기재된 SHA는 이력으로만 유지합니다.
+
+## PR #493 한국·미국 전용 마감 적용 (2026-10-13 · Draft / 미배포)
+
+- 사용자 요구에 따라 지원 대상은 KRX 상장 및 미국 US/NYSE/NASDAQ/AMEX/OTC 주식·ETF로 제한합니다. JP/HK/UK/EU의 달력이나 거래소별 확정 종가를 추가 개발하지 않습니다. 기존 데이터/조회 함수는 삭제하지 않습니다.
+- 자체 재검토: KRX 대상 마켓 판정은 **국내 허용목록**(빈 기존 시장·KR·KRX·KOSPI·KOSDAQ·ETF)으로 검증합니다. 새로운 `AU/ASX/CA/TSX` 등 미지원 해외시장이 `KRW` 통화라는 이유만으로 공식 KRX 가격으로 혼입되지 않고, 보유 시 명시적인 미지원시장 오류가 나도록 회귀 테스트로 고정합니다.
+- 실제 보유한 **미지원 시장**이 나타나면 `saveDailyPriceHistory`가 가격·Snapshot 기록 및 누락일 큐 준비 전에 명시적으로 실패합니다. 미지원 시장 가격을 단순히 제외하거나 지난 가격으로 대체해 성공 처리하지 않습니다. 입력 데이터 자체는 건드리지 않습니다.
+- NYSE/Nasdaq 2025-01-09 지미 카터 국가애도 **특별 전면 휴장**을 2025 미국 주식시장 확정 달력에 포함했습니다. Nasdaq 2024-12-30 발표 및 NYSE/ICE 2024-12-30 보도자료로 확인했습니다. 따라서 2025-01-10 한국시간 19시 미국 기준 마지막 완료일은 2025-01-08입니다.
+- 기존 미국 일반/임시 휴장 날짜 판정과 KRX 저장·스냅샷 실보유/추적 가격 검산을 유지합니다. 단위/실제 GAS saveDailyPriceHistory VM에서 한국+미국 보유 정상 허용, 다른 해외시장 보유는 가격 조회·큐 변경 이전 차단을 검사합니다.
+- **GAS v9.199 승인 해시 후보** `e1376c4b868b5bb1ba7e3e8afd7993cfdd9f0955`. 이 해시는 검증 브랜치에서만 사용하며 운영 배포 승인이나 원래 PR #489~#492 병합을 의미하지 않습니다.
+
+## PR #493 미국 주식시장 공식 휴장일 기반 완료 세션 검증 (2026-10-13 · Draft / 미배포)
+
+- Codex P1: 해외 확정 종가 필수일을 평일만으로 계산하면 미국 노동절/추수감사절/Good Friday 휴장을 거래일로 간주하여 PRICE/Snapshot 저장이 불필요하게 영구 실패할 수 있었습니다.
+- NYSE 2025~2028 공개 휴장표(https://www.nyse.com/trade/hours-calendars)에서 US/NYSE/NASDAQ/AMEX 등 미국 주식시장 휴장일을 명시하고 해당 휴장을 건너뛰도록 실제 `_foreignMarketRegularCloseCutoff_`를 수정했습니다. 미국 은행 휴무인 Columbus Day는 NYSE 개장일이므로 반드시 거래일로 인정합니다.
+- Yahoo 실제 확정값 존재만으로 휴장을 추론하지 않으며, 거래소별 공식 증거가 확인된 날짜만 스킵합니다. 정규장 `YAHOO_REGULAR_CLOSE`/usedDate/marketDate 유한 양수·정확한 완료 세션 검증과 누락 시 저장 전 실패는 유지됩니다.
+- NYSE 공개 표를 적용할 수 없는 연도는 확인되지 않은 휴장일을 자동으로 정상 판정하지 않습니다. JP/HK/UK/EU 거래소 휴장을 미국 표에서 추측하지 않으며, 해당 시장의 공식 휴장 달력 확장이 별도로 필요합니다.
+- GAS 검증 후보 full-source SHA `8129475334acebdb09075f2938e0955d5f125639`; 배포 승인 사전게이트 및 테스트와 동일 고정. 운영 GAS 실제 deploy, 원장/가격이력/Snapshot 쓰기, main 병합 금지.
+
+## PR #493 Snapshot integrity revision 충돌 방지 (2026-10-12 · Draft / 미배포)
+
+- 통합 CI 독립 재검산에서 저장 프로퍼티 쓰기 실패 후 다음 읽기의 새 migration revision이 기존 값과 우연히 일치할 수 있음을 확인했습니다. 같은 millisecond 및 동일 난수 환경에서는 stale Snapshot integrity cache key가 남을 위험이 있습니다.
+- `_getSnapshotIntegrityRevisionState`의 신규 migration revision은 실행 내 마지막 migration revision보다 반드시 1 이상 증가합니다. 범위가 안전한 정수인 동안 속성 저장 실패나 같은 밀리초 내 재생성 시 revision 충돌이 발생하지 않도록 합니다. 테스트에 Date.now·Math.random을 고정한 반복 migration 반례를 추가했습니다.
+- 최신 GAS source blob: `da9fec20f6431d133bd2b9e233ac69aba9f57010`. 이전 source blobs는 이력이며 최신 deploy 사전 게이트 소스로 사용하지 않습니다. main 병합 및 운영 배포는 수행하지 않았습니다.
+
+## PR #493 P1: 해외 확정 종가 누락 시 PRICE 성공·Snapshot 저장 차단 (2026-10-12 · Draft / 미배포)
+
+- Codex 새 P1 및 자체검토: 국내 KRX 일부 성공 시 Yahoo 해외 가격이 없거나 오래된 완료 세션인 종목을 이전 가격이력으로 이월하여 Snapshot이 정상 완료될 수 있었습니다. 새 생산 `_verifyForeignDailyCloseCoverage_`는 **모든 실제 해외 보유 종목마다 마지막 완료 세션 날짜와 일치하는 YAHOO_REGULAR_CLOSE의 유한 양수·CONFIRMED 가격**을 실제 저장 전에 요구합니다.
+- 정상 해외 세션/코드별 확인되지 않으면 PRICE 단계를 예외로 실패시키고 누락일 복구/Watchdog을 성공으로 처리하지 않습니다. 해외 공휴일도 신뢰할 수 있는 별도 휴장 증거가 없으면 임의 직전값으로 확정하지 않는 보수적 기준입니다.
+- 추가 독립 확인: 해외시장 코드의 currency가 구버전 기본값 KRW로 남아 있으면 Yahoo 외화 가격을 원화 평가로 오인할 수 있습니다. 실제 해외 공급자 가격을 확보하더라도, 종목코드 마스터의 통화가 KRW인 해외 보유는 명시 오류로 차단해 올바른 USD/JPY/HKD/GBP/EUR 통화 수정 후 재시도하도록 했습니다. 실데이터 변경 없음.
+- 실제 saveDailyPriceHistory 생산 함수를 실행하는 회귀검사에 국내 성공+해외 누락, 오래된 해외 세션, 비공식 현재가, 해외시장+KRW 통화 충돌, 국내외 동시 성공의 경계 시나리오를 추가했습니다. 가격/Snapshot 실제 쓰기는 mock에서 차단했습니다.
+- GAS 통합 source blob (최신 검증 후보): `3dd99ad6dd048e01fa2d3db5452341d894abb9ba`. 원본 #489~#492와 main, 운영 GAS 및 자격증명·원장·가격이력·Snapshot은 변경하지 않았습니다.
+
+## PR #493 해외시장 종가 조회 및 Yahoo 심볼 검증 (2026-10-12 · Draft / 미배포)
+
+- 후속 Codex P2 2건: saveDailyPriceHistory의 해외 종가 호출 분기와 _isKrxDailyCloseTarget_의 불일치, 그리고 KRW 기본값+해외시장 종목의 Yahoo 티커 심볼 미생성을 자체 확인하고 수정했습니다.
+- 실제 저장 경로가 **국내 대상만** fetchPricesKrx에 전달하고, 해외 조회 분기를 같은 공통 판정 함수의 반대로 적용합니다. US/NASDAQ+KRW 종목이라도 Yahoo 정규장 조회를 거치고, 조회 실패를 기존 저장 종가가 있는 것처럼 묵인하지 않습니다.
+- Yahoo 심볼: US/USA/NYSE/NASDAQ/AMEX/OTC는 코드, JP/TSE/TYO는 .T, HK/HKG/HKEX는 .HK, UK/LSE는 .L. EU는 거래소가 특정되지 않아 **명시된 전체 공급자 심볼**(예: 코드 SAP.DE 또는 item.yahooSymbol=SAP.DE)만 허용합니다. 미확정 심볼은 조용히 생략하지 않고 실패를 반환하므로 가격이력/Snapshot이 성공 처리되지 않습니다. 기존 마스터에 Yahoo 별도 열이 없으면 유럽 코드를 시장 접미사 포함으로 등록해야 합니다.
+- _foreignMarketTimeZone_도 US/JP/HK 거래소 별칭을 적용해 통화 기본화가 실제 해외시장 정규장 날짜에 영향을 주지 않게 했습니다. 생산 _yahooEquitySymbol_→fetchPricesYahooRegularClose 실제 호출 및 saveDailyPriceHistory에서 해외 1종목만 보유하는 반례로 회귀 검증합니다.
+- GAS v9.199 최신 검증용 source blob은 ea84dabc10f9d49619afc3fa9bf98700a1c388f9이며 아래 이력 해시들은 최신 승인 소스가 아닙니다. **원본 PR #489~#492, main, 운영 GAS, 자격증명, 가격이력 및 Snapshot은 변경하지 않습니다.**
+
+## PR #493 통합 KRX 시장 분류 일치 검증 (2026-10-12, Draft / 미배포)
+
+- 독립 Codex 리뷰가 확인한 후속 P2: `getCodeItems()`는 구버전 비어 있는 통화를 KRW로 보정하므로 `UK/LSE/EU` 등의 해외 시장 종목이 KRX 누락 대상이 될 수 있었고, `US+KRW`는 진단에선 제외되지만 실제 마감에선 KRX 대상으로 포함되는 상충 상태였습니다.
+- `_isKrxDailyCloseTarget_` 공통 함수는 유효한 비펀드 코드·원화 통화·해외시장 아닌 항목만 국내 확정가 대상으로 인정합니다. 실제 KRX 조회 `fetchPricesGoogleFinance`, `_assessDailyKrxStockClose`, 누락일 큐 `_hasKrxHoldingsForCloseDate_`, 저장된 휴장일 종가 복구 `_readStoredOfficialKrxClosesForHoliday_`, `_krxReadOnlyStoredCoverage_`, 해외 종가·watchdog 판단도 이를 공동 사용합니다.
+- 기존 거래원장·가격이력·Snapshot·자격증명은 변경하지 않습니다. 테스트는 `US/JP/HK/UK/LSE/EU/NASDAQ` 등 market/currency 충돌·빈 통화 및 유효 국내 종목 양방향 반례를 생산 함수에 대입합니다. 새로 판별되는 해외 종목의 실제 Yahoo/KRX 가격 공급 계약은 운영에서 별도 검산해야 합니다.
+- GAS v9.199 통합 검증 후보 전체 blob: `b3ad78e672f8921e5d83f39786f74cf9f884080c`. 승인 고정·회귀검사·독립 재리뷰 전까지 main 병합/실제 GAS 배포 금지. 이전 버전 소스 해시는 기록 이력일 뿐 최신 승인 소스가 아닙니다.
+
+## PR #489~#492 통합 검증 후보 (2026-10-12, Draft / 미배포)
+
+### PR #493 KRX 진단 추가 안전성 보완 (2026-10-12)
+
+- KRX 공식 종가 누락 `storedCoverage`는 보유 국내 KRW 종목만 집계하며 USD/US, JPY/JP 및 해외 시장 보유를 KRX 공식 종가 누락으로 분류하지 않습니다. 원래 가격이력·Snapshot 전체 행 수는 읽기 전용으로 별도 유지합니다.
+- 공식 가격 검증은 정확한 요청 거래일, 보유 종목 코드, KRX/KRX_OTP 원천에 **유한 양수 종가**까지 요구합니다. 0·공란·음수·NaN/Infinity 등 손상 행은 공식 종가로 집계하지 않습니다. 읽기·진단만 수행하며 자동 백필이나 원본 변경은 하지 않습니다.
+- 진단 CLI에서 구버전 GAS가 `exactDateRows`를 제공하지 않으면 HTTP 200/전체행 1건 이상이어도 대상 거래일을 확인한 것으로 판정하지 않습니다. 최신 GAS 도입 전 운영 검증 결과는 미확인/불건전으로 표시합니다.
+- 추가 검증 GAS v9.199 후보 소스 blob: `3b9d3d7cce66315505af35562f931e3b484650d6`. 아래 통합 최초 후보 blob은 이력이며 지금 검증·배포 사전게이트 기준이 아닙니다. Codex 독립 재리뷰 및 CI·운영 검증 전 병합·실제 GAS 배포 금지.
+
+
+- 이 소스는 #492의 Toss OAuth 진단·단일 복구 및 #491의 KRX 시장별 기본/보조 인증키·정확한 BAS_DD·보유 공식 종가/Snapshot 읽기 진단을 **GAS v9.199 하나로 통합**한 테스트 후보입니다.
+- #489의 getBootstrap 동기화 전 마스터 검증 및 원장 dirty 보호, #490의 설정 화면 60초 현재가 polling 후 DOM 재렌더 억제를 같이 보존합니다.
+- v9.198 단독 후보 승인 blob은 별도로 기록하고 통합 v9.199 GAS 전체 blob `2be650c42557e220e6ae96d46148037d008f0f5e`을 검증 고정합니다. 원래 #489~#492 Draft PR을 변경하거나 main에 병합하지 않습니다.
+- 정적 자산: portfolio/data 20261012-1, settings.js 20261012-3, settings_sync.js 20261012-10, settings_fetch.js 20261012-6, PWA 20261012-16. 전후방향 테스트가 모든 변경분을 검증한 뒤에만 통합 병합 여부를 결정합니다.
+- 읽기 전용 KRX 진단은 실제 가격 백필·원장 수정이나 부적절한 시트 쓰기를 실행하지 않습니다. 사용자가 승인하지 않은 운영 GAS 배포·OAuth 키 변경·실제 운영 Snapshot 복구는 금지입니다.
+- 주의: 아래 v9.199/v9.198 단독 PR 관련 병합 충돌 설명은 독립 후보 작성 당시의 이력이며, 통합 후보는 GAS·웹 파일 및 테스트의 충돌을 별도로 정리한 소스입니다. **CI 통과만으로 Toss 모바일 데이터망 401 해결이나 KRX 10/08 누락 종가 복구를 입증하지 않습니다.**
+
+## GAS v9.199 — Toss 진단 토큰 재발급 방지 및 모바일 연결 비교 (2026-10-12, Draft / 운영 미반영)
+
+- 유효한 Toss OAuth 캐시 토큰이 있는 경우 일반 진단 버튼은 신규 client_credentials 발급 없이 동일 토큰으로 시세 및 시장 API를 점검합니다. 캐시가 없으면 기존 진단처럼 새 토큰을 1회 확보합니다.
+- Codex P2 보완: 캐시상 유효하지만 실제 시세 API가 401로 거부한 토큰은 기존 시세 경로의 ScriptLock/토큰 비교·갱신 함수를 재사용해 한 번만 복구합니다. 다른 실행이 이미 갱신한 토큰은 재사용하고, 복구 후 다시 401이어도 재발급하지 않습니다. 캐시 미스·OAuth 401/403·단순 403에서는 이 복구를 실행하지 않습니다. 진단 응답의 `oauth.recovery`는 복구 여부/결과만 제공하며 토큰이나 OAuth HTTP 200을 조작하지 않습니다.
+- 토큰 발급 네트워크 HTTP 상태는 신규 OAuth 발급 시에만 표시합니다. 기존 토큰을 재사용한 결과는 `CACHE / CACHED_TOKEN_REUSED / httpStatus=null`로 구분하며, 강제 발급 검증은 명시적인 `freshOAuth=1`에서만 허용합니다.
+- 웹 진단에 GAS 배포 ID의 마지막 8자만, exec/dev 종류, GAS 접근토큰 등록 유무, 실제 GAS 버전을 표시합니다. Client ID/Secret, 접근토큰 원문, 배포 URL query는 반환/표시하지 않습니다.
+- 후속 자체검토: 진단 중 연결 URL·접근토큰 변경 또는 빠른 중복 진단의 비동기 응답 경합으로 이전 GAS 결과가 새 연결에 표시되는 오류를 차단합니다. 요청 시점의 URL·연결 세대·토큰을 검증하며 Web JS/PWA 캐시와 실제 진단 함수 실행 회귀검사를 동기화했습니다.
+- GAS 스프레드시트 메뉴 및 웹 연결 진단 모두 **관측 IP를 실제 Toss 요청의 송신 IP로 단정하지 않고 허용 IP 임시 등록·Google 공유 IP 대역 일괄 등록을 권고하지 않습니다.** 캐시 재사용·복구와 리소스 403을 구분해 표시합니다.
+- 진단의 `oauth.source`는 **최초** OAuth 출처이며, 복구 출처는 `oauth.recovery.source=NETWORK`(직접 신규 발급), `CACHE_UPDATED`(다른 실행 갱신 재사용), `NETWORK_ERROR`(신규 발급 실패)로 구분합니다. `freshOAuthTested`는 실제 신규 발급 성공만 가리킵니다. 복구 실패 최종 코드는 `diagnosticCode`, `TOSS_LAST_DIAGNOSTIC_CODE`, 웹 최근 진단 표시에서 동일하게 보존합니다.
+- 모바일과 PC가 다른 URL/토큰을 쓰는 경우 구분할 수 있지만 **이 변경 자체로 Toss OAuth 401 unidentified-client 또는 Google 송신 IP 차단이 해결되었다고 주장하지 않습니다**. 동일 연결 여부와 실제 계정 OAuth 응답은 운영 배포 후 별도 확인이 필요합니다.
+- 이 PR은 main v9.197을 기준으로 독립 작업되어 #491의 v9.198 KRX 진단과 GAS 전체 파일/웹 캐시가 충돌할 수 있습니다. 두 PR을 병합하기 전에 최신 main을 기준으로 **양쪽 코드를 통합하고 v9.199 전체 blob pin 및 캐시를 재산출**해야 합니다. 단독 운영 배포 금지.
+- 외부 서버 비용 0원, 인증키·거래원장·가격이력·Snapshot 수정 없음. 승인된 CI와 독립 리뷰 후 병합 여부 결정.
+
+## GAS v9.198 포함 변경 — KRX 시장별 인증 승인 및 누락 커버리지 읽기 전용 진단 (통합 테스트 후보)
+
+- `getKrxSourceDiagnostics?date=YYYY-MM-DD`는 KOSPI·KOSDAQ·ETF 시장별 기본키 HTTP/스키마/요청일 `BAS_DD` 정확한 행 수를 점검합니다. 기본키가 401/403인 시장마다 보조키를 확인하여 한 시장 승인만으로 다른 시장을 정상 판정하지 않습니다.
+- 응답 `alternateProbes`는 시장별 검증, `storedCoverage`는 보유 공식 종가·가격이력·Snapshot 및 백필 큐 누락의 **읽기 전용 점검**입니다. 최초 `alternateProbe`도 호환 유지합니다.
+- 운영 2026-10-08 데이터의 실제 복구는 이루어지지 않았으며, 기본/보조 KRX 계정의 시장별 권한 승인과 날짜 일치 공식 가격을 운영에서 별도로 확인해야 합니다.
+- 이 변경은 단독 #491의 검토 전 v9.198 코드에서 채택되었으며 최종 통합 v9.199 소스의 검산·독립 검토 및 연계 배포 승인 전까지 운영에 반영하면 안 됩니다.
+
 ## GAS v9.197 — 거래 DATE 읽기 검증 및 Bootstrap 실패 단계 (2026-10-12, 미배포 후보)
 
 - PC 콘솔의 `syncTrades 실패: 거래이력 쓰기 후 검증 실패`와 운영 거래이력 A열 DATE 서식을 읽기 전용 확인했습니다. 기존 원시 JSON 비교는 저장 입력 `YYYY-MM-DD`와 읽은 Date 객체를 다르게 판정합니다.
@@ -366,7 +681,7 @@
 
 - 모바일 데이터에서 Toss OAuth가 `403 / access_denied`로 반복 실패하는 원인을 좁히기 위해, `diagnoseTossMarketData` 실행 직전에 `https://api.ipify.org?format=json`을 read-only 호출하여 외부 서비스가 관측한 GAS `UrlFetchApp` 출구 IPv4를 함께 표시합니다.
 - 이 IP는 원인 추적용 참고값입니다. Google Apps Script가 Toss OAuth 요청에도 반드시 같은 NAT/egress IP를 사용한다고 보장하지 않으므로, UI에도 동일한 경고를 표시합니다.
-- OAuth가 `403 / access_denied`인 경우 관측 IP를 Toss 허용 IP에 임시 등록한 뒤 즉시 재진단하는 실험 경로를 안내합니다. 이 결과만으로 실제 Toss 요청 IP를 확정하지 않습니다.
+- OAuth가 `403 / access_denied`인 경우에도 진단에서 관측한 IP를 곧바로 Toss 허용 IP에 등록하지 않습니다. 관측 IP는 참고값이며, 실제 Toss 요청의 송신 IP와 허용 정책은 공급자 로그 및 Google Apps Script `UrlFetchApp` 출구 특성을 별도로 대조해야 합니다.
 - egress probe는 Toss 연결 진단에서만 실행되며 가격 조회·Snapshot·트리거·운영 시트에는 사용하지 않습니다. 외부 서비스로 Client ID/Secret, access token, 종목, 포트폴리오 데이터는 전송하지 않습니다.
 - GAS/웹 기대 버전은 `9.163`, 정적 웹 cache는 `portfolio-cache-20261006-3`으로 함께 배포합니다.
 

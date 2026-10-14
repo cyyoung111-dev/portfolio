@@ -51,28 +51,97 @@ await assert.rejects(()=>runDiagnosis({
     settings:{apiKeyStatus:{requestAuthenticationEnabled:false}}})}),
 }),/GAS_AUTHENTICATION_DISABLED/,'Configured repo secret must not mask public GAS deployment');
 const markers=[
- {market:'KOSPI',httpStatus:200,rows:900,parseStatus:'ROWS'},
- {market:'KOSDAQ',httpStatus:200,rows:1200,parseStatus:'ROWS'},
- {market:'ETF',httpStatus:200,rows:1400,parseStatus:'ROWS'},
+ {market:'KOSPI',httpStatus:200,rows:900,exactDateRows:900,parseStatus:'ROWS'},
+ {market:'KOSDAQ',httpStatus:200,rows:1200,exactDateRows:1200,parseStatus:'ROWS'},
+ {market:'ETF',httpStatus:200,rows:1400,exactDateRows:1400,parseStatus:'ROWS'},
 ];
+const completedCoverage={
+  status:'OK',expectedHeldCodes:2,expectedStock:2,expectedEtf:0,
+  priceHistoryRows:2,officialExactDateCodes:2,nonOfficialHeldCodes:0,
+  missingOfficialCodes:0,snapshotRows:2,snapshotHeldCodes:2,
+  missingSnapshotCodes:0,queuedForBackfill:false
+};
 const payload=date=>({status:'ok',requestedDate:date,keyConfigured:true,networkStatus:'RECEIVED',
- markets:markers});
+ markets:markers,storedCoverage:completedCoverage});
 const health=summarizeKrxSource(payload('2026-10-08'),'2026-10-08');
 assert.equal(health.healthy,true);
+for (const stored of [
+  undefined, {status:'READ_FAILED'}, {status:'SHEET_MISSING'},
+  {status:'MASTER_EMPTY'},
+  {...completedCoverage,missingOfficialCodes:1,officialExactDateCodes:1},
+  {...completedCoverage,missingSnapshotCodes:1,snapshotHeldCodes:1},
+  {...completedCoverage,queuedForBackfill:true},
+]) {
+  assert.equal(summarizeKrxSource({...payload('2026-10-08'),storedCoverage:stored},
+    '2026-10-08').healthy,false,
+    'verified KRX market API alone cannot pass with failed/partial/queued storage coverage');
+}
+assert.equal(summarizeKrxSource({...payload('2026-10-08'),
+  storedCoverage:{...completedCoverage,expectedHeldCodes:0,expectedStock:0,
+    officialExactDateCodes:0,snapshotHeldCodes:0,priceHistoryRows:0,snapshotRows:0}},
+    '2026-10-08').healthy,true,
+  'no domestic holdings and no missing storage is a healthy completed coverage state');
+const legacyRowsOnly = markers.map(({exactDateRows, ...item})=>item);
+const legacyHealth = summarizeKrxSource({...payload('2026-10-08'), markets:legacyRowsOnly},'2026-10-08');
+assert.equal(legacyHealth.healthy,false,
+  'Legacy HTTP200 generic rows are not proof of exact requested BAS_DD');
+assert.deepEqual(legacyHealth.reachableMarkets.map(x=>x.reachable),[false,false,false]);
+const mixedLegacy = summarizeKrxSource({...payload('2026-10-08'),
+  markets:[markers[0], legacyRowsOnly[1], markers[2]]},'2026-10-08');
+assert.equal(mixedLegacy.healthy,false,'one unverified legacy market must fail overall');
+assert.equal(mixedLegacy.reachableMarkets[1].reachable,false);
 assert.equal(health.credentialSource,'UNKNOWN','legacy GAS does not advertise auth-slot provenance');
 const authShadow=summarizeKrxSource({...payload('2026-10-08'),
  credentialSource:'krx_auth_key',alternativeConfigured:true,
  alternateProbe:{httpStatus:200,hasRows:true},
- markets:markers.map(x=>({...x,httpStatus:401,rows:0,parseStatus:'NOT_PARSED'}))},'2026-10-08');
+ markets:markers.map(x=>({...x,httpStatus:401,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED'}))},'2026-10-08');
 assert.equal(authShadow.healthy,false,'authenticated alternate probe does not validate active data');
 assert.equal(authShadow.credentialSource,'krx_auth_key');
 assert.equal(authShadow.alternativeConfigured,true);
 assert.equal(authShadow.alternateProbe.hasRows,true);
 assert.ok(!JSON.stringify(authShadow).includes('accessToken'));
+// Per-service KRX approval is not one boolean per credential. An exact-date
+// alternate approval on KOSPI does not prove the separate ETF/KOSDAQ product.
+const storedCoverage={
+  status:'OK',expectedHeldCodes:37,expectedStock:16,expectedEtf:21,
+  priceHistoryRows:2,officialExactDateCodes:0,nonOfficialHeldCodes:0,
+  missingOfficialCodes:37,snapshotRows:0,snapshotHeldCodes:0,
+  missingSnapshotCodes:37,queuedForBackfill:true
+};
+const deniedMarkets=[
+  {market:'KOSPI',httpStatus:401,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED'},
+  {market:'KOSDAQ',httpStatus:403,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED'},
+  {market:'ETF',httpStatus:200,rows:1400,exactDateRows:1400,parseStatus:'ROWS'}
+];
+const partialApproval=summarizeKrxSource({...payload('2026-10-08'),
+  markets:deniedMarkets,credentialSource:'krx_auth_key',alternativeConfigured:true,
+  alternateProbes:[
+    {market:'KOSPI',httpStatus:200,rows:900,exactDateRows:900,parseStatus:'ROWS',hasRows:true},
+    {market:'KOSDAQ',httpStatus:403,rows:0,exactDateRows:0,parseStatus:'NOT_PARSED',hasRows:false}
+  ],storedCoverage},'2026-10-08');
+assert.equal(partialApproval.healthy,false,'KOSDAQ rejection is not masked by other approved services');
+assert.deepEqual(partialApproval.reachableMarkets.map(x=>x.reachable),[true,false,true]);
+assert.equal(partialApproval.alternateProbes.length,2);
+assert.deepEqual(partialApproval.storedCoverage,storedCoverage);
+assert.equal(partialApproval.storedCoverage.missingOfficialCodes,37);
+const allApproved=summarizeKrxSource({...payload('2026-10-08'),
+  markets:deniedMarkets,
+  alternateProbes:partialApproval.alternateProbes.map(x=>x.market==='KOSDAQ'
+    ?{...x,httpStatus:200,rows:1200,exactDateRows:1200,parseStatus:'ROWS',hasRows:true}:x)
+},'2026-10-08');
+assert.equal(allApproved.healthy,true,'each market approved for exact date via primary OR alternate');
+assert.equal(summarizeKrxSource({...payload('2026-10-08'),
+  markets:markers.map(x=>({...x,exactDateRows:0}))},'2026-10-08').healthy,false,
+  'HTTP200 rows of another session do not prove requested close');
+assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),
+  markets:[{...markers[0],exactDateRows:901},markers[1],markers[2]]},'2026-10-08'),
+  /INVALID_MARKET_RESPONSE/,'exact-date count cannot exceed all rows');
+assert.ok(!JSON.stringify(partialApproval).includes('SECRET_'));
+
 assert.deepEqual(health.markets.map(x=>x.market),['KOSPI','KOSDAQ','ETF']);
 assert.ok(!JSON.stringify(health).includes(key));
 assert.equal(summarizeKrxSource({...payload('2026-10-08'),markets:markers.map(x=>x.market==='ETF'
- ?{...x,httpStatus:401,parseStatus:'NOT_PARSED',rows:0}:x)},'2026-10-08').healthy,false);
+ ?{...x,httpStatus:401,parseStatus:'NOT_PARSED',rows:0,exactDateRows:0}:x)},'2026-10-08').healthy,false);
 assert.equal(summarizeKrxSource({status:'ok',requestedDate:'2026-10-08',keyConfigured:false,markets:[]},'2026-10-08').healthy,false);
 assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),markets:[markers[0],markers[0],markers[2]]},'2026-10-08'),/INVALID_MARKET_LIST/);
 assert.throws(()=>summarizeKrxSource({...payload('2026-10-08'),markets:[null,markers[1],markers[2]]},'2026-10-08'),/INVALID_MARKET_LIST/,

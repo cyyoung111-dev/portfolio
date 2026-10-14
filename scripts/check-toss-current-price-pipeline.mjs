@@ -42,7 +42,7 @@ assert.match(gas, /var validLastPrice = Number\.isFinite\(price\) && price > 0/)
 assert.match(gas, /PRICE_SMOKE_(?:EMPTY|SYMBOL_MISSING|INVALID_PRICE|TIMESTAMP_MISSING)/);
 assert.match(gas, /var timestampPresent = !!\(row && row\.timestamp\)/);
 assert.doesNotMatch(gas.match(/function _tossPriceSmoke_\(token\)\s*\{([\s\S]*?)\n\}/)?.[1] || '', /Logger\.log|PropertiesService|setValue|setValues|appendRow/i);
-assert.match(web, /현재가 갱신 · \$\{Object\.keys\(results\)\.length\}개 · 화면만 반영/);
+assert.match(web, /현재가 갱신 · \$\{entries\.length\}개 · 화면만 반영/);
 assert.match(web, /저장 이력\/Snapshot 미변경/);
 assert.match(web, /Toss \$\{toss\}건/);
 assert.match(web, /data-price-detail="recent-history"/);
@@ -54,8 +54,8 @@ const delegation = fs.readFileSync('src/web/app/event_delegation.js', 'utf8');
 assert.match(delegation, /closest\('\[data-price-detail\]'\)/);
 const index = fs.readFileSync('src/web/index.html', 'utf8');
 assert.match(index, /components\.css\?v=20260921-2/);
-assert.match(index, /settings_sync\.js\?v=20261012-3/);
-assert.match(index, /settings_fetch\.js\?v=20261012-3/);
+assert.match(index, /settings_sync\.js\?v=20261014-5/);
+assert.match(index, /settings_fetch\.js\?v=20261014-6/);
 assert.match(web, /const requestKey = targetUrl \+ '\\|' \+ generation \+ '\\|' \+ dateStr/,
   '현재가 in-flight 요청은 GSheet URL+generation+날짜별로 격리');
 assert.match(web, /const isCurrentConnection = \(\) =>[\s\S]*isGsheetConnectionCurrent\(targetUrl, generation\)/,

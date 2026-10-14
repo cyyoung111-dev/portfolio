@@ -105,7 +105,9 @@ assert.match(gas, /cachedPayload\.priceLookup\.snapshotCreated = persist && cach
 const priceBody = gas.slice(gas.indexOf('function handleGetPricesCompat'), gas.indexOf('function _latestDateFromPriceDates'));
 assert.doesNotMatch(priceBody, /persists*=s*false/);
 assert.match(priceBody, /if \(persist && confirmedPersistDates\.length\) _rebuildSnapshotForDateFromHistory/);
-assert.match(gas, /var smoke = oauth.ok \? _tossPriceSmoke_\(token\)/);
+assert.match(gas, /smoke = oauth.ok \? _tossPriceSmoke_\(token\)/);
+assert.match(gas, /runDiagnosticProbes\(\)/);
+assert.match(gas, /_refreshTossAccessTokenAfter401_\(token\)/);
 assert.match(gas, /fetchMarketIndicatorCandlesToss\(key, fromDate, toDate\)/);
 assert.match(gas, /fetchYahooIndexSeries\(key, fromDate, toDate\)/);
 assert.doesNotMatch(gas.slice(gas.indexOf('function rebuildDailySnapshots'), gas.indexOf('function _readSnapshotRowsByDate')), /GOOGLEFINANCE\s*\(/);
@@ -262,14 +264,14 @@ assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _save
   '복구용 부분 Settings patch는 일반 debounce timer/waiter와 분리해 payload 상호취소를 방지');
 assert.match(settings, /let _saveSettingsWriteRevision = 0[\s\S]*let _saveSettingsFundDirectRevision = 0[\s\S]*const expectedWriteRevision = settingsPatch[\s\S]*const expectedFundDirectRevision = settingsPatch[\s\S]*_saveSettingsWriteRevision !== expectedWriteRevision/,
   '전체 Settings 및 fundDirect patch를 별도 revision으로 관리');
-assert.match(settings, /if \(!settingsPatch && _saveSettingsFundDirectRevision !== expectedFundDirectRevision\) \{[\s\S]*delete remainingSettings\.fundDirect[\s\S]*outgoingPayload = JSON\.stringify\(remainingSettings\)/,
+assert.match(settings, /const outgoingSettings=JSON\.parse\(payload\)[\s\S]*if \(_saveSettingsFundDirectRevision !== expectedFundDirectRevision\)[\s\S]*delete outgoingSettings\.fundDirect[\s\S]*const outgoingPayload=JSON\.stringify\(outgoingSettings\)/,
   'patch 이후 예약된 전체 저장은 기존 fundDirect만 제거하고 나머지 변경사항을 유지');
 assert.match(settings, /if \(settingsPatch\) \{[\s\S]*_saveSettingsQueue = _saveSettingsQueue\.then\(run, run\)[\s\S]*return _saveSettingsQueue/,
   '복구 patch와 일반 debounce를 공유하지 않고 공통 전송 queue로만 직렬화');
 
 
 // 실제 저장 타이머 및 Settings patch 경합: 취소된 테마/계좌 저장은 사라지면 안 됩니다.
-const saveSettingsStart = settings.indexOf('function saveSettings(immediate, options) {');
+const saveSettingsStart = settings.indexOf('let _gsheetCodelessFundBaseline = null;');
 const saveSettingsEnd = settings.indexOf('\nasync function persistDividendSettings', saveSettingsStart);
 assert.ok(saveSettingsStart >= 0 && saveSettingsEnd > saveSettingsStart, 'Settings 저장 함수 추출');
 const queuedTimers = new Map();
@@ -277,6 +279,7 @@ const sentSettings = [];
 let nextTimerId = 0;
 let selectedTheme = 'forest';
 let currentDirectFunds = { OLD: { eval: 10 } };
+let holdNextFullSettingsPost = null;
 const ctx = {
   Promise, JSON, Object, Number, String, console,
   GSHEET_API_URL: 'https://example.test/gas',
@@ -288,10 +291,17 @@ const ctx = {
   getGsheetConnectionGeneration: () => 1,
   isGsheetConnectionCurrent: (target, generation) => target === 'https://example.test/gas' && generation === 1,
   isGsheetPortfolioWriteReady: () => true,
+  _normalizeCodeForSync: c => String(c||'').trim().toUpperCase(),
   setTimeout: fn => { const id = ++nextTimerId; queuedTimers.set(id, async () => { queuedTimers.delete(id); await fn(); }); return id; },
   clearTimeout: id => queuedTimers.delete(id),
   requestGsheetFormJson: async (_action, request) => {
-    sentSettings.push(JSON.parse(request.data));
+    const sent=JSON.parse(request.data);
+    sentSettings.push(sent);
+    if (holdNextFullSettingsPost && Array.isArray(sent.EDITABLE_PRICES)) {
+      const gate=holdNextFullSettingsPost;
+      holdNextFullSettingsPost=null;
+      await gate;
+    }
     return { status: 'ok' };
   }
 };
@@ -304,8 +314,12 @@ let _saveSettingsPendingKey = '';
 let _saveSettingsWriteRevision = 0;
 let _saveSettingsFundDirectRevision = 0;
 let _gsSettingsLoadEpoch = 1;
+let _gsBootRestored = true;
+let _gsPortfolioRestoreRequired = false;
 ${settings.slice(saveSettingsStart,saveSettingsEnd)}
 globalThis.testSaveSettings = saveSettings;
+globalThis.testAdoptFunds = adoptVerifiedCodelessFundBaselineFromSettings;
+globalThis.testFundsBaseline = () => _gsheetCodelessFundBaseline;
 `, ctx);
 const pendingFullSave = ctx.testSaveSettings(false);
 assert.equal(queuedTimers.size, 1, '테마/계좌 저장 debounce 등록');
@@ -324,6 +338,89 @@ const laterFullSave = ctx.testSaveSettings(true);
 await Promise.all([...queuedTimers.values()].map(fn => fn()));
 assert.equal(await laterFullSave, true, '복구 후 새 전체 저장 성공');
 assert.equal(sentSettings[2].fundDirect.NEW.eval, 300, '복구 이후 새 전체 저장은 최신 직접펀드를 포함');
+// A code->fund conversion's verified server readback is the authoritative
+// baseline for the next full Settings write, not the old bootstrap snapshot.
+const originalFund={name:'전환 TDF',code:'',assetType:'TDF',targetWeight:37,
+  notes:'server-preserved'};
+const unseen={name:'다른 탭 신규펀드',code:'',assetType:'펀드',targetWeight:99};
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[originalFund,unseen]},
+  'https://example.test/gas',1,originalFund.name),false,
+  'conversion readback cannot make unknown other-tab funds appear in trusted baseline');
+assert.equal(ctx.testFundsBaseline().funds.length,0,
+  'rejected readback must preserve the previous empty fund CAS proof');
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[originalFund]},
+  'https://example.test/gas',1,originalFund.name),true);
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[]},
+  'https://example.test/gas',9,originalFund.name),false,
+  'stale connection generation cannot reset proof');
+ctx.EDITABLE_PRICES.splice(0,ctx.EDITABLE_PRICES.length,
+  {...originalFund,targetWeight:42,notes:'user edited after conversion'});
+const changeFund=ctx.testSaveSettings(true);
+await Promise.all([...queuedTimers.values()].map(fn=>fn()));
+assert.equal(await changeFund,true);
+assert.deepEqual(sentSettings.at(-1).expectedCodelessFunds,[originalFund],
+  'full save sends verified old fund values, not current user-edited fields');
+assert.equal(ctx.testFundsBaseline().funds[0].targetWeight,42,
+  'server acknowledged new fund snapshot becomes next CAS baseline');
+ctx.EDITABLE_PRICES.splice(0,ctx.EDITABLE_PRICES.length);
+const deleteFund=ctx.testSaveSettings(true);
+await Promise.all([...queuedTimers.values()].map(fn=>fn()));
+assert.equal(await deleteFund,true);
+assert.equal(sentSettings.at(-1).expectedCodelessFunds[0].targetWeight,42,
+  'normal explicit fund deletion submits precisely prior acknowledged rows');
+assert.equal(ctx.testFundsBaseline().funds.length,0,
+  'acknowledged fund deletion retires baseline without reviving old entry');
+// Codex P2: first full POST is already in flight when the user queues another
+// changed fund. The latter must freeze its intended user values but take the
+// FIRST POST's acknowledged CAS proof when it actually starts on the queue.
+assert.equal(ctx.testFundsBaseline().funds.length,0);
+const queuedFund={name:'큐 검증 펀드',code:'',assetType:'펀드',targetWeight:10,notes:'first'};
+ctx.EDITABLE_PRICES.push(queuedFund);
+let releaseFirstPost;
+holdNextFullSettingsPost=new Promise(resolve=>{releaseFirstPost=resolve;});
+const firstQueued=ctx.testSaveSettings(true);
+const firstTimerWork=[...queuedTimers.values()].map(fn=>fn());
+await new Promise(resolve=>setImmediate(resolve));
+assert.equal(sentSettings.at(-1).EDITABLE_PRICES[0].targetWeight,10,
+  'first POST entered server before second user edit');
+ctx.EDITABLE_PRICES[0].targetWeight=20;
+ctx.EDITABLE_PRICES[0].notes='second';
+const secondQueued=ctx.testSaveSettings(true);
+const secondTimerWork=[...queuedTimers.values()].map(fn=>fn());
+releaseFirstPost();
+await Promise.all([...firstTimerWork,...secondTimerWork]);
+assert.equal(await firstQueued,true);
+assert.equal(await secondQueued,true);
+assert.deepEqual(sentSettings.at(-2).expectedCodelessFunds,[],
+  'first save carried original empty fund CAS proof');
+assert.equal(sentSettings.at(-1).expectedCodelessFunds[0].targetWeight,10,
+  'second queued save uses prior ACK fund proof, not stale pre-queue proof');
+assert.equal(sentSettings.at(-1).EDITABLE_PRICES[0].targetWeight,20,
+  'second save kept its own scheduled user edit');
+assert.equal(sentSettings.at(-1).EDITABLE_PRICES[0].notes,'second');
+assert.equal(ctx.testFundsBaseline().funds[0].targetWeight,20,
+  'queue finishes with exact latest acknowledged server state');
+// A converted stock is newly available, but another browser concurrently
+// edited the unrelated existing fund. Never adopt that full remote roster:
+/// our local UI has not applied its changed metadata, so the next full save
+// would overwrite it while using a falsely trusted CAS proof.
+const convertedLater={name:'두번째 전환 펀드',code:'',assetType:'TDF',targetWeight:9};
+const changedExisting={...queuedFund,targetWeight:777};
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[changedExisting,convertedLater]},
+  'https://example.test/gas',1,convertedLater.name),false,
+  'unrelated concurrent edit cannot be laundered into new CAS baseline');
+assert.equal(ctx.testFundsBaseline().funds[0].targetWeight,20);
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[queuedFund,convertedLater]},
+  'https://example.test/gas',1,convertedLater.name),true,
+  'only the single independently verified conversion is adopted');
+assert.equal(ctx.testFundsBaseline().funds.length,2);
+
+// The first bootstrap may have been replaced by two different successful
+// post-repair getBootstrap responses. The proof must refer to final s.
+assert.doesNotMatch(settings,/const originalServerFunds=_gsheetCodelessFundsFromRows\(s\.EDITABLE_PRICES\)/,
+  'first Bootstrap fund rows must not be captured as final CAS baseline');
+assert.match(settings,/s=data\.settings;[\s\S]*_gsheetCodelessFundBaseline=\{[\s\S]*funds:_gsheetCodelessFundsFromRows\(s\.EDITABLE_PRICES\)/,
+  'post-repair latest server Settings is authoritative for fund baseline');
 
 assert.match(settings, /const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*if \(!allowDuringRestore && _gsSettingsLoadEpoch !== expectedLoadEpoch\) return false[\s\S]*isGsheetPortfolioWriteReady/,
   'Settings 예약 저장은 실제 전송 직전에 load epoch와 restore write-ready를 재검증');
@@ -331,8 +428,14 @@ assert.match(settings, /function saveRealEstateSettings[\s\S]*const expectedLoad
   '부동산 예약 저장도 같은 연결의 새 load가 시작되면 stale payload 전송을 차단');
 assert.match(settings, /function saveDividendSettings[\s\S]*const expectedLoadEpoch = _gsSettingsLoadEpoch[\s\S]*_gsSettingsLoadEpoch !== expectedLoadEpoch[\s\S]*isGsheetPortfolioWriteReady/,
   '배당 저장 queue도 실행 직전 load epoch와 restore 상태를 재검증');
-assert.match(sync, /const code = _normalizeSyncCode\(h\.code \|\| ep\?\.code \|\| STOCK_CODE\[h\.name\] \|\| ''\)[\s\S]*const assetType = h\.assetType \|\| h\.type \|\| getEPType\(ep, '주식'\)/,
-  'dirty holdingsOverride는 복원 전 전역 master보다 캡처 payload의 code/assetType을 우선');
+assert.ok(sync.includes("const code = _normalizeSyncCode(pinnedByName")
+    && sync.includes("h.code || pinned?.code || ''")
+    && sync.includes("h.code || ep?.code || STOCK_CODE[h.name] || ''"),
+  '복원 보유 코드는 캡처 원본 코드 또는 동일 Bootstrap master를 우선하고 기존 로컬 master는 일반 저장에만 사용');
+assert.ok(sync.includes("const assetType = pinnedByName")
+    && sync.includes("pinned?.type || pinned?.assetType")
+    && sync.includes("h.assetType || h.type || getEPType(ep, '주식')"),
+  '복원 보유 유형은 동일 서버 master를 사용하고 일반 저장의 기존 동작은 유지');
 
 assert.match(settings, /const dirtyPortfolioAtLoad = typeof _getPortfolioRemoteDirty[\s\S]*blockRemotePortfolioRestore = !!pendingEmptySyncAtLoad \|\| !!dirtyPortfolioAtLoad[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*if \(!dirtyRetryOk\) return failLoad\('PORTFOLIO_SYNC_FAILED'\)/,
   'dirty payload가 있으면 원격 authoritative 복원을 차단하고 재전송 성공 전 load를 완료하지 않음');
@@ -374,9 +477,9 @@ assert.match(settings, /if \(pendingEmptySyncAtLoad[\s\S]{0,120}typeof _retryPen
   'pending 재시도는 로컬 거래가 생긴 경우에도 실행');
 assert.doesNotMatch(settings, /if \(pendingEmptySyncAtLoad && rawTrades\.length === 0/,
   'pending 재시도를 rawTrades 빈 상태에만 제한하지 않음');
-assert.match(settings, /if \(forcePortfolioRestore\) \{[\s\S]*for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const latePending = _getPendingExplicitEmptyTradeSync\(loadTarget\)[\s\S]*_retryPendingExplicitEmptyTradeSync\([\s\S]*allowDuringRestore: true[\s\S]*preferCurrentPortfolio: rawTrades\.length > 0[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
+assert.match(settings, /if \(forcePortfolioRestore\) \{[\s\S]*for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const latePending = typeof _getPendingExplicitEmptyTradeSync[\s\S]*_getPendingExplicitEmptyTradeSync\(loadTarget\)[\s\S]*if \(\(latePending \|\| lateDirty\) && !Array\.isArray\(bootstrapMasterForRetry\)\)[\s\S]*_retryPendingExplicitEmptyTradeSync\([\s\S]*allowDuringRestore: true[\s\S]*preferCurrentPortfolio: rawTrades\.length > 0[\s\S]*pendingEmptySyncResolvedAtLoad = true/,
   '강제복원 도중 새로 생긴 pending-empty를 authoritative 원격 적용 직전에 반복 재확인');
-assert.match(settings, /for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const lateDirty = _getPortfolioRemoteDirty\(\)[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*targetUrl: loadTarget[\s\S]*allowDuringRestore: true[\s\S]*dirtyPortfolioSyncResolvedAtLoad = true[\s\S]*pendingStillExists[\s\S]*dirtyStillExists[\s\S]*lateAttempt === 5/,
+assert.match(settings, /for \(let lateAttempt = 0; lateAttempt < 6; lateAttempt\+\+\)[\s\S]*const lateDirty = typeof _getPortfolioRemoteDirty[\s\S]*_getPortfolioRemoteDirty\(\)[\s\S]*const latestDirty = _getPortfolioRemoteDirty\(\)[\s\S]*_restorePortfolioRemoteDirtyPayload\(\)[\s\S]*_retryPortfolioRemoteDirtySync\([\s\S]*targetUrl: loadTarget[\s\S]*allowDuringRestore: true[\s\S]*dirtyPortfolioSyncResolvedAtLoad = true[\s\S]*pendingStillExists[\s\S]*dirtyStillExists[\s\S]*lateAttempt === 5/,
   '강제복원 직전 pending/dirty를 안정화될 때까지 반복 검증하고 계속 변하면 원격 preflight 적용을 중단');
 assert.match(settings, /const applyForcedPortfolioRestore = forcePortfolioRestore[\s\S]*!pendingEmptySyncResolvedAtLoad[\s\S]*!dirtyPortfolioSyncResolvedAtLoad/,
   'pending 또는 dirty payload를 방금 서버에 확정한 경우 같은 load에서 오래된 원격 원장을 다시 pull하지 않음');
@@ -397,14 +500,14 @@ assert.match(sync, /async function syncHoldingsToGsheet\(options\)[\s\S]*holding
   '초기 빈 상태에서는 원격 보유현황을 보존하고 확인된 마지막 거래 삭제에서만 [] 허용');
 assert.match(tradesView, /deletedFrom[\s\S]*allowEmptyTradeSync: before > 0 && rawTrades\.length === 0[\s\S]*emptyTradeSyncFrom:/,
   '마지막 거래 삭제 시 삭제된 거래의 최초 날짜를 재시도 영향 시작일로 보존');
-assert.match(html, /settings_sync\.js\?v=20261012-3/,'거래동기화 자산 캐시 버전 갱신');
-assert.match(html, /domain\/portfolio\/data\.js\?v=20261008-6/,'거래 저장 로직 캐시 버전 갱신');
+assert.match(html, /settings_sync\.js\?v=20261014-5/,'거래동기화 자산 캐시 버전 갱신');
+assert.match(html, /domain\/portfolio\/data\.js\?v=20261014-9/,'거래 저장 로직 캐시 버전 갱신');
 assert.match(html, /views\/views_trades\.js\?v=20261007-2/,'거래 삭제 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings\.js\?v=20261012-2/,'부트스트랩 재시도 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings\.js\?v=20261014-3/,'부트스트랩 재시도 로직 캐시 버전 갱신');
 assert.match(html, /features\/settings\/settings_tabsync\.js\?v=20261007-1/,'거래 탭 원격 재동기화 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings_net\.js\?v=20261007-3/,'연결 generation 로직 캐시 버전 갱신');
-assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261012-3/,'현재가 연결 격리 로직 캐시 버전 갱신');
-assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261012-1/,'편집기 연결별 캐시 로직 버전 갱신');
+assert.match(html, /features\/settings\/settings_net\.js\?v=20261013-1/,'연결 generation 로직 캐시 버전 갱신');
+assert.match(html, /features\/settings\/settings_fetch\.js\?v=20261014-6/,'현재가 연결 격리 로직 캐시 버전 갱신');
+assert.match(html, /features\/management\/mgmt_editor\.js\?v=20261013-2/,'편집기 연결별 캐시 로직 버전 갱신');
 assert.match(gas, /handleSyncTrades\(params\.data, params\.rebuildFrom \|\| '', params\.explicitEmpty === '1'\)/,
   'GAS syncTrades가 명시적 빈 원장 재시도 컨텍스트를 전달');
 assert.match(gas, /TRADE_SNAPSHOT_REBUILD_PENDING_KEY[\s\S]*function _readPendingTradeSnapshotRebuild[\s\S]*function _setPendingTradeSnapshotRebuild/,

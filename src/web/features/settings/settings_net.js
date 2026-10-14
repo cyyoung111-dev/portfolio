@@ -91,6 +91,7 @@ function saveGsheetUrl(url) {
     GSHEET_CONNECTION_GENERATION += 1;
     _gsPortfolioRestoreRequired = true;
     _gsBootRestored = false;
+    if (typeof _gsCodeMasterSourceIdentity !== 'undefined') _gsCodeMasterSourceIdentity = '';
     _gsBootPromise = null;
   }
   GSHEET_API_URL = normalized;
