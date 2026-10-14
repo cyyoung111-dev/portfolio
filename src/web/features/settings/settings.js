@@ -320,6 +320,16 @@ async function loadDividendSettings(options) {
   }
 }
 
+// Server Settings fund-CAS provenance belongs to this exact target / load
+// epoch, never to whichever fund rows happen to be in the current UI.
+let _gsheetCodelessFundBaseline = null;
+function _gsheetCodelessFundsFromRows(rows) {
+  return Array.isArray(rows) ? rows.filter(ep=>
+    ep && typeof ep==='object' && String(ep.name||'').trim()
+    && !_normalizeCodeForSync(ep.code||'')
+    && ['TDF','펀드','FUND'].includes(String(ep.assetType||ep.type||'').toUpperCase())
+  ).map(ep=>JSON.parse(JSON.stringify(ep))) : [];
+}
 function saveSettings(immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
   const isCurrentLoad = typeof options?.isCurrentLoad === 'function' ? options.isCurrentLoad : null;
@@ -371,6 +381,15 @@ function saveSettings(immediate, options) {
     LOAN_SCHEDULE,
     RE_VALUE_HIST,
   };
+  if (!settingsPatch) {
+    // The baseline is the LAST verified server load/ACK, not current local
+    // EDITABLE_PRICES: a stale tab cannot claim it saw a newly converted fund.
+    const proof=_gsheetCodelessFundBaseline;
+    if (proof && proof.targetUrl===targetUrl
+        && proof.generation===expectedGeneration
+        && proof.epoch===expectedLoadEpoch)
+      settings.expectedCodelessFunds=JSON.parse(JSON.stringify(proof.funds));
+  }
   const payload = JSON.stringify(settings);
 
   const run = async () => {
@@ -403,6 +422,18 @@ function saveSettings(immediate, options) {
       );
       if (!data) throw new Error('네트워크 오류');
       if (data.status !== 'ok') throw new Error(data.message || '응답 오류');
+      if (!settingsPatch && isGsheetConnectionCurrent(targetUrl, expectedGeneration)
+          && _gsSettingsLoadEpoch===expectedLoadEpoch) {
+        // The server has acknowledged this exact POST. A later edit/deletion
+        // must compare against the newly saved code-less rows, not the old
+        // bootstrapped roster. Read the serialized POST, never mutable UI.
+        const posted=JSON.parse(outgoingPayload);
+        if (Array.isArray(posted.EDITABLE_PRICES))
+          _gsheetCodelessFundBaseline={
+            targetUrl,generation:expectedGeneration,epoch:expectedLoadEpoch,
+            funds:_gsheetCodelessFundsFromRows(posted.EDITABLE_PRICES)
+          };
+      }
       return true;
     } catch(e) {
       console.warn('saveSettings 실패:', e);
@@ -528,6 +559,9 @@ async function loadSettings(onProgress, options) {
       return failLoad(code);
     }
     let s = data.settings;
+    // Capture server origin BEFORE UI edits, replacement rebase or later
+    // scheduled saveSettings can mutate local EDITABLE_PRICES.
+    const originalServerFunds=_gsheetCodelessFundsFromRows(s.EDITABLE_PRICES);
     const bootstrapCodeMasterSource = isBootstrap ? String(data.codeMasterSourceId || '').trim() : '';
     // Recovery provenance may exist ONLY as a durable A->B journal if the
     // browser stopped between code-sheet flush and Settings failure readback.
@@ -1206,6 +1240,10 @@ async function loadSettings(onProgress, options) {
     if (reconciled > 0) console.log(`[GAS 기초정보 복구] 종목코드 시트에서 ${reconciled}개 필드 반영`);
     _gsPortfolioRestoreRequired = false;
     _gsCodeMasterSourceIdentity = bootstrapCodeMasterSource;
+    _gsheetCodelessFundBaseline={
+      targetUrl:loadTarget,generation:loadGeneration,epoch:loadEpoch,
+      funds:originalServerFunds
+    };
     _gsBootRestored = true;
     loadCompleted = true;
     _gsSettingsLoadFailure = null;
