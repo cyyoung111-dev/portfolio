@@ -330,6 +330,18 @@ function _gsheetCodelessFundsFromRows(rows) {
     && ['TDF','펀드','FUND'].includes(String(ep.assetType||ep.type||'').toUpperCase())
   ).map(ep=>JSON.parse(JSON.stringify(ep))) : [];
 }
+function adoptVerifiedCodelessFundBaselineFromSettings(remoteSettings,targetUrl,generation) {
+  if (!remoteSettings || !Array.isArray(remoteSettings.EDITABLE_PRICES)
+      || !isGsheetConnectionCurrent(targetUrl,generation)) return false;
+  const currentTarget=String(GSHEET_API_URL||'').trim();
+  if (targetUrl!==currentTarget || !_gsBootRestored || _gsPortfolioRestoreRequired)
+    return false;
+  _gsheetCodelessFundBaseline={
+    targetUrl,generation,epoch:_gsSettingsLoadEpoch,
+    funds:_gsheetCodelessFundsFromRows(remoteSettings.EDITABLE_PRICES)
+  };
+  return true;
+}
 function saveSettings(immediate, options) {
   const targetUrl = String(options?.targetUrl || GSHEET_API_URL || '').trim();
   const isCurrentLoad = typeof options?.isCurrentLoad === 'function' ? options.isCurrentLoad : null;
