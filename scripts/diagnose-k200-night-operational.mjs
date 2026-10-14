@@ -80,6 +80,13 @@ export async function runNightDiagnosis({url,token,dates,fetchImpl=fetch}){
   if(typeof token!=='string'||!token.trim())throw new Error('NIGHT_DIAG_AUTH_NOT_CONFIGURED');
   // The diagnostics action itself exists only in GAS v9.221+. Never
   // call getSettings: that "read" route may settle a pending code deletion.
+  // A deliberately incorrect constant token must be rejected by GAS.
+  const negativeToken=token==='K200_READ_ONLY_AUTH_PROBE_20261014'
+    ? 'K200_READ_ONLY_AUTH_PROBE_20261014_ALT' : 'K200_READ_ONLY_AUTH_PROBE_20261014';
+  const negative=await readOnlyAction(endpoint,'getKrxK200NightDiagnostics',
+    validDates[0],negativeToken,fetchImpl);
+  if(negative?.status!=='error'||negative?.message!=='인증 실패')
+    throw new Error('NIGHT_DIAG_GAS_AUTH_NOT_ENFORCED');
   const results=[];
   for(const date of validDates){
     try{
@@ -105,7 +112,7 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
     console.log(JSON.stringify(report));
     if(report.results.some(r=>r.diagnosticError))process.exitCode=1;
   }catch(e){
-    const allowed=new Set(['NIGHT_DIAG_AUTH_NOT_CONFIGURED',
+    const allowed=new Set(['NIGHT_DIAG_AUTH_NOT_CONFIGURED','NIGHT_DIAG_GAS_AUTH_NOT_ENFORCED',
 ]);
     console.error(allowed.has(e.message)?e.message:'NIGHT_DIAG_REQUEST_FAILED');
     process.exitCode=1;
