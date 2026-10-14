@@ -96,4 +96,29 @@ assert.deepEqual(JSON.parse(a.map.get(queueKey)),initial.slice(2));
 assert.equal(a.context._pruneVerifiedHistoricalKrxPending_('mine','2026-10-14').cleared,0);
 assert.deepEqual(JSON.parse(a.map.get(queueKey)),initial.slice(2),'missing days must not be removed by repeated checks');
 
+
+function checkRotation(dates, cursor, includeToday, failure) {
+  const state=new Map([['queue',JSON.stringify(dates)],['cursor',cursor]]);
+  const props={getProperty:k=>state.get(k)??null,setProperty:(k,v)=>state.set(k,String(v)),deleteProperty:k=>state.delete(k)};
+  const calls=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'cursor',
+    _readPendingKrxCloseDates_:()=>JSON.parse(state.get('queue')),
+    saveDailyPriceHistory:date=>{calls.push(date);if(failure)throw Error('stale source');return {ok:true,date,rows:39};},
+    _portfolioFundAtomic_:fn=>fn(props),
+    _reconcileRecoveredPortfolioPrice_:()=>true,
+    _completePendingKrxCloseDate_:(_,date)=>state.set('queue',JSON.stringify(JSON.parse(state.get('queue')).filter(x=>x!==date))),
+    _appendPortfolioCloseSyncLog:()=>{}
+  });
+  vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+  for(let i=0;i<dates.length;i++)ctx._retryOnePendingKrxClose_(props,'2026-10-14',includeToday);
+  return {calls,queue:JSON.parse(state.get('queue'))};
+}
+const pending=['2026-10-12','2026-10-13','2026-10-14'];
+assert.deepEqual(checkRotation(pending,'',true,true).calls,pending);
+assert.deepEqual(checkRotation(pending,'2026-10-14',true,true).calls,pending);
+assert.deepEqual(checkRotation(pending,'',false,true).calls,['2026-10-12','2026-10-13','2026-10-12']);
+assert.deepEqual(checkRotation(pending,'',true,true).queue,pending);
+assert.deepEqual(checkRotation(pending,'',true,false).queue,[]);
+
 console.log('KRX backfill complete-date pruning: live functions/leases/safety/liveness/rollover PASS');
