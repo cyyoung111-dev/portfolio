@@ -1,3 +1,15 @@
+## GAS v9.224 — KRX 당일 우선·과거 누락일 교대 복구 (PR #505, 배포 전)
+
+- **배포 상태:** 본 PR의 CI 및 코드 리뷰 검증 중. 병합 또는 운영 GAS 배포를 완료한 것으로 기록하지 않습니다. 기존 v9.223 배포 이력과 구분합니다.
+- **배포 전:** `quality-check` 및 `gas-deploy` 검증 성공, 리뷰 지적사항 해결, 승인된 v9.224 GAS 소스 해시 일치, 웹 `EXPECTED_GAS_VERSION=9.224` 확인.
+- **배포:** main 병합 후 승인된 GAS 배포 워크플로 결과와 실제 Apps Script 배포 버전을 별도로 확인합니다. 배포 성공 로그만으로 운영 응답 버전이 변경됐다고 단정하지 않습니다.
+- **배포 후:** 인증된 `getSettings` 및 `getAutomationStatus` 응답의 `gasVersion=9.224`와 웹 버전 경고 부재를 확인합니다. 인증 토큰·개별 종목가격·원본 응답은 로그에 남기지 않습니다.
+- **22:10 동작:** 당일 PRICE 실패가 대기열에 있으면 그날 첫 재시도는 당일을 우선하고, 이후 실패 시 과거 누락일과 교대합니다. `portfolio_close_backfill_last_was_today`는 거래일을 저장해 다음 날 당일 우선권을 복원합니다. 과거 날짜는 별도 순환 커서로 기아를 방지하며, 실행당 최대 한 날짜만 재처리합니다.
+- **검증:** 당일 PRICE/Snapshot 성공 여부, 과거 KRX exact-date 공식 종가 37건 및 Snapshot 39행, 날짜별 `queuedForBackfill=false`를 실제 운영에서 각각 확인합니다. 실패·불일치·타임아웃 시 해당 날짜 큐 항목을 유지하고 기존 lease/lock과 Snapshot/NAV 보호를 유지합니다. 2026-10-12·13 누락분은 운영 확인 전까지 복구 완료로 표시하지 않습니다.
+- **실패 시:** 버전 불일치 또는 백필 이상 발생 시 배포 진행을 중단하고 원천 응답·운영 상태를 비민감 진단으로 확인합니다. 대기열을 수동으로 일괄 삭제하지 않습니다.
+
+---
+
 ## GAS v9.223 — 22:10 백필의 완료된 KRX 대기일 자동 정리 (2026-10-14)
 
 기존 22:10 `runPortfolioCloseBackfill2210()`가 소유한 7분 backfill lease 안에서, 과거 대기일 최대 **2일**에 대해 기존 검증기 `_verifyCompletedKrxPendingDate_`로 가격이력(KRX/KRX_OTP exact-date)·Snapshot·수량/평가·**해당일 소급 거래원장 수량과 Snapshot 수량 일치**·원장/마스터 정합성을 확인합니다. 모든 검사가 통과한 날짜의 **ScriptProperties 큐 항목만** ScriptLock 하에서 제거합니다. 미완료 날짜, 예외, 잠금 만료 시 원본 마커를 유지합니다.
