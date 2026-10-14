@@ -14445,8 +14445,12 @@ function _settlePendingCodeDeleteLocked_(ss) {
   }).length!==1) || getCodeItems(ss,true).some(function(row) {
     return String(row.name||'').trim()===tx.name || _cleanCode(row.code)===tx.code;
   })) throw new Error('CODE_DELETE_TXN_VERIFY_FAILED');
-  _finishCodeDeleteTxn_(tx);
+  // The source revision is the crash-safe cache invalidation evidence.
+  // Never retire the only recovery marker before the revision is persisted:
+  // an execution stopped between those steps would make the old history
+  // cache appear current forever.
   _touchSnapshotIntegritySourceRevision();
+  _finishCodeDeleteTxn_(tx);
   return {pending:true,resolution:'completed'};
 }
 function _settlePendingCodeDeleteForRead_(ss) {
@@ -15091,8 +15095,11 @@ function handleDeleteUnreferencedCode(dataJson) {
             && JSON.stringify(ep)===JSON.stringify(conversion);
         }).length!==1))
       return jsonError('삭제/전환 설정 재검증 실패', {errorCode:'CODE_DELETE_SETTINGS_VERIFY_FAILED'});
-    _finishCodeDeleteTxn_(pendingDelete);
+    // Commit the history/Snapshot source revision while the durable
+    // delete marker still exists. Recovery retries the revision first if
+    // Apps Script dies before the marker can be retired.
     _touchSnapshotIntegritySourceRevision();
+    _finishCodeDeleteTxn_(pendingDelete);
     return jsonOk({ deleted:rowIndex ? 1 : 0, codeMasterSourceId:sourceId });
   } catch(err) {
     return jsonError('종목코드 삭제 실패: '+err.message, { errorCode:'CODE_DELETE_FAILED' });
