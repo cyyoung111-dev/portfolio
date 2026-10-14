@@ -10342,9 +10342,9 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   var historical = candidates.filter(function(date) { return date !== currentDate; });
   var historyTarget = historical.filter(function(date) { return date > previous; })[0] || historical[0];
   var todayQueued = includeToday && candidates.indexOf(currentDate) >= 0;
-  var lastWasToday = props.getProperty('portfolio_close_backfill_last_was_today') === 'true';
+  var lastWasToday = props.getProperty('portfolio_close_backfill_last_was_today') === currentDate;
   var target = todayQueued && (!lastWasToday || !historyTarget) ? currentDate : historyTarget;
-  if (todayQueued) props.setProperty('portfolio_close_backfill_last_was_today', target === currentDate ? 'true' : 'false');
+  if (todayQueued) props.setProperty('portfolio_close_backfill_last_was_today', target === currentDate ? currentDate : '');
   if (!target) return { attempted:false, remaining:queue.length };
   if (target !== currentDate) props.setProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY, target);
   var snapshotProps = ['snapshot_last_success_date','snapshot_last_success_at','snapshot_last_error','snapshot_last_failure_at'];
