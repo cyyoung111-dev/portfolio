@@ -189,7 +189,7 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
     throw new Error('KRX_DIAG_GAS_ACCESS_TOKEN_NOT_CONFIGURED');
   // Never call getSettings (it may settle pending deletes) or the heavyweight
   // getAutomationStatus. A wrong-token request proves authentication without
-  // fetching the source. Reuse the valid first-date source as the first proof.
+  // fetching the source. Diagnose every requested date independently.
   const invalidToken = token === 'KRX_READ_ONLY_AUTH_PROBE_20261014'
     ? 'KRX_READ_ONLY_AUTH_PROBE_20261014_ALT' : 'KRX_READ_ONLY_AUTH_PROBE_20261014';
   const negative = await readGasAction(url,'getKrxSourceDiagnostics',
@@ -201,6 +201,8 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
   for (const date of checkedDates) {
     try {
       const data = await readGasAction(url,'getKrxSourceDiagnostics',date,token,fetchImpl);
+      if (data?.status === 'error' && data?.message === '인증 실패')
+        throw new Error('KRX_DIAG_GAS_ACCESS_DENIED');
       const source = summarizeKrxSource(data,date);
       let stockCloses;
       try {
@@ -212,6 +214,7 @@ export async function runDiagnosis({ url, token, dates, fetchImpl = fetch }) {
       }
       reports.push({ ...source, stockCloses, healthy:source.healthy && stockCloses.healthy });
     } catch (error) {
+      if (error?.message === 'KRX_DIAG_GAS_ACCESS_DENIED') throw error;
       // The live KRX dates are independent. Report a sanitized per-day GAS
       // transport/schema failure and continue inspecting the other dates.
       // Never log the exception text, token, URL, or original response body.
