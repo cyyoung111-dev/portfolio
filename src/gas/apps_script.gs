@@ -5801,7 +5801,7 @@ function _ensurePortfolioHistoricalBackfillTrigger(autoFix) {
   if (!autoFix) return triggers.length > 0;
   if (!triggers.length) {
     ScriptApp.newTrigger(handler).timeBased().everyDays(1)
-      .inTimezone(CONFIG.TIMEZONE).atHour(22).nearMinute(40).create();
+      .inTimezone(CONFIG.TIMEZONE).atHour(23).nearMinute(10).create();
     triggers = ScriptApp.getProjectTriggers().filter(function(t) {
       return t.getHandlerFunction() === handler;
     });
@@ -11348,10 +11348,12 @@ function _ensureDailyTriggers(autoFix) {
   var hasClose = false;
   var hasWatchdog = false;
   var hasBackfill = false;
+  var hasHistoricalBackfill = false;
   var hasIntegrityChange = false;
   var closeCount = 0;
   var watchdogCount = 0;
   var backfillCount = 0;
+  var historicalBackfillCount = 0;
   var legacyPriceCount = 0;
   var legacyFundCount = 0;
   ScriptApp.getProjectTriggers().forEach(function(t) {
@@ -11361,6 +11363,7 @@ function _ensureDailyTriggers(autoFix) {
     if (fn === 'runDailyPortfolioClose1900') { hasClose = true; closeCount++; }
     if (fn === 'runPortfolioCloseWatchdog2030') { hasWatchdog = true; watchdogCount++; }
     if (fn === 'runPortfolioCloseBackfill2210') { hasBackfill = true; backfillCount++; }
+    if (fn === 'runPortfolioHistoricalBackfill2240') { hasHistoricalBackfill = true; historicalBackfillCount++; }
     if (fn === 'runEvalPriceUpdate1620') legacyPriceCount++;
     if (fn === 'runDailyFundValuations') legacyFundCount++;
   });
@@ -11370,6 +11373,7 @@ function _ensureDailyTriggers(autoFix) {
   var hasDuplicateCloseTriggers = closeCount > 1;
   var hasDuplicateWatchdogTriggers = watchdogCount > 1;
   var hasDuplicateBackfillTriggers = backfillCount > 1;
+  var hasDuplicateHistoricalBackfillTriggers = historicalBackfillCount > 1;
 
   if (autoFix) {
     if (!hasClean) {
@@ -11401,8 +11405,13 @@ function _ensureDailyTriggers(autoFix) {
       }).length;
       hasDuplicateBackfillTriggers = backfillCount > 1;
     }
-    // Idempotent installation and duplicate cleanup for independent 22:40 replay.
-    _ensurePortfolioHistoricalBackfillTrigger(true);
+    if (!hasHistoricalBackfill || hasDuplicateHistoricalBackfillTriggers) {
+      hasHistoricalBackfill = _ensurePortfolioHistoricalBackfillTrigger(true);
+      historicalBackfillCount = ScriptApp.getProjectTriggers().filter(function(t) {
+        return t.getHandlerFunction() === 'runPortfolioHistoricalBackfill2240';
+      }).length;
+      hasDuplicateHistoricalBackfillTriggers = historicalBackfillCount > 1;
+    }
     if (!hasIntegrityChange) hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(true);
   }
   // hasSave/hasFund는 기존 호출부 호환용 alias입니다. 둘 다 통합 마감 트리거 상태를 뜻합니다.
@@ -11414,34 +11423,39 @@ function _ensureDailyTriggers(autoFix) {
     hasClose: hasClose,
     hasWatchdog: hasWatchdog,
     hasBackfill: hasBackfill,
+    hasHistoricalBackfill: hasHistoricalBackfill,
     hasIntegrityChange: hasIntegrityChange,
     closeCount: closeCount,
     watchdogCount: watchdogCount,
     backfillCount: backfillCount,
+    historicalBackfillCount: historicalBackfillCount,
     legacyPriceCount: legacyPriceCount,
     legacyFundCount: legacyFundCount,
     hasLegacySplitTriggers: hasLegacySplitTriggers,
     hasDuplicateCloseTriggers: hasDuplicateCloseTriggers,
     hasDuplicateWatchdogTriggers: hasDuplicateWatchdogTriggers,
-    hasDuplicateBackfillTriggers: hasDuplicateBackfillTriggers
+    hasDuplicateBackfillTriggers: hasDuplicateBackfillTriggers,
+    hasDuplicateHistoricalBackfillTriggers: hasDuplicateHistoricalBackfillTriggers
   };
 }
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v6-close-watchdog-backfill';
+  var checkToken = dateStr + '|integrity-change-v7-close-watchdog-historical-backfill';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
     var needsRepair = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund
-      || !before.hasWatchdog || !before.hasBackfill || !before.hasIntegrityChange
+      || !before.hasWatchdog || !before.hasBackfill || !before.hasHistoricalBackfill || !before.hasIntegrityChange
       || before.hasLegacySplitTriggers || before.hasDuplicateCloseTriggers
-      || before.hasDuplicateWatchdogTriggers || before.hasDuplicateBackfillTriggers;
+      || before.hasDuplicateWatchdogTriggers || before.hasDuplicateBackfillTriggers
+      || before.hasDuplicateHistoricalBackfillTriggers;
     var after = needsRepair ? _ensureDailyTriggers(true) : before;
     var healthy = after.hasClean && after.hasSave && after.hasMortgage && after.hasFund
-      && after.hasWatchdog && after.hasBackfill && after.hasIntegrityChange
+      && after.hasWatchdog && after.hasBackfill && after.hasHistoricalBackfill && after.hasIntegrityChange
       && !after.hasLegacySplitTriggers && !after.hasDuplicateCloseTriggers
-      && !after.hasDuplicateWatchdogTriggers && !after.hasDuplicateBackfillTriggers;
+      && !after.hasDuplicateWatchdogTriggers && !after.hasDuplicateBackfillTriggers
+      && !after.hasDuplicateHistoricalBackfillTriggers;
     if (healthy) props.setProperty('daily_triggers_checked_date', checkToken);
     if (needsRepair) Logger.log('✅ 웹 평가가격 조회에서 누락·레거시·중복 자동 트리거 복구 완료');
     return { checked: true, autoFixed: needsRepair };
