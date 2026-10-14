@@ -11732,6 +11732,31 @@ function _verifyCompletedKrxPendingDate_(ss, date) {
   _getDailyHeldCodeItems(ss,date,items).forEach(function(item) {
     if (_isKrxDailyCloseTarget_(item)) held[_cleanCode(item.code)] = true;
   });
+  // Reconstruct the full positive ledger code set before accepting the
+  // catalog-filtered list. A partially synced master must fail closed.
+  var ledger = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (!ledger || ledger.getLastRow()<2) return {ok:false,reason:'TRADE_LEDGER_MISSING'};
+  var tradeRows=ledger.getRange(2,1,ledger.getLastRow()-1,
+    Math.min(11,ledger.getLastColumn())).getValues();
+  var nameToCode={}, masterCodes={};
+  items.forEach(function(item) {
+    var code=_cleanCode(item && item.code);
+    if (code) masterCodes[code]=true;
+    if (code && item.name) nameToCode[item.name]=code;
+  });
+  tradeRows.forEach(function(row){
+    var code=_cleanCode(row[4]), name=String(row[3]||'').trim();
+    if (name && code && !nameToCode[name]) nameToCode[name]=code;
+  });
+  var ledgerHoldings=_calcCodeHoldingsAtDate(tradeRows,date,nameToCode);
+  var orphan=false;
+  Object.keys(ledgerHoldings).forEach(function(name) {
+    var position=ledgerHoldings[name];
+    if (!position || !(position.qty>0.0001)) return;
+    var code=_cleanCode(position.code);
+    if (!code || (!_isFundCode(code) && !masterCodes[code])) orphan=true;
+  });
+  if (orphan) return {ok:false,reason:'MASTER_INCOMPLETE'};
   var codes = Object.keys(held);
   if (!codes.length) return {ok:false,reason:'NO_HOLDINGS'};
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
@@ -11760,8 +11785,9 @@ function _verifyCompletedKrxPendingDate_(ss, date) {
     if (snap[code] || !/^(KRX|KRX_OTP)$/.test(source)
         || !isFinite(qty) || !(qty>0) || !isFinite(unit) || !(unit>0)
         || !isFinite(val) || !(val>0) || !price[code]
-        || Math.abs(unit-price[code])>0.000001
-        || Math.abs(Math.round(qty*unit)-val)>1)
+        // Production rounds total KRW first, then stores (total/qty).toFixed(2).
+        || Math.abs(Math.round(qty*price[code])-val)>1
+        || Math.abs(val/qty-unit)>0.011)
       failure='SNAPSHOT_INVALID';
     else snap[code]=true;
   });
