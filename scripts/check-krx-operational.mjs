@@ -186,6 +186,8 @@ const networkDiag=await runDiagnosis({
 assert.equal(networkDiag.healthy,false);
 assert.equal(networkDiag.reports[0].networkStatus,'FETCH_FAILED');
 
+assert.throws(()=>buildSafeRequest('getSettings','',key),/FORBIDDEN_ACTION/);
+assert.throws(()=>buildSafeRequest('getAutomationStatus','',key),/FORBIDDEN_ACTION/);
 const called=[];
 const fakeFetch=async(url,opts)=>{
   called.push({url,action:opts.body.get('action'),date:opts.body.get('date')});
@@ -201,7 +203,7 @@ const report=await runDiagnosis({
   token:key,dates:'2026-10-07,2026-10-08',fetchImpl:fakeFetch,
 });
 assert.equal(report.mode,'READ_ONLY');
-assert.equal(report.gasVersion,'9.192');
+assert.equal(report.verifiedContract,'KRX_SOURCE_READ_ONLY');
 assert.equal(report.healthy,true);
 assert.ok(report.reports.every(item=>item.stockCloses?.healthy),
  'Source rows and exact-date stock code match must both pass');
@@ -217,7 +219,6 @@ assert.equal(sourceOnly.reports[0].stockCloses.healthy,false);
 assert.equal(sourceOnly.healthy,false,
  'Official market HTTP 200 with no matched closes is not operationally healthy');
 assert.deepEqual(called.map(x=>[x.action,x.date]),[
- ['getAutomationStatus',null],
  ['getKrxSourceDiagnostics','2026-10-07'],
  ['getKrxOfficialStockCloses','2026-10-07'],
  ['getKrxSourceDiagnostics','2026-10-08'],
@@ -254,7 +255,23 @@ const brokenStructure=await runDiagnosis({
 assert.equal(brokenStructure.reports[0].networkStatus,'INVALID_RESPONSE');
 assert.equal(brokenStructure.reports[0].errorCode,'KRX_DIAG_INVALID_MARKET_LIST');
 await assert.rejects(()=>readGasAction('https://script.google.com/macros/s/Abcd/exec',
- 'getAutomationStatus','',key,async()=>({ok:false,status:403})),/GAS_HTTP_403/);
+ 'getKrxSourceDiagnostics','2026-10-08',key,async()=>({ok:false,status:403})),/GAS_HTTP_403/);
 await assert.rejects(()=>readGasAction('https://script.google.com/macros/s/Abcd/exec',
- 'getAutomationStatus','',key,async()=>{throw new Error('SECRET '+key)}),/FETCH_FAILED/);
+ 'getKrxSourceDiagnostics','2026-10-08',key,async()=>{throw new Error('SECRET '+key)}),/FETCH_FAILED/);
+
+const continuedOnTimeout=await runDiagnosis({
+  url:'https://script.google.com/macros/s/Abcd/exec',token:key,
+  dates:'2026-10-12,2026-10-13',
+  fetchImpl:async(_url,opts)=>{
+    const d=opts.body.get('date');
+    if(d==='2026-10-12')throw new Error('sensitive transport detail');
+    return {ok:true,json:async()=>opts.body.get('action')==='getKrxOfficialStockCloses'
+      ?closePayload(d):payload(d)};
+  },
+});
+assert.equal(continuedOnTimeout.reports.length,2);
+assert.equal(continuedOnTimeout.reports[0].errorCode,'KRX_DIAG_FETCH_FAILED');
+assert.equal(continuedOnTimeout.reports[1].healthy,true);
+assert.ok(!JSON.stringify(continuedOnTimeout).includes('sensitive transport detail'));
+
 console.log('KRX authenticated production diagnostic is read-only and sanitized: PASS');
