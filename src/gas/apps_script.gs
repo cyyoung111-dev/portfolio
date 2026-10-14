@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.215
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.216
+//
+//  v9.216 변경사항 (2026.10.14):
+//   동일한 펀드 상태 재시도는 서버 기존 CAS 원본과 달라도 멱등 허용하고
+//   실제 타 탭의 상이한 펀드 변경은 계속 차단
 //
 //  v9.215 변경사항 (2026.10.14):
 //   무코드 펀드의 전체 Settings 수정·삭제에는 로드 당시 서버 원본의
@@ -1984,7 +1988,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.215', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.216', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5641,7 +5645,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.215' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.216' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11379,7 +11383,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.215',
+    gasVersion: '9.216',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11419,7 +11423,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.215' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.216' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14678,7 +14682,16 @@ function handleSaveSettings(dataJson) {
         });
       if (expectedCodelessFunds!==null) {
         var proof=canonicalFunds(expectedCodelessFunds);
-        if (!proof || JSON.stringify(proof)!==serverFundFingerprint)
+        if (!proof)
+          return jsonError('무코드 펀드 CAS 원본 형식 오류', {
+            errorCode:'SETTINGS_CODELESS_FUND_INVALID'
+          });
+        // A timed-out POST may already have committed. Its retry still
+        // carries the old proof, but the exact requested fund rows are
+        // already durable. Accept this idempotent fund state only; never
+        // allow an actual competing-tab change to be overwritten.
+        if (JSON.stringify(proof)!==serverFundFingerprint
+            && JSON.stringify(submittedFunds)!==serverFundFingerprint)
           return jsonError('다른 브라우저에서 무코드 펀드가 변경됨: 재조회 후 저장하세요', {
             errorCode:'SETTINGS_CODELESS_FUND_STALE'
           });
@@ -14737,7 +14750,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.215' });
+    return jsonOk({ settings: settings, gasVersion: '9.216' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -14767,7 +14780,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.215'
+      gasVersion: '9.216'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
