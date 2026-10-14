@@ -11396,12 +11396,13 @@ function _ensureDailyTriggers(autoFix) {
     }
     if (!hasBackfill || hasDuplicateBackfillTriggers) {
       hasBackfill = _ensurePortfolioCloseBackfillTrigger(true);
-  _ensurePortfolioHistoricalBackfillTrigger(true);
       backfillCount = ScriptApp.getProjectTriggers().filter(function(t) {
         return t.getHandlerFunction() === 'runPortfolioCloseBackfill2210';
       }).length;
       hasDuplicateBackfillTriggers = backfillCount > 1;
     }
+    // Idempotent installation and duplicate cleanup for independent 22:40 replay.
+    _ensurePortfolioHistoricalBackfillTrigger(true);
     if (!hasIntegrityChange) hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(true);
   }
   // hasSave/hasFund는 기존 호출부 호환용 alias입니다. 둘 다 통합 마감 트리거 상태를 뜻합니다.
