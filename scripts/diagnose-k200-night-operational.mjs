@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Read-only operational proof for KRX K200 night. Never print KRX rows,
 // prices, contract labels, access tokens, deployment URLs or responses.
-import {parseDates, readGasAction, validateWebAppUrl} from './diagnose-krx-operational.mjs';
+import {parseDates, validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
 const STAT_KEYS=[
   'totalRows','nightMarketRows','exactDateRows','exactDateNightRows',
@@ -12,6 +12,22 @@ const PARSE=new Set(['NOT_FETCHED','FETCH_FAILED','ALTERNATIVE_FETCH_FAILED',
   'HTTP_DENIED_OR_UNAVAILABLE','NON_JSON','UNEXPECTED_SCHEMA','EMPTY','ROWS']);
 const SOURCES=new Set(['NONE','PRIMARY','ALTERNATIVE']);
 function validHttp(v){return Number.isInteger(v)&&v>=0&&v<=599;}
+
+async function readOnlyAction(url,action,date,token,fetchImpl){
+  if(!['getSettings','getKrxK200NightDiagnostics','getKrxK200NightClose'].includes(action))
+    throw new Error('NIGHT_DIAG_FORBIDDEN_ACTION');
+  const body=new URLSearchParams({action,accessToken:token});
+  if(date)body.set('date',date);
+  let response;
+  try{
+    response=await fetchImpl(url,{method:'POST',
+      headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
+      body,redirect:'follow',signal:AbortSignal.timeout(30000)});
+  }catch{throw new Error('NIGHT_DIAG_GAS_FETCH_FAILED');}
+  if(!response.ok)throw new Error('NIGHT_DIAG_GAS_HTTP_FAILED');
+  try{return await response.json();}
+  catch{throw new Error('NIGHT_DIAG_GAS_NON_JSON');}
+}
 
 export function summarizeK200Diagnostic(resp,date){
   const d=resp?.diagnostic;
@@ -59,7 +75,7 @@ export function summarizeNightFinal(resp,date){
 export async function runNightDiagnosis({url,token,dates,fetchImpl=fetch}){
   const validDates=parseDates(dates),endpoint=validateWebAppUrl(url);
   if(typeof token!=='string'||!token.trim())throw new Error('NIGHT_DIAG_AUTH_NOT_CONFIGURED');
-  const settings=await readGasAction(endpoint,'getSettings','',token,fetchImpl);
+  const settings=await readOnlyAction(endpoint,'getSettings','',token,fetchImpl);
   if(settings?.status!=='ok'||settings.gasVersion!=='9.221'
     ||settings.settings?.apiKeyStatus?.requestAuthenticationEnabled!==true)
     throw new Error('NIGHT_DIAG_GAS_VERSION_OR_AUTH_UNVERIFIED');
@@ -67,9 +83,9 @@ export async function runNightDiagnosis({url,token,dates,fetchImpl=fetch}){
   for(const date of validDates){
     try{
       const diag=summarizeK200Diagnostic(
-        await readGasAction(endpoint,'getKrxK200NightDiagnostics',date,token,fetchImpl),date);
+        await readOnlyAction(endpoint,'getKrxK200NightDiagnostics',date,token,fetchImpl),date);
       const final=summarizeNightFinal(
-        await readGasAction(endpoint,'getKrxK200NightClose',date,token,fetchImpl),date);
+        await readOnlyAction(endpoint,'getKrxK200NightClose',date,token,fetchImpl),date);
       results.push({...diag,...final});
     }catch(e){
       results.push({date,diagnosticError:'READ_ONLY_REQUEST_UNAVAILABLE',
