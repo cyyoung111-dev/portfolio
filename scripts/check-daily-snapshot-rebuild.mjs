@@ -342,10 +342,16 @@ assert.equal(sentSettings[2].fundDirect.NEW.eval, 300, '복구 이후 새 전체
 // baseline for the next full Settings write, not the old bootstrap snapshot.
 const originalFund={name:'전환 TDF',code:'',assetType:'TDF',targetWeight:37,
   notes:'server-preserved'};
+const unseen={name:'다른 탭 신규펀드',code:'',assetType:'펀드',targetWeight:99};
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[originalFund,unseen]},
+  'https://example.test/gas',1,originalFund.name),false,
+  'conversion readback cannot make unknown other-tab funds appear in trusted baseline');
+assert.equal(ctx.testFundsBaseline(),null,'rejected readback does not grant destructive CAS proof');
 assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[originalFund]},
-  'https://example.test/gas',1),true);
+  'https://example.test/gas',1,originalFund.name),true);
 assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[]},
-  'https://example.test/gas',9),false,'stale connection generation cannot reset proof');
+  'https://example.test/gas',9,originalFund.name),false,
+  'stale connection generation cannot reset proof');
 ctx.EDITABLE_PRICES.splice(0,ctx.EDITABLE_PRICES.length,
   {...originalFund,targetWeight:42,notes:'user edited after conversion'});
 const changeFund=ctx.testSaveSettings(true);
@@ -366,8 +372,7 @@ assert.equal(ctx.testFundsBaseline().funds.length,0,
 // Codex P2: first full POST is already in flight when the user queues another
 // changed fund. The latter must freeze its intended user values but take the
 // FIRST POST's acknowledged CAS proof when it actually starts on the queue.
-assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[]},
-  'https://example.test/gas',1),true);
+assert.equal(ctx.testFundsBaseline().funds.length,0);
 const queuedFund={name:'큐 검증 펀드',code:'',assetType:'펀드',targetWeight:10,notes:'first'};
 ctx.EDITABLE_PRICES.push(queuedFund);
 let releaseFirstPost;
@@ -394,6 +399,21 @@ assert.equal(sentSettings.at(-1).EDITABLE_PRICES[0].targetWeight,20,
 assert.equal(sentSettings.at(-1).EDITABLE_PRICES[0].notes,'second');
 assert.equal(ctx.testFundsBaseline().funds[0].targetWeight,20,
   'queue finishes with exact latest acknowledged server state');
+// A converted stock is newly available, but another browser concurrently
+// edited the unrelated existing fund. Never adopt that full remote roster:
+/// our local UI has not applied its changed metadata, so the next full save
+// would overwrite it while using a falsely trusted CAS proof.
+const convertedLater={name:'두번째 전환 펀드',code:'',assetType:'TDF',targetWeight:9};
+const changedExisting={...queuedFund,targetWeight:777};
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[changedExisting,convertedLater]},
+  'https://example.test/gas',1,convertedLater.name),false,
+  'unrelated concurrent edit cannot be laundered into new CAS baseline');
+assert.equal(ctx.testFundsBaseline().funds[0].targetWeight,20);
+assert.equal(ctx.testAdoptFunds({EDITABLE_PRICES:[queuedFund,convertedLater]},
+  'https://example.test/gas',1,convertedLater.name),true,
+  'only the single independently verified conversion is adopted');
+assert.equal(ctx.testFundsBaseline().funds.length,2);
+
 // The first bootstrap may have been replaced by two different successful
 // post-repair getBootstrap responses. The proof must refer to final s.
 assert.doesNotMatch(settings,/const originalServerFunds=_gsheetCodelessFundsFromRows\(s\.EDITABLE_PRICES\)/,
