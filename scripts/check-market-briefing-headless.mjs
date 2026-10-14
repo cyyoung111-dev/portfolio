@@ -207,6 +207,19 @@ assert.equal(fxFallbackCalls.length,1,'Only missing FX source triggers the fallb
 assert.equal(fxFallbackCalls[0].to,'2026-10-09');
 assert.equal(fallbackEvening.sync.errors?.USDKRW,undefined,
  'Verified fallback must be ingested, not silently reported as missing FX');
+const noDataFxCalls=[];
+const gasEmptyFx=async (action,params)=>action==='getExchangeRateHistory'
+ ? {status:'NO_DATA',history:[],source:'환율이력'}:holidayRequest(action,params);
+const emptyFxEvening=await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
+ request:gasEmptyFx,fxFallback:async args=>{
+  noDataFxCalls.push(args);
+  return {status:'ok',source:'YAHOO_USDKRW_DELAYED_DAILY',
+   history:[{date:'2026-10-08',rate:1344.75,currency:'USD'}]};
+ }});
+assert.equal(noDataFxCalls.length,1,'An explicitly empty FX ledger must use dated briefing-only fallback');
+assert.equal(noDataFxCalls[0].to,'2026-10-09');
+assert.equal(emptyFxEvening.sync.errors?.USDKRW,undefined,
+ 'A verified NO_DATA fallback must be consumed without altering the FX ledger');
 let fallbackOnAuth=0;
 await runHeadless({checkpoint:'EVENING',tradingDate:'2026-10-09',
  request:async (action,params)=>action==='getExchangeRateHistory'
