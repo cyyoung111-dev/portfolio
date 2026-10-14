@@ -334,6 +334,11 @@ async function deleteStockMasterCodeAfterPendingWrites(item, session, options) {
       if (!isGsheetConnectionCurrent(targetUrl,generation)
           || !localIntentIsCurrent() || settings?.status!=='ok'
           || matches.length!==1) return false;
+      // A confirmed server conversion has created a new fund row. Replace
+      // the pre-conversion CAS baseline with this exact verified readback,
+      // otherwise the next legitimate local save would reject its own fund.
+      if (typeof adoptVerifiedCodelessFundBaselineFromSettings==='function')
+        adoptVerifiedCodelessFundBaselineFromSettings(settings.settings,targetUrl,generation);
       // Server Settings (not a stale other-tab browser copy) is the
       // authoritative source of allocation/notes and future custom fields.
       // Refresh ONLY non-master fields: smSave still owns name/type/currency
