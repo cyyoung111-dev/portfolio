@@ -78,6 +78,12 @@ try{
   const indexSubset=await post({action:'indicatorPrices',params:{symbols:'KOSPI'}});
   assert.equal(indexSubset.status,200);
   assert.equal(receivedQueries.at(-1).get('symbols'),'KOSPI');
+  const bondIndices=await post({action:'indicatorPrices',params:{symbols:'KR_BOND_2Y,KR_BOND_3Y,KR_BOND_5Y,KR_BOND_10Y,KR_BOND_20Y,KR_BOND_30Y'}});
+  assert.equal(bondIndices.status,200);
+  assert.equal(receivedQueries.at(-1).get('symbols'),'KR_BOND_2Y,KR_BOND_3Y,KR_BOND_5Y,KR_BOND_10Y,KR_BOND_20Y,KR_BOND_30Y');
+  const bondCandles=await post({action:'indicatorCandles',params:{index:'KR_BOND_10Y',interval:'1d',count:200,before:'2026-10-12'}});
+  assert.equal(bondCandles.status,200);
+  assert.equal(receivedPaths.at(-1),'/api/v1/market-indicators/KR_BOND_10Y/candles');
 
   for(const action of ['accounts','orders','buy','arbitrary']){
     const resp=await post({action,params:{}});
@@ -91,6 +97,9 @@ try{
     {action:'calendar',params:{market:'UNKNOWN',date:'2026-10-15'}},
     {action:'prices',params:{symbols:'005930,005930'}},
     {action:'indicatorPrices',params:{symbols:'TSLA'}},
+    {action:'indicatorPrices',params:{symbols:'KOSPI,KOSPI'}},
+    {action:'indicatorPrices',params:{symbols:'KR_BOND_30Y,QQQ'}},
+    {action:'indicatorCandles',params:{index:'KR_BOND_99Y',count:200}},
     {action:'indicatorCandles',params:{index:'KOSPI',count:201}},
     {action:'indicatorCandles',params:{index:'KOSPI',interval:'1m'}},
     {action:'indicatorCandles',params:{index:'KOSPI',before:'x&evil=1'}},
