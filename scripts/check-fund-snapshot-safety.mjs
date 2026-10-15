@@ -1874,7 +1874,7 @@ context._readRawSnapshotRowsByDate=originalRawReader;
     const sourceBlind=clone(context._snapshotRewritePlan(sourceSs,collisionDate,[],[]));
     const sourceOnlyPair=sourceOnlyRows.slice(0,2);
     const faultyPair=clone(context._classifyRawSnapshotDuplicateGroups(
-      collisionDate,sourceOnlyPair,[],''))[0]);
+      collisionDate,sourceOnlyPair,[],''))[0];
     assert.equal(faultyPair.classification,'EXACT_DUPLICATE',
       'source-blind comparator must falsely collapse two equal-amount/different-source rows');
     assert.throws(()=>assert.equal(faultyPair.classification,'UNRESOLVED_CONFLICT'),
