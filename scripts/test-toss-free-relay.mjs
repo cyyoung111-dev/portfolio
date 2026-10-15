@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict';
+import {createServer} from './toss-free-relay.mjs';
+
+const shared='a'.repeat(48);
+let oauthCount=0,priceCount=0,resourceStatus=200,rejectOnce=false,receivedPaths=[];
+const mockFetch=async (url,opts)=>{
+  const u=new URL(url);
+  assert.equal(u.origin,'https://openapi.tossinvest.com','no arbitrary outgoing hosts');
+  if(u.pathname==='/oauth2/token'){
+    oauthCount++;
+    assert.equal(opts.method,'POST');
+    const f=new URLSearchParams(opts.body);
+    assert.equal(f.get('grant_type'),'client_credentials');
+    assert.equal(f.get('client_id'),'fake-id');
+    assert.equal(f.get('client_secret'),'fake-secret');
+    return new Response(JSON.stringify({access_token:'secret-token-'+oauthCount,token_type:'Bearer',expires_in:3600}),{status:200});
+  }
+  receivedPaths.push(u.pathname);
+  assert.equal(opts.method,'GET');
+  assert.match(opts.headers.Authorization,/^Bearer secret-token-/);
+  if(rejectOnce){rejectOnce=false;return new Response(JSON.stringify({error:{code:'token-revoked'}}),{status:401})}
+  if(resourceStatus===403){
+    return new Response(JSON.stringify({error:{code:'ip-not-allowed',message:'raw-secret-do-not-leak'}}),{status:403});
+  }
+  priceCount++;
+  return new Response(JSON.stringify({result:[{symbol:'005930',lastPrice:'12345',currency:'KRW',timestamp:'2026-10-15T01:00:00Z'}]}),{status:200});
+};
+const server=createServer({clientId:'fake-id',clientSecret:'fake-secret',sharedKey:shared,fetchImpl:mockFetch});
+await new Promise((resolve,reject)=>{
+  server.once('error',reject);
+  server.listen(0,'127.0.0.1',resolve);
+});
+const address='http://127.0.0.1:'+server.address().port;
+const post=async (data,key=shared)=>fetch(address+'/v1/fetch',{
+  method:'POST',headers:{'content-type':'application/json','x-relay-key':key},
+  body:JSON.stringify(data)
+});
+try{
+  const health=await fetch(address+'/healthz');
+  assert.equal(health.status,200);
+  assert.equal((await health.json()).credentials,false);
+  const blocked=await post({action:'prices',params:{symbols:'005930'}},'not-authorized');
+  assert.equal(blocked.status,401);
+  assert.equal(oauthCount,0);
+
+  const first=await post({action:'prices',params:{symbols:'005930,000660'}});
+  assert.equal(first.status,200);
+  const price=await first.json();
+  assert.equal(price.data.result[0].symbol,'005930');
+  assert.equal(oauthCount,1);
+  assert.equal(priceCount,1);
+
+  const second=await post({action:'candles',params:{symbol:'AAPL',interval:'1d',count:10,adjusted:'false'}});
+  assert.equal(second.status,200);
+  assert.equal(oauthCount,1,'reuse existing OAuth token');
+  assert.deepEqual(receivedPaths,['/api/v1/prices','/api/v1/candles']);
+
+  for(const action of ['accounts','orders','buy','arbitrary']){
+    const resp=await post({action,params:{}});
+    assert.equal(resp.status,403);
+    assert.equal((await resp.json()).code,'ROUTE_NOT_ALLOWED');
+  }
+  for(const invalid of [
+    {action:'prices',params:{symbols:'../'}},
+    {action:'prices',params:{symbols:'005930',orderId:'23'}},
+    {action:'candles',params:{symbol:'AAPL',interval:'1m'}},
+    {action:'calendar',params:{market:'UNKNOWN',date:'2026-10-15'}},
+    {action:'prices',params:{symbols:'005930,005930'}},
+    {action:'indicatorPrices',params:{symbols:'TSLA'}},
+    {action:'prices',params:{symbols:'005930'},secret:'oops'},
+  ]) {
+    const res=await post(invalid);
+    assert.equal(res.status,400);
+  }
+  assert.equal(oauthCount,1,'invalid route never mints OAuth');
+  resourceStatus=403;
+  const denied=await post({action:'prices',params:{symbols:'005930'}});
+  assert.equal(denied.status,502);
+  const denial=await denied.json();
+  assert.equal(denial.status,403);
+  assert.equal(denial.code,'ip-not-allowed');
+  assert.doesNotMatch(JSON.stringify(denial),/secret|raw-secret|access_token|fake-id|fake-secret|Bearer/);
+
+  resourceStatus=200;
+  rejectOnce=true;
+  const refreshed=await post({action:'prices',params:{symbols:'005930'}});
+  assert.equal(refreshed.status,200);
+  assert.equal(oauthCount,2,'only refresh on resource 401');
+
+  const huge=await fetch(address+'/v1/fetch',{
+    method:'POST',headers:{'x-relay-key':shared},
+    body:JSON.stringify({action:'prices',params:{symbols:'005930'},padding:'x'.repeat(5000)})
+  });
+  assert.equal(huge.status,413);
+  const notFound=await fetch(address+'/v1/orders',{method:'POST',headers:{'x-relay-key':shared}});
+  assert.equal(notFound.status,404);
+  console.log('Toss read-only free static-IP relay: secure routes, OAuth caching, IP 403, limit and rejection tests passed');
+}finally{
+  await new Promise(resolve=>server.close(resolve));
+}
