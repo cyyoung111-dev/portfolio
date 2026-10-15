@@ -18,9 +18,12 @@ const mockFetch=async (url,opts)=>{
   receivedPaths.push(u.pathname);
   assert.equal(opts.method,'GET');
   assert.match(opts.headers.Authorization,/^Bearer secret-token-/);
-  if(rejectOnce){rejectOnce=false;return new Response(JSON.stringify({error:{code:'token-revoked'}}),{status:401})}
+  if(rejectOnce){const kind=rejectOnce;rejectOnce=false;return new Response(kind==='empty'?'':(kind==='html'?'<h1>Unauthorized</h1>':JSON.stringify({error:{code:'token-revoked'}})),{status:401})}
   if(resourceStatus===403){
     return new Response(JSON.stringify({error:{code:'ip-not-allowed',message:'raw-secret-do-not-leak'}}),{status:403});
+  }
+  if(resourceStatus==='top403'){
+    return new Response(JSON.stringify({code:'ip-not-allowed',message:'raw-secret-do-not-leak'}),{status:403});
   }
   priceCount++;
   return new Response(JSON.stringify({result:[{symbol:'005930',lastPrice:'12345',currency:'KRW',timestamp:'2026-10-15T01:00:00Z'}]}),{status:200});
@@ -81,11 +84,22 @@ try{
   assert.equal(denial.code,'ip-not-allowed');
   assert.doesNotMatch(JSON.stringify(denial),/secret|raw-secret|access_token|fake-id|fake-secret|Bearer/);
 
+  resourceStatus='top403';
+  const topDenial=await post({action:'prices',params:{symbols:'005930'}});
+  assert.equal(topDenial.status,502);
+  assert.equal((await topDenial.json()).code,'ip-not-allowed','top-level Toss 403 code retained');
   resourceStatus=200;
   rejectOnce=true;
   const refreshed=await post({action:'prices',params:{symbols:'005930'}});
   assert.equal(refreshed.status,200);
+
   assert.equal(oauthCount,2,'only refresh on resource 401');
+  for(const kind of ['empty','html']){
+    rejectOnce=kind;
+    const result=await post({action:'prices',params:{symbols:'005930'}});
+    assert.equal(result.status,200,'401 '+kind+' should refresh despite non-JSON response');
+  }
+  assert.equal(oauthCount,4,'401 empty/HTML causes one refresh each');
 
   const huge=await fetch(address+'/v1/fetch',{
     method:'POST',headers:{'x-relay-key':shared},
