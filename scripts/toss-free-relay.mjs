@@ -133,7 +133,10 @@ export function createTossRelay({clientId,clientSecret,sharedKey,fetchImpl=fetch
       }else{
         try{await response.body?.cancel?.()}catch{}
       }
-      throw reject('TOSS_OAUTH_'+errorCode(failure,response.status),502);
+      // Normalize only the whitelisted provider classification for the public code field.
+      // Never return upstream messages, tokens, or raw provider-controlled text.
+      const normalized=errorCode(failure,response.status).replaceAll('-','_').toUpperCase();
+      throw reject('TOSS_OAUTH_'+normalized,502);
     }
     const result=await readJsonLimited(response,32768);
     if(result?.token_type!=='Bearer'||typeof result.access_token!=='string'
