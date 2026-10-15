@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.226
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.227
 //
-//  v9.226 변경사항 (2026.10.15):
+//  v9.227 변경사항 (2026.10.15):
 //  - 미완료 과거일 한 날짜만 사전진단·백업·공식 종가 전량 검증 후 제한 복구.
 //  v9.225 변경사항 (2026.10.15):
 //  - standalone 편집기에서 UI 없이 누락된 23:10/00:30 백필 트리거만 명시적으로 설치.
@@ -2016,7 +2016,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.226', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.227', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5759,7 +5759,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.226' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.227' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11662,7 +11662,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.226',
+    gasVersion: '9.227',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11709,7 +11709,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.226' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.227' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -12210,6 +12210,22 @@ function _targetedKrxRecoveryPreflight_(date, runDate) {
   if (!(stored.expectedHeldCodes > 0) || stored.snapshotRows !== 0
       || stored.officialExactDateCodes !== 0 || stored.nonOfficialHeldCodes !== 0)
     return {ready:false,reason:'TARGET_NOT_EMPTY'};
+  // The strict one-date writer rejects US/other exchange sessions when their
+  // actual price day differs from this KRX date. Reject that portfolio topology
+  // already in the dry-run, BEFORE creating the two-sheet safety backups.
+  // Ordinary multi-market closes continue to use their existing code path.
+  var heldItems;
+  try {
+    var ss = getss(), catalog = getCodeItems(ss);
+    heldItems = _getDailyHeldCodeItems(ss, date, catalog);
+  } catch(ignoreHoldings) { return {ready:false,reason:'TARGET_HOLDINGS_UNVERIFIED'}; }
+  if (!Array.isArray(heldItems) || !heldItems.length)
+    return {ready:false,reason:'TARGET_HOLDINGS_UNVERIFIED'};
+  var hasForeign = heldItems.some(function(item) {
+    var code = _cleanCode(item && item.code) || String(item && item.code || '').trim();
+    return code && !_isFundCode(code) && !_isKrxDailyCloseTarget_(item);
+  });
+  if (hasForeign) return {ready:false,reason:'TARGET_FOREIGN_DATE_CONFLICT'};
   var source;
   try { source = JSON.parse(handleGetKrxHeldCloseCoverage(date).getContent()); }
   catch(ignore) { return {ready:false,reason:'SOURCE_READ_FAILED'}; }
@@ -15291,7 +15307,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.226' });
+    return jsonOk({ settings: settings, gasVersion: '9.227' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15321,7 +15337,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.226'
+      gasVersion: '9.227'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
