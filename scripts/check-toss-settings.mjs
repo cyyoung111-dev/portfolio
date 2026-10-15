@@ -476,7 +476,7 @@ let safeDiagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getConten
 assert.equal(safeDiagnostic.ok, true);
 assert.deepEqual([safeDiagnostic.oauth.source, safeDiagnostic.oauth.status, safeDiagnostic.oauth.code, safeDiagnostic.freshOAuthTested],
   ['CACHE', null, 'CACHED_TOKEN_REUSED', false], '기존 토큰 재사용은 OAuth HTTP 200으로 오표시하지 않음');
-assert.equal(safeDiagnostic.gasVersion, '9.226');
+assert.equal(safeDiagnostic.gasVersion, '9.227');
 assert.equal(cachedOauthIssues, 0, '캐시 유효 시 진단 버튼 신규 발급 0회');
 assert.equal(resourceReads, 6, '시세 smoke 포함 기존 진단 호출은 수행');
 assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken, 'reused-token');
