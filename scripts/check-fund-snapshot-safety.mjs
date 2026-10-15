@@ -1812,8 +1812,9 @@ context._readRawSnapshotRowsByDate=originalRawReader;
 
 
 // Operational topology regression (#507): on 2026-09-15, the production
-// Snapshot contains 77 rows spanning 39 unique codes: 38 extra rows, 35
-// conflicting valuation/source groups. Use synthetic values only; NEVER
+// Snapshot contains 77 rows spanning 39 unique codes, 35 duplicated code
+// groups (32 pairs, 3 triples), and 38 surplus rows. All 35 groups conflict.
+// Use synthetic values only; NEVER
 // copy real account positions or financial amounts into repository tests.
 {
   const collisionDate='2026-09-15';
@@ -1822,32 +1823,41 @@ context._readRawSnapshotRowsByDate=originalRawReader;
   syntheticCodes.forEach((code,i)=>{
     const original=snap(collisionDate,code,1000+i,'KRX');
     fixtures.push(original);
-    // Exactly 38 duplicate groups; 35 are genuinely conflicting and 3
-    // are byte-identical. The 39th code has no collision.
-    if (i===0) fixtures.push(snap(collisionDate,code,1000+i,'PRICE_HISTORY')); // source-only conflict
+    // Exactly 35 duplicate groups: the first three have 3 rows each,
+    // the next 32 have 2 rows each, and four codes are unique.
+    // The first pair differs ONLY in source; the remaining 34 groups
+    // include different prices/amounts as well as provenance.
+    if (i===0) fixtures.push(snap(collisionDate,code,1000+i,'PRICE_HISTORY'));
     else if (i<35) fixtures.push(snap(collisionDate,code,2000+i,'PRICE_HISTORY'));
-    else if(i<38) fixtures.push(clone(original));
+    if (i<3) fixtures.push(snap(collisionDate,code,3000+i,'TOSS'));
   });
   assert.equal(fixtures.length,77,'live-observed row-count topology');
+  assert.equal(fixtures.filter(r=>r[1]===syntheticCodes[0]).length,3,
+    'three-way duplicate group must be part of the observed topology');
+  assert.equal(syntheticCodes.filter(code=>fixtures.filter(r=>r[1]===code).length===3).length,3,
+    'actual topology contains three triples, not 38 duplicate code groups');
   assert.equal(new Set(fixtures.map(r=>r[1])).size,39,'live-observed unique-code topology');
   const sourceSheet=new Sheet([header,...fixtures]);
   const sourceSs=ssFor({'스냅샷':sourceSheet});
   const savedRegistry=scriptProperties.get('system_backup_registry_v1');
   const plan=clone(context._snapshotRewritePlan(sourceSs,collisionDate,[],[]));
-  assert.equal(plan.duplicateGroups.length,38,'38 duplicate code groups must not disappear under deduped signature');
+  assert.equal(plan.duplicateGroups.length,35,'35 duplicated code groups must not disappear under deduped signature');
   assert.equal(plan.unsafe.length,35,'35 conflicting source/valuation groups must remain unresolved');
-  assert.equal(plan.duplicateGroups.filter(x=>x.classification==='EXACT_DUPLICATE').length,3,
-    'only three exact duplicates can be automatically resolved');
+  assert.equal(plan.duplicateGroups.filter(x=>x.classification==='EXACT_DUPLICATE').length,0,
+    'no conflicting duplicate group is auto-resolvable as an exact duplicate');
   assert(plan.unsafe.every(x=>x.classification==='UNRESOLVED_CONFLICT'));
   const sourceOnlyKey=syntheticCodes[0];
   const sourceOnlyRows=fixtures.filter(r=>r[1]===sourceOnlyKey);
-  assert.equal(sourceOnlyRows.length,2,'one synthetic collision changes only the provenance field');
+  assert.equal(sourceOnlyRows.length,3,'one source-only pair is accompanied by an independent third valuation');
   assert.deepEqual(sourceOnlyRows[0].slice(0,10),sourceOnlyRows[1].slice(0,10),
     'source-only rows must have identical quantities, prices, valuation and returns');
   assert.notEqual(sourceOnlyRows[0][10],sourceOnlyRows[1][10],
     'source-only collision must differ in source');
   assert.equal(plan.duplicateGroups.find(x=>x.code===sourceOnlyKey)?.classification,
     'UNRESOLVED_CONFLICT','different provenance alone must remain a protected conflict');
+  assert.equal(clone(context._classifyRawSnapshotDuplicateGroups(
+    collisionDate,sourceOnlyRows.slice(0,2),[],''))[0].classification,
+    'UNRESOLVED_CONFLICT','standalone equal-valuation/different-source pair must be protected');
   assert.equal(plan.needsRewrite,false,'unverified conflicting valuations must block wholesale rewrite');
   assert.equal(sourceSheet.writes,0,'dry-run must never mutate operational-like Sheet');
   assert.equal(scriptProperties.get('system_backup_registry_v1'),savedRegistry,
@@ -1862,12 +1872,15 @@ context._readRawSnapshotRowsByDate=originalRawReader;
       return JSON.stringify(signature);
     };
     const sourceBlind=clone(context._snapshotRewritePlan(sourceSs,collisionDate,[],[]));
-    assert.equal(sourceBlind.unsafe.length,34,
-      'source-blind mutation must incorrectly discard exactly one protected conflict');
-    assert.equal(sourceBlind.duplicateGroups.find(x=>x.code===sourceOnlyKey)?.classification,
-      'EXACT_DUPLICATE','source-blind comparator falsely classifies source-only conflict as duplicate');
-    assert.throws(()=>assert.equal(sourceBlind.unsafe.length,35),
-      /34 !== 35/, 'independent 35-conflict assertion must fail if only source is ignored');
+    const sourceOnlyPair=sourceOnlyRows.slice(0,2);
+    const faultyPair=clone(context._classifyRawSnapshotDuplicateGroups(
+      collisionDate,sourceOnlyPair,[],''))[0]);
+    assert.equal(faultyPair.classification,'EXACT_DUPLICATE',
+      'source-blind comparator must falsely collapse two equal-amount/different-source rows');
+    assert.throws(()=>assert.equal(faultyPair.classification,'UNRESOLVED_CONFLICT'),
+      /EXACT_DUPLICATE/, 'independent source-only pair protection must fail under source-blind mutation');
+    assert.equal(sourceBlind.unsafe.length,35,
+      'third distinct row should keep the full production-topology group unsafe even under this mutation');
 
     // Mutation: a faulty comparator that ignores price/source must cause
     // the independent expected 35-conflict invariant to fail.
