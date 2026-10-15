@@ -1,6 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.224
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.225
 //
+//  v9.225 변경사항 (2026.10.15):
+//  - standalone 편집기에서 UI 없이 누락된 23:10/00:30 백필 트리거만 명시적으로 설치.
 //  v9.224 변경사항 (2026.10.14):
 //  - KRX 누락일 백필 커서 순환으로 당일 실패 시 과거 날짜 기아 방지.
 //  v9.223 변경사항 (2026.10.14):
@@ -2010,7 +2012,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.224', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.225', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5753,7 +5755,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.224' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.225' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11628,7 +11630,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.224',
+    gasVersion: '9.225',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11675,7 +11677,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.224' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.225' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15218,7 +15220,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.224' });
+    return jsonOk({ settings: settings, gasVersion: '9.225' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15248,7 +15250,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.224'
+      gasVersion: '9.225'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -16547,6 +16549,34 @@ function showPortfolioMenuGuide() {
 
 function showManualPriceHistoryPolicy() {
   SpreadsheetApp.getUi().alert('수동가격은 날짜별 이력을 보존합니다. 고정 정책이며 변경 옵션이 아닙니다.');
+}
+
+// Run explicitly from the standalone Apps Script editor. No spreadsheet UI,
+// data/Properties writes, existing-trigger deletion, or immediate backfill.
+function installMissingHistoricalBackfillTriggers() {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var created = 0;
+    [
+      {handler:'runPortfolioHistoricalBackfill2240', hour:23, minute:10},
+      {handler:'runPortfolioHistoricalBackfill0010', hour:0, minute:30}
+    ].forEach(function(spec) {
+      var exists = ScriptApp.getProjectTriggers().some(function(t) { return t.getHandlerFunction() === spec.handler; });
+      if (exists) return;
+      ScriptApp.newTrigger(spec.handler).timeBased().everyDays(1)
+        .inTimezone(CONFIG.TIMEZONE).atHour(spec.hour).nearMinute(spec.minute).create();
+      created++;
+    });
+    var handlers = ScriptApp.getProjectTriggers().map(function(t) { return t.getHandlerFunction(); });
+    var result = {mode:'TRIGGER_INSTALL_ONLY', created:created,
+      historicalBackfillCount:handlers.filter(function(fn) { return fn === 'runPortfolioHistoricalBackfill2240'; }).length,
+      midnightBackfillCount:handlers.filter(function(fn) { return fn === 'runPortfolioHistoricalBackfill0010'; }).length};
+    Logger.log(JSON.stringify(result));
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function repairMissingDailyTriggersPrompt() {
