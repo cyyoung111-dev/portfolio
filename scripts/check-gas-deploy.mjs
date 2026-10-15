@@ -166,6 +166,174 @@ for (const field of [
   assert.ok(statusApiSource.includes(field),
     'getAutomationStatus must distinguish missing/duplicate nightly worker: ' + field);
 }
+
+// P2 regression group: run the production Settings response contract.
+// Checking unrelated gasVersion literals in a full file can miss the
+// actual getSettings handler silently omitting its version.
+function verifyRealSettingsVersion(source = triggerDefinition('handleGetSettings')) {
+  const ctx = vm.createContext({
+    getss: () => ({}),
+    _settlePendingCodeDeleteForRead_: () => {},
+    _readSettingsMap: () => ({EDITABLE_PRICES:[]}),
+    _removeSecretsFromSettings: () => {},
+    _getApiKeyStatus: () => ({}),
+    jsonOk: result => result,
+    jsonError: message => { throw Error('getSettings runtime failed: ' + message); },
+  });
+  new vm.Script(source).runInContext(ctx);
+  const response = ctx.handleGetSettings();
+  assert.equal(response.gasVersion, activeGasVersion,
+    'actual handleGetSettings must return the approved GAS version');
+  assert.ok(response.settings && typeof response.settings === 'object',
+    'getSettings must return a settings object');
+}
+verifyRealSettingsVersion();
+const correctSettingsFunction = triggerDefinition('handleGetSettings');
+const missingSettingsVersion = correctSettingsFunction.replace(
+  /gasVersion:\s*['"]\d+\.\d+['"]/, 'version: "unversioned"');
+assert.notEqual(missingSettingsVersion, correctSettingsFunction);
+assert.throws(() => verifyRealSettingsVersion(missingSettingsVersion),
+  /actual handleGetSettings/, 'omitted getSettings gasVersion must fail independently of bootstrap');
+
+// Use the true production CONFIG object for schedule testing, not a fixture
+// that unconditionally supplies KST even after a production timezone change.
+const productionConfigMatch = currentGasSource.match(/\bvar\s+CONFIG\s*=\s*\{[\s\S]*?\n\};/);
+assert.ok(productionConfigMatch, 'production CONFIG literal must be available');
+const productionConfigSource = productionConfigMatch[0];
+function verifyProductionTimezone(source = productionConfigSource) {
+  const ctx = vm.createContext({});
+  new vm.Script(source).runInContext(ctx);
+  assert.equal(ctx.CONFIG.TIMEZONE, 'Asia/Seoul',
+    'production CONFIG.TIMEZONE must be Asia/Seoul for KST midnight triggers');
+  return ctx.CONFIG.TIMEZONE;
+}
+const productionTimezone = verifyProductionTimezone();
+const driftedTimezone = productionConfigSource.replace(
+  /TIMEZONE:\s*['"]Asia\/Seoul['"]/, "TIMEZONE: 'UTC'");
+assert.notEqual(driftedTimezone, productionConfigSource);
+assert.throws(() => verifyProductionTimezone(driftedTimezone),
+  /production CONFIG.TIMEZONE/, 'UTC regression must be rejected before review');
+
+// Run actual production trigger discovery + API/menu diagnostics against
+// missing, duplicate, and healthy trigger sets. All reads must be side-effect
+// free. Only external data readers are mocked; inspected handlers are real.
+const statusFunctions = [
+  '_ensureSnapshotIntegrityChangeTrigger',
+  '_ensureDailyTriggers',
+  '_getAutomationStatusData',
+  'checkDailyAutomationStatus',
+];
+const requiredHandlers = [
+  'runCodeNormalize1550', 'syncMortgageFromSchedule',
+  'runDailyPortfolioClose1900', 'runPortfolioCloseWatchdog2030',
+  'runPortfolioCloseBackfill2210', 'runPortfolioHistoricalBackfill2240',
+  'runPortfolioHistoricalBackfill0010', 'handleSnapshotIntegritySheetChange',
+];
+function runRealDiagnostics({
+  missing = [], duplicate = '', overridden = {},
+} = {}) {
+  const calls = [], alerts = [], logs = [];
+  const handlerNames = requiredHandlers.filter(x => !missing.includes(x));
+  if (duplicate) handlerNames.push(duplicate);
+  const installed = handlerNames.map(name => ({
+    getHandlerFunction: () => name,
+    getTriggerSourceId: () => 'unit-test-spreadsheet',
+  }));
+  const blockedMutation = name => {
+    calls.push(name);
+    throw Error('read-only diagnostic attempted mutation: ' + name);
+  };
+  const props = new Map([['portfolio_close_last_result', JSON.stringify({
+    runDate:'2026-10-14', priceDate:'2026-10-14',
+    priceOk:true, fundOk:true, errors:[],
+  })]]);
+  const ctx = vm.createContext({
+    ScriptApp: {
+      getProjectTriggers: () => installed.slice(),
+      newTrigger: () => blockedMutation('newTrigger'),
+      deleteTrigger: () => blockedMutation('deleteTrigger'),
+    },
+    getss: () => ({
+      getId: () => 'unit-test-spreadsheet',
+      getSheetByName: () => ({}),
+    }),
+    PropertiesService: {getScriptProperties: () => ({
+      getProperty: key => props.get(key) ?? null,
+      setProperty: () => blockedMutation('setProperty'),
+      deleteProperty: () => blockedMutation('deleteProperty'),
+    })},
+    LockService: {getScriptLock: () => blockedMutation('getScriptLock')},
+    Logger: {log: message => logs.push(String(message))},
+    SpreadsheetApp: {getUi: () => ({alert: message => alerts.push(String(message))})},
+    Utilities: {formatDate: () => '2026-10-14 23:00:00'},
+    _getLatestLifecycleValidSnapshotDate: () => '2026-10-14',
+    _getLatestDateInColumn: () => '2026-10-14',
+    _getOfficialKrxPriceHistoryLastDate: () => '2026-10-14',
+    _portfolioCloseRunState: () => ({state:'COMPLETE'}),
+    _fundAttemptDiagnosticState_: () => null,
+    _expectedConfirmedSnapshotDate: () => '2026-10-14',
+    _expectedPortfolioCloseRunDate: () => '2026-10-14',
+    _isPortfolioCloseRunStale: () => false,
+    _readPendingKrxCloseDates_: () => [],
+  });
+  new vm.Script(productionConfigSource).runInContext(ctx);
+  assert.equal(ctx.CONFIG.TIMEZONE, productionTimezone);
+  for (const fn of statusFunctions) {
+    new vm.Script(overridden[fn] ?? triggerDefinition(fn)).runInContext(ctx);
+  }
+  const data = JSON.parse(JSON.stringify(ctx._getAutomationStatusData()));
+  ctx.checkDailyAutomationStatus();
+  assert.equal(alerts.length, 1, 'diagnostic menu must render one status alert');
+  assert.equal(calls.length, 0, 'diagnostic API and menu must never mutate triggers or properties');
+  assert.equal(data.gasVersion, activeGasVersion);
+  assert.ok(data.trigger && typeof data.trigger === 'object');
+  return {data, message:alerts[0], logs, calls};
+}
+const normalDiagnostics = runRealDiagnostics();
+assert.equal(normalDiagnostics.data.overallStatus, 'NORMAL');
+assert.equal(normalDiagnostics.data.trigger.hasMidnightBackfill, true);
+assert.equal(normalDiagnostics.data.trigger.midnightBackfillCount, 1);
+assert.match(normalDiagnostics.message, /트리거는 정상 집합/);
+for (const [handler, flag, dupFlag, countKey, label] of [
+  ['runPortfolioCloseBackfill2210','hasBackfill','hasDuplicateBackfillTriggers','backfillCount','22:10'],
+  ['runPortfolioHistoricalBackfill2240','hasHistoricalBackfill','hasDuplicateHistoricalBackfillTriggers','historicalBackfillCount','23:10'],
+  ['runPortfolioHistoricalBackfill0010','hasMidnightBackfill','hasDuplicateMidnightBackfillTriggers','midnightBackfillCount','00:30'],
+]) {
+  const absent = runRealDiagnostics({missing:[handler]});
+  assert.equal(absent.data.overallStatus,'ERROR',handler + ' missing must report ERROR');
+  assert.equal(absent.data.trigger[flag],false,handler + ' missing status must be false');
+  assert.equal(absent.data.trigger[countKey],0);
+  assert.ok(absent.message.includes(handler + '(' + label + ')')
+    && absent.message.includes('트리거 상태 이상')
+    && absent.message.includes(handler + '(' + label + ')')
+      && absent.message.slice(absent.message.indexOf(handler + '(' + label + ')')).includes('없음'),
+    handler + ' missing must be visible in the menu');
+  const doubled = runRealDiagnostics({duplicate:handler});
+  assert.equal(doubled.data.overallStatus,'ERROR',handler + ' duplicate must report ERROR');
+  assert.equal(doubled.data.trigger[dupFlag],true);
+  assert.equal(doubled.data.trigger[countKey],2);
+  assert.ok(doubled.message.includes(handler + '(' + label + ')')
+    && doubled.message.includes('중복 2개'),handler + ' duplicate must be visible');
+}
+// Representative mutation: a diagnostic reporting midnight registration as
+// always true must fail while the real installed fixture has no such trigger.
+const apiOriginal = triggerDefinition('_getAutomationStatusData');
+const apiRegressed = apiOriginal.replace(
+  'hasMidnightBackfill: !!trig.hasMidnightBackfill',
+  'hasMidnightBackfill: true');
+assert.notEqual(apiOriginal,apiRegressed);
+const broken = runRealDiagnostics({
+  missing:['runPortfolioHistoricalBackfill0010'],
+  overridden:{_getAutomationStatusData:apiRegressed},
+});
+assert.equal(broken.data.trigger.hasMidnightBackfill,true);
+assert.notEqual(broken.data.trigger.hasMidnightBackfill,
+  runRealDiagnostics({missing:['runPortfolioHistoricalBackfill0010']}).data.trigger.hasMidnightBackfill,
+  'mutation must be distinguishable from correct production diagnostic');
+assert.throws(() => assert.equal(broken.data.trigger.hasMidnightBackfill,false),
+  /true !== false/, 'diagnostic always-true regression must be caught by fixture assertion');
+console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
+
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
 const approvedFullSourceBlob='1eddb8c3ac348751742ebf1617ca20295ee3a2a9';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
