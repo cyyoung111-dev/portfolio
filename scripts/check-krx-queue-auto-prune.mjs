@@ -61,7 +61,8 @@ assert.deepEqual(a.proofCalls,initial.slice(0,2));
 assert.deepEqual(a.retryCalls[0].active,['2026-10-12','2026-10-13']);
 assert.equal(a.retryCalls[0].includeToday,true);
 assert.equal(a.map.has(leaseKey),false,'lease must always release');
-assert.ok(a.map.has(resultKey));
+assert.ok(a.map.has('portfolio_close_historical_backfill_last_result'));
+assert.equal(a.map.has(resultKey),false,'historical fallback must not overwrite same-day diagnostic');
 assert.equal(a.writes.filter(([key])=>key===queueKey).length,1);
 assert.equal(a.writes.some(([key])=>/snapshot_|fund|portfolio_close_run/.test(key)),false);
 
@@ -95,5 +96,51 @@ assert.equal(a.context._pruneVerifiedHistoricalKrxPending_('mine','2026-10-14').
 assert.deepEqual(JSON.parse(a.map.get(queueKey)),initial.slice(2));
 assert.equal(a.context._pruneVerifiedHistoricalKrxPending_('mine','2026-10-14').cleared,0);
 assert.deepEqual(JSON.parse(a.map.get(queueKey)),initial.slice(2),'missing days must not be removed by repeated checks');
+
+
+function checkRotation(dates, cursor, includeToday, failure) {
+  const state=new Map([['queue',JSON.stringify(dates)],['cursor',cursor]]);
+  const props={getProperty:k=>state.get(k)??null,setProperty:(k,v)=>state.set(k,String(v)),deleteProperty:k=>state.delete(k)};
+  const calls=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'cursor',
+    _readPendingKrxCloseDates_:()=>JSON.parse(state.get('queue')),
+    saveDailyPriceHistory:date=>{calls.push(date);if(failure)throw Error('stale source');return {ok:true,date,rows:39};},
+    _portfolioFundAtomic_:fn=>fn(props),
+    _reconcileRecoveredPortfolioPrice_:()=>true,
+    _completePendingKrxCloseDate_:(_,date)=>state.set('queue',JSON.stringify(JSON.parse(state.get('queue')).filter(x=>x!==date))),
+    _appendPortfolioCloseSyncLog:()=>{}
+  });
+  vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+  for(let i=0;i<dates.length;i++)ctx._retryOnePendingKrxClose_(props,'2026-10-14',includeToday);
+  return {calls,queue:JSON.parse(state.get('queue'))};
+}
+const pending=['2026-10-12','2026-10-13','2026-10-14'];
+assert.deepEqual(checkRotation(pending,'',true,true).calls,['2026-10-14','2026-10-14','2026-10-14']);
+assert.deepEqual(checkRotation(pending,'2026-10-14',true,true).calls,['2026-10-14','2026-10-14','2026-10-14']);
+assert.deepEqual(checkRotation(pending,'',false,true).calls,['2026-10-12','2026-10-13','2026-10-12']);
+assert.deepEqual(checkRotation(pending,'',true,true).queue,pending);
+assert.deepEqual(checkRotation(pending,'',true,false).queue,[],'urgent worker may process history after current day has been cleared');
+assert.deepEqual(checkRotation(pending,'',false,false).queue,['2026-10-14'],'historical worker must not consume current-day queue');
+function checkNextDayReset() {
+  const state=new Map([['queue',JSON.stringify(['2026-10-12','2026-10-14','2026-10-15'])],['cursor',''],['portfolio_close_backfill_last_was_today','2026-10-14']]);
+  const props={getProperty:k=>state.get(k)??null,setProperty:(k,v)=>state.set(k,String(v)),deleteProperty:k=>state.delete(k)};
+  const calls=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'cursor',
+    _readPendingKrxCloseDates_:()=>JSON.parse(state.get('queue')),
+    saveDailyPriceHistory:date=>{calls.push(date);throw Error('unavailable');},
+    _portfolioFundAtomic_:fn=>fn(props),
+    _appendPortfolioCloseSyncLog:()=>{}
+  });
+  vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+  ctx._retryOnePendingKrxClose_(props,'2026-10-15',true);
+  ctx._retryOnePendingKrxClose_(props,'2026-10-15',true);
+  assert.deepEqual(calls,['2026-10-15','2026-10-15'],'urgent worker always prioritizes queued current day');
+  ctx._retryOnePendingKrxClose_(props,'2026-10-15',false);
+  assert.deepEqual(calls,['2026-10-15','2026-10-15','2026-10-12'],'historical worker progresses independently');
+}
+checkNextDayReset();
+
 
 console.log('KRX backfill complete-date pruning: live functions/leases/safety/liveness/rollover PASS');

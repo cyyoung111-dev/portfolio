@@ -106,8 +106,8 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];")
-    || !source.includes("gasVersion: '9.223'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.223 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.224'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.224 계약이 누락됐습니다.');
   process.exit(1);
 }
 
@@ -258,7 +258,7 @@ if (!ensureDailyTriggersMatch
   process.exit(1);
 }
 
-if (!source.includes("integrity-change-v6-close-watchdog-backfill")
+if (!source.includes("integrity-change-v8-close-watchdog-midnight-backfill")
     || !source.includes('function _expectedPortfolioCloseRunDate()')
     || !source.includes('function _isPortfolioCloseRunStale(portfolioClose)')
     || !source.includes('portfolioCloseRunStale')
@@ -409,5 +409,21 @@ if (!source.includes('PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY')
 if (!source.includes('krxCloseRequired: !!closeVerification.required')
     || !source.includes('last.krxCloseRequired === false')) {
   console.error('❌ 해외 전용 포트폴리오의 정상 마감 watchdog 중복 재실행 방지 계약 누락');
+  process.exit(1);
+}
+
+
+const setupTriggerBody = source.match(/function setupTrigger\(\) \{([\s\S]*?)\n\}\n/);
+const dailyCloseBody = source.match(/function runDailyPortfolioClose1900\(\) \{([\s\S]*?)\n\}\n/);
+const backfillLeaseBody = source.match(/function _runPendingKrxBackfillWithLease_\([\s\S]*?\n\}\n/);
+if (!setupTriggerBody || !setupTriggerBody[1].includes("fn === 'runPortfolioHistoricalBackfill0010'")
+    || !setupTriggerBody[1].includes('_ensurePortfolioHistoricalBackfill0010Trigger(true)')
+    || !dailyCloseBody || !dailyCloseBody[1].includes('_ensurePortfolioHistoricalBackfill0010Trigger(true)')
+    || !source.includes('hasDuplicateMidnightBackfillTriggers')
+    || !source.includes('.atHour(0).nearMinute(30).create()')
+    || !source.includes('result.attempted && result.date !== runDate')
+    || !source.includes('historicalBackfillLastResult: parseProperty')
+    || !backfillLeaseBody || !backfillLeaseBody[0].includes("'portfolio_close_historical_backfill_last_result'")) {
+  console.error('❌ 00:10 트리거 재설치·19시 자가복구·독립 진단 회귀 계약 누락');
   process.exit(1);
 }

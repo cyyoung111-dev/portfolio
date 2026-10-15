@@ -1,6 +1,8 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.223
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.224
 //
+//  v9.224 변경사항 (2026.10.14):
+//  - KRX 누락일 백필 커서 순환으로 당일 실패 시 과거 날짜 기아 방지.
 //  v9.223 변경사항 (2026.10.14):
 //  - pending 해제 전 해당일 Snapshot 수량과 소급 거래원장 보유 수량 일치 필수.
 //  - 22:10 백필이 완료된 과거 KRX 대기일을 2개까지 검산 후 정리하고 누락일을 우선 재처리합니다.
@@ -2008,7 +2010,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.223', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.224', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5751,7 +5753,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.223' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.224' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -5784,6 +5786,38 @@ function _ensurePortfolioCloseBackfillTrigger(autoFix) {
   if (!triggers.length) {
     ScriptApp.newTrigger(handler).timeBased().everyDays(1)
       .inTimezone(CONFIG.TIMEZONE).atHour(22).nearMinute(10).create();
+    triggers = ScriptApp.getProjectTriggers().filter(function(t) {
+      return t.getHandlerFunction() === handler;
+    });
+  }
+  triggers.slice(1).forEach(function(t) { ScriptApp.deleteTrigger(t); });
+  return triggers.length > 0;
+}
+function _ensurePortfolioHistoricalBackfillTrigger(autoFix) {
+  var handler = 'runPortfolioHistoricalBackfill2240';
+  var triggers = ScriptApp.getProjectTriggers().filter(function(t) {
+    return t.getHandlerFunction() === handler;
+  });
+  if (!autoFix) return triggers.length > 0;
+  if (!triggers.length) {
+    ScriptApp.newTrigger(handler).timeBased().everyDays(1)
+      .inTimezone(CONFIG.TIMEZONE).atHour(23).nearMinute(10).create();
+    triggers = ScriptApp.getProjectTriggers().filter(function(t) {
+      return t.getHandlerFunction() === handler;
+    });
+  }
+  triggers.slice(1).forEach(function(t) { ScriptApp.deleteTrigger(t); });
+  return triggers.length > 0;
+}
+function _ensurePortfolioHistoricalBackfill0010Trigger(autoFix) {
+  var handler = 'runPortfolioHistoricalBackfill0010';
+  var triggers = ScriptApp.getProjectTriggers().filter(function(t) {
+    return t.getHandlerFunction() === handler;
+  });
+  if (!autoFix) return triggers.length > 0;
+  if (!triggers.length) {
+    ScriptApp.newTrigger(handler).timeBased().everyDays(1)
+      .inTimezone(CONFIG.TIMEZONE).atHour(0).nearMinute(30).create();
     triggers = ScriptApp.getProjectTriggers().filter(function(t) {
       return t.getHandlerFunction() === handler;
     });
@@ -10156,7 +10190,7 @@ function _pruneVerifiedHistoricalKrxPending_(leaseToken, runDate) {
     return {cleared:cleared.length,reason:'VERIFIED_COMPLETE'};
   });
 }
-function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
+function _runPendingKrxBackfillWithLease_(props, runDate, fromClose, historicalOnly) {
   var token = Utilities.getUuid();
   var acquired = _portfolioFundAtomic_(function(sharedProps) {
     // Check both resources under one ScriptLock. Checking fund outside the lock
@@ -10194,9 +10228,17 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
         Logger.log('[KRX-BACKFILL] 완료일 정합성 점검 보류; 대기열 원본 유지');
       }
     }
-    var result = _retryOnePendingKrxClose_(props, runDate, !fromClose);
-    props.setProperty('portfolio_close_backfill_last_result',
-      JSON.stringify({runDate:runDate, checkedAt:Date.now(), result:result}));
+    var result = _retryOnePendingKrxClose_(props, runDate, !fromClose && !historicalOnly);
+    // Preserve the latest same-day result independently of historical runs.
+    // Historical no-ops must not replace the last meaningful historical attempt.
+    var isHistoricalResult = historicalOnly || (result.attempted && result.date !== runDate);
+    var resultKey = isHistoricalResult
+      ? 'portfolio_close_historical_backfill_last_result'
+      : 'portfolio_close_backfill_last_result';
+    if (!isHistoricalResult || result.attempted) {
+      props.setProperty(resultKey,
+        JSON.stringify({runDate:runDate, checkedAt:Date.now(), result:result}));
+    }
     return result;
   } finally {
     _portfolioFundAtomic_(function(sharedProps) {
@@ -10205,8 +10247,8 @@ function _runPendingKrxBackfillWithLease_(props, runDate, fromClose) {
     });
   }
 }
-// Separate short job: backlog progresses even if every daily 19:00 run uses
-// its full runtime budget. One exact-date replay per invocation.
+// Dedicated 22:10 same-day retry; 22:40 worker advances historical backlog.
+// Each invocation replays at most one exact date.
 function runPortfolioCloseBackfill2210() {
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
@@ -10220,7 +10262,7 @@ function runPortfolioCloseBackfill2210() {
     Logger.log('⚠️ 마감 FUND 성공 마커 사후 정합화 보류: ' + reconcileFundError.message);
   }
   // NAV and close-stage checks both occur inside the shared lease lock.
-  var result = _runPendingKrxBackfillWithLease_(props, runDate, false);
+  var result = _runPendingKrxBackfillWithLease_(props, runDate, false, false);
   // A previous hard timeout can leave no durable close summary. The PRICE
   // replay may create the first partial summary, so retry exact-run NAV
   // reconciliation afterwards as well as before this backfill.
@@ -10236,6 +10278,15 @@ function runPortfolioCloseBackfill2210() {
   if (result && result.ok === false)
     Logger.log('⚠️ 독립 KRX 누락일 복구 실패: ' + String(result.error || result.date || 'unknown'));
   return result;
+}
+// Independent 22:40 historical worker. Shares the same lease and exact-date
+// queue completion checks with the 22:10 worker; never replays today's date.
+function runPortfolioHistoricalBackfill2240() {
+  return _runPendingKrxBackfillWithLease_(PropertiesService.getScriptProperties(), today(), false, true);
+}
+// At 00:30 (nearMinute ±15m), replay only dates before the new calendar date.
+function runPortfolioHistoricalBackfill0010() {
+  return _runPendingKrxBackfillWithLease_(PropertiesService.getScriptProperties(), today(), false, true);
 }
 // Apply recovered PRICE to a matching operational close without inventing
 // NAV success or overwriting a more recent day's summary. The caller must
@@ -10334,13 +10385,14 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday) {
   // next-day continuation opportunity. Each eligible date is retained until
   // its own successful replay and reconciliation.
   var previous = String(props.getProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY) || '');
-  // The 22:10 watchdog follow-up should recover today's failed PRICE before
-  // historical gaps. Otherwise a large backlog can delay the current daily
-  // closing price/Snapshot for many nights.
-  var target = includeToday && candidates.indexOf(currentDate) >= 0 ? currentDate
-    : (candidates.filter(function(date) { return date > previous; })[0] || candidates[0]);
+  // Dedicated 22:10 current-day worker and 22:40 historical worker.
+  // Historical selection retains its persistent round-robin cursor.
+  var historical = candidates.filter(function(date) { return date !== currentDate; });
+  var historyTarget = historical.filter(function(date) { return date > previous; })[0] || historical[0];
+  var todayQueued = includeToday && candidates.indexOf(currentDate) >= 0;
+  var target = todayQueued ? currentDate : historyTarget;
   if (!target) return { attempted:false, remaining:queue.length };
-  props.setProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY, target);
+  if (target !== currentDate) props.setProperty(PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY, target);
   var snapshotProps = ['snapshot_last_success_date','snapshot_last_success_at','snapshot_last_error','snapshot_last_failure_at'];
   var saved = {};
   snapshotProps.forEach(function(key) { saved[key] = props.getProperty(key); });
@@ -11303,7 +11355,8 @@ function setupTrigger() {
       fn === 'runCodeNormalize1550' || fn === 'runEvalPriceUpdate1620' ||
       fn === 'syncMortgageFromSchedule' || fn === 'runDailyFundValuations' ||
       fn === 'runDailyPortfolioClose1900' || fn === 'runPortfolioCloseWatchdog2030' ||
-      fn === 'runPortfolioCloseBackfill2210' || fn === 'onOpen'
+      fn === 'runPortfolioCloseBackfill2210' || fn === 'runPortfolioHistoricalBackfill2240' ||
+      fn === 'runPortfolioHistoricalBackfill0010' || fn === 'onOpen'
     ) ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('runCodeNormalize1550').timeBased().everyDays(1).inTimezone(CONFIG.TIMEZONE).atHour(15).nearMinute(50).create();
@@ -11311,10 +11364,12 @@ function setupTrigger() {
   _ensurePortfolioCloseDailyTrigger(true);
   _ensurePortfolioCloseWatchdogTrigger(true);
   _ensurePortfolioCloseBackfillTrigger(true);
+  _ensurePortfolioHistoricalBackfillTrigger(true);
+  _ensurePortfolioHistoricalBackfill0010Trigger(true);
   _ensureSnapshotIntegrityChangeTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
-  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 KRX 누락일 백필');
-  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 당일 exact-date 종가·Snapshot + 펀드 NAV/평가 통합 마감\n20:30 실패 자동 재시도 watchdog\n22:10 KRX 누락일 독립 백필'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
+  Logger.log('트리거 등록 완료: 01:10 주담대 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 당일 → 23:10 과거 → 00:30 과거 백필');
+  try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 당일 exact-date 종가·Snapshot + 펀드 NAV/평가 통합 마감\n20:30 실패 자동 재시도 watchdog\n22:10 당일 복구\\n23:10 과거 복구\\n00:30 추가 과거 복구'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
 }
 
 function _ensureDailyTriggers(autoFix) {
@@ -11323,10 +11378,14 @@ function _ensureDailyTriggers(autoFix) {
   var hasClose = false;
   var hasWatchdog = false;
   var hasBackfill = false;
+  var hasHistoricalBackfill = false;
+  var hasMidnightBackfill = false;
   var hasIntegrityChange = false;
   var closeCount = 0;
   var watchdogCount = 0;
   var backfillCount = 0;
+  var historicalBackfillCount = 0;
+  var midnightBackfillCount = 0;
   var legacyPriceCount = 0;
   var legacyFundCount = 0;
   ScriptApp.getProjectTriggers().forEach(function(t) {
@@ -11336,6 +11395,8 @@ function _ensureDailyTriggers(autoFix) {
     if (fn === 'runDailyPortfolioClose1900') { hasClose = true; closeCount++; }
     if (fn === 'runPortfolioCloseWatchdog2030') { hasWatchdog = true; watchdogCount++; }
     if (fn === 'runPortfolioCloseBackfill2210') { hasBackfill = true; backfillCount++; }
+    if (fn === 'runPortfolioHistoricalBackfill2240') { hasHistoricalBackfill = true; historicalBackfillCount++; }
+    if (fn === 'runPortfolioHistoricalBackfill0010') { hasMidnightBackfill = true; midnightBackfillCount++; }
     if (fn === 'runEvalPriceUpdate1620') legacyPriceCount++;
     if (fn === 'runDailyFundValuations') legacyFundCount++;
   });
@@ -11345,6 +11406,8 @@ function _ensureDailyTriggers(autoFix) {
   var hasDuplicateCloseTriggers = closeCount > 1;
   var hasDuplicateWatchdogTriggers = watchdogCount > 1;
   var hasDuplicateBackfillTriggers = backfillCount > 1;
+  var hasDuplicateHistoricalBackfillTriggers = historicalBackfillCount > 1;
+  var hasDuplicateMidnightBackfillTriggers = midnightBackfillCount > 1;
 
   if (autoFix) {
     if (!hasClean) {
@@ -11376,6 +11439,20 @@ function _ensureDailyTriggers(autoFix) {
       }).length;
       hasDuplicateBackfillTriggers = backfillCount > 1;
     }
+    if (!hasHistoricalBackfill || hasDuplicateHistoricalBackfillTriggers) {
+      hasHistoricalBackfill = _ensurePortfolioHistoricalBackfillTrigger(true);
+      historicalBackfillCount = ScriptApp.getProjectTriggers().filter(function(t) {
+        return t.getHandlerFunction() === 'runPortfolioHistoricalBackfill2240';
+      }).length;
+      hasDuplicateHistoricalBackfillTriggers = historicalBackfillCount > 1;
+    }
+    if (!hasMidnightBackfill || hasDuplicateMidnightBackfillTriggers) {
+      hasMidnightBackfill = _ensurePortfolioHistoricalBackfill0010Trigger(true);
+      midnightBackfillCount = ScriptApp.getProjectTriggers().filter(function(t) {
+        return t.getHandlerFunction() === 'runPortfolioHistoricalBackfill0010';
+      }).length;
+      hasDuplicateMidnightBackfillTriggers = midnightBackfillCount > 1;
+    }
     if (!hasIntegrityChange) hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(true);
   }
   // hasSave/hasFund는 기존 호출부 호환용 alias입니다. 둘 다 통합 마감 트리거 상태를 뜻합니다.
@@ -11387,34 +11464,42 @@ function _ensureDailyTriggers(autoFix) {
     hasClose: hasClose,
     hasWatchdog: hasWatchdog,
     hasBackfill: hasBackfill,
+    hasHistoricalBackfill: hasHistoricalBackfill,
+    hasMidnightBackfill: hasMidnightBackfill,
     hasIntegrityChange: hasIntegrityChange,
     closeCount: closeCount,
     watchdogCount: watchdogCount,
     backfillCount: backfillCount,
+    historicalBackfillCount: historicalBackfillCount,
+    midnightBackfillCount: midnightBackfillCount,
     legacyPriceCount: legacyPriceCount,
     legacyFundCount: legacyFundCount,
     hasLegacySplitTriggers: hasLegacySplitTriggers,
     hasDuplicateCloseTriggers: hasDuplicateCloseTriggers,
     hasDuplicateWatchdogTriggers: hasDuplicateWatchdogTriggers,
-    hasDuplicateBackfillTriggers: hasDuplicateBackfillTriggers
+    hasDuplicateBackfillTriggers: hasDuplicateBackfillTriggers,
+    hasDuplicateHistoricalBackfillTriggers: hasDuplicateHistoricalBackfillTriggers,
+    hasDuplicateMidnightBackfillTriggers: hasDuplicateMidnightBackfillTriggers
   };
 }
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v6-close-watchdog-backfill';
+  var checkToken = dateStr + '|integrity-change-v8-close-watchdog-midnight-backfill';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
     var needsRepair = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund
-      || !before.hasWatchdog || !before.hasBackfill || !before.hasIntegrityChange
+      || !before.hasWatchdog || !before.hasBackfill || !before.hasHistoricalBackfill || !before.hasMidnightBackfill || !before.hasIntegrityChange
       || before.hasLegacySplitTriggers || before.hasDuplicateCloseTriggers
-      || before.hasDuplicateWatchdogTriggers || before.hasDuplicateBackfillTriggers;
+      || before.hasDuplicateWatchdogTriggers || before.hasDuplicateBackfillTriggers
+      || before.hasDuplicateHistoricalBackfillTriggers || before.hasDuplicateMidnightBackfillTriggers;
     var after = needsRepair ? _ensureDailyTriggers(true) : before;
     var healthy = after.hasClean && after.hasSave && after.hasMortgage && after.hasFund
-      && after.hasWatchdog && after.hasBackfill && after.hasIntegrityChange
+      && after.hasWatchdog && after.hasBackfill && after.hasHistoricalBackfill && after.hasMidnightBackfill && after.hasIntegrityChange
       && !after.hasLegacySplitTriggers && !after.hasDuplicateCloseTriggers
-      && !after.hasDuplicateWatchdogTriggers && !after.hasDuplicateBackfillTriggers;
+      && !after.hasDuplicateWatchdogTriggers && !after.hasDuplicateBackfillTriggers
+      && !after.hasDuplicateHistoricalBackfillTriggers && !after.hasDuplicateMidnightBackfillTriggers;
     if (healthy) props.setProperty('daily_triggers_checked_date', checkToken);
     if (needsRepair) Logger.log('✅ 웹 평가가격 조회에서 누락·레거시·중복 자동 트리거 복구 완료');
     return { checked: true, autoFixed: needsRepair };
@@ -11523,16 +11608,19 @@ function _getAutomationStatusData() {
   var portfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
   var pendingKrxCloseDates = _readPendingKrxCloseDates_(props);
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
-    || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasIntegrityChange;
+    || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasIntegrityChange;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
   var hasDuplicateCloseTriggers = !!trig.hasDuplicateCloseTriggers;
   var hasDuplicateWatchdogTriggers = !!trig.hasDuplicateWatchdogTriggers;
   var hasDuplicateBackfillTriggers = !!trig.hasDuplicateBackfillTriggers;
+  var hasDuplicateHistoricalBackfillTriggers = !!trig.hasDuplicateHistoricalBackfillTriggers;
+  var hasDuplicateMidnightBackfillTriggers = !!trig.hasDuplicateMidnightBackfillTriggers;
   var closeErrors = portfolioClose && Array.isArray(portfolioClose.errors) ? portfolioClose.errors : [];
   var overallStatus = 'NORMAL';
 
   if (missingTrigger || hasLegacySplitTriggers || hasDuplicateCloseTriggers
-      || hasDuplicateWatchdogTriggers || hasDuplicateBackfillTriggers) overallStatus = 'ERROR';
+      || hasDuplicateWatchdogTriggers || hasDuplicateBackfillTriggers
+      || hasDuplicateHistoricalBackfillTriggers || hasDuplicateMidnightBackfillTriggers) overallStatus = 'ERROR';
   else if (!portfolioClose) overallStatus = closeRun.state === 'INCOMPLETE' ? 'INCOMPLETE' : 'NEVER_RUN';
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
@@ -11540,13 +11628,15 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.223',
+    gasVersion: '9.224',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
       hasClose: !!trig.hasClose,
       hasWatchdog: !!trig.hasWatchdog,
       hasBackfill: !!trig.hasBackfill,
+      hasHistoricalBackfill: !!trig.hasHistoricalBackfill,
+      hasMidnightBackfill: !!trig.hasMidnightBackfill,
       hasClean: !!trig.hasClean,
       hasMortgage: !!trig.hasMortgage,
       hasIntegrityChange: !!trig.hasIntegrityChange,
@@ -11556,11 +11646,16 @@ function _getAutomationStatusData() {
       hasDuplicateCloseTriggers: hasDuplicateCloseTriggers,
       hasDuplicateWatchdogTriggers: hasDuplicateWatchdogTriggers,
       hasDuplicateBackfillTriggers: hasDuplicateBackfillTriggers,
+      hasDuplicateHistoricalBackfillTriggers: hasDuplicateHistoricalBackfillTriggers,
+      hasDuplicateMidnightBackfillTriggers: hasDuplicateMidnightBackfillTriggers,
       closeCount: trig.closeCount,
       watchdogCount: trig.watchdogCount,
-      backfillCount: trig.backfillCount
+      backfillCount: trig.backfillCount,
+      historicalBackfillCount: trig.historicalBackfillCount,
+      midnightBackfillCount: trig.midnightBackfillCount
     },
     backfillLastResult: parseProperty('portfolio_close_backfill_last_result'),
+    historicalBackfillLastResult: parseProperty('portfolio_close_historical_backfill_last_result'),
     portfolioClose: portfolioClose,
     closeRun: closeRun,
     officialKrxPriceHistoryLastDate: officialKrxPriceHistoryLastDate,
@@ -11580,7 +11675,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.223' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.224' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -11620,6 +11715,8 @@ function checkDailyAutomationStatus() {
     + 'runDailyPortfolioClose1900(19시) 통합 마감 트리거: ' + (trig.hasDuplicateCloseTriggers ? ('중복 ' + trig.closeCount + '개') : (trig.hasClose ? '정상' : '없음')) + '\n'
     + 'runPortfolioCloseWatchdog2030(20:30) 재시도 트리거: ' + (trig.hasDuplicateWatchdogTriggers ? ('중복 ' + trig.watchdogCount + '개') : (trig.hasWatchdog ? '정상' : '없음')) + '\n'
     + 'runPortfolioCloseBackfill2210(22:10) 누락일 복구 트리거: ' + (trig.hasDuplicateBackfillTriggers ? ('중복 ' + trig.backfillCount + '개') : (trig.hasBackfill ? '정상' : '없음')) + '\n'
+    + 'runPortfolioHistoricalBackfill2240(23:10) 과거 복구 트리거: ' + (trig.hasDuplicateHistoricalBackfillTriggers ? ('중복 ' + trig.historicalBackfillCount + '개') : (trig.hasHistoricalBackfill ? '정상' : '없음')) + '\\n'
+    + 'runPortfolioHistoricalBackfill0010(00:30) 추가 과거 복구 트리거: ' + (trig.hasDuplicateMidnightBackfillTriggers ? ('중복 ' + trig.midnightBackfillCount + '개') : (trig.hasMidnightBackfill ? '정상' : '없음')) + '\\n'
     + '기존 분리 트리거(runEvalPriceUpdate1620/runDailyFundValuations): ' + (trig.hasLegacySplitTriggers ? ('남아 있음 · 가격 ' + trig.legacyPriceCount + '개 / 펀드 ' + trig.legacyFundCount + '개') : '없음') + '\n\n'
     + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
@@ -11633,7 +11730,7 @@ function checkDailyAutomationStatus() {
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + (isPortfolioCloseRunStale ? '⚠️ 통합 마감 최근 실행일이 기대 실행일(' + expectedPortfolioCloseRunDate + ')보다 오래되었습니다.\n' : '')
     + '\n'
-    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasIntegrityChange || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers || trig.hasDuplicateWatchdogTriggers || trig.hasDuplicateBackfillTriggers
+    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasIntegrityChange || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers || trig.hasDuplicateWatchdogTriggers || trig.hasDuplicateBackfillTriggers || trig.hasDuplicateHistoricalBackfillTriggers || trig.hasDuplicateMidnightBackfillTriggers
       ? '⚠️ 트리거 상태 이상: [복구·정리 실행] → [자동 트리거 복구·정리]를 실행하세요.'
       : '✅ 트리거는 정상 집합입니다. 데이터 누락은 정합성 진단으로 확인하세요.')
     + '\n이 점검은 트리거와 데이터를 변경하지 않습니다. 버전업마다 실행할 필요는 없습니다.';
@@ -12732,7 +12829,9 @@ function runDailyPortfolioClose1900() {
   // 배포 후 setupTrigger를 수동 실행하지 않아도 기존 19시 트리거가 watchdog을 자가 설치합니다.
   try { _ensurePortfolioCloseWatchdogTrigger(true); }
   catch (watchdogTriggerError) { Logger.log('⚠️ 20:30 watchdog 트리거 자가복구 실패: ' + watchdogTriggerError.message); }
-  try { _ensurePortfolioCloseBackfillTrigger(true); }
+  try { _ensurePortfolioCloseBackfillTrigger(true);
+  _ensurePortfolioHistoricalBackfillTrigger(true);
+  _ensurePortfolioHistoricalBackfill0010Trigger(true); }
   catch (backfillTriggerError) { Logger.log('⚠️ 22:10 KRX 백필 트리거 자가복구 실패: ' + backfillTriggerError.message); }
   var props = PropertiesService.getScriptProperties();
   var runDate = today();
@@ -15119,7 +15218,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.223' });
+    return jsonOk({ settings: settings, gasVersion: '9.224' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15149,7 +15248,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.223'
+      gasVersion: '9.224'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

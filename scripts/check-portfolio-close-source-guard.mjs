@@ -698,8 +698,11 @@ assert.match(closeRunSource, /_ensurePortfolioCloseBackfillTrigger\(true\)/,
   '기존 정규 19시 실행으로 백필 트리거 설치');
 assert.doesNotMatch(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, runDate, true\)/,
   '19시 마감은 최종 결과 저장 전에 과거 백필을 실행하지 않음');
-assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate, false\)/,
-  '야간 실행은 통합 마감 없이 과거 날짜만 복구');
+assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate, false, false\)/,
+  '22:10 야간 실행은 통합 마감 없이 당일 누락 복구');
+const historicalBackfill=extract('runPortfolioHistoricalBackfill2240');
+assert.match(historicalBackfill,/_runPendingKrxBackfillWithLease_\(PropertiesService\.getScriptProperties\(\), today\(\), false, true\)/,
+  '22:40 과거 누락일 전용 실행');
 assert.doesNotMatch(closeRunSource,/_runPendingKrxBackfillWithLease_\(/,
   '가격·펀드 성공 여부와 관계없이 19시 마감에서 과거 Snapshot 백필 실행 금지');
 assert.match(backfillWorker,/return 'FUND_ACTIVE'/,
@@ -794,7 +797,7 @@ function runCrossLeaseScenario(backfillFirst) {
 runCrossLeaseScenario(true);
 runCrossLeaseScenario(false);
 const triggerSelfHeal=extract('_ensureDailyTriggersOncePerDay');
-assert.match(triggerSelfHeal,/integrity-change-v6-close-watchdog-backfill/,
+assert.match(triggerSelfHeal,/integrity-change-v8-close-watchdog-midnight-backfill/,
   '신규 백필 트리거 점검은 캐시 키 변경으로 반드시 재실행');
 assert.match(triggerSelfHeal,/!before\.hasBackfill/,
   '일일 검사에서 누락된 백필 트리거 자동 복구');
@@ -802,6 +805,12 @@ assert.match(triggerSelfHeal,/before\.hasDuplicateBackfillTriggers/,
   '일일 검사에서 중복 백필 트리거 정리');
 assert.match(triggerSelfHeal,/after\.hasBackfill/,
   '백필 트리거가 있어야 복구 정상으로 캐시');
+assert.match(triggerSelfHeal,/!before\.hasHistoricalBackfill/,
+  '과거 복구 트리거 누락 시 자동 복구');
+assert.match(triggerSelfHeal,/before\.hasDuplicateHistoricalBackfillTriggers/,
+  '과거 복구 트리거 중복 검사');
+assert.match(triggerSelfHeal,/after\.hasHistoricalBackfill/,
+  '과거 복구 트리거가 있어야 점검 성공');
 
 // Cross-flow protection: old-backfill in progress blocks a new close PRICE
 // state before saveDailyPriceHistory may touch the same Snapshot sheets.
@@ -2152,10 +2161,10 @@ console.log('✅ Production writer + 복구 경로 통합·중복 삭제 차단�
     '_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_'])vm.runInContext(extract(name),ctx);
   const first=ctx._retryOnePendingKrxClose_(p,'2026-10-08',true);
   assert.equal(first.date,'2026-10-08',
-    '20:30 watchdog가 누락한 오늘 종가는 과거 미처리일보다 먼저 복구');
+    '독립 야간 백필은 오늘 포함 모든 대기일을 커서 순서로 처리');
   assert.deepEqual(observed,['2026-10-08']);
   assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),
-    ['2026-09-28','2026-09-29'],'오늘 완료 후 과거 미처리 누락일 보존');
+    ['2026-09-28','2026-09-29'],'당일 복구 후 과거 누락일 보존');
 }
 console.log('✅ 독립 백필의 오늘 누락 우선·과거 실패 공정성 회귀');
 
@@ -2323,7 +2332,7 @@ console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존
     '300건 일반 큐에도 당일 watchdog 예약은 성공');
   assert.equal(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).length,301);
   assert.equal(ctx._retryOnePendingKrxClose_(p,'2026-10-08',true).ok,true);
-  assert.deepEqual(processed,['2026-10-08'],'300건 과거 대기열보다 오늘 PRICE 우선 복구');
+  assert.deepEqual(processed,['2026-10-08'],'당일 복구는 과거 300건 대기열보다 먼저 수행');
   assert.equal(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).length,300,
     '과거 300건은 버리지 않고 그대로 보존');
   const full=Array.from({length:600},(_,i)=>
