@@ -71,10 +71,10 @@ const latestReleaseNotes = deploymentNotes.slice(
 );
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
-assert.ok(!latestReleaseNotes.includes('## GAS v9.226'),
-  'newest v9.227 release must end before historical v9.226 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.227') && latestReleaseNotes.includes('TARGET_FOREIGN_DATE_CONFLICT'),
-  'latest release post-deploy criteria must refer to its own version and foreign preflight guard');
+assert.ok(!latestReleaseNotes.includes('## GAS v9.227'),
+  'newest v9.228 release must end before historical v9.227 section');
+assert.ok(latestReleaseNotes.includes('gasVersion=9.228') && latestReleaseNotes.includes('providerCode'),
+  'latest release must independently document Toss 403 provider code and post-deploy check');
 
 // Execute the *actual trigger-registration functions*, not copies of their
 // scheduling expressions. These checks would catch PR #505's 00:10/00:30
@@ -497,13 +497,16 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='d203cc71b9766594ea0b82fa75a2d69e4126b030';
+const approvedFullSourceBlob='d1dfe67990d9e93a2d5ba333193acfc397bc12a8';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+const headerV228=currentGasSource.indexOf('//  v9.228 변경사항');
 const headerV227=currentGasSource.indexOf('//  v9.227 변경사항');
 const headerV226=currentGasSource.indexOf('//  v9.226 변경사항');
 const headerV225=currentGasSource.indexOf('//  v9.225 변경사항');
-assert.ok(headerV227>=0 && headerV226>headerV227 && headerV225>headerV226,
-  'v9.227/v9.226/v9.225 release history must all exist in newest-first order');
+assert.ok(headerV228>=0 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
+  'v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(currentGasSource.slice(headerV228,headerV227).includes('Toss 시세 API 403'),
+  'v9.228 must independently describe Toss 403 classification');
 assert.ok(currentGasSource.slice(headerV227,headerV226).includes('TARGET_FOREIGN_DATE_CONFLICT'),
   'v9.227 must independently describe its foreign-holdings preflight fix');
 assert.ok(currentGasSource.slice(headerV226,headerV225).includes('미완료 과거일 한 날짜'),
@@ -512,7 +515,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.227',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.228',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
