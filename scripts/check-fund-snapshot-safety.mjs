@@ -1824,7 +1824,8 @@ context._readRawSnapshotRowsByDate=originalRawReader;
     fixtures.push(original);
     // Exactly 38 duplicate groups; 35 are genuinely conflicting and 3
     // are byte-identical. The 39th code has no collision.
-    if (i<35) fixtures.push(snap(collisionDate,code,2000+i,'PRICE_HISTORY'));
+    if (i===0) fixtures.push(snap(collisionDate,code,1000+i,'PRICE_HISTORY')); // source-only conflict
+    else if (i<35) fixtures.push(snap(collisionDate,code,2000+i,'PRICE_HISTORY'));
     else if(i<38) fixtures.push(clone(original));
   });
   assert.equal(fixtures.length,77,'live-observed row-count topology');
@@ -1838,12 +1839,36 @@ context._readRawSnapshotRowsByDate=originalRawReader;
   assert.equal(plan.duplicateGroups.filter(x=>x.classification==='EXACT_DUPLICATE').length,3,
     'only three exact duplicates can be automatically resolved');
   assert(plan.unsafe.every(x=>x.classification==='UNRESOLVED_CONFLICT'));
+  const sourceOnlyKey=syntheticCodes[0];
+  const sourceOnlyRows=fixtures.filter(r=>r[1]===sourceOnlyKey);
+  assert.equal(sourceOnlyRows.length,2,'one synthetic collision changes only the provenance field');
+  assert.deepEqual(sourceOnlyRows[0].slice(0,10),sourceOnlyRows[1].slice(0,10),
+    'source-only rows must have identical quantities, prices, valuation and returns');
+  assert.notEqual(sourceOnlyRows[0][10],sourceOnlyRows[1][10],
+    'source-only collision must differ in source');
+  assert.equal(plan.duplicateGroups.find(x=>x.code===sourceOnlyKey)?.classification,
+    'UNRESOLVED_CONFLICT','different provenance alone must remain a protected conflict');
   assert.equal(plan.needsRewrite,false,'unverified conflicting valuations must block wholesale rewrite');
   assert.equal(sourceSheet.writes,0,'dry-run must never mutate operational-like Sheet');
   assert.equal(scriptProperties.get('system_backup_registry_v1'),savedRegistry,
     'dry-run must not alter backup lifecycle metadata');
   const originalComparable=context._snapshotComparableSignature;
   try {
+    // Mutation: removing *only provenance* must incorrectly collapse the
+    // source-only conflict. The full 35-conflict invariant must catch it.
+    context._snapshotComparableSignature=row=>{
+      const signature=JSON.parse(originalComparable(row));
+      signature.pop(); // Production source is the final signature field.
+      return JSON.stringify(signature);
+    };
+    const sourceBlind=clone(context._snapshotRewritePlan(sourceSs,collisionDate,[],[]));
+    assert.equal(sourceBlind.unsafe.length,34,
+      'source-blind mutation must incorrectly discard exactly one protected conflict');
+    assert.equal(sourceBlind.duplicateGroups.find(x=>x.code===sourceOnlyKey)?.classification,
+      'EXACT_DUPLICATE','source-blind comparator falsely classifies source-only conflict as duplicate');
+    assert.throws(()=>assert.equal(sourceBlind.unsafe.length,35),
+      /34 !== 35/, 'independent 35-conflict assertion must fail if only source is ignored');
+
     // Mutation: a faulty comparator that ignores price/source must cause
     // the independent expected 35-conflict invariant to fail.
     context._snapshotComparableSignature=row=>JSON.stringify([row[0],row[1]]);
