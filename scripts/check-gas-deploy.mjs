@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 import {
   buildUpdatedFiles,
   deploymentIdFromWebAppUrl,
@@ -48,6 +49,100 @@ assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.225','10.0
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
+
+// Review-before-request release gate: a green GAS build must not conceal a
+// version mismatch or a stale release note (both occurred during PR #505).
+const activeGasVersion = extractExpectedGasVersion(currentGasSource);
+const webSettings = fs.readFileSync('src/web/features/settings/settings_fetch.js', 'utf8');
+const webVersionDeclarations = [...webSettings.matchAll(
+  /\bconst\s+EXPECTED_GAS_VERSION\s*=\s*['"](\d+\.\d+)['"]/g,
+)];
+assert.equal(webVersionDeclarations.length, 1, 'web EXPECTED_GAS_VERSION must have exactly one declaration');
+assert.equal(webVersionDeclarations[0][1], activeGasVersion,
+  'GAS header, API responses and web EXPECTED_GAS_VERSION must agree before Codex review');
+const deploymentNotes = fs.readFileSync('DEPLOYMENT.md', 'utf8');
+const latestReleaseHeading = deploymentNotes.match(/^## GAS v(\d+\.\d+)\b/m);
+assert.equal(latestReleaseHeading?.[1], activeGasVersion,
+  'DEPLOYMENT.md must document the latest GAS release at the top before review');
+const latestReleaseNotes = deploymentNotes.slice(
+  latestReleaseHeading.index,
+  deploymentNotes.indexOf('\n---', latestReleaseHeading.index) < 0
+    ? undefined : deploymentNotes.indexOf('\n---', latestReleaseHeading.index),
+);
+assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
+assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
+
+// Execute the *actual trigger-registration functions*, not copies of their
+// scheduling expressions. These checks would catch PR #505's 00:10/00:30
+// midnight boundary, a missing registration, and duplicate trigger repair.
+function triggerDefinition(name) {
+  const begin = currentGasSource.indexOf('function ' + name + '(');
+  assert.ok(begin >= 0, 'missing production trigger function: ' + name);
+  const end = currentGasSource.indexOf('\n}', begin);
+  assert.ok(end > begin, 'unterminated production trigger function: ' + name);
+  return currentGasSource.slice(begin, end + 2);
+}
+function verifyTriggerRegistration(name, handler, expectedHour, expectedMinute, definition = triggerDefinition(name)) {
+  const installed = [], created = [], deleted = [];
+  const app = {
+    getProjectTriggers: () => installed.slice(),
+    newTrigger: actualHandler => {
+      const clock = {handler:actualHandler};
+      return {
+        timeBased() { clock.timeBased = true; return this; },
+        everyDays(days) { clock.days = days; return this; },
+        inTimezone(tz) { clock.timezone = tz; return this; },
+        atHour(hour) { clock.hour = hour; return this; },
+        nearMinute(minute) { clock.minute = minute; return this; },
+        create() {
+          created.push(clock);
+          installed.push({getHandlerFunction:() => actualHandler});
+        },
+      };
+    },
+    deleteTrigger: t => {
+      deleted.push(t);
+      const index = installed.indexOf(t);
+      if (index >= 0) installed.splice(index, 1);
+    },
+  };
+  const context = vm.createContext({ScriptApp:app, CONFIG:{TIMEZONE:'Asia/Seoul'}});
+  new vm.Script(definition, {filename:'src/gas/apps_script.gs'}).runInContext(context);
+  assert.equal(context[name](false), false, name + ': absent trigger must be reported');
+  assert.equal(created.length, 0, name + ': read-only health check must not create a trigger');
+  assert.equal(context[name](true), true, name + ': repair must install missing trigger');
+  assert.deepEqual(created[0], {
+    handler, timeBased:true, days:1, timezone:'Asia/Seoul',
+    hour:expectedHour, minute:expectedMinute,
+  }, name + ': daily schedule drift; check lease windows and midnight rollover');
+  // Repeated repair must be idempotent, and must remove duplicates.
+  assert.equal(context[name](true), true);
+  assert.equal(created.length, 1, name + ': existing trigger must not be recreated');
+  installed.push({getHandlerFunction:() => handler});
+  assert.equal(context[name](true), true);
+  assert.equal(installed.length, 1, name + ': duplicate triggers must be removed');
+  assert.equal(deleted.length, 1, name + ': duplicate cleanup must be idempotent');
+  assert.equal(context[name](false), true, name + ': read-only health check must detect the installed trigger');
+}
+verifyTriggerRegistration('_ensurePortfolioCloseBackfillTrigger',
+  'runPortfolioCloseBackfill2210', 22, 10);
+verifyTriggerRegistration('_ensurePortfolioHistoricalBackfillTrigger',
+  'runPortfolioHistoricalBackfill2240', 23, 10);
+verifyTriggerRegistration('_ensurePortfolioHistoricalBackfill0010Trigger',
+  'runPortfolioHistoricalBackfill0010', 0, 30);
+// Mutation guard: a pre-midnight 00:10 registration must fail this test.
+const midnightRegistration = triggerDefinition('_ensurePortfolioHistoricalBackfill0010Trigger');
+assert.ok(midnightRegistration.includes('nearMinute(30)'), '00:30 source setup missing');
+assert.throws(() => verifyTriggerRegistration(
+  '_ensurePortfolioHistoricalBackfill0010Trigger',
+  'runPortfolioHistoricalBackfill0010', 0, 30,
+  midnightRegistration.replace('nearMinute(30)', 'nearMinute(10)'),
+), /daily schedule drift/, 'pre-midnight-capable 00:10 registration must be rejected');
+for (const label of ['22:10', '23:10', '00:30']) {
+  assert.ok(latestReleaseNotes.includes(label),
+    'release note must name the actual operational trigger schedule: ' + label);
+}
+console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
 const approvedFullSourceBlob='1eddb8c3ac348751742ebf1617ca20295ee3a2a9';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
