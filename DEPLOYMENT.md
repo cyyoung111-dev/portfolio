@@ -4,7 +4,7 @@
 - **영향 범위:** KRX/원장/Snapshot 저장 로직과 예약 트리거 **22:10 당일 / 23:10 과거 / 00:30 과거 백필**은 변경하지 않음.
 - **수정:** Toss 403 응답 JSON에서 **검증된 3개 코드만** `providerCode`로 전달하고, 그 외 문자열·비JSON·불명형식은 `UNKNOWN_403`만 제공. 자격증명·access token·원문 body·메시지·헤더 원본을 포함하지 않음. 기존 `code` 및 OAuth Cache·현재가·원장·Snapshot 동작 유지.
 - **배포 상태:** PR 후보 코드·테스트 검토 중. **현재 운영 GAS v9.227**과 구분. 승인/병합 전 v9.228 운영 배포는 수행하지 않음.
-- **배포 전:** 9.228 전체 GAS 소스 Git blob `d1dfe67990d9e93a2d5ba333193acfc397bc12a8` 승인 pin 검증, 헤더·실제 API `gasVersion`·웹 `EXPECTED_GAS_VERSION=9.228` 정합, Toss 403 세 코드·알 수 없는 응답의 변이 테스트·품질 게이트/독립 리뷰 확인.
+- **배포 전:** 9.228 전체 GAS 소스 Git blob `c326fc480dca53de86f72938f9585dc61f995422` 승인 pin 검증, 헤더·실제 API `gasVersion`·웹 `EXPECTED_GAS_VERSION=9.228` 정합, Toss 403 세 코드·알 수 없는 응답의 변이 테스트·품질 게이트/독립 리뷰 확인.
 - **배포 후:** GitHub Actions 실제 GAS 배포 실행 및 웹앱 getSettings `gasVersion=9.228` 확인. PC/모바일 **새 연결 진단**에서 리소스 403 `providerCode`와 각 `requestId`를 대조하여 원인 확정. OAuth forceFresh 금지. 특정 endpoint에서 `ip-not-allowed`를 확인해도 각 기기/실행의 실제 Toss 출구 IP를 직접 검증한 것은 아님.
 
 ---
