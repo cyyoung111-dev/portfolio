@@ -10647,6 +10647,8 @@ function saveDailyPriceHistory(targetDate, options) {
           if (!p || !(p.price > 0)) return;
           prevPrices[item.code] = p.price;
           var actualPriceDate = p.usedDate || requestedCloseDate;
+          if (options && options.requireAllKrx === true && actualPriceDate !== requestedCloseDate)
+            throw new Error('TARGET_CROSS_DATE_PRICE');
           if (!prevRowsByDate[actualPriceDate]) prevRowsByDate[actualPriceDate] = [];
           prevRowsByDate[actualPriceDate].push({ code: item.code, name: item.name, price: p.price,
                                                  savedAt: prevSavedAt, source: (p.source || 'GOOGLEFINANCE') });

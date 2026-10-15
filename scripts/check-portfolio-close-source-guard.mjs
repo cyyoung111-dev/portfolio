@@ -86,9 +86,10 @@ const extract = name => {
   console.log('✅ 한 날짜 KRX 복구: dry-run 무변경·빈 Snapshot·원천 전량·lease·백업 선행·대상 큐/커서 보호');
 }
 {
-  function strictTargetWriter(definition=extract('saveDailyPriceHistory')) {
+  function strictTargetWriter(definition=extract('saveDailyPriceHistory'), foreign=false) {
     const items=Array.from({length:37},(_,i)=>({code:String(900000+i),currency:'KRW',market:'KOSPI',type:'주식'}));
-    const prices=Object.fromEntries(items.slice(0,36).map(x=>[x.code,{price:100,source:'KRX',usedDate:'2026-10-12'}]));
+    const prices=Object.fromEntries(items.slice(0,foreign?37:36).map(x=>[x.code,{price:100,source:'KRX',usedDate:'2026-10-12'}]));
+    if(foreign)items.push({code:'AAPL',currency:'USD',market:'US',type:'주식'});
     let writes=0;
     const ctx=vm.createContext({_snapshotBackupOperationId:'',Date,
       CONFIG:{TIMEZONE:'Asia/Seoul'},Logger:{log(){}},
@@ -99,16 +100,22 @@ const extract = name => {
       _cleanCode:String,_isFundCode:()=>false,_normalizeDate:String,
       _krxCalendarStatus_:()=> 'OPEN',_countBusinessWeekdaysBetween:()=>0,
       fetchPricesKrx:()=>prices,_verifyForeignDailyCloseCoverage_:()=>{},
+      fetchPricesGoogleFinance:()=>({AAPL:{price:200,source:'YAHOO',usedDate:'2026-10-09'}}),
       _latestConfirmedForeignCloseDate_:()=>'',_hasKrxHoldingsForCloseDate_:()=>false,
       batchUpsertPriceHistory(){writes++;throw Error('WRITE_REACHED');}
     });
     for(const name of ['_isKrxDailyCloseTarget_','_assertSupportedDailyCloseMarkets_','_assessDailyKrxStockClose'])
       vm.runInContext(extract(name),ctx);
     vm.runInContext(definition,ctx);
-    assert.throws(()=>ctx.saveDailyPriceHistory('2026-10-12',{requireAllKrx:true}),/TARGET_EXACT_KRX_INCOMPLETE/);
+    assert.throws(()=>ctx.saveDailyPriceHistory('2026-10-12',{requireAllKrx:true}),
+      foreign?/TARGET_CROSS_DATE_PRICE/:/TARGET_EXACT_KRX_INCOMPLETE/);
     assert.equal(writes,0,'second fetch becoming partial must fail before the first price write');
   }
   strictTargetWriter();
+  strictTargetWriter(undefined,true);
+  assert.throws(()=>strictTargetWriter(extract('saveDailyPriceHistory')
+    .replace('actualPriceDate !== requestedCloseDate','false'),true),
+    /TARGET_CROSS_DATE_PRICE|WRITE_REACHED/,'cross-date write protection mutation must fail');
   assert.throws(()=>strictTargetWriter(extract('saveDailyPriceHistory')
     .replace('options.requireAllKrx === true','options.requireAllKrx === false')),
     /TARGET_EXACT_KRX_INCOMPLETE|WRITE_REACHED/,'removing strict target coverage must fail the real writer test');
