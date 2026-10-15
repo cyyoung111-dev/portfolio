@@ -88,7 +88,10 @@ async function readJsonLimited(response,limit){
     }
   }catch(e){
     try{await reader.cancel()}catch{}
-    throw e;
+    // A broken upstream response stream is an upstream transport failure,
+    // not an application/internal error. Preserve deliberate size/JSON guards.
+    if (e?.code === 'UPSTREAM_RESPONSE_TOO_LARGE') throw e;
+    throw reject('UPSTREAM_UNAVAILABLE',502);
   }finally{reader.releaseLock()}
   try{return JSON.parse(Buffer.concat(chunks,bytes).toString('utf8'))}
   catch{throw reject('UPSTREAM_INVALID_JSON',502)}
