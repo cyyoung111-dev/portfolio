@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createServer} from './toss-free-relay.mjs';
 
 const shared='a'.repeat(48);
-let oauthCount=0,priceCount=0,resourceStatus=200,rejectOnce=false,oversized=false,receivedPaths=[];
+let oauthCount=0,priceCount=0,resourceStatus=200,rejectOnce=false,oversized=false,streamBroken=false,receivedPaths=[];
 const mockFetch=async (url,opts)=>{
   const u=new URL(url);
   assert.equal(u.origin,'https://openapi.tossinvest.com','no arbitrary outgoing hosts');
@@ -26,6 +26,12 @@ const mockFetch=async (url,opts)=>{
     return new Response(JSON.stringify({code:'ip-not-allowed',message:'raw-secret-do-not-leak'}),{status:403});
   }
   if(oversized)return new Response(JSON.stringify({result:[{data:'x'.repeat(550000)}]}),{status:200});
+  if(streamBroken)return new Response(new ReadableStream({
+    start(controller){
+      controller.enqueue(new TextEncoder().encode('{"partial":"start"'));
+      controller.error(new Error('sensitive-upstream-stream-failure'));
+    }
+  }),{status:200});
   priceCount++;
   return new Response(JSON.stringify({result:[{symbol:'005930',lastPrice:'12345',currency:'KRW',timestamp:'2026-10-15T01:00:00Z'}]}),{status:200});
 };
@@ -106,6 +112,13 @@ try{
   assert.equal(largeUpstream.status,502,'oversized Toss response must fail closed');
   assert.equal((await largeUpstream.json()).code,'UPSTREAM_RESPONSE_TOO_LARGE');
   oversized=false;
+  streamBroken=true;
+  const brokenStream=await post({action:'prices',params:{symbols:'005930'}});
+  assert.equal(brokenStream.status,502,'upstream broken body must be 502, not internal 500');
+  const brokenBody=await brokenStream.json();
+  assert.equal(brokenBody.code,'UPSTREAM_UNAVAILABLE');
+  assert.doesNotMatch(JSON.stringify(brokenBody),/sensitive-upstream-stream-failure/);
+  streamBroken=false;
 
   const huge=await fetch(address+'/v1/fetch',{
     method:'POST',headers:{'x-relay-key':shared},
