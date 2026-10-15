@@ -71,7 +71,7 @@ const latestReleaseNotes = deploymentNotes.slice(
 );
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
-assert.doesNotMatch(latestReleaseNotes, /## GAS v9\\.226/,
+assert.ok(!latestReleaseNotes.includes('## GAS v9.226'),
   'newest v9.227 release must end before historical v9.226 section');
 assert.ok(latestReleaseNotes.includes('gasVersion=9.227') && latestReleaseNotes.includes('TARGET_FOREIGN_DATE_CONFLICT'),
   'latest release post-deploy criteria must refer to its own version and foreign preflight guard');
