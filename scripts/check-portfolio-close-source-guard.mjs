@@ -19,6 +19,9 @@ const extract = name => {
     ['cursor','2026-10-06'],['access_token','test-auth-key'],['snapshot_last_success_date','2026-10-08']]);
   const p={getProperty:k=>bag.has(k)?bag.get(k):null,setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
   let sourceReady=true, existingSnapshot=0, backupFails=false, proofOk=true, writes=0, backups=0, busy=false;
+  let foreignHeld=false, sourceRequests=0;
+  const catalog=Array.from({length:37},(_,i)=>({code:String(900000+i),market:'KOSPI',currency:'KRW',type:'주식'}));
+  const foreign={code:'AAPL',market:'US',currency:'USD',type:'주식'};
   const saved=[];
   const ctx=vm.createContext({
     Date,JSON,Number,String,isFinite,
@@ -35,10 +38,14 @@ const extract = name => {
       JSON.stringify(JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')).filter(d=>d!==date))),
     _krxReadOnlyStoredCoverage_:date=>({status:'OK',expectedHeldCodes:37,snapshotRows:existingSnapshot,
       officialExactDateCodes:0,nonOfficialHeldCodes:0,queuedForBackfill:initial.includes(date)}),
-    handleGetKrxHeldCloseCoverage:date=>({getContent:()=>JSON.stringify({status:'ok',coverage:{
+    handleGetKrxHeldCloseCoverage:date=>{sourceRequests++;return {getContent:()=>JSON.stringify({status:'ok',coverage:{
       requestedDate:date,ready:sourceReady,expectedHeldCodes:37,officialExactDateCodes:sourceReady?37:36,
-      missingCodes:sourceReady?0:1,staleCodes:0,orphanLedgerCodes:0,duplicateMasterCodes:0}})}),
+      missingCodes:sourceReady?0:1,staleCodes:0,orphanLedgerCodes:0,duplicateMasterCodes:0}})}};},
     getss:()=>({getSheetByName:name=>({name})}),
+    getCodeItems:()=>catalog,
+    _getDailyHeldCodeItems:()=>foreignHeld?catalog.concat([foreign]):catalog,
+    _cleanCode:v=>String(v||'').trim().toUpperCase(),
+    _isFundCode:v=>/^F\\d{5}$/.test(String(v||'')),
     _backupSheetBeforeWrite:()=>{backups++;if(backupFails)throw Error('backup unavailable');return {signature:'verified-backup'};},
     _pruneVerifiedHistoricalKrxPending_:()=>{throw Error('UNRELATED_QUEUE_PRUNE');},
     saveDailyPriceHistory:(date,opts)=>{assert.equal(opts.requireAllKrx,true);assert.equal(opts.deferQueueCompletion,true);
@@ -46,8 +53,28 @@ const extract = name => {
     _verifyCompletedKrxPendingDate_:()=>({ok:proofOk}),
     _reconcileRecoveredPortfolioPrice_:()=>true,_appendPortfolioCloseSyncLog:()=>{}
   });
+  vm.runInContext(extract('_isKrxDailyCloseTarget_'),ctx);
   for(const name of ['_targetedKrxRecoveryPreflight_','_retryOnePendingKrxClose_',
     '_runPendingKrxBackfillWithLease_','handleRecoverPendingKrxClose'])vm.runInContext(extract(name),ctx);
+  // Independent regression of Codex P2: KRX 37/37 plus a US position
+  // is NOT a safe single-date restore. The dry-run must reject it before
+  // a network source probe, lease, backup, or any Sheet/Property write.
+  const cleanPreflight=extract('_targetedKrxRecoveryPreflight_');
+  const beforeForeign=JSON.stringify([...bag]);
+  foreignHeld=true;
+  const probesBefore=sourceRequests;
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','0').reason,'TARGET_FOREIGN_DATE_CONFLICT');
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','1').ready,false);
+  assert.equal(sourceRequests,probesBefore,'foreign conflict must reject before KRX HTTP probe');
+  assert.equal(backups,0);assert.equal(writes,0);
+  assert.equal(JSON.stringify([...bag]),beforeForeign,'foreign preflight must not change Properties');
+  const removedGuard="  if (hasForeign) return {ready:false,reason:'TARGET_FOREIGN_DATE_CONFLICT'};\\n";
+  assert.ok(cleanPreflight.includes(removedGuard),'mutation guard anchor');
+  vm.runInContext(cleanPreflight.replace(removedGuard,''),ctx);
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','0').ready,true,
+    'removing foreign guard must expose the original false-positive preflight');
+  vm.runInContext(cleanPreflight,ctx);
+  foreignHeld=false;
   const before=JSON.stringify([...bag]);
   assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','0').ready,true);
   assert.equal(JSON.stringify([...bag]),before,'dry-run must not write Properties');
