@@ -142,6 +142,30 @@ for (const label of ['22:10', '23:10', '00:30']) {
   assert.ok(latestReleaseNotes.includes(label),
     'release note must name the actual operational trigger schedule: ' + label);
 }
+// A correct installed clock is not enough if API/menu diagnostics call it by
+// an obsolete name or report the wrong time to the operator.
+const setupTriggerSource = triggerDefinition('setupTrigger');
+const diagnosisSource = triggerDefinition('checkDailyAutomationStatus');
+const statusApiSource = triggerDefinition('_getAutomationStatusData');
+const operationalLabels = [
+  ['runPortfolioCloseBackfill2210', '22:10'],
+  ['runPortfolioHistoricalBackfill2240', '23:10'],
+  ['runPortfolioHistoricalBackfill0010', '00:30'],
+];
+for (const [handler, label] of operationalLabels) {
+  assert.ok(setupTriggerSource.includes(label),
+    'setupTrigger must show the installed schedule ' + handler + ' (' + label + ')');
+  assert.ok(diagnosisSource.includes(handler + '(' + label + ')'),
+    'daily menu diagnostic must display the actual clock ' + handler + ' (' + label + ')');
+}
+for (const field of [
+  'hasBackfill', 'hasHistoricalBackfill', 'hasMidnightBackfill',
+  'hasDuplicateBackfillTriggers', 'hasDuplicateHistoricalBackfillTriggers',
+  'hasDuplicateMidnightBackfillTriggers',
+]) {
+  assert.ok(statusApiSource.includes(field),
+    'getAutomationStatus must distinguish missing/duplicate nightly worker: ' + field);
+}
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
 const approvedFullSourceBlob='1eddb8c3ac348751742ebf1617ca20295ee3a2a9';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
