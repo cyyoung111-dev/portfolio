@@ -1,0 +1,34 @@
+name: krx-targeted-recovery
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'One historical pending KRX date (YYYY-MM-DD)'
+        type: string
+        required: true
+      apply:
+        description: 'Explicitly recover the one missing date (default is read-only preflight)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: krx-targeted-recovery
+  cancel-in-progress: false
+jobs:
+  recover:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Preflight or recover only one missing historical KRX date
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          RECOVERY_DATE: ${{ inputs.date }}
+          RECOVERY_APPLY: ${{ inputs.apply }}
+        run: node scripts/run-krx-targeted-recovery.mjs
