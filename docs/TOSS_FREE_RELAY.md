@@ -23,7 +23,7 @@ GAS → HTTPS(무료 DNS + Caddy 인증서) → Node 중계(127.0.0.1:18761) →
 3. OCI/OS 방화벽에서 SSH 22는 관리 IP로 제한, HTTP 80(인증서), HTTPS 443 허용. **18761은 절대 외부에 개방하지 않음.**
 4. 무료 서브도메인(예: DuckDNS)을 만들어 예약 IPv4로 A레코드 연결. Node와 Caddy 설치, Caddy의 자동 HTTPS를 이용함. 직접 IP 주소에 자체서명 인증서를 적용하거나 GAS의 TLS 검증을 해제하지 않음.
 5. VM의 비공개 환경 파일에서 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`, 32자 이상 난수 `TOSS_RELAY_SHARED_KEY` 설정. 권한 600·전용 서비스 계정·systemd 재시작 정책을 적용. 인증값을 GitHub, 시트, 웹에 저장하지 않음.
-6. 중계 코드: `scripts/toss-free-relay.mjs`. 자체 보안·성공·실패 검증: `node scripts/test-toss-free-relay.mjs`. Caddy 설정 형식: `your-subdomain.duckdns.org { reverse_proxy 127.0.0.1:18761 }`.
+6. 중계 코드: `scripts/toss-free-relay.mjs`. 자체 보안·성공·실패 검증: `node scripts/check-toss-free-relay.mjs`. Caddy 설정 형식: `your-subdomain.duckdns.org { reverse_proxy 127.0.0.1:18761 }`.
 7. 서비스 연결 API: 인증된 `POST /v1/fetch` 헤더 `x-relay-key`, 본문 예시 `{"action":"prices","params":{"symbols":"005930"}}`. 주문/계좌/임의 URL은 차단. 서버 토큰은 VM 내부에만 저장.
 8. 먼저 VM에서 실제 외부 IPv4 확인 → Toss WTS 허용 IP 등록 → VM 직접 Toss OAuth 200, 005930 가격 200을 다른 시점 3회 이상 확인.
 9. 검증된 뒤 **별도 PR**로 GAS에 명시적 활성화 스위치를 넣어 Toss만 relay로 전환. 이 파일럿은 운영 GAS 연결을 변경하지 않음. Oracle relay에서 신규 OAuth를 발급하면 기존 GAS 캐시 토큰이 무효화될 수 있으므로 같은 클라이언트를 두 서버에서 동시에 발급하지 말 것.
