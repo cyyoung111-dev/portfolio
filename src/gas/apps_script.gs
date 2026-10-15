@@ -10451,17 +10451,16 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate)
       var proof = _verifyCompletedKrxPendingDate_(getss(), targetDate);
       if (!proof || !proof.ok) throw new Error('TARGET_VERIFICATION_FAILED');
     }
+    // Verify persisted exact-date KRX/Snapshot before touching completion markers.
+    // A failed proof must leave the pending date eligible for a later retry.
+    var persistedProof = _verifyCompletedKrxPendingDate_(getss(), target);
+    if (!persistedProof || !persistedProof.ok)
+      throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:' + String(persistedProof && persistedProof.reason || 'UNKNOWN'));
     _portfolioFundAtomic_(function(sharedProps) {
       var policy = target === currentDate && includeToday ? 'CREATE' : 'CLEAN';
       if (_reconcileRecoveredPortfolioPrice_(sharedProps, target, result, policy))
         _completePendingKrxCloseDate_(sharedProps, target);
     });
-    // A successful write is not proof that the persisted price/Snapshot is complete.
-    // Fail closed and retain the queue for any raw-row, quantity, or source conflict.
-    var persistedProof = _verifyCompletedKrxPendingDate_(getss(), target);
-    if (!persistedProof || !persistedProof.ok) {
-      throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:' + String(persistedProof && persistedProof.reason || 'UNKNOWN'));
-    }
     _appendPortfolioCloseSyncLog('BACKFILL_OK', target, '', 'snapshotRows=' + String(result && result.rows || 0));
     return { attempted:true, ok:true, date:target, remaining:_readPendingKrxCloseDates_(props).length };
   } catch(error) {
