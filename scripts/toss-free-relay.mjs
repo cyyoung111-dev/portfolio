@@ -68,7 +68,7 @@ function buildTossPath(action, p){
 function errorCode(body,status){
   if(status===403){
     const err=body?.error;
-    const c=typeof err==='string'?err:err?.code;
+    const c=typeof err==='string'?err:(err && typeof err==='object'?err.code:body?.code);
     return ['ip-not-allowed','forbidden','edge-blocked'].includes(c)?c:'UNKNOWN_403';
   }
   return status===401?'UNAUTHORIZED':status===429?'RATE_LIMITED':status>=500?'UPSTREAM_UNAVAILABLE':'UPSTREAM_ERROR';
@@ -115,11 +115,17 @@ export function createTossRelay({clientId,clientSecret,sharedKey,fetchImpl=fetch
       const response=await doRequest(fetchImpl,TOSS_ORIGIN+path,{
         method:'GET',headers:{Authorization:'Bearer '+access,Accept:'application/json'}
       },GET_TIMEOUT_MS);
-      const data=await readJsonLimited(response,MAX_UPSTREAM_BYTES);
-      if(response.status===401 && attempt===0){
-        if(cached?.value===access)cached=null;
-        access=await token();continue;
+      // Authorization status is authoritative even when an intermediary replies with HTML/empty body.
+      // Do not decode 401 as JSON before the single conditional token refresh.
+      if(response.status===401){
+        try { await response.body?.cancel?.(); } catch {}
+        if(attempt===0){
+          if(cached?.value===access)cached=null;
+          access=await token();continue;
+        }
+        return {ok:false,status:401,code:'UNAUTHORIZED'};
       }
+      const data=await readJsonLimited(response,MAX_UPSTREAM_BYTES);
       if(!response.ok)return {ok:false,status:response.status,code:errorCode(data,response.status)};
       return {ok:true,status:response.status,data};
     }
