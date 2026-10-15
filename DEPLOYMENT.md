@@ -1,6 +1,7 @@
 ## GAS v9.228 — Toss 실제 HTTP 403 공급사 오류코드 세분화 (2026-10-15)
 
 - **배경:** 운영 PC는 같은 GAS v9.227과 캐시 토큰으로 5개 시장 API·삼성전자 현재가 모두 200, 모바일 데이터망은 캐시 토큰으로 6개 리소스 전부 403, GitHub Actions 신규 OAuth는 403 `access_denied`. 동일 HTTP 403에서 GAS가 원문 오류를 하나의 `IP_NOT_ALLOWED_OR_FORBIDDEN`으로 통일하여 실제 토스 `ip-not-allowed`와 `forbidden`·`edge-blocked`를 구별할 수 없었음.
+- **영향 범위:** KRX/원장/Snapshot 저장 로직과 예약 트리거 **22:10 당일 / 23:10 과거 / 00:30 과거 백필**은 변경하지 않음.
 - **수정:** Toss 403 응답 JSON에서 **검증된 3개 코드만** `providerCode`로 전달하고, 그 외 문자열·비JSON·불명형식은 `UNKNOWN_403`만 제공. 자격증명·access token·원문 body·메시지·헤더 원본을 포함하지 않음. 기존 `code` 및 OAuth Cache·현재가·원장·Snapshot 동작 유지.
 - **배포 상태:** PR 후보 코드·테스트 검토 중. **현재 운영 GAS v9.227**과 구분. 승인/병합 전 v9.228 운영 배포는 수행하지 않음.
 - **배포 전:** 9.228 전체 GAS 소스 Git blob `d1dfe67990d9e93a2d5ba333193acfc397bc12a8` 승인 pin 검증, 헤더·실제 API `gasVersion`·웹 `EXPECTED_GAS_VERSION=9.228` 정합, Toss 403 세 코드·알 수 없는 응답의 변이 테스트·품질 게이트/독립 리뷰 확인.
