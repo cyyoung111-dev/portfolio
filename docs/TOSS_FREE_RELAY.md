@@ -27,6 +27,8 @@ GAS → HTTPS(무료 DNS + Caddy 인증서) → Node 중계(127.0.0.1:18761) →
 5. VM의 비공개 환경 파일에서 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`, 32자 이상 난수 `TOSS_RELAY_SHARED_KEY` 설정. 권한 600·전용 서비스 계정·systemd 재시작 정책을 적용. 인증값을 GitHub, 시트, 웹에 저장하지 않음.
 6. 중계 코드: `scripts/toss-free-relay.mjs`. 자체 보안·성공·실패 검증: `node scripts/check-toss-free-relay.mjs`. Caddy 설정 형식: `your-subdomain.duckdns.org { reverse_proxy 127.0.0.1:18761 }`.
 7. 서비스 연결 API: 인증된 `POST /v1/fetch` 헤더 `x-relay-key`, 본문 예시 `{"action":"prices","params":{"symbols":"005930"}}`. 주문/계좌/임의 URL은 차단. 서버 토큰은 VM 내부에만 저장.
+   - 허용 범위는 Toss 시세·일별 개별종목 캔들·환율·한미 시장 달력·시장지표 현재가/캔들이며, **기존 GAS가 사용하는 KOSPI/KOSDAQ 및 KR_BOND_2Y/3Y/5Y/10Y/20Y/30Y까지** 허용 목록을 제한적으로 정합시켰음. 지표 캔들은 최대 200건·`before` 페이지네이션 지원. 실제 GAS 연결용 클라이언트 변환은 별도 PR에서만 수행.
+   - Toss의 HTTP 403·429·5xx가 HTML/빈 본문이더라도 응답 JSON에 원래 upstream status와 제한된 오류코드만 반환. 비JSON 403은 `UNKNOWN_403`; 429/5xx는 `RATE_LIMITED`/`UPSTREAM_UNAVAILABLE`로 구분하며 원문 응답/인증정보를 노출하지 않음.
 8. 먼저 VM에서 실제 외부 IPv4 확인 → Toss WTS 허용 IP 등록 → VM 직접 Toss OAuth 200, 005930 가격 200을 다른 시점 3회 이상 확인.
 9. 검증된 뒤 **별도 PR**로 GAS에 명시적 활성화 스위치를 넣어 Toss만 relay로 전환. 이 파일럿은 운영 GAS 연결을 변경하지 않음. Oracle relay에서 신규 OAuth를 발급하면 기존 GAS 캐시 토큰이 무효화될 수 있으므로 같은 클라이언트를 두 서버에서 동시에 발급하지 말 것.
 10. 전환 실패 때 KRX 종가·기존 공급원 fallback 유지. GAS 새 버전/승인 Git blob/CI/Codex/운영 배포 실조회까지 완료 후에만 정상화 판정.
