@@ -493,8 +493,14 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='045ccd4412aa584a402cd8c10a136e327cd5fb64';
+const approvedFullSourceBlob='d203cc71b9766594ea0b82fa75a2d69e4126b030';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+assert.match(currentGasSource,/v9\\.227 변경사항 \\(2026\\.10\\.15\\):[\\s\\S]*?TARGET_FOREIGN_DATE_CONFLICT/,
+  'v9.227 must independently describe its foreign-holdings preflight fix');
+assert.match(currentGasSource,/v9\\.226 변경사항 \\(2026\\.10\\.15\\):[\\s\\S]*?미완료 과거일 한 날짜/,
+  'v9.226 historical release must not be overwritten by the v9.227 header');
+assert.ok(currentGasSource.indexOf('v9.227 변경사항') <
+  currentGasSource.indexOf('v9.226 변경사항'),'release history must be newest first');
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
