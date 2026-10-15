@@ -165,6 +165,45 @@ try{
   assert.equal(huge.status,413);
   const notFound=await fetch(address+'/v1/orders',{method:'POST',headers:{'x-relay-key':shared}});
   assert.equal(notFound.status,404);
+
+  // Independent token-miss service: provider OAuth 403 must not be collapsed
+  // into INTERNAL_ERROR just because the provider code contains hyphens.
+  let oauthFailureMode='json403';
+  const oauthFailureServer=createServer({
+    clientId:'failure-id',clientSecret:'failure-secret',sharedKey:shared,
+    fetchImpl:async (url)=>{
+      assert.equal(new URL(url).pathname,'/oauth2/token');
+      if(oauthFailureMode==='json403')return new Response(
+        JSON.stringify({error:{code:'ip-not-allowed',message:'leak-me-never'}}),{status:403});
+      if(oauthFailureMode==='html403')return new Response('<html>sensitive</html>',{status:403});
+      if(oauthFailureMode==='empty429')return new Response('',{status:429});
+      return new Response('<html>upstream-down</html>',{status:500});
+    }
+  });
+  await new Promise((resolve,reject)=>{
+    oauthFailureServer.once('error',reject);
+    oauthFailureServer.listen(0,'127.0.0.1',resolve);
+  });
+  try{
+    const failureUrl='http://127.0.0.1:'+oauthFailureServer.address().port+'/v1/fetch';
+    for(const [mode,expected] of [
+      ['json403','TOSS_OAUTH_IP_NOT_ALLOWED'],
+      ['html403','TOSS_OAUTH_UNKNOWN_403'],
+      ['empty429','TOSS_OAUTH_RATE_LIMITED'],
+      ['html500','TOSS_OAUTH_UPSTREAM_UNAVAILABLE']
+    ]){
+      oauthFailureMode=mode;
+      const result=await fetch(failureUrl,{method:'POST',headers:{
+        'content-type':'application/json','x-relay-key':shared
+      },body:JSON.stringify({action:'prices',params:{symbols:'005930'}})});
+      assert.equal(result.status,502,'OAuth failure must preserve upstream classification');
+      const payload=await result.json();
+      assert.equal(payload.code,expected,'OAuth failure '+mode+' must be safe and specific');
+      assert.doesNotMatch(JSON.stringify(payload),/leak-me-never|failure-secret|sensitive/);
+    }
+  }finally{
+    await new Promise(resolve=>oauthFailureServer.close(resolve));
+  }
   console.log('Toss read-only free static-IP relay: secure routes, OAuth caching, IP 403, limit and rejection tests passed');
 }finally{
   await new Promise(resolve=>server.close(resolve));
