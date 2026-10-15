@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.227
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.228
 //
+//  v9.228 변경사항 (2026.10.15):
+//  - Toss 시세 API 403 원문 코드를 allowlist로 구분(허용 IP/권한/엣지),
+//    토큰·전체 오류 응답 노출 없이 PC/모바일 운영 진단 정밀화.
 //  v9.227 변경사항 (2026.10.15):
 //  - 한 날짜 제한 KRX 복구에서 해외 실보유를 dry-run 단계부터 차단
 //    (TARGET_FOREIGN_DATE_CONFLICT), 백업 전 거짓 ready:true 방지.
@@ -1880,6 +1883,18 @@ function fetchHistoricalPricesToss(items, targetDate) {
   return output;
 }
 
+// Toss 403 응답 원문에서 문서화된 *오류 코드만* 선택하여 노출합니다.
+// message/details/header/body/자격증명 및 알 수 없는 공급자 원문은 절대 반환하지 않습니다.
+function _tossDiagnostic403ProviderCode_(parsed, httpStatus) {
+  if (httpStatus !== 403) return '';
+  var raw = parsed && parsed.error;
+  var candidate = raw && typeof raw === 'object' ? raw.code :
+    (typeof raw === 'string' ? raw : (parsed && parsed.code));
+  var code = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
+  return code === 'ip-not-allowed' || code === 'forbidden' || code === 'edge-blocked'
+    ? code : 'UNKNOWN_403';
+}
+
 // 운영 점검용 read-only 호출. 자격증명·토큰·원문 응답은 반환하거나 로그에 남기지 않습니다.
 function _tossDiagnosticRequest_(path, query, token) {
   var startedAt = Date.now();
@@ -1904,6 +1919,7 @@ function _tossDiagnosticRequest_(path, query, token) {
       ok: status >= 200 && status < 300,
       status: status,
       code: status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (status >= 200 && status < 300 ? 'OK' : String(error.code || 'HTTP_ERROR')),
+      providerCode: _tossDiagnostic403ProviderCode_(parsed, status),
       requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, count: count,
       elapsedMs: Date.now() - startedAt
     };
@@ -1937,6 +1953,7 @@ function _tossPriceSmoke_(token) {
       ok: transportOk && code === 'OK',
       status: status,
       code: code,
+      providerCode: _tossDiagnostic403ProviderCode_(parsed, status),
       resultCount: rows.length,
       symbol: row ? _normalizeTossSymbol_(row.symbol) : '',
       validLastPrice: validLastPrice,
@@ -1973,6 +1990,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     }
     var item = _tossDiagnosticRequest_(path, query, token);
     checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code,
+      providerCode: item.providerCode || '',
       requestId: item.requestId || '', referenceId: item.referenceId || '', edgeRequestId: item.edgeRequestId || '',
       count: item.count || 0, elapsedMs: item.elapsedMs });
   };
@@ -2019,7 +2037,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.227', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.228', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5762,7 +5780,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.227' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.228' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11665,7 +11683,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.227',
+    gasVersion: '9.228',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11712,7 +11730,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.227' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.228' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15310,7 +15328,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.227' });
+    return jsonOk({ settings: settings, gasVersion: '9.228' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15340,7 +15358,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.227'
+      gasVersion: '9.228'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
