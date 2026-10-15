@@ -10,6 +10,109 @@ const extract = name => {
   assert.ok(end > start, name + ' must have closing brace');
   return source.slice(start, end + 2);
 };
+
+// Explicit-date recovery uses the real selector/lease/endpoint while forbidding
+// unrelated queue pruning, cursor movement, and dry-run writes.
+{
+  const initial=['2026-10-06','2026-10-08','2026-10-12','2026-10-13'];
+  const bag=new Map([['portfolio_close_pending_krx_dates',JSON.stringify(initial)],
+    ['cursor','2026-10-06'],['access_token','test-auth-key'],['snapshot_last_success_date','2026-10-08']]);
+  const p={getProperty:k=>bag.has(k)?bag.get(k):null,setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
+  let sourceReady=true, existingSnapshot=0, backupFails=false, proofOk=true, writes=0, backups=0, busy=false;
+  const saved=[];
+  const ctx=vm.createContext({
+    Date,JSON,Number,String,isFinite,
+    CONFIG:{SHEET_PH:'가격이력',SHEET_SNAPSHOT:'스냅샷'},
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'cursor',PORTFOLIO_FUND_LEASE_KEY:'fund',
+    PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:'writer',_snapshotBackupOperationId:'original',
+    PropertiesService:{getScriptProperties:()=>p},today:()=> '2026-10-15',
+    Utilities:{getUuid:()=> 'target-token'},Logger:{log(){}},
+    jsonOk:d=>({status:'ok',...d}),jsonError:message=>({status:'error',message}),
+    _portfolioFundAtomic_:cb=>cb(p),
+    _portfolioFundState_:(props,key)=>busy&&key==='fund'?{until:Date.now()+60000}:JSON.parse(props.getProperty(key)||'null'),
+    _readPendingKrxCloseDates_:props=>JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')||'[]'),
+    _completePendingKrxCloseDate_:(props,date)=>props.setProperty('portfolio_close_pending_krx_dates',
+      JSON.stringify(JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')).filter(d=>d!==date))),
+    _krxReadOnlyStoredCoverage_:date=>({status:'OK',expectedHeldCodes:37,snapshotRows:existingSnapshot,
+      officialExactDateCodes:0,nonOfficialHeldCodes:0,queuedForBackfill:initial.includes(date)}),
+    handleGetKrxHeldCloseCoverage:date=>({getContent:()=>JSON.stringify({status:'ok',coverage:{
+      requestedDate:date,ready:sourceReady,expectedHeldCodes:37,officialExactDateCodes:sourceReady?37:36,
+      missingCodes:sourceReady?0:1,staleCodes:0,orphanLedgerCodes:0,duplicateMasterCodes:0}})}),
+    getss:()=>({getSheetByName:name=>({name})}),
+    _backupSheetBeforeWrite:()=>{backups++;if(backupFails)throw Error('backup unavailable');return {signature:'verified-backup'};},
+    _pruneVerifiedHistoricalKrxPending_:()=>{throw Error('UNRELATED_QUEUE_PRUNE');},
+    saveDailyPriceHistory:(date,opts)=>{assert.equal(opts.requireAllKrx,true);assert.equal(opts.deferQueueCompletion,true);
+      writes++;saved.push(date);return {ok:true,date,rows:39};},
+    _verifyCompletedKrxPendingDate_:()=>({ok:proofOk}),
+    _reconcileRecoveredPortfolioPrice_:()=>true,_appendPortfolioCloseSyncLog:()=>{}
+  });
+  for(const name of ['_targetedKrxRecoveryPreflight_','_retryOnePendingKrxClose_',
+    '_runPendingKrxBackfillWithLease_','handleRecoverPendingKrxClose'])vm.runInContext(extract(name),ctx);
+  const before=JSON.stringify([...bag]);
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','0').ready,true);
+  assert.equal(JSON.stringify([...bag]),before,'dry-run must not write Properties');
+  assert.equal(backups,0);assert.equal(writes,0);
+  for(const date of ['2026-02-30','2026-10-15','2026-10-16','2026-10-12,2026-10-13','2026-10-07'])
+    assert.notEqual(ctx.handleRecoverPendingKrxClose(date,'1').ready,true);
+  existingSnapshot=1;
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','1').reason,'TARGET_NOT_EMPTY');
+  existingSnapshot=0;sourceReady=false;
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','1').reason,'SOURCE_INCOMPLETE');
+  sourceReady=true;busy=true;
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','1').attempted,false);
+  busy=false;backupFails=true;
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-12','1').status,'error');
+  assert.equal(writes,0);assert.equal(p.getProperty('writer'),null,'failed backup releases lease');
+  backupFails=false;
+  const result=ctx.handleRecoverPendingKrxClose('2026-10-12','1');
+  assert.equal(result.ok,true);assert.deepEqual(saved,['2026-10-12']);
+  assert.deepEqual(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')),
+    ['2026-10-06','2026-10-08','2026-10-13'],'only verified requested date leaves queue');
+  assert.equal(p.getProperty('cursor'),'2026-10-06','manual targeting preserves automatic fairness cursor');
+  assert.equal(p.getProperty('snapshot_last_success_date'),'2026-10-08');
+  assert.equal(ctx._snapshotBackupOperationId,'original');
+  proofOk=false;
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-13','1').ok,false);
+  assert.ok(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).includes('2026-10-13'));
+  bag.set('access_token','');
+  assert.equal(ctx.handleRecoverPendingKrxClose('2026-10-13','1').message,'TARGET_AUTH_REQUIRED');
+  assert.match(source,/params\.action === 'recoverPendingKrxClose'\) return jsonError\('POST_ONLY'\)/);
+  assert.match(source,/params\.action === 'recoverPendingKrxClose'\) return handleRecoverPendingKrxClose\(params\.date, params\.apply\)/);
+  // A changed target state between preview and lease acquisition must block.
+  bag.set('access_token','test-auth-key');existingSnapshot=1;
+  const n=writes;
+  assert.equal(ctx._runPendingKrxBackfillWithLease_(p,'2026-10-15',false,true,'2026-10-13').attempted,false);
+  assert.equal(writes,n);
+  console.log('✅ 한 날짜 KRX 복구: dry-run 무변경·빈 Snapshot·원천 전량·lease·백업 선행·대상 큐/커서 보호');
+}
+{
+  function strictTargetWriter(definition=extract('saveDailyPriceHistory')) {
+    const items=Array.from({length:37},(_,i)=>({code:String(900000+i),currency:'KRW',market:'KOSPI',type:'주식'}));
+    const prices=Object.fromEntries(items.slice(0,36).map(x=>[x.code,{price:100,source:'KRX',usedDate:'2026-10-12'}]));
+    let writes=0;
+    const ctx=vm.createContext({_snapshotBackupOperationId:'',Date,
+      CONFIG:{TIMEZONE:'Asia/Seoul'},Logger:{log(){}},
+      Utilities:{formatDate:()=>'',getUuid:()=> 'strict-target'},today:()=> '2026-10-15',
+      PropertiesService:{getScriptProperties:()=>({setProperty(){},getProperty:()=>null})},
+      LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
+      getss:()=>({}),getCodeItems:()=>items,_getDailyHeldCodeItems:()=>items,
+      _cleanCode:String,_isFundCode:()=>false,_normalizeDate:String,
+      _krxCalendarStatus_:()=> 'OPEN',_countBusinessWeekdaysBetween:()=>0,
+      fetchPricesKrx:()=>prices,_verifyForeignDailyCloseCoverage_:()=>{},
+      _latestConfirmedForeignCloseDate_:()=>'',_hasKrxHoldingsForCloseDate_:()=>false,
+      batchUpsertPriceHistory(){writes++;throw Error('WRITE_REACHED');}
+    });
+    for(const name of ['_isKrxDailyCloseTarget_','_assertSupportedDailyCloseMarkets_','_assessDailyKrxStockClose'])
+      vm.runInContext(extract(name),ctx);
+    vm.runInContext(definition,ctx);
+    assert.throws(()=>ctx.saveDailyPriceHistory('2026-10-12',{requireAllKrx:true}),/TARGET_EXACT_KRX_INCOMPLETE/);
+    assert.equal(writes,0,'second fetch becoming partial must fail before the first price write');
+  }
+  strictTargetWriter();
+  assert.throws(()=>strictTargetWriter(extract('saveDailyPriceHistory')
+    .replace('options.requireAllKrx === true','options.requireAllKrx === false')),
+    /TARGET_EXACT_KRX_INCOMPLETE|WRITE_REACHED/,'removing strict target coverage must fail the real writer test');
+}
 // Integration guard: execute the SAME production KRX eligibility predicate
 // in each isolated GAS VM, instead of copying simplified test-only rules.
 const installKrxTarget = context => {

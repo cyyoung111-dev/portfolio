@@ -348,3 +348,24 @@ await assert.rejects(()=>runBackfillStatus({
   fetchImpl:async()=>{throw new Error('sensitive credentials');}
 }),/NETWORK_FAILED/);
 console.log('KRX/GAS 트리거·큐·백필 체크포인트 읽기 전용 인증·안전 출력 회귀 통과');
+
+import {runTargetedRecovery} from './run-krx-targeted-recovery.mjs';
+const targetedRequests=[];
+const targetedConfig={url:'https://script.google.com/macros/s/Abcd/exec',token:key,date:'2026-10-12',
+  fetchImpl:async(_,options)=>{
+    assert.equal(options.method,'POST');
+    assert.equal(options.body.get('action'),'recoverPendingKrxClose');
+    assert.equal(options.body.get('date'),'2026-10-12');
+    const apply=options.body.get('apply');targetedRequests.push(apply);
+    return {ok:true,json:async()=>options.body.get('accessToken')!==key
+      ? {status:'error',message:'인증 실패'}:apply==='0'
+      ? {status:'ok',mode:'DRY_RUN',date:'2026-10-12',ready:true,expected:37}
+      : {status:'ok',mode:'APPLY',date:'2026-10-12',attempted:true,ok:true,remaining:7}};
+  }};
+assert.equal((await runTargetedRecovery(targetedConfig)).mode,'DRY_RUN');
+assert.deepEqual(targetedRequests,['0','0']);targetedRequests.length=0;
+assert.equal((await runTargetedRecovery({...targetedConfig,apply:true})).ok,true);
+assert.deepEqual(targetedRequests,['0','0','1']);
+await assert.rejects(()=>runTargetedRecovery({...targetedConfig,date:'2026-10-12,2026-10-13'}),/TARGET_INVALID_INPUT/);
+await assert.rejects(()=>runTargetedRecovery({...targetedConfig,apply:'false'}),/TARGET_INVALID_APPLY/);
+console.log('✅ 지정일 복구 클라이언트: 기본 dry-run·인증 거부 확인·단일 날짜·명시 apply 계약');
