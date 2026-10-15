@@ -16613,12 +16613,14 @@ function runTossMarketDataDiagnosis() {
   });
   (result.endpoints || []).forEach(function(item) {
     lines.push((item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) + ' ' + item.name + ': ' +
-      (item.status == null ? '-' : item.status) + ' / ' + (item.code || 'ERROR') + ' / ' + (item.count || 0) + '건' +
+      (item.status == null ? '-' : item.status) + ' / ' + (item.code || 'ERROR') +
+      (item.providerCode ? ' / Toss코드 ' + item.providerCode : '') + ' / ' + (item.count || 0) + '건' +
       idSuffix(item) + ' / ' + (item.elapsedMs || 0) + 'ms');
   });
   var smoke = result.priceSmoke || {};
   lines.push((smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) +
-    ' priceSmoke 005930: ' + (smoke.status == null ? '-' : smoke.status) + ' / ' + (smoke.code || 'ERROR') + ' / ' +
+    ' priceSmoke 005930: ' + (smoke.status == null ? '-' : smoke.status) + ' / ' + (smoke.code || 'ERROR') +
+    (smoke.providerCode ? ' / Toss코드 ' + smoke.providerCode : '') + ' / ' +
     (smoke.resultCount || 0) + '건 / ' + (smoke.symbol || '005930') + ' / 유효가격 ' + (smoke.validLastPrice ? '있음' : '없음') +
     ' / timestamp ' + (smoke.timestampPresent ? '있음' : '없음') + idSuffix(smoke) + ' / ' + (smoke.elapsedMs || 0) + 'ms');
 
@@ -16629,8 +16631,15 @@ function runTossMarketDataDiagnosis() {
   var observedIpHint = egress.ok && egress.ip
     ? ' 관측 ' + (egress.ipFamily || 'IP') + ' ' + egress.ip + '는 실제 Toss 요청 송신 IP로 확인되지 않았습니다. 이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요.'
     : '';
+  var actual403Codes = (result.endpoints || []).concat([smoke]).filter(function(item) { return item.status === 403; }).map(function(item) {
+    return item.providerCode || 'UNKNOWN_403';
+  });
+  var providerReason = actual403Codes.indexOf('ip-not-allowed') !== -1 ? 'Toss 원문 ip-not-allowed: 허용 IP 거부가 확인됐습니다.' :
+    (actual403Codes.indexOf('forbidden') !== -1 ? 'Toss 원문 forbidden: API 권한 부족이 확인됐습니다.' :
+    (actual403Codes.indexOf('edge-blocked') !== -1 ? 'Toss 원문 edge-blocked: 요청 차단이 확인됐습니다.' :
+    'Toss 리소스 HTTP 403이지만 원문 코드는 확인되지 않았습니다. IP 거부로 단정하지 마세요.'));
   var guide = endpointIpBlocked
-    ? '\n\n실제 Toss market endpoint 403: Toss API 권한 및 등록된 송신 IP 정책을 제공사 기록과 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.' + observedIpHint
+    ? '\n\n실제 Toss 리소스 403: ' + providerReason + ' Toss 요청 ID를 제공사에 전달하여 원인을 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.' + observedIpHint
     : (oauthAccessDenied
       ? '\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.' + observedIpHint
       : '');
