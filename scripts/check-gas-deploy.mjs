@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 import {
   buildUpdatedFiles,
   deploymentIdFromWebAppUrl,
@@ -48,6 +49,385 @@ assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.225','10.0
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
+
+// Review-before-request release gate: a green GAS build must not conceal a
+// version mismatch or a stale release note (both occurred during PR #505).
+const activeGasVersion = extractExpectedGasVersion(currentGasSource);
+const webSettings = fs.readFileSync('src/web/features/settings/settings_fetch.js', 'utf8');
+const webVersionDeclarations = [...webSettings.matchAll(
+  /\bconst\s+EXPECTED_GAS_VERSION\s*=\s*['"](\d+\.\d+)['"]/g,
+)];
+assert.equal(webVersionDeclarations.length, 1, 'web EXPECTED_GAS_VERSION must have exactly one declaration');
+assert.equal(webVersionDeclarations[0][1], activeGasVersion,
+  'GAS header, API responses and web EXPECTED_GAS_VERSION must agree before Codex review');
+const deploymentNotes = fs.readFileSync('DEPLOYMENT.md', 'utf8');
+const latestReleaseHeading = deploymentNotes.match(/^## GAS v(\d+\.\d+)\b/m);
+assert.equal(latestReleaseHeading?.[1], activeGasVersion,
+  'DEPLOYMENT.md must document the latest GAS release at the top before review');
+const latestReleaseNotes = deploymentNotes.slice(
+  latestReleaseHeading.index,
+  deploymentNotes.indexOf('\n---', latestReleaseHeading.index) < 0
+    ? undefined : deploymentNotes.indexOf('\n---', latestReleaseHeading.index),
+);
+assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
+assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
+
+// Execute the *actual trigger-registration functions*, not copies of their
+// scheduling expressions. These checks would catch PR #505's 00:10/00:30
+// midnight boundary, a missing registration, and duplicate trigger repair.
+function triggerDefinition(name) {
+  const begin = currentGasSource.indexOf('function ' + name + '(');
+  assert.ok(begin >= 0, 'missing production trigger function: ' + name);
+  const end = currentGasSource.indexOf('\n}', begin);
+  assert.ok(end > begin, 'unterminated production trigger function: ' + name);
+  return currentGasSource.slice(begin, end + 2);
+}
+function verifyTriggerRegistration(name, handler, expectedHour, expectedMinute, definition = triggerDefinition(name)) {
+  const installed = [], created = [], deleted = [];
+  const app = {
+    getProjectTriggers: () => installed.slice(),
+    newTrigger: actualHandler => {
+      const clock = {handler:actualHandler};
+      return {
+        timeBased() { clock.timeBased = true; return this; },
+        everyDays(days) { clock.days = days; return this; },
+        inTimezone(tz) { clock.timezone = tz; return this; },
+        atHour(hour) { clock.hour = hour; return this; },
+        nearMinute(minute) { clock.minute = minute; return this; },
+        create() {
+          created.push(clock);
+          installed.push({getHandlerFunction:() => actualHandler});
+        },
+      };
+    },
+    deleteTrigger: t => {
+      deleted.push(t);
+      const index = installed.indexOf(t);
+      if (index >= 0) installed.splice(index, 1);
+    },
+  };
+  const context = vm.createContext({ScriptApp:app, CONFIG:{TIMEZONE:'Asia/Seoul'}});
+  new vm.Script(definition, {filename:'src/gas/apps_script.gs'}).runInContext(context);
+  assert.equal(context[name](false), false, name + ': absent trigger must be reported');
+  assert.equal(created.length, 0, name + ': read-only health check must not create a trigger');
+  assert.equal(context[name](true), true, name + ': repair must install missing trigger');
+  assert.deepEqual(created[0], {
+    handler, timeBased:true, days:1, timezone:'Asia/Seoul',
+    hour:expectedHour, minute:expectedMinute,
+  }, name + ': daily schedule drift; check lease windows and midnight rollover');
+  // Repeated repair must be idempotent, and must remove duplicates.
+  assert.equal(context[name](true), true);
+  assert.equal(created.length, 1, name + ': existing trigger must not be recreated');
+  installed.push({getHandlerFunction:() => handler});
+  assert.equal(context[name](true), true);
+  assert.equal(installed.length, 1, name + ': duplicate triggers must be removed');
+  assert.equal(deleted.length, 1, name + ': duplicate cleanup must be idempotent');
+  assert.equal(context[name](false), true, name + ': read-only health check must detect the installed trigger');
+}
+verifyTriggerRegistration('_ensurePortfolioCloseBackfillTrigger',
+  'runPortfolioCloseBackfill2210', 22, 10);
+verifyTriggerRegistration('_ensurePortfolioHistoricalBackfillTrigger',
+  'runPortfolioHistoricalBackfill2240', 23, 10);
+verifyTriggerRegistration('_ensurePortfolioHistoricalBackfill0010Trigger',
+  'runPortfolioHistoricalBackfill0010', 0, 30);
+// Mutation guard: a pre-midnight 00:10 registration must fail this test.
+const midnightRegistration = triggerDefinition('_ensurePortfolioHistoricalBackfill0010Trigger');
+assert.ok(midnightRegistration.includes('nearMinute(30)'), '00:30 source setup missing');
+assert.throws(() => verifyTriggerRegistration(
+  '_ensurePortfolioHistoricalBackfill0010Trigger',
+  'runPortfolioHistoricalBackfill0010', 0, 30,
+  midnightRegistration.replace('nearMinute(30)', 'nearMinute(10)'),
+), /daily schedule drift/, 'pre-midnight-capable 00:10 registration must be rejected');
+for (const label of ['22:10', '23:10', '00:30']) {
+  assert.ok(latestReleaseNotes.includes(label),
+    'release note must name the actual operational trigger schedule: ' + label);
+}
+// A correct installed clock is not enough if API/menu diagnostics call it by
+// an obsolete name or report the wrong time to the operator.
+const setupTriggerSource = triggerDefinition('setupTrigger');
+const diagnosisSource = triggerDefinition('checkDailyAutomationStatus');
+const statusApiSource = triggerDefinition('_getAutomationStatusData');
+const operationalLabels = [
+  ['runPortfolioCloseBackfill2210', '22:10'],
+  ['runPortfolioHistoricalBackfill2240', '23:10'],
+  ['runPortfolioHistoricalBackfill0010', '00:30'],
+];
+for (const [handler, label] of operationalLabels) {
+  assert.ok(setupTriggerSource.includes(label),
+    'setupTrigger must show the installed schedule ' + handler + ' (' + label + ')');
+  assert.ok(diagnosisSource.includes(handler + '(' + label + ')'),
+    'daily menu diagnostic must display the actual clock ' + handler + ' (' + label + ')');
+}
+for (const field of [
+  'hasBackfill', 'hasHistoricalBackfill', 'hasMidnightBackfill',
+  'hasDuplicateBackfillTriggers', 'hasDuplicateHistoricalBackfillTriggers',
+  'hasDuplicateMidnightBackfillTriggers',
+]) {
+  assert.ok(statusApiSource.includes(field),
+    'getAutomationStatus must distinguish missing/duplicate nightly worker: ' + field);
+}
+
+// P2 regression group: run the production Settings response contract.
+// Checking unrelated gasVersion literals in a full file can miss the
+// actual getSettings handler silently omitting its version.
+function verifyRealSettingsVersion(source = triggerDefinition('handleGetSettings')) {
+  const ctx = vm.createContext({
+    getss: () => ({}),
+    _settlePendingCodeDeleteForRead_: () => {},
+    _readSettingsMap: () => ({EDITABLE_PRICES:[]}),
+    _removeSecretsFromSettings: () => {},
+    _getApiKeyStatus: () => ({}),
+    jsonOk: result => result,
+    jsonError: message => { throw Error('getSettings runtime failed: ' + message); },
+  });
+  new vm.Script(source).runInContext(ctx);
+  const response = ctx.handleGetSettings();
+  assert.equal(response.gasVersion, activeGasVersion,
+    'actual handleGetSettings must return the approved GAS version');
+  assert.ok(response.settings && typeof response.settings === 'object',
+    'getSettings must return a settings object');
+}
+verifyRealSettingsVersion();
+const correctSettingsFunction = triggerDefinition('handleGetSettings');
+const missingSettingsVersion = correctSettingsFunction.replace(
+  /gasVersion:\s*['"]\d+\.\d+['"]/, 'version: "unversioned"');
+assert.notEqual(missingSettingsVersion, correctSettingsFunction);
+assert.throws(() => verifyRealSettingsVersion(missingSettingsVersion),
+  /actual handleGetSettings/, 'omitted getSettings gasVersion must fail independently of bootstrap');
+
+// Use the true production CONFIG object for schedule testing, not a fixture
+// that unconditionally supplies KST even after a production timezone change.
+const productionConfigMatch = currentGasSource.match(/\bvar\s+CONFIG\s*=\s*\{[\s\S]*?\n\};/);
+assert.ok(productionConfigMatch, 'production CONFIG literal must be available');
+const productionConfigSource = productionConfigMatch[0];
+function verifyProductionTimezone(source = productionConfigSource) {
+  const ctx = vm.createContext({});
+  new vm.Script(source).runInContext(ctx);
+  assert.equal(ctx.CONFIG.TIMEZONE, 'Asia/Seoul',
+    'production CONFIG.TIMEZONE must be Asia/Seoul for KST midnight triggers');
+  return ctx.CONFIG.TIMEZONE;
+}
+const productionTimezone = verifyProductionTimezone();
+const driftedTimezone = productionConfigSource.replace(
+  /TIMEZONE:\s*['"]Asia\/Seoul['"]/, "TIMEZONE: 'UTC'");
+assert.notEqual(driftedTimezone, productionConfigSource);
+assert.throws(() => verifyProductionTimezone(driftedTimezone),
+  /production CONFIG.TIMEZONE/, 'UTC regression must be rejected before review');
+
+// Run actual production trigger discovery + API/menu diagnostics against
+// missing, duplicate, and healthy trigger sets. All reads must be side-effect
+// free. Only external data readers are mocked; inspected handlers are real.
+const statusFunctions = [
+  '_ensureSnapshotIntegrityChangeTrigger',
+  '_ensureDailyTriggers',
+  '_getAutomationStatusData',
+  'checkDailyAutomationStatus',
+];
+const requiredHandlers = [
+  'runCodeNormalize1550', 'syncMortgageFromSchedule',
+  'runDailyPortfolioClose1900', 'runPortfolioCloseWatchdog2030',
+  'runPortfolioCloseBackfill2210', 'runPortfolioHistoricalBackfill2240',
+  'runPortfolioHistoricalBackfill0010', 'handleSnapshotIntegritySheetChange',
+];
+function runRealDiagnostics({
+  missing = [], duplicate = '', overridden = {},
+} = {}) {
+  const calls = [], alerts = [], logs = [];
+  const handlerNames = requiredHandlers.filter(x => !missing.includes(x));
+  if (duplicate) handlerNames.push(duplicate);
+  const installed = handlerNames.map(name => ({
+    getHandlerFunction: () => name,
+    getTriggerSourceId: () => 'unit-test-spreadsheet',
+  }));
+  const blockedMutation = name => {
+    calls.push(name);
+    throw Error('read-only diagnostic attempted mutation: ' + name);
+  };
+  const props = new Map([['portfolio_close_last_result', JSON.stringify({
+    runDate:'2026-10-14', priceDate:'2026-10-14',
+    priceOk:true, fundOk:true, errors:[],
+  })]]);
+  const ctx = vm.createContext({
+    ScriptApp: {
+      getProjectTriggers: () => installed.slice(),
+      newTrigger: () => blockedMutation('newTrigger'),
+      deleteTrigger: () => blockedMutation('deleteTrigger'),
+    },
+    getss: () => ({
+      getId: () => 'unit-test-spreadsheet',
+      getSheetByName: () => ({}),
+    }),
+    PropertiesService: {getScriptProperties: () => ({
+      getProperty: key => props.get(key) ?? null,
+      setProperty: () => blockedMutation('setProperty'),
+      deleteProperty: () => blockedMutation('deleteProperty'),
+    })},
+    LockService: {getScriptLock: () => blockedMutation('getScriptLock')},
+    Logger: {log: message => logs.push(String(message))},
+    SpreadsheetApp: {getUi: () => ({alert: message => alerts.push(String(message))})},
+    Utilities: {formatDate: () => '2026-10-14 23:00:00'},
+    _getLatestLifecycleValidSnapshotDate: () => '2026-10-14',
+    _getLatestDateInColumn: () => '2026-10-14',
+    _getOfficialKrxPriceHistoryLastDate: () => '2026-10-14',
+    _portfolioCloseRunState: () => ({state:'COMPLETE'}),
+    _fundAttemptDiagnosticState_: () => null,
+    _expectedConfirmedSnapshotDate: () => '2026-10-14',
+    _expectedPortfolioCloseRunDate: () => '2026-10-14',
+    _isPortfolioCloseRunStale: () => false,
+    _readPendingKrxCloseDates_: () => [],
+  });
+  new vm.Script(productionConfigSource).runInContext(ctx);
+  assert.equal(ctx.CONFIG.TIMEZONE, productionTimezone);
+  for (const fn of statusFunctions) {
+    new vm.Script(overridden[fn] ?? triggerDefinition(fn)).runInContext(ctx);
+  }
+  const data = JSON.parse(JSON.stringify(ctx._getAutomationStatusData()));
+  ctx.checkDailyAutomationStatus();
+  assert.equal(alerts.length, 1, 'diagnostic menu must render one status alert');
+  assert.equal(calls.length, 0, 'diagnostic API and menu must never mutate triggers or properties');
+  assert.equal(data.gasVersion, activeGasVersion);
+  assert.ok(data.trigger && typeof data.trigger === 'object');
+  return {data, message:alerts[0], logs, calls};
+}
+const normalDiagnostics = runRealDiagnostics();
+assert.equal(normalDiagnostics.data.overallStatus, 'NORMAL');
+assert.equal(normalDiagnostics.data.trigger.hasMidnightBackfill, true);
+assert.equal(normalDiagnostics.data.trigger.midnightBackfillCount, 1);
+assert.match(normalDiagnostics.message, /트리거는 정상 집합/);
+for (const [handler, flag, dupFlag, countKey, label] of [
+  ['runPortfolioCloseBackfill2210','hasBackfill','hasDuplicateBackfillTriggers','backfillCount','22:10'],
+  ['runPortfolioHistoricalBackfill2240','hasHistoricalBackfill','hasDuplicateHistoricalBackfillTriggers','historicalBackfillCount','23:10'],
+  ['runPortfolioHistoricalBackfill0010','hasMidnightBackfill','hasDuplicateMidnightBackfillTriggers','midnightBackfillCount','00:30'],
+]) {
+  const absent = runRealDiagnostics({missing:[handler]});
+  assert.equal(absent.data.overallStatus,'ERROR',handler + ' missing must report ERROR');
+  assert.equal(absent.data.trigger[flag],false,handler + ' missing status must be false');
+  assert.equal(absent.data.trigger[countKey],0);
+  assert.ok(absent.message.includes(handler + '(' + label + ')')
+    && absent.message.includes('트리거 상태 이상')
+    && absent.message.includes(handler + '(' + label + ')')
+      && absent.message.slice(absent.message.indexOf(handler + '(' + label + ')')).includes('없음'),
+    handler + ' missing must be visible in the menu');
+  const doubled = runRealDiagnostics({duplicate:handler});
+  assert.equal(doubled.data.overallStatus,'ERROR',handler + ' duplicate must report ERROR');
+  assert.equal(doubled.data.trigger[dupFlag],true);
+  assert.equal(doubled.data.trigger[countKey],2);
+  assert.ok(doubled.message.includes(handler + '(' + label + ')')
+    && doubled.message.includes('중복 2개'),handler + ' duplicate must be visible');
+}
+// Representative mutation: a diagnostic reporting midnight registration as
+// always true must fail while the real installed fixture has no such trigger.
+const apiOriginal = triggerDefinition('_getAutomationStatusData');
+const apiRegressed = apiOriginal.replace(
+  'hasMidnightBackfill: !!trig.hasMidnightBackfill',
+  'hasMidnightBackfill: true');
+assert.notEqual(apiOriginal,apiRegressed);
+const broken = runRealDiagnostics({
+  missing:['runPortfolioHistoricalBackfill0010'],
+  overridden:{_getAutomationStatusData:apiRegressed},
+});
+assert.equal(broken.data.trigger.hasMidnightBackfill,true);
+assert.notEqual(broken.data.trigger.hasMidnightBackfill,
+  runRealDiagnostics({missing:['runPortfolioHistoricalBackfill0010']}).data.trigger.hasMidnightBackfill,
+  'mutation must be distinguishable from correct production diagnostic');
+assert.throws(() => assert.equal(broken.data.trigger.hasMidnightBackfill,false),
+  /true !== false/, 'diagnostic always-true regression must be caught by fixture assertion');
+
+// setupTrigger is intentionally state-changing. Exercise its production
+// registration path separately from the read-only diagnostics fixtures.
+function verifyRealTriggerSetup() {
+  const installed=[], deleted=[], created=[], alerts=[];
+  const fakeSpreadsheet={getId:()=> 'unit-test-spreadsheet'};
+  let ownsLock=false, locksAcquired=0;
+  function makeEntry(name,sourceId='') {
+    return {
+      getHandlerFunction:()=>name,
+      getTriggerSourceId:()=>sourceId,
+    };
+  }
+  for (const handler of [
+    'runPortfolioCloseBackfill2210','runPortfolioCloseBackfill2210',
+    'runPortfolioHistoricalBackfill2240','runPortfolioHistoricalBackfill0010',
+    'runEvalPriceUpdate1620'
+  ]) installed.push(makeEntry(handler));
+  const app={
+    getProjectTriggers:()=> installed.slice(),
+    deleteTrigger:t=>{
+      deleted.push(t.getHandlerFunction());
+      const i=installed.indexOf(t);
+      assert.ok(i>=0, 'setup may only delete installed triggers');
+      installed.splice(i,1);
+    },
+    newTrigger:handler=>{
+      const clock={handler};
+      return {
+        timeBased(){clock.mode='time';return this;},
+        everyDays(days){clock.days=days;return this;},
+        inTimezone(tz){clock.timezone=tz;return this;},
+        atHour(h){clock.hour=h;return this;},
+        nearMinute(m){clock.minute=m;return this;},
+        forSpreadsheet(ss){assert.equal(ss,fakeSpreadsheet);clock.mode='sheet';return this;},
+        onChange(){clock.change=true;return this;},
+        create(){
+          created.push(clock);
+          installed.push(makeEntry(handler,clock.mode==='sheet'?'unit-test-spreadsheet':''));
+        },
+      };
+    },
+  };
+  const ctx=vm.createContext({
+    ScriptApp:app,
+    getss:()=>fakeSpreadsheet,
+    _cleanupBenchmarkTempSheets:()=>{},
+    onOpen:()=>{},
+    Logger:{log:()=>{}},
+    SpreadsheetApp:{getUi:()=>({alert:msg=>alerts.push(String(msg))})},
+    LockService:{getScriptLock:()=>({
+      hasLock:()=>ownsLock,
+      waitLock:()=>{locksAcquired++;ownsLock=true;},
+      releaseLock:()=>{ownsLock=false;},
+    })},
+  });
+  new vm.Script(productionConfigSource).runInContext(ctx);
+  for(const name of [
+    '_ensurePortfolioCloseDailyTrigger','_ensurePortfolioCloseWatchdogTrigger',
+    '_ensurePortfolioCloseBackfillTrigger','_ensurePortfolioHistoricalBackfillTrigger',
+    '_ensurePortfolioHistoricalBackfill0010Trigger',
+    '_ensureSnapshotIntegrityChangeTrigger','setupTrigger',
+  ]) new vm.Script(triggerDefinition(name)).runInContext(ctx);
+  ctx.setupTrigger();
+  for(const [handler,hour,minute] of [
+    ['runCodeNormalize1550',15,50],['syncMortgageFromSchedule',1,10],
+    ['runPortfolioCloseBackfill2210',22,10],
+    ['runPortfolioHistoricalBackfill2240',23,10],
+    ['runPortfolioHistoricalBackfill0010',0,30],
+  ]) {
+    const jobs=created.filter(c=>c.handler===handler);
+    assert.equal(jobs.length,1,'setupTrigger must install exactly one '+handler);
+    assert.equal(jobs[0].hour,hour,'setupTrigger hour regression: '+handler);
+    assert.equal(jobs[0].minute,minute,'setupTrigger minute regression: '+handler);
+    assert.equal(jobs[0].timezone,productionTimezone,'setupTrigger timezone regression: '+handler);
+  }
+  for(const handler of [
+    'runDailyPortfolioClose1900','runPortfolioCloseWatchdog2030',
+    'handleSnapshotIntegritySheetChange',
+  ]) assert.equal(created.filter(c=>c.handler===handler).length,1,
+    'setupTrigger must install required operational trigger: '+handler);
+  assert.equal(installed.filter(t=>t.getHandlerFunction()==='runEvalPriceUpdate1620').length,0,
+    'obsolete split price trigger must be removed');
+  assert.ok(deleted.filter(s=>s==='runPortfolioCloseBackfill2210').length===2,
+    'setupTrigger must remove both previous same-day triggers before reinstalling one');
+  assert.equal(locksAcquired,1,'sheet integrity trigger registration must obtain a lock');
+  assert.equal(ownsLock,false,'sheet integrity registration must release its lock');
+  assert.ok(alerts.some(s=>s.includes('22:10')&&s.includes('23:10')&&s.includes('00:30')),
+    'setupTrigger user notice must match the installed clock');
+  assert.equal(installed.filter(t=>t.getHandlerFunction()==='runPortfolioHistoricalBackfill0010').length,1);
+}
+verifyRealTriggerSetup();
+
+console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
+
+console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
 const approvedFullSourceBlob='1eddb8c3ac348751742ebf1617ca20295ee3a2a9';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
