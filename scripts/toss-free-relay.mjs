@@ -20,7 +20,7 @@ function scalar(value,pattern,maxLength=120){
   return value;
 }
 const SYMBOL=/^[A-Z0-9_.:-]{1,32}$/;
-const BEFORE=/^[A-Za-z0-9_.:+-]{0,80}$/;
+const BEFORE=/^[A-Za-z0-9_.:+/=-]{1,256}$/;
 function buildTossPath(action, p){
   if(!p || typeof p!=='object'||Array.isArray(p))throw reject('INVALID_REQUEST');
   const q=new URLSearchParams();
@@ -39,7 +39,7 @@ function buildTossPath(action, p){
       const count=p.count===undefined?200:Number(p.count);
       if(!Number.isInteger(count)||count<1||count>200)throw reject('INVALID_REQUEST');
       q.set('count',String(count));
-      if(p.before!==undefined&&p.before!=='')q.set('before',scalar(p.before,BEFORE,80));
+      if(p.before!==undefined&&p.before!=='')q.set('before',scalar(p.before,BEFORE,256));
       if(p.adjusted!==undefined&&p.adjusted!=='false')throw reject('INVALID_REQUEST');
       q.set('adjusted','false');allowed=['symbol','interval','count','before','adjusted'];break;
     case 'exchangeRate':
@@ -51,14 +51,24 @@ function buildTossPath(action, p){
       route='/api/v1/market-calendar/'+market;
       q.set('date',scalar(p.date,/^\d{4}-\d{2}-\d{2}$/));allowed=['market','date'];break;
     }
-    case 'indicatorPrices':
+    case 'indicatorPrices': {
       route='/api/v1/market-indicators/prices';
-      q.set('symbols','KOSPI,KOSDAQ');allowed=[];break;
+      const indices=p.symbols===undefined?['KOSPI','KOSDAQ']:
+        scalar(p.symbols,/^(KOSPI|KOSDAQ)(,(KOSPI|KOSDAQ))?$/).split(',');
+      if(new Set(indices).size!==indices.length)throw reject('INVALID_REQUEST');
+      q.set('symbols',indices.join(','));allowed=['symbols'];break;
+    }
     case 'indicatorCandles':{
       const index=scalar(p.index,/^(KOSPI|KOSDAQ)$/);
       if(!ALLOWED_INDICES.has(index))throw reject('INVALID_REQUEST');
       route='/api/v1/market-indicators/'+index+'/candles';
-      q.set('interval','1d');q.set('count','1');allowed=['index'];break;
+      if(p.interval!==undefined&&p.interval!=='1d')throw reject('INVALID_REQUEST');
+      q.set('interval','1d');
+      const count=p.count===undefined?200:Number(p.count);
+      if(!Number.isInteger(count)||count<1||count>200)throw reject('INVALID_REQUEST');
+      q.set('count',String(count));
+      if(p.before!==undefined&&p.before!=='')q.set('before',scalar(p.before,BEFORE,256));
+      allowed=['index','interval','count','before'];break;
     }
     default:throw reject('ROUTE_NOT_ALLOWED',403);
   }
@@ -113,8 +123,17 @@ export function createTossRelay({clientId,clientSecret,sharedKey,fetchImpl=fetch
     const response=await doRequest(fetchImpl,TOSS_ORIGIN+'/oauth2/token',{
       method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body
     },TOKEN_TIMEOUT_MS);
+    if(!response.ok){
+      let failure={};
+      if(response.status===403){
+        try{failure=await readJsonLimited(response,32768)}
+        catch(e){if(e?.code!=='UPSTREAM_INVALID_JSON')throw e}
+      }else{
+        try{await response.body?.cancel?.()}catch{}
+      }
+      throw reject('TOSS_OAUTH_'+errorCode(failure,response.status),502);
+    }
     const result=await readJsonLimited(response,32768);
-    if(!response.ok)throw reject('TOSS_OAUTH_'+errorCode(result,response.status),502);
     if(result?.token_type!=='Bearer'||typeof result.access_token!=='string'
        ||!result.access_token||!(Number(result.expires_in)>0))
       throw reject('TOSS_OAUTH_INVALID_RESPONSE',502);
@@ -143,8 +162,18 @@ export function createTossRelay({clientId,clientSecret,sharedKey,fetchImpl=fetch
         }
         return {ok:false,status:401,code:'UNAUTHORIZED'};
       }
+      // HTTP status is authoritative: 403/429/5xx must survive empty or HTML upstream bodies.
+      if(!response.ok){
+        let failure={};
+        if(response.status===403){
+          try{failure=await readJsonLimited(response,MAX_UPSTREAM_BYTES)}
+          catch(e){if(e?.code!=='UPSTREAM_INVALID_JSON')throw e}
+        }else{
+          try{await response.body?.cancel?.()}catch{}
+        }
+        return {ok:false,status:response.status,code:errorCode(failure,response.status)};
+      }
       const data=await readJsonLimited(response,MAX_UPSTREAM_BYTES);
-      if(!response.ok)return {ok:false,status:response.status,code:errorCode(data,response.status)};
       return {ok:true,status:response.status,data};
     }
     return {ok:false,status:401,code:'UNAUTHORIZED'};
