@@ -42,10 +42,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.225');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.226');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.225','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.226','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -425,16 +425,81 @@ function verifyRealTriggerSetup() {
 }
 verifyRealTriggerSetup();
 
+// The production web app is a standalone script: editor repairs cannot use
+// SpreadsheetApp.getUi(). Install only the two missing historical workers.
+function standaloneHistoricalInstall(initial = [], failHandler = '') {
+  let held = false;
+  const jobs = initial.map(handler => ({getHandlerFunction:()=>handler}));
+  const created = [];
+  const ctx = vm.createContext({
+    CONFIG:{TIMEZONE:productionTimezone},
+    SpreadsheetApp:new Proxy({}, {get(){throw new Error('SHEET_ACCESS_FORBIDDEN');}}),
+    PropertiesService:new Proxy({}, {get(){throw new Error('PROPERTY_ACCESS_FORBIDDEN');}}),
+    LockService:{getScriptLock:()=>({
+      waitLock(){assert.equal(held,false);held=true;},
+      releaseLock(){assert.equal(held,true);held=false;}
+    })},
+    ScriptApp:{
+      getProjectTriggers:()=>{assert.equal(held,true,'trigger discovery must be inside ScriptLock');return jobs;},
+      deleteTrigger(){throw new Error('TRIGGER_DELETE_FORBIDDEN');},
+      newTrigger(handler){
+        assert.equal(held,true,'standalone installation must hold ScriptLock');
+        const spec={handler};
+        const builder={timeBased(){return this;},everyDays(n){spec.days=n;return this;},
+          inTimezone(tz){spec.timezone=tz;return this;},atHour(h){spec.hour=h;return this;},
+          nearMinute(m){spec.minute=m;return this;},create(){
+            if(handler===failHandler)throw new Error('INSTALL_FAILED');
+            created.push(spec);jobs.push({getHandlerFunction:()=>handler});return {};
+          }};
+        return builder;
+      }
+    },
+    Logger:{log(){}},
+  });
+  for(const name of ['installMissingHistoricalBackfillTriggers'])
+    vm.runInContext(triggerDefinition(name),ctx);
+  return {created,jobs,run:()=>ctx.installMissingHistoricalBackfillTriggers(),
+    held:()=>held};
+}
+const historicalHandlers=['runPortfolioHistoricalBackfill2240','runPortfolioHistoricalBackfill0010'];
+const standalonePrompt=vm.createContext({SpreadsheetApp:{getUi(){throw new Error('NO_UI_CONTEXT');}}});
+for(const name of ['_confirmPortfolioMenuAction','repairMissingDailyTriggersPrompt'])
+  vm.runInContext(triggerDefinition(name),standalonePrompt);
+assert.throws(()=>standalonePrompt.repairMissingDailyTriggersPrompt(),/NO_UI_CONTEXT/,
+  'the bound-sheet prompt cannot be the standalone editor recovery entry point');
+const freshInstall=standaloneHistoricalInstall(['runPortfolioCloseBackfill2210']);
+assert.deepEqual(JSON.parse(JSON.stringify(freshInstall.run())),{
+  mode:'TRIGGER_INSTALL_ONLY',created:2,historicalBackfillCount:1,midnightBackfillCount:1
+});
+assert.deepEqual(freshInstall.created.map(x=>[x.handler,x.hour,x.minute,x.timezone,x.days]),[
+  [historicalHandlers[0],23,10,productionTimezone,1],
+  [historicalHandlers[1],0,30,productionTimezone,1]
+]);
+assert.equal(freshInstall.run().created,0,'repeated editor execution must be idempotent');
+assert.equal(freshInstall.created.length,2);
+assert.equal(freshInstall.held(),false);
+const duplicateInstall=standaloneHistoricalInstall([...historicalHandlers,historicalHandlers[0]]);
+assert.equal(duplicateInstall.run().historicalBackfillCount,2,'existing duplicates are reported, never deleted');
+assert.equal(duplicateInstall.created.length,0);
+const partialInstall=standaloneHistoricalInstall([],historicalHandlers[1]);
+assert.throws(()=>partialInstall.run(),/INSTALL_FAILED/);
+assert.equal(partialInstall.created.length,1,'preserve the first successful install on partial failure');
+assert.equal(partialInstall.held(),false,'failure must release ScriptLock');
+const retryInstall=standaloneHistoricalInstall(partialInstall.jobs.map(x=>x.getHandlerFunction()));
+assert.equal(retryInstall.run().created,1,'retry installs only the still missing worker');
+assert.equal(retryInstall.created[0].handler,historicalHandlers[1]);
+console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근·중복 보존·재시도·KST 일정 검증');
+
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='1eddb8c3ac348751742ebf1617ca20295ee3a2a9';
+const approvedFullSourceBlob='755977e5b21a8a97f2a67e0ded27b90a988dbb1d';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.224',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.225',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
