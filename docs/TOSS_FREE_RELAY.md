@@ -6,20 +6,22 @@
 - 현재 운영 v9.228에서 실제 HTTP 403 원문 `ip-not-allowed` 확인.
 - Google Apps Script UrlFetchApp은 고정 IP가 아닌 Google IP 주소 풀 사용.
 - Oracle Cloud Always Free VM과 예약 IPv4(Reserved Public IP)를 검토할 수 있음. 예약 IP 기능은 Oracle 공식 발표 기준 자체 이용료 없음. 단 무료계정별 허용 한도 및 VM 리전·추가 리소스 과금 여부는 OCI 콘솔에서 확인.
-- Oracle 무료 VM은 용량 부족으로 개설 실패 또는 장기간 저사용으로 회수될 수 있어 24시간 가용성 보장 아님.
+- Oracle 무료 VM은 용량 부족으로 개설 실패 또는 장기간 저사용으로 회수될 수 있어 24시간 가용성 보장 아님. 공식 유휴 기준은 최근 7일 중 CPU·네트워크·(A1일 때) 메모리 사용률 조건이며, 불필요한 부하를 만들어 회수를 회피하지 않음.
 - 계정 만들 때 본인/결제수단 확인을 요구할 수 있음. PAYG 임의 전환 및 유료 VM/NAT Gateway/Load Balancer 생성 금지.
 
 출처:
 https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm
 https://docs.oracle.com/en-us/iaas/Content/Network/Tasks/managingpublicIPs.htm
+https://docs.oracle.com/en-us/iaas/Content/Network/Tasks/assign-public-ip-instance-launch.htm
+https://docs.oracle.com/en-us/iaas/Content/Network/Tasks/reserved-public-ip-assign.htm
 https://blogs.oracle.com/cloud-infrastructure/release-announcement-reserved-public-ips-are-now-available-on-oracle-cloud-infrastructure
 https://developers.tossinvest.com/docs/auth
 
 ## 0원 경로
 GAS → HTTPS(무료 DNS + Caddy 인증서) → Node 중계(127.0.0.1:18761) → Oracle VM 예약 IPv4 → Toss
 
-1. 사용자가 https://www.oracle.com/cloud/free/ 에 로그인/무료 등록. `Home Region`에서 `VM.Standard.E2.1.Micro`(AMD) 1대 또는 무료 범위 A1을 선택하고 부트볼륨 50 GB 기준 이외 유료 리소스가 추가되지 않는지 확인.
-2. OCI 콘솔 Networking → IP management → Reserved Public IPs에서 **예약 IPv4 한 개** 생성 후 VM에 연결. 무료 한도/과금 표시를 직접 확인.
+1. 사용자가 https://www.oracle.com/cloud/free/ 에서 **Always Free 계정** 신규 가입. 가입 중 `Home Region`은 추후 바꿀 수 없으므로 먼저 선택하고, 완료 후 **그 홈 리전에서** `VM.Standard.E2.1.Micro`(AMD) 1대 또는 무료 범위 A1을 생성. 부트볼륨 50GB 및 추가 스토리지·네트워크 리소스가 무료 범위인지 확인.
+2. VM 생성 시 Networking의 **Automatically assign a public IPv4 address** 기본 체크를 해제하고, **public subnet + internet gateway**를 구성. OCI 콘솔 Networking → IP management → Reserved Public IPs에서 예약 IPv4 1개를 생성하여 VM의 **primary private IP**에 할당. *이미 ephemeral public IP가 있으면 우선 제거해야 할당 가능하며 ephemeral IP 자체를 reserved IP로 변환할 수 없음.* 무료 한도/과금 표시를 확인하고 사용하지 않는 IP를 중복 예약하지 않음.
 3. OCI/OS 방화벽에서 SSH 22는 관리 IP로 제한, HTTP 80(인증서), HTTPS 443 허용. **18761은 절대 외부에 개방하지 않음.**
 4. 무료 서브도메인(예: DuckDNS)을 만들어 예약 IPv4로 A레코드 연결. Node와 Caddy 설치, Caddy의 자동 HTTPS를 이용함. 직접 IP 주소에 자체서명 인증서를 적용하거나 GAS의 TLS 검증을 해제하지 않음.
 5. VM의 비공개 환경 파일에서 `TOSS_CLIENT_ID`, `TOSS_CLIENT_SECRET`, 32자 이상 난수 `TOSS_RELAY_SHARED_KEY` 설정. 권한 600·전용 서비스 계정·systemd 재시작 정책을 적용. 인증값을 GitHub, 시트, 웹에 저장하지 않음.
