@@ -275,3 +275,76 @@ assert.equal(continuedOnTimeout.reports[1].healthy,true);
 assert.ok(!JSON.stringify(continuedOnTimeout).includes('sensitive transport detail'));
 
 console.log('KRX authenticated production diagnostic is read-only and sanitized: PASS');
+
+
+import { runBackfillStatus, summarizeBackfillStatus } from './diagnose-backfill-status.mjs';
+const statusFixture=()=>({status:'ok',gasVersion:'9.224',automation:{
+  gasVersion:'9.224',overallStatus:'WARNING',
+  trigger:{
+    hasClose:true,hasWatchdog:true,hasBackfill:true,hasHistoricalBackfill:true,
+    hasMidnightBackfill:true,hasIntegrityChange:true,hasClean:true,hasMortgage:true,
+    closeCount:1,watchdogCount:1,backfillCount:1,
+    historicalBackfillCount:1,midnightBackfillCount:1,
+    hasDuplicateCloseTriggers:false,hasDuplicateWatchdogTriggers:false,
+    hasDuplicateBackfillTriggers:false,hasDuplicateHistoricalBackfillTriggers:false,
+    hasDuplicateMidnightBackfillTriggers:false,hasLegacySplitTriggers:false
+  },
+  pendingKrxCloseDates:['2026-10-08','2026-10-12','2026-10-13'],
+  officialKrxPriceHistoryLastDate:'2026-10-08',snapshotLastDate:'2026-10-08',
+  priceHistoryLastDate:'2026-10-14',
+  backfillLastResult:{runDate:'2026-10-14',checkedAt:1791961200000,
+    result:{attempted:true,ok:false,date:'2026-10-13',remaining:3,
+      error:'private account and holdings must not be logged'}},
+  historicalBackfillLastResult:null,
+  secretValue:'must never be serialized'
+}});
+const statusSample=summarizeBackfillStatus(statusFixture());
+assert.equal(statusSample.mode,'READ_ONLY');
+assert.equal(statusSample.triggerReady,true);
+assert.equal(statusSample.pendingCount,3);
+assert.deepEqual(statusSample.pendingDates,['2026-10-08','2026-10-12','2026-10-13']);
+assert.equal(statusSample.latestBackfill.ok,false);
+assert.equal(statusSample.latestBackfill.targetDate,'2026-10-13');
+assert.doesNotMatch(JSON.stringify(statusSample),/private account|secretValue|must never/);
+let statusRequests=[];
+const statusResult=await runBackfillStatus({
+  url:'https://script.google.com/macros/s/Abcd/exec',token:key,
+  fetchImpl:async(_,options)=>{
+    statusRequests.push(options);
+    assert.equal(options.method,'POST');
+    assert.equal(options.body.get('action'),'getAutomationStatus');
+    assert.equal(options.body.has('apply'),false);
+    return {ok:true,json:async()=>options.body.get('accessToken')===key
+      ?statusFixture():{status:'error',message:'인증 실패'}};
+  }
+});
+assert.equal(statusRequests.length,2,'negative auth proof followed by one real read-only status');
+assert.equal(statusResult.triggerReady,true);
+assert.ok(!JSON.stringify(statusResult).includes(key));
+const statusNoMidnight=statusFixture();
+statusNoMidnight.automation.trigger.hasMidnightBackfill=false;
+statusNoMidnight.automation.trigger.midnightBackfillCount=0;
+assert.equal(summarizeBackfillStatus(statusNoMidnight).triggerReady,false);
+assert.deepEqual(summarizeBackfillStatus(statusNoMidnight).triggerMissing,['hasMidnightBackfill']);
+const statusDuplicate=statusFixture();
+statusDuplicate.automation.trigger.backfillCount=2;
+statusDuplicate.automation.trigger.hasDuplicateBackfillTriggers=true;
+assert.equal(summarizeBackfillStatus(statusDuplicate).triggerReady,false);
+const statusInvalidQueue=statusFixture();
+statusInvalidQueue.automation.pendingKrxCloseDates.push('2026-10-08');
+assert.throws(()=>summarizeBackfillStatus(statusInvalidQueue),/BAD_QUEUE/);
+const statusMissingField=statusFixture();
+delete statusMissingField.automation.trigger.hasClose;
+assert.throws(()=>summarizeBackfillStatus(statusMissingField),/BAD_TRIGGER/);
+const statusBadVersion=statusFixture();
+statusBadVersion.gasVersion='9.223';
+assert.throws(()=>summarizeBackfillStatus(statusBadVersion),/BAD_RESPONSE/);
+await assert.rejects(()=>runBackfillStatus({
+  url:'https://script.google.com/macros/s/Abcd/exec',token:key,
+  fetchImpl:async()=>({ok:true,json:async()=>statusFixture()})
+}),/AUTH_DISABLED/);
+await assert.rejects(()=>runBackfillStatus({
+  url:'https://script.google.com/macros/s/Abcd/exec',token:key,
+  fetchImpl:async()=>{throw new Error('sensitive credentials');}
+}),/NETWORK_FAILED/);
+console.log('KRX/GAS 트리거·큐·백필 체크포인트 읽기 전용 인증·안전 출력 회귀 통과');
