@@ -668,7 +668,7 @@ function renderGsheetView(area) {
         </div>
         <div style="font-size:.64rem;color:var(--muted);line-height:1.6;margin-top:8px">빈 입력은 기존 값을 유지합니다. Secret 원문은 브라우저 저장소·시트·응답에 저장하지 않고 GAS Script Properties에만 전달합니다.</div>
         <div id="tossDiagnosticResult" style="white-space:pre-line;font-size:.64rem;color:var(--muted);margin-top:8px;min-height:1.2em"></div>
-        <div style="font-size:.64rem;color:var(--amber);line-height:1.6;margin-top:8px">403이면 GAS에서 IP를 설정하는 것이 아니라 Toss WTS Open API 콘솔에 GAS UrlFetchApp의 Google IP range pool 허용 IP를 등록해야 합니다.</div>
+        <div style="font-size:.64rem;color:var(--amber);line-height:1.6;margin-top:8px">토스 OAuth 401은 Client ID/Secret·승인 상태·실제 인증 응답을 먼저 확인하세요. 403은 토스증권 WTS 허용 IP 정책을 점검하되, 모바일 IP나 확인되지 않은 GAS 관측 IP·Google 공용 IP 대역을 일괄 등록하지 마세요. 실제 Toss 요청 송신 IP를 확인한 뒤 필요한 범위만 허용하세요.</div>
       </div>
 
       <!-- 안내 -->
