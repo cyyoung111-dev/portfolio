@@ -332,6 +332,99 @@ assert.notEqual(broken.data.trigger.hasMidnightBackfill,
   'mutation must be distinguishable from correct production diagnostic');
 assert.throws(() => assert.equal(broken.data.trigger.hasMidnightBackfill,false),
   /true !== false/, 'diagnostic always-true regression must be caught by fixture assertion');
+
+// setupTrigger is intentionally state-changing. Exercise its production
+// registration path separately from the read-only diagnostics fixtures.
+function verifyRealTriggerSetup() {
+  const installed=[], deleted=[], created=[], alerts=[];
+  const fakeSpreadsheet={getId:()=> 'unit-test-spreadsheet'};
+  let ownsLock=false, locksAcquired=0;
+  function makeEntry(name,sourceId='') {
+    return {
+      getHandlerFunction:()=>name,
+      getTriggerSourceId:()=>sourceId,
+    };
+  }
+  for (const handler of [
+    'runPortfolioCloseBackfill2210','runPortfolioCloseBackfill2210',
+    'runPortfolioHistoricalBackfill2240','runPortfolioHistoricalBackfill0010',
+    'runEvalPriceUpdate1620'
+  ]) installed.push(makeEntry(handler));
+  const app={
+    getProjectTriggers:()=> installed.slice(),
+    deleteTrigger:t=>{
+      deleted.push(t.getHandlerFunction());
+      const i=installed.indexOf(t);
+      assert.ok(i>=0, 'setup may only delete installed triggers');
+      installed.splice(i,1);
+    },
+    newTrigger:handler=>{
+      const clock={handler};
+      return {
+        timeBased(){clock.mode='time';return this;},
+        everyDays(days){clock.days=days;return this;},
+        inTimezone(tz){clock.timezone=tz;return this;},
+        atHour(h){clock.hour=h;return this;},
+        nearMinute(m){clock.minute=m;return this;},
+        forSpreadsheet(ss){assert.equal(ss,fakeSpreadsheet);clock.mode='sheet';return this;},
+        onChange(){clock.change=true;return this;},
+        create(){
+          created.push(clock);
+          installed.push(makeEntry(handler,clock.mode==='sheet'?'unit-test-spreadsheet':''));
+        },
+      };
+    },
+  };
+  const ctx=vm.createContext({
+    ScriptApp:app,
+    getss:()=>fakeSpreadsheet,
+    _cleanupBenchmarkTempSheets:()=>{},
+    onOpen:()=>{},
+    Logger:{log:()=>{}},
+    SpreadsheetApp:{getUi:()=>({alert:msg=>alerts.push(String(msg))})},
+    LockService:{getScriptLock:()=>({
+      hasLock:()=>ownsLock,
+      waitLock:()=>{locksAcquired++;ownsLock=true;},
+      releaseLock:()=>{ownsLock=false;},
+    })},
+  });
+  new vm.Script(productionConfigSource).runInContext(ctx);
+  for(const name of [
+    '_ensurePortfolioCloseDailyTrigger','_ensurePortfolioCloseWatchdogTrigger',
+    '_ensurePortfolioCloseBackfillTrigger','_ensurePortfolioHistoricalBackfillTrigger',
+    '_ensurePortfolioHistoricalBackfill0010Trigger',
+    '_ensureSnapshotIntegrityChangeTrigger','setupTrigger',
+  ]) new vm.Script(triggerDefinition(name)).runInContext(ctx);
+  ctx.setupTrigger();
+  for(const [handler,hour,minute] of [
+    ['runCodeNormalize1550',15,50],['syncMortgageFromSchedule',1,10],
+    ['runPortfolioCloseBackfill2210',22,10],
+    ['runPortfolioHistoricalBackfill2240',23,10],
+    ['runPortfolioHistoricalBackfill0010',0,30],
+  ]) {
+    const jobs=created.filter(c=>c.handler===handler);
+    assert.equal(jobs.length,1,'setupTrigger must install exactly one '+handler);
+    assert.equal(jobs[0].hour,hour,'setupTrigger hour regression: '+handler);
+    assert.equal(jobs[0].minute,minute,'setupTrigger minute regression: '+handler);
+    assert.equal(jobs[0].timezone,productionTimezone,'setupTrigger timezone regression: '+handler);
+  }
+  for(const handler of [
+    'runDailyPortfolioClose1900','runPortfolioCloseWatchdog2030',
+    'handleSnapshotIntegritySheetChange',
+  ]) assert.equal(created.filter(c=>c.handler===handler).length,1,
+    'setupTrigger must install required operational trigger: '+handler);
+  assert.equal(installed.filter(t=>t.getHandlerFunction()==='runEvalPriceUpdate1620').length,0,
+    'obsolete split price trigger must be removed');
+  assert.ok(deleted.filter(s=>s==='runPortfolioCloseBackfill2210').length===2,
+    'setupTrigger must remove both previous same-day triggers before reinstalling one');
+  assert.equal(locksAcquired,1,'sheet integrity trigger registration must obtain a lock');
+  assert.equal(ownsLock,false,'sheet integrity registration must release its lock');
+  assert.ok(alerts.some(s=>s.includes('22:10')&&s.includes('23:10')&&s.includes('00:30')),
+    'setupTrigger user notice must match the installed clock');
+  assert.equal(installed.filter(t=>t.getHandlerFunction()==='runPortfolioHistoricalBackfill0010').length,1);
+}
+verifyRealTriggerSetup();
+
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
