@@ -493,7 +493,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='e420e6b0b71135206d379b89fadfc01df2fe6c85';
+const approvedFullSourceBlob='045ccd4412aa584a402cd8c10a136e327cd5fb64';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKeySlots_(');
 if (hasStackedKrxRecovery) {
