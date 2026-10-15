@@ -74,9 +74,24 @@ function errorCode(body,status){
   return status===401?'UNAUTHORIZED':status===429?'RATE_LIMITED':status>=500?'UPSTREAM_UNAVAILABLE':'UPSTREAM_ERROR';
 }
 async function readJsonLimited(response,limit){
-  const text=await response.text();
-  if(Buffer.byteLength(text)>limit)throw reject('UPSTREAM_RESPONSE_TOO_LARGE',502);
-  try {return JSON.parse(text)}catch {throw reject('UPSTREAM_INVALID_JSON',502)}
+  // Bound memory while reading, not after downloading the entire upstream body.
+  const reader=response.body?.getReader();
+  if(!reader)throw reject('UPSTREAM_INVALID_JSON',502);
+  const chunks=[];let bytes=0;
+  try{
+    while(true){
+      const {done,value}=await reader.read();
+      if(done)break;
+      bytes+=value.byteLength;
+      if(bytes>limit)throw reject('UPSTREAM_RESPONSE_TOO_LARGE',502);
+      chunks.push(Buffer.from(value));
+    }
+  }catch(e){
+    try{await reader.cancel()}catch{}
+    throw e;
+  }finally{reader.releaseLock()}
+  try{return JSON.parse(Buffer.concat(chunks,bytes).toString('utf8'))}
+  catch{throw reject('UPSTREAM_INVALID_JSON',502)}
 }
 async function doRequest(fetchImpl,url,options,timeout){
   try{return await fetchImpl(url,{...options,signal:AbortSignal.timeout(timeout),redirect:'error'})}
