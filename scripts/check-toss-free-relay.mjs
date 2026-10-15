@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createServer} from './toss-free-relay.mjs';
 
 const shared='a'.repeat(48);
-let oauthCount=0,priceCount=0,resourceStatus=200,rejectOnce=false,oversized=false,streamBroken=false,receivedPaths=[];
+let oauthCount=0,priceCount=0,resourceStatus=200,rejectOnce=false,oversized=false,streamBroken=false,receivedPaths=[],receivedQueries=[];
 const mockFetch=async (url,opts)=>{
   const u=new URL(url);
   assert.equal(u.origin,'https://openapi.tossinvest.com','no arbitrary outgoing hosts');
@@ -16,6 +16,7 @@ const mockFetch=async (url,opts)=>{
     return new Response(JSON.stringify({access_token:'secret-token-'+oauthCount,token_type:'Bearer',expires_in:3600}),{status:200});
   }
   receivedPaths.push(u.pathname);
+  receivedQueries.push(u.searchParams);
   assert.equal(opts.method,'GET');
   assert.match(opts.headers.Authorization,/^Bearer secret-token-/);
   if(rejectOnce){const kind=rejectOnce;rejectOnce=false;return new Response(kind==='empty'?'':(kind==='html'?'<h1>Unauthorized</h1>':JSON.stringify({error:{code:'token-revoked'}})),{status:401})}
@@ -25,6 +26,9 @@ const mockFetch=async (url,opts)=>{
   if(resourceStatus==='top403'){
     return new Response(JSON.stringify({code:'ip-not-allowed',message:'raw-secret-do-not-leak'}),{status:403});
   }
+  if(resourceStatus==='html403')return new Response('<html>denied</html>',{status:403});
+  if(resourceStatus==='empty429')return new Response('',{status:429});
+  if(resourceStatus==='html500')return new Response('<html>maintenance</html>',{status:500});
   if(oversized)return new Response(JSON.stringify({result:[{data:'x'.repeat(550000)}]}),{status:200});
   if(streamBroken)return new Response(new ReadableStream({
     start(controller){
@@ -64,6 +68,16 @@ try{
   assert.equal(second.status,200);
   assert.equal(oauthCount,1,'reuse existing OAuth token');
   assert.deepEqual(receivedPaths,['/api/v1/prices','/api/v1/candles']);
+  const indicatorPages=await post({action:'indicatorCandles',params:{
+    index:'KOSPI',interval:'1d',count:200,before:'2026-09-30T00:00:00+09:00'
+  }});
+  assert.equal(indicatorPages.status,200);
+  assert.equal(receivedPaths.at(-1),'/api/v1/market-indicators/KOSPI/candles');
+  assert.equal(receivedQueries.at(-1).get('count'),'200');
+  assert.equal(receivedQueries.at(-1).get('before'),'2026-09-30T00:00:00+09:00');
+  const indexSubset=await post({action:'indicatorPrices',params:{symbols:'KOSPI'}});
+  assert.equal(indexSubset.status,200);
+  assert.equal(receivedQueries.at(-1).get('symbols'),'KOSPI');
 
   for(const action of ['accounts','orders','buy','arbitrary']){
     const resp=await post({action,params:{}});
@@ -77,6 +91,9 @@ try{
     {action:'calendar',params:{market:'UNKNOWN',date:'2026-10-15'}},
     {action:'prices',params:{symbols:'005930,005930'}},
     {action:'indicatorPrices',params:{symbols:'TSLA'}},
+    {action:'indicatorCandles',params:{index:'KOSPI',count:201}},
+    {action:'indicatorCandles',params:{index:'KOSPI',interval:'1m'}},
+    {action:'indicatorCandles',params:{index:'KOSPI',before:'x&evil=1'}},
     {action:'prices',params:{symbols:'005930'},secret:'oops'},
   ]) {
     const res=await post(invalid);
@@ -95,6 +112,18 @@ try{
   const topDenial=await post({action:'prices',params:{symbols:'005930'}});
   assert.equal(topDenial.status,502);
   assert.equal((await topDenial.json()).code,'ip-not-allowed','top-level Toss 403 code retained');
+  for(const [mode,expectedStatus,expectedCode] of [
+    ['html403',403,'UNKNOWN_403'],
+    ['empty429',429,'RATE_LIMITED'],
+    ['html500',500,'UPSTREAM_UNAVAILABLE']
+  ]){
+    resourceStatus=mode;
+    const upstreamFailure=await post({action:'prices',params:{symbols:'005930'}});
+    assert.equal(upstreamFailure.status,502);
+    const payload=await upstreamFailure.json();
+    assert.equal(payload.status,expectedStatus,'preserve upstream HTTP '+mode);
+    assert.equal(payload.code,expectedCode,'preserve upstream classification '+mode);
+  }
   resourceStatus=200;
   rejectOnce=true;
   const refreshed=await post({action:'prices',params:{symbols:'005930'}});
