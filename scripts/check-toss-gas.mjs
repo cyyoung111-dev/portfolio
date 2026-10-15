@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
 const source = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 const view = fs.readFileSync('src/web/views/views_history.js', 'utf8');
 // PC/mobile OAuth 401 and WTS IP-policy 403 are not interchangeable.
@@ -45,7 +46,7 @@ const {runTossDiagnostic,summarizeTossDiagnostic,validateGasUrl} =
   await import('./diagnose-toss-operational.mjs');
 assert.throws(()=>validateGasUrl('http://example.com/macros/s/fake/exec'),/TOSS_DIAG_INVALID_GAS_URL/);
 const liveFixture={
-  status:'ok',gasVersion:'9.227',ok:true,freshOAuthTested:true,
+  status:'ok',gasVersion:'9.228',ok:true,freshOAuthTested:true,
   oauth:{ok:true,source:'NETWORK',status:200,code:'OK',providerCode:''},
   priceSmoke:{ok:true,status:200,code:'OK',resultCount:1,validLastPrice:true,timestampPresent:true},
   endpoints:['exchangeRate','marketCalendarKR','marketCalendarUS','marketIndicatorPrices',
@@ -57,7 +58,7 @@ const fakeGAS=async (_url,request)=>({
 });
 const operational=await runTossDiagnostic({
   url:'https://script.google.com/macros/s/safe/exec',
-  token:'test-credential',expectedVersion:'9.227',fetchImpl:fakeGAS
+  token:'test-credential',expectedVersion:'9.228',fetchImpl:fakeGAS
 });
 assert.equal(operational.allHealthy,true);
 assert.equal(operational.prices005930.ok,true);
@@ -66,17 +67,68 @@ assert.equal(operational.freshOAuthConfirmed,true);
 assert.equal(summarizeTossDiagnostic({
   ...liveFixture,oauth:{ok:false,source:'NETWORK',status:401,code:'OAUTH_FAILED',
     providerCode:'unidentified-client'},ok:false
-},'9.227').allHealthy,false);
+},'9.228').allHealthy,false);
 assert.equal(summarizeTossDiagnostic({
   ...liveFixture,ok:false,
   endpoints:liveFixture.endpoints.map((row,i)=>i===0?
     {...row,ok:false,status:403,code:'IP_NOT_ALLOWED_OR_FORBIDDEN'}:row)
-},'9.227').allHealthy,false);
+},'9.228').allHealthy,false);
 assert.throws(()=>summarizeTossDiagnostic({
   ...liveFixture,gasVersion:'9.226'
-},'9.227'),/TOSS_DIAG_GAS_VERSION_OR_CONTRACT_MISMATCH/);
+},'9.228'),/TOSS_DIAG_GAS_VERSION_OR_CONTRACT_MISMATCH/);
 await assert.rejects(runTossDiagnostic({
   url:'https://script.google.com/macros/s/safe/exec',token:'test-credential',
-  expectedVersion:'9.227',fetchImpl:async()=>({ok:true,json:async()=>liveFixture})
+  expectedVersion:'9.228',fetchImpl:async()=>({ok:true,json:async()=>liveFixture})
 }),/TOSS_DIAG_GAS_AUTH_BYPASS/);
 console.log('Toss operational diagnostic mocked authentication, OAuth and price smoke passed');
+
+
+
+// Execute the actual GAS 403 classifier and HTTP probes in a restricted VM.
+// Do not accept unrecognized provider text, messages or bearer tokens into diagnostics.
+const productionFunction = name => {
+  const start = source.indexOf('function '+name+'(');
+  assert.ok(start>=0,'missing production function: '+name);
+  const end=source.indexOf('\n}',start);
+  assert.ok(end>start, 'missing function end: '+name);
+  return source.slice(start,end+2);
+};
+const classifySource=productionFunction('_tossDiagnostic403ProviderCode_');
+const requestSource=productionFunction('_tossDiagnosticRequest_');
+const priceSource=productionFunction('_tossPriceSmoke_');
+const context={
+  TOSS_API_BASE:'https://openapi.tossinvest.com',
+  _normalizeTossSymbol_:value=>String(value||''),
+  _tossDiagnosticIdentifiers_:()=>({requestId:'safe-request-id',referenceId:'',edgeRequestId:''}),
+  responsePayload:{error:{code:'ip-not-allowed'}},
+  httpStatus:403
+};
+context.UrlFetchApp={fetch:()=>({
+  getResponseCode:()=>context.httpStatus,
+  getContentText:()=>JSON.stringify(context.responsePayload)
+})};
+vm.runInNewContext([classifySource,requestSource,priceSource].join('\n'),vm.createContext(context),{timeout:1000});
+for(const candidate of ['ip-not-allowed','forbidden','edge-blocked']){
+  context.responsePayload={error:{code:candidate}};
+  const direct=context._tossDiagnostic403ProviderCode_(context.responsePayload,403);
+  assert.equal(direct,candidate);
+  const read=context._tossDiagnosticRequest_('/api/v1/exchange-rate',{},'safe-mock-token');
+  const price=context._tossPriceSmoke_('safe-mock-token');
+  assert.equal(read.code,'IP_NOT_ALLOWED_OR_FORBIDDEN');
+  assert.equal(read.providerCode,candidate);
+  assert.equal(price.providerCode,candidate);
+  assert.equal(price.code,'IP_NOT_ALLOWED_OR_FORBIDDEN');
+}
+context.responsePayload={error:{code:'SECRET_ABC',message:'client_secret=never-expose'}};
+assert.equal(context._tossDiagnosticRequest_('/api/v1/exchange-rate',{},'safe').providerCode,'UNKNOWN_403');
+assert.equal(context._tossPriceSmoke_('safe').providerCode,'UNKNOWN_403');
+assert.equal(context._tossDiagnostic403ProviderCode_(context.responsePayload,200),'');
+context.responsePayload={error:{code:'ip-not-allowed'}};
+context.httpStatus=200;
+assert.equal(context._tossDiagnosticRequest_('/api/v1/exchange-rate',{},'safe').providerCode,'');
+const syncView=fs.readFileSync('src/web/features/settings/settings_sync.js','utf8');
+assert.match(syncView,/Toss코드 \$\{item\.providerCode\}/);
+assert.match(syncView,/Toss코드 \$\{smoke\.providerCode\}/);
+assert.match(syncView,/provider403Codes\.includes\('ip-not-allowed'\)/);
+assert.doesNotMatch(syncView,/Google 공유 IP 대역 전체를 허용하세요/);
+console.log('Toss 403 original provider-code classification and safe display passed');

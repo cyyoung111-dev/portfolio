@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.227
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.228
 //
+//  v9.228 변경사항 (2026.10.15):
+//  - Toss 시세 API 403 원문 코드를 allowlist로 구분(허용 IP/권한/엣지),
+//    토큰·전체 오류 응답 노출 없이 PC/모바일 운영 진단 정밀화.
 //  v9.227 변경사항 (2026.10.15):
 //  - 한 날짜 제한 KRX 복구에서 해외 실보유를 dry-run 단계부터 차단
 //    (TARGET_FOREIGN_DATE_CONFLICT), 백업 전 거짓 ready:true 방지.
@@ -1880,6 +1883,18 @@ function fetchHistoricalPricesToss(items, targetDate) {
   return output;
 }
 
+// Toss 403 응답 원문에서 문서화된 *오류 코드만* 선택하여 노출합니다.
+// message/details/header/body/자격증명 및 알 수 없는 공급자 원문은 절대 반환하지 않습니다.
+function _tossDiagnostic403ProviderCode_(parsed, httpStatus) {
+  if (httpStatus !== 403) return '';
+  var raw = parsed && parsed.error;
+  var candidate = raw && typeof raw === 'object' ? raw.code :
+    (typeof raw === 'string' ? raw : (parsed && parsed.code));
+  var code = typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
+  return code === 'ip-not-allowed' || code === 'forbidden' || code === 'edge-blocked'
+    ? code : 'UNKNOWN_403';
+}
+
 // 운영 점검용 read-only 호출. 자격증명·토큰·원문 응답은 반환하거나 로그에 남기지 않습니다.
 function _tossDiagnosticRequest_(path, query, token) {
   var startedAt = Date.now();
@@ -1904,6 +1919,7 @@ function _tossDiagnosticRequest_(path, query, token) {
       ok: status >= 200 && status < 300,
       status: status,
       code: status === 403 ? 'IP_NOT_ALLOWED_OR_FORBIDDEN' : (status >= 200 && status < 300 ? 'OK' : String(error.code || 'HTTP_ERROR')),
+      providerCode: _tossDiagnostic403ProviderCode_(parsed, status),
       requestId: ids.requestId, referenceId: ids.referenceId, edgeRequestId: ids.edgeRequestId, count: count,
       elapsedMs: Date.now() - startedAt
     };
@@ -1937,6 +1953,7 @@ function _tossPriceSmoke_(token) {
       ok: transportOk && code === 'OK',
       status: status,
       code: code,
+      providerCode: _tossDiagnostic403ProviderCode_(parsed, status),
       resultCount: rows.length,
       symbol: row ? _normalizeTossSymbol_(row.symbol) : '',
       validLastPrice: validLastPrice,
@@ -1973,6 +1990,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     }
     var item = _tossDiagnosticRequest_(path, query, token);
     checks.push({ name: name, endpoint: path, ok: !!item.ok, status: item.status, code: item.code,
+      providerCode: item.providerCode || '',
       requestId: item.requestId || '', referenceId: item.referenceId || '', edgeRequestId: item.edgeRequestId || '',
       count: item.count || 0, elapsedMs: item.elapsedMs });
   };
@@ -2019,7 +2037,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.227', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.228', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5762,7 +5780,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.227' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.228' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11665,7 +11683,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.227',
+    gasVersion: '9.228',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11712,7 +11730,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.227' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.228' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15310,7 +15328,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.227' });
+    return jsonOk({ settings: settings, gasVersion: '9.228' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15340,7 +15358,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.227'
+      gasVersion: '9.228'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -16595,12 +16613,14 @@ function runTossMarketDataDiagnosis() {
   });
   (result.endpoints || []).forEach(function(item) {
     lines.push((item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) + ' ' + item.name + ': ' +
-      (item.status == null ? '-' : item.status) + ' / ' + (item.code || 'ERROR') + ' / ' + (item.count || 0) + '건' +
+      (item.status == null ? '-' : item.status) + ' / ' + (item.code || 'ERROR') +
+      (item.providerCode ? ' / Toss코드 ' + item.providerCode : '') + ' / ' + (item.count || 0) + '건' +
       idSuffix(item) + ' / ' + (item.elapsedMs || 0) + 'ms');
   });
   var smoke = result.priceSmoke || {};
   lines.push((smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')) +
-    ' priceSmoke 005930: ' + (smoke.status == null ? '-' : smoke.status) + ' / ' + (smoke.code || 'ERROR') + ' / ' +
+    ' priceSmoke 005930: ' + (smoke.status == null ? '-' : smoke.status) + ' / ' + (smoke.code || 'ERROR') +
+    (smoke.providerCode ? ' / Toss코드 ' + smoke.providerCode : '') + ' / ' +
     (smoke.resultCount || 0) + '건 / ' + (smoke.symbol || '005930') + ' / 유효가격 ' + (smoke.validLastPrice ? '있음' : '없음') +
     ' / timestamp ' + (smoke.timestampPresent ? '있음' : '없음') + idSuffix(smoke) + ' / ' + (smoke.elapsedMs || 0) + 'ms');
 
@@ -16611,8 +16631,15 @@ function runTossMarketDataDiagnosis() {
   var observedIpHint = egress.ok && egress.ip
     ? ' 관측 ' + (egress.ipFamily || 'IP') + ' ' + egress.ip + '는 실제 Toss 요청 송신 IP로 확인되지 않았습니다. 이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요.'
     : '';
+  var actual403Codes = (result.endpoints || []).concat([smoke]).filter(function(item) { return item.status === 403; }).map(function(item) {
+    return item.providerCode || 'UNKNOWN_403';
+  });
+  var providerReason = actual403Codes.indexOf('ip-not-allowed') !== -1 ? 'Toss 원문 ip-not-allowed: 허용 IP 거부가 확인됐습니다.' :
+    (actual403Codes.indexOf('forbidden') !== -1 ? 'Toss 원문 forbidden: API 권한 부족이 확인됐습니다.' :
+    (actual403Codes.indexOf('edge-blocked') !== -1 ? 'Toss 원문 edge-blocked: 요청 차단이 확인됐습니다.' :
+    'Toss 리소스 HTTP 403이지만 원문 코드는 확인되지 않았습니다. IP 거부로 단정하지 마세요.'));
   var guide = endpointIpBlocked
-    ? '\n\n실제 Toss market endpoint 403: Toss API 권한 및 등록된 송신 IP 정책을 제공사 기록과 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.' + observedIpHint
+    ? '\n\n실제 Toss 리소스 403: ' + providerReason + ' Toss 요청 ID를 제공사에 전달하여 원인을 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.' + observedIpHint
     : (oauthAccessDenied
       ? '\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.' + observedIpHint
       : '');

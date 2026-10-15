@@ -1523,15 +1523,20 @@ async function diagnoseTossFromUI() {
     if (!egress.ok && Array.isArray(egress.attempts) && egress.attempts.length) {
       lines.push(...egress.attempts.map(item => '  ↳ ' + (item.provider || 'provider') + ': ' + (item.status ?? '-') + ' / ' + (item.code || 'ERROR') + ' / length ' + Number(item.bodyLength || 0) + (item.contentType ? ' / ' + item.contentType : '') + ' / ' + Number(item.elapsedMs || 0) + 'ms'));
     }
-    lines.push(...(data.endpoints || []).map(item => `${item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'} / ${Number(item.count || 0)}건${idSuffix(item)} / ${Number(item.elapsedMs || 0)}ms`));
+    lines.push(...(data.endpoints || []).map(item => `${item.ok ? '✅' : (item.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} ${item.name}: ${item.status ?? '-'} / ${item.code || 'ERROR'}${item.providerCode ? ` / Toss코드 ${item.providerCode}` : ''} / ${Number(item.count || 0)}건${idSuffix(item)} / ${Number(item.elapsedMs || 0)}ms`));
     const smoke = data.priceSmoke || {};
-    lines.push(`${smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} priceSmoke 005930: ${smoke.status ?? '-'} / ${smoke.code || 'ERROR'} / ${Number(smoke.resultCount || 0)}건 / ${smoke.symbol || '005930'} / 유효가격 ${smoke.validLastPrice ? '있음' : '없음'} / timestamp ${smoke.timestampPresent ? '있음' : '없음'}${idSuffix(smoke)} / ${Number(smoke.elapsedMs || 0)}ms`);
+    lines.push(`${smoke.ok && smoke.validLastPrice && smoke.timestampPresent ? '✅' : (smoke.code === 'SKIPPED_OAUTH_FAILED' ? '⏭️' : '❌')} priceSmoke 005930: ${smoke.status ?? '-'} / ${smoke.code || 'ERROR'}${smoke.providerCode ? ` / Toss코드 ${smoke.providerCode}` : ''} / ${Number(smoke.resultCount || 0)}건 / ${smoke.symbol || '005930'} / 유효가격 ${smoke.validLastPrice ? '있음' : '없음'} / timestamp ${smoke.timestampPresent ? '있음' : '없음'}${idSuffix(smoke)} / ${Number(smoke.elapsedMs || 0)}ms`);
     const ipBlocked = oauth.ok && [...(data.endpoints || []), smoke].some(item => item.code === 'IP_NOT_ALLOWED_OR_FORBIDDEN');
     const oauthFailed = !oauth.ok && oauth.code !== 'CREDENTIALS_NOT_CONFIGURED';
     const oauthUnidentified = oauthFailed && oauth.status === 401 && String(oauth.providerCode || '').toLowerCase() === 'unidentified-client';
     const oauthAccessDenied = oauthFailed && oauth.status === 403 && String(oauth.providerCode || '').toLowerCase() === 'access_denied';
     const observedIpGuide = egress.ok && egress.ip ? ` 관측 ${egress.ipFamily || 'IP'} ${egress.ip}는 참고 관측값이며 Toss 요청의 실제 송신 IP로 검증되지 않았습니다. 이 주소를 근거 없이 Toss 허용 IP에 등록하지 마세요.` : '';
-    const guide = ipBlocked ? `\n\n실제 Toss market endpoint 403: Toss API 권한·등록된 송신 IP 정책을 제공사와 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.${observedIpGuide}`
+    const provider403Codes = [...(data.endpoints || []), smoke].filter(item => item?.status === 403).map(item => item.providerCode || 'UNKNOWN_403');
+    const reason = provider403Codes.includes('ip-not-allowed') ? 'Toss 원문 ip-not-allowed 확인: 허용 IP 거부입니다.'
+      : provider403Codes.includes('forbidden') ? 'Toss 원문 forbidden 확인: API 권한 부족입니다.'
+      : provider403Codes.includes('edge-blocked') ? 'Toss 원문 edge-blocked 확인: 요청이 차단되었습니다.'
+      : 'HTTP 403이지만 Toss 원문 코드는 확인되지 않았습니다. IP 거부로 단정하지 마세요.';
+    const guide = ipBlocked ? `\n\n실제 Toss 리소스 403: ${reason} Toss 요청 ID를 공급사에 전달하여 발신 IP·권한을 대조하세요. Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요.${observedIpGuide}`
       : (oauthAccessDenied ? `\n\nOAuth 403 access_denied · IP 허용 정책에 의해 차단됐을 가능성이 큽니다.${observedIpGuide}`
       : (oauthUnidentified ? '\n\nOAuth 401 unidentified-client · 위 request/reference/edge ID를 함께 기록해 Toss 측 인증 거부 원인을 확인하세요. Wi-Fi에서 동일 자격증명이 정상이라면 IP 허용 403과는 별도 문제입니다.'
       : (oauthFailed ? '\n\nOAuth 토큰 발급 단계 실패 · Client ID/Secret, 앱 권한/승인 상태, Toss Open API OAuth 설정을 확인하세요.' : '')));

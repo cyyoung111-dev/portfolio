@@ -476,7 +476,7 @@ let safeDiagnostic = JSON.parse(context.handleDiagnoseTossMarketData().getConten
 assert.equal(safeDiagnostic.ok, true);
 assert.deepEqual([safeDiagnostic.oauth.source, safeDiagnostic.oauth.status, safeDiagnostic.oauth.code, safeDiagnostic.freshOAuthTested],
   ['CACHE', null, 'CACHED_TOKEN_REUSED', false], '기존 토큰 재사용은 OAuth HTTP 200으로 오표시하지 않음');
-assert.equal(safeDiagnostic.gasVersion, '9.227');
+assert.equal(safeDiagnostic.gasVersion, '9.228');
 assert.equal(cachedOauthIssues, 0, '캐시 유효 시 진단 버튼 신규 발급 0회');
 assert.equal(resourceReads, 6, '시세 smoke 포함 기존 진단 호출은 수행');
 assert.equal(JSON.parse(cache.get('toss_oauth_token_v1')).accessToken, 'reused-token');
@@ -821,8 +821,8 @@ context.handleDiagnoseTossMarketData=()=>({getContent:()=>JSON.stringify({
   oauth:{ok:true,status:null,code:'CACHED_TOKEN_REUSED',source:'CACHE',
     recovery:{attempted:true,ok:true,code:'RESOURCE_401_RECOVERED_PROBES_FAILED',source:'NETWORK'}},
   egressProbe:{ok:true,ip:'2001:2d8::1234',ipFamily:'IPv6',status:200,code:'OK',provider:'ip-check'},
-  endpoints:[{name:'priceApi',status:403,ok:false,code:'IP_NOT_ALLOWED_OR_FORBIDDEN'}],
-  priceSmoke:{status:403,ok:false,code:'IP_NOT_ALLOWED_OR_FORBIDDEN'}
+  endpoints:[{name:'priceApi',status:403,ok:false,code:'IP_NOT_ALLOWED_OR_FORBIDDEN',providerCode:'forbidden'}],
+  priceSmoke:{status:403,ok:false,code:'IP_NOT_ALLOWED_OR_FORBIDDEN',providerCode:'forbidden'}
 })});
 context.runTossMarketDataDiagnosis();
 assert.match(menuAlert,/OAuth 최초 토큰: 기존 캐시 사용/);
@@ -831,6 +831,9 @@ assert.doesNotMatch(menuAlert,/신규 OAuth 없음/,'복구 재발급이 있었�
 assert.match(menuAlert,/기존 401 해소, 다른 API 진단 실패/);
 assert.match(menuAlert,/실제 Toss 요청 송신 IP로 확인되지 않았습니다/);
 assert.match(menuAlert,/Google 공유 IP 대역 전체를 근거 없이 허용하지 마세요/);
+assert.match(menuAlert,/Toss코드 forbidden/,'GAS 메뉴는 Toss의 실제 403 공급사 코드를 표시해야 함');
+assert.match(menuAlert,/API 권한 부족이 확인됐습니다/,'forbidden은 허용 IP 문제가 아니라 권한 부족으로 분리');
+assert.doesNotMatch(menuAlert,/허용 IP 거부가 확인됐습니다/,'forbidden을 IP 허용 문제로 단정 금지');
 assert.doesNotMatch(menuAlert,/허용 IP에 임시 등록|Google IP range pool 허용 IP 등록/);
 assert.doesNotMatch(menuAlert,/client-secret|accessToken=|Bearer /);
 context.handleDiagnoseTossMarketData=savedDiagnosisHandler;

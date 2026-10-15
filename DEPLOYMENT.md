@@ -1,3 +1,14 @@
+## GAS v9.228 — Toss 실제 HTTP 403 공급사 오류코드 세분화 (2026-10-15)
+
+- **배경:** 운영 PC는 같은 GAS v9.227과 캐시 토큰으로 5개 시장 API·삼성전자 현재가 모두 200, 모바일 데이터망은 캐시 토큰으로 6개 리소스 전부 403, GitHub Actions 신규 OAuth는 403 `access_denied`. 동일 HTTP 403에서 GAS가 원문 오류를 하나의 `IP_NOT_ALLOWED_OR_FORBIDDEN`으로 통일하여 실제 토스 `ip-not-allowed`와 `forbidden`·`edge-blocked`를 구별할 수 없었음.
+- **영향 범위:** KRX/원장/Snapshot 저장 로직과 예약 트리거 **22:10 당일 / 23:10 과거 / 00:30 과거 백필**은 변경하지 않음.
+- **수정:** Toss 403 응답 JSON에서 **검증된 3개 코드만** `providerCode`로 전달하고, 그 외 문자열·비JSON·불명형식은 `UNKNOWN_403`만 제공. 자격증명·access token·원문 body·메시지·헤더 원본을 포함하지 않음. 기존 `code` 및 OAuth Cache·현재가·원장·Snapshot 동작 유지.
+- **배포 상태:** PR 후보 코드·테스트 검토 중. **현재 운영 GAS v9.227**과 구분. 승인/병합 전 v9.228 운영 배포는 수행하지 않음.
+- **배포 전:** 9.228 전체 GAS 소스 Git blob `c326fc480dca53de86f72938f9585dc61f995422` 승인 pin 검증, 헤더·실제 API `gasVersion`·웹 `EXPECTED_GAS_VERSION=9.228` 정합, Toss 403 세 코드·알 수 없는 응답의 변이 테스트·품질 게이트/독립 리뷰 확인.
+- **배포 후:** GitHub Actions 실제 GAS 배포 실행 및 웹앱 getSettings `gasVersion=9.228` 확인. PC/모바일 **새 연결 진단**에서 리소스 403 `providerCode`와 각 `requestId`를 대조하여 원인 확정. OAuth forceFresh 금지. 특정 endpoint에서 `ip-not-allowed`를 확인해도 각 기기/실행의 실제 Toss 출구 IP를 직접 검증한 것은 아님.
+
+---
+
 ## GAS v9.227 — #511 지정 KRX 복구의 해외 보유 사전검증 (2026-10-15)
 
 - 한 날짜 전용 `recoverPendingKrxClose`는 `apply=0` 사전검증에서 실보유 해외/비-KRX 종목을 확인하면 `TARGET_FOREIGN_DATE_CONFLICT`로 차단합니다. 실제 적용이 `TARGET_CROSS_DATE_PRICE`로 실패하는 경우를 백업/lease 획득 전에 차단하여 거짓 `ready:true`를 방지합니다.
@@ -5,7 +16,7 @@
 - 전체 실데이터 복구 및 기존 9월 Snapshot 중복 정리는 별도 검증·승인이 필요합니다. GAS 소스, 웹 기대 버전 및 배포 승인 blob SHA는 이 PR에서 동일 버전으로 유지합니다.
 
 - **기존 예약 일정 유지:** KST 22:10 당일 백필, 23:10 과거 백필, 00:30 자정 이후 과거 백필은 변경하지 않습니다. 이 PR의 차단은 명시 지정한 1일 제한 복구 전용입니다.
-- **배포 상태:** PR #512 코드·회귀·Codex 검토 단계이며 실제 운영은 GAS v9.226입니다. v9.227의 자동 병합/운영 재배포/운영 시트 쓰기는 수행하지 않습니다.
+- **배포 상태:** PR #512는 2026-10-15 18:25 KST 병합, 18:26 KST 실제 Apps Script v279에 GAS v9.227 배포 및 getSettings 운영 응답 확인 완료. KRX 10/12·10/13 보유 37코드 읽기 전용 검증 성공.
 - **배포 후:** 승인된 CI·GAS 실제 배포와 `getSettings`, `getAutomationStatus`, Toss 진단 응답의 `gasVersion=9.227`을 각각 확인합니다. `recoverPendingKrxClose`의 해외 혼재 날짜 dry-run이 `ready:false / TARGET_FOREIGN_DATE_CONFLICT`로 **원본 백업/가격/Snapshot 쓰기 전에** 차단되는지, 국내 KRX 전용 날짜는 기존 사전검증을 유지하는지, 기존 트리거/큐/원장/NAV·가격·스냅샷에 부작용이 없는지 별도로 확인합니다. 운영 검증 전에는 복구 정상화를 선언하지 않습니다.
 
 ---
