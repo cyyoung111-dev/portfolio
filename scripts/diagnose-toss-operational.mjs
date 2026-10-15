@@ -27,7 +27,7 @@ export function summarizeTossDiagnostic(data,expectedVersion) {
     throw Error('TOSS_DIAG_INVALID_RESPONSE');
   const endpoints=endpointNames.map(name=>{
     const row=all.find(x=>x.name===name);
-    return {name,ok:row.ok,httpStatus:httpStatus(row.status),code:safe(row.code),
+    return {name,ok:row.ok,httpStatus:httpStatus(row.status),code:safe(row.code),providerCode:safe(row.providerCode),
       count:Number.isSafeInteger(Number(row.count))&&Number(row.count)>=0?Number(row.count):null};
   });
   const quoteValid=smoke.ok===true && smoke.validLastPrice===true
@@ -40,7 +40,7 @@ export function summarizeTossDiagnostic(data,expectedVersion) {
       code:safe(oauth.code),providerCode:safe(oauth.providerCode),
       ...(oauth.recovery?.attempted?{recoveryCode:safe(oauth.recovery.code)}:{})},
     prices005930:{ok:quoteValid,httpStatus:httpStatus(smoke.status),
-      code:safe(smoke.code),resultCount:Number(smoke.resultCount)||0,
+      code:safe(smoke.code),providerCode:safe(smoke.providerCode),resultCount:Number(smoke.resultCount)||0,
       validPrice:smoke.validLastPrice===true,timestampPresent:smoke.timestampPresent===true},
     endpoints,coreHealthy:oauthValid&&quoteValid,
     allHealthy:oauthValid&&quoteValid&&endpoints.every(x=>x.ok)&&data.ok===true,
