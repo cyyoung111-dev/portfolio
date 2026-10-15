@@ -1809,3 +1809,51 @@ const updatedRow=expectedRow.slice();updatedRow[7]=390;updatedRow[8]=90;
 assert.equal(context._snapshotRewritePlan({},date,[updatedRow]).needsRewrite,true,
  'actual valuation change must still force a Snapshot rewrite');
 context._readRawSnapshotRowsByDate=originalRawReader;
+
+
+// Operational topology regression (#507): on 2026-09-15, the production
+// Snapshot contains 77 rows spanning 39 unique codes: 38 extra rows, 35
+// conflicting valuation/source groups. Use synthetic values only; NEVER
+// copy real account positions or financial amounts into repository tests.
+{
+  const collisionDate='2026-09-15';
+  const fixtures=[];
+  const syntheticCodes=Array.from({length:39},(_,i)=>String(200001+i));
+  syntheticCodes.forEach((code,i)=>{
+    const original=snap(collisionDate,code,1000+i,'KRX');
+    fixtures.push(original);
+    // Exactly 38 duplicate groups; 35 are genuinely conflicting and 3
+    // are byte-identical. The 39th code has no collision.
+    if (i<35) fixtures.push(snap(collisionDate,code,2000+i,'PRICE_HISTORY'));
+    else if(i<38) fixtures.push(clone(original));
+  });
+  assert.equal(fixtures.length,77,'live-observed row-count topology');
+  assert.equal(new Set(fixtures.map(r=>r[1])).size,39,'live-observed unique-code topology');
+  const sourceSheet=new Sheet([header,...fixtures]);
+  const sourceSs=ssFor({'스냅샷':sourceSheet});
+  const savedRegistry=scriptProperties.get('system_backup_registry_v1');
+  const plan=clone(context._snapshotRewritePlan(sourceSs,collisionDate,[],[]));
+  assert.equal(plan.duplicateGroups.length,38,'38 duplicate code groups must not disappear under deduped signature');
+  assert.equal(plan.unsafe.length,35,'35 conflicting source/valuation groups must remain unresolved');
+  assert.equal(plan.duplicateGroups.filter(x=>x.classification==='EXACT_DUPLICATE').length,3,
+    'only three exact duplicates can be automatically resolved');
+  assert(plan.unsafe.every(x=>x.classification==='UNRESOLVED_CONFLICT'));
+  assert.equal(plan.needsRewrite,false,'unverified conflicting valuations must block wholesale rewrite');
+  assert.equal(sourceSheet.writes,0,'dry-run must never mutate operational-like Sheet');
+  assert.equal(scriptProperties.get('system_backup_registry_v1'),savedRegistry,
+    'dry-run must not alter backup lifecycle metadata');
+  const originalComparable=context._snapshotComparableSignature;
+  try {
+    // Mutation: a faulty comparator that ignores price/source must cause
+    // the independent expected 35-conflict invariant to fail.
+    context._snapshotComparableSignature=row=>JSON.stringify([row[0],row[1]]);
+    const regressed=clone(context._snapshotRewritePlan(sourceSs,collisionDate,[],[]));
+    assert.throws(()=>assert.equal(regressed.unsafe.length,35),
+      /0 !== 35/, 'the test must detect a signature comparator that ignores valuation/source');
+  } finally {
+    context._snapshotComparableSignature=originalComparable;
+  }
+  assert.equal(clone(context._snapshotRewritePlan(sourceSs,collisionDate,[],[])).unsafe.length,35,
+    'restoring the real production comparator must restore conflict protection');
+}
+console.log('✅ #507 운영 39종목·77행 유형: 충돌 35종목 보호·dry-run 무변경·비교기 변이 회귀 통과');
