@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 const TOSS_ORIGIN='https://openapi.tossinvest.com';
 const ALLOWED_MARKETS=new Set(['KR','US']);
-const ALLOWED_INDICES=new Set(['KOSPI','KOSDAQ']);
+const ALLOWED_INDICES=new Set(['KOSPI','KOSDAQ','KR_BOND_2Y','KR_BOND_3Y','KR_BOND_5Y','KR_BOND_10Y','KR_BOND_20Y','KR_BOND_30Y']);
 const MAX_BODY_BYTES=4096;
 const MAX_UPSTREAM_BYTES=384*1024;
 const GET_TIMEOUT_MS=18000;
@@ -54,12 +54,14 @@ function buildTossPath(action, p){
     case 'indicatorPrices': {
       route='/api/v1/market-indicators/prices';
       const indices=p.symbols===undefined?['KOSPI','KOSDAQ']:
-        scalar(p.symbols,/^(KOSPI|KOSDAQ)(,(KOSPI|KOSDAQ))?$/).split(',');
-      if(new Set(indices).size!==indices.length)throw reject('INVALID_REQUEST');
+        scalar(p.symbols,/^[A-Z0-9_,]{2,240}$/,240).split(',');
+      if(indices.length<1||indices.length>ALLOWED_INDICES.size||
+         indices.some(x=>!ALLOWED_INDICES.has(x))||new Set(indices).size!==indices.length)
+        throw reject('INVALID_REQUEST');
       q.set('symbols',indices.join(','));allowed=['symbols'];break;
     }
     case 'indicatorCandles':{
-      const index=scalar(p.index,/^(KOSPI|KOSDAQ)$/);
+      const index=scalar(p.index,/^[A-Z0-9_]{2,20}$/);
       if(!ALLOWED_INDICES.has(index))throw reject('INVALID_REQUEST');
       route='/api/v1/market-indicators/'+index+'/candles';
       if(p.interval!==undefined&&p.interval!=='1d')throw reject('INVALID_REQUEST');
