@@ -58,4 +58,29 @@ await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(date=>({
 }))}),/INVALID_RESPONSE/);
 await assert.rejects(()=>runPreview({url,token,fetchImpl:async()=>{throw Error('secret');}}),
   /PENDING_PREVIEW_NETWORK_FAILED/);
+// P2: --allow-blocked cannot turn malformed GAS response contracts into
+// successful observation. The real runPreview parser must fail closed.
+for(const reason of ['', 'UNRECOGNIZED_GAS_REASON', 'FULL_SNAPSHOT_NEW_UNKNOWN']) {
+  await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(date=>
+    date===dates[0]?{...good(date),checked:[{date,queued:true,ok:false,
+      verifiedCodes:0,reason}]}:null
+  )}),/PENDING_PREVIEW_INVALID_RESPONSE/);
+}
+await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(date=>
+  date===dates[1]?{...good(date),checked:[{date,queued:true,ok:false,
+    verifiedCodes:37,reason:'PRICE_HISTORY_INVALID'}]}:null
+)}),/PENDING_PREVIEW_INVALID_RESPONSE/,
+  'a failed proof cannot declare any codes verified');
+await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(date=>
+  date===dates[2]?{...good(date),checked:[{date,queued:true,ok:true,
+    verifiedCodes:37,reason:'SNAPSHOT_INVALID'}]}:null
+)}),/PENDING_PREVIEW_INVALID_RESPONSE/,
+  'a successful proof cannot carry a contradictory failure reason');
+const knownIncomplete=await runPreview({url,token,fetchImpl:createFetch(date=>
+  date===dates[0]?{...good(date),checked:[{date,queued:true,ok:false,
+    verifiedCodes:0,reason:'FULL_SNAPSHOT_CONFLICT'}]}:null
+)});
+assert.equal(knownIncomplete.status,'BLOCKED');
+assert.equal(knownIncomplete.entries[0].reason,'FULL_SNAPSHOT_CONFLICT');
+
 console.log('KRX pending proof preview: one-date read-only auth/timeout/integrity/partial/retry PASS');
