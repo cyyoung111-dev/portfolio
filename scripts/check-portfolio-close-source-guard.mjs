@@ -1901,6 +1901,8 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
   ctx._portfolioFundState_=(props,key)=>JSON.parse(props.getProperty(key)||'null');
   ctx._fundPropertyText=String;
   ctx._portfolioFundAtomic_=cb=>cb(p);
+  ctx._verifyCompletedKrxPendingDate_=()=>({ok:true,verifiedCodes:1});
+  ctx.getss=()=>({});
   ctx.saveDailyPriceHistory=(date)=>{writes++;assert.equal(date,'2026-10-08');
     p.setProperty('snapshot_last_success_date',date);
     return {date,rows:9,krxCloseRequired:true};};
