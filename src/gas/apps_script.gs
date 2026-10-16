@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.231
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.232
 //
+//  v9.232 변경사항 (2026.10.16):
+//  - 기간 Snapshot 진단에서 F코드 NAV 평가금액 우선·이월 출처 일자 표기를
+//    단일 날짜 진단과 동일하게 보정. 저장 시트·백필 큐 변경 없음.
 //  v9.231 변경사항 (2026.10.16):
 //  - 10/08 펀드 2건 Snapshot 출처만 ScriptLock 내부 원자 검증 후 제한 수정.
 //  - 서명 백업·기존 숫자/MANUAL 보호·실패 시 출처 복구 후 영속 VALID 확인.
@@ -2049,7 +2052,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.231', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.232', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5792,7 +5795,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.231' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.232' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9072,9 +9075,15 @@ function _buildIndexedSnapshotRows(context, date) {
     var exact = context.priceExactByDateCode[date + '|' + code] || null, latest = _indexedLatest(series, date);
     var entry = exact || latest, price = entry && entry.price > 0 ? entry.price : 0, source = entry ? entry.source : '';
     if (!exact) { var latestManual = _indexedLatest(context.manualPriceSeriesByCode[code] || [], date); if (latestManual) source = 'MANUAL'; }
-    if (_isFundCode(code) && !(price > 0)) {
+    // Match the single-date builder: confirmed fund NAV evaluation overrides
+    // even an existing price-history entry; source carries the NAV origin date.
+    if (_isFundCode(code)) {
       var fund = _indexedFundEvaluation(context, code, date);
-      if (fund) { price = fund.evalAmt; source = fund.carried ? 'FUND_NAV_CARRY' : 'FUND_NAV'; entry = { date: fund.sourceDate, savedAt: '' }; }
+      if (fund && fund.evalAmt > 0) {
+        price = fund.evalAmt;
+        source = fund.carried ? 'FUND_NAV_CARRY@' + fund.sourceDate : 'FUND_NAV';
+        entry = { date: fund.sourceDate, savedAt: '' };
+      }
     }
     var currency = context.currencyByCode[code] || 'KRW', fxRate = 1;
     if (currency !== 'KRW') { context.metrics.fxLookupCount++; var fx = _indexedLatest(context.fxSeriesByCurrency[currency] || [], date); fxRate = fx ? fx.rate : 0; }
@@ -11848,7 +11857,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.231',
+    gasVersion: '9.232',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11895,7 +11904,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.231' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.232' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15506,7 +15515,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.231' });
+    return jsonOk({ settings: settings, gasVersion: '9.232' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15536,7 +15545,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.231'
+      gasVersion: '9.232'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
