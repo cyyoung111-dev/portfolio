@@ -10,7 +10,7 @@ assert.deepEqual(morningTarget(at('2026-10-11T23:45:00Z')),
   'October 9 KRX closed + Saturday/Sunday');
 assert.equal(morningTarget(at('2026-10-16T23:45:00Z')).action,'SKIP_CLOSED');
 assert.equal(morningTarget(at('2026-10-18T22:45:00Z')).action,'SKIP_BEFORE_PUBLICATION');
-assert.throws(()=>morningTarget(at('2027-01-04T00:00:00Z')),
+assert.throws(()=>morningTarget(at('2028-01-04T00:00:00Z')),
   /KRX_MORNING_CALENDAR_UNVERIFIED/,'unknown calendar must fail closed');
 const token='sensitive-value-not-to-print',url='https://script.google.com/macros/s/fake/exec';
 const ready=expected=>({mode:'READ_ONLY',coverageContract:'KRX_HELD_V1',ready:true,
