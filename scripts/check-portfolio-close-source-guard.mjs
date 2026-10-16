@@ -3254,8 +3254,9 @@ console.log('✅ 22:10 B PRICE 재생·정규 CLOSE NAV 성공 마커 합류·�
 
 
 
-// PR518: a successful writer is not sufficient to release the KRX pending
-// queue. Persisted exact-date PRICE/Snapshot verification must succeed first.
+// PR518: persisted proof must run under the same ScriptLock used for
+// reconciliation and queue removal, even if another writer changed the
+// ledger/Snapshot after the price writer released its own lock.
 {
   const bag=new Map([['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-07'])]]);
   const props={
@@ -3263,7 +3264,7 @@ console.log('✅ 22:10 B PRICE 재생·정규 CLOSE NAV 성공 마커 합류·�
     setProperty:(key,value)=>bag.set(key,String(value)),
     deleteProperty:key=>bag.delete(key)
   };
-  let proofOk=false;
+  let proofOk=false, locked=false, invalidateBeforeLock=false, reconciliationOk=true;
   const events=[];
   const ctx=vm.createContext({
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
@@ -3271,17 +3272,33 @@ console.log('✅ 22:10 B PRICE 재생·정규 CLOSE NAV 성공 마커 합류·�
     getss:()=>({}),
     saveDailyPriceHistory:(date,opts)=>{
       events.push('save');
+      assert.equal(locked,false,'price writer returns before acquiring completion ScriptLock');
       assert.equal(date,'2026-10-07');
       assert.equal(opts.deferQueueCompletion,true);
       return {ok:true,date,rows:37};
     },
     _verifyCompletedKrxPendingDate_:(ss,date)=>{
+      assert.equal(locked,true,'persisted verification must run while completion ScriptLock is held');
       events.push('verify:'+date);
       return proofOk?{ok:true,verifiedCodes:37}:{ok:false,reason:'SNAPSHOT_INVALID'};
     },
-    _portfolioFundAtomic_:cb=>cb(props),
-    _reconcileRecoveredPortfolioPrice_:()=>{events.push('reconcile');return true;},
+    _portfolioFundAtomic_:cb=>{
+      events.push('lock');
+      // Simulate handleSyncTrades changing the ledger/Snapshot after PRICE
+      // returns, immediately before the second ScriptLock is acquired.
+      if(invalidateBeforeLock) proofOk=false;
+      assert.equal(locked,false,'ScriptLock must not be reentered');
+      locked=true;
+      try { return cb(props); }
+      finally { locked=false; events.push('unlock'); }
+    },
+    _reconcileRecoveredPortfolioPrice_:()=>{
+      assert.equal(locked,true,'summary update must share proof ScriptLock');
+      events.push('reconcile');
+      return reconciliationOk;
+    },
     _completePendingKrxCloseDate_:(p,date)=>{
+      assert.equal(locked,true,'queue completion must share proof ScriptLock');
       events.push('complete');
       p.setProperty('portfolio_close_pending_krx_dates',
         JSON.stringify(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).filter(v=>v!==date)));
@@ -3289,20 +3306,34 @@ console.log('✅ 22:10 B PRICE 재생·정규 CLOSE NAV 성공 마커 합류·�
     _appendPortfolioCloseSyncLog:(event)=>events.push(event)
   });
   vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+  const stillPending=()=>JSON.parse(props.getProperty('portfolio_close_pending_krx_dates'));
   const failure=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
-  assert.equal(failure.ok,false,'unverified persisted snapshot must not count as a successful replay');
+  assert.equal(failure.ok,false,'unverified persisted snapshot must not count as successful replay');
   assert.match(failure.error,/BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_INVALID/);
-  assert.deepEqual(JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')),['2026-10-07'],
-    'failed persisted verification must leave original pending date intact');
-  assert.deepEqual(events,['save','verify:2026-10-07','BACKFILL_ERROR'],
+  assert.deepEqual(stillPending(),['2026-10-07'],'failed proof retains original pending date');
+  assert.deepEqual(events,['save','lock','verify:2026-10-07','unlock','BACKFILL_ERROR'],
     'failed proof must prevent reconciliation, completion, and BACKFILL_OK');
-  proofOk=true;
   events.length=0;
+  proofOk=true; invalidateBeforeLock=true;
+  const raced=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
+  assert.equal(raced.ok,false,'a trade writer interleaving before the lock invalidates proof');
+  assert.match(raced.error,/BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_INVALID/);
+  assert.deepEqual(stillPending(),['2026-10-07'],'interleaved trade writer must not falsely release queue');
+  assert.deepEqual(events,['save','lock','verify:2026-10-07','unlock','BACKFILL_ERROR']);
+  events.length=0;
+  proofOk=true; invalidateBeforeLock=false; reconciliationOk=false;
+  const unreconciled=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
+  assert.equal(unreconciled.ok,false,'summary reconciliation veto must not report BACKFILL_OK');
+  assert.match(unreconciled.error,/BACKFILL_RECONCILIATION_FAILED/);
+  assert.deepEqual(stillPending(),['2026-10-07'],'reconciliation veto must preserve pending retry');
+  assert.deepEqual(events,['save','lock','verify:2026-10-07','reconcile','unlock','BACKFILL_ERROR']);
+  events.length=0;
+  proofOk=true; reconciliationOk=true;
   const recovered=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
   assert.equal(recovered.ok,true);
-  assert.deepEqual(JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')),[]);
-  assert.deepEqual(events,['save','verify:2026-10-07','reconcile','complete','BACKFILL_OK'],
-    'only proven persisted data may trigger state reconciliation and queue completion');
+  assert.deepEqual(stillPending(),[]);
+  assert.deepEqual(events,['save','lock','verify:2026-10-07','reconcile','complete','unlock','BACKFILL_OK'],
+    'only verified persisted data reconciled under one lock may be completed');
 }
 console.log('✅ PR518 백필 영속 검증 실패 큐 보존·재시도 성공 순서 회귀');
 
