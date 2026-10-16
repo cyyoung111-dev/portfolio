@@ -57,4 +57,11 @@ assert.ok(deployedAt>0&&probeAt>deployedAt,
   '37-code coverage must follow the live GAS deployment');
 assert.match(deployment,/name: Verify KRX 37-code source coverage after live GAS deployment\n\s+if: github\.event_name == 'push' && vars\.GAS_AUTO_DEPLOY_ENABLED == 'true'/);
 assert.doesNotMatch(generic,/node scripts\/diagnose-krx-held-coverage\.mjs/);
+const holidayWorkflow=fs.readFileSync('.github/workflows/krx-holiday-september-readonly.yml','utf8');
+assert.match(holidayWorkflow,/node scripts\/diagnose-krx-held-coverage\.mjs --dates "2026-10-16"/);
+assert.match(holidayWorkflow,/node scripts\/diagnose-krx-operational\.mjs --dates "2026-10-16"/);
+assert.match(holidayWorkflow,/name: 2026-10-09~11 holiday and 2026-09-15~16 snapshot readonly proof\n\s+if: always\(\)/,
+  'snapshot diagnostic must run when Oct 16 official 37-code coverage is missing');
+assert.doesNotMatch(holidayWorkflow,/node scripts\/finalize-krx-october-verified-markers\.mjs/,
+  'targeted Oct 16 diagnostic must not clear recovery markers');
 console.log('KRX 37-code aggregate operational read-only and auth contract passed');
