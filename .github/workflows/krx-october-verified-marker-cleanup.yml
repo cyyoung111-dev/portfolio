@@ -1,0 +1,66 @@
+name: krx-october-verified-marker-cleanup
+
+# One-time, strict whitelist of seven verified 2026-10 trading dates.
+# Actual GAS apply=1 changes only completed-pending ScriptProperties markers,
+# NEVER PRICE, NAV, Snapshot or ledger. Repeat or unrelated pushes are read-only.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-october-verified-marker-cleanup.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Explicitly clear only seven reverified October pending markers'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: krx-october-verified-marker-cleanup
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Three preflight batches of (1+N)*90s, seven apply*120s,
+    # three postflight batches (1+N)*90s: worst 44m, plus overhead.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout immutable first-install parent
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: First-install gate prevents accidental reapply on future pushes
+        id: first_install
+        if: github.event_name == 'push'
+        env:
+          GIT_PREVIOUS_HEAD: ${{ github.event.before }}
+          REVIEWED_PARENT_SHA: 6fbf6887910c1792c27e99965864b4052725be4d
+        run: |
+          set -euo pipefail
+          [[ "$GIT_PREVIOUS_HEAD" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          if [ "$GIT_PREVIOUS_HEAD" != "$REVIEWED_PARENT_SHA" ]; then
+            echo "is_first=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git rev-parse --verify "HEAD^" >/dev/null
+          [ "$(git rev-parse HEAD^)" = "$GIT_PREVIOUS_HEAD" ] || exit 1
+          if git cat-file -e "$GIT_PREVIOUS_HEAD:.github/workflows/krx-october-verified-marker-cleanup.yml" 2>/dev/null; then
+            echo "is_first=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_first=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Re-prove full KRX/ledger/Snapshot and clear only approved markers
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          KRX_OCTOBER_APPLY: ${{ ((github.event_name == 'push' && steps.first_install.outputs.is_first == 'true') || (github.event_name == 'workflow_dispatch' && inputs.apply)) && '1' || '0' }}
+        run: node scripts/finalize-krx-october-verified-markers.mjs
