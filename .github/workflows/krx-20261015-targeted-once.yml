@@ -1,0 +1,65 @@
+name: krx-20261015-targeted-recovery-once
+
+# Strict one-time approved 2026-10-15 historical recovery. Incomplete KRX
+# exact-date source / foreign session mismatch aborts BEFORE either backup or
+# source write. All actual writes use existing GAS ScriptLock + two backups.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-20261015-targeted-once.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Explicitly request exact-date 2026-10-15 recovery'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: krx-20261015-targeted-recovery
+  cancel-in-progress: false
+
+jobs:
+  recovery:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Existing authenticated preflight/auth probe/one write have 4-minute
+    # request timeouts each (12 min maximum); preserve runner headroom.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact merge parent
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Check one-time approved base
+        id: first_install
+        if: github.event_name == 'push'
+        env:
+          PRE_PUSH_SHA: ${{ github.event.before }}
+          APPROVED_PARENT_SHA: bdb0a9035c7f26de04fc34105d8a8298acdccca5
+        run: |
+          set -euo pipefail
+          echo 'is_first=false' >> "$GITHUB_OUTPUT"
+          [[ "$PRE_PUSH_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          if [[ "$PRE_PUSH_SHA" != "$APPROVED_PARENT_SHA" ]]; then exit 0; fi
+          [[ "$(git rev-parse HEAD^)" == "$PRE_PUSH_SHA" ]] || exit 1
+          if git cat-file -e "$PRE_PUSH_SHA:.github/workflows/krx-20261015-targeted-once.yml" 2>/dev/null; then
+            exit 0
+          fi
+          echo 'is_first=true' >> "$GITHUB_OUTPUT"
+      - name: Setup Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Authenticated preflight and single-date recovery
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          RECOVERY_DATE: '2026-10-15'
+          RECOVERY_APPLY: ${{ ((github.event_name == 'push' && steps.first_install.outputs.is_first == 'true') || (github.event_name == 'workflow_dispatch' && inputs.apply)) && 'true' || 'false' }}
+        run: |
+          node scripts/run-krx-targeted-recovery.mjs
