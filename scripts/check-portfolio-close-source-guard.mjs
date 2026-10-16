@@ -1336,7 +1336,9 @@ const qvm=vm.createContext({
   _getLatestLifecycleValidSnapshotDate:()=> '2026-10-06',
   _getDailyHeldCodeItems:(ss,date,catalog)=>catalog,
   getCodeItems:()=>[{code:'005930',currency:'KRW',market:'KOSPI'}],
-  _appendPortfolioCloseSyncLog:()=>{}
+  _appendPortfolioCloseSyncLog:()=>{},
+  _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+  getss:()=>({})
 });
 installKrxTarget(qvm);
 for(const n of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_','_completePendingKrxCloseDate_','_hasKrxHoldingsForCloseDate_','_seedMissingKrxCloseDates_','_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_']){
