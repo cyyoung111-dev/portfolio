@@ -1,6 +1,6 @@
 name: krx-holiday-september-readonly
 
-# One-off, authenticated and strictly READ_ONLY diagnostic.
+# Versioned, authenticated READ_ONLY checkpoint. Re-run on workflow updates.
 # No schedule, no mutation, no raw GAS response or secret in Actions log.
 on:
   push:
@@ -31,3 +31,11 @@ jobs:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/diagnose-holiday-snapshot-readonly.mjs
+      # GAS exposes only the last persisted historical attempt shared by 23:10/00:30.
+      # This does NOT prove that both separate trigger executions occurred.
+      - name: Read-only trigger, queue and shared last historical attempt
+        if: success() || failure()
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/diagnose-backfill-status.mjs
