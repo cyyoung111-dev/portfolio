@@ -11,6 +11,31 @@ const sample=d=>({status:'ok',coverage:{
   ready:true,rawSecret:'should-not-appear'
 }});
 assert.equal(summarizeHeldCoverage(sample(dates[0]),dates[0]).ready,true);
+// Portfolio holdings change by date; 37 is merely the observed 2026-10-16
+// count, never an acceptance threshold for another trading day.
+for (const expected of [36,38]) {
+  const changed=sample(dates[0]);
+  changed.coverage.expectedHeldCodes=expected;
+  changed.coverage.officialExactDateCodes=expected;
+  changed.coverage.market.STOCK.expected=expected-21;
+  changed.coverage.market.STOCK.confirmed=expected-21;
+  assert.equal(summarizeHeldCoverage(changed,dates[0]).ready,true,
+    'valid target-date holdings must not be rejected by a hard-coded 37');
+}
+const empty=sample(dates[0]);
+empty.coverage.expectedHeldCodes=0;
+empty.coverage.officialExactDateCodes=0;
+empty.coverage.market.STOCK.expected=0;empty.coverage.market.STOCK.confirmed=0;
+empty.coverage.market.ETF.expected=0;empty.coverage.market.ETF.confirmed=0;
+assert.equal(summarizeHeldCoverage(empty,dates[0]).ready,false,
+  'an empty portfolio cannot certify actual KRX coverage');
+const incomplete=sample(dates[0]);
+incomplete.coverage.officialExactDateCodes=36;
+incomplete.coverage.missingCodes=1;
+incomplete.coverage.market.STOCK.confirmed=15;
+assert.equal(summarizeHeldCoverage(incomplete,dates[0]).ready,false,
+  'one absent KRX close blocks finality even when GAS claims ready');
+
 assert.throws(()=>summarizeHeldCoverage(sample(dates[0]),dates[1]),/BAD_RESPONSE/);
 assert.throws(()=>summarizeHeldCoverage({...sample(dates[0]),coverage:{
  ...sample(dates[0]).coverage,missingCodes:1
