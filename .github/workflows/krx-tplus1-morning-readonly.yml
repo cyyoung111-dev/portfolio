@@ -1,0 +1,37 @@
+name: krx-tplus1-morning-readonly
+
+# Official KRX daily statistics: data for trading day T publishes from
+# the next exchange business day 08:00 KST. Probe at 08:45 (GitHub UTC 23:45
+# Sunday–Thursday). This does NOT finalize Snapshot or mutate portfolio data.
+on:
+  schedule:
+    - cron: '45 23 * * 0-4'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-tplus1-morning-readonly.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: krx-tplus1-morning-readonly
+  cancel-in-progress: false
+
+jobs:
+  source-readonly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: KST business calendar and production source preflight
+        run: node scripts/check-krx-tplus1-morning.mjs
+      - name: Official last-exchange-session held close completeness (no writes)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/diagnose-krx-tplus1-morning.mjs
