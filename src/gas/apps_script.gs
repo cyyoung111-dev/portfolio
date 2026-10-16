@@ -3,7 +3,7 @@
 //
 //  v9.229 변경사항 (2026.10.16):
 //  - KRX 백필 PRICE/Snapshot 영속 검증 성공 후에만 대기열 완료 처리.
-//  - 휴장일/해외전용은 실제 확정 Snapshot 날짜를 재검증하고 정상 KRX 거래일은 공식 종가일 일치를 검증.
+//  - 모든 재시도는 전체 국내외 Snapshot을 재검증하고, 정상 KRX 거래일은 국내 공식 종가 증명도 요구.
 //  - 검증 실패 시 재시도 대기열을 보존하며 기존 과거 Snapshot 충돌은 수정하지 않음.
 //  v9.228 변경사항 (2026.10.15):
 //  - Toss 시세 API 403 원문 코드를 allowlist로 구분(허용 IP/권한/엣지),
@@ -10455,31 +10455,29 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate)
     // earlier unlocked verification when deciding to clear recovery work.
     _portfolioFundAtomic_(function(sharedProps) {
       var ss = getss();
-      // An overseas-only close has no exact-date KRX holdings. On a KRX
-      // holiday, domestic prices may also be carried from the last official
-      // session while the confirmed foreign Snapshot uses another date.
-      // For those writer contracts, revalidate the actually persisted
-      // Snapshot date rather than requiring a nonexistent KRX target close.
-      var snapshotDateProof = result && typeof result.krxCloseRequired === 'boolean'
-        && (!result.krxCloseRequired || _krxCalendarStatus_(target) === 'CLOSED');
-      if (snapshotDateProof) {
-        var savedDate = _normalizeDate(result.date || '');
-        if (!savedDate || savedDate > target || !(Number(result.rows) > 0))
-          throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_DATE_INVALID');
-        var snapshotProof = diagnoseSnapshotIntegrity(ss, savedDate);
-        if (!snapshotProof || snapshotProof.status !== 'VALID'
-            || Number(snapshotProof.expectedRowCount) !== Number(result.rows)
-            || Number(snapshotProof.storedRowCount) !== Number(result.rows))
-          throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_' +
-            String(snapshotProof && snapshotProof.status || 'UNKNOWN'));
-      } else {
-        // Normal KRX trading days still require exact-date official KRX
-        // PRICE/Snapshot proof; no carry or partial market coverage accepted.
+      // Check BOTH proofs against the same locked ledger and Snapshot state.
+      // Exact-date KRX proof covers domestic holdings; full integrity covers
+      // foreign, fund and other held rows (including intervening trade edits).
+      // KRX holidays and foreign-only accounts have no same-day KRX close,
+      // but MUST still prove the actual persisted Snapshot date and contents.
+      var savedDate = String(result.date || '').trim();
+      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(savedDate) || savedDate > target
+          || !(Number(result.rows) > 0))
+        throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_DATE_INVALID');
+      var requireExactKrx = !!targetDate || (result.krxCloseRequired !== false
+        && (result.krxCloseRequired !== true || _krxCalendarStatus_(target) !== 'CLOSED'));
+      if (requireExactKrx) {
         var persistedProof = _verifyCompletedKrxPendingDate_(ss, target);
         if (!persistedProof || !persistedProof.ok)
           throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:' +
             String(persistedProof && persistedProof.reason || 'UNKNOWN'));
       }
+      var snapshotProof = diagnoseSnapshotIntegrity(ss, savedDate);
+      if (!snapshotProof || snapshotProof.status !== 'VALID'
+          || Number(snapshotProof.expectedRowCount) !== Number(result.rows)
+          || Number(snapshotProof.storedRowCount) !== Number(result.rows))
+        throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_' +
+          String(snapshotProof && snapshotProof.status || 'UNKNOWN'));
       var policy = target === currentDate && includeToday ? 'CREATE' : 'CLEAN';
       if (!_reconcileRecoveredPortfolioPrice_(sharedProps, target, result, policy))
         throw new Error('BACKFILL_RECONCILIATION_FAILED');
