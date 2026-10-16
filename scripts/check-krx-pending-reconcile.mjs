@@ -165,4 +165,20 @@ assert.equal(invoke('2026-10-12','1').result.mode,'BLOCKED',
 assert.deepEqual(queue(),initialDates);
 assert.equal(writes.length,0,'all failure modes are read only');
 
+// The nightly pre-prune path must consume the SAME actual complete-proof
+// implementation as the authenticated manual path. An invalid US Snapshot
+// may not vanish when the domestic KRX price/quantity is fully verified.
+vm.runInContext(extract('_pruneVerifiedHistoricalKrxPending_'),context);
+values.set('portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-08']));
+values.set('backfill_lease',JSON.stringify({token:'proof-lease',until:Date.now()+60000}));
+snapshots[5][3]='4';
+const rejectedPrune=context._pruneVerifiedHistoricalKrxPending_('proof-lease','2026-10-14');
+assert.equal(rejectedPrune.cleared,0,'nightly pre-prune must also reject foreign Snapshot mismatch');
+assert.deepEqual(queue(),['2026-10-08'],'invalid mixed holding must remain queued');
+snapshots[5][3]='1';
+const acceptedPrune=context._pruneVerifiedHistoricalKrxPending_('proof-lease','2026-10-14');
+assert.equal(acceptedPrune.cleared,1,'valid domestic and foreign Snapshot may be pruned');
+assert.deepEqual(queue(),[],'only fully verified date is pruned');
+values.delete('backfill_lease');
+
 console.log('KRX pending cleanup VM: source/Snapshot/leases/all-or-none/idempotence passed');
