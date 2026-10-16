@@ -13,6 +13,7 @@ function extract(name) {
 const queueKey='portfolio_close_pending_krx_dates';
 const leaseKey='portfolio_close_backfill_lease_v1';
 const resultKey='portfolio_close_backfill_last_result';
+const pruneCursorKey='portfolio_close_backfill_prune_cursor_v1';
 const initial=['2026-10-07','2026-10-08','2026-10-12','2026-10-13'];
 function setup({proofs={},failPrune=false}={}) {
   const map=new Map([[queueKey,JSON.stringify(initial)]]);
@@ -30,6 +31,7 @@ function setup({proofs={},failPrune=false}={}) {
     PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY:leaseKey,
     PORTFOLIO_FUND_LEASE_KEY:'portfolio_fund_lease',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+    PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY:pruneCursorKey,
     _portfolioFundAtomic_:fn=>fn(p),
     _portfolioFundState_:(props,key)=>{const r=props.getProperty(key);return r?JSON.parse(r):null;},
     _readPendingKrxCloseDates_:props=>JSON.parse(props.getProperty(queueKey)||'[]'),
@@ -170,6 +172,67 @@ checkNextDayReset();
   const untouched=x.writes.filter(([k])=>k===queueKey);
   assert.equal(untouched.length,2,'only verified dates may mutate the queue');
   assert.equal(x.writes.some(([k])=>/snapshot_|fund|portfolio_close_run/.test(k)),false);
+}
+
+
+// Regression: the oldest two permanently incomplete dates must not monopolize
+// the two expensive proof slots when a later date is fully persisted.
+// Production function + ScriptLock/lease simulation, no stored data mutation.
+{
+  const backlog=['2026-10-06','2026-10-07','2026-10-08','2026-10-09',
+    '2026-10-10','2026-10-11','2026-10-12'];
+  const x=setup({proofs:{
+    '2026-10-06':{ok:false,reason:'PRICE_HISTORY_INVALID'},
+    '2026-10-07':{ok:false,reason:'FULL_SNAPSHOT_CONFLICT'},
+    '2026-10-08':complete,
+    '2026-10-12':{ok:false,reason:'SOURCE_INCOMPLETE'}
+  }});
+  x.map.set(queueKey,JSON.stringify(backlog));
+  x.p.setProperty(leaseKey,JSON.stringify({token:'proof-lease',until:Date.now()+30000}));
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('proof-lease','2026-10-16').cleared,0);
+  assert.deepEqual(x.proofCalls,['2026-10-06','2026-10-07']);
+  assert.equal(x.map.get(pruneCursorKey),'2026-10-07','advance even if all proofs fail');
+  assert.deepEqual(JSON.parse(x.map.get(queueKey)),backlog,'failed proof must preserve queue');
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('proof-lease','2026-10-16').cleared,1);
+  assert.deepEqual(x.proofCalls,['2026-10-06','2026-10-07','2026-10-08','2026-10-12']);
+  assert.equal(x.map.get(pruneCursorKey),'2026-10-12');
+  assert.deepEqual(JSON.parse(x.map.get(queueKey)),
+    backlog.filter(date=>date!=='2026-10-08'),
+    'only the complete 39-row full Snapshot + 37-code KRX proof is retired');
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('proof-lease','2026-10-16').cleared,0);
+  assert.deepEqual(x.proofCalls.slice(-2),['2026-10-06','2026-10-07'],
+    'round robin wraps to retained oldest dates');
+  assert.equal(x.proofCalls.includes('2026-10-09'),false,'closed dates never cost proof slots');
+  assert.equal(x.writes.filter(([key])=>key===queueKey).length,1);
+  assert.equal(x.map.has('portfolio_close_backfill_retry_cursor_v1'),false,
+    'the existing writer/replay cursor must not be altered by proof scanning');
+}
+// Even a failed or thrown proof must advance the cursor without clearing
+// the queue, and a missing/expired lease must not alter either property.
+{
+  const x=setup({failPrune:true});
+  x.p.setProperty(leaseKey,JSON.stringify({token:'valid',until:Date.now()+20000}));
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('valid','2026-10-16').cleared,0);
+  assert.deepEqual(x.proofCalls,initial.slice(0,2));
+  assert.equal(x.map.get(pruneCursorKey),'2026-10-08');
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('valid','2026-10-16').cleared,0);
+  assert.deepEqual(x.proofCalls,initial,'subsequent pass inspects next dates');
+  assert.deepEqual(JSON.parse(x.map.get(queueKey)),initial);
+  const before=x.writes.length;
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('wrong-token','2026-10-16').cleared,0);
+  assert.equal(x.writes.length,before);
+  x.p.setProperty(leaseKey,JSON.stringify({token:'valid',until:Date.now()-100}));
+  const beforeExpired=x.writes.length;
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('valid','2026-10-16').cleared,0);
+  assert.equal(x.writes.length,beforeExpired);
+}
+{
+  const x=setup();
+  x.map.set(queueKey,JSON.stringify(['2026-10-09','2026-10-10','2026-10-11']));
+  x.p.setProperty(leaseKey,JSON.stringify({token:'closed',until:Date.now()+10000}));
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('closed','2026-10-16').cleared,0);
+  assert.equal(x.map.has(pruneCursorKey),false,'holiday-only queue must not mutate cursor');
+  assert.equal(x.proofCalls.length,0);
 }
 
 console.log('KRX backfill complete-date pruning: live functions/leases/safety/liveness/rollover PASS');
