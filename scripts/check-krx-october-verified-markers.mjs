@@ -109,6 +109,8 @@ assert.match(workflow,/fetch-depth: 2/);
 assert.match(workflow,/git rev-parse HEAD\^/);
 assert.match(workflow,/git cat-file -e/);
 assert.match(workflow,/steps\.first_install\.outputs\.is_first == 'true'/);
+assert.match(workflow,/if: github\.event_name == 'push' && github\.run_attempt == 1/);
+assert.match(workflow,/github\.event_name == 'push' && github\.run_attempt == 1 && steps\.first_install\.outputs\.is_first == 'true'/);
 assert.match(workflow,/github\.event_name == 'workflow_dispatch' && inputs\.apply/);
 assert.doesNotMatch(workflow,/github\.event_name == 'push' && '1'/);
 console.log('KRX October 7-date pending marker cleanup: exact whitelist, source contract, proof-first, recheck, retry safety PASS');
