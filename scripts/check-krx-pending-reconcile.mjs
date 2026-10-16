@@ -61,6 +61,7 @@ const ss={getSheetByName:n=>n==='가격이력'?sheet(history)
 let ledgerQtyOverride=2;
 const context=vm.createContext({
   CONFIG:{SHEET_PH:'가격이력',SHEET_SNAPSHOT:'스냅샷',SHEET_TRADES:'거래이력'},
+  PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY:'portfolio_close_backfill_prune_cursor_v1',
   _calcCodeHoldingsAtDate:()=>({'005930':{code:'005930',qty:ledgerQtyOverride},'000660':{code:'000660',qty:2},'AAPL':{code:'AAPL',qty:1}}),
   _isFundCode:code=>/^F\d{5}$/.test(code),
   getss:()=>ss, getCodeItems:()=>catalog,
