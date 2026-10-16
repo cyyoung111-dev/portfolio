@@ -28,7 +28,7 @@ const base={date:DAY,status:'MISMATCH',expectedRowCount:39,storedRowCount:39,
   qtyMismatches:[],costAmtMismatches:[],evalUnitMismatches:[],
   evalAmtMismatches:[],sourceDataErrors:[]};
 function make({numerical=false,manual=false,failSecondWrite=false}={}){
-  let rows=stored.map(r=>r.slice()),writes=[],events=[],locked=false;
+  let rows=stored.map(r=>r.slice()),writes=[],events=[],locked=false,failedOnce=false;
   if(manual)rows[37][10]='MANUAL';
   const original=JSON.parse(JSON.stringify(base));
   original.storedRows=rows.map(r=>r.slice());
@@ -41,7 +41,7 @@ function make({numerical=false,manual=false,failSecondWrite=false}={}){
       assert.equal(col,11,'only source K cells can ever be written');
       assert.ok(row>=2&&row<=40);
       return{setValue(value){
-        if(failSecondWrite&&writes.length===1)throw new Error('MUTATION_PARTIAL');
+        if(failSecondWrite&&writes.length===1&&!failedOnce){failedOnce=true;throw new Error('MUTATION_PARTIAL');}
         events.push('source-write');writes.push({row,col,value});
         rows[row-2][10]=value;}};
     }};
