@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import {runDiagnosis,summarizeConflictDay,summarizeHolidaySnapshotRange,
   summarizePendingStatus,summarizeHolidayProbe}
   from './diagnose-holiday-snapshot-readonly.mjs';
-const dates=['2026-09-15','2026-09-16','2026-10-08'];
+const dates=['2026-09-15','2026-09-16','2026-10-08','2026-10-09','2026-10-10','2026-10-11'];
 const dup={groups:39,exactDuplicate:0,singleExpectedMatch:35,
   manualProtected:1,unresolvedConflict:3,sourceIncomplete:0};
 const expected={
   status:'ok',diagnostics:dates.map((date,i)=>({
-    date,status:i<2?'CONFLICT':'VALID',
-    expectedRowCount:39,storedRowCount:i===0?77:i===1?156:39,
-    duplicateSummary:i===2?{groups:0,exactDuplicate:0,singleExpectedMatch:0,
+    date,status:i<2?'CONFLICT':i===2?'VALID':'NO_SNAPSHOT',
+    expectedRowCount:39,storedRowCount:i===0?77:i===1?156:i===2?39:0,
+    duplicateSummary:i>=2?{groups:0,exactDuplicate:0,singleExpectedMatch:0,
       manualProtected:0,unresolvedConflict:0,sourceIncomplete:0}:dup,
     missingCodes:[],unexpectedCodes:[],duplicateKeys:[],
     qtyMismatches:i===1?[{}]:[],
@@ -19,9 +19,15 @@ const expected={
 };
 assert.equal(summarizeHolidaySnapshotRange(expected)[1].qtyMismatchCount,1);
 assert.equal(summarizeConflictDay(expected.diagnostics[0]).storedRows,77);
+assert.deepEqual(summarizeHolidaySnapshotRange(expected).slice(3).map(r=>
+  [r.date,r.status,r.expectedRows,r.storedRows]),[
+  ['2026-10-09','NO_SNAPSHOT',39,0],
+  ['2026-10-10','NO_SNAPSHOT',39,0],
+  ['2026-10-11','NO_SNAPSHOT',39,0]
+]);
 assert.throws(()=>summarizeHolidaySnapshotRange({...expected,diagnostics:[]}),
   /HOLIDAY_SNAPSHOT_INVALID_RESPONSE/);
-assert.throws(()=>summarizeConflictDay({...expected.diagnostics[0],date:'2026-10-09'}),
+assert.throws(()=>summarizeConflictDay({...expected.diagnostics[0],date:'2026-10-12'}),
   /HOLIDAY_SNAPSHOT_INVALID_DATE/);
 const statusData={status:'ok',automation:{gasVersion:'9.230',
   overallStatus:'WARNING',pendingKrxCloseDates:['2026-10-09','2026-10-10','2026-10-11'],
@@ -64,7 +70,7 @@ const fake=async(_url,opts)=>{
     return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
   if(action==='getAutomationStatus')return {ok:true,json:async()=>statusData};
   if(action==='diagnoseSnapshotIntegrityRange'){
-    assert.equal(v.get('dates'),'2026-09-15,2026-09-16,2026-10-08');
+    assert.equal(v.get('dates'),'2026-09-15,2026-09-16,2026-10-08,2026-10-09,2026-10-10,2026-10-11');
     return {ok:true,json:async()=>expected};
   }
   return {ok:true,json:async()=>({status:'ok',requestedDate:v.get('date'),
@@ -75,6 +81,8 @@ const fake=async(_url,opts)=>{
 const output=await runDiagnosis({url:endpoint,token:secret,fetchImpl:fake});
 assert.equal(output.mode,'READ_ONLY');
 assert.equal(output.holidays.length,3);
+assert.equal(output.snapshot.length,6);
+assert.equal(output.snapshot[3].status,'NO_SNAPSHOT');
 assert.deepEqual(requests.map(r=>r.action),[
   'getAutomationStatus','getAutomationStatus','diagnoseSnapshotIntegrityRange',
   'getKrxSourceDiagnostics','getKrxSourceDiagnostics','getKrxSourceDiagnostics'
