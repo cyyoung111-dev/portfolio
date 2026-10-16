@@ -56,7 +56,17 @@ assert.deepEqual(preview.initiallyQueued,APPROVED_DATES);
 assert.equal(dry.writes.length,0);
 assert.equal(dry.calls.filter(x=>x.apply==='1').length,0);
 const run=fixture();
-const result=await finalizeOctoberMarkers({url,token:secret,apply:true,fetchImpl:run.fetchImpl});
+const progress=[];
+const result=await finalizeOctoberMarkers({
+  url,token:secret,apply:true,fetchImpl:run.fetchImpl,
+  onProgress:stage=>progress.push(stage)
+});
+assert.deepEqual(progress.slice(0,4),[
+  'STATUS_START','STATUS_OK','PRECHECK_GROUP_1_START','PRECHECK_GROUP_1_PASS']);
+assert.ok(progress.includes('APPLY_1_PASS'));
+assert.ok(progress.includes('APPLY_7_PASS'));
+assert.ok(progress.includes('POSTCHECK_GROUP_3_PASS'));
+assert.doesNotMatch(progress.join(' '),/NEVER_ECHO_THIS/);
 assert.deepEqual(run.writes,APPROVED_DATES);
 assert.equal(result.cleared,7);
 assert.equal(result.remainingApprovedDates,0);
@@ -93,6 +103,8 @@ const minutes=Number(workflow.match(/timeout-minutes: (\d+)/)?.[1]);
 assert.ok(minutes*60>=2*10*90+7*120+180,
   'time budget must cover preflight, apply, postflight and runner startup');
 assert.match(workflow,/REVIEWED_PARENT_SHA: 6fbf6887910c1792c27e99965864b4052725be4d/);
+assert.match(workflow,/REVIEWED_RETRY_PARENT_SHA: eed86c47f7d06f2b9cc1ce7239647c470f09e8ea/);
+assert.match(workflow,/GIT_PREVIOUS_HEAD.*REVIEWED_RETRY_PARENT_SHA/);
 assert.match(workflow,/fetch-depth: 2/);
 assert.match(workflow,/git rev-parse HEAD\^/);
 assert.match(workflow,/git cat-file -e/);
