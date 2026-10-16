@@ -18,6 +18,16 @@
 
 ---
 
+### 2026-10-12~14 운영 KRX 완료일 대기열 일회성 정리
+
+- [PR 작업] `krx-verified-pending-finalize.yml`을 최초 `main`에 병합하면 workflow 파일 경로가 포함된 **한 번의 push**에서 실행됩니다. 그 뒤에는 **수동 workflow_dispatch만 지원**하며 기본값은 dry-run(`apply=false`)입니다. 최초 push 적용은 이 세 날짜의 검증 완료 pending marker 해제에 한정됩니다.
+- `finalize-verified-krx-pending.mjs`는 **10/12, 10/13, 10/14 고정 3일**만 인정하며, 먼저 인증된 `apply=0`으로 각 날짜의 공식 KRX 37종목·국내외 전체 Snapshot 검증 결과를 확인합니다. 셋 중 하나라도 실패하면 **큐를 전혀 변경하지 않습니다.**
+- 3일이 모두 검증됐다면 `apply=1`을 **대상 날짜당 1회** 순차 호출합니다. GAS `handleReconcileCompletedKrxPending`가 각 시점에 ScriptLock/Writer lease/전체 가격·Snapshot 증명을 재검사하고, **검증 완료된 해당 날짜의 pending 마커만 삭제**합니다. 호출 실패 시 안전 중단하며 재실행은 멱등입니다.
+- 마지막에 다시 인증된 `apply=0`으로 세 날짜의 pending=false/verified=true를 재확인해야 성공으로 판정합니다. 가격이력·Snapshot·거래원장·NAV·백업은 읽기만 합니다.
+- **비대상 보호:** 10/09~11 휴장 대기, 10/15 미복구, 9/15~16 충돌·MANUAL 원본은 수정하지 않습니다. 실제 Workflow apply 수행/대기열 해제 성공은 PR 병합 로그가 아닌 워크플로 응답 및 운영 재진단으로 확인합니다.
+
+---
+
 ## GAS v9.229 — KRX 백필 영속 검증 후 대기열 완료 (2026-10-16)
 
 - **변경:** 백필 PRICE 저장 후 ScriptLock 안에서 영속 검증·마감 상태 정합화·pending 해제를 일괄 수행합니다. 일반 KRX 거래일에 국내 보유가 있으면 해당일 공식 종가·Snapshot을 검증하며, 국내 휴장일 또는 해외 전용 보유는 요청일 KRX 강제 검증 없이 실제 Snapshot 날짜를 사용합니다. **모든 경우**에 국내외 전체 Snapshot의 수량·원가·평가·출처 정합성과 저장 행 수를 동일 ScriptLock 아래 재검산합니다. 검증 실패·중간 거래원장 변경·정합화 실패 시 대기열을 보존합니다.
