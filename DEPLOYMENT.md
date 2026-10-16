@@ -3,9 +3,18 @@
 - **원인:** 10/09(휴장) 및 10/10~11(주말)이 백필 pending 큐 선두에 남아, 이전 사전 정리 함수의 `slice(0,2)`가 해당 날짜만 반복 확인했습니다. KRX 공식 종가가 없는 날에 exact-date KRX 영속 검증을 적용하는 사전 정리에서는 완료된 10/12~14 검증까지 도달하기 어렵습니다.
 - **변경:** KRX `CLOSED`로 확정된 날짜는 **사전 정리 검증 대상에서만** 제외하고, 가장 오래된 KRX 비휴장일 2개를 순서대로 검증합니다. 단일 ScriptLock/lease, 해당일 KRX 종가 및 **국내외 전체 Snapshot** 검증 후에만 그 날짜의 큐를 해제합니다. 휴장 대기일은 삭제하지 않고 일반 휴장/해외 마감 재시도 경로에 보존합니다.
 - **비변경:** 10/15의 공식 종가 exact-date 미확보에 대한 차단, Toss 인증·API, 9/15·9/16 중복 Snapshot, 거래원장/NAV/가격 쓰기 및 22:10/23:10/00:30 KST 트리거 스케줄.
-- **배포 상태:** PR 검토 단계. 운영은 v9.229 / Apps Script 281이며, 병합·CI·최신 Codex 중요 지적 확인 전 v9.230 배포 완료를 주장하지 않습니다.
+- **배포 상태 (2026-10-16 확인):** PR #519 병합 `main e3246653d563`, 운영 GAS v9.230 / Apps Script 배포 버전 282 / webApp 버전 검증 성공. CI·Codex 최신 리뷰 통과. 10/12~14 PRICE·Snapshot 영속 검증은 성공했으나 pending 해제 및 10/15 복구는 별도 운영 작업으로 남음.
 - **배포 후:** getSettings 및 실제 GAS `gasVersion=9.230`, pending 날짜별 보존/해제, 운영 시트 10/12~14 KRX 37행+Snapshot 39행, 10/15 exact-date 공식 종가와 미복구 보호, 과거 휴장 pending 분리 진단.
 - **안전 게이트:** Quality/Web/GAS validate, 실제 생산 함수 VM 회귀, Codex 중요 P1/P2 0건, 전체 승인 소스 blob 해시 일치 확인 후 병합 판단.
+
+---
+
+### 운영 KRX 야간 상태 자동 점검 (GitHub Actions)
+
+- 새 `.github/workflows/krx-nightly-health.yml`은 **매일 KST 02:30(UTC 17:30)** 이후, 야간 백필 22:10/23:10/익일 00:30에 이어 운영 결과를 읽기 전용으로 확인합니다. GitHub 예약 실행은 운영자/서비스 사정에 따라 지연될 수 있습니다.
+- 인증된 `getAutomationStatus`를 호출하는 기존 `diagnose-backfill-status.mjs` 결과만 사용하며, 트리거 누락/중복, 잔여 KRX pending, 운영 ERROR/WARNING, 공식 KRX 마지막 날과 Snapshot 마지막 날의 불일치를 판정합니다.
+- 실패 시 GitHub Actions 기록에 잔여 날짜·개수·비민감 상태코드만 남깁니다. **가격/NAV/Snapshot/거래원장/ScriptProperties 변경, 큐 자동 삭제, 외부 비용 발생 작업은 하지 않습니다.**
+- 예약 실행 성공은 GAS 백필 실행 성공을 대체하지 않습니다. 실제 복구의 마지막 날짜별 PRICE/Snapshot 원본 검증은 별도 유지합니다.
 
 ---
 
