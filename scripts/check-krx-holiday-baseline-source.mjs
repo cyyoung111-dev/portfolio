@@ -46,11 +46,13 @@ let diagCount=0,actions=[],writeCount=0;
 const fake=async(_url,options)=>{
   const params=options.body,action=params.get('action');
   actions.push(action);
-  assert.ok(['diagnoseSnapshotIntegrity','diagnoseWorkbookCells',
+  assert.ok(['getAutomationStatus','diagnoseSnapshotIntegrity','diagnoseWorkbookCells',
     'repairOct08FundSourceOnly'].includes(action));
   assert.equal(options.method,'POST');
   if(params.get('accessToken')!==token)return{ok:true,json:async()=>({
     status:'error',message:'인증 실패'})};
+  if(action==='getAutomationStatus')return {ok:true,json:async()=>({
+    status:'ok',automation:{gasVersion:'9.231'}})};
   if(action==='diagnoseSnapshotIntegrity'){
     diagCount++;
     return{ok:true,json:async()=>({status:'ok',
@@ -68,15 +70,37 @@ const dry=await runSourceOnlyRepair({url,token,fetchImpl:fake});
 assert.equal(dry.mode,'DRY_RUN');
 assert.equal(writeCount,0);
 assert.deepEqual(actions,['diagnoseSnapshotIntegrity',
-  'diagnoseSnapshotIntegrity','diagnoseWorkbookCells']);
+  'getAutomationStatus','diagnoseSnapshotIntegrity','diagnoseWorkbookCells']);
 actions=[];diagCount=0;
 const applied=await runSourceOnlyRepair({url,token,apply:true,fetchImpl:fake});
 assert.equal(applied.mode,'APPLIED');
 assert.equal(writeCount,1);
 assert.deepEqual(actions,['diagnoseSnapshotIntegrity',
-  'diagnoseSnapshotIntegrity','diagnoseWorkbookCells',
+  'getAutomationStatus','diagnoseSnapshotIntegrity','diagnoseWorkbookCells',
   'repairOct08FundSourceOnly','diagnoseSnapshotIntegrity']);
 assert.equal((await runSourceOnlyRepair({url,token,apply:true,fetchImpl:fake})).mode,'ALREADY_VALID');
 assert.equal(writeCount,1,'repeat must not rewrite a valid date');
 assert.doesNotMatch(JSON.stringify(applied),/DO_NOT_ECHO_THIS_TOKEN/);
+// Production readiness must reject a stale GAS deployment before any write.
+const staleActions=[];
+const staleFetch=async(_url,opts)=>{
+  const action=opts.body.get('action');
+  staleActions.push(action);
+  if(opts.body.get('accessToken')!==token)return {ok:true,json:async()=>({
+    status:'error',message:'인증 실패'})};
+  if(action==='getAutomationStatus')return {ok:true,json:async()=>({
+    status:'ok',automation:{gasVersion:'9.230'}})};
+  throw new Error('stale GAS must not receive any Snapshot calls');
+};
+await assert.rejects(()=>runSourceOnlyRepair({
+  url,token,apply:true,fetchImpl:staleFetch}),/SOURCE_ONLY_GAS_VERSION_NOT_DEPLOYED/);
+assert.deepEqual(staleActions,['diagnoseSnapshotIntegrity','getAutomationStatus']);
+import fs from 'node:fs';
+const workflow=fs.readFileSync('.github/workflows/krx-holiday-20261008-source-only-fix.yml','utf8');
+assert.match(workflow,/workflow_run:/);
+assert.match(workflow,/workflows: \[gas-deploy\]/);
+assert.match(workflow,/github\.event\.workflow_run\.conclusion == 'success'/);
+assert.match(workflow,/github\.event\.workflow_run\.head_sha/);
+assert.match(workflow,/REVIEWED_PARENT_SHA: b1122ab3d006c8695e42fbe0159e87acf1258ac4/);
+assert.doesNotMatch(workflow,/event_name == 'push' && steps\.one_time/);
 console.log('KRX Oct08 fund source-only guarded rewrite: authorization, numeric/data protection, backup capacity, idempotence PASS');
