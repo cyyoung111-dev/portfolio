@@ -36,7 +36,8 @@ export function assertSourceOnlyMismatch(d){
   if(expected.size!==39||stored.size!==39)throw new Error('SOURCE_ONLY_ROW_COUNT');
   for(const [code,x] of expected){
     const y=stored.get(code);
-    if(!y||x[2]!==y[2]||String(x[0])!==String(y[0]))
+    if(!y||x[2]!==y[2]||String(x[0])!==String(y[0])
+        ||String(x[11]||'')!==String(y[11]||''))
       throw new Error('SOURCE_ONLY_ROW_CHANGE');
     for(const col of NUMERIC_COLUMNS)
       if(number(x[col])!==number(y[col]))throw new Error('SOURCE_ONLY_NUMERIC_CHANGE');
