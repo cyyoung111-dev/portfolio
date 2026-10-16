@@ -62,6 +62,11 @@ assert.doesNotMatch(JSON.stringify(applied),/NEVER_PRINT_THIS_TOKEN/);
 // silently re-apply. Verify the gate against an exact, reachable parent commit.
 const workflow=(await import('node:fs')).readFileSync(
   '.github/workflows/krx-verified-pending-finalize.yml','utf8');
+// 2 complete previews: authentication + 3 date checks each (90 s);
+// plus three applied dates (120 s). Runner timeout needs safe headroom.
+const timeoutMinutes=Number(workflow.match(/timeout-minutes: (\\d+)/)?.[1]);
+assert.ok(timeoutMinutes*60 >= 2*4*90 + 3*120 + 180,
+  'one-time queue cleanup must outlive all individual request budgets');
 assert.match(workflow,/fetch-depth: 2/);
 assert.match(workflow,/GIT_PREVIOUS_HEAD:/);
 assert.match(workflow,/REVIEWED_PARENT_SHA: d18070fa3c85ced8b3f10c7ea83e03d6b264d7f5/);
