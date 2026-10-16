@@ -32,9 +32,11 @@ async function readStatus(endpoint,token,fetchImpl) {
   if(d?.status!=='ok'||d.automation?.gasVersion!=='9.233')
     throw new Error('KRX_OCTOBER_VERSION_UNVERIFIED');
 }
-async function proveAll(endpoint,token,fetchImpl){
+async function proveAll(endpoint,token,fetchImpl,onProgress,phase){
   const entries=[];
-  for(const group of GROUPS){
+  for(let groupIndex=0;groupIndex<GROUPS.length;groupIndex++){
+    const group=GROUPS[groupIndex];
+    onProgress(phase+'_GROUP_'+(groupIndex+1)+'_START');
     const preview=await runPreview({url:endpoint,token,dates:group.join(','),fetchImpl});
     if(preview.mode!=='READ_ONLY'||preview.entries.length!==group.length)
       throw new Error('KRX_OCTOBER_PROOF_INVALID');
@@ -45,6 +47,7 @@ async function proveAll(endpoint,token,fetchImpl){
         throw new Error('KRX_OCTOBER_PROOF_NOT_VERIFIED');
       entries.push(v);
     }
+    onProgress(phase+'_GROUP_'+(groupIndex+1)+'_PASS');
   }
   if(entries.length!==APPROVED_DATES.length)
     throw new Error('KRX_OCTOBER_PROOF_NOT_VERIFIED');
@@ -60,23 +63,28 @@ async function applyOne(endpoint,token,date,fetchImpl) {
       x.ok!==true||x.verifiedCodes!==37||x.reason!=='')
     throw new Error('KRX_OCTOBER_APPLY_NOT_VERIFIED');
 }
-export async function finalizeOctoberMarkers({url,token,apply=false,fetchImpl=fetch}){
+export async function finalizeOctoberMarkers({url,token,apply=false,fetchImpl=fetch,onProgress=()=>{}}){
   const endpoint=validateWebAppUrl(url);
   if(typeof token!=='string'||!token.trim())
     throw new Error('KRX_OCTOBER_MISSING_TOKEN');
+  onProgress('STATUS_START');
   await readStatus(endpoint,token,fetchImpl);
+  onProgress('STATUS_OK');
   // All-or-none initial preflight: no marker write unless all seven
   // official KRX + trade ledger + entire Snapshot proofs pass at this time.
-  const before=await proveAll(endpoint,token,fetchImpl);
+  const before=await proveAll(endpoint,token,fetchImpl,onProgress,'PRECHECK');
   const queued=before.filter(x=>x.queued).map(x=>x.date);
   if(!apply)return {mode:'DRY_RUN',verifiedDates:APPROVED_DATES.length,
     initiallyQueued:queued,cleared:0};
   let cleared=0;
-  for(const date of queued){
+  for(let i=0;i<queued.length;i++){
+    const date=queued[i];
+    onProgress('APPLY_'+(i+1)+'_START');
     await applyOne(endpoint,token,date,fetchImpl);
     cleared++;
+    onProgress('APPLY_'+(i+1)+'_PASS');
   }
-  const after=await proveAll(endpoint,token,fetchImpl);
+  const after=await proveAll(endpoint,token,fetchImpl,onProgress,'POSTCHECK');
   if(after.some(x=>x.queued))throw new Error('KRX_OCTOBER_QUEUE_REMAINS');
   return {mode:'APPLIED',verifiedDates:APPROVED_DATES.length,
     initiallyQueued:queued.length,cleared,remainingApprovedDates:0};
@@ -86,12 +94,14 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
     const result=await finalizeOctoberMarkers({
       url:process.env.GAS_WEB_APP_URL,
       token:process.env.GAS_ACCESS_TOKEN,
-      apply:process.env.KRX_OCTOBER_APPLY==='1'
+      apply:process.env.KRX_OCTOBER_APPLY==='1',
+      onProgress:stage=>console.log('KRX_OCTOBER_STAGE_'+stage)
     });
     console.log(JSON.stringify(result));
   }catch(err){
     const code=String(err?.message||'');
-    console.error(/^KRX_OCTOBER_[A-Z_]+$/.test(code)?code:'KRX_OCTOBER_UNKNOWN_ERROR');
+    console.error(/^(?:KRX_OCTOBER|PENDING_PREVIEW|KRX_DIAG)_[A-Z_]+$/.test(code)
+      ?code:'KRX_OCTOBER_UNKNOWN_ERROR');
     process.exitCode=1;
   }
 }
