@@ -39,9 +39,17 @@ jobs:
         if: github.event_name == 'push'
         env:
           GIT_PREVIOUS_HEAD: ${{ github.event.before }}
+          # Immutable, already-reviewed main HEAD BEFORE this one-time PR.
+          # All future main pushes, even after workflow deletion/re-addition,
+          # must stay read-only. Unexpected intervening merges fail closed.
+          REVIEWED_PARENT_SHA: d18070fa3c85ced8b3f10c7ea83e03d6b264d7f5
         run: |
           set -euo pipefail
           [[ "$GIT_PREVIOUS_HEAD" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          if [ "$GIT_PREVIOUS_HEAD" != "$REVIEWED_PARENT_SHA" ]; then
+            echo "is_first=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git rev-parse --verify "HEAD^" >/dev/null
           [ "$(git rev-parse HEAD^)" = "$GIT_PREVIOUS_HEAD" ] || exit 1
           if git cat-file -e "$GIT_PREVIOUS_HEAD:.github/workflows/krx-verified-pending-finalize.yml" 2>/dev/null; then
