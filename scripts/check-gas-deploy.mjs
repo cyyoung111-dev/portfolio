@@ -72,8 +72,8 @@ const latestReleaseNotes = deploymentNotes.slice(
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
-  'newest v9.231 release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.231') && latestReleaseNotes.includes('Snapshot'),
+  'newest v9.232 release must end before historical v9.228 section');
+assert.ok(latestReleaseNotes.includes('gasVersion=9.232') && latestReleaseNotes.includes('Snapshot'),
   'latest release must independently document KRX persisted verification and post-deploy check');
 
 // Execute the *actual trigger-registration functions*, not copies of their
