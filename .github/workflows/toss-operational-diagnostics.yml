@@ -1,6 +1,9 @@
 name: toss-operational-diagnostics
 
-# One-time on integration; manual recheck available. No schedule or portfolio Sheet writes.
+# Recheck 2026-10-17 after observed 2026-10-15 HTTP 403 ip-not-allowed.
+# One-time PR merge triggers a new LIVE GAS v9.233 OAuth / 005930 quote
+# probe. Diagnostic may update token cache/diagnostic ScriptProperties, but
+# never writes portfolio Sheets or certifies an Oct 16 daily close.
 # The GAS diagnostic can update token cache/diagnostic properties, and does not emulate a mobile browser.
 on:
   push:
@@ -17,7 +20,7 @@ jobs:
   verify-live-toss:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
