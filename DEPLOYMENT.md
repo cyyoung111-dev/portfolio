@@ -3,8 +3,8 @@
 - **원인:** 10/08 단일 날짜 Snapshot 진단은 `VALID`(39/39행)이나 기간 진단은 F00001/F00002 펀드 출처 2건만 `MISMATCH`였습니다. 기간 생성기 `_buildIndexedSnapshotRows`가 NAV 이월일자 `@YYYY-MM-DD`를 누락하고 NAV가 확정돼도 가격이력이 있으면 NAV를 우선 적용하지 않는 차이를 확인했습니다.
 - **변경:** 기간 진단에서 유효한 펀드 NAV 평가금액을 날짜별 진단처럼 우선하고 이월 원천일을 `FUND_NAV_CARRY@YYYY-MM-DD`로 생성합니다. 금액·출처·저장일시를 생산 함수로 회귀 검증합니다.
 - **비변경:** 단일 날짜 진단, KRX 종가·가격이력·Snapshot 원본, 10/09~11 pending, 거래원장·NAV·Toss, 22:10/23:10/00:30 예약 트리거.
-- **배포 상태:** PR 검토 및 CI 단계. GAS v9.232는 아직 운영 적용 확인 전입니다. 기존 검증 운영 버전은 v9.231이며, 배포 성공/운영 확인 전까지 10/08 기간 진단 `VALID` 또는 10/09~11 pending 해제를 선언하지 않습니다.
-- **배포 후:** 인증된 `getSettings`/`getAutomationStatus`의 `gasVersion=9.232` 확인, 10/08 기간 진단과 단일 날짜 진단 모두 39/39행 `VALID`, 기존 평가금액/수량 불변 및 휴장 pending 별도 상태를 읽기 전용으로 재검증합니다.
+- **배포 상태 — 운영 반영 확인 (2026-10-16 19:41 KST):** PR #527 병합 `f541de05` 후 [gas-deploy 실행 38888833784](https://github.com/cyyoung111-dev/portfolio/actions/runs/38888833784) 성공. 로그상 **GAS v9.232 / Apps Script 배포 버전 284 / 운영 웹앱 검증 성공**. KRX 10/12·10/13 공식 원천 37/37종목씩 확보됐으나 가격이력·Snapshot 영속 복구를 의미하지 않습니다. 10/08 기간 진단 `VALID` 및 10/09~11 pending 해제는 별도 재조회 전까지 미확인입니다.
+- **배포 후 검증:** 운영 인증 `getSettings`/`getAutomationStatus`의 `gasVersion=9.232`, 10/08 기간·단일 진단 39/39행 `VALID`와 출처·금액 불일치 0건, 10/09~11 휴장 pending 상태를 **읽기 전용**으로 재검증합니다. `gas-deploy` 완료 성공 이후 `krx-holiday-september-readonly`에서 자동 재조회하고 날짜별 값이 확인되기 전에는 복구 완료로 보고하지 않습니다.
 - **승인 소스:** GAS 전체 blob `e2d6094e78c5c8867d7219f038e5f3b6f440d554` 고정 및 기간 진단 실제 함수 VM 회귀·Quality/GAS/Web CI·Codex 중요 P1/P2 검증 필수.
 
 ---
