@@ -497,8 +497,9 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='815c0b60e4d54ef04c05dd2d618e6bce052d41d6';
+const approvedFullSourceBlob='e2d6094e78c5c8867d7219f038e5f3b6f440d554';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+const headerV232=currentGasSource.indexOf('//  v9.232 변경사항');
 const headerV231=currentGasSource.indexOf('//  v9.231 변경사항');
 const headerV230=currentGasSource.indexOf('//  v9.230 변경사항');
 const headerV229=currentGasSource.indexOf('//  v9.229 변경사항');
@@ -506,8 +507,10 @@ const headerV228=currentGasSource.indexOf('//  v9.228 변경사항');
 const headerV227=currentGasSource.indexOf('//  v9.227 변경사항');
 const headerV226=currentGasSource.indexOf('//  v9.226 변경사항');
 const headerV225=currentGasSource.indexOf('//  v9.225 변경사항');
-assert.ok(headerV231>=0 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
-  'v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(headerV232>=0 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
+  'v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(currentGasSource.slice(headerV232,headerV231).includes('Snapshot'),
+  'v9.232 must document the indexed Snapshot source-only diagnostic parity');
 assert.ok(currentGasSource.slice(headerV231,headerV230).includes('ScriptLock'),
   'v9.231 must explicitly guard source-only Snapshot changes within ScriptLock');
 assert.ok(currentGasSource.slice(headerV230,headerV229).includes('Snapshot'),
@@ -524,7 +527,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.231',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.232',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
