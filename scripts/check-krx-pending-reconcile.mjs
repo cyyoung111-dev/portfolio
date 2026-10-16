@@ -66,6 +66,7 @@ const context=vm.createContext({
   getss:()=>ss, getCodeItems:()=>catalog,
   _getDailyHeldCodeItems:()=>catalog,
   _isKrxDailyCloseTarget_:item=>item.currency==='KRW' && item.market==='KOSPI',
+  _krxCalendarStatus_:date=>date==='2026-10-09'?'CLOSED':'OPEN',
   diagnoseSnapshotIntegrity:(_ss,date)=>{
     // Independent full-portfolio oracle: the two KRX rows can remain valid
     // while a foreign row is absent, stale or sourced incorrectly.
