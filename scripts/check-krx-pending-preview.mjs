@@ -3,49 +3,59 @@ import {runPreview} from './preview-krx-pending-reconcile.mjs';
 
 const url='https://script.google.com/macros/s/Abcd/exec';
 const token='SECRET_MUST_NOT_APPEAR';
+const dates=['2026-10-12','2026-10-13','2026-10-14'];
 const observed=[];
-const good={
- status:'ok',mode:'DRY_RUN',cleared:0,
- checked:[
-  {date:'2026-10-07',queued:true,ok:true,verifiedCodes:37,reason:''},
-  {date:'2026-10-08',queued:true,ok:true,verifiedCodes:37,reason:''}
- ]
-};
-const createFetch=(result=good)=>async(_url,options)=>{
+const good=date=>({status:'ok',mode:'DRY_RUN',cleared:0,checked:[
+  {date,queued:true,ok:true,verifiedCodes:37,reason:''}
+]});
+const createFetch=(override=()=>null)=>async (_url,options)=>{
   assert.equal(options.method,'POST');
   assert.equal(options.body.get('action'),'reconcileCompletedKrxPending');
   assert.equal(options.body.get('apply'),'0');
-  assert.equal(options.body.get('dates'),'2026-10-07,2026-10-08');
+  const date=options.body.get('dates');
+  assert.ok(dates.includes(date),'must request only one target date');
+  assert.equal(date.includes(','),false,'one date per full Snapshot proof');
   observed.push([...options.body.entries()]);
-  return {ok:true,json:async()=>options.body.get('accessToken')===token
-    ?result:{status:'error',message:'인증 실패'}};
+  if(options.body.get('accessToken')!==token)
+    return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+  return {ok:true,json:async()=>(override(date)||good(date))};
 };
 const output=await runPreview({url,token,fetchImpl:createFetch()});
 assert.equal(output.status,'READY');
 assert.equal(output.mode,'READ_ONLY');
-assert.equal(output.entries.length,2);
-assert.equal(output.entries[0].verifiedCodes,37);
-assert.equal(observed.length,2);
+assert.deepEqual(output.entries.map(e=>e.date),dates);
+assert.equal(output.entries.every(e=>e.verifiedCodes===37),true);
+assert.equal(observed.length,4,'one auth probe and three independent date proofs');
 assert.doesNotMatch(JSON.stringify(output),/SECRET_MUST_NOT_APPEAR/);
-const notReady=await runPreview({url,token,fetchImpl:createFetch({
- ...good,checked:[good.checked[0],{...good.checked[1],ok:false,
-  reason:'MASTER_INCOMPLETE',verifiedCodes:0}]
-})});
+const notReady=await runPreview({url,token,fetchImpl:createFetch(date=>
+  date===dates[1]?{...good(date),checked:[{...good(date).checked[0],
+    ok:false,reason:'FULL_SNAPSHOT_MISMATCH',verifiedCodes:0}]}:null
+)});
 assert.equal(notReady.status,'BLOCKED');
-assert.equal(notReady.entries[1].reason,'MASTER_INCOMPLETE');
-const unexpected=await runPreview({url,token,fetchImpl:createFetch({
- ...good,checked:[good.checked[0],{...good.checked[1],queued:false}]
-})});
+assert.equal(notReady.entries[1].reason,'FULL_SNAPSHOT_MISMATCH');
+const unexpected=await runPreview({url,token,fetchImpl:createFetch(date=>
+  date===dates[2]?{...good(date),checked:[{...good(date).checked[0],queued:false}]}:null
+)});
 assert.equal(unexpected.status,'BLOCKED');
-const cleared=await runPreview({url,token,fetchImpl:createFetch({
- ...good,checked:good.checked.map(x=>({...x,queued:false}))
-})});
-assert.equal(cleared.status,'ALREADY_CLEAR','repeated workflow run after cleanup must succeed');
+const cleared=await runPreview({url,token,fetchImpl:createFetch(date=>({
+  ...good(date),checked:[{...good(date).checked[0],queued:false}]
+}))});
+assert.equal(cleared.status,'ALREADY_CLEAR','repeated proof after cleanup must succeed');
 assert.equal(cleared.entries.every(x=>!x.queued&&x.verified),true);
-
+const custom=await runPreview({url,token,dates:'2026-10-12',fetchImpl:createFetch()});
+assert.equal(custom.entries.length,1,'single-day diagnostic should be supported');
+await assert.rejects(()=>runPreview({url,token,dates:'2026-10-12,2026-10-12',
+  fetchImpl:createFetch()}),/KRX_DIAG_INVALID_DATES/);
+await assert.rejects(()=>runPreview({url,token,dates:'2026-10-12,2026-10-13,2026-10-14,2026-10-15',
+  fetchImpl:createFetch()}),/PENDING_PREVIEW_INVALID_DATES/);
 await assert.rejects(()=>runPreview({url,token,fetchImpl:async()=>({
- ok:true,json:async()=>good})}),/AUTH_NOT_ENFORCED/);
-await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch({
- ...good,mode:'APPLIED',cleared:2
-})}),/INVALID_RESPONSE/);
-console.log('KRX pending historical completion preview: read-only auth/contract/mismatch checks passed');
+  ok:true,json:async()=>good(dates[0])})}),/AUTH_NOT_ENFORCED/);
+await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(date=>({
+  ...good(date),mode:'APPLIED',cleared:1
+}))}),/INVALID_RESPONSE/);
+await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(date=>({
+  ...good(date),checked:[{...good(date).checked[0],date:'2026-10-07'}]
+}))}),/INVALID_RESPONSE/);
+await assert.rejects(()=>runPreview({url,token,fetchImpl:async()=>{throw Error('secret');}}),
+  /PENDING_PREVIEW_NETWORK_FAILED/);
+console.log('KRX pending proof preview: one-date read-only auth/timeout/integrity/partial/retry PASS');
