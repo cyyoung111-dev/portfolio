@@ -109,6 +109,7 @@ function checkRotation(dates, cursor, includeToday, failure) {
     _portfolioFundAtomic_:fn=>fn(props),
     _reconcileRecoveredPortfolioPrice_:()=>true,
     _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:37}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:39,storedRowCount:39}),
     getss:()=>({}),
     _completePendingKrxCloseDate_:(_,date)=>state.set('queue',JSON.stringify(JSON.parse(state.get('queue')).filter(x=>x!==date))),
     _appendPortfolioCloseSyncLog:()=>{}
