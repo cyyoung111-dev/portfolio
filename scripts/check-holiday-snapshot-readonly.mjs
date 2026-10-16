@@ -28,7 +28,7 @@ assert.deepEqual(summarizeHolidaySnapshotRange(expected).slice(3,6).map(r=>
 ]);
 assert.throws(()=>summarizeHolidaySnapshotRange({...expected,diagnostics:[]}),
   /HOLIDAY_SNAPSHOT_INVALID_RESPONSE/);
-assert.throws(()=>summarizeConflictDay({...expected.diagnostics[0],date:'2026-10-12'}),
+assert.throws(()=>summarizeConflictDay({...expected.diagnostics[0],date:'2026-10-17'}),
   /HOLIDAY_SNAPSHOT_INVALID_DATE/);
 const statusData={status:'ok',automation:{gasVersion:'9.230',
   overallStatus:'WARNING',pendingKrxCloseDates:['2026-10-09','2026-10-10','2026-10-11'],
