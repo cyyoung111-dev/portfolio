@@ -3252,4 +3252,58 @@ console.log('✅ FUND_BUSY+PRICE 성공·같은 날짜 A/B 소유권·7분 경�
 }
 console.log('✅ 22:10 B PRICE 재생·정규 CLOSE NAV 성공 마커 합류·이전 A 기록 분리');
 
+
+
+// PR518: a successful writer is not sufficient to release the KRX pending
+// queue. Persisted exact-date PRICE/Snapshot verification must succeed first.
+{
+  const bag=new Map([['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-07'])]]);
+  const props={
+    getProperty:key=>bag.has(key)?bag.get(key):null,
+    setProperty:(key,value)=>bag.set(key,String(value)),
+    deleteProperty:key=>bag.delete(key)
+  };
+  let proofOk=false;
+  const events=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+    _readPendingKrxCloseDates_:()=>JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')||'[]'),
+    getss:()=>({}),
+    saveDailyPriceHistory:(date,opts)=>{
+      events.push('save');
+      assert.equal(date,'2026-10-07');
+      assert.equal(opts.deferQueueCompletion,true);
+      return {ok:true,date,rows:37};
+    },
+    _verifyCompletedKrxPendingDate_:(ss,date)=>{
+      events.push('verify:'+date);
+      return proofOk?{ok:true,verifiedCodes:37}:{ok:false,reason:'SNAPSHOT_INVALID'};
+    },
+    _portfolioFundAtomic_:cb=>cb(props),
+    _reconcileRecoveredPortfolioPrice_:()=>{events.push('reconcile');return true;},
+    _completePendingKrxCloseDate_:(p,date)=>{
+      events.push('complete');
+      p.setProperty('portfolio_close_pending_krx_dates',
+        JSON.stringify(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).filter(v=>v!==date)));
+    },
+    _appendPortfolioCloseSyncLog:(event)=>events.push(event)
+  });
+  vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+  const failure=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
+  assert.equal(failure.ok,false,'unverified persisted snapshot must not count as a successful replay');
+  assert.match(failure.error,/BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_INVALID/);
+  assert.deepEqual(JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')),['2026-10-07'],
+    'failed persisted verification must leave original pending date intact');
+  assert.deepEqual(events,['save','verify:2026-10-07','BACKFILL_ERROR'],
+    'failed proof must prevent reconciliation, completion, and BACKFILL_OK');
+  proofOk=true;
+  events.length=0;
+  const recovered=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
+  assert.equal(recovered.ok,true);
+  assert.deepEqual(JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')),[]);
+  assert.deepEqual(events,['save','verify:2026-10-07','reconcile','complete','BACKFILL_OK'],
+    'only proven persisted data may trigger state reconciliation and queue completion');
+}
+console.log('✅ PR518 백필 영속 검증 실패 큐 보존·재시도 성공 순서 회귀');
+
 console.log('✅ 다중 거래일 성공 마커·3회차 하드킬 정합화 회귀');
