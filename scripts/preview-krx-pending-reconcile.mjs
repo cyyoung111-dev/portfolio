@@ -1,60 +1,69 @@
 #!/usr/bin/env node
-// A one-time, read-only preview of the existing GAS v9.220+ pending-date
-// reconciliation. There is no apply=1 operation anywhere in this script.
-import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
+// Authenticated, read-only one-date-at-a-time proof. Never sends apply=1.
+// Keep exact-date validation cheap enough for GAS ScriptLock and HTTP timeout.
+import {parseDates,validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
-const DATES=Object.freeze(['2026-10-07','2026-10-08']);
-async function request(url,token,fetchImpl){
+const DEFAULT_DATES='2026-10-12,2026-10-13,2026-10-14';
+const REASONS=new Set([
+  'MASTER_MISSING','NO_HOLDINGS','TRADE_LEDGER_MISSING','MASTER_INCOMPLETE',
+  'SHEET_MISSING','PRICE_HISTORY_INVALID','SNAPSHOT_INVALID',
+  'INCOMPLETE_COVERAGE','FULL_SNAPSHOT_MISMATCH','FULL_SNAPSHOT_INVALID',
+  'FULL_SNAPSHOT_COUNT_MISMATCH'
+]);
+async function request(url,token,date,fetchImpl){
   const body=new URLSearchParams({
-    action:'reconcileCompletedKrxPending',
-    dates:DATES.join(','),apply:'0',accessToken:token
+    action:'reconcileCompletedKrxPending',dates:date,apply:'0',accessToken:token
   });
   let response;
   try {
     response=await fetchImpl(url,{
       method:'POST',
       headers:{'content-type':'application/x-www-form-urlencoded;charset=UTF-8'},
-      body,redirect:'follow',signal:AbortSignal.timeout(45000)
+      body,redirect:'follow',signal:AbortSignal.timeout(90000)
     });
   } catch {throw new Error('PENDING_PREVIEW_NETWORK_FAILED');}
   if(!response.ok)throw new Error('PENDING_PREVIEW_GAS_HTTP_FAILED');
   try {return await response.json();}
   catch{throw new Error('PENDING_PREVIEW_INVALID_JSON');}
 }
-export async function runPreview({url,token,fetchImpl=fetch}){
+export async function runPreview({url,token,dates=DEFAULT_DATES,fetchImpl=fetch}){
   const endpoint=validateWebAppUrl(url);
   if(typeof token!=='string'||!token.trim())throw new Error('PENDING_PREVIEW_MISSING_TOKEN');
+  const targets=parseDates(dates);
+  if(targets.length>3)throw new Error('PENDING_PREVIEW_INVALID_DATES');
   const invalidToken=token==='PENDING_PREVIEW_AUTH_PROBE'
     ? 'PENDING_PREVIEW_AUTH_PROBE_ALT':'PENDING_PREVIEW_AUTH_PROBE';
-  const deny=await request(endpoint,invalidToken,fetchImpl);
+  const deny=await request(endpoint,invalidToken,targets[0],fetchImpl);
   if(deny?.status!=='error'||deny?.message!=='인증 실패')
     throw new Error('PENDING_PREVIEW_AUTH_NOT_ENFORCED');
-  const data=await request(endpoint,token,fetchImpl);
-  if(data?.status!=='ok'||data.mode!=='DRY_RUN'||data.cleared!==0||
-     !Array.isArray(data.checked)||data.checked.length!==DATES.length)
-    throw new Error('PENDING_PREVIEW_INVALID_RESPONSE');
-  const entries=DATES.map((date,i)=>{
-    const item=data.checked[i];
-    if(!item||item.date!==date||typeof item.queued!=='boolean'||
-      typeof item.ok!=='boolean'||!Number.isSafeInteger(item.verifiedCodes)
-      ||item.verifiedCodes<0||typeof item.reason!=='string')
+  const entries=[];
+  for(const date of targets){
+    // One target per request: the actual server proof scans price, trade
+    // ledger and the full Snapshot under ScriptLock, not a cheap API ping.
+    const data=await request(endpoint,token,date,fetchImpl);
+    if(data?.status!=='ok'||data.mode!=='DRY_RUN'||data.cleared!==0||
+       !Array.isArray(data.checked)||data.checked.length!==1)
       throw new Error('PENDING_PREVIEW_INVALID_RESPONSE');
-    return {date,queued:item.queued,verified:item.ok,
+    const item=data.checked[0];
+    if(!item||item.date!==date||typeof item.queued!=='boolean'||
+      typeof item.ok!=='boolean'||!Number.isSafeInteger(item.verifiedCodes)||
+      item.verifiedCodes<0||typeof item.reason!=='string')
+      throw new Error('PENDING_PREVIEW_INVALID_RESPONSE');
+    entries.push({date,queued:item.queued,verified:item.ok,
       verifiedCodes:item.verifiedCodes,
-      reason:item.ok?'':(
-        ['MASTER_MISSING','NO_HOLDINGS','TRADE_LEDGER_MISSING','MASTER_INCOMPLETE',
-        'SHEET_MISSING','PRICE_HISTORY_INVALID','SNAPSHOT_INVALID',
-        'INCOMPLETE_COVERAGE'].includes(item.reason)?item.reason:'OTHER_CHECK_FAILED')};
-  });
-  const valid=entries.every(x=>x.verified&&x.verifiedCodes===37);
+      reason:item.ok?'':(REASONS.has(item.reason)?item.reason:'OTHER_CHECK_FAILED')});
+  }
+  const valid=entries.every(x=>x.verified&&x.verifiedCodes>0);
   const ready=valid&&entries.every(x=>x.queued);
   const alreadyClear=valid&&entries.every(x=>!x.queued);
   return {mode:'READ_ONLY',status:ready?'READY':alreadyClear?'ALREADY_CLEAR':'BLOCKED',entries};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
+    const argIndex=process.argv.indexOf('--dates');
+    const dates=argIndex>=0?process.argv[argIndex+1]:DEFAULT_DATES;
     const result=await runPreview({
-      url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
+      url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,dates
     });
     console.log(JSON.stringify(result));
     if(result.status==='BLOCKED')process.exitCode=1;
