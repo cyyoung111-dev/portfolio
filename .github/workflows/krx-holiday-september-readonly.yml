@@ -8,6 +8,11 @@ on:
     paths:
       - '.github/workflows/krx-holiday-september-readonly.yml'
   workflow_dispatch:
+  # Post-deploy verification must not race the GAS web app rollout.
+  workflow_run:
+    workflows: ['gas-deploy']
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: read
@@ -18,7 +23,12 @@ concurrency:
 
 jobs:
   diagnose:
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
