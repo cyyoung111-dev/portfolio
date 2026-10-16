@@ -2219,7 +2219,7 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     _buildSnapshotRowsFromTradeAndPriceHistory:()=>[['snapshot-row']],
     _readSnapshotRowsByDate:()=>[],
     _snapshotRewritePlan:()=>({unsafe:[],needsRewrite:false}),
-    diagnoseSnapshotIntegrity:()=>({status:'VALID'}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:1,storedRowCount:1}),
     _settleSnapshotBackupOperation:()=>{},
     _appendPortfolioCloseSyncLog:()=>{},
     _portfolioFundAtomic_:cb=>{
