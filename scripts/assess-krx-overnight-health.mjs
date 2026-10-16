@@ -15,12 +15,14 @@ export function assessKrxOvernightHealth(data) {
   if (!data.triggerReady) issues.push('TRIGGERS_NOT_READY');
   if (data.pendingCount>0) issues.push('PENDING_KRX_DATES');
   if (data.overallStatus!=='NORMAL') issues.push('AUTOMATION_NOT_NORMAL');
-  // Different confirmed KRX/Snapshot dates can indicate missing valuation.
-  // Missing dates must be reported, never auto-filled from the prior session.
+  // On Korean holidays US markets can advance the Snapshot after the
+  // latest KRX session; that is healthy. Alert only when the persisted
+  // Snapshot is strictly BEHIND an already-confirmed official KRX close.
+  // Missing dates must never be silently carried forward.
   const official=data.officialKrxPriceHistoryLastDate;
   const snapshot=data.snapshotLastDate;
   if (official==='-' || snapshot==='-') issues.push('LAST_DATE_UNAVAILABLE');
-  else if (official!==snapshot) issues.push('KRX_SNAPSHOT_LAST_DATE_MISMATCH');
+  else if (snapshot < official) issues.push('KRX_SNAPSHOT_STALE');
   return {
     mode:'READ_ONLY',
     status:issues.length?'ACTION_REQUIRED':'HEALTHY',
