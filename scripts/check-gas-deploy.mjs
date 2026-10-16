@@ -497,7 +497,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='c7795958263d95e7dc0f7c7365acbd377e4e1375';
+const approvedFullSourceBlob='e732ea719d1956058d584bf88a2d50bd43fb9421';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV229=currentGasSource.indexOf('//  v9.229 변경사항');
 const headerV228=currentGasSource.indexOf('//  v9.228 변경사항');
