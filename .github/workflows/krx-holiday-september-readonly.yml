@@ -1,0 +1,33 @@
+name: krx-holiday-september-readonly
+
+# One-off, authenticated and strictly READ_ONLY diagnostic.
+# No schedule, no mutation, no raw GAS response or secret in Actions log.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-holiday-september-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: krx-holiday-september-readonly
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: 2026-10-09~11 holiday and 2026-09-15~16 snapshot readonly proof
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/diagnose-holiday-snapshot-readonly.mjs
