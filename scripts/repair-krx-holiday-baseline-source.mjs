@@ -73,8 +73,8 @@ export function assertBackupCapacity(payload){
   return {remainingCells:wb.remainingCells,minimumSafeCells:needed};
 }
 async function request(endpoint,token,action,fields={},fetchImpl=fetch){
-  if(!['diagnoseSnapshotIntegrity','diagnoseWorkbookCells','repairOct08FundSourceOnly']
-    .includes(action))throw new Error('SOURCE_ONLY_FORBIDDEN_ACTION');
+  if(!['getAutomationStatus','diagnoseSnapshotIntegrity','diagnoseWorkbookCells',
+    'repairOct08FundSourceOnly'].includes(action))throw new Error('SOURCE_ONLY_FORBIDDEN_ACTION');
   const body=new URLSearchParams({action,accessToken:token,...fields});
   let response;
   try{
@@ -100,6 +100,11 @@ export async function runSourceOnlyRepair({url,token,apply=false,fetchImpl=fetch
     'diagnoseSnapshotIntegrity',{date:DATE},fetchImpl);
   if(rejected?.status!=='error'||rejected.message!=='인증 실패')
     throw new Error('SOURCE_ONLY_AUTH_NOT_ENFORCED');
+  // GAS workflows can finish validation without deploying if the auto-deploy
+  // setting is disabled. Exact deployed API version is a mandatory gate.
+  const status=await request(endpoint,token,'getAutomationStatus',{},fetchImpl);
+  if(status?.status!=='ok'||status.automation?.gasVersion!=='9.231')
+    throw new Error('SOURCE_ONLY_GAS_VERSION_NOT_DEPLOYED');
   const before=await fetchDiagnostic(endpoint,token,fetchImpl);
   if(before.status==='VALID'){
     assertBaselineValid(before);
