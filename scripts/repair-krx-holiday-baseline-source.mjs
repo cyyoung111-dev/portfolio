@@ -72,7 +72,7 @@ export function assertBackupCapacity(payload){
   return {remainingCells:wb.remainingCells,minimumSafeCells:needed};
 }
 async function request(endpoint,token,action,fields={},fetchImpl=fetch){
-  if(!['diagnoseSnapshotIntegrity','diagnoseWorkbookCells','rewriteSnapshotDate']
+  if(!['diagnoseSnapshotIntegrity','diagnoseWorkbookCells','repairOct08FundSourceOnly']
     .includes(action))throw new Error('SOURCE_ONLY_FORBIDDEN_ACTION');
   const body=new URLSearchParams({action,accessToken:token,...fields});
   let response;
@@ -109,17 +109,19 @@ export async function runSourceOnlyRepair({url,token,apply=false,fetchImpl=fetch
     endpoint,token,'diagnoseWorkbookCells',{},fetchImpl));
   if(!apply)return {mode:'DRY_RUN',date:DATE,changed:0,
     sourceOnlyCodes:EXPECTED_FUNDS.slice(),minimumSafeBackupCells:capacity.minimumSafeCells};
-  // GAS reacquires ScriptLock, rebuilds expected source, makes signed backup,
-  // rewrites only if no duplicate/MANUAL/source errors, and verifies VALID.
-  const write=await request(endpoint,token,'rewriteSnapshotDate',
-    {date:DATE,operationId:'krx-holiday-baseline-20261008',finalize:'1'},fetchImpl);
-  if(write?.status!=='ok'||write.rewritten!==true)
+  // GAS v9.231 acquires ScriptLock and rechecks the exact 2-code source
+  // contract BEFORE touching any cells; only K column at the proven two
+  // physical fund rows can be updated. A full-date rewrite is forbidden.
+  const write=await request(endpoint,token,'repairOct08FundSourceOnly',{},fetchImpl);
+  if(write?.status!=='ok'||!['APPLIED','ALREADY_VALID'].includes(write.mode)
+      ||write.date!==DATE||write.verified!=='VALID'
+      ||(write.mode==='APPLIED'&&write.changed!==2)
+      ||(write.mode==='ALREADY_VALID'&&write.changed!==0))
     throw new Error('SOURCE_ONLY_GAS_REWRITE_FAILED_VERIFY_BEFORE_RETRY');
-  assertSourceOnlyMismatch(write.before);
-  assertBaselineValid(write.after);
   const after=await fetchDiagnostic(endpoint,token,fetchImpl);
   assertBaselineValid(after);
-  return {mode:'APPLIED',date:DATE,changed:2,snapshotRows:39,verified:'VALID'};
+  return {mode:write.mode,date:DATE,changed:write.changed,
+    snapshotRows:39,verified:'VALID'};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
