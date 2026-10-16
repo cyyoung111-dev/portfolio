@@ -42,10 +42,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.233');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.234');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.233','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.234','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -72,8 +72,8 @@ const latestReleaseNotes = deploymentNotes.slice(
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
-  'newest v9.232 release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.232') && latestReleaseNotes.includes('Snapshot'),
+  'newest v9.233 release must end before historical v9.228 section');
+assert.ok(latestReleaseNotes.includes('gasVersion=9.233') && latestReleaseNotes.includes('Snapshot'),
   'latest release must independently document KRX persisted verification and post-deploy check');
 
 // Execute the *actual trigger-registration functions*, not copies of their
@@ -497,8 +497,9 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='e2d6094e78c5c8867d7219f038e5f3b6f440d554';
+const approvedFullSourceBlob='3f7d34c3680c737b4f21c09540fa46d2a17eadb4';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+const headerV233=currentGasSource.indexOf('//  v9.233 변경사항');
 const headerV232=currentGasSource.indexOf('//  v9.232 변경사항');
 const headerV231=currentGasSource.indexOf('//  v9.231 변경사항');
 const headerV230=currentGasSource.indexOf('//  v9.230 변경사항');
@@ -507,8 +508,10 @@ const headerV228=currentGasSource.indexOf('//  v9.228 변경사항');
 const headerV227=currentGasSource.indexOf('//  v9.227 변경사항');
 const headerV226=currentGasSource.indexOf('//  v9.226 변경사항');
 const headerV225=currentGasSource.indexOf('//  v9.225 변경사항');
-assert.ok(headerV232>=0 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
-  'v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(headerV233>=0 && headerV232>headerV233 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
+  'v9.233/v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(currentGasSource.slice(headerV233,headerV232).includes('KRX'),
+  'v9.233 must document proof cursor starvation protection');
 assert.ok(currentGasSource.slice(headerV232,headerV231).includes('Snapshot'),
   'v9.232 must document the indexed Snapshot source-only diagnostic parity');
 assert.ok(currentGasSource.slice(headerV231,headerV230).includes('ScriptLock'),
@@ -527,7 +530,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.232',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.233',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');

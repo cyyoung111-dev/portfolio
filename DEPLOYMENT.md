@@ -1,3 +1,15 @@
+## GAS v9.233 — KRX 완료일 검증 2일 순환·기아 방지 (2026-10-16)
+
+- **운영 근거:** v9.232 배포 후 10/08 기간 Snapshot `VALID` 39/39행·수치/출처 차이 0건. 그러나 10/06~16 총 11일 pending(휴장 10/09~11 포함), 운영 `overallStatus=ERROR`. 읽기 전용 [실운영 진단](https://github.com/cyyoung111-dev/portfolio/actions/runs/38889748797)을 통해 확인.
+- **확인된 코드 원인:** `_pruneVerifiedHistoricalKrxPending_`가 가장 오래된 거래일 2일만 반복 검사하여, 해당 날짜가 완결 증명에 실패하면 뒤의 10/08 `VALID` 날짜를 검사하지 못하는 *기아 가능성*. 휴장일은 2일 증명 예산에서 제외합니다.
+- **변경:** 같은 ScriptLock·소유 lease 안에서 별도 `portfolio_close_backfill_prune_cursor_v1`를 순환시키며 1회 최대 2일을 검증합니다. 실패·예외 시에도 커서를 전진시키되, 대기열에서는 KRX 당일 공식 가격이력·원장 수량·전체 국내외 Snapshot `VALID`까지 입증된 날짜 **만** 제거합니다. 기존 실제 백필 재시도 커서는 변경하지 않습니다.
+- **비변경:** KRX 가격 수집·원천일 정책, 휴장일 큐, 9/15·16 충돌·MANUAL, 가격이력·Snapshot·NAV·거래원장, Toss, 22:10/23:10/00:30 트리거, 타 백필 일자 선택 정책.
+- **배포 상태:** 검토 및 CI 진행 중이며 운영 v9.233 반영 확인 전. 기존 실운영은 v9.232(배포 버전 284). PR 병합만으로 pending 감소나 휴장 복구를 선언하지 않습니다.
+- **배포 후:** GAS `gasVersion=9.233`, 실제 Apps Script 웹앱 버전·최신 실데이터 `getAutomationStatus`·10/06~16 날짜별 정합성 및 pending 확인. 등록된 야간 작업 이전에는 자동 큐 정리 완료를 주장하지 않습니다.
+- **승인 소스:** 전체 GAS blob `3f7d34c3680c737b4f21c09540fa46d2a17eadb4` 승인 고정; 생산 함수 VM 2건 proof 순환/휴장/lease/오류·원본 보호 회귀, Quality/GAS/Web CI, 최신 Codex 유효 P1/P2 미해결 0건.
+
+---
+
 ## GAS v9.232 — 기간 Snapshot 진단 펀드 NAV 출처 정합성 수정 (2026-10-16)
 
 - **원인:** 10/08 단일 날짜 Snapshot 진단은 `VALID`(39/39행)이나 기간 진단은 F00001/F00002 펀드 출처 2건만 `MISMATCH`였습니다. 기간 생성기 `_buildIndexedSnapshotRows`가 NAV 이월일자 `@YYYY-MM-DD`를 누락하고 NAV가 확정돼도 가격이력이 있으면 NAV를 우선 적용하지 않는 차이를 확인했습니다.

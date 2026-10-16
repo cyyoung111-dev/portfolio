@@ -8,7 +8,11 @@ const TARGETS=['2026-09-15','2026-09-16','2026-10-08'];
 const HOLIDAYS=['2026-10-09','2026-10-10','2026-10-11'];
 // Check expected-vs-persisted Snapshot for the holiday dates as well as
 // source coverage. No Snapshot/PRICE writing is permitted here.
-const SNAPSHOT_TARGETS=TARGETS.concat(HOLIDAYS);
+// Historical comparison plus all eleven 10/06–10/16 pending candidates;
+// KRX source probes remain limited to the three known market-closed dates.
+const OTHER_PENDING_DATES=['2026-10-06','2026-10-07','2026-10-12',
+  '2026-10-13','2026-10-14','2026-10-15','2026-10-16'];
+const SNAPSHOT_TARGETS=TARGETS.concat(HOLIDAYS,OTHER_PENDING_DATES);
 const ACTIONS=new Set(['getAutomationStatus','diagnoseSnapshotIntegrityRange','getKrxSourceDiagnostics']);
 const count=v=>Array.isArray(v)?v.length:0;
 

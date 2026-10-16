@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.232
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.233
 //
+//  v9.233 변경사항 (2026.10.16):
+//  - KRX 과거 pending 완료검증 선두 2일 고정을 별도 proof 커서 순환으로 전환.
+//  - lease/ScriptLock·회차당 2일·휴장 제외·정합성 증명 성공일만 삭제 유지.
 //  v9.232 변경사항 (2026.10.16):
 //  - 기간 Snapshot 진단에서 F코드 NAV 평가금액 우선·이월 출처 일자 표기를
 //    단일 날짜 진단과 동일하게 보정. 저장 시트·백필 큐 변경 없음.
@@ -2052,7 +2055,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.232', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.233', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5795,7 +5798,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.232' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.233' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10328,6 +10331,7 @@ function _seedMissingKrxCloseDates_(ss, props, runDate, catalog) {
 // the same queued date at the same time, even across script owner accounts.
 var PORTFOLIO_CLOSE_BACKFILL_LEASE_KEY = 'portfolio_close_backfill_lease_v1';
 var PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY = 'portfolio_close_backfill_retry_cursor_v1';
+var PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY = 'portfolio_close_backfill_prune_cursor_v1';
 // Under the already-owned backfill lease, retire only a bounded number of
 // genuinely COMPLETE historical KRX dates before choosing a date to replay.
 // This never writes price history, snapshots, fund state or CLOSE ownership.
@@ -10341,12 +10345,26 @@ function _pruneVerifiedHistoricalKrxPending_(leaseToken, runDate) {
     // A stale KRX-closed watchdog date cannot pass an exact-date KRX proof.
     // Do not spend the bounded two proof slots on it: preserve the pending
     // date for the independent holiday/foreign Snapshot replay policy.
-    var candidates=queue.filter(function(d){
+    var eligible=queue.filter(function(d){
       return d<runDate && _krxCalendarStatus_(d)!=='CLOSED';
-    }).slice(0,2);
-    if (!candidates.length)return {cleared:0,reason:'NO_HISTORICAL_PENDING'};
+    });
+    if (!eligible.length)return {cleared:0,reason:'NO_HISTORICAL_PENDING'};
+    // A permanently incomplete earliest date must not consume both bounded
+    // verification slots forever. Rotate only the proof scan, independently
+    // of the recovery writer cursor, while holding the existing ScriptLock.
+    var previous=String(sharedProps.getProperty(PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY)||'');
+    var after=eligible.filter(function(d){return d>previous;});
+    var before=eligible.filter(function(d){return d<=previous;});
+    var candidates=after.concat(before).slice(0,2);
+    // Persist ONLY the candidate whose proof is about to start. Recording
+    // the whole two-date batch before its first scan can skip unattempted
+    // dates forever when Apps Script hard-times out mid-batch.
     var ss=getss(), cleared=[];
     candidates.forEach(function(date) {
+      // Advance before this individual proof; failure/hard kill must not
+      // repeatedly stall on the oldest incomplete date. This is metadata,
+      // never evidence that a date is complete.
+      sharedProps.setProperty(PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY,date);
       try {
         var proof=_verifyCompletedKrxPendingDate_(ss,date);
         if (proof && proof.ok===true && Number(proof.verifiedCodes)>0)
@@ -11857,7 +11875,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.232',
+    gasVersion: '9.233',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11904,7 +11922,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.232' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.233' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15515,7 +15533,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.232' });
+    return jsonOk({ settings: settings, gasVersion: '9.233' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15545,7 +15563,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.232'
+      gasVersion: '9.233'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
