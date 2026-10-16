@@ -28,7 +28,10 @@ jobs:
   finalize:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Max requests: two previews x (1 auth + 3 dates) x 90 s,
+    # plus 3 apply requests x 120 s = 18 min. Reserve 7 min for runner,
+    # checkout, API latency and response validation.
+    timeout-minutes: 25
     steps:
       - name: Checkout (include exact pre-push parent for one-time gate)
         uses: actions/checkout@v7
