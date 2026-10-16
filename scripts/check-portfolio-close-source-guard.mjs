@@ -3339,4 +3339,122 @@ console.log('✅ 22:10 B PRICE 재생·정규 CLOSE NAV 성공 마커 합류·�
 }
 console.log('✅ PR518 백필 영속 검증 실패 큐 보존·재시도 성공 순서 회귀');
 
+// Codex P2: a KRX holiday and a foreign-only portfolio must not require
+// nonexistent exact-date domestic closes. Re-prove the persisted result.date
+// Snapshot under the same lock instead; normal KRX sessions stay strict.
+{
+  function runProofReplay({date,calendar,result,integrityStatus='VALID',
+      expectedRows=result.rows,strictOk=true}) {
+    const state=new Map([['portfolio_close_pending_krx_dates',JSON.stringify([date])]]);
+    const props={getProperty:key=>state.get(key)||null,
+      setProperty:(key,value)=>state.set(key,String(value)),
+      deleteProperty:key=>state.delete(key)};
+    let locked=false;
+    const observed=[];
+    const ctx=vm.createContext({
+      PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+      _readPendingKrxCloseDates_:()=>JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')||'[]'),
+      getss:()=>({}),
+      _normalizeDate:value=>String(value||'').slice(0,10),
+      _krxCalendarStatus_:requested=>{assert.equal(requested,date);return calendar;},
+      saveDailyPriceHistory:(requested,opts)=>{
+        assert.equal(requested,date);
+        assert.equal(opts.deferQueueCompletion,true);
+        observed.push('save');
+        return result;
+      },
+      _portfolioFundAtomic_:callback=>{
+        assert.equal(locked,false);
+        locked=true;observed.push('lock');
+        try {return callback(props);}
+        finally {locked=false;observed.push('unlock');}
+      },
+      _verifyCompletedKrxPendingDate_:(ss,requested)=>{
+        assert.equal(locked,true);
+        assert.equal(requested,date);
+        observed.push('exact-KRX');
+        return strictOk?{ok:true,verifiedCodes:2}:{ok:false,reason:'INCOMPLETE_COVERAGE'};
+      },
+      diagnoseSnapshotIntegrity:(ss,actualDate)=>{
+        assert.equal(locked,true,'Snapshot must be rechecked inside ScriptLock');
+        assert.equal(actualDate,result.date);
+        observed.push('snapshot:'+actualDate);
+        return {status:integrityStatus,expectedRowCount:expectedRows,
+          storedRowCount:expectedRows};
+      },
+      _reconcileRecoveredPortfolioPrice_:()=>{
+        assert.equal(locked,true);observed.push('reconcile');return true;
+      },
+      _completePendingKrxCloseDate_:(p,completed)=>{
+        assert.equal(locked,true);observed.push('complete');
+        p.setProperty('portfolio_close_pending_krx_dates',
+          JSON.stringify(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates'))
+            .filter(item=>item!==completed)));
+      },
+      _appendPortfolioCloseSyncLog:event=>observed.push(event)
+    });
+    vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+    const outcome=ctx._retryOnePendingKrxClose_(props,date,true);
+    return {outcome,observed,pending:JSON.parse(props.getProperty('portfolio_close_pending_krx_dates'))};
+  }
+  const overseasHoliday=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',
+    result:{ok:true,date:'2026-10-09',rows:2,krxCloseRequired:false}});
+  assert.equal(overseasHoliday.outcome.ok,true,
+    'foreign-only holiday must finalize a valid same-day foreign Snapshot');
+  assert.deepEqual(overseasHoliday.pending,[]);
+  assert.ok(overseasHoliday.observed.includes('snapshot:2026-10-09'));
+  assert.ok(!overseasHoliday.observed.includes('exact-KRX'));
+
+  const domesticHoliday=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',
+    result:{ok:true,date:'2026-10-08',rows:3,krxCloseRequired:true}});
+  assert.equal(domesticHoliday.outcome.ok,true,
+    'domestic holdings on KRX holiday may carry the prior official close');
+  assert.deepEqual(domesticHoliday.pending,[]);
+  assert.ok(domesticHoliday.observed.includes('snapshot:2026-10-08'));
+  assert.ok(!domesticHoliday.observed.includes('exact-KRX'));
+
+  const overseasOnlyTradingDay=runProofReplay({
+    date:'2026-10-08',calendar:'OPEN',
+    result:{ok:true,date:'2026-10-07',rows:1,krxCloseRequired:false}});
+  assert.equal(overseasOnlyTradingDay.outcome.ok,true,
+    'no domestic holdings means no KRX proof even on an open KRX date');
+  assert.ok(overseasOnlyTradingDay.observed.includes('snapshot:2026-10-07'));
+
+  const domesticTradingDay=runProofReplay({
+    date:'2026-10-08',calendar:'OPEN',
+    result:{ok:true,date:'2026-10-08',rows:2,krxCloseRequired:true}});
+  assert.equal(domesticTradingDay.outcome.ok,true);
+  assert.ok(domesticTradingDay.observed.includes('exact-KRX'),
+    'ordinary KRX session still requires exact-date official proof');
+  assert.ok(!domesticTradingDay.observed.some(x=>x.startsWith('snapshot:')));
+
+  const unverifiedSnapshot=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',integrityStatus:'MISMATCH',
+    result:{ok:true,date:'2026-10-09',rows:2,krxCloseRequired:false}});
+  assert.equal(unverifiedSnapshot.outcome.ok,false);
+  assert.match(unverifiedSnapshot.outcome.error,/BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_MISMATCH/);
+  assert.deepEqual(unverifiedSnapshot.pending,['2026-10-09']);
+  assert.ok(!unverifiedSnapshot.observed.includes('complete'));
+  assert.ok(!unverifiedSnapshot.observed.includes('BACKFILL_OK'));
+
+  const wrongCount=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',expectedRows:1,
+    result:{ok:true,date:'2026-10-09',rows:2,krxCloseRequired:false}});
+  assert.equal(wrongCount.outcome.ok,false,
+    'changed snapshot row cardinality must not release pending replay');
+  assert.deepEqual(wrongCount.pending,['2026-10-09']);
+
+  const futureSnapshot=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',
+    result:{ok:true,date:'2026-10-10',rows:2,krxCloseRequired:false}});
+  assert.equal(futureSnapshot.outcome.ok,false);
+  assert.match(futureSnapshot.outcome.error,/SNAPSHOT_DATE_INVALID/);
+  assert.deepEqual(futureSnapshot.pending,['2026-10-09']);
+  assert.ok(!futureSnapshot.observed.some(x=>x.startsWith('snapshot:')));
+}
+console.log('✅ PR518 KRX 휴장일·해외 보유 Snapshot 영속 검증과 정상거래일 KRX 엄격 증명');
+
+
 console.log('✅ 다중 거래일 성공 마커·3회차 하드킬 정합화 회귀');
