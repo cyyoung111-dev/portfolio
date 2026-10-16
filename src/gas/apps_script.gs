@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.230
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.231
 //
+//  v9.231 변경사항 (2026.10.16):
+//  - 10/08 펀드 2건 Snapshot 출처만 ScriptLock 내부 원자 검증 후 제한 수정.
+//  - 서명 백업·기존 숫자/MANUAL 보호·실패 시 출처 복구 후 영속 VALID 확인.
 //  v9.230 변경사항 (2026.10.16):
 //  - KRX 휴장/주말 pending은 사전 정리 2건 검산 대상에서 제외해
 //    이미 저장된 뒤 거래일의 국내외 Snapshot 완료 증명 검사를 진행.
@@ -1227,7 +1230,7 @@ function doGet(e) {
       params.action === 'saveTossConfig' || params.action === 'clearTossConfig' ||
       params.action === 'repairSnapshots' || params.action === 'startSnapshotRepair' ||
       params.action === 'continueSnapshotRepair' || params.action === 'refreshEtfDividends' ||
-      params.action === 'rebuildDailySnapshots' || params.action === 'rewriteSnapshotDate' ||
+      params.action === 'rebuildDailySnapshots' || params.action === 'repairOct08FundSourceOnly' || params.action === 'rewriteSnapshotDate' ||
       params.action === 'previewFundNavImport' || params.action === 'importFundNav' ||
       params.action === 'prepareBackupCleanup' || params.action === 'maintainSystemBackups' || params.action === 'applyPriceHistoryRepair') {
     return jsonError(params.action + ' 은 POST 전용입니다');
@@ -1264,6 +1267,7 @@ function doPost(e) {
   if (params.action === 'maintainSystemBackups') return handleMaintainSystemBackups(params.data || '{}');
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
   if (params.action === 'reconcileCompletedKrxPending') return handleReconcileCompletedKrxPending(params.dates || '', params.apply || '');
+  if (params.action === 'repairOct08FundSourceOnly') return handleRepairOct08FundSourceOnly();
   var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodesAppendOnly' && params.codes && params.expectedCodes)
@@ -2045,7 +2049,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.230', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.231', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5788,7 +5792,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.230' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.231' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9145,6 +9149,126 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
   }
 }
 
+
+function _oct08FundSourceOnlyProof_(diagnostic) {
+  var date = '2026-10-08', codes = ['F00001','F00002'];
+  if (!diagnostic || diagnostic.date !== date || diagnostic.status !== 'MISMATCH'
+      || diagnostic.expectedRowCount !== 39 || diagnostic.storedRowCount !== 39
+      || !Array.isArray(diagnostic.sourceMismatches) || diagnostic.sourceMismatches.length !== 2
+      || diagnostic.sourceMismatches.map(function(x) { return x.code; }).sort().join(',') !== codes.join(','))
+    throw new Error('SOURCE_ONLY_INTEGRITY_SCOPE');
+  ['duplicateKeys','conflictKeys','missingCodes','unexpectedCodes','qtyMismatches',
+    'costAmtMismatches','evalUnitMismatches','evalAmtMismatches','sourceDataErrors'].forEach(function(k) {
+    if (!Array.isArray(diagnostic[k]) || diagnostic[k].length) throw new Error('SOURCE_ONLY_INTEGRITY_' + k);
+  });
+  var expectedRows=diagnostic.expectedRows, storedRows=diagnostic.storedRows;
+  if (!Array.isArray(expectedRows) || !Array.isArray(storedRows)
+      || expectedRows.length !== 39 || storedRows.length !== 39)
+    throw new Error('SOURCE_ONLY_ROW_COUNT');
+  var expected={}, stored={};
+  [expectedRows,storedRows].forEach(function(rows,i) {
+    var out=i===0?expected:stored;
+    rows.forEach(function(row) {
+      var code=String(row && row[1] || '');
+      if (!code || _normalizeDate(row[0]) !== date || out[code])
+        throw new Error('SOURCE_ONLY_CODE_DATE');
+      out[code]=row;
+    });
+    if (Object.keys(out).length !== 39) throw new Error('SOURCE_ONLY_CODE_COUNT');
+  });
+  var changes=[];
+  Object.keys(expected).forEach(function(code) {
+    var x=expected[code], y=stored[code];
+    if (!y || String(x[2] || '') !== String(y[2] || '')
+        || String(x[11] || '') !== String(y[11] || ''))
+      throw new Error('SOURCE_ONLY_NON_SOURCE_FIELD');
+    [3,4,5,6,7,8,9].forEach(function(col) {
+      var a=Number(x[col]),b=Number(y[col]);
+      if (!isFinite(a) || !isFinite(b) || a!==b)
+        throw new Error('SOURCE_ONLY_AMOUNT_CHANGED');
+    });
+    if (codes.indexOf(code)<0) {
+      if (String(x[10] || '') !== String(y[10] || ''))
+        throw new Error('SOURCE_ONLY_NON_FUND_SOURCE');
+      return;
+    }
+    var target=String(x[10] || ''), original=String(y[10] || '');
+    if (!/^FUND_NAV(?:_CARRY@\d{4}-\d{2}-\d{2})?$/.test(target)
+        || !/^FUND_NAV(?:_CARRY@\d{4}-\d{2}-\d{2})?$/.test(original)
+        || target===original || String(y[11] || ''))
+      throw new Error('SOURCE_ONLY_FUND_SOURCE');
+    changes.push({code:code,source:original,target:target});
+  });
+  if (changes.length!==2) throw new Error('SOURCE_ONLY_EXPECTED_TWO');
+  return changes;
+}
+
+// Source-only metadata repair. Precondition and writes share ONE ScriptLock.
+// Unlike generic rewriteSnapshotDate, does not rewrite entire Snapshot rows.
+function handleRepairOct08FundSourceOnly() {
+  var lock=LockService.getScriptLock(), locked=false, ss=null, sheet=null;
+  var operationId='', previousOperationId=_snapshotBackupOperationId, touched=[];
+  try {
+    lock.waitLock(30000);locked=true;
+    ss=getss(); sheet=ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+    if (!sheet || sheet.getLastRow()<40) throw new Error('SOURCE_ONLY_SHEET_MISSING');
+    var date='2026-10-08', before=diagnoseSnapshotIntegrity(ss,date);
+    if (before && before.status==='VALID'
+        && Number(before.expectedRowCount)===39 && Number(before.storedRowCount)===39
+        && Array.isArray(before.sourceMismatches) && !before.sourceMismatches.length)
+      return jsonOk({mode:'ALREADY_VALID',date:date,changed:0,verified:'VALID'});
+    var changes=_oct08FundSourceOnlyProof_(before), byCode={};
+    sheet.getRange(2,1,sheet.getLastRow()-1,12).getValues().forEach(function(row,index) {
+      if (_normalizeDate(row[0])!==date) return;
+      var code=_cleanCode(row[1]) || String(row[1] || '').trim();
+      if (changes.some(function(x){return x.code===code;})) {
+        if (byCode[code]) throw new Error('SOURCE_ONLY_DUPLICATE_PHYSICAL');
+        byCode[code]={row: index+2,source:String(row[10] || '')};
+      }
+    });
+    changes.forEach(function(change){
+      if (!byCode[change.code] || byCode[change.code].source!==change.source)
+        throw new Error('SOURCE_ONLY_PHYSICAL_CHANGED');
+    });
+    operationId='repairOct08FundSourceOnly|' + date + '|' + Utilities.getUuid();
+    _snapshotBackupOperationId=operationId;
+    var backup=_backupSnapshotBeforeWrite(ss,sheet);
+    if (!backup || !backup.signature) throw new Error('SOURCE_ONLY_BACKUP_FAILED');
+    changes.forEach(function(change) {
+      var original=byCode[change.code];
+      // Original is retained for best-effort rollback on a partial failure.
+      touched.push({row:original.row,source:original.source});
+      sheet.getRange(original.row,11).setValue(change.target);
+    });
+    SpreadsheetApp.flush();
+    var after=diagnoseSnapshotIntegrity(ss,date);
+    if (!after || after.status!=='VALID'
+        || Number(after.expectedRowCount)!==39 || Number(after.storedRowCount)!==39)
+      throw new Error('SOURCE_ONLY_AFTER_NOT_VALID');
+    _touchSnapshotIntegritySourceRevision({date:date});
+    _settleSnapshotBackupOperation(ss,operationId,true);
+    operationId='';
+    return jsonOk({mode:'APPLIED',date:date,changed:2,verified:'VALID'});
+  } catch(err) {
+    // The backup remains registered if any part fails. Do not claim
+    // success or clear a holiday KRX pending marker after a failed write.
+    if (sheet && touched.length) {
+      try {
+        touched.forEach(function(x){sheet.getRange(x.row,11).setValue(x.source);});
+        SpreadsheetApp.flush();
+      } catch(rollbackError) { Logger.log('SOURCE_ONLY_ROLLBACK_NOT_VERIFIED'); }
+    }
+    if (operationId) {
+      try { _settleSnapshotBackupOperation(ss || getss(),operationId,false,'SOURCE_ONLY_FAILED'); }
+      catch(ignore) {}
+    }
+    return jsonError('SOURCE_ONLY_REPAIR_BLOCKED');
+  } finally {
+    _snapshotBackupOperationId=previousOperationId;
+    if (locked) lock.releaseLock();
+  }
+}
+
 function handleRewriteSnapshotDate(dateStr, operationId, finalize) {
   var lock = LockService.getScriptLock(), ownsLock = false;
   var rewriteOperationId = '';
@@ -11724,7 +11848,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.230',
+    gasVersion: '9.231',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11771,7 +11895,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.230' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.231' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15382,7 +15506,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.230' });
+    return jsonOk({ settings: settings, gasVersion: '9.231' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15412,7 +15536,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.230'
+      gasVersion: '9.231'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
