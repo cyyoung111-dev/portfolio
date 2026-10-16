@@ -30,8 +30,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Checkout
+      - name: Checkout (include exact pre-push parent for one-time gate)
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Prove this is the workflow's first introduction
+        id: first_install
+        if: github.event_name == 'push'
+        env:
+          GIT_PREVIOUS_HEAD: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          [[ "$GIT_PREVIOUS_HEAD" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          git rev-parse --verify "HEAD^" >/dev/null
+          [ "$(git rev-parse HEAD^)" = "$GIT_PREVIOUS_HEAD" ] || exit 1
+          if git cat-file -e "$GIT_PREVIOUS_HEAD:.github/workflows/krx-verified-pending-finalize.yml" 2>/dev/null; then
+            echo "is_first=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_first=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Node 24
         uses: actions/setup-node@v7
         with:
@@ -40,6 +57,6 @@ jobs:
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-          KRX_FINALIZE_APPLY: ${{ github.event_name == 'push' && '1' || inputs.apply && '1' || '0' }}
+          KRX_FINALIZE_APPLY: ${{ ((github.event_name == 'push' && steps.first_install.outputs.is_first == 'true') || (github.event_name == 'workflow_dispatch' && inputs.apply)) && '1' || '0' }}
         run: |
           node scripts/finalize-verified-krx-pending.mjs
