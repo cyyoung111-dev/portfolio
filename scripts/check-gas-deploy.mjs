@@ -42,10 +42,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.229');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.230');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.229','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.230','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -71,10 +71,10 @@ const latestReleaseNotes = deploymentNotes.slice(
 );
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
-assert.ok(!latestReleaseNotes.includes('## GAS v9.227'),
-  'newest v9.228 release must end before historical v9.227 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.228') && latestReleaseNotes.includes('providerCode'),
-  'latest release must independently document Toss 403 provider code and post-deploy check');
+assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
+  'newest v9.229 release must end before historical v9.228 section');
+assert.ok(latestReleaseNotes.includes('gasVersion=9.229') && latestReleaseNotes.includes('Snapshot'),
+  'latest release must independently document KRX persisted verification and post-deploy check');
 
 // Execute the *actual trigger-registration functions*, not copies of their
 // scheduling expressions. These checks would catch PR #505's 00:10/00:30
@@ -497,14 +497,17 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='c326fc480dca53de86f72938f9585dc61f995422';
+const approvedFullSourceBlob='36f4ba41d67b9a82594b2c46584fa1d67990b253';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+const headerV229=currentGasSource.indexOf('//  v9.229 변경사항');
 const headerV228=currentGasSource.indexOf('//  v9.228 변경사항');
 const headerV227=currentGasSource.indexOf('//  v9.227 변경사항');
 const headerV226=currentGasSource.indexOf('//  v9.226 변경사항');
 const headerV225=currentGasSource.indexOf('//  v9.225 변경사항');
-assert.ok(headerV228>=0 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
-  'v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(headerV229>=0 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
+  'v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(currentGasSource.slice(headerV229,headerV228).includes('Snapshot'),
+  'v9.229 must describe persisted Snapshot proof');
 assert.ok(currentGasSource.slice(headerV228,headerV227).includes('Toss 시세 API 403'),
   'v9.228 must independently describe Toss 403 classification');
 assert.ok(currentGasSource.slice(headerV227,headerV226).includes('TARGET_FOREIGN_DATE_CONFLICT'),
@@ -515,7 +518,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.228',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.229',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');

@@ -1,3 +1,15 @@
+## GAS v9.229 — KRX 백필 영속 검증 후 대기열 완료 (2026-10-16)
+
+- **변경:** 백필 PRICE 저장 후 ScriptLock 안에서 영속 검증·마감 상태 정합화·pending 해제를 일괄 수행합니다. 일반 KRX 거래일에 국내 보유가 있으면 해당일 공식 종가·Snapshot을 검증하며, 국내 휴장일 또는 해외 전용 보유는 요청일 KRX 강제 검증 없이 실제 Snapshot 날짜를 사용합니다. **모든 경우**에 국내외 전체 Snapshot의 수량·원가·평가·출처 정합성과 저장 행 수를 동일 ScriptLock 아래 재검산합니다. 검증 실패·중간 거래원장 변경·정합화 실패 시 대기열을 보존합니다.
+- **큐 삭제 경로 일원화:** 정상 KRX 거래일의 동일 날짜 완료 증명 함수에 국내외 전체 Snapshot 검증을 포함시켜, 재시도·22:10/23:10/00:30 사전 정리·인증된 수동 대기열 정리에서 같은 안전 조건을 적용합니다. 원천상 KRX 휴장/해외 전용 재시도는 실제 Snapshot 날짜를 별도로 검증합니다.
+- **안전:** 9/15·9/16 등 과거 충돌 원본은 자동 정리하거나 덮어쓰지 않습니다. 기존 Toss 403 진단은 유지합니다.
+- **운영 트리거:** KST 22:10 당일 백필(`runPortfolioCloseBackfill2210`), 23:10 과거 백필(`runPortfolioHistoricalBackfill2240`), 익일 00:30 과거 백필(`runPortfolioHistoricalBackfill0010`). 기존 트리거 스케줄과 담당 작업은 변경하지 않습니다.
+- **검증:** 전체 GAS 소스 검토 및 해시 승인, 회귀 테스트, quality-check와 gas-deploy validate 통과, Codex 리뷰 후 병합·운영 적용을 판단합니다.
+- **배포 후:** 운영 GAS `gasVersion=9.229`, 백필 완료/오류 로그, 대기열 보존, 가격이력·Snapshot 정합성을 읽기 전용으로 확인합니다.
+- **배포 상태:** PR #518 검토 중. **운영 배포 미실시**. 기존 운영 버전은 별도 확인 필요.
+
+---
+
 ## GAS v9.228 — Toss 실제 HTTP 403 공급사 오류코드 세분화 (2026-10-15)
 
 - **배경:** 운영 PC는 같은 GAS v9.227과 캐시 토큰으로 5개 시장 API·삼성전자 현재가 모두 200, 모바일 데이터망은 캐시 토큰으로 6개 리소스 전부 403, GitHub Actions 신규 OAuth는 403 `access_denied`. 동일 HTTP 403에서 GAS가 원문 오류를 하나의 `IP_NOT_ALLOWED_OR_FORBIDDEN`으로 통일하여 실제 토스 `ip-not-allowed`와 `forbidden`·`edge-blocked`를 구별할 수 없었음.

@@ -51,6 +51,7 @@ const extract = name => {
     saveDailyPriceHistory:(date,opts)=>{assert.equal(opts.requireAllKrx,true);assert.equal(opts.deferQueueCompletion,true);
       writes++;saved.push(date);return {ok:true,date,rows:39};},
     _verifyCompletedKrxPendingDate_:()=>({ok:proofOk}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:39,storedRowCount:39}),
     _reconcileRecoveredPortfolioPrice_:()=>true,_appendPortfolioCloseSyncLog:()=>{}
   });
   vm.runInContext(extract('_isKrxDailyCloseTarget_'),ctx);
@@ -1336,7 +1337,10 @@ const qvm=vm.createContext({
   _getLatestLifecycleValidSnapshotDate:()=> '2026-10-06',
   _getDailyHeldCodeItems:(ss,date,catalog)=>catalog,
   getCodeItems:()=>[{code:'005930',currency:'KRW',market:'KOSPI'}],
-  _appendPortfolioCloseSyncLog:()=>{}
+  _appendPortfolioCloseSyncLog:()=>{},
+  _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+  diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:39,storedRowCount:39}),
+  getss:()=>({})
 });
 installKrxTarget(qvm);
 for(const n of ['_readPendingKrxCloseDates_','_enqueuePendingKrxCloseDate_','_completePendingKrxCloseDate_','_hasKrxHoldingsForCloseDate_','_seedMissingKrxCloseDates_','_reconcileRecoveredPortfolioPrice_','_retryOnePendingKrxClose_']){
@@ -1346,7 +1350,7 @@ qvm._seedMissingKrxCloseDates_(null,props,'2026-10-10');
 assert.deepEqual(JSON.parse(JSON.stringify(qvm._readPendingKrxCloseDates_(props))),['2026-10-07','2026-10-08'],
   '장애 기간 거래일 큐 재구성, 10/09 휴장 제외');
 props.setProperty('snapshot_last_success_date','2026-10-10');
-qvm.saveDailyPriceHistory=(date)=>{assert.equal(date,'2026-10-07');props.setProperty('snapshot_last_success_date',date);return{rows:39};};
+qvm.saveDailyPriceHistory=(date)=>{assert.equal(date,'2026-10-07');props.setProperty('snapshot_last_success_date',date);return{date,rows:39};};
 const backfill=qvm._retryOnePendingKrxClose_(props,'2026-10-10');
 assert.equal(backfill.ok,true);
 assert.equal(props.getProperty('snapshot_last_success_date'),'2026-10-10','과거 복구가 오늘 마지막 성공일을 덮지 않음');
@@ -1899,6 +1903,10 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
   ctx._portfolioFundState_=(props,key)=>JSON.parse(props.getProperty(key)||'null');
   ctx._fundPropertyText=String;
   ctx._portfolioFundAtomic_=cb=>cb(p);
+  ctx._verifyCompletedKrxPendingDate_=()=>({ok:true,verifiedCodes:1});
+  ctx.diagnoseSnapshotIntegrity=()=>({status:'VALID',expectedRowCount:9,storedRowCount:9});
+  ctx.getss=()=>({});
+  ctx._krxCalendarStatus_=()=> 'OPEN';
   ctx.saveDailyPriceHistory=(date)=>{writes++;assert.equal(date,'2026-10-08');
     p.setProperty('snapshot_last_success_date',date);
     return {date,rows:9,krxCloseRequired:true};};
@@ -2116,6 +2124,9 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
     deleteProperty:k=>bag.delete(k)};
   let failWrite=true, saves=0;
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:4,storedRowCount:4}),
+    getss:()=>({}),
     _portfolioFundAtomic_:cb=>{if(failWrite)throw Error('property lock failure');return cb(p);},
     _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
@@ -2155,6 +2166,9 @@ console.log('✅ PR471 P2 및 자체검토: watchdog 예외·야간 전용 백�
   const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
     deleteProperty:k=>bag.delete(k)};
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:12,storedRowCount:12}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
@@ -2187,6 +2201,8 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
   const events=[];
   let reconciliationBlocked=true;
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     _snapshotBackupOperationId:'',
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
@@ -2208,7 +2224,7 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     _buildSnapshotRowsFromTradeAndPriceHistory:()=>[['snapshot-row']],
     _readSnapshotRowsByDate:()=>[],
     _snapshotRewritePlan:()=>({unsafe:[],needsRewrite:false}),
-    diagnoseSnapshotIntegrity:()=>({status:'VALID'}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:1,storedRowCount:1}),
     _settleSnapshotBackupOperation:()=>{},
     _appendPortfolioCloseSyncLog:()=>{},
     _portfolioFundAtomic_:cb=>{
@@ -2253,6 +2269,9 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     deleteProperty:k=>bag.delete(k)};
   const visited=[];
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:2,storedRowCount:2}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),_appendPortfolioCloseSyncLog:()=>{},
@@ -2287,6 +2306,9 @@ console.log('✅ Production writer + 복구 경로 통합·중복 삭제 차단�
     deleteProperty:k=>bag.delete(k)};
   const observed=[];
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:1,storedRowCount:1}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
@@ -2367,6 +2389,9 @@ console.log('✅ 독립 백필의 오늘 누락 우선·과거 실패 공정성 
   const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
     deleteProperty:k=>bag.delete(k)};
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:9,storedRowCount:9}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
@@ -2452,6 +2477,9 @@ console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존
     deleteProperty:k=>bag.delete(k)};
   const processed=[];
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:8,storedRowCount:8}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _krxCalendarStatus_:()=> 'OPEN',Logger:{log:()=>{}},
@@ -2544,12 +2572,16 @@ console.log('✅ 22시10분 사후 PRICE 생성 → 동일 실행의 NAV 성공 
     deleteProperty:k=>bag.delete(k)};
   let saveCalls=0;
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:6,storedRowCount:6}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
     _portfolioFundAtomic_:cb=>cb(p),
     _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
     _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
+    _krxCalendarStatus_:()=> 'OPEN',
     saveDailyPriceHistory:(d,opts)=>{
       saveCalls++;assert.equal(d,'2026-10-08');
       assert.equal(opts.deferQueueCompletion,true);
@@ -2586,6 +2618,9 @@ console.log('✅ 22시10분 사후 PRICE 생성 → 동일 실행의 NAV 성공 
   const p={getProperty:k=>bag.has(k)?bag.get(k):null,
     setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    diagnoseSnapshotIntegrity:()=>({status:'VALID',expectedRowCount:3,storedRowCount:3}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
@@ -3229,5 +3264,230 @@ console.log('✅ FUND_BUSY+PRICE 성공·같은 날짜 A/B 소유권·7분 경�
  assert.equal(p.getProperty('portfolio_close_stage'),'COMPLETE');
 }
 console.log('✅ 22:10 B PRICE 재생·정규 CLOSE NAV 성공 마커 합류·이전 A 기록 분리');
+
+
+
+// PR518: persisted proof must run under the same ScriptLock used for
+// reconciliation and queue removal, even if another writer changed the
+// ledger/Snapshot after the price writer released its own lock.
+{
+  const bag=new Map([['portfolio_close_pending_krx_dates',JSON.stringify(['2026-10-07'])]]);
+  const props={
+    getProperty:key=>bag.has(key)?bag.get(key):null,
+    setProperty:(key,value)=>bag.set(key,String(value)),
+    deleteProperty:key=>bag.delete(key)
+  };
+  let proofOk=false, locked=false, invalidateBeforeLock=false, reconciliationOk=true;
+  const events=[];
+  const ctx=vm.createContext({
+    PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+    _readPendingKrxCloseDates_:()=>JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')||'[]'),
+    getss:()=>({}),
+    saveDailyPriceHistory:(date,opts)=>{
+      events.push('save');
+      assert.equal(locked,false,'price writer returns before acquiring completion ScriptLock');
+      assert.equal(date,'2026-10-07');
+      assert.equal(opts.deferQueueCompletion,true);
+      return {ok:true,date,rows:37};
+    },
+    _verifyCompletedKrxPendingDate_:(ss,date)=>{
+      assert.equal(locked,true,'persisted verification must run while completion ScriptLock is held');
+      events.push('verify:'+date);
+      return proofOk?{ok:true,verifiedCodes:37}:{ok:false,reason:'SNAPSHOT_INVALID'};
+    },
+    diagnoseSnapshotIntegrity:(ss,date)=>{
+      assert.equal(locked,true,'full Snapshot proof must share completion ScriptLock');
+      events.push('snapshot:'+date);
+      return {status:'VALID',expectedRowCount:37,storedRowCount:37};
+    },
+    _portfolioFundAtomic_:cb=>{
+      events.push('lock');
+      // Simulate handleSyncTrades changing the ledger/Snapshot after PRICE
+      // returns, immediately before the second ScriptLock is acquired.
+      if(invalidateBeforeLock) proofOk=false;
+      assert.equal(locked,false,'ScriptLock must not be reentered');
+      locked=true;
+      try { return cb(props); }
+      finally { locked=false; events.push('unlock'); }
+    },
+    _reconcileRecoveredPortfolioPrice_:()=>{
+      assert.equal(locked,true,'summary update must share proof ScriptLock');
+      events.push('reconcile');
+      return reconciliationOk;
+    },
+    _completePendingKrxCloseDate_:(p,date)=>{
+      assert.equal(locked,true,'queue completion must share proof ScriptLock');
+      events.push('complete');
+      p.setProperty('portfolio_close_pending_krx_dates',
+        JSON.stringify(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates')).filter(v=>v!==date)));
+    },
+    _appendPortfolioCloseSyncLog:(event)=>events.push(event)
+  });
+  vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+  const stillPending=()=>JSON.parse(props.getProperty('portfolio_close_pending_krx_dates'));
+  const failure=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
+  assert.equal(failure.ok,false,'unverified persisted snapshot must not count as successful replay');
+  assert.match(failure.error,/BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_INVALID/);
+  assert.deepEqual(stillPending(),['2026-10-07'],'failed proof retains original pending date');
+  assert.deepEqual(events,['save','lock','verify:2026-10-07','unlock','BACKFILL_ERROR'],
+    'failed proof must prevent reconciliation, completion, and BACKFILL_OK');
+  events.length=0;
+  proofOk=true; invalidateBeforeLock=true;
+  const raced=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
+  assert.equal(raced.ok,false,'a trade writer interleaving before the lock invalidates proof');
+  assert.match(raced.error,/BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_INVALID/);
+  assert.deepEqual(stillPending(),['2026-10-07'],'interleaved trade writer must not falsely release queue');
+  assert.deepEqual(events,['save','lock','verify:2026-10-07','unlock','BACKFILL_ERROR']);
+  events.length=0;
+  proofOk=true; invalidateBeforeLock=false; reconciliationOk=false;
+  const unreconciled=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
+  assert.equal(unreconciled.ok,false,'summary reconciliation veto must not report BACKFILL_OK');
+  assert.match(unreconciled.error,/BACKFILL_RECONCILIATION_FAILED/);
+  assert.deepEqual(stillPending(),['2026-10-07'],'reconciliation veto must preserve pending retry');
+  assert.deepEqual(events,['save','lock','verify:2026-10-07','snapshot:2026-10-07','reconcile','unlock','BACKFILL_ERROR']);
+  events.length=0;
+  proofOk=true; reconciliationOk=true;
+  const recovered=ctx._retryOnePendingKrxClose_(props,'2026-10-08',true);
+  assert.equal(recovered.ok,true);
+  assert.deepEqual(stillPending(),[]);
+  assert.deepEqual(events,['save','lock','verify:2026-10-07','snapshot:2026-10-07','reconcile','complete','unlock','BACKFILL_OK'],
+    'only verified persisted data reconciled under one lock may be completed');
+}
+console.log('✅ PR518 백필 영속 검증 실패 큐 보존·재시도 성공 순서 회귀');
+
+// Codex P2: a KRX holiday and a foreign-only portfolio must not require
+// nonexistent exact-date domestic closes. Re-prove the persisted result.date
+// Snapshot under the same lock instead; normal KRX sessions stay strict.
+{
+  function runProofReplay({date,calendar,result,integrityStatus='VALID',
+      expectedRows=result.rows,strictOk=true}) {
+    const state=new Map([['portfolio_close_pending_krx_dates',JSON.stringify([date])]]);
+    const props={getProperty:key=>state.get(key)||null,
+      setProperty:(key,value)=>state.set(key,String(value)),
+      deleteProperty:key=>state.delete(key)};
+    let locked=false;
+    const observed=[];
+    const ctx=vm.createContext({
+      PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
+      _readPendingKrxCloseDates_:()=>JSON.parse(props.getProperty('portfolio_close_pending_krx_dates')||'[]'),
+      getss:()=>({}),
+      _normalizeDate:value=>String(value||'').slice(0,10),
+      _krxCalendarStatus_:requested=>{assert.equal(requested,date);return calendar;},
+      saveDailyPriceHistory:(requested,opts)=>{
+        assert.equal(requested,date);
+        assert.equal(opts.deferQueueCompletion,true);
+        observed.push('save');
+        return result;
+      },
+      _portfolioFundAtomic_:callback=>{
+        assert.equal(locked,false);
+        locked=true;observed.push('lock');
+        try {return callback(props);}
+        finally {locked=false;observed.push('unlock');}
+      },
+      _verifyCompletedKrxPendingDate_:(ss,requested)=>{
+        assert.equal(locked,true);
+        assert.equal(requested,date);
+        observed.push('exact-KRX');
+        return strictOk?{ok:true,verifiedCodes:2}:{ok:false,reason:'INCOMPLETE_COVERAGE'};
+      },
+      diagnoseSnapshotIntegrity:(ss,actualDate)=>{
+        assert.equal(locked,true,'Snapshot must be rechecked inside ScriptLock');
+        assert.equal(actualDate,result.date);
+        observed.push('snapshot:'+actualDate);
+        return {status:integrityStatus,expectedRowCount:expectedRows,
+          storedRowCount:expectedRows};
+      },
+      _reconcileRecoveredPortfolioPrice_:()=>{
+        assert.equal(locked,true);observed.push('reconcile');return true;
+      },
+      _completePendingKrxCloseDate_:(p,completed)=>{
+        assert.equal(locked,true);observed.push('complete');
+        p.setProperty('portfolio_close_pending_krx_dates',
+          JSON.stringify(JSON.parse(p.getProperty('portfolio_close_pending_krx_dates'))
+            .filter(item=>item!==completed)));
+      },
+      _appendPortfolioCloseSyncLog:event=>observed.push(event)
+    });
+    vm.runInContext(extract('_retryOnePendingKrxClose_'),ctx);
+    const outcome=ctx._retryOnePendingKrxClose_(props,date,true);
+    return {outcome,observed,pending:JSON.parse(props.getProperty('portfolio_close_pending_krx_dates'))};
+  }
+  const overseasHoliday=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',
+    result:{ok:true,date:'2026-10-09',rows:2,krxCloseRequired:false}});
+  assert.equal(overseasHoliday.outcome.ok,true,
+    'foreign-only holiday must finalize a valid same-day foreign Snapshot');
+  assert.deepEqual(overseasHoliday.pending,[]);
+  assert.ok(overseasHoliday.observed.includes('snapshot:2026-10-09'));
+  assert.ok(!overseasHoliday.observed.includes('exact-KRX'));
+
+  const domesticHoliday=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',
+    result:{ok:true,date:'2026-10-08',rows:3,krxCloseRequired:true}});
+  assert.equal(domesticHoliday.outcome.ok,true,
+    'domestic holdings on KRX holiday may carry the prior official close');
+  assert.deepEqual(domesticHoliday.pending,[]);
+  assert.ok(domesticHoliday.observed.includes('snapshot:2026-10-08'));
+  assert.ok(!domesticHoliday.observed.includes('exact-KRX'));
+
+  const overseasOnlyTradingDay=runProofReplay({
+    date:'2026-10-08',calendar:'OPEN',
+    result:{ok:true,date:'2026-10-07',rows:1,krxCloseRequired:false}});
+  assert.equal(overseasOnlyTradingDay.outcome.ok,true,
+    'no domestic holdings means no KRX proof even on an open KRX date');
+  assert.ok(overseasOnlyTradingDay.observed.includes('snapshot:2026-10-07'));
+
+  const domesticTradingDay=runProofReplay({
+    date:'2026-10-08',calendar:'OPEN',
+    result:{ok:true,date:'2026-10-08',rows:2,krxCloseRequired:true}});
+  assert.equal(domesticTradingDay.outcome.ok,true);
+  assert.ok(domesticTradingDay.observed.includes('exact-KRX'),
+    'ordinary KRX session still requires exact-date official proof');
+  assert.ok(domesticTradingDay.observed.includes('snapshot:2026-10-08'),
+    'normal KRX session additionally verifies the ENTIRE persisted Snapshot');
+
+  // Mixed KR+US positions: domestic KRX can stay valid while a foreign
+  // trade edit makes the full Snapshot stale. Never dequeue that date.
+  const mixedTradingDayRace=runProofReplay({
+    date:'2026-10-08',calendar:'OPEN',integrityStatus:'MISMATCH',
+    result:{ok:true,date:'2026-10-08',rows:2,krxCloseRequired:true}});
+  assert.equal(mixedTradingDayRace.outcome.ok,false,
+    'even with valid exact-date KRX, stale foreign Snapshot must block completion');
+  assert.match(mixedTradingDayRace.outcome.error,
+    /BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_MISMATCH/);
+  assert.ok(mixedTradingDayRace.observed.includes('exact-KRX'),
+    'KRX official close proof must still run on normal session');
+  assert.ok(mixedTradingDayRace.observed.includes('snapshot:2026-10-08'),
+    'full Snapshot must be checked after successful KRX proof');
+  assert.deepEqual(mixedTradingDayRace.pending,['2026-10-08']);
+  assert.ok(!mixedTradingDayRace.observed.includes('BACKFILL_OK'));
+
+  const unverifiedSnapshot=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',integrityStatus:'MISMATCH',
+    result:{ok:true,date:'2026-10-09',rows:2,krxCloseRequired:false}});
+  assert.equal(unverifiedSnapshot.outcome.ok,false);
+  assert.match(unverifiedSnapshot.outcome.error,/BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_MISMATCH/);
+  assert.deepEqual(unverifiedSnapshot.pending,['2026-10-09']);
+  assert.ok(!unverifiedSnapshot.observed.includes('complete'));
+  assert.ok(!unverifiedSnapshot.observed.includes('BACKFILL_OK'));
+
+  const wrongCount=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',expectedRows:1,
+    result:{ok:true,date:'2026-10-09',rows:2,krxCloseRequired:false}});
+  assert.equal(wrongCount.outcome.ok,false,
+    'changed snapshot row cardinality must not release pending replay');
+  assert.deepEqual(wrongCount.pending,['2026-10-09']);
+
+  const futureSnapshot=runProofReplay({
+    date:'2026-10-09',calendar:'CLOSED',
+    result:{ok:true,date:'2026-10-10',rows:2,krxCloseRequired:false}});
+  assert.equal(futureSnapshot.outcome.ok,false);
+  assert.match(futureSnapshot.outcome.error,/SNAPSHOT_DATE_INVALID/);
+  assert.deepEqual(futureSnapshot.pending,['2026-10-09']);
+  assert.ok(!futureSnapshot.observed.some(x=>x.startsWith('snapshot:')));
+}
+console.log('✅ PR518 KRX 휴장일·해외 보유 Snapshot 영속 검증과 정상거래일 KRX 엄격 증명');
+
 
 console.log('✅ 다중 거래일 성공 마커·3회차 하드킬 정합화 회귀');

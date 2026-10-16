@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.228
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.229
 //
+//  v9.229 변경사항 (2026.10.16):
+//  - KRX 백필 PRICE/Snapshot 영속 검증 성공 후에만 대기열 완료 처리.
+//  - 큐 해제의 모든 경로(재시도·사전정리·수동 검증)에 국내외 전체 Snapshot 증명을 통합.
+//  - 검증 실패 시 재시도 대기열을 보존하며 기존 과거 Snapshot 충돌은 수정하지 않음.
 //  v9.228 변경사항 (2026.10.15):
 //  - Toss 시세 API 403 원문 코드를 allowlist로 구분(허용 IP/권한/엣지),
 //    토큰·전체 오류 응답 노출 없이 PC/모바일 운영 진단 정밀화.
@@ -2037,7 +2041,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.228', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.229', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5780,7 +5784,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.228' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.229' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10445,16 +10449,44 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate)
     var result = saveDailyPriceHistory(target, saveOptions);
     if (!result || result.ok === false)
       throw new Error('백필 PRICE 저장 성공을 확인하지 못해 대상 날짜를 보존합니다.');
-    // Keep the pending date until same-day close status has been persisted.
-    // The same ScriptLock protects the result/queue handshake.
-    if (targetDate) {
-      var proof = _verifyCompletedKrxPendingDate_(getss(), targetDate);
-      if (!proof || !proof.ok) throw new Error('TARGET_VERIFICATION_FAILED');
-    }
+    // Keep the persisted proof, summary reconciliation and pending removal
+    // inside one ScriptLock. A concurrent trade/Snapshot writer can invalidate
+    // proof after saveDailyPriceHistory releases its lock; never trust an
+    // earlier unlocked verification when deciding to clear recovery work.
     _portfolioFundAtomic_(function(sharedProps) {
+      var ss = getss();
+      // Check BOTH proofs against the same locked ledger and Snapshot state.
+      // Exact-date KRX proof covers domestic holdings; full integrity covers
+      // foreign, fund and other held rows (including intervening trade edits).
+      // KRX holidays and foreign-only accounts have no same-day KRX close,
+      // but MUST still prove the actual persisted Snapshot date and contents.
+      var savedDate = String(result.date || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(savedDate) || savedDate > target
+          || !(Number(result.rows) > 0))
+        throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_DATE_INVALID');
+      var requireExactKrx = !!targetDate || (result.krxCloseRequired !== false
+        && (result.krxCloseRequired !== true || _krxCalendarStatus_(target) !== 'CLOSED'));
+      var snapshotProof = null;
+      if (requireExactKrx) {
+        var persistedProof = _verifyCompletedKrxPendingDate_(ss, target);
+        if (!persistedProof || !persistedProof.ok)
+          throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:' +
+            String(persistedProof && persistedProof.reason || 'UNKNOWN'));
+        // The shared KRX completion verifier has already checked the full
+        // target-date Snapshot. Reuse its locked proof instead of scanning
+        // the same sheets a second time.
+        if (savedDate === target) snapshotProof = persistedProof.snapshotProof || null;
+      }
+      if (!snapshotProof) snapshotProof = diagnoseSnapshotIntegrity(ss, savedDate);
+      if (!snapshotProof || snapshotProof.status !== 'VALID'
+          || Number(snapshotProof.expectedRowCount) !== Number(result.rows)
+          || Number(snapshotProof.storedRowCount) !== Number(result.rows))
+        throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_' +
+          String(snapshotProof && snapshotProof.status || 'UNKNOWN'));
       var policy = target === currentDate && includeToday ? 'CREATE' : 'CLEAN';
-      if (_reconcileRecoveredPortfolioPrice_(sharedProps, target, result, policy))
-        _completePendingKrxCloseDate_(sharedProps, target);
+      if (!_reconcileRecoveredPortfolioPrice_(sharedProps, target, result, policy))
+        throw new Error('BACKFILL_RECONCILIATION_FAILED');
+      _completePendingKrxCloseDate_(sharedProps, target);
     });
     _appendPortfolioCloseSyncLog('BACKFILL_OK', target, '', 'snapshotRows=' + String(result && result.rows || 0));
     return { attempted:true, ok:true, date:target, remaining:_readPendingKrxCloseDates_(props).length };
@@ -11683,7 +11715,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.228',
+    gasVersion: '9.229',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11730,7 +11762,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.228' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.229' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -12084,7 +12116,20 @@ function _verifyCompletedKrxPendingDate_(ss, date) {
   if (failure) return {ok:false,reason:failure};
   if (codes.some(function(c){return !price[c]||!snap[c];}))
     return {ok:false,reason:'INCOMPLETE_COVERAGE'};
-  return {ok:true,verifiedCodes:codes.length};
+  // Shared completion contract: ALL paths using this KRX proof also check
+  // the full portfolio Snapshot (foreign positions, funds, source, qty,
+  // evaluation and duplicate rows), not only KRX-held codes.
+  // This includes nightly pre-pruning and authenticated manual reconciliation.
+  var fullProof = diagnoseSnapshotIntegrity(ss,date);
+  if (!fullProof || fullProof.status !== 'VALID')
+    return {ok:false,reason:'FULL_SNAPSHOT_' +
+      String(fullProof && fullProof.status || 'UNKNOWN')};
+  var expectedRows = Number(fullProof.expectedRowCount);
+  var storedRows = Number(fullProof.storedRowCount);
+  if (!(expectedRows > 0) || storedRows !== expectedRows)
+    return {ok:false,reason:'FULL_SNAPSHOT_COUNT_MISMATCH'};
+  return {ok:true,verifiedCodes:codes.length,
+    snapshotProof:{status:'VALID',expectedRowCount:expectedRows,storedRowCount:storedRows}};
 }
 // Authenticated POST only. Dry-run by default; apply=1 clears *only* the
 // listed prior dates, under ScriptLock, after all-or-none verification.
@@ -15328,7 +15373,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.228' });
+    return jsonOk({ settings: settings, gasVersion: '9.229' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15358,7 +15403,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.228'
+      gasVersion: '9.229'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
