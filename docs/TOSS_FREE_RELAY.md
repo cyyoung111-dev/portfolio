@@ -40,3 +40,15 @@ GAS → HTTPS(무료 DNS + Caddy 인증서) → Node 중계(127.0.0.1:18761) →
 - Vercel/Cloudflare Workers/GitHub Actions의 일반 무료 실행 인프라는 고정 outbound IP를 보장하지 않아 동일 해법이 아님.
 
 **현재 상태: 실행 코드·모의 테스트만 준비. OCI 계정/무료 VM/예약 IPv4가 연결되지 않았고, Toss 차단은 아직 해소되지 않음.**
+
+
+## 실제 서버 배포 키트 (2026-10-17)
+
+OCI Always Free 서버 준비·Caddy HTTPS·예약 송신 IPv4·서비스 사용자·systemd 구성과 005930 실연결 테스트는 **[ops/toss-relay/README.md](../ops/toss-relay/README.md)** 참조.
+
+- 배포 준비: `ops/toss-relay/install.sh prepare` (보안 preflight, 자격증명 노출/운영 연결 없음)
+- Toss 비밀정보: VM 내 root 전용 `/etc/toss-relay/env` (권한 0600)에서만 입력
+- 활성화: `ops/toss-relay/install.sh activate` (발신 예약 IP·도메인·Caddy TLS·비인증 401 검증)
+- 실제 Toss 005930 시세: `ops/toss-relay/verify-live.mjs`, 비밀정보·가격·원문 미출력
+- 정적/보안 테스트: `npm run check:toss-relay-vm`, CI 연동
+- **현재 단계는 배포 스크립트 준비**로, OCI 계정/VM/Reserved IP 실제 프로비저닝과 Toss WTS 등록은 본인 인증 필요. 운영 GAS 시세 전환은 **별도 PR**로 분리.
