@@ -19,6 +19,34 @@ function safeDate(value) {
     throw new Error('AUTOMATION_DIAG_BAD_DATE');
   return value;
 }
+// Fixed enum only. Never emit the underlying GAS error: it can contain
+// account identifiers, security details, or the text of a holding/trade.
+export function classifyBackfillFailure(result) {
+  if (!result || result.attempted !== true || result.ok !== false) return null;
+  const raw=typeof result.error==='string'?result.error:'';
+  if (!raw) return 'DETAIL_NOT_EXPOSED';
+  if (raw.startsWith('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_DATE_INVALID'))
+    return 'SAVED_SNAPSHOT_DATE_INVALID';
+  if (raw.startsWith('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_'))
+    return 'SAVED_SNAPSHOT_INTEGRITY_FAILED';
+  if (raw.startsWith('BACKFILL_PERSISTED_VERIFICATION_FAILED:'))
+    return 'SAVED_KRX_OR_SNAPSHOT_PROOF_FAILED';
+  if (raw.includes('BACKFILL_RECONCILIATION_FAILED'))
+    return 'CLOSE_RECONCILIATION_FAILED';
+  if (raw.includes('TARGET_BACKUP_FAILED') || /backup|백업/i.test(raw))
+    return 'BACKUP_SAFETY_FAILED';
+  if (raw.includes('백필 PRICE 저장 성공을 확인하지 못해'))
+    return 'PRICE_WRITE_NOT_CONFIRMED';
+  if (/KRX|공식 종가|KOSPI|KOSDAQ|ETF/i.test(raw))
+    return 'KRX_PRICE_SOURCE_OR_COVERAGE';
+  if (/SNAPSHOT|스냅샷/i.test(raw))
+    return 'SNAPSHOT_SAVE_OR_PROOF';
+  if (/LEASE|LOCK|동시|잠금|락을/i.test(raw))
+    return 'LEASE_OR_WRITER_CONFLICT';
+  if (/FUND|NAV|펀드/i.test(raw))
+    return 'FUND_OR_NAV_PRECONDITION';
+  return 'OTHER_UNCLASSIFIED';
+}
 function checkpoint(raw) {
   if (raw == null) return null;
   if (typeof raw !== 'object' || Array.isArray(raw)
@@ -37,7 +65,8 @@ function checkpoint(raw) {
     targetDate:r.date === undefined ? '-' : safeDate(r.date),
     remaining:r.remaining ?? null,
     // The original GAS error/reason may embed account details; omit it.
-    deferred:r.deferred === true };
+    deferred:r.deferred === true,
+    failureClass:classifyBackfillFailure(r) };
 }
 export function summarizeBackfillStatus(payload) {
   const a = payload?.automation;
