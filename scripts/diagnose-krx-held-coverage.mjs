@@ -36,8 +36,13 @@ export function summarizeHeldCoverage(payload,date){
     ||d.missingCodes!==d.expectedHeldCodes-d.officialExactDateCodes
     ||d.staleCodes>d.missingCodes||typeof d.ready!=='boolean')
     throw new Error('KRX_HELD_DIAG_INCONSISTENT');
-  const ready=d.ready&&d.expectedHeldCodes===37
-    &&d.missingCodes===0&&d.duplicateMasterCodes===0&&d.orphanLedgerCodes===0;
+  // The expected denominator is the *target date's* held KRX universe,
+  // computed by production GAS from ledger + code master, never today's 37.
+  // Reject empty universes and stale/missing/orphan/duplicate evidence.
+  const ready=d.ready&&d.expectedHeldCodes>0
+    &&d.officialExactDateCodes===d.expectedHeldCodes
+    &&d.missingCodes===0&&d.staleCodes===0
+    &&d.duplicateMasterCodes===0&&d.orphanLedgerCodes===0;
   return {date,expected:d.expectedHeldCodes,exact:d.officialExactDateCodes,
     missing:d.missingCodes,stale:d.staleCodes,duplicateMaster:d.duplicateMasterCodes,
     orphanLedger:d.orphanLedgerCodes,market,ready};
