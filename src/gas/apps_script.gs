@@ -10356,12 +10356,15 @@ function _pruneVerifiedHistoricalKrxPending_(leaseToken, runDate) {
     var after=eligible.filter(function(d){return d>previous;});
     var before=eligible.filter(function(d){return d<=previous;});
     var candidates=after.concat(before).slice(0,2);
-    // Advance before proving: failures and hard timeouts must not starve the
-    // next eligible date. This cursor is metadata, NOT completion evidence.
-    sharedProps.setProperty(PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY,
-      candidates[candidates.length-1]);
+    // Persist ONLY the candidate whose proof is about to start. Recording
+    // the whole two-date batch before its first scan can skip unattempted
+    // dates forever when Apps Script hard-times out mid-batch.
     var ss=getss(), cleared=[];
     candidates.forEach(function(date) {
+      // Advance before this individual proof; failure/hard kill must not
+      // repeatedly stall on the oldest incomplete date. This is metadata,
+      // never evidence that a date is complete.
+      sharedProps.setProperty(PORTFOLIO_CLOSE_BACKFILL_PRUNE_CURSOR_KEY,date);
       try {
         var proof=_verifyCompletedKrxPendingDate_(ss,date);
         if (proof && proof.ok===true && Number(proof.verifiedCodes)>0)
