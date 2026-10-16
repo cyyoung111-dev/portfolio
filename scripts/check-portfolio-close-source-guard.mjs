@@ -2161,6 +2161,8 @@ console.log('✅ PR471 P2 및 자체검토: watchdog 예외·야간 전용 백�
   const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
     deleteProperty:k=>bag.delete(k)};
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
@@ -2193,6 +2195,8 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
   const events=[];
   let reconciliationBlocked=true;
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     _snapshotBackupOperationId:'',
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
@@ -2259,6 +2263,8 @@ console.log('✅ PR471 날짜 경계: 과거 백필 뒤 새 날짜 마감 summar
     deleteProperty:k=>bag.delete(k)};
   const visited=[];
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),_appendPortfolioCloseSyncLog:()=>{},
@@ -2293,6 +2299,8 @@ console.log('✅ Production writer + 복구 경로 통합·중복 삭제 차단�
     deleteProperty:k=>bag.delete(k)};
   const observed=[];
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
@@ -2373,6 +2381,8 @@ console.log('✅ 독립 백필의 오늘 누락 우선·과거 실패 공정성 
   const p={getProperty:k=>bag.get(k)||null,setProperty:(k,v)=>bag.set(k,String(v)),
     deleteProperty:k=>bag.delete(k)};
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
@@ -2458,6 +2468,8 @@ console.log('✅ 수동 PRICE 실패 상태 정합화·summary 부재 큐 보존
     deleteProperty:k=>bag.delete(k)};
   const processed=[];
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _krxCalendarStatus_:()=> 'OPEN',Logger:{log:()=>{}},
@@ -2550,6 +2562,8 @@ console.log('✅ 22시10분 사후 PRICE 생성 → 동일 실행의 NAV 성공 
     deleteProperty:k=>bag.delete(k)};
   let saveCalls=0;
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     PORTFOLIO_FUND_CLOSE_SUCCESS_KEY:'portfolio_fund_close_success_v1',
@@ -2592,6 +2606,8 @@ console.log('✅ 22시10분 사후 PRICE 생성 → 동일 실행의 NAV 성공 
   const p={getProperty:k=>bag.has(k)?bag.get(k):null,
     setProperty:(k,v)=>bag.set(k,String(v)),deleteProperty:k=>bag.delete(k)};
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
     PORTFOLIO_CLOSE_BACKFILL_RETRY_CURSOR_KEY:'portfolio_close_backfill_retry_cursor_v1',
     _portfolioFundAtomic_:cb=>cb(p),
