@@ -1903,6 +1903,7 @@ console.log('✅ non-configurable KRX source evidence 안전 병합 회귀검사
   ctx._portfolioFundAtomic_=cb=>cb(p);
   ctx._verifyCompletedKrxPendingDate_=()=>({ok:true,verifiedCodes:1});
   ctx.getss=()=>({});
+  ctx._krxCalendarStatus_=()=> 'OPEN';
   ctx.saveDailyPriceHistory=(date)=>{writes++;assert.equal(date,'2026-10-08');
     p.setProperty('snapshot_last_success_date',date);
     return {date,rows:9,krxCloseRequired:true};};
@@ -2570,6 +2571,7 @@ console.log('✅ 22시10분 사후 PRICE 생성 → 동일 실행의 NAV 성공 
     _portfolioFundAtomic_:cb=>cb(p),
     _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
     _appendPortfolioCloseSyncLog:()=>{},_fundPropertyText:String,
+    _krxCalendarStatus_:()=> 'OPEN',
     saveDailyPriceHistory:(d,opts)=>{
       saveCalls++;assert.equal(d,'2026-10-08');
       assert.equal(opts.deferQueueCompletion,true);
