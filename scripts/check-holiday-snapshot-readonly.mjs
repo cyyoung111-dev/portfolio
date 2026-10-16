@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import {runDiagnosis,summarizeConflictDay,summarizeHolidaySnapshotRange,
   summarizePendingStatus,summarizeHolidayProbe}
   from './diagnose-holiday-snapshot-readonly.mjs';
-const dates=['2026-09-15','2026-09-16','2026-10-08','2026-10-09','2026-10-10','2026-10-11'];
+const dates=['2026-09-15','2026-09-16','2026-10-08','2026-10-09','2026-10-10','2026-10-11',
+  '2026-10-06','2026-10-07','2026-10-12','2026-10-13','2026-10-14','2026-10-15','2026-10-16'];
 const dup={groups:39,exactDuplicate:0,singleExpectedMatch:35,
   manualProtected:1,unresolvedConflict:3,sourceIncomplete:0};
 const expected={
   status:'ok',diagnostics:dates.map((date,i)=>({
-    date,status:i<2?'CONFLICT':i===2?'VALID':'NO_SNAPSHOT',
-    expectedRowCount:39,storedRowCount:i===0?77:i===1?156:i===2?39:0,
+    date,status:i<2?'CONFLICT':i===2||i>=6?'VALID':'NO_SNAPSHOT',
+    expectedRowCount:39,storedRowCount:i===0?77:i===1?156:(i===2||i>=6)?39:0,
     duplicateSummary:i>=2?{groups:0,exactDuplicate:0,singleExpectedMatch:0,
       manualProtected:0,unresolvedConflict:0,sourceIncomplete:0}:dup,
     missingCodes:[],unexpectedCodes:[],duplicateKeys:[],
@@ -19,7 +20,7 @@ const expected={
 };
 assert.equal(summarizeHolidaySnapshotRange(expected)[1].qtyMismatchCount,1);
 assert.equal(summarizeConflictDay(expected.diagnostics[0]).storedRows,77);
-assert.deepEqual(summarizeHolidaySnapshotRange(expected).slice(3).map(r=>
+assert.deepEqual(summarizeHolidaySnapshotRange(expected).slice(3,6).map(r=>
   [r.date,r.status,r.expectedRows,r.storedRows]),[
   ['2026-10-09','NO_SNAPSHOT',39,0],
   ['2026-10-10','NO_SNAPSHOT',39,0],
@@ -70,7 +71,7 @@ const fake=async(_url,opts)=>{
     return {ok:true,json:async()=>({status:'error',message:'인증 실패'})};
   if(action==='getAutomationStatus')return {ok:true,json:async()=>statusData};
   if(action==='diagnoseSnapshotIntegrityRange'){
-    assert.equal(v.get('dates'),'2026-09-15,2026-09-16,2026-10-08,2026-10-09,2026-10-10,2026-10-11');
+    assert.equal(v.get('dates'),'2026-09-15,2026-09-16,2026-10-08,2026-10-09,2026-10-10,2026-10-11,2026-10-06,2026-10-07,2026-10-12,2026-10-13,2026-10-14,2026-10-15,2026-10-16');
     return {ok:true,json:async()=>expected};
   }
   return {ok:true,json:async()=>({status:'ok',requestedDate:v.get('date'),
@@ -81,7 +82,9 @@ const fake=async(_url,opts)=>{
 const output=await runDiagnosis({url:endpoint,token:secret,fetchImpl:fake});
 assert.equal(output.mode,'READ_ONLY');
 assert.equal(output.holidays.length,3);
-assert.equal(output.snapshot.length,6);
+assert.equal(output.snapshot.length,13);
+assert.deepEqual(output.snapshot.slice(6).map(r=>r.date),
+  ['2026-10-06','2026-10-07','2026-10-12','2026-10-13','2026-10-14','2026-10-15','2026-10-16']);
 assert.equal(output.snapshot[3].status,'NO_SNAPSHOT');
 assert.deepEqual(requests.map(r=>r.action),[
   'getAutomationStatus','getAutomationStatus','diagnoseSnapshotIntegrityRange',
