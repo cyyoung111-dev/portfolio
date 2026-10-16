@@ -1,0 +1,73 @@
+name: krx-verified-pending-finalize
+
+# One-time verified KRX completion marker cleanup. Only 10/12~14/2026.
+# The merge that introduces this workflow triggers its one-time push run.
+# Subsequent operation is manual; workflow_dispatch defaults to DRY_RUN.
+# Existing GAS applies under ScriptLock and re-verifies full Snapshot.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-verified-pending-finalize.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Explicitly clear only reverified 2026-10-12~14 pending markers'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: krx-verified-pending-finalize
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Max requests: two previews x (1 auth + 3 dates) x 90 s,
+    # plus 3 apply requests x 120 s = 18 min. Reserve 7 min for runner,
+    # checkout, API latency and response validation.
+    timeout-minutes: 25
+    steps:
+      - name: Checkout (include exact pre-push parent for one-time gate)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      - name: Prove this is the workflow's first introduction
+        id: first_install
+        if: github.event_name == 'push'
+        env:
+          GIT_PREVIOUS_HEAD: ${{ github.event.before }}
+          # Immutable, already-reviewed main HEAD BEFORE this one-time PR.
+          # All future main pushes, even after workflow deletion/re-addition,
+          # must stay read-only. Unexpected intervening merges fail closed.
+          REVIEWED_PARENT_SHA: d18070fa3c85ced8b3f10c7ea83e03d6b264d7f5
+        run: |
+          set -euo pipefail
+          [[ "$GIT_PREVIOUS_HEAD" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          if [ "$GIT_PREVIOUS_HEAD" != "$REVIEWED_PARENT_SHA" ]; then
+            echo "is_first=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git rev-parse --verify "HEAD^" >/dev/null
+          [ "$(git rev-parse HEAD^)" = "$GIT_PREVIOUS_HEAD" ] || exit 1
+          if git cat-file -e "$GIT_PREVIOUS_HEAD:.github/workflows/krx-verified-pending-finalize.yml" 2>/dev/null; then
+            echo "is_first=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_first=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Reverify and optionally clear only the approved KRX dates
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          KRX_FINALIZE_APPLY: ${{ ((github.event_name == 'push' && steps.first_install.outputs.is_first == 'true') || (github.event_name == 'workflow_dispatch' && inputs.apply)) && '1' || '0' }}
+        run: |
+          node scripts/finalize-verified-krx-pending.mjs
