@@ -23,9 +23,13 @@ assert.equal(waiting.lastBackfillOk,false);
 assert.doesNotMatch(JSON.stringify(waiting),/accessToken|apiKey|SECRET/);
 assert.deepEqual(assessKrxOvernightHealth({...good,triggerReady:false}).issues,
   ['TRIGGERS_NOT_READY']);
+// Korean market can be closed while a US close legitimately advances
+// Snapshot to a later date, without a pending KRX recovery item.
+assert.equal(assessKrxOvernightHealth({...good,
+  officialKrxPriceHistoryLastDate:'2026-10-15'}).status,'HEALTHY');
 assert.deepEqual(assessKrxOvernightHealth({...good,
-  officialKrxPriceHistoryLastDate:'2026-10-15'}).issues,
-  ['KRX_SNAPSHOT_LAST_DATE_MISMATCH']);
+  snapshotLastDate:'2026-10-15'}).issues,
+  ['KRX_SNAPSHOT_STALE']);
 assert.deepEqual(assessKrxOvernightHealth({...good,
   snapshotLastDate:'-'}).issues,['LAST_DATE_UNAVAILABLE']);
 assert.deepEqual(assessKrxOvernightHealth({...good,overallStatus:'WARNING'}).issues,
