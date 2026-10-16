@@ -10461,7 +10461,7 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate)
       // KRX holidays and foreign-only accounts have no same-day KRX close,
       // but MUST still prove the actual persisted Snapshot date and contents.
       var savedDate = String(result.date || '').trim();
-      if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(savedDate) || savedDate > target
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(savedDate) || savedDate > target
           || !(Number(result.rows) > 0))
         throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_DATE_INVALID');
       var requireExactKrx = !!targetDate || (result.krxCloseRequired !== false
