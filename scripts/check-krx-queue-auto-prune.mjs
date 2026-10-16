@@ -108,6 +108,8 @@ function checkRotation(dates, cursor, includeToday, failure) {
     saveDailyPriceHistory:date=>{calls.push(date);if(failure)throw Error('stale source');return {ok:true,date,rows:39};},
     _portfolioFundAtomic_:fn=>fn(props),
     _reconcileRecoveredPortfolioPrice_:()=>true,
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:37}),
+    getss:()=>({}),
     _completePendingKrxCloseDate_:(_,date)=>state.set('queue',JSON.stringify(JSON.parse(state.get('queue')).filter(x=>x!==date))),
     _appendPortfolioCloseSyncLog:()=>{}
   });
