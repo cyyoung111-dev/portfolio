@@ -2120,6 +2120,8 @@ console.log('✅ PR472 writer safety: 수동 가격 경로도 NAV·백필·통�
     deleteProperty:k=>bag.delete(k)};
   let failWrite=true, saves=0;
   const ctx=vm.createContext({
+    _verifyCompletedKrxPendingDate_:()=>({ok:true,verifiedCodes:1}),
+    getss:()=>({}),
     _portfolioFundAtomic_:cb=>{if(failWrite)throw Error('property lock failure');return cb(p);},
     _portfolioFundState_:(props,k)=>JSON.parse(props.getProperty(k)||'null'),
     PORTFOLIO_CLOSE_PENDING_KRX_DATES_KEY:'portfolio_close_pending_krx_dates',
