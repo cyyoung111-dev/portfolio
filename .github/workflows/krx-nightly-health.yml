@@ -33,5 +33,8 @@ jobs:
         run: |
           node scripts/diagnose-backfill-status.mjs > "${RUNNER_TEMP}/krx-nightly-status.json"
       - name: Assess after-nightly KRX recovery checkpoint
+        # getAutomationStatus emits safe JSON but returns nonzero for missing
+        # triggers. Show the actionable summary EVEN after this failure.
+        if: success() || failure()
         run: |
           node scripts/assess-krx-overnight-health.mjs "${RUNNER_TEMP}/krx-nightly-status.json"
