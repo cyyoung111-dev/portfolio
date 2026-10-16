@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.228
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.229
 //
+//  v9.229 변경사항 (2026.10.16):
+//  - KRX 백필 PRICE/Snapshot 영속 검증 성공 후에만 대기열 완료 처리.
+//  - 검증 실패 시 재시도 대기열을 보존하며 기존 과거 Snapshot 충돌은 수정하지 않음.
 //  v9.228 변경사항 (2026.10.15):
 //  - Toss 시세 API 403 원문 코드를 allowlist로 구분(허용 IP/권한/엣지),
 //    토큰·전체 오류 응답 노출 없이 PC/모바일 운영 진단 정밀화.
@@ -2037,7 +2040,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.228', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.229', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5780,7 +5783,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.228' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.229' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11684,7 +11687,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.228',
+    gasVersion: '9.229',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11731,7 +11734,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.228' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.229' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15329,7 +15332,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.228' });
+    return jsonOk({ settings: settings, gasVersion: '9.229' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15359,7 +15362,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.228'
+      gasVersion: '9.229'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
