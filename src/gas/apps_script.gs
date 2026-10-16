@@ -10447,10 +10447,6 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate)
       throw new Error('백필 PRICE 저장 성공을 확인하지 못해 대상 날짜를 보존합니다.');
     // Keep the pending date until same-day close status has been persisted.
     // The same ScriptLock protects the result/queue handshake.
-    if (targetDate) {
-      var proof = _verifyCompletedKrxPendingDate_(getss(), targetDate);
-      if (!proof || !proof.ok) throw new Error('TARGET_VERIFICATION_FAILED');
-    }
     // Verify persisted exact-date KRX/Snapshot before touching completion markers.
     // A failed proof must leave the pending date eligible for a later retry.
     var persistedProof = _verifyCompletedKrxPendingDate_(getss(), target);
