@@ -37,7 +37,7 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           DIAGNOSTIC_DATES: ${{ inputs.dates }}
         run: |
-          node scripts/diagnose-krx-operational.mjs --dates "${DIAGNOSTIC_DATES:-2026-10-12,2026-10-13}"
+          node scripts/diagnose-krx-operational.mjs --dates "${DIAGNOSTIC_DATES:-2026-10-12,2026-10-13,2026-10-14}"
 
       - name: Read-only KRX K200 night match diagnostics
         if: always()
