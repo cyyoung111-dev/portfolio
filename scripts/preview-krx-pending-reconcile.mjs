@@ -7,8 +7,10 @@ const DEFAULT_DATES='2026-10-12,2026-10-13,2026-10-14';
 const REASONS=new Set([
   'MASTER_MISSING','NO_HOLDINGS','TRADE_LEDGER_MISSING','MASTER_INCOMPLETE',
   'SHEET_MISSING','PRICE_HISTORY_INVALID','SNAPSHOT_INVALID',
-  'INCOMPLETE_COVERAGE','FULL_SNAPSHOT_MISMATCH','FULL_SNAPSHOT_INVALID',
-  'FULL_SNAPSHOT_COUNT_MISMATCH'
+  'INCOMPLETE_COVERAGE','FULL_SNAPSHOT_MISMATCH',
+  'FULL_SNAPSHOT_CONFLICT','FULL_SNAPSHOT_PARTIAL',
+  'FULL_SNAPSHOT_NO_SNAPSHOT','FULL_SNAPSHOT_SOURCE_INCOMPLETE',
+  'FULL_SNAPSHOT_PRICE_SUSPICIOUS','FULL_SNAPSHOT_COUNT_MISMATCH'
 ]);
 async function request(url,token,date,fetchImpl){
   const body=new URLSearchParams({
@@ -49,9 +51,15 @@ export async function runPreview({url,token,dates=DEFAULT_DATES,fetchImpl=fetch}
       typeof item.ok!=='boolean'||!Number.isSafeInteger(item.verifiedCodes)||
       item.verifiedCodes<0||typeof item.reason!=='string')
       throw new Error('PENDING_PREVIEW_INVALID_RESPONSE');
+    // A legitimate incomplete date has one documented proof reason and zero
+    // verified codes. Unknown/missing reasons are response-contract failures,
+    // NOT business-as-usual BLOCKED results that --allow-blocked may mask.
+    if(item.ok
+        ? item.verifiedCodes<=0||item.reason!==''
+        : item.verifiedCodes!==0||!REASONS.has(item.reason))
+      throw new Error('PENDING_PREVIEW_INVALID_RESPONSE');
     entries.push({date,queued:item.queued,verified:item.ok,
-      verifiedCodes:item.verifiedCodes,
-      reason:item.ok?'':(REASONS.has(item.reason)?item.reason:'OTHER_CHECK_FAILED')});
+      verifiedCodes:item.verifiedCodes,reason:item.reason});
   }
   const valid=entries.every(x=>x.verified&&x.verifiedCodes>0);
   const ready=valid&&entries.every(x=>x.queued);
@@ -66,7 +74,9 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
       url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,dates
     });
     console.log(JSON.stringify(result));
-    if(result.status==='BLOCKED')process.exitCode=1;
+    // Diagnostics may legitimately be BLOCKED; the opt-in flag keeps that
+    // as data while auth/network/response failures remain fatal.
+    if(result.status==='BLOCKED'&&!process.argv.includes('--allow-blocked'))process.exitCode=1;
   }catch(error){
     const code=String(error?.message||'');
     const allowed=/^PENDING_PREVIEW_[A-Z_]+$/;

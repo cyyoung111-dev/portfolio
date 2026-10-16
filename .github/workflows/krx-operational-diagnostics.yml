@@ -25,7 +25,9 @@ jobs:
   diagnose:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Three preview batches = 10 sequential HTTP calls (max 90s each),
+    # plus market/K200 probes and job setup. Preserve time for all steps.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -54,7 +56,24 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
           DIAGNOSTIC_DATES: ${{ inputs.dates }}
         run: |
-          node scripts/preview-krx-pending-reconcile.mjs --dates "${DIAGNOSTIC_DATES:-2026-10-12,2026-10-13,2026-10-14}"
+          node scripts/preview-krx-pending-reconcile.mjs --dates "${DIAGNOSTIC_DATES:-2026-10-12,2026-10-13,2026-10-14}" --allow-blocked
+
+      # Completed Snapshot VALID does not by itself prove exact-date official
+      # KRX / ledger completeness. Each date is independently checked by the
+      # existing authenticated apply=0 endpoint, without mutating the queue.
+      - name: Read-only exact KRX+ledger+full Snapshot proof for 10/06–08
+        if: always()
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/preview-krx-pending-reconcile.mjs --dates "2026-10-06,2026-10-07,2026-10-08" --allow-blocked
+
+      - name: Read-only exact KRX+ledger+full Snapshot proof for 10/15
+        if: always()
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/preview-krx-pending-reconcile.mjs --dates "2026-10-15" --allow-blocked
 
       - name: Read-only backfill trigger and queue checkpoint (no GAS writes)
         if: always()
