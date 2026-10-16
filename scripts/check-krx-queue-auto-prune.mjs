@@ -23,7 +23,7 @@ function setup({proofs={},failPrune=false}={}) {
     setProperty:(key,value)=>{writes.push([key,value]);map.set(key,String(value));},
     deleteProperty:key=>{writes.push([key,null]);map.delete(key);}
   };
-  const proofCalls=[],retryCalls=[],logs=[];
+  const proofCalls=[],proofCursorAtCall=[],retryCalls=[],logs=[];
   let count=0;
   const context=vm.createContext({
     Date, JSON, Object, Number,
@@ -37,6 +37,7 @@ function setup({proofs={},failPrune=false}={}) {
     _readPendingKrxCloseDates_:props=>JSON.parse(props.getProperty(queueKey)||'[]'),
     _verifyCompletedKrxPendingDate_:(ss,date)=>{
       proofCalls.push(date);
+      proofCursorAtCall.push(map.get(pruneCursorKey));
       if(failPrune)throw new Error('read failure');
       if(proofs[date]==='throw')throw new Error('invalid proof');
       return proofs[date]||{ok:false,reason:'INCOMPLETE_COVERAGE'};
@@ -53,7 +54,7 @@ function setup({proofs={},failPrune=false}={}) {
   });
   vm.runInContext(extract('_pruneVerifiedHistoricalKrxPending_'),context);
   vm.runInContext(extract('_runPendingKrxBackfillWithLease_'),context);
-  return {context,p,map,writes,proofCalls,retryCalls,logs};
+  return {context,p,map,writes,proofCalls,proofCursorAtCall,retryCalls,logs};
 }
 const complete={ok:true,verifiedCodes:37};
 let a=setup({proofs:{'2026-10-07':complete,'2026-10-08':complete}});
@@ -191,10 +192,14 @@ checkNextDayReset();
   x.p.setProperty(leaseKey,JSON.stringify({token:'proof-lease',until:Date.now()+30000}));
   assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('proof-lease','2026-10-16').cleared,0);
   assert.deepEqual(x.proofCalls,['2026-10-06','2026-10-07']);
+  assert.deepEqual(x.proofCursorAtCall,['2026-10-06','2026-10-07'],
+    'candidate #2 must not be checkpointed before candidate #1 proof starts');
   assert.equal(x.map.get(pruneCursorKey),'2026-10-07','advance even if all proofs fail');
   assert.deepEqual(JSON.parse(x.map.get(queueKey)),backlog,'failed proof must preserve queue');
   assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('proof-lease','2026-10-16').cleared,1);
   assert.deepEqual(x.proofCalls,['2026-10-06','2026-10-07','2026-10-08','2026-10-12']);
+  assert.deepEqual(x.proofCursorAtCall,x.proofCalls,
+    'each production proof must see its OWN durable cursor, never a future candidate');
   assert.equal(x.map.get(pruneCursorKey),'2026-10-12');
   assert.deepEqual(JSON.parse(x.map.get(queueKey)),
     backlog.filter(date=>date!=='2026-10-08'),
@@ -214,6 +219,7 @@ checkNextDayReset();
   x.p.setProperty(leaseKey,JSON.stringify({token:'valid',until:Date.now()+20000}));
   assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('valid','2026-10-16').cleared,0);
   assert.deepEqual(x.proofCalls,initial.slice(0,2));
+  assert.deepEqual(x.proofCursorAtCall,initial.slice(0,2));
   assert.equal(x.map.get(pruneCursorKey),'2026-10-08');
   assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('valid','2026-10-16').cleared,0);
   assert.deepEqual(x.proofCalls,initial,'subsequent pass inspects next dates');
