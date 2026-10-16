@@ -38,7 +38,7 @@ jobs:
           fetch-depth: 2
       - name: First-install or reviewed one-time retry gate
         id: first_install
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.run_attempt == 1
         env:
           GIT_PREVIOUS_HEAD: ${{ github.event.before }}
           REVIEWED_PARENT_SHA: 6fbf6887910c1792c27e99965864b4052725be4d
@@ -75,5 +75,5 @@ jobs:
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
-          KRX_OCTOBER_APPLY: ${{ ((github.event_name == 'push' && steps.first_install.outputs.is_first == 'true') || (github.event_name == 'workflow_dispatch' && inputs.apply)) && '1' || '0' }}
+          KRX_OCTOBER_APPLY: ${{ ((github.event_name == 'push' && github.run_attempt == 1 && steps.first_install.outputs.is_first == 'true') || (github.event_name == 'workflow_dispatch' && inputs.apply)) && '1' || '0' }}
         run: node scripts/finalize-krx-october-verified-markers.mjs
