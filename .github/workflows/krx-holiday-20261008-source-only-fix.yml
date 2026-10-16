@@ -1,0 +1,68 @@
+name: krx-holiday-20261008-source-only-fix
+
+# A single verified metadata-only repair. Signed Snapshot backup and ScriptLock
+# are mandatory in the existing GAS rewriteSnapshotDate endpoint. Subsequent
+# pushes/edit/delete/re-add never auto-apply (immutable approved parent SHA).
+on:
+  # Runs only AFTER the entire GAS validation + production deployment job
+  # has completed for the exact reviewed main commit.
+  workflow_run:
+    workflows: [gas-deploy]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Explicitly apply source-only repair for 2026-10-08'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: krx-holiday-20261008-source-only-fix
+  cancel-in-progress: false
+
+jobs:
+  source-only:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact completed GAS deployment commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
+      - name: Prove approved first installation after GAS deployment
+        id: one_time
+        if: github.event_name == 'workflow_run'
+        env:
+          DEPLOYED_SHA: ${{ github.event.workflow_run.head_sha }}
+          REVIEWED_PARENT_SHA: b1122ab3d006c8695e42fbe0159e87acf1258ac4
+        run: |
+          set -euo pipefail
+          echo "first=false" >> "$GITHUB_OUTPUT"
+          [[ "$DEPLOYED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [ "$(git rev-parse HEAD)" = "$DEPLOYED_SHA" ] || exit 1
+          [ "$(git rev-parse HEAD^)" = "$REVIEWED_PARENT_SHA" ] || exit 0
+          if git cat-file -e "$REVIEWED_PARENT_SHA:.github/workflows/krx-holiday-20261008-source-only-fix.yml" 2>/dev/null; then exit 0; fi
+          echo "first=true" >> "$GITHUB_OUTPUT"
+      - name: Setup Node 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Reverify baseline and safely repair only fund-source differences
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          SOURCE_ONLY_APPLY: ${{ ((github.event_name == 'workflow_run' && steps.one_time.outputs.first == 'true') || (github.event_name == 'workflow_dispatch' && inputs.apply)) && '1' || '0' }}
+        run: node scripts/repair-krx-holiday-baseline-source.mjs
