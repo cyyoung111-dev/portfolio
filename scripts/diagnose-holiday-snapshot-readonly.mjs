@@ -65,10 +65,27 @@ export function summarizePendingStatus(payload){
     lastOfficialKrxPriceDate:String(a.officialKrxPriceHistoryLastDate||''),
     lastSnapshotDate:String(a.snapshotLastDate||'')};
 }
-function summarizeHolidayProbe(payload,date){
+export function summarizeHolidayProbe(payload,date){
   if(payload?.status!=='ok'||payload.requestedDate!==date)
     throw new Error('HOLIDAY_SNAPSHOT_INVALID_PROBE');
   const coverage=payload.storedCoverage||{};
+  const parseStatuses=new Set(['ROWS','EMPTY','NON_JSON','UNEXPECTED_SCHEMA','NOT_PARSED']);
+  const compactMarket=x=>{
+    const parseStatus=String(x?.parseStatus||'');
+    if(!['KOSPI','KOSDAQ','ETF'].includes(String(x?.market||''))||
+        !parseStatuses.has(parseStatus))
+      throw new Error('HOLIDAY_SNAPSHOT_INVALID_MARKET');
+    const validParsed=parseStatus==='ROWS'||parseStatus==='EMPTY';
+    const exactDateRows=Number(x.exactDateRows||0);
+    if(!Number.isSafeInteger(exactDateRows)||exactDateRows<0)
+      throw new Error('HOLIDAY_SNAPSHOT_INVALID_MARKET');
+    return {market:String(x.market),parseStatus,
+      exactDateRows,httpOk:x.httpStatus===200,
+      parsedOk:validParsed&&x.httpStatus===200};
+  };
+  const markets=Array.isArray(payload.markets)?payload.markets.map(compactMarket):[];
+  const alternateProbes=Array.isArray(payload.alternateProbes)
+    ?payload.alternateProbes.map(compactMarket):[];
   return {date,networkStatus:String(payload.networkStatus||''),
     keyConfigured:payload.keyConfigured===true,
     storedCoverageStatus:String(coverage.status||'UNAVAILABLE'),
@@ -76,9 +93,9 @@ function summarizeHolidayProbe(payload,date){
     snapshotRows:Number(coverage.snapshotRows||0),
     heldCodes:Number(coverage.expectedHeldCodes||0),
     queuedForBackfill:coverage.queuedForBackfill===true,
-    markets:Array.isArray(payload.markets)?payload.markets.map(x=>({
-      market:String(x.market||''),exactDateRows:Number(x.exactDateRows||0),
-      httpOk:x.httpStatus===200})):[]};
+    markets,alternateProbes,
+    providerSchemaFailure:markets.concat(alternateProbes).some(x=>
+      x.httpOk&&!x.parsedOk)};
 }
 async function request(endpoint,token,action,fields={},fetchImpl=fetch){
   if(!ACTIONS.has(action))throw new Error('HOLIDAY_SNAPSHOT_FORBIDDEN_ACTION');
