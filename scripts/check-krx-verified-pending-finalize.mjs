@@ -64,6 +64,9 @@ const workflow=(await import('node:fs')).readFileSync(
   '.github/workflows/krx-verified-pending-finalize.yml','utf8');
 assert.match(workflow,/fetch-depth: 2/);
 assert.match(workflow,/GIT_PREVIOUS_HEAD:/);
+assert.match(workflow,/REVIEWED_PARENT_SHA: d18070fa3c85ced8b3f10c7ea83e03d6b264d7f5/);
+assert.match(workflow,/GIT_PREVIOUS_HEAD.*REVIEWED_PARENT_SHA/);
+assert.match(workflow,/is_first=false/);
 assert.match(workflow,/git rev-parse HEAD\^/);
 assert.match(workflow,/git cat-file -e/);
 assert.match(workflow,/steps\.first_install\.outputs\.is_first == 'true'/);
