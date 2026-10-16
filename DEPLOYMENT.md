@@ -6,7 +6,7 @@
 - **비변경:** KRX 가격 수집·원천일 정책, 휴장일 큐, 9/15·16 충돌·MANUAL, 가격이력·Snapshot·NAV·거래원장, Toss, 22:10/23:10/00:30 트리거, 타 백필 일자 선택 정책.
 - **배포 상태:** 검토 및 CI 진행 중이며 운영 v9.233 반영 확인 전. 기존 실운영은 v9.232(배포 버전 284). PR 병합만으로 pending 감소나 휴장 복구를 선언하지 않습니다.
 - **배포 후:** GAS `gasVersion=9.233`, 실제 Apps Script 웹앱 버전·최신 실데이터 `getAutomationStatus`·10/06~16 날짜별 정합성 및 pending 확인. 등록된 야간 작업 이전에는 자동 큐 정리 완료를 주장하지 않습니다.
-- **승인 소스:** 전체 GAS blob `a91206a78e60190ea3e2a314a9cd25ce09a13815` 승인 고정; 생산 함수 VM 2건 proof 순환/휴장/lease/오류·원본 보호 회귀, Quality/GAS/Web CI, 최신 Codex 유효 P1/P2 미해결 0건.
+- **승인 소스:** 전체 GAS blob `3f7d34c3680c737b4f21c09540fa46d2a17eadb4` 승인 고정; 생산 함수 VM 2건 proof 순환/휴장/lease/오류·원본 보호 회귀, Quality/GAS/Web CI, 최신 Codex 유효 P1/P2 미해결 0건.
 
 ---
 
