@@ -20,7 +20,7 @@
 
 ### 2026-10-12~14 운영 KRX 완료일 대기열 일회성 정리
 
-- [PR 작업] `krx-verified-pending-finalize.yml`은 최초 `main` 도입 push에서 **이전 부모 커밋에 파일이 없고 HEAD의 직접 부모임이 확인된 경우에만** 자동 apply=1을 허용합니다. 이후 workflow 파일을 편집한 push에서는 **읽기 전용 dry-run**으로만 실행되며, 추가 적용은 명시적 수동 `workflow_dispatch apply=true`가 필수입니다. 승인 범위는 2026-10-12~14 완료 pending marker 해제에 한정됩니다.
+- [PR 작업] `krx-verified-pending-finalize.yml`은 최초 `main` 도입 push에서 **이전 부모 커밋이 승인된 고정 main SHA `d18070fa3c85ced8b3f10c7ea83e03d6b264d7f5`와 같고**, 해당 부모에 파일이 없으며 HEAD의 직접 부모임이 확인된 경우에만 자동 apply=1을 허용합니다. **이후 삭제 후 재도입하더라도 부모 SHA가 달라져 자동 적용이 차단되며**, 병합 이전에 다른 변경이 main에 들어오면 의도적으로 dry-run으로 중단합니다. 이후 workflow 파일을 편집한 push에서는 **읽기 전용 dry-run**으로만 실행되며, 추가 적용은 명시적 수동 `workflow_dispatch apply=true`가 필수입니다. 승인 범위는 2026-10-12~14 완료 pending marker 해제에 한정됩니다.
 - `finalize-verified-krx-pending.mjs`는 **10/12, 10/13, 10/14 고정 3일**만 인정하며, 먼저 인증된 `apply=0`으로 각 날짜의 공식 KRX 37종목·국내외 전체 Snapshot 검증 결과를 확인합니다. 셋 중 하나라도 실패하면 **큐를 전혀 변경하지 않습니다.**
 - 3일이 모두 검증됐다면 `apply=1`을 **대상 날짜당 1회** 순차 호출합니다. GAS `handleReconcileCompletedKrxPending`가 각 시점에 ScriptLock/Writer lease/전체 가격·Snapshot 증명을 재검사하고, **검증 완료된 해당 날짜의 pending 마커만 삭제**합니다. 호출 실패 시 안전 중단하며 재실행은 멱등입니다.
 - 마지막에 다시 인증된 `apply=0`으로 세 날짜의 pending=false/verified=true를 재확인해야 성공으로 판정합니다. 가격이력·Snapshot·거래원장·NAV·백업은 읽기만 합니다.
