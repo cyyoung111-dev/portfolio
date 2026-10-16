@@ -3,7 +3,7 @@
 //
 //  v9.229 변경사항 (2026.10.16):
 //  - KRX 백필 PRICE/Snapshot 영속 검증 성공 후에만 대기열 완료 처리.
-//  - 모든 재시도는 전체 국내외 Snapshot을 재검증하고, 정상 KRX 거래일은 국내 공식 종가 증명도 요구.
+//  - 큐 해제의 모든 경로(재시도·사전정리·수동 검증)에 국내외 전체 Snapshot 증명을 통합.
 //  - 검증 실패 시 재시도 대기열을 보존하며 기존 과거 Snapshot 충돌은 수정하지 않음.
 //  v9.228 변경사항 (2026.10.15):
 //  - Toss 시세 API 403 원문 코드를 allowlist로 구분(허용 IP/권한/엣지),
@@ -10466,13 +10466,18 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate)
         throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_DATE_INVALID');
       var requireExactKrx = !!targetDate || (result.krxCloseRequired !== false
         && (result.krxCloseRequired !== true || _krxCalendarStatus_(target) !== 'CLOSED'));
+      var snapshotProof = null;
       if (requireExactKrx) {
         var persistedProof = _verifyCompletedKrxPendingDate_(ss, target);
         if (!persistedProof || !persistedProof.ok)
           throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:' +
             String(persistedProof && persistedProof.reason || 'UNKNOWN'));
+        // The shared KRX completion verifier has already checked the full
+        // target-date Snapshot. Reuse its locked proof instead of scanning
+        // the same sheets a second time.
+        if (savedDate === target) snapshotProof = persistedProof.snapshotProof || null;
       }
-      var snapshotProof = diagnoseSnapshotIntegrity(ss, savedDate);
+      if (!snapshotProof) snapshotProof = diagnoseSnapshotIntegrity(ss, savedDate);
       if (!snapshotProof || snapshotProof.status !== 'VALID'
           || Number(snapshotProof.expectedRowCount) !== Number(result.rows)
           || Number(snapshotProof.storedRowCount) !== Number(result.rows))
@@ -12111,7 +12116,20 @@ function _verifyCompletedKrxPendingDate_(ss, date) {
   if (failure) return {ok:false,reason:failure};
   if (codes.some(function(c){return !price[c]||!snap[c];}))
     return {ok:false,reason:'INCOMPLETE_COVERAGE'};
-  return {ok:true,verifiedCodes:codes.length};
+  // Shared completion contract: ALL paths using this KRX proof also check
+  // the full portfolio Snapshot (foreign positions, funds, source, qty,
+  // evaluation and duplicate rows), not only KRX-held codes.
+  // This includes nightly pre-pruning and authenticated manual reconciliation.
+  var fullProof = diagnoseSnapshotIntegrity(ss,date);
+  if (!fullProof || fullProof.status !== 'VALID')
+    return {ok:false,reason:'FULL_SNAPSHOT_' +
+      String(fullProof && fullProof.status || 'UNKNOWN')};
+  var expectedRows = Number(fullProof.expectedRowCount);
+  var storedRows = Number(fullProof.storedRowCount);
+  if (!(expectedRows > 0) || storedRows !== expectedRows)
+    return {ok:false,reason:'FULL_SNAPSHOT_COUNT_MISMATCH'};
+  return {ok:true,verifiedCodes:codes.length,
+    snapshotProof:{status:'VALID',expectedRowCount:expectedRows,storedRowCount:storedRows}};
 }
 // Authenticated POST only. Dry-run by default; apply=1 clears *only* the
 // listed prior dates, under ScriptLock, after all-or-none verification.
