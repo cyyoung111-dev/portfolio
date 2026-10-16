@@ -60,7 +60,7 @@ await assert.rejects(()=>runPreview({url,token,fetchImpl:async()=>{throw Error('
   /PENDING_PREVIEW_NETWORK_FAILED/);
 // P2: --allow-blocked cannot turn malformed GAS response contracts into
 // successful observation. The real runPreview parser must fail closed.
-for(const reason of ['', 'UNRECOGNIZED_GAS_REASON', 'FULL_SNAPSHOT_NEW_UNKNOWN']) {
+for(const reason of ['', 'UNRECOGNIZED_GAS_REASON', 'FULL_SNAPSHOT_NEW_UNKNOWN', 'FULL_SNAPSHOT_INVALID']) {
   await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(date=>
     date===dates[0]?{...good(date),checked:[{date,queued:true,ok:false,
       verifiedCodes:0,reason}]}:null
