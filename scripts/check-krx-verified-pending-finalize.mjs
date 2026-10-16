@@ -64,7 +64,7 @@ const workflow=(await import('node:fs')).readFileSync(
   '.github/workflows/krx-verified-pending-finalize.yml','utf8');
 // 2 complete previews: authentication + 3 date checks each (90 s);
 // plus three applied dates (120 s). Runner timeout needs safe headroom.
-const timeoutMinutes=Number(workflow.match(/timeout-minutes: (\\d+)/)?.[1]);
+const timeoutMinutes=Number(workflow.match(/timeout-minutes: (\d+)/)?.[1]);
 assert.ok(timeoutMinutes*60 >= 2*4*90 + 3*120 + 180,
   'one-time queue cleanup must outlive all individual request budgets');
 assert.match(workflow,/fetch-depth: 2/);
