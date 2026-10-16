@@ -277,7 +277,7 @@ assert.ok(!JSON.stringify(continuedOnTimeout).includes('sensitive transport deta
 console.log('KRX authenticated production diagnostic is read-only and sanitized: PASS');
 
 
-import { runBackfillStatus, summarizeBackfillStatus } from './diagnose-backfill-status.mjs';
+import { runBackfillStatus, summarizeBackfillStatus, classifyBackfillFailure } from './diagnose-backfill-status.mjs';
 const statusFixture=()=>({status:'ok',gasVersion:'9.224',automation:{
   gasVersion:'9.224',overallStatus:'WARNING',
   trigger:{
@@ -305,6 +305,30 @@ assert.equal(statusSample.pendingCount,3);
 assert.deepEqual(statusSample.pendingDates,['2026-10-08','2026-10-12','2026-10-13']);
 assert.equal(statusSample.latestBackfill.ok,false);
 assert.equal(statusSample.latestBackfill.targetDate,'2026-10-13');
+
+assert.equal(statusSample.latestBackfill.failureClass,'OTHER_UNCLASSIFIED');
+for(const [input,expected] of [
+  ['BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_DATE_INVALID','SAVED_SNAPSHOT_DATE_INVALID'],
+  ['BACKFILL_PERSISTED_VERIFICATION_FAILED:SNAPSHOT_CONFLICT','SAVED_SNAPSHOT_INTEGRITY_FAILED'],
+  ['BACKFILL_PERSISTED_VERIFICATION_FAILED:OFFICIAL_KRX','SAVED_KRX_OR_SNAPSHOT_PROOF_FAILED'],
+  ['BACKFILL_RECONCILIATION_FAILED','CLOSE_RECONCILIATION_FAILED'],
+  ['TARGET_BACKUP_FAILED','BACKUP_SAFETY_FAILED'],
+  ['백필 PRICE 저장 성공을 확인하지 못해 대상 날짜를 보존합니다.','PRICE_WRITE_NOT_CONFIRMED'],
+  ['KRX missing exact-date held code private 123','KRX_PRICE_SOURCE_OR_COVERAGE'],
+  ['SNAPSHOT write private account 123','SNAPSHOT_SAVE_OR_PROOF'],
+  ['LOCK unavailable private 123','LEASE_OR_WRITER_CONFLICT'],
+  ['NAV expected missing private 123','FUND_OR_NAV_PRECONDITION'],
+  ['sensitive account and number 123','OTHER_UNCLASSIFIED']
+]) {
+  const summary=classifyBackfillFailure({attempted:true,ok:false,error:input});
+  assert.equal(summary,expected);
+  assert.doesNotMatch(summary,/private|account|123|token/i,
+    'must never print any raw backfill error');
+}
+assert.equal(classifyBackfillFailure({attempted:false,ok:false,error:'secret'}),null);
+assert.equal(classifyBackfillFailure({attempted:true,ok:true,error:'secret'}),null);
+assert.equal(classifyBackfillFailure({attempted:true,ok:false}),'DETAIL_NOT_EXPOSED');
+
 assert.doesNotMatch(JSON.stringify(statusSample),/private account|secretValue|must never/);
 let statusRequests=[];
 const statusResult=await runBackfillStatus({
