@@ -44,7 +44,7 @@ const fake=async(_url,options)=>{
   const params=options.body,action=params.get('action');
   actions.push(action);
   assert.ok(['diagnoseSnapshotIntegrity','diagnoseWorkbookCells',
-    'rewriteSnapshotDate'].includes(action));
+    'repairOct08FundSourceOnly'].includes(action));
   assert.equal(options.method,'POST');
   if(params.get('accessToken')!==token)return{ok:true,json:async()=>({
     status:'error',message:'인증 실패'})};
@@ -54,10 +54,12 @@ const fake=async(_url,options)=>{
       diagnostic:writeCount?after:before})};
   }
   if(action==='diagnoseWorkbookCells')return{ok:true,json:async()=>cap};
-  assert.equal(params.get('date'),D);
-  assert.equal(params.get('finalize'),'1');
+  assert.equal(action,'repairOct08FundSourceOnly');
+  assert.equal(params.get('date'),null,'server pins date, client cannot override');
+  assert.equal(params.get('finalize'),null,'general rewrite forbidden');
   writeCount++;
-  return{ok:true,json:async()=>({status:'ok',rewritten:true,before,after})};
+  return{ok:true,json:async()=>({status:'ok',mode:'APPLIED',
+    date:D,changed:2,verified:'VALID'})};
 };
 const dry=await runSourceOnlyRepair({url,token,fetchImpl:fake});
 assert.equal(dry.mode,'DRY_RUN');
@@ -70,7 +72,7 @@ assert.equal(applied.mode,'APPLIED');
 assert.equal(writeCount,1);
 assert.deepEqual(actions,['diagnoseSnapshotIntegrity',
   'diagnoseSnapshotIntegrity','diagnoseWorkbookCells',
-  'rewriteSnapshotDate','diagnoseSnapshotIntegrity']);
+  'repairOct08FundSourceOnly','diagnoseSnapshotIntegrity']);
 assert.equal((await runSourceOnlyRepair({url,token,apply:true,fetchImpl:fake})).mode,'ALREADY_VALID');
 assert.equal(writeCount,1,'repeat must not rewrite a valid date');
 assert.doesNotMatch(JSON.stringify(applied),/DO_NOT_ECHO_THIS_TOKEN/);
