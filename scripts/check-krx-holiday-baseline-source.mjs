@@ -82,6 +82,20 @@ assert.equal((await runSourceOnlyRepair({url,token,apply:true,fetchImpl:fake})).
 assert.equal(writeCount,1,'repeat must not rewrite a valid date');
 assert.doesNotMatch(JSON.stringify(applied),/DO_NOT_ECHO_THIS_TOKEN/);
 // Production readiness must reject a stale GAS deployment before any write.
+// A newer approved release must not break the historical workflow's dry-run.
+const newerActions=[];
+const newerFetch=async(_url,opts)=>{
+  const action=opts.body.get('action'); newerActions.push(action);
+  if(opts.body.get('accessToken')!==token)
+    return{ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+  if(action==='getAutomationStatus')return{ok:true,json:async()=>({
+    status:'ok',automation:{gasVersion:'9.232'}})};
+  if(action==='diagnoseSnapshotIntegrity')return{ok:true,json:async()=>({
+    status:'ok',diagnostic:after})};
+  throw Error('newer dry-run must not write');
+};
+assert.equal((await runSourceOnlyRepair({url,token,fetchImpl:newerFetch})).mode,'ALREADY_VALID');
+assert.deepEqual(newerActions,['diagnoseSnapshotIntegrity','getAutomationStatus','diagnoseSnapshotIntegrity']);
 const staleActions=[];
 const staleFetch=async(_url,opts)=>{
   const action=opts.body.get('action');

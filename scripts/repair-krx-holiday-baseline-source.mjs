@@ -103,7 +103,7 @@ export async function runSourceOnlyRepair({url,token,apply=false,fetchImpl=fetch
   // GAS workflows can finish validation without deploying if the auto-deploy
   // setting is disabled. Exact deployed API version is a mandatory gate.
   const status=await request(endpoint,token,'getAutomationStatus',{},fetchImpl);
-  if(status?.status!=='ok'||status.automation?.gasVersion!=='9.231')
+  if(status?.status!=='ok'||!['9.231','9.232'].includes(status.automation?.gasVersion))
     throw new Error('SOURCE_ONLY_GAS_VERSION_NOT_DEPLOYED');
   const before=await fetchDiagnostic(endpoint,token,fetchImpl);
   if(before.status==='VALID'){
@@ -115,7 +115,7 @@ export async function runSourceOnlyRepair({url,token,apply=false,fetchImpl=fetch
     endpoint,token,'diagnoseWorkbookCells',{},fetchImpl));
   if(!apply)return {mode:'DRY_RUN',date:DATE,changed:0,
     sourceOnlyCodes:EXPECTED_FUNDS.slice(),minimumSafeBackupCells:capacity.minimumSafeCells};
-  // GAS v9.231 acquires ScriptLock and rechecks the exact 2-code source
+  // GAS v9.231+ acquires ScriptLock and rechecks the exact 2-code source
   // contract BEFORE touching any cells; only K column at the proven two
   // physical fund rows can be updated. A full-date rewrite is forbidden.
   const write=await request(endpoint,token,'repairOct08FundSourceOnly',{},fetchImpl);
