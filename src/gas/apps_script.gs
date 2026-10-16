@@ -10448,17 +10448,18 @@ function _retryOnePendingKrxClose_(props, currentDate, includeToday, targetDate)
     var result = saveDailyPriceHistory(target, saveOptions);
     if (!result || result.ok === false)
       throw new Error('백필 PRICE 저장 성공을 확인하지 못해 대상 날짜를 보존합니다.');
-    // Keep the pending date until same-day close status has been persisted.
-    // The same ScriptLock protects the result/queue handshake.
-    // Verify persisted exact-date KRX/Snapshot before touching completion markers.
-    // A failed proof must leave the pending date eligible for a later retry.
-    var persistedProof = _verifyCompletedKrxPendingDate_(getss(), target);
-    if (!persistedProof || !persistedProof.ok)
-      throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:' + String(persistedProof && persistedProof.reason || 'UNKNOWN'));
+    // Keep the persisted proof, summary reconciliation and pending removal
+    // inside one ScriptLock. A concurrent trade/Snapshot writer can invalidate
+    // proof after saveDailyPriceHistory releases its lock; never trust an
+    // earlier unlocked verification when deciding to clear recovery work.
     _portfolioFundAtomic_(function(sharedProps) {
+      var persistedProof = _verifyCompletedKrxPendingDate_(getss(), target);
+      if (!persistedProof || !persistedProof.ok)
+        throw new Error('BACKFILL_PERSISTED_VERIFICATION_FAILED:' + String(persistedProof && persistedProof.reason || 'UNKNOWN'));
       var policy = target === currentDate && includeToday ? 'CREATE' : 'CLEAN';
-      if (_reconcileRecoveredPortfolioPrice_(sharedProps, target, result, policy))
-        _completePendingKrxCloseDate_(sharedProps, target);
+      if (!_reconcileRecoveredPortfolioPrice_(sharedProps, target, result, policy))
+        throw new Error('BACKFILL_RECONCILIATION_FAILED');
+      _completePendingKrxCloseDate_(sharedProps, target);
     });
     _appendPortfolioCloseSyncLog('BACKFILL_OK', target, '', 'snapshotRows=' + String(result && result.rows || 0));
     return { attempted:true, ok:true, date:target, remaining:_readPendingKrxCloseDates_(props).length };
