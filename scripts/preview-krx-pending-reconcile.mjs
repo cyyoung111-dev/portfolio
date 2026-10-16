@@ -66,7 +66,9 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
       url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN,dates
     });
     console.log(JSON.stringify(result));
-    if(result.status==='BLOCKED')process.exitCode=1;
+    // Diagnostics may legitimately be BLOCKED; the opt-in flag keeps that
+    // as data while auth/network/response failures remain fatal.
+    if(result.status==='BLOCKED'&&!process.argv.includes('--allow-blocked'))process.exitCode=1;
   }catch(error){
     const code=String(error?.message||'');
     const allowed=/^PENDING_PREVIEW_[A-Z_]+$/;
