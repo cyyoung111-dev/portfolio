@@ -6,11 +6,14 @@ import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
 const TARGETS=['2026-09-15','2026-09-16','2026-10-08'];
 const HOLIDAYS=['2026-10-09','2026-10-10','2026-10-11'];
+// Check expected-vs-persisted Snapshot for the holiday dates as well as
+// source coverage. No Snapshot/PRICE writing is permitted here.
+const SNAPSHOT_TARGETS=TARGETS.concat(HOLIDAYS);
 const ACTIONS=new Set(['getAutomationStatus','diagnoseSnapshotIntegrityRange','getKrxSourceDiagnostics']);
 const count=v=>Array.isArray(v)?v.length:0;
 
 export function summarizeConflictDay(item){
-  if(!item||typeof item!=='object'||!TARGETS.includes(item.date))
+  if(!item||typeof item!=='object'||!SNAPSHOT_TARGETS.includes(item.date))
     throw new Error('HOLIDAY_SNAPSHOT_INVALID_DATE');
   const classes=item.duplicateSummary||{};
   const nums=['groups','exactDuplicate','singleExpectedMatch',
@@ -43,12 +46,12 @@ export function summarizeConflictDay(item){
 }
 export function summarizeHolidaySnapshotRange(payload){
   if(payload?.status!=='ok'||!Array.isArray(payload.diagnostics)
-      || payload.diagnostics.length!==TARGETS.length)
+      || payload.diagnostics.length!==SNAPSHOT_TARGETS.length)
     throw new Error('HOLIDAY_SNAPSHOT_INVALID_RESPONSE');
   const byDate=new Map(payload.diagnostics.map(x=>[x.date,x]));
-  if(byDate.size!==TARGETS.length||TARGETS.some(d=>!byDate.has(d)))
+  if(byDate.size!==SNAPSHOT_TARGETS.length||SNAPSHOT_TARGETS.some(d=>!byDate.has(d)))
     throw new Error('HOLIDAY_SNAPSHOT_INVALID_RESPONSE');
-  return TARGETS.map(date=>summarizeConflictDay(byDate.get(date)));
+  return SNAPSHOT_TARGETS.map(date=>summarizeConflictDay(byDate.get(date)));
 }
 export function summarizePendingStatus(payload){
   const a=payload?.automation;
@@ -117,7 +120,7 @@ export async function runDiagnosis({url,token,fetchImpl=fetch}){
   const status=summarizePendingStatus(await request(endpoint,token,'getAutomationStatus',{},fetchImpl));
   const snapshot=summarizeHolidaySnapshotRange(await request(
     endpoint,token,'diagnoseSnapshotIntegrityRange',
-    {dates:TARGETS.join(',')},fetchImpl));
+    {dates:SNAPSHOT_TARGETS.join(',')},fetchImpl));
   const holidays=[];
   for(const date of HOLIDAYS){
     const probe=await request(endpoint,token,'getKrxSourceDiagnostics',{date},fetchImpl);
