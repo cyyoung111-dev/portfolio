@@ -58,4 +58,16 @@ await assert.rejects(()=>runVerifiedPendingCleanup({url,token,apply:true,
 assert.ok(forged.queue.size===3);
 assert.throws(()=>APPROVED_DATES.push('2026-09-15'),TypeError);
 assert.doesNotMatch(JSON.stringify(applied),/NEVER_PRINT_THIS_TOKEN/);
+// Deployment safety: workflow file changes after the initial rollout must NOT
+// silently re-apply. Verify the gate against an exact, reachable parent commit.
+const workflow=(await import('node:fs')).readFileSync(
+  '.github/workflows/krx-verified-pending-finalize.yml','utf8');
+assert.match(workflow,/fetch-depth: 2/);
+assert.match(workflow,/GIT_PREVIOUS_HEAD:/);
+assert.match(workflow,/git rev-parse HEAD\^/);
+assert.match(workflow,/git cat-file -e/);
+assert.match(workflow,/steps\.first_install\.outputs\.is_first == 'true'/);
+assert.match(workflow,/github\.event_name == 'workflow_dispatch' && inputs\.apply/);
+assert.doesNotMatch(workflow,/github\.event_name == 'push' && '1'/);
+
 console.log('KRX verified pending finalization: exact 3 dates, dry-run gate, idempotence, invalid response PASS');
