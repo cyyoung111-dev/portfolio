@@ -30,6 +30,9 @@ assert.throws(()=>assertSourceOnlyMismatch({...before,
 const wrongNumeric=storedRows.map(x=>x.slice());wrongNumeric[1][7]+=1;
 assert.throws(()=>assertSourceOnlyMismatch({...before,storedRows:wrongNumeric}),
   /SOURCE_ONLY_NUMERIC_CHANGE/);
+const wrongSavedAt=storedRows.map(x=>x.slice());wrongSavedAt[1][11]='2026-10-09';
+assert.throws(()=>assertSourceOnlyMismatch({...before,storedRows:wrongSavedAt}),
+  /SOURCE_ONLY_ROW_CHANGE/);
 const manual=storedRows.map(x=>x.slice());manual[37][10]='MANUAL';
 assert.throws(()=>assertSourceOnlyMismatch({...before,storedRows:manual}),
   /SOURCE_ONLY_FUND_SOURCE/);
