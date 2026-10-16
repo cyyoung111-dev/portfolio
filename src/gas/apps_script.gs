@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.229
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.230
 //
+//  v9.230 변경사항 (2026.10.16):
+//  - KRX 휴장/주말 pending은 사전 정리 2건 검산 대상에서 제외해
+//    이미 저장된 뒤 거래일의 국내외 Snapshot 완료 증명 검사를 진행.
+//  - 비거래일 대기항목은 삭제하지 않고 별도 재시도/검증 정책을 보존.
 //  v9.229 변경사항 (2026.10.16):
 //  - KRX 백필 PRICE/Snapshot 영속 검증 성공 후에만 대기열 완료 처리.
 //  - 큐 해제의 모든 경로(재시도·사전정리·수동 검증)에 국내외 전체 Snapshot 증명을 통합.
@@ -2041,7 +2045,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.229', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.230', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5784,7 +5788,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.229' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.230' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10201,7 +10205,12 @@ function _pruneVerifiedHistoricalKrxPending_(leaseToken, runDate) {
     if (!lease || lease.token!==leaseToken || !(Number(lease.until)>Date.now()))
       return {cleared:0,reason:'LEASE_NOT_OWNED'};
     var queue=_readPendingKrxCloseDates_(sharedProps);
-    var candidates=queue.filter(function(d){return d<runDate;}).slice(0,2);
+    // A stale KRX-closed watchdog date cannot pass an exact-date KRX proof.
+    // Do not spend the bounded two proof slots on it: preserve the pending
+    // date for the independent holiday/foreign Snapshot replay policy.
+    var candidates=queue.filter(function(d){
+      return d<runDate && _krxCalendarStatus_(d)!=='CLOSED';
+    }).slice(0,2);
     if (!candidates.length)return {cleared:0,reason:'NO_HISTORICAL_PENDING'};
     var ss=getss(), cleared=[];
     candidates.forEach(function(date) {
@@ -11715,7 +11724,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.229',
+    gasVersion: '9.230',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11762,7 +11771,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.229' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.230' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15373,7 +15382,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.229' });
+    return jsonOk({ settings: settings, gasVersion: '9.230' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15403,7 +15412,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.229'
+      gasVersion: '9.230'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

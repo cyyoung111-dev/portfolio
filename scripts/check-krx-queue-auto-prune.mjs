@@ -40,6 +40,7 @@ function setup({proofs={},failPrune=false}={}) {
       return proofs[date]||{ok:false,reason:'INCOMPLETE_COVERAGE'};
     },
     getss:()=>({}),
+    _krxCalendarStatus_:date=>['2026-10-09','2026-10-10','2026-10-11'].includes(date)?'CLOSED':'OPEN',
     _retryOnePendingKrxClose_:(props,date,includeToday)=>{
       const active=JSON.parse(props.getProperty(queueKey)||'[]');
       retryCalls.push({date,includeToday,active});
@@ -145,5 +146,30 @@ function checkNextDayReset() {
 }
 checkNextDayReset();
 
+
+
+// Regression: a KRX holiday and a weekend must NOT consume both bounded
+// proof slots ahead of fully persisted 10/12~14. Their queue entries must
+// remain untouched for the separate holiday/Snapshot recovery policy.
+{
+  const holidayQueue=['2026-10-09','2026-10-10','2026-10-11','2026-10-12','2026-10-13','2026-10-14','2026-10-15'];
+  const done={ok:true,verifiedCodes:37};
+  const x=setup({proofs:{'2026-10-12':done,'2026-10-13':done,'2026-10-14':done}});
+  x.map.set(queueKey,JSON.stringify(holidayQueue));
+  x.p.setProperty(leaseKey,JSON.stringify({token:'holiday-proof',until:Date.now()+20000}));
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('holiday-proof','2026-10-16').cleared,2);
+  assert.deepEqual(x.proofCalls,['2026-10-12','2026-10-13'],
+    'closed dates cannot starve stored historical close proof');
+  assert.deepEqual(JSON.parse(x.map.get(queueKey)),
+    ['2026-10-09','2026-10-10','2026-10-11','2026-10-14','2026-10-15']);
+  assert.equal(x.context._pruneVerifiedHistoricalKrxPending_('holiday-proof','2026-10-16').cleared,1);
+  assert.deepEqual(x.proofCalls,['2026-10-12','2026-10-13','2026-10-14','2026-10-15']);
+  assert.deepEqual(JSON.parse(x.map.get(queueKey)),
+    ['2026-10-09','2026-10-10','2026-10-11','2026-10-15'],
+    'failed current historical proof and closed dates are never removed');
+  const untouched=x.writes.filter(([k])=>k===queueKey);
+  assert.equal(untouched.length,2,'only verified dates may mutate the queue');
+  assert.equal(x.writes.some(([k])=>/snapshot_|fund|portfolio_close_run/.test(k)),false);
+}
 
 console.log('KRX backfill complete-date pruning: live functions/leases/safety/liveness/rollover PASS');
