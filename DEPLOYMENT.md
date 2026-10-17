@@ -1,5 +1,7 @@
 ## GAS v9.234 — Toss 고정 IP 중계 opt-in 준비 (2026-10-17)
 
+릴리스 계약: `gasVersion=9.234`. 인증된 `handleGetSettings` 및 `getAutomationStatus` 응답, 웹 표시 버전 정합성을 배포 이후 확인.
+
 - **기본 동작:** `TOSS_RELAY_MODE` 가 `ON`이 아니면 기존 GAS Toss 직접 경로와 KRX/가격이력/Snapshot 자동화는 기존과 같습니다. 오라클 계정·VM/공인IP/도메인 없이 GAS relay 전환 **금지**.
 - **전환 조건:** OCI Always Free VM의 고정 출구 IPv4 + Toss 허용IP 등록 + `verify-live.mjs` 인증 및 시세 확인 후, GAS Script Properties에 `TOSS_RELAY_URL=https://<subdomain>/v1/fetch`, `TOSS_RELAY_SHARED_KEY`, `TOSS_RELAY_MODE=ON`(가장 마지막) 설정. 인증값을 GitHub·로그·웹에 기록하지 않습니다.
 - **릴레이 동작:** `_tossRequest_` 의 요청만 고정 HTTPS market-data-only relay에 전달. 액세스 토큰은 Oracle relay만 발급·캐시하며 ON 상태에서 GAS의 직접 OAuth 요청을 차단합니다. 302 등 redirect 차단, 비TLS·IP URL·임의 경로·임의 엔드포인트 거부. 호출 실패 시 Toss 시세만 실패로 처리, KRX 대체/유효 공식 종가 제한은 유지. `TOSS_RELAY_MODE=OFF`는 롤백만 수행하며 동일 Toss client 신규 OAuth를 여러 위치에서 발급하지 않도록 VM relay 정지 후 순차 전환.
