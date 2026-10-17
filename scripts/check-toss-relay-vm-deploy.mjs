@@ -1,4 +1,5 @@
 import {EventEmitter} from 'node:events';
+import {createServer as createTcpServer,connect as tcpConnect} from 'node:net';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {spawnSync} from 'node:child_process';
@@ -49,7 +50,7 @@ assert.match(guide,/Toss WTS/);
 assert.match(guide,/GAS.*별도 PR/);
 // The live check must pin the actual TLS connection destination, not merely
 // compare DNS before a second unrestricted fetch that could rebind.
-const {verifyLive,pinnedPost}=await import('../ops/toss-relay/verify-live.mjs');
+const {verifyLive,pinnedPost,pinnedLookup}=await import('../ops/toss-relay/verify-live.mjs');
 const expectedIp='8.8.8.8',host='relay.example.com',key='z'.repeat(64);
 const calls=[];
 const result=await verifyLive({host,ip:expectedIp,key,
@@ -93,8 +94,38 @@ assert.equal(httpsOptions.hostname,host);
 assert.equal(httpsOptions.servername,host);
 assert.equal(httpsOptions.rejectUnauthorized,true);
 assert.equal(httpsOptions.agent,false);
+assert.equal(httpsOptions.family,4);
+assert.equal(httpsOptions.autoSelectFamily,false);
 assert.equal(httpsOptions.headers['x-relay-key'],key);
 await new Promise(resolve=>httpsOptions.lookup(host,{},(err,address,family)=>{
   assert.equal(err,null);assert.equal(address,expectedIp);assert.equal(family,4);resolve();
 }));
+await new Promise(resolve=>httpsOptions.lookup(host,{all:true},(err,records)=>{
+  assert.equal(err,null);
+  assert.deepEqual(records,[{address:expectedIp,family:4}]);
+  resolve();
+}));
+// Use a real Node TCP socket (not only a fake HTTP transport) so Node's
+// address-family/dns lookup contract is exercised in the same runtime as CI.
+const tcpServer=createTcpServer(socket=>socket.end('ok'));
+await new Promise((resolve,reject)=>{
+  tcpServer.once('error',reject);
+  tcpServer.listen(0,'127.0.0.1',resolve);
+});
+try{
+  const socket=await new Promise((resolve,reject)=>{
+    const client=tcpConnect({
+      host:'relay.example.com',
+      port:tcpServer.address().port,
+      family:4,
+      autoSelectFamily:false,
+      lookup:pinnedLookup('127.0.0.1')
+    },()=>resolve(client));
+    client.once('error',reject);
+  });
+  assert.equal(socket.remoteAddress,'127.0.0.1');
+  socket.destroy();
+}finally{
+  await new Promise(resolve=>tcpServer.close(resolve));
+}
 console.log('OCI Toss free static egress IP VM deploy: shell syntax, secrets, scope, TLS, HTTPS and IP guards PASS');
