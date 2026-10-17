@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {summarizeTossDiagnostic} from './diagnose-toss-operational.mjs';
 
 // Exercise production GAS functions, never a hand-written copy of the router.
 const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -30,7 +31,10 @@ function harness(initial={}) {
       put:()=>{throw Error('TOKEN_ISSUE_UNEXPECTED')},
       remove:()=>{throw Error('TOKEN_CACHE_MUTATION_UNEXPECTED')}
     })},
-    Utilities:{sleep:()=>{throw Error('BACKOFF_UNEXPECTED')}},
+    Utilities:{sleep:()=>{throw Error('BACKOFF_UNEXPECTED')},
+      formatDate:()=> '2026-10-16'},
+    today:()=> '2026-10-17',
+    jsonOk:body=>({status:'ok',...body}),
     UrlFetchApp:{fetch:(url,options)=>{
       fetchCalls.push({url,options});
       if(url==='https://openapi.tossinvest.com/api/v1/prices?symbols=005930')
@@ -51,7 +55,8 @@ function harness(initial={}) {
   });
   const names=['_tossRelayConfig_','_tossRelayAction_','_tossRelayRequest_',
     '_tossRequest_','_tossCachedTokenRecord_','_tossCachedAccessToken_',
-    '_tossAccessToken_','fetchPricesToss','fetchHistoricalPricesToss'];
+    '_tossAccessToken_','fetchPricesToss','fetchHistoricalPricesToss',
+    '_tossRelayMarketDataDiagnostic_','handleDiagnoseTossMarketData'];
   for(const name of names)vm.runInContext(extract(name),ctx);
   return {ctx,props,fetchCalls,cacheCalls};
 }
@@ -114,16 +119,19 @@ for (const url of [
   'https://user@relay.example.com/v1/fetch',
   'https://relay..example.com/v1/fetch',
   'https://localhost/v1/fetch',
-  'https://192.168.0.1/v1/fetch'
+  'https://192.168.0.1/v1/fetch',
+  'https://10.0.0.1/v1/fetch'
 ]) {
   const t=harness({...relayProps,TOSS_RELAY_URL:url});
   assert.throws(()=>t.ctx._tossRequest_('/api/v1/prices',{symbols:'005930'}),
     /TOSS_RELAY_CONFIG_INVALID/,url);
   assert.equal(t.fetchCalls.length,0,'bad target must not send secret');
 }
+// Existing standard base64url and base64 secrets must both be accepted.
+assert.equal(harness({...relayProps,TOSS_RELAY_SHARED_KEY:'A+'.repeat(20)+'=='}).ctx._tossRelayConfig_().enabled,true);
 for(const props of [
   {...relayProps,TOSS_RELAY_SHARED_KEY:'short'},
-  {...relayProps,TOSS_RELAY_SHARED_KEY:'a'.repeat(32)+'@'},
+  {...relayProps,TOSS_RELAY_SHARED_KEY:'a'.repeat(32)+'\n'},
 ]) {
   const t=harness(props);
   assert.throws(()=>t.ctx._tossRequest_('/api/v1/prices',{symbols:'005930'}),
@@ -148,5 +156,26 @@ for(const props of [
   });
   assert.throws(()=>t.ctx._tossRequest_('/api/v1/prices',{symbols:'005930'}),
     /TOSS_RELAY_RESPONSE_INVALID/);
+}
+// Preserve the diagnostic contract: UI and headless CLI must recognize
+// delegated OAuth without issuing even one direct OAuth request.
+{
+  const t=harness(relayProps);
+  const data=t.ctx.handleDiagnoseTossMarketData(false);
+  assert.equal(data.status,'ok');
+  assert.equal(data.gasVersion,'9.234');
+  assert.equal(data.oauth.source,'RELAY');
+  assert.equal(data.freshOAuthTested,false);
+  assert.equal(data.endpoints.length,5);
+  assert.equal(data.priceSmoke.symbol,'005930');
+  assert.equal(data.priceSmoke.timestampPresent,true);
+  assert.equal(data.priceSmoke.validLastPrice,true);
+  assert.equal(t.fetchCalls.every(x=>x.url===relayProps.TOSS_RELAY_URL),true);
+  assert.equal(t.cacheCalls.length,0,'diagnostic must not invalidate VM OAuth');
+  const summarized=summarizeTossDiagnostic(data,'9.234');
+  assert.equal(summarized.oauth.source,'RELAY');
+  assert.equal(summarized.coreHealthy,true);
+  assert.equal(summarized.allHealthy,true);
+  assert.equal(summarized.freshOAuthConfirmed,false);
 }
 console.log('GAS 9.234 opt-in Toss HTTPS relay: production direct/OFF parity, ON no OAuth, strict routes, TLS, redirect, secrets and bad response guards PASS');
