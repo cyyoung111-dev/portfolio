@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.233
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.234
 //
+//  v9.234 변경사항 (2026.10.17):
+//  - Toss 고정 IPv4 중계 경로를 비활성 기본값으로 추가; Script Properties 명시 승인 후에만 사용.
+//  - Relay ON 시 GAS 직접 OAuth를 차단, 시장 데이터만 relay로 요청해 1-client token 충돌 방지.
 //  v9.233 변경사항 (2026.10.16):
 //  - KRX 과거 pending 완료검증 선두 2일 고정을 별도 proof 커서 순환으로 전환.
 //  - lease/ScriptLock·회차당 2일·휴장 제외·정합성 증명 성공일만 삭제 유지.
@@ -1540,6 +1543,7 @@ function _tossWithTokenLock_(callback) {
 }
 
 function _tossAccessToken_() {
+  if (_tossRelayConfig_().enabled) return ''; // Relay alone owns client OAuth.
   var cachedToken = _tossCachedAccessToken_();
   if (cachedToken) return cachedToken;
 
@@ -1771,7 +1775,82 @@ function _newPriceLookupTimings_() {
   };
 }
 
+// A market-data-only relay is opt-in AFTER an independently verified OCI VM.
+// OFF by default; never fall through to GAS OAuth when the relay is enabled,
+// because Toss permits only one live token per client.
+function _tossRelayConfig_() {
+  var p = PropertiesService.getScriptProperties();
+  var enabled = String(p.getProperty('TOSS_RELAY_MODE') || '').trim() === 'ON';
+  if (!enabled) return {enabled:false};
+  var url = String(p.getProperty('TOSS_RELAY_URL') || '').trim();
+  var key = String(p.getProperty('TOSS_RELAY_SHARED_KEY') || '').trim();
+  // Accept a single HTTPS DNS hostname and the exact authenticated endpoint.
+  // Reject IP literals, ports, userinfo, fragment, query, redirects or URL tricks.
+  if (!/^https:\/\/[a-z0-9](?:[a-z0-9.-]{1,251})[a-z0-9]\/v1\/fetch$/.test(url) ||
+      url.indexOf('..') !== -1 || key.length < 32 || !/^[A-Za-z0-9_-]+$/.test(key))
+    throw new Error('TOSS_RELAY_CONFIG_INVALID');
+  return {enabled:true,url:url,key:key};
+}
+function _tossRelayAction_(path,query) {
+  var q=query||{}, keys=Object.keys(q);
+  function only(allowed) {
+    for (var i=0;i<keys.length;i++)if(allowed.indexOf(keys[i])<0)
+      throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
+  }
+  if (path==='/api/v1/prices') {
+    only(['symbols']);return {action:'prices',params:{symbols:String(q.symbols||'')}};
+  }
+  if (path==='/api/v1/candles') {
+    only(['symbol','interval','count','before','adjusted']);
+    return {action:'candles',params:q};
+  }
+  if (path==='/api/v1/exchange-rate') {
+    only(['baseCurrency','quoteCurrency']);
+    if(q.baseCurrency!=='USD'||q.quoteCurrency!=='KRW')
+      throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
+    return {action:'exchangeRate',params:{}};
+  }
+  var match=path.match(/^\/api\/v1\/market-calendar\/(KR|US)$/);
+  if(match){only(['date']);return {action:'calendar',params:{market:match[1],date:q.date}};}
+  if(path==='/api/v1/market-indicators/prices'){
+    only(['symbols']);return {action:'indicatorPrices',params:{symbols:q.symbols}};
+  }
+  match=path.match(/^\/api\/v1\/market-indicators\/(KOSPI|KOSDAQ|KR_BOND_(?:2|3|5|10|20|30)Y)\/candles$/);
+  if(match){only(['interval','count','before']);return {action:'indicatorCandles',params:{
+    index:match[1],interval:q.interval,count:q.count,before:q.before
+  }};}
+  throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
+}
+function _tossRelayRequest_(config,path,query,timings) {
+  var started=Date.now(), response;
+  var body=_tossRelayAction_(path,query);
+  try {
+    response=UrlFetchApp.fetch(config.url,{
+      method:'post',contentType:'application/json',
+      headers:{'x-relay-key':config.key},
+      payload:JSON.stringify(body),muteHttpExceptions:true,
+      followRedirects:false,validateHttpsCertificates:true
+    });
+  }catch(ignore){
+    _priceTimingAdd_(timings,'tossPricesHttp',started);
+    throw new Error('TOSS_RELAY_NETWORK_ERROR');
+  }
+  _priceTimingAdd_(timings,'tossPricesHttp',started);
+  var status=response.getResponseCode();
+  // A 30x is never followed: prevents the relay secret leaking through redirects.
+  if(status!==200)throw new Error('TOSS_RELAY_HTTP_'+String(status));
+  var parsed;
+  try{parsed=JSON.parse(response.getContentText()||'{}');}
+  catch(ignoreJson){throw new Error('TOSS_RELAY_RESPONSE_INVALID');}
+  if(parsed?.ok!==true||parsed?.status!==200||!parsed.data||
+      typeof parsed.data!=='object'||Array.isArray(parsed.data))
+    throw new Error('TOSS_RELAY_RESPONSE_INVALID');
+  return parsed.data;
+}
+
 function _tossRequest_(path, query, group, timings) {
+  var relay=_tossRelayConfig_();
+  if (relay.enabled) return _tossRelayRequest_(relay,path,query,timings);
   var tokenStartedMs = Date.now();
   var token = _tossAccessToken_();
   _priceTimingAdd_(timings, 'tossToken', tokenStartedMs);
@@ -1849,7 +1928,8 @@ function fetchPricesToss(items, timings, providerMeta) {
     return normalized;
   }).filter(Boolean);
   var credentials = _tossProperties_();
-  if (!symbols.length || symbols.length > 200 || !credentials.id || !credentials.secret) {
+  var usingRelay=_tossRelayConfig_().enabled;
+  if (!symbols.length || symbols.length > 200 || (!usingRelay && (!credentials.id || !credentials.secret))) {
     if (providerMeta) {
       providerMeta.attempted = false;
       providerMeta.status = 'NOT_RUN';
@@ -1880,7 +1960,7 @@ function fetchHistoricalPricesToss(items, targetDate) {
   var output = {};
   (items || []).forEach(function(item) {
     var symbol = _tossSymbol_(item);
-    if (!symbol || !_tossProperties_().id) return;
+    if (!symbol || (!_tossRelayConfig_().enabled && !_tossProperties_().id)) return;
     var before = '';
     var guard = 0;
     while (guard++ < 100) {
@@ -1987,6 +2067,9 @@ function _tossPriceSmoke_(token) {
 }
 
 function handleDiagnoseTossMarketData(forceFreshOAuth) {
+  // Direct OAuth diagnostics would revoke the sole token owned by OCI relay.
+  if (_tossRelayConfig_().enabled) return jsonOk({toss:{mode:'RELAY_ACTIVE',
+    code:'DIRECT_OAUTH_DIAGNOSTIC_DISABLED',configured:true}});
   var token = '', oauth;
   var egressProbe = _probeTossDiagnosticEgressIp_();
   try {
@@ -2055,7 +2138,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.233', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.234', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5798,7 +5881,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.233' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.234' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11875,7 +11958,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.233',
+    gasVersion: '9.234',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11922,7 +12005,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.233' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.234' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15533,7 +15616,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.233' });
+    return jsonOk({ settings: settings, gasVersion: '9.234' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15563,7 +15646,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.233'
+      gasVersion: '9.234'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
