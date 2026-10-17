@@ -191,6 +191,23 @@ for(const props of [
   assert.equal(t.cacheCalls.length,0,
     'lock waiter must not inspect/revoke token cache after relay ON');
 }
+// A relay timeout must not fan out into six more 18s VM calls. Keep the
+// legacy response shape, suppress expensive follow-ups and never mint OAuth.
+{
+  const t=harness(relayProps);
+  t.ctx.UrlFetchApp.fetch=(_url,options)=>{
+    t.fetchCalls.push({url:_url,options});
+    throw Error('mock upstream unresponsive');
+  };
+  const out=t.ctx.handleDiagnoseTossMarketData(false);
+  assert.equal(t.fetchCalls.length,1,'first failed relay request stops probe fan-out');
+  assert.equal(out.endpoints.length,5);
+  assert.equal(out.endpoints[0].code,'RELAY_REQUEST_FAILED');
+  assert.ok(out.endpoints.slice(1).every(x=>x.code==='SKIPPED_RELAY_UNAVAILABLE'));
+  assert.equal(out.priceSmoke.code,'SKIPPED_RELAY_UNAVAILABLE');
+  assert.equal(out.ok,false);
+  assert.equal(t.cacheCalls.length,0,'relay diagnostics must not use direct OAuth');
+}
 // Preserve the diagnostic contract: UI and headless CLI must recognize
 // delegated OAuth without issuing even one direct OAuth request.
 {
