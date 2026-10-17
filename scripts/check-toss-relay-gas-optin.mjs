@@ -25,7 +25,7 @@ function harness(initial={}) {
     TOSS_TOKEN_CACHE_KEY:'toss_oauth_token_v1',
     TOSS_TOKEN_SKEW_SECONDS:60,
     CacheService:{getScriptCache:()=>({
-      get:()=>{cacheCalls.push('get');return JSON.stringify({
+      get:()=>{cacheCalls.push('get');if(props.__cacheMiss)return null;return JSON.stringify({
         accessToken:'previous-direct-token',expiresAt:Date.now()+3600000
       })},
       put:()=>{throw Error('TOKEN_ISSUE_UNEXPECTED')},
@@ -48,6 +48,10 @@ function harness(initial={}) {
         })};
       throw Error('UNEXPECTED_NETWORK_ENDPOINT');
     }},
+    LockService:{getScriptLock:()=>({
+      waitLock:()=>{if(props.__switchOnWait)props.TOSS_RELAY_MODE='ON';},
+      releaseLock:()=>{}
+    })},
     _tossSafeError_:()=>'', _priceTimingAdd_:()=>{},
     _tossProperties_:()=>({id:'mock-direct-id',secret:'mock-direct-secret'}),
     _tossSymbol_:item=>item.tossSymbol||item.code||'',
@@ -55,6 +59,9 @@ function harness(initial={}) {
   });
   const names=['_tossRelayConfig_','_tossRelayAction_','_tossRelayRequest_',
     '_tossRequest_','_tossCachedTokenRecord_','_tossCachedAccessToken_',
+    '_tossWithTokenLock_','_tossIssueAccessTokenUnlocked_',
+    '_refreshTossAccessTokenAfter401_','_tossDiagnosticIssueAccessTokenUnlocked_',
+    '_tossDiagnosticAccessToken_','_tossDiagnosticSharedToken_',
     '_tossAccessToken_','fetchPricesToss','fetchHistoricalPricesToss',
     '_tossRelayMarketDataDiagnostic_','handleDiagnoseTossMarketData'];
   for(const name of names)vm.runInContext(extract(name),ctx);
@@ -156,6 +163,33 @@ for(const props of [
   });
   assert.throws(()=>t.ctx._tossRequest_('/api/v1/prices',{symbols:'005930'}),
     /TOSS_RELAY_RESPONSE_INVALID/);
+}
+// Operator may flip relay ON WHILE a direct token caller waits for ScriptLock.
+// Such callers must never create/refresh OAuth or touch existing token cache.
+{
+  const t=harness({TOSS_RELAY_MODE:'OFF',__cacheMiss:true,__switchOnWait:true});
+  assert.equal(t.ctx._tossAccessToken_(),'',
+    'cache miss waiter must not issue OAuth after switching ON');
+  assert.equal(t.props.TOSS_RELAY_MODE,'ON');
+  assert.equal(t.fetchCalls.length,0);
+  assert.equal(t.ctx._tossIssueAccessTokenUnlocked_(),'');
+  const meta={};
+  assert.equal(t.ctx._refreshTossAccessTokenAfter401_('old',meta),'');
+  assert.equal(meta.source,'RELAY');
+  const d=t.ctx._tossDiagnosticAccessToken_();
+  assert.equal(d.ok,false);
+  assert.equal(d.code,'RELAY_OAUTH_DELEGATED');
+  assert.equal(d.source,'RELAY');
+  assert.equal(t.fetchCalls.length,0,'not one direct OAuth request');
+}
+{
+  const t=harness({TOSS_RELAY_MODE:'OFF',__switchOnWait:true});
+  const meta={};
+  assert.equal(t.ctx._refreshTossAccessTokenAfter401_('old',meta),'');
+  assert.equal(meta.source,'RELAY');
+  assert.equal(t.fetchCalls.length,0);
+  assert.equal(t.cacheCalls.length,0,
+    'lock waiter must not inspect/revoke token cache after relay ON');
 }
 // Preserve the diagnostic contract: UI and headless CLI must recognize
 // delegated OAuth without issuing even one direct OAuth request.
