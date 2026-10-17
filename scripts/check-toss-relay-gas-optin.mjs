@@ -45,6 +45,7 @@ function harness(initial={}) {
       throw Error('UNEXPECTED_NETWORK_ENDPOINT');
     }},
     _tossSafeError_:()=>'', _priceTimingAdd_:()=>{},
+    _tossProperties_:()=>({id:'mock-direct-id',secret:'mock-direct-secret'}),
     _tossSymbol_:item=>item.tossSymbol||item.code||'',
     _normalizeTossSymbol_:v=>String(v).trim().toUpperCase().replace(/^A(?=\d{6}$)/,'')
   });
