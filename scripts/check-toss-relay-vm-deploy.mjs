@@ -113,18 +113,19 @@ await new Promise((resolve,reject)=>{
   tcpServer.listen(0,'127.0.0.1',resolve);
 });
 try{
-  const socket=await new Promise((resolve,reject)=>{
+  await new Promise((resolve,reject)=>{
     const client=tcpConnect({
       host:'relay.example.com',
       port:tcpServer.address().port,
       family:4,
       autoSelectFamily:false,
       lookup:pinnedLookup('127.0.0.1')
-    },()=>resolve(client));
+    });
+    client.once('connect',()=>assert.equal(client.remoteAddress,'127.0.0.1'));
     client.once('error',reject);
+    client.once('end',resolve);
+    client.resume(); // Consume remote FIN normally; do not reset the server TCP socket.
   });
-  assert.equal(socket.remoteAddress,'127.0.0.1');
-  socket.destroy();
 }finally{
   await new Promise(resolve=>tcpServer.close(resolve));
 }
