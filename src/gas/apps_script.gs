@@ -1791,7 +1791,7 @@ function _tossRelayConfig_() {
   if (!host || host.indexOf('.')<0 || host.indexOf('..')!==-1 ||
       /^(?:\d+\.){3}\d+$/.test(host) ||
       /\.(?:local|localhost|internal|test|example|invalid)$/.test(host) ||
-      key.length<32 || key.length>512 || !/^[!-~]+$/.test(key))
+      key.length<32 || key.length>512 || !/^[A-Za-z0-9_+\/=-]+$/.test(key))
     throw new Error('TOSS_RELAY_CONFIG_INVALID');
   return {enabled:true,url:url,key:key};
 }
