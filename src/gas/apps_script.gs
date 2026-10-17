@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.233
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.234
 //
+//  v9.234 변경사항 (2026.10.17):
+//  - Toss 고정 IPv4 중계 경로를 비활성 기본값으로 추가; Script Properties 명시 승인 후에만 사용.
+//  - Relay ON 시 GAS 직접 OAuth를 차단, 시장 데이터만 relay로 요청해 1-client token 충돌 방지.
 //  v9.233 변경사항 (2026.10.16):
 //  - KRX 과거 pending 완료검증 선두 2일 고정을 별도 proof 커서 순환으로 전환.
 //  - lease/ScriptLock·회차당 2일·휴장 제외·정합성 증명 성공일만 삭제 유지.
@@ -1509,8 +1512,12 @@ function _tossCachedAccessToken_() {
 }
 
 function _tossIssueAccessTokenUnlocked_() {
+  // Check at the actual issue boundary, not only before waiting for lock.
+  // Flipping relay ON while GAS waits must not revoke the VM-owned token.
+  if (_tossRelayConfig_().enabled) return '';
   var credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return '';
+  if (_tossRelayConfig_().enabled) return '';
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
     method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
     payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
@@ -1540,12 +1547,15 @@ function _tossWithTokenLock_(callback) {
 }
 
 function _tossAccessToken_() {
+  if (_tossRelayConfig_().enabled) return ''; // Relay alone owns client OAuth.
   var cachedToken = _tossCachedAccessToken_();
   if (cachedToken) return cachedToken;
 
   // Toss는 새 client_credentials token 발급 시 기존 token이 무효화될 수 있으므로,
   // cache miss 동시 실행을 single-flight로 직렬화합니다.
   return _tossWithTokenLock_(function() {
+    // A waiting OFF caller may resume after operator has switched to ON.
+    if (_tossRelayConfig_().enabled) return '';
     // 다른 실행이 lock 대기 중 token을 발급했을 수 있으므로 반드시 재확인합니다.
     var tokenAfterLock = _tossCachedAccessToken_();
     return tokenAfterLock || _tossIssueAccessTokenUnlocked_();
@@ -1555,6 +1565,11 @@ function _tossAccessToken_() {
 function _refreshTossAccessTokenAfter401_(rejectedToken, recoveryMeta) {
   // 선택적 진단 메타만 추가합니다. 일반 getPrices 호출 계약과 동작은 그대로 둡니다.
   return _tossWithTokenLock_(function() {
+    // Do not invalidate or refresh cached direct credentials after relay ON.
+    if (_tossRelayConfig_().enabled) {
+      if (recoveryMeta) recoveryMeta.source = 'RELAY';
+      return '';
+    }
     var cache = CacheService.getScriptCache();
     var current = _tossCachedTokenRecord_();
     var currentValid = current && Number(current.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000;
@@ -1714,9 +1729,17 @@ function _tossDiagnosticAccessToken_() {
 // 별도 Lock 객체로 재진입하면 기존 잠금의 해제를 기다리며 교착될 수 있습니다.
 function _tossDiagnosticIssueAccessTokenUnlocked_() {
   var startedAt = Date.now();
+  if (_tossRelayConfig_().enabled)
+    return {ok:false,status:null,code:'RELAY_OAUTH_DELEGATED',
+      providerCode:'',source:'RELAY',token:'',requestId:'',
+      referenceId:'',edgeRequestId:'',elapsedMs:Date.now()-startedAt};
   // lock 대기 중 설정이 바뀔 수 있으므로 자격증명은 반드시 lock 획득 후 다시 읽습니다.
   var credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
+  if (_tossRelayConfig_().enabled)
+    return {ok:false,status:null,code:'RELAY_OAUTH_DELEGATED',
+      providerCode:'',source:'RELAY',token:'',requestId:'',
+      referenceId:'',edgeRequestId:'',elapsedMs:Date.now()-startedAt};
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
     method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
     payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
@@ -1771,7 +1794,88 @@ function _newPriceLookupTimings_() {
   };
 }
 
+// A market-data-only relay is opt-in AFTER an independently verified OCI VM.
+// OFF by default; never fall through to GAS OAuth when the relay is enabled,
+// because Toss permits only one live token per client.
+function _tossRelayConfig_() {
+  var p = PropertiesService.getScriptProperties();
+  var enabled = String(p.getProperty('TOSS_RELAY_MODE') || '').trim() === 'ON';
+  if (!enabled) return {enabled:false};
+  var url = String(p.getProperty('TOSS_RELAY_URL') || '').trim();
+  var key = String(p.getProperty('TOSS_RELAY_SHARED_KEY') || '');
+  // Do not trim or normalize secrets: CR/LF and spaces must be rejected,
+  // not silently accepted as a different header value.
+  // Accept a single HTTPS DNS hostname and the exact authenticated endpoint.
+  // Reject IP literals, ports, userinfo, fragment, query, redirects or URL tricks.
+  var match=url.match(/^https:\/\/([a-z0-9][a-z0-9.-]{1,251}[a-z0-9])\/v1\/fetch$/);
+  var host=match ? match[1] : '';
+  if (!host || host.indexOf('.')<0 || host.indexOf('..')!==-1 ||
+      /^(?:\d+\.){3}\d+$/.test(host) ||
+      /\.(?:local|localhost|internal|test|example|invalid)$/.test(host) ||
+      key.length<32 || key.length>512 || !/^[A-Za-z0-9_+\/=-]+$/.test(key))
+    throw new Error('TOSS_RELAY_CONFIG_INVALID');
+  return {enabled:true,url:url,key:key};
+}
+function _tossRelayAction_(path,query) {
+  var q=query||{}, keys=Object.keys(q);
+  function only(allowed) {
+    for (var i=0;i<keys.length;i++)if(allowed.indexOf(keys[i])<0)
+      throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
+  }
+  if (path==='/api/v1/prices') {
+    only(['symbols']);return {action:'prices',params:{symbols:String(q.symbols||'')}};
+  }
+  if (path==='/api/v1/candles') {
+    only(['symbol','interval','count','before','adjusted']);
+    return {action:'candles',params:q};
+  }
+  if (path==='/api/v1/exchange-rate') {
+    only(['baseCurrency','quoteCurrency']);
+    if(q.baseCurrency!=='USD'||q.quoteCurrency!=='KRW')
+      throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
+    return {action:'exchangeRate',params:{}};
+  }
+  var match=path.match(/^\/api\/v1\/market-calendar\/(KR|US)$/);
+  if(match){only(['date']);return {action:'calendar',params:{market:match[1],date:q.date}};}
+  if(path==='/api/v1/market-indicators/prices'){
+    only(['symbols']);return {action:'indicatorPrices',params:{symbols:q.symbols}};
+  }
+  match=path.match(/^\/api\/v1\/market-indicators\/(KOSPI|KOSDAQ|KR_BOND_(?:2|3|5|10|20|30)Y)\/candles$/);
+  if(match){only(['interval','count','before']);return {action:'indicatorCandles',params:{
+    index:match[1],interval:q.interval,count:q.count,before:q.before
+  }};}
+  throw new Error('TOSS_RELAY_ROUTE_NOT_ALLOWED');
+}
+function _tossRelayRequest_(config,path,query,timings) {
+  var started=Date.now(), response;
+  var body=_tossRelayAction_(path,query);
+  try {
+    response=UrlFetchApp.fetch(config.url,{
+      method:'post',contentType:'application/json',
+      headers:{'x-relay-key':config.key},
+      payload:JSON.stringify(body),muteHttpExceptions:true,
+      followRedirects:false,validateHttpsCertificates:true
+    });
+  }catch(ignore){
+    _priceTimingAdd_(timings,'tossPricesHttp',started);
+    throw new Error('TOSS_RELAY_NETWORK_ERROR');
+  }
+  _priceTimingAdd_(timings,'tossPricesHttp',started);
+  var status=response.getResponseCode();
+  // A 30x is never followed: prevents the relay secret leaking through redirects.
+  if(status!==200)throw new Error('TOSS_RELAY_HTTP_'+String(status));
+  var parsed;
+  try{parsed=JSON.parse(response.getContentText()||'{}');}
+  catch(ignoreJson){throw new Error('TOSS_RELAY_RESPONSE_INVALID');}
+  if(parsed?.ok!==true||parsed?.status!==200||!parsed.data||
+      typeof parsed.data!=='object'||Array.isArray(parsed.data))
+    throw new Error('TOSS_RELAY_RESPONSE_INVALID');
+  return parsed.data;
+}
+
 function _tossRequest_(path, query, group, timings) {
+  var relay=_tossRelayConfig_();
+  if (relay.enabled) return _tossRelayRequest_(relay,path,query,timings);
   var tokenStartedMs = Date.now();
   var token = _tossAccessToken_();
   _priceTimingAdd_(timings, 'tossToken', tokenStartedMs);
@@ -1849,7 +1953,8 @@ function fetchPricesToss(items, timings, providerMeta) {
     return normalized;
   }).filter(Boolean);
   var credentials = _tossProperties_();
-  if (!symbols.length || symbols.length > 200 || !credentials.id || !credentials.secret) {
+  var usingRelay=_tossRelayConfig_().enabled;
+  if (!symbols.length || symbols.length > 200 || (!usingRelay && (!credentials.id || !credentials.secret))) {
     if (providerMeta) {
       providerMeta.attempted = false;
       providerMeta.status = 'NOT_RUN';
@@ -1880,7 +1985,7 @@ function fetchHistoricalPricesToss(items, targetDate) {
   var output = {};
   (items || []).forEach(function(item) {
     var symbol = _tossSymbol_(item);
-    if (!symbol || !_tossProperties_().id) return;
+    if (!symbol || (!_tossRelayConfig_().enabled && !_tossProperties_().id)) return;
     var before = '';
     var guard = 0;
     while (guard++ < 100) {
@@ -1986,7 +2091,82 @@ function _tossPriceSmoke_(token) {
   }
 }
 
+// Preserve the same public diagnostic contract as direct Toss mode. Relay
+// token issuance occurs ONLY on the VM, so the GAS diagnostic never revokes it.
+function _tossRelayMarketDataDiagnostic_() {
+  var config=_tossRelayConfig_(),checks=[],statusCodes={};
+  // The UI has a 30s timeout. Avoid six sequential slow relay probes
+  // during outages; preserve the full five-endpoint response shape.
+  var deadline=Date.now()+20000,relayUnavailable=false;
+  var targets=[
+    ['exchangeRate','/api/v1/exchange-rate',{baseCurrency:'USD',quoteCurrency:'KRW'}],
+    ['marketCalendarKR','/api/v1/market-calendar/KR',{date:today()}],
+    ['marketCalendarUS','/api/v1/market-calendar/US',
+      {date:Utilities.formatDate(new Date(),'America/New_York','yyyy-MM-dd')}],
+    ['marketIndicatorPrices','/api/v1/market-indicators/prices',{symbols:'KOSPI,KOSDAQ'}],
+    ['marketIndicatorCandles','/api/v1/market-indicators/KOSPI/candles',{interval:'1d',count:1}]
+  ];
+  targets.forEach(function(target){
+    var started=Date.now(),row={};
+    if(relayUnavailable || Date.now()>=deadline){
+      checks.push({name:target[0],endpoint:target[1],ok:false,status:null,
+        code:'SKIPPED_RELAY_UNAVAILABLE',providerCode:'',count:0,elapsedMs:0});
+      return;
+    }
+    try {
+      var result=_tossRelayRequest_(config,target[1],target[2]);
+      var part=result && result.result;
+      var count=Array.isArray(part)?part.length:
+        (part && typeof part==='object'?Object.keys(part).length:0);
+      row={name:target[0],endpoint:target[1],ok:true,status:200,code:'OK',
+        providerCode:'',count:count,elapsedMs:Date.now()-started};
+    }catch(ignore){
+      // On a failed relay request, querying five more endpoints may exceed
+      // both browser and headless observation timeouts.
+      relayUnavailable=true;
+      row={name:target[0],endpoint:target[1],ok:false,status:null,
+        code:'RELAY_REQUEST_FAILED',providerCode:'',count:0,
+        elapsedMs:Date.now()-started};
+    }
+    checks.push(row);
+  });
+  var smoke={ok:false,status:null,code:'RELAY_REQUEST_FAILED',resultCount:0,
+    symbol:'005930',validLastPrice:false,timestampPresent:false,elapsedMs:0};
+  var smokeStarted=Date.now();
+  if(relayUnavailable || Date.now()>=deadline){
+    smoke.code='SKIPPED_RELAY_UNAVAILABLE';
+  }else try {
+    var result=_tossRelayRequest_(config,'/api/v1/prices',{symbols:'005930'});
+    var items=result && Array.isArray(result.result)?result.result:[];
+    var item=items.filter(function(x) {return _normalizeTossSymbol_(x.symbol)==='005930';})[0];
+    smoke={ok:!!item&&Number(item.lastPrice)>0&&!!item.timestamp,status:200,
+      code:!!item&&Number(item.lastPrice)>0&&!!item.timestamp?'OK':'PRICE_SMOKE_INVALID',
+      resultCount:items.length,symbol:'005930',
+      validLastPrice:!!item&&Number(item.lastPrice)>0,
+      timestampPresent:!!item&&!!item.timestamp,elapsedMs:Date.now()-smokeStarted};
+  }catch(ignoreSmoke){smoke.elapsedMs=Date.now()-smokeStarted;}
+  var providerAvailable=smoke.ok||checks.some(function(x){return x.ok;});
+  var oauth={stage:'oauth',ok:providerAvailable,status:providerAvailable?200:null,
+    code:providerAvailable?'RELAY_OAUTH_DELEGATED':'RELAY_UNVERIFIED',
+    providerCode:'',source:'RELAY',elapsedMs:0};
+  var overallOk=providerAvailable&&smoke.ok&&checks.every(function(x){return x.ok;});
+  var code=overallOk?'OK':'RELAY_PROBES_INCOMPLETE';
+  try {
+    var props=PropertiesService.getScriptProperties();
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_AT',new Date().toISOString());
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
+  }catch(ignoreProps){}
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.234',
+    generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
+    freshOAuthTested:false,
+    egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
+      observedOnly:true,attempts:[],elapsedMs:0},
+    oauth:oauth,endpoints:checks,priceSmoke:smoke});
+}
 function handleDiagnoseTossMarketData(forceFreshOAuth) {
+  // Direct OAuth diagnostics would revoke the sole token owned by OCI relay.
+  if (_tossRelayConfig_().enabled) return _tossRelayMarketDataDiagnostic_();
   var token = '', oauth;
   var egressProbe = _probeTossDiagnosticEgressIp_();
   try {
@@ -2055,7 +2235,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.233', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.234', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5798,7 +5978,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.233' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.234' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -11875,7 +12055,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.233',
+    gasVersion: '9.234',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -11922,7 +12102,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.233' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.234' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15533,7 +15713,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.233' });
+    return jsonOk({ settings: settings, gasVersion: '9.234' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15563,7 +15743,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.233'
+      gasVersion: '9.234'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
