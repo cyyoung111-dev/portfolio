@@ -1783,7 +1783,9 @@ function _tossRelayConfig_() {
   var enabled = String(p.getProperty('TOSS_RELAY_MODE') || '').trim() === 'ON';
   if (!enabled) return {enabled:false};
   var url = String(p.getProperty('TOSS_RELAY_URL') || '').trim();
-  var key = String(p.getProperty('TOSS_RELAY_SHARED_KEY') || '').trim();
+  var key = String(p.getProperty('TOSS_RELAY_SHARED_KEY') || '');
+  // Do not trim or normalize secrets: CR/LF and spaces must be rejected,
+  // not silently accepted as a different header value.
   // Accept a single HTTPS DNS hostname and the exact authenticated endpoint.
   // Reject IP literals, ports, userinfo, fragment, query, redirects or URL tricks.
   var match=url.match(/^https:\/\/([a-z0-9][a-z0-9.-]{1,251}[a-z0-9])\/v1\/fetch$/);
