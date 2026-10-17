@@ -86,7 +86,7 @@ sudo env TOSS_RELAY_DOMAIN=relay-example.duckdns.org \
 ```bash
 cd ~/portfolio
 sudo env TOSS_RELAY_DOMAIN=relay-example.duckdns.org \
-  node ops/toss-relay/verify-live.mjs
+  TOSS_RESERVED_IP=203.0.113.5 node ops/toss-relay/verify-live.mjs
 ```
 
 `result:PASS`면 005930 현재가 HTTP 200, 유효한 가격·시각 존재, 비인증 요청 401 검증 완료. 단 현재가 성공은 **2026-10-16 공식 종가 확정이나 전체 37종목 커버리지의 증거가 아님**. Toss 403 `ip-not-allowed`면 실제 outgoing IP/Toss 설정값/적용 시간을 재확인하며, 비밀번호·토큰 원문 출력 금지.
