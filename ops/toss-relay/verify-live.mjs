@@ -22,6 +22,12 @@ function publicV4(ip){
     &&n[0]!==169&&!(n[0]===172&&n[1]>=16&&n[1]<=31)
     &&!(n[0]===192&&n[1]===168)&&!(n[0]===100&&n[1]>=64&&n[1]<=127);
 }
+// The actual Node socket resolver (not merely a preflight DNS check).
+// Handle Node >=22's options.all=true callback contract as well.
+export function pinnedLookup(ip){
+  return (_name,options,done)=>options?.all===true
+    ? done(null,[{address:ip,family:4}]) : done(null,ip,4);
+}
 // IP fixed for the actual TCP socket, domain retained for Host + TLS SNI and
 // certificate verification. Never use a redirect or an untrusted IP response.
 export function pinnedPost({host,ip,sharedKey='',transport=https,timeoutMs=26000}){
@@ -35,8 +41,7 @@ export function pinnedPost({host,ip,sharedKey='',transport=https,timeoutMs=26000
       // Node >=22 defaults to auto address-family selection; explicitly lock
       // IPv4 and support both lookup(all) callback shapes without DNS fallback.
       family:4,autoSelectFamily:false,
-      lookup:(_name,options,done)=>options?.all===true
-        ? done(null,[{address:ip,family:4}]) : done(null,ip,4)
+      lookup:pinnedLookup(ip)
     },response=>{
       let raw='',bytes=0;
       response.on('data',chunk=>{
