@@ -167,7 +167,7 @@ for(const props of [
 // Operator may flip relay ON WHILE a direct token caller waits for ScriptLock.
 // Such callers must never create/refresh OAuth or touch existing token cache.
 {
-  const t=harness({TOSS_RELAY_MODE:'OFF',__cacheMiss:true,__switchOnWait:true});
+  const t=harness({...relayProps,TOSS_RELAY_MODE:'OFF',__cacheMiss:true,__switchOnWait:true});
   assert.equal(t.ctx._tossAccessToken_(),'',
     'cache miss waiter must not issue OAuth after switching ON');
   assert.equal(t.props.TOSS_RELAY_MODE,'ON');
@@ -183,7 +183,7 @@ for(const props of [
   assert.equal(t.fetchCalls.length,0,'not one direct OAuth request');
 }
 {
-  const t=harness({TOSS_RELAY_MODE:'OFF',__switchOnWait:true});
+  const t=harness({...relayProps,TOSS_RELAY_MODE:'OFF',__switchOnWait:true});
   const meta={};
   assert.equal(t.ctx._refreshTossAccessTokenAfter401_('old',meta),'');
   assert.equal(meta.source,'RELAY');
