@@ -1786,8 +1786,12 @@ function _tossRelayConfig_() {
   var key = String(p.getProperty('TOSS_RELAY_SHARED_KEY') || '').trim();
   // Accept a single HTTPS DNS hostname and the exact authenticated endpoint.
   // Reject IP literals, ports, userinfo, fragment, query, redirects or URL tricks.
-  if (!/^https:\/\/[a-z0-9](?:[a-z0-9.-]{1,251})[a-z0-9]\/v1\/fetch$/.test(url) ||
-      url.indexOf('..') !== -1 || key.length < 32 || !/^[A-Za-z0-9_-]+$/.test(key))
+  var match=url.match(/^https:\/\/([a-z0-9][a-z0-9.-]{1,251}[a-z0-9])\/v1\/fetch$/);
+  var host=match ? match[1] : '';
+  if (!host || host.indexOf('.')<0 || host.indexOf('..')!==-1 ||
+      /^(?:\d+\.){3}\d+$/.test(host) ||
+      /\.(?:local|localhost|internal|test|example|invalid)$/.test(host) ||
+      key.length<32 || !/^[A-Za-z0-9_-]+$/.test(key))
     throw new Error('TOSS_RELAY_CONFIG_INVALID');
   return {enabled:true,url:url,key:key};
 }
