@@ -32,7 +32,11 @@ export function pinnedPost({host,ip,sharedKey='',transport=https,timeoutMs=26000
     const req=transport.request({
       protocol:'https:',hostname:host,servername:host,port:443,path:'/v1/fetch',
       method:'POST',headers,agent:false,rejectUnauthorized:true,
-      lookup:(_name,_options,done)=>done(null,ip,4)
+      // Node >=22 defaults to auto address-family selection; explicitly lock
+      // IPv4 and support both lookup(all) callback shapes without DNS fallback.
+      family:4,autoSelectFamily:false,
+      lookup:(_name,options,done)=>options?.all===true
+        ? done(null,[{address:ip,family:4}]) : done(null,ip,4)
     },response=>{
       let raw='',bytes=0;
       response.on('data',chunk=>{
