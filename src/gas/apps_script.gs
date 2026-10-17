@@ -2095,6 +2095,9 @@ function _tossPriceSmoke_(token) {
 // token issuance occurs ONLY on the VM, so the GAS diagnostic never revokes it.
 function _tossRelayMarketDataDiagnostic_() {
   var config=_tossRelayConfig_(),checks=[],statusCodes={};
+  // The UI has a 30s timeout. Avoid six sequential slow relay probes
+  // during outages; preserve the full five-endpoint response shape.
+  var deadline=Date.now()+20000,relayUnavailable=false;
   var targets=[
     ['exchangeRate','/api/v1/exchange-rate',{baseCurrency:'USD',quoteCurrency:'KRW'}],
     ['marketCalendarKR','/api/v1/market-calendar/KR',{date:today()}],
@@ -2105,6 +2108,11 @@ function _tossRelayMarketDataDiagnostic_() {
   ];
   targets.forEach(function(target){
     var started=Date.now(),row={};
+    if(relayUnavailable || Date.now()>=deadline){
+      checks.push({name:target[0],endpoint:target[1],ok:false,status:null,
+        code:'SKIPPED_RELAY_UNAVAILABLE',providerCode:'',count:0,elapsedMs:0});
+      return;
+    }
     try {
       var result=_tossRelayRequest_(config,target[1],target[2]);
       var part=result && result.result;
@@ -2113,6 +2121,9 @@ function _tossRelayMarketDataDiagnostic_() {
       row={name:target[0],endpoint:target[1],ok:true,status:200,code:'OK',
         providerCode:'',count:count,elapsedMs:Date.now()-started};
     }catch(ignore){
+      // On a failed relay request, querying five more endpoints may exceed
+      // both browser and headless observation timeouts.
+      relayUnavailable=true;
       row={name:target[0],endpoint:target[1],ok:false,status:null,
         code:'RELAY_REQUEST_FAILED',providerCode:'',count:0,
         elapsedMs:Date.now()-started};
@@ -2122,7 +2133,9 @@ function _tossRelayMarketDataDiagnostic_() {
   var smoke={ok:false,status:null,code:'RELAY_REQUEST_FAILED',resultCount:0,
     symbol:'005930',validLastPrice:false,timestampPresent:false,elapsedMs:0};
   var smokeStarted=Date.now();
-  try {
+  if(relayUnavailable || Date.now()>=deadline){
+    smoke.code='SKIPPED_RELAY_UNAVAILABLE';
+  }else try {
     var result=_tossRelayRequest_(config,'/api/v1/prices',{symbols:'005930'});
     var items=result && Array.isArray(result.result)?result.result:[];
     var item=items.filter(function(x) {return _normalizeTossSymbol_(x.symbol)==='005930';})[0];
