@@ -92,7 +92,7 @@ async function main(){
   if(!hostValid(host)||!publicV4(ip))throw Error('PINNED_TARGET_INVALID');
   const contents=fs.readFileSync('/etc/toss-relay/env','utf8');
   const key=contents.split(/\r?\n/).find(x=>x.startsWith('TOSS_RELAY_SHARED_KEY='))?.slice(22).trim();
-  if(!key||!/^[A-Za-z0-9_-]{32,}$/.test(key))throw Error('PRIVATE_SHARED_KEY_INVALID');
+  if(!key||!/^[A-Za-z0-9_+/=-]{32,512}$/.test(key))throw Error('PRIVATE_SHARED_KEY_INVALID');
   const result=await verifyLive({host,ip,key});
   console.log(JSON.stringify(result));
   if(result.result!=='PASS')process.exitCode=1;
