@@ -57,7 +57,7 @@ openssl rand -hex 32
 sudoedit /etc/toss-relay/env
 ```
 
-`openssl`이 출력한 64자리 난수는 복사해 **VM 내부 env 파일에만** 입력. 기존 파일의 세 줄을 채움:
+`openssl`이 출력한 64자리 난수는 복사해 **VM 내부 env 파일에만** 입력. 기존 표준 base64(`+`·`/`·`=` 포함) 키와 base64url도 지원하지만 shell-safe한 64자리 hex를 권장합니다. 양쪽 GAS/VM에서 같은 키를 사용해야 합니다. 기존 파일의 세 줄을 채움:
 
 ```text
 TOSS_CLIENT_ID=<Toss WTS Client ID>
