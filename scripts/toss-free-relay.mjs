@@ -121,11 +121,11 @@ export function createTossRelay({clientId,clientSecret,sharedKey,fetchImpl=fetch
     const hash=createHash('sha256').update(String(key||'')).digest();
     return timingSafeEqual(keyHash,hash);
   }
-  async function issueToken(){
+  async function issueToken(deadline){
     const body=new URLSearchParams({grant_type:'client_credentials',client_id:clientId,client_secret:clientSecret});
     const response=await doRequest(fetchImpl,TOSS_ORIGIN+'/oauth2/token',{
       method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body
-    },TOKEN_TIMEOUT_MS);
+    },Math.min(TOKEN_TIMEOUT_MS,Math.max(1,deadline-Date.now())));
     if(!response.ok){
       let failure={};
       if(response.status===403){
@@ -146,17 +146,26 @@ export function createTossRelay({clientId,clientSecret,sharedKey,fetchImpl=fetch
     cached={value:result.access_token,expires:clock()+Math.min(21600,Number(result.expires_in))*1000-60000};
     return cached.value;
   }
-  async function token(){
+  async function token(deadline){
     if(cached && cached.expires>clock())return cached.value;
-    if(inFlight)return inFlight;
-    inFlight=issueToken().finally(()=>{inFlight=null});
-    return inFlight;
+    const remaining=deadline-Date.now();
+    if(remaining<=0)throw reject('UPSTREAM_UNAVAILABLE',502);
+    if(!inFlight)inFlight=issueToken(deadline).finally(()=>{inFlight=null});
+    // Another call may already be issuing a token with a longer timeout.
+    // Bound THIS caller too; never wait beyond its whole request deadline.
+    let timeout;
+    try{
+      return await Promise.race([inFlight,new Promise((_,rejectTimeout)=>{
+        timeout=setTimeout(()=>rejectTimeout(reject('UPSTREAM_UNAVAILABLE',502)),remaining);
+        timeout.unref?.();
+      })]);
+    }finally{if(timeout)clearTimeout(timeout)}
   }
   async function tossGet(path){
-    let access=await token(),refreshed401=false,temporaryRetries=0;
-    // One bounded 18-second budget across 429/5xx retries. Only read-only
-    // GET routes are retryable, never OAuth POST, orders, or account actions.
+    // OAuth issue, possible 401 refresh and market GET retries share ONE
+    // 18-second deadline. Starting it after token() broke UI diagnostics.
     const deadline=Date.now()+GET_TIMEOUT_MS;
+    let access=await token(deadline),refreshed401=false,temporaryRetries=0;
     for(;;){
       const remaining=deadline-Date.now();
       if(remaining<=0)throw reject('UPSTREAM_UNAVAILABLE',502);
@@ -170,7 +179,7 @@ export function createTossRelay({clientId,clientSecret,sharedKey,fetchImpl=fetch
         if(!refreshed401){
           refreshed401=true;
           if(cached?.value===access)cached=null;
-          access=await token();continue;
+          access=await token(deadline);continue;
         }
         return {ok:false,status:401,code:'UNAUTHORIZED'};
       }
