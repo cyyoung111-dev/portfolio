@@ -1512,8 +1512,12 @@ function _tossCachedAccessToken_() {
 }
 
 function _tossIssueAccessTokenUnlocked_() {
+  // Check at the actual issue boundary, not only before waiting for lock.
+  // Flipping relay ON while GAS waits must not revoke the VM-owned token.
+  if (_tossRelayConfig_().enabled) return '';
   var credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return '';
+  if (_tossRelayConfig_().enabled) return '';
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
     method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
     payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
@@ -1550,6 +1554,8 @@ function _tossAccessToken_() {
   // Toss는 새 client_credentials token 발급 시 기존 token이 무효화될 수 있으므로,
   // cache miss 동시 실행을 single-flight로 직렬화합니다.
   return _tossWithTokenLock_(function() {
+    // A waiting OFF caller may resume after operator has switched to ON.
+    if (_tossRelayConfig_().enabled) return '';
     // 다른 실행이 lock 대기 중 token을 발급했을 수 있으므로 반드시 재확인합니다.
     var tokenAfterLock = _tossCachedAccessToken_();
     return tokenAfterLock || _tossIssueAccessTokenUnlocked_();
@@ -1559,6 +1565,11 @@ function _tossAccessToken_() {
 function _refreshTossAccessTokenAfter401_(rejectedToken, recoveryMeta) {
   // 선택적 진단 메타만 추가합니다. 일반 getPrices 호출 계약과 동작은 그대로 둡니다.
   return _tossWithTokenLock_(function() {
+    // Do not invalidate or refresh cached direct credentials after relay ON.
+    if (_tossRelayConfig_().enabled) {
+      if (recoveryMeta) recoveryMeta.source = 'RELAY';
+      return '';
+    }
     var cache = CacheService.getScriptCache();
     var current = _tossCachedTokenRecord_();
     var currentValid = current && Number(current.expiresAt) > Date.now() + TOSS_TOKEN_SKEW_SECONDS * 1000;
@@ -1718,9 +1729,17 @@ function _tossDiagnosticAccessToken_() {
 // 별도 Lock 객체로 재진입하면 기존 잠금의 해제를 기다리며 교착될 수 있습니다.
 function _tossDiagnosticIssueAccessTokenUnlocked_() {
   var startedAt = Date.now();
+  if (_tossRelayConfig_().enabled)
+    return {ok:false,status:null,code:'RELAY_OAUTH_DELEGATED',
+      providerCode:'',source:'RELAY',token:'',requestId:'',
+      referenceId:'',edgeRequestId:'',elapsedMs:Date.now()-startedAt};
   // lock 대기 중 설정이 바뀔 수 있으므로 자격증명은 반드시 lock 획득 후 다시 읽습니다.
   var credentials = _tossProperties_();
   if (!credentials.id || !credentials.secret) return { ok: false, status: null, code: 'CREDENTIALS_NOT_CONFIGURED', providerCode: '', source: 'NONE', token: '', requestId: '', referenceId: '', edgeRequestId: '', elapsedMs: Date.now() - startedAt };
+  if (_tossRelayConfig_().enabled)
+    return {ok:false,status:null,code:'RELAY_OAUTH_DELEGATED',
+      providerCode:'',source:'RELAY',token:'',requestId:'',
+      referenceId:'',edgeRequestId:'',elapsedMs:Date.now()-startedAt};
   var response = UrlFetchApp.fetch(TOSS_API_BASE + '/oauth2/token', {
     method: 'post', contentType: 'application/x-www-form-urlencoded', muteHttpExceptions: true,
     payload: { grant_type: 'client_credentials', client_id: credentials.id, client_secret: credentials.secret }
