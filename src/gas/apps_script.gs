@@ -1791,7 +1791,7 @@ function _tossRelayConfig_() {
   if (!host || host.indexOf('.')<0 || host.indexOf('..')!==-1 ||
       /^(?:\d+\.){3}\d+$/.test(host) ||
       /\.(?:local|localhost|internal|test|example|invalid)$/.test(host) ||
-      key.length<32 || !/^[A-Za-z0-9_-]+$/.test(key))
+      key.length<32 || key.length>512 || !/^[!-~]+$/.test(key))
     throw new Error('TOSS_RELAY_CONFIG_INVALID');
   return {enabled:true,url:url,key:key};
 }
@@ -2070,10 +2070,69 @@ function _tossPriceSmoke_(token) {
   }
 }
 
+// Preserve the same public diagnostic contract as direct Toss mode. Relay
+// token issuance occurs ONLY on the VM, so the GAS diagnostic never revokes it.
+function _tossRelayMarketDataDiagnostic_() {
+  var config=_tossRelayConfig_(),checks=[],statusCodes={};
+  var targets=[
+    ['exchangeRate','/api/v1/exchange-rate',{baseCurrency:'USD',quoteCurrency:'KRW'}],
+    ['marketCalendarKR','/api/v1/market-calendar/KR',{date:today()}],
+    ['marketCalendarUS','/api/v1/market-calendar/US',
+      {date:Utilities.formatDate(new Date(),'America/New_York','yyyy-MM-dd')}],
+    ['marketIndicatorPrices','/api/v1/market-indicators/prices',{symbols:'KOSPI,KOSDAQ'}],
+    ['marketIndicatorCandles','/api/v1/market-indicators/KOSPI/candles',{interval:'1d',count:1}]
+  ];
+  targets.forEach(function(target){
+    var started=Date.now(),row={};
+    try {
+      var result=_tossRelayRequest_(config,target[1],target[2]);
+      var part=result && result.result;
+      var count=Array.isArray(part)?part.length:
+        (part && typeof part==='object'?Object.keys(part).length:0);
+      row={name:target[0],endpoint:target[1],ok:true,status:200,code:'OK',
+        providerCode:'',count:count,elapsedMs:Date.now()-started};
+    }catch(ignore){
+      row={name:target[0],endpoint:target[1],ok:false,status:null,
+        code:'RELAY_REQUEST_FAILED',providerCode:'',count:0,
+        elapsedMs:Date.now()-started};
+    }
+    checks.push(row);
+  });
+  var smoke={ok:false,status:null,code:'RELAY_REQUEST_FAILED',resultCount:0,
+    symbol:'005930',validLastPrice:false,timestampPresent:false,elapsedMs:0};
+  var smokeStarted=Date.now();
+  try {
+    var result=_tossRelayRequest_(config,'/api/v1/prices',{symbols:'005930'});
+    var items=result && Array.isArray(result.result)?result.result:[];
+    var item=items.filter(function(x) {return _normalizeTossSymbol_(x.symbol)==='005930';})[0];
+    smoke={ok:!!item&&Number(item.lastPrice)>0&&!!item.timestamp,status:200,
+      code:!!item&&Number(item.lastPrice)>0&&!!item.timestamp?'OK':'PRICE_SMOKE_INVALID',
+      resultCount:items.length,symbol:'005930',
+      validLastPrice:!!item&&Number(item.lastPrice)>0,
+      timestampPresent:!!item&&!!item.timestamp,elapsedMs:Date.now()-smokeStarted};
+  }catch(ignoreSmoke){smoke.elapsedMs=Date.now()-smokeStarted;}
+  var providerAvailable=smoke.ok||checks.some(function(x){return x.ok;});
+  var oauth={stage:'oauth',ok:providerAvailable,status:providerAvailable?200:null,
+    code:providerAvailable?'RELAY_OAUTH_DELEGATED':'RELAY_UNVERIFIED',
+    providerCode:'',source:'RELAY',elapsedMs:0};
+  var overallOk=providerAvailable&&smoke.ok&&checks.every(function(x){return x.ok;});
+  var code=overallOk?'OK':'RELAY_PROBES_INCOMPLETE';
+  try {
+    var props=PropertiesService.getScriptProperties();
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_AT',new Date().toISOString());
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
+    props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
+  }catch(ignoreProps){}
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.234',
+    generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
+    freshOAuthTested:false,
+    egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
+      observedOnly:true,attempts:[],elapsedMs:0},
+    oauth:oauth,endpoints:checks,priceSmoke:smoke});
+}
 function handleDiagnoseTossMarketData(forceFreshOAuth) {
   // Direct OAuth diagnostics would revoke the sole token owned by OCI relay.
-  if (_tossRelayConfig_().enabled) return jsonOk({toss:{mode:'RELAY_ACTIVE',
-    code:'DIRECT_OAUTH_DIAGNOSTIC_DISABLED',configured:true}});
+  if (_tossRelayConfig_().enabled) return _tossRelayMarketDataDiagnostic_();
   var token = '', oauth;
   var egressProbe = _probeTossDiagnosticEgressIp_();
   try {
