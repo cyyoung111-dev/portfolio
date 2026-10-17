@@ -43,7 +43,7 @@ if [[ "$mode" == activate ]]; then
   for key in TOSS_CLIENT_ID TOSS_CLIENT_SECRET TOSS_RELAY_SHARED_KEY; do
     grep -Eq "^${key}=[^[:space:]]+$" /etc/toss-relay/env || { echo "PRIVATE_ENV_${key}_MISSING" >&2; exit 4; }
   done
-  grep -Eq '^TOSS_RELAY_SHARED_KEY=[A-Za-z0-9_+/=-]{32,512} || { echo 'SHARED_KEY_INVALID' >&2; exit 4; }
+  grep -Eq "^TOSS_RELAY_SHARED_KEY=[A-Za-z0-9_+/=-]{32,512}$" /etc/toss-relay/env || { echo 'SHARED_KEY_INVALID' >&2; exit 4; }
   grep -Eq '^TOSS_CLIENT_(ID|SECRET)=REPLACE_ME$' /etc/toss-relay/env && { echo 'PRIVATE_ENV_PLACEHOLDER_PRESENT' >&2; exit 4; }
 fi
 
