@@ -43,6 +43,14 @@ const mockFetch=async (url,opts)=>{
   priceCount++;
   return new Response(JSON.stringify({result:[{symbol:'005930',lastPrice:'12345',currency:'KRW',timestamp:'2026-10-15T01:00:00Z'}]}),{status:200});
 };
+// Static coverage of the production deadline: the single 18s budget starts
+// BEFORE OAuth, and also bounds any in-flight cache miss / 401 refresh.
+const relaySource=(await import('node:fs')).readFileSync(
+  new URL('./toss-free-relay.mjs',import.meta.url),'utf8');
+assert.match(relaySource,/const deadline=Date\.now\(\)\+GET_TIMEOUT_MS;\s*let access=await token\(deadline\)/);
+assert.match(relaySource,/access=await token\(deadline\);continue/);
+assert.match(relaySource,/Math\.min\(TOKEN_TIMEOUT_MS,Math\.max\(1,deadline-Date\.now\(\)\)\)/);
+assert.match(relaySource,/Promise\.race\(\[inFlight,new Promise/);
 const server=createServer({clientId:'fake-id',clientSecret:'fake-secret',sharedKey:shared,fetchImpl:mockFetch,sleep:async()=>{}});
 await new Promise((resolve,reject)=>{
   server.once('error',reject);
