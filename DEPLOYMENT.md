@@ -6,6 +6,7 @@
 - **전환 조건:** OCI Always Free VM의 고정 출구 IPv4 + Toss 허용IP 등록 + `verify-live.mjs` 인증 및 시세 확인 후, GAS Script Properties에 `TOSS_RELAY_URL=https://<subdomain>/v1/fetch`, `TOSS_RELAY_SHARED_KEY`, `TOSS_RELAY_MODE=ON`(가장 마지막) 설정. 인증값을 GitHub·로그·웹에 기록하지 않습니다.
 - **릴레이 동작:** `_tossRequest_` 의 요청만 고정 HTTPS market-data-only relay에 전달. 액세스 토큰은 Oracle relay만 발급·캐시하며 ON 상태에서 GAS의 직접 OAuth 요청을 차단합니다. 302 등 redirect 차단, 비TLS·IP URL·임의 경로·임의 엔드포인트 거부. 호출 실패 시 Toss 시세만 실패로 처리, KRX 대체/유효 공식 종가 제한은 유지. `TOSS_RELAY_MODE=OFF`는 롤백만 수행하며 동일 Toss client 신규 OAuth를 여러 위치에서 발급하지 않도록 VM relay 정지 후 순차 전환.
 - **안전:** 시장 데이터만 허용. 주문/계좌/자산 접근 없음, 원본 과거 가격이나 Snapshot 직접 변경 없음. 실데이터 검증 전 `FINAL_KRX` 판단 금지.
+- **배포 후 검증:** 실제 GAS 웹앱 `gasVersion=9.234`, 웹 예상 버전, `TOSS_RELAY_MODE=OFF` 기존 경로 불변, OCI relay live 005930 정상 확인 뒤에만 `ON` 전환, 37종목 시세 응답 및 KRX 저장 계약 검증. 실증 전 정상 운영 판정 금지.
 - **배포 상태:** 아직 릴레이 연동 없는 준비 후보. 코드·회귀/승인 GAS 전체 blob `3afda2a837625df521098ca415a0fbb361377239` 준비. 운영 v9.234 배포와 Oracle live 연동 성공은 **별도로 검증 필요**. 무료 VM 설치 PR #539, API 사용 권한·TLS·출구 IP·한도/비용은 가입 후 확인.
 
 ---
