@@ -1,3 +1,4 @@
+import {EventEmitter} from 'node:events';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {spawnSync} from 'node:child_process';
@@ -46,4 +47,54 @@ assert.match(guide,/18761/);
 assert.match(guide,/PAYG/);
 assert.match(guide,/Toss WTS/);
 assert.match(guide,/GAS.*별도 PR/);
+// The live check must pin the actual TLS connection destination, not merely
+// compare DNS before a second unrestricted fetch that could rebind.
+const {verifyLive,pinnedPost}=await import('../ops/toss-relay/verify-live.mjs');
+const expectedIp='8.8.8.8',host='relay.example.com',key='z'.repeat(64);
+const calls=[];
+const result=await verifyLive({host,ip:expectedIp,key,
+  lookupDns:async()=>[expectedIp],
+  post:async args=>{
+    calls.push(args);
+    return args.sharedKey
+      ? {status:200,data:{ok:true,status:200,data:{result:[{
+        symbol:'005930',lastPrice:'12345',timestamp:'2026-10-16T15:30:00+09:00'
+      }]}}}
+      : {status:401,data:{ok:false,code:'UNAUTHORIZED'}};
+  }
+});
+assert.equal(result.result,'PASS');
+assert.deepEqual(calls.map(x=>x.ip),[expectedIp,expectedIp]);
+assert.deepEqual(calls.map(x=>x.sharedKey),['',key]);
+assert.doesNotMatch(JSON.stringify(result),/12345|zzzz|2026-10-16/);
+const denied=[];
+await assert.rejects(()=>verifyLive({host,ip:expectedIp,key,
+  lookupDns:async()=>['8.8.4.4'],post:async x=>denied.push(x)}),
+  /DNS_TARGET_MISMATCH/);
+assert.equal(denied.length,0,'DNS divergence must block before key transmission');
+let httpsOptions={};
+const fakeHttps={request:(options,done)=>{
+  httpsOptions=options;
+  const emitter=new EventEmitter();
+  emitter.setTimeout=()=>{};
+  emitter.end=()=>{
+    queueMicrotask(()=>{
+      const res=new EventEmitter();res.statusCode=401;
+      done(res);
+      res.emit('data',Buffer.from('{"ok":false,"code":"UNAUTHORIZED"}'));
+      res.emit('end');
+    });
+  };
+  return emitter;
+}};
+const pinned=await pinnedPost({host,ip:expectedIp,sharedKey:key,transport:fakeHttps});
+assert.equal(pinned.status,401);
+assert.equal(httpsOptions.hostname,host);
+assert.equal(httpsOptions.servername,host);
+assert.equal(httpsOptions.rejectUnauthorized,true);
+assert.equal(httpsOptions.agent,false);
+assert.equal(httpsOptions.headers['x-relay-key'],key);
+await new Promise(resolve=>httpsOptions.lookup(host,{},(err,address,family)=>{
+  assert.equal(err,null);assert.equal(address,expectedIp);assert.equal(family,4);resolve();
+}));
 console.log('OCI Toss free static egress IP VM deploy: shell syntax, secrets, scope, TLS, HTTPS and IP guards PASS');
