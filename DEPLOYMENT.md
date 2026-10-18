@@ -1,3 +1,16 @@
+## GAS v9.235 — T+1 오전 08:45 KRX 확정 종가 자동 역사 백필 (2026-10-19)
+
+릴리스 계약: `gasVersion=9.235`. KRX 10/16 금요일 종가는 다음 거래일 10/19 월요일 08:00 이후 게시 예상이며, 조회 가능 여부와 영속 복구는 분리하여 검증합니다.
+
+- **실행:** 기존 22:10·23:10·00:30 야간 백필을 보존하고, KST 08:45 `runPortfolioMorningKrxBackfill0845` 시간 트리거를 추가합니다. Apps Script의 `nearMinute(45)` 오차를 감안해 08:30~10:14 KST 외에는 쓰기 없이 중단합니다. 토요일·일요일·KRX 공휴일·미지원 캘린더에도 실행하지 않습니다.
+- **대상 날짜:** 운영 당일 이전 가장 최근의 검증된 KRX 거래일 **1건만** 선택합니다(10/19 → 10/16). 휴장 pending 10/09~11은 오전 우선순위를 막지 않습니다. 야간 round-robin 복구 커서는 변경하지 않습니다.
+- **쓰기 전:** 해당 거래일의 대기열 포함 여부와 GAS `handleGetKrxHeldCloseCoverage`에서 원장·마스터 기반 보유 국내종목 전수의 실제 KRX/KRX_OTP exact-date 공식 종가, 중복·고아 코드 0을 검증합니다. 부족하면 `KRX_MORNING_AWAITING_PROVIDER_PUBLICATION`으로 즉시 중단하고 원본 시트/대기열 무변경.
+- **안전한 복구:** 검증된 경우 기존 `_runPendingKrxBackfillWithLease_` writer를 사용하며 ScriptLock, 펀드·통합마감 lease, PRICE/Snapshot 백업/충돌 보호, 국내외 전체 Snapshot 무결성·거래원장 검증, 성공 후 대기열 해제를 그대로 적용합니다. 해외 보유를 일괄 차단하는 수동 targeted API는 사용하지 않습니다.
+- **배포 상태:** 코드 PR/테스트 확인 전에는 **미배포·미운영**입니다. 병합 뒤 gas-deploy 성공과 운영 GAS v9.235, Apps Script 실제 시간 트리거 **정확히 1개 등록**을 별도로 확인해야 합니다. GAS 웹앱 배포만으로 신규 time trigger가 생긴다고 가정하지 않습니다.
+- **배포 후 실측:** `getAutomationStatus`의 08:45 트리거, 10/16 official KRX held 37/37(동적 분모 우선), 가격이력 exact-date, Snapshot 기대/저장 39/39, 원장·출처 VALID, 10/16 pending 해제, 10/09~11 휴장 대기열 불변을 각각 확인합니다. 22:10/23:10/00:30 복구 로그와 오전 실행 여부도 구분 확인해야 합니다.
+
+---
+
 ## GAS v9.234 — Toss 고정 IP 중계 opt-in 준비 (2026-10-17)
 
 릴리스 계약: `gasVersion=9.234`. 인증된 `handleGetSettings` 및 `getAutomationStatus` 응답, 웹 표시 버전 정합성을 배포 이후 확인.

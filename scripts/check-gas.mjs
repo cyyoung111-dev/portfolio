@@ -106,8 +106,8 @@ if (!source.includes("params.action === 'getAutomationStatus'")
     || !source.includes("runEvalPriceUpdate1620")
     || !source.includes("runDailyFundValuations")
     || !source.includes("'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];")
-    || !source.includes("gasVersion: '9.234'")) {
-  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.234 계약이 누락됐습니다.');
+    || !source.includes("gasVersion: '9.235'")) {
+  console.error('❌ 웹 자동화 상태 조회 API 또는 GAS v9.235 계약이 누락됐습니다.');
   process.exit(1);
 }
 
@@ -252,13 +252,14 @@ if (!ensureDailyTriggersMatch
     || !/before\.hasLegacySplitTriggers/.test(oncePerDayMatch[1])
     || !/before\.hasDuplicateCloseTriggers/.test(oncePerDayMatch[1])
     || !/before\.hasDuplicateWatchdogTriggers/.test(oncePerDayMatch[1])
+    || !/before\.hasMorningBackfill/.test(oncePerDayMatch[1])
     || !/before\.hasBackfill/.test(oncePerDayMatch[1])
     || !/before\.hasDuplicateBackfillTriggers/.test(oncePerDayMatch[1])) {
   console.error('❌ 일일 트리거 점검은 레거시·통합 마감·20:30 watchdog의 누락/중복을 자동 정리해야 합니다.');
   process.exit(1);
 }
 
-if (!source.includes("integrity-change-v8-close-watchdog-midnight-backfill")
+if (!source.includes("integrity-change-v9-close-watchdog-midnight-backfill-morning-tplus1")
     || !source.includes('function _expectedPortfolioCloseRunDate()')
     || !source.includes('function _isPortfolioCloseRunStale(portfolioClose)')
     || !source.includes('portfolioCloseRunStale')

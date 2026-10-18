@@ -42,10 +42,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.235');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.236');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.235','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.236','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -72,8 +72,8 @@ const latestReleaseNotes = deploymentNotes.slice(
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
-  'newest v9.234 release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.234') && latestReleaseNotes.includes('Snapshot'),
+  'newest v9.235 release must end before historical v9.228 section');
+assert.ok(latestReleaseNotes.includes('gasVersion=9.235') && latestReleaseNotes.includes('Snapshot'),
   'latest release must independently document KRX persisted verification and post-deploy check');
 
 // Execute the *actual trigger-registration functions*, not copies of their
@@ -134,6 +134,8 @@ verifyTriggerRegistration('_ensurePortfolioHistoricalBackfillTrigger',
   'runPortfolioHistoricalBackfill2240', 23, 10);
 verifyTriggerRegistration('_ensurePortfolioHistoricalBackfill0010Trigger',
   'runPortfolioHistoricalBackfill0010', 0, 30);
+verifyTriggerRegistration('_ensurePortfolioMorningKrxBackfillTrigger',
+  'runPortfolioMorningKrxBackfill0845', 8, 45);
 // Mutation guard: a pre-midnight 00:10 registration must fail this test.
 const midnightRegistration = triggerDefinition('_ensurePortfolioHistoricalBackfill0010Trigger');
 assert.ok(midnightRegistration.includes('nearMinute(30)'), '00:30 source setup missing');
@@ -142,7 +144,7 @@ assert.throws(() => verifyTriggerRegistration(
   'runPortfolioHistoricalBackfill0010', 0, 30,
   midnightRegistration.replace('nearMinute(30)', 'nearMinute(10)'),
 ), /daily schedule drift/, 'pre-midnight-capable 00:10 registration must be rejected');
-for (const label of ['22:10', '23:10', '00:30']) {
+for (const label of ['22:10', '23:10', '00:30', '08:45']) {
   assert.ok(latestReleaseNotes.includes(label),
     'release note must name the actual operational trigger schedule: ' + label);
 }
@@ -155,6 +157,7 @@ const operationalLabels = [
   ['runPortfolioCloseBackfill2210', '22:10'],
   ['runPortfolioHistoricalBackfill2240', '23:10'],
   ['runPortfolioHistoricalBackfill0010', '00:30'],
+  ['runPortfolioMorningKrxBackfill0845', '08:45'],
 ];
 for (const [handler, label] of operationalLabels) {
   assert.ok(setupTriggerSource.includes(label),
@@ -166,6 +169,7 @@ for (const field of [
   'hasBackfill', 'hasHistoricalBackfill', 'hasMidnightBackfill',
   'hasDuplicateBackfillTriggers', 'hasDuplicateHistoricalBackfillTriggers',
   'hasDuplicateMidnightBackfillTriggers',
+  'hasMorningBackfill','hasDuplicateMorningBackfillTriggers',
 ]) {
   assert.ok(statusApiSource.includes(field),
     'getAutomationStatus must distinguish missing/duplicate nightly worker: ' + field);
@@ -231,7 +235,8 @@ const requiredHandlers = [
   'runCodeNormalize1550', 'syncMortgageFromSchedule',
   'runDailyPortfolioClose1900', 'runPortfolioCloseWatchdog2030',
   'runPortfolioCloseBackfill2210', 'runPortfolioHistoricalBackfill2240',
-  'runPortfolioHistoricalBackfill0010', 'handleSnapshotIntegritySheetChange',
+  'runPortfolioHistoricalBackfill0010', 'runPortfolioMorningKrxBackfill0845',
+  'handleSnapshotIntegritySheetChange',
 ];
 function runRealDiagnostics({
   missing = [], duplicate = '', overridden = {},
@@ -302,6 +307,7 @@ for (const [handler, flag, dupFlag, countKey, label] of [
   ['runPortfolioCloseBackfill2210','hasBackfill','hasDuplicateBackfillTriggers','backfillCount','22:10'],
   ['runPortfolioHistoricalBackfill2240','hasHistoricalBackfill','hasDuplicateHistoricalBackfillTriggers','historicalBackfillCount','23:10'],
   ['runPortfolioHistoricalBackfill0010','hasMidnightBackfill','hasDuplicateMidnightBackfillTriggers','midnightBackfillCount','00:30'],
+  ['runPortfolioMorningKrxBackfill0845','hasMorningBackfill','hasDuplicateMorningBackfillTriggers','morningBackfillCount','08:45'],
 ]) {
   const absent = runRealDiagnostics({missing:[handler]});
   assert.equal(absent.data.overallStatus,'ERROR',handler + ' missing must report ERROR');
@@ -397,6 +403,7 @@ function verifyRealTriggerSetup() {
     '_ensurePortfolioCloseDailyTrigger','_ensurePortfolioCloseWatchdogTrigger',
     '_ensurePortfolioCloseBackfillTrigger','_ensurePortfolioHistoricalBackfillTrigger',
     '_ensurePortfolioHistoricalBackfill0010Trigger',
+    '_ensurePortfolioMorningKrxBackfillTrigger',
     '_ensureSnapshotIntegrityChangeTrigger','setupTrigger',
   ]) new vm.Script(triggerDefinition(name)).runInContext(ctx);
   ctx.setupTrigger();
@@ -405,6 +412,7 @@ function verifyRealTriggerSetup() {
     ['runPortfolioCloseBackfill2210',22,10],
     ['runPortfolioHistoricalBackfill2240',23,10],
     ['runPortfolioHistoricalBackfill0010',0,30],
+    ['runPortfolioMorningKrxBackfill0845',8,45],
   ]) {
     const jobs=created.filter(c=>c.handler===handler);
     assert.equal(jobs.length,1,'setupTrigger must install exactly one '+handler);
@@ -497,8 +505,9 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='7a4986700e3d9c2285f185f4f724902cb151ee9f';
+const approvedFullSourceBlob='720cfac39781a85d4578e11b21bff2b9b3ec3db3';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+const headerV235=currentGasSource.indexOf('//  v9.235 변경사항');
 const headerV234=currentGasSource.indexOf('//  v9.234 변경사항');
 const headerV233=currentGasSource.indexOf('//  v9.233 변경사항');
 const headerV232=currentGasSource.indexOf('//  v9.232 변경사항');
@@ -509,8 +518,10 @@ const headerV228=currentGasSource.indexOf('//  v9.228 변경사항');
 const headerV227=currentGasSource.indexOf('//  v9.227 변경사항');
 const headerV226=currentGasSource.indexOf('//  v9.226 변경사항');
 const headerV225=currentGasSource.indexOf('//  v9.225 변경사항');
-assert.ok(headerV234>=0 && headerV233>headerV234 && headerV232>headerV233 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
-  'v9.234/v9.233/v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(headerV235>=0 && headerV234>headerV235 && headerV233>headerV234 && headerV232>headerV233 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
+  'v9.235/v9.234/v9.233/v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(currentGasSource.slice(headerV235,headerV234).includes('KRX'),
+  'v9.235 must document morning KRX backfill');
 assert.ok(currentGasSource.slice(headerV234,headerV233).includes('Toss'),
   'v9.234 must document opt-in Toss relay');
 assert.ok(currentGasSource.slice(headerV233,headerV232).includes('KRX'),
@@ -533,7 +544,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.234',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.235',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
