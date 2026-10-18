@@ -1,4 +1,4 @@
-# Toss Open API: 무료 고정 발신 IP 파일럿 (아직 운영 미연결)
+# Toss Open API: 무료 고정 발신 IP 중계 (코드 준비, 운영 미연결)
 
 목표: 현재 GAS·KRX·Snapshot·포트폴리오 운영을 변경하지 않고, Oracle Cloud Always Free 서버에서 Toss 시세만 호출하는 경로를 먼저 검증.
 
@@ -30,8 +30,8 @@ GAS → HTTPS(무료 DNS + Caddy 인증서) → Node 중계(127.0.0.1:18761) →
    - 허용 범위는 Toss 시세·일별 개별종목 캔들·환율·한미 시장 달력·시장지표 현재가/캔들이며, **기존 GAS가 사용하는 KOSPI/KOSDAQ 및 KR_BOND_2Y/3Y/5Y/10Y/20Y/30Y까지** 허용 목록을 제한적으로 정합시켰음. 지표 캔들은 최대 200건·`before` 페이지네이션 지원. 실제 GAS 연결용 클라이언트 변환은 별도 PR에서만 수행.
    - Toss의 HTTP 403·429·5xx가 HTML/빈 본문이더라도 응답 JSON에 원래 upstream status와 제한된 오류코드만 반환. 비JSON 403은 `UNKNOWN_403`; 429/5xx는 `RATE_LIMITED`/`UPSTREAM_UNAVAILABLE`로 구분하며 원문 응답/인증정보를 노출하지 않음.
 8. 먼저 VM에서 실제 외부 IPv4 확인 → Toss WTS 허용 IP 등록 → VM 직접 Toss OAuth 200, 005930 가격 200을 다른 시점 3회 이상 확인.
-9. 검증된 뒤 **별도 PR**로 GAS에 명시적 활성화 스위치를 넣어 Toss만 relay로 전환. 이 파일럿은 운영 GAS 연결을 변경하지 않음. Oracle relay에서 신규 OAuth를 발급하면 기존 GAS 캐시 토큰이 무효화될 수 있으므로 같은 클라이언트를 두 서버에서 동시에 발급하지 말 것.
-10. 전환 실패 때 KRX 종가·기존 공급원 fallback 유지. GAS 새 버전/승인 Git blob/CI/Codex/운영 배포 실조회까지 완료 후에만 정상화 판정.
+9. **GAS relay 연동 코드는 PR #540 / v9.234에서 준비됨(기본 OFF).** 오라클 VM과 고정 IP·도메인·TLS, Toss 허용 IP 등록 및 실제 `verify-live.mjs` PASS 전에는 `TOSS_RELAY_MODE=ON`을 설정하지 않음. VM만 Toss OAuth를 발급하게 전환할 때 기존 GAS와 동시 발급을 금지. 자세한 순서는 [VM 배포 안내](../ops/toss-relay/README.md)의 GAS 연동 절을 따름.
+10. 전환 실패 때 `TOSS_RELAY_MODE=OFF`로 GAS 경로를 돌린 뒤 VM의 같은 Toss 클라이언트 OAuth 발급을 중단해 순차 복구. KRX 공식 종가는 Toss 임시 시세와 구분하며, v9.234 운영 배포·OCI relay live·GAS 진단 통과를 **각각 별도로** 확인한 후 정상화 판정.
 
 ## 무료 운영의 제한
 - OCI 무료 계산 자원 부족, 계정 승인 거부, 방화벽·TLS 설정 어려움, 유휴 인스턴스 회수 및 무료 정책 변경 위험.
@@ -51,4 +51,4 @@ OCI Always Free 서버 준비·Caddy HTTPS·예약 송신 IPv4·서비스 사용
 - 활성화: `ops/toss-relay/install.sh activate` (발신 예약 IP·도메인·Caddy TLS·비인증 401 검증)
 - 실제 Toss 005930 시세: `ops/toss-relay/verify-live.mjs`, 비밀정보·가격·원문 미출력
 - 정적/보안 테스트: `npm run check:toss-relay-vm`, CI 연동
-- **현재 단계는 배포 스크립트 준비**로, OCI 계정/VM/Reserved IP 실제 프로비저닝과 Toss WTS 등록은 본인 인증 필요. 운영 GAS 시세 전환은 **별도 PR**로 분리.
+- **현재 단계는 배포 스크립트 준비**로, OCI 계정/VM/Reserved IP 실제 프로비저닝과 Toss WTS 등록은 본인 인증 필요. GAS relay 모드 전환 코드는 **PR #540에서 준비**, 실제 전환은 VM 실연결 검증 후 Script Properties에서 명시적으로 활성화.
