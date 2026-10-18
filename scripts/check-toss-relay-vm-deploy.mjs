@@ -65,6 +65,7 @@ const expectedIp='8.8.8.8',host='relay.example.com',key='z'.repeat(64);
 const calls=[];
 const result=await verifyLive({host,ip:expectedIp,key,
   lookupDns:async()=>[expectedIp],
+  lookupDns6:async()=>[],
   post:async args=>{
     calls.push(args);
     return args.sharedKey
@@ -80,7 +81,7 @@ assert.deepEqual(calls.map(x=>x.sharedKey),['',key]);
 assert.doesNotMatch(JSON.stringify(result),/12345|zzzz|2026-10-16/);
 const denied=[];
 await assert.rejects(()=>verifyLive({host,ip:expectedIp,key,
-  lookupDns:async()=>['8.8.4.4'],post:async x=>denied.push(x)}),
+  lookupDns:async()=>['8.8.4.4'],lookupDns6:async()=>[],post:async x=>denied.push(x)}),
   /DNS_TARGET_MISMATCH/);
 assert.equal(denied.length,0,'DNS divergence must block before key transmission');
 // GAS resolves host independently: even when one A is pinned correctly,
@@ -88,7 +89,7 @@ assert.equal(denied.length,0,'DNS divergence must block before key transmission'
 for(const dnsA of [[expectedIp,'8.8.4.4'], ['8.8.4.4',expectedIp], []]){
   const emitted=[];
   await assert.rejects(()=>verifyLive({host,ip:expectedIp,key,
-    lookupDns:async()=>dnsA,post:async a=>emitted.push(a)
+    lookupDns:async()=>dnsA,lookupDns6:async()=>[],post:async a=>emitted.push(a)
   }),/DNS_TARGET_MISMATCH/);
   assert.equal(emitted.length,0,'mixed/missing DNS A blocks any public request');
 }
