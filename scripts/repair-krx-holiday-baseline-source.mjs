@@ -103,7 +103,7 @@ export async function runSourceOnlyRepair({url,token,apply=false,fetchImpl=fetch
   // GAS workflows can finish validation without deploying if the auto-deploy
   // setting is disabled. Exact deployed API version is a mandatory gate.
   const status=await request(endpoint,token,'getAutomationStatus',{},fetchImpl);
-  if(status?.status!=='ok'||!['9.231','9.232','9.233'].includes(status.automation?.gasVersion))
+  if(status?.status!=='ok'||!['9.231','9.232','9.233','9.234'].includes(status.automation?.gasVersion))
     throw new Error('SOURCE_ONLY_GAS_VERSION_NOT_DEPLOYED');
   const before=await fetchDiagnostic(endpoint,token,fetchImpl);
   if(before.status==='VALID'){

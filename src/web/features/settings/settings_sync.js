@@ -1506,11 +1506,12 @@ async function diagnoseTossFromUI() {
       return ids.length ? ` / ${ids.join(' / ')}` : '';
     };
     const sourceLabel = oauth.source === 'CACHE' ? '최초 기존 캐시 토큰 사용'
-      : (oauth.source === 'NETWORK' ? '최초 신규 OAuth 요청' : '최초 토큰 출처 미확인');
+      : (oauth.source === 'NETWORK' ? '최초 신규 OAuth 요청' :
+      (oauth.source === 'RELAY' ? 'OCI 중계 VM이 OAuth를 단독 관리' : '최초 토큰 출처 미확인'));
     const connectionInfo = _tossConnectionSummary_(targetUrl, !!accessToken);
     const lines = [`GAS 연결: ${connectionInfo} / 서버 v${String(data.gasVersion || '미확인')}`,
       `OAuth 실행 방식: ${sourceLabel}`,
-      `${egress.ok ? '🔎' : '⚠️'} GAS egress 관측: ${egress.status ?? '-'} / ${egress.code || 'ERROR'}${egress.ipFamily ? ` / ${egress.ipFamily}` : ''} / ${egress.ip || 'IP 없음'}${egress.provider ? ` / ${egress.provider}` : ''} / ${Number(egress.elapsedMs || 0)}ms`,
+      `${oauth.source === 'RELAY' ? '🔎' : (egress.ok ? '🔎' : '⚠️')} ${oauth.source === 'RELAY' ? '중계 VM 출구 IP는 VM에서 별도 검증' : 'GAS egress 관측'}: ${egress.status ?? '-'} / ${egress.code || 'ERROR'}${egress.ipFamily ? ` / ${egress.ipFamily}` : ''} / ${egress.ip || 'IP 없음'}${egress.provider ? ` / ${egress.provider}` : ''} / ${Number(egress.elapsedMs || 0)}ms`,
       `${oauth.ok ? '✅' : '❌'} OAuth: ${oauth.status ?? '-'} / ${oauth.code || 'ERROR'}${oauth.providerCode ? ` / ${oauth.providerCode}` : ''}${idSuffix(oauth)} / ${Number(oauth.elapsedMs || 0)}ms`];
     if (oauth.recovery?.attempted) {
       const recoveryLabel = oauth.recovery.code === 'RESOURCE_401_RECOVERED_PROBES_FAILED'

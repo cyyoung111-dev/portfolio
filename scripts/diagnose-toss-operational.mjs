@@ -33,7 +33,8 @@ export function summarizeTossDiagnostic(data,expectedVersion) {
   const quoteValid=smoke.ok===true && smoke.validLastPrice===true
     && smoke.timestampPresent===true && httpStatus(smoke.status)===200
     && Number(smoke.resultCount)>0;
-  const oauthValid=oauth.ok===true && ['CACHE','NETWORK'].includes(oauth.source);
+  const oauthValid=oauth.ok===true && (['CACHE','NETWORK'].includes(oauth.source) ||
+    (oauth.source==='RELAY' && oauth.code==='RELAY_OAUTH_DELEGATED'));
   return {
     mode:'LIVE_GAS_TOSS_OBSERVATION',gasVersion:expectedVersion,
     oauth:{ok:oauth.ok,source:safe(oauth.source),httpStatus:httpStatus(oauth.status),

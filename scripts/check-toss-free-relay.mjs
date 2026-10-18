@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createServer} from './toss-free-relay.mjs';
 
 const shared='a'.repeat(48);
-let oauthCount=0,priceCount=0,resourceStatus=200,rejectOnce=false,oversized=false,streamBroken=false,receivedPaths=[],receivedQueries=[];
+let oauthCount=0,priceCount=0,resourceStatus=200,rejectOnce=false,oversized=false,streamBroken=false,receivedPaths=[],receivedQueries=[],transientFailures=0,transientStatus=429;
 const mockFetch=async (url,opts)=>{
   const u=new URL(url);
   assert.equal(u.origin,'https://openapi.tossinvest.com','no arbitrary outgoing hosts');
@@ -20,6 +20,10 @@ const mockFetch=async (url,opts)=>{
   assert.equal(opts.method,'GET');
   assert.match(opts.headers.Authorization,/^Bearer secret-token-/);
   if(rejectOnce){const kind=rejectOnce;rejectOnce=false;return new Response(kind==='empty'?'':(kind==='html'?'<h1>Unauthorized</h1>':JSON.stringify({error:{code:'token-revoked'}})),{status:401})}
+  if(transientFailures>0){
+    transientFailures--;
+    return new Response('',{status:transientStatus});
+  }
   if(resourceStatus===403){
     return new Response(JSON.stringify({error:{code:'ip-not-allowed',message:'raw-secret-do-not-leak'}}),{status:403});
   }
@@ -39,7 +43,15 @@ const mockFetch=async (url,opts)=>{
   priceCount++;
   return new Response(JSON.stringify({result:[{symbol:'005930',lastPrice:'12345',currency:'KRW',timestamp:'2026-10-15T01:00:00Z'}]}),{status:200});
 };
-const server=createServer({clientId:'fake-id',clientSecret:'fake-secret',sharedKey:shared,fetchImpl:mockFetch});
+// Static coverage of the production deadline: the single 18s budget starts
+// BEFORE OAuth, and also bounds any in-flight cache miss / 401 refresh.
+const relaySource=(await import('node:fs')).readFileSync(
+  new URL('./toss-free-relay.mjs',import.meta.url),'utf8');
+assert.match(relaySource,/const deadline=Date\.now\(\)\+GET_TIMEOUT_MS;\s*let access=await token\(deadline\)/);
+assert.match(relaySource,/access=await token\(deadline\);continue/);
+assert.match(relaySource,/Math\.min\(TOKEN_TIMEOUT_MS,Math\.max\(1,deadline-Date\.now\(\)\)\)/);
+assert.match(relaySource,/Promise\.race\(\[inFlight,new Promise/);
+const server=createServer({clientId:'fake-id',clientSecret:'fake-secret',sharedKey:shared,fetchImpl:mockFetch,sleep:async()=>{}});
 await new Promise((resolve,reject)=>{
   server.once('error',reject);
   server.listen(0,'127.0.0.1',resolve);
@@ -132,6 +144,19 @@ try{
     const payload=await upstreamFailure.json();
     assert.equal(payload.status,expectedStatus,'preserve upstream HTTP '+mode);
     assert.equal(payload.code,expectedCode,'preserve upstream classification '+mode);
+  }
+  // Recover short upstream 429 and 5xx without issuing another OAuth token,
+  // leaking errors, or replaying a market-data request outside its GET path.
+  resourceStatus=200;
+  for(const status of [429,503]){
+    transientStatus=status;
+    transientFailures=2;
+    const previous=receivedPaths.length, oauthBefore=oauthCount;
+    const recovered=await post({action:'prices',params:{symbols:'005930'}});
+    assert.equal(recovered.status,200,'read-only '+status+' must recover');
+    assert.equal(receivedPaths.length-previous,3,'one initial plus two bounded retries');
+    assert.equal(oauthCount,oauthBefore,'transient GET retry must reuse VM OAuth');
+    assert.equal(transientFailures,0);
   }
   resourceStatus=200;
   rejectOnce=true;
