@@ -34,11 +34,26 @@ egress="$(curl -4 -fsS --connect-timeout 7 --max-time 15 https://api.ipify.org)"
 getent ahostsv4 "$domain" | awk '{print $1}' | grep -Fxq "$expected" || {
   echo 'DNS_A_RECORD_NOT_MATCHING_RESERVED_IP' >&2; exit 3;
 }
+# GAS uses its own DNS lookup and cannot pin a socket to the reserved address.
+# One correct A record is NOT enough if round-robin has another A or ANY AAAA.
+# Fail closed before writing services or starting OAuth, with no addresses logged.
+python3 - "$domain" "$expected" <<'PY'
+import socket,sys
+try:
+    records=socket.getaddrinfo(sys.argv[1],443,type=socket.SOCK_STREAM)
+except OSError:
+    raise SystemExit('DNS_COMPLETE_RESOLUTION_FAILED')
+actual={record[4][0] for record in records
+        if record[0] in (socket.AF_INET,socket.AF_INET6)}
+if not actual or actual!={sys.argv[2]}:
+    raise SystemExit('DNS_MULTIPLE_OR_IPV6_TARGETS_REFUSED')
+PY
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 src="$root_dir/scripts/toss-free-relay.mjs"
 [[ -r "$src" ]] || { echo 'RELAY_SOURCE_MISSING' >&2; exit 2; }
 if [[ "$mode" == activate ]]; then
-  [[ -f /etc/toss-relay/env ]] || { echo 'PRIVATE_ENV_FILE_MISSING' >&2; exit 4; }
+  [[ -f /etc/toss-relay/env && ! -L /etc/toss-relay/env ]] || { echo 'PRIVATE_ENV_FILE_MISSING_OR_SYMLINK' >&2; exit 4; }
+  [[ "$(stat -c '%u:%g' /etc/toss-relay/env)" == '0:0' ]] || { echo 'PRIVATE_ENV_OWNER_INVALID' >&2; exit 4; }
   [[ "$(stat -c '%a' /etc/toss-relay/env)" == 600 ]] || { echo 'PRIVATE_ENV_PERMISSIONS_INVALID' >&2; exit 4; }
   for key in TOSS_CLIENT_ID TOSS_CLIENT_SECRET TOSS_RELAY_SHARED_KEY; do
     grep -Eq "^${key}=[^[:space:]]+$" /etc/toss-relay/env || { echo "PRIVATE_ENV_${key}_MISSING" >&2; exit 4; }
