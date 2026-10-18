@@ -1,0 +1,59 @@
+name: krx-morning-trigger-activation
+
+# Single deployment-operations repair. Push runs only for this workflow's
+# initial addition; subsequent operations require an explicit manual dispatch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-morning-trigger-activation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: krx-morning-trigger-activation
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+      # An ordinary workflow maintenance push MUST NOT reinstall triggers.
+      # Only the first commit introducing this workflow may run automatically.
+      # A manual workflow_dispatch remains a separate explicit operator action.
+      - name: Gate mutation on first workflow installation
+        id: first_install
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Re-running the original push job must never re-apply a side effect.
+          if [[ "${{ github.run_attempt }}" != "1" ]]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git rev-parse --verify HEAD^ >/dev/null
+          if git cat-file -e 'HEAD^:.github/workflows/krx-morning-trigger-activation.yml' 2>/dev/null; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify trigger activation contract without production writes
+        run: node scripts/check-repair-krx-morning-trigger.mjs
+      - name: Repair missing 08:45 GAS trigger via persist=0 and verify status
+        if: steps.first_install.outputs.run == 'true'
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/repair-krx-morning-trigger.mjs
