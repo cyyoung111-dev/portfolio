@@ -505,9 +505,10 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='7a4986700e3d9c2285f185f4f724902cb151ee9f';
+const approvedFullSourceBlob='c2a0dc5f4d53a4c29a7f647f90dc3fd98f02f318';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
-const headerV234=currentGasSource.indexOf('//  v9.235 변경사항');
+const headerV235=currentGasSource.indexOf('//  v9.235 변경사항');
+const headerV234=currentGasSource.indexOf('//  v9.234 변경사항');
 const headerV233=currentGasSource.indexOf('//  v9.233 변경사항');
 const headerV232=currentGasSource.indexOf('//  v9.232 변경사항');
 const headerV231=currentGasSource.indexOf('//  v9.231 변경사항');
@@ -517,10 +518,12 @@ const headerV228=currentGasSource.indexOf('//  v9.228 변경사항');
 const headerV227=currentGasSource.indexOf('//  v9.227 변경사항');
 const headerV226=currentGasSource.indexOf('//  v9.226 변경사항');
 const headerV225=currentGasSource.indexOf('//  v9.225 변경사항');
-assert.ok(headerV234>=0 && headerV233>headerV234 && headerV232>headerV233 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
-  'v9.235/v9.233/v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(headerV235>=0 && headerV234>headerV235 && headerV233>headerV234 && headerV232>headerV233 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
+  'v9.235/v9.234/v9.233/v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(currentGasSource.slice(headerV235,headerV234).includes('KRX'),
+  'v9.235 must document morning KRX backfill');
 assert.ok(currentGasSource.slice(headerV234,headerV233).includes('Toss'),
-  'v9.235 must document opt-in Toss relay');
+  'v9.234 must document opt-in Toss relay');
 assert.ok(currentGasSource.slice(headerV233,headerV232).includes('KRX'),
   'v9.233 must document proof cursor starvation protection');
 assert.ok(currentGasSource.slice(headerV232,headerV231).includes('Snapshot'),
