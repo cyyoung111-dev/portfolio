@@ -16,6 +16,12 @@ assert.match(install,/OUTBOUND_RESERVED_IP_MISMATCH/);
 assert.match(install,/DNS_A_RECORD_NOT_MATCHING_RESERVED_IP/);
 assert.match(install,/curl -4 -fsS --connect-timeout 7 --max-time 15 https:\/\/api\.ipify\.org/);
 assert.match(install,/getent ahostsv4/);
+assert.match(install,/socket\.getaddrinfo/);
+assert.match(install,/DNS_MULTIPLE_OR_IPV6_TARGETS_REFUSED/);
+assert.match(install,/DNS_COMPLETE_RESOLUTION_FAILED/);
+assert.match(install,/PRIVATE_ENV_OWNER_INVALID/);
+assert.match(install,/PRIVATE_ENV_FILE_MISSING_OR_SYMLINK/);
+assert.match(install,/stat -c '%u:%g'/);
 assert.match(install,/EXISTING_CADDY_CONFIG_REFUSED/);
 assert.match(install,/RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6/);
 assert.match(install,/ProtectSystem=strict/);
@@ -77,6 +83,28 @@ await assert.rejects(()=>verifyLive({host,ip:expectedIp,key,
   lookupDns:async()=>['8.8.4.4'],post:async x=>denied.push(x)}),
   /DNS_TARGET_MISMATCH/);
 assert.equal(denied.length,0,'DNS divergence must block before key transmission');
+// GAS resolves host independently: even when one A is pinned correctly,
+// an extra A or an AAAA can route the shared key to another machine.
+for(const dnsA of [[expectedIp,'8.8.4.4'], ['8.8.4.4',expectedIp], []]){
+  const emitted=[];
+  await assert.rejects(()=>verifyLive({host,ip:expectedIp,key,
+    lookupDns:async()=>dnsA,post:async a=>emitted.push(a)
+  }),/DNS_TARGET_MISMATCH/);
+  assert.equal(emitted.length,0,'mixed/missing DNS A blocks any public request');
+}
+for(const ipv6 of [['2606:4700:4700::1111'],['::1']]){
+  const emitted=[];
+  await assert.rejects(()=>verifyLive({host,ip:expectedIp,key,
+    lookupDns:async()=>[expectedIp],
+    lookupDns6:async()=>ipv6,post:async a=>emitted.push(a)
+  }),/DNS_TARGET_MISMATCH/);
+  assert.equal(emitted.length,0,'AAAA blocks transmission of relay shared key');
+}
+await assert.rejects(()=>verifyLive({host,ip:expectedIp,key,
+  lookupDns:async()=>[expectedIp],
+  lookupDns6:async()=>{throw Error('sensitive resolver failure');},
+  post:async()=>{throw Error('must not send')}
+}),/DNS_LOOKUP_FAILED/);
 let httpsOptions={};
 const fakeHttps={request:(options,done)=>{
   httpsOptions=options;
