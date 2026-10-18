@@ -42,7 +42,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      # GAS v9.233 has been deployed and authenticated on production.
+      # GAS v9.235 must be separately verified as deployed before interpreting 08:45 readiness.
       # These aggregate probes only inspect official 2026-10-16 KRX market
       # data and actual held 37 codes. No mutation, credentials or code lists.
       - name: Verify Oct 16 held 37-code KRX exact close coverage (read only)
@@ -63,6 +63,7 @@ jobs:
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
         run: node scripts/diagnose-holiday-snapshot-readonly.mjs
       # GAS exposes only the last persisted historical attempt shared by 23:10/00:30.
+      # Holiday dispositions are read-only and NEVER authorize direct pending deletion.
       # This does NOT prove that both separate trigger executions occurred.
       - name: Read-only trigger, queue and shared last historical attempt
         if: success() || failure()

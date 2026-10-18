@@ -77,10 +77,15 @@ export function summarizeBackfillStatus(payload) {
       || typeof a.trigger !== 'object' || !a.trigger || Array.isArray(a.trigger))
     throw new Error('AUTOMATION_DIAG_BAD_RESPONSE');
   const trigger=a.trigger;
-  for (const name of [...REQUIRED,...DUPLICATES,'hasLegacySplitTriggers']) {
+  const parts=a.gasVersion.split('.').map(Number);
+  const hasMorningRelease=parts[0]>9||(parts[0]===9&&parts[1]>=235);
+  const required=hasMorningRelease?REQUIRED.concat('hasMorningBackfill'):REQUIRED;
+  const counts=hasMorningRelease?COUNTS.concat('morningBackfillCount'):COUNTS;
+  const duplicateFlags=hasMorningRelease?DUPLICATES.concat('hasDuplicateMorningBackfillTriggers'):DUPLICATES;
+  for (const name of [...required,...duplicateFlags,'hasLegacySplitTriggers']) {
     if (typeof trigger[name] !== 'boolean') throw new Error('AUTOMATION_DIAG_BAD_TRIGGER');
   }
-  for (const name of COUNTS) {
+  for (const name of counts) {
     if (!Number.isSafeInteger(trigger[name]) || trigger[name] < 0)
       throw new Error('AUTOMATION_DIAG_BAD_TRIGGER');
   }
@@ -89,12 +94,12 @@ export function summarizeBackfillStatus(payload) {
   const pending=a.pendingKrxCloseDates.map(safeDate);
   if (pending.includes('-') || new Set(pending).size !== pending.length)
     throw new Error('AUTOMATION_DIAG_BAD_QUEUE');
-  const complete=REQUIRED.every(name=>trigger[name]) &&
-    COUNTS.every(name=>trigger[name]===1) &&
-    DUPLICATES.every(name=>!trigger[name]) && !trigger.hasLegacySplitTriggers;
-  const triggerCounts=Object.fromEntries(COUNTS.map(name=>[name,trigger[name]]));
-  const triggerMissing=REQUIRED.filter(name=>!trigger[name]);
-  const duplicates=DUPLICATES.filter(name=>trigger[name]);
+  const complete=required.every(name=>trigger[name]) &&
+    counts.every(name=>trigger[name]===1) &&
+    duplicateFlags.every(name=>!trigger[name]) && !trigger.hasLegacySplitTriggers;
+  const triggerCounts=Object.fromEntries(counts.map(name=>[name,trigger[name]]));
+  const triggerMissing=required.filter(name=>!trigger[name]);
+  const duplicates=duplicateFlags.filter(name=>trigger[name]);
   const overallStatus=String(a.overallStatus || '');
   if (!['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN'].includes(overallStatus))
     throw new Error('AUTOMATION_DIAG_BAD_RESPONSE');
