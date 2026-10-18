@@ -1,0 +1,34 @@
+name: krx-morning-trigger-activation
+
+# Single deployment-operations repair. Push runs only for this workflow's
+# initial addition; subsequent operations require an explicit manual dispatch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-morning-trigger-activation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: krx-morning-trigger-activation
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Verify trigger activation contract without production writes
+        run: node scripts/check-repair-krx-morning-trigger.mjs
+      - name: Repair missing 08:45 GAS trigger via persist=0 and verify status
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/repair-krx-morning-trigger.mjs
