@@ -104,6 +104,36 @@ export function summarizeHolidayProbe(payload,date){
     providerSchemaFailure:markets.concat(alternateProbes).some(x=>
       x.httpOk&&!x.parsedOk)};
 }
+// A closed KRX session is not proof that a mixed foreign-market portfolio
+// requires no historical valuation. Diagnostic classification NEVER authorizes
+// removal of a pending date without separate foreign-session and NAV proof.
+export function classifyHolidayPending({status,snapshot,holidays}) {
+  if(!status||!Array.isArray(status.holidayPendingDates)
+      ||!Array.isArray(snapshot)||!Array.isArray(holidays))
+    throw new Error('HOLIDAY_SNAPSHOT_INVALID_DISPOSITION');
+  return HOLIDAYS.map(date=>{
+    const row=snapshot.find(x=>x.date===date);
+    const probe=holidays.find(x=>x.date===date);
+    if(!row||!probe||!Number.isSafeInteger(row.expectedRows)
+        ||!Number.isSafeInteger(row.storedRows))
+      throw new Error('HOLIDAY_SNAPSHOT_INVALID_DISPOSITION');
+    const queued=status.holidayPendingDates.includes(date);
+    let reason='NOT_QUEUED';
+    if(queued) {
+      if(probe.officialExactDateCodes>0)
+        reason='BLOCKED_UNEXPECTED_CLOSED_KRX_DATE';
+      else if(row.status==='NO_SNAPSHOT'||row.storedRows===0)
+        reason='BLOCKED_SNAPSHOT_MISSING';
+      else if(row.status!=='VALID')
+        reason='BLOCKED_SNAPSHOT_INTEGRITY';
+      else
+        reason='BLOCKED_FOREIGN_SESSION_AND_NAV_PROOF_REQUIRED';
+    }
+    return {date,queued,snapshotStatus:row.status,
+      expectedRows:row.expectedRows,storedRows:row.storedRows,
+      reason,autoClearAuthorized:false};
+  });
+}
 async function request(endpoint,token,action,fields={},fetchImpl=fetch){
   if(!ACTIONS.has(action))throw new Error('HOLIDAY_SNAPSHOT_FORBIDDEN_ACTION');
   const body=new URLSearchParams({action,accessToken:token,...fields});
@@ -130,7 +160,8 @@ export async function runDiagnosis({url,token,fetchImpl=fetch}){
     const probe=await request(endpoint,token,'getKrxSourceDiagnostics',{date},fetchImpl);
     holidays.push(summarizeHolidayProbe(probe,date));
   }
-  return {mode:'READ_ONLY',status,snapshot,holidays};
+  return {mode:'READ_ONLY',status,snapshot,holidays,
+    queueDisposition:classifyHolidayPending({status,snapshot,holidays})};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{

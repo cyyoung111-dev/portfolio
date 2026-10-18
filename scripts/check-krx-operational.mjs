@@ -300,7 +300,9 @@ const statusFixture=()=>({status:'ok',gasVersion:'9.224',automation:{
 }});
 const statusSample=summarizeBackfillStatus(statusFixture());
 assert.equal(statusSample.mode,'READ_ONLY');
-assert.equal(statusSample.triggerReady,true);
+assert.equal(statusSample.triggerReady,false);
+assert.equal(statusSample.gasVersionReady,false,
+  'legacy GAS without 08:45 writer must fail the readiness gate');
 assert.equal(statusSample.pendingCount,3);
 assert.deepEqual(statusSample.pendingDates,['2026-10-08','2026-10-12','2026-10-13']);
 assert.equal(statusSample.latestBackfill.ok,false);
@@ -343,8 +345,30 @@ const statusResult=await runBackfillStatus({
   }
 });
 assert.equal(statusRequests.length,2,'negative auth proof followed by one real read-only status');
-assert.equal(statusResult.triggerReady,true);
+assert.equal(statusResult.triggerReady,false);
 assert.ok(!JSON.stringify(statusResult).includes(key));
+const v9235=statusFixture();
+v9235.gasVersion='9.235';v9235.automation.gasVersion='9.235';
+Object.assign(v9235.automation.trigger,{
+  hasMorningBackfill:true,morningBackfillCount:1,
+  hasDuplicateMorningBackfillTriggers:false
+});
+assert.equal(summarizeBackfillStatus(v9235).triggerReady,true);
+assert.equal(summarizeBackfillStatus(v9235).gasVersionReady,true);
+const noMorning=structuredClone(v9235);
+noMorning.automation.trigger.hasMorningBackfill=false;
+noMorning.automation.trigger.morningBackfillCount=0;
+assert.equal(summarizeBackfillStatus(noMorning).triggerReady,false);
+assert.deepEqual(summarizeBackfillStatus(noMorning).triggerMissing,['hasMorningBackfill']);
+const dupMorning=structuredClone(v9235);
+dupMorning.automation.trigger.morningBackfillCount=2;
+dupMorning.automation.trigger.hasDuplicateMorningBackfillTriggers=true;
+assert.equal(summarizeBackfillStatus(dupMorning).triggerReady,false);
+assert.deepEqual(summarizeBackfillStatus(dupMorning).duplicateTriggerFlags,
+  ['hasDuplicateMorningBackfillTriggers']);
+const malformedMorning=structuredClone(v9235);
+delete malformedMorning.automation.trigger.morningBackfillCount;
+assert.throws(()=>summarizeBackfillStatus(malformedMorning),/BAD_TRIGGER/);
 const statusNoMidnight=statusFixture();
 statusNoMidnight.automation.trigger.hasMidnightBackfill=false;
 statusNoMidnight.automation.trigger.midnightBackfillCount=0;

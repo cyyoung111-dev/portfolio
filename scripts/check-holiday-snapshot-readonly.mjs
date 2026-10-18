@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {runDiagnosis,summarizeConflictDay,summarizeHolidaySnapshotRange,
-  summarizePendingStatus,summarizeHolidayProbe}
+  summarizePendingStatus,summarizeHolidayProbe,classifyHolidayPending}
   from './diagnose-holiday-snapshot-readonly.mjs';
 const dates=['2026-09-15','2026-09-16','2026-10-08','2026-10-09','2026-10-10','2026-10-11',
   '2026-10-06','2026-10-07','2026-10-12','2026-10-13','2026-10-14','2026-10-15','2026-10-16'];
@@ -81,6 +81,32 @@ const fake=async(_url,opts)=>{
 };
 const output=await runDiagnosis({url:endpoint,token:secret,fetchImpl:fake});
 assert.equal(output.mode,'READ_ONLY');
+assert.deepEqual(output.queueDisposition.map(x=>x.reason),[
+  'BLOCKED_SNAPSHOT_MISSING','BLOCKED_SNAPSHOT_MISSING','BLOCKED_SNAPSHOT_MISSING']);
+assert.equal(output.queueDisposition.every(x=>x.autoClearAuthorized===false),true,
+  'a Korea holiday does not prove foreign Snapshot completion');
+const clearedDisposition=classifyHolidayPending({
+  status:{holidayPendingDates:['2026-10-09','2026-10-10']},
+  snapshot:output.snapshot,
+  holidays:output.holidays
+});
+assert.equal(clearedDisposition[2].reason,'NOT_QUEUED');
+assert.equal(clearedDisposition[2].autoClearAuthorized,false);
+const validHoliday=classifyHolidayPending({
+  status:{holidayPendingDates:['2026-10-09']},
+  snapshot:output.snapshot.map(x=>x.date==='2026-10-09'
+    ?{...x,status:'VALID',storedRows:39}:x),
+  holidays:output.holidays
+});
+assert.equal(validHoliday[0].reason,'BLOCKED_FOREIGN_SESSION_AND_NAV_PROOF_REQUIRED');
+assert.equal(validHoliday[0].autoClearAuthorized,false);
+const anomalous=classifyHolidayPending({
+  status:{holidayPendingDates:['2026-10-09']},
+  snapshot:output.snapshot,
+  holidays:output.holidays.map(x=>x.date==='2026-10-09'
+    ?{...x,officialExactDateCodes:37}:x)
+});
+assert.equal(anomalous[0].reason,'BLOCKED_UNEXPECTED_CLOSED_KRX_DATE');
 assert.equal(output.holidays.length,3);
 assert.equal(output.snapshot.length,13);
 assert.deepEqual(output.snapshot.slice(6).map(r=>r.date),
