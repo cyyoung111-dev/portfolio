@@ -51,6 +51,10 @@ function verifiedHolidayOverseasContext(payload,tradingDate) {
 
 const SCHEDULE_SLOTS = Object.freeze({
   '15 21 * * 0-4': { hour:21, minute:15, weekdays:[0,1,2,3,4], checkpoint:'NIGHT_FINAL' },
+  // KRX final daily derivative data is not guaranteed by same-day 06:15.
+  // At next open session 09:15 KST, retry ONLY the preceding official KRX
+  // trading session; do not pretend this repairs the earlier 07:30 briefing.
+  '15 0 * * 1-5': { hour:0, minute:15, weekdays:[1,2,3,4,5], checkpoint:'NIGHT_FINAL', publishedPriorSession:true },
   '30 22 * * 0-4': { hour:22, minute:30, weekdays:[0,1,2,3,4], checkpoint:'MORNING' },
   '30 7 * * 1-5': { hour:7, minute:30, weekdays:[1,2,3,4,5], checkpoint:'KRX_FINAL' },
   '15 11 * * 1-5': { hour:11, minute:15, weekdays:[1,2,3,4,5], checkpoint:'EVENING' },
@@ -62,7 +66,17 @@ function scheduledTradingDate(schedule, now = new Date()) {
   cursor.setUTCSeconds(0, 0);
   for (let offset = 0; offset < 8; offset++) {
     const candidate = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate() - offset, slot.hour, slot.minute));
-    if (slot.weekdays.includes(candidate.getUTCDay()) && candidate <= now) return kstDate(candidate);
+    if (slot.weekdays.includes(candidate.getUTCDay()) && candidate <= now) {
+      const scheduledDate=kstDate(candidate);
+      if (!slot.publishedPriorSession) return scheduledDate;
+      let prior=dateOffset(scheduledDate,-1);
+      for (let step=0;step<25;step++,prior=dateOffset(prior,-1)) {
+        const market=krxSessionStatus(prior);
+        if (market==='OPEN') return prior;
+        if (market==='UNKNOWN') throw new Error('KRX_PRIOR_SESSION_UNVERIFIED');
+      }
+      throw new Error('KRX_PRIOR_SESSION_NOT_FOUND');
+    }
   }
   throw new Error('schedule tradingDate를 계산할 수 없습니다.');
 }

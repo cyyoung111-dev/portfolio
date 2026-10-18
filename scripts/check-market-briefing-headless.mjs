@@ -15,6 +15,15 @@ assert.equal(krxSessionStatus('2026-10-08'),'OPEN','KRX 정상 거래일');
 assert.equal(krxSessionStatus('2026-02-30'),'UNKNOWN','잘못된 날짜');
 assert.equal(krxSessionStatus('2028-10-09'),'UNKNOWN','미확인 연도 평일을 단정하지 않음');
 const date='2026-09-18', prior='2026-09-17';
+assert.equal(scheduledTradingDate('15 0 * * 1-5',new Date('2026-10-19T00:15:30Z')),
+  '2026-10-16','T+1 09:15 월요일 확정 재수집은 금요일 거래일을 선택');
+assert.equal(scheduledTradingDate('15 0 * * 1-5',new Date('2026-10-13T00:15:30Z')),
+  '2026-10-12','T+1 09:15 화요일은 월요일 영업일 선택');
+assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 0 * * 1-5',
+  '--scheduled-at','2026-10-19T00:15:30Z']).tradingDate,
+  '2026-10-16','배포 이후 지연된 schedule도 최초 예약일 기준 전영업일 확정');
+assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','15 0 * * 1-5']),
+  /schedule과 checkpoint/,'NIGHT_FINAL catch-up은 MORNING과 혼동 금지');
 assert.equal(scheduledTradingDate('30 22 * * 0-4',new Date('2026-09-22T03:00:00Z')),'2026-09-22','지연 실행도 월요일 22:30 UTC slot의 화요일 거래일 유지');
 assert.equal(scheduledTradingDate('30 7 * * 1-5',new Date('2026-09-21T20:00:00Z')),'2026-09-21','장마감 slot은 실행시각이 아니라 cron slot 거래일 사용');
 assert.equal(parseArgs(['--checkpoint','MORNING','--date','2026-09-18','--schedule','30 22 * * 0-4']).tradingDate,'2026-09-18','수동 --date가 schedule보다 우선');
