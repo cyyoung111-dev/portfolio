@@ -35,6 +35,11 @@ jobs:
             echo 'run=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # Re-running the original push job must never re-apply a side effect.
+          if [[ "${{ github.run_attempt }}" != "1" ]]; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           git rev-parse --verify HEAD^ >/dev/null
           if git cat-file -e 'HEAD^:.github/workflows/krx-morning-trigger-activation.yml' 2>/dev/null; then
             echo 'run=false' >> "$GITHUB_OUTPUT"
