@@ -13,12 +13,11 @@ assert.match(install,/ROOT_REQUIRED/);
 assert.match(install,/UBUNTU_REQUIRED/);
 assert.match(install,/NODE_22_OR_NEWER_REQUIRED/);
 assert.match(install,/OUTBOUND_RESERVED_IP_MISMATCH/);
-assert.match(install,/DNS_A_RECORD_NOT_MATCHING_RESERVED_IP/);
+assert.match(install,/DNS_GUARD_MISSING/);
 assert.match(install,/curl -4 -fsS --connect-timeout 7 --max-time 15 https:\/\/api\.ipify\.org/);
-assert.match(install,/getent ahostsv4/);
-assert.match(install,/socket\.getaddrinfo/);
-assert.match(install,/DNS_MULTIPLE_OR_IPV6_TARGETS_REFUSED/);
-assert.match(install,/DNS_COMPLETE_RESOLUTION_FAILED/);
+assert.match(install,/check-dns\.mjs/);
+assert.doesNotMatch(install,/getent ahostsv4|socket\.getaddrinfo/,
+  'local NSS/hosts must not be trusted as evidence of public relay DNS');
 assert.match(install,/PRIVATE_ENV_OWNER_INVALID/);
 assert.match(install,/PRIVATE_ENV_FILE_MISSING_OR_SYMLINK/);
 assert.match(install,/stat -c '%u:%g'/);
@@ -58,6 +57,38 @@ assert.match(guide,/TOSS_RELAY_MODE=OFF/);
 assert.match(guide,/TOSS_RELAY_MODE=ON.*마지막에/);
 assert.match(guide,/롤백 순서 고정: VM에서 먼저.*stop toss-relay.*TOSS_RELAY_MODE=OFF/,
   'relay VM must stop issuing OAuth before GAS direct mode is enabled');
+// Regression: /etc/hosts may tell NSS the expected IP even when the public
+// DNS A RRset is different. The installer MUST query dns.resolve4/6 directly.
+const dnsGuard=fs.readFileSync('ops/toss-relay/check-dns.mjs','utf8');
+assert.match(dnsGuard,/node:dns\/promises/);
+assert.doesNotMatch(dnsGuard,/getaddrinfo|node:dns\'\/promises\'/);
+const {verifyPublicRelayDns}=await import('../ops/toss-relay/check-dns.mjs');
+const officialIp='8.8.8.8',officialDomain='relay.example.com';
+const checkDns=(a,aaaa=[])=>verifyPublicRelayDns({
+  domain:officialDomain,expected:officialIp,
+  resolveA:async()=>a,resolveAAAA:async()=>aaaa
+});
+assert.equal(await checkDns([officialIp]),true);
+for(const a of [[officialIp,'8.8.4.4'], ['8.8.4.4',officialIp],
+  ['8.8.4.4'],[]]){
+  await assert.rejects(()=>checkDns(a),/DNS_MULTIPLE_OR_IPV6_TARGETS_REFUSED/);
+}
+await assert.rejects(()=>checkDns([officialIp],['2606:4700:4700::1111']),
+  /DNS_MULTIPLE_OR_IPV6_TARGETS_REFUSED/);
+await assert.rejects(()=>verifyPublicRelayDns({domain:officialDomain,expected:officialIp,
+  resolveA:async()=>{throw Error('sensitive resolver detail')},
+  resolveAAAA:async()=>[]
+}),/DNS_PUBLIC_QUERY_FAILED/);
+await assert.rejects(()=>verifyPublicRelayDns({domain:officialDomain,expected:officialIp,
+  resolveA:async()=>[officialIp],
+  resolveAAAA:async()=>{throw Object.assign(Error('no AAAA'),{code:'SERVFAIL'})}
+}),/DNS_PUBLIC_QUERY_FAILED/);
+assert.equal(await verifyPublicRelayDns({domain:officialDomain,expected:officialIp,
+  resolveA:async()=>[officialIp],
+  resolveAAAA:async()=>{throw Object.assign(Error('no AAAA'),{code:'ENODATA'})}
+}),true);
+await assert.rejects(()=>verifyPublicRelayDns({domain:'localhost',expected:officialIp,
+  resolveA:async()=>[officialIp],resolveAAAA:async()=>[]}),/DNS_TARGET_INPUT_INVALID/);
 // The live check must pin the actual TLS connection destination, not merely
 // compare DNS before a second unrestricted fetch that could rebind.
 const {verifyLive,pinnedPost,pinnedLookup}=await import('../ops/toss-relay/verify-live.mjs');
