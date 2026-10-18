@@ -31,7 +31,7 @@ GAS → HTTPS(무료 DNS + Caddy 인증서) → Node 중계(127.0.0.1:18761) →
    - Toss의 HTTP 403·429·5xx가 HTML/빈 본문이더라도 응답 JSON에 원래 upstream status와 제한된 오류코드만 반환. 비JSON 403은 `UNKNOWN_403`; 429/5xx는 `RATE_LIMITED`/`UPSTREAM_UNAVAILABLE`로 구분하며 원문 응답/인증정보를 노출하지 않음.
 8. 먼저 VM에서 실제 외부 IPv4 확인 → Toss WTS 허용 IP 등록 → VM 직접 Toss OAuth 200, 005930 가격 200을 다른 시점 3회 이상 확인.
 9. **GAS relay 연동 코드는 PR #540 / v9.234에서 준비됨(기본 OFF).** 오라클 VM과 고정 IP·도메인·TLS, Toss 허용 IP 등록 및 실제 `verify-live.mjs` PASS 전에는 `TOSS_RELAY_MODE=ON`을 설정하지 않음. VM만 Toss OAuth를 발급하게 전환할 때 기존 GAS와 동시 발급을 금지. 자세한 순서는 [VM 배포 안내](../ops/toss-relay/README.md)의 GAS 연동 절을 따름.
-10. 전환 실패 때 `TOSS_RELAY_MODE=OFF`로 GAS 경로를 돌린 뒤 VM의 같은 Toss 클라이언트 OAuth 발급을 중단해 순차 복구. KRX 공식 종가는 Toss 임시 시세와 구분하며, v9.234 운영 배포·OCI relay live·GAS 진단 통과를 **각각 별도로** 확인한 후 정상화 판정.
+10. 전환 실패 때 **VM의 Toss OAuth 발급을 먼저 중지**(`sudo systemctl stop toss-relay`)하고 프로세스 종료를 확인한 후에만 GAS `TOSS_RELAY_MODE=OFF`를 설정하여 직접 경로를 복구. 두 위치에서 같은 OAuth 클라이언트를 동시에 발급하지 않음. KRX 공식 종가는 Toss 임시 시세와 구분하며, v9.234 운영 배포·OCI relay live·GAS 진단 통과를 **각각 별도로** 확인한 후 정상화 판정.
 
 ## 무료 운영의 제한
 - OCI 무료 계산 자원 부족, 계정 승인 거부, 방화벽·TLS 설정 어려움, 유휴 인스턴스 회수 및 무료 정책 변경 위험.
