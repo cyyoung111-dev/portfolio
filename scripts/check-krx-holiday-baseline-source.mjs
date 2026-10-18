@@ -95,6 +95,23 @@ const newerFetch=async(_url,opts)=>{
   throw Error('newer dry-run must not write');
 };
 assert.equal((await runSourceOnlyRepair({url,token,fetchImpl:newerFetch})).mode,'ALREADY_VALID');
+// v9.235 retains the source-only repair contract: historical read-only
+// diagnostic must not regress after a GAS deployment.
+const latestActions=[];
+const latestFetch=async(_url,opts)=>{
+  const action=opts.body.get('action');latestActions.push(action);
+  if(opts.body.get('accessToken')!==token)
+    return{ok:true,json:async()=>({status:'error',message:'인증 실패'})};
+  if(action==='getAutomationStatus')return{ok:true,json:async()=>({
+    status:'ok',automation:{gasVersion:'9.235'}})};
+  if(action==='diagnoseSnapshotIntegrity')return{ok:true,json:async()=>({
+    status:'ok',diagnostic:after})};
+  throw Error('v9.235 already-valid path must never modify Snapshot');
+};
+assert.equal((await runSourceOnlyRepair({url,token,apply:true,fetchImpl:latestFetch})).mode,'ALREADY_VALID');
+assert.deepEqual(latestActions,['diagnoseSnapshotIntegrity',
+  'getAutomationStatus','diagnoseSnapshotIntegrity']);
+
 assert.deepEqual(newerActions,['diagnoseSnapshotIntegrity','getAutomationStatus','diagnoseSnapshotIntegrity']);
 const staleActions=[];
 const staleFetch=async(_url,opts)=>{
