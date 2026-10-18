@@ -47,7 +47,9 @@ assert.match(guide,/TOSS_RESERVED_IP/);
 assert.match(guide,/18761/);
 assert.match(guide,/PAYG/);
 assert.match(guide,/Toss WTS/);
-assert.match(guide,/GAS.*별도 PR/);
+assert.match(guide,/GAS.*PR #540/);
+assert.match(guide,/TOSS_RELAY_MODE=OFF/);
+assert.match(guide,/TOSS_RELAY_MODE=ON.*마지막에/);
 // The live check must pin the actual TLS connection destination, not merely
 // compare DNS before a second unrestricted fetch that could rebind.
 const {verifyLive,pinnedPost,pinnedLookup}=await import('../ops/toss-relay/verify-live.mjs');
