@@ -17,7 +17,7 @@ domain="${TOSS_RELAY_DOMAIN:-}"
 expected="${TOSS_RESERVED_IP:-}"
 [[ "$domain" =~ ^[a-z0-9]([a-z0-9.-]{1,251})[a-z0-9]$ && "$domain" == *.* && "$domain" != *..* ]] || { echo 'DOMAIN_INVALID' >&2; exit 2; }
 [[ "$expected" =~ ^[0-9.]+$ ]] || { echo 'RESERVED_IP_INVALID' >&2; exit 2; }
-for bin in node caddy curl getent systemctl python3; do
+for bin in node caddy curl systemctl python3; do
   command -v "$bin" >/dev/null || { echo "PREREQUISITE_MISSING_${bin}" >&2; exit 2; }
 done
 python3 - "$expected" <<'PY'
@@ -31,23 +31,12 @@ major="$(node -p 'Number(process.versions.node.split(".")[0])')"
 # whitelisted by Toss. Refuse setup if they differ.
 egress="$(curl -4 -fsS --connect-timeout 7 --max-time 15 https://api.ipify.org)" || { echo 'OUTBOUND_IP_PROBE_FAILED' >&2; exit 3; }
 [[ "$egress" == "$expected" ]] || { echo 'OUTBOUND_RESERVED_IP_MISMATCH' >&2; exit 3; }
-getent ahostsv4 "$domain" | awk '{print $1}' | grep -Fxq "$expected" || {
-  echo 'DNS_A_RECORD_NOT_MATCHING_RESERVED_IP' >&2; exit 3;
-}
-# GAS uses its own DNS lookup and cannot pin a socket to the reserved address.
-# One correct A record is NOT enough if round-robin has another A or ANY AAAA.
-# Fail closed before writing services or starting OAuth, with no addresses logged.
-python3 - "$domain" "$expected" <<'PY'
-import socket,sys
-try:
-    records=socket.getaddrinfo(sys.argv[1],443,type=socket.SOCK_STREAM)
-except OSError:
-    raise SystemExit('DNS_COMPLETE_RESOLUTION_FAILED')
-actual={record[4][0] for record in records
-        if record[0] in (socket.AF_INET,socket.AF_INET6)}
-if not actual or actual!={sys.argv[2]}:
-    raise SystemExit('DNS_MULTIPLE_OR_IPV6_TARGETS_REFUSED')
-PY
+# DNS direct queries ignore /etc/hosts and the system NSS cache, which
+# cannot prove what the GAS remote client sees. Reject mixed A/AAAA answers
+# before ANY service file writes or Toss OAuth.
+dns_guard="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-dns.mjs"
+[[ -r "$dns_guard" ]] || { echo 'DNS_GUARD_MISSING' >&2; exit 3; }
+node "$dns_guard" "$domain" "$expected" || exit 3
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 src="$root_dir/scripts/toss-free-relay.mjs"
 [[ -r "$src" ]] || { echo 'RELAY_SOURCE_MISSING' >&2; exit 2; }
