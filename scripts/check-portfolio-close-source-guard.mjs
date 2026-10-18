@@ -839,8 +839,11 @@ assert.doesNotMatch(closeRunSource, /_runPendingKrxBackfillWithLease_\(props, ru
 assert.match(nightlyBackfill,/_runPendingKrxBackfillWithLease_\(props, runDate, false, false\)/,
   '22:10 야간 실행은 통합 마감 없이 당일 누락 복구');
 const historicalBackfill=extract('runPortfolioHistoricalBackfill2240');
-assert.match(historicalBackfill,/_runPendingKrxBackfillWithLease_\(PropertiesService\.getScriptProperties\(\), today\(\), false, true\)/,
-  '22:40 과거 누락일 전용 실행');
+assert.match(historicalBackfill,/_runHistoricalBackfillWithCheckpoint_\(/,
+  '23:10 과거 누락일은 독립 체크포인트를 보존해야 함');
+const historicalWrapper=extract('_runHistoricalBackfillWithCheckpoint_');
+assert.match(historicalWrapper,/_runPendingKrxBackfillWithLease_\(props,date,false,true\)/,
+  '23:10 및 00:30 실행은 기존 안전한 writer lease와 검증을 재사용');
 assert.doesNotMatch(closeRunSource,/_runPendingKrxBackfillWithLease_\(/,
   '가격·펀드 성공 여부와 관계없이 19시 마감에서 과거 Snapshot 백필 실행 금지');
 assert.match(backfillWorker,/return 'FUND_ACTIVE'/,
