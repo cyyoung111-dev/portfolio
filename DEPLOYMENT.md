@@ -1,6 +1,7 @@
 ## GAS v9.236 — 23:10·00:30 과거 백필 체크포인트 분리 (2026-10-19)
 
 - 배포 상태: 병합 후 실제 gas-deploy 및 운영 `gasVersion=9.236` 확인 전에는 미배포. 승인 source blob `54840112e1ffa3292edda154d07e0a8b22747933`.
+- 운영 시각: 22:10 당일 백필, 23:10 과거 백필, 00:30 다음날 과거 백필, 08:45 익영업일 KRX 공식 종가 재확인.
 - 각 트리거의 진입은 별도의 RUNNING checkpoint로 기록합니다. 무작업·잠금 충돌·성공·예외 각각 상태/시간/안전한 enum만 저장하고 하드타임아웃은 RUNNING 잔존으로 판정합니다.
 - 공유 과거 백필 마지막 결과, ScriptLock/lease, 국내외 Snapshot·가격이력·원장·펀드 NAV·대기열 해제 정책은 바꾸지 않습니다. 개인정보/인증정보 원문은 checkpoint에 저장하지 않습니다.
 - 배포 후: 23:10, 00:30 실제 트리거 실행마다 `getAutomationStatus.historical2310Checkpoint`와 `historical0030Checkpoint`가 독립 갱신되는지 검증합니다. 실행 전 null은 정상이며 정상 작동 판정은 별도입니다.
