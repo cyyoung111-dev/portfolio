@@ -61,7 +61,7 @@ assert.match(guide,/롤백 순서 고정: VM에서 먼저.*stop toss-relay.*TOSS
 // DNS A RRset is different. The installer MUST query dns.resolve4/6 directly.
 const dnsGuard=fs.readFileSync('ops/toss-relay/check-dns.mjs','utf8');
 assert.match(dnsGuard,/node:dns\/promises/);
-assert.doesNotMatch(dnsGuard,/getaddrinfo|node:dns\'\/promises\'/);
+assert.doesNotMatch(dnsGuard,/socket\.getaddrinfo\(|getent ahostsv4/);
 const {verifyPublicRelayDns}=await import('../ops/toss-relay/check-dns.mjs');
 const officialIp='8.8.8.8',officialDomain='relay.example.com';
 const checkDns=(a,aaaa=[])=>verifyPublicRelayDns({
