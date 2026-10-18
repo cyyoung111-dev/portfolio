@@ -99,6 +99,17 @@ sudo systemctl status toss-relay --no-pager
 sudo systemctl status caddy --no-pager
 ```
 
-초기 상태는 **GAS와 미연결**. VM의 시세 200 성공을 여러 시점에서 확인한 후, **GAS 시세 호출만 HTTPS relay로 바꾸는 별도 PR**을 만들고 CI·Codex 리뷰·운영 배포 검증을 거침. 기존 KRX 공식 종가·펀드 NAV·Snapshot·거래원장과는 별도이며, 롤백 스위치/원천출처 구분 유지.
+초기 상태는 **GAS와 미연결**. GAS 시세 경로의 선택적 relay 연동 구현은 **PR #540 / v9.234**에 이미 준비돼 있으며, **`TOSS_RELAY_MODE` 미설정 또는 `OFF`가 기본값**입니다. VM의 실제 005930 가격·타임스탬프·HTTP 200을 서로 다른 시점에 여러 번 검증하기 전에는 `ON` 전환하지 않습니다. 운영 배포·웹/GAS 기대 버전은 별도로 확인해야 하며, 코드 병합을 Toss 403 해소로 판단하지 않습니다.
 
-다음 사람이 진행해 줄 수 있는 작업은 무료 계정 생성과 VM/IP/도메인 준비. 그 외 본문에 나열한 배포 스크립트와 검증기는 저장소에 포함되어 있으므로 컴퓨터에서 그대로 실행 가능함.
+### GAS 실제 연결 체크리스트 (Oracle VM 활성화 이후에만 실행)
+
+1. VM 네트워크의 **실제 outbound 예약 IPv4 = OCI 예약 IP = DNS A 레코드** 일치, HTTPS 인증서 정상, 비인증 `POST /v1/fetch`가 HTTP 401, Toss WTS에 **그 IP 한 개만** 등록되어 있고 VM 자체 `verify-live.mjs`가 `PASS`인지 확인합니다. 준비 단계에서 앱 자격증명을 GitHub/문서/채팅에 올리지 않습니다.
+2. GAS 운영 v9.234와 웹 기대 v9.234를 각각 확인합니다. 현재 GAS가 같은 Toss client로 OAuth 발급 중이라면 VM과 중복 발급하지 않도록 작업을 순서대로 전환합니다. 설정 변경 중 야간 가격 수집 및 Snapshot 자동화 충돌 가능성을 유의합니다.
+3. **GAS 편집기 → 프로젝트 설정 → 스크립트 속성**에서 `TOSS_RELAY_URL=https://your-subdomain.duckdns.org/v1/fetch`와 **VM의 `TOSS_RELAY_SHARED_KEY`와 동일한 고강도 키**를 등록합니다. `TOSS_CLIENT_SECRET`, relay 공유키, OAuth 토큰은 웹/Google Sheets/로그/GitHub에 기록하지 않습니다. `TOSS_RELAY_MODE=ON`을 **마지막에** 설정합니다.
+4. 인증된 GAS `diagnoseTossMarketData` 응답에서 `gasVersion=9.234`, `oauth.source=RELAY`, `oauth.code=RELAY_OAUTH_DELEGATED`, 주요 quote 응답과 날짜·종목 코드 계약을 확인합니다. 시세 성공은 **공식 KRX 종가 37/37 확정이나 Snapshot 39/39 증명과는 별개**입니다.
+5. 실패하면 `TOSS_RELAY_MODE=OFF`로 설정하되 같은 Toss client가 **VM과 GAS 양쪽에서 토큰을 동시에 갱신하지 않도록** VM 중계 프로세스의 신규 OAuth 발급을 중단한 뒤 기존 GAS 토큰 캐시/직접 경로를 재검증합니다. 인증키·클라이언트 ID를 무작정 교체하거나 KRX 가격 데이터를 덮어쓰지 않습니다.
+6. relay 장애 중 GAS는 **무단 직접 Toss OAuth fallback을 하지 않는 것**이 안전 계약입니다. 기존 KRX 공식 종가·NAV·원장 정책과 19:00/22:10/23:10/00:30 자동화 예약은 독립적으로 유지합니다.
+
+**Oracle 서버 생성 전 최종 상태:** 이 절은 *향후 실행 절차*입니다. CI/VM 모의 테스트 및 GAS 코드 배포가 성공했더라도 OCI 인스턴스·TLS·Toss WTS 허용IP·실가격 테스트가 없으면 운영 Toss relay는 정상화된 것이 아닙니다.
+
+다음 사용자의 필수 실행은 Oracle 가입/VM·IP·DNS 구성과 Toss WTS IP 허용입니다. 그 외 배포 키트·검증기·GAS opt-in 코드는 저장소에 준비되어 있으며, 실제 OCI 연결 전까지 `TOSS_RELAY_MODE=OFF`를 유지합니다.
