@@ -68,6 +68,26 @@ function checkpoint(raw) {
     deferred:r.deferred === true,
     failureClass:classifyBackfillFailure(r) };
 }
+const HISTORICAL_STATES=new Set(['RUNNING','SUCCEEDED','FAILED','DEFERRED','NO_WORK']);
+const HISTORICAL_REASONS=new Set(['STARTED','COMPLETE','FAILED','NO_WORK','FUND_ACTIVE',
+  'CLOSE_ACTIVE','BACKFILL_BUSY','LEASE_CONFLICT','BLOCKED_PRECONDITION','EXCEPTION']);
+function safeHistoricalCheckpoint(v){
+  if(v==null)return null;
+  if(!v||typeof v!=='object'||Array.isArray(v)
+    ||!HISTORICAL_STATES.has(v.state)||!HISTORICAL_REASONS.has(v.reason)
+    ||!Number.isSafeInteger(v.startedAt)||v.startedAt<0
+    ||(v.finishedAt!==null&&(!Number.isSafeInteger(v.finishedAt)||v.finishedAt<v.startedAt))
+    ||typeof v.attempted!=='boolean'
+    ||(v.ok!==null&&typeof v.ok!=='boolean')
+    ||typeof v.deferred!=='boolean')
+    throw new Error('AUTOMATION_DIAG_BAD_HISTORICAL_CHECKPOINT');
+  const date=safeDate(v.runDate);
+  if(date==='-'||(v.state==='RUNNING'&&v.finishedAt!==null)
+    ||(v.state!=='RUNNING'&&v.finishedAt===null))
+    throw new Error('AUTOMATION_DIAG_BAD_HISTORICAL_CHECKPOINT');
+  return {runDate:date,startedAt:v.startedAt,finishedAt:v.finishedAt,
+    state:v.state,attempted:v.attempted,ok:v.ok,deferred:v.deferred,reason:v.reason};
+}
 export function summarizeBackfillStatus(payload) {
   const a = payload?.automation;
   if (payload?.status !== 'ok' || !a || typeof a !== 'object'
@@ -115,7 +135,9 @@ export function summarizeBackfillStatus(payload) {
     snapshotLastDate:safeDate(a.snapshotLastDate),
     priceHistoryLastDate:safeDate(a.priceHistoryLastDate),
     latestBackfill:checkpoint(a.backfillLastResult),
-    latestHistoricalBackfill:checkpoint(a.historicalBackfillLastResult)
+    latestHistoricalBackfill:checkpoint(a.historicalBackfillLastResult),
+    historical2310:safeHistoricalCheckpoint(a.historical2310Checkpoint),
+    historical0030:safeHistoricalCheckpoint(a.historical0030Checkpoint)
   };
 }
 async function request(url,token,fetchImpl) {

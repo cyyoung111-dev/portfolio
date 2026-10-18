@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.235
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.236
 //
+//  v9.236 변경사항 (2026.10.19):
+//  - 23:10/00:30 독립 과거 백필 실행·무작업·잠금/실패 비민감 checkpoint.
+//  - timeout은 RUNNING 중단 상태로 보존; 공유 역사 백필 결과 불변.
 //  v9.235 변경사항 (2026.10.19):
 //  - T+1 08:45 KST 직전 KRX 거래일 공식 종가 확인 후 역사 백필.
 //  - ScriptLock/lease, 국내외 Snapshot 증명 보존·휴장 pending 기아 차단.
@@ -2160,7 +2163,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.235',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.236',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2238,7 +2241,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.235', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.236', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5981,7 +5984,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.235' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.236' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10683,14 +10686,47 @@ function runPortfolioCloseBackfill2210() {
     Logger.log('⚠️ 독립 KRX 누락일 복구 실패: ' + String(result.error || result.date || 'unknown'));
   return result;
 }
-// Independent 22:40 historical worker. Shares the same lease and exact-date
-// queue completion checks with the 22:10 worker; never replays today's date.
-function runPortfolioHistoricalBackfill2240() {
-  return _runPendingKrxBackfillWithLease_(PropertiesService.getScriptProperties(), today(), false, true);
+// Each historical schedule writes a sanitized checkpoint. The existing shared
+// last meaningful historical result remains untouched. If GAS hard-times-out,
+// the RUNNING state survives rather than inventing a completed execution.
+function _runHistoricalBackfillWithCheckpoint_(props,date,slot) {
+  var key=slot==='2310' ? 'portfolio_close_historical_2310_checkpoint_v1'
+    : slot==='0030' ? 'portfolio_close_historical_0030_checkpoint_v1' : '';
+  if(!key)throw new Error('BACKFILL_INVALID_SLOT');
+  var started=Date.now();
+  props.setProperty(key,JSON.stringify({runDate:date,startedAt:started,
+    finishedAt:null,state:'RUNNING',attempted:false,ok:null,deferred:false,reason:'STARTED'}));
+  try {
+    var result=_runPendingKrxBackfillWithLease_(props,date,false,true);
+    var attempted=!!(result&&result.attempted);
+    var success=!!(result&&result.ok===true);
+    var deferred=!!(result&&result.deferred);
+    var reason='NO_WORK';
+    if(deferred) {
+      var known=['FUND_ACTIVE','CLOSE_ACTIVE','BACKFILL_BUSY'];
+      reason=known.indexOf(result.reason)>=0?result.reason:'LEASE_CONFLICT';
+    } else if(attempted)reason=success?'COMPLETE':'FAILED';
+    else if(result&&result.ok===false)reason='BLOCKED_PRECONDITION';
+    props.setProperty(key,JSON.stringify({runDate:date,startedAt:started,
+      finishedAt:Date.now(),state:attempted?(success?'SUCCEEDED':'FAILED'):(deferred?'DEFERRED':'NO_WORK'),
+      attempted:attempted,ok:attempted?success:null,deferred:deferred,reason:reason}));
+    return result;
+  } catch(error) {
+    props.setProperty(key,JSON.stringify({runDate:date,startedAt:started,
+      finishedAt:Date.now(),state:'FAILED',attempted:false,ok:false,
+      deferred:false,reason:'EXCEPTION'}));
+    throw error;
+  }
 }
-// At 00:30 (nearMinute ±15m), replay only dates before the new calendar date.
+// Independent 23:10 historical worker, same writer lease and exact-date checks.
+function runPortfolioHistoricalBackfill2240() {
+  return _runHistoricalBackfillWithCheckpoint_(
+    PropertiesService.getScriptProperties(),today(),'2310');
+}
+// At 00:30 (nearMinute ±15m), replay only dates before new calendar day.
 function runPortfolioHistoricalBackfill0010() {
-  return _runPendingKrxBackfillWithLease_(PropertiesService.getScriptProperties(), today(), false, true);
+  return _runHistoricalBackfillWithCheckpoint_(
+    PropertiesService.getScriptProperties(),today(),'0030');
 }
 // First session after T: KRX OpenAPI daily data may publish from 08:00 KST.
 // Skip without any write until held KRX codes all have exact T-date prices.
@@ -12134,7 +12170,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.235',
+    gasVersion: '9.236',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12165,6 +12201,8 @@ function _getAutomationStatusData() {
     },
     backfillLastResult: parseProperty('portfolio_close_backfill_last_result'),
     historicalBackfillLastResult: parseProperty('portfolio_close_historical_backfill_last_result'),
+    historical2310Checkpoint: parseProperty('portfolio_close_historical_2310_checkpoint_v1'),
+    historical0030Checkpoint: parseProperty('portfolio_close_historical_0030_checkpoint_v1'),
     portfolioClose: portfolioClose,
     closeRun: closeRun,
     officialKrxPriceHistoryLastDate: officialKrxPriceHistoryLastDate,
@@ -12184,7 +12222,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.235' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.236' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15796,7 +15834,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.235' });
+    return jsonOk({ settings: settings, gasVersion: '9.236' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15826,7 +15864,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.235'
+      gasVersion: '9.236'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
