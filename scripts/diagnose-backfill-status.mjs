@@ -94,7 +94,9 @@ export function summarizeBackfillStatus(payload) {
   const pending=a.pendingKrxCloseDates.map(safeDate);
   if (pending.includes('-') || new Set(pending).size !== pending.length)
     throw new Error('AUTOMATION_DIAG_BAD_QUEUE');
-  const complete=required.every(name=>trigger[name]) &&
+  // 08:45 auto-recovery cannot be healthy on a pre-9.235 deployment,
+  // even when every legacy nightly trigger is installed and running.
+  const complete=hasMorningRelease && required.every(name=>trigger[name]) &&
     counts.every(name=>trigger[name]===1) &&
     duplicateFlags.every(name=>!trigger[name]) && !trigger.hasLegacySplitTriggers;
   const triggerCounts=Object.fromEntries(counts.map(name=>[name,trigger[name]]));
@@ -104,7 +106,8 @@ export function summarizeBackfillStatus(payload) {
   if (!['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN'].includes(overallStatus))
     throw new Error('AUTOMATION_DIAG_BAD_RESPONSE');
   return {
-    mode:'READ_ONLY', gasVersion:a.gasVersion, overallStatus,
+    mode:'READ_ONLY', gasVersion:a.gasVersion, minGasVersion:'9.235',
+    gasVersionReady:hasMorningRelease, overallStatus,
     triggerReady:complete, triggerCounts, triggerMissing, duplicateTriggerFlags:duplicates,
     legacySplitTriggers:trigger.hasLegacySplitTriggers,
     pendingDates:pending, pendingCount:pending.length,
