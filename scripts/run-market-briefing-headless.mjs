@@ -92,7 +92,8 @@ function parseArgs(argv) {
   const tradingDate = suppliedDate || (schedule ? scheduledTradingDate(schedule, scheduledAnchor || new Date()) : kstDate());
   const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(tradingDate) ? new Date(`${tradingDate}T00:00:00Z`) : null;
   if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0,10) !== tradingDate) throw new Error('잘못된 tradingDate');
-  return { checkpoint, tradingDate, schedule, scheduledAt };
+  return { checkpoint, tradingDate, schedule, scheduledAt,
+    requireKrxOfficialNight: schedule === '15 0 * * 1-5' };
 }
 function maskSecrets(value, secrets = []) {
   let text = String(value ?? '');
@@ -139,7 +140,8 @@ function createRequest(url, token, fetchImpl = fetch) {
     return result;
   };
 }
-export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt, fxFallback = fetchUsdKrwYahooDaily }) {
+export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt,
+  requireKrxOfficialNight = false, fxFallback = fetchUsdKrwYahooDaily }) {
   const request = suppliedRequest || createRequest(url, token);
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
   // KRX_FINAL has no same-day domestic close on exchange holidays/weekends.
@@ -186,7 +188,18 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
     return {checkpoint,tradingDate,skippedDomestic:true,successful:foreign&&fx,
       sync,decision:null,persistence:null};
   }
-  if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null, successful:runtime.hasNightFinal(tradingDate) };
+  if (checkpoint === 'NIGHT_FINAL') {
+    const k200=sync?.payload?.K200_NIGHT;
+    // The 09:15 catch-up MUST prove the actual KRX final feed for the
+    // requested prior session. A stored KIS/Toss NIGHT_FINAL, a previous
+    // date or even an official but partial observation cannot satisfy it.
+    const officialReady=Number(k200?.value)>0 && k200?.seriesId==='K200_NIGHT'
+      && k200?.source==='KRX_OFFICIAL' && k200?.sourceDate===tradingDate
+      && k200?.tradingDate===tradingDate && k200?.status==='FINAL'
+      && k200?.finality==='NIGHT_FINAL' && k200?.fallback!==true;
+    return {checkpoint,tradingDate,sync,decision:null,persistence:null,
+      successful:runtime.hasNightFinal(tradingDate) && (!requireKrxOfficialNight || officialReady)};
+  }
   const decision = runtime.readiness(tradingDate, checkpoint);
   if (!decision.publishable) return { checkpoint, tradingDate, sync, decision, persistence:null };
   const released = await runtime.releaseAndPersist(request, tradingDate, checkpoint, gate.seriesForCheckpoint(checkpoint));
