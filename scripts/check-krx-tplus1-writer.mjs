@@ -92,4 +92,50 @@ assert.equal(state.get('cursor'),'2026-10-09');
 assert.match(source,/function _ensurePortfolioMorningKrxBackfillTrigger\(autoFix\)/);
 assert.match(source,/\.atHour\(8\)\.nearMinute\(45\)\.create\(\)/);
 assert.match(source,/runPortfolioMorningKrxBackfill0845\(08:45\)/);
-console.log('T+1 morning native GAS writer source gate, preference, no holiday fallback, no night cursor mutation PASS');
+
+const selfHealBase={
+  hasClean:true,hasSave:true,hasMortgage:true,hasFund:true,
+  hasWatchdog:true,hasBackfill:true,hasHistoricalBackfill:true,
+  hasMidnightBackfill:true,hasMorningBackfill:true,hasIntegrityChange:true,
+  hasLegacySplitTriggers:false,hasDuplicateCloseTriggers:false,
+  hasDuplicateWatchdogTriggers:false,hasDuplicateBackfillTriggers:false,
+  hasDuplicateHistoricalBackfillTriggers:false,
+  hasDuplicateMidnightBackfillTriggers:false,
+  hasDuplicateMorningBackfillTriggers:false,
+};
+function runMorningSelfHeal(overrides,postOverrides={}) {
+  const before={...selfHealBase,...overrides},after={...selfHealBase,...postOverrides};
+  const records=new Map([['daily_triggers_checked_date',
+    '2026-10-19|integrity-change-v8-close-watchdog-midnight-backfill']]);
+  let repairCalls=0,scanCalls=0;
+  const props={getProperty:k=>records.get(k)||null,
+    setProperty:(k,v)=>records.set(k,v)};
+  const healCtx=vm.createContext({
+    PropertiesService:{getScriptProperties:()=>props},
+    _ensureDailyTriggers:fix=>{
+      if(fix){repairCalls++;return after;}scanCalls++;return before;
+    },
+    Logger:{log:()=>{}},
+  });
+  vm.runInContext(extract('_ensureDailyTriggersOncePerDay'),healCtx);
+  const result=healCtx._ensureDailyTriggersOncePerDay('2026-10-19');
+  assert.equal(scanCalls,1,'new v9 token must invalidate stale same-day cache');
+  return {result:JSON.parse(JSON.stringify(result)),
+    repairCalls,token:records.get('daily_triggers_checked_date')};
+}
+let heal=runMorningSelfHeal({hasMorningBackfill:false});
+assert.equal(heal.repairCalls,1,'missing 08:45 trigger must be repaired');
+assert.equal(heal.result.autoFixed,true);
+assert.match(heal.token,/morning-tplus1$/);
+heal=runMorningSelfHeal({hasDuplicateMorningBackfillTriggers:true});
+assert.equal(heal.repairCalls,1,'duplicate 08:45 trigger must be repaired');
+assert.equal(heal.result.autoFixed,true);
+heal=runMorningSelfHeal({hasMorningBackfill:false},{hasMorningBackfill:false});
+assert.equal(heal.repairCalls,1);
+assert.doesNotMatch(heal.token,/morning-tplus1$/,
+  'failed registration must not write a healthy checkpoint');
+heal=runMorningSelfHeal({});
+assert.equal(heal.repairCalls,0,'healthy trigger set must stay read-only');
+assert.equal(heal.result.autoFixed,false);
+
+console.log('T+1 morning writer and once-per-day trigger self-repair PASS');

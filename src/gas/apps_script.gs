@@ -11989,21 +11989,21 @@ function _ensureDailyTriggers(autoFix) {
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v8-close-watchdog-midnight-backfill';
+  var checkToken = dateStr + '|integrity-change-v9-close-watchdog-midnight-backfill-morning-tplus1';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
     var needsRepair = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund
-      || !before.hasWatchdog || !before.hasBackfill || !before.hasHistoricalBackfill || !before.hasMidnightBackfill || !before.hasIntegrityChange
+      || !before.hasWatchdog || !before.hasBackfill || !before.hasHistoricalBackfill || !before.hasMidnightBackfill || !before.hasMorningBackfill || !before.hasIntegrityChange
       || before.hasLegacySplitTriggers || before.hasDuplicateCloseTriggers
       || before.hasDuplicateWatchdogTriggers || before.hasDuplicateBackfillTriggers
-      || before.hasDuplicateHistoricalBackfillTriggers || before.hasDuplicateMidnightBackfillTriggers;
+      || before.hasDuplicateHistoricalBackfillTriggers || before.hasDuplicateMidnightBackfillTriggers || before.hasDuplicateMorningBackfillTriggers;
     var after = needsRepair ? _ensureDailyTriggers(true) : before;
     var healthy = after.hasClean && after.hasSave && after.hasMortgage && after.hasFund
-      && after.hasWatchdog && after.hasBackfill && after.hasHistoricalBackfill && after.hasMidnightBackfill && after.hasIntegrityChange
+      && after.hasWatchdog && after.hasBackfill && after.hasHistoricalBackfill && after.hasMidnightBackfill && after.hasMorningBackfill && after.hasIntegrityChange
       && !after.hasLegacySplitTriggers && !after.hasDuplicateCloseTriggers
       && !after.hasDuplicateWatchdogTriggers && !after.hasDuplicateBackfillTriggers
-      && !after.hasDuplicateHistoricalBackfillTriggers && !after.hasDuplicateMidnightBackfillTriggers;
+      && !after.hasDuplicateHistoricalBackfillTriggers && !after.hasDuplicateMidnightBackfillTriggers && !after.hasDuplicateMorningBackfillTriggers;
     if (healthy) props.setProperty('daily_triggers_checked_date', checkToken);
     if (needsRepair) Logger.log('✅ 웹 평가가격 조회에서 누락·레거시·중복 자동 트리거 복구 완료');
     return { checked: true, autoFixed: needsRepair };
