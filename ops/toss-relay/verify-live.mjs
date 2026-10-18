@@ -61,8 +61,15 @@ export function pinnedPost({host,ip,sharedKey='',transport=https,timeoutMs=26000
     req.end(BODY);
   });
 }
+async function resolvedAAAA(host){
+  try{return await dns.resolve6(host)}
+  catch(e){
+    if(['ENODATA','ENOTFOUND','ENODOMAIN'].includes(e?.code))return [];
+    throw Error('DNS_LOOKUP_FAILED');
+  }
+}
 export async function verifyLive({host,ip,key,lookupDns=()=>dns.resolve4(host),
-  lookupDns6=async()=>[],post=pinnedPost}){
+  lookupDns6=()=>resolvedAAAA(host),post=pinnedPost}){
   if(!hostValid(host)||!publicV4(ip))throw Error('PINNED_TARGET_INVALID');
   let dnsA,dnsAAAA;
   try{[dnsA,dnsAAAA]=await Promise.all([lookupDns(),lookupDns6()])}
@@ -99,13 +106,7 @@ async function main(){
   const contents=fs.readFileSync('/etc/toss-relay/env','utf8');
   const key=contents.split(/\r?\n/).find(x=>x.startsWith('TOSS_RELAY_SHARED_KEY='))?.slice(22).trim();
   if(!key||!/^[A-Za-z0-9_+/=-]{32,512}$/.test(key))throw Error('PRIVATE_SHARED_KEY_INVALID');
-  const result=await verifyLive({host,ip,key,lookupDns6:async()=>{
-    try{return await dns.resolve6(host)}
-    catch(e){
-      if(['ENODATA','ENOTFOUND','ENODOMAIN'].includes(e?.code))return [];
-      throw Error('DNS_LOOKUP_FAILED');
-    }
-  }});
+  const result=await verifyLive({host,ip,key});
   console.log(JSON.stringify(result));
   if(result.result!=='PASS')process.exitCode=1;
 }
