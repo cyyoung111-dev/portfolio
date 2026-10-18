@@ -369,6 +369,22 @@ assert.deepEqual(summarizeBackfillStatus(dupMorning).duplicateTriggerFlags,
 const malformedMorning=structuredClone(v9235);
 delete malformedMorning.automation.trigger.morningBackfillCount;
 assert.throws(()=>summarizeBackfillStatus(malformedMorning),/BAD_TRIGGER/);
+const latest=statusFixture();
+latest.gasVersion='9.236';latest.automation.gasVersion='9.236';
+Object.assign(latest.automation.trigger,{hasMorningBackfill:true,
+  morningBackfillCount:1,hasDuplicateMorningBackfillTriggers:false});
+latest.automation.historical2310Checkpoint={runDate:'2026-10-18',
+  startedAt:1792280000000,finishedAt:1792280001000,state:'DEFERRED',
+  attempted:false,ok:null,deferred:true,reason:'BACKFILL_BUSY',secret:'PRIVATE'};
+latest.automation.historical0030Checkpoint={runDate:'2026-10-19',
+  startedAt:1792290000000,finishedAt:null,state:'RUNNING',
+  attempted:false,ok:null,deferred:false,reason:'STARTED'};
+assert.equal(summarizeBackfillStatus(latest).historical2310.reason,'BACKFILL_BUSY');
+assert.equal(summarizeBackfillStatus(latest).historical0030.state,'RUNNING');
+assert.doesNotMatch(JSON.stringify(summarizeBackfillStatus(latest)),/PRIVATE/);
+const badCheckpoint=structuredClone(latest);
+badCheckpoint.automation.historical0030Checkpoint.reason='PRIVATE';
+assert.throws(()=>summarizeBackfillStatus(badCheckpoint),/BAD_HISTORICAL_CHECKPOINT/);
 const statusNoMidnight=statusFixture();
 statusNoMidnight.automation.trigger.hasMidnightBackfill=false;
 statusNoMidnight.automation.trigger.midnightBackfillCount=0;
