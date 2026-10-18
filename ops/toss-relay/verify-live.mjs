@@ -61,11 +61,24 @@ export function pinnedPost({host,ip,sharedKey='',transport=https,timeoutMs=26000
     req.end(BODY);
   });
 }
-export async function verifyLive({host,ip,key,lookupDns=()=>dns.resolve4(host),post=pinnedPost}){
+async function resolvedAAAA(host){
+  try{return await dns.resolve6(host)}
+  catch(e){
+    if(['ENODATA','ENOTFOUND','ENODOMAIN'].includes(e?.code))return [];
+    throw Error('DNS_LOOKUP_FAILED');
+  }
+}
+export async function verifyLive({host,ip,key,lookupDns=()=>dns.resolve4(host),
+  lookupDns6=()=>resolvedAAAA(host),post=pinnedPost}){
   if(!hostValid(host)||!publicV4(ip))throw Error('PINNED_TARGET_INVALID');
-  let dnsA;
-  try{dnsA=await lookupDns()}catch{throw Error('DNS_LOOKUP_FAILED')}
-  if(!Array.isArray(dnsA)||!dnsA.includes(ip))throw Error('DNS_TARGET_MISMATCH');
+  let dnsA,dnsAAAA;
+  try{[dnsA,dnsAAAA]=await Promise.all([lookupDns(),lookupDns6()])}
+  catch{throw Error('DNS_LOOKUP_FAILED')}
+  // The VM probe pins its own TCP socket, but GAS will resolve the DNS
+  // normally. An extra A or any AAAA can send its x-relay-key elsewhere.
+  if(!Array.isArray(dnsA)||dnsA.length<1||dnsA.some(a=>a!==ip)
+      ||!Array.isArray(dnsAAAA)||dnsAAAA.length>0)
+    throw Error('DNS_TARGET_MISMATCH');
   const unauth=await post({host,ip,sharedKey:'',timeoutMs:18000});
   if(unauth.status!==401||unauth.data?.code!=='UNAUTHORIZED')
     throw Error('PUBLIC_RELAY_AUTH_BYPASS');

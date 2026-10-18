@@ -17,7 +17,7 @@ domain="${TOSS_RELAY_DOMAIN:-}"
 expected="${TOSS_RESERVED_IP:-}"
 [[ "$domain" =~ ^[a-z0-9]([a-z0-9.-]{1,251})[a-z0-9]$ && "$domain" == *.* && "$domain" != *..* ]] || { echo 'DOMAIN_INVALID' >&2; exit 2; }
 [[ "$expected" =~ ^[0-9.]+$ ]] || { echo 'RESERVED_IP_INVALID' >&2; exit 2; }
-for bin in node caddy curl getent systemctl python3; do
+for bin in node caddy curl systemctl python3; do
   command -v "$bin" >/dev/null || { echo "PREREQUISITE_MISSING_${bin}" >&2; exit 2; }
 done
 python3 - "$expected" <<'PY'
@@ -31,14 +31,18 @@ major="$(node -p 'Number(process.versions.node.split(".")[0])')"
 # whitelisted by Toss. Refuse setup if they differ.
 egress="$(curl -4 -fsS --connect-timeout 7 --max-time 15 https://api.ipify.org)" || { echo 'OUTBOUND_IP_PROBE_FAILED' >&2; exit 3; }
 [[ "$egress" == "$expected" ]] || { echo 'OUTBOUND_RESERVED_IP_MISMATCH' >&2; exit 3; }
-getent ahostsv4 "$domain" | awk '{print $1}' | grep -Fxq "$expected" || {
-  echo 'DNS_A_RECORD_NOT_MATCHING_RESERVED_IP' >&2; exit 3;
-}
+# DNS direct queries ignore /etc/hosts and the system NSS cache, which
+# cannot prove what the GAS remote client sees. Reject mixed A/AAAA answers
+# before ANY service file writes or Toss OAuth.
+dns_guard="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-dns.mjs"
+[[ -r "$dns_guard" ]] || { echo 'DNS_GUARD_MISSING' >&2; exit 3; }
+node "$dns_guard" "$domain" "$expected" || exit 3
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 src="$root_dir/scripts/toss-free-relay.mjs"
 [[ -r "$src" ]] || { echo 'RELAY_SOURCE_MISSING' >&2; exit 2; }
 if [[ "$mode" == activate ]]; then
-  [[ -f /etc/toss-relay/env ]] || { echo 'PRIVATE_ENV_FILE_MISSING' >&2; exit 4; }
+  [[ -f /etc/toss-relay/env && ! -L /etc/toss-relay/env ]] || { echo 'PRIVATE_ENV_FILE_MISSING_OR_SYMLINK' >&2; exit 4; }
+  [[ "$(stat -c '%u:%g' /etc/toss-relay/env)" == '0:0' ]] || { echo 'PRIVATE_ENV_OWNER_INVALID' >&2; exit 4; }
   [[ "$(stat -c '%a' /etc/toss-relay/env)" == 600 ]] || { echo 'PRIVATE_ENV_PERMISSIONS_INVALID' >&2; exit 4; }
   for key in TOSS_CLIENT_ID TOSS_CLIENT_SECRET TOSS_RELAY_SHARED_KEY; do
     grep -Eq "^${key}=[^[:space:]]+$" /etc/toss-relay/env || { echo "PRIVATE_ENV_${key}_MISSING" >&2; exit 4; }

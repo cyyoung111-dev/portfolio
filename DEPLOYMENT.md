@@ -8,7 +8,7 @@
 - **안전:** 시장 데이터만 허용. 주문/계좌/자산 접근 없음, 원본 과거 가격이나 Snapshot 직접 변경 없음. 실데이터 검증 전 `FINAL_KRX` 판단 금지.
 - **기존 예약 트리거 보존:** 19:00 마감, 20:30 watchdog, 22:10 백필, 23:10 과거 백필, 00:30 과거 백필. 릴레이 opt-in은 이 일정과 KRX 가격 저장·백필 로직을 변경하지 않습니다.
 - **배포 후 검증:** 실제 GAS 웹앱 `gasVersion=9.234`, 웹 예상 버전, `TOSS_RELAY_MODE=OFF` 기존 경로 불변, OCI relay live 005930 정상 확인 뒤에만 `ON` 전환, 37종목 시세 응답 및 KRX 저장 계약 검증. 실증 전 정상 운영 판정 금지.
-- **배포 상태:** 아직 릴레이 연동 없는 준비 후보. 코드·회귀/승인 GAS 전체 blob `7a4986700e3d9c2285f185f4f724902cb151ee9f` 준비. 운영 v9.234 배포와 Oracle live 연동 성공은 **별도로 검증 필요**. 무료 VM 설치 PR #539, API 사용 권한·TLS·출구 IP·한도/비용은 가입 후 확인.
+- **배포 상태(2026-10-18 23:31 KST):** [gas-deploy 39136238042](https://github.com/cyyoung111-dev/portfolio/actions/runs/39136238042)에서 **GAS v9.234 / Apps Script version 286 / webApp verified**, Quality/Web CI 모두 성공. [Toss 실운영 진단 39136238017](https://github.com/cyyoung111-dev/portfolio/actions/runs/39136238017)은 OAuth `NETWORK` HTTP 403 `access_denied`, 진단 시 relay 미연결. 즉 코드 배포는 확인됐으나 **Oracle VM·고정 outbound IP·DNS/TLS·WTS 허용IP·시세 중계 실연결은 미완료**. 신규 무료 VM 설치 PR #539 기반 설치기와 검증기는 DNS A 단일 목적지/AAAA 없음 및 root 비밀파일 소유권까지 오프라인 강화. `TOSS_RELAY_MODE=ON`은 실제 Toss 005930 다회 검증 후 수동 설정.
 
 ---
 
