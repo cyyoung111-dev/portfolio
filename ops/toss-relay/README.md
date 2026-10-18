@@ -107,7 +107,7 @@ sudo systemctl status caddy --no-pager
 2. GAS 운영 v9.234와 웹 기대 v9.234를 각각 확인합니다. 현재 GAS가 같은 Toss client로 OAuth 발급 중이라면 VM과 중복 발급하지 않도록 작업을 순서대로 전환합니다. 설정 변경 중 야간 가격 수집 및 Snapshot 자동화 충돌 가능성을 유의합니다.
 3. **GAS 편집기 → 프로젝트 설정 → 스크립트 속성**에서 `TOSS_RELAY_URL=https://your-subdomain.duckdns.org/v1/fetch`와 **VM의 `TOSS_RELAY_SHARED_KEY`와 동일한 고강도 키**를 등록합니다. `TOSS_CLIENT_SECRET`, relay 공유키, OAuth 토큰은 웹/Google Sheets/로그/GitHub에 기록하지 않습니다. `TOSS_RELAY_MODE=ON`을 **마지막에** 설정합니다.
 4. 인증된 GAS `diagnoseTossMarketData` 응답에서 `gasVersion=9.234`, `oauth.source=RELAY`, `oauth.code=RELAY_OAUTH_DELEGATED`, 주요 quote 응답과 날짜·종목 코드 계약을 확인합니다. 시세 성공은 **공식 KRX 종가 37/37 확정이나 Snapshot 39/39 증명과는 별개**입니다.
-5. 실패하면 `TOSS_RELAY_MODE=OFF`로 설정하되 같은 Toss client가 **VM과 GAS 양쪽에서 토큰을 동시에 갱신하지 않도록** VM 중계 프로세스의 신규 OAuth 발급을 중단한 뒤 기존 GAS 토큰 캐시/직접 경로를 재검증합니다. 인증키·클라이언트 ID를 무작정 교체하거나 KRX 가격 데이터를 덮어쓰지 않습니다.
+5. **롤백 순서 고정: VM에서 먼저 `sudo systemctl stop toss-relay`로 신규 OAuth 발급을 중단하고 정지 상태를 확인 → GAS `TOSS_RELAY_MODE=OFF`로 전환 → 기존 GAS 토큰 캐시·직접 시세 경로 재검증.** 같은 Toss client가 VM과 GAS에서 동시에 토큰을 갱신하지 않도록 해야 합니다. VM이 접속 불가능하다면 중계 프로세스의 정지가 확인되거나 OCI에서 VM 자체가 정지된 후에만 직접 OAuth를 다시 활성화합니다. 인증키·클라이언트 ID를 무작정 교체하거나 KRX 가격 데이터를 덮어쓰지 않습니다.
 6. relay 장애 중 GAS는 **무단 직접 Toss OAuth fallback을 하지 않는 것**이 안전 계약입니다. 기존 KRX 공식 종가·NAV·원장 정책과 19:00/22:10/23:10/00:30 자동화 예약은 독립적으로 유지합니다.
 
 **Oracle 서버 생성 전 최종 상태:** 이 절은 *향후 실행 절차*입니다. CI/VM 모의 테스트 및 GAS 코드 배포가 성공했더라도 OCI 인스턴스·TLS·Toss WTS 허용IP·실가격 테스트가 없으면 운영 Toss relay는 정상화된 것이 아닙니다.
