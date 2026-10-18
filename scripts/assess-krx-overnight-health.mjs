@@ -3,7 +3,15 @@
 // diagnose-backfill-status.mjs. Never call a GAS write endpoint or log secrets.
 import fs from 'node:fs';
 
-export function assessKrxOvernightHealth(data) {
+function kstDay(now) {
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',
+    year:'numeric',month:'2-digit',day:'2-digit'}).format(now);
+}
+function previousDay(date) {
+  const d=new Date(date+'T00:00:00Z');d.setUTCDate(d.getUTCDate()-1);
+  return d.toISOString().slice(0,10);
+}
+export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   if (!data || data.mode !== 'READ_ONLY' || !Array.isArray(data.pendingDates)
       || !Number.isSafeInteger(data.pendingCount)
       || data.pendingCount !== data.pendingDates.length
@@ -15,6 +23,33 @@ export function assessKrxOvernightHealth(data) {
   if (!data.triggerReady) issues.push('TRIGGERS_NOT_READY');
   if (data.pendingCount>0) issues.push('PENDING_KRX_DATES');
   if (data.overallStatus!=='NORMAL') issues.push('AUTOMATION_NOT_NORMAL');
+  // At 02:30 KST the 23:10 run belongs to the prior calendar day,
+  // while the 00:30 run must belong to the current KST date. Do not
+  // promote a trigger's registration to proof of its execution.
+  const version=String(data.gasVersion||'').split('.').map(Number);
+  const checkpointRelease=version.length===2 && (
+    version[0]>9 || version[0]===9&&version[1]>=236);
+  const today=kstDay(now), prior=previousDay(today);
+  const expectedSlots=[['2310',prior],['0030',today]];
+  const slotStates={};
+  for(const [slot,date] of expectedSlots) {
+    const record=data['historical'+slot];
+    if(!checkpointRelease||!record){
+      issues.push('HISTORICAL_'+slot+'_NOT_OBSERVED');
+      slotStates[slot]='NOT_OBSERVED';continue;
+    }
+    const state=String(record.state||'');
+    if(record.runDate!==date){
+      issues.push('HISTORICAL_'+slot+'_STALE');
+      slotStates[slot]='STALE';continue;
+    }
+    if(!['SUCCEEDED','NO_WORK','DEFERRED','FAILED','RUNNING'].includes(state))
+      throw new Error('KRX_OVERNIGHT_BAD_DIAGNOSTIC');
+    slotStates[slot]=state;
+    if(state==='RUNNING')issues.push('HISTORICAL_'+slot+'_UNFINISHED');
+    if(state==='FAILED')issues.push('HISTORICAL_'+slot+'_FAILED');
+    if(state==='DEFERRED')issues.push('HISTORICAL_'+slot+'_DEFERRED');
+  }
   // On Korean holidays US markets can advance the Snapshot after the
   // latest KRX session; that is healthy. Alert only when the persisted
   // Snapshot is strictly BEHIND an already-confirmed official KRX close.
@@ -28,6 +63,7 @@ export function assessKrxOvernightHealth(data) {
     status:issues.length?'ACTION_REQUIRED':'HEALTHY',
     gasVersion:String(data.gasVersion||''),
     issues,
+    historicalSlotStates:slotStates,
     pendingCount:data.pendingCount,
     pendingDates:data.pendingDates,
     officialKrxPriceHistoryLastDate:official,
@@ -57,6 +93,8 @@ if (process.argv[1] && import.meta.url === new URL('file://' + process.argv[1]).
         '| 공식 KRX 마지막 날 | '+result.officialKrxPriceHistoryLastDate+' |',
         '| Snapshot 마지막 날 | '+result.snapshotLastDate+' |',
         '| 점검 코드 | '+(result.issues.join(', ')||'없음')+' |',
+        '| 23:10 결과 | '+result.historicalSlotStates['2310']+' |',
+        '| 00:30 결과 | '+result.historicalSlotStates['0030']+' |',
         '',
         '가격이력·Snapshot·ScriptProperties를 변경하지 않는 점검입니다.'
       ];
