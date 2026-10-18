@@ -50,6 +50,8 @@ assert.match(guide,/Toss WTS/);
 assert.match(guide,/GAS.*PR #540/);
 assert.match(guide,/TOSS_RELAY_MODE=OFF/);
 assert.match(guide,/TOSS_RELAY_MODE=ON.*마지막에/);
+assert.match(guide,/롤백 순서 고정: VM에서 먼저.*stop toss-relay.*TOSS_RELAY_MODE=OFF/,
+  'relay VM must stop issuing OAuth before GAS direct mode is enabled');
 // The live check must pin the actual TLS connection destination, not merely
 // compare DNS before a second unrestricted fetch that could rebind.
 const {verifyLive,pinnedPost,pinnedLookup}=await import('../ops/toss-relay/verify-live.mjs');
