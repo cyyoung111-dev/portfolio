@@ -97,7 +97,7 @@ export function compare(single,range,before,after,rangeRepeat=range){
     ||rangeRepeat.kind!=='range')throw Error('ISSUE507_COMPARE_BAD_INPUT');
   if(before?.mode!=='READ_ONLY'||after?.mode!=='READ_ONLY'
     ||before.gasVersion!==after.gasVersion
-    ||!['9.240','9.241'].includes(before.gasVersion))
+    ||!['9.240','9.241','9.242'].includes(before.gasVersion))
     throw Error('ISSUE507_COMPARE_VERSION_DRIFT');
   const b=before.tradeSnapshotWorkerLastResult, a=after.tradeSnapshotWorkerLastResult;
   const checkpointStable=JSON.stringify(b)===JSON.stringify(a)
