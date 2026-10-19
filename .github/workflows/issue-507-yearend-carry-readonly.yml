@@ -5,11 +5,13 @@ on:
   pull_request:
     paths:
       - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'src/gas/apps_script.gs'
       - '.github/workflows/issue-507-yearend-carry-readonly.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'src/gas/apps_script.gs'
       - '.github/workflows/issue-507-yearend-carry-readonly.yml'
   workflow_dispatch:
 
