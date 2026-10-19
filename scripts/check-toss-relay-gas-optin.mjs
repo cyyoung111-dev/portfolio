@@ -223,7 +223,7 @@ for(const props of [
   assert.equal(data.priceSmoke.validLastPrice,true);
   assert.equal(t.fetchCalls.every(x=>x.url===relayProps.TOSS_RELAY_URL),true);
   assert.equal(t.cacheCalls.length,0,'diagnostic must not invalidate VM OAuth');
-  const summarized=summarizeTossDiagnostic(data,'9.237');
+  const summarized=summarizeTossDiagnostic(data,'9.238');
   assert.equal(summarized.oauth.source,'RELAY');
   assert.equal(summarized.coreHealthy,true);
   assert.equal(summarized.allHealthy,true);
