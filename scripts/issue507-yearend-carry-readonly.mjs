@@ -187,7 +187,7 @@ export async function selfTest(){
       : {status:'error',message:'인증 실패'}})
   }).then(z=>{assert.equal(z.newYear.storedRows,2);throw Error('PASS')}),/PASS/);
   assert.throws(()=>summarizeLive({status:'ok',checkedDates:[...DATES],
-    diagnostics:DATES.map((d,i)=>({...mock(d),expectedRows:i===2?1:0}))}),
+    diagnostics:DATES.map((d,i)=>({...mock(d),expectedRowCount:i===2?1:0}))}),
     /YEARBOUNDARY_EXPECTED_COUNT/);
   console.log('Issue #507 2025/2026 year-boundary carry production GAS VM: PASS');
 }
