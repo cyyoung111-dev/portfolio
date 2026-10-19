@@ -12,10 +12,33 @@ import {
   parseClaspCredentials,
   sanitizeFiles,
   selectServerFile,
+  verifyDeploymentVersionWithRetry,
 } from './deploy-gas.mjs';
 
 assert.equal(deploymentIdFromWebAppUrl('https://script.google.com/macros/s/AKfycb-example/exec'), 'AKfycb-example');
 assert.throws(() => deploymentIdFromWebAppUrl('https://example.com/not-gas'), /deployment ID/);
+
+// A successfully published Apps Script deployment can report the previous
+// version briefly. Retry the read on the same ID instead of creating 292+
+let readAttempts=0,delayCount=0;
+const confirmed=await verifyDeploymentVersionWithRetry({
+  readDeployment:async()=>({deploymentConfig:{versionNumber:++readAttempts>=3?291:290}}),
+  expectedVersion:291,pause:async ms=>{delayCount++;assert.ok(ms>=1500)},maxChecks:5,
+});
+assert.equal(confirmed.deploymentConfig.versionNumber,291);
+assert.equal(readAttempts,3);
+assert.equal(delayCount,2);
+readAttempts=0;delayCount=0;
+await assert.rejects(()=>verifyDeploymentVersionWithRetry({
+  readDeployment:async()=>{readAttempts++;return {deploymentConfig:{versionNumber:290}};},
+  expectedVersion:291,pause:async()=>{delayCount++},maxChecks:4,
+}),/deployment version 검증 실패: expected=291, observed=290/);
+assert.equal(readAttempts,4);
+assert.equal(delayCount,3);
+await assert.rejects(()=>verifyDeploymentVersionWithRetry({
+  readDeployment:async()=>({deploymentConfig:{versionNumber:291}}),
+  expectedVersion:291,pause:async()=>{},maxChecks:0,
+}),/GAS_DEPLOYMENT_READBACK_INVALID/);
 
 const source = `// Google Apps Script  v9.160
 function handle(){ return { gasVersion: '9.160' }; }
