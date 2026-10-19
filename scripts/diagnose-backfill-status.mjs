@@ -124,6 +124,8 @@ export function summarizeBackfillStatus(payload) {
   const triggerCounts=Object.fromEntries(counts.map(name=>[name,trigger[name]]));
   const triggerMissing=required.filter(name=>!trigger[name]);
   const duplicates=duplicateFlags.filter(name=>trigger[name]);
+  if(hasLedgerRelease && typeof a.tradeLedgerWriteUnverified!=='boolean')
+    throw new Error('AUTOMATION_DIAG_BAD_LEDGER_WRITE');
   if(hasLedgerRelease && typeof a.pendingTradeSnapshotRebuildFrom!=='string')
     throw new Error('AUTOMATION_DIAG_BAD_LEDGER_PENDING');
   const pendingTradeSnapshotRebuildFrom=hasLedgerRelease
@@ -138,6 +140,7 @@ export function summarizeBackfillStatus(payload) {
     legacySplitTriggers:trigger.hasLegacySplitTriggers,
     pendingDates:pending, pendingCount:pending.length,
     pendingTradeSnapshotRebuildFrom,
+    tradeLedgerWriteUnverified:hasLedgerRelease?a.tradeLedgerWriteUnverified:false,
     officialKrxPriceHistoryLastDate:safeDate(a.officialKrxPriceHistoryLastDate),
     snapshotLastDate:safeDate(a.snapshotLastDate),
     priceHistoryLastDate:safeDate(a.priceHistoryLastDate),
