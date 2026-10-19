@@ -44,7 +44,7 @@ export function summarizeDiagnostics(payload,dates) {
 }
 export function summarizeEvidence(automation,diagnostics){
   if(!automation||automation.mode!=='READ_ONLY'
-    ||!['9.237','9.238','9.239','9.240','9.241','9.242'].includes(automation.gasVersion)
+    ||!['9.237','9.238','9.239','9.240','9.241','9.242','9.243'].includes(automation.gasVersion)
     ||typeof automation.triggerReady!=='boolean'
     ||!Array.isArray(automation.triggerMissing)
     ||!Array.isArray(diagnostics)||diagnostics.length!==8)
