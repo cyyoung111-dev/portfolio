@@ -96,13 +96,13 @@ export function testProductionGAS(){
     _calcCodeHoldingsAtDate:()=>({A:{code:'000001',qty:2}}),
     fetchPricesKrx:()=>{fetchCalls++;return official?{'000001':official}:{};},
     jsonOk:o=>({status:'ok',...o}),
-    jsonError:()=>({status:'error',message:'REDACTED'}),
+    jsonError:message=>({status:'error',message}),
   });
   vm.runInContext(source,ctx);
   const run=(date='2025-12-30',target='000001')=>
     ctx.handleGetKrxHeldCloseCoverage(date,target);
   let x=run();
-  assert.equal(x.status,'ok');
+  assert.equal(x.status,'ok',String(x.message||''));
   assert.equal(x.targetEvidence.eligibleHeldDomestic,true);
   assert.equal(x.targetEvidence.exactDateConfirmed,true);
   assert.equal(x.targetEvidence.providerClass,'KRX_OPENAPI');
