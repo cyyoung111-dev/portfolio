@@ -41,7 +41,6 @@ export function findLedgerLineage(diag,tradesResponse){
     if(candidateCodes.length>15)throw Error('YEARBOUNDARY_LINEAGE_TOO_MANY_CANDIDATES');
     lineage[code]={firstTradeDate:exact.map(t=>t.date).sort()[0]||'-',
       firstTradeBefore2026:exact.some(t=>t.date<'2026-01-01'),
-      firstTradeBeforeFirstCurrentPrice:exact.some(t=>t.date<'2026-01-06'),
       currentCodeTradeCount:bounded(exact.length),
       sameNameDifferentCodeTradeCount:bounded(alias.length),
       candidateCodes};
@@ -63,6 +62,8 @@ export function summarizeLedgerLineage(probe,priceResponse){
   const results=probe.missing.map(m=>{
     if(!m.code)return {date:m.date,state:'MISSING_CODE_UNAVAILABLE'};
     const x=probe.lineage[m.code];
+    const current=(priceResponse.prices[m.code]||[]).map(r=>r.date).sort();
+    const firstCurrentPriceDate=current[0]||'-';
     const candidates=x.candidateCodes;
     const historical=candidates.flatMap(code=>
       (priceResponse.prices[code]||[]).filter(r=>r.date<=m.date));
@@ -74,7 +75,9 @@ export function summarizeLedgerLineage(probe,priceResponse){
       currentCodeFirstTradeDate:x.firstTradeDate,
       currentCodeTradeCount:x.currentCodeTradeCount,
       currentCodeTradeBefore2026:x.firstTradeBefore2026,
-      currentCodeTradeBeforeFirstPrice:x.firstTradeBeforeFirstCurrentPrice,
+      currentCodeFirstPriceDate:firstCurrentPriceDate,
+      currentCodeTradeBeforeFirstPrice:firstCurrentPriceDate==='-'?null:
+        x.firstTradeDate!=='-'&&x.firstTradeDate<firstCurrentPriceDate,
       nameMatchedOtherCodeCount:bounded(candidates.length),
       nameMatchedOtherCodeTradeCount:x.sameNameDifferentCodeTradeCount,
       eligiblePastPriceRowsForCandidates:bounded(eligible.length),
@@ -129,11 +132,14 @@ export async function selfTest(){
   assert.equal(probe.lineage['0046Y0'].firstTradeDate,'2025-12-20');
   assert.deepEqual(probe.lineage['0046Y0'].candidateCodes,['000460']);
   const prices={status:'ok',dates:['2025-12-30'],prices:{
-    '000460':[{date:'2025-12-30',price:100,source:'KRX_CONFIRMED_CLOSE'}]}};
+    '000460':[{date:'2025-12-30',price:100,source:'KRX_CONFIRMED_CLOSE'}],
+    '0046Y0':[{date:'2026-01-06',price:120,source:'KRX_CONFIRMED_CLOSE'}]}};
   const report=summarizeLedgerLineage(probe,prices);
   assert.equal(report.results[2].state,'NAME_MATCHED_LEGACY_PRICE_CANDIDATE');
   assert.equal(report.results[2].lastCandidateEligibleSourceDate,'2025-12-30');
   assert.equal(report.results[2].replacementProven,false);
+  assert.equal(report.results[2].currentCodeFirstPriceDate,'2026-01-06');
+  assert.equal(report.results[2].currentCodeTradeBeforeFirstPrice,true);
   assert.equal(report.sourceOfTruth,'TRADE_LEDGER');
   assert.ok(!JSON.stringify(report).includes('000460'));
   assert.ok(!JSON.stringify(report).includes('0046Y0'));
