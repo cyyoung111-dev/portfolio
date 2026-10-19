@@ -42,10 +42,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.238');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.239');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.238','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.239','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -72,9 +72,9 @@ const latestReleaseNotes = deploymentNotes.slice(
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
-  'newest v9.237 release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.237') && latestReleaseNotes.includes('Snapshot'),
-  'latest release must independently document KRX persisted verification and post-deploy check');
+  'newest GAS release must end before historical v9.228 section');
+assert.ok(latestReleaseNotes.includes('gasVersion=9.238') && latestReleaseNotes.includes('Snapshot'),
+  'latest release must document post-deployment source integrity and Snapshot verification');
 
 // Execute the *actual trigger-registration functions*, not copies of their
 // scheduling expressions. These checks would catch PR #505's 00:10/00:30
@@ -230,6 +230,7 @@ const statusFunctions = [
   '_ensureSnapshotIntegrityEditTrigger',
   '_ensurePendingTradeSnapshotRebuildTrigger',
   '_readPendingTradeSnapshotRebuild',
+  '_readTradeSnapshotDeferredState_',
   '_tradeLedgerWriteUnverified_',
   '_ensureDailyTriggers',
   '_getAutomationStatusData',
@@ -245,6 +246,7 @@ const requiredHandlers = [
 ];
 function runRealDiagnostics({
   missing = [], duplicate = '', overridden = {}, pendingTradeFrom = '', unverifiedTrade = false,
+  deferredDates = [],
 } = {}) {
   const calls = [], alerts = [], logs = [];
   const handlerNames = requiredHandlers.filter(x => !missing.includes(x));
@@ -263,8 +265,12 @@ function runRealDiagnostics({
   })]]);
   if(pendingTradeFrom)props.set('trade_snapshot_rebuild_pending_v1',JSON.stringify({from:pendingTradeFrom}));
   if(unverifiedTrade)props.set('trade_ledger_write_unverified_v1',JSON.stringify({state:'WRITING'}));
+  if(deferredDates.length) props.set('trade_snapshot_rebuild_deferred_v1',
+    JSON.stringify({dates:deferredDates,cursor:''}));
   const ctx = vm.createContext({
     TRADE_SNAPSHOT_REBUILD_PENDING_KEY: 'trade_snapshot_rebuild_pending_v1',
+    TRADE_SNAPSHOT_DEFERRED_DATES_KEY: 'trade_snapshot_rebuild_deferred_v1',
+    TRADE_SNAPSHOT_WORKER_LAST_KEY: 'trade_snapshot_worker_last_v1',
     TRADE_LEDGER_WRITE_JOURNAL_KEY: 'trade_ledger_write_unverified_v1',
     ScriptApp: {
       getProjectTriggers: () => installed.slice(),
@@ -312,6 +318,11 @@ const pendingLedgerDiagnostics=runRealDiagnostics({pendingTradeFrom:'2026-06-05'
 assert.equal(pendingLedgerDiagnostics.data.overallStatus,'WARNING',
   'P1: unfinished ledger-based revaluation must never appear NORMAL');
 assert.equal(pendingLedgerDiagnostics.data.pendingTradeSnapshotRebuildFrom,'2026-06-05');
+const deferredDiagnostics=runRealDiagnostics({deferredDates:['2025-12-31']});
+assert.equal(deferredDiagnostics.data.tradeSnapshotDeferredCount,1);
+assert.equal(deferredDiagnostics.data.tradeSnapshotDeferredOldestDate,'2025-12-31');
+assert.equal(deferredDiagnostics.data.overallStatus,'WARNING',
+  'known unresolved historical dates must never appear NORMAL');
 const incompleteJournal=runRealDiagnostics({unverifiedTrade:true});
 assert.equal(incompleteJournal.data.overallStatus,'WARNING','unverified trade sheet must never appear NORMAL');
 assert.equal(incompleteJournal.data.tradeLedgerWriteUnverified,true);
@@ -538,7 +549,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='d68e38126a2905ebcd6b90931489624a65d9d272';
+const approvedFullSourceBlob='134ae6e83b28f8b8772a411b2685e228f3af2388';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
@@ -582,7 +593,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.237',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.238',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');

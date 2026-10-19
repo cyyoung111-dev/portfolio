@@ -595,6 +595,16 @@ function ledgerSnippet(name) {
 
       _readPendingTradeSnapshotRebuild:()=>from?{from}:null,
       _clearPendingTradeSnapshotRebuild:()=>{from='';},
+      _readTradeSnapshotDeferredState_:()=>({dates:[],cursor:''}),
+      _markTradeSnapshotWorkerResult_:value=>value,
+      _deferTradeSnapshotDate_:()=>{throw Error('no deferral in ordinary worker fixture')},
+      _clearTradeSnapshotDeferredDate_:()=>{},
+      _assessTradeSnapshotWorkerDate_:(_ss,date)=>{
+        rebuilds.push([date,date]);
+        if (date==='2026-06-08' && (blocked || (empty && unexpectedEmpty)))
+          return {state:'BLOCKED',reason:'SOURCE_NOT_VERIFIED'};
+        return {state:'VALID'};
+      },
       _latestConfirmedSnapshotDate:()=> '2026-06-09',
       getss:()=>ss,
       _rebuildDailySnapshotsLocked:(a,b)=>{rebuilds.push([a,b]);return {errors:[],skipped:0};},
