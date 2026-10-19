@@ -541,7 +541,7 @@ assert.doesNotMatch(gas, /function\s+calculateTwr\s*\(/i);
 // #507: direct Sheets edits must enqueue a durable ledger-first recomputation,
 // and the scheduled worker must advance only after raw GAS integrity proves VALID.
 function ledgerSnippet(name) {
-  const found=gas.match(new RegExp('function '+name+'\\\\([\\\\s\\\\S]*?\\\\n}', 'm'));
+  const found=gas.match(new RegExp('function '+name+'\\([\\s\\S]*?\\n}', 'm'));
   assert.ok(found, name+' must exist');
   return found[0];
 }
@@ -616,12 +616,12 @@ function ledgerSnippet(name) {
   assert.equal(blocked.first.status,'BLOCKED');
   assert.equal(blocked.first.blockedDate,'2026-06-08');
   assert.equal(blocked.from,'2026-06-06','incomplete date must remain pending, never falsely finalize');
-  assert.match(gas,/function _ensureSnapshotIntegrityEditTrigger\\(autoFix\\)/);
-  assert.match(gas,/function _ensurePendingTradeSnapshotRebuildTrigger\\(autoFix\\)/);
-  assert.match(gas,/hasIntegrityEdit = _ensureSnapshotIntegrityEditTrigger\\(false\\)/);
-  assert.match(gas,/hasLedgerRebuild = _ensurePendingTradeSnapshotRebuildTrigger\\(false\\)/);
-  assert.match(gas,/newTrigger\\('handleSnapshotIntegritySheetEdit'\\)\\.forSpreadsheet\\(ss\\)\\.onEdit\\(\\)\\.create\\(\\)/);
-  assert.match(gas,/newTrigger\\('runPendingTradeSnapshotRebuild'\\)\\.timeBased\\(\\)\\.everyHours\\(1\\)/);
+  assert.match(gas,/function _ensureSnapshotIntegrityEditTrigger\(autoFix\)/);
+  assert.match(gas,/function _ensurePendingTradeSnapshotRebuildTrigger\(autoFix\)/);
+  assert.match(gas,/hasIntegrityEdit = _ensureSnapshotIntegrityEditTrigger\(false\)/);
+  assert.match(gas,/hasLedgerRebuild = _ensurePendingTradeSnapshotRebuildTrigger\(false\)/);
+  assert.match(gas,/newTrigger\('handleSnapshotIntegritySheetEdit'\)\.forSpreadsheet\(ss\)\.onEdit\(\)\.create\(\)/);
+  assert.match(gas,/newTrigger\('runPendingTradeSnapshotRebuild'\)\.timeBased\(\)\.everyHours\(1\)/);
 }
 
 console.log('✅ 일별 Snapshot 원자료·날짜·환율·펀드·Corporate Action·KOSDAQ 회귀 검사 통과');
