@@ -9,6 +9,8 @@
 //  - Sheets API 직접 수정은 1시간 주기 원장 SHA-256 일치검사로 감지·대기 처리.
 //  - 거래원장 쓰기 전 pending 영속; hard timeout에도 후속 복구 가능.
 //  - 동일 날짜 매매·분할의 물리 행 순서가 계산에 영향을 주므로 SHA도 순서에 민감.
+//  - 원장 검증 전 중단은 영속 WRITING 마커/백업 보호, 운영 경고 및 자동 복구 차단.
+//  - 첫 지문 등록도 기존 과거 Snapshot 검증 대기를 남기고 신규 거래 보유일 포함.
 //  v9.236 변경사항 (2026.10.19):
 //  - 23:10/00:30 독립 과거 백필 실행·무작업·잠금/실패 비민감 checkpoint.
 //  - timeout은 RUNNING 중단 상태로 보존; 공유 역사 백필 결과 불변.
@@ -12402,6 +12404,7 @@ function _getAutomationStatusData() {
   var pendingKrxCloseDates = _readPendingKrxCloseDates_(props);
   var pendingTradeSnapshotRebuild = parseProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
   var pendingTradeSnapshotRebuildFrom = pendingTradeSnapshotRebuild && _normalizeDate(pendingTradeSnapshotRebuild.from || '') || '';
+  var tradeLedgerWriteUnverified = _tradeLedgerWriteUnverified_();
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
     || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
@@ -12422,7 +12425,7 @@ function _getAutomationStatusData() {
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length
-    || pendingTradeSnapshotRebuildFrom
+    || pendingTradeSnapshotRebuildFrom || tradeLedgerWriteUnverified
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
@@ -12467,6 +12470,7 @@ function _getAutomationStatusData() {
     portfolioCloseRunStale: portfolioCloseRunStale,
     pendingKrxCloseDates: pendingKrxCloseDates,
     pendingTradeSnapshotRebuildFrom: pendingTradeSnapshotRebuildFrom,
+    tradeLedgerWriteUnverified: tradeLedgerWriteUnverified,
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
