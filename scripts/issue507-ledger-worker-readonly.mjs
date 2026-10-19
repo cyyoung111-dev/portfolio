@@ -44,7 +44,7 @@ export function summarizeDiagnostics(payload,dates) {
 }
 export function summarizeEvidence(automation,diagnostics){
   if(!automation||automation.mode!=='READ_ONLY'
-    ||!['9.237','9.238'].includes(automation.gasVersion)
+    ||!['9.237','9.238','9.239'].includes(automation.gasVersion)
     ||typeof automation.triggerReady!=='boolean'
     ||!Array.isArray(automation.triggerMissing)
     ||!Array.isArray(diagnostics)||diagnostics.length!==8)
@@ -66,6 +66,9 @@ export function summarizeEvidence(automation,diagnostics){
   const workerVerified=!!(worker && worker.at);
   const deferredCount=automation.tradeSnapshotDeferredCount;
   const deferredOldest=automation.tradeSnapshotDeferredOldestDate || '-';
+  const busy=automation.tradeSnapshotWorkerLastBusy;
+  const staleRunning=workerVerified && worker.status==='RUNNING' &&
+    Date.now()-Date.parse(worker.at)>7*60*1000;
   return {
     mode:'READ_ONLY',gasVersion:automation.gasVersion,
     triggerReady:automation.triggerReady,
@@ -75,6 +78,9 @@ export function summarizeEvidence(automation,diagnostics){
     tradeLedgerWriteUnverified:automation.tradeLedgerWriteUnverified,
     workerLastExecution:workerVerified?worker.at:'NOT_OBSERVED',
     workerLastStatus:workerVerified?worker.status:'NOT_OBSERVED',
+    workerCompletedVerified:workerVerified && worker.status!=='RUNNING',
+    workerStaleRunningSuspected:!!staleRunning,
+    workerLastLockBusyAt:busy?busy.at:'NOT_OBSERVED',
     workerLastProcessed:workerVerified?worker.processed:null,
     workerLastDeferred:workerVerified?worker.deferred:null,
     workerFirstRunVerified:workerVerified,
@@ -129,7 +135,7 @@ export function selfTest(){
     triggerMissing:[],overallStatus:'INCOMPLETE',
     pendingTradeSnapshotRebuildFrom:'-',tradeLedgerWriteUnverified:false,
     tradeSnapshotDeferredCount:0,tradeSnapshotDeferredOldestDate:'-',
-    tradeSnapshotWorkerLastResult:null};
+    tradeSnapshotWorkerLastResult:null,tradeSnapshotWorkerLastBusy:null};
   const earlyEvidence=summarizeDiagnostics({status:'ok',checkedDates:EARLY,
     diagnostics:early},EARLY);
   const regressionEvidence=summarizeDiagnostics({status:'ok',checkedDates:REGRESSION,
@@ -139,6 +145,8 @@ export function selfTest(){
   const out=summarizeEvidence(a,evidence);
   assert.equal(out.workerFirstRunVerified,false);
   assert.equal(out.workerLastExecution,'NOT_OBSERVED');
+  assert.equal(out.workerCompletedVerified,false);
+  assert.equal(out.workerLastLockBusyAt,'NOT_OBSERVED');
   assert.equal(out.deferredDateCount,0);
   const verified=summarizeEvidence({...a,
     pendingTradeSnapshotRebuildFrom:'2026-01-01',
@@ -149,12 +157,21 @@ export function selfTest(){
       processed:1,deferred:1,blockedDate:'',sourceCheck:'UNCHANGED'
     }},evidence);
   assert.equal(verified.workerFirstRunVerified,true);
+  assert.equal(verified.workerCompletedVerified,true);
   assert.equal(verified.workerLastStatus,'PENDING');
   assert.equal(verified.workerLastProcessed,1);
   assert.equal(verified.workerLastDeferred,1);
   assert.equal(verified.deferredDateCount,1);
   assert.equal(verified.deferredOldestDate,'2025-12-31');
   assert.equal(verified.pendingTradeSnapshotRebuildFrom,'2026-01-01');
+  const executing=summarizeEvidence({...a,gasVersion:'9.239',
+    tradeSnapshotWorkerLastResult:{status:'RUNNING',at:'2026-10-19T08:01:00.000Z',
+      processed:0,deferred:0,blockedDate:'',sourceCheck:''},
+    tradeSnapshotWorkerLastBusy:{status:'BUSY',at:'2026-10-19T08:03:00.000Z'}},evidence);
+  assert.equal(executing.workerFirstRunVerified,true);
+  assert.equal(executing.workerCompletedVerified,false);
+  assert.equal(executing.workerLastStatus,'RUNNING');
+  assert.equal(executing.workerLastLockBusyAt,'2026-10-19T08:03:00.000Z');
   assert.equal(out.earlyUnresolvedDateCount,4);
   assert.equal(out.septemberRegressionReady,true);
   assert.equal(out.june5Status,'CONFLICT');

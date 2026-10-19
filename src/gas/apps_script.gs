@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.238
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.239
 //
+//  v9.239 변경사항 (2026.10.19):
+//  - 거래원장 시간 worker 첫 잠금 획득 직후 RUNNING 진입 기록, GAS 하드타임아웃 보존.
+//  - 잠금 실패는 별도 BUSY 타임스탬프로 기록해 실행 중 RUNNING 상태를 덮어쓰지 않음.
+//  - 시작/완료/실패와 잠금 충돌을 운영 상태의 안전한 enum/UTC 시각으로 독립 조회.
 //  v9.238 변경사항 (2026.10.19):
 //  - 원천부족·MANUAL 충돌/가격 이상 날짜는 영속 미해결 목록에 보존하고 이후 날짜 계속 확인.
 //  - 미해결 날짜 순환 재검증, worker 실행 시각·상태·대기 건수 진단 공개.
@@ -2177,7 +2181,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.238',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.239',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2255,7 +2259,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.238', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.239', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6057,7 +6061,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.238' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.239' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10385,6 +10389,7 @@ function _clearPendingTradeSnapshotRebuild() {
 // before an exception date has been durably recorded.
 var TRADE_SNAPSHOT_DEFERRED_DATES_KEY = 'trade_snapshot_rebuild_deferred_v1';
 var TRADE_SNAPSHOT_WORKER_LAST_KEY = 'trade_snapshot_worker_last_v1';
+var TRADE_SNAPSHOT_WORKER_BUSY_KEY = 'trade_snapshot_worker_busy_v1';
 function _readTradeSnapshotDeferredState_() {
   var raw = PropertiesService.getScriptProperties().getProperty(TRADE_SNAPSHOT_DEFERRED_DATES_KEY);
   if (!raw) return { dates:[], cursor:'' };
@@ -10462,8 +10467,19 @@ function _assessTradeSnapshotWorkerDate_(ss, target) {
 // 가격/NAV 원천이 나중에 추가되면 과거 항목도 자동으로 해소됩니다.
 function runPendingTradeSnapshotRebuild() {
   var lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) return {status:'BUSY',processed:0};
+  if (!lock.tryLock(1000)) {
+    // A colliding trigger must not overwrite the active worker's RUNNING
+    // marker; a separate property records the most recent failed lock.
+    try {
+      PropertiesService.getScriptProperties().setProperty(TRADE_SNAPSHOT_WORKER_BUSY_KEY,
+        JSON.stringify({status:'BUSY',at:new Date().toISOString()}));
+    } catch(ignore) { Logger.log('거래원장 worker 잠금 경합 체크포인트 기록 실패'); }
+    return {status:'BUSY',processed:0};
+  }
   try {
+    // Persist ENTRY BEFORE getss(), SHA-256 ledger scanning or price
+    // diagnostics. A GAS hard timeout leaves RUNNING rather than false IDLE.
+    _markTradeSnapshotWorkerResult_({status:'RUNNING',processed:0});
     var ss = getss();
     if (_tradeLedgerWriteUnverified_())
       return _markTradeSnapshotWorkerResult_({status:'LEDGER_WRITE_UNVERIFIED',processed:0});
@@ -12511,6 +12527,7 @@ function _getAutomationStatusData() {
   var tradeLedgerWriteUnverified = _tradeLedgerWriteUnverified_();
   var tradeSnapshotDeferred = _readTradeSnapshotDeferredState_();
   var tradeSnapshotWorkerLastResult = parseProperty(TRADE_SNAPSHOT_WORKER_LAST_KEY);
+  var tradeSnapshotWorkerLastBusy = parseProperty(TRADE_SNAPSHOT_WORKER_BUSY_KEY);
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
     || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
@@ -12535,7 +12552,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.238',
+    gasVersion: '9.239',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12580,6 +12597,7 @@ function _getAutomationStatusData() {
     tradeSnapshotDeferredCount: tradeSnapshotDeferred.dates.length,
     tradeSnapshotDeferredOldestDate: tradeSnapshotDeferred.dates[0] || '',
     tradeSnapshotWorkerLastResult: tradeSnapshotWorkerLastResult,
+    tradeSnapshotWorkerLastBusy: tradeSnapshotWorkerLastBusy,
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
@@ -12594,7 +12612,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.238' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.239' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16209,7 +16227,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.238' });
+    return jsonOk({ settings: settings, gasVersion: '9.239' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16239,7 +16257,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.238'
+      gasVersion: '9.239'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

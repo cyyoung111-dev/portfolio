@@ -68,7 +68,7 @@ function checkpoint(raw) {
     deferred:r.deferred === true,
     failureClass:classifyBackfillFailure(r) };
 }
-const WORKER_STATES=new Set(['IDLE','LEDGER_WRITE_UNVERIFIED','SOURCE_UNSTABLE',
+const WORKER_STATES=new Set(['RUNNING','IDLE','LEDGER_WRITE_UNVERIFIED','SOURCE_UNSTABLE',
   'DEFERRED_RETRY','DEFERRED_RESOLVED','BLOCKED','NO_EXISTING_SNAPSHOT',
   'DEFERRED_OUTSTANDING','COMPLETED','PENDING','ERROR']);
 const WORKER_SOURCES=new Set(['','UNCHANGED','BASELINED','CHANGED','UNSTABLE']);
@@ -87,6 +87,16 @@ function safeWorkerCheckpoint(raw) {
   const blockedDate=safeDate(raw.blockedDate || '');
   return {status:raw.status,at:raw.at,processed:raw.processed,
     deferred:raw.deferred,blockedDate,sourceCheck:raw.sourceCheck||''};
+}
+function safeWorkerBusyCheckpoint(raw) {
+  if(raw == null)return null;
+  if(!raw || typeof raw!=='object' || Array.isArray(raw) || raw.status!=='BUSY'
+    || typeof raw.at!=='string'
+    || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$/.test(raw.at)
+    || !Number.isFinite(Date.parse(raw.at))
+    || new Date(raw.at).toISOString()!==raw.at)
+    throw new Error('AUTOMATION_DIAG_BAD_LEDGER_WORKER_BUSY');
+  return {status:'BUSY',at:raw.at};
 }
 const HISTORICAL_STATES=new Set(['RUNNING','SUCCEEDED','FAILED','DEFERRED','NO_WORK']);
 const HISTORICAL_REASONS=new Set(['STARTED','COMPLETE','FAILED','NO_WORK','FUND_ACTIVE',
@@ -162,6 +172,9 @@ export function summarizeBackfillStatus(payload) {
     throw new Error('AUTOMATION_DIAG_BAD_DEFERRED_DATE');
   const tradeSnapshotWorkerLastResult=hasWorkerRelease
     ?safeWorkerCheckpoint(a.tradeSnapshotWorkerLastResult):null;
+  const hasWorkerEntryRelease=parts[0]>9||(parts[0]===9&&parts[1]>=239);
+  const tradeSnapshotWorkerLastBusy=hasWorkerEntryRelease
+    ?safeWorkerBusyCheckpoint(a.tradeSnapshotWorkerLastBusy):null;
   const overallStatus=String(a.overallStatus || '');
   if (!['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN'].includes(overallStatus))
     throw new Error('AUTOMATION_DIAG_BAD_RESPONSE');
@@ -176,6 +189,7 @@ export function summarizeBackfillStatus(payload) {
     tradeSnapshotDeferredCount,
     tradeSnapshotDeferredOldestDate,
     tradeSnapshotWorkerLastResult,
+    tradeSnapshotWorkerLastBusy,
     officialKrxPriceHistoryLastDate:safeDate(a.officialKrxPriceHistoryLastDate),
     snapshotLastDate:safeDate(a.snapshotLastDate),
     priceHistoryLastDate:safeDate(a.priceHistoryLastDate),

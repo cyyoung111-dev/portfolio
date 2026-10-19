@@ -408,6 +408,30 @@ for(const [change,expect] of [
   const altered=structuredClone(workerLive);change(altered);
   assert.throws(()=>summarizeBackfillStatus(altered),new RegExp(expect));
 }
+// v9.239: worker RUNNING is written before any sheet I/O; a separate BUSY
+// record cannot overwrite an executing worker's last attempt checkpoint.
+const workerEntry=structuredClone(workerLive);
+workerEntry.gasVersion='9.239';
+workerEntry.automation.gasVersion='9.239';
+workerEntry.automation.tradeSnapshotWorkerLastResult={
+  status:'RUNNING',at:'2026-10-19T08:51:00.000Z',
+  processed:0,deferred:0,blockedDate:'',sourceCheck:''
+};
+workerEntry.automation.tradeSnapshotWorkerLastBusy={
+  status:'BUSY',at:'2026-10-19T08:52:00.000Z',
+  sensitive:'SECRET_LEDGER'
+};
+const workerEntryStatus=summarizeBackfillStatus(workerEntry);
+assert.equal(workerEntryStatus.tradeSnapshotWorkerLastResult.status,'RUNNING');
+assert.equal(workerEntryStatus.tradeSnapshotWorkerLastBusy.status,'BUSY');
+assert.equal(workerEntryStatus.tradeSnapshotWorkerLastBusy.at,'2026-10-19T08:52:00.000Z');
+assert.doesNotMatch(JSON.stringify(workerEntryStatus),/SECRET_LEDGER/);
+const invalidBusy=structuredClone(workerEntry);
+invalidBusy.automation.tradeSnapshotWorkerLastBusy.at='INVALID';
+assert.throws(()=>summarizeBackfillStatus(invalidBusy),/BAD_LEDGER_WORKER_BUSY/);
+const invalidPhase=structuredClone(workerEntry);
+invalidPhase.automation.tradeSnapshotWorkerLastResult.status='SECRET';
+assert.throws(()=>summarizeBackfillStatus(invalidPhase),/BAD_LEDGER_WORKER_CHECKPOINT/);
 const workerNeverRun=structuredClone(workerLive);
 workerNeverRun.automation.tradeSnapshotDeferredCount=0;
 workerNeverRun.automation.tradeSnapshotDeferredOldestDate='';
