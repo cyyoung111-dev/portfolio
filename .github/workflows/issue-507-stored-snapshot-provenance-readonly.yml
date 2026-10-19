@@ -1,0 +1,53 @@
+name: issue-507-stored-snapshot-provenance-readonly
+
+# Never rewrites historical Snapshot or trades; aggregates only.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-stored-snapshot-provenance-readonly.mjs'
+      - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-stored-snapshot-provenance-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-stored-snapshot-provenance-readonly.mjs'
+      - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-stored-snapshot-provenance-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Inspect synthetic stored Snapshot provenance without leaking data
+        run: |
+          node --check scripts/issue507-stored-snapshot-provenance-readonly.mjs
+          node scripts/issue507-stored-snapshot-provenance-readonly.mjs --self-test
+
+  operational-readonly:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Compare six historic stored Snapshot dates (sanitized)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-stored-snapshot-provenance-readonly.mjs
