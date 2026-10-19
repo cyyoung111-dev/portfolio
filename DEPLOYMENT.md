@@ -1,7 +1,7 @@
 ## GAS v9.240 — Issue #507 worker 트리거 유형·소유 계정 관측범위 진단 (2026-10-19)
 
 - **배포 상태:** 이 PR은 우선 코드/정합성 CI 검증 단계입니다. 병합·gas-deploy·운영 getAutomationStatus 교차검증 전에는 실제 적용 또는 시간 worker 정상 실행으로 인정하지 않습니다.
-- **릴리스 승인:** `gasVersion=9.240`, 전체 GAS source blob `50f042b711066ac6d0c5714d636604821785327f`. v9.239 원본 승인 pin은 보존합니다.
+- **릴리스 승인:** `gasVersion=9.240`, 전체 GAS source blob `98c20f52807530933a74827476c86b5713f3254f`. v9.239 원본 승인 pin은 보존합니다.
 - **핵심 읽기 전용 진단:** `getAutomationStatus.tradeSnapshotWorkerTriggerAudit`에서 `runPendingTradeSnapshotRebuild` 트리거의 `visibleCount`, `clockCount`, `nonClockCount`, `unknownCount`만 집계합니다. `getEventType() === ScriptApp.EventType.CLOCK`와 `getTriggerSource() === ScriptApp.TriggerSource.CLOCK`가 모두 참인 경우에만 `clockCount`로 인정합니다. `scope=CURRENT_USER`는 Apps Script 실행자에게 보이는 트리거만 집계됨을 뜻합니다. 트리거 고유 ID, 계정 및 스프레드시트 식별자, 거래값, 자격증명은 노출하지 않습니다.
 - **안전 및 판정:** 기존 `triggerReady`와 별도로 `tradeSnapshotWorkerTriggerAudit.clockReady`를 출력합니다. 후자는 현재 사용자 범위에서 올바른 시간 트리거 **1개 설치** 증거일 뿐 실제 호출·실행 성공을 뜻하지 않습니다. v9.239 이전에는 추가 진단을 강요하지 않으며 v9.240 이후 필드 누락·집계 불일치는 fail-closed. 잘못된 이벤트 유형이 확인되더라도 자동 삭제/재생성하지 않습니다.
 - **비변경:** 거래원장·Snapshot·원천 KRX/펀드 NAV·ScriptProperties·트리거 등록/삭제·writer lease·pending/deferred/백업/가격 로직, Toss 및 웹 화면 동작은 그대로입니다. 22:10·23:10·00:30 KRX 백필, 08:45 T+1 KRX 진단 일정을 유지합니다.
