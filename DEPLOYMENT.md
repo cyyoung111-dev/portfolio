@@ -1,10 +1,12 @@
 ## GAS v9.237 — 거래원장 변경 Snapshot 추적·제한 재계산 (2026-10-19)
 
-- **배포 상태:** PR #549 리뷰·필수 CI 확인 중. 실제 GAS 운영 배포/트리거 설치/원본 Snapshot 복구는 별도 작업이며 아직 완료로 간주하지 않습니다. 승인 source blob `c008e727f0a86577c8fc4a5507533a4cfd5cc86f`; 배포 후 `gasVersion=9.237` 실측 필요.
+- **배포 상태:** PR #549 리뷰·필수 CI 확인 중. 실제 GAS 운영 배포/트리거 설치/원본 Snapshot 복구는 별도 작업이며 아직 완료로 간주하지 않습니다. 승인 source blob `d68e38126a2905ebcd6b90931489624a65d9d272`; 배포 후 `gasVersion=9.237` 실측 필요.
 - **단일 원천:** 거래이력은 보유수량·이동평균 취득원가(기존 매도·분할 원칙 유지), 가격이력/KRX 및 해당일 FUND_NAV는 평가단가, Snapshot은 파생 평가 결과입니다.
-- **외부 API 수정 감지:** Sheets API/다른 스크립트는 onEdit를 발생시키지 않으므로 매시간 worker에서 거래원장 A:K 전체의 **행 순서 보존 SHA-256을 두 번 읽어 일치 여부** 확인. 값 변경·과거 거래 삭제 시 최초 저장 Snapshot부터 보수적으로 재계산 대기(충돌은 보호). 매수·매도·분할의 행 순서만 변경된 경우에도 취득원가가 바뀔 수 있어 재계산 대기에 등록함. 시작 시 최초 스캔은 안전한 baseline만 기록하며 그 이전 미감지 변경은 검증 대상에 남음. Web syncTrades는 **원장 쓰기 이전**에 영향 시작일 pending을 영속한 후 Snapshot 재생성에 성공하면 지문 확정·pending 해제(도중 GAS hard timeout이면 pending 유지). 원시 계좌·원장 금액은 ScriptProperties에 기록하지 않음.
+- **외부 API 수정 감지:** Sheets API/다른 스크립트는 onEdit를 발생시키지 않으므로 매시간 worker에서 거래원장 A:K 전체의 **행 순서 보존 SHA-256을 두 번 읽어 일치 여부** 확인. 값 변경·과거 거래 삭제 시 최초 저장 Snapshot부터 보수적으로 재계산 대기(충돌은 보호). 매수·매도·분할의 행 순서만 변경된 경우에도 취득원가가 바뀔 수 있어 재계산 대기에 등록함. 시작 시 최초 스캔은 지문 등록과 함께 기존 Snapshot 최초일부터 재계산을 대기 등록하고, 실제 확인되지 않은 과거 데이터를 정상으로 표시하지 않음. Web syncTrades는 **원장 쓰기 이전**에 영향 시작일 pending을 영속한 후 Snapshot 재생성에 성공하면 지문 확정·pending 해제(도중 GAS hard timeout이면 pending 유지). 원시 계좌·원장 금액은 ScriptProperties에 기록하지 않음.
 - **수정 경로:** 웹 syncTrades의 최초 변경일 재계산 및 partial pending 유지. Standalone 시트 onEdit 설치형 트리거와 행 구조 변경은 영향 날짜를 재계산 대기로 영속하며, **원본 거래이력 외의 시트 데이터를 기준으로 보유수량을 추정하지 않습니다.**
-- **예산·안전:** GAS 시간 기반 1시간 간격 worker가 pending이 있을 때만 기존 Snapshot 날짜 **최대 2개씩** 처리. 해당일 expected 거래원장/가격/NAV와 저장본이 GAS `VALID`일 때만 다음 날짜로 진행; 보호 대상 MANUAL/원자료 부족/미확정 충돌/중복은 대기를 유지합니다. 자동 전체 정리 또는 날짜 공란행 귀속은 하지 않습니다.
+- **예산·안전:** GAS 시간 기반 1시간 간격 worker가 pending이 있을 때만 기존 Snapshot 날짜 가격/NAV·거래원장과 기존 Snapshot/누락 Snapshot을 함께 포함하는 날짜 **최대 2개씩** 처리. 해당일 expected 거래원장/가격/NAV와 저장본이 GAS `VALID`일 때만 다음 날짜로 진행; 보호 대상 MANUAL/원자료 부족/미확정 충돌/중복은 대기를 유지합니다. 자동 전체 정리 또는 날짜 공란행 귀속은 하지 않습니다.
+- **원장 쓰기 중단 보호:** 웹 syncTrades는 원장 A:K를 지우기 전에 과거 재계산 pending과 영속 `trade_ledger_write_unverified_v1` 표시를 기록. 쓰기 검증 완료 후에만 이 표시를 삭제합니다. 미완료 표시가 있으면 이후 웹 재동기화/시간 worker는 원본 재작성·Snapshot 계산을 모두 차단하고 보존된 거래원장 백업으로 수동 원천 복구 및 확인이 필요합니다. 운영 상태는 `WARNING`, 야간 점검은 `TRADE_LEDGER_WRITE_UNVERIFIED`로 표시합니다.
+- **소급 날짜 보호:** 멀티셋 내용 변경과 매수·매도·분할 순서 변경의 영향 시작일 중 **최초 날짜**부터 재계산하며, 원장상 보유가 0임이 확인된 빈 날짜는 정상으로 인정하지만 보유가 있는데 행이 없는 날짜는 차단합니다.
 - **기존 운영 일정 유지:** 22:10 당일 / 23:10 과거 / 00:30 추가 과거 KRX 백필, 08:45 T+1 KRX 원천 검증과 분리. 계좌·가격·토큰 상세 로그 미출력.
 - **배포 후:** 실제 `getAutomationStatus`에서 `trigger.hasIntegrityEdit`·`trigger.hasLedgerRebuild` 참, pending 시작일과 worker trigger 1개씩 검증. 임시 소규모 테스트 거래 원장 수정→재계산 대기→GAS `VALID`→대기 해제를 독립 확인. API 변경 감지는 fingerprint로 대기 등록되지만, 오래된 충돌일에서 blocked될 수 있어 실제 데이터 최종 반영·운영 관측은 별도로 검증 필요.
 - **Issue #507 잔여:** 역사적 충돌 160일·중복 초과 1,129행 및 날짜 공란 1,630행은 READ_ONLY expected 전체서명/원천 NAV·수량·원가 증명 전에는 쓰기 금지. 9/15·16 GAS VALID 39/39 유지.
