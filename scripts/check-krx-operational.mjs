@@ -370,7 +370,7 @@ const malformedMorning=structuredClone(v9235);
 delete malformedMorning.automation.trigger.morningBackfillCount;
 assert.throws(()=>summarizeBackfillStatus(malformedMorning),/BAD_TRIGGER/);
 const latest=statusFixture();
-latest.gasVersion='9.236';latest.automation.gasVersion='9.236';
+latest.gasVersion='9.237';latest.automation.gasVersion='9.237';
 Object.assign(latest.automation.trigger,{hasMorningBackfill:true,
   morningBackfillCount:1,hasDuplicateMorningBackfillTriggers:false});
 latest.automation.historical2310Checkpoint={runDate:'2026-10-18',
