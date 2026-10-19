@@ -77,7 +77,7 @@ function safeWorkerCheckpoint(raw) {
   if(!raw || typeof raw!=='object' || Array.isArray(raw)
     || !WORKER_STATES.has(raw.status)
     || typeof raw.at!=='string'
-    || !/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z$/.test(raw.at)
+    || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$/.test(raw.at)
     || !Number.isFinite(Date.parse(raw.at))
     || new Date(raw.at).toISOString()!==raw.at
     || !Number.isSafeInteger(raw.processed)||raw.processed<0||raw.processed>2
