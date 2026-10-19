@@ -1,0 +1,51 @@
+name: issue-507-missing-price-provenance-readonly
+
+# Identifies first missing historical price source without leaking identifiers.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-missing-price-provenance-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-missing-price-provenance-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Syntax check and safe synthetic regression
+        run: |
+          node --check scripts/issue507-missing-price-provenance-readonly.mjs
+          node scripts/issue507-missing-price-provenance-readonly.mjs --self-test
+
+  operational-readonly:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read-only verified-price presence and historical source-date coverage
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-missing-price-provenance-readonly.mjs
