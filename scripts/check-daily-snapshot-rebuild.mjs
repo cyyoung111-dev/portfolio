@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {createHash} from 'node:crypto';
 
 const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 const web = fs.readFileSync('src/web/views/views_history_state.js', 'utf8');
@@ -624,6 +625,74 @@ function ledgerSnippet(name) {
   assert.match(gas,/hasLedgerRebuild = _ensurePendingTradeSnapshotRebuildTrigger\(false\)/);
   assert.match(gas,/newTrigger\('handleSnapshotIntegritySheetEdit'\)\.forSpreadsheet\(ss\)\.onEdit\(\)\.create\(\)/);
   assert.match(gas,/newTrigger\('runPendingTradeSnapshotRebuild'\)\.timeBased\(\)\.everyHours\(1\)/);
+}
+
+// API/script-driven trades do not trigger GAS onEdit. The production SHA
+// fingerprint must detect source mutations, ignore row-only reordering,
+// retain older-history impact on deletion, and never store raw ledger values.
+{
+  const rows=[['2026-01-02','buy','A','삼성','005930',10,70000,'주식','','',''],
+    ['2026-06-05','sell','A','삼성','005930',2,80000,'주식','','','']];
+  const props=new Map(),pending=[],revisions=[];
+  let inconsistent=false,reads=0;
+  const tradeSheet={
+    getLastRow:()=>rows.length+1,getLastColumn:()=>11,
+    getRange:()=>({getValues:()=>{
+      reads++;
+      const copy=rows.map(x=>x.slice());
+      if(inconsistent&&reads%2===0)copy[0][5]++;
+      return copy;
+    }})
+  };
+  const ctx={
+    CONFIG:{SHEET_TRADES:'거래이력'},
+    TRADE_LEDGER_FINGERPRINT_KEY:'trade_ledger_snapshot_source_sha256_v1',
+    _normalizeDate:x=>String(x||''),_cleanCode:x=>String(x||''),
+    _tradeSnapshotRebuildFromSheetEdit:()=> '2026-01-02',
+    _setPendingTradeSnapshotRebuild:x=>pending.push(x),
+    _touchSnapshotIntegritySourceRevision:x=>revisions.push(x),
+    PropertiesService:{getScriptProperties:()=>({
+      getProperty:k=>props.get(k)||null,
+      setProperty:(k,v)=>props.set(k,v)})},
+    Utilities:{DigestAlgorithm:{SHA_256:'SHA_256'},computeDigest:(algo,input)=>{
+      assert.equal(algo,'SHA_256');
+      return [...createHash('sha256').update(input,'utf8').digest()].map(x=>x>127?x-256:x);
+    }}
+  };
+  vm.runInNewContext(
+    ['_tradeLedgerContentFingerprint_','_recordTradeLedgerFingerprint_',
+      '_detectExternalTradeLedgerChanges_'].map(ledgerSnippet).join('\n'),ctx);
+  const ss={getSheetByName:()=>tradeSheet};
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'BASELINED');
+  assert.equal(pending.length,0,'initial baseline must not rewrite old conflicting history');
+  const checksum=props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY);
+  assert.match(checksum,/^[0-9a-f]{64}$/);
+  assert.doesNotMatch(JSON.stringify([...props.values()]),/70000|80000|005930|삼성/);
+  rows.reverse();
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
+    'sorting the ledger is not a financial change');
+  rows[0][5]=3;
+  const changed=ctx._detectExternalTradeLedgerChanges_(ss);
+  assert.equal(changed.state,'CHANGED');
+  assert.equal(changed.from,'2026-01-02');
+  assert.deepEqual(pending,['2026-01-02']);
+  assert.deepEqual(revisions,[{from:'2026-01-02'}]);
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
+    'persisted fingerprint must be idempotent');
+  rows.splice(1,1);
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'CHANGED',
+    'deletion of past trades still must invalidate from earliest Snapshot');
+  assert.equal(pending.length,2);
+  const baseline=props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY);
+  inconsistent=true;
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNSTABLE');
+  assert.equal(props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY),baseline,
+    'unstable concurrent API writes must never advance checkpoint');
+  assert.equal(pending.length,2);
+  inconsistent=false;
+  ctx._recordTradeLedgerFingerprint_(ss);
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
+    'normal web sync already diff-tracks changed rows and should not queue again');
 }
 
 console.log('✅ 일별 Snapshot 원자료·날짜·환율·펀드·Corporate Action·KOSDAQ 회귀 검사 통과');
