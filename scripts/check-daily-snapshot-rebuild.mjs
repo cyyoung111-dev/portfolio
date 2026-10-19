@@ -578,7 +578,7 @@ function ledgerSnippet(name) {
   assert.equal(revisions.length,3);
 }
 {
-  function worker({blocked=false,unverified=false}={}) {
+  function worker({blocked=false,unverified=false,empty=false,unexpectedEmpty=false}={}) {
     let from='2026-06-05',saved=[],attempts=[],rebuilds=[],errors=[],locks=0;
     // June 8 has no Snapshot yet but has confirmed price/trade source data.
     const dates=['2026-06-05','2026-06-08','2026-06-09'];
@@ -598,8 +598,9 @@ function ledgerSnippet(name) {
       _latestConfirmedSnapshotDate:()=> '2026-06-09',
       getss:()=>ss,
       _rebuildDailySnapshotsLocked:(a,b)=>{rebuilds.push([a,b]);return {errors:[],skipped:0};},
-      diagnoseSnapshotIntegrity:(_ss,date)=>({status:blocked&&date==='2026-06-08'?'MISMATCH':'VALID',
-        duplicateKeys:[],sourceDataErrors:[]}),
+      diagnoseSnapshotIntegrity:(_ss,date)=>({status:blocked&&date==='2026-06-08'?'MISMATCH':empty&&date==='2026-06-08'?'NO_SNAPSHOT':'VALID',
+        expectedRowCount:0,storedRowCount:0,duplicateKeys:[],sourceDataErrors:[]}),
+      _hasSnapshotHoldingsAtDate:()=>unexpectedEmpty?true:false,
       _dateOffset:date=>date==='2026-06-05'?'2026-06-06':date==='2026-06-08'?'2026-06-09':'2026-06-10',
       PropertiesService:{getScriptProperties:()=>({
         setProperty:(k,v)=>{const x=JSON.parse(v);from=x.from;saved.push({k,from});}
@@ -623,6 +624,12 @@ function ledgerSnippet(name) {
   assert.equal(incomplete.first.status,'LEDGER_WRITE_UNVERIFIED');
   assert.equal(incomplete.rebuilds.length,0,'partial ledger must never reach snapshot rewrite');
   assert.equal(incomplete.from,'2026-06-05','incomplete ledger must retain pending');
+  const validEmpty=worker({empty:true});
+  assert.equal(validEmpty.first.status,'PENDING',
+    'a source-proven zero holding day must not block subsequent replay');
+  const unsafeEmpty=worker({empty:true,unexpectedEmpty:true});
+  assert.equal(unsafeEmpty.first.status,'BLOCKED',
+    'unexpected absent Snapshot with ledger holdings must block');
   const blocked=worker({blocked:true});
   assert.equal(blocked.first.status,'BLOCKED');
   assert.equal(blocked.first.blockedDate,'2026-06-08');
