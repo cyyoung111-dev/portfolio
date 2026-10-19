@@ -6,7 +6,7 @@ import { validateWebAppUrl } from './diagnose-krx-operational.mjs';
 
 const REQUIRED=['closeCount','watchdogCount','backfillCount',
   'historicalBackfillCount','midnightBackfillCount'];
-const VERSION='9.239';
+const VERSION='9.240';
 export function checkStatus(body,{requireMorning=false}={}) {
   const a=body?.automation, t=a?.trigger;
   if(body?.status!=='ok'||body.gasVersion!==VERSION
