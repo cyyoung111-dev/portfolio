@@ -12148,7 +12148,7 @@ function _ensureDailyTriggers(autoFix) {
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v10-ledger-authority';
+  var checkToken = dateStr + '|integrity-change-v9-close-watchdog-midnight-backfill-morning-tplus1|ledger-authority-v1';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
