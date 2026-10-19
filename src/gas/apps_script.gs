@@ -5816,7 +5816,7 @@ function _snapshotIntegrityImpactForEdit(e) {
 function _tradeSnapshotRebuildFromSheetEdit(ss, impact) {
   if (impact && impact.from) return _normalizeDate(impact.from);
   var earliest = '';
-  var snapshot = ss && ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+  var snapshot = ss && typeof ss.getSheetByName === 'function' ? ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) : null;
   if (snapshot && snapshot.getLastRow() > 1) {
     snapshot.getRange(2, 1, snapshot.getLastRow() - 1, 1).getValues().forEach(function(row) {
       var date = _normalizeDate(row[0]);
@@ -5860,7 +5860,13 @@ function handleSnapshotIntegritySheetChange(e) {
   // 재계산을 예약합니다. 다른 시트의 구조 변경으로 거래원장을 덮어쓰지 않습니다.
   if (sheet && sheet.getName() === CONFIG.SHEET_TRADES) {
     var from = _tradeSnapshotRebuildFromSheetEdit(ss, { all: true });
-    if (from) _setPendingTradeSnapshotRebuild(from);
+    if (from) {
+      var lock = LockService.getScriptLock(), acquired = false;
+      try {
+        lock.waitLock(15000); acquired = true;
+        _setPendingTradeSnapshotRebuild(from);
+      } finally { if (acquired) lock.releaseLock(); }
+    }
   }
 }
 
@@ -12008,6 +12014,8 @@ function setupTrigger() {
   _ensurePortfolioHistoricalBackfill0010Trigger(true);
   _ensurePortfolioMorningKrxBackfillTrigger(true);
   _ensureSnapshotIntegrityChangeTrigger(true);
+  _ensureSnapshotIntegrityEditTrigger(true);
+  _ensurePendingTradeSnapshotRebuildTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
   Logger.log('트리거 등록 완료: 01:10 주담대 → 08:45 KRX T+1 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 당일 → 23:10 과거 → 00:30 과거 백필');
   try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 당일 exact-date 종가·Snapshot + 펀드 NAV/평가 통합 마감\n20:30 실패 자동 재시도 watchdog\n22:10 당일 복구\\n23:10 과거 복구\\n00:30 추가 과거 복구\\n08:45 KRX T+1 자동 복구'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
@@ -12271,7 +12279,7 @@ function _getAutomationStatusData() {
   var portfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
   var pendingKrxCloseDates = _readPendingKrxCloseDates_(props);
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
-    || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange;
+    || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
   var hasDuplicateCloseTriggers = !!trig.hasDuplicateCloseTriggers;
   var hasDuplicateWatchdogTriggers = !!trig.hasDuplicateWatchdogTriggers;
@@ -12306,6 +12314,8 @@ function _getAutomationStatusData() {
       hasClean: !!trig.hasClean,
       hasMortgage: !!trig.hasMortgage,
       hasIntegrityChange: !!trig.hasIntegrityChange,
+      hasIntegrityEdit: !!trig.hasIntegrityEdit,
+      hasLedgerRebuild: !!trig.hasLedgerRebuild,
       hasLegacyPriceTrigger: trig.legacyPriceCount > 0,
       hasLegacyFundTrigger: trig.legacyFundCount > 0,
       hasLegacySplitTriggers: hasLegacySplitTriggers,
@@ -12331,6 +12341,7 @@ function _getAutomationStatusData() {
     officialKrxPriceHistoryLastDate: officialKrxPriceHistoryLastDate,
     portfolioCloseRunStale: portfolioCloseRunStale,
     pendingKrxCloseDates: pendingKrxCloseDates,
+    pendingTradeSnapshotRebuildFrom: (parseProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY) || {}).from || '',
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
@@ -12389,7 +12400,10 @@ function checkDailyAutomationStatus() {
     + 'runPortfolioHistoricalBackfill0010(00:30) 추가 과거 복구 트리거: ' + (trig.hasDuplicateMidnightBackfillTriggers ? ('중복 ' + trig.midnightBackfillCount + '개') : (trig.hasMidnightBackfill ? '정상' : '없음')) + '\\n'
     + 'runPortfolioMorningKrxBackfill0845(08:45) 익영업일 복구 트리거: ' + (trig.hasDuplicateMorningBackfillTriggers ? ('중복 ' + trig.morningBackfillCount + '개') : (trig.hasMorningBackfill ? '정상' : '없음')) + '\\n'
     + '기존 분리 트리거(runEvalPriceUpdate1620/runDailyFundValuations): ' + (trig.hasLegacySplitTriggers ? ('남아 있음 · 가격 ' + trig.legacyPriceCount + '개 / 펀드 ' + trig.legacyFundCount + '개') : '없음') + '\n\n'
-    + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
+    + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n'
+    + '거래원장 직접편집 감지 트리거: ' + (trig.hasIntegrityEdit ? '정상' : '없음') + '\n'
+    + '거래원장 재평가 후속 트리거: ' + (trig.hasLedgerRebuild ? '정상' : '없음') + '\n'
+    + '거래원장 Snapshot 재평가 대기 시작일: ' + ((_readPendingTradeSnapshotRebuild() || {}).from || '-') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
     + '가격이력 마지막 날짜: ' + phLast + '\n'
     + '자동 생성 최근 성공: ' + lastSuccessAt + ' (기준일 ' + lastSuccessDate + ')\n'
@@ -12401,7 +12415,7 @@ function checkDailyAutomationStatus() {
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + (isPortfolioCloseRunStale ? '⚠️ 통합 마감 최근 실행일이 기대 실행일(' + expectedPortfolioCloseRunDate + ')보다 오래되었습니다.\n' : '')
     + '\n'
-    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers || trig.hasDuplicateWatchdogTriggers || trig.hasDuplicateBackfillTriggers || trig.hasDuplicateHistoricalBackfillTriggers || trig.hasDuplicateMidnightBackfillTriggers || trig.hasDuplicateMorningBackfillTriggers
+    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers || trig.hasDuplicateWatchdogTriggers || trig.hasDuplicateBackfillTriggers || trig.hasDuplicateHistoricalBackfillTriggers || trig.hasDuplicateMidnightBackfillTriggers || trig.hasDuplicateMorningBackfillTriggers
       ? '⚠️ 트리거 상태 이상: [복구·정리 실행] → [자동 트리거 복구·정리]를 실행하세요.'
       : '✅ 트리거는 정상 집합입니다. 데이터 누락은 정합성 진단으로 확인하세요.')
     + '\n이 점검은 트리거와 데이터를 변경하지 않습니다. 버전업마다 실행할 필요는 없습니다.';
