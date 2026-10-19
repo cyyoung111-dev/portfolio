@@ -230,6 +230,7 @@ const statusFunctions = [
   '_ensureSnapshotIntegrityEditTrigger',
   '_ensurePendingTradeSnapshotRebuildTrigger',
   '_readPendingTradeSnapshotRebuild',
+  '_tradeLedgerWriteUnverified_',
   '_ensureDailyTriggers',
   '_getAutomationStatusData',
   'checkDailyAutomationStatus',
@@ -243,7 +244,7 @@ const requiredHandlers = [
   'handleSnapshotIntegritySheetEdit', 'runPendingTradeSnapshotRebuild',
 ];
 function runRealDiagnostics({
-  missing = [], duplicate = '', overridden = {}, pendingTradeFrom = '',
+  missing = [], duplicate = '', overridden = {}, pendingTradeFrom = '', unverifiedTrade = false,
 } = {}) {
   const calls = [], alerts = [], logs = [];
   const handlerNames = requiredHandlers.filter(x => !missing.includes(x));
@@ -261,8 +262,10 @@ function runRealDiagnostics({
     priceOk:true, fundOk:true, errors:[],
   })]]);
   if(pendingTradeFrom)props.set('trade_snapshot_rebuild_pending_v1',JSON.stringify({from:pendingTradeFrom}));
+  if(unverifiedTrade)props.set('trade_ledger_write_unverified_v1',JSON.stringify({state:'WRITING'}));
   const ctx = vm.createContext({
     TRADE_SNAPSHOT_REBUILD_PENDING_KEY: 'trade_snapshot_rebuild_pending_v1',
+    TRADE_LEDGER_WRITE_JOURNAL_KEY: 'trade_ledger_write_unverified_v1',
     ScriptApp: {
       getProjectTriggers: () => installed.slice(),
       newTrigger: () => blockedMutation('newTrigger'),
@@ -309,6 +312,9 @@ const pendingLedgerDiagnostics=runRealDiagnostics({pendingTradeFrom:'2026-06-05'
 assert.equal(pendingLedgerDiagnostics.data.overallStatus,'WARNING',
   'P1: unfinished ledger-based revaluation must never appear NORMAL');
 assert.equal(pendingLedgerDiagnostics.data.pendingTradeSnapshotRebuildFrom,'2026-06-05');
+const incompleteJournal=runRealDiagnostics({unverifiedTrade:true});
+assert.equal(incompleteJournal.data.overallStatus,'WARNING','unverified trade sheet must never appear NORMAL');
+assert.equal(incompleteJournal.data.tradeLedgerWriteUnverified,true);
 const normalDiagnostics = runRealDiagnostics();
 assert.equal(normalDiagnostics.data.overallStatus, 'NORMAL');
 assert.equal(normalDiagnostics.data.trigger.hasMidnightBackfill, true);
