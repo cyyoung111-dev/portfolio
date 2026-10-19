@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.239
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.240
 //
+//  v9.240 변경사항 (2026.10.19):
+//  - 현재 사용자에게 보이는 시간 worker 트리거의 이벤트 유형·소스 CLOCK을 읽기 전용 진단.
+//  - 기존 트리거 등록·원장/Snapshot/가격·deferred 대기열·실제 worker 실행 로직은 불변.
 //  v9.239 변경사항 (2026.10.19):
 //  - 거래원장 시간 worker 첫 잠금 획득 직후 RUNNING 진입 기록, GAS 하드타임아웃 보존.
 //  - 잠금 실패는 별도 BUSY 타임스탬프로 기록해 실행 중 RUNNING 상태를 덮어쓰지 않음.
@@ -2181,7 +2184,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.239',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.240',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2259,7 +2262,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.239', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.240', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6061,7 +6064,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.239' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.240' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12492,6 +12495,33 @@ function _fundAttemptDiagnosticState_(owner, completion, nowMs) {
   return {date:String(owner.date), startedAtMs:started, finishedAtMs:finished, state:state};
 }
 
+// READ ONLY: counts the CURRENT USER's installed project triggers only.
+// Function-name registration is not proof of a CLOCK event or an execution.
+// Never expose trigger IDs, user identities, spreadsheet IDs, or raw metadata.
+function _getTradeSnapshotWorkerTriggerAudit_() {
+  var matching = ScriptApp.getProjectTriggers().filter(function(t) {
+    return t.getHandlerFunction() === 'runPendingTradeSnapshotRebuild';
+  });
+  var clockCount = 0, unknownCount = 0;
+  matching.forEach(function(t) {
+    if (typeof t.getEventType !== 'function' || typeof t.getTriggerSource !== 'function'
+        || !ScriptApp.EventType || !ScriptApp.TriggerSource) {
+      unknownCount++;
+      return;
+    }
+    var eventType = t.getEventType(), source = t.getTriggerSource();
+    if (eventType === ScriptApp.EventType.CLOCK && source === ScriptApp.TriggerSource.CLOCK)
+      clockCount++;
+  });
+  return {
+    visibleCount: matching.length,
+    clockCount: clockCount,
+    nonClockCount: matching.length - clockCount - unknownCount,
+    unknownCount: unknownCount,
+    scope: 'CURRENT_USER'
+  };
+}
+
 function _getAutomationStatusData() {
   var ss = getss();
   var trig = _ensureDailyTriggers(false);
@@ -12528,6 +12558,7 @@ function _getAutomationStatusData() {
   var tradeSnapshotDeferred = _readTradeSnapshotDeferredState_();
   var tradeSnapshotWorkerLastResult = parseProperty(TRADE_SNAPSHOT_WORKER_LAST_KEY);
   var tradeSnapshotWorkerLastBusy = parseProperty(TRADE_SNAPSHOT_WORKER_BUSY_KEY);
+  var tradeSnapshotWorkerTriggerAudit = _getTradeSnapshotWorkerTriggerAudit_();
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
     || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
@@ -12552,7 +12583,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.239',
+    gasVersion: '9.240',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12598,6 +12629,7 @@ function _getAutomationStatusData() {
     tradeSnapshotDeferredOldestDate: tradeSnapshotDeferred.dates[0] || '',
     tradeSnapshotWorkerLastResult: tradeSnapshotWorkerLastResult,
     tradeSnapshotWorkerLastBusy: tradeSnapshotWorkerLastBusy,
+    tradeSnapshotWorkerTriggerAudit: tradeSnapshotWorkerTriggerAudit,
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
@@ -12612,7 +12644,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.239' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.240' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16227,7 +16259,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.239' });
+    return jsonOk({ settings: settings, gasVersion: '9.240' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16257,7 +16289,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.239'
+      gasVersion: '9.240'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

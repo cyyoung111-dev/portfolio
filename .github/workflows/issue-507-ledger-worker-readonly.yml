@@ -5,11 +5,13 @@ on:
   pull_request:
     paths:
       - 'scripts/issue507-ledger-worker-readonly.mjs'
+      - 'scripts/check-issue507-worker-trigger-audit.mjs'
       - '.github/workflows/issue-507-ledger-worker-readonly.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/issue507-ledger-worker-readonly.mjs'
+      - 'scripts/check-issue507-worker-trigger-audit.mjs'
       - '.github/workflows/issue-507-ledger-worker-readonly.yml'
   workflow_dispatch:
 
@@ -29,6 +31,8 @@ jobs:
         run: node --check scripts/issue507-ledger-worker-readonly.mjs
       - name: Test fail-closed aggregate evidence parser
         run: node scripts/issue507-ledger-worker-readonly.mjs --self-test
+      - name: Test real GAS read-only CLOCK trigger audit
+        run: node scripts/check-issue507-worker-trigger-audit.mjs
 
   operational-readonly:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
@@ -59,7 +63,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - name: Read only GAS v9.238 worker checkpoint and pending queue
+      - name: Read only GAS worker clock audit, heartbeat and pending queue
         env:
           GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
           GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
