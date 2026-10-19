@@ -37,6 +37,7 @@ ctx.getCodeItems=()=>[{code:'005930',name:'테스트',type:'주식'}];
 ctx._backupSheetBeforeWrite=()=>({name:'fixture-backup'});
 ctx._markSnapshotBackupStatus=(record,status)=>{backupStatus=status;};
 ctx._cleanupCurrentSystemBackup=()=>{cleanup++;return {};};
+ctx._recordTradeLedgerFingerprint_=()=> 'fixture-ledger-sha256';
 ctx._readPendingTradeSnapshotRebuild=()=>null;
 ctx._clearPendingTradeSnapshotRebuild=()=>{};
 ctx._earliestChangedTradeDate=()=>'';
