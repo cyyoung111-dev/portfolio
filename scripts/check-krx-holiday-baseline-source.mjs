@@ -118,7 +118,7 @@ latestActions.length=0;
 assert.equal((await runSourceOnlyRepair({url,token,apply:true,fetchImpl:latestFetch})).mode,'ALREADY_VALID');
 assert.deepEqual(latestActions,['diagnoseSnapshotIntegrity',
   'getAutomationStatus','diagnoseSnapshotIntegrity']);
-latestVersion='9.241';
+latestVersion='9.242';
 latestActions.length=0;
 assert.equal((await runSourceOnlyRepair({url,token,apply:true,fetchImpl:latestFetch})).mode,'ALREADY_VALID');
 assert.deepEqual(latestActions,['diagnoseSnapshotIntegrity',
