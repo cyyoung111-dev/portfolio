@@ -94,6 +94,7 @@ export function testProductionGAS(){
     _getDailyHeldCodeItems:()=>eligible?catalog:[],
     _isKrxDailyCloseTarget_:()=>true,
     _calcCodeHoldingsAtDate:()=>({A:{code:'000001',qty:2}}),
+    _isFundCode:c=>/^F[0-9]{5}$/.test(c),
     fetchPricesKrx:()=>{fetchCalls++;return official?{'000001':official}:{};},
     jsonOk:o=>({status:'ok',...o}),
     jsonError:message=>({status:'error',message}),
