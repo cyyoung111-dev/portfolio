@@ -42,10 +42,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.239');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.240');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.239','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.240','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -73,7 +73,7 @@ assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a se
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
   'newest GAS release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.238') && latestReleaseNotes.includes('Snapshot'),
+assert.ok(latestReleaseNotes.includes('gasVersion=9.239') && latestReleaseNotes.includes('Snapshot'),
   'latest release must document post-deployment source integrity and Snapshot verification');
 
 // Execute the *actual trigger-registration functions*, not copies of their
@@ -549,7 +549,7 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='134ae6e83b28f8b8772a411b2685e228f3af2388';
+const approvedFullSourceBlob='157636727f3e7e3b634a2b07036586781d20ee6a';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
 const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
@@ -593,7 +593,7 @@ const hasStackedKrxRecovery = currentGasSource.includes('function _getKrxAuthKey
 if (hasStackedKrxRecovery) {
   assert.equal(actualSourceBlob, approvedFullSourceBlob,
     'a fully stacked PR #481 implementation must match the reviewed full-source blob');
-  assert.equal(assertGasReleaseReady(currentGasSource),'9.238',
+  assert.equal(assertGasReleaseReady(currentGasSource),'9.239',
     'the exact pinned full GAS release source must pass validation');
   assert.throws(() => assertGasReleaseReady(currentGasSource + '\\n// unexpected edit'),
     /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'even a benign post-review edit must be separately approved');
