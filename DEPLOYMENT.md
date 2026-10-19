@@ -1,5 +1,6 @@
 ## GAS v9.239 — Issue #507 시간 worker 진입·잠금 실패 조기 체크포인트 (2026-10-19)
 
+- **배포 상태:** PR #560 코드 검증 중이며 아직 실제 운영 GAS에 적용되지 않았습니다. GAS 배포 성공 및 운영 v9.239 실측 전에는 적용 완료로 간주하지 않습니다.
 - **릴리스 승인:** `gasVersion=9.239`, 전체 GAS source blob `ed555bd181c57ab2e8bf2102938c0089d6df2937`. 병합·배포 전에는 변경한 코드가 실제 운영에 적용됐다고 주장하지 않음.
 - **증상:** v9.238 운영에서 `hasLedgerRebuild=true`인데 `tradeSnapshotWorkerLastResult=null` · `tradeSnapshotDeferredCount=0` · pending `2025-12-31`; 사용자 거래원장의 2025년 말 가격 부족이 아닌 *worker 진입·잠금/타임아웃* 문제일 가능성도 진단해야 함.
 - **첫 진입:** 설치형 `runPendingTradeSnapshotRebuild`에서 ScriptLock을 실제 획득한 직후, **getss()/원장 SHA-256 두 번 읽기/원천 검증/대기열 처리 이전** `trade_snapshot_worker_last_v1`에 `RUNNING`과 UTC 시각만 기록. 성공·오류 결과는 기존 완료 enum·시각으로 갱신. GAS hard timeout은 `RUNNING` 잔존해 명확한 미완료 증거.
