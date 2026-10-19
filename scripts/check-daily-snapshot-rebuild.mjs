@@ -537,4 +537,91 @@ assert.match(html, /core\/core_ui\.js\?v=20260917-2/);
 assert.match(fs.readFileSync('src/web/views/views_history_utils.js', 'utf8'), /_buildCashflowAdjustedReturnIndex/);
 assert.doesNotMatch(gas, /function\s+calculateTwr\s*\(/i);
 
+
+// #507: direct Sheets edits must enqueue a durable ledger-first recomputation,
+// and the scheduled worker must advance only after raw GAS integrity proves VALID.
+function ledgerSnippet(name) {
+  const found=gas.match(new RegExp('function '+name+'\\\\([\\\\s\\\\S]*?\\\\n}', 'm'));
+  assert.ok(found, name+' must exist');
+  return found[0];
+}
+{
+  let pending=[],revisions=[],lockCount=0;
+  const tradeSheet={getName:()=> '거래이력',getParent:()=>({getSheetByName:()=>null})};
+  const snapshotSheet={getName:()=> '스냅샷'};
+  const sheetParent={
+    getSheetByName:(name)=>name==='스냅샷'?{
+      getLastRow:()=>3,getRange:()=>({
+        getValues:()=>[['2026-03-01'],['2026-06-05']]})
+    }:null
+  };
+  const context={
+    CONFIG:{SHEET_TRADES:'거래이력',SHEET_SNAPSHOT:'스냅샷'},
+    _normalizeDate:x=>String(x||''),
+    _snapshotIntegrityImpactForEdit:()=>({from:'2026-06-05'}),
+    _touchSnapshotIntegritySourceRevision:x=>revisions.push(x),
+    _tradeSnapshotRebuildFromSheetEdit:null,
+    _setPendingTradeSnapshotRebuild:x=>pending.push(x),
+    LockService:{getScriptLock:()=>({waitLock:()=>{lockCount++;},releaseLock:()=>{lockCount--;}})}
+  };
+  vm.runInNewContext(ledgerSnippet('_tradeSnapshotRebuildFromSheetEdit')+'\\n'+
+    ledgerSnippet('handleSnapshotIntegritySheetEdit'),context);
+  context.handleSnapshotIntegritySheetEdit({source:sheetParent,range:{getSheet:()=>tradeSheet}});
+  assert.deepEqual(pending,['2026-06-05']);
+  assert.equal(lockCount,0);
+  context.handleSnapshotIntegritySheetEdit({source:sheetParent,range:{getSheet:()=>snapshotSheet}});
+  assert.deepEqual(pending,['2026-06-05'],'snapshot edits only invalidate cache, never queue trade rebuild');
+  context._snapshotIntegrityImpactForEdit=()=>({all:true});
+  context.handleSnapshotIntegritySheetEdit({source:sheetParent,range:{getSheet:()=>tradeSheet}});
+  assert.equal(pending.at(-1),'2026-03-01','bulk/missing-old-date edit conservatively restarts at earliest stored Snapshot');
+  assert.equal(revisions.length,3);
+}
+{
+  function worker({blocked=false}={}) {
+    let from='2026-06-05',saved=[],attempts=[],rebuilds=[],locks=0;
+    const dates=['2026-06-05','2026-06-08','2026-06-09'];
+    const ss={getSheetByName:()=>({
+      getLastRow:()=>4,getRange:()=>({getValues:()=>dates.map(x=>[x])})
+    })};
+    const ctx={
+      CONFIG:{SHEET_SNAPSHOT:'스냅샷'},
+      _normalizeDate:x=>String(x||''),
+      _readPendingTradeSnapshotRebuild:()=>from?{from}:null,
+      _clearPendingTradeSnapshotRebuild:()=>{from='';},
+      _latestConfirmedSnapshotDate:()=> '2026-06-09',
+      getss:()=>ss,
+      _rebuildDailySnapshotsLocked:(a,b)=>{rebuilds.push([a,b]);return {errors:[],skipped:0};},
+      diagnoseSnapshotIntegrity:(_ss,date)=>({status:blocked&&date==='2026-06-08'?'MISMATCH':'VALID',
+        duplicateKeys:[],sourceDataErrors:[]}),
+      _dateOffset:date=>date==='2026-06-05'?'2026-06-06':date==='2026-06-08'?'2026-06-09':'2026-06-10',
+      PropertiesService:{getScriptProperties:()=>({
+        setProperty:(k,v)=>{const x=JSON.parse(v);from=x.from;saved.push({k,from});}
+      })},
+      LockService:{getScriptLock:()=>({
+        tryLock:()=>{locks++;return true;},releaseLock:()=>{locks--;}
+      })},
+      Logger:{log:()=>{}},Date:Date
+    };
+    vm.runInNewContext(ledgerSnippet('runPendingTradeSnapshotRebuild'),ctx);
+    const first=ctx.runPendingTradeSnapshotRebuild();
+    assert.equal(locks,0,'worker releases lock on each outcome');
+    return {first,from,saved,rebuilds,ctx};
+  }
+  const success=worker();
+  assert.equal(success.first.status,'PENDING');
+  assert.equal(success.first.processed,2);
+  assert.equal(success.from,'2026-06-09');
+  assert.deepEqual(success.rebuilds,[['2026-06-05','2026-06-05'],['2026-06-08','2026-06-08']]);
+  const blocked=worker({blocked:true});
+  assert.equal(blocked.first.status,'BLOCKED');
+  assert.equal(blocked.first.blockedDate,'2026-06-08');
+  assert.equal(blocked.from,'2026-06-06','incomplete date must remain pending, never falsely finalize');
+  assert.match(gas,/function _ensureSnapshotIntegrityEditTrigger\\(autoFix\\)/);
+  assert.match(gas,/function _ensurePendingTradeSnapshotRebuildTrigger\\(autoFix\\)/);
+  assert.match(gas,/hasIntegrityEdit = _ensureSnapshotIntegrityEditTrigger\\(false\\)/);
+  assert.match(gas,/hasLedgerRebuild = _ensurePendingTradeSnapshotRebuildTrigger\\(false\\)/);
+  assert.match(gas,/newTrigger\\('handleSnapshotIntegritySheetEdit'\\)\\.forSpreadsheet\\(ss\\)\\.onEdit\\(\\)\\.create\\(\\)/);
+  assert.match(gas,/newTrigger\\('runPendingTradeSnapshotRebuild'\\)\\.timeBased\\(\\)\\.everyHours\\(1\\)/);
+}
+
 console.log('✅ 일별 Snapshot 원자료·날짜·환율·펀드·Corporate Action·KOSDAQ 회귀 검사 통과');
