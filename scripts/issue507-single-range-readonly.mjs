@@ -3,6 +3,7 @@
 // Strict READ ONLY. Never expose GAS source errors, positions, trade rows,
 // tokens, URLs, prices, quantities, personal holdings or raw responses.
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {runBackfillStatus} from './diagnose-backfill-status.mjs';
 
@@ -15,6 +16,25 @@ const ARRAY_FIELDS=['missingCodes','unexpectedCodes','qtyMismatches',
   'sourceMismatches','duplicateKeys','conflictKeys','sourceDataErrors'];
 const DUP_FIELDS=['groups','exactDuplicate','singleExpectedMatch',
   'manualProtected','unresolvedConflict','sourceIncomplete'];
+// Private deterministic digest: compare the *contents* of relevant records,
+// including different codes/errors with equal counts, without printing records
+// or digests. Array order is immaterial; object key order is canonicalized.
+const PRIVATE_FIELDS=['expectedRows','storedRows',...ARRAY_FIELDS,
+  'fundNavStates','foreignFxStates','priceIntegrity'];
+function canonical(value){
+  if(Array.isArray(value))return value.map(canonical);
+  if(value&&typeof value==='object')return Object.fromEntries(
+    Object.keys(value).sort().map(k=>[k,canonical(value[k])]));
+  return value;
+}
+function privateDigest(record){
+  const canonicalFields=PRIVATE_FIELDS.map(k=>{
+    const a=record[k];
+    if(!Array.isArray(a))throw Error('ISSUE507_COMPARE_BAD_ARRAY');
+    return [k,a.map(x=>JSON.stringify(canonical(x))).sort()];
+  });
+  return createHash('sha256').update(JSON.stringify(canonicalFields)).digest('hex');
+}
 function count(n){if(!Number.isSafeInteger(n)||n<0||n>1000000)
   throw Error('ISSUE507_COMPARE_BAD_COUNT');return n;}
 export function summarizeOne(payload,kind){
@@ -41,8 +61,16 @@ export function summarizeOne(payload,kind){
   for(const k of DUP_FIELDS)duplicates[k]=count(x.duplicateSummary?.[k]);
   const rowCounts={expected:count(x.expectedRowCount),stored:count(x.storedRowCount)};
   // No contents of sourceDataErrors or per-code mismatches escape this parser.
-  return {date:DATE,kind,status:x.status,rows:rowCounts,
+  const sanitized={date:DATE,kind,status:x.status,rows:rowCounts,
     duplicates,counts};
+  // Hidden properties are not serialized by JSON.stringify/log output.
+  Object.defineProperties(sanitized,{
+    privateDigest:{value:privateDigest(x),enumerable:false},
+    sourceRevision:{value:kind==='range'
+      ?JSON.stringify(canonical(payload.integritySourceRevision??null))
+      :null,enumerable:false}
+  });
+  return sanitized;
 }
 async function request(url,token,action,fetchImpl){
   if(!ACTIONS.has(action))throw Error('ISSUE507_COMPARE_ACTION_FORBIDDEN');
@@ -63,9 +91,10 @@ function sameCounts(a,b){
   return JSON.stringify({rows:a.rows,duplicates:a.duplicates,counts:a.counts})
     ===JSON.stringify({rows:b.rows,duplicates:b.duplicates,counts:b.counts});
 }
-export function compare(single,range,before,after){
-  if(single.date!==DATE||range.date!==DATE||single.kind!=='single'
-    ||range.kind!=='range')throw Error('ISSUE507_COMPARE_BAD_INPUT');
+export function compare(single,range,before,after,rangeRepeat=range){
+  if(single.date!==DATE||range.date!==DATE||rangeRepeat.date!==DATE
+    ||single.kind!=='single'||range.kind!=='range'
+    ||rangeRepeat.kind!=='range')throw Error('ISSUE507_COMPARE_BAD_INPUT');
   if(before?.mode!=='READ_ONLY'||after?.mode!=='READ_ONLY'
     ||before.gasVersion!==after.gasVersion
     ||before.gasVersion!=='9.240')
@@ -75,12 +104,19 @@ export function compare(single,range,before,after){
     &&before.pendingTradeSnapshotRebuildFrom===after.pendingTradeSnapshotRebuildFrom
     &&before.tradeSnapshotDeferredCount===after.tradeSnapshotDeferredCount;
   const sameStatus=single.status===range.status;
+  const sourceStable=range.status===rangeRepeat.status
+    &&sameCounts(range,rangeRepeat)
+    &&range.privateDigest===rangeRepeat.privateDigest
+    &&range.sourceRevision===rangeRepeat.sourceRevision;
+  const detailMatch=single.privateDigest===range.privateDigest;
   const deferrable=x=>['SOURCE_INCOMPLETE','CONFLICT','PRICE_SUSPICIOUS'].includes(x.status);
   const priorWorkerBlocked=after.tradeSnapshotWorkerLastResult?.status==='BLOCKED'
     &&after.tradeSnapshotWorkerLastResult?.blockedDate===DATE;
   let diagnosis='CONSISTENT';
   if(!checkpointStable)diagnosis='WORKER_CHANGED_DURING_PROBE';
-  else if(!sameStatus||!sameCounts(single,range))diagnosis='SINGLE_RANGE_DIVERGENCE';
+  else if(!sourceStable)diagnosis='SOURCE_OR_RANGE_CHANGED_DURING_PROBE';
+  else if(!sameStatus||!sameCounts(single,range)||!detailMatch)
+    diagnosis='SINGLE_RANGE_DIVERGENCE_CANDIDATE';
   else if(priorWorkerBlocked&&deferrable(single))
     diagnosis='BLOCKED_VS_CURRENT_DEFERRABLE';
   else if(priorWorkerBlocked)diagnosis='BLOCKED_WITH_NONDEFERRABLE_STATUS';
@@ -92,6 +128,7 @@ export function compare(single,range,before,after){
     pendingDate:after.pendingTradeSnapshotRebuildFrom,
     deferredCount:after.tradeSnapshotDeferredCount,
     single,range,statusMatch:sameStatus,countsMatch:sameCounts(single,range),
+    detailsMatch:detailMatch,sourceStable,independentReads:true,
     singleDeferrable:deferrable(single),rangeDeferrable:deferrable(range),
     readOnly:true,operation:'NO_WRITES'};
 }
@@ -104,10 +141,12 @@ export async function runReadonly({url,token,fetchImpl=fetch,readStatus=runBackf
   if(rejected?.status!=='error'||rejected.message!=='인증 실패')
     throw Error('ISSUE507_COMPARE_AUTH_DISABLED');
   const before=await readStatus({url:endpoint,token,fetchImpl});
-  const single=summarizeOne(await request(endpoint,token,'diagnoseSnapshotIntegrity',fetchImpl),'single');
   const range=summarizeOne(await request(endpoint,token,'diagnoseSnapshotIntegrityRange',fetchImpl),'range');
+  const single=summarizeOne(await request(endpoint,token,'diagnoseSnapshotIntegrity',fetchImpl),'single');
+  // A/B/A sandwich: reject path attribution if surrounding indexed proofs differ.
+  const rangeRepeat=summarizeOne(await request(endpoint,token,'diagnoseSnapshotIntegrityRange',fetchImpl),'range');
   const after=await readStatus({url:endpoint,token,fetchImpl});
-  return compare(single,range,before,after);
+  return compare(single,range,before,after,rangeRepeat);
 }
 export async function selfTest(){
   const rows={date:DATE,status:'SOURCE_INCOMPLETE',expectedRowCount:0,
@@ -122,10 +161,22 @@ export async function selfTest(){
   const result=compare(single,range,state,state);
   assert.equal(result.diagnosis,'BLOCKED_VS_CURRENT_DEFERRABLE');
   assert.equal(result.statusMatch,true);
+  assert.ok(!JSON.stringify(result).includes('privateDigest'));
+  assert.ok(!JSON.stringify(result).includes('SECRET_ACCOUNT'));
+  const different={...rows,sourceDataErrors:['DIFFERENT_SECRET_SAME_COUNT']};
+  const alteredSingle=summarizeOne({status:'ok',diagnostics:[different],diagnostic:different},'single');
+  assert.equal(alteredSingle.counts.sourceDataErrors,single.counts.sourceDataErrors);
+  assert.equal(compare(alteredSingle,range,state,state).diagnosis,
+    'SINGLE_RANGE_DIVERGENCE_CANDIDATE');
+  const changedRange={...rows,sourceDataErrors:['CONCURRENT_DATA_CHANGE']};
+  const changedRangeProof=summarizeOne({status:'ok',diagnostics:[changedRange],checkedDates:[DATE]},'range');
+  assert.equal(compare(single,range,state,state,changedRangeProof).diagnosis,
+    'SOURCE_OR_RANGE_CHANGED_DURING_PROBE');
+
   assert.equal(result.single.counts.sourceDataErrors,1);
   const valid={...rows,status:'VALID',sourceDataErrors:[]};
   const validSingle=summarizeOne({status:'ok',diagnostics:[valid],diagnostic:valid},'single');
-  assert.equal(compare(validSingle,range,state,state).diagnosis,'SINGLE_RANGE_DIVERGENCE');
+  assert.equal(compare(validSingle,range,state,state).diagnosis,'SINGLE_RANGE_DIVERGENCE_CANDIDATE');
   assert.equal(compare(single,range,state,{...state,tradeSnapshotDeferredCount:1}).diagnosis,
     'WORKER_CHANGED_DURING_PROBE');
   assert.throws(()=>summarizeOne({status:'ok',diagnostics:[rows,rows],diagnostic:rows},'single'),
@@ -139,14 +190,14 @@ export async function selfTest(){
     assert.equal(opts.body.get('apply'),null);
     const payload=token!=='top-secret'?{status:'error',message:'인증 실패'}:
       action==='diagnoseSnapshotIntegrity'?{status:'ok',diagnostics:[rows],diagnostic:rows}:
-      {status:'ok',checkedDates:[DATE],diagnostics:[rows]};
+      {status:'ok',checkedDates:[DATE],diagnostics:[rows],integritySourceRevision:1};
     return {ok:true,json:async()=>payload};
   };
   const report=await runReadonly({url:'https://script.google.com/macros/s/example/exec',
     token:'top-secret',fetchImpl:fake,readStatus:async()=>state});
   assert.equal(report.diagnosis,'BLOCKED_VS_CURRENT_DEFERRABLE');
-  assert.deepEqual(actions,['diagnoseSnapshotIntegrity','diagnoseSnapshotIntegrity',
-    'diagnoseSnapshotIntegrityRange']);
+  assert.deepEqual(actions,['diagnoseSnapshotIntegrity','diagnoseSnapshotIntegrityRange',
+    'diagnoseSnapshotIntegrity','diagnoseSnapshotIntegrityRange']);
   assert.ok(!JSON.stringify(report).includes('top-secret'));
   await assert.rejects(()=>runReadonly({url:'https://script.google.com/macros/s/example/exec',
     token:'top-secret',fetchImpl:async()=>({ok:true,json:async()=>({status:'ok'})}),
