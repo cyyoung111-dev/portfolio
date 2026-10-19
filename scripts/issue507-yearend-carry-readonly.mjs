@@ -13,6 +13,20 @@ const STATES=new Set(['VALID','PARTIAL','MISMATCH','CONFLICT',
 const ASOF=/^\d{4}-\d{2}-\d{2}$/;
 const count=(n)=>{if(!Number.isSafeInteger(n)||n<0||n>1000000)
   throw Error('YEARBOUNDARY_BAD_COUNT');return n;};
+// Convert potentially identifying GAS exception text to an allowlisted class.
+export function classifySourceGaps(errors) {
+  if(!Array.isArray(errors))throw Error('YEARBOUNDARY_BAD_SOURCE_ERRORS');
+  const classes=new Set();
+  for(const raw of errors){
+    if(typeof raw!=='string')throw Error('YEARBOUNDARY_BAD_SOURCE_ERROR');
+    if(/:FX_[A-Z]{3}\b|환율/.test(raw))classes.add('FX');
+    else if(/NAV 충돌|펀드.*충돌/.test(raw))classes.add('FUND_NAV_CONFLICT');
+    else if(/확정 원자료 부족|확정 평가자료 부족|PRICE|가격/.test(raw))
+      classes.add('PRICE_OR_FUND_NAV');
+    else classes.add('OTHER');
+  }
+  return [...classes].sort();
+}
 export function summarizeLive(response) {
   if(response?.status!=='ok'||!Array.isArray(response.checkedDates)
     ||!Array.isArray(response.diagnostics)||response.checkedDates.length!==DATES.length
@@ -47,6 +61,7 @@ export function summarizeLive(response) {
     if(unverifiedFuture+fxFuture+fundFuture>0)throw Error('YEARBOUNDARY_FUTURE_VALUE');
     out.push({date:d,status:x.status,expectedRows,storedRows,
       sourceErrorCount:count(x.sourceDataErrors.length),
+      sourceErrorTypes:classifySourceGaps(x.sourceDataErrors),
       priceCarryCount:priceCarry,fundNavCarryCount:fundCarry,
       otherCarryCount:otherCarry,fxCarryCount:fxCarry,
       fundNavObservedCount:count(x.fundNavStates.length),
@@ -179,6 +194,13 @@ export async function selfTest(){
     diagnostics:DATES.map(mock)});
   assert.equal(report.newYear.status,'SOURCE_INCOMPLETE');
   assert.equal(report.sourceGapsPreserved,true);
+  assert.deepEqual(classifySourceGaps(['확정 원자료 부족: CODE_SECRET:FX_USD']),['FX']);
+  assert.deepEqual(classifySourceGaps(['펀드 확정 NAV 충돌: FUND_SECRET']),['FUND_NAV_CONFLICT']);
+  assert.deepEqual(classifySourceGaps(['확정 원자료 부족: STOCK_SECRET']),['PRICE_OR_FUND_NAV']);
+  assert.deepEqual(classifySourceGaps(['ACCOUNT_PRIVATE_TOKEN']),['OTHER']);
+  assert.deepEqual(classifySourceGaps([]),[]);
+  assert.ok(!JSON.stringify(classifySourceGaps(['계좌번호 12345:FX_USD'])).includes('12345'));
+  assert.deepEqual(report.newYear.sourceErrorTypes,['OTHER']);
   assert.ok(!JSON.stringify(report).includes('PRIVATE CODE'));
   await assert.rejects(()=>readLive({
     url:'https://script.google.com/macros/s/example/exec',token:'REAL_SECRET',
