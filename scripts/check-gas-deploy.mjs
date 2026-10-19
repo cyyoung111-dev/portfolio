@@ -290,6 +290,7 @@ function runRealDiagnostics({
     _expectedPortfolioCloseRunDate: () => '2026-10-14',
     _isPortfolioCloseRunStale: () => false,
     _readPendingKrxCloseDates_: () => [],
+    _normalizeDate:value=>String(value||''),
   });
   new vm.Script(productionConfigSource).runInContext(ctx);
   assert.equal(ctx.CONFIG.TIMEZONE, productionTimezone);
