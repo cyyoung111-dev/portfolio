@@ -75,12 +75,6 @@ const WORKER_SOURCES=new Set(['','UNCHANGED','BASELINED','CHANGED','UNSTABLE']);
 // Only predefined non-sensitive lifecycle phases can leave the GAS runtime.
 const WORKER_PHASES=new Set(['','ENTRY','LEDGER_FINGERPRINT','QUEUE_READ',
   'DATE_DISCOVERY','DATE_DIAGNOSTIC','CURSOR_COMMIT','DEFERRED_RETRY']);
-function safeWorkerDateTime(raw) {
-  if(typeof raw!=='string' || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$/.test(raw)
-    ||!Number.isFinite(Date.parse(raw))||new Date(raw).toISOString()!==raw)
-    throw new Error('AUTOMATION_DIAG_BAD_LEDGER_WORKER_PHASE_TIME');
-  return raw;
-}
 function safeWorkerCheckpoint(raw) {
   if(raw == null)return null;
   if(!raw || typeof raw!=='object' || Array.isArray(raw)
