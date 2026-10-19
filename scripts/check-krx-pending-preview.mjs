@@ -83,4 +83,23 @@ const knownIncomplete=await runPreview({url,token,fetchImpl:createFetch(date=>
 assert.equal(knownIncomplete.status,'BLOCKED');
 assert.equal(knownIncomplete.entries[0].reason,'FULL_SNAPSHOT_CONFLICT');
 
+// Production returns explicit error envelopes for auth, active writers and
+// failed reconciliation. Preserve the safe enum without exposing raw messages.
+for (const [message, code] of [
+  ['인증 실패','PENDING_PREVIEW_GAS_ACCESS_DENIED'],
+  ['KRX_PENDING_INVALID_DATES','PENDING_PREVIEW_GAS_INVALID_DATES'],
+  ['KRX_PENDING_WRITER_ACTIVE','PENDING_PREVIEW_GAS_WRITER_ACTIVE'],
+  ['KRX_PENDING_RECONCILE_FAILED','PENDING_PREVIEW_GAS_RECONCILE_FAILED'],
+]) {
+  await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(()=>
+    ({status:'error',message}))}),error=>error.message===code);
+}
+for (const response of [
+  {status:'error',message:'client_secret=SECRET_MUST_NOT_APPEAR'},
+  {status:'ok',message:'KRX_PENDING_WRITER_ACTIVE'},
+]) {
+  await assert.rejects(()=>runPreview({url,token,fetchImpl:createFetch(()=>response)}),
+    error=>error.message==='PENDING_PREVIEW_INVALID_RESPONSE');
+}
+
 console.log('KRX pending proof preview: one-date read-only auth/timeout/integrity/partial/retry PASS');

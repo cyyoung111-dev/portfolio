@@ -43,6 +43,18 @@ export async function runPreview({url,token,dates=DEFAULT_DATES,fetchImpl=fetch}
     // One target per request: the actual server proof scans price, trade
     // ledger and the full Snapshot under ScriptLock, not a cheap API ping.
     const data=await request(endpoint,token,date,fetchImpl);
+    // Only fixed production error enums may leave the authenticated boundary.
+    // These remain fatal even with --allow-blocked; no proof or queue change
+    // can be inferred from a server error. Never print the original message.
+    if(data?.status==='error') {
+      const failures=new Map([
+        ['인증 실패','PENDING_PREVIEW_GAS_ACCESS_DENIED'],
+        ['KRX_PENDING_INVALID_DATES','PENDING_PREVIEW_GAS_INVALID_DATES'],
+        ['KRX_PENDING_WRITER_ACTIVE','PENDING_PREVIEW_GAS_WRITER_ACTIVE'],
+        ['KRX_PENDING_RECONCILE_FAILED','PENDING_PREVIEW_GAS_RECONCILE_FAILED'],
+      ]);
+      throw new Error(failures.get(data.message)||'PENDING_PREVIEW_INVALID_RESPONSE');
+    }
     if(data?.status!=='ok'||data.mode!=='DRY_RUN'||data.cleared!==0||
        !Array.isArray(data.checked)||data.checked.length!==1)
       throw new Error('PENDING_PREVIEW_INVALID_RESPONSE');
