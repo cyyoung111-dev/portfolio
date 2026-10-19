@@ -8,14 +8,32 @@ const day=date=>({date,status:'VALID',expectedRowCount:39,storedRowCount:39,
   duplicateSummary:zero,missingCodes:[],unexpectedCodes:[],duplicateKeys:[],
   qtyMismatches:[],costAmtMismatches:[],evalUnitMismatches:[],
   evalAmtMismatches:[],sourceMismatches:[],sourceDataErrors:[],
-  fundNavStates:[{code:'F00001'},{code:'F00002'}],
+  fundNavStates:['F00001','F00002'].map(code=>({code,source:'FUND_NAV',sourceDate:date,temporary:false})),
   rawAccountSecret:'NEVER_OUTPUT_THIS'});
 const success={status:'ok',checkedDates:dates,diagnostics:dates.map(day)};
 const checked=summarizeSeptemberProof(success);
 assert.equal(checked.healthy,true);
+assert.equal(checked.exactFundNav,true);
 assert.deepEqual(checked.snapshots.map(x=>[x.date,x.status,x.expectedRows,x.storedRows]),
   dates.map(d=>[d,'VALID',39,39]));
 assert.doesNotMatch(JSON.stringify(checked),/NEVER_OUTPUT_THIS/);
+const navCarry=structuredClone(success);
+navCarry.diagnostics[0].fundNavStates[0].source='FUND_NAV_CARRY';
+navCarry.diagnostics[0].fundNavStates[0].temporary=true;
+assert.equal(summarizeSeptemberProof(navCarry).exactFundNav,false);
+assert.equal(summarizeSeptemberProof(navCarry).healthy,false);
+const navDate=structuredClone(success);
+navDate.diagnostics[1].fundNavStates[1].sourceDate='2026-09-15';
+assert.equal(summarizeSeptemberProof(navDate).healthy,false);
+const navDuplicate=structuredClone(success);
+navDuplicate.diagnostics[1].fundNavStates[1].code='F00001';
+assert.equal(summarizeSeptemberProof(navDuplicate).healthy,false);
+const navMissing=structuredClone(success);
+navMissing.diagnostics[0].fundNavStates=[];
+assert.equal(summarizeSeptemberProof(navMissing).healthy,false);
+const navInput=structuredClone(success);
+navInput.diagnostics[0].fundNavStates[0].source='FUND_NAV_INPUT_REQUIRED';
+assert.equal(summarizeSeptemberProof(navInput).healthy,false);
 const sourceConflict=structuredClone(success);
 sourceConflict.diagnostics[0].sourceMismatches=[{code:'F00001'}];
 sourceConflict.diagnostics[0].status='MISMATCH';
