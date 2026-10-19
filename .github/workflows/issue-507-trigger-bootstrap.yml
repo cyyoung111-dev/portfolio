@@ -1,0 +1,66 @@
+name: issue-507-trigger-bootstrap
+
+# Narrow one-shot release gate. PRs run local contract tests only.
+# A merge to main attempts ONLY the two ledger triggers absent after GAS v9.237.
+# No recurrent schedule, no trade/Snapshot/price/NAV writes.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-trigger-bootstrap.mjs'
+      - '.github/workflows/issue-507-trigger-bootstrap.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-trigger-bootstrap.mjs'
+      - '.github/workflows/issue-507-trigger-bootstrap.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Install only the missing #507 triggers (false=read-only dry-run)'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue507-trigger-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Check bootstrap script syntax
+        run: node --check scripts/issue507-trigger-bootstrap.mjs
+      - name: Test fail-closed request and trigger contracts with mocks
+        run: node scripts/issue507-trigger-bootstrap.mjs --self-test
+
+  live:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: One-shot authenticated GAS trigger install and independent readback
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+          APPLY_INPUT: ${{ inputs.apply }}
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" || "${APPLY_INPUT}" == "true" ]]; then
+            node scripts/issue507-trigger-bootstrap.mjs --apply
+          else
+            node scripts/issue507-trigger-bootstrap.mjs --dry-run
+          fi
