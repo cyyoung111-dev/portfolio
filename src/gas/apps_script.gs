@@ -10167,7 +10167,7 @@ function handleSyncHoldings(dataJson) {
 // ════════════════════════════════════════════════════════════════════
 function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
   var lock = LockService.getScriptLock();
-  var locked = false, sourcePersisted = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
+  var locked = false, sourcePersisted = false, sourceTouched = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
   try {
     lock.waitLock(30000); locked = true;
     var trades;
@@ -10175,6 +10175,8 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     if (!Array.isArray(trades)) return jsonError('배열 형식 필요');
 
     var ss = getss();
+    if (_tradeLedgerWriteUnverified_()) return jsonError('이전 거래원장 쓰기가 검증되지 않아 자동 덮어쓰기를 차단했습니다. 원장 백업 확인이 필요합니다.',
+      {errorCode:'TRADE_LEDGER_WRITE_UNVERIFIED',saveState:'partial',followupRequired:true});
     var masterConflict = _portfolioLedgerMasterConflict_(trades, getCodeItems(ss, true));
     if (masterConflict) return jsonError('거래이력 종목 마스터 검증 실패: '+masterConflict,
       {errorCode:'TRADES_CODE_MASTER_CONFLICT'});
@@ -10205,6 +10207,10 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     if (!affectedFrom && explicitEmptyReset) affectedFrom = _normalizeDate(rebuildFrom || '');
     var tradeBackup = previousRows.length ? _backupSheetBeforeWrite(ss, sh, CONFIG.SHEET_TRADES) : null;
     if (affectedFrom) _setPendingTradeSnapshotRebuild(affectedFrom);
+    // Durable write-intent fence: never allow a timed-out, partially written
+    // ledger to be treated as a verified trade source by the hourly worker.
+    _markTradeLedgerWriteUnverified_();
+    sourceTouched = true;
     sh.clearContents();
     _setCodeColumnText(sh, 5);
     sh.getRange(1,1,1,11).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산']]);
@@ -10215,6 +10221,9 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     var currentRows = intendedRows;
     if (currentRows.length) _verifyTradeWrittenRange(sh, 2, _normalizeCodeRows(currentRows, 4));
     else if (sh.getLastRow() !== 1) throw new Error('빈 거래이력 쓰기 후 검증 실패');
+    // Verification has proven the ledger write, not its Snapshot rebuild.
+    // The pending marker remains until the latter passes independently.
+    _clearTradeLedgerWriteJournal_();
     sourcePersisted = true;
     // The pending checkpoint was written before touching the source sheet.
     // For identical retries it is reused even when the current ledger has no diff.
@@ -10248,7 +10257,7 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     return jsonOk({ saveState: 'success', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo, snapshotRebuild: snapshotRebuild, backupCleanup: tradeBackupCleanup });
   } catch(err) {
     if (typeof tradeBackup !== 'undefined' && tradeBackup) _markSnapshotBackupStatus(tradeBackup, 'WRITE_FAILED', err.message);
-    if (sourcePersisted) {
+    if (sourcePersisted || sourceTouched) {
       if (affectedFrom) _setPendingTradeSnapshotRebuild(affectedFrom);
       return jsonError('거래원본은 저장됐지만 후속 평가 재계산이 완료되지 않았습니다: ' + err.message, {
       saveState: 'partial', affectedFrom: affectedFrom, affectedTo: affectedTo,
@@ -10259,6 +10268,21 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
   } finally {
     if (locked) lock.releaseLock();
   }
+}
+
+var TRADE_LEDGER_WRITE_JOURNAL_KEY = 'trade_ledger_write_unverified_v1';
+// Persist only a state/time flag; the immutable Sheet backup holds ledger rows.
+// If GAS hard-times-out between clearContents and verified setValues, worker
+// remains blocked; never infer a new valid ledger from partial cell content.
+function _tradeLedgerWriteUnverified_() {
+  return !!PropertiesService.getScriptProperties().getProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY);
+}
+function _markTradeLedgerWriteUnverified_() {
+  PropertiesService.getScriptProperties().setProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY,
+    JSON.stringify({state:'WRITING',startedAt:new Date().toISOString()}));
+}
+function _clearTradeLedgerWriteJournal_() {
+  PropertiesService.getScriptProperties().deleteProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY);
 }
 
 var TRADE_LEDGER_FINGERPRINT_KEY = 'trade_ledger_snapshot_source_sha256_v1';
@@ -10300,8 +10324,15 @@ function _detectExternalTradeLedgerChanges_(ss) {
   if (before !== after) return {state:'UNSTABLE'};
   var previous = props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
   if (!previous) {
+    // The first run may follow an API edit made before trigger installation.
+    // Never certify that unverified history is consistent with this new source.
+    var baselineFrom = _tradeSnapshotRebuildFromSheetEdit(ss, {all:true});
+    if (baselineFrom) {
+      _setPendingTradeSnapshotRebuild(baselineFrom);
+      _touchSnapshotIntegritySourceRevision({from:baselineFrom});
+    }
     props.setProperty(TRADE_LEDGER_FINGERPRINT_KEY, after);
-    return {state:'BASELINED'};
+    return {state:'BASELINED',from:baselineFrom || ''};
   }
   if (previous === after) return {state:'UNCHANGED'};
   // We cannot infer which historical trade was deleted from the new ledger
@@ -10350,6 +10381,7 @@ function runPendingTradeSnapshotRebuild() {
   if (!lock.tryLock(1000)) return { status:'BUSY', processed:0 };
   try {
     var ss = getss();
+    if (_tradeLedgerWriteUnverified_()) return {status:'LEDGER_WRITE_UNVERIFIED',processed:0};
     var fingerprint = _detectExternalTradeLedgerChanges_(ss);
     if (fingerprint.state === 'UNSTABLE') return {status:'SOURCE_UNSTABLE',processed:0};
     var pending = _readPendingTradeSnapshotRebuild();
@@ -10359,11 +10391,10 @@ function runPendingTradeSnapshotRebuild() {
       _clearPendingTradeSnapshotRebuild();
       return { status:'NO_EXISTING_SNAPSHOT', processed:0 };
     }
-    var last = _latestConfirmedSnapshotDate(ss, false), dates = {};
-    sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function(row) {
-      var date = _normalizeDate(row[0]);
-      if (date && date >= pending.from && date <= last) dates[date] = true;
-    });
+    var last = _latestConfirmedSnapshotDate(ss, false);
+    // Include price/NAV/trade-source dates and eligible empty Snapshot days.
+    // Existing rows alone miss new positions created by backdated trades.
+    var dates = _collectDailySnapshotDates(ss, pending.from, last, {});
     var ordered = Object.keys(dates).sort(), batch = ordered.slice(0, 2);
     for (var i = 0; i < batch.length; i++) {
       var target = batch[i], result = _rebuildDailySnapshotsLocked(target, target, {});
@@ -10420,7 +10451,9 @@ function _earliestChangedTradeDate(beforeRows, afterRows) {
   (afterRows || []).forEach(function(row) { add(row, -1); });
   var contentChanged = Object.keys(counts).filter(function(key) { return counts[key] !== 0 && dates[key]; })
     .map(function(key) { return dates[key]; }).sort()[0] || '';
-  if (contentChanged) return contentChanged;
+  // Multiset changes and sequence changes can coexist; return the earliest
+  // affected date from either source rather than short-circuiting one case.
+  var earliest = contentChanged;
   // Multiset-equivalent rows may still change holdings if their order changes.
   // Same-date stock-splits and buy/sell order must be replayed conservatively.
   for (var i = 0; i < Math.max((beforeRows || []).length, (afterRows || []).length); i++) {
@@ -10429,10 +10462,10 @@ function _earliestChangedTradeDate(beforeRows, afterRows) {
     oldRow[0] = _normalizeDate(oldRow[0]); newRow[0] = _normalizeDate(newRow[0]);
     if (JSON.stringify(oldRow) !== JSON.stringify(newRow)) {
       var sorted = [oldRow[0], newRow[0]].filter(Boolean).sort();
-      if (sorted.length) return sorted[0];
+      if (sorted.length && (!earliest || sorted[0] < earliest)) earliest = sorted[0];
     }
   }
-  return '';
+  return earliest || '';
 }
 
 function _latestConfirmedSnapshotDate(ss, includeToday) {
