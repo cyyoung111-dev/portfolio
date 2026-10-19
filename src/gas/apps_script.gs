@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.242
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.243
 //
+//  v9.243 변경사항 (2026.10.20):
+//  - #507 역사적 2025 거래일의 단일 KRX 코드·거래원장 보유 확인,
+//    공식 당일 종가 존재 여부만 인증 POST READ_ONLY로 진단(숫자·코드 비노출).
+//  - 기존 종가 writer, 거래원장, Snapshot, deferred 큐/트리거 불변.
 //  v9.242 변경사항 (2026.10.19):
 //  - 시간 worker 6분 한도 초과 구간 진단: 실행 단계 enum 및 시작시각만 영속 기록.
 //  - 기존 Snapshot 쓰기·거래원장·deferred/pending 전진·ScriptLock 로직 불변.
@@ -1220,6 +1224,7 @@ function doGet(e) {
   if (params.action === 'getAutomationStatus') return handleGetAutomationStatus();
   if (params.action === 'getKrxSourceDiagnostics') return handleGetKrxSourceDiagnostics(params.date || '');
   if (params.action === 'getKrxHeldCloseCoverage') return handleGetKrxHeldCloseCoverage(params.date || '');
+  if (params.action === 'diagnoseIssue507HistoricKrxCode') return jsonError('POST_ONLY');
   if (params.action === 'recoverPendingKrxClose') return jsonError('POST_ONLY');
   if (params.action === 'reconcileCompletedKrxPending') return jsonError('POST_ONLY');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
@@ -1310,6 +1315,9 @@ function doPost(e) {
   if (params.action === 'applyPriceHistoryRepair') return handleApplyPriceHistoryRepair(params.data || '{}');
   if (params.action === 'reconcileCompletedKrxPending') return handleReconcileCompletedKrxPending(params.dates || '', params.apply || '');
   if (params.action === 'repairOct08FundSourceOnly') return handleRepairOct08FundSourceOnly();
+  if (params.action === 'diagnoseIssue507HistoricKrxCode') {
+    return handleDiagnoseIssue507HistoricKrxCode(params.date || '', params.code || '');
+  }
   var readActions = ['diagnoseWorkbookCells', 'diagnoseSnapshotIntegrity', 'diagnoseSnapshotIntegrityRange', 'diagnosePriceHistoryIntegrity', 'previewPriceHistoryRepair', 'diagnoseEtfDividends', 'diagnoseTossMarketData', 'name', 'getHistorySource', 'getHistorySourceDetail', 'getHistory', 'getHistoryDetail', 'getSnapshotRepairStatus', 'getCodeList', 'getBootstrap', 'getPriceHistory', 'getKrxOfficialStockCloses', 'getBenchmark', 'getBenchmarks', 'getKrxK200NightClose', 'getKrxK200NightDiagnostics', 'getExchangeRateHistory', 'getMarketBriefingMaster', 'getMarketBriefingSnapshots', 'getPrices', 'dividend', 'dividendPublic', 'getSettings', 'getDividendSettings', 'getRealEstateSettings', 'getTrades', 'getHoldings', 'getFundValuationStatus', 'getAutomationStatus', 'getKrxSourceDiagnostics', 'getKrxHeldCloseCoverage'];
   if (readActions.indexOf(params.action) !== -1) return doGet({ parameter: params });
   if (params.action === 'syncCodesAppendOnly' && params.codes && params.expectedCodes)
@@ -2190,7 +2198,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.242',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.243',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2268,7 +2276,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.242', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.243', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6070,7 +6078,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.242' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.243' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12622,7 +12630,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.242',
+    gasVersion: '9.243',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12683,7 +12691,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.242' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.243' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13188,6 +13196,54 @@ function handleGetKrxHeldCloseCoverage(dateInput) {
     }});
   }catch(ignore){return jsonError('KRX_HELD_SOURCE_FAILED');}
 }
+// #507 — Only a single ledger-held KRX security on a deliberately restricted
+// historical date. An authenticated READ_ONLY existence proof, never a writer.
+// Do NOT expose the security identifier, price, portfolio positions, or KRX key.
+function handleDiagnoseIssue507HistoricKrxCode(dateInput, codeInput) {
+  var date = String(dateInput || '').trim();
+  var allowedDates = { '2025-09-03':true, '2025-12-30':true, '2026-01-02':true };
+  var code = _cleanCode(codeInput);
+  if (!allowedDates[date] || !/^[0-9][0-9A-Z]{5}$/.test(code || '') ||
+      String(codeInput || '').trim().toUpperCase() !== code) {
+    return jsonError('ISSUE507_HISTORIC_KRX_SCOPE_INVALID');
+  }
+  try {
+    var ss = getss(), catalog = getCodeItems(ss, true);
+    var item = catalog.filter(function(row) {
+      return _cleanCode(row && row.code) === code;
+    });
+    if (item.length !== 1) {
+      return jsonOk({ mode:'READ_ONLY', requestedDate:date,
+        proof:'MASTER_NOT_UNAMBIGUOUS', exact:false,
+        source:'', usedDate:'', historyModified:false });
+    }
+    if (!_isKrxDailyCloseTarget_(item[0])) {
+      return jsonOk({ mode:'READ_ONLY', requestedDate:date,
+        proof:'NOT_KRX_ELIGIBLE', exact:false,
+        source:'', usedDate:'', historyModified:false });
+    }
+    var held = _getDailyHeldCodeItems(ss, date, catalog);
+    var isHeld = held.some(function(row) { return _cleanCode(row && row.code) === code; });
+    if (!isHeld) {
+      return jsonOk({ mode:'READ_ONLY', requestedDate:date,
+        proof:'NOT_LEDGER_HELD_AT_DATE', exact:false,
+        source:'', usedDate:'', historyModified:false });
+    }
+    var quotes = fetchPricesKrx([item[0]], date), row = quotes && quotes[code];
+    var usedDate = _normalizeDate(row && row.usedDate || '');
+    var source = String(row && row.source || '').toUpperCase();
+    var exact = !!row && Number(row.price) > 0 && usedDate === date &&
+      (source === 'KRX' || source === 'KRX_OTP');
+    return jsonOk({ mode:'READ_ONLY', requestedDate:date,
+      proof:exact ? 'OFFICIAL_EXACT_CLOSE' : 'OFFICIAL_EXACT_CLOSE_UNAVAILABLE',
+      exact:exact, source:exact ? source : '',
+      usedDate:exact ? usedDate : '',
+      historyModified:false });
+  } catch(ignore) {
+    return jsonError('ISSUE507_HISTORIC_KRX_SOURCE_FAILED');
+  }
+}
+
 
 // Explicit single-date recovery. No implicit apply and no general rewrite.
 function _targetedKrxRecoveryPreflight_(date, runDate) {
@@ -16298,7 +16354,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.242' });
+    return jsonOk({ settings: settings, gasVersion: '9.243' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16328,7 +16384,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.242'
+      gasVersion: '9.243'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
