@@ -214,7 +214,7 @@ for(const props of [
   const t=harness(relayProps);
   const data=t.ctx.handleDiagnoseTossMarketData(false);
   assert.equal(data.status,'ok');
-  assert.equal(data.gasVersion,'9.237');
+  assert.equal(data.gasVersion,'9.238');
   assert.equal(data.oauth.source,'RELAY');
   assert.equal(data.freshOAuthTested,false);
   assert.equal(data.endpoints.length,5);
