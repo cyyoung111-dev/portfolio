@@ -10186,37 +10186,36 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
       sh.setColumnWidth(4,180); sh.setColumnWidth(5,90);  sh.setColumnWidth(6,70);
       sh.setColumnWidth(7,90);  sh.setColumnWidth(8,80);  sh.setColumnWidth(9,200);
     }
+    // Persist the complete, ordered ledger mutation intent BEFORE any sheet write.
+    // A hard GAS timeout cannot run catch/finally and must not leave a new
+    // ledger with stale Snapshot and an already-advanced fingerprint.
+    trades.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
+    var intendedRows = trades.map(function(t) {
+      return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'',
+        t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'',
+        t.ratio || '', t.fractionalCash || ''];
+    });
+    var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;
+    affectedFrom = _earliestChangedTradeDate(previousRows, intendedRows);
+    if (pendingSnapshotRebuild && pendingSnapshotRebuild.from
+        && (!affectedFrom || pendingSnapshotRebuild.from < affectedFrom))
+      affectedFrom = pendingSnapshotRebuild.from;
+    if (!affectedFrom && explicitEmptyReset) affectedFrom = _normalizeDate(rebuildFrom || '');
     var tradeBackup = previousRows.length ? _backupSheetBeforeWrite(ss, sh, CONFIG.SHEET_TRADES) : null;
+    if (affectedFrom) _setPendingTradeSnapshotRebuild(affectedFrom);
     sh.clearContents();
     _setCodeColumnText(sh, 5);
     sh.getRange(1,1,1,11).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산']]);
     sh.getRange(1,1,1,11).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-    if (trades.length > 0) {
-      trades.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
-      var rows = trades.map(function(t) {
-        return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'',
-                t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'',
-                t.ratio || '', t.fractionalCash || ''];
-      });
-      sh.getRange(2, 1, rows.length, 11).setValues(_normalizeCodeRows(rows, 4));
-    }
+    if (intendedRows.length > 0)
+      sh.getRange(2, 1, intendedRows.length, 11).setValues(_normalizeCodeRows(intendedRows, 4));
     SpreadsheetApp.flush();
-    var currentRows = trades.map(function(t) { return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'', t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'', t.ratio || '', t.fractionalCash || '']; });
+    var currentRows = intendedRows;
     if (currentRows.length) _verifyTradeWrittenRange(sh, 2, _normalizeCodeRows(currentRows, 4));
     else if (sh.getLastRow() !== 1) throw new Error('빈 거래이력 쓰기 후 검증 실패');
     sourcePersisted = true;
-    // Web sync is already diff-tracked; refresh the fingerprint to avoid a
-    // second full-history requeue when the hourly API-change scan runs.
-    _recordTradeLedgerFingerprint_(ss);
-    var explicitEmptyReset = explicitEmpty === true && currentRows.length === 0;
-    affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
-    // 이전 요청에서 거래원본은 저장됐지만 Snapshot 재계산만 실패했다면 동일 원장을 다시 보낸
-    // 재시도에서도 영향 시작일을 잃지 않습니다.
-    if (pendingSnapshotRebuild && pendingSnapshotRebuild.from
-        && (!affectedFrom || pendingSnapshotRebuild.from < affectedFrom)) affectedFrom = pendingSnapshotRebuild.from;
-    // 첫 빈 원장 요청의 응답이 유실되거나 partial로 끝난 뒤 재시도하면 서버의 previousRows는 이미 비어 있습니다.
-    // 클라이언트가 마지막 삭제의 최초 영향일을 다시 보내므로 같은 Snapshot 범위를 안전하게 재계산할 수 있습니다.
-    if (!affectedFrom && explicitEmptyReset) affectedFrom = _normalizeDate(rebuildFrom || '');
+    // The pending checkpoint was written before touching the source sheet.
+    // For identical retries it is reused even when the current ledger has no diff.
     // 거래원장 쓰기가 끝난 즉시 원자료 손익 cache revision을 먼저 갱신합니다.
     if (affectedFrom) _touchSnapshotIntegritySourceRevision({ from: affectedFrom });
     else if (createdTradeSheet) _touchSnapshotIntegritySourceRevision({ all: true });
@@ -10233,7 +10232,15 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
         snapshotRebuild: snapshotRebuild, followupRequired: true
       });
     }
-    if (pendingSnapshotRebuild) _clearPendingTradeSnapshotRebuild();
+    // After successful Snapshot rebuild only: advance the source checkpoint,
+    // then release the pending state. A hard timeout between these operations
+    // leaves either a pending marker or a stale SHA detectable by the worker.
+    if (affectedFrom || pendingSnapshotRebuild) {
+      _recordTradeLedgerFingerprint_(ss);
+      _clearPendingTradeSnapshotRebuild();
+    } else {
+      _recordTradeLedgerFingerprint_(ss);
+    }
     _markSnapshotBackupStatus(tradeBackup, 'COMPLETED');
     var tradeBackupCleanup = tradeBackup ? _cleanupCurrentSystemBackup(ss, tradeBackup) : null;
     return jsonOk({ saveState: 'success', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo, snapshotRebuild: snapshotRebuild, backupCleanup: tradeBackupCleanup });
@@ -10272,7 +10279,8 @@ function _tradeLedgerContentFingerprint_(ss) {
       return String(value == null ? '' : value);
     }).join('\u001e');
   });
-  canonical.sort(); // row sorting alone is not a trade change
+  // Preserve physical row order: the holdings reducer applies same-date
+  // buys, sells and splits in ledger order; reordering can change cost basis.
   var input = JSON.stringify(canonical), digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, input);
   return digest.map(function(byte) { return ('0' + (byte & 255).toString(16)).slice(-2); }).join('');
 }
@@ -10408,8 +10416,21 @@ function _earliestChangedTradeDate(beforeRows, afterRows) {
   };
   (beforeRows || []).forEach(function(row) { add(row, 1); });
   (afterRows || []).forEach(function(row) { add(row, -1); });
-  return Object.keys(counts).filter(function(key) { return counts[key] !== 0 && dates[key]; })
+  var contentChanged = Object.keys(counts).filter(function(key) { return counts[key] !== 0 && dates[key]; })
     .map(function(key) { return dates[key]; }).sort()[0] || '';
+  if (contentChanged) return contentChanged;
+  // Multiset-equivalent rows may still change holdings if their order changes.
+  // Same-date stock-splits and buy/sell order must be replayed conservatively.
+  for (var i = 0; i < Math.max((beforeRows || []).length, (afterRows || []).length); i++) {
+    var before = (beforeRows || [])[i] || [], after = (afterRows || [])[i] || [];
+    var oldRow = before.slice(0, 11), newRow = after.slice(0, 11);
+    oldRow[0] = _normalizeDate(oldRow[0]); newRow[0] = _normalizeDate(newRow[0]);
+    if (JSON.stringify(oldRow) !== JSON.stringify(newRow)) {
+      var sorted = [oldRow[0], newRow[0]].filter(Boolean).sort();
+      if (sorted.length) return sorted[0];
+    }
+  }
+  return '';
 }
 
 function _latestConfirmedSnapshotDate(ss, includeToday) {
