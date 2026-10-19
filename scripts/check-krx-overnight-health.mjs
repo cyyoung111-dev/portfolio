@@ -5,7 +5,7 @@ const now=new Date('2026-10-19T02:40:00+09:00');
 const slot=(date,state='SUCCEEDED')=>({runDate:date,state});
 const assess=value=>assessKrxOvernightHealth(value,{now});
 const good={
-  mode:'READ_ONLY',gasVersion:'9.236',overallStatus:'NORMAL',triggerReady:true,
+  mode:'READ_ONLY',gasVersion:'9.237',overallStatus:'NORMAL',triggerReady:true,
   pendingDates:[],pendingCount:0,
   officialKrxPriceHistoryLastDate:'2026-10-16',
   snapshotLastDate:'2026-10-16',
