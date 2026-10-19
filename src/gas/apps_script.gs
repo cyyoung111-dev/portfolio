@@ -10405,7 +10405,11 @@ function runPendingTradeSnapshotRebuild() {
         return { status:'BLOCKED', processed:i, blockedDate:target };
       }
       var proof = diagnoseSnapshotIntegrity(ss, target);
-      if (proof.status !== 'VALID' || proof.duplicateKeys.length ||
+      // A day with genuinely zero ledger holdings has no Snapshot rows to
+      // persist. This is a validated empty state, not a missing-history gap.
+      var verifiedEmpty = proof.status === 'NO_SNAPSHOT' && proof.expectedRowCount === 0
+        && proof.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss, target) === false;
+      if ((!verifiedEmpty && proof.status !== 'VALID') || proof.duplicateKeys.length ||
           proof.sourceDataErrors.length) {
         Logger.log('거래원장 기준 재계산 검증 대기: ' + target + ' / ' + proof.status);
         return { status:'BLOCKED', processed:i, blockedDate:target };
