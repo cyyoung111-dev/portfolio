@@ -300,6 +300,27 @@ async function verifyWebApp(url, accessToken, expectedVersion) {
   throw new Error(`배포 후 웹앱 버전 확인 실패: 기대 ${expectedVersion}, 마지막 결과 ${last}`);
 }
 
+// Apps Script deployments can lag a successful PUT by several seconds in
+// list/get reads. Retry the *same* deployment GET; never POST a new version
+// merely because the first read is stale. A permanent mismatch still fails.
+export async function verifyDeploymentVersionWithRetry({
+  readDeployment, expectedVersion, pause = sleep, maxChecks = 5,
+}) {
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1
+      || !Number.isSafeInteger(maxChecks) || maxChecks < 1 || maxChecks > 10
+      || typeof readDeployment !== 'function' || typeof pause !== 'function') {
+    throw new Error('GAS_DEPLOYMENT_READBACK_INVALID');
+  }
+  let lastVersion = 0;
+  for (let check = 0; check < maxChecks; check++) {
+    const result = await readDeployment();
+    lastVersion = Number(result?.deploymentConfig?.versionNumber || 0);
+    if (lastVersion === expectedVersion) return result;
+    if (check < maxChecks - 1) await pause((check + 1) * 1500);
+  }
+  throw new Error(`deployment version 검증 실패: expected=${expectedVersion}, observed=${lastVersion}`);
+}
+
 export async function deploy() {
   const dryRun = String(process.env.GAS_DEPLOY_DRY_RUN || '').toLowerCase() === 'true';
   const scriptId = env('GAS_SCRIPT_ID');
@@ -384,10 +405,12 @@ export async function deploy() {
     },
   });
 
-  const verifiedDeployment = await requestJson(`${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`, { token: accessToken });
-  if (Number(verifiedDeployment?.deploymentConfig?.versionNumber || 0) !== newVersionNumber) {
-    throw new Error(`deployment version 검증 실패: expected=${newVersionNumber}`);
-  }
+  await verifyDeploymentVersionWithRetry({
+    readDeployment: () => requestJson(
+      `${SCRIPT_API}/projects/${encodeURIComponent(scriptId)}/deployments/${encodeURIComponent(deploymentId)}`,
+      { token: accessToken }),
+    expectedVersion: newVersionNumber,
+  });
 
   const webAppCheck = await verifyWebApp(webAppUrl, env('GAS_ACCESS_TOKEN', { required: false }), expectedVersion);
   console.log(`GAS 자동배포 완료 · GAS v${expectedVersion} · Apps Script version=${newVersionNumber} · webApp=verified`);
