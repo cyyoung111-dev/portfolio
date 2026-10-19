@@ -372,7 +372,18 @@ assert.throws(()=>summarizeBackfillStatus(malformedMorning),/BAD_TRIGGER/);
 const latest=statusFixture();
 latest.gasVersion='9.237';latest.automation.gasVersion='9.237';
 Object.assign(latest.automation.trigger,{hasMorningBackfill:true,
-  morningBackfillCount:1,hasDuplicateMorningBackfillTriggers:false});
+  morningBackfillCount:1,hasDuplicateMorningBackfillTriggers:false,
+  hasIntegrityEdit:true,hasLedgerRebuild:true});
+latest.automation.pendingTradeSnapshotRebuildFrom='2026-06-05';
+const pendingProof=summarizeBackfillStatus(latest);
+assert.equal(pendingProof.pendingTradeSnapshotRebuildFrom,'2026-06-05');
+assert.equal(pendingProof.triggerReady,true);
+const missingLedger=structuredClone(latest);
+delete missingLedger.automation.trigger.hasLedgerRebuild;
+assert.throws(()=>summarizeBackfillStatus(missingLedger),/BAD_TRIGGER/);
+const malformedLedgerDate=structuredClone(latest);
+malformedLedgerDate.automation.pendingTradeSnapshotRebuildFrom='2026-99-99';
+assert.throws(()=>summarizeBackfillStatus(malformedLedgerDate),/BAD_DATE/);
 latest.automation.historical2310Checkpoint={runDate:'2026-10-18',
   startedAt:1792280000000,finishedAt:1792280001000,state:'DEFERRED',
   attempted:false,ok:null,deferred:true,reason:'BACKFILL_BUSY',secret:'PRIVATE'};
