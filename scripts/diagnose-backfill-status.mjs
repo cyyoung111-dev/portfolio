@@ -175,6 +175,26 @@ export function summarizeBackfillStatus(payload) {
   const hasWorkerEntryRelease=parts[0]>9||(parts[0]===9&&parts[1]>=239);
   const tradeSnapshotWorkerLastBusy=hasWorkerEntryRelease
     ?safeWorkerBusyCheckpoint(a.tradeSnapshotWorkerLastBusy):null;
+  // GAS v9.240 exposes only sanitized, current-user trigger metadata.
+  // The existence of a matching handler is not evidence of a CLOCK trigger,
+  // and a CLOCK trigger is not evidence that an hourly execution succeeded.
+  const hasWorkerClockAudit=parts[0]>9||(parts[0]===9&&parts[1]>=240);
+  let tradeSnapshotWorkerTriggerAudit=null;
+  if(hasWorkerClockAudit) {
+    const x=a.tradeSnapshotWorkerTriggerAudit;
+    if(!x||typeof x!=='object'||Array.isArray(x)
+      ||x.scope!=='CURRENT_USER'
+      ||!['visibleCount','clockCount','nonClockCount','unknownCount'].every(k=>
+        Number.isSafeInteger(x[k])&&x[k]>=0&&x[k]<=100)
+      ||x.clockCount+x.nonClockCount+x.unknownCount!==x.visibleCount)
+      throw new Error('AUTOMATION_DIAG_BAD_WORKER_TRIGGER_AUDIT');
+    tradeSnapshotWorkerTriggerAudit={
+      scope:'CURRENT_USER',visibleCount:x.visibleCount,
+      clockCount:x.clockCount,nonClockCount:x.nonClockCount,
+      unknownCount:x.unknownCount,
+      clockReady:x.visibleCount===1&&x.clockCount===1
+    };
+  }
   const overallStatus=String(a.overallStatus || '');
   if (!['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN'].includes(overallStatus))
     throw new Error('AUTOMATION_DIAG_BAD_RESPONSE');
@@ -190,6 +210,7 @@ export function summarizeBackfillStatus(payload) {
     tradeSnapshotDeferredOldestDate,
     tradeSnapshotWorkerLastResult,
     tradeSnapshotWorkerLastBusy,
+    tradeSnapshotWorkerTriggerAudit,
     officialKrxPriceHistoryLastDate:safeDate(a.officialKrxPriceHistoryLastDate),
     snapshotLastDate:safeDate(a.snapshotLastDate),
     priceHistoryLastDate:safeDate(a.priceHistoryLastDate),
@@ -227,7 +248,8 @@ if (process.argv[1] && import.meta.url === new URL('file://'+process.argv[1]).hr
       url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN
     });
     console.log(JSON.stringify(data));
-    if (!data.triggerReady) process.exitCode=1;
+    if (!data.triggerReady || (data.tradeSnapshotWorkerTriggerAudit
+      && !data.tradeSnapshotWorkerTriggerAudit.clockReady)) process.exitCode=1;
   } catch(error) {
     const code=String(error?.message||'');
     console.error(/^AUTOMATION_DIAG_[A-Z_]+$/.test(code)?code:'AUTOMATION_DIAG_UNKNOWN_ERROR');
