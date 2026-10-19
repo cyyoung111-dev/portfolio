@@ -60,8 +60,12 @@ export function summarizeEvidence(automation,diagnostics){
   const pending=automation.pendingTradeSnapshotRebuildFrom;
   if(typeof pending!=='string'||!(pending==='-'||DATE.test(pending)))
     throw new Error('ISSUE507_PENDING_DATE_INVALID');
-  // No GAS public status field for the hourly worker's last invocation or
-  // source fingerprint. Never extrapolate a trigger firing from pending alone.
+  // v9.238 explicitly exposes a sanitized timestamped worker heartbeat and
+  // unresolved-day count. The trigger being installed is never execution proof.
+  const worker=automation.tradeSnapshotWorkerLastResult;
+  const workerVerified=!!(worker && worker.at);
+  const deferredCount=automation.tradeSnapshotDeferredCount;
+  const deferredOldest=automation.tradeSnapshotDeferredOldestDate || '-';
   return {
     mode:'READ_ONLY',gasVersion:automation.gasVersion,
     triggerReady:automation.triggerReady,
@@ -69,10 +73,15 @@ export function summarizeEvidence(automation,diagnostics){
     overallStatus:automation.overallStatus,
     pendingTradeSnapshotRebuildFrom:pending,
     tradeLedgerWriteUnverified:automation.tradeLedgerWriteUnverified,
-    workerLastExecution:'NOT_EXPOSED',
-    workerFirstRunVerified:false,
+    workerLastExecution:workerVerified?worker.at:'NOT_OBSERVED',
+    workerLastStatus:workerVerified?worker.status:'NOT_OBSERVED',
+    workerLastProcessed:workerVerified?worker.processed:null,
+    workerLastDeferred:workerVerified?worker.deferred:null,
+    workerFirstRunVerified:workerVerified,
     fingerprintBaselineVerified:false,
-    workerBlockedDate:'NOT_EXPOSED',
+    workerBlockedDate:workerVerified?worker.blockedDate:'NOT_OBSERVED',
+    deferredDateCount:deferredCount,
+    deferredOldestDate:deferredOldest,
     earlyDateStatus:EARLY.map(date=>byDate[date]),
     earlyUnresolvedDateCount:earlyIncomplete.length,
     june5Status:june5.status,
@@ -118,7 +127,9 @@ export function selfTest(){
   const regress=REGRESSION.map((date,i)=>sample(date,i===0?'CONFLICT':'VALID',i===0?37:39));
   const a={mode:'READ_ONLY',gasVersion:'9.238',triggerReady:true,
     triggerMissing:[],overallStatus:'INCOMPLETE',
-    pendingTradeSnapshotRebuildFrom:'-',tradeLedgerWriteUnverified:false};
+    pendingTradeSnapshotRebuildFrom:'-',tradeLedgerWriteUnverified:false,
+    tradeSnapshotDeferredCount:0,tradeSnapshotDeferredOldestDate:'-',
+    tradeSnapshotWorkerLastResult:null};
   const earlyEvidence=summarizeDiagnostics({status:'ok',checkedDates:EARLY,
     diagnostics:early},EARLY);
   const regressionEvidence=summarizeDiagnostics({status:'ok',checkedDates:REGRESSION,
@@ -127,6 +138,23 @@ export function selfTest(){
   const evidence=earlyEvidence.concat(regressionEvidence);
   const out=summarizeEvidence(a,evidence);
   assert.equal(out.workerFirstRunVerified,false);
+  assert.equal(out.workerLastExecution,'NOT_OBSERVED');
+  assert.equal(out.deferredDateCount,0);
+  const verified=summarizeEvidence({...a,
+    pendingTradeSnapshotRebuildFrom:'2026-01-01',
+    tradeSnapshotDeferredCount:1,
+    tradeSnapshotDeferredOldestDate:'2025-12-31',
+    tradeSnapshotWorkerLastResult:{
+      status:'PENDING',at:'2026-10-19T09:01:02.000Z',
+      processed:1,deferred:1,blockedDate:'',sourceCheck:'UNCHANGED'
+    }},evidence);
+  assert.equal(verified.workerFirstRunVerified,true);
+  assert.equal(verified.workerLastStatus,'PENDING');
+  assert.equal(verified.workerLastProcessed,1);
+  assert.equal(verified.workerLastDeferred,1);
+  assert.equal(verified.deferredDateCount,1);
+  assert.equal(verified.deferredOldestDate,'2025-12-31');
+  assert.equal(verified.pendingTradeSnapshotRebuildFrom,'2026-01-01');
   assert.equal(out.earlyUnresolvedDateCount,4);
   assert.equal(out.septemberRegressionReady,true);
   assert.equal(out.june5Status,'CONFLICT');
@@ -143,7 +171,7 @@ export function selfTest(){
   const mismatched=evidence.slice();
   mismatched[6]={...mismatched[6],expectedRows:39,storedRows:38};
   assert.equal(summarizeEvidence(a,mismatched).septemberRegressionReady,false);
-  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:9};
+  return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:16};
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
   try{
