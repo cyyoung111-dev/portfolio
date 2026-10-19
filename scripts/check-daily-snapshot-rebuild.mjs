@@ -578,7 +578,7 @@ function ledgerSnippet(name) {
 }
 {
   function worker({blocked=false}={}) {
-    let from='2026-06-05',saved=[],attempts=[],rebuilds=[],locks=0;
+    let from='2026-06-05',saved=[],attempts=[],rebuilds=[],errors=[],locks=0;
     const dates=['2026-06-05','2026-06-08','2026-06-09'];
     const ss={getSheetByName:()=>({
       getLastRow:()=>4,getRange:()=>({getValues:()=>dates.map(x=>[x])})
@@ -600,15 +600,15 @@ function ledgerSnippet(name) {
       LockService:{getScriptLock:()=>({
         tryLock:()=>{locks++;return true;},releaseLock:()=>{locks--;}
       })},
-      Logger:{log:()=>{}},Date:Date
+      Logger:{log:msg=>errors.push(String(msg))},Date:Date
     };
     vm.runInNewContext(ledgerSnippet('runPendingTradeSnapshotRebuild'),ctx);
     const first=ctx.runPendingTradeSnapshotRebuild();
     assert.equal(locks,0,'worker releases lock on each outcome');
-    return {first,from,saved,rebuilds,ctx};
+    return {first,from,saved,rebuilds,errors,ctx};
   }
   const success=worker();
-  assert.equal(success.first.status,'PENDING');
+  assert.equal(success.first.status,'PENDING',success.errors.join('; '));
   assert.equal(success.first.processed,2);
   assert.equal(success.from,'2026-06-09');
   assert.deepEqual(success.rebuilds,[['2026-06-05','2026-06-05'],['2026-06-08','2026-06-08']]);
