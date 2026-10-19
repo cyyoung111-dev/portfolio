@@ -6,7 +6,7 @@ const slot=(date,state='SUCCEEDED')=>({runDate:date,state});
 const assess=value=>assessKrxOvernightHealth(value,{now});
 const good={
   mode:'READ_ONLY',gasVersion:'9.237',overallStatus:'NORMAL',triggerReady:true,
-  pendingDates:[],pendingCount:0,
+  pendingDates:[],pendingCount:0,pendingTradeSnapshotRebuildFrom:'-',
   officialKrxPriceHistoryLastDate:'2026-10-16',
   snapshotLastDate:'2026-10-16',
   latestBackfill:{attempted:true,ok:true},
@@ -14,6 +14,11 @@ const good={
   historical2310:slot('2026-10-18'),historical0030:slot('2026-10-19'),
 };
 assert.equal(assess(good).status,'HEALTHY');
+const withPendingLedger=assess({...good,pendingTradeSnapshotRebuildFrom:'2026-06-05'});
+assert.equal(withPendingLedger.status,'ACTION_REQUIRED');
+assert.deepEqual(withPendingLedger.issues,['PENDING_TRADE_LEDGER_REBUILD']);
+assert.equal(withPendingLedger.pendingTradeSnapshotRebuildFrom,'2026-06-05');
+assert.throws(()=>assess({...good,pendingTradeSnapshotRebuildFrom:'bad-date'}),/KRX_OVERNIGHT_BAD_DIAGNOSTIC/);
 const stillQueued={...good,overallStatus:'ERROR',
   pendingDates:['2026-10-09','2026-10-12','2026-10-15'],pendingCount:3,
   officialKrxPriceHistoryLastDate:'2026-10-14',
