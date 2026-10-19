@@ -243,7 +243,7 @@ const requiredHandlers = [
   'handleSnapshotIntegritySheetEdit', 'runPendingTradeSnapshotRebuild',
 ];
 function runRealDiagnostics({
-  missing = [], duplicate = '', overridden = {},
+  missing = [], duplicate = '', overridden = {}, pendingTradeFrom = '',
 } = {}) {
   const calls = [], alerts = [], logs = [];
   const handlerNames = requiredHandlers.filter(x => !missing.includes(x));
@@ -260,6 +260,7 @@ function runRealDiagnostics({
     runDate:'2026-10-14', priceDate:'2026-10-14',
     priceOk:true, fundOk:true, errors:[],
   })]]);
+  if(pendingTradeFrom)props.set('trade_snapshot_rebuild_pending_v1',JSON.stringify({from:pendingTradeFrom}));
   const ctx = vm.createContext({
     TRADE_SNAPSHOT_REBUILD_PENDING_KEY: 'trade_snapshot_rebuild_pending_v1',
     ScriptApp: {
@@ -303,6 +304,10 @@ function runRealDiagnostics({
   assert.ok(data.trigger && typeof data.trigger === 'object');
   return {data, message:alerts[0], logs, calls};
 }
+const pendingLedgerDiagnostics=runRealDiagnostics({pendingTradeFrom:'2026-06-05'});
+assert.equal(pendingLedgerDiagnostics.data.overallStatus,'WARNING',
+  'P1: unfinished ledger-based revaluation must never appear NORMAL');
+assert.equal(pendingLedgerDiagnostics.data.pendingTradeSnapshotRebuildFrom,'2026-06-05');
 const normalDiagnostics = runRealDiagnostics();
 assert.equal(normalDiagnostics.data.overallStatus, 'NORMAL');
 assert.equal(normalDiagnostics.data.trigger.hasMidnightBackfill, true);
