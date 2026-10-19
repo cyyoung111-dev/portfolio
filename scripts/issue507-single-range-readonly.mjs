@@ -151,6 +151,7 @@ export async function runReadonly({url,token,fetchImpl=fetch,readStatus=runBackf
 export async function selfTest(){
   const rows={date:DATE,status:'SOURCE_INCOMPLETE',expectedRowCount:0,
     storedRowCount:2,duplicateSummary:Object.fromEntries(DUP_FIELDS.map(k=>[k,0])),
+    expectedRows:[],storedRows:[],fundNavStates:[],foreignFxStates:[],priceIntegrity:[],
     ...Object.fromEntries(ARRAY_FIELDS.map(k=>[k,[]]))};
   rows.sourceDataErrors=['SECRET_ACCOUNT_123456'];
   const single=summarizeOne({status:'ok',diagnostics:[rows],diagnostic:rows},'single');
