@@ -222,7 +222,7 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
   assert.ok(f.phaseMarks.every(x=>x.runStartedAt===f.phaseMarks[0].runStartedAt),
     'step checkpoint must retain the original entry timestamp');
   assert.ok(f.phaseMarks.every(x=>x.blockedDate==='' ||
-    /^\\d{4}-\\d{2}-\\d{2}$/.test(x.blockedDate)),
+    /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x.blockedDate)),
     'phase markers contain only safe date or blank; no financial payload');
   assert.equal(f.locks.held,0);
 }
