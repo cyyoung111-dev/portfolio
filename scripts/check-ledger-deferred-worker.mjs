@@ -19,7 +19,7 @@ assert.match(gas,/TRADE_SNAPSHOT_DEFERRED_DATES_KEY = 'trade_snapshot_rebuild_de
 assert.match(gas,/tradeSnapshotDeferredCount: tradeSnapshotDeferred.dates.length/);
 assert.match(gas,/tradeSnapshotWorkerLastResult: tradeSnapshotWorkerLastResult/);
 
-function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=false}={}) {
+function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=false,holdingsPresent=true}={}) {
   const props=new Map(),calls=[],logs=[],locks={held:0};
   let dates=['2025-12-31','2026-01-01','2026-01-06'];
   let activeStatus={...statusByDate};
@@ -57,8 +57,12 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
       return {getSheetByName:()=>({getLastRow:()=>100})};
     },
     diagnoseSnapshotIntegrity:(_ss,date)=>{
-      const status=activeStatus[date]||'VALID';
-      return {status,expectedRowCount:33,storedRowCount:status==='VALID'?33:2,
+      const entry=activeStatus[date]||'VALID';
+      const status=typeof entry==='string'?entry:entry.status;
+      return {status,
+        expectedRowCount:typeof entry==='object'&&entry.expected!==undefined?entry.expected:33,
+        storedRowCount:typeof entry==='object'&&entry.stored!==undefined
+          ?entry.stored:(status==='VALID'?33:2),
         duplicateKeys:status==='CONFLICT'?['bad']:[],
         sourceDataErrors:status==='SOURCE_INCOMPLETE'?['missing prices']:[]};
     },
@@ -66,7 +70,7 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
       calls.push({op:'rebuild',date:from});
       return writerErrorDate===from?{errors:['writer failure'],skipped:0}:{errors:[],skipped:0};
     },
-    _hasSnapshotHoldingsAtDate:()=>true,
+    _hasSnapshotHoldingsAtDate:()=>holdingsPresent,
     _dateOffset:date=>{const d=new Date(date+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+1);return d.toISOString().slice(0,10)},
     Logger:{log:msg=>logs.push(String(msg))},
   });
@@ -76,6 +80,48 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
     deferred:()=>JSON.parse(props.get('trade_snapshot_rebuild_deferred_v1')||'{"dates":[],"cursor":""}'),
     last:()=>JSON.parse(props.get('trade_snapshot_worker_last_v1')||'null'),
     busy:()=>JSON.parse(props.get('trade_snapshot_worker_busy_v1')||'null')};
+}
+
+
+// Live evidence 2026-10-19 GAS v9.240: single-day PARTIAL expected=0/
+// stored=2 while indexed range says SOURCE_INCOMPLETE. The old worker
+// misclassified this as BLOCKED, starving all following safe dates.
+// New worker must persist both source gaps BEFORE moving the pending cursor.
+{
+  const gap={status:'PARTIAL',expected:0,stored:2};
+  const f=fixture({statusByDate:{
+    '2025-12-31':gap,'2026-01-01':{...gap,stored:30}
+  },writerErrorDate:'2025-12-31'});
+  const r=f.ctx.runPendingTradeSnapshotRebuild();
+  assert.equal(r.status,'PENDING');
+  assert.equal(r.deferred,2);
+  assert.equal(f.pending().from,'2026-01-02');
+  assert.deepEqual(f.deferred().dates,['2025-12-31','2026-01-01']);
+  assert.equal(f.calls.filter(x=>x.op==='rebuild').length,0,
+    'zero expected with confirmed ledger holdings must defer BEFORE any write');
+  const ops=f.calls.filter(x=>x.op==='set').map(x=>x.key);
+  assert.ok(ops.indexOf('trade_snapshot_rebuild_deferred_v1')<
+    ops.indexOf('trade_snapshot_rebuild_pending_v1'));
+  assert.equal(f.locks.held,0);
+}
+// Only ledger-confirmed nonempty portfolios qualify. A genuinely empty
+// portfolio remains VALID without inventing missing prices.
+{
+  const f=fixture({statusByDate:{'2025-12-31':{
+    status:'NO_SNAPSHOT',expected:0,stored:0
+  }},holdingsPresent:false});
+  assert.equal(f.ctx._assessTradeSnapshotWorkerDate_({},'2025-12-31').state,'VALID');
+  assert.equal(f.calls.filter(x=>x.op==='rebuild').length,0);
+}
+// Unverified/absent holdings cannot be upgraded to a SOURCE_INCOMPLETE
+// exemption. Preserve BLOCKED and the cursor when the writer fails.
+{
+  const f=fixture({statusByDate:{'2025-12-31':{
+    status:'PARTIAL',expected:0,stored:2
+  }},holdingsPresent:false,writerErrorDate:'2025-12-31'});
+  assert.equal(f.ctx.runPendingTradeSnapshotRebuild().status,'BLOCKED');
+  assert.equal(f.pending().from,'2025-12-31');
+  assert.deepEqual(f.deferred().dates,[]);
 }
 
 // Two missing-source days are NOT discarded. Forward cursor can still reach
