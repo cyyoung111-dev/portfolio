@@ -98,16 +98,23 @@ assert.equal((await runSourceOnlyRepair({url,token,fetchImpl:newerFetch})).mode,
 // v9.235 retains the source-only repair contract: historical read-only
 // diagnostic must not regress after a GAS deployment.
 const latestActions=[];
+let latestVersion='9.235';
 const latestFetch=async(_url,opts)=>{
   const action=opts.body.get('action');latestActions.push(action);
   if(opts.body.get('accessToken')!==token)
     return{ok:true,json:async()=>({status:'error',message:'인증 실패'})};
   if(action==='getAutomationStatus')return{ok:true,json:async()=>({
-    status:'ok',automation:{gasVersion:'9.235'}})};
+    status:'ok',automation:{gasVersion:latestVersion}})};
   if(action==='diagnoseSnapshotIntegrity')return{ok:true,json:async()=>({
     status:'ok',diagnostic:after})};
   throw Error('v9.235 already-valid path must never modify Snapshot');
 };
+assert.equal((await runSourceOnlyRepair({url,token,apply:true,fetchImpl:latestFetch})).mode,'ALREADY_VALID');
+assert.deepEqual(latestActions,['diagnoseSnapshotIntegrity',
+  'getAutomationStatus','diagnoseSnapshotIntegrity']);
+// New v9.240 audit release must retain this safe, already-VALID path.
+latestVersion='9.240';
+latestActions.length=0;
 assert.equal((await runSourceOnlyRepair({url,token,apply:true,fetchImpl:latestFetch})).mode,'ALREADY_VALID');
 assert.deepEqual(latestActions,['diagnoseSnapshotIntegrity',
   'getAutomationStatus','diagnoseSnapshotIntegrity']);
