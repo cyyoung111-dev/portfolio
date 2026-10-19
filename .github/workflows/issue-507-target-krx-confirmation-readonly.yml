@@ -1,0 +1,51 @@
+name: issue-507-target-krx-confirmation-readonly
+
+# Exact-date official KRX presence proof. Zero ledger, price or Snapshot writes.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-target-krx-confirmation-readonly.mjs'
+      - '.github/workflows/issue-507-target-krx-confirmation-readonly.yml'
+      - 'src/gas/apps_script.gs'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-target-krx-confirmation-readonly.mjs'
+      - '.github/workflows/issue-507-target-krx-confirmation-readonly.yml'
+      - 'src/gas/apps_script.gs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Test actual GAS read-only target evidence and no identifier leaks
+        run: |
+          node --check scripts/issue507-target-krx-confirmation-readonly.mjs
+          node scripts/issue507-target-krx-confirmation-readonly.mjs --self-test
+
+  operational-readonly:
+    # A new GAS version must be deployed and its identity confirmed BEFORE using
+    # this live action; do not auto-run against old server after a main push.
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Query authenticated target exact KRX dates (sanitized)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-target-krx-confirmation-readonly.mjs

@@ -8,6 +8,7 @@ function extract(name){
   assert.ok(start>=0&&end>start,'production GAS function exists');
   return source.slice(start,end+2);
 }
+const helper=extract('_krxHeldTargetCloseEvidence_');
 const fn=extract('handleGetKrxHeldCloseCoverage');
 assert.doesNotMatch(fn,/\.setValues\(|\.appendRow\(|\.setProperty\(|\.deleteProperty\(|\.setValue\(/);
 assert.match(source,/params.action === 'getKrxHeldCloseCoverage'/);
@@ -40,7 +41,7 @@ const ctx=vm.createContext({
   fetchPricesKrx:(items,date)=>{fetchCalls++;return data;},
   jsonOk:v=>({status:'ok',...v}),jsonError:message=>({status:'error',message})
 });
-vm.runInContext(fn,ctx);
+vm.runInContext(helper+'\n'+fn,ctx);
 const run=d=>JSON.parse(JSON.stringify(ctx.handleGetKrxHeldCloseCoverage(d)));
 let x=run('2026-10-12');assert.equal(x.status,'ok');
 assert.deepEqual(x.coverage.market,{STOCK:{expected:1,confirmed:1},ETF:{expected:1,confirmed:1}});

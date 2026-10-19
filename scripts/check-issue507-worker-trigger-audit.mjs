@@ -64,7 +64,7 @@ const all={
   hasDuplicateMorningBackfillTriggers:false,
   hasLegacySplitTriggers:false
 };
-function status(audit,version='9.242') {
+function status(audit,version='9.243') {
   return {status:'ok',gasVersion:version,automation:{
     gasVersion:version,overallStatus:'WARNING',trigger:all,
     pendingKrxCloseDates:[],tradeLedgerWriteUnverified:false,
