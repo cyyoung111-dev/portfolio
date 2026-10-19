@@ -15,6 +15,19 @@ assert.equal(krxSessionStatus('2026-10-08'),'OPEN','KRX 정상 거래일');
 assert.equal(krxSessionStatus('2026-02-30'),'UNKNOWN','잘못된 날짜');
 assert.equal(krxSessionStatus('2028-10-09'),'UNKNOWN','미확인 연도 평일을 단정하지 않음');
 const date='2026-09-18', prior='2026-09-17';
+assert.equal(scheduledTradingDate('15 0 * * 1-5',new Date('2026-10-19T00:15:30Z')),
+  '2026-10-16','T+1 09:15 월요일 확정 재수집은 금요일 거래일을 선택');
+assert.equal(scheduledTradingDate('15 0 * * 1-5',new Date('2026-10-13T00:15:30Z')),
+  '2026-10-12','T+1 09:15 화요일은 월요일 영업일 선택');
+assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 0 * * 1-5',
+  '--scheduled-at','2026-10-19T00:15:30Z']).tradingDate,
+  '2026-10-16','배포 이후 지연된 schedule도 최초 예약일 기준 전영업일 확정');
+assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 0 * * 1-5',
+  '--scheduled-at','2026-10-19T00:15:30Z']).requireKrxOfficialNight,true);
+assert.equal(parseArgs(['--checkpoint','NIGHT_FINAL','--schedule','15 21 * * 0-4',
+  '--scheduled-at','2026-10-18T21:15:30Z']).requireKrxOfficialNight,false);
+assert.throws(()=>parseArgs(['--checkpoint','MORNING','--schedule','15 0 * * 1-5']),
+  /schedule과 checkpoint/,'NIGHT_FINAL catch-up은 MORNING과 혼동 금지');
 assert.equal(scheduledTradingDate('30 22 * * 0-4',new Date('2026-09-22T03:00:00Z')),'2026-09-22','지연 실행도 월요일 22:30 UTC slot의 화요일 거래일 유지');
 assert.equal(scheduledTradingDate('30 7 * * 1-5',new Date('2026-09-21T20:00:00Z')),'2026-09-21','장마감 slot은 실행시각이 아니라 cron slot 거래일 사용');
 assert.equal(parseArgs(['--checkpoint','MORNING','--date','2026-09-18','--schedule','30 22 * * 0-4']).tradingDate,'2026-09-18','수동 --date가 schedule보다 우선');
@@ -248,6 +261,9 @@ assert.equal(snapshots.length,0,'비확정 Toss 장전은 snapshot 기록 없음
 globalThis.localStorage.clear(); observations=[];snapshots=[];snapshotPosts=0;
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request});
 assert.equal(result.successful,true,'NIGHT_FINAL 관측값을 확보하고 저장해야 성공');
+result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request,
+  requireKrxOfficialNight:true});
+assert.equal(result.successful,true,'T+1는 요청한 정확한 날짜의 KRX 공식 종가로만 성공');
 assert.ok(observations.some(row=>row.seriesId==='K200_NIGHT'&&row.finality==='NIGHT_FINAL'));
 assert.equal(snapshotPosts,0,'NIGHT_FINAL은 snapshot을 저장하지 않음');
 globalThis.localStorage.clear(); observations=[];snapshots=[];
@@ -257,6 +273,9 @@ assert.equal(result.decision.publishable,false);assert.equal(snapshots.length,0,
 globalThis.localStorage.clear(); observations=[];snapshots=[];
 result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,request:missingNight});
 assert.equal(result.successful,false,'NIGHT_FINAL 누락은 scheduled CLI 실패 조건');assert.equal(snapshots.length,0);
+result=await runHeadless({checkpoint:'NIGHT_FINAL',tradingDate:date,
+  request:missingNight,requireKrxOfficialNight:true});
+assert.equal(result.successful,false,'T+1는 기존 저장된 다른 KIS 종가만으로 성공 금지');
 globalThis.localStorage.clear(); observations=[];snapshots=[];
 const scheduledFxRequest=async(action,params)=>action==='getExchangeRateHistory'
  ? {status:'ok',history:params.to===date?[{date,value:1390}]:[]}:request(action,params);

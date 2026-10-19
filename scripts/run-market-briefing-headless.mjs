@@ -51,6 +51,10 @@ function verifiedHolidayOverseasContext(payload,tradingDate) {
 
 const SCHEDULE_SLOTS = Object.freeze({
   '15 21 * * 0-4': { hour:21, minute:15, weekdays:[0,1,2,3,4], checkpoint:'NIGHT_FINAL' },
+  // KRX final daily derivative data is not guaranteed by same-day 06:15.
+  // At next open session 09:15 KST, retry ONLY the preceding official KRX
+  // trading session; do not pretend this repairs the earlier 07:30 briefing.
+  '15 0 * * 1-5': { hour:0, minute:15, weekdays:[1,2,3,4,5], checkpoint:'NIGHT_FINAL', publishedPriorSession:true },
   '30 22 * * 0-4': { hour:22, minute:30, weekdays:[0,1,2,3,4], checkpoint:'MORNING' },
   '30 7 * * 1-5': { hour:7, minute:30, weekdays:[1,2,3,4,5], checkpoint:'KRX_FINAL' },
   '15 11 * * 1-5': { hour:11, minute:15, weekdays:[1,2,3,4,5], checkpoint:'EVENING' },
@@ -62,7 +66,17 @@ function scheduledTradingDate(schedule, now = new Date()) {
   cursor.setUTCSeconds(0, 0);
   for (let offset = 0; offset < 8; offset++) {
     const candidate = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), cursor.getUTCDate() - offset, slot.hour, slot.minute));
-    if (slot.weekdays.includes(candidate.getUTCDay()) && candidate <= now) return kstDate(candidate);
+    if (slot.weekdays.includes(candidate.getUTCDay()) && candidate <= now) {
+      const scheduledDate=kstDate(candidate);
+      if (!slot.publishedPriorSession) return scheduledDate;
+      let prior=dateOffset(scheduledDate,-1);
+      for (let step=0;step<25;step++,prior=dateOffset(prior,-1)) {
+        const market=krxSessionStatus(prior);
+        if (market==='OPEN') return prior;
+        if (market==='UNKNOWN') throw new Error('KRX_PRIOR_SESSION_UNVERIFIED');
+      }
+      throw new Error('KRX_PRIOR_SESSION_NOT_FOUND');
+    }
   }
   throw new Error('schedule tradingDate를 계산할 수 없습니다.');
 }
@@ -78,7 +92,8 @@ function parseArgs(argv) {
   const tradingDate = suppliedDate || (schedule ? scheduledTradingDate(schedule, scheduledAnchor || new Date()) : kstDate());
   const parsedDate = /^\d{4}-\d{2}-\d{2}$/.test(tradingDate) ? new Date(`${tradingDate}T00:00:00Z`) : null;
   if (!parsedDate || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0,10) !== tradingDate) throw new Error('잘못된 tradingDate');
-  return { checkpoint, tradingDate, schedule, scheduledAt };
+  return { checkpoint, tradingDate, schedule, scheduledAt,
+    requireKrxOfficialNight: schedule === '15 0 * * 1-5' };
 }
 function maskSecrets(value, secrets = []) {
   let text = String(value ?? '');
@@ -125,7 +140,8 @@ function createRequest(url, token, fetchImpl = fetch) {
     return result;
   };
 }
-export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt, fxFallback = fetchUsdKrwYahooDaily }) {
+export async function runHeadless({ checkpoint, tradingDate, url, token, request: suppliedRequest, receivedAt,
+  requireKrxOfficialNight = false, fxFallback = fetchUsdKrwYahooDaily }) {
   const request = suppliedRequest || createRequest(url, token);
   const runtime = globalThis.MarketBriefingRuntime, gate = globalThis.MarketBriefingOperationalGate;
   // KRX_FINAL has no same-day domestic close on exchange holidays/weekends.
@@ -172,7 +188,18 @@ export async function runHeadless({ checkpoint, tradingDate, url, token, request
     return {checkpoint,tradingDate,skippedDomestic:true,successful:foreign&&fx,
       sync,decision:null,persistence:null};
   }
-  if (checkpoint === 'NIGHT_FINAL') return { checkpoint, tradingDate, sync, decision:null, persistence:null, successful:runtime.hasNightFinal(tradingDate) };
+  if (checkpoint === 'NIGHT_FINAL') {
+    const k200=sync?.payload?.K200_NIGHT;
+    // The 09:15 catch-up MUST prove the actual KRX final feed for the
+    // requested prior session. A stored KIS/Toss NIGHT_FINAL, a previous
+    // date or even an official but partial observation cannot satisfy it.
+    const officialReady=Number(k200?.value)>0 && k200?.seriesId==='K200_NIGHT'
+      && k200?.source==='KRX_OFFICIAL' && k200?.sourceDate===tradingDate
+      && k200?.tradingDate===tradingDate && k200?.status==='FINAL'
+      && k200?.finality==='NIGHT_FINAL' && k200?.fallback!==true;
+    return {checkpoint,tradingDate,sync,decision:null,persistence:null,
+      successful:runtime.hasNightFinal(tradingDate) && (!requireKrxOfficialNight || officialReady)};
+  }
   const decision = runtime.readiness(tradingDate, checkpoint);
   if (!decision.publishable) return { checkpoint, tradingDate, sync, decision, persistence:null };
   const released = await runtime.releaseAndPersist(request, tradingDate, checkpoint, gate.seriesForCheckpoint(checkpoint));
