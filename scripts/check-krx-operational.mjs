@@ -375,8 +375,13 @@ Object.assign(latest.automation.trigger,{hasMorningBackfill:true,
   morningBackfillCount:1,hasDuplicateMorningBackfillTriggers:false,
   hasIntegrityEdit:true,hasLedgerRebuild:true});
 latest.automation.pendingTradeSnapshotRebuildFrom='2026-06-05';
+latest.automation.tradeLedgerWriteUnverified=false;
 const pendingProof=summarizeBackfillStatus(latest);
 assert.equal(pendingProof.pendingTradeSnapshotRebuildFrom,'2026-06-05');
+assert.equal(pendingProof.tradeLedgerWriteUnverified,false);
+const unsafeLedger=structuredClone(latest);
+unsafeLedger.automation.tradeLedgerWriteUnverified=true;
+assert.equal(summarizeBackfillStatus(unsafeLedger).tradeLedgerWriteUnverified,true);
 assert.equal(pendingProof.triggerReady,true);
 const missingLedger=structuredClone(latest);
 delete missingLedger.automation.trigger.hasLedgerRebuild;
