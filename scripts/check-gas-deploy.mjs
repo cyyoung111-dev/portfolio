@@ -42,10 +42,10 @@ var missingItems = items.filter(() => true);
 assert.throws(() => assertGasReleaseReady(fakeFullRelease),
   /GAS_RELEASE_SOURCE_NOT_APPROVED/, 'dummy implementation and comments cannot bypass the gate');
 
-const bumpedVersion = partialRelease.replaceAll('9.193', '9.237');
+const bumpedVersion = partialRelease.replaceAll('9.193', '9.238');
 assert.throws(() => assertGasReleaseReady(bumpedVersion),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'unreviewed future version must fail closed');
-assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.237','10.0')),
+assert.throws(() => assertGasReleaseReady(bumpedVersion.replaceAll('9.238','10.0')),
   /GAS_RELEASE_UNREVIEWED_VERSION/, 'major version bumps must also fail closed');
 
 const currentGasSource = fs.readFileSync('src/gas/apps_script.gs','utf8');
@@ -72,8 +72,8 @@ const latestReleaseNotes = deploymentNotes.slice(
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
-  'newest v9.236 release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.236') && latestReleaseNotes.includes('Snapshot'),
+  'newest v9.237 release must end before historical v9.228 section');
+assert.ok(latestReleaseNotes.includes('gasVersion=9.237') && latestReleaseNotes.includes('Snapshot'),
   'latest release must independently document KRX persisted verification and post-deploy check');
 
 // Execute the *actual trigger-registration functions*, not copies of their
@@ -261,6 +261,7 @@ function runRealDiagnostics({
     priceOk:true, fundOk:true, errors:[],
   })]]);
   const ctx = vm.createContext({
+    TRADE_SNAPSHOT_REBUILD_PENDING_KEY: 'trade_snapshot_rebuild_pending_v1',
     ScriptApp: {
       getProjectTriggers: () => installed.slice(),
       newTrigger: () => blockedMutation('newTrigger'),
@@ -525,8 +526,9 @@ console.log('✅ standalone 과거 백필 설치: UI/시트/Properties 무접근
 console.log('✅ Codex P2 동작 검증: 실제 getSettings 반환·CONFIG KST·운영 진단 VM/누락·중복·무변경·변이 통과');
 
 console.log('✅ 사전 리뷰 게이트: GAS/웹/배포 문서 버전, 실제 백필 트리거 생성·중복 복구·자정 변이 검사 통과');
-const approvedFullSourceBlob='54840112e1ffa3292edda154d07e0a8b22747933';
+const approvedFullSourceBlob='17b33a984aa282eeed389fadc2ed6dea9b115613';
 const actualSourceBlob=gasSourceBlobSha(currentGasSource);
+const headerV237=currentGasSource.indexOf('//  v9.237 변경사항');
 const headerV236=currentGasSource.indexOf('//  v9.236 변경사항');
 const headerV235=currentGasSource.indexOf('//  v9.235 변경사항');
 const headerV234=currentGasSource.indexOf('//  v9.234 변경사항');
@@ -539,8 +541,9 @@ const headerV228=currentGasSource.indexOf('//  v9.228 변경사항');
 const headerV227=currentGasSource.indexOf('//  v9.227 변경사항');
 const headerV226=currentGasSource.indexOf('//  v9.226 변경사항');
 const headerV225=currentGasSource.indexOf('//  v9.225 변경사항');
-assert.ok(headerV236>=0 && headerV235>headerV236 && headerV234>headerV235 && headerV233>headerV234 && headerV232>headerV233 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
-  'v9.236/v9.235/v9.234/v9.233/v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(headerV237>=0 && headerV236>headerV237 && headerV235>headerV236 && headerV234>headerV235 && headerV233>headerV234 && headerV232>headerV233 && headerV231>headerV232 && headerV230>headerV231 && headerV229>headerV230 && headerV228>headerV229 && headerV227>headerV228 && headerV226>headerV227 && headerV225>headerV226,
+  'v9.237/v9.236/v9.235/v9.234/v9.233/v9.232/v9.231/v9.230/v9.229/v9.228/v9.227/v9.226/v9.225 release history must be newest-first');
+assert.ok(currentGasSource.slice(headerV237,headerV236).includes('거래원장'), 'v9.237 must document ledger-authoritative Snapshot rebuild');
 assert.ok(currentGasSource.slice(headerV236,headerV235).includes('checkpoint'),
   'v9.236 must document independent historical checkpoint');
 assert.ok(currentGasSource.slice(headerV235,headerV234).includes('KRX'),
