@@ -32,8 +32,8 @@ export function normalizedProof(payload){
   if(new Set(expected.map(row=>row[0])).size!==37
     ||expected.filter(x=>x[0].startsWith('F')).length!==3
     ||expected.filter(x=>x[5]==='FUND_NAV').length!==3
-    ||!expected.some(x=>x[0]==='487240')
-    ||!expected.some(x=>x[0]==='361610'))
+    ||!expected.some(x=>x[0]==='307520')
+    ||!expected.some(x=>x[0]==='034220'))
     throw new Error('JUN05_CODE_SET_INVALID');
   const cost=expected.reduce((s,x)=>s+x[2],0);
   const valuation=expected.reduce((s,x)=>s+x[4],0);
