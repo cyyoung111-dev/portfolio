@@ -271,6 +271,7 @@ function runRealDiagnostics({
     TRADE_SNAPSHOT_REBUILD_PENDING_KEY: 'trade_snapshot_rebuild_pending_v1',
     TRADE_SNAPSHOT_DEFERRED_DATES_KEY: 'trade_snapshot_rebuild_deferred_v1',
     TRADE_SNAPSHOT_WORKER_LAST_KEY: 'trade_snapshot_worker_last_v1',
+    TRADE_SNAPSHOT_WORKER_BUSY_KEY: 'trade_snapshot_worker_busy_v1',
     TRADE_LEDGER_WRITE_JOURNAL_KEY: 'trade_ledger_write_unverified_v1',
     ScriptApp: {
       getProjectTriggers: () => installed.slice(),
