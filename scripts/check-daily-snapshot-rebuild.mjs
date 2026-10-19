@@ -676,7 +676,7 @@ function ledgerSnippet(name) {
   assert.equal(changed.state,'CHANGED');
   assert.equal(changed.from,'2026-01-02');
   assert.deepEqual(pending,['2026-01-02']);
-  assert.deepEqual(revisions,[{from:'2026-01-02'}]);
+  assert.deepEqual(JSON.parse(JSON.stringify(revisions)),[{from:'2026-01-02'}]);
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
     'persisted fingerprint must be idempotent');
   rows.splice(1,1);
