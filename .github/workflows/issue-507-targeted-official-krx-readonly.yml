@@ -1,0 +1,50 @@
+name: issue-507-targeted-official-krx-readonly
+
+# Official exact-date source proof for the private first missing ledger-held code.
+# Authentication and source availability are checked without writing any Sheets.
+on:
+  pull_request:
+    paths:
+      - 'src/gas/apps_script.gs'
+      - 'scripts/issue507-targeted-official-krx-readonly.mjs'
+      - '.github/workflows/issue-507-targeted-official-krx-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/gas/apps_script.gs'
+      - 'scripts/issue507-targeted-official-krx-readonly.mjs'
+      - '.github/workflows/issue-507-targeted-official-krx-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Test production GAS handler and strict authenticated source gate
+        run: |
+          node --check scripts/issue507-targeted-official-krx-readonly.mjs
+          node scripts/issue507-targeted-official-krx-readonly.mjs --self-test
+
+  operational-readonly:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.GAS_AUTO_DEPLOY_ENABLED == 'true'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read-only authenticated proof of first missing official KRX code
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-targeted-official-krx-readonly.mjs
