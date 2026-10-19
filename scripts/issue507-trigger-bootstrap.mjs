@@ -116,7 +116,9 @@ export async function selfTest(){
   const code=readFileSync('src/gas/apps_script.gs','utf8');
   assertProductionContract(code);
   const fakeUrl='https://script.google.com/macros/s/AKfycbxIssue507SafeTest/exec';
-  // Match the public GAS status schema: hasSave/hasFund are internal aliases,\n  // deliberately absent from the authenticated trigger response.\n  const good={status:'ok',gasVersion:EXPECTED_VERSION,automation:{
+  // Match the public GAS status schema: hasSave/hasFund are internal aliases,
+  // deliberately absent from the authenticated trigger response.
+  const good={status:'ok',gasVersion:EXPECTED_VERSION,automation:{
     gasVersion:EXPECTED_VERSION,trigger:Object.fromEntries([
       ...OTHER.map(f=>[f,true]),...NEED.map(f=>[f,false]),
       ...COUNTS.map(f=>[f,1]),...DUPLICATES.map(f=>[f,false]),
