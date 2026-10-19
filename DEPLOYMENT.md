@@ -1,3 +1,15 @@
+## GAS v9.237 — 거래원장 변경 Snapshot 추적·제한 재계산 (2026-10-19)
+
+- **배포 상태:** PR #549 리뷰·필수 CI 확인 중. 실제 GAS 운영 배포/트리거 설치/원본 Snapshot 복구는 별도 작업이며 아직 완료로 간주하지 않습니다. 승인 source blob `17b33a984aa282eeed389fadc2ed6dea9b115613`; 배포 후 `gasVersion=9.237` 실측 필요.
+- **단일 원천:** 거래이력은 보유수량·이동평균 취득원가(기존 매도·분할 원칙 유지), 가격이력/KRX 및 해당일 FUND_NAV는 평가단가, Snapshot은 파생 평가 결과입니다.
+- **수정 경로:** 웹 syncTrades의 최초 변경일 재계산 및 partial pending 유지. Standalone 시트 onEdit 설치형 트리거와 행 구조 변경은 영향 날짜를 재계산 대기로 영속하며, **원본 거래이력 외의 시트 데이터를 기준으로 보유수량을 추정하지 않습니다.**
+- **예산·안전:** GAS 시간 기반 1시간 간격 worker가 pending이 있을 때만 기존 Snapshot 날짜 **최대 2개씩** 처리. 해당일 expected 거래원장/가격/NAV와 저장본이 GAS `VALID`일 때만 다음 날짜로 진행; 보호 대상 MANUAL/원자료 부족/미확정 충돌/중복은 대기를 유지합니다. 자동 전체 정리 또는 날짜 공란행 귀속은 하지 않습니다.
+- **기존 운영 일정 유지:** 22:10 당일 / 23:10 과거 / 00:30 추가 과거 KRX 백필, 08:45 T+1 KRX 원천 검증과 분리. 계좌·가격·토큰 상세 로그 미출력.
+- **배포 후:** 실제 `getAutomationStatus`에서 `trigger.hasIntegrityEdit`·`trigger.hasLedgerRebuild` 참, pending 시작일과 worker trigger 1개씩 검증. 임시 소규모 테스트 거래 원장 수정→재계산 대기→GAS `VALID`→대기 해제를 독립 확인. 직접 Google Sheets API 쓰기는 onEdit를 보장하지 않으므로 별도 원장 fingerprint 점검 필요.
+- **Issue #507 잔여:** 역사적 충돌 160일·중복 초과 1,129행 및 날짜 공란 1,630행은 READ_ONLY expected 전체서명/원천 NAV·수량·원가 증명 전에는 쓰기 금지. 9/15·16 GAS VALID 39/39 유지.
+
+---
+
 ## GAS v9.236 — 23:10·00:30 과거 백필 체크포인트 분리 (2026-10-19)
 
 - 배포 상태: 병합 후 실제 gas-deploy 및 운영 `gasVersion=9.236` 확인 전에는 미배포. 승인 source blob `54840112e1ffa3292edda154d07e0a8b22747933`.
