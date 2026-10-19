@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.240
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.241
 //
+//  v9.241 변경사항 (2026.10.19):
+//  - 거래원장 보유가 있는데 단일일 expected 0행·PARTIAL이면 SOURCE_INCOMPLETE로 안전 이월.
+//  - 쓰기 전 보류, pending/deferred 보호 및 기존 Snapshot 원본 무변경.
 //  v9.240 변경사항 (2026.10.19):
 //  - 현재 사용자에게 보이는 시간 worker 트리거의 이벤트 유형·소스 CLOCK을 읽기 전용 진단.
 //  - 기존 트리거 등록·원장/Snapshot/가격·deferred 대기열·실제 worker 실행 로직은 불변.
@@ -2184,7 +2187,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.240',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.241',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2262,7 +2265,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.240', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.241', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6064,7 +6067,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.240' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.241' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10442,9 +10445,25 @@ function _assessTradeSnapshotWorkerDate_(ss, target) {
   var deferrable = function(proof) {
     return proof && ['SOURCE_INCOMPLETE','CONFLICT','PRICE_SUSPICIOUS'].indexOf(proof.status) !== -1;
   };
+  // The legacy single-day builder can return [] when even one held code lacks
+  // confirmed historical price/FX (throwOnError=true). With saved Snapshot
+  // rows this becomes PARTIAL instead of SOURCE_INCOMPLETE; the indexed range
+  // builder correctly throws. Classify ONLY zero expected rows with verified
+  // positive trade-ledger holdings as a source gap, before any writer is called.
+  var missingExpectedWithHoldings = function(proof) {
+    return !!proof && proof.expectedRowCount === 0
+      && (proof.status === 'PARTIAL' || proof.status === 'NO_SNAPSHOT')
+      && _hasSnapshotHoldingsAtDate(ss,target) === true;
+  };
+  var deferredReason = function(proof) {
+    if (deferrable(proof)) return proof.status;
+    if (missingExpectedWithHoldings(proof)) return 'SOURCE_INCOMPLETE';
+    return '';
+  };
   // Never call the full-sheet Snapshot writer for source-incomplete,
   // unresolved duplicate, manual-protected or suspicious-price dates.
-  if (deferrable(before)) return {state:'DEFERRED',reason:before.status};
+  var beforeDeferral = deferredReason(before);
+  if (beforeDeferral) return {state:'DEFERRED',reason:beforeDeferral};
   var beforeEmpty = before.status === 'NO_SNAPSHOT' && before.expectedRowCount === 0
     && before.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss,target) === false;
   if (beforeEmpty) return {state:'VALID'};
@@ -10452,7 +10471,8 @@ function _assessTradeSnapshotWorkerDate_(ss, target) {
   if (!result || (result.errors || []).length || result.skipped) {
     // An unrelated writer failure is NOT a source-gap exemption.
     var incomplete = diagnoseSnapshotIntegrity(ss,target);
-    if (deferrable(incomplete)) return {state:'DEFERRED',reason:incomplete.status};
+    var incompleteReason = deferredReason(incomplete);
+    if (incompleteReason) return {state:'DEFERRED',reason:incompleteReason};
     return {state:'BLOCKED',reason:'REBUILD_ERROR'};
   }
   var proof = diagnoseSnapshotIntegrity(ss,target);
@@ -10460,7 +10480,8 @@ function _assessTradeSnapshotWorkerDate_(ss, target) {
     && proof.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss,target) === false;
   if ((proof.status === 'VALID' || verifiedEmpty) && !proof.duplicateKeys.length && !proof.sourceDataErrors.length)
     return {state:'VALID'};
-  if (deferrable(proof)) return {state:'DEFERRED',reason:proof.status};
+  var finalDeferral = deferredReason(proof);
+  if (finalDeferral) return {state:'DEFERRED',reason:finalDeferral};
   return {state:'BLOCKED',reason:proof.status};
 }
 
@@ -12583,7 +12604,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.240',
+    gasVersion: '9.241',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12644,7 +12665,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.240' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.241' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16259,7 +16280,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.240' });
+    return jsonOk({ settings: settings, gasVersion: '9.241' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16289,7 +16310,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.240'
+      gasVersion: '9.241'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
