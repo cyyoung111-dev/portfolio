@@ -1,3 +1,15 @@
+## GAS v9.239 — Issue #507 시간 worker 진입·잠금 실패 조기 체크포인트 (2026-10-19)
+
+- **릴리스 승인:** `gasVersion=9.239`, 전체 GAS source blob `157636727f3e7e3b634a2b07036586781d20ee6a`. 병합·배포 전에는 변경한 코드가 실제 운영에 적용됐다고 주장하지 않음.
+- **증상:** v9.238 운영에서 `hasLedgerRebuild=true`인데 `tradeSnapshotWorkerLastResult=null` · `tradeSnapshotDeferredCount=0` · pending `2025-12-31`; 사용자 거래원장의 2025년 말 가격 부족이 아닌 *worker 진입·잠금/타임아웃* 문제일 가능성도 진단해야 함.
+- **첫 진입:** 설치형 `runPendingTradeSnapshotRebuild`에서 ScriptLock을 실제 획득한 직후, **getss()/원장 SHA-256 두 번 읽기/원천 검증/대기열 처리 이전** `trade_snapshot_worker_last_v1`에 `RUNNING`과 UTC 시각만 기록. 성공·오류 결과는 기존 완료 enum·시각으로 갱신. GAS hard timeout은 `RUNNING` 잔존해 명확한 미완료 증거.
+- **잠금 경합:** ScriptLock 획득 실패 시 `trade_snapshot_worker_busy_v1` 별도 속성에 `BUSY`·UTC 시각을 저장하고 즉시 종료. 다른 실행의 `RUNNING` 체크포인트를 덮어쓰지 않음. 잠금 자체/대기열/원본은 변경하지 않음.
+- **안전한 운영조회:** `getAutomationStatus.tradeSnapshotWorkerLastBusy` 읽기 전용 필드와 기존 lastResult를 함께 노출. Node 안전 파서는 허용 enum·정규 UTC·정수 건수만 출력하며 원장·종목·가격·토큰/비밀 속성을 제외. 7분 이상 RUNNING은 `TIMEOUT_SUSPECTED` *가능성*으로만 표시(실제 Google 실행 기록은 별도).
+- **회귀:** 실제 GAS 함수 VM에서 시작 `RUNNING`이 Sheet 접근보다 먼저 기록되는지, 잠금 경합 시 진행 중 RUNNING/대기 커서가 보존되는지, 기존 미해결 날짜 이월/순환이 유지되는지 확인. 기존 22:10·23:10·00:30·08:45 KRX, Toss, NAV/Snapshot 보호, 거래원장 fingerprint/월별 브리핑은 변경하지 않음.
+- **배포 후:** GAS v9.239 · Apps Script 새 version · webhook/프로세스 정상 인증을 확인한 뒤 시간 worker 첫 실행의 `RUNNING`, `BUSY`, `ERROR`, `PENDING` 중 해당하는 실제 checkpoint를 조회. `RUNNING`만 보이면 시간초과/중단 원인 파악; `null`이면 앱 스크립트 trigger 실행 소유권·시간 스케줄 문제 미해결. **pending 2025-12-31→전진 및 deferred>0이 실증되기 전에는 Issue #507 CLOSE 금지**.
+
+---
+
 ## GAS v9.238 — 거래원장 재계산 원천부족·충돌일 보류 후 후속 날짜 진행 (2026-10-19)
 
 - **배포 상태:** PR 검토·CI·운영 배포 후 버전 실측 전까지 미배포. 승인 GAS 전체 source blob `134ae6e83b28f8b8772a411b2685e228f3af2388`.
