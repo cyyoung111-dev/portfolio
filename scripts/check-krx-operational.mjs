@@ -379,6 +379,40 @@ latest.automation.tradeLedgerWriteUnverified=false;
 const pendingProof=summarizeBackfillStatus(latest);
 assert.equal(pendingProof.pendingTradeSnapshotRebuildFrom,'2026-06-05');
 assert.equal(pendingProof.tradeLedgerWriteUnverified,false);
+// v9.238 exposes proof of actual worker execution, not just trigger install.
+const workerLive=structuredClone(latest);
+workerLive.gasVersion='9.238';workerLive.automation.gasVersion='9.238';
+workerLive.automation.tradeSnapshotDeferredCount=2;
+workerLive.automation.tradeSnapshotDeferredOldestDate='2025-12-31';
+workerLive.automation.tradeSnapshotWorkerLastResult={
+  status:'PENDING',at:'2026-10-19T08:50:00.000Z',
+  processed:0,deferred:2,blockedDate:'',sourceCheck:'UNCHANGED',
+  secret:'PRIVATE_ACCOUNT_VALUE'
+};
+const workerSummary=summarizeBackfillStatus(workerLive);
+assert.equal(workerSummary.tradeSnapshotDeferredCount,2);
+assert.equal(workerSummary.tradeSnapshotDeferredOldestDate,'2025-12-31');
+assert.equal(workerSummary.tradeSnapshotWorkerLastResult.status,'PENDING');
+assert.equal(workerSummary.tradeSnapshotWorkerLastResult.processed,0);
+assert.equal(workerSummary.tradeSnapshotWorkerLastResult.at,'2026-10-19T08:50:00.000Z');
+assert.doesNotMatch(JSON.stringify(workerSummary),/PRIVATE_ACCOUNT_VALUE/,
+  'worker proof must never leak source payload extensions');
+for(const [change,expect] of [
+  [x=>{delete x.automation.tradeSnapshotDeferredCount},'BAD_DEFERRED_COUNT'],
+  [x=>{x.automation.tradeSnapshotDeferredOldestDate='2026-99-99'},'BAD_DATE'],
+  [x=>{x.automation.tradeSnapshotDeferredCount=0},'BAD_DEFERRED_DATE'],
+  [x=>{x.automation.tradeSnapshotWorkerLastResult.status='PRIVATE'},'BAD_LEDGER_WORKER_CHECKPOINT'],
+  [x=>{x.automation.tradeSnapshotWorkerLastResult.at='not-a-timestamp'},'BAD_LEDGER_WORKER_CHECKPOINT'],
+  [x=>{x.automation.tradeSnapshotWorkerLastResult.processed=400},'BAD_LEDGER_WORKER_CHECKPOINT'],
+]) {
+  const altered=structuredClone(workerLive);change(altered);
+  assert.throws(()=>summarizeBackfillStatus(altered),new RegExp(expect));
+}
+const workerNeverRun=structuredClone(workerLive);
+workerNeverRun.automation.tradeSnapshotDeferredCount=0;
+workerNeverRun.automation.tradeSnapshotDeferredOldestDate='';
+workerNeverRun.automation.tradeSnapshotWorkerLastResult=null;
+assert.equal(summarizeBackfillStatus(workerNeverRun).tradeSnapshotWorkerLastResult,null);
 const unsafeLedger=structuredClone(latest);
 unsafeLedger.automation.tradeLedgerWriteUnverified=true;
 assert.equal(summarizeBackfillStatus(unsafeLedger).tradeLedgerWriteUnverified,true);
