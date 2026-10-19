@@ -108,6 +108,10 @@ export async function selfTest(){
   assert.ok(!JSON.stringify(safe).includes('PRIVATE_ACCT'));
   assert.ok(!JSON.stringify(safe).includes('PRIVATE_ETF'));
   assert.throws(()=>summarizeCoverage(diag,ledger,[coverage(TRADE_DATES[0],2,3),
+    coverage(TRADE_DATES[1],10,10)]),/ISSUE507_KRX_BAD_COUNT/);
+  const mismatch=coverage(TRADE_DATES[0],2,1);
+  mismatch.coverage.missingCodes=2;
+  assert.throws(()=>summarizeCoverage(diag,ledger,[mismatch,
     coverage(TRADE_DATES[1],10,10)]),/ISSUE507_KRX_INCONSISTENT_COUNTS/);
   const calls=[];
   const mock=async(_url,opts)=>{
