@@ -14,6 +14,23 @@ const ASOF=/^\d{4}-\d{2}-\d{2}$/;
 const count=(n)=>{if(!Number.isSafeInteger(n)||n<0||n>1000000)
   throw Error('YEARBOUNDARY_BAD_COUNT');return n;};
 // Convert potentially identifying GAS exception text to an allowlisted class.
+// Only the *shape* of the first missing source code is disclosed. The raw
+// identifier, name, provider and prices NEVER leave the Actions runner.
+export function classifyMissingAssetClasses(errors) {
+  if(!Array.isArray(errors))throw Error('YEARBOUNDARY_BAD_SOURCE_ERRORS');
+  const found=new Set();
+  for(const raw of errors){
+    if(typeof raw!=='string')throw Error('YEARBOUNDARY_BAD_SOURCE_ERROR');
+    const match=raw.match(/확정 원자료 부족으로 기존 Snapshot 보존:\s*([A-Za-z0-9._-]+)/);
+    if(!match) {found.add('UNCLASSIFIED');continue;}
+    const code=match[1].toUpperCase();
+    if(/^F[0-9]{5}$/.test(code))found.add('FUND_CODE');
+    else if(/^[0-9][0-9A-Z]{5}$/.test(code))found.add('KOREAN_FORMAT_CODE');
+    else if(/^[A-Z]{1,5}(?:\.[A-Z])?$/.test(code))found.add('LETTER_TICKER_CODE');
+    else found.add('UNCLASSIFIED');
+  }
+  return [...found].sort();
+}
 export function classifySourceGaps(errors) {
   if(!Array.isArray(errors))throw Error('YEARBOUNDARY_BAD_SOURCE_ERRORS');
   const classes=new Set();
@@ -62,6 +79,7 @@ export function summarizeLive(response) {
     out.push({date:d,status:x.status,expectedRows,storedRows,
       sourceErrorCount:count(x.sourceDataErrors.length),
       sourceErrorTypes:classifySourceGaps(x.sourceDataErrors),
+      missingAssetClasses:classifyMissingAssetClasses(x.sourceDataErrors),
       priceCarryCount:priceCarry,fundNavCarryCount:fundCarry,
       otherCarryCount:otherCarry,fxCarryCount:fxCarry,
       fundNavObservedCount:count(x.fundNavStates.length),
@@ -201,6 +219,17 @@ export async function selfTest(){
   assert.deepEqual(classifySourceGaps([]),[]);
   assert.ok(!JSON.stringify(classifySourceGaps(['계좌번호 12345:FX_USD'])).includes('12345'));
   assert.deepEqual(report.newYear.sourceErrorTypes,['OTHER']);
+  assert.deepEqual(classifyMissingAssetClasses([
+    '확정 원자료 부족으로 기존 Snapshot 보존: F00001']),['FUND_CODE']);
+  assert.deepEqual(classifyMissingAssetClasses([
+    '확정 원자료 부족으로 기존 Snapshot 보존: 0046Y0']),['KOREAN_FORMAT_CODE']);
+  assert.deepEqual(classifyMissingAssetClasses([
+    '확정 원자료 부족으로 기존 Snapshot 보존: AAPL']),['LETTER_TICKER_CODE']);
+  assert.deepEqual(classifyMissingAssetClasses(['OTHER NONPUBLIC ERROR']),['UNCLASSIFIED']);
+  assert.deepEqual(classifyMissingAssetClasses([
+    '확정 원자료 부족으로 기존 Snapshot 보존: SECRET_LONG_ACCOUNT']),['UNCLASSIFIED']);
+  assert.ok(!JSON.stringify(classifyMissingAssetClasses([
+    '확정 원자료 부족으로 기존 Snapshot 보존: SECRET_ACCOUNT'])).includes('SECRET_ACCOUNT'));
   assert.ok(!JSON.stringify(report).includes('PRIVATE CODE'));
   await assert.rejects(()=>readLive({
     url:'https://script.google.com/macros/s/example/exec',token:'REAL_SECRET',
