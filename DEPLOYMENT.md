@@ -1,3 +1,15 @@
+## GAS v9.242 — Issue #507 worker 6분 초과 단계 추적 (2026-10-19)
+
+- **배포 상태:** PR 검증 단계. 자동 배포/운영 실측 전에는 정상 복구를 선언하지 않습니다.
+- **릴리스 승인:** `gasVersion=9.242`, 실제 전체 GAS source blob `b530a305c6b3056b5e75cc8da47dbe1b078ce4c4`; 이전 v9.241 승인 이력 보존.
+- **운영 문제 근거:** v9.241 worker 첫 진입 `2026-10-19T11:02:23.565Z` 이후 11:10:59Z까지 마지막 상태가 `RUNNING`으로 유지되었고 deferred 0, pending 2025-12-31 불변. Apps Script 공식 실행당 제한 6분(https://developers.google.com/apps-script/guides/services/quotas). 원인 단계를 아직 확인하지 못하므로 실제 재계산·커서를 임의 변경하지 않습니다.
+- **수정:** 실운영 `runPendingTradeSnapshotRebuild`에서 Sheet 열기 전 `ENTRY`, 원장 변경 SHA 확인 직전 `LEDGER_FINGERPRINT`, pending/deferred 읽기 전 `QUEUE_READ`, Snapshot 날짜 후보 읽기 전 `DATE_DISCOVERY`, 단일 날짜 계산 진입 전 `DATE_DIAGNOSTIC`, 상태 영속 직전 `CURSOR_COMMIT`, deferred 순환 진단 직전 `DEFERRED_RETRY`를 `tradeSnapshotWorkerLastResult.phase` enum으로 기록합니다. `runStartedAt`은 원래 진입 시각(UTC ISO)을 유지합니다. `at`은 최근 단계 마커 시각입니다. 원문 로그·종목·거래원장·보유·금액·토큰 미출력.
+- **안전:** 단계 체크포인트는 기존 last worker ScriptProperties 1개에만 기록합니다. ScriptLock 선획득, BUSY 별도 보존, 원천 부족 deferred 선기록·pending 후전진, 거래원장 단일 원천, MANUAL/가격/원본 Snapshot/백업 및 KRX/Toss 쓰기 보호 **동작 변경 없음**.
+- **검증:** 실제 GAS worker VM으로 진입·원장 지문·큐 조회·날짜 진단·커서 단계 순서 및 최초 시작 시각 보존 테스트. 인증 READ ONLY 진단 파서는 정해진 단계 이외를 거부하며 구버전 단계 없는 체크포인트도 지원합니다.
+- **배포 후:** v9.242 getAutomationStatus의 `tradeSnapshotWorkerLastResult.status=RUNNING`이 장시간 지속되면 `phase`, `runStartedAt`, `blockedDate`만 확인해 병목 단계를 특정합니다. 자동 worker가 `PENDING/DEFERRED_OUTSTANDING` 또는 `COMPLETED`로 종료하고 `deferredCount`와 pending 진전이 검증되기 전에는 Issue #507 OPEN. 다른 KRX pending 5건과 분리 점검.
+
+---
+
 ## GAS v9.241 — Issue #507 거래원장 보유·expected 0 Snapshot 안전 이월 (2026-10-19)
 
 - **배포 상태:** PR/CI 단계, 아직 운영 미배포. 병합 후 GAS deploy 및 인증 운영 실측 전에는 완료로 판정하지 않습니다.
