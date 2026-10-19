@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.242
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.243
 //
+//  v9.243 변경사항 (2026.10.20):
+//  - #507 인증 KRX held coverage에 대상 1종목의 공식 기준일 종가
+//    존재 여부(bool, usedDate, providerClass)만 추가; 코드/가격 비노출.
+//  - 거래원장·가격이력·Snapshot·트리거·worker 쓰기 경로 불변.
 //  v9.242 변경사항 (2026.10.19):
 //  - 시간 worker 6분 한도 초과 구간 진단: 실행 단계 enum 및 시작시각만 영속 기록.
 //  - 기존 Snapshot 쓰기·거래원장·deferred/pending 전진·ScriptLock 로직 불변.
@@ -1219,7 +1223,7 @@ function doGet(e) {
   if (!_isAuthorizedRequest(params)) return jsonError('인증 실패');
   if (params.action === 'getAutomationStatus') return handleGetAutomationStatus();
   if (params.action === 'getKrxSourceDiagnostics') return handleGetKrxSourceDiagnostics(params.date || '');
-  if (params.action === 'getKrxHeldCloseCoverage') return handleGetKrxHeldCloseCoverage(params.date || '');
+  if (params.action === 'getKrxHeldCloseCoverage') return handleGetKrxHeldCloseCoverage(params.date || '', params.code || '');
   if (params.action === 'recoverPendingKrxClose') return jsonError('POST_ONLY');
   if (params.action === 'reconcileCompletedKrxPending') return jsonError('POST_ONLY');
   if (params.action === 'getFundUnits') return handleGetFundUnits();
@@ -2190,7 +2194,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.242',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.243',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2268,7 +2272,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.242', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.243', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6070,7 +6074,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.242' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.243' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12622,7 +12626,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.242',
+    gasVersion: '9.243',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12683,7 +12687,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.242' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.243' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -13118,7 +13122,26 @@ function _krxReadOnlyResponseMeta_(response, ymd) {
 // The response contains only statuses/counts/dates and stored coverage.
 // Read-only full held-code source preflight. Returning aggregates rather than
 // per-security quotes prevents leaking portfolio constituents to diagnostics.
-function handleGetKrxHeldCloseCoverage(dateInput) {
+// Authenticated target evidence: no security code/name/price is returned.
+// Exact-date KRX source proof only, and only when the requested code was
+// in the actual held domestic catalog subset used by the existing aggregate.
+function _krxHeldTargetCloseEvidence_(rawCode, expected, fetched, date) {
+  var target = _cleanCode(rawCode || '');
+  if (!target) return null;
+  var eligible = (expected || []).some(function(item) {
+    return _cleanCode(item && item.code) === target;
+  });
+  var row = eligible && fetched ? fetched[target] : null;
+  var used = _normalizeDate(row && row.usedDate || '');
+  var source = String(row && row.source || '').toUpperCase();
+  var confirmed = !!(eligible && row && Number(row.price) > 0 &&
+    used === date && (source === 'KRX' || source === 'KRX_OTP'));
+  return { requested:true, eligibleHeldDomestic:!!eligible,
+    exactDateConfirmed:confirmed,
+    usedDate:confirmed ? used : '',
+    providerClass:confirmed ? (source === 'KRX_OTP' ? 'KRX_OTP' : 'KRX_OPENAPI') : 'NOT_CONFIRMED' };
+}
+function handleGetKrxHeldCloseCoverage(dateInput, targetCodeInput) {
   try {
     var date=_normalizeDate(dateInput||'');
     var iso=/^\d{4}-\d{2}-\d{2}$/.test(date)
@@ -13161,7 +13184,7 @@ function handleGetKrxHeldCloseCoverage(dateInput) {
       duplicateMasterCodes:duplicates,orphanLedgerCodes:orphans,
       market:{STOCK:{expected:0,confirmed:0},ETF:{expected:0,confirmed:0}},
       ready:false,reason:'NO_KRX_HOLDINGS'
-    }});
+    },targetEvidence:_krxHeldTargetCloseEvidence_(targetCodeInput,expected,null,date)});
     var result=fetchPricesKrx(expected,date);
     var stats={STOCK:{expected:0,confirmed:0},ETF:{expected:0,confirmed:0}};
     var confirmed=0,stale=0;
@@ -13185,7 +13208,7 @@ function handleGetKrxHeldCloseCoverage(dateInput) {
       orphanLedgerCodes:orphans,market:stats,
       ready:expected.length>0&&missing===0&&duplicates===0&&orphans===0,
       reason:orphans||duplicates?'MASTER_INCOMPLETE':missing?'EXACT_DATE_INCOMPLETE':''
-    }});
+    },targetEvidence:_krxHeldTargetCloseEvidence_(targetCodeInput,expected,result,date)});
   }catch(ignore){return jsonError('KRX_HELD_SOURCE_FAILED');}
 }
 
@@ -16298,7 +16321,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.242' });
+    return jsonOk({ settings: settings, gasVersion: '9.243' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16328,7 +16351,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.242'
+      gasVersion: '9.243'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
