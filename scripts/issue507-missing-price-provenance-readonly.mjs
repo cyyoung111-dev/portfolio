@@ -3,6 +3,8 @@
 // with existing price history. Never log code, name, amount, raw source error,
 // token, endpoint URL or a full provider response.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 import {DATES,classifySourceGaps} from './issue507-yearend-carry-readonly.mjs';
 
@@ -77,8 +79,8 @@ export function summarizeCoverage(diagnosis,priceResponse) {
     const usable=past.filter(r=>r.source && !DISALLOWED.test(r.source));
     const latestPast=past.at(-1), latestUsable=usable.at(-1), earliestFuture=future[0];
     let state;
-    if(!rows.length)state='NO_POSITIVE_PRICE_HISTORY';
-    else if(!past.length)state='FUTURE_ONLY';
+    if(!rows.length)state='NO_MATCHED_CURRENT_CODE_PRICE__HISTORICAL_REPLACEMENT_UNVERIFIED';
+    else if(!past.length)state='FUTURE_ONLY_CURRENT_CODE__HISTORICAL_REPLACEMENT_UNVERIFIED';
     else if(!usable.length)state='PAST_PRICE_WITHOUT_VERIFIED_SOURCE';
     else state='PRIOR_PRICE_CANDIDATE_REQUIRES_MATCH_REVIEW';
     return {date:x.date,sourceErrorTypes:x.kinds,
@@ -95,7 +97,7 @@ export function summarizeCoverage(diagnosis,priceResponse) {
   return {mode:'READ_ONLY',evaluationDates:DATES,firstMissingChecks:results,
     uniqueMissingCodeCount:safeCount(codes.length),
     originalRowsAltered:false,pricesAltered:false,
-    note:'Only FIRST missing code per date; a price candidate is NOT proof of validity'};
+    note:'FIRST missing per date only; missing current-code history does NOT rule out historical code replacements'};
 }
 export async function readLive({url,token,fetchImpl=fetch}){
   const endpoint=validateWebAppUrl(url);
@@ -125,7 +127,36 @@ export async function readLive({url,token,fetchImpl=fetch}){
   const prices=await request('getPriceHistory',{codes:codes.join(',')});
   return summarizeCoverage(diagnosis,prices);
 }
+// Reflect the production alias lookup used by handleGetPriceHistory().
+function checkProductionCodeAliasScope(){
+  const gas=fs.readFileSync('src/gas/apps_script.gs','utf8');
+  const funcs=['_cleanCode','_legacyDigitsCode','_buildCodeAliasMap'];
+  const src=funcs.map(name=>{
+    const m=gas.match(new RegExp('function '+name+'\\([\\s\\S]*?\\n}','m'));
+    assert.ok(m,'production alias helper missing: '+name);return m[0];
+  }).join('\n');
+  const scope=vm.createContext({});
+  vm.runInContext(src,scope);
+  const requested=scope._buildCodeAliasMap(['0046Y0']);
+  assert.equal(requested['0046Y0'],'0046Y0');
+  assert.equal(requested['000460'],undefined,
+    'current 0046Y0 does NOT automatically search obsolete 000460 rows');
+  assert.equal(scope._legacyDigitsCode('0046Y0'),'0046Y0');
+  const numeric=scope._buildCodeAliasMap(['001234']);
+  assert.equal(numeric['001234'],'001234');
+  // We must not report NO historical price when the production API could
+  // have silently filtered out an old-to-new code replacement.
+  const synthetic={status:'ok',checkedDates:[...DATES],diagnostics:DATES.map(date=>({
+    date,status:'SOURCE_INCOMPLETE',
+    sourceDataErrors:['확정 원자료 부족으로 기존 Snapshot 보존: 0046Y0']
+  }))};
+  const audit=summarizeCoverage(synthetic,{status:'ok',dates:[],prices:{}});
+  assert.equal(audit.firstMissingChecks[2].state,
+    'NO_MATCHED_CURRENT_CODE_PRICE__HISTORICAL_REPLACEMENT_UNVERIFIED');
+  assert.ok(!JSON.stringify(audit).includes('000460'));
+}
 export async function selfTest(){
+  checkProductionCodeAliasScope();
   const diag={status:'ok',checkedDates:[...DATES],diagnostics:DATES.map((date,i)=>({
     date,status:'SOURCE_INCOMPLETE',
     sourceDataErrors:['확정 원자료 부족으로 기존 Snapshot 보존: '+(i===3?'000002':'0046Y0')]
@@ -144,12 +175,12 @@ export async function selfTest(){
   assert.ok(!JSON.stringify(a).includes('0046Y0'));
   assert.ok(!JSON.stringify(a).includes('000002'));
   const b=summarizeCoverage(diag,{status:'ok',dates:[],prices:{}});
-  assert.equal(b.firstMissingChecks[0].state,'NO_POSITIVE_PRICE_HISTORY');
+  assert.equal(b.firstMissingChecks[0].state,'NO_MATCHED_CURRENT_CODE_PRICE__HISTORICAL_REPLACEMENT_UNVERIFIED');
   const future={status:'ok',dates:['2026-01-05'],prices:{'0046Y0':[
     {date:'2026-01-05',price:777,source:'KRX_CONFIRMED_CLOSE'}]}};
   const f=summarizeCoverage({...diag,diagnostics:diag.diagnostics.map(z=>({
     ...z,sourceDataErrors:[diag.diagnostics[0].sourceDataErrors[0]]}))},future);
-  assert.equal(f.firstMissingChecks[2].state,'FUTURE_ONLY');
+  assert.equal(f.firstMissingChecks[2].state,'FUTURE_ONLY_CURRENT_CODE__HISTORICAL_REPLACEMENT_UNVERIFIED');
   assert.equal(f.firstMissingChecks[2].firstLaterPriceDate,'2026-01-05');
   assert.ok(f.firstMissingChecks.every(x=>x.futurePriceUsed===false));
   const unverified=summarizeCoverage(diag,{status:'ok',dates:['2025-12-30'],
