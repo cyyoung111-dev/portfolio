@@ -150,7 +150,9 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
     console.log(JSON.stringify(data));
   }catch(error){
     const x=String(error?.message||'');
-    console.error(/^ISSUE507_[A-Z_]+$/.test(x)?x:'ISSUE507_UNKNOWN_FAILURE');
+    // Local-only contract failures may expose assertion details; live errors never do.
+    if(process.argv.includes('--self-test')) console.error(String(error?.stack||error));
+    else console.error(/^ISSUE507_[A-Z_]+$/.test(x)?x:'ISSUE507_UNKNOWN_FAILURE');
     process.exitCode=1;
   }
 }
