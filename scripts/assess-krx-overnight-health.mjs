@@ -24,7 +24,7 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   if (data.pendingCount>0) issues.push('PENDING_KRX_DATES');
   const ledgerPending=data.pendingTradeSnapshotRebuildFrom;
   if (ledgerPending!==undefined && ledgerPending!=='-' && ledgerPending!=='') {
-    if(typeof ledgerPending!=='string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(ledgerPending))
+    if(typeof ledgerPending!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(ledgerPending))
       throw new Error('KRX_OVERNIGHT_BAD_DIAGNOSTIC');
     issues.push('PENDING_TRADE_LEDGER_REBUILD');
   }
