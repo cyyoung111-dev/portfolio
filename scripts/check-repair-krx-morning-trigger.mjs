@@ -11,16 +11,16 @@ const trigger=(n=0)=>({
   hasDuplicateMorningBackfillTriggers:n>1,
   hasLegacySplitTriggers:false
 });
-const status=n=>({status:'ok',gasVersion:'9.240',
-  automation:{gasVersion:'9.240',trigger:trigger(n)}});
+const status=n=>({status:'ok',gasVersion:'9.241',
+  automation:{gasVersion:'9.241',trigger:trigger(n)}});
 assert.deepEqual(checkStatus(status(1),{requireMorning:true}),
-  {gasVersion:'9.240',morningCount:1,morningExists:true,duplicate:false});
+  {gasVersion:'9.241',morningCount:1,morningExists:true,duplicate:false});
 assert.throws(()=>checkStatus(status(0),{requireMorning:true}),
   /KRX_MORNING_TRIGGER_NOT_REGISTERED/);
 assert.throws(()=>checkStatus({...status(1),gasVersion:'9.234'}),
   /KRX_MORNING_RUNTIME_BASELINE_UNVERIFIED/);
 assert.throws(()=>checkStatus({...status(1),automation:{
-  gasVersion:'9.240',trigger:{...trigger(1),backfillCount:2}}}),
+  gasVersion:'9.241',trigger:{...trigger(1),backfillCount:2}}}),
   /KRX_MORNING_RUNTIME_BASELINE_UNVERIFIED/);
 let registration=0;
 const fake=(initial=0,invalidStatus=false)=>async(_url,opts)=>{

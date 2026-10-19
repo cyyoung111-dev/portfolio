@@ -1,3 +1,15 @@
+## GAS v9.241 — Issue #507 거래원장 보유·expected 0 Snapshot 안전 이월 (2026-10-19)
+
+- **배포 상태:** PR/CI 단계, 아직 운영 미배포. 병합 후 GAS deploy 및 인증 운영 실측 전에는 완료로 판정하지 않습니다.
+- **릴리스 승인:** `gasVersion=9.241`, 전체 GAS source blob `761db12b1b35e3212774cdeaf4485f6ae181cc0f`. v9.240 승인 해시·진단 메타데이터 보존.
+- **운영 재현:** 2025-12-31 GAS v9.240 인증 READ_ONLY 단일일 진단 `PARTIAL`(expected=0, stored=2, sourceError=0), 기간 진단 `SOURCE_INCOMPLETE`(expected=0, stored=2, sourceError=1), 전후 읽기 비교 안정. worker 마지막 `BLOCKED`, pending=2025-12-31. [#507 교차 진단](https://github.com/cyyoung111-dev/portfolio/actions/runs/39239237970).
+- **결함·수정:** 기존 단일일 Snapshot 빌더는 확정 가격/환율 부족 시 `throwOnError=true`에서도 `[]`를 반환할 수 있어 worker가 `PARTIAL`로 오분류합니다. `_assessTradeSnapshotWorkerDate_`에서 *단일일 expected=0, 상태 PARTIAL/NO_SNAPSHOT, 거래원장상 실제 양수 보유 확인*인 경우 **쓰기 전에** `DEFERRED/SOURCE_INCOMPLETE`로 분류합니다. 이미 관리하던 SOURCE_INCOMPLETE/CONFLICT/PRICE_SUSPICIOUS 보존 정책과 펀드/MANUAL 보호는 변경하지 않습니다.
+- **안전 회귀:** GAS 실제 함수 VM에서 2개 원천 부족일의 deferred 영속 선행, pending 다음 날짜 이동, writer 0회, ScriptLock 해제 확인. 원장 보유 0인 `NO_SNAPSHOT`은 정상 빈 포트폴리오로 유지, 양수 보유를 증명할 수 없는 다른 오류는 `BLOCKED` 유지. 기존 정상 MISMATCH/충돌/백업/가격·Toss/KRX/Web 테스트 보존.
+- **변경 범위:** 거래원장·Snapshot·가격/KRX·NAV·기존 백업 및 트리거 등록 로직, 원본 시트 직접 쓰기·삭제 없음. worker 기존 정책에 따른 *향후 예약 실행*은 원천 부족 날짜만 deferred로 기록한 뒤 다음 날짜를 순차 검사합니다.
+- **배포 후:** 인증 `getAutomationStatus`로 v9.241·CLOCK 1개·`workerLastResult`·`deferredCount`·`pendingTradeSnapshotRebuildFrom` 실측. 실제 자동 시간 작업이 실행되기 전에는 커서 전진 완료 주장 금지. 22:10·23:10·00:30 KRX 백필 및 08:45 T+1 검증 경로 유지.
+
+---
+
 ## GAS v9.240 — Issue #507 worker 트리거 유형·소유 계정 관측범위 진단 (2026-10-19)
 
 - **배포 상태:** 이 PR은 우선 코드/정합성 CI 검증 단계입니다. 병합·gas-deploy·운영 getAutomationStatus 교차검증 전에는 실제 적용 또는 시간 worker 정상 실행으로 인정하지 않습니다.
