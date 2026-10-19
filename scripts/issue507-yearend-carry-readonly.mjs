@@ -198,7 +198,10 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
       url:process.env.GAS_WEB_APP_URL,token:process.env.GAS_ACCESS_TOKEN})));
   }catch(e){
     const code=String(e?.message||'');
-    console.error(/^YEARBOUNDARY_[A-Z_]+$/.test(code)?code:'YEARBOUNDARY_UNKNOWN_ERROR');
+    // Only the synthetic self-test is permitted to show assertion diagnostics.
+    // Live probe errors remain fixed non-sensitive codes.
+    if(process.argv.includes('--self-test'))console.error(String(e?.stack||e).slice(0,1400));
+    else console.error(/^YEARBOUNDARY_[A-Z_]+$/.test(code)?code:'YEARBOUNDARY_UNKNOWN_ERROR');
     process.exitCode=1;
   }
 }
