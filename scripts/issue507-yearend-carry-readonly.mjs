@@ -26,7 +26,7 @@ export function classifyMissingAssetClasses(errors) {
     const code=match[1].toUpperCase();
     if(/^F[0-9]{5}$/.test(code))found.add('FUND_CODE');
     else if(/^[0-9][0-9A-Z]{5}$/.test(code))found.add('KOREAN_FORMAT_CODE');
-    else if(/^[A-Z]{1,5}(?:\.[A-Z])?$/.test(code))found.add('LETTER_TICKER_CODE');
+    else if(/^[A-Z]{1,5}(?:[.-][A-Z]{1,2})?$/.test(code))found.add('LETTER_TICKER_CODE');
     else found.add('UNCLASSIFIED');
   }
   return [...found].sort();
@@ -225,6 +225,8 @@ export async function selfTest(){
     '확정 원자료 부족으로 기존 Snapshot 보존: 0046Y0']),['KOREAN_FORMAT_CODE']);
   assert.deepEqual(classifyMissingAssetClasses([
     '확정 원자료 부족으로 기존 Snapshot 보존: AAPL']),['LETTER_TICKER_CODE']);
+  assert.deepEqual(classifyMissingAssetClasses([
+    '확정 원자료 부족으로 기존 Snapshot 보존: BRK-B']),['LETTER_TICKER_CODE']);
   assert.deepEqual(classifyMissingAssetClasses(['OTHER NONPUBLIC ERROR']),['UNCLASSIFIED']);
   assert.deepEqual(classifyMissingAssetClasses([
     '확정 원자료 부족으로 기존 Snapshot 보존: SECRET_LONG_ACCOUNT']),['UNCLASSIFIED']);
