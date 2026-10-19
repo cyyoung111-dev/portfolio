@@ -1,0 +1,29 @@
+name: krx-september-snapshot-readonly
+# Date-scoped operational proof, independent from October KRX/holiday checks.
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/krx-september-snapshot-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: krx-september-snapshot-readonly
+  cancel-in-progress: false
+jobs:
+  september-snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Guardrail regression (local, no credentials)
+        run: node scripts/check-september-snapshot-readonly.mjs
+      - name: Read-only GAS September 15/16 exact-date proof
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/diagnose-september-snapshot-readonly.mjs
