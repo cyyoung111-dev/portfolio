@@ -97,6 +97,7 @@ const selfHealBase={
   hasClean:true,hasSave:true,hasMortgage:true,hasFund:true,
   hasWatchdog:true,hasBackfill:true,hasHistoricalBackfill:true,
   hasMidnightBackfill:true,hasMorningBackfill:true,hasIntegrityChange:true,
+  hasIntegrityEdit:true,hasLedgerRebuild:true,
   hasLegacySplitTriggers:false,hasDuplicateCloseTriggers:false,
   hasDuplicateWatchdogTriggers:false,hasDuplicateBackfillTriggers:false,
   hasDuplicateHistoricalBackfillTriggers:false,
@@ -126,13 +127,13 @@ function runMorningSelfHeal(overrides,postOverrides={}) {
 let heal=runMorningSelfHeal({hasMorningBackfill:false});
 assert.equal(heal.repairCalls,1,'missing 08:45 trigger must be repaired');
 assert.equal(heal.result.autoFixed,true);
-assert.match(heal.token,/morning-tplus1$/);
+assert.match(heal.token,/morning-tplus1\\|ledger-authority-v1$/);
 heal=runMorningSelfHeal({hasDuplicateMorningBackfillTriggers:true});
 assert.equal(heal.repairCalls,1,'duplicate 08:45 trigger must be repaired');
 assert.equal(heal.result.autoFixed,true);
 heal=runMorningSelfHeal({hasMorningBackfill:false},{hasMorningBackfill:false});
 assert.equal(heal.repairCalls,1);
-assert.doesNotMatch(heal.token,/morning-tplus1$/,
+assert.doesNotMatch(heal.token,/morning-tplus1\\|ledger-authority-v1$/,
   'failed registration must not write a healthy checkpoint');
 heal=runMorningSelfHeal({});
 assert.equal(heal.repairCalls,0,'healthy trigger set must stay read-only');

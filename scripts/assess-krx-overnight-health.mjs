@@ -22,6 +22,13 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
   const issues=[];
   if (!data.triggerReady) issues.push('TRIGGERS_NOT_READY');
   if (data.pendingCount>0) issues.push('PENDING_KRX_DATES');
+  if(data.tradeLedgerWriteUnverified===true)issues.push('TRADE_LEDGER_WRITE_UNVERIFIED');
+  const ledgerPending=data.pendingTradeSnapshotRebuildFrom;
+  if (ledgerPending!==undefined && ledgerPending!=='-' && ledgerPending!=='') {
+    if(typeof ledgerPending!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(ledgerPending))
+      throw new Error('KRX_OVERNIGHT_BAD_DIAGNOSTIC');
+    issues.push('PENDING_TRADE_LEDGER_REBUILD');
+  }
   if (data.overallStatus!=='NORMAL') issues.push('AUTOMATION_NOT_NORMAL');
   // At 02:30 KST the 23:10 run belongs to the prior calendar day,
   // while the 00:30 run must belong to the current KST date. Do not
@@ -66,6 +73,8 @@ export function assessKrxOvernightHealth(data,{now=new Date()}={}) {
     historicalSlotStates:slotStates,
     pendingCount:data.pendingCount,
     pendingDates:data.pendingDates,
+    pendingTradeSnapshotRebuildFrom:ledgerPending||'-',
+    tradeLedgerWriteUnverified:data.tradeLedgerWriteUnverified===true,
     officialKrxPriceHistoryLastDate:official,
     snapshotLastDate:snapshot,
     lastBackfillAttempted:data.latestBackfill?.attempted??null,

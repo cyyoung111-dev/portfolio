@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import {createHash} from 'node:crypto';
 
 const gas = fs.readFileSync('src/gas/apps_script.gs', 'utf8');
 const web = fs.readFileSync('src/web/views/views_history_state.js', 'utf8');
@@ -123,7 +124,7 @@ assert.match(gas, /function _getHistoricalExchangeRates[\s\S]*?header\[0\] !== '
 assert.match(gas, /SHEET_ETF_DIVIDENDS/);
 assert.match(gas, /FUND_NAV_SHEET, \[0, 4\]/);
 assert.match(gas, /addSheetDates\(CONFIG\.SHEET_SNAPSHOT, \[0\]\)/,'기존 Snapshot도 과거 거래 변경 비교 대상에 포함');
-assert.match(gas, /affectedFrom = _earliestChangedTradeDate\(previousRows, currentRows\)/,'거래 추가·수정·삭제 최초 영향일 계산');
+assert.match(gas, /affectedFrom = _earliestChangedTradeDate\(previousRows, intendedRows\)/,'거래 추가·수정·삭제 최초 영향일 계산');
 assert.match(gas, /rebuildDailySnapshots\(affectedFrom, affectedTo, \{ includeToday: explicitEmptyReset \}\)/,'최초 영향일부터 영향 종료일까지 공통 계산기로 갱신');
 assert.match(gas, /function _hasSnapshotHoldingsAtDate\(ss, dateStr\)/,
   '빈 재계산 결과가 실제 무보유인지 거래원장에서 별도 판정');
@@ -516,8 +517,8 @@ assert.match(gas, /pendingSnapshotRebuild = _readPendingTradeSnapshotRebuild\(\)
   '동일 거래 재전송에서도 이전 partial 영향 시작일부터 재계산');
 assert.match(gas, /snapshotRebuild\.errors[\s\S]*_setPendingTradeSnapshotRebuild\(affectedFrom\)[\s\S]*saveState: 'partial'/,
   'Snapshot 재계산 오류는 성공 응답 전에 pending을 보존');
-assert.match(gas, /if \(pendingSnapshotRebuild\) _clearPendingTradeSnapshotRebuild\(\)[\s\S]*saveState: 'success'/,
-  'pending 재계산은 실제 성공 후에만 제거');
+assert.match(gas, /_recordTradeLedgerFingerprint_\(ss\);[\s\S]*_clearPendingTradeSnapshotRebuild\(\)[\s\S]*saveState: 'success'/,
+  'pending 재계산은 원장 기반 Snapshot 검증 성공 후에만 해제');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
   '마지막 거래 삭제에서는 당일 Snapshot까지 재계산 범위에 포함');
 assert.match(gas, /date < today\(\) \|\| \(includeToday && date === today\(\)\)/,
@@ -536,5 +537,219 @@ assert.match(html, /core\/core_ui\.js\?v=20260917-2/);
 // TWR은 별도 도입하지 않고 기존 현금흐름 조정 지수만 유지
 assert.match(fs.readFileSync('src/web/views/views_history_utils.js', 'utf8'), /_buildCashflowAdjustedReturnIndex/);
 assert.doesNotMatch(gas, /function\s+calculateTwr\s*\(/i);
+
+
+// #507: direct Sheets edits must enqueue a durable ledger-first recomputation,
+// and the scheduled worker must advance only after raw GAS integrity proves VALID.
+function ledgerSnippet(name) {
+  const found=gas.match(new RegExp('function '+name+'\\([\\s\\S]*?\\n}', 'm'));
+  assert.ok(found, name+' must exist');
+  return found[0];
+}
+{
+  let pending=[],revisions=[],lockCount=0;
+  const tradeSheet={getName:()=> '거래이력',getParent:()=>({getSheetByName:()=>null})};
+  const snapshotSheet={getName:()=> '스냅샷'};
+  const sheetParent={
+    getSheetByName:(name)=>name==='스냅샷'?{
+      getLastRow:()=>3,getRange:()=>({
+        getValues:()=>[['2026-03-01'],['2026-06-05']]})
+    }:null
+  };
+  const context={
+    CONFIG:{SHEET_TRADES:'거래이력',SHEET_SNAPSHOT:'스냅샷'},
+    _normalizeDate:x=>String(x||''),
+    _snapshotIntegrityImpactForEdit:()=>({from:'2026-06-05'}),
+    _touchSnapshotIntegritySourceRevision:x=>revisions.push(x),
+    _tradeSnapshotRebuildFromSheetEdit:null,
+    _setPendingTradeSnapshotRebuild:x=>pending.push(x),
+    LockService:{getScriptLock:()=>({waitLock:()=>{lockCount++;},releaseLock:()=>{lockCount--;}})}
+  };
+  vm.runInNewContext(ledgerSnippet('_tradeSnapshotRebuildFromSheetEdit')+'\n'+
+    ledgerSnippet('handleSnapshotIntegritySheetEdit'),context);
+  context.handleSnapshotIntegritySheetEdit({source:sheetParent,range:{getSheet:()=>tradeSheet}});
+  assert.deepEqual(pending,['2026-06-05']);
+  assert.equal(lockCount,0);
+  context.handleSnapshotIntegritySheetEdit({source:sheetParent,range:{getSheet:()=>snapshotSheet}});
+  assert.deepEqual(pending,['2026-06-05'],'snapshot edits only invalidate cache, never queue trade rebuild');
+  context._snapshotIntegrityImpactForEdit=()=>({all:true});
+  context.handleSnapshotIntegritySheetEdit({source:sheetParent,range:{getSheet:()=>tradeSheet}});
+  assert.equal(pending.at(-1),'2026-03-01','bulk/missing-old-date edit conservatively restarts at earliest stored Snapshot');
+  assert.equal(revisions.length,3);
+}
+{
+  function worker({blocked=false,unverified=false,empty=false,unexpectedEmpty=false}={}) {
+    let from='2026-06-05',saved=[],attempts=[],rebuilds=[],errors=[],locks=0;
+    // June 8 has no Snapshot yet but has confirmed price/trade source data.
+    const dates=['2026-06-05','2026-06-08','2026-06-09'];
+    const ss={getSheetByName:()=>({
+      getLastRow:()=>3,getRange:()=>({getValues:()=>[dates[0],dates[2]].map(x=>[x])})
+    })};
+    const ctx={
+      CONFIG:{SHEET_SNAPSHOT:'스냅샷'},
+      TRADE_SNAPSHOT_REBUILD_PENDING_KEY:'trade_snapshot_rebuild_pending_v1',
+      _normalizeDate:x=>String(x||''),
+      _tradeLedgerWriteUnverified_:()=>unverified,
+      _detectExternalTradeLedgerChanges_:()=>({state:'UNCHANGED'}),
+      _collectDailySnapshotDates:()=>Object.fromEntries(dates.map(x=>[x,true])),
+
+      _readPendingTradeSnapshotRebuild:()=>from?{from}:null,
+      _clearPendingTradeSnapshotRebuild:()=>{from='';},
+      _latestConfirmedSnapshotDate:()=> '2026-06-09',
+      getss:()=>ss,
+      _rebuildDailySnapshotsLocked:(a,b)=>{rebuilds.push([a,b]);return {errors:[],skipped:0};},
+      diagnoseSnapshotIntegrity:(_ss,date)=>({status:blocked&&date==='2026-06-08'?'MISMATCH':empty&&date==='2026-06-08'?'NO_SNAPSHOT':'VALID',
+        expectedRowCount:0,storedRowCount:0,duplicateKeys:[],sourceDataErrors:[]}),
+      _hasSnapshotHoldingsAtDate:()=>unexpectedEmpty?true:false,
+      _dateOffset:date=>date==='2026-06-05'?'2026-06-06':date==='2026-06-08'?'2026-06-09':'2026-06-10',
+      PropertiesService:{getScriptProperties:()=>({
+        setProperty:(k,v)=>{const x=JSON.parse(v);from=x.from;saved.push({k,from});}
+      })},
+      LockService:{getScriptLock:()=>({
+        tryLock:()=>{locks++;return true;},releaseLock:()=>{locks--;}
+      })},
+      Logger:{log:msg=>errors.push(String(msg))},Date:Date
+    };
+    vm.runInNewContext(ledgerSnippet('runPendingTradeSnapshotRebuild'),ctx);
+    const first=ctx.runPendingTradeSnapshotRebuild();
+    assert.equal(locks,0,'worker releases lock on each outcome');
+    return {first,from,saved,rebuilds,errors,ctx};
+  }
+  const success=worker();
+  assert.equal(success.first.status,'PENDING',success.errors.join('; '));
+  assert.equal(success.first.processed,2);
+  assert.equal(success.from,'2026-06-09');
+  assert.deepEqual(success.rebuilds,[['2026-06-05','2026-06-05'],['2026-06-08','2026-06-08']]);
+  const incomplete=worker({unverified:true});
+  assert.equal(incomplete.first.status,'LEDGER_WRITE_UNVERIFIED');
+  assert.equal(incomplete.rebuilds.length,0,'partial ledger must never reach snapshot rewrite');
+  assert.equal(incomplete.from,'2026-06-05','incomplete ledger must retain pending');
+  const validEmpty=worker({empty:true});
+  assert.equal(validEmpty.first.status,'PENDING',
+    'a source-proven zero holding day must not block subsequent replay');
+  const unsafeEmpty=worker({empty:true,unexpectedEmpty:true});
+  assert.equal(unsafeEmpty.first.status,'BLOCKED',
+    'unexpected absent Snapshot with ledger holdings must block');
+  const blocked=worker({blocked:true});
+  assert.equal(blocked.first.status,'BLOCKED');
+  assert.equal(blocked.first.blockedDate,'2026-06-08');
+  assert.equal(blocked.from,'2026-06-06','incomplete date must remain pending, never falsely finalize');
+  assert.match(gas,/function _ensureSnapshotIntegrityEditTrigger\(autoFix\)/);
+  assert.match(gas,/function _ensurePendingTradeSnapshotRebuildTrigger\(autoFix\)/);
+  assert.match(gas,/hasIntegrityEdit = _ensureSnapshotIntegrityEditTrigger\(false\)/);
+  assert.match(gas,/hasLedgerRebuild = _ensurePendingTradeSnapshotRebuildTrigger\(false\)/);
+  assert.match(gas,/newTrigger\('handleSnapshotIntegritySheetEdit'\)\.forSpreadsheet\(ss\)\.onEdit\(\)\.create\(\)/);
+  assert.match(gas,/newTrigger\('runPendingTradeSnapshotRebuild'\)\.timeBased\(\)\.everyHours\(1\)/);
+}
+
+// API/script-driven trades do not trigger GAS onEdit. The production SHA
+// fingerprint must detect source mutations including row-only reordering,
+// retain older-history impact on deletion, and never store raw ledger values.
+{
+  const rows=[['2026-01-02','buy','A','삼성','005930',10,70000,'주식','','',''],
+    ['2026-06-05','sell','A','삼성','005930',2,80000,'주식','','','']];
+  const props=new Map(),pending=[],revisions=[];
+  let inconsistent=false,reads=0;
+  const tradeSheet={
+    getLastRow:()=>rows.length+1,getLastColumn:()=>11,
+    getRange:()=>({getValues:()=>{
+      reads++;
+      const copy=rows.map(x=>x.slice());
+      if(inconsistent&&reads%2===0)copy[0][5]++;
+      return copy;
+    }})
+  };
+  const ctx={
+    CONFIG:{SHEET_TRADES:'거래이력'},
+    TRADE_LEDGER_FINGERPRINT_KEY:'trade_ledger_snapshot_source_sha256_v1',
+    _normalizeDate:x=>String(x||''),_cleanCode:x=>String(x||''),
+    _tradeSnapshotRebuildFromSheetEdit:()=> '2026-01-02',
+    _setPendingTradeSnapshotRebuild:x=>pending.push(x),
+    _touchSnapshotIntegritySourceRevision:x=>revisions.push(x),
+    PropertiesService:{getScriptProperties:()=>({
+      getProperty:k=>props.get(k)||null,
+      setProperty:(k,v)=>props.set(k,v)})},
+    Utilities:{DigestAlgorithm:{SHA_256:'SHA_256'},computeDigest:(algo,input)=>{
+      assert.equal(algo,'SHA_256');
+      return [...createHash('sha256').update(input,'utf8').digest()].map(x=>x>127?x-256:x);
+    }}
+  };
+  vm.runInNewContext(
+    ['_tradeLedgerContentFingerprint_','_recordTradeLedgerFingerprint_',
+      '_detectExternalTradeLedgerChanges_'].map(ledgerSnippet).join('\n'),ctx);
+  const ss={getSheetByName:()=>tradeSheet};
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'BASELINED');
+  assert.equal(pending.length,1,'first checksum baseline must queue existing historical Snapshot dates');
+  const checksum=props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY);
+  assert.match(checksum,/^[0-9a-f]{64}$/);
+  assert.doesNotMatch(JSON.stringify([...props.values()]),/70000|80000|005930|삼성/);
+  rows.reverse();
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'CHANGED',
+    'same-date order changes can alter average cost and must trigger replay');
+  assert.equal(pending.length,2);
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED');
+  rows[0][5]=3;
+  const changed=ctx._detectExternalTradeLedgerChanges_(ss);
+  assert.equal(changed.state,'CHANGED');
+  assert.equal(changed.from,'2026-01-02');
+  assert.deepEqual(pending,['2026-01-02','2026-01-02','2026-01-02']);
+  assert.deepEqual(JSON.parse(JSON.stringify(revisions)),
+    [{from:'2026-01-02'},{from:'2026-01-02'},{from:'2026-01-02'}]);
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
+    'persisted fingerprint must be idempotent');
+  rows.splice(1,1);
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'CHANGED',
+    'deletion of past trades still must invalidate from earliest Snapshot');
+  assert.equal(pending.length,4);
+  const baseline=props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY);
+  inconsistent=true;
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNSTABLE');
+  assert.equal(props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY),baseline,
+    'unstable concurrent API writes must never advance checkpoint');
+  assert.equal(pending.length,4);
+  inconsistent=false;
+  ctx._recordTradeLedgerFingerprint_(ss);
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
+    'normal web sync already diff-tracks changed rows and should not queue again');
+}
+
+
+// Hard GAS timeout has no catch/finally: check the actual production writer
+// orders its durable recovery marker strictly before touching the ledger,
+// and commits the source fingerprint only after rebuilding completes.
+{
+  const sync = ledgerSnippet('handleSyncTrades');
+  const pre=sync.indexOf('_setPendingTradeSnapshotRebuild(affectedFrom);');
+  const journal=sync.indexOf('_markTradeLedgerWriteUnverified_();');
+  const begin=sync.indexOf('sh.clearContents();');
+  const verify=sync.indexOf('_verifyTradeWrittenRange(');
+  const clearJournal=sync.indexOf('_clearTradeLedgerWriteJournal_();');
+  const recalc=sync.indexOf('snapshotRebuild = rebuildDailySnapshots(');
+  const fingerprint=sync.indexOf('_recordTradeLedgerFingerprint_(ss);');
+  const commit=sync.indexOf('_clearPendingTradeSnapshotRebuild();');
+  assert.ok(pre>=0&&journal>pre&&begin>journal&&verify>begin&&clearJournal>verify
+    &&recalc>clearJournal&&fingerprint>recalc&&commit>fingerprint,
+    'timeout-safe checkpoint must precede source write and fingerprint follow successful rebuild');
+  assert.ok(sync.slice(0,begin).includes('var intendedRows = trades.map('));
+  assert.ok(sync.slice(0,begin).includes('var explicitEmptyReset ='));
+  assert.ok(sync.slice(0,begin).includes('affectedFrom = _earliestChangedTradeDate('));
+  assert.match(sync,/if \(affectedFrom\) _setPendingTradeSnapshotRebuild\(affectedFrom\);/);
+}
+{
+  const ctx={_normalizeDate:x=>String(x||'')};
+  vm.runInNewContext(ledgerSnippet('_earliestChangedTradeDate'),ctx);
+  const buy=['2026-06-05','buy','A','test','005930',10,70000];
+  const sell=['2026-06-05','sell','A','test','005930',3,80000];
+  const a=[buy,sell], b=[sell,buy];
+  assert.equal(ctx._earliestChangedTradeDate(a,b),'2026-06-05',
+    'same-date sequence-only change still alters ledger cost semantics');
+  assert.equal(ctx._earliestChangedTradeDate(a,a),'');
+  assert.equal(ctx._earliestChangedTradeDate(a,[buy]),'2026-06-05');
+  // A 6/5 insertion and earlier 1/2 ordering change coexist: never return only 6/5.
+  const janBuy=['2026-01-02','buy','A','test','005930',5,70000];
+  const janSell=['2026-01-02','sell','A','test','005930',2,75000];
+  assert.equal(ctx._earliestChangedTradeDate([janBuy,janSell,buy],[janSell,janBuy,buy,sell]),
+    '2026-01-02');
+}
 
 console.log('✅ 일별 Snapshot 원자료·날짜·환율·펀드·Corporate Action·KOSDAQ 회귀 검사 통과');

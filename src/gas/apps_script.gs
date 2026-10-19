@@ -1,6 +1,16 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.236
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.237
 //
+//  v9.237 변경사항 (2026.10.19):
+//  - 거래원장 직접 편집 시 소급 Snapshot 재계산 대기 영속; standalone 설치형 onEdit.
+//  - 1시간마다 대기일 최대 2개 검산·자동 재작성; 충돌/MANUAL은 VALID 전까지 차단.
+//  - 트리거 전체 재등록·누락 복구·운영 진단에 직접 편집/원장 후속 작업 포함.
+//  - 거래 수량·원가 기준은 거래원장, 평가가격 기준은 날짜별 KRX·펀드 NAV 유지.
+//  - Sheets API 직접 수정은 1시간 주기 원장 SHA-256 일치검사로 감지·대기 처리.
+//  - 거래원장 쓰기 전 pending 영속; hard timeout에도 후속 복구 가능.
+//  - 동일 날짜 매매·분할의 물리 행 순서가 계산에 영향을 주므로 SHA도 순서에 민감.
+//  - 원장 검증 전 중단은 영속 WRITING 마커/백업 보호, 운영 경고 및 자동 복구 차단.
+//  - 첫 지문 등록도 기존 과거 Snapshot 검증 대기를 남기고 신규 거래 보유일 포함.
 //  v9.236 변경사항 (2026.10.19):
 //  - 23:10/00:30 독립 과거 백필 실행·무작업·잠금/실패 비민감 checkpoint.
 //  - timeout은 RUNNING 중단 상태로 보존; 공유 역사 백필 결과 불변.
@@ -2163,7 +2173,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.236',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.237',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2241,7 +2251,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.236', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.237', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -5810,11 +5820,40 @@ function _snapshotIntegrityImpactForEdit(e) {
   return { from: dates[0] };
 }
 
-// 사용자가 정합성 원자료 시트를 직접 수정한 경우도 내부 저장 경로와 동일하게 cache를 무효화합니다.
-function onEdit(e) {
-  var impact = _snapshotIntegrityImpactForEdit(e);
-  if (impact) _touchSnapshotIntegritySourceRevision(impact);
+// 거래원장은 수량/취득원가의 단일 원천입니다. 시트 직접편집도 재평가 대기를 반드시 남깁니다.
+// 날짜 이동/대량 붙여넣기/행 삭제처럼 이전 거래일을 확정할 수 없으면 기존 Snapshot의
+// 최초 날짜부터 보수적으로 검증합니다. onEdit에서는 Snapshot 원본을 쓰지 않습니다.
+function _tradeSnapshotRebuildFromSheetEdit(ss, impact) {
+  if (impact && impact.from) return _normalizeDate(impact.from);
+  var earliest = '';
+  var snapshot = ss && typeof ss.getSheetByName === 'function' ? ss.getSheetByName(CONFIG.SHEET_SNAPSHOT) : null;
+  if (snapshot && snapshot.getLastRow() > 1) {
+    snapshot.getRange(2, 1, snapshot.getLastRow() - 1, 1).getValues().forEach(function(row) {
+      var date = _normalizeDate(row[0]);
+      if (date && (!earliest || date < earliest)) earliest = date;
+    });
+  }
+  return earliest;
 }
+
+// Standalone GAS에도 설치형 onEdit 트리거를 연결합니다(simple onEdit 단독에 의존하지 않음).
+function handleSnapshotIntegritySheetEdit(e) {
+  var impact = _snapshotIntegrityImpactForEdit(e);
+  if (!impact) return;
+  _touchSnapshotIntegritySourceRevision(impact);
+  var sheet = e.range && e.range.getSheet ? e.range.getSheet() : null;
+  if (!sheet || sheet.getName() !== CONFIG.SHEET_TRADES) return;
+  var ss = e.source || (typeof sheet.getParent === 'function' ? sheet.getParent() : null);
+  var from = _tradeSnapshotRebuildFromSheetEdit(ss, impact);
+  if (!from) return; // 아직 과거 Snapshot이 없는 빈 원장은 재작성할 날짜가 없습니다.
+  var lock = LockService.getScriptLock(), acquired = false;
+  try {
+    lock.waitLock(15000); acquired = true;
+    _setPendingTradeSnapshotRebuild(from);
+  } finally { if (acquired) lock.releaseLock(); }
+}
+
+function onEdit(e) { handleSnapshotIntegritySheetEdit(e); }
 
 function handleSnapshotIntegritySheetChange(e) {
   var changeType = String(e && e.changeType || '').toUpperCase();
@@ -5827,6 +5866,36 @@ function handleSnapshotIntegritySheetChange(e) {
   var ss = e && e.source;
   var sheet = ss && typeof ss.getActiveSheet === 'function' ? ss.getActiveSheet() : null;
   if (!sheet || _isSnapshotIntegritySourceSheet(sheet.getName())) _touchSnapshotIntegritySourceRevision({ all: true });
+  // 행 삽입/삭제 시 이전 거래일은 이벤트에 없으므로 최초 저장 Snapshot일부터
+  // 재계산을 예약합니다. 다른 시트의 구조 변경으로 거래원장을 덮어쓰지 않습니다.
+  if (sheet && sheet.getName() === CONFIG.SHEET_TRADES) {
+    var from = _tradeSnapshotRebuildFromSheetEdit(ss, { all: true });
+    if (from) {
+      var lock = LockService.getScriptLock(), acquired = false;
+      try {
+        lock.waitLock(15000); acquired = true;
+        _setPendingTradeSnapshotRebuild(from);
+      } finally { if (acquired) lock.releaseLock(); }
+    }
+  }
+}
+
+function _ensureSnapshotIntegrityEditTrigger(autoFix) {
+  var ss = getss(), sourceId = typeof ss.getId === 'function' ? ss.getId() : '';
+  var matches = function() {
+    return ScriptApp.getProjectTriggers().filter(function(trigger) {
+      return trigger.getHandlerFunction() === 'handleSnapshotIntegritySheetEdit'
+        && (!sourceId || (typeof trigger.getTriggerSourceId === 'function' && trigger.getTriggerSourceId() === sourceId));
+    });
+  };
+  var found = matches();
+  if (!autoFix) return found.length === 1;
+  if (!found.length) {
+    ScriptApp.newTrigger('handleSnapshotIntegritySheetEdit').forSpreadsheet(ss).onEdit().create();
+    found = matches();
+  }
+  found.slice(1).forEach(function(trigger) { ScriptApp.deleteTrigger(trigger); });
+  return found.length > 0;
 }
 
 function _ensureSnapshotIntegrityChangeTrigger(autoFix) {
@@ -5984,7 +6053,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.236' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.237' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10100,7 +10169,7 @@ function handleSyncHoldings(dataJson) {
 // ════════════════════════════════════════════════════════════════════
 function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
   var lock = LockService.getScriptLock();
-  var locked = false, sourcePersisted = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
+  var locked = false, sourcePersisted = false, sourceTouched = false, affectedFrom = '', affectedTo = '', snapshotRebuild = null;
   try {
     lock.waitLock(30000); locked = true;
     var trades;
@@ -10108,6 +10177,8 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     if (!Array.isArray(trades)) return jsonError('배열 형식 필요');
 
     var ss = getss();
+    if (_tradeLedgerWriteUnverified_()) return jsonError('이전 거래원장 쓰기가 검증되지 않아 자동 덮어쓰기를 차단했습니다. 원장 백업 확인이 필요합니다.',
+      {errorCode:'TRADE_LEDGER_WRITE_UNVERIFIED',saveState:'partial',followupRequired:true});
     var masterConflict = _portfolioLedgerMasterConflict_(trades, getCodeItems(ss, true));
     if (masterConflict) return jsonError('거래이력 종목 마스터 검증 실패: '+masterConflict,
       {errorCode:'TRADES_CODE_MASTER_CONFLICT'});
@@ -10121,34 +10192,43 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
       sh.setColumnWidth(4,180); sh.setColumnWidth(5,90);  sh.setColumnWidth(6,70);
       sh.setColumnWidth(7,90);  sh.setColumnWidth(8,80);  sh.setColumnWidth(9,200);
     }
+    // Persist the complete, ordered ledger mutation intent BEFORE any sheet write.
+    // A hard GAS timeout cannot run catch/finally and must not leave a new
+    // ledger with stale Snapshot and an already-advanced fingerprint.
+    trades.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
+    var intendedRows = trades.map(function(t) {
+      return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'',
+        t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'',
+        t.ratio || '', t.fractionalCash || ''];
+    });
+    var explicitEmptyReset = explicitEmpty === true && intendedRows.length === 0;
+    affectedFrom = _earliestChangedTradeDate(previousRows, intendedRows);
+    if (pendingSnapshotRebuild && pendingSnapshotRebuild.from
+        && (!affectedFrom || pendingSnapshotRebuild.from < affectedFrom))
+      affectedFrom = pendingSnapshotRebuild.from;
+    if (!affectedFrom && explicitEmptyReset) affectedFrom = _normalizeDate(rebuildFrom || '');
     var tradeBackup = previousRows.length ? _backupSheetBeforeWrite(ss, sh, CONFIG.SHEET_TRADES) : null;
+    if (affectedFrom) _setPendingTradeSnapshotRebuild(affectedFrom);
+    // Durable write-intent fence: never allow a timed-out, partially written
+    // ledger to be treated as a verified trade source by the hourly worker.
+    _markTradeLedgerWriteUnverified_();
+    sourceTouched = true;
     sh.clearContents();
     _setCodeColumnText(sh, 5);
     sh.getRange(1,1,1,11).setValues([['날짜','매수/매도','계좌','종목명','종목코드','수량','단가','자산유형','메모','비율','단주정산']]);
     sh.getRange(1,1,1,11).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-    if (trades.length > 0) {
-      trades.sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); });
-      var rows = trades.map(function(t) {
-        return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'',
-                t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'',
-                t.ratio || '', t.fractionalCash || ''];
-      });
-      sh.getRange(2, 1, rows.length, 11).setValues(_normalizeCodeRows(rows, 4));
-    }
+    if (intendedRows.length > 0)
+      sh.getRange(2, 1, intendedRows.length, 11).setValues(_normalizeCodeRows(intendedRows, 4));
     SpreadsheetApp.flush();
-    var currentRows = trades.map(function(t) { return [_normalizeDate(t.date), t.tradeType||'', t.acct||'', t.name||'', t.code||'', t.qty||0, t.price||0, t.assetType||'주식', t.memo||'', t.ratio || '', t.fractionalCash || '']; });
+    var currentRows = intendedRows;
     if (currentRows.length) _verifyTradeWrittenRange(sh, 2, _normalizeCodeRows(currentRows, 4));
     else if (sh.getLastRow() !== 1) throw new Error('빈 거래이력 쓰기 후 검증 실패');
+    // Verification has proven the ledger write, not its Snapshot rebuild.
+    // The pending marker remains until the latter passes independently.
+    _clearTradeLedgerWriteJournal_();
     sourcePersisted = true;
-    var explicitEmptyReset = explicitEmpty === true && currentRows.length === 0;
-    affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
-    // 이전 요청에서 거래원본은 저장됐지만 Snapshot 재계산만 실패했다면 동일 원장을 다시 보낸
-    // 재시도에서도 영향 시작일을 잃지 않습니다.
-    if (pendingSnapshotRebuild && pendingSnapshotRebuild.from
-        && (!affectedFrom || pendingSnapshotRebuild.from < affectedFrom)) affectedFrom = pendingSnapshotRebuild.from;
-    // 첫 빈 원장 요청의 응답이 유실되거나 partial로 끝난 뒤 재시도하면 서버의 previousRows는 이미 비어 있습니다.
-    // 클라이언트가 마지막 삭제의 최초 영향일을 다시 보내므로 같은 Snapshot 범위를 안전하게 재계산할 수 있습니다.
-    if (!affectedFrom && explicitEmptyReset) affectedFrom = _normalizeDate(rebuildFrom || '');
+    // The pending checkpoint was written before touching the source sheet.
+    // For identical retries it is reused even when the current ledger has no diff.
     // 거래원장 쓰기가 끝난 즉시 원자료 손익 cache revision을 먼저 갱신합니다.
     if (affectedFrom) _touchSnapshotIntegritySourceRevision({ from: affectedFrom });
     else if (createdTradeSheet) _touchSnapshotIntegritySourceRevision({ all: true });
@@ -10165,13 +10245,21 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
         snapshotRebuild: snapshotRebuild, followupRequired: true
       });
     }
-    if (pendingSnapshotRebuild) _clearPendingTradeSnapshotRebuild();
+    // After successful Snapshot rebuild only: advance the source checkpoint,
+    // then release the pending state. A hard timeout between these operations
+    // leaves either a pending marker or a stale SHA detectable by the worker.
+    if (affectedFrom || pendingSnapshotRebuild) {
+      _recordTradeLedgerFingerprint_(ss);
+      _clearPendingTradeSnapshotRebuild();
+    } else {
+      _recordTradeLedgerFingerprint_(ss);
+    }
     _markSnapshotBackupStatus(tradeBackup, 'COMPLETED');
     var tradeBackupCleanup = tradeBackup ? _cleanupCurrentSystemBackup(ss, tradeBackup) : null;
     return jsonOk({ saveState: 'success', synced: trades.length, affectedFrom: affectedFrom, affectedTo: affectedTo, snapshotRebuild: snapshotRebuild, backupCleanup: tradeBackupCleanup });
   } catch(err) {
     if (typeof tradeBackup !== 'undefined' && tradeBackup) _markSnapshotBackupStatus(tradeBackup, 'WRITE_FAILED', err.message);
-    if (sourcePersisted) {
+    if (sourcePersisted || sourceTouched) {
       if (affectedFrom) _setPendingTradeSnapshotRebuild(affectedFrom);
       return jsonError('거래원본은 저장됐지만 후속 평가 재계산이 완료되지 않았습니다: ' + err.message, {
       saveState: 'partial', affectedFrom: affectedFrom, affectedTo: affectedTo,
@@ -10182,6 +10270,83 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
   } finally {
     if (locked) lock.releaseLock();
   }
+}
+
+var TRADE_LEDGER_WRITE_JOURNAL_KEY = 'trade_ledger_write_unverified_v1';
+// Persist only a state/time flag; the immutable Sheet backup holds ledger rows.
+// If GAS hard-times-out between clearContents and verified setValues, worker
+// remains blocked; never infer a new valid ledger from partial cell content.
+function _tradeLedgerWriteUnverified_() {
+  return !!PropertiesService.getScriptProperties().getProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY);
+}
+function _markTradeLedgerWriteUnverified_() {
+  PropertiesService.getScriptProperties().setProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY,
+    JSON.stringify({state:'WRITING',startedAt:new Date().toISOString()}));
+}
+function _clearTradeLedgerWriteJournal_() {
+  PropertiesService.getScriptProperties().deleteProperty(TRADE_LEDGER_WRITE_JOURNAL_KEY);
+}
+
+var TRADE_LEDGER_FINGERPRINT_KEY = 'trade_ledger_snapshot_source_sha256_v1';
+
+// The Apps Script onEdit trigger does not fire for Sheets API / script-driven
+// edits. Keep only a SHA-256 fingerprint in Script Properties (no positions,
+// accounts or individual trade values); compare on the hourly pending worker.
+function _tradeLedgerContentFingerprint_(ss) {
+  var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (!sh) throw new Error('거래원장 시트 없음: fingerprint 기준 미확정');
+  var rows = sh.getLastRow() > 1
+    ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(11, sh.getLastColumn())).getValues()
+    : [];
+  var canonical = rows.map(function(row) {
+    return Array.from({length:11}, function(_, i) {
+      var value = row[i];
+      if (i === 0) return _normalizeDate(value);
+      if (i === 4) return _cleanCode(value) || String(value || '').trim();
+      if (typeof value === 'number') return String(value);
+      return String(value == null ? '' : value);
+    }).join('\u001e');
+  });
+  // Preserve physical row order: the holdings reducer applies same-date
+  // buys, sells and splits in ledger order; reordering can change cost basis.
+  var input = JSON.stringify(canonical), digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, input);
+  return digest.map(function(byte) { return ('0' + (byte & 255).toString(16)).slice(-2); }).join('');
+}
+
+function _recordTradeLedgerFingerprint_(ss) {
+  var signature = _tradeLedgerContentFingerprint_(ss);
+  PropertiesService.getScriptProperties().setProperty(TRADE_LEDGER_FINGERPRINT_KEY, signature);
+  return signature;
+}
+
+function _detectExternalTradeLedgerChanges_(ss) {
+  var props = PropertiesService.getScriptProperties();
+  var before = _tradeLedgerContentFingerprint_(ss);
+  var after = _tradeLedgerContentFingerprint_(ss);
+  if (before !== after) return {state:'UNSTABLE'};
+  var previous = props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
+  if (!previous) {
+    // The first run may follow an API edit made before trigger installation.
+    // Never certify that unverified history is consistent with this new source.
+    var baselineFrom = _tradeSnapshotRebuildFromSheetEdit(ss, {all:true});
+    if (baselineFrom) {
+      _setPendingTradeSnapshotRebuild(baselineFrom);
+      _touchSnapshotIntegritySourceRevision({from:baselineFrom});
+    }
+    props.setProperty(TRADE_LEDGER_FINGERPRINT_KEY, after);
+    return {state:'BASELINED',from:baselineFrom || ''};
+  }
+  if (previous === after) return {state:'UNCHANGED'};
+  // We cannot infer which historical trade was deleted from the new ledger
+  // alone. Start from the earliest stored Snapshot rather than guessing a
+  // recent trade date; existing MANUAL conflicts remain blocked.
+  var from = _tradeSnapshotRebuildFromSheetEdit(ss, {all:true});
+  if (from) {
+    _setPendingTradeSnapshotRebuild(from);
+    _touchSnapshotIntegritySourceRevision({from:from});
+  }
+  props.setProperty(TRADE_LEDGER_FINGERPRINT_KEY, after);
+  return {state:'CHANGED',from:from || ''};
 }
 
 var TRADE_SNAPSHOT_REBUILD_PENDING_KEY = 'trade_snapshot_rebuild_pending_v1';
@@ -10210,6 +10375,75 @@ function _clearPendingTradeSnapshotRebuild() {
   PropertiesService.getScriptProperties().deleteProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
 }
 
+// 설치형 주기 트리거: API 동기화 또는 시트 직접수정으로 남은 pending만 이어서 처리합니다.
+// 1회에 최대 2개 기존 Snapshot 날짜를 검증해 GAS 실행시간/시트셀 예산을 제한합니다.
+// 원장·가격·NAV가 모호하거나 MANUAL 충돌이면 대기를 지우지 않습니다.
+function runPendingTradeSnapshotRebuild() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return { status:'BUSY', processed:0 };
+  try {
+    var ss = getss();
+    if (_tradeLedgerWriteUnverified_()) return {status:'LEDGER_WRITE_UNVERIFIED',processed:0};
+    var fingerprint = _detectExternalTradeLedgerChanges_(ss);
+    if (fingerprint.state === 'UNSTABLE') return {status:'SOURCE_UNSTABLE',processed:0};
+    var pending = _readPendingTradeSnapshotRebuild();
+    if (!pending || !pending.from) return { status:'IDLE', processed:0, sourceCheck:fingerprint.state };
+    var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+    if (!sh || sh.getLastRow() < 2) {
+      _clearPendingTradeSnapshotRebuild();
+      return { status:'NO_EXISTING_SNAPSHOT', processed:0 };
+    }
+    var last = _latestConfirmedSnapshotDate(ss, false);
+    // Include price/NAV/trade-source dates and eligible empty Snapshot days.
+    // Existing rows alone miss new positions created by backdated trades.
+    var dates = _collectDailySnapshotDates(ss, pending.from, last, {});
+    var ordered = Object.keys(dates).sort(), batch = ordered.slice(0, 2);
+    for (var i = 0; i < batch.length; i++) {
+      var target = batch[i], result = _rebuildDailySnapshotsLocked(target, target, {});
+      if (!result || (result.errors || []).length || result.skipped) {
+        Logger.log('거래원장 기준 재계산 대기: ' + target + ' / 원자료 또는 보호 충돌');
+        return { status:'BLOCKED', processed:i, blockedDate:target };
+      }
+      var proof = diagnoseSnapshotIntegrity(ss, target);
+      // A day with genuinely zero ledger holdings has no Snapshot rows to
+      // persist. This is a validated empty state, not a missing-history gap.
+      var verifiedEmpty = proof.status === 'NO_SNAPSHOT' && proof.expectedRowCount === 0
+        && proof.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss, target) === false;
+      if ((!verifiedEmpty && proof.status !== 'VALID') || proof.duplicateKeys.length ||
+          proof.sourceDataErrors.length) {
+        Logger.log('거래원장 기준 재계산 검증 대기: ' + target + ' / ' + proof.status);
+        return { status:'BLOCKED', processed:i, blockedDate:target };
+      }
+      var next = _dateOffset(target, 1);
+      PropertiesService.getScriptProperties().setProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY,
+        JSON.stringify({ from:next, updatedAt:new Date().toISOString() }));
+    }
+    if (!ordered.length || ordered.length <= batch.length) {
+      _clearPendingTradeSnapshotRebuild();
+      return { status:'COMPLETED', processed:batch.length };
+    }
+    return { status:'PENDING', processed:batch.length };
+  } catch (error) {
+    Logger.log('거래원장 Snapshot pending 유지: ' + String(error && error.message || 'unknown'));
+    return { status:'ERROR', processed:0 };
+  } finally { lock.releaseLock(); }
+}
+
+function _ensurePendingTradeSnapshotRebuildTrigger(autoFix) {
+  var found = ScriptApp.getProjectTriggers().filter(function(trigger) {
+    return trigger.getHandlerFunction() === 'runPendingTradeSnapshotRebuild';
+  });
+  if (!autoFix) return found.length === 1;
+  if (!found.length) {
+    ScriptApp.newTrigger('runPendingTradeSnapshotRebuild').timeBased().everyHours(1).create();
+    found = ScriptApp.getProjectTriggers().filter(function(trigger) {
+      return trigger.getHandlerFunction() === 'runPendingTradeSnapshotRebuild';
+    });
+  }
+  found.slice(1).forEach(function(trigger) { ScriptApp.deleteTrigger(trigger); });
+  return found.length > 0;
+}
+
 function _earliestChangedTradeDate(beforeRows, afterRows) {
   var counts = {}, dates = {};
   var add = function(row, delta) {
@@ -10221,8 +10455,23 @@ function _earliestChangedTradeDate(beforeRows, afterRows) {
   };
   (beforeRows || []).forEach(function(row) { add(row, 1); });
   (afterRows || []).forEach(function(row) { add(row, -1); });
-  return Object.keys(counts).filter(function(key) { return counts[key] !== 0 && dates[key]; })
+  var contentChanged = Object.keys(counts).filter(function(key) { return counts[key] !== 0 && dates[key]; })
     .map(function(key) { return dates[key]; }).sort()[0] || '';
+  // Multiset changes and sequence changes can coexist; return the earliest
+  // affected date from either source rather than short-circuiting one case.
+  var earliest = contentChanged;
+  // Multiset-equivalent rows may still change holdings if their order changes.
+  // Same-date stock-splits and buy/sell order must be replayed conservatively.
+  for (var i = 0; i < Math.max((beforeRows || []).length, (afterRows || []).length); i++) {
+    var before = (beforeRows || [])[i] || [], after = (afterRows || [])[i] || [];
+    var oldRow = before.slice(0, 11), newRow = after.slice(0, 11);
+    oldRow[0] = _normalizeDate(oldRow[0]); newRow[0] = _normalizeDate(newRow[0]);
+    if (JSON.stringify(oldRow) !== JSON.stringify(newRow)) {
+      var sorted = [oldRow[0], newRow[0]].filter(Boolean).sort();
+      if (sorted.length && (!earliest || sorted[0] < earliest)) earliest = sorted[0];
+    }
+  }
+  return earliest || '';
 }
 
 function _latestConfirmedSnapshotDate(ss, includeToday) {
@@ -11893,6 +12142,8 @@ function setupTrigger() {
   _ensurePortfolioHistoricalBackfill0010Trigger(true);
   _ensurePortfolioMorningKrxBackfillTrigger(true);
   _ensureSnapshotIntegrityChangeTrigger(true);
+  _ensureSnapshotIntegrityEditTrigger(true);
+  _ensurePendingTradeSnapshotRebuildTrigger(true);
   try { onOpen(); } catch(e0) { Logger.log('메뉴 즉시 재생성 실패: ' + e0.message); }
   Logger.log('트리거 등록 완료: 01:10 주담대 → 08:45 KRX T+1 → 15:50 종목코드 → 19시 통합 마감 → 20:30 watchdog → 22:10 당일 → 23:10 과거 → 00:30 과거 백필');
   try { SpreadsheetApp.getUi().alert('✅ 자동 트리거 등록 완료!\n01:10 주담대 잔액 갱신\n15:50 종목코드 보정\n19시 당일 exact-date 종가·Snapshot + 펀드 NAV/평가 통합 마감\n20:30 실패 자동 재시도 watchdog\n22:10 당일 복구\\n23:10 과거 복구\\n00:30 추가 과거 복구\\n08:45 KRX T+1 자동 복구'); } catch(e) { Logger.log('UI 알림 실패: ' + e.message); }
@@ -11908,6 +12159,8 @@ function _ensureDailyTriggers(autoFix) {
   var hasMidnightBackfill = false;
   var hasMorningBackfill = false;
   var hasIntegrityChange = false;
+  var hasIntegrityEdit = false;
+  var hasLedgerRebuild = false;
   var closeCount = 0;
   var watchdogCount = 0;
   var backfillCount = 0;
@@ -11930,6 +12183,8 @@ function _ensureDailyTriggers(autoFix) {
     if (fn === 'runDailyFundValuations') legacyFundCount++;
   });
   hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(false);
+  hasIntegrityEdit = _ensureSnapshotIntegrityEditTrigger(false);
+  hasLedgerRebuild = _ensurePendingTradeSnapshotRebuildTrigger(false);
 
   var hasLegacySplitTriggers = legacyPriceCount > 0 || legacyFundCount > 0;
   var hasDuplicateCloseTriggers = closeCount > 1;
@@ -11991,6 +12246,8 @@ function _ensureDailyTriggers(autoFix) {
       hasDuplicateMorningBackfillTriggers = morningBackfillCount > 1;
     }
     if (!hasIntegrityChange) hasIntegrityChange = _ensureSnapshotIntegrityChangeTrigger(true);
+    if (!hasIntegrityEdit) hasIntegrityEdit = _ensureSnapshotIntegrityEditTrigger(true);
+    if (!hasLedgerRebuild) hasLedgerRebuild = _ensurePendingTradeSnapshotRebuildTrigger(true);
   }
   // hasSave/hasFund는 기존 호출부 호환용 alias입니다. 둘 다 통합 마감 트리거 상태를 뜻합니다.
   return {
@@ -12005,6 +12262,8 @@ function _ensureDailyTriggers(autoFix) {
     hasMidnightBackfill: hasMidnightBackfill,
     hasMorningBackfill: hasMorningBackfill,
     hasIntegrityChange: hasIntegrityChange,
+    hasIntegrityEdit: hasIntegrityEdit,
+    hasLedgerRebuild: hasLedgerRebuild,
     closeCount: closeCount,
     watchdogCount: watchdogCount,
     backfillCount: backfillCount,
@@ -12025,18 +12284,18 @@ function _ensureDailyTriggers(autoFix) {
 function _ensureDailyTriggersOncePerDay(dateStr) {
   var props = PropertiesService.getScriptProperties();
   var checkedDate = props.getProperty('daily_triggers_checked_date') || '';
-  var checkToken = dateStr + '|integrity-change-v9-close-watchdog-midnight-backfill-morning-tplus1';
+  var checkToken = dateStr + '|integrity-change-v9-close-watchdog-midnight-backfill-morning-tplus1|ledger-authority-v1';
   if (checkedDate === checkToken) return { checked: false, autoFixed: false };
   try {
     var before = _ensureDailyTriggers(false);
     var needsRepair = !before.hasClean || !before.hasSave || !before.hasMortgage || !before.hasFund
-      || !before.hasWatchdog || !before.hasBackfill || !before.hasHistoricalBackfill || !before.hasMidnightBackfill || !before.hasMorningBackfill || !before.hasIntegrityChange
+      || !before.hasWatchdog || !before.hasBackfill || !before.hasHistoricalBackfill || !before.hasMidnightBackfill || !before.hasMorningBackfill || !before.hasIntegrityChange || !before.hasIntegrityEdit || !before.hasLedgerRebuild
       || before.hasLegacySplitTriggers || before.hasDuplicateCloseTriggers
       || before.hasDuplicateWatchdogTriggers || before.hasDuplicateBackfillTriggers
       || before.hasDuplicateHistoricalBackfillTriggers || before.hasDuplicateMidnightBackfillTriggers || before.hasDuplicateMorningBackfillTriggers;
     var after = needsRepair ? _ensureDailyTriggers(true) : before;
     var healthy = after.hasClean && after.hasSave && after.hasMortgage && after.hasFund
-      && after.hasWatchdog && after.hasBackfill && after.hasHistoricalBackfill && after.hasMidnightBackfill && after.hasMorningBackfill && after.hasIntegrityChange
+      && after.hasWatchdog && after.hasBackfill && after.hasHistoricalBackfill && after.hasMidnightBackfill && after.hasMorningBackfill && after.hasIntegrityChange && after.hasIntegrityEdit && after.hasLedgerRebuild
       && !after.hasLegacySplitTriggers && !after.hasDuplicateCloseTriggers
       && !after.hasDuplicateWatchdogTriggers && !after.hasDuplicateBackfillTriggers
       && !after.hasDuplicateHistoricalBackfillTriggers && !after.hasDuplicateMidnightBackfillTriggers && !after.hasDuplicateMorningBackfillTriggers;
@@ -12147,8 +12406,11 @@ function _getAutomationStatusData() {
   var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
   var portfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
   var pendingKrxCloseDates = _readPendingKrxCloseDates_(props);
+  var pendingTradeSnapshotRebuild = parseProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
+  var pendingTradeSnapshotRebuildFrom = pendingTradeSnapshotRebuild && _normalizeDate(pendingTradeSnapshotRebuild.from || '') || '';
+  var tradeLedgerWriteUnverified = _tradeLedgerWriteUnverified_();
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
-    || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange;
+    || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
   var hasDuplicateCloseTriggers = !!trig.hasDuplicateCloseTriggers;
   var hasDuplicateWatchdogTriggers = !!trig.hasDuplicateWatchdogTriggers;
@@ -12167,10 +12429,11 @@ function _getAutomationStatusData() {
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length
+    || pendingTradeSnapshotRebuildFrom || tradeLedgerWriteUnverified
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.236',
+    gasVersion: '9.237',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12183,6 +12446,8 @@ function _getAutomationStatusData() {
       hasClean: !!trig.hasClean,
       hasMortgage: !!trig.hasMortgage,
       hasIntegrityChange: !!trig.hasIntegrityChange,
+      hasIntegrityEdit: !!trig.hasIntegrityEdit,
+      hasLedgerRebuild: !!trig.hasLedgerRebuild,
       hasLegacyPriceTrigger: trig.legacyPriceCount > 0,
       hasLegacyFundTrigger: trig.legacyFundCount > 0,
       hasLegacySplitTriggers: hasLegacySplitTriggers,
@@ -12208,6 +12473,8 @@ function _getAutomationStatusData() {
     officialKrxPriceHistoryLastDate: officialKrxPriceHistoryLastDate,
     portfolioCloseRunStale: portfolioCloseRunStale,
     pendingKrxCloseDates: pendingKrxCloseDates,
+    pendingTradeSnapshotRebuildFrom: pendingTradeSnapshotRebuildFrom,
+    tradeLedgerWriteUnverified: tradeLedgerWriteUnverified,
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
@@ -12222,7 +12489,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.236' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.237' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -12266,7 +12533,10 @@ function checkDailyAutomationStatus() {
     + 'runPortfolioHistoricalBackfill0010(00:30) 추가 과거 복구 트리거: ' + (trig.hasDuplicateMidnightBackfillTriggers ? ('중복 ' + trig.midnightBackfillCount + '개') : (trig.hasMidnightBackfill ? '정상' : '없음')) + '\\n'
     + 'runPortfolioMorningKrxBackfill0845(08:45) 익영업일 복구 트리거: ' + (trig.hasDuplicateMorningBackfillTriggers ? ('중복 ' + trig.morningBackfillCount + '개') : (trig.hasMorningBackfill ? '정상' : '없음')) + '\\n'
     + '기존 분리 트리거(runEvalPriceUpdate1620/runDailyFundValuations): ' + (trig.hasLegacySplitTriggers ? ('남아 있음 · 가격 ' + trig.legacyPriceCount + '개 / 펀드 ' + trig.legacyFundCount + '개') : '없음') + '\n\n'
-    + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n\n'
+    + 'Snapshot integrity 구조 변경 트리거: ' + (trig.hasIntegrityChange ? '정상' : '없음') + '\n'
+    + '거래원장 직접편집 감지 트리거: ' + (trig.hasIntegrityEdit ? '정상' : '없음') + '\n'
+    + '거래원장 재평가 후속 트리거: ' + (trig.hasLedgerRebuild ? '정상' : '없음') + '\n'
+    + '거래원장 Snapshot 재평가 대기 시작일: ' + ((_readPendingTradeSnapshotRebuild() || {}).from || '-') + '\n\n'
     + '스냅샷 마지막 날짜: ' + snapLast + '\n'
     + '가격이력 마지막 날짜: ' + phLast + '\n'
     + '자동 생성 최근 성공: ' + lastSuccessAt + ' (기준일 ' + lastSuccessDate + ')\n'
@@ -12278,7 +12548,7 @@ function checkDailyAutomationStatus() {
     + (isSnapshotStale ? '⚠️ 최근 확정 거래일(' + expectedSnapshotDate + ') 스냅샷이 없습니다. 실행 기록과 가격 조회 상태를 확인하세요.\n' : '')
     + (isPortfolioCloseRunStale ? '⚠️ 통합 마감 최근 실행일이 기대 실행일(' + expectedPortfolioCloseRunDate + ')보다 오래되었습니다.\n' : '')
     + '\n'
-    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers || trig.hasDuplicateWatchdogTriggers || trig.hasDuplicateBackfillTriggers || trig.hasDuplicateHistoricalBackfillTriggers || trig.hasDuplicateMidnightBackfillTriggers || trig.hasDuplicateMorningBackfillTriggers
+    + (!trig.hasClean || !trig.hasMortgage || !trig.hasClose || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild || trig.hasLegacySplitTriggers || trig.hasDuplicateCloseTriggers || trig.hasDuplicateWatchdogTriggers || trig.hasDuplicateBackfillTriggers || trig.hasDuplicateHistoricalBackfillTriggers || trig.hasDuplicateMidnightBackfillTriggers || trig.hasDuplicateMorningBackfillTriggers
       ? '⚠️ 트리거 상태 이상: [복구·정리 실행] → [자동 트리거 복구·정리]를 실행하세요.'
       : '✅ 트리거는 정상 집합입니다. 데이터 누락은 정합성 진단으로 확인하세요.')
     + '\n이 점검은 트리거와 데이터를 변경하지 않습니다. 버전업마다 실행할 필요는 없습니다.';
@@ -15834,7 +16104,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.236' });
+    return jsonOk({ settings: settings, gasVersion: '9.237' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -15864,7 +16134,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.236'
+      gasVersion: '9.237'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

@@ -99,7 +99,9 @@ export function summarizeBackfillStatus(payload) {
   const trigger=a.trigger;
   const parts=a.gasVersion.split('.').map(Number);
   const hasMorningRelease=parts[0]>9||(parts[0]===9&&parts[1]>=235);
-  const required=hasMorningRelease?REQUIRED.concat('hasMorningBackfill'):REQUIRED;
+  const hasLedgerRelease=parts[0]>9||(parts[0]===9&&parts[1]>=237);
+  const required=(hasMorningRelease?REQUIRED.concat('hasMorningBackfill'):REQUIRED)
+    .concat(hasLedgerRelease?['hasIntegrityEdit','hasLedgerRebuild']:[]);
   const counts=hasMorningRelease?COUNTS.concat('morningBackfillCount'):COUNTS;
   const duplicateFlags=hasMorningRelease?DUPLICATES.concat('hasDuplicateMorningBackfillTriggers'):DUPLICATES;
   for (const name of [...required,...duplicateFlags,'hasLegacySplitTriggers']) {
@@ -122,6 +124,12 @@ export function summarizeBackfillStatus(payload) {
   const triggerCounts=Object.fromEntries(counts.map(name=>[name,trigger[name]]));
   const triggerMissing=required.filter(name=>!trigger[name]);
   const duplicates=duplicateFlags.filter(name=>trigger[name]);
+  if(hasLedgerRelease && typeof a.tradeLedgerWriteUnverified!=='boolean')
+    throw new Error('AUTOMATION_DIAG_BAD_LEDGER_WRITE');
+  if(hasLedgerRelease && typeof a.pendingTradeSnapshotRebuildFrom!=='string')
+    throw new Error('AUTOMATION_DIAG_BAD_LEDGER_PENDING');
+  const pendingTradeSnapshotRebuildFrom=hasLedgerRelease
+    ?safeDate(a.pendingTradeSnapshotRebuildFrom):'-';
   const overallStatus=String(a.overallStatus || '');
   if (!['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN'].includes(overallStatus))
     throw new Error('AUTOMATION_DIAG_BAD_RESPONSE');
@@ -131,6 +139,8 @@ export function summarizeBackfillStatus(payload) {
     triggerReady:complete, triggerCounts, triggerMissing, duplicateTriggerFlags:duplicates,
     legacySplitTriggers:trigger.hasLegacySplitTriggers,
     pendingDates:pending, pendingCount:pending.length,
+    pendingTradeSnapshotRebuildFrom,
+    tradeLedgerWriteUnverified:hasLedgerRelease?a.tradeLedgerWriteUnverified:false,
     officialKrxPriceHistoryLastDate:safeDate(a.officialKrxPriceHistoryLastDate),
     snapshotLastDate:safeDate(a.snapshotLastDate),
     priceHistoryLastDate:safeDate(a.priceHistoryLastDate),
