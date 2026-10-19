@@ -517,8 +517,8 @@ assert.match(gas, /pendingSnapshotRebuild = _readPendingTradeSnapshotRebuild\(\)
   '동일 거래 재전송에서도 이전 partial 영향 시작일부터 재계산');
 assert.match(gas, /snapshotRebuild\.errors[\s\S]*_setPendingTradeSnapshotRebuild\(affectedFrom\)[\s\S]*saveState: 'partial'/,
   'Snapshot 재계산 오류는 성공 응답 전에 pending을 보존');
-assert.match(gas, /if \(pendingSnapshotRebuild\) _clearPendingTradeSnapshotRebuild\(\)[\s\S]*saveState: 'success'/,
-  'pending 재계산은 실제 성공 후에만 제거');
+assert.match(gas, /_recordTradeLedgerFingerprint_\(ss\);[\s\S]*_clearPendingTradeSnapshotRebuild\(\)[\s\S]*saveState: 'success'/,
+  'pending 재계산은 원장 기반 Snapshot 검증 성공 후에만 해제');
 assert.match(gas, /_latestConfirmedSnapshotDate\(ss, explicitEmptyReset\)[\s\S]*includeToday: explicitEmptyReset/,
   '마지막 거래 삭제에서는 당일 Snapshot까지 재계산 범위에 포함');
 assert.match(gas, /date < today\(\) \|\| \(includeToday && date === today\(\)\)/,
@@ -628,7 +628,7 @@ function ledgerSnippet(name) {
 }
 
 // API/script-driven trades do not trigger GAS onEdit. The production SHA
-// fingerprint must detect source mutations, ignore row-only reordering,
+// fingerprint must detect source mutations including row-only reordering,
 // retain older-history impact on deletion, and never store raw ledger values.
 {
   const rows=[['2026-01-02','buy','A','삼성','005930',10,70000,'주식','','',''],
@@ -669,30 +669,63 @@ function ledgerSnippet(name) {
   assert.match(checksum,/^[0-9a-f]{64}$/);
   assert.doesNotMatch(JSON.stringify([...props.values()]),/70000|80000|005930|삼성/);
   rows.reverse();
-  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
-    'sorting the ledger is not a financial change');
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'CHANGED',
+    'same-date order changes can alter average cost and must trigger replay');
+  assert.equal(pending.length,1);
+  assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED');
   rows[0][5]=3;
   const changed=ctx._detectExternalTradeLedgerChanges_(ss);
   assert.equal(changed.state,'CHANGED');
   assert.equal(changed.from,'2026-01-02');
-  assert.deepEqual(pending,['2026-01-02']);
-  assert.deepEqual(JSON.parse(JSON.stringify(revisions)),[{from:'2026-01-02'}]);
+  assert.deepEqual(pending,['2026-01-02','2026-01-02']);
+  assert.deepEqual(JSON.parse(JSON.stringify(revisions)),
+    [{from:'2026-01-02'},{from:'2026-01-02'}]);
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
     'persisted fingerprint must be idempotent');
   rows.splice(1,1);
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'CHANGED',
     'deletion of past trades still must invalidate from earliest Snapshot');
-  assert.equal(pending.length,2);
+  assert.equal(pending.length,3);
   const baseline=props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY);
   inconsistent=true;
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNSTABLE');
   assert.equal(props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY),baseline,
     'unstable concurrent API writes must never advance checkpoint');
-  assert.equal(pending.length,2);
+  assert.equal(pending.length,3);
   inconsistent=false;
   ctx._recordTradeLedgerFingerprint_(ss);
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
     'normal web sync already diff-tracks changed rows and should not queue again');
+}
+
+
+// Hard GAS timeout has no catch/finally: check the actual production writer
+// orders its durable recovery marker strictly before touching the ledger,
+// and commits the source fingerprint only after rebuilding completes.
+{
+  const sync = ledgerSnippet('handleSyncTrades');
+  const pre=sync.indexOf('_setPendingTradeSnapshotRebuild(affectedFrom);');
+  const begin=sync.indexOf('sh.clearContents();');
+  const recalc=sync.indexOf('snapshotRebuild = rebuildDailySnapshots(');
+  const fingerprint=sync.indexOf('_recordTradeLedgerFingerprint_(ss);');
+  const commit=sync.indexOf('_clearPendingTradeSnapshotRebuild();');
+  assert.ok(pre>=0&&begin>pre&&recalc>begin&&fingerprint>recalc&&commit>fingerprint,
+    'timeout-safe checkpoint must precede source write and fingerprint follow successful rebuild');
+  assert.ok(sync.slice(0,begin).includes('var intendedRows = trades.map('));
+  assert.ok(sync.slice(0,begin).includes('var explicitEmptyReset ='));
+  assert.ok(sync.slice(0,begin).includes('affectedFrom = _earliestChangedTradeDate('));
+  assert.match(sync,/if \(affectedFrom\) _setPendingTradeSnapshotRebuild\(affectedFrom\);/);
+}
+{
+  const ctx={_normalizeDate:x=>String(x||'')};
+  vm.runInNewContext(ledgerSnippet('_earliestChangedTradeDate'),ctx);
+  const buy=['2026-06-05','buy','A','test','005930',10,70000];
+  const sell=['2026-06-05','sell','A','test','005930',3,80000];
+  const a=[buy,sell], b=[sell,buy];
+  assert.equal(ctx._earliestChangedTradeDate(a,b),'2026-06-05',
+    'same-date sequence-only change still alters ledger cost semantics');
+  assert.equal(ctx._earliestChangedTradeDate(a,a),'');
+  assert.equal(ctx._earliestChangedTradeDate(a,[buy]),'2026-06-05');
 }
 
 console.log('✅ 일별 Snapshot 원자료·날짜·환율·펀드·Corporate Action·KOSDAQ 회귀 검사 통과');
