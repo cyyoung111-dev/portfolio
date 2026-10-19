@@ -119,9 +119,13 @@ export function selfTest(){
   const a={mode:'READ_ONLY',gasVersion:'9.237',triggerReady:true,
     triggerMissing:[],overallStatus:'INCOMPLETE',
     pendingTradeSnapshotRebuildFrom:'-',tradeLedgerWriteUnverified:false};
-  assert.equal(summarizeDiagnostics({status:'ok',checkedDates:EARLY,
-    diagnostics:early},EARLY).length,5);
-  const out=summarizeEvidence(a,early.concat(regress));
+  const earlyEvidence=summarizeDiagnostics({status:'ok',checkedDates:EARLY,
+    diagnostics:early},EARLY);
+  const regressionEvidence=summarizeDiagnostics({status:'ok',checkedDates:REGRESSION,
+    diagnostics:regress},REGRESSION);
+  assert.equal(earlyEvidence.length,5);
+  const evidence=earlyEvidence.concat(regressionEvidence);
+  const out=summarizeEvidence(a,evidence);
   assert.equal(out.workerFirstRunVerified,false);
   assert.equal(out.earlyUnresolvedDateCount,4);
   assert.equal(out.septemberRegressionReady,true);
@@ -132,12 +136,12 @@ export function selfTest(){
   assert.throws(()=>summarizeDiagnostics({status:'ok',checkedDates:EARLY,
     diagnostics:[early[0],early[0],...early.slice(2)]},EARLY),
     /ISSUE507_DIAGNOSTIC_DATE_OR_STATUS/);
-  assert.throws(()=>summarizeEvidence({...a,gasVersion:'9.236'},early.concat(regress)),
+  assert.throws(()=>summarizeEvidence({...a,gasVersion:'9.236'},evidence),
     /ISSUE507_AUTOMATION_SCHEMA/);
   assert.throws(()=>summarizeEvidence({...a,pendingTradeSnapshotRebuildFrom:'not-a-date'},
-    early.concat(regress)),/ISSUE507_PENDING_DATE_INVALID/);
-  const mismatched=early.concat(regress);
-  mismatched[6]={...mismatched[6],expectedRowCount:39,storedRowCount:38};
+    evidence),/ISSUE507_PENDING_DATE_INVALID/);
+  const mismatched=evidence.slice();
+  mismatched[6]={...mismatched[6],expectedRows:39,storedRows:38};
   assert.equal(summarizeEvidence(a,mismatched).septemberRegressionReady,false);
   return{mode:'LOCAL_CONTRACT_TEST',result:'PASS',cases:9};
 }
