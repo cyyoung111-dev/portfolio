@@ -580,15 +580,19 @@ function ledgerSnippet(name) {
 {
   function worker({blocked=false}={}) {
     let from='2026-06-05',saved=[],attempts=[],rebuilds=[],errors=[],locks=0;
+    // June 8 has no Snapshot yet but has confirmed price/trade source data.
     const dates=['2026-06-05','2026-06-08','2026-06-09'];
     const ss={getSheetByName:()=>({
-      getLastRow:()=>4,getRange:()=>({getValues:()=>dates.map(x=>[x])})
+      getLastRow:()=>3,getRange:()=>({getValues:()=>[dates[0],dates[2]].map(x=>[x])})
     })};
     const ctx={
       CONFIG:{SHEET_SNAPSHOT:'스냅샷'},
       TRADE_SNAPSHOT_REBUILD_PENDING_KEY:'trade_snapshot_rebuild_pending_v1',
       _normalizeDate:x=>String(x||''),
+      _tradeLedgerWriteUnverified_:()=>false,
       _detectExternalTradeLedgerChanges_:()=>({state:'UNCHANGED'}),
+      _collectDailySnapshotDates:()=>Object.fromEntries(dates.map(x=>[x,true])),
+
       _readPendingTradeSnapshotRebuild:()=>from?{from}:null,
       _clearPendingTradeSnapshotRebuild:()=>{from='';},
       _latestConfirmedSnapshotDate:()=> '2026-06-09',
@@ -664,34 +668,34 @@ function ledgerSnippet(name) {
       '_detectExternalTradeLedgerChanges_'].map(ledgerSnippet).join('\n'),ctx);
   const ss={getSheetByName:()=>tradeSheet};
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'BASELINED');
-  assert.equal(pending.length,0,'initial baseline must not rewrite old conflicting history');
+  assert.equal(pending.length,1,'first checksum baseline must queue existing historical Snapshot dates');
   const checksum=props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY);
   assert.match(checksum,/^[0-9a-f]{64}$/);
   assert.doesNotMatch(JSON.stringify([...props.values()]),/70000|80000|005930|삼성/);
   rows.reverse();
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'CHANGED',
     'same-date order changes can alter average cost and must trigger replay');
-  assert.equal(pending.length,1);
+  assert.equal(pending.length,2);
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED');
   rows[0][5]=3;
   const changed=ctx._detectExternalTradeLedgerChanges_(ss);
   assert.equal(changed.state,'CHANGED');
   assert.equal(changed.from,'2026-01-02');
-  assert.deepEqual(pending,['2026-01-02','2026-01-02']);
+  assert.deepEqual(pending,['2026-01-02','2026-01-02','2026-01-02']);
   assert.deepEqual(JSON.parse(JSON.stringify(revisions)),
-    [{from:'2026-01-02'},{from:'2026-01-02'}]);
+    [{from:'2026-01-02'},{from:'2026-01-02'},{from:'2026-01-02'}]);
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
     'persisted fingerprint must be idempotent');
   rows.splice(1,1);
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'CHANGED',
     'deletion of past trades still must invalidate from earliest Snapshot');
-  assert.equal(pending.length,3);
+  assert.equal(pending.length,4);
   const baseline=props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY);
   inconsistent=true;
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNSTABLE');
   assert.equal(props.get(ctx.TRADE_LEDGER_FINGERPRINT_KEY),baseline,
     'unstable concurrent API writes must never advance checkpoint');
-  assert.equal(pending.length,3);
+  assert.equal(pending.length,4);
   inconsistent=false;
   ctx._recordTradeLedgerFingerprint_(ss);
   assert.equal(ctx._detectExternalTradeLedgerChanges_(ss).state,'UNCHANGED',
@@ -726,6 +730,11 @@ function ledgerSnippet(name) {
     'same-date sequence-only change still alters ledger cost semantics');
   assert.equal(ctx._earliestChangedTradeDate(a,a),'');
   assert.equal(ctx._earliestChangedTradeDate(a,[buy]),'2026-06-05');
+  // A 6/5 insertion and earlier 1/2 ordering change coexist: never return only 6/5.
+  const janBuy=['2026-01-02','buy','A','test','005930',5,70000];
+  const janSell=['2026-01-02','sell','A','test','005930',2,75000];
+  assert.equal(ctx._earliestChangedTradeDate([janBuy,janSell,buy],[janSell,janBuy,buy,sell]),
+    '2026-01-02');
 }
 
 console.log('✅ 일별 Snapshot 원자료·날짜·환율·펀드·Corporate Action·KOSDAQ 회귀 검사 통과');
