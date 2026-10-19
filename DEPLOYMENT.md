@@ -1,6 +1,6 @@
 ## GAS v9.239 — Issue #507 시간 worker 진입·잠금 실패 조기 체크포인트 (2026-10-19)
 
-- **릴리스 승인:** `gasVersion=9.239`, 전체 GAS source blob `157636727f3e7e3b634a2b07036586781d20ee6a`. 병합·배포 전에는 변경한 코드가 실제 운영에 적용됐다고 주장하지 않음.
+- **릴리스 승인:** `gasVersion=9.239`, 전체 GAS source blob `2913d72d93adb4c655a8448217921778f7d93941`. 병합·배포 전에는 변경한 코드가 실제 운영에 적용됐다고 주장하지 않음.
 - **증상:** v9.238 운영에서 `hasLedgerRebuild=true`인데 `tradeSnapshotWorkerLastResult=null` · `tradeSnapshotDeferredCount=0` · pending `2025-12-31`; 사용자 거래원장의 2025년 말 가격 부족이 아닌 *worker 진입·잠금/타임아웃* 문제일 가능성도 진단해야 함.
 - **첫 진입:** 설치형 `runPendingTradeSnapshotRebuild`에서 ScriptLock을 실제 획득한 직후, **getss()/원장 SHA-256 두 번 읽기/원천 검증/대기열 처리 이전** `trade_snapshot_worker_last_v1`에 `RUNNING`과 UTC 시각만 기록. 성공·오류 결과는 기존 완료 enum·시각으로 갱신. GAS hard timeout은 `RUNNING` 잔존해 명확한 미완료 증거.
 - **잠금 경합:** ScriptLock 획득 실패 시 `trade_snapshot_worker_busy_v1` 별도 속성에 `BUSY`·UTC 시각을 저장하고 즉시 종료. 다른 실행의 `RUNNING` 체크포인트를 덮어쓰지 않음. 잠금 자체/대기열/원본은 변경하지 않음.
