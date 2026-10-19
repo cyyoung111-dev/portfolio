@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.237
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.238
 //
-//  v9.237 변경사항 (2026.10.19):
+//  v9.238 변경사항 (2026.10.19):
 //  - 거래원장 직접 편집 시 소급 Snapshot 재계산 대기 영속; standalone 설치형 onEdit.
 //  - 1시간마다 대기일 최대 2개 검산·자동 재작성; 충돌/MANUAL은 VALID 전까지 차단.
 //  - 트리거 전체 재등록·누락 복구·운영 진단에 직접 편집/원장 후속 작업 포함.
@@ -2173,7 +2173,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.237',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.238',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2251,7 +2251,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.237', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.238', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6053,7 +6053,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.237' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.238' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10375,58 +10375,154 @@ function _clearPendingTradeSnapshotRebuild() {
   PropertiesService.getScriptProperties().deleteProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
 }
 
-// 설치형 주기 트리거: API 동기화 또는 시트 직접수정으로 남은 pending만 이어서 처리합니다.
-// 1회에 최대 2개 기존 Snapshot 날짜를 검증해 GAS 실행시간/시트셀 예산을 제한합니다.
-// 원장·가격·NAV가 모호하거나 MANUAL 충돌이면 대기를 지우지 않습니다.
+// Past source gaps and unresolved MANUAL/duplicate conflicts are not success.
+// Keep each historical exception outside the forward cursor so a 2025 source
+// gap cannot starve verified later dates. Never erase the legacy pending start
+// before an exception date has been durably recorded.
+var TRADE_SNAPSHOT_DEFERRED_DATES_KEY = 'trade_snapshot_rebuild_deferred_v1';
+var TRADE_SNAPSHOT_WORKER_LAST_KEY = 'trade_snapshot_worker_last_v1';
+function _readTradeSnapshotDeferredState_() {
+  var raw = PropertiesService.getScriptProperties().getProperty(TRADE_SNAPSHOT_DEFERRED_DATES_KEY);
+  if (!raw) return { dates:[], cursor:'' };
+  var state = JSON.parse(raw);
+  if (!state || !Array.isArray(state.dates) || state.dates.length > 600) throw new Error('거래원장 미해결 날짜 상태 오류');
+  var dates = state.dates.slice();
+  if (dates.some(function(date) { return !/^\d{4}-\d{2}-\d{2}$/.test(date) || _normalizeDate(date) !== date; }))
+    throw new Error('거래원장 미해결 날짜 형식 오류');
+  if (dates.join('|') !== dates.slice().sort().filter(function(date,index,array) { return !index || date !== array[index - 1]; }).join('|'))
+    throw new Error('거래원장 미해결 날짜 순서·중복 오류');
+  var cursor = String(state.cursor || '');
+  if (cursor && (!/^\d{4}-\d{2}-\d{2}$/.test(cursor) || _normalizeDate(cursor) !== cursor))
+    throw new Error('거래원장 미해결 재검사 커서 오류');
+  return { dates:dates, cursor:cursor };
+}
+function _writeTradeSnapshotDeferredState_(state) {
+  var dates = state.dates.slice().sort().filter(function(date,index,array) { return !index || date !== array[index - 1]; });
+  var props = PropertiesService.getScriptProperties();
+  if (!dates.length) { props.deleteProperty(TRADE_SNAPSHOT_DEFERRED_DATES_KEY); return; }
+  if (dates.length > 600) throw new Error('거래원장 미해결 날짜 600개 한도 초과: 원본 보존');
+  var value = JSON.stringify({ dates:dates, cursor:String(state.cursor || '') });
+  if (value.length > 8000) throw new Error('거래원장 미해결 상태 용량 초과: 원본 보존');
+  props.setProperty(TRADE_SNAPSHOT_DEFERRED_DATES_KEY,value);
+}
+function _deferTradeSnapshotDate_(date) {
+  var state = _readTradeSnapshotDeferredState_();
+  if (state.dates.indexOf(date) === -1) state.dates.push(date);
+  _writeTradeSnapshotDeferredState_(state);
+}
+function _clearTradeSnapshotDeferredDate_(date) {
+  var state = _readTradeSnapshotDeferredState_();
+  if (state.dates.indexOf(date) === -1) return;
+  state.dates = state.dates.filter(function(value) { return value !== date; });
+  _writeTradeSnapshotDeferredState_(state);
+}
+function _markTradeSnapshotWorkerResult_(result) {
+  // Only an aggregate enum/date/time is retained; no code, account, price,
+  // cost basis, provider credential or individual ledger record is logged.
+  PropertiesService.getScriptProperties().setProperty(TRADE_SNAPSHOT_WORKER_LAST_KEY,
+    JSON.stringify({ status:result.status, at:new Date().toISOString(),
+      processed:Number(result.processed) || 0, deferred:Number(result.deferred) || 0,
+      blockedDate:result.blockedDate || '', sourceCheck:result.sourceCheck || '' }));
+  return result;
+}
+function _assessTradeSnapshotWorkerDate_(ss, target) {
+  var before = diagnoseSnapshotIntegrity(ss,target);
+  var deferrable = function(proof) {
+    return proof && ['SOURCE_INCOMPLETE','CONFLICT','PRICE_SUSPICIOUS'].indexOf(proof.status) !== -1;
+  };
+  // Never call the full-sheet Snapshot writer for source-incomplete,
+  // unresolved duplicate, manual-protected or suspicious-price dates.
+  if (deferrable(before)) return {state:'DEFERRED',reason:before.status};
+  var beforeEmpty = before.status === 'NO_SNAPSHOT' && before.expectedRowCount === 0
+    && before.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss,target) === false;
+  if (beforeEmpty) return {state:'VALID'};
+  var result = _rebuildDailySnapshotsLocked(target,target,{});
+  if (!result || (result.errors || []).length || result.skipped) {
+    // An unrelated writer failure is NOT a source-gap exemption.
+    var incomplete = diagnoseSnapshotIntegrity(ss,target);
+    if (deferrable(incomplete)) return {state:'DEFERRED',reason:incomplete.status};
+    return {state:'BLOCKED',reason:'REBUILD_ERROR'};
+  }
+  var proof = diagnoseSnapshotIntegrity(ss,target);
+  var verifiedEmpty = proof.status === 'NO_SNAPSHOT' && proof.expectedRowCount === 0
+    && proof.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss,target) === false;
+  if ((proof.status === 'VALID' || verifiedEmpty) && !proof.duplicateKeys.length && !proof.sourceDataErrors.length)
+    return {state:'VALID'};
+  if (deferrable(proof)) return {state:'DEFERRED',reason:proof.status};
+  return {state:'BLOCKED',reason:proof.status};
+}
+
+// 설치형 hourly worker: 최대 2개 전진 날짜를 검증, 모호한 역사일은
+// 영속 미해결 목록에 기록한 후에만 다음 날짜로 이동합니다.
+// 전진할 날짜가 없을 때 오래된 미해결 날짜를 round-robin 1개씩 재검증해,
+// 가격/NAV 원천이 나중에 추가되면 과거 항목도 자동으로 해소됩니다.
 function runPendingTradeSnapshotRebuild() {
   var lock = LockService.getScriptLock();
-  if (!lock.tryLock(1000)) return { status:'BUSY', processed:0 };
+  if (!lock.tryLock(1000)) return {status:'BUSY',processed:0};
   try {
     var ss = getss();
-    if (_tradeLedgerWriteUnverified_()) return {status:'LEDGER_WRITE_UNVERIFIED',processed:0};
+    if (_tradeLedgerWriteUnverified_())
+      return _markTradeSnapshotWorkerResult_({status:'LEDGER_WRITE_UNVERIFIED',processed:0});
     var fingerprint = _detectExternalTradeLedgerChanges_(ss);
-    if (fingerprint.state === 'UNSTABLE') return {status:'SOURCE_UNSTABLE',processed:0};
-    var pending = _readPendingTradeSnapshotRebuild();
-    if (!pending || !pending.from) return { status:'IDLE', processed:0, sourceCheck:fingerprint.state };
+    if (fingerprint.state === 'UNSTABLE')
+      return _markTradeSnapshotWorkerResult_({status:'SOURCE_UNSTABLE',processed:0});
+    var pending = _readPendingTradeSnapshotRebuild(), deferred = _readTradeSnapshotDeferredState_();
+    if (!pending || !pending.from) {
+      if (!deferred.dates.length)
+        return _markTradeSnapshotWorkerResult_({status:'IDLE',processed:0,sourceCheck:fingerprint.state});
+      // Never throw away a source-incomplete date. Round-robin avoids oldest-
+      // forever starvation when multiple historical dates need user input.
+      var next = deferred.dates.filter(function(date) { return date > deferred.cursor; })[0] || deferred.dates[0];
+      var retry = _assessTradeSnapshotWorkerDate_(ss,next);
+      if (retry.state === 'VALID') {
+        _clearTradeSnapshotDeferredDate_(next);
+        return _markTradeSnapshotWorkerResult_({status:'DEFERRED_RESOLVED',processed:1,blockedDate:next});
+      }
+      if (retry.state !== 'DEFERRED')
+        return _markTradeSnapshotWorkerResult_({status:'BLOCKED',processed:0,blockedDate:next});
+      deferred.cursor = next;
+      _writeTradeSnapshotDeferredState_(deferred);
+      return _markTradeSnapshotWorkerResult_({status:'DEFERRED_RETRY',processed:0,deferred:1,blockedDate:next});
+    }
     var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     if (!sh || sh.getLastRow() < 2) {
       _clearPendingTradeSnapshotRebuild();
-      return { status:'NO_EXISTING_SNAPSHOT', processed:0 };
+      return _markTradeSnapshotWorkerResult_({status:'NO_EXISTING_SNAPSHOT',processed:0});
     }
-    var last = _latestConfirmedSnapshotDate(ss, false);
-    // Include price/NAV/trade-source dates and eligible empty Snapshot days.
-    // Existing rows alone miss new positions created by backdated trades.
-    var dates = _collectDailySnapshotDates(ss, pending.from, last, {});
-    var ordered = Object.keys(dates).sort(), batch = ordered.slice(0, 2);
+    var last = _latestConfirmedSnapshotDate(ss,false);
+    var dates = _collectDailySnapshotDates(ss,pending.from,last,{});
+    var ordered = Object.keys(dates).sort(), batch = ordered.slice(0,2);
+    var processed = 0, deferredCount = 0;
     for (var i = 0; i < batch.length; i++) {
-      var target = batch[i], result = _rebuildDailySnapshotsLocked(target, target, {});
-      if (!result || (result.errors || []).length || result.skipped) {
-        Logger.log('거래원장 기준 재계산 대기: ' + target + ' / 원자료 또는 보호 충돌');
-        return { status:'BLOCKED', processed:i, blockedDate:target };
+      var target = batch[i], attempt = _assessTradeSnapshotWorkerDate_(ss,target);
+      if (attempt.state === 'BLOCKED') {
+        Logger.log('거래원장 재계산 안전 중단: ' + target + ' / ' + attempt.reason);
+        return _markTradeSnapshotWorkerResult_({status:'BLOCKED',processed:processed,blockedDate:target,deferred:deferredCount});
       }
-      var proof = diagnoseSnapshotIntegrity(ss, target);
-      // A day with genuinely zero ledger holdings has no Snapshot rows to
-      // persist. This is a validated empty state, not a missing-history gap.
-      var verifiedEmpty = proof.status === 'NO_SNAPSHOT' && proof.expectedRowCount === 0
-        && proof.storedRowCount === 0 && _hasSnapshotHoldingsAtDate(ss, target) === false;
-      if ((!verifiedEmpty && proof.status !== 'VALID') || proof.duplicateKeys.length ||
-          proof.sourceDataErrors.length) {
-        Logger.log('거래원장 기준 재계산 검증 대기: ' + target + ' / ' + proof.status);
-        return { status:'BLOCKED', processed:i, blockedDate:target };
+      if (attempt.state === 'DEFERRED') {
+        // Commit unresolved history BEFORE cursor movement. If GAS times out
+        // between these writes, replaying this date is harmless/idempotent.
+        _deferTradeSnapshotDate_(target);
+        deferredCount++;
+      } else {
+        _clearTradeSnapshotDeferredDate_(target);
+        processed++;
       }
-      var next = _dateOffset(target, 1);
+      var following = _dateOffset(target,1);
       PropertiesService.getScriptProperties().setProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY,
-        JSON.stringify({ from:next, updatedAt:new Date().toISOString() }));
+        JSON.stringify({from:following,updatedAt:new Date().toISOString()}));
     }
     if (!ordered.length || ordered.length <= batch.length) {
       _clearPendingTradeSnapshotRebuild();
-      return { status:'COMPLETED', processed:batch.length };
+      return _markTradeSnapshotWorkerResult_({status:deferredCount?'DEFERRED_OUTSTANDING':'COMPLETED',
+        processed:processed,deferred:deferredCount});
     }
-    return { status:'PENDING', processed:batch.length };
-  } catch (error) {
-    Logger.log('거래원장 Snapshot pending 유지: ' + String(error && error.message || 'unknown'));
-    return { status:'ERROR', processed:0 };
-  } finally { lock.releaseLock(); }
+    return _markTradeSnapshotWorkerResult_({status:'PENDING',processed:processed,deferred:deferredCount});
+  } catch(error) {
+    Logger.log('거래원장 Snapshot pending 보존: ' + String(error && error.message || 'unknown'));
+    try { return _markTradeSnapshotWorkerResult_({status:'ERROR',processed:0}); }
+    catch(ignore) { return {status:'ERROR',processed:0}; }
+  } finally {lock.releaseLock();}
 }
 
 function _ensurePendingTradeSnapshotRebuildTrigger(autoFix) {
@@ -12409,6 +12505,8 @@ function _getAutomationStatusData() {
   var pendingTradeSnapshotRebuild = parseProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
   var pendingTradeSnapshotRebuildFrom = pendingTradeSnapshotRebuild && _normalizeDate(pendingTradeSnapshotRebuild.from || '') || '';
   var tradeLedgerWriteUnverified = _tradeLedgerWriteUnverified_();
+  var tradeSnapshotDeferred = _readTradeSnapshotDeferredState_();
+  var tradeSnapshotWorkerLastResult = parseProperty(TRADE_SNAPSHOT_WORKER_LAST_KEY);
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
     || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
@@ -12429,11 +12527,11 @@ function _getAutomationStatusData() {
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length
-    || pendingTradeSnapshotRebuildFrom || tradeLedgerWriteUnverified
+    || pendingTradeSnapshotRebuildFrom || tradeLedgerWriteUnverified || tradeSnapshotDeferred.dates.length
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.237',
+    gasVersion: '9.238',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12475,6 +12573,9 @@ function _getAutomationStatusData() {
     pendingKrxCloseDates: pendingKrxCloseDates,
     pendingTradeSnapshotRebuildFrom: pendingTradeSnapshotRebuildFrom,
     tradeLedgerWriteUnverified: tradeLedgerWriteUnverified,
+    tradeSnapshotDeferredCount: tradeSnapshotDeferred.dates.length,
+    tradeSnapshotDeferredOldestDate: tradeSnapshotDeferred.dates[0] || '',
+    tradeSnapshotWorkerLastResult: tradeSnapshotWorkerLastResult,
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
@@ -12489,7 +12590,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.237' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.238' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16104,7 +16205,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.237' });
+    return jsonOk({ settings: settings, gasVersion: '9.238' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16134,7 +16235,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.237'
+      gasVersion: '9.238'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
