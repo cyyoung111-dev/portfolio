@@ -44,7 +44,7 @@ export function summarizeDiagnostics(payload,dates) {
 }
 export function summarizeEvidence(automation,diagnostics){
   if(!automation||automation.mode!=='READ_ONLY'
-    ||automation.gasVersion!=='9.237'
+    ||automation.gasVersion!=='9.238'
     ||typeof automation.triggerReady!=='boolean'
     ||!Array.isArray(automation.triggerMissing)
     ||!Array.isArray(diagnostics)||diagnostics.length!==8)
@@ -116,7 +116,7 @@ export function selfTest(){
   });
   const early=EARLY.map((date,i)=>sample(date,i<4?'SOURCE_INCOMPLETE':'VALID'));
   const regress=REGRESSION.map((date,i)=>sample(date,i===0?'CONFLICT':'VALID',i===0?37:39));
-  const a={mode:'READ_ONLY',gasVersion:'9.237',triggerReady:true,
+  const a={mode:'READ_ONLY',gasVersion:'9.238',triggerReady:true,
     triggerMissing:[],overallStatus:'INCOMPLETE',
     pendingTradeSnapshotRebuildFrom:'-',tradeLedgerWriteUnverified:false};
   const earlyEvidence=summarizeDiagnostics({status:'ok',checkedDates:EARLY,
