@@ -105,6 +105,22 @@ assert.throws(()=>ctx._verifyWrittenRange(genericSheet,2,1,values),/검증 실�
     'successful replay must commit fingerprint and clear pending after Snapshot rebuild');
   assert.equal(locked,false,'lock released after interruption and success');
   assert.equal(ledgerJournal,false,'completed source write clears the unverified journal');
+  // Simulate a GAS termination inside the trade-sheet write itself, before
+  // readback validation. A pending timestamp alone is not sufficient.
+  events=[];
+  sheet.clearContents=()=>{events.push('LEDGER_WRITE');throw Error('SIMULATED_INCOMPLETE_LEDGER_WRITE');};
+  const unfinished=run();
+  assert.equal(unfinished.saveState,'partial');
+  assert.equal(ledgerJournal,true,'source write journal survives an incomplete write');
+  const retry=run();
+  assert.equal(retry.errorCode,'TRADE_LEDGER_WRITE_UNVERIFIED');
+  assert.equal(events.filter(x=>x==='LEDGER_WRITE').length,1,
+    'unverified ledger rejects retry before touching the source or Snapshot');
+  ledgerJournal=false; // explicit verified recovery from the retained trade backup
+  sheet.clearContents=()=>{stored=[];};
+  assert.equal(run().saveState,'success','verified ledger restore allows retry');
+  assert.equal(ledgerJournal,false);
+
 }
 
 console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드/수량 차단·백업/잠금 보호 통과');
