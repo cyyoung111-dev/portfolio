@@ -68,6 +68,26 @@ function checkpoint(raw) {
     deferred:r.deferred === true,
     failureClass:classifyBackfillFailure(r) };
 }
+const WORKER_STATES=new Set(['IDLE','LEDGER_WRITE_UNVERIFIED','SOURCE_UNSTABLE',
+  'DEFERRED_RETRY','DEFERRED_RESOLVED','BLOCKED','NO_EXISTING_SNAPSHOT',
+  'DEFERRED_OUTSTANDING','COMPLETED','PENDING','ERROR']);
+const WORKER_SOURCES=new Set(['','UNCHANGED','BASELINED','CHANGED','UNSTABLE']);
+function safeWorkerCheckpoint(raw) {
+  if(raw == null)return null;
+  if(!raw || typeof raw!=='object' || Array.isArray(raw)
+    || !WORKER_STATES.has(raw.status)
+    || typeof raw.at!=='string'
+    || !/^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d\\.\\d{3}Z$/.test(raw.at)
+    || !Number.isFinite(Date.parse(raw.at))
+    || new Date(raw.at).toISOString()!==raw.at
+    || !Number.isSafeInteger(raw.processed)||raw.processed<0||raw.processed>2
+    || !Number.isSafeInteger(raw.deferred)||raw.deferred<0||raw.deferred>2
+    || !WORKER_SOURCES.has(raw.sourceCheck||''))
+    throw new Error('AUTOMATION_DIAG_BAD_LEDGER_WORKER_CHECKPOINT');
+  const blockedDate=safeDate(raw.blockedDate || '');
+  return {status:raw.status,at:raw.at,processed:raw.processed,
+    deferred:raw.deferred,blockedDate,sourceCheck:raw.sourceCheck||''};
+}
 const HISTORICAL_STATES=new Set(['RUNNING','SUCCEEDED','FAILED','DEFERRED','NO_WORK']);
 const HISTORICAL_REASONS=new Set(['STARTED','COMPLETE','FAILED','NO_WORK','FUND_ACTIVE',
   'CLOSE_ACTIVE','BACKFILL_BUSY','LEASE_CONFLICT','BLOCKED_PRECONDITION','EXCEPTION']);
@@ -130,6 +150,18 @@ export function summarizeBackfillStatus(payload) {
     throw new Error('AUTOMATION_DIAG_BAD_LEDGER_PENDING');
   const pendingTradeSnapshotRebuildFrom=hasLedgerRelease
     ?safeDate(a.pendingTradeSnapshotRebuildFrom):'-';
+  const hasWorkerRelease=parts[0]>9||(parts[0]===9&&parts[1]>=238);
+  if(hasWorkerRelease && (!Number.isSafeInteger(a.tradeSnapshotDeferredCount)
+    || a.tradeSnapshotDeferredCount<0 || a.tradeSnapshotDeferredCount>600))
+    throw new Error('AUTOMATION_DIAG_BAD_DEFERRED_COUNT');
+  const tradeSnapshotDeferredCount=hasWorkerRelease?a.tradeSnapshotDeferredCount:null;
+  const tradeSnapshotDeferredOldestDate=hasWorkerRelease
+    ?safeDate(a.tradeSnapshotDeferredOldestDate):'-';
+  if(hasWorkerRelease && ((tradeSnapshotDeferredCount===0 && tradeSnapshotDeferredOldestDate!=='-')
+    || (tradeSnapshotDeferredCount>0 && tradeSnapshotDeferredOldestDate==='-')))
+    throw new Error('AUTOMATION_DIAG_BAD_DEFERRED_DATE');
+  const tradeSnapshotWorkerLastResult=hasWorkerRelease
+    ?safeWorkerCheckpoint(a.tradeSnapshotWorkerLastResult):null;
   const overallStatus=String(a.overallStatus || '');
   if (!['NORMAL','WARNING','ERROR','INCOMPLETE','NEVER_RUN'].includes(overallStatus))
     throw new Error('AUTOMATION_DIAG_BAD_RESPONSE');
@@ -141,6 +173,9 @@ export function summarizeBackfillStatus(payload) {
     pendingDates:pending, pendingCount:pending.length,
     pendingTradeSnapshotRebuildFrom,
     tradeLedgerWriteUnverified:hasLedgerRelease?a.tradeLedgerWriteUnverified:false,
+    tradeSnapshotDeferredCount,
+    tradeSnapshotDeferredOldestDate,
+    tradeSnapshotWorkerLastResult,
     officialKrxPriceHistoryLastDate:safeDate(a.officialKrxPriceHistoryLastDate),
     snapshotLastDate:safeDate(a.snapshotLastDate),
     priceHistoryLastDate:safeDate(a.priceHistoryLastDate),
