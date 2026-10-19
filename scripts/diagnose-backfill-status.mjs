@@ -72,6 +72,9 @@ const WORKER_STATES=new Set(['RUNNING','IDLE','LEDGER_WRITE_UNVERIFIED','SOURCE_
   'DEFERRED_RETRY','DEFERRED_RESOLVED','BLOCKED','NO_EXISTING_SNAPSHOT',
   'DEFERRED_OUTSTANDING','COMPLETED','PENDING','ERROR']);
 const WORKER_SOURCES=new Set(['','UNCHANGED','BASELINED','CHANGED','UNSTABLE']);
+// Only predefined non-sensitive lifecycle phases can leave the GAS runtime.
+const WORKER_PHASES=new Set(['','ENTRY','LEDGER_FINGERPRINT','QUEUE_READ',
+  'DATE_DISCOVERY','DATE_DIAGNOSTIC','CURSOR_COMMIT','DEFERRED_RETRY']);
 function safeWorkerCheckpoint(raw) {
   if(raw == null)return null;
   if(!raw || typeof raw!=='object' || Array.isArray(raw)
@@ -82,11 +85,18 @@ function safeWorkerCheckpoint(raw) {
     || new Date(raw.at).toISOString()!==raw.at
     || !Number.isSafeInteger(raw.processed)||raw.processed<0||raw.processed>2
     || !Number.isSafeInteger(raw.deferred)||raw.deferred<0||raw.deferred>2
-    || !WORKER_SOURCES.has(raw.sourceCheck||''))
+    || !WORKER_SOURCES.has(raw.sourceCheck||'')
+    || !WORKER_PHASES.has(raw.phase||'')
+    || (raw.runStartedAt && (typeof raw.runStartedAt!=='string'
+      || !/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$/.test(raw.runStartedAt)
+      || !Number.isFinite(Date.parse(raw.runStartedAt))
+      || new Date(raw.runStartedAt).toISOString()!==raw.runStartedAt
+      || raw.runStartedAt>raw.at)))
     throw new Error('AUTOMATION_DIAG_BAD_LEDGER_WORKER_CHECKPOINT');
   const blockedDate=safeDate(raw.blockedDate || '');
   return {status:raw.status,at:raw.at,processed:raw.processed,
-    deferred:raw.deferred,blockedDate,sourceCheck:raw.sourceCheck||''};
+    deferred:raw.deferred,blockedDate,sourceCheck:raw.sourceCheck||'',
+    phase:raw.phase||'',runStartedAt:raw.runStartedAt||''};
 }
 function safeWorkerBusyCheckpoint(raw) {
   if(raw == null)return null;

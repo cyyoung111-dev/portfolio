@@ -1,6 +1,9 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.241
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.242
 //
+//  v9.242 변경사항 (2026.10.19):
+//  - 시간 worker 6분 한도 초과 구간 진단: 실행 단계 enum 및 시작시각만 영속 기록.
+//  - 기존 Snapshot 쓰기·거래원장·deferred/pending 전진·ScriptLock 로직 불변.
 //  v9.241 변경사항 (2026.10.19):
 //  - 거래원장 보유가 있는데 단일일 expected 0행·PARTIAL이면 SOURCE_INCOMPLETE로 안전 이월.
 //  - 쓰기 전 보류, pending/deferred 보호 및 기존 Snapshot 원본 무변경.
@@ -2187,7 +2190,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.241',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.242',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2265,7 +2268,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.241', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.242', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6067,7 +6070,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.241' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.242' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -10437,7 +10440,9 @@ function _markTradeSnapshotWorkerResult_(result) {
   PropertiesService.getScriptProperties().setProperty(TRADE_SNAPSHOT_WORKER_LAST_KEY,
     JSON.stringify({ status:result.status, at:new Date().toISOString(),
       processed:Number(result.processed) || 0, deferred:Number(result.deferred) || 0,
-      blockedDate:result.blockedDate || '', sourceCheck:result.sourceCheck || '' }));
+      blockedDate:result.blockedDate || '', sourceCheck:result.sourceCheck || '',
+      phase:result.status === 'RUNNING' ? (result.phase || 'ENTRY') : '',
+      runStartedAt:result.runStartedAt || '' }));
   return result;
 }
 function _assessTradeSnapshotWorkerDate_(ss, target) {
@@ -10501,15 +10506,23 @@ function runPendingTradeSnapshotRebuild() {
     return {status:'BUSY',processed:0};
   }
   try {
-    // Persist ENTRY BEFORE getss(), SHA-256 ledger scanning or price
-    // diagnostics. A GAS hard timeout leaves RUNNING rather than false IDLE.
-    _markTradeSnapshotWorkerResult_({status:'RUNNING',processed:0});
+    // Lightweight phase-only heartbeat. `runStartedAt` identifies the original
+    // entry, even after phase timestamps advance. No holdings/credentials leak.
+    // A GAS hard stop leaves the LAST reached phase instead of false success.
+    var runStartedAt = new Date().toISOString();
+    var markPhase = function(phase, date) {
+      _markTradeSnapshotWorkerResult_({status:'RUNNING',processed:0,
+        phase:phase,runStartedAt:runStartedAt,blockedDate:date || ''});
+    };
+    markPhase('ENTRY');
     var ss = getss();
     if (_tradeLedgerWriteUnverified_())
       return _markTradeSnapshotWorkerResult_({status:'LEDGER_WRITE_UNVERIFIED',processed:0});
+    markPhase('LEDGER_FINGERPRINT');
     var fingerprint = _detectExternalTradeLedgerChanges_(ss);
     if (fingerprint.state === 'UNSTABLE')
       return _markTradeSnapshotWorkerResult_({status:'SOURCE_UNSTABLE',processed:0});
+    markPhase('QUEUE_READ');
     var pending = _readPendingTradeSnapshotRebuild(), deferred = _readTradeSnapshotDeferredState_();
     if (!pending || !pending.from) {
       if (!deferred.dates.length)
@@ -10517,6 +10530,7 @@ function runPendingTradeSnapshotRebuild() {
       // Never throw away a source-incomplete date. Round-robin avoids oldest-
       // forever starvation when multiple historical dates need user input.
       var next = deferred.dates.filter(function(date) { return date > deferred.cursor; })[0] || deferred.dates[0];
+      markPhase('DEFERRED_RETRY',next);
       var retry = _assessTradeSnapshotWorkerDate_(ss,next);
       if (retry.state === 'VALID') {
         _clearTradeSnapshotDeferredDate_(next);
@@ -10533,16 +10547,20 @@ function runPendingTradeSnapshotRebuild() {
       _clearPendingTradeSnapshotRebuild();
       return _markTradeSnapshotWorkerResult_({status:'NO_EXISTING_SNAPSHOT',processed:0});
     }
+    markPhase('DATE_DISCOVERY');
     var last = _latestConfirmedSnapshotDate(ss,false);
     var dates = _collectDailySnapshotDates(ss,pending.from,last,{});
     var ordered = Object.keys(dates).sort(), batch = ordered.slice(0,2);
     var processed = 0, deferredCount = 0;
     for (var i = 0; i < batch.length; i++) {
-      var target = batch[i], attempt = _assessTradeSnapshotWorkerDate_(ss,target);
+      var target = batch[i];
+      markPhase('DATE_DIAGNOSTIC',target);
+      var attempt = _assessTradeSnapshotWorkerDate_(ss,target);
       if (attempt.state === 'BLOCKED') {
         Logger.log('거래원장 재계산 안전 중단: ' + target + ' / ' + attempt.reason);
         return _markTradeSnapshotWorkerResult_({status:'BLOCKED',processed:processed,blockedDate:target,deferred:deferredCount});
       }
+      markPhase('CURSOR_COMMIT',target);
       if (attempt.state === 'DEFERRED') {
         // Commit unresolved history BEFORE cursor movement. If GAS times out
         // between these writes, replaying this date is harmless/idempotent.
@@ -12604,7 +12622,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.241',
+    gasVersion: '9.242',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12665,7 +12683,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.241' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.242' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16280,7 +16298,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.241' });
+    return jsonOk({ settings: settings, gasVersion: '9.242' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16310,7 +16328,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.241'
+      gasVersion: '9.242'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);

@@ -44,7 +44,7 @@ export function summarizeDiagnostics(payload,dates) {
 }
 export function summarizeEvidence(automation,diagnostics){
   if(!automation||automation.mode!=='READ_ONLY'
-    ||!['9.237','9.238','9.239','9.240','9.241'].includes(automation.gasVersion)
+    ||!['9.237','9.238','9.239','9.240','9.241','9.242'].includes(automation.gasVersion)
     ||typeof automation.triggerReady!=='boolean'
     ||!Array.isArray(automation.triggerMissing)
     ||!Array.isArray(diagnostics)||diagnostics.length!==8)
@@ -78,6 +78,8 @@ export function summarizeEvidence(automation,diagnostics){
     tradeLedgerWriteUnverified:automation.tradeLedgerWriteUnverified,
     workerLastExecution:workerVerified?worker.at:'NOT_OBSERVED',
     workerLastStatus:workerVerified?worker.status:'NOT_OBSERVED',
+    workerLastPhase:workerVerified?(worker.phase||''):'NOT_OBSERVED',
+    workerOriginalStartedAt:workerVerified?(worker.runStartedAt||worker.at):'NOT_OBSERVED',
     workerCompletedVerified:workerVerified && worker.status!=='RUNNING',
     workerStaleRunningSuspected:!!staleRunning,
     workerLastLockBusyAt:busy?busy.at:'NOT_OBSERVED',
@@ -171,6 +173,14 @@ export function selfTest(){
   assert.equal(executing.workerFirstRunVerified,true);
   assert.equal(executing.workerCompletedVerified,false);
   assert.equal(executing.workerLastStatus,'RUNNING');
+  const phased=summarizeEvidence({...a,gasVersion:'9.242',
+    tradeSnapshotWorkerLastResult:{status:'RUNNING',
+      at:'2026-10-19T11:07:00.000Z',runStartedAt:'2026-10-19T11:02:23.565Z',
+      phase:'DATE_DIAGNOSTIC',processed:0,deferred:0,
+      blockedDate:'2025-12-31',sourceCheck:''}},evidence);
+  assert.equal(phased.workerLastPhase,'DATE_DIAGNOSTIC');
+  assert.equal(phased.workerOriginalStartedAt,'2026-10-19T11:02:23.565Z');
+  assert.ok(!JSON.stringify(phased).includes('SECRET'));
   assert.equal(executing.workerLastLockBusyAt,'2026-10-19T08:03:00.000Z');
   assert.equal(out.earlyUnresolvedDateCount,4);
   assert.equal(out.septemberRegressionReady,true);

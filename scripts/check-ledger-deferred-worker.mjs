@@ -20,7 +20,7 @@ assert.match(gas,/tradeSnapshotDeferredCount: tradeSnapshotDeferred.dates.length
 assert.match(gas,/tradeSnapshotWorkerLastResult: tradeSnapshotWorkerLastResult/);
 
 function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=false,holdingsPresent=true}={}) {
-  const props=new Map(),calls=[],logs=[],locks={held:0};
+  const props=new Map(),calls=[],logs=[],phaseMarks=[],locks={held:0};
   let dates=['2025-12-31','2026-01-01','2026-01-06'];
   let activeStatus={...statusByDate};
   if(badDeferred)props.set('trade_snapshot_rebuild_deferred_v1',
@@ -29,7 +29,15 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
     JSON.stringify({from:'2025-12-31'}));
   const scriptProps={
     getProperty:key=>props.get(key)||null,
-    setProperty:(key,value)=>{calls.push({op:'set',key});props.set(key,value)},
+    setProperty:(key,value)=>{
+      calls.push({op:'set',key});
+      if(key==='trade_snapshot_worker_last_v1'){
+        const data=JSON.parse(value);
+        if(data.status==='RUNNING')phaseMarks.push({
+          phase:data.phase,blockedDate:data.blockedDate,runStartedAt:data.runStartedAt});
+      }
+      props.set(key,value);
+    },
     deleteProperty:key=>{calls.push({op:'delete',key});props.delete(key)}
   };
   const ctx=vm.createContext({
@@ -75,7 +83,7 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
     Logger:{log:msg=>logs.push(String(msg))},
   });
   vm.runInContext(compiled,ctx);
-  return {ctx,props,calls,locks,logs,activeStatus,
+  return {ctx,props,calls,locks,logs,phaseMarks,activeStatus,
     pending:()=>JSON.parse(props.get('trade_snapshot_rebuild_pending_v1')||'null'),
     deferred:()=>JSON.parse(props.get('trade_snapshot_rebuild_deferred_v1')||'{"dates":[],"cursor":""}'),
     last:()=>JSON.parse(props.get('trade_snapshot_worker_last_v1')||'null'),
@@ -208,6 +216,14 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
   assert.equal(updates[0],'trade_snapshot_worker_last_v1');
   assert.equal(f.busy(),null);
   assert.equal(f.last().status,'PENDING');
+  assert.deepEqual(f.phaseMarks.slice(0,5).map(x=>x.phase),
+    ['ENTRY','LEDGER_FINGERPRINT','QUEUE_READ','DATE_DISCOVERY','DATE_DIAGNOSTIC']);
+  assert.equal(f.phaseMarks.at(-1).phase,'CURSOR_COMMIT');
+  assert.ok(f.phaseMarks.every(x=>x.runStartedAt===f.phaseMarks[0].runStartedAt),
+    'step checkpoint must retain the original entry timestamp');
+  assert.ok(f.phaseMarks.every(x=>x.blockedDate==='' ||
+    /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(x.blockedDate)),
+    'phase markers contain only safe date or blank; no financial payload');
   assert.equal(f.locks.held,0);
 }
 // Lock collisions must not overwrite the active worker's last RUNNING phase.
