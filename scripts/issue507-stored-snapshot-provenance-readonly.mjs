@@ -18,7 +18,8 @@ const classify=s=>{
   s=String(s||'').trim().toUpperCase();
   if(s==='MANUAL')return 'MANUAL';
   if(s==='COST_FALLBACK')return 'COST_FALLBACK';
-  if(s.startsWith('FUND_NAV_CARRY@'))return 'FUND_NAV_CARRY';
+  if(s.startsWith('FUND_NAV_CARRY_INPUT_REQUIRED'))return 'FUND_NAV_INPUT_REQUIRED';
+  if(s.startsWith('FUND_NAV_CARRY'))return 'FUND_NAV_CARRY';
   if(s.startsWith('FUND_NAV'))return 'FUND_NAV';
   if(s.includes('CARRY'))return 'PRICE_CARRY';
   if(/^(KRX|KRX_CONFIRMED_CLOSE|KRX_OTP|TOSS_CONFIRMED_DAILY_CLOSE|STORED_CONFIRMED_CLOSE)$/.test(s))
@@ -98,6 +99,15 @@ export async function selfTest(){
   assert.deepEqual(result.storedSnapshotProvenance[4].explicitCarrySourceDates,['2025-12-30']);
   assert.equal(result.storedSnapshotProvenance[4].currentMissingCodeMatches,1);
   assert.equal(result.storedSnapshotProvenance[3].isStoredValueTrustedAsConfirmedHistoricClose,false);
+  for(const [source,expected] of [
+    ['FUND_NAV_CARRY','FUND_NAV_CARRY'],
+    ['FUND_NAV_CARRY@2025-12-30','FUND_NAV_CARRY'],
+    ['FUND_NAV_CARRY_INPUT_REQUIRED','FUND_NAV_INPUT_REQUIRED'],
+    ['FUND_NAV','FUND_NAV']]){
+    const synthetic=SNAPSHOT_DATES.map(date=>({status:'ok',date,items:[]}));
+    synthetic[3].items=[{code:'0046Y0',name:'PRIVATE_FUND',source,qty:1,evalUnit:100}];
+    assert.equal(summarizeSnapshots(diag,synthetic).storedSnapshotProvenance[3].sourceFamilies[0],expected);
+  }
   assert.ok(!JSON.stringify(result).includes('0046Y0'));
   assert.ok(!JSON.stringify(result).includes('PRIVATE_ETF'));
   assert.ok(!JSON.stringify(result).includes('456'));
