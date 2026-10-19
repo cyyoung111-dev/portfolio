@@ -7,7 +7,11 @@ import {DATES} from './issue507-yearend-carry-readonly.mjs';
 import {firstMissingCodes} from './issue507-missing-price-provenance-readonly.mjs';
 const CODE=/^[A-Z0-9][A-Z0-9.-]{0,29}$/;
 const DATE=/^\d{4}-\d{2}-\d{2}$/;
-const UNVERIFIED=/REALTIME|INDICATIVE|DAILY_CANDLE|UNVERIFIED_CLOSE|GOOGLEFINANCE|^TOSS$|^KRX_CARRY$|^KRX_OTP_CARRY$/i;
+// Candidate pricing must be proven. Never accept a carry, indicative, or
+// unknown provider string as the originating confirmed close.
+const TRUSTED=/^(KRX_CONFIRMED_CLOSE|TOSS_CONFIRMED_DAILY_CLOSE|STORED_CONFIRMED_CLOSE|FUND_NAV)$/i;
+const eligibleSource=r=>TRUSTED.test(String(r.source||'')) ||
+  (String(r.source||'').toUpperCase()==='MANUAL' && !!String(r.savedAt||'').trim());
 const normCode=raw=>{
   const s=String(raw||'').trim().toUpperCase();
   if(/^\d+$/.test(s))return s.padStart(6,'0');
@@ -67,10 +71,11 @@ export function summarizeLedgerLineage(probe,priceResponse){
     const candidates=x.candidateCodes;
     const historical=candidates.flatMap(code=>
       (priceResponse.prices[code]||[]).filter(r=>r.date<=m.date));
-    const eligible=historical.filter(r=>r.source&&!UNVERIFIED.test(r.source));
+    const eligible=historical.filter(eligibleSource);
     const lastEligible=eligible.map(r=>r.date).sort().at(-1)||'-';
     return {date:m.date,state:candidates.length
-      ? (eligible.length?'NAME_MATCHED_LEGACY_PRICE_CANDIDATE':'NAME_MATCHED_OLD_CODE_NO_PRIOR_PRICE')
+      ? (eligible.length?'NAME_MATCHED_LEGACY_PRICE_CANDIDATE':
+        historical.length?'NAME_MATCHED_OLD_CODE_UNPROVEN_PRICE_SOURCE':'NAME_MATCHED_OLD_CODE_NO_PRIOR_PRICE')
       : 'NO_NAME_MATCHED_PREDECESSOR_IN_LEDGER',
       currentCodeFirstTradeDate:x.firstTradeDate,
       currentCodeTradeCount:x.currentCodeTradeCount,
@@ -140,6 +145,17 @@ export async function selfTest(){
   assert.equal(report.results[2].replacementProven,false);
   assert.equal(report.results[2].currentCodeFirstPriceDate,'2026-01-06');
   assert.equal(report.results[2].currentCodeTradeBeforeFirstPrice,true);
+  const carried=summarizeLedgerLineage(probe,{status:'ok',prices:{
+    '000460':[{date:'2025-12-30',price:100,source:'KRX_CARRY@2025-12-29',savedAt:''},
+      {date:'2025-12-29',price:100,source:'FUND_NAV_CARRY_INPUT_REQUIRED',savedAt:''}]}});
+  assert.equal(carried.results[2].state,'NAME_MATCHED_OLD_CODE_UNPROVEN_PRICE_SOURCE');
+  assert.equal(carried.results[2].eligiblePastPriceRowsForCandidates,0);
+  const manual=summarizeLedgerLineage(probe,{status:'ok',prices:{
+    '000460':[{date:'2025-12-30',price:100,source:'MANUAL',savedAt:'2025-12-30T12:00:00Z'}]}});
+  assert.equal(manual.results[2].state,'NAME_MATCHED_LEGACY_PRICE_CANDIDATE');
+  const manualWithoutProof=summarizeLedgerLineage(probe,{status:'ok',prices:{
+    '000460':[{date:'2025-12-30',price:100,source:'MANUAL',savedAt:''}]}});
+  assert.equal(manualWithoutProof.results[2].state,'NAME_MATCHED_OLD_CODE_UNPROVEN_PRICE_SOURCE');
   assert.equal(report.sourceOfTruth,'TRADE_LEDGER');
   assert.ok(!JSON.stringify(report).includes('000460'));
   assert.ok(!JSON.stringify(report).includes('0046Y0'));
