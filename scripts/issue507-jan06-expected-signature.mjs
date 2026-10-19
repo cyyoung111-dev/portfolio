@@ -64,9 +64,7 @@ export async function verify({url,token,fetchImpl=fetch}){
 }
 export function selfTest(){
   const rows=Array.from({length:30},(_,i)=>[DATE,String(i+100000),'N',1,100,100,100,100,0,0,'KRX','']);
-  rows.push([DATE,'361610','N',1,105000,105000,24850,24850,-80150,-76.33,'KRX','']);
-  // Replace one synthetic code to keep 30 domestic + 3 fund = 33 rows.
-  rows.pop();
+  // 30 domestic codes + 3 fund codes = 33 expected rows.
   rows[0][1]='361610';rows[1][1]='487240';
   for(let i=1;i<=3;i++) rows.push([DATE,'F0000'+i,'Fund',1,100,100,110,110,10,10,'FUND_NAV','']);
   const p={status:'ok',checkedDates:[DATE],diagnostics:[{
