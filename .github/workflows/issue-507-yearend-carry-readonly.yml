@@ -1,0 +1,47 @@
+name: issue-507-yearend-carry-readonly
+
+# A historical year-end boundary proof. No worker, price, ledger, NAV or Snapshot writes.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - '.github/workflows/issue-507-yearend-carry-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - '.github/workflows/issue-507-yearend-carry-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Check source syntax
+        run: node --check scripts/issue507-yearend-carry-readonly.mjs
+      - name: Execute actual GAS ledger/price/fund carry and safety regressions
+        run: node scripts/issue507-yearend-carry-readonly.mjs --self-test
+
+  operational-readonly:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: production-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read-only live 2025-12-30 through 2026-01-02 provenance aggregates
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-yearend-carry-readonly.mjs
