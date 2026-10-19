@@ -587,6 +587,7 @@ function ledgerSnippet(name) {
       CONFIG:{SHEET_SNAPSHOT:'스냅샷'},
       TRADE_SNAPSHOT_REBUILD_PENDING_KEY:'trade_snapshot_rebuild_pending_v1',
       _normalizeDate:x=>String(x||''),
+      _detectExternalTradeLedgerChanges_:()=>({state:'UNCHANGED'}),
       _readPendingTradeSnapshotRebuild:()=>from?{from}:null,
       _clearPendingTradeSnapshotRebuild:()=>{from='';},
       _latestConfirmedSnapshotDate:()=> '2026-06-09',
