@@ -72,9 +72,9 @@ const latestReleaseNotes = deploymentNotes.slice(
 assert.match(latestReleaseNotes, /배포 상태/, 'latest GAS release needs a separate deployment state');
 assert.match(latestReleaseNotes, /배포 후/, 'latest GAS release needs a post-deployment verification step');
 assert.ok(!latestReleaseNotes.includes('## GAS v9.228'),
-  'newest v9.237 release must end before historical v9.228 section');
-assert.ok(latestReleaseNotes.includes('gasVersion=9.237') && latestReleaseNotes.includes('Snapshot'),
-  'latest release must independently document KRX persisted verification and post-deploy check');
+  'newest GAS release must end before historical v9.228 section');
+assert.ok(latestReleaseNotes.includes('gasVersion=9.238') && latestReleaseNotes.includes('Snapshot'),
+  'latest release must document post-deployment source integrity and Snapshot verification');
 
 // Execute the *actual trigger-registration functions*, not copies of their
 // scheduling expressions. These checks would catch PR #505's 00:10/00:30
