@@ -68,6 +68,38 @@ const values=[['2026-10-07','005930',100]];
 const genericSheet={getRange:()=>({getValues:()=>[[new Date('2026-10-07T00:00:00Z'),'005930',100]]})};
 assert.throws(()=>ctx._verifyWrittenRange(genericSheet,2,1,values),/검증 실패/,
   'shared strict verifier for other data is unchanged');
+// P1 regression: execute the real web trade writer. Simulate an interruption
+// at the costly Snapshot stage and ensure the durable pending marker was
+// already written *before* the trade sheet was touched. Success clears last.
+{
+  let events=[];
+  mutation=null;
+  sheet.clearContents=()=>{events.push('LEDGER_WRITE');stored=[];};
+  ctx._earliestChangedTradeDate=()=> '2021-05-11';
+  ctx._latestConfirmedSnapshotDate=()=> '2021-05-11';
+  ctx._setPendingTradeSnapshotRebuild=date=>{events.push('PENDING:'+date);return {from:date};};
+  ctx._clearPendingTradeSnapshotRebuild=()=>{events.push('CLEAR');};
+  ctx._recordTradeLedgerFingerprint_=()=>{events.push('FINGERPRINT');return 'safe-sha';};
+  ctx.rebuildDailySnapshots=()=>{events.push('REBUILD');throw Error('SIMULATED_GAS_TIMEOUT');};
+  const interrupted=run();
+  assert.equal(interrupted.saveState,'partial');
+  assert.ok(events.indexOf('PENDING:2021-05-11') < events.indexOf('LEDGER_WRITE'),
+    'pending must be durable before any source mutation');
+  assert.ok(!events.includes('CLEAR'),'partial result must not clear pending');
+  assert.ok(!events.includes('FINGERPRINT'),'partial result must not advance source fingerprint');
+  events=[];
+  ctx.rebuildDailySnapshots=()=>{events.push('REBUILD');return {errors:[],skipped:0};};
+  const completed=run();
+  assert.equal(completed.saveState,'success');
+  const idx=x=>events.indexOf(x);
+  assert.ok(idx('PENDING:2021-05-11') < idx('LEDGER_WRITE')
+    && idx('LEDGER_WRITE') < idx('REBUILD')
+    && idx('REBUILD') < idx('FINGERPRINT')
+    && idx('FINGERPRINT') < idx('CLEAR'),
+    'successful replay must commit fingerprint and clear pending after Snapshot rebuild');
+  assert.equal(locked,false,'lock released after interruption and success');
+}
+
 console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드/수량 차단·백업/잠금 보호 통과');
 
 
