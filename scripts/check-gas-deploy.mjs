@@ -227,6 +227,9 @@ assert.throws(() => verifyProductionTimezone(driftedTimezone),
 // free. Only external data readers are mocked; inspected handlers are real.
 const statusFunctions = [
   '_ensureSnapshotIntegrityChangeTrigger',
+  '_ensureSnapshotIntegrityEditTrigger',
+  '_ensurePendingTradeSnapshotRebuildTrigger',
+  '_readPendingTradeSnapshotRebuild',
   '_ensureDailyTriggers',
   '_getAutomationStatusData',
   'checkDailyAutomationStatus',
@@ -237,6 +240,7 @@ const requiredHandlers = [
   'runPortfolioCloseBackfill2210', 'runPortfolioHistoricalBackfill2240',
   'runPortfolioHistoricalBackfill0010', 'runPortfolioMorningKrxBackfill0845',
   'handleSnapshotIntegritySheetChange',
+  'handleSnapshotIntegritySheetEdit', 'runPendingTradeSnapshotRebuild',
 ];
 function runRealDiagnostics({
   missing = [], duplicate = '', overridden = {},
@@ -301,6 +305,17 @@ function runRealDiagnostics({
 const normalDiagnostics = runRealDiagnostics();
 assert.equal(normalDiagnostics.data.overallStatus, 'NORMAL');
 assert.equal(normalDiagnostics.data.trigger.hasMidnightBackfill, true);
+assert.equal(normalDiagnostics.data.trigger.hasIntegrityEdit, true);
+assert.equal(normalDiagnostics.data.trigger.hasLedgerRebuild, true);
+for (const [handler,flag] of [
+  ['handleSnapshotIntegritySheetEdit','hasIntegrityEdit'],
+  ['runPendingTradeSnapshotRebuild','hasLedgerRebuild'],
+]) {
+  const absent=runRealDiagnostics({missing:[handler]});
+  assert.equal(absent.data.overallStatus,'ERROR',handler+' missing must fail health');
+  assert.equal(absent.data.trigger[flag],false);
+  assert.match(absent.message,/트리거 상태 이상/);
+}
 assert.equal(normalDiagnostics.data.trigger.midnightBackfillCount, 1);
 assert.match(normalDiagnostics.message, /트리거는 정상 집합/);
 for (const [handler, flag, dupFlag, countKey, label] of [
@@ -373,11 +388,13 @@ function verifyRealTriggerSetup() {
       return {
         timeBased(){clock.mode='time';return this;},
         everyDays(days){clock.days=days;return this;},
+        everyHours(hours){clock.hours=hours;return this;},
         inTimezone(tz){clock.timezone=tz;return this;},
         atHour(h){clock.hour=h;return this;},
         nearMinute(m){clock.minute=m;return this;},
         forSpreadsheet(ss){assert.equal(ss,fakeSpreadsheet);clock.mode='sheet';return this;},
         onChange(){clock.change=true;return this;},
+        onEdit(){clock.edit=true;return this;},
         create(){
           created.push(clock);
           installed.push(makeEntry(handler,clock.mode==='sheet'?'unit-test-spreadsheet':''));
@@ -404,7 +421,9 @@ function verifyRealTriggerSetup() {
     '_ensurePortfolioCloseBackfillTrigger','_ensurePortfolioHistoricalBackfillTrigger',
     '_ensurePortfolioHistoricalBackfill0010Trigger',
     '_ensurePortfolioMorningKrxBackfillTrigger',
-    '_ensureSnapshotIntegrityChangeTrigger','setupTrigger',
+    '_ensureSnapshotIntegrityChangeTrigger',
+    '_ensureSnapshotIntegrityEditTrigger','_ensurePendingTradeSnapshotRebuildTrigger',
+    'setupTrigger',
   ]) new vm.Script(triggerDefinition(name)).runInContext(ctx);
   ctx.setupTrigger();
   for(const [handler,hour,minute] of [
@@ -423,6 +442,7 @@ function verifyRealTriggerSetup() {
   for(const handler of [
     'runDailyPortfolioClose1900','runPortfolioCloseWatchdog2030',
     'handleSnapshotIntegritySheetChange',
+    'handleSnapshotIntegritySheetEdit', 'runPendingTradeSnapshotRebuild',
   ]) assert.equal(created.filter(c=>c.handler===handler).length,1,
     'setupTrigger must install required operational trigger: '+handler);
   assert.equal(installed.filter(t=>t.getHandlerFunction()==='runEvalPriceUpdate1620').length,0,
