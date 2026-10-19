@@ -10204,6 +10204,9 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
     if (currentRows.length) _verifyTradeWrittenRange(sh, 2, _normalizeCodeRows(currentRows, 4));
     else if (sh.getLastRow() !== 1) throw new Error('빈 거래이력 쓰기 후 검증 실패');
     sourcePersisted = true;
+    // Web sync is already diff-tracked; refresh the fingerprint to avoid a
+    // second full-history requeue when the hourly API-change scan runs.
+    _recordTradeLedgerFingerprint_(ss);
     var explicitEmptyReset = explicitEmpty === true && currentRows.length === 0;
     affectedFrom = _earliestChangedTradeDate(previousRows, currentRows);
     // 이전 요청에서 거래원본은 저장됐지만 Snapshot 재계산만 실패했다면 동일 원장을 다시 보낸
@@ -10248,6 +10251,60 @@ function handleSyncTrades(dataJson, rebuildFrom, explicitEmpty) {
   }
 }
 
+var TRADE_LEDGER_FINGERPRINT_KEY = 'trade_ledger_snapshot_source_sha256_v1';
+
+// The Apps Script onEdit trigger does not fire for Sheets API / script-driven
+// edits. Keep only a SHA-256 fingerprint in Script Properties (no positions,
+// accounts or individual trade values); compare on the hourly pending worker.
+function _tradeLedgerContentFingerprint_(ss) {
+  var sh = ss.getSheetByName(CONFIG.SHEET_TRADES);
+  if (!sh) throw new Error('거래원장 시트 없음: fingerprint 기준 미확정');
+  var rows = sh.getLastRow() > 1
+    ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(11, sh.getLastColumn())).getValues()
+    : [];
+  var canonical = rows.map(function(row) {
+    return Array.from({length:11}, function(_, i) {
+      var value = row[i];
+      if (i === 0) return _normalizeDate(value);
+      if (i === 4) return _cleanCode(value) || String(value || '').trim();
+      if (typeof value === 'number') return String(value);
+      return String(value == null ? '' : value);
+    }).join('\u001e');
+  });
+  canonical.sort(); // row sorting alone is not a trade change
+  var input = JSON.stringify(canonical), digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, input);
+  return digest.map(function(byte) { return ('0' + (byte & 255).toString(16)).slice(-2); }).join('');
+}
+
+function _recordTradeLedgerFingerprint_(ss) {
+  var signature = _tradeLedgerContentFingerprint_(ss);
+  PropertiesService.getScriptProperties().setProperty(TRADE_LEDGER_FINGERPRINT_KEY, signature);
+  return signature;
+}
+
+function _detectExternalTradeLedgerChanges_(ss) {
+  var props = PropertiesService.getScriptProperties();
+  var before = _tradeLedgerContentFingerprint_(ss);
+  var after = _tradeLedgerContentFingerprint_(ss);
+  if (before !== after) return {state:'UNSTABLE'};
+  var previous = props.getProperty(TRADE_LEDGER_FINGERPRINT_KEY);
+  if (!previous) {
+    props.setProperty(TRADE_LEDGER_FINGERPRINT_KEY, after);
+    return {state:'BASELINED'};
+  }
+  if (previous === after) return {state:'UNCHANGED'};
+  // We cannot infer which historical trade was deleted from the new ledger
+  // alone. Start from the earliest stored Snapshot rather than guessing a
+  // recent trade date; existing MANUAL conflicts remain blocked.
+  var from = _tradeSnapshotRebuildFromSheetEdit(ss, {all:true});
+  if (from) {
+    _setPendingTradeSnapshotRebuild(from);
+    _touchSnapshotIntegritySourceRevision({from:from});
+  }
+  props.setProperty(TRADE_LEDGER_FINGERPRINT_KEY, after);
+  return {state:'CHANGED',from:from || ''};
+}
+
 var TRADE_SNAPSHOT_REBUILD_PENDING_KEY = 'trade_snapshot_rebuild_pending_v1';
 
 function _readPendingTradeSnapshotRebuild() {
@@ -10281,9 +10338,12 @@ function runPendingTradeSnapshotRebuild() {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(1000)) return { status:'BUSY', processed:0 };
   try {
+    var ss = getss();
+    var fingerprint = _detectExternalTradeLedgerChanges_(ss);
+    if (fingerprint.state === 'UNSTABLE') return {status:'SOURCE_UNSTABLE',processed:0};
     var pending = _readPendingTradeSnapshotRebuild();
-    if (!pending || !pending.from) return { status:'IDLE', processed:0 };
-    var ss = getss(), sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
+    if (!pending || !pending.from) return { status:'IDLE', processed:0, sourceCheck:fingerprint.state };
+    var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
     if (!sh || sh.getLastRow() < 2) {
       _clearPendingTradeSnapshotRebuild();
       return { status:'NO_EXISTING_SNAPSHOT', processed:0 };
