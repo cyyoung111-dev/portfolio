@@ -12283,6 +12283,8 @@ function _getAutomationStatusData() {
   var expectedPortfolioCloseRunDate = _expectedPortfolioCloseRunDate();
   var portfolioCloseRunStale = _isPortfolioCloseRunStale(portfolioClose);
   var pendingKrxCloseDates = _readPendingKrxCloseDates_(props);
+  var pendingTradeSnapshotRebuild = parseProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY);
+  var pendingTradeSnapshotRebuildFrom = pendingTradeSnapshotRebuild && _normalizeDate(pendingTradeSnapshotRebuild.from || '') || '';
   var missingTrigger = !trig.hasClean || !trig.hasMortgage || !trig.hasClose
     || !trig.hasWatchdog || !trig.hasBackfill || !trig.hasHistoricalBackfill || !trig.hasMidnightBackfill || !trig.hasMorningBackfill || !trig.hasIntegrityChange || !trig.hasIntegrityEdit || !trig.hasLedgerRebuild;
   var hasLegacySplitTriggers = !!trig.hasLegacySplitTriggers;
@@ -12303,6 +12305,7 @@ function _getAutomationStatusData() {
   else if (closeRun.state === 'INCOMPLETE') overallStatus = 'INCOMPLETE';
   else if (portfolioCloseLastError || fundLastError || closeErrors.length) overallStatus = 'ERROR';
   else if (portfolioCloseRunStale || snapshotStale || fundLastWarning || pendingKrxCloseDates.length
+    || pendingTradeSnapshotRebuildFrom
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
@@ -12346,7 +12349,7 @@ function _getAutomationStatusData() {
     officialKrxPriceHistoryLastDate: officialKrxPriceHistoryLastDate,
     portfolioCloseRunStale: portfolioCloseRunStale,
     pendingKrxCloseDates: pendingKrxCloseDates,
-    pendingTradeSnapshotRebuildFrom: (parseProperty(TRADE_SNAPSHOT_REBUILD_PENDING_KEY) || {}).from || '',
+    pendingTradeSnapshotRebuildFrom: pendingTradeSnapshotRebuildFrom,
     expectedPortfolioCloseRunDate: expectedPortfolioCloseRunDate,
     portfolioCloseLastError: portfolioCloseLastError,
     snapshotLastDate: snapshotLastDate,
