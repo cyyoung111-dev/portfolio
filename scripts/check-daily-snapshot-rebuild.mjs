@@ -564,7 +564,7 @@ function ledgerSnippet(name) {
     _setPendingTradeSnapshotRebuild:x=>pending.push(x),
     LockService:{getScriptLock:()=>({waitLock:()=>{lockCount++;},releaseLock:()=>{lockCount--;}})}
   };
-  vm.runInNewContext(ledgerSnippet('_tradeSnapshotRebuildFromSheetEdit')+'\\n'+
+  vm.runInNewContext(ledgerSnippet('_tradeSnapshotRebuildFromSheetEdit')+'\n'+
     ledgerSnippet('handleSnapshotIntegritySheetEdit'),context);
   context.handleSnapshotIntegritySheetEdit({source:sheetParent,range:{getSheet:()=>tradeSheet}});
   assert.deepEqual(pending,['2026-06-05']);
