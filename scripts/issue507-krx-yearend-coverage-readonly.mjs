@@ -90,9 +90,9 @@ export async function readLive({url,token,fetchImpl=fetch}){
 export async function selfTest(){
   const diag={status:'ok',checkedDates:[...DATES],diagnostics:DATES.map(date=>({
     date,status:'SOURCE_INCOMPLETE',
-    sourceDataErrors:['확정 원자료 부족으로 기존 Snapshot 보존: PRIVATE_CODE']
+    sourceDataErrors:['확정 원자료 부족으로 기존 Snapshot 보존: 0046Y0']
   }))};
-  const ledger={status:'ok',trades:[{date:'2025-09-03',code:'PRIVATE_CODE',
+  const ledger={status:'ok',trades:[{date:'2025-09-03',code:'0046Y0',
     qty:2,tradeType:'buy',name:'PRIVATE_ETF',acct:'PRIVATE_ACCT',price:100}]};
   const coverage=(date,total,confirmed)=>({status:'ok',coverage:{
     requestedDate:date,mode:'READ_ONLY',expectedHeldCodes:total,
@@ -103,7 +103,8 @@ export async function selfTest(){
   assert.equal(safe.mode,'READ_ONLY');
   assert.equal(safe.observations[1].overallOfficialCoverage,'FULL_AGGREGATE_COVERAGE');
   assert.equal(safe.observations[1].targetCodeExactPriceIndividuallyProven,false);
-  assert.ok(!JSON.stringify(safe).includes('PRIVATE_CODE'));
+  assert.ok(!JSON.stringify(safe).includes('0046Y0'));
+  assert.equal(safe.observations[0].firstMissingCodeLedgerHistory[0].ledgerPositiveHolding,true);
   assert.ok(!JSON.stringify(safe).includes('PRIVATE_ACCT'));
   assert.ok(!JSON.stringify(safe).includes('PRIVATE_ETF'));
   assert.throws(()=>summarizeCoverage(diag,ledger,[coverage(TRADE_DATES[0],2,3),
