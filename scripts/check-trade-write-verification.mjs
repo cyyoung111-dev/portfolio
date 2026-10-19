@@ -38,6 +38,10 @@ ctx._backupSheetBeforeWrite=()=>({name:'fixture-backup'});
 ctx._markSnapshotBackupStatus=(record,status)=>{backupStatus=status;};
 ctx._cleanupCurrentSystemBackup=()=>{cleanup++;return {};};
 ctx._recordTradeLedgerFingerprint_=()=> 'fixture-ledger-sha256';
+let ledgerJournal=false;
+ctx._tradeLedgerWriteUnverified_=()=>ledgerJournal;
+ctx._markTradeLedgerWriteUnverified_=()=>{ledgerJournal=true;};
+ctx._clearTradeLedgerWriteJournal_=()=>{ledgerJournal=false;};
 ctx._readPendingTradeSnapshotRebuild=()=>null;
 ctx._clearPendingTradeSnapshotRebuild=()=>{};
 ctx._earliestChangedTradeDate=()=>'';
@@ -58,7 +62,9 @@ for(const [column,value] of [[0,new Date('2021-05-12T07:00:00Z')],[4,'5930'],[5,
   cleanup=0;rebuilds=0;
   const result=run();
   assert.equal(result.status,'error',`corrupt column ${column+1} must fail closed`);
-  assert.equal(result.saveState,'failed');
+  assert.equal(result.saveState,'partial');
+  assert.equal(ledgerJournal,true,'verified writer failure must keep the incomplete ledger journal');
+  ledgerJournal=false; // simulate human restoration from immutable backup for the next fixture
   assert.equal(backupStatus,'WRITE_FAILED','failed backup remains protected');
   assert.equal(cleanup,0);
   assert.equal(rebuilds,0,'readback failure cannot launch Snapshot recalculation');
@@ -98,6 +104,7 @@ assert.throws(()=>ctx._verifyWrittenRange(genericSheet,2,1,values),/검증 실�
     && idx('FINGERPRINT') < idx('CLEAR'),
     'successful replay must commit fingerprint and clear pending after Snapshot rebuild');
   assert.equal(locked,false,'lock released after interruption and success');
+  assert.equal(ledgerJournal,false,'completed source write clears the unverified journal');
 }
 
 console.log('✅ 거래 DATE readback·시트 시간대·잘못된 날짜/코드/수량 차단·백업/잠금 보호 통과');
