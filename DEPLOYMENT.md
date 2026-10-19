@@ -1,3 +1,15 @@
+## GAS v9.243 — Issue #507 연말 KRX 대상 종목 확정 종가 읽기 전용 검증 (2026-10-20)
+
+- **배포 상태:** PR/CI/Codex 리뷰 검증 단계. 사용자 승인 이전에는 자동 머지·운영 배포·원본 시트 쓰기 없음.
+- **릴리스 승인:** `gasVersion=9.243`, 전체 실제 GAS source Git blob `a28be0795b820e96c2659a2d96e030fecaba4f94`. v9.242/v9.241 소스 승인 해시 보존.
+- **필요 이유:** 2025-09-03과 2025-12-30 KRX 전체 보유 종목의 공식 종가가 5/5, 30/30으로 조회됐지만, 최초 누락 종목 1개 자체의 대상 포함 여부/정확한 원천일은 집계만으로 미확정. 거래원장 최초 거래 2025-09-03, 해당 현행 코드 가격이력은 2026-01-06 시작, 2026-01-01 저장 Snapshot 30항목에도 해당 코드 없음.
+- **변경:** 기존 인증된 read-only `getKrxHeldCloseCoverage`에 선택적 `code` 인자를 전달하여 기존에 구축한 `expected` 보유 국내 KRX 대상 목록과 `fetchPricesKrx` 결과를 교차 검증. `targetEvidence`는 `eligibleHeldDomestic`, `exactDateConfirmed`, `usedDate`, `providerClass`만 반환; 코드/종목명/가격/매입원가/수량/계좌 제외. `code` 인자 없는 기존 호출은 동일 집계 응답을 유지하고 `targetEvidence=null`만 추가.
+- **검증:** 실제 GAS `_krxHeldTargetCloseEvidence_`와 `handleGetKrxHeldCloseCoverage`을 VM에서 실행하여 OpenAPI/OTP 확정, stale/미래일, carry/0원, 비보유 종목, 인증 거부를 회귀 테스트. 비식별 CI에서만 실행하고 운영 호출은 **수동 dispatch + 운영 v9.243 확인 이후** 실행.
+- **안전:** 가격/FX/NAV/Snapshot/거래원장/ScriptProperties/trigger/worker/cursor 쓰기 경로 불변. 기존 KRX 일정 22:10 / 23:10 / 00:30 / 08:45 불변. 읽기에서 원천 가격을 확보하더라도 **그 자체로 과거 평가행 수정을 승인하거나 원본 Snapshot에 쓰지 않음**. 이월은 2026-01-01 당시 보유 수량·원가는 거래원장, 종가는 실제 마지막 공식 원천일을 독립 검증한 뒤에만 사용.
+- **배포 후 확인:** 운영 인증 `getSettings.gasVersion=9.243`와 `getKrxHeldCloseCoverage` 대상 종목 증거 확인, 2025-09-03 및 12-30 `eligibleHeldDomestic=true` && `exactDateConfirmed=true`가 입증된 경우에만 다음 별도 *SOURCE ONLY* 보강안을 검토. 기록이 불충분하면 기존 가격이력/원본 Snapshot·deferred 9일 이상 전부 보존. Issue #507 OPEN.
+
+---
+
 ## GAS v9.242 — Issue #507 worker 6분 초과 단계 추적 (2026-10-19)
 
 - **배포 상태:** PR 검증 단계. 자동 배포/운영 실측 전에는 정상 복구를 선언하지 않습니다.
