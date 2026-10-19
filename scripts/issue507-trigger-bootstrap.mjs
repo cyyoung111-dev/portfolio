@@ -8,7 +8,7 @@ import {validateWebAppUrl} from './diagnose-krx-operational.mjs';
 
 const EXPECTED_VERSION='9.237';
 const NEED=['hasIntegrityEdit','hasLedgerRebuild'];
-const OTHER=['hasClean','hasMortgage','hasSave','hasFund','hasClose',
+const OTHER=['hasClean','hasMortgage','hasClose',
   'hasWatchdog','hasBackfill','hasHistoricalBackfill',
   'hasMidnightBackfill','hasMorningBackfill','hasIntegrityChange'];
 const COUNTS=['closeCount','watchdogCount','backfillCount',
@@ -116,6 +116,8 @@ export async function selfTest(){
   const code=readFileSync('src/gas/apps_script.gs','utf8');
   assertProductionContract(code);
   const fakeUrl='https://script.google.com/macros/s/AKfycbxIssue507SafeTest/exec';
+  // Match the public GAS status schema: hasSave/hasFund are internal aliases,
+  // deliberately absent from the authenticated trigger response.
   const good={status:'ok',gasVersion:EXPECTED_VERSION,automation:{
     gasVersion:EXPECTED_VERSION,trigger:Object.fromEntries([
       ...OTHER.map(f=>[f,true]),...NEED.map(f=>[f,false]),
