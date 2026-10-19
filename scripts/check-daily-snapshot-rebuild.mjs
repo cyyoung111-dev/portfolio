@@ -585,6 +585,7 @@ function ledgerSnippet(name) {
     })};
     const ctx={
       CONFIG:{SHEET_SNAPSHOT:'스냅샷'},
+      TRADE_SNAPSHOT_REBUILD_PENDING_KEY:'trade_snapshot_rebuild_pending_v1',
       _normalizeDate:x=>String(x||''),
       _readPendingTradeSnapshotRebuild:()=>from?{from}:null,
       _clearPendingTradeSnapshotRebuild:()=>{from='';},
