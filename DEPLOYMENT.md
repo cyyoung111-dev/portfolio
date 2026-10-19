@@ -5,7 +5,7 @@
 - **기아 상태 해소:** 2025-12-31부터의 기존 재평가 pending은 유지하며 각 날짜를 GAS `diagnoseSnapshotIntegrity`로 사전검사. `SOURCE_INCOMPLETE`, `CONFLICT`, `PRICE_SUSPICIOUS`는 Snapshot에 쓰지 않고 `trade_snapshot_rebuild_deferred_v1`에 날짜를 영속 기록한 후에만 진행 커서를 전진합니다. 원자료가 정상이고 재계산 후 `VALID`이거나 원장상 무보유를 증명한 빈 날짜만 완료 처리. 알 수 없는 오류/쓰기 실패/`MISMATCH` 지속은 `BLOCKED`로 중단하며 cursor를 앞당기지 않습니다.
 - **미해결 자동 재검증:** 전체 날짜 순차 검증 후에도 deferred 날짜는 남으며 시간 worker가 1시간 간격 순환 1일 재검사합니다. 새 원장 fingerprint/수량 변경으로 다시 앞 날짜부터 시작하면 과거 deferred 항목도 확인 후에만 해제. 저장 목록은 최대 600일/8,000자 제한, 용량 초과는 원본 유지 및 실패 처리.
 - **실행 증명:** `getAutomationStatus`에 `tradeSnapshotWorkerLastResult`(시각, 상태 enum, 처리/보류 건수 및 날짜만), `tradeSnapshotDeferredCount`, `tradeSnapshotDeferredOldestDate`를 추가. 개인 거래값·원가·수량/계좌·인증키는 속성/로그에서 제외. pending `- `라도 deferred가 있으면 `WARNING`.
-- **안전:** 기존 ScriptLock/ledger hard-timeout write journal/기존 2일 처리 예산 유지. 1/6(33/33), 6/5(37/37), 9/15·16(39/39) 실데이터 `VALID` 및 각 백업 보존. 기존 다이트/시장 브리핑/KRX nightly backfill 경로 무변경.
+- **안전:** 기존 22:10 당일 KRX 백필 / 23:10 과거 KRX 백필 / 00:30 추가 백필 / 08:45 익영업일 KRX 검증은 모두 유지. 기존 ScriptLock/ledger hard-timeout write journal/기존 2일 처리 예산 유지. 1/6(33/33), 6/5(37/37), 9/15·16(39/39) 실데이터 `VALID` 및 각 백업 보존. 기존 다이트/시장 브리핑/KRX nightly backfill 경로 무변경.
 - **배포 후:** [gas-deploy] 성공, 운영 `gasVersion=9.238`, pending 최초 2025-12-31에서 deferred 1건 기록 후 다음 날짜 이동, 정확한 exception 수 및 timestamped worker checkpoint 실측. pending 소진 후 deferred 순환 재시도 확인, 정상이 아닌 과거 날짜는 완료로 표시하지 않음. `SOURCE_INCOMPLETE` 원천 구매/가격 직접 조작 없이 후속 날짜 원장 변경 시 `VALID` 회귀 확인.
 
 ---
