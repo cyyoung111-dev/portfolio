@@ -30,12 +30,28 @@ export function summarizeSeptemberProof(payload) {
   if(lookup.size!==2||SEPTEMBER_DATES.some(d=>!lookup.has(d)))
     throw new Error('SEPT_SNAPSHOT_INVALID_DATES');
   const snapshots=SEPTEMBER_DATES.map(d=>summarizeConflictDay(lookup.get(d)));
-  const healthy=snapshots.every(row=>row.status==='VALID'
+  // A zero-mismatch Snapshot can still depend on carried/unpublished fund NAV.
+  // Closing historical integrity requires BOTH held fund classes to have
+  // official, same-day NAV. Reject duplicates and any temporary input state.
+  const funds=['F00001','F00002'];
+  const exactFundNav=SEPTEMBER_DATES.every(date=>{
+    const states=lookup.get(date).fundNavStates;
+    if(!Array.isArray(states)||states.length!==funds.length)return false;
+    const byFund=new Map(states.map(item=>[item?.code,item]));
+    if(byFund.size!==funds.length)return false;
+    return funds.every(code=>{
+      const state=byFund.get(code);
+      return state?.source==='FUND_NAV'&&state?.sourceDate===date
+        &&state?.temporary===false;
+    });
+  });
+  const healthy=exactFundNav&&snapshots.every(row=>row.status==='VALID'
     &&row.expectedRows===39&&row.storedRows===39
     &&row.fundNavStateCount===2
     &&ISSUE_KEYS.every(k=>row[k]===0));
   return {mode:'READ_ONLY',dates:[...SEPTEMBER_DATES],
-    contract:'GAS_SNAPSHOT_EXACT_DATE_39_ROWS_V1',snapshots,healthy};
+    contract:'GAS_SNAPSHOT_EXACT_DATE_39_ROWS_V1',snapshots,
+    exactFundNav,healthy};
 }
 
 async function read(url,token,fetchImpl){
