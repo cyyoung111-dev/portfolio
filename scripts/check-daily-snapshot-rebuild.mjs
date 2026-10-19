@@ -578,7 +578,7 @@ function ledgerSnippet(name) {
   assert.equal(revisions.length,3);
 }
 {
-  function worker({blocked=false}={}) {
+  function worker({blocked=false,unverified=false}={}) {
     let from='2026-06-05',saved=[],attempts=[],rebuilds=[],errors=[],locks=0;
     // June 8 has no Snapshot yet but has confirmed price/trade source data.
     const dates=['2026-06-05','2026-06-08','2026-06-09'];
@@ -589,7 +589,7 @@ function ledgerSnippet(name) {
       CONFIG:{SHEET_SNAPSHOT:'스냅샷'},
       TRADE_SNAPSHOT_REBUILD_PENDING_KEY:'trade_snapshot_rebuild_pending_v1',
       _normalizeDate:x=>String(x||''),
-      _tradeLedgerWriteUnverified_:()=>false,
+      _tradeLedgerWriteUnverified_:()=>unverified,
       _detectExternalTradeLedgerChanges_:()=>({state:'UNCHANGED'}),
       _collectDailySnapshotDates:()=>Object.fromEntries(dates.map(x=>[x,true])),
 
@@ -619,6 +619,10 @@ function ledgerSnippet(name) {
   assert.equal(success.first.processed,2);
   assert.equal(success.from,'2026-06-09');
   assert.deepEqual(success.rebuilds,[['2026-06-05','2026-06-05'],['2026-06-08','2026-06-08']]);
+  const incomplete=worker({unverified:true});
+  assert.equal(incomplete.first.status,'LEDGER_WRITE_UNVERIFIED');
+  assert.equal(incomplete.rebuilds.length,0,'partial ledger must never reach snapshot rewrite');
+  assert.equal(incomplete.from,'2026-06-05','incomplete ledger must retain pending');
   const blocked=worker({blocked:true});
   assert.equal(blocked.first.status,'BLOCKED');
   assert.equal(blocked.first.blockedDate,'2026-06-08');
@@ -709,11 +713,15 @@ function ledgerSnippet(name) {
 {
   const sync = ledgerSnippet('handleSyncTrades');
   const pre=sync.indexOf('_setPendingTradeSnapshotRebuild(affectedFrom);');
+  const journal=sync.indexOf('_markTradeLedgerWriteUnverified_();');
   const begin=sync.indexOf('sh.clearContents();');
+  const verify=sync.indexOf('_verifyTradeWrittenRange(');
+  const clearJournal=sync.indexOf('_clearTradeLedgerWriteJournal_();');
   const recalc=sync.indexOf('snapshotRebuild = rebuildDailySnapshots(');
   const fingerprint=sync.indexOf('_recordTradeLedgerFingerprint_(ss);');
   const commit=sync.indexOf('_clearPendingTradeSnapshotRebuild();');
-  assert.ok(pre>=0&&begin>pre&&recalc>begin&&fingerprint>recalc&&commit>fingerprint,
+  assert.ok(pre>=0&&journal>pre&&begin>journal&&verify>begin&&clearJournal>verify
+    &&recalc>clearJournal&&fingerprint>recalc&&commit>fingerprint,
     'timeout-safe checkpoint must precede source write and fingerprint follow successful rebuild');
   assert.ok(sync.slice(0,begin).includes('var intendedRows = trades.map('));
   assert.ok(sync.slice(0,begin).includes('var explicitEmptyReset ='));
