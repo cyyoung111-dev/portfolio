@@ -242,7 +242,7 @@ export async function selfTest(){
     _getTradeSnapshotWorkerTriggerAudit_:()=>({}),
     Utilities:{formatDate:()=> '2026-10-20 11:00:00',
       DigestAlgorithm:{SHA_256:'SHA_256'},
-      computeDigest:()=>Array(32).fill(10)},
+      computeDigest:(_algorithm,payload)=>Array(32).fill(String(payload).includes('[[2]]')?11:10)},
     LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock:()=>{},
       releaseLock:()=>{}})},
   };
