@@ -150,4 +150,63 @@ function environment({books=base,afterBackup,formula=[],failWriteAt=0}={}){
  assert.deepEqual(x.rev,[{all:true}]);
  console.log('ISSUE507_CODE_REPAIR_PARTIAL_MULTI_SHEET_FAILURE_HELD');
 }
+// #507 Codex P1: 80 eligible cells must not trigger unbounded per-cell
+// GAS calls. Each explicit invocation repairs <=24, returns accurate pending
+// count, and subsequent calls resume by re-reading still-invalid codes.
+// No cursor, scheduling, changes to foreign codes, or hidden auto retry.
+{
+ const many=Array.from({length:80},(_,i)=>
+   ['2026-01-14',123,'KNOWN_'+i,100+i,'','KRX','CUSTOM_'+i]);
+ const x=environment({books:{
+   Codes:copy(base.Codes),
+   Price:[copy(base.Price[0]),...many,
+     ['2026-01-15','000999','OTHER',999,'','EXTERNAL','LEAVE_IN_PLACE']],
+ }});
+ const progress=[];
+ for(let i=0;i<4;i++){
+   const r=x.run().find(y=>y.sheet==='Price');
+   progress.push({repaired:r.repaired,deferred:r.deferred,continueRequired:r.continueRequired});
+   assert.ok(r.repaired<=24,'each explicit syncCodes call must have a hard cell cap');
+ }
+ assert.deepEqual(progress,[
+   {repaired:24,deferred:56,continueRequired:true},
+   {repaired:24,deferred:32,continueRequired:true},
+   {repaired:24,deferred:8,continueRequired:true},
+   {repaired:8,deferred:0,continueRequired:false},
+ ]);
+ assert.equal(x.writes.length,80);
+ assert.equal(x.formats.length,80);
+ assert.equal(x.rev.length,4);
+ assert.equal(x.backups.length,4);
+ assert.ok(x.data.Price.slice(1,81).every(row=>row[1]==='000123'));
+ assert.deepEqual(x.data.Price[81],['2026-01-15','000999','OTHER',999,'','EXTERNAL','LEAVE_IN_PLACE']);
+ const beforeNoop=x.writes.length;
+ assert.equal(x.run().find(y=>y.sheet==='Price').repaired,0);
+ assert.equal(x.writes.length,beforeNoop);
+ console.log('ISSUE507_CODE_REPAIR_80_CELLS_BOUNDED_24_PER_CALL_RESUMABLE');
+}
+// Interleaved changes in two different sheets share a single 24-cell budget.
+{
+ const trades=Array.from({length:18},(_,i)=>['2026-01-14','A'+i,'','',123,'KEEP']);
+ const prices=Array.from({length:18},(_,i)=>['2026-01-14',123,'KNOWN',100,'','KRX','CUSTOM']);
+ const x=environment({books:{
+  Codes:copy(base.Codes),
+  Trades:[copy(base.Trades[0]),...trades],
+  Price:[copy(base.Price[0]),...prices],
+ }});
+ const first=x.run();
+ assert.equal(first.find(x=>x.sheet==='Trades').repaired,18);
+ assert.equal(first.find(x=>x.sheet==='Price').repaired,6);
+ assert.equal(first.find(x=>x.sheet==='Price').deferred,12);
+ assert.equal(x.writes.length,24);
+ const second=x.run();
+ assert.equal(second.find(x=>x.sheet==='Trades').repaired,0);
+ assert.equal(second.find(x=>x.sheet==='Price').repaired,12);
+ assert.equal(second.find(x=>x.sheet==='Price').deferred,0);
+ assert.equal(x.writes.length,36);
+ console.log('ISSUE507_CODE_REPAIR_MULTI_SHEET_SINGLE_GLOBAL_BUDGET');
+}
+assert.match(source,/codeRepairContinueRequired:\s*codeRepairPending\s*>\s*0/,
+ 'syncCodes response must disclose remaining work rather than claiming full repair');
+
 console.log('ISSUE507_CODE_REPAIR_SCOPED_PRODUCTION_REGRESSION_OK_SAME_CELL_TOCTOU_UNSOLVED');
