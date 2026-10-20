@@ -90,6 +90,7 @@ export function readVolume(rows=1200){
       '2026-01-21','2026-01-22','2026-01-23'])
     assert.ok(first.includes(date),'missing source/calendar candidate: '+date);
   assert.ok(!first.includes('2026-01-18'),'unsourced Sunday must stay excluded');
+  const latestSnapshotScan=f.reading[0].cells;
   const volume=f.reading.reduce((n,r)=>n+r.cells,0);
   const calls=f.reading.length;
   const bySheet=Object.fromEntries(Object.keys(widths).map(sheet=>[
@@ -101,7 +102,7 @@ export function readVolume(rows=1200){
   const laterVolume=f.reading.reduce((n,r)=>n+r.cells,0);
   // Critical finding: date filtering occurs AFTER Sheets getValues().
   // Moving the pending cursor forward does not shrink source-grid reads.
-  assert.equal(laterVolume,volume-bySheet.SNAPSHOT.cells,
+  assert.equal(laterVolume,volume-latestSnapshotScan,
     'a later pending cursor must not be incorrectly credited with lower read volume');
   assert.ok(later.every(date=>date>='2026-01-21'));
   assert.equal(f.mutations.length,0,'no mutation of any simulated sheet');
