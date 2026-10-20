@@ -6300,8 +6300,18 @@ function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) 
     var requiredLast = originalLastRow + additions.length;
     if (sheet.getMaxRows() < requiredLast)
       sheet.insertRowsAfter(sheet.getMaxRows(), requiredLast - sheet.getMaxRows());
+    // A Snapshot may have custom columns beyond the standard 12.  GAS
+    // Range.setValues requires exactly the physical sheet width on append.
+    // Preserve unrelated existing rows and pad only newly derived rows.
+    var appendRows = additions.map(function(row) {
+      if (!Array.isArray(row) || row.length > width)
+        throw new Error('펀드 파생행 추가 열 구조 불일치');
+      var padded = row.slice();
+      while (padded.length < width) padded.push('');
+      return padded;
+    });
     plans.push({ row:originalLastRow + 1, col:1, append:true,
-      previous:null, desired:additions.map(function(r) { return r.slice(0,width); }) });
+      previous:null, desired:appendRows });
   }
   // Validate every changed range before touching any source row.
   plans.forEach(function(plan) {
