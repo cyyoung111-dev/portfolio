@@ -216,8 +216,9 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
   assert.equal(updates[0],'trade_snapshot_worker_last_v1');
   assert.equal(f.busy(),null);
   assert.equal(f.last().status,'PENDING');
-  assert.deepEqual(f.phaseMarks.slice(0,5).map(x=>x.phase),
-    ['ENTRY','LEDGER_FINGERPRINT','QUEUE_READ','DATE_DISCOVERY','DATE_DIAGNOSTIC']);
+  assert.deepEqual(f.phaseMarks.slice(0,7).map(x=>x.phase),
+    ['ENTRY','LEDGER_FINGERPRINT','QUEUE_READ','DATE_DISCOVERY',
+     'DATE_SOURCE_COLLECTION','DATE_DISCOVERY_COMPLETE','DATE_DIAGNOSTIC']);
   assert.equal(f.phaseMarks.at(-1).phase,'CURSOR_COMMIT');
   assert.ok(f.phaseMarks.every(x=>x.runStartedAt===f.phaseMarks[0].runStartedAt),
     'step checkpoint must retain the original entry timestamp');
