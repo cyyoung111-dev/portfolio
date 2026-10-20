@@ -97,7 +97,7 @@ export function compare(single,range,before,after,rangeRepeat=range){
     ||rangeRepeat.kind!=='range')throw Error('ISSUE507_COMPARE_BAD_INPUT');
   if(before?.mode!=='READ_ONLY'||after?.mode!=='READ_ONLY'
     ||before.gasVersion!==after.gasVersion
-    ||!['9.240','9.241','9.242','9.243'].includes(before.gasVersion))
+    ||!['9.240','9.241','9.242','9.243','9.244'].includes(before.gasVersion))
     throw Error('ISSUE507_COMPARE_VERSION_DRIFT');
   const b=before.tradeSnapshotWorkerLastResult, a=after.tradeSnapshotWorkerLastResult;
   const checkpointStable=JSON.stringify(b)===JSON.stringify(a)
@@ -161,6 +161,12 @@ export async function selfTest(){
     tradeSnapshotDeferredCount:0,tradeSnapshotWorkerLastResult:{status:'BLOCKED',at:'2026-10-19T10:07:21.908Z',blockedDate:DATE}};
   const result=compare(single,range,state,state);
   assert.equal(result.diagnosis,'BLOCKED_VS_CURRENT_DEFERRABLE');
+  // Newer GAS diagnostic-only release must remain eligible for single/range
+  // comparisons; unreviewed future releases still fail closed.
+  assert.equal(compare(single,range,{...state,gasVersion:'9.244'},
+    {...state,gasVersion:'9.244'}).gasVersion,'9.244');
+  assert.throws(()=>compare(single,range,{...state,gasVersion:'9.245'},
+    {...state,gasVersion:'9.245'}),/ISSUE507_COMPARE_VERSION_DRIFT/);
   assert.equal(result.statusMatch,true);
   assert.ok(!JSON.stringify(result).includes('privateDigest'));
   assert.ok(!JSON.stringify(result).includes('SECRET_ACCOUNT'));

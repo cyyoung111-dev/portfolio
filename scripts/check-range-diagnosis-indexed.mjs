@@ -15,7 +15,9 @@ assert.doesNotMatch(rangeSource, /insertSheet|setValues|deleteSheet|PropertiesSe
 assert.match(pipeline, /dates: datesToDiagnose\.map\(snapshot => snapshot\.date\)\.join/);
 assert.match(pipeline, /HISTORY_INTEGRITY_CACHE_KEY[\s\S]*_historySnapshotSignature/);
 assert.match(gas, /snapshots: history, integritySourceRevision: _getSnapshotIntegritySourceRevision\(\)[\s\S]*integrityDateRevisions: _snapshotIntegrityDateRevisions/);
-assert.match(gas, /diagnostics: diagnostics[\s\S]*integritySourceRevision: _getSnapshotIntegritySourceRevision\(\)/);
+assert.match(gas, /diagnostics: diagnostics[\s\S]*integritySourceRevision: readRevisionAfter/);
+assert.match(gas, /readRevisionBefore = _peekSnapshotIntegritySourceRevisionReadonly_\(\)/);
+assert.match(gas, /readRevisionAfter = _peekSnapshotIntegritySourceRevisionReadonly_\(\)/);
 assert.match(gas, /function onEdit\(e\)[\s\S]*_isSnapshotIntegritySourceSheet[\s\S]*_touchSnapshotIntegritySourceRevision/);
 for (const code of ['CLIENT_TIMEOUT','SERVER_ERROR','RUNTIME_ERROR','INVALID_RESPONSE','SOURCE_DATA_ERROR','RANGE_TOO_LARGE']) assert.ok((gas + pipeline + net).includes(code), code);
 assert.match(pipeline, /미검증 날짜는 저장 Snapshot으로 표시/);

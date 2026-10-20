@@ -216,8 +216,9 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
   assert.equal(updates[0],'trade_snapshot_worker_last_v1');
   assert.equal(f.busy(),null);
   assert.equal(f.last().status,'PENDING');
-  assert.deepEqual(f.phaseMarks.slice(0,5).map(x=>x.phase),
-    ['ENTRY','LEDGER_FINGERPRINT','QUEUE_READ','DATE_DISCOVERY','DATE_DIAGNOSTIC']);
+  assert.deepEqual(f.phaseMarks.slice(0,7).map(x=>x.phase),
+    ['ENTRY','LEDGER_FINGERPRINT','QUEUE_READ','DATE_DISCOVERY',
+     'DATE_SOURCE_COLLECTION','DATE_DISCOVERY_COMPLETE','DATE_DIAGNOSTIC']);
   assert.equal(f.phaseMarks.at(-1).phase,'CURSOR_COMMIT');
   assert.ok(f.phaseMarks.every(x=>x.runStartedAt===f.phaseMarks[0].runStartedAt),
     'step checkpoint must retain the original entry timestamp');
@@ -242,5 +243,25 @@ function fixture({statusByDate={},writerErrorDate='',badDeferred=false,lockBusy=
   assert.equal(f.pending().from,'2025-12-31');
   assert.equal(f.calls.filter(x=>x.key==='trade_snapshot_rebuild_pending_v1').length,0);
   assert.equal(f.locks.held,0);
+}
+// Production boundary regressions: in ordinary thrown failures the worker
+// records ERROR, but the last RUNNING phase still identifies the exact helper
+// it was entering. Hard GAS kills may retain the same last RUNNING marker.
+for (const [helper,expected] of [
+  ['_latestConfirmedSnapshotDate','DATE_DISCOVERY'],
+  ['_collectDailySnapshotDates','DATE_SOURCE_COLLECTION']
+]) {
+  const f=fixture({statusByDate:{'2025-12-31':'SOURCE_INCOMPLETE'}});
+  f.ctx[helper]=()=>{throw Error('SYNTHETIC_READ_INTERRUPTED');};
+  assert.equal(f.ctx.runPendingTradeSnapshotRebuild().status,'ERROR');
+  assert.equal(f.phaseMarks.at(-1).phase,expected,
+    'last checkpoint must uniquely localize interrupted helper');
+  assert.equal(f.pending().from,'2025-12-31',
+    'failed read must not move pending cursor');
+  assert.deepEqual(f.deferred().dates,[],
+    'failed read must not silently append deferred dates');
+  assert.equal(f.calls.filter(x=>x.op==='rebuild').length,0,
+    'failed read must not reach any Snapshot write');
+  assert.equal(f.locks.held,0,'ordinary errors must release script lock');
 }
 console.log('Issue #507 deferred ledger worker production VM tests PASS');

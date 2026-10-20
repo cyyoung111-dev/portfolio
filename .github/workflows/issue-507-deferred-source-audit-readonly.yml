@@ -1,0 +1,48 @@
+name: issue-507-deferred-source-audit-readonly
+
+# Synthetic contract runs on PR; live audit is explicitly manual, GAS v9.244 only.
+on:
+  pull_request:
+    paths:
+      - 'src/gas/apps_script.gs'
+      - 'scripts/issue507-deferred-source-audit-readonly.mjs'
+      - '.github/workflows/issue-507-deferred-source-audit-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/gas/apps_script.gs'
+      - 'scripts/issue507-deferred-source-audit-readonly.mjs'
+      - '.github/workflows/issue-507-deferred-source-audit-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Check exact deferred-day source audit contract
+        run: |
+          node --check scripts/issue507-deferred-source-audit-readonly.mjs
+          node scripts/issue507-deferred-source-audit-readonly.mjs --self-test
+  operational-readonly:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read only all 60 or fewer exact deferred dates
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-deferred-source-audit-readonly.mjs

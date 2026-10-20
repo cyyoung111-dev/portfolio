@@ -64,7 +64,7 @@ const all={
   hasDuplicateMorningBackfillTriggers:false,
   hasLegacySplitTriggers:false
 };
-function status(audit,version='9.243') {
+function status(audit,version='9.244') {
   return {status:'ok',gasVersion:version,automation:{
     gasVersion:version,overallStatus:'WARNING',trigger:all,
     pendingKrxCloseDates:[],tradeLedgerWriteUnverified:false,
@@ -95,7 +95,7 @@ for (const audit of [null,{}, {...good,scope:'GLOBAL'},
 }
 assert.equal(summarizeBackfillStatus(status(undefined,'9.239'))
   .tradeSnapshotWorkerTriggerAudit,null,'pre-9.240 remains backward compatible');
-// Real observed v9.243 checkpoint: 09:02 KST entry, 09:51 KST probe.
+// Real observed v9.244 checkpoint: 09:02 KST entry, 09:51 KST probe.
 const observedAt=Date.parse('2026-10-20T00:51:55.000Z');
 const staleWorker={status:'RUNNING',at:'2026-10-20T00:03:20.326Z',
   processed:0,deferred:0,blockedDate:'',sourceCheck:'',
