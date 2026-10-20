@@ -1,0 +1,49 @@
+name: issue-507-source-only-preflight-readonly
+
+# All live probes are READ ONLY; an original-sheet write requires separate user approval.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-source-only-preflight-readonly.mjs'
+      - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - '.github/workflows/issue-507-source-only-preflight-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-source-only-preflight-readonly.mjs'
+      - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - '.github/workflows/issue-507-source-only-preflight-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Check historical KRX source-only preflight safety
+        run: |
+          node --check scripts/issue507-source-only-preflight-readonly.mjs
+          node scripts/issue507-source-only-preflight-readonly.mjs --self-test
+
+  operational-readonly:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read only 2025-12-30, 2026-01-02, 2026-01-05 exact KRX evidence
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-source-only-preflight-readonly.mjs
