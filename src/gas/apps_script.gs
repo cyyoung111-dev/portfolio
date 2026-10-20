@@ -1,6 +1,13 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.244
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.245
 //
+//  v9.245 변경사항 (2026.10.20):
+//  - #507 기존 Snapshot 전체시트 재기록을 대상 날짜 행만 수정하는 방식으로 전환.
+//  - 백업 이후 대상 날짜 원본·행수 변경 감지 시 쓰기 전 차단.
+//  - 원장/가격/NAV/MANUAL 보호·백업 상태·pending/deferred 규칙 유지.
+//  - 타 날짜 보존, 다중 범위 실패 시 대상일 단계별 원본 복원·미확인 차단.
+//  - #507 append 직전 외부 행 경합 차단·롤백시 수식/값 원본 이미지 보존.
+//  - 외부 동일 날짜 API 경합은 별도 보호 필요. 승인·배포 전 미운영.
 //  v9.244 변경사항 (2026.10.20):
 //  - #507 worker DATE_DISCOVERY의 Snapshot 마지막일 조회 완료 및 다중 소스 날짜 수집 완료를
 //    별도 phase로 구분. 기존 원장/가격/NAV/Snapshot 계산값·pending·deferred 이동 불변.
@@ -2198,7 +2205,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.244',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.245',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2276,7 +2283,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.244', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.245', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6103,7 +6110,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.244' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.245' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12693,7 +12700,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.244',
+    gasVersion: '9.245',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12758,7 +12765,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.244' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.245' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -14827,6 +14834,137 @@ function getTradingDays(year, month) {
 // ════════════════════════════════════════════════════════════════════
 //  스냅샷 시트 upsert
 // ════════════════════════════════════════════════════════════════════
+// #507: 한 날짜의 물리행만 변경합니다. 다른 날짜 행의 셀/수식/순서를
+// 절대 재기록하지 않습니다. 외부 Sheets API의 '같은 날짜' 동시 쓰기는
+// ScriptLock으로 막을 수 없으므로 검출된 변경은 원본 쓰기 전 실패시킵니다.
+function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
+  var originalLastRow = existing.length + 1;
+  if (sheet.getLastRow() !== originalLastRow)
+    throw new Error('Snapshot 행 구조 외부 변경: 날짜별 저장 보류');
+  var slots = [], queues = {}, consumed = {};
+  (existing || []).forEach(function(row, index) {
+    if (_normalizeDate(row[0]) === date) slots.push({ rowNumber:index + 2, before:row });
+  });
+  (desired || []).forEach(function(row) {
+    var key = _snapshotIntegrityKey(row);
+    if (_normalizeDate(row[0]) !== date || !key)
+      throw new Error('Snapshot 요청 날짜 또는 종목 식별자 불일치');
+    (queues[key] || (queues[key] = [])).push(row);
+  });
+  // 출처를 처음 읽고 백업한 뒤 대상일 행이 외부에서 변했으면
+  // 새로운 자료를 오래된 계산결과로 덮어쓰지 않습니다.
+  var cursor = 0;
+  while (cursor < slots.length) {
+    var start = cursor, last = start;
+    while (last + 1 < slots.length &&
+        slots[last + 1].rowNumber === slots[last].rowNumber + 1) last++;
+    var block = sheet.getRange(slots[start].rowNumber, 1,
+      last - start + 1, width).getValues();
+    for (var i = start; i <= last; i++) {
+      if (JSON.stringify(block[i - start]) !==
+          JSON.stringify(slots[i].before.slice(0, width)))
+        throw new Error('Snapshot 대상일 외부 변경: 원본 쓰기 전 차단');
+    }
+    cursor = last + 1;
+  }
+  if (sheet.getLastRow() !== originalLastRow)
+    throw new Error('Snapshot 저장 직전 행 구조 변경: 원본 쓰기 전 차단');
+  var updates = [], pending = [];
+  slots.forEach(function(slot) {
+    var key = _snapshotIntegrityKey(slot.before), candidates = queues[key] || [];
+    var replacement = candidates.length ? candidates.shift() : Array(width).fill('');
+    if (JSON.stringify(replacement) !== JSON.stringify(slot.before.slice(0, width)))
+      updates.push({ rowNumber:slot.rowNumber, value:replacement });
+  });
+  Object.keys(queues).forEach(function(key) {
+    (queues[key] || []).forEach(function(row) { pending.push(row); });
+  });
+  // 인접한 대상일 변경을 한 번의 setValues로 묶습니다.
+  // 비연속 날짜·append를 포함한 다중 범위는 중간 실패에 대비해
+  // 원본 타 날짜를 건드리지 않는 보상 복구(journal)를 준비합니다.
+  var blocks = [];
+  cursor = 0;
+  while (cursor < updates.length) {
+    var first = cursor, end = first;
+    while (end + 1 < updates.length &&
+        updates[end + 1].rowNumber === updates[end].rowNumber + 1) end++;
+    blocks.push({ rowNumber:updates[first].rowNumber,
+      rows:updates.slice(first, end + 1).map(function(item) { return item.value; }) });
+    cursor = end + 1;
+  }
+  if (pending.length) {
+    var appendRow = originalLastRow + 1;
+    var requiredRows = appendRow + pending.length - 1;
+    if (sheet.getMaxRows() < requiredRows)
+      sheet.insertRowsAfter(sheet.getMaxRows(), requiredRows - sheet.getMaxRows());
+    blocks.push({rowNumber:appendRow, rows:pending});
+  }
+  // getValues()만 읽으면 수식이 결과값으로 변환됩니다. 실패 보상은
+  // 원래 셀의 수식과 리터럴을 혼합해서 복원해야 합니다.
+  var readCellImage = function(range, height) {
+    var values = range.getValues(), formulas = range.getFormulas();
+    if (values.length !== height || formulas.length !== height)
+      throw new Error('Snapshot 원본 셀 이미지 읽기 실패');
+    return values.map(function(row, i) {
+      if (row.length !== width || !formulas[i] || formulas[i].length !== width)
+        throw new Error('Snapshot 원본 수식 이미지 불일치');
+      return row.map(function(cell, j) { return formulas[i][j] || cell; });
+    });
+  };
+  var attempted = [];
+  try {
+    if (blocks.length) _setCodeColumnText(sheet, 2);
+    blocks.forEach(function(block) {
+      var range = sheet.getRange(block.rowNumber, 1, block.rows.length, width);
+      var original = readCellImage(range, block.rows.length);
+      // append 목적지에 외부 Writer가 이미 행을 추가했다면 *절대* 덮지 않습니다.
+      // 앞서 자신의 대상일 마지막 행을 빈칸으로 쓰면 getLastRow()가 감소할 수
+      // 있습니다. 따라서 원래 행수보다 '증가'했는지와 목적지 점유를 검사하며,
+      // 자신의 행수 축소를 외부 변경으로 오판해 무한 재시도하지 않습니다.
+      // ScriptLock은 다른 Sheets API의 appendRow/setValues를 막지 못합니다.
+      if (block.rowNumber > originalLastRow &&
+          (sheet.getLastRow() > originalLastRow ||
+           original.some(function(row) { return row.some(function(v) {
+             return v !== '' && v !== null;
+           }); })))
+        throw new Error('Snapshot append 목적지 외부 변경: 원본 쓰기 전 차단');
+      var replacement = _normalizeCodeRows(block.rows, 1);
+      var step = {range:range, before:original, after:replacement};
+      attempted.push(step); // 응답 유실 시에도 이 range를 확인해야 합니다.
+      range.setValues(replacement);
+    });
+    SpreadsheetApp.flush();
+    var written = _readRawSnapshotRowsByDate(ss, date);
+    var intended = desired.map(_snapshotComparableSignature).sort().join('\n');
+    var actual = written.map(_snapshotComparableSignature).sort().join('\n');
+    if (written.length !== desired.length || actual !== intended)
+      throw new Error('Snapshot 날짜별 저장 확인 실패');
+  } catch (error) {
+    // 이미 성공한 대상일 범위만 역순으로 되돌립니다. 타 날짜 셀은
+    // 어떠한 경우에도 복원 대상으로 포함하지 않습니다.
+    // 외부 Writer가 해당 범위를 다시 수정했다면 임의 덮어쓰기 금지.
+    var rollbackVerified = true;
+    for (var k = attempted.length - 1; k >= 0; k--) {
+      var step = attempted[k];
+      try {
+        var seen = readCellImage(step.range, step.after.length);
+        if (JSON.stringify(seen) === JSON.stringify(step.before)) continue;
+        if (JSON.stringify(seen) !== JSON.stringify(step.after)) {
+          rollbackVerified = false;
+          continue;
+        }
+        step.range.setValues(step.before);
+      } catch (rollbackError) {
+        rollbackVerified = false;
+      }
+    }
+    try { SpreadsheetApp.flush(); } catch (flushError) { rollbackVerified = false; }
+    if (!rollbackVerified)
+      throw new Error('Snapshot 부분저장 검증 불가: 백업 보호·수동 재검증 필요');
+    throw error;
+  }
+}
+
 function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycleConfigs, allowEmptyOverwrite) {
   var writeLock = LockService.getScriptLock();
   var ownsWriteLock = false;
@@ -14858,6 +14996,8 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       r[0] = _normalizeDate(r[0]) || normDate;
       return r;
     });
+    if (!normDate || newRows.some(function(r) { return r[0] !== normDate; }))
+      throw new Error('Snapshot 요청일과 저장 대상일 불일치');
     newRows = _dedupeSnapshotRows(newRows);
     var configsForWrite = Array.isArray(lifecycleConfigs) ? lifecycleConfigs : null;
     var incomingHasFundRows = newRows.some(function(row) {
@@ -14953,18 +15093,10 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       var combined = kept.concat(mergedDate);
       if (JSON.stringify(combined) === JSON.stringify(existing)) return;
       snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);
-      // 먼저 비우면 쓰기 실패 때 모든 날짜가 사라집니다. 한 번의 쓰기로 교체합니다.
-      var output = header.concat(combined);
-      while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
-      if (sh.getMaxRows() < output.length) sh.insertRowsAfter(sh.getMaxRows(), output.length - sh.getMaxRows());
-      _setCodeColumnText(sh, 2);
-      output = [output[0]].concat(_normalizeCodeRows(output.slice(1), 1));
-      sh.getRange(1, 1, output.length, colSize).setValues(output);
-      SpreadsheetApp.flush();
-      var writtenDateRows = _readRawSnapshotRowsByDate(ss, normDate);
-      var intendedSignature = mergedDate.map(_snapshotComparableSignature).sort().join('\n');
-      var writtenSignature = writtenDateRows.map(_snapshotComparableSignature).sort().join('\n');
-      if (writtenDateRows.length !== mergedDate.length || writtenSignature !== intendedSignature) throw new Error('Snapshot 쓰기 후 raw 검증 실패: ' + normDate);
+      // #507: 날짜별 슬롯만 갱신합니다. 다른 날짜를 과거에 읽은 combined 값으로
+      // 전체 재기록하면 외부 Sheets API 수정분이 조용히 사라질 수 있습니다.
+      // helper 내부에서 flush·대상일 raw 검증하고 실패 범위를 보상 복구합니다.
+      _writeSnapshotDateScoped_(ss, sh, normDate, existing, mergedDate, colSize);
       _touchSnapshotIntegritySourceRevision({ date: normDate });
       if (!_snapshotBackupOperationId) _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
       if (snapshotBackupRecord) {
@@ -16392,7 +16524,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.244' });
+    return jsonOk({ settings: settings, gasVersion: '9.245' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16422,7 +16554,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.244'
+      gasVersion: '9.245'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
