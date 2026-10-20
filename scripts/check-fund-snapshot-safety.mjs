@@ -1534,9 +1534,12 @@ const damagedSs=ssFor({'스냅샷':damagedSnapshot,'펀드좌수':damagedUnits})
 context.getss=()=>damagedSs;
 context._buildSnapshotRowsFromTradeAndPriceHistory=()=>[snap('2026-02-01','000001',100)];
 const damagedCleanup=clone(context.cleanupSnapshotDuplicates());
-assert.equal(damagedCleanup.invalidDateRowsRemoved,1,'날짜 유실 payload 제거');
+assert.equal(damagedCleanup.invalidDateRowsRemoved,0,'날짜 유실 payload는 원장 근거 없이 삭제 금지');
+assert.equal(damagedCleanup.invalidDateRowsBlocked,1,'날짜 유실 payload 별도 보류 보고');
 assert.equal(damagedCleanup.zeroUnitFundRowsRemoved,1,'0좌 펀드 Snapshot 잔존 제거');
-assert.equal(damagedCleanup.removedRows,2);
+assert.equal(damagedCleanup.removedRows,1);
+assert(damagedSnapshot.rows.some(row=>row[1]==='INCOMPLETE_DATE' || !row[0] && row.slice(1).some(v=>v!==''&&v!=null)),
+  '날짜 누락 원천은 자동 삭제하지 않고 복구 근거로 보존');
 assert(damagedSnapshot.rows.some(row=>row[0]==='2026-02-01'&&row[1]==='000001'),'정상 Snapshot 유지');
 assert.equal(damagedSnapshot.rows.some(row=>row[0]==='2026-02-01'&&row[1]==='F00003'),false,'0좌 F00003 제거');
 context._buildSnapshotRowsFromTradeAndPriceHistory=realBuild;

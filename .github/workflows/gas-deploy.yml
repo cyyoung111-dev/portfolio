@@ -41,7 +41,9 @@ jobs:
         run: npm run check:gas
 
   deploy:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && vars.GAS_AUTO_DEPLOY_ENABLED == 'true')
+    # #507: merging source code must NEVER deploy to the live GAS web app.
+    # Explicit workflow_dispatch is the only permitted deployment trigger.
+    if: github.event_name == 'workflow_dispatch'
     needs: validate
     runs-on: ubuntu-latest
     concurrency:
@@ -66,6 +68,6 @@ jobs:
       - name: Deploy GAS
         run: node scripts/deploy-gas.mjs
       - name: Verify KRX 37-code source coverage after live GAS deployment
-        if: github.event_name == 'push' && vars.GAS_AUTO_DEPLOY_ENABLED == 'true'
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         continue-on-error: true
         run: node scripts/diagnose-krx-held-coverage.mjs --dates "2026-10-12,2026-10-13"

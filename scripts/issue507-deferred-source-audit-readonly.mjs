@@ -11,6 +11,7 @@ const DATE=/^\d{4}-\d{2}-\d{2}$/;
 const STATUS=new Set(['VALID','PARTIAL','MISMATCH','CONFLICT',
   'SOURCE_INCOMPLETE','NO_SNAPSHOT','PRICE_SUSPICIOUS']);
 const CHUNK_SIZE=6;
+const SUPPORTED_GAS_VERSION=new Set(['9.244','9.245','9.246','9.247','9.248','9.249','9.250']);
 const MAX_AUDIT_DATES=60;
 function day(s){
   if(typeof s!=='string'||!DATE.test(s))return false;
@@ -23,8 +24,8 @@ function num(n){
 }
 export function validateInventory(payload){
   const a=payload?.automation;
-  if(payload?.status!=='ok'||payload.gasVersion!=='9.244'||
-    !a||a.gasVersion!=='9.244'||
+  if(payload?.status!=='ok'||!SUPPORTED_GAS_VERSION.has(payload.gasVersion)||
+    !a||a.gasVersion!==payload.gasVersion||
     !Array.isArray(a.tradeSnapshotDeferredDates) ||
     a.tradeSnapshotDeferredDates.length>600||
     a.tradeSnapshotDeferredCount!==a.tradeSnapshotDeferredDates.length ||
@@ -40,7 +41,7 @@ export function validateInventory(payload){
     (a.pendingTradeSnapshotRebuildFrom&&!day(a.pendingTradeSnapshotRebuildFrom)))
     throw Error('ISSUE507_DEFERRED_INVENTORY_DATES');
   return {dates,cursor:a.tradeSnapshotDeferredCursor,
-    pendingFrom:a.pendingTradeSnapshotRebuildFrom};
+    pendingFrom:a.pendingTradeSnapshotRebuildFrom,gasVersion:payload.gasVersion};
 }
 function sourceKinds(errors){
   if(!Array.isArray(errors)||errors.length>200)throw Error('ISSUE507_DEFERRED_SOURCE_SCHEMA');
@@ -123,7 +124,7 @@ export function buildAudit(before,after,batches){
   for(const r of records){
     grouped[r.resolution]=(grouped[r.resolution]||0)+1;
   }
-  return {mode:'READ_ONLY',gasVersion:'9.244',totalDeferredDates:dates.length,
+  return {mode:'READ_ONLY',gasVersion:before.gasVersion,totalDeferredDates:dates.length,
     pendingFrom:before.pendingFrom||'-',queueStable:true,
     sourceRevisionStable:true,records,grouped,
     originalDataWritten:false,deferredQueueChanged:false,
@@ -280,7 +281,7 @@ export async function selfTest(){
   vm.runInContext(extract('_readTradeSnapshotDeferredState_','_writeTradeSnapshotDeferredState_')
     +'\n'+extract('_getAutomationStatusData','handleGetAutomationStatus'),ctx);
   const production=vm.runInContext('_getAutomationStatusData()',ctx);
-  assert.equal(production.gasVersion,'9.244');
+  assert.equal(production.gasVersion,'9.250');
   assert.equal(JSON.stringify(production.tradeSnapshotDeferredDates),JSON.stringify(dates));
   assert.equal(production.tradeSnapshotDeferredCursor,'2026-01-01');
   assert.equal(production.tradeSnapshotDeferredCount,dates.length);
