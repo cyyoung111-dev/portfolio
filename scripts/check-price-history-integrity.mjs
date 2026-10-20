@@ -87,7 +87,8 @@ console.log('✅ 가격이력 독립 진단·range read 재사용·미검증 Sna
  const mockSheet={
   getLastRow:()=>stored.length,getLastColumn:()=>6,
   getRange:(r,c,n=1,w=1)=>({
-   getValues:()=>stored.slice(r-1,r-1+n).map(row=>row.slice(c-1,c-1+w)),
+   getValues:()=>Array.from({length:n},(_,i)=>Array.from({length:w},(_,j)=>stored[r-1+i]?.[c-1+j]??'')),
+   getFormulas:()=>Array.from({length:n},()=>Array(w).fill('')),
    setValues:arr=>{arr.forEach((row,i)=>{const pos=r-1+i;while(stored.length<=pos)stored.push([]);
     row.forEach((v,j)=>{stored[pos][c-1+j]=v;});});}
   })
