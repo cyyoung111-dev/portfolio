@@ -71,22 +71,26 @@ export function evaluate(input) {
        actions.length?'CORPORATE_ACTION_REVIEW_REQUIRED':'EXACT_SOURCE_AVAILABLE_FOR_SEPARATE_APPROVAL';
     return {date,confirmedExact:e.exactDateConfirmed,
       source:e.exactDateConfirmed?e.providerClass:'NOT_CONFIRMED',
-      existingHistoryRows:count(sameDate.length),
+      existingPositiveHistoryRows:count(sameDate.length),
+      fullRawPriceHistoryDuplicateScanPerformed:false,
       existingManualProtected:hasManual,
       sourceOnlyEligibleForLaterApproval:reason==='EXACT_SOURCE_AVAILABLE_FOR_SEPARATE_APPROVAL',
       decision:reason};
   });
   const last=rows.map(r=>r.date).sort().at(0)||'-';
   const yearEnd=observations.find(x=>x.date==='2025-12-30');
-  const ready=!!(yearEnd?.sourceOnlyEligibleForLaterApproval)&&storedMatch.length===0;
+  const heldBeforeYearEnd=relevant.some(t=>String(t.date||'').slice(0,10)<='2025-12-30');
+  const ready=heldBeforeYearEnd&&!!(yearEnd?.sourceOnlyEligibleForLaterApproval)&&storedMatch.length===0;
   return {mode:'READ_ONLY',gasVersion:automation.automation.gasVersion,
     firstMissingDistinctCodes:codes.length,earliestCurrentCodePriceDate:last,
-    codeHeldBeforeYearEnd:relevant.some(t=>String(t.date||'').slice(0,10)<='2025-12-30'),
+    codeHeldBeforeYearEnd:heldBeforeYearEnd,
     carryBoundaryCorporateActionFound:actions.length>0,
     targetAlreadyInJan01StoredSnapshot:storedMatch.length===1,
     observations,yearEndCarrySourceReady:ready,
     numericalPriceUsed:false,historyWritten:false,snapshotWritten:false,ledgerWritten:false,
-    next:'Separately approve guarded SOURCE-ONLY append with locked backup, then recheck date-scoped Snapshot. Do NOT backdate Jan 2/5 prices to Jan 1.'};
+    fullRawPriceHistoryDuplicateScanPerformed:false,
+    originalSheetWriteApproved:false,
+    next:'Source READINESS is not write permission. The production writer must scan ALL raw rows including zero/invalid prices under ScriptLock, preserve MANUAL, verify backup capacity and exact provider date; approve write separately.'};
 }
 export async function readLive({url,token,fetchImpl=fetch}){
   const endpoint=validateWebAppUrl(url);
@@ -154,6 +158,12 @@ export async function selfTest(){
   const split=structuredClone(input);
   split.trade.trades.push({code,date:'2025-12-31',tradeType:'split'});
   assert.equal(evaluate(split).observations[0].decision,'CORPORATE_ACTION_REVIEW_REQUIRED');
+  const drift=structuredClone(input);
+  drift.trade.trades=[{code,date:'2026-01-02',tradeType:'buy'}];
+  assert.equal(evaluate(drift).codeHeldBeforeYearEnd,false);
+  assert.equal(evaluate(drift).yearEndCarrySourceReady,false);
+  assert.equal(ok.observations[0].fullRawPriceHistoryDuplicateScanPerformed,false);
+  assert.equal(ok.originalSheetWriteApproved,false);
   const future=structuredClone(input);
   future.proofs[0].targetEvidence.usedDate='2026-01-02';
   assert.throws(()=>evaluate(future),/ISSUE507_PREFLIGHT_NOT_EXACT/);
