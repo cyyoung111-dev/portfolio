@@ -145,7 +145,7 @@ export async function selfTest(){
     assert.ok(!JSON.stringify(ok).includes(secret));
   const stale=structuredClone(input);
   stale.proofs[0].targetEvidence={...stale.proofs[0].targetEvidence,
-    exactDateConfirmed:false,usedDate:'2025-12-29',providerClass:'NOT_CONFIRMED'};
+    exactDateConfirmed:false,usedDate:'',providerClass:'NOT_CONFIRMED'};
   assert.equal(evaluate(stale).yearEndCarrySourceReady,false);
   const existing=structuredClone(input);
   existing.priceHistory.prices[code].push({date:'2025-12-30',price:100,source:'MANUAL'});
