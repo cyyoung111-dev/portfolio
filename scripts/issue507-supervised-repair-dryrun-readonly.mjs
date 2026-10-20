@@ -112,6 +112,8 @@ export function assessDay(d){
   }
   const matchedFull=[...expected].filter(([k,r])=>
     (groups.get(k)||[]).some(sr=>signature(sr)===signature(r))).length;
+  const matchedQtyCost=[...expected].filter(([k,r])=>
+    (groups.get(k)||[]).some(sr=>qtyCost(sr)===qtyCost(r))).length;
   return {
     date:d.date,reportedStatus:d.status,storedRows:count(d.storedRows.length),
     expectedRows:count(d.expectedRows.length),
@@ -124,11 +126,14 @@ export function assessDay(d){
     sourceUnverifiedStoredRows:count(sourceUsable?0:d.storedRows.length),
     expectedRowsWithStoredSignature:count(matchedFull),
     expectedRowsWithoutStoredSignature:count(expected.size-matchedFull),
+    expectedRowsWithStoredQtyCost:count(matchedQtyCost),
+    expectedRowsWithoutStoredQtyCost:count(expected.size-matchedQtyCost),
     duplicateReasons:causes,
     readyToWrite:false,
     planStage:d.sourceDataErrors.length||d.status==='SOURCE_INCOMPLETE'
       ?'SOURCE_REPAIR_REQUIRED'
       :duplicates.length?'PROTECTED_DUPLICATES_REQUIRE_RECONCILIATION'
+      :inferredMissing.length&&inferredUnexpected.length?'SNAPSHOT_KEYSET_DRIFT'
       :inferredMissing.length?'SNAPSHOT_MISSING_ROWS'
       :inferredUnexpected.length?'SNAPSHOT_ORPHAN_ROWS'
       :'VERIFY_OTHER_MISMATCHES'
@@ -173,6 +178,11 @@ export function summarize(before,after,batches){
     sourceErrorDates:count(days.filter(d=>d.sourceErrors>0).length),
     sourceErrorRecords:count(days.reduce((sum,d)=>sum+d.sourceErrors,0)),
     missingExpectedRows:count(days.reduce((sum,d)=>sum+d.missingExpectedRows,0)),
+    expectedRowsWithStoredSignature:count(days.reduce((sum,d)=>sum+d.expectedRowsWithStoredSignature,0)),
+    expectedRowsWithoutStoredSignature:count(days.reduce((sum,d)=>sum+d.expectedRowsWithoutStoredSignature,0)),
+    expectedRowsWithStoredQtyCost:count(days.reduce((sum,d)=>sum+d.expectedRowsWithStoredQtyCost,0)),
+    expectedRowsWithoutStoredQtyCost:count(days.reduce((sum,d)=>sum+d.expectedRowsWithoutStoredQtyCost,0)),
+    keysetDriftDates:count(days.filter(d=>d.planStage==='SNAPSHOT_KEYSET_DRIFT').length),
     unexpectedStoredCodes:count(days.reduce((sum,d)=>sum+d.unexpectedStoredCodes,0)),
     unexpectedStoredRows:count(days.reduce((sum,d)=>sum+d.unexpectedStoredRows,0)),
     sourceUnverifiedStoredCodes:count(days.reduce((sum,d)=>sum+d.sourceUnverifiedStoredCodes,0)),
@@ -180,6 +190,8 @@ export function summarize(before,after,batches){
   };
   return {mode:'STRICT_READ_ONLY_RECOVERY_DRYRUN',gasVersion:'9.244',
     sourceRevisionStable:true,sourceDigestStable:true,deferredQueueStable:true,
+    // Within this invocation only: prior executions can have different source rows.
+    crossRunSourceStabilityCertified:false,backupRegistrySignatureVerified:false,
     ...totals,reasons,stages,days,
     rawPriceHistoryFullScanCertified:false,
     confirmedKrxNumericValuesCertified:false,
@@ -244,6 +256,8 @@ export async function selfTest(){
   const x=fixtureDay(),a=assessDay(x);
   assert.equal(a.duplicateGroups,1);
   assert.equal(a.duplicateReasons.VALUATION_OR_SOURCE_DRIFT,1);
+  assert.equal(a.expectedRowsWithStoredQtyCost,1);
+  assert.equal(a.expectedRowsWithStoredSignature,0);
   assert.equal(a.readyToWrite,false);
   const manual=structuredClone(x);manual.storedRows[1][10]='MANUAL';
   assert.equal(assessDay(manual).duplicateReasons.MANUAL_PROTECTED,1);
@@ -264,6 +278,17 @@ export async function selfTest(){
   assert.equal(assessDay(isolated).unexpectedStoredRows,1);
   const wrongSameCount=structuredClone(isolated);wrongSameCount.unexpectedCodes=['000003'];
   assert.throws(()=>assessDay(wrongSameCount),/UNEXPECTED_SUMMARY_DRIFT/);
+  const mixed=structuredClone(x);
+  mixed.status='PARTIAL';
+  mixed.storedRows=[[x.date,'000002','INTERNAL',1,10,10,9,9,-1,-10,'KRX','']];
+  mixed.duplicateKeys=[];mixed.duplicateSummary.groups=0;
+  mixed.missingCodes=['000001'];mixed.unexpectedCodes=['000002'];
+  const mixedResult=assessDay(mixed);
+  assert.equal(mixedResult.planStage,'SNAPSHOT_KEYSET_DRIFT');
+  assert.equal(mixedResult.missingExpectedRows,1);
+  assert.equal(mixedResult.unexpectedStoredCodes,1);
+  assert.equal(mixedResult.expectedRowsWithStoredQtyCost,0);
+  assert.equal(mixedResult.readyToWrite,false);
   const source=structuredClone(x);source.status='SOURCE_INCOMPLETE';source.sourceDataErrors=['INTERNAL'];
   assert.equal(assessDay(source).duplicateReasons.SOURCE_UNVERIFIED,1);
   const incomplete=structuredClone(absent);incomplete.status='SOURCE_INCOMPLETE';
@@ -281,7 +306,14 @@ export async function selfTest(){
   const d='a'.repeat(64);
   const before={dates:[x.date],cursor:x.date,pendingFrom:'2026-01-08'};
   const batch={days:[a],digest:d,revision:'100'};
-  assert.equal(summarize(before,before,[batch]).writeAllowed,false);
+  const baselineReport=summarize(before,before,[batch]);
+  assert.equal(baselineReport.writeAllowed,false);
+  assert.equal(baselineReport.expectedRowsWithStoredQtyCost,1);
+  assert.equal(baselineReport.expectedRowsWithoutStoredSignature,1);
+  assert.equal(baselineReport.crossRunSourceStabilityCertified,false);
+  assert.equal(baselineReport.backupRegistrySignatureVerified,false);
+  const mixedReport=summarize(before,before,[{...batch,days:[mixedResult]}]);
+  assert.equal(mixedReport.keysetDriftDates,1);
   assert.throws(()=>summarize(before,before,[batch,{days:[],digest:'b'.repeat(64),revision:'100'}]),/SOURCE_CHANGED/);
   const baseStatus={status:'ok',gasVersion:'9.244',automation:{gasVersion:'9.244',
     tradeSnapshotDeferredDates:[x.date],tradeSnapshotDeferredCount:1,
