@@ -2,8 +2,9 @@
 
 - **배포 상태:** 미병합 PR 검증용 후보. 기존 v9.248 이하 및 운영 v9.244는 변경하지 않았습니다. #589→#591→#592→#594 위에 쌓인 종속 PR이므로 독립 배포·병합을 금지합니다.
 - **운영 트리거:** 기존 22:10 / 23:10 / 00:30 / 08:45 유지. 작업 도중 트리거를 생성·수정하지 않습니다.
-- **릴리스 소스 정합성 pin:** `gasVersion=9.249`, 전체 GAS blob `06a36b0309e90bac589f381e7d8213e3a71df397`. 기존 v9.248 이하 핀은 보존됩니다. 해시 승인 목록 등록은 운영 배포 승인이 아닙니다.
+- **릴리스 소스 정합성 pin:** `gasVersion=9.249`, 전체 GAS blob `f250e9474447a73877f4fee3ad23b7a0fd6f2363`. 기존 v9.248 이하 핀은 보존됩니다. 해시 승인 목록 등록은 운영 배포 승인이 아닙니다.
 - **핵심 변경:** `_cleanupPriceHistoryDuplicatesLocked`의 `ph.clearContents()`·전체 재정렬·재기록 제거. 동일 날짜/코드의 가격이력 중복 그룹에서 기존 우선순위(MANUAL/savedAt·최신 저장시각·뒷행)를 유지하고 **남길 기준행은 원래 물리행에 보존**, 삭제 가능한 중복 물리행만 값·수식 확인 후 빈 슬롯 처리. 다른 날짜·다른 종목의 가격·소스/수식/사용자 열·헤더를 다시 기록하지 않습니다.
+- **Codex P2 수용·수정:** 제거 대상의 `' MANUAL '` 등 공백 포함 소스를 검사할 때에도 후보 우선순위와 동일하게 `trim().toUpperCase()`로 보호. 실제 생산 함수 VM에서 차단/시트·백업·revision 불변성 검증.
 - **근거 보호:** 제거 후보의 MANUAL 또는 사용자 저장시각, G열 이후 사용자 값, 수식이 있으면 자동 정리 전체를 `PRICE_CLEANUP_UNSAFE_EVIDENCE_REQUIRES_REVIEW`로 중단하여 거래원장 대조를 요구. 남길 기준행 또는 제거 대상이 백업 생성 후 외부 Writer에 의해 바뀌어도 차단합니다. 원래 다른 날짜·코드의 물리행 위치를 이동하지 않습니다.
 - **부분 실패·백업:** 제한된 셀 기록에 오류가 나거나 타 Writer와 겹치면 `PRICE_CLEANUP_COMMIT_UNVERIFIED`, 기존 백업 `WRITE_FAILED` 상태 유지 및 자동 재실행·전체 복원 금지. 물리행을 비운 뒤에는 식별자가 사라져 자동 보상 안전성을 보증할 수 없습니다. 다른 API의 **검사→쓰기 동일셀 TOCTOU는 미해결**이며 cross-client CAS가 아닙니다.
 - **검증:** 실제 GAS 생산 `_cleanupPriceHistoryDuplicatesLocked`를 synthetic VM에서 호출하는 `scripts/check-issue507-price-cleanup-scoped.mjs`를 check:gas·Quality 게이트에 추가. 외부 타 날짜 가격/소스 수정 보존, 7열 추가값 유지, MANUAL·타임스탬프·수식·확장열 보호, 기준행/대상행 drift, 2번째 쓰기 실패 `WRITE_FAILED` 백업 유지, no-op까지 검증. 기존 가격이력 정적 검사 역시 전체행 재기록 대신 대상 범위 저장 + 캐시 revision 갱신으로 변경.
