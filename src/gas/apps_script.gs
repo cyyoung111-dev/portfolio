@@ -6275,6 +6275,17 @@ function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) 
     if (!Array.isArray(previous) || !Array.isArray(desired) ||
         previous.length < width || desired.length < width)
       throw new Error('펀드 파생행 열 구조 불일치');
+    // Clearing a zero-unit row must be ONE physical-range operation. A
+    // code-less legacy row otherwise generates separated date/name blocks;
+    // its first block removes its own identity and falsely trips the second.
+    if (desired.slice(0,width).every(function(v) { return v === '' || v == null; })) {
+      if (previous.slice(0,width).some(function(v) { return v !== '' && v != null; }))
+        plans.push({row:index+2,col:1,identity:previous.slice(0,3),
+          previous:previous.slice(0,width),desired:desired.slice(0,width)});
+      return;
+    }
+    if (JSON.stringify(previous.slice(0,3)) !== JSON.stringify(desired.slice(0,3)))
+      throw new Error('펀드 파생행 날짜/종목 식별자 이동 금지');
     var j = 0;
     while (j < width) {
       if (JSON.stringify(previous[j]) === JSON.stringify(desired[j])) { j++; continue; }
