@@ -37,7 +37,7 @@ function makeEnv({mode='normal',beforePreflight,atAppendRead,failWriteNumber=0,f
  const sheet={
   getLastRow:last,getLastColumn:()=>width,
   getRange:(r,c,h=1,w=1)=>{
-   if(c===1&&r===2&&!preflightCalled&&beforePreflight){preflightCalled=true;beforePreflight(stored);}
+   if(c===1&&r===2&&h===1&&!preflightCalled&&beforePreflight){preflightCalled=true;beforePreflight(stored);}
    if(c===1&&r===initial.length+1&&!appendCalled&&atAppendRead){appendCalled=true;atAppendRead(stored);}
    const get=()=>Array.from({length:h},(_,i)=>Array.from({length:w},(_,j)=>stored[r-1+i]?.[c-1+j]??''));
    return{
