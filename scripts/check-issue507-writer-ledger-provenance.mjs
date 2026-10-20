@@ -163,7 +163,14 @@ const wrongIndex=um.env._buildHoldingsByRequestedDate(kstDateTrades,
   ['2025-12-31','2026-01-01','2026-01-02'],{});
 assert.notEqual(wrongIndex['2025-12-31']['000004'].qty,1,
   'mutation oracle: UTC conversion leaks January 1 trade into December 31');
-assert.notEqual(um.env._calcCodeHoldingsAtDate(kstDateTrades,
+// Single-date reducer takes its Date branch in _applyHoldingTrade rather
+// than in _normalizeDate. Mutate that independent production boundary too.
+const utcApply=production._applyHoldingTrade.replace(
+  "Utilities.formatDate(rawDate, CONFIG.TIMEZONE, 'yyyy-MM-dd')",
+  "rawDate.toISOString().slice(0,10)");
+assert.notEqual(utcApply,production._applyHoldingTrade);
+const us=context({_applyHoldingTrade:utcApply});
+assert.notEqual(us.env._calcCodeHoldingsAtDate(kstDateTrades,
   '2025-12-31',{},{} )['000004'].qty,1,
   'mutation oracle: UTC conversion leaks into single-date calculation');
 um.setRows(timestampRows);
