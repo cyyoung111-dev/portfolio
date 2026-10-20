@@ -21,8 +21,8 @@ const header=['DATE','CODE','NAME','PRICE','SAVED','SRC','USER'];
 const cases={
  standard:()=>[header.slice(0,6),base(d1,'000111',100).slice(0,6),
   base(d1,'000111',100).slice(0,6),base(d2,'000222',200).slice(0,6)],
- wide:()=>[header,base(d1,'000111',100,'KRX','','ORIGINAL_USER'),
-  base(d1,'000111',100,'KRX','',''),base(d2,'000222',200,'OLD','','FOREIGN_USER')],
+ wide:()=>[header,base(d1,'000111',100,'KRX','',''),
+  base(d1,'000111',100,'KRX','','ORIGINAL_USER'),base(d2,'000222',200,'OLD','','FOREIGN_USER')],
  manual:()=>[header.slice(0,6),base(d1,'000111',99,'MANUAL').slice(0,6),
   base(d1,'000111',105,'KRX').slice(0,6),base(d2,'000222',200).slice(0,6)],
  unsafeManual:()=>[header.slice(0,6),base(d1,'000111',99,'MANUAL').slice(0,6),
@@ -107,17 +107,17 @@ function create({mode='standard',afterBackup,formula=[],failWriteAt=0}={}){
 {
  const x=create({mode:'wide'});
  x.run();
- assert.equal(x.data[1][6],'ORIGINAL_USER','keeper custom evidence preserved');
+ assert.equal(x.data[2][6],'ORIGINAL_USER','keeper custom evidence preserved');
  assert.equal(x.data[3][6],'FOREIGN_USER','different code custom evidence preserved');
- assert.ok(x.data[2].every(v=>v===''));
- assert.deepEqual(x.writes,[{r:3,c:1,n:1,w:7}]);
+ assert.ok(x.data[1].every(v=>v===''));
+ assert.deepEqual(x.writes,[{r:2,c:1,n:1,w:7}]);
  console.log('ISSUE507_PRICE_CLEANUP_CUSTOM_COLUMNS_NOT_MOVED');
 }
 {
  const x=create({mode:'wide'});
- x.data[2][6]='LOSER_USER_DATA';
+ x.data[1][6]='LOSER_USER_DATA';
  assert.throws(()=>x.run(),/PRICE_CLEANUP_UNSAFE_EVIDENCE_REQUIRES_REVIEW.*CUSTOM_COLUMNS/);
- assert.equal(x.data[2][6],'LOSER_USER_DATA');
+ assert.equal(x.data[1][6],'LOSER_USER_DATA');
  assert.deepEqual(x.backups,[]);
 }
 {
