@@ -10413,7 +10413,6 @@ function batchUpsertPriceHistory(ss, dateStr, items) {
       }
       throw writeError;
     }
-  }
   } catch(err) {
     Logger.log('❌ batchUpsertPriceHistory 실패: ' + err.message);
     throw err;
