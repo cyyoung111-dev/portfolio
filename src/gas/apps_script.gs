@@ -1,6 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.247
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.248
 //
+//  v9.248 변경사항 (2026.10.20):
+//  - #507 Snapshot 중복/0좌 정리 전체 A:L 행압축 제거. 검증된 행만 빈 슬롯 처리.
+//  - 날짜누락 행·사용자확장열·수식·MANUAL 자동삭제 보류, 타 날짜 행 보존.
+//  - 대상행 외부 변경시 fail-closed, 일부 실패 backup WRITE_FAILED 유지.
+//  - 직접 Sheets API 동일셀 경합/CAS 문제는 미해결이며 배포 금지.
 //  v9.247 변경사항 (2026.10.20):
 //  - #507 getPrices Snapshot 소스 재기록의 전체일 K:L 덮어쓰기 제거.
 //  - 변경 대상 날짜·종목의 물리행만 검사·쓰기, 다른 날짜/코드 보존.
@@ -2215,7 +2220,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.247',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.248',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2293,7 +2298,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.247', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.248', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6120,7 +6125,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.247' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.248' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12899,7 +12904,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.247',
+    gasVersion: '9.248',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12964,7 +12969,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.247' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.248' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15683,33 +15688,87 @@ function _cleanupSnapshotDuplicatesLocked() {
     decisions = decisions.concat(_classifyRawSnapshotDuplicateGroups(date, raw, expected, error));
   });
 
-  var replacementByKey = {}, duplicateRowsRemoved = 0, affectedDates = {};
+  // #507: Never compact the physical Snapshot table. Keep every unrelated
+  // row and its custom columns in place; clear only a proven redundant row.
+  // Missing-date payloads have no trustworthy ledger lineage: preserve them
+  // for supervised source recovery instead of erasing evidence.
+  var cleanupPlans = [], keptRowProofs = [], duplicateRowsRemoved = 0, affectedDates = {};
+  var blockedInvalidDateRows = invalidDateRows;
+  var blockedUnsafeGroups = [], plannedIndexes = {};
+  var fullWidth = Math.max(colSize, sh.getLastColumn());
+  var blank = function(n) { return Array(n).fill(''); };
+  var rowKey = function(row) { return _normalizeDate(row[0]) + '|' + _snapshotIntegrityKey(row); };
+  var planned = function(index,kind) {
+    if (plannedIndexes[index]) throw new Error('SNAPSHOT_CLEANUP_DUPLICATE_PHYSICAL_PLAN');
+    plannedIndexes[index] = true;
+    cleanupPlans.push({ physicalRow:index+2, before:rows[index].slice(0,fullWidth), kind:kind });
+    var date = _normalizeDate(rows[index][0]);
+    if (date) affectedDates[date] = true;
+  };
+
+  rows.forEach(function(row, index) {
+    if (!isZeroUnitFundRow(row)) return;
+    if (String(row[10] || '').toUpperCase() === 'MANUAL') {
+      blockedUnsafeGroups.push('ZERO_UNIT_MANUAL:' + (index+2));
+      return;
+    }
+    planned(index,'ZERO_UNIT');
+  });
+
   decisions.filter(function(item) { return item.autoResolvable; }).forEach(function(item) {
-    replacementByKey[item.date + '|' + item.key] = item.keepRow;
-    duplicateRowsRemoved += item.rawRowCount - 1;
-    affectedDates[item.date] = true;
-  });
-
-  var emitted = {}, outputRows = [];
-  rows.forEach(function(row) {
-    var date = _normalizeDate(row[0]);
-    if (!date) return;
-    if (isZeroUnitFundRow(row)) {
-      affectedDates[date] = true;
+    var dateKey = item.date + '|' + item.key;
+    var positions = [];
+    rows.forEach(function(row, index) {
+      if (rowKey(row) === dateKey && !isZeroUnitFundRow(row)) positions.push(index);
+    });
+    if (positions.length !== item.rawRowCount)
+      throw new Error('SNAPSHOT_CLEANUP_DUPLICATE_PHYSICAL_MISMATCH:' + dateKey);
+    if (positions.some(function(index) { return String(rows[index][10] || '').toUpperCase() === 'MANUAL'; })) {
+      blockedUnsafeGroups.push('DUPLICATE_MANUAL:' + dateKey);
       return;
     }
-    var key = _snapshotIntegrityKey(row), groupKey = date + '|' + key;
-    if (!replacementByKey[groupKey]) {
-      outputRows.push(row.slice(0, colSize));
-      return;
-    }
-    if (!emitted[groupKey]) {
-      outputRows.push(replacementByKey[groupKey]);
-      emitted[groupKey] = true;
-    }
+    var expectedSignature = _snapshotComparableSignature(item.keepRow);
+    var keepIndex = -1;
+    positions.some(function(index) {
+      if (_snapshotComparableSignature(rows[index]) === expectedSignature) {
+        keepIndex = index; return true;
+      }
+      return false;
+    });
+    if (keepIndex < 0) throw new Error('SNAPSHOT_CLEANUP_KEEP_ROW_NOT_FOUND:' + dateKey);
+    keptRowProofs.push({physicalRow:keepIndex+2,before:rows[keepIndex].slice(0,fullWidth)});
+    positions.forEach(function(index) {
+      if (index === keepIndex) return;
+      planned(index,'DUPLICATE');
+      duplicateRowsRemoved++;
+    });
   });
 
-  var removedRows = invalidDateRows + zeroUnitFundRows + duplicateRowsRemoved;
+  // Fail closed for *any* unsafe selected row before making a backup or
+  // altering a cell. The backup path is not an atomic multi-row transaction.
+  cleanupPlans.forEach(function(plan) {
+    var range = sh.getRange(plan.physicalRow,1,1,fullWidth);
+    var observed = range.getValues()[0], formulas = range.getFormulas()[0];
+    if (JSON.stringify(observed) !== JSON.stringify(plan.before))
+      throw new Error('SNAPSHOT_CLEANUP_PREFLIGHT_EXTERNAL_ROW_CHANGE:' + plan.physicalRow);
+    if (!formulas || formulas.some(function(value) { return !!value; }))
+      blockedUnsafeGroups.push('FORMULA_ROW:' + plan.physicalRow);
+    if (plan.before.slice(colSize).some(function(value) { return value !== '' && value != null; }))
+      blockedUnsafeGroups.push('CUSTOM_COLUMN_ROW:' + plan.physicalRow);
+  });
+  if (blockedUnsafeGroups.length)
+    throw new Error('SNAPSHOT_CLEANUP_UNSAFE_SOURCE_REQUIRES_REVIEW:' + blockedUnsafeGroups.join(','));
+  var originalLastRow = sh.getLastRow();
+  var verifyKeptRows = function() {
+    keptRowProofs.forEach(function(proof) {
+      var observed = sh.getRange(proof.physicalRow,1,1,fullWidth).getValues()[0];
+      if (JSON.stringify(observed) !== JSON.stringify(proof.before))
+        throw new Error('SNAPSHOT_CLEANUP_KEEP_ROW_CHANGED:' + proof.physicalRow);
+    });
+  };
+  verifyKeptRows();
+  var zeroUnitFundRowsRemoved = cleanupPlans.filter(function(plan) { return plan.kind === 'ZERO_UNIT'; }).length;
+  var removedRows = cleanupPlans.length;
   var counts = function(classification) { return decisions.filter(function(item) { return item.classification === classification; }).length; };
   var unresolvedDates = {}, beforeConflictDates = {};
   decisions.forEach(function(item) {
@@ -15720,30 +15779,38 @@ function _cleanupSnapshotDuplicatesLocked() {
   var actualByDate = {};
   if (removedRows) {
     var backup = _backupSnapshotBeforeWrite(ss, sh);
+    if (!backup) throw new Error('SNAPSHOT_CLEANUP_BACKUP_REQUIRED');
     try {
-      var header = [['날짜','종목코드','종목명','수량','매수단가','매수원금','평가단가','평가금액','손익','수익률(%)','평가단가소스','저장일시']];
-      var output = header.concat(outputRows);
-      while (output.length < sh.getLastRow()) output.push(Array(colSize).fill(''));
-      sh.getRange(1, 1, output.length, colSize).setValues(output);
+      // Preflight and write each affected physical row only. If a write
+      // fails after another row was cleared, preserve WRITE_FAILED backup
+      // rather than blindly restoring a row whose identity is now blank.
+      cleanupPlans.forEach(function(plan) {
+        // The proof/kept row is part of the same duplicate group. A competing
+        // client must not change the only row we elected to retain.
+        verifyKeptRows();
+        var range = sh.getRange(plan.physicalRow,1,1,fullWidth);
+        var observed = range.getValues()[0], formulas = range.getFormulas()[0];
+        if (JSON.stringify(observed) !== JSON.stringify(plan.before) ||
+            !formulas || formulas.some(function(v) { return !!v; }))
+          throw new Error('SNAPSHOT_CLEANUP_TARGET_CHANGED:' + plan.physicalRow);
+        range.setValues([blank(fullWidth)]);
+      });
       SpreadsheetApp.flush();
+      verifyKeptRows();
+      cleanupPlans.forEach(function(plan) {
+        var actual = sh.getRange(plan.physicalRow,1,1,fullWidth).getValues()[0];
+        if (actual.some(function(v) { return v !== '' && v != null; }))
+          throw new Error('SNAPSHOT_CLEANUP_WRITE_UNVERIFIED:' + plan.physicalRow);
+      });
 
       var actualAll = sh.getLastRow() > 1
-        ? sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(colSize, sh.getLastColumn())).getValues()
+        ? sh.getRange(2, 1, sh.getLastRow() - 1, fullWidth).getValues()
         : [];
-      var remainingInvalid = actualAll.filter(function(row) { return !_normalizeDate(row[0]) && rowHasPayload(row); });
-      var remainingZeroUnit = actualAll.filter(isZeroUnitFundRow);
-      if (remainingInvalid.length || remainingZeroUnit.length) {
-        throw new Error('Snapshot 정리 후 검증 실패: 날짜유실=' + remainingInvalid.length + ', 0좌펀드=' + remainingZeroUnit.length);
-      }
-
+      // #507: do not compare untouched dates to a stale global snapshot.
+      // Another writer may legitimately update their values during backup.
+      // Only affected physical rows are blanked and read back above.
       var isValidSnapshotRow = function(row) { return !!_normalizeDate(row[0]) && !!_snapshotIntegrityKey(row); };
-      var intendedRows = outputRows.filter(isValidSnapshotRow);
       var actualRows = actualAll.filter(isValidSnapshotRow);
-      var intendedSignature = intendedRows.map(_snapshotComparableSignature).sort().join('\n');
-      var actualSignature = actualRows.map(_snapshotComparableSignature).sort().join('\n');
-      if (actualRows.length !== intendedRows.length || actualSignature !== intendedSignature) {
-        throw new Error('Snapshot 전체 정리 후 read-back 검증 실패');
-      }
 
       actualRows.forEach(function(row) {
         var date = _normalizeDate(row[0]);
@@ -15752,18 +15819,21 @@ function _cleanupSnapshotDuplicatesLocked() {
       Object.keys(affectedDates).forEach(function(date) {
         var remaining = _classifyRawSnapshotDuplicateGroups(date, actualByDate[date] || [], expectedByDate[date] || [], sourceErrorByDate[date] || '');
         var targetKeys = {};
-        decisions.filter(function(item) { return item.date === date && item.autoResolvable; }).forEach(function(item) { targetKeys[item.key] = true; });
+        decisions.filter(function(item) { return item.date === date && item.autoResolvable; })
+          .forEach(function(item) { targetKeys[item.key] = true; });
         var failed = remaining.filter(function(item) { return targetKeys[item.key]; });
         if (failed.length) throw new Error('Snapshot 중복 정리 후 raw 검증 실패: ' + failed.map(function(item) { return item.key; }).join(', '));
       });
-
       var revisionImpact = Object.keys(affectedDates).length ? { dates: Object.keys(affectedDates) } : { all: true };
       _touchSnapshotIntegritySourceRevision(revisionImpact);
       _markSnapshotBackupStatus(backup, 'COMPLETED');
       _cleanupCurrentSystemBackup(ss, backup);
     } catch (error) {
       _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message);
-      throw error;
+      // Each blanked row no longer contains its original date/code and may
+      // have been reused by an external writer. Manual evidence-based
+      // recovery is necessary; blind compensation would destroy that writer.
+      throw new Error('SNAPSHOT_CLEANUP_COMMIT_UNVERIFIED: ' + error.message);
     }
   }
 
@@ -15784,8 +15854,9 @@ function _cleanupSnapshotDuplicatesLocked() {
     manualProtectedGroups: counts('MANUAL_PROTECTED'),
     unresolvedConflictGroups: counts('UNRESOLVED_CONFLICT'),
     sourceIncompleteGroups: counts('SOURCE_INCOMPLETE'),
-    invalidDateRowsRemoved: invalidDateRows,
-    zeroUnitFundRowsRemoved: zeroUnitFundRows,
+    invalidDateRowsRemoved: 0,
+    invalidDateRowsBlocked: blockedInvalidDateRows,
+    zeroUnitFundRowsRemoved: zeroUnitFundRowsRemoved,
     duplicateRowsRemoved: duplicateRowsRemoved,
     removedRows: removedRows,
     affectedDates: Object.keys(affectedDates).sort(),
@@ -15795,7 +15866,7 @@ function _cleanupSnapshotDuplicatesLocked() {
     groups: decisions
   };
   alertResult('스냅샷 정리 완료: ' + removedRows + '행 삭제'
-    + '\n- 날짜 유실: ' + invalidDateRows
+    + '\n- 날짜 유실 보존(원장 대조 필요): ' + blockedInvalidDateRows
     + '\n- 0좌 펀드 잔존: ' + zeroUnitFundRows
     + '\n- 중복 자동해결: ' + duplicateRowsRemoved
     + '\n- 미해결 보호: ' + result.unresolvedDates.length + '일');
@@ -16723,7 +16794,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.247' });
+    return jsonOk({ settings: settings, gasVersion: '9.248' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16753,7 +16824,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.247'
+      gasVersion: '9.248'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
