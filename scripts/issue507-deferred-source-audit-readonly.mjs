@@ -277,6 +277,19 @@ export async function selfTest(){
     assert.equal(blocked.errorCode,'RUNTIME_ERROR');
     assert.equal(propertyWrites,0);
   }
+  revisionRaw=JSON.stringify({revision:541,all:541,dates:{},ranges:[]});
+  const originalRangeRead=ctx._buildSnapshotRangeReadContext;
+  ctx._buildSnapshotRangeReadContext=()=>{
+    // Producer changes revision after the pre-read checkpoint, while the
+    // original data would otherwise look consistent.
+    revisionRaw=JSON.stringify({revision:542,all:542,dates:{},ranges:[]});
+    return originalRangeRead();
+  };
+  const changedMidRead=invoke();
+  assert.equal(changedMidRead.status,'error');
+  assert.equal(changedMidRead.errorCode,'SOURCE_REVISION_CHANGED');
+  assert.equal(propertyWrites,0);
+  ctx._buildSnapshotRangeReadContext=originalRangeRead;
   console.log('Issue #507 deferred-date all-inventory source audit synthetic/production VM: PASS');
 }
 if(process.argv.includes('--self-test')){
