@@ -1,6 +1,10 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.249
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.250
 //
+//  v9.250 변경사항 (2026.10.20):
+//  - #507 종목코드 복구 시 전체 코드열 재기록/무변경 열 서식 변경 제거.
+//  - 마스터 확인된 대상 물리셀만 행 식별자·수식 재검사 후 백업·저장.
+//  - 외부 target drift/부분 실패 시 WRITE_FAILED 백업 보호; CAS 미해결.
 //  v9.249 변경사항 (2026.10.20):
 //  - #507 가격이력 중복 정리 clearContents/전체 재작성 제거.
 //  - 원본 MANUAL·timestamp·수식·확장열 보전, 중복 물리행만 검증 후 빈 슬롯.
@@ -2225,7 +2229,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.249',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.250',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2303,7 +2307,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.249', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.250', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6130,7 +6134,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.249' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.250' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12909,7 +12913,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.249',
+    gasVersion: '9.250',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12974,7 +12978,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.249' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.250' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16834,7 +16838,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.249' });
+    return jsonOk({ settings: settings, gasVersion: '9.250' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16864,7 +16868,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.249'
+      gasVersion: '9.250'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
@@ -17816,29 +17820,60 @@ function _repairKnownCodeColumns(ss) {
   targets.forEach(function(name) {
     var sheet = ss.getSheetByName(name), column = _codeColumnForSheet(name);
     if (!sheet || !column) return;
-    _setCodeColumnText(sheet, column);
     if (sheet.getLastRow() < 2) { results.push({ sheet: name, repaired: 0 }); return; }
-    var range = sheet.getRange(2, column, sheet.getLastRow() - 1, 1);
-    var values = range.getValues(), repaired = 0;
-    values.forEach(function(row) {
-      var raw = row[0];
+    var originalLastRow = sheet.getLastRow();
+    var width = Math.max(column, sheet.getLastColumn());
+    var rows = sheet.getRange(2, 1, originalLastRow - 1, width).getValues();
+    var plans = [];
+    rows.forEach(function(row, index) {
+      var raw = row[column - 1];
       if (raw === '' || raw == null) return;
-      var text = String(raw).trim();
-      var candidate = _cleanCode(text);
-      // 숫자로 손상된 코드도 종목 마스터의 정확한 정규 코드와 일치할 때만 복구합니다.
-      if (candidate && canonical[candidate] && text !== candidate) { row[0] = candidate; repaired++; }
-      else row[0] = text;
+      var normalized = _cleanCode(String(raw).trim());
+      // Repair only exact master-backed canonical codes. Merely trimming
+      // an unrelated/unknown code must not rewrite that physical cell.
+      if (normalized && canonical[normalized] && String(raw).trim() !== normalized) {
+        plans.push({rowNumber:index + 2, before:row.slice(), desired:normalized});
+      }
     });
-    if (repaired) {
-      var backup = _backupSheetBeforeWrite(ss, sheet, name);
-      try {
-        range.setValues(values);
-        _touchSnapshotIntegritySourceRevision({ all: true });
-        _verifyWrittenRange(sheet, 2, column, values, '종목코드 열 쓰기 후 검증 실패: ' + name);
-        _markSnapshotBackupStatus(backup, 'COMPLETED');
-        results.push({ sheet: name, repaired: repaired, backupCleanup: _cleanupCurrentSystemBackup(ss, backup) });
-      } catch (error) { _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message); throw error; }
-    } else results.push({ sheet: name, repaired: 0 });
+    if (!plans.length) { results.push({ sheet: name, repaired: 0 }); return; }
+
+    var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
+    var verifyTarget = function(plan, afterWrite) {
+      if (sheet.getLastRow() !== originalLastRow)
+        throw new Error('CODE_REPAIR_ROW_STRUCTURE_CHANGED:' + name);
+      var observed = sheet.getRange(plan.rowNumber,1,1,width).getValues()[0];
+      var expected = plan.before.slice();
+      if (afterWrite) expected[column - 1] = plan.desired;
+      if (!same(observed,expected))
+        throw new Error('CODE_REPAIR_PHYSICAL_ROW_CHANGED:' + name + ':' + plan.rowNumber);
+      var codeRange = sheet.getRange(plan.rowNumber,column,1,1);
+      var formulas = codeRange.getFormulas();
+      if (!formulas || !formulas[0] || formulas[0].length !== 1 || formulas[0][0])
+        throw new Error('CODE_REPAIR_FORMULA_OR_UNVERIFIED:' + name + ':' + plan.rowNumber);
+      return codeRange;
+    };
+    plans.forEach(function(plan) { verifyTarget(plan,false); });
+    var backup = _backupSheetBeforeWrite(ss, sheet, name);
+    if (!backup) throw new Error('CODE_REPAIR_BACKUP_REQUIRED:' + name);
+    try {
+      plans.forEach(function(plan) {
+        var cell = verifyTarget(plan,false);
+        // Format only the cell that will be changed, and only AFTER backup.
+        // Previous path formatted the entire code column even for no-ops.
+        cell.setNumberFormat('@');
+        cell.setValues([[plan.desired]]);
+      });
+      SpreadsheetApp.flush();
+      plans.forEach(function(plan) { verifyTarget(plan,true); });
+      _touchSnapshotIntegritySourceRevision({ all: true });
+      _markSnapshotBackupStatus(backup, 'COMPLETED');
+      results.push({ sheet:name,repaired:plans.length,backupCleanup:_cleanupCurrentSystemBackup(ss,backup) });
+    } catch(error) {
+      // A prior changed physical code may have moved; do not roll it back
+      // over an external writer. The WRITE_FAILED backup remains evidence.
+      _markSnapshotBackupStatus(backup,'WRITE_FAILED',error.message);
+      throw new Error('CODE_REPAIR_COMMIT_UNVERIFIED:' + error.message);
+    }
   });
   return results;
 }
