@@ -14900,6 +14900,7 @@ function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
   }
   var attempted = [];
   try {
+    if (blocks.length) _setCodeColumnText(sheet, 2);
     blocks.forEach(function(block) {
       var range = sheet.getRange(block.rowNumber, 1, block.rows.length, width);
       var original = range.getValues();
@@ -15077,12 +15078,8 @@ function writeSnapshotRows(ss, dateStr, newRows, overwrite, manualKeys, lifecycl
       snapshotBackupRecord = _backupSnapshotBeforeWrite(ss, sh);
       // #507: 날짜별 슬롯만 갱신합니다. 다른 날짜를 과거에 읽은 combined 값으로
       // 전체 재기록하면 외부 Sheets API 수정분이 조용히 사라질 수 있습니다.
+      // helper 내부에서 flush·대상일 raw 검증하고 실패 범위를 보상 복구합니다.
       _writeSnapshotDateScoped_(ss, sh, normDate, existing, mergedDate, colSize);
-      SpreadsheetApp.flush();
-      var writtenDateRows = _readRawSnapshotRowsByDate(ss, normDate);
-      var intendedSignature = mergedDate.map(_snapshotComparableSignature).sort().join('\n');
-      var writtenSignature = writtenDateRows.map(_snapshotComparableSignature).sort().join('\n');
-      if (writtenDateRows.length !== mergedDate.length || writtenSignature !== intendedSignature) throw new Error('Snapshot 쓰기 후 raw 검증 실패: ' + normDate);
       _touchSnapshotIntegritySourceRevision({ date: normDate });
       if (!_snapshotBackupOperationId) _markSnapshotBackupStatus(snapshotBackupRecord, 'COMPLETED');
       if (snapshotBackupRecord) {
