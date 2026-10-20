@@ -6,12 +6,16 @@ on:
     paths:
       - 'scripts/issue507-source-only-preflight-readonly.mjs'
       - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'scripts/diagnose-krx-operational.mjs'
       - '.github/workflows/issue-507-source-only-preflight-readonly.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/issue507-source-only-preflight-readonly.mjs'
       - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'scripts/diagnose-krx-operational.mjs'
       - '.github/workflows/issue-507-source-only-preflight-readonly.yml'
   workflow_dispatch:
 
