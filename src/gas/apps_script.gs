@@ -17805,7 +17805,16 @@ function handleSyncCodes(codesParam, expectedSourceId, expectedCodesParam, repla
       }
     }
     var codeRepair = _repairKnownCodeColumns(ss);
-    return jsonOk({ synced: synced, updated: updated, total: Object.keys(existingByCode).length, codeRepair: codeRepair });
+    // #507: bounded repairs are resumable by repeating syncCodes; do not
+    // claim completion while eligible code corrections remain.
+    var codeRepairPending = codeRepair.reduce(function(sum,item) {
+      return sum + Number(item.deferred || 0);
+    },0);
+    return jsonOk({
+      synced: synced, updated: updated, total: Object.keys(existingByCode).length,
+      codeRepair: codeRepair, codeRepairPending: codeRepairPending,
+      codeRepairContinueRequired: codeRepairPending > 0
+    });
   } catch(err) {
     return jsonError('syncCodes 실패: ' + err.message);
   } finally {
@@ -17818,6 +17827,11 @@ function _repairKnownCodeColumns(ss) {
   getCodeItems(ss, true).forEach(function(item) { canonical[item.code] = true; });
   var targets = [CONFIG.SHEET_CODES, CONFIG.SHEET_TRADES, CONFIG.SHEET_PH, CONFIG.SHEET_SNAPSHOT, FUND_NAV_SHEET, FUND_UNITS_SHEET];
   var results = [];
+  // #507 P1: restrict cell-by-cell GAS calls. The remaining physical rows
+  // stay untouched and are rediscovered on the next explicit syncCodes call;
+  // there is no hidden cursor, timer, or background write.
+  var MAX_REPAIRS_PER_CALL = 24;
+  var budget = MAX_REPAIRS_PER_CALL;
   var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
   targets.forEach(function(name) {
     var sheet = ss.getSheetByName(name), column = _codeColumnForSheet(name);
@@ -17836,7 +17850,18 @@ function _repairKnownCodeColumns(ss) {
       if (candidate && canonical[candidate] && text !== candidate)
         changes.push({row:index+2,before:row.slice(),after:candidate,originalCode:raw});
     });
-    if (!changes.length) { results.push({sheet:name,repaired:0}); return; }
+    if (!changes.length) { results.push({sheet:name,repaired:0,deferred:0}); return; }
+    // Count all eligible repairs but write only a bounded prefix of physical
+    // rows. Successful repairs become no-ops on the next invocation.
+    var totalEligible = changes.length;
+    var selectedCount = Math.min(totalEligible,budget);
+    var deferredCount = totalEligible - selectedCount;
+    changes = changes.slice(0,selectedCount);
+    budget -= selectedCount;
+    if (!changes.length) {
+      results.push({sheet:name,repaired:0,deferred:deferredCount,continueRequired:true});
+      return;
+    }
 
     var verifyRow = function(change) {
       if (sheet.getLastRow() !== originalLastRow)
@@ -17877,7 +17902,10 @@ function _repairKnownCodeColumns(ss) {
       });
       _touchSnapshotIntegritySourceRevision({all:true});
       _markSnapshotBackupStatus(backup,'COMPLETED');
-      results.push({sheet:name,repaired:changes.length,backupCleanup:_cleanupCurrentSystemBackup(ss,backup)});
+      results.push({
+        sheet:name,repaired:changes.length,deferred:deferredCount,
+        continueRequired:deferredCount>0,backupCleanup:_cleanupCurrentSystemBackup(ss,backup)
+      });
     } catch(error) {
       // After a scoped cell write the target row may be reused by a different
       // Sheets API client. Preserve backup; never blind-write a stale full
