@@ -1,6 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.245
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.246
 //
+//  v9.246 변경사항 (2026.10.20):
+//  - #507 펀드 좌수 재계산시 NAV·가격이력·Snapshot 전체행 덮어쓰기 대신
+//    변경 대상 셀/행만 검증·저장. 0좌수 행은 빈 물리 슬롯으로 남김.
+//  - 외부 타 종목/타 날짜 값·수식 보존, 실패시 기록 대상만 보상 복원.
+//  - 외부 동일 셀의 검사→커밋 TOCTOU는 미해결, 운영 배포/복구 금지.
 //  v9.245 변경사항 (2026.10.20):
 //  - #507 기존 Snapshot 전체시트 재기록을 대상 날짜 행만 수정하는 방식으로 전환.
 //  - 백업 이후 대상 날짜 원본·행수 변경 감지 시 쓰기 전 차단.
@@ -2205,7 +2210,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.245',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.246',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2283,7 +2288,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.245', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.246', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6110,7 +6115,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.245' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.246' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -6242,6 +6247,136 @@ function _fundUnitsImpactEnd(ss, configs, code, startDate) {
   return latest;
 }
 
+
+/**
+ * #507 FUND_UNITS: only overwrite cells that actually changed for the affected
+ * fund.  Never serialize and rewrite an unrelated physical row/date/code.
+ * The caller holds ScriptLock. External Sheets clients do not obey that lock:
+ * unchanged target cells and append destinations are preflighted; same-cell
+ * read-to-write TOCTOU still requires a shared external writer contract.
+ */
+function _writeFundDerivedChangedCells_(sheet, before, after, additions, width) {
+  if (before.length !== after.length)
+    throw new Error('펀드 파생행 물리 위치 변경 차단');
+  var originalLastRow = before.length + 1;
+  if (sheet.getLastRow() !== originalLastRow)
+    throw new Error('펀드 파생시트 행 구조 외부 변경');
+  var plans = [], attempted = [];
+  var readImage = function(range) {
+    var values = range.getValues(), formulas = range.getFormulas();
+    if (!values || !formulas || values.length !== formulas.length)
+      throw new Error('펀드 파생행 원본 값/수식 조회 실패');
+    return values.map(function(row, i) {
+      return row.map(function(value, j) { return formulas[i][j] || value; });
+    });
+  };
+  (before || []).forEach(function(previous, index) {
+    var desired = after[index];
+    if (!Array.isArray(previous) || !Array.isArray(desired) ||
+        previous.length < width || desired.length < width)
+      throw new Error('펀드 파생행 열 구조 불일치');
+    // Clearing a zero-unit row must be ONE physical-range operation. A
+    // code-less legacy row otherwise generates separated date/name blocks;
+    // its first block removes its own identity and falsely trips the second.
+    if (desired.slice(0,width).every(function(v) { return v === '' || v == null; })) {
+      if (previous.slice(0,width).some(function(v) { return v !== '' && v != null; }))
+        plans.push({row:index+2,col:1,identity:previous.slice(0,3),
+          previous:previous.slice(0,width),desired:desired.slice(0,width)});
+      return;
+    }
+    if (JSON.stringify(previous.slice(0,3)) !== JSON.stringify(desired.slice(0,3)))
+      throw new Error('펀드 파생행 날짜/종목 식별자 이동 금지');
+    var j = 0;
+    while (j < width) {
+      if (JSON.stringify(previous[j]) === JSON.stringify(desired[j])) { j++; continue; }
+      var first = j;
+      while (j < width && JSON.stringify(previous[j]) !== JSON.stringify(desired[j])) j++;
+      plans.push({ row:index + 2, col:first + 1,
+        identity:previous.slice(0,3),
+        previous:previous.slice(first,j), desired:desired.slice(first,j) });
+    }
+  });
+  if ((additions || []).length) {
+    var requiredLast = originalLastRow + additions.length;
+    if (sheet.getMaxRows() < requiredLast)
+      sheet.insertRowsAfter(sheet.getMaxRows(), requiredLast - sheet.getMaxRows());
+    // A Snapshot may have custom columns beyond the standard 12.  GAS
+    // Range.setValues requires exactly the physical sheet width on append.
+    // Preserve unrelated existing rows and pad only newly derived rows.
+    var appendRows = additions.map(function(row) {
+      if (!Array.isArray(row) || row.length > width)
+        throw new Error('펀드 파생행 추가 열 구조 불일치');
+      var padded = row.slice();
+      while (padded.length < width) padded.push('');
+      return padded;
+    });
+    plans.push({ row:originalLastRow + 1, col:1, append:true,
+      previous:null, desired:appendRows });
+  }
+  // Validate every changed range before touching any source row.
+  plans.forEach(function(plan) {
+    var height = plan.append ? plan.desired.length : 1;
+    var cols = plan.append ? width : plan.desired.length;
+    var range = sheet.getRange(plan.row,plan.col,height,cols);
+    // A same-size external row swap can preserve getLastRow yet change the
+    // date/code. Never write fund valuations into another instrument's row.
+    if (!plan.append && JSON.stringify(sheet.getRange(plan.row,1,1,3).getValues()[0]) !==
+        JSON.stringify(plan.identity))
+      throw new Error('펀드 파생행 날짜/종목 식별자 외부 변경');
+    var observed = readImage(range);
+    if (plan.append) {
+      if (sheet.getLastRow() > originalLastRow ||
+          observed.some(function(row) { return row.some(function(v) { return v !== '' && v != null; }); }))
+        throw new Error('펀드 파생행 append 목적지 외부 변경');
+    } else {
+      var current = range.getValues();
+      if (JSON.stringify(current[0]) !== JSON.stringify(plan.previous))
+        throw new Error('펀드 파생행 대상 셀 외부 변경');
+    }
+    plan.range = range; plan.imageBefore = observed;
+  });
+  try {
+    plans.forEach(function(plan) {
+      var data = plan.append ? plan.desired : [plan.desired];
+      if (plan.append) {
+        var check = readImage(plan.range);
+        if (sheet.getLastRow() > originalLastRow ||
+            check.some(function(row) { return row.some(function(v) { return v !== '' && v != null; }); }))
+          throw new Error('펀드 파생행 append 직전 외부 선점');
+      } else {
+        if (JSON.stringify(sheet.getRange(plan.row,1,1,3).getValues()[0]) !==
+            JSON.stringify(plan.identity))
+          throw new Error('펀드 파생행 커밋 직전 날짜/종목 식별자 변경');
+        if (JSON.stringify(plan.range.getValues()[0]) !== JSON.stringify(plan.previous))
+          throw new Error('펀드 파생행 커밋 직전 대상 셀 변경');
+      }
+      attempted.push(plan);
+      plan.range.setValues(data);
+    });
+    SpreadsheetApp.flush();
+    plans.forEach(function(plan) {
+      var target = plan.append ? plan.desired : [plan.desired];
+      if (JSON.stringify(plan.range.getValues()) !== JSON.stringify(target))
+        throw new Error('펀드 파생행 변경 범위 저장 검증 실패');
+    });
+  } catch(err) {
+    var restored = true;
+    for (var i = attempted.length - 1; i >= 0; i--) {
+      var op = attempted[i];
+      try {
+        var seen = readImage(op.range);
+        var intended = op.append ? op.desired : [op.desired];
+        if (JSON.stringify(seen) === JSON.stringify(op.imageBefore)) continue;
+        if (JSON.stringify(seen) !== JSON.stringify(intended)) { restored = false; continue; }
+        op.range.setValues(op.imageBefore);
+      } catch(rollbackErr) { restored = false; }
+    }
+    try { SpreadsheetApp.flush(); } catch(flushErr) { restored = false; }
+    if (!restored) throw new Error('펀드 파생행 부분 저장·보상 검증 불가');
+    throw err;
+  }
+}
+
 function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var result = { from:fromDate, to:toDate || '', navRows:0, priceRows:0, snapshotRows:0, manualPreserved:0, missingNav:0 };
   var navBackup = null, priceBackup = null, snapshotBackup = null;
@@ -6249,6 +6384,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var configs = _readFundUnits(ss);
   var navSh = ss.getSheetByName(FUND_NAV_SHEET);
   var navRows = navSh && navSh.getLastRow() > 1 ? navSh.getRange(2, 1, navSh.getLastRow() - 1, Math.min(9, navSh.getLastColumn())).getValues() : [];
+  var originalNavRows = navRows.map(function(row) { return row.slice(); });
   var evalCache = {}, candidateDates = {}, confirmedNavDates = {};
   function inRange(date) { return date && date >= fromDate && date <= toDate; }
   function evalAt(date) {
@@ -6285,10 +6421,8 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   if (navChanged) {
     navBackup = navSh && navSh.getLastRow() > 1 ? _backupSheetBeforeWrite(ss, navSh, FUND_NAV_SHEET) : null;
     try {
-      var normalizedNavRows = _normalizeCodeRows(navRows.map(function(row) { return row.slice(0,9); }), 1);
-      navSh.getRange(2, 1, normalizedNavRows.length, 9).setValues(normalizedNavRows);
-      SpreadsheetApp.flush();
-      _verifyFundNavWrittenRange(navSh, 2, normalizedNavRows);
+      if (!navBackup) throw new Error('펀드 NAV 원본 백업 확보 실패');
+      _writeFundDerivedChangedCells_(navSh,originalNavRows,navRows,[],9);
       _markSnapshotBackupStatus(navBackup, 'COMPLETED');
     } catch (navError) {
       _markSnapshotBackupStatus(navBackup, 'WRITE_FAILED', navError.message);
@@ -6298,6 +6432,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
 
   var ph = ss.getSheetByName(CONFIG.SHEET_PH);
   var prices = ph && ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, Math.min(6, ph.getLastColumn())).getValues() : [];
+  var originalPriceRows = prices.map(function(row) { return row.slice(); });
   var priceChanged = false, priceByDate = {};
   prices.forEach(function(row) {
     var date = _normalizeDate(row[0]), rowCode = _fundConfiguredCodeForPriceRow(row, configs);
@@ -6318,6 +6453,7 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
   var snap = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   var width = snap ? Math.max(12, snap.getLastColumn()) : 12;
   var snapshots = snap && snap.getLastRow() > 1 ? snap.getRange(2, 1, snap.getLastRow() - 1, width).getValues() : [];
+  var originalSnapshots = snapshots.map(function(row) { return row.slice(); });
   var snapChanged = false, reconciledSnapshots = [], snapshotByDate = {};
   var nameByCode = {};
   configs.forEach(function(c) { if (c.code === code && c.name) nameByCode[c.name] = true; });
@@ -6330,6 +6466,8 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     var value = evalAt(date);
     if (!value) { reconciledSnapshots.push(row); snapshotByDate[date] = true; return; }
     if (value.zero) {
+      // Empty this fund's original physical slot rather than shift unrelated rows.
+      reconciledSnapshots.push(Array(width).fill(''));
       snapChanged = true; result.snapshotRows++;
       return;
     }
@@ -6392,14 +6530,9 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     try {
       if (!ph) { ph = ss.insertSheet(CONFIG.SHEET_PH); ph.appendRow(['날짜','종목코드','종목명','가격','입력일시','가격소스']); }
       _setCodeColumnText(ph, 2);
-      if (priceChanged && prices.length) {
-        var normalizedPrices = _normalizeCodeRows(prices.map(function(row) { return row.slice(0,6); }), 1);
-        ph.getRange(2, 1, normalizedPrices.length, 6).setValues(normalizedPrices);
-      }
-      if (priceAppend.length) {
-        ph.getRange(ph.getLastRow() + 1, 1, priceAppend.length, 6).setValues(_normalizeCodeRows(priceAppend, 1));
-      }
-      SpreadsheetApp.flush();
+      if (originalPriceRows.length && !priceBackup) throw new Error('펀드 가격이력 백업 확보 실패');
+      _writeFundDerivedChangedCells_(ph,originalPriceRows,prices,
+        _normalizeCodeRows(priceAppend,1),6);
       _markSnapshotBackupStatus(priceBackup, 'COMPLETED');
     } catch (priceError) {
       _markSnapshotBackupStatus(priceBackup, 'WRITE_FAILED', priceError.message);
@@ -6413,12 +6546,11 @@ function _reconcileFundUnitDerivedRows(ss, code, provider, fromDate, toDate) {
     try {
       if (!snap) { snap = ss.insertSheet(CONFIG.SHEET_SNAPSHOT); snap.appendRow(['날짜','종목코드','종목명','수량','매입단가','매입원금','평가단가','평가금액','손익','수익률','소스','저장일시']); }
       _setCodeColumnText(snap, 2);
-      var originalCount = snapshots.length, writeCount = Math.max(originalCount, finalSnapshots.length);
-      while (finalSnapshots.length < writeCount) finalSnapshots.push(Array(width).fill(''));
-      snap.getRange(2, 1, writeCount, width).setValues(finalSnapshots.map(function(row) {
-        var copy = row.slice(0, width); while (copy.length < width) copy.push(''); return copy;
-      }));
-      SpreadsheetApp.flush();
+      if (originalSnapshots.length && !snapshotBackup) throw new Error('펀드 Snapshot 백업 확보 실패');
+      if (reconciledSnapshots.length !== originalSnapshots.length)
+        throw new Error('펀드 Snapshot 다른 날짜 행 이동 차단');
+      _writeFundDerivedChangedCells_(snap,originalSnapshots,reconciledSnapshots,
+        _normalizeCodeRows(snapshotAppend,1),width);
       _markSnapshotBackupStatus(snapshotBackup, 'COMPLETED');
     } catch (snapshotError) {
       _markSnapshotBackupStatus(snapshotBackup, 'WRITE_FAILED', snapshotError.message);
@@ -12700,7 +12832,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.245',
+    gasVersion: '9.246',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12765,7 +12897,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.245' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.246' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16524,7 +16656,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.245' });
+    return jsonOk({ settings: settings, gasVersion: '9.246' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16554,7 +16686,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.245'
+      gasVersion: '9.246'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
