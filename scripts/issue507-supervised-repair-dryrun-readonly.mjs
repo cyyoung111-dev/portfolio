@@ -65,7 +65,7 @@ export function assessDay(d){
   guard(d&&iso(d.date)&&STATUS.has(d.status)
     &&Array.isArray(d.storedRows)&&Array.isArray(d.expectedRows)
     &&Array.isArray(d.sourceDataErrors)&&Array.isArray(d.duplicateKeys)
-    &&Array.isArray(d.missingCodes)&&d.duplicateSummary
+    &&Array.isArray(d.missingCodes)&&Array.isArray(d.unexpectedCodes)&&d.duplicateSummary
     &&d.storedRows.length<=100000&&d.expectedRows.length<=100000,
   'DIAGNOSTIC_SCHEMA');
   const expected=new Map(),groups=new Map();
@@ -85,7 +85,12 @@ export function assessDay(d){
     &&duplicates.length===d.duplicateKeys.length,'DUPLICATE_SUMMARY_DRIFT');
   const expectedKeys=new Set(expected.keys());
   const inferredMissing=[...expectedKeys].filter(k=>!groups.has(k));
-  guard(inferredMissing.length===d.missingCodes.length,'MISSING_SUMMARY_DRIFT');
+  const inferredUnexpected=[...groups.keys()].filter(k=>!expectedKeys.has(k));
+  // Validate actual code identities in memory, but never emit them in reports.
+  const equalCodes=(actual,reported)=>actual.slice().sort().join('|')===reported.slice().sort().join('|');
+  guard(equalCodes(inferredMissing,d.missingCodes),'MISSING_SUMMARY_DRIFT');
+  guard(equalCodes(inferredUnexpected,d.unexpectedCodes),'UNEXPECTED_SUMMARY_DRIFT');
+  const unexpectedStoredRows=inferredUnexpected.reduce((sum,k)=>sum+groups.get(k).length,0);
   const causes={};
   for(const [k,rows] of duplicates){
     const unique=[...new Set(rows.map(signature))],er=expected.get(k);
@@ -110,6 +115,8 @@ export function assessDay(d){
     duplicateGroups:count(duplicates.length),
     sourceErrors:count(d.sourceDataErrors.length),
     missingExpectedRows:count(inferredMissing.length),
+    unexpectedStoredCodes:count(inferredUnexpected.length),
+    unexpectedStoredRows:count(unexpectedStoredRows),
     expectedRowsWithStoredSignature:count(matchedFull),
     expectedRowsWithoutStoredSignature:count(expected.size-matchedFull),
     duplicateReasons:causes,
@@ -118,6 +125,7 @@ export function assessDay(d){
       ?'SOURCE_REPAIR_REQUIRED'
       :duplicates.length?'PROTECTED_DUPLICATES_REQUIRE_RECONCILIATION'
       :inferredMissing.length?'SNAPSHOT_MISSING_ROWS'
+      :inferredUnexpected.length?'SNAPSHOT_ORPHAN_ROWS'
       :'VERIFY_OTHER_MISMATCHES'
   };
 }
@@ -159,7 +167,9 @@ export function summarize(before,after,batches){
     duplicateGroups:count(days.reduce((sum,d)=>sum+d.duplicateGroups,0)),
     sourceErrorDates:count(days.filter(d=>d.sourceErrors>0).length),
     sourceErrorRecords:count(days.reduce((sum,d)=>sum+d.sourceErrors,0)),
-    missingExpectedRows:count(days.reduce((sum,d)=>sum+d.missingExpectedRows,0))
+    missingExpectedRows:count(days.reduce((sum,d)=>sum+d.missingExpectedRows,0)),
+    unexpectedStoredCodes:count(days.reduce((sum,d)=>sum+d.unexpectedStoredCodes,0)),
+    unexpectedStoredRows:count(days.reduce((sum,d)=>sum+d.unexpectedStoredRows,0))
   };
   return {mode:'STRICT_READ_ONLY_RECOVERY_DRYRUN',gasVersion:'9.244',
     sourceRevisionStable:true,sourceDigestStable:true,deferredQueueStable:true,
@@ -214,7 +224,7 @@ function fixtureDay(date='2026-01-07'){
   const b=[date,'000001','INTERNAL',1,100,100,120,120,20,20,'KRX',''];
   const er=[date,'000001','INTERNAL',1,100,100,130,130,30,30,'KRX',''];
   return {date,status:'CONFLICT',storedRows:[a,b],expectedRows:[er],
-    sourceDataErrors:[],duplicateKeys:[date+'|000001'],missingCodes:[],
+    sourceDataErrors:[],duplicateKeys:[date+'|000001'],missingCodes:[],unexpectedCodes:[],
     duplicateSummary:{groups:1,exactDuplicate:0,singleExpectedMatch:0,
       manualProtected:0,unresolvedConflict:1,sourceIncomplete:0}};
 }
@@ -233,7 +243,20 @@ export async function selfTest(){
   const one=structuredClone(x);one.storedRows[1]=structuredClone(one.expectedRows[0]);
   assert.equal(assessDay(one).duplicateReasons.UNIQUE_EXPECTED_SIGNATURE,1);
   const absent=structuredClone(x);absent.expectedRows=[];absent.missingCodes=[];
-  assert.equal(assessDay(absent).duplicateReasons.NO_LEDGER_EXPECTED_ROW,1);
+  absent.unexpectedCodes=['000001'];
+  const orphan=assessDay(absent);
+  assert.equal(orphan.duplicateReasons.NO_LEDGER_EXPECTED_ROW,1);
+  assert.equal(orphan.unexpectedStoredCodes,1);
+  assert.equal(orphan.unexpectedStoredRows,2);
+  const wrongOrphan=structuredClone(absent);wrongOrphan.unexpectedCodes=[];
+  assert.throws(()=>assessDay(wrongOrphan),/UNEXPECTED_SUMMARY_DRIFT/);
+  const isolated=structuredClone(x);
+  isolated.storedRows.push([x.date,'000002','INTERNAL',1,10,10,9,9,-1,-10,'KRX','']);
+  isolated.unexpectedCodes=['000002'];
+  assert.equal(assessDay(isolated).unexpectedStoredCodes,1);
+  assert.equal(assessDay(isolated).unexpectedStoredRows,1);
+  const wrongSameCount=structuredClone(isolated);wrongSameCount.unexpectedCodes=['000003'];
+  assert.throws(()=>assessDay(wrongSameCount),/UNEXPECTED_SUMMARY_DRIFT/);
   const source=structuredClone(x);source.status='SOURCE_INCOMPLETE';source.sourceDataErrors=['INTERNAL'];
   assert.equal(assessDay(source).duplicateReasons.SOURCE_UNVERIFIED,1);
   const ledger=structuredClone(x);ledger.storedRows[0][3]=2;
@@ -265,6 +288,7 @@ export async function selfTest(){
     token:'TEST_TOKEN',fetchImpl:stub});
   assert.equal(report.duplicateGroups,1);
   assert.equal(report.days.length,1);
+  assert.equal(report.unexpectedStoredCodes,0);
   assert.equal(report.writeAllowed,false);
   assert.ok(!JSON.stringify(report).includes('000001'));
   assert.ok(!JSON.stringify(report).includes('INTERNAL'));
