@@ -91,6 +91,9 @@ export function assessDay(d){
   guard(equalCodes(inferredMissing,d.missingCodes),'MISSING_SUMMARY_DRIFT');
   guard(equalCodes(inferredUnexpected,d.unexpectedCodes),'UNEXPECTED_SUMMARY_DRIFT');
   const unexpectedStoredRows=inferredUnexpected.reduce((sum,k)=>sum+groups.get(k).length,0);
+  // On SOURCE_INCOMPLETE, production has no reliable expected ledger rows.
+  // Those stored rows are UNVERIFIED, not proven orphan rows.
+  const sourceUsable=d.sourceDataErrors.length===0&&d.status!=='SOURCE_INCOMPLETE';
   const causes={};
   for(const [k,rows] of duplicates){
     const unique=[...new Set(rows.map(signature))],er=expected.get(k);
@@ -115,8 +118,10 @@ export function assessDay(d){
     duplicateGroups:count(duplicates.length),
     sourceErrors:count(d.sourceDataErrors.length),
     missingExpectedRows:count(inferredMissing.length),
-    unexpectedStoredCodes:count(inferredUnexpected.length),
-    unexpectedStoredRows:count(unexpectedStoredRows),
+    unexpectedStoredCodes:count(sourceUsable?inferredUnexpected.length:0),
+    unexpectedStoredRows:count(sourceUsable?unexpectedStoredRows:0),
+    sourceUnverifiedStoredCodes:count(sourceUsable?0:groups.size),
+    sourceUnverifiedStoredRows:count(sourceUsable?0:d.storedRows.length),
     expectedRowsWithStoredSignature:count(matchedFull),
     expectedRowsWithoutStoredSignature:count(expected.size-matchedFull),
     duplicateReasons:causes,
@@ -169,7 +174,9 @@ export function summarize(before,after,batches){
     sourceErrorRecords:count(days.reduce((sum,d)=>sum+d.sourceErrors,0)),
     missingExpectedRows:count(days.reduce((sum,d)=>sum+d.missingExpectedRows,0)),
     unexpectedStoredCodes:count(days.reduce((sum,d)=>sum+d.unexpectedStoredCodes,0)),
-    unexpectedStoredRows:count(days.reduce((sum,d)=>sum+d.unexpectedStoredRows,0))
+    unexpectedStoredRows:count(days.reduce((sum,d)=>sum+d.unexpectedStoredRows,0)),
+    sourceUnverifiedStoredCodes:count(days.reduce((sum,d)=>sum+d.sourceUnverifiedStoredCodes,0)),
+    sourceUnverifiedStoredRows:count(days.reduce((sum,d)=>sum+d.sourceUnverifiedStoredRows,0))
   };
   return {mode:'STRICT_READ_ONLY_RECOVERY_DRYRUN',gasVersion:'9.244',
     sourceRevisionStable:true,sourceDigestStable:true,deferredQueueStable:true,
@@ -259,6 +266,13 @@ export async function selfTest(){
   assert.throws(()=>assessDay(wrongSameCount),/UNEXPECTED_SUMMARY_DRIFT/);
   const source=structuredClone(x);source.status='SOURCE_INCOMPLETE';source.sourceDataErrors=['INTERNAL'];
   assert.equal(assessDay(source).duplicateReasons.SOURCE_UNVERIFIED,1);
+  const incomplete=structuredClone(absent);incomplete.status='SOURCE_INCOMPLETE';
+  incomplete.sourceDataErrors=['INTERNAL'];
+  const safeIncomplete=assessDay(incomplete);
+  assert.equal(safeIncomplete.unexpectedStoredCodes,0);
+  assert.equal(safeIncomplete.unexpectedStoredRows,0);
+  assert.equal(safeIncomplete.sourceUnverifiedStoredCodes,1);
+  assert.equal(safeIncomplete.sourceUnverifiedStoredRows,2);
   const ledger=structuredClone(x);ledger.storedRows[0][3]=2;
   ledger.storedRows[1][3]=2;
   assert.equal(assessDay(ledger).duplicateReasons.LEDGER_QTY_COST_DRIFT,1);
