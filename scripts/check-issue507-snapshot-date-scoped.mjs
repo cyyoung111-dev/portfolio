@@ -199,7 +199,9 @@ function byKey(e,date,code){
 // different from a foreign append occupying the destination.
 {
   const x=makeEnv();
-  x.writer(date2,[makeRow(date2,'000999',6)],true);
+  const replacement=makeRow(date2,'000999',6);
+  replacement[2]='NEW_TEST_ISSUER';
+  x.writer(date2,[replacement],true);
   assert.equal(byKey(x,date2,'000222'),undefined);
   assert.equal(byKey(x,date2,'000999')[3],6);
   assert.equal(byKey(x,date1,'000111')[3],2);
@@ -211,7 +213,9 @@ function byKey(e,date,code){
   const x=makeEnv({onAppendRead:({stored,row})=>{
     stored[row-1]=makeRow('2026-01-18','000666',7);
   }});
-  assert.throws(()=>x.writer(date2,[makeRow(date2,'000999',6)],true),
+  const replacement=makeRow(date2,'000999',6);
+  replacement[2]='NEW_TEST_ISSUER';
+  assert.throws(()=>x.writer(date2,[replacement],true),
     /Snapshot append 목적지 외부 변경/);
   assert.equal(byKey(x,'2026-01-18','000666')[3],7);
   assert.equal(byKey(x,date2,'000222')[3],3,
