@@ -82,6 +82,7 @@ export function evaluate(input) {
   const heldBeforeYearEnd=relevant.some(t=>String(t.date||'').slice(0,10)<='2025-12-30');
   const ready=heldBeforeYearEnd&&!!(yearEnd?.sourceOnlyEligibleForLaterApproval)&&storedMatch.length===0;
   return {mode:'READ_ONLY',gasVersion:automation.automation.gasVersion,
+    sourceReadCoherenceChecked:true,
     firstMissingDistinctCodes:codes.length,earliestCurrentCodePriceDate:last,
     codeHeldBeforeYearEnd:heldBeforeYearEnd,
     carryBoundaryCorporateActionFound:actions.length>0,
@@ -91,6 +92,17 @@ export function evaluate(input) {
     fullRawPriceHistoryDuplicateScanPerformed:false,
     originalSheetWriteApproved:false,
     next:'Source READINESS is not write permission. The production writer must scan ALL raw rows including zero/invalid prices under ScriptLock, preserve MANUAL, verify backup capacity and exact provider date; approve write separately.'};
+}
+// A non-atomic GAS read cannot be elevated to SOURCE-ONLY readiness if the
+// underlying transaction ledger, price history or saved Snapshot changes while
+// the 3 official-date KRX proofs are fetched. Compare complete response bodies
+// only in memory; never include rows, codes, amounts, account details in logs.
+export function assertSourceReadsUnchanged(before,after) {
+  if(!Array.isArray(before)||!Array.isArray(after)||before.length!==3||after.length!==3)
+    throw Error('ISSUE507_PREFLIGHT_SOURCE_SCOPE');
+  if(before.some((x,i)=>!x||!after[i]||JSON.stringify(x)!==JSON.stringify(after[i])))
+    throw Error('ISSUE507_PREFLIGHT_SOURCE_CHANGED');
+  return true;
 }
 export async function readLive({url,token,fetchImpl=fetch}){
   const endpoint=validateWebAppUrl(url);
@@ -122,6 +134,17 @@ export async function readLive({url,token,fetchImpl=fetch}){
   for(const date of SOURCE_DATES){
     proofs.push(await get('getKrxHeldCloseCoverage',{date,code:codes[0]}));
   }
+  // A/B/A source sandwich: checks changes made during the expensive KRX
+  // coverage calls. This does NOT replace an atomic ScriptLock/revision
+  // check by the future, separately authorized GAS writer.
+  const [latestPriceHistory,latestTrade,latestSnapshot]=await Promise.all([
+    get('getPriceHistory',{codes:codes[0]}),
+    get('getTrades'),
+    get('getHistoryDetail',{date:'2026-01-01'})
+  ]);
+  assertSourceReadsUnchanged(
+    [priceHistory,trade,yearEndSnapshot],
+    [latestPriceHistory,latestTrade,latestSnapshot]);
   return evaluate({diagnosis,automation,priceHistory,trade,yearEndSnapshot,proofs});
 }
 export async function selfTest(){
@@ -141,6 +164,7 @@ export async function selfTest(){
   const input={diagnosis,automation,priceHistory,trade,yearEndSnapshot,proofs};
   const ok=evaluate(input);
   assert.equal(ok.yearEndCarrySourceReady,true);
+  assert.equal(ok.sourceReadCoherenceChecked,true);
   assert.equal(ok.observations.length,3);
   assert.equal(ok.earliestCurrentCodePriceDate,'2026-01-06');
   assert.ok(ok.observations.every(x=>x.sourceOnlyEligibleForLaterApproval));
@@ -188,8 +212,40 @@ export async function selfTest(){
   assert.equal(live.yearEndCarrySourceReady,true);
   assert.deepEqual(actions,['getKrxHeldCloseCoverage','diagnoseSnapshotIntegrityRange',
     'getAutomationStatus','getPriceHistory','getTrades','getHistoryDetail',
-    'getKrxHeldCloseCoverage','getKrxHeldCloseCoverage','getKrxHeldCloseCoverage']);
+    'getKrxHeldCloseCoverage','getKrxHeldCloseCoverage','getKrxHeldCloseCoverage',
+    'getPriceHistory','getTrades','getHistoryDetail']);
   assert.ok(!JSON.stringify(live).includes('SYNTHETIC_TOKEN'));
+  // Each of the three privileged source reads must fail closed if changed
+  // midway through KRX validation; never print the sensitive changed value.
+  for (const action of ['getPriceHistory','getTrades','getHistoryDetail']) {
+    const seen={}, unstableFetch=async(_url,opts)=>{
+      const name=opts.body.get('action'),date=opts.body.get('date');
+      seen[name]=(seen[name]||0)+1;
+      const value=opts.body.get('accessToken')!=='SYNTHETIC_TOKEN'
+        ? {status:'error',message:'인증 실패'}
+        : name==='diagnoseSnapshotIntegrityRange'?diagnosis
+        : name==='getAutomationStatus'?automation
+        : name==='getPriceHistory'?priceHistory
+        : name==='getTrades'?trade
+        : name==='getHistoryDetail'?yearEndSnapshot
+        : proofs.find(p=>p.coverage.requestedDate===date);
+      let response=value;
+      if(name===action&&seen[name]===2) {
+        response=structuredClone(value);
+        if(name==='getPriceHistory')response.prices[code][0].price=999991;
+        if(name==='getTrades')response.trades[0].qty=991;
+        if(name==='getHistoryDetail')response.items.push({code,qty:991});
+      }
+      return {ok:true,json:async()=>response};
+    };
+    await assert.rejects(()=>readLive({url:'https://script.google.com/macros/s/TEST/exec',
+      token:'SYNTHETIC_TOKEN',fetchImpl:unstableFetch}),
+      /ISSUE507_PREFLIGHT_SOURCE_CHANGED/);
+  }
+  assert.throws(()=>assertSourceReadsUnchanged([trade],[trade]),
+    /ISSUE507_PREFLIGHT_SOURCE_SCOPE/);
+  assert.equal(assertSourceReadsUnchanged([priceHistory,trade,yearEndSnapshot],
+    [structuredClone(priceHistory),structuredClone(trade),structuredClone(yearEndSnapshot)]),true);
   console.log('Issue #507 official KRX source-only preflight synthetic gates: PASS');
 }
 if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
