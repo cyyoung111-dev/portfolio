@@ -31,10 +31,17 @@ const hdr=Array.from({length:12},(_,i)=>'H'+(i+1));
 const target=[date,fundCode,'SYNTH_FUND',2,50,100,50,100,0,0,'FUND_NAV',''];
 const other=(d)=>[d,'000222','SYNTH_STOCK',3,10,30,11,33,3,10,'SYNTH_PRICE',''];
 
-function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,includeNav=false,includePriceChange=false,zeroUnits=false,manual=false,failSnapWriteAt=0}={}){
+function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,includeNav=false,includePriceChange=false,zeroUnits=false,manual=false,failSnapWriteAt=0,appendFund=false,snapshotWidth=12}={}){
   const foreignDate=sameDate?date:otherDate;
   const originalFund=clone(target); if(manual)originalFund[10]='MANUAL';
-  const initial=clone([hdr,originalFund,other(foreignDate)]);
+  const extendSnapshot=r=>{
+    const out=clone(r);
+    while(out.length<snapshotWidth)out.push('');
+    return out;
+  };
+  const extendedForeign=extendSnapshot(other(foreignDate));
+  if(snapshotWidth>12){extendedForeign[12]='UNRELATED_EXTRA_COL13';extendedForeign[13]='UNRELATED_EXTRA_COL14';}
+  const initial=clone([extendSnapshot(hdr),...(appendFund?[]:[extendSnapshot(originalFund)]),extendedForeign]);
   let stored=clone(initial);
   let snapshotWrites=0, priceWrites=0, navWrites=0, backupCount=0, flushes=0, mutationCount=0;
   let failedOnce=false;
@@ -48,7 +55,8 @@ function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,incl
       insertRowsAfter:()=>{throw Error('UNEXPECTED_EXPANSION');},
       getRange:(r,c,h,w)=>{
         assert.ok(Number.isInteger(r)&&Number.isInteger(c)&&Number.isInteger(h)&&Number.isInteger(w));
-        const get=()=>clone(data.slice(r-1,r-1+h).map(row=>row.slice(c-1,c-1+w)));
+        const get=()=>Array.from({length:h},(_,i)=>
+          Array.from({length:w},(_,j)=>clone(data[r-1+i]?.[c-1+j] ?? '')));
         return {
           getValues:get,
           getFormulas:()=>get().map(row=>row.map(()=>'')),
@@ -57,7 +65,7 @@ function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,incl
             assert.equal(values.length,h);
             values.forEach((row,i)=>{
               assert.equal(row.length,w);
-              assert.ok(data[r-1+i],sheetName+' overwrite beyond original rows');
+              data[r-1+i] ||= Array.from({length:width},()=> '');
               row.forEach((v,j)=>{data[r-1+i][c-1+j]=v;});
             });
             if(sheetName==='스냅샷')snapshotWrites++;
@@ -68,7 +76,7 @@ function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,incl
       },
     };
   };
-  const snapshotSheet=makeSheet('스냅샷',stored,12);
+  const snapshotSheet=makeSheet('스냅샷',stored,snapshotWidth);
   const priceRows=[
     ['D','CODE','NAME','PRICE','SAVED','SOURCE'],
     [date,fundCode,'SYNTH_FUND',includePriceChange?100:123,'',manual?'MANUAL':'FUND_NAV'],
@@ -81,8 +89,13 @@ function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,incl
     [foreignDate,'F00002','SYNTH_OTHER_FUND',99,foreignDate,4,396,'',provider],
   ];
   const navSheet=makeSheet('펀드기준가격',navRows,9);
+  const tradeRows=[
+    Array(11).fill('TRADES_HEADER'),
+    [date,'buy','SYNTH_ACCOUNT','SYNTH_FUND',fundCode,1,100,'SYNTH',0,'',''],
+  ];
+  const tradeSheet=makeSheet('거래이력',tradeRows,11);
   const ss={
-    getSheetByName:(s)=>s==='스냅샷'?snapshotSheet:s==='가격이력'?priceSheet:s==='펀드기준가격'&&includeNav?navSheet:null,
+    getSheetByName:(s)=>s==='스냅샷'?snapshotSheet:s==='가격이력'?priceSheet:s==='펀드기준가격'&&includeNav?navSheet:s==='거래이력'&&appendFund?tradeSheet:null,
     insertSheet:()=>{throw Error('NO_SHEET_CREATION_EXPECTED');},
   };
   const context=vm.createContext({
@@ -97,7 +110,10 @@ function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,incl
     _fundConfiguredCodeForPriceRow:r=>String(r[1]||'').trim(),
     _isFundCode:s=>/^F\d{5}$/.test(s),
     _fundNavExpectedPublicationDate:()=>false,
-    _calcCodeHoldingsAtDate:()=>{throw Error('UNEXPECTED_TRADE_REPLAY');},
+    _calcCodeHoldingsAtDate:()=> {
+      if(!appendFund)throw Error('UNEXPECTED_TRADE_REPLAY');
+      return {SYNTH_FUND:{code:fundCode,name:'SYNTH_FUND',qty:1,costAmt:100}};
+    },
     _applyFundUnitLifecycleToSnapshotHoldings:()=>{throw Error('UNEXPECTED_LIFECYCLE');},
     _normalizeCodeRows:(rows)=>rows.map(r=>r.slice()),
     _setCodeColumnText:()=>{},
@@ -241,5 +257,27 @@ function assertFundUpdated(e){
   assert.deepEqual(e.snapshot(),before,'fund Snapshot changes must be compensated');
   assert.ok(e.stats().backupStates.includes('WRITE_FAILED'));
   console.log('ISSUE507_FUND_DERIVED_PARTIAL_WRITE_ROLLBACK_CONFIRMED');
+}
+// Production reconciler must append the actual missing fund holding using
+// the physical Snapshot width, including unrelated custom columns.
+// The pre-fix 12-cell row fails strict setValues on a 14-column sheet.
+{
+  const e=createEnvironment({appendFund:true,snapshotWidth:14});
+  const before=e.snapshot();
+  assert.equal(before.length,2);
+  assert.equal(before[1][12],'UNRELATED_EXTRA_COL13');
+  const result=e.run();
+  assert.equal(result.snapshotRows,1);
+  const updated=e.snapshot();
+  assert.equal(updated.length,3,'missing fund Snapshot row must be appended');
+  assert.equal(updated[2].length,14,'appended fund row must have physical width 14');
+  assert.equal(updated[2][0],date);
+  assert.equal(updated[2][1],fundCode);
+  assert.equal(updated[2][5],100);
+  assert.equal(updated[2][7],123);
+  assert.deepEqual(updated[2].slice(12),['',''],'extra columns must be padded only on new row');
+  assert.deepEqual(updated[1],before[1],'unrelated 14-column row must retain all cells');
+  assert.ok(e.stats().snapshotWrites>0);
+  console.log('ISSUE507_FUND_DERIVED_APPEND_WIDE_SNAPSHOT_PADDED');
 }
 console.log('ISSUE507_FUND_DERIVED_SCOPED_CONTRACT_OK_SAME_CELL_TOCTOU_UNSOLVED');
