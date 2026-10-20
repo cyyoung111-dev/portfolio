@@ -128,6 +128,24 @@ function safeHistoricalCheckpoint(v){
   return {runDate:date,startedAt:v.startedAt,finishedAt:v.finishedAt,
     state:v.state,attempted:v.attempted,ok:v.ok,deferred:v.deferred,reason:v.reason};
 }
+// A RUNNING property is a last checkpoint, not an active-process signal.
+// GAS hard termination may leave RUNNING indefinitely. This is only suspicion.
+export function assessWorkerRunCheckpoint(checkpoint,observedAt=Date.now()) {
+  if(!Number.isSafeInteger(observedAt)||observedAt<0)
+    throw new Error('AUTOMATION_DIAG_BAD_OBSERVATION_TIME');
+  if(!checkpoint)return 'NO_CHECKPOINT';
+  if(checkpoint.status!=='RUNNING')return 'NOT_RUNNING';
+  if(!checkpoint.runStartedAt)return 'RUNNING_START_UNAVAILABLE';
+  const started=Date.parse(checkpoint.runStartedAt);
+  if(!Number.isFinite(started))
+    throw new Error('AUTOMATION_DIAG_BAD_LEDGER_WORKER_CHECKPOINT');
+  if(started>observedAt)return 'FUTURE_START_UNVERIFIED';
+  // Six-minute Apps Script execution ceiling plus two-minute tolerance.
+  // Never mutate locks, deferred dates, queue cursors or Snapshot here.
+  return observedAt-started>=8*60*1000
+    ? 'STALE_RUNNING_TIMEOUT_SUSPECTED'
+    : 'RUNNING_RECENT_UNCONFIRMED';
+}
 export function summarizeBackfillStatus(payload) {
   const a = payload?.automation;
   if (payload?.status !== 'ok' || !a || typeof a !== 'object'
@@ -219,6 +237,7 @@ export function summarizeBackfillStatus(payload) {
     tradeSnapshotDeferredCount,
     tradeSnapshotDeferredOldestDate,
     tradeSnapshotWorkerLastResult,
+    tradeSnapshotWorkerRuntimeAssessment:assessWorkerRunCheckpoint(tradeSnapshotWorkerLastResult),
     tradeSnapshotWorkerLastBusy,
     tradeSnapshotWorkerTriggerAudit,
     officialKrxPriceHistoryLastDate:safeDate(a.officialKrxPriceHistoryLastDate),

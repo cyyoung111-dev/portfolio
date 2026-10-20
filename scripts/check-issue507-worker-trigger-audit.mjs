@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import {summarizeBackfillStatus} from './diagnose-backfill-status.mjs';
+import {summarizeBackfillStatus,assessWorkerRunCheckpoint} from './diagnose-backfill-status.mjs';
 
 const source=fs.readFileSync('src/gas/apps_script.gs','utf8');
 const name='_getTradeSnapshotWorkerTriggerAudit_';
@@ -95,4 +95,30 @@ for (const audit of [null,{}, {...good,scope:'GLOBAL'},
 }
 assert.equal(summarizeBackfillStatus(status(undefined,'9.239'))
   .tradeSnapshotWorkerTriggerAudit,null,'pre-9.240 remains backward compatible');
+// Real observed v9.243 checkpoint: 09:02 KST entry, 09:51 KST probe.
+const observedAt=Date.parse('2026-10-20T00:51:55.000Z');
+const staleWorker={status:'RUNNING',at:'2026-10-20T00:03:20.326Z',
+  processed:0,deferred:0,blockedDate:'',sourceCheck:'',
+  phase:'DATE_DISCOVERY',runStartedAt:'2026-10-20T00:02:31.413Z'};
+assert.equal(assessWorkerRunCheckpoint(staleWorker,observedAt),
+  'STALE_RUNNING_TIMEOUT_SUSPECTED');
+assert.equal(assessWorkerRunCheckpoint({...staleWorker,
+  runStartedAt:'2026-10-20T00:47:00.000Z',at:'2026-10-20T00:47:10.000Z'},observedAt),
+  'RUNNING_RECENT_UNCONFIRMED');
+assert.equal(assessWorkerRunCheckpoint({...staleWorker,runStartedAt:''},observedAt),
+  'RUNNING_START_UNAVAILABLE');
+assert.equal(assessWorkerRunCheckpoint({...staleWorker,
+  runStartedAt:'2026-10-20T01:00:00.000Z'},observedAt),
+  'FUTURE_START_UNVERIFIED');
+assert.equal(assessWorkerRunCheckpoint({...staleWorker,status:'PENDING'},observedAt),
+  'NOT_RUNNING');
+assert.equal(assessWorkerRunCheckpoint(null,observedAt),'NO_CHECKPOINT');
+assert.throws(()=>assessWorkerRunCheckpoint(staleWorker,-1),
+  /AUTOMATION_DIAG_BAD_OBSERVATION_TIME/);
+const staleResponse=status(good);
+staleResponse.automation.tradeSnapshotWorkerLastResult=staleWorker;
+assert.equal(summarizeBackfillStatus(staleResponse).tradeSnapshotWorkerRuntimeAssessment,
+  'STALE_RUNNING_TIMEOUT_SUSPECTED');
+assert.equal(summarizeBackfillStatus(status(good)).tradeSnapshotWorkerRuntimeAssessment,
+  'NO_CHECKPOINT');
 console.log('Issue #507 real GAS CLOCK trigger audit and fail-closed read-only schema: PASS');
