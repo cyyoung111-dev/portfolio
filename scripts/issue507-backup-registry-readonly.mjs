@@ -46,8 +46,8 @@ export function summarizeWorkbook(payload,targets=TARGETS){
       label:target.label,registryPresent:registered,registryState:record.backupStatus||'UNREGISTERED',
       classification:record.backupClassification,
       backupContentSignatureMatchesRegistry:record.signatureMatch,
-      // GAS treats an unregistered backup as source-exists by default. That
-      // is NOT evidence that the actual original source sheet exists.
+      // GAS defaults unregistered backups to source-exists=true.
+      // That does not prove the original sheet actually exists.
       sourceSheetExists:registered?record.sourceSheetExists:null,
       lastRowIncludingHeader:physicalRows,lastColumn:columns,
       // A matching signature attests only backup content vs registry; does not
@@ -110,12 +110,10 @@ function productionContract({unregisteredPreRecovery=false,missingSource=false}=
     'handleDiagnoseWorkbookCells'];
   const production=names.map(name=>{
     const start=gas.indexOf('function '+name+'(');
-    const end=start<0?-1:gas.indexOf('
-}',start);
+    const end=start<0?-1:gas.indexOf('\n}',start);
     assert.ok(start>=0&&end>start,'production function missing: '+name);
     return gas.slice(start,end+2);
-  }).join('
-');
+  }).join('\n');
   const source={getName:()=> '스냅샷',getMaxRows:()=>1000,getMaxColumns:()=>12,getLastRow:()=>30,getLastColumn:()=>12};
   const old={getName:()=> TARGETS[0].name,getMaxRows:()=>1000,getMaxColumns:()=>12,getLastRow:()=>100,getLastColumn:()=>12,__hash:'correct'};
   const newest={getName:()=> TARGETS[1].name,getMaxRows:()=>1000,getMaxColumns:()=>12,getLastRow:()=>7,getLastColumn:()=>12,__hash:'changed'};
@@ -160,9 +158,8 @@ export async function selfTest(){
   assert.equal(unregReport[0].backupContentSignatureMatchesRegistry,null);
   assert.equal(unregReport[0].sourceSheetExists,null);
   assert.equal(unregReport[0].restoreAllowed,false);
-  // Important P2 regression: production GAS reports TRUE for unregistered
-  // backup source existence even when the source sheet has been removed.
-  // The public audit must not turn that default into evidence of existence.
+  // P2 regression: actual GAS returns true by default for an unregistered
+  // backup despite a physically absent original source sheet.
   const withoutSource=productionContract({unregisteredPreRecovery:true,missingSource:true});
   const rawUnregistered=withoutSource.workbook.sheets.find(x=>x.name===TARGETS[0].name);
   assert.equal(rawUnregistered.sourceSheetExists,true);
