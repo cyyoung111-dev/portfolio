@@ -12676,6 +12676,10 @@ function _getAutomationStatusData() {
     tradeLedgerWriteUnverified: tradeLedgerWriteUnverified,
     tradeSnapshotDeferredCount: tradeSnapshotDeferred.dates.length,
     tradeSnapshotDeferredOldestDate: tradeSnapshotDeferred.dates[0] || '',
+    // Authenticated READ ONLY inventory for bounded per-date source diagnostics.
+    // Never expose codes, amounts, cost basis, or raw source error strings.
+    tradeSnapshotDeferredDates: tradeSnapshotDeferred.dates.slice(),
+    tradeSnapshotDeferredCursor: tradeSnapshotDeferred.cursor || '',
     tradeSnapshotWorkerLastResult: tradeSnapshotWorkerLastResult,
     tradeSnapshotWorkerLastBusy: tradeSnapshotWorkerLastBusy,
     tradeSnapshotWorkerTriggerAudit: tradeSnapshotWorkerTriggerAudit,
