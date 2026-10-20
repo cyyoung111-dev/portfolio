@@ -15792,13 +15792,11 @@ function _cleanupSnapshotDuplicatesLocked() {
       var actualAll = sh.getLastRow() > 1
         ? sh.getRange(2, 1, sh.getLastRow() - 1, fullWidth).getValues()
         : [];
+      // #507: do not compare untouched dates to a stale global snapshot.
+      // Another writer may legitimately update their values during backup.
+      // Only affected physical rows are blanked and read back above.
       var isValidSnapshotRow = function(row) { return !!_normalizeDate(row[0]) && !!_snapshotIntegrityKey(row); };
-      var intendedRows = rows.filter(function(row,index) { return !plannedIndexes[index] && isValidSnapshotRow(row); });
       var actualRows = actualAll.filter(isValidSnapshotRow);
-      var intendedSignature = intendedRows.map(_snapshotComparableSignature).sort().join('\n');
-      var actualSignature = actualRows.map(_snapshotComparableSignature).sort().join('\n');
-      if (actualRows.length !== intendedRows.length || actualSignature !== intendedSignature)
-        throw new Error('SNAPSHOT_CLEANUP_UNRELATED_ROW_CHANGED_OR_WRITE_UNVERIFIED');
 
       actualRows.forEach(function(row) {
         var date = _normalizeDate(row[0]);
