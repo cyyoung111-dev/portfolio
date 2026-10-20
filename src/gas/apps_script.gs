@@ -9426,7 +9426,7 @@ function _buildIndexedSnapshotRows(context, date) {
 // inventories; ordinary range readers retain their previous performance.
 // The lock coordinates with GAS writers that participate in ScriptLock.
 // Independent second source scan also detects uncoordinated direct edits and
-// writers that update revision AFTER their sheet setValues() calls.
+// writers that update revision AFTER writing their source rows.
 function _issue507StrictReadSourceDigest_(readContext) {
   if (!Utilities || typeof Utilities.computeDigest !== 'function')
     throw new Error('ISSUE507_SOURCE_DIGEST_UNAVAILABLE');
