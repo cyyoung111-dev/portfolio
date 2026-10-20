@@ -1,6 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.248
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.249
 //
+//  v9.249 변경사항 (2026.10.20):
+//  - #507 가격이력 중복 정리 clearContents/전체 재작성 제거.
+//  - 원본 MANUAL·timestamp·수식·확장열 보전, 중복 물리행만 검증 후 빈 슬롯.
+//  - 기준행·대상행 외부수정 차단, 실패한 backup WRITE_FAILED 보존.
+//  - 외부 Sheets API 동일셀 TOCTOU는 미해결·실제 운영 배포 미승인.
 //  v9.248 변경사항 (2026.10.20):
 //  - #507 Snapshot 중복/0좌 정리 전체 A:L 행압축 제거. 검증된 행만 빈 슬롯 처리.
 //  - 날짜누락 행·사용자확장열·수식·MANUAL 자동삭제 보류, 타 날짜 행 보존.
@@ -2220,7 +2225,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.248',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.249',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2298,7 +2303,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.248', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.249', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6125,7 +6130,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.248' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.249' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -12904,7 +12909,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.248',
+    gasVersion: '9.249',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12969,7 +12974,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.248' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.249' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -15558,77 +15563,112 @@ function _cleanupPriceHistoryDuplicatesLocked() {
     try { SpreadsheetApp.getUi().alert('가격이력 데이터가 없습니다.'); } catch(e) { Logger.log('가격이력 데이터가 없습니다.'); }
     return;
   }
-
-  var colSize = Math.max(6, ph.getLastColumn());
-  var header = [['날짜','종목코드','종목명','가격','입력일시','가격소스']];
-  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, colSize).getValues();
-
-  var bestByKey = {};
-  rows.forEach(function(r, idx) {
-    var date = _normalizeDate(r[0]);
-    if (!date) return;
-    var code = _cleanCode(r[1]) || '';
-    var name = (r[2] || '').toString().trim();
-    var keyId = code || name;
-    if (!keyId) return;
-    var key = date + '|' + keyId;
-
-    var savedAt = _normalizeDatetime(r[4]);
-    var src = (r[5] || '').toString().trim().toUpperCase();
-    var isManual = (src === 'MANUAL') || !!savedAt;
-
-    var rowOut = [date, code, name, Number(r[3] || 0), savedAt || '', (r[5] || '')];
-    var cand = { row: rowOut, idx: idx, isManual: isManual, savedAt: savedAt };
+  var fullWidth = Math.max(6, ph.getLastColumn());
+  var rows = ph.getRange(2, 1, ph.getLastRow() - 1, fullWidth).getValues();
+  var bestByKey = {}, groups = {}, planned = [], kept = [], blockers = [];
+  var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
+  var dateCodeKey = function(row) {
+    var date = _normalizeDate(row[0]);
+    if (!date) return '';
+    var code = _cleanCode(row[1]) || '';
+    var name = (row[2] || '').toString().trim();
+    return code || name ? date + '|' + (code || name) : '';
+  };
+  rows.forEach(function(row, index) {
+    var key = dateCodeKey(row);
+    if (!key) return;
+    (groups[key] || (groups[key] = [])).push(index);
+    var savedAt = _normalizeDatetime(row[4]);
+    var src = (row[5] || '').toString().trim().toUpperCase();
+    var isManual = src === 'MANUAL' || !!savedAt;
+    var candidate = {index:index, isManual:isManual, savedAt:savedAt};
     var prev = bestByKey[key];
-    if (!prev) { bestByKey[key] = cand; return; }
-
-    // 우선순위: MANUAL > savedAt 최신 > 뒤에 나온 행
-    if (cand.isManual && !prev.isManual) { bestByKey[key] = cand; return; }
-    if (!cand.isManual && prev.isManual) return;
-    if (cand.savedAt && prev.savedAt && cand.savedAt > prev.savedAt) { bestByKey[key] = cand; return; }
-    if (!prev.savedAt && cand.savedAt) { bestByKey[key] = cand; return; }
-    if (cand.idx > prev.idx) bestByKey[key] = cand;
+    // Preserve existing priority: MANUAL/saved timestamp > latest timestamp
+    // > later physical occurrence. Retain the winner IN PLACE.
+    if (!prev || isManual && !prev.isManual ||
+        isManual === prev.isManual && savedAt && prev.savedAt && savedAt > prev.savedAt ||
+        isManual === prev.isManual && savedAt && !prev.savedAt ||
+        isManual === prev.isManual && (!savedAt || !prev.savedAt || savedAt === prev.savedAt) && index > prev.index)
+      bestByKey[key] = candidate;
   });
-
-  var deduped = Object.keys(bestByKey)
-    .map(function(k){ return bestByKey[k]; })
-    .sort(function(a,b){
-      var d = (a.row[0] || '').localeCompare(b.row[0] || '');
-      if (d !== 0) return d;
-      var ca = _cleanCode(a.row[1]) || (a.row[2] || '');
-      var cb = _cleanCode(b.row[1]) || (b.row[2] || '');
-      return String(ca).localeCompare(String(cb));
-    })
-    .map(function(v){ return v.row; });
-
-  var removed = rows.length - deduped.length;
-  if (removed <= 0) {
+  Object.keys(groups).sort().forEach(function(key) {
+    var indexes = groups[key];
+    if (indexes.length < 2) return;
+    var winner = bestByKey[key];
+    if (!winner || indexes.indexOf(winner.index) < 0)
+      throw new Error('PRICE_CLEANUP_KEEPER_IDENTITY_UNVERIFIED:' + key);
+    kept.push({row:winner.index+2, before:rows[winner.index].slice()});
+    indexes.forEach(function(index) {
+      if (index === winner.index) return;
+      var record = rows[index];
+      var savedAt = _normalizeDatetime(record[4]);
+      if (String(record[5] || '').toUpperCase() === 'MANUAL' || savedAt)
+        blockers.push('MANUAL_OR_TIMESTAMP:' + (index+2));
+      if (record.slice(6).some(function(v) { return v !== '' && v != null; }))
+        blockers.push('CUSTOM_COLUMNS:' + (index+2));
+      planned.push({row:index+2,before:record.slice(),key:key});
+    });
+  });
+  if (!planned.length) {
     try { SpreadsheetApp.getUi().alert('가격이력 중복이 없습니다.'); } catch(e) { Logger.log('가격이력 중복이 없습니다.'); }
     return;
   }
-
-  var backup = _backupSheetBeforeWrite(ss, ph, CONFIG.SHEET_PH);
-  try {
-    ph.clearContents();
-    _setCodeColumnText(ph, 2);
-    ph.getRange(1, 1, 1, 6).setValues(header);
-    ph.getRange(1, 1, 1, 6).setBackground('#0d1117').setFontColor('#94a3b8').setFontWeight('bold');
-    if (deduped.length > 0) ph.getRange(2, 1, deduped.length, 6).setValues(_normalizeCodeRows(deduped, 1));
-    SpreadsheetApp.flush();
-    var verifiedRows = ph.getLastRow() > 1 ? ph.getRange(2, 1, ph.getLastRow() - 1, 6).getValues() : [];
-    var priceSignature = function(row) { return JSON.stringify([_normalizeDate(row[0]), _cleanCode(row[1]) || String(row[2] || '').trim(), String(row[2] || '').trim(), Number(row[3]) || 0, _normalizeDatetime(row[4]) || '', String(row[5] || '').trim().toUpperCase()]); };
-    if (verifiedRows.length !== deduped.length || verifiedRows.map(priceSignature).sort().join('\n') !== deduped.map(priceSignature).sort().join('\n')) throw new Error('가격이력 중복 정리 후 전체 read-back 검증 실패');
-    var verifiedKeys = {};
-    verifiedRows.forEach(function(row) {
-      var date = _normalizeDate(row[0]), code = _cleanCode(row[1]) || String(row[2] || '').trim(), key = date + '|' + code;
-      if (date && code && verifiedKeys[key]) throw new Error('가격이력 중복 정리 후 검증 실패: ' + key);
-      if (date && code) verifiedKeys[key] = true;
+  var read = function(row) { return ph.getRange(row,1,1,fullWidth).getValues()[0]; };
+  var verifyKeepers = function() {
+    kept.forEach(function(proof) {
+      if (!same(read(proof.row),proof.before))
+        throw new Error('PRICE_CLEANUP_KEEPER_CHANGED:' + proof.row);
     });
-    _touchSnapshotIntegritySourceRevision({ all: true });
-    _markSnapshotBackupStatus(backup, 'COMPLETED');
-    _cleanupCurrentSystemBackup(ss, backup);
-  } catch (error) { _markSnapshotBackupStatus(backup, 'WRITE_FAILED', error.message); throw error; }
-  try { SpreadsheetApp.getUi().alert('가격이력 중복 정리 완료: ' + removed + '행 삭제'); } catch(e) { Logger.log('가격이력 중복 정리 완료: ' + removed + '행 삭제'); }
+  };
+  // Preflight *all* removal candidates before creating a backup or writing.
+  // Formulas, manual entries and custom columns are original evidence, not
+  // interchangeable duplicates to discard without ledger-level approval.
+  planned.forEach(function(plan) {
+    var range = ph.getRange(plan.row,1,1,fullWidth);
+    if (!same(range.getValues()[0],plan.before))
+      throw new Error('PRICE_CLEANUP_TARGET_CHANGED:' + plan.row);
+    var formulas = range.getFormulas();
+    if (!formulas || !formulas[0] || formulas[0].length !== fullWidth ||
+        formulas[0].some(function(v) { return !!v; }))
+      blockers.push('FORMULA_OR_UNVERIFIED:' + plan.row);
+  });
+  if (blockers.length)
+    throw new Error('PRICE_CLEANUP_UNSAFE_EVIDENCE_REQUIRES_REVIEW:' + blockers.join(','));
+  verifyKeepers();
+  var backup = _backupSheetBeforeWrite(ss,ph,CONFIG.SHEET_PH);
+  if (!backup) throw new Error('PRICE_CLEANUP_BACKUP_REQUIRED');
+  try {
+    var emptyRow = Array(fullWidth).fill('');
+    planned.forEach(function(plan) {
+      verifyKeepers();
+      var range = ph.getRange(plan.row,1,1,fullWidth);
+      var formulas = range.getFormulas();
+      if (!same(range.getValues()[0],plan.before) || !formulas || !formulas[0] ||
+          formulas[0].some(function(v) { return !!v; }))
+        throw new Error('PRICE_CLEANUP_COMMIT_TARGET_CHANGED:' + plan.row);
+      range.setValues([emptyRow]);
+    });
+    SpreadsheetApp.flush();
+    verifyKeepers();
+    planned.forEach(function(plan) {
+      if (!read(plan.row).every(function(v) { return v === '' || v == null; }))
+        throw new Error('PRICE_CLEANUP_WRITE_UNVERIFIED:' + plan.row);
+    });
+    // Invalidate only affected dates; unrelated externally-updated rows are
+    // neither rewritten nor compared to stale whole-sheet snapshots.
+    var dates = {}, num = planned.length;
+    planned.forEach(function(plan) { dates[plan.key.split('|')[0]] = true; });
+    _touchSnapshotIntegritySourceRevision({dates:Object.keys(dates).sort()});
+    _markSnapshotBackupStatus(backup,'COMPLETED');
+    _cleanupCurrentSystemBackup(ss,backup);
+    try { SpreadsheetApp.getUi().alert('가격이력 중복 정리 완료: ' + num + '행 빈 슬롯 처리'); }
+    catch(e) { Logger.log('가격이력 중복 정리 완료: ' + num + '행 빈 슬롯 처리'); }
+  } catch(error) {
+    // Once a source identity was cleared, automatic restore could overwrite
+    // an external writer's newly claimed physical row. Preserve the backup.
+    _markSnapshotBackupStatus(backup,'WRITE_FAILED',error.message);
+    throw new Error('PRICE_CLEANUP_COMMIT_UNVERIFIED: ' + error.message);
+  }
 }
 
 function cleanupSnapshotDuplicates() {
@@ -16794,7 +16834,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.248' });
+    return jsonOk({ settings: settings, gasVersion: '9.249' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16824,7 +16864,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.248'
+      gasVersion: '9.249'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
