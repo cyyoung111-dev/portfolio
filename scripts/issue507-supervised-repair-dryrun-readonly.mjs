@@ -274,7 +274,8 @@ export async function selfTest(){
   const withinPrecision=assessDay(near);
   assert.equal(withinPrecision.expectedRowsWithStoredQtyCost,1);
   assert.equal(withinPrecision.expectedRowsWithoutStoredQtyCost,0);
-  assert.equal(withinPrecision.duplicateReasons.EXACT_DUPLICATE_EXPECTED_DRIFT,1);
+  // Both rows agree at GAS qty/cost precision, but have distinct evaluations.
+  assert.equal(withinPrecision.duplicateReasons.VALUATION_OR_SOURCE_DRIFT,1);
   const distinctQty=structuredClone(near);
   distinctQty.storedRows[0][3]=1.000000011;
   distinctQty.storedRows[1][3]=1.000000011;
