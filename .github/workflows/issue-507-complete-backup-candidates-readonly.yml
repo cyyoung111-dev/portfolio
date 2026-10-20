@@ -8,12 +8,17 @@ on:
       - 'scripts/issue507-complete-backup-candidates-readonly.mjs'
       - 'scripts/issue507-backup-registry-readonly.mjs'
       - 'scripts/issue507-supervised-repair-dryrun-readonly.mjs'
+      - 'scripts/diagnose-krx-operational.mjs'
       - 'src/gas/apps_script.gs'
       - '.github/workflows/issue-507-complete-backup-candidates-readonly.yml'
   push:
     branches: [main]
     paths:
       - 'scripts/issue507-complete-backup-candidates-readonly.mjs'
+      - 'scripts/issue507-backup-registry-readonly.mjs'
+      - 'scripts/issue507-supervised-repair-dryrun-readonly.mjs'
+      - 'scripts/diagnose-krx-operational.mjs'
+      - 'src/gas/apps_script.gs'
       - '.github/workflows/issue-507-complete-backup-candidates-readonly.yml'
   workflow_dispatch:
 
