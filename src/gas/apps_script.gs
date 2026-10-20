@@ -14918,9 +14918,12 @@ function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
       var range = sheet.getRange(block.rowNumber, 1, block.rows.length, width);
       var original = readCellImage(range, block.rows.length);
       // append 목적지에 외부 Writer가 이미 행을 추가했다면 *절대* 덮지 않습니다.
+      // 앞서 자신의 대상일 마지막 행을 빈칸으로 쓰면 getLastRow()가 감소할 수
+      // 있습니다. 따라서 원래 행수보다 '증가'했는지와 목적지 점유를 검사하며,
+      // 자신의 행수 축소를 외부 변경으로 오판해 무한 재시도하지 않습니다.
       // ScriptLock은 다른 Sheets API의 appendRow/setValues를 막지 못합니다.
       if (block.rowNumber > originalLastRow &&
-          (sheet.getLastRow() !== originalLastRow ||
+          (sheet.getLastRow() > originalLastRow ||
            original.some(function(row) { return row.some(function(v) {
              return v !== '' && v !== null;
            }); })))
