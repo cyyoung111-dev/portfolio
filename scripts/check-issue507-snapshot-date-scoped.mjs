@@ -29,8 +29,8 @@ const makeRow=(date,code,qty)=>[
 const row1=makeRow(date1,'000111',2);
 const row2=makeRow(date2,'000222',3);
 const deep=v=>JSON.parse(JSON.stringify(v));
-function makeEnv({onBackup}={}){
-  let stored=[Array.from({length:12},(_,i)=>'H'+(i+1)),deep(row1),deep(row2)];
+function makeEnv({onBackup,initialRows}={}){
+  let stored=[Array.from({length:12},(_,i)=>'H'+(i+1)),...deep(initialRows||[row1,row2])];
   let lockHeld=false,backups=0,writes=0,flushes=0,revisionUpdates=0,propertyWrites=0;
   const sheet={
     getLastRow:()=>stored.length,
@@ -181,5 +181,25 @@ function byKey(e,date,code){
     /요청일과 저장 대상일 불일치/);
   assert.equal(x.stats().writes,0);
   assert.equal(x.stats().backups,0);
+}
+// P1 regression: two disjoint date slots separated by a different date
+// cannot be updated in non-atomic separate Range.setValues calls.
+{
+  const x=makeEnv({initialRows:[row1,row2,makeRow(date1,'000333',2)]});
+  assert.throws(()=>x.writer(date1,[makeRow(date1,'000111',5),
+    makeRow(date1,'000333',6)],true),/다중 물리범위 비원자 쓰기 차단/);
+  assert.equal(x.stats().writes,0,'no partial update before explicit multi-block decision');
+  assert.equal(byKey(x,date1,'000111')[3],2);
+  assert.equal(byKey(x,date1,'000333')[3],2);
+  assert.equal(byKey(x,date2,'000222')[3],3);
+}
+// Updating an existing code AND appending a new code would also require
+// two independent writes: reject before the first original-cell mutation.
+{
+  const x=makeEnv();
+  assert.throws(()=>x.writer(date1,[makeRow(date1,'000111',5),
+    makeRow(date1,'000555',6)],true),/다중 물리범위 비원자 쓰기 차단/);
+  assert.equal(x.stats().writes,0);
+  assert.equal(byKey(x,date1,'000111')[3],2);
 }
 console.log('ISSUE507_DATE_SCOPED_PRODUCTION_WRITER_SAFETY_OK');
