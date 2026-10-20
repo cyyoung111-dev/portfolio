@@ -1,0 +1,55 @@
+name: issue-507-supervised-repair-dryrun-readonly
+
+# Synthetic contract on PR; live READ ONLY diagnosis only after manual dispatch.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-supervised-repair-dryrun-readonly.mjs'
+      - 'scripts/issue507-deferred-source-audit-readonly.mjs'
+      - 'scripts/diagnose-krx-operational.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-supervised-repair-dryrun-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-supervised-repair-dryrun-readonly.mjs'
+      - 'scripts/issue507-deferred-source-audit-readonly.mjs'
+      - 'scripts/diagnose-krx-operational.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-supervised-repair-dryrun-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Fail-closed classification and synthetic strict-read checks
+        run: |
+          node --check scripts/issue507-supervised-repair-dryrun-readonly.mjs
+          # Regression for P2: importing this module must not execute any other CLI.
+          # No GAS token or URL is configured in the contract job.
+          test -z "$(node --input-type=module -e "await import('./scripts/issue507-supervised-repair-dryrun-readonly.mjs')")"
+          node scripts/issue507-supervised-repair-dryrun-readonly.mjs --self-test
+  operational-readonly:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Audit ledger-based expected Snapshot rows (NO WRITERS)
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-supervised-repair-dryrun-readonly.mjs
