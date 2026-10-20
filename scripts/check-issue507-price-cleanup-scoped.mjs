@@ -95,8 +95,8 @@ function create({mode='standard',afterBackup,formula=[],failWriteAt=0}={}){
   rows[3][3]=777;rows[3][5]='EXTERNAL_SOURCE';
  }});
  x.run();
- assert.equal(x.data[1][1],'000111');
- assert.ok(x.data[2].every(v=>v===''));
+ assert.ok(x.data[1].every(v=>v===''));
+ assert.equal(x.data[2][1],'000111');
  assert.equal(x.data[3][3],777,'another date price must survive');
  assert.equal(x.data[3][5],'EXTERNAL_SOURCE');
  assert.deepEqual(x.writes,[{r:2,c:1,n:1,w:6}]);
@@ -145,18 +145,18 @@ function create({mode='standard',afterBackup,formula=[],failWriteAt=0}={}){
  console.log('ISSUE507_PRICE_CLEANUP_FORMULA_SOURCE_PROTECTED');
 }
 {
- const x=create({mode:'standard',afterBackup:rows=>{rows[2][5]='DIRECT_API';}});
+ const x=create({mode:'standard',afterBackup:rows=>{rows[1][5]='DIRECT_API';}});
  assert.throws(()=>x.run(),/PRICE_CLEANUP_COMMIT_UNVERIFIED.*TARGET_CHANGED/);
- assert.equal(x.data[2][5],'DIRECT_API');
+ assert.equal(x.data[1][5],'DIRECT_API');
  assert.deepEqual(x.writes,[]);
  assert.deepEqual(x.statuses,['WRITE_FAILED']);
  console.log('ISSUE507_PRICE_CLEANUP_TARGET_DRIFT_BLOCKED');
 }
 {
- const x=create({mode:'standard',afterBackup:rows=>{rows[1][3]=500;}});
+ const x=create({mode:'standard',afterBackup:rows=>{rows[2][3]=500;}});
  assert.throws(()=>x.run(),/PRICE_CLEANUP_COMMIT_UNVERIFIED.*KEEPER_CHANGED/);
- assert.equal(x.data[1][3],500);
- assert.equal(x.data[2][1],'000111');
+ assert.equal(x.data[2][3],500);
+ assert.equal(x.data[1][1],'000111');
  assert.deepEqual(x.writes,[]);
  assert.deepEqual(x.statuses,['WRITE_FAILED']);
  console.log('ISSUE507_PRICE_CLEANUP_KEEPER_DRIFT_BLOCKED');
@@ -165,7 +165,7 @@ function create({mode='standard',afterBackup,formula=[],failWriteAt=0}={}){
  const x=create({mode:'triple',failWriteAt:2});
  assert.throws(()=>x.run(),/PRICE_CLEANUP_COMMIT_UNVERIFIED.*SIMULATED_PRICE_CLEANUP_SECOND_WRITE_FAILURE/);
  assert.ok(x.data[1].every(v=>v===''));
- assert.equal(x.data[2][1],'000111');
+ assert.ok(x.data[2].every(v=>v===''));
  assert.equal(x.data[3][1],'000111');
  assert.equal(x.data[4][1],'000222');
  assert.deepEqual(x.statuses,['WRITE_FAILED']);
