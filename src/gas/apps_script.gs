@@ -1234,7 +1234,7 @@ function doGet(e) {
   if (params.action === 'getFundValuationStatus') return handleGetFundValuationStatus(params.from || '', params.to || '', params.code || '');
   if (params.action === 'diagnoseWorkbookCells') return handleDiagnoseWorkbookCells();
   if (params.action === 'diagnoseSnapshotIntegrity') return handleDiagnoseSnapshotIntegrity(params.date || '', params.dates || '');
-  if (params.action === 'diagnoseSnapshotIntegrityRange') return handleDiagnoseSnapshotIntegrityRange(params.from || '', params.to || '', params.candidates || '', params.dates || '');
+  if (params.action === 'diagnoseSnapshotIntegrityRange') return handleDiagnoseSnapshotIntegrityRange(params.from || '', params.to || '', params.candidates || '', params.dates || '', params.strictReadonly || '');
   if (params.action === 'diagnosePriceHistoryIntegrity') return handleDiagnosePriceHistoryIntegrity(params.date || '', params.dates || '', params.codes || '');
   if (params.action === 'previewPriceHistoryRepair') return handlePreviewPriceHistoryRepair(params.data || '{}');
   if (params.action === 'diagnoseEtfDividends') return handleDiagnoseEtfDividends(params.from || '', params.to || '', params.raw || '');
@@ -9422,8 +9422,22 @@ function _buildIndexedSnapshotRows(context, date) {
   return _dedupeSnapshotRows(out);
 }
 
-function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, datesStr) {
+// An opt-in authenticated strict read is used only for Issue #507 deferred
+// inventories; ordinary range readers retain their previous performance.
+// The lock coordinates with GAS writers that participate in ScriptLock.
+// Independent second source scan also detects uncoordinated direct edits and
+// writers that update revision AFTER their sheet setValues() calls.
+function _issue507StrictReadSourceDigest_(readContext) {
+  if (!Utilities || typeof Utilities.computeDigest !== 'function')
+    throw new Error('ISSUE507_SOURCE_DIGEST_UNAVAILABLE');
+  var payload = JSON.stringify(readContext.valuesByName);
+  return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, payload).map(function(byte) {
+    return ('0'+((byte+256)%256).toString(16)).slice(-2);
+  }).join('');
+}
+function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, datesStr, strictReadonly) {
   var totalStarted = Date.now(), dates = [], processedDates = 0, lastCompletedDate = '', failedDate = '', phase = 'request_validation';
+  var strict = strictReadonly === '1', readLock = null, readLockOwned = false;
   try {
     var from = _normalizeDate(fromStr), to = _normalizeDate(toStr);
     dates = String(datesStr || '').split(',').map(function(value) { return _normalizeDate(value.trim()); }).filter(Boolean);
@@ -9441,9 +9455,14 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
     if (dates.length > 400) { var datesError = new Error('진단 날짜는 400일 이하여야 합니다.'); datesError.errorCode = 'RANGE_TOO_LARGE'; throw datesError; }
     // Keep the source revision outside AND inside the expensive sheet read.
     // A single post-read revision cannot rule out a concurrent writer.
+    if (strict) {
+      readLock = LockService.getScriptLock();
+      if (!readLock.hasLock()) { readLock.waitLock(30000); readLockOwned = true; }
+    }
     var readRevisionBefore = _peekSnapshotIntegritySourceRevisionReadonly_();
     phase = 'sheet_read';
     var context = _buildSnapshotRangeReadContext(getss());
+    var strictSourceDigestBefore = strict ? _issue507StrictReadSourceDigest_(context) : '';
     phase = 'index_build';
     var indexed = _buildSnapshotRangeIndexes(context, dates), calculationStarted = Date.now();
     var priceRowsAll = []; Object.keys(indexed.priceIntegrityByDate).forEach(function(date) { priceRowsAll = priceRowsAll.concat(indexed.priceIntegrityByDate[date]); });
@@ -9465,7 +9484,14 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
     diagnostics.forEach(function(item) { (groups[item.status] || (groups[item.status] = [])).push(item.date); });
     var requestedCandidates = String(candidatesStr || '').split(',').map(function(value) { return _normalizeDate(value.trim()); }).filter(Boolean);
     var calculationMs = Date.now() - calculationStarted;
+    var strictSourceDigestAfter = strict ? _issue507StrictReadSourceDigest_(
+      _buildSnapshotRangeReadContext(getss())) : '';
     var readRevisionAfter = _peekSnapshotIntegritySourceRevisionReadonly_();
+    if (strict && strictSourceDigestBefore !== strictSourceDigestAfter) {
+      var changedSheet = new Error('ISSUE507_SOURCE_CONTENT_CHANGED');
+      changedSheet.errorCode = 'SOURCE_CONTENT_CHANGED';
+      throw changedSheet;
+    }
     if (readRevisionBefore !== readRevisionAfter) {
       var sourceDrift = new Error('ISSUE507_SOURCE_REVISION_CHANGED');
       sourceDrift.errorCode = 'SOURCE_REVISION_CHANGED';
@@ -9476,6 +9502,7 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
       sourceIncompleteDates: groups.SOURCE_INCOMPLETE, noSnapshotDates: groups.NO_SNAPSHOT,
       priceSuspiciousDates: groups.PRICE_SUSPICIOUS || [], abnormalCandidates: requestedCandidates, diagnostics: diagnostics,
       priceIntegrity: { counts: priceIntegrity.counts, checkedRows: priceIntegrity.checkedRows }, integritySourceRevision: readRevisionAfter,
+      strictSourceDigest: strict ? strictSourceDigestAfter : undefined,
       performance: { totalMs: Date.now() - totalStarted, readMs: context.readMs, indexBuildMs: indexed.indexBuildMs, calculationMs: calculationMs,
         checkedDates: dates.length, priceHistoryRows: context.metrics.priceHistoryRows, snapshotRows: context.metrics.snapshotRows,
         tradeRows: context.metrics.tradeRows, fundNavRows: context.metrics.fundNavRows, fxRows: context.metrics.fxRows,
@@ -9488,7 +9515,7 @@ function handleDiagnoseSnapshotIntegrityRange(fromStr, toStr, candidatesStr, dat
     return jsonOk({ status: 'error', errorCode: error.errorCode || (phase === 'sheet_read' || phase === 'index_build' ? 'SOURCE_DATA_ERROR' : 'RUNTIME_ERROR'),
       phase: phase, message: safeMessage, failedDate: failedDate, processedDates: processedDates, totalDates: dates.length,
       lastCompletedDate: lastCompletedDate, performanceSoFar: { totalMs: Date.now() - totalStarted } });
-  }
+  } finally { if (readLockOwned) readLock.releaseLock(); }
 }
 
 
