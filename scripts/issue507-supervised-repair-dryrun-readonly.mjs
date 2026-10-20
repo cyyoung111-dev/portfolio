@@ -117,7 +117,15 @@ export function assessDay(d){
   }
   const matchedFull=[...expected].filter(([k,r])=>
     (groups.get(k)||[]).some(sr=>signature(sr)===signature(r))).length;
-  const matchedQtyCost=[...expected].filter(([k,r])=>
+  // Production diagnoseSnapshotIntegrity uses the FIRST stored row per code
+  // for qtyMismatches and costAmtMismatches. Preserve that representative.
+  const matchedQtyCost=[...expected].filter(([k,r])=>{
+    const rows=groups.get(k)||[];
+    return rows.length>0&&qtyCost(rows[0])===qtyCost(r);
+  }).length;
+  // A later duplicate can still be a candidate; never conflate it with
+  // the production representative's reconciled status.
+  const matchedAnyQtyCost=[...expected].filter(([k,r])=>
     (groups.get(k)||[]).some(sr=>qtyCost(sr)===qtyCost(r))).length;
   return {
     date:d.date,reportedStatus:d.status,storedRows:count(d.storedRows.length),
@@ -133,6 +141,7 @@ export function assessDay(d){
     expectedRowsWithoutStoredSignature:count(expected.size-matchedFull),
     expectedRowsWithStoredQtyCost:count(matchedQtyCost),
     expectedRowsWithoutStoredQtyCost:count(expected.size-matchedQtyCost),
+    expectedRowsWithAnyStoredQtyCostCandidate:count(matchedAnyQtyCost),
     duplicateReasons:causes,
     readyToWrite:false,
     planStage:d.sourceDataErrors.length||d.status==='SOURCE_INCOMPLETE'
@@ -187,6 +196,7 @@ export function summarize(before,after,batches){
     expectedRowsWithoutStoredSignature:count(days.reduce((sum,d)=>sum+d.expectedRowsWithoutStoredSignature,0)),
     expectedRowsWithStoredQtyCost:count(days.reduce((sum,d)=>sum+d.expectedRowsWithStoredQtyCost,0)),
     expectedRowsWithoutStoredQtyCost:count(days.reduce((sum,d)=>sum+d.expectedRowsWithoutStoredQtyCost,0)),
+    expectedRowsWithAnyStoredQtyCostCandidate:count(days.reduce((sum,d)=>sum+d.expectedRowsWithAnyStoredQtyCostCandidate,0)),
     keysetDriftDates:count(days.filter(d=>d.planStage==='SNAPSHOT_KEYSET_DRIFT').length),
     unexpectedStoredCodes:count(days.reduce((sum,d)=>sum+d.unexpectedStoredCodes,0)),
     unexpectedStoredRows:count(days.reduce((sum,d)=>sum+d.unexpectedStoredRows,0)),
@@ -276,6 +286,23 @@ export async function selfTest(){
   assert.equal(withinPrecision.expectedRowsWithoutStoredQtyCost,0);
   // Both rows agree at GAS qty/cost precision, but have distinct evaluations.
   assert.equal(withinPrecision.duplicateReasons.VALUATION_OR_SOURCE_DRIFT,1);
+  assert.equal(withinPrecision.expectedRowsWithAnyStoredQtyCostCandidate,1);
+  // Diagnostic representative is row 1, even if row 2 exactly matches ledger.
+  const firstWrongLaterCorrect=structuredClone(x);
+  firstWrongLaterCorrect.storedRows[0][3]=2;
+  firstWrongLaterCorrect.storedRows[0][5]=200;
+  firstWrongLaterCorrect.storedRows[1][3]=1;
+  firstWrongLaterCorrect.storedRows[1][5]=100;
+  const representative=assessDay(firstWrongLaterCorrect);
+  assert.equal(representative.duplicateReasons.LEDGER_QTY_COST_DRIFT,1);
+  assert.equal(representative.expectedRowsWithStoredQtyCost,0);
+  assert.equal(representative.expectedRowsWithoutStoredQtyCost,1);
+  assert.equal(representative.expectedRowsWithAnyStoredQtyCostCandidate,1);
+  const firstCorrectLaterWrong=structuredClone(firstWrongLaterCorrect);
+  firstCorrectLaterWrong.storedRows.reverse();
+  const firstCorrectResult=assessDay(firstCorrectLaterWrong);
+  assert.equal(firstCorrectResult.expectedRowsWithStoredQtyCost,1);
+  assert.equal(firstCorrectResult.expectedRowsWithAnyStoredQtyCostCandidate,1);
   const distinctQty=structuredClone(near);
   distinctQty.storedRows[0][3]=1.000000011;
   distinctQty.storedRows[1][3]=1.000000011;
@@ -334,6 +361,7 @@ export async function selfTest(){
   const baselineReport=summarize(before,before,[batch]);
   assert.equal(baselineReport.writeAllowed,false);
   assert.equal(baselineReport.expectedRowsWithStoredQtyCost,1);
+  assert.equal(baselineReport.expectedRowsWithAnyStoredQtyCostCandidate,1);
   assert.equal(baselineReport.expectedRowsWithoutStoredSignature,1);
   assert.equal(baselineReport.crossRunSourceStabilityCertified,false);
   assert.equal(baselineReport.backupRegistrySignatureVerified,false);
