@@ -40,7 +40,8 @@ function makeEnv({onBackup,initialRows,failWriteAt}={}){
     getRange:(row,col,height,width)=>({
       getValues:()=>{
         assert.equal(col,1);assert.ok(width>=12);
-        return deep(stored.slice(row-1,row-1+height));
+        return Array.from({length:height},(_,i)=>
+          deep(stored[row-1+i]||Array(width).fill('')));
       },
       setValues:values=>{
         writeCalls++;
