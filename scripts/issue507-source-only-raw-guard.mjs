@@ -8,10 +8,35 @@ import assert from 'node:assert/strict';
 export const TARGET_DATES=Object.freeze(['2025-12-30','2026-01-02','2026-01-05']);
 const OFFICIAL=new Set(['KRX_OPENAPI','KRX_OTP']);
 const iso=/^\d{4}-\d{2}-\d{2}$/;
+const KST_DATE_PARTS=new Intl.DateTimeFormat('en-US',{
+  timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
+});
 function dateValid(s){
   return typeof s==='string'&&iso.test(s)
     &&Number.isFinite(Date.parse(s+'T00:00:00Z'))
     &&new Date(s+'T00:00:00Z').toISOString().slice(0,10)===s;
+}
+function kstDate(instant){
+  if(!(instant instanceof Date)||!Number.isFinite(instant.getTime()))return '';
+  const p=Object.fromEntries(KST_DATE_PARTS.formatToParts(instant).map(x=>[x.type,x.value]));
+  return [p.year,p.month,p.day].join('-');
+}
+// Google Sheets getValues() emits native Dates. Do not classify valid,
+// unrelated post-boundary rows as unknown just because they are not strings.
+// Explicit offset ISO timestamps are instant-based, while date-only/plain
+// Sheets local strings carry a local calendar date. Ambiguity fails closed.
+export function normalizeRawPriceDate(value){
+  if(value instanceof Date)return kstDate(value);
+  if(typeof value!=='string')return '';
+  const s=value.trim();
+  if(dateValid(s))return s;
+  if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)){
+    const d=s.slice(0,10);return dateValid(d)?d:'';
+  }
+  if(/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/i.test(s)){
+    const parsed=new Date(s);return kstDate(parsed);
+  }
+  return '';
 }
 // Match production _cleanCode() for numeric domestic codes, including cells
 // whose old number format dropped leading zeros (5930 -> 005930).
@@ -58,7 +83,7 @@ export function inspectRawHistory({targetCode,aliases=[],rawRows,sheetLastRow,
   for(const row of rawRows){
     const code=identifier(row[1]),name=identifier(row[2]);
     if(!keys.has(code)&&!keys.has(name))continue;
-    const d=row[0];
+    const d=normalizeRawPriceDate(row[0]);
     if(!dateValid(d)){unknownTargetDates++;continue;}
     const idx=TARGET_DATES.indexOf(d);
     if(idx>=0)seen[idx].push(row);
@@ -127,6 +152,21 @@ export function selfTest(){
     rawRows:[row('2025-12-30'),row('2025-12-30','SYNTHETIC_ALIAS',888,'MANUAL')],
     sheetLastRow:3});
   assert.equal(duplicate.observations[0].decision,'RAW_DUPLICATE_PROTECTED');
+  // Google Sheets native Date and serialized ISO timestamps use KST. A
+  // perfectly valid later price must not globally block the 3 missing dates.
+  assert.equal(normalizeRawPriceDate(new Date('2025-12-29T15:00:00Z')),'2025-12-30');
+  assert.equal(normalizeRawPriceDate('2025-12-29T15:00:00.000Z'),'2025-12-30');
+  assert.equal(normalizeRawPriceDate('2026-01-06 15:30:00'),'2026-01-06');
+  assert.equal(normalizeRawPriceDate(new Date('bad')),'');
+  for(const rowDate of [new Date('2026-01-06T00:00:00+09:00'),
+    '2026-01-05T15:00:00.000Z','2026-01-06 12:00:00']){
+    const r=inspect({...base,rawRows:[row(rowDate)],sheetLastRow:2});
+    assert.equal(r.allDatesCandidates,true);
+    assert.equal(r.unknownTargetDates,0);
+  }
+  const nativeProtected=inspect({...base,rawRows:[
+    row(new Date('2025-12-29T15:00:00Z'),'SYNTHETIC01',888,'MANUAL')],sheetLastRow:2});
+  assert.equal(nativeProtected.observations[0].decision,'RAW_MANUAL_PROTECTED');
   const malformed=inspect({...base,rawRows:[row('2025-99-99')],sheetLastRow:2});
   assert.equal(malformed.unknownTargetDates,1);
   assert.equal(malformed.allDatesCandidates,false);
