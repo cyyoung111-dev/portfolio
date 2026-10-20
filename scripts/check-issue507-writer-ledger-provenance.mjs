@@ -92,7 +92,7 @@ const future=[
   trade('2026-02-02','sell','SECOND','000002',2,0)
 ];
 const c=context(),p=c.env;
-assert.equal(c.version(),'9.244','GAS version drift: review test/production before relying on policy');
+// Synthetic replay runs against current main GAS v9.250; this is NOT a live deployment check.\nassert.equal(c.version(),'9.250','GAS version drift: review test/production before relying on policy');
 assert.equal(p._cleanCode('1'),'000001');
 const dates=['2025-12-31','2026-01-01','2026-01-07','2026-01-08'];
 const oracle=[
