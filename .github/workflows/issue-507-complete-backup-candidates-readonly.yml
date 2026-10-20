@@ -1,0 +1,52 @@
+name: issue-507-complete-backup-candidates-readonly
+
+# No sheet, registry, queue, GAS deployment or backup mutations.
+# PR/push = synthetic tests. Operational GAS inventory = explicit manual dispatch only.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-complete-backup-candidates-readonly.mjs'
+      - 'scripts/issue507-backup-registry-readonly.mjs'
+      - 'scripts/issue507-supervised-repair-dryrun-readonly.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-complete-backup-candidates-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-complete-backup-candidates-readonly.mjs'
+      - '.github/workflows/issue-507-complete-backup-candidates-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Test production backup reader and candidate fail-closed policy
+        run: |
+          node --check scripts/issue507-complete-backup-candidates-readonly.mjs
+          node scripts/issue507-backup-registry-readonly.mjs --self-test
+          node scripts/issue507-complete-backup-candidates-readonly.mjs --self-test
+
+  operational-readonly:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 19
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Identify additional COMPLETE backup candidates without exposing names
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-complete-backup-candidates-readonly.mjs
