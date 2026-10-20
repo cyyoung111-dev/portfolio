@@ -58,8 +58,13 @@ function signature(row){
     n(row[5]),n(row[6]),n(row[7]),n(row[8]),n(row[9]),
     String(row[10]??'').trim().toUpperCase()]);
 }
+// Exact GAS diagnoseSnapshotIntegrity() comparison precision.
+function storedNumber(value,decimals){
+  const factor=Math.pow(10,Number(decimals)||0);
+  return Math.round((Number(value)||0)*factor)/factor;
+}
 function qtyCost(row){
-  return JSON.stringify([n(row[3]),n(row[5])]);
+  return JSON.stringify([storedNumber(row[3],8),storedNumber(row[5],0)]);
 }
 export function assessDay(d){
   guard(d&&iso(d.date)&&STATUS.has(d.status)
@@ -112,6 +117,16 @@ export function assessDay(d){
   }
   const matchedFull=[...expected].filter(([k,r])=>
     (groups.get(k)||[]).some(sr=>signature(sr)===signature(r))).length;
+  // Production diagnoseSnapshotIntegrity uses the FIRST stored row per code
+  // for qtyMismatches and costAmtMismatches. Preserve that representative.
+  const matchedQtyCost=[...expected].filter(([k,r])=>{
+    const rows=groups.get(k)||[];
+    return rows.length>0&&qtyCost(rows[0])===qtyCost(r);
+  }).length;
+  // A later duplicate can still be a candidate; never conflate it with
+  // the production representative's reconciled status.
+  const matchedAnyQtyCost=[...expected].filter(([k,r])=>
+    (groups.get(k)||[]).some(sr=>qtyCost(sr)===qtyCost(r))).length;
   return {
     date:d.date,reportedStatus:d.status,storedRows:count(d.storedRows.length),
     expectedRows:count(d.expectedRows.length),
@@ -124,11 +139,15 @@ export function assessDay(d){
     sourceUnverifiedStoredRows:count(sourceUsable?0:d.storedRows.length),
     expectedRowsWithStoredSignature:count(matchedFull),
     expectedRowsWithoutStoredSignature:count(expected.size-matchedFull),
+    expectedRowsWithStoredQtyCost:count(matchedQtyCost),
+    expectedRowsWithoutStoredQtyCost:count(expected.size-matchedQtyCost),
+    expectedRowsWithAnyStoredQtyCostCandidate:count(matchedAnyQtyCost),
     duplicateReasons:causes,
     readyToWrite:false,
     planStage:d.sourceDataErrors.length||d.status==='SOURCE_INCOMPLETE'
       ?'SOURCE_REPAIR_REQUIRED'
       :duplicates.length?'PROTECTED_DUPLICATES_REQUIRE_RECONCILIATION'
+      :inferredMissing.length&&inferredUnexpected.length?'SNAPSHOT_KEYSET_DRIFT'
       :inferredMissing.length?'SNAPSHOT_MISSING_ROWS'
       :inferredUnexpected.length?'SNAPSHOT_ORPHAN_ROWS'
       :'VERIFY_OTHER_MISMATCHES'
@@ -173,6 +192,12 @@ export function summarize(before,after,batches){
     sourceErrorDates:count(days.filter(d=>d.sourceErrors>0).length),
     sourceErrorRecords:count(days.reduce((sum,d)=>sum+d.sourceErrors,0)),
     missingExpectedRows:count(days.reduce((sum,d)=>sum+d.missingExpectedRows,0)),
+    expectedRowsWithStoredSignature:count(days.reduce((sum,d)=>sum+d.expectedRowsWithStoredSignature,0)),
+    expectedRowsWithoutStoredSignature:count(days.reduce((sum,d)=>sum+d.expectedRowsWithoutStoredSignature,0)),
+    expectedRowsWithStoredQtyCost:count(days.reduce((sum,d)=>sum+d.expectedRowsWithStoredQtyCost,0)),
+    expectedRowsWithoutStoredQtyCost:count(days.reduce((sum,d)=>sum+d.expectedRowsWithoutStoredQtyCost,0)),
+    expectedRowsWithAnyStoredQtyCostCandidate:count(days.reduce((sum,d)=>sum+d.expectedRowsWithAnyStoredQtyCostCandidate,0)),
+    keysetDriftDates:count(days.filter(d=>d.planStage==='SNAPSHOT_KEYSET_DRIFT').length),
     unexpectedStoredCodes:count(days.reduce((sum,d)=>sum+d.unexpectedStoredCodes,0)),
     unexpectedStoredRows:count(days.reduce((sum,d)=>sum+d.unexpectedStoredRows,0)),
     sourceUnverifiedStoredCodes:count(days.reduce((sum,d)=>sum+d.sourceUnverifiedStoredCodes,0)),
@@ -180,6 +205,8 @@ export function summarize(before,after,batches){
   };
   return {mode:'STRICT_READ_ONLY_RECOVERY_DRYRUN',gasVersion:'9.244',
     sourceRevisionStable:true,sourceDigestStable:true,deferredQueueStable:true,
+    // Within this invocation only: prior executions can have different source rows.
+    crossRunSourceStabilityCertified:false,backupRegistrySignatureVerified:false,
     ...totals,reasons,stages,days,
     rawPriceHistoryFullScanCertified:false,
     confirmedKrxNumericValuesCertified:false,
@@ -244,7 +271,46 @@ export async function selfTest(){
   const x=fixtureDay(),a=assessDay(x);
   assert.equal(a.duplicateGroups,1);
   assert.equal(a.duplicateReasons.VALUATION_OR_SOURCE_DRIFT,1);
+  assert.equal(a.expectedRowsWithStoredQtyCost,1);
+  assert.equal(a.expectedRowsWithStoredSignature,0);
   assert.equal(a.readyToWrite,false);
+  const near=structuredClone(x);
+  near.expectedRows[0][3]=1;
+  near.expectedRows[0][5]=100;
+  near.storedRows[0][3]=1.000000001;
+  near.storedRows[0][5]=100.4;
+  near.storedRows[1][3]=1.000000001;
+  near.storedRows[1][5]=100.4;
+  const withinPrecision=assessDay(near);
+  assert.equal(withinPrecision.expectedRowsWithStoredQtyCost,1);
+  assert.equal(withinPrecision.expectedRowsWithoutStoredQtyCost,0);
+  // Both rows agree at GAS qty/cost precision, but have distinct evaluations.
+  assert.equal(withinPrecision.duplicateReasons.VALUATION_OR_SOURCE_DRIFT,1);
+  assert.equal(withinPrecision.expectedRowsWithAnyStoredQtyCostCandidate,1);
+  // Diagnostic representative is row 1, even if row 2 exactly matches ledger.
+  const firstWrongLaterCorrect=structuredClone(x);
+  firstWrongLaterCorrect.storedRows[0][3]=2;
+  firstWrongLaterCorrect.storedRows[0][5]=200;
+  firstWrongLaterCorrect.storedRows[1][3]=1;
+  firstWrongLaterCorrect.storedRows[1][5]=100;
+  const representative=assessDay(firstWrongLaterCorrect);
+  assert.equal(representative.duplicateReasons.LEDGER_QTY_COST_DRIFT,1);
+  assert.equal(representative.expectedRowsWithStoredQtyCost,0);
+  assert.equal(representative.expectedRowsWithoutStoredQtyCost,1);
+  assert.equal(representative.expectedRowsWithAnyStoredQtyCostCandidate,1);
+  const firstCorrectLaterWrong=structuredClone(firstWrongLaterCorrect);
+  firstCorrectLaterWrong.storedRows.reverse();
+  const firstCorrectResult=assessDay(firstCorrectLaterWrong);
+  assert.equal(firstCorrectResult.expectedRowsWithStoredQtyCost,1);
+  assert.equal(firstCorrectResult.expectedRowsWithAnyStoredQtyCostCandidate,1);
+  const distinctQty=structuredClone(near);
+  distinctQty.storedRows[0][3]=1.000000011;
+  distinctQty.storedRows[1][3]=1.000000011;
+  assert.equal(assessDay(distinctQty).expectedRowsWithStoredQtyCost,0);
+  const distinctCost=structuredClone(near);
+  distinctCost.storedRows[0][5]=100.51;
+  distinctCost.storedRows[1][5]=100.51;
+  assert.equal(assessDay(distinctCost).expectedRowsWithStoredQtyCost,0);
   const manual=structuredClone(x);manual.storedRows[1][10]='MANUAL';
   assert.equal(assessDay(manual).duplicateReasons.MANUAL_PROTECTED,1);
   const one=structuredClone(x);one.storedRows[1]=structuredClone(one.expectedRows[0]);
@@ -264,6 +330,17 @@ export async function selfTest(){
   assert.equal(assessDay(isolated).unexpectedStoredRows,1);
   const wrongSameCount=structuredClone(isolated);wrongSameCount.unexpectedCodes=['000003'];
   assert.throws(()=>assessDay(wrongSameCount),/UNEXPECTED_SUMMARY_DRIFT/);
+  const mixed=structuredClone(x);
+  mixed.status='PARTIAL';
+  mixed.storedRows=[[x.date,'000002','INTERNAL',1,10,10,9,9,-1,-10,'KRX','']];
+  mixed.duplicateKeys=[];mixed.duplicateSummary.groups=0;
+  mixed.missingCodes=['000001'];mixed.unexpectedCodes=['000002'];
+  const mixedResult=assessDay(mixed);
+  assert.equal(mixedResult.planStage,'SNAPSHOT_KEYSET_DRIFT');
+  assert.equal(mixedResult.missingExpectedRows,1);
+  assert.equal(mixedResult.unexpectedStoredCodes,1);
+  assert.equal(mixedResult.expectedRowsWithStoredQtyCost,0);
+  assert.equal(mixedResult.readyToWrite,false);
   const source=structuredClone(x);source.status='SOURCE_INCOMPLETE';source.sourceDataErrors=['INTERNAL'];
   assert.equal(assessDay(source).duplicateReasons.SOURCE_UNVERIFIED,1);
   const incomplete=structuredClone(absent);incomplete.status='SOURCE_INCOMPLETE';
@@ -281,7 +358,15 @@ export async function selfTest(){
   const d='a'.repeat(64);
   const before={dates:[x.date],cursor:x.date,pendingFrom:'2026-01-08'};
   const batch={days:[a],digest:d,revision:'100'};
-  assert.equal(summarize(before,before,[batch]).writeAllowed,false);
+  const baselineReport=summarize(before,before,[batch]);
+  assert.equal(baselineReport.writeAllowed,false);
+  assert.equal(baselineReport.expectedRowsWithStoredQtyCost,1);
+  assert.equal(baselineReport.expectedRowsWithAnyStoredQtyCostCandidate,1);
+  assert.equal(baselineReport.expectedRowsWithoutStoredSignature,1);
+  assert.equal(baselineReport.crossRunSourceStabilityCertified,false);
+  assert.equal(baselineReport.backupRegistrySignatureVerified,false);
+  const mixedReport=summarize(before,before,[{...batch,days:[mixedResult]}]);
+  assert.equal(mixedReport.keysetDriftDates,1);
   assert.throws(()=>summarize(before,before,[batch,{days:[],digest:'b'.repeat(64),revision:'100'}]),/SOURCE_CHANGED/);
   const baseStatus={status:'ok',gasVersion:'9.244',automation:{gasVersion:'9.244',
     tradeSnapshotDeferredDates:[x.date],tradeSnapshotDeferredCount:1,
