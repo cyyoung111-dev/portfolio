@@ -1,6 +1,11 @@
 // ════════════════════════════════════════════════════════════════════
-//  📊 포트폴리오 대시보드 — Google Apps Script  v9.246
+//  📊 포트폴리오 대시보드 — Google Apps Script  v9.247
 //
+//  v9.247 변경사항 (2026.10.20):
+//  - #507 getPrices Snapshot 소스 재기록의 전체일 K:L 덮어쓰기 제거.
+//  - 변경 대상 날짜·종목의 물리행만 검사·쓰기, 다른 날짜/코드 보존.
+//  - 행 식별자·K:L 변경 감지, 범위 실패시 시도한 셀만 제한 보상.
+//  - 외부 동일셀 TOCTOU와 다중 Writer 중앙화는 아직 미해결.
 //  v9.246 변경사항 (2026.10.20):
 //  - #507 펀드 좌수 재계산시 NAV·가격이력·Snapshot 전체행 덮어쓰기 대신
 //    변경 대상 셀/행만 검증·저장. 0좌수 행은 빈 물리 슬롯으로 남김.
@@ -2210,7 +2215,7 @@ function _tossRelayMarketDataDiagnostic_() {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK',overallOk?'true':'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE',code);
   }catch(ignoreProps){}
-  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.246',
+  return jsonOk({diagnostic:'toss-market-data',gasVersion:'9.247',
     generatedAt:new Date().toISOString(),ok:overallOk,diagnosticCode:code,
     freshOAuthTested:false,
     egressProbe:{ok:false,status:null,ip:'',code:'RELAY_EGRESS_ON_VM',
@@ -2288,7 +2293,7 @@ function handleDiagnoseTossMarketData(forceFreshOAuth) {
     props.setProperty('TOSS_LAST_DIAGNOSTIC_OK', overallOk ? 'true' : 'false');
     props.setProperty('TOSS_LAST_DIAGNOSTIC_CODE', diagnosticCode);
   } catch(ignore) {}
-  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.246', generatedAt: new Date().toISOString(), ok: overallOk,
+  return jsonOk({ diagnostic: 'toss-market-data', gasVersion: '9.247', generatedAt: new Date().toISOString(), ok: overallOk,
     diagnosticCode: diagnosticCode, freshOAuthTested: oauth.source === 'NETWORK' || !!(oauth.recovery && oauth.recovery.source === 'NETWORK'),
     egressProbe: egressProbe, oauth: oauth, endpoints: checks, priceSmoke: smoke });
 }
@@ -6115,7 +6120,7 @@ function handleGetFundUnits() {
     return jsonOk({ configs: configs, funds: funds, providers: FUND_PROVIDERS,
       navStatus: navResult, performance: { totalMs: Date.now() - totalStarted, readMs: readMs, navStatusMs: navStatusMs,
         priceHistoryRows: navResult.priceHistoryRows, snapshotRows: 0 },
-      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.246' } });
+      capabilities: { fundDailyResults: true, selectiveFundRetry: true, gasVersion: '9.247' } });
   }
   catch (err) { return jsonError(err.message); }
 }
@@ -9929,24 +9934,86 @@ function _updateTodaySnapshotSource(ss, dateStr, sourceByCode) {
   if (!sourceByCode || Object.keys(sourceByCode).length === 0) return 0;
   var sh = ss.getSheetByName(CONFIG.SHEET_SNAPSHOT);
   if (!sh || sh.getLastRow() < 2) return 0;
-  var rowCount = sh.getLastRow() - 1;
+  var originalLastRow = sh.getLastRow();
+  var rowCount = originalLastRow - 1;
   var data = sh.getRange(2, 1, rowCount, Math.max(12, sh.getLastColumn())).getValues();
-  var sourceCells = data.map(function(row) { return [(row[10] || '').toString().trim(), (row[11] || '').toString().trim()]; });
-  var changed = 0;
+  var changes = [];
   data.forEach(function(row, index) {
     if (_normalizeDate(row[0]) !== dateStr) return;
     var code = _cleanCode(row[1]) || (row[1] || '').toString().trim();
     var nextSource = code ? (sourceByCode[code] || '') : '';
     var currentSource = (row[10] || '').toString().trim();
     if (!nextSource || currentSource === 'MANUAL' || currentSource === nextSource) return;
-    sourceCells[index] = [nextSource, ''];
-    changed++;
+    changes.push({
+      physicalRow:index + 2,
+      identity:row.slice(0,3),
+      before:row.slice(10,12),
+      after:[nextSource,'']
+    });
   });
-  if (changed > 0) {
-    sh.getRange(2, 11, rowCount, 2).setValues(sourceCells);
-    _touchSnapshotIntegritySourceRevision({ date: dateStr });
+  if (!changes.length) return 0;
+
+  // #507: a price-provider source refresh must not rewrite K:L of every date.
+  // ScriptLock alone does not exclude external Sheets API clients, so verify
+  // each affected physical row and its original K:L before commit.
+  var same = function(a,b) { return JSON.stringify(a) === JSON.stringify(b); };
+  var image = function(range) {
+    var values = range.getValues(), formulas = range.getFormulas();
+    if (!values || !formulas || !values.length || !formulas.length)
+      throw new Error('Snapshot 가격소스 원본 수식/값 조회 실패');
+    return values[0].map(function(value,i) { return formulas[0][i] || value; });
+  };
+  var verifyRow = function(change) {
+    if (sh.getLastRow() !== originalLastRow)
+      throw new Error('Snapshot 가격소스 행 구조 외부 변경');
+    if (!same(sh.getRange(change.physicalRow,1,1,3).getValues()[0],change.identity))
+      throw new Error('Snapshot 가격소스 날짜/종목 외부 변경');
+  };
+  var attempted = [];
+  changes.forEach(function(change) {
+    verifyRow(change);
+    change.range = sh.getRange(change.physicalRow,11,1,2);
+    if (!same(change.range.getValues()[0],change.before))
+      throw new Error('Snapshot 가격소스 대상셀 외부 변경');
+    change.originalImage = image(change.range);
+  });
+  try {
+    changes.forEach(function(change) {
+      verifyRow(change);
+      if (!same(change.range.getValues()[0],change.before))
+        throw new Error('Snapshot 가격소스 커밋 직전 대상셀 변경');
+      attempted.push(change);
+      change.range.setValues([change.after]);
+    });
+    SpreadsheetApp.flush();
+    changes.forEach(function(change) {
+      verifyRow(change);
+      if (!same(change.range.getValues()[0],change.after))
+        throw new Error('Snapshot 가격소스 저장 후 검증 실패');
+    });
+  } catch (error) {
+    var compensated = true;
+    for (var i = attempted.length - 1; i >= 0; i--) {
+      var record = attempted[i];
+      try {
+        // The physical row may have been moved or replaced since its write.
+        // Never roll back K:L into a different date/code, even when values
+        // happen to equal our last commit. Treat unverified as a hard stop.
+        verifyRow(record);
+        var observed = image(record.range);
+        if (same(observed,record.originalImage)) continue;
+        // Do not overwrite a newer third-party change during compensation.
+        if (!same(observed,record.after)) { compensated = false; continue; }
+        record.range.setValues([record.originalImage]);
+      } catch (rollbackError) { compensated = false; }
+    }
+    try { SpreadsheetApp.flush(); } catch (flushError) { compensated = false; }
+    if (!compensated)
+      throw new Error('Snapshot 가격소스 COMMIT_UNVERIFIED: ' + String(error && error.message || error));
+    throw error;
   }
-  return changed;
+  _touchSnapshotIntegritySourceRevision({ date: dateStr });
+  return changes.length;
 }
 
 function _isManualKeepLatestEnabled() {
@@ -12832,7 +12899,7 @@ function _getAutomationStatusData() {
     || (fundAttempt && fundAttempt.state === 'TIMEOUT_SUSPECTED')) overallStatus = 'WARNING';
 
   return {
-    gasVersion: '9.246',
+    gasVersion: '9.247',
     checkedAt: Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyy-MM-dd HH:mm:ss'),
     overallStatus: overallStatus,
     trigger: {
@@ -12897,7 +12964,7 @@ function _getAutomationStatusData() {
 }
 
 function handleGetAutomationStatus() {
-  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.246' }); }
+  try { return jsonOk({ automation: _getAutomationStatusData(), gasVersion: '9.247' }); }
   catch (err) { return jsonError('자동화 상태 조회 실패: ' + err.message); }
 }
 
@@ -16656,7 +16723,7 @@ function handleGetSettings() {
     var settings = _readSettingsMap(ss);
     _removeSecretsFromSettings(settings);
     settings.apiKeyStatus = _getApiKeyStatus();
-    return jsonOk({ settings: settings, gasVersion: '9.246' });
+    return jsonOk({ settings: settings, gasVersion: '9.247' });
   } catch(err) {
     return jsonError('getSettings 실패: ' + err.message);
   }
@@ -16686,7 +16753,7 @@ function handleGetBootstrap() {
       },
       codes: getCodeItems(ss),
       codeMasterSourceId: _portfolioCodeMasterSourceIdentity_(ss),
-      gasVersion: '9.246'
+      gasVersion: '9.247'
     });
   } catch(err) {
     return jsonError('getBootstrap 실패: ' + err.message);
