@@ -74,11 +74,16 @@ export function summarizeBatch(payload,dates){
     const nsource=num(d.sourceDataErrors.length),missing=num(d.missingCodes.length),
       conflicts=num(dup?.unresolvedConflict),duplicates=num(d.duplicateKeys.length);
     const kinds=sourceKinds(d.sourceDataErrors);
-    const resolution=d.status==='VALID'&&!nsource&&!conflicts&&!duplicates
-      ? 'REVERIFY_WORKER_ELIGIBILITY'
-      : nsource?'SOURCE_GAP'
-      : conflicts||d.status==='CONFLICT'?'UNRESOLVED_CONFLICT'
-      : d.status==='PRICE_SUSPICIOUS'?'PRICE_REVIEW_REQUIRED'
+    const hasSourceGap=nsource>0||missing>0||d.status==='SOURCE_INCOMPLETE';
+    const hasConflict=conflicts>0||duplicates>0||d.status==='CONFLICT';
+    // Mixed blockers must not be described as a simple source-recovery case.
+    // Do not treat a source price fill as permission to rewrite conflicts.
+    const resolution=hasConflict&&hasSourceGap?'MIXED_SOURCE_AND_CONFLICT'
+      :hasConflict?'UNRESOLVED_CONFLICT'
+      :d.status==='PRICE_SUSPICIOUS'&&hasSourceGap?'MIXED_SOURCE_AND_PRICE_REVIEW'
+      :d.status==='PRICE_SUSPICIOUS'?'PRICE_REVIEW_REQUIRED'
+      :hasSourceGap?'SOURCE_GAP'
+      :d.status==='VALID'?'REVERIFY_WORKER_ELIGIBILITY'
       :'OTHER_DIAGNOSTIC';
     records.push({date:d.date,status:d.status,resolution,sourceKinds:kinds,
       sourceErrors:nsource,missingCodes:missing,unresolvedConflicts:conflicts,
@@ -181,6 +186,15 @@ export async function selfTest(){
   assert.throws(()=>buildAudit(a,{...a,pendingFrom:'2026-01-10'},[]),/QUEUE_MOVED/);
   const one=summarizeBatch(diag(dates.slice(0,6)),dates.slice(0,6));
   assert.throws(()=>buildAudit(a,a,[one]),/DRIFT/);
+  const mixed=diag([dates[0]]);
+  mixed.diagnostics[0].status='CONFLICT';
+  mixed.diagnostics[0].duplicateSummary.unresolvedConflict=1;
+  assert.equal(summarizeBatch(mixed,[dates[0]]).records[0].resolution,'MIXED_SOURCE_AND_CONFLICT');
+  const codeOnly=diag([dates[0]]);
+  codeOnly.diagnostics[0].sourceDataErrors=[];
+  codeOnly.diagnostics[0].status='PARTIAL';
+  codeOnly.diagnostics[0].missingCodes=['HIDDEN_CODE'];
+  assert.equal(summarizeBatch(codeOnly,[dates[0]]).records[0].resolution,'SOURCE_GAP');
   const weird=diag([dates[0]]);weird.diagnostics[0].status='INVALID';
   assert.throws(()=>summarizeBatch(weird,[dates[0]]),/RECORD/);
   // Execute both ACTUAL v9.244 GAS production functions against inert
