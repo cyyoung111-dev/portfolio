@@ -1,0 +1,34 @@
+name: issue-507-fund-reconcile-race-readonly
+
+# Executes actual production GAS reconciler only in a synthetic Node VM.
+# PASS = existing vulnerability reproduced. No production Sheets API access.
+on:
+  pull_request:
+    paths:
+      - 'scripts/issue507-fund-reconcile-race-repro.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-fund-reconcile-race-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/issue507-fund-reconcile-race-repro.mjs'
+      - 'src/gas/apps_script.gs'
+      - '.github/workflows/issue-507-fund-reconcile-race-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-fund-reconcile-race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Reproduce synthetic FUND_UNITS full-sheet lost-update
+        run: |
+          node --check scripts/issue507-fund-reconcile-race-repro.mjs
+          node scripts/issue507-fund-reconcile-race-repro.mjs
