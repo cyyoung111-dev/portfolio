@@ -6,6 +6,7 @@
 //  - 백업 이후 대상 날짜 원본·행수 변경 감지 시 쓰기 전 차단.
 //  - 원장/가격/NAV/MANUAL 보호·백업 상태·pending/deferred 규칙 유지.
 //  - 타 날짜 보존, 다중 범위 실패 시 대상일 단계별 원본 복원·미확인 차단.
+//  - #507 append 직전 외부 행 경합 차단·롤백시 수식/값 원본 이미지 보존.
 //  - 외부 동일 날짜 API 경합은 별도 보호 필요. 승인·배포 전 미운영.
 //  v9.244 변경사항 (2026.10.20):
 //  - #507 worker DATE_DISCOVERY의 Snapshot 마지막일 조회 완료 및 다중 소스 날짜 수집 완료를
@@ -14898,22 +14899,35 @@ function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
       sheet.insertRowsAfter(sheet.getMaxRows(), requiredRows - sheet.getMaxRows());
     blocks.push({rowNumber:appendRow, rows:pending});
   }
+  // getValues()만 읽으면 수식이 결과값으로 변환됩니다. 실패 보상은
+  // 원래 셀의 수식과 리터럴을 혼합해서 복원해야 합니다.
+  var readCellImage = function(range, height) {
+    var values = range.getValues(), formulas = range.getFormulas();
+    if (values.length !== height || formulas.length !== height)
+      throw new Error('Snapshot 원본 셀 이미지 읽기 실패');
+    return values.map(function(row, i) {
+      if (row.length !== width || !formulas[i] || formulas[i].length !== width)
+        throw new Error('Snapshot 원본 수식 이미지 불일치');
+      return row.map(function(cell, j) { return formulas[i][j] || cell; });
+    });
+  };
   var attempted = [];
   try {
     if (blocks.length) _setCodeColumnText(sheet, 2);
     blocks.forEach(function(block) {
       var range = sheet.getRange(block.rowNumber, 1, block.rows.length, width);
-      var original = range.getValues();
-      if (original.length !== block.rows.length) {
-        // 최초 append 위치는 물리적 마지막 행보다 뒤에 있는 빈 그리드입니다.
-        if (block.rowNumber <= originalLastRow)
-          throw new Error('Snapshot 복구 원본 범위 확인 실패');
-        original = block.rows.map(function() { return Array(width).fill(''); });
-      }
+      var original = readCellImage(range, block.rows.length);
+      // append 목적지에 외부 Writer가 이미 행을 추가했다면 *절대* 덮지 않습니다.
+      // ScriptLock은 다른 Sheets API의 appendRow/setValues를 막지 못합니다.
+      if (block.rowNumber > originalLastRow &&
+          (sheet.getLastRow() !== originalLastRow ||
+           original.some(function(row) { return row.some(function(v) {
+             return v !== '' && v !== null;
+           }); })))
+        throw new Error('Snapshot append 목적지 외부 변경: 원본 쓰기 전 차단');
       var replacement = _normalizeCodeRows(block.rows, 1);
       var step = {range:range, before:original, after:replacement};
       attempted.push(step); // 응답 유실 시에도 이 range를 확인해야 합니다.
-      if (block.rowNumber > originalLastRow) _setCodeColumnText(sheet, 2);
       range.setValues(replacement);
     });
     SpreadsheetApp.flush();
@@ -14930,7 +14944,7 @@ function _writeSnapshotDateScoped_(ss, sheet, date, existing, desired, width) {
     for (var k = attempted.length - 1; k >= 0; k--) {
       var step = attempted[k];
       try {
-        var seen = step.range.getValues();
+        var seen = readCellImage(step.range, step.after.length);
         if (JSON.stringify(seen) === JSON.stringify(step.before)) continue;
         if (JSON.stringify(seen) !== JSON.stringify(step.after)) {
           rollbackVerified = false;
