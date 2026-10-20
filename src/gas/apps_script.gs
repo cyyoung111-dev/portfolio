@@ -15692,7 +15692,7 @@ function _cleanupSnapshotDuplicatesLocked() {
   // row and its custom columns in place; clear only a proven redundant row.
   // Missing-date payloads have no trustworthy ledger lineage: preserve them
   // for supervised source recovery instead of erasing evidence.
-  var cleanupPlans = [], duplicateRowsRemoved = 0, affectedDates = {};
+  var cleanupPlans = [], keptRowProofs = [], duplicateRowsRemoved = 0, affectedDates = {};
   var blockedInvalidDateRows = invalidDateRows;
   var blockedUnsafeGroups = [], plannedIndexes = {};
   var fullWidth = Math.max(colSize, sh.getLastColumn());
@@ -15736,6 +15736,7 @@ function _cleanupSnapshotDuplicatesLocked() {
       return false;
     });
     if (keepIndex < 0) throw new Error('SNAPSHOT_CLEANUP_KEEP_ROW_NOT_FOUND:' + dateKey);
+    keptRowProofs.push({physicalRow:keepIndex+2,before:rows[keepIndex].slice(0,fullWidth)});
     positions.forEach(function(index) {
       if (index === keepIndex) return;
       planned(index,'DUPLICATE');
@@ -15757,6 +15758,15 @@ function _cleanupSnapshotDuplicatesLocked() {
   });
   if (blockedUnsafeGroups.length)
     throw new Error('SNAPSHOT_CLEANUP_UNSAFE_SOURCE_REQUIRES_REVIEW:' + blockedUnsafeGroups.join(','));
+  var originalLastRow = sh.getLastRow();
+  var verifyKeptRows = function() {
+    keptRowProofs.forEach(function(proof) {
+      var observed = sh.getRange(proof.physicalRow,1,1,fullWidth).getValues()[0];
+      if (JSON.stringify(observed) !== JSON.stringify(proof.before))
+        throw new Error('SNAPSHOT_CLEANUP_KEEP_ROW_CHANGED:' + proof.physicalRow);
+    });
+  };
+  verifyKeptRows();
   var zeroUnitFundRowsRemoved = cleanupPlans.filter(function(plan) { return plan.kind === 'ZERO_UNIT'; }).length;
   var removedRows = cleanupPlans.length;
   var counts = function(classification) { return decisions.filter(function(item) { return item.classification === classification; }).length; };
@@ -15775,6 +15785,9 @@ function _cleanupSnapshotDuplicatesLocked() {
       // fails after another row was cleared, preserve WRITE_FAILED backup
       // rather than blindly restoring a row whose identity is now blank.
       cleanupPlans.forEach(function(plan) {
+        // The proof/kept row is part of the same duplicate group. A competing
+        // client must not change the only row we elected to retain.
+        verifyKeptRows();
         var range = sh.getRange(plan.physicalRow,1,1,fullWidth);
         var observed = range.getValues()[0], formulas = range.getFormulas()[0];
         if (JSON.stringify(observed) !== JSON.stringify(plan.before) ||
@@ -15783,6 +15796,7 @@ function _cleanupSnapshotDuplicatesLocked() {
         range.setValues([blank(fullWidth)]);
       });
       SpreadsheetApp.flush();
+      verifyKeptRows();
       cleanupPlans.forEach(function(plan) {
         var actual = sh.getRange(plan.physicalRow,1,1,fullWidth).getValues()[0];
         if (actual.some(function(v) { return v !== '' && v != null; }))
