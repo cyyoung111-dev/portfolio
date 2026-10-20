@@ -93,9 +93,11 @@ const future=[
 ];
 const c=context(),p=c.env;
 // Synthetic replay runs against main GAS v9.250, not a deployed live instance.
-assert.equal(c.version(),'9.250','GAS version drift: review test/production before relying on policy');
-// Mutation oracle: the expected pinned source version must never match a fake version.
-assert.notEqual('0.000','9.250','synthetic wrong-version sentinel');
+const assertPinnedGasVersion=value=>assert.equal(value,'9.250',
+  'GAS version drift: review test/production before relying on policy');
+assertPinnedGasVersion(c.version());
+// Negative control ensures the version gate actually rejects a wrong version.
+assert.throws(()=>assertPinnedGasVersion('0.000'),/GAS version drift/);
 assert.equal(p._cleanCode('1'),'000001');
 const dates=['2025-12-31','2026-01-01','2026-01-07','2026-01-08'];
 const oracle=[
