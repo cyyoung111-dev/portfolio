@@ -1,0 +1,52 @@
+name: issue-507-price-history-row-audit-readonly
+
+# The live normalized-raw-row triage runs only on explicit dispatch.
+on:
+  pull_request:
+    paths:
+      - 'src/gas/apps_script.gs'
+      - 'scripts/issue507-price-history-row-audit-readonly.mjs'
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - '.github/workflows/issue-507-price-history-row-audit-readonly.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/gas/apps_script.gs'
+      - 'scripts/issue507-price-history-row-audit-readonly.mjs'
+      - 'scripts/issue507-yearend-carry-readonly.mjs'
+      - 'scripts/issue507-missing-price-provenance-readonly.mjs'
+      - '.github/workflows/issue-507-price-history-row-audit-readonly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Validate normalized PRICE_HISTORY triage safety
+        run: |
+          node --check scripts/issue507-price-history-row-audit-readonly.mjs
+          node scripts/issue507-price-history-row-audit-readonly.mjs --self-test
+  operational-readonly:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Read normalized price rows without any writes
+        env:
+          GAS_WEB_APP_URL: ${{ vars.GAS_WEB_APP_URL }}
+          GAS_ACCESS_TOKEN: ${{ secrets.GAS_ACCESS_TOKEN }}
+        run: node scripts/issue507-price-history-row-audit-readonly.mjs
