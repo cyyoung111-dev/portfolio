@@ -4,6 +4,7 @@ name: issue-507-price-history-row-audit-readonly
 on:
   pull_request:
     paths:
+      - 'src/gas/apps_script.gs'
       - 'scripts/issue507-price-history-row-audit-readonly.mjs'
       - 'scripts/issue507-yearend-carry-readonly.mjs'
       - 'scripts/issue507-missing-price-provenance-readonly.mjs'
@@ -11,6 +12,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/gas/apps_script.gs'
       - 'scripts/issue507-price-history-row-audit-readonly.mjs'
       - 'scripts/issue507-yearend-carry-readonly.mjs'
       - 'scripts/issue507-missing-price-provenance-readonly.mjs'
