@@ -114,7 +114,7 @@ function createEnvironment({sameDate=false,onSnapshotBackup,onDerivedBackup,incl
       if(!appendFund)throw Error('UNEXPECTED_TRADE_REPLAY');
       return {SYNTH_FUND:{code:fundCode,name:'SYNTH_FUND',qty:1,costAmt:100}};
     },
-    _applyFundUnitLifecycleToSnapshotHoldings:()=>{throw Error('UNEXPECTED_LIFECYCLE');},
+    _applyFundUnitLifecycleToSnapshotHoldings:()=>{if(!appendFund)throw Error('UNEXPECTED_LIFECYCLE');},
     _normalizeCodeRows:(rows)=>rows.map(r=>r.slice()),
     _setCodeColumnText:()=>{},
     _backupSheetBeforeWrite:(_ss,sheet,source)=>{
