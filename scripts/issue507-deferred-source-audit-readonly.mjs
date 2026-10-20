@@ -61,6 +61,8 @@ export function summarizeBatch(payload,dates){
     !Array.isArray(payload.diagnostics)||payload.checkedDates.length!==dates.length||
     payload.diagnostics.length!==dates.length||
     typeof payload.integritySourceRevision!=='string' ||
+    typeof payload.strictSourceDigest!=='string' ||
+    !/^[a-f0-9]{64}$/.test(payload.strictSourceDigest) ||
     payload.checkedDates.slice().sort().join('|')!==dates.slice().sort().join('|'))
     throw Error('ISSUE507_DEFERRED_DIAGNOSTIC_SCHEMA');
   const seen=new Set(),records=[];
@@ -91,6 +93,8 @@ export function summarizeBatch(payload,dates){
       storedRows:num(d.storedRowCount)});
   }
   return {revision:payload.integritySourceRevision,
+    // Internal-only: never emit source digest in user-visible audit output.
+    sourceDigest:payload.strictSourceDigest,
     records:records.sort((a,b)=>a.date.localeCompare(b.date))};
 }
 function inventorySame(a,b){
@@ -103,7 +107,8 @@ export function buildAudit(before,after,batches){
   const records=batches.flatMap(x=>x.records);
   if(records.length!==dates.length||
     records.some((x,i)=>x.date!==dates[i])||
-    batches.some(x=>x.revision!==batches[0]?.revision))
+    batches.some(x=>x.revision!==batches[0]?.revision ||
+      x.sourceDigest!==batches[0]?.sourceDigest))
     throw Error('ISSUE507_DEFERRED_DIAGNOSTICS_DRIFT');
   const grouped={};
   for(const r of records){
@@ -141,7 +146,7 @@ export async function runReadonly({url,token,fetchImpl=fetch}){
   for(let i=0;i<before.dates.length;i+=CHUNK_SIZE){
     const chunk=before.dates.slice(i,i+CHUNK_SIZE);
     batches.push(summarizeBatch(await request(endpoint,token,
-      'diagnoseSnapshotIntegrityRange',{dates:chunk.join(',')},fetchImpl),chunk));
+      'diagnoseSnapshotIntegrityRange',{dates:chunk.join(','),strictReadonly:'1'},fetchImpl),chunk));
   }
   const after=validateInventory(await request(endpoint,token,'getAutomationStatus',{},fetchImpl));
   return buildAudit(before,after,batches);
@@ -155,6 +160,7 @@ export async function selfTest(){
     tradeSnapshotDeferredOldestDate:dates[0],tradeSnapshotDeferredCursor:'2026-01-01',
     pendingTradeSnapshotRebuildFrom:'2026-01-09'}});
   const diag=arr=>({status:'ok',checkedDates:arr,integritySourceRevision:'541',
+    strictSourceDigest:'a'.repeat(64),
     diagnostics:arr.map((date,i)=>({date,status:i===0?'SOURCE_INCOMPLETE':'VALID',
       expectedRowCount:3,storedRowCount:3,missingCodes:[],duplicateKeys:[],
       sourceDataErrors:i===0?['KRX 가격 원자료 없음 - SECRET_CODE SECRET_COST']:[],
@@ -186,6 +192,8 @@ export async function selfTest(){
   assert.throws(()=>buildAudit(a,{...a,pendingFrom:'2026-01-10'},[]),/QUEUE_MOVED/);
   const one=summarizeBatch(diag(dates.slice(0,6)),dates.slice(0,6));
   assert.throws(()=>buildAudit(a,a,[one]),/DRIFT/);
+  const other=summarizeBatch({...diag(dates.slice(6)),strictSourceDigest:'b'.repeat(64)},dates.slice(6));
+  assert.throws(()=>buildAudit(a,a,[one,other]),/DRIFT/);
   const mixed=diag([dates[0]]);
   mixed.diagnostics[0].status='CONFLICT';
   mixed.diagnostics[0].duplicateSummary.unresolvedConflict=1;
@@ -232,7 +240,11 @@ export async function selfTest(){
     TRADE_SNAPSHOT_WORKER_BUSY_KEY:'trade_snapshot_worker_busy',
     _tradeLedgerWriteUnverified_:()=>false,
     _getTradeSnapshotWorkerTriggerAudit_:()=>({}),
-    Utilities:{formatDate:()=> '2026-10-20 11:00:00'},
+    Utilities:{formatDate:()=> '2026-10-20 11:00:00',
+      DigestAlgorithm:{SHA_256:'SHA_256'},
+      computeDigest:()=>Array(32).fill(10)},
+    LockService:{getScriptLock:()=>({hasLock:()=>false,waitLock:()=>{},
+      releaseLock:()=>{}})},
   };
   vm.createContext(ctx);
   vm.runInContext(extract('_readTradeSnapshotDeferredState_','_writeTradeSnapshotDeferredState_')
@@ -262,12 +274,14 @@ export async function selfTest(){
     throw Error('ISSUE507_DEFERRED_MUTATING_REVISION_READER_CALLED');};
   vm.runInContext(extract('_isSnapshotIntegrityRevision','_getSnapshotIntegrityRevisionState')
     +'\n'+extract('_peekSnapshotIntegritySourceRevisionReadonly_','_isSnapshotIntegrityRevision')
+    +'\n'+extract('_issue507StrictReadSourceDigest_','handleDiagnoseSnapshotIntegrityRange')
     +'\n'+extract('handleDiagnoseSnapshotIntegrityRange','_oct08FundSourceOnlyProof_'),ctx);
   const invoke=()=>vm.runInContext(
-    'handleDiagnoseSnapshotIntegrityRange("", "", "", "2025-12-31")',ctx);
+    'handleDiagnoseSnapshotIntegrityRange("", "", "", "2025-12-31", "1")',ctx);
   const fresh=invoke();
   assert.equal(fresh.status,'ok');
   assert.equal(fresh.integritySourceRevision,'541');
+  assert.equal(fresh.strictSourceDigest,'0a'.repeat(32));
   assert.equal(propertyWrites,0);
   for(const invalid of ['', '540', '{bad JSON', 'X'.repeat(7001),
     JSON.stringify({revision:541,all:541,dates:[],ranges:[]})]){
@@ -288,6 +302,19 @@ export async function selfTest(){
   const changedMidRead=invoke();
   assert.equal(changedMidRead.status,'error');
   assert.equal(changedMidRead.errorCode,'SOURCE_REVISION_CHANGED');
+  assert.equal(propertyWrites,0);
+  ctx._buildSnapshotRangeReadContext=originalRangeRead;
+  // Revision can stay unchanged while a concurrent writer has already set
+  // source cells. Strict second full-sheet scan must detect this gap.
+  let rawReadCount=0;
+  ctx._buildSnapshotRangeReadContext=()=>{
+    rawReadCount++;
+    return {...originalRangeRead(),valuesByName:{TEST:rawReadCount>1?[[2]]:[[1]]}};
+  };
+  revisionRaw=JSON.stringify({revision:541,all:541,dates:{},ranges:[]});
+  const changedBeforeRevision=invoke();
+  assert.equal(changedBeforeRevision.status,'error');
+  assert.equal(changedBeforeRevision.errorCode,'SOURCE_CONTENT_CHANGED');
   assert.equal(propertyWrites,0);
   ctx._buildSnapshotRangeReadContext=originalRangeRead;
   console.log('Issue #507 deferred-date all-inventory source audit synthetic/production VM: PASS');
