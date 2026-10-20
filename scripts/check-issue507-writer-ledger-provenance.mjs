@@ -31,8 +31,11 @@ function context(patches={}){
     formatDate:(d,tz,format)=>{
       assert.equal(tz,'Asia/Seoul');
       assert.equal(format,'yyyy-MM-dd');
-      // UTC fixture dates never straddle KST calendar boundaries.
-      return new Date(d).toISOString().slice(0,10);
+      // Independent KST oracle. Do not derive the date from UTC ISO.
+      const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{
+        timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'
+      }).formatToParts(new Date(d)).map(x=>[x.type,x.value]));
+      return [parts.year,parts.month,parts.day].join('-');
     },
     DigestAlgorithm:{SHA_256:'SHA_256'},
     computeDigest:(alg,v)=>{
@@ -117,6 +120,59 @@ const renamed=p._calcCodeHoldingsAtDate(historical,'2026-01-08',namesMap,
   {'000001':'CANONICAL_NAME'});
 assert.equal(Object.keys(renamed).filter(k=>k==='000001').length,1);
 assert.equal(renamed['000001'].name,'CANONICAL_NAME');
+// Actual Google Sheets date cells are Date objects, potentially crossing
+// midnight in Asia/Seoul while the UTC ISO date remains the previous day.
+const kstDateTrades=[
+  trade(new Date('2025-12-31T14:30:00Z'),'buy','EDGE','4',1,10), // 12/31 23:30 KST
+  trade(new Date('2025-12-31T15:30:00Z'),'buy','EDGE','4',2,20), // 01/01 00:30 KST
+  trade(new Date('2026-01-01T14:59:59Z'),'buy','EDGE','4',3,30), // 01/01 23:59 KST
+  trade(new Date('2026-01-01T15:00:00Z'),'buy','EDGE','4',4,40)  // 01/02 00:00 KST
+];
+assert.deepEqual(kstDateTrades.map(r=>p._normalizeDate(r[0])),[
+  '2025-12-31','2026-01-01','2026-01-01','2026-01-02']);
+const kstCases=[
+  ['2025-12-31',1,10],['2026-01-01',6,140],['2026-01-02',10,300]
+];
+const kstIndex=p._buildHoldingsByRequestedDate(kstDateTrades,
+  kstCases.map(r=>r[0]).reverse(),{});
+for(const [day,qty,cost] of kstCases){
+  const single=p._calcCodeHoldingsAtDate(kstDateTrades,day,{},{});
+  assert.equal(single['000004']?.qty,qty,'Date-cell single-date KST quantity');
+  assert.equal(single['000004']?.costAmt,cost,'Date-cell single-date KST cost');
+  assert.equal(kstIndex[day]['000004']?.qty,qty,'Date-cell indexed KST quantity');
+  assert.equal(kstIndex[day]['000004']?.costAmt,cost,'Date-cell indexed KST cost');
+}
+const kc=context();
+const timestampRows=kstDateTrades.map(r=>r.slice());
+const explicitKstRows=kstDateTrades.map((r,i)=>[
+  ['2025-12-31','2026-01-01','2026-01-01','2026-01-02'][i],...r.slice(1)]);
+kc.setRows(timestampRows);
+const dateCellFingerprint=kc.env._tradeLedgerContentFingerprint_(kc.spreadsheet);
+kc.setRows(explicitKstRows);
+const kstStringFingerprint=kc.env._tradeLedgerContentFingerprint_(kc.spreadsheet);
+assert.equal(dateCellFingerprint,kstStringFingerprint,
+  'date-cell and KST-normalized text fingerprint must be identical');
+// Adversarial mutation: using UTC date instead of KST must break both
+// holdings and the date-cell fingerprint equivalence.
+const utcNormalize=production._normalizeDate.replace(
+  "Utilities.formatDate(raw, CONFIG.TIMEZONE, 'yyyy-MM-dd')",
+  "raw.toISOString().slice(0,10)");
+assert.notEqual(utcNormalize,production._normalizeDate);
+const um=context({_normalizeDate:utcNormalize});
+const wrongIndex=um.env._buildHoldingsByRequestedDate(kstDateTrades,
+  ['2025-12-31','2026-01-01','2026-01-02'],{});
+assert.notEqual(wrongIndex['2025-12-31']['000004'].qty,1,
+  'mutation oracle: UTC conversion leaks January 1 trade into December 31');
+assert.notEqual(um.env._calcCodeHoldingsAtDate(kstDateTrades,
+  '2025-12-31',{},{} )['000004'].qty,1,
+  'mutation oracle: UTC conversion leaks into single-date calculation');
+um.setRows(timestampRows);
+const wrongDigest=um.env._tradeLedgerContentFingerprint_(um.spreadsheet);
+assert.notEqual(wrongDigest,kstStringFingerprint,
+  'mutation oracle: UTC conversion invalidates source version fingerprint');
+assert.equal(kc.stats().propertiesMutated,0);
+assert.equal(um.stats().propertiesMutated,0);
+
 // Same-day transaction order is materially relevant to average cost.
 const sameDay=[
   trade('2026-01-08','buy','ALPHA','3',5,10),
